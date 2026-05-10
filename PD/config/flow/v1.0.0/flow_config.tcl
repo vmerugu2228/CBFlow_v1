@@ -50,7 +50,7 @@ set flow(track_variant) ""                                   ; # Override tech d
 # When set, this overrides tech(track,active_variant) before tech config resolution
 
 # ┌─ Dispatcher Configuration ────────────────────────────────────────────────┐
-set flow(dispatcher)         "engine"       ;# Execution dispatcher: "engine" (cbflow-engine) or "make" (GNU Make)
+set flow(dispatcher)         "race"       ;# Execution dispatcher: "race" (RACE) or "make" (GNU Make)
 set flow(use_lsf)            true           ;# Enable LSF job submission
 set flow(use_xterm)          true           ;# Enable xterm for interactive sessions
 

@@ -772,7 +772,7 @@ def cmd_autoppt(args: argparse.Namespace) -> int:
     run_dir = os.getcwd()
 
     if not os.path.exists(os.path.join(run_dir, '.stamps')) and \
-       not any(Path(run_dir).glob('.cbflow_engine_*.db')) and \
+       not any(Path(run_dir).glob('.race_*.db')) and \
        not os.path.exists(os.path.join(run_dir, '.run.cbflow.tcl')):
         print("ERROR: Not a CBflow run directory.")
         return 1

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CBflow Status Provider — SQLite-based status queries from cbflow-engine DB.
+CBflow Status Provider — SQLite-based status queries from RACE DB.
 """
 
 import os
@@ -20,15 +20,15 @@ class StageStatus:
 
 
 class StatusProvider:
-    """Reads cbflow-engine SQLite database for job status.
+    """Reads RACE SQLite database for job status.
     Provides: status, runtime, exit codes, LSF job IDs, hostname, error messages.
 
     DB found at:
       1. Structured: $project(engine,db_path)/$project/$domain/$flow/$user_$run_$uid.db
-      2. Local: $run_dir/.cbflow_engine_$uid.db
+      2. Local: $run_dir/.race_$uid.db
     """
 
-    DB_PREFIX = '.cbflow_engine_'
+    DB_PREFIX = '.race_'
 
     def __init__(self, run_dir: str, db_path: str = None):
         self.run_dir = run_dir
@@ -43,7 +43,7 @@ class StatusProvider:
         if os.path.exists(local):
             return local
 
-        # Check any .cbflow_engine_*.db in run_dir
+        # Check any .race_*.db in run_dir
         for f in Path(run_dir).glob(f'{self.DB_PREFIX}*.db'):
             return str(f)
 

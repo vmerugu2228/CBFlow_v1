@@ -336,10 +336,10 @@ set project(validation,critical_errors) {
 # │                         RELEASE CONFIGURATION                              │
 # └─────────────────────────────────────────────────────────────────────────────┘
 
-# ── cbflow-engine DB Path ──────────────────────────────────────────────────
+# ── RACE DB Path ──────────────────────────────────────────────────
 # DB structure: $db_path/$project_name/$domain/$flow_type/$user_$run_name.db
-# Example: /proj/phoenix/cbflow_db/phoenix/PD/SYNTH_PNR/vmerugu_run0.db
-set project(engine,db_path) "/proj/phoenix/cbflow_db"
+# Example: /proj/phoenix/race_db/phoenix/PD/SYNTH_PNR/vmerugu_run0.db
+set project(race,db_path) "/proj/phoenix/race_db"
 
 # Phoenix project release settings
 set project(release,author) "Phoenix Design Team"

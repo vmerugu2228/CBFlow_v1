@@ -351,19 +351,19 @@ def _generate_run_shell_env(run_dir: str, env: Dict[str, str],
 # ── Makefile Generation ──────────────────────────────────────────────────────
 
 def _verify_engine_dag(run_dir: str, flow_type: str, env: Dict[str, str]) -> bool:
-    """Verify cbflow-engine DAG can be built for this run."""
+    """Verify RACE DAG can be built for this run."""
     try:
-        from cbflow_engine import DagBuilder
+        from race_engine import DagBuilder
         builder = DagBuilder(run_dir, flow_type, env)
         jobs, stages = builder.build()
         if jobs and stages:
-            logger.info(f"  cbflow-engine DAG: {len(jobs)} jobs, {len(stages)} stages")
+            logger.info(f"  RACE DAG: {len(jobs)} jobs, {len(stages)} stages")
             return True
         else:
-            logger.warning(f"  cbflow-engine DAG build returned empty")
+            logger.warning(f"  RACE DAG build returned empty")
             return False
     except Exception as e:
-        logger.warning(f"  cbflow-engine DAG verification failed: {e}")
+        logger.warning(f"  RACE DAG verification failed: {e}")
         return False
 
 

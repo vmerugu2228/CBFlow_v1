@@ -35,7 +35,7 @@ def is_run_directory() -> bool:
     # Check for run environment file or Makefile
     return (os.path.exists('.run.cbflow.env') or
             os.path.exists('.run.cbflow.tcl') or
-            any(Path('.').glob('.cbflow_engine_*.db')) or
+            any(Path('.').glob('.race_*.db')) or
             '_run_' in os.path.basename(os.getcwd()))
 
 
@@ -252,7 +252,7 @@ def get_branch_name_for_node(node_name: str, custom_data: dict) -> str:
 
 
 def run_target(target: str, env_vars: dict = None) -> int:
-    """Run a target using cbflow-engine (Python-native DAG executor).
+    """Run a target using RACE (Python-native DAG executor).
 
     LSF/xterm controlled by flow(use_lsf) and flow(use_xterm) in flow_config.tcl.
     """
@@ -263,15 +263,15 @@ def run_target(target: str, env_vars: dict = None) -> int:
     if env_vars:
         run_env.update(env_vars)
 
-    from cbflow_engine import CbflowEngine
+    from race_engine import RaceEngine
     flow_type = run_env.get('CBFLOW_FLOW_TYPE', '')
-    engine = CbflowEngine(run_dir, flow_type, run_env)
+    engine = RaceEngine(run_dir, flow_type, run_env)
     if engine.initialize():
-        logger.info(f"cbflow-engine: {len(engine.jobs)} jobs, "
+        logger.info(f"RACE: {len(engine.jobs)} jobs, "
                      f"{len(engine.stage_order)} stages")
         return engine.execute(target)
     else:
-        logger.error("cbflow-engine initialization failed")
+        logger.error("RACE initialization failed")
         return 1
 
 
@@ -399,9 +399,9 @@ def cmd_bypass(args: argparse.Namespace) -> int:
             logger.error(f"Invalid stage: {s}. Valid: {', '.join(valid)}")
             return 1
 
-    from cbflow_engine import CbflowEngine
+    from race_engine import RaceEngine
     run_env = load_run_env()
-    engine = CbflowEngine(os.getcwd(), flow_type, run_env)
+    engine = RaceEngine(os.getcwd(), flow_type, run_env)
     if engine.initialize():
         logger.info(f"Bypassing stages: {', '.join(stages)}")
         return engine.bypass(stages)
@@ -459,9 +459,9 @@ def cmd_forcevalidate(args: argparse.Namespace) -> int:
             logger.error(f"Invalid stage: {s}. Valid: {', '.join(all_stages)}")
             return 1
 
-    from cbflow_engine import CbflowEngine
+    from race_engine import RaceEngine
     run_env = load_run_env()
-    engine = CbflowEngine(os.getcwd(), flow_type, run_env)
+    engine = RaceEngine(os.getcwd(), flow_type, run_env)
     if engine.initialize():
         logger.info(f"Force-validating: {', '.join(stages)}")
         return engine.forcevalidate(stages)
@@ -482,9 +482,9 @@ def cmd_force(args: argparse.Namespace) -> int:
             logger.error(f"Invalid stage: {s}. Valid: {', '.join(valid)}")
             return 1
 
-    from cbflow_engine import CbflowEngine
+    from race_engine import RaceEngine
     run_env = load_run_env()
-    engine = CbflowEngine(os.getcwd(), flow_type, run_env)
+    engine = RaceEngine(os.getcwd(), flow_type, run_env)
     if engine.initialize():
         logger.info(f"Force re-running stages: {', '.join(stages)}")
         return engine.force(stages)
@@ -528,7 +528,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     status_prov = get_status_provider(os.getcwd())
     using_db = status_prov.db_exists()
 
-    logger.info(f"  Dispatcher:     cbflow-engine")
+    logger.info(f"  Dispatcher:     RACE")
     if using_db:
         logger.info(f"  Status DB:      {status_prov.db_path}")
     else:
@@ -685,7 +685,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     if using_db and getattr(args, 'details', False):
         logger.info("")
         try:
-            from cbflow_engine import StatusDB
+            from race_engine import StatusDB
             import hashlib
             uid = hashlib.md5(os.path.abspath(os.getcwd()).encode()).hexdigest()[:6]
             db = StatusDB.__new__(StatusDB)
@@ -730,9 +730,9 @@ def cmd_retrace(args: argparse.Namespace) -> int:
         return 1
 
     # ── Use engine retrace (invalidates DB + removes stamps) ────────────
-    from cbflow_engine import CbflowEngine
+    from race_engine import RaceEngine
     run_env = load_run_env()
-    engine = CbflowEngine(os.getcwd(), flow_type, run_env)
+    engine = RaceEngine(os.getcwd(), flow_type, run_env)
     if engine.initialize():
         if from_stage:
             logger.info(f"Retracing from stage: {from_stage}")
@@ -1485,7 +1485,7 @@ def cmd_update(args: argparse.Namespace) -> int:
     logger.info(f"  [DONE] Environment updated to {target_release}")
 
     # Verify engine DAG after update
-    from cbflow_engine import DagBuilder
+    from race_engine import DagBuilder
     try:
         builder = DagBuilder(os.getcwd(), flow_type, env_vars)
         jobs, stages = builder.build()
@@ -1507,11 +1507,11 @@ def cmd_gen_makefile(args: argparse.Namespace) -> int:
     flow_type = get_flow_type()
 
     logger.info("")
-    logger.info(f"  Verifying cbflow-engine DAG")
+    logger.info(f"  Verifying RACE DAG")
     logger.info(f"  ═══════════════════════════════════════════════════════════")
 
-    from cbflow_engine import CbflowEngine
-    engine = CbflowEngine(os.getcwd(), flow_type, env_vars)
+    from race_engine import RaceEngine
+    engine = RaceEngine(os.getcwd(), flow_type, env_vars)
     if engine.initialize():
         logger.info(f"  Flow:   {flow_type}")
         logger.info(f"  Jobs:   {len(engine.jobs)}")
@@ -2141,7 +2141,7 @@ Examples:
 
     # gen-makefile command
     subparsers.add_parser('gen-makefile', help='Verify engine DAG',
-        formatter_class=_fmt, description="""Verify the cbflow-engine DAG for the current run.
+        formatter_class=_fmt, description="""Verify the RACE DAG for the current run.
 
 Examples:
   cbflow run gen-makefile                Verify engine DAG structure""")

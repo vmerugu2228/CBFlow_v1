@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-cbflow-engine — Python-native DAG executor replacing GNU Make.
+RACE — Python-native DAG executor replacing GNU Make.
 
 Features:
   - DAG built from node_configs (stages, subnodes, dependencies)
@@ -12,7 +12,7 @@ Features:
   - Stamp compatibility (writes .stamps/ for external tools)
 
 Usage:
-  engine = CbflowEngine(run_dir, flow_type, env_vars)
+  engine = RaceEngine(run_dir, flow_type, env_vars)
   engine.initialize()
   engine.execute('all')                     # Run complete flow
   engine.execute('place1')                  # Run single stage
@@ -361,14 +361,14 @@ class DagBuilder:
 class StatusDB:
     """SQLite database for job status tracking.
 
-    DB path structure: $project(engine,db_path)/$project/$domain/$flow/$user_$run_$uid.db
+    DB path structure: $project(race,db_path)/$project/$domain/$flow/$user_$run_$uid.db
     Example: /proj/phoenix/cbflow_db/phoenix/PD/SYNTH_PNR/vmerugu_run0_a3f2b1.db
 
     UID is a 6-char hex derived from run_dir absolute path — unique per run,
     deterministic (same run_dir always produces same UID), so the engine
     reconnects to the same DB on resume without creating duplicates.
 
-    Falls back to $run_dir/.cbflow_engine.db if project(engine,db_path) not configured.
+    Falls back to $run_dir/.race_engine.db if project(race,db_path) not configured.
     """
 
     def __init__(self, run_dir: str, project_name: str = '', domain: str = 'PD',
@@ -384,7 +384,7 @@ class StatusDB:
             os.makedirs(db_dir, exist_ok=True)
             self.db_path = os.path.join(db_dir, f'{user}_{run_name}_{uid}.db')
         else:
-            self.db_path = os.path.join(run_dir, f'.cbflow_engine_{uid}.db')
+            self.db_path = os.path.join(run_dir, f'.race_{uid}.db')
         self._init_db()
 
     def _init_db(self):
@@ -570,7 +570,7 @@ class StatusDB:
 # ENGINE
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class CbflowEngine:
+class RaceEngine:
     """Python-native DAG executor replacing GNU Make."""
 
     def __init__(self, run_dir: str, flow_type: str, env_vars: dict):
@@ -595,7 +595,7 @@ class CbflowEngine:
             return False
 
         # Initialize status DB
-        # Path: $project(engine,db_path)/$project_name/$domain/$flow_type/$user_$run_name.db
+        # Path: $project(race,db_path)/$project_name/$domain/$flow_type/$user_$run_name.db
         # Resolved from project_config.tcl or env vars
         db_base = self._resolve_db_path()
         project_name = self.env_vars.get('CBFLOW_PROJECT_NAME', '')
@@ -633,7 +633,7 @@ class CbflowEngine:
                     logger.info(f"  CHANGED: {stage} → {f}")
                 self._auto_retrace_from(stage)
 
-        logger.info(f"cbflow-engine initialized: {len(self.jobs)} jobs, "
+        logger.info(f"RACE initialized: {len(self.jobs)} jobs, "
                      f"{len(self.stage_order)} stages")
         return True
 
@@ -963,7 +963,7 @@ class CbflowEngine:
     def _resolve_db_path(self) -> str:
         """Resolve DB base path from project_config.tcl.
 
-        Reads project(engine,db_path) from project config.
+        Reads project(race,db_path) from project config.
         Returns empty string if not configured (falls back to run_dir).
 
         Convention: $db_path/$project/$domain/$flow/$user_$run.db
@@ -976,14 +976,14 @@ class CbflowEngine:
         config_root = self.env_vars.get('CONFIG_ROOT',
                       self.env_vars.get('FLOW_DIR', ''))
         if project_name and config_root:
-            # Search project config for engine,db_path
+            # Search project config for race,db_path
             for ver_dir in Path(os.path.join(config_root, 'config', 'project',
                                              project_name)).glob('v*/'):
                 for cfg_file in ver_dir.glob('*_config.tcl'):
                     try:
                         with open(cfg_file) as f:
                             for line in f:
-                                m = re.match(r'set\s+project\(engine,db_path\)\s+"([^"]+)"',
+                                m = re.match(r'set\s+project\(race,db_path\)\s+"([^"]+)"',
                                              line.strip())
                                 if m:
                                     db_path = m.group(1)

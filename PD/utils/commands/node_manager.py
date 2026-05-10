@@ -36,7 +36,7 @@ from tcl_config_parser import (
     _load_node_config, _parse_tcl_list, _parse_tcl_string,
     _parse_array_set_blocks
 )
-# MakefileGenerator no longer used — cbflow-engine builds DAG at runtime
+# MakefileGenerator no longer used — RACE builds DAG at runtime
 from logging_config import get_logger
 
 logger = get_logger('node_manager')
@@ -174,7 +174,7 @@ class NodeManager:
     def _regenerate_makefile(self):
         """Verify engine DAG after node changes (Makefile no longer generated)."""
         try:
-            from cbflow_engine import DagBuilder
+            from race_engine import DagBuilder
             builder = DagBuilder(self.run_dir, self.flow_type, self.env)
             jobs, stages = builder.build()
             logger.info(f"  [DONE] Engine DAG verified: {len(jobs)} jobs, {len(stages)} stages")
