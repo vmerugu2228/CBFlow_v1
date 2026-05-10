@@ -83,7 +83,12 @@ class DagBuilder:
         self.env_vars = env_vars
 
     def build(self) -> tuple:
-        """Returns (jobs_dict, stage_order) where jobs_dict maps name→Job."""
+        """Returns (jobs_dict, stage_order) where jobs_dict maps name→Job.
+
+        Merges two sources:
+          1. Base stages from node_config.tcl (flow-level, never changes)
+          2. Custom nodes from $run_dir/setup/runtime_flow_config.tcl (run-level)
+        """
         config = self._load_node_config()
         if not config:
             return {}, []
@@ -92,6 +97,22 @@ class DagBuilder:
         stage_deps = self._parse_dependencies(config, stages)
         subnodes = self._parse_subnodes(config, stages)
         resource_map = self._parse_resource_map(config, stages)
+
+        # Merge custom nodes from run-level runtime config
+        custom_nodes, custom_deps = self._load_runtime_custom_nodes()
+        for name, info in custom_nodes.items():
+            if name not in stages:
+                # Insert after the dependency stage
+                dep = info.get('dependency', '')
+                if dep and dep in stages:
+                    idx = stages.index(dep) + 1
+                    stages.insert(idx, name)
+                else:
+                    stages.append(name)
+                stage_deps[name] = [dep] if dep else []
+                subnodes[name] = info.get('subnodes', ['setup', 'run', 'validate', 'finish'])
+                resource_map[name] = info.get('resource_tier', 'M')
+                logger.info(f"Custom node: {name} (dep={dep})")
 
         # Parse subnode-level dependencies (for parallel subnodes like PV drc/lvs)
         sub_deps = self._parse_subnode_dependencies(config, stages, subnodes)
@@ -216,6 +237,75 @@ class DagBuilder:
             return ['setup'] + scenarios + ['validate', 'finish']
         # Fallback: standard subnodes
         return ['setup', 'run', 'validate', 'finish']
+
+    def _load_runtime_custom_nodes(self) -> tuple:
+        """Load custom nodes from $run_dir/setup/runtime_flow_config.tcl.
+
+        These are added at run-level by:
+          cbflow run add-node --node place2 --type place --dep place1
+          cbflow run create-branch --name eco_branch --from signoff1
+
+        Returns: (custom_nodes_dict, custom_deps_dict)
+        """
+        custom_nodes = {}
+        custom_deps = {}
+        runtime_config = os.path.join(self.run_dir, 'setup', 'runtime_flow_config.tcl')
+        if not os.path.exists(runtime_config):
+            return custom_nodes, custom_deps
+
+        try:
+            with open(runtime_config) as f:
+                content = f.read()
+
+            # Parse two formats:
+            # Format 1 (array set): stages,place2,type place
+            # Format 2 (set):       synth_pnr(stages,place2,type) "place"
+            node_names = set()
+
+            # Format 1: inside array set block
+            for m in re.finditer(r'stages,(\w+),(?:type|dependencies)', content):
+                node_names.add(m.group(1))
+
+            # Format 2: individual set commands
+            flow_lower = self.flow_type.lower()
+            for m in re.finditer(rf'{flow_lower}\(stages,(\w+),', content):
+                node_names.add(m.group(1))
+
+            for name in node_names:
+                node_type = ''
+                dep = ''
+                branch = ''
+                # Try format 1 (array set)
+                m = re.search(rf'stages,{name},type\s+(\S+)', content)
+                if m: node_type = m.group(1).strip('"')
+                m = re.search(rf'stages,{name},dependencies\s+(\S+)', content)
+                if m: dep = m.group(1).strip('"')
+                m = re.search(rf'stages,{name},branch_key\s+(\S+)', content)
+                if m: branch = m.group(1).strip('"')
+                # Try format 2 (set command) — overrides if found
+                m = re.search(rf'{flow_lower}\(stages,{name},type\)\s+"([^"]*)"', content)
+                if m: node_type = m.group(1)
+                m = re.search(rf'{flow_lower}\(stages,{name},dependencies\)\s+"([^"]*)"', content)
+                if m: dep = m.group(1)
+                m = re.search(rf'{flow_lower}\(stages,{name},branch_key\)\s+"([^"]*)"', content)
+                if m: branch = m.group(1)
+
+                # Determine subnodes based on node_type
+                type_base = re.sub(r'\d+$', '', node_type) if node_type else name
+                type_subnodes = ['setup', 'run', 'validate', 'finish']
+
+                custom_nodes[name] = {
+                    'type': node_type,
+                    'dependency': dep,
+                    'branch_key': branch,
+                    'subnodes': type_subnodes,
+                }
+                custom_deps[name] = [dep] if dep else []
+
+        except Exception as e:
+            logger.debug(f"Error loading runtime config: {e}")
+
+        return custom_nodes, custom_deps
 
     def _parse_subnode_dependencies(self, config: str, stages: list, subnodes: dict) -> dict:
         """Parse subnode_dependencies from config for parallel subnode support."""
