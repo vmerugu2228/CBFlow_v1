@@ -254,16 +254,30 @@ class StatusDB:
             command TEXT,
             start_time TEXT,
             end_time TEXT,
+            runtime_sec REAL,
             exit_code INTEGER,
             lsf_job_id TEXT,
+            lsf_queue TEXT,
             resource_tier TEXT,
             pid INTEGER,
+            hostname TEXT,
+            cpu_used REAL,
+            mem_peak_mb REAL,
+            log_file TEXT,
             error_msg TEXT,
+            retry_count INTEGER DEFAULT 0,
             created_at TEXT DEFAULT (datetime('now'))
         )''')
         conn.execute('''CREATE TABLE IF NOT EXISTS run_info (
             key TEXT PRIMARY KEY,
             value TEXT
+        )''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS stage_metrics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            stage TEXT NOT NULL,
+            metric_name TEXT NOT NULL,
+            metric_value TEXT,
+            captured_at TEXT DEFAULT (datetime('now'))
         )''')
         conn.commit()
         conn.close()
@@ -285,12 +299,26 @@ class StatusDB:
         conn = sqlite3.connect(self.db_path)
         now = datetime.now().isoformat()
         status = Job.DONE if exit_code == 0 else Job.FAIL
+
+        # Compute runtime
+        runtime_sec = 0
+        if job.start_time:
+            try:
+                t0 = datetime.fromisoformat(job.start_time)
+                t1 = datetime.fromisoformat(now)
+                runtime_sec = (t1 - t0).total_seconds()
+            except Exception:
+                pass
+
+        import socket
+        hostname = socket.gethostname()
+
         conn.execute(
-            'UPDATE jobs SET status = ?, end_time = ?, exit_code = ?, '
-            'lsf_job_id = ?, pid = ?, error_msg = ? '
+            'UPDATE jobs SET status = ?, end_time = ?, runtime_sec = ?, exit_code = ?, '
+            'lsf_job_id = ?, pid = ?, hostname = ?, error_msg = ? '
             'WHERE job_name = ? AND status = ?',
-            (status, now, exit_code, job.lsf_job_id, job.pid, error_msg,
-             job.name, Job.RUNNING))
+            (status, now, runtime_sec, exit_code, job.lsf_job_id, job.pid,
+             hostname, error_msg, job.name, Job.RUNNING))
         conn.commit()
         conn.close()
         job.end_time = now
@@ -325,6 +353,72 @@ class StatusDB:
         row = cur.fetchone()
         conn.close()
         return row[0] if row else ''
+
+    def record_metric(self, stage: str, metric_name: str, metric_value: str):
+        conn = sqlite3.connect(self.db_path)
+        conn.execute('INSERT INTO stage_metrics (stage, metric_name, metric_value) VALUES (?, ?, ?)',
+                     (stage, metric_name, metric_value))
+        conn.commit()
+        conn.close()
+
+    def get_metrics(self, stage: str = None) -> list:
+        conn = sqlite3.connect(self.db_path)
+        if stage:
+            cur = conn.execute('SELECT stage, metric_name, metric_value, captured_at '
+                               'FROM stage_metrics WHERE stage = ? ORDER BY id', (stage,))
+        else:
+            cur = conn.execute('SELECT stage, metric_name, metric_value, captured_at '
+                               'FROM stage_metrics ORDER BY id')
+        rows = [{'stage': r[0], 'metric': r[1], 'value': r[2], 'time': r[3]} for r in cur]
+        conn.close()
+        return rows
+
+    def get_full_status(self) -> dict:
+        """Get complete run status — replaces .run.status file and .stamps/ queries."""
+        conn = sqlite3.connect(self.db_path)
+
+        # Run info
+        run_info = {}
+        for key, val in conn.execute('SELECT key, value FROM run_info'):
+            run_info[key] = val
+
+        # All jobs with full detail
+        jobs = []
+        for row in conn.execute(
+            'SELECT job_name, stage, subnode, job_type, status, start_time, end_time, '
+            'runtime_sec, exit_code, lsf_job_id, lsf_queue, resource_tier, '
+            'hostname, error_msg, retry_count FROM jobs ORDER BY id'):
+            jobs.append({
+                'name': row[0], 'stage': row[1], 'subnode': row[2],
+                'type': row[3], 'status': row[4],
+                'start': row[5], 'end': row[6], 'runtime': row[7],
+                'exit_code': row[8], 'lsf_job_id': row[9], 'lsf_queue': row[10],
+                'tier': row[11], 'host': row[12], 'error': row[13], 'retries': row[14],
+            })
+
+        # Stage summary
+        stages = {}
+        for row in conn.execute(
+            "SELECT stage, status, MIN(start_time), MAX(end_time), "
+            "SUM(runtime_sec), COUNT(*), SUM(CASE WHEN status='DONE' THEN 1 ELSE 0 END), "
+            "SUM(CASE WHEN status='FAIL' THEN 1 ELSE 0 END) "
+            "FROM jobs WHERE job_type='subnode' GROUP BY stage ORDER BY MIN(id)"):
+            stages[row[0]] = {
+                'status': row[1], 'start': row[2], 'end': row[3],
+                'total_runtime': row[4] or 0,
+                'total_jobs': row[5], 'done': row[6], 'failed': row[7],
+            }
+
+        # Metrics
+        metrics = self.get_metrics()
+
+        conn.close()
+        return {
+            'run_info': run_info,
+            'stages': stages,
+            'jobs': jobs,
+            'metrics': metrics,
+        }
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -597,10 +691,22 @@ class CbflowEngine:
         self.db.record_start(job)
         logger.info(f"  [{job.stage}/{job.subnode}] running...")
 
+        # Build environment: os.environ + .run.cbflow.env + engine vars
         run_env = os.environ.copy()
+        # Load ALL vars from .run.cbflow.env (SCRIPTS_ROOT, CONFIG_ROOT, etc.)
+        env_file = os.path.join(self.run_dir, '.run.cbflow.env')
+        if os.path.exists(env_file):
+            with open(env_file) as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        if line.startswith('export '):
+                            line = line[7:]
+                        k, v = line.split('=', 1)
+                        run_env[k] = v.strip('"').strip("'")
         run_env.update(self.env_vars)
-        # Tell handler it's running under cbflow-engine (not Make)
         run_env['CBFLOW_ENGINE'] = '1'
+        run_env['CBFLOW_RUN_DIR'] = self.run_dir
 
         try:
             result = subprocess.run(
