@@ -656,6 +656,31 @@ class CbflowEngine:
         logger.info(f"Total bypassed: {count} jobs")
         return 0
 
+    def forcevalidate(self, stages: list) -> int:
+        """Mark stages as already completed (force-validate).
+        Sets status to DONE as if the stage ran successfully.
+        Useful when a stage was run outside CBflow (manual tool run,
+        external script, or data imported from another run)."""
+        count = 0
+        now = datetime.now().isoformat()
+        for stage in stages:
+            for name, job in self.jobs.items():
+                if job.stage == stage:
+                    job.status = Job.DONE
+                    job.start_time = now
+                    job.end_time = now
+                    job.exit_code = 0
+                    self.db.record_start(job)
+                    self.db.record_complete(job, 0, 'FORCE_VALIDATED')
+                    # Write stamp
+                    stamp = os.path.join(self.run_dir, '.stamps', f'{name}.stamp')
+                    os.makedirs(os.path.dirname(stamp), exist_ok=True)
+                    Path(stamp).touch()
+                    count += 1
+            logger.info(f"Force-validated: {stage} (marked as DONE)")
+        logger.info(f"Total force-validated: {count} jobs")
+        return 0
+
     def force(self, stages: list) -> int:
         """Force re-execute specific stages only (invalidate + run).
         Does NOT invalidate downstream — only the specified stages."""

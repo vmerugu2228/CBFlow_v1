@@ -408,6 +408,66 @@ def cmd_bypass(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_forcevalidate(args: argparse.Namespace) -> int:
+    """Mark stages as already completed (ran outside CBflow)."""
+    if not is_run_directory():
+        logger.error("Error: Not in a valid run directory")
+        return 1
+
+    flow_type = get_flow_type()
+    all_stages = get_flow_stages(flow_type)
+
+    # Resolve which stages to forcevalidate
+    stages = []
+    if getattr(args, 'node', None):
+        # Single node
+        stages = [args.node]
+    elif getattr(args, 'from_stage', None) and getattr(args, 'to_stage', None):
+        # Range: --from X --to Y
+        from_idx = all_stages.index(args.from_stage) if args.from_stage in all_stages else -1
+        to_idx = all_stages.index(args.to_stage) if args.to_stage in all_stages else -1
+        if from_idx < 0:
+            logger.error(f"Invalid --from stage: {args.from_stage}")
+            return 1
+        if to_idx < 0:
+            logger.error(f"Invalid --to stage: {args.to_stage}")
+            return 1
+        stages = all_stages[from_idx:to_idx + 1]
+    elif getattr(args, 'from_stage', None):
+        # From X to end
+        from_idx = all_stages.index(args.from_stage) if args.from_stage in all_stages else -1
+        if from_idx < 0:
+            logger.error(f"Invalid --from stage: {args.from_stage}")
+            return 1
+        stages = all_stages[from_idx:]
+    elif getattr(args, 'to_stage', None):
+        # From start to Y
+        to_idx = all_stages.index(args.to_stage) if args.to_stage in all_stages else -1
+        if to_idx < 0:
+            logger.error(f"Invalid --to stage: {args.to_stage}")
+            return 1
+        stages = all_stages[:to_idx + 1]
+    elif getattr(args, 'stages', None):
+        # Comma-separated list (backward compat)
+        stages = [s.strip() for s in args.stages.split(',')]
+    else:
+        logger.error("Specify --node, --from/--to, or --stages")
+        return 1
+
+    for s in stages:
+        if s not in all_stages:
+            logger.error(f"Invalid stage: {s}. Valid: {', '.join(all_stages)}")
+            return 1
+
+    from cbflow_engine import CbflowEngine
+    run_env = load_run_env()
+    engine = CbflowEngine(os.getcwd(), flow_type, run_env)
+    if engine.initialize():
+        logger.info(f"Force-validating: {', '.join(stages)}")
+        return engine.forcevalidate(stages)
+    return 1
+
+
 def cmd_force(args: argparse.Namespace) -> int:
     """Force re-run specific stages only (no downstream invalidation)."""
     if not is_run_directory():
@@ -1939,6 +1999,27 @@ Examples:
     force_parser.add_argument('--stages', '-s', required=True,
                               help='Comma-separated stages to force re-run')
 
+    # forcevalidate command
+    fv_parser = subparsers.add_parser('forcevalidate', help='Mark stages as already completed',
+        formatter_class=_fmt, description="""Mark stages as DONE as if they ran successfully.
+Use when a stage was run outside CBflow (manual tool run, data from another run, etc.).
+
+Three modes:
+  --node X              Mark single node as done
+  --from X --to Y       Mark range of stages as done
+  --from X              Mark from X to end as done
+  --to Y                Mark from start to Y as done
+
+Examples:
+  cbflow run forcevalidate --node place1
+  cbflow run forcevalidate --from inputs1 --to synthesis1
+  cbflow run forcevalidate --to place1     Mark everything up to place as done
+  cbflow run forcevalidate --from route1   Mark route onwards as done""")
+    fv_parser.add_argument('--node', '-n', help='Single stage to mark as completed')
+    fv_parser.add_argument('--from', dest='from_stage', help='Start of range (inclusive)')
+    fv_parser.add_argument('--to', dest='to_stage', help='End of range (inclusive)')
+    fv_parser.add_argument('--stages', '-s', help='Comma-separated list (backward compat)')
+
     # clean command
     clean_parser = subparsers.add_parser('clean', help='Clean run directory',
         formatter_class=_fmt, description="""Delete all work files, logs, and stamps.
@@ -2264,6 +2345,7 @@ def main() -> int:
         'lsf-status': cmd_lsf_status_run,
         'bypass': cmd_bypass,
         'force': cmd_force,
+        'forcevalidate': cmd_forcevalidate,
         'interactive': cmd_interactive,
         'email': _cmd_email_dispatch,
         'autoppt': _cmd_autoppt_dispatch,
