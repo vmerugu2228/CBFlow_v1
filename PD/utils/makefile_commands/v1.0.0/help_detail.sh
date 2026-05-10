@@ -1,0 +1,122 @@
+#!/bin/bash
+#===============================================================================
+# Help Detail Script for CBFlow
+# Shows detailed workflow guides for version control and release management
+#===============================================================================
+
+# Function to show usage
+show_usage() {
+    echo "Usage: ./help_detail.sh TYPE"
+    echo ""
+    echo "Available help types:"
+    echo "  version  - Complete version control workflow guide"
+    echo "  release  - Complete release flow workflow guide"
+}
+
+# Check required parameters
+if [ -z "$1" ]; then
+    echo "Error: TYPE parameter required"
+    show_usage
+    exit 1
+fi
+
+TYPE="$1"
+
+if [ "$TYPE" = "version" ]; then
+    echo ""
+    echo "================================================================"
+    echo "  STEP-BY-STEP VERSION CONTROL WORKFLOW GUIDE"
+    echo "================================================================"
+    echo ""
+    echo "PHASE 1: SYSTEM SETUP"
+    echo "  Step 1: Check CBFlow installation"
+    echo "    → cbflow flow check"
+    echo ""
+    echo "  Step 2: Check existing versions for your component"
+    echo "    → cbflow flow version list --dir <component>"
+    echo "    Example: cbflow flow version list --dir config"
+    echo ""
+    echo "PHASE 2: VERSION MANAGEMENT"
+    echo "  Step 3: Create a new version"
+    echo "    → cbflow flow version create --dir <component> --version <ver> --desc \"<description>\""
+    echo "    Example: cbflow flow version create --dir config --version v2.1.0 --desc \"Enhanced timing constraints\""
+    echo ""
+    echo "  Step 4: Verify version was created"
+    echo "    → cbflow flow version list --dir <component>"
+    echo "    → cbflow flow version get-current --dir <component>"
+    echo ""
+    echo "PHASE 3: VERSION PROMOTION"
+    echo "  Step 5: Set new version as current"
+    echo "    → cbflow flow version set-current --dir <component> --version <version>"
+    echo "    Example: cbflow flow version set-current --dir config --version v2.1.0"
+    echo ""
+    echo "PHASE 4: VERSION COMPARISON"
+    echo "  Step 6: Compare versions to see changes"
+    echo "    → cbflow flow version diff --dir <component> --v1 <version1> --v2 <version2>"
+    echo "    Example: cbflow flow version diff --dir config --v1 v1.0.0 --v2 v2.1.0"
+    echo ""
+    echo "  Step 7: Check overall version status"
+    echo "    → cbflow flow version status"
+    echo ""
+    echo "BEST PRACTICES:"
+    echo "  • Use meaningful version descriptions"
+    echo "  • Test configurations before setting as current"
+    echo "  • Use version diff to review changes before promoting"
+    echo "  • Follow semantic versioning (major.minor.patch)"
+    echo ""
+    echo "VERSION TYPES:"
+    echo "  major - X.0.0 (breaking changes)"
+    echo "  minor - x.Y.0 (new features, backward compatible)"
+    echo "  patch - x.y.Z (bug fixes)"
+    echo ""
+elif [ "$TYPE" = "release" ]; then
+    echo ""
+    echo "================================================================"
+    echo "  STEP-BY-STEP RELEASE WORKFLOW GUIDE"
+    echo "================================================================"
+    echo ""
+    echo "PHASE 1: PRE-RELEASE PREPARATION"
+    echo "  Step 1: Check system status"
+    echo "    → cbflow flow check"
+    echo "    → cbflow flow config status"
+    echo ""
+    echo "  Step 2: Review all component versions"
+    echo "    → cbflow flow version list --dir <component>"
+    echo "    Ensure all components are at desired versions"
+    echo ""
+    echo "  Step 3: Check existing releases"
+    echo "    → cbflow flow release list"
+    echo ""
+    echo "PHASE 2: RELEASE CREATION"
+    echo "  Step 4: Create a new release"
+    echo "    → cbflow flow release create --type <type> --desc \"<description>\""
+    echo "    Example: cbflow flow release create --type minor --desc \"Q4 Production release\""
+    echo ""
+    echo "    Release types:"
+    echo "    • patch - Bug fixes only"
+    echo "    • minor - New features, backward compatible"
+    echo "    • major - Breaking changes"
+    echo ""
+    echo "PHASE 3: POST-RELEASE VERIFICATION"
+    echo "  Step 5: Verify release was created"
+    echo "    → cbflow flow release list"
+    echo ""
+    echo "  Step 6: Review release details"
+    echo "    → cbflow flow release info --version <version>"
+    echo "    Example: cbflow flow release info --version v6.0.0"
+    echo ""
+    echo "  Step 7: Validate release"
+    echo "    → cbflow flow release validate --version <version>"
+    echo ""
+    echo "BEST PRACTICES:"
+    echo "  • Always validate system before creating releases"
+    echo "  • Use meaningful release descriptions"
+    echo "  • Test all component combinations before releasing"
+    echo "  • Follow semantic versioning"
+    echo ""
+else
+    echo "Error: Invalid TYPE '$TYPE'"
+    echo "Valid types: version, release"
+    show_usage
+    exit 1
+fi

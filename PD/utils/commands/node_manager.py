@@ -1,0 +1,611 @@
+#!/usr/bin/env python3
+"""
+CBFlow Node Manager
+
+Python replacement for the TCL manage_node.tcl system.
+Manages custom nodes, branches, and graph operations for CBFlow runs.
+
+Replaces:
+  - utils/node_management/v1.0.0/manage_node.tcl (350 lines)
+  - utils/node_management/v1.0.0/lib/node_ops.tcl (247 lines)
+  - utils/node_management/v1.0.0/lib/branch_ops.tcl (423 lines)
+  - utils/node_management/v1.0.0/lib/graph_ops.tcl (374 lines)
+  - utils/node_management/v1.0.0/lib/persistence.tcl (118 lines)
+  - utils/node_management/v1.0.0/lib/flow_config.tcl (143 lines)
+  - utils/node_management/v1.0.0/lib/common.tcl (95 lines)
+
+Custom nodes are stored in setup/runtime_flow_config.tcl as TCL array set blocks.
+This file MUST stay in TCL format because the generated Makefile sources it at
+runtime.
+
+Usage:
+    from node_manager import NodeManager
+    mgr = NodeManager(run_dir='/path/to/run', flow_type='PNR')
+    mgr.add_node('place2', 'place', 'place1')
+    mgr.create_branch('Fix Timing Branch', 'place1')
+    mgr.validate()
+"""
+
+import os
+import re
+from datetime import datetime
+from typing import Dict, List, Optional
+
+from tcl_config_parser import (
+    get_flow_stages, get_subnodes, get_tool_info,
+    _load_node_config, _parse_tcl_list, _parse_tcl_string,
+    _parse_array_set_blocks
+)
+from makefile_generator import MakefileGenerator
+from logging_config import get_logger
+
+logger = get_logger('node_manager')
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# NODE MANAGER
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class NodeManager:
+    """
+    Manages custom nodes and branches for a CBFlow run.
+
+    Custom nodes extend the base flow graph with additional stages. Branches
+    create parallel execution paths from a given point in the flow. All
+    configuration is persisted to setup/runtime_flow_config.tcl in TCL
+    array set format so the generated Makefile can source it at runtime.
+    """
+
+    def __init__(self, run_dir: str = None, flow_type: str = None, env_vars: dict = None):
+        self.run_dir = run_dir or os.getcwd()
+        self.flow_type = flow_type or self._detect_flow_type()
+        self.env = env_vars or {}
+        self.flow_lower = self.flow_type.lower()
+
+        # Load base stages from config
+        self.base_stages = get_flow_stages(self.flow_type)
+        self.node_config = _load_node_config(self.flow_type)
+
+        # Load custom nodes from runtime config
+        self.custom_nodes = {}   # {name: {type, dependencies, branch_key}}
+        self.branches = {}       # {key: {name, created_date, created_by}}
+        self._load_runtime_config()
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Flow Detection
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _detect_flow_type(self) -> str:
+        """Read flow type from the run environment file."""
+        env_file = os.path.join(self.run_dir, '.run.cbflow.env')
+        if os.path.exists(env_file):
+            with open(env_file) as f:
+                for line in f:
+                    if 'CBFLOW_FLOW_TYPE' in line:
+                        return line.split('=', 1)[-1].strip().strip('"')
+        return ''
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Persistence
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _load_runtime_config(self):
+        """Parse setup/runtime_flow_config.tcl for custom nodes and branches."""
+        config_file = os.path.join(self.run_dir, 'setup', 'runtime_flow_config.tcl')
+        if not os.path.exists(config_file):
+            return
+
+        with open(config_file, 'r') as f:
+            content = f.read()
+
+        parsed = _parse_array_set_blocks(content, self.flow_lower)
+
+        # Extract custom nodes: keys like "stages,place2,type" -> "place"
+        node_names = set()
+        for key in parsed:
+            if key.startswith('stages,'):
+                parts = key.split(',')
+                if len(parts) >= 3:
+                    node_names.add(parts[1])
+
+        for name in node_names:
+            self.custom_nodes[name] = {
+                'type': _parse_tcl_string(parsed.get(f'stages,{name},type', '')),
+                'dependencies': _parse_tcl_string(parsed.get(f'stages,{name},dependencies', '')),
+                'branch_key': _parse_tcl_string(parsed.get(f'stages,{name},branch_key', '')),
+            }
+
+        # Extract branches: keys like "branch_keys,abc123,name"
+        branch_keys = set()
+        for key in parsed:
+            if key.startswith('branch_keys,'):
+                parts = key.split(',')
+                if len(parts) >= 3:
+                    branch_keys.add(parts[1])
+
+        for bkey in branch_keys:
+            self.branches[bkey] = {
+                'name': _parse_tcl_string(parsed.get(f'branch_keys,{bkey},name', bkey)),
+                'created_date': _parse_tcl_string(parsed.get(f'branch_keys,{bkey},created_date', '')),
+                'created_by': _parse_tcl_string(parsed.get(f'branch_keys,{bkey},created_by', '')),
+            }
+
+    def _save_runtime_config(self):
+        """Write custom nodes and branches back to TCL format."""
+        setup_dir = os.path.join(self.run_dir, 'setup')
+        os.makedirs(setup_dir, exist_ok=True)
+        config_file = os.path.join(setup_dir, 'runtime_flow_config.tcl')
+
+        lines = []
+        lines.append('# CBFlow Runtime Flow Configuration')
+        lines.append(f'# Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
+        lines.append(f'# Custom nodes and branches for {self.flow_type} flow')
+        lines.append('')
+
+        if not self.custom_nodes and not self.branches:
+            lines.append('# No custom nodes defined')
+            with open(config_file, 'w') as f:
+                f.write('\n'.join(lines) + '\n')
+            return
+
+        lines.append(f'array set {self.flow_lower} {{')
+
+        # Write custom nodes
+        for name, info in sorted(self.custom_nodes.items()):
+            lines.append(f'    stages,{name},type {info.get("type", "")}')
+            lines.append(f'    stages,{name},dependencies {info.get("dependencies", "")}')
+            if info.get('branch_key'):
+                lines.append(f'    stages,{name},branch_key {info["branch_key"]}')
+
+        # Write branches
+        for bkey, info in sorted(self.branches.items()):
+            lines.append(f'    branch_keys,{bkey},name "{info.get("name", bkey)}"')
+            if info.get('created_date'):
+                lines.append(f'    branch_keys,{bkey},created_date "{info["created_date"]}"')
+            if info.get('created_by'):
+                lines.append(f'    branch_keys,{bkey},created_by "{info["created_by"]}"')
+
+        lines.append('}')
+        lines.append('')
+
+        with open(config_file, 'w') as f:
+            f.write('\n'.join(lines) + '\n')
+
+    def _regenerate_makefile(self):
+        """Regenerate Makefile after node changes."""
+        try:
+            gen = MakefileGenerator(self.flow_type, self.env, self.run_dir)
+            gen.generate()
+            logger.info("  [DONE] Makefile regenerated")
+        except Exception as e:
+            logger.warning(f"  Makefile regeneration failed: {e}")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Node Operations
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def add_node(self, name: str, node_type: str, dependency: str) -> bool:
+        """
+        Add a custom node to the flow.
+
+        Args:
+            name: Unique name for the new node (e.g., 'place2').
+            node_type: Type of stage this node represents (must match a base
+                       stage or base type stripped of its numeric suffix).
+            dependency: Name of the node this new node depends on.
+
+        Returns:
+            True if the node was successfully added, False otherwise.
+        """
+        # Check all stages (base + custom)
+        all_stages = list(self.base_stages)
+        all_stages.extend(self.custom_nodes.keys())
+        # Also check stripped versions (e.g. "place" from "place1")
+        base_types = sorted(set(re.sub(r'\d+$', '', s) for s in self.base_stages))
+
+        # Validate node type
+        if node_type not in self.base_stages and node_type not in base_types:
+            logger.error(f"  Error: Invalid node type '{node_type}' for {self.flow_type}")
+            logger.error(f"  Valid types: {', '.join(base_types)}")
+            return False
+
+        # Check for duplicates
+        if name in all_stages:
+            existing = self.custom_nodes.get(name, {})
+            if existing.get('type') == node_type and existing.get('dependencies') == dependency:
+                logger.info(f"  Node '{name}' already exists with identical configuration")
+                return True
+            logger.error(f"  Error: Node '{name}' already exists")
+            return False
+
+        # Validate dependency exists
+        if dependency and dependency not in all_stages:
+            logger.error(f"  Error: Dependency '{dependency}' not found")
+            logger.error(f"  Available: {', '.join(all_stages)}")
+            return False
+
+        # Check circular dependencies
+        if self._has_circular_dependency(name, dependency):
+            logger.error(f"  Error: Adding '{name}' would create a circular dependency")
+            return False
+
+        # Add the node
+        self.custom_nodes[name] = {
+            'type': node_type,
+            'dependencies': dependency or '',
+            'branch_key': '',
+        }
+
+        self._save_runtime_config()
+        self._regenerate_makefile()
+
+        logger.info(f"  [DONE] Added node '{name}' (type={node_type}, after={dependency})")
+        return True
+
+    def delete_node(self, name: str) -> bool:
+        """
+        Delete a custom node from the flow.
+
+        Base stages cannot be deleted. If other custom nodes depend on the
+        deleted node they will be orphaned (a warning is emitted).
+
+        Args:
+            name: Name of the custom node to delete.
+
+        Returns:
+            True if the node was successfully deleted, False otherwise.
+        """
+        # Can't delete base stages
+        if name in self.base_stages:
+            logger.error(f"  Error: Cannot delete base stage '{name}'")
+            return False
+
+        if name not in self.custom_nodes:
+            logger.error(f"  Error: Custom node '{name}' not found")
+            logger.error(f"  Custom nodes: {', '.join(self.custom_nodes.keys()) or 'none'}")
+            return False
+
+        # Check for downstream dependents
+        dependents = self._find_dependents(name)
+        if dependents:
+            logger.warning(f"  Warning: These nodes depend on '{name}' and will be orphaned:")
+            for d in dependents:
+                logger.warning(f"    - {d}")
+
+        del self.custom_nodes[name]
+
+        # Remove orphaned branches (branches with no remaining nodes)
+        active_branch_keys = set(
+            info.get('branch_key', '') for info in self.custom_nodes.values()
+        )
+        for bkey in list(self.branches.keys()):
+            if bkey not in active_branch_keys:
+                del self.branches[bkey]
+
+        self._save_runtime_config()
+        self._regenerate_makefile()
+
+        logger.info(f"  [DONE] Deleted node '{name}'")
+        return True
+
+    def get_all_nodes(self) -> dict:
+        """
+        Return all nodes (base + custom) with metadata.
+
+        Returns:
+            Dictionary mapping node names to their metadata including type,
+            dependencies, branch_key (if any), and whether the node is custom.
+        """
+        nodes = {}
+        for i, stage in enumerate(self.base_stages):
+            nodes[stage] = {
+                'type': 'base',
+                'index': i,
+                'dependencies': self._get_stage_dependencies(stage),
+                'custom': False,
+            }
+        for name, info in self.custom_nodes.items():
+            nodes[name] = {
+                'type': info.get('type', ''),
+                'dependencies': info.get('dependencies', ''),
+                'branch_key': info.get('branch_key', ''),
+                'custom': True,
+            }
+        return nodes
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Branch Operations
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def create_branch(self, branch_name: str, from_stage: str) -> bool:
+        """
+        Create a branch from a stage.
+
+        When branching from a base stage, new nodes are created for every
+        remaining stage in the flow (from that point onward). When branching
+        from a custom node, a single branch node is created.
+
+        Args:
+            branch_name: Human-readable name for the branch.
+            from_stage: Stage to branch from.
+
+        Returns:
+            True if the branch was successfully created, False otherwise.
+        """
+        import random
+
+        all_stages = list(self.base_stages) + list(self.custom_nodes.keys())
+
+        if from_stage not in all_stages:
+            logger.error(f"  Error: Stage '{from_stage}' not found")
+            return False
+
+        # Generate branch key
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        base_type = re.sub(r'\d+$', '', from_stage)
+        branch_key = f"{base_type}_{timestamp}_{random.randint(100, 999)}"
+
+        # Find the index of from_stage in base stages
+        from_idx = None
+        for i, s in enumerate(self.base_stages):
+            stripped = re.sub(r'\d+$', '', s)
+            if s == from_stage or stripped == from_stage:
+                from_idx = i
+                break
+
+        if from_idx is None:
+            # from_stage is a custom node -- create a single branch node
+            logger.info(f"  Creating single branch node from '{from_stage}'")
+            suffix = self._next_suffix(from_stage)
+            new_name = f"{re.sub(r'[0-9]+$', '', from_stage)}{suffix}"
+
+            self.custom_nodes[new_name] = {
+                'type': re.sub(r'\d+$', '', from_stage),
+                'dependencies': from_stage,
+                'branch_key': branch_key,
+            }
+        else:
+            # Create branch nodes for remaining stages
+            stages_to_branch = self.base_stages[from_idx:]
+            # First branch node depends on the stage BEFORE from_stage
+            if from_idx > 0:
+                prev_dep = self.base_stages[from_idx - 1]
+            else:
+                prev_dep = self._get_stage_dependencies(from_stage) or ''
+
+            for stage in stages_to_branch:
+                base_name = re.sub(r'\d+$', '', stage)
+                suffix = self._next_suffix(base_name)
+                new_name = f"{base_name}{suffix}"
+
+                self.custom_nodes[new_name] = {
+                    'type': base_name,
+                    'dependencies': prev_dep,
+                    'branch_key': branch_key,
+                }
+                prev_dep = new_name
+
+        # Store branch metadata
+        self.branches[branch_key] = {
+            'name': branch_name,
+            'created_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'created_by': os.environ.get('USER', 'unknown'),
+        }
+
+        self._save_runtime_config()
+        self._regenerate_makefile()
+
+        branch_nodes = [
+            n for n, info in self.custom_nodes.items()
+            if info.get('branch_key') == branch_key
+        ]
+        logger.info(f"  [DONE] Branch '{branch_name}' created with {len(branch_nodes)} nodes")
+        for n in branch_nodes:
+            logger.info(f"    - {n}")
+        return True
+
+    def delete_branch(self, branch_name: str) -> bool:
+        """
+        Delete a branch by name, removing all its nodes.
+
+        Args:
+            branch_name: Human-readable name of the branch to delete.
+
+        Returns:
+            True if the branch was successfully deleted, False otherwise.
+        """
+        # Find branch key by name
+        target_key = None
+        for bkey, info in self.branches.items():
+            if info.get('name') == branch_name:
+                target_key = bkey
+                break
+
+        if not target_key:
+            logger.error(f"  Error: Branch '{branch_name}' not found")
+            if self.branches:
+                logger.error("  Available branches:")
+                for bkey, info in self.branches.items():
+                    logger.error(f"    - {info.get('name', bkey)}")
+            return False
+
+        # Find and delete all nodes in this branch
+        nodes_to_delete = [
+            n for n, info in self.custom_nodes.items()
+            if info.get('branch_key') == target_key
+        ]
+
+        for node in nodes_to_delete:
+            del self.custom_nodes[node]
+
+        del self.branches[target_key]
+
+        self._save_runtime_config()
+        self._regenerate_makefile()
+
+        logger.info(f"  [DONE] Branch '{branch_name}' deleted ({len(nodes_to_delete)} nodes removed)")
+        return True
+
+    def list_branches(self) -> list:
+        """
+        Return list of branches with their metadata and member nodes.
+
+        Returns:
+            List of dicts, each containing key, name, created_date,
+            created_by, and nodes list.
+        """
+        result = []
+        for bkey, info in self.branches.items():
+            nodes = [
+                n for n, ninfo in self.custom_nodes.items()
+                if ninfo.get('branch_key') == bkey
+            ]
+            result.append({
+                'key': bkey,
+                'name': info.get('name', bkey),
+                'created_date': info.get('created_date', ''),
+                'created_by': info.get('created_by', ''),
+                'nodes': nodes,
+            })
+        return result
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Graph Helpers
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _get_stage_dependencies(self, stage: str) -> str:
+        """
+        Get the dependency for a base stage from the node config.
+
+        Looks up the dependency key in node_config, first with the full stage
+        name and then with the numeric suffix stripped.
+
+        Args:
+            stage: Base stage name (e.g., 'place1').
+
+        Returns:
+            Name of the dependency stage, or empty string if none found.
+        """
+        dep_key = f'dependencies,{stage}'
+        raw = self.node_config.get(dep_key, '')
+        if raw:
+            deps = _parse_tcl_list(raw)
+            return deps[0] if deps else ''
+        # Try without suffix
+        stripped = re.sub(r'\d+$', '', stage)
+        if stripped != stage:
+            raw = self.node_config.get(f'dependencies,{stripped}', '')
+            if raw:
+                deps = _parse_tcl_list(raw)
+                return deps[0] if deps else ''
+        return ''
+
+    def _has_circular_dependency(self, new_node: str, dependency: str) -> bool:
+        """
+        Check if adding new_node with the given dependency creates a cycle.
+
+        Performs a depth-first search from the dependency back through the
+        graph to see if it reaches new_node.
+
+        Args:
+            new_node: Name of the proposed new node.
+            dependency: Name of the node it would depend on.
+
+        Returns:
+            True if a cycle would be created, False otherwise.
+        """
+        if not dependency:
+            return False
+
+        visited = set()
+
+        def dfs(node):
+            if node == new_node:
+                return True
+            if node in visited:
+                return False
+            visited.add(node)
+            # Check custom node deps
+            if node in self.custom_nodes:
+                dep = self.custom_nodes[node].get('dependencies', '')
+                if dep and dfs(dep):
+                    return True
+            return False
+
+        return dfs(dependency)
+
+    def _find_dependents(self, node_name: str) -> list:
+        """
+        Find custom nodes that directly depend on the given node.
+
+        Args:
+            node_name: Name of the node to find dependents for.
+
+        Returns:
+            List of custom node names that depend on node_name.
+        """
+        dependents = []
+        for name, info in self.custom_nodes.items():
+            if info.get('dependencies') == node_name:
+                dependents.append(name)
+        return dependents
+
+    def _next_suffix(self, base_name: str) -> int:
+        """
+        Find the next available numeric suffix for a node name.
+
+        Scans all existing node names (base + custom) that match the given
+        base_name pattern and returns the next integer suffix.
+
+        Args:
+            base_name: Base name without numeric suffix (e.g., 'place').
+
+        Returns:
+            Next available integer suffix (e.g., 2 if 'place1' exists).
+        """
+        all_names = list(self.base_stages) + list(self.custom_nodes.keys())
+        max_suffix = 0
+        for name in all_names:
+            m = re.match(rf'^{re.escape(base_name)}(\d+)$', name)
+            if m:
+                max_suffix = max(max_suffix, int(m.group(1)))
+        return max_suffix + 1
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Validation
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def validate(self) -> bool:
+        """
+        Validate the complete node configuration.
+
+        Checks that:
+          - All dependency references point to existing nodes.
+          - No circular dependencies exist among custom nodes.
+
+        Returns:
+            True if validation passes, False otherwise.
+        """
+        errors = []
+        all_nodes = self.get_all_nodes()
+
+        # Check all dependencies exist
+        for name, info in all_nodes.items():
+            dep = info.get('dependencies', '')
+            if dep and dep not in all_nodes:
+                errors.append(f"Node '{name}' depends on '{dep}' which doesn't exist")
+
+        # Check for circular dependencies
+        for name in self.custom_nodes:
+            dep = self.custom_nodes[name].get('dependencies', '')
+            if dep and self._has_circular_dependency(name, dep):
+                errors.append(f"Circular dependency detected involving '{name}'")
+
+        if errors:
+            logger.error(f"  Validation failed: {len(errors)} error(s)")
+            for e in errors:
+                logger.error(f"    - {e}")
+            return False
+
+        logger.info(f"  [PASS] Node configuration valid ({len(all_nodes)} nodes)")
+        return True

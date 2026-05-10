@@ -1,0 +1,236 @@
+#!/usr/bin/env tclsh
+# CBFlow SYNTH release_db - Cadence Genus
+# Sources release_config.tcl for phase-wise mandatory file validation
+# Generates: release directory, manifest, release notes, completion stamp
+set run_dir $::env(CBFLOW_RUN_DIR)
+set env_file "$run_dir/.run.cbflow.tcl"
+if {[file exists $env_file]} { source $env_file } else { puts stderr "ERROR: .run.cbflow.tcl not found"; exit 1 }
+if {[info exists ::env(FLOW_DIR)]} { set FLOW_DIR $::env(FLOW_DIR) } else { puts stderr "ERROR: FLOW_DIR not set"; exit 1 }
+if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} { puts stderr "ERROR: UTILITIES_VERSION not set"; exit 1 }
+set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
+namespace import ::CBFlow::Utilities::print_header
+
+# Source tech_config
+if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
+    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
+    if {[file exists $_tc]} { source -e $_tc }
+}
+
+# Source user_config for overrides
+if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
+
+# Source release utilities
+set release_utils "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
+if {[file exists $release_utils]} { source $release_utils }
+
+# Source release_config for phase/milestone file expectations
+set release_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
+if {[file exists $release_config]} { source $release_config }
+
+global synth project tech flow
+handle_info "Starting SYNTH release_db with Cadence Genus..."
+if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
+set ::flow::exec_mode "auto"
+
+# ── Directories ──────────────────────────────────────────────────────────────
+set WORK_DIR "$run_dir/work/SYNTH/release_db1"
+set REPORTS_DIR "$WORK_DIR/reports"
+set OUTPUTS_DIR "$run_dir/outputs"
+file mkdir $REPORTS_DIR
+file mkdir $OUTPUTS_DIR
+
+# ==============================================================================
+# flow_proc: init_release
+# Initialize release and validate mandatory variables
+# ==============================================================================
+flow_proc init_release {
+    handle_info "Initializing release..."
+    global synth project flow
+
+    set run_dir $::env(CBFLOW_RUN_DIR)
+
+    # ── Validate mandatory variables ─────────────────────────────────────────
+    set missing_vars {}
+    if {![info exists synth(design_name)] && ![info exists flow(design_name)]} {
+        lappend missing_vars "design_name (synth(design_name) or flow(design_name))"
+    }
+    if {![info exists project(release,tag)] || $project(release,tag) eq ""} {
+        lappend missing_vars "project(release,tag) in project_config.tcl"
+    }
+    if {![info exists ::env(FLOW_DIR)] || $::env(FLOW_DIR) eq ""} {
+        lappend missing_vars "FLOW_DIR"
+    }
+    if {![info exists ::env(CONFIG_ROOT)] || $::env(CONFIG_ROOT) eq ""} {
+        lappend missing_vars "CONFIG_ROOT"
+    }
+
+    if {[llength $missing_vars] > 0} {
+        handle_warning "Missing mandatory variables for release:"
+        foreach v $missing_vars { handle_warning "  - $v" }
+        handle_warning "Release may be incomplete"
+    }
+
+    set design_name [expr {[info exists synth(design_name)] ? $synth(design_name) : [expr {[info exists flow(design_name)] ? $flow(design_name) : "synth"}]}]
+
+    # ── Determine release phase ──────────────────────────────────────────────
+    set release_phase "P0"
+    if {[info exists project(release_phase)]} { set release_phase $project(release_phase) }
+    if {[info exists synth(release_phase)]} { set release_phase $synth(release_phase) }
+    if {[info exists project(release,phase)] && $project(release,phase) ne ""} { set release_phase $project(release,phase) }
+
+    # ── Initialize release using utilities ───────────────────────────────────
+    if {[namespace exists ::CBFlow::Release]} {
+        ::CBFlow::Release::init "SYNTH" $design_name $run_dir $release_phase
+    } else {
+        set ::release_dir "$run_dir/release/SYNTH"
+        foreach subdir {reports data netlist db} {
+            file mkdir "$::release_dir/$subdir"
+        }
+    }
+
+    handle_info "Release phase: $release_phase"
+    handle_info "Release tag: $project(release,tag)"
+}
+
+# ==============================================================================
+# flow_proc: release_db_database
+# Release synthesis database for downstream flows
+# ==============================================================================
+flow_proc release_db_database {
+    puts "INFO: Releasing synthesis database for downstream flows..."
+
+    # Create release directory structure
+    file mkdir "results/release"
+    file mkdir "results/release/db"
+    file mkdir "results/release/netlist"
+    file mkdir "results/release/constraints"
+    file mkdir "results/release/reports"
+
+    # Copy database files to release area
+    if {[file exists "results/db/synth.db"]} {
+        file copy "results/db/synth.db" "results/release/db/"
+        puts "INFO: Released database: results/release/db/synth.db"
+    }
+
+    # Copy netlist files to release area
+    if {[file exists "results/netlist/chip_top.v"]} {
+        file copy "results/netlist/chip_top.v" "results/release/netlist/"
+        puts "INFO: Released netlist: results/release/netlist/chip_top.v"
+    }
+
+    # Copy constraint files to release area
+    foreach sdc_file [glob -nocomplain "results/constraints/*.sdc"] {
+        file copy $sdc_file "results/release/constraints/"
+        puts "INFO: Released constraint: results/release/constraints/[file tail $sdc_file]"
+    }
+
+    # Copy reports to release area
+    foreach rpt_file [glob -nocomplain "reports/*.rpt"] {
+        file copy $rpt_file "results/release/reports/"
+        puts "INFO: Released report: results/release/reports/[file tail $rpt_file]"
+    }
+
+    # Create release manifest
+    set manifest_file "results/release/release_manifest.txt"
+    set fp [open $manifest_file w]
+    puts $fp "# CBFlow Synthesis Release Manifest"
+    puts $fp "# Generated: [clock format [clock seconds]]"
+    puts $fp "# Flow: SYNTH"
+    puts $fp "# Tool: Genus"
+    puts $fp ""
+    puts $fp "# Released Files:"
+    foreach release_file [glob -nocomplain "results/release/*/*"] {
+        puts $fp "  [file tail $release_file]"
+    }
+    close $fp
+    puts "INFO: Created release manifest: $manifest_file"
+
+    puts "INFO: Database release completed successfully"
+}
+
+# ==============================================================================
+# flow_proc: verify_release_integrity
+# Verify release integrity and validate against release_config
+# ==============================================================================
+flow_proc verify_release_integrity {
+    puts "INFO: Verifying release integrity..."
+
+    # Validate using release_config mandatory file lists
+    if {[namespace exists ::CBFlow::Release]} {
+        set valid [::CBFlow::Release::validate_mandatory_files]
+        if {!$valid} {
+            puts "WARNING: Some mandatory files are missing — check release phase requirements"
+        }
+    }
+
+    set required_files {
+        "results/release/db/synth.db"
+        "results/release/netlist/chip_top.v"
+    }
+
+    set missing_files {}
+    foreach file $required_files {
+        if {![file exists $file]} {
+            lappend missing_files $file
+        }
+    }
+
+    if {[llength $missing_files] > 0} {
+        puts "WARNING: Missing required release files:"
+        foreach file $missing_files {
+            puts "  - $file"
+        }
+        return false
+    }
+
+    puts "INFO: Release integrity verification passed"
+    return true
+}
+
+# ==============================================================================
+# flow_proc: generate_release_output
+# Generate manifest, release notes, and completion stamp via release utilities
+# ==============================================================================
+flow_proc generate_release_output {
+    handle_info "Generating release output..."
+    global synth project
+
+    set notes ""
+    if {[info exists project(release_notes)]} { set notes $project(release_notes) }
+
+    if {[namespace exists ::CBFlow::Release]} {
+        ::CBFlow::Release::generate_manifest
+        ::CBFlow::Release::generate_release_notes $notes
+        ::CBFlow::Release::stamp_complete
+        ::CBFlow::Release::summary
+    } else {
+        handle_info "Release utilities not loaded — skipping output generation"
+    }
+
+    handle_info "Release output generated"
+}
+
+# Main release procedure
+flow_proc release_db_main {
+    puts "INFO: Starting synthesis database release process..."
+
+    # Release database files
+    release_db_database
+
+    # Verify release
+    if {[verify_release_integrity]} {
+        puts "INFO: Synthesis database release completed successfully"
+        return 0
+    } else {
+        puts "ERROR: Release verification failed"
+        return 1
+    }
+}
+
+# Execute main procedure if called directly
+if {[info exists argv0] && [file tail $argv0] eq [file tail [info script]]} {
+    exit [release_db_main]
+}
+# Exit tool after stage completion
+exit

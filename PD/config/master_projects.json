@@ -1,0 +1,64 @@
+{
+  "version": "1.0",
+  "projects": {
+    "ravendrive": {
+      "name": "ravendrive",
+      "description": "RavenDrive SoC Project",
+      "chip_lead": "vmerugu",
+      "flow_owners": {
+        "frontend": "vmerugu",
+        "backend": "vmerugu",
+        "verification": "vmerugu"
+      },
+      "technology": "gf_22nm",
+      "status": "active",
+      "created": "2024-01-01T00:00:00",
+      "tags": [],
+      "phases": ["P0", "P1", "P2", "P3"],
+      "project_start_date": "",
+      "tapeout_date": "",
+      "release_version": "v1.0.0",
+      "enabled_flows": ["SYNTH", "FP", "PNR", "STA", "LEC", "EMIR", "PV", "ECO", "CLP", "POPT", "FCFP"],
+      "design_hierarchy": {}
+    },
+    "india": {
+      "name": "india",
+      "description": "5nm technode complex chip",
+      "chip_lead": "Not specified",
+      "flow_owners": {
+        "frontend": "Raj Sh",
+        "backend": "Gangadhar CH",
+        "verification": "NA"
+      },
+      "technology": "gf_22nm",
+      "status": "active",
+      "created": "2026-04-02T17:56:43.832984",
+      "tags": [
+        "soc"
+      ],
+      "phases": [
+        "P0",
+        "P1",
+        "P2",
+        "P3"
+      ],
+      "project_start_date": "2026-04-01",
+      "tapeout_date": "2026-12-30",
+      "release_version": "v1.0.0",
+      "enabled_flows": [
+        "SYNTH",
+        "FP",
+        "PNR",
+        "STA",
+        "LEC",
+        "EMIR",
+        "PV",
+        "ECO",
+        "CLP",
+        "POPT",
+        "FCFP"
+      ],
+      "design_hierarchy": {}
+    }
+  }
+}

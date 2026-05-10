@@ -1,0 +1,170 @@
+#!/usr/bin/env tclsh
+# CBFlow FCFP init_compile - Synopsys Fusion Compiler
+# FC-RM: init_compile.tcl -- Early compile for area estimation before floorplan
+# Aligned with FC-RM Y-2026.03
+set run_dir $::env(CBFLOW_RUN_DIR)
+set env_file "$run_dir/.run.cbflow.tcl"
+if {[file exists $env_file]} { source $env_file } else { puts stderr "ERROR: .run.cbflow.tcl not found"; exit 1 }
+if {[info exists ::env(FLOW_DIR)]} { set FLOW_DIR $::env(FLOW_DIR) } else { puts stderr "ERROR: FLOW_DIR not set"; exit 1 }
+if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} { puts stderr "ERROR: UTILITIES_VERSION not set"; exit 1 }
+set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
+namespace import ::CBFlow::Utilities::print_header
+set config_file "$run_dir/work/FCFP/init_compile/run/config.tcl"
+if {[file exists $config_file]} { source $config_file }
+global fcfp project tech flow
+handle_info "Starting FCFP init_compile..."
+if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
+set ::flow::exec_mode "auto"
+
+# Source tech_config
+if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" &&
+    [info exists ::env(TECH_VERSION)] && $::env(TECH_VERSION) ne ""} {
+    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
+    if {[file exists $_tc]} { source -e $_tc }
+}
+# Source user_config for overrides
+if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
+
+set WORK_DIR "$run_dir/work/FCFP/init_compile1"
+set REPORTS_DIR "$WORK_DIR/reports"
+set OUTPUTS_DIR "$run_dir/outputs"
+file mkdir $REPORTS_DIR
+file mkdir $OUTPUTS_DIR
+set OUTPUTS_DIR "$run_dir/outputs"
+file mkdir $REPORTS_DIR
+file mkdir $OUTPUTS_DIR
+
+# ==============================================================================
+# flow_proc: load_design
+# Open the design block from commit_blocks or init_design
+# ==============================================================================
+flow_proc load_design {
+    handle_info "Loading design for init_compile..."
+    global fcfp flow
+
+    set design_name [expr {[info exists fcfp(design_name)] ? $fcfp(design_name) : $flow(design_name)}]
+
+    if {[info exists fcfp(open_lib)] && $fcfp(open_lib) ne ""} {
+        open_lib $fcfp(open_lib)
+    }
+
+    set from_label [expr {[info exists fcfp(init_compile,from_label)] ? $fcfp(init_compile,from_label) : "commit_blocks"}]
+    copy_block -from ${design_name}/${from_label} -to ${design_name}/init_compile
+    current_block ${design_name}/init_compile
+    link_block
+
+    handle_info "Design loaded: $design_name"
+}
+
+# ==============================================================================
+# flow_proc: set_qor_strategy
+# FC-RM: set_qor_strategy -stage compile_initial -reduced_effort
+# ==============================================================================
+flow_proc set_qor_strategy {
+    handle_info "Setting QoR strategy for compile_initial..."
+    global fcfp
+
+    set qor_cmd "set_qor_strategy -stage compile_initial"
+
+    if {[info exists fcfp(compile,qor_metric)] && $fcfp(compile,qor_metric) ne ""} {
+        lappend qor_cmd -metric $fcfp(compile,qor_metric)
+    } else {
+        lappend qor_cmd -metric timing
+    }
+
+    # Reduced effort for DP flow (recommended per FC-RM)
+    if {![info exists fcfp(compile,reduced_effort)] || $fcfp(compile,reduced_effort)} {
+        lappend qor_cmd -reduced_effort
+    }
+
+    if {[info exists fcfp(compile,active_scenarios)] && $fcfp(compile,active_scenarios) ne ""} {
+        set_scenario_status -active false [get_scenarios -filter active]
+        set_scenario_status -active true $fcfp(compile,active_scenarios)
+    }
+
+    handle_info "Running: $qor_cmd"
+    eval $qor_cmd
+
+    # Handle hybrid library type
+    set rm_lib_type [get_attribute -quiet [current_design] rm_lib_type]
+    if {$rm_lib_type ne "" && [regexp {h$} $rm_lib_type]} {
+        handle_info "Hybrid library detected -- setting congestion_driven_max_util to 0.85"
+        set_app_options -name place.coarse.congestion_driven_max_util -value 0.85
+        eval $qor_cmd
+    }
+
+    handle_info "Init compile QoR strategy set"
+}
+
+# ==============================================================================
+# flow_proc: run_compile
+# FC-RM: compile_fusion -to logic_opto (early compile for area estimation)
+# ==============================================================================
+flow_proc run_compile {
+    handle_info "Running init_compile (compile_fusion -to logic_opto)..."
+    global fcfp
+
+    set compile_to [expr {[info exists fcfp(compile,early_stage)] ? $fcfp(compile,early_stage) : "logic_opto"}]
+
+    handle_info "compile_fusion -to $compile_to"
+    compile_fusion -to $compile_to
+
+    change_names -rules verilog -hierarchy -skip_physical_only_cells
+    connect_pg_net
+
+    handle_info "Init compile ($compile_to) completed"
+}
+
+# ==============================================================================
+# flow_proc: save_design
+# ==============================================================================
+flow_proc save_design {
+    handle_info "Saving init_compile block..."
+    global fcfp flow
+
+    set design_name [expr {[info exists fcfp(design_name)] ? $fcfp(design_name) : $flow(design_name)}]
+
+    save_lib -all
+    save_block
+    save_block -as ${design_name}/init_compile
+    handle_info "Block saved: ${design_name}/init_compile"
+}
+
+# ==============================================================================
+# flow_proc: generate_reports
+# ==============================================================================
+flow_proc generate_reports {
+    handle_info "Generating init_compile reports..."
+    global fcfp
+
+    set max_paths [expr {[info exists fcfp(analysis,max_paths)] ? $fcfp(analysis,max_paths) : 100}]
+
+    redirect -file $::REPORTS_DIR/report_qor.rpt { report_qor }
+    redirect -file $::REPORTS_DIR/report_timing.rpt {
+        report_timing -max_paths $max_paths -delay_type max
+    }
+    redirect -file $::REPORTS_DIR/report_timing.min.rpt {
+        report_timing -max_paths $max_paths -delay_type min
+    }
+    redirect -file $::REPORTS_DIR/report_utilization.rpt { report_utilization }
+    redirect -file $::REPORTS_DIR/report_design.rpt { report_design -physical }
+    redirect -file $::REPORTS_DIR/report_msg_summary.rpt { report_msg -summary }
+
+    handle_info "Init_compile reports generated in: $::REPORTS_DIR"
+}
+
+# ==============================================================================
+# Source setup.tcl and overrides before flow_exec_all
+# ==============================================================================
+set _setup_file "$run_dir/work/FCFP/init_compile/run/setup.tcl"
+if {[file exists $_setup_file]} { handle_info "Sourcing setup hooks: $_setup_file"; source $_setup_file }
+set _override_file "$run_dir/setup/override_setup.tcl"
+if {[file exists $_override_file]} { handle_info "Sourcing user override: $_override_file"; source $_override_file }
+set _stage_override "$run_dir/setup/override_setup.init_compile.tcl"
+if {[file exists $_stage_override]} { handle_info "Sourcing stage override: $_stage_override"; source $_stage_override }
+
+flow_exec_all
+
+# Exit tool after stage completion
+exit

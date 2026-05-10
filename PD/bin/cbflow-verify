@@ -1,0 +1,764 @@
+#!/usr/bin/env python3
+"""
+CBflow Production Verification
+Tests every CLI command and generates a pass/fail report.
+Usage: cbflow-verify [--verbose] [--category N] [--save-report PATH] [--no-cleanup]
+"""
+
+import argparse
+import os
+import platform
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import List, Optional, Dict
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Path Resolution
+# ═══════════════════════════════════════════════════════════════════════════════
+SCRIPT_DIR = Path(__file__).resolve().parent
+CBFLOW_CORE = SCRIPT_DIR.parent
+CBFLOW_ROOT = CBFLOW_CORE.parent
+COMMANDS_DIR = CBFLOW_CORE / "utils" / "commands"
+WORKAREA = CBFLOW_ROOT / "workarea_test"
+TEST_RUN = WORKAREA / "P0_run_SYNTH_PNR_lsf_test"
+CBFLOW_BIN = CBFLOW_CORE / "bin" / "cbflow"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Data Structures
+# ═══════════════════════════════════════════════════════════════════════════════
+@dataclass
+class TestResult:
+    test_id: str
+    name: str
+    category: int
+    status: str = ""  # PASS, FAIL, SKIP
+    duration: float = 0.0
+    return_code: int = 0
+    stdout: str = ""
+    stderr: str = ""
+    error_msg: str = ""
+
+@dataclass
+class TestSpec:
+    test_id: str
+    name: str
+    category: int
+    cmd: List[str]
+    cwd: str = ""
+    env_extra: Dict[str, str] = field(default_factory=dict)
+    timeout: int = 15
+    expect_rc: int = 0
+    skip_reason: str = ""
+    check_stdout: str = ""  # substring to look for in stdout
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Environment
+# ═══════════════════════════════════════════════════════════════════════════════
+def base_env():
+    env = os.environ.copy()
+    env["CBFLOW_CORE_DIR"] = str(CBFLOW_CORE)
+    env["CBFLOW_ROOT"] = str(CBFLOW_ROOT)
+    env["FLOW_DIR"] = str(CBFLOW_CORE)
+    env["PYTHONPATH"] = str(COMMANDS_DIR)
+    env["CONFIG_ROOT"] = str(CBFLOW_CORE / "config")
+    env["SCRIPTS_ROOT"] = str(CBFLOW_CORE / "utils")
+    env["FLOW_CONFIG_VERSION"] = "v1.0.0"
+    env["UTILITIES_VERSION"] = "v1.0.0"
+    return env
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Category 1: Help/Argparse Validation
+# ═══════════════════════════════════════════════════════════════════════════════
+def build_cat1_tests() -> List[TestSpec]:
+    tests = []
+    modules = {
+        "workspace_cmd.py": ["create", "template", "status", "list-runs", "validate", "update", "clean"],
+        "run_cmd.py": ["all", "stage", "status", "report", "validate", "logs", "retrace",
+                       "list-nodes", "show-graph", "add-node", "delete-node",
+                       "create-branch", "list-branches", "delete-branch",
+                       "clean", "update", "gen-makefile", "release-info", "targets", "lsf-status"],
+        "flow_cmd.py": ["types", "info", "stages", "nodes", "check"],
+        "project_cmd.py": ["list", "info", "create", "delete"],
+        "release_cmd.py": ["list", "info", "create", "set-current", "validate",
+                          "components", "diff", "generate-config"],
+        "version_cmd.py": ["list", "create", "set-current", "get-current", "copy", "diff", "status"],
+        "config_cmd.py": ["manage-flow", "manage-node", "manage-tech", "validate", "status"],
+        "plugin_cmd.py": ["list", "scaffold", "register", "unregister"],
+        "checklist_cmd.py": ["list", "generate", "status", "sign-off", "waiver"],
+        "qor_report_cmd.py": ["generate", "compare", "summary"],
+        "trending_cmd.py": ["report", "baseline", "check", "record", "stats"],
+        "metrics_cmd.py": ["collect", "report", "export"],
+        "dashboard_cmd.py": ["start", "stop"],
+        "mmmc_manager_cmd.py": ["create", "show", "validate", "generate-view-def", "add-mode", "remove-mode"],
+        "library_manager_cmd.py": ["scan", "create", "check", "list", "verify", "generate-mmmc"],
+        "lsf_manager_cmd.py": ["show", "map", "validate"],
+    }
+
+    for module, subcmds in modules.items():
+        mod_name = module.replace(".py", "").replace("_cmd", "").replace("_", "-")
+        # Top-level --help
+        tests.append(TestSpec(
+            test_id=f"cat1.{mod_name}.help",
+            name=f"{module} --help",
+            category=1,
+            cmd=["python3", module, "--help"],
+            cwd=str(COMMANDS_DIR),
+        ))
+        for sub in subcmds:
+            tests.append(TestSpec(
+                test_id=f"cat1.{mod_name}.{sub}.help",
+                name=f"{module} {sub} --help",
+                category=1,
+                cmd=["python3", module, sub, "--help"],
+                cwd=str(COMMANDS_DIR),
+            ))
+
+    return tests
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Category 2: Read-only Execution
+# ═══════════════════════════════════════════════════════════════════════════════
+def build_cat2_tests() -> List[TestSpec]:
+    cbflow = str(CBFLOW_BIN)
+    core_dir = str(CBFLOW_CORE)
+    workarea = str(WORKAREA)
+    run_dir = str(TEST_RUN)
+
+    tests = []
+
+    # Flow commands (from CBFLOW_CORE_DIR)
+    flow_tests = [
+        ("flow types", [cbflow, "flow", "types"]),
+        ("flow info --flow PNR", [cbflow, "flow", "info", "--flow", "PNR"]),
+        ("flow info --flow SYNTH_PNR", [cbflow, "flow", "info", "--flow", "SYNTH_PNR"]),
+        ("flow stages --flow PNR", [cbflow, "flow", "stages", "--flow", "PNR"]),
+        ("flow stages --flow SYNTH_PNR", [cbflow, "flow", "stages", "--flow", "SYNTH_PNR"]),
+        ("flow check", [cbflow, "flow", "check"]),
+        ("flow project list", [cbflow, "flow", "project", "list"]),
+        ("flow project info ravendrive", [cbflow, "flow", "project", "info", "--name", "ravendrive"]),
+        ("flow release list", [cbflow, "flow", "release", "list"]),
+        ("flow release info v1.0.0", [cbflow, "flow", "release", "info", "--version", "v1.0.0"]),
+        ("flow release components", [cbflow, "flow", "release", "components"]),
+        ("flow release validate v1.0.0", [cbflow, "flow", "release", "validate", "--version", "v1.0.0"]),
+        ("flow config status", [cbflow, "flow", "config", "status"]),
+        ("flow config validate", [cbflow, "flow", "config", "validate"]),
+        ("flow plugin list", [cbflow, "flow", "plugin", "list"]),
+        ("flow checklist list", [cbflow, "flow", "checklist", "list"]),
+        ("flow lsf-manager show", [cbflow, "flow", "lsf-manager", "show"]),
+        ("flow lsf-manager validate", [cbflow, "flow", "lsf-manager", "validate"]),
+        ("flow lsf-manager map --flow PNR", [cbflow, "flow", "lsf-manager", "map", "--flow", "PNR"]),
+        ("flow mmmc-manager show", [cbflow, "flow", "mmmc-manager", "show"]),
+        ("flow mmmc-manager validate", [cbflow, "flow", "mmmc-manager", "validate"]),
+        ("flow version status", [cbflow, "flow", "version", "status"]),
+        # Library manager
+        ("flow library-manager list", [cbflow, "flow", "library-manager", "list",
+            "--tech-config", str(CBFLOW_CORE / "config" / "tech" / "gf_22nm" / "v1.0.0" / "tech_config.tcl")]),
+        ("flow library-manager check", [cbflow, "flow", "library-manager", "check",
+            "--tech-config", str(CBFLOW_CORE / "config" / "tech" / "gf_22nm" / "v1.0.0" / "tech_config.tcl")]),
+        # MMMC manager (additional)
+        ("flow mmmc-manager generate-view-def", [cbflow, "flow", "mmmc-manager", "generate-view-def"]),
+        # Metrics (read-only, may show empty)
+        ("flow metrics report", [cbflow, "flow", "metrics", "report"]),
+        # Checklist
+        ("flow checklist generate --milestone FP_EXIT",
+            [cbflow, "flow", "checklist", "generate", "--milestone", "FP_EXIT"]),
+    ]
+    for name, cmd in flow_tests:
+        tests.append(TestSpec(
+            test_id=f"cat2.{name.replace(' ', '.').replace('--', '')}",
+            name=name,
+            category=2,
+            cmd=cmd,
+            cwd=core_dir,
+        ))
+
+    # Workspace commands (from workarea)
+    if Path(workarea).exists():
+        ws_tests = [
+            ("workspace status", [cbflow, "workspace", "status"]),
+            ("workspace list-runs", [cbflow, "workspace", "list-runs"]),
+        ]
+        for name, cmd in ws_tests:
+            tests.append(TestSpec(
+                test_id=f"cat2.{name.replace(' ', '.')}",
+                name=name,
+                category=2,
+                cmd=cmd,
+                cwd=workarea,
+            ))
+
+    # Run commands (from test run dir)
+    if Path(run_dir).exists():
+        run_tests = [
+            ("run status", [cbflow, "run", "status"]),
+            ("run status --details", [cbflow, "run", "status", "--details"]),
+            ("run list-nodes", [cbflow, "run", "list-nodes"]),
+            ("run show-graph", [cbflow, "run", "show-graph"]),
+            ("run show-graph --detail", [cbflow, "run", "show-graph", "--detail"]),
+            ("run report --no-dump", [cbflow, "run", "report", "--no-dump"]),
+            ("run release-info", [cbflow, "run", "release-info"]),
+            ("run list-branches", [cbflow, "run", "list-branches"]),
+            ("run logs --list", [cbflow, "run", "logs", "--list"]),
+            ("run targets", [cbflow, "run", "targets"]),
+            ("run help", [cbflow, "run", "help"]),
+        ]
+        for name, cmd in run_tests:
+            tests.append(TestSpec(
+                test_id=f"cat2.{name.replace(' ', '.').replace('--', '')}",
+                name=name,
+                category=2,
+                cmd=cmd,
+                cwd=run_dir,
+            ))
+    else:
+        tests.append(TestSpec(
+            test_id="cat2.run.skip",
+            name="run commands (no test run dir)",
+            category=2,
+            cmd=[],
+            skip_reason=f"Test run dir not found: {run_dir}",
+        ))
+
+    return tests
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Category 3: Full Flow Test
+# ═══════════════════════════════════════════════════════════════════════════════
+def build_cat3_tests(tmp_dir: str) -> List[TestSpec]:
+    cbflow = str(CBFLOW_BIN)
+    tests = []
+
+    # Write user_config.tcl
+    config_content = '''#!/usr/bin/env tclsh
+set project(name)        "ravendrive"
+set project(phase)       "P0"
+set flow(type)           "SYNTH_PNR"
+set flow(design_name)    "cpu_core"
+set flow(run_name)       "verify_test"
+set flow(test_mode)      "true"
+set flow(use_lsf)        "true"
+set flow(use_xterm)      "true"
+set synth_pnr(input,rtl_filelist)   "{rtl}"
+set synth_pnr(input,sdc_func_file)  "{sdc}"
+set synth_pnr(input,upf_file)       "{upf}"
+set synth_pnr(input,rtl_format)     "sverilog"
+'''.format(
+        rtl=str(CBFLOW_ROOT / "rtl.list"),
+        sdc=str(CBFLOW_ROOT / "func.sdc"),
+        upf=str(CBFLOW_ROOT / "power.upf"),
+    )
+    config_path = os.path.join(tmp_dir, "user_config.tcl")
+    with open(config_path, "w") as f:
+        f.write(config_content)
+
+    # Ensure dummy input files exist
+    for fname in ["rtl.list", "func.sdc", "power.upf"]:
+        p = CBFLOW_ROOT / fname
+        if not p.exists():
+            p.touch()
+
+    # Test: workspace create
+    tests.append(TestSpec(
+        test_id="cat3.workspace.create",
+        name="workspace create --config user_config.tcl",
+        category=3,
+        cmd=[cbflow, "workspace", "create", "--config", config_path],
+        cwd=tmp_dir,
+        timeout=30,
+    ))
+
+    # Remaining tests are file checks + handler runs (added dynamically after create)
+    return tests
+
+
+def run_cat3_dynamic_tests(runner, tmp_dir: str, verbose: bool):
+    """Run dynamic tests after workspace create succeeds."""
+    run_dir = os.path.join(tmp_dir, "P0_run_SYNTH_PNR_verify_test")
+    cbflow = str(CBFLOW_BIN)
+    handler_dir = str(CBFLOW_CORE / "cmds" / "SYNTH_PNR" / "synopsys" / "fc" / "v1.0.0")
+
+    # File existence checks
+    checks = [
+        (".run.cbflow.tcl", "Run TCL env exists"),
+        (".run.cbflow.env", "Run shell env exists"),
+        ("Makefile", "Makefile exists"),
+        (".make", ".make/ directory exists"),
+        ("setup/user_config.tcl", "user_config copied to setup/"),
+    ]
+    for path, desc in checks:
+        full = os.path.join(run_dir, path)
+        result = TestResult(
+            test_id=f"cat3.check.{path.replace('/', '.').replace('.', '_')}",
+            name=desc,
+            category=3,
+        )
+        if os.path.exists(full):
+            result.status = "PASS"
+        else:
+            result.status = "FAIL"
+            result.error_msg = f"Not found: {full}"
+        runner.results.append(result)
+        runner.print_result(result)
+
+    # Run handlers in test mode and verify wrappers
+    stages = ["init_design", "synthesis", "place", "cts", "cts_opt",
+              "route", "pro", "signoff", "export_data", "release_data"]
+
+    for stage in stages:
+        work_dir = os.path.join(run_dir, "work", "SYNTH_PNR", f"{stage}1", "run")
+        os.makedirs(work_dir, exist_ok=True)
+        os.makedirs(os.path.join(run_dir, "logs"), exist_ok=True)
+
+        handler = os.path.join(handler_dir, f"{stage}_subnode_handler.tcl")
+        spec = TestSpec(
+            test_id=f"cat3.handler.{stage}",
+            name=f"handler {stage} run (test mode)",
+            category=3,
+            cmd=["tclsh", handler, "run", run_dir, f"{stage}1"],
+            cwd=run_dir,
+            timeout=15,
+            check_stdout="run completed [TEST MODE]",
+        )
+        result = runner.run_test(spec)
+        runner.results.append(result)
+        runner.print_result(result)
+
+    # Verify wrapper scripts
+    wrappers_ok = 0
+    wrappers_total = 0
+    for stage in stages:
+        wrapper = os.path.join(run_dir, "work", "SYNTH_PNR", f"{stage}1", "run", f"launch_{stage}.csh")
+        wrappers_total += 1
+        result = TestResult(
+            test_id=f"cat3.wrapper.{stage}",
+            name=f"wrapper launch_{stage}.csh valid",
+            category=3,
+        )
+        if os.path.exists(wrapper):
+            content = open(wrapper).read()
+            if "#!/bin/csh -f" in content and "module load" in content and "fc_shell" in content:
+                result.status = "PASS"
+                wrappers_ok += 1
+            else:
+                result.status = "FAIL"
+                result.error_msg = "Wrapper missing shebang/module/fc_shell"
+        else:
+            result.status = "FAIL"
+            result.error_msg = f"Not found: {wrapper}"
+        runner.results.append(result)
+        runner.print_result(result)
+
+    # Verify launch mode display
+    launch_result = TestResult(
+        test_id="cat3.launch_mode",
+        name="test mode shows LSF launch mode",
+        category=3,
+    )
+    handler = os.path.join(handler_dir, "place_subnode_handler.tcl")
+    try:
+        r = subprocess.run(
+            ["tclsh", handler, "run", run_dir, "place1"],
+            capture_output=True, text=True, timeout=15, env=base_env()
+        )
+        if "Launch mode: LSF (interactive xterm)" in r.stdout:
+            launch_result.status = "PASS"
+        else:
+            launch_result.status = "FAIL"
+            launch_result.error_msg = "Missing 'Launch mode: LSF (interactive xterm)' in output"
+    except Exception as e:
+        launch_result.status = "FAIL"
+        launch_result.error_msg = str(e)
+    runner.results.append(launch_result)
+    runner.print_result(launch_result)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Category 4: Launch Chain Verification
+# ═══════════════════════════════════════════════════════════════════════════════
+def build_cat4_tests() -> List[TestSpec]:
+    tests = []
+    cbflow = str(CBFLOW_BIN)
+
+    # Bin scripts executable
+    for script in ["cbflow", "cbflow-flow", "cbflow-run", "cbflow-workspace",
+                   "cbflow-config", "cbflow-project", "cbflow-release",
+                   "cbflow-version", "cbflow-healthcheck", "cbflow-verify"]:
+        p = CBFLOW_CORE / "bin" / script
+        spec = TestSpec(
+            test_id=f"cat4.exec.{script}",
+            name=f"bin/{script} is executable",
+            category=4,
+            cmd=["test", "-x", str(p)],
+        )
+        if not p.exists():
+            spec.skip_reason = f"Not found: {p}"
+        tests.append(spec)
+
+    # cbflow --help and --version
+    tests.append(TestSpec(
+        test_id="cat4.cbflow.help",
+        name="cbflow --help",
+        category=4,
+        cmd=[cbflow, "--help"],
+        cwd=str(CBFLOW_CORE),
+    ))
+    tests.append(TestSpec(
+        test_id="cat4.cbflow.version",
+        name="cbflow --version",
+        category=4,
+        cmd=[cbflow, "--version"],
+        cwd=str(CBFLOW_CORE),
+        check_stdout="CBFlow",
+    ))
+
+    # Python import chain
+    for mod in ["tcl_config_parser", "logging_config", "makefile_generator",
+                "start_run", "graph_renderer", "node_manager", "log_viewer",
+                "validation_cmd"]:
+        tests.append(TestSpec(
+            test_id=f"cat4.import.{mod}",
+            name=f"import {mod}",
+            category=4,
+            cmd=["python3", "-c", f"import sys; sys.path.insert(0, '{COMMANDS_DIR}'); import {mod}"],
+            cwd=str(CBFLOW_CORE),
+        ))
+
+    # Handler pattern checks (run as shell)
+    tests.append(TestSpec(
+        test_id="cat4.handlers.new_pattern",
+        name="handlers with config-driven launch",
+        category=4,
+        cmd=["bash", "-c",
+             f"count=$(grep -rl 'Determine launch mode' --include='*_subnode_handler.tcl' '{CBFLOW_CORE}/cmds' | wc -l); "
+             f"echo \"$count handlers\"; [ $count -ge 120 ]"],
+        cwd=str(CBFLOW_CORE),
+    ))
+    tests.append(TestSpec(
+        test_id="cat4.handlers.no_old",
+        name="no handlers with old launch pattern",
+        category=4,
+        cmd=["bash", "-c",
+             f"count=0; for f in $(grep -rl 'CBFLOW_USE_LSF' --include='*_subnode_handler.tcl' '{CBFLOW_CORE}/cmds'); do "
+             f"grep -q 'Determine launch mode' \"$f\" || count=$((count+1)); done; "
+             f"echo \"$count old\"; [ $count -eq 0 ]"],
+        cwd=str(CBFLOW_CORE),
+    ))
+
+    # tool_launch_config.tcl loads in tclsh
+    tcl_test_script = (
+        f'source {CBFLOW_CORE}/config/flow/v1.0.0/tool_launch_config.tcl\\n'
+        f'puts "module_fc=$lsf(module,fc)"\\n'
+        f'puts "shell_fc=$lsf(tool_shell,fc)"\\n'
+        f'puts "queue=$lsf(bsub,queue)"'
+    )
+    tests.append(TestSpec(
+        test_id="cat4.tcl.tool_launch_config",
+        name="tool_launch_config.tcl loads in tclsh",
+        category=4,
+        cmd=["bash", "-c", f'echo -e \'{tcl_test_script}\' | tclsh'],
+        cwd=str(CBFLOW_CORE),
+        check_stdout="module_fc=module load",
+    ))
+
+    return tests
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Test Runner
+# ═══════════════════════════════════════════════════════════════════════════════
+class TestRunner:
+    def __init__(self, verbose=False):
+        self.verbose = verbose
+        self.results: List[TestResult] = []
+        self.start_time = time.time()
+
+    def run_test(self, spec: TestSpec) -> TestResult:
+        result = TestResult(
+            test_id=spec.test_id,
+            name=spec.name,
+            category=spec.category,
+        )
+
+        if spec.skip_reason:
+            result.status = "SKIP"
+            result.error_msg = spec.skip_reason
+            return result
+
+        if not spec.cmd:
+            result.status = "SKIP"
+            result.error_msg = "No command"
+            return result
+
+        env = base_env()
+        env.update(spec.env_extra)
+
+        t0 = time.time()
+        try:
+            r = subprocess.run(
+                spec.cmd,
+                capture_output=True,
+                text=True,
+                timeout=spec.timeout,
+                cwd=spec.cwd or None,
+                env=env,
+            )
+            result.duration = time.time() - t0
+            result.return_code = r.returncode
+            result.stdout = r.stdout
+            result.stderr = r.stderr
+
+            if r.returncode == spec.expect_rc:
+                if spec.check_stdout and spec.check_stdout not in r.stdout:
+                    result.status = "FAIL"
+                    result.error_msg = f"Expected '{spec.check_stdout}' in stdout"
+                else:
+                    result.status = "PASS"
+            else:
+                result.status = "FAIL"
+                # Extract useful error from stderr
+                err_lines = [l for l in r.stderr.strip().split("\n") if l.strip()]
+                result.error_msg = err_lines[-1] if err_lines else f"rc={r.returncode}"
+
+        except subprocess.TimeoutExpired:
+            result.duration = time.time() - t0
+            result.status = "FAIL"
+            result.error_msg = f"Timeout ({spec.timeout}s)"
+        except Exception as e:
+            result.duration = time.time() - t0
+            result.status = "FAIL"
+            result.error_msg = str(e)
+
+        return result
+
+    def print_result(self, result: TestResult):
+        colors = {"PASS": "\033[32m", "FAIL": "\033[31m", "SKIP": "\033[33m"}
+        reset = "\033[0m"
+        c = colors.get(result.status, "")
+        dur = f"{result.duration:.2f}s" if result.duration > 0 else ""
+        print(f"  {c}[{result.status}]{reset}  {result.name:<45s} {dur}")
+        if result.status == "FAIL" and result.error_msg:
+            print(f"         {result.error_msg[:120]}")
+        if self.verbose and result.status == "SKIP" and result.error_msg:
+            print(f"         {result.error_msg}")
+
+    def run_category(self, cat_num: int, cat_name: str, tests: List[TestSpec]):
+        print(f"\n{'─' * 65}")
+        print(f"  Category {cat_num}: {cat_name} ({len(tests)} tests)")
+        print(f"{'─' * 65}")
+
+        t0 = time.time()
+        for spec in tests:
+            result = self.run_test(spec)
+            self.results.append(result)
+            self.print_result(result)
+
+        dur = time.time() - t0
+        cat_results = [r for r in self.results if r.category == cat_num]
+        passed = sum(1 for r in cat_results if r.status == "PASS")
+        failed = sum(1 for r in cat_results if r.status == "FAIL")
+        skipped = sum(1 for r in cat_results if r.status == "SKIP")
+        total = len(cat_results)
+
+        parts = [f"{passed}/{total} PASS"]
+        if failed:
+            parts.append(f"\033[31m{failed} FAIL\033[0m")
+        if skipped:
+            parts.append(f"\033[33m{skipped} SKIP\033[0m")
+        print(f"\n  Result: {', '.join(parts)}  ({dur:.1f}s)")
+
+    def print_summary(self, report_path: Optional[str] = None):
+        total_dur = time.time() - self.start_time
+        categories = sorted(set(r.category for r in self.results))
+
+        print(f"\n{'═' * 65}")
+        print(f"  SUMMARY")
+        print(f"{'═' * 65}")
+
+        total_pass = total_fail = total_skip = 0
+        for cat in categories:
+            cat_results = [r for r in self.results if r.category == cat]
+            p = sum(1 for r in cat_results if r.status == "PASS")
+            f = sum(1 for r in cat_results if r.status == "FAIL")
+            s = sum(1 for r in cat_results if r.status == "SKIP")
+            total_pass += p
+            total_fail += f
+            total_skip += s
+
+            cat_names = {1: "Help/Argparse", 2: "Read-only Exec", 3: "Full Flow Test", 4: "Launch Chain"}
+            name = cat_names.get(cat, f"Category {cat}")
+            status_parts = [f"{p}/{len(cat_results)} PASS"]
+            if f:
+                status_parts.append(f"{f} FAIL")
+            if s:
+                status_parts.append(f"{s} SKIP")
+            print(f"  Category {cat} ({name:<16s}): {', '.join(status_parts)}")
+
+        total = total_pass + total_fail + total_skip
+        print(f"  {'─' * 50}")
+        print(f"  \033[32mPASS: {total_pass}\033[0m")
+        if total_fail:
+            print(f"  \033[31mFAIL: {total_fail}\033[0m")
+        else:
+            print(f"  FAIL: 0")
+        if total_skip:
+            print(f"  \033[33mSKIP: {total_skip}\033[0m")
+        print(f"  Duration: {total_dur:.1f}s")
+
+        if report_path:
+            self.save_report(report_path)
+            print(f"  Report: {report_path}")
+
+        print()
+        if total_fail == 0:
+            print(f"  \033[32mCBflow production verification PASSED.\033[0m")
+        else:
+            print(f"  \033[31m{total_fail} FAILURE(S) — review above.\033[0m")
+        print()
+
+    def save_report(self, path: str):
+        os.makedirs(os.path.dirname(path) if os.path.dirname(path) else ".", exist_ok=True)
+        with open(path, "w") as f:
+            f.write("CBflow Production Verification Report\n")
+            f.write(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Host: {platform.node()}\n")
+            f.write(f"Python: {sys.version.split()[0]}\n")
+            f.write(f"Core Dir: {CBFLOW_CORE}\n")
+            f.write(f"{'=' * 70}\n\n")
+
+            for cat in sorted(set(r.category for r in self.results)):
+                cat_names = {1: "Help/Argparse", 2: "Read-only Exec", 3: "Full Flow Test", 4: "Launch Chain"}
+                f.write(f"Category {cat}: {cat_names.get(cat, '')}\n")
+                f.write(f"{'-' * 70}\n")
+                for r in self.results:
+                    if r.category != cat:
+                        continue
+                    dur = f"{r.duration:.2f}s" if r.duration > 0 else ""
+                    f.write(f"  [{r.status}]  {r.name:<45s} {dur}\n")
+                    if r.status == "FAIL" and r.error_msg:
+                        f.write(f"         {r.error_msg}\n")
+
+                cat_results = [r for r in self.results if r.category == cat]
+                p = sum(1 for r in cat_results if r.status == "PASS")
+                total = len(cat_results)
+                f.write(f"\n  Result: {p}/{total} PASS\n\n")
+
+            # Summary
+            f.write(f"{'=' * 70}\nSUMMARY\n{'=' * 70}\n")
+            total_pass = sum(1 for r in self.results if r.status == "PASS")
+            total_fail = sum(1 for r in self.results if r.status == "FAIL")
+            total_skip = sum(1 for r in self.results if r.status == "SKIP")
+            f.write(f"PASS: {total_pass}\n")
+            f.write(f"FAIL: {total_fail}\n")
+            f.write(f"SKIP: {total_skip}\n")
+            f.write(f"TOTAL: {total_pass + total_fail + total_skip}\n")
+            verdict = "PASSED" if total_fail == 0 else "FAILED"
+            f.write(f"\nVERDICT: {verdict}\n")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Main
+# ═══════════════════════════════════════════════════════════════════════════════
+def main():
+    parser = argparse.ArgumentParser(description="CBflow Production Verification")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Show verbose output")
+    parser.add_argument("--category", "-c", type=int, help="Run only this category (1-4)")
+    parser.add_argument("--save-report", "-s", help="Save report to file")
+    parser.add_argument("--no-cleanup", action="store_true", help="Keep temp dirs for debugging")
+    args = parser.parse_args()
+
+    print()
+    print("═" * 65)
+    print("  CBflow Production Verification")
+    print(f"  Date:     {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"  Host:     {platform.node()}")
+    print(f"  Python:   {sys.version.split()[0]}")
+    print(f"  Core Dir: {CBFLOW_CORE}")
+    print("═" * 65)
+
+    runner = TestRunner(verbose=args.verbose)
+    run_cats = [args.category] if args.category else [1, 2, 3, 4]
+
+    # Category 1
+    if 1 in run_cats:
+        runner.run_category(1, "Help/Argparse Validation", build_cat1_tests())
+
+    # Category 2
+    if 2 in run_cats:
+        runner.run_category(2, "Read-only Execution", build_cat2_tests())
+
+    # Category 3
+    if 3 in run_cats:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        tmp_dir = tempfile.mkdtemp(prefix=f"cbflow_verify_{ts}_")
+        print(f"\n{'─' * 65}")
+        print(f"  Category 3: Full Flow Test")
+        print(f"  Temp dir: {tmp_dir}")
+        print(f"{'─' * 65}")
+
+        cat3_tests = build_cat3_tests(tmp_dir)
+        for spec in cat3_tests:
+            result = runner.run_test(spec)
+            runner.results.append(result)
+            runner.print_result(result)
+
+        # If workspace create passed, run dynamic tests
+        create_result = [r for r in runner.results if r.test_id == "cat3.workspace.create"]
+        if create_result and create_result[0].status == "PASS":
+            run_cat3_dynamic_tests(runner, tmp_dir, args.verbose)
+        else:
+            fail_r = TestResult(
+                test_id="cat3.skip",
+                name="dynamic tests skipped (workspace create failed)",
+                category=3,
+                status="SKIP",
+                error_msg="workspace create failed",
+            )
+            runner.results.append(fail_r)
+            runner.print_result(fail_r)
+
+        # Print category summary
+        cat3 = [r for r in runner.results if r.category == 3]
+        p = sum(1 for r in cat3 if r.status == "PASS")
+        f = sum(1 for r in cat3 if r.status == "FAIL")
+        s = sum(1 for r in cat3 if r.status == "SKIP")
+        parts = [f"{p}/{len(cat3)} PASS"]
+        if f: parts.append(f"\033[31m{f} FAIL\033[0m")
+        if s: parts.append(f"\033[33m{s} SKIP\033[0m")
+        print(f"\n  Result: {', '.join(parts)}")
+
+        # Cleanup
+        if not args.no_cleanup:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        else:
+            print(f"  Temp dir preserved: {tmp_dir}")
+
+    # Category 4
+    if 4 in run_cats:
+        runner.run_category(4, "Launch Chain Verification", build_cat4_tests())
+
+    # Report
+    report_path = args.save_report
+    if not report_path:
+        logs_dir = CBFLOW_CORE / "logs"
+        logs_dir.mkdir(exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        report_path = str(logs_dir / f"verify_{ts}.txt")
+
+    runner.print_summary(report_path)
+
+    total_fail = sum(1 for r in runner.results if r.status == "FAIL")
+    return 1 if total_fail > 0 else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

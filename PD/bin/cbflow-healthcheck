@@ -1,0 +1,477 @@
+#!/usr/bin/env python3
+"""
+CBflow Health Check
+Validates that all required modules, scripts, configs, and dependencies are present.
+Usage: cbflow-healthcheck [--verbose]
+"""
+
+import os
+import sys
+import importlib
+import subprocess
+import shutil
+from pathlib import Path
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Resolve CBFLOW paths
+# ═══════════════════════════════════════════════════════════════════════════════
+SCRIPT_DIR = Path(__file__).resolve().parent
+CBFLOW_CORE = SCRIPT_DIR.parent                    # PD/
+CBFLOW_ROOT = CBFLOW_CORE.parent                   # CBflow_clone/
+COMMANDS_DIR = CBFLOW_CORE / "utils" / "commands"
+
+VERBOSE = "--verbose" in sys.argv or "-v" in sys.argv
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Counters
+# ═══════════════════════════════════════════════════════════════════════════════
+PASS = 0
+FAIL = 0
+WARN = 0
+
+def ok(msg):
+    global PASS
+    PASS += 1
+    print(f"  \033[32m[OK]\033[0m    {msg}")
+
+def fail(msg):
+    global FAIL
+    FAIL += 1
+    print(f"  \033[31m[FAIL]\033[0m  {msg}")
+
+def warn(msg):
+    global WARN
+    WARN += 1
+    print(f"  \033[33m[WARN]\033[0m  {msg}")
+
+def skip(msg):
+    if VERBOSE:
+        print(f"  [SKIP]  {msg}")
+
+def section(title):
+    print(f"\n{'─' * 60}")
+    print(f"  {title}")
+    print(f"{'─' * 60}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 1. System Prerequisites
+# ═══════════════════════════════════════════════════════════════════════════════
+def check_system():
+    section("1. System Prerequisites")
+
+    # Python
+    v = sys.version_info
+    if v.major == 3 and v.minor >= 6:
+        ok(f"Python {v.major}.{v.minor}.{v.micro}")
+    else:
+        fail(f"Python {v.major}.{v.minor}.{v.micro} (need 3.6+)")
+
+    # tclsh
+    if shutil.which("tclsh"):
+        try:
+            r = subprocess.run(["tclsh", "<<EOF\nputs $tcl_version\nEOF"],
+                               capture_output=True, text=True, timeout=5,
+                               shell=True)
+            # Fallback: just check binary exists
+            ok("tclsh found in PATH")
+        except Exception:
+            ok("tclsh found in PATH")
+    else:
+        fail("tclsh not found in PATH")
+
+    # make
+    if shutil.which("make"):
+        ok("GNU make found in PATH")
+    else:
+        fail("make not found in PATH")
+
+    # bash
+    if shutil.which("bash"):
+        ok("bash found in PATH")
+    else:
+        fail("bash not found in PATH")
+
+    # Optional: bsub (LSF)
+    if shutil.which("bsub"):
+        ok("bsub (LSF) found in PATH")
+    else:
+        warn("bsub (LSF) not in PATH — LSF submission will fail (OK for local execution)")
+
+    # Optional: xterm
+    if shutil.which("xterm"):
+        ok("xterm found in PATH")
+    else:
+        warn("xterm not in PATH — xterm launch mode unavailable")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 2. Python Standard Library Imports
+# ═══════════════════════════════════════════════════════════════════════════════
+def check_stdlib():
+    section("2. Python Standard Library")
+
+    stdlib_modules = [
+        "argparse", "os", "sys", "re", "json", "logging", "subprocess",
+        "shutil", "csv", "getpass", "io", "signal", "sqlite3",
+        "pathlib", "datetime", "collections", "dataclasses", "typing",
+    ]
+    for mod in stdlib_modules:
+        try:
+            importlib.import_module(mod)
+            if VERBOSE:
+                ok(f"{mod}")
+        except ImportError:
+            fail(f"{mod} — missing from Python installation")
+
+    if not VERBOSE:
+        ok(f"All {len(stdlib_modules)} standard library modules present")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 3. CBflow CLI Scripts (bin/)
+# ═══════════════════════════════════════════════════════════════════════════════
+def check_bin_scripts():
+    section("3. CLI Scripts (bin/)")
+
+    expected = [
+        "cbflow", "cbflow-flow", "cbflow-run", "cbflow-workspace",
+        "cbflow-config", "cbflow-project", "cbflow-release", "cbflow-version",
+    ]
+    for script in expected:
+        p = CBFLOW_CORE / "bin" / script
+        if p.exists():
+            if os.access(p, os.X_OK):
+                ok(f"{script}")
+            else:
+                warn(f"{script} — exists but not executable")
+        else:
+            fail(f"{script} — not found")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 4. Python Command Modules (utils/commands/)
+# ═══════════════════════════════════════════════════════════════════════════════
+def check_python_modules():
+    section("4. Python Command Modules (utils/commands/)")
+
+    expected = [
+        ("workspace_cmd.py", "Workspace management (create, status, template)"),
+        ("run_cmd.py", "Run execution (all, stage, status, retrace)"),
+        ("start_run.py", "Run creation logic"),
+        ("makefile_generator.py", "Makefile generation for stages"),
+        ("tcl_config_parser.py", "TCL config file parser"),
+        ("logging_config.py", "Logging configuration"),
+        ("flow_cmd.py", "Flow info commands"),
+        ("project_cmd.py", "Project management"),
+        ("release_cmd.py", "Release management"),
+        ("lsf_cmd.py", "LSF job submission"),
+        ("lsf_manager_cmd.py", "LSF manager (show, map, validate)"),
+        ("mmmc_manager_cmd.py", "MMMC scenario management"),
+        ("node_manager.py", "Dynamic node management"),
+        ("validation_cmd.py", "Validation framework"),
+        ("metrics_cmd.py", "Metrics collection"),
+        ("checklist_cmd.py", "Exit milestone checklists"),
+        ("qor_report_cmd.py", "QoR reporting"),
+        ("trending_cmd.py", "QoR trending"),
+        ("config_cmd.py", "Config management"),
+        ("version_cmd.py", "Version management"),
+        ("plugin_cmd.py", "Plugin system"),
+        ("dashboard_cmd.py", "Web dashboard"),
+        ("library_manager_cmd.py", "Library management"),
+        ("log_viewer.py", "Log viewer utility"),
+        ("graph_renderer.py", "Dependency graph renderer"),
+        ("__init__.py", "Package init"),
+    ]
+
+    found = 0
+    for filename, desc in expected:
+        p = COMMANDS_DIR / filename
+        if p.exists():
+            found += 1
+            if VERBOSE:
+                ok(f"{filename:<30s} {desc}")
+        else:
+            fail(f"{filename:<30s} {desc}")
+
+    if not VERBOSE:
+        ok(f"{found}/{len(expected)} Python command modules present")
+        if found < len(expected):
+            for filename, desc in expected:
+                if not (COMMANDS_DIR / filename).exists():
+                    fail(f"  Missing: {filename} — {desc}")
+
+    # Check cross-module imports work
+    sys.path.insert(0, str(COMMANDS_DIR))
+    critical_imports = [
+        ("tcl_config_parser", "Config parser"),
+        ("logging_config", "Logging config"),
+        ("makefile_generator", "Makefile generator"),
+        ("start_run", "Run creator"),
+    ]
+    for mod, desc in critical_imports:
+        try:
+            importlib.import_module(mod)
+            ok(f"import {mod} — {desc}")
+        except Exception as e:
+            fail(f"import {mod} — {e}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 5. TCL Utilities
+# ═══════════════════════════════════════════════════════════════════════════════
+def check_tcl_utilities():
+    section("5. TCL Utilities (utils/utilities/v1.0.0/)")
+
+    tcl_dir = CBFLOW_CORE / "utils" / "utilities" / "v1.0.0"
+    expected = [
+        "utils.tcl", "error_utils.tcl", "config_loader.tcl",
+        "directory_utils.tcl", "display_utils.tcl", "flow_init.tcl",
+    ]
+    for f in expected:
+        if (tcl_dir / f).exists():
+            ok(f) if VERBOSE else None
+        else:
+            fail(f"{f} — not found in utils/utilities/v1.0.0/")
+
+    if not VERBOSE:
+        found = sum(1 for f in expected if (tcl_dir / f).exists())
+        ok(f"{found}/{len(expected)} core TCL utilities present")
+
+    # Generation scripts
+    gen_dir = CBFLOW_CORE / "utils" / "generation" / "v1.0.0"
+    for f in ["generate_setup.tcl", "generate_config.tcl", "generate_inputs.tcl"]:
+        if (gen_dir / f).exists():
+            ok(f"generation/{f}") if VERBOSE else None
+        else:
+            fail(f"generation/{f} — not found")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 6. Configuration Files
+# ═══════════════════════════════════════════════════════════════════════════════
+def check_configs():
+    section("6. Configuration Files")
+
+    config_root = CBFLOW_CORE / "config"
+
+    # Flow config
+    flow_dir = config_root / "flow" / "v1.0.0"
+    flow_files = [
+        ("flow_config.tcl", "Flow types, phases, stages"),
+        ("tool_launch_config.tcl", "Module loads, tool shells, bsub, xterm, queue mappings"),
+        ("lsf_config.tcl", "LSF queue definitions, ML analytics, cost"),
+        ("mmmc_config.tcl", "Multi-mode multi-corner analysis views"),
+    ]
+    for f, desc in flow_files:
+        if (flow_dir / f).exists():
+            ok(f"{f:<30s} {desc}")
+        else:
+            fail(f"{f:<30s} {desc}")
+
+    # Node configs (14 flows)
+    node_dir = flow_dir / "node_configs"
+    expected_nodes = [
+        "SYNTH_PNR", "SYNTH", "PNR", "FP", "STA", "LEC",
+        "ECO", "CLP", "EMIR", "PV", "POPT", "FCFP",
+    ]
+    found_nodes = 0
+    for flow in expected_nodes:
+        if (node_dir / f"{flow}_config.tcl").exists():
+            found_nodes += 1
+            if VERBOSE:
+                ok(f"node_configs/{flow}_config.tcl")
+        else:
+            fail(f"node_configs/{flow}_config.tcl — missing")
+    if not VERBOSE:
+        ok(f"{found_nodes}/{len(expected_nodes)} node configs present")
+
+    # Tech configs
+    tech_dir = config_root / "tech"
+    if tech_dir.exists():
+        tech_nodes = [d.name for d in tech_dir.iterdir() if d.is_dir()]
+        for tn in tech_nodes:
+            tc = tech_dir / tn / "v1.0.0" / "tech_config.tcl"
+            if tc.exists():
+                ok(f"tech/{tn}/v1.0.0/tech_config.tcl")
+            else:
+                warn(f"tech/{tn}/v1.0.0/tech_config.tcl — not found")
+    else:
+        fail("config/tech/ directory not found")
+
+    # Project configs
+    proj_dir = config_root / "project"
+    if proj_dir.exists():
+        projects = [d.name for d in proj_dir.iterdir() if d.is_dir()]
+        ok(f"Projects found: {', '.join(projects)}")
+    else:
+        fail("config/project/ directory not found")
+
+    # Releases
+    rel_dir = CBFLOW_CORE / "releases"
+    if rel_dir.exists():
+        releases = sorted([d.name for d in rel_dir.iterdir()
+                          if d.is_dir() and d.name.startswith("v")])
+        ok(f"Releases: {', '.join(releases)}")
+        # Check manifest
+        for r in releases:
+            mf = rel_dir / r / "manifest.json"
+            if mf.exists():
+                if VERBOSE:
+                    ok(f"releases/{r}/manifest.json")
+            else:
+                warn(f"releases/{r}/manifest.json — missing")
+    else:
+        fail("releases/ directory not found")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 7. Subnode Handlers (cmds/)
+# ═══════════════════════════════════════════════════════════════════════════════
+def check_handlers():
+    section("7. Subnode Handlers (cmds/)")
+
+    cmds_dir = CBFLOW_CORE / "cmds"
+    if not cmds_dir.exists():
+        fail("cmds/ directory not found")
+        return
+
+    # Count handlers per flow
+    flow_handlers = {}
+    total = 0
+    for root, dirs, files in os.walk(cmds_dir):
+        for f in files:
+            if f.endswith("_subnode_handler.tcl"):
+                flow = Path(root).relative_to(cmds_dir).parts[0]
+                flow_handlers.setdefault(flow, 0)
+                flow_handlers[flow] += 1
+                total += 1
+
+    for flow in sorted(flow_handlers):
+        count = flow_handlers[flow]
+        ok(f"{flow:<12s} {count:>3d} handlers")
+
+    ok(f"Total: {total} subnode handlers")
+
+    # Check wrapper launch pattern
+    with_launch = 0
+    with_wrapper = 0
+    for root, dirs, files in os.walk(cmds_dir):
+        for f in files:
+            if f.endswith("_subnode_handler.tcl"):
+                path = Path(root) / f
+                content = path.read_text()
+                if "Determine launch mode" in content:
+                    with_launch += 1
+                if "tool_launch_config" in content:
+                    with_wrapper += 1
+
+    ok(f"{with_launch} handlers with config-driven launch (LSF/xterm/local)")
+    ok(f"{with_wrapper} handlers sourcing tool_launch_config.tcl")
+
+    # Check for any still using old pattern
+    old_pattern = 0
+    for root, dirs, files in os.walk(cmds_dir):
+        for f in files:
+            if f.endswith("_subnode_handler.tcl"):
+                path = Path(root) / f
+                content = path.read_text()
+                if "CBFLOW_USE_LSF" in content and "Determine launch mode" not in content:
+                    old_pattern += 1
+                    if VERBOSE:
+                        warn(f"Old launch pattern: {path.relative_to(cmds_dir)}")
+
+    if old_pattern > 0:
+        warn(f"{old_pattern} handlers still using old CBFLOW_USE_LSF pattern")
+    else:
+        ok("No handlers with old launch pattern")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 8. Command Files (cmds/*_fc.tcl, *_pt.tcl, etc.)
+# ═══════════════════════════════════════════════════════════════════════════════
+def check_command_files():
+    section("8. EDA Command Files (cmds/)")
+
+    cmds_dir = CBFLOW_CORE / "cmds"
+    cmd_files = {}
+    for root, dirs, files in os.walk(cmds_dir):
+        for f in files:
+            if f.endswith(".tcl") and not f.endswith("_subnode_handler.tcl"):
+                flow = Path(root).relative_to(cmds_dir).parts[0]
+                cmd_files.setdefault(flow, []).append(f)
+
+    for flow in sorted(cmd_files):
+        count = len(cmd_files[flow])
+        ok(f"{flow:<12s} {count:>3d} command files")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 9. Documentation
+# ═══════════════════════════════════════════════════════════════════════════════
+def check_docs():
+    section("9. Documentation")
+
+    docs_dir = CBFLOW_CORE / "docs"
+    if not docs_dir.exists():
+        fail("docs/ directory not found")
+        return
+
+    doc_sections = [
+        "00-kickstart", "01-quick-start", "02-user-guide",
+        "03-reference", "04-architecture", "05-developer", "06-examples",
+    ]
+    for sec in doc_sections:
+        p = docs_dir / sec
+        if p.exists():
+            count = len(list(p.glob("*.md")))
+            ok(f"{sec}/ — {count} docs")
+        else:
+            warn(f"{sec}/ — not found")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MAIN
+# ═══════════════════════════════════════════════════════════════════════════════
+def main():
+    print()
+    print("═" * 60)
+    print("  CBflow Health Check")
+    print(f"  Installation: {CBFLOW_CORE}")
+    print("═" * 60)
+
+    check_system()
+    check_stdlib()
+    check_bin_scripts()
+    check_python_modules()
+    check_tcl_utilities()
+    check_configs()
+    check_handlers()
+    check_command_files()
+    check_docs()
+
+    # Summary
+    print()
+    print("═" * 60)
+    print("  SUMMARY")
+    print("═" * 60)
+    print(f"  \033[32mPASS: {PASS}\033[0m")
+    if WARN:
+        print(f"  \033[33mWARN: {WARN}\033[0m")
+    if FAIL:
+        print(f"  \033[31mFAIL: {FAIL}\033[0m")
+    else:
+        print(f"  FAIL: 0")
+    print()
+
+    if FAIL == 0:
+        print("  \033[32mCBflow installation is healthy.\033[0m")
+    else:
+        print(f"  \033[31m{FAIL} issue(s) found. Fix before running flows.\033[0m")
+
+    print()
+    return 1 if FAIL > 0 else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

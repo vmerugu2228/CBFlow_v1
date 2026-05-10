@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.Python
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# NFS lock files
+.nfs*
+
+# Test artifacts
+/tmp/
+/workarea_test/*/work/
+/workarea_test/*/.stamps/
+/workarea_test/*/logs/
+/workarea_test/*/outputs/
+
+# IDE
+.vscode/
+.idea/
+*.sublime-*
+
+# VOV server state (future)
+.vov/server/

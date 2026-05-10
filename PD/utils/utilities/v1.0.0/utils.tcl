@@ -1,0 +1,581 @@
+#!/usr/bin/env tclsh
+#===============================================================================
+# CBFlow Utilities Library
+#
+# Description: Complete utilities library with clean namespace architecture
+# Version: 3.0.0
+# Author: CBFlow Management System
+#
+# Features:
+# - Clean namespace architecture
+# - Environment variable integration
+# - Standardized error handling
+# - Backward compatibility
+# - Modular design
+#===============================================================================
+
+# Load standardized error handling utilities
+set script_dir [file dirname [file normalize [info script]]]
+source "$script_dir/error_utils.tcl"
+
+# Clean namespace for CBFlow utilities
+namespace eval ::CBFlow::Utilities {
+
+    #===========================================================================
+    # VERSION AND CONSTANTS
+    #===========================================================================
+
+    variable UTILS_VERSION "3.0.0"
+    variable UTILS_DATE "2025-09-24"
+
+    #===========================================================================
+    # ENVIRONMENT VALIDATION PROCEDURES
+    #===========================================================================
+
+    proc validate_environment {} {
+        CBFLOW_HEADER "CBFlow Utilities - Environment Validation"
+
+        # Check for FLOW_ROOT or calculate it
+        if {![info exists ::env(FLOW_ROOT)] || $::env(FLOW_ROOT) eq ""} {
+            # Try to calculate from current script location
+            set script_dir [file dirname [file normalize [info script]]]
+            set utils_parent [file dirname [file dirname $script_dir]]
+            set calculated_flow_root [file dirname $utils_parent]
+            set ::env(FLOW_ROOT) $calculated_flow_root
+            CBFLOW_DEBUG "Calculated FLOW_ROOT = $calculated_flow_root" "ENV_VALIDATION"
+        } else {
+            CBFLOW_DEBUG "FLOW_ROOT = $::env(FLOW_ROOT)" "ENV_VALIDATION"
+        }
+
+        # Set default versions if not provided
+        set version_vars {
+            FLOW_CONFIG_VERSION
+            PROJECT_CONFIG_VERSION
+            TECH_CONFIG_VERSION
+            UTILITIES_VERSION
+        }
+
+        foreach var $version_vars {
+            if {![info exists ::env($var)] || $::env($var) eq ""} {
+                set ::env($var) "v1.0.0"
+                CBFLOW_DEBUG "Using default version for $var = v1.0.0" "ENV_VALIDATION"
+            }
+        }
+
+        # Optional run-specific variables
+        set optional_vars {
+            CBFLOW_DESIGN_NAME
+            CBFLOW_PROJECT_PHASE
+            CBFLOW_FLOW_TYPE
+        }
+
+        foreach var $optional_vars {
+            if {[info exists ::env($var)]} {
+                CBFLOW_DEBUG "Runtime variable '$var' = $::env($var)" "ENV_VALIDATION"
+            } else {
+                CBFLOW_DEBUG "Runtime variable '$var' not set" "ENV_VALIDATION"
+            }
+        }
+
+        CBFLOW_SUCCESS "Utilities environment validation completed with version-based structure" "ENV_VALIDATION"
+        return 1
+    }
+
+    #===========================================================================
+    # LOGO AND BRANDING PROCEDURES
+    #===========================================================================
+
+    proc get_early_logo_name {{flow_dir ""}} {
+        # Get logo name early by reading directly from logo configuration file
+        # This avoids any conflicts with global flow array state
+
+        # Construct logo config path using FLOW_ROOT and version
+        if {[info exists ::env(FLOW_ROOT)] && [info exists ::env(FLOW_CONFIG_VERSION)]} {
+            set logo_config "$::env(FLOW_ROOT)/config/flow/$::env(FLOW_CONFIG_VERSION)/logo_config.tcl"
+        } else {
+            return "CBFlow"
+        }
+
+        if {![file exists $logo_config]} {
+            return "CBFlow"
+        }
+
+        # Read logo name directly from file to avoid any global state conflicts
+        if {[catch {
+            set fp [open $logo_config r]
+            set found_logo "CBFlow"
+
+            while {[gets $fp line] >= 0} {
+                # Look for logo(name) pattern in the new format
+                if {[regexp {name\s+\"([^\"]+)\"} $line -> logo_name]} {
+                    set found_logo $logo_name
+                    break
+                }
+            }
+            close $fp
+        } error]} {
+            CBFLOW_WARNING "Failed to read logo config: $error" "LOGO"
+            return "CBFlow"
+        }
+
+        return $found_logo
+    }
+
+    proc get_logo_name {} {
+        # Backward compatibility wrapper
+        return [get_early_logo_name]
+    }
+
+    proc get_early_company_info {{flow_dir ""}} {
+        # Get company information from logo configuration
+        set company "CBFlow Development Team"
+        set tagline "Physical Design Automation Framework"
+        set copyright "© 2024 CBFlow Development Team. All rights reserved."
+        set version "v3.0.0"
+        set logo_message ""
+
+        # Try to read from logo configuration using version-based path
+        if {[info exists ::env(FLOW_ROOT)] && [info exists ::env(FLOW_CONFIG_VERSION)]} {
+            set logo_config "$::env(FLOW_ROOT)/config/flow/$::env(FLOW_CONFIG_VERSION)/logo_config.tcl"
+            if {[file exists $logo_config]} {
+                if {[catch {
+                    # Load logo configuration to get updated info
+                    global logo
+                    source $logo_config
+
+                if {[info exists logo(description)]} {
+                    set tagline $logo(description)
+                }
+                if {[info exists logo(copyright)]} {
+                    set copyright $logo(copyright)
+                }
+                if {[info exists logo(version)]} {
+                    set version $logo(version)
+                }
+                if {[info exists logo(message)]} {
+                    set logo_message $logo(message)
+                }
+            } error]} {
+                CBFLOW_DEBUG "Could not load logo config: $error" "LOGO"
+            }
+        }
+
+        return [list $company $tagline $copyright $version $logo_message]
+    }
+
+    #===========================================================================
+    # LEGACY COMPATIBILITY PROCEDURES
+    #===========================================================================
+
+    # Legacy error handling procedures - redirect to new standardized functions
+    proc handle_error {message {exit_code 1}} {
+        CBFLOW_ERROR $message "LEGACY"
+        if {$exit_code != 0} {
+            exit $exit_code
+        }
+    }
+
+    proc handle_warning {message} {
+        CBFLOW_WARNING $message "LEGACY"
+    }
+
+    proc handle_info {message} {
+        CBFLOW_INFO $message "LEGACY"
+    }
+
+    proc print_message {level message} {
+        # Legacy message printing - redirect to new functions
+        switch $level {
+            "INFO" {
+                CBFLOW_INFO $message "LEGACY"
+            }
+            "WARNING" {
+                CBFLOW_WARNING $message "LEGACY"
+            }
+            "ERROR" {
+                CBFLOW_ERROR $message "LEGACY" 0
+            }
+            default {
+                puts $message
+            }
+        }
+    }
+
+    #===========================================================================
+    # ASCII ART GENERATION PROCEDURES
+    #===========================================================================
+
+    proc generate_large_ascii_char {char} {
+        # Generate large ASCII representation of a single character (5 lines tall)
+        # Each character is 6 wide with 1 space padding for separation
+        switch [string toupper $char] {
+            "C" { return [list " █████ " "██     " "██     " "██     " " █████ "] }
+            "B" { return [list "██████ " "██  ██ " "██████ " "██  ██ " "██████ "] }
+            "F" { return [list "██████ " "██     " "█████  " "██     " "██     "] }
+            "L" { return [list "██     " "██     " "██     " "██     " "██████ "] }
+            "O" { return [list " █████ " "██  ██ " "██  ██ " "██  ██ " " █████ "] }
+            "W" { return [list "██  ██ " "██  ██ " "██  ██ " "██████ " "██████ "] }
+            " " { return [list "       " "       " "       " "       " "       "] }
+            default { return [list "██████ " "██  ██ " "██  ██ " "██  ██ " "██████ "] }
+        }
+    }
+
+    proc generate_text_logo {text} {
+        # Generate large ASCII art for given text
+        set lines [list "" "" "" "" ""]
+
+        for {set i 0} {$i < [string length $text]} {incr i} {
+            set char [string index $text $i]
+            set char_lines [generate_large_ascii_char $char]
+
+            for {set j 0} {$j < 5} {incr j} {
+                lset lines $j "[lindex $lines $j][lindex $char_lines $j]"
+            }
+        }
+
+        return $lines
+    }
+
+    #===========================================================================
+    # PROGRESS AND STATUS PROCEDURES
+    #===========================================================================
+
+    proc print_header {title} {
+        CBFLOW_HEADER $title
+    }
+
+    proc print_separator {} {
+        puts [string repeat "=" 80]
+    }
+
+    proc show_progress {percentage message} {
+        # Simple progress display
+        set bar_width 40
+        set filled [expr {int($percentage * $bar_width / 100)}]
+        set empty [expr {$bar_width - $filled}]
+
+        set progress_bar "[string repeat "█" $filled][string repeat "░" $empty]"
+        puts -nonewline "\r\[${progress_bar}\] ${percentage}% - $message"
+        flush stdout
+    }
+
+    #===========================================================================
+    # CONFIGURATION LOADING PROCEDURES
+    #===========================================================================
+
+    proc load_hierarchical_configuration {} {
+        # Load hierarchical configuration if available
+        global pnr synth project tech flow runtime tools output
+
+        # Initialize global arrays for backward compatibility (handle existing variables gracefully)
+        foreach var_name {pnr synth project tech flow runtime tools output} {
+            if {![info exists $var_name]} {
+                array set $var_name {}
+            } elseif {![array exists $var_name]} {
+                # Variable exists but is not an array - convert it
+                set temp_value [set $var_name]
+                unset $var_name
+                array set $var_name {}
+                CBFLOW_DEBUG "Converted variable '$var_name' from scalar to array (was: $temp_value)" "CONFIG"
+            }
+        }
+
+        CBFLOW_SECTION "Loading Hierarchical Configuration"
+
+        # Construct configuration paths using FLOW_ROOT and versions
+        set flow_root $::env(FLOW_ROOT)
+        set config_files [list]
+
+        # Flow configuration
+        lappend config_files "$flow_root/config/flow/$::env(FLOW_CONFIG_VERSION)/flow_config.tcl"
+
+        # Project configuration (use default if not specified)
+        if {[info exists ::env(CBFLOW_PROJECT_NAME)] && $::env(CBFLOW_PROJECT_NAME) ne ""} {
+            set project_name $::env(CBFLOW_PROJECT_NAME)
+        } elseif {[info exists ::env(PROJECT_NAME)] && $::env(PROJECT_NAME) ne ""} {
+            set project_name $::env(PROJECT_NAME)
+        } else {
+            set project_name "unknown_project"
+        }
+        lappend config_files "$flow_root/config/project/$project_name/$::env(PROJECT_CONFIG_VERSION)/phoenix_config.tcl"
+
+        # Technology configuration (use default if not specified)
+        if {[info exists ::env(CBFLOW_TECH_NODE)] && $::env(CBFLOW_TECH_NODE) ne ""} {
+            set tech_node $::env(CBFLOW_TECH_NODE)
+        } elseif {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne ""} {
+            set tech_node $::env(TECH_NAME)
+        } else {
+            set tech_node "unknown_tech"
+        }
+        lappend config_files "$flow_root/config/tech/$tech_node/$::env(TECH_CONFIG_VERSION)/tech_config.tcl"
+
+        set loaded_count 0
+        foreach config_file $config_files {
+            if {[file exists $config_file]} {
+                if {[catch {source $config_file} error]} {
+                    CBFLOW_WARNING "Failed to load config $config_file: $error" "CONFIG"
+                } else {
+                    CBFLOW_DEBUG "Loaded configuration: $config_file" "CONFIG"
+                    incr loaded_count
+                }
+            } else {
+                CBFLOW_DEBUG "Configuration file not found: $config_file" "CONFIG"
+            }
+        }
+
+        if {$loaded_count > 0} {
+            CBFLOW_SUCCESS "Loaded $loaded_count configuration files" "CONFIG"
+            return 1
+        } else {
+            CBFLOW_WARNING "No configuration files loaded" "CONFIG"
+            return 0
+        }
+    }
+
+    #===========================================================================
+    # MAIN INITIALIZATION PROCEDURE
+    #===========================================================================
+
+    proc initialize_utilities {} {
+        # Main initialization procedure
+        CBFLOW_HEADER "CBFlow Utilities Library v$::CBFlow::Utilities::UTILS_VERSION"
+
+        # Step 1: Validate environment
+        if {![validate_environment]} {
+            CBFLOW_WARNING "Environment validation issues detected" "INIT"
+        }
+
+        # Step 2: Load hierarchical configuration
+        load_hierarchical_configuration
+
+        # Step 3: Display initialization message
+        set logo_name [get_logo_name]
+        CBFLOW_SUCCESS "$logo_name Complete Utilities v$::CBFlow::Utilities::UTILS_VERSION loaded" "INIT"
+        CBFLOW_INFO "Flow log level: info" "INIT"
+
+        return 1
+    }
+}
+# Main namespace should close here
+}
+
+#===============================================================================
+# GLOBAL BACKWARD COMPATIBILITY
+#===============================================================================
+
+# Export legacy procedures to global namespace for backward compatibility
+namespace eval :: {
+    # Import utility procedures
+    namespace import ::CBFlow::Utilities::handle_error
+    namespace import ::CBFlow::Utilities::handle_warning
+    namespace import ::CBFlow::Utilities::handle_info
+    namespace import ::CBFlow::Utilities::print_message
+    namespace import ::CBFlow::Utilities::get_logo_name
+    namespace import ::CBFlow::Utilities::get_early_logo_name
+    namespace import ::CBFlow::Utilities::get_early_company_info
+    namespace import ::CBFlow::Utilities::print_header
+    namespace import ::CBFlow::Utilities::print_separator
+    namespace import ::CBFlow::Utilities::show_progress
+    namespace import ::CBFlow::Utilities::generate_large_ascii_char
+    namespace import ::CBFlow::Utilities::generate_text_logo
+}
+
+# Declare global arrays for hierarchical variables (backward compatibility)
+global pnr synth project tech flow runtime tools output
+
+#===============================================================================
+# AUTO-INITIALIZATION
+#===============================================================================
+
+# Initialize utilities when sourced
+if {![info exists ::cbflow_utils_loaded]} {
+    set ::cbflow_utils_loaded true
+
+    # Provide simple legacy functions globally
+    proc ::handle_warning {message} {
+        puts "⚠ \[CBFlow_WARNING\] $message"
+    }
+    proc ::handle_error {message {exit_code 1}} {
+        puts "✗ \[CBFlow_ERROR\] $message"
+        if {$exit_code != 0} {
+            exit $exit_code
+        }
+    }
+    proc ::handle_info {message} {
+        puts "ℹ \[CBFlow_INFO\] $message"
+    }
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# FLOW PROCEDURE MANAGEMENT SYSTEM (Golden Legacy Implementation)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Initialize flow procedure registry
+namespace eval ::flow {
+    variable procs
+    variable steps {}
+    variable current_step 0
+    variable debug_mode 0
+    variable log_level "info"  # Options: debug, info, warning, error
+
+    # Customization hooks
+    variable prepend
+    variable append
+    variable replace
+}
+
+proc flow_proc {name body} {
+    # Register a flow procedure with the flow management system
+    set ::flow::procs($name) $body
+    # Track definition order for auto-execution via flow_exec_all
+    if {$name ni $::flow::steps} {
+        lappend ::flow::steps $name
+    }
+    handle_info "Flow procedure '$name' registered (step [lsearch $::flow::steps $name])"
+}
+
+proc flow_exec {name} {
+    # Execute a specific flow procedure
+    if {![info exists ::flow::procs($name)]} {
+        handle_error "Flow procedure '$name' not found"
+        return
+    }
+
+    handle_info "Executing flow procedure: $name"
+
+    # Execute prepend hooks if they exist
+    if {[info exists ::flow::prepend($name)]} {
+        eval $::flow::prepend($name)
+    }
+
+    # Execute the main procedure
+    eval $::flow::procs($name)
+
+    # Execute append hooks if they exist
+    if {[info exists ::flow::append($name)]} {
+        eval $::flow::append($name)
+    }
+
+    handle_info "Flow procedure '$name' completed"
+}
+
+proc flow_exec_all {} {
+    # Execute all registered flow procedures in DEFINITION ORDER
+    if {[llength $::flow::steps] == 0} {
+        handle_warning "No flow steps registered"
+        return
+    }
+    handle_info "Executing all flow procedures ([llength $::flow::steps] steps)..."
+    foreach name $::flow::steps {
+        if {[info exists ::flow::procs($name)]} {
+            flow_exec $name
+        }
+    }
+    handle_info "All flow procedures completed"
+}
+
+proc flow_set_log_level {level} {
+    # Set logging level
+    set ::flow::log_level $level
+    handle_info "Flow log level set to: $level"
+}
+
+proc flow_list {} {
+    # List all registered flow procedures
+    set proc_list [array names ::flow::procs]
+    if {[llength $proc_list] == 0} {
+        puts "No flow procedures registered"
+    } else {
+        puts "Registered flow procedures:"
+        foreach name [lsort $proc_list] {
+            puts "  - $name"
+        }
+    }
+}
+
+proc flow_info {name} {
+    # Get information about a specific flow procedure
+    if {![info exists ::flow::procs($name)]} {
+        handle_error "Flow procedure '$name' not found"
+        return
+    }
+
+    puts "Flow procedure: $name"
+    puts "Body: $::flow::procs($name)"
+
+    if {[info exists ::flow::prepend($name)]} {
+        puts "Prepend hook: $::flow::prepend($name)"
+    }
+
+    if {[info exists ::flow::append($name)]} {
+        puts "Append hook: $::flow::append($name)"
+    }
+}
+
+proc flow_add_prepend {name code} {
+    # Add prepend code to a flow procedure
+    if {[info exists ::flow::prepend($name)]} {
+        append ::flow::prepend($name) "\n$code"
+    } else {
+        set ::flow::prepend($name) $code
+    }
+    handle_info "Added prepend hook to flow procedure '$name'"
+}
+
+proc flow_add_append {name code} {
+    # Add append code to a flow procedure
+    if {[info exists ::flow::append($name)]} {
+        append ::flow::append($name) "\n$code"
+    } else {
+        set ::flow::append($name) $code
+    }
+    handle_info "Added append hook to flow procedure '$name'"
+}
+
+proc flow_replace {name new_body} {
+    # Replace a flow procedure completely
+    set ::flow::procs($name) $new_body
+    handle_info "Flow procedure '$name' replaced"
+}
+
+proc flow_reset {} {
+    # Reset all flow state (procs, steps, hooks)
+    array unset ::flow::procs
+    array unset ::flow::prepend
+    array unset ::flow::append
+    set ::flow::steps {}
+    set ::flow::current_step 0
+    handle_info "Flow state reset"
+}
+
+proc flow_reset_hooks {name} {
+    # Reset hooks for a flow procedure
+    if {[info exists ::flow::prepend($name)]} {
+        unset ::flow::prepend($name)
+    }
+    if {[info exists ::flow::append($name)]} {
+        unset ::flow::append($name)
+    }
+    handle_info "Hooks reset for flow procedure '$name'"
+}
+
+# Now add helper procedures to support the flow_proc_prepend syntax we've been using
+proc flow_proc_prepend {name body} {
+    # Helper procedure to support the prepend syntax used in setup files
+    flow_add_prepend $name $body
+}
+
+proc flow_proc_append {name body} {
+    # Helper procedure to support the append syntax used in setup files
+    flow_add_append $name $body
+}
+
+proc flow_proc_replace {name body} {
+    # Helper procedure to support the replace syntax used in setup files
+    flow_replace $name $body
+}
+
+# Legacy completion message (debug only)
+if {[info exists ::env(CBFLOW_DEBUG)] && $::env(CBFLOW_DEBUG) eq "1"} {
+    puts "CBFlow utilities loaded successfully"
+}

@@ -1,0 +1,21 @@
+#!/bin/bash
+# ═══════════════════════════════════════════════════════════════════════════════
+# CBFlow - Version Commands
+# Description: Version control operations
+# Usage: cbflow version <subcommand> [options]
+# ═══════════════════════════════════════════════════════════════════════════════
+
+set -euo pipefail
+
+# Ensure CBFLOW_CORE_DIR is set
+if [[ -z "${CBFLOW_CORE_DIR:-}" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    CBFLOW_CORE_DIR="$(dirname "$SCRIPT_DIR")"
+    export CBFLOW_CORE_DIR
+fi
+
+# Source environment if available
+[[ -f "$CBFLOW_CORE_DIR/config/cbflow.env" ]] && source "$CBFLOW_CORE_DIR/config/cbflow.env"
+
+# Execute Python command handler
+exec python3 "$CBFLOW_CORE_DIR/utils/commands/version_cmd.py" "$@"

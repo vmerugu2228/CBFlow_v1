@@ -1,0 +1,13 @@
+#!/usr/bin/env tclsh
+set project(name)        "ravendrive"
+set project(phase)       "P0"
+set flow(type)           "CLP"
+set flow(design_name)    "cpu_core"
+set flow(run_name)       "test_clp"
+set flow(test_mode)      "true"
+set flow(use_lsf)        "true"
+set flow(use_xterm)      "true"
+
+set clp(input,reference_netlist) "/Users/vmerugu/projects/CBflow_clone/netlist.v"
+set clp(input,upf_file)          "/Users/vmerugu/projects/CBflow_clone/power.upf"
+

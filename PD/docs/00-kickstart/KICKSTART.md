@@ -1,0 +1,137 @@
+# CBflow Kickstart Guide
+
+**Copy to Unix, set PATH, run your first flow in 5 minutes.**
+
+---
+
+## 1. Copy to Unix
+
+```bash
+# Copy CBflow to your Unix/Linux machine
+scp -r CBflow_clone/PD user@server:/opt/cbflow
+# OR
+rsync -avz CBflow_clone/PD user@server:/opt/cbflow
+```
+
+## 2. Set Environment
+
+```bash
+export CBFLOW_HOME=/opt/cbflow
+export PATH=$CBFLOW_HOME/bin:$PATH
+
+# Tab completion (bash)
+source $CBFLOW_HOME/completions/cbflow.bash
+
+# Verify
+cbflow --version
+```
+
+## 3. Configure Project
+
+Edit your project config (`config/project/<name>/v1.0.0/<name>_config.tcl`):
+
+```tcl
+set project(name)               "my_chip"
+set project(cbflow_release)     "v1.0.0"
+set project(release,path)       "/proj/my_chip/releases"
+set project(release,phase)      "P0"
+set project(release,block_name) "top"
+set project(release,tag)        "v1.0.0"
+```
+
+## 4. Create User Config
+
+```tcl
+# user_config.tcl — minimum for SYNTH_PNR flow
+set flow(design_name)               "my_design"
+set synth_pnr(design_name)          "my_design"
+set synth_pnr(input,rtl_filelist)   "/proj/rtl/my_design.f"
+set synth_pnr(input,sdc_file)       "/proj/constraints/my_design.sdc"
+set synth_pnr(input,upf)            "/proj/power/my_design.upf"
+```
+
+## 5. Create Run and Execute
+
+```bash
+# Create run directory
+cbflow workspace create --config user_config.tcl
+cd P0_run_SYNTH_PNR_run1/
+
+# Run the full flow
+cbflow run all
+
+# Check status
+cbflow run status
+
+# View logs
+cbflow run logs --tail 20
+
+# Generate summary
+cbflow run autoppt
+```
+
+## 6. Key Commands
+
+| Command | Purpose |
+|---------|---------|
+| `cbflow run all` | Run complete flow |
+| `cbflow run stage --name place1` | Run single stage |
+| `cbflow run status` | Check progress |
+| `cbflow run checklist --milestone PRO_EXIT --phase P2` | Exit checklist |
+| `cbflow run email --to user@co.com --template run-summary` | Email report |
+| `cbflow run autoppt --format html` | Generate PPT summary |
+| `cbflow run interactive --load signoff1` | Interactive session |
+| `cbflow run logs --level ERROR` | View errors |
+
+## 7. Supported Flows (12)
+
+| Flow | What It Does |
+|------|-------------|
+| `SYNTH` | RTL synthesis |
+| `FP` | Floorplanning |
+| `PNR` | Place and route |
+| `SYNTH_PNR` | Unified synthesis + PNR (FC) |
+| `STA` | Static timing analysis (per-corner) |
+| `PV` | Physical verification (DRC/LVS/ERC) |
+| `LEC` | Logic equivalence check |
+| `ECO` | Engineering change order |
+| `CLP` | Clock low power verification |
+| `EMIR` | EM/IR drop analysis |
+| `POPT` | Power optimization |
+| `FCFP` | Full chip floorplan (hierarchical) |
+
+## 8. Input Handshaking
+
+```tcl
+# In user_config.tcl — two modes:
+
+# Mode 1: Release tag (auto-resolves from release directory)
+set pnr(input,netlist_release_tag) "v1.0.2"
+
+# Mode 2: Direct path
+set pnr(input,netlist) "/proj/runs/synth_run1/outputs/my_design.v"
+```
+
+## 9. Override Hierarchy
+
+```
+flow_config.tcl          (global defaults)
+  → project_config.tcl   (project-specific)
+    → tech_config.tcl     (technology-specific)
+      → user_config.tcl   (per-run overrides)
+        → override_config.tcl       (global hook)
+          → override_config.<stage>.tcl  (stage hook)
+            → override_setup.tcl         (flow_proc hook)
+              → override_setup.<stage>.tcl   (stage flow_proc hook)
+```
+
+## 10. Test Suite
+
+```bash
+bin/cbflow-test-suite              # 994 tests, all categories
+bin/cbflow-test-suite --verbose    # Show all results
+```
+
+---
+
+**Next**: [Quick Start Guide](../01-quick-start/README.md) for detailed setup.

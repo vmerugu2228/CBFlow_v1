@@ -1,0 +1,208 @@
+#!/bin/bash
+# ═══════════════════════════════════════════════════════════════════════════════
+# CBFlow - Main CLI Dispatcher
+# Description: Physical Design Flow Management System
+# Usage: cbflow <command> [subcommand] [options]
+# ═══════════════════════════════════════════════════════════════════════════════
+
+set -euo pipefail
+
+# Determine script location and CBFlow root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CBFLOW_CORE_DIR="$(dirname "$SCRIPT_DIR")"
+CBFLOW_ROOT="$(dirname "$CBFLOW_CORE_DIR")"
+export CBFLOW_ROOT
+export CBFLOW_CORE_DIR
+
+# Source environment if available
+[[ -f "$CBFLOW_CORE_DIR/config/cbflow.env" ]] && source "$CBFLOW_CORE_DIR/config/cbflow.env"
+
+# Version
+CBFLOW_VERSION="2.0.0"
+
+# Commands directory
+COMMANDS_DIR="$CBFLOW_CORE_DIR/utils/commands"
+
+# Print output
+print_info() {
+    echo "[INFO] $1"
+}
+
+print_error() {
+    echo "[ERROR] $1" >&2
+}
+
+print_success() {
+    echo "[SUCCESS] $1"
+}
+
+print_warning() {
+    echo "[WARNING] $1"
+}
+
+# Show help
+show_help() {
+    cat << EOF
+CBFlow v${CBFLOW_VERSION}
+Physical Design Flow Management System
+
+Usage: cbflow <command> [subcommand] [options]
+
+Commands:
+  workspace     Workspace management (run from any workarea)
+  run           Flow execution (run from within a run directory)
+  flow          Flow info & management (run from CORE_DIR only)
+
+Workspace Commands (run from workarea):
+  cbflow workspace template --flow SYNTH_PNR  Generate user_config.tcl template
+  cbflow workspace create --config user.tcl   Create a new run
+  cbflow workspace status                     Show workspace + run summary
+  cbflow workspace status --run 1             Detailed status of run #1
+  cbflow workspace status --run 2 --summary   Full report with timing/errors/metrics
+  cbflow workspace list-runs                  List all runs with progress
+  cbflow workspace validate                   Validate workspace configuration
+  cbflow workspace clean --confirm            Delete all run directories
+
+Run Commands (run from within a run directory):
+  cbflow run all                              Run complete flow
+  cbflow run all --validate                   Run with pre/post validation
+  cbflow run all --lsf --queue XL             Submit to LSF with queue override
+  cbflow run all --collect-metrics            Collect metrics after completion
+  cbflow run stage --name place               Run a single stage
+  cbflow run status                           Show stage completion
+  cbflow run status --details                 Show all subnodes per stage
+  cbflow run validate                         Validate config + inputs + outputs
+  cbflow run validate --type config           Validate configuration only
+  cbflow run validate --stage cts             Check stage outputs + exit criteria
+  cbflow run logs --list                      List all log files
+  cbflow run logs --tail 50 --level ERROR     Show last 50 error lines
+  cbflow run retrace --from cts               Rerun from CTS onwards
+  cbflow run show-graph --detail              Show dependency graph with subnodes
+  cbflow run add-node --node eco1 --type eco --dep signoff
+  cbflow run lsf-status                       Show LSF job queue status
+  cbflow run clean --confirm                  Delete work + logs + stamps
+
+Flow Commands (run from CORE_DIR: $CBFLOW_CORE_DIR):
+  cbflow flow types                           List all 11 flow types
+  cbflow flow info --flow PNR                 Show PNR tool, stages, vendor
+  cbflow flow stages --flow SYNTH             Show SYNTH stage list
+  cbflow flow check                           Verify CBFlow installation
+  cbflow flow project list                    List all projects
+  cbflow flow project info --name phoenix     Show project details
+  cbflow flow release list                    List all releases
+  cbflow flow release diff --v1 v1.0.0 --v2 v1.0.1
+                                              Compare two releases
+  cbflow flow release diff --v1 v1.0.0 --v2 v1.0.1 --format markdown
+                                              Compare in markdown format
+  cbflow flow plugin list                     List registered flow plugins
+  cbflow flow plugin scaffold --name MYFLOW --vendor acme --tool mytool
+                                              Create new flow template
+  cbflow flow metrics collect                 Collect run metrics to database
+  cbflow flow metrics report                  Show metrics summary
+  cbflow flow metrics report --flow PNR       Filter metrics by flow
+  cbflow flow dashboard start                 Launch web dashboard on port 8080
+
+Options:
+  --version, -v                Show version information
+  --help, -h                   Show this help message
+  --completions bash|zsh       Output shell completion script
+
+Typical Workflow:
+  1. cd /path/to/workarea
+  2. cbflow workspace template --flow SYNTH_PNR > user_config.tcl
+  3. vi user_config.tcl                          (edit design inputs)
+  4. cbflow workspace create --config user_config.tcl
+  5. cd P0_run_SYNTH_PNR_run1
+  6. cbflow run all
+  7. cbflow run status --details
+  8. cbflow workspace status --run 1 --summary    (from workarea)
+
+Environment:
+  CBFLOW_ROOT       CBFlow installation root
+  CBFLOW_CORE_DIR   CBFlow core directory ($CBFLOW_CORE_DIR)
+
+EOF
+}
+
+# Show version
+show_version() {
+    echo "CBFlow v${CBFLOW_VERSION}"
+    echo "Physical Design Flow Management System"
+    echo ""
+    echo "Installation: $CBFLOW_ROOT"
+    echo "Core:         $CBFLOW_CORE_DIR"
+}
+
+# Main command dispatcher
+main() {
+    local cmd="${1:-help}"
+    shift || true
+
+    case "$cmd" in
+        # Workspace commands
+        workspace)
+            exec python3 "$COMMANDS_DIR/workspace_cmd.py" "$@"
+            ;;
+
+        # Run commands (within a run directory)
+        run)
+            exec python3 "$COMMANDS_DIR/run_cmd.py" "$@"
+            ;;
+
+        # Flow commands (info, project, version, release, config)
+        flow)
+            exec "$SCRIPT_DIR/cbflow-flow" "$@"
+            ;;
+
+        # Shell completions
+        --completions)
+            local shell_type="${1:-bash}"
+            local completions_dir="$CBFLOW_CORE_DIR/completions"
+            case "$shell_type" in
+                bash)
+                    if [[ -f "$completions_dir/cbflow.bash" ]]; then
+                        cat "$completions_dir/cbflow.bash"
+                    else
+                        print_error "Bash completion file not found: $completions_dir/cbflow.bash"
+                        exit 1
+                    fi
+                    ;;
+                zsh)
+                    if [[ -f "$completions_dir/_cbflow" ]]; then
+                        cat "$completions_dir/_cbflow"
+                    else
+                        print_error "Zsh completion file not found: $completions_dir/_cbflow"
+                        exit 1
+                    fi
+                    ;;
+                *)
+                    print_error "Unsupported shell: $shell_type (supported: bash, zsh)"
+                    exit 1
+                    ;;
+            esac
+            ;;
+
+        # Version/Help
+        --version|-v)
+            show_version
+            ;;
+        --help|-h|help)
+            show_help
+            ;;
+
+        # Unknown command
+        *)
+            print_error "Unknown command: $cmd"
+            echo ""
+            echo "Did you mean one of these?"
+            echo "  cbflow workspace $cmd $@"
+            echo "  cbflow run $cmd $@"
+            echo "  cbflow flow $cmd $@"
+            echo ""
+            show_help
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

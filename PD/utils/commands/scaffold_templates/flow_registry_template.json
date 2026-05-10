@@ -1,0 +1,26 @@
+{
+    "flow_type": "{{FLOW_NAME}}",
+    "description": "{{DESCRIPTION}}",
+    "version": "1.0.0",
+    "vendor": "{{VENDOR}}",
+    "tool": "{{TOOL}}",
+    "tool_version": "v1.0.0",
+    "tool_args": "-batch -no_gui",
+    "stages": ["inputs", "run", "validate", "export_data", "release_data"],
+    "dependencies": {
+        "inputs": [],
+        "run": ["inputs"],
+        "validate": ["run"],
+        "export_data": ["validate"],
+        "release_data": ["export_data"]
+    },
+    "subnodes": {
+        "inputs": ["setup", "validate", "finish"],
+        "run": ["setup", "run", "validate", "finish"],
+        "validate": ["setup", "run", "finish"],
+        "export_data": ["setup", "run", "finish"],
+        "release_data": ["setup", "run", "finish"]
+    },
+    "generator": "{{FLOW_NAME_LOWER}}_makefile_generator.tcl",
+    "node_config": "{{FLOW_NAME}}_config.tcl"
+}
