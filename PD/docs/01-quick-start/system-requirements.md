@@ -6,9 +6,8 @@
 
 | Tool | Minimum | Purpose |
 |------|---------|---------|
-| **Python** | 3.6+ | CLI commands, Makefile generation, metrics, reports |
+| **Python** | 3.6+ | CLI commands, RACE engine, metrics, reports |
 | **Tcl/Tclsh** | 8.5+ | Flow configs, command files, flow_proc engine |
-| **GNU Make** | 3.81+ | Stage execution, stamp tracking, parallel jobs |
 | **Bash/Zsh** | 4.0+ | CLI dispatcher, shell completions |
 
 ### Python -- Stdlib Only (No pip install)
@@ -149,7 +148,7 @@ Tools must be in `$PATH` with valid licenses. CBflow does not manage tool instal
 |--------|------:|---------|
 | `workspace_cmd.py` | 1,429 | Workspace init, create, status |
 | `run_cmd.py` | 1,500+ | Run execution, logs, validation |
-| `makefile_generator.py` | 1,500+ | Dynamic Makefile from TCL configs |
+| `race_engine.py` | 800+ | RACE DAG executor with SQLite tracking |
 | `mmmc_manager_cmd.py` | 1,670 | MMMC create, validate, view-def |
 | `qor_report_cmd.py` | 1,456 | QoR report, compare, summary |
 | `release_cmd.py` | 1,223 | Release create, list, diff |
@@ -236,7 +235,6 @@ Tools must be in `$PATH` with valid licenses. CBflow does not manage tool instal
 # Core tools
 python3 --version                          # 3.6+
 tclsh <<< 'puts [info patchlevel]'         # 8.5+
-make --version | head -1                   # GNU Make 3.81+
 bash --version | head -1                   # 4.0+
 
 # Python stdlib check (zero external deps)

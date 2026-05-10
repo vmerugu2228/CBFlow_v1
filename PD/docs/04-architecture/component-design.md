@@ -6,7 +6,7 @@ Detailed design of individual software components in CBFlow.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│                    Makefile (CLI)                         │
+│                    RACE Engine (CLI)                         │
 │  - Parameter validation                                   │
 │  - User interface                                         │
 └───────────┬────────────────────────┬─────────────────────┘
@@ -411,7 +411,7 @@ def add_release(version: str, info: ReleaseInfo):
 
 ## Integration Patterns
 
-### Makefile → Python Integration
+### RACE Engine → Handler Integration
 
 ```makefile
 git_commit_version:

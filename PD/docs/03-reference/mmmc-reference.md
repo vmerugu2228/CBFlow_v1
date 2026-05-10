@@ -152,11 +152,11 @@ inputs1 -> mmmc_setup1 -> extraction1 -> timing1 -> reporting1 -> export -> rele
 ### STA Dynamic Execution
 ```
 mmmc_setup1 generates:
-  .make/timing_func_ss_0p76v_rcmax_150c.mk
-  .make/timing_func_ff_0p84v_rcmin_m40c.mk
-  .make/timing_func_tt_0p80v_rctyp_25c.mk
+  work/STA/timing1/reports/timing_func_ss_0p76v_rcmax_150c.mk
+  work/STA/timing1/reports/timing_func_ff_0p84v_rcmin_m40c.mk
+  work/STA/timing1/reports/timing_func_tt_0p80v_rctyp_25c.mk
   ... (10 total for signoff set)
-  .make/timing_dynamic.mk (aggregator)
+  work/STA/timing1/reports/timing_dynamic.mk (aggregator)
 
 timing1 target resolves to all 10 per-scenario stamps
 Each invokes: timing_scenario_handler.tcl <scenario_name>

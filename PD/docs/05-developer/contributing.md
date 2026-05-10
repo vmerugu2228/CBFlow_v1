@@ -126,7 +126,7 @@ class MyManager:
         pass
 ```
 
-### Makefile
+### RACE Engine
 
 ```makefile
 # Clear error messages

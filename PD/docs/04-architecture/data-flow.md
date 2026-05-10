@@ -14,7 +14,7 @@ Data flow and process workflows in CBFlow versioning system.
                        │
                        ▼
 ┌────────────────────────────────────────────────────────────┐
-│             1. Makefile Parameter Validation                │
+│             1. RACE DAG Validation                │
 │  - Check DIR exists                                         │
 │  - Validate TYPE (patch/minor/major)                        │
 │  - Check DESC provided                                      │

@@ -112,7 +112,7 @@ CBflow applies directory-based versioning to these components:
 | Exit criteria | `config/exit/` | Exit milestone definitions |
 | Commands | `cmds/{FLOW}/{vendor}/{tool}/` | EDA tool command files per flow |
 | Utilities | `utils/utilities/` | TCL utility modules |
-| Generation | `utils/generation/` | Makefile generation scripts |
+| Generation | `utils/generation/` | Setup generation scripts |
 | Validation | `utils/validation/` | Validation scripts |
 
 ## What This Is NOT

@@ -607,6 +607,5 @@ git config --global user.email "your.email@example.com"
 ---
 
 **See also:**
-- [Makefile Reference](makefile-reference.md) - Make commands
 - [Python Scripts Reference](python-scripts-reference.md) - Script details
 - [Configuration Reference](configuration-reference.md) - Config formats

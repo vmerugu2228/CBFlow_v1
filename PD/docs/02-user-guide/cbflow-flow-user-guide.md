@@ -67,7 +67,7 @@ cd P0_run_PNR_run1
 make all
 ```
 
-That's it. CBflow creates the run directory with a Makefile, stage-specific `.mk` files, and environment files, then `make all` executes every stage in dependency order.
+That's it. CBflow creates the run directory. RACE builds the DAG from node_config.tcl and executes stages in dependency order.
 
 ---
 
@@ -717,7 +717,7 @@ P0_run_PNR_run1/
 │   ├── place1_setup.stamp
 │   ├── place1_run.stamp
 │   └── ...
-├── .make/                       Stage makefiles
+
 │   ├── inputs1.mk
 │   ├── place1.mk
 │   └── ...
@@ -741,7 +741,7 @@ P0_run_PNR_run1/
 ├── logs/                        Execution logs
 ├── setup/
 │   └── user_config.tcl          Your configuration
-├── Makefile                     Auto-generated orchestrator
+├── .race_*.db                   RACE status database
 ├── .run.cbflow.env              Shell environment
 ├── .run.cbflow.tcl              TCL environment
 └── .run.cnflow.tcl              TCL native environment

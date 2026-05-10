@@ -50,7 +50,7 @@ User (cbflow CLI)
     |
 Python Command Layer (workspace_cmd, run_cmd)
     |
-Makefile Orchestration (.make/*.mk)
+RACE Engine (DAG executor)
     |
 TCL Subnode Handlers (setup/run/validate/finish)
     |                    | "run" subnode
@@ -70,7 +70,6 @@ TCL Command Files (EDA tool integration via flow_proc)
 |----------|:-:|---|
 | Python | 3.6+ | CLI commands, config parsing, makefile generation |
 | TCL/Tclsh | 8.6+ | Flow execution, EDA tool scripting |
-| GNU Make | 3.81+ | Stage orchestration and dependency tracking |
 | Git | 2.0+ | Version control and release management |
 | Bash/Zsh | 4.0+ | Shell environment and completions |
 
@@ -164,7 +163,7 @@ PD/                              (CBFLOW_CORE_DIR)
 ├── utils/                       Utility modules
 │   ├── commands/                Python CLI handlers
 │   ├── utilities/               TCL utilities (utils.tcl, error_utils.tcl)
-│   ├── generation/              Makefile generation
+│   ├── generation/              Setup generation
 │   ├── validation/              Validation scripts
 │   └── dashboard/               Web dashboard
 ├── releases/                    Versioned release artifacts
@@ -183,7 +182,7 @@ When a run is created, CBflow generates this structure:
 ```
 P0_run_PNR_run1/
 ├── .stamps/                     Stage completion stamps
-├── .make/                       Per-stage Makefile includes
+├── .race_*.db                   RACE status database
 │   ├── inputs1.mk
 │   ├── place1.mk
 │   ├── cts1.mk
@@ -193,7 +192,7 @@ P0_run_PNR_run1/
 │   └── user_config.tcl
 ├── work/                        Working directory
 │   └── PNR/                     Flow-specific work area
-├── Makefile                     Auto-generated orchestrator
+
 ├── .run.cbflow.env              Shell environment (export VAR=val)
 ├── .run.cbflow.tcl              TCL environment (set ::env(VAR) val)
 └── .run.cnflow.tcl              TCL native environment
@@ -205,13 +204,13 @@ P0_run_PNR_run1/
 cbflow workspace create --config user_config.tcl
     |
     v
-Python: start_run.py creates run directory, env files, Makefile, .make/*.mk
+Python: start_run.py creates run directory, env files. RACE builds DAG at runtime.
     |
     v
 make all   (or: make inputs1, make place1, etc.)
     |
     v
-.make/place1.mk targets:
+RACE DAG place1 subnodes:
     place1_setup.stamp -> tclsh place_subnode_handler.tcl setup $PWD
     place1_run.stamp   -> tclsh place_subnode_handler.tcl run $PWD
     place1_validate.stamp -> ...
@@ -608,7 +607,7 @@ cbflow workspace template --flow SYNTH_PNR > user_config.tcl
 cbflow workspace create --config user_config.tcl
 
 # Creates: P0_run_SYNTH_PNR_run1/
-#   with Makefile, .make/*.mk, .run.cbflow.env, .run.cbflow.tcl, etc.
+#   with .run.cbflow.env, .run.cbflow.tcl, etc.
 ```
 
 ### 7.2 User Configuration
@@ -727,7 +726,7 @@ Each stage has 4 standard subnodes (`setup`, `run`, `validate`, `finish`). The `
 cbflow run stage --name place
   |
   v
-Makefile target (make place1)
+RACE executes stage (cbflow run stage --name place1)
   |
   v
 tclsh handler.tcl run
@@ -921,7 +920,7 @@ set directory(PNR) {
     "logs"          ;# Execution logs
     "setup"         ;# Configuration files
     "work"          ;# Working directory
-    ".make"         ;# Stage Makefiles
+    
     "work/PNR"      ;# Flow-specific work area
 }
 ```
@@ -1173,7 +1172,7 @@ In flat mode, multiple stages are combined into a single merged execution to min
 ### 16.1 Common Issues
 
 **Problem:** `make all` fails with "No rule to make target"
-- **Cause:** Missing `.make/*.mk` files
+- **Cause:** RACE DAG build failure
 - **Fix:** Re-create the run with `cbflow workspace create --config user_config.tcl --force`
 
 **Problem:** `ERROR: .run.cbflow.tcl not found`
@@ -1196,7 +1195,7 @@ In flat mode, multiple stages are combined into a single merged execution to min
 
 ```bash
 # Show what would run without executing
-grep -r "tclsh" .make/*.mk | head -20
+cbflow run verify-dag
 
 # Check environment
 cat .run.cbflow.env
@@ -1253,7 +1252,7 @@ Test mode shows the command file that would be executed at each stage, useful fo
 |----------|-------------|
 | FLOW_CONFIG_VERSION | Flow config version |
 | UTILITIES_VERSION | Utilities version |
-| GENERATION_VERSION | Makefile generator version |
+| GENERATION_VERSION | Setup generator version |
 | VALIDATION_VERSION | Validation scripts version |
 
 ---

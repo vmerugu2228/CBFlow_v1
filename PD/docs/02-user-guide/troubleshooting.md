@@ -593,13 +593,13 @@ make git_create_workspace DIR=gui
 pwd
 # Should be: .../CBFlow/PD/core
 
-# Check Makefile exists
-ls -la Makefile
+# Check RACE DB exists
+ls -la .race_*.db
 
 # List available make targets
 make help
 # Or
-grep "^git_" Makefile
+sqlite3 .race_*.db "SELECT * FROM run_info"
 ```
 
 ---
