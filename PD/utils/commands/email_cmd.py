@@ -151,7 +151,7 @@ def _collect_stage_status(run_dir: str, info: dict):
             if stage_name not in info['stages']:
                 info['stages'].append(stage_name)
     except Exception:
-        # Fallback: read stamps directly
+        # DB is the only source
         stamps_dir = os.path.join(run_dir, '.stamps')
         if not os.path.isdir(stamps_dir):
             return

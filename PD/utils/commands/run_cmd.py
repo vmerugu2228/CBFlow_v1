@@ -417,16 +417,16 @@ def cmd_status(args: argparse.Namespace) -> int:
     logger.info(f"  Flow Type:      {flow_type}")
     logger.info("")
 
-    # ── Get status from engine DB (primary) or stamps (fallback) ──────────
-    from status_provider import get_status_provider, SqliteStatusProvider
+    # ── Get status from engine DB ──────────────────────────────────────────
+    from status_provider import get_status_provider
     status_prov = get_status_provider(os.getcwd())
-    using_db = isinstance(status_prov, SqliteStatusProvider)
+    using_db = status_prov.db_exists()
 
+    logger.info(f"  Dispatcher:     cbflow-engine")
     if using_db:
-        logger.info(f"  Dispatcher:     cbflow-engine")
         logger.info(f"  Status DB:      {status_prov.db_path}")
     else:
-        logger.info(f"  Dispatcher:     make (stamps)")
+        logger.info(f"  Status DB:      (not yet created — run a stage first)")
 
     all_status = status_prov.get_all_status()
     completed = [s for s, info in all_status.items() if info.get('status') == 'DONE']
@@ -624,38 +624,21 @@ def cmd_retrace(args: argparse.Namespace) -> int:
         return 1
 
     # ── Use engine retrace (invalidates DB + removes stamps) ────────────
-    try:
-        from cbflow_engine import CbflowEngine
-        run_env = load_run_env()
-        engine = CbflowEngine(os.getcwd(), flow_type, run_env)
-        if engine.initialize():
-            if from_stage:
-                logger.info(f"Retracing from stage: {from_stage}")
-                stage_idx = all_stages.index(from_stage)
-                stages_to_remove = all_stages[stage_idx:]
-                logger.info(f"Invalidating: {', '.join(stages_to_remove)}")
-                engine.retrace(from_stage=from_stage)
-            else:
-                logger.info("Complete retrace — invalidating all jobs...")
-                engine.retrace()
-    except Exception as e:
-        logger.debug(f"Engine retrace: {e}")
-        # Fallback: manual stamp removal
-        stamps_dir = '.stamps'
-        if os.path.isdir(stamps_dir):
-            if from_stage:
-                stage_idx = all_stages.index(from_stage)
-                for stage in all_stages[stage_idx:]:
-                    for f in os.listdir(stamps_dir):
-                        if f == f'{stage}.stamp' or f.startswith(f'{stage}_'):
-                            os.remove(os.path.join(stamps_dir, f))
-                            logger.info(f"  Removed: {f}")
-            else:
-                logger.info("Complete retrace - removing all stamps...")
-                for f in os.listdir(stamps_dir):
-                    if f.endswith('.stamp'):
-                        os.remove(os.path.join(stamps_dir, f))
-                        logger.info(f"  Removed: {f}")
+    from cbflow_engine import CbflowEngine
+    run_env = load_run_env()
+    engine = CbflowEngine(os.getcwd(), flow_type, run_env)
+    if engine.initialize():
+        if from_stage:
+            logger.info(f"Retracing from stage: {from_stage}")
+            stage_idx = all_stages.index(from_stage)
+            stages_to_remove = all_stages[stage_idx:]
+            logger.info(f"Invalidating: {', '.join(stages_to_remove)}")
+            engine.retrace(from_stage=from_stage)
+        else:
+            logger.info("Complete retrace — invalidating all jobs...")
+            engine.retrace()
+    else:
+        logger.error("Engine initialization failed — cannot retrace")
 
     logger.info("")
     logger.info(f"  Retrace Summary")
@@ -952,7 +935,7 @@ def cmd_clean(args: argparse.Namespace) -> int:
         logger.error("  Navigate to a run directory first: cd P0_run_PNR_run1")
         return 1
 
-    dirs_to_clean = ['work', '.stamps', 'logs', '.make']
+    dirs_to_clean = ['work', '.stamps', 'logs', ]
     files_to_clean = ['.run.status']
 
     if not getattr(args, 'confirm', False):
@@ -1395,14 +1378,14 @@ def cmd_update(args: argparse.Namespace) -> int:
 
     logger.info(f"  [DONE] Environment updated to {target_release}")
 
-    # Regenerate Makefile
-    from makefile_generator import MakefileGenerator
+    # Verify engine DAG after update
+    from cbflow_engine import DagBuilder
     try:
-        gen = MakefileGenerator(flow_type, env_vars, os.getcwd())
-        gen.generate()
-        logger.info(f"  [DONE] Makefile regenerated")
+        builder = DagBuilder(os.getcwd(), flow_type, env_vars)
+        jobs, stages = builder.build()
+        logger.info(f"  [DONE] Engine DAG verified: {len(jobs)} jobs, {len(stages)} stages")
     except Exception as e:
-        logger.warning(f"  Makefile regeneration failed: {e}")
+        logger.warning(f"  Engine DAG verification failed: {e}")
 
     logger.info("")
     return 0
