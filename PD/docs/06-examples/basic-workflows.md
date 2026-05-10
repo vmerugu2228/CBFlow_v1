@@ -202,7 +202,7 @@ RACE automatically detects when input files change and retraces downstream nodes
 # After editing an input file (e.g., SDC constraint file):
 cbflow run all
 # RACE detects the file change, marks downstream nodes for re-execution,
-# and only re-runs affected nodes (VOV-like behavior)
+# and only re-runs affected nodes
 
 # Or manually retrace from a specific node:
 cbflow run retrace --from cts1

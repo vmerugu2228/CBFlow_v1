@@ -41,7 +41,7 @@ CBflow v2.0.0 uses the RACE (Run Automation & Control Engine) as its dispatcher.
 
 - **No Makefile**: RACE reads node_config.tcl directly -- no Makefile generation
 - **SQLite DB**: Status tracked in `.race_<uid>.db` (not stamp files)
-- **File change detection**: Edit input -> auto-retrace downstream (VOV-like)
+- **File change detection**: Edit input -> auto-retrace downstream
 - **Parallel execution**: Independent subnodes run in parallel
 - **Dynamic subnodes**: STA per-corner generated from user_config
 - **Custom nodes**: `add-node` and `create-branch` at run level

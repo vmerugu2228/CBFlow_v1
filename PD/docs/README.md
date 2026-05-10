@@ -30,7 +30,7 @@ RACE (Run Automation & Control Engine) is the Python-native DAG executor at the 
 
 - **DAG from node_config.tcl**: RACE builds the execution graph at runtime directly from node_config.tcl. There is no Makefile generation step.
 - **SQLite DB for status tracking**: Each run stores status in a SQLite database (`.race_<uid>.db`). DB path: `$project(race,db_path)/$project/$domain/$flow/$user_$run_$uid.db`
-- **File change detection**: Edit an input file and RACE auto-retraces all downstream nodes (VOV-like behavior).
+- **File change detection**: Edit an input file and RACE auto-retraces all downstream nodes.
 - **Parallel subnode execution**: PV runs drc/lvs/erc/perc/xor in parallel after fill completes.
 - **Dynamic subnodes**: STA generates per-corner subnodes from user_config at runtime.
 - **Custom nodes at run level**: Use `add-node` and `create-branch` to extend the DAG without editing node_config.

@@ -53,7 +53,7 @@ CBflow v2.0.0 uses RACE (Run Automation & Control Engine) as the sole dispatcher
 - **No Makefile**: RACE builds the execution DAG directly from `node_config.tcl` at runtime.
 - **SQLite DB status**: Each run tracks node status in `.race_<uid>.db` instead of stamp files.
 - **DB path**: `$project(race,db_path)/$project/$domain/$flow/$user_$run_$uid.db`
-- **File change detection**: Edit an input file and RACE auto-retraces downstream nodes (VOV-like).
+- **File change detection**: Edit an input file and RACE auto-retraces downstream nodes.
 - **Parallel execution**: Independent subnodes (e.g., PV drc/lvs/erc/perc/xor) run in parallel.
 - **Dynamic subnodes**: STA per-corner subnodes generated from user_config at runtime.
 - **Configuration**: `set flow(dispatcher) "race"` in flow_config.tcl

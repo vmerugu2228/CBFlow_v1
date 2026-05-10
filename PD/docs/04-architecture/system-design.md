@@ -17,7 +17,7 @@ RACE is the Python-native DAG executor at the core of CBflow v2.0.0. It complete
    $project(race,db_path)/$project/$domain/$flow/$user_$run_$uid.db
    ```
 
-3. **File Change Detection**: RACE tracks input file timestamps and checksums. When an input file is edited, RACE automatically identifies and retraces all downstream nodes that depend on it (VOV-like behavior). This eliminates the need for manual retrace in most cases.
+3. **File Change Detection**: RACE tracks input file timestamps and checksums. When an input file is edited, RACE automatically identifies and retraces all downstream nodes that depend on it. This eliminates the need for manual retrace in most cases.
 
 4. **Parallel Subnode Execution**: When the DAG contains independent subnodes at the same level, RACE executes them in parallel. For example, the PV flow runs drc, lvs, erc, perc, and xor in parallel after fill completes.
 

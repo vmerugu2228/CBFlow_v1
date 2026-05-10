@@ -624,7 +624,7 @@ class RaceEngine:
             if name in completed:
                 job.status = Job.DONE
 
-        # ── VOV-like: detect file changes → auto-invalidate downstream ───
+        # ── File change detection: auto-invalidate downstream → auto-invalidate downstream ───
         changed = self._detect_input_changes()
         if changed:
             logger.info(f"File changes detected — auto-invalidating affected stages")
@@ -874,7 +874,7 @@ class RaceEngine:
         was modified AFTER the stage finished. If so, that stage and all
         downstream stages need re-execution.
 
-        This is the core VOV-like feature: file change → auto retrace.
+        RACE core feature: file change triggers automatic downstream retrace.
 
         Returns: {stage_name: [list of changed files]} or empty dict
         """

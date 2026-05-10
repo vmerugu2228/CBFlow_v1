@@ -13,7 +13,7 @@ CBflow v2.0.0 uses RACE as its sole dispatcher. RACE is a Python-native DAG exec
 - Builds the execution DAG from `node_config.tcl` at runtime (no Makefile generation)
 - Tracks all node status in a SQLite database (`.race_<uid>.db`)
 - DB path: `$project(race,db_path)/$project/$domain/$flow/$user_$run_$uid.db`
-- Detects file changes on inputs and auto-retraces downstream nodes (VOV-like)
+- Detects file changes on inputs and auto-retraces downstream nodes
 - Runs independent subnodes in parallel (e.g., PV: drc/lvs/erc/perc/xor)
 - Generates dynamic subnodes (e.g., STA per-corner from user_config)
 - Supports custom nodes at run level (`add-node`, `create-branch`)
