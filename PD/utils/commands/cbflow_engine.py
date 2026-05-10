@@ -354,10 +354,8 @@ class CbflowEngine:
         """Execute target (stage name or 'all')."""
         if env_vars:
             self.env_vars.update(env_vars)
-        if use_lsf:
-            self.env_vars['CBFLOW_USE_LSF'] = '1'
-            if lsf_queue:
-                self.env_vars['CBFLOW_LSF_QUEUE'] = lsf_queue
+        # LSF/xterm controlled by flow(use_lsf) and flow(use_xterm) in flow_config.tcl
+        # Handlers read config directly — no env var overrides
 
         # Install signal handler for graceful interrupt
         signal.signal(signal.SIGINT, self._handle_interrupt)

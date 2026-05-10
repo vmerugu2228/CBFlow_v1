@@ -264,12 +264,8 @@ def run_make_target(target: str, env_vars: dict = None,
     if env_vars:
         run_env.update(env_vars)
 
-    # LSF integration
-    if use_lsf:
-        run_env['CBFLOW_USE_LSF'] = '1'
-        if lsf_queue:
-            run_env['CBFLOW_LSF_QUEUE'] = lsf_queue
-        logger.info(f"LSF mode enabled (queue: {lsf_queue or 'auto'})")
+    # LSF/xterm controlled by flow(use_lsf) and flow(use_xterm) in flow_config.tcl
+    # No env var overrides — config is the single source of truth
 
     cmd = ['make', target]
 
@@ -1629,8 +1625,8 @@ def cmd_interactive(args: argparse.Namespace) -> int:
     logger.info(f"  Wrapper:   {wrapper_path}")
     logger.info("")
 
-    # Determine launch mode
-    use_lsf = os.environ.get('CBFLOW_USE_LSF') == '1'
+    # Launch mode from flow_config.tcl (not env vars)
+    use_lsf = False
     xterm_cmd = 'xterm'
     xterm_geom = '200x50'
 

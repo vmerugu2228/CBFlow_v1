@@ -321,16 +321,12 @@ proc handle_run_subnode {run_dir} {
         # Show planned launch mode in test mode
         set _use_lsf false
         set _use_xterm false
-        if {[info exists ::env(CBFLOW_BSUB_CMD)] && $::env(CBFLOW_BSUB_CMD) ne ""} {
+            if {[info exists flow(use_lsf)] && $flow(use_lsf) eq "true"} {            set _use_lsf true
             set _use_lsf true
-        } elseif {[info exists flow(use_lsf)] && $flow(use_lsf) eq "true"} {
-            set _use_lsf true
-        } elseif {[info exists ::env(CBFLOW_USE_LSF)] && $::env(CBFLOW_USE_LSF) eq "1"} {
             set _use_lsf true
         }
         if {[info exists flow(use_xterm)] && $flow(use_xterm) eq "true"} {
             set _use_xterm true
-        } elseif {[info exists ::env(CBFLOW_USE_XTERM)] && $::env(CBFLOW_USE_XTERM) eq "1"} {
             set _use_xterm true
         }
         if {$_use_lsf} {
@@ -371,16 +367,12 @@ proc handle_run_subnode {run_dir} {
     # Determine launch mode: LSF > XTERM > LOCAL
     set _use_lsf false
     set _use_xterm false
-    if {[info exists ::env(CBFLOW_BSUB_CMD)] && $::env(CBFLOW_BSUB_CMD) ne ""} {
+            if {[info exists flow(use_lsf)] && $flow(use_lsf) eq "true"} {        set _use_lsf true
         set _use_lsf true
-    } elseif {[info exists flow(use_lsf)] && $flow(use_lsf) eq "true"} {
-        set _use_lsf true
-    } elseif {[info exists ::env(CBFLOW_USE_LSF)] && $::env(CBFLOW_USE_LSF) eq "1"} {
         set _use_lsf true
     }
     if {[info exists flow(use_xterm)] && $flow(use_xterm) eq "true"} {
         set _use_xterm true
-    } elseif {[info exists ::env(CBFLOW_USE_XTERM)] && $::env(CBFLOW_USE_XTERM) eq "1"} {
         set _use_xterm true
     }
 
@@ -390,9 +382,7 @@ proc handle_run_subnode {run_dir} {
     catch { set _geom $::lsf(xterm,geometry) }
 
     if {$_use_lsf} {
-        if {[info exists ::env(CBFLOW_BSUB_CMD)] && $::env(CBFLOW_BSUB_CMD) ne ""} {
-            set bsub_cmd $::env(CBFLOW_BSUB_CMD)
-        } else {
+            if {[info exists flow(use_lsf)] && $flow(use_lsf) eq "true"} {        } else {
             set _qtype "M"
             catch { set _qtype $::lsf(flow_mapping,$flow_type,$stage_name) }
             set _mem "16GB"; set _cpu "8"; set _time "4:00"

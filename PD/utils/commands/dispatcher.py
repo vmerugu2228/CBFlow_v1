@@ -60,11 +60,7 @@ class MakeDispatcher(DispatcherBase):
         if env_vars:
             run_env.update(env_vars)
 
-        if use_lsf:
-            run_env['CBFLOW_USE_LSF'] = '1'
-            if lsf_queue:
-                run_env['CBFLOW_LSF_QUEUE'] = lsf_queue
-
+        # LSF/xterm controlled by flow(use_lsf) in flow_config.tcl — no env vars
         cmd = ['make', target]
         try:
             result = subprocess.run(cmd, env=run_env, cwd=self.run_dir)
