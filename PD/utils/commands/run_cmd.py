@@ -786,8 +786,8 @@ def cmd_retrace(args: argparse.Namespace) -> int:
                 if os.path.exists(stamp):
                     os.remove(stamp)
 
-        # Pace the progress bar
-        _time.sleep(10.0 / total)
+        # Pace the progress bar (~0.5s per stage)
+        _time.sleep(0.5)
 
     # Update DB
     invalidated = [n for n, j in engine.jobs.items() if j.stage in stages_to_clear]
