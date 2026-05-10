@@ -200,6 +200,71 @@ class RaceDashboard:
         finally:
             conn.close()
 
+    def get_node_config(self) -> dict:
+        """Get editable config per stage (LSF queue, memory, timeout, version)."""
+        configs = {}
+        # Read tool_launch_config for LSF mappings
+        flow_dir = os.environ.get('FLOW_DIR', '')
+        if not flow_dir:
+            env_file = os.path.join(self.run_dir, '.run.cbflow.env')
+            if os.path.exists(env_file):
+                with open(env_file) as f:
+                    for line in f:
+                        if 'FLOW_DIR=' in line:
+                            flow_dir = line.split('=', 1)[1].strip().strip('"')
+                            break
+
+        tlc_path = os.path.join(flow_dir, 'config', 'flow', 'v1.0.0', 'tool_launch_config.tcl')
+        queue_map = {}
+        queue_resources = {}
+        if os.path.exists(tlc_path):
+            with open(tlc_path) as f:
+                tlc = f.read()
+            for m in re.finditer(r'flow_mapping,(\w+),(\w+)\)\s+"(\w+)"', tlc):
+                queue_map[f'{m.group(1)}_{m.group(2)}'] = m.group(3)
+            for m in re.finditer(r'queue_types,(\w+),(\w+)\)\s+"([^"]+)"', tlc):
+                queue_resources.setdefault(m.group(1), {})[m.group(2)] = m.group(3)
+
+        # Read node_config for timeouts
+        conn = self._connect()
+        stage_order = []
+        if conn:
+            try:
+                cur = conn.execute("SELECT stage FROM jobs GROUP BY stage ORDER BY MIN(id)")
+                stage_order = [r[0] for r in cur]
+            finally:
+                conn.close()
+
+        flow_lower = self.flow_type.lower()
+        for stage in stage_order:
+            stage_base = stage.rstrip('0123456789')
+            tier = queue_map.get(f'{flow_lower}_{stage_base}', 'M')
+            resources = queue_resources.get(tier, {})
+            configs[stage] = {
+                'lsf_queue': tier,
+                'lsf_memory': resources.get('memory', '16GB'),
+                'lsf_cpu': resources.get('cpu', '8'),
+                'lsf_runtime': resources.get('runtime_limit', '4:00'),
+                'timeout': '60',
+                'tool_version': 'v1.0.0',
+            }
+
+            # Check for overrides
+            override_file = os.path.join(self.run_dir, 'setup',
+                                          f'override_config.{stage_base}.tcl')
+            if os.path.exists(override_file):
+                with open(override_file) as f:
+                    for line in f:
+                        if 'memory' in line:
+                            m = re.search(r'"([^"]+)"', line)
+                            if m: configs[stage]['lsf_memory'] = m.group(1)
+                        if 'cpu' in line:
+                            m = re.search(r'"([^"]+)"', line)
+                            if m: configs[stage]['lsf_cpu'] = m.group(1)
+
+        return {'stages': configs, 'queue_tiers': list(queue_resources.keys()),
+                'queue_resources': queue_resources}
+
     def get_all_jobs(self) -> list:
         conn = self._connect()
         if not conn:
@@ -227,7 +292,7 @@ class RaceDashboard:
 
 
 class DashboardHandler(http.server.SimpleHTTPRequestHandler):
-    """HTTP request handler for RACE Dashboard."""
+    """HTTP request handler for RACE GUI."""
 
     dashboard = None  # Set by server
 
@@ -250,10 +315,216 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         elif path.startswith('/api/job/'):
             job_name = path[len('/api/job/'):]
             self._json_response(self.dashboard.get_job(job_name))
+        elif path == '/api/node-config':
+            # Get editable node config (LSF, version, timeout per stage)
+            self._json_response(self.dashboard.get_node_config())
         elif path.startswith('/static/'):
             self._serve_static(path[len('/static/'):])
         else:
             self.send_error(404)
+
+    def do_POST(self):
+        """Handle all GUI actions — node operations, config edits, execution."""
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip('/')
+        body = self._read_body()
+
+        try:
+            if path == '/api/action/run':
+                result = self._action_run(body)
+            elif path == '/api/action/run-stage':
+                result = self._action_run_stage(body)
+            elif path == '/api/action/retrace':
+                result = self._action_retrace(body)
+            elif path == '/api/action/bypass':
+                result = self._action_bypass(body)
+            elif path == '/api/action/force':
+                result = self._action_force(body)
+            elif path == '/api/action/forcevalidate':
+                result = self._action_forcevalidate(body)
+            elif path == '/api/action/add-node':
+                result = self._action_add_node(body)
+            elif path == '/api/action/delete-node':
+                result = self._action_delete_node(body)
+            elif path == '/api/action/create-branch':
+                result = self._action_create_branch(body)
+            elif path == '/api/node-config':
+                result = self._action_update_node_config(body)
+            else:
+                self._json_response({'error': f'Unknown action: {path}'}, 404)
+                return
+            self._json_response(result)
+        except Exception as e:
+            self._json_response({'error': str(e)}, 500)
+
+    def _read_body(self) -> dict:
+        length = int(self.headers.get('Content-Length', 0))
+        if length > 0:
+            return json.loads(self.rfile.read(length))
+        return {}
+
+    # ── Action Handlers ──────────────────────────────────────────────────
+
+    def _action_run(self, body):
+        """Run complete flow (cbflow run all)."""
+        return self._exec_engine('all')
+
+    def _action_run_stage(self, body):
+        """Run specific stage."""
+        stage = body.get('stage', '')
+        if not stage:
+            return {'error': 'stage required'}
+        return self._exec_engine(stage)
+
+    def _action_retrace(self, body):
+        """Retrace from stage or all."""
+        from_stage = body.get('from_stage', '')
+        engine = self._get_engine()
+        if from_stage:
+            engine.retrace(from_stage=from_stage)
+            return {'ok': True, 'message': f'Retraced from {from_stage}'}
+        else:
+            engine.retrace()
+            return {'ok': True, 'message': 'Full retrace complete'}
+
+    def _action_bypass(self, body):
+        """Bypass stages."""
+        stages = body.get('stages', [])
+        if isinstance(stages, str):
+            stages = [stages]
+        engine = self._get_engine()
+        engine.bypass(stages)
+        return {'ok': True, 'message': f'Bypassed: {", ".join(stages)}'}
+
+    def _action_force(self, body):
+        """Force re-run stages."""
+        stages = body.get('stages', [])
+        if isinstance(stages, str):
+            stages = [stages]
+        engine = self._get_engine()
+        engine.force(stages)
+        return {'ok': True, 'message': f'Forced: {", ".join(stages)}'}
+
+    def _action_forcevalidate(self, body):
+        """Force-validate stages."""
+        stages = body.get('stages', [])
+        if isinstance(stages, str):
+            stages = [stages]
+        engine = self._get_engine()
+        engine.forcevalidate(stages)
+        return {'ok': True, 'message': f'Force-validated: {", ".join(stages)}'}
+
+    def _action_add_node(self, body):
+        """Add custom node."""
+        name = body.get('name', '')
+        node_type = body.get('type', '')
+        dep = body.get('dep', '')
+        if not name or not node_type or not dep:
+            return {'error': 'name, type, dep required'}
+        # Write to runtime_flow_config.tcl
+        import subprocess
+        cmd = ['python3', '-c',
+               f'import sys; sys.path.insert(0,"{os.path.dirname(os.path.dirname(DASHBOARD_DIR))}/commands"); '
+               f'from node_manager import NodeManager; '
+               f'mgr = NodeManager("{self.dashboard.flow_type}", {{}}, "{self.dashboard.run_dir}"); '
+               f'mgr.add_node("{name}", "{node_type}", "{dep}")']
+        subprocess.run(cmd, cwd=self.dashboard.run_dir, capture_output=True)
+        return {'ok': True, 'message': f'Added node: {name} (dep={dep})'}
+
+    def _action_delete_node(self, body):
+        """Delete custom node."""
+        name = body.get('name', '')
+        if not name:
+            return {'error': 'name required'}
+        import subprocess
+        cmd = ['python3', '-c',
+               f'import sys; sys.path.insert(0,"{os.path.dirname(os.path.dirname(DASHBOARD_DIR))}/commands"); '
+               f'from node_manager import NodeManager; '
+               f'mgr = NodeManager("{self.dashboard.flow_type}", {{}}, "{self.dashboard.run_dir}"); '
+               f'mgr.delete_node("{name}")']
+        subprocess.run(cmd, cwd=self.dashboard.run_dir, capture_output=True)
+        return {'ok': True, 'message': f'Deleted node: {name}'}
+
+    def _action_create_branch(self, body):
+        """Create flow branch."""
+        name = body.get('name', '')
+        from_stage = body.get('from_stage', '')
+        if not name or not from_stage:
+            return {'error': 'name and from_stage required'}
+        import subprocess
+        cmd = ['python3', '-c',
+               f'import sys; sys.path.insert(0,"{os.path.dirname(os.path.dirname(DASHBOARD_DIR))}/commands"); '
+               f'from node_manager import NodeManager; '
+               f'mgr = NodeManager("{self.dashboard.flow_type}", {{}}, "{self.dashboard.run_dir}"); '
+               f'mgr.create_branch("{name}", "{from_stage}")']
+        subprocess.run(cmd, cwd=self.dashboard.run_dir, capture_output=True)
+        return {'ok': True, 'message': f'Branch "{name}" created from {from_stage}'}
+
+    def _action_update_node_config(self, body):
+        """Update per-node config (LSF queue, memory, timeout, version)."""
+        stage = body.get('stage', '')
+        if not stage:
+            return {'error': 'stage required'}
+
+        # Write overrides to setup/override_config.<stage>.tcl
+        override_file = os.path.join(self.dashboard.run_dir, 'setup',
+                                      f'override_config.{stage.rstrip("0123456789")}.tcl')
+        lines = []
+        flow_lower = self.dashboard.flow_type.lower()
+
+        if body.get('lsf_queue'):
+            lines.append(f'set lsf(flow_mapping,{flow_lower},{stage.rstrip("0123456789")}) "{body["lsf_queue"]}"')
+        if body.get('lsf_memory'):
+            lines.append(f'set lsf(queue_types,{body.get("lsf_queue","M")},memory) "{body["lsf_memory"]}"')
+        if body.get('lsf_cpu'):
+            lines.append(f'set lsf(queue_types,{body.get("lsf_queue","M")},cpu) "{body["lsf_cpu"]}"')
+        if body.get('timeout'):
+            lines.append(f'set {flow_lower}(runtime,timeout,{stage}) "{body["timeout"]}"')
+        if body.get('tool_version'):
+            lines.append(f'set {flow_lower}(tool,version) "{body["tool_version"]}"')
+
+        if lines:
+            os.makedirs(os.path.dirname(override_file), exist_ok=True)
+            with open(override_file, 'w') as f:
+                f.write(f'# RACE GUI config override for {stage}\n')
+                f.write(f'# Updated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}\n')
+                for line in lines:
+                    f.write(line + '\n')
+
+        return {'ok': True, 'message': f'Config updated for {stage}',
+                'file': override_file, 'changes': lines}
+
+    def _get_engine(self):
+        """Get or create RACE engine for this run."""
+        import sys
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(DASHBOARD_DIR)), 'commands'))
+        from race_engine import RaceEngine
+
+        run_dir = self.dashboard.run_dir
+        # Load env
+        env = {}
+        env_file = os.path.join(run_dir, '.run.cbflow.env')
+        if os.path.exists(env_file):
+            with open(env_file) as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith('export ') and '=' in line:
+                        kv = line[7:].split('=', 1)
+                        env[kv[0]] = kv[1].strip('"')
+
+        engine = RaceEngine(run_dir, self.dashboard.flow_type, env)
+        engine.initialize()
+        return engine
+
+    def _exec_engine(self, target):
+        """Execute a target via RACE engine in background thread."""
+        def run():
+            engine = self._get_engine()
+            engine.execute(target)
+
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        return {'ok': True, 'message': f'Executing: {target}', 'async': True}
 
     def _serve_template(self, name):
         filepath = os.path.join(TEMPLATES_DIR, name)

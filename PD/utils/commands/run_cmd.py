@@ -2320,14 +2320,14 @@ Examples:
     ck.add_argument('--list', action='store_true', dest='list_milestones', help='List available milestones')
 
     # dashboard command
-    dash_parser = subparsers.add_parser('dashboard', help='Open RACE Dashboard web GUI',
-        formatter_class=_fmt, description="""Start the RACE Dashboard — a web-based flow visualization GUI.
+    dash_parser = subparsers.add_parser('gui', help='Open RACE GUI',
+        formatter_class=_fmt, description="""Start the RACE GUI — a web-based flow visualization GUI.
 Opens in browser with stage pipeline, DAG view, job grid, and job details.
 
 Examples:
-  cbflow run dashboard                  Start at http://localhost:8080
-  cbflow run dashboard --port 9090      Custom port
-  cbflow run dashboard --no-browser     Don't auto-open browser""")
+  cbflow run gui                  Start at http://localhost:8080
+  cbflow run gui --port 9090      Custom port
+  cbflow run gui --no-browser     Don't auto-open browser""")
     dash_parser.add_argument('--port', '-p', type=int, default=8080, help='Port (default: 8080)')
     dash_parser.add_argument('--no-browser', action='store_true', dest='no_browser', help='Don\'t open browser')
 
@@ -2336,7 +2336,7 @@ Examples:
     return parser
 
 
-def cmd_dashboard(args):
+def cmd_gui(args):
     """Start RACE Dashboard web GUI."""
     if not is_run_directory():
         logger.error("Error: Not in a valid run directory")
@@ -2454,7 +2454,7 @@ def main() -> int:
         'email': _cmd_email_dispatch,
         'autoppt': _cmd_autoppt_dispatch,
         'checklist': _cmd_checklist_dispatch,
-        'dashboard': cmd_dashboard,
+        'gui': cmd_gui,
         'help': cmd_help,
     }
 
