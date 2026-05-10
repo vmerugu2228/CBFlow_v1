@@ -49,6 +49,11 @@ set flow(design_name) "default_design"                  ; # Default design name 
 set flow(track_variant) ""                                   ; # Override tech default. Options: "9T", "7.5T", "6.75T"
 # When set, this overrides tech(track,active_variant) before tech config resolution
 
+# ┌─ Dispatcher Configuration ────────────────────────────────────────────────┐
+set flow(dispatcher)         "engine"       ;# Execution dispatcher: "engine" (cbflow-engine) or "make" (GNU Make)
+set flow(use_lsf)            true           ;# Enable LSF job submission
+set flow(use_xterm)          true           ;# Enable xterm for interactive sessions
+
 # ┌─ Flow Mode Configuration ─────────────────────────────────────────────────┐
 set flow(mode) "default"                                 ; # default | merged
 # default: SYNTH, FP, PNR are independent flows (traditional)
