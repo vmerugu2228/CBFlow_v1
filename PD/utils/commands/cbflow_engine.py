@@ -534,6 +534,15 @@ class CbflowEngine:
             if name in completed:
                 job.status = Job.DONE
 
+        # ── VOV-like: detect file changes → auto-invalidate downstream ───
+        changed = self._detect_input_changes()
+        if changed:
+            logger.info(f"File changes detected — auto-invalidating affected stages")
+            for stage, changed_files in changed.items():
+                for f in changed_files:
+                    logger.info(f"  CHANGED: {stage} → {f}")
+                self._auto_retrace_from(stage)
+
         logger.info(f"cbflow-engine initialized: {len(self.jobs)} jobs, "
                      f"{len(self.stage_order)} stages")
         return True
@@ -742,6 +751,99 @@ class CbflowEngine:
         return result
 
     # ── Private Methods ──────────────────────────────────────────────────────
+
+    def _detect_input_changes(self) -> dict:
+        """Scan work directories for files modified after stage completion.
+
+        For each completed stage, check if any file in its work directory
+        was modified AFTER the stage finished. If so, that stage and all
+        downstream stages need re-execution.
+
+        This is the core VOV-like feature: file change → auto retrace.
+
+        Returns: {stage_name: [list of changed files]} or empty dict
+        """
+        changed = {}
+        conn = sqlite3.connect(self.db.db_path)
+
+        for stage in self.stage_order:
+            # Get stage completion time from DB
+            cur = conn.execute(
+                "SELECT end_time FROM jobs WHERE job_name = ? AND job_type = 'stage' "
+                "AND status = 'DONE' ORDER BY id DESC LIMIT 1", (stage,))
+            row = cur.fetchone()
+            if not row or not row[0]:
+                continue
+
+            try:
+                stage_done_time = datetime.fromisoformat(row[0]).timestamp()
+            except Exception:
+                continue
+
+            # Scan work directory for files newer than stage completion
+            work_dir = os.path.join(self.run_dir, 'work', self.flow_type, stage)
+            if not os.path.isdir(work_dir):
+                continue
+
+            changed_files = []
+            for root, dirs, files in os.walk(work_dir):
+                # Skip reports dir — reports are outputs, not inputs
+                dirs[:] = [d for d in dirs if d != 'reports']
+                for f in files:
+                    fp = os.path.join(root, f)
+                    try:
+                        fmtime = os.path.getmtime(fp)
+                        if fmtime > stage_done_time:
+                            rel_path = os.path.relpath(fp, self.run_dir)
+                            changed_files.append(rel_path)
+                    except Exception:
+                        pass
+
+            # Also check input symlinks in the stage's input dirs
+            for subdir in ['rtl', 'sdc', 'upf', 'def', 'netlist', 'gds', 'spef']:
+                input_dir = os.path.join(work_dir, subdir)
+                if not os.path.isdir(input_dir):
+                    continue
+                for f in os.listdir(input_dir):
+                    fp = os.path.join(input_dir, f)
+                    try:
+                        # Follow symlinks — check actual file mtime
+                        actual = os.path.realpath(fp)
+                        fmtime = os.path.getmtime(actual)
+                        if fmtime > stage_done_time:
+                            rel_path = os.path.relpath(fp, self.run_dir)
+                            if rel_path not in changed_files:
+                                changed_files.append(rel_path)
+                    except Exception:
+                        pass
+
+            if changed_files:
+                changed[stage] = changed_files
+
+        conn.close()
+        return changed
+
+    def _auto_retrace_from(self, stage: str):
+        """Auto-invalidate a stage and everything downstream due to file change."""
+        found = False
+        invalidated = []
+        for s in self.stage_order:
+            if s == stage:
+                found = True
+            if found:
+                for name, job in self.jobs.items():
+                    if job.stage == s and job.status == Job.DONE:
+                        job.status = Job.PENDING
+                        invalidated.append(name)
+                        # Remove stamp
+                        stamp = os.path.join(self.run_dir, '.stamps', f'{name}.stamp')
+                        if os.path.exists(stamp):
+                            os.remove(stamp)
+
+        if invalidated:
+            self.db.invalidate(invalidated)
+            stages_affected = sorted(set(self.jobs[n].stage for n in invalidated))
+            logger.info(f"  Auto-retraced {len(invalidated)} jobs: {' → '.join(stages_affected)}")
 
     def _resolve_db_path(self) -> str:
         """Resolve DB base path from project_config.tcl.
