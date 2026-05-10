@@ -350,14 +350,20 @@ def _generate_run_shell_env(run_dir: str, env: Dict[str, str],
 
 # ── Makefile Generation ──────────────────────────────────────────────────────
 
-def _generate_makefile(run_dir: str, flow_type: str, env: Dict[str, str]) -> bool:
-    """Generate Makefile using Python generator (no TCL subprocess)."""
+def _verify_engine_dag(run_dir: str, flow_type: str, env: Dict[str, str]) -> bool:
+    """Verify cbflow-engine DAG can be built for this run."""
     try:
-        from makefile_generator import MakefileGenerator
-        gen = MakefileGenerator(flow_type, env, run_dir)
-        return gen.generate()
+        from cbflow_engine import DagBuilder
+        builder = DagBuilder(run_dir, flow_type, env)
+        jobs, stages = builder.build()
+        if jobs and stages:
+            logger.info(f"  cbflow-engine DAG: {len(jobs)} jobs, {len(stages)} stages")
+            return True
+        else:
+            logger.warning(f"  cbflow-engine DAG build returned empty")
+            return False
     except Exception as e:
-        logger.warning(f"  Makefile generation failed: {e}")
+        logger.warning(f"  cbflow-engine DAG verification failed: {e}")
         return False
 
 
@@ -414,9 +420,7 @@ def create_run(config_file: str, env_vars: Dict[str, str],
     _generate_run_tcl_env(run_dir_name, env_vars, flow_type, design_name, run_name, phase)
     _generate_run_shell_env(run_dir_name, env_vars, flow_type, design_name, run_name, phase)
 
-    # Step 10: Generate Makefile
-    makefile_ok = _generate_makefile(run_dir_name, flow_type, env_vars)
-    if not makefile_ok:
-        logger.warning(f"  Makefile generation had issues (run directory is still usable)")
+    # Step 10: Verify engine DAG
+    _verify_engine_dag(run_dir_name, flow_type, env_vars)
 
     return True, run_dir_name

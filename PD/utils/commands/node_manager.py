@@ -36,7 +36,7 @@ from tcl_config_parser import (
     _load_node_config, _parse_tcl_list, _parse_tcl_string,
     _parse_array_set_blocks
 )
-from makefile_generator import MakefileGenerator
+# MakefileGenerator no longer used — cbflow-engine builds DAG at runtime
 from logging_config import get_logger
 
 logger = get_logger('node_manager')
@@ -172,13 +172,14 @@ class NodeManager:
             f.write('\n'.join(lines) + '\n')
 
     def _regenerate_makefile(self):
-        """Regenerate Makefile after node changes."""
+        """Verify engine DAG after node changes (Makefile no longer generated)."""
         try:
-            gen = MakefileGenerator(self.flow_type, self.env, self.run_dir)
-            gen.generate()
-            logger.info("  [DONE] Makefile regenerated")
+            from cbflow_engine import DagBuilder
+            builder = DagBuilder(self.run_dir, self.flow_type, self.env)
+            jobs, stages = builder.build()
+            logger.info(f"  [DONE] Engine DAG verified: {len(jobs)} jobs, {len(stages)} stages")
         except Exception as e:
-            logger.warning(f"  Makefile regeneration failed: {e}")
+            logger.warning(f"  Engine DAG verification failed: {e}")
 
     # ─────────────────────────────────────────────────────────────────────────
     # Node Operations

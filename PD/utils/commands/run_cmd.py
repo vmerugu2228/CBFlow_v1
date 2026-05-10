@@ -36,7 +36,6 @@ def is_run_directory() -> bool:
     return (os.path.exists('.run.cbflow.env') or
             os.path.exists('.run.cbflow.tcl') or
             any(Path('.').glob('.cbflow_engine_*.db')) or
-            os.path.exists('Makefile') or
             '_run_' in os.path.basename(os.getcwd()))
 
 
@@ -253,9 +252,8 @@ def get_branch_name_for_node(node_name: str, custom_data: dict) -> str:
 
 
 def run_target(target: str, env_vars: dict = None) -> int:
-    """Run a target using the configured dispatcher (engine or make).
+    """Run a target using cbflow-engine (Python-native DAG executor).
 
-    Reads flow(dispatcher) from config to determine backend.
     LSF/xterm controlled by flow(use_lsf) and flow(use_xterm) in flow_config.tcl.
     """
     run_dir = os.getcwd()
@@ -265,59 +263,16 @@ def run_target(target: str, env_vars: dict = None) -> int:
     if env_vars:
         run_env.update(env_vars)
 
-    # Determine dispatcher from config
-    # Priority: CBFLOW_DISPATCHER env > flow(dispatcher) in flow_config.tcl
-    dispatcher_type = run_env.get('CBFLOW_DISPATCHER', '')
-    if not dispatcher_type:
-        # Read from flow_config.tcl (the actual config, not the run copy)
-        import re
-        flow_dir = run_env.get('FLOW_DIR', os.environ.get('FLOW_DIR', ''))
-        flow_ver = run_env.get('FLOW_CONFIG_VERSION', 'v1.0.0')
-        for config_path in [
-            os.path.join(flow_dir, 'config', 'flow', flow_ver, 'flow_config.tcl'),
-            os.path.join(run_dir, '.run.cbflow.tcl'),
-        ]:
-            if os.path.exists(config_path):
-                with open(config_path) as f:
-                    for line in f:
-                        m = re.match(r'set\s+flow\(dispatcher\)\s+"(\w+)"', line.strip())
-                        if m:
-                            dispatcher_type = m.group(1)
-                            break
-            if dispatcher_type:
-                break
-
-    if dispatcher_type == 'engine':
-        try:
-            from cbflow_engine import CbflowEngine
-            flow_type = run_env.get('CBFLOW_FLOW_TYPE', '')
-            engine = CbflowEngine(run_dir, flow_type, run_env)
-            if engine.initialize():
-                logger.info(f"Using cbflow-engine ({len(engine.jobs)} jobs)")
-                return engine.execute(target)
-            else:
-                logger.warning("Engine init failed, falling back to Make")
-        except ImportError:
-            logger.warning("cbflow_engine not available, falling back to Make")
-
-    # Fallback: GNU Make
-    cmd = ['make', target]
-    try:
-        full_env = os.environ.copy()
-        full_env.update(run_env)
-        result = subprocess.run(cmd, env=full_env)
-        return result.returncode
-    except FileNotFoundError:
-        logger.error("make command not found")
+    from cbflow_engine import CbflowEngine
+    flow_type = run_env.get('CBFLOW_FLOW_TYPE', '')
+    engine = CbflowEngine(run_dir, flow_type, run_env)
+    if engine.initialize():
+        logger.info(f"cbflow-engine: {len(engine.jobs)} jobs, "
+                     f"{len(engine.stage_order)} stages")
+        return engine.execute(target)
+    else:
+        logger.error("cbflow-engine initialization failed")
         return 1
-    except Exception as e:
-        logger.error(f"Execution failed: {e}")
-        return 1
-
-
-# Keep old name for backward compatibility
-def run_make_target(target, env_vars=None, use_lsf=False, lsf_queue=None):
-    return run_target(target, env_vars)
 
 
 # ─────────────────────────────────────────────────────────────────────────────────
@@ -1454,38 +1409,29 @@ def cmd_update(args: argparse.Namespace) -> int:
 
 
 def cmd_gen_makefile(args: argparse.Namespace) -> int:
-    """Regenerate Makefile for the run directory."""
+    """Verify engine DAG for the run directory."""
     if not is_run_directory():
         logger.error("Error: Not in a valid run directory")
-        logger.error("  Navigate to a run directory first: cd P0_run_PNR_run1")
         return 1
 
     env_vars = load_run_env()
     flow_type = get_flow_type()
 
     logger.info("")
+    logger.info(f"  Verifying cbflow-engine DAG")
     logger.info(f"  ═══════════════════════════════════════════════════════════")
-    logger.info(f"  Regenerating Makefile")
-    logger.info(f"  ═══════════════════════════════════════════════════════════")
-    logger.info("")
 
-    # Also load TCL env vars for complete environment
-    from start_run import load_tcl_env_vars
-    tcl_env_file = os.path.join(os.getcwd(), '.run.cbflow.tcl')
-    if os.path.exists(tcl_env_file):
-        tcl_vars = load_tcl_env_vars(tcl_env_file)
-        for k, v in tcl_vars.items():
-            if k not in env_vars:
-                env_vars[k] = v
-
-    from makefile_generator import MakefileGenerator
-    try:
-        gen = MakefileGenerator(flow_type, env_vars, os.getcwd())
-        gen.generate()
-        logger.info("  [DONE] Makefile regenerated successfully")
+    from cbflow_engine import CbflowEngine
+    engine = CbflowEngine(os.getcwd(), flow_type, env_vars)
+    if engine.initialize():
+        logger.info(f"  Flow:   {flow_type}")
+        logger.info(f"  Jobs:   {len(engine.jobs)}")
+        logger.info(f"  Stages: {' → '.join(engine.stage_order)}")
+        logger.info(f"  DB:     {engine.db.db_path}")
+        logger.info(f"  [DONE] Engine DAG verified")
         return 0
-    except Exception as e:
-        logger.error(f"  Error: Makefile generation failed: {e}")
+    else:
+        logger.error("  Engine initialization failed")
         return 1
 
 
@@ -1518,13 +1464,23 @@ def cmd_release_info(args: argparse.Namespace) -> int:
 
 
 def cmd_targets(args: argparse.Namespace) -> int:
-    """List available make targets."""
+    """List available stages/targets."""
     if not is_run_directory():
         logger.error("Error: Not in a valid run directory")
-        logger.error("  Navigate to a run directory first: cd P0_run_PNR_run1")
         return 1
 
-    return run_target('help', load_run_env())
+    flow_type = get_flow_type()
+    stages = get_flow_stages(flow_type)
+
+    logger.info(f"\n  {flow_type} Available Targets")
+    logger.info(f"  {'=' * 50}")
+    logger.info(f"  cbflow run all                Run complete flow")
+    for stage in stages:
+        logger.info(f"  cbflow run stage --name {stage:<15s}")
+    logger.info(f"  cbflow run retrace            Retrace all stages")
+    logger.info(f"  cbflow run retrace --from X   Retrace from stage X")
+    logger.info(f"  {'=' * 50}\n")
+    return 0
 
 
 def cmd_interactive(args: argparse.Namespace) -> int:
@@ -2032,11 +1988,11 @@ Examples:
     update_parser.add_argument('--no-backup', action='store_true', help='Skip backup of environment files')
 
     # gen-makefile command
-    subparsers.add_parser('gen-makefile', help='Regenerate Makefile',
-        formatter_class=_fmt, description="""Regenerate the Makefile from current flow configuration.
+    subparsers.add_parser('gen-makefile', help='Verify engine DAG',
+        formatter_class=_fmt, description="""Verify the cbflow-engine DAG for the current run.
 
 Examples:
-  cbflow run gen-makefile                Rebuild Makefile after config changes""")
+  cbflow run gen-makefile                Verify engine DAG structure""")
 
     # release-info command
     subparsers.add_parser('release-info', help='Show release information',

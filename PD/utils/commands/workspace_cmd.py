@@ -1051,7 +1051,7 @@ def cmd_create(args: argparse.Namespace) -> int:
         ("Resolving release components", 0.8),
         ("Building environment", 0.8),
         ("Creating directory structure", 1.0),
-        ("Generating Makefile", 1.2),
+        ("Verifying engine DAG", 1.2),
         ("Generating stage makefiles", 1.5),
         ("Writing run environment", 0.8),
         ("Copying user configuration", 0.5),
@@ -1209,7 +1209,7 @@ def _get_run_info(run_dir: str) -> dict:
             pass
 
     # Check for Makefile
-    info['has_makefile'] = os.path.exists(os.path.join(run_dir, 'Makefile'))
+    info['has_makefile'] = False  # Makefile no longer generated — engine is default
 
     return info
 
