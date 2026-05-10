@@ -738,31 +738,74 @@ def cmd_retrace(args: argparse.Namespace) -> int:
         logger.info(f"Valid stages: {', '.join(all_stages)}")
         return 1
 
-    # ── Use engine retrace (invalidates DB + removes stamps) ────────────
+    # ── Determine stages to clear ────────────────────────────────────────
+    if from_stage:
+        stage_idx = all_stages.index(from_stage)
+        stages_to_clear = all_stages[stage_idx:]
+    else:
+        stages_to_clear = list(all_stages)
+
+    # ── Show what will be cleared ─────────────────────────────────────────
+    logger.info("")
+    logger.info(f"  Retrace {'from ' + from_stage if from_stage else '(complete)'}")
+    logger.info(f"  ═══════════════════════════════════════════════════════════")
+    logger.info("")
+    logger.info(f"  Stages to invalidate ({len(stages_to_clear)}):")
+    for stage in stages_to_clear:
+        logger.info(f"    [CLEAR] {stage}")
+    logger.info("")
+
+    # ── Progress bar while clearing ───────────────────────────────────────
+    import time as _time
+    import sys as _sys
+
+    bar_width = 40
+    total = len(stages_to_clear)
+
     from race_engine import RaceEngine
     run_env = load_run_env()
     engine = RaceEngine(os.getcwd(), flow_type, run_env)
-    if engine.initialize():
-        if from_stage:
-            logger.info(f"Retracing from stage: {from_stage}")
-            stage_idx = all_stages.index(from_stage)
-            stages_to_remove = all_stages[stage_idx:]
-            logger.info(f"Invalidating: {', '.join(stages_to_remove)}")
-            engine.retrace(from_stage=from_stage)
-        else:
-            logger.info("Complete retrace — invalidating all jobs...")
-            engine.retrace()
-    else:
-        logger.error("Engine initialization failed — cannot retrace")
+    if not engine.initialize():
+        logger.error("RACE initialization failed — cannot retrace")
+        return 1
 
+    for i, stage in enumerate(stages_to_clear):
+        # Progress bar
+        pct = int((i + 1) / total * 100)
+        filled = int(bar_width * (i + 1) / total)
+        bar = '\033[32m' + '#' * filled + '\033[0m' + '-' * (bar_width - filled)
+        _sys.stderr.write(f'\r  [{bar}] {pct:3d}%  Invalidating {stage}...')
+        _sys.stderr.flush()
+
+        # Invalidate this stage in engine
+        for name, job in engine.jobs.items():
+            if job.stage == stage and job.status == 'DONE':
+                job.status = 'PENDING'
+                # Remove stamp
+                stamp = os.path.join(os.getcwd(), '.stamps', f'{name}.stamp')
+                if os.path.exists(stamp):
+                    os.remove(stamp)
+
+        # Pace the progress bar
+        _time.sleep(10.0 / total)
+
+    # Update DB
+    invalidated = [n for n, j in engine.jobs.items() if j.stage in stages_to_clear]
+    engine.db.invalidate(invalidated)
+
+    _sys.stderr.write(f'\r  [\033[32m{"#" * bar_width}\033[0m] 100%  Complete.{" " * 30}\n')
+    _sys.stderr.flush()
+
+    # ── Summary ───────────────────────────────────────────────────────────
     logger.info("")
     logger.info(f"  Retrace Summary")
     logger.info(f"  ─────────────────────────────────")
+    logger.info(f"  Stages cleared:  {len(stages_to_clear)}")
+    logger.info(f"  Jobs invalidated: {len(invalidated)}")
     if from_stage:
-        logger.info(f"  Stages cleared:  {len(stages_to_remove)}")
         logger.info(f"  From stage:      {from_stage}")
     else:
-        logger.info(f"  Stages cleared:  all")
+        logger.info(f"  Scope:           all stages")
     logger.info(f"  Status:          Ready to rerun")
     logger.info("")
 
