@@ -93,17 +93,20 @@ class DagBuilder:
         subnodes = self._parse_subnodes(config, stages)
         resource_map = self._parse_resource_map(config, stages)
 
+        # Parse subnode-level dependencies (for parallel subnodes like PV drc/lvs)
+        sub_deps = self._parse_subnode_dependencies(config, stages, subnodes)
+
         jobs = OrderedDict()
         stage_order = stages
 
         for stage in stages:
             stage_subnodes = subnodes.get(stage, ['setup', 'run', 'validate', 'finish'])
             prev_subnode_name = None
-            stage_dep_job = None
 
-            # Find the last subnode of the dependency stage
-            for dep_stage in stage_deps.get(stage, []):
-                stage_dep_job = dep_stage  # sentinel job name
+            # Find the previous stage sentinel(s) this stage depends on
+            stage_dep_jobs = stage_deps.get(stage, [])
+
+            has_subnode_deps = any(f'{stage}_{sn}' in sub_deps for sn in stage_subnodes)
 
             for subnode in stage_subnodes:
                 job_name = f'{stage}_{subnode}'
@@ -113,21 +116,36 @@ class DagBuilder:
                 job = Job(job_name, stage, subnode, cmd,
                           job_type='subnode', resource_tier=tier)
 
-                # Dependencies: first subnode depends on previous stage sentinel
-                if prev_subnode_name is None:
-                    if stage_dep_job:
-                        job.deps.append(stage_dep_job)
+                if has_subnode_deps and job_name in sub_deps:
+                    # Use config-defined subnode deps (enables parallel)
+                    for dep in sub_deps[job_name]:
+                        job.deps.append(dep)
+                    # If no deps defined, depend on previous stage sentinel
+                    if not job.deps:
+                        for dep_stage in stage_dep_jobs:
+                            job.deps.append(dep_stage)
                 else:
-                    job.deps.append(prev_subnode_name)
+                    # Sequential: each subnode depends on previous
+                    if prev_subnode_name is None:
+                        for dep_stage in stage_dep_jobs:
+                            job.deps.append(dep_stage)
+                    else:
+                        job.deps.append(prev_subnode_name)
 
                 jobs[job_name] = job
                 prev_subnode_name = job_name
 
             # Stage sentinel job (marks stage complete, writes stamp)
+            # Depends on ALL subnodes (not just last — handles parallel)
             sentinel = Job(stage, stage, '_sentinel',
                            f'touch {self.run_dir}/.stamps/{stage}.stamp',
                            job_type='stage', resource_tier='S')
-            if prev_subnode_name:
+            if has_subnode_deps:
+                # Parallel mode: sentinel depends on all subnodes
+                for sn in stage_subnodes:
+                    sentinel.deps.append(f'{stage}_{sn}')
+            elif prev_subnode_name:
+                # Sequential mode: sentinel depends on last subnode
                 sentinel.deps.append(prev_subnode_name)
             jobs[stage] = sentinel
 
@@ -171,8 +189,45 @@ class DagBuilder:
         for stage in stages:
             m = re.search(rf'subnodes,{stage}\s+\{{([^}}]+)\}}', config)
             if m:
-                subnodes[stage] = m.group(1).split()
+                subs = m.group(1).split()
+                if subs == ['dynamic']:
+                    # Dynamic stage (e.g., STA timing1) — resolve scenarios from user_config
+                    subs = self._resolve_dynamic_subnodes(stage)
+                subnodes[stage] = subs
         return subnodes
+
+    def _resolve_dynamic_subnodes(self, stage: str) -> list:
+        """Resolve dynamic subnodes for per-scenario stages (e.g., STA timing1).
+        Reads mmmc scenarios from user_config or mmmc_config."""
+        scenarios = []
+        # Try user_config for scenario list
+        user_config = os.path.join(self.run_dir, 'setup', 'user_config.tcl')
+        if os.path.exists(user_config):
+            with open(user_config) as f:
+                for line in f:
+                    # sta(mmmc,setup_scenarios) or sta(mmmc,hold_scenarios)
+                    m = re.match(r'set\s+\w+\(mmmc,\w+_scenarios\)\s+"([^"]+)"', line.strip())
+                    if m:
+                        for s in m.group(1).split():
+                            if s not in scenarios:
+                                scenarios.append(s)
+        if scenarios:
+            # Build subnodes: setup + per-scenario + validate + finish
+            return ['setup'] + scenarios + ['validate', 'finish']
+        # Fallback: standard subnodes
+        return ['setup', 'run', 'validate', 'finish']
+
+    def _parse_subnode_dependencies(self, config: str, stages: list, subnodes: dict) -> dict:
+        """Parse subnode_dependencies from config for parallel subnode support."""
+        sub_deps = {}
+        for stage in stages:
+            for subnode in subnodes.get(stage, []):
+                key = f'subnode_dependencies,{stage},{subnode}'
+                m = re.search(rf'{re.escape(key)}\s+\{{([^}}]*)\}}', config)
+                if m:
+                    dep_list = m.group(1).split()
+                    sub_deps[f'{stage}_{subnode}'] = [f'{stage}_{d}' for d in dep_list]
+        return sub_deps
 
     def _parse_resource_map(self, config: str, stages: list) -> dict:
         """Map stages to resource tiers from tool_launch_config."""
