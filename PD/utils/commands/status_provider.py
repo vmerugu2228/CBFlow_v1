@@ -215,10 +215,15 @@ def get_status_provider(run_dir: str = None) -> StatusProvider:
     if run_dir is None:
         run_dir = os.getcwd()
 
-    # Check local DB first (fast path)
-    local_db = os.path.join(run_dir, SqliteStatusProvider.DB_NAME)
-    if os.path.exists(local_db):
-        return SqliteStatusProvider(run_dir, db_path=local_db)
+    # Check local DB first (fast path) — matches .cbflow_engine_*.db pattern
+    import hashlib
+    uid = hashlib.md5(os.path.abspath(run_dir).encode()).hexdigest()[:6]
+    local_db_uid = os.path.join(run_dir, f'.cbflow_engine_{uid}.db')
+    local_db_legacy = os.path.join(run_dir, SqliteStatusProvider.DB_NAME)
+    if os.path.exists(local_db_uid):
+        return SqliteStatusProvider(run_dir, db_path=local_db_uid)
+    if os.path.exists(local_db_legacy):
+        return SqliteStatusProvider(run_dir, db_path=local_db_legacy)
 
     # Check structured DB path from run env
     env_file = os.path.join(run_dir, '.run.cbflow.env')

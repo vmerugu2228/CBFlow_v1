@@ -216,8 +216,12 @@ class DagBuilder:
 class StatusDB:
     """SQLite database for job status tracking.
 
-    DB path structure: $project(engine,db_path)/$project_name/$domain/$flow_type/$user_$run_name.db
-    Example: /proj/phoenix/cbflow_db/phoenix/PD/SYNTH_PNR/vmerugu_run0.db
+    DB path structure: $project(engine,db_path)/$project/$domain/$flow/$user_$run_$uid.db
+    Example: /proj/phoenix/cbflow_db/phoenix/PD/SYNTH_PNR/vmerugu_run0_a3f2b1.db
+
+    UID is a 6-char hex derived from run_dir absolute path — unique per run,
+    deterministic (same run_dir always produces same UID), so the engine
+    reconnects to the same DB on resume without creating duplicates.
 
     Falls back to $run_dir/.cbflow_engine.db if project(engine,db_path) not configured.
     """
@@ -225,15 +229,17 @@ class StatusDB:
     def __init__(self, run_dir: str, project_name: str = '', domain: str = 'PD',
                  flow_type: str = '', run_name: str = '', user: str = '',
                  db_base_path: str = ''):
+        import hashlib
+        # Generate deterministic 6-char UID from run_dir absolute path
+        uid = hashlib.md5(os.path.abspath(run_dir).encode()).hexdigest()[:6]
+
         if db_base_path:
-            # Structured path: $db_path/$project/$domain/$flow/$user_$run.db
             user = user or os.environ.get('USER', 'unknown')
             db_dir = os.path.join(db_base_path, project_name, domain, flow_type)
             os.makedirs(db_dir, exist_ok=True)
-            self.db_path = os.path.join(db_dir, f'{user}_{run_name}.db')
+            self.db_path = os.path.join(db_dir, f'{user}_{run_name}_{uid}.db')
         else:
-            # Fallback: in run directory
-            self.db_path = os.path.join(run_dir, '.cbflow_engine.db')
+            self.db_path = os.path.join(run_dir, f'.cbflow_engine_{uid}.db')
         self._init_db()
 
     def _init_db(self):
