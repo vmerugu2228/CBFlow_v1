@@ -138,28 +138,32 @@ def _parse_env_file(env_file: str, info: dict):
 
 
 def _collect_stage_status(run_dir: str, info: dict):
-    """Collect stage completion status from .stamps directory."""
-    stamps_dir = os.path.join(run_dir, '.stamps')
-    if not os.path.isdir(stamps_dir):
-        return
-
-    for stamp_file in sorted(Path(stamps_dir).glob('*')):
-        stage_name = stamp_file.name
-        try:
+    """Collect stage completion status from engine DB or stamps."""
+    try:
+        from status_provider import get_status_provider
+        provider = get_status_provider(run_dir)
+        all_status = provider.get_all_status()
+        for stage_name, stage_info in all_status.items():
+            info['stage_status'][stage_name] = {
+                'status': stage_info.get('status', 'DONE'),
+                'timestamp': stage_info.get('timestamp', ''),
+            }
+            if stage_name not in info['stages']:
+                info['stages'].append(stage_name)
+    except Exception:
+        # Fallback: read stamps directly
+        stamps_dir = os.path.join(run_dir, '.stamps')
+        if not os.path.isdir(stamps_dir):
+            return
+        for stamp_file in sorted(Path(stamps_dir).glob('*.stamp')):
+            stage_name = stamp_file.stem
             mtime = datetime.fromtimestamp(stamp_file.stat().st_mtime)
-            with open(stamp_file) as f:
-                content = f.read().strip()
-            status = 'PASS' if 'PASS' in content.upper() or 'DONE' in content.upper() else 'DONE'
-        except Exception:
-            status = 'DONE'
-            mtime = datetime.now()
-
-        info['stage_status'][stage_name] = {
-            'status': status,
-            'timestamp': mtime.strftime('%Y-%m-%d %H:%M:%S'),
-        }
-        if stage_name not in info['stages']:
-            info['stages'].append(stage_name)
+            info['stage_status'][stage_name] = {
+                'status': 'DONE',
+                'timestamp': mtime.strftime('%Y-%m-%d %H:%M:%S'),
+            }
+            if stage_name not in info['stages']:
+                info['stages'].append(stage_name)
 
 
 def _collect_qor_summary(run_dir: str, info: dict):

@@ -318,16 +318,25 @@ def _collect_clock_data(run_dir: str, data: dict):
 
 
 def _collect_stage_runtimes(run_dir: str, data: dict):
-    """Collect runtime from stamps or logs."""
-    stamps_dir = Path(run_dir) / '.stamps'
-    if not stamps_dir.is_dir():
-        return
-    for stamp in sorted(stamps_dir.glob('*')):
-        try:
-            mtime = datetime.fromtimestamp(stamp.stat().st_mtime)
-            data['stage_runtime'][stamp.name] = mtime.strftime('%H:%M:%S')
-        except Exception:
-            pass
+    """Collect runtime from engine DB or stamps."""
+    try:
+        from status_provider import get_status_provider
+        provider = get_status_provider(run_dir)
+        all_status = provider.get_all_status()
+        for stage, info in all_status.items():
+            ts = info.get('timestamp', '')
+            time_short = ts.split('T')[-1][:8] if 'T' in ts else ts[-8:] if len(ts) > 8 else ts
+            data['stage_runtime'][stage] = time_short
+    except Exception:
+        stamps_dir = Path(run_dir) / '.stamps'
+        if not stamps_dir.is_dir():
+            return
+        for stamp in sorted(stamps_dir.glob('*.stamp')):
+            try:
+                mtime = datetime.fromtimestamp(stamp.stat().st_mtime)
+                data['stage_runtime'][stamp.stem] = mtime.strftime('%H:%M:%S')
+            except Exception:
+                pass
 
 
 def _find_images(run_dir: str, data: dict):
@@ -763,6 +772,7 @@ def cmd_autoppt(args: argparse.Namespace) -> int:
     run_dir = os.getcwd()
 
     if not os.path.exists(os.path.join(run_dir, '.stamps')) and \
+       not any(Path(run_dir).glob('.cbflow_engine_*.db')) and \
        not os.path.exists(os.path.join(run_dir, '.run.cbflow.tcl')):
         print("ERROR: Not a CBflow run directory.")
         return 1

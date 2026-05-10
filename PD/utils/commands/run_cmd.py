@@ -35,7 +35,9 @@ def is_run_directory() -> bool:
     # Check for run environment file or Makefile
     return (os.path.exists('.run.cbflow.env') or
             os.path.exists('.run.cbflow.tcl') or
-            (os.path.exists('Makefile') and os.path.exists('.stamps') or '_run_' in os.path.basename(os.getcwd())))
+            any(Path('.').glob('.cbflow_engine_*.db')) or
+            os.path.exists('Makefile') or
+            '_run_' in os.path.basename(os.getcwd()))
 
 
 def load_run_env() -> dict:
@@ -460,35 +462,38 @@ def cmd_status(args: argparse.Namespace) -> int:
     logger.info(f"  Flow Type:      {flow_type}")
     logger.info("")
 
-    # Check stamps directory for completed stages
-    stamps_dir = '.stamps'
-    completed = []
-    if os.path.exists(stamps_dir):
-        completed = [f.replace('.stamp', '') for f in os.listdir(stamps_dir) if f.endswith('.stamp')]
+    # ── Get status from engine DB (primary) or stamps (fallback) ──────────
+    from status_provider import get_status_provider, SqliteStatusProvider
+    status_prov = get_status_provider(os.getcwd())
+    using_db = isinstance(status_prov, SqliteStatusProvider)
 
-    # Check for running stage (look for .running file)
-    running_stage = None
-    if os.path.exists('.running'):
-        with open('.running', 'r') as f:
-            running_stage = f.read().strip()
+    if using_db:
+        logger.info(f"  Dispatcher:     cbflow-engine")
+        logger.info(f"  Status DB:      {status_prov.db_path}")
+    else:
+        logger.info(f"  Dispatcher:     make (stamps)")
 
-    # Check for pending stages (queued after retrace or run all)
-    pending_stages = []
-    if os.path.exists('.pending'):
-        with open('.pending', 'r') as f:
-            pending_stages = [s.strip() for s in f.readlines() if s.strip()]
+    all_status = status_prov.get_all_status()
+    completed = [s for s, info in all_status.items() if info.get('status') == 'DONE']
 
     def show_stage_status(stage, label_suffix=""):
-        """Helper to display stage status."""
+        """Helper to display stage status from DB or stamps."""
         label = f"{stage}{label_suffix}"
-        if stage in completed:
-            stamp_file = os.path.join(stamps_dir, f'{stage}.stamp')
-            mtime = datetime.fromtimestamp(os.path.getmtime(stamp_file))
-            logger.info(f"  [DONE] {label:<30} {mtime.strftime('%Y-%m-%d %H:%M:%S')}")
-        elif stage == running_stage:
+        info = all_status.get(stage, {})
+        status = info.get('status', '')
+        ts = info.get('timestamp', '')
+
+        if status == 'DONE':
+            runtime = ''
+            if using_db:
+                rt = status_prov.get_stage_runtime(stage)
+                if rt > 0:
+                    runtime = f" ({rt:.1f}s)"
+            logger.info(f"  [DONE] {label:<30} {ts}{runtime}")
+        elif status == 'RUNNING':
             logger.info(f"  [RUN ] {label:<30} running")
-        elif stage in pending_stages:
-            logger.info(f"  [PEND] {label:<30} pending")
+        elif status == 'FAIL':
+            logger.info(f"  [FAIL] {label:<30} {ts}")
         else:
             logger.info(f"  [    ] {label:<30}")
 
@@ -499,33 +504,31 @@ def cmd_status(args: argparse.Namespace) -> int:
     for stage in base_stages:
         show_stage_status(stage)
         if show_details:
-            # Show subnode status for this stage
+            # Show subnode status from DB or stamps
             from tcl_config_parser import get_subnodes
             subnodes = get_subnodes(flow_type, stage)
 
             if subnodes == ['dynamic']:
-                # Dynamic stage (e.g., timing1): discover per-scenario stamps
-                # Stamps are named: timing_<scenario>.stamp
-                stage_base = stage.rstrip('0123456789')  # timing1 → timing
-                scenario_stamps = sorted([
-                    s for s in completed
-                    if s.startswith(f'{stage_base}_') and s != f'{stage}_dynamic'
-                ])
-                if scenario_stamps:
-                    for ss in scenario_stamps:
+                # Dynamic stage — discover subnodes from DB or stamps
+                stage_base = stage.rstrip('0123456789')
+                dynamic_subs = [s for s in completed if s.startswith(f'{stage_base}_')]
+                if dynamic_subs:
+                    for ss in sorted(dynamic_subs):
                         scenario = ss.replace(f'{stage_base}_', '', 1)
-                        stamp_file = os.path.join(stamps_dir, f'{ss}.stamp')
-                        mtime = datetime.fromtimestamp(os.path.getmtime(stamp_file))
-                        logger.info(f"      [DONE] {scenario:<40} {mtime.strftime('%H:%M:%S')}")
+                        sub_info = status_prov.get_subnode_status(stage, scenario)
+                        ts = sub_info.get('timestamp', '')
+                        logger.info(f"      [DONE] {scenario:<40} {ts}")
                 else:
                     logger.info(f"      [    ] (no scenarios executed yet)")
             else:
                 for subnode in subnodes:
-                    subnode_stamp = f"{stage}_{subnode}"
-                    if subnode_stamp in completed:
-                        stamp_file = os.path.join(stamps_dir, f'{subnode_stamp}.stamp')
-                        mtime = datetime.fromtimestamp(os.path.getmtime(stamp_file))
-                        logger.info(f"      [DONE] {subnode:<24} {mtime.strftime('%Y-%m-%d %H:%M:%S')}")
+                    sub_info = status_prov.get_subnode_status(stage, subnode)
+                    sub_status = sub_info.get('status', '')
+                    ts = sub_info.get('timestamp', '')
+                    if sub_status == 'DONE':
+                        logger.info(f"      [DONE] {subnode:<24} {ts}")
+                    elif sub_status == 'FAIL':
+                        logger.info(f"      [FAIL] {subnode:<24} {ts}")
                     else:
                         logger.info(f"      [    ] {subnode:<24}")
 
@@ -617,14 +620,26 @@ def cmd_status(args: argparse.Namespace) -> int:
             created_date = branch_info.get('created_date', 'unknown')
             logger.info(f"  - {branch_name} (created: {created_date})")
 
-    # Show run status file if exists
-    if os.path.exists('.run.status') and getattr(args, 'details', False):
+    # Show run result from DB
+    if using_db and getattr(args, 'details', False):
         logger.info("")
-        logger.info("Recent activity:")
-        with open('.run.status', 'r') as f:
-            lines = f.readlines()[-10:]
-            for line in lines:
-                logger.info(f"  {line.strip()}")
+        try:
+            from cbflow_engine import StatusDB
+            import hashlib
+            uid = hashlib.md5(os.path.abspath(os.getcwd()).encode()).hexdigest()[:6]
+            db = StatusDB.__new__(StatusDB)
+            db.db_path = status_prov.db_path
+            result = db.get_run_info('result')
+            started = db.get_run_info('started')
+            completed_at = db.get_run_info('completed')
+            if result:
+                logger.info(f"  Run Result:  {result}")
+            if started:
+                logger.info(f"  Started:     {started}")
+            if completed_at:
+                logger.info(f"  Completed:   {completed_at}")
+        except Exception:
+            pass
 
     logger.info("")
 
@@ -647,44 +662,45 @@ def cmd_retrace(args: argparse.Namespace) -> int:
     from_stage = getattr(args, 'from_stage', None)
     flow_type = get_flow_type()
     all_stages = get_flow_stages(flow_type)
-    stamps_dir = '.stamps'
 
-    if not os.path.exists(stamps_dir):
-        logger.info("No stamps found - nothing to retrace")
-        return 0
+    if from_stage and from_stage not in all_stages:
+        logger.error(f"Invalid stage: {from_stage}")
+        logger.info(f"Valid stages: {', '.join(all_stages)}")
+        return 1
 
-    if from_stage:
-        # Selective retrace from specific stage
-        if from_stage not in all_stages:
-            logger.error(f"Invalid stage: {from_stage}")
-            logger.info(f"Valid stages: {', '.join(all_stages)}")
-            return 1
-
-        # Find index and remove all stamps from that stage onwards
-        stage_idx = all_stages.index(from_stage)
-        stages_to_remove = all_stages[stage_idx:]
-
-        logger.info(f"Retracing from stage: {from_stage}")
-        logger.info(f"Will remove stamps for: {', '.join(stages_to_remove)}")
-
-        for stage in stages_to_remove:
-            # Remove stage stamp and all its subnode stamps (e.g., cts1.stamp, cts1_setup.stamp, cts1_run.stamp)
-            for f in os.listdir(stamps_dir):
-                if f == f'{stage}.stamp' or f.startswith(f'{stage}_'):
-                    os.remove(os.path.join(stamps_dir, f))
-                    logger.info(f"  Removed: {f}")
-    else:
-        # Complete retrace - remove all stamps
-        logger.info("Complete retrace - removing all stamps...")
-        for f in os.listdir(stamps_dir):
-            if f.endswith('.stamp'):
-                os.remove(os.path.join(stamps_dir, f))
-                logger.info(f"  Removed: {f}")
-
-    # Clear run status file
-    if os.path.exists('.run.status'):
-        os.remove('.run.status')
-        logger.info("  Cleared: .run.status")
+    # ── Use engine retrace (invalidates DB + removes stamps) ────────────
+    try:
+        from cbflow_engine import CbflowEngine
+        run_env = load_run_env()
+        engine = CbflowEngine(os.getcwd(), flow_type, run_env)
+        if engine.initialize():
+            if from_stage:
+                logger.info(f"Retracing from stage: {from_stage}")
+                stage_idx = all_stages.index(from_stage)
+                stages_to_remove = all_stages[stage_idx:]
+                logger.info(f"Invalidating: {', '.join(stages_to_remove)}")
+                engine.retrace(from_stage=from_stage)
+            else:
+                logger.info("Complete retrace — invalidating all jobs...")
+                engine.retrace()
+    except Exception as e:
+        logger.debug(f"Engine retrace: {e}")
+        # Fallback: manual stamp removal
+        stamps_dir = '.stamps'
+        if os.path.isdir(stamps_dir):
+            if from_stage:
+                stage_idx = all_stages.index(from_stage)
+                for stage in all_stages[stage_idx:]:
+                    for f in os.listdir(stamps_dir):
+                        if f == f'{stage}.stamp' or f.startswith(f'{stage}_'):
+                            os.remove(os.path.join(stamps_dir, f))
+                            logger.info(f"  Removed: {f}")
+            else:
+                logger.info("Complete retrace - removing all stamps...")
+                for f in os.listdir(stamps_dir):
+                    if f.endswith('.stamp'):
+                        os.remove(os.path.join(stamps_dir, f))
+                        logger.info(f"  Removed: {f}")
 
     logger.info("")
     logger.info(f"  Retrace Summary")
