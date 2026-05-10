@@ -65,10 +65,18 @@ switch $subnode_name {
         set design_name [expr {[info exists flow(design_name)] ? $flow(design_name) : "design"}]
         set upf_dir "$run_dir/work/SYNTH_PNR/$node_name/upf"
         file mkdir $upf_dir
-        set upf_src $synth_pnr(input,upf_file)
-        file copy -force $upf_src "$upf_dir/[file tail $upf_src]"
-        catch { file link -symbolic "$upf_dir/${design_name}.upf" $upf_src }
-        puts "INFO: UPF linked: $upf_src -> $upf_dir/${design_name}.upf"
+        if {[info exists synth_pnr(input,upf_file)] && $synth_pnr(input,upf_file) ne ""} {
+            set upf_src $synth_pnr(input,upf_file)
+            if {[file exists $upf_src]} {
+                file copy -force $upf_src "$upf_dir/[file tail $upf_src]"
+                catch { file link -symbolic "$upf_dir/${design_name}.upf" $upf_src }
+                puts "INFO: UPF linked: $upf_src -> $upf_dir/${design_name}.upf"
+            } else {
+                puts "WARNING: UPF file not found: $upf_src"
+            }
+        } else {
+            puts "INFO: No UPF specified (synth_pnr(input,upf_file) not set) — skipping"
+        }
         puts "INFO: SYNTH_PNR $stage_name upf completed"
     }
     "validate" {

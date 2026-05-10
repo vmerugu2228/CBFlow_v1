@@ -250,34 +250,72 @@ def get_branch_name_for_node(node_name: str, custom_data: dict) -> str:
 
 
 
-def run_make_target(target: str, env_vars: dict = None,
-                    use_lsf: bool = False, lsf_queue: str = None) -> int:
-    """Run a make target.
+def run_target(target: str, env_vars: dict = None) -> int:
+    """Run a target using the configured dispatcher (engine or make).
 
-    Args:
-        target: Make target name
-        env_vars: Additional environment variables
-        use_lsf: Enable LSF job submission
-        lsf_queue: LSF queue override
+    Reads flow(dispatcher) from config to determine backend.
+    LSF/xterm controlled by flow(use_lsf) and flow(use_xterm) in flow_config.tcl.
     """
-    run_env = os.environ.copy()
+    run_dir = os.getcwd()
+
+    # Load run environment
+    run_env = load_run_env()
     if env_vars:
         run_env.update(env_vars)
 
-    # LSF/xterm controlled by flow(use_lsf) and flow(use_xterm) in flow_config.tcl
-    # No env var overrides — config is the single source of truth
+    # Determine dispatcher from config
+    # Priority: CBFLOW_DISPATCHER env > flow(dispatcher) in flow_config.tcl
+    dispatcher_type = run_env.get('CBFLOW_DISPATCHER', '')
+    if not dispatcher_type:
+        # Read from flow_config.tcl (the actual config, not the run copy)
+        import re
+        flow_dir = run_env.get('FLOW_DIR', os.environ.get('FLOW_DIR', ''))
+        flow_ver = run_env.get('FLOW_CONFIG_VERSION', 'v1.0.0')
+        for config_path in [
+            os.path.join(flow_dir, 'config', 'flow', flow_ver, 'flow_config.tcl'),
+            os.path.join(run_dir, '.run.cbflow.tcl'),
+        ]:
+            if os.path.exists(config_path):
+                with open(config_path) as f:
+                    for line in f:
+                        m = re.match(r'set\s+flow\(dispatcher\)\s+"(\w+)"', line.strip())
+                        if m:
+                            dispatcher_type = m.group(1)
+                            break
+            if dispatcher_type:
+                break
 
+    if dispatcher_type == 'engine':
+        try:
+            from cbflow_engine import CbflowEngine
+            flow_type = run_env.get('CBFLOW_FLOW_TYPE', '')
+            engine = CbflowEngine(run_dir, flow_type, run_env)
+            if engine.initialize():
+                logger.info(f"Using cbflow-engine ({len(engine.jobs)} jobs)")
+                return engine.execute(target)
+            else:
+                logger.warning("Engine init failed, falling back to Make")
+        except ImportError:
+            logger.warning("cbflow_engine not available, falling back to Make")
+
+    # Fallback: GNU Make
     cmd = ['make', target]
-
     try:
-        result = subprocess.run(cmd, env=run_env)
+        full_env = os.environ.copy()
+        full_env.update(run_env)
+        result = subprocess.run(cmd, env=full_env)
         return result.returncode
     except FileNotFoundError:
         logger.error("make command not found")
         return 1
     except Exception as e:
-        logger.error(f"Make failed: {e}")
+        logger.error(f"Execution failed: {e}")
         return 1
+
+
+# Keep old name for backward compatibility
+def run_make_target(target, env_vars=None, use_lsf=False, lsf_queue=None):
+    return run_target(target, env_vars)
 
 
 # ─────────────────────────────────────────────────────────────────────────────────
@@ -318,8 +356,7 @@ def cmd_all(args: argparse.Namespace) -> int:
             return 1
         logger.info("Pre-run validation passed")
 
-    result = run_make_target('all', load_run_env(),
-                            use_lsf=use_lsf, lsf_queue=lsf_queue)
+    result = run_target('all', load_run_env())
 
     # Post-run validation
     if validate and result == 0:
@@ -378,7 +415,7 @@ def cmd_stage(args: argparse.Namespace) -> int:
     logger.info(f"  Running {flow_type} Stage: {stage}")
     logger.info(f"  ───────────────────────────────────────────────────────")
     logger.info(f"")
-    result = run_make_target(stage, load_run_env(), use_lsf=use_lsf, lsf_queue=lsf_queue)
+    result = run_target(stage, load_run_env())
 
     # Post-stage validation
     if validate and result == 0:
@@ -663,7 +700,7 @@ def cmd_retrace(args: argparse.Namespace) -> int:
     # Run if --run flag is set
     if getattr(args, 'run', False):
         logger.info("  Re-running flow...")
-        return run_make_target('all', load_run_env())
+        return run_target('all', load_run_env())
 
     logger.info(f"  To rerun: cbflow run all")
     return 0
@@ -1471,7 +1508,7 @@ def cmd_targets(args: argparse.Namespace) -> int:
         logger.error("  Navigate to a run directory first: cd P0_run_PNR_run1")
         return 1
 
-    return run_make_target('help', load_run_env())
+    return run_target('help', load_run_env())
 
 
 def cmd_interactive(args: argparse.Namespace) -> int:
