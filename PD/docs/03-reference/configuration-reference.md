@@ -5,8 +5,8 @@ Complete reference for all CBflow v2.0.0 configuration files.
 ## Configuration Hierarchy
 
 ```
-flow_config.tcl                (top-level: flow types, email, autoppt, MMMC, logging, makefile)
-  node_configs/                (per-flow: 12 files, one per flow type)
+flow_config.tcl                (top-level: flow types, dispatcher, email, autoppt, MMMC, logging)
+  node_configs/                (per-flow: 12 files, consumed by RACE to build DAG)
   tool_launch_config.tcl       (module loads, tool shells, bsub defaults, queue types)
   release_config.tcl           (release_exit_files, phase_criteria, milestone_flow_map, flow_input_handshake)
   mmmc_config.tcl              (analysis views, library sets, scenario sets, per-node assignments)
@@ -15,7 +15,7 @@ flow_config.tcl                (top-level: flow types, email, autoppt, MMMC, log
   exit/                        (6 milestone configs + waivers + thresholds + remediation)
 ```
 
-Settings cascade downward. A node config inherits from flow_config and can override any value. MMMC, tech, and tool launch configs are referenced by node configs and subnode handlers.
+Settings cascade downward. A node config inherits from flow_config and can override any value. MMMC, tech, and tool launch configs are referenced by node configs and subnode handlers. The RACE engine reads node configs at runtime to build the execution DAG -- there is no intermediate Makefile generation step.
 
 ---
 
@@ -29,7 +29,7 @@ config/flow/v1.0.0/flow_config.tcl
 
 ### Purpose
 
-Top-level configuration defining project-wide settings, all 12 supported flow types, project phases, email notifications, AutoPPT generation, MMMC integration, logging, and makefile generation. Sources node configs from `node_configs/` subdirectory.
+Top-level configuration defining project-wide settings, the RACE dispatcher, all 12 supported flow types, project phases, email notifications, AutoPPT generation, MMMC integration, and logging. Sources node configs from `node_configs/` subdirectory.
 
 ### Flow Types (12)
 
@@ -39,12 +39,21 @@ set flow(types) {SYNTH FP PNR STA LEC EMIR PV ECO CLP POPT FCFP SYNTH_PNR}
 
 FCT and PHYV were removed in v2.0.0 (merged into STA and PV respectively).
 
+### RACE Dispatcher
+
+```tcl
+set flow(dispatcher) "race"
+```
+
+The `flow(dispatcher)` setting activates the RACE (Run Automation & Control Engine). RACE builds the DAG from node_config.tcl at runtime and tracks status in a SQLite database. There is no Makefile and no `.make/` directory.
+
 ### Core Settings
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `flow(project_name)` | string | `"ravendrive"` | Project name (loads `<project_name>_config.tcl`) |
 | `flow(tech_node)` | string | `"gf_22nm"` | Technology node (loads `<tech_node>_config.tcl`) |
+| `flow(dispatcher)` | string | `"race"` | Dispatcher engine (RACE) |
 | `flow(type)` | string | `"SYNTH"` | Current active flow type |
 | `flow(types)` | list | 12 flows | All supported flow types |
 | `flow(default_type)` | string | `"SYNTH"` | Default flow type when not specified |
@@ -107,20 +116,12 @@ FCT and PHYV were removed in v2.0.0 (merged into STA and PV respectively).
 | `flow(log,retention_days)` | integer | `30` | Log retention in days |
 | `flow(log,categories)` | list | 7 categories | `{INIT CONFIG STAGE TOOL ERROR WARNING DEBUG}` |
 
-### Makefile Configuration
-
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `flow(makefile,include_colors)` | boolean | `true` | Color output in make |
-| `flow(makefile,parallel_jobs)` | integer | `4` | Parallel make jobs |
-| `flow(makefile,verbose_output)` | boolean | `false` | Verbose make output |
-| `flow(makefile,default_targets)` | list | 5 targets | `{all help status clean retrace}` |
-
 ### Example
 
 ```tcl
 set flow(project_name)  "ravendrive"
 set flow(tech_node)     "gf_22nm"
+set flow(dispatcher)    "race"
 set flow(types)         {SYNTH FP PNR STA LEC EMIR PV ECO CLP POPT FCFP SYNTH_PNR}
 set flow(phases)        {P0 P1 P2 P3}
 set flow(mode)          "default"
@@ -471,7 +472,7 @@ The `mmmc` array assigns setup and hold scenarios to each PNR/synthesis node:
 config/flow/v1.0.0/node_configs/<FLOW>_config.tcl
 ```
 
-One config per flow type (12 files):
+One config per flow type (12 files). These are the primary input to the RACE engine -- RACE parses these files at runtime to build the execution DAG.
 
 | File | Flow | Description |
 |------|------|-------------|
@@ -496,7 +497,7 @@ Each node config uses `array set <flow_name> { ... }` with these key patterns:
 |-------------|------|-------------|
 | `stages` | list | Ordered stage names with numeric suffix (e.g., `synthesis1`, `place1`) |
 | `subnodes,<stage>` | list | Ordered subnode list per stage (e.g., `{setup run validate finish}`) |
-| `dependencies,<stage>` | list | Stage-level dependency list |
+| `dependencies,<stage>` | list | Stage-level dependency list (used by RACE to build DAG) |
 | `subnode_dependencies,<stage>,<subnode>` | list | Subnode-level dependency chains |
 | `stage_types,<stage>` | string | Stage type: `inputs`, `execution`, `export_data`, `release_data` |
 | `node_types,<stage>` | string | Node type name (e.g., `synthesis`, `place`, `cts`) |
@@ -525,6 +526,8 @@ array set synth_pnr {
     mmmc,default_scenario_set "signoff"
 }
 ```
+
+RACE reads these dependency declarations to construct the DAG at runtime.
 
 ---
 
@@ -609,6 +612,14 @@ Project-level overrides customizing CBflow behavior for a specific project. Incl
 | `project(release,generate_notes)` | boolean | Auto-generate release notes |
 | `project(release,validate_mandatory)` | boolean | Validate mandatory files on release |
 
+### RACE DB Settings
+
+| Setting | Type | Description |
+|---------|------|-------------|
+| `project(race,db_path)` | string | Base path for RACE SQLite databases |
+
+RACE DB path structure: `$project(race,db_path)/$project/$domain/$flow/$user_$run_$uid.db`
+
 Release path structure: `$release_path/$phase/$block_name/$release_tag`
 
 Example: `/proj/ravendrive/releases/P2/top_chip/v1.0.2`
@@ -674,5 +685,5 @@ FCT and PHYV exit configs do not exist -- those flows were removed in v2.0.0.
 - [Python Scripts Reference](python-scripts-reference.md) -- CLI modules and subcommands
 - [LSF Reference](lsf-reference.md) -- LSF integration details
 - [MMMC Reference](mmmc-reference.md) -- MMMC configuration details
-- [System Design](../04-architecture/system-design.md) -- Architecture
+- [System Design](../04-architecture/system-design.md) -- RACE engine architecture
 - [Examples](../06-examples/basic-workflows.md) -- Workflow examples

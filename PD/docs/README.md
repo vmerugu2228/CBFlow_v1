@@ -4,13 +4,14 @@ Complete documentation for CBflow v2.0.0 -- a comprehensive PD automation framew
 
 ## What is CBflow?
 
-CBflow is a Python/Bash/TCL/Make automation framework that orchestrates ASIC physical design flows across Synopsys, Cadence, and Mentor tool suites. It provides:
+CBflow is a Python/Bash/TCL automation framework that orchestrates ASIC physical design flows across Synopsys, Cadence, and Mentor tool suites. It provides:
 
+- **RACE Engine**: Run Automation & Control Engine -- Python-native DAG executor that replaced GNU Make entirely. Builds DAG from node_config.tcl at runtime, tracks status in SQLite DB, supports file change detection with automatic downstream retrace, parallel subnode execution, and dynamic subnode generation.
 - **12 Design Flows**: SYNTH, FP, PNR, STA, LEC, EMIR, PV, ECO, CLP, POPT, FCFP, SYNTH_PNR
 - **Multi-Vendor Support**: Synopsys (FC, PT, Formality, ICV, RedHawk, VC_LP), Cadence (Genus, Innovus, Tempus, Conformal LP, Voltus), Mentor (Calibre)
 - **153 Command Files**: FC-RM Y-2026.03 aligned, with per-stage reports, proper REPORTS_DIR/OUTPUTS_DIR
 - **flow_proc Engine**: Auto-ordered registration, flow_exec_all, prepend/append/replace hooks
-- **Override Hierarchy**: flow_config → project_config → tech_config → user_config → override_config → override_setup
+- **Override Hierarchy**: flow_config -> project_config -> tech_config -> user_config -> override_config -> override_setup
 - **Release Mechanism**: `$release_path/$phase/$block_name/$release_tag` with mandatory file validation
 - **Input Handshaking**: Release tag mode (`<flow>(input,<type>_release_tag)`) or direct path mode
 - **Phase Milestones**: P0 (trial), P1 (impl), P2 (pre-signoff), P3 (tapeout) with 6 stage exits
@@ -22,6 +23,18 @@ CBflow is a Python/Bash/TCL/Make automation framework that orchestrates ASIC phy
 - **Test Suite**: 994 tests across 8 categories (`bin/cbflow-test-suite`)
 - **Directory-Based Versioning**: Copy, edit, set-current via symlink (no Git worktrees)
 - **3 Tech Configs**: GF 22FDX, TSMC 7nm, TSMC 5nm
+
+## RACE Engine Overview
+
+RACE (Run Automation & Control Engine) is the Python-native DAG executor at the core of CBflow v2.0.0. It completely replaces GNU Make -- Make is NOT used and NOT required.
+
+- **DAG from node_config.tcl**: RACE builds the execution graph at runtime directly from node_config.tcl. There is no Makefile generation step.
+- **SQLite DB for status tracking**: Each run stores status in a SQLite database (`.race_<uid>.db`). DB path: `$project(race,db_path)/$project/$domain/$flow/$user_$run_$uid.db`
+- **File change detection**: Edit an input file and RACE auto-retraces all downstream nodes (VOV-like behavior).
+- **Parallel subnode execution**: PV runs drc/lvs/erc/perc/xor in parallel after fill completes.
+- **Dynamic subnodes**: STA generates per-corner subnodes from user_config at runtime.
+- **Custom nodes at run level**: Use `add-node` and `create-branch` to extend the DAG without editing node_config.
+- **Dispatcher config**: `set flow(dispatcher) "race"` in flow_config.tcl
 
 ## Quick Start
 
@@ -47,12 +60,11 @@ CBflow is a Python/Bash/TCL/Make automation framework that orchestrates ASIC phy
 ### [03. Reference](03-reference/)
 - [Configuration Reference](03-reference/configuration-reference.md) -- All config files
 - [Python Scripts Reference](03-reference/python-scripts-reference.md) -- All 28 CLI modules
-- [Makefile Reference](03-reference/makefile-reference.md) -- Make targets
 - [LSF Reference](03-reference/lsf-reference.md) -- LSF queue/resource config
 - [MMMC Reference](03-reference/mmmc-reference.md) -- Multi-mode multi-corner
 
 ### [04. Architecture](04-architecture/)
-- [System Design](04-architecture/system-design.md) -- flow_proc, override, release, handshake
+- [System Design](04-architecture/system-design.md) -- RACE engine, flow_proc, override, release, handshake
 - [Data Flow](04-architecture/data-flow.md) -- Data flow diagrams
 - [Component Design](04-architecture/component-design.md) -- Module details
 
@@ -75,13 +87,24 @@ CBflow is a Python/Bash/TCL/Make automation framework that orchestrates ASIC phy
 | `cbflow workspace status` | Show workspace status |
 | `cbflow run all` | Run complete flow |
 | `cbflow run stage --name <stage>` | Run specific stage |
-| `cbflow run status` | Show run progress |
+| `cbflow run status` | Show run progress (from RACE DB) |
+| `cbflow run retrace --from <stage>` | Mark node and downstream for re-execution |
+| `cbflow run bypass --node <node>` | Skip a node (mark as bypassed in RACE DB) |
+| `cbflow run force --node <node>` | Force re-run a node regardless of status |
+| `cbflow run forcevalidate --node <node>` | Force validate a specific node |
+| `cbflow run forcevalidate --from X --to Y` | Force validate a range of nodes |
+| `cbflow run forcevalidate --from X` | Force validate from node X to end |
+| `cbflow run forcevalidate --to Y` | Force validate from start to node Y |
 | `cbflow run checklist --milestone BTO --phase P3` | Run exit milestone checklist |
 | `cbflow run email --to user@co.com --template run-status` | Send email notification |
 | `cbflow run autoppt --format html` | Generate PD run summary |
 | `cbflow run interactive --load place1` | Open interactive EDA session |
 | `cbflow run logs --tail 50 --level ERROR` | View logs |
-| `cbflow run lsf-status` | Show LSF job status |
+| `cbflow run report --node pro1` | Detailed node report |
+| `cbflow run add-node --node <n> --type <t>` | Add custom node to DAG |
+| `cbflow run create-branch --name <n>` | Create a flow branch |
+| `cbflow run list-nodes` | List all nodes in DAG |
+| `cbflow run show-graph` | Show flow dependency graph |
 | `cbflow flow version copy --from v1.0.0 --to v1.0.1` | Copy version |
 | `cbflow flow version set-current --version v1.0.1` | Set current version |
 | `cbflow flow checklist add-check --milestone BTO ...` | Add exit check |
@@ -94,7 +117,9 @@ CBflow is a Python/Bash/TCL/Make automation framework that orchestrates ASIC phy
 | `cbflow run all` | Run complete flow end-to-end |
 | `cbflow run stage --name place1` | Run single stage |
 | `cbflow run retrace --from cts1` | Re-run from CTS onwards |
-| `cbflow run validate --stage signoff1` | Validate stage outputs |
+| `cbflow run bypass --node export_data1` | Skip a node |
+| `cbflow run force --node place1` | Force re-run a node |
+| `cbflow run forcevalidate --node signoff1` | Force validate a node |
 | `cbflow run report --node pro1` | Detailed node report |
 | `cbflow run show-graph` | Show flow dependency graph |
 
@@ -169,7 +194,7 @@ bin/cbflow-test-suite --category 2       # Run specific category
 bin/cbflow-test-suite --flow SYNTH_PNR   # Test single flow
 ```
 
-Categories: Workspace, Makefiles/Handlers, Override Mechanism, LSF, MMMC, Mandatory I/O, Log Parsing, Cross-Cutting.
+Categories: Workspace, RACE DAG/Handlers, Override Mechanism, LSF, MMMC, Mandatory I/O, Log Parsing, Cross-Cutting.
 
 ## Shell Tab Completion
 

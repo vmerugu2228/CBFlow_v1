@@ -10,6 +10,8 @@ CBflow's CLI is organized into command groups under the `cbflow` entry point. Al
 cbflow <group> <subcommand> [options]
 ```
 
+Flow execution is handled by the RACE (Run Automation & Control Engine) dispatcher. RACE builds the DAG from node_config.tcl at runtime and tracks all status in a SQLite database. There is no Makefile generation step.
+
 Supported flows across all modules: **SYNTH, FP, PNR, STA, LEC, EMIR, PV, ECO, CLP, POPT, FCFP, SYNTH_PNR** (12 flows).
 
 ---
@@ -18,7 +20,7 @@ Supported flows across all modules: **SYNTH, FP, PNR, STA, LEC, EMIR, PV, ECO, C
 
 | Module | Command Group | Subcommands | Purpose |
 |--------|--------------|:-----------:|---------|
-| `run_cmd.py` | `cbflow run` | 23 | Run execution, lifecycle, and management |
+| `run_cmd.py` | `cbflow run` | 23 | Run execution, lifecycle, and management via RACE |
 | `workspace_cmd.py` | `cbflow workspace` | 2 | Workspace initialization and status |
 | `checklist_cmd.py` | `cbflow checklist` | 8 | Exit milestone checklist management |
 | `email_cmd.py` | `cbflow email` | -- | Email notifications with 6 templates |
@@ -33,7 +35,7 @@ Supported flows across all modules: **SYNTH, FP, PNR, STA, LEC, EMIR, PV, ECO, C
 | `library_manager_cmd.py` | `cbflow library` | -- | Library scanning, checking, MMMC generation |
 | `mmmc_manager_cmd.py` | `cbflow mmmc` | -- | MMMC configuration management |
 | `log_viewer.py` | `cbflow logs` | -- | Log file viewing and search |
-| `makefile_generator.py` | -- | -- | Makefile generation for flow execution |
+| `race_engine.py` | -- | -- | RACE DAG executor, SQLite DB management (library) |
 | `validation_cmd.py` | `cbflow validate` | -- | Configuration and setup validation |
 | `qor_report_cmd.py` | `cbflow qor-report` | -- | QoR report generation and comparison |
 | `dashboard_cmd.py` | `cbflow dashboard` | -- | Status dashboard display |
@@ -50,34 +52,36 @@ Supported flows across all modules: **SYNTH, FP, PNR, STA, LEC, EMIR, PV, ECO, C
 
 ## run_cmd.py
 
-The primary command handler for flow execution within a run directory. Provides 23 subcommands covering the full run lifecycle.
+The primary command handler for flow execution within a run directory. Uses the RACE engine to build and execute the DAG from node_config.tcl. Provides 23 subcommands covering the full run lifecycle.
 
 ### Subcommands (23)
 
 | Subcommand | Description |
 |-----------|-------------|
-| `all` | Run complete flow (all stages sequentially) |
+| `all` | Run complete flow (RACE executes all nodes in DAG order) |
 | `stage` | Run a single named stage |
-| `status` | Show stage completion status (with `--details` for subnodes) |
+| `status` | Show node completion status from RACE DB (with `--details` for subnodes) |
 | `report` | Detailed per-node report with setup dumps |
-| `retrace` | Clear stamps to force rerun (with `--from` for partial retrace) |
+| `retrace` | Mark nodes for re-execution in RACE DB (with `--from` for partial retrace) |
+| `bypass` | Skip a node (mark as bypassed in RACE DB) |
+| `force` | Force re-run a node regardless of current status |
+| `forcevalidate` | Force validate nodes: `--node X`, `--from X --to Y`, `--from X`, `--to Y` |
 | `clean` | Clean run directory (remove work files) |
 | `validate` | Run validation checks on the current run |
 | `logs` | View run logs (with `--tail`, `--level`, `--stage` filters) |
-| `show-graph` | Visualize flow dependency graph |
+| `show-graph` | Visualize flow dependency graph (RACE DAG) |
 | `list-nodes` | List all flow nodes and their types |
 | `list-branches` | List flow branches |
 | `release-info` | Show release information for the run |
-| `targets` | List available make targets |
-| `gen-makefile` | Regenerate Makefile from current config |
+| `verify-dag` | Verify DAG from current node_config (replaces gen-makefile) |
 | `lsf-status` | Check LSF job queue status |
 | `interactive` | Launch interactive EDA tool session |
 | `email` | Send email notifications (delegates to email_cmd.py) |
 | `autoppt` | Generate run summary PPT/HTML (delegates to autoppt_cmd.py) |
 | `checklist` | Run exit milestone checklist (delegates to checklist_cmd.py) |
 | `help` | Show detailed help with examples |
-| `add-node` | Add a custom node to the flow |
-| `delete-node` | Delete a custom node from the flow |
+| `add-node` | Add a custom node to the RACE DAG |
+| `delete-node` | Delete a custom node from the RACE DAG |
 | `create-branch` | Create a flow branch |
 | `delete-branch` | Delete a flow branch |
 | `update` | Update run to workspace release or specific version |
@@ -85,14 +89,21 @@ The primary command handler for flow execution within a run directory. Provides 
 ### Usage Examples
 
 ```bash
-cbflow run all                                    # Run complete flow
+cbflow run all                                    # Run complete flow via RACE
 cbflow run all --lsf --queue XL                   # Submit to LSF with XL queue
 cbflow run stage --name place                     # Run placement stage
-cbflow run status --details                       # Show detailed progress
+cbflow run status --details                       # Show detailed progress (RACE DB)
 cbflow run retrace --from cts --run               # Retrace from CTS and rerun
+cbflow run bypass --node export_data1             # Skip export_data node
+cbflow run force --node place1                    # Force re-run placement
+cbflow run forcevalidate --node signoff1          # Force validate signoff
+cbflow run forcevalidate --from place1 --to pro1  # Force validate range
+cbflow run forcevalidate --from cts1              # Force validate from CTS to end
+cbflow run forcevalidate --to route1              # Force validate start to route
 cbflow run report --node place1                   # Report for specific node
 cbflow run logs --tail 50 --level ERROR           # View recent errors
-cbflow run show-graph --detail                    # Visualize flow graph
+cbflow run show-graph --detail                    # Visualize RACE DAG
+cbflow run verify-dag                             # Verify DAG from node_config
 cbflow run add-node --node eco1 --type export_data --dep signoff
 cbflow run checklist --milestone BTO --phase P3   # Run exit checklist
 cbflow run email --to user@co.com --template run-status
@@ -118,7 +129,7 @@ Manages workspace initialization and status.
 
 | Subcommand | Description |
 |-----------|-------------|
-| `create` | Initialize a new workspace with project structure |
+| `create` | Initialize a new workspace with project structure (RACE DB created automatically) |
 | `status` | Show workspace status, active runs, and release info |
 
 ### Usage
@@ -363,9 +374,17 @@ cbflow logs search --pattern <regex>
 
 ---
 
-## makefile_generator.py
+## race_engine.py
 
-Generates Makefiles for flow execution based on node config (stages, dependencies, subnodes). Called internally by `cbflow run gen-makefile` and during run creation.
+RACE (Run Automation & Control Engine) -- the Python-native DAG executor. Builds the execution graph from node_config.tcl at runtime, manages SQLite DB for status tracking, handles file change detection and automatic downstream retrace, parallel subnode execution, and dynamic subnode generation. Called internally by `cbflow run` subcommands.
+
+Key responsibilities:
+- Parse node_config.tcl and build the DAG
+- Execute nodes in dependency order
+- Track node status in SQLite DB (`.race_<uid>.db`)
+- Detect input file changes and auto-retrace downstream nodes
+- Manage parallel subnode execution (PV: drc/lvs/erc/perc/xor)
+- Generate dynamic subnodes (STA per-corner from user_config)
 
 ---
 
@@ -378,6 +397,7 @@ cbflow validate config --dir <dir>
 cbflow validate setup --flow <FLOW>
 cbflow validate mmmc
 cbflow validate libraries
+cbflow validate dag                     # Verify RACE DAG from node_config
 ```
 
 ---
@@ -442,19 +462,19 @@ Library module for unified logging configuration. Provides `configure_logging(na
 
 ## node_manager.py
 
-Library module for flow node and stage management. Handles node creation, deletion, dependency resolution, and branch operations used by `cbflow run add-node`, `delete-node`, `create-branch`, etc.
+Library module for flow node and stage management. Handles node creation, deletion, dependency resolution, and branch operations used by `cbflow run add-node`, `delete-node`, `create-branch`, etc. Works with the RACE engine to update the DAG.
 
 ---
 
 ## graph_renderer.py
 
-Library module for flow graph visualization. Renders stage dependency graphs used by `cbflow run show-graph`.
+Library module for flow graph visualization. Renders the RACE DAG as stage dependency graphs used by `cbflow run show-graph`.
 
 ---
 
 ## start_run.py
 
-Library module for run initialization and bootstrapping. Handles run directory creation, environment file generation, Makefile setup, and config sourcing during `cbflow workspace create` and run creation.
+Library module for run initialization and bootstrapping. Handles run directory creation, environment file generation, RACE DB initialization, and config sourcing during `cbflow workspace create` and run creation.
 
 ---
 
@@ -488,5 +508,5 @@ cbflow plugin disable --name <name>
 - [Configuration Reference](configuration-reference.md) -- Config file details
 - [LSF Reference](lsf-reference.md) -- LSF integration details
 - [MMMC Reference](mmmc-reference.md) -- MMMC configuration details
-- [System Design](../04-architecture/system-design.md) -- Architecture
+- [System Design](../04-architecture/system-design.md) -- RACE engine architecture
 - [Examples](../06-examples/basic-workflows.md) -- Workflow examples

@@ -7,6 +7,7 @@ Technical architecture of the CBflow v2.0.0 PD automation framework.
 ### [System Design](system-design.md)
 
 Core architecture covering:
+- **RACE Engine**: Python-native DAG executor, SQLite DB status tracking, file change detection, parallel subnode execution, dynamic subnodes
 - flow_proc engine and flow_exec_all execution model
 - Configuration override hierarchy (flow_config through override_setup.<stage>)
 - Config loading from `$CONFIG_ROOT/flow/$FLOW_CONFIG_VERSION/`
@@ -15,7 +16,7 @@ Core architecture covering:
 - Release system: path structure, MANIFEST.json, RELEASE_COMPLETE, input handshaking
 - Four launch modes: LSF+xterm, LSF batch, xterm local, local
 - SYNTH_PNR stage pipeline: inputs through release_data
-- Per-corner STA and ICV PV parallel pipeline
+- Per-corner STA (dynamic subnodes) and ICV PV parallel pipeline
 - Standard command file pattern
 
 ---

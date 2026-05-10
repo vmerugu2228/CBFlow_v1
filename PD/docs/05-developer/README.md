@@ -11,6 +11,7 @@ Guide for extending and contributing to CBflow v2.0.0.
 - Overriding tool selection in user_config
 - Standard command file pattern (153 files follow this)
 - Adding email templates and autoppt slides
+- RACE engine integration (DAG, SQLite DB, dynamic subnodes)
 
 ### [Contributing](contributing.md)
 - Directory-based versioning workflow
@@ -35,6 +36,17 @@ flow_exec_all
 exit
 ```
 
+### RACE Engine
+CBflow v2.0.0 uses the RACE (Run Automation & Control Engine) as its dispatcher. RACE builds the DAG from node_config.tcl at runtime and tracks status in a SQLite database. Key concepts:
+
+- **No Makefile**: RACE reads node_config.tcl directly -- no Makefile generation
+- **SQLite DB**: Status tracked in `.race_<uid>.db` (not stamp files)
+- **File change detection**: Edit input -> auto-retrace downstream (VOV-like)
+- **Parallel execution**: Independent subnodes run in parallel
+- **Dynamic subnodes**: STA per-corner generated from user_config
+- **Custom nodes**: `add-node` and `create-branch` at run level
+- **verify-dag**: Validates DAG from node_config without executing
+
 ### Adding a Check
 ```bash
 cbflow flow checklist add-check --milestone BTO \
@@ -45,7 +57,7 @@ cbflow flow checklist add-check --milestone BTO \
 ### Test Suite
 ```bash
 bin/cbflow-test-suite --verbose    # 994 tests
-bin/cbflow-test-suite --category 2 # Makefile/handler tests only
+bin/cbflow-test-suite --category 2 # RACE DAG/handler tests only
 ```
 
 ---

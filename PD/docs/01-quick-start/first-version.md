@@ -8,10 +8,10 @@ CBflow uses **directory-based versioning** -- no Git worktrees. Each config, com
 
 ```
 config/flow/
-├── v1.0.0/        ← Original version
-├── v1.0.1/        ← Your modified version
-├── v1.0.2/        ← Another iteration
-└── current → v1.0.1   ← Active version (symlink)
+|-- v1.0.0/        <-- Original version
+|-- v1.0.1/        <-- Your modified version
+|-- v1.0.2/        <-- Another iteration
++-- current -> v1.0.1   <-- Active version (symlink)
 ```
 
 ## Step 1: Copy a Version
@@ -29,6 +29,8 @@ vi config/flow/v1.0.1/flow_config.tcl
 vi config/flow/v1.0.1/node_configs/SYNTH_PNR_config.tcl
 ```
 
+Note: In v2.0.0, the RACE engine reads `node_config.tcl` directly at runtime to build the DAG. There is no Makefile to regenerate after editing configs. Simply edit the node_config and RACE will pick up the changes on the next run.
+
 ## Step 3: Set as Current
 
 ```bash
@@ -43,11 +45,21 @@ This updates the `current` symlink to point to `v1.0.1/`.
 cbflow flow version list --dir config/flow
 # Output:
 #   v1.0.0
-#   v1.0.1  ← current
+#   v1.0.1  <-- current
 #   v1.0.2
 
 cbflow flow version diff --dir config/flow --v1 v1.0.0 --v2 v1.0.1
 ```
+
+## Step 5: Verify DAG (Optional)
+
+After editing node configs, you can verify the RACE DAG is valid:
+
+```bash
+cbflow run verify-dag
+```
+
+This parses node_config.tcl and validates the dependency graph without executing anything.
 
 ## What Can Be Versioned
 

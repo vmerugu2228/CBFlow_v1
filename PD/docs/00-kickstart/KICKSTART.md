@@ -44,6 +44,7 @@ set project(release,tag)        "v1.0.0"
 ```tcl
 # user_config.tcl — minimum for SYNTH_PNR flow
 set flow(design_name)               "my_design"
+set flow(dispatcher)                "race"
 set synth_pnr(design_name)          "my_design"
 set synth_pnr(input,rtl_filelist)   "/proj/rtl/my_design.f"
 set synth_pnr(input,sdc_file)       "/proj/constraints/my_design.sdc"
@@ -57,10 +58,10 @@ set synth_pnr(input,upf)            "/proj/power/my_design.upf"
 cbflow workspace create --config user_config.tcl
 cd P0_run_SYNTH_PNR_run1/
 
-# Run the full flow
+# Run the full flow (RACE builds DAG from node_config.tcl, executes all nodes)
 cbflow run all
 
-# Check status
+# Check status (reads from RACE SQLite DB)
 cbflow run status
 
 # View logs
@@ -70,20 +71,40 @@ cbflow run logs --tail 20
 cbflow run autoppt
 ```
 
-## 6. Key Commands
+## 6. RACE Engine Basics
+
+CBflow v2.0.0 uses the **RACE (Run Automation & Control Engine)** as its dispatcher. RACE is a Python-native DAG executor that:
+
+- Builds the execution DAG from `node_config.tcl` at runtime
+- Tracks all node status in a SQLite database (`.race_<uid>.db`)
+- Detects file changes on inputs and auto-retraces downstream nodes
+- Runs independent subnodes in parallel (e.g., PV: drc/lvs/erc/perc/xor)
+- Generates dynamic subnodes (e.g., STA per-corner from user_config)
+
+There is no Makefile, no `.make/` directory, and no `make` command. All execution is handled by RACE.
+
+## 7. Key Commands
 
 | Command | Purpose |
 |---------|---------|
 | `cbflow run all` | Run complete flow |
 | `cbflow run stage --name place1` | Run single stage |
-| `cbflow run status` | Check progress |
+| `cbflow run status` | Check progress (from RACE DB) |
+| `cbflow run retrace --from cts1` | Mark CTS and downstream for re-execution |
+| `cbflow run bypass --node <node>` | Skip a node |
+| `cbflow run force --node <node>` | Force re-run a node |
+| `cbflow run forcevalidate --node <node>` | Force validate a specific node |
+| `cbflow run forcevalidate --from X --to Y` | Force validate a range of nodes |
 | `cbflow run checklist --milestone PRO_EXIT --phase P2` | Exit checklist |
 | `cbflow run email --to user@co.com --template run-summary` | Email report |
 | `cbflow run autoppt --format html` | Generate PPT summary |
 | `cbflow run interactive --load signoff1` | Interactive session |
 | `cbflow run logs --level ERROR` | View errors |
+| `cbflow run add-node --node <n> --type <t>` | Add custom node to DAG |
+| `cbflow run create-branch --name <n>` | Create a flow branch |
+| `cbflow run show-graph` | Visualize DAG |
 
-## 7. Supported Flows (12)
+## 8. Supported Flows (12)
 
 | Flow | What It Does |
 |------|-------------|
@@ -91,8 +112,8 @@ cbflow run autoppt
 | `FP` | Floorplanning |
 | `PNR` | Place and route |
 | `SYNTH_PNR` | Unified synthesis + PNR (FC) |
-| `STA` | Static timing analysis (per-corner) |
-| `PV` | Physical verification (DRC/LVS/ERC) |
+| `STA` | Static timing analysis (per-corner, dynamic subnodes) |
+| `PV` | Physical verification (DRC/LVS/ERC, parallel subnodes) |
 | `LEC` | Logic equivalence check |
 | `ECO` | Engineering change order |
 | `CLP` | Clock low power verification |
@@ -100,7 +121,7 @@ cbflow run autoppt
 | `POPT` | Power optimization |
 | `FCFP` | Full chip floorplan (hierarchical) |
 
-## 8. Input Handshaking
+## 9. Input Handshaking
 
 ```tcl
 # In user_config.tcl — two modes:
@@ -112,20 +133,20 @@ set pnr(input,netlist_release_tag) "v1.0.2"
 set pnr(input,netlist) "/proj/runs/synth_run1/outputs/my_design.v"
 ```
 
-## 9. Override Hierarchy
+## 10. Override Hierarchy
 
 ```
 flow_config.tcl          (global defaults)
-  → project_config.tcl   (project-specific)
-    → tech_config.tcl     (technology-specific)
-      → user_config.tcl   (per-run overrides)
-        → override_config.tcl       (global hook)
-          → override_config.<stage>.tcl  (stage hook)
-            → override_setup.tcl         (flow_proc hook)
-              → override_setup.<stage>.tcl   (stage flow_proc hook)
+  -> project_config.tcl   (project-specific)
+    -> tech_config.tcl     (technology-specific)
+      -> user_config.tcl   (per-run overrides)
+        -> override_config.tcl       (global hook)
+          -> override_config.<stage>.tcl  (stage hook)
+            -> override_setup.tcl         (flow_proc hook)
+              -> override_setup.<stage>.tcl   (stage flow_proc hook)
 ```
 
-## 10. Test Suite
+## 11. Test Suite
 
 ```bash
 bin/cbflow-test-suite              # 994 tests, all categories

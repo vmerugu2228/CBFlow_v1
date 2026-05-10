@@ -8,11 +8,11 @@ Complete technical reference for CBflow v2.0.0 PD automation framework.
 
 All configuration files in the CBflow system:
 
-- **flow_config.tcl** -- 12 flow types, flow(use_lsf), flow(use_xterm), email config (smtp_server/port/tls/auth/from/cc/recipients, on_run_create/complete/fail triggers), autoppt config, MMMC settings, logging, makefile generation
+- **flow_config.tcl** -- 12 flow types, flow(dispatcher)="race", flow(use_lsf), flow(use_xterm), email config (smtp_server/port/tls/auth/from/cc/recipients, on_run_create/complete/fail triggers), autoppt config, MMMC settings, logging
 - **tool_launch_config.tcl** -- module loads for 9 EDA tools (fc, pt, fm, vc_lp, icv, redhawk, genus, innovus, tempus), tool shell commands, bsub defaults, 5 queue types (S:8GB/4cpu, M:16GB/8cpu, L:32GB/16cpu, XL:64GB/32cpu, ultra:128GB/64cpu), flow-to-queue mappings
 - **release_config.tcl** -- release_exit_files per flow/phase/milestone, phase_criteria thresholds, milestone_flow_map, flow_input_handshake
 - **mmmc_config.tcl** -- 19 analysis views, 3 process corners, 2 operating modes, 3 RC corners, 8 scenario sets, per-node assignments, library_sets
-- **12 node configs** -- stages, dependencies, stage_types, node_types, work_dirs, timeouts, release_types, mandatory_input_groups
+- **12 node configs** -- stages, dependencies, stage_types, node_types, work_dirs, timeouts, release_types, mandatory_input_groups (consumed by RACE to build DAG)
 - **3 tech configs** -- gf_22nm, tsmc_7nm, tsmc_5nm
 - **2 project configs** -- phoenix, ravendrive (with project(release,path/phase/block_name/tag))
 - **6 exit configs** -- FP_EXIT, PLACE_EXIT, CTS_EXIT, PRO_EXIT, BTO, MTO (plus waivers, thresholds, remediation)
@@ -21,7 +21,7 @@ All configuration files in the CBflow system:
 
 All 28 Python CLI modules:
 
-- **run_cmd.py** -- 23 subcommands: all, stage, status, report, retrace, clean, validate, logs, show-graph, list-nodes, list-branches, release-info, targets, gen-makefile, lsf-status, interactive, email, autoppt, checklist, help, add-node, delete-node, create-branch, delete-branch, update
+- **run_cmd.py** -- 23 subcommands: all, stage, status, report, retrace, bypass, force, forcevalidate, clean, validate, logs, show-graph, list-nodes, list-branches, release-info, verify-dag, lsf-status, interactive, email, autoppt, checklist, help, add-node, delete-node, create-branch, delete-branch, update
 - **workspace_cmd.py** -- create, status
 - **checklist_cmd.py** -- generate, status, sign-off, list, list-checks, add-check, remove-check, waiver
 - **email_cmd.py** -- 6 templates (run-creation, run-status, run-summary, checklist, reminder, release-update), preview mode, attachments
@@ -29,18 +29,9 @@ All 28 Python CLI modules:
 - **release_cmd.py, version_cmd.py, flow_cmd.py, config_cmd.py, project_cmd.py**
 - **lsf_cmd.py, lsf_manager_cmd.py**
 - **library_manager_cmd.py, mmmc_manager_cmd.py**
-- **log_viewer.py, makefile_generator.py, validation_cmd.py**
+- **log_viewer.py, race_engine.py, validation_cmd.py**
 - **qor_report_cmd.py, dashboard_cmd.py, trending_cmd.py, metrics_cmd.py**
 - **tcl_config_parser.py, logging_config.py, node_manager.py, graph_renderer.py, start_run.py, plugin_cmd.py**
-
-### [Makefile Reference](makefile-reference.md)
-
-Complete reference for Make targets:
-- Component versioning commands (create, commit, promote, list, diff)
-- Release management commands (create, list, info, checkout)
-- Workspace management commands (list, cleanup)
-- Flow execution targets (per-flow Make targets)
-- Parameters and options for each target
 
 ### [LSF Reference](lsf-reference.md)
 
@@ -99,20 +90,25 @@ FCT and PHYV have been removed in v2.0.0 (merged into STA and PV respectively).
 ### Run Management
 
 ```bash
-cbflow run all                                 # Run complete flow
+cbflow run all                                 # Run complete flow (RACE DAG)
 cbflow run stage --name <stage>                # Run single stage
-cbflow run status [--details]                  # Show status
+cbflow run status [--details]                  # Show status (from RACE DB)
 cbflow run report [--node <node>]              # Detailed report
 cbflow run retrace [--from <stage>] [--run]    # Retrace and rerun
+cbflow run bypass --node <node>                # Skip a node
+cbflow run force --node <node>                 # Force re-run a node
+cbflow run forcevalidate --node <node>         # Force validate specific node
+cbflow run forcevalidate --from X --to Y       # Force validate range
+cbflow run forcevalidate --from X              # Force validate from X to end
+cbflow run forcevalidate --to Y                # Force validate start to Y
 cbflow run clean                               # Clean run directory
 cbflow run validate                            # Validate run
 cbflow run logs [--tail N] [--level ERROR]     # View logs
-cbflow run show-graph [--detail]               # Visualize graph
+cbflow run show-graph [--detail]               # Visualize RACE DAG
 cbflow run list-nodes                          # List nodes
 cbflow run list-branches                       # List branches
 cbflow run release-info                        # Release info
-cbflow run targets                             # List make targets
-cbflow run gen-makefile                        # Regenerate Makefile
+cbflow run verify-dag                          # Verify DAG from node_config
 cbflow run lsf-status                          # LSF job status
 cbflow run interactive                         # Interactive tool session
 cbflow run email --template <template>         # Send email
@@ -129,21 +125,10 @@ cbflow run help                                # Full documentation
 ### Component Versioning
 
 ```bash
-make git_create_workspace DIR=<component>
-make git_commit_version DIR=<component> TYPE=patch|minor|major DESC="..."
-make git_promote_version DIR=<component> VERSION=<version>
-make list_versions DIR=<component>
-make git_diff_versions DIR=<component> V1=<v1> V2=<v2>
-```
-
-### Release Management
-
-```bash
-make git_create_release TYPE=patch|minor|major DESC="..."
-make git_list_releases
-make git_release_info RELEASE=<version>
-make git_diff_releases R1=<v1> R2=<v2>
-make git_checkout_release RELEASE=<version>
+cbflow flow version copy --dir <dir> --from <v1> --to <v2>
+cbflow flow version set-current --dir <dir> --version <v>
+cbflow flow version list --dir <dir>
+cbflow flow version diff --dir <dir> --v1 <v1> --v2 <v2>
 ```
 
 ---
@@ -152,7 +137,7 @@ make git_checkout_release RELEASE=<version>
 
 - [Quick Start](../01-quick-start/) -- Getting started
 - [User Guide](../02-user-guide/) -- Workflows and usage
-- [Architecture](../04-architecture/) -- System design
+- [Architecture](../04-architecture/) -- RACE engine and system design
 - [Developer Guide](../05-developer/) -- Contributing
 - [Examples](../06-examples/) -- Real-world scenarios
 

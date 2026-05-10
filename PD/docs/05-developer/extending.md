@@ -59,6 +59,9 @@ cbflow flow checklist add-check --milestone BTO \
 ## 3. Adding a New Design Flow
 
 ### Step 1: Create node config
+
+The RACE engine reads node_config files to build the execution DAG. Create a new node config:
+
 ```tcl
 # config/flow/v1.0.0/node_configs/MYFLOW_config.tcl
 array set myflow {
@@ -83,6 +86,8 @@ array set myflow {
     tool,name "fc"
 }
 ```
+
+RACE will parse the `stages` and `dependencies,*` keys to construct the DAG automatically at runtime. There is no Makefile to generate.
 
 ### Step 2: Add to flow(types)
 ```tcl
@@ -139,6 +144,16 @@ cmds/MYFLOW/synopsys/fc/v1.0.0/
     release_data_subnode_handler.tcl
 ```
 
+### Step 5: Verify the DAG
+
+After creating the node config, verify that RACE can build a valid DAG:
+
+```bash
+cbflow run verify-dag
+```
+
+This parses the node_config and validates the dependency graph without executing anything.
+
 ## 4. Overriding Tool Selection
 
 In `user_config.tcl`:
@@ -148,7 +163,7 @@ set pnr(tool,vendor) "cadence"
 set pnr(tool,name)   "innovus"
 ```
 
-No flow config changes needed — the makefile generator reads these variables.
+No flow config changes needed -- RACE reads these variables and selects the correct command files.
 
 ## 5. Standard Command File Pattern
 
@@ -167,12 +182,23 @@ All 153 command files follow this structure:
 11. exit
 ```
 
-## 6. Test Your Changes
+## 6. RACE Engine Integration
+
+When extending CBflow, keep these RACE behaviors in mind:
+
+- **DAG from node_config**: RACE builds the DAG from node_config.tcl at runtime. Define `stages` and `dependencies,<stage>` correctly.
+- **Status in SQLite DB**: Node status is tracked in `.race_<uid>.db`. Use `cbflow run status` to query.
+- **File change detection**: RACE monitors input files. If a dependency output changes, downstream nodes auto-retrace.
+- **Parallel subnodes**: If your flow has independent subnodes (like PV), RACE runs them in parallel automatically based on the dependency graph.
+- **Dynamic subnodes**: For flows that need runtime subnode generation (like STA per-corner), implement a scenario handler and RACE will create subnodes from user_config.
+- **Custom nodes**: Users can add nodes to your flow at run time via `cbflow run add-node`.
+
+## 7. Test Your Changes
 
 ```bash
 bin/cbflow-test-suite --verbose             # Full 994-test suite
 bin/cbflow-test-suite --flow MYFLOW         # Test specific flow
-bin/cbflow-test-suite --category 2          # Makefile/handler tests only
+bin/cbflow-test-suite --category 2          # RACE DAG/handler tests only
 ```
 
 ---

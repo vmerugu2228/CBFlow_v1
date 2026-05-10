@@ -7,9 +7,10 @@ Complete setup guide for CBflow v2.0.0.
 | Requirement | Version | Notes |
 |-------------|---------|-------|
 | Python | 3.6+ | Stdlib only -- no pip install needed |
-| GNU Make | 3.81+ | Stage execution and stamp tracking |
 | Bash or Zsh | 4.0+ | CLI dispatcher and completions |
 | Tcl/Tclsh | 8.5+ | Config files and flow_proc engine |
+
+Note: GNU Make is NOT required. CBflow v2.0.0 uses the RACE (Run Automation & Control Engine) for all flow execution and status tracking.
 
 ## Installation
 
@@ -44,6 +45,18 @@ bin/cbflow-test-suite               # 994 tests, ALL PASS
 bin/cbflow-healthcheck              # System health check
 bin/cbflow-verify                   # Production verification
 ```
+
+## RACE Engine
+
+CBflow v2.0.0 uses RACE (Run Automation & Control Engine) as the sole dispatcher. Key points:
+
+- **No Makefile**: RACE builds the execution DAG directly from `node_config.tcl` at runtime.
+- **SQLite DB status**: Each run tracks node status in `.race_<uid>.db` instead of stamp files.
+- **DB path**: `$project(race,db_path)/$project/$domain/$flow/$user_$run_$uid.db`
+- **File change detection**: Edit an input file and RACE auto-retraces downstream nodes (VOV-like).
+- **Parallel execution**: Independent subnodes (e.g., PV drc/lvs/erc/perc/xor) run in parallel.
+- **Dynamic subnodes**: STA per-corner subnodes generated from user_config at runtime.
+- **Configuration**: `set flow(dispatcher) "race"` in flow_config.tcl
 
 ## EDA Tool Setup
 

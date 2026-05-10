@@ -4,13 +4,27 @@ Complete guide to using CBflow v2.0.0 for ASIC physical design automation.
 
 ## Overview
 
-This guide covers daily workflows for running design flows, managing configurations, tracking QoR, and using directory-based versioning across the CBflow framework. CBflow v2.0.0 supports 12 design flows spanning the full PD lifecycle from synthesis through tapeout.
+This guide covers daily workflows for running design flows, managing configurations, tracking QoR, and using directory-based versioning across the CBflow framework. CBflow v2.0.0 supports 12 design flows spanning the full PD lifecycle from synthesis through tapeout, all orchestrated by the RACE (Run Automation & Control Engine) dispatcher.
+
+## RACE Engine
+
+CBflow v2.0.0 uses RACE as its sole dispatcher. RACE is a Python-native DAG executor that:
+
+- Builds the execution DAG from `node_config.tcl` at runtime (no Makefile generation)
+- Tracks all node status in a SQLite database (`.race_<uid>.db`)
+- DB path: `$project(race,db_path)/$project/$domain/$flow/$user_$run_$uid.db`
+- Detects file changes on inputs and auto-retraces downstream nodes (VOV-like)
+- Runs independent subnodes in parallel (e.g., PV: drc/lvs/erc/perc/xor)
+- Generates dynamic subnodes (e.g., STA per-corner from user_config)
+- Supports custom nodes at run level (`add-node`, `create-branch`)
+
+Configure in flow_config.tcl: `set flow(dispatcher) "race"`
 
 ## Contents
 
 ### [CBflow Complete User Guide](cbflow-complete-user-guide.md)
 Comprehensive reference covering the entire system:
-- Architecture and directory structure
+- RACE engine architecture and DAG execution
 - CLI command reference (workspace, run, flow)
 - All 12 supported flows with stage details
 - Configuration hierarchy and override system
@@ -24,7 +38,7 @@ Detailed per-flow guide for all 12 design flows:
 - CLP, POPT, FCFP, SYNTH_PNR
 - Stage dependency diagrams and subnode details
 - Input variables and key outputs per flow
-- Per-corner STA (no MMMC stage)
+- Per-corner STA (dynamic subnodes, no MMMC stage)
 - ICV PV parallel verification pipeline
 
 ### [Versioning Workflow](versioning-workflow.md)
@@ -53,14 +67,7 @@ Common issues and solutions:
 - Flow execution failures
 - LSF job issues
 - Configuration and versioning problems
-- Stamp file and dependency issues
-
-### v1.0.0 Makefile Guides
-Legacy makefile documentation for reference:
-- [v1.0.0 README](v1.0.0/README.md) -- Makefile guide index
-- [Core Makefile Guide](v1.0.0/core-makefile-guide.md) -- System management commands
-- [Run Makefile Guide](v1.0.0/run-makefile-guide.md) -- Flow execution and stage management
-- [Workspace Makefile Guide](v1.0.0/workspace-makefile-guide.md) -- Workspace and run initialization
+- RACE DB and node status issues
 
 ## Quick Reference
 
@@ -71,11 +78,20 @@ cbflow workspace create --config user_config.tcl
 cbflow workspace create --config user_config.tcl --force
 cbflow workspace status
 
-# Execute flows
+# Execute flows (via RACE DAG)
 cbflow run all
 cbflow run stage --name place1
 cbflow run status
 cbflow run logs --tail 50 --level ERROR
+
+# Execution control
+cbflow run retrace --from cts1
+cbflow run bypass --node export_data1
+cbflow run force --node place1
+cbflow run forcevalidate --node signoff1
+cbflow run forcevalidate --from place1 --to pro1
+cbflow run forcevalidate --from place1
+cbflow run forcevalidate --to pro1
 
 # Interactive session
 cbflow run interactive --load place1
@@ -88,6 +104,12 @@ cbflow run autoppt --format pptx
 cbflow run checklist
 cbflow flow checklist add-check --name timing_met --mode script --script check_timing.sh
 cbflow flow checklist sign-off --milestone CTS_EXIT
+
+# DAG management
+cbflow run add-node --node eco1 --type export_data --dep signoff
+cbflow run create-branch --name experimental
+cbflow run list-nodes
+cbflow run show-graph
 ```
 
 ### Versioning (Directory-Based)
@@ -123,7 +145,7 @@ set pnr(input,netlist) "/path/to/synthesized_netlist.v"
 - [Examples](../06-examples/) -- Real-world workflows
 
 ### Advanced Topics
-- [Architecture](../04-architecture/) -- System design and internals
+- [Architecture](../04-architecture/) -- RACE engine design and system internals
 - [Developer Guide](../05-developer/) -- Contributing and extending
 
 ### Test Suite

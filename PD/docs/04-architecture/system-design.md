@@ -4,6 +4,58 @@ Architecture of the CBflow v2.0.0 PD automation framework.
 
 ---
 
+## RACE Engine (Run Automation & Control Engine)
+
+RACE is the Python-native DAG executor at the core of CBflow v2.0.0. It completely replaces GNU Make -- Make is NOT used and NOT required anywhere in the system.
+
+### How RACE Works
+
+1. **DAG Construction**: RACE reads `node_config.tcl` at runtime and builds the execution DAG from the `stages` and `dependencies,<stage>` declarations. There is no intermediate Makefile or build-system artifact.
+
+2. **SQLite DB for Status Tracking**: Each run has a dedicated SQLite database (`.race_<uid>.db`) that stores the status of every node and subnode. The DB path follows the convention:
+   ```
+   $project(race,db_path)/$project/$domain/$flow/$user_$run_$uid.db
+   ```
+
+3. **File Change Detection**: RACE tracks input file timestamps and checksums. When an input file is edited, RACE automatically identifies and retraces all downstream nodes that depend on it (VOV-like behavior). This eliminates the need for manual retrace in most cases.
+
+4. **Parallel Subnode Execution**: When the DAG contains independent subnodes at the same level, RACE executes them in parallel. For example, the PV flow runs drc, lvs, erc, perc, and xor in parallel after fill completes.
+
+5. **Dynamic Subnodes**: RACE generates subnodes dynamically based on user_config at runtime. The STA flow creates per-corner subnodes from the user-specified timing scenarios, so each corner runs as an independent subnode.
+
+6. **Custom Nodes at Run Level**: Users can extend the DAG at run time without editing node_config files:
+   - `cbflow run add-node` -- add a custom node with specified dependencies
+   - `cbflow run create-branch` -- create a branch in the DAG
+
+### RACE Configuration
+
+```tcl
+# flow_config.tcl
+set flow(dispatcher) "race"
+```
+
+### RACE Commands
+
+| Command | Purpose |
+|---------|---------|
+| `cbflow run all` | Execute the full DAG |
+| `cbflow run stage --name <stage>` | Execute a single node |
+| `cbflow run status` | Query node status from RACE DB |
+| `cbflow run retrace --from <stage>` | Mark node and downstream for re-execution |
+| `cbflow run bypass --node <node>` | Skip a node (mark bypassed in DB) |
+| `cbflow run force --node <node>` | Force re-run regardless of status |
+| `cbflow run forcevalidate --node X` | Force validate a specific node |
+| `cbflow run forcevalidate --from X --to Y` | Force validate a range of nodes |
+| `cbflow run forcevalidate --from X` | Force validate from node X to end |
+| `cbflow run forcevalidate --to Y` | Force validate from start to node Y |
+| `cbflow run verify-dag` | Verify DAG from node_config without executing |
+| `cbflow run show-graph` | Visualize the RACE DAG |
+| `cbflow run list-nodes` | List all nodes in the DAG |
+| `cbflow run add-node` | Add a custom node |
+| `cbflow run create-branch` | Create a DAG branch |
+
+---
+
 ## flow_proc Engine
 
 Every design step in CBflow is registered as a `flow_proc`. The construct takes a name and a body of EDA tool commands:
@@ -152,6 +204,18 @@ outputs/
     ...
 ```
 
+### RACE Database
+
+The RACE SQLite database is stored per-run:
+
+```
+.race_<uid>.db
+```
+
+Full path: `$project(race,db_path)/$project/$domain/$flow/$user_$run_$uid.db`
+
+The DB stores node status, timestamps, file checksums for change detection, and execution history.
+
 ---
 
 ## Release System
@@ -184,7 +248,7 @@ The `release_data` stage in each flow calls `::CBFlow::Release::init`, copies de
 
 1. **MANIFEST.json** -- metadata, file checksums, component versions
 2. **RELEASE_NOTES.md** -- human-readable release description
-3. **RELEASE_COMPLETE** -- stamp file indicating a complete, valid release
+3. **RELEASE_COMPLETE** -- marker file indicating a complete, valid release
 
 ### Input Handshaking
 
@@ -230,7 +294,7 @@ inputs -> init_design -> synthesis -> place -> cts -> cts_opt -> route -> pro ->
 
 Internally, node names carry a numeric suffix (e.g., `inputs1`, `synthesis1`, `place1`) to support multiple instances. Each stage has its own command file, subnode handler, and work directory.
 
-Stage dependencies are declared in the node_config:
+Stage dependencies are declared in the node_config (and consumed by RACE to build the DAG):
 
 ```tcl
 array set synth_pnr {
@@ -252,28 +316,28 @@ array set synth_pnr {
 
 ---
 
-## Per-Corner STA
+## Per-Corner STA (Dynamic Subnodes)
 
-The STA flow runs timing analysis on a per-corner basis. Each corner/scenario gets its own timing analysis with setup and hold checks:
+The STA flow runs timing analysis on a per-corner basis. RACE generates dynamic subnodes from the user-specified timing scenarios in user_config. Each corner/scenario gets its own independent timing analysis with setup and hold checks:
 
 ```
 STA stages per corner:
   inputs -> mmmc_setup -> timing_setup -> timing_hold -> extraction -> reporting -> export_data -> release_data
 ```
 
-The `timing_scenario_handler` manages per-scenario dispatching. Multiple corners run as parallel subnodes when LSF is available.
+The `timing_scenario_handler` manages per-scenario dispatching. RACE creates one subnode per corner at runtime and executes them in parallel when LSF is available.
 
 ---
 
 ## ICV PV Parallel Pipeline
 
-The PV flow with ICV follows a fill-first, then parallel verification pattern:
+The PV flow with ICV follows a fill-first, then parallel verification pattern. RACE executes the independent verification subnodes in parallel:
 
 ```
 inputs -> fill -> [drc | lvs | erc | perc | xor] -> merge_data -> release_data
 ```
 
-After `fill` completes, the DRC, LVS, ERC, PERC, and XOR stages run in parallel. Results are merged in `merge_data` before the final `release_data` stage packages everything for release.
+After `fill` completes, RACE launches the DRC, LVS, ERC, PERC, and XOR stages in parallel. Results are merged in `merge_data` before the final `release_data` stage packages everything for release.
 
 ---
 
