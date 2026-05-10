@@ -1105,6 +1105,10 @@ def cmd_create(args: argparse.Namespace) -> int:
         return 1
 
     if success and run_dir:
+        # Write workspace creation log to $run_dir/logs/
+        _write_creation_log(run_dir, flow_type, design, phase,
+                            config_file, release, env_vars)
+
         print(f"  \033[32m{'=' * 60}\033[0m")
         print(f"  \033[32;1mRun Created Successfully\033[0m")
         print(f"  \033[32m{'=' * 60}\033[0m")
@@ -1123,6 +1127,78 @@ def cmd_create(args: argparse.Namespace) -> int:
     else:
         logger.error("  Run creation failed.")
         return 1
+
+
+def _write_creation_log(run_dir: str, flow_type: str, design: str, phase: str,
+                         config_file: str, release_version: str, env_vars: dict):
+    """Write workspace creation log to $run_dir/logs/workspace_create.log."""
+    from datetime import datetime
+    import socket
+
+    logs_dir = os.path.join(run_dir, 'logs')
+    os.makedirs(logs_dir, exist_ok=True)
+    log_file = os.path.join(logs_dir, 'workspace_create.log')
+
+    try:
+        with open(log_file, 'w') as f:
+            f.write(f"{'=' * 70}\n")
+            f.write(f"  CBflow Workspace Creation Log\n")
+            f.write(f"{'=' * 70}\n\n")
+            f.write(f"  Timestamp:      {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"  User:           {os.environ.get('USER', 'unknown')}\n")
+            f.write(f"  Hostname:       {socket.gethostname()}\n")
+            f.write(f"  Run Directory:  {os.path.abspath(run_dir)}\n")
+            f.write(f"  Flow Type:      {flow_type}\n")
+            f.write(f"  Design:         {design}\n")
+            f.write(f"  Phase:          {phase}\n")
+            f.write(f"  Release:        {release_version}\n")
+            f.write(f"  Config File:    {config_file}\n")
+            f.write(f"  Dispatcher:     RACE (Run Automation & Control Engine)\n")
+            f.write(f"\n{'─' * 70}\n")
+            f.write(f"  User Config Variables\n")
+            f.write(f"{'─' * 70}\n\n")
+
+            # Write user_config contents
+            user_config = os.path.join(run_dir, 'setup', 'user_config.tcl')
+            if os.path.exists(user_config):
+                with open(user_config) as uc:
+                    for line in uc:
+                        line = line.strip()
+                        if line and not line.startswith('#'):
+                            f.write(f"  {line}\n")
+
+            f.write(f"\n{'─' * 70}\n")
+            f.write(f"  Environment Variables\n")
+            f.write(f"{'─' * 70}\n\n")
+
+            # Write key env vars
+            for key in sorted(env_vars.keys()):
+                if key.startswith('CBFLOW_') or key in ('FLOW_DIR', 'CONFIG_ROOT', 'SCRIPTS_ROOT'):
+                    f.write(f"  {key} = {env_vars[key]}\n")
+
+            f.write(f"\n{'─' * 70}\n")
+            f.write(f"  RACE DAG Summary\n")
+            f.write(f"{'─' * 70}\n\n")
+
+            # Build DAG summary
+            try:
+                import sys
+                sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+                from race_engine import DagBuilder
+                builder = DagBuilder(run_dir, flow_type, env_vars)
+                jobs, stages = builder.build()
+                f.write(f"  Stages:  {len(stages)}\n")
+                f.write(f"  Jobs:    {len(jobs)}\n")
+                f.write(f"  Order:   {' → '.join(stages)}\n")
+            except Exception as e:
+                f.write(f"  DAG build: {e}\n")
+
+            f.write(f"\n{'=' * 70}\n")
+            f.write(f"  End of Workspace Creation Log\n")
+            f.write(f"{'=' * 70}\n")
+
+    except Exception as e:
+        logger.debug(f"Could not write creation log: {e}")
 
 
 def _get_run_info(run_dir: str) -> dict:

@@ -264,12 +264,21 @@ def run_target(target: str, env_vars: dict = None) -> int:
         run_env.update(env_vars)
 
     from race_engine import RaceEngine
+
+    # Add file logging to $run_dir/logs/
+    logs_dir = os.path.join(run_dir, 'logs')
+    os.makedirs(logs_dir, exist_ok=True)
+    from logging_config import add_file_handler
+    add_file_handler(logger, logs_dir, 'cbflow_run.log')
+
     flow_type = run_env.get('CBFLOW_FLOW_TYPE', '')
     engine = RaceEngine(run_dir, flow_type, run_env)
     if engine.initialize():
         logger.info(f"RACE: {len(engine.jobs)} jobs, "
                      f"{len(engine.stage_order)} stages")
-        return engine.execute(target)
+        result = engine.execute(target)
+        logger.info(f"Run completed: target={target} result={'PASS' if result == 0 else 'FAIL'}")
+        return result
     else:
         logger.error("RACE initialization failed")
         return 1
