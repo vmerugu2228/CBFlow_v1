@@ -79,12 +79,16 @@ switch $subnode_name {
             # Show planned launch mode in test mode
             set _use_lsf false
             set _use_xterm false
-            if {[info exists flow(use_lsf)] && $flow(use_lsf) eq "true"} {                set _use_lsf true
+            if {[info exists ::env(CBFLOW_BSUB_CMD)] && $::env(CBFLOW_BSUB_CMD) ne ""} {
                 set _use_lsf true
+            } elseif {[info exists flow(use_lsf)] && $flow(use_lsf) eq "true"} {
+                set _use_lsf true
+            } elseif {[info exists ::env(CBFLOW_USE_LSF)] && $::env(CBFLOW_USE_LSF) eq "1"} {
                 set _use_lsf true
             }
             if {[info exists flow(use_xterm)] && $flow(use_xterm) eq "true"} {
                 set _use_xterm true
+            } elseif {[info exists ::env(CBFLOW_USE_XTERM)] && $::env(CBFLOW_USE_XTERM) eq "1"} {
                 set _use_xterm true
             }
             if {$_use_lsf} {
@@ -122,12 +126,16 @@ switch $subnode_name {
             # Determine launch mode: LSF > XTERM > LOCAL
             set _use_lsf false
             set _use_xterm false
-            if {[info exists flow(use_lsf)] && $flow(use_lsf) eq "true"} {                set _use_lsf true
+            if {[info exists ::env(CBFLOW_BSUB_CMD)] && $::env(CBFLOW_BSUB_CMD) ne ""} {
                 set _use_lsf true
+            } elseif {[info exists flow(use_lsf)] && $flow(use_lsf) eq "true"} {
+                set _use_lsf true
+            } elseif {[info exists ::env(CBFLOW_USE_LSF)] && $::env(CBFLOW_USE_LSF) eq "1"} {
                 set _use_lsf true
             }
             if {[info exists flow(use_xterm)] && $flow(use_xterm) eq "true"} {
                 set _use_xterm true
+            } elseif {[info exists ::env(CBFLOW_USE_XTERM)] && $::env(CBFLOW_USE_XTERM) eq "1"} {
                 set _use_xterm true
             }
 
@@ -138,7 +146,9 @@ switch $subnode_name {
             catch { set _geom $lsf(xterm,geometry) }
 
             if {$_use_lsf} {
-            if {[info exists flow(use_lsf)] && $flow(use_lsf) eq "true"} {                } else {
+                if {[info exists ::env(CBFLOW_BSUB_CMD)] && $::env(CBFLOW_BSUB_CMD) ne ""} {
+                    set bsub_cmd $::env(CBFLOW_BSUB_CMD)
+                } else {
                     # Build bsub from config
                     set _qtype "M"
                     catch { set _qtype $lsf(flow_mapping,$::flow_type,$stage_name) }

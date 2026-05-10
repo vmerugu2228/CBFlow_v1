@@ -13,7 +13,7 @@ set project(phase)       "P0"                 ;# Design phase (P0, P1, etc.)
 set flow(type)           "SYNTH_PNR"
 set flow(design_name)    "cpu_core"      ;# Your design/block name
 set flow(run_name)       "run0"               ;# Unique run identifier
-set flow(test_mode)      "false"              ;# Set "true" to skip EDA tool execution
+set flow(test_mode)      "true"              ;# Set "true" to skip EDA tool execution
 
 # ─────────────────────────────────────────────────────────────────────────────────
 # SYNTH_PNR Design Inputs (REQUIRED)
