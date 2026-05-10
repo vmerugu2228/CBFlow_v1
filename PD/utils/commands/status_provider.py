@@ -106,13 +106,18 @@ class StampStatusProvider(StatusProvider):
 
 class SqliteStatusProvider(StatusProvider):
     """Reads cbflow-engine SQLite database for job status.
-    Provides richer data: actual runtime, CPU/mem, LSF job ID, exit codes."""
+    Provides richer data: actual runtime, CPU/mem, LSF job ID, exit codes.
+
+    DB path resolved from:
+      1. $project(engine,db_path)/$project/$domain/$flow/$user_$run.db
+      2. $run_dir/.cbflow_engine.db (fallback)
+    """
 
     DB_NAME = '.cbflow_engine.db'
 
-    def __init__(self, run_dir: str):
+    def __init__(self, run_dir: str, db_path: str = None):
         self.run_dir = run_dir
-        self.db_path = os.path.join(run_dir, self.DB_NAME)
+        self.db_path = db_path or os.path.join(run_dir, self.DB_NAME)
 
     def _connect(self):
         if not os.path.exists(self.db_path):
@@ -200,14 +205,46 @@ class SqliteStatusProvider(StatusProvider):
 
 
 def get_status_provider(run_dir: str = None) -> StatusProvider:
-    """Factory: return best available status provider for this run directory."""
+    """Factory: return best available status provider for this run directory.
+
+    Checks for SQLite DB at:
+      1. Structured path: $project(engine,db_path)/$project/$domain/$flow/$user_$run.db
+      2. Local path: $run_dir/.cbflow_engine.db
+      3. Falls back to stamps
+    """
     if run_dir is None:
         run_dir = os.getcwd()
 
-    # Prefer SQLite DB if exists (cbflow-engine mode)
-    db_path = os.path.join(run_dir, SqliteStatusProvider.DB_NAME)
-    if os.path.exists(db_path):
-        return SqliteStatusProvider(run_dir)
+    # Check local DB first (fast path)
+    local_db = os.path.join(run_dir, SqliteStatusProvider.DB_NAME)
+    if os.path.exists(local_db):
+        return SqliteStatusProvider(run_dir, db_path=local_db)
+
+    # Check structured DB path from run env
+    env_file = os.path.join(run_dir, '.run.cbflow.env')
+    if os.path.exists(env_file):
+        project = flow_type = run_name = ''
+        with open(env_file) as f:
+            for line in f:
+                if 'CBFLOW_PROJECT_NAME=' in line:
+                    project = line.split('=', 1)[1].strip().strip('"')
+                elif 'CBFLOW_FLOW_TYPE=' in line:
+                    flow_type = line.split('=', 1)[1].strip().strip('"')
+                elif 'CBFLOW_RUN_NAME=' in line:
+                    run_name = line.split('=', 1)[1].strip().strip('"')
+
+        if project and flow_type and run_name:
+            user = os.environ.get('USER', 'unknown')
+            # Try to find db_base from project config (read from env)
+            # For now, check common pattern
+            for db_base_candidate in [
+                os.environ.get('CBFLOW_ENGINE_DB_PATH', ''),
+            ]:
+                if db_base_candidate:
+                    structured_db = os.path.join(db_base_candidate, project, 'PD',
+                                                  flow_type, f'{user}_{run_name}.db')
+                    if os.path.exists(structured_db):
+                        return SqliteStatusProvider(run_dir, db_path=structured_db)
 
     # Fallback to stamps (Make mode)
     return StampStatusProvider(run_dir)

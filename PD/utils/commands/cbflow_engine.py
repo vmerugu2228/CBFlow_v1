@@ -214,10 +214,26 @@ class DagBuilder:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class StatusDB:
-    """SQLite database for job status tracking."""
+    """SQLite database for job status tracking.
 
-    def __init__(self, run_dir: str):
-        self.db_path = os.path.join(run_dir, '.cbflow_engine.db')
+    DB path structure: $project(engine,db_path)/$project_name/$domain/$flow_type/$user_$run_name.db
+    Example: /proj/phoenix/cbflow_db/phoenix/PD/SYNTH_PNR/vmerugu_run0.db
+
+    Falls back to $run_dir/.cbflow_engine.db if project(engine,db_path) not configured.
+    """
+
+    def __init__(self, run_dir: str, project_name: str = '', domain: str = 'PD',
+                 flow_type: str = '', run_name: str = '', user: str = '',
+                 db_base_path: str = ''):
+        if db_base_path:
+            # Structured path: $db_path/$project/$domain/$flow/$user_$run.db
+            user = user or os.environ.get('USER', 'unknown')
+            db_dir = os.path.join(db_base_path, project_name, domain, flow_type)
+            os.makedirs(db_dir, exist_ok=True)
+            self.db_path = os.path.join(db_dir, f'{user}_{run_name}.db')
+        else:
+            # Fallback: in run directory
+            self.db_path = os.path.join(run_dir, '.cbflow_engine.db')
         self._init_db()
 
     def _init_db(self):
@@ -334,9 +350,27 @@ class CbflowEngine:
             return False
 
         # Initialize status DB
-        self.db = StatusDB(self.run_dir)
+        # Path: $project(engine,db_path)/$project_name/$domain/$flow_type/$user_$run_name.db
+        # Resolved from project_config.tcl or env vars
+        db_base = self._resolve_db_path()
+        project_name = self.env_vars.get('CBFLOW_PROJECT_NAME', '')
+        run_name = self.env_vars.get('CBFLOW_RUN_NAME', os.path.basename(self.run_dir))
+        user = os.environ.get('USER', 'unknown')
+
+        self.db = StatusDB(
+            self.run_dir,
+            project_name=project_name,
+            domain='PD',
+            flow_type=self.flow_type,
+            run_name=run_name,
+            user=user,
+            db_base_path=db_base,
+        )
+        logger.info(f"Status DB: {self.db.db_path}")
         self.db.set_run_info('flow_type', self.flow_type)
         self.db.set_run_info('run_dir', self.run_dir)
+        self.db.set_run_info('project', project_name)
+        self.db.set_run_info('user', user)
         self.db.set_run_info('initialized', datetime.now().isoformat())
 
         # Restore completed state from DB (for resume after crash)
@@ -503,6 +537,43 @@ class CbflowEngine:
         return result
 
     # ── Private Methods ──────────────────────────────────────────────────────
+
+    def _resolve_db_path(self) -> str:
+        """Resolve DB base path from project_config.tcl.
+
+        Reads project(engine,db_path) from project config.
+        Returns empty string if not configured (falls back to run_dir).
+
+        Convention: $db_path/$project/$domain/$flow/$user_$run.db
+        Example:    /proj/phoenix/cbflow_db/phoenix/PD/SYNTH_PNR/vmerugu_run0.db
+        """
+        db_path = ''
+
+        # Try project config
+        project_name = self.env_vars.get('CBFLOW_PROJECT_NAME', '')
+        config_root = self.env_vars.get('CONFIG_ROOT',
+                      self.env_vars.get('FLOW_DIR', ''))
+        if project_name and config_root:
+            # Search project config for engine,db_path
+            for ver_dir in Path(os.path.join(config_root, 'config', 'project',
+                                             project_name)).glob('v*/'):
+                for cfg_file in ver_dir.glob('*_config.tcl'):
+                    try:
+                        with open(cfg_file) as f:
+                            for line in f:
+                                m = re.match(r'set\s+project\(engine,db_path\)\s+"([^"]+)"',
+                                             line.strip())
+                                if m:
+                                    db_path = m.group(1)
+                                    break
+                    except Exception:
+                        pass
+                    if db_path:
+                        break
+                if db_path:
+                    break
+
+        return db_path
 
     def _execute_job(self, job: Job) -> int:
         """Execute a single job. Returns exit code."""

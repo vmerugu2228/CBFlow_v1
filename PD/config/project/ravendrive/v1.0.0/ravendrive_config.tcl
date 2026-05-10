@@ -348,6 +348,10 @@ set project(validation,critical_errors) {
 # └─────────────────────────────────────────────────────────────────────────────┘
 
 # Ravendrive project release settings
+# ── cbflow-engine DB Path ──────────────────────────────────────────────────
+# DB structure: $db_path/$project_name/$domain/$flow_type/$user_$run_name.db
+set project(engine,db_path) "/proj/ravendrive/cbflow_db"
+
 set project(release,author) "Ravendrive Design Team"
 set project(release,organization) "GF 22FDX Design Group"
 
