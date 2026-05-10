@@ -385,6 +385,52 @@ def cmd_stage(args: argparse.Namespace) -> int:
     return result
 
 
+def cmd_bypass(args: argparse.Namespace) -> int:
+    """Bypass (skip) stages — mark as DONE without executing."""
+    if not is_run_directory():
+        logger.error("Error: Not in a valid run directory")
+        return 1
+
+    stages = [s.strip() for s in args.stages.split(',')]
+    flow_type = get_flow_type()
+    valid = get_flow_stages(flow_type)
+    for s in stages:
+        if s not in valid:
+            logger.error(f"Invalid stage: {s}. Valid: {', '.join(valid)}")
+            return 1
+
+    from cbflow_engine import CbflowEngine
+    run_env = load_run_env()
+    engine = CbflowEngine(os.getcwd(), flow_type, run_env)
+    if engine.initialize():
+        logger.info(f"Bypassing stages: {', '.join(stages)}")
+        return engine.bypass(stages)
+    return 1
+
+
+def cmd_force(args: argparse.Namespace) -> int:
+    """Force re-run specific stages only (no downstream invalidation)."""
+    if not is_run_directory():
+        logger.error("Error: Not in a valid run directory")
+        return 1
+
+    stages = [s.strip() for s in args.stages.split(',')]
+    flow_type = get_flow_type()
+    valid = get_flow_stages(flow_type)
+    for s in stages:
+        if s not in valid:
+            logger.error(f"Invalid stage: {s}. Valid: {', '.join(valid)}")
+            return 1
+
+    from cbflow_engine import CbflowEngine
+    run_env = load_run_env()
+    engine = CbflowEngine(os.getcwd(), flow_type, run_env)
+    if engine.initialize():
+        logger.info(f"Force re-running stages: {', '.join(stages)}")
+        return engine.force(stages)
+    return 1
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     """Show run status."""
     if not is_run_directory():
@@ -1871,6 +1917,28 @@ Examples:
     retrace_parser.add_argument('--from', dest='from_stage', help='Retrace from this stage onwards')
     retrace_parser.add_argument('--run', action='store_true', help='Rerun flow after clearing stamps')
 
+    # bypass command
+    bypass_parser = subparsers.add_parser('bypass', help='Skip stages (mark as done without running)',
+        formatter_class=_fmt, description="""Mark stages as DONE without executing.
+Useful for skipping stages not needed in this run (e.g., skip export_data).
+
+Examples:
+  cbflow run bypass --stages export_data1,release_data1
+  cbflow run bypass --stages init_design1        Skip just init_design""")
+    bypass_parser.add_argument('--stages', '-s', required=True,
+                               help='Comma-separated stages to bypass')
+
+    # force command
+    force_parser = subparsers.add_parser('force', help='Force re-run specific stages only',
+        formatter_class=_fmt, description="""Force re-execute specific stages without invalidating downstream.
+Only the named stages are invalidated and re-run. Dependencies must already be DONE.
+
+Examples:
+  cbflow run force --stages place1               Re-run place only
+  cbflow run force --stages cts1,cts_opt1        Re-run CTS stages""")
+    force_parser.add_argument('--stages', '-s', required=True,
+                              help='Comma-separated stages to force re-run')
+
     # clean command
     clean_parser = subparsers.add_parser('clean', help='Clean run directory',
         formatter_class=_fmt, description="""Delete all work files, logs, and stamps.
@@ -2194,6 +2262,8 @@ def main() -> int:
         'logs': cmd_logs,
         'validate': cmd_validate_run,
         'lsf-status': cmd_lsf_status_run,
+        'bypass': cmd_bypass,
+        'force': cmd_force,
         'interactive': cmd_interactive,
         'email': _cmd_email_dispatch,
         'autoppt': _cmd_autoppt_dispatch,

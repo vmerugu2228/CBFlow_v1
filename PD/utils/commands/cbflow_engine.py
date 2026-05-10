@@ -538,6 +538,51 @@ class CbflowEngine:
                      f"{len(self.stage_order)} stages")
         return True
 
+    def bypass(self, stages: list) -> int:
+        """Mark stages as DONE without executing (skip/bypass).
+        Useful for skipping stages that are not needed for this run."""
+        count = 0
+        for stage in stages:
+            for name, job in self.jobs.items():
+                if job.stage == stage and job.status == Job.PENDING:
+                    job.status = Job.DONE
+                    self.db.record_start(job)
+                    self.db.record_complete(job, 0, 'BYPASSED')
+                    # Write stamp for compatibility
+                    stamp = os.path.join(self.run_dir, '.stamps', f'{name}.stamp')
+                    os.makedirs(os.path.dirname(stamp), exist_ok=True)
+                    Path(stamp).touch()
+                    count += 1
+            logger.info(f"Bypassed: {stage}")
+        logger.info(f"Total bypassed: {count} jobs")
+        return 0
+
+    def force(self, stages: list) -> int:
+        """Force re-execute specific stages only (invalidate + run).
+        Does NOT invalidate downstream — only the specified stages."""
+        # Invalidate just these stages
+        for stage in stages:
+            for name, job in self.jobs.items():
+                if job.stage == stage:
+                    job.status = Job.PENDING
+                    # Remove stamp
+                    stamp = os.path.join(self.run_dir, '.stamps', f'{name}.stamp')
+                    if os.path.exists(stamp):
+                        os.remove(stamp)
+            logger.info(f"Force invalidated: {stage}")
+
+        self.db.invalidate([n for n, j in self.jobs.items()
+                            if j.stage in stages])
+
+        # Execute only these stages (deps must already be DONE)
+        target_jobs = set()
+        for stage in stages:
+            for name, job in self.jobs.items():
+                if job.stage == stage:
+                    target_jobs.add(name)
+
+        return self.execute_jobs(target_jobs)
+
     def execute(self, target: str = 'all', env_vars: dict = None,
                 use_lsf: bool = False, lsf_queue: str = None) -> int:
         """Execute target (stage name or 'all')."""
@@ -546,19 +591,24 @@ class CbflowEngine:
         # LSF/xterm controlled by flow(use_lsf) and flow(use_xterm) in flow_config.tcl
         # Handlers read config directly — no env var overrides
 
-        # Install signal handler for graceful interrupt
-        signal.signal(signal.SIGINT, self._handle_interrupt)
-
         # Determine which jobs to run
         if target == 'all':
             target_jobs = set(self.jobs.keys())
         else:
             target_jobs = self._get_jobs_for_target(target)
 
-        self.db.set_run_info('target', target)
+        return self.execute_jobs(target_jobs)
+
+    def execute_jobs(self, target_jobs: set) -> int:
+        """Execute a set of jobs respecting dependencies."""
+        # Install signal handler for graceful interrupt
+        signal.signal(signal.SIGINT, self._handle_interrupt)
+
+        target_desc = ', '.join(sorted({self.jobs[n].stage for n in target_jobs if n in self.jobs}))
+        self.db.set_run_info('target', target_desc)
         self.db.set_run_info('started', datetime.now().isoformat())
 
-        logger.info(f"Executing target '{target}': {len(target_jobs)} jobs")
+        logger.info(f"Executing {len(target_jobs)} jobs ({target_desc})")
 
         # Topological execution
         completed = {n for n, j in self.jobs.items() if j.status == Job.DONE}
