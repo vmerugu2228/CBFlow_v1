@@ -2319,9 +2319,41 @@ Examples:
     ck.add_argument('--approver', help='Approver name (required with --sign-off)')
     ck.add_argument('--list', action='store_true', dest='list_milestones', help='List available milestones')
 
+    # dashboard command
+    dash_parser = subparsers.add_parser('dashboard', help='Open RACE Dashboard web GUI',
+        formatter_class=_fmt, description="""Start the RACE Dashboard — a web-based flow visualization GUI.
+Opens in browser with stage pipeline, DAG view, job grid, and job details.
+
+Examples:
+  cbflow run dashboard                  Start at http://localhost:8080
+  cbflow run dashboard --port 9090      Custom port
+  cbflow run dashboard --no-browser     Don't auto-open browser""")
+    dash_parser.add_argument('--port', '-p', type=int, default=8080, help='Port (default: 8080)')
+    dash_parser.add_argument('--no-browser', action='store_true', dest='no_browser', help='Don\'t open browser')
+
     subparsers.add_parser('help', help='Show detailed help')
 
     return parser
+
+
+def cmd_dashboard(args):
+    """Start RACE Dashboard web GUI."""
+    if not is_run_directory():
+        logger.error("Error: Not in a valid run directory")
+        return 1
+    import sys
+    sys.path.insert(0, os.path.join(os.environ.get('FLOW_DIR', ''), 'utils', 'dashboard'))
+    try:
+        from race_dashboard import start_dashboard
+    except ImportError:
+        # Try relative path
+        dashboard_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'dashboard')
+        sys.path.insert(0, dashboard_dir)
+        from race_dashboard import start_dashboard
+
+    port = getattr(args, 'port', 8080) or 8080
+    no_browser = getattr(args, 'no_browser', False)
+    return start_dashboard(os.getcwd(), port=port, open_browser=not no_browser) or 0
 
 
 def _cmd_email_dispatch(args):
@@ -2422,6 +2454,7 @@ def main() -> int:
         'email': _cmd_email_dispatch,
         'autoppt': _cmd_autoppt_dispatch,
         'checklist': _cmd_checklist_dispatch,
+        'dashboard': cmd_dashboard,
         'help': cmd_help,
     }
 

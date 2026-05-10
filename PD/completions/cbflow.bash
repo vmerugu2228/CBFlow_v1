@@ -26,7 +26,7 @@ _cbflow_completions() {
                 COMPREPLY=( $(compgen -W "template create status list-runs clean validate" -- "${cur}") )
                 ;;
             run)
-                COMPREPLY=( $(compgen -W "all stage status retrace bypass force forcevalidate interactive clean validate logs report show-graph list-nodes add-node delete-node create-branch list-branches delete-branch release-info targets update email autoppt checklist help" -- "${cur}") )
+                COMPREPLY=( $(compgen -W "all stage status retrace bypass force forcevalidate dashboard interactive clean validate logs report show-graph list-nodes add-node delete-node create-branch list-branches delete-branch release-info targets update email autoppt checklist help" -- "${cur}") )
                 ;;
             flow)
                 COMPREPLY=( $(compgen -W "types info stages nodes check version release config plugin metrics dashboard checklist qor-report trending library-manager mmmc-manager" -- "${cur}") )
@@ -140,6 +140,7 @@ _cbflow_completions() {
                         --release|-r) COMPREPLY=( $(compgen -W "v1.0.0 v1.0.1 v1.0.2" -- "${cur}") ) ;;
                         *)            COMPREPLY=( $(compgen -W "--release -r --no-backup" -- "${cur}") ) ;;
                     esac ;;
+                dashboard)  COMPREPLY=( $(compgen -W "--port -p --no-browser" -- "${cur}") ) ;;
                 lsf-status) COMPREPLY=( $(compgen -W "--flow" -- "${cur}") ) ;;
                 clean)      COMPREPLY=( $(compgen -W "--confirm" -- "${cur}") ) ;;
             esac ;;

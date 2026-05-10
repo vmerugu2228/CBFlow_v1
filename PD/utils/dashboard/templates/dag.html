@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RACE DAG — {{FLOW_TYPE}}</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<nav class="topnav">
+  <div class="nav-brand">RACE Dashboard</div>
+  <div class="nav-links">
+    <a href="/">Overview</a>
+    <a href="/dag" class="active">DAG</a>
+    <a href="/grid">Grid</a>
+  </div>
+  <div class="nav-info"><span>{{FLOW_TYPE}}</span></div>
+</nav>
+
+<main class="container">
+  <div class="header-card">
+    <h1>Dependency Graph — {{FLOW_TYPE}}</h1>
+    <div style="display:flex;gap:16px;align-items:center">
+      <span class="legend-item"><span class="dot" style="background:#059669"></span> Done</span>
+      <span class="legend-item"><span class="dot" style="background:#dc2626"></span> Fail</span>
+      <span class="legend-item"><span class="dot" style="background:#2563eb"></span> Running</span>
+      <span class="legend-item"><span class="dot" style="background:#6b7280"></span> Pending</span>
+      <span class="legend-item"><span class="dot" style="background:#d97706"></span> Bypassed</span>
+    </div>
+  </div>
+
+  <div class="dag-container" id="dag-container">
+    <svg id="dag-svg" width="100%" height="600"></svg>
+  </div>
+</main>
+
+<!-- Job Details Modal -->
+<div class="modal-overlay" id="modal-overlay" onclick="closeModal()">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3 id="modal-title">Job Details</h3>
+      <button onclick="closeModal()">&times;</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<style>
+.legend-item { display:flex; align-items:center; gap:4px; font-size:12px; color:var(--text-dim); }
+.dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
+.dag-container { background:var(--surface); border-radius:10px; padding:20px; border:1px solid var(--border); overflow:auto; }
+.dag-node { cursor:pointer; transition: opacity 0.2s; }
+.dag-node:hover { opacity:0.8; }
+.dag-label { font-size:11px; fill:white; font-weight:600; text-anchor:middle; pointer-events:none; }
+.dag-arrow { stroke:var(--border); stroke-width:2; fill:none; marker-end:url(#arrowhead); }
+</style>
+
+<script>
+function statusColor(s) {
+  return {DONE:'#059669',FAIL:'#dc2626',RUNNING:'#2563eb',PENDING:'#6b7280',
+          BYPASSED:'#d97706',FORCE_VALIDATED:'#0d9488'}[s] || '#6b7280';
+}
+function formatTime(s) { return s < 60 ? s.toFixed(1)+'s' : (s/60).toFixed(1)+'m'; }
+
+function renderDAG(data) {
+  const svg = document.getElementById('dag-svg');
+  const stages = data.stage_order || [];
+  const nodes = data.nodes || [];
+  const nodeMap = {};
+  nodes.forEach(n => nodeMap[n.id] = n);
+
+  const stageW = 140, stageH = 50, gapX = 40, gapY = 20, padX = 40, padY = 40;
+  const totalW = stages.length * (stageW + gapX) + padX;
+  svg.setAttribute('width', Math.max(totalW, 800));
+  svg.setAttribute('height', 200);
+
+  let html = '<defs><marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">' +
+    '<polygon points="0 0, 8 3, 0 6" fill="#475569"/></marker></defs>';
+
+  stages.forEach((stage, i) => {
+    const x = padX + i * (stageW + gapX);
+    const y = padY + 30;
+    const n = nodeMap[stage] || {status:'PENDING'};
+    const color = statusColor(n.status);
+    const rt = n.runtime ? ' (' + formatTime(n.runtime) + ')' : '';
+
+    html += '<g class="dag-node" onclick="showJob(\'' + stage + '\')">' +
+      '<rect x="' + x + '" y="' + y + '" width="' + stageW + '" height="' + stageH + '" rx="8" fill="' + color + '" opacity="0.9"/>' +
+      '<text class="dag-label" x="' + (x + stageW/2) + '" y="' + (y + 22) + '">' + stage.replace(/1$/,'') + '</text>' +
+      '<text class="dag-label" x="' + (x + stageW/2) + '" y="' + (y + 38) + '" style="font-size:10px;opacity:0.8">' + (n.status||'') + rt + '</text>' +
+      '</g>';
+
+    // Arrow to next
+    if (i < stages.length - 1) {
+      const x2 = padX + (i+1) * (stageW + gapX);
+      html += '<line class="dag-arrow" x1="' + (x + stageW) + '" y1="' + (y + stageH/2) + '" x2="' + x2 + '" y2="' + (y + stageH/2) + '"/>';
+    }
+  });
+
+  svg.innerHTML = html;
+}
+
+function showJob(name) {
+  fetch('/api/job/' + name).then(r => r.json()).then(j => {
+    if (!j.name) { // It's a stage sentinel, show stage jobs
+      fetch('/api/jobs').then(r => r.json()).then(jobs => {
+        const sj = jobs.filter(x => x.stage === name);
+        let html = '<table class="data-table"><thead><tr><th>Job</th><th>Status</th><th>Runtime</th><th>Exit</th></tr></thead><tbody>';
+        sj.forEach(x => {
+          html += '<tr><td>' + x.name + '</td><td><span class="status-badge" style="background:' + statusColor(x.status) + '">' + x.status + '</span></td><td>' + formatTime(x.runtime) + '</td><td>' + (x.exit_code!=null?x.exit_code:'-') + '</td></tr>';
+        });
+        html += '</tbody></table>';
+        document.getElementById('modal-title').textContent = name;
+        document.getElementById('modal-body').innerHTML = html;
+        document.getElementById('modal-overlay').style.display = 'flex';
+      });
+      return;
+    }
+    // Show single job details
+    const color = statusColor(j.status);
+    let html = '<div class="detail-grid">' +
+      '<div><label>Status</label><span class="status-badge" style="background:'+color+'">'+j.status+'</span></div>' +
+      '<div><label>Runtime</label>'+formatTime(j.runtime)+'</div>' +
+      '<div><label>Exit</label>'+(j.exit_code!=null?j.exit_code:'-')+'</div>' +
+      '<div><label>Host</label><span class="mono">'+(j.hostname||'-')+'</span></div>' +
+      '<div><label>LSF</label><span class="mono">'+(j.lsf_job_id||'-')+'</span></div>' +
+      '<div><label>Tier</label>'+(j.resource_tier||'-')+'</div></div>';
+    if (j.error_msg) html += '<div class="error-box">'+j.error_msg+'</div>';
+    document.getElementById('modal-title').textContent = j.name;
+    document.getElementById('modal-body').innerHTML = html;
+    document.getElementById('modal-overlay').style.display = 'flex';
+  });
+}
+
+function closeModal() { document.getElementById('modal-overlay').style.display = 'none'; }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+fetch('/api/dag').then(r => r.json()).then(renderDAG);
+setInterval(() => fetch('/api/dag').then(r => r.json()).then(renderDAG), 5000);
+</script>
+</body>
+</html>

@@ -1,0 +1,91 @@
+/* RACE Dashboard — CBflow v2.0.0 */
+:root {
+  --bg: #0f172a; --surface: #1e293b; --surface2: #334155;
+  --text: #e2e8f0; --text-dim: #94a3b8; --border: #475569;
+  --green: #059669; --red: #dc2626; --blue: #2563eb;
+  --gray: #6b7280; --orange: #d97706; --teal: #0d9488;
+  --accent: #3b82f6;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+/* Nav */
+.topnav { display: flex; align-items: center; justify-content: space-between; padding: 0 24px; height: 52px; background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 100; }
+.nav-brand { font-size: 16px; font-weight: 700; color: var(--accent); letter-spacing: 1px; }
+.nav-links a { color: var(--text-dim); text-decoration: none; margin: 0 12px; padding: 6px 12px; border-radius: 6px; font-size: 14px; transition: all .2s; }
+.nav-links a:hover, .nav-links a.active { color: var(--text); background: var(--surface2); }
+.nav-info { font-size: 13px; color: var(--text-dim); display: flex; gap: 12px; align-items: center; }
+.badge { padding: 3px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+.badge-pass { background: var(--green); color: white; }
+.badge-fail { background: var(--red); color: white; }
+
+/* Container */
+.container { max-width: 1400px; margin: 0 auto; padding: 20px 24px; }
+
+/* Header Card */
+.header-card { display: flex; justify-content: space-between; align-items: center; background: var(--surface); padding: 20px 24px; border-radius: 10px; margin-bottom: 20px; border: 1px solid var(--border); }
+.header-card h1 { font-size: 22px; margin-bottom: 4px; }
+.subtitle { font-size: 13px; color: var(--text-dim); margin-top: 2px; }
+.big-stat { font-size: 28px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.result-icon { font-size: 20px; }
+
+/* Stats Row */
+.stats-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 20px; }
+.stat-card { background: var(--surface); padding: 16px; border-radius: 8px; text-align: center; border: 1px solid var(--border); }
+.stat-value { font-size: 28px; font-weight: 700; }
+.stat-label { font-size: 12px; color: var(--text-dim); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+.stat-done .stat-value { color: var(--green); }
+.stat-fail .stat-value { color: var(--red); }
+.stat-pending .stat-value { color: var(--gray); }
+
+/* Progress */
+.progress-section { background: var(--surface); padding: 16px 20px; border-radius: 8px; margin-bottom: 20px; border: 1px solid var(--border); }
+.progress-header { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; }
+.progress-bar { height: 10px; background: var(--surface2); border-radius: 5px; overflow: hidden; }
+.progress-fill { height: 100%; border-radius: 5px; transition: width 0.5s ease; }
+
+/* Pipeline */
+.pipeline-section { background: var(--surface); padding: 20px; border-radius: 8px; margin-bottom: 20px; border: 1px solid var(--border); }
+.pipeline-section h2 { font-size: 16px; margin-bottom: 14px; }
+.pipeline { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; overflow-x: auto; padding: 8px 0; }
+.pipe-node { display: flex; align-items: center; gap: 6px; padding: 8px 14px; border: 2px solid; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all .2s; white-space: nowrap; background: var(--bg); }
+.pipe-node:hover { transform: scale(1.05); box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+.pipe-status { width: 8px; height: 8px; border-radius: 50%; }
+.pipe-arrow { color: var(--text-dim); font-size: 16px; margin: 0 2px; }
+
+/* Table */
+.table-section { background: var(--surface); padding: 20px; border-radius: 8px; border: 1px solid var(--border); }
+.table-section h2 { font-size: 16px; margin-bottom: 12px; }
+.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.data-table th { text-align: left; padding: 10px 12px; background: var(--surface2); color: var(--text-dim); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); }
+.data-table td { padding: 9px 12px; border-bottom: 1px solid var(--border); }
+.data-table tr:hover { background: var(--surface2); }
+.status-badge { padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; color: white; }
+.mono { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; }
+.error-text { color: var(--red); font-size: 12px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Modal */
+.modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 200; justify-content: center; align-items: flex-start; padding-top: 60px; }
+.modal { background: var(--surface); border-radius: 12px; width: 90%; max-width: 900px; max-height: 80vh; overflow-y: auto; border: 1px solid var(--border); }
+.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+.modal-header h3 { font-size: 18px; }
+.modal-header button { background: none; border: none; color: var(--text-dim); font-size: 24px; cursor: pointer; }
+.modal-body { padding: 20px; }
+
+/* Job Detail */
+.detail-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+.detail-grid div { display: flex; flex-direction: column; gap: 2px; }
+.detail-grid label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; }
+.error-box { background: rgba(220,38,38,0.1); border: 1px solid var(--red); border-radius: 6px; padding: 12px; margin-top: 12px; color: var(--red); }
+.cmd-box, .log-box { margin-top: 12px; }
+.cmd-box pre, .log-box pre { background: var(--bg); padding: 12px; border-radius: 6px; font-size: 12px; overflow-x: auto; max-height: 300px; overflow-y: auto; font-family: 'SF Mono', monospace; line-height: 1.5; border: 1px solid var(--border); }
+
+/* Footer */
+.footer { text-align: center; padding: 12px; font-size: 12px; color: var(--text-dim); border-top: 1px solid var(--border); margin-top: 24px; display: flex; justify-content: space-between; padding: 12px 24px; }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .stats-row { grid-template-columns: repeat(3, 1fr); }
+  .detail-grid { grid-template-columns: repeat(2, 1fr); }
+  .header-card { flex-direction: column; gap: 12px; }
+}
