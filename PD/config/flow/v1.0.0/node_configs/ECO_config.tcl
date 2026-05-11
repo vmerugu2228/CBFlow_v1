@@ -16,21 +16,22 @@
 # ┌─ Flow Stage Definitions ──────────────────────────────────────────────┐
 # Merge metadata
 array set eco {
-    stages {inputs1 eco1 export_db1}
+    stages {netlist1 def1 sdc1 library1 eco1 export_db1}
 
-    merge_entry_stage     inputs1
+    merge_entry_stage     netlist1
     merge_handoff_stage   export_db1
     merge_parallel_stages {}
-
-    subnodes,inputs1 {setup netlist def sdc library validate finish}
     subnodes,eco1 {setup run validate finish}
     subnodes,export_db1 {setup run validate finish}
 }
 
 # ┌─ Stage Dependencies ────────────────────────────────────────────────────┐
 array set eco {
-    dependencies,inputs1 {}
-    dependencies,eco1 {inputs1}
+    dependencies,netlist1 {}
+    dependencies,def1 {}
+    dependencies,sdc1 {}
+    dependencies,library1 {}
+    dependencies,eco1 {netlist1 def1 sdc1 library1}
     dependencies,export_db1 {eco1}
 }
 
@@ -39,13 +40,6 @@ array set eco {
 # eco stage subnodes
 # export_db stage subnodes
 array set eco {
-    subnode_dependencies,inputs1,setup {}
-    subnode_dependencies,inputs1,netlist {setup}
-    subnode_dependencies,inputs1,def {setup}
-    subnode_dependencies,inputs1,sdc {setup}
-    subnode_dependencies,inputs1,library {setup}
-    subnode_dependencies,inputs1,validate {netlist def sdc library}
-    subnode_dependencies,inputs1,finish {validate}
 
     subnode_dependencies,eco1,setup {}
     subnode_dependencies,eco1,run {setup}
@@ -70,35 +64,45 @@ array set eco {
 
 # ┌─ Runtime Settings ───────────────────────────────────────────────────────┐
 array set eco {
-    runtime,timeout,inputs1 15
+    runtime,timeout,netlist1 10
+    runtime,timeout,def1 10
+    runtime,timeout,sdc1 10
+    runtime,timeout,library1 10
     runtime,timeout,eco1 45
     runtime,timeout,export_db1 20
 }
 
 # ┌─ Stage Type Mappings and Descriptions ───────────────────────────────────┐
 array set eco {
-    stage_types,inputs1 "inputs"
+    stage_types,netlist1 "inputs"
+    stage_types,def1 "inputs"
+    stage_types,sdc1 "inputs"
+    stage_types,library1 "inputs"
     stage_types,eco1 "execution"
     stage_types,export_db1 "export_data"
 
-    node_types,inputs1 "inputs"
+    node_types,netlist1 "inputs"
+    node_types,def1 "inputs"
+    node_types,sdc1 "inputs"
+    node_types,library1 "inputs"
     node_types,eco1 "eco"
     node_types,export_db1 "export_db"
 
-    node_descriptions,inputs1 "Input file validation and preparation for engineering change orders (7 subnodes: setup, netlist, def, sdc, library, validate, finish)"
+    node_descriptions,netlist1 "Gate-level netlist input"
+    node_descriptions,def1 "DEF floorplan input"
+    node_descriptions,sdc1 "SDC timing constraints input"
+    node_descriptions,library1 "Technology library input"
     node_descriptions,eco1 "Engineering change orders implementation and validation (4 subnodes: setup, run, validate, finish)"
     node_descriptions,export_db1 "Export ECO database and deliverables (4 subnodes: setup, run, validate, finish)"
 }
 
 # ┌─ File Requirements ───────────────────────────────────────────────────────┐
 array set eco {
-    critical_files,inputs1 {eco(input,netlist) eco(input,def)}
     critical_files,eco1 {eco(input,netlist) eco(input,def) eco(input,sdc_func_file)}
 
     mandatory_outputs,eco1 {results/eco/eco_netlist.v results/eco/eco_changes.rpt}
     mandatory_outputs,export_db1 {results/db/eco.db}
 
-    optional_files,inputs1 {eco(input,eco_script)}
 }
 
 # ┌─ Mandatory Input Groups ──────────────────────────────────────────────────┐
@@ -156,7 +160,7 @@ array set eco {
 
 # Configuration loading marker
 if {![info exists ::eco_config_loaded]} {
-    puts "INFO: ECO configuration loaded successfully - [llength $eco(stages)] stages, [expr {[llength $eco(subnodes,inputs1)] + [llength $eco(subnodes,eco1)] + [llength $eco(subnodes,export_db1)]}] total subnodes"
+    puts "INFO: ECO configuration loaded successfully - [llength $eco(stages)] stages, [expr {[llength $eco(subnodes,netlist1)] + [llength $eco(subnodes,def1)] + [llength $eco(subnodes,sdc1)] + [llength $eco(subnodes,library1)] + [llength $eco(subnodes,eco1)] + [llength $eco(subnodes,export_db1)]}] total subnodes"
     set ::eco_config_loaded true
 }
 

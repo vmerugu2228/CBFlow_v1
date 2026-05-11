@@ -212,10 +212,6 @@ class NodeManager:
 
         # Check for duplicates
         if name in all_stages:
-            existing = self.custom_nodes.get(name, {})
-            if existing.get('type') == node_type and existing.get('dependencies') == dependency:
-                logger.info(f"  Node '{name}' already exists with identical configuration")
-                return True
             logger.error(f"  Error: Node '{name}' already exists")
             return False
 
@@ -355,16 +351,47 @@ class NodeManager:
                 break
 
         if from_idx is None:
-            # from_stage is a custom node -- create a single branch node
-            logger.info(f"  Creating single branch node from '{from_stage}'")
-            suffix = self._next_suffix(from_stage)
-            new_name = f"{re.sub(r'[0-9]+$', '', from_stage)}{suffix}"
+            # from_stage is a custom node — find where it maps in the base flow
+            # and create branch nodes for all remaining downstream stages
+            base_type = re.sub(r'\d+$', '', from_stage)
 
-            self.custom_nodes[new_name] = {
-                'type': re.sub(r'\d+$', '', from_stage),
-                'dependencies': from_stage,
-                'branch_key': branch_key,
-            }
+            # Find the base stage index that matches this custom node's type
+            base_idx = None
+            for i, s in enumerate(self.base_stages):
+                if re.sub(r'\d+$', '', s) == base_type:
+                    base_idx = i
+                    break
+
+            if base_idx is not None:
+                # Create branch nodes for all stages AFTER the matching base stage
+                stages_to_branch = self.base_stages[base_idx + 1:]
+                prev_dep = from_stage
+                for stage in stages_to_branch:
+                    sbase = re.sub(r'\d+$', '', stage)
+                    suffix = self._next_suffix(sbase)
+                    new_name = f"{sbase}{suffix}"
+                    while new_name in self.base_stages or new_name in self.custom_nodes:
+                        suffix += 1
+                        new_name = f"{sbase}{suffix}"
+                    self.custom_nodes[new_name] = {
+                        'type': sbase,
+                        'dependencies': prev_dep,
+                        'branch_key': branch_key,
+                    }
+                    prev_dep = new_name
+            else:
+                # Can't find base type — create a single branch node
+                logger.info(f"  Creating single branch node from '{from_stage}'")
+                suffix = self._next_suffix(base_type)
+                new_name = f"{base_type}{suffix}"
+                while new_name in self.base_stages or new_name in self.custom_nodes:
+                    suffix += 1
+                    new_name = f"{base_type}{suffix}"
+                self.custom_nodes[new_name] = {
+                    'type': base_type,
+                    'dependencies': from_stage,
+                    'branch_key': branch_key,
+                }
         else:
             # Create branch nodes for remaining stages
             stages_to_branch = self.base_stages[from_idx:]
@@ -378,6 +405,10 @@ class NodeManager:
                 base_name = re.sub(r'\d+$', '', stage)
                 suffix = self._next_suffix(base_name)
                 new_name = f"{base_name}{suffix}"
+                # Safety: never overwrite a base stage
+                while new_name in self.base_stages:
+                    suffix += 1
+                    new_name = f"{base_name}{suffix}"
 
                 self.custom_nodes[new_name] = {
                     'type': base_name,

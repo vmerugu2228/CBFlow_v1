@@ -15,9 +15,7 @@
 
 # ┌─ Flow Stage Definitions ──────────────────────────────────────────────┐
 array set emir {
-    stages {inputs1 power_analysis1 ir_drop1 thermal_analysis1}
-
-    subnodes,inputs1 {setup netlist def spef library validate finish}
+    stages {netlist1 def1 spef1 library1 power_analysis1 ir_drop1 thermal_analysis1}
     subnodes,power_analysis1 {setup run validate finish}
     subnodes,ir_drop1 {setup run validate finish}
     subnodes,thermal_analysis1 {setup run validate finish}
@@ -25,8 +23,11 @@ array set emir {
 
 # ┌─ Stage Dependencies ────────────────────────────────────────────────────┐
 array set emir {
-    dependencies,inputs1 {}
-    dependencies,power_analysis1 {inputs1}
+    dependencies,netlist1 {}
+    dependencies,def1 {}
+    dependencies,spef1 {}
+    dependencies,library1 {}
+    dependencies,power_analysis1 {netlist1 def1 spef1 library1}
     dependencies,ir_drop1 {power_analysis1}
     dependencies,thermal_analysis1 {ir_drop1}
 }
@@ -37,13 +38,6 @@ array set emir {
 # ir_drop stage subnodes
 # thermal_analysis stage subnodes
 array set emir {
-    subnode_dependencies,inputs1,setup {}
-    subnode_dependencies,inputs1,netlist {setup}
-    subnode_dependencies,inputs1,def {setup}
-    subnode_dependencies,inputs1,spef {setup}
-    subnode_dependencies,inputs1,library {setup}
-    subnode_dependencies,inputs1,validate {netlist def spef library}
-    subnode_dependencies,inputs1,finish {validate}
 
     subnode_dependencies,power_analysis1,setup {}
     subnode_dependencies,power_analysis1,run {setup}
@@ -73,7 +67,10 @@ array set emir {
 
 # ┌─ Runtime Settings ───────────────────────────────────────────────────────┐
 array set emir {
-    runtime,timeout,inputs1 15
+    runtime,timeout,netlist1 10
+    runtime,timeout,def1 10
+    runtime,timeout,spef1 10
+    runtime,timeout,library1 10
     runtime,timeout,power_analysis1 60
     runtime,timeout,ir_drop1 45
     runtime,timeout,thermal_analysis1 30
@@ -81,17 +78,26 @@ array set emir {
 
 # ┌─ Stage Type Mappings and Descriptions ───────────────────────────────────┐
 array set emir {
-    stage_types,inputs1 "inputs"
+    stage_types,netlist1 "inputs"
+    stage_types,def1 "inputs"
+    stage_types,spef1 "inputs"
+    stage_types,library1 "inputs"
     stage_types,power_analysis1 "execution"
     stage_types,ir_drop1 "execution"
     stage_types,thermal_analysis1 "execution"
 
-    node_types,inputs1 "inputs"
+    node_types,netlist1 "inputs"
+    node_types,def1 "inputs"
+    node_types,spef1 "inputs"
+    node_types,library1 "inputs"
     node_types,power_analysis1 "power_analysis"
     node_types,ir_drop1 "ir_drop"
     node_types,thermal_analysis1 "thermal_analysis"
 
-    node_descriptions,inputs1 "Input file validation and preparation for power analysis (7 subnodes: setup, netlist, def, spef, library, validate, finish)"
+    node_descriptions,netlist1 "Gate-level netlist input"
+    node_descriptions,def1 "DEF floorplan input"
+    node_descriptions,spef1 "SPEF parasitic data input"
+    node_descriptions,library1 "Technology library input"
     node_descriptions,power_analysis1 "Power consumption analysis and vectorless estimation (4 subnodes: setup, run, validate, finish)"
     node_descriptions,ir_drop1 "IR drop analysis and voltage verification (4 subnodes: setup, run, validate, finish)"
     node_descriptions,thermal_analysis1 "Thermal analysis and hotspot identification (4 subnodes: setup, run, validate, finish)"
@@ -99,7 +105,6 @@ array set emir {
 
 # ┌─ File Requirements ───────────────────────────────────────────────────────┐
 array set emir {
-    critical_files,inputs1 {emir(input,netlist) emir(input,def) emir(input,spef)}
     critical_files,power_analysis1 {emir(input,netlist) emir(input,def)}
     critical_files,ir_drop1 {emir(input,netlist) emir(input,def) emir(input,spef)}
     critical_files,thermal_analysis1 {emir(input,netlist) emir(input,def)}
@@ -108,7 +113,6 @@ array set emir {
     mandatory_outputs,ir_drop1 {results/ir_drop/ir_drop.rpt results/ir_drop/voltage_map.png}
     mandatory_outputs,thermal_analysis1 {results/thermal/thermal.rpt results/thermal/temperature_map.png}
 
-    optional_files,inputs1 {emir(input,power_intent)}
 }
 
 # ┌─ Mandatory Input Groups ──────────────────────────────────────────────────┐
@@ -151,7 +155,7 @@ array set emir {
 
 # Configuration loading marker
 if {![info exists ::emir_config_loaded]} {
-    puts "INFO: EMIR configuration loaded successfully - [llength $emir(stages)] stages, [expr {[llength $emir(subnodes,inputs1)] + [llength $emir(subnodes,power_analysis1)] + [llength $emir(subnodes,ir_drop1)] + [llength $emir(subnodes,thermal_analysis1)]}] total subnodes"
+    puts "INFO: EMIR configuration loaded successfully - [llength $emir(stages)] stages, [expr {[llength $emir(subnodes,netlist1)] + [llength $emir(subnodes,def1)] + [llength $emir(subnodes,spef1)] + [llength $emir(subnodes,library1)] + [llength $emir(subnodes,power_analysis1)] + [llength $emir(subnodes,ir_drop1)] + [llength $emir(subnodes,thermal_analysis1)]}] total subnodes"
     set ::emir_config_loaded true
 }
 

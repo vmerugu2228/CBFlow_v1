@@ -15,9 +15,7 @@
 
 # +- Flow Stage Definitions ----------------------------------------------+
 array set pv {
-    stages {inputs1 fill1 drc1 lvs1 perc1 erc1 xor1 merge_data1 release_data1}
-
-    subnodes,inputs1 {setup netlist def gds validate finish}
+    stages {netlist1 def1 gds1 fill1 drc1 lvs1 perc1 erc1 xor1 merge_data1 release_data1}
     subnodes,fill1 {setup run validate finish}
     subnodes,drc1 {setup run validate finish}
     subnodes,lvs1 {setup run validate finish}
@@ -30,8 +28,10 @@ array set pv {
 
 # +- Stage Dependencies --------------------------------------------------+
 array set pv {
-    dependencies,inputs1 {}
-    dependencies,fill1 {inputs1}
+    dependencies,netlist1 {}
+    dependencies,def1 {}
+    dependencies,gds1 {}
+    dependencies,fill1 {netlist1 def1 gds1}
     dependencies,drc1 {fill1}
     dependencies,lvs1 {fill1}
     dependencies,perc1 {fill1}
@@ -50,12 +50,6 @@ array set pv {
 # merge_data stage subnodes
 # release_data stage subnodes
 array set pv {
-    subnode_dependencies,inputs1,setup {}
-    subnode_dependencies,inputs1,netlist {setup}
-    subnode_dependencies,inputs1,def {setup}
-    subnode_dependencies,inputs1,gds {setup}
-    subnode_dependencies,inputs1,validate {netlist def gds}
-    subnode_dependencies,inputs1,finish {validate}
 
     subnode_dependencies,drc1,setup {}
     subnode_dependencies,drc1,run {setup}
@@ -111,7 +105,9 @@ array set pv {
 
 # +- Runtime Settings ----------------------------------------------------+
 array set pv {
-    runtime,timeout,inputs1 20
+    runtime,timeout,netlist1 10
+    runtime,timeout,def1 10
+    runtime,timeout,gds1 10
     runtime,timeout,fill1 60
     runtime,timeout,drc1 90
     runtime,timeout,lvs1 60
@@ -124,19 +120,13 @@ array set pv {
 
 # +- Subnode Input Type Mappings -----------------------------------------+
 array set pv {
-    subnode_input_types,inputs1,netlist "netlist_inputs"
-    subnode_input_types,inputs1,def "def_inputs"
-    subnode_input_types,inputs1,gds "gds_inputs"
+    subnode_input_types,netlist1,netlist "netlist_inputs"
+    subnode_input_types,def1,def "def_inputs"
+    subnode_input_types,gds1,gds "gds_inputs"
 }
 
 # +- Subnode Working Directories -----------------------------------------+
 array set pv {
-    subnode_work_dirs,inputs1,setup "work/inputs/setup"
-    subnode_work_dirs,inputs1,netlist "work/inputs/netlist"
-    subnode_work_dirs,inputs1,def "work/inputs/def"
-    subnode_work_dirs,inputs1,gds "work/inputs/gds"
-    subnode_work_dirs,inputs1,validate "work/inputs/validate"
-    subnode_work_dirs,inputs1,finish "work/inputs/finish"
 
     subnode_work_dirs,drc1,setup "work/drc/setup"
     subnode_work_dirs,drc1,run "work/drc/run"
@@ -181,7 +171,9 @@ array set pv {
 
 # +- Stage Type Mappings and Descriptions (ICV-RM V-2023.12) ---------------+
 array set pv {
-    stage_types,inputs1 "inputs"
+    stage_types,netlist1 "inputs"
+    stage_types,def1 "inputs"
+    stage_types,gds1 "inputs"
     stage_types,drc1 "execution"
     stage_types,lvs1 "execution"
     stage_types,fill1 "execution"
@@ -191,7 +183,9 @@ array set pv {
     stage_types,merge_data1 "data"
     stage_types,release_data1 "release_data"
 
-    node_types,inputs1 "inputs"
+    node_types,netlist1 "inputs"
+    node_types,def1 "inputs"
+    node_types,gds1 "inputs"
     node_types,drc1 "drc"
     node_types,lvs1 "lvs"
     node_types,fill1 "fill"
@@ -201,7 +195,9 @@ array set pv {
     node_types,merge_data1 "merge_data"
     node_types,release_data1 "release_data"
 
-    node_descriptions,inputs1       "Input validation — GDS layout, schematic netlist, DEF"
+    node_descriptions,netlist1      "Gate-level netlist input"
+    node_descriptions,def1          "DEF floorplan input"
+    node_descriptions,gds1          "GDS layout data input"
     node_descriptions,drc1          "ICV-RM: Design Rule Check with foundry runset"
     node_descriptions,lvs1          "ICV-RM: Layout vs Schematic with netlist comparison"
     node_descriptions,fill1         "ICV-RM: Metal Fill (BEOL/FEOL) generation"
@@ -214,7 +210,6 @@ array set pv {
 
 # +- File Requirements ---------------------------------------------------+
 array set pv {
-    critical_files,inputs1 {pv(input,netlist) pv(input,def) pv(input,gds)}
     critical_files,drc1 {pv(input,gds)}
     critical_files,lvs1 {pv(input,netlist) pv(input,gds)}
     critical_files,erc1 {pv(input,gds)}
@@ -226,7 +221,6 @@ array set pv {
     mandatory_outputs,perc1 {results/perc/perc.rpt}
     mandatory_outputs,merge_data1 {results/verification/verification_summary.rpt}
 
-    optional_files,inputs1 {pv(input,calibre_rules)}
 }
 
 # +- Mandatory Input Groups ----------------------------------------------+
@@ -272,7 +266,7 @@ array set pv {
 
 # Configuration loading marker
 if {![info exists ::pv_config_loaded]} {
-    puts "INFO: PV configuration loaded successfully - [llength $pv(stages)] stages, [expr {[llength $pv(subnodes,inputs1)] + [llength $pv(subnodes,fill1)] + [llength $pv(subnodes,drc1)] + [llength $pv(subnodes,lvs1)] + [llength $pv(subnodes,erc1)] + [llength $pv(subnodes,perc1)] + [llength $pv(subnodes,xor1)] + [llength $pv(subnodes,merge_data1)] + [llength $pv(subnodes,release_data1)]}] total subnodes"
+    puts "INFO: PV configuration loaded successfully - [llength $pv(stages)] stages, [expr {[llength $pv(subnodes,netlist1)] + [llength $pv(subnodes,def1)] + [llength $pv(subnodes,gds1)] + [llength $pv(subnodes,fill1)] + [llength $pv(subnodes,drc1)] + [llength $pv(subnodes,lvs1)] + [llength $pv(subnodes,erc1)] + [llength $pv(subnodes,perc1)] + [llength $pv(subnodes,xor1)] + [llength $pv(subnodes,merge_data1)] + [llength $pv(subnodes,release_data1)]}] total subnodes"
     set ::pv_config_loaded true
 }
 

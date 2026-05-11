@@ -43,11 +43,15 @@ logger = logging.getLogger('cbflow.engine')
 class Job:
     """A single executable unit — corresponds to a subnode handler invocation."""
 
+    READY = 'READY'
     PENDING = 'PENDING'
     RUNNING = 'RUNNING'
     DONE = 'DONE'
     FAIL = 'FAIL'
     SKIPPED = 'SKIPPED'
+    INVALIDATED = 'INVALIDATED'
+    BYPASSED = 'BYPASSED'
+    FORCE_VALIDATED = 'FORCE_VALIDATED'
 
     def __init__(self, name: str, stage: str, subnode: str, command: str,
                  job_type: str = 'subnode', resource_tier: str = 'S'):
@@ -58,15 +62,23 @@ class Job:
         self.job_type = job_type      # 'subnode' or 'stage' (sentinel)
         self.resource_tier = resource_tier
         self.deps = []                # list of Job names this depends on
-        self.status = Job.PENDING
+        self.status = Job.READY
         self.start_time = None
         self.end_time = None
         self.exit_code = None
         self.lsf_job_id = None
         self.pid = None
 
+    COMPLETED_STATES = frozenset(('DONE', 'BYPASSED', 'FORCE_VALIDATED'))
+
+    @property
+    def is_completed(self):
+        return self.status in Job.COMPLETED_STATES
+
     def is_ready(self, completed_jobs: set) -> bool:
         """True if all dependencies are satisfied."""
+        if self.status not in (Job.READY, Job.INVALIDATED):
+            return False
         return all(dep in completed_jobs for dep in self.deps)
 
 
@@ -117,16 +129,45 @@ class DagBuilder:
         # Parse subnode-level dependencies (for parallel subnodes like PV drc/lvs)
         sub_deps = self._parse_subnode_dependencies(config, stages, subnodes)
 
+        # Auto-generate parallel deps for dynamic subnodes (MMMC scenarios)
+        # Pattern: setup has no deps, each scenario depends on setup,
+        #          validate depends on all scenarios, finish depends on validate
+        for stage in stages:
+            stage_subs = subnodes.get(stage, [])
+            if len(stage_subs) > 4 and 'setup' in stage_subs and 'validate' in stage_subs:
+                # Check if this stage already has subnode_deps defined
+                has_deps = any(f'{stage}_{sn}' in sub_deps for sn in stage_subs)
+                if not has_deps:
+                    scenarios = [s for s in stage_subs if s not in ('setup', 'validate', 'finish')]
+                    if scenarios:
+                        sub_deps[f'{stage}_setup'] = []
+                        for sc in scenarios:
+                            sub_deps[f'{stage}_{sc}'] = [f'{stage}_setup']
+                        sub_deps[f'{stage}_validate'] = [f'{stage}_{sc}' for sc in scenarios]
+                        sub_deps[f'{stage}_finish'] = [f'{stage}_validate']
+
         jobs = OrderedDict()
         stage_order = stages
 
         for stage in stages:
-            stage_subnodes = subnodes.get(stage, ['setup', 'run', 'validate', 'finish'])
-            prev_subnode_name = None
-
-            # Find the previous stage sentinel(s) this stage depends on
+            stage_subnodes = subnodes.get(stage, [])
             stage_dep_jobs = stage_deps.get(stage, [])
 
+            # Leaf node — no subnodes, stage executes directly
+            if not stage_subnodes:
+                # Extract the input type from stage name (rtl1 → rtl)
+                input_type = stage.rstrip('0123456789')
+                cmd = self._build_command(stage, input_type)
+                tier = resource_map.get(stage, 'S')
+                job = Job(stage, stage, input_type, cmd,
+                          job_type='stage', resource_tier=tier)
+                for dep_stage in stage_dep_jobs:
+                    job.deps.append(dep_stage)
+                jobs[stage] = job
+                continue
+
+            # Stage with subnodes — standard processing
+            prev_subnode_name = None
             has_subnode_deps = any(f'{stage}_{sn}' in sub_deps for sn in stage_subnodes)
 
             for subnode in stage_subnodes:
@@ -138,15 +179,12 @@ class DagBuilder:
                           job_type='subnode', resource_tier=tier)
 
                 if has_subnode_deps and job_name in sub_deps:
-                    # Use config-defined subnode deps (enables parallel)
                     for dep in sub_deps[job_name]:
                         job.deps.append(dep)
-                    # If no deps defined, depend on previous stage sentinel
                     if not job.deps:
                         for dep_stage in stage_dep_jobs:
                             job.deps.append(dep_stage)
                 else:
-                    # Sequential: each subnode depends on previous
                     if prev_subnode_name is None:
                         for dep_stage in stage_dep_jobs:
                             job.deps.append(dep_stage)
@@ -157,16 +195,13 @@ class DagBuilder:
                 prev_subnode_name = job_name
 
             # Stage sentinel job (marks stage complete, writes stamp)
-            # Depends on ALL subnodes (not just last — handles parallel)
             sentinel = Job(stage, stage, '_sentinel',
                            f'touch {self.run_dir}/.stamps/{stage}.stamp',
                            job_type='stage', resource_tier='S')
             if has_subnode_deps:
-                # Parallel mode: sentinel depends on all subnodes
                 for sn in stage_subnodes:
                     sentinel.deps.append(f'{stage}_{sn}')
             elif prev_subnode_name:
-                # Sequential mode: sentinel depends on last subnode
                 sentinel.deps.append(prev_subnode_name)
             jobs[stage] = sentinel
 
@@ -339,17 +374,42 @@ class DagBuilder:
         return resource_map
 
     def _build_command(self, stage: str, subnode: str) -> str:
-        """Build the tclsh handler invocation command."""
+        """Build the tclsh handler invocation command.
+        Tool info (vendor, name, version) comes from the flow's node config —
+        NOT from env vars."""
         flow_dir = self.env_vars.get('FLOW_DIR', '')
-        tool_vendor = self.env_vars.get('CBFLOW_TOOL_VENDOR', 'synopsys')
-        tool_name = self.env_vars.get('CBFLOW_TOOL_NAME', 'fc')
-        tool_version = self.env_vars.get(f'{tool_name.upper()}_VERSION',
-                       self.env_vars.get('GENERATION_VERSION', 'v1.0.0'))
 
-        stage_base = stage.rstrip('0123456789')
+        # Read tool info from node config (single source of truth)
+        if not hasattr(self, '_tool_info'):
+            self._tool_info = {'vendor': 'synopsys', 'name': 'fc', 'version': 'v1.0.0'}
+            config = self._load_node_config()
+            if config:
+                m = re.search(r'tool,vendor\s+"([^"]+)"', config)
+                if m:
+                    self._tool_info['vendor'] = m.group(1)
+                m = re.search(r'tool,name\s+"([^"]+)"', config)
+                if m:
+                    self._tool_info['name'] = m.group(1)
+                m = re.search(r'tool,version\s+"([^"]+)"', config)
+                if m:
+                    self._tool_info['version'] = m.group(1)
+
+        tool_vendor = self._tool_info['vendor']
+        tool_name = self._tool_info['name']
+        tool_version = self._tool_info['version']
+
+        # Check node_types mapping in config (e.g., rtl1 → "inputs" uses inputs_subnode_handler.tcl)
+        if not hasattr(self, '_node_types'):
+            self._node_types = {}
+            config = self._load_node_config()
+            if config:
+                for m in re.finditer(r'node_types,(\w+)\s+"([^"]+)"', config):
+                    self._node_types[m.group(1)] = m.group(2)
+
+        handler_base = self._node_types.get(stage, stage.rstrip('0123456789'))
         handler = os.path.join(flow_dir, 'cmds', self.flow_type,
                                tool_vendor, tool_name, tool_version,
-                               f'{stage_base}_subnode_handler.tcl')
+                               f'{handler_base}_subnode_handler.tcl')
 
         return f'tclsh "{handler}" {subnode} "{self.run_dir}" {stage}'
 
@@ -395,7 +455,7 @@ class StatusDB:
             stage TEXT NOT NULL,
             subnode TEXT,
             job_type TEXT DEFAULT 'subnode',
-            status TEXT DEFAULT 'PENDING',
+            status TEXT DEFAULT 'READY',
             command TEXT,
             start_time TEXT,
             end_time TEXT,
@@ -424,26 +484,53 @@ class StatusDB:
             metric_value TEXT,
             captured_at TEXT DEFAULT (datetime('now'))
         )''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS job_order (
+            seq INTEGER PRIMARY KEY,
+            job_name TEXT NOT NULL UNIQUE,
+            stage TEXT NOT NULL,
+            subnode TEXT,
+            job_type TEXT
+        )''')
+        conn.commit()
+        conn.close()
+
+    def record_pending(self, jobs: list):
+        """Mark multiple jobs as PENDING in DB (batch insert)."""
+        conn = sqlite3.connect(self.db_path)
+        now = datetime.now().isoformat()
+        for job in jobs:
+            conn.execute(
+                'INSERT INTO jobs (job_name, stage, subnode, job_type, status, command, '
+                'start_time, resource_tier) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                (job.name, job.stage, job.subnode, job.job_type, Job.PENDING,
+                 job.command, now, job.resource_tier))
         conn.commit()
         conn.close()
 
     def record_start(self, job: Job):
         conn = sqlite3.connect(self.db_path)
         now = datetime.now().isoformat()
-        conn.execute(
-            'INSERT INTO jobs (job_name, stage, subnode, job_type, status, command, '
-            'start_time, resource_tier) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            (job.name, job.stage, job.subnode, job.job_type, Job.RUNNING,
-             job.command, now, job.resource_tier))
+        # Try to update existing PENDING row first
+        cur = conn.execute(
+            'UPDATE jobs SET status = ?, start_time = ? '
+            'WHERE job_name = ? AND status = ?',
+            (Job.RUNNING, now, job.name, Job.PENDING))
+        if cur.rowcount == 0:
+            # No PENDING row — insert fresh
+            conn.execute(
+                'INSERT INTO jobs (job_name, stage, subnode, job_type, status, command, '
+                'start_time, resource_tier) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                (job.name, job.stage, job.subnode, job.job_type, Job.RUNNING,
+                 job.command, now, job.resource_tier))
         conn.commit()
         conn.close()
         job.start_time = now
         job.status = Job.RUNNING
 
-    def record_complete(self, job: Job, exit_code: int, error_msg: str = ''):
+    def record_complete(self, job: Job, exit_code: int, error_msg: str = '', status_override: str = None):
         conn = sqlite3.connect(self.db_path)
         now = datetime.now().isoformat()
-        status = Job.DONE if exit_code == 0 else Job.FAIL
+        status = status_override or (Job.DONE if exit_code == 0 else Job.FAIL)
 
         # Compute runtime
         runtime_sec = 0
@@ -470,18 +557,87 @@ class StatusDB:
         job.exit_code = exit_code
         job.status = status
 
-    def invalidate(self, job_names: list):
+    def reset_stale_jobs(self):
+        """Reset PENDING/RUNNING jobs back to READY on init (stale from interrupted runs)."""
         conn = sqlite3.connect(self.db_path)
-        for name in job_names:
-            conn.execute('UPDATE jobs SET status = ? WHERE job_name = ? AND status = ?',
-                         (Job.PENDING, name, Job.DONE))
+        conn.execute("UPDATE jobs SET status = ? WHERE status IN (?, ?)",
+                     (Job.READY, Job.PENDING, Job.RUNNING))
         conn.commit()
         conn.close()
 
-    def get_completed(self) -> set:
+    def record_ready(self, jobs: list):
+        """Reset PENDING jobs back to READY in DB (after upstream failure)."""
         conn = sqlite3.connect(self.db_path)
-        cur = conn.execute("SELECT job_name FROM jobs WHERE status = 'DONE'")
-        result = {row[0] for row in cur}
+        for job in jobs:
+            conn.execute('UPDATE jobs SET status = ? WHERE job_name = ? AND status = ?',
+                         (Job.READY, job.name, Job.PENDING))
+        conn.commit()
+        conn.close()
+
+    def record_direct(self, job: Job, status: str):
+        """Write a status directly to DB (for bypass/forcevalidate — no start/complete pair)."""
+        conn = sqlite3.connect(self.db_path)
+        now = datetime.now().isoformat()
+        import socket
+        hostname = socket.gethostname()
+        conn.execute(
+            'INSERT INTO jobs (job_name, stage, subnode, job_type, status, command, '
+            'start_time, end_time, runtime_sec, exit_code, hostname) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            (job.name, job.stage, job.subnode, job.job_type, status,
+             job.command, now, now, 0, 0, hostname))
+        conn.commit()
+        conn.close()
+        job.status = status
+
+    def save_job_order(self, jobs: dict):
+        """Save canonical DAG order to job_order table. Rebuilds every time."""
+        conn = sqlite3.connect(self.db_path)
+        conn.execute('DELETE FROM job_order')
+        for seq, (name, job) in enumerate(jobs.items()):
+            conn.execute(
+                'INSERT OR REPLACE INTO job_order (seq, job_name, stage, subnode, job_type) '
+                'VALUES (?, ?, ?, ?, ?)',
+                (seq, job.name, job.stage, job.subnode, job.job_type))
+        conn.commit()
+        conn.close()
+
+    def seed_missing_jobs(self, jobs: dict):
+        """Insert READY rows for jobs not yet in DB (e.g., dynamically added nodes)."""
+        conn = sqlite3.connect(self.db_path)
+        existing = {row[0] for row in conn.execute('SELECT DISTINCT job_name FROM jobs')}
+        now = datetime.now().isoformat()
+        count = 0
+        for name, job in jobs.items():
+            if name not in existing:
+                conn.execute(
+                    'INSERT INTO jobs (job_name, stage, subnode, job_type, status, command, '
+                    'resource_tier, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                    (job.name, job.stage, job.subnode, job.job_type, Job.READY,
+                     job.command, job.resource_tier, now))
+                count += 1
+        if count > 0:
+            conn.commit()
+        conn.close()
+        return count
+
+    def invalidate(self, job_names: list):
+        """Set jobs to INVALIDATED — works on ANY current status."""
+        conn = sqlite3.connect(self.db_path)
+        for name in job_names:
+            conn.execute('UPDATE jobs SET status = ? WHERE job_name = ? AND status != ?',
+                         (Job.INVALIDATED, name, Job.INVALIDATED))
+        conn.commit()
+        conn.close()
+
+    def get_completed(self) -> dict:
+        """Get jobs whose LATEST entry is a completed state. Returns {name: status}."""
+        conn = sqlite3.connect(self.db_path)
+        cur = conn.execute(
+            "SELECT job_name, status FROM jobs "
+            "WHERE id IN (SELECT MAX(id) FROM jobs GROUP BY job_name) "
+            "AND status IN ('DONE','BYPASSED','FORCE_VALIDATED')")
+        result = {row[0]: row[1] for row in cur}
         conn.close()
         return result
 
@@ -622,7 +778,14 @@ class RaceEngine:
         completed = self.db.get_completed()
         for name, job in self.jobs.items():
             if name in completed:
-                job.status = Job.DONE
+                job.status = completed[name]
+
+        # Clean up stale PENDING/RUNNING from interrupted runs — reset to READY
+        self.db.reset_stale_jobs()
+
+        # Save canonical DAG order and seed DB rows for new jobs
+        self.db.save_job_order(self.jobs)
+        self.db.seed_missing_jobs(self.jobs)
 
         # ── File change detection: auto-invalidate downstream → auto-invalidate downstream ───
         changed = self._detect_input_changes()
@@ -643,10 +806,8 @@ class RaceEngine:
         count = 0
         for stage in stages:
             for name, job in self.jobs.items():
-                if job.stage == stage and job.status == Job.PENDING:
-                    job.status = Job.DONE
-                    self.db.record_start(job)
-                    self.db.record_complete(job, 0, 'BYPASSED')
+                if job.stage == stage and job.status in (Job.READY, Job.INVALIDATED, Job.PENDING):
+                    self.db.record_direct(job, Job.BYPASSED)
                     # Write stamp for compatibility
                     stamp = os.path.join(self.run_dir, '.stamps', f'{name}.stamp')
                     os.makedirs(os.path.dirname(stamp), exist_ok=True)
@@ -662,16 +823,10 @@ class RaceEngine:
         Useful when a stage was run outside CBflow (manual tool run,
         external script, or data imported from another run)."""
         count = 0
-        now = datetime.now().isoformat()
         for stage in stages:
             for name, job in self.jobs.items():
                 if job.stage == stage:
-                    job.status = Job.DONE
-                    job.start_time = now
-                    job.end_time = now
-                    job.exit_code = 0
-                    self.db.record_start(job)
-                    self.db.record_complete(job, 0, 'FORCE_VALIDATED')
+                    self.db.record_direct(job, Job.FORCE_VALIDATED)
                     # Write stamp
                     stamp = os.path.join(self.run_dir, '.stamps', f'{name}.stamp')
                     os.makedirs(os.path.dirname(stamp), exist_ok=True)
@@ -681,29 +836,80 @@ class RaceEngine:
         logger.info(f"Total force-validated: {count} jobs")
         return 0
 
+    def forcevalidate_jobs(self, job_names: list) -> int:
+        """Force-validate specific jobs by name (subnode-level)."""
+        count = 0
+        for jname in job_names:
+            job = self.jobs.get(jname)
+            if job:
+                self.db.record_direct(job, Job.FORCE_VALIDATED)
+                stamp = os.path.join(self.run_dir, '.stamps', f'{jname}.stamp')
+                os.makedirs(os.path.dirname(stamp), exist_ok=True)
+                Path(stamp).touch()
+                count += 1
+                logger.info(f"Force-validated: {jname}")
+        logger.info(f"Total force-validated: {count} jobs")
+        return 0
+
+    def bypass_jobs(self, job_names: list) -> int:
+        """Bypass specific jobs by name (subnode-level)."""
+        count = 0
+        for jname in job_names:
+            job = self.jobs.get(jname)
+            if job and job.status in (Job.READY, Job.INVALIDATED, Job.PENDING):
+                self.db.record_direct(job, Job.BYPASSED)
+                stamp = os.path.join(self.run_dir, '.stamps', f'{jname}.stamp')
+                os.makedirs(os.path.dirname(stamp), exist_ok=True)
+                Path(stamp).touch()
+                count += 1
+                logger.info(f"Bypassed: {jname}")
+        logger.info(f"Total bypassed: {count} jobs")
+        return 0
+
     def force(self, stages: list) -> int:
-        """Force re-execute specific stages only (invalidate + run).
-        Does NOT invalidate downstream — only the specified stages."""
-        # Invalidate just these stages
-        for stage in stages:
-            for name, job in self.jobs.items():
-                if job.stage == stage:
-                    job.status = Job.PENDING
-                    # Remove stamp
-                    stamp = os.path.join(self.run_dir, '.stamps', f'{name}.stamp')
-                    if os.path.exists(stamp):
-                        os.remove(stamp)
-            logger.info(f"Force invalidated: {stage}")
-
-        self.db.invalidate([n for n, j in self.jobs.items()
-                            if j.stage in stages])
-
-        # Execute only these stages (deps must already be DONE)
+        """Force re-execute specific stages + upstream deps. Invalidate downstream."""
+        # Collect target stage + all upstream deps (these will be re-executed)
         target_jobs = set()
         for stage in stages:
-            for name, job in self.jobs.items():
-                if job.stage == stage:
-                    target_jobs.add(name)
+            stage_jobs = self._get_jobs_for_target(stage)
+            target_jobs.update(stage_jobs)
+
+        # Invalidate all target jobs so they re-execute
+        for name in target_jobs:
+            job = self.jobs.get(name)
+            if job:
+                job.status = Job.INVALIDATED
+                stamp = os.path.join(self.run_dir, '.stamps', f'{name}.stamp')
+                if os.path.exists(stamp):
+                    os.remove(stamp)
+
+        # Also invalidate downstream stages (they depend on stale data)
+        downstream = set()
+        target_stages = set(self.jobs[n].stage for n in target_jobs if n in self.jobs)
+        for stage in stages:
+            # Find all stages downstream of the target
+            found = False
+            for s in self.stage_order:
+                if s == stage:
+                    found = True
+                    continue
+                if found and s not in target_stages:
+                    for name, job in self.jobs.items():
+                        if job.stage == s and job.is_completed:
+                            job.status = Job.INVALIDATED
+                            downstream.add(name)
+                            stamp = os.path.join(self.run_dir, '.stamps', f'{name}.stamp')
+                            if os.path.exists(stamp):
+                                os.remove(stamp)
+
+        all_invalidated = list(target_jobs | downstream)
+        self.db.invalidate(all_invalidated)
+
+        up_stages = sorted(target_stages)
+        down_stages = sorted(set(self.jobs[n].stage for n in downstream if n in self.jobs))
+        logger.info(f"Force re-execute: {', '.join(up_stages)}")
+        if down_stages:
+            logger.info(f"Downstream invalidated: {', '.join(down_stages)}")
 
         return self.execute_jobs(target_jobs)
 
@@ -725,8 +931,10 @@ class RaceEngine:
 
     def execute_jobs(self, target_jobs: set) -> int:
         """Execute a set of jobs respecting dependencies."""
-        # Install signal handler for graceful interrupt
-        signal.signal(signal.SIGINT, self._handle_interrupt)
+        # Install signal handler for graceful interrupt (main thread only)
+        import threading
+        if threading.current_thread() is threading.main_thread():
+            signal.signal(signal.SIGINT, self._handle_interrupt)
 
         target_desc = ', '.join(sorted({self.jobs[n].stage for n in target_jobs if n in self.jobs}))
         self.db.set_run_info('target', target_desc)
@@ -735,15 +943,25 @@ class RaceEngine:
         logger.info(f"Executing {len(target_jobs)} jobs ({target_desc})")
 
         # Topological execution
-        completed = {n for n, j in self.jobs.items() if j.status == Job.DONE}
+        completed = {n for n, j in self.jobs.items() if j.is_completed}
         failed = set()
 
+        # Mark all non-completed target jobs as PENDING in DB upfront
+        # Iterate in DAG order (self.jobs is OrderedDict) — NOT set order
+        pending_jobs = []
+        for name, job in self.jobs.items():
+            if name in target_jobs and name not in completed and job.status in (Job.READY, Job.INVALIDATED):
+                job.status = Job.PENDING
+                pending_jobs.append(job)
+        if pending_jobs:
+            self.db.record_pending(pending_jobs)
+
         while target_jobs - completed - failed and not self._interrupted:
-            # Find ready jobs
+            # Find jobs whose deps are satisfied (already PENDING from above)
             ready = []
             for name in target_jobs - completed - failed:
                 job = self.jobs[name]
-                if job.status == Job.PENDING and job.is_ready(completed):
+                if job.status == Job.PENDING and all(d in completed for d in job.deps):
                     ready.append(job)
 
             if not ready:
@@ -761,26 +979,57 @@ class RaceEngine:
                         logger.error(f"Deadlock: {len(remaining)} jobs stuck")
                 break
 
-            # Execute ready jobs (sequential for now — parallel TODO)
-            for job in ready:
-                if self._interrupted:
-                    break
-
-                rc = self._execute_job(job)
-                if rc == 0:
-                    completed.add(job.name)
-                else:
-                    failed.add(job.name)
-                    logger.error(f"FAILED: {job.name} (exit={rc})")
-                    # Halt on error — don't continue downstream
-                    break
+            # Execute ready jobs in parallel (independent branches run concurrently)
+            import concurrent.futures
+            if len(ready) == 1 or self._interrupted:
+                # Single job or interrupted — run sequentially
+                for job in ready:
+                    if self._interrupted:
+                        break
+                    rc = self._execute_job(job)
+                    if rc == 0:
+                        completed.add(job.name)
+                    else:
+                        failed.add(job.name)
+                        logger.error(f"FAILED: {job.name} (exit={rc})")
+                        break
+            else:
+                # Multiple independent jobs ready — run in parallel
+                logger.info(f"  Launching {len(ready)} jobs in parallel: {', '.join(j.name for j in ready)}")
+                results = {}
+                with concurrent.futures.ThreadPoolExecutor(max_workers=len(ready)) as pool:
+                    futures = {pool.submit(self._execute_job, job): job for job in ready}
+                    for future in concurrent.futures.as_completed(futures):
+                        job = futures[future]
+                        try:
+                            rc = future.result()
+                            results[job.name] = rc
+                            if rc == 0:
+                                completed.add(job.name)
+                            else:
+                                failed.add(job.name)
+                                logger.error(f"FAILED: {job.name} (exit={rc})")
+                        except Exception as e:
+                            failed.add(job.name)
+                            logger.error(f"FAILED: {job.name} (exception={e})")
 
             if failed:
+                # Reset all remaining PENDING jobs back to READY
+                # (downstream jobs that will never run due to failure)
+                remaining_pending = []
+                for name in target_jobs - completed - failed:
+                    job = self.jobs[name]
+                    if job.status == Job.PENDING:
+                        job.status = Job.READY
+                        remaining_pending.append(job)
+                if remaining_pending:
+                    self.db.record_ready(remaining_pending)
+                    logger.info(f"Reset {len(remaining_pending)} downstream jobs to READY")
                 break
 
         # Summary
         done_count = len([j for j in self.jobs.values()
-                         if j.status == Job.DONE and j.name in target_jobs])
+                         if j.is_completed and j.name in target_jobs])
         fail_count = len(failed)
         total = len(target_jobs)
 
@@ -814,19 +1063,19 @@ class RaceEngine:
                     for name, job in self.jobs.items():
                         if job.stage == stage:
                             invalidate_names.append(name)
-                            job.status = Job.PENDING
+                            job.status = Job.INVALIDATED
 
         elif stages:
             for stage in stages:
                 for name, job in self.jobs.items():
                     if job.stage == stage:
                         invalidate_names.append(name)
-                        job.status = Job.PENDING
+                        job.status = Job.INVALIDATED
         else:
             # Full retrace
             for name, job in self.jobs.items():
                 invalidate_names.append(name)
-                job.status = Job.PENDING
+                job.status = Job.INVALIDATED
 
         # Update DB
         if invalidate_names:
@@ -947,8 +1196,8 @@ class RaceEngine:
                 found = True
             if found:
                 for name, job in self.jobs.items():
-                    if job.stage == s and job.status == Job.DONE:
-                        job.status = Job.PENDING
+                    if job.stage == s and job.status in Job.COMPLETED_STATES:
+                        job.status = Job.INVALIDATED
                         invalidated.append(name)
                         # Remove stamp
                         stamp = os.path.join(self.run_dir, '.stamps', f'{name}.stamp')
@@ -1012,6 +1261,10 @@ class RaceEngine:
         # Subnode job — execute handler
         self.db.record_start(job)
         logger.info(f"  [{job.stage}/{job.subnode}] running...")
+
+        # Test mode delay — so GUI can observe status transitions
+        import time as _time
+        _time.sleep(5)
 
         # Build environment: os.environ + .run.cbflow.env + engine vars
         run_env = os.environ.copy()

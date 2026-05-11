@@ -18,9 +18,7 @@
 
 # ┌─ Flow Stage Definitions ──────────────────────────────────────────────┐
 array set sta {
-    stages {inputs1 extraction1 timing1 reporting1 release_data1}
-
-    subnodes,inputs1        {setup netlist sdc spef library validate finish}
+    stages {netlist1 sdc1 spef1 library1 extraction1 timing1 reporting1 release_data1}
     subnodes,extraction1    {setup run validate finish}
     subnodes,timing1        {dynamic}
     subnodes,reporting1     {setup run validate finish}
@@ -31,8 +29,11 @@ array set sta {
 # Note: timing1 uses dynamic subnodes (per-scenario), enabling parallel
 #       execution for different MMMC scenarios.
 array set sta {
-    dependencies,inputs1        {}
-    dependencies,extraction1    {inputs1}
+    dependencies,netlist1       {}
+    dependencies,sdc1           {}
+    dependencies,spef1          {}
+    dependencies,library1       {}
+    dependencies,extraction1    {netlist1 sdc1 spef1 library1}
     dependencies,timing1        {extraction1}
     dependencies,reporting1     {timing1}
     dependencies,release_data1  {reporting1}
@@ -40,14 +41,6 @@ array set sta {
 
 # ┌─ Subnode Dependencies ──────────────────────────────────────────────────┐
 array set sta {
-    subnode_dependencies,inputs1,setup {}
-    subnode_dependencies,inputs1,netlist {setup}
-    subnode_dependencies,inputs1,sdc {setup}
-    subnode_dependencies,inputs1,spef {setup}
-    subnode_dependencies,inputs1,library {setup}
-    subnode_dependencies,inputs1,validate {netlist sdc spef library}
-    subnode_dependencies,inputs1,finish {validate}
-
 
     subnode_dependencies,extraction1,setup {}
     subnode_dependencies,extraction1,run {setup}
@@ -92,7 +85,10 @@ array set sta {
 
 # ┌─ Runtime Settings ───────────────────────────────────────────────────────┐
 array set sta {
-    runtime,timeout,inputs1        15
+    runtime,timeout,netlist1       10
+    runtime,timeout,sdc1           10
+    runtime,timeout,spef1          10
+    runtime,timeout,library1       10
     runtime,timeout,extraction1    30
     runtime,timeout,timing1        60
     runtime,timeout,reporting1     20
@@ -101,19 +97,28 @@ array set sta {
 
 # ┌─ Stage Type Mappings and Descriptions ───────────────────────────────────┐
 array set sta {
-    stage_types,inputs1        "inputs"
+    stage_types,netlist1       "inputs"
+    stage_types,sdc1           "inputs"
+    stage_types,spef1          "inputs"
+    stage_types,library1       "inputs"
     stage_types,extraction1    "execution"
     stage_types,timing1        "execution"
     stage_types,reporting1     "execution"
     stage_types,release_data1  "release_data"
 
-    node_types,inputs1        "inputs"
+    node_types,netlist1       "inputs"
+    node_types,sdc1           "inputs"
+    node_types,spef1          "inputs"
+    node_types,library1       "inputs"
     node_types,extraction1    "extraction"
     node_types,timing1        "timing"
     node_types,reporting1     "reporting"
     node_types,release_data1  "release_data"
 
-    node_descriptions,inputs1        "Input file validation and preparation for timing analysis (7 subnodes)"
+    node_descriptions,netlist1       "Gate-level netlist input"
+    node_descriptions,sdc1           "SDC timing constraints input"
+    node_descriptions,spef1          "SPEF parasitic data input"
+    node_descriptions,library1       "Technology library input"
     node_descriptions,extraction1    "Parasitic extraction for accurate timing models (4 subnodes)"
     node_descriptions,timing1        "Dynamic per-scenario timing analysis - each scenario runs setup+hold (parallelizable via make -j)"
     node_descriptions,reporting1     "Cross-corner aggregation - worst-case analysis, MMMC timing summary (4 subnodes)"
@@ -122,7 +127,6 @@ array set sta {
 
 # ┌─ File Requirements ───────────────────────────────────────────────────────┐
 array set sta {
-    critical_files,inputs1        {sta(input,netlist) sta(input,spef)}
     critical_files,extraction1    {sta(input,netlist) sta(input,sdc_func_file)}
     critical_files,timing1        {sta(input,netlist) sta(input,spef) sta(input,sdc_func_file)}
     critical_files,reporting1     {}
@@ -132,7 +136,6 @@ array set sta {
     mandatory_outputs,timing1        {}
     mandatory_outputs,reporting1     {reports/sta/mmmc_timing_summary.rpt}
 
-    optional_files,inputs1 {sta(input,lib_files)}
 }
 
 # ┌─ Mandatory Input Groups ──────────────────────────────────────────────────┐

@@ -27,7 +27,9 @@
         <option value="DONE">Done</option>
         <option value="FAIL">Failed</option>
         <option value="RUNNING">Running</option>
+        <option value="READY">Ready</option>
         <option value="PENDING">Pending</option>
+        <option value="INVALIDATED">Invalidated</option>
         <option value="BYPASSED">Bypassed</option>
       </select>
       <select id="filter-stage" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px">
@@ -73,8 +75,9 @@ let allJobs = [];
 let sortCol = -1, sortAsc = true;
 
 function statusColor(s) {
-  return {DONE:'#059669',FAIL:'#dc2626',RUNNING:'#2563eb',PENDING:'#6b7280',
-          BYPASSED:'#d97706',FORCE_VALIDATED:'#0d9488'}[s] || '#6b7280';
+  return {READY:'#c8a600',PENDING:'#00838f',RUNNING:'#2e7d32',DONE:'#00838f',
+          FAIL:'#b71c1c',INVALIDATED:'#7b1fa2',
+          BYPASSED:'#e65100',FORCE_VALIDATED:'#00695c'}[s] || '#757575';
 }
 function formatTime(s) { if (!s || s < 0.01) return '-'; return s < 60 ? s.toFixed(1)+'s' : (s/60).toFixed(1)+'m'; }
 

@@ -3,266 +3,403 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RACE GUI — {{FLOW_TYPE}}</title>
-<link rel="stylesheet" href="/static/style.css">
+<title>CBflow RACE FlowTracer — {{FLOW_TYPE}}</title>
+<style>
+:root {
+  --bg: #e0e0e0; --surface: #ffffff; --surface2: #eeeeee;
+  --text: #1a1a1a; --text-dim: #555555; --border: #bdbdbd;
+  --tree-bg: #f5f5f0; --canvas-bg: #909090;
+  --green: #4caf50; --red: #f44336; --yellow: #ffeb3b;
+  --cyan: #00bcd4; --gray: #9e9e9e; --purple: #ab47bc;
+  --orange: #ff9800; --teal: #26a69a; --blue: #1976d2;
+  --sel: #bbdefb; --hover: #e3f2fd;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+/* ── Toolbar ── */
+.toolbar { display:flex; align-items:center; height:36px; background:var(--surface); border-bottom:1px solid var(--border); padding:0 8px; gap:2px; flex-shrink:0; }
+.toolbar .sep { width:1px; height:20px; background:var(--border); margin:0 4px; }
+.tb-btn { background:none; border:1px solid transparent; padding:3px 8px; cursor:pointer; font-size:12px; color:var(--text); border-radius:3px; display:flex; align-items:center; gap:4px; white-space:nowrap; }
+.tb-btn:hover { background:var(--hover); border-color:var(--border); }
+.tb-btn.active { background:var(--sel); }
+.tb-btn svg { width:14px; height:14px; }
+.tb-title { font-weight:700; font-size:13px; color:var(--blue); margin-right:8px; white-space:nowrap; }
+.tb-spacer { flex:1; }
+.tb-status { font-size:11px; color:var(--text-dim); display:flex; align-items:center; gap:6px; }
+.tb-badge { padding:2px 8px; border-radius:3px; font-size:10px; font-weight:700; color:#fff; text-transform:uppercase; }
+
+/* ── Menu Dropdowns ── */
+.tb-menu { position:relative; }
+.tb-menu-content { display:none; position:absolute; top:100%; left:0; background:var(--surface); border:1px solid var(--border); min-width:180px; z-index:300; box-shadow:0 4px 12px rgba(0,0,0,0.15); border-radius:0 0 4px 4px; }
+.tb-menu:hover .tb-menu-content { display:block; }
+.tb-menu-content a { display:block; padding:6px 12px; font-size:12px; color:var(--text); text-decoration:none; cursor:pointer; }
+.tb-menu-content a:hover { background:var(--hover); }
+.tb-menu-content hr { border:none; border-top:1px solid var(--border); margin:2px 0; }
+
+/* ── Main Layout ── */
+.main-area { display:flex; flex:1; overflow:hidden; }
+
+/* ── Left Panel: Tree ── */
+.left-panel { width:220px; background:var(--tree-bg); border-right:1px solid var(--border); display:flex; flex-direction:column; flex-shrink:0; overflow:hidden; }
+.panel-header { padding:6px 10px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; color:var(--text-dim); background:var(--surface2); border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+.tree-scroll { flex:1; overflow-y:auto; padding:4px 0; }
+.tree-stage { cursor:pointer; user-select:none; }
+.tree-stage-row { display:flex; align-items:center; padding:3px 8px; gap:4px; font-size:12px; font-weight:600; }
+.tree-stage-row:hover { background:var(--hover); }
+.tree-stage-row.selected { background:var(--sel); }
+.tree-toggle { width:14px; font-size:10px; color:var(--text-dim); text-align:center; flex-shrink:0; }
+.tree-icon { width:12px; height:12px; border-radius:3px; flex-shrink:0; }
+.tree-label { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tree-status-text { font-size:10px; font-weight:400; color:var(--text-dim); }
+.tree-subnodes { display:none; }
+.tree-stage.expanded .tree-subnodes { display:block; }
+.tree-subnode { display:flex; align-items:center; padding:2px 8px 2px 28px; gap:4px; font-size:11px; cursor:pointer; }
+.tree-subnode:hover { background:var(--hover); }
+.tree-subnode.selected { background:var(--sel); }
+.tree-sub-icon { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.tree-sub-label { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tree-sub-time { font-size:10px; color:var(--text-dim); }
+
+/* ── Legend in left panel ── */
+.legend-panel { padding:8px 10px; border-bottom:1px solid var(--border); display:flex; flex-direction:column; gap:3px; }
+.legend-panel-item { display:flex; align-items:center; gap:6px; }
+.legend-panel-swatch { width:14px; height:10px; border-radius:2px; }
+.legend-panel-label { font-size:11px; }
+
+/* ── Center Panel: DAG Canvas ── */
+.center-panel { flex:1; background:var(--canvas-bg); position:relative; overflow:hidden; }
+.dag-canvas { width:100%; height:100%; }
+.dag-node { cursor:pointer; }
+.dag-node rect { stroke-width:2.5; }
+.dag-node:hover rect { filter:brightness(1.08); }
+.dag-node text { font-family:'Segoe UI',system-ui,sans-serif; pointer-events:none; }
+.dag-edge line { stroke:#555; stroke-width:2; }
+.dag-edge path { stroke:#555; stroke-width:2; fill:none; }
+.dag-edge polygon { fill:#555; }
+.dag-node.selected rect { stroke-width:4; filter:drop-shadow(0 0 8px rgba(0,0,0,0.5)); }
+
+/* ── Right Panel: Details ── */
+.right-panel { width:280px; background:var(--surface); border-left:1px solid var(--border); display:flex; flex-direction:column; flex-shrink:0; overflow:hidden; }
+.detail-scroll { flex:1; overflow-y:auto; padding:10px; }
+.detail-title { font-size:14px; font-weight:700; margin-bottom:8px; padding-bottom:6px; border-bottom:1px solid var(--border); }
+.detail-row { display:flex; justify-content:space-between; padding:3px 0; font-size:12px; border-bottom:1px solid #eee; }
+.detail-row label { color:var(--text-dim); font-weight:600; font-size:11px; text-transform:uppercase; }
+.detail-row span { text-align:right; font-family:'SF Mono','Fira Code',monospace; font-size:11px; }
+.detail-section { margin-top:10px; }
+.detail-section h4 { font-size:11px; text-transform:uppercase; color:var(--text-dim); margin-bottom:4px; letter-spacing:.5px; }
+.detail-badge { display:inline-block; padding:2px 8px; border-radius:3px; font-size:11px; font-weight:700; color:#fff; }
+.detail-error { background:#ffebee; border:1px solid var(--red); border-radius:4px; padding:6px 8px; font-size:11px; color:var(--red); margin-top:6px; word-break:break-all; }
+.detail-cmd { background:#f5f5f5; border:1px solid var(--border); border-radius:4px; padding:6px 8px; font-size:10px; font-family:monospace; margin-top:6px; max-height:80px; overflow:auto; word-break:break-all; }
+.detail-log { background:#263238; color:#e0e0e0; border-radius:4px; padding:8px; font-size:10px; font-family:monospace; margin-top:6px; max-height:200px; overflow:auto; white-space:pre; line-height:1.4; }
+.detail-subjobs { margin-top:8px; }
+.detail-subjobs table { width:100%; font-size:11px; border-collapse:collapse; }
+.detail-subjobs th { text-align:left; font-size:10px; color:var(--text-dim); text-transform:uppercase; padding:3px 4px; border-bottom:1px solid var(--border); }
+.detail-subjobs td { padding:3px 4px; border-bottom:1px solid #eee; cursor:pointer; }
+.detail-subjobs tr:hover { background:var(--hover); }
+.detail-empty { text-align:center; color:var(--text-dim); font-size:12px; padding:40px 10px; }
+
+/* ── Inline Edit Form ── */
+.inline-edit { margin-top:12px; padding-top:10px; border-top:2px solid var(--border); }
+.inline-edit h4 { font-size:11px; text-transform:uppercase; color:var(--text-dim); margin-bottom:6px; letter-spacing:.5px; }
+.ie-group { margin-bottom:8px; }
+.ie-group label { display:block; font-size:10px; color:var(--text-dim); margin-bottom:2px; text-transform:uppercase; font-weight:600; }
+.ie-group input, .ie-group select { width:100%; padding:4px 8px; border:1px solid var(--border); border-radius:3px; font-size:12px; background:#fff; }
+.ie-actions { display:flex; justify-content:flex-end; margin-top:8px; }
+
+/* ── Status Bar ── */
+.statusbar { display:flex; align-items:center; height:24px; background:var(--surface2); border-top:1px solid var(--border); padding:0 10px; font-size:11px; color:var(--text-dim); gap:16px; flex-shrink:0; }
+.sb-item { display:flex; align-items:center; gap:4px; }
+.sb-dot { width:8px; height:8px; border-radius:50%; }
+.sb-sep { width:1px; height:14px; background:var(--border); }
+
+/* ── Context Menu ── */
+.ctx-menu { display:none; position:fixed; background:var(--surface); border:1px solid var(--border); min-width:200px; z-index:400; box-shadow:0 4px 16px rgba(0,0,0,0.2); border-radius:4px; }
+.ctx-menu .ctx-hdr { padding:5px 10px; font-size:10px; font-weight:700; color:var(--blue); background:var(--surface2); border-bottom:1px solid var(--border); text-transform:uppercase; letter-spacing:.5px; border-radius:4px 4px 0 0; }
+.ctx-menu a { display:block; padding:5px 10px; font-size:12px; color:var(--text); text-decoration:none; cursor:pointer; }
+.ctx-menu a:hover { background:var(--hover); }
+.ctx-menu a:last-child { border-radius:0 0 4px 4px; }
+.ctx-menu hr { border:none; border-top:1px solid var(--border); margin:2px 0; }
+
+/* ── Modal ── */
+.modal-bg { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:500; justify-content:center; align-items:center; }
+.modal-box { background:var(--surface); border-radius:8px; width:90%; max-width:460px; box-shadow:0 8px 32px rgba(0,0,0,0.2); }
+.modal-hd { display:flex; justify-content:space-between; align-items:center; padding:10px 16px; border-bottom:1px solid var(--border); }
+.modal-hd h3 { font-size:14px; }
+.modal-hd button { background:none; border:none; font-size:18px; cursor:pointer; color:var(--text-dim); }
+.modal-bd { padding:16px; }
+.fm-group { margin-bottom:10px; }
+.fm-group label { display:block; font-size:11px; color:var(--text-dim); margin-bottom:3px; text-transform:uppercase; font-weight:600; }
+.fm-group input, .fm-group select { width:100%; padding:6px 10px; border:1px solid var(--border); border-radius:4px; font-size:13px; background:#fff; }
+.fm-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:14px; }
+.fm-btn { padding:6px 16px; border-radius:4px; font-size:12px; cursor:pointer; border:1px solid var(--border); background:var(--surface); }
+.fm-btn:hover { background:var(--surface2); }
+.fm-btn-primary { background:var(--blue); color:#fff; border-color:var(--blue); }
+.fm-btn-primary:hover { opacity:0.9; background:var(--blue); }
+
+/* ── Toast ── */
+.toast { position:fixed; bottom:16px; right:16px; background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:8px 16px; font-size:12px; z-index:600; box-shadow:0 2px 12px rgba(0,0,0,0.15); transform:translateY(60px); opacity:0; transition:all .3s; }
+.toast.show { transform:translateY(0); opacity:1; }
+.toast.error { border-color:var(--red); color:var(--red); }
+.toast.success { border-color:var(--green); color:var(--green); }
+
+/* ── Legend (toolbar) ── */
+.legend { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+.legend-item { display:flex; align-items:center; gap:3px; font-size:10px; color:var(--text-dim); white-space:nowrap; }
+.legend-swatch { width:10px; height:10px; border-radius:2px; }
+</style>
 </head>
 <body>
-<nav class="topnav">
-  <div class="nav-brand">RACE GUI</div>
-  <div class="nav-links">
-    <a href="/" class="active">Overview</a>
-    <a href="/dag">DAG</a>
-    <a href="/grid">Grid</a>
-  </div>
-  <div class="nav-menus">
-    <div class="dropdown">
-      <button class="menu-btn">&#9654; Execute</button>
-      <div class="dropdown-content">
-        <a onclick="apiAction('run',{})">Run All</a>
-        <a onclick="promptRunStage()">Run Stage...</a>
-        <a onclick="apiAction('retrace',{})">Retrace All</a>
-        <a onclick="promptRetraceFrom()">Retrace From...</a>
-      </div>
-    </div>
-    <div class="dropdown">
-      <button class="menu-btn">&#9881; Nodes</button>
-      <div class="dropdown-content">
-        <a onclick="promptAddNode()">Add Node...</a>
-        <a onclick="promptDeleteNode()">Delete Node...</a>
-        <a onclick="promptCreateBranch()">Create Branch...</a>
-        <a onclick="promptBypass()">Bypass Stages...</a>
-        <a onclick="promptForce()">Force Re-run...</a>
-        <a onclick="promptForceValidate()">Force Validate...</a>
-      </div>
-    </div>
-  </div>
-  <div class="nav-info">
-    <span class="badge" id="run-result">{{RESULT}}</span>
-    <span>{{FLOW_TYPE}}</span>
-  </div>
-</nav>
 
-<!-- Right-click Context Menu -->
-<div class="context-menu" id="context-menu">
-  <div class="ctx-header" id="ctx-header">Node</div>
-  <a onclick="ctxRunStage()">&#9654; Run This Stage</a>
-  <a onclick="ctxRetraceFrom()">&#8635; Retrace From Here</a>
-  <a onclick="ctxBypass()">&#10140; Bypass</a>
-  <a onclick="ctxForce()">&#8634; Force Re-run</a>
-  <a onclick="ctxForceValidate()">&#10004; Force Validate</a>
+<!-- ══ Toolbar ══ -->
+<div class="toolbar">
+  <span class="tb-title">CBflow RACE FlowTracer</span>
+  <div class="sep"></div>
+
+  <!-- Flow menu -->
+  <div class="tb-menu">
+    <button class="tb-btn">Flow</button>
+    <div class="tb-menu-content">
+      <a onclick="apiAction('run',{})">&#9654; Run All</a>
+      <a onclick="promptAction('run-stage','Run Stage','Select stage to run','Run')">&#9654; Run Stage...</a>
+      <hr>
+      <a onclick="apiAction('retrace',{})">&#8635; Retrace All</a>
+      <a onclick="promptAction('retrace','Retrace From','Retrace from stage','Retrace')">&#8635; Retrace From...</a>
+      <hr>
+      <a onclick="promptAction('bypass','Bypass','Select stage to bypass','Bypass')">&#10140; Bypass...</a>
+      <a onclick="promptAction('force','Force Re-run','Select stage to force','Force')">&#8634; Force Re-run...</a>
+      <a onclick="promptAction('forcevalidate','Force Validate','Select stage to validate','Validate')">&#10004; Force Validate...</a>
+    </div>
+  </div>
+
+  <div class="tb-menu">
+    <button class="tb-btn">Edit</button>
+    <div class="tb-menu-content">
+      <a onclick="promptAddNode()">Add Node...</a>
+      <a onclick="promptAction('delete-node','Delete Node','Select node to delete','Delete')">Delete Node...</a>
+      <a onclick="promptCreateBranch()">Create Branch...</a>
+    </div>
+  </div>
+
+  <div class="sep"></div>
+
+  <!-- Zoom controls -->
+  <button class="tb-btn" onclick="dagZoom(1.2)" title="Zoom In">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="16" y1="16" x2="22" y2="22"/><line x1="8" y1="11" x2="14" y2="11"/><line x1="11" y1="8" x2="11" y2="14"/></svg>
+  </button>
+  <button class="tb-btn" onclick="dagZoom(0.8)" title="Zoom Out">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="16" y1="16" x2="22" y2="22"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+  </button>
+  <button class="tb-btn" onclick="dagFit()" title="Fit to Window">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/></svg>
+  </button>
+
+  <div class="sep"></div>
+
+  <!-- View toggles -->
+  <button class="tb-btn" id="btn-subnodes" onclick="toggleSubnodes()" title="Show/Hide Subnodes">Subnodes</button>
+  <button class="tb-btn" id="btn-back" onclick="backToMain()" style="display:none;background:#e3f2fd;font-weight:700">&#8592; Back to Main Graph</button>
+  <button class="tb-btn" onclick="resetGraph()" title="Reset node positions to default layout">Reset Layout</button>
+  <button class="tb-btn" id="btn-stop" onclick="stopExecution()" title="Stop all running jobs" style="background:#ffcdd2;color:#b71c1c;font-weight:700">Stop</button>
+
+  <div class="tb-spacer"></div>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div class="legend-item"><div class="legend-swatch" style="background:#ab47bc"></div>Idle</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#4fc3f7"></div>Queued</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#ffeb3b"></div>Running</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#4caf50"></div>Finished</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#f44336"></div>Failed</div>
+  </div>
+
+  <div class="sep"></div>
+
+  <div class="tb-status">
+    <span id="tb-progress">0/0</span>
+    <span class="tb-badge" id="tb-result" style="background:var(--gray)">READY</span>
+  </div>
+</div>
+
+<!-- ══ Context Menu (main view - stage) ══ -->
+<div class="ctx-menu" id="ctx-menu">
+  <div class="ctx-hdr" id="ctx-hdr">Node</div>
+  <a onclick="ctxAction('run-stage')">&#9654; Run This Stage</a>
+  <a onclick="ctxAction('retrace-from')">&#8635; Retrace From Here</a>
   <hr>
-  <a onclick="ctxEditConfig()">&#9998; Edit Config (LSF/Version)</a>
-  <a onclick="ctxViewLogs()">&#128196; View Logs</a>
-  <a onclick="ctxViewDetails()">&#128269; Job Details</a>
+  <a onclick="ctxAction('bypass')">&#10140; Bypass</a>
+  <a onclick="ctxAction('force')">&#8634; Force Re-run</a>
+  <a onclick="ctxAction('forcevalidate')">&#10004; Force Validate</a>
+  <hr>
+  <a onclick="ctxAction('edit')">&#9998; Edit Config</a>
 </div>
 
-<!-- Node Edit Form Modal (dynamic — populated from /api/node-config) -->
-<div class="modal-overlay" id="edit-overlay" onclick="closeEdit()">
-  <div class="modal" onclick="event.stopPropagation()" style="max-width:500px">
-    <div class="modal-header">
-      <h3 id="edit-title">Edit Node Config</h3>
-      <button onclick="closeEdit()">&times;</button>
-    </div>
-    <div class="modal-body">
-      <form id="edit-form" onsubmit="saveNodeConfig(event)">
-        <input type="hidden" id="edit-stage" value="">
-        <div class="form-group">
-          <label>LSF Queue Tier</label>
-          <select id="edit-lsf-queue"></select>
-        </div>
-        <div class="form-group">
-          <label>Memory</label>
-          <input type="text" id="edit-lsf-memory">
-        </div>
-        <div class="form-group">
-          <label>CPU Cores</label>
-          <input type="text" id="edit-lsf-cpu">
-        </div>
-        <div class="form-group">
-          <label>Timeout (minutes)</label>
-          <input type="text" id="edit-timeout">
-        </div>
-        <div class="form-group">
-          <label>Tool Version</label>
-          <input type="text" id="edit-version">
-        </div>
-        <div class="form-actions">
-          <button type="button" onclick="closeEdit()" class="btn-cancel">Cancel</button>
-          <button type="submit" class="btn-save">Save Config</button>
-        </div>
+<!-- ══ Modals ══ -->
+<!-- Stage Select Modal -->
+<div class="modal-bg" id="action-modal">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-hd"><h3 id="action-title">Action</h3><button onclick="closeModal('action-modal')">&times;</button></div>
+    <div class="modal-bd">
+      <form onsubmit="submitAction(event)">
+        <input type="hidden" id="action-type">
+        <div class="fm-group"><label id="action-label">Stage</label><select id="action-stage"></select></div>
+        <div class="fm-actions"><button type="button" class="fm-btn" onclick="closeModal('action-modal')">Cancel</button><button type="submit" class="fm-btn fm-btn-primary" id="action-submit">Execute</button></div>
       </form>
     </div>
   </div>
 </div>
 
-<!-- Add Node Form Modal -->
-<div class="modal-overlay" id="addnode-overlay" onclick="closeAddNode()">
-  <div class="modal" onclick="event.stopPropagation()" style="max-width:500px">
-    <div class="modal-header">
-      <h3>Add Node</h3>
-      <button onclick="closeAddNode()">&times;</button>
-    </div>
-    <div class="modal-body">
+<!-- Add Node Modal -->
+<div class="modal-bg" id="addnode-modal">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-hd"><h3>Add Node</h3><button onclick="closeModal('addnode-modal')">&times;</button></div>
+    <div class="modal-bd">
       <form onsubmit="submitAddNode(event)">
-        <div class="form-group">
-          <label>Node Name</label>
-          <input type="text" id="addnode-name" placeholder="e.g., place2" required>
-        </div>
-        <div class="form-group">
-          <label>Node Type</label>
-          <select id="addnode-type">
-            <option value="inputs">inputs</option>
-            <option value="init_design">init_design</option>
-            <option value="synthesis">synthesis</option>
-            <option value="place" selected>place</option>
-            <option value="cts">cts</option>
-            <option value="cts_opt">cts_opt</option>
-            <option value="route">route</option>
-            <option value="pro">pro</option>
-            <option value="signoff">signoff</option>
-            <option value="export_data">export_data</option>
-            <option value="release_data">release_data</option>
-            <option value="eco">eco</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Depends On (Stage)</label>
-          <select id="addnode-dep"></select>
-        </div>
-        <div class="form-actions">
-          <button type="button" onclick="closeAddNode()" class="btn-cancel">Cancel</button>
-          <button type="submit" class="btn-save">Add Node</button>
-        </div>
+        <div class="fm-group"><label>Node Name</label><input type="text" id="an-name" placeholder="e.g., place2" required></div>
+        <div class="fm-group"><label>Node Type</label><select id="an-type"></select></div>
+        <div class="fm-group"><label>Depends On</label><select id="an-dep"></select></div>
+        <div class="fm-actions"><button type="button" class="fm-btn" onclick="closeModal('addnode-modal')">Cancel</button><button type="submit" class="fm-btn fm-btn-primary">Add</button></div>
       </form>
     </div>
   </div>
 </div>
 
-<!-- Create Branch Form Modal -->
-<div class="modal-overlay" id="branch-overlay" onclick="closeBranch()">
-  <div class="modal" onclick="event.stopPropagation()" style="max-width:500px">
-    <div class="modal-header">
-      <h3>Create Branch</h3>
-      <button onclick="closeBranch()">&times;</button>
-    </div>
-    <div class="modal-body">
-      <form onsubmit="submitCreateBranch(event)">
-        <div class="form-group">
-          <label>Branch Name</label>
-          <input type="text" id="branch-name" placeholder="e.g., eco_fix" required>
-        </div>
-        <div class="form-group">
-          <label>Branch From Stage</label>
-          <select id="branch-from"></select>
-        </div>
-        <div class="form-actions">
-          <button type="button" onclick="closeBranch()" class="btn-cancel">Cancel</button>
-          <button type="submit" class="btn-save">Create Branch</button>
-        </div>
+<!-- Create Branch Modal -->
+<div class="modal-bg" id="branch-modal">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-hd"><h3>Create Branch</h3><button onclick="closeModal('branch-modal')">&times;</button></div>
+    <div class="modal-bd">
+      <form onsubmit="submitBranch(event)">
+        <div class="fm-group"><label>Branch Name</label><input type="text" id="br-name" placeholder="e.g., eco_fix" required></div>
+        <div class="fm-group"><label>Branch From</label><select id="br-from"></select></div>
+        <div class="fm-actions"><button type="button" class="fm-btn" onclick="closeModal('branch-modal')">Cancel</button><button type="submit" class="fm-btn fm-btn-primary">Create</button></div>
       </form>
     </div>
   </div>
 </div>
 
-<!-- Stage Select Form Modal (for retrace/bypass/force/forcevalidate/run) -->
-<div class="modal-overlay" id="stageselect-overlay" onclick="closeStageSelect()">
-  <div class="modal" onclick="event.stopPropagation()" style="max-width:500px">
-    <div class="modal-header">
-      <h3 id="stageselect-title">Select Stage</h3>
-      <button onclick="closeStageSelect()">&times;</button>
-    </div>
-    <div class="modal-body">
-      <form onsubmit="submitStageSelect(event)">
-        <input type="hidden" id="stageselect-action" value="">
-        <div class="form-group">
-          <label id="stageselect-label">Stage</label>
-          <select id="stageselect-stage"></select>
-        </div>
-        <div class="form-actions">
-          <button type="button" onclick="closeStageSelect()" class="btn-cancel">Cancel</button>
-          <button type="submit" class="btn-save" id="stageselect-submit">Execute</button>
-        </div>
+<!-- Edit Config Modal -->
+<div class="modal-bg" id="edit-modal">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-hd"><h3 id="edit-title">Edit Config</h3><button onclick="closeModal('edit-modal')">&times;</button></div>
+    <div class="modal-bd">
+      <form onsubmit="saveConfig(event)">
+        <input type="hidden" id="ed-stage">
+        <div class="fm-group"><label>LSF Queue Tier</label><select id="ed-queue"></select></div>
+        <div class="fm-group"><label>Memory</label><input type="text" id="ed-mem"></div>
+        <div class="fm-group"><label>CPU Cores</label><input type="text" id="ed-cpu"></div>
+        <div class="fm-group"><label>Timeout (min)</label><input type="text" id="ed-timeout"></div>
+        <div class="fm-group"><label>Tool Version</label><input type="text" id="ed-version"></div>
+        <div class="fm-actions"><button type="button" class="fm-btn" onclick="closeModal('edit-modal')">Cancel</button><button type="submit" class="fm-btn fm-btn-primary">Save</button></div>
       </form>
     </div>
   </div>
 </div>
 
-<main class="container">
-  <!-- Header -->
-  <div class="header-card">
-    <div class="header-left">
-      <h1 id="flow-type">{{FLOW_TYPE}}</h1>
-      <p class="subtitle" id="run-dir">{{RUN_DIR}}</p>
-      <p class="subtitle">Project: <strong id="project">{{PROJECT}}</strong></p>
+<!-- ══ Main 3-Panel Layout ══ -->
+<div class="main-area">
+
+  <!-- Left: Tree View -->
+  <div class="left-panel">
+    <div class="panel-header"><span>Flow Hierarchy</span><span id="tree-count">0 stages</span></div>
+    <div class="legend-panel">
+      <div class="legend-panel-item"><div class="legend-panel-swatch" style="background:#ab47bc;border:1px solid #4a148c"></div><span class="legend-panel-label">Idle / Ready</span></div>
+      <div class="legend-panel-item"><div class="legend-panel-swatch" style="background:#4fc3f7;border:1px solid #0277bd"></div><span class="legend-panel-label">Scheduled / Queued</span></div>
+      <div class="legend-panel-item"><div class="legend-panel-swatch" style="background:#ffeb3b;border:1px solid #f57f17"></div><span class="legend-panel-label">Running</span></div>
+      <div class="legend-panel-item"><div class="legend-panel-swatch" style="background:#4caf50;border:1px solid #1b5e20"></div><span class="legend-panel-label">Finished</span></div>
+      <div class="legend-panel-item"><div class="legend-panel-swatch" style="background:#f44336;border:1px solid #b71c1c"></div><span class="legend-panel-label">Failed</span></div>
+      <div class="legend-panel-item"><div class="legend-panel-swatch" style="background:#ab47bc;border:1px solid #4a148c"></div><span class="legend-panel-label">Invalidated</span></div>
+      <div class="legend-panel-item"><div class="legend-panel-swatch" style="background:#bdbdbd;border:1px solid #616161"></div><span class="legend-panel-label">Bypassed</span></div>
     </div>
-    <div class="header-right">
-      <div class="big-stat" id="result-badge">
-        <span class="result-icon" id="result-icon">●</span>
-        <span id="result-text">{{RESULT}}</span>
-      </div>
-    </div>
+    <div class="tree-scroll" id="tree"></div>
   </div>
 
-  <!-- Stats Cards -->
-  <div class="stats-row" id="stats-row">
-    <div class="stat-card"><div class="stat-value" id="stat-stages">-/-</div><div class="stat-label">Stages</div></div>
-    <div class="stat-card"><div class="stat-value" id="stat-jobs">-</div><div class="stat-label">Total Jobs</div></div>
-    <div class="stat-card stat-done"><div class="stat-value" id="stat-done">-</div><div class="stat-label">Done</div></div>
-    <div class="stat-card stat-fail"><div class="stat-value" id="stat-fail">-</div><div class="stat-label">Failed</div></div>
-    <div class="stat-card stat-pending"><div class="stat-value" id="stat-pending">-</div><div class="stat-label">Pending</div></div>
+  <!-- Center: DAG Canvas -->
+  <div class="center-panel" id="dag-container">
+    <svg class="dag-canvas" id="dag-svg"></svg>
   </div>
 
-  <!-- Progress Bar -->
-  <div class="progress-section">
-    <div class="progress-header">
-      <span>Stage Progress</span>
-      <span id="progress-text">0%</span>
-    </div>
-    <div class="progress-bar">
-      <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+  <!-- Right: Details -->
+  <div class="right-panel">
+    <div class="panel-header"><span>Properties</span></div>
+    <div class="detail-scroll" id="detail-panel">
+      <div class="detail-empty">Select a node to view details</div>
     </div>
   </div>
 
-  <!-- Stage Pipeline -->
-  <div class="pipeline-section">
-    <h2>Stage Pipeline</h2>
-    <div class="pipeline" id="pipeline"></div>
-  </div>
+</div>
 
-  <!-- Stage Details Table -->
-  <div class="table-section">
-    <h2>Stage Details</h2>
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th>Stage</th><th>Status</th><th>Jobs</th><th>Done</th><th>Failed</th><th>Runtime</th><th>Started</th><th>Ended</th>
-        </tr>
-      </thead>
-      <tbody id="stage-table"></tbody>
-    </table>
-  </div>
-</main>
-
-<footer class="footer">
-  <span>RACE GUI — Run Automation & Control Engine</span>
-  <span id="last-updated">Auto-refresh: 5s</span>
-</footer>
-
-<!-- Job Details Modal -->
-<div class="modal-overlay" id="modal-overlay" onclick="closeModal()">
-  <div class="modal" onclick="event.stopPropagation()">
-    <div class="modal-header">
-      <h3 id="modal-title">Job Details</h3>
-      <button onclick="closeModal()">&times;</button>
-    </div>
-    <div class="modal-body" id="modal-body"></div>
-  </div>
+<!-- ══ Status Bar ══ -->
+<div class="statusbar">
+  <div class="sb-item"><div class="sb-dot" style="background:#4caf50"></div><span id="sb-done">0</span> Done</div>
+  <div class="sb-item"><div class="sb-dot" style="background:#f44336"></div><span id="sb-fail">0</span> Failed</div>
+  <div class="sb-item"><div class="sb-dot" style="background:#ffeb3b"></div><span id="sb-run">0</span> Running</div>
+  <div class="sb-item"><div class="sb-dot" style="background:#ab47bc"></div><span id="sb-ready">0</span> Ready</div>
+  <div class="sb-sep"></div>
+  <span id="sb-total">0 jobs</span>
+  <div class="tb-spacer"></div>
+  <span id="sb-flow">{{FLOW_TYPE}}</span>
+  <div class="sb-sep"></div>
+  <span id="sb-dir" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{RUN_DIR}}</span>
+  <div class="tb-spacer"></div>
+  <span id="sb-updated">--</span>
 </div>
 
 <script>
-function statusColor(s) {
-  return {DONE:'#059669',FAIL:'#dc2626',RUNNING:'#2563eb',PENDING:'#6b7280',
-          BYPASSED:'#d97706',FORCE_VALIDATED:'#0d9488'}[s] || '#6b7280';
+// ═══════════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════════
+var stagesData = [];
+var allJobs = [];
+var dagData = null;
+var selectedNode = null;
+var showSubs = false;
+var cachedConfig = null;
+
+// DAG transform
+var dagScale = 1;
+var dagTx = 0, dagTy = 0;
+var isPanning = false, panStartX = 0, panStartY = 0;
+
+// Drag state
+var isDragging = false, dragNode = null, dragStartX = 0, dragStartY = 0;
+var dragMoved = false;
+
+// Subnode view state
+var subnodeView = null;
+var nodePositions = {};
+
+// Build flags — control when layout recomputes vs color-only update
+var dagBuilt = false;
+var treeBuilt = false;
+var panZoomSetup = false;
+
+// ═══════════════════════════════════════════════════════════════════
+// STATUS COLORS (EXACT)
+// ═══════════════════════════════════════════════════════════════════
+function sColor(s) {
+  var m = {READY:'#4a148c',PENDING:'#0277bd',RUNNING:'#f57f17',DONE:'#1b5e20',
+           FAIL:'#b71c1c',INVALIDATED:'#4a148c',
+           BYPASSED:'#616161',FORCE_VALIDATED:'#1b5e20'};
+  return m[s] || '#757575';
+}
+function sColorFill(s) {
+  var m = {READY:'#ab47bc',PENDING:'#4fc3f7',RUNNING:'#ffeb3b',DONE:'#4caf50',
+           FAIL:'#f44336',INVALIDATED:'#ab47bc',
+           BYPASSED:'#bdbdbd',FORCE_VALIDATED:'#4caf50'};
+  return m[s] || '#e0e0e0';
+}
+function sTextColor(s) {
+  var m = {READY:'#fff',PENDING:'#003',RUNNING:'#333',DONE:'#fff',
+           FAIL:'#fff',INVALIDATED:'#fff',
+           BYPASSED:'#333',FORCE_VALIDATED:'#fff'};
+  return m[s] || '#333';
+}
+function statusLabel(s) {
+  var m = {DONE:'Finished',READY:'Idle',PENDING:'Queued',RUNNING:'Running',
+           FAIL:'Failed',INVALIDATED:'Invalidated',BYPASSED:'Bypassed',
+           FORCE_VALIDATED:'Validated'};
+  return m[s] || s;
 }
 
 function formatTime(s) {
@@ -272,348 +409,1277 @@ function formatTime(s) {
   return (s/3600).toFixed(1) + 'h';
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// DATA FETCH
+// ═══════════════════════════════════════════════════════════════════
 function refresh() {
-  fetch('/api/status').then(r => r.json()).then(data => {
-    const info = data.run_info || {};
-    const sum = data.summary || {};
-    const stages = data.stages || [];
+  Promise.all([
+    fetch('/api/status').then(function(r){return r.json();}),
+    fetch('/api/jobs').then(function(r){return r.json();}),
+    fetch('/api/dag').then(function(r){return r.json();})
+  ]).then(function(results) {
+    var statusData = results[0], jobs = results[1], dag = results[2];
+    stagesData = statusData.stages || [];
+    allJobs = jobs || [];
+    dagData = dag;
+    var info = statusData.run_info || {};
+    var sum = statusData.summary || {};
 
-    // Result badge
-    const rb = document.getElementById('result-badge');
-    const ri = document.getElementById('result-icon');
-    const rt = document.getElementById('result-text');
-    rt.textContent = info.result || 'PENDING';
-    ri.style.color = statusColor(info.result === 'PASS' ? 'DONE' : info.result === 'FAIL' ? 'FAIL' : 'PENDING');
-    document.getElementById('run-result').textContent = info.result || '';
-    document.getElementById('run-result').className = 'badge badge-' + (info.result || 'pending').toLowerCase();
+    // Toolbar progress
+    document.getElementById('tb-progress').textContent = (sum.stages_done||0) + '/' + (sum.stages_total||0);
+    var res = info.result || 'READY';
+    var tbr = document.getElementById('tb-result');
+    tbr.textContent = res;
+    tbr.style.background = sColor(res === 'PASS' ? 'DONE' : res === 'FAIL' ? 'FAIL' : 'READY');
 
-    // Stats
-    document.getElementById('stat-stages').textContent = sum.stages_done + '/' + sum.stages_total;
-    document.getElementById('stat-jobs').textContent = sum.total;
-    document.getElementById('stat-done').textContent = sum.done;
-    document.getElementById('stat-fail').textContent = sum.failed;
-    document.getElementById('stat-pending').textContent = sum.pending;
+    // Status bar
+    document.getElementById('sb-done').textContent = sum.done || 0;
+    document.getElementById('sb-fail').textContent = sum.failed || 0;
+    document.getElementById('sb-run').textContent = sum.running || 0;
+    document.getElementById('sb-ready').textContent = sum.ready || 0;
+    document.getElementById('sb-total').textContent = (sum.total || 0) + ' jobs';
+    document.getElementById('sb-updated').textContent = new Date().toLocaleTimeString();
 
-    // Progress
-    const pct = sum.stages_total > 0 ? Math.round(sum.stages_done / sum.stages_total * 100) : 0;
-    document.getElementById('progress-fill').style.width = pct + '%';
-    document.getElementById('progress-fill').style.background = sum.failed > 0 ? '#dc2626' : '#059669';
-    document.getElementById('progress-text').textContent = pct + '%';
+    updateTree();
+    renderDAG();
 
-    // Pipeline
-    const pipe = document.getElementById('pipeline');
-    pipe.innerHTML = stages.map((s, i) => {
-      const color = statusColor(s.status);
-      const arrow = i < stages.length - 1 ? '<span class="pipe-arrow">→</span>' : '';
-      return '<div class="pipe-node" style="border-color:' + color + ';color:' + color + '" ' +
-             'data-stage="' + s.name + '" ' +
-             'onclick="showStageJobs(\'' + s.name + '\')" ' +
-             'oncontextmenu="showContextMenu(\'' + s.name + '\', event)" ' +
-             'ondblclick="openEditForm(\'' + s.name + '\')" ' +
-             'title="' + s.status + ' (' + formatTime(s.runtime) + ') — Right-click for actions, Double-click to edit">' +
-             '<div class="pipe-status" style="background:' + color + '"></div>' +
-             s.name.replace(/1$/, '') +
-             '</div>' + arrow;
-    }).join('');
-
-    // Table
-    const tbody = document.getElementById('stage-table');
-    tbody.innerHTML = stages.map(s => {
-      const color = statusColor(s.status);
-      return '<tr onclick="showStageJobs(\'' + s.name + '\')" style="cursor:pointer">' +
-        '<td><strong>' + s.name + '</strong></td>' +
-        '<td><span class="status-badge" style="background:' + color + '">' + s.status + '</span></td>' +
-        '<td>' + s.jobs_total + '</td>' +
-        '<td>' + s.jobs_done + '</td>' +
-        '<td>' + (s.jobs_failed > 0 ? '<span style="color:#dc2626;font-weight:bold">' + s.jobs_failed + '</span>' : '0') + '</td>' +
-        '<td>' + formatTime(s.runtime) + '</td>' +
-        '<td class="mono">' + (s.started || '-').split('T').pop().substr(0,8) + '</td>' +
-        '<td class="mono">' + (s.ended || '-').split('T').pop().substr(0,8) + '</td>' +
-        '</tr>';
-    }).join('');
-
-    document.getElementById('last-updated').textContent = 'Updated: ' + new Date().toLocaleTimeString();
-  }).catch(e => console.error('Refresh error:', e));
+    // Refresh detail panel if node selected
+    if (selectedNode) showDetail(selectedNode);
+  }).catch(function(e) { console.error('Refresh error:', e); });
 }
 
-function showStageJobs(stage) {
-  fetch('/api/jobs').then(r => r.json()).then(jobs => {
-    const stageJobs = jobs.filter(j => j.stage === stage);
-    const html = '<table class="data-table"><thead><tr>' +
-      '<th>Job</th><th>Subnode</th><th>Status</th><th>Runtime</th><th>Exit</th><th>Host</th><th>Error</th>' +
-      '</tr></thead><tbody>' +
-      stageJobs.map(j => {
-        const color = statusColor(j.status);
-        return '<tr onclick="showJobDetail(\'' + j.name + '\')">' +
-          '<td>' + j.name + '</td><td>' + (j.subnode||'') + '</td>' +
-          '<td><span class="status-badge" style="background:' + color + '">' + j.status + '</span></td>' +
-          '<td>' + formatTime(j.runtime) + '</td>' +
-          '<td>' + (j.exit_code != null ? j.exit_code : '-') + '</td>' +
-          '<td class="mono">' + j.hostname + '</td>' +
-          '<td class="error-text">' + j.error + '</td></tr>';
-      }).join('') + '</tbody></table>';
-    document.getElementById('modal-title').textContent = stage + ' — Jobs';
-    document.getElementById('modal-body').innerHTML = html;
-    document.getElementById('modal-overlay').style.display = 'flex';
-  });
+// ═══════════════════════════════════════════════════════════════════
+// TREE VIEW
+// ═══════════════════════════════════════════════════════════════════
+function updateTree() {
+  var tree = document.getElementById('tree');
+  document.getElementById('tree-count').textContent = stagesData.length + ' stages';
+
+  if (!treeBuilt) {
+    // Build tree from scratch
+    tree.innerHTML = '';
+    stagesData.forEach(function(s) {
+      var stageJobs = allJobs.filter(function(j){return j.stage === s.name && j.type === 'subnode';});
+      var div = document.createElement('div');
+      div.className = 'tree-stage';
+      div.id = 'tree-' + s.name;
+      div.innerHTML =
+        '<div class="tree-stage-row" data-stage="' + s.name + '">' +
+          '<span class="tree-toggle">' + (stageJobs.length > 0 ? '&#9656;' : '&nbsp;') + '</span>' +
+          '<div class="tree-icon" style="background:' + sColorFill(s.status) + ';border:1px solid ' + sColor(s.status) + '"></div>' +
+          '<span class="tree-label">' + s.name + '</span>' +
+          '<span class="tree-status-text">' + formatTime(s.runtime) + '</span>' +
+        '</div>' +
+        '<div class="tree-subnodes">' +
+          stageJobs.map(function(j) {
+            return '<div class="tree-subnode" data-job="' + j.name + '">' +
+              '<div class="tree-sub-icon" style="background:' + sColorFill(j.status) + ';border:1px solid ' + sColor(j.status) + '"></div>' +
+              '<span class="tree-sub-label">' + (j.subnode || j.name) + '</span>' +
+              '<span class="tree-sub-time">' + formatTime(j.runtime) + '</span>' +
+            '</div>';
+          }).join('') +
+        '</div>';
+      tree.appendChild(div);
+
+      // Expand/collapse + select
+      var row = div.querySelector('.tree-stage-row');
+      row.addEventListener('click', (function(stage, container) {
+        return function() {
+          container.classList.toggle('expanded');
+          var tog = container.querySelector('.tree-toggle');
+          tog.innerHTML = container.classList.contains('expanded') ? '&#9662;' : '&#9656;';
+          selectNode(stage.name);
+        };
+      })(s, div));
+
+      // Subnode clicks
+      div.querySelectorAll('.tree-subnode').forEach(function(sn) {
+        sn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          selectNode(sn.getAttribute('data-job'));
+        });
+      });
+
+      // Right-click context menu
+      row.addEventListener('contextmenu', (function(name) {
+        return function(e) { showCtxMenu(name, e); };
+      })(s.name));
+
+      // Subnode right-click
+      div.querySelectorAll('.tree-subnode').forEach(function(sn) {
+        sn.addEventListener('contextmenu', function(e) {
+          e.stopPropagation();
+          showCtxMenu(sn.getAttribute('data-job'), e);
+        });
+      });
+    });
+    treeBuilt = true;
+  } else {
+    // Update colors/text only — do NOT rebuild DOM
+    stagesData.forEach(function(s) {
+      var el = document.getElementById('tree-' + s.name);
+      if (!el) return;
+      var icon = el.querySelector('.tree-icon');
+      if (icon) { icon.style.background = sColorFill(s.status); icon.style.borderColor = sColor(s.status); }
+      var time = el.querySelector('.tree-status-text');
+      if (time) time.textContent = formatTime(s.runtime);
+
+      var stageJobs = allJobs.filter(function(j){return j.stage === s.name && j.type === 'subnode';});
+      var subEls = el.querySelectorAll('.tree-subnode');
+      subEls.forEach(function(sn, i) {
+        if (stageJobs[i]) {
+          var si = sn.querySelector('.tree-sub-icon');
+          if (si) { si.style.background = sColorFill(stageJobs[i].status); si.style.borderColor = sColor(stageJobs[i].status); }
+          var st = sn.querySelector('.tree-sub-time');
+          if (st) st.textContent = formatTime(stageJobs[i].runtime);
+        }
+      });
+    });
+  }
 }
 
-function showJobDetail(name) {
-  fetch('/api/job/' + name).then(r => r.json()).then(j => {
-    const color = statusColor(j.status);
-    let html = '<div class="job-detail">' +
-      '<div class="detail-grid">' +
-      '<div><label>Status</label><span class="status-badge" style="background:' + color + '">' + j.status + '</span></div>' +
-      '<div><label>Runtime</label><span>' + formatTime(j.runtime) + '</span></div>' +
-      '<div><label>Exit Code</label><span>' + (j.exit_code != null ? j.exit_code : '-') + '</span></div>' +
-      '<div><label>Stage</label><span>' + j.stage + '</span></div>' +
-      '<div><label>Subnode</label><span>' + (j.subnode||'-') + '</span></div>' +
-      '<div><label>Type</label><span>' + (j.type||'-') + '</span></div>' +
-      '<div><label>Host</label><span class="mono">' + (j.hostname||'-') + '</span></div>' +
-      '<div><label>LSF Job</label><span class="mono">' + (j.lsf_job_id||'-') + '</span></div>' +
-      '<div><label>Tier</label><span>' + (j.resource_tier||'-') + '</span></div>' +
-      '<div><label>Start</label><span class="mono">' + (j.start_time||'-') + '</span></div>' +
-      '<div><label>End</label><span class="mono">' + (j.end_time||'-') + '</span></div>' +
-      '<div><label>Retries</label><span>' + (j.retry_count||0) + '</span></div>' +
-      '</div>';
-    if (j.error_msg) html += '<div class="error-box"><strong>Error:</strong> ' + j.error_msg + '</div>';
-    if (j.command) html += '<div class="cmd-box"><strong>Command:</strong><pre>' + j.command + '</pre></div>';
-    if (j.log_tail && j.log_tail.length > 0) {
-      html += '<div class="log-box"><strong>Log (last 50 lines):</strong><pre>' +
-              j.log_tail.join('\n') + '</pre></div>';
+function selectNode(name) {
+  selectedNode = name;
+  // Highlight in tree
+  document.querySelectorAll('.tree-stage-row.selected, .tree-subnode.selected').forEach(function(el){el.classList.remove('selected');});
+  var treeRow = document.querySelector('[data-stage="' + name + '"]') || document.querySelector('[data-job="' + name + '"]');
+  if (treeRow) treeRow.classList.add('selected');
+
+  // Highlight in DAG
+  document.querySelectorAll('.dag-node.selected').forEach(function(el){el.classList.remove('selected');});
+  var dagEl = document.getElementById('dag-' + name);
+  if (dagEl) dagEl.classList.add('selected');
+
+  showDetail(name);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// DAG RENDERING (SVG) — Sugiyama-style hierarchical layout
+// ═══════════════════════════════════════════════════════════════════
+var NODE_W = 180, NODE_H = 48, GAP_X = 50, GAP_Y = 68;
+var SUB_W = 160, SUB_H = 40;
+
+// ── Build SVG node markup ──
+function svgNode(id, displayName, label2, x, y, w, h, status, rx) {
+  var tc = sTextColor(status);
+  var fill = sColorFill(status);
+  var stroke = sColor(status);
+  var r = rx || 4;
+  return '<g class="dag-node" id="dag-' + id + '" data-name="' + id + '" transform="translate(0,0)">' +
+    '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" rx="' + r + '" ry="' + r + '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="2.5"/>' +
+    '<text x="' + (x+w/2) + '" y="' + (y + h*0.4) + '" font-size="' + (h>40?13:11) + '" font-weight="700" fill="' + tc + '" text-anchor="middle" dominant-baseline="middle">' + displayName + '</text>' +
+    '<text x="' + (x+w/2) + '" y="' + (y + h*0.75) + '" font-size="' + (h>40?10:9) + '" fill="' + tc + '" text-anchor="middle" dominant-baseline="middle" opacity="0.85">' + label2 + '</text>' +
+    '</g>';
+}
+
+// Stage node with proportional color fill based on subnode status distribution
+function svgStageNode(id, displayName, label2, x, y, w, h, stageInfo) {
+  var total = stageInfo.jobs_total || 0;
+  var r = 4;
+  var svg = '<g class="dag-node" id="dag-' + id + '" data-name="' + id + '" transform="translate(0,0)">';
+
+  if (total === 0) {
+    // Leaf node — single color
+    svg += '<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="'+r+'" ry="'+r+'" fill="'+sColorFill(stageInfo.status)+'" stroke="'+sColor(stageInfo.status)+'" stroke-width="2.5"/>';
+  } else {
+    var done = stageInfo.jobs_done || 0;
+    var failed = stageInfo.jobs_failed || 0;
+    var running = stageInfo.jobs_running || 0;
+    var pending = stageInfo.jobs_pending || 0;
+    var invalidated = stageInfo.jobs_invalidated || 0;
+    var ready = stageInfo.jobs_ready || 0;
+
+    // Build ordered segments: done, running, pending, fail, invalidated, ready
+    var segments = [];
+    if (done > 0) segments.push({count: done, fill: sColorFill('DONE')});
+    if (running > 0) segments.push({count: running, fill: sColorFill('RUNNING')});
+    if (pending > 0) segments.push({count: pending, fill: sColorFill('PENDING')});
+    if (failed > 0) segments.push({count: failed, fill: sColorFill('FAIL')});
+    if (invalidated > 0) segments.push({count: invalidated, fill: sColorFill('INVALIDATED')});
+    if (ready > 0) segments.push({count: ready, fill: sColorFill('READY')});
+    if (segments.length === 0) segments.push({count: 1, fill: sColorFill(stageInfo.status)});
+
+    // Clip path for rounded corners
+    var clipId = 'clip-' + id.replace(/[^a-zA-Z0-9]/g, '_');
+    svg += '<defs><clipPath id="'+clipId+'"><rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="'+r+'" ry="'+r+'"/></clipPath></defs>';
+
+    // Background fill (last segment color covers full area — no gaps)
+    var lastFill = segments[segments.length - 1].fill;
+    svg += '<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="'+r+'" ry="'+r+'" fill="'+lastFill+'" stroke="'+sColor(stageInfo.status)+'" stroke-width="2.5"/>';
+
+    // Overlay segments left-to-right (skip last since it's the background)
+    if (segments.length > 1) {
+      svg += '<g clip-path="url(#'+clipId+')">';
+      var cx = x;
+      for (var i = 0; i < segments.length - 1; i++) {
+        var segW = Math.round((segments[i].count / total) * w);
+        svg += '<rect x="'+cx+'" y="'+y+'" width="'+segW+'" height="'+h+'" fill="'+segments[i].fill+'"/>';
+        cx += segW;
+      }
+      svg += '</g>';
     }
-    html += '</div>';
-    document.getElementById('modal-title').textContent = j.name;
-    document.getElementById('modal-body').innerHTML = html;
-    document.getElementById('modal-overlay').style.display = 'flex';
+
+    // Border on top
+    svg += '<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="'+r+'" ry="'+r+'" fill="none" stroke="'+sColor(stageInfo.status)+'" stroke-width="2.5"/>';
+  }
+
+  // Text — pick readable color based on dominant fill
+  var tc = '#333';
+  var doneRatio = (stageInfo.jobs_done || 0) / Math.max(total, 1);
+  if (doneRatio > 0.5) tc = sTextColor('DONE');
+  else if ((stageInfo.jobs_running || 0) > 0) tc = sTextColor('RUNNING');
+  else tc = sTextColor(stageInfo.status);
+
+  svg += '<text x="'+(x+w/2)+'" y="'+(y+h*0.4)+'" font-size="13" font-weight="700" fill="'+tc+'" text-anchor="middle" dominant-baseline="middle">'+displayName+'</text>';
+  svg += '<text x="'+(x+w/2)+'" y="'+(y+h*0.75)+'" font-size="10" fill="'+tc+'" text-anchor="middle" dominant-baseline="middle" opacity="0.85">'+label2+'</text>';
+  svg += '</g>';
+  return svg;
+}
+
+function svgEdgeLine(id, x1, y1, x2, y2, dashed) {
+  return '<g class="dag-edge" id="' + id + '">' +
+    '<line x1="'+x1+'" y1="'+y1+'" x2="'+x2+'" y2="'+y2+'"' +
+    (dashed ? ' stroke-dasharray="4,3"' : '') +
+    ' marker-end="url(#arrow)"/></g>';
+}
+
+function svgEdgePath(id, x1, y1, x2, y2) {
+  // Curved edge for non-vertical connections
+  var midY = (y1 + y2) / 2;
+  var d = 'M ' + x1 + ' ' + y1 + ' C ' + x1 + ' ' + midY + ', ' + x2 + ' ' + midY + ', ' + x2 + ' ' + y2;
+  return '<g class="dag-edge" id="' + id + '">' +
+    '<path d="' + d + '" marker-end="url(#arrow)"/></g>';
+}
+
+// ── Sugiyama-style hierarchical layout algorithm ──
+function computeSugiyamaLayout(stageNames, edges, baseStagesSet) {
+  // Step 1: Build adjacency
+  var children = {}, parents = {};
+  stageNames.forEach(function(n) { children[n] = []; parents[n] = []; });
+  edges.forEach(function(e) {
+    if (children[e.from] && parents[e.to]) {
+      if (children[e.from].indexOf(e.to) === -1) children[e.from].push(e.to);
+      if (parents[e.to].indexOf(e.from) === -1) parents[e.to].push(e.from);
+    }
+  });
+
+  // Step 2: Compute depth using BFS from roots
+  // depth[node] = max(depth[parent] + 1) for all parents — longest path
+  var depth = {};
+  var roots = stageNames.filter(function(n) { return parents[n].length === 0; });
+  if (roots.length === 0 && stageNames.length > 0) roots = [stageNames[0]];
+
+  // Initialize all depths to -1
+  stageNames.forEach(function(n) { depth[n] = -1; });
+
+  // BFS — use iterative approach to find longest path (topological)
+  // First do topological sort
+  var inDeg = {};
+  stageNames.forEach(function(n) { inDeg[n] = parents[n].length; });
+  var queue = roots.slice();
+  queue.forEach(function(r) { depth[r] = 0; });
+
+  var topo = [];
+  while (queue.length > 0) {
+    var cur = queue.shift();
+    topo.push(cur);
+    children[cur].forEach(function(ch) {
+      var d = depth[cur] + 1;
+      if (d > depth[ch]) depth[ch] = d;
+      inDeg[ch]--;
+      if (inDeg[ch] <= 0) queue.push(ch);
+    });
+  }
+
+  // Handle any nodes not reached (cycles or disconnected)
+  stageNames.forEach(function(n) {
+    if (depth[n] === -1) {
+      depth[n] = 0;
+    }
+  });
+
+  // Step 3: Group stages by depth level
+  var levels = {};
+  var maxDepth = 0;
+  stageNames.forEach(function(n) {
+    var d = depth[n];
+    if (d > maxDepth) maxDepth = d;
+    if (!levels[d]) levels[d] = [];
+    levels[d].push(n);
+  });
+
+  // Step 4: Position nodes
+  // Main branch (base stages) stays in left column at x=MAIN_X
+  // Custom/branch nodes are placed to the right of their parent's X position
+  var positions = {};
+  var MAIN_X = 40;
+  var BRANCH_OFFSET = NODE_W + GAP_X; // horizontal offset for branches
+
+  // Pass 1: Place base stages — single column when one per depth, spread when multiple
+  for (var d = 0; d <= maxDepth; d++) {
+    var group = levels[d];
+    if (!group) continue;
+    var baseNodes = group.filter(function(n) { return baseStagesSet.has(n); });
+    if (baseNodes.length === 1) {
+      // Single base node at this depth — center on MAIN_X
+      positions[baseNodes[0]] = { x: MAIN_X, y: 30 + d * GAP_Y, w: NODE_W, h: NODE_H };
+    } else if (baseNodes.length > 1) {
+      // Multiple base nodes at same depth — spread horizontally, centered on MAIN_X
+      var totalW = baseNodes.length * NODE_W + (baseNodes.length - 1) * GAP_X;
+      var startX = MAIN_X + (NODE_W / 2) - (totalW / 2);
+      baseNodes.forEach(function(name, i) {
+        positions[name] = { x: startX + i * (NODE_W + GAP_X), y: 30 + d * GAP_Y, w: NODE_W, h: NODE_H };
+      });
+    }
+  }
+
+  // Pass 2: Place custom nodes in vertical columns (one column per branch)
+  // A branch column starts when a custom node's parent is a base stage.
+  // Subsequent chain nodes (custom parent is also custom) inherit the same X column.
+
+  // First, assign each custom node to a "column root" — the first custom ancestor
+  // whose parent is a base stage (or has no parent in custom nodes).
+  var columnX = {}; // columnRoot -> x position
+  var nodeColumn = {}; // customNode -> columnRoot
+
+  function getColumnRoot(name) {
+    if (nodeColumn[name] !== undefined) return nodeColumn[name];
+    var par = parents[name] && parents[name].length > 0 ? parents[name][0] : '';
+    if (!par || baseStagesSet.has(par)) {
+      // This node starts a new column — its parent is a base stage
+      nodeColumn[name] = name;
+      return name;
+    }
+    // Parent is also custom — inherit its column
+    var root = getColumnRoot(par);
+    nodeColumn[name] = root;
+    return root;
+  }
+
+  // Identify all custom nodes and assign columns
+  var allCustom = stageNames.filter(function(n) { return !baseStagesSet.has(n); });
+  allCustom.forEach(function(n) { getColumnRoot(n); });
+
+  // Assign X positions to each column root (offset from its base parent)
+  // Group column roots by their base parent
+  var rootsByBaseParent = {};
+  allCustom.forEach(function(n) {
+    var root = nodeColumn[n];
+    if (root !== n) return; // only process roots
+    var par = parents[n] && parents[n].length > 0 ? parents[n][0] : '';
+    if (!rootsByBaseParent[par]) rootsByBaseParent[par] = [];
+    if (rootsByBaseParent[par].indexOf(root) === -1) rootsByBaseParent[par].push(root);
+  });
+
+  for (var basePar in rootsByBaseParent) {
+    var roots = rootsByBaseParent[basePar];
+    var baseX = (positions[basePar] ? positions[basePar].x : MAIN_X);
+    roots.forEach(function(root, i) {
+      columnX[root] = baseX + BRANCH_OFFSET * (i + 1);
+    });
+  }
+
+  // Now place each custom node at its column's X, depth's Y
+  for (var d = 0; d <= maxDepth; d++) {
+    var group = levels[d];
+    if (!group) continue;
+    group.forEach(function(name) {
+      if (baseStagesSet.has(name)) return; // already placed
+      var col = nodeColumn[name];
+      var x = columnX[col] || (MAIN_X + BRANCH_OFFSET);
+      positions[name] = { x: x, y: 30 + d * GAP_Y, w: NODE_W, h: NODE_H };
+    });
+  }
+
+  // Pass 3: Any remaining unpositioned nodes
+  for (var d = 0; d <= maxDepth; d++) {
+    var group = levels[d];
+    if (!group) continue;
+    group.forEach(function(name) {
+      if (!positions[name]) {
+        positions[name] = { x: MAIN_X, y: 30 + d * GAP_Y, w: NODE_W, h: NODE_H };
+      }
+    });
+  }
+
+  return positions;
+}
+
+function renderDAG() {
+  if (subnodeView) { renderSubnodeView(); return; }
+
+  var svg = document.getElementById('dag-svg');
+  if (!dagBuilt && stagesData.length > 0) {
+    var stageNames = stagesData.map(function(s){return s.name;});
+    var edges = (dagData && dagData.edges) || [];
+    var baseStagesSet = new Set((dagData && dagData.base_stages) || []);
+
+    // Filter to stage-level edges only
+    var stageSet = new Set(stageNames);
+    var stageEdges = edges.filter(function(e) {
+      return stageSet.has(e.from) && stageSet.has(e.to);
+    });
+
+    // Check if we need to compute layout
+    var needsLayout = stageNames.some(function(n){return !nodePositions[n];}) || Object.keys(nodePositions).length === 0;
+
+    if (needsLayout) {
+      // If no base_stages from API, assume all are base stages (use stage_order or stageNames)
+      if (baseStagesSet.size === 0) {
+        stageNames.forEach(function(n) { baseStagesSet.add(n); });
+      }
+      var computed = computeSugiyamaLayout(stageNames, stageEdges, baseStagesSet);
+      // Merge computed into nodePositions (don't overwrite manually positioned nodes)
+      for (var key in computed) {
+        if (!nodePositions[key]) nodePositions[key] = computed[key];
+      }
+      // Ensure every stage has a position
+      stageNames.forEach(function(name) {
+        if (!nodePositions[name]) {
+          nodePositions[name] = { x: 40, y: 30, w: NODE_W, h: NODE_H };
+        }
+      });
+    }
+
+    // Build SVG content
+    var svgContent = '<defs>' +
+      '<marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">' +
+      '<polygon points="0 0, 8 3, 0 6" fill="#555"/>' +
+      '</marker></defs>';
+    svgContent += '<g id="dag-group">';
+
+    // Draw edges first (behind nodes)
+    var edgeIdx = 0;
+    stageEdges.forEach(function(e) {
+      var fp = nodePositions[e.from], tp = nodePositions[e.to];
+      if (fp && tp) {
+        var x1 = fp.x + fp.w/2, y1 = fp.y + fp.h;
+        var x2 = tp.x + tp.w/2, y2 = tp.y;
+        // Use curved path for non-vertical connections, straight line for vertical
+        if (Math.abs(x1 - x2) < 5) {
+          svgContent += svgEdgeLine('edge-' + edgeIdx, x1, y1, x2, y2, false);
+        } else {
+          svgContent += svgEdgePath('edge-' + edgeIdx, x1, y1, x2, y2);
+        }
+        edgeIdx++;
+      }
+    });
+
+    // Draw stage nodes — with proportional color segments
+    stageNames.forEach(function(name) {
+      var s = stagesData.find(function(x){return x.name === name;}) || {status:'READY',runtime:0,jobs_total:0};
+      var p = nodePositions[name];
+      if (p) {
+        var lbl = statusLabel(s.status) + '  ' + formatTime(s.runtime);
+        if (s.jobs_total > 0) {
+          lbl = s.jobs_done + '/' + s.jobs_total + ' done  ' + formatTime(s.runtime);
+        }
+        svgContent += svgStageNode(name, name, lbl, p.x, p.y, p.w, p.h, s);
+      }
+    });
+
+    svgContent += '</g>';
+    svg.innerHTML = svgContent;
+    attachDagEvents();
+    dagBuilt = true;
+    if (!panZoomSetup) { setupPanZoom(); panZoomSetup = true; }
+    dagFit();
+
+  } else if (dagBuilt) {
+    // Rebuild SVG with fresh colors — positions preserved in nodePositions
+    dagBuilt = false;
+    renderDAG();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SUBNODE VIEW
+// ═══════════════════════════════════════════════════════════════════
+function enterSubnodeView(stage) {
+  subnodeView = stage;
+  dagBuilt = false;
+  document.getElementById('btn-back').style.display = '';
+  renderSubnodeView();
+}
+
+function backToMain() {
+  subnodeView = null;
+  dagBuilt = false;
+  document.getElementById('btn-back').style.display = 'none';
+  renderDAG();
+}
+
+function renderSubnodeView() {
+  var svg = document.getElementById('dag-svg');
+  var stage = subnodeView;
+  var subs = allJobs.filter(function(j){return j.stage === stage && j.type === 'subnode';});
+  if (subs.length === 0) { backToMain(); return; }
+
+  // Build subnode dependency graph from dagData edges
+  var subNames = subs.map(function(j){return j.name;});
+  var subEdges = [];
+  var dagEdges = (dagData && dagData.edges) || [];
+  var subSet = new Set(subNames);
+  dagEdges.forEach(function(e) {
+    if (subSet.has(e.from) && subSet.has(e.to)) {
+      subEdges.push(e);
+    }
+  });
+
+  // Build parent/children maps
+  var sparents = {}, schildren = {};
+  subNames.forEach(function(n) { sparents[n] = []; schildren[n] = []; });
+  subEdges.forEach(function(e) {
+    if (schildren[e.from].indexOf(e.to) === -1) schildren[e.from].push(e.to);
+    if (sparents[e.to].indexOf(e.from) === -1) sparents[e.to].push(e.from);
+  });
+
+  // Compute depth (longest path BFS)
+  var sdepth = {};
+  var sroots = subNames.filter(function(n){return sparents[n].length === 0;});
+  if (sroots.length === 0 && subNames.length > 0) sroots = [subNames[0]];
+
+  subNames.forEach(function(n) { sdepth[n] = -1; });
+  var inDeg = {};
+  subNames.forEach(function(n) { inDeg[n] = sparents[n].length; });
+  var sq = sroots.slice();
+  sq.forEach(function(r) { sdepth[r] = 0; });
+
+  while (sq.length > 0) {
+    var cur = sq.shift();
+    (schildren[cur] || []).forEach(function(ch) {
+      var d = sdepth[cur] + 1;
+      if (d > sdepth[ch]) sdepth[ch] = d;
+      inDeg[ch]--;
+      if (inDeg[ch] <= 0) sq.push(ch);
+    });
+  }
+  subNames.forEach(function(n) { if (sdepth[n] === -1) sdepth[n] = 0; });
+
+  // Group by depth
+  var slevels = {};
+  subNames.forEach(function(n) {
+    var d = sdepth[n];
+    if (!slevels[d]) slevels[d] = [];
+    slevels[d].push(n);
+  });
+
+  // Assign positions — center-aligned per row
+  var startY = 50;
+  var sortedD = Object.keys(slevels).map(Number).sort(function(a,b){return a - b;});
+  var maxGroupW = 0;
+  sortedD.forEach(function(d) {
+    var gw = slevels[d].length * SUB_W + (slevels[d].length - 1) * GAP_X;
+    if (gw > maxGroupW) maxGroupW = gw;
+  });
+  var centerX = Math.max(maxGroupW / 2, 200);
+  sortedD.forEach(function(d) {
+    var group = slevels[d];
+    var totalW = group.length * SUB_W + (group.length - 1) * GAP_X;
+    var rowStartX = centerX - totalW / 2;
+    group.forEach(function(name, i) {
+      nodePositions['sub_'+name] = {
+        x: rowStartX + i * (SUB_W + GAP_X),
+        y: startY + d * (SUB_H + 30),
+        w: SUB_W, h: SUB_H
+      };
+    });
+  });
+
+  var svgContent = '<defs>' +
+    '<marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">' +
+    '<polygon points="0 0, 8 3, 0 6" fill="#555"/>' +
+    '</marker></defs>';
+  svgContent += '<g id="dag-group">';
+
+  // Title
+  svgContent += '<text x="40" y="30" font-size="14" font-weight="700" fill="#333">Stage: ' + stage + ' -- Subnodes</text>';
+
+  // Draw edges
+  var sei = 0;
+  subEdges.forEach(function(e) {
+    var fp = nodePositions['sub_'+e.from], tp = nodePositions['sub_'+e.to];
+    if (fp && tp) {
+      var x1 = fp.x + fp.w/2, y1 = fp.y + fp.h;
+      var x2 = tp.x + tp.w/2, y2 = tp.y;
+      if (Math.abs(x1 - x2) < 5) {
+        svgContent += svgEdgeLine('sub-edge-'+sei, x1, y1, x2, y2, false);
+      } else {
+        svgContent += svgEdgePath('sub-edge-'+sei, x1, y1, x2, y2);
+      }
+      sei++;
+    }
+  });
+
+  // Draw subnode nodes
+  subs.forEach(function(j) {
+    var p = nodePositions['sub_'+j.name];
+    if (p) {
+      svgContent += svgNode(j.name, j.subnode || j.name, statusLabel(j.status) + '  ' + formatTime(j.runtime), p.x, p.y, p.w, p.h, j.status, 6);
+    }
+  });
+
+  svgContent += '</g>';
+  svg.innerHTML = svgContent;
+
+  // Attach events to subnode nodes
+  svg.querySelectorAll('.dag-node').forEach(function(node) {
+    var name = node.getAttribute('data-name');
+    node.addEventListener('click', function(e) { if (!dragMoved) selectNode(name); });
+    node.addEventListener('contextmenu', function(e) { showCtxMenu(name, e); });
+    setupNodeDrag(node);
+  });
+
+  if (!panZoomSetup) { setupPanZoom(); panZoomSetup = true; }
+  dagFit();
+}
+
+// ── Attach events to DAG nodes ──
+function attachDagEvents() {
+  var svg = document.getElementById('dag-svg');
+  svg.querySelectorAll('.dag-node').forEach(function(node) {
+    var name = node.getAttribute('data-name');
+    node.addEventListener('click', function(e) { if (!dragMoved) selectNode(name); });
+    node.addEventListener('contextmenu', function(e) { showCtxMenu(name, e); });
+    node.addEventListener('dblclick', function(e) {
+      e.stopPropagation();
+      var isStage = stagesData.some(function(s){return s.name === name;});
+      if (isStage) enterSubnodeView(name);
+    });
+    setupNodeDrag(node);
   });
 }
 
-function closeModal() {
-  document.getElementById('modal-overlay').style.display = 'none';
+// ═══════════════════════════════════════════════════════════════════
+// DRAGGABLE NODES (Ctrl+drag)
+// ═══════════════════════════════════════════════════════════════════
+function setupNodeDrag(nodeEl) {
+  nodeEl.addEventListener('mousedown', function(e) {
+    if (e.button !== 0 || !e.ctrlKey) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var name = nodeEl.getAttribute('data-name');
+    isDragging = true;
+    dragNode = name;
+    dragMoved = false;
+    var svgEl = document.getElementById('dag-svg');
+    var pt = svgEl.createSVGPoint();
+    pt.x = e.clientX; pt.y = e.clientY;
+    var grp = document.getElementById('dag-group');
+    if (!grp) return;
+    var ctm = grp.getScreenCTM().inverse();
+    var svgPt = pt.matrixTransform(ctm);
+    var pos = nodePositions[name] || nodePositions['sub_'+name];
+    if (pos) { dragStartX = svgPt.x - pos.x; dragStartY = svgPt.y - pos.y; }
+    nodeEl.style.cursor = 'grabbing';
+  });
 }
 
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+window.addEventListener('mousemove', function(e) {
+  if (!isDragging || !dragNode) return;
+  dragMoved = true;
+  var svgEl = document.getElementById('dag-svg');
+  var pt = svgEl.createSVGPoint();
+  pt.x = e.clientX; pt.y = e.clientY;
+  var grp = document.getElementById('dag-group');
+  if (!grp) return;
+  var ctm = grp.getScreenCTM();
+  if (!ctm) return;
+  ctm = ctm.inverse();
+  var svgPt = pt.matrixTransform(ctm);
+  var newX = svgPt.x - dragStartX;
+  var newY = svgPt.y - dragStartY;
 
-// ── API Action Helper ──────────────────────────────────────────────
+  // Update position in persistent store
+  var posKey = nodePositions[dragNode] ? dragNode : 'sub_'+dragNode;
+  var pos = nodePositions[posKey];
+  if (!pos) return;
+  pos.x = newX; pos.y = newY;
+
+  // Move the SVG node elements
+  var g = document.getElementById('dag-' + dragNode);
+  if (g) {
+    var rect = g.querySelector('rect');
+    var texts = g.querySelectorAll('text');
+    if (rect) { rect.setAttribute('x', pos.x); rect.setAttribute('y', pos.y); }
+    if (texts[0]) { texts[0].setAttribute('x', pos.x + pos.w/2); texts[0].setAttribute('y', pos.y + pos.h*0.4); }
+    if (texts[1]) { texts[1].setAttribute('x', pos.x + pos.w/2); texts[1].setAttribute('y', pos.y + pos.h*0.75); }
+  }
+
+  // Update connected edges
+  updateEdges();
+});
+
+window.addEventListener('mouseup', function() {
+  if (isDragging) {
+    var g = document.getElementById('dag-' + dragNode);
+    if (g) g.style.cursor = 'pointer';
+    isDragging = false;
+    dragNode = null;
+  }
+});
+
+function updateEdges() {
+  if (subnodeView) {
+    // Update subnode edges from actual edge data
+    var dagEdges = (dagData && dagData.edges) || [];
+    var subs = allJobs.filter(function(j){return j.stage === subnodeView && j.type === 'subnode';});
+    var subSet = new Set(subs.map(function(j){return j.name;}));
+    var subEdges = dagEdges.filter(function(e){return subSet.has(e.from) && subSet.has(e.to);});
+
+    subEdges.forEach(function(e, i) {
+      var edge = document.getElementById('sub-edge-' + i);
+      if (!edge) return;
+      var fp = nodePositions['sub_'+e.from];
+      var tp = nodePositions['sub_'+e.to];
+      if (!fp || !tp) return;
+      var x1 = fp.x + fp.w/2, y1 = fp.y + fp.h;
+      var x2 = tp.x + tp.w/2, y2 = tp.y;
+
+      var line = edge.querySelector('line');
+      var path = edge.querySelector('path');
+      if (line) {
+        line.setAttribute('x1', x1); line.setAttribute('y1', y1);
+        line.setAttribute('x2', x2); line.setAttribute('y2', y2);
+      }
+      if (path) {
+        var midY = (y1 + y2) / 2;
+        path.setAttribute('d', 'M ' + x1 + ' ' + y1 + ' C ' + x1 + ' ' + midY + ', ' + x2 + ' ' + midY + ', ' + x2 + ' ' + y2);
+      }
+    });
+  } else {
+    // Update main stage edges from dagData
+    var edges = (dagData && dagData.edges) || [];
+    var stageSet = new Set(stagesData.map(function(s){return s.name;}));
+    var stageEdges = edges.filter(function(e){return stageSet.has(e.from) && stageSet.has(e.to);});
+
+    stageEdges.forEach(function(e, i) {
+      var edge = document.getElementById('edge-' + i);
+      if (!edge) return;
+      var f = nodePositions[e.from], t = nodePositions[e.to];
+      if (!f || !t) return;
+      var x1 = f.x + f.w/2, y1 = f.y + f.h;
+      var x2 = t.x + t.w/2, y2 = t.y;
+
+      var line = edge.querySelector('line');
+      var path = edge.querySelector('path');
+      if (line) {
+        line.setAttribute('x1', x1); line.setAttribute('y1', y1);
+        line.setAttribute('x2', x2); line.setAttribute('y2', y2);
+      }
+      if (path) {
+        var midY = (y1 + y2) / 2;
+        path.setAttribute('d', 'M ' + x1 + ' ' + y1 + ' C ' + x1 + ' ' + midY + ', ' + x2 + ' ' + midY + ', ' + x2 + ' ' + y2);
+      }
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ZOOM / PAN / FIT
+// ═══════════════════════════════════════════════════════════════════
+function dagZoom(factor) {
+  var container = document.getElementById('dag-container');
+  var rect = container.getBoundingClientRect();
+  var cx = rect.width / 2, cy = rect.height / 2;
+  dagTx = cx - (cx - dagTx) * factor;
+  dagTy = cy - (cy - dagTy) * factor;
+  dagScale *= factor;
+  applyDagTransform();
+}
+
+function dagFit() {
+  var container = document.getElementById('dag-container');
+  var g = document.getElementById('dag-group');
+  if (!g) return;
+  var bbox = g.getBBox();
+  if (bbox.width === 0 || bbox.height === 0) return;
+  var cw = container.clientWidth, ch = container.clientHeight;
+  var padding = 40;
+  var sx = (cw - padding) / (bbox.width + 20);
+  var sy = (ch - padding) / (bbox.height + 20);
+  dagScale = Math.min(sx, sy, 1.5);
+  dagTx = (cw - bbox.width * dagScale) / 2 - bbox.x * dagScale;
+  dagTy = (ch - bbox.height * dagScale) / 2 - bbox.y * dagScale;
+  applyDagTransform();
+}
+
+function applyDagTransform() {
+  var g = document.getElementById('dag-group');
+  if (g) g.setAttribute('transform', 'translate(' + dagTx + ',' + dagTy + ') scale(' + dagScale + ')');
+}
+
+function setupPanZoom() {
+  var container = document.getElementById('dag-container');
+  var svg = document.getElementById('dag-svg');
+
+  svg.addEventListener('mousedown', function(e) {
+    // Only pan when clicking on empty canvas area (svg background)
+    if (e.target === svg || e.target.tagName === 'svg') {
+      isPanning = true;
+      panStartX = e.clientX - dagTx;
+      panStartY = e.clientY - dagTy;
+      svg.style.cursor = 'grabbing';
+    }
+  });
+
+  window.addEventListener('mousemove', function(e) {
+    if (!isPanning) return;
+    dagTx = e.clientX - panStartX;
+    dagTy = e.clientY - panStartY;
+    applyDagTransform();
+  });
+
+  window.addEventListener('mouseup', function() {
+    if (isPanning) {
+      isPanning = false;
+      document.getElementById('dag-svg').style.cursor = 'default';
+    }
+  });
+
+  svg.addEventListener('wheel', function(e) {
+    e.preventDefault();
+    var factor = e.deltaY < 0 ? 1.1 : 0.9;
+    var rect = container.getBoundingClientRect();
+    var mx = e.clientX - rect.left;
+    var my = e.clientY - rect.top;
+    // Zoom toward mouse position
+    dagTx = mx - (mx - dagTx) * factor;
+    dagTy = my - (my - dagTy) * factor;
+    dagScale *= factor;
+    applyDagTransform();
+  }, {passive: false});
+}
+
+function stopExecution() {
+  apiAction('stop', {});
+}
+
+function resetGraph() {
+  nodePositions = {};
+  dagBuilt = false;
+  treeBuilt = false;
+  dagScale = 1;
+  dagTx = 0;
+  dagTy = 0;
+  renderDAG();
+  showToast('Layout reset', 'success');
+}
+
+function toggleSubnodes() {
+  showSubs = !showSubs;
+  document.getElementById('btn-subnodes').classList.toggle('active', showSubs);
+  dagBuilt = false;
+  renderDAG();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// DETAIL PANEL (Right Panel)
+// ═══════════════════════════════════════════════════════════════════
+function showDetail(name) {
+  var panel = document.getElementById('detail-panel');
+
+  // Resolve stage name for edit form
+  var job = allJobs.find(function(j){return j.name === name;});
+  var editStage = job ? job.stage : name;
+
+  // Inline edit form HTML
+  var editFormHtml =
+    '<div class="inline-edit">' +
+    '<h4>Edit Config -- ' + editStage + '</h4>' +
+    '<form id="inline-edit-form" onsubmit="saveInlineConfig(event)">' +
+    '<input type="hidden" id="ied-stage" value="' + editStage + '">' +
+    '<div class="ie-group"><label>LSF Queue</label><select id="ied-queue"></select></div>' +
+    '<div class="ie-group"><label>Memory</label><input type="text" id="ied-mem"></div>' +
+    '<div class="ie-group"><label>CPU</label><input type="text" id="ied-cpu"></div>' +
+    '<div class="ie-group"><label>Timeout (min)</label><input type="text" id="ied-timeout"></div>' +
+    '<div class="ie-group"><label>Tool Version</label><input type="text" id="ied-version"></div>' +
+    '<div class="ie-actions"><button type="submit" class="fm-btn fm-btn-primary" style="padding:4px 14px;font-size:11px">Save</button></div>' +
+    '</form></div>';
+
+  // Check if it's a stage
+  var stage = stagesData.find(function(s){return s.name === name;});
+  if (stage) {
+    var stageJobs = allJobs.filter(function(j){return j.stage === name && j.type === 'subnode';});
+    panel.innerHTML =
+      '<div class="detail-title">' + name + '</div>' +
+      '<div class="detail-row"><label>Status</label><span class="detail-badge" style="background:' + sColorFill(stage.status) + ';color:' + sTextColor(stage.status) + '">' + statusLabel(stage.status) + '</span></div>' +
+      '<div class="detail-row"><label>Runtime</label><span>' + formatTime(stage.runtime) + '</span></div>' +
+      '<div class="detail-row"><label>Jobs</label><span>' + (stage.jobs_total || 0) + '</span></div>' +
+      '<div class="detail-row"><label>Done</label><span>' + (stage.jobs_done || 0) + '</span></div>' +
+      '<div class="detail-row"><label>Failed</label><span style="color:' + ((stage.jobs_failed||0) > 0 ? 'var(--red)' : 'inherit') + '">' + (stage.jobs_failed || 0) + '</span></div>' +
+      '<div class="detail-row"><label>Started</label><span>' + (stage.started ? stage.started.split('T').pop().substr(0,8) : '-') + '</span></div>' +
+      '<div class="detail-row"><label>Ended</label><span>' + (stage.ended ? stage.ended.split('T').pop().substr(0,8) : '-') + '</span></div>' +
+      '<div class="detail-section"><h4>Subnodes</h4>' +
+      '<div class="detail-subjobs"><table><thead><tr><th>Name</th><th>Status</th><th>Time</th></tr></thead><tbody>' +
+      stageJobs.map(function(j) {
+        return '<tr data-job="' + j.name + '"><td>' + (j.subnode||j.name) + '</td>' +
+        '<td><span class="detail-badge" style="background:' + sColorFill(j.status) + ';color:' + sTextColor(j.status) + ';font-size:9px;padding:1px 6px">' + statusLabel(j.status) + '</span></td>' +
+        '<td>' + formatTime(j.runtime) + '</td></tr>';
+      }).join('') +
+      '</tbody></table></div></div>' +
+      editFormHtml;
+
+    // Click subnode rows to select them
+    panel.querySelectorAll('[data-job]').forEach(function(tr) {
+      tr.addEventListener('click', function() { selectNode(tr.getAttribute('data-job')); });
+    });
+    populateInlineEditForm(editStage);
+    return;
+  }
+
+  // It's a subnode — fetch full details from /api/job/{name}
+  fetch('/api/job/' + name).then(function(r){return r.json();}).then(function(j) {
+    var html =
+      '<div class="detail-title">' + j.name + '</div>' +
+      '<div class="detail-row"><label>Status</label><span class="detail-badge" style="background:' + sColorFill(j.status) + ';color:' + sTextColor(j.status) + '">' + statusLabel(j.status) + '</span></div>' +
+      '<div class="detail-row"><label>Stage</label><span>' + j.stage + '</span></div>' +
+      '<div class="detail-row"><label>Subnode</label><span>' + (j.subnode||'-') + '</span></div>' +
+      '<div class="detail-row"><label>Runtime</label><span>' + formatTime(j.runtime) + '</span></div>' +
+      '<div class="detail-row"><label>Exit Code</label><span>' + (j.exit_code != null ? j.exit_code : '-') + '</span></div>' +
+      '<div class="detail-row"><label>Host</label><span>' + (j.hostname||'-') + '</span></div>' +
+      '<div class="detail-row"><label>LSF Job</label><span>' + (j.lsf_job_id||'-') + '</span></div>' +
+      '<div class="detail-row"><label>Tier</label><span>' + (j.resource_tier||'-') + '</span></div>' +
+      '<div class="detail-row"><label>Start</label><span>' + (j.start_time ? j.start_time.split('T').pop().substr(0,8) : '-') + '</span></div>' +
+      '<div class="detail-row"><label>End</label><span>' + (j.end_time ? j.end_time.split('T').pop().substr(0,8) : '-') + '</span></div>';
+    if (j.error_msg) html += '<div class="detail-section"><h4>Error</h4><div class="detail-error">' + j.error_msg + '</div></div>';
+    if (j.command) html += '<div class="detail-section"><h4>Command</h4><div class="detail-cmd">' + j.command + '</div></div>';
+    if (j.log_tail && j.log_tail.length > 0) {
+      html += '<div class="detail-section"><h4>Log (tail)</h4><div class="detail-log">' + j.log_tail.join('\n') + '</div></div>';
+    }
+    html += editFormHtml;
+    panel.innerHTML = html;
+    populateInlineEditForm(editStage);
+  }).catch(function() {
+    var j2 = allJobs.find(function(x){return x.name === name;});
+    if (j2) {
+      panel.innerHTML =
+        '<div class="detail-title">' + j2.name + '</div>' +
+        '<div class="detail-row"><label>Status</label><span class="detail-badge" style="background:' + sColorFill(j2.status) + ';color:' + sTextColor(j2.status) + '">' + statusLabel(j2.status) + '</span></div>' +
+        '<div class="detail-row"><label>Stage</label><span>' + j2.stage + '</span></div>' +
+        '<div class="detail-row"><label>Runtime</label><span>' + formatTime(j2.runtime) + '</span></div>' +
+        editFormHtml;
+      populateInlineEditForm(editStage);
+    }
+  });
+}
+
+function populateInlineEditForm(stage) {
+  loadConfig().then(function(data) {
+    var cfg = (data.stages || {})[stage] || {};
+    var qSel = document.getElementById('ied-queue');
+    if (!qSel) return;
+    qSel.innerHTML = '';
+    var tiers = data.queue_tiers || [];
+    var qRes = data.queue_resources || {};
+    tiers.forEach(function(t) {
+      var r = qRes[t] || {};
+      var o = document.createElement('option');
+      o.value = t;
+      o.textContent = t + ' (' + (r.memory||'?') + ' / ' + (r.cpu||'?') + ' CPU)';
+      if (t === cfg.lsf_queue) o.selected = true;
+      qSel.appendChild(o);
+    });
+    qSel.onchange = function() {
+      var r = qRes[this.value] || {};
+      document.getElementById('ied-mem').value = r.memory || '';
+      document.getElementById('ied-cpu').value = r.cpu || '';
+    };
+    document.getElementById('ied-mem').value = cfg.lsf_memory || '';
+    document.getElementById('ied-cpu').value = cfg.lsf_cpu || '';
+    document.getElementById('ied-timeout').value = cfg.timeout || '';
+    document.getElementById('ied-version').value = cfg.tool_version || '';
+  });
+}
+
+function saveInlineConfig(e) {
+  e.preventDefault();
+  var body = {
+    stage: document.getElementById('ied-stage').value,
+    lsf_queue: document.getElementById('ied-queue').value,
+    lsf_memory: document.getElementById('ied-mem').value,
+    lsf_cpu: document.getElementById('ied-cpu').value,
+    timeout: document.getElementById('ied-timeout').value,
+    tool_version: document.getElementById('ied-version').value
+  };
+  fetch('/api/node-config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
+    .then(function(r){return r.json();})
+    .then(function(d){ showToast(d.message || 'Saved', 'success'); })
+    .catch(function(e){ showToast('Error: ' + e, 'error'); });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CONTEXT MENU
+// ═══════════════════════════════════════════════════════════════════
+var ctxStage = '';
+function showCtxMenu(name, event) {
+  event.preventDefault();
+  event.stopPropagation();
+  ctxStage = name;
+  var menu = document.getElementById('ctx-menu');
+  document.getElementById('ctx-hdr').textContent = name;
+
+  // Update menu items based on whether this is a stage or subnode
+  var job = allJobs.find(function(j){return j.name === name;});
+  var isSubnode = job && job.type === 'subnode';
+
+  // Rebuild context menu content dynamically
+  var menuHtml = '<div class="ctx-hdr" id="ctx-hdr">' + name + '</div>';
+  if (isSubnode) {
+    menuHtml += '<a onclick="ctxAction(\'run-stage\')">&#9654; Run to This Subnode</a>';
+    menuHtml += '<hr>';
+    menuHtml += '<a onclick="ctxAction(\'bypass\')">&#10140; Bypass</a>';
+    menuHtml += '<a onclick="ctxAction(\'forcevalidate\')">&#10004; Force Validate</a>';
+    menuHtml += '<hr>';
+    menuHtml += '<a onclick="ctxAction(\'edit\')">&#9998; Edit Config</a>';
+  } else {
+    menuHtml += '<a onclick="ctxAction(\'run-stage\')">&#9654; Run This Stage</a>';
+    menuHtml += '<a onclick="ctxAction(\'retrace-from\')">&#8635; Retrace From Here</a>';
+    menuHtml += '<hr>';
+    menuHtml += '<a onclick="ctxAction(\'bypass\')">&#10140; Bypass</a>';
+    menuHtml += '<a onclick="ctxAction(\'force\')">&#8634; Force Re-run</a>';
+    menuHtml += '<a onclick="ctxAction(\'forcevalidate\')">&#10004; Force Validate</a>';
+    menuHtml += '<hr>';
+    menuHtml += '<a onclick="ctxAction(\'edit\')">&#9998; Edit Config</a>';
+  }
+  menu.innerHTML = menuHtml;
+
+  menu.style.display = 'block';
+  // Position menu, keeping it within viewport
+  var x = event.clientX;
+  var y = event.clientY;
+  var mw = menu.offsetWidth || 200;
+  var mh = menu.offsetHeight || 200;
+  if (x + mw > window.innerWidth) x = window.innerWidth - mw - 4;
+  if (y + mh > window.innerHeight) y = window.innerHeight - mh - 4;
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+}
+
+document.addEventListener('click', function() {
+  document.getElementById('ctx-menu').style.display = 'none';
+});
+
+function ctxAction(action) {
+  var name = ctxStage;
+  var job = allJobs.find(function(j){return j.name === name;});
+  var isSubnode = job && job.type === 'subnode';
+  var stage = isSubnode ? job.stage : name;
+
+  if (action === 'run-stage') {
+    if (isSubnode) {
+      apiAction('run-to-subnode', {stage: stage, subnode: name});
+    } else {
+      apiAction('run-stage', {stage: stage});
+    }
+  }
+  else if (action === 'retrace-from') apiAction('retrace', {from_stage: stage});
+  else if (action === 'bypass') {
+    if (isSubnode) apiAction('bypass', {jobs: [name]});
+    else apiAction('bypass', {stages: [stage]});
+  }
+  else if (action === 'force') apiAction('force', {stages: [stage]});
+  else if (action === 'forcevalidate') {
+    if (isSubnode) apiAction('forcevalidate', {jobs: [name]});
+    else apiAction('forcevalidate', {stages: [stage]});
+  }
+  else if (action === 'edit') openEditForm(stage);
+
+  document.getElementById('ctx-menu').style.display = 'none';
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// API ACTIONS
+// ═══════════════════════════════════════════════════════════════════
 function apiAction(action, body) {
   fetch('/api/action/' + action, {
-    method: 'POST', headers: {'Content-Type':'application/json'},
+    method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify(body)
-  }).then(r => r.json()).then(data => {
+  }).then(function(r){return r.json();}).then(function(data) {
     showToast(data.message || data.error, data.error ? 'error' : 'success');
-    setTimeout(refresh, 1000);
-  }).catch(e => showToast('Error: ' + e, 'error'));
+    // Only rebuild on structural changes (add/delete node, branch)
+    if (['add-node','delete-node','create-branch'].indexOf(action) !== -1) {
+      nodePositions = {};
+      treeBuilt = false;
+      dagBuilt = false;
+    }
+    // Immediate refresh for sync actions, delayed for async (run/force)
+    if (data.async) {
+      setTimeout(refresh, 500);
+    } else {
+      dagBuilt = false; // force SVG rebuild to update proportional colors
+      refresh();
+    }
+  }).catch(function(e){ showToast('Error: ' + e, 'error'); });
 }
 
 function showToast(msg, type) {
-  let t = document.createElement('div');
+  var t = document.createElement('div');
   t.className = 'toast ' + (type || '');
   t.textContent = msg;
   document.body.appendChild(t);
-  setTimeout(() => t.classList.add('show'), 10);
-  setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); }, 4000);
+  setTimeout(function(){ t.classList.add('show'); }, 10);
+  setTimeout(function(){
+    t.classList.remove('show');
+    setTimeout(function(){ t.remove(); }, 300);
+  }, 4000);
 }
 
-// ── Stage list cache (loaded from API) ────────────────────────────
-let cachedConfig = null;
+// ═══════════════════════════════════════════════════════════════════
+// MODALS & FORMS
+// ═══════════════════════════════════════════════════════════════════
+function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+document.querySelectorAll('.modal-bg').forEach(function(m) {
+  m.addEventListener('click', function(){ m.style.display = 'none'; });
+});
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.modal-bg').forEach(function(m){ m.style.display = 'none'; });
+    document.getElementById('ctx-menu').style.display = 'none';
+  }
+});
+
 function loadConfig() {
-  return fetch('/api/node-config').then(r => r.json()).then(data => { cachedConfig = data; return data; });
+  return fetch('/api/node-config').then(function(r){return r.json();}).then(function(d){ cachedConfig = d; return d; });
 }
-function populateStageSelect(selectId) {
-  const sel = document.getElementById(selectId);
+
+function fillStageSelect(id) {
+  var sel = document.getElementById(id);
   sel.innerHTML = '';
   if (cachedConfig && cachedConfig.available_stages) {
-    cachedConfig.available_stages.forEach(s => {
-      const o = document.createElement('option');
+    cachedConfig.available_stages.forEach(function(s) {
+      var o = document.createElement('option');
       o.value = s; o.textContent = s;
       sel.appendChild(o);
     });
   }
 }
 
-// ── Form-based Prompts (no prompt() — proper modals) ──────────────
-function promptRunStage() {
-  openStageSelectForm('run-stage', 'Run Stage', 'Select stage to run', 'Run');
-}
-function promptRetraceFrom() {
-  openStageSelectForm('retrace', 'Retrace From', 'Retrace from this stage onwards', 'Retrace');
-}
-function promptBypass() {
-  openStageSelectForm('bypass', 'Bypass Stage', 'Select stage to bypass (mark as done)', 'Bypass');
-}
-function promptForce() {
-  openStageSelectForm('force', 'Force Re-run', 'Select stage to force re-run', 'Force');
-}
-function promptForceValidate() {
-  openStageSelectForm('forcevalidate', 'Force Validate', 'Select stage to mark as completed', 'Validate');
-}
-
-function openStageSelectForm(action, title, label, btnText) {
-  loadConfig().then(() => {
-    populateStageSelect('stageselect-stage');
-    document.getElementById('stageselect-action').value = action;
-    document.getElementById('stageselect-title').textContent = title;
-    document.getElementById('stageselect-label').textContent = label;
-    document.getElementById('stageselect-submit').textContent = btnText;
-    document.getElementById('stageselect-overlay').style.display = 'flex';
+function promptAction(action, title, label, btnText) {
+  loadConfig().then(function() {
+    fillStageSelect('action-stage');
+    document.getElementById('action-type').value = action;
+    document.getElementById('action-title').textContent = title;
+    document.getElementById('action-label').textContent = label;
+    document.getElementById('action-submit').textContent = btnText;
+    openModal('action-modal');
   });
 }
-function closeStageSelect() { document.getElementById('stageselect-overlay').style.display = 'none'; }
-function submitStageSelect(e) {
+
+function submitAction(e) {
   e.preventDefault();
-  const action = document.getElementById('stageselect-action').value;
-  const stage = document.getElementById('stageselect-stage').value;
-  closeStageSelect();
+  var action = document.getElementById('action-type').value;
+  var stage = document.getElementById('action-stage').value;
+  closeModal('action-modal');
   if (action === 'run-stage') apiAction('run-stage', {stage: stage});
   else if (action === 'retrace') apiAction('retrace', {from_stage: stage});
   else if (action === 'bypass') apiAction('bypass', {stages: [stage]});
   else if (action === 'force') apiAction('force', {stages: [stage]});
   else if (action === 'forcevalidate') apiAction('forcevalidate', {stages: [stage]});
+  else if (action === 'delete-node') apiAction('delete-node', {name: stage});
 }
 
-// ── Add Node Form ─────────────────────────────────────────────────
 function promptAddNode() {
-  loadConfig().then(() => {
-    populateStageSelect('addnode-dep');
-    document.getElementById('addnode-name').value = '';
-    document.getElementById('addnode-overlay').style.display = 'flex';
+  loadConfig().then(function() {
+    fillStageSelect('an-dep');
+    // Populate node type dropdown dynamically from available stages (strip numeric suffix)
+    var typeSel = document.getElementById('an-type');
+    typeSel.innerHTML = '';
+    var seen = {};
+    if (cachedConfig && cachedConfig.available_stages) {
+      cachedConfig.available_stages.forEach(function(s) {
+        var base = s.replace(/\d+$/, '');
+        if (!seen[base]) {
+          seen[base] = true;
+          var o = document.createElement('option');
+          o.value = base; o.textContent = base;
+          typeSel.appendChild(o);
+        }
+      });
+    }
+    document.getElementById('an-name').value = '';
+    openModal('addnode-modal');
   });
 }
-function closeAddNode() { document.getElementById('addnode-overlay').style.display = 'none'; }
+
 function submitAddNode(e) {
   e.preventDefault();
-  const name = document.getElementById('addnode-name').value;
-  const type = document.getElementById('addnode-type').value;
-  const dep = document.getElementById('addnode-dep').value;
-  closeAddNode();
-  apiAction('add-node', {name: name, type: type, dep: dep});
-}
-
-// ── Delete Node ───────────────────────────────────────────────────
-function promptDeleteNode() {
-  openStageSelectForm('delete-node', 'Delete Node', 'Select node to delete', 'Delete');
-  // Override submit for delete
-  const origSubmit = submitStageSelect;
-  window.submitStageSelect = function(e) {
-    e.preventDefault();
-    const stage = document.getElementById('stageselect-stage').value;
-    closeStageSelect();
-    apiAction('delete-node', {name: stage});
-    window.submitStageSelect = origSubmit;
-  };
-}
-
-// ── Create Branch Form ────────────────────────────────────────────
-function promptCreateBranch() {
-  loadConfig().then(() => {
-    populateStageSelect('branch-from');
-    document.getElementById('branch-name').value = '';
-    document.getElementById('branch-overlay').style.display = 'flex';
+  closeModal('addnode-modal');
+  apiAction('add-node', {
+    name: document.getElementById('an-name').value,
+    type: document.getElementById('an-type').value,
+    dep: document.getElementById('an-dep').value
   });
 }
-function closeBranch() { document.getElementById('branch-overlay').style.display = 'none'; }
-function submitCreateBranch(e) {
+
+function promptCreateBranch() {
+  loadConfig().then(function() {
+    fillStageSelect('br-from');
+    document.getElementById('br-name').value = '';
+    openModal('branch-modal');
+  });
+}
+
+function submitBranch(e) {
   e.preventDefault();
-  const name = document.getElementById('branch-name').value;
-  const from = document.getElementById('branch-from').value;
-  closeBranch();
-  apiAction('create-branch', {name: name, from_stage: from});
+  closeModal('branch-modal');
+  apiAction('create-branch', {
+    name: document.getElementById('br-name').value,
+    from_stage: document.getElementById('br-from').value
+  });
 }
 
-// ── Right-click Context Menu ──────────────────────────────────────
-let ctxStage = '';
-function showContextMenu(stage, event) {
-  event.preventDefault();
-  ctxStage = stage;
-  const menu = document.getElementById('context-menu');
-  document.getElementById('ctx-header').textContent = stage;
-  menu.style.display = 'block';
-  menu.style.left = event.clientX + 'px';
-  menu.style.top = event.clientY + 'px';
-}
-document.addEventListener('click', () => {
-  document.getElementById('context-menu').style.display = 'none';
-});
-
-function ctxRunStage() { apiAction('run-stage', {stage: ctxStage}); }
-function ctxRetraceFrom() { apiAction('retrace', {from_stage: ctxStage}); }
-function ctxBypass() { apiAction('bypass', {stages: [ctxStage]}); }
-function ctxForce() { apiAction('force', {stages: [ctxStage]}); }
-function ctxForceValidate() { apiAction('forcevalidate', {stages: [ctxStage]}); }
-function ctxViewLogs() { showStageJobs(ctxStage); }
-function ctxViewDetails() { showStageJobs(ctxStage); }
-function ctxEditConfig() { openEditForm(ctxStage); }
-
-// ── Double-click Edit Form ────────────────────────────────────────
 function openEditForm(stage) {
-  document.getElementById('edit-stage').value = stage;
-  document.getElementById('edit-title').textContent = 'Edit Config — ' + stage;
-  loadConfig().then(data => {
-    const cfg = (data.stages || {})[stage] || {};
-    // Dynamically populate queue tier dropdown from config
-    const qSel = document.getElementById('edit-lsf-queue');
+  document.getElementById('ed-stage').value = stage;
+  document.getElementById('edit-title').textContent = 'Edit -- ' + stage;
+  loadConfig().then(function(data) {
+    var cfg = (data.stages || {})[stage] || {};
+    var qSel = document.getElementById('ed-queue');
     qSel.innerHTML = '';
-    const tiers = data.queue_tiers || [];
-    const qRes = data.queue_resources || {};
-    tiers.forEach(tier => {
-      const res = qRes[tier] || {};
-      const o = document.createElement('option');
-      o.value = tier;
-      o.textContent = tier + ' (' + (res.memory||'?') + ' / ' + (res.cpu||'?') + ' CPU)';
-      if (tier === cfg.lsf_queue) o.selected = true;
+    var tiers = data.queue_tiers || [];
+    var qRes = data.queue_resources || {};
+    tiers.forEach(function(t) {
+      var r = qRes[t] || {};
+      var o = document.createElement('option');
+      o.value = t;
+      o.textContent = t + ' (' + (r.memory||'?') + ' / ' + (r.cpu||'?') + ' CPU)';
+      if (t === cfg.lsf_queue) o.selected = true;
       qSel.appendChild(o);
     });
-    // When queue changes, auto-fill memory/cpu from config
     qSel.onchange = function() {
-      const res = qRes[this.value] || {};
-      document.getElementById('edit-lsf-memory').value = res.memory || '';
-      document.getElementById('edit-lsf-cpu').value = res.cpu || '';
+      var r = qRes[this.value] || {};
+      document.getElementById('ed-mem').value = r.memory || '';
+      document.getElementById('ed-cpu').value = r.cpu || '';
     };
-    document.getElementById('edit-lsf-memory').value = cfg.lsf_memory || '';
-    document.getElementById('edit-lsf-cpu').value = cfg.lsf_cpu || '';
-    document.getElementById('edit-timeout').value = cfg.timeout || '';
-    document.getElementById('edit-version').value = cfg.tool_version || '';
+    document.getElementById('ed-mem').value = cfg.lsf_memory || '';
+    document.getElementById('ed-cpu').value = cfg.lsf_cpu || '';
+    document.getElementById('ed-timeout').value = cfg.timeout || '';
+    document.getElementById('ed-version').value = cfg.tool_version || '';
   });
-  document.getElementById('edit-overlay').style.display = 'flex';
+  openModal('edit-modal');
 }
-function closeEdit() { document.getElementById('edit-overlay').style.display = 'none'; }
 
-function saveNodeConfig(event) {
-  event.preventDefault();
-  const body = {
-    stage: document.getElementById('edit-stage').value,
-    lsf_queue: document.getElementById('edit-lsf-queue').value,
-    lsf_memory: document.getElementById('edit-lsf-memory').value,
-    lsf_cpu: document.getElementById('edit-lsf-cpu').value,
-    timeout: document.getElementById('edit-timeout').value,
-    tool_version: document.getElementById('edit-version').value,
+function saveConfig(e) {
+  e.preventDefault();
+  var body = {
+    stage: document.getElementById('ed-stage').value,
+    lsf_queue: document.getElementById('ed-queue').value,
+    lsf_memory: document.getElementById('ed-mem').value,
+    lsf_cpu: document.getElementById('ed-cpu').value,
+    timeout: document.getElementById('ed-timeout').value,
+    tool_version: document.getElementById('ed-version').value
   };
-  fetch('/api/node-config', {
-    method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify(body)
-  }).then(r => r.json()).then(data => {
-    showToast(data.message || 'Config saved', 'success');
-    closeEdit();
-  }).catch(e => showToast('Error: ' + e, 'error'));
+  fetch('/api/node-config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
+    .then(function(r){return r.json();})
+    .then(function(d){ showToast(d.message || 'Saved', 'success'); closeModal('edit-modal'); })
+    .catch(function(e){ showToast('Error: ' + e, 'error'); });
 }
 
-// ── Update pipeline to support right-click + double-click ─────────
-// Override pipeline rendering to add event handlers
-const origRefresh = refresh;
-// Patch: after pipeline renders, attach context menu + dblclick
-const observer = new MutationObserver(() => {
-  document.querySelectorAll('.pipe-node').forEach(node => {
-    const stage = node.getAttribute('data-stage');
-    if (stage) {
-      node.addEventListener('contextmenu', e => showContextMenu(stage, e));
-      node.addEventListener('dblclick', () => openEditForm(stage));
-    }
-  });
-});
-observer.observe(document.getElementById('pipeline'), {childList: true});
-
-// Initial load + auto-refresh
+// ═══════════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════════
 refresh();
 setInterval(refresh, 5000);
 </script>

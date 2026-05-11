@@ -15,9 +15,7 @@
 
 # ┌─ Flow Stage Definitions ──────────────────────────────────────────────┐
 array set popt {
-    stages {inputs1 merge_timing1 power_opt1 post_merge1 release_data1}
-
-    subnodes,inputs1 {setup netlist sdc upf validate finish}
+    stages {netlist1 sdc1 upf1 merge_timing1 power_opt1 post_merge1 release_data1}
     subnodes,merge_timing1 {setup run validate finish}
     subnodes,power_opt1 {setup run validate finish}
     subnodes,post_merge1 {setup run validate finish}
@@ -26,8 +24,10 @@ array set popt {
 
 # ┌─ Stage Dependencies ────────────────────────────────────────────────────┐
 array set popt {
-    dependencies,inputs1 {}
-    dependencies,merge_timing1 {inputs1}
+    dependencies,netlist1 {}
+    dependencies,sdc1 {}
+    dependencies,upf1 {}
+    dependencies,merge_timing1 {netlist1 sdc1 upf1}
     dependencies,power_opt1 {merge_timing1}
     dependencies,post_merge1 {power_opt1}
     dependencies,release_data1 {post_merge1}
@@ -40,12 +40,6 @@ array set popt {
 # post_merge stage subnodes
 # release_data stage subnodes
 array set popt {
-    subnode_dependencies,inputs1,setup {}
-    subnode_dependencies,inputs1,netlist {setup}
-    subnode_dependencies,inputs1,sdc {setup}
-    subnode_dependencies,inputs1,upf {setup}
-    subnode_dependencies,inputs1,validate {netlist sdc upf}
-    subnode_dependencies,inputs1,finish {validate}
 
     subnode_dependencies,merge_timing1,setup {}
     subnode_dependencies,merge_timing1,run {setup}
@@ -80,7 +74,9 @@ array set popt {
 
 # ┌─ Runtime Settings ───────────────────────────────────────────────────────┐
 array set popt {
-    runtime,timeout,inputs1 20
+    runtime,timeout,netlist1 10
+    runtime,timeout,sdc1 10
+    runtime,timeout,upf1 10
     runtime,timeout,merge_timing1 30
     runtime,timeout,power_opt1 90
     runtime,timeout,post_merge1 20
@@ -89,9 +85,9 @@ array set popt {
 
 # ┌─ Subnode Input Type Mappings ───────────────────────────────────────────┐
 array set popt {
-    subnode_input_types,inputs1,netlist "netlist_inputs"
-    subnode_input_types,inputs1,sdc "sdc_inputs"
-    subnode_input_types,inputs1,upf "upf_inputs"
+    subnode_input_types,netlist1,netlist "netlist_inputs"
+    subnode_input_types,sdc1,sdc "sdc_inputs"
+    subnode_input_types,upf1,upf "upf_inputs"
 }
 
 # ┌─ Subnode Working Directories ────────────────────────────────────────────┐
@@ -101,12 +97,6 @@ array set popt {
 # post_merge stage directories
 # release_data stage directories
 array set popt {
-    subnode_work_dirs,inputs1,setup "work/inputs/setup"
-    subnode_work_dirs,inputs1,netlist "work/inputs/netlist"
-    subnode_work_dirs,inputs1,sdc "work/inputs/sdc"
-    subnode_work_dirs,inputs1,upf "work/inputs/upf"
-    subnode_work_dirs,inputs1,validate "work/inputs/validate"
-    subnode_work_dirs,inputs1,finish "work/inputs/finish"
 
     subnode_work_dirs,merge_timing1,setup "work/merge_timing/setup"
     subnode_work_dirs,merge_timing1,run "work/merge_timing/run"
@@ -131,19 +121,25 @@ array set popt {
 
 # ┌─ Stage Type Mappings and Descriptions ───────────────────────────────────┐
 array set popt {
-    stage_types,inputs1 "inputs"
+    stage_types,netlist1 "inputs"
+    stage_types,sdc1 "inputs"
+    stage_types,upf1 "inputs"
     stage_types,merge_timing1 "execution"
     stage_types,power_opt1 "execution"
     stage_types,post_merge1 "execution"
     stage_types,release_data1 "release_data"
 
-    node_types,inputs1 "inputs"
+    node_types,netlist1 "inputs"
+    node_types,sdc1 "inputs"
+    node_types,upf1 "inputs"
     node_types,merge_timing1 "merge_timing"
     node_types,power_opt1 "power_opt"
     node_types,post_merge1 "post_merge"
     node_types,release_data1 "release_data"
 
-    node_descriptions,inputs1 "Input file validation and preparation (6 subnodes: setup, netlist, sdc, upf, validate, finish)"
+    node_descriptions,netlist1 "Gate-level netlist input"
+    node_descriptions,sdc1 "SDC timing constraints input"
+    node_descriptions,upf1 "UPF power intent input"
     node_descriptions,merge_timing1 "Merge timing data and constraints (4 subnodes: setup, run, validate, finish)"
     node_descriptions,power_opt1 "Power optimization and clock gating (4 subnodes: setup, run, validate, finish)"
     node_descriptions,post_merge1 "Post-optimization merging and cleanup (4 subnodes: setup, run, validate, finish)"
@@ -152,14 +148,12 @@ array set popt {
 
 # ┌─ File Requirements ───────────────────────────────────────────────────────┐
 array set popt {
-    critical_files,inputs1 {popt(input,netlist) popt(input,sdc_func_file) popt(input,upf_file)}
     critical_files,merge_timing1 {popt(input,netlist) popt(input,sdc_func_file)}
     critical_files,power_opt1 {popt(input,netlist) popt(input,upf_file)}
 
     mandatory_outputs,power_opt1 {results/power_opt/optimized_netlist.v results/power_opt/power_report.rpt}
     mandatory_outputs,post_merge1 {results/merge/final_netlist.v}
 
-    optional_files,inputs1 {popt(input,power_scripts)}
 }
 
 # ┌─ Mandatory Input Groups ──────────────────────────────────────────────────┐
@@ -201,7 +195,7 @@ array set popt {
 
 # Configuration loading marker
 if {![info exists ::popt_config_loaded]} {
-    puts "INFO: POPT configuration loaded successfully - [llength $popt(stages)] stages, [expr {[llength $popt(subnodes,inputs1)] + [llength $popt(subnodes,merge_timing1)] + [llength $popt(subnodes,power_opt1)] + [llength $popt(subnodes,post_merge1)] + [llength $popt(subnodes,release_data1)]}] total subnodes"
+    puts "INFO: POPT configuration loaded successfully - [llength $popt(stages)] stages, [expr {[llength $popt(subnodes,netlist1)] + [llength $popt(subnodes,sdc1)] + [llength $popt(subnodes,upf1)] + [llength $popt(subnodes,merge_timing1)] + [llength $popt(subnodes,power_opt1)] + [llength $popt(subnodes,post_merge1)] + [llength $popt(subnodes,release_data1)]}] total subnodes"
     set ::popt_config_loaded true
 }
 

@@ -57,8 +57,9 @@
 
 <script>
 function statusColor(s) {
-  return {DONE:'#059669',FAIL:'#dc2626',RUNNING:'#2563eb',PENDING:'#6b7280',
-          BYPASSED:'#d97706',FORCE_VALIDATED:'#0d9488'}[s] || '#6b7280';
+  return {READY:'#c8a600',PENDING:'#00838f',RUNNING:'#2e7d32',DONE:'#00838f',
+          FAIL:'#b71c1c',INVALIDATED:'#7b1fa2',
+          BYPASSED:'#e65100',FORCE_VALIDATED:'#00695c'}[s] || '#757575';
 }
 function formatTime(s) { return s < 60 ? s.toFixed(1)+'s' : (s/60).toFixed(1)+'m'; }
 
@@ -80,7 +81,7 @@ function renderDAG(data) {
   stages.forEach((stage, i) => {
     const x = padX + i * (stageW + gapX);
     const y = padY + 30;
-    const n = nodeMap[stage] || {status:'PENDING'};
+    const n = nodeMap[stage] || {status:'READY'};
     const color = statusColor(n.status);
     const rt = n.runtime ? ' (' + formatTime(n.runtime) + ')' : '';
 

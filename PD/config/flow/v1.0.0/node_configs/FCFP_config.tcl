@@ -13,9 +13,7 @@
 
 # ┌─ Flow Stage Definitions ──────────────────────────────────────────────┐
 array set fcfp {
-    stages {inputs1 init_design1 commit_blocks1 init_compile1 create_floorplan1 shaping1 placement1 create_power1 place_pins1 top_compile1 timing_budget1 export_data1 release_data1}
-
-    subnodes,inputs1           {setup netlist sdc def upf library validate finish}
+    stages {netlist1 sdc1 def1 upf1 library1 init_design1 commit_blocks1 init_compile1 create_floorplan1 shaping1 placement1 create_power1 place_pins1 top_compile1 timing_budget1 export_data1 release_data1}
     subnodes,init_design1      {setup run validate finish}
     subnodes,commit_blocks1    {setup run validate finish}
     subnodes,init_compile1     {setup run validate finish}
@@ -32,8 +30,12 @@ array set fcfp {
 
 # ┌─ Stage Dependencies ────────────────────────────────────────────────────┐
 array set fcfp {
-    dependencies,inputs1           {}
-    dependencies,init_design1      {inputs1}
+    dependencies,netlist1          {}
+    dependencies,sdc1              {}
+    dependencies,def1              {}
+    dependencies,upf1              {}
+    dependencies,library1          {}
+    dependencies,init_design1      {netlist1 sdc1 def1 upf1 library1}
     dependencies,commit_blocks1    {init_design1}
     dependencies,init_compile1     {commit_blocks1}
     dependencies,create_floorplan1 {init_compile1}
@@ -49,14 +51,6 @@ array set fcfp {
 
 # ┌─ Subnode Dependencies ──────────────────────────────────────────────────┐
 array set fcfp {
-    subnode_dependencies,inputs1,setup {}
-    subnode_dependencies,inputs1,netlist {setup}
-    subnode_dependencies,inputs1,sdc {setup}
-    subnode_dependencies,inputs1,def {setup}
-    subnode_dependencies,inputs1,upf {setup}
-    subnode_dependencies,inputs1,library {setup}
-    subnode_dependencies,inputs1,validate {netlist sdc def upf library}
-    subnode_dependencies,inputs1,finish {validate}
 
     subnode_dependencies,init_design1,setup {}
     subnode_dependencies,init_design1,run {setup}
@@ -131,7 +125,11 @@ array set fcfp {
 
 # ┌─ Runtime Settings ───────────────────────────────────────────────────────┐
 array set fcfp {
-    runtime,timeout,inputs1           25
+    runtime,timeout,netlist1          10
+    runtime,timeout,sdc1              10
+    runtime,timeout,def1              10
+    runtime,timeout,upf1              10
+    runtime,timeout,library1          10
     runtime,timeout,init_design1      30
     runtime,timeout,commit_blocks1    30
     runtime,timeout,init_compile1     90
@@ -148,7 +146,11 @@ array set fcfp {
 
 # ┌─ Stage Type Mappings and Descriptions ───────────────────────────────────┐
 array set fcfp {
-    stage_types,inputs1           "inputs"
+    stage_types,netlist1          "inputs"
+    stage_types,sdc1              "inputs"
+    stage_types,def1              "inputs"
+    stage_types,upf1              "inputs"
+    stage_types,library1          "inputs"
     stage_types,init_design1      "execution"
     stage_types,commit_blocks1    "execution"
     stage_types,init_compile1     "execution"
@@ -162,7 +164,11 @@ array set fcfp {
     stage_types,export_data1      "export_data"
     stage_types,release_data1     "release_data"
 
-    node_types,inputs1           "inputs"
+    node_types,netlist1          "inputs"
+    node_types,sdc1              "inputs"
+    node_types,def1              "inputs"
+    node_types,upf1              "inputs"
+    node_types,library1          "inputs"
     node_types,init_design1      "init_design"
     node_types,commit_blocks1    "commit_blocks"
     node_types,init_compile1     "init_compile"
@@ -176,7 +182,11 @@ array set fcfp {
     node_types,export_data1      "export_data"
     node_types,release_data1     "release_data"
 
-    node_descriptions,inputs1           "Input file validation and preparation"
+    node_descriptions,netlist1          "Gate-level netlist input"
+    node_descriptions,sdc1              "SDC timing constraints input"
+    node_descriptions,def1              "DEF floorplan input"
+    node_descriptions,upf1              "UPF power intent input"
+    node_descriptions,library1          "Technology library input"
     node_descriptions,init_design1      "Hier DP init: create_lib, read RTL/netlist, UPF, SDC (FC-RM init_dp)"
     node_descriptions,commit_blocks1    "Commit block references, split constraints (FC-RM commit_blocks)"
     node_descriptions,init_compile1     "Initial hierarchical compile for area estimation (FC-RM init_compile)"

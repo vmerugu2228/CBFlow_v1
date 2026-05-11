@@ -18,13 +18,11 @@
 #       This allows multiple instances: place1, place2, etc.
 # Merge metadata - used when PNR is part of a merged flow (e.g., FP_PNR, SYNTH_FP_PNR)
 array set pnr {
-    stages {inputs1 init_design1 place1 cts1 cts_opt1 route1 pro1 signoff1 export_data1 release_data1}
+    stages {netlist1 sdc1 def1 upf1 init_design1 place1 cts1 cts_opt1 route1 pro1 signoff1 export_data1 release_data1}
 
-    merge_entry_stage     inputs1
+    merge_entry_stage     netlist1
     merge_handoff_stage   export_data1
     merge_parallel_stages {release_data1}
-
-    subnodes,inputs1       {setup netlist sdc def upf validate finish}
     subnodes,init_design1  {setup run validate finish}
     subnodes,place1 {setup run validate finish}
     subnodes,cts1 {setup run validate finish}
@@ -38,8 +36,11 @@ array set pnr {
 
 # ┌─ Stage Dependencies ────────────────────────────────────────────────────┐
 array set pnr {
-    dependencies,inputs1       {}
-    dependencies,init_design1  {inputs1}
+    dependencies,netlist1      {}
+    dependencies,sdc1          {}
+    dependencies,def1          {}
+    dependencies,upf1          {}
+    dependencies,init_design1  {netlist1 sdc1 def1 upf1}
     dependencies,place1 {init_design1}
     dependencies,cts1 {place1}
     dependencies,cts_opt1 {cts1}
@@ -60,13 +61,6 @@ array set pnr {
 # export_data1 stage subnodes
 # release_data1 stage subnodes
 array set pnr {
-    subnode_dependencies,inputs1,setup {}
-    subnode_dependencies,inputs1,netlist {}
-    subnode_dependencies,inputs1,sdc {}
-    subnode_dependencies,inputs1,def {}
-    subnode_dependencies,inputs1,upf {}
-    subnode_dependencies,inputs1,validate {setup netlist sdc def upf}
-    subnode_dependencies,inputs1,finish {validate}
 
     subnode_dependencies,init_design1,setup {}
     subnode_dependencies,init_design1,run {setup}
@@ -126,7 +120,10 @@ array set pnr {
 
 # ┌─ Runtime Settings ───────────────────────────────────────────────────────┐
 array set pnr {
-    runtime,timeout,inputs1 30
+    runtime,timeout,netlist1 10
+    runtime,timeout,sdc1 10
+    runtime,timeout,def1 10
+    runtime,timeout,upf1 10
     runtime,timeout,init_design1 30
     runtime,timeout,place1 180
     runtime,timeout,cts1 60
@@ -140,15 +137,14 @@ array set pnr {
 
 # ┌─ Subnode Input Type Mappings ───────────────────────────────────────────┐
 array set pnr {
-    subnode_input_types,inputs1,netlist "netlist_inputs"
-    subnode_input_types,inputs1,sdc "sdc_inputs"
-    subnode_input_types,inputs1,def "def_inputs"
-    subnode_input_types,inputs1,upf "upf_inputs"
-    subnode_input_types,inputs1,library "library_inputs"
+    subnode_input_types,netlist1,netlist "netlist_inputs"
+    subnode_input_types,sdc1,sdc "sdc_inputs"
+    subnode_input_types,def1,def "def_inputs"
+    subnode_input_types,upf1,upf "upf_inputs"
 }
 
 # ┌─ Subnode Working Directories ────────────────────────────────────────────┐
-# inputs1 stage directories
+# netlist1/sdc1/def1/upf1 input stage directories
 # place1 stage directories
 # cts1 stage directories
 # cts_opt1 stage directories
@@ -158,14 +154,6 @@ array set pnr {
 # export_data1 stage directories
 # release_data1 stage directories
 array set pnr {
-    subnode_work_dirs,inputs1,setup "work/inputs1/setup"
-    subnode_work_dirs,inputs1,netlist "work/inputs1/netlist"
-    subnode_work_dirs,inputs1,sdc "work/inputs1/sdc"
-    subnode_work_dirs,inputs1,def "work/inputs1/def"
-    subnode_work_dirs,inputs1,upf "work/inputs1/upf"
-    subnode_work_dirs,inputs1,library "work/inputs1/library"
-    subnode_work_dirs,inputs1,validate "work/inputs1/validate"
-    subnode_work_dirs,inputs1,finish "work/inputs1/finish"
 
     subnode_work_dirs,init_design1,setup "work/init_design1/setup"
     subnode_work_dirs,init_design1,run "work/init_design1/run"
@@ -217,7 +205,10 @@ array set pnr {
 # NOTE: node_types maps NODE NAME (inputs1) to NODE TYPE (inputs)
 #       This allows the system to identify the type of each named node
 array set pnr {
-    stage_types,inputs1 "inputs"
+    stage_types,netlist1 "inputs"
+    stage_types,sdc1 "inputs"
+    stage_types,def1 "inputs"
+    stage_types,upf1 "inputs"
     stage_types,init_design1 "execution"
     stage_types,place1 "execution"
     stage_types,cts1 "execution"
@@ -228,7 +219,10 @@ array set pnr {
     stage_types,export_data1 "export_data"
     stage_types,release_data1 "release_data"
 
-    node_types,inputs1 "inputs"
+    node_types,netlist1 "inputs"
+    node_types,sdc1 "inputs"
+    node_types,def1 "inputs"
+    node_types,upf1 "inputs"
     node_types,init_design1 "init_design"
     node_types,place1 "place"
     node_types,cts1 "cts"
@@ -239,7 +233,10 @@ array set pnr {
     node_types,export_data1 "export_data"
     node_types,release_data1 "release_data"
 
-    node_descriptions,inputs1 "Input file validation and preparation (8 subnodes: setup, netlist, sdc, def, upf, library, validate, finish)"
+    node_descriptions,netlist1 "Gate-level netlist input"
+    node_descriptions,sdc1 "SDC timing constraints input"
+    node_descriptions,def1 "DEF floorplan input"
+    node_descriptions,upf1 "UPF power intent input"
     node_descriptions,init_design1 "Design library creation, floorplan loading, technology setup (4 subnodes: setup, run, validate, finish)"
     node_descriptions,place1 "Standard cell placement (4 subnodes: setup, run, validate, finish)"
     node_descriptions,cts1 "Clock tree synthesis (4 subnodes: setup, run, validate, finish)"
@@ -253,7 +250,6 @@ array set pnr {
 
 # ┌─ File Requirements ───────────────────────────────────────────────────────┐
 array set pnr {
-    critical_files,inputs1 {pnr(input,netlist) pnr(input,sdc_func_file) pnr(input,def_file)}
     critical_files,place1 {pnr(input,netlist) pnr(input,sdc_func_file) pnr(input,def_file)}
     critical_files,cts1 {pnr(input,netlist) pnr(input,sdc_func_file)}
     critical_files,route1 {pnr(input,netlist) pnr(input,def_file)}
@@ -263,7 +259,6 @@ array set pnr {
     mandatory_outputs,route1 {results/route1/route.enc results/route1/route.rpt}
     mandatory_outputs,signoff1 {results/gds/final.gds results/netlist/final.v results/def/final.def}
 
-    optional_files,inputs1 {pnr(input,upf_file) pnr(input,tcl_scripts)}
     optional_files,place1 {pnr(place,scripts)}
 }
 
@@ -419,7 +414,7 @@ array set pnr {
 
 # Configuration loading marker
 if {![info exists ::pnr_config_loaded]} {
-    puts "INFO: PNR configuration loaded successfully - [llength $pnr(stages)] stages, [expr {[llength $pnr(subnodes,inputs1)] + [llength $pnr(subnodes,init_design1)] + [llength $pnr(subnodes,place1)] + [llength $pnr(subnodes,cts1)] + [llength $pnr(subnodes,cts_opt1)] + [llength $pnr(subnodes,route1)] + [llength $pnr(subnodes,pro1)] + [llength $pnr(subnodes,signoff1)] + [llength $pnr(subnodes,export_data1)] + [llength $pnr(subnodes,release_data1)]}] total subnodes"
+    puts "INFO: PNR configuration loaded successfully - [llength $pnr(stages)] stages, [expr {[llength $pnr(subnodes,netlist1)] + [llength $pnr(subnodes,sdc1)] + [llength $pnr(subnodes,def1)] + [llength $pnr(subnodes,upf1)] + [llength $pnr(subnodes,init_design1)] + [llength $pnr(subnodes,place1)] + [llength $pnr(subnodes,cts1)] + [llength $pnr(subnodes,cts_opt1)] + [llength $pnr(subnodes,route1)] + [llength $pnr(subnodes,pro1)] + [llength $pnr(subnodes,signoff1)] + [llength $pnr(subnodes,export_data1)] + [llength $pnr(subnodes,release_data1)]}] total subnodes"
     set ::pnr_config_loaded true
 }
 

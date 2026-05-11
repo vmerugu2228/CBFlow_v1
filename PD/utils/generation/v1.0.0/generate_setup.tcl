@@ -99,31 +99,48 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
         # Try multiple methods to determine flow type
         set flow_type ""
 
-        # Method 1: Check user config file
-        set user_config "$::env(CBFLOW_RUN_DIR)/setup/user_config.tcl"
-        if {[file exists $user_config]} {
-            set fd [open $user_config r]
-            set content [read $fd]
-            close $fd
-
-            if {[regexp {set\\s+flow\\(type\\)\\s+\"([^\"]+)\"} $content -> detected_type]} {
-                set flow_type $detected_type
-                handle_debug "Flow type detected from user config: $flow_type"
-            }
+        # Method 1: Environment variable (most reliable — set by cbflow)
+        if {[info exists ::env(CBFLOW_FLOW_TYPE)] && $::env(CBFLOW_FLOW_TYPE) ne ""} {
+            set flow_type $::env(CBFLOW_FLOW_TYPE)
+            handle_debug "Flow type from env: $flow_type"
+            return $flow_type
         }
 
         # Method 2: Check flow array if loaded
-        if {$flow_type eq "" && [info exists flow(type)]} {
+        if {[info exists flow(type)] && $flow(type) ne ""} {
             set flow_type $flow(type)
             handle_debug "Flow type from flow array: $flow_type"
+            return $flow_type
         }
 
-        # Method 3: Default fallback
-        if {$flow_type eq ""} {
-            set flow_type "SYNTH"
-            handle_debug "Using default flow type: $flow_type"
+        # Method 3: Check user config file
+        if {[info exists ::env(CBFLOW_RUN_DIR)]} {
+            set user_config "$::env(CBFLOW_RUN_DIR)/setup/user_config.tcl"
+            if {[file exists $user_config]} {
+                set fd [open $user_config r]
+                set content [read $fd]
+                close $fd
+                if {[regexp {set\s+flow\(type\)\s+"([^"]+)"} $content -> detected_type]} {
+                    set flow_type $detected_type
+                    handle_debug "Flow type detected from user config: $flow_type"
+                    return $flow_type
+                }
+            }
         }
 
+        # Method 4: Parse from run directory name (P0_run_SYNTH_PNR_run1 → SYNTH_PNR)
+        if {[info exists ::env(CBFLOW_RUN_DIR)]} {
+            set dirname [file tail $::env(CBFLOW_RUN_DIR)]
+            if {[regexp {P\d+_run_([A-Z_]+)_} $dirname -> detected_type]} {
+                set flow_type $detected_type
+                handle_debug "Flow type from run dir name: $flow_type"
+                return $flow_type
+            }
+        }
+
+        # Fallback
+        set flow_type "SYNTH"
+        handle_debug "Using default flow type: $flow_type"
         return $flow_type
     }
 
@@ -608,6 +625,8 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
         # Global arrays
         if {$flow_type eq "SYNTH"} {
             lappend lines "global synth project tech flow"
+        } elseif {$flow_type eq "SYNTH_PNR"} {
+            lappend lines "global synth_pnr synth pnr project tech flow"
         } else {
             lappend lines "global pnr project tech flow"
         }
@@ -750,6 +769,8 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
         # Global arrays
         if {$flow_type eq "SYNTH"} {
             lappend lines "global synth project tech flow"
+        } elseif {$flow_type eq "SYNTH_PNR"} {
+            lappend lines "global synth_pnr synth pnr project tech flow"
         } else {
             lappend lines "global pnr project tech flow"
         }

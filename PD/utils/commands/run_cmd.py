@@ -562,10 +562,14 @@ def cmd_status(args: argparse.Namespace) -> int:
             logger.info(f"  [DONE] {label:<30} {ts}{runtime}")
         elif status == 'RUNNING':
             logger.info(f"  [RUN ] {label:<30} running")
+        elif status == 'PENDING':
+            logger.info(f"  [PEND] {label:<30} waiting for deps")
         elif status == 'FAIL':
             logger.info(f"  [FAIL] {label:<30} {ts}")
+        elif status == 'INVALIDATED':
+            logger.info(f"  [INVD] {label:<30} needs rerun")
         else:
-            logger.info(f"  [    ] {label:<30}")
+            logger.info(f"  [RDY ] {label:<30}")
 
     # Show status for base stages
     show_details = getattr(args, 'details', False)
@@ -777,10 +781,10 @@ def cmd_retrace(args: argparse.Namespace) -> int:
         _sys.stderr.write(f'\r  [{bar}] {pct:3d}%  Invalidating {stage}...')
         _sys.stderr.flush()
 
-        # Invalidate this stage in engine
+        # Invalidate this stage in engine (any status except already INVALIDATED)
         for name, job in engine.jobs.items():
-            if job.stage == stage and job.status == 'DONE':
-                job.status = 'PENDING'
+            if job.stage == stage and job.status != 'INVALIDATED':
+                job.status = 'INVALIDATED'
                 # Remove stamp
                 stamp = os.path.join(os.getcwd(), '.stamps', f'{name}.stamp')
                 if os.path.exists(stamp):
@@ -874,7 +878,7 @@ def cmd_report(args: argparse.Namespace) -> int:
     for stage in stages:
         subnodes = get_subnodes(flow_type, stage)
         stage_done = stage in completed
-        status = 'DONE' if stage_done else 'PENDING'
+        status = 'DONE' if stage_done else 'READY'
         cmd_base = _re.sub(r'\d+$', '', stage)
 
         logger.info(f'  {thin}')

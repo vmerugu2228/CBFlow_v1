@@ -18,13 +18,11 @@
 #       This allows multiple instances: synthesis1, synthesis2, etc.
 # Merge metadata - used when SYNTH is part of a merged flow (e.g., SYNTH_FP)
 array set synth {
-    stages {inputs1 init_design1 synthesis1 export_data1 release_data1}
+    stages {rtl1 sdc1 upf1 init_design1 synthesis1 export_data1 release_data1}
 
-    merge_entry_stage     inputs1
+    merge_entry_stage     rtl1
     merge_handoff_stage   export_data1
     merge_parallel_stages {release_data1}
-
-    subnodes,inputs1        {setup rtl sdc upf validate finish}
     subnodes,init_design1   {setup run validate finish}
     subnodes,synthesis1     {setup run validate finish}
     subnodes,export_data1   {setup run validate finish}
@@ -33,8 +31,10 @@ array set synth {
 
 # ┌─ Stage Dependencies ────────────────────────────────────────────────────┐
 array set synth {
-    dependencies,inputs1        {}
-    dependencies,init_design1   {inputs1}
+    dependencies,rtl1           {}
+    dependencies,sdc1           {}
+    dependencies,upf1           {}
+    dependencies,init_design1   {rtl1 sdc1 upf1}
     dependencies,synthesis1     {init_design1}
     dependencies,export_data1   {synthesis1}
     dependencies,release_data1  {export_data1}
@@ -45,12 +45,6 @@ array set synth {
 # export_data1 stage subnodes
 # release_data1 stage subnodes
 array set synth {
-    subnode_dependencies,inputs1,setup {}
-    subnode_dependencies,inputs1,rtl {}
-    subnode_dependencies,inputs1,sdc {}
-    subnode_dependencies,inputs1,upf {}
-    subnode_dependencies,inputs1,validate {setup rtl sdc upf}
-    subnode_dependencies,inputs1,finish {validate}
 
     subnode_dependencies,init_design1,setup {}
     subnode_dependencies,init_design1,run {setup}
@@ -94,7 +88,9 @@ array set synth {
 
 # ┌─ Runtime Settings ───────────────────────────────────────────────────────┐
 array set synth {
-    runtime,timeout,inputs1       15
+    runtime,timeout,rtl1          10
+    runtime,timeout,sdc1          10
+    runtime,timeout,upf1          10
     runtime,timeout,init_design1  30
     runtime,timeout,synthesis1    120
     runtime,timeout,export_data1  15
@@ -103,10 +99,9 @@ array set synth {
 
 # ┌─ Subnode Input Type Mappings ───────────────────────────────────────────┐
 array set synth {
-    subnode_input_types,inputs1,rtl "rtl_inputs"
-    subnode_input_types,inputs1,sdc "sdc_inputs"
-    subnode_input_types,inputs1,upf "upf_inputs"
-    subnode_input_types,inputs1,library "library_inputs"
+    subnode_input_types,rtl1,rtl "rtl_inputs"
+    subnode_input_types,sdc1,sdc "sdc_inputs"
+    subnode_input_types,upf1,upf "upf_inputs"
 }
 
 # ┌─ Subnode Working Directories ────────────────────────────────────────────┐
@@ -115,13 +110,6 @@ array set synth {
 # export_data1 stage directories
 # release_data1 stage directories
 array set synth {
-    subnode_work_dirs,inputs1,setup "work/inputs1/setup"
-    subnode_work_dirs,inputs1,rtl "work/inputs1/rtl"
-    subnode_work_dirs,inputs1,sdc "work/inputs1/sdc"
-    subnode_work_dirs,inputs1,library "work/inputs1/library"
-    subnode_work_dirs,inputs1,upf "work/inputs1/upf"
-    subnode_work_dirs,inputs1,validate "work/inputs1/validate"
-    subnode_work_dirs,inputs1,finish "work/inputs1/finish"
 
     subnode_work_dirs,init_design1,setup "work/init_design1/setup"
     subnode_work_dirs,init_design1,run "work/init_design1/run"
@@ -148,19 +136,25 @@ array set synth {
 # NOTE: node_types maps NODE NAME (inputs1) to NODE TYPE (inputs)
 #       This allows the system to identify the type of each named node
 array set synth {
-    stage_types,inputs1 "inputs"
+    stage_types,rtl1 "inputs"
+    stage_types,sdc1 "inputs"
+    stage_types,upf1 "inputs"
     stage_types,init_design1 "execution"
     stage_types,synthesis1 "execution"
     stage_types,export_data1 "export_data"
     stage_types,release_data1 "release_data"
 
-    node_types,inputs1 "inputs"
+    node_types,rtl1 "inputs"
+    node_types,sdc1 "inputs"
+    node_types,upf1 "inputs"
     node_types,init_design1 "init_design"
     node_types,synthesis1 "synthesis"
     node_types,export_data1 "export_data"
     node_types,release_data1 "release_data"
 
-    node_descriptions,inputs1 "Input file validation and preparation (7 subnodes: setup, rtl, sdc, library, upf, validate, finish)"
+    node_descriptions,rtl1 "RTL source input"
+    node_descriptions,sdc1 "SDC timing constraints input"
+    node_descriptions,upf1 "UPF power intent input"
     node_descriptions,init_design1 "Design library creation, technology setup (4 subnodes: setup, run, validate, finish)"
     node_descriptions,synthesis1 "Logic synthesis and optimization (4 subnodes: setup, run, validate, finish)"
     node_descriptions,export_data1 "Export synthesis data and results (4 subnodes: setup, run, validate, finish)"
@@ -169,13 +163,10 @@ array set synth {
 
 # ┌─ File Requirements ───────────────────────────────────────────────────────┐
 array set synth {
-    critical_files,inputs1 {synth(input,rtl_files)}
     critical_files,synthesis1 {synth(input,rtl_files) synth(input,sdc_file)}
 
     mandatory_outputs,synthesis1 {results/netlist/synth.v results/sdc/synth.sdc}
     mandatory_outputs,export_data1 {results/db/synth.db}
-
-    optional_files,inputs1 {synth(input,upf_file) synth(input,tcl_scripts)}
 }
 
 # ┌─ Mandatory Input Groups ──────────────────────────────────────────────────┐
@@ -325,7 +316,7 @@ array set synth {
 
 # Configuration loading marker
 if {![info exists ::synth_config_loaded]} {
-    puts "INFO: SYNTH configuration loaded successfully - [llength $synth(stages)] stages, [expr {[llength $synth(subnodes,inputs1)] + [llength $synth(subnodes,init_design1)] + [llength $synth(subnodes,synthesis1)] + [llength $synth(subnodes,export_data1)] + [llength $synth(subnodes,release_data1)]}] total subnodes"
+    puts "INFO: SYNTH configuration loaded successfully - [llength $synth(stages)] stages, [expr {[llength $synth(subnodes,rtl1)] + [llength $synth(subnodes,sdc1)] + [llength $synth(subnodes,upf1)] + [llength $synth(subnodes,init_design1)] + [llength $synth(subnodes,synthesis1)] + [llength $synth(subnodes,export_data1)] + [llength $synth(subnodes,release_data1)]}] total subnodes"
     set ::synth_config_loaded true
 }
 

@@ -16,21 +16,21 @@
 # ┌─ Flow Stage Definitions ──────────────────────────────────────────────┐
 # Merge metadata
 array set clp {
-    stages {inputs1 clp1 release_data1}
+    stages {netlist1 upf1 power_spec1 clp1 release_data1}
 
-    merge_entry_stage     inputs1
+    merge_entry_stage     netlist1
     merge_handoff_stage   clp1
     merge_parallel_stages {release_data1}
-
-    subnodes,inputs1 {setup netlist upf power_spec validate finish}
     subnodes,clp1 {setup run validate finish}
     subnodes,release_data1 {setup run validate finish}
 }
 
 # ┌─ Stage Dependencies ────────────────────────────────────────────────────┐
 array set clp {
-    dependencies,inputs1 {}
-    dependencies,clp1 {inputs1}
+    dependencies,netlist1 {}
+    dependencies,upf1 {}
+    dependencies,power_spec1 {}
+    dependencies,clp1 {netlist1 upf1 power_spec1}
     dependencies,release_data1 {clp1}
 }
 
@@ -39,12 +39,6 @@ array set clp {
 # clp stage subnodes
 # release_data stage subnodes
 array set clp {
-    subnode_dependencies,inputs1,setup {}
-    subnode_dependencies,inputs1,netlist {setup}
-    subnode_dependencies,inputs1,upf {setup}
-    subnode_dependencies,inputs1,power_spec {setup}
-    subnode_dependencies,inputs1,validate {netlist upf power_spec}
-    subnode_dependencies,inputs1,finish {validate}
 
     subnode_dependencies,clp1,setup {}
     subnode_dependencies,clp1,run {setup}
@@ -69,16 +63,18 @@ array set clp {
 
 # ┌─ Runtime Settings ───────────────────────────────────────────────────────┐
 array set clp {
-    runtime,timeout,inputs1 20
+    runtime,timeout,netlist1 10
+    runtime,timeout,upf1 10
+    runtime,timeout,power_spec1 10
     runtime,timeout,clp1 60
     runtime,timeout,release_data1 10
 }
 
 # ┌─ Subnode Input Type Mappings ───────────────────────────────────────────┐
 array set clp {
-    subnode_input_types,inputs1,netlist "netlist_inputs"
-    subnode_input_types,inputs1,upf "upf_inputs"
-    subnode_input_types,inputs1,power_spec "power_spec_inputs"
+    subnode_input_types,netlist1,netlist "netlist_inputs"
+    subnode_input_types,upf1,upf "upf_inputs"
+    subnode_input_types,power_spec1,power_spec "power_spec_inputs"
 }
 
 # ┌─ Subnode Working Directories ────────────────────────────────────────────┐
@@ -86,12 +82,6 @@ array set clp {
 # clp stage directories
 # release_data stage directories
 array set clp {
-    subnode_work_dirs,inputs1,setup "work/inputs/setup"
-    subnode_work_dirs,inputs1,netlist "work/inputs/netlist"
-    subnode_work_dirs,inputs1,upf "work/inputs/upf"
-    subnode_work_dirs,inputs1,power_spec "work/inputs/power_spec"
-    subnode_work_dirs,inputs1,validate "work/inputs/validate"
-    subnode_work_dirs,inputs1,finish "work/inputs/finish"
 
     subnode_work_dirs,clp1,setup "work/clp/setup"
     subnode_work_dirs,clp1,run "work/clp/run"
@@ -106,27 +96,31 @@ array set clp {
 
 # ┌─ Stage Type Mappings and Descriptions ───────────────────────────────────┐
 array set clp {
-    stage_types,inputs1 "inputs"
+    stage_types,netlist1 "inputs"
+    stage_types,upf1 "inputs"
+    stage_types,power_spec1 "inputs"
     stage_types,clp1 "execution"
     stage_types,release_data1 "release_data"
 
-    node_types,inputs1 "inputs"
+    node_types,netlist1 "inputs"
+    node_types,upf1 "inputs"
+    node_types,power_spec1 "inputs"
     node_types,clp1 "clp"
     node_types,release_data1 "release_data"
 
-    node_descriptions,inputs1 "Input file validation and preparation (6 subnodes: setup, netlist, upf, power_spec, validate, finish)"
+    node_descriptions,netlist1 "Gate-level netlist input"
+    node_descriptions,upf1 "UPF power intent input"
+    node_descriptions,power_spec1 "Power specification input"
     node_descriptions,clp1 "Conformal low power verification (4 subnodes: setup, run, validate, finish)"
     node_descriptions,release_data1 "Release CLP deliverables (4 subnodes: setup, run, validate, finish)"
 }
 
 # ┌─ File Requirements ───────────────────────────────────────────────────────┐
 array set clp {
-    critical_files,inputs1 {clp(input,netlist) clp(input,upf_file) clp(input,power_spec)}
     critical_files,clp1 {clp(input,netlist) clp(input,upf_file)}
 
     mandatory_outputs,clp1 {results/clp/power_verification.rpt}
 
-    optional_files,inputs1 {clp(input,clp_scripts)}
 }
 
 # ┌─ Mandatory Input Groups ──────────────────────────────────────────────────┐
@@ -175,7 +169,7 @@ array set clp {
 
 # Configuration loading marker
 if {![info exists ::clp_config_loaded]} {
-    puts "INFO: CLP configuration loaded successfully - [llength $clp(stages)] stages, [expr {[llength $clp(subnodes,inputs1)] + [llength $clp(subnodes,clp1)] + [llength $clp(subnodes,release_data1)]}] total subnodes"
+    puts "INFO: CLP configuration loaded successfully - [llength $clp(stages)] stages, [expr {[llength $clp(subnodes,netlist1)] + [llength $clp(subnodes,upf1)] + [llength $clp(subnodes,power_spec1)] + [llength $clp(subnodes,clp1)] + [llength $clp(subnodes,release_data1)]}] total subnodes"
     set ::clp_config_loaded true
 }
 

@@ -12,11 +12,13 @@ from pathlib import Path
 
 class StageStatus:
     """Status constants."""
+    READY = 'READY'
     PENDING = 'PENDING'
     RUNNING = 'RUNNING'
     DONE = 'DONE'
     FAIL = 'FAIL'
     SKIPPED = 'SKIPPED'
+    INVALIDATED = 'INVALIDATED'
 
 
 class StatusProvider:
@@ -58,7 +60,7 @@ class StatusProvider:
     def get_stage_status(self, stage: str) -> dict:
         conn = self._connect()
         if not conn:
-            return {'status': StageStatus.PENDING, 'timestamp': '', 'runtime': 0, 'exit_code': -1}
+            return {'status': StageStatus.READY, 'timestamp': '', 'runtime': 0, 'exit_code': -1}
         try:
             cur = conn.execute(
                 'SELECT status, start_time, end_time, runtime_sec, exit_code, lsf_job_id '
@@ -70,7 +72,7 @@ class StatusProvider:
                     'runtime': row[3] or 0, 'exit_code': row[4] or 0,
                     'lsf_job_id': row[5] or '',
                 }
-            return {'status': StageStatus.PENDING, 'timestamp': '', 'runtime': 0, 'exit_code': -1}
+            return {'status': StageStatus.READY, 'timestamp': '', 'runtime': 0, 'exit_code': -1}
         finally:
             conn.close()
 
@@ -81,8 +83,10 @@ class StatusProvider:
         try:
             result = {}
             cur = conn.execute(
-                'SELECT job_name, status, end_time, start_time, runtime_sec '
-                'FROM jobs WHERE job_type = "stage" ORDER BY rowid')
+                "SELECT job_name, status, end_time, start_time, runtime_sec "
+                "FROM jobs WHERE job_type = 'stage' "
+                "AND id IN (SELECT MAX(id) FROM jobs GROUP BY job_name) "
+                "ORDER BY id")
             for name, status, end, start, runtime in cur:
                 result[name] = {
                     'status': status,
@@ -96,7 +100,7 @@ class StatusProvider:
     def get_subnode_status(self, stage: str, subnode: str) -> dict:
         conn = self._connect()
         if not conn:
-            return {'status': StageStatus.PENDING, 'timestamp': ''}
+            return {'status': StageStatus.READY, 'timestamp': ''}
         try:
             job_name = f'{stage}_{subnode}'
             cur = conn.execute(
@@ -105,7 +109,7 @@ class StatusProvider:
             row = cur.fetchone()
             if row:
                 return {'status': row[0], 'timestamp': row[1] or row[2] or '', 'runtime': row[3] or 0}
-            return {'status': StageStatus.PENDING, 'timestamp': ''}
+            return {'status': StageStatus.READY, 'timestamp': ''}
         finally:
             conn.close()
 
@@ -115,7 +119,10 @@ class StatusProvider:
             return []
         try:
             cur = conn.execute(
-                "SELECT job_name FROM jobs WHERE job_type = 'stage' AND status = 'DONE' ORDER BY rowid")
+                "SELECT job_name FROM jobs "
+                "WHERE job_type = 'stage' AND status IN ('DONE','BYPASSED','FORCE_VALIDATED') "
+                "AND id IN (SELECT MAX(id) FROM jobs GROUP BY job_name) "
+                "ORDER BY id")
             return [row[0] for row in cur]
         finally:
             conn.close()

@@ -18,15 +18,13 @@
 # Handoff stage - the stage that connects to next flow's inputs (in merged flows)
 # Parallel stages - stages that branch off and don't block next flow (in merged flows)
 array set fp {
-    stages {inputs1 init_design1 import_design1 floorplan1 powerplan1 place_pins1 export_data1 release_data1}
+    stages {netlist1 sdc1 def1 upf1 library1 init_design1 import_design1 floorplan1 powerplan1 place_pins1 export_data1 release_data1}
 
-    merge_entry_stage    inputs1
+    merge_entry_stage    netlist1
 
     merge_handoff_stage  export_data1
 
     merge_parallel_stages {release_data1}
-
-    subnodes,inputs1 {netlist sdc def upf library validate finish}
     subnodes,init_design1 {setup run validate finish}
     subnodes,import_design1 {setup run validate finish}
     subnodes,floorplan1 {setup run validate finish}
@@ -38,8 +36,12 @@ array set fp {
 
 # ┌─ Stage Dependencies ────────────────────────────────────────────────────┐
 array set fp {
-    dependencies,inputs1 {}
-    dependencies,init_design1 {inputs1}
+    dependencies,netlist1 {}
+    dependencies,sdc1 {}
+    dependencies,def1 {}
+    dependencies,upf1 {}
+    dependencies,library1 {}
+    dependencies,init_design1 {netlist1 sdc1 def1 upf1 library1}
     dependencies,import_design1 {init_design1}
     dependencies,floorplan1 {import_design1}
     dependencies,powerplan1 {floorplan1}
@@ -55,13 +57,6 @@ array set fp {
 # export_data stage subnodes
 # release_data stage subnodes
 array set fp {
-    subnode_dependencies,inputs1,netlist {}
-    subnode_dependencies,inputs1,sdc {}
-    subnode_dependencies,inputs1,def {}
-    subnode_dependencies,inputs1,upf {}
-    subnode_dependencies,inputs1,library {}
-    subnode_dependencies,inputs1,validate {netlist sdc def upf library}
-    subnode_dependencies,inputs1,finish {validate}
 
     subnode_dependencies,init_design1,setup {}
     subnode_dependencies,init_design1,run {setup}
@@ -111,7 +106,11 @@ array set fp {
 
 # ┌─ Runtime Settings ───────────────────────────────────────────────────────┐
 array set fp {
-    runtime,timeout,inputs1 25
+    runtime,timeout,netlist1 10
+    runtime,timeout,sdc1 10
+    runtime,timeout,def1 10
+    runtime,timeout,upf1 10
+    runtime,timeout,library1 10
     runtime,timeout,init_design1 30
     runtime,timeout,import_design1 60
     runtime,timeout,floorplan1 90
@@ -123,11 +122,11 @@ array set fp {
 
 # ┌─ Subnode Input Type Mappings ───────────────────────────────────────────┐
 array set fp {
-    subnode_input_types,inputs1,netlist "netlist_inputs"
-    subnode_input_types,inputs1,sdc "sdc_inputs"
-    subnode_input_types,inputs1,def "def_inputs"
-    subnode_input_types,inputs1,upf "upf_inputs"
-    subnode_input_types,inputs1,library "library_inputs"
+    subnode_input_types,netlist1,netlist "netlist_inputs"
+    subnode_input_types,sdc1,sdc "sdc_inputs"
+    subnode_input_types,def1,def "def_inputs"
+    subnode_input_types,upf1,upf "upf_inputs"
+    subnode_input_types,library1,library "library_inputs"
 }
 
 # ┌─ Subnode Working Directories ────────────────────────────────────────────┐
@@ -140,14 +139,6 @@ array set fp {
 # export_data stage directories
 # release_data stage directories
 array set fp {
-    subnode_work_dirs,inputs1,setup "work/inputs/setup"
-    subnode_work_dirs,inputs1,netlist "work/inputs/netlist"
-    subnode_work_dirs,inputs1,sdc "work/inputs/sdc"
-    subnode_work_dirs,inputs1,def "work/inputs/def"
-    subnode_work_dirs,inputs1,upf "work/inputs/upf"
-    subnode_work_dirs,inputs1,library "work/inputs/library"
-    subnode_work_dirs,inputs1,validate "work/inputs/validate"
-    subnode_work_dirs,inputs1,finish "work/inputs/finish"
 
     subnode_work_dirs,init_design1,setup "work/init_design/setup"
     subnode_work_dirs,init_design1,run "work/init_design/run"
@@ -187,7 +178,11 @@ array set fp {
 
 # ┌─ Stage Type Mappings and Descriptions ───────────────────────────────────┐
 array set fp {
-    stage_types,inputs1 "inputs"
+    stage_types,netlist1 "inputs"
+    stage_types,sdc1 "inputs"
+    stage_types,def1 "inputs"
+    stage_types,upf1 "inputs"
+    stage_types,library1 "inputs"
     stage_types,init_design1 "execution"
     stage_types,import_design1 "execution"
     stage_types,floorplan1 "execution"
@@ -196,7 +191,11 @@ array set fp {
     stage_types,export_data1 "export_data"
     stage_types,release_data1 "release_data"
 
-    node_types,inputs1 "inputs"
+    node_types,netlist1 "inputs"
+    node_types,sdc1 "inputs"
+    node_types,def1 "inputs"
+    node_types,upf1 "inputs"
+    node_types,library1 "inputs"
     node_types,init_design1 "init_design"
     node_types,import_design1 "import_design"
     node_types,floorplan1 "floorplan"
@@ -205,7 +204,11 @@ array set fp {
     node_types,export_data1 "export_data"
     node_types,release_data1 "release_data"
 
-    node_descriptions,inputs1 "Input file validation and preparation"
+    node_descriptions,netlist1 "Gate-level netlist input"
+    node_descriptions,sdc1 "SDC timing constraints input"
+    node_descriptions,def1 "DEF floorplan input"
+    node_descriptions,upf1 "UPF power intent input"
+    node_descriptions,library1 "Technology library input"
     node_descriptions,init_design1 "Design library creation, RTL/netlist load, technology setup (FC-RM init_design_dp)"
     node_descriptions,import_design1 "Early compile for area estimation (FC-RM compile_dp)"
     node_descriptions,floorplan1 "Floorplan creation: initialize, macros, boundaries, tap cells (FC-RM create_floorplan)"
@@ -217,7 +220,6 @@ array set fp {
 
 # ┌─ File Requirements ───────────────────────────────────────────────────────┐
 array set fp {
-    critical_files,inputs1 {fp(input,netlist) fp(input,sdc_func_file) fp(input,def_file)}
     critical_files,import_design1 {fp(input,netlist)}
     critical_files,floorplan1 {fp(input,netlist) fp(input,def_file)}
     critical_files,powerplan1 {fp(input,upf_file)}
@@ -225,7 +227,6 @@ array set fp {
     mandatory_outputs,import_design1 {results/design/design_imported.def}
     mandatory_outputs,floorplan1 {results/floorplan/floorplan.def results/floorplan/io_placement.rpt}
     mandatory_outputs,powerplan1 {results/powerplan/power_grid.def results/powerplan/power_analysis.rpt}
-    optional_files,inputs1 {fp(input,upf_file) fp(input,tcl_scripts)}
 }
 
 # ┌─ Mandatory Input Groups ──────────────────────────────────────────────────┐
