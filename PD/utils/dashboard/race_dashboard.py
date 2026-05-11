@@ -262,8 +262,40 @@ class RaceDashboard:
                             m = re.search(r'"([^"]+)"', line)
                             if m: configs[stage]['lsf_cpu'] = m.group(1)
 
-        return {'stages': configs, 'queue_tiers': list(queue_resources.keys()),
-                'queue_resources': queue_resources}
+        # Read timeouts from node_config
+        flow_ver = 'v1.0.0'
+        nc_path = os.path.join(flow_dir, 'config', 'flow', flow_ver,
+                                'node_configs', f'{self.flow_type}_config.tcl')
+        if os.path.exists(nc_path):
+            with open(nc_path) as f:
+                nc = f.read()
+            for stage in stage_order:
+                m = re.search(rf'runtime,timeout,{stage}\s+(\d+)', nc)
+                if m:
+                    configs[stage]['timeout'] = m.group(1)
+
+        # Read tool versions from env
+        env_file = os.path.join(self.run_dir, '.run.cbflow.env')
+        tool_versions = {}
+        if os.path.exists(env_file):
+            with open(env_file) as f:
+                for line in f:
+                    if '_VERSION=' in line and 'export' in line:
+                        kv = line.replace('export ', '').strip().split('=', 1)
+                        if len(kv) == 2:
+                            tool_versions[kv[0]] = kv[1].strip('"')
+
+        # Read available flow stages from node_config
+        available_stages = stage_order
+
+        return {
+            'stages': configs,
+            'queue_tiers': sorted(queue_resources.keys()),
+            'queue_resources': queue_resources,
+            'tool_versions': tool_versions,
+            'available_stages': available_stages,
+            'flow_type': self.flow_type,
+        }
 
     def get_all_jobs(self) -> list:
         conn = self._connect()

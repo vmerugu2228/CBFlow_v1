@@ -56,7 +56,7 @@
   <a onclick="ctxViewDetails()">&#128269; Job Details</a>
 </div>
 
-<!-- Node Edit Form Modal -->
+<!-- Node Edit Form Modal (dynamic — populated from /api/node-config) -->
 <div class="modal-overlay" id="edit-overlay" onclick="closeEdit()">
   <div class="modal" onclick="event.stopPropagation()" style="max-width:500px">
     <div class="modal-header">
@@ -68,33 +68,119 @@
         <input type="hidden" id="edit-stage" value="">
         <div class="form-group">
           <label>LSF Queue Tier</label>
-          <select id="edit-lsf-queue">
-            <option value="S">S (8GB / 4 CPU)</option>
-            <option value="M" selected>M (16GB / 8 CPU)</option>
-            <option value="L">L (32GB / 16 CPU)</option>
-            <option value="XL">XL (64GB / 32 CPU)</option>
-            <option value="ultra">ultra (128GB / 64 CPU)</option>
-          </select>
+          <select id="edit-lsf-queue"></select>
         </div>
         <div class="form-group">
           <label>Memory</label>
-          <input type="text" id="edit-lsf-memory" placeholder="e.g., 32GB">
+          <input type="text" id="edit-lsf-memory">
         </div>
         <div class="form-group">
           <label>CPU Cores</label>
-          <input type="text" id="edit-lsf-cpu" placeholder="e.g., 16">
+          <input type="text" id="edit-lsf-cpu">
         </div>
         <div class="form-group">
           <label>Timeout (minutes)</label>
-          <input type="text" id="edit-timeout" placeholder="e.g., 120">
+          <input type="text" id="edit-timeout">
         </div>
         <div class="form-group">
           <label>Tool Version</label>
-          <input type="text" id="edit-version" placeholder="e.g., v1.0.0">
+          <input type="text" id="edit-version">
         </div>
         <div class="form-actions">
           <button type="button" onclick="closeEdit()" class="btn-cancel">Cancel</button>
           <button type="submit" class="btn-save">Save Config</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Add Node Form Modal -->
+<div class="modal-overlay" id="addnode-overlay" onclick="closeAddNode()">
+  <div class="modal" onclick="event.stopPropagation()" style="max-width:500px">
+    <div class="modal-header">
+      <h3>Add Node</h3>
+      <button onclick="closeAddNode()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form onsubmit="submitAddNode(event)">
+        <div class="form-group">
+          <label>Node Name</label>
+          <input type="text" id="addnode-name" placeholder="e.g., place2" required>
+        </div>
+        <div class="form-group">
+          <label>Node Type</label>
+          <select id="addnode-type">
+            <option value="inputs">inputs</option>
+            <option value="init_design">init_design</option>
+            <option value="synthesis">synthesis</option>
+            <option value="place" selected>place</option>
+            <option value="cts">cts</option>
+            <option value="cts_opt">cts_opt</option>
+            <option value="route">route</option>
+            <option value="pro">pro</option>
+            <option value="signoff">signoff</option>
+            <option value="export_data">export_data</option>
+            <option value="release_data">release_data</option>
+            <option value="eco">eco</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Depends On (Stage)</label>
+          <select id="addnode-dep"></select>
+        </div>
+        <div class="form-actions">
+          <button type="button" onclick="closeAddNode()" class="btn-cancel">Cancel</button>
+          <button type="submit" class="btn-save">Add Node</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Create Branch Form Modal -->
+<div class="modal-overlay" id="branch-overlay" onclick="closeBranch()">
+  <div class="modal" onclick="event.stopPropagation()" style="max-width:500px">
+    <div class="modal-header">
+      <h3>Create Branch</h3>
+      <button onclick="closeBranch()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form onsubmit="submitCreateBranch(event)">
+        <div class="form-group">
+          <label>Branch Name</label>
+          <input type="text" id="branch-name" placeholder="e.g., eco_fix" required>
+        </div>
+        <div class="form-group">
+          <label>Branch From Stage</label>
+          <select id="branch-from"></select>
+        </div>
+        <div class="form-actions">
+          <button type="button" onclick="closeBranch()" class="btn-cancel">Cancel</button>
+          <button type="submit" class="btn-save">Create Branch</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Stage Select Form Modal (for retrace/bypass/force/forcevalidate/run) -->
+<div class="modal-overlay" id="stageselect-overlay" onclick="closeStageSelect()">
+  <div class="modal" onclick="event.stopPropagation()" style="max-width:500px">
+    <div class="modal-header">
+      <h3 id="stageselect-title">Select Stage</h3>
+      <button onclick="closeStageSelect()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form onsubmit="submitStageSelect(event)">
+        <input type="hidden" id="stageselect-action" value="">
+        <div class="form-group">
+          <label id="stageselect-label">Stage</label>
+          <select id="stageselect-stage"></select>
+        </div>
+        <div class="form-actions">
+          <button type="button" onclick="closeStageSelect()" class="btn-cancel">Cancel</button>
+          <button type="submit" class="btn-save" id="stageselect-submit">Execute</button>
         </div>
       </form>
     </div>
@@ -329,45 +415,110 @@ function showToast(msg, type) {
   setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); }, 4000);
 }
 
-// ── Menu Prompts ──────────────────────────────────────────────────
+// ── Stage list cache (loaded from API) ────────────────────────────
+let cachedConfig = null;
+function loadConfig() {
+  return fetch('/api/node-config').then(r => r.json()).then(data => { cachedConfig = data; return data; });
+}
+function populateStageSelect(selectId) {
+  const sel = document.getElementById(selectId);
+  sel.innerHTML = '';
+  if (cachedConfig && cachedConfig.available_stages) {
+    cachedConfig.available_stages.forEach(s => {
+      const o = document.createElement('option');
+      o.value = s; o.textContent = s;
+      sel.appendChild(o);
+    });
+  }
+}
+
+// ── Form-based Prompts (no prompt() — proper modals) ──────────────
 function promptRunStage() {
-  let s = prompt('Stage name to run (e.g., place1):');
-  if (s) apiAction('run-stage', {stage: s});
+  openStageSelectForm('run-stage', 'Run Stage', 'Select stage to run', 'Run');
 }
 function promptRetraceFrom() {
-  let s = prompt('Retrace from stage (e.g., cts1):');
-  if (s) apiAction('retrace', {from_stage: s});
+  openStageSelectForm('retrace', 'Retrace From', 'Retrace from this stage onwards', 'Retrace');
 }
 function promptBypass() {
-  let s = prompt('Stages to bypass (comma-separated):');
-  if (s) apiAction('bypass', {stages: s.split(',').map(x=>x.trim())});
+  openStageSelectForm('bypass', 'Bypass Stage', 'Select stage to bypass (mark as done)', 'Bypass');
 }
 function promptForce() {
-  let s = prompt('Stages to force re-run (comma-separated):');
-  if (s) apiAction('force', {stages: s.split(',').map(x=>x.trim())});
+  openStageSelectForm('force', 'Force Re-run', 'Select stage to force re-run', 'Force');
 }
 function promptForceValidate() {
-  let s = prompt('Stages to force-validate (comma-separated):');
-  if (s) apiAction('forcevalidate', {stages: s.split(',').map(x=>x.trim())});
+  openStageSelectForm('forcevalidate', 'Force Validate', 'Select stage to mark as completed', 'Validate');
 }
+
+function openStageSelectForm(action, title, label, btnText) {
+  loadConfig().then(() => {
+    populateStageSelect('stageselect-stage');
+    document.getElementById('stageselect-action').value = action;
+    document.getElementById('stageselect-title').textContent = title;
+    document.getElementById('stageselect-label').textContent = label;
+    document.getElementById('stageselect-submit').textContent = btnText;
+    document.getElementById('stageselect-overlay').style.display = 'flex';
+  });
+}
+function closeStageSelect() { document.getElementById('stageselect-overlay').style.display = 'none'; }
+function submitStageSelect(e) {
+  e.preventDefault();
+  const action = document.getElementById('stageselect-action').value;
+  const stage = document.getElementById('stageselect-stage').value;
+  closeStageSelect();
+  if (action === 'run-stage') apiAction('run-stage', {stage: stage});
+  else if (action === 'retrace') apiAction('retrace', {from_stage: stage});
+  else if (action === 'bypass') apiAction('bypass', {stages: [stage]});
+  else if (action === 'force') apiAction('force', {stages: [stage]});
+  else if (action === 'forcevalidate') apiAction('forcevalidate', {stages: [stage]});
+}
+
+// ── Add Node Form ─────────────────────────────────────────────────
 function promptAddNode() {
-  let n = prompt('New node name:');
-  if (!n) return;
-  let t = prompt('Node type (e.g., place, cts, signoff):');
-  if (!t) return;
-  let d = prompt('Dependency (stage name):');
-  if (!d) return;
-  apiAction('add-node', {name: n, type: t, dep: d});
+  loadConfig().then(() => {
+    populateStageSelect('addnode-dep');
+    document.getElementById('addnode-name').value = '';
+    document.getElementById('addnode-overlay').style.display = 'flex';
+  });
 }
+function closeAddNode() { document.getElementById('addnode-overlay').style.display = 'none'; }
+function submitAddNode(e) {
+  e.preventDefault();
+  const name = document.getElementById('addnode-name').value;
+  const type = document.getElementById('addnode-type').value;
+  const dep = document.getElementById('addnode-dep').value;
+  closeAddNode();
+  apiAction('add-node', {name: name, type: type, dep: dep});
+}
+
+// ── Delete Node ───────────────────────────────────────────────────
 function promptDeleteNode() {
-  let n = prompt('Node name to delete:');
-  if (n) apiAction('delete-node', {name: n});
+  openStageSelectForm('delete-node', 'Delete Node', 'Select node to delete', 'Delete');
+  // Override submit for delete
+  const origSubmit = submitStageSelect;
+  window.submitStageSelect = function(e) {
+    e.preventDefault();
+    const stage = document.getElementById('stageselect-stage').value;
+    closeStageSelect();
+    apiAction('delete-node', {name: stage});
+    window.submitStageSelect = origSubmit;
+  };
 }
+
+// ── Create Branch Form ────────────────────────────────────────────
 function promptCreateBranch() {
-  let n = prompt('Branch name:');
-  if (!n) return;
-  let f = prompt('Branch from stage:');
-  if (f) apiAction('create-branch', {name: n, from_stage: f});
+  loadConfig().then(() => {
+    populateStageSelect('branch-from');
+    document.getElementById('branch-name').value = '';
+    document.getElementById('branch-overlay').style.display = 'flex';
+  });
+}
+function closeBranch() { document.getElementById('branch-overlay').style.display = 'none'; }
+function submitCreateBranch(e) {
+  e.preventDefault();
+  const name = document.getElementById('branch-name').value;
+  const from = document.getElementById('branch-from').value;
+  closeBranch();
+  apiAction('create-branch', {name: name, from_stage: from});
 }
 
 // ── Right-click Context Menu ──────────────────────────────────────
@@ -398,10 +549,27 @@ function ctxEditConfig() { openEditForm(ctxStage); }
 function openEditForm(stage) {
   document.getElementById('edit-stage').value = stage;
   document.getElementById('edit-title').textContent = 'Edit Config — ' + stage;
-  // Load current config
-  fetch('/api/node-config').then(r => r.json()).then(data => {
+  loadConfig().then(data => {
     const cfg = (data.stages || {})[stage] || {};
-    document.getElementById('edit-lsf-queue').value = cfg.lsf_queue || 'M';
+    // Dynamically populate queue tier dropdown from config
+    const qSel = document.getElementById('edit-lsf-queue');
+    qSel.innerHTML = '';
+    const tiers = data.queue_tiers || [];
+    const qRes = data.queue_resources || {};
+    tiers.forEach(tier => {
+      const res = qRes[tier] || {};
+      const o = document.createElement('option');
+      o.value = tier;
+      o.textContent = tier + ' (' + (res.memory||'?') + ' / ' + (res.cpu||'?') + ' CPU)';
+      if (tier === cfg.lsf_queue) o.selected = true;
+      qSel.appendChild(o);
+    });
+    // When queue changes, auto-fill memory/cpu from config
+    qSel.onchange = function() {
+      const res = qRes[this.value] || {};
+      document.getElementById('edit-lsf-memory').value = res.memory || '';
+      document.getElementById('edit-lsf-cpu').value = res.cpu || '';
+    };
     document.getElementById('edit-lsf-memory').value = cfg.lsf_memory || '';
     document.getElementById('edit-lsf-cpu').value = cfg.lsf_cpu || '';
     document.getElementById('edit-timeout').value = cfg.timeout || '';
