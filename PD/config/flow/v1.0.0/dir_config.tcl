@@ -16,7 +16,6 @@
 
 # ┌─ Synthesis Flow Directories ───────────────────────────────────────────────┐
 set directory(SYNTH) {
-    ".stamps"
     "logs"
     "setup"
     "work"
@@ -26,7 +25,6 @@ set directory(SYNTH) {
 
 # ┌─ Floorplan Flow Directories ───────────────────────────────────────────────┐
 set directory(FP) {
-    ".stamps"
     "logs"
     "setup"
     "work"
@@ -36,7 +34,6 @@ set directory(FP) {
 
 # ┌─ Place and Route Flow Directories ─────────────────────────────────────────┐
 set directory(PNR) {
-    ".stamps"
     "logs"
     "setup"
     "work"
@@ -46,7 +43,6 @@ set directory(PNR) {
 
 # ┌─ ECO Flow Directories ─────────────────────────────────────────────────────┐
 set directory(ECO) {
-    ".stamps"
     "logs"
     "setup"
     "work"
@@ -56,7 +52,6 @@ set directory(ECO) {
 
 # ┌─ Final Timing Analysis Flow Directories ───────────────────────────────────┐
 set directory(STA) {
-    ".stamps"
     "logs"
     "setup"
     "work"
@@ -66,7 +61,6 @@ set directory(STA) {
 
 # ┌─ Logic Equivalence Check Flow Directories ─────────────────────────────────┐
 set directory(LEC) {
-    ".stamps"
     "logs"
     "setup"
     "work"
@@ -76,7 +70,6 @@ set directory(LEC) {
 
 # ┌─ Power Analysis Flow Directories ──────────────────────────────────────────┐
 set directory(EMIR) {
-    ".stamps"
     "logs"
     "setup"
     "work"
@@ -86,7 +79,6 @@ set directory(EMIR) {
 
 # ┌─ Physical Verification Flow Directories ───────────────────────────────────┐
 set directory(PV) {
-    ".stamps"
     "logs"
     "setup"
     "work"
@@ -96,7 +88,6 @@ set directory(PV) {
 
 # ┌─ Clock LP Flow Directories ────────────────────────────────────────────────┐
 set directory(CLP) {
-    ".stamps"
     "logs"
     "setup"
     "work"
@@ -106,7 +97,6 @@ set directory(CLP) {
 
 # ┌─ Power Optimization Flow Directories ──────────────────────────────────────┐
 set directory(POPT) {
-    ".stamps"
     "logs"
     "setup"
     "work"
@@ -116,7 +106,6 @@ set directory(POPT) {
 
 # ┌─ Final Clock & Floorplan Flow Directories ─────────────────────────────────┐
 set directory(FCFP) {
-    ".stamps"
     "logs"
     "setup"
     "work"

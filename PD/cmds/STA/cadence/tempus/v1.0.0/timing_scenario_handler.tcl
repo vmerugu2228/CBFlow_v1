@@ -73,11 +73,6 @@ if {$test_mode} {
     puts $rpt_stub "# Tool: Cadence Tempus"
     puts $rpt_stub "Setup WNS: 0.000ns  Hold WNS: 0.000ns"
     close $rpt_stub
-    # Create stamp for test mode completion
-    file mkdir "$run_dir/.stamps"
-    set stamp_fh [open "$run_dir/.stamps/timing_${scenario_name}.stamp" "w"]
-    puts $stamp_fh "Completed: [clock format [clock seconds]]"
-    close $stamp_fh
     puts "INFO: $stage_name for scenario $scenario_name completed \[TEST MODE\]"
 } else {
     if {[file exists $cmd_file]} {

@@ -185,7 +185,7 @@ class MetricsCollector:
     def collect_run_metrics(self, run_dir: str) -> dict:
         """Collect metrics from a run directory.
 
-        Parses .run.cbflow.env, .stamps/ directory, and .run.status for timing data.
+        Parses .run.cbflow.env, RACE DB, and .run.status for timing data.
         """
         run_dir = Path(run_dir)
         metrics = {
@@ -205,29 +205,22 @@ class MetricsCollector:
         phase = env_vars.get('CBFLOW_PROJECT_PHASE', '')
         release = env_vars.get('CBFLOW_RELEASE_VERSION', '')
 
-        # Parse stamps for stage completion times
-        stamps_dir = run_dir / '.stamps'
-        if stamps_dir.exists():
-            stamp_times = {}
-            for stamp_file in sorted(stamps_dir.glob('*.stamp')):
-                stage_name = stamp_file.stem
-                stamp_times[stage_name] = stamp_file.stat().st_mtime
-
-            # Calculate durations between stamps
-            sorted_stamps = sorted(stamp_times.items(), key=lambda x: x[1])
-            for i, (stage, mtime) in enumerate(sorted_stamps):
-                end_time = datetime.fromtimestamp(mtime)
-                if i > 0:
-                    start_time = datetime.fromtimestamp(sorted_stamps[i-1][1])
-                else:
-                    # First stage - use env file mtime as start
-                    if env_file.exists():
-                        start_time = datetime.fromtimestamp(env_file.stat().st_mtime)
-                    else:
-                        start_time = end_time
-
+        # Parse stage completion times from RACE DB
+        try:
+            from status_provider import StatusProvider
+            provider = StatusProvider(str(run_dir))
+            all_status = provider.get_all_status()
+            for stage, info in all_status.items():
+                if info.get('status') not in ('DONE', 'BYPASSED', 'FORCE_VALIDATED'):
+                    continue
+                start_ts = info.get('start_time', '')
+                end_ts = info.get('timestamp', '')
+                try:
+                    start_time = datetime.fromisoformat(start_ts) if start_ts else datetime.now()
+                    end_time = datetime.fromisoformat(end_ts) if end_ts else datetime.now()
+                except (ValueError, TypeError):
+                    continue
                 duration = (end_time - start_time).total_seconds()
-
                 stage_metric = {
                     'project': project,
                     'flow_type': flow_type,
@@ -238,14 +231,15 @@ class MetricsCollector:
                     'end_time': end_time.isoformat(),
                     'duration_seconds': max(0, duration),
                     'status': 'completed',
-                    'exit_code': 0,
+                    'exit_code': info.get('exit_code', 0),
                     'release_version': release,
                     'design_name': design_name,
                     'phase': phase,
                 }
-
                 metrics['stages'].append(stage_metric)
                 self.db.insert_stage_metric(**stage_metric)
+        except Exception:
+            pass
 
         # Parse .run.status for additional info
         status_file = run_dir / '.run.status'
@@ -400,7 +394,7 @@ def cmd_collect(args: argparse.Namespace) -> int:
 
     # Check if it's a run directory
     run_path = Path(run_dir)
-    if not (run_path / '.run.cbflow.env').exists() and not (run_path / '.stamps').exists():
+    if not (run_path / '.run.cbflow.env').exists() and not any(run_path.glob('.race_*.db')):
         # Try to collect from all subdirectories
         sub_runs = [d for d in run_path.iterdir()
                    if d.is_dir() and (d / '.run.cbflow.env').exists()]

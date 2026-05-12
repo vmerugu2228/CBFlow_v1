@@ -13,6 +13,13 @@
   --cyan: #00bcd4; --gray: #9e9e9e; --purple: #ab47bc;
   --orange: #ff9800; --teal: #26a69a; --blue: #1976d2;
   --sel: #bbdefb; --hover: #e3f2fd;
+  /* Status colors — single source for future dark mode support */
+  --st-done-fill: #4caf50;    --st-done-stroke: #1b5e20;
+  --st-running-fill: #ffeb3b; --st-running-stroke: #f57f17;
+  --st-pending-fill: #4fc3f7; --st-pending-stroke: #0277bd;
+  --st-fail-fill: #f44336;    --st-fail-stroke: #b71c1c;
+  --st-ready-fill: #ab47bc;   --st-ready-stroke: #4a148c;
+  --st-bypassed-fill: #bdbdbd;--st-bypassed-stroke: #616161;
 }
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
@@ -373,13 +380,12 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
 
 <script>
 // ═══════════════════════════════════════════════════════════════════
-// STATE
+// STATE — namespaced to avoid global pollution
 // ═══════════════════════════════════════════════════════════════════
 var stagesData = [];
 var allJobs = [];
 var dagData = null;
 var selectedNode = null;
-var showSubs = false;
 var cachedConfig = null;
 
 // DAG transform
@@ -401,26 +407,25 @@ var treeBuilt = false;
 var panZoomSetup = false;
 
 // ═══════════════════════════════════════════════════════════════════
-// STATUS COLORS (EXACT)
+// STATUS COLORS — single source of truth
 // ═══════════════════════════════════════════════════════════════════
-function sColor(s) {
-  var m = {READY:'#4a148c',PENDING:'#0277bd',RUNNING:'#f57f17',DONE:'#1b5e20',
-           FAIL:'#b71c1c',INVALIDATED:'#4a148c',
-           BYPASSED:'#616161',FORCE_VALIDATED:'#1b5e20'};
-  return m[s] || '#757575';
-}
-function sColorFill(s) {
-  var m = {READY:'#ab47bc',PENDING:'#4fc3f7',RUNNING:'#ffeb3b',DONE:'#4caf50',
-           FAIL:'#f44336',INVALIDATED:'#ab47bc',
-           BYPASSED:'#bdbdbd',FORCE_VALIDATED:'#4caf50'};
-  return m[s] || '#e0e0e0';
-}
-function sTextColor(s) {
-  var m = {READY:'#fff',PENDING:'#003',RUNNING:'#333',DONE:'#fff',
-           FAIL:'#fff',INVALIDATED:'#fff',
-           BYPASSED:'#333',FORCE_VALIDATED:'#fff'};
-  return m[s] || '#333';
-}
+var STATUS_STYLES = {
+  READY:            { stroke:'#4a148c', fill:'#ab47bc', text:'#fff' },
+  PENDING:          { stroke:'#0277bd', fill:'#4fc3f7', text:'#003' },
+  RUNNING:          { stroke:'#f57f17', fill:'#ffeb3b', text:'#333' },
+  DONE:             { stroke:'#1b5e20', fill:'#4caf50', text:'#fff' },
+  FAIL:             { stroke:'#b71c1c', fill:'#f44336', text:'#fff' },
+  INVALIDATED:      { stroke:'#4a148c', fill:'#ab47bc', text:'#fff' },
+  BYPASSED:         { stroke:'#616161', fill:'#bdbdbd', text:'#333' },
+  FORCE_VALIDATED:  { stroke:'#1b5e20', fill:'#4caf50', text:'#fff' }
+};
+var DEFAULT_STYLE = { stroke:'#757575', fill:'#e0e0e0', text:'#333' };
+
+function getStatusStyle(s) { return STATUS_STYLES[s] || DEFAULT_STYLE; }
+function sColor(s)     { return getStatusStyle(s).stroke; }
+function sColorFill(s) { return getStatusStyle(s).fill; }
+function sTextColor(s) { return getStatusStyle(s).text; }
+
 function statusLabel(s) {
   var m = {DONE:'Finished',READY:'Idle',PENDING:'Queued',RUNNING:'Running',
            FAIL:'Failed',INVALIDATED:'Invalidated',BYPASSED:'Bypassed',
@@ -433,6 +438,51 @@ function formatTime(s) {
   if (s < 60) return s.toFixed(1) + 's';
   if (s < 3600) return (s/60).toFixed(1) + 'm';
   return (s/3600).toFixed(1) + 'h';
+}
+
+// ── Shared form helpers (eliminate 3x duplication) ───────────────
+function populateQueueSelect(prefix, data, stage) {
+  var cfg = (data.stages || {})[stage] || {};
+  var qSel = document.getElementById(prefix + '-queue');
+  if (!qSel) return;
+  qSel.innerHTML = '';
+  var tiers = data.queue_tiers || [];
+  var qRes = data.queue_resources || {};
+  tiers.forEach(function(t) {
+    var r = qRes[t] || {};
+    var o = document.createElement('option');
+    o.value = t;
+    o.textContent = t + ' (' + (r.memory||'?') + ' / ' + (r.cpu||'?') + ' CPU)';
+    if (t === cfg.lsf_queue) o.selected = true;
+    qSel.appendChild(o);
+  });
+  qSel.onchange = function() {
+    var r = qRes[this.value] || {};
+    document.getElementById(prefix + '-mem').value = r.memory || '';
+    document.getElementById(prefix + '-cpu').value = r.cpu || '';
+  };
+  document.getElementById(prefix + '-mem').value = cfg.lsf_memory || '';
+  document.getElementById(prefix + '-cpu').value = cfg.lsf_cpu || '';
+  document.getElementById(prefix + '-timeout').value = cfg.timeout || '';
+  document.getElementById(prefix + '-version').value = cfg.tool_version || '';
+  document.getElementById(prefix + '-module').value = cfg.tool_module || '';
+}
+
+function saveConfigWithPrefix(prefix) {
+  var body = {
+    stage:       document.getElementById(prefix + '-stage').value,
+    lsf_queue:   document.getElementById(prefix + '-queue').value,
+    lsf_memory:  document.getElementById(prefix + '-mem').value,
+    lsf_cpu:     document.getElementById(prefix + '-cpu').value,
+    timeout:     document.getElementById(prefix + '-timeout').value,
+    tool_version:document.getElementById(prefix + '-version').value,
+    tool_module: document.getElementById(prefix + '-module').value
+  };
+  return fetch('/api/node-config', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  }).then(function(r){return r.json();});
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1466,13 +1516,6 @@ function resetGraph() {
   showToast('Layout reset', 'success');
 }
 
-function toggleSubnodes() {
-  showSubs = !showSubs;
-  document.getElementById('btn-subnodes').classList.toggle('active', showSubs);
-  dagBuilt = false;
-  renderDAG();
-}
-
 // ═══════════════════════════════════════════════════════════════════
 // DETAIL PANEL (Right Panel)
 // ═══════════════════════════════════════════════════════════════════
@@ -1570,29 +1613,7 @@ function showSubnodeDetail(name) {
 
     // Populate editable fields from config API
     loadConfig().then(function(data) {
-      var cfg = (data.stages || {})[j.stage] || {};
-      var qSel = document.getElementById('med-queue');
-      if (!qSel) return;
-      qSel.innerHTML = '';
-      var tiers = data.queue_tiers || [];
-      var qRes = data.queue_resources || {};
-      tiers.forEach(function(t) {
-        var r = qRes[t] || {};
-        var o = document.createElement('option');
-        o.value = t; o.textContent = t + ' (' + (r.memory||'?') + ' / ' + (r.cpu||'?') + ' CPU)';
-        if (t === cfg.lsf_queue) o.selected = true;
-        qSel.appendChild(o);
-      });
-      qSel.onchange = function() {
-        var r = qRes[this.value] || {};
-        document.getElementById('med-mem').value = r.memory || '';
-        document.getElementById('med-cpu').value = r.cpu || '';
-      };
-      document.getElementById('med-mem').value = cfg.lsf_memory || '';
-      document.getElementById('med-cpu').value = cfg.lsf_cpu || '';
-      document.getElementById('med-timeout').value = cfg.timeout || '';
-      document.getElementById('med-version').value = cfg.tool_version || '';
-      document.getElementById('med-module').value = cfg.tool_module || '';
+      populateQueueSelect('med', data, j.stage);
     });
   }).catch(function(e) {
     showToast('Failed to load details: ' + e, 'error');
@@ -1767,63 +1788,20 @@ function saveInputVars(e) {
 
 function populateInlineEditForm(stage) {
   loadConfig().then(function(data) {
-    var cfg = (data.stages || {})[stage] || {};
-    var qSel = document.getElementById('ied-queue');
-    if (!qSel) return;
-    qSel.innerHTML = '';
-    var tiers = data.queue_tiers || [];
-    var qRes = data.queue_resources || {};
-    tiers.forEach(function(t) {
-      var r = qRes[t] || {};
-      var o = document.createElement('option');
-      o.value = t;
-      o.textContent = t + ' (' + (r.memory||'?') + ' / ' + (r.cpu||'?') + ' CPU)';
-      if (t === cfg.lsf_queue) o.selected = true;
-      qSel.appendChild(o);
-    });
-    qSel.onchange = function() {
-      var r = qRes[this.value] || {};
-      document.getElementById('ied-mem').value = r.memory || '';
-      document.getElementById('ied-cpu').value = r.cpu || '';
-    };
-    document.getElementById('ied-mem').value = cfg.lsf_memory || '';
-    document.getElementById('ied-cpu').value = cfg.lsf_cpu || '';
-    document.getElementById('ied-timeout').value = cfg.timeout || '';
-    document.getElementById('ied-version').value = cfg.tool_version || '';
-    document.getElementById('ied-module').value = cfg.tool_module || '';
+    populateQueueSelect('ied', data, stage);
   });
 }
 
 function saveModalConfig(e) {
   e.preventDefault();
-  var body = {
-    stage: document.getElementById('med-stage').value,
-    lsf_queue: document.getElementById('med-queue').value,
-    lsf_memory: document.getElementById('med-mem').value,
-    lsf_cpu: document.getElementById('med-cpu').value,
-    timeout: document.getElementById('med-timeout').value,
-    tool_version: document.getElementById('med-version').value,
-    tool_module: document.getElementById('med-module').value,
-  };
-  fetch('/api/node-config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
-    .then(function(r){return r.json();}).then(function(d) {
-      showToast(d.message || 'Config saved for ' + body.stage, 'success');
-    }).catch(function(e){ showToast('Error: ' + e, 'error'); });
+  saveConfigWithPrefix('med')
+    .then(function(d){ showToast(d.message || 'Config saved', 'success'); })
+    .catch(function(e){ showToast('Error: ' + e, 'error'); });
 }
 
 function saveInlineConfig(e) {
   e.preventDefault();
-  var body = {
-    stage: document.getElementById('ied-stage').value,
-    lsf_queue: document.getElementById('ied-queue').value,
-    lsf_memory: document.getElementById('ied-mem').value,
-    lsf_cpu: document.getElementById('ied-cpu').value,
-    timeout: document.getElementById('ied-timeout').value,
-    tool_version: document.getElementById('ied-version').value,
-    tool_module: document.getElementById('ied-module').value
-  };
-  fetch('/api/node-config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
-    .then(function(r){return r.json();})
+  saveConfigWithPrefix('ied')
     .then(function(d){ showToast(d.message || 'Saved', 'success'); })
     .catch(function(e){ showToast('Error: ' + e, 'error'); });
 }
@@ -2236,46 +2214,14 @@ function openEditForm(stage) {
   document.getElementById('ed-stage').value = stage;
   document.getElementById('edit-title').textContent = 'Edit -- ' + stage;
   loadConfig().then(function(data) {
-    var cfg = (data.stages || {})[stage] || {};
-    var qSel = document.getElementById('ed-queue');
-    qSel.innerHTML = '';
-    var tiers = data.queue_tiers || [];
-    var qRes = data.queue_resources || {};
-    tiers.forEach(function(t) {
-      var r = qRes[t] || {};
-      var o = document.createElement('option');
-      o.value = t;
-      o.textContent = t + ' (' + (r.memory||'?') + ' / ' + (r.cpu||'?') + ' CPU)';
-      if (t === cfg.lsf_queue) o.selected = true;
-      qSel.appendChild(o);
-    });
-    qSel.onchange = function() {
-      var r = qRes[this.value] || {};
-      document.getElementById('ed-mem').value = r.memory || '';
-      document.getElementById('ed-cpu').value = r.cpu || '';
-    };
-    document.getElementById('ed-mem').value = cfg.lsf_memory || '';
-    document.getElementById('ed-cpu').value = cfg.lsf_cpu || '';
-    document.getElementById('ed-timeout').value = cfg.timeout || '';
-    document.getElementById('ed-version').value = cfg.tool_version || '';
-    document.getElementById('ed-module').value = cfg.tool_module || '';
+    populateQueueSelect('ed', data, stage);
   });
   openModal('edit-modal');
 }
 
 function saveConfig(e) {
   e.preventDefault();
-  var body = {
-    stage: document.getElementById('ed-stage').value,
-    lsf_queue: document.getElementById('ed-queue').value,
-    lsf_memory: document.getElementById('ed-mem').value,
-    lsf_cpu: document.getElementById('ed-cpu').value,
-    timeout: document.getElementById('ed-timeout').value,
-    tool_version: document.getElementById('ed-version').value,
-    tool_module: document.getElementById('ed-module').value
-  };
-  fetch('/api/node-config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
-    .then(function(r){return r.json();})
+  saveConfigWithPrefix('ed')
     .then(function(d){ showToast(d.message || 'Saved', 'success'); closeModal('edit-modal'); })
     .catch(function(e){ showToast('Error: ' + e, 'error'); });
 }

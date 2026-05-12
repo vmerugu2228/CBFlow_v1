@@ -327,16 +327,8 @@ def _collect_stage_runtimes(run_dir: str, data: dict):
             ts = info.get('timestamp', '')
             time_short = ts.split('T')[-1][:8] if 'T' in ts else ts[-8:] if len(ts) > 8 else ts
             data['stage_runtime'][stage] = time_short
-    except Exception:
-        stamps_dir = Path(run_dir) / '.stamps'
-        if not stamps_dir.is_dir():
-            return
-        for stamp in sorted(stamps_dir.glob('*.stamp')):
-            try:
-                mtime = datetime.fromtimestamp(stamp.stat().st_mtime)
-                data['stage_runtime'][stamp.stem] = mtime.strftime('%H:%M:%S')
-            except Exception:
-                pass
+    except Exception as e:
+        logger.debug(f"Failed to collect stage runtime: {e}")
 
 
 def _find_images(run_dir: str, data: dict):
@@ -771,8 +763,7 @@ def cmd_autoppt(args: argparse.Namespace) -> int:
     """Generate PowerPoint/HTML run summary."""
     run_dir = os.getcwd()
 
-    if not os.path.exists(os.path.join(run_dir, '.stamps')) and \
-       not any(Path(run_dir).glob('.race_*.db')) and \
+    if not any(Path(run_dir).glob('.race_*.db')) and \
        not os.path.exists(os.path.join(run_dir, '.run.cbflow.tcl')):
         print("ERROR: Not a CBflow run directory.")
         return 1

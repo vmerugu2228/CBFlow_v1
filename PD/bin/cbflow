@@ -80,7 +80,7 @@ Run Commands (run from within a run directory):
   cbflow run show-graph --detail              Show dependency graph with subnodes
   cbflow run add-node --node eco1 --type eco --dep signoff
   cbflow run lsf-status                       Show LSF job queue status
-  cbflow run clean --confirm                  Delete work + logs + stamps
+  cbflow run clean --confirm                  Delete work + logs
 
 Flow Commands (run from CORE_DIR: $CBFLOW_CORE_DIR):
   cbflow flow types                           List all 11 flow types

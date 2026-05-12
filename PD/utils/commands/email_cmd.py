@@ -150,20 +150,8 @@ def _collect_stage_status(run_dir: str, info: dict):
             }
             if stage_name not in info['stages']:
                 info['stages'].append(stage_name)
-    except Exception:
-        # DB is the only source
-        stamps_dir = os.path.join(run_dir, '.stamps')
-        if not os.path.isdir(stamps_dir):
-            return
-        for stamp_file in sorted(Path(stamps_dir).glob('*.stamp')):
-            stage_name = stamp_file.stem
-            mtime = datetime.fromtimestamp(stamp_file.stat().st_mtime)
-            info['stage_status'][stage_name] = {
-                'status': 'DONE',
-                'timestamp': mtime.strftime('%Y-%m-%d %H:%M:%S'),
-            }
-            if stage_name not in info['stages']:
-                info['stages'].append(stage_name)
+    except Exception as e:
+        logger.debug(f"Failed to collect stage status: {e}")
 
 
 def _collect_qor_summary(run_dir: str, info: dict):

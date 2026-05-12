@@ -19,61 +19,117 @@ Provides:
 
 import http.server
 import json
+import logging
 import os
 import re
 import sqlite3
+import sys
 import threading
 import webbrowser
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
+logger = logging.getLogger('cbflow.dashboard')
+
 DASHBOARD_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATES_DIR = os.path.join(DASHBOARD_DIR, 'templates')
 STATIC_DIR = os.path.join(DASHBOARD_DIR, 'static')
+COMMANDS_DIR = os.path.join(os.path.dirname(DASHBOARD_DIR), 'commands')
 
-# Shared stop flag — set by GUI, checked by engine threads
-_stop_flag = False
-_active_engines = []  # engines running in background threads
+# Ensure commands dir is importable
+if COMMANDS_DIR not in sys.path:
+    sys.path.insert(0, COMMANDS_DIR)
+
+# Thread-safe execution state
+_stop_event = threading.Event()
+_engines_lock = threading.Lock()
+_active_engines = []
+
+# Config key → input type map (canonical, shared between dashboard and engine)
+_INPUT_KEY_TO_TYPE = {
+    'rtl_filelist': 'rtl', 'rtl_file': 'rtl',
+    'sdc_func_file': 'sdc', 'sdc_file': 'sdc',
+    'upf_file': 'upf',
+    'netlist': 'netlist', 'netlist_golden': 'netlist_golden',
+    'netlist_revised': 'netlist_revised',
+    'def_file': 'def', 'gds_file': 'gds', 'spef_file': 'spef',
+    'constraints': 'constraints', 'power_spec': 'power_spec',
+}
 
 
 class RaceDashboard:
-    """Data provider — reads RACE SQLite DB."""
+    """Data provider — reads RACE SQLite DB + configs."""
 
     def __init__(self, run_dir: str):
         self.run_dir = run_dir
+        self._env_cache = None
         self.db_path = self._find_db()
         self.flow_type = ''
         self._load_run_info()
         # Auto-initialize engine if DB doesn't exist yet (fresh run)
         if not os.path.exists(self.db_path):
-            self._auto_init_engine()
+            self._init_engine_full()
 
-    def _auto_init_engine(self):
-        """Initialize RACE engine on first GUI load to create the DB."""
+    # ── Environment & path helpers (single source of truth) ───────────────
+
+    def _load_env(self) -> dict:
+        """Load environment from .run.cbflow.env — cached after first call."""
+        if self._env_cache is not None:
+            return self._env_cache
+        env = {}
+        env_file = os.path.join(self.run_dir, '.run.cbflow.env')
+        if os.path.exists(env_file):
+            with open(env_file) as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith('export ') and '=' in line:
+                        kv = line[7:].split('=', 1)
+                        env[kv[0]] = kv[1].strip('"')
+        self._env_cache = env
+        return env
+
+    @property
+    def flow_dir(self) -> str:
+        """FLOW_DIR from cached env."""
+        return self._load_env().get('FLOW_DIR', '')
+
+    @property
+    def node_config_path(self) -> str:
+        """Path to flow's node_config.tcl file."""
+        ver = self._load_env().get('FLOW_CONFIG_VERSION', 'v1.0.0')
+        return os.path.join(self.flow_dir, 'config', 'flow', ver,
+                            'node_configs', f'{self.flow_type}_config.tcl')
+
+    # ── Engine creation (2 paths only) ────────────────────────────────────
+
+    def _init_engine_full(self):
+        """Initialize RACE engine on first GUI load to create the DB.
+        Full init with reset_stale=True — called ONLY at startup."""
         try:
-            env = {}
-            env_file = os.path.join(self.run_dir, '.run.cbflow.env')
-            if os.path.exists(env_file):
-                with open(env_file) as f:
-                    for line in f:
-                        line = line.strip()
-                        if line.startswith('export ') and '=' in line:
-                            kv = line[7:].split('=', 1)
-                            env[kv[0]] = kv[1].strip('"')
+            env = self._load_env()
             flow_type = env.get('CBFLOW_FLOW_TYPE', '')
             if not flow_type:
                 return
-            import sys
-            sys.path.insert(0, os.path.join(os.path.dirname(DASHBOARD_DIR), 'commands'))
             from race_engine import RaceEngine
             engine = RaceEngine(self.run_dir, flow_type, env)
-            engine.initialize()
+            engine.initialize()  # Full init (reset_stale=True default)
             self.db_path = self._find_db()
             self.flow_type = flow_type
         except Exception as e:
+            logger.error(f"Engine init failed: {e}")
             import traceback
             traceback.print_exc()
+
+    def _get_engine(self):
+        """Get a lightweight RACE engine (reset_stale=False).
+        Used by all API calls and action handlers — never resets active jobs."""
+        from race_engine import RaceEngine
+        engine = RaceEngine(self.run_dir, self.flow_type, self._load_env())
+        engine.initialize(reset_stale=False)
+        return engine
+
+    # ── DB access ─────────────────────────────────────────────────────────
 
     def _find_db(self) -> str:
         import hashlib
@@ -101,26 +157,7 @@ class RaceDashboard:
             return None
         return sqlite3.connect(self.db_path)
 
-    def _get_engine_cached(self):
-        """Get engine with DAG built (cached per request cycle)."""
-        if hasattr(self, '_engine_cache') and self._engine_cache:
-            return self._engine_cache
-        import sys
-        sys.path.insert(0, os.path.join(os.path.dirname(DASHBOARD_DIR), 'commands'))
-        from race_engine import RaceEngine
-        env = {}
-        env_file = os.path.join(self.run_dir, '.run.cbflow.env')
-        if os.path.exists(env_file):
-            with open(env_file) as f:
-                for line in f:
-                    line = line.strip()
-                    if line.startswith('export ') and '=' in line:
-                        kv = line[7:].split('=', 1)
-                        env[kv[0]] = kv[1].strip('"')
-        engine = RaceEngine(self.run_dir, self.flow_type, env)
-        engine.initialize()
-        self._engine_cache = engine
-        return engine
+    # ── File change detection (single implementation) ───────────────────────
 
     def _check_source_changes(self):
         """Check if source input files changed since last completion — invalidate affected nodes."""
@@ -129,7 +166,15 @@ class RaceDashboard:
             if not conn:
                 return
 
-            # Read source file paths from user_config
+            # Skip check if any jobs are currently RUNNING (avoid race with execution)
+            running = conn.execute(
+                "SELECT COUNT(*) FROM jobs WHERE status = 'RUNNING' "
+                "AND id IN (SELECT MAX(id) FROM jobs GROUP BY job_name)").fetchone()
+            if running and running[0] > 0:
+                conn.close()
+                return
+
+            # Read source file paths from user_config using canonical key map
             source_files = {}
             user_config = os.path.join(self.run_dir, 'setup', 'user_config.tcl')
             if os.path.exists(user_config):
@@ -138,13 +183,9 @@ class RaceDashboard:
                         line = line.strip()
                         m = re.match(r'set\s+\w+\(input,(\w+)\)\s+"([^"]*)"', line)
                         if m and m.group(2):
-                            key = m.group(1)
-                            file_path = m.group(2)
-                            for prefix in ['rtl', 'sdc', 'upf', 'netlist', 'def', 'gds', 'spef',
-                                           'netlist_golden', 'netlist_revised', 'constraints', 'power_spec']:
-                                if key.startswith(prefix):
-                                    source_files.setdefault(prefix, []).append(file_path)
-                                    break
+                            input_type = _INPUT_KEY_TO_TYPE.get(m.group(1))
+                            if input_type:
+                                source_files.setdefault(input_type, []).append(m.group(2))
 
             if not source_files:
                 conn.close()
@@ -166,7 +207,7 @@ class RaceDashboard:
 
                 try:
                     done_time = datetime.fromisoformat(row[0]).timestamp()
-                except Exception:
+                except (ValueError, TypeError):
                     continue
 
                 # Skip recently force-validated jobs (within 30s) to avoid race condition
@@ -181,49 +222,17 @@ class RaceDashboard:
                         elif os.path.getmtime(src) > done_time:
                             changed_stages.append(node_name)
                             break
-                    except Exception:
+                    except OSError:
                         pass
 
             # Invalidate changed nodes + downstream
             if changed_stages:
-                # Clear engine cache so next init sees fresh state
-                self._engine_cache = None
                 for node in changed_stages:
                     conn.execute("UPDATE jobs SET status = 'INVALIDATED' WHERE job_name = ? AND status IN ('DONE','BYPASSED')", (node,))
 
-                # Also invalidate downstream — find all stages that depend on changed nodes
-                # Use job_order to find stages after the changed ones
-                all_stages = [r[0] for r in conn.execute("SELECT DISTINCT stage FROM job_order ORDER BY MIN(seq)", ).fetchall()] if False else []
-                try:
-                    all_stages = [r[0] for r in conn.execute("SELECT stage, MIN(seq) as s FROM job_order GROUP BY stage ORDER BY s")]
-                except Exception:
-                    pass
-
-                # BFS downstream from changed stages
+                # BFS downstream using dependency edges from node config
+                edges = self._get_dependency_edges()
                 changed_set = set(changed_stages)
-                # Read edges to find downstream
-                edges = {}
-                nc_path = ''
-                flow_dir = ''
-                env_file = os.path.join(self.run_dir, '.run.cbflow.env')
-                if os.path.exists(env_file):
-                    with open(env_file) as f:
-                        for line in f:
-                            if 'FLOW_DIR=' in line:
-                                flow_dir = line.split('=', 1)[1].strip().strip('"')
-                if flow_dir:
-                    nc_path = os.path.join(flow_dir, 'config', 'flow', 'v1.0.0',
-                                           'node_configs', f'{self.flow_type}_config.tcl')
-                if nc_path and os.path.exists(nc_path):
-                    with open(nc_path) as f:
-                        nc = f.read()
-                    for m in re.finditer(r'dependencies,(\w+)\s+\{([^}]*)\}', nc):
-                        stage = m.group(1)
-                        deps = m.group(2).split()
-                        for d in deps:
-                            edges.setdefault(d, []).append(stage)
-
-                # BFS from changed nodes
                 queue = list(changed_set)
                 visited = set(changed_set)
                 while queue:
@@ -232,7 +241,6 @@ class RaceDashboard:
                         if downstream not in visited:
                             visited.add(downstream)
                             queue.append(downstream)
-                            # Invalidate all jobs for this downstream stage
                             conn.execute(
                                 "UPDATE jobs SET status = 'INVALIDATED' "
                                 "WHERE stage = ? AND status IN ('DONE','BYPASSED')",
@@ -241,8 +249,27 @@ class RaceDashboard:
                 conn.commit()
 
             conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Source change check error: {e}")
+
+    def _get_dependency_edges(self) -> dict:
+        """Parse dependency edges from node config. Returns {parent: [children]}."""
+        edges = {}
+        nc_path = self.node_config_path
+        # Also check runtime config for custom nodes
+        rt_path = os.path.join(self.run_dir, 'setup', 'runtime_flow_config.tcl')
+        for path in [nc_path, rt_path]:
+            if path and os.path.exists(path):
+                try:
+                    with open(path) as f:
+                        content = f.read()
+                    for m in re.finditer(r'dependencies,(\w+)\s+\{([^}]*)\}', content):
+                        stage = m.group(1)
+                        for dep in m.group(2).split():
+                            edges.setdefault(dep, []).append(stage)
+                except OSError:
+                    pass
+        return edges
 
     def get_status(self) -> dict:
         # Run file change detection on each status poll (lightweight check)
@@ -257,33 +284,19 @@ class RaceDashboard:
             for key, val in conn.execute('SELECT key, value FROM run_info'):
                 run_info[key] = val
 
-            # Enrich with env file data (design name, phase, run name, tech, tool)
-            env_file = os.path.join(self.run_dir, '.run.cbflow.env')
-            if os.path.exists(env_file):
-                with open(env_file) as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line.startswith('export ') or '=' not in line:
-                            continue
-                        kv = line[7:].split('=', 1)
-                        k, v = kv[0], kv[1].strip('"')
-                        if k == 'CBFLOW_DESIGN_NAME': run_info['design_name'] = v
-                        elif k == 'CBFLOW_PROJECT_PHASE': run_info['phase'] = v
-                        elif k == 'CBFLOW_RUN_NAME': run_info['run_name'] = v
-
-            # Read tech info from tech config
-            flow_dir = ''
-            env_file2 = os.path.join(self.run_dir, '.run.cbflow.env')
-            if os.path.exists(env_file2):
-                with open(env_file2) as f:
-                    for line in f:
-                        if 'FLOW_DIR=' in line:
-                            flow_dir = line.split('=', 1)[1].strip().strip('"')
+            # Enrich with env data (single read, cached)
+            env = self._load_env()
+            if env.get('CBFLOW_DESIGN_NAME'):
+                run_info['design_name'] = env['CBFLOW_DESIGN_NAME']
+            if env.get('CBFLOW_PROJECT_PHASE'):
+                run_info['phase'] = env['CBFLOW_PROJECT_PHASE']
+            if env.get('CBFLOW_RUN_NAME'):
+                run_info['run_name'] = env['CBFLOW_RUN_NAME']
 
             # Get tech node info
-            if flow_dir:
+            if self.flow_dir:
                 import glob as _glob
-                for tech_dir in _glob.glob(os.path.join(flow_dir, 'config', 'tech', '*', '*/tech_config.tcl')):
+                for tech_dir in _glob.glob(os.path.join(self.flow_dir, 'config', 'tech', '*', '*/tech_config.tcl')):
                     try:
                         with open(tech_dir) as tf:
                             for line in tf:
@@ -305,8 +318,7 @@ class RaceDashboard:
                         pass
 
                 # Get tool info from node config
-                nc_path = os.path.join(flow_dir, 'config', 'flow', 'v1.0.0',
-                                       'node_configs', f'{self.flow_type}_config.tcl')
+                nc_path = self.node_config_path
                 if os.path.exists(nc_path):
                     with open(nc_path) as nf:
                         for line in nf:
@@ -318,7 +330,8 @@ class RaceDashboard:
                                 if m: run_info['tool_name'] = m.group(1)
 
                 # Get tool module from flow config
-                fc_path = os.path.join(flow_dir, 'config', 'flow', 'v1.0.0', 'flow_config.tcl')
+                ver = env.get('FLOW_CONFIG_VERSION', 'v1.0.0')
+                fc_path = os.path.join(self.flow_dir, 'config', 'flow', ver, 'flow_config.tcl')
                 tool_name = run_info.get('tool_name', '')
                 if tool_name and os.path.exists(fc_path):
                     with open(fc_path) as ff:
@@ -469,8 +482,6 @@ class RaceDashboard:
             # Read dependencies: each stage sentinel depends on prev stage sentinel
             stage_deps = {}
             try:
-                import sys
-                sys.path.insert(0, os.path.join(os.path.dirname(DASHBOARD_DIR), 'commands'))
                 from tcl_config_parser import _load_node_config
                 nc = _load_node_config(self.flow_type)
                 if nc:
@@ -499,14 +510,9 @@ class RaceDashboard:
                 for i in range(1, len(stage_order)):
                     edges.append({'from': stage_order[i-1], 'to': stage_order[i]})
 
-            # Stages with no deps that aren't first — add dep on previous for layout
-            for stage in stage_order:
-                if stage not in stage_deps and stage != stage_order[0]:
-                    pass  # No implicit edges — only real deps
-
             # Add subnode-level edges from engine DAG (for parallel subnode layout)
             try:
-                engine = self._get_engine_cached()
+                engine = self._get_engine()
                 for name, job in engine.jobs.items():
                     if job.job_type == 'subnode' and job.deps:
                         for dep in job.deps:
@@ -575,15 +581,7 @@ class RaceDashboard:
         """Get editable config per stage (LSF queue, memory, timeout, version)."""
         configs = {}
         # Read tool_launch_config for LSF mappings
-        flow_dir = os.environ.get('FLOW_DIR', '')
-        if not flow_dir:
-            env_file = os.path.join(self.run_dir, '.run.cbflow.env')
-            if os.path.exists(env_file):
-                with open(env_file) as f:
-                    for line in f:
-                        if 'FLOW_DIR=' in line:
-                            flow_dir = line.split('=', 1)[1].strip().strip('"')
-                            break
+        flow_dir = self.flow_dir
 
         # Read queue tiers from lsf_config.tcl (single source of truth)
         # and stage mappings from tool_launch_config.tcl
@@ -705,15 +703,8 @@ class RaceDashboard:
 
     def get_mmmc_scenarios(self) -> dict:
         """Read MMMC config — all scenarios, scenario sets, and per-node assignments."""
-        flow_dir = ''
-        env_file = os.path.join(self.run_dir, '.run.cbflow.env')
-        if os.path.exists(env_file):
-            with open(env_file) as f:
-                for line in f:
-                    if 'FLOW_DIR=' in line:
-                        flow_dir = line.split('=', 1)[1].strip().strip('"')
-
-        mmmc_path = os.path.join(flow_dir, 'config', 'flow', 'v1.0.0', 'mmmc_config.tcl')
+        ver = self._load_env().get('FLOW_CONFIG_VERSION', 'v1.0.0')
+        mmmc_path = os.path.join(self.flow_dir, 'config', 'flow', ver, 'mmmc_config.tcl')
         if not os.path.exists(mmmc_path):
             return {'error': 'mmmc_config.tcl not found', 'scenarios': [], 'nodes': {}, 'sets': {}}
 
@@ -944,9 +935,10 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         return {'ok': True, 'message': f'Running up to {subnode}', 'async': True}
 
     def _action_retrace(self, body):
-        """Retrace from stage or all."""
+        """Retrace from stage or all. Updates active engine if one is running."""
         from_stage = body.get('from_stage', '')
-        engine = self._get_engine()
+        # Use active running engine if available (so in-memory state is updated)
+        engine = self._get_active_or_new_engine()
         if from_stage:
             engine.retrace(from_stage=from_stage)
             return {'ok': True, 'message': f'Retraced from {from_stage}'}
@@ -955,9 +947,8 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             return {'ok': True, 'message': 'Full retrace complete'}
 
     def _action_bypass(self, body):
-        """Bypass stages or specific jobs."""
-        self.dashboard._engine_cache = None
-        engine = self._get_engine()
+        """Bypass stages or specific jobs. Updates active engine if one is running."""
+        engine = self._get_active_or_new_engine()
         jobs = body.get('jobs', [])
         if jobs:
             if isinstance(jobs, str):
@@ -972,21 +963,21 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
     def _action_force(self, body):
         """Force re-run stages (background thread)."""
-        global _stop_flag, _active_engines
-        _stop_flag = False
+        _stop_event.clear()
         stages = body.get('stages', [])
         if isinstance(stages, str):
             stages = [stages]
 
         def run():
-            global _active_engines
             engine = self._get_engine()
-            _active_engines.append(engine)
+            with _engines_lock:
+                _active_engines.append(engine)
             try:
                 engine.force(stages)
             finally:
-                if engine in _active_engines:
-                    _active_engines.remove(engine)
+                with _engines_lock:
+                    if engine in _active_engines:
+                        _active_engines.remove(engine)
 
         t = threading.Thread(target=run, daemon=True)
         t.start()
@@ -1051,18 +1042,18 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
     def _action_stop(self, body):
         """Stop all running engine executions."""
-        global _stop_flag, _active_engines
-        _stop_flag = True
+        _stop_event.set()
+        with _engines_lock:
+            engines = list(_active_engines)
         stopped = 0
-        for engine in _active_engines:
+        for engine in engines:
             engine._interrupted = True
             stopped += 1
         return {'ok': True, 'message': f'Stop signal sent to {stopped} running engine(s)'}
 
     def _action_forcevalidate(self, body):
-        """Force-validate stages or specific jobs."""
-        self.dashboard._engine_cache = None
-        engine = self._get_engine()
+        """Force-validate stages or specific jobs. Updates active engine if one is running."""
+        engine = self._get_active_or_new_engine()
         jobs = body.get('jobs', [])
         if jobs:
             if isinstance(jobs, str):
@@ -1082,36 +1073,22 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         dep = body.get('dep', '')
         auto_name = body.get('auto_name', False)
 
-        if auto_name and node_type and dep:
-            # Auto-generate name using NodeManager's _next_suffix
-            try:
-                import sys
-                sys.path.insert(0, os.path.join(os.path.dirname(DASHBOARD_DIR), 'commands'))
-                from node_manager import NodeManager
-                mgr = NodeManager(self.dashboard.run_dir, self.dashboard.flow_type)
+        try:
+            from node_manager import NodeManager
+            mgr = NodeManager(self.dashboard.run_dir, self.dashboard.flow_type)
+
+            if auto_name and node_type and dep:
                 suffix = mgr._next_suffix(node_type)
                 name = f"{node_type}{suffix}"
-            except Exception as e:
-                return {'error': f'Auto-name failed: {e}'}
 
-        if not name or not node_type or not dep:
-            return {'error': 'name, type, dep required'}
-        # Write to runtime_flow_config.tcl
-        import subprocess
-        cmd = ['python3', '-c',
-               f'import sys; sys.path.insert(0,"{os.path.dirname(DASHBOARD_DIR)}/commands"); '
-               f'from node_manager import NodeManager; '
-               f'mgr = NodeManager("{self.dashboard.run_dir}", "{self.dashboard.flow_type}"); '
-               f'mgr.add_node("{name}", "{node_type}", "{dep}")']
-        result = subprocess.run(cmd, cwd=self.dashboard.run_dir, capture_output=True, text=True)
-        if result.returncode != 0:
-            return {'error': f'Add node failed: {result.stderr.strip()}'}
-        # Clear engine cache and re-initialize so new node appears in DB
-        self.dashboard._engine_cache = None
-        try:
-            engine = self._get_engine()
+            if not name or not node_type or not dep:
+                return {'error': 'name, type, dep required'}
+
+            mgr.add_node(name, node_type, dep)
         except Exception as e:
-            return {'error': f'Engine init failed: {e}'}
+            return {'error': f'Add node failed: {e}'}
+
+        self._seed_new_nodes_only()
         return {'ok': True, 'message': f'Added node: {name} (dep={dep})'}
 
     def _action_delete_node(self, body):
@@ -1119,18 +1096,14 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         name = body.get('name', '')
         if not name:
             return {'error': 'name required'}
-        import subprocess
-        cmd = ['python3', '-c',
-               f'import sys; sys.path.insert(0,"{os.path.dirname(DASHBOARD_DIR)}/commands"); '
-               f'from node_manager import NodeManager; '
-               f'mgr = NodeManager("{self.dashboard.run_dir}", "{self.dashboard.flow_type}"); '
-               f'mgr.delete_node("{name}")']
-        subprocess.run(cmd, cwd=self.dashboard.run_dir, capture_output=True)
-        self.dashboard._engine_cache = None
         try:
-            self._get_engine()
-        except Exception:
-            pass
+            from node_manager import NodeManager
+            mgr = NodeManager(self.dashboard.run_dir, self.dashboard.flow_type)
+            mgr.delete_node(name)
+        except Exception as e:
+            return {'error': f'Delete node failed: {e}'}
+
+        self._seed_new_nodes_only()
         return {'ok': True, 'message': f'Deleted node: {name}'}
 
     def _action_create_branch(self, body):
@@ -1139,18 +1112,14 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         from_stage = body.get('from_stage', '')
         if not name or not from_stage:
             return {'error': 'name and from_stage required'}
-        import subprocess
-        cmd = ['python3', '-c',
-               f'import sys; sys.path.insert(0,"{os.path.dirname(DASHBOARD_DIR)}/commands"); '
-               f'from node_manager import NodeManager; '
-               f'mgr = NodeManager("{self.dashboard.run_dir}", "{self.dashboard.flow_type}"); '
-               f'mgr.create_branch("{name}", "{from_stage}")']
-        subprocess.run(cmd, cwd=self.dashboard.run_dir, capture_output=True)
-        self.dashboard._engine_cache = None
         try:
-            self._get_engine()
-        except Exception:
-            pass
+            from node_manager import NodeManager
+            mgr = NodeManager(self.dashboard.run_dir, self.dashboard.flow_type)
+            mgr.create_branch(name, from_stage)
+        except Exception as e:
+            return {'error': f'Create branch failed: {e}'}
+
+        self._seed_new_nodes_only()
         return {'ok': True, 'message': f'Branch "{name}" created from {from_stage}'}
 
     def _action_update_node_config(self, body):
@@ -1220,64 +1189,70 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
         return {'ok': True, 'message': f'Input variables saved for {node_name} ({len(variables)} vars)'}
 
+    def _seed_new_nodes_only(self):
+        """Add new nodes to DB without disturbing existing job states.
+        Only seeds missing jobs + updates job_order — no reset, no invalidation."""
+        try:
+            from race_engine import DagBuilder, StatusDB
+
+            env = self.dashboard._load_env()
+            builder = DagBuilder(self.dashboard.run_dir, self.dashboard.flow_type, env)
+            jobs, stages = builder.build()
+            if not jobs:
+                return
+
+            db_path = self.dashboard.db_path
+            if not os.path.exists(db_path):
+                return
+
+            db = StatusDB.__new__(StatusDB)
+            db.db_path = db_path
+            db.save_job_order(jobs)
+            db.seed_missing_jobs(jobs)
+        except Exception as e:
+            logger.debug(f"Seed new nodes error: {e}")
+
     def _get_flow_tool(self):
         """Get the tool name for this flow from node config."""
         try:
-            flow_dir = ''
-            env_file = os.path.join(self.dashboard.run_dir, '.run.cbflow.env')
-            if os.path.exists(env_file):
-                with open(env_file) as f:
-                    for line in f:
-                        if 'FLOW_DIR=' in line:
-                            flow_dir = line.split('=', 1)[1].strip().strip('"')
-            nc_path = os.path.join(flow_dir, 'config', 'flow', 'v1.0.0',
-                                   'node_configs', f'{self.dashboard.flow_type}_config.tcl')
+            nc_path = self.dashboard.node_config_path
             if os.path.exists(nc_path):
                 with open(nc_path) as f:
                     for line in f:
                         m = re.search(r'tool,name\s+"([^"]+)"', line)
                         if m:
                             return m.group(1)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Get flow tool error: {e}")
         return 'fc'
 
     def _get_engine(self):
-        """Get or create RACE engine for this run."""
-        import sys
-        sys.path.insert(0, os.path.join(os.path.dirname(DASHBOARD_DIR), 'commands'))
-        from race_engine import RaceEngine
+        """Get RACE engine via dashboard's lightweight init."""
+        return self.dashboard._get_engine()
 
-        run_dir = self.dashboard.run_dir
-        # Load env
-        env = {}
-        env_file = os.path.join(run_dir, '.run.cbflow.env')
-        if os.path.exists(env_file):
-            with open(env_file) as f:
-                for line in f:
-                    line = line.strip()
-                    if line.startswith('export ') and '=' in line:
-                        kv = line[7:].split('=', 1)
-                        env[kv[0]] = kv[1].strip('"')
-
-        engine = RaceEngine(run_dir, self.dashboard.flow_type, env)
-        engine.initialize()
-        return engine
+    def _get_active_or_new_engine(self):
+        """Get the active running engine if one exists, otherwise create new.
+        This ensures retrace/bypass/forcevalidate during execution update the
+        SAME engine's in-memory state, not a throwaway copy."""
+        with _engines_lock:
+            if _active_engines:
+                return _active_engines[0]
+        return self._get_engine()
 
     def _exec_engine(self, target):
         """Execute a target via RACE engine in background thread."""
-        global _stop_flag, _active_engines
-        _stop_flag = False
+        _stop_event.clear()
 
         def run():
-            global _active_engines
             engine = self._get_engine()
-            _active_engines.append(engine)
+            with _engines_lock:
+                _active_engines.append(engine)
             try:
                 engine.execute(target)
             finally:
-                if engine in _active_engines:
-                    _active_engines.remove(engine)
+                with _engines_lock:
+                    if engine in _active_engines:
+                        _active_engines.remove(engine)
 
         t = threading.Thread(target=run, daemon=True)
         t.start()

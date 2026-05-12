@@ -192,7 +192,7 @@ def _create_directory_structure(run_dir: str, flow_type: str,
     sub_flows = parse_merged_flow(flow_type)
     if sub_flows:
         # Base dirs (common to all)
-        for d in ['.stamps', 'logs', 'setup', 'work']:
+        for d in ['logs', 'setup', 'work']:
             os.makedirs(os.path.join(run_dir, d), exist_ok=True)
         # Per-flow work dirs
         for sf in sub_flows:
@@ -202,7 +202,7 @@ def _create_directory_structure(run_dir: str, flow_type: str,
     # Single flow
     dirs = dir_config.get(flow_type)
     if not dirs:
-        dirs = ['.stamps', 'logs', 'setup', 'work', f'work/{flow_type}']
+        dirs = ['logs', 'setup', 'work', f'work/{flow_type}']
 
     for d in dirs:
         full_path = os.path.join(run_dir, d)

@@ -109,6 +109,18 @@ def get_flow_stages(flow_type: str) -> list:
     return _get_stages(flow_type)
 
 
+def _get_completed_from_db() -> set:
+    """Get completed job names from RACE DB (replaces .stamps/ queries)."""
+    try:
+        from status_provider import StatusProvider
+        provider = StatusProvider(os.getcwd())
+        all_status = provider.get_all_status()
+        return {s for s, v in all_status.items()
+                if v.get('status') in ('DONE', 'BYPASSED', 'FORCE_VALIDATED')}
+    except Exception:
+        return set()
+
+
 def load_custom_nodes_from_runtime_config() -> dict:
     """Load custom nodes from setup/runtime_flow_config.tcl.
 
@@ -666,9 +678,7 @@ def cmd_status(args: argparse.Namespace) -> int:
                         for subnode in subnodes:
                             subnode_stamp = f"{node_name}_{subnode}"
                             if subnode_stamp in completed:
-                                stamp_file = os.path.join(stamps_dir, f'{subnode_stamp}.stamp')
-                                mtime = datetime.fromtimestamp(os.path.getmtime(stamp_file))
-                                logger.info(f"      [DONE] {subnode:<24} {mtime.strftime('%Y-%m-%d %H:%M:%S')}")
+                                logger.info(f"      [DONE] {subnode:<24}")
                             else:
                                 logger.info(f"      [    ] {subnode:<24}")
 
@@ -785,10 +795,6 @@ def cmd_retrace(args: argparse.Namespace) -> int:
         for name, job in engine.jobs.items():
             if job.stage == stage and job.status != 'INVALIDATED':
                 job.status = 'INVALIDATED'
-                # Remove stamp
-                stamp = os.path.join(os.getcwd(), '.stamps', f'{name}.stamp')
-                if os.path.exists(stamp):
-                    os.remove(stamp)
 
         # Pace the progress bar (~0.5s per stage)
         _time.sleep(0.5)
@@ -834,10 +840,7 @@ def cmd_report(args: argparse.Namespace) -> int:
     from tcl_config_parser import get_subnodes, _load_node_config, _parse_tcl_list
     node_config = _load_node_config(flow_type)
 
-    stamps_dir = '.stamps'
-    completed = set()
-    if os.path.exists(stamps_dir):
-        completed = {f.replace('.stamp', '') for f in os.listdir(stamps_dir) if f.endswith('.stamp')}
+    completed = _get_completed_from_db()
 
     # Resolve tool info for cmd_file path - read from config, fallback to run env
     import re as _re
@@ -892,10 +895,6 @@ def cmd_report(args: argparse.Namespace) -> int:
             sn_done = sn_key in completed
             icon = '[done]' if sn_done else '[    ]'
             ts = ''
-            if sn_done:
-                stamp_file = os.path.join(stamps_dir, f'{sn_key}.stamp')
-                if os.path.exists(stamp_file):
-                    ts = datetime.fromtimestamp(os.path.getmtime(stamp_file)).strftime('%Y-%m-%d %H:%M:%S')
             logger.info(f'      {icon} {sn:<20} {ts}')
 
         # --- Setup files ---
@@ -1097,7 +1096,7 @@ def cmd_clean(args: argparse.Namespace) -> int:
         logger.error("  Navigate to a run directory first: cd P0_run_PNR_run1")
         return 1
 
-    dirs_to_clean = ['work', '.stamps', 'logs', ]
+    dirs_to_clean = ['work', 'logs']
     files_to_clean = ['.run.status']
 
     if not getattr(args, 'confirm', False):
@@ -1141,10 +1140,7 @@ def cmd_list_nodes(args: argparse.Namespace) -> int:
     stages = get_flow_stages(flow_type)
 
     # Check stamps for completion status
-    stamps_dir = '.stamps'
-    completed = set()
-    if os.path.exists(stamps_dir):
-        completed = {f.replace('.stamp', '') for f in os.listdir(stamps_dir) if f.endswith('.stamp')}
+    completed = _get_completed_from_db()
 
     # Load custom nodes from runtime config
     custom_data = load_custom_nodes_from_runtime_config()
@@ -1244,11 +1240,7 @@ def cmd_show_graph(args: argparse.Namespace) -> int:
                 'is_parallel': stage in parallel_set,
             })
 
-    # Check stamps for completion
-    completed = set()
-    if os.path.exists('.stamps'):
-        completed = {f.replace('.stamp', '') for f in os.listdir('.stamps')
-                     if f.endswith('.stamp')}
+    completed = _get_completed_from_db()
 
     # Get subnodes per stage if detail mode
     detail = getattr(args, 'detail', False)
@@ -2198,7 +2190,7 @@ Examples:
         formatter_class=_fmt, description="""Delete all work files, logs, and stamps.
 
 Examples:
-  cbflow run clean --confirm         Delete work/, logs/, .stamps/""")
+  cbflow run clean --confirm         Delete work/, logs/""")
     clean_parser.add_argument('--confirm', action='store_true', help='Confirm cleanup')
 
     # list-nodes command
@@ -2401,7 +2393,7 @@ Examples:
         formatter_class=_fmt, description="""Run exit milestone checklist against the current run directory.
 
 Validates mandatory checks, files, and deliverables for a given milestone and phase.
-If run has completed stages (.stamps exist), shows PASS/FAIL status per check.
+If run has completed stages (in RACE DB), shows PASS/FAIL status per check.
 Otherwise generates the checklist template.
 
 To manage checks (add/remove/edit), use:  cbflow flow checklist add-check ...
@@ -2693,9 +2685,10 @@ def _cmd_checklist_dispatch(args):
 
     args.run_dir = run_dir
 
-    # If run has stamps, run status check; otherwise generate template
-    stamps_dir = os.path.join(run_dir, '.stamps')
-    if os.path.isdir(stamps_dir) and os.listdir(stamps_dir):
+    # If run has completed stages in DB, run status check; otherwise generate template
+    from pathlib import Path as _Path
+    has_db = any(_Path(run_dir).glob('.race_*.db'))
+    if has_db:
         return checklist_cmd.cmd_status(args)
     else:
         return checklist_cmd.cmd_generate(args)

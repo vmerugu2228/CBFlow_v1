@@ -49,12 +49,6 @@ flow_proc_append global {
         unset ::global_proc_start_time
     }
 
-    # Global status reporting
-    if {[file exists ".stamps"]} {
-        set stamp_count [llength [glob -nocomplain ".stamps/*.stamp"]]
-        handle_info "Current stamp files: $stamp_count"
-    }
-
     handle_info "Global append hook completed"
 }
 

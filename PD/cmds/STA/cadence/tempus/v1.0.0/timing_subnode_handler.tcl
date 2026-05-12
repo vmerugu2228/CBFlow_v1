@@ -294,10 +294,6 @@ switch $subnode_name {
                     puts $rpt "# Test mode: $scenario"
                     puts $rpt "Setup WNS: 0.000ns  Hold WNS: 0.000ns"
                     close $rpt
-                    file mkdir "$run_dir/.stamps"
-                    set sf [open "$run_dir/.stamps/timing_${scenario}.stamp" "w"]
-                    puts $sf "Completed: [clock format [clock seconds]]"
-                    close $sf
                 }
             } else {
                 if {[file exists $_scenario_handler]} {

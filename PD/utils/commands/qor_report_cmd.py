@@ -536,14 +536,22 @@ def extract_qor_metrics(run_dir: str) -> QoRMetrics:
 
 
 def detect_current_stage(run_dir: Path) -> Optional[str]:
-    """Auto-detect the current/latest stage from .stamps/ directory."""
-    stamps_dir = run_dir / '.stamps'
-    if not stamps_dir.is_dir():
+    """Auto-detect the current/latest completed stage from RACE DB."""
+    try:
+        from status_provider import StatusProvider
+        provider = StatusProvider(str(run_dir))
+        all_status = provider.get_all_status()
+        # Find the latest completed stage by timestamp
+        latest_stage, latest_ts = None, ''
+        for stage, info in all_status.items():
+            if info.get('status') in ('DONE', 'BYPASSED', 'FORCE_VALIDATED'):
+                ts = info.get('timestamp', '')
+                if ts > latest_ts:
+                    latest_ts = ts
+                    latest_stage = stage
+        return latest_stage
+    except Exception:
         return None
-    stamps = sorted(stamps_dir.glob('*.stamp'), key=lambda p: p.stat().st_mtime)
-    if stamps:
-        return stamps[-1].stem
-    return None
 
 
 def auto_detect_milestone(run_dir: Path) -> str:

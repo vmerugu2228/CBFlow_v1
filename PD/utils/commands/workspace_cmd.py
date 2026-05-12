@@ -1239,50 +1239,40 @@ def _get_run_info(run_dir: str) -> dict:
                     elif k == 'CBFLOW_RELEASE_VERSION': info['release'] = v
                     elif k == 'CBFLOW_RUN_NAME': info['run_name'] = v
 
-    # Parse stamps
-    stamps_dir = os.path.join(run_dir, '.stamps')
-    if os.path.exists(stamps_dir):
-        all_stamps = sorted([f for f in os.listdir(stamps_dir) if f.endswith('.stamp')])
-        info['subnodes_completed'] = len(all_stamps)
+    # Parse status from RACE DB
+    try:
+        from status_provider import StatusProvider
+        provider = StatusProvider(run_dir)
+        all_status = provider.get_all_status()
+        completed = [s for s, v in all_status.items()
+                     if v.get('status') in ('DONE', 'BYPASSED', 'FORCE_VALIDATED')]
+        info['subnodes_completed'] = len(completed)
+        info['completed_list'] = completed
+        info['stages_completed'] = len(completed)
 
-        info['completed_list'] = [s.replace('.stamp', '') for s in all_stamps]
+        # Last activity from latest timestamp
+        latest_ts = ''
+        for s, v in all_status.items():
+            ts = v.get('timestamp', '')
+            if ts > latest_ts:
+                latest_ts = ts
+        if latest_ts:
+            info['last_activity'] = latest_ts[:19].replace('T', ' ')
+    except Exception:
+        pass
 
-        # Get total stages from flow config and count completed by matching config names
-        try:
-            from tcl_config_parser import get_flow_stages
-            stages = get_flow_stages(info['flow_type'])
-            info['stages_total'] = len(stages)
-            # Count completed by matching stamp names against config stage names
-            stamp_names = set(s.replace('.stamp', '') for s in all_stamps)
-            completed_count = 0
-            for stage in stages:
-                # Check both unsuffixed and suffixed forms
-                if stage in stamp_names or f"{stage}1" in stamp_names:
-                    completed_count += 1
-            info['stages_completed'] = completed_count
-        except Exception:
-            # Fallback: count stamps that have a matching .stamp (no subnode suffix)
-            info['stages_total'] = 0
-            info['stages_completed'] = len(all_stamps)
+    try:
+        from tcl_config_parser import get_flow_stages
+        stages = get_flow_stages(info['flow_type'])
+        info['stages_total'] = len(stages)
+    except Exception:
+        pass
 
-        # Last activity timestamp
-        if all_stamps:
-            last_stamp = os.path.join(stamps_dir, all_stamps[-1])
-            mtime = os.path.getmtime(last_stamp)
-            info['last_activity'] = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')
-
-        # Determine status
-        if info['stages_total'] > 0 and info['stages_completed'] >= info['stages_total']:
-            info['status'] = 'completed'
-        elif info['stages_completed'] > 0:
-            info['status'] = 'in progress'
-    else:
-        try:
-            from tcl_config_parser import get_flow_stages
-            stages = get_flow_stages(info['flow_type'])
-            info['stages_total'] = len(stages)
-        except Exception:
-            pass
+    # Determine status
+    if info['stages_total'] > 0 and info['stages_completed'] >= info['stages_total']:
+        info['status'] = 'completed'
+    elif info['stages_completed'] > 0:
+        info['status'] = 'in progress'
 
     # Check for Makefile
     info['has_makefile'] = False  # Makefile no longer generated — engine is default
@@ -1464,13 +1454,22 @@ def _generate_run_summary(run_dir: str, info: dict) -> str:
     except Exception:
         stages = []
 
-    stamps_dir = os.path.join(run_dir, '.stamps')
+    # Get stage completion times from RACE DB
     stamp_times = {}
-    if os.path.exists(stamps_dir):
-        for sf in os.listdir(stamps_dir):
-            if sf.endswith('.stamp'):
-                name = sf.replace('.stamp', '')
-                stamp_times[name] = os.path.getmtime(os.path.join(stamps_dir, sf))
+    try:
+        from status_provider import StatusProvider
+        provider = StatusProvider(run_dir)
+        all_status = provider.get_all_status()
+        for stage, sinfo in all_status.items():
+            if sinfo.get('status') in ('DONE', 'BYPASSED', 'FORCE_VALIDATED'):
+                ts = sinfo.get('timestamp', '')
+                if ts:
+                    try:
+                        stamp_times[stage] = datetime.fromisoformat(ts).timestamp()
+                    except (ValueError, TypeError):
+                        pass
+    except Exception:
+        pass
 
     # ── Per-Stage Summary Table ──
     lines.append(f"  {'─'*70}")
@@ -1693,15 +1692,24 @@ def cmd_run_status(args: argparse.Namespace) -> int:
     except Exception:
         stages = []
 
-    stamps_dir = os.path.join(run_dir, '.stamps')
+    # Get stage completion from RACE DB
     completed_stamps = set()
     stamp_times = {}
-    if os.path.exists(stamps_dir):
-        for sf in os.listdir(stamps_dir):
-            if sf.endswith('.stamp'):
-                name = sf.replace('.stamp', '')
-                completed_stamps.add(name)
-                stamp_times[name] = os.path.getmtime(os.path.join(stamps_dir, sf))
+    try:
+        from status_provider import StatusProvider
+        provider = StatusProvider(run_dir)
+        all_status = provider.get_all_status()
+        for stage, sinfo in all_status.items():
+            if sinfo.get('status') in ('DONE', 'BYPASSED', 'FORCE_VALIDATED'):
+                completed_stamps.add(stage)
+                ts = sinfo.get('timestamp', '')
+                if ts:
+                    try:
+                        stamp_times[stage] = datetime.fromisoformat(ts).timestamp()
+                    except (ValueError, TypeError):
+                        pass
+    except Exception:
+        pass
 
     if stages:
         for stage in stages:

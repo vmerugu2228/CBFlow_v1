@@ -9,7 +9,7 @@ Features:
   - Parallel-ready dispatch (independent subnodes)
   - 4 launch modes: local, xterm, LSF batch, LSF+xterm
   - Error halt with structured reporting
-  - Stamp compatibility (writes .stamps/ for external tools)
+  - SQLite-only status tracking (no .stamps files)
 
 Usage:
   engine = RaceEngine(run_dir, flow_type, env_vars)
@@ -25,12 +25,12 @@ import re
 import sys
 import json
 import time
+import socket
 import sqlite3
 import subprocess
 import signal
 from pathlib import Path
 from datetime import datetime
-from collections import OrderedDict
 
 import logging
 logger = logging.getLogger('cbflow.engine')
@@ -48,7 +48,6 @@ class Job:
     RUNNING = 'RUNNING'
     DONE = 'DONE'
     FAIL = 'FAIL'
-    SKIPPED = 'SKIPPED'
     INVALIDATED = 'INVALIDATED'
     BYPASSED = 'BYPASSED'
     FORCE_VALIDATED = 'FORCE_VALIDATED'
@@ -146,7 +145,7 @@ class DagBuilder:
                         sub_deps[f'{stage}_validate'] = [f'{stage}_{sc}' for sc in scenarios]
                         sub_deps[f'{stage}_finish'] = [f'{stage}_validate']
 
-        jobs = OrderedDict()
+        jobs = {}
         stage_order = stages
 
         for stage in stages:
@@ -194,9 +193,8 @@ class DagBuilder:
                 jobs[job_name] = job
                 prev_subnode_name = job_name
 
-            # Stage sentinel job (marks stage complete, writes stamp)
-            sentinel = Job(stage, stage, '_sentinel',
-                           f'touch {self.run_dir}/.stamps/{stage}.stamp',
+            # Stage sentinel job (marks stage complete in DB)
+            sentinel = Job(stage, stage, '_sentinel', '',
                            job_type='stage', resource_tier='S')
             if has_subnode_deps:
                 for sn in stage_subnodes:
@@ -542,7 +540,6 @@ class StatusDB:
             except Exception:
                 pass
 
-        import socket
         hostname = socket.gethostname()
 
         conn.execute(
@@ -558,10 +555,13 @@ class StatusDB:
         job.status = status
 
     def reset_stale_jobs(self):
-        """Reset PENDING/RUNNING jobs back to READY on init (stale from interrupted runs)."""
+        """Reset stale RUNNING jobs back to READY on init.
+        Only resets RUNNING (truly stale from crashes). Does NOT touch PENDING —
+        those are legitimately queued by an active execute_jobs() in another thread."""
         conn = sqlite3.connect(self.db_path)
-        conn.execute("UPDATE jobs SET status = ? WHERE status IN (?, ?)",
-                     (Job.READY, Job.PENDING, Job.RUNNING))
+        # Only reset RUNNING (stale from crash/interrupt) — never PENDING
+        conn.execute("UPDATE jobs SET status = ? WHERE status = ?",
+                     (Job.READY, Job.RUNNING))
         conn.commit()
         conn.close()
 
@@ -578,7 +578,6 @@ class StatusDB:
         """Write a status directly to DB (for bypass/forcevalidate — no start/complete pair)."""
         conn = sqlite3.connect(self.db_path)
         now = datetime.now().isoformat()
-        import socket
         hostname = socket.gethostname()
         conn.execute(
             'INSERT INTO jobs (job_name, stage, subnode, job_type, status, command, '
@@ -675,7 +674,7 @@ class StatusDB:
         return rows
 
     def get_full_status(self) -> dict:
-        """Get complete run status — replaces .run.status file and .stamps/ queries."""
+        """Get complete run status from DB."""
         conn = sqlite3.connect(self.db_path)
 
         # Run info
@@ -738,11 +737,15 @@ class RaceEngine:
         self.db = None
         self._interrupted = False
 
-    def initialize(self) -> bool:
-        """Build DAG and initialize status DB."""
-        # Ensure .stamps dir exists (for backward compat)
-        os.makedirs(os.path.join(self.run_dir, '.stamps'), exist_ok=True)
+    def initialize(self, reset_stale=True) -> bool:
+        """Build DAG and initialize status DB.
 
+        Args:
+            reset_stale: If True (default), reset stale RUNNING jobs and
+                         run file-change detection.  Set to False for
+                         lightweight init used by dashboard API calls and
+                         action handlers — avoids disturbing active execution.
+        """
         # Build DAG
         builder = DagBuilder(self.run_dir, self.flow_type, self.env_vars)
         self.jobs, self.stage_order = builder.build()
@@ -780,21 +783,23 @@ class RaceEngine:
             if name in completed:
                 job.status = completed[name]
 
-        # Clean up stale PENDING/RUNNING from interrupted runs — reset to READY
-        self.db.reset_stale_jobs()
-
         # Save canonical DAG order and seed DB rows for new jobs
         self.db.save_job_order(self.jobs)
         self.db.seed_missing_jobs(self.jobs)
 
-        # ── File change detection: auto-invalidate downstream → auto-invalidate downstream ───
-        changed = self._detect_input_changes()
-        if changed:
-            logger.info(f"File changes detected — auto-invalidating affected stages")
-            for stage, changed_files in changed.items():
-                for f in changed_files:
-                    logger.info(f"  CHANGED: {stage} → {f}")
-                self._auto_retrace_from(stage)
+        if reset_stale:
+            # Clean up stale RUNNING from interrupted runs — reset to READY
+            # Only on first startup, NOT on dashboard API refreshes
+            self.db.reset_stale_jobs()
+
+            # ── File change detection: auto-invalidate downstream ───
+            changed = self._detect_input_changes()
+            if changed:
+                logger.info(f"File changes detected — auto-invalidating affected stages")
+                for stage, changed_files in changed.items():
+                    for f in changed_files:
+                        logger.info(f"  CHANGED: {stage} → {f}")
+                    self._auto_retrace_from(stage)
 
         logger.info(f"RACE initialized: {len(self.jobs)} jobs, "
                      f"{len(self.stage_order)} stages")
@@ -803,6 +808,17 @@ class RaceEngine:
         self._check_db_session_limit()
         return True
 
+    # ── Invalidation helper ─────────────────────────────────────────────────
+
+    def _invalidate_jobs(self, job_names: list):
+        """Invalidate jobs: set in-memory status + update DB."""
+        for name in job_names:
+            job = self.jobs.get(name)
+            if job:
+                job.status = Job.INVALIDATED
+        if job_names:
+            self.db.invalidate(job_names)
+
     def bypass(self, stages: list) -> int:
         """Mark stages as skipped (bypass). Works on any current status."""
         count = 0
@@ -810,10 +826,6 @@ class RaceEngine:
             for name, job in self.jobs.items():
                 if job.stage == stage and job.status != Job.BYPASSED:
                     self.db.record_direct(job, Job.BYPASSED)
-                    # Write stamp for compatibility
-                    stamp = os.path.join(self.run_dir, '.stamps', f'{name}.stamp')
-                    os.makedirs(os.path.dirname(stamp), exist_ok=True)
-                    Path(stamp).touch()
                     count += 1
             logger.info(f"Bypassed: {stage}")
         logger.info(f"Total bypassed: {count} jobs")
@@ -823,7 +835,6 @@ class RaceEngine:
         """Mark stages + all upstream as completed (force-validate).
         If you force-validate cts1, then rtl1/sdc1/upf1 → init_design1 → synthesis1 → place1 → cts1
         all get marked as FORCE_VALIDATED."""
-        # Collect target stages + all upstream deps
         all_jobs = set()
         for stage in stages:
             upstream = self._get_jobs_for_target(stage)
@@ -835,9 +846,6 @@ class RaceEngine:
             job = self.jobs.get(name)
             if job:
                 self.db.record_direct(job, Job.FORCE_VALIDATED)
-                stamp = os.path.join(self.run_dir, '.stamps', f'{name}.stamp')
-                os.makedirs(os.path.dirname(stamp), exist_ok=True)
-                Path(stamp).touch()
                 count += 1
                 validated_stages.add(job.stage)
 
@@ -853,9 +861,6 @@ class RaceEngine:
             job = self.jobs.get(jname)
             if job:
                 self.db.record_direct(job, Job.FORCE_VALIDATED)
-                stamp = os.path.join(self.run_dir, '.stamps', f'{jname}.stamp')
-                os.makedirs(os.path.dirname(stamp), exist_ok=True)
-                Path(stamp).touch()
                 count += 1
                 logger.info(f"Force-validated: {jname}")
         logger.info(f"Total force-validated: {count} jobs")
@@ -868,9 +873,6 @@ class RaceEngine:
             job = self.jobs.get(jname)
             if job and job.status != Job.BYPASSED:
                 self.db.record_direct(job, Job.BYPASSED)
-                stamp = os.path.join(self.run_dir, '.stamps', f'{jname}.stamp')
-                os.makedirs(os.path.dirname(stamp), exist_ok=True)
-                Path(stamp).touch()
                 count += 1
                 logger.info(f"Bypassed: {jname}")
         logger.info(f"Total bypassed: {count} jobs")
@@ -878,37 +880,20 @@ class RaceEngine:
 
     def force(self, stages: list) -> int:
         """Force re-execute specific stages + upstream deps. Invalidate true downstream."""
-        # Collect target stage + all upstream deps (these will be re-executed)
         target_jobs = set()
         for stage in stages:
             stage_jobs = self._get_jobs_for_target(stage)
             target_jobs.update(stage_jobs)
 
-        # Invalidate all target jobs so they re-execute
-        for name in target_jobs:
-            job = self.jobs.get(name)
-            if job:
-                job.status = Job.INVALIDATED
-                stamp = os.path.join(self.run_dir, '.stamps', f'{name}.stamp')
-                if os.path.exists(stamp):
-                    os.remove(stamp)
-
-        # Invalidate TRUE downstream — only stages that depend (directly or transitively)
-        # on the forced stages. Use dependency graph, NOT linear stage_order.
+        # Invalidate TRUE downstream via dependency graph
         target_stages = set(self.jobs[n].stage for n in target_jobs if n in self.jobs)
         downstream = set()
         self._collect_downstream(target_stages, downstream)
+        # Only invalidate completed downstream jobs
+        downstream = {n for n in downstream if self.jobs.get(n) and self.jobs[n].is_completed}
 
-        for name in downstream:
-            job = self.jobs.get(name)
-            if job and job.is_completed:
-                job.status = Job.INVALIDATED
-                stamp = os.path.join(self.run_dir, '.stamps', f'{name}.stamp')
-                if os.path.exists(stamp):
-                    os.remove(stamp)
-
-        all_invalidated = list(target_jobs | downstream)
-        self.db.invalidate(all_invalidated)
+        # Invalidate target + downstream in one call
+        self._invalidate_jobs(list(target_jobs | downstream))
 
         up_stages = sorted(target_stages)
         down_stages = sorted(set(self.jobs[n].stage for n in downstream if n in self.jobs))
@@ -949,13 +934,10 @@ class RaceEngine:
                 if dependent not in visited:
                     queue.append(dependent)
 
-    def execute(self, target: str = 'all', env_vars: dict = None,
-                use_lsf: bool = False, lsf_queue: str = None) -> int:
+    def execute(self, target: str = 'all', env_vars: dict = None) -> int:
         """Execute target (stage name or 'all')."""
         if env_vars:
             self.env_vars.update(env_vars)
-        # LSF/xterm controlled by flow(use_lsf) and flow(use_xterm) in flow_config.tcl
-        # Handlers read config directly — no env var overrides
 
         # Determine which jobs to run
         if target == 'all':
@@ -983,7 +965,7 @@ class RaceEngine:
         failed = set()
 
         # Mark all non-completed target jobs as PENDING in DB upfront
-        # Iterate in DAG order (self.jobs is OrderedDict) — NOT set order
+        # Iterate in DAG order (self.jobs preserves insertion order) — NOT set order
         pending_jobs = []
         for name, job in self.jobs.items():
             if name in target_jobs and name not in completed and job.status in (Job.READY, Job.INVALIDATED):
@@ -993,7 +975,10 @@ class RaceEngine:
             self.db.record_pending(pending_jobs)
 
         while target_jobs - completed - failed and not self._interrupted:
-            # Find jobs whose deps are satisfied (already PENDING from above)
+            # Re-sync from DB: catch external invalidation (retrace/bypass during execution)
+            self._sync_from_db(target_jobs, completed, failed)
+
+            # Find jobs whose deps are satisfied (still PENDING after sync)
             ready = []
             for name in target_jobs - completed - failed:
                 job = self.jobs[name]
@@ -1085,45 +1070,35 @@ class RaceEngine:
             return 0
 
     def retrace(self, from_stage: str = None, stages: list = None) -> bool:
-        """Smart retrace — invalidate jobs and propagate downstream."""
+        """Smart retrace — invalidate specified stages + TRUE downstream via dependency graph."""
         invalidate_names = []
 
         if from_stage:
-            # Invalidate from_stage and everything downstream
-            found = False
-            for stage in self.stage_order:
-                if stage == from_stage:
-                    found = True
-                if found:
-                    # Invalidate all jobs for this stage
-                    for name, job in self.jobs.items():
-                        if job.stage == stage:
-                            invalidate_names.append(name)
-                            job.status = Job.INVALIDATED
+            # Invalidate from_stage + true downstream via dependency graph
+            for name, job in self.jobs.items():
+                if job.stage == from_stage:
+                    invalidate_names.append(name)
+            downstream = set()
+            self._collect_downstream({from_stage}, downstream)
+            invalidate_names.extend(downstream)
 
         elif stages:
             for stage in stages:
                 for name, job in self.jobs.items():
                     if job.stage == stage:
                         invalidate_names.append(name)
-                        job.status = Job.INVALIDATED
+            # Also invalidate true downstream of all specified stages
+            downstream = set()
+            self._collect_downstream(set(stages), downstream)
+            invalidate_names.extend(downstream)
         else:
-            # Full retrace
-            for name, job in self.jobs.items():
-                invalidate_names.append(name)
-                job.status = Job.INVALIDATED
+            # Full retrace — all jobs
+            invalidate_names = list(self.jobs.keys())
 
-        # Update DB
-        if invalidate_names:
-            self.db.invalidate(invalidate_names)
+        # Deduplicate
+        invalidate_names = list(dict.fromkeys(invalidate_names))
 
-        # Remove corresponding stamps for backward compat
-        stamps_dir = os.path.join(self.run_dir, '.stamps')
-        if os.path.isdir(stamps_dir):
-            for name in invalidate_names:
-                stamp = os.path.join(stamps_dir, f'{name}.stamp')
-                if os.path.exists(stamp):
-                    os.remove(stamp)
+        self._invalidate_jobs(invalidate_names)
 
         logger.info(f"Retraced {len(invalidate_names)} jobs"
                      f"{f' from {from_stage}' if from_stage else ''}")
@@ -1131,7 +1106,7 @@ class RaceEngine:
 
     def status(self) -> dict:
         """Return structured status of all stages."""
-        result = OrderedDict()
+        result = {}
         for stage in self.stage_order:
             stage_job = self.jobs.get(stage)
             if stage_job:
@@ -1184,7 +1159,7 @@ class RaceEngine:
 
             try:
                 stage_done_time = datetime.fromisoformat(row[0]).timestamp()
-            except Exception:
+            except (ValueError, TypeError):
                 continue
 
             changed_files = []
@@ -1197,7 +1172,7 @@ class RaceEngine:
                         fmtime = os.path.getmtime(src_path)
                         if fmtime > stage_done_time:
                             changed_files.append(f'SOURCE: {src_path}')
-                except Exception:
+                except OSError:
                     pass
 
             # Check work directory files
@@ -1214,7 +1189,7 @@ class RaceEngine:
                                 rel_path = os.path.relpath(fp, self.run_dir)
                                 if rel_path not in changed_files:
                                     changed_files.append(rel_path)
-                        except Exception:
+                        except OSError:
                             pass
 
             if changed_files:
@@ -1270,32 +1245,19 @@ class RaceEngine:
 
     def _auto_retrace_from(self, stage: str):
         """Auto-invalidate a stage and its TRUE downstream via dependency graph."""
-        invalidated = []
+        # Collect changed stage jobs (only completed ones)
+        invalidated = [name for name, job in self.jobs.items()
+                       if job.stage == stage and job.status in Job.COMPLETED_STATES]
 
-        # Invalidate the changed stage itself
-        for name, job in self.jobs.items():
-            if job.stage == stage and job.status in Job.COMPLETED_STATES:
-                job.status = Job.INVALIDATED
-                invalidated.append(name)
-                stamp = os.path.join(self.run_dir, '.stamps', f'{name}.stamp')
-                if os.path.exists(stamp):
-                    os.remove(stamp)
-
-        # Invalidate true downstream using dependency graph
+        # Collect true downstream (only completed ones)
         downstream = set()
         self._collect_downstream({stage}, downstream)
-        for name in downstream:
-            job = self.jobs.get(name)
-            if job and job.status in Job.COMPLETED_STATES:
-                job.status = Job.INVALIDATED
-                invalidated.append(name)
-                stamp = os.path.join(self.run_dir, '.stamps', f'{name}.stamp')
-                if os.path.exists(stamp):
-                    os.remove(stamp)
+        invalidated.extend(n for n in downstream
+                           if self.jobs.get(n) and self.jobs[n].status in Job.COMPLETED_STATES)
 
         if invalidated:
-            self.db.invalidate(invalidated)
-            stages_affected = sorted(set(self.jobs[n].stage for n in invalidated))
+            self._invalidate_jobs(invalidated)
+            stages_affected = sorted(set(self.jobs[n].stage for n in invalidated if n in self.jobs))
             logger.info(f"  Auto-retraced {len(invalidated)} jobs: {' → '.join(stages_affected)}")
 
     def _check_db_session_limit(self):
@@ -1358,7 +1320,7 @@ class RaceEngine:
                                 if m:
                                     db_path = m.group(1)
                                     break
-                    except Exception:
+                    except (OSError, UnicodeDecodeError):
                         pass
                     if db_path:
                         break
@@ -1396,13 +1358,56 @@ class RaceEngine:
                 missing.append(f)
         return missing
 
+    def _sync_from_db(self, target_jobs: set, completed: set, failed: set):
+        """Re-sync in-memory job status from DB to catch external changes.
+        Called each iteration of execute_jobs() loop so that retrace/bypass/
+        forcevalidate actions from the dashboard take effect immediately."""
+        try:
+            db_status = self.db.get_completed()  # {name: status} for completed jobs
+            # Also get invalidated/ready jobs
+            conn = sqlite3.connect(self.db.db_path)
+            cur = conn.execute(
+                "SELECT job_name, status FROM jobs "
+                "WHERE id IN (SELECT MAX(id) FROM jobs GROUP BY job_name)")
+            db_latest = {row[0]: row[1] for row in cur}
+            conn.close()
+
+            for name in list(target_jobs - completed - failed):
+                job = self.jobs.get(name)
+                if not job:
+                    continue
+                db_st = db_latest.get(name, '')
+                if not db_st:
+                    continue
+
+                # External invalidation: DB says INVALIDATED but we think PENDING
+                if db_st == Job.INVALIDATED and job.status == Job.PENDING:
+                    job.status = Job.INVALIDATED
+                    logger.info(f"  [{job.stage}/{job.subnode}] externally invalidated — skipping")
+
+                # External bypass: DB says BYPASSED
+                elif db_st == Job.BYPASSED and job.status != Job.BYPASSED:
+                    job.status = Job.BYPASSED
+                    completed.add(name)
+                    logger.info(f"  [{job.stage}/{job.subnode}] externally bypassed")
+
+                # External force-validate: DB says FORCE_VALIDATED
+                elif db_st == Job.FORCE_VALIDATED and job.status != Job.FORCE_VALIDATED:
+                    job.status = Job.FORCE_VALIDATED
+                    completed.add(name)
+                    logger.info(f"  [{job.stage}/{job.subnode}] externally force-validated")
+
+                # External ready reset (shouldn't happen often but handle it)
+                elif db_st == Job.READY and job.status == Job.PENDING:
+                    job.status = Job.READY
+
+        except Exception as e:
+            logger.debug(f"DB sync error (non-fatal): {e}")
+
     def _execute_job(self, job: Job) -> int:
         """Execute a single job. Returns exit code."""
         if job.job_type == 'stage' and job.subnode == '_sentinel':
-            # Sentinel — validate mandatory outputs from this stage before marking complete
-            stamp_path = os.path.join(self.run_dir, '.stamps', f'{job.stage}.stamp')
-            os.makedirs(os.path.dirname(stamp_path), exist_ok=True)
-            Path(stamp_path).touch()
+            # Sentinel — mark stage complete in DB
             self.db.record_start(job)
             self.db.record_complete(job, 0)
             logger.info(f"  [{job.stage}] stage complete")
@@ -1410,7 +1415,19 @@ class RaceEngine:
 
         # ── Pre-execution check: required input files from upstream ──
         # Only check on the first subnode (setup) of each stage
-        if job.subnode in ('setup', job.stage.rstrip('0123456789')):
+        # Skip in test mode — no real EDA outputs are produced
+        is_test_mode = self.env_vars.get('CBFLOW_TEST_MODE', '') == 'true' or \
+                       os.environ.get('CBFLOW_TEST_MODE', '') == 'true'
+        if not is_test_mode:
+            # Check user_config.tcl for flow(test_mode)
+            uc = os.path.join(self.run_dir, 'setup', 'user_config.tcl')
+            if os.path.exists(uc):
+                with open(uc) as f:
+                    for line in f:
+                        if 'test_mode' in line and '"true"' in line:
+                            is_test_mode = True
+                            break
+        if not is_test_mode and job.subnode in ('setup', job.stage.rstrip('0123456789')):
             missing = self._validate_required_inputs(job)
             if missing:
                 logger.error(f"  [{job.stage}/{job.subnode}] BLOCKED — required input files missing:")
@@ -1460,11 +1477,7 @@ class RaceEngine:
 
             self.db.record_complete(job, exit_code, error_msg)
 
-            # Write subnode stamp for backward compat
             if exit_code == 0:
-                stamp = os.path.join(self.run_dir, '.stamps', f'{job.name}.stamp')
-                os.makedirs(os.path.dirname(stamp), exist_ok=True)
-                Path(stamp).touch()
                 logger.info(f"  [{job.stage}/{job.subnode}] done")
             else:
                 logger.error(f"  [{job.stage}/{job.subnode}] FAILED (exit={exit_code})")

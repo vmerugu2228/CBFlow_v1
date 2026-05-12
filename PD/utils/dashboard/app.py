@@ -98,12 +98,19 @@ class DataProvider:
                         elif k == 'CBFLOW_PROJECT_PHASE': info['phase'] = v
                         elif k == 'CBFLOW_RELEASE_VERSION': info['release'] = v
 
-        # Parse stamps
-        stamps_dir = run_dir / '.stamps'
-        if stamps_dir.exists():
-            stamps = sorted([s.stem for s in stamps_dir.glob('*.stamp')])
-            info['completed_stages'] = stamps
-            info['stage_count'] = len(stamps)
+        # Parse completed stages from RACE DB
+        try:
+            import sys
+            sys.path.insert(0, str(run_dir.parent.parent / 'PD' / 'utils' / 'commands'))
+            from status_provider import StatusProvider
+            provider = StatusProvider(str(run_dir))
+            all_status = provider.get_all_status()
+            completed = [s for s, v in all_status.items()
+                         if v.get('status') in ('DONE', 'BYPASSED', 'FORCE_VALIDATED')]
+            info['completed_stages'] = completed
+            info['stage_count'] = len(completed)
+        except Exception:
+            pass
 
         # Check for Makefile
         info['has_makefile'] = (run_dir / 'Makefile').exists()
