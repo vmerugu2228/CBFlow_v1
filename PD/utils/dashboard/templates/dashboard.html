@@ -74,9 +74,9 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
 .dag-node rect { stroke-width:2.5; }
 .dag-node:hover rect { filter:brightness(1.08); }
 .dag-node text { font-family:'Segoe UI',system-ui,sans-serif; pointer-events:none; }
-.dag-edge line { stroke:#555; stroke-width:2; }
-.dag-edge path { stroke:#555; stroke-width:2; fill:none; }
-.dag-edge polygon { fill:#555; }
+.dag-edge line { stroke-width:2; }
+.dag-edge path { stroke-width:2; fill:none; }
+.dag-edge polygon { }
 .dag-node.selected rect { stroke-width:4; filter:drop-shadow(0 0 8px rgba(0,0,0,0.5)); }
 
 /* ── Right Panel: Details ── */
@@ -649,14 +649,16 @@ function svgNode(id, displayName, label2, x, y, w, h, status, rx) {
 }
 
 // Stage node with proportional color fill based on subnode status distribution
-function svgStageNode(id, displayName, label2, x, y, w, h, stageInfo) {
+function svgStageNode(id, displayName, label2, x, y, w, h, stageInfo, branchBorderColor) {
   var total = stageInfo.jobs_total || 0;
   var r = 4;
+  var borderColor = branchBorderColor || sColor(stageInfo.status);
+  var borderWidth = branchBorderColor ? '3' : '2.5';
   var svg = '<g class="dag-node" id="dag-' + id + '" data-name="' + id + '" transform="translate(0,0)">';
 
   if (total === 0) {
     // Leaf node — single color
-    svg += '<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="'+r+'" ry="'+r+'" fill="'+sColorFill(stageInfo.status)+'" stroke="'+sColor(stageInfo.status)+'" stroke-width="2.5"/>';
+    svg += '<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="'+r+'" ry="'+r+'" fill="'+sColorFill(stageInfo.status)+'" stroke="'+borderColor+'" stroke-width="'+borderWidth+'"/>';
   } else {
     var done = stageInfo.jobs_done || 0;
     var failed = stageInfo.jobs_failed || 0;
@@ -681,7 +683,7 @@ function svgStageNode(id, displayName, label2, x, y, w, h, stageInfo) {
 
     // Background fill (last segment color covers full area — no gaps)
     var lastFill = segments[segments.length - 1].fill;
-    svg += '<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="'+r+'" ry="'+r+'" fill="'+lastFill+'" stroke="'+sColor(stageInfo.status)+'" stroke-width="2.5"/>';
+    svg += '<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="'+r+'" ry="'+r+'" fill="'+lastFill+'" stroke="'+borderColor+'" stroke-width="'+borderWidth+'"/>';
 
     // Overlay segments left-to-right (skip last since it's the background)
     if (segments.length > 1) {
@@ -696,7 +698,7 @@ function svgStageNode(id, displayName, label2, x, y, w, h, stageInfo) {
     }
 
     // Border on top
-    svg += '<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="'+r+'" ry="'+r+'" fill="none" stroke="'+sColor(stageInfo.status)+'" stroke-width="2.5"/>';
+    svg += '<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="'+r+'" ry="'+r+'" fill="none" stroke="'+borderColor+'" stroke-width="'+borderWidth+'"/>';
   }
 
   // Text — pick readable color based on dominant fill
@@ -712,23 +714,27 @@ function svgStageNode(id, displayName, label2, x, y, w, h, stageInfo) {
   return svg;
 }
 
-function svgEdgeLine(id, x1, y1, x2, y2, dashed) {
+// Branch edge colors — auto-assigned per branch column
+var BRANCH_COLORS = ['#1976d2','#e64a19','#7b1fa2','#00796b','#c2185b','#303f9f','#f57f17','#455a64','#d32f2f','#388e3c'];
+var MAIN_EDGE_COLOR = '#555';
+
+function svgEdgeLine(id, x1, y1, x2, y2, dashed, color) {
+  var c = color || MAIN_EDGE_COLOR;
   return '<g class="dag-edge" id="' + id + '">' +
     '<line x1="'+x1+'" y1="'+y1+'" x2="'+x2+'" y2="'+y2+'"' +
     (dashed ? ' stroke-dasharray="4,3"' : '') +
-    ' stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/></g>';
+    ' stroke="'+c+'" stroke-width="1.5" marker-end="url(#arrow)"/></g>';
 }
 
-function svgEdgePath(id, x1, y1, x2, y2) {
-  // Route: go down from source, then horizontal, then down to target top
-  // This ensures the arrow arrives VERTICALLY at the target node's top edge
+function svgEdgePath(id, x1, y1, x2, y2, color) {
+  var c = color || MAIN_EDGE_COLOR;
   var midY = y1 + (y2 - y1) * 0.5;
   var d = 'M ' + x1 + ' ' + y1 +
           ' L ' + x1 + ' ' + midY +
           ' L ' + x2 + ' ' + midY +
           ' L ' + x2 + ' ' + y2;
   return '<g class="dag-edge" id="' + id + '">' +
-    '<path d="' + d + '" fill="none" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/></g>';
+    '<path d="' + d + '" fill="none" stroke="'+c+'" stroke-width="1.5" marker-end="url(#arrow)"/></g>';
 }
 
 // ── Sugiyama-style hierarchical layout algorithm ──
@@ -916,7 +922,7 @@ function computeSugiyamaLayout(stageNames, edges, baseStagesSet) {
     });
   }
 
-  return positions;
+  return {positions: positions, nodeColumn: nodeColumn};
 }
 
 function renderDAG() {
@@ -937,12 +943,15 @@ function renderDAG() {
     // Check if we need to compute layout
     var needsLayout = stageNames.some(function(n){return !nodePositions[n];}) || Object.keys(nodePositions).length === 0;
 
+    // Always compute node-to-column mapping for edge/border coloring
+    if (baseStagesSet.size === 0) {
+      stageNames.forEach(function(n) { baseStagesSet.add(n); });
+    }
+    var layoutResult = computeSugiyamaLayout(stageNames, stageEdges, baseStagesSet);
+    window._nodeColumn = layoutResult.nodeColumn || {};
+
     if (needsLayout) {
-      // If no base_stages from API, assume all are base stages (use stage_order or stageNames)
-      if (baseStagesSet.size === 0) {
-        stageNames.forEach(function(n) { baseStagesSet.add(n); });
-      }
-      var computed = computeSugiyamaLayout(stageNames, stageEdges, baseStagesSet);
+      var computed = layoutResult.positions;
       // Merge computed into nodePositions (don't overwrite manually positioned nodes)
       for (var key in computed) {
         if (!nodePositions[key]) nodePositions[key] = computed[key];
@@ -962,6 +971,37 @@ function renderDAG() {
       '</marker></defs>';
     svgContent += '<g id="dag-group">';
 
+    // Assign colors to branch columns — persist across refreshes so colors don't change
+    if (!window._branchColorMap) window._branchColorMap = {};
+    var branchColorMap = window._branchColorMap;
+    var nc = window._nodeColumn || {};
+    var baseSet = new Set((dagData && dagData.base_stages) || []);
+    // Count existing assigned colors to pick next unused
+    var usedColorCount = Object.keys(branchColorMap).length;
+    if (Object.keys(nc).length > 0) {
+      stageNames.forEach(function(n) {
+        if (!baseSet.has(n) && nc[n]) {
+          var root = nc[n];
+          if (!branchColorMap[root]) {
+            branchColorMap[root] = BRANCH_COLORS[usedColorCount % BRANCH_COLORS.length];
+            usedColorCount++;
+          }
+        }
+      });
+    }
+
+    // Get edge color based on source/target nodes
+    function getEdgeColor(fromName, toName) {
+      if (baseSet.has(fromName) && baseSet.has(toName)) return MAIN_EDGE_COLOR;
+      if (!baseSet.has(toName) && nc[toName]) {
+        return branchColorMap[nc[toName]] || MAIN_EDGE_COLOR;
+      }
+      if (!baseSet.has(fromName) && nc[fromName]) {
+        return branchColorMap[nc[fromName]] || MAIN_EDGE_COLOR;
+      }
+      return MAIN_EDGE_COLOR;
+    }
+
     // Draw edges first (behind nodes)
     var edgeIdx = 0;
     stageEdges.forEach(function(e) {
@@ -969,11 +1009,11 @@ function renderDAG() {
       if (fp && tp) {
         var x1 = fp.x + fp.w/2, y1 = fp.y + fp.h;
         var x2 = tp.x + tp.w/2, y2 = tp.y;
-        // Use curved path for non-vertical connections, straight line for vertical
+        var edgeColor = getEdgeColor(e.from, e.to);
         if (Math.abs(x1 - x2) < 5) {
-          svgContent += svgEdgeLine('edge-' + edgeIdx, x1, y1, x2, y2, false);
+          svgContent += svgEdgeLine('edge-' + edgeIdx, x1, y1, x2, y2, false, edgeColor);
         } else {
-          svgContent += svgEdgePath('edge-' + edgeIdx, x1, y1, x2, y2);
+          svgContent += svgEdgePath('edge-' + edgeIdx, x1, y1, x2, y2, edgeColor);
         }
         edgeIdx++;
       }
@@ -990,7 +1030,8 @@ function renderDAG() {
     try { toolName = document.getElementById('lp-tool').textContent || ''; } catch(e){}
     var toolShort = toolShortMap[toolName.toLowerCase()] || toolName.toUpperCase().substr(0,3);
 
-    // Draw stage nodes — with proportional color segments
+    // Draw stage nodes — with proportional color segments + branch border colors
+    var nc = window._nodeColumn || {};
     stageNames.forEach(function(name) {
       var s = stagesData.find(function(x){return x.name === name;}) || {status:'READY',runtime:0,jobs_total:0};
       var p = nodePositions[name];
@@ -1001,7 +1042,12 @@ function renderDAG() {
         if (s.jobs_total > 0) {
           lbl = s.jobs_done + '/' + s.jobs_total + ' done  ' + formatTime(s.runtime);
         }
-        svgContent += svgStageNode(name, displayName, lbl, p.x, p.y, p.w, p.h, s);
+        // Branch nodes get colored borders matching their edge color
+        var nodeBorderColor = null;
+        if (!baseSet.has(name) && nc[name]) {
+          nodeBorderColor = branchColorMap[nc[name]] || null;
+        }
+        svgContent += svgStageNode(name, displayName, lbl, p.x, p.y, p.w, p.h, s, nodeBorderColor);
       }
     });
 
@@ -1414,7 +1460,8 @@ function resetGraph() {
   dagScale = 1;
   dagTx = 0;
   dagTy = 0;
-  window._dagFirstBuildDone = false; // re-trigger dagFit on next build
+  window._dagFirstBuildDone = false;
+  window._branchColorMap = {};  // reset branch colors
   renderDAG();
   showToast('Layout reset', 'success');
 }
