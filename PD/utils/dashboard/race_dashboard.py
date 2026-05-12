@@ -703,6 +703,59 @@ class RaceDashboard:
             'flow_type': self.flow_type,
         }
 
+    def get_mmmc_scenarios(self) -> dict:
+        """Read MMMC config — all scenarios, scenario sets, and per-node assignments."""
+        flow_dir = ''
+        env_file = os.path.join(self.run_dir, '.run.cbflow.env')
+        if os.path.exists(env_file):
+            with open(env_file) as f:
+                for line in f:
+                    if 'FLOW_DIR=' in line:
+                        flow_dir = line.split('=', 1)[1].strip().strip('"')
+
+        mmmc_path = os.path.join(flow_dir, 'config', 'flow', 'v1.0.0', 'mmmc_config.tcl')
+        if not os.path.exists(mmmc_path):
+            return {'error': 'mmmc_config.tcl not found', 'scenarios': [], 'nodes': {}, 'sets': {}}
+
+        with open(mmmc_path) as f:
+            content = f.read()
+
+        # Parse all analysis views (the master list of available scenarios)
+        all_scenarios = []
+        for m in re.finditer(r'"([\w_]+)"\s*\{\s*corner\s+"(\w+)"\s*mode\s+"(\w+)"\s*voltage\s+([\d.]+)\s*temperature\s+([-\d]+)\s*analysis_type\s+"(\w+)"', content):
+            all_scenarios.append({
+                'name': m.group(1),
+                'corner': m.group(2),
+                'mode': m.group(3),
+                'voltage': m.group(4),
+                'temp': m.group(5),
+                'type': m.group(6),
+            })
+
+        # Parse scenario sets
+        sets = {}
+        for m in re.finditer(r'(\w+)\s*\{\s*scenarios\s*\{([^}]*)\}\s*description\s*"([^"]*)"', content):
+            set_name = m.group(1)
+            scenarios = m.group(2).split()
+            sets[set_name] = {'scenarios': scenarios, 'description': m.group(3)}
+
+        # Parse per-node assignments
+        nodes = {}
+        # Match: node_name { setup {s1 s2} hold {h1 h2} }
+        for m in re.finditer(r'(\w+)\s*\{\s*setup\s*\{([^}]*)\}\s*hold\s*\{([^}]*)\}', content):
+            node = m.group(1)
+            if node in ('setup', 'hold', 'power', 'signoff', 'all', 'sta_setup', 'sta_hold', 'sta_signoff'):
+                continue  # skip scenario set names that match pattern
+            setup_scenarios = m.group(2).split()
+            hold_scenarios = m.group(3).split()
+            nodes[node] = {'setup': setup_scenarios, 'hold': hold_scenarios}
+
+        return {
+            'scenarios': all_scenarios,
+            'sets': sets,
+            'nodes': nodes,
+        }
+
     def get_input_vars(self, node_name: str) -> dict:
         """Get input variables for a leaf input node from user_config.tcl."""
         variables = {}
@@ -785,6 +838,8 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             self._json_response(self.dashboard.get_job(job_name))
         elif path == '/api/node-config':
             self._json_response(self.dashboard.get_node_config())
+        elif path == '/api/mmmc-scenarios':
+            self._json_response(self.dashboard.get_mmmc_scenarios())
         elif path.startswith('/api/input-vars/'):
             node_name = path[len('/api/input-vars/'):]
             self._json_response(self.dashboard.get_input_vars(node_name))
@@ -816,6 +871,8 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 result = self._action_forcevalidate(body)
             elif path == '/api/action/interactive':
                 result = self._action_interactive(body)
+            elif path == '/api/action/save-mmmc':
+                result = self._action_save_mmmc(body)
             elif path == '/api/action/stop':
                 result = self._action_stop(body)
             elif path == '/api/action/add-node':
@@ -948,6 +1005,49 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             return {'ok': True, 'message': f'Interactive session launching for {node}'}
         except Exception as e:
             return {'error': f'Failed to launch: {e}'}
+
+    def _action_save_mmmc(self, body):
+        """Save MMMC scenario overrides to setup/override_config.<node>.tcl."""
+        node = body.get('node', '')
+        setup = body.get('setup', [])
+        hold = body.get('hold', [])
+        if not node:
+            return {'error': 'node required'}
+
+        override_path = os.path.join(self.dashboard.run_dir, 'setup',
+                                      f'override_config.{node}.tcl')
+        os.makedirs(os.path.dirname(override_path), exist_ok=True)
+
+        # Read existing override — preserve ALL existing content,
+        # only remove THIS node's mmmc lines (keep other nodes' mmmc settings)
+        existing_lines = []
+        if os.path.exists(override_path):
+            with open(override_path) as f:
+                for line in f:
+                    # Only strip THIS node's mmmc scenario lines
+                    if f'mmmc({node},' in line:
+                        continue
+                    existing_lines.append(line)
+
+        flow_lower = self.dashboard.flow_type.lower()
+        setup_str = ' '.join(setup)
+        hold_str = ' '.join(hold)
+
+        with open(override_path, 'w') as f:
+            if existing_lines:
+                f.writelines(existing_lines)
+                if not existing_lines[-1].endswith('\n'):
+                    f.write('\n')
+            else:
+                f.write(f'# CBflow override config for {node}\n')
+                f.write(f'# Updated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}\n\n')
+
+            f.write(f'# MMMC scenario assignments (from GUI)\n')
+            f.write(f'set mmmc({node},setup_scenarios) "{setup_str}"\n')
+            f.write(f'set mmmc({node},hold_scenarios) "{hold_str}"\n')
+
+        return {'ok': True, 'message': f'MMMC override saved for {node}: {len(setup)} setup, {len(hold)} hold',
+                'file': override_path}
 
     def _action_stop(self, body):
         """Stop all running engine executions."""

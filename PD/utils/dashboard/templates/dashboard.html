@@ -123,7 +123,7 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
 
 /* ── Modal ── */
 .modal-bg { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:500; justify-content:center; align-items:center; }
-.modal-box { background:var(--surface); border-radius:8px; width:90%; max-width:460px; box-shadow:0 8px 32px rgba(0,0,0,0.2); }
+.modal-box { background:var(--surface); border-radius:8px; width:90%; max-width:800px; box-shadow:0 8px 32px rgba(0,0,0,0.2); }
 .modal-hd { display:flex; justify-content:space-between; align-items:center; padding:10px 16px; border-bottom:1px solid var(--border); }
 .modal-hd h3 { font-size:14px; }
 .modal-hd button { background:none; border:none; font-size:18px; cursor:pointer; color:var(--text-dim); }
@@ -208,7 +208,7 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
   <div class="sep"></div>
 
   <!-- View toggles -->
-  <button class="tb-btn" id="btn-subnodes" onclick="toggleSubnodes()" title="Show/Hide Subnodes">Subnodes</button>
+  <!-- Subnodes toggle removed — use right-click "View Subnodes" instead -->
   <button class="tb-btn" id="btn-back" onclick="backToMain()" style="display:none;background:#e3f2fd;font-weight:700">&#8592; Back to Main Graph</button>
   <button class="tb-btn" onclick="resetGraph()" title="Reset node positions to default layout">Reset Layout</button>
   <button class="tb-btn" id="btn-stop" onclick="stopExecution()" title="Stop all running jobs" style="background:#ffcdd2;color:#b71c1c;font-weight:700">Stop</button>
@@ -822,15 +822,37 @@ function computeSugiyamaLayout(stageNames, edges, baseStagesSet) {
   var columnX = {}; // columnRoot -> x position
   var nodeColumn = {}; // customNode -> columnRoot
 
+  // Build branch_key map to identify which branch each node belongs to
+  // Nodes with different branch_keys should be in different columns
+  var nodeBranchKey = {}; // node -> branch_key (from dagData)
+  if (dagData && dagData.edges) {
+    // We don't have branch_key in dagData, so use dependency structure:
+    // A node starts a new column if its parent has MULTIPLE children (fork point)
+    var childCount = {};
+    stageNames.forEach(function(n) {
+      var pars = parents[n] || [];
+      pars.forEach(function(p) {
+        childCount[p] = (childCount[p] || 0) + 1;
+      });
+    });
+  }
+
   function getColumnRoot(name) {
     if (nodeColumn[name] !== undefined) return nodeColumn[name];
     var par = parents[name] && parents[name].length > 0 ? parents[name][0] : '';
     if (!par || baseStagesSet.has(par)) {
-      // This node starts a new column — its parent is a base stage
+      // Parent is a base stage or no parent — new column
       nodeColumn[name] = name;
       return name;
     }
-    // Parent is also custom — inherit its column
+    // Parent is custom — check if parent is a fork point (has multiple children)
+    var parChildren = (children[par] || []).filter(function(c) { return !baseStagesSet.has(c); });
+    if (parChildren.length > 1) {
+      // Fork point — each child gets its own column
+      nodeColumn[name] = name;
+      return name;
+    }
+    // Single chain — inherit parent's column
     var root = getColumnRoot(par);
     nodeColumn[name] = root;
     return root;
@@ -851,11 +873,23 @@ function computeSugiyamaLayout(stageNames, edges, baseStagesSet) {
     if (rootsByBaseParent[par].indexOf(root) === -1) rootsByBaseParent[par].push(root);
   });
 
+  // Assign unique X to each column — globally track used X positions to prevent overlap
+  var usedColumnX = new Set();
+  // Collect all base stage X positions as used
+  for (var name in positions) {
+    usedColumnX.add(positions[name].x);
+  }
+
   for (var basePar in rootsByBaseParent) {
     var roots = rootsByBaseParent[basePar];
-    var baseX = (positions[basePar] ? positions[basePar].x : MAIN_X);
-    roots.forEach(function(root, i) {
-      columnX[root] = baseX + BRANCH_OFFSET * (i + 1);
+    roots.forEach(function(root) {
+      // Find next available X that doesn't overlap with any existing column
+      var candidateX = MAIN_X + BRANCH_OFFSET;
+      while (usedColumnX.has(candidateX)) {
+        candidateX += BRANCH_OFFSET;
+      }
+      columnX[root] = candidateX;
+      usedColumnX.add(candidateX);
     });
   }
 
@@ -945,16 +979,29 @@ function renderDAG() {
       }
     });
 
+    // Tool short name for node labels
+    var toolShortMap = {
+      'fc':'FC', 'pt':'PT', 'fm':'FM', 'icv':'ICV', 'redhawk':'RH',
+      'vc_lp':'VLP', 'genus':'GEN', 'innovus':'INV', 'tempus':'TMP',
+      'voltus':'VLT', 'calibre':'CAL', 'formality':'FM', 'conformal_lp':'CLP'
+    };
+    var info = (dagData && dagData.run_info) || {};
+    var toolName = '';
+    try { toolName = document.getElementById('lp-tool').textContent || ''; } catch(e){}
+    var toolShort = toolShortMap[toolName.toLowerCase()] || toolName.toUpperCase().substr(0,3);
+
     // Draw stage nodes — with proportional color segments
     stageNames.forEach(function(name) {
       var s = stagesData.find(function(x){return x.name === name;}) || {status:'READY',runtime:0,jobs_total:0};
       var p = nodePositions[name];
       if (p) {
+        var isLeaf = (s.jobs_total || 0) === 0;
+        var displayName = isLeaf ? name : name + ' [' + toolShort + ']';
         var lbl = statusLabel(s.status) + '  ' + formatTime(s.runtime);
         if (s.jobs_total > 0) {
           lbl = s.jobs_done + '/' + s.jobs_total + ' done  ' + formatTime(s.runtime);
         }
-        svgContent += svgStageNode(name, name, lbl, p.x, p.y, p.w, p.h, s);
+        svgContent += svgStageNode(name, displayName, lbl, p.x, p.y, p.w, p.h, s);
       }
     });
 
@@ -963,10 +1010,17 @@ function renderDAG() {
     attachDagEvents();
     dagBuilt = true;
     if (!panZoomSetup) { setupPanZoom(); panZoomSetup = true; }
-    dagFit();
+    // Only fit on first build — preserve user's zoom/pan on refreshes
+    if (!window._dagFirstBuildDone) {
+      dagFit();
+      window._dagFirstBuildDone = true;
+    } else {
+      // Restore saved transform after rebuild
+      applyDagTransform();
+    }
 
   } else if (dagBuilt) {
-    // Rebuild SVG with fresh colors — positions preserved in nodePositions
+    // Rebuild SVG with fresh colors — preserve zoom/pan
     dagBuilt = false;
     renderDAG();
   }
@@ -1360,6 +1414,7 @@ function resetGraph() {
   dagScale = 1;
   dagTx = 0;
   dagTy = 0;
+  window._dagFirstBuildDone = false; // re-trigger dagFit on next build
   renderDAG();
   showToast('Layout reset', 'success');
 }
@@ -1760,11 +1815,13 @@ function showCtxMenu(name, event) {
     menuHtml += '<hr>';
     menuHtml += '<a onclick="ctxAction(\'edit\')">&#9998; Edit Config (LSF/Version)</a>';
     menuHtml += '<a onclick="ctxAction(\'duplicate\')">&#10064; Duplicate Node</a>';
+    menuHtml += '<a onclick="ctxAction(\'branch\')">&#9095; Create Branch From Here</a>';
     // Only show View Subnodes and Interactive for tool nodes (not leaf input nodes)
     var stageInfo = stagesData.find(function(s){return s.name === name;});
     var isToolNode = stageInfo && stageInfo.jobs_total > 0;
     if (isToolNode) {
       menuHtml += '<a onclick="ctxAction(\'subnodes\')">&#9776; View Subnodes</a>';
+      menuHtml += '<a onclick="ctxAction(\'mmmc\')">&#9881; MMMC Scenarios</a>';
       menuHtml += '<a onclick="ctxAction(\'interactive\')">&#9000; Interactive Session</a>';
     }
   }
@@ -1810,6 +1867,13 @@ function ctxAction(action) {
     else apiAction('forcevalidate', {stages: [stage]});
   }
   else if (action === 'edit') openEditForm(stage);
+  else if (action === 'mmmc') openMMMCModal(stage);
+  else if (action === 'branch') {
+    // Auto-generate branch name: <node>_branch1, _branch2, etc.
+    var existingBranches = stagesData.filter(function(s){ return s.name.indexOf(stage.replace(/\d+$/,'')) !== -1; }).length;
+    var branchName = stage + '_branch' + existingBranches;
+    apiAction('create-branch', {name: branchName, from_stage: stage});
+  }
   else if (action === 'duplicate') {
     // Get the node type (strip numeric suffix) and its dependency
     var nodeType = stage.replace(/\d+$/, '');
@@ -1988,6 +2052,139 @@ function submitBranch(e) {
   });
 }
 
+function openMMMCModal(stage) {
+  var nodeBase = stage.replace(/\d+$/, '');
+  fetch('/api/mmmc-scenarios').then(function(r){return r.json();}).then(function(data) {
+    if (data.error) { showToast(data.error, 'error'); return; }
+
+    var allScenarios = data.scenarios || [];
+    var nodeCfg = data.nodes[nodeBase] || {setup:[], hold:[]};
+    var sets = data.sets || {};
+    var assignedSetup = new Set(nodeCfg.setup);
+    var assignedHold = new Set(nodeCfg.hold);
+
+    var html = '<div style="max-height:70vh;overflow-y:auto;padding:0">';
+    html += '<div style="padding:12px 16px;background:var(--surface2);border-bottom:1px solid var(--border)">';
+    html += '<div style="font-size:14px;font-weight:700">' + stage + ' — MMMC Scenarios</div>';
+    html += '<div style="font-size:11px;color:var(--text-dim);margin-top:2px">Setup: ' + nodeCfg.setup.length + ' | Hold: ' + nodeCfg.hold.length + ' assigned</div>';
+    html += '</div>';
+
+    // Filters
+    html += '<div style="padding:8px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center">';
+    html += '<span style="font-size:11px;font-weight:600;color:var(--text-dim)">Quick assign:</span>';
+    Object.keys(sets).forEach(function(sn) {
+      html += '<button onclick="mmmcApplySet(\'' + sn + '\')" style="padding:2px 8px;font-size:10px;border:1px solid var(--border);border-radius:3px;background:var(--surface);cursor:pointer">' + sn + '</button>';
+    });
+    html += '<button onclick="mmmcClearAll()" style="padding:2px 8px;font-size:10px;border:1px solid var(--red);border-radius:3px;background:#fff;color:var(--red);cursor:pointer">Clear All</button>';
+    html += '</div>';
+
+    // Filters by corner/mode
+    html += '<div style="padding:6px 16px;border-bottom:1px solid var(--border);display:flex;gap:6px;align-items:center">';
+    html += '<span style="font-size:10px;font-weight:600;color:var(--text-dim)">Filter:</span>';
+    html += '<select id="mmmc-filter-corner" onchange="mmmcFilter()" style="font-size:10px;padding:2px 6px;border:1px solid var(--border);border-radius:3px"><option value="">All Corners</option>';
+    var corners = new Set(); var modes = new Set();
+    allScenarios.forEach(function(s){ corners.add(s.corner); modes.add(s.mode); });
+    corners.forEach(function(c){ html += '<option value="'+c+'">'+c.toUpperCase()+'</option>'; });
+    html += '</select>';
+    html += '<select id="mmmc-filter-mode" onchange="mmmcFilter()" style="font-size:10px;padding:2px 6px;border:1px solid var(--border);border-radius:3px"><option value="">All Modes</option>';
+    modes.forEach(function(m){ html += '<option value="'+m+'">'+m+'</option>'; });
+    html += '</select>';
+    html += '<select id="mmmc-filter-type" onchange="mmmcFilter()" style="font-size:10px;padding:2px 6px;border:1px solid var(--border);border-radius:3px"><option value="">All Types</option><option value="setup">Setup</option><option value="hold">Hold</option></select>';
+    html += '</div>';
+
+    // Scenario table with checkboxes
+    html += '<div style="padding:8px 16px"><table style="width:100%;font-size:11px;border-collapse:collapse">';
+    html += '<thead><tr style="background:var(--surface2)">';
+    html += '<th style="padding:4px 6px;text-align:left">Setup</th>';
+    html += '<th style="padding:4px 6px;text-align:left">Hold</th>';
+    html += '<th style="padding:4px 6px;text-align:left">Scenario</th>';
+    html += '<th style="padding:4px 6px;text-align:left">Corner</th>';
+    html += '<th style="padding:4px 6px;text-align:left">Mode</th>';
+    html += '<th style="padding:4px 6px;text-align:left">Voltage</th>';
+    html += '<th style="padding:4px 6px;text-align:left">Temp</th>';
+    html += '</tr></thead><tbody>';
+
+    allScenarios.forEach(function(s) {
+      var setupChecked = assignedSetup.has(s.name) ? ' checked' : '';
+      var holdChecked = assignedHold.has(s.name) ? ' checked' : '';
+      html += '<tr class="mmmc-row" data-corner="'+s.corner+'" data-mode="'+s.mode+'" data-type="'+s.type+'" style="border-bottom:1px solid #eee">';
+      html += '<td style="padding:3px 6px;text-align:center"><input type="checkbox" class="mmmc-setup-cb" value="'+s.name+'"'+setupChecked+'></td>';
+      html += '<td style="padding:3px 6px;text-align:center"><input type="checkbox" class="mmmc-hold-cb" value="'+s.name+'"'+holdChecked+'></td>';
+      html += '<td style="padding:3px 6px;font-family:monospace;font-size:10px">'+s.name+'</td>';
+      html += '<td style="padding:3px 6px">'+s.corner.toUpperCase()+'</td>';
+      html += '<td style="padding:3px 6px">'+s.mode+'</td>';
+      html += '<td style="padding:3px 6px">'+s.voltage+'V</td>';
+      html += '<td style="padding:3px 6px">'+s.temp+'C</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+
+    // Save button
+    html += '<div style="padding:10px 16px;border-top:1px solid var(--border);text-align:right">';
+    html += '<label style="font-size:11px;display:flex;align-items:center;gap:4px;margin-right:12px;cursor:pointer">' +
+      '<input type="checkbox" id="mmmc-apply-all"> Apply to all ' + nodeBase + ' nodes</label>';
+    html += '<button onclick="saveMMMCScenarios(\'' + stage + '\',\'' + nodeBase + '\')" class="fm-btn fm-btn-primary" style="padding:5px 16px;font-size:12px">Save Scenarios</button>';
+    html += '</div></div>';
+
+    openModal('edit-modal');
+    document.getElementById('edit-title').textContent = stage + ' — MMMC Scenarios';
+    document.querySelector('#edit-modal .modal-bd').innerHTML = html;
+
+    // Store sets data for quick-assign buttons
+    window._mmmcSets = sets;
+  }).catch(function(e) { showToast('Failed to load MMMC: ' + e, 'error'); });
+}
+
+function mmmcFilter() {
+  var corner = document.getElementById('mmmc-filter-corner').value;
+  var mode = document.getElementById('mmmc-filter-mode').value;
+  var type = document.getElementById('mmmc-filter-type').value;
+  document.querySelectorAll('.mmmc-row').forEach(function(row) {
+    var show = true;
+    if (corner && row.getAttribute('data-corner') !== corner) show = false;
+    if (mode && row.getAttribute('data-mode') !== mode) show = false;
+    if (type && row.getAttribute('data-type') !== type) show = false;
+    row.style.display = show ? '' : 'none';
+  });
+}
+
+function mmmcApplySet(setName) {
+  var setData = window._mmmcSets[setName];
+  if (!setData) return;
+  var scenarios = new Set(setData.scenarios);
+  document.querySelectorAll('.mmmc-setup-cb').forEach(function(cb) {
+    if (scenarios.has(cb.value)) cb.checked = true;
+  });
+  document.querySelectorAll('.mmmc-hold-cb').forEach(function(cb) {
+    if (scenarios.has(cb.value)) cb.checked = true;
+  });
+  showToast('Applied set: ' + setName + ' (' + setData.scenarios.length + ' scenarios)', 'success');
+}
+
+function mmmcClearAll() {
+  document.querySelectorAll('.mmmc-setup-cb, .mmmc-hold-cb').forEach(function(cb) { cb.checked = false; });
+  showToast('All scenarios cleared', 'success');
+}
+
+function saveMMMCScenarios(fullName, baseName) {
+  var setup = [];
+  var hold = [];
+  document.querySelectorAll('.mmmc-setup-cb:checked').forEach(function(cb) { setup.push(cb.value); });
+  document.querySelectorAll('.mmmc-hold-cb:checked').forEach(function(cb) { hold.push(cb.value); });
+
+  var applyAll = document.getElementById('mmmc-apply-all') && document.getElementById('mmmc-apply-all').checked;
+  var node = applyAll ? baseName : fullName;
+
+  fetch('/api/action/save-mmmc', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({node: node, setup: setup, hold: hold})
+  }).then(function(r){return r.json();}).then(function(data) {
+    showToast(data.message || 'MMMC scenarios saved', data.error ? 'error' : 'success');
+    closeModal('edit-modal');
+  }).catch(function(e) { showToast('Error: ' + e, 'error'); });
+}
+
 function openEditForm(stage) {
   document.getElementById('ed-stage').value = stage;
   document.getElementById('edit-title').textContent = 'Edit -- ' + stage;
@@ -2041,6 +2238,29 @@ function saveConfig(e) {
 // ═══════════════════════════════════════════════════════════════════
 refresh();
 setInterval(refresh, 2000);
+
+// ── Keyboard Shortcuts ──
+document.addEventListener('keydown', function(e) {
+  // Skip if user is typing in an input/select/textarea
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
+
+  var key = e.key.toLowerCase();
+
+  if (key === 'f') { dagFit(); showToast('Fit to window', 'success'); }
+  else if (key === 'r' && selectedNode) { apiAction('retrace', {from_stage: selectedNode}); }
+  else if (key === 'd' && selectedNode) { ctxStage = selectedNode; ctxAction('duplicate'); }
+  else if (key === 'b' && selectedNode) { ctxStage = selectedNode; ctxAction('branch'); }
+  else if (key === 'v' && selectedNode) { ctxStage = selectedNode; ctxAction('forcevalidate'); }
+  else if (key === 'y' && selectedNode) { ctxStage = selectedNode; ctxAction('bypass'); }
+  else if (key === 'e' && selectedNode) { ctxStage = selectedNode; ctxAction('edit'); }
+  else if (key === 'm' && selectedNode) { ctxStage = selectedNode; ctxAction('mmmc'); }
+  else if (key === 'escape') { closeModal('edit-modal'); closeModal('action-modal'); closeModal('addnode-modal'); closeModal('branch-modal'); }
+  else if (key === 's') { apiAction('stop', {}); }
+  else if (key === 'l') { resetGraph(); }
+  else if (key === '?') {
+    showToast('Keys: F=Fit R=Retrace D=Duplicate B=Branch V=Validate Y=Bypass E=Edit M=MMMC S=Stop L=Reset Esc=Close', 'success');
+  }
+});
 </script>
 </body>
 </html>
