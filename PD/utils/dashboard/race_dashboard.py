@@ -122,15 +122,211 @@ class RaceDashboard:
         self._engine_cache = engine
         return engine
 
+    def _check_source_changes(self):
+        """Check if source input files changed since last completion — invalidate affected nodes."""
+        try:
+            conn = self._connect()
+            if not conn:
+                return
+
+            # Read source file paths from user_config
+            source_files = {}
+            user_config = os.path.join(self.run_dir, 'setup', 'user_config.tcl')
+            if os.path.exists(user_config):
+                with open(user_config) as f:
+                    for line in f:
+                        line = line.strip()
+                        m = re.match(r'set\s+\w+\(input,(\w+)\)\s+"([^"]*)"', line)
+                        if m and m.group(2):
+                            key = m.group(1)
+                            file_path = m.group(2)
+                            for prefix in ['rtl', 'sdc', 'upf', 'netlist', 'def', 'gds', 'spef',
+                                           'netlist_golden', 'netlist_revised', 'constraints', 'power_spec']:
+                                if key.startswith(prefix):
+                                    source_files.setdefault(prefix, []).append(file_path)
+                                    break
+
+            if not source_files:
+                conn.close()
+                return
+
+            # For each input node, check if source files changed or deleted
+            import time as _time
+            now_ts = _time.time()
+            changed_stages = []
+            for input_type, files in source_files.items():
+                node_name = f'{input_type}1'
+                cur = conn.execute(
+                    "SELECT end_time, status FROM jobs WHERE job_name = ? "
+                    "AND status IN ('DONE','BYPASSED','FORCE_VALIDATED') "
+                    "ORDER BY id DESC LIMIT 1", (node_name,))
+                row = cur.fetchone()
+                if not row or not row[0]:
+                    continue
+
+                try:
+                    done_time = datetime.fromisoformat(row[0]).timestamp()
+                except Exception:
+                    continue
+
+                # Skip recently force-validated jobs (within 30s) to avoid race condition
+                if row[1] == 'FORCE_VALIDATED' and (now_ts - done_time) < 30:
+                    continue
+
+                for src in files:
+                    try:
+                        if not os.path.exists(src):
+                            changed_stages.append(node_name)
+                            break
+                        elif os.path.getmtime(src) > done_time:
+                            changed_stages.append(node_name)
+                            break
+                    except Exception:
+                        pass
+
+            # Invalidate changed nodes + downstream
+            if changed_stages:
+                # Clear engine cache so next init sees fresh state
+                self._engine_cache = None
+                for node in changed_stages:
+                    conn.execute("UPDATE jobs SET status = 'INVALIDATED' WHERE job_name = ? AND status IN ('DONE','BYPASSED')", (node,))
+
+                # Also invalidate downstream — find all stages that depend on changed nodes
+                # Use job_order to find stages after the changed ones
+                all_stages = [r[0] for r in conn.execute("SELECT DISTINCT stage FROM job_order ORDER BY MIN(seq)", ).fetchall()] if False else []
+                try:
+                    all_stages = [r[0] for r in conn.execute("SELECT stage, MIN(seq) as s FROM job_order GROUP BY stage ORDER BY s")]
+                except Exception:
+                    pass
+
+                # BFS downstream from changed stages
+                changed_set = set(changed_stages)
+                # Read edges to find downstream
+                edges = {}
+                nc_path = ''
+                flow_dir = ''
+                env_file = os.path.join(self.run_dir, '.run.cbflow.env')
+                if os.path.exists(env_file):
+                    with open(env_file) as f:
+                        for line in f:
+                            if 'FLOW_DIR=' in line:
+                                flow_dir = line.split('=', 1)[1].strip().strip('"')
+                if flow_dir:
+                    nc_path = os.path.join(flow_dir, 'config', 'flow', 'v1.0.0',
+                                           'node_configs', f'{self.flow_type}_config.tcl')
+                if nc_path and os.path.exists(nc_path):
+                    with open(nc_path) as f:
+                        nc = f.read()
+                    for m in re.finditer(r'dependencies,(\w+)\s+\{([^}]*)\}', nc):
+                        stage = m.group(1)
+                        deps = m.group(2).split()
+                        for d in deps:
+                            edges.setdefault(d, []).append(stage)
+
+                # BFS from changed nodes
+                queue = list(changed_set)
+                visited = set(changed_set)
+                while queue:
+                    cur_stage = queue.pop(0)
+                    for downstream in edges.get(cur_stage, []):
+                        if downstream not in visited:
+                            visited.add(downstream)
+                            queue.append(downstream)
+                            # Invalidate all jobs for this downstream stage
+                            conn.execute(
+                                "UPDATE jobs SET status = 'INVALIDATED' "
+                                "WHERE stage = ? AND status IN ('DONE','BYPASSED')",
+                                (downstream,))
+
+                conn.commit()
+
+            conn.close()
+        except Exception:
+            pass
+
     def get_status(self) -> dict:
+        # Run file change detection on each status poll (lightweight check)
+        self._check_source_changes()
+
         conn = self._connect()
         if not conn:
             return {'run_info': {}, 'stages': [], 'summary': {}}
         try:
-            # Run info
+            # Run info from DB
             run_info = {}
             for key, val in conn.execute('SELECT key, value FROM run_info'):
                 run_info[key] = val
+
+            # Enrich with env file data (design name, phase, run name, tech, tool)
+            env_file = os.path.join(self.run_dir, '.run.cbflow.env')
+            if os.path.exists(env_file):
+                with open(env_file) as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line.startswith('export ') or '=' not in line:
+                            continue
+                        kv = line[7:].split('=', 1)
+                        k, v = kv[0], kv[1].strip('"')
+                        if k == 'CBFLOW_DESIGN_NAME': run_info['design_name'] = v
+                        elif k == 'CBFLOW_PROJECT_PHASE': run_info['phase'] = v
+                        elif k == 'CBFLOW_RUN_NAME': run_info['run_name'] = v
+
+            # Read tech info from tech config
+            flow_dir = ''
+            env_file2 = os.path.join(self.run_dir, '.run.cbflow.env')
+            if os.path.exists(env_file2):
+                with open(env_file2) as f:
+                    for line in f:
+                        if 'FLOW_DIR=' in line:
+                            flow_dir = line.split('=', 1)[1].strip().strip('"')
+
+            # Get tech node info
+            if flow_dir:
+                import glob as _glob
+                for tech_dir in _glob.glob(os.path.join(flow_dir, 'config', 'tech', '*', '*/tech_config.tcl')):
+                    try:
+                        with open(tech_dir) as tf:
+                            for line in tf:
+                                if 'tech(node)' in line:
+                                    m = re.search(r'"([^"]+)"', line)
+                                    if m: run_info['tech_node'] = m.group(1)
+                                elif 'tech(foundry)' in line:
+                                    m = re.search(r'"([^"]+)"', line)
+                                    if m: run_info['foundry'] = m.group(1)
+                                elif 'tech(track,default)' in line and 'set ' in line:
+                                    m = re.search(r'"([^"]+)"', line)
+                                    if m and 'track_variant' not in run_info:
+                                        run_info['track_variant'] = m.group(1)
+                                elif 'tech(metal_stack_name)' in line:
+                                    m = re.search(r'"([^"]+)"', line)
+                                    if m: run_info['metal_stack'] = m.group(1)
+                        break  # Use first tech config found
+                    except Exception:
+                        pass
+
+                # Get tool info from node config
+                nc_path = os.path.join(flow_dir, 'config', 'flow', 'v1.0.0',
+                                       'node_configs', f'{self.flow_type}_config.tcl')
+                if os.path.exists(nc_path):
+                    with open(nc_path) as nf:
+                        for line in nf:
+                            if 'tool,vendor' in line:
+                                m = re.search(r'"([^"]+)"', line)
+                                if m: run_info['tool_vendor'] = m.group(1)
+                            elif 'tool,name' in line:
+                                m = re.search(r'"([^"]+)"', line)
+                                if m: run_info['tool_name'] = m.group(1)
+
+                # Get tool module from flow config
+                fc_path = os.path.join(flow_dir, 'config', 'flow', 'v1.0.0', 'flow_config.tcl')
+                tool_name = run_info.get('tool_name', '')
+                if tool_name and os.path.exists(fc_path):
+                    with open(fc_path) as ff:
+                        for line in ff:
+                            m = re.search(rf'flow\(tool_module,{re.escape(tool_name)}\)\s+"([^"]+)"', line)
+                            if m:
+                                run_info['tool_module'] = m.group(1)
+                                break
 
             # Stage summary
             stages = []
@@ -179,7 +375,7 @@ class RaceDashboard:
                 elif running_c > 0:
                     status = 'RUNNING'
                 elif done == total and done > 0:
-                    status = 'DONE'
+                    status = sentinel_status  # preserve DONE/BYPASSED/FORCE_VALIDATED
                 elif done > 0 and pending_c > 0:
                     status = 'RUNNING'
                 elif pending_c > 0:
@@ -389,9 +585,20 @@ class RaceDashboard:
                             flow_dir = line.split('=', 1)[1].strip().strip('"')
                             break
 
-        tlc_path = os.path.join(flow_dir, 'config', 'flow', 'v1.0.0', 'tool_launch_config.tcl')
+        # Read queue tiers from lsf_config.tcl (single source of truth)
+        # and stage mappings from tool_launch_config.tcl
         queue_map = {}
         queue_resources = {}
+
+        lsf_path = os.path.join(flow_dir, 'config', 'flow', 'v1.0.0', 'lsf_config.tcl')
+        if os.path.exists(lsf_path):
+            with open(lsf_path) as f:
+                lsf_content = f.read()
+            # Match both formats: array set block (key "val") and set lsf(key) "val"
+            for m in re.finditer(r'queue_types,(\w+),(\w+)\s+"([^"]+)"', lsf_content):
+                queue_resources.setdefault(m.group(1), {})[m.group(2)] = m.group(3)
+
+        tlc_path = os.path.join(flow_dir, 'config', 'flow', 'v1.0.0', 'tool_launch_config.tcl')
         if os.path.exists(tlc_path):
             with open(tlc_path) as f:
                 tlc = f.read()
@@ -449,16 +656,39 @@ class RaceDashboard:
                 if m:
                     configs[stage]['timeout'] = m.group(1)
 
-        # Read tool versions from env
-        env_file = os.path.join(self.run_dir, '.run.cbflow.env')
-        tool_versions = {}
-        if os.path.exists(env_file):
-            with open(env_file) as f:
+        # Read tool module versions from flow_config (single source of truth)
+        tool_modules = {}
+        fc_path = os.path.join(flow_dir, 'config', 'flow', 'v1.0.0', 'flow_config.tcl')
+        if os.path.exists(fc_path):
+            with open(fc_path) as f:
                 for line in f:
-                    if '_VERSION=' in line and 'export' in line:
-                        kv = line.replace('export ', '').strip().split('=', 1)
-                        if len(kv) == 2:
-                            tool_versions[kv[0]] = kv[1].strip('"')
+                    m = re.search(r'flow\(tool_module,(\w+)\)\s+"([^"]+)"', line)
+                    if m:
+                        tool_modules[m.group(1)] = m.group(2)
+
+        # Get the tool name for this flow from node config
+        flow_tool = ''
+        if nc_path and os.path.exists(nc_path):
+            with open(nc_path) as f:
+                nc_content = f.read()
+            m = re.search(r'tool,name\s+"([^"]+)"', nc_content)
+            if m:
+                flow_tool = m.group(1)
+
+        # Set tool_module per stage
+        for stage in stage_order:
+            if flow_tool and flow_tool in tool_modules:
+                configs[stage]['tool_module'] = tool_modules[flow_tool]
+            # Check override
+            stage_base = stage.rstrip('0123456789')
+            override_file = os.path.join(self.run_dir, 'setup',
+                                          f'override_config.{stage_base}.tcl')
+            if os.path.exists(override_file):
+                with open(override_file) as f:
+                    for line in f:
+                        if 'tool_module' in line:
+                            m = re.search(r'"([^"]+)"', line)
+                            if m: configs[stage]['tool_module'] = m.group(1)
 
         # Read available flow stages from node_config
         available_stages = stage_order
@@ -467,10 +697,38 @@ class RaceDashboard:
             'stages': configs,
             'queue_tiers': sorted(queue_resources.keys()),
             'queue_resources': queue_resources,
-            'tool_versions': tool_versions,
+            'tool_modules': tool_modules,
+            'flow_tool': flow_tool,
             'available_stages': available_stages,
             'flow_type': self.flow_type,
         }
+
+    def get_input_vars(self, node_name: str) -> dict:
+        """Get input variables for a leaf input node from user_config.tcl."""
+        variables = {}
+        node_base = node_name.rstrip('0123456789')  # rtl1 → rtl, sdc1 → sdc
+        flow_lower = self.flow_type.lower()
+
+        user_config = os.path.join(self.run_dir, 'setup', 'user_config.tcl')
+        if os.path.exists(user_config):
+            with open(user_config) as f:
+                for line in f:
+                    line = line.strip()
+                    # Match patterns like: set synth_pnr(input,rtl_filelist) "path"
+                    # or set sta(input,netlist) "path"
+                    m = re.match(r'set\s+(\w+\([^)]*\))\s+"([^"]*)"', line)
+                    if m:
+                        key = m.group(1)
+                        val = m.group(2)
+                        # Check if this variable relates to this input node type
+                        key_lower = key.lower()
+                        if node_base in key_lower or f'input,{node_base}' in key_lower:
+                            variables[key] = val
+                        # Also match generic input variables (netlist, sdc, upf, etc.)
+                        elif f'input,{node_base}_' in key_lower or f',{node_base}' in key_lower:
+                            variables[key] = val
+
+        return {'node': node_name, 'type': node_base, 'variables': variables}
 
     def get_all_jobs(self) -> list:
         conn = self._connect()
@@ -526,8 +784,10 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             job_name = path[len('/api/job/'):]
             self._json_response(self.dashboard.get_job(job_name))
         elif path == '/api/node-config':
-            # Get editable node config (LSF, version, timeout per stage)
             self._json_response(self.dashboard.get_node_config())
+        elif path.startswith('/api/input-vars/'):
+            node_name = path[len('/api/input-vars/'):]
+            self._json_response(self.dashboard.get_input_vars(node_name))
         elif path.startswith('/static/'):
             self._serve_static(path[len('/static/'):])
         else:
@@ -554,6 +814,8 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 result = self._action_force(body)
             elif path == '/api/action/forcevalidate':
                 result = self._action_forcevalidate(body)
+            elif path == '/api/action/interactive':
+                result = self._action_interactive(body)
             elif path == '/api/action/stop':
                 result = self._action_stop(body)
             elif path == '/api/action/add-node':
@@ -564,6 +826,9 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 result = self._action_create_branch(body)
             elif path == '/api/node-config':
                 result = self._action_update_node_config(body)
+            elif path.startswith('/api/input-vars/'):
+                node_name = path[len('/api/input-vars/'):]
+                result = self._action_save_input_vars(node_name, body)
             else:
                 self._json_response({'error': f'Unknown action: {path}'}, 404)
                 return
@@ -634,6 +899,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
     def _action_bypass(self, body):
         """Bypass stages or specific jobs."""
+        self.dashboard._engine_cache = None
         engine = self._get_engine()
         jobs = body.get('jobs', [])
         if jobs:
@@ -669,6 +935,20 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         t.start()
         return {'ok': True, 'message': f'Forcing: {", ".join(stages)}', 'async': True}
 
+    def _action_interactive(self, body):
+        """Launch interactive EDA tool session for a node."""
+        node = body.get('node', '')
+        if not node:
+            return {'error': 'node required'}
+        import subprocess
+        run_dir = self.dashboard.run_dir
+        cmd = ['cbflow', 'run', 'interactive', '--load', node]
+        try:
+            subprocess.Popen(cmd, cwd=run_dir)
+            return {'ok': True, 'message': f'Interactive session launching for {node}'}
+        except Exception as e:
+            return {'error': f'Failed to launch: {e}'}
+
     def _action_stop(self, body):
         """Stop all running engine executions."""
         global _stop_flag, _active_engines
@@ -681,6 +961,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
     def _action_forcevalidate(self, body):
         """Force-validate stages or specific jobs."""
+        self.dashboard._engine_cache = None
         engine = self._get_engine()
         jobs = body.get('jobs', [])
         if jobs:
@@ -695,10 +976,24 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         return {'ok': True, 'message': f'Force-validated: {", ".join(stages)}'}
 
     def _action_add_node(self, body):
-        """Add custom node."""
+        """Add custom node. If auto_name=true, auto-generate next available name."""
         name = body.get('name', '')
         node_type = body.get('type', '')
         dep = body.get('dep', '')
+        auto_name = body.get('auto_name', False)
+
+        if auto_name and node_type and dep:
+            # Auto-generate name using NodeManager's _next_suffix
+            try:
+                import sys
+                sys.path.insert(0, os.path.join(os.path.dirname(DASHBOARD_DIR), 'commands'))
+                from node_manager import NodeManager
+                mgr = NodeManager(self.dashboard.run_dir, self.dashboard.flow_type)
+                suffix = mgr._next_suffix(node_type)
+                name = f"{node_type}{suffix}"
+            except Exception as e:
+                return {'error': f'Auto-name failed: {e}'}
+
         if not name or not node_type or not dep:
             return {'error': 'name, type, dep required'}
         # Write to runtime_flow_config.tcl
@@ -711,7 +1006,8 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         result = subprocess.run(cmd, cwd=self.dashboard.run_dir, capture_output=True, text=True)
         if result.returncode != 0:
             return {'error': f'Add node failed: {result.stderr.strip()}'}
-        # Re-initialize engine so new node appears in DB
+        # Clear engine cache and re-initialize so new node appears in DB
+        self.dashboard._engine_cache = None
         try:
             engine = self._get_engine()
         except Exception as e:
@@ -730,9 +1026,9 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                f'mgr = NodeManager("{self.dashboard.run_dir}", "{self.dashboard.flow_type}"); '
                f'mgr.delete_node("{name}")']
         subprocess.run(cmd, cwd=self.dashboard.run_dir, capture_output=True)
-        # Re-initialize engine so DB reflects the change
+        self.dashboard._engine_cache = None
         try:
-            engine = self._get_engine()
+            self._get_engine()
         except Exception:
             pass
         return {'ok': True, 'message': f'Deleted node: {name}'}
@@ -750,9 +1046,9 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                f'mgr = NodeManager("{self.dashboard.run_dir}", "{self.dashboard.flow_type}"); '
                f'mgr.create_branch("{name}", "{from_stage}")']
         subprocess.run(cmd, cwd=self.dashboard.run_dir, capture_output=True)
-        # Re-initialize engine so DB reflects the change
+        self.dashboard._engine_cache = None
         try:
-            engine = self._get_engine()
+            self._get_engine()
         except Exception:
             pass
         return {'ok': True, 'message': f'Branch "{name}" created from {from_stage}'}
@@ -779,6 +1075,8 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             lines.append(f'set {flow_lower}(runtime,timeout,{stage}) "{body["timeout"]}"')
         if body.get('tool_version'):
             lines.append(f'set {flow_lower}(tool,version) "{body["tool_version"]}"')
+        if body.get('tool_module'):
+            lines.append(f'set flow(tool_module,{self._get_flow_tool()}) "{body["tool_module"]}"')
 
         if lines:
             os.makedirs(os.path.dirname(override_file), exist_ok=True)
@@ -790,6 +1088,59 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
         return {'ok': True, 'message': f'Config updated for {stage}',
                 'file': override_file, 'changes': lines}
+
+    def _action_save_input_vars(self, node_name, body):
+        """Save input variables to user_config.tcl."""
+        variables = body.get('variables', {})
+        if not variables:
+            return {'error': 'No variables to save'}
+
+        user_config = os.path.join(self.dashboard.run_dir, 'setup', 'user_config.tcl')
+        if not os.path.exists(user_config):
+            return {'error': 'user_config.tcl not found'}
+
+        with open(user_config) as f:
+            lines = f.readlines()
+
+        # Update existing lines or append new ones
+        updated_keys = set()
+        for i, line in enumerate(lines):
+            for key, val in variables.items():
+                if key in line and line.strip().startswith('set '):
+                    lines[i] = f'set {key} "{val}"\n'
+                    updated_keys.add(key)
+
+        # Append any new variables not found in existing file
+        for key, val in variables.items():
+            if key not in updated_keys:
+                lines.append(f'set {key} "{val}"\n')
+
+        with open(user_config, 'w') as f:
+            f.writelines(lines)
+
+        return {'ok': True, 'message': f'Input variables saved for {node_name} ({len(variables)} vars)'}
+
+    def _get_flow_tool(self):
+        """Get the tool name for this flow from node config."""
+        try:
+            flow_dir = ''
+            env_file = os.path.join(self.dashboard.run_dir, '.run.cbflow.env')
+            if os.path.exists(env_file):
+                with open(env_file) as f:
+                    for line in f:
+                        if 'FLOW_DIR=' in line:
+                            flow_dir = line.split('=', 1)[1].strip().strip('"')
+            nc_path = os.path.join(flow_dir, 'config', 'flow', 'v1.0.0',
+                                   'node_configs', f'{self.dashboard.flow_type}_config.tcl')
+            if os.path.exists(nc_path):
+                with open(nc_path) as f:
+                    for line in f:
+                        m = re.search(r'tool,name\s+"([^"]+)"', line)
+                        if m:
+                            return m.group(1)
+        except Exception:
+            pass
+        return 'fc'
 
     def _get_engine(self):
         """Get or create RACE engine for this run."""
@@ -877,10 +1228,25 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         pass  # Suppress access logs
 
 
+def _file_watcher(dashboard):
+    """Background thread that monitors source input files for changes every 1 second."""
+    import time
+    while True:
+        try:
+            dashboard._check_source_changes()
+        except Exception:
+            pass
+        time.sleep(1)
+
+
 def start_dashboard(run_dir: str, port: int = 8080, open_browser: bool = True):
     """Start the RACE Dashboard web server."""
     dashboard = RaceDashboard(run_dir)
     DashboardHandler.dashboard = dashboard
+
+    # Start file watcher thread for near-instant change detection
+    watcher = threading.Thread(target=_file_watcher, args=(dashboard,), daemon=True)
+    watcher.start()
 
     server = http.server.HTTPServer(('0.0.0.0', port), DashboardHandler)
     url = f'http://localhost:{port}'

@@ -316,7 +316,7 @@ array set synth {
 
 # Configuration loading marker
 if {![info exists ::synth_config_loaded]} {
-    puts "INFO: SYNTH configuration loaded successfully - [llength $synth(stages)] stages, [expr {[llength $synth(subnodes,rtl1)] + [llength $synth(subnodes,sdc1)] + [llength $synth(subnodes,upf1)] + [llength $synth(subnodes,init_design1)] + [llength $synth(subnodes,synthesis1)] + [llength $synth(subnodes,export_data1)] + [llength $synth(subnodes,release_data1)]}] total subnodes"
+    puts "INFO: SYNTH configuration loaded successfully - [llength $synth(stages)] stages, [expr {1 + 1 + 1 + [llength $synth(subnodes,init_design1)] + [llength $synth(subnodes,synthesis1)] + [llength $synth(subnodes,export_data1)] + [llength $synth(subnodes,release_data1)]}] total subnodes"
     set ::synth_config_loaded true
 }
 

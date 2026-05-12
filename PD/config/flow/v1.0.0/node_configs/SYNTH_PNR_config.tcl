@@ -283,6 +283,24 @@ array set synth_pnr {
     optional_files,synthesis1 {synth_pnr(synthesis,scripts)}
 }
 
+# ┌─ Stage Input File Dependencies ──────────────────────────────────────────┐
+# Files that MUST exist before a stage starts (produced by upstream stages).
+# Paths relative to $run_dir. Checked by RACE engine before execution.
+# If any file is missing, the stage fails immediately with a clear error.
+# NOTE: Outside array set — multi-word values need individual set statements.
+set synth_pnr(required_inputs,init_design1)  "work/SYNTH_PNR/rtl1/rtl work/SYNTH_PNR/sdc1/sdc work/SYNTH_PNR/upf1/upf"
+set synth_pnr(required_inputs,synthesis1)    "work/SYNTH_PNR/init_design1/run/init_design1.nlib"
+set synth_pnr(required_inputs,place1)        "work/SYNTH_PNR/synthesis1/run/synthesis1.nlib"
+set synth_pnr(required_inputs,cts1)          "work/SYNTH_PNR/place1/run/place1.nlib"
+set synth_pnr(required_inputs,cts_opt1)      "work/SYNTH_PNR/cts1/run/cts1.nlib"
+set synth_pnr(required_inputs,route1)        "work/SYNTH_PNR/cts_opt1/run/cts_opt1.nlib"
+set synth_pnr(required_inputs,pro1)          "work/SYNTH_PNR/route1/run/route1.nlib"
+set synth_pnr(required_inputs,signoff1)      "work/SYNTH_PNR/pro1/run/pro1.nlib"
+set synth_pnr(required_inputs,export_data1)  "work/SYNTH_PNR/signoff1/run/signoff1.nlib"
+
+array set synth_pnr {
+}
+
 # ┌─ Mandatory User Inputs (validated at run creation) ─────────────────────────┐
 # These variables MUST be set (non-empty) in user_config.tcl before creating a run.
 # To add/remove mandatory inputs, edit this list.

@@ -414,7 +414,7 @@ array set pnr {
 
 # Configuration loading marker
 if {![info exists ::pnr_config_loaded]} {
-    puts "INFO: PNR configuration loaded successfully - [llength $pnr(stages)] stages, [expr {[llength $pnr(subnodes,netlist1)] + [llength $pnr(subnodes,sdc1)] + [llength $pnr(subnodes,def1)] + [llength $pnr(subnodes,upf1)] + [llength $pnr(subnodes,init_design1)] + [llength $pnr(subnodes,place1)] + [llength $pnr(subnodes,cts1)] + [llength $pnr(subnodes,cts_opt1)] + [llength $pnr(subnodes,route1)] + [llength $pnr(subnodes,pro1)] + [llength $pnr(subnodes,signoff1)] + [llength $pnr(subnodes,export_data1)] + [llength $pnr(subnodes,release_data1)]}] total subnodes"
+    puts "INFO: PNR configuration loaded successfully - [llength $pnr(stages)] stages, [expr {1 + 1 + 1 + 1 + [llength $pnr(subnodes,init_design1)] + [llength $pnr(subnodes,place1)] + [llength $pnr(subnodes,cts1)] + [llength $pnr(subnodes,cts_opt1)] + [llength $pnr(subnodes,route1)] + [llength $pnr(subnodes,pro1)] + [llength $pnr(subnodes,signoff1)] + [llength $pnr(subnodes,export_data1)] + [llength $pnr(subnodes,release_data1)]}] total subnodes"
     set ::pnr_config_loaded true
 }
 

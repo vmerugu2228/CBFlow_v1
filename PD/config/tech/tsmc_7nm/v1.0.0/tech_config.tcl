@@ -30,10 +30,39 @@ set tech(library,stdcell_path) "$tech(library,root_path)/Front_End/timing/stdcel
 set tech(library,memory_path)  "$tech(library,root_path)/Front_End/timing/memory"
 set tech(library,io_path)      "$tech(library,root_path)/Front_End/timing/io"
 
-# Cell library prefixes (TSMC N7 naming)
-set _STDCELL "tcbn7ffcllbwp7t"
+# ┌─ Track Height Selection ──────────────────────────────────────────────┐
+# Available track heights for TSMC N7
+set tech(track,available)       "9T 7.5T 6.75T"
+set tech(track,default)         "7.5T"
+
+# Cell library prefix per track height (TSMC N7 naming convention)
+set tech(track,9T,stdcell)      "tcbn7ffcllbwp9t"
+set tech(track,9T,description)  "9-Track — highest performance, lowest density"
+set tech(track,7.5T,stdcell)    "tcbn7ffcllbwp7p5t"
+set tech(track,7.5T,description) "7.5-Track — balanced performance/density"
+set tech(track,6.75T,stdcell)   "tcbn7ffcllbwp6p75t"
+set tech(track,6.75T,description) "6.75-Track — highest density, lowest power"
+
+# Resolve active track variant
+# Priority: flow(track_variant) > tech(track,default)
+if {[info exists flow(track_variant)] && $flow(track_variant) ne ""} {
+    set tech(track,active_variant) $flow(track_variant)
+} else {
+    set tech(track,active_variant) $tech(track,default)
+}
+
+# Set cell prefixes based on active track variant
+set _active_track $tech(track,active_variant)
+if {[info exists tech(track,$_active_track,stdcell)]} {
+    set _STDCELL $tech(track,$_active_track,stdcell)
+} else {
+    puts "WARNING: Unknown track variant '$_active_track' — using default $tech(track,default)"
+    set _STDCELL $tech(track,$tech(track,default),stdcell)
+}
 set _MEMORY  "ts1n7ffcllsblvtc256x64m4s"
 set _IO      "tpbn7v"
+
+puts "INFO: TSMC N7 track variant: $tech(track,active_variant) — stdcell=$_STDCELL"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # NDM LIBRARIES (Fusion Compiler — preferred)

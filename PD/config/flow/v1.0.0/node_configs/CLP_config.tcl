@@ -169,7 +169,7 @@ array set clp {
 
 # Configuration loading marker
 if {![info exists ::clp_config_loaded]} {
-    puts "INFO: CLP configuration loaded successfully - [llength $clp(stages)] stages, [expr {[llength $clp(subnodes,netlist1)] + [llength $clp(subnodes,upf1)] + [llength $clp(subnodes,power_spec1)] + [llength $clp(subnodes,clp1)] + [llength $clp(subnodes,release_data1)]}] total subnodes"
+    puts "INFO: CLP configuration loaded successfully - [llength $clp(stages)] stages, [expr {1 + 1 + 1 + [llength $clp(subnodes,clp1)] + [llength $clp(subnodes,release_data1)]}] total subnodes"
     set ::clp_config_loaded true
 }
 

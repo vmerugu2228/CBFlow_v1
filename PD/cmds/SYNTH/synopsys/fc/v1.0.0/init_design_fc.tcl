@@ -55,7 +55,17 @@ set ::flow::exec_mode "auto"
 set WORK_DIR "$run_dir/work/$FLOW_TYPE/$NODE_NAME"
 set REPORTS_DIR "$WORK_DIR/reports"
 set OUTPUTS_DIR "$run_dir/outputs"
-set INPUTS_DIR "$run_dir/work/$FLOW_TYPE/inputs1"
+# Input directories — each input type has its own node directory
+set RTL_DIR "$run_dir/work/$FLOW_TYPE/rtl1/rtl"
+set SDC_DIR "$run_dir/work/$FLOW_TYPE/sdc1/sdc"
+set UPF_DIR "$run_dir/work/$FLOW_TYPE/upf1/upf"
+set NETLIST_DIR "$run_dir/work/$FLOW_TYPE/netlist1/netlist"
+set DEF_DIR "$run_dir/work/$FLOW_TYPE/def1/def"
+set GDS_DIR "$run_dir/work/$FLOW_TYPE/gds1/gds"
+set SPEF_DIR "$run_dir/work/$FLOW_TYPE/spef1/spef"
+set LIBRARY_DIR "$run_dir/work/$FLOW_TYPE/library1/library"
+# Backward compat — INPUTS_DIR points to first input node
+set INPUTS_DIR "$run_dir/work/$FLOW_TYPE/rtl1"
 file mkdir $REPORTS_DIR
 file mkdir $OUTPUTS_DIR
 
@@ -217,7 +227,7 @@ flow_proc read_design {
     set_svf $::OUTPUTS_DIR/init_design.svf
 
     # BUG FIX #2 (init): RTL read aligned with FC-RM — use read_verilog/read_sverilog per RM
-    set rtl_filelist "$::INPUTS_DIR/rtl/${design_name}.f"
+    set rtl_filelist "$::RTL_DIR/${design_name}.f"
     set rtl_format [expr {[info exists synth(input,rtl_format)] ? $synth(input,rtl_format) : "sverilog"}]
 
     handle_info "Reading RTL: $rtl_filelist (format=$rtl_format)"
@@ -469,7 +479,7 @@ flow_proc load_constraints {
     set design_name [expr {[info exists synth(design_name)] ? $synth(design_name) : $flow(design_name)}]
 
     # BUG FIX #3 (init): FC uses 'source' for SDC, not 'read_sdc' (which halts)
-    set sdc_file "$::INPUTS_DIR/sdc/${design_name}.sdc"
+    set sdc_file "$::SDC_DIR/${design_name}.sdc"
     handle_info "Reading SDC: $sdc_file"
     source -e $sdc_file
 
@@ -478,7 +488,7 @@ flow_proc load_constraints {
         set_app_options -name mv.upf.enable_golden_upf -value true
     }
 
-    set upf_file "$::INPUTS_DIR/upf/${design_name}.upf"
+    set upf_file "$::UPF_DIR/${design_name}.upf"
     handle_info "Loading UPF: $upf_file"
     load_upf $upf_file
 
@@ -576,7 +586,7 @@ flow_proc setup_mcmm {
                 set _mode $_v(mode)
                 if {$_mode ni $_modes_created} {
                     set _sdc_file [expr {[info exists _v(constraint_file)] ? $_v(constraint_file) : ""}]
-                    set _sdc_path "$::INPUTS_DIR/sdc/$_sdc_file"
+                    set _sdc_path "$::SDC_DIR/$_sdc_file"
                     if {[file exists $_sdc_path]} {
                         create_mode $_mode
                         current_mode $_mode

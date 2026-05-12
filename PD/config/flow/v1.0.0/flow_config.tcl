@@ -54,6 +54,26 @@ set flow(dispatcher)         "race"       ;# Execution dispatcher: "race" (RACE)
 set flow(use_lsf)            true           ;# Enable LSF job submission
 set flow(use_xterm)          true           ;# Enable xterm for interactive sessions
 
+# ┌─ EDA Tool Module Versions ──────────────────────────────────────────────┐
+# Module load commands for each tool. Edit version strings to upgrade tools.
+set flow(tool_module,fc)       "synopsysFusionCompiler/2025.06-SP2"
+set flow(tool_module,pt)       "synopsysPrimeTime/2025.06"
+set flow(tool_module,fm)           "synopsysFormality/2025.06"
+set flow(tool_module,formality)    "synopsysFormality/2025.06"
+set flow(tool_module,icv)          "synopsysICV/2025.06"
+set flow(tool_module,redhawk)      "synopsysRedHawk/2025.06"
+set flow(tool_module,vc_lp)        "synopsysVC_LP/2025.06"
+set flow(tool_module,conformal_lp) "cadenceConformalLP/23.1"
+set flow(tool_module,genus)        "cadenceGenus/23.1"
+set flow(tool_module,innovus)      "cadenceInnovus/23.1"
+set flow(tool_module,tempus)       "cadenceTempus/23.1"
+set flow(tool_module,voltus)       "cadenceVoltus/23.1"
+set flow(tool_module,calibre)      "mentorCalibre/2024.1"
+
+# ┌─ RACE Database Management ──────────────────────────────────────────────┐
+set flow(race,db_max_sessions)   10        ;# Max RACE DB sessions per user. Warning issued when limit reached.
+set flow(race,db_warn_threshold) 8         ;# Warn when this many DBs exist (before hitting max)
+
 # ┌─ Flow Mode Configuration ─────────────────────────────────────────────────┐
 set flow(mode) "default"                                 ; # default | merged
 # default: SYNTH, FP, PNR are independent flows (traditional)

@@ -155,6 +155,8 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
 <div class="toolbar">
   <span class="tb-title">CBflow RACE FlowTracer</span>
   <div class="sep"></div>
+  <span id="tb-run-name" style="font-size:12px;font-weight:600;color:var(--text);margin-right:4px">{{RUN_DIR}}</span>
+  <div class="sep"></div>
 
   <!-- Flow menu -->
   <div class="tb-menu">
@@ -178,6 +180,15 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
       <a onclick="promptAddNode()">Add Node...</a>
       <a onclick="promptAction('delete-node','Delete Node','Select node to delete','Delete')">Delete Node...</a>
       <a onclick="promptCreateBranch()">Create Branch...</a>
+    </div>
+  </div>
+
+  <div class="tb-menu">
+    <button class="tb-btn">Config</button>
+    <div class="tb-menu-content">
+      <a onclick="promptEditStageConfig()">LSF / Resources...</a>
+      <a onclick="promptEditMMMC()">MMMC Scenarios...</a>
+      <a onclick="promptAction('interactive-select','Interactive Session','Select node to open interactively','Launch')">Interactive Session...</a>
     </div>
   </div>
 
@@ -231,7 +242,10 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
   <a onclick="ctxAction('force')">&#8634; Force Re-run</a>
   <a onclick="ctxAction('forcevalidate')">&#10004; Force Validate</a>
   <hr>
-  <a onclick="ctxAction('edit')">&#9998; Edit Config</a>
+  <a onclick="ctxAction('edit')">&#9998; Edit Config (LSF/Version)</a>
+  <a onclick="ctxAction('duplicate')">&#10064; Duplicate Node</a>
+  <a onclick="ctxAction('subnodes')">&#9776; View Subnodes</a>
+  <a onclick="ctxAction('interactive')">&#9000; Open Interactive Session</a>
 </div>
 
 <!-- ══ Modals ══ -->
@@ -290,6 +304,7 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
         <div class="fm-group"><label>CPU Cores</label><input type="text" id="ed-cpu"></div>
         <div class="fm-group"><label>Timeout (min)</label><input type="text" id="ed-timeout"></div>
         <div class="fm-group"><label>Tool Version</label><input type="text" id="ed-version"></div>
+        <div class="fm-group"><label>Tool Module</label><input type="text" id="ed-module" placeholder="e.g. synopsysFusionCompiler/2025.06-SP2"></div>
         <div class="fm-actions"><button type="button" class="fm-btn" onclick="closeModal('edit-modal')">Cancel</button><button type="submit" class="fm-btn fm-btn-primary">Save</button></div>
       </form>
     </div>
@@ -299,19 +314,28 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
 <!-- ══ Main 3-Panel Layout ══ -->
 <div class="main-area">
 
-  <!-- Left: Tree View -->
+  <!-- Left: Design Info (compact) -->
   <div class="left-panel">
-    <div class="panel-header"><span>Flow Hierarchy</span><span id="tree-count">0 stages</span></div>
-    <div class="legend-panel">
-      <div class="legend-panel-item"><div class="legend-panel-swatch" style="background:#ab47bc;border:1px solid #4a148c"></div><span class="legend-panel-label">Idle / Ready</span></div>
-      <div class="legend-panel-item"><div class="legend-panel-swatch" style="background:#4fc3f7;border:1px solid #0277bd"></div><span class="legend-panel-label">Scheduled / Queued</span></div>
-      <div class="legend-panel-item"><div class="legend-panel-swatch" style="background:#ffeb3b;border:1px solid #f57f17"></div><span class="legend-panel-label">Running</span></div>
-      <div class="legend-panel-item"><div class="legend-panel-swatch" style="background:#4caf50;border:1px solid #1b5e20"></div><span class="legend-panel-label">Finished</span></div>
-      <div class="legend-panel-item"><div class="legend-panel-swatch" style="background:#f44336;border:1px solid #b71c1c"></div><span class="legend-panel-label">Failed</span></div>
-      <div class="legend-panel-item"><div class="legend-panel-swatch" style="background:#ab47bc;border:1px solid #4a148c"></div><span class="legend-panel-label">Invalidated</span></div>
-      <div class="legend-panel-item"><div class="legend-panel-swatch" style="background:#bdbdbd;border:1px solid #616161"></div><span class="legend-panel-label">Bypassed</span></div>
+    <div class="panel-header"><span>Design Info</span></div>
+    <div style="padding:10px 12px">
+      <table style="width:100%;font-size:12px;border-collapse:collapse">
+        <tr><td style="color:var(--text-dim);padding:3px 0;width:70px">Project</td><td style="font-weight:600" id="lp-project">{{PROJECT}}</td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Block</td><td style="font-weight:600" id="lp-design">-</td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Flow</td><td style="font-weight:600" id="lp-flow">{{FLOW_TYPE}}</td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Phase</td><td style="font-weight:600" id="lp-phase">-</td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Run</td><td style="font-weight:600" id="lp-run">-</td></tr>
+        <tr><td colspan="2" style="padding:4px 0"><hr style="border:none;border-top:1px solid var(--border);margin:0"></td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Tech</td><td style="font-weight:600"><span id="lp-foundry">-</span> <span id="lp-tech-node">-</span></td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Track</td><td style="font-weight:600" id="lp-track">-</td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Metal</td><td style="font-weight:600" id="lp-metal">-</td></tr>
+        <tr><td colspan="2" style="padding:4px 0"><hr style="border:none;border-top:1px solid var(--border);margin:0"></td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Tool</td><td style="font-weight:600"><span id="lp-vendor">-</span> / <span id="lp-tool">-</span></td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Module</td><td style="font-weight:600;font-size:10px;word-break:break-all" id="lp-module">-</td></tr>
+      </table>
     </div>
-    <div class="tree-scroll" id="tree"></div>
+    <!-- Input Variables (shown when leaf input node selected) -->
+    <div id="lp-input-vars" style="display:none;padding:10px 12px;border-top:1px solid var(--border);flex:1;overflow-y:auto">
+    </div>
   </div>
 
   <!-- Center: DAG Canvas -->
@@ -331,16 +355,18 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
 
 <!-- ══ Status Bar ══ -->
 <div class="statusbar">
+  <div class="sb-item" style="font-weight:700"><span id="lp-stages">0/0</span> stages</div>
+  <div class="sb-sep"></div>
   <div class="sb-item"><div class="sb-dot" style="background:#4caf50"></div><span id="sb-done">0</span> Done</div>
   <div class="sb-item"><div class="sb-dot" style="background:#f44336"></div><span id="sb-fail">0</span> Failed</div>
   <div class="sb-item"><div class="sb-dot" style="background:#ffeb3b"></div><span id="sb-run">0</span> Running</div>
   <div class="sb-item"><div class="sb-dot" style="background:#ab47bc"></div><span id="sb-ready">0</span> Ready</div>
   <div class="sb-sep"></div>
   <span id="sb-total">0 jobs</span>
-  <div class="tb-spacer"></div>
-  <span id="sb-flow">{{FLOW_TYPE}}</span>
   <div class="sb-sep"></div>
-  <span id="sb-dir" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{RUN_DIR}}</span>
+  <div id="lp-progress-bar" style="flex:1;max-width:400px;height:10px;border-radius:5px;overflow:hidden;align-self:center;display:flex;border:1px solid var(--border)">
+  </div>
+  <span id="lp-result" style="font-weight:700">-</span>
   <div class="tb-spacer"></div>
   <span id="sb-updated">--</span>
 </div>
@@ -440,11 +466,61 @@ function refresh() {
     document.getElementById('sb-total').textContent = (sum.total || 0) + ' jobs';
     document.getElementById('sb-updated').textContent = new Date().toLocaleTimeString();
 
+    // Left panel — project info
+    document.getElementById('lp-project').textContent = info.project || '-';
+    document.getElementById('lp-design').textContent = info.design_name || '-';
+    document.getElementById('lp-flow').textContent = info.flow_type || '-';
+    document.getElementById('lp-phase').textContent = info.phase || '-';
+    document.getElementById('lp-run').textContent = info.run_name || '-';
+    document.getElementById('tb-run-name').textContent = '{{RUN_DIR}}'.split('/').pop();
+
+    // Left panel — tech info
+    document.getElementById('lp-tech-node').textContent = info.tech_node || '-';
+    document.getElementById('lp-foundry').textContent = info.foundry || '-';
+    document.getElementById('lp-track').textContent = info.track_variant || '-';
+    document.getElementById('lp-metal').textContent = info.metal_stack || '-';
+
+    // Left panel — tool info
+    document.getElementById('lp-vendor').textContent = info.tool_vendor || '-';
+    document.getElementById('lp-tool').textContent = info.tool_name || '-';
+    document.getElementById('lp-module').textContent = info.tool_module || '-';
+
+    // Left panel — progress
+    document.getElementById('lp-stages').textContent = (sum.stages_done||0) + '/' + (sum.stages_total||0);
+    // lp-jobs removed — progress is in the bottom bar
+    var pct = sum.stages_total > 0 ? Math.round((sum.stages_done / sum.stages_total) * 100) : 0;
+    var resultEl = document.getElementById('lp-result');
+    resultEl.textContent = pct + '% complete';
+    resultEl.style.color = (sum.failed || 0) > 0 ? '#b71c1c' : pct === 100 ? '#1b5e20' : '#555';
+    // Progress bar — proportional colors matching stage statuses
+    var pb = document.getElementById('lp-progress-bar');
+    if (pb && stagesData.length > 0) {
+      var total = stagesData.length;
+      var counts = {done:0, running:0, pending:0, fail:0, invalidated:0, ready:0};
+      stagesData.forEach(function(s) {
+        if (s.status === 'DONE' || s.status === 'BYPASSED' || s.status === 'FORCE_VALIDATED') counts.done++;
+        else if (s.status === 'RUNNING') counts.running++;
+        else if (s.status === 'PENDING') counts.pending++;
+        else if (s.status === 'FAIL') counts.fail++;
+        else if (s.status === 'INVALIDATED') counts.invalidated++;
+        else counts.ready++;
+      });
+      var segs = '';
+      if (counts.done > 0) segs += '<div style="width:' + (counts.done/total*100) + '%;background:#4caf50;height:100%"></div>';
+      if (counts.running > 0) segs += '<div style="width:' + (counts.running/total*100) + '%;background:#ffeb3b;height:100%"></div>';
+      if (counts.pending > 0) segs += '<div style="width:' + (counts.pending/total*100) + '%;background:#4fc3f7;height:100%"></div>';
+      if (counts.fail > 0) segs += '<div style="width:' + (counts.fail/total*100) + '%;background:#f44336;height:100%"></div>';
+      if (counts.invalidated > 0) segs += '<div style="width:' + (counts.invalidated/total*100) + '%;background:#ab47bc;height:100%"></div>';
+      if (counts.ready > 0) segs += '<div style="width:' + (counts.ready/total*100) + '%;background:#ab47bc;height:100%"></div>';
+      pb.innerHTML = segs;
+    }
+
     updateTree();
     renderDAG();
 
-    // Refresh detail panel if node selected
-    if (selectedNode) showDetail(selectedNode);
+    // Refresh detail panel if node selected — but NOT while user is editing a form
+    var isEditing = document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'SELECT');
+    if (selectedNode && !isEditing) showDetail(selectedNode);
   }).catch(function(e) { console.error('Refresh error:', e); });
 }
 
@@ -453,7 +529,7 @@ function refresh() {
 // ═══════════════════════════════════════════════════════════════════
 function updateTree() {
   var tree = document.getElementById('tree');
-  document.getElementById('tree-count').textContent = stagesData.length + ' stages';
+  if (!tree) return; // Tree panel removed — skip
 
   if (!treeBuilt) {
     // Build tree from scratch
@@ -556,7 +632,7 @@ function selectNode(name) {
 // ═══════════════════════════════════════════════════════════════════
 // DAG RENDERING (SVG) — Sugiyama-style hierarchical layout
 // ═══════════════════════════════════════════════════════════════════
-var NODE_W = 180, NODE_H = 48, GAP_X = 50, GAP_Y = 68;
+var NODE_W = 180, NODE_H = 48, GAP_X = 60, GAP_Y = 100;
 var SUB_W = 160, SUB_H = 40;
 
 // ── Build SVG node markup ──
@@ -640,15 +716,19 @@ function svgEdgeLine(id, x1, y1, x2, y2, dashed) {
   return '<g class="dag-edge" id="' + id + '">' +
     '<line x1="'+x1+'" y1="'+y1+'" x2="'+x2+'" y2="'+y2+'"' +
     (dashed ? ' stroke-dasharray="4,3"' : '') +
-    ' marker-end="url(#arrow)"/></g>';
+    ' stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/></g>';
 }
 
 function svgEdgePath(id, x1, y1, x2, y2) {
-  // Curved edge for non-vertical connections
-  var midY = (y1 + y2) / 2;
-  var d = 'M ' + x1 + ' ' + y1 + ' C ' + x1 + ' ' + midY + ', ' + x2 + ' ' + midY + ', ' + x2 + ' ' + y2;
+  // Route: go down from source, then horizontal, then down to target top
+  // This ensures the arrow arrives VERTICALLY at the target node's top edge
+  var midY = y1 + (y2 - y1) * 0.5;
+  var d = 'M ' + x1 + ' ' + y1 +
+          ' L ' + x1 + ' ' + midY +
+          ' L ' + x2 + ' ' + midY +
+          ' L ' + x2 + ' ' + y2;
   return '<g class="dag-edge" id="' + id + '">' +
-    '<path d="' + d + '" marker-end="url(#arrow)"/></g>';
+    '<path d="' + d + '" fill="none" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/></g>';
 }
 
 // ── Sugiyama-style hierarchical layout algorithm ──
@@ -843,8 +923,8 @@ function renderDAG() {
 
     // Build SVG content
     var svgContent = '<defs>' +
-      '<marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">' +
-      '<polygon points="0 0, 8 3, 0 6" fill="#555"/>' +
+      '<marker id="arrow" markerWidth="6" markerHeight="6" refX="6" refY="3" orient="auto">' +
+      '<polygon points="0 0, 6 3, 0 6" fill="#555"/>' +
       '</marker></defs>';
     svgContent += '<g id="dag-group">';
 
@@ -987,8 +1067,8 @@ function renderSubnodeView() {
   });
 
   var svgContent = '<defs>' +
-    '<marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">' +
-    '<polygon points="0 0, 8 3, 0 6" fill="#555"/>' +
+    '<marker id="arrow" markerWidth="6" markerHeight="6" refX="6" refY="3" orient="auto">' +
+    '<polygon points="0 0, 6 3, 0 6" fill="#555"/>' +
     '</marker></defs>';
   svgContent += '<g id="dag-group">';
 
@@ -1027,6 +1107,7 @@ function renderSubnodeView() {
     var name = node.getAttribute('data-name');
     node.addEventListener('click', function(e) { if (!dragMoved) selectNode(name); });
     node.addEventListener('contextmenu', function(e) { showCtxMenu(name, e); });
+    node.addEventListener('dblclick', function(e) { e.stopPropagation(); showSubnodeDetail(name); });
     setupNodeDrag(node);
   });
 
@@ -1255,6 +1336,23 @@ function stopExecution() {
   apiAction('stop', {});
 }
 
+function promptEditStageConfig() {
+  // Open stage select then edit config for chosen stage
+  loadConfig().then(function() {
+    fillStageSelect('action-stage');
+    document.getElementById('action-type').value = 'edit-config';
+    document.getElementById('action-title').textContent = 'Edit Stage Config';
+    document.getElementById('action-label').textContent = 'Select stage to configure (LSF, memory, timeout, version)';
+    document.getElementById('action-submit').textContent = 'Edit';
+    openModal('action-modal');
+  });
+}
+
+function promptEditMMMC() {
+  // Show MMMC config in a toast for now — full MMMC editor is future enhancement
+  showToast('MMMC editing: modify sta(mmmc,setup_scenarios) and sta(mmmc,hold_scenarios) in setup/user_config.tcl, then retrace timing1', 'success');
+}
+
 function resetGraph() {
   nodePositions = {};
   dagBuilt = false;
@@ -1276,6 +1374,129 @@ function toggleSubnodes() {
 // ═══════════════════════════════════════════════════════════════════
 // DETAIL PANEL (Right Panel)
 // ═══════════════════════════════════════════════════════════════════
+function showSubnodeDetail(name) {
+  // Fetch full job details and show in a modal overlay
+  fetch('/api/job/' + name).then(function(r){return r.json();}).then(function(j) {
+    if (!j || !j.name) { showToast('No details for ' + name, 'error'); return; }
+
+    var color = sColorFill(j.status);
+    var tc = sTextColor(j.status);
+    var html = '<div style="max-height:80vh;overflow-y:auto;padding:0">';
+
+    // Header
+    html += '<div style="background:'+color+';color:'+tc+';padding:12px 16px;border-radius:6px 6px 0 0">';
+    html += '<div style="font-size:16px;font-weight:700">' + j.name + '</div>';
+    html += '<div style="font-size:12px;opacity:0.9">' + statusLabel(j.status) + ' | ' + j.stage + ' / ' + (j.subnode||'-') + '</div>';
+    html += '</div>';
+
+    // Details grid
+    html += '<div style="padding:12px 16px">';
+    html += '<table style="width:100%;font-size:12px;border-collapse:collapse">';
+    var rows = [
+      ['Status', '<span style="background:'+color+';color:'+tc+';padding:2px 8px;border-radius:3px;font-weight:700;font-size:11px">' + statusLabel(j.status) + '</span>'],
+      ['Stage', j.stage],
+      ['Subnode', j.subnode || '-'],
+      ['Type', j.type || '-'],
+      ['Runtime', formatTime(j.runtime)],
+      ['Exit Code', j.exit_code != null ? j.exit_code : '-'],
+      ['Start', j.start_time || '-'],
+      ['End', j.end_time || '-'],
+      ['Hostname', j.hostname || '-'],
+      ['LSF Job ID', j.lsf_job_id || '-'],
+      ['LSF Queue', j.lsf_queue || '-'],
+      ['Resource Tier', j.resource_tier || '-'],
+      ['PID', j.pid || '-'],
+      ['Retries', j.retry_count || 0],
+    ];
+    rows.forEach(function(r) {
+      html += '<tr style="border-bottom:1px solid #eee"><td style="padding:4px 8px;color:#666;font-weight:600;width:120px">' + r[0] + '</td><td style="padding:4px 8px;font-family:monospace;font-size:11px">' + r[1] + '</td></tr>';
+    });
+    html += '</table>';
+
+    // Error
+    if (j.error_msg) {
+      html += '<div style="margin-top:10px"><div style="font-size:11px;font-weight:700;color:#c62828;text-transform:uppercase;margin-bottom:4px">Error</div>';
+      html += '<div style="background:#ffebee;border:1px solid #c62828;border-radius:4px;padding:8px;font-size:11px;color:#b71c1c;word-break:break-all">' + j.error_msg + '</div></div>';
+    }
+
+    // Command
+    if (j.command) {
+      html += '<div style="margin-top:10px"><div style="font-size:11px;font-weight:700;color:#333;text-transform:uppercase;margin-bottom:4px">Execution Command</div>';
+      html += '<div style="background:#f5f5f5;border:1px solid #ccc;border-radius:4px;padding:8px;font-size:10px;font-family:monospace;word-break:break-all;max-height:100px;overflow:auto">' + j.command + '</div></div>';
+    }
+
+    // Xterm/LSF launch info
+    html += '<div style="margin-top:10px"><div style="font-size:11px;font-weight:700;color:#333;text-transform:uppercase;margin-bottom:4px">Launch Details</div>';
+    html += '<div style="background:#f5f5f5;border:1px solid #ccc;border-radius:4px;padding:8px;font-size:10px;font-family:monospace">';
+    html += 'Host: ' + (j.hostname || 'local') + '<br>';
+    html += 'Queue: ' + (j.lsf_queue || '-') + ' | Tier: ' + (j.resource_tier || '-') + '<br>';
+    if (j.lsf_job_id) html += 'LSF Job: ' + j.lsf_job_id + '<br>';
+    if (j.pid) html += 'PID: ' + j.pid + '<br>';
+    html += 'Runtime: ' + formatTime(j.runtime) + ' | Exit: ' + (j.exit_code != null ? j.exit_code : '-');
+    html += '</div></div>';
+
+    // Log tail
+    if (j.log_tail && j.log_tail.length > 0) {
+      html += '<div style="margin-top:10px"><div style="font-size:11px;font-weight:700;color:#333;text-transform:uppercase;margin-bottom:4px">Log (last ' + j.log_tail.length + ' lines)</div>';
+      html += '<div style="background:#263238;color:#e0e0e0;border-radius:4px;padding:8px;font-size:10px;font-family:monospace;max-height:200px;overflow:auto;white-space:pre;line-height:1.4">';
+      html += j.log_tail.join('\n');
+      html += '</div></div>';
+    }
+
+    // Editable config section
+    html += '<div style="margin-top:12px;padding-top:10px;border-top:2px solid #ccc">';
+    html += '<div style="font-size:11px;font-weight:700;color:#1976d2;text-transform:uppercase;margin-bottom:8px">Edit Stage Config — ' + j.stage + '</div>';
+    html += '<form id="modal-edit-form" onsubmit="saveModalConfig(event)">';
+    html += '<input type="hidden" id="med-stage" value="' + j.stage + '">';
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">';
+    html += '<div class="ie-group"><label>LSF Queue</label><select id="med-queue" style="width:100%;padding:4px 8px;border:1px solid #ccc;border-radius:3px;font-size:12px"></select></div>';
+    html += '<div class="ie-group"><label>Memory</label><input type="text" id="med-mem" style="width:100%;padding:4px 8px;border:1px solid #ccc;border-radius:3px;font-size:12px"></div>';
+    html += '<div class="ie-group"><label>CPU Cores</label><input type="text" id="med-cpu" style="width:100%;padding:4px 8px;border:1px solid #ccc;border-radius:3px;font-size:12px"></div>';
+    html += '<div class="ie-group"><label>Timeout (min)</label><input type="text" id="med-timeout" style="width:100%;padding:4px 8px;border:1px solid #ccc;border-radius:3px;font-size:12px"></div>';
+    html += '<div class="ie-group"><label>Tool Version</label><input type="text" id="med-version" style="width:100%;padding:4px 8px;border:1px solid #ccc;border-radius:3px;font-size:12px"></div>';
+    html += '<div class="ie-group"><label>Tool Module</label><input type="text" id="med-module" style="width:100%;padding:4px 8px;border:1px solid #ccc;border-radius:3px;font-size:12px" placeholder="e.g. synopsysFusionCompiler/2025.06-SP2"></div>';
+    html += '</div>';
+    html += '<div style="text-align:right;margin-top:8px"><button type="submit" style="background:#1976d2;color:#fff;border:none;padding:6px 20px;border-radius:4px;font-size:12px;cursor:pointer">Save Config</button></div>';
+    html += '</form></div>';
+
+    html += '</div></div>';
+
+    // Show in modal
+    openModal('edit-modal');
+    document.getElementById('edit-title').textContent = j.name + ' — Job Details';
+    document.querySelector('#edit-modal .modal-bd').innerHTML = html;
+
+    // Populate editable fields from config API
+    loadConfig().then(function(data) {
+      var cfg = (data.stages || {})[j.stage] || {};
+      var qSel = document.getElementById('med-queue');
+      if (!qSel) return;
+      qSel.innerHTML = '';
+      var tiers = data.queue_tiers || [];
+      var qRes = data.queue_resources || {};
+      tiers.forEach(function(t) {
+        var r = qRes[t] || {};
+        var o = document.createElement('option');
+        o.value = t; o.textContent = t + ' (' + (r.memory||'?') + ' / ' + (r.cpu||'?') + ' CPU)';
+        if (t === cfg.lsf_queue) o.selected = true;
+        qSel.appendChild(o);
+      });
+      qSel.onchange = function() {
+        var r = qRes[this.value] || {};
+        document.getElementById('med-mem').value = r.memory || '';
+        document.getElementById('med-cpu').value = r.cpu || '';
+      };
+      document.getElementById('med-mem').value = cfg.lsf_memory || '';
+      document.getElementById('med-cpu').value = cfg.lsf_cpu || '';
+      document.getElementById('med-timeout').value = cfg.timeout || '';
+      document.getElementById('med-version').value = cfg.tool_version || '';
+      document.getElementById('med-module').value = cfg.tool_module || '';
+    });
+  }).catch(function(e) {
+    showToast('Failed to load details: ' + e, 'error');
+  });
+}
+
 function showDetail(name) {
   var panel = document.getElementById('detail-panel');
 
@@ -1294,37 +1515,51 @@ function showDetail(name) {
     '<div class="ie-group"><label>CPU</label><input type="text" id="ied-cpu"></div>' +
     '<div class="ie-group"><label>Timeout (min)</label><input type="text" id="ied-timeout"></div>' +
     '<div class="ie-group"><label>Tool Version</label><input type="text" id="ied-version"></div>' +
+    '<div class="ie-group"><label>Tool Module</label><input type="text" id="ied-module" placeholder="e.g. synopsysFusionCompiler/2025.06-SP2"></div>' +
     '<div class="ie-actions"><button type="submit" class="fm-btn fm-btn-primary" style="padding:4px 14px;font-size:11px">Save</button></div>' +
     '</form></div>';
 
   // Check if it's a stage
   var stage = stagesData.find(function(s){return s.name === name;});
   if (stage) {
+    var isLeafNode = (stage.jobs_total || 0) === 0;
     var stageJobs = allJobs.filter(function(j){return j.stage === name && j.type === 'subnode';});
-    panel.innerHTML =
-      '<div class="detail-title">' + name + '</div>' +
+
+    var html = '<div class="detail-title">' + name + '</div>' +
       '<div class="detail-row"><label>Status</label><span class="detail-badge" style="background:' + sColorFill(stage.status) + ';color:' + sTextColor(stage.status) + '">' + statusLabel(stage.status) + '</span></div>' +
       '<div class="detail-row"><label>Runtime</label><span>' + formatTime(stage.runtime) + '</span></div>' +
       '<div class="detail-row"><label>Jobs</label><span>' + (stage.jobs_total || 0) + '</span></div>' +
       '<div class="detail-row"><label>Done</label><span>' + (stage.jobs_done || 0) + '</span></div>' +
       '<div class="detail-row"><label>Failed</label><span style="color:' + ((stage.jobs_failed||0) > 0 ? 'var(--red)' : 'inherit') + '">' + (stage.jobs_failed || 0) + '</span></div>' +
       '<div class="detail-row"><label>Started</label><span>' + (stage.started ? stage.started.split('T').pop().substr(0,8) : '-') + '</span></div>' +
-      '<div class="detail-row"><label>Ended</label><span>' + (stage.ended ? stage.ended.split('T').pop().substr(0,8) : '-') + '</span></div>' +
-      '<div class="detail-section"><h4>Subnodes</h4>' +
-      '<div class="detail-subjobs"><table><thead><tr><th>Name</th><th>Status</th><th>Time</th></tr></thead><tbody>' +
-      stageJobs.map(function(j) {
-        return '<tr data-job="' + j.name + '"><td>' + (j.subnode||j.name) + '</td>' +
-        '<td><span class="detail-badge" style="background:' + sColorFill(j.status) + ';color:' + sTextColor(j.status) + ';font-size:9px;padding:1px 6px">' + statusLabel(j.status) + '</span></td>' +
-        '<td>' + formatTime(j.runtime) + '</td></tr>';
-      }).join('') +
-      '</tbody></table></div></div>' +
-      editFormHtml;
+      '<div class="detail-row"><label>Ended</label><span>' + (stage.ended ? stage.ended.split('T').pop().substr(0,8) : '-') + '</span></div>';
+
+    if (!isLeafNode && stageJobs.length > 0) {
+      html += '<div class="detail-section"><h4>Subnodes</h4>' +
+        '<div class="detail-subjobs"><table><thead><tr><th>Name</th><th>Status</th><th>Time</th></tr></thead><tbody>' +
+        stageJobs.map(function(j) {
+          return '<tr data-job="' + j.name + '"><td>' + (j.subnode||j.name) + '</td>' +
+          '<td><span class="detail-badge" style="background:' + sColorFill(j.status) + ';color:' + sTextColor(j.status) + ';font-size:9px;padding:1px 6px">' + statusLabel(j.status) + '</span></td>' +
+          '<td>' + formatTime(j.runtime) + '</td></tr>';
+        }).join('') +
+        '</tbody></table></div></div>';
+    }
+
+    html += editFormHtml;
+    panel.innerHTML = html;
 
     // Click subnode rows to select them
     panel.querySelectorAll('[data-job]').forEach(function(tr) {
       tr.addEventListener('click', function() { selectNode(tr.getAttribute('data-job')); });
     });
     populateInlineEditForm(editStage);
+
+    // If leaf input node, show input vars in left panel
+    if (isLeafNode) {
+      showInputVarsInLeftPanel(name);
+    } else {
+      clearInputVarsFromLeftPanel();
+    }
     return;
   }
 
@@ -1364,6 +1599,70 @@ function showDetail(name) {
   });
 }
 
+function showInputVarsInLeftPanel(nodeName) {
+  var container = document.getElementById('lp-input-vars');
+  if (!container) return;
+  container.style.display = 'block';
+  container.innerHTML = '<div style="font-size:11px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Input Variables — ' + nodeName + '</div>' +
+    '<form id="input-vars-form" onsubmit="saveInputVars(event)">' +
+    '<input type="hidden" id="iv-node" value="' + nodeName + '">' +
+    '<div id="iv-fields" style="font-size:11px">Loading...</div>' +
+    '<div style="margin-top:6px"><button type="submit" class="fm-btn fm-btn-primary" style="padding:3px 12px;font-size:10px">Save</button></div>' +
+    '</form>';
+  populateInputVars(nodeName);
+}
+
+function clearInputVarsFromLeftPanel() {
+  var container = document.getElementById('lp-input-vars');
+  if (container) { container.style.display = 'none'; container.innerHTML = ''; }
+}
+
+function populateInputVars(nodeName) {
+  // Fetch input variables for this leaf node from the API
+  fetch('/api/input-vars/' + nodeName).then(function(r){return r.json();}).then(function(data) {
+    var container = document.getElementById('iv-fields');
+    if (!container) return;
+    var vars = data.variables || {};
+    var html = '';
+    var keys = Object.keys(vars);
+    if (keys.length === 0) {
+      html = '<div style="color:var(--text-dim);font-size:11px;padding:4px 0">No input variables found for this node</div>';
+    } else {
+      keys.forEach(function(k) {
+        var displayKey = k.replace(/.*\(/, '').replace(')', '');
+        html += '<div class="ie-group">' +
+          '<label>' + displayKey + '</label>' +
+          '<input type="text" name="' + k + '" value="' + (vars[k] || '') + '" style="font-size:11px">' +
+          '</div>';
+      });
+    }
+    container.innerHTML = html;
+  }).catch(function(e) {
+    var container = document.getElementById('iv-fields');
+    if (container) container.innerHTML = '<div style="color:var(--red);font-size:11px">Failed to load: ' + e + '</div>';
+  });
+}
+
+function saveInputVars(e) {
+  e.preventDefault();
+  var node = document.getElementById('iv-node').value;
+  var form = document.getElementById('input-vars-form');
+  var inputs = form.querySelectorAll('input[name]');
+  var vars = {};
+  inputs.forEach(function(inp) {
+    vars[inp.name] = inp.value;
+  });
+  fetch('/api/input-vars/' + node, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({variables: vars})
+  }).then(function(r){return r.json();}).then(function(data) {
+    showToast(data.message || 'Input variables saved', 'success');
+  }).catch(function(e) {
+    showToast('Error: ' + e, 'error');
+  });
+}
+
 function populateInlineEditForm(stage) {
   loadConfig().then(function(data) {
     var cfg = (data.stages || {})[stage] || {};
@@ -1389,7 +1688,25 @@ function populateInlineEditForm(stage) {
     document.getElementById('ied-cpu').value = cfg.lsf_cpu || '';
     document.getElementById('ied-timeout').value = cfg.timeout || '';
     document.getElementById('ied-version').value = cfg.tool_version || '';
+    document.getElementById('ied-module').value = cfg.tool_module || '';
   });
+}
+
+function saveModalConfig(e) {
+  e.preventDefault();
+  var body = {
+    stage: document.getElementById('med-stage').value,
+    lsf_queue: document.getElementById('med-queue').value,
+    lsf_memory: document.getElementById('med-mem').value,
+    lsf_cpu: document.getElementById('med-cpu').value,
+    timeout: document.getElementById('med-timeout').value,
+    tool_version: document.getElementById('med-version').value,
+    tool_module: document.getElementById('med-module').value,
+  };
+  fetch('/api/node-config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
+    .then(function(r){return r.json();}).then(function(d) {
+      showToast(d.message || 'Config saved for ' + body.stage, 'success');
+    }).catch(function(e){ showToast('Error: ' + e, 'error'); });
 }
 
 function saveInlineConfig(e) {
@@ -1400,7 +1717,8 @@ function saveInlineConfig(e) {
     lsf_memory: document.getElementById('ied-mem').value,
     lsf_cpu: document.getElementById('ied-cpu').value,
     timeout: document.getElementById('ied-timeout').value,
-    tool_version: document.getElementById('ied-version').value
+    tool_version: document.getElementById('ied-version').value,
+    tool_module: document.getElementById('ied-module').value
   };
   fetch('/api/node-config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
     .then(function(r){return r.json();})
@@ -1440,7 +1758,15 @@ function showCtxMenu(name, event) {
     menuHtml += '<a onclick="ctxAction(\'force\')">&#8634; Force Re-run</a>';
     menuHtml += '<a onclick="ctxAction(\'forcevalidate\')">&#10004; Force Validate</a>';
     menuHtml += '<hr>';
-    menuHtml += '<a onclick="ctxAction(\'edit\')">&#9998; Edit Config</a>';
+    menuHtml += '<a onclick="ctxAction(\'edit\')">&#9998; Edit Config (LSF/Version)</a>';
+    menuHtml += '<a onclick="ctxAction(\'duplicate\')">&#10064; Duplicate Node</a>';
+    // Only show View Subnodes and Interactive for tool nodes (not leaf input nodes)
+    var stageInfo = stagesData.find(function(s){return s.name === name;});
+    var isToolNode = stageInfo && stageInfo.jobs_total > 0;
+    if (isToolNode) {
+      menuHtml += '<a onclick="ctxAction(\'subnodes\')">&#9776; View Subnodes</a>';
+      menuHtml += '<a onclick="ctxAction(\'interactive\')">&#9000; Interactive Session</a>';
+    }
   }
   menu.innerHTML = menuHtml;
 
@@ -1484,6 +1810,35 @@ function ctxAction(action) {
     else apiAction('forcevalidate', {stages: [stage]});
   }
   else if (action === 'edit') openEditForm(stage);
+  else if (action === 'duplicate') {
+    // Get the node type (strip numeric suffix) and its dependency
+    var nodeType = stage.replace(/\d+$/, '');
+    // Find what this stage depends on from dagData
+    var dep = '';
+    var edges = (dagData && dagData.edges) || [];
+    var stageSet = new Set(stagesData.map(function(s){return s.name;}));
+    for (var i = 0; i < edges.length; i++) {
+      if (edges[i].to === stage && stageSet.has(edges[i].from)) {
+        dep = edges[i].from;
+        break;
+      }
+    }
+    // If no dep found (root node), use empty
+    if (!dep) dep = stage; // duplicate depends on same parent as source
+    apiAction('add-node', {name: '', type: nodeType, dep: dep, auto_name: true});
+  }
+  else if (action === 'subnodes') {
+    var isStage = stagesData.some(function(st){return st.name === stage;});
+    if (isStage) enterSubnodeView(stage);
+  }
+  else if (action === 'interactive') {
+    var si = stagesData.find(function(s){return s.name === stage;});
+    if (si && si.jobs_total === 0) {
+      showToast(stage + ' is an input data node — interactive session is only available for tool execution nodes', 'error');
+    } else {
+      apiAction('interactive', {node: stage});
+    }
+  }
 
   document.getElementById('ctx-menu').style.display = 'none';
 }
@@ -1579,6 +1934,8 @@ function submitAction(e) {
   else if (action === 'force') apiAction('force', {stages: [stage]});
   else if (action === 'forcevalidate') apiAction('forcevalidate', {stages: [stage]});
   else if (action === 'delete-node') apiAction('delete-node', {name: stage});
+  else if (action === 'edit-config') openEditForm(stage);
+  else if (action === 'interactive-select') apiAction('interactive', {node: stage});
 }
 
 function promptAddNode() {
@@ -1657,6 +2014,7 @@ function openEditForm(stage) {
     document.getElementById('ed-cpu').value = cfg.lsf_cpu || '';
     document.getElementById('ed-timeout').value = cfg.timeout || '';
     document.getElementById('ed-version').value = cfg.tool_version || '';
+    document.getElementById('ed-module').value = cfg.tool_module || '';
   });
   openModal('edit-modal');
 }
@@ -1669,7 +2027,8 @@ function saveConfig(e) {
     lsf_memory: document.getElementById('ed-mem').value,
     lsf_cpu: document.getElementById('ed-cpu').value,
     timeout: document.getElementById('ed-timeout').value,
-    tool_version: document.getElementById('ed-version').value
+    tool_version: document.getElementById('ed-version').value,
+    tool_module: document.getElementById('ed-module').value
   };
   fetch('/api/node-config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
     .then(function(r){return r.json();})
@@ -1681,7 +2040,7 @@ function saveConfig(e) {
 // INIT
 // ═══════════════════════════════════════════════════════════════════
 refresh();
-setInterval(refresh, 5000);
+setInterval(refresh, 2000);
 </script>
 </body>
 </html>

@@ -266,7 +266,7 @@ array set pv {
 
 # Configuration loading marker
 if {![info exists ::pv_config_loaded]} {
-    puts "INFO: PV configuration loaded successfully - [llength $pv(stages)] stages, [expr {[llength $pv(subnodes,netlist1)] + [llength $pv(subnodes,def1)] + [llength $pv(subnodes,gds1)] + [llength $pv(subnodes,fill1)] + [llength $pv(subnodes,drc1)] + [llength $pv(subnodes,lvs1)] + [llength $pv(subnodes,erc1)] + [llength $pv(subnodes,perc1)] + [llength $pv(subnodes,xor1)] + [llength $pv(subnodes,merge_data1)] + [llength $pv(subnodes,release_data1)]}] total subnodes"
+    puts "INFO: PV configuration loaded successfully - [llength $pv(stages)] stages, [expr {1 + 1 + 1 + [llength $pv(subnodes,fill1)] + [llength $pv(subnodes,drc1)] + [llength $pv(subnodes,lvs1)] + [llength $pv(subnodes,erc1)] + [llength $pv(subnodes,perc1)] + [llength $pv(subnodes,xor1)] + [llength $pv(subnodes,merge_data1)] + [llength $pv(subnodes,release_data1)]}] total subnodes"
     set ::pv_config_loaded true
 }
 

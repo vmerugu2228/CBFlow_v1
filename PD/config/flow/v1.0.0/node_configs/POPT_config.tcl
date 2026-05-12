@@ -195,7 +195,7 @@ array set popt {
 
 # Configuration loading marker
 if {![info exists ::popt_config_loaded]} {
-    puts "INFO: POPT configuration loaded successfully - [llength $popt(stages)] stages, [expr {[llength $popt(subnodes,netlist1)] + [llength $popt(subnodes,sdc1)] + [llength $popt(subnodes,upf1)] + [llength $popt(subnodes,merge_timing1)] + [llength $popt(subnodes,power_opt1)] + [llength $popt(subnodes,post_merge1)] + [llength $popt(subnodes,release_data1)]}] total subnodes"
+    puts "INFO: POPT configuration loaded successfully - [llength $popt(stages)] stages, [expr {1 + 1 + 1 + [llength $popt(subnodes,merge_timing1)] + [llength $popt(subnodes,power_opt1)] + [llength $popt(subnodes,post_merge1)] + [llength $popt(subnodes,release_data1)]}] total subnodes"
     set ::popt_config_loaded true
 }
 

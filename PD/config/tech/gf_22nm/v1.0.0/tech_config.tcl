@@ -22,10 +22,38 @@ set tech(library,stdcell_path) "$tech(library,root_path)/Front_End/timing/stdcel
 set tech(library,memory_path)  "$tech(library,root_path)/Front_End/timing/memory"
 set tech(library,io_path)      "$tech(library,root_path)/Front_End/timing/io"
 
-# Cell library prefixes (GF 22FDX naming)
-set _STDCELL "tcbn22cllbwp7t"
+# ┌─ Track Height Selection ──────────────────────────────────────────────┐
+# Available track heights for GF 22FDX
+set tech(track,available)       "12T 9T 7.5T"
+set tech(track,default)         "9T"
+
+# Cell library prefix per track height (GF 22FDX naming convention)
+set tech(track,12T,stdcell)     "tcbn22cllbwp12t"
+set tech(track,12T,description) "12-Track — highest performance, lowest density"
+set tech(track,9T,stdcell)      "tcbn22cllbwp9t"
+set tech(track,9T,description)  "9-Track — balanced performance/density"
+set tech(track,7.5T,stdcell)    "tcbn22cllbwp7t"
+set tech(track,7.5T,description) "7.5-Track — highest density, lowest power"
+
+# Resolve active track variant
+if {[info exists flow(track_variant)] && $flow(track_variant) ne ""} {
+    set tech(track,active_variant) $flow(track_variant)
+} else {
+    set tech(track,active_variant) $tech(track,default)
+}
+
+# Set cell prefixes based on active track variant
+set _active_track $tech(track,active_variant)
+if {[info exists tech(track,$_active_track,stdcell)]} {
+    set _STDCELL $tech(track,$_active_track,stdcell)
+} else {
+    puts "WARNING: Unknown track variant '$_active_track' — using default $tech(track,default)"
+    set _STDCELL $tech(track,$tech(track,default),stdcell)
+}
 set _MEMORY  "ts6n22cllhdlvt512x8m4sw"
 set _IO      "tphn22v"
+
+puts "INFO: GF 22FDX track variant: $tech(track,active_variant) — stdcell=$_STDCELL"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # NDM LIBRARIES (Fusion Compiler — preferred)

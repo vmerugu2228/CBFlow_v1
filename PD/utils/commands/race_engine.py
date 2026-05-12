@@ -798,15 +798,17 @@ class RaceEngine:
 
         logger.info(f"RACE initialized: {len(self.jobs)} jobs, "
                      f"{len(self.stage_order)} stages")
+
+        # Check DB session count against limit
+        self._check_db_session_limit()
         return True
 
     def bypass(self, stages: list) -> int:
-        """Mark stages as DONE without executing (skip/bypass).
-        Useful for skipping stages that are not needed for this run."""
+        """Mark stages as skipped (bypass). Works on any current status."""
         count = 0
         for stage in stages:
             for name, job in self.jobs.items():
-                if job.stage == stage and job.status in (Job.READY, Job.INVALIDATED, Job.PENDING):
+                if job.stage == stage and job.status != Job.BYPASSED:
                     self.db.record_direct(job, Job.BYPASSED)
                     # Write stamp for compatibility
                     stamp = os.path.join(self.run_dir, '.stamps', f'{name}.stamp')
@@ -818,21 +820,29 @@ class RaceEngine:
         return 0
 
     def forcevalidate(self, stages: list) -> int:
-        """Mark stages as already completed (force-validate).
-        Sets status to DONE as if the stage ran successfully.
-        Useful when a stage was run outside CBflow (manual tool run,
-        external script, or data imported from another run)."""
-        count = 0
+        """Mark stages + all upstream as completed (force-validate).
+        If you force-validate cts1, then rtl1/sdc1/upf1 → init_design1 → synthesis1 → place1 → cts1
+        all get marked as FORCE_VALIDATED."""
+        # Collect target stages + all upstream deps
+        all_jobs = set()
         for stage in stages:
-            for name, job in self.jobs.items():
-                if job.stage == stage:
-                    self.db.record_direct(job, Job.FORCE_VALIDATED)
-                    # Write stamp
-                    stamp = os.path.join(self.run_dir, '.stamps', f'{name}.stamp')
-                    os.makedirs(os.path.dirname(stamp), exist_ok=True)
-                    Path(stamp).touch()
-                    count += 1
-            logger.info(f"Force-validated: {stage} (marked as DONE)")
+            upstream = self._get_jobs_for_target(stage)
+            all_jobs.update(upstream)
+
+        count = 0
+        validated_stages = set()
+        for name in all_jobs:
+            job = self.jobs.get(name)
+            if job:
+                self.db.record_direct(job, Job.FORCE_VALIDATED)
+                stamp = os.path.join(self.run_dir, '.stamps', f'{name}.stamp')
+                os.makedirs(os.path.dirname(stamp), exist_ok=True)
+                Path(stamp).touch()
+                count += 1
+                validated_stages.add(job.stage)
+
+        for stage in sorted(validated_stages):
+            logger.info(f"Force-validated: {stage}")
         logger.info(f"Total force-validated: {count} jobs")
         return 0
 
@@ -852,11 +862,11 @@ class RaceEngine:
         return 0
 
     def bypass_jobs(self, job_names: list) -> int:
-        """Bypass specific jobs by name (subnode-level)."""
+        """Bypass specific jobs by name (subnode-level). Works on any status."""
         count = 0
         for jname in job_names:
             job = self.jobs.get(jname)
-            if job and job.status in (Job.READY, Job.INVALIDATED, Job.PENDING):
+            if job and job.status != Job.BYPASSED:
                 self.db.record_direct(job, Job.BYPASSED)
                 stamp = os.path.join(self.run_dir, '.stamps', f'{jname}.stamp')
                 os.makedirs(os.path.dirname(stamp), exist_ok=True)
@@ -867,7 +877,7 @@ class RaceEngine:
         return 0
 
     def force(self, stages: list) -> int:
-        """Force re-execute specific stages + upstream deps. Invalidate downstream."""
+        """Force re-execute specific stages + upstream deps. Invalidate true downstream."""
         # Collect target stage + all upstream deps (these will be re-executed)
         target_jobs = set()
         for stage in stages:
@@ -883,24 +893,19 @@ class RaceEngine:
                 if os.path.exists(stamp):
                     os.remove(stamp)
 
-        # Also invalidate downstream stages (they depend on stale data)
-        downstream = set()
+        # Invalidate TRUE downstream — only stages that depend (directly or transitively)
+        # on the forced stages. Use dependency graph, NOT linear stage_order.
         target_stages = set(self.jobs[n].stage for n in target_jobs if n in self.jobs)
-        for stage in stages:
-            # Find all stages downstream of the target
-            found = False
-            for s in self.stage_order:
-                if s == stage:
-                    found = True
-                    continue
-                if found and s not in target_stages:
-                    for name, job in self.jobs.items():
-                        if job.stage == s and job.is_completed:
-                            job.status = Job.INVALIDATED
-                            downstream.add(name)
-                            stamp = os.path.join(self.run_dir, '.stamps', f'{name}.stamp')
-                            if os.path.exists(stamp):
-                                os.remove(stamp)
+        downstream = set()
+        self._collect_downstream(target_stages, downstream)
+
+        for name in downstream:
+            job = self.jobs.get(name)
+            if job and job.is_completed:
+                job.status = Job.INVALIDATED
+                stamp = os.path.join(self.run_dir, '.stamps', f'{name}.stamp')
+                if os.path.exists(stamp):
+                    os.remove(stamp)
 
         all_invalidated = list(target_jobs | downstream)
         self.db.invalidate(all_invalidated)
@@ -912,6 +917,37 @@ class RaceEngine:
             logger.info(f"Downstream invalidated: {', '.join(down_stages)}")
 
         return self.execute_jobs(target_jobs)
+
+    def _collect_downstream(self, source_stages: set, result: set):
+        """Collect all jobs that are TRUE downstream of source_stages via dependency graph."""
+        # Build reverse dep map: for each job, which jobs depend on it
+        dependents = {}  # job_name -> list of job_names that depend on it
+        for name, job in self.jobs.items():
+            for dep in job.deps:
+                if dep not in dependents:
+                    dependents[dep] = []
+                dependents[dep].append(name)
+
+        # BFS from all jobs in source_stages
+        queue = []
+        for name, job in self.jobs.items():
+            if job.stage in source_stages:
+                # Find all jobs that depend on this job
+                for dependent in dependents.get(name, []):
+                    if self.jobs[dependent].stage not in source_stages:
+                        queue.append(dependent)
+
+        visited = set()
+        while queue:
+            name = queue.pop(0)
+            if name in visited:
+                continue
+            visited.add(name)
+            result.add(name)
+            # Continue downstream
+            for dependent in dependents.get(name, []):
+                if dependent not in visited:
+                    queue.append(dependent)
 
     def execute(self, target: str = 'all', env_vars: dict = None,
                 use_lsf: bool = False, lsf_queue: str = None) -> int:
@@ -1117,24 +1153,31 @@ class RaceEngine:
     # ── Private Methods ──────────────────────────────────────────────────────
 
     def _detect_input_changes(self) -> dict:
-        """Scan work directories for files modified after stage completion.
+        """Detect changes in source input files and work directories.
 
-        For each completed stage, check if any file in its work directory
-        was modified AFTER the stage finished. If so, that stage and all
-        downstream stages need re-execution.
+        Two types of change detection:
+        1. SOURCE FILE CHANGES — checks if the original input files (from user_config.tcl)
+           have been modified after the input node completed. This catches RTL/SDC/UPF edits.
+        2. WORK DIR CHANGES — checks if any file in a stage's work directory
+           was modified after the stage completed.
 
-        RACE core feature: file change triggers automatic downstream retrace.
+        If changes detected, the affected stage + all downstream get invalidated.
 
         Returns: {stage_name: [list of changed files]} or empty dict
         """
         changed = {}
         conn = sqlite3.connect(self.db.db_path)
 
+        # ── 1. Source file change detection (input leaf nodes) ────────────
+        # Read source file paths from user_config.tcl
+        source_files = self._get_source_input_files()
+
         for stage in self.stage_order:
             # Get stage completion time from DB
             cur = conn.execute(
-                "SELECT end_time FROM jobs WHERE job_name = ? AND job_type = 'stage' "
-                "AND status = 'DONE' ORDER BY id DESC LIMIT 1", (stage,))
+                "SELECT end_time FROM jobs WHERE job_name = ? "
+                "AND status IN ('DONE','BYPASSED','FORCE_VALIDATED') "
+                "ORDER BY id DESC LIMIT 1", (stage,))
             row = cur.fetchone()
             if not row or not row[0]:
                 continue
@@ -1144,42 +1187,35 @@ class RaceEngine:
             except Exception:
                 continue
 
-            # Scan work directory for files newer than stage completion
-            work_dir = os.path.join(self.run_dir, 'work', self.flow_type, stage)
-            if not os.path.isdir(work_dir):
-                continue
-
             changed_files = []
-            for root, dirs, files in os.walk(work_dir):
-                # Skip reports dir — reports are outputs, not inputs
-                dirs[:] = [d for d in dirs if d != 'reports']
-                for f in files:
-                    fp = os.path.join(root, f)
-                    try:
-                        fmtime = os.path.getmtime(fp)
-                        if fmtime > stage_done_time:
-                            rel_path = os.path.relpath(fp, self.run_dir)
-                            changed_files.append(rel_path)
-                    except Exception:
-                        pass
 
-            # Also check input symlinks in the stage's input dirs
-            for subdir in ['rtl', 'sdc', 'upf', 'def', 'netlist', 'gds', 'spef']:
-                input_dir = os.path.join(work_dir, subdir)
-                if not os.path.isdir(input_dir):
-                    continue
-                for f in os.listdir(input_dir):
-                    fp = os.path.join(input_dir, f)
-                    try:
-                        # Follow symlinks — check actual file mtime
-                        actual = os.path.realpath(fp)
-                        fmtime = os.path.getmtime(actual)
+            # Check source files mapped to this stage
+            stage_base = stage.rstrip('0123456789')
+            for src_path in source_files.get(stage_base, []):
+                try:
+                    if os.path.exists(src_path):
+                        fmtime = os.path.getmtime(src_path)
                         if fmtime > stage_done_time:
-                            rel_path = os.path.relpath(fp, self.run_dir)
-                            if rel_path not in changed_files:
-                                changed_files.append(rel_path)
-                    except Exception:
-                        pass
+                            changed_files.append(f'SOURCE: {src_path}')
+                except Exception:
+                    pass
+
+            # Check work directory files
+            work_dir = os.path.join(self.run_dir, 'work', self.flow_type, stage)
+            if os.path.isdir(work_dir):
+                for root, dirs, files in os.walk(work_dir):
+                    dirs[:] = [d for d in dirs if d != 'reports']
+                    for f in files:
+                        fp = os.path.join(root, f)
+                        try:
+                            actual = os.path.realpath(fp)
+                            fmtime = os.path.getmtime(actual)
+                            if fmtime > stage_done_time:
+                                rel_path = os.path.relpath(fp, self.run_dir)
+                                if rel_path not in changed_files:
+                                    changed_files.append(rel_path)
+                        except Exception:
+                            pass
 
             if changed_files:
                 changed[stage] = changed_files
@@ -1187,27 +1223,112 @@ class RaceEngine:
         conn.close()
         return changed
 
+    def _get_source_input_files(self) -> dict:
+        """Read source input file paths from user_config.tcl.
+        Maps input type (rtl, sdc, upf, netlist, etc.) to list of source file paths.
+        These are the ORIGINAL files that the user provides — not the copies in work dirs."""
+        source_map = {}  # {input_type: [file_paths]}
+        user_config = os.path.join(self.run_dir, 'setup', 'user_config.tcl')
+        if not os.path.exists(user_config):
+            return source_map
+
+        # Map of config key patterns to input node types
+        key_to_type = {
+            'rtl_filelist': 'rtl', 'rtl_format': None,
+            'sdc_func_file': 'sdc', 'sdc_file': 'sdc',
+            'upf_file': 'upf',
+            'netlist': 'netlist', 'netlist_golden': 'netlist_golden',
+            'netlist_revised': 'netlist_revised',
+            'def_file': 'def',
+            'gds_file': 'gds',
+            'spef_file': 'spef',
+            'constraints': 'constraints',
+            'power_spec': 'power_spec',
+        }
+
+        with open(user_config) as f:
+            for line in f:
+                line = line.strip()
+                m = re.match(r'set\s+\w+\(input,(\w+)\)\s+"([^"]*)"', line)
+                if m:
+                    key_name = m.group(1)
+                    file_path = m.group(2)
+                    if not file_path or not os.path.exists(file_path):
+                        continue
+                    # Find which input type this maps to
+                    input_type = key_to_type.get(key_name)
+                    if input_type is None:
+                        # Try matching by prefix
+                        for kp, it in key_to_type.items():
+                            if key_name.startswith(kp.split('_')[0]) and it:
+                                input_type = it
+                                break
+                    if input_type:
+                        source_map.setdefault(input_type, []).append(file_path)
+
+        return source_map
+
     def _auto_retrace_from(self, stage: str):
-        """Auto-invalidate a stage and everything downstream due to file change."""
-        found = False
+        """Auto-invalidate a stage and its TRUE downstream via dependency graph."""
         invalidated = []
-        for s in self.stage_order:
-            if s == stage:
-                found = True
-            if found:
-                for name, job in self.jobs.items():
-                    if job.stage == s and job.status in Job.COMPLETED_STATES:
-                        job.status = Job.INVALIDATED
-                        invalidated.append(name)
-                        # Remove stamp
-                        stamp = os.path.join(self.run_dir, '.stamps', f'{name}.stamp')
-                        if os.path.exists(stamp):
-                            os.remove(stamp)
+
+        # Invalidate the changed stage itself
+        for name, job in self.jobs.items():
+            if job.stage == stage and job.status in Job.COMPLETED_STATES:
+                job.status = Job.INVALIDATED
+                invalidated.append(name)
+                stamp = os.path.join(self.run_dir, '.stamps', f'{name}.stamp')
+                if os.path.exists(stamp):
+                    os.remove(stamp)
+
+        # Invalidate true downstream using dependency graph
+        downstream = set()
+        self._collect_downstream({stage}, downstream)
+        for name in downstream:
+            job = self.jobs.get(name)
+            if job and job.status in Job.COMPLETED_STATES:
+                job.status = Job.INVALIDATED
+                invalidated.append(name)
+                stamp = os.path.join(self.run_dir, '.stamps', f'{name}.stamp')
+                if os.path.exists(stamp):
+                    os.remove(stamp)
 
         if invalidated:
             self.db.invalidate(invalidated)
             stages_affected = sorted(set(self.jobs[n].stage for n in invalidated))
             logger.info(f"  Auto-retraced {len(invalidated)} jobs: {' → '.join(stages_affected)}")
+
+    def _check_db_session_limit(self):
+        """Warn if RACE DB session count approaches or exceeds the configured limit."""
+        try:
+            max_sessions = 10
+            warn_threshold = 8
+            flow_dir = self.env_vars.get('FLOW_DIR', '')
+            fc_path = os.path.join(flow_dir, 'config', 'flow',
+                                   self.env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0'),
+                                   'flow_config.tcl')
+            if os.path.exists(fc_path):
+                with open(fc_path) as f:
+                    for line in f:
+                        m = re.search(r'flow\(race,db_max_sessions\)\s+(\d+)', line)
+                        if m: max_sessions = int(m.group(1))
+                        m = re.search(r'flow\(race,db_warn_threshold\)\s+(\d+)', line)
+                        if m: warn_threshold = int(m.group(1))
+
+            # Count DBs in workarea
+            workarea = os.path.dirname(self.run_dir)
+            count = sum(1 for d in Path(workarea).iterdir()
+                       if d.is_dir()
+                       for _ in d.glob('.race_*.db'))
+
+            if count >= max_sessions:
+                logger.warning(f"RACE DB session limit reached ({count}/{max_sessions})! "
+                              f"Run 'cbflow run db-manage --cleanup' to free sessions.")
+            elif count >= warn_threshold:
+                logger.warning(f"RACE DB sessions approaching limit ({count}/{max_sessions}). "
+                              f"Consider: cbflow run db-manage --list")
+        except Exception:
+            pass  # Non-critical — don't block init
 
     def _resolve_db_path(self) -> str:
         """Resolve DB base path from project_config.tcl.
@@ -1246,10 +1367,39 @@ class RaceEngine:
 
         return db_path
 
+    def _validate_required_inputs(self, job: Job) -> list:
+        """Check if required input files exist before executing a stage.
+        Returns list of missing files, or empty list if all OK."""
+        if not hasattr(self, '_required_inputs_cache'):
+            self._required_inputs_cache = {}
+            # Read required_inputs from node config
+            flow_dir = self.env_vars.get('FLOW_DIR', '')
+            nc_path = os.path.join(flow_dir, 'config', 'flow',
+                                   self.env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0'),
+                                   'node_configs', f'{self.flow_type}_config.tcl')
+            config = ''
+            if os.path.exists(nc_path):
+                with open(nc_path) as f:
+                    config = f.read()
+            if config:
+                # Match both: set flow(required_inputs,stage) "files" AND array set {required_inputs,stage {files}}
+                for m in re.finditer(r'required_inputs,(\w+)\)\s+"([^"]*)"', config):
+                    stage = m.group(1)
+                    files = m.group(2).split()
+                    self._required_inputs_cache[stage] = files
+
+        required = self._required_inputs_cache.get(job.stage, [])
+        missing = []
+        for f in required:
+            full_path = os.path.join(self.run_dir, f)
+            if not os.path.exists(full_path):
+                missing.append(f)
+        return missing
+
     def _execute_job(self, job: Job) -> int:
         """Execute a single job. Returns exit code."""
-        if job.job_type == 'stage':
-            # Sentinel job — just touch stamp
+        if job.job_type == 'stage' and job.subnode == '_sentinel':
+            # Sentinel — validate mandatory outputs from this stage before marking complete
             stamp_path = os.path.join(self.run_dir, '.stamps', f'{job.stage}.stamp')
             os.makedirs(os.path.dirname(stamp_path), exist_ok=True)
             Path(stamp_path).touch()
@@ -1258,7 +1408,21 @@ class RaceEngine:
             logger.info(f"  [{job.stage}] stage complete")
             return 0
 
-        # Subnode job — execute handler
+        # ── Pre-execution check: required input files from upstream ──
+        # Only check on the first subnode (setup) of each stage
+        if job.subnode in ('setup', job.stage.rstrip('0123456789')):
+            missing = self._validate_required_inputs(job)
+            if missing:
+                logger.error(f"  [{job.stage}/{job.subnode}] BLOCKED — required input files missing:")
+                for f in missing:
+                    logger.error(f"    MISSING: {f}")
+                logger.error(f"  This usually means the upstream stage failed to produce its output.")
+                logger.error(f"  Check the upstream stage's logs for errors.")
+                self.db.record_start(job)
+                self.db.record_complete(job, 1, f'Missing required inputs: {", ".join(missing)}')
+                return 1
+
+        # Subnode/leaf job — execute handler
         self.db.record_start(job)
         logger.info(f"  [{job.stage}/{job.subnode}] running...")
 

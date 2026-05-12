@@ -1646,31 +1646,17 @@ def cmd_interactive(args: argparse.Namespace) -> int:
     # Determine tool from run env → user_config override → flow config default
     _ensure_run_env_loaded()
 
-    vendor = os.environ.get('CBFLOW_TOOL_VENDOR', '')
-    tool_name = os.environ.get('CBFLOW_TOOL_NAME', '')
-
-    if not vendor or not tool_name:
-        # Try reading from user_config in setup/
-        user_cfg = os.path.join(run_dir, 'setup', 'user_config.tcl')
-        if os.path.exists(user_cfg):
-            import re as _re
-            with open(user_cfg) as f:
-                for line in f:
-                    m = _re.match(r'set\s+\w+\(tool,vendor\)\s+"([^"]*)"', line.strip())
-                    if m and not vendor:
-                        vendor = m.group(1)
-                    m = _re.match(r'set\s+\w+\(tool,name\)\s+"([^"]*)"', line.strip())
-                    if m and not tool_name:
-                        tool_name = m.group(1)
-
-    if not vendor or not tool_name:
-        sys.path.insert(0, os.path.join(os.environ.get('FLOW_DIR', ''), 'utils', 'commands'))
+    # Read tool info from node config (single source of truth — not env vars)
+    vendor = ''
+    tool_name = ''
+    try:
         from tcl_config_parser import get_tool_info
         tool_info = get_tool_info(flow_type)
-        if not vendor:
-            vendor = tool_info.get('vendor', 'synopsys')
-        if not tool_name:
-            tool_name = tool_info.get('name', 'fc')
+        vendor = tool_info.get('vendor', 'synopsys')
+        tool_name = tool_info.get('name', 'fc')
+    except Exception:
+        vendor = vendor or 'synopsys'
+        tool_name = tool_name or 'fc'
 
     # Resolve tool shell from tool_launch_config
     tool_shell_map = {
@@ -1681,17 +1667,20 @@ def cmd_interactive(args: argparse.Namespace) -> int:
     }
     tool_shell = tool_shell_map.get(tool_name, tool_name)
 
-    # Module load
-    module_map = {
-        'fc': 'module load synopsysFusionCompiler/2025.06-SP2',
-        'pt': 'module load synopsysPrimeTime/2025.06',
-        'fm': 'module load synopsysFormality/2025.06',
-        'icv': 'module load synopsysICV/2025.06',
-        'genus': 'module load cadenceGenus/23.1',
-        'innovus': 'module load cadenceInnovus/23.1',
-        'tempus': 'module load cadenceTempus/23.1',
-    }
-    module_cmd = module_map.get(tool_name, '')
+    # Module load — read from flow_config (single source of truth)
+    import re as _re
+    module_cmd = ''
+    flow_dir = env_vars.get('FLOW_DIR', os.environ.get('FLOW_DIR', ''))
+    fc_path = os.path.join(flow_dir, 'config', 'flow',
+                           env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0'),
+                           'flow_config.tcl')
+    if os.path.exists(fc_path):
+        with open(fc_path) as f:
+            for line in f:
+                m = _re.search(rf'flow\(tool_module,{_re.escape(tool_name)}\)\s+"([^"]+)"', line)
+                if m:
+                    module_cmd = f'module load {m.group(1)}'
+                    break
 
     # Create INTERACTIVE directory
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -1703,69 +1692,182 @@ def cmd_interactive(args: argparse.Namespace) -> int:
     interactive_dir = os.path.join(run_dir, 'INTERACTIVE', session_name)
     os.makedirs(interactive_dir, exist_ok=True)
 
-    # Build tool launch arguments
-    tool_args = ""
+    # ── Generate TCL load script for the node ──────────────────────────────
+    load_tcl_path = None
     if load_node:
-        # Determine what to load based on flow type
-        if tool_name == 'fc':
-            # FC: load NDM design library
-            ndm_path = os.path.join(run_dir, 'work', flow_type, f'{load_node}', 'run',
-                                    f'{load_node}.nlib')
-            if os.path.exists(ndm_path):
-                tool_args = f"-x 'open_lib {ndm_path}'"
-            else:
-                # Try .enc format
-                enc_path = os.path.join(run_dir, 'work', flow_type, f'{load_node}', 'run',
-                                       f'{load_node}.enc')
-                if os.path.exists(enc_path):
-                    tool_args = f"-x 'open_lib {enc_path}'"
-                else:
-                    logger.info(f"  No saved design found for {load_node} — opening empty session")
-        elif tool_name == 'innovus':
-            # Innovus: restore .enc session
-            enc_path = os.path.join(run_dir, 'work', flow_type, f'{load_node}', 'run',
-                                   f'{load_node}.enc')
-            if os.path.exists(enc_path):
-                tool_args = f"-init 'restoreDesign {enc_path}'"
-        elif tool_name == 'pt':
-            # PT: restore saved session
-            ss_path = os.path.join(run_dir, 'results', 'sta', f'*_{load_node}_ss')
-            tool_args = ""  # PT opens interactively, user can restore_session
-        elif tool_name == 'icv':
-            # ICV: point to GDS
-            gds_path = os.path.join(run_dir, 'work', flow_type, f'{load_node}', 'run')
-            tool_args = ""
+        load_tcl_path = os.path.join(interactive_dir, f'load_{load_node}.tcl')
+        node_base = load_node.rstrip('0123456789')
+        work_dir = os.path.join(run_dir, 'work', flow_type, load_node, 'run')
 
-    # Generate wrapper script
-    wrapper_path = os.path.join(interactive_dir, 'launch_interactive.csh')
+        with open(load_tcl_path, 'w') as tf:
+            tf.write(f"# CBflow Interactive — Load {load_node}\n")
+            tf.write(f"# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            tf.write(f"# Flow: {flow_type} / Tool: {tool_name}\n\n")
+
+            # Source run environment
+            tf.write(f"# Source run configuration\n")
+            tf.write(f'set ::env(CBFLOW_RUN_DIR) "{run_dir}"\n')
+            run_tcl = os.path.join(run_dir, '.run.cbflow.tcl')
+            if os.path.exists(run_tcl):
+                tf.write(f'source "{run_tcl}"\n\n')
+
+            if tool_name == 'fc':
+                # Fusion Compiler — open NDM library
+                nlib_path = os.path.join(work_dir, f'{load_node}.nlib')
+                nlib_alt = os.path.join(run_dir, 'work', flow_type, load_node, f'{load_node}.nlib')
+                tf.write(f"# Open design library\n")
+                tf.write(f'set nlib_path "{nlib_path}"\n')
+                tf.write(f'set nlib_alt  "{nlib_alt}"\n')
+                tf.write(f'if {{[file exists $nlib_path]}} {{\n')
+                tf.write(f'    open_lib $nlib_path\n')
+                tf.write(f'    puts "INFO: Loaded design library: $nlib_path"\n')
+                tf.write(f'}} elseif {{[file exists $nlib_alt]}} {{\n')
+                tf.write(f'    open_lib $nlib_alt\n')
+                tf.write(f'    puts "INFO: Loaded design library: $nlib_alt"\n')
+                tf.write(f'}} else {{\n')
+                tf.write(f'    puts "WARNING: No .nlib found for {load_node}"\n')
+                tf.write(f'    puts "  Searched: $nlib_path"\n')
+                tf.write(f'    puts "  Searched: $nlib_alt"\n')
+                tf.write(f'    puts "  Starting empty session"\n')
+                tf.write(f'}}\n\n')
+                tf.write(f'puts ""\n')
+                tf.write(f'puts "═══════════════════════════════════════════════════"\n')
+                tf.write(f'puts "  CBflow Interactive — {load_node} loaded"\n')
+                tf.write(f'puts "  Run directory: {run_dir}"\n')
+                tf.write(f'puts "  Session: INTERACTIVE/{session_name}"\n')
+                tf.write(f'puts "═══════════════════════════════════════════════════"\n')
+
+            elif tool_name == 'pt':
+                # PrimeTime — restore session
+                ss_dir = os.path.join(run_dir, 'work', flow_type, load_node, 'run')
+                tf.write(f"# Restore PrimeTime session\n")
+                tf.write(f'set session_dir "{ss_dir}"\n')
+                tf.write(f'set session_files [glob -nocomplain "$session_dir/*.session"]\n')
+                tf.write(f'if {{[llength $session_files] > 0}} {{\n')
+                tf.write(f'    set ss [lindex $session_files end]\n')
+                tf.write(f'    restore_session $ss\n')
+                tf.write(f'    puts "INFO: Restored session: $ss"\n')
+                tf.write(f'}} else {{\n')
+                tf.write(f'    # Try loading timing DB\n')
+                tf.write(f'    set db_files [glob -nocomplain "$session_dir/*.db"]\n')
+                tf.write(f'    if {{[llength $db_files] > 0}} {{\n')
+                tf.write(f'        read_db [lindex $db_files end]\n')
+                tf.write(f'        puts "INFO: Loaded timing DB"\n')
+                tf.write(f'    }} else {{\n')
+                tf.write(f'        puts "WARNING: No saved session found for {load_node}"\n')
+                tf.write(f'        puts "  Starting empty session — use read_verilog, read_sdc, etc."\n')
+                tf.write(f'    }}\n')
+                tf.write(f'}}\n\n')
+                tf.write(f'puts ""\n')
+                tf.write(f'puts "═══════════════════════════════════════════════════"\n')
+                tf.write(f'puts "  CBflow Interactive — {load_node} (PrimeTime)"\n')
+                tf.write(f'puts "  Run directory: {run_dir}"\n')
+                tf.write(f'puts "═══════════════════════════════════════════════════"\n')
+
+            elif tool_name == 'innovus':
+                # Innovus — restore design
+                enc_path = os.path.join(work_dir, f'{load_node}.enc')
+                tf.write(f"# Restore Innovus design\n")
+                tf.write(f'set enc_path "{enc_path}"\n')
+                tf.write(f'if {{[file exists $enc_path]}} {{\n')
+                tf.write(f'    restoreDesign $enc_path\n')
+                tf.write(f'    puts "INFO: Restored design: $enc_path"\n')
+                tf.write(f'}} else {{\n')
+                tf.write(f'    puts "WARNING: No .enc checkpoint found for {load_node}"\n')
+                tf.write(f'}}\n')
+
+            elif tool_name == 'tempus':
+                # Tempus — similar to PT
+                tf.write(f"# Restore Tempus session\n")
+                tf.write(f'set session_dir "{work_dir}"\n')
+                tf.write(f'set db_files [glob -nocomplain "$session_dir/*.db"]\n')
+                tf.write(f'if {{[llength $db_files] > 0}} {{\n')
+                tf.write(f'    read_db [lindex $db_files end]\n')
+                tf.write(f'    puts "INFO: Loaded timing DB"\n')
+                tf.write(f'}} else {{\n')
+                tf.write(f'    puts "WARNING: No saved session found for {load_node}"\n')
+                tf.write(f'}}\n')
+
+            else:
+                tf.write(f'puts "INFO: Interactive session for {load_node} ({tool_name})"\n')
+                tf.write(f'puts "  Work dir: {work_dir}"\n')
+
+        logger.info(f"  Load TCL:  {load_tcl_path}")
+
+    # ── Read LSF and xterm settings from flow_config ─────────────────────
+    import re as _re
+    use_lsf = False
+    xterm_cmd = 'xterm'
+    xterm_geom = '200x50'
+    lsf_queue = 'normal'
+    lsf_memory = '16000'
+
+    flow_dir = env_vars.get('FLOW_DIR', os.environ.get('FLOW_DIR', ''))
+    fc_path = os.path.join(flow_dir, 'config', 'flow',
+                           env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0'),
+                           'flow_config.tcl')
+    if os.path.exists(fc_path):
+        with open(fc_path) as f:
+            for line in f:
+                if 'flow(use_lsf)' in line and 'true' in line.lower():
+                    use_lsf = True
+                if 'flow(use_xterm)' in line and 'false' in line.lower():
+                    pass  # interactive always uses xterm
+
+    tlc_path = os.path.join(flow_dir, 'config', 'flow',
+                            env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0'),
+                            'tool_launch_config.tcl')
+    if os.path.exists(tlc_path):
+        with open(tlc_path) as f:
+            for line in f:
+                if 'lsf(xterm,command)' in line:
+                    m = _re.search(r'"([^"]+)"', line)
+                    if m: xterm_cmd = m.group(1)
+                elif 'lsf(xterm,geometry)' in line:
+                    m = _re.search(r'"([^"]+)"', line)
+                    if m: xterm_geom = m.group(1)
+
+    # ── Generate wrapper script ──────────────────────────────────────────
+    wrapper_path = os.path.join(interactive_dir, 'launch_interactive.sh')
     with open(wrapper_path, 'w') as wf:
-        wf.write("#!/bin/csh -f\n")
+        wf.write("#!/bin/bash\n")
         wf.write(f"# CBflow Interactive Session — {flow_type} / {tool_name}\n")
         wf.write(f"# Session: {session_name}\n")
-        wf.write(f"# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        wf.write(f"# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
         wf.write(f"cd {interactive_dir}\n")
         if module_cmd:
             wf.write(f"{module_cmd}\n")
-        # Source run environment
-        wf.write(f"source {run_dir}/.run.cbflow.env\n")
-        # Launch tool in GUI mode
-        if tool_name == 'fc':
-            wf.write(f"{tool_shell} -gui {tool_args}\n")
-        elif tool_name in ('innovus', 'genus', 'tempus', 'voltus'):
-            wf.write(f"{tool_shell} {tool_args}\n")
-        elif tool_name == 'pt':
-            wf.write(f"{tool_shell} {tool_args}\n")
-        elif tool_name == 'icv':
-            wf.write(f"icv -vue {tool_args}\n")
-        elif tool_name == 'fm':
-            wf.write(f"{tool_shell} -gui {tool_args}\n")
-        elif tool_name == 'calibre':
-            wf.write(f"calibredrv {tool_args}\n")
+        wf.write(f"source {run_dir}/.run.cbflow.env\n\n")
+
+        # Build tool invocation with load TCL script
+        if load_tcl_path:
+            if tool_name == 'fc':
+                wf.write(f'{tool_shell} -gui -f "{load_tcl_path}"\n')
+            elif tool_name in ('pt', 'tempus'):
+                wf.write(f'{tool_shell} -f "{load_tcl_path}"\n')
+            elif tool_name == 'innovus':
+                wf.write(f'{tool_shell} -init "{load_tcl_path}"\n')
+            elif tool_name == 'genus':
+                wf.write(f'{tool_shell} -f "{load_tcl_path}"\n')
+            elif tool_name == 'fm':
+                wf.write(f'{tool_shell} -gui -f "{load_tcl_path}"\n')
+            else:
+                wf.write(f'{tool_shell} -f "{load_tcl_path}"\n')
         else:
-            wf.write(f"{tool_shell} {tool_args}\n")
+            # No node to load — just open empty tool
+            if tool_name == 'fc':
+                wf.write(f"{tool_shell} -gui\n")
+            elif tool_name == 'icv':
+                wf.write(f"icv -vue\n")
+            elif tool_name == 'calibre':
+                wf.write(f"calibredrv\n")
+            elif tool_name == 'fm':
+                wf.write(f"{tool_shell} -gui\n")
+            else:
+                wf.write(f"{tool_shell}\n")
     os.chmod(wrapper_path, 0o755)
 
-    # Print info
+    # ── Print summary ────────────────────────────────────────────────────
     logger.info("")
     logger.info(f"  ═══════════════════════════════════════════════════════")
     logger.info(f"  CBflow Interactive Session")
@@ -1775,57 +1877,52 @@ def cmd_interactive(args: argparse.Namespace) -> int:
     logger.info(f"  Shell:     {tool_shell}")
     if load_node:
         logger.info(f"  Load:      {load_node}")
+        logger.info(f"  Load TCL:  {load_tcl_path}")
     logger.info(f"  Session:   INTERACTIVE/{session_name}")
     logger.info(f"  Wrapper:   {wrapper_path}")
+    logger.info(f"  LSF:       {'Enabled' if use_lsf else 'Disabled (local)'}")
     logger.info("")
 
-    # Launch mode from flow_config.tcl (not env vars)
-    use_lsf = False
-    xterm_cmd = 'xterm'
-    xterm_geom = '200x50'
-
-    # Read from tool_launch_config if available
-    try:
-        tlc_path = os.path.join(os.environ.get('CONFIG_ROOT', ''), 'flow',
-                                os.environ.get('FLOW_CONFIG_VERSION', 'v1.0.0'),
-                                'tool_launch_config.tcl')
-        if os.path.exists(tlc_path):
-            with open(tlc_path) as f:
-                for line in f:
-                    if 'lsf(xterm,command)' in line:
-                        xterm_cmd = line.split('"')[1]
-                    elif 'lsf(xterm,geometry)' in line:
-                        xterm_geom = line.split('"')[1]
-    except Exception:
-        pass
-
-    if use_lsf:
-        logger.info(f"  Launch: LSF + xterm")
-        # Would submit via bsub -Is xterm -e wrapper
-    else:
-        logger.info(f"  Launch: xterm (local)")
-
-    # Launch xterm with tool
+    # ── Launch ───────────────────────────────────────────────────────────
     title = f"CBflow {flow_type} {tool_name}"
     if load_node:
         title += f" [{load_node}]"
 
-    logger.info(f"  Opening: {xterm_cmd} -geometry {xterm_geom} -title \"{title}\"")
-    logger.info("")
-
-    try:
-        subprocess.Popen([
+    if use_lsf:
+        # Submit via LSF with interactive xterm
+        bsub_cmd = [
+            'bsub', '-Is', '-q', lsf_queue, '-R',
+            f'rusage[mem={lsf_memory}]',
             xterm_cmd, '-geometry', xterm_geom,
-            '-title', title,
-            '-e', wrapper_path
-        ])
-        logger.info(f"  Interactive session launched in xterm.")
-        logger.info(f"  Working directory: {interactive_dir}")
-    except FileNotFoundError:
-        logger.error(f"  xterm not found. Run the wrapper manually:")
-        logger.error(f"    {wrapper_path}")
-        return 1
+            '-title', title, '-e', wrapper_path
+        ]
+        logger.info(f"  Launch: LSF ({lsf_queue}) + xterm")
+        logger.info(f"  Command: {' '.join(bsub_cmd)}")
+        logger.info("")
+        try:
+            subprocess.Popen(bsub_cmd)
+            logger.info(f"  Submitted to LSF queue '{lsf_queue}'")
+        except FileNotFoundError:
+            logger.error(f"  bsub not found. Run the wrapper manually:")
+            logger.error(f"    {wrapper_path}")
+            return 1
+    else:
+        # Local xterm
+        logger.info(f"  Launch: xterm (local)")
+        logger.info(f"  Opening: {xterm_cmd} -geometry {xterm_geom} -title \"{title}\"")
+        logger.info("")
+        try:
+            subprocess.Popen([
+                xterm_cmd, '-geometry', xterm_geom,
+                '-title', title, '-e', wrapper_path
+            ])
+            logger.info(f"  Interactive session launched.")
+        except FileNotFoundError:
+            logger.error(f"  xterm not found. Run the wrapper manually:")
+            logger.error(f"    {wrapper_path}")
+            return 1
 
+    logger.info(f"  Working directory: {interactive_dir}")
     return 0
 
 
@@ -2335,6 +2432,19 @@ Examples:
     dash_parser.add_argument('--port', '-p', type=int, default=8080, help='Port (default: 8080)')
     dash_parser.add_argument('--no-browser', action='store_true', dest='no_browser', help='Don\'t open browser')
 
+    db_parser = subparsers.add_parser('db-manage', help='Manage RACE database sessions',
+        formatter_class=_fmt, description="""Manage RACE SQLite database sessions.
+
+Lists all existing RACE databases for the current user, shows disk usage,
+and provides options to delete old/unwanted sessions.
+
+The maximum number of DB sessions is controlled by flow(race,db_max_sessions)
+in flow_config.tcl (default: 10). A warning is issued when the threshold is reached.""")
+    db_parser.add_argument('--list', '-l', action='store_true', dest='db_list', help='List all databases')
+    db_parser.add_argument('--delete', '-d', metavar='RUN', help='Delete DB for a specific run')
+    db_parser.add_argument('--cleanup', action='store_true', help='Interactive cleanup of old databases')
+    db_parser.add_argument('--check', action='store_true', help='Check session count against limit')
+
     subparsers.add_parser('help', help='Show detailed help')
 
     return parser
@@ -2358,6 +2468,177 @@ def cmd_gui(args):
     port = getattr(args, 'port', 8080) or 8080
     no_browser = getattr(args, 'no_browser', False)
     return start_dashboard(os.getcwd(), port=port, open_browser=not no_browser) or 0
+
+
+def cmd_db_manage(args):
+    """Manage RACE database sessions."""
+    import sqlite3
+    import hashlib
+    import re as _re
+
+    flow_dir = os.environ.get('FLOW_DIR', '')
+    if not flow_dir:
+        env_file = os.path.join(os.getcwd(), '.run.cbflow.env')
+        if os.path.exists(env_file):
+            with open(env_file) as f:
+                for line in f:
+                    if 'FLOW_DIR=' in line:
+                        flow_dir = line.split('=', 1)[1].strip().strip('"')
+
+    # Read limits from flow_config
+    max_sessions = 10
+    warn_threshold = 8
+    fc_path = os.path.join(flow_dir, 'config', 'flow', 'v1.0.0', 'flow_config.tcl')
+    if os.path.exists(fc_path):
+        with open(fc_path) as f:
+            for line in f:
+                m = _re.search(r'flow\(race,db_max_sessions\)\s+(\d+)', line)
+                if m: max_sessions = int(m.group(1))
+                m = _re.search(r'flow\(race,db_warn_threshold\)\s+(\d+)', line)
+                if m: warn_threshold = int(m.group(1))
+
+    # Find all RACE DBs — search workarea and structured DB paths
+    user = os.environ.get('USER', 'unknown')
+    dbs = []
+
+    # Search current workarea
+    workarea = os.path.dirname(os.getcwd()) if is_run_directory() else os.getcwd()
+    for run_dir in Path(workarea).iterdir():
+        if not run_dir.is_dir():
+            continue
+        for db_file in run_dir.glob('.race_*.db'):
+            try:
+                conn = sqlite3.connect(str(db_file))
+                info = {}
+                try:
+                    for k, v in conn.execute('SELECT key, value FROM run_info'):
+                        info[k] = v
+                except Exception:
+                    pass
+                job_count = 0
+                try:
+                    job_count = conn.execute('SELECT COUNT(DISTINCT job_name) FROM jobs').fetchone()[0]
+                except Exception:
+                    pass
+                conn.close()
+
+                size = db_file.stat().st_size
+                mtime = datetime.fromtimestamp(db_file.stat().st_mtime)
+                dbs.append({
+                    'path': str(db_file),
+                    'run_dir': str(run_dir.name),
+                    'flow_type': info.get('flow_type', '?'),
+                    'result': info.get('result', '?'),
+                    'user': info.get('user', '?'),
+                    'initialized': info.get('initialized', '?'),
+                    'size': size,
+                    'mtime': mtime,
+                    'jobs': job_count,
+                })
+            except Exception:
+                pass
+
+    # Sort by modification time (newest first)
+    dbs.sort(key=lambda d: d['mtime'], reverse=True)
+
+    # --check: just check count against limit
+    if getattr(args, 'check', False) or (not getattr(args, 'db_list', False) and not getattr(args, 'delete', None) and not getattr(args, 'cleanup', False)):
+        count = len(dbs)
+        logger.info(f"")
+        logger.info(f"  RACE Database Session Check")
+        logger.info(f"  {'='*50}")
+        logger.info(f"  Sessions found:  {count}")
+        logger.info(f"  Warn threshold:  {warn_threshold}")
+        logger.info(f"  Max sessions:    {max_sessions}")
+        logger.info(f"")
+        if count >= max_sessions:
+            logger.warning(f"  WARNING: Session limit reached ({count}/{max_sessions})!")
+            logger.warning(f"  Please delete old databases using: cbflow run db-manage --cleanup")
+        elif count >= warn_threshold:
+            logger.warning(f"  WARNING: Approaching session limit ({count}/{max_sessions})")
+            logger.warning(f"  Consider cleaning up old databases: cbflow run db-manage --cleanup")
+        else:
+            logger.info(f"  Status: OK ({count}/{max_sessions})")
+        logger.info(f"")
+        return 0
+
+    # --list: show all databases
+    if getattr(args, 'db_list', False):
+        logger.info(f"")
+        logger.info(f"  RACE Database Sessions ({len(dbs)} found, limit={max_sessions})")
+        logger.info(f"  {'='*80}")
+        logger.info(f"  {'#':>3s}  {'Run Directory':30s} {'Flow':10s} {'Result':8s} {'Jobs':5s} {'Size':8s} {'Last Modified':20s}")
+        logger.info(f"  {'─'*80}")
+        for i, d in enumerate(dbs):
+            size_str = f"{d['size'] / 1024:.0f}KB" if d['size'] < 1048576 else f"{d['size'] / 1048576:.1f}MB"
+            mtime_str = d['mtime'].strftime('%Y-%m-%d %H:%M')
+            logger.info(f"  {i+1:3d}  {d['run_dir']:30s} {d['flow_type']:10s} {d['result']:8s} {d['jobs']:5d} {size_str:8s} {mtime_str:20s}")
+        logger.info(f"")
+        if len(dbs) >= warn_threshold:
+            logger.warning(f"  WARNING: {len(dbs)}/{max_sessions} sessions used. Consider: cbflow run db-manage --cleanup")
+        return 0
+
+    # --delete: delete specific run's DB
+    if getattr(args, 'delete', None):
+        target = args.delete
+        found = [d for d in dbs if target in d['run_dir']]
+        if not found:
+            logger.error(f"  No database found matching '{target}'")
+            return 1
+        for d in found:
+            os.remove(d['path'])
+            logger.info(f"  Deleted: {d['path']}")
+        logger.info(f"  Removed {len(found)} database(s)")
+        return 0
+
+    # --cleanup: interactive cleanup
+    if getattr(args, 'cleanup', False):
+        if not dbs:
+            logger.info("  No RACE databases found.")
+            return 0
+        logger.info(f"")
+        logger.info(f"  RACE Database Cleanup ({len(dbs)} sessions, limit={max_sessions})")
+        logger.info(f"  {'='*80}")
+        for i, d in enumerate(dbs):
+            size_str = f"{d['size'] / 1024:.0f}KB" if d['size'] < 1048576 else f"{d['size'] / 1048576:.1f}MB"
+            mtime_str = d['mtime'].strftime('%Y-%m-%d %H:%M')
+            logger.info(f"  [{i+1:2d}] {d['run_dir']:30s} {d['flow_type']:10s} {d['result']:8s} {size_str:8s} {mtime_str}")
+        logger.info(f"")
+        logger.info(f"  Enter numbers to delete (comma-separated), 'old' to delete oldest, or 'q' to quit:")
+
+        try:
+            choice = input("  > ").strip()
+        except (EOFError, KeyboardInterrupt):
+            logger.info("  Cancelled.")
+            return 0
+
+        if choice.lower() == 'q':
+            return 0
+
+        to_delete = []
+        if choice.lower() == 'old':
+            # Delete oldest half (keep newest)
+            keep = max_sessions // 2
+            to_delete = dbs[keep:]
+        else:
+            for part in choice.split(','):
+                part = part.strip()
+                if part.isdigit():
+                    idx = int(part) - 1
+                    if 0 <= idx < len(dbs):
+                        to_delete.append(dbs[idx])
+
+        if not to_delete:
+            logger.info("  Nothing to delete.")
+            return 0
+
+        for d in to_delete:
+            os.remove(d['path'])
+            logger.info(f"  Deleted: {d['run_dir']} ({d['path']})")
+        logger.info(f"  Removed {len(to_delete)} database(s). Remaining: {len(dbs) - len(to_delete)}")
+        return 0
+
+    return 0
 
 
 def _cmd_email_dispatch(args):
@@ -2459,6 +2740,7 @@ def main() -> int:
         'autoppt': _cmd_autoppt_dispatch,
         'checklist': _cmd_checklist_dispatch,
         'gui': cmd_gui,
+        'db-manage': cmd_db_manage,
         'help': cmd_help,
     }
 

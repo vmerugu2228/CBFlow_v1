@@ -155,7 +155,7 @@ array set emir {
 
 # Configuration loading marker
 if {![info exists ::emir_config_loaded]} {
-    puts "INFO: EMIR configuration loaded successfully - [llength $emir(stages)] stages, [expr {[llength $emir(subnodes,netlist1)] + [llength $emir(subnodes,def1)] + [llength $emir(subnodes,spef1)] + [llength $emir(subnodes,library1)] + [llength $emir(subnodes,power_analysis1)] + [llength $emir(subnodes,ir_drop1)] + [llength $emir(subnodes,thermal_analysis1)]}] total subnodes"
+    puts "INFO: EMIR configuration loaded successfully - [llength $emir(stages)] stages, [expr {1 + 1 + 1 + 1 + [llength $emir(subnodes,power_analysis1)] + [llength $emir(subnodes,ir_drop1)] + [llength $emir(subnodes,thermal_analysis1)]}] total subnodes"
     set ::emir_config_loaded true
 }
 

@@ -160,7 +160,7 @@ array set eco {
 
 # Configuration loading marker
 if {![info exists ::eco_config_loaded]} {
-    puts "INFO: ECO configuration loaded successfully - [llength $eco(stages)] stages, [expr {[llength $eco(subnodes,netlist1)] + [llength $eco(subnodes,def1)] + [llength $eco(subnodes,sdc1)] + [llength $eco(subnodes,library1)] + [llength $eco(subnodes,eco1)] + [llength $eco(subnodes,export_db1)]}] total subnodes"
+    puts "INFO: ECO configuration loaded successfully - [llength $eco(stages)] stages, [expr {1 + 1 + 1 + 1 + [llength $eco(subnodes,eco1)] + [llength $eco(subnodes,export_db1)]}] total subnodes"
     set ::eco_config_loaded true
 }
 

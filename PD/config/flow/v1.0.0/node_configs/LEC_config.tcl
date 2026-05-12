@@ -136,7 +136,7 @@ array set lec {
 
 # Configuration loading marker
 if {![info exists ::lec_config_loaded]} {
-    puts "INFO: LEC configuration loaded successfully - [llength $lec(stages)] stages, [expr {[llength $lec(subnodes,netlist_golden1)] + [llength $lec(subnodes,netlist_revised1)] + [llength $lec(subnodes,constraints1)] + [llength $lec(subnodes,setup1)] + [llength $lec(subnodes,compare1)] + [llength $lec(subnodes,analyze1)]}] total subnodes"
+    puts "INFO: LEC configuration loaded successfully - [llength $lec(stages)] stages, [expr {1 + 1 + 1 + [llength $lec(subnodes,setup1)] + [llength $lec(subnodes,compare1)] + [llength $lec(subnodes,analyze1)]}] total subnodes"
     set ::lec_config_loaded true
 }
 

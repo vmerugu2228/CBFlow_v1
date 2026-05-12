@@ -202,7 +202,11 @@ array set sta {
 if {![info exists ::sta_config_loaded]} {
     set _total_subnodes 0
     foreach _stage $sta(stages) {
-        incr _total_subnodes [llength $sta(subnodes,$_stage)]
+        if {[info exists sta(subnodes,$_stage)]} {
+            incr _total_subnodes [llength $sta(subnodes,$_stage)]
+        } else {
+            incr _total_subnodes 1 ;# leaf node counts as 1
+        }
     }
     puts "INFO: STA configuration loaded - [llength $sta(stages)] stages, $_total_subnodes total subnodes"
     puts "INFO: MMMC enabled=$sta(mmmc,enabled), scenario_set=$sta(mmmc,scenario_set)"

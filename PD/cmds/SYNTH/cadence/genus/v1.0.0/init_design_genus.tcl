@@ -57,7 +57,17 @@ set ::flow::exec_mode "auto"
 set WORK_DIR "$run_dir/work/$FLOW_TYPE/$NODE_NAME"
 set REPORTS_DIR "$WORK_DIR/reports"
 set OUTPUTS_DIR "$run_dir/outputs"
-set INPUTS_DIR "$run_dir/work/$FLOW_TYPE/inputs1"
+# Input directories — each input type has its own node directory
+set RTL_DIR "$run_dir/work/$FLOW_TYPE/rtl1/rtl"
+set SDC_DIR "$run_dir/work/$FLOW_TYPE/sdc1/sdc"
+set UPF_DIR "$run_dir/work/$FLOW_TYPE/upf1/upf"
+set NETLIST_DIR "$run_dir/work/$FLOW_TYPE/netlist1/netlist"
+set DEF_DIR "$run_dir/work/$FLOW_TYPE/def1/def"
+set GDS_DIR "$run_dir/work/$FLOW_TYPE/gds1/gds"
+set SPEF_DIR "$run_dir/work/$FLOW_TYPE/spef1/spef"
+set LIBRARY_DIR "$run_dir/work/$FLOW_TYPE/library1/library"
+# Backward compat — INPUTS_DIR points to first input node
+set INPUTS_DIR "$run_dir/work/$FLOW_TYPE/rtl1"
 file mkdir $REPORTS_DIR
 file mkdir $OUTPUTS_DIR
 
@@ -224,7 +234,7 @@ flow_proc read_design {
 
     # -- Read RTL files --------------------------------------------------------
     # Determine RTL source: filelist or direct list
-    set rtl_filelist "$::INPUTS_DIR/rtl/${design_name}.f"
+    set rtl_filelist "$::RTL_DIR/${design_name}.f"
     set rtl_format [expr {[info exists synth(input,rtl_format)] ? $synth(input,rtl_format) : "sv"}]
 
     if {[info exists synth(input,rtl_list)] && [llength $synth(input,rtl_list)] > 0} {
@@ -243,7 +253,7 @@ flow_proc read_design {
         read_hdl -$rtl_format -f $rtl_filelist
     } else {
         # Glob for RTL in inputs directory
-        set rtl_files [glob -nocomplain "$::INPUTS_DIR/rtl/*.v" "$::INPUTS_DIR/rtl/*.sv" "$::INPUTS_DIR/rtl/*.vhd"]
+        set rtl_files [glob -nocomplain "$::RTL_DIR/*.v" "$::RTL_DIR/*.sv" "$::RTL_DIR/*.vhd"]
         if {[llength $rtl_files] > 0} {
             handle_info "Reading [llength $rtl_files] RTL files from inputs directory"
             foreach rtl_file $rtl_files {
@@ -326,7 +336,7 @@ flow_proc load_constraints {
     if {[info exists synth(input,sdc_file)] && $synth(input,sdc_file) ne ""} {
         set sdc_file $synth(input,sdc_file)
     } else {
-        set sdc_file "$::INPUTS_DIR/sdc/${design_name}.sdc"
+        set sdc_file "$::SDC_DIR/${design_name}.sdc"
     }
 
     if {$sdc_file ne "" && [file exists $sdc_file]} {
@@ -334,7 +344,7 @@ flow_proc load_constraints {
         read_sdc $sdc_file
     } else {
         # Try constraints directory
-        set sdc_files [glob -nocomplain "$::INPUTS_DIR/constraints/*.sdc"]
+        set sdc_files [glob -nocomplain "$::SDC_DIR/*.sdc"]
         if {[llength $sdc_files] > 0} {
             foreach sdc $sdc_files {
                 handle_info "Reading SDC: $sdc"
