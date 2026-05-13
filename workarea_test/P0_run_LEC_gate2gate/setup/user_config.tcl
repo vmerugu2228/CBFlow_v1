@@ -1,8 +1,0 @@
-set project(name)        "ravendrive"
-set project(phase)       "P0"
-set flow(type)           "LEC"
-set flow(design_name)    "cpu_core"
-set flow(run_name)       "gate2gate"
-set flow(test_mode)      "true"
-set lec(input,netlist_golden)  "/Users/vmerugu/projects/CBflow_clone/netlist.v"
-set lec(input,netlist_revised) "/Users/vmerugu/projects/CBflow_clone/netlist.v"
