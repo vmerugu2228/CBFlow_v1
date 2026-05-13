@@ -87,6 +87,55 @@ def increment_version(version: str, bump_type: str) -> str:
         return version
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# VERSION LOCKING — released versions become permanently read-only
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _is_locked(version_dir: str) -> bool:
+    """Check if a version directory is locked (released)."""
+    return os.path.exists(os.path.join(version_dir, '.locked'))
+
+
+def _lock_version(version_dir: str, release_version: str):
+    """Lock a version directory permanently. All files become read-only (444),
+    all directories become non-writable (555). A .locked marker is written
+    before permissions are changed. This is irreversible by design."""
+    version_dir = str(version_dir)
+    if _is_locked(version_dir):
+        return  # Already locked
+
+    # Write .locked marker BEFORE changing permissions
+    locked_file = os.path.join(version_dir, '.locked')
+    with open(locked_file, 'w') as f:
+        f.write(f"Locked by release {release_version}\n")
+        f.write(f"Date: {datetime.now().isoformat()}\n")
+        f.write(f"User: {os.environ.get('USER', 'unknown')}\n")
+        f.write(f"This version is permanently read-only.\n")
+
+    # Make all files read-only (r--r--r--)
+    for root, dirs, files in os.walk(version_dir):
+        for fname in files:
+            fpath = os.path.join(root, fname)
+            try:
+                os.chmod(fpath, 0o444)
+            except OSError:
+                pass
+        for dname in dirs:
+            dpath = os.path.join(root, dname)
+            try:
+                os.chmod(dpath, 0o555)
+            except OSError:
+                pass
+
+    # Lock the version directory itself
+    try:
+        os.chmod(version_dir, 0o555)
+    except OSError:
+        pass
+
+    logger.info(f"  Locked: {os.path.basename(version_dir)} (read-only)")
+
+
 def scan_versioned_components() -> dict:
     """Scan all versioned components in the codebase."""
     core_dir = Path(get_cbflow_core_dir())
@@ -753,10 +802,27 @@ puts "INFO: Loaded CBFlow Release {new_version}"
         with open(tcl_file, 'w') as f:
             f.write(tcl_content)
 
+        # ── Lock all component version directories (permanent, irreversible) ──
         logger.info("")
-        logger.info(f"Release {new_version} created successfully!")
+        logger.info("  Locking component versions (permanent read-only)...")
+        locked_count = 0
+        for comp_name, comp_info in linked_components.items():
+            version = comp_info.get('version', '')
+            path = comp_info.get('path', '')
+            if version and path:
+                version_dir = core_dir / path / version
+                if version_dir.exists() and not _is_locked(str(version_dir)):
+                    _lock_version(str(version_dir), new_version)
+                    locked_count += 1
+
+        # Lock the release directory itself
+        _lock_version(str(new_release_dir), new_version)
+
+        logger.info("")
+        logger.info(f"Release {new_version} created and locked successfully!")
         logger.info("")
         logger.info(f"  Components linked: {len(linked_components)}")
+        logger.info(f"  Components locked: {locked_count}")
         logger.info("")
         logger.info("Files created:")
         logger.info(f"  - {manifest_file.relative_to(core_dir)}")
@@ -764,9 +830,12 @@ puts "INFO: Loaded CBFlow Release {new_version}"
         logger.info(f"  - {tcl_file.relative_to(core_dir)}")
         logger.info("")
         logger.info("Next steps:")
-        logger.info(f"  1. Review: {new_release_dir}")
-        logger.info(f"  2. Set as current: cbflow flow release set-current --version {new_version}")
-        logger.info(f"  3. Initialize workspace: cbflow workspace init --release {new_version}")
+        logger.info(f"  1. Set as current: cbflow flow release set-current --version {new_version}")
+        logger.info(f"  2. Initialize workspace: cbflow workspace init --release {new_version}")
+        logger.info("")
+        logger.info("Note: All released component versions are now permanently read-only.")
+        logger.info("      To make changes, create a new dev version:")
+        logger.info(f"      cbflow flow dev start --component <name> --from {new_version}")
 
         return 0
 

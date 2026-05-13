@@ -16,6 +16,11 @@ from logging_config import configure_logging, get_logger
 logger = configure_logging('cbflow.version')
 
 
+def _is_locked(version_dir: str) -> bool:
+    """Check if a version directory is locked (released, read-only)."""
+    return os.path.exists(os.path.join(version_dir, '.locked'))
+
+
 def get_cbflow_core_dir() -> str:
     """Get CBFlow core directory from environment or determine from script location."""
     if 'CBFLOW_CORE_DIR' in os.environ:
@@ -87,8 +92,16 @@ def cmd_list(args: argparse.Namespace) -> int:
 
     versions.sort()
     for v in versions:
-        marker = " <- CURRENT" if v == current_version else ""
-        logger.info(f"  {v}{marker}")
+        v_path = os.path.join(dir_path, v)
+        markers = []
+        if v == current_version:
+            markers.append("CURRENT")
+        if _is_locked(v_path):
+            markers.append("LOCKED")
+        elif v.endswith('-dev'):
+            markers.append("DEV")
+        suffix = f"  <- {', '.join(markers)}" if markers else ""
+        logger.info(f"  {v}{suffix}")
 
     logger.info("")
     logger.info(f"Total: {len(versions)} version(s)")
@@ -221,6 +234,21 @@ def cmd_copy(args: argparse.Namespace) -> int:
     try:
         import shutil
         shutil.copytree(from_path, to_path)
+
+        # If source was locked, unlock the new copy (make writable for development)
+        locked_marker = os.path.join(to_path, '.locked')
+        if os.path.exists(locked_marker):
+            os.chmod(locked_marker, 0o644)
+            os.remove(locked_marker)
+            # Restore write permissions on the new copy
+            for root, dirs, files in os.walk(to_path):
+                for f in files:
+                    os.chmod(os.path.join(root, f), 0o644)
+                for d in dirs:
+                    os.chmod(os.path.join(root, d), 0o755)
+            os.chmod(to_path, 0o755)
+            logger.info(f"Copied from locked {args.from_version} — new version is writable")
+
         logger.info(f"Created {args.to_version} from {args.from_version} in {args.dir}")
         logger.info(f"Edit files in: {args.dir}/{args.to_version}/")
         logger.info(f"When ready:    cbflow flow version set-current --dir {args.dir} --version {args.to_version}")

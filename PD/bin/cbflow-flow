@@ -87,6 +87,16 @@ Version Control:
   cbflow flow version list --dir config          List config versions
   cbflow flow version status                     Show version health
 
+Development Workflow:
+  cbflow flow dev start --component config/flow --from v1.0.0
+                                                 Start dev version
+  cbflow flow dev status                         Show active dev versions
+  cbflow flow dev diff --component config/flow   Diff dev vs base
+  cbflow flow dev promote --component config/flow
+                                                 Promote dev → release-ready
+  cbflow flow dev sandbox-create                 Create local sandbox
+  cbflow flow dev sandbox-push                   Push sandbox to central
+
 Configuration:
   cbflow flow config manage-flow                 Interactive flow config
   cbflow flow config manage-node                 Interactive node config
@@ -177,6 +187,11 @@ main() {
         # Release commands
         release)
             exec python3 "$COMMANDS_DIR/release_cmd.py" "$@"
+            ;;
+
+        # Development workflow
+        dev)
+            exec python3 "$COMMANDS_DIR/dev_cmd.py" "$@"
             ;;
 
         # Config commands
