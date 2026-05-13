@@ -579,26 +579,26 @@ ls -la gui/v1.0.5/
 
 ## Command Not Found Issues
 
-### Make Target Not Found
+### Command Not Found
 
 **Problem:**
 ```bash
-make git_create_workspace DIR=gui
-# No rule to make target 'git_create_workspace'
+cbflow run all
+# Error: Command not found or not in a run directory
 ```
 
 **Solution:**
 ```bash
-# Verify you're in correct directory
+# Verify you're in correct directory (a run directory)
 pwd
-# Should be: .../CBFlow/PD/core
+# Should be inside a run directory, e.g., .../P0_run_PNR_run1/
 
 # Check RACE DB exists
 ls -la .race_*.db
 
-# List available make targets
-make help
-# Or
+# List available cbflow commands
+cbflow run --help
+# Or query RACE DB directly
 sqlite3 .race_*.db "SELECT * FROM run_info"
 ```
 

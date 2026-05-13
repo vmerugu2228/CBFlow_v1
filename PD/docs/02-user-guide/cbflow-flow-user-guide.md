@@ -14,21 +14,18 @@ Every flow run starts with a workspace. A workspace ties together a project, flo
 cd /path/to/my/designs
 mkdir pnr_workspace && cd pnr_workspace
 
-cbflow workspace init \
-  --project ravendrive \
-  --flow PNR \
-  --block cpu_core
+cbflow workspace create --config user_config.tcl
 ```
 
-This generates three files:
+This creates the run directory with:
 
 | File | Purpose |
 |------|---------|
-| `.cbflow.env` | Shell environment (project, release, paths, component versions) |
-| `.cbflow.tcl` | Same environment in TCL format |
-| `user_config.tcl` | Template you edit before creating a run |
+| `.run.cbflow.env` | Shell environment (project, release, paths, component versions) |
+| `.run.cbflow.tcl` | Same environment in TCL format |
+| `.race_*.db` | RACE SQLite status database (tracks all node/subnode status) |
 
-The workspace locks the **project**, **flow type**, and **block**. These cannot be changed after init.
+The workspace locks the **project**, **flow type**, and **block**. These cannot be changed after creation.
 
 ### 1.2 Configure Your Run
 
@@ -54,7 +51,7 @@ set pnr(input,def_file)      "/data/floorplan/cpu_core.def"
 set pnr(input,upf_file)      "/data/power/cpu_core.upf"
 ```
 
-> **Test mode:** Set `flow(test_mode) true` to run the entire flow without invoking EDA tools. CBflow will execute all stages, create directories and stamps, and display command file contents instead of running tools. Useful for validating your configuration before a real run.
+> **Test mode:** Set `flow(test_mode) true` to run the entire flow without invoking EDA tools. CBflow will execute all stages, create directories and update the RACE DB, and display command file contents instead of running tools. Useful for validating your configuration before a real run.
 
 ### 1.3 Create and Run
 
@@ -64,10 +61,10 @@ cbflow workspace create --config user_config.tcl
 
 # Enter the run directory and execute
 cd P0_run_PNR_run1
-make all
+cbflow run all
 ```
 
-That's it. CBflow creates the run directory. RACE builds the DAG from node_config.tcl and executes stages in dependency order.
+That's it. CBflow creates the run directory. RACE builds the DAG from node_config.tcl and executes stages in dependency order, tracking all status in the SQLite database.
 
 ---
 
@@ -83,7 +80,7 @@ CBflow supports 11 physical design flows. Each flow has a defined set of stages 
 | FP | Fusion Compiler | Synopsys | 6 | Floorplanning and power grid |
 | PNR | Fusion Compiler | Synopsys | 9 | Full place-and-route |
 | STA | PrimeTime | Synopsys | 3 | Static timing analysis |
-| LEC | Formality | Synopsys | 4 | Logic equivalence checking |
+| LEC | Formality | Synopsys | 3 | Logic equivalence checking |
 | EMIR | RedHawk | Synopsys | 4 | EM/IR drop and thermal |
 | PV | IC Validator | Synopsys | 7 | DRC, LVS, ERC, PERC |
 | ECO | Fusion Compiler | Synopsys | 3 | Engineering change orders |
@@ -112,12 +109,12 @@ inputs1 ──> place1 ──> cts1 ──> cts_opt1 ──> route1 ──> pro1
 
 **STA**
 ```
-inputs ──> extraction ──> timing
+inputs1 ──> extraction1 ──> timing1 (per-scenario subnodes) ──> reporting1 ──> release_data1
 ```
 
 **LEC**
 ```
-inputs ──> setup ──> compare ──> analyze
+inputs ──> compare ──> release_data
 ```
 
 **EMIR**
@@ -187,12 +184,12 @@ set synth(input,upf_file)       "/path/to/power_intent.upf"
 - `reports/synthesis/synth_area.rpt` — Area report
 - `reports/synthesis/synth_power.rpt` — Power report
 
-**Make Targets:**
+**RACE Commands:**
 ```bash
-make all              # Complete flow
-make inputs1          # Load inputs only
-make synthesis1       # Run synthesis (requires inputs1)
-make export_data1     # Export results
+cbflow run all                        # Complete flow
+cbflow run stage --name inputs1       # Load inputs only
+cbflow run stage --name synthesis1    # Run synthesis (requires inputs1)
+cbflow run stage --name export_data1  # Export results
 ```
 
 ---
@@ -250,29 +247,31 @@ set pnr(input,def_file)      "/path/to/floorplan.def"
 set pnr(input,upf_file)      "/path/to/power_intent.upf"
 ```
 
-**Make Targets:**
+**RACE Commands:**
 ```bash
-make all              # Complete PNR flow (9 stages)
-make place1           # Run placement only
-make cts1             # Run CTS (requires place1)
-make route1           # Run routing (requires cts_opt1)
-make status           # Show which stages are done
-make retrace NODE=cts1  # Re-run from CTS onwards
+cbflow run all                        # Complete PNR flow (9 stages)
+cbflow run stage --name place1        # Run placement only
+cbflow run stage --name cts1          # Run CTS (requires place1)
+cbflow run stage --name route1        # Run routing (requires cts_opt1)
+cbflow run status                     # Show which stages are done
+cbflow run retrace --from cts1        # Re-run from CTS onwards
 ```
 
 ---
 
 ### 3.4 STA — Static Timing Analysis
 
-Sign-off timing verification using Synopsys PrimeTime.
+Sign-off timing verification using Synopsys PrimeTime. Each MMMC scenario runs as an independent subnode in the timing1 stage, enabling parallel per-scenario execution.
 
 **Stages and Subnodes:**
 
 | Stage | Subnodes | What Happens |
 |-------|----------|---|
-| inputs | setup, netlist, sdc, spef, library, validate, finish | Load netlist, constraints, parasitics |
-| extraction | setup, run, validate, finish | Parasitic extraction, generate SPEF |
-| timing | setup, run, validate, finish | Setup/hold analysis, violations, QoR |
+| inputs1 | setup, netlist, sdc, spef, library, validate, finish | Load netlist, constraints, parasitics |
+| extraction1 | setup, run, validate, finish | Parasitic extraction, generate SPEF |
+| timing1 | setup, run (per-scenario dynamic subnodes), validate, finish | Setup/hold analysis per MMMC scenario (parallel) |
+| reporting1 | setup, run, validate, finish | Generate timing reports |
+| release_data1 | setup, run, validate, finish | Package for release |
 
 **User Config — Input Variables:**
 
@@ -300,9 +299,8 @@ Formal verification that two netlists are logically equivalent.
 | Stage | Subnodes | What Happens |
 |-------|----------|---|
 | inputs | setup, netlist_golden, netlist_revised, constraints, validate, finish | Load golden (reference) and revised (implementation) netlists |
-| setup | setup, run, validate, finish | Configure Formality, read designs, set verification mode |
 | compare | setup, run, validate, finish | Match compare points, run formal verification |
-| analyze | setup, run, validate, finish | Analyze failing points, generate equivalence report |
+| release_data | setup, run, validate, finish | Package results for release |
 
 **User Config — Input Variables:**
 
@@ -477,8 +475,8 @@ Chip-level floorplan with macro placement and power planning using Synopsys Fusi
 ### 4.1 Complete Workflow (Step by Step)
 
 ```bash
-# 1. Initialize workspace
-cbflow workspace init --project ravendrive --flow PNR --block cpu_core
+# 1. Generate a user_config.tcl template
+cbflow workspace template --flow PNR > user_config.tcl
 
 # 2. Edit user_config.tcl with your input paths
 
@@ -489,58 +487,52 @@ cbflow workspace create --config user_config.tcl
 cd P0_run_PNR_run1
 
 # 5. Run complete flow
-make all
+cbflow run all
 
 # 6. Check results
-make status
+cbflow run status
 ls reports/
 ls results/
 ```
 
 ### 4.2 Running Individual Stages
 
-Every stage is a Make target:
-
 ```bash
-make inputs1          # Only load inputs
-make place1           # Only run placement (inputs1 must be done)
-make cts1             # Only run CTS (place1 must be done)
+cbflow run stage --name inputs1    # Only load inputs
+cbflow run stage --name place1     # Only run placement (inputs1 must be done)
+cbflow run stage --name cts1       # Only run CTS (place1 must be done)
 ```
 
-If a dependency stage hasn't run, Make will run it automatically.
+If a dependency stage hasn't run, RACE will run it automatically.
 
 ### 4.3 Re-running Stages
 
-CBflow tracks completion with stamp files in `.stamps/`. To re-run a stage:
+CBflow tracks completion in the RACE SQLite database. To re-run a stage:
 
 ```bash
-# Option 1: Delete the stamp and re-run
-rm .stamps/place1.stamp
-make place1
+# Option 1: Retrace from a stage (marks that node + all downstream for re-execution)
+cbflow run retrace --from cts1
+cbflow run all    # Re-runs from cts1 onwards
 
-# Option 2: Retrace from a stage (deletes that stamp + all downstream)
-make retrace NODE=cts1
-make all    # Re-runs from cts1 onwards
+# Option 2: Force re-run a specific node
+cbflow run force --node place1
+cbflow run all
 
-# Option 3: Delete all stamps to force full re-run
-make retrace
-make all
+# Option 3: Bypass a node (skip without running)
+cbflow run bypass --node export_data1
 ```
 
 ### 4.4 Viewing Status
 
 ```bash
-# Quick overview
-make status
+# Quick overview (queries RACE DB)
+cbflow run status
 
 # Detailed view with subnodes
 cbflow run status --details
 
 # Dependency graph
 cbflow run show-graph
-
-# Check stamp files directly
-ls -la .stamps/
 ```
 
 ### 4.5 Viewing Logs
@@ -579,7 +571,9 @@ CBflow can combine multiple flows into a single run. Stage names are prefixed wi
 ### 5.1 SYNTH_FP (Synthesis + Floorplan)
 
 ```bash
-cbflow workspace init --project ravendrive --flow SYNTH_FP --block cpu_core
+cbflow workspace template --flow SYNTH_FP > user_config.tcl
+# Edit user_config.tcl, then:
+cbflow workspace create --config user_config.tcl
 ```
 
 Generates stages: `synth_inputs`, `synth_synthesis`, `synth_export_data`, ... , `fp_inputs`, `fp_import_design`, `fp_floorplan`, ...
@@ -643,7 +637,7 @@ CBflow assigns queues based on the flow and stage:
 | SYNTH | inputs, export, release | synthesis | | |
 | PNR | inputs, release | export | place, cts, cts_opt, pro, signoff | route |
 | STA | inputs | | extraction, timing | |
-| LEC | inputs, analyze | setup, compare | | |
+| LEC | inputs, release_data | compare | | |
 | EMIR | inputs | | power_analysis, ir_drop | thermal_analysis |
 | PV | inputs, merge, release | erc, perc | drc, lvs | |
 | ECO | inputs | export_db | eco | |
@@ -705,22 +699,11 @@ cbflow run show-graph --detail
 
 ## 8. Run Directory Structure
 
-After `make all` completes, a run directory contains:
+After `cbflow run all` completes, a run directory contains:
 
 ```
 P0_run_PNR_run1/
-├── .stamps/                     Completion tracking
-│   ├── inputs1.stamp
-│   ├── inputs1_netlist.stamp
-│   ├── inputs1_sdc.stamp
-│   ├── place1.stamp
-│   ├── place1_setup.stamp
-│   ├── place1_run.stamp
-│   └── ...
-
-│   ├── inputs1.mk
-│   ├── place1.mk
-│   └── ...
+├── .race_*.db                   RACE SQLite status database (sole status tracking)
 ├── work/PNR/                    Tool working area
 │   ├── inputs/
 │   │   ├── netlist/
@@ -849,18 +832,21 @@ Each step is an independent CBflow workspace + run. Outputs from one flow become
 
 ```bash
 # ── WORKSPACE ────────────────────────────────────────────────────
-cbflow workspace init -p ravendrive -t PNR -b cpu_core   # Initialize
+cbflow workspace template --flow PNR > user_config.tcl # Generate template
 cbflow workspace create --config user_config.tcl       # Create run
 cbflow workspace list-runs                             # List runs
 cbflow workspace status                                # Overview
 
 # ── RUN (from inside run directory) ──────────────────────────────
-make all                           # Run complete flow
-make <stage>                       # Run single stage
-make status                        # Check progress
-make retrace NODE=<stage>          # Re-run from stage
-make show_graph                    # Show dependency graph
-make clean                         # Delete work/logs/stamps
+cbflow run all                           # Run complete flow
+cbflow run stage --name <stage>          # Run single stage
+cbflow run status                        # Check progress (from RACE DB)
+cbflow run retrace --from <stage>        # Re-run from stage
+cbflow run bypass --node <node>          # Skip a node
+cbflow run force --node <node>           # Force re-run
+cbflow run forcevalidate --node <node>   # Force validate
+cbflow run show-graph                    # Show dependency graph
+cbflow run clean --confirm               # Delete work + logs + RACE DB
 
 # ── FLOW INFO ────────────────────────────────────────────────────
 cbflow flow types                  # List all 11 flows

@@ -139,28 +139,49 @@ inputs -> place -> cts -> route -> pro -> signoff -> export -> release
 - Progressive scenario count: 4 at placement -> 12 at signoff
 - Config-driven via `pnr(mmmc,enabled_stages)`
 
-### STA (Dynamic Per-Scenario Stages)
+### STA (Dynamic Per-Scenario Subnodes)
 ```
-inputs1 -> mmmc_setup1 -> extraction1 -> timing1 -> reporting1 -> export -> release
+inputs1 -> extraction1 -> timing1 (per-scenario subnodes) -> reporting1 -> release_data1
 ```
-- `mmmc_setup1` generates per-scenario Make targets at runtime
-- `timing1` is dynamic: one sub-target per scenario
-- Each scenario runs both setup + hold analysis
-- `make -j` enables OS-level parallel execution
+- RACE generates dynamic subnodes within timing1 from user-specified MMMC scenarios
+- Each MMMC scenario appears as an individual subnode (e.g., `timing1_func_ss_0p76v_rcmax_150c`)
+- Each scenario runs both setup + hold analysis independently
+- RACE executes scenario subnodes in parallel when resources allow
 - 10 scenarios (signoff set) = 10 parallel timing jobs
+- Per-scenario status is tracked individually in the RACE SQLite DB
+- `cbflow run status --details` shows completion status for each scenario subnode
 
-### STA Dynamic Execution
+### STA Dynamic Subnode Execution
 ```
-mmmc_setup1 generates:
-  work/STA/timing1/reports/timing_func_ss_0p76v_rcmax_150c.mk
-  work/STA/timing1/reports/timing_func_ff_0p84v_rcmin_m40c.mk
-  work/STA/timing1/reports/timing_func_tt_0p80v_rctyp_25c.mk
+RACE generates subnodes at runtime from user_config scenarios:
+  timing1_func_ss_0p76v_rcmax_150c    (independent subnode)
+  timing1_func_ff_0p84v_rcmin_m40c    (independent subnode)
+  timing1_func_tt_0p80v_rctyp_25c     (independent subnode)
   ... (10 total for signoff set)
-  work/STA/timing1/reports/timing_dynamic.mk (aggregator)
 
-timing1 target resolves to all 10 per-scenario stamps
-Each invokes: timing_scenario_handler.tcl <scenario_name>
+Each subnode invokes: timing_scenario_handler.tcl <scenario_name>
+Status tracked in RACE DB -- no stamp files.
 ```
+
+### Individual Scenario Control
+
+Because each MMMC scenario is an independent subnode, you can control them individually:
+
+```bash
+# Check status of all scenario subnodes
+cbflow run status --details
+
+# Force re-run a single scenario
+cbflow run force --node timing1_func_ss_0p76v_rcmax_150c
+
+# Bypass a specific scenario
+cbflow run bypass --node timing1_func_ff_0p84v_rcmin_m40c
+
+# Force validate a scenario without re-running
+cbflow run forcevalidate --node timing1_func_tt_0p80v_rctyp_25c
+```
+
+These commands can be issued while the engine is running (active engine sync).
 
 ---
 

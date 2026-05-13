@@ -34,6 +34,10 @@ RACE is the Python-native DAG executor at the core of CBflow v2.0.0. It complete
 set flow(dispatcher) "race"
 ```
 
+### Active Engine Sync
+
+RACE supports active engine synchronization: when you issue `retrace`, `bypass`, or `forcevalidate` commands while the engine is running, the changes are applied to the running engine immediately. There is no need to stop and restart the flow. The engine picks up the updated node status from the SQLite DB and adjusts its execution plan on the fly.
+
 ### RACE Commands
 
 | Command | Purpose |
@@ -48,11 +52,15 @@ set flow(dispatcher) "race"
 | `cbflow run forcevalidate --from X --to Y` | Force validate a range of nodes |
 | `cbflow run forcevalidate --from X` | Force validate from node X to end |
 | `cbflow run forcevalidate --to Y` | Force validate from start to node Y |
+| `cbflow run gui` | Launch web dashboard (auto-port 8080-8180) |
+| `cbflow run clean --confirm` | Delete work, logs, and RACE DB |
 | `cbflow run verify-dag` | Verify DAG from node_config without executing |
 | `cbflow run show-graph` | Visualize the RACE DAG |
 | `cbflow run list-nodes` | List all nodes in the DAG |
 | `cbflow run add-node` | Add a custom node |
 | `cbflow run create-branch` | Create a DAG branch |
+
+> **Note:** `retrace`, `bypass`, and `forcevalidate` can be issued while the engine is actively running. The running engine detects the DB changes and updates its execution plan in real time.
 
 ---
 
@@ -143,6 +151,12 @@ Tech configs load from `$CONFIG_ROOT/tech/$TECH_NAME/$TECH_VERSION/tech_config.t
 
 ---
 
+## Tested Flows
+
+The following 6 flows have been fully tested with the RACE engine: **SYNTH_PNR**, **STA**, **LEC**, **CLP**, **SYNTH**, **PNR**.
+
+---
+
 ## Tool Mapping
 
 CBflow supports 11 design flows across Synopsys, Cadence, and Mentor tool suites.
@@ -215,6 +229,10 @@ The RACE SQLite database is stored per-run:
 Full path: `$project(race,db_path)/$project/$domain/$flow/$user_$run_$uid.db`
 
 The DB stores node status, timestamps, file checksums for change detection, and execution history.
+
+### Dashboard Auto-Port
+
+The RACE web dashboard (`cbflow run gui` or `cbflow flow dashboard start`) automatically selects an available port in the 8080-8180 range. If port 8080 is in use, it tries 8081, 8082, etc. This eliminates "Address already in use" errors when multiple dashboards run on the same host.
 
 ---
 
@@ -316,16 +334,16 @@ array set synth_pnr {
 
 ---
 
-## Per-Corner STA (Dynamic Subnodes)
+## Per-Corner STA (Dynamic MMMC Scenario Subnodes)
 
-The STA flow runs timing analysis on a per-corner basis. RACE generates dynamic subnodes from the user-specified timing scenarios in user_config. Each corner/scenario gets its own independent timing analysis with setup and hold checks:
+The STA flow runs timing analysis on a per-corner basis. RACE generates dynamic subnodes from the user-specified MMMC scenarios in user_config. Each corner/scenario appears as an individual subnode in the timing1 stage, enabling parallel per-scenario execution:
 
 ```
-STA stages per corner:
-  inputs -> mmmc_setup -> timing_setup -> timing_hold -> extraction -> reporting -> export_data -> release_data
+STA stages:
+  inputs1 -> extraction1 -> timing1 (per-scenario subnodes) -> reporting1 -> release_data1
 ```
 
-The `timing_scenario_handler` manages per-scenario dispatching. RACE creates one subnode per corner at runtime and executes them in parallel when LSF is available.
+Each MMMC scenario (e.g., `func_ss_0p76v_rcmax_150c`, `func_ff_0p84v_rcmin_m40c`) runs as an independent subnode within the timing1 stage. The `timing_scenario_handler` manages per-scenario dispatching. RACE creates one subnode per scenario at runtime and executes them in parallel when resources allow. Status for each scenario subnode is tracked individually in the RACE SQLite DB, so `cbflow run status --details` shows per-scenario completion.
 
 ---
 

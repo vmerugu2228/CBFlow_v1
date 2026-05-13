@@ -29,18 +29,18 @@
 
 ## 1. Overview
 
-CBflow is a comprehensive Physical Design (PD) flow management system for semiconductor chip design. It orchestrates EDA tool execution across 12 design flows using a Make-based build system with TCL/Python integration.
+CBflow is a comprehensive Physical Design (PD) flow management system for semiconductor chip design. It orchestrates EDA tool execution across 12 design flows using the RACE engine (Python-native DAG executor) with TCL/Python integration.
 
 ### Key Features
 
 - **12 design flows** covering the full PD lifecycle (synthesis through tapeout)
 - **Multi-tool support** integrating Synopsys and Cadence EDA tools
 - **Hierarchical execution** with stage-level and subnode-level granularity
-- **Stamp-based incremental execution** for efficient re-runs
+- **SQLite DB-based status tracking** for efficient incremental re-runs
 - **LSF integration** with ML-based queue selection
 - **MMMC support** for multi-mode multi-corner analysis
 - **Version-controlled releases** with component-level tracking
-- **Web dashboard** for project visibility
+- **Web dashboard** for project visibility (auto-port 8080-8180 range)
 - **Plugin system** for custom flow extensions
 
 ### Design Philosophy
@@ -68,7 +68,7 @@ TCL Command Files (EDA tool integration via flow_proc)
 
 | Software | Minimum Version | Purpose |
 |----------|:-:|---|
-| Python | 3.6+ | CLI commands, config parsing, makefile generation |
+| Python | 3.6+ | CLI commands, config parsing, RACE engine |
 | TCL/Tclsh | 8.6+ | Flow execution, EDA tool scripting |
 | Git | 2.0+ | Version control and release management |
 | Bash/Zsh | 4.0+ | Shell environment and completions |
@@ -181,12 +181,7 @@ When a run is created, CBflow generates this structure:
 
 ```
 P0_run_PNR_run1/
-├── .stamps/                     Stage completion stamps
-├── .race_*.db                   RACE status database
-│   ├── inputs1.mk
-│   ├── place1.mk
-│   ├── cts1.mk
-│   └── ...
+├── .race_*.db                   RACE SQLite status database (sole status tracking)
 ├── logs/                        Execution logs
 ├── setup/                       User configuration
 │   └── user_config.tcl
@@ -207,14 +202,14 @@ cbflow workspace create --config user_config.tcl
 Python: start_run.py creates run directory, env files. RACE builds DAG at runtime.
     |
     v
-make all   (or: make inputs1, make place1, etc.)
+cbflow run all   (or: cbflow run stage --name place1, etc.)
     |
     v
-RACE DAG place1 subnodes:
-    place1_setup.stamp -> tclsh place_subnode_handler.tcl setup $PWD
-    place1_run.stamp   -> tclsh place_subnode_handler.tcl run $PWD
-    place1_validate.stamp -> ...
-    place1_finish.stamp -> ...
+RACE DAG place1 subnodes (status tracked in SQLite DB):
+    place1_setup   -> tclsh place_subnode_handler.tcl setup $PWD
+    place1_run     -> tclsh place_subnode_handler.tcl run $PWD
+    place1_validate -> ...
+    place1_finish   -> ...
     |
     v
 place_subnode_handler.tcl (run subnode):
@@ -318,7 +313,7 @@ cbflow run delete-node --node eco1
 cbflow run list-nodes                      # List all nodes
 
 # Clean
-cbflow run clean --confirm                 # Delete work + logs + stamps
+cbflow run clean --confirm                 # Delete work + logs + RACE DB
 ```
 
 ### 5.4 Flow Commands
@@ -357,7 +352,7 @@ cbflow flow metrics collect                # Collect metrics to database
 cbflow flow metrics report                 # Show metrics summary
 cbflow flow metrics report --flow PNR      # Filter by flow
 cbflow flow metrics export --format csv    # Export metrics
-cbflow flow dashboard start                # Start web dashboard (port 8080)
+cbflow flow dashboard start                # Start web dashboard (auto-port 8080-8180)
 ```
 
 ---
@@ -374,7 +369,7 @@ CBflow supports 12 design flows covering the complete PD lifecycle:
 | **FP** | Floorplanning and power planning | Fusion Compiler | Synopsys | 6 |
 | **PNR** | Place and route implementation | Fusion Compiler | Synopsys | 9 |
 | **STA** | Static timing analysis and sign-off (PT-RM W-2024.09) | PrimeTime | Synopsys | 5 |
-| **LEC** | Logic equivalence checking | Formality | Synopsys | 4 |
+| **LEC** | Logic equivalence checking | Formality | Synopsys | 3 |
 | **EMIR** | Power and thermal analysis | RedHawk | Synopsys | 4 |
 | **PV** | Physical verification (ICV-RM V-2023.12) | IC Validator | Synopsys | 9 |
 | **ECO** | Engineering change orders | Fusion Compiler | Synopsys | 3 |
@@ -466,15 +461,14 @@ inputs1 --> extraction1 --> timing1 (per-corner) --> reporting1 --> release_data
 Formal verification using Synopsys Formality.
 
 ```
-inputs --> setup --> compare --> analyze
+inputs --> compare --> release_data
 ```
 
 | Stage | Subnodes | Description |
 |-------|----------|-------------|
 | inputs | setup, netlist_golden, netlist_revised, constraints, validate, finish | Load golden + revised netlists |
-| setup | setup, run, validate, finish | Configure Formality, read designs |
 | compare | setup, run, validate, finish | Run formal comparison |
-| analyze | setup, run, validate, finish | Analyze results, generate reports |
+| release_data | setup, run, validate, finish | Package results for release |
 
 ---
 
@@ -661,7 +655,7 @@ The run directory naming pattern is `{phase}_run_{flow}_{run_name}/`, for exampl
 
 Set `flow(test_mode) true` in user_config.tcl to run without EDA tools. In test mode, CBflow:
 - Executes all stages and subnodes
-- Creates directory structures and stamp files
+- Creates directory structures and updates RACE DB status
 - Shows command file contents instead of invoking tools
 - Useful for validating flow structure and configuration
 
@@ -675,9 +669,6 @@ Set `flow(test_mode) true` in user_config.tcl to run without EDA tools. In test 
 cd P0_run_PNR_run1/
 
 # Run all stages
-make all
-
-# Or use cbflow CLI
 cbflow run all
 ```
 
@@ -685,37 +676,34 @@ cbflow run all
 
 ```bash
 # Run specific stages
-make inputs1
-make place1
-make cts1
-
-# Or via cbflow
+cbflow run stage --name inputs1
 cbflow run stage --name place1
+cbflow run stage --name cts1
 ```
 
 ### 8.3 Incremental Execution
 
-CBflow uses stamp files in `.stamps/` to track completion. Re-running `make all` skips completed stages:
+CBflow uses the RACE SQLite database to track stage completion. Re-running `cbflow run all` skips completed stages:
 
 ```bash
 # First run: executes all stages
-make all
+cbflow run all
 
-# Delete a stamp to re-run from that point
-rm .stamps/cts1.stamp
+# Retrace from a specific stage to re-run from that point
+cbflow run retrace --from cts1
 
 # Re-run: only executes cts1 and downstream stages
-make all
+cbflow run all
 ```
 
 ### 8.4 Retrace (Re-run from Stage)
 
 ```bash
-# Retrace from CTS onwards (deletes stamps for cts1 and all downstream)
+# Retrace from CTS onwards (marks cts1 and all downstream for re-execution in RACE DB)
 cbflow run retrace --from cts1
 
 # Then re-run
-make all
+cbflow run all
 ```
 
 ### 8.5 Stage Execution Architecture
@@ -756,8 +744,8 @@ The inputs stage has additional subnodes for each input type (netlist, sdc, def,
 ### 8.6 Monitoring Progress
 
 ```bash
-# Quick status
-make status
+# Quick status (queries RACE DB)
+cbflow run status
 
 # Detailed status with subnodes
 cbflow run status --details
@@ -916,13 +904,14 @@ Defines the standard directory structure created for each run:
 
 ```tcl
 set directory(PNR) {
-    ".stamps"       ;# Stage completion tracking
     "logs"          ;# Execution logs
     "setup"         ;# Configuration files
     "work"          ;# Working directory
-    
+
     "work/PNR"      ;# Flow-specific work area
 }
+;# Note: Stage completion is tracked in the RACE SQLite database, not on disk.
+
 ```
 
 ---
@@ -1149,9 +1138,9 @@ cbflow flow metrics report --flow PNR
 # Export to CSV
 cbflow flow metrics export --format csv
 
-# Launch web dashboard
+# Launch web dashboard (auto-selects available port in 8080-8180 range)
 cbflow flow dashboard start
-# Open http://localhost:8080 in browser
+# Open http://localhost:<port> in browser (port printed on startup)
 ```
 
 ### 15.5 Flat Execution Mode
@@ -1171,19 +1160,19 @@ In flat mode, multiple stages are combined into a single merged execution to min
 
 ### 16.1 Common Issues
 
-**Problem:** `make all` fails with "No rule to make target"
+**Problem:** `cbflow run all` fails with DAG build error
 - **Cause:** RACE DAG build failure
 - **Fix:** Re-create the run with `cbflow workspace create --config user_config.tcl --force`
 
 **Problem:** `ERROR: .run.cbflow.tcl not found`
-- **Cause:** Running make from wrong directory
+- **Cause:** Running cbflow from wrong directory
 - **Fix:** Ensure you are inside the run directory (e.g., `cd P0_run_PNR_run1/`)
 
 **Problem:** `list must have an even number of elements`
 - **Cause:** TCL comments (`#`) inside `array set {}` blocks in config files
 - **Fix:** Move comments outside the `array set` braces
 
-**Problem:** Stage appears stuck / stamps not created
+**Problem:** Stage appears stuck / status not updating in RACE DB
 - **Cause:** Subnode handler failed silently
 - **Fix:** Check logs with `cbflow run logs --tail 100 --level ERROR`
 
@@ -1203,11 +1192,12 @@ cat .run.cbflow.env
 # Verify config loading
 tclsh -e 'source .run.cbflow.tcl; parray ::env'
 
-# Check stamp status
-ls -la .stamps/
+# Check status from RACE DB
+cbflow run status --details
 
-# Force re-run a specific subnode
-rm .stamps/place1_run.stamp && make place1
+# Force re-run a specific node
+cbflow run force --node place1
+cbflow run all
 ```
 
 ### 16.3 Test Mode Debugging
@@ -1277,18 +1267,24 @@ cbflow workspace create --config user_config.tcl
 
 # Execute
 cd P0_run_PNR_run1/
-make all                    # Run complete flow
-make place1                 # Run single stage
-make status                 # Check progress
+cbflow run all                          # Run complete flow
+cbflow run stage --name place1          # Run single stage
+cbflow run status                       # Check progress
 
 # Monitor
 cbflow run status --details
 cbflow run show-graph
 cbflow run logs --tail 50 --level ERROR
 
+# Re-run / Control
+cbflow run retrace --from cts1          # Re-run from CTS onwards
+cbflow run bypass --node export_data1   # Skip a node
+cbflow run force --node place1          # Force re-run
+cbflow run forcevalidate --node signoff1  # Force validate
+
 # Debug
 cbflow run validate
-cbflow run retrace --from cts1
+cbflow run verify-dag
 
 # Info
 cbflow flow types

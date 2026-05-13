@@ -9,7 +9,7 @@ Data flow and process workflows in CBFlow versioning system.
 ```
 ┌────────────────────────────────────────────────────────────┐
 │                     User Initiates                          │
-│         make git_commit_version DIR=gui TYPE=patch         │
+│    cbflow flow version commit --dir gui --type patch       │
 └──────────────────────┬─────────────────────────────────────┘
                        │
                        ▼
@@ -107,7 +107,7 @@ Data flow and process workflows in CBFlow versioning system.
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│                make git_create_release TYPE=patch          │
+│         cbflow flow release create --type patch            │
 └──────────────────────┬─────────────────────────────────────┘
                        │
                        ▼
@@ -177,7 +177,7 @@ Data flow and process workflows in CBFlow versioning system.
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│  make git_create_release TYPE=major CONFIG=release.json   │
+│  cbflow flow release create --type major --config release.json │
 └──────────────────────┬─────────────────────────────────────┘
                        │
                        ▼

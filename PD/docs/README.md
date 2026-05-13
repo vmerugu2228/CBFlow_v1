@@ -6,7 +6,7 @@ Complete documentation for CBflow v2.0.0 -- a comprehensive PD automation framew
 
 CBflow is a Python/Bash/TCL automation framework that orchestrates ASIC physical design flows across Synopsys, Cadence, and Mentor tool suites. It provides:
 
-- **RACE Engine**: Run Automation & Control Engine -- Python-native DAG executor that replaced GNU Make entirely. Builds DAG from node_config.tcl at runtime, tracks status in SQLite DB, supports file change detection with automatic downstream retrace, parallel subnode execution, and dynamic subnode generation.
+- **RACE Engine**: Run Automation & Control Engine -- Python-native DAG executor that replaced GNU Make entirely. Builds DAG from node_config.tcl at runtime, tracks status in SQLite DB (sole status tracking -- no `.stamps/` directory), supports file change detection with automatic downstream retrace, parallel subnode execution, dynamic subnode generation, active engine sync (retrace/bypass/forcevalidate during execution), and dashboard auto-port (8080-8180 range).
 - **12 Design Flows**: SYNTH, FP, PNR, STA, LEC, EMIR, PV, ECO, CLP, POPT, FCFP, SYNTH_PNR
 - **Multi-Vendor Support**: Synopsys (FC, PT, Formality, ICV, RedHawk, VC_LP), Cadence (Genus, Innovus, Tempus, Conformal LP, Voltus), Mentor (Calibre)
 - **153 Command Files**: FC-RM Y-2026.03 aligned, with per-stage reports, proper REPORTS_DIR/OUTPUTS_DIR
@@ -29,11 +29,14 @@ CBflow is a Python/Bash/TCL automation framework that orchestrates ASIC physical
 RACE (Run Automation & Control Engine) is the Python-native DAG executor at the core of CBflow v2.0.0. It completely replaces GNU Make -- Make is NOT used and NOT required.
 
 - **DAG from node_config.tcl**: RACE builds the execution graph at runtime directly from node_config.tcl. There is no Makefile generation step.
-- **SQLite DB for status tracking**: Each run stores status in a SQLite database (`.race_<uid>.db`). DB path: `$project(race,db_path)/$project/$domain/$flow/$user_$run_$uid.db`
+- **SQLite DB for status tracking**: Each run stores status in a SQLite database (`.race_<uid>.db`). The `.stamps/` directory has been completely removed -- the RACE DB is the sole status tracking mechanism. DB path: `$project(race,db_path)/$project/$domain/$flow/$user_$run_$uid.db`
 - **File change detection**: Edit an input file and RACE auto-retraces all downstream nodes.
 - **Parallel subnode execution**: PV runs drc/lvs/erc/perc/xor in parallel after fill completes.
-- **Dynamic subnodes**: STA generates per-corner subnodes from user_config at runtime.
+- **Dynamic MMMC scenario subnodes**: STA generates per-scenario subnodes from user_config at runtime, enabling parallel per-scenario execution.
+- **Active engine sync**: Issue `retrace`, `bypass`, or `forcevalidate` commands while the engine is running -- the engine picks up changes from the DB in real time.
+- **Dashboard auto-port**: The web dashboard automatically selects an available port in the 8080-8180 range, eliminating "Address already in use" errors.
 - **Custom nodes at run level**: Use `add-node` and `create-branch` to extend the DAG without editing node_config.
+- **Tested flows**: SYNTH_PNR, STA, LEC, CLP, SYNTH, PNR (6 flows fully tested)
 - **Dispatcher config**: `set flow(dispatcher) "race"` in flow_config.tcl
 
 ## Quick Start
@@ -210,6 +213,6 @@ autoload -Uz compinit && compinit
 ---
 
 **Documentation Version**: 2.0.0
-**Last Updated**: 2026-05-10
+**Last Updated**: 2026-05-12
 
 **Ready to start?** Begin with [Kickstart Guide](00-kickstart/KICKSTART.md)
