@@ -837,6 +837,30 @@ puts "INFO: Loaded CBFlow Release {new_version}"
         logger.info("      To make changes, create a new dev version:")
         logger.info(f"      cbflow flow dev start --component <name> --from {new_version}")
 
+        # ── Auto git commit + push ──────────────────────────────────────────
+        logger.info("")
+        logger.info("  Committing release to git...")
+        import subprocess as _sp
+        try:
+            _sp.run(['git', 'add', '-A'], cwd=str(core_dir),
+                    capture_output=True, text=True, check=True)
+            _sp.run(['git', 'commit', '-m',
+                     f'Release {new_version}: {description}'],
+                    cwd=str(core_dir), capture_output=True, text=True, check=True)
+            logger.info(f"  Committed: Release {new_version}")
+
+            result = _sp.run(['git', 'push'], cwd=str(core_dir),
+                             capture_output=True, text=True)
+            if result.returncode == 0:
+                logger.info(f"  Pushed to remote")
+            else:
+                logger.warning(f"  Push failed (commit saved locally): {result.stderr.strip()}")
+        except _sp.CalledProcessError as e:
+            logger.warning(f"  Git commit failed: {e.stderr.strip() if e.stderr else e}")
+            logger.warning("  Release created successfully but not committed to git.")
+        except FileNotFoundError:
+            logger.warning("  Git not found — release created but not committed.")
+
         return 0
 
     except Exception as e:
