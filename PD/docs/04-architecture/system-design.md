@@ -268,6 +268,54 @@ The `release_data` stage in each flow calls `::CBFlow::Release::init`, copies de
 2. **RELEASE_NOTES.md** -- human-readable release description
 3. **RELEASE_COMPLETE** -- marker file indicating a complete, valid release
 
+### Version Locking
+
+Released versions are permanently read-only. When a version is created via `cbflow flow version create` or promoted via `cbflow flow dev promote`, CBflow:
+
+1. Sets all files in the version directory to `chmod 444` (read-only)
+2. Creates a `.locked` marker file in the version directory
+3. This operation is **irreversible** -- there is no unlock command
+
+```
+cmds/SYNTH/synopsys/fc/v1.0.0/
+    .locked                          # Marker file -- version is permanently locked
+    synthesis_fc.tcl                  # chmod 444
+    inputs_fc.tcl                    # chmod 444
+    ...
+```
+
+Any attempt to modify files in a locked version will result in a permission denied error. To make changes, use the dev workflow to create a new version.
+
+### Dev Workflow Architecture
+
+The dev workflow provides a structured development cycle for version changes, using the `-dev` suffix convention:
+
+```
+cbflow flow dev start --from v1.0.0
+    |
+    v
+v1.0.0-dev/  (writable copy of v1.0.0, -dev suffix)
+    |
+    v  (edit, test, iterate)
+    |
+cbflow flow dev promote --version v1.0.1
+    |
+    v
+v1.0.1/  (locked: chmod 444 + .locked)
+v1.0.0-dev/  (removed after promote)
+```
+
+Dev commands:
+
+| Command | Purpose |
+|---------|---------|
+| `cbflow flow dev start --dir <dir> --from <version>` | Create writable `-dev` copy |
+| `cbflow flow dev status` | List all active dev versions |
+| `cbflow flow dev diff --dir <dir>` | Show changes vs base version |
+| `cbflow flow dev promote --dir <dir> --version <new>` | Promote to locked release |
+| `cbflow flow dev sandbox-create --name <name>` | Create isolated sandbox |
+| `cbflow flow dev sandbox-push --name <name>` | Push sandbox changes to dev |
+
 ### Input Handshaking
 
 Downstream flows consume upstream releases through the input handshake mechanism. The `resolve_inputs` flow_proc checks for release tag variables and assembles paths automatically:

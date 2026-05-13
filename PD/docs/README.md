@@ -22,6 +22,9 @@ CBflow is a Python/Bash/TCL automation framework that orchestrates ASIC physical
 - **Per-Corner STA**: Each corner runs independently via dynamic timing_scenario handler
 - **Test Suite**: 994 tests across 8 categories (`bin/cbflow-test-suite`)
 - **Directory-Based Versioning**: Copy, edit, set-current via symlink (no Git worktrees)
+- **Version Locking**: Released versions are permanently read-only (`chmod 444`) with a `.locked` marker file. Locking is irreversible -- once a version is released, it cannot be modified or reverted.
+- **Dev Workflow**: `cbflow flow dev` commands (`start`, `status`, `diff`, `promote`, `sandbox-create`, `sandbox-push`) with `-dev` suffix convention for in-progress versions
+- **Template Generation**: `cbflow workspace template --flow SYNTH_PNR > user_config.tcl` generates a ready-to-edit config template
 - **3 Tech Configs**: GF 22FDX, TSMC 7nm, TSMC 5nm
 
 ## RACE Engine Overview
@@ -110,6 +113,13 @@ RACE (Run Automation & Control Engine) is the Python-native DAG executor at the 
 | `cbflow run show-graph` | Show flow dependency graph |
 | `cbflow flow version copy --from v1.0.0 --to v1.0.1` | Copy version |
 | `cbflow flow version set-current --version v1.0.1` | Set current version |
+| `cbflow flow dev start --dir cmds/SYNTH --from v1.0.0` | Start dev version (creates v1.0.0-dev) |
+| `cbflow flow dev status` | Show all active dev versions |
+| `cbflow flow dev diff --dir cmds/SYNTH` | Show changes in dev version |
+| `cbflow flow dev promote --dir cmds/SYNTH --version v1.0.1` | Promote dev to released version |
+| `cbflow flow dev sandbox-create --name experiment1` | Create isolated dev sandbox |
+| `cbflow flow dev sandbox-push --name experiment1` | Push sandbox changes to dev |
+| `cbflow workspace template --flow SYNTH_PNR` | Generate user_config.tcl template |
 | `cbflow flow checklist add-check --milestone BTO ...` | Add exit check |
 | `cbflow flow checklist list-checks --milestone BTO` | List checks |
 

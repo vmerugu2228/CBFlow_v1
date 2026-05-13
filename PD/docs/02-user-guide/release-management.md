@@ -287,6 +287,75 @@ make git_checkout_release RELEASE=v2.0.0
 - Build from specific release
 - Archive release snapshot
 
+## Version Locking
+
+Released versions are permanently read-only. When a version is released (via `cbflow flow version create`, `cbflow flow dev promote`, or the release system), CBflow:
+
+1. Sets all files in the version directory to `chmod 444` (read-only)
+2. Creates a `.locked` marker file in the version directory
+
+**This is irreversible** -- there is no unlock command or way to revert a locked version.
+
+```bash
+# After release, a version directory looks like:
+# cmds/SYNTH/synopsys/fc/v1.0.0/.locked   (marker file)
+# All files in v1.0.0/ are chmod 444
+
+# Attempting to edit a locked version results in:
+# Permission denied
+```
+
+To make changes to a released component, use the dev workflow to create a new version.
+
+## Dev Workflow
+
+The dev workflow provides a structured way to develop, test, and promote changes to released versions. Dev versions use the `-dev` suffix convention.
+
+### Starting Development
+
+```bash
+# Start a dev version from an existing released version
+cbflow flow dev start --dir cmds/SYNTH --from v1.0.0
+# Creates: cmds/SYNTH/synopsys/fc/v1.0.0-dev/ (writable copy)
+```
+
+### Working with Dev Versions
+
+```bash
+# Check status of all active dev versions
+cbflow flow dev status
+
+# View changes made in a dev version vs its base
+cbflow flow dev diff --dir cmds/SYNTH
+
+# Create an isolated sandbox for experimentation
+cbflow flow dev sandbox-create --name experiment1
+
+# Push sandbox changes back to the dev version
+cbflow flow dev sandbox-push --name experiment1
+```
+
+### Promoting to Release
+
+```bash
+# Promote dev version to a new released version
+cbflow flow dev promote --dir cmds/SYNTH --version v1.0.1
+# v1.0.1 is created with version locking (chmod 444 + .locked)
+# v1.0.0-dev is removed
+```
+
+### Dev Workflow Lifecycle
+
+```
+v1.0.0 (locked)  -->  cbflow flow dev start  -->  v1.0.0-dev (writable)
+                                                       |
+                                                  edit, test, iterate
+                                                       |
+                                              cbflow flow dev promote
+                                                       |
+                                                  v1.0.1 (locked)
+```
+
 ## Best Practices
 
 ### Auto Mode
@@ -301,6 +370,12 @@ make git_checkout_release RELEASE=v2.0.0
 - Document why specific versions were chosen
 - Save config files for audit trail
 - Use meaningful release descriptions
+
+### Dev Workflow
+- Always use `cbflow flow dev start` instead of manually copying versions
+- Run `cbflow flow dev diff` before promoting to review all changes
+- Use sandboxes for risky experiments to avoid polluting the dev version
+- Promote promptly -- long-lived dev versions increase merge risk
 
 ### Version Selection
 - Check component CHANGELOG before choosing a version
@@ -409,6 +484,14 @@ make git_diff_releases R1=<v1> R2=<v2>
 
 # Checkout
 make git_checkout_release RELEASE=<version>
+
+# Dev Workflow
+cbflow flow dev start --dir <dir> --from <version>   # Start dev version
+cbflow flow dev status                                # List active dev versions
+cbflow flow dev diff --dir <dir>                      # Show changes
+cbflow flow dev promote --dir <dir> --version <new>   # Promote to release
+cbflow flow dev sandbox-create --name <name>          # Create sandbox
+cbflow flow dev sandbox-push --name <name>            # Push sandbox changes
 ```
 
 ---

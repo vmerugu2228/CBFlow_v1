@@ -40,6 +40,8 @@ CBflow is a comprehensive Physical Design (PD) flow management system for semico
 - **LSF integration** with ML-based queue selection
 - **MMMC support** for multi-mode multi-corner analysis
 - **Version-controlled releases** with component-level tracking
+- **Version locking** -- released versions are permanently read-only (`chmod 444` + `.locked` marker), irreversible
+- **Dev workflow** -- `cbflow flow dev` commands with `-dev` suffix convention for in-progress versions
 - **Web dashboard** for project visibility (auto-port 8080-8180 range)
 - **Plugin system** for custom flow extensions
 
@@ -248,7 +250,10 @@ cbflow --completions zsh      # Output zsh completion script
 Run from any workspace directory (where `.cbflow.env` exists).
 
 ```bash
-# Create a run from user config
+# Generate a user_config.tcl template for a specific flow
+cbflow workspace template --flow SYNTH_PNR > user_config.tcl
+
+# Create a run from user config (auto-detects project config + release manifest)
 cbflow workspace create --config user_config.tcl
 cbflow workspace create --config user_config.tcl --force
 
@@ -338,6 +343,14 @@ cbflow flow release list                   # List all releases
 cbflow flow release info --version v1.0.0  # Show release details
 cbflow flow release diff --v1 v1.0.0 --v2 v1.0.1
 
+# Dev workflow
+cbflow flow dev start --dir cmds/SYNTH --from v1.0.0  # Start dev version
+cbflow flow dev status                     # Show active dev versions
+cbflow flow dev diff --dir cmds/SYNTH      # Show dev changes
+cbflow flow dev promote --dir cmds/SYNTH --version v1.0.1  # Promote to release
+cbflow flow dev sandbox-create --name exp1 # Create sandbox
+cbflow flow dev sandbox-push --name exp1   # Push sandbox changes
+
 # Configuration management
 cbflow flow config manage-flow             # Interactive flow config editor
 cbflow flow config manage-node             # Interactive node config editor
@@ -369,7 +382,7 @@ CBflow supports 12 design flows covering the complete PD lifecycle:
 | **FP** | Floorplanning and power planning | Fusion Compiler | Synopsys | 6 |
 | **PNR** | Place and route implementation | Fusion Compiler | Synopsys | 9 |
 | **STA** | Static timing analysis and sign-off (PT-RM W-2024.09) | PrimeTime | Synopsys | 5 |
-| **LEC** | Logic equivalence checking | Formality | Synopsys | 3 |
+| **LEC** | Logic equivalence checking | Formality | Synopsys | 5 |
 | **EMIR** | Power and thermal analysis | RedHawk | Synopsys | 4 |
 | **PV** | Physical verification (ICV-RM V-2023.12) | IC Validator | Synopsys | 9 |
 | **ECO** | Engineering change orders | Fusion Compiler | Synopsys | 3 |
@@ -461,14 +474,16 @@ inputs1 --> extraction1 --> timing1 (per-corner) --> reporting1 --> release_data
 Formal verification using Synopsys Formality.
 
 ```
-inputs --> compare --> release_data
+netlist_golden1 --> netlist_revised1 --> constraints1 --> compare1 --> release_data1
 ```
 
 | Stage | Subnodes | Description |
 |-------|----------|-------------|
-| inputs | setup, netlist_golden, netlist_revised, constraints, validate, finish | Load golden + revised netlists |
-| compare | setup, run, validate, finish | Run formal comparison |
-| release_data | setup, run, validate, finish | Package results for release |
+| netlist_golden1 | setup, run, validate, finish | Load golden (reference) netlist |
+| netlist_revised1 | setup, run, validate, finish | Load revised (implementation) netlist |
+| constraints1 | setup, run, validate, finish | Load Formality constraints/guidance |
+| compare1 | setup, run, validate, finish | Run formal comparison |
+| release_data1 | setup, run, validate, finish | Package results for release |
 
 ---
 
@@ -1077,6 +1092,47 @@ cbflow flow release diff --v1 v1.0.0 --v2 v1.0.1
 cbflow flow version list --dir cmds/SYNTH
 cbflow flow version create --dir cmds/SYNTH --type minor --desc "Added new optimization"
 cbflow flow version promote --dir cmds/SYNTH --version v1.1.0
+```
+
+### 14.4 Version Locking
+
+Released versions are permanently read-only. When a version is released, CBflow applies `chmod 444` to all files and creates a `.locked` marker file. This is irreversible -- there is no way to unlock or revert a locked version.
+
+```bash
+# After release, the version directory becomes read-only:
+# cmds/SYNTH/synopsys/fc/v1.0.0/.locked   (marker file)
+# All files in v1.0.0/ are chmod 444
+
+# Attempting to edit a locked version will fail:
+# Permission denied: cmds/SYNTH/synopsys/fc/v1.0.0/synthesis_fc.tcl
+```
+
+To make changes to a locked version, create a new version (copy) or use the dev workflow.
+
+### 14.5 Dev Workflow
+
+The dev workflow provides a structured way to develop and test changes before promoting them to a released version. Dev versions use the `-dev` suffix convention (e.g., `v1.0.0-dev`).
+
+```bash
+# Start a dev version from an existing released version
+cbflow flow dev start --dir cmds/SYNTH --from v1.0.0
+# Creates: cmds/SYNTH/synopsys/fc/v1.0.0-dev/ (writable copy)
+
+# Check status of all active dev versions
+cbflow flow dev status
+
+# View changes made in a dev version
+cbflow flow dev diff --dir cmds/SYNTH
+
+# Create an isolated sandbox for experimentation
+cbflow flow dev sandbox-create --name experiment1
+
+# Push sandbox changes back to the dev version
+cbflow flow dev sandbox-push --name experiment1
+
+# Promote dev version to a new released version (applies version locking)
+cbflow flow dev promote --dir cmds/SYNTH --version v1.0.1
+# v1.0.1 is created, locked (chmod 444 + .locked), and v1.0.0-dev is removed
 ```
 
 ---

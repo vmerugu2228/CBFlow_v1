@@ -145,6 +145,74 @@ cbflow run delete-node --node eco1
 
 ---
 
+## Dev Workflow Commands
+
+### cbflow flow dev start
+
+Create a writable dev version from an existing released version. The dev version uses the `-dev` suffix convention (e.g., `v1.0.0-dev`).
+
+```bash
+cbflow flow dev start --dir cmds/SYNTH --from v1.0.0
+# Creates: cmds/SYNTH/synopsys/fc/v1.0.0-dev/ (writable copy)
+```
+
+### cbflow flow dev status
+
+Show all active dev versions across the project.
+
+```bash
+cbflow flow dev status
+```
+
+### cbflow flow dev diff
+
+Show changes made in a dev version compared to its base version.
+
+```bash
+cbflow flow dev diff --dir cmds/SYNTH
+```
+
+### cbflow flow dev promote
+
+Promote a dev version to a new released version. The new version is locked (`chmod 444` + `.locked` marker) and the dev version is removed.
+
+```bash
+cbflow flow dev promote --dir cmds/SYNTH --version v1.0.1
+```
+
+### cbflow flow dev sandbox-create
+
+Create an isolated sandbox for experimentation without affecting the dev version.
+
+```bash
+cbflow flow dev sandbox-create --name experiment1
+```
+
+### cbflow flow dev sandbox-push
+
+Push sandbox changes back to the dev version.
+
+```bash
+cbflow flow dev sandbox-push --name experiment1
+```
+
+---
+
+## Version Locking
+
+Released versions are permanently read-only. CBflow applies `chmod 444` to all files and creates a `.locked` marker file. This is irreversible -- there is no way to unlock a released version.
+
+```bash
+# A locked version directory:
+# cmds/SYNTH/synopsys/fc/v1.0.0/.locked   (marker file)
+# All files are chmod 444
+
+# To make changes, start a dev version:
+cbflow flow dev start --dir cmds/SYNTH --from v1.0.0
+```
+
+---
+
 ## Dashboard
 
 ### cbflow run gui

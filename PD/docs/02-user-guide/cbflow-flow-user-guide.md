@@ -6,14 +6,18 @@
 
 ## 1. Getting Started
 
-### 1.1 Initialize a Workspace
+### 1.1 Create a Workspace
 
-Every flow run starts with a workspace. A workspace ties together a project, flow type, and design block.
+Every flow run starts with a workspace. A workspace ties together a project, flow type, and design block. The `cbflow workspace create` command auto-detects everything from the project config and release manifest.
 
 ```bash
 cd /path/to/my/designs
 mkdir pnr_workspace && cd pnr_workspace
 
+# Generate a user_config.tcl template for your flow
+cbflow workspace template --flow PNR > user_config.tcl
+
+# Edit user_config.tcl with your design-specific paths, then create the workspace
 cbflow workspace create --config user_config.tcl
 ```
 
@@ -80,7 +84,7 @@ CBflow supports 11 physical design flows. Each flow has a defined set of stages 
 | FP | Fusion Compiler | Synopsys | 6 | Floorplanning and power grid |
 | PNR | Fusion Compiler | Synopsys | 9 | Full place-and-route |
 | STA | PrimeTime | Synopsys | 3 | Static timing analysis |
-| LEC | Formality | Synopsys | 3 | Logic equivalence checking |
+| LEC | Formality | Synopsys | 5 | Logic equivalence checking |
 | EMIR | RedHawk | Synopsys | 4 | EM/IR drop and thermal |
 | PV | IC Validator | Synopsys | 7 | DRC, LVS, ERC, PERC |
 | ECO | Fusion Compiler | Synopsys | 3 | Engineering change orders |
@@ -114,7 +118,7 @@ inputs1 ──> extraction1 ──> timing1 (per-scenario subnodes) ──> repo
 
 **LEC**
 ```
-inputs ──> compare ──> release_data
+netlist_golden1 ──> netlist_revised1 ──> constraints1 ──> compare1 ──> release_data1
 ```
 
 **EMIR**
@@ -298,9 +302,11 @@ Formal verification that two netlists are logically equivalent.
 
 | Stage | Subnodes | What Happens |
 |-------|----------|---|
-| inputs | setup, netlist_golden, netlist_revised, constraints, validate, finish | Load golden (reference) and revised (implementation) netlists |
-| compare | setup, run, validate, finish | Match compare points, run formal verification |
-| release_data | setup, run, validate, finish | Package results for release |
+| netlist_golden1 | setup, run, validate, finish | Load golden (reference) netlist |
+| netlist_revised1 | setup, run, validate, finish | Load revised (implementation) netlist |
+| constraints1 | setup, run, validate, finish | Load Formality constraints/guidance |
+| compare1 | setup, run, validate, finish | Match compare points, run formal verification |
+| release_data1 | setup, run, validate, finish | Package results for release |
 
 **User Config — Input Variables:**
 
@@ -637,7 +643,7 @@ CBflow assigns queues based on the flow and stage:
 | SYNTH | inputs, export, release | synthesis | | |
 | PNR | inputs, release | export | place, cts, cts_opt, pro, signoff | route |
 | STA | inputs | | extraction, timing | |
-| LEC | inputs, release_data | compare | | |
+| LEC | netlist_golden, netlist_revised, constraints, release_data | compare | | |
 | EMIR | inputs | | power_analysis, ir_drop | thermal_analysis |
 | PV | inputs, merge, release | erc, perc | drc, lvs | |
 | ECO | inputs | export_db | eco | |
