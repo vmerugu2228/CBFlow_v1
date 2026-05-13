@@ -1314,16 +1314,44 @@ def _file_watcher(dashboard):
         time.sleep(1)
 
 
-def start_dashboard(run_dir: str, port: int = 8080, open_browser: bool = True):
-    """Start the RACE Dashboard web server."""
+def _find_free_port(start: int = 8080, end: int = 8180) -> int:
+    """Find a free port in the given range."""
+    import socket
+    for port in range(start, end):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(('0.0.0.0', port))
+                return port
+        except OSError:
+            continue
+    raise RuntimeError(f"No free port found in range {start}-{end}")
+
+
+def start_dashboard(run_dir: str, port: int = 0, open_browser: bool = True):
+    """Start the RACE Dashboard web server.
+
+    Args:
+        port: Port number. 0 = auto-find free port starting from 8080.
+              Allows multiple users / runs to open dashboards simultaneously.
+    """
     dashboard = RaceDashboard(run_dir)
     DashboardHandler.dashboard = dashboard
+
+    # Auto-find free port if not specified or default
+    if port == 0:
+        port = _find_free_port()
 
     # Start file watcher thread for near-instant change detection
     watcher = threading.Thread(target=_file_watcher, args=(dashboard,), daemon=True)
     watcher.start()
 
-    server = http.server.HTTPServer(('0.0.0.0', port), DashboardHandler)
+    try:
+        server = http.server.HTTPServer(('0.0.0.0', port), DashboardHandler)
+    except OSError:
+        # Requested port busy — auto-find a free one
+        port = _find_free_port(port + 1)
+        server = http.server.HTTPServer(('0.0.0.0', port), DashboardHandler)
+
     url = f'http://localhost:{port}'
 
     print(f'\n  RACE Dashboard')

@@ -1137,6 +1137,7 @@ function backToMain() {
   dagBuilt = false;
   document.getElementById('btn-back').style.display = 'none';
   renderDAG();
+  setTimeout(dagFit, 50);
 }
 
 function renderSubnodeView() {

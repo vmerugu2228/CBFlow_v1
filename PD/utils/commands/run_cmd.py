@@ -2457,7 +2457,7 @@ def cmd_gui(args):
         sys.path.insert(0, dashboard_dir)
         from race_dashboard import start_dashboard
 
-    port = getattr(args, 'port', 8080) or 8080
+    port = getattr(args, 'port', 0) or 0  # 0 = auto-find free port
     no_browser = getattr(args, 'no_browser', False)
     return start_dashboard(os.getcwd(), port=port, open_browser=not no_browser) or 0
 

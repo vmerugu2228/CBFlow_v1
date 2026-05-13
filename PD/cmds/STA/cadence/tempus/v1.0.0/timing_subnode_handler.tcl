@@ -309,7 +309,46 @@ switch $subnode_name {
         puts "INFO: $stage_name dynamic completed — [llength $all_scenarios] scenarios processed"
     }
     default {
-        puts "ERROR: Unknown subnode: $subnode_name"
-        exit 1
+        # Individual MMMC scenario subnode (e.g., func_ss_0p76v_rcmax_150c)
+        set scenario $subnode_name
+        puts "INFO: $stage_name scenario: $scenario"
+
+        set _work_dir "$run_dir/work/$::flow_type/$node_name/run"
+        file mkdir $_work_dir
+        file mkdir "$run_dir/reports/sta"
+
+        # Resolve scenario handler from same directory as this handler (vendor-agnostic)
+        set _handler_dir [file dirname [info script]]
+        set _scenario_handler [file join $_handler_dir "timing_scenario_handler.tcl"]
+
+        if {$test_mode} {
+            if {[file exists $_scenario_handler]} {
+                if {[catch {exec tclsh $_scenario_handler $scenario $run_dir} result]} {
+                    puts "WARNING: Scenario $scenario: $result"
+                } else {
+                    puts $result
+                }
+            } else {
+                puts "INFO: \[TEST MODE\] Scenario $scenario — creating report stub"
+                set rpt [open "$run_dir/reports/sta/timing_${scenario}_summary.rpt" "w"]
+                puts $rpt "# Test mode summary for scenario: $scenario"
+                puts $rpt "# Generated: [clock format [clock seconds]]"
+                puts $rpt "Setup WNS: 0.000ns  Hold WNS: 0.000ns"
+                close $rpt
+            }
+        } else {
+            if {[file exists $_scenario_handler]} {
+                puts "INFO: Executing: tclsh $_scenario_handler $scenario $run_dir"
+                if {[catch {exec tclsh $_scenario_handler $scenario $run_dir} result]} {
+                    puts "ERROR: Scenario $scenario failed: $result"
+                    exit 1
+                }
+                puts $result
+            } else {
+                puts "ERROR: Scenario handler not found: $_scenario_handler"
+                exit 1
+            }
+        }
+        puts "INFO: $stage_name scenario $scenario completed"
     }
 }
