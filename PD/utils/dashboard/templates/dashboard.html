@@ -2219,34 +2219,60 @@ function promptDeleteBranch() {
     showToast('No branches to delete', 'error');
     return;
   }
-  // Build modal with dropdown
+  // Build modal with clickable branch list (hover highlights DAG nodes)
   var html = '<div style="padding:8px">' +
-    '<p style="margin:0 0 12px;color:#555">Select a branch to delete (all its nodes will be removed)</p>' +
-    '<label style="font-size:12px;font-weight:600">Branch</label>' +
-    '<select id="del-branch" style="width:100%;padding:6px;margin:4px 0 8px;border:1px solid #ccc;border-radius:4px">';
+    '<p style="margin:0 0 10px;color:#555">Select a branch to delete. Hover to highlight its nodes on the DAG.</p>' +
+    '<input type="hidden" id="del-branch" value="">' +
+    '<div id="del-branch-list" style="max-height:220px;overflow-y:auto;border:1px solid #ccc;border-radius:4px;margin-bottom:8px">';
   keys.forEach(function(k) {
     var b = branches[k];
-    var label = b.name + (b.tag ? ' [' + b.tag + ']' : '') + ' (' + b.nodes.length + ' nodes)';
-    html += '<option value="' + k + '">' + label + '</option>';
+    var label = b.name + (b.tag ? ' [' + b.tag + ']' : '');
+    html += '<div class="del-br-item" data-key="' + k + '" style="padding:8px 10px;cursor:pointer;border-bottom:1px solid #eee">' +
+      '<div style="font-weight:600;font-size:13px">' + label + '</div>' +
+      '<div style="font-size:11px;color:#888">' + b.nodes.length + ' nodes: ' + b.nodes.join(', ') + '</div></div>';
   });
-  html += '</select>' +
-    '<div id="del-branch-nodes" style="font-size:11px;color:#666;margin-bottom:10px"></div>' +
+  html += '</div>' +
     '<div style="text-align:right">' +
-    '<button onclick="closeModal(\'edit-modal\')" style="padding:6px 14px;margin-right:8px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer">Cancel</button>' +
-    '<button onclick="doDeleteBranch()" style="padding:6px 14px;border:none;border-radius:4px;background:#f44336;color:#fff;cursor:pointer">Delete Branch</button>' +
+    '<button onclick="clearBranchHighlight();closeModal(\'edit-modal\')" style="padding:6px 14px;margin-right:8px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer">Cancel</button>' +
+    '<button id="del-branch-btn" onclick="doDeleteBranch()" style="padding:6px 14px;border:none;border-radius:4px;background:#ccc;color:#fff;cursor:not-allowed" disabled>Select a branch first</button>' +
     '</div></div>';
   document.getElementById('edit-title').textContent = 'Delete Branch';
   document.querySelector('#edit-modal .modal-bd').innerHTML = html;
-  // Show nodes preview on selection
-  var sel = document.getElementById('del-branch');
-  function updatePreview() {
-    var b = branches[sel.value];
-    document.getElementById('del-branch-nodes').textContent = b ? 'Nodes: ' + b.nodes.join(', ') : '';
-  }
-  sel.onchange = updatePreview;
-  updatePreview();
+
+  // Attach hover + click handlers to each branch item
+  document.querySelectorAll('.del-br-item').forEach(function(item) {
+    var k = item.getAttribute('data-key');
+    var b = branches[k];
+    // Hover: highlight nodes on DAG
+    item.addEventListener('mouseenter', function() {
+      b.nodes.forEach(function(n) {
+        var el = document.getElementById('dag-' + n);
+        if (el) { el.style.filter = 'brightness(1.5) drop-shadow(0 0 6px #f44336)'; el.style.opacity = '1'; }
+      });
+    });
+    item.addEventListener('mouseleave', function() {
+      b.nodes.forEach(function(n) {
+        var el = document.getElementById('dag-' + n);
+        if (el) { el.style.filter = ''; el.style.opacity = ''; }
+      });
+    });
+    // Click: select this branch
+    item.addEventListener('click', function() {
+      document.querySelectorAll('.del-br-item').forEach(function(x) { x.style.background = ''; });
+      item.style.background = '#ffebee';
+      document.getElementById('del-branch').value = k;
+      var btn = document.getElementById('del-branch-btn');
+      btn.textContent = 'Delete "' + b.name + '"';
+      btn.style.background = '#f44336'; btn.style.cursor = 'pointer'; btn.disabled = false;
+    });
+  });
+
   openModal('edit-modal');
   window._deleteBranchMap = branches;
+}
+
+function clearBranchHighlight() {
+  document.querySelectorAll('.dag-node').forEach(function(el) { el.style.filter = ''; el.style.opacity = ''; });
 }
 
 function doDeleteBranch() {
@@ -2259,6 +2285,7 @@ function doDeleteBranch() {
   var deleted = 0;
   function deleteNext() {
     if (nodes.length === 0) {
+      clearBranchHighlight();
       showToast('Deleted branch: ' + b.name + ' (' + deleted + ' nodes)', 'success');
       nodePositions = {}; treeBuilt = false; dagBuilt = false;
       refresh();
