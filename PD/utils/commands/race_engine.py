@@ -442,7 +442,11 @@ class StatusDB:
             os.makedirs(db_dir, exist_ok=True)
             self.db_path = os.path.join(db_dir, f'{user}_{run_name}_{uid}.db')
         else:
-            self.db_path = os.path.join(run_dir, f'.race_{uid}.db')
+            # Include run_name in local DB filename for identification
+            if run_name:
+                self.db_path = os.path.join(run_dir, f'.race_{run_name}_{uid}.db')
+            else:
+                self.db_path = os.path.join(run_dir, f'.race_{uid}.db')
         self._init_db()
 
     def _init_db(self):
@@ -488,6 +492,20 @@ class StatusDB:
             stage TEXT NOT NULL,
             subnode TEXT,
             job_type TEXT
+        )''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS run_config (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS dag_structure (
+            job_name TEXT PRIMARY KEY,
+            stage TEXT,
+            subnode TEXT,
+            job_type TEXT,
+            deps TEXT,
+            branch_key TEXT,
+            branch_name TEXT,
+            node_type TEXT
         )''')
         conn.commit()
         conn.close()
@@ -673,6 +691,40 @@ class StatusDB:
         conn.close()
         return rows
 
+    def set_config(self, key: str, value: str):
+        """Store a config key-value in run_config table."""
+        conn = sqlite3.connect(self.db_path)
+        conn.execute('INSERT OR REPLACE INTO run_config (key, value) VALUES (?, ?)', (key, value))
+        conn.commit()
+        conn.close()
+
+    def get_config(self, key: str, default: str = '') -> str:
+        """Read a config value from run_config table."""
+        conn = sqlite3.connect(self.db_path)
+        row = conn.execute('SELECT value FROM run_config WHERE key = ?', (key,)).fetchone()
+        conn.close()
+        return row[0] if row else default
+
+    def get_all_config(self) -> dict:
+        """Read all config values from run_config table."""
+        conn = sqlite3.connect(self.db_path)
+        result = {r[0]: r[1] for r in conn.execute('SELECT key, value FROM run_config')}
+        conn.close()
+        return result
+
+    def save_dag_structure(self, jobs: dict):
+        """Save full DAG structure to dag_structure table."""
+        conn = sqlite3.connect(self.db_path)
+        conn.execute('DELETE FROM dag_structure')
+        for name, job in jobs.items():
+            conn.execute(
+                'INSERT INTO dag_structure (job_name, stage, subnode, job_type, deps, node_type) '
+                'VALUES (?, ?, ?, ?, ?, ?)',
+                (name, job.stage, job.subnode, job.job_type,
+                 json.dumps(job.deps), job.stage.rstrip('0123456789_')))
+        conn.commit()
+        conn.close()
+
     def get_full_status(self) -> dict:
         """Get complete run status from DB."""
         conn = sqlite3.connect(self.db_path)
@@ -786,6 +838,25 @@ class RaceEngine:
         # Save canonical DAG order and seed DB rows for new jobs
         self.db.save_job_order(self.jobs)
         self.db.seed_missing_jobs(self.jobs)
+
+        # Save run config and DAG structure for reconstruction
+        self.db.set_run_info('run_name', run_name)
+        self.db.set_config('run_name', run_name)
+        self.db.set_config('flow_type', self.flow_type)
+        self.db.set_config('project_name', project_name)
+        for k, v in self.env_vars.items():
+            self.db.set_config(f'env.{k}', v)
+        # Store user_config.tcl content
+        uc_path = os.path.join(self.run_dir, 'setup', 'user_config.tcl')
+        if os.path.exists(uc_path):
+            with open(uc_path) as f:
+                self.db.set_config('user_config_content', f.read())
+        # Store runtime_flow_config.tcl content (branches)
+        rtf_path = os.path.join(self.run_dir, 'setup', 'runtime_flow_config.tcl')
+        if os.path.exists(rtf_path):
+            with open(rtf_path) as f:
+                self.db.set_config('runtime_flow_config_content', f.read())
+        self.db.save_dag_structure(self.jobs)
 
         if reset_stale:
             # Clean up stale RUNNING from interrupted runs — reset to READY

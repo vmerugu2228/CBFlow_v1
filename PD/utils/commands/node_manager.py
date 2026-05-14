@@ -160,6 +160,8 @@ class NodeManager:
         # Write branches
         for bkey, info in sorted(self.branches.items()):
             lines.append(f'    branch_keys,{bkey},name "{info.get("name", bkey)}"')
+            if info.get('tag'):
+                lines.append(f'    branch_keys,{bkey},tag "{info["tag"]}"')
             if info.get('created_date'):
                 lines.append(f'    branch_keys,{bkey},created_date "{info["created_date"]}"')
             if info.get('created_by'):
@@ -285,6 +287,37 @@ class NodeManager:
         logger.info(f"  [DONE] Deleted node '{name}'")
         return True
 
+    def rename_node(self, old_name: str, new_name: str) -> bool:
+        """Rename a custom node. Updates the node itself and all dependencies referencing it.
+        Base stages cannot be renamed."""
+        import re as _re
+        if old_name in self.base_stages:
+            logger.error(f"  Error: Cannot rename base stage '{old_name}'")
+            return False
+        if old_name not in self.custom_nodes:
+            logger.error(f"  Error: Custom node '{old_name}' not found")
+            return False
+        if new_name in self.custom_nodes or new_name in self.base_stages:
+            logger.error(f"  Error: Name '{new_name}' already exists")
+            return False
+        if not _re.match(r'^[a-zA-Z_]\w*$', new_name):
+            logger.error(f"  Error: Invalid name '{new_name}' (use alphanumeric + underscore)")
+            return False
+
+        # Rename the node
+        node_info = self.custom_nodes.pop(old_name)
+        self.custom_nodes[new_name] = node_info
+
+        # Update dependencies in other nodes that reference old_name
+        for name, info in self.custom_nodes.items():
+            if info.get('dependencies', '') == old_name:
+                info['dependencies'] = new_name
+
+        self._save_runtime_config()
+        self._regenerate_makefile()
+        logger.info(f"  [DONE] Renamed '{old_name}' → '{new_name}'")
+        return True
+
     def get_all_nodes(self) -> dict:
         """
         Return all nodes (base + custom) with metadata.
@@ -314,7 +347,7 @@ class NodeManager:
     # Branch Operations
     # ─────────────────────────────────────────────────────────────────────────
 
-    def create_branch(self, branch_name: str, from_stage: str) -> bool:
+    def create_branch(self, branch_name: str, from_stage: str, tag: str = '') -> bool:
         """
         Create a branch from a stage.
 
@@ -325,6 +358,8 @@ class NodeManager:
         Args:
             branch_name: Human-readable name for the branch.
             from_stage: Stage to branch from.
+            tag: Optional tag appended to node names (e.g., tag='timing_fix'
+                 produces place2_timing_fix, cts2_timing_fix, etc.)
 
         Returns:
             True if the branch was successfully created, False otherwise.
@@ -369,10 +404,11 @@ class NodeManager:
                 for stage in stages_to_branch:
                     sbase = re.sub(r'\d+$', '', stage)
                     suffix = self._next_suffix(sbase)
-                    new_name = f"{sbase}{suffix}"
+                    tag_suffix = f"_{tag}" if tag else ""
+                    new_name = f"{sbase}{suffix}{tag_suffix}"
                     while new_name in self.base_stages or new_name in self.custom_nodes:
                         suffix += 1
-                        new_name = f"{sbase}{suffix}"
+                        new_name = f"{sbase}{suffix}{tag_suffix}"
                     self.custom_nodes[new_name] = {
                         'type': sbase,
                         'dependencies': prev_dep,
@@ -383,10 +419,11 @@ class NodeManager:
                 # Can't find base type — create a single branch node
                 logger.info(f"  Creating single branch node from '{from_stage}'")
                 suffix = self._next_suffix(base_type)
-                new_name = f"{base_type}{suffix}"
+                tag_suffix = f"_{tag}" if tag else ""
+                new_name = f"{base_type}{suffix}{tag_suffix}"
                 while new_name in self.base_stages or new_name in self.custom_nodes:
                     suffix += 1
-                    new_name = f"{base_type}{suffix}"
+                    new_name = f"{base_type}{suffix}{tag_suffix}"
                 self.custom_nodes[new_name] = {
                     'type': base_type,
                     'dependencies': from_stage,
@@ -404,11 +441,12 @@ class NodeManager:
             for stage in stages_to_branch:
                 base_name = re.sub(r'\d+$', '', stage)
                 suffix = self._next_suffix(base_name)
-                new_name = f"{base_name}{suffix}"
+                tag_suffix = f"_{tag}" if tag else ""
+                new_name = f"{base_name}{suffix}{tag_suffix}"
                 # Safety: never overwrite a base stage
-                while new_name in self.base_stages:
+                while new_name in self.base_stages or new_name in self.custom_nodes:
                     suffix += 1
-                    new_name = f"{base_name}{suffix}"
+                    new_name = f"{base_name}{suffix}{tag_suffix}"
 
                 self.custom_nodes[new_name] = {
                     'type': base_name,
@@ -420,6 +458,7 @@ class NodeManager:
         # Store branch metadata
         self.branches[branch_key] = {
             'name': branch_name,
+            'tag': tag,
             'created_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'created_by': os.environ.get('USER', 'unknown'),
         }

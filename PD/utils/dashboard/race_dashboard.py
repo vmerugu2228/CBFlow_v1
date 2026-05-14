@@ -134,11 +134,23 @@ class RaceDashboard:
     def _find_db(self) -> str:
         import hashlib
         uid = hashlib.md5(os.path.abspath(self.run_dir).encode()).hexdigest()[:6]
+        # Try new naming: .race_{run_name}_{uid}.db
+        env = self._load_env()
+        run_name = env.get('CBFLOW_RUN_NAME', '')
+        if run_name:
+            named = os.path.join(self.run_dir, f'.race_{run_name}_{uid}.db')
+            if os.path.exists(named):
+                return named
+        # Try old naming: .race_{uid}.db
         local = os.path.join(self.run_dir, f'.race_{uid}.db')
         if os.path.exists(local):
             return local
+        # Glob fallback
         for f in Path(self.run_dir).glob('.race_*.db'):
             return str(f)
+        # Default for new DB creation
+        if run_name:
+            return os.path.join(self.run_dir, f'.race_{run_name}_{uid}.db')
         return local
 
     def _load_run_info(self):
@@ -531,8 +543,37 @@ class RaceDashboard:
             except Exception:
                 base_stages = list(stage_order)
 
+            # Parse branch info from runtime_flow_config.tcl
+            branch_info = {}  # {node_name: {branch_key, branch_name, tag}}
+            branch_meta = {}  # {branch_key: {name, tag}}
+            rtf = os.path.join(self.run_dir, 'setup', 'runtime_flow_config.tcl')
+            if os.path.exists(rtf):
+                try:
+                    with open(rtf) as f:
+                        rtc = f.read()
+                    import re as _re
+                    # Parse branch keys metadata
+                    for m in _re.finditer(r'branch_keys,(\S+),name\s+"([^"]*)"', rtc):
+                        bkey = m.group(1)
+                        branch_meta.setdefault(bkey, {})['name'] = m.group(2)
+                    for m in _re.finditer(r'branch_keys,(\S+),tag\s+"([^"]*)"', rtc):
+                        bkey = m.group(1)
+                        branch_meta.setdefault(bkey, {})['tag'] = m.group(2)
+                    # Parse node → branch_key mappings
+                    for m in _re.finditer(r'stages,(\w+),branch_key\s+(\S+)', rtc):
+                        node, bkey = m.group(1), m.group(2)
+                        meta = branch_meta.get(bkey, {})
+                        branch_info[node] = {
+                            'branch_key': bkey,
+                            'branch_name': meta.get('name', ''),
+                            'branch_tag': meta.get('tag', ''),
+                        }
+                except Exception:
+                    pass
+
             return {'nodes': nodes, 'edges': edges, 'stage_order': stage_order,
-                    'stage_deps': stage_deps, 'base_stages': base_stages}
+                    'stage_deps': stage_deps, 'base_stages': base_stages,
+                    'branch_info': branch_info}
         finally:
             conn.close()
 
@@ -870,6 +911,8 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 result = self._action_add_node(body)
             elif path == '/api/action/delete-node':
                 result = self._action_delete_node(body)
+            elif path == '/api/action/rename-node':
+                result = self._action_rename_node(body)
             elif path == '/api/action/create-branch':
                 result = self._action_create_branch(body)
             elif path == '/api/node-config':
@@ -1106,6 +1149,42 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         self._seed_new_nodes_only()
         return {'ok': True, 'message': f'Deleted node: {name}'}
 
+    def _action_rename_node(self, body):
+        """Rename a custom node."""
+        old_name = body.get('old_name', '')
+        new_name = body.get('new_name', '')
+        if not old_name or not new_name:
+            return {'error': 'old_name and new_name required'}
+        try:
+            from node_manager import NodeManager
+            mgr = NodeManager(self.dashboard.run_dir, self.dashboard.flow_type)
+            if not mgr.rename_node(old_name, new_name):
+                return {'error': f'Rename failed — check logs'}
+
+            # Also rename in DB
+            db_path = self.dashboard.db_path
+            if os.path.exists(db_path):
+                import sqlite3
+                conn = sqlite3.connect(db_path)
+                # Update job_order
+                conn.execute("UPDATE job_order SET job_name=?, stage=? WHERE stage=? AND subnode='_sentinel'",
+                             (new_name, new_name, old_name))
+                conn.execute("UPDATE job_order SET stage=? WHERE stage=?", (new_name, old_name))
+                conn.execute("UPDATE job_order SET job_name=REPLACE(job_name, ?, ?) WHERE job_name LIKE ?",
+                             (old_name, new_name, f'{old_name}_%'))
+                # Update jobs table
+                conn.execute("UPDATE jobs SET stage=? WHERE stage=?", (new_name, old_name))
+                conn.execute("UPDATE jobs SET job_name=? WHERE job_name=?", (new_name, old_name))
+                conn.execute("UPDATE jobs SET job_name=REPLACE(job_name, ?, ?) WHERE job_name LIKE ?",
+                             (old_name, new_name, f'{old_name}_%'))
+                conn.commit()
+                conn.close()
+        except Exception as e:
+            return {'error': f'Rename failed: {e}'}
+
+        self._seed_new_nodes_only()
+        return {'ok': True, 'message': f'Renamed: {old_name} → {new_name}'}
+
     def _action_create_branch(self, body):
         """Create flow branch."""
         name = body.get('name', '')
@@ -1115,7 +1194,8 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         try:
             from node_manager import NodeManager
             mgr = NodeManager(self.dashboard.run_dir, self.dashboard.flow_type)
-            mgr.create_branch(name, from_stage)
+            tag = body.get('tag', '')
+            mgr.create_branch(name, from_stage, tag=tag)
         except Exception as e:
             return {'error': f'Create branch failed: {e}'}
 

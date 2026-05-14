@@ -293,6 +293,7 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
       <form onsubmit="submitBranch(event)">
         <div class="fm-group"><label>Branch Name</label><input type="text" id="br-name" placeholder="e.g., eco_fix" required></div>
         <div class="fm-group"><label>Branch From</label><select id="br-from"></select></div>
+        <div class="fm-group"><label>Tag (optional)</label><input type="text" id="br-tag" placeholder="e.g., timing_fix — appended to all node names"></div>
         <div class="fm-actions"><button type="button" class="fm-btn" onclick="closeModal('branch-modal')">Cancel</button><button type="submit" class="fm-btn fm-btn-primary">Create</button></div>
       </form>
     </div>
@@ -699,7 +700,7 @@ function svgNode(id, displayName, label2, x, y, w, h, status, rx) {
 }
 
 // Stage node with proportional color fill based on subnode status distribution
-function svgStageNode(id, displayName, label2, x, y, w, h, stageInfo, branchBorderColor) {
+function svgStageNode(id, displayName, label2, x, y, w, h, stageInfo, branchBorderColor, branchLabel) {
   var total = stageInfo.jobs_total || 0;
   var r = 4;
   var borderColor = branchBorderColor || sColor(stageInfo.status);
@@ -758,8 +759,16 @@ function svgStageNode(id, displayName, label2, x, y, w, h, stageInfo, branchBord
   else if ((stageInfo.jobs_running || 0) > 0) tc = sTextColor('RUNNING');
   else tc = sTextColor(stageInfo.status);
 
-  svg += '<text x="'+(x+w/2)+'" y="'+(y+h*0.4)+'" font-size="13" font-weight="700" fill="'+tc+'" text-anchor="middle" dominant-baseline="middle">'+displayName+'</text>';
-  svg += '<text x="'+(x+w/2)+'" y="'+(y+h*0.75)+'" font-size="10" fill="'+tc+'" text-anchor="middle" dominant-baseline="middle" opacity="0.85">'+label2+'</text>';
+  if (branchLabel) {
+    // 3-line layout: name, branch tag, status
+    svg += '<text x="'+(x+w/2)+'" y="'+(y+h*0.28)+'" font-size="13" font-weight="700" fill="'+tc+'" text-anchor="middle" dominant-baseline="middle">'+displayName+'</text>';
+    svg += '<text x="'+(x+w/2)+'" y="'+(y+h*0.52)+'" font-size="9" fill="'+(branchBorderColor||'#666')+'" text-anchor="middle" dominant-baseline="middle" font-style="italic">'+branchLabel+'</text>';
+    svg += '<text x="'+(x+w/2)+'" y="'+(y+h*0.78)+'" font-size="10" fill="'+tc+'" text-anchor="middle" dominant-baseline="middle" opacity="0.85">'+label2+'</text>';
+  } else {
+    // 2-line layout: name, status
+    svg += '<text x="'+(x+w/2)+'" y="'+(y+h*0.4)+'" font-size="13" font-weight="700" fill="'+tc+'" text-anchor="middle" dominant-baseline="middle">'+displayName+'</text>';
+    svg += '<text x="'+(x+w/2)+'" y="'+(y+h*0.75)+'" font-size="10" fill="'+tc+'" text-anchor="middle" dominant-baseline="middle" opacity="0.85">'+label2+'</text>';
+  }
   svg += '</g>';
   return svg;
 }
@@ -1064,6 +1073,16 @@ function renderDAG() {
           svgContent += svgEdgeLine('edge-' + edgeIdx, x1, y1, x2, y2, false, edgeColor);
         } else {
           svgContent += svgEdgePath('edge-' + edgeIdx, x1, y1, x2, y2, edgeColor);
+          // Add branch name label on fork edge (base → branch)
+          var eBi = (dagData.branch_info || {})[e.to];
+          if (eBi && baseSet.has(e.from) && !baseSet.has(e.to)) {
+            var elbl = eBi.branch_tag || eBi.branch_name || '';
+            if (elbl) {
+              var midY = (y1 + y2) / 2;
+              var midX = (x1 + x2) / 2;
+              svgContent += '<text x="'+midX+'" y="'+(midY-6)+'" font-size="9" fill="'+edgeColor+'" text-anchor="middle" font-style="italic" opacity="0.9">'+elbl+'</text>';
+            }
+          }
         }
         edgeIdx++;
       }
@@ -1097,7 +1116,13 @@ function renderDAG() {
         if (!baseSet.has(name) && nc[name]) {
           nodeBorderColor = branchColorMap[nc[name]] || null;
         }
-        svgContent += svgStageNode(name, displayName, lbl, p.x, p.y, p.w, p.h, s, nodeBorderColor);
+        // Branch label from API
+        var brLabel = '';
+        var bi = dagData.branch_info || {};
+        if (bi[name]) {
+          brLabel = bi[name].branch_tag || bi[name].branch_name || '';
+        }
+        svgContent += svgStageNode(name, displayName, lbl, p.x, p.y, p.w, p.h, s, nodeBorderColor, brLabel);
       }
     });
 
@@ -1842,6 +1867,10 @@ function showCtxMenu(name, event) {
     menuHtml += '<a onclick="ctxAction(\'edit\')">&#9998; Edit Config (LSF/Version)</a>';
     menuHtml += '<a onclick="ctxAction(\'duplicate\')">&#10064; Duplicate Node</a>';
     menuHtml += '<a onclick="ctxAction(\'branch\')">&#9095; Create Branch From Here</a>';
+    var baseSet = dagData ? new Set(dagData.base_stages) : new Set();
+    if (!baseSet.has(name)) {
+      menuHtml += '<a onclick="ctxAction(\'rename\')">&#9998; Rename Node</a>';
+    }
     // Only show View Subnodes and Interactive for tool nodes (not leaf input nodes)
     var stageInfo = stagesData.find(function(s){return s.name === name;});
     var isToolNode = stageInfo && stageInfo.jobs_total > 0;
@@ -1895,10 +1924,17 @@ function ctxAction(action) {
   else if (action === 'edit') openEditForm(stage);
   else if (action === 'mmmc') openMMMCModal(stage);
   else if (action === 'branch') {
-    // Auto-generate branch name: <node>_branch1, _branch2, etc.
-    var existingBranches = stagesData.filter(function(s){ return s.name.indexOf(stage.replace(/\d+$/,'')) !== -1; }).length;
-    var branchName = stage + '_branch' + existingBranches;
-    apiAction('create-branch', {name: branchName, from_stage: stage});
+    // Open branch modal with from_stage pre-filled
+    document.getElementById('br-from').value = stage;
+    document.getElementById('br-name').value = stage + '_branch';
+    document.getElementById('br-tag').value = '';
+    openModal('branch-modal');
+  }
+  else if (action === 'rename') {
+    var newName = prompt('Rename "' + stage + '" to:', stage);
+    if (newName && newName !== stage) {
+      apiAction('rename-node', {old_name: stage, new_name: newName});
+    }
   }
   else if (action === 'duplicate') {
     // Get the node type (strip numeric suffix) and its dependency
@@ -1943,7 +1979,7 @@ function apiAction(action, body) {
   }).then(function(r){return r.json();}).then(function(data) {
     showToast(data.message || data.error, data.error ? 'error' : 'success');
     // Only rebuild on structural changes (add/delete node, branch)
-    if (['add-node','delete-node','create-branch'].indexOf(action) !== -1) {
+    if (['add-node','delete-node','create-branch','rename-node'].indexOf(action) !== -1) {
       nodePositions = {};
       treeBuilt = false;
       dagBuilt = false;
@@ -2074,7 +2110,8 @@ function submitBranch(e) {
   closeModal('branch-modal');
   apiAction('create-branch', {
     name: document.getElementById('br-name').value,
-    from_stage: document.getElementById('br-from').value
+    from_stage: document.getElementById('br-from').value,
+    tag: (document.getElementById('br-tag').value || '').replace(/\s+/g, '_')
   });
 }
 
