@@ -341,6 +341,24 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
         <tr><td style="color:var(--text-dim);padding:3px 0">Module</td><td style="font-weight:600;font-size:10px;word-break:break-all" id="lp-module">-</td></tr>
       </table>
     </div>
+    <!-- Node Info (shown when any node is selected) -->
+    <div id="lp-node-info" style="display:none;border-top:1px solid var(--border);padding:10px 12px">
+      <div style="font-size:11px;font-weight:700;color:var(--text-dim);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Selected Node</div>
+      <table style="width:100%;font-size:12px;border-collapse:collapse">
+        <tr><td style="color:var(--text-dim);padding:3px 0;width:60px">Name</td>
+            <td><input id="ni-name" type="text" style="width:100%;padding:3px 4px;border:1px solid var(--border);border-radius:3px;font-size:12px;font-weight:600;background:var(--surface)" readonly></td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Type</td><td style="font-weight:600" id="ni-type">-</td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Status</td><td style="font-weight:600" id="ni-status">-</td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Branch</td><td style="font-weight:600" id="ni-branch">-</td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Tag</td><td style="font-weight:600" id="ni-tag">-</td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Depends</td><td style="font-size:11px" id="ni-deps">-</td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Jobs</td><td id="ni-jobs">-</td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Runtime</td><td id="ni-runtime">-</td></tr>
+      </table>
+      <div id="ni-rename-btn" style="display:none;margin-top:8px">
+        <button onclick="doNodeRename()" style="width:100%;padding:5px;border:1px solid var(--border);border-radius:4px;background:var(--surface);cursor:pointer;font-size:11px">Rename</button>
+      </div>
+    </div>
     <!-- Input Variables (shown when leaf input node selected) -->
     <div id="lp-input-vars" style="display:none;padding:10px 12px;border-top:1px solid var(--border);flex:1;overflow-y:auto">
     </div>
@@ -678,6 +696,57 @@ function selectNode(name) {
   if (dagEl) dagEl.classList.add('selected');
 
   showDetail(name);
+  updateNodeInfoPanel(name);
+}
+
+function updateNodeInfoPanel(name) {
+  var panel = document.getElementById('lp-node-info');
+  if (!name) { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+
+  var s = stagesData.find(function(x){return x.name === name;}) || {};
+  var bi = (dagData && dagData.branch_info) ? dagData.branch_info[name] : null;
+  var baseSet = dagData ? new Set(dagData.base_stages) : new Set();
+  var isCustom = !baseSet.has(name);
+
+  // Name (editable for custom nodes)
+  var niName = document.getElementById('ni-name');
+  niName.value = name;
+  niName.readOnly = !isCustom;
+  niName.style.background = isCustom ? '#fff' : 'var(--surface2)';
+
+  // Type
+  var nodeType = name.replace(/\d+(_.*)?$/, '');
+  document.getElementById('ni-type').textContent = nodeType + (isCustom ? ' (custom)' : ' (base)');
+
+  // Status
+  var statusEl = document.getElementById('ni-status');
+  statusEl.textContent = s.status || 'READY';
+  statusEl.style.color = sColor(s.status || 'READY');
+
+  // Branch info
+  document.getElementById('ni-branch').textContent = bi ? (bi.branch_name || '-') : (isCustom ? '(no branch)' : '-');
+  document.getElementById('ni-tag').textContent = bi ? (bi.branch_tag || '-') : '-';
+
+  // Dependencies
+  var deps = [];
+  var edges = (dagData && dagData.edges) || [];
+  edges.forEach(function(e) { if (e.to === name) deps.push(e.from); });
+  document.getElementById('ni-deps').textContent = deps.join(', ') || '-';
+
+  // Jobs & runtime
+  document.getElementById('ni-jobs').textContent = s.jobs_total ? (s.jobs_done||0) + '/' + s.jobs_total + ' done' : 'leaf node';
+  document.getElementById('ni-runtime').textContent = formatTime(s.runtime || 0);
+
+  // Show rename button only for custom nodes
+  document.getElementById('ni-rename-btn').style.display = isCustom ? 'block' : 'none';
+}
+
+function doNodeRename() {
+  var niName = document.getElementById('ni-name');
+  var newName = niName.value.trim();
+  if (!newName || newName === selectedNode) return;
+  apiAction('rename-node', {old_name: selectedNode, new_name: newName});
 }
 
 // ═══════════════════════════════════════════════════════════════════
