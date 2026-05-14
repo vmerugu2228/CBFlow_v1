@@ -902,22 +902,39 @@ function computeSugiyamaLayout(stageNames, edges, baseStagesSet) {
     });
   }
 
+  // Use branch_key from backend to group nodes into stable columns.
+  // Nodes with the same branch_key stay in the same column — no shifting
+  // when new branches are added from existing branch nodes.
+  var branchInfo = (typeof dagData !== 'undefined' && dagData) ? (dagData.branch_info || {}) : {};
+
   function getColumnRoot(name) {
     if (nodeColumn[name] !== undefined) return nodeColumn[name];
+
+    // If node has a branch_key, use that as the column root
+    // (all nodes in same branch share one column)
+    var bi = branchInfo[name];
+    if (bi && bi.branch_key) {
+      // Find the first node in this branch to use as column root
+      var bkey = bi.branch_key;
+      // Check if another node in this branch already set a column root
+      for (var existing in nodeColumn) {
+        var ebi = branchInfo[existing];
+        if (ebi && ebi.branch_key === bkey) {
+          nodeColumn[name] = nodeColumn[existing];
+          return nodeColumn[name];
+        }
+      }
+      // First node in this branch — becomes the column root
+      nodeColumn[name] = name;
+      return name;
+    }
+
+    // Fallback for custom nodes without branch_key
     var par = parents[name] && parents[name].length > 0 ? parents[name][0] : '';
     if (!par || baseStagesSet.has(par)) {
-      // Parent is a base stage or no parent — new column
       nodeColumn[name] = name;
       return name;
     }
-    // Parent is custom — check if parent is a fork point (has multiple children)
-    var parChildren = (children[par] || []).filter(function(c) { return !baseStagesSet.has(c); });
-    if (parChildren.length > 1) {
-      // Fork point — each child gets its own column
-      nodeColumn[name] = name;
-      return name;
-    }
-    // Single chain — inherit parent's column
     var root = getColumnRoot(par);
     nodeColumn[name] = root;
     return root;
