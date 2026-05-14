@@ -1924,11 +1924,13 @@ function ctxAction(action) {
   else if (action === 'edit') openEditForm(stage);
   else if (action === 'mmmc') openMMMCModal(stage);
   else if (action === 'branch') {
-    // Open branch modal with from_stage pre-filled
-    document.getElementById('br-from').value = stage;
-    document.getElementById('br-name').value = stage + '_branch';
-    document.getElementById('br-tag').value = '';
-    openModal('branch-modal');
+    var brName = prompt('Branch name (from ' + stage + '):', stage + '_branch');
+    if (!brName) return;
+    var brTag = prompt('Tag for node names (optional — e.g., timing_fix):', '');
+    apiAction('create-branch', {
+      name: brName, from_stage: stage,
+      tag: (brTag || '').replace(/\s+/g, '_')
+    });
   }
   else if (action === 'rename') {
     var newName = prompt('Rename "' + stage + '" to:', stage);
