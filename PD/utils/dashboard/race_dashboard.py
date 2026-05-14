@@ -911,6 +911,8 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 result = self._action_add_node(body)
             elif path == '/api/action/delete-node':
                 result = self._action_delete_node(body)
+            elif path == '/api/action/delete-branch':
+                result = self._action_delete_branch(body)
             elif path == '/api/action/rename-node':
                 result = self._action_rename_node(body)
             elif path == '/api/action/create-branch':
@@ -1148,6 +1150,32 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
         self._seed_new_nodes_only()
         return {'ok': True, 'message': f'Deleted node: {name}'}
+
+    def _action_delete_branch(self, body):
+        """Delete an entire branch by key. Blocks if external nodes depend on it."""
+        branch_key = body.get('branch_key', '')
+        if not branch_key:
+            return {'error': 'branch_key required'}
+        try:
+            from node_manager import NodeManager
+            mgr = NodeManager(self.dashboard.run_dir, self.dashboard.flow_type)
+            if not mgr.delete_branch_by_key(branch_key):
+                # Get the error reason
+                branch_nodes = set(n for n, info in mgr.custom_nodes.items()
+                                   if info.get('branch_key') == branch_key)
+                ext_deps = []
+                for node in branch_nodes:
+                    for name, info in mgr.custom_nodes.items():
+                        if name not in branch_nodes and info.get('dependencies') == node:
+                            ext_deps.append(f'{name} depends on {node}')
+                if ext_deps:
+                    return {'error': 'Cannot delete — external dependencies: ' + '; '.join(ext_deps)}
+                return {'error': 'Delete branch failed'}
+        except Exception as e:
+            return {'error': f'Delete branch failed: {e}'}
+
+        self._seed_new_nodes_only()
+        return {'ok': True, 'message': f'Branch deleted'}
 
     def _action_rename_node(self, body):
         """Rename a custom node."""

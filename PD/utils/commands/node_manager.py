@@ -264,12 +264,14 @@ class NodeManager:
             logger.error(f"  Custom nodes: {', '.join(self.custom_nodes.keys()) or 'none'}")
             return False
 
-        # Check for downstream dependents
+        # Block if other nodes depend on this one (would become orphaned)
         dependents = self._find_dependents(name)
         if dependents:
-            logger.warning(f"  Warning: These nodes depend on '{name}' and will be orphaned:")
+            logger.error(f"  Error: Cannot delete '{name}' — these nodes depend on it:")
             for d in dependents:
-                logger.warning(f"    - {d}")
+                logger.error(f"    - {d}")
+            logger.error(f"  Delete the dependent nodes first, or delete the entire branch.")
+            return False
 
         del self.custom_nodes[name]
 
@@ -500,21 +502,53 @@ class NodeManager:
                     logger.error(f"    - {info.get('name', bkey)}")
             return False
 
-        # Find and delete all nodes in this branch
-        nodes_to_delete = [
-            n for n, info in self.custom_nodes.items()
-            if info.get('branch_key') == target_key
-        ]
+        return self.delete_branch_by_key(target_key)
 
-        for node in nodes_to_delete:
+    def delete_branch_by_key(self, branch_key: str) -> bool:
+        """Delete a branch by key. Blocks if external nodes depend on branch nodes."""
+        if branch_key not in self.branches:
+            logger.error(f"  Error: Branch key '{branch_key}' not found")
+            return False
+
+        branch_name = self.branches[branch_key].get('name', branch_key)
+
+        # Find all nodes in this branch
+        branch_nodes = set(
+            n for n, info in self.custom_nodes.items()
+            if info.get('branch_key') == branch_key
+        )
+
+        if not branch_nodes:
+            del self.branches[branch_key]
+            self._save_runtime_config()
+            logger.info(f"  [DONE] Branch '{branch_name}' deleted (no nodes)")
+            return True
+
+        # Check for external dependents — nodes OUTSIDE this branch that depend on nodes IN this branch
+        external_dependents = {}
+        for node in branch_nodes:
+            for name, info in self.custom_nodes.items():
+                if name not in branch_nodes and info.get('dependencies') == node:
+                    external_dependents.setdefault(node, []).append(name)
+
+        if external_dependents:
+            logger.error(f"  Error: Cannot delete branch '{branch_name}' — external nodes depend on it:")
+            for node, deps in external_dependents.items():
+                for d in deps:
+                    logger.error(f"    {d} depends on {node}")
+            logger.error(f"  Delete the dependent nodes/branches first.")
+            return False
+
+        # Safe to delete — remove all branch nodes
+        for node in branch_nodes:
             del self.custom_nodes[node]
 
-        del self.branches[target_key]
+        del self.branches[branch_key]
 
         self._save_runtime_config()
         self._regenerate_makefile()
 
-        logger.info(f"  [DONE] Branch '{branch_name}' deleted ({len(nodes_to_delete)} nodes removed)")
+        logger.info(f"  [DONE] Branch '{branch_name}' deleted ({len(branch_nodes)} nodes removed)")
         return True
 
     def list_branches(self) -> list:

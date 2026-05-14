@@ -2280,24 +2280,19 @@ function doDeleteBranch() {
   var b = window._deleteBranchMap[key];
   if (!b) return;
   closeModal('edit-modal');
-  // Delete each node in the branch
-  var nodes = b.nodes.slice();
-  var deleted = 0;
-  function deleteNext() {
-    if (nodes.length === 0) {
-      clearBranchHighlight();
-      showToast('Deleted branch: ' + b.name + ' (' + deleted + ' nodes)', 'success');
+  clearBranchHighlight();
+  fetch('/api/action/delete-branch', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({branch_key: key})
+  }).then(function(r){return r.json();}).then(function(d) {
+    if (d.ok) {
+      showToast('Deleted branch: ' + b.name + ' (' + b.nodes.length + ' nodes)', 'success');
       nodePositions = {}; treeBuilt = false; dagBuilt = false;
       refresh();
-      return;
+    } else {
+      showToast(d.error || 'Delete failed', 'error');
     }
-    var n = nodes.pop();
-    fetch('/api/action/delete-node', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:n})})
-      .then(function(r){return r.json();})
-      .then(function(d){ if(d.ok) deleted++; deleteNext(); })
-      .catch(function(){ deleteNext(); });
-  }
-  deleteNext();
+  }).catch(function(e) { showToast('Error: ' + e, 'error'); });
 }
 
 function submitBranch(e) {
