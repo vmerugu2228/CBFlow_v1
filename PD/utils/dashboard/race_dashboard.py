@@ -1144,7 +1144,14 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         try:
             from node_manager import NodeManager
             mgr = NodeManager(self.dashboard.run_dir, self.dashboard.flow_type)
-            mgr.delete_node(name)
+
+            # Check for dependents BEFORE attempting delete
+            dependents = mgr._find_dependents(name)
+            if dependents:
+                return {'error': f'Cannot delete "{name}" — these nodes depend on it: {", ".join(dependents)}. Delete them first.'}
+
+            if not mgr.delete_node(name):
+                return {'error': f'Cannot delete "{name}" — it may be a base stage or not found.'}
         except Exception as e:
             return {'error': f'Delete node failed: {e}'}
 
@@ -1159,23 +1166,29 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         try:
             from node_manager import NodeManager
             mgr = NodeManager(self.dashboard.run_dir, self.dashboard.flow_type)
+
+            branch_name = mgr.branches.get(branch_key, {}).get('name', branch_key)
+
+            # Check for external dependents BEFORE attempting delete
+            branch_nodes = set(n for n, info in mgr.custom_nodes.items()
+                               if info.get('branch_key') == branch_key)
+            ext_deps = []
+            for node in branch_nodes:
+                for name, info in mgr.custom_nodes.items():
+                    if name not in branch_nodes and info.get('dependencies') == node:
+                        ext_deps.append(f'"{name}" depends on "{node}"')
+
+            if ext_deps:
+                return {'error': f'Cannot delete branch "{branch_name}" — other nodes depend on it:\n' + '\n'.join(ext_deps) + '\n\nDelete the dependent nodes or branches first.'}
+
             if not mgr.delete_branch_by_key(branch_key):
-                # Get the error reason
-                branch_nodes = set(n for n, info in mgr.custom_nodes.items()
-                                   if info.get('branch_key') == branch_key)
-                ext_deps = []
-                for node in branch_nodes:
-                    for name, info in mgr.custom_nodes.items():
-                        if name not in branch_nodes and info.get('dependencies') == node:
-                            ext_deps.append(f'{name} depends on {node}')
-                if ext_deps:
-                    return {'error': 'Cannot delete — external dependencies: ' + '; '.join(ext_deps)}
-                return {'error': 'Delete branch failed'}
+                return {'error': f'Cannot delete branch "{branch_name}" — branch not found or already deleted.'}
+
         except Exception as e:
             return {'error': f'Delete branch failed: {e}'}
 
         self._seed_new_nodes_only()
-        return {'ok': True, 'message': f'Branch deleted'}
+        return {'ok': True, 'message': f'Branch "{branch_name}" deleted'}
 
     def _action_rename_node(self, body):
         """Rename a custom node."""
