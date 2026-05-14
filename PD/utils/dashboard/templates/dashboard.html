@@ -1924,13 +1924,18 @@ function ctxAction(action) {
   else if (action === 'edit') openEditForm(stage);
   else if (action === 'mmmc') openMMMCModal(stage);
   else if (action === 'branch') {
-    var brName = prompt('Branch name (from ' + stage + '):', stage + '_branch');
-    if (!brName) return;
-    var brTag = prompt('Tag for node names (optional — e.g., timing_fix):', '');
-    apiAction('create-branch', {
-      name: brName, from_stage: stage,
-      tag: (brTag || '').replace(/\s+/g, '_')
-    });
+    // Quick inline form via modal — branch name + tag in one step
+    var html = '<div style="padding:8px">' +
+      '<p style="margin:0 0 12px;color:#555">Branch from <b>' + stage + '</b></p>' +
+      '<label style="font-size:12px;font-weight:600">Branch Name</label>' +
+      '<input id="qbr-name" type="text" value="' + stage + '_branch" style="width:100%;padding:6px;margin:4px 0 10px;border:1px solid #ccc;border-radius:4px">' +
+      '<label style="font-size:12px;font-weight:600">Node Tag <span style="color:#999;font-weight:400">(optional — appended to all node names)</span></label>' +
+      '<input id="qbr-tag" type="text" placeholder="e.g. timing_fix" style="width:100%;padding:6px;margin:4px 0 12px;border:1px solid #ccc;border-radius:4px">' +
+      '<div style="text-align:right"><button onclick="closeModal(\'edit-modal\')" style="padding:6px 14px;margin-right:8px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer">Cancel</button>' +
+      '<button onclick="var n=document.getElementById(\'qbr-name\').value,t=document.getElementById(\'qbr-tag\').value;closeModal(\'edit-modal\');if(n)apiAction(\'create-branch\',{name:n,from_stage:\'' + stage + '\',tag:(t||\'\').replace(/\\s+/g,\'_\')})" style="padding:6px 14px;border:none;border-radius:4px;background:#1976d2;color:#fff;cursor:pointer">Create</button></div></div>';
+    document.getElementById('edit-title').textContent = 'Create Branch';
+    document.querySelector('#edit-modal .modal-bd').innerHTML = html;
+    openModal('edit-modal');
   }
   else if (action === 'rename') {
     var newName = prompt('Rename "' + stage + '" to:', stage);
