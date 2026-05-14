@@ -1090,9 +1090,12 @@ function renderDAG() {
           svgContent += svgEdgeLine('edge-' + edgeIdx, x1, y1, x2, y2, false, edgeColor);
         } else {
           svgContent += svgEdgePath('edge-' + edgeIdx, x1, y1, x2, y2, edgeColor);
-          // Add branch name label on fork edge (base → branch)
+          // Add branch name label on fork edge (where branch starts)
           var eBi = (dagData.branch_info || {})[e.to];
-          if (eBi && baseSet.has(e.from) && !baseSet.has(e.to)) {
+          var eFromBi = (dagData.branch_info || {})[e.from];
+          var fromBranch = eFromBi ? eFromBi.branch_key : '';
+          var toBranch = eBi ? eBi.branch_key : '';
+          if (eBi && toBranch && toBranch !== fromBranch) {
             var elbl = eBi.branch_tag || eBi.branch_name || '';
             if (elbl) {
               var midY = (y1 + y2) / 2;
