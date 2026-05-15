@@ -23,6 +23,11 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::
 # Source user_config for overrides
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 global synth_pnr project tech flow
+# Source FC tool config
+set _fc_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_fc_config]} { source $_fc_config }
+if {[file exists "$run_dir/setup/override_config.tcl"]} { source -e "$run_dir/setup/override_config.tcl" }
+
 handle_info "Starting SYNTH_PNR export_data (FC-RM Y-2026.03: write_data)..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -41,8 +46,8 @@ flow_proc load_design {
     handle_info "Loading design for write_data..."
     global synth_pnr flow
 
-    set design_name [expr {[info exists synth_pnr(design_name)] ? $synth_pnr(design_name) : $flow(design_name)}]
-    set lib_name [expr {[info exists synth_pnr(design_lib_name)] ? $synth_pnr(design_lib_name) : "${design_name}.nlib"}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
+    set lib_name [expr {[info exists fc(common,design_lib_name)] ? $fc(common,design_lib_name) : "${design_name}.nlib"}]
 
     open_lib $lib_name
     copy_block -from ${design_name}/chip_finish -to ${design_name}/write_data
@@ -50,13 +55,13 @@ flow_proc load_design {
     link_block
 
     # FC-RM: Non-persistent settings
-    if {[info exists synth_pnr(non_persistent_script)] && [file exists $synth_pnr(non_persistent_script)]} {
-        source -e $synth_pnr(non_persistent_script)
+    if {[info exists fc(common,non_persistent_script)] && [file exists $fc(common,non_persistent_script)]} {
+        source -e $fc(common,non_persistent_script)
     }
 
     # FC-RM: User pre-write_data script
-    if {[info exists synth_pnr(write_data_pre_script)] && [file exists $synth_pnr(write_data_pre_script)]} {
-        source -e $synth_pnr(write_data_pre_script)
+    if {[info exists fc(export_data,pre_script)] && [file exists $fc(export_data,pre_script)]} {
+        source -e $fc(export_data,pre_script)
     }
 
     handle_info "Design loaded: ${design_name}/write_data"
@@ -70,11 +75,11 @@ flow_proc change_names {
     handle_info "Applying verilog naming rules..."
     global synth_pnr flow
 
-    set design_name [expr {[info exists synth_pnr(design_name)] ? $synth_pnr(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
     # FC-RM: Define name rules
-    if {[info exists synth_pnr(output,name_rules_options)] && $synth_pnr(output,name_rules_options) ne ""} {
-        eval define_name_rules verilog $synth_pnr(output,name_rules_options)
+    if {[info exists fc(export_data,name_rules)] && $fc(export_data,name_rules) ne ""} {
+        eval define_name_rules verilog $fc(export_data,name_rules)
     }
 
     redirect -file $::REPORTS_DIR/report_name_rules.log { report_name_rules }
@@ -95,7 +100,7 @@ flow_proc write_netlist {
     handle_info "Writing netlists..."
     global synth_pnr flow
 
-    set design_name [expr {[info exists synth_pnr(design_name)] ? $synth_pnr(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
     set out $::OUTPUTS_DIR
 
     # FC-RM: Logic-only netlist (no pg, no physical-only cells)
@@ -141,10 +146,10 @@ flow_proc write_gds_output {
     handle_info "Writing GDS..."
     global synth_pnr tech flow
 
-    set design_name [expr {[info exists synth_pnr(design_name)] ? $synth_pnr(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
     set out $::OUTPUTS_DIR
 
-    if {[info exists synth_pnr(output,write_gds)] && $synth_pnr(output,write_gds)} {
+    if {[info exists fc(export_data,write_gds)] && $fc(export_data,write_gds)} {
         set cmd "write_gds -compress -hierarchy all -long_names -keep_data_type"
         if {[info exists tech(gds_layer_map_file)] && [file exists $tech(gds_layer_map_file)]} {
             lappend cmd -layer_map $tech(gds_layer_map_file)
@@ -155,7 +160,7 @@ flow_proc write_gds_output {
     }
 
     # FC-RM: write_oasis (optional)
-    if {[info exists synth_pnr(output,write_oasis)] && $synth_pnr(output,write_oasis)} {
+    if {[info exists fc(export_data,write_oasis)] && $fc(export_data,write_oasis)} {
         set cmd "write_oasis -compress 6 -hierarchy all -keep_data_type"
         if {[info exists tech(oasis_layer_map_file)] && [file exists $tech(oasis_layer_map_file)]} {
             lappend cmd -layer_map $tech(oasis_layer_map_file)
@@ -180,13 +185,13 @@ flow_proc write_def_output {
     handle_info "Writing DEF and floorplan..."
     global synth_pnr flow tech
 
-    set design_name [expr {[info exists synth_pnr(design_name)] ? $synth_pnr(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
     set out $::OUTPUTS_DIR
 
     # FC-RM: write_def
     set def_cmd "write_def -compress gzip -version 5.8 -include_tech_via_definitions"
-    if {[info exists synth_pnr(output,def_convert_sites)] && $synth_pnr(output,def_convert_sites) ne ""} {
-        lappend def_cmd -convert_sites $synth_pnr(output,def_convert_sites)
+    if {[info exists fc(export_data,def_convert_sites)] && $fc(export_data,def_convert_sites) ne ""} {
+        lappend def_cmd -convert_sites $fc(export_data,def_convert_sites)
     }
     lappend def_cmd ${out}/${design_name}.def
     handle_info "Running: $def_cmd"
@@ -212,7 +217,7 @@ flow_proc write_parasitics_output {
     handle_info "Writing parasitics..."
     global synth_pnr flow
 
-    set design_name [expr {[info exists synth_pnr(design_name)] ? $synth_pnr(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
     set out $::OUTPUTS_DIR
 
     # FC-RM: update_timing before parasitic extraction
@@ -233,7 +238,7 @@ flow_proc write_sdc_output {
     handle_info "Writing SDC and routing constraints..."
     global synth_pnr flow
 
-    set design_name [expr {[info exists synth_pnr(design_name)] ? $synth_pnr(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
     set out $::OUTPUTS_DIR
 
     # FC-RM: write_script (FC format and PT format)
@@ -265,11 +270,11 @@ flow_proc write_upf_output {
     handle_info "Writing UPF..."
     global synth_pnr flow
 
-    set design_name [expr {[info exists synth_pnr(design_name)] ? $synth_pnr(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
     set out $::OUTPUTS_DIR
 
     set upf_mode "none"
-    if {[info exists synth_pnr(upf_mode)]} { set upf_mode $synth_pnr(upf_mode) }
+    if {[info exists fc(common,upf_mode)]} { set upf_mode $fc(common,upf_mode) }
 
     if {$upf_mode eq "prime"} {
         save_upf ${out}/${design_name}.upf
@@ -289,7 +294,7 @@ flow_proc write_upf_output {
     saif_map -write_map ${out}/${design_name}.saif.fc.map
 
     # FC-RM: FUSA SSF
-    if {[info exists synth_pnr(enable_fusa)] && $synth_pnr(enable_fusa)} {
+    if {[info exists fc(common,enable_fusa)] && $fc(common,enable_fusa)} {
         save_ssf ${out}/${design_name}.ssf
     }
 
@@ -304,17 +309,17 @@ flow_proc save_design {
     handle_info "Saving export_data design..."
     global synth_pnr flow
 
-    set design_name [expr {[info exists synth_pnr(design_name)] ? $synth_pnr(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
     save_block
-    if {[info exists synth_pnr(output,block_labeling)] && $synth_pnr(output,block_labeling)} {
+    if {[info exists fc(export_data,block_labeling)] && $fc(export_data,block_labeling)} {
         save_block -as ${design_name}/write_data
         handle_info "Block saved: ${design_name}/write_data"
     }
 
     # FC-RM: User post-write_data script
-    if {[info exists synth_pnr(write_data_post_script)] && [file exists $synth_pnr(write_data_post_script)]} {
-        source -e $synth_pnr(write_data_post_script)
+    if {[info exists fc(export_data,post_script)] && [file exists $fc(export_data,post_script)]} {
+        source -e $fc(export_data,post_script)
     }
 
     handle_info "Export data saved"

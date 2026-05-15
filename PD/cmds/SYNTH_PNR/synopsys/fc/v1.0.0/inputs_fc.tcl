@@ -23,6 +23,11 @@ global synth_pnr project tech flow
 # Source MMMC config
 set mmmc_config_file "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
 if {[file exists $mmmc_config_file]} { source $mmmc_config_file }
+# Source FC tool config
+set _fc_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_fc_config]} { source $_fc_config }
+if {[file exists "$run_dir/setup/override_config.tcl"]} { source -e "$run_dir/setup/override_config.tcl" }
+
 handle_info "Starting SYNTH_PNR inputs..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -53,7 +58,7 @@ flow_proc resolve_inputs {
     handle_info "Resolving input files..."
     global synth_pnr flow project flow_input_handshake
 
-    set design_name [expr {[info exists synth_pnr(design_name)] ? $synth_pnr(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
     if {![namespace exists ::CBFlow::InputResolve]} {
         handle_info "Release input resolution not available — using direct paths only"
@@ -116,19 +121,19 @@ flow_proc create_design_lib {
     global synth_pnr tech
 
     # Remove stale library if it exists
-    if {[info exists synth_pnr(design_lib_name)] && [file exists $synth_pnr(design_lib_name)]} {
-        file delete -force $synth_pnr(design_lib_name)
+    if {[info exists fc(common,design_lib_name)] && [file exists $fc(common,design_lib_name)]} {
+        file delete -force $fc(common,design_lib_name)
     }
 
     # Build create_lib command with technology and reference libraries
-    set create_lib_cmd "create_lib $synth_pnr(design_lib_name)"
+    set create_lib_cmd "create_lib $fc(common,design_lib_name)"
     if {[info exists tech(tech_file)] && [file exists [which $tech(tech_file)]]} {
         lappend create_lib_cmd -tech $tech(tech_file)
     } elseif {[info exists tech(tech_lib)] && $tech(tech_lib) ne ""} {
         lappend create_lib_cmd -use_technology_lib $tech(tech_lib)
     }
-    if {[info exists synth_pnr(input,design_lib_scale_factor)] && $synth_pnr(input,design_lib_scale_factor) ne ""} {
-        lappend create_lib_cmd -scale_factor $synth_pnr(input,design_lib_scale_factor)
+    if {[info exists fc(init_design,design_lib_scale_factor)] && $fc(init_design,design_lib_scale_factor) ne ""} {
+        lappend create_lib_cmd -scale_factor $fc(init_design,design_lib_scale_factor)
     }
 
     # Assemble reference library list
@@ -180,9 +185,9 @@ flow_proc read_rtl_inputs {
     }
 
     # Elaborate the top-level design
-    handle_info "Elaborating design: $synth_pnr(design_name)"
-    elaborate $synth_pnr(design_name)
-    current_block $synth_pnr(design_name)
+    handle_info "Elaborating design: $fc(common,design_name)"
+    elaborate $fc(common,design_name)
+    current_block $fc(common,design_name)
 
     # Link the block
     handle_info "Linking block..."
@@ -306,19 +311,19 @@ flow_proc set_qor_strategy_init {
     global synth_pnr
 
     set set_qor_strategy_cmd "set_qor_strategy -stage pnr"
-    if {[info exists synth_pnr(compile,qor_metric)] && $synth_pnr(compile,qor_metric) ne ""} {
-        lappend set_qor_strategy_cmd -metric $synth_pnr(compile,qor_metric)
+    if {[info exists fc(common,compile,qor_metric)] && $fc(common,compile,qor_metric) ne ""} {
+        lappend set_qor_strategy_cmd -metric $fc(common,compile,qor_metric)
     }
-    if {[info exists synth_pnr(compile,qor_mode)] && $synth_pnr(compile,qor_mode) ne ""} {
-        lappend set_qor_strategy_cmd -mode $synth_pnr(compile,qor_mode)
+    if {[info exists fc(common,compile,qor_mode)] && $fc(common,compile,qor_mode) ne ""} {
+        lappend set_qor_strategy_cmd -mode $fc(common,compile,qor_mode)
     }
 
     handle_info "Running: $set_qor_strategy_cmd"
     eval $set_qor_strategy_cmd
 
     # Set technology node if specified
-    if {[info exists synth_pnr(tech_node)] && $synth_pnr(tech_node) ne ""} {
-        set_technology -node $synth_pnr(tech_node)
+    if {[info exists fc(common,tech_node)] && $fc(common,tech_node) ne ""} {
+        set_technology -node $fc(common,tech_node)
         save_lib -all
     }
 
@@ -347,9 +352,9 @@ flow_proc save_design_block {
     handle_info "Saving design block..."
     global synth_pnr
 
-    if {[info exists synth_pnr(output,block_labeling)] && $synth_pnr(output,block_labeling)} {
-        save_block -as $synth_pnr(design_name)/inputs
-        handle_info "Block saved as $synth_pnr(design_name)/inputs"
+    if {[info exists fc(common,output,block_labeling)] && $fc(common,output,block_labeling)} {
+        save_block -as $fc(common,design_name)/inputs
+        handle_info "Block saved as $fc(common,design_name)/inputs"
     } else {
         save_block
         handle_info "Block saved"
