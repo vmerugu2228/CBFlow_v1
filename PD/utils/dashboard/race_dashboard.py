@@ -742,6 +742,96 @@ class RaceDashboard:
             'flow_type': self.flow_type,
         }
 
+    def get_node_full_config(self, stage: str) -> dict:
+        """Get ALL TCL config variables for a node type from node_config.tcl.
+        Returns base values + any overrides from override_config files."""
+        if not stage:
+            return {'error': 'stage required', 'variables': []}
+
+        stage_base = re.sub(r'\d+(_\w+)?$', '', stage)
+        flow_lower = self.flow_type.lower()
+        nc_path = self.node_config_path
+        variables = []  # [{key, value, source, category}]
+
+        # Parse ALL key-value pairs from node_config.tcl
+        if os.path.exists(nc_path):
+            with open(nc_path) as f:
+                content = f.read()
+            # Match: key value (inside array set blocks)
+            # e.g., "stages,place1,type place" or "runtime,timeout,place1 60"
+            for m in re.finditer(r'^\s+([\w,]+)\s+(?:\{([^}]*)\}|"([^"]*)"|([\w./\-]+))\s*$',
+                                 content, re.MULTILINE):
+                key = m.group(1)
+                value = m.group(2) or m.group(3) or m.group(4) or ''
+                # Categorize
+                if ',' in key:
+                    parts = key.split(',')
+                    category = parts[0]
+                else:
+                    category = 'general'
+                variables.append({
+                    'key': key,
+                    'value': value.strip(),
+                    'source': 'node_config',
+                    'category': category,
+                })
+
+        # Also parse flow_config.tcl for flow-level settings
+        ver = self._load_env().get('FLOW_CONFIG_VERSION', 'v1.0.0')
+        fc_path = os.path.join(self.flow_dir, 'config', 'flow', ver, 'flow_config.tcl')
+        if os.path.exists(fc_path):
+            with open(fc_path) as f:
+                for line in f:
+                    line = line.strip()
+                    m = re.match(r'set\s+(\w+\([^)]+\))\s+"([^"]*)"', line)
+                    if m:
+                        key = m.group(1)
+                        # Only include flow-level settings relevant to this stage
+                        if flow_lower in key or 'flow(' in key:
+                            variables.append({
+                                'key': key,
+                                'value': m.group(2),
+                                'source': 'flow_config',
+                                'category': 'flow',
+                            })
+
+        # Apply overrides from override_config files
+        overrides = {}
+        for pattern in [f'override_config.{stage_base}.tcl',
+                        f'override_config.{stage}.tcl']:
+            override_file = os.path.join(self.run_dir, 'setup', pattern)
+            if os.path.exists(override_file):
+                with open(override_file) as f:
+                    for line in f:
+                        line = line.strip()
+                        m = re.match(r'set\s+(\S+)\s+"([^"]*)"', line)
+                        if m:
+                            overrides[m.group(1)] = m.group(2)
+
+        # Mark overridden variables
+        for var in variables:
+            for okey, oval in overrides.items():
+                if var['key'] in okey or okey.endswith(var['key']):
+                    var['value'] = oval
+                    var['source'] = 'override'
+
+        # Add override-only variables (not in base config)
+        existing_keys = {v['key'] for v in variables}
+        for okey, oval in overrides.items():
+            if okey not in existing_keys:
+                variables.append({
+                    'key': okey, 'value': oval,
+                    'source': 'override', 'category': 'override',
+                })
+
+        return {
+            'stage': stage,
+            'stage_base': stage_base,
+            'flow_type': self.flow_type,
+            'variables': variables,
+            'override_file': f'setup/override_config.{stage_base}.tcl',
+        }
+
     def get_mmmc_scenarios(self) -> dict:
         """Read MMMC config — all scenarios, scenario sets, and per-node assignments."""
         ver = self._load_env().get('FLOW_CONFIG_VERSION', 'v1.0.0')
@@ -870,6 +960,9 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             self._json_response(self.dashboard.get_job(job_name))
         elif path == '/api/node-config':
             self._json_response(self.dashboard.get_node_config())
+        elif path.startswith('/api/node-full-config'):
+            stage = parse_qs(parsed.query).get('stage', [''])[0]
+            self._json_response(self.dashboard.get_node_full_config(stage))
         elif path == '/api/mmmc-scenarios':
             self._json_response(self.dashboard.get_mmmc_scenarios())
         elif path.startswith('/api/input-vars/'):
@@ -911,6 +1004,8 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 result = self._action_add_node(body)
             elif path == '/api/action/delete-node':
                 result = self._action_delete_node(body)
+            elif path == '/api/action/save-node-config':
+                result = self._action_save_node_full_config(body)
             elif path == '/api/action/delete-branch':
                 result = self._action_delete_branch(body)
             elif path == '/api/action/rename-node':
@@ -1157,6 +1252,36 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             return {'ok': True, 'message': f'Deleted node: {name}'}
         except Exception as e:
             return {'error': f'Delete node failed: {e}'}
+
+    def _action_save_node_full_config(self, body):
+        """Save edited config variables to override_config.<node>.tcl"""
+        stage = body.get('stage', '')
+        variables = body.get('variables', {})  # {key: value}
+        if not stage or not variables:
+            return {'error': 'stage and variables required'}
+
+        stage_base = re.sub(r'\d+(_\\w+)?$', '', stage)
+        override_file = os.path.join(self.dashboard.run_dir, 'setup',
+                                      f'override_config.{stage_base}.tcl')
+        flow_lower = self.dashboard.flow_type.lower()
+
+        # Build override lines
+        lines = [f'# Override config for {stage} ({self.dashboard.flow_type})']
+        lines.append(f'# Generated by CBflow Dashboard')
+        lines.append('')
+        for key, value in sorted(variables.items()):
+            # Format as TCL set command
+            if '(' in key:
+                lines.append(f'set {key} "{value}"')
+            else:
+                lines.append(f'set {flow_lower}({key}) "{value}"')
+        lines.append('')
+
+        os.makedirs(os.path.dirname(override_file), exist_ok=True)
+        with open(override_file, 'w') as f:
+            f.write('\n'.join(lines))
+
+        return {'ok': True, 'message': f'Config saved: {len(variables)} variables to {os.path.basename(override_file)}'}
 
     def _action_delete_branch(self, body):
         """Delete an entire branch by key. Blocks if external nodes depend on it."""
