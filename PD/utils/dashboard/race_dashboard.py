@@ -1148,15 +1148,15 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             # Check for dependents BEFORE attempting delete
             dependents = mgr._find_dependents(name)
             if dependents:
-                return {'error': f'Cannot delete "{name}" — these nodes depend on it: {", ".join(dependents)}. Delete them first.'}
+                return {'error': 'Cannot delete "' + name + '" -- these nodes depend on it: ' + ', '.join(dependents) + '. Delete them first.'}
 
             if not mgr.delete_node(name):
-                return {'error': f'Cannot delete "{name}" — it may be a base stage or not found.'}
+                return {'error': 'Cannot delete "' + name + '" -- it may be a base stage or not found.'}
+
+            self._seed_new_nodes_only()
+            return {'ok': True, 'message': f'Deleted node: {name}'}
         except Exception as e:
             return {'error': f'Delete node failed: {e}'}
-
-        self._seed_new_nodes_only()
-        return {'ok': True, 'message': f'Deleted node: {name}'}
 
     def _action_delete_branch(self, body):
         """Delete an entire branch by key. Blocks if external nodes depend on it."""
@@ -1179,16 +1179,16 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                         ext_deps.append(f'"{name}" depends on "{node}"')
 
             if ext_deps:
-                return {'error': f'Cannot delete branch "{branch_name}" — other nodes depend on it:\n' + '\n'.join(ext_deps) + '\n\nDelete the dependent nodes or branches first.'}
+                return {'error': 'Cannot delete branch "' + branch_name + '" -- other nodes depend on it: ' + '; '.join(ext_deps) + '. Delete the dependent nodes or branches first.'}
 
             if not mgr.delete_branch_by_key(branch_key):
-                return {'error': f'Cannot delete branch "{branch_name}" — branch not found or already deleted.'}
+                return {'error': 'Cannot delete branch "' + branch_name + '" -- branch not found or already deleted.'}
+
+            self._seed_new_nodes_only()
+            return {'ok': True, 'message': f'Branch "{branch_name}" deleted'}
 
         except Exception as e:
             return {'error': f'Delete branch failed: {e}'}
-
-        self._seed_new_nodes_only()
-        return {'ok': True, 'message': f'Branch "{branch_name}" deleted'}
 
     def _action_rename_node(self, body):
         """Rename a custom node."""
