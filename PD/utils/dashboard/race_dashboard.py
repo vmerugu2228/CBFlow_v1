@@ -743,42 +743,92 @@ class RaceDashboard:
         }
 
     def get_node_full_config(self, stage: str) -> dict:
-        """Get TCL config variables for a specific node from node_config.tcl.
-        Only returns variables relevant to this node's type (not all nodes).
-        Returns base values + any overrides from override_config files."""
+        """Get ALL config variables for a node from all config sources.
+        Parses 6 config files, filters by node name/type, groups by category."""
         if not stage:
-            return {'error': 'stage required', 'variables': []}
+            return {'error': 'stage required', 'categories': {}}
 
         stage_base = re.sub(r'\d+(_\w+)?$', '', stage)
         flow_lower = self.flow_type.lower()
-        nc_path = self.node_config_path
-        variables = []  # [{key, value, source, category}]
+        flow_upper = self.flow_type.upper()
+        ver = self._load_env().get('FLOW_CONFIG_VERSION', 'v1.0.0')
+        config_dir = os.path.join(self.flow_dir, 'config', 'flow', ver)
+        categories = {}  # {category_name: [{key, value, source}]}
 
-        # Parse node_config.tcl — only variables containing this node's name or base type
-        # e.g., for route1: show "subnodes,route1", "dependencies,route1",
-        #        "runtime,timeout,route1", "node_types,route1", etc.
-        if os.path.exists(nc_path):
-            with open(nc_path) as f:
+        def _add(cat, key, value, source='config'):
+            categories.setdefault(cat, []).append({
+                'key': key, 'value': str(value).strip(), 'source': source})
+
+        def _parse_array_keys(filepath, match_fn):
+            """Parse TCL array set blocks, return matching key-value pairs."""
+            results = []
+            if not os.path.exists(filepath):
+                return results
+            with open(filepath) as f:
                 content = f.read()
             for m in re.finditer(r'^\s+([\w,]+)\s+(?:\{([^}]*)\}|"([^"]*)"|([\w./\-]+))\s*$',
                                  content, re.MULTILINE):
                 key = m.group(1)
                 value = m.group(2) or m.group(3) or m.group(4) or ''
-                # Only show variables that reference this specific node or its base type
-                if stage not in key and stage_base not in key:
-                    continue
-                if ',' in key:
-                    category = key.split(',')[0]
-                else:
-                    category = 'general'
-                variables.append({
-                    'key': key,
-                    'value': value.strip(),
-                    'source': 'node_config',
-                    'category': category,
-                })
+                if match_fn(key):
+                    results.append((key, value.strip()))
+            return results
 
-        # Apply overrides from override_config files
+        def _parse_set_stmts(filepath, match_fn):
+            """Parse TCL set statements, return matching key-value pairs."""
+            results = []
+            if not os.path.exists(filepath):
+                return results
+            with open(filepath) as f:
+                for line in f:
+                    line = line.strip()
+                    m = re.match(r'set\s+(\S+)\s+"([^"]*)"', line)
+                    if m and match_fn(m.group(1)):
+                        results.append((m.group(1), m.group(2)))
+            return results
+
+        # ── 1. Node Config (SYNTH_PNR_config.tcl) ──
+        nc_path = self.node_config_path
+        for key, val in _parse_array_keys(nc_path,
+                lambda k: stage in k or stage_base in k):
+            _add('Node Config', key, val)
+
+        # ── 2. LSF & Resources (lsf_config.tcl + tool_launch_config.tcl) ──
+        lsf_path = os.path.join(config_dir, 'lsf_config.tcl')
+        tlc_path = os.path.join(config_dir, 'tool_launch_config.tcl')
+        # Find queue tier for this node
+        queue_tier = 'M'
+        for key, val in _parse_array_keys(lsf_path,
+                lambda k: flow_lower in k.lower() and stage_base in k.lower()):
+            queue_tier = val
+            _add('LSF & Resources', f'queue_tier ({stage_base})', val)
+        for key, val in _parse_array_keys(tlc_path,
+                lambda k: flow_lower in k.lower() and stage_base in k.lower()):
+            if val != queue_tier:
+                queue_tier = val
+            _add('LSF & Resources', f'queue_mapping ({stage_base})', val)
+        # Get queue tier details
+        for key, val in _parse_array_keys(lsf_path,
+                lambda k: k.startswith(f'queue_types,{queue_tier},')):
+            prop = key.split(',')[-1]
+            _add('LSF & Resources', f'{queue_tier}.{prop}', val)
+
+        # ── 3. Tool Settings (flow_config.tcl) ──
+        fc_path = os.path.join(config_dir, 'flow_config.tcl')
+        for key, val in _parse_set_stmts(fc_path,
+                lambda k: 'flow(use_lsf)' in k or 'flow(use_xterm)' in k or
+                           'flow(tool_module' in k or 'flow(tool_name' in k or
+                           'flow(tool_vendor' in k):
+            _add('Tool Settings', key, val)
+
+        # ── 4. Exit Criteria (release_config.tcl) ──
+        rc_path = os.path.join(config_dir, 'release_config.tcl')
+        stage_upper = stage_base.upper()
+        for key, val in _parse_array_keys(rc_path,
+                lambda k: flow_upper in k and stage_upper in k):
+            _add('Exit Criteria', key, val)
+
+        # ── 5. Apply overrides ──
         overrides = {}
         for pattern in [f'override_config.{stage_base}.tcl',
                         f'override_config.{stage}.tcl']:
@@ -791,28 +841,25 @@ class RaceDashboard:
                         if m:
                             overrides[m.group(1)] = m.group(2)
 
-        # Mark overridden variables
-        for var in variables:
-            for okey, oval in overrides.items():
-                if var['key'] in okey or okey.endswith(var['key']):
-                    var['value'] = oval
-                    var['source'] = 'override'
+        # Mark overridden values
+        for cat_vars in categories.values():
+            for var in cat_vars:
+                for okey, oval in overrides.items():
+                    if var['key'] in okey or okey.endswith(var['key']):
+                        var['value'] = oval
+                        var['source'] = 'override'
 
-        # Add override-only variables (not in base config)
-        existing_keys = {v['key'] for v in variables}
+        # Add override-only variables
+        all_keys = {v['key'] for vs in categories.values() for v in vs}
         for okey, oval in overrides.items():
-            if okey not in existing_keys:
-                variables.append({
-                    'key': okey, 'value': oval,
-                    'source': 'override', 'category': 'override',
-                })
+            if okey not in all_keys:
+                _add('Overrides', okey, oval, 'override')
 
         return {
             'stage': stage,
             'stage_base': stage_base,
             'flow_type': self.flow_type,
-            'variables': variables,
-            'override_file': f'setup/override_config.{stage_base}.tcl',
+            'categories': categories,
         }
 
     def get_mmmc_scenarios(self) -> dict:

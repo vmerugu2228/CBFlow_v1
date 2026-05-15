@@ -2463,40 +2463,44 @@ function openNodeConfigEditor(stage) {
   fetch('/api/node-full-config?stage=' + encodeURIComponent(stage))
     .then(function(r){return r.json();})
     .then(function(data) {
-      var nodeVars = data.variables || [];
+      var cats = data.categories || {};
+      var totalVars = 0;
+      for (var c in cats) totalVars += cats[c].length;
 
       var html = '<div style="padding:8px">';
       // Search
       html += '<input id="ncf-search" type="text" placeholder="Search variables..." oninput="filterNodeConfig()" style="width:100%;padding:8px;margin-bottom:8px;border:1px solid #ccc;border-radius:4px;font-size:13px">';
-      // Apply scope toggles
+      // Scope toggles
       html += '<div style="display:flex;gap:12px;margin-bottom:10px;padding:6px 8px;background:#f5f5f5;border-radius:4px;font-size:12px">';
       html += '<label style="font-weight:600;color:#555">Save to:</label>';
       html += '<label style="cursor:pointer"><input type="radio" name="ncf-scope" value="node" checked> This node (' + stage + ')</label>';
       if (branchKey) {
-        html += '<label style="cursor:pointer"><input type="radio" name="ncf-scope" value="branch"> All nodes in branch (' + branchName + ')</label>';
+        html += '<label style="cursor:pointer"><input type="radio" name="ncf-scope" value="branch"> Branch (' + branchName + ')</label>';
       }
       html += '<label style="cursor:pointer"><input type="radio" name="ncf-scope" value="type"> All ' + stageBase + ' nodes</label>';
       html += '</div>';
-      // Info
-      html += '<div style="font-size:11px;color:#888;margin-bottom:6px">' + nodeVars.length + ' variables for ' + stage + ' (' + stageBase + ' type). Edit values and click Save.</div>';
-      // Table
-      html += '<div id="ncf-table" style="max-height:350px;overflow-y:auto;border:1px solid #ddd;border-radius:4px">';
-      html += '<table style="width:100%;font-size:12px;border-collapse:collapse">';
-      html += '<thead><tr style="background:#f5f5f5;position:sticky;top:0">';
-      html += '<th style="text-align:left;padding:6px 8px;border-bottom:2px solid #ddd;width:45%">Key</th>';
-      html += '<th style="text-align:left;padding:6px 8px;border-bottom:2px solid #ddd;width:45%">Value</th>';
-      html += '<th style="text-align:center;padding:6px 8px;border-bottom:2px solid #ddd;width:10%">Src</th>';
-      html += '</tr></thead><tbody>';
-      nodeVars.forEach(function(v) {
-        var srcColor = v.source === 'override' ? '#e65100' : '#888';
-        var srcLabel = v.source === 'override' ? 'OVR' : v.source === 'flow_config' ? 'FLW' : 'BASE';
-        html += '<tr class="ncf-row" data-key="' + v.key + '" style="border-bottom:1px solid #eee">';
-        html += '<td style="padding:5px 8px;font-family:monospace;font-size:11px;word-break:break-all" title="' + v.key + '">' + v.key + '</td>';
-        html += '<td style="padding:4px 6px"><input class="ncf-val" data-key="' + v.key + '" data-orig="' + (v.value||'').replace(/"/g,'&quot;') + '" value="' + (v.value||'').replace(/"/g,'&quot;') + '" style="width:100%;padding:4px;border:1px solid #ddd;border-radius:3px;font-size:11px;font-family:monospace" oninput="this.style.background=this.value!==this.dataset.orig?\'#fff3e0\':\'\'"></td>';
-        html += '<td style="text-align:center;padding:5px;font-size:10px;color:' + srcColor + '">' + srcLabel + '</td>';
-        html += '</tr>';
-      });
-      html += '</tbody></table></div>';
+      html += '<div style="font-size:11px;color:#888;margin-bottom:6px">' + totalVars + ' variables across ' + Object.keys(cats).length + ' categories</div>';
+      // Categories with collapsible sections
+      html += '<div id="ncf-table" style="max-height:380px;overflow-y:auto">';
+      var catColors = {'Node Config':'#1976d2','LSF & Resources':'#e65100','Tool Settings':'#2e7d32','Exit Criteria':'#6a1b9a','Overrides':'#c62828'};
+      for (var catName in cats) {
+        var vars = cats[catName];
+        var cc = catColors[catName] || '#555';
+        html += '<div class="ncf-cat" style="margin-bottom:6px;border:1px solid #ddd;border-radius:4px;overflow:hidden">';
+        html += '<div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'block\':\'none\';this.querySelector(\'span\').textContent=this.nextElementSibling.style.display===\'none\'?\'\u25b6\':\'\u25bc\'" style="padding:6px 10px;background:#f5f5f5;cursor:pointer;font-size:12px;font-weight:700;color:' + cc + ';border-bottom:1px solid #ddd"><span>\u25bc</span> ' + catName + ' (' + vars.length + ')</div>';
+        html += '<div><table style="width:100%;font-size:12px;border-collapse:collapse">';
+        vars.forEach(function(v) {
+          var srcColor = v.source === 'override' ? '#e65100' : '#aaa';
+          var srcLabel = v.source === 'override' ? 'OVR' : 'BASE';
+          html += '<tr class="ncf-row" data-key="' + v.key + '" data-cat="' + catName + '" style="border-bottom:1px solid #f0f0f0">';
+          html += '<td style="padding:4px 8px;font-family:monospace;font-size:11px;word-break:break-all;width:45%" title="' + v.key + '">' + v.key + '</td>';
+          html += '<td style="padding:3px 6px;width:45%"><input class="ncf-val" data-key="' + v.key + '" data-orig="' + (v.value||'').replace(/"/g,'&quot;') + '" value="' + (v.value||'').replace(/"/g,'&quot;') + '" style="width:100%;padding:3px;border:1px solid #ddd;border-radius:3px;font-size:11px;font-family:monospace" oninput="this.style.background=this.value!==this.dataset.orig?\'#fff3e0\':\'\'"></td>';
+          html += '<td style="text-align:center;padding:4px;font-size:9px;color:' + srcColor + ';width:10%">' + srcLabel + '</td>';
+          html += '</tr>';
+        });
+        html += '</table></div></div>';
+      }
+      html += '</div>';
       // Buttons
       html += '<div style="margin-top:10px;text-align:right">';
       html += '<button onclick="closeModal(\'edit-modal\')" style="padding:6px 14px;margin-right:8px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer">Cancel</button>';
