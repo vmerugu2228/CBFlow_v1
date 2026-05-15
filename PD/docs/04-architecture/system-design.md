@@ -407,6 +407,81 @@ After `fill` completes, RACE launches the DRC, LVS, ERC, PERC, and XOR stages in
 
 ---
 
+## Tool Configuration Architecture
+
+Each EDA tool has a dedicated tool config file that centralizes tool-specific parameters. This replaces the previous approach of scattering tool settings across node_config and user_config files.
+
+### File Naming Convention
+
+Tool config files follow the pattern `<tool>_config.tcl`:
+
+| Tool | Config File | Flows |
+|------|-------------|-------|
+| Fusion Compiler | `fc_config.tcl` | SYNTH, FP, PNR, FCFP, SYNTH_PNR, ECO |
+| PrimeTime | `pt_config.tcl` | STA, POPT |
+| Formality | `fm_config.tcl` | LEC |
+| IC Validator | `icv_config.tcl` | PV |
+| VC_LP | `vc_lp_config.tcl` | CLP |
+| RedHawk | `redhawk_config.tcl` | EMIR |
+
+### Two-Level Scoping Convention
+
+Tool config variables use a two-level scoping scheme:
+
+- **`<tool>(common,<param>)`** -- Shared across all nodes in the flow. Applied first.
+- **`<tool>(<node>,<param>)`** -- Specific to a single node. Overrides the common value for that node only.
+
+```tcl
+# fc_config.tcl
+
+# Common settings -- apply to all FC-based nodes
+set fc(common,enable_clock_gating)        true
+set fc(common,target_library)             "sc7p5t_cln28hpm_base_rvt_c14_tt_nominal_max_0p90v_25c.db"
+set fc(common,enable_spg)                 true
+set fc(common,max_routing_layer)          M8
+set fc(common,min_routing_layer)          M2
+
+# Node-specific overrides
+set fc(place1,congestion_effort)          high
+set fc(place1,enable_coarse_placement)    false
+set fc(cts1,max_skew)                     50
+set fc(cts1,clock_tree_strategy)          "balanced"
+set fc(route1,detail_route_effort)        high
+set fc(route1,antenna_fix)                true
+set fc(signoff1,eco_opt_cycles)           3
+```
+
+### Resolution Order
+
+When a command file reads a tool parameter, the resolution order is:
+
+```
+1. fc(<node>,<param>)     -- node-specific setting (highest priority)
+2. fc(common,<param>)     -- common setting (fallback)
+3. (not set)              -- tool default
+```
+
+This applies within the existing config override hierarchy. A value in `override_config.tcl` for `fc(place1,congestion_effort)` overrides the same variable from `fc_config.tcl`.
+
+### Config Loading Path
+
+Tool config files are loaded from the versioned config directory:
+
+```
+$CONFIG_ROOT/flow/$FLOW_CONFIG_VERSION/
+    fc_config.tcl
+    pt_config.tcl
+    fm_config.tcl
+    icv_config.tcl
+    ...
+```
+
+### GUI Integration
+
+The GUI Config Editor exposes tool config settings under the **Tool Config** tab, showing both common and node-specific values. Users can edit values and choose whether the change applies to the common scope, the selected node, or all nodes of the same type. See the [GUI User Guide](../02-user-guide/cbflow-gui-user-guide.md#8-config-editor) for details.
+
+---
+
 ## Standard Command File Pattern
 
 Every command file in `cmds/<FLOW>/<vendor>/<tool>/<version>/` follows the same structure:

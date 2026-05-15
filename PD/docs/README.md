@@ -6,10 +6,10 @@ Complete documentation for CBflow v2.0.0 -- a comprehensive PD automation framew
 
 CBflow is a Python/Bash/TCL automation framework that orchestrates ASIC physical design flows across Synopsys, Cadence, and Mentor tool suites. It provides:
 
-- **RACE Engine**: Run Automation & Control Engine -- Python-native DAG executor that replaced GNU Make entirely. Builds DAG from node_config.tcl at runtime, tracks status in SQLite DB (sole status tracking -- no `.stamps/` directory), supports file change detection with automatic downstream retrace, parallel subnode execution, dynamic subnode generation, active engine sync (retrace/bypass/forcevalidate during execution), and dashboard auto-port (8080-8180 range).
+- **RACE Engine**: Run Automation & Control Engine -- Python-native DAG executor that replaced GNU Make entirely. Builds DAG from node_config.tcl at runtime, tracks status in SQLite DB (sole status tracking -- no `.stamps/` directory), supports file change detection with automatic downstream retrace, parallel subnode execution, dynamic subnode generation, active engine sync (retrace/bypass/forcevalidate during execution), dashboard auto-port (8080-8180 range), node rename, and branch tags.
 - **12 Design Flows**: SYNTH, FP, PNR, STA, LEC, EMIR, PV, ECO, CLP, POPT, FCFP, SYNTH_PNR
 - **Multi-Vendor Support**: Synopsys (FC, PT, Formality, ICV, RedHawk, VC_LP), Cadence (Genus, Innovus, Tempus, Conformal LP, Voltus), Mentor (Calibre)
-- **153 Command Files**: FC-RM Y-2026.03 aligned, with per-stage reports, proper REPORTS_DIR/OUTPUTS_DIR
+- **153 Command Files**: FC-RM Y-2026.03 aligned, with per-stage reports, proper REPORTS_DIR/OUTPUTS_DIR. Tool config refactored to per-tool config files (`fc_config.tcl`, `pt_config.tcl`, etc.) with `fc(common,*)` + `fc(<node>,*)` scoping convention.
 - **flow_proc Engine**: Auto-ordered registration, flow_exec_all, prepend/append/replace hooks
 - **Override Hierarchy**: flow_config -> project_config -> tech_config -> user_config -> override_config -> override_setup
 - **Release Mechanism**: `$release_path/$phase/$block_name/$release_tag` with mandatory file validation
@@ -58,6 +58,7 @@ RACE (Run Automation & Control Engine) is the Python-native DAG executor at the 
 
 ### [02. User Guide](02-user-guide/)
 - [Complete User Guide](02-user-guide/cbflow-complete-user-guide.md) -- Full walkthrough
+- [GUI User Guide](02-user-guide/cbflow-gui-user-guide.md) -- Web dashboard: DAG visualization, config editor, branch management, MMMC scenarios
 - [Flow User Guide](02-user-guide/cbflow-flow-user-guide.md) -- All 12 flows with stages
 - [Release Management](02-user-guide/release-management.md) -- Phase/tag release workflow
 - [Versioning Workflow](02-user-guide/versioning-workflow.md) -- Copy/edit/symlink
@@ -109,6 +110,8 @@ RACE (Run Automation & Control Engine) is the Python-native DAG executor at the 
 | `cbflow run report --node pro1` | Detailed node report |
 | `cbflow run add-node --node <n> --type <t>` | Add custom node to DAG |
 | `cbflow run create-branch --name <n>` | Create a flow branch |
+| `cbflow run rename-node --node <old> --new-name <new>` | Rename a node in the DAG |
+| `cbflow run gui` | Launch web dashboard (auto-port 8080-8180) |
 | `cbflow run list-nodes` | List all nodes in DAG |
 | `cbflow run show-graph` | Show flow dependency graph |
 | `cbflow flow version copy --from v1.0.0 --to v1.0.1` | Copy version |

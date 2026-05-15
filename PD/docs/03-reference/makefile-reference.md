@@ -137,11 +137,21 @@ cbflow run create-branch --name timing_experiment --from cts1
 
 ### cbflow run delete-node
 
-Remove a custom node from the DAG.
+Remove a custom node from the DAG. Fails if other nodes depend on the target node (dependency protection).
 
 ```bash
 cbflow run delete-node --node eco1
 ```
+
+### cbflow run rename-node
+
+Rename a node in the RACE DAG. All dependency references are updated automatically. Only custom nodes (added via `add-node` or `create-branch`) can be renamed; built-in nodes from node_config.tcl cannot be renamed.
+
+```bash
+cbflow run rename-node --node eco1 --new-name eco_timing_fix1
+```
+
+The rename is also available from the GUI: select a custom node, edit the name in the Node Info panel, and click **Rename**. See the [GUI User Guide](../02-user-guide/cbflow-gui-user-guide.md#4-node-selection-and-info-panel).
 
 ---
 
@@ -221,10 +231,13 @@ Launch the RACE web dashboard. The dashboard automatically selects an available 
 
 ```bash
 cbflow run gui                              # Launch dashboard
+cbflow run gui --port 9000                  # Launch on specific port
 cbflow flow dashboard start                 # Alternative command
 ```
 
-The assigned port is printed to the console on startup.
+The assigned port is printed to the console on startup. Multiple dashboards can run simultaneously on the same host, each on a different auto-selected port.
+
+For the complete GUI reference (layout, DAG visualization, config editor, branch management, keyboard shortcuts, MMMC scenario editor), see the [GUI User Guide](../02-user-guide/cbflow-gui-user-guide.md).
 
 ---
 
@@ -306,6 +319,51 @@ Query the DB directly for debugging:
 sqlite3 .race_*.db "SELECT * FROM run_info"
 sqlite3 .race_*.db "SELECT node, status FROM node_status"
 ```
+
+---
+
+## Tool Configuration Reference
+
+Tool config files define EDA tool-specific parameters using a two-level scoping convention. Each tool has its own config file.
+
+### Tool Config Files
+
+| Tool | Config File | Flows |
+|------|-------------|-------|
+| Fusion Compiler | `fc_config.tcl` | SYNTH, FP, PNR, FCFP, SYNTH_PNR, ECO |
+| PrimeTime | `pt_config.tcl` | STA, POPT |
+| Formality | `fm_config.tcl` | LEC |
+| IC Validator | `icv_config.tcl` | PV |
+| VC_LP | `vc_lp_config.tcl` | CLP |
+| RedHawk | `redhawk_config.tcl` | EMIR |
+
+### Scoping Convention
+
+```tcl
+# Common -- shared across all nodes in the flow
+set fc(common,enable_spg)            true
+set fc(common,max_routing_layer)     M8
+
+# Node-specific -- overrides common for this node only
+set fc(route1,detail_route_effort)   high
+set fc(cts1,max_skew)                50
+```
+
+Resolution order: `fc(<node>,<param>)` > `fc(common,<param>)` > tool default.
+
+### Overriding Tool Config
+
+Tool config values can be overridden at any level of the config hierarchy. In practice, overrides are typically placed in `user_config.tcl` or `override_config.tcl`:
+
+```tcl
+# In user_config.tcl -- override route effort for this run
+set fc(route1,detail_route_effort)   medium
+
+# In override_config.tcl -- GUI Config Editor writes here
+set fc(place1,congestion_effort)     high
+```
+
+See the [System Design](../04-architecture/system-design.md#tool-configuration-architecture) for full architecture details.
 
 ---
 

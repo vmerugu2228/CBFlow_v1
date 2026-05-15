@@ -25,6 +25,8 @@
 15. [Advanced Features](#15-advanced-features)
 16. [Troubleshooting](#16-troubleshooting)
 
+> **GUI Dashboard**: For the full web-based dashboard reference (DAG visualization, config editor, branch management, MMMC scenario editor, keyboard shortcuts), see the dedicated **[GUI User Guide](cbflow-gui-user-guide.md)**.
+
 ---
 
 ## 1. Overview
@@ -867,6 +869,46 @@ set pnr(tool,name)   "innovus"
 
 This overrides the default tool selection for that flow in the current run only.
 
+### 10.4 Tool Configuration (`fc_config.tcl`, `pt_config.tcl`, etc.)
+
+Each EDA tool has a dedicated tool config file that defines tool-specific parameters using a two-level scoping convention:
+
+- **`<tool>(common,*)`** -- Settings shared across all nodes in the flow
+- **`<tool>(<node>,*)`** -- Settings specific to a particular node (overrides common)
+
+```tcl
+# fc_config.tcl -- Fusion Compiler tool settings
+
+# Common settings (apply to all FC-based nodes)
+set fc(common,enable_clock_gating)        true
+set fc(common,target_library)             "sc7p5t_cln28hpm_base_rvt_c14_tt_nominal_max_0p90v_25c.db"
+set fc(common,enable_spg)                 true
+
+# Node-specific settings (override common for this node only)
+set fc(place1,congestion_effort)          high
+set fc(place1,enable_coarse_placement)    false
+set fc(cts1,max_skew)                     50
+set fc(route1,detail_route_effort)        high
+```
+
+Tool config files follow the naming pattern `<tool>_config.tcl` (e.g., `fc_config.tcl` for Fusion Compiler, `pt_config.tcl` for PrimeTime).
+
+The GUI Config Editor exposes these settings under the **Tool Config** tab with search, filter, and scope toggles. See the [GUI User Guide](cbflow-gui-user-guide.md#8-config-editor) for details.
+
+#### Config Editor Categories (GUI)
+
+The GUI Config Editor organizes settings into 5 categories:
+
+| Category | Source | Description |
+|----------|--------|-------------|
+| **Node Config** | `SYNTH_PNR_config.tcl` | Stages, dependencies, subnodes, timeouts |
+| **Tool Config** | `fc_config.tcl` / `pt_config.tcl` | Tool-specific parameters (`fc(common,*)` + `fc(<node>,*)`) |
+| **LSF & Resources** | `tool_launch_config.tcl` | Queue tier, memory, CPU, runtime limit |
+| **Flow Settings** | `flow_config.tcl` / `user_config.tcl` | `use_lsf`, `tool_module`, `test_mode` |
+| **Exit Criteria** | `exit/` configs | Milestone exit files and thresholds |
+
+Changes made in the Config Editor are saved to `override_config.tcl` in the run's setup directory.
+
 ### 10.4 Project Configuration
 
 Located in `config/project/{project_name}/v1.0.0/{project}_config.tcl`:
@@ -1195,9 +1237,11 @@ cbflow flow metrics report --flow PNR
 cbflow flow metrics export --format csv
 
 # Launch web dashboard (auto-selects available port in 8080-8180 range)
-cbflow flow dashboard start
+cbflow run gui
 # Open http://localhost:<port> in browser (port printed on startup)
 ```
+
+The web dashboard provides a full GUI for DAG visualization, node execution control, configuration editing, branch management, and MMMC scenario management. For the complete dashboard reference, see the **[GUI User Guide](cbflow-gui-user-guide.md)**.
 
 ### 15.5 Flat Execution Mode
 
