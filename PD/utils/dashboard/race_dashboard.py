@@ -743,7 +743,8 @@ class RaceDashboard:
         }
 
     def get_node_full_config(self, stage: str) -> dict:
-        """Get ALL TCL config variables for a node type from node_config.tcl.
+        """Get TCL config variables for a specific node from node_config.tcl.
+        Only returns variables relevant to this node's type (not all nodes).
         Returns base values + any overrides from override_config files."""
         if not stage:
             return {'error': 'stage required', 'variables': []}
@@ -753,20 +754,26 @@ class RaceDashboard:
         nc_path = self.node_config_path
         variables = []  # [{key, value, source, category}]
 
-        # Parse ALL key-value pairs from node_config.tcl
+        # Parse key-value pairs from node_config.tcl — only for this node
         if os.path.exists(nc_path):
             with open(nc_path) as f:
                 content = f.read()
-            # Match: key value (inside array set blocks)
-            # e.g., "stages,place1,type place" or "runtime,timeout,place1 60"
             for m in re.finditer(r'^\s+([\w,]+)\s+(?:\{([^}]*)\}|"([^"]*)"|([\w./\-]+))\s*$',
                                  content, re.MULTILINE):
                 key = m.group(1)
                 value = m.group(2) or m.group(3) or m.group(4) or ''
-                # Categorize
+                # Filter: only show variables for THIS node or global settings
+                # e.g., for place1: show "subnodes,place1", "dependencies,place1",
+                #        "runtime,timeout,place1", "tool,vendor", "stages", etc.
+                key_lower = key.lower()
+                is_node_specific = (stage in key or stage_base in key_lower)
+                is_global = (',' not in key or key.startswith('tool,') or
+                             key.startswith('stages') or key.startswith('supported_') or
+                             key.startswith('default_') or key.startswith('merge_'))
+                if not is_node_specific and not is_global:
+                    continue
                 if ',' in key:
-                    parts = key.split(',')
-                    category = parts[0]
+                    category = key.split(',')[0]
                 else:
                     category = 'general'
                 variables.append({
@@ -786,7 +793,6 @@ class RaceDashboard:
                     m = re.match(r'set\s+(\w+\([^)]+\))\s+"([^"]*)"', line)
                     if m:
                         key = m.group(1)
-                        # Only include flow-level settings relevant to this stage
                         if flow_lower in key or 'flow(' in key:
                             variables.append({
                                 'key': key,
