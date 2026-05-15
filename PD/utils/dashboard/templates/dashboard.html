@@ -2450,26 +2450,44 @@ function saveMMMCScenarios(fullName, baseName) {
 }
 
 function openNodeConfigEditor(stage) {
-  document.getElementById('edit-title').textContent = 'Node Config — ' + stage;
+  document.getElementById('edit-title').textContent = 'Node Config \u2014 ' + stage;
   document.querySelector('#edit-modal .modal-bd').innerHTML = '<div style="padding:12px;text-align:center;color:#888">Loading config...</div>';
   openModal('edit-modal');
+
+  // Get node info for branch/type context
+  var bi = (dagData && dagData.branch_info) ? dagData.branch_info[stage] : null;
+  var stageBase = stage.replace(/\d+(_\w+)?$/, '');
+  var branchName = bi ? (bi.branch_name || '') : '';
+  var branchKey = bi ? (bi.branch_key || '') : '';
 
   fetch('/api/node-full-config?stage=' + encodeURIComponent(stage))
     .then(function(r){return r.json();})
     .then(function(data) {
-      var vars = data.variables || [];
-      // Build searchable config editor
+      var nodeVars = data.variables || [];
+
       var html = '<div style="padding:8px">';
+      // Search
       html += '<input id="ncf-search" type="text" placeholder="Search variables..." oninput="filterNodeConfig()" style="width:100%;padding:8px;margin-bottom:8px;border:1px solid #ccc;border-radius:4px;font-size:13px">';
-      html += '<div style="font-size:11px;color:#888;margin-bottom:8px">' + vars.length + ' variables from ' + data.flow_type + ' config. Edit values and click Save.</div>';
-      html += '<div id="ncf-table" style="max-height:400px;overflow-y:auto;border:1px solid #ddd;border-radius:4px">';
+      // Apply scope toggles
+      html += '<div style="display:flex;gap:12px;margin-bottom:10px;padding:6px 8px;background:#f5f5f5;border-radius:4px;font-size:12px">';
+      html += '<label style="font-weight:600;color:#555">Save to:</label>';
+      html += '<label style="cursor:pointer"><input type="radio" name="ncf-scope" value="node" checked> This node (' + stage + ')</label>';
+      if (branchKey) {
+        html += '<label style="cursor:pointer"><input type="radio" name="ncf-scope" value="branch"> All nodes in branch (' + branchName + ')</label>';
+      }
+      html += '<label style="cursor:pointer"><input type="radio" name="ncf-scope" value="type"> All ' + stageBase + ' nodes</label>';
+      html += '</div>';
+      // Info
+      html += '<div style="font-size:11px;color:#888;margin-bottom:6px">' + nodeVars.length + ' variables for ' + stage + ' (' + stageBase + ' type). Edit values and click Save.</div>';
+      // Table
+      html += '<div id="ncf-table" style="max-height:350px;overflow-y:auto;border:1px solid #ddd;border-radius:4px">';
       html += '<table style="width:100%;font-size:12px;border-collapse:collapse">';
       html += '<thead><tr style="background:#f5f5f5;position:sticky;top:0">';
       html += '<th style="text-align:left;padding:6px 8px;border-bottom:2px solid #ddd;width:45%">Key</th>';
       html += '<th style="text-align:left;padding:6px 8px;border-bottom:2px solid #ddd;width:45%">Value</th>';
       html += '<th style="text-align:center;padding:6px 8px;border-bottom:2px solid #ddd;width:10%">Src</th>';
       html += '</tr></thead><tbody>';
-      vars.forEach(function(v, i) {
+      nodeVars.forEach(function(v) {
         var srcColor = v.source === 'override' ? '#e65100' : '#888';
         var srcLabel = v.source === 'override' ? 'OVR' : v.source === 'flow_config' ? 'FLW' : 'BASE';
         html += '<tr class="ncf-row" data-key="' + v.key + '" style="border-bottom:1px solid #eee">';
@@ -2479,10 +2497,10 @@ function openNodeConfigEditor(stage) {
         html += '</tr>';
       });
       html += '</tbody></table></div>';
+      // Buttons
       html += '<div style="margin-top:10px;text-align:right">';
-      html += '<span id="ncf-changes" style="font-size:11px;color:#888;margin-right:12px"></span>';
       html += '<button onclick="closeModal(\'edit-modal\')" style="padding:6px 14px;margin-right:8px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer">Cancel</button>';
-      html += '<button onclick="saveNodeFullConfig(\'' + stage + '\')" style="padding:6px 14px;border:none;border-radius:4px;background:#1976d2;color:#fff;cursor:pointer">Save Changes</button>';
+      html += '<button onclick="saveNodeFullConfig(\'' + stage + '\',\'' + stageBase + '\',\'' + branchKey + '\')" style="padding:6px 14px;border:none;border-radius:4px;background:#1976d2;color:#fff;cursor:pointer">Save Changes</button>';
       html += '</div></div>';
       document.querySelector('#edit-modal .modal-bd').innerHTML = html;
     })
@@ -2500,7 +2518,7 @@ function filterNodeConfig() {
   });
 }
 
-function saveNodeFullConfig(stage) {
+function saveNodeFullConfig(stage, stageBase, branchKey) {
   // Collect only changed values
   var changed = {};
   document.querySelectorAll('.ncf-val').forEach(function(input) {
@@ -2512,9 +2530,14 @@ function saveNodeFullConfig(stage) {
     showToast('No changes to save', 'error');
     return;
   }
+  // Get selected scope
+  var scope = 'node';
+  var checked = document.querySelector('input[name="ncf-scope"]:checked');
+  if (checked) scope = checked.value;
+
   fetch('/api/action/save-node-config', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({stage: stage, variables: changed})
+    body: JSON.stringify({stage: stage, stage_base: stageBase, branch_key: branchKey, scope: scope, variables: changed})
   }).then(function(r){return r.json();}).then(function(d) {
     if (d.ok) {
       showToast(d.message, 'success');
