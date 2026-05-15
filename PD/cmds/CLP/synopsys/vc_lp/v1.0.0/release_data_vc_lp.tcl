@@ -31,6 +31,9 @@ set release_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/release
 if {[file exists $release_config]} { source $release_config }
 
 global clp project tech flow
+# Source VC_LP tool config
+set _tool_config "[file dirname [info script]]/vc_lp_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting CLP release_data with Synopsys VC LP..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -54,8 +57,8 @@ flow_proc init_release {
 
     # ── Validate mandatory variables ─────────────────────────────────────────
     set missing_vars {}
-    if {![info exists clp(design_name)] && ![info exists flow(design_name)]} {
-        lappend missing_vars "design_name (clp(design_name) or flow(design_name))"
+    if {![info exists vc_lp(common,design_name)] && ![info exists flow(design_name)]} {
+        lappend missing_vars "design_name (vc_lp(common,design_name) or flow(design_name))"
     }
     if {![info exists project(release,tag)] || $project(release,tag) eq ""} {
         lappend missing_vars "project(release,tag) in project_config.tcl"
@@ -73,12 +76,12 @@ flow_proc init_release {
         handle_warning "Release may be incomplete"
     }
 
-    set design_name [expr {[info exists clp(design_name)] ? $clp(design_name) : [expr {[info exists flow(design_name)] ? $flow(design_name) : "clp"}]}]
+    set design_name [expr {[info exists vc_lp(common,design_name)] ? $vc_lp(common,design_name) : [expr {[info exists flow(design_name)] ? $flow(design_name) : "clp"}]}]
 
     # ── Determine release phase ──────────────────────────────────────────────
     set release_phase "P0"
     if {[info exists project(release_phase)]} { set release_phase $project(release_phase) }
-    if {[info exists clp(release_phase)]} { set release_phase $clp(release_phase) }
+    if {[info exists vc_lp(common,release_phase)]} { set release_phase $vc_lp(common,release_phase) }
     if {[info exists project(release,phase)] && $project(release,phase) ne ""} { set release_phase $project(release,phase) }
 
     # ── Initialize release using utilities ───────────────────────────────────

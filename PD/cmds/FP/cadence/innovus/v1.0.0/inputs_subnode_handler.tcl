@@ -116,7 +116,10 @@ if {[info exists fp(subnodes,inputs)]} {
     if {[lsearch -exact $valid_subnodes $subnode_name] == -1} {
         handle_error "Invalid subnode: $subnode_name. Valid subnodes: [join $valid_subnodes {, }]"
     }
-    handle_info "Subnode validation passed: $subnode_name"
+    # Source INNOVUS tool config
+set _tool_config "[file dirname [info script]]/innovus_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
+handle_info "Subnode validation passed: $subnode_name"
 } else {
     handle_warning "Flow configuration for FP inputs subnodes not found, loading from config"
     # Load subnodes from centralized config
@@ -225,7 +228,7 @@ proc handle_sdc_subnode {run_dir} {
 
         # Resolve SDC from release tag
         set sdc_tag $fp(input,sdc_release_tag)
-        set sdc_mode [expr {[info exists fp(sdc_mode)] ? $fp(sdc_mode) : "func"}]
+        set sdc_mode [expr {[info exists innovus(common,sdc_mode)] ? $innovus(common,sdc_mode) : "func"}]
         set sdc_file [get_release_file_path "constraints" $sdc_tag $flow(design_name) $sdc_mode]
         handle_info "Resolving SDC from release tag: $sdc_tag (mode: $sdc_mode)"
         handle_info "Expected SDC path: $sdc_file"

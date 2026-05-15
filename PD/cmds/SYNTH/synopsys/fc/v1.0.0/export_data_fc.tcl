@@ -11,6 +11,9 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/SYNTH/export_data1/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global synth project tech flow
+# Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting SYNTH export_data1 with Synopsys Fusion Compiler..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -43,8 +46,8 @@ flow_proc export_netlist {
     file mkdir "$::OUTPUTS_DIR/netlist"
 
     # Write gate-level Verilog netlist
-    if {[info exists synth(design_name)]} {
-        set netlist_file "$::OUTPUTS_DIR/netlist/$synth(design_name).v"
+    if {[info exists fc(common,design_name)]} {
+        set netlist_file "$::OUTPUTS_DIR/netlist/$fc(common,design_name).v"
     } else {
         set netlist_file "$::OUTPUTS_DIR/netlist/synth.v"
     }
@@ -84,15 +87,15 @@ flow_proc export_constraints {
     set run_dir $::env(CBFLOW_RUN_DIR)
     file mkdir "$::OUTPUTS_DIR/sdc"
 
-    if {[info exists synth(design_name)]} {
-        set sdc_file "$::OUTPUTS_DIR/sdc/$synth(design_name).sdc"
+    if {[info exists fc(common,design_name)]} {
+        set sdc_file "$::OUTPUTS_DIR/sdc/$fc(common,design_name).sdc"
     } else {
         set sdc_file "$::OUTPUTS_DIR/sdc/synth.sdc"
     }
 
     handle_info "Writing SDC: $sdc_file"
     write_sdc $sdc_file \
-        -significant_digits [expr {[info exists synth(analysis,significant_digits)] ? $synth(analysis,significant_digits) : 4}] \
+        -significant_digits [expr {[info exists fc(analysis,significant_digits)] ? $fc(analysis,significant_digits) : 4}] \
         -nosplit
 
     # Verify SDC was created
@@ -149,8 +152,8 @@ flow_proc validate_exports {
     set export_pass true
 
     # Determine design name for file paths
-    if {[info exists synth(design_name)]} {
-        set dname $synth(design_name)
+    if {[info exists fc(common,design_name)]} {
+        set dname $fc(common,design_name)
     } else {
         set dname "synth"
     }

@@ -11,6 +11,9 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/FP/export_data/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global fp project tech flow
+# Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting FP export_data with Synopsys Fusion Compiler..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -41,8 +44,8 @@ flow_proc export_def {
     set run_dir $::env(CBFLOW_RUN_DIR)
     file mkdir "$run_dir/results/fp/def"
 
-    if {[info exists fp(design_name)]} {
-        set def_file "$run_dir/results/fp/def/$fp(design_name).def"
+    if {[info exists fc(common,design_name)]} {
+        set def_file "$run_dir/results/fp/def/$fc(common,design_name).def"
     } else {
         set def_file "$run_dir/results/fp/def/floorplan.def"
     }
@@ -76,8 +79,8 @@ flow_proc export_design {
     file mkdir "$run_dir/results/fp/db"
 
     # Save the design block
-    if {[info exists fp(design_lib_name)] && [info exists fp(design_name)]} {
-        set save_name "$fp(design_lib_name):$fp(design_name)/fp_done"
+    if {[info exists fc(common,design_lib_name)] && [info exists fc(common,design_name)]} {
+        set save_name "$fc(common,design_lib_name):$fc(common,design_name)/fp_done"
         handle_info "Saving design block as: $save_name"
         save_block -as $save_name
     } else {
@@ -152,8 +155,8 @@ flow_proc validate_exports {
     set export_pass true
 
     # Determine file names
-    if {[info exists fp(design_name)]} {
-        set dname $fp(design_name)
+    if {[info exists fc(common,design_name)]} {
+        set dname $fc(common,design_name)
     } else {
         set dname "floorplan"
     }

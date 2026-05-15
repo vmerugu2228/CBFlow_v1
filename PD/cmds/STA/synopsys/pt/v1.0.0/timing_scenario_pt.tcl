@@ -56,6 +56,9 @@ set REPORTS_DIR "$run_dir/reports/sta/$scenario_name"
 set RESULTS_DIR "$run_dir/results/sta/$scenario_name"
 file mkdir $REPORTS_DIR $RESULTS_DIR
 
+# Source PT tool config
+set _tool_config "[file dirname [info script]]/pt_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "═══════════════════════════════════════════════════════"
 handle_info "  PT-RM Per-Corner: $scenario_name"
 handle_info "  Design=$DESIGN_NAME  Corner=$CORNER  V=${VOLTAGE}V  T=${TEMPERATURE}C"
@@ -78,14 +81,14 @@ flow_proc pt_app_setup {
     set pba_exhaustive_endpoint_path_limit infinity
 
     # SI / Crosstalk
-    if {[info exists sta(analysis,si_aware)] && $sta(analysis,si_aware) eq "true"} {
+    if {[info exists pt(analysis,si_aware)] && $pt(analysis,si_aware) eq "true"} {
         set_app_var si_enable_analysis true
         handle_info "  SI analysis: enabled"
     }
 
     # OCV mode (PT-RM: AOCV/POCV)
-    if {[info exists sta(analysis,ocv_mode)]} {
-        switch $sta(analysis,ocv_mode) {
+    if {[info exists pt(analysis,ocv_mode)]} {
+        switch $pt(analysis,ocv_mode) {
             "aocv" {
                 set_app_var timing_aocvm_enable_analysis true
                 handle_info "  OCV: AOCV enabled"
@@ -108,7 +111,7 @@ flow_proc pt_app_setup {
     }
 
     # Power analysis (PT-PX)
-    if {[info exists sta(analysis,report_power)] && $sta(analysis,report_power) eq "true"} {
+    if {[info exists pt(analysis,report_power)] && $pt(analysis,report_power) eq "true"} {
         set power_enable_analysis true
         set power_clock_network_include_register_clock_pin_power false
         handle_info "  Power analysis: enabled (PT-PX)"
@@ -227,7 +230,7 @@ flow_proc check_constraints_and_timing {
 flow_proc run_timing_analysis {
     handle_info "PT-RM: Timing analysis..."
 
-    set max_paths [expr {[info exists sta(analysis,max_paths)] ? $sta(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists pt(analysis,max_paths)] ? $pt(analysis,max_paths) : 100}]
 
     # PT-RM: report_global_timing (merged view)
     report_global_timing > $::REPORTS_DIR/${::DESIGN_NAME}_report_global_timing.rpt
@@ -309,7 +312,7 @@ flow_proc report_clock_analysis {
 # PT-RM: NOISE / SI ANALYSIS (from dmsa_analysis.tcl noise section)
 # ═══════════════════════════════════════════════════════════════════════════════
 flow_proc run_noise_analysis {
-    if {![info exists sta(analysis,si_aware)] || $sta(analysis,si_aware) ne "true"} {
+    if {![info exists pt(analysis,si_aware)] || $pt(analysis,si_aware) ne "true"} {
         handle_info "SI/Noise: skipped (si_aware not enabled)"
         return
     }
@@ -338,7 +341,7 @@ flow_proc run_noise_analysis {
 # PT-RM: AOCV / IVM REPORTS
 # ═══════════════════════════════════════════════════════════════════════════════
 flow_proc report_ocv {
-    if {[info exists sta(analysis,ocv_mode)] && $sta(analysis,ocv_mode) eq "aocv"} {
+    if {[info exists pt(analysis,ocv_mode)] && $pt(analysis,ocv_mode) eq "aocv"} {
         handle_info "PT-RM: AOCV reporting..."
         report_aocvm > $::REPORTS_DIR/${::DESIGN_NAME}_aocvm.rpt
         handle_info "  AOCV report written"
@@ -350,7 +353,7 @@ flow_proc report_ocv {
 # PT-RM: POWER ANALYSIS (PT-PX)
 # ═══════════════════════════════════════════════════════════════════════════════
 flow_proc run_power_analysis {
-    if {![info exists sta(analysis,report_power)] || $sta(analysis,report_power) ne "true"} {
+    if {![info exists pt(analysis,report_power)] || $pt(analysis,report_power) ne "true"} {
         return
     }
     handle_info "PT-RM: Power analysis (PT-PX)..."
@@ -364,7 +367,7 @@ flow_proc run_power_analysis {
 # PT-RM: ETM EXTRACTION (from dmsa_analysis.tcl)
 # ═══════════════════════════════════════════════════════════════════════════════
 flow_proc extract_timing_model {
-    if {[info exists sta(extract_etm)] && $sta(extract_etm) eq "true"} {
+    if {[info exists pt(common,extract_etm)] && $pt(common,extract_etm) eq "true"} {
         handle_info "PT-RM: Extracting ETM..."
         extract_model -library_cell -test_design \
             -output $::RESULTS_DIR/${::DESIGN_NAME} -format {lib db}

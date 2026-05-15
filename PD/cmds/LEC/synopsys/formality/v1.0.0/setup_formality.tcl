@@ -58,6 +58,9 @@ if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/
 # Declare global arrays
 global lec project tech flow
 
+# Source FORMALITY tool config
+set _tool_config "[file dirname [info script]]/formality_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting LEC setup stage with Synopsys Formality..."
 
 # Initialize flow namespace
@@ -217,21 +220,21 @@ flow_proc configure_verification {
     handle_info "Configuring verification settings..."
 
     # Set verification mode
-    if {[info exists lec(verification,mode)]} {
-        puts "Verification mode: $lec(verification,mode)"
+    if {[info exists formality(verification,mode)]} {
+        puts "Verification mode: $formality(verification,mode)"
     } else {
         puts "Verification mode: default (combinational)"
     }
 
     # Configure matching settings
-    if {[info exists lec(matching,multibit)] && $lec(matching,multibit) eq "true"} {
+    if {[info exists formality(matching,multibit)] && $formality(matching,multibit) eq "true"} {
         set_constant_folding true
         puts "Multi-bit matching: enabled"
     }
 
     # Configure effort level
-    if {[info exists lec(effort)]} {
-        puts "Verification effort: $lec(effort)"
+    if {[info exists formality(common,effort)]} {
+        puts "Verification effort: $formality(common,effort)"
     }
 
     # Set undriven/unloaded signal handling

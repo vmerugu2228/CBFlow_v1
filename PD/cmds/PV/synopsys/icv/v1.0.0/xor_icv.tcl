@@ -30,6 +30,9 @@ set WORK_DIR    "$run_dir/work/PV/xor1/run"
 set REPORTS_DIR "$WORK_DIR/reports"
 file mkdir $WORK_DIR $REPORTS_DIR
 
+# Source ICV tool config
+set _tool_config "[file dirname [info script]]/icv_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "═══════════════════════════════════════════════════════"
 handle_info "  ICV XOR Check: $DESIGN_NAME"
 handle_info "═══════════════════════════════════════════════════════"
@@ -40,8 +43,8 @@ handle_info "══════════════════════�
 flow_proc run_xor_check {
     handle_info "Running XOR comparison..."
 
-    set lib_format [expr {[info exists pv(icv,library_format)] ? $pv(icv,library_format) : "GDSII"}]
-    set num_cpus [expr {[info exists pv(icv,num_cpus)] ? $pv(icv,num_cpus) : 8}]
+    set lib_format [expr {[info exists icv(icv,library_format)] ? $icv(icv,library_format) : "GDSII"}]
+    set num_cpus [expr {[info exists icv(icv,num_cpus)] ? $icv(icv,num_cpus) : 8}]
 
     # Pre-fill layout (original input)
     set pre_fill ""

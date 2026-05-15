@@ -26,6 +26,9 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::
 # Source user_config for overrides
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 global emir project tech flow
+# Source REDHAWK tool config
+set _tool_config "[file dirname [info script]]/redhawk_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting EMIR inputs with Synopsys RedHawk..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -50,7 +53,7 @@ flow_proc resolve_inputs {
     handle_info "Resolving input files..."
     global emir flow project flow_input_handshake
 
-    set design_name [expr {[info exists emir(design_name)] ? $emir(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists redhawk(common,design_name)] ? $redhawk(common,design_name) : $flow(design_name)}]
 
     if {![namespace exists ::CBFlow::InputResolve]} {
         handle_info "Release input resolution not available — using direct paths only"
@@ -219,9 +222,9 @@ flow_proc read_power_data {
     }
 
     # Read power constraints
-    if {[info exists emir(power,voltage)]} {
-        handle_info "Setting supply voltage: $emir(power,voltage)V"
-        set_voltage $emir(power,voltage)
+    if {[info exists redhawk(power,voltage)]} {
+        handle_info "Setting supply voltage: $redhawk(power,voltage)V"
+        set_voltage $redhawk(power,voltage)
     }
 
     handle_info "Power data loading completed"
@@ -241,7 +244,7 @@ flow_proc validate_inputs {
         lappend errors "DEF file not loaded"
     }
 
-    if {![info exists project(top_module)] && ![info exists emir(top_cell)]} {
+    if {![info exists project(top_module)] && ![info exists redhawk(common,top_cell)]} {
         lappend errors "Top cell not defined"
     }
 

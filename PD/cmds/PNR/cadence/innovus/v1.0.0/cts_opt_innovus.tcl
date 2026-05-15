@@ -18,6 +18,9 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::
 # Source user_config for overrides
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 global pnr project tech flow
+# Source INNOVUS tool config
+set _tool_config "[file dirname [info script]]/innovus_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting PNR cts_opt with Cadence Innovus..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -70,8 +73,8 @@ flow_proc optimize_clock_tree {
     
     # Advanced CTS optimization
     global pnr
-    set optimization_effort [expr {[info exists pnr(cts_opt,effort)] ? $pnr(cts_opt,effort) : "high"}]
-    set fix_hold_violations [expr {[info exists pnr(cts_opt,fix_hold)] ? $pnr(cts_opt,fix_hold) : true}]
+    set optimization_effort [expr {[info exists innovus(cts_opt,effort)] ? $innovus(cts_opt,effort) : "high"}]
+    set fix_hold_violations [expr {[info exists innovus(cts_opt,fix_hold)] ? $innovus(cts_opt,fix_hold) : true}]
     
     handle_info "CTS optimization parameters:"
     handle_info "  Optimization effort: $optimization_effort"
@@ -91,7 +94,7 @@ flow_proc balance_clock_tree {
     
     # Clock tree balancing
     global pnr
-    set balance_effort [expr {[info exists pnr(cts_opt,balance_effort)] ? $pnr(cts_opt,balance_effort) : "medium"}]
+    set balance_effort [expr {[info exists innovus(cts_opt,balance_effort)] ? $innovus(cts_opt,balance_effort) : "medium"}]
     
     handle_info "Clock tree balancing effort: $balance_effort"
     
@@ -106,7 +109,7 @@ flow_proc refine_clock_tree {
     
     # Clock tree refinement
     global pnr
-    set refine_iterations [expr {[info exists pnr(cts_opt,refine_iterations)] ? $pnr(cts_opt,refine_iterations) : 3}]
+    set refine_iterations [expr {[info exists innovus(cts_opt,refine_iterations)] ? $innovus(cts_opt,refine_iterations) : 3}]
     
     handle_info "Clock tree refinement iterations: $refine_iterations"
     

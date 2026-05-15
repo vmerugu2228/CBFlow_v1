@@ -30,6 +30,9 @@ set WORK_DIR    "$run_dir/work/PV/fill1/run"
 set REPORTS_DIR "$WORK_DIR/reports"
 file mkdir $WORK_DIR $REPORTS_DIR
 
+# Source ICV tool config
+set _tool_config "[file dirname [info script]]/icv_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "═══════════════════════════════════════════════════════"
 handle_info "  ICV-RM Metal Fill: $DESIGN_NAME"
 handle_info "═══════════════════════════════════════════════════════"
@@ -41,22 +44,22 @@ flow_proc setup_fill_environment {
     handle_info "Setting up ICV fill environment..."
 
     # ICV-RM: library format
-    set lib_format [expr {[info exists pv(icv,library_format)] ? $pv(icv,library_format) : "GDSII"}]
+    set lib_format [expr {[info exists icv(icv,library_format)] ? $icv(icv,library_format) : "GDSII"}]
     handle_info "  Library format: $lib_format"
 
     # ICV-RM: design state (EARLY/MATURE)
-    set design_state [expr {[info exists pv(icv,design_state)] ? $pv(icv,design_state) : "MATURE"}]
+    set design_state [expr {[info exists icv(icv,design_state)] ? $icv(icv,design_state) : "MATURE"}]
     handle_info "  Design state: $design_state"
 
     # Metal stack info
-    if {[info exists pv(fill,metal_stack)] && $pv(fill,metal_stack) ne ""} {
-        handle_info "  Metal stack: $pv(fill,metal_stack)"
+    if {[info exists icv(fill,metal_stack)] && $icv(fill,metal_stack) ne ""} {
+        handle_info "  Metal stack: $icv(fill,metal_stack)"
     } elseif {[info exists tech(metal_stack_name)]} {
         handle_info "  Metal stack: $tech(metal_stack_name)"
     }
 
     # M1 direction
-    set m1_dir [expr {[info exists pv(fill,met1_direction)] ? $pv(fill,met1_direction) : "HORIZONTAL"}]
+    set m1_dir [expr {[info exists icv(fill,met1_direction)] ? $icv(fill,met1_direction) : "HORIZONTAL"}]
     handle_info "  M1 direction: $m1_dir"
 }
 
@@ -66,9 +69,9 @@ flow_proc setup_fill_environment {
 flow_proc run_beol_fill {
     handle_info "ICV-RM: Running BEOL metal fill..."
 
-    set num_cpus [expr {[info exists pv(fill,num_cpus)] ? $pv(fill,num_cpus) : 8}]
-    set beol_runset [expr {[info exists pv(fill,beol_runset)] ? $pv(fill,beol_runset) : ""}]
-    set lib_format [expr {[info exists pv(icv,library_format)] ? $pv(icv,library_format) : "GDSII"}]
+    set num_cpus [expr {[info exists icv(fill,num_cpus)] ? $icv(fill,num_cpus) : 8}]
+    set beol_runset [expr {[info exists icv(fill,beol_runset)] ? $icv(fill,beol_runset) : ""}]
+    set lib_format [expr {[info exists icv(icv,library_format)] ? $icv(icv,library_format) : "GDSII"}]
 
     # ICV-RM: Build icv command for BEOL fill
     set icv_args ""
@@ -82,8 +85,8 @@ flow_proc run_beol_fill {
     }
 
     # Include paths
-    if {[info exists pv(icv,include_paths)] && $pv(icv,include_paths) ne ""} {
-        foreach ipath $pv(icv,include_paths) {
+    if {[info exists icv(icv,include_paths)] && $icv(icv,include_paths) ne ""} {
+        foreach ipath $icv(icv,include_paths) {
             append icv_args " -I $ipath"
         }
     }
@@ -106,8 +109,8 @@ flow_proc run_beol_fill {
 flow_proc run_feol_fill {
     handle_info "ICV-RM: Running FEOL fill..."
 
-    set num_cpus [expr {[info exists pv(fill,num_cpus)] ? $pv(fill,num_cpus) : 8}]
-    set feol_runset [expr {[info exists pv(fill,feol_runset)] ? $pv(fill,feol_runset) : ""}]
+    set num_cpus [expr {[info exists icv(fill,num_cpus)] ? $icv(fill,num_cpus) : 8}]
+    set feol_runset [expr {[info exists icv(fill,feol_runset)] ? $icv(fill,feol_runset) : ""}]
 
     if {$feol_runset ne "" && [file exists $feol_runset]} {
         handle_info "  FEOL runset: [file tail $feol_runset]"
@@ -126,9 +129,9 @@ flow_proc run_feol_fill {
 flow_proc run_od_fill {
     handle_info "ICV-RM: Running OD fill..."
 
-    set num_cpus [expr {[info exists pv(fill,num_cpus)] ? $pv(fill,num_cpus) : 4}]
-    set od_runset [expr {[info exists pv(odfill,runset)] ? $pv(odfill,runset) : ""}]
-    set lib_format [expr {[info exists pv(icv,library_format)] ? $pv(icv,library_format) : "GDSII"}]
+    set num_cpus [expr {[info exists icv(fill,num_cpus)] ? $icv(fill,num_cpus) : 4}]
+    set od_runset [expr {[info exists icv(odfill,runset)] ? $icv(odfill,runset) : ""}]
+    set lib_format [expr {[info exists icv(icv,library_format)] ? $icv(icv,library_format) : "GDSII"}]
 
     if {$od_runset ne "" && [file exists $od_runset]} {
         handle_info "  OD fill runset: [file tail $od_runset]"

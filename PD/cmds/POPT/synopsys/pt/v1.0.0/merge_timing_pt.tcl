@@ -19,6 +19,9 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::
 # Source user_config for overrides
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 global popt project tech flow
+# Source PT tool config
+set _tool_config "[file dirname [info script]]/pt_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting POPT merge_timing with Synopsys PrimeTime..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -98,8 +101,8 @@ flow_proc merge_timing_data {
     foreach scenario $scenarios {
         handle_info "Updating timing for corner: $scenario"
         update_timing -full
-        report_timing -delay max -max_paths [expr {[info exists popt(analysis,max_paths)] ? $popt(analysis,max_paths) : 100}] > "$rpt_dir/setup_${scenario}.rpt"
-        report_timing -delay min -max_paths [expr {[info exists popt(analysis,max_paths)] ? $popt(analysis,max_paths) : 100}] > "$rpt_dir/hold_${scenario}.rpt"
+        report_timing -delay max -max_paths [expr {[info exists pt(analysis,max_paths)] ? $pt(analysis,max_paths) : 100}] > "$rpt_dir/setup_${scenario}.rpt"
+        report_timing -delay min -max_paths [expr {[info exists pt(analysis,max_paths)] ? $pt(analysis,max_paths) : 100}] > "$rpt_dir/hold_${scenario}.rpt"
     }
 
     # Run cross-scenario timing merge
@@ -129,12 +132,12 @@ flow_proc generate_merged_report {
     set res_dir "$::OUTPUTS_DIR/popt"
 
     # Setup timing report across all scenarios
-    report_timing -delay max -max_paths [expr {[info exists popt(analysis,max_paths)] ? $popt(analysis,max_paths) : 100}] -nworst 3 \
+    report_timing -delay max -max_paths [expr {[info exists pt(analysis,max_paths)] ? $pt(analysis,max_paths) : 100}] -nworst 3 \
         > "$rpt_dir/merged_setup_timing.rpt"
     handle_info "Generated merged setup timing report"
 
     # Hold timing report across all scenarios
-    report_timing -delay min -max_paths [expr {[info exists popt(analysis,max_paths)] ? $popt(analysis,max_paths) : 100}] -nworst 3 \
+    report_timing -delay min -max_paths [expr {[info exists pt(analysis,max_paths)] ? $pt(analysis,max_paths) : 100}] -nworst 3 \
         > "$rpt_dir/merged_hold_timing.rpt"
     handle_info "Generated merged hold timing report"
 

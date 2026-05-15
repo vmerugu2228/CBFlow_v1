@@ -14,6 +14,9 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/FP/init_design1/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global fp project tech flow
+# Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting FP init_design..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -48,8 +51,8 @@ flow_proc create_design_library {
     set run_dir $::env(CBFLOW_RUN_DIR)
     file mkdir "$run_dir/work/FP/init_design1/run"
 
-    set design_name [expr {[info exists fp(design_name)] ? $fp(design_name) : $flow(design_name)}]
-    set lib_name [expr {[info exists fp(design_lib_name)] ? $fp(design_lib_name) : "${design_name}.nlib"}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
+    set lib_name [expr {[info exists fc(common,design_lib_name)] ? $fc(common,design_lib_name) : "${design_name}.nlib"}]
 
     # Delete existing library if present
     if {[file exists $lib_name]} {
@@ -72,7 +75,7 @@ flow_proc create_design_library {
 
     # Sub-block abstract NDM libs -- only for hierarchical designs
     set chip_type "flat"
-    if {[info exists fp(chip_type)]} { set chip_type $fp(chip_type) }
+    if {[info exists fc(common,chip_type)]} { set chip_type $fc(common,chip_type) }
     if {$chip_type eq "hierarchical" && [info exists tech(ndm,sub_blocks)] && [llength $tech(ndm,sub_blocks)] > 0} {
         foreach lib $tech(ndm,sub_blocks) {
             if {$lib ne ""} { lappend ref_libs $lib }
@@ -172,17 +175,17 @@ flow_proc read_design {
     handle_info "Reading design..."
     global fp flow
 
-    set design_name [expr {[info exists fp(design_name)] ? $fp(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
     # Read synthesized netlist
     if {[info exists fp(input,netlist)] && $fp(input,netlist) ne ""} {
         handle_info "Reading netlist: $fp(input,netlist)"
         read_verilog -top $design_name $fp(input,netlist)
-    } elseif {[info exists fp(input_netlist)] && $fp(input_netlist) ne ""} {
-        handle_info "Reading netlist: $fp(input_netlist)"
-        read_verilog -top $design_name $fp(input_netlist)
+    } elseif {[info exists fc(common,input_netlist)] && $fc(common,input_netlist) ne ""} {
+        handle_info "Reading netlist: $fc(common,input_netlist)"
+        read_verilog -top $design_name $fc(common,input_netlist)
     } else {
-        handle_error "No netlist specified -- set fp(input,netlist) or fp(input_netlist)"
+        handle_error "No netlist specified -- set fp(input,netlist) or fc(common,input_netlist)"
         return -code error "Missing netlist"
     }
 
@@ -209,8 +212,8 @@ flow_proc setup_technology {
 
     # Set technology node
     set tech_node ""
-    if {[info exists fp(technology_node)] && $fp(technology_node) ne ""} {
-        set tech_node $fp(technology_node)
+    if {[info exists fc(common,technology_node)] && $fc(common,technology_node) ne ""} {
+        set tech_node $fc(common,technology_node)
     } elseif {[info exists tech(node)] && $tech(node) ne ""} {
         set tech_node $tech(node)
     }
@@ -250,8 +253,8 @@ flow_proc load_constraints {
             handle_info "Reading SDC: $fp(input,sdc_file)"
             read_sdc $fp(input,sdc_file)
         }
-    } elseif {[info exists fp(input_sdc)] && $fp(input_sdc) ne ""} {
-        foreach sdc_file $fp(input_sdc) {
+    } elseif {[info exists fc(common,input_sdc)] && $fc(common,input_sdc) ne ""} {
+        foreach sdc_file $fc(common,input_sdc) {
             if {[file exists $sdc_file]} {
                 handle_info "Reading SDC: $sdc_file"
                 read_sdc $sdc_file
@@ -266,16 +269,16 @@ flow_proc load_constraints {
             load_upf $fp(input,upf_file)
 
             # Supplemental UPF
-            if {[info exists fp(input_upf_supplemental)] && [file exists $fp(input_upf_supplemental)]} {
-                handle_info "Loading supplemental UPF: $fp(input_upf_supplemental)"
-                load_upf -supplemental $fp(input_upf_supplemental)
+            if {[info exists fc(common,input_upf_supplemental)] && [file exists $fc(common,input_upf_supplemental)]} {
+                handle_info "Loading supplemental UPF: $fc(common,input_upf_supplemental)"
+                load_upf -supplemental $fc(common,input_upf_supplemental)
             }
 
             handle_info "Committing UPF..."
             commit_upf
         }
-    } elseif {[info exists fp(input_upf)] && $fp(input_upf) ne ""} {
-        foreach upf_file $fp(input_upf) {
+    } elseif {[info exists fc(common,input_upf)] && $fc(common,input_upf) ne ""} {
+        foreach upf_file $fc(common,input_upf) {
             if {[file exists $upf_file]} {
                 handle_info "Loading UPF: $upf_file"
                 load_upf $upf_file
@@ -296,8 +299,8 @@ flow_proc connect_power_ground {
     global fp
 
     # User PG connection script or automatic
-    if {[info exists fp(connect_pg_net_script)] && [file exists $fp(connect_pg_net_script)]} {
-        source -e $fp(connect_pg_net_script)
+    if {[info exists fc(common,connect_pg_net_script)] && [file exists $fc(common,connect_pg_net_script)]} {
+        source -e $fc(common,connect_pg_net_script)
     } else {
         connect_pg_net
     }
@@ -314,7 +317,7 @@ flow_proc save_design {
     global fp flow
 
     set run_dir $::env(CBFLOW_RUN_DIR)
-    set design_name [expr {[info exists fp(design_name)] ? $fp(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
     # Save UPF if applicable
     if {[info exists fp(input,upf_file)] && $fp(input,upf_file) ne ""} {
@@ -341,7 +344,7 @@ flow_proc generate_reports {
     set run_dir $::env(CBFLOW_RUN_DIR)
     file mkdir "$::REPORTS_DIR"
 
-    set max_paths [expr {[info exists fp(analysis,max_paths)] ? $fp(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists fc(analysis,max_paths)] ? $fc(analysis,max_paths) : 100}]
 
     # Core reports
     redirect -file $::REPORTS_DIR/report_qor.rpt { report_qor }

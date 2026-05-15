@@ -14,6 +14,9 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/FCFP/create_floorplan/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global fcfp project tech flow
+# Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting FCFP create_floorplan..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -43,13 +46,13 @@ flow_proc load_design {
     handle_info "Loading design for create_floorplan..."
     global fcfp flow
 
-    set design_name [expr {[info exists fcfp(design_name)] ? $fcfp(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
-    if {[info exists fcfp(open_lib)] && $fcfp(open_lib) ne ""} {
-        open_lib $fcfp(open_lib)
+    if {[info exists fc(common,open_lib)] && $fc(common,open_lib) ne ""} {
+        open_lib $fc(common,open_lib)
     }
 
-    set from_label [expr {[info exists fcfp(create_floorplan,from_label)] ? $fcfp(create_floorplan,from_label) : "init_compile"}]
+    set from_label [expr {[info exists fc(create_floorplan,from_label)] ? $fc(create_floorplan,from_label) : "init_compile"}]
     copy_block -from ${design_name}/${from_label} -to ${design_name}/create_floorplan
     current_block ${design_name}/create_floorplan
     link_block
@@ -65,20 +68,20 @@ flow_proc initialize_floorplan {
     handle_info "Initializing floorplan..."
     global fcfp tech
 
-    if {[info exists fcfp(floorplan,core_utilization)] && $fcfp(floorplan,core_utilization) ne ""} {
-        set fp_cmd "initialize_floorplan -core_utilization $fcfp(floorplan,core_utilization)"
-        if {[info exists fcfp(floorplan,core_offset)] && $fcfp(floorplan,core_offset) ne ""} {
-            append fp_cmd " -core_offset $fcfp(floorplan,core_offset)"
+    if {[info exists fc(floorplan,core_utilization)] && $fc(floorplan,core_utilization) ne ""} {
+        set fp_cmd "initialize_floorplan -core_utilization $fc(floorplan,core_utilization)"
+        if {[info exists fc(floorplan,core_offset)] && $fc(floorplan,core_offset) ne ""} {
+            append fp_cmd " -core_offset $fc(floorplan,core_offset)"
         }
-        if {[info exists fcfp(floorplan,core_aspect_ratio)] && $fcfp(floorplan,core_aspect_ratio) ne ""} {
-            append fp_cmd " -core_aspect_ratio $fcfp(floorplan,core_aspect_ratio)"
+        if {[info exists fc(floorplan,core_aspect_ratio)] && $fc(floorplan,core_aspect_ratio) ne ""} {
+            append fp_cmd " -core_aspect_ratio $fc(floorplan,core_aspect_ratio)"
         }
         handle_info "Running: $fp_cmd"
         eval $fp_cmd
-    } elseif {[info exists fcfp(floorplan,die_area)] && $fcfp(floorplan,die_area) ne ""} {
-        set fp_cmd "initialize_floorplan -die_area {$fcfp(floorplan,die_area)}"
-        if {[info exists fcfp(floorplan,core_area)] && $fcfp(floorplan,core_area) ne ""} {
-            append fp_cmd " -core_area {$fcfp(floorplan,core_area)}"
+    } elseif {[info exists fc(floorplan,die_area)] && $fc(floorplan,die_area) ne ""} {
+        set fp_cmd "initialize_floorplan -die_area {$fc(floorplan,die_area)}"
+        if {[info exists fc(floorplan,core_area)] && $fc(floorplan,core_area) ne ""} {
+            append fp_cmd " -core_area {$fc(floorplan,core_area)}"
         }
         handle_info "Running: $fp_cmd"
         eval $fp_cmd
@@ -88,8 +91,8 @@ flow_proc initialize_floorplan {
     }
 
     # Source track creation file
-    if {[info exists fcfp(floorplan,track_file)] && [file exists $fcfp(floorplan,track_file)]} {
-        source -e $fcfp(floorplan,track_file)
+    if {[info exists fc(floorplan,track_file)] && [file exists $fc(floorplan,track_file)]} {
+        source -e $fc(floorplan,track_file)
     }
 
     # Check design pre-floorplan
@@ -98,8 +101,8 @@ flow_proc initialize_floorplan {
     }
 
     # Source physical constraints (macro pre-placement, blockages, voltage areas)
-    if {[info exists fcfp(floorplan,physical_constraints)] && [file exists $fcfp(floorplan,physical_constraints)]} {
-        source -e $fcfp(floorplan,physical_constraints)
+    if {[info exists fc(floorplan,physical_constraints)] && [file exists $fc(floorplan,physical_constraints)]} {
+        source -e $fc(floorplan,physical_constraints)
         handle_info "Physical constraints applied"
     }
 
@@ -114,8 +117,8 @@ flow_proc place_macros {
     handle_info "Placing macros..."
     global fcfp
 
-    if {[info exists fcfp(floorplan,macro_constraints)] && [file exists $fcfp(floorplan,macro_constraints)]} {
-        source -e $fcfp(floorplan,macro_constraints)
+    if {[info exists fc(floorplan,macro_constraints)] && [file exists $fc(floorplan,macro_constraints)]} {
+        source -e $fc(floorplan,macro_constraints)
     }
 
     set all_macros [get_cells -quiet -physical_context -filter "design_type == macro"]
@@ -127,12 +130,12 @@ flow_proc place_macros {
         set_app_option -name plan.macro.macro_place_only -value true
         set cmd_options "-floorplan"
 
-        if {[info exists fcfp(floorplan,congestion_driven)] && $fcfp(floorplan,congestion_driven) ne ""} {
-            set_app_option -name plan.place.congestion_driven_mode -value $fcfp(floorplan,congestion_driven)
+        if {[info exists fc(floorplan,congestion_driven)] && $fc(floorplan,congestion_driven) ne ""} {
+            set_app_option -name plan.place.congestion_driven_mode -value $fc(floorplan,congestion_driven)
             set cmd_options "$cmd_options -congestion"
         }
-        if {[info exists fcfp(floorplan,timing_driven)] && $fcfp(floorplan,timing_driven) ne ""} {
-            set_app_option -name plan.place.timing_driven_mode -value $fcfp(floorplan,timing_driven)
+        if {[info exists fc(floorplan,timing_driven)] && $fc(floorplan,timing_driven) ne ""} {
+            set_app_option -name plan.place.timing_driven_mode -value $fc(floorplan,timing_driven)
             set cmd_options "$cmd_options -timing_driven"
         }
 
@@ -160,8 +163,8 @@ flow_proc insert_boundary_cells {
     handle_info "Inserting boundary cells..."
     global fcfp tech
 
-    if {[info exists fcfp(floorplan,boundary_cell_script)] && [file exists $fcfp(floorplan,boundary_cell_script)]} {
-        source -e $fcfp(floorplan,boundary_cell_script)
+    if {[info exists fc(floorplan,boundary_cell_script)] && [file exists $fc(floorplan,boundary_cell_script)]} {
+        source -e $fc(floorplan,boundary_cell_script)
     } elseif {[info exists tech(cells,boundary)] && $tech(cells,boundary) ne ""} {
         create_boundary_cells -left_boundary_cell $tech(cells,boundary) \
             -right_boundary_cell $tech(cells,boundary)
@@ -185,8 +188,8 @@ flow_proc insert_tap_cells {
     handle_info "Inserting tap cells..."
     global fcfp tech
 
-    if {[info exists fcfp(floorplan,tap_cell_script)] && [file exists $fcfp(floorplan,tap_cell_script)]} {
-        source -e $fcfp(floorplan,tap_cell_script)
+    if {[info exists fc(floorplan,tap_cell_script)] && [file exists $fc(floorplan,tap_cell_script)]} {
+        source -e $fc(floorplan,tap_cell_script)
     } elseif {[info exists tech(cells,well_tap)] && $tech(cells,well_tap) ne ""} {
         set tap_distance "30"
         if {[info exists tech(cells,well_tap_distance)]} {
@@ -221,7 +224,7 @@ flow_proc check_floorplan {
     }
 
     # Initial pin placement for downstream stages
-    if {[info exists fcfp(floorplan,place_pins)] && $fcfp(floorplan,place_pins)} {
+    if {[info exists fc(floorplan,place_pins)] && $fc(floorplan,place_pins)} {
         place_pins -self
         handle_info "Initial pin placement done"
     }
@@ -237,7 +240,7 @@ flow_proc create_abstracts {
     handle_info "Creating abstracts..."
     global fcfp
 
-    if {[info exists fcfp(create_abstract,enable)] && $fcfp(create_abstract,enable)} {
+    if {[info exists fc(create_abstract,enable)] && $fc(create_abstract,enable)} {
         create_abstract -read_only
         handle_info "Abstracts created"
     } else {
@@ -253,7 +256,7 @@ flow_proc save_design {
     handle_info "Saving create_floorplan block..."
     global fcfp flow
 
-    set design_name [expr {[info exists fcfp(design_name)] ? $fcfp(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
     save_lib -all
     save_block
@@ -268,7 +271,7 @@ flow_proc generate_reports {
     handle_info "Generating create_floorplan reports..."
     global fcfp
 
-    set max_paths [expr {[info exists fcfp(analysis,max_paths)] ? $fcfp(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists fc(analysis,max_paths)] ? $fc(analysis,max_paths) : 100}]
 
     redirect -file $::REPORTS_DIR/report_qor.rpt { report_qor }
     redirect -file $::REPORTS_DIR/report_timing.rpt {

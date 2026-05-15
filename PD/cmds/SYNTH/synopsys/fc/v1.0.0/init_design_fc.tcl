@@ -29,7 +29,10 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" &&
     set _tech_config "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
     if {[file exists $_tech_config]} {
         source -e $_tech_config
-        handle_info "Tech config loaded: $_tech_config"
+        # Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
+handle_info "Tech config loaded: $_tech_config"
     } else {
         handle_warning "Tech config not found: $_tech_config"
     }
@@ -82,7 +85,7 @@ flow_proc create_design_library {
     set run_dir $::env(CBFLOW_RUN_DIR)
     file mkdir "$run_dir/work/SYNTH/init_design1/run"
 
-    set design_name [expr {[info exists synth(design_name)] ? $synth(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
     # BUG FIX #6 (init): Use .nlib extension (not _lib) — FC uses .nlib format
     set lib_name "${design_name}.nlib"
 
@@ -118,7 +121,7 @@ flow_proc create_design_library {
     }
 
     # Sub-block abstract NDM libs — only for hierarchical designs
-    set chip_type [expr {[info exists synth(chip_type)] ? $synth(chip_type) : "flat"}]
+    set chip_type [expr {[info exists fc(common,chip_type)] ? $fc(common,chip_type) : "flat"}]
     if {$chip_type eq "hierarchical" && [info exists tech(ndm,sub_blocks)] && [llength $tech(ndm,sub_blocks)] > 0} {
         foreach lib $tech(ndm,sub_blocks) {
             if {$lib ne ""} { lappend ref_libs $lib }
@@ -221,7 +224,7 @@ flow_proc read_design {
     handle_info "Reading design..."
     global synth_pnr flow
 
-    set design_name [expr {[info exists synth(design_name)] ? $synth(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
     # FC-RM: set_svf for formality
     set_svf $::OUTPUTS_DIR/init_design.svf
@@ -247,7 +250,7 @@ flow_proc read_design {
     link_block
 
     # FC-RM: set_early_data_check_policy
-    if {[info exists synth(compile,qor_mode)] && $synth(compile,qor_mode) eq "early_design"} {
+    if {[info exists fc(compile,qor_mode)] && $fc(compile,qor_mode) eq "early_design"} {
         set_early_data_check_policy -policy lenient -if_not_exist
     }
 
@@ -317,8 +320,8 @@ flow_proc load_floorplan {
     }
 
     # FC-RM: Source switch connectivity and associate MV cells
-    if {[info exists synth(switch_connectivity_file)] && [file exists $synth(switch_connectivity_file)]} {
-        source -e $synth(switch_connectivity_file)
+    if {[info exists fc(common,switch_connectivity_file)] && [file exists $fc(common,switch_connectivity_file)]} {
+        source -e $fc(common,switch_connectivity_file)
         associate_mv_cell -power_switches
     }
 
@@ -364,9 +367,9 @@ flow_proc initialize_floorplan {
     }
 
     # FC-RM: initialize_floorplan with utilization target
-    set util [expr {[info exists synth(fp,core_utilization)] ? $synth(fp,core_utilization) : 0.70}]
-    set ratio [expr {[info exists synth(fp,aspect_ratio)] ? $synth(fp,aspect_ratio) : 1.0}]
-    set offset [expr {[info exists synth(fp,core_offset)] ? $synth(fp,core_offset) : "5 5 5 5"}]
+    set util [expr {[info exists fc(fp,core_utilization)] ? $fc(fp,core_utilization) : 0.70}]
+    set ratio [expr {[info exists fc(fp,aspect_ratio)] ? $fc(fp,aspect_ratio) : 1.0}]
+    set offset [expr {[info exists fc(fp,core_offset)] ? $fc(fp,core_offset) : "5 5 5 5"}]
 
     handle_info "  Utilization: $util, Aspect ratio: $ratio"
     initialize_floorplan -core_utilization $util \
@@ -398,7 +401,7 @@ flow_proc insert_physical_cells {
     # ── FC-RM: Tap cells (well tie) ──────────────────────────────────────────
     if {[info exists tech(cells,well_tap)] && $tech(cells,well_tap) ne ""} {
         set tap_cells [lindex $tech(cells,well_tap) 0]
-        set tap_dist [expr {[info exists synth(fp,tap_cell_distance)] ? $synth(fp,tap_cell_distance) : 30}]
+        set tap_dist [expr {[info exists fc(fp,tap_cell_distance)] ? $fc(fp,tap_cell_distance) : 30}]
 
         handle_info "  Inserting tap cells: $tap_cells (every ${tap_dist}um)"
         create_tap_cells -lib_cell $tap_cells \
@@ -431,9 +434,9 @@ flow_proc insert_physical_cells {
     }
 
     # ── FC-RM: Spare cells (optional) ────────────────────────────────────────
-    if {[info exists synth(spare_cells_file)] && [file exists $synth(spare_cells_file)]} {
-        handle_info "  Sourcing spare cells: $synth(spare_cells_file)"
-        source -e $synth(spare_cells_file)
+    if {[info exists fc(common,spare_cells_file)] && [file exists $fc(common,spare_cells_file)]} {
+        handle_info "  Sourcing spare cells: $fc(common,spare_cells_file)"
+        source -e $fc(common,spare_cells_file)
     }
 
     save_lib -all
@@ -449,7 +452,7 @@ flow_proc setup_design_checks {
     handle_info "Running design checks..."
     global synth_pnr flow
 
-    set design_name [expr {[info exists synth(design_name)] ? $synth(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
     # FC-RM: Uniquify design
     set_app_option -name design.uniquify_naming_style -value ${design_name}_%s_%d
@@ -476,7 +479,7 @@ flow_proc load_constraints {
     handle_info "Loading timing and power constraints..."
     global synth_pnr flow
 
-    set design_name [expr {[info exists synth(design_name)] ? $synth(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
     # BUG FIX #3 (init): FC uses 'source' for SDC, not 'read_sdc' (which halts)
     set sdc_file "$::SDC_DIR/${design_name}.sdc"
@@ -484,7 +487,7 @@ flow_proc load_constraints {
     source -e $sdc_file
 
     # Read UPF from inputs stage (already linked by inputs subnode)
-    if {[info exists synth(upf_mode)] && $synth(upf_mode) eq "golden"} {
+    if {[info exists fc(common,upf_mode)] && $fc(common,upf_mode) eq "golden"} {
         set_app_options -name mv.upf.enable_golden_upf -value true
     }
 
@@ -570,9 +573,9 @@ flow_proc setup_mcmm {
 
     # BUG FIX #2: MCMM — add FC create_mode/create_corner/create_scenario commands
     # FC-RM: Source user MCMM setup script if provided
-    if {[info exists synth(mcmm_setup_file)] && [file exists $synth(mcmm_setup_file)]} {
-        handle_info "Sourcing MCMM setup: $synth(mcmm_setup_file)"
-        source -e $synth(mcmm_setup_file)
+    if {[info exists fc(common,mcmm_setup_file)] && [file exists $fc(common,mcmm_setup_file)]} {
+        handle_info "Sourcing MCMM setup: $fc(common,mcmm_setup_file)"
+        source -e $fc(common,mcmm_setup_file)
     } else {
         # Auto-create MCMM from CBflow mmmc_config analysis_views
         handle_info "Creating MCMM scenarios from mmmc_config..."
@@ -639,10 +642,10 @@ flow_proc setup_mcmm {
 
     # Activate scenarios for init_design from mmmc_config
     # Priority: synth_pnr override > mmmc_config get_node_scenarios
-    if {[info exists synth(init_design,active_scenarios)] && $synth(init_design,active_scenarios) ne ""} {
+    if {[info exists fc(init_design,active_scenarios)] && $fc(init_design,active_scenarios) ne ""} {
         set_scenario_status -active false [get_scenarios -filter active]
-        set_scenario_status -active true $synth(init_design,active_scenarios)
-        handle_info "Active scenarios (user override): $synth(init_design,active_scenarios)"
+        set_scenario_status -active true $fc(init_design,active_scenarios)
+        handle_info "Active scenarios (user override): $fc(init_design,active_scenarios)"
     } elseif {[info commands get_node_scenarios] ne ""} {
         set node_scenarios [get_node_scenarios "synthesis" "all"]
         if {[llength $node_scenarios] > 0} {
@@ -653,9 +656,9 @@ flow_proc setup_mcmm {
     }
 
     # FC-RM: Design constraints (dont_touch, clock_gating, etc.)
-    if {[info exists synth(constraints_setup_file)] && [file exists $synth(constraints_setup_file)]} {
-        handle_info "Sourcing constraints setup: $synth(constraints_setup_file)"
-        source -e $synth(constraints_setup_file)
+    if {[info exists fc(common,constraints_setup_file)] && [file exists $fc(common,constraints_setup_file)]} {
+        handle_info "Sourcing constraints setup: $fc(common,constraints_setup_file)"
+        source -e $fc(common,constraints_setup_file)
     }
 
     # FC-RM: Remove propagated clocks (for ASCII/netlist input)
@@ -680,16 +683,16 @@ flow_proc setup_timing_variations {
     global synth_pnr tech
 
     # FC-RM: POCV setup (preferred over AOCV)
-    if {[info exists synth(pocv_setup_file)] && [file exists $synth(pocv_setup_file)]} {
-        handle_info "Sourcing POCV setup: $synth(pocv_setup_file)"
-        source -e $synth(pocv_setup_file)
+    if {[info exists fc(common,pocv_setup_file)] && [file exists $fc(common,pocv_setup_file)]} {
+        handle_info "Sourcing POCV setup: $fc(common,pocv_setup_file)"
+        source -e $fc(common,pocv_setup_file)
         set_app_options -name time.pocvm_enable_analysis -value true
         reset_app_options time.aocvm_enable_analysis
         handle_info "POCV analysis enabled"
-    } elseif {[info exists synth(aocv_setup_file)] && [file exists $synth(aocv_setup_file)]} {
+    } elseif {[info exists fc(common,aocv_setup_file)] && [file exists $fc(common,aocv_setup_file)]} {
         # FC-RM: AOCV setup (mutually exclusive with POCV)
-        handle_info "Sourcing AOCV setup: $synth(aocv_setup_file)"
-        source -e $synth(aocv_setup_file)
+        handle_info "Sourcing AOCV setup: $fc(common,aocv_setup_file)"
+        source -e $fc(common,aocv_setup_file)
         handle_info "AOCV analysis enabled"
     } elseif {[info exists tech(ocv,derate_file)] && [file exists $tech(ocv,derate_file)]} {
         handle_info "Sourcing OCV derate: $tech(ocv,derate_file)"
@@ -708,9 +711,9 @@ flow_proc setup_lib_cell_purpose {
     global synth_pnr tech
 
     # FC-RM: Source lib cell purpose file
-    if {[info exists synth(lib_cell_purpose_file)] && [file exists $synth(lib_cell_purpose_file)]} {
-        handle_info "Sourcing lib cell purpose: $synth(lib_cell_purpose_file)"
-        source -e $synth(lib_cell_purpose_file)
+    if {[info exists fc(common,lib_cell_purpose_file)] && [file exists $fc(common,lib_cell_purpose_file)]} {
+        handle_info "Sourcing lib cell purpose: $fc(common,lib_cell_purpose_file)"
+        source -e $fc(common,lib_cell_purpose_file)
     } elseif {[info exists tech(lib_cell_purpose_file)] && [file exists $tech(lib_cell_purpose_file)]} {
         handle_info "Sourcing lib cell purpose from tech: $tech(lib_cell_purpose_file)"
         source -e $tech(lib_cell_purpose_file)
@@ -736,9 +739,9 @@ flow_proc setup_clock_ndr {
     global synth_pnr tech
 
     # FC-RM: Source CTS NDR rule file
-    if {[info exists synth(cts_ndr_file)] && [file exists $synth(cts_ndr_file)]} {
-        handle_info "Sourcing CTS NDR rules: $synth(cts_ndr_file)"
-        source -e $synth(cts_ndr_file)
+    if {[info exists fc(common,cts_ndr_file)] && [file exists $fc(common,cts_ndr_file)]} {
+        handle_info "Sourcing CTS NDR rules: $fc(common,cts_ndr_file)"
+        source -e $fc(common,cts_ndr_file)
     } elseif {[info exists tech(cts_ndr_file)] && [file exists $tech(cts_ndr_file)]} {
         source -e $tech(cts_ndr_file)
     }
@@ -765,8 +768,8 @@ flow_proc setup_placement_constraints {
     global synth_pnr
 
     # FC-RM: Source placement constraint files
-    if {[info exists synth(placement_constraint_files)] && [llength $synth(placement_constraint_files)] > 0} {
-        foreach file $synth(placement_constraint_files) {
+    if {[info exists fc(common,placement_constraint_files)] && [llength $fc(common,placement_constraint_files)] > 0} {
+        foreach file $fc(common,placement_constraint_files) {
             if {[file exists $file]} {
                 handle_info "Sourcing placement constraint: $file"
                 source -e $file
@@ -775,8 +778,8 @@ flow_proc setup_placement_constraints {
     }
 
     # FC-RM: Additional floorplan constraints
-    if {[info exists synth(additional_floorplan_file)] && [file exists $synth(additional_floorplan_file)]} {
-        source -e $synth(additional_floorplan_file)
+    if {[info exists fc(common,additional_floorplan_file)] && [file exists $fc(common,additional_floorplan_file)]} {
+        source -e $fc(common,additional_floorplan_file)
     }
 
     handle_info "Placement constraints applied"
@@ -794,17 +797,17 @@ flow_proc setup_power_activity {
     saif_map -start
 
     # FC-RM: read_saif
-    if {[info exists synth(saif_file)] && $synth(saif_file) ne ""} {
-        if {[file exists $synth(saif_file)]} {
-            set read_saif_cmd "read_saif $synth(saif_file)"
-            if {[info exists synth(saif_power_scenario)] && $synth(saif_power_scenario) ne ""} {
-                lappend read_saif_cmd -scenarios $synth(saif_power_scenario)
+    if {[info exists fc(common,saif_file)] && $fc(common,saif_file) ne ""} {
+        if {[file exists $fc(common,saif_file)]} {
+            set read_saif_cmd "read_saif $fc(common,saif_file)"
+            if {[info exists fc(common,saif_power_scenario)] && $fc(common,saif_power_scenario) ne ""} {
+                lappend read_saif_cmd -scenarios $fc(common,saif_power_scenario)
             }
-            if {[info exists synth(saif_source_instance)] && $synth(saif_source_instance) ne ""} {
-                lappend read_saif_cmd -strip_path $synth(saif_source_instance)
+            if {[info exists fc(common,saif_source_instance)] && $fc(common,saif_source_instance) ne ""} {
+                lappend read_saif_cmd -strip_path $fc(common,saif_source_instance)
             }
-            if {[info exists synth(saif_target_instance)] && $synth(saif_target_instance) ne ""} {
-                lappend read_saif_cmd -path $synth(saif_target_instance)
+            if {[info exists fc(common,saif_target_instance)] && $fc(common,saif_target_instance) ne ""} {
+                lappend read_saif_cmd -path $fc(common,saif_target_instance)
             }
             handle_info "Reading SAIF: $read_saif_cmd"
             eval $read_saif_cmd
@@ -813,7 +816,7 @@ flow_proc setup_power_activity {
 
     # FC-RM: Infer switching activity if total_power metric and no simulated activity
     set qor_metric "timing"
-    if {[info exists synth(compile,qor_metric)]} { set qor_metric $synth(compile,qor_metric) }
+    if {[info exists fc(compile,qor_metric)]} { set qor_metric $fc(compile,qor_metric) }
     if {$qor_metric eq "total_power"} {
         catch {
             foreach sce [get_object_name [get_scenarios -filter "dynamic_power"]] {
@@ -835,9 +838,9 @@ flow_proc setup_dft {
     global synth_pnr
 
     # FC-RM: DFT ports file
-    if {[info exists synth(dft_ports_file)] && [file exists $synth(dft_ports_file)]} {
-        handle_info "Sourcing DFT ports: $synth(dft_ports_file)"
-        source -e $synth(dft_ports_file)
+    if {[info exists fc(common,dft_ports_file)] && [file exists $fc(common,dft_ports_file)]} {
+        handle_info "Sourcing DFT ports: $fc(common,dft_ports_file)"
+        source -e $fc(common,dft_ports_file)
     }
 
     handle_info "DFT setup completed"
@@ -852,8 +855,8 @@ flow_proc connect_power_ground {
     global synth_pnr
 
     # FC-RM: User PG connection script or automatic
-    if {[info exists synth(connect_pg_net_script)] && [file exists $synth(connect_pg_net_script)]} {
-        source -e $synth(connect_pg_net_script)
+    if {[info exists fc(common,connect_pg_net_script)] && [file exists $fc(common,connect_pg_net_script)]} {
+        source -e $fc(common,connect_pg_net_script)
     } else {
         connect_pg_net
     }
@@ -869,8 +872,8 @@ flow_proc set_qor_strategy_init {
     handle_info "Setting QoR strategy..."
     global synth_pnr
 
-    set metric [expr {[info exists synth(compile,qor_metric)] ? $synth(compile,qor_metric) : "timing"}]
-    set mode [expr {[info exists synth(compile,qor_mode)] ? $synth(compile,qor_mode) : "balanced"}]
+    set metric [expr {[info exists fc(compile,qor_metric)] ? $fc(compile,qor_metric) : "timing"}]
+    set mode [expr {[info exists fc(compile,qor_mode)] ? $fc(compile,qor_mode) : "balanced"}]
 
     set_qor_strategy -stage pnr -metric $metric -mode $mode
 
@@ -891,8 +894,8 @@ flow_proc run_floorplan_checks {
     }
 
     # FC-RM: Floorplan rule script
-    if {[info exists synth(floorplan_rule_script)] && [file exists $synth(floorplan_rule_script)]} {
-        source -e $synth(floorplan_rule_script)
+    if {[info exists fc(common,floorplan_rule_script)] && [file exists $fc(common,floorplan_rule_script)]} {
+        source -e $fc(common,floorplan_rule_script)
     }
 
     handle_info "Floorplan checks completed"
@@ -907,11 +910,11 @@ flow_proc save_design {
     global synth_pnr flow
 
     set run_dir $::env(CBFLOW_RUN_DIR)
-    set design_name [expr {[info exists synth(design_name)] ? $synth(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
     # FC-RM: save_upf
     set upf_mode "none"
-    if {[info exists synth(upf_mode)]} { set upf_mode $synth(upf_mode) }
+    if {[info exists fc(common,upf_mode)]} { set upf_mode $fc(common,upf_mode) }
     file mkdir "$run_dir/outputs"
     if {$upf_mode eq "golden"} {
         save_upf ${run_dir}/outputs/init_design.supplemental.upf
@@ -922,7 +925,7 @@ flow_proc save_design {
     # FC-RM: save_lib -all, save_block
     save_lib -all
     save_block
-    if {[info exists synth(output,block_labeling)] && $synth(output,block_labeling)} {
+    if {[info exists fc(output,block_labeling)] && $fc(output,block_labeling)} {
         save_block -as ${design_name}/init_design
         handle_info "Block saved: ${design_name}/init_design"
     }
@@ -945,7 +948,7 @@ flow_proc generate_reports {
     set run_dir $::env(CBFLOW_RUN_DIR)
     file mkdir "$::REPORTS_DIR"
 
-    set max_paths [expr {[info exists synth(analysis,max_paths)] ? $synth(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists fc(analysis,max_paths)] ? $fc(analysis,max_paths) : 100}]
 
     # FC-RM: Core reports
     redirect -file $::REPORTS_DIR/report_qor.rpt { report_qor }

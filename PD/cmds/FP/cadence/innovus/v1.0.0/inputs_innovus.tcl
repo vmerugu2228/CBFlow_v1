@@ -42,6 +42,9 @@ if {[file exists $_release_utils]} { source $_release_utils }
 set _release_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
 if {[file exists $_release_config]} { source $_release_config }
 
+# Source INNOVUS tool config
+set _tool_config "[file dirname [info script]]/innovus_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting CBFlow FP inputs stage for Innovus"
 
 # Define common procedures used in config files
@@ -111,7 +114,7 @@ flow_proc resolve_inputs {
     handle_info "Resolving input files..."
     global fp flow project flow_input_handshake
 
-    set design_name [expr {[info exists fp(design_name)] ? $fp(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists innovus(common,design_name)] ? $innovus(common,design_name) : $flow(design_name)}]
 
     if {![namespace exists ::CBFlow::InputResolve]} {
         handle_info "Release input resolution not available — using direct paths only"

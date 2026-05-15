@@ -48,6 +48,9 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 
 global pnr project tech flow
+# Source INNOVUS tool config
+set _tool_config "[file dirname [info script]]/innovus_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting PNR route with Cadence Innovus..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -121,11 +124,11 @@ flow_proc setup_routing {
 
     # Get routing parameters from config
     global pnr
-    set route_effort   $pnr(route,effort)
-    set route_layers   $pnr(route,layers)
-    set via_opt        $pnr(route,via_opt)
-    set si_aware       $pnr(route,si_aware)
-    set timing_driven  [expr {[info exists pnr(route,timing_driven)]  ? $pnr(route,timing_driven)  : "true"}]
+    set route_effort   $innovus(route,effort)
+    set route_layers   $innovus(route,layers)
+    set via_opt        $innovus(route,via_opt)
+    set si_aware       $innovus(route,si_aware)
+    set timing_driven  [expr {[info exists innovus(route,timing_driven)]  ? $innovus(route,timing_driven)  : "true"}]
 
     handle_info "Routing parameters:"
     handle_info "  Effort: $route_effort"
@@ -166,7 +169,7 @@ flow_proc optimize_routing {
 
     # Post-route optimization
     global pnr
-    set optimization_effort $pnr(route,post_opt_effort)
+    set optimization_effort $innovus(route,post_opt_effort)
 
     handle_info "Post-route optimization effort: $optimization_effort"
 
@@ -184,7 +187,7 @@ flow_proc fix_violations {
 
     # Antenna fixing
     global pnr
-    set fix_antenna $pnr(route,fix_antenna)
+    set fix_antenna $innovus(route,fix_antenna)
     if {$fix_antenna eq "true"} {
         handle_info "Fixing antenna violations..."
         addAntennaDiode

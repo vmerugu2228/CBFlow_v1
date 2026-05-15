@@ -58,6 +58,9 @@ if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/
 # Declare global arrays
 global clp project tech flow
 
+# Source CONFORMAL_LP tool config
+set _tool_config "[file dirname [info script]]/conformal_lp_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting CLP verification stage with Cadence Conformal LP..."
 
 # Initialize flow namespace

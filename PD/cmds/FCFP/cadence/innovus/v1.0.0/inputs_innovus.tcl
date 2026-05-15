@@ -39,6 +39,9 @@ if {[file exists $_release_utils]} { source $_release_utils }
 set _release_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
 if {[file exists $_release_config]} { source $_release_config }
 
+# Source INNOVUS tool config
+set _tool_config "[file dirname [info script]]/innovus_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting FCFP inputs stage with Innovus..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"

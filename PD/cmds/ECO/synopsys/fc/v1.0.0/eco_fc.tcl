@@ -1,7 +1,7 @@
 #!/usr/bin/env tclsh
 # CBFlow ECO - Synopsys Fusion Compiler
 # FC-RM: timing_eco.tcl + functional_eco.tcl -- Unified ECO flow
-# Based on eco(eco,type): "timing" uses eco_opt, "functional" uses eco_netlist
+# Based on fc(eco,type): "timing" uses eco_opt, "functional" uses eco_netlist
 # Aligned with FC-RM Y-2026.03
 set run_dir $::env(CBFLOW_RUN_DIR)
 set env_file "$run_dir/.run.cbflow.tcl"
@@ -14,6 +14,9 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/ECO/eco1/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global eco project tech flow
+# Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting ECO (FC-RM Y-2026.03: timing_eco + functional_eco)..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -35,7 +38,7 @@ file mkdir $OUTPUTS_DIR
 
 # Determine ECO type early (used by multiple procs)
 set ::eco_type "timing"
-if {[info exists eco(eco,type)]} { set ::eco_type $eco(eco,type) }
+if {[info exists fc(eco,type)]} { set ::eco_type $fc(eco,type) }
 
 # ==============================================================================
 # flow_proc: load_design
@@ -45,8 +48,8 @@ flow_proc load_design {
     handle_info "Loading design for ECO ($::eco_type)..."
     global eco flow
 
-    set design_name [expr {[info exists eco(design_name)] ? $eco(design_name) : $flow(design_name)}]
-    set lib_name [expr {[info exists eco(design_lib_name)] ? $eco(design_lib_name) : "${design_name}.nlib"}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
+    set lib_name [expr {[info exists fc(common,design_lib_name)] ? $fc(common,design_lib_name) : "${design_name}.nlib"}]
 
     # FC-RM: Determine previous step based on ECO type
     set prev_step "chip_finish"
@@ -74,14 +77,14 @@ flow_proc configure_eco {
 
     # FC-RM: Set extraction mode (fusion_adv for timing ECO)
     set extraction_mode "fusion_adv"
-    if {[info exists eco(eco,extraction_mode)]} { set extraction_mode $eco(eco,extraction_mode) }
+    if {[info exists fc(eco,extraction_mode)]} { set extraction_mode $fc(eco,extraction_mode) }
     set_app_options -name extract.starrc_mode -value $extraction_mode
     handle_info "Extraction mode: $extraction_mode"
 
     # FC-RM: StarRC config
-    if {[info exists eco(eco,starrc_config)] && $eco(eco,starrc_config) ne ""} {
-        if {[file exists $eco(eco,starrc_config)]} {
-            set config [file normalize $eco(eco,starrc_config)]
+    if {[info exists fc(eco,starrc_config)] && $fc(eco,starrc_config) ne ""} {
+        if {[file exists $fc(eco,starrc_config)]} {
+            set config [file normalize $fc(eco,starrc_config)]
             set_starrc_in_design -config $config
             handle_info "StarRC config: $config"
         }
@@ -90,7 +93,7 @@ flow_proc configure_eco {
     # FC-RM: Set PBA mode for timing ECO
     if {$::eco_type eq "timing"} {
         set pba_mode "path"
-        if {[info exists eco(eco,pba_mode)]} { set pba_mode $eco(eco,pba_mode) }
+        if {[info exists fc(eco,pba_mode)]} { set pba_mode $fc(eco,pba_mode) }
         if {$pba_mode ne ""} {
             set_app_options -name time.pba_optimization_mode -value $pba_mode
             if {$pba_mode eq "exhaustive"} {
@@ -101,20 +104,20 @@ flow_proc configure_eco {
     }
 
     # FC-RM: Activate ECO scenarios
-    if {[info exists eco(eco,active_scenarios)] && $eco(eco,active_scenarios) ne ""} {
+    if {[info exists fc(eco,active_scenarios)] && $fc(eco,active_scenarios) ne ""} {
         set_scenario_status -active false [get_scenarios -filter active]
-        set_scenario_status -active true $eco(eco,active_scenarios)
-        handle_info "Active scenarios: $eco(eco,active_scenarios)"
+        set_scenario_status -active true $fc(eco,active_scenarios)
+        handle_info "Active scenarios: $fc(eco,active_scenarios)"
     }
 
     # FC-RM: Non-persistent settings
-    if {[info exists eco(non_persistent_script)] && [file exists $eco(non_persistent_script)]} {
-        source -e $eco(non_persistent_script)
+    if {[info exists fc(common,non_persistent_script)] && [file exists $fc(common,non_persistent_script)]} {
+        source -e $fc(common,non_persistent_script)
     }
 
     # FC-RM: User pre-ECO script
-    if {[info exists eco(eco_pre_script)] && [file exists $eco(eco_pre_script)]} {
-        source -e $eco(eco_pre_script)
+    if {[info exists fc(common,eco_pre_script)] && [file exists $fc(common,eco_pre_script)]} {
+        source -e $fc(common,eco_pre_script)
     }
 
     # FC-RM: Pre-ECO reports and checks
@@ -138,7 +141,7 @@ flow_proc detect_fillers {
 
     # FC-RM: Detect filler cell prefix
     set filler_prefix "FILL"
-    if {[info exists eco(eco,filler_cell_prefix)]} { set filler_prefix $eco(eco,filler_cell_prefix) }
+    if {[info exists fc(eco,filler_cell_prefix)]} { set filler_prefix $fc(eco,filler_cell_prefix) }
 
     # FC-RM: Check if fillers exist and remove them
     catch {
@@ -165,20 +168,20 @@ flow_proc detect_fillers {
 # ==============================================================================
 # flow_proc: apply_eco
 # FC-RM: timing_eco.tcl (eco_opt) OR functional_eco.tcl (eco_netlist)
-#         based on eco(eco,type)
+#         based on fc(eco,type)
 # ==============================================================================
 flow_proc apply_eco {
     handle_info "Applying $::eco_type ECO..."
     global eco flow
 
-    set design_name [expr {[info exists eco(design_name)] ? $eco(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
     if {$::eco_type eq "timing"} {
         # ── TIMING ECO ────────────────────────────────────────────────────────
         # FC-RM: eco_opt with PrimeClosure-Fusion or PT engine
 
         set engine "smsa"
-        if {[info exists eco(eco,engine)]} { set engine $eco(eco,engine) }
+        if {[info exists fc(eco,engine)]} { set engine $fc(eco,engine) }
 
         if {$engine eq "smsa" || $engine eq "PrimeClosure-Fusion"} {
             # FC-RM: eco_opt with SMSA (PrimeClosure-Fusion)
@@ -186,11 +189,11 @@ flow_proc apply_eco {
             set_eco_opt_options -eco_engine smsa
 
             set eco_cmd "eco_opt"
-            if {[info exists eco(eco,recipe)] && $eco(eco,recipe) ne ""} {
-                lappend eco_cmd -recipe $eco(eco,recipe)
+            if {[info exists fc(eco,recipe)] && $fc(eco,recipe) ne ""} {
+                lappend eco_cmd -recipe $fc(eco,recipe)
             }
-            if {[info exists eco(eco,custom_options)] && $eco(eco,custom_options) ne ""} {
-                append eco_cmd " $eco(eco,custom_options)"
+            if {[info exists fc(eco,custom_options)] && $fc(eco,custom_options) ne ""} {
+                append eco_cmd " $fc(eco,custom_options)"
             }
             handle_info "Running: $eco_cmd"
             eval $eco_cmd
@@ -200,16 +203,16 @@ flow_proc apply_eco {
             handle_info "Running eco_opt with PT engine"
             set_eco_opt_options -eco_engine pteco
 
-            if {[info exists eco(eco,pt_exec_path)] && $eco(eco,pt_exec_path) ne ""} {
-                set_pt_options -pt_exec $eco(eco,pt_exec_path)
+            if {[info exists fc(eco,pt_exec_path)] && $fc(eco,pt_exec_path) ne ""} {
+                set_pt_options -pt_exec $fc(eco,pt_exec_path)
             }
 
             # FC-RM: Pre-ECO PT QoR check
             redirect -file $::REPORTS_DIR/check_pt_qor.pre_eco { check_pt_qor }
 
             set eco_cmd "eco_opt"
-            if {[info exists eco(eco,custom_options)] && $eco(eco,custom_options) ne ""} {
-                append eco_cmd " $eco(eco,custom_options)"
+            if {[info exists fc(eco,custom_options)] && $fc(eco,custom_options) ne ""} {
+                append eco_cmd " $fc(eco,custom_options)"
             }
             handle_info "Running: $eco_cmd"
             eval $eco_cmd
@@ -238,7 +241,7 @@ flow_proc apply_eco {
 
                 # FC-RM: Determine ECO mode
                 set eco_mode "mpi"
-                if {[info exists eco(eco,mode)]} { set eco_mode $eco(eco,mode) }
+                if {[info exists fc(eco,mode)]} { set eco_mode $fc(eco,mode) }
 
                 if {$eco_mode eq "freeze_silicon"} {
                     # FC-RM: Freeze-silicon mode
@@ -273,7 +276,7 @@ flow_proc place_eco_cells {
     global eco
 
     set eco_mode "mpi"
-    if {[info exists eco(eco,mode)]} { set eco_mode $eco(eco,mode) }
+    if {[info exists fc(eco,mode)]} { set eco_mode $fc(eco,mode) }
 
     if {$eco_mode eq "freeze_silicon"} {
         # Already handled in apply_eco for freeze_silicon
@@ -289,7 +292,7 @@ flow_proc place_eco_cells {
     }
 
     # FC-RM: Legalize placement if configured
-    if {[info exists eco(eco,legalize_placement)] && $eco(eco,legalize_placement)} {
+    if {[info exists fc(eco,legalize_placement)] && $fc(eco,legalize_placement)} {
         redirect -file $::REPORTS_DIR/check_legality.post_place { check_legality }
     }
 
@@ -309,7 +312,7 @@ flow_proc route_eco_nets {
     route_eco -utilize_dangling_wires -reroute -open_net_driven
 
     # FC-RM: Incremental route_detail for DRC fix
-    if {[info exists eco(eco,incr_route_post)] && $eco(eco,incr_route_post)} {
+    if {[info exists fc(eco,incr_route_post)] && $fc(eco,incr_route_post)} {
         handle_info "Running incremental route_detail"
         route_detail -incremental true -initial_drc_from_input true
     }
@@ -367,8 +370,8 @@ flow_proc post_eco {
     redirect -file $::REPORTS_DIR/post_eco.check_routes { check_routes }
 
     # FC-RM: User post-ECO script
-    if {[info exists eco(eco_post_script)] && [file exists $eco(eco_post_script)]} {
-        source -e $eco(eco_post_script)
+    if {[info exists fc(common,eco_post_script)] && [file exists $fc(common,eco_post_script)]} {
+        source -e $fc(common,eco_post_script)
     }
 
     handle_info "Post-ECO tasks completed"
@@ -382,10 +385,10 @@ flow_proc save_design {
     handle_info "Saving ECO design..."
     global eco flow
 
-    set design_name [expr {[info exists eco(design_name)] ? $eco(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
     save_block
-    if {[info exists eco(output,block_labeling)] && $eco(output,block_labeling)} {
+    if {[info exists fc(output,block_labeling)] && $fc(output,block_labeling)} {
         save_block -as ${design_name}/${::eco_type}_eco
         handle_info "Block saved: ${design_name}/${::eco_type}_eco"
     }
@@ -402,7 +405,7 @@ flow_proc generate_reports {
     handle_info "Generating ECO reports..."
     global eco
 
-    set max_paths [expr {[info exists eco(analysis,max_paths)] ? $eco(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists fc(analysis,max_paths)] ? $fc(analysis,max_paths) : 100}]
 
     # FC-RM: Timing settings for post-route
     set_app_options -name time.delay_calc_waveform_analysis_mode -value full_design

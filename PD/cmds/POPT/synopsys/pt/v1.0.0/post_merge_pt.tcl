@@ -19,6 +19,9 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::
 # Source user_config for overrides
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 global popt project tech flow
+# Source PT tool config
+set _tool_config "[file dirname [info script]]/pt_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting POPT post_merge with Synopsys PrimeTime..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -42,8 +45,8 @@ flow_proc validate_merged_timing {
     update_timing -full
 
     # Resolve config-driven defaults
-    set _max_paths [expr {[info exists popt(analysis,max_paths)] ? $popt(analysis,max_paths) : 100}]
-    set _sig_digits [expr {[info exists popt(analysis,significant_digits)] ? $popt(analysis,significant_digits) : 4}]
+    set _max_paths [expr {[info exists pt(analysis,max_paths)] ? $pt(analysis,max_paths) : 100}]
+    set _sig_digits [expr {[info exists pt(analysis,significant_digits)] ? $pt(analysis,significant_digits) : 4}]
 
     # Setup timing analysis (max delay)
     handle_info "Running setup (max delay) analysis..."

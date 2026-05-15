@@ -59,6 +59,9 @@ if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/
 # Declare global arrays
 global lec project tech flow
 
+# Source FORMALITY tool config
+set _tool_config "[file dirname [info script]]/formality_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting LEC compare stage with Synopsys Formality..."
 
 # Initialize flow namespace

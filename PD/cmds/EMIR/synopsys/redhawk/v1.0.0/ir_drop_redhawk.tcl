@@ -26,6 +26,9 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::
 # Source user_config for overrides
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 global emir project tech flow
+# Source REDHAWK tool config
+set _tool_config "[file dirname [info script]]/redhawk_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting EMIR ir_drop with Synopsys RedHawk..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -45,35 +48,35 @@ flow_proc configure_ir {
     handle_info "Configuring IR drop analysis..."
 
     # Set IR drop thresholds
-    if {[info exists emir(ir,vdd_threshold)]} {
-        set ::ir_vdd_threshold $emir(ir,vdd_threshold)
+    if {[info exists redhawk(ir,vdd_threshold)]} {
+        set ::ir_vdd_threshold $redhawk(ir,vdd_threshold)
     } else {
         set ::ir_vdd_threshold 0.05
     }
 
-    if {[info exists emir(ir,vss_threshold)]} {
-        set ::ir_vss_threshold $emir(ir,vss_threshold)
+    if {[info exists redhawk(ir,vss_threshold)]} {
+        set ::ir_vss_threshold $redhawk(ir,vss_threshold)
     } else {
         set ::ir_vss_threshold 0.02
     }
 
     # Set supply voltage
-    if {[info exists emir(power,vdd_voltage)]} {
-        set ::ir_supply_voltage $emir(power,vdd_voltage)
+    if {[info exists redhawk(power,vdd_voltage)]} {
+        set ::ir_supply_voltage $redhawk(power,vdd_voltage)
     } else {
         set ::ir_supply_voltage 0.9
     }
 
     # EM threshold
-    if {[info exists emir(ir,em_threshold)]} {
-        set ::em_threshold $emir(ir,em_threshold)
+    if {[info exists redhawk(ir,em_threshold)]} {
+        set ::em_threshold $redhawk(ir,em_threshold)
     } else {
         set ::em_threshold 1.0
     }
 
     # Analysis mode
-    if {[info exists emir(ir,mode)]} {
-        set ::ir_mode $emir(ir,mode)
+    if {[info exists redhawk(ir,mode)]} {
+        set ::ir_mode $redhawk(ir,mode)
     } else {
         set ::ir_mode "both"
     }

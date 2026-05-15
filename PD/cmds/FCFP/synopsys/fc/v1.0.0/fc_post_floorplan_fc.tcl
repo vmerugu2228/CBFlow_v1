@@ -11,6 +11,9 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/FCFP/fc_post_floorplan/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global fcfp project tech flow
+# Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting FCFP fc_post_floorplan with Synopsys Fusion Compiler..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -116,12 +119,12 @@ flow_proc run_timing {
 
     # Setup timing
     redirect -file $::REPORTS_DIR/setup_timing.rpt {
-        report_timing -delay max -max_paths [expr {[info exists fcfp(analysis,max_paths)] ? $fcfp(analysis,max_paths) : 100}] -nworst 3
+        report_timing -delay max -max_paths [expr {[info exists fc(analysis,max_paths)] ? $fc(analysis,max_paths) : 100}] -nworst 3
     }
 
     # Hold timing
     redirect -file $::REPORTS_DIR/hold_timing.rpt {
-        report_timing -delay min -max_paths [expr {[info exists fcfp(analysis,max_paths)] ? $fcfp(analysis,max_paths) : 100}] -nworst 3
+        report_timing -delay min -max_paths [expr {[info exists fc(analysis,max_paths)] ? $fc(analysis,max_paths) : 100}] -nworst 3
     }
 
     # Clock tree estimation
@@ -192,7 +195,7 @@ flow_proc read_pin_constraints {
     }
 
     # Pre-pin-placement design check
-    if {[info exists fcfp(check_design)] && $fcfp(check_design)} {
+    if {[info exists fc(common,check_design)] && $fc(common,check_design)} {
         redirect -file $::REPORTS_DIR/check_design.pre_pin_placement {
             check_design -ems_database check_design.pre_pin_placement.ems -checks dp_pre_pin_placement
         }
@@ -248,7 +251,7 @@ flow_proc fix_port_placement {
     handle_info "Fixing port placement..."
     global fcfp
 
-    if {[info exists fcfp(fix_port_placement)] && $fcfp(fix_port_placement)} {
+    if {[info exists fc(common,fix_port_placement)] && $fc(common,fix_port_placement)} {
         set port_list [get_ports -quiet -filter "port_type!=power && port_type!=ground && physical_status==placed"]
         if {[sizeof_collection $port_list] > 0} {
             set_attribute $port_list physical_status "fixed"

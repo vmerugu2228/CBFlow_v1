@@ -12,6 +12,9 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/FCFP/fc_floorplan/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global fcfp project tech flow
+# Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting FCFP fc_floorplan with Synopsys Fusion Compiler..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -43,25 +46,25 @@ flow_proc initialize_floorplan {
     file mkdir "$::REPORTS_DIR"
 
     # FC-RM: Initialize floorplan using core_utilization, die_area, or core_area
-    if {[info exists fcfp(floorplan,core_utilization)] && $fcfp(floorplan,core_utilization) ne ""} {
+    if {[info exists fc(floorplan,core_utilization)] && $fc(floorplan,core_utilization) ne ""} {
         # Utilization-based floorplan initialization
-        set fp_cmd "initialize_floorplan -core_utilization $fcfp(floorplan,core_utilization)"
+        set fp_cmd "initialize_floorplan -core_utilization $fc(floorplan,core_utilization)"
 
-        if {[info exists fcfp(floorplan,core_offset)] && $fcfp(floorplan,core_offset) ne ""} {
-            append fp_cmd " -core_offset $fcfp(floorplan,core_offset)"
+        if {[info exists fc(floorplan,core_offset)] && $fc(floorplan,core_offset) ne ""} {
+            append fp_cmd " -core_offset $fc(floorplan,core_offset)"
         }
-        if {[info exists fcfp(floorplan,core_aspect_ratio)] && $fcfp(floorplan,core_aspect_ratio) ne ""} {
-            append fp_cmd " -core_aspect_ratio $fcfp(floorplan,core_aspect_ratio)"
+        if {[info exists fc(floorplan,core_aspect_ratio)] && $fc(floorplan,core_aspect_ratio) ne ""} {
+            append fp_cmd " -core_aspect_ratio $fc(floorplan,core_aspect_ratio)"
         }
 
         puts "CBflow-info: Running $fp_cmd"
         eval $fp_cmd
 
-    } elseif {[info exists fcfp(floorplan,die_area)] && $fcfp(floorplan,die_area) ne ""} {
+    } elseif {[info exists fc(floorplan,die_area)] && $fc(floorplan,die_area) ne ""} {
         # Explicit die_area and core_area specification
-        set fp_cmd "initialize_floorplan -die_area {$fcfp(floorplan,die_area)}"
-        if {[info exists fcfp(floorplan,core_area)] && $fcfp(floorplan,core_area) ne ""} {
-            append fp_cmd " -core_area {$fcfp(floorplan,core_area)}"
+        set fp_cmd "initialize_floorplan -die_area {$fc(floorplan,die_area)}"
+        if {[info exists fc(floorplan,core_area)] && $fc(floorplan,core_area) ne ""} {
+            append fp_cmd " -core_area {$fc(floorplan,core_area)}"
         }
 
         puts "CBflow-info: Running $fp_cmd"
@@ -74,8 +77,8 @@ flow_proc initialize_floorplan {
     }
 
     # FC-RM: Source track creation file if provided
-    if {[info exists fcfp(floorplan,track_file)] && $fcfp(floorplan,track_file) ne ""} {
-        source -e $fcfp(floorplan,track_file)
+    if {[info exists fc(floorplan,track_file)] && $fc(floorplan,track_file) ne ""} {
+        source -e $fc(floorplan,track_file)
         handle_info "Track creation file sourced"
     }
 
@@ -94,8 +97,8 @@ flow_proc initialize_floorplan {
         {check_floorplan_rules}
 
     # FC-RM: Source physical constraints (macro pre-placement, blockages, voltage areas)
-    if {[info exists fcfp(floorplan,physical_constraints)] && $fcfp(floorplan,physical_constraints) ne ""} {
-        source -e $fcfp(floorplan,physical_constraints)
+    if {[info exists fc(floorplan,physical_constraints)] && $fc(floorplan,physical_constraints) ne ""} {
+        source -e $fc(floorplan,physical_constraints)
         handle_info "Physical constraints applied"
     }
 
@@ -112,8 +115,8 @@ flow_proc place_macros {
     set run_dir $::env(CBFLOW_RUN_DIR)
 
     # FC-RM: Source auto-placement constraints
-    if {[info exists fcfp(floorplan,macro_constraints)] && $fcfp(floorplan,macro_constraints) ne ""} {
-        source -e $fcfp(floorplan,macro_constraints)
+    if {[info exists fc(floorplan,macro_constraints)] && $fc(floorplan,macro_constraints) ne ""} {
+        source -e $fc(floorplan,macro_constraints)
         handle_info "Macro placement constraints loaded"
     }
 
@@ -131,12 +134,12 @@ flow_proc place_macros {
         # FC-RM: Build placement command with optional congestion/timing
         set cmd_options "-floorplan"
 
-        if {[info exists fcfp(floorplan,congestion_driven)] && $fcfp(floorplan,congestion_driven) ne ""} {
-            set_app_option -name plan.place.congestion_driven_mode -value $fcfp(floorplan,congestion_driven)
+        if {[info exists fc(floorplan,congestion_driven)] && $fc(floorplan,congestion_driven) ne ""} {
+            set_app_option -name plan.place.congestion_driven_mode -value $fc(floorplan,congestion_driven)
             set cmd_options "$cmd_options -congestion"
         }
-        if {[info exists fcfp(floorplan,timing_driven)] && $fcfp(floorplan,timing_driven) ne ""} {
-            set_app_option -name plan.place.timing_driven_mode -value $fcfp(floorplan,timing_driven)
+        if {[info exists fc(floorplan,timing_driven)] && $fc(floorplan,timing_driven) ne ""} {
+            set_app_option -name plan.place.timing_driven_mode -value $fc(floorplan,timing_driven)
             set cmd_options "$cmd_options -timing_driven"
         }
 
@@ -181,9 +184,9 @@ flow_proc insert_tap_cells {
     set run_dir $::env(CBFLOW_RUN_DIR)
 
     # FC-RM: Tap cell insertion via node-specific sidefile or config
-    if {[info exists fcfp(floorplan,tap_cell_script)] && $fcfp(floorplan,tap_cell_script) ne ""} {
+    if {[info exists fc(floorplan,tap_cell_script)] && $fc(floorplan,tap_cell_script) ne ""} {
         # Source user-provided tap cell script
-        source -e $fcfp(floorplan,tap_cell_script)
+        source -e $fc(floorplan,tap_cell_script)
         handle_info "Tap cells inserted from script"
     } elseif {[info exists tech(cells,well_tap)] && $tech(cells,well_tap) ne ""} {
         # FC-RM: Insert well tap cells from technology config
@@ -218,8 +221,8 @@ flow_proc insert_boundary_cells {
     set run_dir $::env(CBFLOW_RUN_DIR)
 
     # FC-RM: Boundary cell insertion via node-specific sidefile or config
-    if {[info exists fcfp(floorplan,boundary_cell_script)] && $fcfp(floorplan,boundary_cell_script) ne ""} {
-        source -e $fcfp(floorplan,boundary_cell_script)
+    if {[info exists fc(floorplan,boundary_cell_script)] && $fc(floorplan,boundary_cell_script) ne ""} {
+        source -e $fc(floorplan,boundary_cell_script)
         handle_info "Boundary cells inserted from script"
     } elseif {[info exists tech(cells,boundary)] && $tech(cells,boundary) ne ""} {
         puts "CBflow-info: Inserting boundary cells: $tech(cells,boundary)"
@@ -245,7 +248,7 @@ flow_proc save_design_block {
     handle_info "Saving design block..."
     global fcfp project
 
-    if {[info exists fcfp(output,block_labeling)] && $fcfp(output,block_labeling)} {
+    if {[info exists fc(output,block_labeling)] && $fc(output,block_labeling)} {
         if {[info exists project(top_module)] && $project(top_module) ne ""} {
             set design_name $project(top_module)
         } else {

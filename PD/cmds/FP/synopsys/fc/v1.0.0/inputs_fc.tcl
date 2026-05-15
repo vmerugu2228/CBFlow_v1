@@ -11,6 +11,9 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/FP/inputs/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global fp project tech flow
+# Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting FP inputs with Synopsys Fusion Compiler..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -44,7 +47,7 @@ flow_proc resolve_inputs {
     handle_info "Resolving input files..."
     global fp flow project flow_input_handshake
 
-    set design_name [expr {[info exists fp(design_name)] ? $fp(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
     if {![namespace exists ::CBFlow::InputResolve]} {
         handle_info "Release input resolution not available — using direct paths only"
@@ -127,18 +130,18 @@ flow_proc read_libraries {
     set_app_var link_library "* $tech(target_lib) $tech(additional_libs)"
 
     # Create the design library with reference libs (NDM)
-    if {[info exists fp(ndm_libs)]} {
+    if {[info exists fc(common,ndm_libs)]} {
         set ref_lib_list [list]
-        foreach lib $fp(ndm_libs) {
+        foreach lib $fc(common,ndm_libs) {
             lappend ref_lib_list $lib
         }
         handle_info "Creating library with reference libs: $ref_lib_list"
-        create_lib $fp(design_lib_name) \
+        create_lib $fc(common,design_lib_name) \
             -technology $tech(tech_file) \
             -ref_libs $ref_lib_list
     } else {
-        handle_warning "No NDM reference libraries specified in fp(ndm_libs)"
-        create_lib $fp(design_lib_name) \
+        handle_warning "No NDM reference libraries specified in fc(common,ndm_libs)"
+        create_lib $fc(common,design_lib_name) \
             -technology $tech(tech_file)
     }
 
@@ -162,13 +165,13 @@ flow_proc read_design {
     global fp project
 
     # Read synthesized gate-level netlist
-    set netlist_file $fp(input_netlist)
+    set netlist_file $fc(common,input_netlist)
     if {![file exists $netlist_file]} {
         handle_error "Netlist file not found: $netlist_file"
         return -code error "Missing netlist"
     }
     handle_info "Reading Verilog netlist: $netlist_file"
-    read_verilog -design $fp(design_lib_name)/$fp(design_name) $netlist_file
+    read_verilog -design $fc(common,design_lib_name)/$fc(common,design_name) $netlist_file
 
     # Link the design
     handle_info "Linking design..."
@@ -190,8 +193,8 @@ flow_proc read_constraints {
     global fp
 
     # Read SDC timing constraints
-    if {[info exists fp(input_sdc)]} {
-        foreach sdc_file $fp(input_sdc) {
+    if {[info exists fc(common,input_sdc)]} {
+        foreach sdc_file $fc(common,input_sdc) {
             if {[file exists $sdc_file]} {
                 handle_info "Reading SDC: $sdc_file"
                 read_sdc $sdc_file
@@ -200,12 +203,12 @@ flow_proc read_constraints {
             }
         }
     } else {
-        handle_error "No SDC constraints specified in fp(input_sdc)"
+        handle_error "No SDC constraints specified in fc(common,input_sdc)"
     }
 
     # Read UPF power intent
-    if {[info exists fp(input_upf)]} {
-        foreach upf_file $fp(input_upf) {
+    if {[info exists fc(common,input_upf)]} {
+        foreach upf_file $fc(common,input_upf) {
             if {[file exists $upf_file]} {
                 handle_info "Reading UPF: $upf_file"
                 read_upf $upf_file

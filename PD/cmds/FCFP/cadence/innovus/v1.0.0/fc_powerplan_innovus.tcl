@@ -33,6 +33,9 @@ set OUTPUTS_DIR "$run_dir/outputs"
 file mkdir $REPORTS_DIR
 file mkdir $OUTPUTS_DIR
 
+# Source INNOVUS tool config
+set _tool_config "[file dirname [info script]]/innovus_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting FCFP fc_powerplan stage with Innovus..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -48,42 +51,42 @@ flow_proc create_power_rings {
     file mkdir "$::REPORTS_DIR"
 
     # Get power net names from config
-    if {[info exists fcfp(power,vdd_net)]} {
-        set vdd_net $fcfp(power,vdd_net)
+    if {[info exists innovus(power,vdd_net)]} {
+        set vdd_net $innovus(power,vdd_net)
     } else {
         set vdd_net "VDD"
     }
-    if {[info exists fcfp(power,vss_net)]} {
-        set vss_net $fcfp(power,vss_net)
+    if {[info exists innovus(power,vss_net)]} {
+        set vss_net $innovus(power,vss_net)
     } else {
         set vss_net "VSS"
     }
 
     # Get ring parameters from config
-    if {[info exists fcfp(power,ring_width)]} {
-        set ring_width $fcfp(power,ring_width)
+    if {[info exists innovus(power,ring_width)]} {
+        set ring_width $innovus(power,ring_width)
     } else {
         set ring_width 2.0
     }
-    if {[info exists fcfp(power,ring_spacing)]} {
-        set ring_spacing $fcfp(power,ring_spacing)
+    if {[info exists innovus(power,ring_spacing)]} {
+        set ring_spacing $innovus(power,ring_spacing)
     } else {
         set ring_spacing 1.0
     }
-    if {[info exists fcfp(power,ring_offset)]} {
-        set ring_offset $fcfp(power,ring_offset)
+    if {[info exists innovus(power,ring_offset)]} {
+        set ring_offset $innovus(power,ring_offset)
     } else {
         set ring_offset 2.0
     }
 
     # Get ring layers from config
-    if {[info exists fcfp(power,ring_layer_h)]} {
-        set ring_layer_h $fcfp(power,ring_layer_h)
+    if {[info exists innovus(power,ring_layer_h)]} {
+        set ring_layer_h $innovus(power,ring_layer_h)
     } else {
         set ring_layer_h "metal5"
     }
-    if {[info exists fcfp(power,ring_layer_v)]} {
-        set ring_layer_v $fcfp(power,ring_layer_v)
+    if {[info exists innovus(power,ring_layer_v)]} {
+        set ring_layer_v $innovus(power,ring_layer_v)
     } else {
         set ring_layer_v "metal6"
     }
@@ -102,10 +105,10 @@ flow_proc create_power_rings {
         -offset $ring_offset
 
     # Create block rings around macros if configured
-    if {[info exists fcfp(power,create_block_rings)] && $fcfp(power,create_block_rings) eq "true"} {
+    if {[info exists innovus(power,create_block_rings)] && $innovus(power,create_block_rings) eq "true"} {
         puts "   Creating block power rings..."
-        if {[info exists fcfp(power,block_ring_width)]} {
-            set block_ring_width $fcfp(power,block_ring_width)
+        if {[info exists innovus(power,block_ring_width)]} {
+            set block_ring_width $innovus(power,block_ring_width)
         } else {
             set block_ring_width 1.0
         }
@@ -130,29 +133,29 @@ flow_proc create_power_straps {
     handle_info "Creating power straps..."
 
     # Get power net names
-    if {[info exists fcfp(power,vdd_net)]} { set vdd_net $fcfp(power,vdd_net) } else { set vdd_net "VDD" }
-    if {[info exists fcfp(power,vss_net)]} { set vss_net $fcfp(power,vss_net) } else { set vss_net "VSS" }
+    if {[info exists innovus(power,vdd_net)]} { set vdd_net $innovus(power,vdd_net) } else { set vdd_net "VDD" }
+    if {[info exists innovus(power,vss_net)]} { set vss_net $innovus(power,vss_net) } else { set vss_net "VSS" }
 
     # Get strap parameters from config
-    if {[info exists fcfp(power,strap_width)]} {
-        set strap_width $fcfp(power,strap_width)
+    if {[info exists innovus(power,strap_width)]} {
+        set strap_width $innovus(power,strap_width)
     } else {
         set strap_width 1.0
     }
-    if {[info exists fcfp(power,strap_spacing)]} {
-        set strap_spacing $fcfp(power,strap_spacing)
+    if {[info exists innovus(power,strap_spacing)]} {
+        set strap_spacing $innovus(power,strap_spacing)
     } else {
         set strap_spacing 1.0
     }
-    if {[info exists fcfp(power,strap_pitch)]} {
-        set strap_pitch $fcfp(power,strap_pitch)
+    if {[info exists innovus(power,strap_pitch)]} {
+        set strap_pitch $innovus(power,strap_pitch)
     } else {
         set strap_pitch 20.0
     }
 
     # Horizontal straps
-    if {[info exists fcfp(power,strap_layer_h)]} {
-        set strap_layer_h $fcfp(power,strap_layer_h)
+    if {[info exists innovus(power,strap_layer_h)]} {
+        set strap_layer_h $innovus(power,strap_layer_h)
     } else {
         set strap_layer_h "metal5"
     }
@@ -166,8 +169,8 @@ flow_proc create_power_straps {
         -set_to_set_distance $strap_pitch
 
     # Vertical straps
-    if {[info exists fcfp(power,strap_layer_v)]} {
-        set strap_layer_v $fcfp(power,strap_layer_v)
+    if {[info exists innovus(power,strap_layer_v)]} {
+        set strap_layer_v $innovus(power,strap_layer_v)
     } else {
         set strap_layer_v "metal6"
     }
@@ -181,14 +184,14 @@ flow_proc create_power_straps {
         -set_to_set_distance $strap_pitch
 
     # Additional fine-pitch straps on lower layers if configured
-    if {[info exists fcfp(power,fine_strap_layer)] && [info exists fcfp(power,fine_strap_width)]} {
-        puts "Adding fine-pitch straps on $fcfp(power,fine_strap_layer)..."
+    if {[info exists innovus(power,fine_strap_layer)] && [info exists innovus(power,fine_strap_width)]} {
+        puts "Adding fine-pitch straps on $innovus(power,fine_strap_layer)..."
         addStripe -nets [list $vdd_net $vss_net] \
-            -layer $fcfp(power,fine_strap_layer) \
+            -layer $innovus(power,fine_strap_layer) \
             -direction vertical \
-            -width $fcfp(power,fine_strap_width) \
+            -width $innovus(power,fine_strap_width) \
             -spacing $strap_spacing \
-            -set_to_set_distance $fcfp(power,fine_strap_pitch)
+            -set_to_set_distance $innovus(power,fine_strap_pitch)
     }
 
     puts " Power straps created"
@@ -203,8 +206,8 @@ flow_proc connect_power {
     handle_info "Connecting power/ground nets..."
 
     # Get power net names
-    if {[info exists fcfp(power,vdd_net)]} { set vdd_net $fcfp(power,vdd_net) } else { set vdd_net "VDD" }
-    if {[info exists fcfp(power,vss_net)]} { set vss_net $fcfp(power,vss_net) } else { set vss_net "VSS" }
+    if {[info exists innovus(power,vdd_net)]} { set vdd_net $innovus(power,vdd_net) } else { set vdd_net "VDD" }
+    if {[info exists innovus(power,vss_net)]} { set vss_net $innovus(power,vss_net) } else { set vss_net "VSS" }
 
     # Connect VDD
     globalNetConnect $vdd_net -type pgpin -pin $vdd_net -inst * -override
@@ -215,13 +218,13 @@ flow_proc connect_power {
     puts "   Connected $vss_net to all instances"
 
     # Connect tie-high/tie-low cells if configured
-    if {[info exists fcfp(power,tie_high_net)]} {
-        globalNetConnect $fcfp(power,tie_high_net) -type tiehi -inst * -override
-        puts "   Connected tie-high: $fcfp(power,tie_high_net)"
+    if {[info exists innovus(power,tie_high_net)]} {
+        globalNetConnect $innovus(power,tie_high_net) -type tiehi -inst * -override
+        puts "   Connected tie-high: $innovus(power,tie_high_net)"
     }
-    if {[info exists fcfp(power,tie_low_net)]} {
-        globalNetConnect $fcfp(power,tie_low_net) -type tielo -inst * -override
-        puts "   Connected tie-low: $fcfp(power,tie_low_net)"
+    if {[info exists innovus(power,tie_low_net)]} {
+        globalNetConnect $innovus(power,tie_low_net) -type tielo -inst * -override
+        puts "   Connected tie-low: $innovus(power,tie_low_net)"
     }
 
     # Special route for power connections
@@ -286,13 +289,13 @@ flow_proc generate_report {
     if {[info exists project(top_module)]} { puts $fp "Design: $project(top_module)" }
     puts $fp ""
     puts $fp "Power Nets:"
-    if {[info exists fcfp(power,vdd_net)]} { puts $fp "  VDD: $fcfp(power,vdd_net)" }
-    if {[info exists fcfp(power,vss_net)]} { puts $fp "  VSS: $fcfp(power,vss_net)" }
+    if {[info exists innovus(power,vdd_net)]} { puts $fp "  VDD: $innovus(power,vdd_net)" }
+    if {[info exists innovus(power,vss_net)]} { puts $fp "  VSS: $innovus(power,vss_net)" }
     puts $fp ""
     puts $fp "Configuration:"
-    if {[info exists fcfp(power,ring_width)]} { puts $fp "  Ring width: $fcfp(power,ring_width)" }
-    if {[info exists fcfp(power,strap_width)]} { puts $fp "  Strap width: $fcfp(power,strap_width)" }
-    if {[info exists fcfp(power,strap_pitch)]} { puts $fp "  Strap pitch: $fcfp(power,strap_pitch)" }
+    if {[info exists innovus(power,ring_width)]} { puts $fp "  Ring width: $innovus(power,ring_width)" }
+    if {[info exists innovus(power,strap_width)]} { puts $fp "  Strap width: $innovus(power,strap_width)" }
+    if {[info exists innovus(power,strap_pitch)]} { puts $fp "  Strap pitch: $innovus(power,strap_pitch)" }
     puts $fp ""
     puts $fp "Reports:"
     puts $fp "  Power grid:    reports/fcfp/powerplan/power_grid_summary.rpt"

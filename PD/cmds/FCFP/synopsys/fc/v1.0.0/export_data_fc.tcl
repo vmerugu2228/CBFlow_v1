@@ -13,6 +13,9 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/FCFP/export_data/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global fcfp project tech flow
+# Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting FCFP export_data..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -42,13 +45,13 @@ flow_proc load_design {
     handle_info "Loading design for export_data..."
     global fcfp flow
 
-    set design_name [expr {[info exists fcfp(design_name)] ? $fcfp(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
-    if {[info exists fcfp(open_lib)] && $fcfp(open_lib) ne ""} {
-        open_lib $fcfp(open_lib)
+    if {[info exists fc(common,open_lib)] && $fc(common,open_lib) ne ""} {
+        open_lib $fc(common,open_lib)
     }
 
-    set from_label [expr {[info exists fcfp(export_data,from_label)] ? $fcfp(export_data,from_label) : "timing_budget"}]
+    set from_label [expr {[info exists fc(export_data,from_label)] ? $fc(export_data,from_label) : "timing_budget"}]
     open_block ${design_name}/${from_label}
     link_block
 
@@ -74,9 +77,9 @@ flow_proc write_def_output {
     handle_info "Exported: fcfp_floorplan_only.def"
 
     # Per-partition DEFs
-    if {[info exists fcfp(sub_blocks)] && [llength $fcfp(sub_blocks)] > 0} {
+    if {[info exists fc(common,sub_blocks)] && [llength $fc(common,sub_blocks)] > 0} {
         file mkdir "$res_dir/def/partitions"
-        foreach block $fcfp(sub_blocks) {
+        foreach block $fc(common,sub_blocks) {
             catch {
                 write_def -cell $block "$res_dir/def/partitions/${block}.def"
                 handle_info "Exported partition DEF: ${block}.def"
@@ -133,7 +136,7 @@ flow_proc save_design {
     handle_info "Saving export_data block..."
     global fcfp flow
 
-    set design_name [expr {[info exists fcfp(design_name)] ? $fcfp(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
     save_lib -all
     save_block -as ${design_name}/export_data

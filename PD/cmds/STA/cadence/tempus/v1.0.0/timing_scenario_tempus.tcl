@@ -52,6 +52,9 @@ set WORK_DIR    "$run_dir/work/$FLOW_TYPE/timing1/run"
 set REPORTS_DIR "$run_dir/reports/sta/$scenario_name"
 file mkdir $WORK_DIR $REPORTS_DIR
 
+# Source TEMPUS tool config
+set _tool_config "[file dirname [info script]]/tempus_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "═══════════════════════════════════════════════════════════"
 handle_info "  Tempus Per-Corner Timing: $scenario_name"
 handle_info "  Corner=$CORNER  Mode=$MODE  V=${VOLTAGE}V  T=${TEMPERATURE}C"
@@ -164,7 +167,7 @@ flow_proc update_timing_data {
 flow_proc run_setup_analysis {
     handle_info "Running SETUP analysis (late paths)..."
 
-    set max_paths [expr {[info exists sta(analysis,max_paths)] ? $sta(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists tempus(analysis,max_paths)] ? $tempus(analysis,max_paths) : 100}]
 
     # Setup timing
     report_timing -late \
@@ -196,7 +199,7 @@ flow_proc run_setup_analysis {
 flow_proc run_hold_analysis {
     handle_info "Running HOLD analysis (early paths)..."
 
-    set max_paths [expr {[info exists sta(analysis,max_paths)] ? $sta(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists tempus(analysis,max_paths)] ? $tempus(analysis,max_paths) : 100}]
 
     # Hold timing
     report_timing -early \
@@ -221,7 +224,7 @@ flow_proc run_hold_analysis {
 # STEP 7: POWER ANALYSIS
 # ═══════════════════════════════════════════════════════════════════════════════
 flow_proc run_power_analysis {
-    if {[info exists sta(analysis,report_power)] && $sta(analysis,report_power) eq "true"} {
+    if {[info exists tempus(analysis,report_power)] && $tempus(analysis,report_power) eq "true"} {
         handle_info "Running power analysis..."
         report_power > "$::REPORTS_DIR/power.rpt"
         report_power -hierarchy > "$::REPORTS_DIR/power_hierarchy.rpt"

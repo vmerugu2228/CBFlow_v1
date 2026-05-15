@@ -21,6 +21,9 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 
 global clp project tech flow
+# Source VC_LP tool config
+set _tool_config "[file dirname [info script]]/vc_lp_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting CLP inputs with Synopsys VC LP..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -46,7 +49,7 @@ flow_proc resolve_inputs {
     handle_info "Resolving input files..."
     global clp flow project flow_input_handshake
 
-    set design_name [expr {[info exists clp(design_name)] ? $clp(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists vc_lp(common,design_name)] ? $vc_lp(common,design_name) : $flow(design_name)}]
 
     if {![namespace exists ::CBFlow::InputResolve]} {
         handle_info "Release input resolution not available — using direct paths only"

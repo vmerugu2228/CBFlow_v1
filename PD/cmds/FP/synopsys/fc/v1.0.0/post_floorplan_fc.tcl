@@ -11,6 +11,9 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/FP/post_floorplan/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global fp project tech flow
+# Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting FP post_floorplan with Synopsys Fusion Compiler..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -100,8 +103,8 @@ flow_proc run_congestion_analysis {
 
     # Check for severe congestion
     handle_info "Checking congestion levels..."
-    if {[info exists fp(max_congestion_threshold)]} {
-        handle_info "Congestion threshold set to: $fp(max_congestion_threshold)%"
+    if {[info exists fc(common,max_congestion_threshold)]} {
+        handle_info "Congestion threshold set to: $fc(common,max_congestion_threshold)%"
     }
 
     handle_info "Congestion analysis completed"
@@ -121,12 +124,12 @@ flow_proc run_timing_estimation {
 
     # Report setup timing
     redirect -file $::REPORTS_DIR/timing_setup.rpt" {
-        report_timing -max_paths [expr {[info exists fp(analysis,max_paths)] ? $fp(analysis,max_paths) : 50}] -slack_lesser_than 0.0 -delay_type max
+        report_timing -max_paths [expr {[info exists fc(analysis,max_paths)] ? $fc(analysis,max_paths) : 50}] -slack_lesser_than 0.0 -delay_type max
     }
 
     # Report hold timing
     redirect -file $::REPORTS_DIR/timing_hold.rpt" {
-        report_timing -max_paths [expr {[info exists fp(analysis,max_paths)] ? $fp(analysis,max_paths) : 50}] -slack_lesser_than 0.0 -delay_type min
+        report_timing -max_paths [expr {[info exists fc(analysis,max_paths)] ? $fc(analysis,max_paths) : 50}] -slack_lesser_than 0.0 -delay_type min
     }
 
     # Report clock tree estimation
@@ -187,7 +190,7 @@ flow_proc generate_final_reports {
 
     # Save post-floorplan state
     handle_info "Saving post-floorplan state..."
-    save_block -as $fp(design_lib_name):$fp(design_name)/post_floorplan_done
+    save_block -as $fc(common,design_lib_name):$fc(common,design_name)/post_floorplan_done
 
     handle_info "Final reports generated in: $::REPORTS_DIR"
 }

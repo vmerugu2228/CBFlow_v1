@@ -14,6 +14,9 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/FCFP/inputs/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global fcfp project tech flow
+# Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting FCFP inputs..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -83,7 +86,7 @@ flow_proc read_libraries {
 
     set run_dir $::env(CBFLOW_RUN_DIR)
 
-    set lib_name [expr {[info exists fcfp(DESIGN_LIB)] ? $fcfp(DESIGN_LIB) : "FCFP_DESIGN_LIB"}]
+    set lib_name [expr {[info exists fc(common,DESIGN_LIB)] ? $fc(common,DESIGN_LIB) : "FCFP_DESIGN_LIB"}]
 
     if {[info exists tech(TECH_FILE)] && $tech(TECH_FILE) ne ""} {
         handle_info "Reading tech file: $tech(TECH_FILE)"
@@ -125,8 +128,8 @@ flow_proc read_hierarchical_design {
     set partition_dir "$run_dir/work/FCFP/inputs/partitions"
 
     # Read top-level netlist
-    if {[info exists fcfp(TOP_NETLIST)]} {
-        set top_netlist $fcfp(TOP_NETLIST)
+    if {[info exists fc(common,TOP_NETLIST)]} {
+        set top_netlist $fc(common,TOP_NETLIST)
     } else {
         set top_netlist [glob -nocomplain "$netlist_dir/*.v" "$netlist_dir/*.sv"]
     }
@@ -136,8 +139,8 @@ flow_proc read_hierarchical_design {
     }
 
     # Read partition netlists
-    if {[info exists fcfp(PARTITION_NETLISTS)]} {
-        set part_netlists $fcfp(PARTITION_NETLISTS)
+    if {[info exists fc(common,PARTITION_NETLISTS)]} {
+        set part_netlists $fc(common,PARTITION_NETLISTS)
     } else {
         set part_netlists [glob -nocomplain "$partition_dir/*.v" "$partition_dir/*.sv"]
     }
@@ -147,8 +150,8 @@ flow_proc read_hierarchical_design {
     }
 
     # Link design
-    if {[info exists fcfp(TOP_MODULE)]} {
-        set top $fcfp(TOP_MODULE)
+    if {[info exists fc(common,TOP_MODULE)]} {
+        set top $fc(common,TOP_MODULE)
     } elseif {[info exists project(DESIGN_NAME)]} {
         set top $project(DESIGN_NAME)
     } else {
@@ -172,8 +175,8 @@ flow_proc read_constraints {
     set run_dir $::env(CBFLOW_RUN_DIR)
     set sdc_dir "$run_dir/work/FCFP/inputs/sdc"
 
-    if {[info exists fcfp(SDC_FILES)]} {
-        set sdc_files $fcfp(SDC_FILES)
+    if {[info exists fc(common,SDC_FILES)]} {
+        set sdc_files $fc(common,SDC_FILES)
     } else {
         set sdc_files [glob -nocomplain "$sdc_dir/*.sdc"]
     }
@@ -182,15 +185,15 @@ flow_proc read_constraints {
         read_sdc $sdc
     }
 
-    if {[info exists fcfp(UPF_FILE)] && $fcfp(UPF_FILE) ne ""} {
-        handle_info "Reading UPF: $fcfp(UPF_FILE)"
-        load_upf $fcfp(UPF_FILE)
+    if {[info exists fc(common,UPF_FILE)] && $fc(common,UPF_FILE) ne ""} {
+        handle_info "Reading UPF: $fc(common,UPF_FILE)"
+        load_upf $fc(common,UPF_FILE)
         commit_upf
     }
 
-    if {[info exists fcfp(SCENARIO_SETUP)] && [file exists $fcfp(SCENARIO_SETUP)]} {
-        handle_info "Reading MCMM scenario setup: $fcfp(SCENARIO_SETUP)"
-        source -e $fcfp(SCENARIO_SETUP)
+    if {[info exists fc(common,SCENARIO_SETUP)] && [file exists $fc(common,SCENARIO_SETUP)]} {
+        handle_info "Reading MCMM scenario setup: $fc(common,SCENARIO_SETUP)"
+        source -e $fc(common,SCENARIO_SETUP)
     }
 
     handle_info "Constraints loaded"
@@ -248,19 +251,19 @@ flow_proc set_dp_qor_strategy {
 
     set qor_cmd "set_qor_strategy -stage compile_initial"
 
-    if {[info exists fcfp(compile,qor_metric)] && $fcfp(compile,qor_metric) ne ""} {
-        lappend qor_cmd -metric $fcfp(compile,qor_metric)
+    if {[info exists fc(compile,qor_metric)] && $fc(compile,qor_metric) ne ""} {
+        lappend qor_cmd -metric $fc(compile,qor_metric)
     } else {
         lappend qor_cmd -metric timing
     }
 
-    if {[info exists fcfp(compile,reduced_effort)] && $fcfp(compile,reduced_effort)} {
+    if {[info exists fc(compile,reduced_effort)] && $fc(compile,reduced_effort)} {
         lappend qor_cmd -reduced_effort
     }
 
-    if {[info exists fcfp(compile,active_scenarios)] && $fcfp(compile,active_scenarios) ne ""} {
+    if {[info exists fc(compile,active_scenarios)] && $fc(compile,active_scenarios) ne ""} {
         set_scenario_status -active false [get_scenarios -filter active]
-        set_scenario_status -active true $fcfp(compile,active_scenarios)
+        set_scenario_status -active true $fc(compile,active_scenarios)
     }
 
     handle_info "Running: $qor_cmd"
@@ -284,7 +287,7 @@ flow_proc run_early_compile {
     handle_info "Running early compile_fusion for area estimation..."
     global fcfp
 
-    set early_stage [expr {[info exists fcfp(compile,early_stage)] && $fcfp(compile,early_stage) ne "" ? $fcfp(compile,early_stage) : "initial_map"}]
+    set early_stage [expr {[info exists fc(compile,early_stage)] && $fc(compile,early_stage) ne "" ? $fc(compile,early_stage) : "initial_map"}]
 
     handle_info "compile_fusion -to $early_stage"
     compile_fusion -to $early_stage

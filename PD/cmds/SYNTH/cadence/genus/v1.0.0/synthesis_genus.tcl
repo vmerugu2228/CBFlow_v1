@@ -80,7 +80,10 @@ if {[file exists "$FLOW_DIR/config/SYNTH/synthesis_config.tcl"]} {
 set mmmc_config_file "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
 if {[file exists $mmmc_config_file]} {
     source $mmmc_config_file
-    handle_info "MMMC configuration loaded: $mmmc_config_file"
+    # Source GENUS tool config
+set _tool_config "[file dirname [info script]]/genus_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
+handle_info "MMMC configuration loaded: $mmmc_config_file"
 } else {
     handle_warning "MMMC config not found: $mmmc_config_file -- single-corner mode"
 }
@@ -313,32 +316,32 @@ flow_proc synthesize_design {
     puts " Starting synthesis and mapping..."
     
     # Configure synthesis options from hierarchical structure
-    if {[info exists synth(effort)]} {
-        set_db syn_opt_effort $synth(effort)
-        puts "Synthesis effort: $synth(effort)"
+    if {[info exists genus(common,effort)]} {
+        set_db syn_opt_effort $genus(common,effort)
+        puts "Synthesis effort: $genus(common,effort)"
     }
     
-    if {[info exists synth(effort,mapping)]} {
-        set_db syn_map_effort $synth(effort,mapping)
-        puts "Mapping effort: $synth(effort,mapping)"
+    if {[info exists genus(effort,mapping)]} {
+        set_db syn_map_effort $genus(effort,mapping)
+        puts "Mapping effort: $genus(effort,mapping)"
     }
     
     # Set timing-driven synthesis
-    if {[info exists synth(effort,timing)]} {
-        set_db syn_opt_timing_effort $synth(effort,timing)
-        puts "Timing effort: $synth(effort,timing)"
+    if {[info exists genus(effort,timing)]} {
+        set_db syn_opt_timing_effort $genus(effort,timing)
+        puts "Timing effort: $genus(effort,timing)"
     }
     
     # Set area-driven synthesis
-    if {[info exists synth(effort,area)]} {
-        set_db syn_opt_area_effort $synth(effort,area)
-        puts "Area effort: $synth(effort,area)"
+    if {[info exists genus(effort,area)]} {
+        set_db syn_opt_area_effort $genus(effort,area)
+        puts "Area effort: $genus(effort,area)"
     }
     
     # Set synthesis strategy
-    if {[info exists synth(strategy)]} {
-        puts "Synthesis strategy: $synth(strategy)"
-        switch $synth(strategy) {
+    if {[info exists genus(common,strategy)]} {
+        puts "Synthesis strategy: $genus(common,strategy)"
+        switch $genus(common,strategy) {
             "timing" {
                 set_db syn_opt_timing_driven true
                 set_db syn_opt_area_driven false
@@ -366,19 +369,19 @@ flow_proc synthesize_design {
     }
     
     # Configure boundary optimization
-    if {[info exists synth(optimization,boundary)]} {
-        set_db syn_opt_boundary_optimization $synth(optimization,boundary)
+    if {[info exists genus(optimization,boundary)]} {
+        set_db syn_opt_boundary_optimization $genus(optimization,boundary)
     }
     
     # Set design constraints from hierarchical structure
-    if {[info exists synth(constraints,max_fanout)]} {
-        set_db design_max_fanout $synth(constraints,max_fanout)
-        puts "Max fanout: $synth(constraints,max_fanout)"
+    if {[info exists genus(constraints,max_fanout)]} {
+        set_db design_max_fanout $genus(constraints,max_fanout)
+        puts "Max fanout: $genus(constraints,max_fanout)"
     }
     
-    if {[info exists synth(constraints,max_transition)]} {
-        set_db design_max_transition $synth(constraints,max_transition)
-        puts "Max transition: $synth(constraints,max_transition)"
+    if {[info exists genus(constraints,max_transition)]} {
+        set_db design_max_transition $genus(constraints,max_transition)
+        puts "Max transition: $genus(constraints,max_transition)"
     }
     
     # Run synthesis steps
@@ -399,27 +402,27 @@ flow_proc optimize_design {
     puts " Starting optimization..."
     
     # Set up optimization options from hierarchical structure
-    if {[info exists synth(area,recover_design_area)] && $synth(area,recover_design_area) eq "true"} {
+    if {[info exists genus(area,recover_design_area)] && $genus(area,recover_design_area) eq "true"} {
         set_db syn_opt_area_recovery true
         puts "Area recovery: enabled"
     }
     
     # Fix hold violations if required
-    if {[info exists synth(optimization,hold_fix)] && $synth(optimization,hold_fix) eq "true"} {
+    if {[info exists genus(optimization,hold_fix)] && $genus(optimization,hold_fix) eq "true"} {
         set_db syn_opt_fix_hold_all_clocks true
         puts "Hold violation fixing: enabled"
     }
     
     # Multi-Vt optimization
-    if {[info exists synth(optimization,multi_vt)] && $synth(optimization,multi_vt) eq "true"} {
+    if {[info exists genus(optimization,multi_vt)] && $genus(optimization,multi_vt) eq "true"} {
         set_db syn_opt_multiple_vt_optimization true
         puts "Multi-Vt optimization: enabled"
     }
     
     # Power optimization
-    if {[info exists synth(power,effort)] && $synth(power,effort) ne "none"} {
-        set_db syn_opt_power_effort $synth(power,effort)
-        puts "Power effort: $synth(power,effort)"
+    if {[info exists genus(power,effort)] && $genus(power,effort) ne "none"} {
+        set_db syn_opt_power_effort $genus(power,effort)
+        puts "Power effort: $genus(power,effort)"
     }
     
     # Run optimization
@@ -533,28 +536,28 @@ flow_proc save_outputs {
     file mkdir "$::OUTPUTS_DIR/sdc"
     
     # Save in different formats
-    if {![info exists synth(output,save_ddc)] || $synth(output,save_ddc) eq "true"} {
+    if {![info exists genus(output,save_ddc)] || $genus(output,save_ddc) eq "true"} {
         puts "Saving design database..."
         write_design -basename "$::OUTPUTS_DIR/synthesize"
     }
     
-    if {![info exists synth(output,save_verilog)] || $synth(output,save_verilog) eq "true"} {
+    if {![info exists genus(output,save_verilog)] || $genus(output,save_verilog) eq "true"} {
         puts "Saving Verilog netlist..."
         write_hdl > "$::OUTPUTS_DIR/netlist/synth.v"
     }
     
-    if {[info exists synth(output,save_sdf)] && $synth(output,save_sdf) eq "true"} {
+    if {[info exists genus(output,save_sdf)] && $genus(output,save_sdf) eq "true"} {
         puts "Saving SDF..."
         write_sdf > "$::OUTPUTS_DIR/netlist/synth.sdf"
     }
     
-    if {![info exists synth(output,save_constraints)] || $synth(output,save_constraints) eq "true"} {
+    if {![info exists genus(output,save_constraints)] || $genus(output,save_constraints) eq "true"} {
         puts "Saving constraints..."
         write_sdc > "$::OUTPUTS_DIR/sdc/synth.sdc"
     }
     
     # Generate Conformal scripts
-    if {[info exists synth(output,save_svf)] && $synth(output,save_svf) eq "true"} {
+    if {[info exists genus(output,save_svf)] && $genus(output,save_svf) eq "true"} {
         puts "Saving formal verification scripts..."
         file mkdir "$::OUTPUTS_DIR/fv_scripts"
         write_design_verification_files -dir "$::OUTPUTS_DIR/fv_scripts"
@@ -591,8 +594,8 @@ flow_proc save_outputs {
         puts $fp "  Physical: LEF files loaded"
     }
     puts $fp "  RTL Format: $synth(input,format)"
-    if {[info exists synth(strategy)]} {
-        puts $fp "  Strategy: $synth(strategy)"
+    if {[info exists genus(common,strategy)]} {
+        puts $fp "  Strategy: $genus(common,strategy)"
     }
     close $fp
     

@@ -58,6 +58,9 @@ if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/
 # Declare global arrays
 global lec project tech flow
 
+# Source FORMALITY tool config
+set _tool_config "[file dirname [info script]]/formality_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting LEC inputs stage..."
 
 # ── Directories ──────────────────────────────────────────────────────────────
@@ -81,7 +84,7 @@ flow_proc resolve_inputs {
     handle_info "Resolving input files..."
     global lec flow project flow_input_handshake
 
-    set design_name [expr {[info exists lec(design_name)] ? $lec(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists formality(common,design_name)] ? $formality(common,design_name) : $flow(design_name)}]
 
     if {![namespace exists ::CBFlow::InputResolve]} {
         handle_info "Release input resolution not available — using direct paths only"

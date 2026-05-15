@@ -17,6 +17,9 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/ECO/inputs/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global eco project tech flow
+# Source ICC2 tool config
+set _tool_config "[file dirname [info script]]/icc2_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting ECO inputs with Synopsys IC Compiler II..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -175,7 +178,7 @@ flow_proc validate_inputs {
     set run_dir $::env(CBFLOW_RUN_DIR)
     set errors {}
 
-    if {![info exists project(top_module)] && ![info exists eco(top_cell)]} {
+    if {![info exists project(top_module)] && ![info exists icc2(common,top_cell)]} {
         lappend errors "Top cell not defined"
     }
     if {[llength $::eco_change_files] == 0} {

@@ -31,7 +31,10 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" &&
     set _tech_config "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
     if {[file exists $_tech_config]} {
         source $_tech_config
-        handle_info "Tech config loaded: $_tech_config"
+        # Source INNOVUS tool config
+set _tool_config "[file dirname [info script]]/innovus_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
+handle_info "Tech config loaded: $_tech_config"
     } else {
         handle_warning "Tech config not found: $_tech_config"
     }
@@ -169,15 +172,15 @@ flow_proc read_design {
     handle_info "Reading design netlist..."
     global pnr project flow
 
-    set design_name [expr {[info exists pnr(design_name)] ? $pnr(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists innovus(common,design_name)] ? $innovus(common,design_name) : $flow(design_name)}]
     set top_module [expr {[info exists project(top_module)] ? $project(top_module) : $design_name}]
 
     # Read gate-level netlist from synthesis output
     set netlist_file ""
     if {[info exists pnr(input,netlist)] && $pnr(input,netlist) ne ""} {
         set netlist_file $pnr(input,netlist)
-    } elseif {[info exists pnr(input_netlist)] && $pnr(input_netlist) ne ""} {
-        set netlist_file $pnr(input_netlist)
+    } elseif {[info exists innovus(common,input_netlist)] && $innovus(common,input_netlist) ne ""} {
+        set netlist_file $innovus(common,input_netlist)
     } else {
         set netlist_file "$::NETLIST_DIR/${design_name}.v"
         if {![file exists $netlist_file]} {
@@ -208,7 +211,7 @@ flow_proc load_constraints {
     handle_info "Loading timing constraints..."
     global pnr flow
 
-    set design_name [expr {[info exists pnr(design_name)] ? $pnr(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists innovus(common,design_name)] ? $innovus(common,design_name) : $flow(design_name)}]
 
     # SDC constraints
     set sdc_file ""
@@ -258,9 +261,9 @@ flow_proc setup_mmmc {
     global analysis_views library_sets
 
     # User MMMC setup file (Innovus MMMC TCL)
-    if {[info exists pnr(mmmc_setup_file)] && [file exists $pnr(mmmc_setup_file)]} {
-        handle_info "Sourcing MMMC setup: $pnr(mmmc_setup_file)"
-        source $pnr(mmmc_setup_file)
+    if {[info exists innovus(common,mmmc_setup_file)] && [file exists $innovus(common,mmmc_setup_file)]} {
+        handle_info "Sourcing MMMC setup: $innovus(common,mmmc_setup_file)"
+        source $innovus(common,mmmc_setup_file)
         handle_info "MMMC setup completed from user script"
         return
     }
@@ -387,11 +390,11 @@ flow_proc run_init_design {
     handle_info "Running Innovus init_design..."
     global pnr project tech flow
 
-    set design_name [expr {[info exists pnr(design_name)] ? $pnr(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists innovus(common,design_name)] ? $innovus(common,design_name) : $flow(design_name)}]
 
     # Set power/ground nets
-    set pwr_net [expr {[info exists pnr(power_net)] ? $pnr(power_net) : "VDD"}]
-    set gnd_net [expr {[info exists pnr(ground_net)] ? $pnr(ground_net) : "VSS"}]
+    set pwr_net [expr {[info exists innovus(common,power_net)] ? $innovus(common,power_net) : "VDD"}]
+    set gnd_net [expr {[info exists innovus(common,ground_net)] ? $innovus(common,ground_net) : "VSS"}]
     set init_pwr_net $pwr_net
     set init_gnd_net $gnd_net
 
@@ -490,9 +493,9 @@ flow_proc setup_dont_use {
     }
 
     # Lib cell purpose file
-    if {[info exists pnr(lib_cell_purpose_file)] && [file exists $pnr(lib_cell_purpose_file)]} {
-        handle_info "Sourcing lib cell purpose: $pnr(lib_cell_purpose_file)"
-        source $pnr(lib_cell_purpose_file)
+    if {[info exists innovus(common,lib_cell_purpose_file)] && [file exists $innovus(common,lib_cell_purpose_file)]} {
+        handle_info "Sourcing lib cell purpose: $innovus(common,lib_cell_purpose_file)"
+        source $innovus(common,lib_cell_purpose_file)
     } elseif {[info exists tech(lib_cell_purpose_file)] && [file exists $tech(lib_cell_purpose_file)]} {
         handle_info "Sourcing lib cell purpose from tech: $tech(lib_cell_purpose_file)"
         source $tech(lib_cell_purpose_file)
@@ -548,7 +551,7 @@ flow_proc save_design {
     global pnr flow
 
     set run_dir $::env(CBFLOW_RUN_DIR)
-    set design_name [expr {[info exists pnr(design_name)] ? $pnr(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists innovus(common,design_name)] ? $innovus(common,design_name) : $flow(design_name)}]
 
     file mkdir "$run_dir/outputs"
 
@@ -577,7 +580,7 @@ flow_proc generate_reports {
 
     file mkdir "$::REPORTS_DIR"
 
-    set max_paths [expr {[info exists pnr(analysis,max_paths)] ? $pnr(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists innovus(analysis,max_paths)] ? $innovus(analysis,max_paths) : 100}]
 
     # Design summary
     catch { report_design -outfile "$::REPORTS_DIR/design_summary.rpt" }

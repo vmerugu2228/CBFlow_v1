@@ -27,6 +27,9 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::
 # Source user_config for overrides
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 global emir project tech flow
+# Source REDHAWK tool config
+set _tool_config "[file dirname [info script]]/redhawk_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting EMIR power/rail analysis with Synopsys RedHawk in-design..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -96,7 +99,7 @@ flow_proc configure_redhawk {
     }
 
     # ── EM tech file (for electromigration analysis) ──
-    if {[info exists emir(em,enable)] && $emir(em,enable)} {
+    if {[info exists redhawk(em,enable)] && $redhawk(em,enable)} {
         if {[info exists emir(input,em_tech_file)] && [file exists [which $emir(input,em_tech_file)]]} {
             handle_info "Setting EM tech file: $emir(input,em_tech_file)"
             set_app_options -name rail.em_only_tech_file -value $emir(input,em_tech_file)
@@ -138,8 +141,8 @@ flow_proc configure_redhawk {
 
     # ── Missing via threshold ──
     set_missing_via_check_options -exclude_stack_via -threshold -1
-    if {[info exists emir(ir_drop,missing_via_threshold)] && $emir(ir_drop,missing_via_threshold) ne ""} {
-        set_missing_via_check_options -exclude_stack_via -threshold $emir(ir_drop,missing_via_threshold)
+    if {[info exists redhawk(ir_drop,missing_via_threshold)] && $redhawk(ir_drop,missing_via_threshold) ne ""} {
+        set_missing_via_check_options -exclude_stack_via -threshold $redhawk(ir_drop,missing_via_threshold)
     }
 
     # ── Switch model files ──
@@ -183,22 +186,22 @@ flow_proc configure_analysis {
     handle_info "Configuring rail analysis parameters..."
 
     # ── Frequency ──
-    if {[info exists emir(power,frequency)] && $emir(power,frequency) ne ""} {
-        handle_info "Setting frequency: $emir(power,frequency)"
-        set_app_options -name rail.frequency -value $emir(power,frequency)
+    if {[info exists redhawk(power,frequency)] && $redhawk(power,frequency) ne ""} {
+        handle_info "Setting frequency: $redhawk(power,frequency)"
+        set_app_options -name rail.frequency -value $redhawk(power,frequency)
     }
 
     # ── Temperature ──
-    if {[info exists emir(thermal,temperature)] && $emir(thermal,temperature) ne ""} {
-        handle_info "Setting temperature: $emir(thermal,temperature)"
-        set_app_options -name rail.temperature -value $emir(thermal,temperature)
+    if {[info exists redhawk(thermal,temperature)] && $redhawk(thermal,temperature) ne ""} {
+        handle_info "Setting temperature: $redhawk(thermal,temperature)"
+        set_app_options -name rail.temperature -value $redhawk(thermal,temperature)
     }
 
     # ── Scenario ──
-    if {[info exists emir(power,scenario)] && $emir(power,scenario) ne ""} {
-        handle_info "Setting rail scenario: $emir(power,scenario)"
-        set_scenario_status $emir(power,scenario) -active true -setup true
-        set_app_options -name rail.scenario_name -value $emir(power,scenario)
+    if {[info exists redhawk(power,scenario)] && $redhawk(power,scenario) ne ""} {
+        handle_info "Setting rail scenario: $redhawk(power,scenario)"
+        set_scenario_status $redhawk(power,scenario) -active true -setup true
+        set_app_options -name rail.scenario_name -value $redhawk(power,scenario)
     } else {
         set current_scn [get_object_name [get_scenario [current_scenario]]]
         handle_info "Using current scenario: $current_scn"
@@ -212,14 +215,14 @@ flow_proc configure_analysis {
     }
 
     # ── Switching activity file ──
-    if {[info exists emir(power,switching_activity_file)] && $emir(power,switching_activity_file) ne ""} {
-        set ::emir_saif $emir(power,switching_activity_file)
+    if {[info exists redhawk(power,switching_activity_file)] && $redhawk(power,switching_activity_file) ne ""} {
+        set ::emir_saif $redhawk(power,switching_activity_file)
     } else {
         set ::emir_saif ""
     }
 
     # ── Use FC power ──
-    if {[info exists emir(power,use_fc_power)] && $emir(power,use_fc_power)} {
+    if {[info exists redhawk(power,use_fc_power)] && $redhawk(power,use_fc_power)} {
         set ::emir_use_fc_power 1
     } else {
         set ::emir_use_fc_power 0
@@ -242,19 +245,19 @@ flow_proc run_rail_analysis {
 
     # Determine analysis mode
     set analysis_mode "static"
-    if {[info exists emir(power,analysis_mode)] && $emir(power,analysis_mode) ne ""} {
-        set analysis_mode $emir(power,analysis_mode)
+    if {[info exists redhawk(power,analysis_mode)] && $redhawk(power,analysis_mode) ne ""} {
+        set analysis_mode $redhawk(power,analysis_mode)
     }
 
     # Determine analysis nets
     set analysis_nets ""
-    if {[info exists emir(power,analysis_nets)] && $emir(power,analysis_nets) ne ""} {
-        set analysis_nets $emir(power,analysis_nets)
+    if {[info exists redhawk(power,analysis_nets)] && $redhawk(power,analysis_nets) ne ""} {
+        set analysis_nets $redhawk(power,analysis_nets)
     }
 
     # EM analysis flag
     set em_analysis 0
-    if {[info exists emir(em,enable)] && $emir(em,enable)} {
+    if {[info exists redhawk(em,enable)] && $redhawk(em,enable)} {
         set em_analysis 1
     }
 
@@ -289,7 +292,7 @@ flow_proc run_rail_analysis {
         set rail_cmd "analyze_rail -nets $analysis_nets -min_path_resistance -extra_gsr_option $extra_gsr"
     } elseif {$analysis_mode eq "check_missing_via"} {
         set rail_cmd "analyze_rail -nets $analysis_nets -check_missing_via -extra_gsr_option $extra_gsr"
-        if {[info exists emir(ir_drop,missing_via_threshold)] && $emir(ir_drop,missing_via_threshold) ne ""} {
+        if {[info exists redhawk(ir_drop,missing_via_threshold)] && $redhawk(ir_drop,missing_via_threshold) ne ""} {
             set rail_cmd "analyze_rail -nets $analysis_nets -voltage_drop static -check_missing_via -extra_gsr_option $extra_gsr"
         }
     } else {
@@ -318,7 +321,7 @@ flow_proc fix_missing_vias {
     handle_info "Checking for missing via fixes..."
 
     set fix_vias 0
-    if {[info exists emir(ir_drop,fix_missing_vias)] && $emir(ir_drop,fix_missing_vias)} {
+    if {[info exists redhawk(ir_drop,fix_missing_vias)] && $redhawk(ir_drop,fix_missing_vias)} {
         set fix_vias 1
     }
 
@@ -355,17 +358,17 @@ flow_proc generate_reports {
     file mkdir $res_dir
 
     set analysis_mode "static"
-    if {[info exists emir(power,analysis_mode)] && $emir(power,analysis_mode) ne ""} {
-        set analysis_mode $emir(power,analysis_mode)
+    if {[info exists redhawk(power,analysis_mode)] && $redhawk(power,analysis_mode) ne ""} {
+        set analysis_mode $redhawk(power,analysis_mode)
     }
     set analysis_nets ""
-    if {[info exists emir(power,analysis_nets)] && $emir(power,analysis_nets) ne ""} {
-        set analysis_nets $emir(power,analysis_nets)
+    if {[info exists redhawk(power,analysis_nets)] && $redhawk(power,analysis_nets) ne ""} {
+        set analysis_nets $redhawk(power,analysis_nets)
     }
 
     set output_report ""
-    if {[info exists emir(output,report_file)] && $emir(output,report_file) ne ""} {
-        set output_report $emir(output,report_file)
+    if {[info exists redhawk(output,report_file)] && $redhawk(output,report_file) ne ""} {
+        set output_report $redhawk(output,report_file)
     }
 
     # ── Voltage drop report ──
@@ -375,10 +378,10 @@ flow_proc generate_reports {
     }
 
     # ── EM report ──
-    if {[info exists emir(em,enable)] && $emir(em,enable)} {
-        if {[info exists emir(output,em_report)] && $emir(output,em_report) ne ""} {
-            handle_info "Generating EM report: $emir(output,em_report)"
-            set fd [open $emir(output,em_report) w]
+    if {[info exists redhawk(em,enable)] && $redhawk(em,enable)} {
+        if {[info exists redhawk(output,em_report)] && $redhawk(output,em_report) ne ""} {
+            handle_info "Generating EM report: $redhawk(output,em_report)"
+            set fd [open $redhawk(output,em_report) w]
             foreach_in_collection em_err_file [get_drc_error_data -all *em*] {
                 set dm [open_drc_error_data $em_err_file]
                 set all_errs [get_drc_errors -error_data $dm *]
@@ -422,10 +425,10 @@ flow_proc generate_reports {
     puts $fp ""
     puts $fp "Analysis Mode: $analysis_mode"
     puts $fp "Analysis Nets: $analysis_nets"
-    if {[info exists emir(ir_drop,threshold)] && $emir(ir_drop,threshold) ne ""} {
-        puts $fp "IR-Drop Threshold: $emir(ir_drop,threshold)"
+    if {[info exists redhawk(ir_drop,threshold)] && $redhawk(ir_drop,threshold) ne ""} {
+        puts $fp "IR-Drop Threshold: $redhawk(ir_drop,threshold)"
     }
-    if {[info exists emir(thermal,enable)] && $emir(thermal,enable)} {
+    if {[info exists redhawk(thermal,enable)] && $redhawk(thermal,enable)} {
         puts $fp "Thermal Analysis: enabled"
     }
     puts $fp ""

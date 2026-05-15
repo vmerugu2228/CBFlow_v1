@@ -27,6 +27,9 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 
 global clp project tech flow
+# Source VC_LP tool config
+set _tool_config "[file dirname [info script]]/vc_lp_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting CLP verification with Synopsys VC LP..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -62,17 +65,17 @@ flow_proc configure_lp_checks {
     set_app_var enable_verdi_debug true
 
     # Optional overrides from config
-    if {[info exists clp(check,continue_on_error)] && $clp(check,continue_on_error) ne ""} {
-        set_app_var sh_continue_on_error $clp(check,continue_on_error)
+    if {[info exists vc_lp(check,continue_on_error)] && $vc_lp(check,continue_on_error) ne ""} {
+        set_app_var sh_continue_on_error $vc_lp(check,continue_on_error)
     }
-    if {[info exists clp(check,hanging_crossover)] && $clp(check,hanging_crossover) ne ""} {
-        set_app_var handle_hanging_crossover $clp(check,hanging_crossover)
+    if {[info exists vc_lp(check,hanging_crossover)] && $vc_lp(check,hanging_crossover) ne ""} {
+        set_app_var handle_hanging_crossover $vc_lp(check,hanging_crossover)
     }
-    if {[info exists clp(check,multi_driver)] && $clp(check,multi_driver) ne ""} {
-        set_app_var enable_multi_driver_analysis $clp(check,multi_driver)
+    if {[info exists vc_lp(check,multi_driver)] && $vc_lp(check,multi_driver) ne ""} {
+        set_app_var enable_multi_driver_analysis $vc_lp(check,multi_driver)
     }
-    if {[info exists clp(check,verdi_debug)] && $clp(check,verdi_debug) ne ""} {
-        set_app_var enable_verdi_debug $clp(check,verdi_debug)
+    if {[info exists vc_lp(check,verdi_debug)] && $vc_lp(check,verdi_debug) ne ""} {
+        set_app_var enable_verdi_debug $vc_lp(check,verdi_debug)
     }
 
     # Set link_library
@@ -117,8 +120,8 @@ flow_proc read_power_intent {
 
     # Determine UPF mode: golden or prime
     set upf_mode "prime"
-    if {[info exists clp(upf_mode)] && $clp(upf_mode) ne ""} {
-        set upf_mode $clp(upf_mode)
+    if {[info exists vc_lp(common,upf_mode)] && $vc_lp(common,upf_mode) ne ""} {
+        set upf_mode $vc_lp(common,upf_mode)
     }
 
     if {![info exists clp(input,upf_file)] || $clp(input,upf_file) eq ""} {

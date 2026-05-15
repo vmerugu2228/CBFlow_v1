@@ -19,6 +19,9 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::
 # Source user_config for overrides
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 global popt project tech flow
+# Source PT tool config
+set _tool_config "[file dirname [info script]]/pt_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting POPT power_opt with Synopsys PrimeTime..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -137,7 +140,7 @@ flow_proc optimize_leakage {
     report_threshold_voltage_group > "$rpt_dir/vt_distribution.rpt"
 
     # Verify timing after leakage opt
-    report_timing -delay max -max_paths [expr {[info exists popt(analysis,max_paths)] ? $popt(analysis,max_paths) : 100}] > "$rpt_dir/post_leakage_opt_timing.rpt"
+    report_timing -delay max -max_paths [expr {[info exists pt(analysis,max_paths)] ? $pt(analysis,max_paths) : 100}] > "$rpt_dir/post_leakage_opt_timing.rpt"
 
     handle_info "Leakage optimization completed"
 }
@@ -157,7 +160,7 @@ flow_proc generate_power_report {
     report_power > "$rpt_dir/post_opt_power_summary.rpt"
 
     # Final timing check
-    set _max_paths [expr {[info exists popt(analysis,max_paths)] ? $popt(analysis,max_paths) : 100}]
+    set _max_paths [expr {[info exists pt(analysis,max_paths)] ? $pt(analysis,max_paths) : 100}]
     report_timing -delay max -max_paths $_max_paths > "$rpt_dir/post_opt_setup_timing.rpt"
     report_timing -delay min -max_paths $_max_paths > "$rpt_dir/post_opt_hold_timing.rpt"
 

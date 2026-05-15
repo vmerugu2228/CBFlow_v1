@@ -14,6 +14,9 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/FCFP/top_compile/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global fcfp project tech flow
+# Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting FCFP top_compile..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -43,13 +46,13 @@ flow_proc load_design {
     handle_info "Loading design for top_compile..."
     global fcfp flow
 
-    set design_name [expr {[info exists fcfp(design_name)] ? $fcfp(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
-    if {[info exists fcfp(open_lib)] && $fcfp(open_lib) ne ""} {
-        open_lib $fcfp(open_lib)
+    if {[info exists fc(common,open_lib)] && $fc(common,open_lib) ne ""} {
+        open_lib $fc(common,open_lib)
     }
 
-    set from_label [expr {[info exists fcfp(top_compile,from_label)] ? $fcfp(top_compile,from_label) : "place_pins"}]
+    set from_label [expr {[info exists fc(top_compile,from_label)] ? $fc(top_compile,from_label) : "place_pins"}]
     copy_block -from ${design_name}/${from_label} -to ${design_name}/top_compile
     current_block ${design_name}/top_compile
     link_block
@@ -67,18 +70,18 @@ flow_proc set_qor_strategy {
 
     set qor_cmd "set_qor_strategy -stage compile_initial"
 
-    if {[info exists fcfp(top_compile,qor_metric)] && $fcfp(top_compile,qor_metric) ne ""} {
-        lappend qor_cmd -metric $fcfp(top_compile,qor_metric)
-    } elseif {[info exists fcfp(compile,qor_metric)] && $fcfp(compile,qor_metric) ne ""} {
-        lappend qor_cmd -metric $fcfp(compile,qor_metric)
+    if {[info exists fc(top_compile,qor_metric)] && $fc(top_compile,qor_metric) ne ""} {
+        lappend qor_cmd -metric $fc(top_compile,qor_metric)
+    } elseif {[info exists fc(compile,qor_metric)] && $fc(compile,qor_metric) ne ""} {
+        lappend qor_cmd -metric $fc(compile,qor_metric)
     } else {
         lappend qor_cmd -metric timing
     }
 
     # Active scenarios for top compile
-    if {[info exists fcfp(top_compile,active_scenarios)] && $fcfp(top_compile,active_scenarios) ne ""} {
+    if {[info exists fc(top_compile,active_scenarios)] && $fc(top_compile,active_scenarios) ne ""} {
         set_scenario_status -active false [get_scenarios -filter active]
-        set_scenario_status -active true $fcfp(top_compile,active_scenarios)
+        set_scenario_status -active true $fc(top_compile,active_scenarios)
     }
 
     handle_info "Running: $qor_cmd"
@@ -95,8 +98,8 @@ flow_proc run_compile {
     handle_info "Running top_compile (compile_fusion top-level)..."
     global fcfp
 
-    set from_stage [expr {[info exists fcfp(top_compile,from_stage)] ? $fcfp(top_compile,from_stage) : "logic_opto"}]
-    set to_stage [expr {[info exists fcfp(top_compile,to_stage)] ? $fcfp(top_compile,to_stage) : "logic_opto"}]
+    set from_stage [expr {[info exists fc(top_compile,from_stage)] ? $fc(top_compile,from_stage) : "logic_opto"}]
+    set to_stage [expr {[info exists fc(top_compile,to_stage)] ? $fc(top_compile,to_stage) : "logic_opto"}]
 
     handle_info "compile_fusion -from $from_stage -to $to_stage"
     compile_fusion -from $from_stage -to $to_stage
@@ -117,7 +120,7 @@ flow_proc save_design {
     handle_info "Saving top_compile block..."
     global fcfp flow
 
-    set design_name [expr {[info exists fcfp(design_name)] ? $fcfp(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
     save_lib -all
     save_block
@@ -132,7 +135,7 @@ flow_proc generate_reports {
     handle_info "Generating top_compile reports..."
     global fcfp
 
-    set max_paths [expr {[info exists fcfp(analysis,max_paths)] ? $fcfp(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists fc(analysis,max_paths)] ? $fc(analysis,max_paths) : 100}]
 
     redirect -file $::REPORTS_DIR/report_qor.rpt { report_qor }
     redirect -file $::REPORTS_DIR/report_timing.rpt {

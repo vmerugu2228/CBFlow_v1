@@ -26,6 +26,9 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::
 # Source user_config for overrides
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 
+# Source VOLTUS tool config
+set _tool_config "[file dirname [info script]]/voltus_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting EMIR power_analysis stage with Voltus..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -48,17 +51,17 @@ flow_proc configure_analysis {
     file mkdir "$::REPORTS_DIR/power"
 
     # Set power analysis mode
-    if {[info exists emir(power,analysis_mode)]} {
-        puts "Power analysis mode: $emir(power,analysis_mode)"
-        set_power_analysis_mode -method $emir(power,analysis_mode)
+    if {[info exists voltus(power,analysis_mode)]} {
+        puts "Power analysis mode: $voltus(power,analysis_mode)"
+        set_power_analysis_mode -method $voltus(power,analysis_mode)
     } else {
         puts "Power analysis mode: averaged (default)"
         set_power_analysis_mode -method averaged
     }
 
     # Configure power domain
-    if {[info exists emir(power,supply_voltage)]} {
-        puts "Supply voltage: $emir(power,supply_voltage)V"
+    if {[info exists voltus(power,supply_voltage)]} {
+        puts "Supply voltage: $voltus(power,supply_voltage)V"
     }
 
     # Set clock period for dynamic analysis
@@ -68,19 +71,19 @@ flow_proc configure_analysis {
     }
 
     # Set switching activity defaults
-    if {[info exists emir(power,default_toggle_rate)]} {
-        set_default_switching_activity -toggle_rate $emir(power,default_toggle_rate)
-        puts "Default toggle rate: $emir(power,default_toggle_rate)"
+    if {[info exists voltus(power,default_toggle_rate)]} {
+        set_default_switching_activity -toggle_rate $voltus(power,default_toggle_rate)
+        puts "Default toggle rate: $voltus(power,default_toggle_rate)"
     }
-    if {[info exists emir(power,default_static_probability)]} {
-        set_default_switching_activity -static_probability $emir(power,default_static_probability)
-        puts "Default static probability: $emir(power,default_static_probability)"
+    if {[info exists voltus(power,default_static_probability)]} {
+        set_default_switching_activity -static_probability $voltus(power,default_static_probability)
+        puts "Default static probability: $voltus(power,default_static_probability)"
     }
 
     # Set analysis precision
-    if {[info exists emir(power,precision)]} {
-        set_power_analysis_mode -accuracy $emir(power,precision)
-        puts "Analysis precision: $emir(power,precision)"
+    if {[info exists voltus(power,precision)]} {
+        set_power_analysis_mode -accuracy $voltus(power,precision)
+        puts "Analysis precision: $voltus(power,precision)"
     }
 
     puts " Power analysis configuration completed"
@@ -106,7 +109,7 @@ flow_proc run_static_power {
         -out_file $hier_rpt
 
     # Report per-domain static power if multi-voltage
-    if {[info exists emir(power,multi_voltage)] && $emir(power,multi_voltage) eq "true"} {
+    if {[info exists voltus(power,multi_voltage)] && $voltus(power,multi_voltage) eq "true"} {
         set domain_rpt "$::REPORTS_DIR/power/static_power_domains.rpt"
         report_power -static -power_domain \
             -out_file $domain_rpt
@@ -164,8 +167,8 @@ flow_proc generate_power_maps {
     file mkdir "$::OUTPUTS_DIR/emir/power/maps"
 
     # Generate power density map
-    if {[info exists emir(power,map_resolution)]} {
-        set resolution $emir(power,map_resolution)
+    if {[info exists voltus(power,map_resolution)]} {
+        set resolution $voltus(power,map_resolution)
     } else {
         set resolution 10
     }
@@ -175,7 +178,7 @@ flow_proc generate_power_maps {
         -out_file "$::OUTPUTS_DIR/emir/power/maps/power_density.map"
 
     # Generate per-layer power map if configured
-    if {[info exists emir(power,per_layer_map)] && $emir(power,per_layer_map) eq "true"} {
+    if {[info exists voltus(power,per_layer_map)] && $voltus(power,per_layer_map) eq "true"} {
         report_power_density -per_layer \
             -resolution $resolution \
             -out_file "$::OUTPUTS_DIR/emir/power/maps/power_density_per_layer.map"
@@ -205,8 +208,8 @@ flow_proc generate_report {
     if {[info exists project(name)]} { puts $fp "Project: $project(name)" }
     puts $fp ""
     puts $fp "Configuration:"
-    if {[info exists emir(power,analysis_mode)]} { puts $fp "  Analysis mode: $emir(power,analysis_mode)" }
-    if {[info exists emir(power,supply_voltage)]} { puts $fp "  Supply voltage: $emir(power,supply_voltage)V" }
+    if {[info exists voltus(power,analysis_mode)]} { puts $fp "  Analysis mode: $voltus(power,analysis_mode)" }
+    if {[info exists voltus(power,supply_voltage)]} { puts $fp "  Supply voltage: $voltus(power,supply_voltage)V" }
     if {[info exists project(clock,period)]} { puts $fp "  Clock period: $project(clock,period) ns" }
     puts $fp ""
     puts $fp "Reports Generated:"

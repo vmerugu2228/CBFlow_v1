@@ -27,6 +27,9 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 
 global pv project tech flow
+# Source ICV tool config
+set _tool_config "[file dirname [info script]]/icv_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting PV DRC stage with Synopsys ICV..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -47,8 +50,8 @@ flow_proc configure_drc {
     set run_dir $::env(CBFLOW_RUN_DIR)
 
     # Determine rule deck
-    if {[info exists pv(drc,rule_deck)]} {
-        set ::drc_rules $pv(drc,rule_deck)
+    if {[info exists icv(drc,rule_deck)]} {
+        set ::drc_rules $icv(drc,rule_deck)
     } elseif {[info exists tech(rules,drc)]} {
         set ::drc_rules $tech(rules,drc)
     } elseif {[info exists ::pv_drc_rules]} {
@@ -74,24 +77,24 @@ flow_proc configure_drc {
     }
 
     # Top cell
-    if {[info exists pv(top_cell)]} {
-        set ::drc_top_cell $pv(top_cell)
+    if {[info exists icv(common,top_cell)]} {
+        set ::drc_top_cell $icv(common,top_cell)
     } elseif {[info exists project(top_module)]} {
         set ::drc_top_cell $project(top_module)
     } else {
-        handle_error "Top cell not defined — set pv(top_cell) or project(top_module)"
+        handle_error "Top cell not defined — set icv(common,top_cell) or project(top_module)"
     }
 
     # DRC options
     set ::drc_options ""
-    if {[info exists pv(drc,max_results)]} {
-        append ::drc_options " -max_results $pv(drc,max_results)"
+    if {[info exists icv(drc,max_results)]} {
+        append ::drc_options " -max_results $icv(drc,max_results)"
     }
-    if {[info exists pv(drc,select_rules)]} {
-        append ::drc_options " -select_rules $pv(drc,select_rules)"
+    if {[info exists icv(drc,select_rules)]} {
+        append ::drc_options " -select_rules $icv(drc,select_rules)"
     }
-    if {[info exists pv(drc,threads)]} {
-        append ::drc_options " -dp $pv(drc,threads)"
+    if {[info exists icv(drc,threads)]} {
+        append ::drc_options " -dp $icv(drc,threads)"
     } else {
         append ::drc_options " -dp 4"
     }

@@ -31,7 +31,10 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" &&
     set _tech_config "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
     if {[file exists $_tech_config]} {
         source $_tech_config
-        handle_info "Tech config loaded: $_tech_config"
+        # Source GENUS tool config
+set _tool_config "[file dirname [info script]]/genus_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
+handle_info "Tech config loaded: $_tech_config"
     } else {
         handle_warning "Tech config not found: $_tech_config"
     }
@@ -179,11 +182,11 @@ flow_proc setup_genus_options {
 
     # -- Design name -----------------------------------------------------------
     set design_name ""
-    if {[info exists synth(design_name)]} { set design_name $synth(design_name) }
+    if {[info exists genus(common,design_name)]} { set design_name $genus(common,design_name) }
 
     # -- Genus application options ---------------------------------------------
     # Effort level
-    set effort [expr {[info exists synth(compile,effort)] ? $synth(compile,effort) : "medium"}]
+    set effort [expr {[info exists genus(compile,effort)] ? $genus(compile,effort) : "medium"}]
     set_db syn_global_effort $effort
     handle_info "Synthesis effort: $effort"
 
@@ -194,29 +197,29 @@ flow_proc setup_genus_options {
     }
 
     # Leakage power optimization
-    if {[info exists synth(compile,leakage_power_effort)] && $synth(compile,leakage_power_effort) ne ""} {
-        set_db / .leakage_power_effort $synth(compile,leakage_power_effort)
-        handle_info "Leakage power effort: $synth(compile,leakage_power_effort)"
+    if {[info exists genus(compile,leakage_power_effort)] && $genus(compile,leakage_power_effort) ne ""} {
+        set_db / .leakage_power_effort $genus(compile,leakage_power_effort)
+        handle_info "Leakage power effort: $genus(compile,leakage_power_effort)"
     }
 
     # Dynamic power optimization
-    if {[info exists synth(compile,dynamic_power_effort)] && $synth(compile,dynamic_power_effort) ne ""} {
-        set_db / .dynamic_power_effort $synth(compile,dynamic_power_effort)
-        handle_info "Dynamic power effort: $synth(compile,dynamic_power_effort)"
+    if {[info exists genus(compile,dynamic_power_effort)] && $genus(compile,dynamic_power_effort) ne ""} {
+        set_db / .dynamic_power_effort $genus(compile,dynamic_power_effort)
+        handle_info "Dynamic power effort: $genus(compile,dynamic_power_effort)"
     }
 
     # Max routing layers (for physical-aware)
-    if {[info exists synth(route_max_layer)] && $synth(route_max_layer) ne ""} {
-        set_db design_top_routing_layer $synth(route_max_layer)
+    if {[info exists genus(common,route_max_layer)] && $genus(common,route_max_layer) ne ""} {
+        set_db design_top_routing_layer $genus(common,route_max_layer)
     }
-    if {[info exists synth(route_min_layer)] && $synth(route_min_layer) ne ""} {
-        set_db design_bottom_routing_layer $synth(route_min_layer)
+    if {[info exists genus(common,route_min_layer)] && $genus(common,route_min_layer) ne ""} {
+        set_db design_bottom_routing_layer $genus(common,route_min_layer)
     }
 
     # Genus user options file
-    if {[info exists synth(genus_options_file)] && [file exists $synth(genus_options_file)]} {
-        handle_info "Sourcing Genus options: $synth(genus_options_file)"
-        source $synth(genus_options_file)
+    if {[info exists genus(common,genus_options_file)] && [file exists $genus(common,genus_options_file)]} {
+        handle_info "Sourcing Genus options: $genus(common,genus_options_file)"
+        source $genus(common,genus_options_file)
     }
 
     handle_info "Genus options set"
@@ -230,7 +233,7 @@ flow_proc read_design {
     handle_info "Reading RTL design..."
     global synth flow
 
-    set design_name [expr {[info exists synth(design_name)] ? $synth(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists genus(common,design_name)] ? $genus(common,design_name) : $flow(design_name)}]
 
     # -- Read RTL files --------------------------------------------------------
     # Determine RTL source: filelist or direct list
@@ -309,7 +312,7 @@ flow_proc setup_design_checks {
     handle_info "Running design checks..."
     global synth flow
 
-    set design_name [expr {[info exists synth(design_name)] ? $synth(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists genus(common,design_name)] ? $genus(common,design_name) : $flow(design_name)}]
 
     # Uniquify the design
     uniquify $design_name
@@ -329,7 +332,7 @@ flow_proc load_constraints {
     handle_info "Loading timing constraints..."
     global synth flow
 
-    set design_name [expr {[info exists synth(design_name)] ? $synth(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists genus(common,design_name)] ? $genus(common,design_name) : $flow(design_name)}]
 
     # -- SDC constraints -------------------------------------------------------
     set sdc_file ""
@@ -409,9 +412,9 @@ flow_proc setup_mmmc {
     global analysis_views library_sets
 
     # User MMMC setup script
-    if {[info exists synth(mcmm_setup_file)] && [file exists $synth(mcmm_setup_file)]} {
-        handle_info "Sourcing MMMC setup: $synth(mcmm_setup_file)"
-        source $synth(mcmm_setup_file)
+    if {[info exists genus(common,mcmm_setup_file)] && [file exists $genus(common,mcmm_setup_file)]} {
+        handle_info "Sourcing MMMC setup: $genus(common,mcmm_setup_file)"
+        source $genus(common,mcmm_setup_file)
         handle_info "MMMC setup completed from user script"
         return
     }
@@ -471,9 +474,9 @@ flow_proc setup_dont_use {
     }
 
     # Lib cell purpose file
-    if {[info exists synth(lib_cell_purpose_file)] && [file exists $synth(lib_cell_purpose_file)]} {
-        handle_info "Sourcing lib cell purpose: $synth(lib_cell_purpose_file)"
-        source $synth(lib_cell_purpose_file)
+    if {[info exists genus(common,lib_cell_purpose_file)] && [file exists $genus(common,lib_cell_purpose_file)]} {
+        handle_info "Sourcing lib cell purpose: $genus(common,lib_cell_purpose_file)"
+        source $genus(common,lib_cell_purpose_file)
     } elseif {[info exists tech(lib_cell_purpose_file)] && [file exists $tech(lib_cell_purpose_file)]} {
         handle_info "Sourcing lib cell purpose from tech: $tech(lib_cell_purpose_file)"
         source $tech(lib_cell_purpose_file)
@@ -490,12 +493,12 @@ flow_proc setup_dft {
     handle_info "Setting up DFT..."
     global synth
 
-    if {[info exists synth(dft_setup_file)] && [file exists $synth(dft_setup_file)]} {
-        handle_info "Sourcing DFT setup: $synth(dft_setup_file)"
-        source $synth(dft_setup_file)
-    } elseif {[info exists synth(dft_ports_file)] && [file exists $synth(dft_ports_file)]} {
-        handle_info "Sourcing DFT ports: $synth(dft_ports_file)"
-        source $synth(dft_ports_file)
+    if {[info exists genus(common,dft_setup_file)] && [file exists $genus(common,dft_setup_file)]} {
+        handle_info "Sourcing DFT setup: $genus(common,dft_setup_file)"
+        source $genus(common,dft_setup_file)
+    } elseif {[info exists genus(common,dft_ports_file)] && [file exists $genus(common,dft_ports_file)]} {
+        handle_info "Sourcing DFT ports: $genus(common,dft_ports_file)"
+        source $genus(common,dft_ports_file)
     }
 
     handle_info "DFT setup completed"
@@ -510,7 +513,7 @@ flow_proc save_design {
     global synth flow
 
     set run_dir $::env(CBFLOW_RUN_DIR)
-    set design_name [expr {[info exists synth(design_name)] ? $synth(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists genus(common,design_name)] ? $genus(common,design_name) : $flow(design_name)}]
 
     file mkdir "$run_dir/outputs"
 
@@ -537,7 +540,7 @@ flow_proc generate_reports {
 
     file mkdir "$::REPORTS_DIR"
 
-    set max_paths [expr {[info exists synth(analysis,max_paths)] ? $synth(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists genus(analysis,max_paths)] ? $genus(analysis,max_paths) : 100}]
 
     # Design summary
     catch { report_summary > $::REPORTS_DIR/report_summary.rpt }

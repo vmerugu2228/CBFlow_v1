@@ -14,6 +14,9 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/FCFP/create_power/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global fcfp project tech flow
+# Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting FCFP create_power..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -43,13 +46,13 @@ flow_proc load_design {
     handle_info "Loading design for create_power..."
     global fcfp flow
 
-    set design_name [expr {[info exists fcfp(design_name)] ? $fcfp(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
-    if {[info exists fcfp(open_lib)] && $fcfp(open_lib) ne ""} {
-        open_lib $fcfp(open_lib)
+    if {[info exists fc(common,open_lib)] && $fc(common,open_lib) ne ""} {
+        open_lib $fc(common,open_lib)
     }
 
-    set from_label [expr {[info exists fcfp(create_power,from_label)] ? $fcfp(create_power,from_label) : "placement"}]
+    set from_label [expr {[info exists fc(create_power,from_label)] ? $fc(create_power,from_label) : "placement"}]
     copy_block -from ${design_name}/${from_label} -to ${design_name}/create_power
     current_block ${design_name}/create_power
     link_block
@@ -70,27 +73,27 @@ flow_proc create_power_network {
         check_design -checks dp_pre_power_insertion
     }
 
-    if {[info exists fcfp(power,pns_script)] && [file exists $fcfp(power,pns_script)]} {
-        handle_info "Sourcing PNS script: $fcfp(power,pns_script)"
-        source -e $fcfp(power,pns_script)
+    if {[info exists fc(power,pns_script)] && [file exists $fc(power,pns_script)]} {
+        handle_info "Sourcing PNS script: $fc(power,pns_script)"
+        source -e $fc(power,pns_script)
     } else {
         # Build from config variables
-        set vdd_net [expr {[info exists fcfp(power,vdd_net)] ? $fcfp(power,vdd_net) : "VDD"}]
-        set vss_net [expr {[info exists fcfp(power,vss_net)] ? $fcfp(power,vss_net) : "VSS"}]
+        set vdd_net [expr {[info exists fc(power,vdd_net)] ? $fc(power,vdd_net) : "VDD"}]
+        set vss_net [expr {[info exists fc(power,vss_net)] ? $fc(power,vss_net) : "VSS"}]
 
         # PG rings
-        if {[info exists fcfp(power,ring_config)] && [file exists $fcfp(power,ring_config)]} {
-            source -e $fcfp(power,ring_config)
+        if {[info exists fc(power,ring_config)] && [file exists $fc(power,ring_config)]} {
+            source -e $fc(power,ring_config)
         }
 
         # PG mesh
-        if {[info exists fcfp(power,mesh_config)] && [file exists $fcfp(power,mesh_config)]} {
-            source -e $fcfp(power,mesh_config)
+        if {[info exists fc(power,mesh_config)] && [file exists $fc(power,mesh_config)]} {
+            source -e $fc(power,mesh_config)
         }
 
         # PG straps / std cell rails
-        if {[info exists fcfp(power,strap_config)] && [file exists $fcfp(power,strap_config)]} {
-            source -e $fcfp(power,strap_config)
+        if {[info exists fc(power,strap_config)] && [file exists $fc(power,strap_config)]} {
+            source -e $fc(power,strap_config)
         }
 
         handle_info "PG network created for $vdd_net/$vss_net"
@@ -107,7 +110,7 @@ flow_proc stdcell_placement {
     handle_info "Running low-effort stdcell placement for PG analysis..."
     global fcfp
 
-    if {[info exists fcfp(power,place_stdcells)] && $fcfp(power,place_stdcells)} {
+    if {[info exists fc(power,place_stdcells)] && $fc(power,place_stdcells)} {
         set_app_options -name place.coarse.continue_on_missing_scandef -value true
         create_placement -effort low
         reset_app_options place.coarse.continue_on_missing_scandef
@@ -125,15 +128,15 @@ flow_proc connect_pg {
     handle_info "Connecting PG nets..."
     global fcfp
 
-    if {[info exists fcfp(connect_pg_net_script)] && [file exists $fcfp(connect_pg_net_script)]} {
-        source -e $fcfp(connect_pg_net_script)
+    if {[info exists fc(common,connect_pg_net_script)] && [file exists $fc(common,connect_pg_net_script)]} {
+        source -e $fc(common,connect_pg_net_script)
     } else {
         connect_pg_net
     }
 
     # Handle special power domains
-    if {[info exists fcfp(power,special_pg_nets)] && $fcfp(power,special_pg_nets) ne ""} {
-        foreach {net pin_pat} $fcfp(power,special_pg_nets) {
+    if {[info exists fc(power,special_pg_nets)] && $fc(power,special_pg_nets) ne ""} {
+        foreach {net pin_pat} $fc(power,special_pg_nets) {
             handle_info "Connecting special PG net: $net"
         }
     }
@@ -162,7 +165,7 @@ flow_proc save_design {
     handle_info "Saving create_power block..."
     global fcfp flow
 
-    set design_name [expr {[info exists fcfp(design_name)] ? $fcfp(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
     save_lib -all
     save_block

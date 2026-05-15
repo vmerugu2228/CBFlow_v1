@@ -14,6 +14,9 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/FCFP/init_design/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global fcfp project tech flow
+# Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting FCFP init_design..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -47,8 +50,8 @@ flow_proc create_design_library {
     set run_dir $::env(CBFLOW_RUN_DIR)
     file mkdir "$run_dir/work/FCFP/init_design/run"
 
-    set design_name [expr {[info exists fcfp(design_name)] ? $fcfp(design_name) : $flow(design_name)}]
-    set lib_name [expr {[info exists fcfp(design_lib_name)] ? $fcfp(design_lib_name) : "${design_name}.nlib"}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
+    set lib_name [expr {[info exists fc(common,design_lib_name)] ? $fc(common,design_lib_name) : "${design_name}.nlib"}]
 
     if {[file exists $lib_name]} { file delete -force $lib_name }
 
@@ -65,7 +68,7 @@ flow_proc create_design_library {
     }
 
     # Sub-block abstract NDM libs -- hierarchical DP flow
-    if {[info exists fcfp(chip_type)] && $fcfp(chip_type) eq "hierarchical"} {
+    if {[info exists fc(common,chip_type)] && $fc(common,chip_type) eq "hierarchical"} {
         if {[info exists tech(ndm,sub_blocks)] && [llength $tech(ndm,sub_blocks)] > 0} {
             foreach lib $tech(ndm,sub_blocks) {
                 if {$lib ne ""} { lappend ref_libs $lib }
@@ -154,16 +157,16 @@ flow_proc read_design {
     handle_info "Reading design..."
     global fcfp flow
 
-    set design_name [expr {[info exists fcfp(design_name)] ? $fcfp(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
     if {[info exists fcfp(input,netlist)] && $fcfp(input,netlist) ne ""} {
         handle_info "Reading netlist: $fcfp(input,netlist)"
         read_verilog -top $design_name $fcfp(input,netlist)
-    } elseif {[info exists fcfp(input_netlist)] && $fcfp(input_netlist) ne ""} {
-        handle_info "Reading netlist: $fcfp(input_netlist)"
-        read_verilog -top $design_name $fcfp(input_netlist)
+    } elseif {[info exists fc(common,input_netlist)] && $fc(common,input_netlist) ne ""} {
+        handle_info "Reading netlist: $fc(common,input_netlist)"
+        read_verilog -top $design_name $fc(common,input_netlist)
     } else {
-        handle_error "No netlist specified -- set fcfp(input,netlist) or fcfp(input_netlist)"
+        handle_error "No netlist specified -- set fcfp(input,netlist) or fc(common,input_netlist)"
         return -code error "Missing netlist"
     }
 
@@ -187,8 +190,8 @@ flow_proc setup_technology {
     global fcfp tech
 
     set tech_node ""
-    if {[info exists fcfp(technology_node)] && $fcfp(technology_node) ne ""} {
-        set tech_node $fcfp(technology_node)
+    if {[info exists fc(common,technology_node)] && $fc(common,technology_node) ne ""} {
+        set tech_node $fc(common,technology_node)
     } elseif {[info exists tech(node)] && $tech(node) ne ""} {
         set tech_node $tech(node)
     }
@@ -226,8 +229,8 @@ flow_proc load_constraints {
             handle_info "Reading SDC: $fcfp(input,sdc_file)"
             read_sdc $fcfp(input,sdc_file)
         }
-    } elseif {[info exists fcfp(input_sdc)] && $fcfp(input_sdc) ne ""} {
-        foreach sdc_file $fcfp(input_sdc) {
+    } elseif {[info exists fc(common,input_sdc)] && $fc(common,input_sdc) ne ""} {
+        foreach sdc_file $fc(common,input_sdc) {
             if {[file exists $sdc_file]} {
                 handle_info "Reading SDC: $sdc_file"
                 read_sdc $sdc_file
@@ -240,9 +243,9 @@ flow_proc load_constraints {
         if {[file exists $fcfp(input,upf_file)]} {
             handle_info "Loading UPF: $fcfp(input,upf_file)"
             load_upf $fcfp(input,upf_file)
-            if {[info exists fcfp(input_upf_supplemental)] && [file exists $fcfp(input_upf_supplemental)]} {
-                handle_info "Loading supplemental UPF: $fcfp(input_upf_supplemental)"
-                load_upf -supplemental $fcfp(input_upf_supplemental)
+            if {[info exists fc(common,input_upf_supplemental)] && [file exists $fc(common,input_upf_supplemental)]} {
+                handle_info "Loading supplemental UPF: $fc(common,input_upf_supplemental)"
+                load_upf -supplemental $fc(common,input_upf_supplemental)
             }
             handle_info "Committing UPF..."
             commit_upf
@@ -260,8 +263,8 @@ flow_proc connect_power_ground {
     handle_info "Connecting power/ground nets..."
     global fcfp
 
-    if {[info exists fcfp(connect_pg_net_script)] && [file exists $fcfp(connect_pg_net_script)]} {
-        source -e $fcfp(connect_pg_net_script)
+    if {[info exists fc(common,connect_pg_net_script)] && [file exists $fc(common,connect_pg_net_script)]} {
+        source -e $fc(common,connect_pg_net_script)
     } else {
         connect_pg_net
     }
@@ -278,7 +281,7 @@ flow_proc save_design {
     global fcfp flow
 
     set run_dir $::env(CBFLOW_RUN_DIR)
-    set design_name [expr {[info exists fcfp(design_name)] ? $fcfp(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
     if {[info exists fcfp(input,upf_file)] && $fcfp(input,upf_file) ne ""} {
         save_upf ${run_dir}/outputs/init_design.save_upf
@@ -290,8 +293,8 @@ flow_proc save_design {
     handle_info "Block saved: ${design_name}/init_design"
 
     # Set SVF for formal verification
-    if {[info exists fcfp(svf_file)] && $fcfp(svf_file) ne ""} {
-        set_svf $fcfp(svf_file)
+    if {[info exists fc(common,svf_file)] && $fc(common,svf_file) ne ""} {
+        set_svf $fc(common,svf_file)
     }
 
     handle_info "Init design saved"
@@ -308,7 +311,7 @@ flow_proc generate_reports {
     set run_dir $::env(CBFLOW_RUN_DIR)
     file mkdir "$::REPORTS_DIR"
 
-    set max_paths [expr {[info exists fcfp(analysis,max_paths)] ? $fcfp(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists fc(analysis,max_paths)] ? $fc(analysis,max_paths) : 100}]
 
     redirect -file $::REPORTS_DIR/report_qor.rpt { report_qor }
     redirect -file $::REPORTS_DIR/report_timing.rpt {

@@ -18,6 +18,9 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::
 # Source user_config for overrides
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 global pnr project tech flow
+# Source INNOVUS tool config
+set _tool_config "[file dirname [info script]]/innovus_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting PNR powerplan with Cadence Innovus..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -69,11 +72,11 @@ flow_proc create_power_rings {
     handle_info "Creating power rings..."
     
     # Get power ring parameters from hierarchical configuration
-    set ring_nets $pnr(powerplan,ring_nets)
-    set ring_width $pnr(powerplan,ring_width)
-    set ring_spacing $pnr(powerplan,ring_spacing)
-    set ring_offset $pnr(powerplan,ring_offset)
-    set ring_layers $pnr(powerplan,ring_layers)
+    set ring_nets $innovus(powerplan,ring_nets)
+    set ring_width $innovus(powerplan,ring_width)
+    set ring_spacing $innovus(powerplan,ring_spacing)
+    set ring_offset $innovus(powerplan,ring_offset)
+    set ring_layers $innovus(powerplan,ring_layers)
     
     handle_info "Power ring parameters:"
     handle_info "  Width: $ring_width"
@@ -99,11 +102,11 @@ flow_proc create_power_stripes {
     handle_info "Creating power stripes..."
     
     # Get stripe parameters from hierarchical configuration
-    set stripe_nets $pnr(powerplan,stripe_nets)
-    set stripe_width $pnr(powerplan,stripe_width)
-    set stripe_spacing $pnr(powerplan,stripe_spacing)
-    set stripe_layers $pnr(powerplan,stripe_layers)
-    set stripe_direction $pnr(powerplan,stripe_direction)
+    set stripe_nets $innovus(powerplan,stripe_nets)
+    set stripe_width $innovus(powerplan,stripe_width)
+    set stripe_spacing $innovus(powerplan,stripe_spacing)
+    set stripe_layers $innovus(powerplan,stripe_layers)
+    set stripe_direction $innovus(powerplan,stripe_direction)
     
     handle_info "Power stripe parameters:"
     handle_info "  Width: $stripe_width"
@@ -151,9 +154,9 @@ flow_proc add_well_ties {
     handle_info "Adding well ties..."
     
     # Get well tie parameters from hierarchical configuration
-    set well_tie_cells $pnr(powerplan,well_tie_cells)
-    set well_tie_spacing $pnr(powerplan,well_tie_spacing)
-    set well_tie_rule $pnr(powerplan,well_tie_rule)
+    set well_tie_cells $innovus(powerplan,well_tie_cells)
+    set well_tie_spacing $innovus(powerplan,well_tie_spacing)
+    set well_tie_rule $innovus(powerplan,well_tie_rule)
     
     handle_info "Well tie spacing: $well_tie_spacing"
     

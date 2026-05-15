@@ -27,6 +27,9 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 
 global pv project tech flow
+# Source ICV tool config
+set _tool_config "[file dirname [info script]]/icv_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting PV inputs with Synopsys ICV..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -51,7 +54,7 @@ flow_proc resolve_inputs {
     handle_info "Resolving input files..."
     global pv flow project flow_input_handshake
 
-    set design_name [expr {[info exists pv(design_name)] ? $pv(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists icv(common,design_name)] ? $icv(common,design_name) : $flow(design_name)}]
 
     if {![namespace exists ::CBFlow::InputResolve]} {
         handle_info "Release input resolution not available — using direct paths only"
@@ -225,8 +228,8 @@ flow_proc validate_inputs {
     }
 
     # Check top cell name
-    if {![info exists project(top_module)] && ![info exists pv(top_cell)]} {
-        lappend errors "Top cell not defined in project(top_module) or pv(top_cell)"
+    if {![info exists project(top_module)] && ![info exists icv(common,top_cell)]} {
+        lappend errors "Top cell not defined in project(top_module) or icv(common,top_cell)"
     }
 
     # Generate validation summary

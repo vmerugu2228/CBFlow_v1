@@ -12,6 +12,9 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/SYNTH/synthesis1/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global synth project tech flow
+# Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting SYNTH synthesis1 with Synopsys Fusion Compiler..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -104,15 +107,15 @@ flow_proc set_stage_qor_strategy {
     global synth
 
     set metric "timing"
-    if {[info exists synth(compile,qor_metric)]} { set metric $synth(compile,qor_metric) }
+    if {[info exists fc(compile,qor_metric)]} { set metric $fc(compile,qor_metric) }
 
     set mode "balanced"
-    if {[info exists synth(compile,qor_mode)]} { set mode $synth(compile,qor_mode) }
+    if {[info exists fc(compile,qor_mode)]} { set mode $fc(compile,qor_mode) }
 
     set qor_cmd "set_qor_strategy -stage synthesis -metric \"$metric\" -mode \"$mode\""
 
     # FC-RM: Enable high effort timing if configured
-    if {[info exists synth(compile,high_effort_timing)] && $synth(compile,high_effort_timing)} {
+    if {[info exists fc(compile,high_effort_timing)] && $fc(compile,high_effort_timing)} {
         lappend qor_cmd -high_effort_timing
     }
 
@@ -138,42 +141,42 @@ flow_proc configure_compile {
     set_app_options -name hdlin.naming.upf_compatible -value true
 
     # FC-RM: Enable SPG (Synopsys Physical Guidance) if configured
-    if {[info exists synth(compile,enable_spg)] && $synth(compile,enable_spg)} {
+    if {[info exists fc(compile,enable_spg)] && $fc(compile,enable_spg)} {
         set_app_options -name compile.flow.enable_spg -value true
         handle_info "SPG (Synopsys Physical Guidance) enabled"
     }
 
     # FC-RM: Routing layer constraints
-    if {[info exists synth(route,max_layer)] && $synth(route,max_layer) ne ""} {
-        set_ignored_layers -max_routing_layer $synth(route,max_layer)
+    if {[info exists fc(route,max_layer)] && $fc(route,max_layer) ne ""} {
+        set_ignored_layers -max_routing_layer $fc(route,max_layer)
     }
-    if {[info exists synth(route,min_layer)] && $synth(route,min_layer) ne ""} {
-        set_ignored_layers -min_routing_layer $synth(route,min_layer)
+    if {[info exists fc(route,min_layer)] && $fc(route,min_layer) ne ""} {
+        set_ignored_layers -min_routing_layer $fc(route,min_layer)
     }
 
     # FC-RM: Timing-driven synthesis settings
-    if {[info exists synth(synthesis,timing_driven)]} {
-        set_app_options -name compile.flow.enable_timing_driven -value $synth(synthesis,timing_driven)
+    if {[info exists fc(synthesis,timing_driven)]} {
+        set_app_options -name compile.flow.enable_timing_driven -value $fc(synthesis,timing_driven)
     }
 
     # FC-RM: Clock gating
-    if {[info exists synth(synthesis,clock_gating)] && $synth(synthesis,clock_gating)} {
+    if {[info exists fc(synthesis,clock_gating)] && $fc(synthesis,clock_gating)} {
         set_app_options -name compile.flow.clock_gate_insertion -value true
     }
 
     # FC-RM: Boundary optimization
-    if {[info exists synth(synthesis,boundary_opt)]} {
-        set_app_options -name compile.flow.boundary_optimization -value $synth(synthesis,boundary_opt)
+    if {[info exists fc(synthesis,boundary_opt)]} {
+        set_app_options -name compile.flow.boundary_optimization -value $fc(synthesis,boundary_opt)
     }
 
     # FC-RM: Max fanout constraint
-    if {[info exists synth(synthesis,max_fanout)] && $synth(synthesis,max_fanout) ne ""} {
-        set_max_fanout $synth(synthesis,max_fanout) [current_design]
+    if {[info exists fc(synthesis,max_fanout)] && $fc(synthesis,max_fanout) ne ""} {
+        set_max_fanout $fc(synthesis,max_fanout) [current_design]
     }
 
     # FC-RM: Max transition constraint
-    if {[info exists synth(synthesis,max_transition)] && $synth(synthesis,max_transition) ne ""} {
-        set_max_transition $synth(synthesis,max_transition) [current_design]
+    if {[info exists fc(synthesis,max_transition)] && $fc(synthesis,max_transition) ne ""} {
+        set_max_transition $fc(synthesis,max_transition) [current_design]
     }
 
     handle_info "Compile app options configured"
@@ -245,9 +248,9 @@ flow_proc save_design_block {
     global synth
 
     # FC-RM: Save block with label if block_labeling is enabled
-    if {[info exists synth(output,block_labeling)] && $synth(output,block_labeling)} {
-        if {[info exists synth(design,top_module)] && $synth(design,top_module) ne ""} {
-            set design_name $synth(design,top_module)
+    if {[info exists fc(output,block_labeling)] && $fc(output,block_labeling)} {
+        if {[info exists fc(design,top_module)] && $fc(design,top_module) ne ""} {
+            set design_name $fc(design,top_module)
         } elseif {[info exists project(top_module)] && $project(top_module) ne ""} {
             set design_name $project(top_module)
         } else {
@@ -273,7 +276,7 @@ flow_proc generate_reports {
 
     # Determine max_paths for timing report
     set max_paths 100
-    if {[info exists synth(analysis,max_paths)]} { set max_paths $synth(analysis,max_paths) }
+    if {[info exists fc(analysis,max_paths)]} { set max_paths $fc(analysis,max_paths) }
 
     # FC-RM: Timing report with configurable max_paths
     redirect -file $::REPORTS_DIR/synth_timing.rpt {

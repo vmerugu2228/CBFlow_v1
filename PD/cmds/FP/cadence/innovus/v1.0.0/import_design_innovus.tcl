@@ -36,6 +36,9 @@ set OUTPUTS_DIR "$run_dir/outputs"
 file mkdir $REPORTS_DIR
 file mkdir $OUTPUTS_DIR
 
+# Source INNOVUS tool config
+set _tool_config "[file dirname [info script]]/innovus_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting CBFlow FP import_design stage for Innovus"
 
 # Define common procedures used in config files
@@ -105,13 +108,13 @@ flow_proc initialize_import_environment {
     handle_info "Initializing import design environment..."
 
     # Set Innovus mode to floorplan
-    if {[info exists fp(tool_mode)]} {
-        handle_info "Setting tool mode: $fp(tool_mode)"
-        set_global _INNOVUS_MODE_ $fp(tool_mode)
+    if {[info exists innovus(common,tool_mode)]} {
+        handle_info "Setting tool mode: $innovus(common,tool_mode)"
+        set_global _INNOVUS_MODE_ $innovus(common,tool_mode)
     }
 
     # Configure design import settings
-    if {[info exists fp(import_mode)] && $fp(import_mode) eq "incremental"} {
+    if {[info exists innovus(common,import_mode)] && $innovus(common,import_mode) eq "incremental"} {
         handle_info "Enabling incremental import mode"
         set_global incremental_import true
     }
@@ -294,15 +297,15 @@ flow_proc initialize_floorplan_environment {
     global fp
 
     # Set core utilization if specified
-    if {[info exists fp(core_utilization)]} {
-        handle_info "Setting core utilization: $fp(core_utilization)"
-        set_global core_utilization $fp(core_utilization)
+    if {[info exists innovus(common,core_utilization)]} {
+        handle_info "Setting core utilization: $innovus(common,core_utilization)"
+        set_global core_utilization $innovus(common,core_utilization)
     }
 
     # Set aspect ratio if specified
-    if {[info exists fp(aspect_ratio)]} {
-        handle_info "Setting aspect ratio: $fp(aspect_ratio)"
-        set_global aspect_ratio $fp(aspect_ratio)
+    if {[info exists innovus(common,aspect_ratio)]} {
+        handle_info "Setting aspect ratio: $innovus(common,aspect_ratio)"
+        set_global aspect_ratio $innovus(common,aspect_ratio)
     }
 
     # Initialize power domains if UPF was read

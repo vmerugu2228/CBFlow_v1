@@ -26,6 +26,9 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::
 # Source user_config for overrides
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 global phyv project tech flow
+# Source CALIBRE tool config
+set _tool_config "[file dirname [info script]]/calibre_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting PV inputs stage..."
 
 set WORK_DIR "$run_dir/work/PV/inputs"
@@ -48,7 +51,7 @@ flow_proc resolve_inputs {
     handle_info "Resolving input files..."
     global pv flow project flow_input_handshake
 
-    set design_name [expr {[info exists pv(design_name)] ? $pv(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists calibre(common,design_name)] ? $calibre(common,design_name) : $flow(design_name)}]
 
     if {![namespace exists ::CBFlow::InputResolve]} {
         handle_info "Release input resolution not available — using direct paths only"

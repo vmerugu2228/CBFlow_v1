@@ -40,6 +40,9 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 
 global pnr project tech flow
+# Source INNOVUS tool config
+set _tool_config "[file dirname [info script]]/innovus_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting PNR signoff with Cadence Innovus..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -138,7 +141,7 @@ flow_proc run_signoff_timing {
 
     # Extract final parasitics for signoff
     global pnr
-    set signoff_extract_effort [expr {[info exists pnr(signoff,extract_effort)] ? $pnr(signoff,extract_effort) : "signoff"}]
+    set signoff_extract_effort [expr {[info exists innovus(signoff,extract_effort)] ? $innovus(signoff,extract_effort) : "signoff"}]
     setExtractRCMode -engine postRoute -effort $signoff_extract_effort
     extractRC -engine postRoute
 
@@ -204,7 +207,7 @@ flow_proc generate_deliverables {
     write_sdc "$::OUTPUTS_DIR/sdc/${top_module}_final.sdc"
 
     # GDS generation
-    if {[info exists pnr(output,gds)] && $pnr(output,gds) ne ""} {
+    if {[info exists innovus(output,gds)] && $innovus(output,gds) ne ""} {
         handle_info "Generating GDS..."
         if {$stream_map_file ne ""} {
             streamOut "$::OUTPUTS_DIR/gds/${top_module}.gds" -mapFile $stream_map_file

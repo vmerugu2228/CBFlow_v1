@@ -40,6 +40,9 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 
 global pnr project tech flow
+# Source INNOVUS tool config
+set _tool_config "[file dirname [info script]]/innovus_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting PNR cts with Cadence Innovus..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -119,9 +122,9 @@ flow_proc setup_cts {
 
     # Get CTS parameters from config
     global pnr
-    set cts_target_skew $pnr(cts,target_skew)
-    set cts_max_trans   $pnr(cts,max_trans)
-    set cts_max_cap     $pnr(cts,max_cap)
+    set cts_target_skew $innovus(cts,target_skew)
+    set cts_max_trans   $innovus(cts,max_trans)
+    set cts_max_cap     $innovus(cts,max_cap)
 
     handle_info "CTS parameters:"
     handle_info "  Target skew: ${cts_target_skew}ps"
@@ -149,14 +152,14 @@ flow_proc create_clock_spec {
     }
     
     # Configure clock tree cells
-    if {[info exists pnr(cts,buffer_cells)]} {
-        handle_info "CTS buffer cells: $pnr(cts,buffer_cells)"
-        set_ccopt_property buffer_cells $pnr(cts,buffer_cells)
+    if {[info exists innovus(cts,buffer_cells)]} {
+        handle_info "CTS buffer cells: $innovus(cts,buffer_cells)"
+        set_ccopt_property buffer_cells $innovus(cts,buffer_cells)
     }
 
-    if {[info exists pnr(cts,inverter_cells)]} {
-        handle_info "CTS inverter cells: $pnr(cts,inverter_cells)"
-        set_ccopt_property inverter_cells $pnr(cts,inverter_cells)
+    if {[info exists innovus(cts,inverter_cells)]} {
+        handle_info "CTS inverter cells: $innovus(cts,inverter_cells)"
+        set_ccopt_property inverter_cells $innovus(cts,inverter_cells)
     }
 }
 
@@ -174,7 +177,7 @@ flow_proc optimize_cts {
 
     # Post-CTS optimization
     global pnr
-    set optimization_effort $pnr(cts,opt_effort)
+    set optimization_effort $innovus(cts,opt_effort)
 
     handle_info "CTS optimization effort: $optimization_effort"
 

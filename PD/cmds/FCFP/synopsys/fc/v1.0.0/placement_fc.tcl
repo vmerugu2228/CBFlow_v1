@@ -14,6 +14,9 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/FCFP/placement/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global fcfp project tech flow
+# Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting FCFP placement..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -43,13 +46,13 @@ flow_proc load_design {
     handle_info "Loading design for placement..."
     global fcfp flow
 
-    set design_name [expr {[info exists fcfp(design_name)] ? $fcfp(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
-    if {[info exists fcfp(open_lib)] && $fcfp(open_lib) ne ""} {
-        open_lib $fcfp(open_lib)
+    if {[info exists fc(common,open_lib)] && $fc(common,open_lib) ne ""} {
+        open_lib $fc(common,open_lib)
     }
 
-    set from_label [expr {[info exists fcfp(placement,from_label)] ? $fcfp(placement,from_label) : "shaping"}]
+    set from_label [expr {[info exists fc(placement,from_label)] ? $fc(placement,from_label) : "shaping"}]
     copy_block -from ${design_name}/${from_label} -to ${design_name}/placement
     current_block ${design_name}/placement
     link_block
@@ -68,18 +71,18 @@ flow_proc create_placement {
     set place_cmd "create_placement -congestion -timing_driven"
 
     # Effort level
-    if {[info exists fcfp(placement,effort)] && $fcfp(placement,effort) ne ""} {
-        lappend place_cmd -effort $fcfp(placement,effort)
+    if {[info exists fc(placement,effort)] && $fc(placement,effort) ne ""} {
+        lappend place_cmd -effort $fc(placement,effort)
     }
 
     # Congestion-driven options
-    if {[info exists fcfp(placement,congestion_effort)] && $fcfp(placement,congestion_effort) ne ""} {
-        set_app_option -name place.coarse.congestion_layer_aware -value $fcfp(placement,congestion_effort)
+    if {[info exists fc(placement,congestion_effort)] && $fc(placement,congestion_effort) ne ""} {
+        set_app_option -name place.coarse.congestion_layer_aware -value $fc(placement,congestion_effort)
     }
 
     # Source placement constraints
-    if {[info exists fcfp(placement,constraint_script)] && [file exists $fcfp(placement,constraint_script)]} {
-        source -e $fcfp(placement,constraint_script)
+    if {[info exists fc(placement,constraint_script)] && [file exists $fc(placement,constraint_script)]} {
+        source -e $fc(placement,constraint_script)
     }
 
     handle_info "Running: $place_cmd"
@@ -103,19 +106,19 @@ flow_proc push_down_objects {
     global fcfp
 
     # Push down site rows
-    if {[info exists fcfp(placement,push_down_site_rows)] && $fcfp(placement,push_down_site_rows)} {
+    if {[info exists fc(placement,push_down_site_rows)] && $fc(placement,push_down_site_rows)} {
         push_down_objects -site_rows
         handle_info "Site rows pushed down"
     }
 
     # Push down blockages
-    if {[info exists fcfp(placement,push_down_blockages)] && $fcfp(placement,push_down_blockages)} {
+    if {[info exists fc(placement,push_down_blockages)] && $fc(placement,push_down_blockages)} {
         push_down_objects -blockages
         handle_info "Blockages pushed down"
     }
 
     # Push down PG
-    if {[info exists fcfp(placement,push_down_pg)] && $fcfp(placement,push_down_pg)} {
+    if {[info exists fc(placement,push_down_pg)] && $fc(placement,push_down_pg)} {
         push_down_objects -pg
         handle_info "PG pushed down"
     }
@@ -131,7 +134,7 @@ flow_proc create_abstracts {
     handle_info "Creating abstracts with timing estimation..."
     global fcfp
 
-    if {[info exists fcfp(placement,abstract_timing)] && $fcfp(placement,abstract_timing)} {
+    if {[info exists fc(placement,abstract_timing)] && $fc(placement,abstract_timing)} {
         create_abstract -estimate_timing
         handle_info "Abstracts created with timing estimation"
     } else {
@@ -147,7 +150,7 @@ flow_proc save_design {
     handle_info "Saving placement block..."
     global fcfp flow
 
-    set design_name [expr {[info exists fcfp(design_name)] ? $fcfp(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
     save_lib -all
     save_block
@@ -162,7 +165,7 @@ flow_proc generate_reports {
     handle_info "Generating placement reports..."
     global fcfp
 
-    set max_paths [expr {[info exists fcfp(analysis,max_paths)] ? $fcfp(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists fc(analysis,max_paths)] ? $fc(analysis,max_paths) : 100}]
 
     redirect -file $::REPORTS_DIR/report_qor.rpt { report_qor }
     redirect -file $::REPORTS_DIR/report_timing.rpt {

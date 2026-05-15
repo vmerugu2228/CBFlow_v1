@@ -13,6 +13,9 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/FP/place_pins1/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global fp project tech flow
+# Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting FP place_pins (FC-RM Y-2026.03 aligned)..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -43,8 +46,8 @@ flow_proc load_design {
     handle_info "Loading design for place_pins..."
     global fp flow
 
-    set design_name [expr {[info exists fp(design_name)] ? $fp(design_name) : $flow(design_name)}]
-    set lib_name [expr {[info exists fp(design_lib_name)] ? $fp(design_lib_name) : "${design_name}.nlib"}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
+    set lib_name [expr {[info exists fc(common,design_lib_name)] ? $fc(common,design_lib_name) : "${design_name}.nlib"}]
 
     open_lib $lib_name
     copy_block -from ${design_name}/create_power -to ${design_name}/place_pins
@@ -63,16 +66,16 @@ flow_proc place_pins_final {
     global fp tech
 
     # FC-RM: Read pin constraints
-    if {[info exists fp(place_pins,constraint_file)] && $fp(place_pins,constraint_file) ne ""} {
-        if {[file exists $fp(place_pins,constraint_file)]} {
-            handle_info "Reading pin constraints: $fp(place_pins,constraint_file)"
-            read_pin_constraints -file_name $fp(place_pins,constraint_file)
+    if {[info exists fc(place_pins,constraint_file)] && $fc(place_pins,constraint_file) ne ""} {
+        if {[file exists $fc(place_pins,constraint_file)]} {
+            handle_info "Reading pin constraints: $fc(place_pins,constraint_file)"
+            read_pin_constraints -file_name $fc(place_pins,constraint_file)
         }
     }
 
     # FC-RM: place_pins with legalization
     set legalize false
-    if {[info exists fp(place_pins,legalize)]} { set legalize $fp(place_pins,legalize) }
+    if {[info exists fc(place_pins,legalize)]} { set legalize $fc(place_pins,legalize) }
 
     if {$legalize} {
         handle_info "Running place_pins -self -legalize"
@@ -83,7 +86,7 @@ flow_proc place_pins_final {
     }
 
     # FC-RM: Fix port positions
-    if {[info exists fp(place_pins,fix_ports)] && $fp(place_pins,fix_ports)} {
+    if {[info exists fc(place_pins,fix_ports)] && $fc(place_pins,fix_ports)} {
         catch {
             foreach_in_collection port [get_ports *] {
                 set_attribute $port physical_status "fixed"
@@ -132,10 +135,10 @@ flow_proc save_design {
     handle_info "Saving place_pins design..."
     global fp flow
 
-    set design_name [expr {[info exists fp(design_name)] ? $fp(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
     save_block
-    if {[info exists fp(output,block_labeling)] && $fp(output,block_labeling)} {
+    if {[info exists fc(output,block_labeling)] && $fc(output,block_labeling)} {
         save_block -as ${design_name}/place_pins
         handle_info "Block saved: ${design_name}/place_pins"
     }

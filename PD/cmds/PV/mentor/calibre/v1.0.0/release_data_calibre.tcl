@@ -34,6 +34,9 @@ set release_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/release
 if {[file exists $release_config]} { source $release_config }
 
 global phyv project tech flow
+# Source CALIBRE tool config
+set _tool_config "[file dirname [info script]]/calibre_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting PV release data stage..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"

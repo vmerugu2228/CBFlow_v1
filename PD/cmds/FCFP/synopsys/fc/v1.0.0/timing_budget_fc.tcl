@@ -14,6 +14,9 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/FCFP/timing_budget/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global fcfp project tech flow
+# Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting FCFP timing_budget..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -43,13 +46,13 @@ flow_proc load_design {
     handle_info "Loading design for timing_budget..."
     global fcfp flow
 
-    set design_name [expr {[info exists fcfp(design_name)] ? $fcfp(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
-    if {[info exists fcfp(open_lib)] && $fcfp(open_lib) ne ""} {
-        open_lib $fcfp(open_lib)
+    if {[info exists fc(common,open_lib)] && $fc(common,open_lib) ne ""} {
+        open_lib $fc(common,open_lib)
     }
 
-    set from_label [expr {[info exists fcfp(timing_budget,from_label)] ? $fcfp(timing_budget,from_label) : "top_compile"}]
+    set from_label [expr {[info exists fc(timing_budget,from_label)] ? $fc(timing_budget,from_label) : "top_compile"}]
     copy_block -from ${design_name}/${from_label} -to ${design_name}/timing_budget
     current_block ${design_name}/timing_budget
     link_block
@@ -73,7 +76,7 @@ flow_proc estimate_timing {
     estimate_timing
 
     # Pre-budget timing reports
-    set max_paths [expr {[info exists fcfp(analysis,max_paths)] ? $fcfp(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists fc(analysis,max_paths)] ? $fc(analysis,max_paths) : 100}]
     redirect -file $::REPORTS_DIR/report_timing.pre_budget.rpt {
         report_timing -max_paths $max_paths -delay_type max
     }
@@ -93,19 +96,19 @@ flow_proc create_budgets {
     set budget_cmd "budget_timing"
 
     # Budget mode: default, aggressive, or conservative
-    if {[info exists fcfp(timing_budget,mode)] && $fcfp(timing_budget,mode) ne ""} {
-        lappend budget_cmd -mode $fcfp(timing_budget,mode)
+    if {[info exists fc(timing_budget,mode)] && $fc(timing_budget,mode) ne ""} {
+        lappend budget_cmd -mode $fc(timing_budget,mode)
     }
 
     # Scenarios for budgeting
-    if {[info exists fcfp(timing_budget,active_scenarios)] && $fcfp(timing_budget,active_scenarios) ne ""} {
+    if {[info exists fc(timing_budget,active_scenarios)] && $fc(timing_budget,active_scenarios) ne ""} {
         set_scenario_status -active false [get_scenarios -filter active]
-        set_scenario_status -active true $fcfp(timing_budget,active_scenarios)
+        set_scenario_status -active true $fc(timing_budget,active_scenarios)
     }
 
     # Source user budget constraints before budget_timing
-    if {[info exists fcfp(timing_budget,constraint_script)] && [file exists $fcfp(timing_budget,constraint_script)]} {
-        source -e $fcfp(timing_budget,constraint_script)
+    if {[info exists fc(timing_budget,constraint_script)] && [file exists $fc(timing_budget,constraint_script)]} {
+        source -e $fc(timing_budget,constraint_script)
     }
 
     handle_info "Running: $budget_cmd"
@@ -126,8 +129,8 @@ flow_proc distribute_budgets {
     set budget_dir "$run_dir/results/fcfp/timing_budgets"
     file mkdir $budget_dir
 
-    if {[info exists fcfp(sub_blocks)] && [llength $fcfp(sub_blocks)] > 0} {
-        foreach block $fcfp(sub_blocks) {
+    if {[info exists fc(common,sub_blocks)] && [llength $fc(common,sub_blocks)] > 0} {
+        foreach block $fc(common,sub_blocks) {
             file mkdir "$budget_dir/$block"
             catch {
                 write_sdc -block $block "$budget_dir/$block/${block}_budgeted.sdc"
@@ -152,7 +155,7 @@ flow_proc save_design {
     handle_info "Saving timing_budget block..."
     global fcfp flow
 
-    set design_name [expr {[info exists fcfp(design_name)] ? $fcfp(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
     save_lib -all
     save_block
@@ -167,7 +170,7 @@ flow_proc generate_reports {
     handle_info "Generating timing_budget reports..."
     global fcfp
 
-    set max_paths [expr {[info exists fcfp(analysis,max_paths)] ? $fcfp(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists fc(analysis,max_paths)] ? $fc(analysis,max_paths) : 100}]
 
     redirect -file $::REPORTS_DIR/report_qor.rpt { report_qor }
     redirect -file $::REPORTS_DIR/report_timing.rpt {

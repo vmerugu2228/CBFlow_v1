@@ -52,6 +52,9 @@ if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/
 
 global sta project tech flow
 
+# Source TEMPUS tool config
+set _tool_config "[file dirname [info script]]/tempus_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting STA timing stage with Cadence Tempus..."
 
 if {![namespace exists ::flow]} {
@@ -108,8 +111,8 @@ flow_proc configure_timing_analysis {
     handle_info "Configuring timing analysis..."
 
     # Configure analysis modes
-    if {[info exists sta(timing,mode)]} {
-        puts "Timing mode: $sta(timing,mode)"
+    if {[info exists tempus(timing,mode)]} {
+        puts "Timing mode: $tempus(timing,mode)"
     } else {
         puts "Timing mode: default (signoff)"
     }
@@ -120,12 +123,12 @@ flow_proc configure_timing_analysis {
     }
 
     # OCV/AOCV/POCV settings
-    if {[info exists sta(timing,ocv_mode)]} {
-        puts "OCV mode: $sta(timing,ocv_mode)"
+    if {[info exists tempus(timing,ocv_mode)]} {
+        puts "OCV mode: $tempus(timing,ocv_mode)"
     }
 
     # SI analysis
-    if {[info exists sta(timing,si_aware)] && $sta(timing,si_aware) eq "true"} {
+    if {[info exists tempus(timing,si_aware)] && $tempus(timing,si_aware) eq "true"} {
         puts "Signal integrity analysis: enabled"
         set_si_mode -enable_delay_report true
     }

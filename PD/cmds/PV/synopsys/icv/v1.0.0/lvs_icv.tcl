@@ -27,6 +27,9 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 
 global pv project tech flow
+# Source ICV tool config
+set _tool_config "[file dirname [info script]]/icv_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting PV LVS stage with Synopsys ICV..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -47,8 +50,8 @@ flow_proc configure_lvs {
     set run_dir $::env(CBFLOW_RUN_DIR)
 
     # LVS rule deck
-    if {[info exists pv(lvs,rule_deck)]} {
-        set ::lvs_rules $pv(lvs,rule_deck)
+    if {[info exists icv(lvs,rule_deck)]} {
+        set ::lvs_rules $icv(lvs,rule_deck)
     } elseif {[info exists tech(rules,lvs)]} {
         set ::lvs_rules $tech(rules,lvs)
     } elseif {[info exists ::pv_lvs_rules]} {
@@ -74,8 +77,8 @@ flow_proc configure_lvs {
     }
 
     # Source netlist (schematic)
-    if {[info exists pv(lvs,source_netlist)]} {
-        set ::lvs_source $pv(lvs,source_netlist)
+    if {[info exists icv(lvs,source_netlist)]} {
+        set ::lvs_source $icv(lvs,source_netlist)
     } elseif {[info exists pv(input,netlist)]} {
         set ::lvs_source $pv(input,netlist)
     } else {
@@ -89,22 +92,22 @@ flow_proc configure_lvs {
     }
 
     # Top cell
-    if {[info exists pv(top_cell)]} {
-        set ::lvs_top_cell $pv(top_cell)
+    if {[info exists icv(common,top_cell)]} {
+        set ::lvs_top_cell $icv(common,top_cell)
     } elseif {[info exists project(top_module)]} {
         set ::lvs_top_cell $project(top_module)
     } else {
-        handle_error "Top cell not defined — set pv(top_cell) or project(top_module)"
+        handle_error "Top cell not defined — set icv(common,top_cell) or project(top_module)"
     }
 
     # LVS options
     set ::lvs_options ""
-    if {[info exists pv(lvs,threads)]} {
-        append ::lvs_options " -dp $pv(lvs,threads)"
+    if {[info exists icv(lvs,threads)]} {
+        append ::lvs_options " -dp $icv(lvs,threads)"
     } else {
         append ::lvs_options " -dp 4"
     }
-    if {[info exists pv(lvs,flatten)]} {
+    if {[info exists icv(lvs,flatten)]} {
         append ::lvs_options " -flat"
     }
 

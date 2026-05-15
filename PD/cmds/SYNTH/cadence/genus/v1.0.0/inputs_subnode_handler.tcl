@@ -140,7 +140,10 @@ file mkdir "$run_dir/work/$flow_type/inputs/$subnode_type"
 proc handle_rtl_subnode {run_dir} {
     global synth project flow flow_type
 
-    handle_info "Processing RTL subnode..."
+    # Source GENUS tool config
+set _tool_config "[file dirname [info script]]/genus_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
+handle_info "Processing RTL subnode..."
 
     set target_dir "$run_dir/work/$flow_type/inputs/rtl"
 
@@ -388,8 +391,8 @@ proc handle_sdc_subnode {run_dir} {
 
         # Resolve release tag to get SDC file path (use "func" mode as default)
         set sdc_mode "func"
-        if {[info exists synth(timing_mode)]} {
-            set sdc_mode $synth(timing_mode)
+        if {[info exists genus(common,timing_mode)]} {
+            set sdc_mode $genus(common,timing_mode)
         }
 
         # Use local array resolution instead of relying on function's global scope

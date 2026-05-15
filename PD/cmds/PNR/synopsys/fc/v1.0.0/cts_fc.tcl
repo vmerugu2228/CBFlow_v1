@@ -11,6 +11,9 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/PNR/cts1/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global pnr project tech flow
+# Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting PNR cts1 with Synopsys Fusion Compiler..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -44,17 +47,17 @@ flow_proc configure_cts {
     global pnr tech
 
     # Set QoR strategy for CTS stage
-    if {[info exists pnr(compile,qor_version)] && $pnr(compile,qor_version) ne ""} {
-        set_app_options -name flow.set_qor_strategy.version -value $pnr(compile,qor_version)
+    if {[info exists fc(compile,qor_version)] && $fc(compile,qor_version) ne ""} {
+        set_app_options -name flow.set_qor_strategy.version -value $fc(compile,qor_version)
     }
     set set_qor_strategy_cmd "set_qor_strategy -stage cts"
-    if {[info exists pnr(compile,qor_metric)] && $pnr(compile,qor_metric) ne ""} {
-        lappend set_qor_strategy_cmd -metric $pnr(compile,qor_metric)
+    if {[info exists fc(compile,qor_metric)] && $fc(compile,qor_metric) ne ""} {
+        lappend set_qor_strategy_cmd -metric $fc(compile,qor_metric)
     }
-    if {[info exists pnr(compile,qor_mode)] && $pnr(compile,qor_mode) ne ""} {
-        lappend set_qor_strategy_cmd -mode $pnr(compile,qor_mode)
+    if {[info exists fc(compile,qor_mode)] && $fc(compile,qor_mode) ne ""} {
+        lappend set_qor_strategy_cmd -mode $fc(compile,qor_mode)
     }
-    if {[info exists pnr(compile,reduced_effort)] && $pnr(compile,reduced_effort)} {
+    if {[info exists fc(compile,reduced_effort)] && $fc(compile,reduced_effort)} {
         lappend set_qor_strategy_cmd -reduced_effort
     }
     handle_info "Running: $set_qor_strategy_cmd"
@@ -65,23 +68,23 @@ flow_proc configure_cts {
     set_app_options -name opt.common.user_instance_name_prefix -value clock_opt_cts_opt_
 
     # Set active scenarios for CTS step
-    if {[info exists pnr(cts,active_scenarios)] && $pnr(cts,active_scenarios) ne ""} {
+    if {[info exists fc(cts,active_scenarios)] && $fc(cts,active_scenarios) ne ""} {
         set_scenario_status -active false [get_scenarios -filter active]
-        set_scenario_status -active true $pnr(cts,active_scenarios)
+        set_scenario_status -active true $fc(cts,active_scenarios)
     }
 
     # Lib cell purpose for CTS
-    if {[info exists pnr(cts,ref_cells)] && $pnr(cts,ref_cells) ne ""} {
-        set_lib_cell_purpose -include cts $pnr(cts,ref_cells)
-        handle_info "CTS reference cells: $pnr(cts,ref_cells)"
+    if {[info exists fc(cts,ref_cells)] && $fc(cts,ref_cells) ne ""} {
+        set_lib_cell_purpose -include cts $fc(cts,ref_cells)
+        handle_info "CTS reference cells: $fc(cts,ref_cells)"
     }
-    if {[info exists pnr(cts,exclude_cells)] && $pnr(cts,exclude_cells) ne ""} {
-        set_lib_cell_purpose -exclude cts $pnr(cts,exclude_cells)
+    if {[info exists fc(cts,exclude_cells)] && $fc(cts,exclude_cells) ne ""} {
+        set_lib_cell_purpose -exclude cts $fc(cts,exclude_cells)
     }
 
     # Configure NDR (non-default routing) rules for clock nets and mark trees
-    if {[info exists pnr(cts,ndr_rule)] && $pnr(cts,ndr_rule) ne ""} {
-        handle_info "Applying clock NDR rule: $pnr(cts,ndr_rule)"
+    if {[info exists fc(cts,ndr_rule)] && $fc(cts,ndr_rule) ne ""} {
+        handle_info "Applying clock NDR rule: $fc(cts,ndr_rule)"
         mark_clock_trees -routing_rules
     }
 
@@ -92,9 +95,9 @@ flow_proc configure_cts {
     }
 
     # CTS primary corner override
-    if {[info exists pnr(cts,primary_corner)] && $pnr(cts,primary_corner) ne ""} {
-        handle_info "Setting cts.compile.primary_corner to $pnr(cts,primary_corner)"
-        set_app_options -name cts.compile.primary_corner -value $pnr(cts,primary_corner)
+    if {[info exists fc(cts,primary_corner)] && $fc(cts,primary_corner) ne ""} {
+        handle_info "Setting cts.compile.primary_corner to $fc(cts,primary_corner)"
+        set_app_options -name cts.compile.primary_corner -value $fc(cts,primary_corner)
     }
 
     handle_info "CTS configuration completed"
@@ -117,8 +120,8 @@ flow_proc build_clock_trees {
     clock_opt -from build_clock -to build_clock
 
     # Save intermediate state
-    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling)} {
-        save_block -as $pnr(design_name)/clock_opt_cts_build_clock
+    if {[info exists fc(output,block_labeling)] && $fc(output,block_labeling)} {
+        save_block -as $fc(common,design_name)/clock_opt_cts_build_clock
     }
 
     # Restore original clock transition constraint
@@ -188,9 +191,9 @@ flow_proc save_design_block {
     handle_info "Saving design block..."
     global pnr
 
-    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling)} {
-        save_block -as $pnr(design_name)/cts
-        handle_info "Block saved as $pnr(design_name)/cts"
+    if {[info exists fc(output,block_labeling)] && $fc(output,block_labeling)} {
+        save_block -as $fc(common,design_name)/cts
+        handle_info "Block saved as $fc(common,design_name)/cts"
     } else {
         save_block
         handle_info "Block saved"
@@ -206,7 +209,7 @@ flow_proc generate_reports {
     global pnr
 
     set run_dir $::env(CBFLOW_RUN_DIR)
-    set max_paths [expr {[info exists pnr(analysis,max_paths)] ? $pnr(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists fc(analysis,max_paths)] ? $fc(analysis,max_paths) : 100}]
 
     # FC-RM: Timing reports
     redirect -file $::REPORTS_DIR/report_timing.max.rpt {

@@ -48,6 +48,9 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 
 global pnr project tech flow
+# Source INNOVUS tool config
+set _tool_config "[file dirname [info script]]/innovus_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting PNR place with Cadence Innovus..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -121,10 +124,10 @@ flow_proc setup_placement {
 
     # Get placement parameters from config
     global pnr
-    set place_effort  $pnr(place,effort)
-    set place_density $pnr(place,density)
-    set place_congestion_effort [expr {[info exists pnr(place,congestion_effort)] ? $pnr(place,congestion_effort) : "auto"}]
-    set place_timing_driven     [expr {[info exists pnr(place,timing_driven)]     ? $pnr(place,timing_driven)     : "true"}]
+    set place_effort  $innovus(place,effort)
+    set place_density $innovus(place,density)
+    set place_congestion_effort [expr {[info exists innovus(place,congestion_effort)] ? $innovus(place,congestion_effort) : "auto"}]
+    set place_timing_driven     [expr {[info exists innovus(place,timing_driven)]     ? $innovus(place,timing_driven)     : "true"}]
 
     handle_info "Placement parameters:"
     handle_info "  Effort: $place_effort"
@@ -156,7 +159,7 @@ flow_proc optimize_placement {
 
     # Pre-CTS optimization
     global pnr
-    set optimization_effort $pnr(place,opt_effort)
+    set optimization_effort $innovus(place,opt_effort)
 
     handle_info "Optimization effort: $optimization_effort"
 

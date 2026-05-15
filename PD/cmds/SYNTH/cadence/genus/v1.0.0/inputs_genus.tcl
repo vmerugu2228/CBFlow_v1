@@ -63,6 +63,9 @@ if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/
 
 global synth project tech flow
 
+# Source GENUS tool config
+set _tool_config "[file dirname [info script]]/genus_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting SYNTH inputs stage with Genus..."
 
 if {![namespace exists ::flow]} {
@@ -95,7 +98,7 @@ flow_proc resolve_inputs {
     handle_info "Resolving input files..."
     global synth flow project flow_input_handshake
 
-    set design_name [expr {[info exists synth(design_name)] ? $synth(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists genus(common,design_name)] ? $genus(common,design_name) : $flow(design_name)}]
 
     if {![namespace exists ::CBFlow::InputResolve]} {
         handle_info "Release input resolution not available — using direct paths only"

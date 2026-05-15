@@ -11,6 +11,9 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/PNR/cts_opt1/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global pnr project tech flow
+# Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting PNR cts_opt1 with Synopsys Fusion Compiler..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -44,17 +47,17 @@ flow_proc configure_data_opt {
     global pnr
 
     # Set QoR strategy for post_cts_opto stage
-    if {[info exists pnr(compile,qor_version)] && $pnr(compile,qor_version) ne ""} {
-        set_app_options -name flow.set_qor_strategy.version -value $pnr(compile,qor_version)
+    if {[info exists fc(compile,qor_version)] && $fc(compile,qor_version) ne ""} {
+        set_app_options -name flow.set_qor_strategy.version -value $fc(compile,qor_version)
     }
     set set_qor_strategy_cmd "set_qor_strategy -stage post_cts_opto"
-    if {[info exists pnr(compile,qor_metric)] && $pnr(compile,qor_metric) ne ""} {
-        lappend set_qor_strategy_cmd -metric $pnr(compile,qor_metric)
+    if {[info exists fc(compile,qor_metric)] && $fc(compile,qor_metric) ne ""} {
+        lappend set_qor_strategy_cmd -metric $fc(compile,qor_metric)
     }
-    if {[info exists pnr(compile,qor_mode)] && $pnr(compile,qor_mode) ne ""} {
-        lappend set_qor_strategy_cmd -mode $pnr(compile,qor_mode)
+    if {[info exists fc(compile,qor_mode)] && $fc(compile,qor_mode) ne ""} {
+        lappend set_qor_strategy_cmd -mode $fc(compile,qor_mode)
     }
-    if {[info exists pnr(compile,reduced_effort)] && $pnr(compile,reduced_effort)} {
+    if {[info exists fc(compile,reduced_effort)] && $fc(compile,reduced_effort)} {
         lappend set_qor_strategy_cmd -reduced_effort
     }
     handle_info "Running: $set_qor_strategy_cmd"
@@ -65,21 +68,21 @@ flow_proc configure_data_opt {
     set_app_options -name cts.common.user_instance_name_prefix -value clock_opt_opto_cts_
 
     # Set active scenarios for this step
-    if {[info exists pnr(cts_opt,active_scenarios)] && $pnr(cts_opt,active_scenarios) ne ""} {
+    if {[info exists fc(cts_opt,active_scenarios)] && $fc(cts_opt,active_scenarios) ne ""} {
         set_scenario_status -active false [get_scenarios -filter active]
-        set_scenario_status -active true $pnr(cts_opt,active_scenarios)
+        set_scenario_status -active true $fc(cts_opt,active_scenarios)
     }
 
     # Propagate clocks to newly activated scenarios
-    if {[info exists pnr(cts_opt,active_scenarios)] && $pnr(cts_opt,active_scenarios) ne ""} {
+    if {[info exists fc(cts_opt,active_scenarios)] && $fc(cts_opt,active_scenarios) ne ""} {
         handle_info "Propagating clocks to opto scenarios..."
         synthesize_clock_trees -propagate_only
         compute_clock_latency -verbose
     }
 
     # GRE - Global route focused scenario
-    if {[info exists pnr(route,focused_scenario)] && $pnr(route,focused_scenario) ne ""} {
-        set_app_options -name route.common.focus_scenario -value $pnr(route,focused_scenario)
+    if {[info exists fc(route,focused_scenario)] && $fc(route,focused_scenario) ne ""} {
+        set_app_options -name route.common.focus_scenario -value $fc(route,focused_scenario)
     }
 
     handle_info "Post-CTS opto configuration completed"
@@ -136,9 +139,9 @@ flow_proc save_design_block {
     handle_info "Saving design block..."
     global pnr
 
-    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling)} {
-        save_block -as $pnr(design_name)/cts_opt
-        handle_info "Block saved as $pnr(design_name)/cts_opt"
+    if {[info exists fc(output,block_labeling)] && $fc(output,block_labeling)} {
+        save_block -as $fc(common,design_name)/cts_opt
+        handle_info "Block saved as $fc(common,design_name)/cts_opt"
     } else {
         save_block
         handle_info "Block saved"
@@ -154,7 +157,7 @@ flow_proc generate_reports {
     global pnr
 
     set run_dir $::env(CBFLOW_RUN_DIR)
-    set max_paths [expr {[info exists pnr(analysis,max_paths)] ? $pnr(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists fc(analysis,max_paths)] ? $fc(analysis,max_paths) : 100}]
 
     # FC-RM: Timing
     redirect -file $::REPORTS_DIR/report_timing.max.rpt {

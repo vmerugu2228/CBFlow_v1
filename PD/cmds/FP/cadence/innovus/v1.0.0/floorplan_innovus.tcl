@@ -36,6 +36,9 @@ set OUTPUTS_DIR "$run_dir/outputs"
 file mkdir $REPORTS_DIR
 file mkdir $OUTPUTS_DIR
 
+# Source INNOVUS tool config
+set _tool_config "[file dirname [info script]]/innovus_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting CBFlow FP floorplan stage for Innovus"
 
 # Define common procedures used in config files
@@ -102,38 +105,38 @@ flow_proc configure_floorplan {
     handle_info "Configuring floorplan parameters..."
 
     # Get floorplan dimensions from config
-    if {[info exists fp(die,width)] && [info exists fp(die,height)]} {
-        set die_width $fp(die,width)
-        set die_height $fp(die,height)
+    if {[info exists innovus(die,width)] && [info exists innovus(die,height)]} {
+        set die_width $innovus(die,width)
+        set die_height $innovus(die,height)
         handle_info "Die dimensions: ${die_width}um x ${die_height}um"
     }
 
     # Get core utilization
-    set core_util [expr {[info exists fp(core_utilization)] ? $fp(core_utilization) : 0.70}]
+    set core_util [expr {[info exists innovus(common,core_utilization)] ? $innovus(common,core_utilization) : 0.70}]
     handle_info "Target core utilization: $core_util"
 
     # Get aspect ratio
-    set aspect_ratio [expr {[info exists fp(aspect_ratio)] ? $fp(aspect_ratio) : 1.0}]
+    set aspect_ratio [expr {[info exists innovus(common,aspect_ratio)] ? $innovus(common,aspect_ratio) : 1.0}]
     handle_info "Aspect ratio: $aspect_ratio"
 
     # Core margins
-    set core_margin_left   [expr {[info exists fp(core_margin,left)]   ? $fp(core_margin,left)   : 10.0}]
-    set core_margin_right  [expr {[info exists fp(core_margin,right)]  ? $fp(core_margin,right)  : 10.0}]
-    set core_margin_top    [expr {[info exists fp(core_margin,top)]    ? $fp(core_margin,top)    : 10.0}]
-    set core_margin_bottom [expr {[info exists fp(core_margin,bottom)] ? $fp(core_margin,bottom) : 10.0}]
+    set core_margin_left   [expr {[info exists innovus(core_margin,left)]   ? $innovus(core_margin,left)   : 10.0}]
+    set core_margin_right  [expr {[info exists innovus(core_margin,right)]  ? $innovus(core_margin,right)  : 10.0}]
+    set core_margin_top    [expr {[info exists innovus(core_margin,top)]    ? $innovus(core_margin,top)    : 10.0}]
+    set core_margin_bottom [expr {[info exists innovus(core_margin,bottom)] ? $innovus(core_margin,bottom) : 10.0}]
 
     handle_info "Core margins (L/R/T/B): $core_margin_left / $core_margin_right / $core_margin_top / $core_margin_bottom"
 
     # Initialize floorplan
-    if {[info exists fp(die,width)] && [info exists fp(die,height)]} {
+    if {[info exists innovus(die,width)] && [info exists innovus(die,height)]} {
         # Use explicit die size
-        floorPlan -site $fp(site_name) \
+        floorPlan -site $innovus(common,site_name) \
             -d $die_width $die_height \
                $core_margin_left $core_margin_bottom \
                $core_margin_right $core_margin_top
     } else {
         # Use utilization-based floorplan
-        floorPlan -site [expr {[info exists fp(site_name)] ? $fp(site_name) : "core"}] \
+        floorPlan -site [expr {[info exists innovus(common,site_name)] ? $innovus(common,site_name) : "core"}] \
             -r $aspect_ratio $core_util \
               $core_margin_left $core_margin_bottom \
               $core_margin_right $core_margin_top
@@ -158,8 +161,8 @@ flow_proc place_macros {
     }
 
     # Place individual macros from config
-    if {[info exists fp(macros)]} {
-        foreach macro_spec $fp(macros) {
+    if {[info exists innovus(common,macros)]} {
+        foreach macro_spec $innovus(common,macros) {
             array set macro_info $macro_spec
             if {[info exists macro_info(name)] && [info exists macro_info(x)] && [info exists macro_info(y)]} {
                 set orient [expr {[info exists macro_info(orient)] ? $macro_info(orient) : "R0"}]
@@ -171,14 +174,14 @@ flow_proc place_macros {
     }
 
     # Add halo around macros
-    set halo_x [expr {[info exists fp(macro_halo,x)] ? $fp(macro_halo,x) : 5.0}]
-    set halo_y [expr {[info exists fp(macro_halo,y)] ? $fp(macro_halo,y) : 5.0}]
+    set halo_x [expr {[info exists innovus(macro_halo,x)] ? $innovus(macro_halo,x) : 5.0}]
+    set halo_y [expr {[info exists innovus(macro_halo,y)] ? $innovus(macro_halo,y) : 5.0}]
     handle_info "Adding macro halo: ${halo_x}um x ${halo_y}um"
     addHaloToBlock $halo_x $halo_y $halo_x $halo_y -allBlock
 
     # Add routing tracks
-    if {[info exists fp(tracks)]} {
-        foreach track_spec $fp(tracks) {
+    if {[info exists innovus(common,tracks)]} {
+        foreach track_spec $innovus(common,tracks) {
             array set track_info $track_spec
             if {[info exists track_info(layer)] && [info exists track_info(pitch)] && [info exists track_info(offset)]} {
                 set direction [expr {[info exists track_info(direction)] ? $track_info(direction) : "both"}]
@@ -202,14 +205,14 @@ flow_proc create_rows {
     handle_info "Creating standard cell rows..."
 
     # Create rows with site from config
-    set site_name [expr {[info exists fp(site_name)] ? $fp(site_name) : "core"}]
-    set row_spacing [expr {[info exists fp(row_spacing)] ? $fp(row_spacing) : 0.0}]
+    set site_name [expr {[info exists innovus(common,site_name)] ? $innovus(common,site_name) : "core"}]
+    set row_spacing [expr {[info exists innovus(common,row_spacing)] ? $innovus(common,row_spacing) : 0.0}]
 
     handle_info "Site: $site_name, Row spacing: $row_spacing"
 
     # Create rows within the core area
-    if {[info exists fp(rows)]} {
-        foreach row_spec $fp(rows) {
+    if {[info exists innovus(common,rows)]} {
+        foreach row_spec $innovus(common,rows) {
             array set row_info $row_spec
             if {[info exists row_info(name)] && [info exists row_info(site)] && \
                 [info exists row_info(x)] && [info exists row_info(y)] && \
@@ -250,8 +253,8 @@ flow_proc place_io {
     }
 
     # Place I/O pads from config
-    if {[info exists fp(io_pads)]} {
-        foreach io_spec $fp(io_pads) {
+    if {[info exists innovus(common,io_pads)]} {
+        foreach io_spec $innovus(common,io_pads) {
             array set io_info $io_spec
             if {[info exists io_info(name)] && [info exists io_info(side)]} {
                 set order [expr {[info exists io_info(order)] ? $io_info(order) : 0}]
@@ -262,13 +265,13 @@ flow_proc place_io {
     }
 
     # Place I/O filler cells
-    if {[info exists fp(io_filler_cells)]} {
-        handle_info "Placing I/O filler cells: $fp(io_filler_cells)"
-        addIoFiller -cell $fp(io_filler_cells) -prefix IO_FILL
+    if {[info exists innovus(common,io_filler_cells)]} {
+        handle_info "Placing I/O filler cells: $innovus(common,io_filler_cells)"
+        addIoFiller -cell $innovus(common,io_filler_cells) -prefix IO_FILL
     }
 
     # Snap floorplan to grid
-    if {[info exists fp(snap_to_grid)] && $fp(snap_to_grid) eq "true"} {
+    if {[info exists innovus(common,snap_to_grid)] && $innovus(common,snap_to_grid) eq "true"} {
         handle_info "Snapping floorplan to manufacturing grid..."
         snapFPlan
     }

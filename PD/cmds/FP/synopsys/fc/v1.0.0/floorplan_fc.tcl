@@ -14,6 +14,9 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/FP/floorplan1/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global fp project tech flow
+# Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting FP floorplan..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -44,8 +47,8 @@ flow_proc load_design {
     handle_info "Loading design for floorplan..."
     global fp flow
 
-    set design_name [expr {[info exists fp(design_name)] ? $fp(design_name) : $flow(design_name)}]
-    set lib_name [expr {[info exists fp(design_lib_name)] ? $fp(design_lib_name) : "${design_name}.nlib"}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
+    set lib_name [expr {[info exists fc(common,design_lib_name)] ? $fc(common,design_lib_name) : "${design_name}.nlib"}]
 
     # Open library and set current block
     handle_info "Opening library: $lib_name"
@@ -70,19 +73,19 @@ flow_proc initialize_floorplan {
     global fp tech
 
     # Initialize floorplan with die area and core area
-    if {[info exists fp(die_area)] && $fp(die_area) ne "" && [info exists fp(core_area)] && $fp(core_area) ne ""} {
-        handle_info "Initializing floorplan with die: $fp(die_area), core: $fp(core_area)"
+    if {[info exists fc(common,die_area)] && $fc(common,die_area) ne "" && [info exists fc(common,core_area)] && $fc(common,core_area) ne ""} {
+        handle_info "Initializing floorplan with die: $fc(common,die_area), core: $fc(common,core_area)"
         initialize_floorplan \
-            -die_area $fp(die_area) \
-            -core_area $fp(core_area)
-    } elseif {[info exists fp(core_utilization)] && $fp(core_utilization) ne ""} {
+            -die_area $fc(common,die_area) \
+            -core_area $fc(common,core_area)
+    } elseif {[info exists fc(common,core_utilization)] && $fc(common,core_utilization) ne ""} {
         set core_offset {5 5 5 5}
-        if {[info exists fp(core_offset)] && $fp(core_offset) ne ""} {
-            set core_offset $fp(core_offset)
+        if {[info exists fc(common,core_offset)] && $fc(common,core_offset) ne ""} {
+            set core_offset $fc(common,core_offset)
         }
-        handle_info "Initializing floorplan with utilization: $fp(core_utilization)"
+        handle_info "Initializing floorplan with utilization: $fc(common,core_utilization)"
         initialize_floorplan \
-            -core_utilization $fp(core_utilization) \
+            -core_utilization $fc(common,core_utilization) \
             -core_offset $core_offset
     } else {
         handle_info "Initializing floorplan with default utilization 0.7"
@@ -90,19 +93,19 @@ flow_proc initialize_floorplan {
     }
 
     # Read floorplan DEF if an existing floorplan is provided
-    if {[info exists fp(input_def)] && $fp(input_def) ne ""} {
-        if {[file exists $fp(input_def)]} {
-            handle_info "Reading floorplan DEF: $fp(input_def)"
-            read_def $fp(input_def)
+    if {[info exists fc(common,input_def)] && $fc(common,input_def) ne ""} {
+        if {[file exists $fc(common,input_def)]} {
+            handle_info "Reading floorplan DEF: $fc(common,input_def)"
+            read_def $fc(common,input_def)
         } else {
-            handle_warning "DEF file not found: $fp(input_def)"
+            handle_warning "DEF file not found: $fc(common,input_def)"
         }
     }
 
     # Source floorplan TCL if provided
-    if {[info exists fp(fp_tcl)] && $fp(fp_tcl) ne "" && [file exists $fp(fp_tcl)]} {
-        handle_info "Sourcing floorplan TCL: $fp(fp_tcl)"
-        source -e $fp(fp_tcl)
+    if {[info exists fc(common,fp_tcl)] && $fc(common,fp_tcl) ne "" && [file exists $fc(common,fp_tcl)]} {
+        handle_info "Sourcing floorplan TCL: $fc(common,fp_tcl)"
+        source -e $fc(common,fp_tcl)
     }
 
     handle_info "Floorplan initialization completed"
@@ -117,10 +120,10 @@ flow_proc place_macros {
     global fp
 
     # Apply macro placement constraints if defined
-    if {[info exists fp(macro_constraints_file)] && $fp(macro_constraints_file) ne ""} {
-        if {[file exists $fp(macro_constraints_file)]} {
-            handle_info "Sourcing macro constraints: $fp(macro_constraints_file)"
-            source -e $fp(macro_constraints_file)
+    if {[info exists fc(common,macro_constraints_file)] && $fc(common,macro_constraints_file) ne ""} {
+        if {[file exists $fc(common,macro_constraints_file)]} {
+            handle_info "Sourcing macro constraints: $fc(common,macro_constraints_file)"
+            source -e $fc(common,macro_constraints_file)
         }
     }
 
@@ -130,15 +133,15 @@ flow_proc place_macros {
         handle_info "Found [sizeof_collection $macros] macros to place"
 
         # Set keepout margins around macros
-        if {[info exists fp(macro_keepout)] && $fp(macro_keepout) ne ""} {
-            set_macro_constraints -keepout $fp(macro_keepout) $macros
+        if {[info exists fc(common,macro_keepout)] && $fc(common,macro_keepout) ne ""} {
+            set_macro_constraints -keepout $fc(common,macro_keepout) $macros
         } else {
             set_macro_constraints -keepout {5 5 5 5} $macros
         }
 
         # Set macro orientation preferences
-        if {[info exists fp(macro_orientations)] && $fp(macro_orientations) ne ""} {
-            foreach {macro_pat orient} $fp(macro_orientations) {
+        if {[info exists fc(common,macro_orientations)] && $fc(common,macro_orientations) ne ""} {
+            foreach {macro_pat orient} $fc(common,macro_orientations) {
                 set_macro_constraints -orientation $orient [get_cells $macro_pat]
             }
         }
@@ -167,9 +170,9 @@ flow_proc insert_boundary_cells {
     global fp tech
 
     # Insert boundary (endcap) cells
-    if {[info exists fp(boundary_cell)] && $fp(boundary_cell) ne ""} {
-        handle_info "Inserting boundary cells: $fp(boundary_cell)"
-        create_boundary_cells -prefix BNDRY -left_boundary_cell $fp(boundary_cell) -right_boundary_cell $fp(boundary_cell)
+    if {[info exists fc(common,boundary_cell)] && $fc(common,boundary_cell) ne ""} {
+        handle_info "Inserting boundary cells: $fc(common,boundary_cell)"
+        create_boundary_cells -prefix BNDRY -left_boundary_cell $fc(common,boundary_cell) -right_boundary_cell $fc(common,boundary_cell)
     } elseif {[info exists tech(endcap_cell)] && $tech(endcap_cell) ne ""} {
         handle_info "Inserting boundary cells from tech: $tech(endcap_cell)"
         create_boundary_cells -prefix BNDRY -left_boundary_cell $tech(endcap_cell) -right_boundary_cell $tech(endcap_cell)
@@ -178,9 +181,9 @@ flow_proc insert_boundary_cells {
     }
 
     # Insert corner cells if specified
-    if {[info exists fp(corner_cell)] && $fp(corner_cell) ne ""} {
-        handle_info "Inserting corner cells: $fp(corner_cell)"
-        create_boundary_cells -prefix CORNER -corner_boundary_cell $fp(corner_cell)
+    if {[info exists fc(common,corner_cell)] && $fc(common,corner_cell) ne ""} {
+        handle_info "Inserting corner cells: $fc(common,corner_cell)"
+        create_boundary_cells -prefix CORNER -corner_boundary_cell $fc(common,corner_cell)
     }
 
     handle_info "Boundary cells inserted"
@@ -198,14 +201,14 @@ flow_proc insert_tap_cells {
     set tap_cell ""
     set tap_distance 30
 
-    if {[info exists fp(tap_cell)] && $fp(tap_cell) ne ""} {
-        set tap_cell $fp(tap_cell)
+    if {[info exists fc(common,tap_cell)] && $fc(common,tap_cell) ne ""} {
+        set tap_cell $fc(common,tap_cell)
     } elseif {[info exists tech(tap_cell)] && $tech(tap_cell) ne ""} {
         set tap_cell $tech(tap_cell)
     }
 
-    if {[info exists fp(tap_distance)] && $fp(tap_distance) ne ""} {
-        set tap_distance $fp(tap_distance)
+    if {[info exists fc(common,tap_distance)] && $fc(common,tap_distance) ne ""} {
+        set tap_distance $fc(common,tap_distance)
     }
 
     if {$tap_cell ne ""} {
@@ -227,16 +230,16 @@ flow_proc place_pins_initial {
     global fp
 
     # Apply pin placement constraints from file if specified
-    if {[info exists fp(pin_placement_file)] && $fp(pin_placement_file) ne ""} {
-        if {[file exists $fp(pin_placement_file)]} {
-            handle_info "Sourcing pin placement: $fp(pin_placement_file)"
-            source -e $fp(pin_placement_file)
+    if {[info exists fc(common,pin_placement_file)] && $fc(common,pin_placement_file) ne ""} {
+        if {[file exists $fc(common,pin_placement_file)]} {
+            handle_info "Sourcing pin placement: $fc(common,pin_placement_file)"
+            source -e $fc(common,pin_placement_file)
         }
     }
 
     # Set pin layer constraints
-    if {[info exists fp(pin_metal_layer)] && $fp(pin_metal_layer) ne ""} {
-        set_pin_constraints -layers $fp(pin_metal_layer) [get_ports *]
+    if {[info exists fc(common,pin_metal_layer)] && $fc(common,pin_metal_layer) ne ""} {
+        set_pin_constraints -layers $fc(common,pin_metal_layer) [get_ports *]
     }
 
     # Run automatic pin placement
@@ -297,8 +300,8 @@ flow_proc save_design {
     handle_info "Saving floorplan block..."
     global fp flow
 
-    set design_name [expr {[info exists fp(design_name)] ? $fp(design_name) : $flow(design_name)}]
-    set lib_name [expr {[info exists fp(design_lib_name)] ? $fp(design_lib_name) : "${design_name}.nlib"}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
+    set lib_name [expr {[info exists fc(common,design_lib_name)] ? $fc(common,design_lib_name) : "${design_name}.nlib"}]
 
     save_lib -all
     save_block
@@ -317,7 +320,7 @@ flow_proc generate_reports {
 
     file mkdir "$::REPORTS_DIR"
 
-    set max_paths [expr {[info exists fp(analysis,max_paths)] ? $fp(analysis,max_paths) : 50}]
+    set max_paths [expr {[info exists fc(analysis,max_paths)] ? $fc(analysis,max_paths) : 50}]
 
     redirect -file $::REPORTS_DIR/report_qor.rpt { report_qor }
     redirect -file $::REPORTS_DIR/report_timing.rpt {

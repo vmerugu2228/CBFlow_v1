@@ -37,6 +37,9 @@ if {[file exists $release_utils]} { source $release_utils }
 set release_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
 if {[file exists $release_config]} { source $release_config }
 
+# Source VOLTUS tool config
+set _tool_config "[file dirname [info script]]/voltus_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting EMIR release_data with Cadence Voltus..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -59,8 +62,8 @@ flow_proc init_release {
 
     # ── Validate mandatory variables ─────────────────────────────────────────
     set missing_vars {}
-    if {![info exists emir(design_name)] && ![info exists flow(design_name)]} {
-        lappend missing_vars "design_name (emir(design_name) or flow(design_name))"
+    if {![info exists voltus(common,design_name)] && ![info exists flow(design_name)]} {
+        lappend missing_vars "design_name (voltus(common,design_name) or flow(design_name))"
     }
     if {![info exists project(release,tag)] || $project(release,tag) eq ""} {
         lappend missing_vars "project(release,tag) in project_config.tcl"
@@ -78,12 +81,12 @@ flow_proc init_release {
         handle_warning "Release may be incomplete"
     }
 
-    set design_name [expr {[info exists emir(design_name)] ? $emir(design_name) : [expr {[info exists flow(design_name)] ? $flow(design_name) : "emir"}]}]
+    set design_name [expr {[info exists voltus(common,design_name)] ? $voltus(common,design_name) : [expr {[info exists flow(design_name)] ? $flow(design_name) : "emir"}]}]
 
     # ── Determine release phase ──────────────────────────────────────────────
     set release_phase "P0"
     if {[info exists project(release_phase)]} { set release_phase $project(release_phase) }
-    if {[info exists emir(release_phase)]} { set release_phase $emir(release_phase) }
+    if {[info exists voltus(common,release_phase)]} { set release_phase $voltus(common,release_phase) }
     if {[info exists project(release,phase)] && $project(release,phase) ne ""} { set release_phase $project(release,phase) }
 
     # ── Initialize release using utilities ───────────────────────────────────

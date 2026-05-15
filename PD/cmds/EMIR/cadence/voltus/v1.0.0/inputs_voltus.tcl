@@ -27,6 +27,9 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::
 # Source user_config for overrides
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 
+# Source VOLTUS tool config
+set _tool_config "[file dirname [info script]]/voltus_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting EMIR inputs stage with Voltus..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -51,7 +54,7 @@ flow_proc resolve_inputs {
     handle_info "Resolving input files..."
     global emir flow project flow_input_handshake
 
-    set design_name [expr {[info exists emir(design_name)] ? $emir(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists voltus(common,design_name)] ? $voltus(common,design_name) : $flow(design_name)}]
 
     if {![namespace exists ::CBFlow::InputResolve]} {
         handle_info "Release input resolution not available — using direct paths only"
@@ -251,13 +254,13 @@ flow_proc read_power_data {
     } else {
         handle_warning "No switching activity files found (VCD/SAIF)"
         # Set default switching activity from config
-        if {[info exists emir(power,default_toggle_rate)]} {
-            puts "   Using default toggle rate: $emir(power,default_toggle_rate)"
-            set_default_switching_activity -toggle_rate $emir(power,default_toggle_rate)
+        if {[info exists voltus(power,default_toggle_rate)]} {
+            puts "   Using default toggle rate: $voltus(power,default_toggle_rate)"
+            set_default_switching_activity -toggle_rate $voltus(power,default_toggle_rate)
         }
-        if {[info exists emir(power,default_static_probability)]} {
-            puts "   Using default static probability: $emir(power,default_static_probability)"
-            set_default_switching_activity -static_probability $emir(power,default_static_probability)
+        if {[info exists voltus(power,default_static_probability)]} {
+            puts "   Using default static probability: $voltus(power,default_static_probability)"
+            set_default_switching_activity -static_probability $voltus(power,default_static_probability)
         }
     }
 
@@ -295,9 +298,9 @@ flow_proc read_constraints {
     }
 
     # Set power supply voltage from config
-    if {[info exists emir(power,supply_voltage)]} {
-        puts "   Setting supply voltage: $emir(power,supply_voltage)V"
-        set_voltage $emir(power,supply_voltage) -object_type domain
+    if {[info exists voltus(power,supply_voltage)]} {
+        puts "   Setting supply voltage: $voltus(power,supply_voltage)V"
+        set_voltage $voltus(power,supply_voltage) -object_type domain
     }
 
     puts " Constraints loaded"
@@ -338,8 +341,8 @@ flow_proc validate_inputs {
     puts "  Activity files: $activity_count"
 
     # Validate config variables
-    if {![info exists emir(ir_drop,threshold)]} {
-        handle_warning "emir(ir_drop,threshold) not defined -- using tool defaults"
+    if {![info exists voltus(ir_drop,threshold)]} {
+        handle_warning "voltus(ir_drop,threshold) not defined -- using tool defaults"
     }
 
     # Generate validation summary

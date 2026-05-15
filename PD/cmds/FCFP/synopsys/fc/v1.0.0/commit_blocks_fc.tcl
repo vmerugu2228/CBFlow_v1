@@ -14,6 +14,9 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/FCFP/commit_blocks/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global fcfp project tech flow
+# Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting FCFP commit_blocks..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -44,14 +47,14 @@ flow_proc load_design {
     handle_info "Loading design for commit_blocks..."
     global fcfp flow
 
-    set design_name [expr {[info exists fcfp(design_name)] ? $fcfp(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
-    if {[info exists fcfp(open_lib)] && $fcfp(open_lib) ne ""} {
-        open_lib $fcfp(open_lib)
+    if {[info exists fc(common,open_lib)] && $fc(common,open_lib) ne ""} {
+        open_lib $fc(common,open_lib)
     }
 
-    if {[info exists fcfp(copy_block,from)] && $fcfp(copy_block,from) ne ""} {
-        copy_block -from $fcfp(copy_block,from) -to ${design_name}/commit_blocks
+    if {[info exists fc(copy_block,from)] && $fc(copy_block,from) ne ""} {
+        copy_block -from $fc(copy_block,from) -to ${design_name}/commit_blocks
         current_block ${design_name}/commit_blocks
     } else {
         open_block ${design_name}/init_design
@@ -72,22 +75,22 @@ flow_proc create_block_refs {
     global fcfp
 
     # Get sub-block list
-    if {[info exists fcfp(sub_blocks)] && [llength $fcfp(sub_blocks)] > 0} {
-        foreach block $fcfp(sub_blocks) {
+    if {[info exists fc(common,sub_blocks)] && [llength $fc(common,sub_blocks)] > 0} {
+        foreach block $fc(common,sub_blocks) {
             handle_info "Creating block reference for: $block"
             create_block -hier $block
         }
     }
 
     # Power domain mapping for sub-blocks
-    if {[info exists fcfp(power_domain_map_script)] && [file exists $fcfp(power_domain_map_script)]} {
-        handle_info "Sourcing power domain map: $fcfp(power_domain_map_script)"
-        source -e $fcfp(power_domain_map_script)
+    if {[info exists fc(common,power_domain_map_script)] && [file exists $fc(common,power_domain_map_script)]} {
+        handle_info "Sourcing power domain map: $fc(common,power_domain_map_script)"
+        source -e $fc(common,power_domain_map_script)
     }
 
     # Commit blocks
-    if {[info exists fcfp(commit_block_list)] && [llength $fcfp(commit_block_list)] > 0} {
-        foreach block $fcfp(commit_block_list) {
+    if {[info exists fc(common,commit_block_list)] && [llength $fc(common,commit_block_list)] > 0} {
+        foreach block $fc(common,commit_block_list) {
             handle_info "Committing block: $block"
             commit_block -block_ref $block
         }
@@ -110,12 +113,12 @@ flow_proc split_constraints {
     set split_dir "$run_dir/results/fcfp/split_constraints"
     file mkdir $split_dir
 
-    if {[info exists fcfp(split_constraints_script)] && [file exists $fcfp(split_constraints_script)]} {
-        source -e $fcfp(split_constraints_script)
+    if {[info exists fc(common,split_constraints_script)] && [file exists $fc(common,split_constraints_script)]} {
+        source -e $fc(common,split_constraints_script)
     } else {
         # Auto-split constraints per sub-block
-        if {[info exists fcfp(sub_blocks)] && [llength $fcfp(sub_blocks)] > 0} {
-            foreach block $fcfp(sub_blocks) {
+        if {[info exists fc(common,sub_blocks)] && [llength $fc(common,sub_blocks)] > 0} {
+            foreach block $fc(common,sub_blocks) {
                 file mkdir "$split_dir/$block"
                 handle_info "Splitting constraints for: $block"
                 catch {
@@ -139,7 +142,7 @@ flow_proc save_design {
     handle_info "Saving commit_blocks..."
     global fcfp flow
 
-    set design_name [expr {[info exists fcfp(design_name)] ? $fcfp(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
     save_lib -all
     save_block

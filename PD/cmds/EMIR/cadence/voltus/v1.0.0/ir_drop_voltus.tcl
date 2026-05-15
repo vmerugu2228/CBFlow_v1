@@ -26,6 +26,9 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::
 # Source user_config for overrides
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 
+# Source VOLTUS tool config
+set _tool_config "[file dirname [info script]]/voltus_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting EMIR ir_drop stage with Voltus..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -48,45 +51,45 @@ flow_proc configure_ir {
     file mkdir "$::OUTPUTS_DIR/emir/ir_drop"
 
     # Set PG analysis mode
-    if {[info exists emir(ir_drop,analysis_mode)]} {
-        puts "PG analysis mode: $emir(ir_drop,analysis_mode)"
-        set_pg_analysis_mode -power_grid_mode $emir(ir_drop,analysis_mode)
+    if {[info exists voltus(ir_drop,analysis_mode)]} {
+        puts "PG analysis mode: $voltus(ir_drop,analysis_mode)"
+        set_pg_analysis_mode -power_grid_mode $voltus(ir_drop,analysis_mode)
     } else {
         puts "PG analysis mode: static (default)"
         set_pg_analysis_mode -power_grid_mode static
     }
 
     # Set IR drop threshold from config
-    if {[info exists emir(ir_drop,threshold)]} {
-        puts "IR drop threshold: $emir(ir_drop,threshold)V"
-        set_pg_analysis_mode -ir_drop_limit $emir(ir_drop,threshold)
+    if {[info exists voltus(ir_drop,threshold)]} {
+        puts "IR drop threshold: $voltus(ir_drop,threshold)V"
+        set_pg_analysis_mode -ir_drop_limit $voltus(ir_drop,threshold)
     }
 
     # Set EM threshold from config
-    if {[info exists emir(em,threshold)]} {
-        puts "EM current density threshold: $emir(em,threshold)"
-        set_pg_analysis_mode -em_limit $emir(em,threshold)
+    if {[info exists voltus(em,threshold)]} {
+        puts "EM current density threshold: $voltus(em,threshold)"
+        set_pg_analysis_mode -em_limit $voltus(em,threshold)
     }
 
     # Configure power net names
-    if {[info exists emir(power,vdd_net)]} {
-        puts "VDD net: $emir(power,vdd_net)"
+    if {[info exists voltus(power,vdd_net)]} {
+        puts "VDD net: $voltus(power,vdd_net)"
     }
-    if {[info exists emir(power,vss_net)]} {
-        puts "VSS net: $emir(power,vss_net)"
+    if {[info exists voltus(power,vss_net)]} {
+        puts "VSS net: $voltus(power,vss_net)"
     }
 
     # Set analysis precision
-    if {[info exists emir(ir_drop,mesh_density)]} {
-        set_pg_analysis_mode -mesh_density $emir(ir_drop,mesh_density)
-        puts "Mesh density: $emir(ir_drop,mesh_density)"
+    if {[info exists voltus(ir_drop,mesh_density)]} {
+        set_pg_analysis_mode -mesh_density $voltus(ir_drop,mesh_density)
+        puts "Mesh density: $voltus(ir_drop,mesh_density)"
     }
 
     # Configure voltage source locations
-    if {[info exists emir(ir_drop,pad_location_file)]} {
-        if {[file exists $emir(ir_drop,pad_location_file)]} {
-            read_pg_pad_location $emir(ir_drop,pad_location_file)
-            puts "Pad locations loaded: $emir(ir_drop,pad_location_file)"
+    if {[info exists voltus(ir_drop,pad_location_file)]} {
+        if {[file exists $voltus(ir_drop,pad_location_file)]} {
+            read_pg_pad_location $voltus(ir_drop,pad_location_file)
+            puts "Pad locations loaded: $voltus(ir_drop,pad_location_file)"
         }
     }
 
@@ -118,7 +121,7 @@ flow_proc run_ir_drop {
     handle_info "  IR drop map: $ir_map"
 
     # Run dynamic IR drop if configured
-    if {[info exists emir(ir_drop,run_dynamic)] && $emir(ir_drop,run_dynamic) eq "true"} {
+    if {[info exists voltus(ir_drop,run_dynamic)] && $voltus(ir_drop,run_dynamic) eq "true"} {
         puts "Analyzing dynamic IR drop..."
         set_pg_analysis_mode -power_grid_mode dynamic
         analyze_power_grid -type ir_drop
@@ -130,7 +133,7 @@ flow_proc run_ir_drop {
     }
 
     # Run EM analysis
-    if {![info exists emir(em,skip)] || $emir(em,skip) ne "true"} {
+    if {![info exists voltus(em,skip)] || $voltus(em,skip) ne "true"} {
         puts "Analyzing electromigration..."
         analyze_power_grid -type em
 
@@ -154,9 +157,9 @@ flow_proc identify_hotspots {
     # Report PG hotspots based on threshold
     set hotspot_rpt "$::REPORTS_DIR/ir_drop/pg_hotspots.rpt"
 
-    if {[info exists emir(ir_drop,threshold)]} {
+    if {[info exists voltus(ir_drop,threshold)]} {
         report_pg_hotspot \
-            -ir_drop_threshold $emir(ir_drop,threshold) \
+            -ir_drop_threshold $voltus(ir_drop,threshold) \
             -out_file $hotspot_rpt
     } else {
         report_pg_hotspot \
@@ -166,8 +169,8 @@ flow_proc identify_hotspots {
 
     # Report worst-case IR drop instances
     set worst_rpt "$::REPORTS_DIR/ir_drop/worst_ir_instances.rpt"
-    if {[info exists emir(ir_drop,max_violations)]} {
-        set max_violations $emir(ir_drop,max_violations)
+    if {[info exists voltus(ir_drop,max_violations)]} {
+        set max_violations $voltus(ir_drop,max_violations)
     } else {
         set max_violations 100
     }
@@ -177,11 +180,11 @@ flow_proc identify_hotspots {
     handle_info "  Worst IR drop instances ($max_violations): $worst_rpt"
 
     # EM hotspot detection
-    if {![info exists emir(em,skip)] || $emir(em,skip) ne "true"} {
+    if {![info exists voltus(em,skip)] || $voltus(em,skip) ne "true"} {
         set em_hotspot_rpt "$::REPORTS_DIR/ir_drop/em_hotspots.rpt"
-        if {[info exists emir(em,threshold)]} {
+        if {[info exists voltus(em,threshold)]} {
             report_pg_hotspot \
-                -em_threshold $emir(em,threshold) \
+                -em_threshold $voltus(em,threshold) \
                 -out_file $em_hotspot_rpt
         } else {
             report_pg_hotspot -type em \
@@ -213,21 +216,21 @@ flow_proc generate_report {
     if {[info exists project(name)]} { puts $fp "Project: $project(name)" }
     puts $fp ""
     puts $fp "Configuration:"
-    if {[info exists emir(ir_drop,analysis_mode)]} { puts $fp "  Analysis mode: $emir(ir_drop,analysis_mode)" }
-    if {[info exists emir(ir_drop,threshold)]} { puts $fp "  IR drop threshold: $emir(ir_drop,threshold)V" }
-    if {[info exists emir(em,threshold)]} { puts $fp "  EM threshold: $emir(em,threshold)" }
-    if {[info exists emir(power,vdd_net)]} { puts $fp "  VDD net: $emir(power,vdd_net)" }
-    if {[info exists emir(power,vss_net)]} { puts $fp "  VSS net: $emir(power,vss_net)" }
+    if {[info exists voltus(ir_drop,analysis_mode)]} { puts $fp "  Analysis mode: $voltus(ir_drop,analysis_mode)" }
+    if {[info exists voltus(ir_drop,threshold)]} { puts $fp "  IR drop threshold: $voltus(ir_drop,threshold)V" }
+    if {[info exists voltus(em,threshold)]} { puts $fp "  EM threshold: $voltus(em,threshold)" }
+    if {[info exists voltus(power,vdd_net)]} { puts $fp "  VDD net: $voltus(power,vdd_net)" }
+    if {[info exists voltus(power,vss_net)]} { puts $fp "  VSS net: $voltus(power,vss_net)" }
     puts $fp ""
     puts $fp "Reports Generated:"
     puts $fp "  Static IR drop:    reports/emir/ir_drop/static_ir_drop.rpt"
     puts $fp "  PG hotspots:       reports/emir/ir_drop/pg_hotspots.rpt"
     puts $fp "  Worst instances:   reports/emir/ir_drop/worst_ir_instances.rpt"
     puts $fp "  IR drop map:       results/emir/ir_drop/ir_drop_map.rptdb"
-    if {[info exists emir(ir_drop,run_dynamic)] && $emir(ir_drop,run_dynamic) eq "true"} {
+    if {[info exists voltus(ir_drop,run_dynamic)] && $voltus(ir_drop,run_dynamic) eq "true"} {
         puts $fp "  Dynamic IR drop:   reports/emir/ir_drop/dynamic_ir_drop.rpt"
     }
-    if {![info exists emir(em,skip)] || $emir(em,skip) ne "true"} {
+    if {![info exists voltus(em,skip)] || $voltus(em,skip) ne "true"} {
         puts $fp "  EM analysis:       reports/emir/ir_drop/em_analysis.rpt"
         puts $fp "  EM hotspots:       reports/emir/ir_drop/em_hotspots.rpt"
     }

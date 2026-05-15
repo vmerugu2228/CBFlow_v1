@@ -31,6 +31,9 @@ if {[file exists $release_utils]} { source $release_utils }
 set release_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
 if {[file exists $release_config]} { source $release_config }
 
+# Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting PNR release_data1 with Synopsys Fusion Compiler..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -54,8 +57,8 @@ flow_proc prepare_release {
 
     # ── Validate mandatory variables ─────────────────────────────────────────
     set missing_vars {}
-    if {![info exists pnr(design_name)] && ![info exists flow(design_name)]} {
-        lappend missing_vars "design_name (pnr(design_name) or flow(design_name))"
+    if {![info exists fc(common,design_name)] && ![info exists flow(design_name)]} {
+        lappend missing_vars "design_name (fc(common,design_name) or flow(design_name))"
     }
     if {![info exists project(release,tag)] || $project(release,tag) eq ""} {
         lappend missing_vars "project(release,tag) in project_config.tcl"
@@ -73,12 +76,12 @@ flow_proc prepare_release {
         handle_warning "Release may be incomplete"
     }
 
-    set design_name [expr {[info exists pnr(design_name)] ? $pnr(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
     # ── Determine release phase ──────────────────────────────────────────────
     set release_phase "P0"
     if {[info exists project(release_phase)]} { set release_phase $project(release_phase) }
-    if {[info exists pnr(release_phase)]} { set release_phase $pnr(release_phase) }
+    if {[info exists fc(common,release_phase)]} { set release_phase $fc(common,release_phase) }
     if {[info exists project(release,phase)] && $project(release,phase) ne ""} { set release_phase $project(release,phase) }
 
     # ── Initialize release using utilities ───────────────────────────────────
@@ -117,9 +120,9 @@ flow_proc prepare_release {
     handle_info "Release directory structure created at $release_dir"
 
     # Copy GDS
-    set gds_src "$run_dir/results/pnr/gds/$pnr(design_name).gds2"
+    set gds_src "$run_dir/results/pnr/gds/$fc(common,design_name).gds2"
     if {[file exists $gds_src]} {
-        file copy -force $gds_src "$release_dir/gds/$pnr(design_name).gds2"
+        file copy -force $gds_src "$release_dir/gds/$fc(common,design_name).gds2"
         handle_info "Copied GDS to release"
     } else {
         handle_warning "GDS source not found: $gds_src"
@@ -127,11 +130,11 @@ flow_proc prepare_release {
 
     # Copy netlists
     foreach suffix [list "" "_pg"] {
-        set nl_src "$run_dir/results/pnr/netlist/$pnr(design_name)${suffix}.v"
+        set nl_src "$run_dir/results/pnr/netlist/$fc(common,design_name)${suffix}.v"
         if {$suffix eq "_pg"} {
-            set nl_dst "$release_dir/netlist/pg/$pnr(design_name)_pg.v"
+            set nl_dst "$release_dir/netlist/pg/$fc(common,design_name)_pg.v"
         } else {
-            set nl_dst "$release_dir/netlist/$pnr(design_name).v"
+            set nl_dst "$release_dir/netlist/$fc(common,design_name).v"
         }
         if {[file exists $nl_src]} {
             file copy -force $nl_src $nl_dst
@@ -140,31 +143,31 @@ flow_proc prepare_release {
     }
 
     # Copy SDF
-    set sdf_src "$run_dir/results/pnr/netlist/$pnr(design_name).sdf"
+    set sdf_src "$run_dir/results/pnr/netlist/$fc(common,design_name).sdf"
     if {[file exists $sdf_src]} {
-        file copy -force $sdf_src "$release_dir/sdf/$pnr(design_name).sdf"
+        file copy -force $sdf_src "$release_dir/sdf/$fc(common,design_name).sdf"
         handle_info "Copied SDF to release"
     }
 
     # Copy DEF
-    set def_src "$run_dir/results/pnr/def/$pnr(design_name).def"
+    set def_src "$run_dir/results/pnr/def/$fc(common,design_name).def"
     if {[file exists $def_src]} {
-        file copy -force $def_src "$release_dir/def/$pnr(design_name).def"
+        file copy -force $def_src "$release_dir/def/$fc(common,design_name).def"
         handle_info "Copied DEF to release"
     }
 
     # Copy SDC
-    set sdc_src "$run_dir/results/pnr/sdc/$pnr(design_name).sdc"
+    set sdc_src "$run_dir/results/pnr/sdc/$fc(common,design_name).sdc"
     if {[file exists $sdc_src]} {
-        file copy -force $sdc_src "$release_dir/sdc/$pnr(design_name).sdc"
+        file copy -force $sdc_src "$release_dir/sdc/$fc(common,design_name).sdc"
         handle_info "Copied SDC to release"
     }
 
     # Copy SPEF files (all corners)
     foreach corner {max min nom} {
-        set spef_src "$run_dir/results/pnr/spef/$pnr(design_name)_${corner}.spef"
+        set spef_src "$run_dir/results/pnr/spef/$fc(common,design_name)_${corner}.spef"
         if {[file exists $spef_src]} {
-            file copy -force $spef_src "$release_dir/spef/$pnr(design_name)_${corner}.spef"
+            file copy -force $spef_src "$release_dir/spef/$fc(common,design_name)_${corner}.spef"
             handle_info "Copied SPEF ($corner) to release"
         }
     }
@@ -211,7 +214,7 @@ flow_proc generate_manifest {
     # Open manifest for writing
     set fh [open $manifest_file w]
     puts $fh "# CBFlow PNR Release Manifest"
-    puts $fh "# Design: $pnr(design_name)"
+    puts $fh "# Design: $fc(common,design_name)"
     puts $fh "# Generated: [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}]"
     if {[info exists project(name)]} {
         puts $fh "# Project: $project(name)"
@@ -278,13 +281,13 @@ flow_proc validate_release {
 
     # Define required deliverables
     set required_files [list \
-        "gds/$pnr(design_name).gds2" \
-        "netlist/$pnr(design_name).v" \
-        "netlist/pg/$pnr(design_name)_pg.v" \
-        "def/$pnr(design_name).def" \
-        "sdc/$pnr(design_name).sdc" \
-        "spef/$pnr(design_name)_max.spef" \
-        "spef/$pnr(design_name)_min.spef" \
+        "gds/$fc(common,design_name).gds2" \
+        "netlist/$fc(common,design_name).v" \
+        "netlist/pg/$fc(common,design_name)_pg.v" \
+        "def/$fc(common,design_name).def" \
+        "sdc/$fc(common,design_name).sdc" \
+        "spef/$fc(common,design_name)_max.spef" \
+        "spef/$fc(common,design_name)_min.spef" \
         "MANIFEST.txt" \
     ]
 
@@ -322,7 +325,7 @@ flow_proc validate_release {
         # Write a release stamp file
         set stamp_fh [open "$release_dir/RELEASE_COMPLETE" w]
         puts $stamp_fh "Release completed: [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}]"
-        puts $stamp_fh "Design: $pnr(design_name)"
+        puts $stamp_fh "Design: $fc(common,design_name)"
         puts $stamp_fh "Status: PASS"
         close $stamp_fh
     } else {

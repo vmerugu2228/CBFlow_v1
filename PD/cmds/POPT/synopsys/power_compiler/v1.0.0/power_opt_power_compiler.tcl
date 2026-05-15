@@ -19,6 +19,9 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::
 # Source user_config for overrides
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 global popt project tech flow
+# Source POWER_COMPILER tool config
+set _tool_config "[file dirname [info script]]/power_compiler_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting POPT power_opt with Synopsys Power Compiler..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -176,7 +179,7 @@ flow_proc generate_report {
     report_power > "$::REPORTS_DIR/$1"
 
     # Timing check
-    report_timing -delay max -max_paths [expr {[info exists popt(analysis,max_paths)] ? $popt(analysis,max_paths) : 100}] > "$::REPORTS_DIR/$1"
+    report_timing -delay max -max_paths [expr {[info exists power_compiler(analysis,max_paths)] ? $power_compiler(analysis,max_paths) : 100}] > "$::REPORTS_DIR/$1"
 
     # QoR
     report_qor > "$::REPORTS_DIR/$1"

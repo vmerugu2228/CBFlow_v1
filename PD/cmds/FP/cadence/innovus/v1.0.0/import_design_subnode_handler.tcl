@@ -159,7 +159,10 @@ proc log_subnode_status {subnode_name status run_dir} {
     puts $status_fp "$timestamp import_design:$subnode_name $status"
     close $status_fp
 
-    handle_info "Status logged: import_design:$subnode_name $status"
+    # Source INNOVUS tool config
+set _tool_config "[file dirname [info script]]/innovus_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
+handle_info "Status logged: import_design:$subnode_name $status"
 }
 
 proc handle_setup_subnode {run_dir} {

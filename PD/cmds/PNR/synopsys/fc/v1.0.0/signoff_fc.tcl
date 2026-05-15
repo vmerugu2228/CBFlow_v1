@@ -11,6 +11,9 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/PNR/signoff1/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global pnr project tech flow
+# Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting PNR signoff1 with Synopsys Fusion Compiler..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -43,14 +46,14 @@ flow_proc insert_filler {
     handle_info "Checking filler cell insertion settings..."
     global pnr tech
 
-    if {[info exists pnr(signoff,insert_filler)] && $pnr(signoff,insert_filler)} {
+    if {[info exists fc(signoff,insert_filler)] && $fc(signoff,insert_filler)} {
         # Build filler cell list from tech config
         if {[info exists tech(cells,filler)] && $tech(cells,filler) ne ""} {
             handle_info "Inserting filler cells: $tech(cells,filler)"
             set filler_cmd "create_stdcell_fillers -lib_cells \[get_lib_cells $tech(cells,filler)\]"
             eval $filler_cmd
         } else {
-            handle_warning "pnr(signoff,insert_filler) is true but tech(cells,filler) not specified"
+            handle_warning "fc(signoff,insert_filler) is true but tech(cells,filler) not specified"
         }
 
         # Connect PG nets after filler insertion
@@ -68,13 +71,13 @@ flow_proc insert_decap {
     handle_info "Checking decap cell insertion settings..."
     global pnr tech
 
-    if {[info exists pnr(signoff,insert_decap)] && $pnr(signoff,insert_decap)} {
+    if {[info exists fc(signoff,insert_decap)] && $fc(signoff,insert_decap)} {
         if {[info exists tech(cells,decap)] && $tech(cells,decap) ne ""} {
             handle_info "Inserting decap cells: $tech(cells,decap)"
             set decap_cmd "create_stdcell_fillers -lib_cells \[get_lib_cells $tech(cells,decap)\]"
             eval $decap_cmd
         } else {
-            handle_warning "pnr(signoff,insert_decap) is true but tech(cells,decap) not specified"
+            handle_warning "fc(signoff,insert_decap) is true but tech(cells,decap) not specified"
         }
 
         # Connect PG nets after decap insertion
@@ -93,27 +96,27 @@ flow_proc run_drc_check {
     global pnr tech
 
     # Configure DRC runset
-    if {[info exists pnr(signoff,drc_runset)] && [file exists $pnr(signoff,drc_runset)]} {
-        set_app_options -name signoff.check_drc.runset -value $pnr(signoff,drc_runset)
+    if {[info exists fc(signoff,drc_runset)] && [file exists $fc(signoff,drc_runset)]} {
+        set_app_options -name signoff.check_drc.runset -value $fc(signoff,drc_runset)
     }
 
     # Configure layer mapping for signoff
     if {[info exists tech(gds_layer_map)] && $tech(gds_layer_map) ne ""} {
         set_app_options -name signoff.physical.layer_map_file -value $tech(gds_layer_map)
     }
-    if {[info exists pnr(signoff,stream_files_for_merge)] && $pnr(signoff,stream_files_for_merge) ne ""} {
-        set_app_options -name signoff.physical.merge_stream_files -value $pnr(signoff,stream_files_for_merge)
+    if {[info exists fc(signoff,stream_files_for_merge)] && $fc(signoff,stream_files_for_merge) ne ""} {
+        set_app_options -name signoff.physical.merge_stream_files -value $fc(signoff,stream_files_for_merge)
     }
 
     # Save block before ICV (reads from disk)
     save_block
 
     # Run signoff_check_drc
-    if {[info exists pnr(signoff,drc_runset)] && [file exists $pnr(signoff,drc_runset)]} {
+    if {[info exists fc(signoff,drc_runset)] && [file exists $fc(signoff,drc_runset)]} {
         handle_info "Running signoff_check_drc"
         set drc_cmd "signoff_check_drc"
-        if {[info exists pnr(signoff,drc_select_rules)] && $pnr(signoff,drc_select_rules) ne ""} {
-            lappend drc_cmd -select_rules $pnr(signoff,drc_select_rules)
+        if {[info exists fc(signoff,drc_select_rules)] && $fc(signoff,drc_select_rules) ne ""} {
+            lappend drc_cmd -select_rules $fc(signoff,drc_select_rules)
         }
         eval $drc_cmd
     } else {
@@ -134,7 +137,7 @@ flow_proc fix_drc {
     handle_info "Checking signoff DRC fix settings..."
     global pnr
 
-    if {[info exists pnr(signoff,fix_drc)] && $pnr(signoff,fix_drc)} {
+    if {[info exists fc(signoff,fix_drc)] && $fc(signoff,fix_drc)} {
         handle_info "Running signoff_fix_drc"
         signoff_fix_drc
         handle_info "signoff_fix_drc completed"
@@ -151,22 +154,22 @@ flow_proc create_metal_fill {
     handle_info "Checking metal fill settings..."
     global pnr tech
 
-    if {[info exists pnr(signoff,metal_fill)] && $pnr(signoff,metal_fill)} {
+    if {[info exists fc(signoff,metal_fill)] && $fc(signoff,metal_fill)} {
         # Configure metal fill runset if provided
-        if {[info exists pnr(signoff,metal_fill_runset)] && [file exists $pnr(signoff,metal_fill_runset)]} {
-            set_app_options -name signoff.create_metal_fill.runset -value $pnr(signoff,metal_fill_runset)
+        if {[info exists fc(signoff,metal_fill_runset)] && [file exists $fc(signoff,metal_fill_runset)]} {
+            set_app_options -name signoff.create_metal_fill.runset -value $fc(signoff,metal_fill_runset)
         }
 
         # Configure timing-driven metal fill
         set fill_cmd "signoff_create_metal_fill"
-        if {[info exists pnr(signoff,metal_fill_track_based)] && $pnr(signoff,metal_fill_track_based) ne "off"} {
-            lappend fill_cmd -track_fill $pnr(signoff,metal_fill_track_based)
-            if {$pnr(signoff,metal_fill_track_based) ne "generic"} {
+        if {[info exists fc(signoff,metal_fill_track_based)] && $fc(signoff,metal_fill_track_based) ne "off"} {
+            lappend fill_cmd -track_fill $fc(signoff,metal_fill_track_based)
+            if {$fc(signoff,metal_fill_track_based) ne "generic"} {
                 lappend fill_cmd -fill_all_tracks true
             }
         }
-        if {[info exists pnr(signoff,metal_fill_timing_threshold)] && $pnr(signoff,metal_fill_timing_threshold) ne ""} {
-            lappend fill_cmd -timing_preserve_setup_slack_threshold $pnr(signoff,metal_fill_timing_threshold)
+        if {[info exists fc(signoff,metal_fill_timing_threshold)] && $fc(signoff,metal_fill_timing_threshold) ne ""} {
+            lappend fill_cmd -timing_preserve_setup_slack_threshold $fc(signoff,metal_fill_timing_threshold)
             set_extraction_options -real_metalfill_extraction none
         }
 
@@ -196,7 +199,7 @@ flow_proc run_final_drc {
     }
 
     # Run signoff_check_drc if runset is available (post-metal-fill check)
-    if {[info exists pnr(signoff,drc_runset)] && [file exists $pnr(signoff,drc_runset)]} {
+    if {[info exists fc(signoff,drc_runset)] && [file exists $fc(signoff,drc_runset)]} {
         handle_info "Running final signoff_check_drc"
         signoff_check_drc -error_data POST_FINISH
     }
@@ -215,9 +218,9 @@ flow_proc save_design_block {
     handle_info "Saving design block..."
     global pnr
 
-    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling)} {
-        save_block -as $pnr(design_name)/signoff
-        handle_info "Block saved as $pnr(design_name)/signoff"
+    if {[info exists fc(output,block_labeling)] && $fc(output,block_labeling)} {
+        save_block -as $fc(common,design_name)/signoff
+        handle_info "Block saved as $fc(common,design_name)/signoff"
     } else {
         save_block
         handle_info "Block saved"
@@ -233,7 +236,7 @@ flow_proc generate_reports {
     global pnr
 
     set run_dir $::env(CBFLOW_RUN_DIR)
-    set max_paths [expr {[info exists pnr(analysis,max_paths)] ? $pnr(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists fc(analysis,max_paths)] ? $fc(analysis,max_paths) : 100}]
 
     # FC-RM: Timing settings for post-route/signoff
     set_app_options -name time.delay_calc_waveform_analysis_mode -value full_design

@@ -52,6 +52,9 @@ if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/
 
 global sta project tech flow
 
+# Source TEMPUS tool config
+set _tool_config "[file dirname [info script]]/tempus_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting STA inputs stage with Cadence Tempus..."
 
 set WORK_DIR "$run_dir/work/STA/inputs"
@@ -96,7 +99,7 @@ flow_proc resolve_inputs {
     handle_info "Resolving input files..."
     global sta flow project flow_input_handshake
 
-    set design_name [expr {[info exists sta(design_name)] ? $sta(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists tempus(common,design_name)] ? $tempus(common,design_name) : $flow(design_name)}]
 
     if {![namespace exists ::CBFlow::InputResolve]} {
         handle_info "Release input resolution not available — using direct paths only"

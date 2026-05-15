@@ -11,6 +11,9 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/FP/powerplan/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global fp project tech flow
+# Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting FP powerplan with Synopsys Fusion Compiler..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -41,23 +44,23 @@ flow_proc create_power_rings {
     file mkdir "$::REPORTS_DIR"
 
     # Define ring parameters
-    if {[info exists fp(ring_horizontal_layer)]} {
-        set h_layer $fp(ring_horizontal_layer)
+    if {[info exists fc(common,ring_horizontal_layer)]} {
+        set h_layer $fc(common,ring_horizontal_layer)
     } else {
         set h_layer "M7"
     }
-    if {[info exists fp(ring_vertical_layer)]} {
-        set v_layer $fp(ring_vertical_layer)
+    if {[info exists fc(common,ring_vertical_layer)]} {
+        set v_layer $fc(common,ring_vertical_layer)
     } else {
         set v_layer "M8"
     }
-    if {[info exists fp(ring_width)]} {
-        set ring_w $fp(ring_width)
+    if {[info exists fc(common,ring_width)]} {
+        set ring_w $fc(common,ring_width)
     } else {
         set ring_w 3.0
     }
-    if {[info exists fp(ring_spacing)]} {
-        set ring_s $fp(ring_spacing)
+    if {[info exists fc(common,ring_spacing)]} {
+        set ring_s $fc(common,ring_spacing)
     } else {
         set ring_s 1.0
     }
@@ -109,8 +112,8 @@ flow_proc create_power_straps {
     global fp tech
 
     # Define strap configuration per metal layer
-    if {[info exists fp(pg_strap_config)]} {
-        set strap_config $fp(pg_strap_config)
+    if {[info exists fc(common,pg_strap_config)]} {
+        set strap_config $fc(common,pg_strap_config)
     } else {
         # Default strap configuration for typical metal stack
         set strap_config {
@@ -183,8 +186,8 @@ flow_proc connect_power {
     connect_pg_net -net VSS -pin_pattern {VGND}
 
     # Handle additional power domains if UPF is used
-    if {[info exists fp(power_domains)]} {
-        foreach {domain supply_net ground_net} $fp(power_domains) {
+    if {[info exists fc(common,power_domains)]} {
+        foreach {domain supply_net ground_net} $fc(common,power_domains) {
             handle_info "Connecting power domain $domain: supply=$supply_net ground=$ground_net"
             connect_pg_net -net $supply_net -pin_pattern $supply_net
             connect_pg_net -net $ground_net -pin_pattern $ground_net
@@ -220,7 +223,7 @@ flow_proc verify_power {
     }
 
     # Verify voltage area definitions if UPF is used
-    if {[info exists fp(input_upf)]} {
+    if {[info exists fc(common,input_upf)]} {
         redirect -file $::REPORTS_DIR/voltage_area.rpt {
             report_voltage_area
         }
@@ -258,7 +261,7 @@ flow_proc generate_power_reports {
 
     # Save powerplan state
     handle_info "Saving powerplan state..."
-    save_block -as $fp(design_lib_name):$fp(design_name)/powerplan_done
+    save_block -as $fc(common,design_lib_name):$fc(common,design_name)/powerplan_done
 
     handle_info "Power grid reports generated in: $::REPORTS_DIR"
 }

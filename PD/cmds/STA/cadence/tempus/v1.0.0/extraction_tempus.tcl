@@ -52,6 +52,9 @@ if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/
 
 global sta project tech flow
 
+# Source TEMPUS tool config
+set _tool_config "[file dirname [info script]]/tempus_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting STA extraction stage with Cadence Tempus..."
 
 # ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -205,14 +208,14 @@ flow_proc run_extraction {
     file mkdir "$::REPORTS_DIR"
 
     # Configure extraction settings
-    if {[info exists sta(extraction,mode)]} {
-        puts "Extraction mode: $sta(extraction,mode)"
+    if {[info exists tempus(extraction,mode)]} {
+        puts "Extraction mode: $tempus(extraction,mode)"
     } else {
         puts "Extraction mode: default (coupled)"
     }
 
-    if {[info exists sta(extraction,effort)]} {
-        puts "Extraction effort: $sta(extraction,effort)"
+    if {[info exists tempus(extraction,effort)]} {
+        puts "Extraction effort: $tempus(extraction,effort)"
     }
 
     # Run extraction

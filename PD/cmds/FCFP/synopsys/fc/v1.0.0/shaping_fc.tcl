@@ -14,6 +14,9 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/FCFP/shaping/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global fcfp project tech flow
+# Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting FCFP shaping..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -43,13 +46,13 @@ flow_proc load_design {
     handle_info "Loading design for shaping..."
     global fcfp flow
 
-    set design_name [expr {[info exists fcfp(design_name)] ? $fcfp(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
-    if {[info exists fcfp(open_lib)] && $fcfp(open_lib) ne ""} {
-        open_lib $fcfp(open_lib)
+    if {[info exists fc(common,open_lib)] && $fc(common,open_lib) ne ""} {
+        open_lib $fc(common,open_lib)
     }
 
-    set from_label [expr {[info exists fcfp(shaping,from_label)] ? $fcfp(shaping,from_label) : "create_floorplan"}]
+    set from_label [expr {[info exists fc(shaping,from_label)] ? $fc(shaping,from_label) : "create_floorplan"}]
     copy_block -from ${design_name}/${from_label} -to ${design_name}/shaping
     current_block ${design_name}/shaping
     link_block
@@ -66,15 +69,15 @@ flow_proc shape_blocks {
     global fcfp
 
     # Source pre-shaping constraints
-    if {[info exists fcfp(shaping,constraint_script)] && [file exists $fcfp(shaping,constraint_script)]} {
-        source -e $fcfp(shaping,constraint_script)
+    if {[info exists fc(shaping,constraint_script)] && [file exists $fc(shaping,constraint_script)]} {
+        source -e $fc(shaping,constraint_script)
         handle_info "Shaping constraints loaded"
     }
 
     # Determine shaping style: channel (default) or non-channel
     set shaping_style "channel"
-    if {[info exists fcfp(shaping,style)] && $fcfp(shaping,style) ne ""} {
-        set shaping_style $fcfp(shaping,style)
+    if {[info exists fc(shaping,style)] && $fc(shaping,style) ne ""} {
+        set shaping_style $fc(shaping,style)
     }
 
     set shape_cmd "shape_blocks"
@@ -84,16 +87,16 @@ flow_proc shape_blocks {
     }
 
     # Target utilization for shaping
-    if {[info exists fcfp(shaping,target_utilization)] && $fcfp(shaping,target_utilization) ne ""} {
-        lappend shape_cmd -core_utilization $fcfp(shaping,target_utilization)
+    if {[info exists fc(shaping,target_utilization)] && $fc(shaping,target_utilization) ne ""} {
+        lappend shape_cmd -core_utilization $fc(shaping,target_utilization)
     }
 
     # Min/max size constraints
-    if {[info exists fcfp(shaping,min_width)] && $fcfp(shaping,min_width) ne ""} {
-        lappend shape_cmd -min_width $fcfp(shaping,min_width)
+    if {[info exists fc(shaping,min_width)] && $fc(shaping,min_width) ne ""} {
+        lappend shape_cmd -min_width $fc(shaping,min_width)
     }
-    if {[info exists fcfp(shaping,min_height)] && $fcfp(shaping,min_height) ne ""} {
-        lappend shape_cmd -min_height $fcfp(shaping,min_height)
+    if {[info exists fc(shaping,min_height)] && $fc(shaping,min_height) ne ""} {
+        lappend shape_cmd -min_height $fc(shaping,min_height)
     }
 
     handle_info "Running: $shape_cmd (style=$shaping_style)"
@@ -144,7 +147,7 @@ flow_proc save_design {
     handle_info "Saving shaping block..."
     global fcfp flow
 
-    set design_name [expr {[info exists fcfp(design_name)] ? $fcfp(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
     save_lib -all
     save_block
@@ -159,7 +162,7 @@ flow_proc generate_reports {
     handle_info "Generating shaping reports..."
     global fcfp
 
-    set max_paths [expr {[info exists fcfp(analysis,max_paths)] ? $fcfp(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists fc(analysis,max_paths)] ? $fc(analysis,max_paths) : 100}]
 
     redirect -file $::REPORTS_DIR/report_qor.rpt { report_qor }
     redirect -file $::REPORTS_DIR/report_timing.rpt {

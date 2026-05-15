@@ -11,6 +11,9 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/PNR/pro1/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global pnr project tech flow
+# Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting PNR pro1 with Synopsys Fusion Compiler..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -45,17 +48,17 @@ flow_proc configure_route_opt {
     global pnr tech
 
     # Set QoR strategy for post_route stage
-    if {[info exists pnr(compile,qor_version)] && $pnr(compile,qor_version) ne ""} {
-        set_app_options -name flow.set_qor_strategy.version -value $pnr(compile,qor_version)
+    if {[info exists fc(compile,qor_version)] && $fc(compile,qor_version) ne ""} {
+        set_app_options -name flow.set_qor_strategy.version -value $fc(compile,qor_version)
     }
     set set_qor_strategy_cmd "set_qor_strategy -stage post_route"
-    if {[info exists pnr(compile,qor_metric)] && $pnr(compile,qor_metric) ne ""} {
-        lappend set_qor_strategy_cmd -metric $pnr(compile,qor_metric)
+    if {[info exists fc(compile,qor_metric)] && $fc(compile,qor_metric) ne ""} {
+        lappend set_qor_strategy_cmd -metric $fc(compile,qor_metric)
     }
-    if {[info exists pnr(compile,qor_mode)] && $pnr(compile,qor_mode) ne ""} {
-        lappend set_qor_strategy_cmd -mode $pnr(compile,qor_mode)
+    if {[info exists fc(compile,qor_mode)] && $fc(compile,qor_mode) ne ""} {
+        lappend set_qor_strategy_cmd -mode $fc(compile,qor_mode)
     }
-    if {[info exists pnr(compile,reduced_effort)] && $pnr(compile,reduced_effort)} {
+    if {[info exists fc(compile,reduced_effort)] && $fc(compile,reduced_effort)} {
         lappend set_qor_strategy_cmd -reduced_effort
     }
     handle_info "Running: $set_qor_strategy_cmd"
@@ -66,43 +69,43 @@ flow_proc configure_route_opt {
     set_app_options -name cts.common.user_instance_name_prefix -value route_opt_cts_
 
     # Set active scenarios for route_opt
-    if {[info exists pnr(pro,active_scenarios)] && $pnr(pro,active_scenarios) ne ""} {
+    if {[info exists fc(pro,active_scenarios)] && $fc(pro,active_scenarios) ne ""} {
         set_scenario_status -active false [get_scenarios -filter active]
-        set_scenario_status -active true $pnr(pro,active_scenarios)
+        set_scenario_status -active true $fc(pro,active_scenarios)
     }
 
     # Configure PBA optimization mode
-    if {[info exists pnr(pro,pba_mode)] && $pnr(pro,pba_mode) ne ""} {
-        if {[regexp {^(none|path|exhaustive)$} $pnr(pro,pba_mode)]} {
-            handle_info "Setting time.pba_optimization_mode to $pnr(pro,pba_mode)"
-            set_app_options -name time.pba_optimization_mode -value $pnr(pro,pba_mode)
-            if {$pnr(pro,pba_mode) eq "exhaustive"} {
+    if {[info exists fc(pro,pba_mode)] && $fc(pro,pba_mode) ne ""} {
+        if {[regexp {^(none|path|exhaustive)$} $fc(pro,pba_mode)]} {
+            handle_info "Setting time.pba_optimization_mode to $fc(pro,pba_mode)"
+            set_app_options -name time.pba_optimization_mode -value $fc(pro,pba_mode)
+            if {$fc(pro,pba_mode) eq "exhaustive"} {
                 set_app_options -name time.pba_exhaustive_endpoint_path_limit -value 16
             }
         } else {
-            handle_warning "Invalid PBA mode: $pnr(pro,pba_mode). Valid values: none|path|exhaustive"
+            handle_warning "Invalid PBA mode: $fc(pro,pba_mode). Valid values: none|path|exhaustive"
         }
     }
 
     # Configure StarRC extraction mode
-    if {[info exists pnr(pro,extraction_mode)] && $pnr(pro,extraction_mode) ne ""} {
-        set_app_options -name extract.starrc_mode -value $pnr(pro,extraction_mode)
+    if {[info exists fc(pro,extraction_mode)] && $fc(pro,extraction_mode) ne ""} {
+        set_app_options -name extract.starrc_mode -value $fc(pro,extraction_mode)
     }
 
     # StarRC in-design config file
-    if {[info exists pnr(pro,starrc_config)] && [file exists $pnr(pro,starrc_config)]} {
-        set config_path [file normalize $pnr(pro,starrc_config)]
+    if {[info exists fc(pro,starrc_config)] && [file exists $fc(pro,starrc_config)]} {
+        set config_path [file normalize $fc(pro,starrc_config)]
         set starrc_cmd "set_starrc_in_design -config $config_path"
-        if {[info exists pnr(pro,starrc_options)] && $pnr(pro,starrc_options) ne ""} {
-            append starrc_cmd " $pnr(pro,starrc_options)"
+        if {[info exists fc(pro,starrc_options)] && $fc(pro,starrc_options) ne ""} {
+            append starrc_cmd " $fc(pro,starrc_options)"
         }
         handle_info "Running: $starrc_cmd"
         eval $starrc_cmd
     }
 
     # Virtual Metal Fill
-    if {[info exists pnr(pro,vmf_parameter_file)] && [file exists $pnr(pro,vmf_parameter_file)]} {
-        set vmf_cmd "set_extraction_options -virtual_metalfill_parameter_file $pnr(pro,vmf_parameter_file)"
+    if {[info exists fc(pro,vmf_parameter_file)] && [file exists $fc(pro,vmf_parameter_file)]} {
+        set vmf_cmd "set_extraction_options -virtual_metalfill_parameter_file $fc(pro,vmf_parameter_file)"
         handle_info "Running: $vmf_cmd"
         eval $vmf_cmd
     }
@@ -163,7 +166,7 @@ flow_proc run_route_opt_pass3 {
     global pnr
 
     # Post-route_opt redundant via insertion
-    if {[info exists pnr(pro,redundant_via_post)] && $pnr(pro,redundant_via_post)} {
+    if {[info exists fc(pro,redundant_via_post)] && $fc(pro,redundant_via_post)} {
         handle_info "Running post-route_opt add_redundant_vias"
         add_redundant_vias
     }
@@ -187,7 +190,7 @@ flow_proc add_redundant_vias {
     handle_info "Checking redundant via insertion settings..."
     global pnr
 
-    if {[info exists pnr(pro,redundant_via)] && $pnr(pro,redundant_via)} {
+    if {[info exists fc(pro,redundant_via)] && $fc(pro,redundant_via)} {
         handle_info "Running add_redundant_vias -timing_preserve_setup_slack_threshold 0"
         add_redundant_vias -timing_preserve_setup_slack_threshold 0
     } else {
@@ -203,9 +206,9 @@ flow_proc save_design_block {
     handle_info "Saving design block..."
     global pnr
 
-    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling)} {
-        save_block -as $pnr(design_name)/pro
-        handle_info "Block saved as $pnr(design_name)/pro"
+    if {[info exists fc(output,block_labeling)] && $fc(output,block_labeling)} {
+        save_block -as $fc(common,design_name)/pro
+        handle_info "Block saved as $fc(common,design_name)/pro"
     } else {
         save_block
         handle_info "Block saved"
@@ -221,7 +224,7 @@ flow_proc generate_reports {
     global pnr
 
     set run_dir $::env(CBFLOW_RUN_DIR)
-    set max_paths [expr {[info exists pnr(analysis,max_paths)] ? $pnr(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists fc(analysis,max_paths)] ? $fc(analysis,max_paths) : 100}]
 
     # FC-RM: Recommended timing settings for post-route reporting
     set_app_options -name time.delay_calc_waveform_analysis_mode -value full_design
@@ -276,14 +279,14 @@ flow_proc generate_reports {
 # flow_proc: run_endpoint_opt
 # Description: Targeted PBA-CCD endpoint optimization (ported from FC-RM endpoint_opt.tcl)
 #              Runs targeted_ep_ropt_pba_ccd for last-mile Fmax push after route_opt.
-#              Only runs if pnr(pro,enable_endpoint_opt) is true.
-#              Supports loop iterations via pnr(pro,endpoint_opt_loop).
+#              Only runs if fc(pro,enable_endpoint_opt) is true.
+#              Supports loop iterations via fc(pro,endpoint_opt_loop).
 # ==============================================================================
 flow_proc run_endpoint_opt {
     handle_info "Checking if endpoint optimization is enabled..."
     global pnr
 
-    if {![info exists pnr(pro,enable_endpoint_opt)] || !$pnr(pro,enable_endpoint_opt)} {
+    if {![info exists fc(pro,enable_endpoint_opt)] || !$fc(pro,enable_endpoint_opt)} {
         handle_info "Endpoint optimization not enabled -- skipping"
         return
     }
@@ -295,29 +298,29 @@ flow_proc run_endpoint_opt {
     set rm_drc_before_ep [sizeof_collection [get_drc_errors -quiet -error_data zroute.err]]
 
     # Build targeted_ep_ropt_pba_ccd arguments
-    if {[info exists pnr(pro,endpoint_opt_auto)] && $pnr(pro,endpoint_opt_auto)} {
+    if {[info exists fc(pro,endpoint_opt_auto)] && $fc(pro,endpoint_opt_auto)} {
         # Auto mode: let the tool determine endpoints and metrics
         set targeted_ep_args "-auto true"
     } else {
         # Manual mode: specify paths, slack threshold, and scenarios
         set targeted_ep_args ""
-        if {[info exists pnr(pro,endpoint_opt_max_paths)] && $pnr(pro,endpoint_opt_max_paths) ne ""} {
-            append targeted_ep_args " -max_paths $pnr(pro,endpoint_opt_max_paths)"
+        if {[info exists fc(pro,endpoint_opt_max_paths)] && $fc(pro,endpoint_opt_max_paths) ne ""} {
+            append targeted_ep_args " -max_paths $fc(pro,endpoint_opt_max_paths)"
         }
-        if {[info exists pnr(pro,endpoint_opt_slack_threshold)] && $pnr(pro,endpoint_opt_slack_threshold) ne ""} {
-            append targeted_ep_args " -slack_lesser_than $pnr(pro,endpoint_opt_slack_threshold)"
+        if {[info exists fc(pro,endpoint_opt_slack_threshold)] && $fc(pro,endpoint_opt_slack_threshold) ne ""} {
+            append targeted_ep_args " -slack_lesser_than $fc(pro,endpoint_opt_slack_threshold)"
         }
-        if {[info exists pnr(pro,endpoint_opt_scenarios)] && $pnr(pro,endpoint_opt_scenarios) ne ""} {
-            append targeted_ep_args " -scenarios [list $pnr(pro,endpoint_opt_scenarios)]"
+        if {[info exists fc(pro,endpoint_opt_scenarios)] && $fc(pro,endpoint_opt_scenarios) ne ""} {
+            append targeted_ep_args " -scenarios [list $fc(pro,endpoint_opt_scenarios)]"
         }
-        if {[info exists pnr(pro,endpoint_opt_path_group_filter)] && $pnr(pro,endpoint_opt_path_group_filter) ne ""} {
-            append targeted_ep_args " -path_group_filter [list $pnr(pro,endpoint_opt_path_group_filter)]"
+        if {[info exists fc(pro,endpoint_opt_path_group_filter)] && $fc(pro,endpoint_opt_path_group_filter) ne ""} {
+            append targeted_ep_args " -path_group_filter [list $fc(pro,endpoint_opt_path_group_filter)]"
         }
     }
 
     # Determine loop count
-    if {[info exists pnr(pro,endpoint_opt_loop)] && $pnr(pro,endpoint_opt_loop) ne ""} {
-        set ep_loop $pnr(pro,endpoint_opt_loop)
+    if {[info exists fc(pro,endpoint_opt_loop)] && $fc(pro,endpoint_opt_loop) ne ""} {
+        set ep_loop $fc(pro,endpoint_opt_loop)
     } else {
         set ep_loop 1
     }

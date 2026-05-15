@@ -14,6 +14,9 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/FCFP/place_pins/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global fcfp project tech flow
+# Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting FCFP place_pins..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -43,13 +46,13 @@ flow_proc load_design {
     handle_info "Loading design for place_pins..."
     global fcfp flow
 
-    set design_name [expr {[info exists fcfp(design_name)] ? $fcfp(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
-    if {[info exists fcfp(open_lib)] && $fcfp(open_lib) ne ""} {
-        open_lib $fcfp(open_lib)
+    if {[info exists fc(common,open_lib)] && $fc(common,open_lib) ne ""} {
+        open_lib $fc(common,open_lib)
     }
 
-    set from_label [expr {[info exists fcfp(place_pins,from_label)] ? $fcfp(place_pins,from_label) : "create_power"}]
+    set from_label [expr {[info exists fc(place_pins,from_label)] ? $fc(place_pins,from_label) : "create_power"}]
     copy_block -from ${design_name}/${from_label} -to ${design_name}/place_pins
     current_block ${design_name}/place_pins
     link_block
@@ -78,7 +81,7 @@ flow_proc place_pins_final {
     }
 
     # Pre-pin-placement design check
-    if {[info exists fcfp(check_design)] && $fcfp(check_design)} {
+    if {[info exists fc(common,check_design)] && $fc(common,check_design)} {
         redirect -file $::REPORTS_DIR/check_design.pre_pin_placement {
             check_design -ems_database check_design.pre_pin_placement.ems \
                 -checks dp_pre_pin_placement
@@ -100,7 +103,7 @@ flow_proc place_pins_final {
     place_pins -self -legalize
 
     # Fix port placement
-    if {[info exists fcfp(fix_port_placement)] && $fcfp(fix_port_placement)} {
+    if {[info exists fc(common,fix_port_placement)] && $fc(common,fix_port_placement)} {
         set port_list [get_ports -quiet -filter "port_type!=power && port_type!=ground && physical_status==placed"]
         if {[sizeof_collection $port_list] > 0} {
             set_attribute $port_list physical_status "fixed"
@@ -162,7 +165,7 @@ flow_proc save_design {
     handle_info "Saving place_pins block..."
     global fcfp flow
 
-    set design_name [expr {[info exists fcfp(design_name)] ? $fcfp(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
     save_lib -all
     save_block
@@ -177,7 +180,7 @@ flow_proc generate_reports {
     handle_info "Generating place_pins reports..."
     global fcfp
 
-    set max_paths [expr {[info exists fcfp(analysis,max_paths)] ? $fcfp(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists fc(analysis,max_paths)] ? $fc(analysis,max_paths) : 100}]
 
     redirect -file $::REPORTS_DIR/report_qor.rpt { report_qor }
     redirect -file $::REPORTS_DIR/report_timing.rpt {

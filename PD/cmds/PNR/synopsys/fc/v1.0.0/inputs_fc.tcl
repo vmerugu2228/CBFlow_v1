@@ -11,6 +11,9 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/PNR/inputs1/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global pnr project tech flow
+# Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting PNR inputs1 with Synopsys Fusion Compiler..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -53,7 +56,7 @@ flow_proc resolve_inputs {
     handle_info "Resolving input files..."
     global pnr flow project flow_input_handshake
 
-    set design_name [expr {[info exists pnr(design_name)] ? $pnr(design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
 
     if {![namespace exists ::CBFlow::InputResolve]} {
         handle_info "Release input resolution not available — using direct paths only"
@@ -120,28 +123,28 @@ flow_proc create_design_lib {
     global pnr tech
 
     # Remove stale library if it exists
-    if {[file exists $pnr(design_lib_name)]} {
-        file delete -force $pnr(design_lib_name)
+    if {[file exists $fc(common,design_lib_name)]} {
+        file delete -force $fc(common,design_lib_name)
     }
 
     # Build create_lib command with technology and reference libraries
-    set create_lib_cmd "create_lib $pnr(design_lib_name)"
+    set create_lib_cmd "create_lib $fc(common,design_lib_name)"
     if {[info exists tech(tech_file)] && [file exists [which $tech(tech_file)]]} {
         lappend create_lib_cmd -tech $tech(tech_file)
     } elseif {[info exists tech(tech_lib)] && $tech(tech_lib) ne ""} {
         lappend create_lib_cmd -use_technology_lib $tech(tech_lib)
     }
-    if {[info exists pnr(design_lib_scale_factor)] && $pnr(design_lib_scale_factor) ne ""} {
-        lappend create_lib_cmd -scale_factor $pnr(design_lib_scale_factor)
+    if {[info exists fc(common,design_lib_scale_factor)] && $fc(common,design_lib_scale_factor) ne ""} {
+        lappend create_lib_cmd -scale_factor $fc(common,design_lib_scale_factor)
     }
 
     # Assemble reference library list
     set ref_libs [list]
-    if {[info exists pnr(ndm_libs)]} {
-        foreach lib $pnr(ndm_libs) { lappend ref_libs $lib }
+    if {[info exists fc(common,ndm_libs)]} {
+        foreach lib $fc(common,ndm_libs) { lappend ref_libs $lib }
     }
-    if {[info exists pnr(sub_block_libs)]} {
-        foreach lib $pnr(sub_block_libs) { lappend ref_libs $lib }
+    if {[info exists fc(common,sub_block_libs)]} {
+        foreach lib $fc(common,sub_block_libs) { lappend ref_libs $lib }
     }
     if {[llength $ref_libs] > 0} {
         lappend create_lib_cmd -ref_libs $ref_libs
@@ -162,18 +165,18 @@ flow_proc read_design_inputs {
     global pnr
 
     # Read the gate-level netlist
-    if {[info exists pnr(input_netlist)] && $pnr(input_netlist) ne ""} {
-        handle_info "Reading Verilog netlist: $pnr(input_netlist)"
-        read_verilog -top $pnr(design_name) $pnr(input_netlist)
-        current_block $pnr(design_name)
+    if {[info exists fc(common,input_netlist)] && $fc(common,input_netlist) ne ""} {
+        handle_info "Reading Verilog netlist: $fc(common,input_netlist)"
+        read_verilog -top $fc(common,design_name) $fc(common,input_netlist)
+        current_block $fc(common,design_name)
     } else {
-        handle_error "No input netlist specified in pnr(input_netlist)"
+        handle_error "No input netlist specified in fc(common,input_netlist)"
         return -code error "Missing netlist"
     }
 
     # Set early data check policy if applicable
-    if {[info exists pnr(early_data_check_policy)] && $pnr(early_data_check_policy) ne "none"} {
-        set_early_data_check_policy -policy $pnr(early_data_check_policy) -if_not_exist
+    if {[info exists fc(common,early_data_check_policy)] && $fc(common,early_data_check_policy) ne "none"} {
+        set_early_data_check_policy -policy $fc(common,early_data_check_policy) -if_not_exist
     }
 
     # Link the block
@@ -182,19 +185,19 @@ flow_proc read_design_inputs {
     save_lib
 
     # Read floorplan DEF if provided
-    if {[info exists pnr(input_def)] && $pnr(input_def) ne ""} {
-        if {[file exists $pnr(input_def)]} {
-            handle_info "Reading floorplan DEF: $pnr(input_def)"
-            read_def $pnr(input_def)
+    if {[info exists fc(common,input_def)] && $fc(common,input_def) ne ""} {
+        if {[file exists $fc(common,input_def)]} {
+            handle_info "Reading floorplan DEF: $fc(common,input_def)"
+            read_def $fc(common,input_def)
         } else {
-            handle_warning "DEF file not found: $pnr(input_def)"
+            handle_warning "DEF file not found: $fc(common,input_def)"
         }
     }
 
     # Source floorplan Tcl if provided
-    if {[info exists pnr(fp_tcl)] && [file exists $pnr(fp_tcl)]} {
-        handle_info "Sourcing floorplan Tcl: $pnr(fp_tcl)"
-        source -e $pnr(fp_tcl)
+    if {[info exists fc(common,fp_tcl)] && [file exists $fc(common,fp_tcl)]} {
+        handle_info "Sourcing floorplan Tcl: $fc(common,fp_tcl)"
+        source -e $fc(common,fp_tcl)
     }
 
     handle_info "Design inputs loaded successfully"
@@ -209,8 +212,8 @@ flow_proc read_constraints {
     global pnr
 
     # Read SDC timing constraints
-    if {[info exists pnr(input_sdc)] && $pnr(input_sdc) ne ""} {
-        foreach sdc_file $pnr(input_sdc) {
+    if {[info exists fc(common,input_sdc)] && $fc(common,input_sdc) ne ""} {
+        foreach sdc_file $fc(common,input_sdc) {
             if {[file exists $sdc_file]} {
                 handle_info "Reading SDC: $sdc_file"
                 read_sdc $sdc_file
@@ -219,12 +222,12 @@ flow_proc read_constraints {
             }
         }
     } else {
-        handle_error "No SDC constraints specified in pnr(input_sdc)"
+        handle_error "No SDC constraints specified in fc(common,input_sdc)"
     }
 
     # Read UPF power intent
-    if {[info exists pnr(input_upf)] && $pnr(input_upf) ne ""} {
-        foreach upf_file $pnr(input_upf) {
+    if {[info exists fc(common,input_upf)] && $fc(common,input_upf) ne ""} {
+        foreach upf_file $fc(common,input_upf) {
             if {[file exists $upf_file]} {
                 handle_info "Reading UPF: $upf_file"
                 load_upf $upf_file
@@ -233,8 +236,8 @@ flow_proc read_constraints {
             }
         }
         # Read supplemental UPF if provided
-        if {[info exists pnr(input_upf_supplemental)] && [file exists $pnr(input_upf_supplemental)]} {
-            load_upf -supplemental $pnr(input_upf_supplemental)
+        if {[info exists fc(common,input_upf_supplemental)] && [file exists $fc(common,input_upf_supplemental)]} {
+            load_upf -supplemental $fc(common,input_upf_supplemental)
         }
         handle_info "Running commit_upf"
         commit_upf
@@ -287,19 +290,19 @@ flow_proc set_qor_strategy_init {
     global pnr
 
     set set_qor_strategy_cmd "set_qor_strategy -stage pnr"
-    if {[info exists pnr(compile,qor_metric)] && $pnr(compile,qor_metric) ne ""} {
-        lappend set_qor_strategy_cmd -metric $pnr(compile,qor_metric)
+    if {[info exists fc(compile,qor_metric)] && $fc(compile,qor_metric) ne ""} {
+        lappend set_qor_strategy_cmd -metric $fc(compile,qor_metric)
     }
-    if {[info exists pnr(compile,qor_mode)] && $pnr(compile,qor_mode) ne ""} {
-        lappend set_qor_strategy_cmd -mode $pnr(compile,qor_mode)
+    if {[info exists fc(compile,qor_mode)] && $fc(compile,qor_mode) ne ""} {
+        lappend set_qor_strategy_cmd -mode $fc(compile,qor_mode)
     }
 
     handle_info "Running: $set_qor_strategy_cmd"
     eval $set_qor_strategy_cmd
 
     # Set technology node if specified
-    if {[info exists pnr(technology_node)] && $pnr(technology_node) ne ""} {
-        set_technology -node $pnr(technology_node)
+    if {[info exists fc(common,technology_node)] && $fc(common,technology_node) ne ""} {
+        set_technology -node $fc(common,technology_node)
         save_lib -all
     }
 
@@ -328,9 +331,9 @@ flow_proc save_design_block {
     handle_info "Saving design block..."
     global pnr
 
-    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling)} {
-        save_block -as $pnr(design_name)/inputs
-        handle_info "Block saved as $pnr(design_name)/inputs"
+    if {[info exists fc(output,block_labeling)] && $fc(output,block_labeling)} {
+        save_block -as $fc(common,design_name)/inputs
+        handle_info "Block saved as $fc(common,design_name)/inputs"
     } else {
         save_block
         handle_info "Block saved"

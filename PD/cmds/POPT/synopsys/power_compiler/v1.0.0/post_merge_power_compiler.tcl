@@ -19,6 +19,9 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::
 # Source user_config for overrides
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 global popt project tech flow
+# Source POWER_COMPILER tool config
+set _tool_config "[file dirname [info script]]/power_compiler_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting POPT post_merge with Synopsys Power Compiler..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -42,7 +45,7 @@ flow_proc validate_results {
     update_timing -full
 
     # Resolve config-driven defaults
-    set _max_paths [expr {[info exists popt(analysis,max_paths)] ? $popt(analysis,max_paths) : 100}]
+    set _max_paths [expr {[info exists power_compiler(analysis,max_paths)] ? $power_compiler(analysis,max_paths) : 100}]
 
     # Setup timing
     report_timing -delay max -max_paths $_max_paths -nworst 5 \

@@ -40,6 +40,9 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 
 global pnr project tech flow
+# Source INNOVUS tool config
+set _tool_config "[file dirname [info script]]/innovus_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting PNR post_route with Cadence Innovus..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -113,9 +116,9 @@ flow_proc extract_parasitics {
 
     # Get extraction parameters from config
     global pnr
-    set extraction_mode $pnr(extract,mode)
-    set rc_corner       $pnr(extract,rc_corner)
-    set extract_effort  [expr {[info exists pnr(extract,effort)] ? $pnr(extract,effort) : "high"}]
+    set extraction_mode $innovus(extract,mode)
+    set rc_corner       $innovus(extract,rc_corner)
+    set extract_effort  [expr {[info exists innovus(extract,effort)] ? $innovus(extract,effort) : "high"}]
 
     handle_info "Extraction parameters:"
     handle_info "  Mode: $extraction_mode"
@@ -134,9 +137,9 @@ flow_proc run_post_route_opt {
 
     # Post-route timing optimization from config
     global pnr
-    set opt_effort   $pnr(route,post_opt_effort)
-    set setup_margin $pnr(opt,setup_margin)
-    set hold_margin  $pnr(opt,hold_margin)
+    set opt_effort   $innovus(route,post_opt_effort)
+    set setup_margin $innovus(opt,setup_margin)
+    set hold_margin  $innovus(opt,hold_margin)
 
     handle_info "Post-route optimization parameters:"
     handle_info "  Effort: $opt_effort"
@@ -165,7 +168,7 @@ flow_proc run_eco_fixes {
 
     # Metal fill insertion
     global pnr
-    set insert_metal_fill $pnr(opt,insert_metal_fill)
+    set insert_metal_fill $innovus(opt,insert_metal_fill)
     if {$insert_metal_fill eq "true"} {
         handle_info "Inserting metal fill..."
         addMetalFill

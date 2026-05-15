@@ -12,6 +12,9 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/FCFP/fc_powerplan/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global fcfp project tech flow
+# Source FC tool config
+set _tool_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting FCFP fc_powerplan with Synopsys Fusion Compiler..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -46,28 +49,28 @@ flow_proc create_pg_rings {
         {check_design -checks dp_pre_power_insertion}
 
     # FC-RM: PG ring creation from config or defaults
-    if {[info exists fcfp(power,ring_config)] && $fcfp(power,ring_config) ne ""} {
+    if {[info exists fc(power,ring_config)] && $fc(power,ring_config) ne ""} {
         # Source user PG ring configuration
-        source -e $fcfp(power,ring_config)
+        source -e $fc(power,ring_config)
         handle_info "PG rings created from config file"
     } else {
         # Build PG rings from individual config variables
         set vdd_net "VDD"
         set vss_net "VSS"
-        if {[info exists fcfp(power,vdd_net)]} { set vdd_net $fcfp(power,vdd_net) }
-        if {[info exists fcfp(power,vss_net)]} { set vss_net $fcfp(power,vss_net) }
+        if {[info exists fc(power,vdd_net)]} { set vdd_net $fc(power,vdd_net) }
+        if {[info exists fc(power,vss_net)]} { set vss_net $fc(power,vss_net) }
 
         set ring_layers {M9 M10}
-        if {[info exists fcfp(power,ring_layers)]} { set ring_layers $fcfp(power,ring_layers) }
+        if {[info exists fc(power,ring_layers)]} { set ring_layers $fc(power,ring_layers) }
 
         set ring_width {2.0 2.0}
-        if {[info exists fcfp(power,ring_width)]} { set ring_width $fcfp(power,ring_width) }
+        if {[info exists fc(power,ring_width)]} { set ring_width $fc(power,ring_width) }
 
         set ring_spacing {0.5 0.5}
-        if {[info exists fcfp(power,ring_spacing)]} { set ring_spacing $fcfp(power,ring_spacing) }
+        if {[info exists fc(power,ring_spacing)]} { set ring_spacing $fc(power,ring_spacing) }
 
         set ring_offset {2.0 2.0}
-        if {[info exists fcfp(power,ring_offset)]} { set ring_offset $fcfp(power,ring_offset) }
+        if {[info exists fc(power,ring_offset)]} { set ring_offset $fc(power,ring_offset) }
 
         puts "CBflow-info: Creating PG ring for $vdd_net on layers $ring_layers"
         create_pg_ring_pattern ring_vdd -horizontal_layer [lindex $ring_layers 0] \
@@ -95,27 +98,27 @@ flow_proc create_pg_mesh {
     global fcfp
     set run_dir $::env(CBFLOW_RUN_DIR)
 
-    if {[info exists fcfp(power,mesh_config)] && $fcfp(power,mesh_config) ne ""} {
+    if {[info exists fc(power,mesh_config)] && $fc(power,mesh_config) ne ""} {
         # Source user PG mesh configuration
-        source -e $fcfp(power,mesh_config)
+        source -e $fc(power,mesh_config)
         handle_info "PG mesh created from config file"
     } else {
         # Build PG mesh from config variables
         set vdd_net "VDD"
         set vss_net "VSS"
-        if {[info exists fcfp(power,vdd_net)]} { set vdd_net $fcfp(power,vdd_net) }
-        if {[info exists fcfp(power,vss_net)]} { set vss_net $fcfp(power,vss_net) }
+        if {[info exists fc(power,vdd_net)]} { set vdd_net $fc(power,vdd_net) }
+        if {[info exists fc(power,vss_net)]} { set vss_net $fc(power,vss_net) }
 
         set h_layer "M9"
         set v_layer "M10"
-        if {[info exists fcfp(power,mesh_h_layer)]} { set h_layer $fcfp(power,mesh_h_layer) }
-        if {[info exists fcfp(power,mesh_v_layer)]} { set v_layer $fcfp(power,mesh_v_layer) }
+        if {[info exists fc(power,mesh_h_layer)]} { set h_layer $fc(power,mesh_h_layer) }
+        if {[info exists fc(power,mesh_v_layer)]} { set v_layer $fc(power,mesh_v_layer) }
 
         set mesh_width "1.0"
-        if {[info exists fcfp(power,mesh_width)]} { set mesh_width $fcfp(power,mesh_width) }
+        if {[info exists fc(power,mesh_width)]} { set mesh_width $fc(power,mesh_width) }
 
         set mesh_pitch "50.0"
-        if {[info exists fcfp(power,mesh_pitch)]} { set mesh_pitch $fcfp(power,mesh_pitch) }
+        if {[info exists fc(power,mesh_pitch)]} { set mesh_pitch $fc(power,mesh_pitch) }
 
         # FC-RM: Create mesh patterns for horizontal and vertical layers
         puts "CBflow-info: Creating PG mesh on $h_layer (horizontal) and $v_layer (vertical)"
@@ -146,19 +149,19 @@ flow_proc create_pg_straps {
     global fcfp
     set run_dir $::env(CBFLOW_RUN_DIR)
 
-    if {[info exists fcfp(power,strap_config)] && $fcfp(power,strap_config) ne ""} {
+    if {[info exists fc(power,strap_config)] && $fc(power,strap_config) ne ""} {
         # Source user strap configuration
-        source -e $fcfp(power,strap_config)
+        source -e $fc(power,strap_config)
         handle_info "PG straps created from config file"
     } else {
         set vdd_net "VDD"
         set vss_net "VSS"
-        if {[info exists fcfp(power,vdd_net)]} { set vdd_net $fcfp(power,vdd_net) }
-        if {[info exists fcfp(power,vss_net)]} { set vss_net $fcfp(power,vss_net) }
+        if {[info exists fc(power,vdd_net)]} { set vdd_net $fc(power,vdd_net) }
+        if {[info exists fc(power,vss_net)]} { set vss_net $fc(power,vss_net) }
 
         # FC-RM: Standard cell rail connections on M1
         set rail_layer "M1"
-        if {[info exists fcfp(power,std_cell_rail_layer)]} { set rail_layer $fcfp(power,std_cell_rail_layer) }
+        if {[info exists fc(power,std_cell_rail_layer)]} { set rail_layer $fc(power,std_cell_rail_layer) }
 
         puts "CBflow-info: Creating standard cell PG rail connections on $rail_layer"
         create_pg_std_cell_conn_pattern std_cell_rail \
@@ -188,14 +191,14 @@ flow_proc connect_pg_net {
     connect_pg_net
 
     # FC-RM: Handle special power domains if configured
-    if {[info exists fcfp(power,special_pg_nets)] && $fcfp(power,special_pg_nets) ne ""} {
-        foreach {net pin_pat} $fcfp(power,special_pg_nets) {
+    if {[info exists fc(power,special_pg_nets)] && $fc(power,special_pg_nets) ne ""} {
+        foreach {net pin_pat} $fc(power,special_pg_nets) {
             handle_info "Connecting special PG net: $net"
         }
     }
 
     # FC-RM: Place and legalize stdcells for robust PG analysis
-    if {[info exists fcfp(power,place_stdcells)] && $fcfp(power,place_stdcells)} {
+    if {[info exists fc(power,place_stdcells)] && $fc(power,place_stdcells)} {
         set_app_options -name place.coarse.continue_on_missing_scandef -value true
         create_placement -effort low
         reset_app_options place.coarse.continue_on_missing_scandef
@@ -248,7 +251,7 @@ flow_proc save_design_block {
     handle_info "Saving design block..."
     global fcfp project
 
-    if {[info exists fcfp(output,block_labeling)] && $fcfp(output,block_labeling)} {
+    if {[info exists fc(output,block_labeling)] && $fc(output,block_labeling)} {
         if {[info exists project(top_module)] && $project(top_module) ne ""} {
             set design_name $project(top_module)
         } else {

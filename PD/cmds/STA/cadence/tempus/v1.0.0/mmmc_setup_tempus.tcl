@@ -20,6 +20,9 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::
 # Source user_config for overrides
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 global sta project tech flow
+# Source TEMPUS tool config
+set _tool_config "[file dirname [info script]]/tempus_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting STA MMMC setup with Cadence Tempus..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"

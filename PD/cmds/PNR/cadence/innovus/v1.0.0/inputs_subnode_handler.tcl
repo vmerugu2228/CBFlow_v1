@@ -84,7 +84,10 @@ if {[file exists $error_utils_path]} {
     # Define basic error handling functions if not available
     proc handle_error {msg} { puts "ERROR: $msg"; exit 1 }
     proc handle_warning {msg} { puts "WARNING: $msg" }
-    proc handle_info {msg} { puts "INFO: $msg" }
+    proc # Source INNOVUS tool config
+set _tool_config "[file dirname [info script]]/innovus_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
+handle_info {msg} { puts "INFO: $msg" }
 }
 
 # Load only PNR configuration using release version

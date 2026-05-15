@@ -27,6 +27,9 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 
 global pv project tech flow
+# Source ICV tool config
+set _tool_config "[file dirname [info script]]/icv_config.tcl"
+if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting PV ERC stage with Synopsys ICV..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -47,8 +50,8 @@ flow_proc configure_erc {
     set run_dir $::env(CBFLOW_RUN_DIR)
 
     # ERC rule deck (may be standalone or embedded in LVS deck)
-    if {[info exists pv(erc,rule_deck)]} {
-        set ::erc_rules $pv(erc,rule_deck)
+    if {[info exists icv(erc,rule_deck)]} {
+        set ::erc_rules $icv(erc,rule_deck)
     } elseif {[info exists tech(rules,erc)]} {
         set ::erc_rules $tech(rules,erc)
     } elseif {[info exists ::pv_erc_rules]} {
@@ -77,26 +80,26 @@ flow_proc configure_erc {
     }
 
     # Top cell
-    if {[info exists pv(top_cell)]} {
-        set ::erc_top_cell $pv(top_cell)
+    if {[info exists icv(common,top_cell)]} {
+        set ::erc_top_cell $icv(common,top_cell)
     } elseif {[info exists project(top_module)]} {
         set ::erc_top_cell $project(top_module)
     } else {
-        handle_error "Top cell not defined — set pv(top_cell) or project(top_module)"
+        handle_error "Top cell not defined — set icv(common,top_cell) or project(top_module)"
     }
 
     # ERC-specific options
     set ::erc_options ""
-    if {[info exists pv(erc,threads)]} {
-        append ::erc_options " -dp $pv(erc,threads)"
+    if {[info exists icv(erc,threads)]} {
+        append ::erc_options " -dp $icv(erc,threads)"
     } else {
         append ::erc_options " -dp 4"
     }
-    if {[info exists pv(erc,power_nets)]} {
-        append ::erc_options " -power_nets $pv(erc,power_nets)"
+    if {[info exists icv(erc,power_nets)]} {
+        append ::erc_options " -power_nets $icv(erc,power_nets)"
     }
-    if {[info exists pv(erc,ground_nets)]} {
-        append ::erc_options " -ground_nets $pv(erc,ground_nets)"
+    if {[info exists icv(erc,ground_nets)]} {
+        append ::erc_options " -ground_nets $icv(erc,ground_nets)"
     }
 
     handle_info "ERC configuration:"
