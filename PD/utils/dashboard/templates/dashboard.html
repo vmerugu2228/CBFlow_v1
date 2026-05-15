@@ -2482,7 +2482,7 @@ function openNodeConfigEditor(stage) {
       html += '<div style="font-size:11px;color:#888;margin-bottom:6px">' + totalVars + ' variables across ' + Object.keys(cats).length + ' categories</div>';
       // Categories with collapsible sections
       html += '<div id="ncf-table" style="max-height:380px;overflow-y:auto">';
-      var catColors = {'Node Config':'#1976d2','LSF & Resources':'#e65100','Tool Settings':'#2e7d32','Exit Criteria':'#6a1b9a','Overrides':'#c62828'};
+      var catColors = {'Node Config':'#1976d2','Tool Config':'#00695c','LSF & Resources':'#e65100','Flow Settings':'#2e7d32','Exit Criteria':'#6a1b9a','Overrides':'#c62828'};
       for (var catName in cats) {
         var vars = cats[catName];
         var cc = catColors[catName] || '#555';

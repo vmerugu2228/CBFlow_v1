@@ -813,13 +813,43 @@ class RaceDashboard:
             prop = key.split(',')[-1]
             _add('LSF & Resources', f'{queue_tier}.{prop}', val)
 
-        # ── 3. Tool Settings (flow_config.tcl) ──
+        # ── 3. Tool Config (<tool>_config.tcl) ──
+        # Find the tool config file from cmds/<flow>/<vendor>/<tool>/v1.0.0/<tool>_config.tcl
+        tool_vendor = ''
+        tool_name = ''
+        nc_path2 = self.node_config_path
+        if os.path.exists(nc_path2):
+            with open(nc_path2) as f:
+                for line in f:
+                    if 'tool,vendor' in line:
+                        m2 = re.search(r'"([^"]+)"', line)
+                        if m2: tool_vendor = m2.group(1)
+                    elif 'tool,name' in line:
+                        m2 = re.search(r'"([^"]+)"', line)
+                        if m2: tool_name = m2.group(1)
+
+        if tool_vendor and tool_name:
+            tool_config_dir = os.path.join(self.flow_dir, 'cmds', flow_upper,
+                                           tool_vendor, tool_name, ver)
+            tool_config_file = os.path.join(tool_config_dir, f'{tool_name}_config.tcl')
+            if os.path.exists(tool_config_file):
+                for key, val in _parse_array_keys(tool_config_file,
+                        lambda k: stage_base in k or k.startswith('common,')):
+                    _add('Tool Config', key, val, 'tool_config')
+            # Also check for fc_config.tcl (Synopsys FC naming)
+            elif os.path.exists(os.path.join(tool_config_dir, 'fc_config.tcl')):
+                for key, val in _parse_array_keys(
+                        os.path.join(tool_config_dir, 'fc_config.tcl'),
+                        lambda k: stage_base in k or k.startswith('common,')):
+                    _add('Tool Config', key, val, 'tool_config')
+
+        # ── 3b. Flow Settings (flow_config.tcl) ──
         fc_path = os.path.join(config_dir, 'flow_config.tcl')
         for key, val in _parse_set_stmts(fc_path,
                 lambda k: 'flow(use_lsf)' in k or 'flow(use_xterm)' in k or
                            'flow(tool_module' in k or 'flow(tool_name' in k or
                            'flow(tool_vendor' in k):
-            _add('Tool Settings', key, val)
+            _add('Flow Settings', key, val)
 
         # ── 4. Exit Criteria (release_config.tcl) ──
         rc_path = os.path.join(config_dir, 'release_config.tcl')
