@@ -754,7 +754,9 @@ class RaceDashboard:
         nc_path = self.node_config_path
         variables = []  # [{key, value, source, category}]
 
-        # Parse key-value pairs from node_config.tcl — only for this node
+        # Parse node_config.tcl — only variables containing this node's name or base type
+        # e.g., for route1: show "subnodes,route1", "dependencies,route1",
+        #        "runtime,timeout,route1", "node_types,route1", etc.
         if os.path.exists(nc_path):
             with open(nc_path) as f:
                 content = f.read()
@@ -762,15 +764,8 @@ class RaceDashboard:
                                  content, re.MULTILINE):
                 key = m.group(1)
                 value = m.group(2) or m.group(3) or m.group(4) or ''
-                # Filter: only show variables for THIS node or global settings
-                # e.g., for place1: show "subnodes,place1", "dependencies,place1",
-                #        "runtime,timeout,place1", "tool,vendor", "stages", etc.
-                key_lower = key.lower()
-                is_node_specific = (stage in key or stage_base in key_lower)
-                is_global = (',' not in key or key.startswith('tool,') or
-                             key.startswith('stages') or key.startswith('supported_') or
-                             key.startswith('default_') or key.startswith('merge_'))
-                if not is_node_specific and not is_global:
+                # Only show variables that reference this specific node or its base type
+                if stage not in key and stage_base not in key:
                     continue
                 if ',' in key:
                     category = key.split(',')[0]
@@ -782,24 +777,6 @@ class RaceDashboard:
                     'source': 'node_config',
                     'category': category,
                 })
-
-        # Also parse flow_config.tcl for flow-level settings
-        ver = self._load_env().get('FLOW_CONFIG_VERSION', 'v1.0.0')
-        fc_path = os.path.join(self.flow_dir, 'config', 'flow', ver, 'flow_config.tcl')
-        if os.path.exists(fc_path):
-            with open(fc_path) as f:
-                for line in f:
-                    line = line.strip()
-                    m = re.match(r'set\s+(\w+\([^)]+\))\s+"([^"]*)"', line)
-                    if m:
-                        key = m.group(1)
-                        if flow_lower in key or 'flow(' in key:
-                            variables.append({
-                                'key': key,
-                                'value': m.group(2),
-                                'source': 'flow_config',
-                                'category': 'flow',
-                            })
 
         # Apply overrides from override_config files
         overrides = {}
