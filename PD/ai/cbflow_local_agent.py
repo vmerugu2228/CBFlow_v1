@@ -50,7 +50,9 @@ CBFLOW_BIN = os.path.join(CBFLOW_CORE, 'bin', 'cbflow')
 DEFAULT_WORKSPACE = os.path.join(os.path.dirname(CBFLOW_CORE), 'workarea_test')
 
 OLLAMA_URL = os.environ.get('OLLAMA_URL', 'http://localhost:11434')
+SMARTGENIE_SERVER = os.environ.get('SMARTGENIE_SERVER', '')
 MODEL = os.environ.get('CBFLOW_MODEL', 'qwen2.5:7b')
+USERNAME = os.environ.get('USER', 'anonymous')
 MAX_TURNS = 30
 TIMEOUT_PER_COMMAND = 600
 
@@ -137,12 +139,18 @@ def execute_tool(name: str, args: dict) -> str:
 
     elif name == "search_kb":
         try:
-            from cbflow_knowledge import KnowledgeEngine
-            engine = KnowledgeEngine()
-            results = engine.search(args["query"], n_results=args.get("n", 5))
+            if SMARTGENIE_SERVER:
+                import requests
+                resp = requests.post(f"{SMARTGENIE_SERVER}/api/knowledge/search",
+                    json={"query": args["query"], "user": USERNAME, "n_results": args.get("n", 5)}, timeout=30)
+                results = resp.json().get("results", [])
+            else:
+                from cbflow_knowledge import KnowledgeEngine
+                engine = KnowledgeEngine()
+                results = engine.search(args["query"], n_results=args.get("n", 5))
             output = []
             for r in results:
-                output.append(f"[{r['collection']}] {r.get('filename', '')}")
+                output.append(f"[{r.get('collection', '')}] {r.get('user', '')} {r.get('source', '')[:50]}")
                 output.append(f"  {r['text'][:300]}")
             return '\n'.join(output) or "No results."
         except Exception as e:
@@ -150,10 +158,17 @@ def execute_tool(name: str, args: dict) -> str:
 
     elif name == "learn":
         try:
-            from cbflow_knowledge import KnowledgeEngine
-            engine = KnowledgeEngine()
-            engine.learn(args["content"], args.get("category", "general"))
-            return "Learned and stored."
+            if SMARTGENIE_SERVER:
+                import requests
+                resp = requests.post(f"{SMARTGENIE_SERVER}/api/knowledge/learn",
+                    json={"content": args["content"], "category": args.get("category", "general"),
+                          "user": USERNAME}, timeout=30)
+                return json.dumps(resp.json())
+            else:
+                from cbflow_knowledge import KnowledgeEngine
+                engine = KnowledgeEngine()
+                engine.learn(args["content"], args.get("category", "general"))
+            return "Learned and stored (shared with all users)."
         except Exception as e:
             return f"Learn error: {e}"
 
@@ -165,9 +180,25 @@ def execute_tool(name: str, args: dict) -> str:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def ollama_chat(messages: list, model: str = MODEL) -> str:
-    """Send chat to local Ollama and get response."""
+    """Send chat to local Ollama or central SmartGenie server."""
     import requests
 
+    if SMARTGENIE_SERVER:
+        # Route through central server (shared knowledge auto-injected)
+        try:
+            resp = requests.post(
+                f"{SMARTGENIE_SERVER}/api/chat",
+                json={"messages": messages, "model": model, "user": USERNAME},
+                timeout=120,
+            )
+            data = resp.json()
+            return data.get("response", data.get("error", "No response"))
+        except requests.ConnectionError:
+            return f"ERROR: Cannot connect to SmartGenie server at {SMARTGENIE_SERVER}"
+        except Exception as e:
+            return f"ERROR: Server error: {e}"
+
+    # Local Ollama
     try:
         resp = requests.post(
             f"{OLLAMA_URL}/api/chat",
@@ -175,16 +206,12 @@ def ollama_chat(messages: list, model: str = MODEL) -> str:
                 "model": model,
                 "messages": messages,
                 "stream": False,
-                "options": {
-                    "temperature": 0.1,
-                    "num_predict": 4096,
-                },
+                "options": {"temperature": 0.1, "num_predict": 4096},
             },
             timeout=120,
         )
         resp.raise_for_status()
-        data = resp.json()
-        return data.get("message", {}).get("content", "")
+        return resp.json().get("message", {}).get("content", "")
     except requests.ConnectionError:
         return "ERROR: Cannot connect to Ollama. Run: ollama serve"
     except Exception as e:
