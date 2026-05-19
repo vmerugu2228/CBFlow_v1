@@ -283,13 +283,38 @@ def run_agent(prompt: str, interactive: bool = False):
 
     banner(MODEL, SMARTGENIE_SERVER, USERNAME, DEFAULT_WORKSPACE)
 
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": prompt},
-    ]
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+    def _inject_knowledge(msgs, query):
+        """Search KB and add relevant context to the system message."""
+        if not query:
+            return msgs
+        try:
+            kb_result = execute_tool("search_kb", {"query": query, "n": 3})
+            if kb_result and "No results" not in kb_result and "error" not in kb_result.lower():
+                # Update system message with relevant knowledge
+                kb_snippet = kb_result[:2000]
+                for m in msgs:
+                    if m["role"] == "system":
+                        # Remove old knowledge injection, add fresh one
+                        base = m["content"].split("\n\n## Relevant Knowledge")[0]
+                        m["content"] = base + f"\n\n## Relevant Knowledge (from docs/code/experience):\n{kb_snippet}"
+                        break
+        except Exception:
+            pass
+        return msgs
 
     def _agent_turn(messages, turn_num):
         """Single agent turn — think, tool call or respond."""
+        # Inject knowledge based on latest user message
+        last_user = ""
+        for m in reversed(messages):
+            if m["role"] == "user" and not m["content"].startswith("Tool result:"):
+                last_user = m["content"]
+                break
+        if last_user:
+            messages = _inject_knowledge(messages, last_user)
+
         spinner = Spinner("Thinking")
         spinner.start()
         t0 = time.time()
@@ -321,11 +346,16 @@ def run_agent(prompt: str, interactive: bool = False):
             done = len(response) > 50 and not any(kw in response.lower() for kw in ['let me', 'i will', 'next step'])
             return messages, done
 
-    # Run initial prompt
-    for turn in range(MAX_TURNS):
-        messages, done = _agent_turn(messages, turn + 1)
-        if done:
-            break
+    # Run initial prompt (skip if None — interactive mode waits for user)
+    if prompt is not None:
+        messages.append({"role": "user", "content": prompt})
+        for turn in range(MAX_TURNS):
+            messages, done = _agent_turn(messages, turn + 1)
+            if done:
+                break
+    else:
+        info("Type your question or command. Type /help for options.")
+        print()
 
     if interactive:
         while True:
@@ -438,6 +468,5 @@ if __name__ == "__main__":
         prompt = " ".join(sys.argv[1:])
         run_agent(prompt)
     else:
-        # Interactive mode
-        from cli_ui import prompt_input, info, cyan, dim
-        run_agent("Hello! I'm ready to help with CBflow. What would you like to do?", interactive=True)
+        # Interactive mode — wait for user's first prompt
+        run_agent(None, interactive=True)
