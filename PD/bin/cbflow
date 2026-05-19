@@ -246,6 +246,15 @@ main() {
                 learn)
                     exec python3 "$CBFLOW_CORE_DIR/ai/cbflow_knowledge.py" learn "$@"
                     ;;
+                usage)
+                    # Show usage stats (requires server or local DB)
+                    python3 -c "
+import sys; sys.path.insert(0, '$CBFLOW_CORE_DIR/ai')
+from usage_tracker import UsageTracker
+t = UsageTracker()
+print(t.format_stats_report())
+"
+                    ;;
                 cloud)
                     # Use Anthropic API (requires ANTHROPIC_API_KEY)
                     exec python3 "$cloud_agent" "$@"

@@ -208,6 +208,7 @@ def ollama_chat(messages: list, model: str = MODEL) -> str:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 knowledge = None  # Initialized at startup
+tracker = None    # Usage tracker
 
 class SmartGenieHandler(http.server.BaseHTTPRequestHandler):
 
@@ -243,6 +244,19 @@ class SmartGenieHandler(http.server.BaseHTTPRequestHandler):
             })
         elif path == '/api/knowledge/stats':
             self._json(knowledge.stats() if knowledge else {})
+        elif path == '/api/usage/stats':
+            self._json(tracker.get_token_summary() if tracker else {})
+        elif path == '/api/usage/leaderboard':
+            self._json(tracker.get_leaderboard() if tracker else [])
+        elif path.startswith('/api/usage/user/'):
+            username = path.split('/')[-1]
+            stats = tracker.get_user_stats(username) if tracker else []
+            badge = tracker.get_maturity_badge(username) if tracker else {}
+            self._json({"stats": stats, "maturity": badge})
+        elif path == '/api/usage/daily':
+            self._json(tracker.get_daily_stats() if tracker else [])
+        elif path == '/api/usage/report':
+            self._json({"report": tracker.format_stats_report() if tracker else "No data"})
         elif path == '/':
             self._html_dashboard()
         else:
@@ -266,6 +280,13 @@ class SmartGenieHandler(http.server.BaseHTTPRequestHandler):
                     messages.insert(0, {"role": "system", "content": f"## Relevant Knowledge:\n{kb_text}"})
 
         response = ollama_chat(messages, model)
+
+        # Track usage
+        if tracker:
+            tokens_in = sum(len(m.get("content", "")) // 4 for m in messages)
+            tokens_out = len(response) // 4
+            tracker.record(user, "chat", query[:100], tokens_in, tokens_out)
+
         return {"response": response, "user": user, "model": model}
 
     def _handle_search(self, body):
@@ -282,7 +303,10 @@ class SmartGenieHandler(http.server.BaseHTTPRequestHandler):
         private = body.get("private", False)
         if not content:
             return {"error": "content required"}
-        return knowledge.learn(content, category, user, private)
+        result = knowledge.learn(content, category, user, private)
+        if tracker:
+            tracker.record(user, "learn_shared" if not private else "learn_private", content[:100])
+        return result
 
     def _handle_ingest(self, body):
         return knowledge.ingest_shared()
@@ -341,7 +365,7 @@ cbflow smartgenie "your prompt here"</pre>
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def main():
-    global knowledge
+    global knowledge, tracker
 
     port = DEFAULT_PORT
     host = '0.0.0.0'
@@ -364,6 +388,10 @@ def main():
         stats = knowledge.stats()
         print(f"  Ingested: {stats.get('total', 0)} chunks")
 
+    # Initialize usage tracker
+    from usage_tracker import UsageTracker
+    tracker = UsageTracker()
+    print(f"  Usage tracker: {tracker.db_path}")
     print(f"  Model: {MODEL}")
     print(f"  Ollama: {OLLAMA_URL}")
     print(f"  {'=' * 50}")
