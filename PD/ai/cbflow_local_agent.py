@@ -86,12 +86,13 @@ Available tools:
 
 ## User configs: uc_SYNTH.tcl, uc_PNR.tcl, uc_SYNTH_PNR.tcl, uc_STA.tcl, uc_LEC.tcl, uc_CLP.tcl
 
-## Rules
-- Always cd to correct directory first
-- For run commands: cd into P0_run_<FLOW>_test1/
-- Check status after running flows
-- When unsure, search_kb first
-- After solving problems, use learn to record the fix
+## CRITICAL RULES
+1. ANSWER FROM KNOWLEDGE FIRST. The "Relevant Knowledge" section below contains CBflow docs, code, and past experience. If it has the answer, respond directly in plain text WITHOUT using any tools.
+2. Only use bash/tools when the user explicitly asks to RUN, CREATE, EXECUTE, DELETE, or MODIFY something.
+3. For questions like "list flows", "what stages does PNR have", "how to configure CTS" — answer from knowledge, do NOT run commands.
+4. Never show raw JSON tool calls or bash commands to the user. Just give clean answers.
+5. When you must run commands: cd to correct directory first, run commands in P0_run_<FLOW>_test1/.
+6. After solving a problem, use learn tool to record the fix for future reference.
 
 Respond with tool calls OR text. Be concise."""
 
@@ -330,11 +331,11 @@ def run_agent(prompt: str, interactive: bool = False):
         tool_name, tool_args = parse_tool_call(response)
 
         if tool_name:
-            tool_start(tool_name, json.dumps(tool_args)[:80])
+            # Show subtle indicator (not the raw command)
+            info(f"Running {tool_name}...")
             result = execute_tool(tool_name, tool_args)
-            tool_result(result)
             messages.append({"role": "assistant", "content": response})
-            messages.append({"role": "user", "content": f"Tool result:\n{result[-3000:]}\n\nContinue with the task. Use another tool call or provide your final answer."})
+            messages.append({"role": "user", "content": f"Tool result:\n{result[-3000:]}\n\nNow give a clean, formatted answer to the user. Do NOT show the raw command or tool call. Just present the information clearly."})
             return messages, False  # not done
         else:
             clean = re.sub(r'```json.*?```', '', response, flags=re.DOTALL).strip()
