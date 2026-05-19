@@ -51,7 +51,7 @@ DEFAULT_WORKSPACE = os.path.join(os.path.dirname(CBFLOW_CORE), 'workarea_test')
 
 OLLAMA_URL = os.environ.get('OLLAMA_URL', 'http://localhost:11434')
 SMARTGENIE_SERVER = os.environ.get('SMARTGENIE_SERVER', '')
-MODEL = os.environ.get('CBFLOW_MODEL', 'qwen2.5:7b')
+MODEL = os.environ.get('CBFLOW_MODEL', 'qwen2.5:14b')
 USERNAME = os.environ.get('USER', 'anonymous')
 MAX_TURNS = 5  # Strict limit — prevents runaway loops
 TIMEOUT_PER_COMMAND = 600

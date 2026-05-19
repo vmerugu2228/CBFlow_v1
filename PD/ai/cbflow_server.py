@@ -60,7 +60,7 @@ CBFLOW_CORE = os.path.dirname(SCRIPT_DIR)
 # Server config
 DEFAULT_PORT = 8091
 OLLAMA_URL = os.environ.get('OLLAMA_URL', 'http://localhost:11434')
-MODEL = os.environ.get('CBFLOW_MODEL', 'qwen2.5:7b')
+MODEL = os.environ.get('CBFLOW_MODEL', 'qwen2.5:14b')
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CENTRAL KNOWLEDGE ENGINE (multi-user)
