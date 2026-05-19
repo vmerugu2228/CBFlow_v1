@@ -252,21 +252,37 @@ def parse_tool_call(text: str) -> tuple:
 def run_agent(prompt: str, interactive: bool = False):
     """Run the local agent loop."""
 
-    # Check Ollama is running
     import requests
-    try:
-        requests.get(f"{OLLAMA_URL}/api/tags", timeout=5)
-    except requests.ConnectionError:
-        print("\n  ERROR: Ollama is not running.")
-        print("  Install: https://ollama.com/download")
-        print("  Start:   ollama serve")
-        print(f"  Pull:    ollama pull {MODEL}")
-        sys.exit(1)
+
+    # Check connectivity — server OR local Ollama
+    if SMARTGENIE_SERVER:
+        try:
+            requests.get(f"{SMARTGENIE_SERVER}/api/status", timeout=5)
+        except requests.ConnectionError:
+            print(f"\n  ERROR: Cannot connect to SmartGenie server at {SMARTGENIE_SERVER}")
+            print(f"  Check the server is running: cbflow smartgenie serve")
+            sys.exit(1)
+    else:
+        try:
+            requests.get(f"{OLLAMA_URL}/api/tags", timeout=5)
+        except requests.ConnectionError:
+            print("\n  ERROR: Ollama is not running.")
+            print("  Install: https://ollama.com/download")
+            print("  Start:   ollama serve")
+            print(f"  Pull:    ollama pull {MODEL}")
+            print(f"\n  Or connect to a server: export SMARTGENIE_SERVER=http://server:8091")
+            sys.exit(1)
 
     print(f"\n{'=' * 60}")
-    print(f"  CBflow LOCAL AI Agent (100% Private)")
-    print(f"  Model: {MODEL} (via Ollama)")
-    print(f"  Data: NEVER leaves this machine")
+    print(f"  CBflow SmartGenie (100% Private)")
+    if SMARTGENIE_SERVER:
+        print(f"  Server: {SMARTGENIE_SERVER}")
+        print(f"  User: {USERNAME}")
+        print(f"  Mode: Enterprise (shared knowledge)")
+    else:
+        print(f"  Model: {MODEL} (via Ollama)")
+        print(f"  Mode: Local (standalone)")
+    print(f"  Data: NEVER leaves your network")
     print(f"  Workspace: {DEFAULT_WORKSPACE}")
     print(f"{'=' * 60}\n")
 
