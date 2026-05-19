@@ -853,6 +853,32 @@ CHIP-LEVEL RELEASE: NOT READY — 2 block(s) incomplete
 
 Inputs: `--tag` (required), `--project` (required), `--phase` (default P0), `--block` (optional, default all)
 
+### 9.8 Customer Bundle & Permissions
+
+Create a customer-ready bundle with 777 permissions (ensures clean unzip on any OS):
+
+```bash
+cbflow bundle                           # Creates CBflow_v2.0.0_<date>.tar.gz in current dir
+cbflow bundle --output /delivery/dir    # Custom output location
+cbflow bundle --version v2.0.0_rc1      # Custom version tag
+```
+
+After customer unpacks, lock permissions for production:
+
+```bash
+tar xzf CBflow_v2.0.0_20260519.tar.gz
+cd CBflow_v2.0.0_20260519
+
+# Lock — sets production permissions
+bin/cbflow run release-lock
+#   Directories:     755 (rwxr-xr-x)
+#   Scripts/Python:  555 (r-xr-xr-x)
+#   Config/TCL/Docs: 444 (r--r--r--)
+
+# Unlock — restore 777 for development/debugging
+bin/cbflow run release-lock --unlock
+```
+
 ---
 
 ## 10. Configuration Reference

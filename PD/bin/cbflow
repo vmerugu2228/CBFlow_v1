@@ -98,6 +98,13 @@ Run Commands (run from within a run directory):
   cbflow run release --dry-run                Validate only, no copy
   cbflow run release-check --tag BTO --project ravendrive --phase P2
                                               Check all blocks released for milestone
+  cbflow run release-lock                     Lock permissions (production: 444/555/755)
+  cbflow run release-lock --unlock            Unlock permissions (development: 777)
+
+Bundle (create customer delivery package):
+  cbflow bundle                               Create tar.gz with 777 permissions
+  cbflow bundle --output /path/to/dir         Custom output directory
+  cbflow bundle --version v2.0.0_rc1          Custom version tag
 
 Flow Commands (run from CORE_DIR: $CBFLOW_CORE_DIR):
   cbflow flow types                           List all 11 flow types

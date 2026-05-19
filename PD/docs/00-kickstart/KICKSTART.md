@@ -167,6 +167,20 @@ cbflow run release --dry-run            # Validate without copying
 # Release path: <base>/<project>/<design>/<phase>_<tag>/<FLOW>/
 ```
 
+## 12. Customer Bundle & Permissions
+
+```bash
+# Create customer bundle (all files 777 for safe unzip)
+cbflow bundle                           # Creates CBflow_v2.0.0_<date>.tar.gz
+cbflow bundle --output /path/to/dir     # Custom output directory
+
+# After customer unpacks:
+tar xzf CBflow_v2.0.0_20260519.tar.gz
+cd CBflow_v2.0.0_20260519
+bin/cbflow run release-lock             # Lock: configs=444, scripts=555, dirs=755
+bin/cbflow run release-lock --unlock    # Unlock: restore 777 (development mode)
+```
+
 Lead config (in project_config.tcl):
 ```tcl
 set project(release,active_tag)  "BTO"
