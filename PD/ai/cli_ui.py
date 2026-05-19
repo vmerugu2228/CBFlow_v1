@@ -7,9 +7,41 @@ and markdown-like rendering for the AI agent.
 """
 
 import os
+import readline
 import sys
 import time
 import threading
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# READLINE SETUP (arrow keys, history, editing)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+HISTORY_FILE = os.path.expanduser('~/.cbflow_smartgenie_history')
+
+def _init_readline():
+    """Set up readline for arrow keys, history, and tab completion."""
+    # Load history from previous sessions
+    try:
+        readline.read_history_file(HISTORY_FILE)
+    except FileNotFoundError:
+        pass
+    readline.set_history_length(500)
+    # Enable emacs-style editing (Ctrl+A, Ctrl+E, Ctrl+K, etc.)
+    if sys.platform == 'darwin':
+        readline.parse_and_bind('bind ^I rl_complete')
+    else:
+        readline.parse_and_bind('tab: complete')
+
+def _save_history():
+    """Save history on exit."""
+    try:
+        readline.write_history_file(HISTORY_FILE)
+    except Exception:
+        pass
+
+_init_readline()
+import atexit
+atexit.register(_save_history)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # COLORS
