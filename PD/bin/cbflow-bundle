@@ -1,0 +1,105 @@
+#!/bin/bash
+# ═══════════════════════════════════════════════════════════════════════════════
+# CBflow Bundle Creator — Customer-ready package with 777 permissions
+# Usage: cbflow-bundle [--output <dir>] [--version <tag>]
+# ═══════════════════════════════════════════════════════════════════════════════
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CBFLOW_CORE_DIR="$(dirname "$SCRIPT_DIR")"
+CBFLOW_VERSION="2.0.0"
+
+# Defaults
+OUTPUT_DIR="$(pwd)"
+VERSION_TAG=""
+
+# Parse args
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --output|-o) OUTPUT_DIR="$2"; shift 2 ;;
+        --version|-v) VERSION_TAG="$2"; shift 2 ;;
+        --help|-h)
+            echo "CBflow Bundle Creator"
+            echo ""
+            echo "Usage: cbflow-bundle [--output <dir>] [--version <tag>]"
+            echo ""
+            echo "Options:"
+            echo "  --output, -o   Output directory (default: current dir)"
+            echo "  --version, -v  Version tag (default: v${CBFLOW_VERSION}_YYYYMMDD)"
+            echo ""
+            echo "Creates a tar.gz bundle with 777 permissions for customer delivery."
+            echo "After unpacking, run 'cbflow release lock' to set production permissions."
+            exit 0
+            ;;
+        *) echo "Unknown option: $1"; exit 1 ;;
+    esac
+done
+
+# Build version tag
+DATE_TAG=$(date +%Y%m%d)
+if [[ -z "$VERSION_TAG" ]]; then
+    VERSION_TAG="v${CBFLOW_VERSION}_${DATE_TAG}"
+fi
+BUNDLE_NAME="CBflow_${VERSION_TAG}"
+
+echo ""
+echo "  ═══════════════════════════════════════════════════════════"
+echo "  CBflow Bundle Creator"
+echo "  ═══════════════════════════════════════════════════════════"
+echo "  Source:    $CBFLOW_CORE_DIR"
+echo "  Version:   $VERSION_TAG"
+echo "  Output:    $OUTPUT_DIR/${BUNDLE_NAME}.tar.gz"
+echo "  ─────────────────────────────────────────────────────────"
+echo ""
+
+# Create temp staging area
+TMPDIR=$(mktemp -d)
+STAGE_DIR="$TMPDIR/$BUNDLE_NAME"
+mkdir -p "$STAGE_DIR"
+
+# Copy PD/ excluding dev artifacts
+echo "  [1/4] Copying files..."
+rsync -a --quiet \
+    --exclude='.git' \
+    --exclude='.DS_Store' \
+    --exclude='__pycache__' \
+    --exclude='*.pyc' \
+    --exclude='.claude' \
+    "$CBFLOW_CORE_DIR/" "$STAGE_DIR/"
+
+# Count files
+FILE_COUNT=$(find "$STAGE_DIR" -type f | wc -l | tr -d ' ')
+DIR_COUNT=$(find "$STAGE_DIR" -type d | wc -l | tr -d ' ')
+echo "  [2/4] Setting permissions to 777 ($FILE_COUNT files, $DIR_COUNT dirs)..."
+
+# Set all permissions to 777
+chmod -R 777 "$STAGE_DIR"
+
+# Create bundle
+echo "  [3/4] Creating tar.gz..."
+mkdir -p "$OUTPUT_DIR"
+tar -czf "$OUTPUT_DIR/${BUNDLE_NAME}.tar.gz" -C "$TMPDIR" "$BUNDLE_NAME"
+
+# Get size
+BUNDLE_SIZE=$(du -sh "$OUTPUT_DIR/${BUNDLE_NAME}.tar.gz" | awk '{print $1}')
+
+# Cleanup
+rm -rf "$TMPDIR"
+
+echo "  [4/4] Done."
+echo ""
+echo "  ═══════════════════════════════════════════════════════════"
+echo "  Bundle Created Successfully"
+echo "  ═══════════════════════════════════════════════════════════"
+echo "  File:      $OUTPUT_DIR/${BUNDLE_NAME}.tar.gz"
+echo "  Size:      $BUNDLE_SIZE"
+echo "  Files:     $FILE_COUNT"
+echo "  Perms:     777 (all read/write/execute)"
+echo ""
+echo "  Customer instructions:"
+echo "    tar xzf ${BUNDLE_NAME}.tar.gz"
+echo "    cd ${BUNDLE_NAME}"
+echo "    bin/cbflow release lock     # Set production permissions"
+echo "  ═══════════════════════════════════════════════════════════"
+echo ""

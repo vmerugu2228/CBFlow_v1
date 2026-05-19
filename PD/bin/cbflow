@@ -159,6 +159,11 @@ main() {
             exec "$SCRIPT_DIR/cbflow-flow" "$@"
             ;;
 
+        # Bundle for customer delivery
+        bundle)
+            exec "$SCRIPT_DIR/cbflow-bundle" "$@"
+            ;;
+
         # Shell completions
         --completions)
             local shell_type="${1:-bash}"

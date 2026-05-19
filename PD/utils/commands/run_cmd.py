@@ -1894,6 +1894,86 @@ def cmd_release(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_release_lock(args: argparse.Namespace) -> int:
+    """Set production permissions (lock) or development permissions (unlock)."""
+    import stat
+
+    unlock = getattr(args, 'unlock', False)
+    core_dir = os.environ.get('CBFLOW_CORE_DIR', '')
+    if not core_dir:
+        # Try to find from script location
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        core_dir = os.path.dirname(os.path.dirname(script_dir))
+
+    if not os.path.isdir(core_dir):
+        logger.error(f"Cannot find CBflow core directory: {core_dir}")
+        return 1
+
+    mode_label = "UNLOCK (777)" if unlock else "LOCK (production)"
+    logger.info("")
+    logger.info(f"  ═══════════════════════════════════════════════════════════")
+    logger.info(f"  CBflow Permission {mode_label}")
+    logger.info(f"  ═══════════════════════════════════════════════════════════")
+    logger.info(f"  Directory: {core_dir}")
+    logger.info("")
+
+    file_count = 0
+    dir_count = 0
+
+    # Script/binary extensions
+    exec_exts = {'.sh', '.csh', '.bash', '.zsh'}
+    exec_names = set()
+
+    for root, dirs, files in os.walk(core_dir):
+        # Skip hidden dirs
+        dirs[:] = [d for d in dirs if not d.startswith('.')]
+
+        for d in dirs:
+            dpath = os.path.join(root, d)
+            if unlock:
+                os.chmod(dpath, 0o777)
+            else:
+                os.chmod(dpath, 0o755)
+            dir_count += 1
+
+        for f in files:
+            fpath = os.path.join(root, f)
+            if os.path.islink(fpath) or not os.path.exists(fpath):
+                continue  # skip symlinks and broken links
+            try:
+                if unlock:
+                    os.chmod(fpath, 0o777)
+                else:
+                    _, ext = os.path.splitext(f)
+                    is_bin = '/bin' in root or root.endswith('bin')
+                    is_exec = ext in exec_exts or (is_bin and ext == '')
+                    is_python = ext == '.py'
+
+                    if is_bin or is_exec:
+                        os.chmod(fpath, 0o555)
+                    elif is_python:
+                        os.chmod(fpath, 0o555)
+                    else:
+                        os.chmod(fpath, 0o444)
+                file_count += 1
+            except (OSError, PermissionError):
+                pass
+
+    logger.info(f"  Files:       {file_count}")
+    logger.info(f"  Directories: {dir_count}")
+    logger.info(f"  Mode:        {mode_label}")
+    logger.info("")
+    if not unlock:
+        logger.info(f"  Permissions set:")
+        logger.info(f"    Directories:     755 (rwxr-xr-x)")
+        logger.info(f"    Scripts/Python:  555 (r-xr-xr-x)")
+        logger.info(f"    Config/TCL/Docs: 444 (r--r--r--)")
+        logger.info("")
+        logger.info(f"  To unlock for development: cbflow release lock --unlock")
+    logger.info("")
+    return 0
+
+
 def cmd_release_check(args: argparse.Namespace) -> int:
     """Check chip-level release readiness: all blocks × all flows for a milestone."""
     import re as _re
@@ -2748,6 +2828,15 @@ Examples:
     release_parser.add_argument('--tag', '-t', help='Release tag override (default: project active_tag)')
     release_parser.add_argument('--dry-run', action='store_true', help='Validate only, no file copy')
 
+    # release-lock command (permissions)
+    lock_parser = subparsers.add_parser('release-lock', help='Set production permissions',
+        formatter_class=_fmt, description="""Lock CBflow to production permissions or unlock for development.
+
+Examples:
+  cbflow run release-lock              Set read-only/executable permissions
+  cbflow run release-lock --unlock     Set 777 permissions (development mode)""")
+    lock_parser.add_argument('--unlock', action='store_true', help='Set 777 permissions instead of locking')
+
     # release-check command (chip-level)
     rc_parser = subparsers.add_parser('release-check', help='Check chip-level release readiness',
         formatter_class=_fmt, description="""Check that all blocks have released for a milestone tag.
@@ -3188,6 +3277,7 @@ def main() -> int:
         'release-info': cmd_release_info,
         'release': cmd_release,
         'release-check': cmd_release_check,
+        'release-lock': cmd_release_lock,
         'targets': cmd_targets,
         'logs': cmd_logs,
         'validate': cmd_validate_run,
