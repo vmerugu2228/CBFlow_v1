@@ -139,9 +139,10 @@ def execute_tool(name: str, args: dict) -> str:
 
     elif name == "search_kb":
         try:
-            if SMARTGENIE_SERVER:
+            _srv = os.environ.get('SMARTGENIE_SERVER', '') or SMARTGENIE_SERVER
+            if _srv:
                 import requests
-                resp = requests.post(f"{SMARTGENIE_SERVER}/api/knowledge/search",
+                resp = requests.post(f"{_srv}/api/knowledge/search",
                     json={"query": args["query"], "user": USERNAME, "n_results": args.get("n", 5)}, timeout=30)
                 results = resp.json().get("results", [])
             else:
@@ -158,9 +159,10 @@ def execute_tool(name: str, args: dict) -> str:
 
     elif name == "learn":
         try:
-            if SMARTGENIE_SERVER:
+            _srv = os.environ.get('SMARTGENIE_SERVER', '') or SMARTGENIE_SERVER
+            if _srv:
                 import requests
-                resp = requests.post(f"{SMARTGENIE_SERVER}/api/knowledge/learn",
+                resp = requests.post(f"{_srv}/api/knowledge/learn",
                     json={"content": args["content"], "category": args.get("category", "general"),
                           "user": USERNAME}, timeout=30)
                 return json.dumps(resp.json())
@@ -183,18 +185,21 @@ def ollama_chat(messages: list, model: str = MODEL) -> str:
     """Send chat to local Ollama or central SmartGenie server."""
     import requests
 
-    if SMARTGENIE_SERVER:
+    # Re-read env in case it was set after import
+    server = os.environ.get('SMARTGENIE_SERVER', '') or SMARTGENIE_SERVER
+
+    if server:
         # Route through central server (shared knowledge auto-injected)
         try:
             resp = requests.post(
-                f"{SMARTGENIE_SERVER}/api/chat",
+                f"{server}/api/chat",
                 json={"messages": messages, "model": model, "user": USERNAME},
                 timeout=120,
             )
             data = resp.json()
             return data.get("response", data.get("error", "No response"))
         except requests.ConnectionError:
-            return f"ERROR: Cannot connect to SmartGenie server at {SMARTGENIE_SERVER}"
+            return f"ERROR: Cannot connect to SmartGenie server at {server}"
         except Exception as e:
             return f"ERROR: Server error: {e}"
 
