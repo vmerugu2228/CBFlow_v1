@@ -167,7 +167,28 @@ cbflow run release --dry-run            # Validate without copying
 # Release path: <base>/<project>/<design>/<phase>_<tag>/<FLOW>/
 ```
 
-## 12. Customer Bundle & Permissions
+## 12. SmartGenie AI Agent
+
+```bash
+# Setup (one time)
+brew install ollama && ollama serve && ollama pull qwen2.5:7b
+cbflow smartgenie ingest --all       # Build knowledge base (4000+ chunks)
+cbflow smartgenie setup              # Verify
+
+# Use
+cbflow smartgenie                    # Interactive AI agent
+cbflow smartgenie "run SYNTH_PNR"    # One-shot command
+cbflow smartgenie search "hold fix"  # Search knowledge
+
+# Enterprise (multi-user, shared learning)
+cbflow smartgenie serve              # Start central server
+export SMARTGENIE_SERVER=http://server:8091
+cbflow smartgenie "prompt"           # All users connect, knowledge auto-shared
+```
+
+100% private — runs on-premise via Ollama. No data leaves your network. See [SmartGenie User Guide](../02-user-guide/smartgenie-user-guide.md).
+
+## 13. Customer Bundle & Permissions
 
 ```bash
 # Create customer bundle (all files 777 for safe unzip)

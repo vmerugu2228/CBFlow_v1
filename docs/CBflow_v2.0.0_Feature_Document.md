@@ -93,7 +93,19 @@ The `generate_setup.tcl` script produces a consolidated `config.tcl` per node th
 
 This hierarchy ensures that global framework defaults propagate cleanly to individual runs while permitting fine-grained customization at every level -- from global overrides down to per-node and per-branch tuning.
 
-### 2.3 Milestone-Gated Release System
+### 2.3 SmartGenie AI Agent
+
+CBflow includes an integrated AI agent (`cbflow smartgenie`) that autonomously drives PD flows using natural language. Key properties:
+
+- **100% private** -- runs locally via Ollama (Qwen 2.5, Llama 3). No data leaves the network.
+- **Knowledge-driven** -- ChromaDB vector database with 4000+ chunks from docs, code, EDA guides
+- **Learning agent** -- records fixes, patterns, and errors for future retrieval. Grows smarter over time.
+- **Enterprise multi-user** -- central server mode where all users share knowledge automatically
+- **Tool-calling** -- agent executes cbflow CLI commands, reads/writes configs, queries RACE DB, analyzes logs
+
+Architecture: `User Prompt -> Local LLM (Ollama) -> Tool calls -> cbflow CLI -> Knowledge DB`
+
+### 2.4 Milestone-Gated Release System
 
 CBflow implements a milestone-gated release system where predefined tags (FP_EXIT, PLACE_EXIT, CTS_EXIT, PRO_EXIT, BTO, MTO) control which deliverables are packaged and where. Key properties:
 
