@@ -116,3 +116,19 @@ def add_file_handler(logger: logging.Logger, log_dir: str, filename: str, json_o
         file_handler.setFormatter(logging.Formatter(UNIFIED_FORMAT, datefmt=UNIFIED_DATE_FORMAT))
 
     logger.addHandler(file_handler)
+
+
+CBFLOW_LOGO = """
+   \033[1;34m██████╗██████╗ ███████╗██╗      ██████╗ ██╗    ██╗\033[0m
+  \033[1;34m██╔════╝██╔══██╗██╔════╝██║     ██╔═══██╗██║    ██║\033[0m
+  \033[1;34m██║     ██████╔╝█████╗  ██║     ██║   ██║██║ █╗ ██║\033[0m
+  \033[1;34m██║     ██╔══██╗██╔══╝  ██║     ██║   ██║██║███╗██║\033[0m
+  \033[1;34m╚██████╗██████╔╝██║     ███████╗╚██████╔╝╚███╔███╔╝\033[0m
+   \033[1;34m╚═════╝╚═════╝ ╚═╝     ╚══════╝ ╚═════╝  ╚══╝╚══╝\033[0m
+  \033[90mPhysical Design Flow Management System  v2.0.0\033[0m
+"""
+
+
+def print_logo():
+    """Print CBflow ASCII logo to stdout."""
+    print(CBFLOW_LOGO)

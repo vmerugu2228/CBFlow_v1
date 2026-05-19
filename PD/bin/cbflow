@@ -41,10 +41,22 @@ print_warning() {
 }
 
 # Show help
+show_logo() {
+    echo ""
+    echo "   ██████╗██████╗ ███████╗██╗      ██████╗ ██╗    ██╗"
+    echo "  ██╔════╝██╔══██╗██╔════╝██║     ██╔═══██╗██║    ██║"
+    echo "  ██║     ██████╔╝█████╗  ██║     ██║   ██║██║ █╗ ██║"
+    echo "  ██║     ██╔══██╗██╔══╝  ██║     ██║   ██║██║███╗██║"
+    echo "  ╚██████╗██████╔╝██║     ███████╗╚██████╔╝╚███╔███╔╝"
+    echo "   ╚═════╝╚═════╝ ╚═╝     ╚══════╝ ╚═════╝  ╚══╝╚══╝"
+    echo "  Physical Design Flow Management System  v${CBFLOW_VERSION}"
+    echo ""
+}
+
 show_help() {
+    show_logo
     cat << EOF
-CBFlow v${CBFLOW_VERSION}
-Physical Design Flow Management System
+Usage: cbflow <command> [subcommand] [options]
 
 Usage: cbflow <command> [subcommand] [options]
 
@@ -131,11 +143,10 @@ EOF
 
 # Show version
 show_version() {
-    echo "CBFlow v${CBFLOW_VERSION}"
-    echo "Physical Design Flow Management System"
+    show_logo
+    echo "  Installation: $CBFLOW_ROOT"
+    echo "  Core:         $CBFLOW_CORE_DIR"
     echo ""
-    echo "Installation: $CBFLOW_ROOT"
-    echo "Core:         $CBFLOW_CORE_DIR"
 }
 
 # Main command dispatcher
