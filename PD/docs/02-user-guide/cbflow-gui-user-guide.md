@@ -291,8 +291,15 @@ cbflow run create-branch --name timing_experiment --from place1 --tag aggressive
 ### Branch Labels
 
 - **Node labels**: Branch nodes display their branch name below the node name
-- **Edge labels**: Edges into a branch show the branch name and tag
+- **Edge labels**: Edges into a branch show the **branch name** (tag is used as fallback only if name is empty)
 - **Branch colors**: Each branch is assigned a distinct color for visual differentiation
+
+### Branch-Scoped Configuration
+
+When editing config from the GUI, the **Save to** scope selector offers:
+- **This node** -- writes `override_config.<node>.tcl` (e.g., `override_config.cts2.tcl`)
+- **Branch** -- writes a single `override_config.<branch_name>.tcl` (e.g., `override_config.timing_experiment.tcl`) that applies to all nodes in the branch
+- **All <type> nodes** -- writes `override_config.<stage_type>.tcl` (e.g., `override_config.cts.tcl`) that applies to all nodes of that type across all branches
 
 ### Deleting a Branch
 

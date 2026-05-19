@@ -135,18 +135,46 @@ set pnr(input,netlist) "/proj/runs/synth_run1/outputs/my_design.v"
 
 ## 10. Override Hierarchy
 
+All configs are consolidated into a single generated `config.tcl` per node. Command files source it once.
+
 ```
-flow_config.tcl          (global defaults)
-  -> project_config.tcl   (project-specific)
-    -> tech_config.tcl     (technology-specific)
-      -> user_config.tcl   (per-run overrides)
-        -> override_config.tcl       (global hook)
-          -> override_config.<stage>.tcl  (stage hook)
-            -> override_setup.tcl         (flow_proc hook)
-              -> override_setup.<stage>.tcl   (stage flow_proc hook)
+project_config.tcl            (project-specific)
+  -> tech_config.tcl           (technology + libraries)
+    -> flow_config.tcl          (flow defaults)
+      -> node_config.tcl        (stage definitions)
+        -> mmmc_config.tcl      (MMMC scenarios/corners)
+          -> <tool>_config.tcl  (tool-specific: fc_config, pt_config)
+            -> user_config.tcl  (per-run overrides)
+              -> override_config.tcl              (global hook)
+                -> override_config.<stage>.tcl    (stage-type hook)
+                  -> override_config.<branch>.tcl (branch-scoped hook)
+                    -> override_config.<node>.tcl (per-node hook)
 ```
 
-## 11. Test Suite
+Flow type must be explicitly set (via `CBFLOW_FLOW_TYPE` env var or user_config). If missing or invalid, CBflow exits with error and lists available flows.
+
+## 11. Milestone Release
+
+Releases are milestone-gated. Tags are predefined; leads set the active tag in project config.
+
+```bash
+# From workspace (where all runs live):
+cbflow run release                      # Release using project's active tag
+cbflow run release --tag PLACE_EXIT     # Specific milestone
+cbflow run release --dry-run            # Validate without copying
+
+# Predefined tags: FP_EXIT, PLACE_EXIT, CTS_EXIT, PRO_EXIT, BTO, MTO
+# Release path: <base>/<project>/<design>/<phase>_<tag>/<FLOW>/
+```
+
+Lead config (in project_config.tcl):
+```tcl
+set project(release,active_tag)  "BTO"
+set project(release,expiry_date) "2026-06-30"
+set project(release,path)        "/proj/releases"
+```
+
+## 12. Test Suite
 
 ```bash
 bin/cbflow-test-suite              # 994 tests, all categories

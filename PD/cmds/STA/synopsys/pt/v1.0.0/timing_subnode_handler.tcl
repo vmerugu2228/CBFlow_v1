@@ -26,6 +26,30 @@ switch $subnode_name {
         puts "INFO: $stage_name setup..."
         file mkdir "$run_dir/work/$::flow_type/$node_name/run"
         file mkdir "$run_dir/work/$::flow_type/$node_name/setup"
+        # Source SPEF manifest from upstream extraction stage
+        # This makes spef_map(<rc_corner>) and spef_corners available to timing scenarios
+        set _dep_stage "extraction1"
+        # Check for custom extraction node name from runtime config
+        set _rtf "$run_dir/setup/runtime_flow_config.tcl"
+        if {[file exists $_rtf]} {
+            set _rf [open $_rtf r]; set _rc [read $_rf]; close $_rf
+            if {[regexp {stages,(\w+),type\s+extraction} $_rc _m _ename]} {
+                set _dep_stage $_ename
+            }
+        }
+        set _spef_manifest "$run_dir/work/$::flow_type/$_dep_stage/results/spef_manifest.tcl"
+        if {[file exists $_spef_manifest]} {
+            source $_spef_manifest
+            puts "INFO: Loaded SPEF manifest from $_dep_stage: $spef_corner_count corners"
+            foreach _c $spef_corners {
+                puts "INFO:   $_c -> $spef_map($_c)"
+            }
+            # Write a copy to timing work dir for the run subnode to pick up
+            file copy -force $_spef_manifest "$run_dir/work/$::flow_type/$node_name/setup/spef_manifest.tcl"
+        } else {
+            puts "WARNING: No SPEF manifest found at: $_spef_manifest"
+            puts "WARNING: Timing analysis will use user_config spef paths (if set)"
+        }
         puts "INFO: $stage_name setup completed"
     }
     "run" {
@@ -188,10 +212,27 @@ switch $subnode_name {
             }
             puts "INFO: $stage_name run completed"
         }
-    }
-    "validate" {
+    }    "validate" {
         puts "INFO: $stage_name validate..."
-        if {$test_mode} { puts "INFO: \[TEST MODE\] Validation skipped" }
+        set _val_script "$::env(SCRIPTS_ROOT)/validation/$::env(VALIDATION_VERSION)/validate_run.tcl"
+        set _log_file "$run_dir/work/$::flow_type/$node_name/run/${node_name}.log"
+        if {[file exists $_val_script]} {
+            puts "INFO: Running validation: $::flow_type $stage_name $node_name"
+            set _val_rc [catch {exec tclsh $_val_script $::flow_type $stage_name $run_dir $::env(FLOW_DIR) 2>@1} _val_out]
+            if {$_val_out ne ""} {
+                foreach _vl [split $_val_out "\n"] {
+                    if {[string match "*ERROR*" $_vl] || [string match "*FAIL*" $_vl]} {
+                        puts "VALIDATE: $_vl"
+                    }
+                }
+            }
+            if {$_val_rc != 0 && [string match "*validation failed*" [string tolower $_val_out]]} {
+                puts "ERROR: Validation FAILED for $stage_name ($node_name)"
+                exit 1
+            } else {
+                puts "INFO: Validation passed for $stage_name"
+            }
+        }
         puts "INFO: $stage_name validate completed"
     }
     "finish" {

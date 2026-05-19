@@ -10,7 +10,7 @@ if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} 
 set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
 namespace import ::CBFlow::Utilities::print_header
-set config_file "$run_dir/work/PNR/release_data1/run/config.tcl"
+set config_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global pnr project tech flow
 
@@ -20,8 +20,6 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" &&
     set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
     if {[file exists $_tc]} { source -e $_tc }
 }
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 
 # Source release utilities
 set release_utils "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
@@ -120,9 +118,9 @@ flow_proc prepare_release {
     handle_info "Release directory structure created at $release_dir"
 
     # Copy GDS
-    set gds_src "$run_dir/results/pnr/gds/$fc(common,design_name).gds2"
+    set gds_src "$run_dir/results/pnr/gds/$fc(common,design_name).gds"
     if {[file exists $gds_src]} {
-        file copy -force $gds_src "$release_dir/gds/$fc(common,design_name).gds2"
+        file copy -force $gds_src "$release_dir/gds/$fc(common,design_name).gds"
         handle_info "Copied GDS to release"
     } else {
         handle_warning "GDS source not found: $gds_src"
@@ -281,7 +279,7 @@ flow_proc validate_release {
 
     # Define required deliverables
     set required_files [list \
-        "gds/$fc(common,design_name).gds2" \
+        "gds/$fc(common,design_name).gds" \
         "netlist/$fc(common,design_name).v" \
         "netlist/pg/$fc(common,design_name)_pg.v" \
         "def/$fc(common,design_name).def" \
@@ -362,7 +360,7 @@ flow_proc generate_release_output {
 # Source setup.tcl (flow_proc hooks: prepend, append, replace)
 # Must be sourced AFTER flow_proc definitions but BEFORE flow_exec_all
 # ==============================================================================
-set _setup_file "$run_dir/work/PNR/release_data1/run/setup.tcl"
+set _setup_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/setup.tcl"
 if {[file exists $_setup_file]} {
     handle_info "Sourcing setup hooks: $_setup_file"
     source -e $_setup_file

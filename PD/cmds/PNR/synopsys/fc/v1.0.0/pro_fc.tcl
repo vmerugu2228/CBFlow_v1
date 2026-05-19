@@ -8,7 +8,7 @@ if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} 
 set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
 namespace import ::CBFlow::Utilities::print_header
-set config_file "$run_dir/work/PNR/pro1/run/config.tcl"
+set config_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global pnr project tech flow
 # Source FC tool config
@@ -31,12 +31,9 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" &&
     set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
     if {[file exists $_tc]} { source -e $_tc }
 }
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 
 # Source MMMC configuration
 set mmmc_config_file "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
-if {[file exists $mmmc_config_file]} { source -e $mmmc_config_file }
 
 # ==============================================================================
 # flow_proc: configure_route_opt
@@ -354,7 +351,7 @@ flow_proc run_endpoint_opt {
 # Source setup.tcl (flow_proc hooks: prepend, append, replace)
 # Must be sourced AFTER flow_proc definitions but BEFORE flow_exec_all
 # ==============================================================================
-set _setup_file "$run_dir/work/PNR/pro1/run/setup.tcl"
+set _setup_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/setup.tcl"
 if {[file exists $_setup_file]} {
     handle_info "Sourcing setup hooks: $_setup_file"
     source -e $_setup_file

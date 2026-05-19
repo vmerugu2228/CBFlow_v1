@@ -70,20 +70,43 @@ CBflow is organized into four distinct architectural layers, each with clearly d
 
 ### 2.2 Configuration Hierarchy
 
-CBflow employs an eight-level configuration cascade that provides maximum flexibility while maintaining predictability. Each level has a well-defined scope, and later levels override earlier ones:
+CBflow employs a fourteen-level configuration cascade consolidated into a single generated `config.tcl` per node. Each level has a well-defined scope, and later levels override earlier ones:
 
 | Priority | Configuration Level     | Scope           | Description                                              |
 |----------|------------------------|-----------------|----------------------------------------------------------|
-| 1 (base) | flow_config.tcl        | Framework-wide  | Flow version, global settings, enabled features          |
-| 2        | node_config.tcl        | Per-flow        | Stage definitions, dependencies, subnodes, tool bindings |
-| 3        | project_config.tcl     | Per-project     | Technology node, standard cells, project paths           |
-| 4        | tech_config.tcl        | Per-technology  | Process-specific parameters, layer maps, DRC rules       |
-| 5        | mmmc_config.tcl        | Per-project     | MMMC scenario definitions, corner/mode associations      |
-| 6        | user_config.tcl        | Per-run         | User inputs, file paths, design-specific overrides       |
-| 7        | override_config.tcl    | Per-stage       | Stage-level parameter overrides (memory, CPU, timeout)   |
-| 8 (top)  | runtime_flow_config.tcl| Per-run         | Dynamic nodes, branches, runtime modifications           |
+| 1 (base) | cbflow_init_config.tcl | Per-project     | Project initialization, workspace defaults               |
+| 2        | project_config.tcl     | Per-project     | Technology node, standard cells, project paths           |
+| 3        | team_config.tcl        | Per-team        | Team-specific settings and conventions                   |
+| 4        | tech_config.tcl        | Per-technology  | Libraries, library_sets (PVT), NDM, LEF, routing layers |
+| 5        | flow_config.tcl        | Framework-wide  | Flow version, global settings, enabled features          |
+| 6        | node_config.tcl        | Per-flow        | Stage definitions, dependencies, subnodes, tool bindings |
+| 7        | mmmc_config.tcl        | Per-project     | MMMC scenario definitions, corners, modes, analysis views|
+| 8        | \<tool\>_config.tcl    | Per-tool        | Tool-specific variables (fc_config.tcl, pt_config.tcl)   |
+| 9        | user_config.tcl        | Per-run         | User inputs, file paths, design-specific overrides       |
+| 10       | override_config.tcl    | Global          | Global override hook                                     |
+| 11       | override_config.\<flow\>.tcl    | Per-flow  | Flow-level override                              |
+| 12       | override_config.\<stage\>.tcl   | Per-type  | Stage-type override (e.g., cts, route)           |
+| 13       | override_config.\<branch\>.tcl  | Per-branch| Branch-scoped override (e.g., timing_fix)        |
+| 14 (top) | override_config.\<node\>.tcl    | Per-node  | Per-node override (e.g., cts2, place2_eco)       |
 
-This hierarchy ensures that global framework defaults propagate cleanly to individual runs while permitting fine-grained customization at every level. Importantly, CBflow does not rely on environment variable overrides for configuration -- all parameters are resolved from the TCL configuration chain, providing auditability and reproducibility.
+The `generate_setup.tcl` script produces a consolidated `config.tcl` per node that sources all applicable levels. Command files source this single file instead of loading configs individually, eliminating redundancy and ensuring consistent configuration. The RACE engine exports `CBFLOW_NODE_NAME` and `CBFLOW_SUBNODE` env vars per job, enabling dynamic path resolution for custom nodes and branches.
+
+This hierarchy ensures that global framework defaults propagate cleanly to individual runs while permitting fine-grained customization at every level -- from global overrides down to per-node and per-branch tuning.
+
+### 2.3 Milestone-Gated Release System
+
+CBflow implements a milestone-gated release system where predefined tags (FP_EXIT, PLACE_EXIT, CTS_EXIT, PRO_EXIT, BTO, MTO) control which deliverables are packaged and where. Key properties:
+
+- **Predefined tags** in `release_config.tcl` -- not free-form user input
+- **Lead-controlled**: active tag and expiry date set in project config
+- **Milestone-gated**: ALL required flows must complete before release proceeds
+- **Per-flow deliverables**: uses `output_manifest.tcl` from each flow's export_data
+- **Phase validation**: each tag has a minimum phase (e.g., BTO requires P2+)
+- **Expiry enforcement**: releases blocked after expiry date
+
+Release command: `cbflow run release [--tag TAG] [--dry-run]`
+
+Release directory structure: `<path>/<project>/<design>/<phase>_<tag>/<FLOW>/<category>/`
 
 ### 2.3 Multi-Vendor Abstraction
 

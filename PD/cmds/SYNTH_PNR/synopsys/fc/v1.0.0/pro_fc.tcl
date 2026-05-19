@@ -11,27 +11,16 @@ if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} 
 set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
 namespace import ::CBFlow::Utilities::print_header
-set config_file "$run_dir/work/SYNTH_PNR/pro1/run/config.tcl"
+set config_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 global synth_pnr project tech flow
 set mmmc_config_file "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
 
-# Source tech_config (BUG FIX #1)
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
 }
-if {[file exists $mmmc_config_file]} { source $mmmc_config_file }
 
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 # Source FC tool config
 set _fc_config "[file dirname [info script]]/fc_config.tcl"
-if {[file exists $_fc_config]} { source $_fc_config }
-if {[file exists "$run_dir/setup/override_config.tcl"]} { source -e "$run_dir/setup/override_config.tcl" }
 
 handle_info "Starting SYNTH_PNR route_opt (FC-RM Y-2026.03 aligned)..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
@@ -71,8 +60,6 @@ flow_proc load_design {
     }
 
     handle_info "Design loaded: ${design_name}/route_opt"
-}
-
 # ==============================================================================
 # flow_proc: set_active_scenarios
 # FC-RM: set_scenario_status for route_opt (post_route scenarios)
@@ -101,8 +88,6 @@ flow_proc set_active_scenarios {
     }
 
     handle_info "Active scenarios configured"
-}
-
 # ==============================================================================
 # flow_proc: set_qor_strategy
 # FC-RM: set_qor_strategy -stage post_route, instance prefixes,
@@ -145,8 +130,6 @@ flow_proc set_qor_strategy {
     }
 
     handle_info "QoR strategy set: metric=$metric, mode=$mode"
-}
-
 # ==============================================================================
 # flow_proc: configure_route_opt
 # FC-RM: Extraction mode (StarRC/native), StarRC config, VMF setup,
@@ -227,8 +210,6 @@ flow_proc configure_route_opt {
     }
 
     handle_info "Route_opt configuration completed"
-}
-
 # ==============================================================================
 # flow_proc: run_route_opt
 # FC-RM: PBA mode, compute_clock_latency, hyper_route_opt (with redundant
@@ -269,8 +250,6 @@ flow_proc run_route_opt {
             handle_info "Sourcing IRD-CCD config: $fc(common,irdccd_config_file)"
             source -e $fc(common,irdccd_config_file)
 
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
         }
     }
 
@@ -293,8 +272,6 @@ if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/
     }
 
     handle_info "route_opt completed"
-}
-
 # ==============================================================================
 # flow_proc: post_route_opt
 # FC-RM: Post-route_opt redundant vias, incremental route_detail for DRC fix,
@@ -352,8 +329,6 @@ flow_proc post_route_opt {
     }
 
     handle_info "Post-route_opt tasks completed"
-}
-
 # ==============================================================================
 # flow_proc: run_endpoint_opt
 # FC-RM: endpoint_opt.tcl -- PBA-CCD targeted optimization on worst endpoints
@@ -433,8 +408,6 @@ flow_proc run_endpoint_opt {
     redirect -file $::REPORTS_DIR/check_routes.post_endpoint_opt { check_routes }
 
     handle_info "Endpoint optimization completed ($loop_count passes)"
-}
-
 # ==============================================================================
 # flow_proc: create_abstracts
 # FC-RM: create_abstract, create_frame for hierarchical
@@ -456,8 +429,6 @@ flow_proc create_abstracts {
     }
 
     handle_info "Abstracts completed"
-}
-
 # ==============================================================================
 # flow_proc: save_design
 # FC-RM: save_block, set_svf -off
@@ -476,8 +447,6 @@ flow_proc save_design {
 
     set_svf -off
     handle_info "Route_opt design saved"
-}
-
 # ==============================================================================
 # flow_proc: generate_reports
 # FC-RM: report_qor, report_timing (with AWP/CCS), report_power,
@@ -537,12 +506,10 @@ flow_proc generate_reports {
     redirect -file $::REPORTS_DIR/report_msg_summary.rpt { report_msg -summary }
 
     handle_info "Route_opt reports generated in: $::REPORTS_DIR"
-}
-
 # ==============================================================================
 # Source setup.tcl (flow_proc hooks: prepend, append, replace)
 # ==============================================================================
-set _setup_file "$run_dir/work/SYNTH_PNR/pro1/run/setup.tcl"
+set _setup_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/setup.tcl"
 if {[file exists $_setup_file]} {
     handle_info "Sourcing setup hooks: $_setup_file"
     source -e $_setup_file
@@ -556,8 +523,6 @@ set _stage_override "$run_dir/setup/override_setup.pro.tcl"
 if {[file exists $_stage_override]} {
     handle_info "Sourcing stage override: $_stage_override"
     source -e $_stage_override
-}
-
 flow_exec_all
 
 # BUG FIX #7: Exit tool after stage completion

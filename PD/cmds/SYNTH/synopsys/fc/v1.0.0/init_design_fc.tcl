@@ -19,7 +19,7 @@ set STAGE_NAME "init_design"
 set NODE_NAME "init_design1"
 
 # ── Config & MMMC ────────────────────────────────────────────────────────────
-set config_file "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+set config_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/config.tcl"
 if {[file exists $config_file]} { source -e $config_file }
 global synth_pnr project tech flow
 
@@ -982,7 +982,7 @@ flow_proc generate_reports {
 # Source setup.tcl (flow_proc hooks: prepend, append, replace)
 # Must be sourced AFTER flow_proc definitions but BEFORE flow_exec_all
 # ==============================================================================
-set _setup_file "$run_dir/work/SYNTH/init_design1/run/setup.tcl"
+set _setup_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/setup.tcl"
 if {[file exists $_setup_file]} {
     handle_info "Sourcing setup hooks: $_setup_file"
     source -e $_setup_file

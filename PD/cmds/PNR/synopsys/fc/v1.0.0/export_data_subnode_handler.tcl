@@ -86,6 +86,29 @@ switch $subnode_name {
             } else {
                 puts "INFO: \[TEST MODE\] Launch mode: local execution"
             }
+            # Create dummy output files EXACTLY matching real FC write commands
+            set _dn [expr {[info exists flow(design_name)] ? $flow(design_name) : "design"}]
+            set _res "$run_dir/results/pnr"
+            foreach _subdir {netlist def gds spef sdc} { file mkdir "$_res/$_subdir" }
+            # Netlists (matches write_verilog in export_data_fc.tcl)
+            foreach {_suf _desc} {.v "// Logic netlist" .pt.v "// PT netlist" .fm.v "// FM netlist" .lvs.v "// LVS netlist"} {
+                set _f [open "$_res/netlist/${_dn}${_suf}" "w"]; puts $_f "$_desc\n// \[TEST MODE\]"; close $_f
+            }
+            # GDS + DEF
+            set _f [open "$_res/gds/${_dn}.gds" "w"]; puts $_f "// GDS \[TEST MODE\]"; close $_f
+            set _f [open "$_res/def/${_dn}.def" "w"]; puts $_f "// DEF \[TEST MODE\]"; close $_f
+            # SPEF — real write_parasitics writes ${design}.spef.gz; also create .spef for manifest
+            set _f [open "$_res/spef/${_dn}.spef" "w"]; puts $_f "// SPEF \[TEST MODE\]"; close $_f
+            set _f [open "$_res/spef/${_dn}.spef.gz" "w"]; puts $_f "// SPEF compressed \[TEST MODE\]"; close $_f
+            # Per-scenario SDC files (matches write_sdc loop in export_data_fc.tcl)
+            foreach _scn {func_ss_0p76v_rcmax_150c func_ff_0p84v_rcmin_m40c func_tt_0p80v_rctyp_25c} {
+                set _f [open "$_res/sdc/${_dn}_${_scn}.sdc" "w"]; puts $_f "// SDC $_scn \[TEST MODE\]"; close $_f
+            }
+            # UPF + scripts
+            foreach {_suf _desc} {.upf "// UPF" _wscript "// wscript" _wscript_for_pt "// wscript_pt" _routing_constraints "// routing" _floorplan "// floorplan"} {
+                set _f [open "$_res/sdc/${_dn}${_suf}" "w"]; puts $_f "$_desc\n// \[TEST MODE\]"; close $_f
+            }
+            puts "INFO: \[TEST MODE\] Created dummy output files in $_res/"
             puts "INFO: $stage_name run completed \[TEST MODE\]"
         } else {
             if {![file exists $cmd_file]} { puts "ERROR: Command file not found: $cmd_file"; exit 1 }
@@ -191,7 +214,19 @@ switch $subnode_name {
     }
     "validate" {
         puts "INFO: $stage_name validate..."
-        if {$test_mode} { puts "INFO: \[TEST MODE\] Validation skipped" }
+        # Generate output manifest for downstream flows (STA, LEC, CLP, PV, EMIR)
+        set _resolve_lib "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/resolve_inputs.tcl"
+        if {[file exists $_resolve_lib]} {
+            source $_resolve_lib
+            generate_output_manifest $::flow_type $node_name $run_dir
+        }
+        # Run log + file validation
+        set _val_script "$::env(SCRIPTS_ROOT)/validation/$::env(VALIDATION_VERSION)/validate_run.tcl"
+        if {[file exists $_val_script]} {
+            if {[catch {exec tclsh $_val_script $::flow_type $stage_name $run_dir $::env(FLOW_DIR)} _val_out]} {
+                puts "WARNING: Validation issues: $_val_out"
+            }
+        }
         puts "INFO: $stage_name validate completed"
     }
     "finish" {

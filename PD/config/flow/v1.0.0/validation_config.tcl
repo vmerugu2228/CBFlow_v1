@@ -15,21 +15,12 @@
 
 # ┌─ Critical Error Detection Thresholds ─────────────────────────────────────┐
 array set validation {
-    # XTerm display threshold - launch red xterm after this many critical errors
     xterm_display_threshold 1
-
-    # Enable/disable xterm integration
     enable_xterm_display 1
-
-    # XTerm display options
     xterm_fg_color "red"
     xterm_bg_color "black"
     xterm_title "CBFlow Critical Error Viewer"
-
-    # Validation timeout in seconds
     validation_timeout 300
-
-    # Enable enhanced pattern matching
     enable_enhanced_patterns 1
 }
 
@@ -263,7 +254,6 @@ array set validation {
 
 # ┌─ XTerm Display Configuration ──────────────────────────────────────────────┐
 array set validation {
-    # XTerm command template (variables will be substituted)
     xterm_command_template {
         xterm -fg ${xterm_fg_color} -bg ${xterm_bg_color}
               -title "${xterm_title}"
@@ -284,25 +274,15 @@ array set validation {
 
 # ┌─ Enhanced Reporting Configuration ─────────────────────────────────────────┐
 array set validation {
-    # Generate enhanced reports with error categorization
     enable_enhanced_reports 1
-
-    # Report output directory
     enhanced_report_dir "logs/validation"
-
-    # Error categorization levels
     error_severity_levels {CRITICAL HIGH MEDIUM LOW INFO}
-
-    # Critical error report format
     critical_error_report_format "CRITICAL_ERRORS_${flow_type}_${stage_name}_${timestamp}.rpt"
-
-    # Summary report format
     summary_report_format "VALIDATION_SUMMARY_${flow_type}_${stage_name}_${timestamp}.rpt"
 }
 
 # ┌─ Integration Hooks ─────────────────────────────────────────────────────────┐
 array set validation {
-    # Pre-validation hooks (run before validation)
     pre_validation_hooks {
         "check_log_file_permissions"
         "validate_environment_setup"

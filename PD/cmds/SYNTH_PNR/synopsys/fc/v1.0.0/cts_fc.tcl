@@ -10,27 +10,16 @@ if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} 
 set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
 namespace import ::CBFlow::Utilities::print_header
-set config_file "$run_dir/work/SYNTH_PNR/cts1/run/config.tcl"
+set config_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 global synth_pnr project tech flow
 set mmmc_config_file "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
 
-# Source tech_config (BUG FIX #1)
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
 }
-if {[file exists $mmmc_config_file]} { source $mmmc_config_file }
 
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 # Source FC tool config
 set _fc_config "[file dirname [info script]]/fc_config.tcl"
-if {[file exists $_fc_config]} { source $_fc_config }
-if {[file exists "$run_dir/setup/override_config.tcl"]} { source -e "$run_dir/setup/override_config.tcl" }
 
 handle_info "Starting SYNTH_PNR clock_opt_cts (FC-RM Y-2026.03 aligned)..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
@@ -79,8 +68,6 @@ flow_proc load_design {
     }
 
     handle_info "Design loaded: ${design_name}/clock_opt_cts"
-}
-
 # ==============================================================================
 # flow_proc: set_active_scenarios
 # FC-RM: set_scenario_status for CTS (include hold for CCD)
@@ -114,8 +101,6 @@ flow_proc set_active_scenarios {
     }
 
     handle_info "Active scenarios configured"
-}
-
 # ==============================================================================
 # flow_proc: set_qor_strategy
 # FC-RM: set_qor_strategy -stage cts, disable power scenarios
@@ -161,8 +146,6 @@ flow_proc set_qor_strategy {
     }
 
     handle_info "QoR strategy set: metric=$metric, mode=$mode"
-}
-
 # ==============================================================================
 # flow_proc: configure_cts
 # FC-RM: Instance prefixes, lib_cell_purpose, non-persistent, multi-Vt,
@@ -224,8 +207,6 @@ flow_proc configure_cts {
     }
 
     handle_info "CTS configuration completed"
-}
-
 # ==============================================================================
 # flow_proc: build_clock_trees
 # FC-RM: clock_opt -from build_clock -to build_clock (with relaxed transition)
@@ -259,8 +240,6 @@ flow_proc build_clock_trees {
     restore_clock_transition
 
     handle_info "Clock trees built"
-}
-
 # ==============================================================================
 # flow_proc: route_clock_nets
 # FC-RM: clock_opt -from route_clock -to route_clock
@@ -273,8 +252,6 @@ flow_proc route_clock_nets {
     clock_opt -from route_clock -to route_clock
 
     handle_info "Clock nets routed"
-}
-
 # ==============================================================================
 # flow_proc: post_cts_optimization
 # FC-RM: Redundant via insertion, AOCV enable, create_shields
@@ -319,8 +296,6 @@ flow_proc post_cts_optimization {
     }
 
     handle_info "Post-CTS optimization completed"
-}
-
 # ==============================================================================
 # flow_proc: connect_power_ground
 # FC-RM: connect_pg_net, re-enable power scenarios, check_routes
@@ -350,8 +325,6 @@ flow_proc connect_power_ground {
     redirect -file $::REPORTS_DIR/check_routes { check_routes -open_net false }
 
     handle_info "PG nets connected, routes checked"
-}
-
 # ==============================================================================
 # flow_proc: create_abstracts
 # FC-RM: create_abstract, create_frame for hierarchical
@@ -373,8 +346,6 @@ flow_proc create_abstracts {
     }
 
     handle_info "Abstracts completed"
-}
-
 # ==============================================================================
 # flow_proc: save_design
 # FC-RM: save_block, set_svf -off
@@ -393,8 +364,6 @@ flow_proc save_design {
 
     set_svf -off
     handle_info "CTS design saved"
-}
-
 # ==============================================================================
 # flow_proc: generate_reports
 # FC-RM: report_qor, report_timing, report_clock_qor, report_clock_timing,
@@ -454,12 +423,10 @@ flow_proc generate_reports {
     redirect -file $::REPORTS_DIR/report_msg_summary.rpt { report_msg -summary }
 
     handle_info "CTS reports generated in: $::REPORTS_DIR"
-}
-
 # ==============================================================================
 # Source setup.tcl (flow_proc hooks: prepend, append, replace)
 # ==============================================================================
-set _setup_file "$run_dir/work/SYNTH_PNR/cts1/run/setup.tcl"
+set _setup_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/setup.tcl"
 if {[file exists $_setup_file]} {
     handle_info "Sourcing setup hooks: $_setup_file"
     source -e $_setup_file
@@ -473,8 +440,6 @@ set _stage_override "$run_dir/setup/override_setup.cts.tcl"
 if {[file exists $_stage_override]} {
     handle_info "Sourcing stage override: $_stage_override"
     source -e $_stage_override
-}
-
 flow_exec_all
 
 # BUG FIX #7: Exit tool after stage completion

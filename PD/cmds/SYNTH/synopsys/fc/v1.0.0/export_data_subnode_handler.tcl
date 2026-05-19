@@ -85,6 +85,22 @@ switch $subnode_name {
             } else {
                 puts "INFO: \[TEST MODE\] Launch mode: local execution"
             }
+            # Create dummy output files EXACTLY matching real FC write commands
+            set _dn [expr {[info exists flow(design_name)] ? $flow(design_name) : "design"}]
+            set _out "$run_dir/outputs"
+            file mkdir "$_out/netlist" "$_out/sdc" "$_out/db" "$_out/reports"
+            # Netlists (matches write_verilog in export_data_fc.tcl)
+            set _f [open "$_out/netlist/${_dn}.v" "w"]; puts $_f "// Gate-level netlist \[TEST MODE\]"; close $_f
+            set _f [open "$_out/netlist/synth_func.v" "w"]; puts $_f "// Functional netlist (no pg) \[TEST MODE\]"; close $_f
+            # SDC
+            set _f [open "$_out/sdc/${_dn}.sdc" "w"]; puts $_f "// SDC constraints \[TEST MODE\]"; close $_f
+            # Design block DB (matches save_block in export_data_fc.tcl)
+            set _f [open "$_out/db/synth.nlib" "w"]; puts $_f "// Design block \[TEST MODE\]"; close $_f
+            # Reports (matches report copy in export_data_fc.tcl)
+            foreach _rpt {report_qor.rpt report_timing.rpt report_area.rpt report_power.rpt} {
+                set _f [open "$_out/reports/${_rpt}" "w"]; puts $_f "// $_rpt \[TEST MODE\]"; close $_f
+            }
+            puts "INFO: \[TEST MODE\] Created dummy output files in $_out/"
             puts "INFO: $stage_name run completed \[TEST MODE\]"
         } else {
             if {![file exists $cmd_file]} { puts "ERROR: Command file not found: $cmd_file"; exit 1 }
@@ -181,10 +197,27 @@ switch $subnode_name {
             }
             puts "INFO: $stage_name run completed"
         }
-    }
-    "validate" {
+    }    "validate" {
         puts "INFO: $stage_name validate..."
-        if {$test_mode} { puts "INFO: \[TEST MODE\] Validation skipped" }
+        set _val_script "$::env(SCRIPTS_ROOT)/validation/$::env(VALIDATION_VERSION)/validate_run.tcl"
+        set _log_file "$run_dir/work/$::flow_type/$node_name/run/${node_name}.log"
+        if {[file exists $_val_script]} {
+            puts "INFO: Running validation: $::flow_type $stage_name $node_name"
+            set _val_rc [catch {exec tclsh $_val_script $::flow_type $stage_name $run_dir $::env(FLOW_DIR) 2>@1} _val_out]
+            if {$_val_out ne ""} {
+                foreach _vl [split $_val_out "\n"] {
+                    if {[string match "*ERROR*" $_vl] || [string match "*FAIL*" $_vl]} {
+                        puts "VALIDATE: $_vl"
+                    }
+                }
+            }
+            if {$_val_rc != 0 && [string match "*validation failed*" [string tolower $_val_out]]} {
+                puts "ERROR: Validation FAILED for $stage_name ($node_name)"
+                exit 1
+            } else {
+                puts "INFO: Validation passed for $stage_name"
+            }
+        }
         puts "INFO: $stage_name validate completed"
     }
     "finish" {

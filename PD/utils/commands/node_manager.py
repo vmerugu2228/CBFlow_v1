@@ -390,7 +390,9 @@ class NodeManager:
         if from_idx is None:
             # from_stage is a custom node — find where it maps in the base flow
             # and create branch nodes for all remaining downstream stages
-            base_type = re.sub(r'\d+$', '', from_stage)
+            # Use the stored type from custom_nodes if available (handles names like synthesis2_xyz)
+            custom_info = self.custom_nodes.get(from_stage, {})
+            base_type = custom_info.get('type', '') or re.sub(r'\d+$', '', from_stage)
 
             # Find the base stage index that matches this custom node's type
             base_idx = None

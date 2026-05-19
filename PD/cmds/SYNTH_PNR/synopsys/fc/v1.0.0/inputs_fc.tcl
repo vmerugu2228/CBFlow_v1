@@ -8,25 +8,15 @@ if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} 
 set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
 namespace import ::CBFlow::Utilities::print_header
-set config_file "$run_dir/work/SYNTH_PNR/inputs/run/config.tcl"
+set config_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 
 # Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
-
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 global synth_pnr project tech flow
 # Source MMMC config
 set mmmc_config_file "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
-if {[file exists $mmmc_config_file]} { source $mmmc_config_file }
 # Source FC tool config
 set _fc_config "[file dirname [info script]]/fc_config.tcl"
-if {[file exists $_fc_config]} { source $_fc_config }
-if {[file exists "$run_dir/setup/override_config.tcl"]} { source -e "$run_dir/setup/override_config.tcl" }
 
 handle_info "Starting SYNTH_PNR inputs..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
@@ -110,8 +100,6 @@ flow_proc resolve_inputs {
     }
 
     handle_info "Input resolution completed"
-}
-
 # ==============================================================================
 # flow_proc: create_design_lib
 # Description: Create design library with technology and reference libraries
@@ -152,8 +140,6 @@ flow_proc create_design_lib {
     eval $create_lib_cmd
 
     handle_info "Design library created successfully"
-}
-
 # ==============================================================================
 # flow_proc: read_rtl_inputs
 # Description: Read RTL source files and elaborate the design
@@ -195,8 +181,6 @@ flow_proc read_rtl_inputs {
     save_lib
 
     handle_info "RTL inputs loaded and elaborated successfully"
-}
-
 # ==============================================================================
 # flow_proc: read_floorplan
 # Description: Read floorplan DEF from floorplan stage
@@ -222,8 +206,6 @@ flow_proc read_floorplan {
     }
 
     handle_info "Floorplan data loaded successfully"
-}
-
 # ==============================================================================
 # flow_proc: read_constraints
 # Description: Read SDC timing constraints and UPF power intent
@@ -265,8 +247,6 @@ flow_proc read_constraints {
     }
 
     handle_info "Design constraints loaded successfully"
-}
-
 # ==============================================================================
 # flow_proc: read_parasitics
 # Description: Read parasitic technology files (TLU+/NXTGRD) for RC estimation
@@ -300,8 +280,6 @@ flow_proc read_parasitics {
     }
 
     handle_info "Parasitic technology loaded successfully"
-}
-
 # ==============================================================================
 # flow_proc: set_qor_strategy_init
 # Description: Set QoR strategy for initial design setup
@@ -328,8 +306,6 @@ flow_proc set_qor_strategy_init {
     }
 
     handle_info "QoR strategy set successfully"
-}
-
 # ==============================================================================
 # flow_proc: connect_power_ground
 # Description: Connect PG nets automatically
@@ -342,8 +318,6 @@ flow_proc connect_power_ground {
     check_duplicates -remove
 
     handle_info "Power/ground nets connected"
-}
-
 # ==============================================================================
 # flow_proc: save_design_block
 # Description: Save the design block after input loading
@@ -359,8 +333,6 @@ flow_proc save_design_block {
         save_block
         handle_info "Block saved"
     }
-}
-
 # ==============================================================================
 # flow_proc: generate_reports
 # Description: Generate input validation and design quality reports
@@ -395,8 +367,6 @@ flow_proc generate_reports {
     redirect -file "$run_dir/reports/synth_pnr/inputs_clocks.rpt" { report_clocks }
 
     handle_info "Input reports generated in reports/synth_pnr/"
-}
-
 # ==============================================================================
 # Execute all flow_procs in sequence
 # ==============================================================================
@@ -404,7 +374,7 @@ flow_proc generate_reports {
 # Source setup.tcl (flow_proc hooks: prepend, append, replace)
 # Must be sourced AFTER flow_proc definitions but BEFORE flow_exec_all
 # ==============================================================================
-set _setup_file "$run_dir/work/SYNTH_PNR/inputs1/run/setup.tcl"
+set _setup_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/setup.tcl"
 if {[file exists $_setup_file]} {
     handle_info "Sourcing setup hooks: $_setup_file"
     source -e $_setup_file
@@ -418,8 +388,6 @@ set _stage_override "$run_dir/setup/override_setup.inputs.tcl"
 if {[file exists $_stage_override]} {
     handle_info "Sourcing stage override: $_stage_override"
     source -e $_stage_override
-}
-
 flow_exec_all
 
 # Exit tool after stage completion

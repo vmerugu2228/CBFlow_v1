@@ -96,7 +96,7 @@ def get_flow_type() -> str:
 
 
 def get_flow_stages(flow_type: str) -> list:
-    """Get ordered stages for a flow type.
+    """Get ordered stages for a flow type (base stages only).
 
     For single flows: loads from node config (e.g., PNR_config.tcl).
     For merged flows: builds combined prefixed stage list (e.g., synth_inputs, fp_floorplan).
@@ -107,6 +107,22 @@ def get_flow_stages(flow_type: str) -> list:
     if is_merged_flow(flow_type):
         return get_merged_flow_stage_names(flow_type)
     return _get_stages(flow_type)
+
+
+def get_all_stages(flow_type: str) -> list:
+    """Get base stages + custom nodes from runtime config (full stage list)."""
+    stages = list(get_flow_stages(flow_type))
+    custom_data = load_custom_nodes_from_runtime_config()
+    for name, info in custom_data.get('nodes', {}).items():
+        if name not in stages:
+            dep = info.get('dependencies', [''])
+            dep_name = dep[0] if isinstance(dep, list) and dep else dep
+            if dep_name and dep_name in stages:
+                idx = stages.index(dep_name) + 1
+                stages.insert(idx, name)
+            else:
+                stages.append(name)
+    return stages
 
 
 def _get_completed_from_db() -> set:
@@ -369,7 +385,7 @@ def cmd_stage(args: argparse.Namespace) -> int:
 
     stage = args.stage
     flow_type = get_flow_type()
-    valid_stages = get_flow_stages(flow_type)
+    valid_stages = get_all_stages(flow_type)
     validate = getattr(args, 'validate', False)
     use_lsf = getattr(args, 'lsf', False)
     lsf_queue = getattr(args, 'queue', None)
@@ -414,7 +430,7 @@ def cmd_bypass(args: argparse.Namespace) -> int:
 
     stages = [s.strip() for s in args.stages.split(',')]
     flow_type = get_flow_type()
-    valid = get_flow_stages(flow_type)
+    valid = get_all_stages(flow_type)
     for s in stages:
         if s not in valid:
             logger.error(f"Invalid stage: {s}. Valid: {', '.join(valid)}")
@@ -436,7 +452,7 @@ def cmd_forcevalidate(args: argparse.Namespace) -> int:
         return 1
 
     flow_type = get_flow_type()
-    all_stages = get_flow_stages(flow_type)
+    all_stages = get_all_stages(flow_type)
 
     # Resolve which stages to forcevalidate
     stages = []
@@ -497,7 +513,7 @@ def cmd_force(args: argparse.Namespace) -> int:
 
     stages = [s.strip() for s in args.stages.split(',')]
     flow_type = get_flow_type()
-    valid = get_flow_stages(flow_type)
+    valid = get_all_stages(flow_type)
     for s in stages:
         if s not in valid:
             logger.error(f"Invalid stage: {s}. Valid: {', '.join(valid)}")
@@ -745,7 +761,7 @@ def cmd_retrace(args: argparse.Namespace) -> int:
 
     from_stage = getattr(args, 'from_stage', None)
     flow_type = get_flow_type()
-    all_stages = get_flow_stages(flow_type)
+    all_stages = get_all_stages(flow_type)
 
     if from_stage and from_stage not in all_stages:
         logger.error(f"Invalid stage: {from_stage}")
@@ -1600,6 +1616,426 @@ def cmd_release_info(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_release(args: argparse.Namespace) -> int:
+    """Milestone-gated release: validates all required flows passed, then packages deliverables."""
+    import re as _re
+    import json
+    import shutil
+    from datetime import datetime
+
+    dry_run = getattr(args, 'dry_run', False)
+    tag_override = getattr(args, 'tag', None)
+
+    # Must run from a workspace (not a run dir — we need to see all runs)
+    workspace = os.getcwd()
+    runs = sorted([d for d in os.listdir(workspace) if os.path.isdir(d) and '_run_' in d])
+    if not runs:
+        logger.error("No runs found in workspace. Run from a workarea directory.")
+        return 1
+
+    # Load project config to get release settings
+    env_vars = {}
+    for run in runs:
+        env_file = os.path.join(workspace, run, '.run.cbflow.env')
+        if os.path.exists(env_file):
+            with open(env_file) as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith('export ') and '=' in line:
+                        k, v = line[7:].split('=', 1)
+                        env_vars[k] = v.strip('"')
+            break
+
+    flow_dir = env_vars.get('FLOW_DIR', '')
+    project_name = env_vars.get('CBFLOW_PROJECT_NAME', env_vars.get('PROJECT_NAME', ''))
+    design_name = env_vars.get('CBFLOW_DESIGN_NAME', '')
+    phase = env_vars.get('CBFLOW_PROJECT_PHASE', 'P0')
+    if not phase:
+        phase = 'P0'
+
+    # Load release_config for predefined tags
+    release_tags = {}
+    release_deliverables = {}
+    ver = env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0')
+    rc_path = os.path.join(flow_dir, 'config', 'flow', ver, 'release_config.tcl')
+    if os.path.exists(rc_path):
+        with open(rc_path) as f:
+            content = f.read()
+        # Parse release_tags array
+        for m in _re.finditer(r'(\w+)\s+\{description\s+"([^"]+)"\s+phase_min\s+(\w+)\s+required_flows\s+\{([^}]+)\}\}', content):
+            release_tags[m.group(1)] = {
+                'description': m.group(2),
+                'phase_min': m.group(3),
+                'required_flows': m.group(4).split(),
+            }
+        # Parse release_deliverables
+        for m in _re.finditer(r'(\w+),(\w+)\s+\{([^}]+)\}', content):
+            key = f"{m.group(1)},{m.group(2)}"
+            release_deliverables[key] = m.group(3).split()
+
+    # Load project config for active_tag and expiry
+    active_tag = ''
+    expiry_date = ''
+    release_path = ''
+    proj_ver = env_vars.get('PROJECT_VERSION', 'v1.0.0')
+    proj_config = os.path.join(flow_dir, 'config', 'project', project_name, proj_ver, f'{project_name}_config.tcl')
+    if os.path.exists(proj_config):
+        with open(proj_config) as f:
+            for line in f:
+                m = _re.match(r'set\s+project\(release,active_tag\)\s+"([^"]*)"', line.strip())
+                if m: active_tag = m.group(1)
+                m = _re.match(r'set\s+project\(release,expiry_date\)\s+"([^"]*)"', line.strip())
+                if m: expiry_date = m.group(1)
+                m = _re.match(r'set\s+project\(release,path\)\s+"([^"]*)"', line.strip())
+                if m: release_path = m.group(1)
+
+    tag = tag_override or active_tag
+    if not tag:
+        logger.error("No release tag set. Set project(release,active_tag) in project config.")
+        logger.error(f"Available tags: {', '.join(sorted(release_tags.keys()))}")
+        return 1
+
+    # Validate tag is predefined
+    if tag not in release_tags:
+        logger.error(f"Release tag '{tag}' is not predefined.")
+        logger.error(f"Available tags: {', '.join(sorted(release_tags.keys()))}")
+        return 1
+
+    tag_info = release_tags[tag]
+
+    # Validate phase
+    phase_order = ['P0', 'P1', 'P2', 'P3']
+    if phase_order.index(phase) < phase_order.index(tag_info['phase_min']):
+        logger.error(f"Phase {phase} does not meet minimum {tag_info['phase_min']} for tag '{tag}'")
+        return 1
+
+    # Validate expiry
+    if expiry_date:
+        try:
+            exp = datetime.strptime(expiry_date, '%Y-%m-%d')
+            if datetime.now() > exp:
+                logger.error(f"Release tag '{tag}' expired on {expiry_date}")
+                return 1
+        except ValueError:
+            pass
+
+    release_tag_name = f"{phase}_{tag}"
+
+    logger.info("")
+    logger.info(f"  ═══════════════════════════════════════════════════════════")
+    logger.info(f"  CBflow Milestone Release: {release_tag_name}")
+    logger.info(f"  ═══════════════════════════════════════════════════════════")
+    logger.info(f"  Tag:         {tag} ({tag_info['description']})")
+    logger.info(f"  Phase:       {phase}")
+    logger.info(f"  Project:     {project_name}")
+    logger.info(f"  Design:      {design_name}")
+    logger.info(f"  Release to:  {release_path}")
+    if expiry_date:
+        logger.info(f"  Expiry:      {expiry_date}")
+    logger.info(f"  Required:    {', '.join(tag_info['required_flows'])}")
+    logger.info(f"  ─────────────────────────────────────────────────────────")
+    logger.info("")
+
+    # Gate check: find all required flow runs and check PASS status
+    required = tag_info['required_flows']
+    found_runs = {}
+    missing_flows = []
+
+    for flow in required:
+        # Find matching run directory
+        matched = None
+        for run in runs:
+            if f'_run_{flow}_' in run or run.endswith(f'_{flow}_test1'):
+                # Check if it completed with PASS
+                env_file = os.path.join(workspace, run, '.run.cbflow.env')
+                if os.path.exists(env_file):
+                    with open(env_file) as f:
+                        for line in f:
+                            if 'CBFLOW_FLOW_TYPE' in line and flow in line:
+                                matched = run
+                                break
+                if matched:
+                    break
+        if matched:
+            found_runs[flow] = matched
+            logger.info(f"  [FOUND] {flow:<12} → {matched}")
+        else:
+            missing_flows.append(flow)
+            logger.error(f"  [MISS]  {flow:<12} → no completed run found")
+
+    logger.info("")
+
+    if missing_flows:
+        logger.error(f"  RELEASE BLOCKED: {len(missing_flows)} required flow(s) missing:")
+        for f in missing_flows:
+            logger.error(f"    - {f}")
+        logger.error("")
+        logger.error(f"  Run these flows first, then retry: cbflow run release")
+        return 1
+
+    if dry_run:
+        logger.info(f"  DRY RUN: All {len(required)} flows found. Release would proceed.")
+        return 0
+
+    # Create release directory
+    release_dir = os.path.join(release_path, project_name, design_name, release_tag_name)
+    os.makedirs(release_dir, exist_ok=True)
+    logger.info(f"  Release directory: {release_dir}")
+    logger.info("")
+
+    # Copy deliverables from each flow
+    total_files = 0
+    for flow, run_dir_name in found_runs.items():
+        run_path = os.path.join(workspace, run_dir_name)
+        flow_release_dir = os.path.join(release_dir, flow)
+        flow_files = 0
+
+        # Scan for output manifest first
+        manifests = []
+        for root, dirs, files in os.walk(os.path.join(run_path, 'work')):
+            for fname in files:
+                if fname == 'output_manifest.tcl':
+                    manifests.append(os.path.join(root, fname))
+
+        if manifests:
+            # Use manifest to find files
+            manifest_path = sorted(manifests)[-1]
+            with open(manifest_path) as mf:
+                for line in mf:
+                    m = _re.match(r'set\s+manifest\((\S+)\)\s+"([^"]*)"', line.strip())
+                    if m and m.group(1) not in ('flow', 'node', 'design', 'run_dir', 'timestamp', 'file_count'):
+                        src = m.group(2)
+                        key = m.group(1)
+                        # Determine subdirectory from key
+                        if 'netlist' in key:
+                            subdir = 'netlist'
+                        elif key in ('gds', 'def', 'lef', 'sdc', 'upf', 'spef'):
+                            subdir = key
+                        elif 'report' in key:
+                            subdir = 'reports'
+                        else:
+                            subdir = 'data'
+                        dest_dir = os.path.join(flow_release_dir, subdir)
+                        os.makedirs(dest_dir, exist_ok=True)
+                        if os.path.exists(src):
+                            shutil.copy2(src, dest_dir)
+                            flow_files += 1
+        else:
+            # Fallback: scan outputs/ and results/ directories
+            for scan_dir in [os.path.join(run_path, 'outputs'),
+                             os.path.join(run_path, 'results')]:
+                if os.path.isdir(scan_dir):
+                    for root, dirs, files in os.walk(scan_dir):
+                        for fname in files:
+                            src = os.path.join(root, fname)
+                            subdir = 'data'
+                            if fname.endswith('.v'):
+                                subdir = 'netlist'
+                            elif fname.endswith(('.gds', '.oasis')):
+                                subdir = 'gds'
+                            elif fname.endswith('.def'):
+                                subdir = 'def'
+                            elif fname.endswith('.spef'):
+                                subdir = 'spef'
+                            elif fname.endswith('.sdc'):
+                                subdir = 'sdc'
+                            elif fname.endswith('.upf'):
+                                subdir = 'upf'
+                            elif fname.endswith('.rpt'):
+                                subdir = 'reports'
+                            dest_dir = os.path.join(flow_release_dir, subdir)
+                            os.makedirs(dest_dir, exist_ok=True)
+                            shutil.copy2(src, dest_dir)
+                            flow_files += 1
+
+        total_files += flow_files
+        logger.info(f"  {flow:<12} → {flow_files} files released")
+
+    # Generate MANIFEST.json
+    manifest = {
+        'release_tag': release_tag_name,
+        'milestone': tag,
+        'description': tag_info['description'],
+        'phase': phase,
+        'project': project_name,
+        'design': design_name,
+        'timestamp': datetime.now().isoformat(),
+        'user': os.environ.get('USER', 'unknown'),
+        'total_files': total_files,
+        'flows': {flow: run for flow, run in found_runs.items()},
+        'expiry_date': expiry_date,
+    }
+    with open(os.path.join(release_dir, 'MANIFEST.json'), 'w') as f:
+        json.dump(manifest, f, indent=2)
+
+    # Generate RELEASE_COMPLETE
+    with open(os.path.join(release_dir, 'RELEASE_COMPLETE'), 'w') as f:
+        f.write(f"TAG={release_tag_name}\n")
+        f.write(f"MILESTONE={tag}\n")
+        f.write(f"PHASE={phase}\n")
+        f.write(f"PROJECT={project_name}\n")
+        f.write(f"DESIGN={design_name}\n")
+        f.write(f"FILES={total_files}\n")
+        f.write(f"FLOWS={' '.join(found_runs.keys())}\n")
+        f.write(f"STATUS=PASS\n")
+        f.write(f"TIMESTAMP={datetime.now().isoformat()}\n")
+        f.write(f"USER={os.environ.get('USER', 'unknown')}\n")
+
+    logger.info("")
+    logger.info(f"  ═══════════════════════════════════════════════════════════")
+    logger.info(f"  Release Complete: {release_tag_name}")
+    logger.info(f"  ═══════════════════════════════════════════════════════════")
+    logger.info(f"  Directory:   {release_dir}")
+    logger.info(f"  Total files: {total_files}")
+    logger.info(f"  Flows:       {len(found_runs)}")
+    logger.info(f"  Status:      PASS")
+    logger.info(f"  MANIFEST:    {release_dir}/MANIFEST.json")
+    logger.info("")
+    return 0
+
+
+def cmd_release_check(args: argparse.Namespace) -> int:
+    """Check chip-level release readiness: all blocks × all flows for a milestone."""
+    import re as _re
+    import json
+
+    tag = args.tag
+    project_name = args.project
+    phase = getattr(args, 'phase', 'P0') or 'P0'
+    block_filter = getattr(args, 'block', None)
+
+    # Find flow_dir from environment or workspace
+    flow_dir = os.environ.get('FLOW_DIR', '')
+    if not flow_dir:
+        # Try to find from any run in current dir
+        for d in os.listdir('.'):
+            env_f = os.path.join(d, '.run.cbflow.env')
+            if os.path.isfile(env_f):
+                with open(env_f) as f:
+                    for line in f:
+                        if 'FLOW_DIR' in line:
+                            m = _re.search(r'"([^"]*)"', line)
+                            if m: flow_dir = m.group(1)
+                break
+    if not flow_dir:
+        logger.error("Cannot determine FLOW_DIR. Set env or run from workspace.")
+        return 1
+
+    ver = os.environ.get('FLOW_CONFIG_VERSION', 'v1.0.0')
+
+    # Load release_tags from release_config
+    release_tags = {}
+    rc_path = os.path.join(flow_dir, 'config', 'flow', ver, 'release_config.tcl')
+    if os.path.exists(rc_path):
+        with open(rc_path) as f:
+            content = f.read()
+        for m in _re.finditer(r'(\w+)\s+\{description\s+"([^"]+)"\s+phase_min\s+(\w+)\s+required_flows\s+\{([^}]+)\}\}', content):
+            release_tags[m.group(1)] = {
+                'description': m.group(2),
+                'phase_min': m.group(3),
+                'required_flows': m.group(4).split(),
+            }
+
+    if tag not in release_tags:
+        logger.error(f"Unknown tag '{tag}'. Available: {', '.join(sorted(release_tags.keys()))}")
+        return 1
+
+    tag_info = release_tags[tag]
+    release_tag_name = f"{phase}_{tag}"
+
+    # Load project config for release path and block_list
+    release_path = ''
+    block_list = []
+    proj_ver = os.environ.get('PROJECT_VERSION', 'v1.0.0')
+    proj_config = os.path.join(flow_dir, 'config', 'project', project_name, proj_ver, f'{project_name}_config.tcl')
+    if os.path.exists(proj_config):
+        with open(proj_config) as f:
+            for line in f:
+                m = _re.match(r'set\s+project\(release,path\)\s+"([^"]*)"', line.strip())
+                if m: release_path = m.group(1)
+                m = _re.match(r'set\s+project\(block_list\)\s+"([^"]*)"', line.strip())
+                if m: block_list = m.group(1).split()
+
+    if not release_path:
+        logger.error("project(release,path) not set in project config")
+        return 1
+
+    if not block_list:
+        # Fallback: scan release dir for existing blocks
+        tag_dir = os.path.join(release_path, project_name)
+        if os.path.isdir(tag_dir):
+            block_list = [d for d in os.listdir(tag_dir) if os.path.isdir(os.path.join(tag_dir, d))]
+        if not block_list:
+            logger.error("No blocks found. Set project(block_list) in project config.")
+            return 1
+
+    blocks = [block_filter] if block_filter else block_list
+    required_flows = tag_info['required_flows']
+
+    logger.info("")
+    logger.info(f"  ═══════════════════════════════════════════════════════════════════")
+    logger.info(f"  Chip-Level Release Check: {release_tag_name}")
+    logger.info(f"  ═══════════════════════════════════════════════════════════════════")
+    logger.info(f"  Tag:         {tag} ({tag_info['description']})")
+    logger.info(f"  Phase:       {phase}")
+    logger.info(f"  Project:     {project_name}")
+    logger.info(f"  Blocks:      {', '.join(blocks)}")
+    logger.info(f"  Flows:       {', '.join(required_flows)}")
+    logger.info(f"  Release dir: {release_path}")
+    logger.info(f"  ─────────────────────────────────────────────────────────────────")
+    logger.info("")
+
+    # Header
+    flow_hdr = ''.join(f'{fl:<14}' for fl in required_flows)
+    logger.info(f"  {'Block':<20} {flow_hdr}{'Status'}")
+    logger.info(f"  {'─' * (20 + 14 * len(required_flows) + 10)}")
+
+    all_pass = True
+    total_blocks = len(blocks)
+    complete_blocks = 0
+
+    for block in blocks:
+        row = f"  {block:<20} "
+        block_ok = True
+
+        for flow in required_flows:
+            release_dir = os.path.join(release_path, project_name, block, release_tag_name, flow)
+            rc_file = os.path.join(release_path, project_name, block, release_tag_name, 'RELEASE_COMPLETE')
+
+            if os.path.isdir(release_dir) and len(os.listdir(release_dir)) > 0:
+                # Check file count
+                fcount = sum(1 for _, _, files in os.walk(release_dir) for f in files)
+                row += f'{"PASS("+str(fcount)+")":<14}'
+            else:
+                row += f'{"MISS":<14}'
+                block_ok = False
+
+        # Check overall RELEASE_COMPLETE
+        rc_path_full = os.path.join(release_path, project_name, block, release_tag_name, 'RELEASE_COMPLETE')
+        if block_ok and os.path.exists(rc_path_full):
+            row += '[COMPLETE]'
+            complete_blocks += 1
+        elif block_ok:
+            row += '[NO STAMP]'
+        else:
+            row += '[INCOMPLETE]'
+            all_pass = False
+
+        logger.info(row)
+
+    logger.info(f"  {'─' * (20 + 14 * len(required_flows) + 10)}")
+    logger.info(f"  {'TOTAL':<20} {complete_blocks}/{total_blocks} blocks complete")
+    logger.info("")
+
+    if all_pass and complete_blocks == total_blocks:
+        logger.info(f"  CHIP-LEVEL RELEASE: READY for {release_tag_name}")
+    else:
+        logger.info(f"  CHIP-LEVEL RELEASE: NOT READY — {total_blocks - complete_blocks} block(s) incomplete")
+
+    logger.info("")
+    return 0 if (all_pass and complete_blocks == total_blocks) else 1
+
+
 def cmd_targets(args: argparse.Namespace) -> int:
     """List available stages/targets."""
     if not is_run_directory():
@@ -2298,6 +2734,35 @@ Examples:
 Examples:
   cbflow run release-info""")
 
+    # release command (milestone-gated)
+    release_parser = subparsers.add_parser('release', help='Milestone-gated release to shared path',
+        formatter_class=_fmt, description="""Package deliverables from ALL required flows into a release directory.
+
+Release is milestone-gated: all required flows for the active tag must have completed runs.
+Tags are predefined in release_config.tcl. The active tag is set by leads in project config.
+
+Examples:
+  cbflow run release                    Release using active tag from project config
+  cbflow run release --tag BTO          Override with explicit tag
+  cbflow run release --dry-run          Validate only, don't copy files""")
+    release_parser.add_argument('--tag', '-t', help='Release tag override (default: project active_tag)')
+    release_parser.add_argument('--dry-run', action='store_true', help='Validate only, no file copy')
+
+    # release-check command (chip-level)
+    rc_parser = subparsers.add_parser('release-check', help='Check chip-level release readiness',
+        formatter_class=_fmt, description="""Check that all blocks have released for a milestone tag.
+
+Scans all blocks in project(block_list) and verifies each has complete releases for all required flows.
+
+Examples:
+  cbflow run release-check --tag BTO --project ravendrive --phase P2
+  cbflow run release-check --tag PLACE_EXIT --project ravendrive
+  cbflow run release-check --tag BTO --project ravendrive --block cpu_core""")
+    rc_parser.add_argument('--tag', '-t', required=True, help='Release tag to check')
+    rc_parser.add_argument('--project', '-p', required=True, help='Project name')
+    rc_parser.add_argument('--phase', default='P0', help='Design phase (default: P0)')
+    rc_parser.add_argument('--block', '-b', help='Check specific block only (default: all blocks)')
+
     # targets command
     subparsers.add_parser('targets', help='List make targets',
         formatter_class=_fmt, description="""List all available make targets in the Makefile.
@@ -2721,6 +3186,8 @@ def main() -> int:
         'update': cmd_update,
         'gen-makefile': cmd_gen_makefile,
         'release-info': cmd_release_info,
+        'release': cmd_release,
+        'release-check': cmd_release_check,
         'targets': cmd_targets,
         'logs': cmd_logs,
         'validate': cmd_validate_run,

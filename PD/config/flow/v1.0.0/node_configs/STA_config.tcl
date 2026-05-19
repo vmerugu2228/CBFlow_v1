@@ -19,7 +19,7 @@
 # ┌─ Flow Stage Definitions ──────────────────────────────────────────────┐
 array set sta {
     stages {netlist1 sdc1 spef1 library1 extraction1 timing1 reporting1 release_data1}
-    subnodes,extraction1    {setup run validate finish}
+    subnodes,extraction1    {dynamic}
     subnodes,timing1        {dynamic}
     subnodes,reporting1     {setup run validate finish}
     subnodes,release_data1  {setup run validate finish}
@@ -42,10 +42,7 @@ array set sta {
 # ┌─ Subnode Dependencies ──────────────────────────────────────────────────┐
 array set sta {
 
-    subnode_dependencies,extraction1,setup {}
-    subnode_dependencies,extraction1,run {setup}
-    subnode_dependencies,extraction1,validate {run}
-    subnode_dependencies,extraction1,finish {validate}
+    subnode_dependencies,extraction1,dynamic {}
 
     subnode_dependencies,timing1,dynamic {}
 
@@ -119,7 +116,7 @@ array set sta {
     node_descriptions,sdc1           "SDC timing constraints input"
     node_descriptions,spef1          "SPEF parasitic data input"
     node_descriptions,library1       "Technology library input"
-    node_descriptions,extraction1    "Parasitic extraction for accurate timing models (4 subnodes)"
+    node_descriptions,extraction1    "Per-RC-corner parasitic extraction (dynamic: rc_max, rc_typ, rc_min run in parallel)"
     node_descriptions,timing1        "Dynamic per-scenario timing analysis - each scenario runs setup+hold (parallelizable via make -j)"
     node_descriptions,reporting1     "Cross-corner aggregation - worst-case analysis, MMMC timing summary (4 subnodes)"
     node_descriptions,release_data1  "Package and release final timing sign-off deliverables (4 subnodes)"

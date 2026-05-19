@@ -98,6 +98,40 @@ switch $subnode_name {
             } else {
                 puts "INFO: \[TEST MODE\] Launch mode: local execution"
             }
+            # Create dummy output files matching EXACTLY what real FC writes
+            set _dn [expr {[info exists flow(design_name)] ? $flow(design_name) : "design"}]
+            set _out "$run_dir/outputs"
+            file mkdir $_out
+            # Netlists (6 variants — matches write_verilog commands in export_data_fc.tcl)
+            foreach {_suf _desc} {
+                .v              "// Logic-only netlist (no PG)"
+                .pt.v           "// PrimeTime netlist (with diodes/DCAP)"
+                .fm.v           "// Formality netlist (with pg, no supply stmts)"
+                .lvs.v          "// LVS netlist (with pg & physical cells)"
+                .vc_lp.v        "// VC_LP netlist (no diodes, no supply stmts)"
+                .dc.v           "// DC comparison netlist (no diodes)"
+            } {
+                set _f [open "$_out/${_dn}${_suf}" "w"]; puts $_f "$_desc\n// \[TEST MODE\]"; close $_f
+            }
+            # Physical data
+            set _f [open "$_out/${_dn}.gds" "w"]; puts $_f "// GDS-II \[TEST MODE\]"; close $_f
+            set _f [open "$_out/${_dn}.def" "w"]; puts $_f "// DEF \[TEST MODE\]"; close $_f
+            set _f [open "$_out/${_dn}.lef" "w"]; puts $_f "// LEF \[TEST MODE\]"; close $_f
+            # Per-scenario SDC files (matches write_sdc loop in export_data_fc.tcl)
+            set _scenarios {func_ss_0p76v_rcmax_150c func_ff_0p84v_rcmin_m40c func_tt_0p80v_rctyp_25c}
+            foreach _scn $_scenarios {
+                set _f [open "$_out/${_dn}_${_scn}.sdc" "w"]; puts $_f "// SDC for $_scn \[TEST MODE\]"; close $_f
+            }
+            # UPF + supplemental variants (matches save_upf commands)
+            set _f [open "$_out/${_dn}.upf" "w"]; puts $_f "// UPF \[TEST MODE\]"; close $_f
+            set _f [open "$_out/${_dn}.supplemental.upf" "w"]; puts $_f "// Supplemental UPF \[TEST MODE\]"; close $_f
+            # SPEF (matches write_parasitics output — produces .spef and .spef.gz)
+            set _f [open "$_out/${_dn}.spef" "w"]; puts $_f "// SPEF \[TEST MODE\]"; close $_f
+            # Scripts and maps
+            foreach _suf {_wscript _wscript_for_pt _routing_constraints _floorplan .saif.ptpx.map .saif.fc.map} {
+                set _f [open "$_out/${_dn}${_suf}" "w"]; puts $_f "// \[TEST MODE\]"; close $_f
+            }
+            puts "INFO: \[TEST MODE\] Created [llength {.v .pt.v .fm.v .lvs.v .vc_lp.v .dc.v .gds .def .lef .sdc .upf .spef}] dummy output files in $_out/"
             puts "INFO: $stage_name run completed \[TEST MODE\]"
         } else {
             if {![file exists $cmd_file]} { puts "ERROR: Command file not found: $cmd_file"; exit 1 }
@@ -203,7 +237,19 @@ switch $subnode_name {
     }
     "validate" {
         puts "INFO: $stage_name validate..."
-        if {$test_mode} { puts "INFO: \[TEST MODE\] Validation skipped" }
+        # Generate output manifest for downstream flows (STA, LEC, CLP, PV, EMIR)
+        set _resolve_lib "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/resolve_inputs.tcl"
+        if {[file exists $_resolve_lib]} {
+            source $_resolve_lib
+            generate_output_manifest $::flow_type $node_name $run_dir
+        }
+        # Run log + file validation
+        set _val_script "$::env(SCRIPTS_ROOT)/validation/$::env(VALIDATION_VERSION)/validate_run.tcl"
+        if {[file exists $_val_script]} {
+            if {[catch {exec tclsh $_val_script $::flow_type $stage_name $run_dir $::env(FLOW_DIR)} _val_out]} {
+                puts "WARNING: Validation issues: $_val_out"
+            }
+        }
         puts "INFO: $stage_name validate completed"
     }
     "finish" {

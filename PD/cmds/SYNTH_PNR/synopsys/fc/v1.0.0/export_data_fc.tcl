@@ -11,22 +11,13 @@ if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} 
 set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
 namespace import ::CBFlow::Utilities::print_header
-set config_file "$run_dir/work/SYNTH_PNR/export_data1/run/config.tcl"
+set config_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/config.tcl"
 if {[file exists $config_file]} { source -e $config_file }
 
 # Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
-
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 global synth_pnr project tech flow
 # Source FC tool config
 set _fc_config "[file dirname [info script]]/fc_config.tcl"
-if {[file exists $_fc_config]} { source $_fc_config }
-if {[file exists "$run_dir/setup/override_config.tcl"]} { source -e "$run_dir/setup/override_config.tcl" }
 
 handle_info "Starting SYNTH_PNR export_data (FC-RM Y-2026.03: write_data)..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
@@ -65,8 +56,6 @@ flow_proc load_design {
     }
 
     handle_info "Design loaded: ${design_name}/write_data"
-}
-
 # ==============================================================================
 # flow_proc: change_names
 # FC-RM: define_name_rules, change_names -rules verilog -hierarchy
@@ -90,8 +79,6 @@ flow_proc change_names {
 
     save_block
     handle_info "Verilog naming rules applied"
-}
-
 # ==============================================================================
 # flow_proc: write_netlist
 # FC-RM: Multiple write_verilog variants (logic_only, PT, FM, LVS, VC_LP)
@@ -136,8 +123,6 @@ flow_proc write_netlist {
         -hierarchy all ${out}/${design_name}.vc_lp.v
 
     handle_info "All netlists written"
-}
-
 # ==============================================================================
 # flow_proc: write_gds_output
 # FC-RM: write_gds with layer map, compression
@@ -175,8 +160,6 @@ flow_proc write_gds_output {
     write_lef -design ${design_name}/write_data.design -slice_polygon ${out}/${design_name}.lef
 
     handle_info "GDS/OASIS/LEF output completed"
-}
-
 # ==============================================================================
 # flow_proc: write_def_output
 # FC-RM: write_def, write_floorplan
@@ -207,8 +190,6 @@ flow_proc write_def_output {
         -output ${out}/${design_name}_floorplan
 
     handle_info "DEF and floorplan written"
-}
-
 # ==============================================================================
 # flow_proc: write_parasitics_output
 # FC-RM: update_timing, write_parasitics (SPEF)
@@ -228,8 +209,6 @@ flow_proc write_parasitics_output {
     write_parasitics -compress -output ${out}/${design_name}
 
     handle_info "Parasitics written"
-}
-
 # ==============================================================================
 # flow_proc: write_sdc_output
 # FC-RM: write_script (SDC per scenario), write_routing_constraints
@@ -260,8 +239,6 @@ flow_proc write_sdc_output {
     }
 
     handle_info "SDC and routing constraints written"
-}
-
 # ==============================================================================
 # flow_proc: write_upf_output
 # FC-RM: save_upf (prime or golden mode)
@@ -299,8 +276,6 @@ flow_proc write_upf_output {
     }
 
     handle_info "UPF/SAIF/FUSA export completed"
-}
-
 # ==============================================================================
 # flow_proc: save_design
 # FC-RM: save_block
@@ -323,8 +298,6 @@ flow_proc save_design {
     }
 
     handle_info "Export data saved"
-}
-
 # ==============================================================================
 # flow_proc: generate_reports
 # FC-RM: run_end, report_msg
@@ -345,12 +318,10 @@ flow_proc generate_reports {
     redirect -file $::REPORTS_DIR/report_msg_summary.rpt { report_msg -summary }
 
     handle_info "Export data reports generated"
-}
-
 # ==============================================================================
 # Source setup.tcl (flow_proc hooks: prepend, append, replace)
 # ==============================================================================
-set _setup_file "$run_dir/work/SYNTH_PNR/export_data1/run/setup.tcl"
+set _setup_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/setup.tcl"
 if {[file exists $_setup_file]} {
     handle_info "Sourcing setup hooks: $_setup_file"
     source -e $_setup_file
@@ -364,8 +335,6 @@ set _stage_override "$run_dir/setup/override_setup.export_data.tcl"
 if {[file exists $_stage_override]} {
     handle_info "Sourcing stage override: $_stage_override"
     source -e $_stage_override
-}
-
 flow_exec_all
 
 # BUG FIX #7: Exit tool after stage completion

@@ -11,27 +11,16 @@ if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} 
 set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
 namespace import ::CBFlow::Utilities::print_header
-set config_file "$run_dir/work/SYNTH_PNR/signoff1/run/config.tcl"
+set config_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 global synth_pnr project tech flow
 set mmmc_config_file "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
 
-# Source tech_config (BUG FIX #1)
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
 }
-if {[file exists $mmmc_config_file]} { source $mmmc_config_file }
 
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 # Source FC tool config
 set _fc_config "[file dirname [info script]]/fc_config.tcl"
-if {[file exists $_fc_config]} { source $_fc_config }
-if {[file exists "$run_dir/setup/override_config.tcl"]} { source -e "$run_dir/setup/override_config.tcl" }
 
 handle_info "Starting SYNTH_PNR signoff (FC-RM Y-2026.03: chip_finish + icv_in_design)..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
@@ -71,8 +60,6 @@ flow_proc load_design {
     }
 
     handle_info "Design loaded: ${design_name}/chip_finish"
-}
-
 # ==============================================================================
 # flow_proc: set_active_scenarios
 # FC-RM: set_scenario_status for signoff (all scenarios)
@@ -109,8 +96,6 @@ flow_proc set_active_scenarios {
     set_app_options -name route.detail.eco_route_use_soft_spacing_for_timing_optimization -value false
 
     handle_info "Active scenarios configured"
-}
-
 # ==============================================================================
 # flow_proc: insert_filler_cells
 # FC-RM: chip_finish filler cell insertion (metal and non-metal)
@@ -168,8 +153,6 @@ flow_proc insert_filler_cells {
     }
 
     handle_info "Filler cell insertion completed"
-}
-
 # ==============================================================================
 # flow_proc: fix_signal_em
 # FC-RM: Signal EM analysis and fixing (read constraints, report, fix)
@@ -209,8 +192,6 @@ flow_proc fix_signal_em {
     }
 
     handle_info "Signal EM analysis completed"
-}
-
 # ==============================================================================
 # flow_proc: run_signoff_drc
 # FC-RM: ICV in-design signoff DRC check (signoff_check_drc)
@@ -280,8 +261,6 @@ flow_proc run_signoff_drc {
     }
 
     handle_info "Signoff DRC completed"
-}
-
 # ==============================================================================
 # flow_proc: create_metal_fill
 # FC-RM: ICV in-design metal fill (signoff_create_metal_fill)
@@ -337,8 +316,6 @@ flow_proc create_metal_fill {
     }
 
     handle_info "Metal fill completed"
-}
-
 # ==============================================================================
 # flow_proc: post_signoff
 # FC-RM: User post-script, connect_pg_net, check_routes
@@ -363,8 +340,6 @@ flow_proc post_signoff {
     redirect -file $::REPORTS_DIR/check_routes { check_routes }
 
     handle_info "Post-signoff tasks completed"
-}
-
 # ==============================================================================
 # flow_proc: create_abstracts
 # FC-RM: create_abstract, create_frame, derive_hier_antenna_property
@@ -390,8 +365,6 @@ flow_proc create_abstracts {
     }
 
     handle_info "Abstracts completed"
-}
-
 # ==============================================================================
 # flow_proc: save_design
 # FC-RM: save_block, set_svf -off
@@ -410,8 +383,6 @@ flow_proc save_design {
 
     set_svf -off
     handle_info "Signoff design saved"
-}
-
 # ==============================================================================
 # flow_proc: generate_reports
 # FC-RM: report_qor, report_timing, report_power, check_routes,
@@ -477,12 +448,10 @@ flow_proc generate_reports {
     redirect -file $::REPORTS_DIR/report_msg_summary.rpt { report_msg -summary }
 
     handle_info "Signoff reports generated in: $::REPORTS_DIR"
-}
-
 # ==============================================================================
 # Source setup.tcl (flow_proc hooks: prepend, append, replace)
 # ==============================================================================
-set _setup_file "$run_dir/work/SYNTH_PNR/signoff1/run/setup.tcl"
+set _setup_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/setup.tcl"
 if {[file exists $_setup_file]} {
     handle_info "Sourcing setup hooks: $_setup_file"
     source -e $_setup_file
@@ -496,8 +465,6 @@ set _stage_override "$run_dir/setup/override_setup.signoff.tcl"
 if {[file exists $_stage_override]} {
     handle_info "Sourcing stage override: $_stage_override"
     source -e $_stage_override
-}
-
 flow_exec_all
 
 # BUG FIX #7: Exit tool after stage completion

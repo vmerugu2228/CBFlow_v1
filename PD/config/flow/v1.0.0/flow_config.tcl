@@ -190,67 +190,43 @@ set config_dir [file dirname $script_path]
 
 # Determine current flow type from various sources
 set current_flow_type ""
+set _valid_flow_types $flow(types)
 
 # Method 1: Check environment variable (from run directory)
 if {[info exists ::env(CBFLOW_FLOW_TYPE)]} {
     set current_flow_type $::env(CBFLOW_FLOW_TYPE)
 }
 
-# Method 2: Check global flow variable (if set by calling script)
-if {$current_flow_type eq "" && [info exists ::flow(type)]} {
-    set current_flow_type $::flow(type)
-}
-
-# Method 3: Check command line arguments for flow type
+# Method 2: Check command line arguments for flow type
 if {$current_flow_type eq ""} {
     global argc argv
     if {[info exists argc] && [info exists argv] && $argc > 0} {
-        # Skip flow type detection if special options are present that require all flows
-        set load_all_flows false
         foreach arg $argv {
-            if {[string match "*flows*" $arg] || [string match "*help*" $arg] || [string match "*list*" $arg]} {
-                set load_all_flows true
+            set _arg_upper [string toupper $arg]
+            if {$_arg_upper in $_valid_flow_types} {
+                set current_flow_type $_arg_upper
                 break
             }
         }
-
-        # Only look for specific flow type if not loading all flows
-        if {!$load_all_flows} {
-            foreach arg $argv {
-                if {[regexp {^(SYNTH|FP|PNR|STA|LEC|EMIR|PV|ECO|CLP|POPT|FCFP)$} [string toupper $arg]]} {
-                    set current_flow_type [string toupper $arg]
-                    break
-                }
-            }
-        }
     }
 }
 
-# If specific flow type is identified, load only that configuration
-if {$current_flow_type ne ""} {
-    set flow_config_file "$config_dir/node_configs/${current_flow_type}_config.tcl"
-    if {[file exists $flow_config_file]} {
-        source $flow_config_file
-    } else {
-        puts "WARNING: Flow configuration file not found: $flow_config_file"
-        puts "Loading all flow configurations as fallback..."
-        set current_flow_type ""
-    }
-}
-
-# Fallback: Load all configurations if flow type cannot be determined
+# Flow type MUST be resolved — no silent fallback
 if {$current_flow_type eq ""} {
-    source "$config_dir/node_configs/SYNTH_config.tcl"
-    source "$config_dir/node_configs/FP_config.tcl"
-    source "$config_dir/node_configs/PNR_config.tcl"
-    source "$config_dir/node_configs/STA_config.tcl"
-    source "$config_dir/node_configs/LEC_config.tcl"
-    source "$config_dir/node_configs/EMIR_config.tcl"
-    source "$config_dir/node_configs/PV_config.tcl"
-    source "$config_dir/node_configs/ECO_config.tcl"
-    source "$config_dir/node_configs/CLP_config.tcl"
-    source "$config_dir/node_configs/POPT_config.tcl"
-    source "$config_dir/node_configs/FCFP_config.tcl"
+    puts "ERROR: Could not determine flow type."
+    puts "       Set CBFLOW_FLOW_TYPE environment variable or pass the flow type as an argument."
+    puts "       Available flow types: $_valid_flow_types"
+    exit 1
+}
+
+# Validate and load the flow configuration
+set flow_config_file "$config_dir/node_configs/${current_flow_type}_config.tcl"
+if {[file exists $flow_config_file]} {
+    source $flow_config_file
+} else {
+    puts "ERROR: Flow configuration file not found: $flow_config_file"
+    puts "       Available flow types: $_valid_flow_types"
+    exit 1
 }
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗

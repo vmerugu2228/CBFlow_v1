@@ -4,18 +4,86 @@ Complete reference for all CBflow v2.0.0 configuration files.
 
 ## Configuration Hierarchy
 
+### Config Sources (static files)
+
 ```
-flow_config.tcl                (top-level: flow types, dispatcher, email, autoppt, MMMC, logging)
-  node_configs/                (per-flow: 12 files, consumed by RACE to build DAG)
-  tool_launch_config.tcl       (module loads, tool shells, bsub defaults, queue types)
-  release_config.tcl           (release_exit_files, phase_criteria, milestone_flow_map, flow_input_handshake)
-  mmmc_config.tcl              (analysis views, library sets, scenario sets, per-node assignments)
-  tech_config.tcl              (technology: libraries, routing layers, NDM, tracks)
-  project_config.tcl           (project-level overrides and release settings)
+$CONFIG_ROOT/
+  project/<name>/<ver>/        cbflow_init_config.tcl, project_config.tcl, team_config.tcl
+  tech/<tech>/<ver>/           tech_config.tcl (libraries, PVT, routing layers, NDM, tracks)
+  flow/<ver>/
+    flow_config.tcl            (flow types, dispatcher, email, autoppt, logging)
+    mmmc_config.tcl            (analysis views, scenario sets, per-node MMMC assignments)
+    node_configs/              (per-flow: 12 files, consumed by RACE to build DAG)
+    tool_launch_config.tcl     (module loads, tool shells, bsub defaults, queue types)
+    release_config.tcl         (release_exit_files, phase_criteria, milestone_flow_map)
   exit/                        (6 milestone configs + waivers + thresholds + remediation)
+
+$FLOW_DIR/cmds/<FLOW>/<vendor>/<tool>/<ver>/
+  <tool>_config.tcl            (tool-specific variables: fc_config.tcl, pt_config.tcl)
 ```
 
-Settings cascade downward. A node config inherits from flow_config and can override any value. MMMC, tech, and tool launch configs are referenced by node configs and subnode handlers. The RACE engine reads node configs at runtime to build the execution DAG -- there is no intermediate Makefile generation step.
+### Generated Config Cascade (per node, lowest to highest priority)
+
+`generate_setup.tcl` produces a single `config.tcl` per node that sources all configs in order:
+
+```
+ 1. cbflow_init_config.tcl          (project init)
+ 2. project_config.tcl              (project-specific)
+ 3. team_config.tcl                 (team settings)
+ 4. tech_config.tcl                 (technology + libraries + library_sets)
+ 5. flow_config.tcl                 (flow defaults)
+ 6. node_config.tcl                 (stage definitions)
+ 7. mmmc_config.tcl                 (MMMC scenarios, corners, modes)
+ 8. <tool>_config.tcl               (tool-specific: fc_config.tcl, pt_config.tcl)
+ 9. user_config.tcl                 (per-run user overrides)
+10. override_config.tcl             (global override)
+11. override_config.<flow>.tcl      (flow-level override)
+12. override_config.<stage>.tcl     (stage-type override, e.g., override_config.cts.tcl)
+13. override_config.<branch>.tcl    (branch-scoped override, e.g., override_config.timing_fix.tcl)
+14. override_config.<node>.tcl      (per-node override, e.g., override_config.cts2.tcl)
+```
+
+Command files source this single `config.tcl` instead of sourcing configs individually. The RACE engine sets `CBFLOW_NODE_NAME` and `CBFLOW_SUBNODE` env vars per job so command files use dynamic paths to locate the correct generated files.
+
+---
+
+## release_config.tcl
+
+### Location
+```
+config/flow/v1.0.0/release_config.tcl
+```
+
+### Predefined Release Tags (`release_tags` array)
+
+| Tag | Min Phase | Required Flows |
+|-----|-----------|----------------|
+| `FP_EXIT` | P0 | FP, FCFP, SYNTH_PNR |
+| `PLACE_EXIT` | P0 | SYNTH_PNR, PNR |
+| `CTS_EXIT` | P1 | SYNTH_PNR, PNR |
+| `PRO_EXIT` | P1 | SYNTH_PNR, PNR |
+| `BTO` | P2 | SYNTH_PNR, PNR, PV, STA, LEC, CLP, EMIR |
+| `MTO` | P3 | SYNTH_PNR, PNR, PV, STA, LEC, CLP, EMIR |
+
+### Per-Flow Deliverables (`release_deliverables` array)
+
+Maps `<FLOW>,<category>` to file suffixes. Used by `cbflow run release` to know what to copy.
+
+### Project-Level Release Settings
+
+Set by leads in `config/project/<name>/<ver>/<name>_config.tcl`:
+
+| Variable | Description |
+|----------|-------------|
+| `project(release,active_tag)` | Currently active milestone tag (e.g., `BTO`) |
+| `project(release,expiry_date)` | Tag expiry (e.g., `2026-06-30`) |
+| `project(release,path)` | Shared release base directory |
+
+### Also Contains
+- `release_exit_files` — mandatory files per flow/milestone/phase
+- `phase_criteria` — QoR thresholds per milestone/phase
+- `milestone_flow_map` — which flows each milestone requires
+- `flow_input_handshake` — downstream flow input-to-upstream mapping
 
 ---
 

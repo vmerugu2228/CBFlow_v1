@@ -228,16 +228,19 @@ set fp(input,sdc_func_file)    ""           ;# Functional mode SDC
 
     elif ft == 'STA':
         sections.append(f"""# ─────────────────────────────────────────────────────────────────────────────────
-# STA Design Inputs (REQUIRED)
+# STA Design Inputs — Choose ONE input mode:
 # ─────────────────────────────────────────────────────────────────────────────────
-# Netlist
-set sta(input,netlist)         ""           ;# Gate-level netlist (.v)
+# Mode 1: Auto-resolve from upstream SYNTH_PNR run (recommended)
+# set sta(input,from_run)        ""          ;# Path to SYNTH_PNR run dir (auto-resolves all inputs)
 
-# Timing Constraints
+# Mode 2: Auto-resolve from release tag
+# set sta(input,release_tag)     ""          ;# Release tag (e.g., v1.0.2)
+
+# Mode 3: Explicit paths (manual)
+set sta(input,netlist)         ""           ;# Gate-level netlist (.pt.v)
 set sta(input,sdc_func_file)   ""           ;# Functional mode SDC
-
-# Parasitics (optional)
-# set sta(input,spef_file)      ""          ;# SPEF parasitic file
+# set sta(input,spef)            ""          ;# SPEF parasitic file
+# set sta(input,def)             ""          ;# DEF floorplan
 """)
 
     elif ft == 'ECO':

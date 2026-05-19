@@ -508,4 +508,50 @@ proc get_input_handshake {flow input_type} {
     return {}
 }
 
-puts "INFO: Release configuration loaded — [array size release_exit_files] release file sets, [array size phase_criteria] phase criteria, [array size milestone_flow_map] milestone mappings, [array size flow_input_handshake] input handshakes"
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║                    SECTION 6: PREDEFINED RELEASE TAGS                      ║
+# ║  Tags are defined here — leads set active_tag + expiry in project config   ║
+# ║  Release is milestone-gated: ALL required flows must PASS before release   ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+array set release_tags {
+    FP_EXIT    {description "Floorplan Exit"    phase_min P0 required_flows {FP FCFP SYNTH_PNR}}
+    PLACE_EXIT {description "Placement Exit"    phase_min P0 required_flows {SYNTH_PNR PNR}}
+    CTS_EXIT   {description "CTS Exit"          phase_min P1 required_flows {SYNTH_PNR PNR}}
+    PRO_EXIT   {description "Post-Route Exit"   phase_min P1 required_flows {SYNTH_PNR PNR}}
+    BTO        {description "Backend Tapeout"   phase_min P2 required_flows {SYNTH_PNR PNR PV STA LEC CLP EMIR}}
+    MTO        {description "Mask Tapeout"      phase_min P3 required_flows {SYNTH_PNR PNR PV STA LEC CLP EMIR}}
+}
+
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║                 SECTION 7: PER-FLOW RELEASE DELIVERABLES                   ║
+# ║  Maps each flow to file suffixes that export_data produces                 ║
+# ║  Used by release command to know what to copy per flow                     ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+array set release_deliverables {
+    SYNTH_PNR,netlist  {.v .pt.v .fm.v .lvs.v .vc_lp.v .dc.v}
+    SYNTH_PNR,gds      {.gds}
+    SYNTH_PNR,def      {.def}
+    SYNTH_PNR,lef      {.lef}
+    SYNTH_PNR,sdc      {.sdc}
+    SYNTH_PNR,spef     {.spef}
+    SYNTH_PNR,upf      {.upf}
+    SYNTH_PNR,data     {_wscript _wscript_for_pt _routing_constraints _floorplan .saif.ptpx.map .saif.fc.map}
+    PNR,netlist  {.v .pt.v .fm.v .lvs.v}
+    PNR,gds      {.gds}
+    PNR,def      {.def}
+    PNR,sdc      {.sdc}
+    PNR,spef     {.spef}
+    PNR,upf      {.upf}
+    PNR,data     {_wscript _wscript_for_pt _routing_constraints _floorplan}
+    SYNTH,netlist  {.v}
+    SYNTH,sdc      {.sdc}
+    STA,reports    {timing_summary.rpt mmmc_timing_summary.rpt}
+    LEC,reports    {comparison_summary.rpt}
+    CLP,reports    {power_verification_summary.rpt}
+    PV,reports     {drc_summary.rpt lvs_summary.rpt erc_summary.rpt}
+    EMIR,reports   {power_summary.rpt ir_drop_summary.rpt}
+}
+
+puts "INFO: Release configuration loaded — [array size release_exit_files] exit files, [array size release_tags] tags, [array size release_deliverables] deliverables"

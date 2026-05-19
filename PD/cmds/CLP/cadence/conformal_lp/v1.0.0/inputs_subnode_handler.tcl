@@ -53,6 +53,14 @@ if {[info exists flow(test_mode)] && $flow(test_mode) eq "true"} {
     set test_mode true
 }
 
+# Resolve inputs from upstream run manifest or release tag (before processing subnodes)
+if {[info exists ::env(SCRIPTS_ROOT)] && [info exists ::env(UTILITIES_VERSION)]} {
+    set _resolve_lib "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/resolve_inputs.tcl"
+    if {[file exists $_resolve_lib]} {
+        source $_resolve_lib
+        resolve_flow_inputs $::flow_type $run_dir
+    }
+}
 switch $subnode_name {
     "setup" {
         puts "INFO: CLP $stage_name setup..."

@@ -12,13 +12,6 @@ if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR:
 namespace import ::CBFlow::Utilities::print_header
 
 # Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
-
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 global synth_pnr project tech flow
 
 # Source release utilities
@@ -31,8 +24,6 @@ if {[file exists $release_config]} { source $release_config }
 
 # Source FC tool config
 set _fc_config "[file dirname [info script]]/fc_config.tcl"
-if {[file exists $_fc_config]} { source $_fc_config }
-if {[file exists "$run_dir/setup/override_config.tcl"]} { source -e "$run_dir/setup/override_config.tcl" }
 
 handle_info "Starting SYNTH_PNR release_data..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
@@ -91,8 +82,6 @@ flow_proc init_release {
 
     handle_info "Release phase: $release_phase"
     handle_info "Release tag: $project(release,tag)"
-}
-
 # ==============================================================================
 # flow_proc: copy_deliverables
 # Copy all design deliverables from outputs/ and work/ to release directory
@@ -147,8 +136,6 @@ flow_proc copy_deliverables {
     }
 
     handle_info "Deliverables copied to release directory"
-}
-
 # ==============================================================================
 # flow_proc: validate_release
 # Validate against release_config.tcl phase-wise mandatory files
@@ -162,8 +149,6 @@ flow_proc validate_release {
     }
 
     handle_info "Release validation completed"
-}
-
 # ==============================================================================
 # flow_proc: generate_release_output
 # Generate manifest, release notes, and completion stamp
@@ -181,12 +166,10 @@ flow_proc generate_release_output {
     ::CBFlow::Release::summary
 
     handle_info "Release output generated"
-}
-
 # ==============================================================================
 # Source setup.tcl (flow_proc hooks: prepend, append, replace)
 # ==============================================================================
-set _setup_file "$run_dir/work/SYNTH_PNR/release_data1/run/setup.tcl"
+set _setup_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/setup.tcl"
 if {[file exists $_setup_file]} {
     handle_info "Sourcing setup hooks: $_setup_file"
     source -e $_setup_file
@@ -200,8 +183,6 @@ set _stage_override "$run_dir/setup/override_setup.release_data.tcl"
 if {[file exists $_stage_override]} {
     handle_info "Sourcing stage override: $_stage_override"
     source -e $_stage_override
-}
-
 flow_exec_all
 
 # Exit tool after stage completion

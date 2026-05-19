@@ -9,7 +9,7 @@ if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} 
 set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
 namespace import ::CBFlow::Utilities::print_header
-set config_file "$run_dir/work/FCFP/fc_floorplan/run/config.tcl"
+set config_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global fcfp project tech flow
 # Source FC tool config
@@ -25,8 +25,6 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" &&
     set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
     if {[file exists $_tc]} { source -e $_tc }
 }
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 
 set WORK_DIR "$run_dir/work/FCFP/fc_floorplan"
 set REPORTS_DIR "$WORK_DIR/reports"

@@ -167,20 +167,30 @@ No flow config changes needed -- RACE reads these variables and selects the corr
 
 ## 5. Standard Command File Pattern
 
-All 153 command files follow this structure:
+All command files follow this streamlined structure. The generated `config.tcl` consolidates all configuration sources (project, tech, flow, mmmc, tool, user, overrides) so command files source it once:
+
 ```
-1. Shebang + comment header
-2. Environment sourcing (.run.cbflow.tcl)
-3. Utils sourcing (utils.tcl)
-4. Tech config sourcing (tech_config.tcl)
-5. User config sourcing (user_config.tcl)
-6. WORK_DIR / REPORTS_DIR / OUTPUTS_DIR setup
-7. Release utilities sourcing (inputs stages)
-8. flow_proc definitions (resolve_inputs first, generate_reports last)
-9. Setup hook sourcing (setup.tcl, override_setup.tcl)
-10. flow_exec_all
-11. exit
+1.  Shebang + comment header
+2.  Environment sourcing (.run.cbflow.tcl)
+3.  Utils sourcing (utils.tcl)
+4.  Source config.tcl (generated — single file with full config cascade)
+      Path: $run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/config.tcl
+5.  WORK_DIR / REPORTS_DIR / OUTPUTS_DIR setup (use $::env(CBFLOW_NODE_NAME) for paths)
+6.  Release utilities sourcing (inputs stages)
+7.  flow_proc definitions (resolve_inputs first, generate_reports last)
+8.  Setup hook sourcing:
+      - setup.tcl (generated flow_proc hooks — same dynamic path as config.tcl)
+      - override_setup.tcl (global user hook)
+      - override_setup.<stage>.tcl (per-stage user hook)
+9.  flow_exec_all
+10. exit
 ```
+
+**Important**: Do NOT source user_config.tcl, mmmc_config.tcl, fc_config.tcl, or override_config.tcl individually — they are already in `config.tcl`. Use `$::env(CBFLOW_NODE_NAME)` for paths, never hardcode stage names like `place1`.
+
+### Custom Node Handler Resolution
+
+When a custom node (e.g., `synthesis2_eco`) is executed, the RACE engine resolves the handler from the node's stored `type` field (e.g., `synthesis` → `synthesis_subnode_handler.tcl`). The `CBFLOW_NODE_NAME` env var is set to the actual node name so config.tcl and setup.tcl are read from the correct work directory.
 
 ## 6. RACE Engine Integration
 

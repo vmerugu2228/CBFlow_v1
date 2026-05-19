@@ -604,6 +604,24 @@ sqlite3 .race_*.db "SELECT * FROM run_info"
 
 ---
 
+### Flow Type Not Detected
+
+**Problem:**
+```
+ERROR: Could not determine flow type.
+       Set CBFLOW_FLOW_TYPE environment variable or pass the flow type as an argument.
+       Available flow types: SYNTH FP PNR STA LEC EMIR PV ECO CLP POPT FCFP SYNTH_PNR
+```
+
+**Cause:** The flow type must be explicitly set — there is no silent fallback. This error occurs when:
+- `CBFLOW_FLOW_TYPE` is not set in `.run.cbflow.env`
+- The user_config.tcl does not have `set flow(type) "..."`
+- A TCL subnode handler sources flow_config.tcl outside a run directory
+
+**Fix:** Ensure `flow(type)` is set in your user_config.tcl and `CBFLOW_FLOW_TYPE` is in `.run.cbflow.env`. If running standalone TCL, set the env var: `export CBFLOW_FLOW_TYPE=PNR`.
+
+---
+
 ### Python Script Not Found
 
 **Problem:**

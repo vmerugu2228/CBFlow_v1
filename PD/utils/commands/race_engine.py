@@ -111,6 +111,7 @@ class DagBuilder:
 
         # Merge custom nodes from run-level runtime config
         custom_nodes, custom_deps = self._load_runtime_custom_nodes()
+        self._custom_node_types = {}  # custom node name → base handler name
         for name, info in custom_nodes.items():
             if name not in stages:
                 # Insert after the dependency stage
@@ -123,6 +124,10 @@ class DagBuilder:
                 stage_deps[name] = [dep] if dep else []
                 subnodes[name] = info.get('subnodes', ['setup', 'run', 'validate', 'finish'])
                 resource_map[name] = info.get('resource_tier', 'M')
+                # Map custom node to its base handler (e.g., synthesis2_xyz → synthesis)
+                node_type = info.get('type', '')
+                if node_type:
+                    self._custom_node_types[name] = re.sub(r'\d+$', '', node_type)
                 logger.info(f"Custom node: {name} (dep={dep})")
 
         # Parse subnode-level dependencies (for parallel subnodes like PV drc/lvs)
@@ -251,25 +256,70 @@ class DagBuilder:
         return subnodes
 
     def _resolve_dynamic_subnodes(self, stage: str) -> list:
-        """Resolve dynamic subnodes for per-scenario stages (e.g., STA timing1).
-        Reads mmmc scenarios from user_config or mmmc_config."""
+        """Resolve dynamic subnodes for per-scenario/per-corner stages.
+
+        Extraction stages → per-RC-corner (rc_max, rc_typ, rc_min)
+        Timing stages     → per-MMMC-scenario
+        """
+        stage_base = re.sub(r'\d+(_\w+)?$', '', stage)
+
+        # ── Extraction stages: dynamic per RC corner ──
+        if stage_base == 'extraction':
+            corners = self._resolve_rc_corners()
+            if corners:
+                return ['setup'] + corners + ['validate', 'finish']
+            return ['setup', 'run', 'validate', 'finish']
+
+        # ── Timing/other stages: dynamic per MMMC scenario ──
         scenarios = []
-        # Try user_config for scenario list
         user_config = os.path.join(self.run_dir, 'setup', 'user_config.tcl')
         if os.path.exists(user_config):
             with open(user_config) as f:
                 for line in f:
-                    # sta(mmmc,setup_scenarios) or sta(mmmc,hold_scenarios)
                     m = re.match(r'set\s+\w+\(mmmc,\w+_scenarios\)\s+"([^"]+)"', line.strip())
                     if m:
                         for s in m.group(1).split():
                             if s not in scenarios:
                                 scenarios.append(s)
         if scenarios:
-            # Build subnodes: setup + per-scenario + validate + finish
             return ['setup'] + scenarios + ['validate', 'finish']
         # Fallback: standard subnodes
         return ['setup', 'run', 'validate', 'finish']
+
+    def _resolve_rc_corners(self) -> list:
+        """Resolve RC corners for extraction dynamic subnodes.
+
+        Priority:
+          1. User override: sta(extraction,rc_corners) "rc_max rc_min" in user_config
+          2. mmmc_config.tcl: rc_corner_list variable
+          3. mmmc_config.tcl: rc_corners array keys
+        """
+        # Priority 1: user_config override
+        user_config = os.path.join(self.run_dir, 'setup', 'user_config.tcl')
+        if os.path.exists(user_config):
+            with open(user_config) as f:
+                for line in f:
+                    m = re.match(r'set\s+\w+\(extraction,rc_corners\)\s+"([^"]+)"', line.strip())
+                    if m:
+                        return m.group(1).split()
+
+        # Priority 2+3: mmmc_config.tcl
+        flow_dir = self.env_vars.get('FLOW_DIR', '')
+        ver = self.env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0')
+        mmmc_path = os.path.join(flow_dir, 'config', 'flow', ver, 'mmmc_config.tcl')
+        if os.path.exists(mmmc_path):
+            with open(mmmc_path) as f:
+                content = f.read()
+            # Priority 2: rc_corner_list variable
+            m = re.search(r'set\s+rc_corner_list\s+\{([^}]+)\}', content)
+            if m:
+                return m.group(1).split()
+            # Priority 3: rc_corners array keys
+            corners = re.findall(r'^\s+(rc_\w+)\s+\{', content, re.MULTILINE)
+            if corners:
+                return corners
+
+        return []
 
     def _load_runtime_custom_nodes(self) -> tuple:
         """Load custom nodes from $run_dir/setup/runtime_flow_config.tcl.
@@ -404,7 +454,9 @@ class DagBuilder:
                 for m in re.finditer(r'node_types,(\w+)\s+"([^"]+)"', config):
                     self._node_types[m.group(1)] = m.group(2)
 
-        handler_base = self._node_types.get(stage, stage.rstrip('0123456789'))
+        # For custom nodes (e.g., synthesis2_xyz), use the stored base type
+        custom_types = getattr(self, '_custom_node_types', {})
+        handler_base = custom_types.get(stage) or self._node_types.get(stage, stage.rstrip('0123456789'))
         handler = os.path.join(flow_dir, 'cmds', self.flow_type,
                                tool_vendor, tool_name, tool_version,
                                f'{handler_base}_subnode_handler.tcl')
@@ -1534,6 +1586,8 @@ class RaceEngine:
         run_env.update(self.env_vars)
         run_env['CBFLOW_ENGINE'] = '1'
         run_env['CBFLOW_RUN_DIR'] = self.run_dir
+        run_env['CBFLOW_NODE_NAME'] = job.stage
+        run_env['CBFLOW_SUBNODE'] = job.subnode
 
         try:
             result = subprocess.run(

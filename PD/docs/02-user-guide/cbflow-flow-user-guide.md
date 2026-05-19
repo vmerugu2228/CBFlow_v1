@@ -678,17 +678,28 @@ cbflow run delete-node --node eco1
 
 ### 7.2 Branches
 
-Create experimental branches from any stage:
+Create experimental branches from any stage. Branching creates the **full downstream pipeline** (all stages from the branch point through release_data), not just a single node:
 
 ```bash
-# Branch from CTS for an experiment
-cbflow run create-branch --name timing_experiment --from cts1
+# Branch from CTS — creates: cts2 -> cts_opt2 -> route2 -> ... -> release_data2
+cbflow run create-branch --branch timing_experiment --from cts1
+
+# Branch from a custom node — also creates full downstream
+cbflow run create-branch --branch from_eco --from place2_eco
 
 # List branches
 cbflow run list-branches
 
 # Delete branch
-cbflow run delete-branch --node timing_experiment
+cbflow run delete-branch --branch timing_experiment
+```
+
+All RACE commands work with custom nodes and branch nodes:
+```bash
+cbflow run retrace --from cts2          # Retrace from branch node
+cbflow run bypass --stages cts2         # Bypass a branch node
+cbflow run force --stages place2_eco    # Force re-run a custom node
+cbflow run stage --name route2          # Run a specific branch stage
 ```
 
 ### 7.3 Viewing the Graph
@@ -738,7 +749,113 @@ P0_run_PNR_run1/
 
 ---
 
-## 9. Configuration Reference
+## 9. Milestone Release System
+
+### 9.1 Overview
+
+CBflow uses a **milestone-gated release** system. Release tags are predefined (not free-form) and map to design exit milestones. Leads set the **active tag** and **expiry date** at the project level. A release only proceeds when ALL required flows for that milestone have completed successfully.
+
+### 9.2 Predefined Release Tags
+
+| Tag | Description | Min Phase | Required Flows |
+|-----|-------------|-----------|----------------|
+| `FP_EXIT` | Floorplan Exit | P0 | FP, FCFP, SYNTH_PNR |
+| `PLACE_EXIT` | Placement Exit | P0 | SYNTH_PNR, PNR |
+| `CTS_EXIT` | CTS Exit | P1 | SYNTH_PNR, PNR |
+| `PRO_EXIT` | Post-Route Exit | P1 | SYNTH_PNR, PNR |
+| `BTO` | Backend Tapeout | P2 | SYNTH_PNR, PNR, PV, STA, LEC, CLP, EMIR |
+| `MTO` | Mask Tapeout | P3 | SYNTH_PNR, PNR, PV, STA, LEC, CLP, EMIR |
+
+Tags are defined in `config/flow/v1.0.0/release_config.tcl`. New tags can be added to the `release_tags` array.
+
+### 9.3 Lead Configuration (Project Level)
+
+Leads control the active tag and expiry in `config/project/<name>/<ver>/<name>_config.tcl`:
+
+```tcl
+set project(release,active_tag)  "BTO"           ;# Current milestone target
+set project(release,expiry_date) "2026-06-30"    ;# Tag expires after this date
+set project(release,path)        "/proj/releases" ;# Shared release directory
+```
+
+### 9.4 Running a Release
+
+```bash
+# From the workspace directory (where all runs live):
+cbflow run release                      # Use active tag from project config
+cbflow run release --tag PLACE_EXIT     # Override with specific tag
+cbflow run release --dry-run            # Validate only, don't copy files
+```
+
+The release command:
+1. Validates the tag is predefined
+2. Checks the current phase meets the tag's minimum
+3. Checks the expiry date hasn't passed
+4. **Gate check**: scans workspace for ALL required flow runs with PASS status
+5. If any missing: ERROR listing which flows need to be run first
+6. If all present: copies deliverables from each flow to the release directory
+
+### 9.5 Release Directory Structure
+
+```
+<release_path>/<project>/<design>/<phase>_<tag>/
+  ├── SYNTH_PNR/
+  │   ├── netlist/   (.v, .pt.v, .fm.v, .lvs.v, .vc_lp.v, .dc.v)
+  │   ├── gds/       (.gds)
+  │   ├── def/       (.def)
+  │   ├── sdc/       (*.sdc)
+  │   ├── spef/      (*.spef)
+  │   ├── upf/       (.upf)
+  │   ├── data/      (wscript, routing_constraints, floorplan, SAIF maps)
+  │   └── lef/       (.lef)
+  ├── PNR/
+  │   ├── netlist/   (.v, .pt.v, .fm.v, .lvs.v)
+  │   ├── gds/def/sdc/spef/upf/data/
+  ├── STA/reports/
+  ├── PV/reports/
+  ├── LEC/reports/
+  ├── CLP/reports/
+  ├── EMIR/reports/
+  ├── MANIFEST.json
+  └── RELEASE_COMPLETE
+```
+
+### 9.6 Release Artifacts
+
+- **MANIFEST.json** — JSON metadata: tag, phase, project, design, timestamp, user, per-flow run directories, total file count
+- **RELEASE_COMPLETE** — Key-value status file: TAG, MILESTONE, PHASE, FILES, FLOWS, STATUS=PASS/FAIL, TIMESTAMP
+
+### 9.7 Chip-Level Release Check
+
+Verify that ALL blocks in the project have released for a milestone:
+
+```bash
+# Check all blocks for BTO readiness
+cbflow run release-check --tag BTO --project ravendrive --phase P2
+
+# Check specific block only
+cbflow run release-check --tag PLACE_EXIT --project ravendrive --block cpu_core
+```
+
+The check command reads `project(block_list)` from the project config and scans the release directory for each block × flow combination. Output is a matrix:
+
+```
+Block                SYNTH_PNR     PNR           STA           Status
+────────────────────────────────────────────────────────────────
+cpu_core             PASS(18)      PASS(13)      PASS(5)       [COMPLETE]
+memory_ctrl          PASS(18)      PASS(13)      MISS          [INCOMPLETE]
+io_ctrl              MISS          MISS          MISS          [INCOMPLETE]
+────────────────────────────────────────────────────────────────
+TOTAL                1/3 blocks complete
+
+CHIP-LEVEL RELEASE: NOT READY — 2 block(s) incomplete
+```
+
+Inputs: `--tag` (required), `--project` (required), `--phase` (default P0), `--block` (optional, default all)
+
+---
+
+## 10. Configuration Reference
 
 ### 9.1 Input Variable Naming Convention
 
@@ -788,6 +905,8 @@ These are set automatically in `.run.cbflow.env` and `.run.cbflow.tcl`:
 | `CONFIG_ROOT` | Configuration root |
 | `FLOW_CONFIG_VERSION` | Active flow config version |
 | `UTILITIES_VERSION` | Utilities version |
+| `CBFLOW_NODE_NAME` | Current node name (e.g., `place1`, `place2_eco`) -- set per job by RACE engine |
+| `CBFLOW_SUBNODE` | Current subnode (e.g., `setup`, `run`, `validate`, `finish`) -- set per job |
 
 ---
 

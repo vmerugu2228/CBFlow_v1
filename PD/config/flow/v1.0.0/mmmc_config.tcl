@@ -357,38 +357,64 @@ array set analysis_views {
 # RC CORNERS DEFINITION
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# Ordered list of RC corners for dynamic extraction subnodes
+set rc_corner_list {rc_max rc_typ rc_min}
+
 array set rc_corners {
     rc_max {
         name                "rc_max"
         description         "Maximum RC (worst setup)"
         temperature         125
+        tluplus_file        "tech(tluplus,max)"
+        qrc_techfile        ""
+        nxtgrd_file         ""
         metal_multiplier    1.15
         via_multiplier      1.25
         cap_multiplier      1.10
         res_multiplier      1.15
         usage               "setup_critical"
     }
-    
+
     rc_typ {
         name                "rc_typ"
         description         "Typical RC (nominal)"
         temperature         25
+        tluplus_file        "tech(tluplus,max)"
+        qrc_techfile        ""
+        nxtgrd_file         ""
         metal_multiplier    1.00
         via_multiplier      1.00
         cap_multiplier      1.00
         res_multiplier      1.00
         usage               "nominal"
     }
-    
+
     rc_min {
         name                "rc_min"
         description         "Minimum RC (worst hold)"
         temperature         -40
+        tluplus_file        "tech(tluplus,min)"
+        qrc_techfile        ""
+        nxtgrd_file         ""
         metal_multiplier    0.85
         via_multiplier      0.75
         cap_multiplier      0.90
         res_multiplier      0.85
         usage               "hold_critical"
+    }
+
+    rc_max_cworst {
+        name                "rc_max_cworst"
+        description         "Maximum RC C-worst (tighter cap multiplier for SI analysis)"
+        temperature         125
+        tluplus_file        "tech(tluplus,max)"
+        qrc_techfile        ""
+        nxtgrd_file         ""
+        metal_multiplier    1.15
+        via_multiplier      1.25
+        cap_multiplier      1.20
+        res_multiplier      1.10
+        usage               "si_critical"
     }
 }
 # Additional RC corners can be added above. Examples:

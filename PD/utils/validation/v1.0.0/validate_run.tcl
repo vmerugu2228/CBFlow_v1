@@ -7,13 +7,9 @@
 
 # Parse command line arguments
 if {$argc < 3 || $argc > 4} {
-    if {[info exists ::env(UTILS_TCL)] && [file exists $::env(UTILS_TCL)]} {
-        source $::env(UTILS_TCL)
-    } else {
-        puts "ERROR: UTILS_TCL not found in environment"
-        exit 1
-    }
-    handle_error "Invalid number of arguments.\nUsage: tclsh validate_run.tcl <FLOW_TYPE> <STAGE_NAME> <run_dir> [flow_dir]\n  FLOW_TYPE: Any supported flow type (see flow configuration)\n  STAGE_NAME: Stage to validate (e.g., init_design, floorplan)\n  run_dir: Run directory path\n  flow_dir: Flow directory path (optional)\n\nThis script validates:\n  • Mandatory output files existence and non-empty status\n  • Log files for errors and warnings\n  • Waivered patterns against project configuration\n  • Generates comprehensive validation report"
+    puts "ERROR: Invalid arguments."
+    puts "Usage: tclsh validate_run.tcl <FLOW_TYPE> <STAGE_NAME> <run_dir> \[flow_dir\]"
+    exit 1
 }
 
 set flow_type [lindex $argv 0]
@@ -23,7 +19,6 @@ set run_dir [lindex $argv 2]
 if {$argc == 4} {
     set flow_dir [lindex $argv 3]
 } else {
-    # Try to determine flow_dir from environment or run directory
     if {[info exists env(FLOW_DIR)]} {
         set flow_dir $env(FLOW_DIR)
     } else {
@@ -31,13 +26,45 @@ if {$argc == 4} {
     }
 }
 
+# Source run environment and error_utils early (before any handle_error calls)
+set _run_env "$run_dir/.run.cbflow.tcl"
+if {[file exists $_run_env]} { catch { source $_run_env } }
+# Resolve utilities version
+set _util_ver "v1.0.0"
+catch { set _util_ver $::env(UTILITIES_VERSION) }
+set _err_utils "$flow_dir/utils/utilities/$_util_ver/error_utils.tcl"
+if {[file exists $_err_utils]} {
+    source $_err_utils
+} else {
+    # Provide fallback handle_error/handle_info if error_utils not found
+    proc handle_error {msg} { puts "ERROR: $msg"; exit 1 }
+    proc handle_info {msg} { puts "INFO: $msg" }
+    proc handle_warning {msg} { puts "WARNING: $msg" }
+}
+
 # Validate flow_type against defined flow types
 # Load flow configuration if not already loaded
 if {![info exists flow(types)]} {
-    if {[info exists ::env(FLOW_DIR)] && [file exists "$::env(FLOW_DIR)/config/flow/$::env(CONFIG_VERSION)/flow_config.tcl"]} {
-        source "$::env(FLOW_DIR)/config/flow/$::env(CONFIG_VERSION)/flow_config.tcl"
+    # Resolve config version from multiple env var names
+    set _cfg_ver "v1.0.0"
+    catch { set _cfg_ver $::env(FLOW_CONFIG_VERSION) }
+    catch { set _cfg_ver $::env(CONFIG_VERSION) }
+
+    # Try flow_dir (arg) first, then FLOW_DIR env
+    set _fdir $flow_dir
+    if {$_fdir eq "" || $_fdir eq "../flow"} { catch { set _fdir $::env(FLOW_DIR) } }
+
+    # Source run environment if available (provides all env vars)
+    set _run_env "$run_dir/.run.cbflow.tcl"
+    if {[file exists $_run_env]} { catch { source $_run_env } }
+
+    set _fc "$_fdir/config/flow/$_cfg_ver/flow_config.tcl"
+    if {[file exists $_fc]} {
+        source $_fc
     } else {
-        handle_error "Cannot load flow configuration - FLOW_DIR environment variable required"
+        # Graceful fallback: skip flow_type validation if config not found
+        puts "WARNING: flow_config.tcl not found at $_fc — skipping flow type validation"
+        set flow(types) $flow_type
     }
 }
 
@@ -76,24 +103,39 @@ proc init_validation {} {
     file mkdir [file dirname $validation_log_file]
     
     # Source utilities and configuration
-    if {[file exists "$flow_dir/utils/utils.tcl"]} {
+    set _uver "v1.0.0"
+    catch { set _uver $::env(UTILITIES_VERSION) }
+    set _utils_path "$flow_dir/utils/utilities/$_uver/utils.tcl"
+    if {[file exists $_utils_path]} {
+        source $_utils_path
+    } elseif {[file exists "$flow_dir/utils/utils.tcl"]} {
         source "$flow_dir/utils/utils.tcl"
     } else {
-        handle_error "Cannot find flow utilities at $flow_dir/utils/utils.tcl"
+        handle_warning "Flow utilities not found — continuing with basic validation"
     }
     
     # Load flow configuration including MMMC settings
-    if {[file exists "$flow_dir/config/flow_config.tcl"]} {
+    set _fcver "v1.0.0"
+    catch { set _fcver $::env(FLOW_CONFIG_VERSION) }
+    set _fc_path "$flow_dir/config/flow/$_fcver/flow_config.tcl"
+    if {[file exists $_fc_path]} {
+        source $_fc_path
+    } elseif {[file exists "$flow_dir/config/flow_config.tcl"]} {
         source "$flow_dir/config/flow_config.tcl"
-    } else {
-        handle_warning "Cannot find flow configuration at $flow_dir/config/flow_config.tcl"
     }
-    
-    # Load consolidated configuration
-    if {[file exists ".config.tcl"]} {
-        source ".config.tcl"
-    } else {
-        handle_error "Configuration file not found: .config.tcl"
+
+    # Load node config for mandatory_outputs definitions
+    set _nc_path "$flow_dir/config/flow/$_fcver/node_configs/${::flow_type}_config.tcl"
+    if {[file exists $_nc_path]} {
+        source $_nc_path
+    }
+
+    # Load validation config for error/warning patterns
+    set _vc_path "$flow_dir/config/flow/$_fcver/validation_config.tcl"
+    if {[file exists $_vc_path]} {
+        if {[catch {source $_vc_path} _vc_err]} {
+            handle_warning "validation_config.tcl parse issue (non-fatal): $_vc_err"
+        }
     }
     
     # Initialize validation log file

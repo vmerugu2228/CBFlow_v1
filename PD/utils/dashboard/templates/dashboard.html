@@ -1166,7 +1166,7 @@ function renderDAG() {
           var fromBranch = eFromBi ? eFromBi.branch_key : '';
           var toBranch = eBi ? eBi.branch_key : '';
           if (eBi && toBranch && toBranch !== fromBranch) {
-            var elbl = eBi.branch_tag || eBi.branch_name || '';
+            var elbl = eBi.branch_name || eBi.branch_tag || '';
             if (elbl) {
               var midY = (y1 + y2) / 2;
               var midX = (x1 + x2) / 2;
@@ -1210,7 +1210,7 @@ function renderDAG() {
         var brLabel = '';
         var bi = dagData.branch_info || {};
         if (bi[name]) {
-          brLabel = bi[name].branch_tag || bi[name].branch_name || '';
+          brLabel = bi[name].branch_name || bi[name].branch_tag || '';
         }
         svgContent += svgStageNode(name, displayName, lbl, p.x, p.y, p.w, p.h, s, nodeBorderColor, brLabel);
       }
@@ -2080,7 +2080,8 @@ function apiAction(action, body) {
     }
     showToast(data.message || data.error, data.error ? 'error' : 'success');
     // Only rebuild on structural changes (add/delete node, branch)
-    if (['add-node','delete-node','create-branch','rename-node'].indexOf(action) !== -1) {
+    var isStructural = ['add-node','delete-node','create-branch','delete-branch','rename-node'].indexOf(action) !== -1;
+    if (isStructural) {
       nodePositions = {};
       treeBuilt = false;
       dagBuilt = false;
@@ -2091,6 +2092,10 @@ function apiAction(action, body) {
     } else {
       dagBuilt = false; // force SVG rebuild to update proportional colors
       refresh();
+    }
+    // Fit canvas after structural changes so new nodes are visible
+    if (isStructural) {
+      setTimeout(dagFit, 300);
     }
   }).catch(function(e){ showToast('Error: ' + e, 'error'); });
 }

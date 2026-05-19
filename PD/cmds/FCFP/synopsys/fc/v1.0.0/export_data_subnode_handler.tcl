@@ -97,6 +97,14 @@ switch $subnode_name {
             } else {
                 puts "INFO: \[TEST MODE\] Launch mode: local execution"
             }
+            # Create dummy output files where real FC writes: results/fcfp/
+            set _dn [expr {[info exists flow(design_name)] ? $flow(design_name) : "design"}]
+            set _res "$run_dir/results/fcfp"
+            file mkdir "$_res/def"
+            set _f [open "$_res/def/fcfp_floorplan.def" "w"]; puts $_f "// DEF floorplan \[TEST MODE\]"; close $_f
+            set _f [open "$_res/fcfp_floorplan.v" "w"]; puts $_f "// Netlist \[TEST MODE\]"; close $_f
+            set _f [open "$_res/fcfp_floorplan.sdc" "w"]; puts $_f "// SDC \[TEST MODE\]"; close $_f
+            puts "INFO: \[TEST MODE\] Created dummy output files in $_res/"
             puts "INFO: $stage_name run completed \[TEST MODE\]"
         } else {
             if {![file exists $cmd_file]} { puts "ERROR: Command file not found: $cmd_file"; exit 1 }
@@ -193,10 +201,27 @@ switch $subnode_name {
             }
             puts "INFO: $stage_name run completed"
         }
-    }
-    "validate" {
+    }    "validate" {
         puts "INFO: $stage_name validate..."
-        if {$test_mode} { puts "INFO: \[TEST MODE\] Validation skipped" }
+        set _val_script "$::env(SCRIPTS_ROOT)/validation/$::env(VALIDATION_VERSION)/validate_run.tcl"
+        set _log_file "$run_dir/work/$::flow_type/$node_name/run/${node_name}.log"
+        if {[file exists $_val_script]} {
+            puts "INFO: Running validation: $::flow_type $stage_name $node_name"
+            set _val_rc [catch {exec tclsh $_val_script $::flow_type $stage_name $run_dir $::env(FLOW_DIR) 2>@1} _val_out]
+            if {$_val_out ne ""} {
+                foreach _vl [split $_val_out "\n"] {
+                    if {[string match "*ERROR*" $_vl] || [string match "*FAIL*" $_vl]} {
+                        puts "VALIDATE: $_vl"
+                    }
+                }
+            }
+            if {$_val_rc != 0 && [string match "*validation failed*" [string tolower $_val_out]]} {
+                puts "ERROR: Validation FAILED for $stage_name ($node_name)"
+                exit 1
+            } else {
+                puts "INFO: Validation passed for $stage_name"
+            }
+        }
         puts "INFO: $stage_name validate completed"
     }
     "finish" {

@@ -12,27 +12,16 @@ if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} 
 set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
 namespace import ::CBFlow::Utilities::print_header
-set config_file "$run_dir/work/SYNTH_PNR/synthesis1/run/config.tcl"
+set config_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 global synth_pnr project tech flow
 set mmmc_config_file "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
 
-# Source tech_config (BUG FIX #1)
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
 }
-if {[file exists $mmmc_config_file]} { source $mmmc_config_file }
 
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
 # Source FC tool config
 set _fc_config "[file dirname [info script]]/fc_config.tcl"
-if {[file exists $_fc_config]} { source $_fc_config }
-if {[file exists "$run_dir/setup/override_config.tcl"]} { source -e "$run_dir/setup/override_config.tcl" }
 
 handle_info "Starting SYNTH_PNR synthesis (FC-RM Y-2026.03 aligned)..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
@@ -85,8 +74,6 @@ flow_proc load_design {
     }
 
     handle_info "Design opened: ${design_name}/compile"
-}
-
 # ==============================================================================
 # flow_proc: set_active_scenarios
 # FC-RM: set_scenario_status for compile, check hold scenarios
@@ -120,8 +107,6 @@ flow_proc set_active_scenarios {
     }
 
     handle_info "Active scenarios configured"
-}
-
 # ==============================================================================
 # flow_proc: set_qor_strategy
 # FC-RM: set_qor_strategy -stage compile_initial, routing layers
@@ -174,8 +159,6 @@ flow_proc set_qor_strategy {
     }
 
     handle_info "QoR strategy set: metric=$metric, mode=$mode"
-}
-
 # ==============================================================================
 # flow_proc: configure_compile
 # FC-RM: Instance prefixes, lib_cell_purpose, multi-Vt, CTS primary corner,
@@ -230,8 +213,6 @@ flow_proc configure_compile {
     current_mode $cur_mode
 
     handle_info "Compile configuration completed"
-}
-
 # ==============================================================================
 # flow_proc: pre_compile_setup
 # FC-RM: SVF, DFT pre-compile setup, autoungroup check,
@@ -290,8 +271,6 @@ flow_proc pre_compile_setup {
     redirect -file $::REPORTS_DIR/compile_fusion.check_only { compile_fusion -check_only }
 
     handle_info "Pre-compile setup completed"
-}
-
 # ==============================================================================
 # flow_proc: run_compile
 # FC-RM: compile_fusion — unified or stage-by-stage execution
@@ -393,8 +372,6 @@ flow_proc run_compile {
     }
 
     handle_info "compile_fusion completed successfully"
-}
-
 # ==============================================================================
 # flow_proc: post_compile
 # FC-RM: User post script, spare cells, re-enable dynamic power,
@@ -429,8 +406,6 @@ flow_proc post_compile {
     }
 
     handle_info "Post-compile tasks completed"
-}
-
 # ==============================================================================
 # flow_proc: finalize_netlist
 # FC-RM: change_names, write_ascii_files, saif_map
@@ -466,8 +441,6 @@ flow_proc finalize_netlist {
     saif_map -write_map $::OUTPUTS_DIR/compile.saif.fc.map
 
     handle_info "Netlist finalized"
-}
-
 # ==============================================================================
 # flow_proc: create_abstracts
 # FC-RM: create_abstract, create_frame for hierarchical designs
@@ -497,8 +470,6 @@ flow_proc create_abstracts {
     }
 
     handle_info "Abstracts completed"
-}
-
 # ==============================================================================
 # flow_proc: save_design
 # FC-RM: save_upf, save_block, set_svf -off
@@ -534,8 +505,6 @@ flow_proc save_design {
     set_svf -off
 
     handle_info "Compile design saved"
-}
-
 # ==============================================================================
 # flow_proc: generate_reports
 # FC-RM: report_qor, report_timing, report_power, report_congestion,
@@ -585,13 +554,11 @@ flow_proc generate_reports {
     redirect -file $::REPORTS_DIR/report_msg_summary.rpt { report_msg -summary }
 
     handle_info "Synthesis reports generated in: $::REPORTS_DIR"
-}
-
 # ==============================================================================
 # Source setup.tcl (flow_proc hooks: prepend, append, replace)
 # Must be sourced AFTER flow_proc definitions but BEFORE flow_exec_all
 # ==============================================================================
-set _setup_file "$run_dir/work/SYNTH_PNR/synthesis1/run/setup.tcl"
+set _setup_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/setup.tcl"
 if {[file exists $_setup_file]} {
     handle_info "Sourcing setup hooks: $_setup_file"
     source -e $_setup_file
@@ -605,8 +572,6 @@ set _stage_override "$run_dir/setup/override_setup.synthesis.tcl"
 if {[file exists $_stage_override]} {
     handle_info "Sourcing stage override: $_stage_override"
     source -e $_stage_override
-}
-
 flow_exec_all
 
 # BUG FIX #7: Exit tool after stage completion

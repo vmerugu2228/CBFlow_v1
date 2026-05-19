@@ -36,9 +36,7 @@ set lec_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/node_config
 if {[file exists $lec_config]} { source $lec_config }
 
 # Load user configuration
-if {[file exists "$run_dir/setup/user_config.tcl"]} {
-    source "$run_dir/setup/user_config.tcl"
-}
+if {[file exists "$run_dir/setup/user_config.tcl"]} { source "$run_dir/setup/user_config.tcl" }
 
 set ::flow_type "LEC"
 set stage_name "inputs"
@@ -50,6 +48,14 @@ if {[info exists flow(test_mode)] && $flow(test_mode) eq "true"} {
     set test_mode true
 }
 
+# Resolve inputs from upstream run manifest or release tag (before processing subnodes)
+if {[info exists ::env(SCRIPTS_ROOT)] && [info exists ::env(UTILITIES_VERSION)]} {
+    set _resolve_lib "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/resolve_inputs.tcl"
+    if {[file exists $_resolve_lib]} {
+        source $_resolve_lib
+        resolve_flow_inputs $::flow_type $run_dir
+    }
+}
 switch $subnode_name {
     "setup" {
         puts "INFO: LEC $stage_name setup..."

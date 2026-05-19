@@ -358,10 +358,11 @@ set project(release,organization) "GF 22FDX Design Group"
 # ── Release Path Configuration ───────────────────────────────────────────────
 # Release path structure: $release_path/$phase/$block_name/$release_tag
 # Example: /proj/ravendrive/releases/P2/top_chip/v1.0.2
-set project(release,path) "/proj/ravendrive/releases"
+set project(release,path) "/Users/vmerugu/projects/CBflow_clone/test_releases"
 set project(release,phase) "P0"
 set project(release,block_name) ""
-set project(release,tag) ""
+set project(release,active_tag) "BTO"
+set project(release,expiry_date) "2026-06-30"
 
 # Release directory sub-structure
 set project(release,structure) {

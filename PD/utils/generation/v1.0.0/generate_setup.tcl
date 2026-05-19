@@ -386,7 +386,13 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
         lappend config_files [list "flow_config" "$config_root/flow/$flow_config_ver/flow_config.tcl"]
         lappend config_files [list "node_config_${flow_type}" "$config_root/flow/$flow_config_ver/node_configs/${flow_type}_config.tcl"]
 
-        # 4. EDA Tool Configuration (if exists)
+        # 4. MMMC Configuration
+        set _mmmc_config "$config_root/flow/$flow_config_ver/mmmc_config.tcl"
+        if {[file exists $_mmmc_config]} {
+            lappend config_files [list "mmmc_config" "$_mmmc_config"]
+        }
+
+        # 5. EDA Tool Configuration (if exists)
         set eda_dir "$config_root/eda/$flow_type/$vendor/$tool_name/$tool_version"
         if {[file exists "$eda_dir/tool_config.tcl"]} {
             lappend config_files [list "eda_tool_config" "$eda_dir/tool_config.tcl"]
@@ -395,16 +401,45 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
             lappend config_files [list "eda_stage_config" "$eda_dir/${node_type_base}_config.tcl"]
         }
 
-        # 5. User Configuration
+        # 5b. Tool-specific config from cmds/ directory (fc_config.tcl, pt_config.tcl, etc.)
+        set _flow_dir [expr {[info exists ::env(FLOW_DIR)] ? $::env(FLOW_DIR) : ""}]
+        if {$_flow_dir ne ""} {
+            set _tool_config_dir "$_flow_dir/cmds/$flow_type/$vendor/$tool_name/$tool_version"
+            set _tool_cfg "$_tool_config_dir/${tool_name}_config.tcl"
+            if {[file exists $_tool_cfg]} {
+                lappend config_files [list "tool_config_${tool_name}" "$_tool_cfg"]
+            }
+        }
+
+        # 6. User Configuration
         lappend config_files [list "user_config" "$run_dir/setup/user_config.tcl"]
 
         # 6. Override Files (Highest Priority)
+        # Look up branch name for this node from runtime_flow_config.tcl
+        set _branch_name ""
+        set _rtf "$run_dir/setup/runtime_flow_config.tcl"
+        if {[file exists $_rtf]} {
+            set _rtf_fd [open $_rtf r]
+            set _rtf_content [read $_rtf_fd]
+            close $_rtf_fd
+            # Find branch_key for this node: stages,<node_type>,branch_key <key>
+            if {[regexp "stages,${node_type},branch_key\\s+(\\S+)" $_rtf_content _match _bkey]} {
+                # Find branch name from: branch_keys,<key>,name "<name>"
+                if {[regexp "branch_keys,${_bkey},name\\s+\"(\[^\"\]*)\"" $_rtf_content _match2 _bname]} {
+                    set _branch_name $_bname
+                }
+            }
+        }
+
         set override_patterns [list \
             [list "override_config_global" "$run_dir/setup/override_config.tcl"] \
             [list "override_config_flow" "$run_dir/setup/override_config.$flow_type.tcl"] \
             [list "override_config_stage_${node_type_base}" "$run_dir/setup/override_config.${node_type_base}.tcl"] \
-            [list "override_config_node_${node_name}" "$run_dir/setup/override_config.${node_name}.tcl"] \
         ]
+        if {$_branch_name ne ""} {
+            lappend override_patterns [list "override_config_branch_${_branch_name}" "$run_dir/setup/override_config.${_branch_name}.tcl"]
+        }
+        lappend override_patterns [list "override_config_node_${node_name}" "$run_dir/setup/override_config.${node_name}.tcl"]
 
         foreach override_entry $override_patterns {
             lassign $override_entry label file_path
