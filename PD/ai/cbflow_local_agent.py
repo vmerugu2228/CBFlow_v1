@@ -253,116 +253,110 @@ def run_agent(prompt: str, interactive: bool = False):
     """Run the local agent loop."""
 
     import requests
+    from cli_ui import (banner, prompt_input, agent_text, tool_start, tool_result,
+                        Spinner, turn_indicator, goodbye, error, success, info,
+                        separator, help_text, dim, cyan, green, yellow)
 
-    # Check connectivity — server OR local Ollama
+    # Check connectivity
     if SMARTGENIE_SERVER:
         try:
             requests.get(f"{SMARTGENIE_SERVER}/api/status", timeout=5)
         except requests.ConnectionError:
-            print(f"\n  ERROR: Cannot connect to SmartGenie server at {SMARTGENIE_SERVER}")
-            print(f"  Check the server is running: cbflow smartgenie serve")
+            error(f"Cannot connect to SmartGenie server at {SMARTGENIE_SERVER}")
+            info("Check the server is running: cbflow smartgenie serve")
             sys.exit(1)
     else:
         try:
             requests.get(f"{OLLAMA_URL}/api/tags", timeout=5)
         except requests.ConnectionError:
-            print("\n  ERROR: Ollama is not running.")
-            print("  Install: https://ollama.com/download")
-            print("  Start:   ollama serve")
-            print(f"  Pull:    ollama pull {MODEL}")
-            print(f"\n  Or connect to a server: export SMARTGENIE_SERVER=http://server:8091")
+            error("Ollama is not running.")
+            info("Install: https://ollama.com/download")
+            info("Start:   ollama serve")
+            info(f"Pull:    ollama pull {MODEL}")
+            info(f"Or connect to a server: export SMARTGENIE_SERVER=http://server:8091")
             sys.exit(1)
 
-    print(f"\n{'=' * 60}")
-    print(f"  CBflow SmartGenie (100% Private)")
-    if SMARTGENIE_SERVER:
-        print(f"  Server: {SMARTGENIE_SERVER}")
-        print(f"  User: {USERNAME}")
-        print(f"  Mode: Enterprise (shared knowledge)")
-    else:
-        print(f"  Model: {MODEL} (via Ollama)")
-        print(f"  Mode: Local (standalone)")
-    print(f"  Data: NEVER leaves your network")
-    print(f"  Workspace: {DEFAULT_WORKSPACE}")
-    print(f"{'=' * 60}\n")
+    banner(MODEL, SMARTGENIE_SERVER, USERNAME, DEFAULT_WORKSPACE)
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": prompt},
     ]
 
-    for turn in range(MAX_TURNS):
-        print(f"  [Turn {turn + 1}] Thinking...", end="", flush=True)
+    def _agent_turn(messages, turn_num):
+        """Single agent turn — think, tool call or respond."""
+        spinner = Spinner("Thinking")
+        spinner.start()
         t0 = time.time()
-
         response = ollama_chat(messages)
         elapsed = time.time() - t0
-        print(f" ({elapsed:.1f}s)")
+        spinner.stop()
+        turn_indicator(turn_num, elapsed)
 
         if response.startswith("ERROR:"):
-            print(f"  {response}")
-            break
+            error(response)
+            return messages, True  # done
 
-        # Check for tool call
         tool_name, tool_args = parse_tool_call(response)
 
         if tool_name:
-            print(f"  Tool: {tool_name}({json.dumps(tool_args)[:80]}...)")
+            tool_start(tool_name, json.dumps(tool_args)[:80])
             result = execute_tool(tool_name, tool_args)
-
-            # Print abbreviated result
-            lines = result.strip().split('\n')
-            if len(lines) > 3:
-                print(f"  Result: {lines[0]}... ({len(lines)} lines)")
-            else:
-                for l in lines[:3]:
-                    print(f"  Result: {l[:100]}")
-
-            # Feed result back to LLM
+            tool_result(result)
             messages.append({"role": "assistant", "content": response})
             messages.append({"role": "user", "content": f"Tool result:\n{result[-3000:]}\n\nContinue with the task. Use another tool call or provide your final answer."})
-
+            return messages, False  # not done
         else:
-            # Text response — print and check if done
-            # Strip any partial JSON that wasn't a valid tool call
             clean = re.sub(r'```json.*?```', '', response, flags=re.DOTALL).strip()
             if clean:
-                print(f"\n  Agent: {clean}\n")
+                separator()
+                agent_text(clean)
+                print()
             messages.append({"role": "assistant", "content": response})
+            done = len(response) > 50 and not any(kw in response.lower() for kw in ['let me', 'i will', 'next step'])
+            return messages, done
 
-            # If no tool call and reasonable length, probably done
-            if len(response) > 50 and not any(kw in response.lower() for kw in ['let me', 'i will', 'next step']):
-                break
+    # Run initial prompt
+    for turn in range(MAX_TURNS):
+        messages, done = _agent_turn(messages, turn + 1)
+        if done:
+            break
 
     if interactive:
         while True:
             try:
-                user_input = input("\n  You: ").strip()
-                if user_input.lower() in ('exit', 'quit', 'q'):
-                    break
+                user_input = prompt_input()
                 if not user_input:
                     continue
-                messages.append({"role": "user", "content": user_input})
+                if user_input.lower() in ('exit', 'quit', 'q'):
+                    break
+                if user_input == '/help':
+                    help_text(); continue
+                if user_input == '/clear':
+                    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+                    success("Conversation cleared."); continue
+                if user_input.startswith('/status'):
+                    result = execute_tool("bash", {"command": f"{CBFLOW_BIN} run status"})
+                    tool_result(result); continue
+                if user_input.startswith('/flows'):
+                    result = execute_tool("bash", {"command": f"{CBFLOW_BIN} flow types"})
+                    tool_result(result); continue
+                if user_input.startswith('/search '):
+                    result = execute_tool("search_kb", {"query": user_input[8:]})
+                    tool_result(result); continue
+                if user_input == '/stats':
+                    result = execute_tool("search_kb", {"query": "__stats__"})
+                    tool_result(result); continue
 
+                messages.append({"role": "user", "content": user_input})
                 for turn in range(MAX_TURNS):
-                    response = ollama_chat(messages)
-                    tool_name, tool_args = parse_tool_call(response)
-                    if tool_name:
-                        print(f"  Tool: {tool_name}")
-                        result = execute_tool(tool_name, tool_args)
-                        print(f"  Result: {result[:100]}{'...' if len(result) > 100 else ''}")
-                        messages.append({"role": "assistant", "content": response})
-                        messages.append({"role": "user", "content": f"Tool result:\n{result[-3000:]}\n\nContinue."})
-                    else:
-                        clean = re.sub(r'```json.*?```', '', response, flags=re.DOTALL).strip()
-                        if clean:
-                            print(f"\n  Agent: {clean}\n")
-                        messages.append({"role": "assistant", "content": response})
+                    messages, done = _agent_turn(messages, turn + 1)
+                    if done:
                         break
             except (KeyboardInterrupt, EOFError):
                 break
 
-    print("\n  Session ended. All data stayed local.\n")
+    goodbye()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -439,11 +433,6 @@ if __name__ == "__main__":
         prompt = " ".join(sys.argv[1:])
         run_agent(prompt)
     else:
-        print("\n  CBflow LOCAL AI Agent — Interactive (100% Private)")
-        print("  Type prompt, or 'exit' to quit.\n")
-        try:
-            initial = input("  You: ").strip()
-            if initial and initial.lower() not in ('exit', 'quit'):
-                run_agent(initial, interactive=True)
-        except (KeyboardInterrupt, EOFError):
-            pass
+        # Interactive mode
+        from cli_ui import prompt_input, info, cyan, dim
+        run_agent("Hello! I'm ready to help with CBflow. What would you like to do?", interactive=True)
