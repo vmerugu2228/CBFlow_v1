@@ -52,8 +52,11 @@ DEFAULT_WORKSPACE = os.path.join(os.path.dirname(CBFLOW_CORE), 'workarea_test')
 OLLAMA_URL = os.environ.get('OLLAMA_URL', 'http://localhost:11434')
 SMARTGENIE_SERVER = os.environ.get('SMARTGENIE_SERVER', '')
 MODEL = os.environ.get('CBFLOW_MODEL', 'qwen2.5:14b')
+ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
+CLAUDE_MODEL = os.environ.get('CLAUDE_MODEL', 'claude-sonnet-4-6')
+HYBRID_MODE = os.environ.get('SMARTGENIE_HYBRID', '').lower() in ('1', 'true', 'yes')
 USERNAME = os.environ.get('USER', 'anonymous')
-MAX_TURNS = 5  # Strict limit — prevents runaway loops
+MAX_TURNS = 5
 TIMEOUT_PER_COMMAND = 600
 
 SYSTEM_PROMPT = f"""You are the CBflow AI Agent — an autonomous Physical Design flow orchestrator running LOCALLY on the user's machine. All data stays private.
@@ -182,9 +185,77 @@ def execute_tool(name: str, args: dict) -> str:
 # OLLAMA CLIENT
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def claude_chat(messages: list) -> str:
+    """Send chat to Claude API and LEARN the response to ChromaDB."""
+    api_key = os.environ.get('ANTHROPIC_API_KEY', '') or ANTHROPIC_API_KEY
+    if not api_key:
+        return None  # No API key — fall back to local
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+
+        # Convert messages format (remove system from messages, pass separately)
+        system_msg = ""
+        api_messages = []
+        for m in messages:
+            if m["role"] == "system":
+                system_msg = m["content"]
+            else:
+                api_messages.append(m)
+
+        claude_model = os.environ.get('CLAUDE_MODEL', '') or CLAUDE_MODEL
+        response = client.messages.create(
+            model=claude_model,
+            max_tokens=4096,
+            system=system_msg if system_msg else "You are a VLSI/EDA expert and CBflow automation assistant.",
+            messages=api_messages,
+        )
+
+        # Extract text response
+        answer = ""
+        for block in response.content:
+            if hasattr(block, 'text'):
+                answer += block.text
+
+        # LEARN: save Claude's response to ChromaDB for future offline use
+        if answer and len(answer) > 50:
+            try:
+                user_query = ""
+                for m in reversed(api_messages):
+                    if m["role"] == "user" and not m.get("content", "").startswith("Tool result:"):
+                        user_query = m["content"][:200]
+                        break
+
+                from cbflow_knowledge import KnowledgeEngine
+                engine = KnowledgeEngine()
+                engine.learn(
+                    f"Q: {user_query}\nA: {answer}",
+                    category="claude_learned",
+                    context={"source": "claude_api", "model": claude_model, "user": USERNAME}
+                )
+            except Exception:
+                pass  # Don't fail if learning fails
+
+        return answer
+
+    except ImportError:
+        return None  # anthropic not installed
+    except Exception as e:
+        return f"ERROR: Claude API: {e}"
+
+
 def ollama_chat(messages: list, model: str = MODEL) -> str:
-    """Send chat to local Ollama or central SmartGenie server."""
+    """Send chat — hybrid mode tries Claude first, falls back to local."""
     import requests
+
+    # HYBRID MODE: try Claude API first (learns to ChromaDB), fall back to local
+    hybrid = os.environ.get('SMARTGENIE_HYBRID', '').lower() in ('1', 'true', 'yes') or HYBRID_MODE
+    if hybrid:
+        claude_response = claude_chat(messages)
+        if claude_response and not claude_response.startswith("ERROR:"):
+            return claude_response
+        # Claude failed or unavailable — fall back to local
 
     # Re-read env in case it was set after import
     server = os.environ.get('SMARTGENIE_SERVER', '') or SMARTGENIE_SERVER
@@ -282,6 +353,9 @@ def run_agent(prompt: str, interactive: bool = False):
             info(f"Or connect to a server: export SMARTGENIE_SERVER=http://server:8091")
             sys.exit(1)
 
+    hybrid = os.environ.get('SMARTGENIE_HYBRID', '').lower() in ('1', 'true', 'yes') or HYBRID_MODE
+    if hybrid:
+        info("HYBRID MODE: Claude API (online) + local knowledge learning")
     banner(MODEL, SMARTGENIE_SERVER, USERNAME, DEFAULT_WORKSPACE)
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]

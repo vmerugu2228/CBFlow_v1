@@ -117,6 +117,12 @@ SmartGenie AI Agent (100% private, runs locally):
                                               Record experience for future use
   cbflow smartgenie cloud "prompt"            Use Claude API (needs ANTHROPIC_API_KEY)
 
+SmartGenie Hybrid Mode (Claude teaches local LLM):
+  cbflow smartgenie --hybrid                  Use Claude API online, learn to local KB
+  cbflow smartgenie --hybrid "fix hold in cts" One-shot with Claude + learning
+  export ANTHROPIC_API_KEY=sk-ant-...         Required for hybrid mode
+  export SMARTGENIE_HYBRID=1                  Set hybrid permanently
+
 SmartGenie Server (multi-user enterprise):
   cbflow smartgenie serve                     Start central server (on-prem)
   cbflow smartgenie serve --port 8091         Custom port
@@ -206,12 +212,12 @@ main() {
             local cloud_agent="$CBFLOW_CORE_DIR/ai/cbflow_agent.py"
             local server_script="$CBFLOW_CORE_DIR/ai/cbflow_server.py"
 
-            # Check for --server flag anywhere in args
+            # Check for --server and --mode flags anywhere in args
             for arg in "$@"; do
                 if [[ "$arg" == --server=* ]]; then
                     export SMARTGENIE_SERVER="${arg#--server=}"
-                elif [[ "$arg" == "--server" ]]; then
-                    : # next arg handled by shift below
+                elif [[ "$arg" == "--hybrid" || "$arg" == "--mode=hybrid" ]]; then
+                    export SMARTGENIE_HYBRID=1
                 fi
             done
 
