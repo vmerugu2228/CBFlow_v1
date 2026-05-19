@@ -68,6 +68,12 @@ uc_SYNTH.tcl, uc_PNR.tcl, uc_SYNTH_PNR.tcl, uc_STA.tcl, uc_LEC.tcl, uc_CLP.tcl
 2. CONFIRM (describe then do): create workspaces, run flows, modify configs
 3. DANGEROUS (warn first): delete runs, retrace, clean, release
 
+## Knowledge Base
+You have a knowledge base (ChromaDB) containing CBflow docs, command files, EDA tool guides, and past experience.
+- Use search_knowledge FIRST when you're unsure about a command, config, or EDA concept
+- After solving a problem, use learn_experience to record the pattern for future reference
+- Categories for learning: "fix" (bug fixes), "pattern" (usage patterns), "config" (config tricks), "error" (error meanings)
+
 ## Rules
 - Always cd to the correct directory before running cbflow commands
 - For run commands: cd into the P0_run_<FLOW>_test1 directory first
@@ -135,6 +141,35 @@ TOOLS = [
             "required": ["run_dir", "sql"],
         },
     },
+    {
+        "name": "search_knowledge",
+        "description": "Search the knowledge base (CBflow docs, code, EDA guides, past experience). Use this when unsure about commands, configs, EDA concepts, or error patterns.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Natural language search query"},
+                "n_results": {"type": "integer", "description": "Number of results (default: 5)"},
+                "collections": {
+                    "type": "array",
+                    "description": "Collections to search: cbflow_docs, cbflow_code, eda_guides, web_content, experience",
+                    "items": {"type": "string"},
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "learn_experience",
+        "description": "Record a learned pattern, fix, or insight for future reference. Call this after solving a problem or discovering a useful pattern.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "content": {"type": "string", "description": "What was learned (be specific and actionable)"},
+                "category": {"type": "string", "description": "Category: fix, pattern, config, error, optimization"},
+            },
+            "required": ["content", "category"],
+        },
+    },
 ]
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -197,6 +232,35 @@ def execute_tool(name: str, args: dict) -> str:
             return json.dumps(rows, indent=2, default=str)
         except Exception as e:
             return f"ERROR: {e}"
+
+    elif name == "search_knowledge":
+        try:
+            from cbflow_knowledge import KnowledgeEngine
+            engine = KnowledgeEngine()
+            results = engine.search(
+                args["query"],
+                n_results=args.get("n_results", 5),
+                collections=args.get("collections"),
+            )
+            output = []
+            for i, r in enumerate(results):
+                output.append(f"[{i+1}] ({r['collection']}) {r.get('filename', '')}")
+                output.append(f"    {r['text'][:500]}")
+                output.append("")
+            return '\n'.join(output) if output else "No results found."
+        except ImportError:
+            return "Knowledge base not available. Run: pip install chromadb && python PD/ai/cbflow_knowledge.py ingest"
+        except Exception as e:
+            return f"Knowledge search error: {e}"
+
+    elif name == "learn_experience":
+        try:
+            from cbflow_knowledge import KnowledgeEngine
+            engine = KnowledgeEngine()
+            doc_id = engine.learn(args["content"], args.get("category", "general"))
+            return f"Learned and stored (id={doc_id}, category={args.get('category', 'general')})"
+        except Exception as e:
+            return f"Learn error: {e}"
 
     return f"ERROR: Unknown tool: {name}"
 

@@ -342,7 +342,56 @@ TOOLS = [
             "required": ["log_file"],
         },
     },
+    {
+        "name": "cbflow_search_knowledge",
+        "description": "Search the CBflow knowledge base (docs, code, EDA guides, experience).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search query"},
+                "n_results": {"type": "integer", "description": "Max results (default: 5)"},
+                "collections": {"type": "array", "description": "Filter collections", "items": {"type": "string"}},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "cbflow_learn_experience",
+        "description": "Record a learned pattern or fix for future retrieval.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "content": {"type": "string", "description": "What was learned"},
+                "category": {"type": "string", "description": "Category (fix/pattern/config/error)"},
+            },
+            "required": ["content"],
+        },
+    },
 ]
+
+def tool_search_knowledge(query: str, n_results: int = 5, collections: list = None) -> dict:
+    """Search the knowledge base."""
+    try:
+        from cbflow_knowledge import KnowledgeEngine
+        engine = KnowledgeEngine()
+        results = engine.search(query, n_results, collections)
+        return {"results": results, "count": len(results)}
+    except ImportError:
+        return {"error": "chromadb not installed. pip install chromadb"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def tool_learn_experience(content: str, category: str = "general") -> dict:
+    """Record a learned experience."""
+    try:
+        from cbflow_knowledge import KnowledgeEngine
+        engine = KnowledgeEngine()
+        doc_id = engine.learn(content, category)
+        return {"stored": True, "id": doc_id, "category": category}
+    except Exception as e:
+        return {"error": str(e)}
+
 
 TOOL_HANDLERS = {
     "cbflow_run_command": lambda args: tool_run_command(args["command"], args.get("cwd"), args.get("timeout", 300)),
@@ -353,6 +402,8 @@ TOOL_HANDLERS = {
     "cbflow_get_run_status": lambda args: tool_get_run_status(args["run_dir"]),
     "cbflow_parse_tcl": lambda args: tool_parse_tcl(args["config_file"]),
     "cbflow_analyze_log": lambda args: tool_analyze_log(args["log_file"], args.get("patterns")),
+    "cbflow_search_knowledge": lambda args: tool_search_knowledge(args["query"], args.get("n_results", 5), args.get("collections")),
+    "cbflow_learn_experience": lambda args: tool_learn_experience(args["content"], args.get("category", "general")),
 }
 
 
