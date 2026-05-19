@@ -130,5 +130,7 @@ CBFLOW_LOGO = """
 
 
 def print_logo():
-    """Print CBflow ASCII logo to stdout."""
-    print(CBFLOW_LOGO)
+    """Print CBflow ASCII logo to stderr (same stream as logger output)."""
+    import sys
+    sys.stderr.write(CBFLOW_LOGO)
+    sys.stderr.flush()

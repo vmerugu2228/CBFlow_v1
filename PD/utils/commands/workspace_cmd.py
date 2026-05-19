@@ -725,8 +725,6 @@ def cmd_create(args: argparse.Namespace) -> int:
     phase = env_vars.get('CBFLOW_PROJECT_PHASE', '')
     release = env_vars.get('CBFLOW_RELEASE_VERSION', '')
 
-    from logging_config import print_logo
-    print_logo()
     print(f"  \033[1m{'=' * 60}\033[0m")
     print(f"  \033[1mCBflow Run Creation\033[0m")
     print(f"  {'=' * 60}")
@@ -1744,6 +1742,9 @@ Examples:
 
 def main() -> int:
     """Main entry point."""
+    from logging_config import print_logo
+    print_logo()
+
     parser = create_parser()
     args = parser.parse_args()
 

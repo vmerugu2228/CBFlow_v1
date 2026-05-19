@@ -3250,6 +3250,9 @@ def _cmd_checklist_dispatch(args):
 
 def main() -> int:
     """Main entry point."""
+    from logging_config import print_logo
+    print_logo()
+
     parser = create_parser()
     args = parser.parse_args()
 
