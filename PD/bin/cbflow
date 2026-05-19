@@ -106,6 +106,17 @@ Bundle (create customer delivery package):
   cbflow bundle --output /path/to/dir         Custom output directory
   cbflow bundle --version v2.0.0_rc1          Custom version tag
 
+SmartGenie AI Agent (100% private, runs locally):
+  cbflow smartgenie                           Interactive AI agent (local LLM)
+  cbflow smartgenie "run all 6 flows"         One-shot command
+  cbflow smartgenie setup                     Check Ollama + model + knowledge base
+  cbflow smartgenie ingest --all              Build knowledge base from docs + code
+  cbflow smartgenie search "hold violation"   Search knowledge base
+  cbflow smartgenie stats                     Show knowledge base size
+  cbflow smartgenie learn --category fix --content "..."
+                                              Record experience for future use
+  cbflow smartgenie cloud "prompt"            Use Claude API (needs ANTHROPIC_API_KEY)
+
 Flow Commands (run from CORE_DIR: $CBFLOW_CORE_DIR):
   cbflow flow types                           List all 11 flow types
   cbflow flow info --flow PNR                 Show PNR tool, stages, vendor
@@ -180,6 +191,44 @@ main() {
         # Bundle for customer delivery
         bundle)
             exec "$SCRIPT_DIR/cbflow-bundle" "$@"
+            ;;
+
+        # SmartGenie AI Agent
+        smartgenie)
+            local agent_script="$CBFLOW_CORE_DIR/ai/cbflow_local_agent.py"
+            local cloud_agent="$CBFLOW_CORE_DIR/ai/cbflow_agent.py"
+            local subcmd="${1:-}"
+            shift 2>/dev/null || true
+
+            case "$subcmd" in
+                setup)
+                    exec python3 "$agent_script" setup
+                    ;;
+                ingest)
+                    exec python3 "$CBFLOW_CORE_DIR/ai/cbflow_knowledge.py" ingest "$@"
+                    ;;
+                search)
+                    exec python3 "$CBFLOW_CORE_DIR/ai/cbflow_knowledge.py" search "$@"
+                    ;;
+                stats)
+                    exec python3 "$CBFLOW_CORE_DIR/ai/cbflow_knowledge.py" stats
+                    ;;
+                learn)
+                    exec python3 "$CBFLOW_CORE_DIR/ai/cbflow_knowledge.py" learn "$@"
+                    ;;
+                cloud)
+                    # Use Anthropic API (requires ANTHROPIC_API_KEY)
+                    exec python3 "$cloud_agent" "$@"
+                    ;;
+                *)
+                    # Default: local agent (Ollama, 100% private)
+                    if [[ -n "$subcmd" ]]; then
+                        exec python3 "$agent_script" "$subcmd $@"
+                    else
+                        exec python3 "$agent_script"
+                    fi
+                    ;;
+            esac
             ;;
 
         # Shell completions
