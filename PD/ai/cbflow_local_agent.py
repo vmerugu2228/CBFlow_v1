@@ -53,7 +53,7 @@ OLLAMA_URL = os.environ.get('OLLAMA_URL', 'http://localhost:11434')
 SMARTGENIE_SERVER = os.environ.get('SMARTGENIE_SERVER', '')
 MODEL = os.environ.get('CBFLOW_MODEL', 'qwen2.5:7b')
 USERNAME = os.environ.get('USER', 'anonymous')
-MAX_TURNS = 30
+MAX_TURNS = 5  # Strict limit — prevents runaway loops
 TIMEOUT_PER_COMMAND = 600
 
 SYSTEM_PROMPT = f"""You are the CBflow AI Agent — an autonomous Physical Design flow orchestrator running LOCALLY on the user's machine. All data stays private.
@@ -305,9 +305,46 @@ def run_agent(prompt: str, interactive: bool = False):
             pass
         return msgs
 
+    # Action keywords — if user prompt contains these, allow tool use
+    ACTION_WORDS = {'create', 'run', 'execute', 'delete', 'remove', 'retrace',
+                    'add', 'branch', 'release', 'clean', 'modify', 'change',
+                    'set', 'configure', 'update', 'build', 'make', 'start'}
+
+    def _is_action_request(text):
+        """Detect if user wants to DO something (vs just asking a question)."""
+        words = set(text.lower().split())
+        return bool(words & ACTION_WORDS)
+
+    def _answer_from_knowledge(messages, query):
+        """Answer directly from KB without LLM tool calling."""
+        kb_result = execute_tool("search_kb", {"query": query, "n": 5})
+        if not kb_result or "No results" in kb_result or "error" in kb_result.lower():
+            return None  # No knowledge found, fall back to LLM
+
+        # Ask LLM to synthesize the knowledge into an answer (NO tools)
+        synth_messages = [
+            {"role": "system", "content": "You are a helpful VLSI/EDA expert. Answer the user's question using ONLY the provided knowledge. Do NOT use any tools. Give a clean, formatted answer."},
+            {"role": "user", "content": f"Knowledge:\n{kb_result[:3000]}\n\nQuestion: {query}\n\nAnswer clearly and concisely:"}
+        ]
+        spinner = Spinner("Searching knowledge")
+        spinner.start()
+        t0 = time.time()
+        response = ollama_chat(synth_messages)
+        elapsed = time.time() - t0
+        spinner.stop()
+
+        # Strip any tool call attempts from the response
+        clean = re.sub(r'\{["\']tool["\'].*?\}', '', response, flags=re.DOTALL).strip()
+        clean = re.sub(r'```json.*?```', '', clean, flags=re.DOTALL).strip()
+        return clean if clean and len(clean) > 20 else None
+
     def _agent_turn(messages, turn_num):
         """Single agent turn — think, tool call or respond."""
-        # Inject knowledge based on latest user message
+        spinner = Spinner("Thinking")
+        spinner.start()
+        t0 = time.time()
+
+        # Inject knowledge
         last_user = ""
         for m in reversed(messages):
             if m["role"] == "user" and not m["content"].startswith("Tool result:"):
@@ -316,9 +353,6 @@ def run_agent(prompt: str, interactive: bool = False):
         if last_user:
             messages = _inject_knowledge(messages, last_user)
 
-        spinner = Spinner("Thinking")
-        spinner.start()
-        t0 = time.time()
         response = ollama_chat(messages)
         elapsed = time.time() - t0
         spinner.stop()
@@ -326,34 +360,53 @@ def run_agent(prompt: str, interactive: bool = False):
 
         if response.startswith("ERROR:"):
             error(response)
-            return messages, True  # done
+            return messages, True
 
         tool_name, tool_args = parse_tool_call(response)
 
         if tool_name:
-            # Show subtle indicator (not the raw command)
             info(f"Running {tool_name}...")
             result = execute_tool(tool_name, tool_args)
             messages.append({"role": "assistant", "content": response})
-            messages.append({"role": "user", "content": f"Tool result:\n{result[-3000:]}\n\nNow give a clean, formatted answer to the user. Do NOT show the raw command or tool call. Just present the information clearly."})
-            return messages, False  # not done
+            messages.append({"role": "user", "content": f"Tool result:\n{result[-3000:]}\n\nGive a clean answer. Do NOT call any more tools. Just summarize the result."})
+            return messages, False
         else:
-            clean = re.sub(r'```json.*?```', '', response, flags=re.DOTALL).strip()
+            clean = re.sub(r'\{["\']tool["\'].*?\}', '', response, flags=re.DOTALL).strip()
+            clean = re.sub(r'```json.*?```', '', clean, flags=re.DOTALL).strip()
             if clean:
                 separator()
                 agent_text(clean)
                 print()
             messages.append({"role": "assistant", "content": response})
-            done = len(response) > 50 and not any(kw in response.lower() for kw in ['let me', 'i will', 'next step'])
-            return messages, done
+            return messages, True  # Always done after a text response
+
+    def _handle_prompt(messages, user_input):
+        """Handle a user prompt — question answered from KB, action uses tools."""
+        if _is_action_request(user_input):
+            # Action: use full agent with tools
+            messages.append({"role": "user", "content": user_input})
+            for turn in range(MAX_TURNS):
+                messages, done = _agent_turn(messages, turn + 1)
+                if done:
+                    break
+        else:
+            # Question: try KB first, fall back to LLM
+            answer = _answer_from_knowledge(messages, user_input)
+            if answer:
+                separator()
+                agent_text(answer)
+                print()
+                messages.append({"role": "user", "content": user_input})
+                messages.append({"role": "assistant", "content": answer})
+            else:
+                # No KB match — use LLM (single turn, no tools)
+                messages.append({"role": "user", "content": user_input})
+                messages, _ = _agent_turn(messages, 1)
+        return messages
 
     # Run initial prompt (skip if None — interactive mode waits for user)
     if prompt is not None:
-        messages.append({"role": "user", "content": prompt})
-        for turn in range(MAX_TURNS):
-            messages, done = _agent_turn(messages, turn + 1)
-            if done:
-                break
+        messages = _handle_prompt(messages, prompt)
     else:
         info("Type your question or command. Type /help for options.")
         print()
@@ -384,11 +437,7 @@ def run_agent(prompt: str, interactive: bool = False):
                     result = execute_tool("search_kb", {"query": "__stats__"})
                     tool_result(result); continue
 
-                messages.append({"role": "user", "content": user_input})
-                for turn in range(MAX_TURNS):
-                    messages, done = _agent_turn(messages, turn + 1)
-                    if done:
-                        break
+                messages = _handle_prompt(messages, user_input)
             except (KeyboardInterrupt, EOFError):
                 break
 
