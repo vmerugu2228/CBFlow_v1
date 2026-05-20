@@ -1,375 +1,407 @@
 #!/usr/bin/env tclsh
 # ═══════════════════════════════════════════════════════════════════════════════
 # CBflow Technology Configuration — GlobalFoundries 22FDX (22nm FD-SOI)
+# ALL track heights (9T, 7.5T, 8T) in ONE file — flow picks via tech(track)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# ── Path Resolution ───────────────────────────────────────────────────────────
 set _tech_dir [file dirname [file normalize [info script]]]
 
-# ── Technology Info ───────────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECTION 1: TECHNOLOGY IDENTITY
+# ═══════════════════════════════════════════════════════════════════════════════
+
 set tech(node)        "22nm"
-set tech(process)     "GF"
-set tech(variant)     "FDX"
+set tech(process)     "GF 22FDX"
 set tech(foundry)     "GlobalFoundries"
-set tech(metal_stack_name) "11M"
-set tech(revision)    "v1.0"
+set tech(metal_stack) "11M"
+set tech(tracks_available) "9T 7.5T 8T"
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# LIBRARY PATHS
+# SECTION 2: ACTIVE TRACK RESOLUTION
+# Priority: flow(track_variant) → project(track_variant) → env → default "9T"
 # ═══════════════════════════════════════════════════════════════════════════════
-set tech(library,root_path)    "/tmp/test_libs/gf_22nm"
-set tech(library,stdcell_path) "$tech(library,root_path)/Front_End/timing/stdcell"
-set tech(library,memory_path)  "$tech(library,root_path)/Front_End/timing/memory"
-set tech(library,io_path)      "$tech(library,root_path)/Front_End/timing/io"
 
-# ┌─ Track Height Selection ──────────────────────────────────────────────┐
-# Available track heights for GF 22FDX
-set tech(track,available)       "12T 9T 7.5T"
-set tech(track,default)         "9T"
-
-# Cell library prefix per track height (GF 22FDX naming convention)
-set tech(track,12T,stdcell)     "tcbn22cllbwp12t"
-set tech(track,12T,description) "12-Track — highest performance, lowest density"
-set tech(track,9T,stdcell)      "tcbn22cllbwp9t"
-set tech(track,9T,description)  "9-Track — balanced performance/density"
-set tech(track,7.5T,stdcell)    "tcbn22cllbwp7t"
-set tech(track,7.5T,description) "7.5-Track — highest density, lowest power"
-
-# Resolve active track variant (check flow override → project config → default)
+set tech(track) "9T"
 if {[info exists flow(track_variant)] && $flow(track_variant) ne ""} {
-    set tech(track,active_variant) $flow(track_variant)
+    set tech(track) $flow(track_variant)
 } elseif {[info exists project(track_variant)] && $project(track_variant) ne ""} {
-    set tech(track,active_variant) $project(track_variant)
+    set tech(track) $project(track_variant)
 } elseif {[info exists ::env(CBFLOW_TRACK_VARIANT)] && $::env(CBFLOW_TRACK_VARIANT) ne ""} {
-    set tech(track,active_variant) $::env(CBFLOW_TRACK_VARIANT)
-} else {
-    set tech(track,active_variant) $tech(track,default)
+    set tech(track) $::env(CBFLOW_TRACK_VARIANT)
 }
+puts "INFO: GF 22FDX active track: $tech(track)"
 
-# Set cell prefixes based on active track variant
-set _active_track $tech(track,active_variant)
-if {[info exists tech(track,$_active_track,stdcell)]} {
-    set _STDCELL $tech(track,$_active_track,stdcell)
-} else {
-    puts "WARNING: Unknown track variant '$_active_track' — using default $tech(track,default)"
-    set _STDCELL $tech(track,$tech(track,default),stdcell)
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECTION 3: LIBRARY ROOT PATHS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+set tech(lib_root) "/tmp/test_libs/gf_22nm"
+set _R "$tech(lib_root)"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECTION 4: NDM LIBRARIES (per track — ALL Vt flavors + memory + IO)
+# Command files read: tech($tech(track),ndm)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+set tech(9T,ndm) [list \
+    "$_R/Back_End/ndm/tcbn22cllbwp9tsvt.ndm" \
+    "$_R/Back_End/ndm/tcbn22cllbwp9tlvt.ndm" \
+    "$_R/Back_End/ndm/tcbn22cllbwp9tulvt.ndm" \
+    "$_R/Back_End/ndm/tcbn22cllbwp9thvt.ndm" \
+    "$_R/Back_End/ndm/ts6n22cllhdlvt_memory.ndm" \
+    "$_R/Back_End/ndm/tphn22v_io.ndm" \
+]
+
+set tech(7.5T,ndm) [list \
+    "$_R/Back_End/ndm/tcbn22cllbwp7p5tsvt.ndm" \
+    "$_R/Back_End/ndm/tcbn22cllbwp7p5tlvt.ndm" \
+    "$_R/Back_End/ndm/tcbn22cllbwp7p5tulvt.ndm" \
+    "$_R/Back_End/ndm/tcbn22cllbwp7p5thvt.ndm" \
+    "$_R/Back_End/ndm/ts6n22cllhdlvt_memory.ndm" \
+    "$_R/Back_End/ndm/tphn22v_io.ndm" \
+]
+
+set tech(8T,ndm) [list \
+    "$_R/Back_End/ndm/tcbn22cllbwp8tsvt.ndm" \
+    "$_R/Back_End/ndm/tcbn22cllbwp8tlvt.ndm" \
+    "$_R/Back_End/ndm/tcbn22cllbwp8tulvt.ndm" \
+    "$_R/Back_End/ndm/tcbn22cllbwp8thvt.ndm" \
+    "$_R/Back_End/ndm/ts6n22cllhdlvt_memory.ndm" \
+    "$_R/Back_End/ndm/tphn22v_io.ndm" \
+]
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECTION 5: LEF FILES (per track — ALL Vt flavors + memory + IO)
+# Command files read: tech($tech(track),lef)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+set tech(lef_tech) "$_R/Back_End/lef/gf22nm_tech.lef"
+
+set tech(9T,lef) [list \
+    "$_R/Back_End/lef/tcbn22cllbwp9tsvt.lef" \
+    "$_R/Back_End/lef/tcbn22cllbwp9tlvt.lef" \
+    "$_R/Back_End/lef/tcbn22cllbwp9tulvt.lef" \
+    "$_R/Back_End/lef/tcbn22cllbwp9thvt.lef" \
+    "$_R/Back_End/lef/ts6n22cllhdlvt_memory.lef" \
+    "$_R/Back_End/lef/tphn22v_io.lef" \
+]
+
+set tech(7.5T,lef) [list \
+    "$_R/Back_End/lef/tcbn22cllbwp7p5tsvt.lef" \
+    "$_R/Back_End/lef/tcbn22cllbwp7p5tlvt.lef" \
+    "$_R/Back_End/lef/tcbn22cllbwp7p5tulvt.lef" \
+    "$_R/Back_End/lef/tcbn22cllbwp7p5thvt.lef" \
+    "$_R/Back_End/lef/ts6n22cllhdlvt_memory.lef" \
+    "$_R/Back_End/lef/tphn22v_io.lef" \
+]
+
+set tech(8T,lef) [list \
+    "$_R/Back_End/lef/tcbn22cllbwp8tsvt.lef" \
+    "$_R/Back_End/lef/tcbn22cllbwp8tlvt.lef" \
+    "$_R/Back_End/lef/tcbn22cllbwp8tulvt.lef" \
+    "$_R/Back_End/lef/tcbn22cllbwp8thvt.lef" \
+    "$_R/Back_End/lef/ts6n22cllhdlvt_memory.lef" \
+    "$_R/Back_End/lef/tphn22v_io.lef" \
+]
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECTION 6: PARASITIC EXTRACTION (shared — same for all tracks)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+set tech(tluplus_max) "$_R/Back_End/rcx/gf22nm_1p11m_Cmax.tluplus"
+set tech(tluplus_min) "$_R/Back_End/rcx/gf22nm_1p11m_Cmin.tluplus"
+set tech(tluplus_map) "$_R/Back_End/rcx/gf22nm_tf_itf_tluplus.map"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECTION 7: PHYSICAL CELLS (per track — site, fillers, CTS, tap, endcap)
+# Command files read: tech($tech(track),site), tech($tech(track),fillers), etc.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── 9T Physical ──
+set tech(9T,site)        "GF22FDX_SC9T"
+set tech(9T,cell_height) "0.810"
+set tech(9T,site_width)  "0.114"
+set tech(9T,fillers)     "GF22FDX_SC9T_SVT_FILL1 GF22FDX_SC9T_SVT_FILL2 GF22FDX_SC9T_SVT_FILL4 GF22FDX_SC9T_SVT_FILL8 GF22FDX_SC9T_SVT_FILL16 GF22FDX_SC9T_SVT_FILL32"
+set tech(9T,well_tap)    "GF22FDX_SC9T_SVT_FILLTIE1"
+set tech(9T,endcap)      "GF22FDX_SC9T_SVT_ENDCAP1"
+set tech(9T,decap)       "GF22FDX_SC9T_SVT_DCAP4 GF22FDX_SC9T_SVT_DCAP8"
+set tech(9T,cts_cells)   "tcbn22cllbwp9tsvt_CKBUF4 tcbn22cllbwp9tsvt_CKBUF8 tcbn22cllbwp9tsvt_CKBUF16 tcbn22cllbwp9tsvt_CKINV4 tcbn22cllbwp9tsvt_CKINV8"
+set tech(9T,dont_use)    "*D0BWP9T* *OPTHOLD* *DEL*"
+
+# ── 7.5T Physical ──
+set tech(7.5T,site)        "GF22FDX_SC7P5T"
+set tech(7.5T,cell_height) "0.675"
+set tech(7.5T,site_width)  "0.116"
+set tech(7.5T,fillers)     "GF22FDX_SC7P5T_SVT_FILL1 GF22FDX_SC7P5T_SVT_FILL2 GF22FDX_SC7P5T_SVT_FILL4 GF22FDX_SC7P5T_SVT_FILL8"
+set tech(7.5T,well_tap)    "GF22FDX_SC7P5T_SVT_FILLTIE1"
+set tech(7.5T,endcap)      "GF22FDX_SC7P5T_SVT_ENDCAP1"
+set tech(7.5T,decap)       "GF22FDX_SC7P5T_SVT_DCAP4 GF22FDX_SC7P5T_SVT_DCAP8"
+set tech(7.5T,cts_cells)   "tcbn22cllbwp7p5tsvt_CKBUF4 tcbn22cllbwp7p5tsvt_CKBUF8 tcbn22cllbwp7p5tsvt_CKINV4 tcbn22cllbwp7p5tsvt_CKINV8"
+set tech(7.5T,dont_use)    "*D0BWP7P5T* *OPTHOLD* *DEL*"
+
+# ── 8T Physical ──
+set tech(8T,site)        "GF22FDX_SC8T"
+set tech(8T,cell_height) "0.720"
+set tech(8T,site_width)  "0.114"
+set tech(8T,fillers)     "GF22FDX_SC8T_SVT_FILL1 GF22FDX_SC8T_SVT_FILL2 GF22FDX_SC8T_SVT_FILL4 GF22FDX_SC8T_SVT_FILL8"
+set tech(8T,well_tap)    "GF22FDX_SC8T_SVT_FILLTIE1"
+set tech(8T,endcap)      "GF22FDX_SC8T_SVT_ENDCAP1"
+set tech(8T,decap)       "GF22FDX_SC8T_SVT_DCAP4 GF22FDX_SC8T_SVT_DCAP8"
+set tech(8T,cts_cells)   "tcbn22cllbwp8tsvt_CKBUF4 tcbn22cllbwp8tsvt_CKBUF8 tcbn22cllbwp8tsvt_CKINV4 tcbn22cllbwp8tsvt_CKINV8"
+set tech(8T,dont_use)    "*D0BWP8T* *OPTHOLD* *DEL*"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECTION 8: LIBRARY SETS PER TRACK + PER PVT CORNER
+# Each set: ALL Vt flavors (SVT+LVT+ULVT+HVT) + memory + IO
+# MMMC reads: tech($tech(track),lib,<corner>,timing)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+set _T "$_R/Front_End/timing"
+
+# ┌──────────────────────────────────────────────────────────────────────────┐
+# │  9T LIBRARY SETS                                                        │
+# └──────────────────────────────────────────────────────────────────────────┘
+
+# SS corners (setup-critical)
+set tech(9T,lib,ss_0p76v_150c,timing) [list \
+    "$_T/stdcell/tcbn22cllbwp9tsvtss0p76v150c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tlvtss0p76v150c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tulvtss0p76v150c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9thvtss0p76v150c_ccs.lib" \
+    "$_T/memory/ts6n22cllhdlvtss0p76v150c.lib" \
+    "$_T/io/tphn22v_ss0p76v150c.lib" \
+]
+set tech(9T,lib,ss_0p76v_150c,power) [list \
+    "$_T/stdcell/tcbn22cllbwp9tsvtss0p76v150c_power.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tlvtss0p76v150c_power.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tulvtss0p76v150c_power.lib" \
+    "$_T/stdcell/tcbn22cllbwp9thvtss0p76v150c_power.lib" \
+]
+
+set tech(9T,lib,ss_0p76v_25c,timing) [list \
+    "$_T/stdcell/tcbn22cllbwp9tsvtss0p76v25c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tlvtss0p76v25c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tulvtss0p76v25c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9thvtss0p76v25c_ccs.lib" \
+    "$_T/memory/ts6n22cllhdlvtss0p76v25c.lib" \
+    "$_T/io/tphn22v_ss0p76v25c.lib" \
+]
+set tech(9T,lib,ss_0p76v_25c,power) [list \
+    "$_T/stdcell/tcbn22cllbwp9tsvtss0p76v25c_power.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tlvtss0p76v25c_power.lib" \
+]
+
+set tech(9T,lib,ss_0p76v_m40c,timing) [list \
+    "$_T/stdcell/tcbn22cllbwp9tsvtss0p76vm40c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tlvtss0p76vm40c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tulvtss0p76vm40c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9thvtss0p76vm40c_ccs.lib" \
+    "$_T/memory/ts6n22cllhdlvtss0p76vm40c.lib" \
+    "$_T/io/tphn22v_ss0p76vm40c.lib" \
+]
+set tech(9T,lib,ss_0p76v_m40c,power) [list \
+    "$_T/stdcell/tcbn22cllbwp9tsvtss0p76vm40c_power.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tlvtss0p76vm40c_power.lib" \
+]
+
+set tech(9T,lib,ss_0p80v_150c,timing) [list \
+    "$_T/stdcell/tcbn22cllbwp9tsvtss0p80v150c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tlvtss0p80v150c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tulvtss0p80v150c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9thvtss0p80v150c_ccs.lib" \
+    "$_T/memory/ts6n22cllhdlvtss0p80v150c.lib" \
+    "$_T/io/tphn22v_ss0p80v150c.lib" \
+]
+set tech(9T,lib,ss_0p80v_150c,power) [list \
+    "$_T/stdcell/tcbn22cllbwp9tsvtss0p80v150c_power.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tlvtss0p80v150c_power.lib" \
+]
+
+set tech(9T,lib,ss_0p80v_25c,timing) [list \
+    "$_T/stdcell/tcbn22cllbwp9tsvtss0p80v25c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tlvtss0p80v25c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tulvtss0p80v25c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9thvtss0p80v25c_ccs.lib" \
+    "$_T/memory/ts6n22cllhdlvtss0p80v25c.lib" \
+    "$_T/io/tphn22v_ss0p80v25c.lib" \
+]
+set tech(9T,lib,ss_0p80v_25c,power) [list \
+    "$_T/stdcell/tcbn22cllbwp9tsvtss0p80v25c_power.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tlvtss0p80v25c_power.lib" \
+]
+
+# TT corners (nominal)
+set tech(9T,lib,tt_0p80v_25c,timing) [list \
+    "$_T/stdcell/tcbn22cllbwp9tsvttt0p80v25c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tlvttt0p80v25c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tulvttt0p80v25c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9thvttt0p80v25c_ccs.lib" \
+    "$_T/memory/ts6n22cllhdlvttt0p80v25c.lib" \
+    "$_T/io/tphn22v_tt0p80v25c.lib" \
+]
+set tech(9T,lib,tt_0p80v_25c,power) [list \
+    "$_T/stdcell/tcbn22cllbwp9tsvttt0p80v25c_power.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tlvttt0p80v25c_power.lib" \
+]
+
+set tech(9T,lib,tt_0p80v_150c,timing) [list \
+    "$_T/stdcell/tcbn22cllbwp9tsvttt0p80v150c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tlvttt0p80v150c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tulvttt0p80v150c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9thvttt0p80v150c_ccs.lib" \
+    "$_T/memory/ts6n22cllhdlvttt0p80v150c.lib" \
+    "$_T/io/tphn22v_tt0p80v150c.lib" \
+]
+set tech(9T,lib,tt_0p80v_150c,power) [list \
+    "$_T/stdcell/tcbn22cllbwp9tsvttt0p80v150c_power.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tlvttt0p80v150c_power.lib" \
+]
+
+set tech(9T,lib,tt_0p80v_m40c,timing) [list \
+    "$_T/stdcell/tcbn22cllbwp9tsvttt0p80vm40c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tlvttt0p80vm40c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tulvttt0p80vm40c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9thvttt0p80vm40c_ccs.lib" \
+    "$_T/memory/ts6n22cllhdlvttt0p80vm40c.lib" \
+    "$_T/io/tphn22v_tt0p80vm40c.lib" \
+]
+set tech(9T,lib,tt_0p80v_m40c,power) [list \
+    "$_T/stdcell/tcbn22cllbwp9tsvttt0p80vm40c_power.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tlvttt0p80vm40c_power.lib" \
+]
+
+# FF corners (hold-critical)
+set tech(9T,lib,ff_0p84v_m40c,timing) [list \
+    "$_T/stdcell/tcbn22cllbwp9tsvtff0p84vm40c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tlvtff0p84vm40c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tulvtff0p84vm40c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9thvtff0p84vm40c_ccs.lib" \
+    "$_T/memory/ts6n22cllhdlvtff0p84vm40c.lib" \
+    "$_T/io/tphn22v_ff0p84vm40c.lib" \
+]
+set tech(9T,lib,ff_0p84v_m40c,power) [list \
+    "$_T/stdcell/tcbn22cllbwp9tsvtff0p84vm40c_power.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tlvtff0p84vm40c_power.lib" \
+]
+
+set tech(9T,lib,ff_0p84v_25c,timing) [list \
+    "$_T/stdcell/tcbn22cllbwp9tsvtff0p84v25c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tlvtff0p84v25c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tulvtff0p84v25c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9thvtff0p84v25c_ccs.lib" \
+    "$_T/memory/ts6n22cllhdlvtff0p84v25c.lib" \
+    "$_T/io/tphn22v_ff0p84v25c.lib" \
+]
+set tech(9T,lib,ff_0p84v_25c,power) [list \
+    "$_T/stdcell/tcbn22cllbwp9tsvtff0p84v25c_power.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tlvtff0p84v25c_power.lib" \
+]
+
+set tech(9T,lib,ff_0p84v_150c,timing) [list \
+    "$_T/stdcell/tcbn22cllbwp9tsvtff0p84v150c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tlvtff0p84v150c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tulvtff0p84v150c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9thvtff0p84v150c_ccs.lib" \
+    "$_T/memory/ts6n22cllhdlvtff0p84v150c.lib" \
+    "$_T/io/tphn22v_ff0p84v150c.lib" \
+]
+set tech(9T,lib,ff_0p84v_150c,power) [list \
+    "$_T/stdcell/tcbn22cllbwp9tsvtff0p84v150c_power.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tlvtff0p84v150c_power.lib" \
+]
+
+set tech(9T,lib,ff_0p80v_m40c,timing) [list \
+    "$_T/stdcell/tcbn22cllbwp9tsvtff0p80vm40c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tlvtff0p80vm40c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tulvtff0p80vm40c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp9thvtff0p80vm40c_ccs.lib" \
+    "$_T/memory/ts6n22cllhdlvtff0p80vm40c.lib" \
+    "$_T/io/tphn22v_ff0p80vm40c.lib" \
+]
+set tech(9T,lib,ff_0p80v_m40c,power) [list \
+    "$_T/stdcell/tcbn22cllbwp9tsvtff0p80vm40c_power.lib" \
+    "$_T/stdcell/tcbn22cllbwp9tlvtff0p80vm40c_power.lib" \
+]
+
+# ┌──────────────────────────────────────────────────────────────────────────┐
+# │  7.5T LIBRARY SETS (same corners, different cell prefix)                │
+# └──────────────────────────────────────────────────────────────────────────┘
+
+# SS corners
+set tech(7.5T,lib,ss_0p76v_150c,timing) [list \
+    "$_T/stdcell/tcbn22cllbwp7p5tsvtss0p76v150c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp7p5tlvtss0p76v150c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp7p5tulvtss0p76v150c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp7p5thvtss0p76v150c_ccs.lib" \
+    "$_T/memory/ts6n22cllhdlvtss0p76v150c.lib" \
+    "$_T/io/tphn22v_ss0p76v150c.lib" \
+]
+set tech(7.5T,lib,ss_0p76v_150c,power) [list \
+    "$_T/stdcell/tcbn22cllbwp7p5tsvtss0p76v150c_power.lib" \
+    "$_T/stdcell/tcbn22cllbwp7p5tlvtss0p76v150c_power.lib" \
+]
+
+# TT corners
+set tech(7.5T,lib,tt_0p80v_25c,timing) [list \
+    "$_T/stdcell/tcbn22cllbwp7p5tsvttt0p80v25c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp7p5tlvttt0p80v25c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp7p5tulvttt0p80v25c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp7p5thvttt0p80v25c_ccs.lib" \
+    "$_T/memory/ts6n22cllhdlvttt0p80v25c.lib" \
+    "$_T/io/tphn22v_tt0p80v25c.lib" \
+]
+set tech(7.5T,lib,tt_0p80v_25c,power) [list \
+    "$_T/stdcell/tcbn22cllbwp7p5tsvttt0p80v25c_power.lib" \
+    "$_T/stdcell/tcbn22cllbwp7p5tlvttt0p80v25c_power.lib" \
+]
+
+# FF corners
+set tech(7.5T,lib,ff_0p84v_m40c,timing) [list \
+    "$_T/stdcell/tcbn22cllbwp7p5tsvtff0p84vm40c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp7p5tlvtff0p84vm40c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp7p5tulvtff0p84vm40c_ccs.lib" \
+    "$_T/stdcell/tcbn22cllbwp7p5thvtff0p84vm40c_ccs.lib" \
+    "$_T/memory/ts6n22cllhdlvtff0p84vm40c.lib" \
+    "$_T/io/tphn22v_ff0p84vm40c.lib" \
+]
+set tech(7.5T,lib,ff_0p84v_m40c,power) [list \
+    "$_T/stdcell/tcbn22cllbwp7p5tsvtff0p84vm40c_power.lib" \
+    "$_T/stdcell/tcbn22cllbwp7p5tlvtff0p84vm40c_power.lib" \
+]
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECTION 9: DESIGN RULES & ROUTING (shared — same for all tracks)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+set tech(min_routing_layer) "M2"
+set tech(max_routing_layer) "M10"
+set tech(clock_routing_layer_min) "M4"
+set tech(clock_routing_layer_max) "M8"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECTION 10: BODY BIAS (GF 22FDX specific — FD-SOI advantage)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+set tech(body_bias,fbb_voltage) "0.8"
+set tech(body_bias,rbb_voltage) "-0.3"
+set tech(body_bias,enabled) "true"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECTION 11: BACKWARD COMPATIBILITY — old variable names → new
+# Remove this section after all command files are updated
+# ═══════════════════════════════════════════════════════════════════════════════
+
+set _trk $tech(track)
+# Old-style single vars that some command files may still reference
+if {[info exists tech(${_trk},ndm)] && [llength $tech(${_trk},ndm)] > 0} {
+    set tech(ndm,standard_cells) [lindex $tech(${_trk},ndm) 0]
 }
-set _MEMORY  "ts6n22cllhdlvt512x8m4sw"
-set _IO      "tphn22v"
-
-puts "INFO: GF 22FDX track variant: $tech(track,active_variant) — stdcell=$_STDCELL"
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# NDM LIBRARIES (Fusion Compiler — preferred)
-# ═══════════════════════════════════════════════════════════════════════════════
-set tech(ndm,standard_cells) "$tech(library,root_path)/Back_End/ndm/stdcell/${_STDCELL}.ndm"
-set tech(ndm,memory)         "$tech(library,root_path)/Back_End/ndm/memory/${_MEMORY}.ndm"
-set tech(ndm,io_pads)        "$tech(library,root_path)/Back_End/ndm/io/${_IO}.ndm"
-set tech(ndm,parasitic_tech) ""
-set tech(ndm,tech_lib)       ""
-set tech(ndm,sub_blocks)     {}
-set tech(ndm,additional)     {}
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# LEF FILES (Physical — fallback when NDM unavailable)
-# ═══════════════════════════════════════════════════════════════════════════════
-set tech(lef,technology)      "$tech(library,root_path)/Back_End/lef/gf22nm_tech.lef"
-set tech(lef,standard_cells)  "$tech(library,root_path)/Back_End/lef/stdcell/${_STDCELL}.lef"
-set tech(lef,macros)          "$tech(library,root_path)/Back_End/lef/memory/${_MEMORY}.lef"
-set tech(lef,io_pads)         "$tech(library,root_path)/Back_End/lef/io/${_IO}.lef"
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# DB FILES (Synopsys .db — fallback for fusion library creation)
-# ═══════════════════════════════════════════════════════════════════════════════
-set tech(db,standard_cells) "$tech(library,root_path)/Front_End/timing/stdcell/${_STDCELL}tt0p80v25c.db"
-set tech(db,memory)         "$tech(library,root_path)/Front_End/timing/memory/${_MEMORY}tt0p80v25c.db"
-set tech(db,io_pads)        "$tech(library,root_path)/Front_End/timing/io/${_IO}_tt0p80v25c.db"
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# TLU+ PARASITIC EXTRACTION
-# ═══════════════════════════════════════════════════════════════════════════════
-set tech(tluplus,max) "$tech(library,root_path)/Back_End/rcx/gf22nm_1p11m_Cmax.tluplus"
-set tech(tluplus,min) "$tech(library,root_path)/Back_End/rcx/gf22nm_1p11m_Cmin.tluplus"
-set tech(tluplus,map) "$tech(library,root_path)/Back_End/rcx/gf22nm_tf_itf_tluplus.map"
-
-# Legacy single-corner timing libs (nominal TT)
-set tech(lib,timing) "$tech(library,stdcell_path)/${_STDCELL}tt0p80v25c_ccs.lib"
-set tech(lib,power)  "$tech(library,stdcell_path)/${_STDCELL}tt0p80v25c_power.lib"
-set tech(lib,ccs)    "$tech(library,stdcell_path)/${_STDCELL}tt0p80v25c_ccs.lib"
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# LIBRARY SETS — Aligned with MMMC analysis_views lib_set_ref
-# Naming: <corner>_<voltage>v_<temp>c (e.g., ss_0800v_150c)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# SS Corner (Slow-Slow) — Setup Critical
-set library_sets(ss_0760v_150c,description) "SS 0.76V 150C — worst setup"
-set library_sets(ss_0760v_150c,corner)      "ss"
-set library_sets(ss_0760v_150c,voltage)     "0.76"
-set library_sets(ss_0760v_150c,temperature) "150"
-set library_sets(ss_0760v_150c,timing)      "$tech(library,stdcell_path)/${_STDCELL}ss0p76v150c_ccs.lib $tech(library,memory_path)/${_MEMORY}ss0p76v150c_ccs.lib $tech(library,io_path)/${_IO}_ss0p76v150c_ccs.lib"
-set library_sets(ss_0760v_150c,power)       "$tech(library,stdcell_path)/${_STDCELL}ss0p76v150c_power.lib $tech(library,memory_path)/${_MEMORY}ss0p76v150c_power.lib"
-
-set library_sets(ss_0760v_25c,description)  "SS 0.76V 25C"
-set library_sets(ss_0760v_25c,corner)       "ss"
-set library_sets(ss_0760v_25c,voltage)      "0.76"
-set library_sets(ss_0760v_25c,temperature)  "25"
-set library_sets(ss_0760v_25c,timing)       "$tech(library,stdcell_path)/${_STDCELL}ss0p76v25c_ccs.lib $tech(library,memory_path)/${_MEMORY}ss0p76v25c_ccs.lib $tech(library,io_path)/${_IO}_ss0p76v25c_ccs.lib"
-set library_sets(ss_0760v_25c,power)        "$tech(library,stdcell_path)/${_STDCELL}ss0p76v25c_power.lib $tech(library,memory_path)/${_MEMORY}ss0p76v25c_power.lib"
-
-set library_sets(ss_0760v_m40c,description) "SS 0.76V -40C"
-set library_sets(ss_0760v_m40c,corner)      "ss"
-set library_sets(ss_0760v_m40c,voltage)     "0.76"
-set library_sets(ss_0760v_m40c,temperature) "-40"
-set library_sets(ss_0760v_m40c,timing)      "$tech(library,stdcell_path)/${_STDCELL}ss0p76vm40c_ccs.lib $tech(library,memory_path)/${_MEMORY}ss0p76vm40c_ccs.lib $tech(library,io_path)/${_IO}_ss0p76vm40c_ccs.lib"
-set library_sets(ss_0760v_m40c,power)       "$tech(library,stdcell_path)/${_STDCELL}ss0p76vm40c_power.lib $tech(library,memory_path)/${_MEMORY}ss0p76vm40c_power.lib"
-
-set library_sets(ss_0800v_150c,description) "SS 0.80V 150C"
-set library_sets(ss_0800v_150c,corner)      "ss"
-set library_sets(ss_0800v_150c,voltage)     "0.80"
-set library_sets(ss_0800v_150c,temperature) "150"
-set library_sets(ss_0800v_150c,timing)      "$tech(library,stdcell_path)/${_STDCELL}ss0p80v150c_ccs.lib $tech(library,memory_path)/${_MEMORY}ss0p80v150c_ccs.lib $tech(library,io_path)/${_IO}_ss0p80v150c_ccs.lib"
-set library_sets(ss_0800v_150c,power)       "$tech(library,stdcell_path)/${_STDCELL}ss0p80v150c_power.lib $tech(library,memory_path)/${_MEMORY}ss0p80v150c_power.lib"
-
-set library_sets(ss_0800v_25c,description)  "SS 0.80V 25C"
-set library_sets(ss_0800v_25c,corner)       "ss"
-set library_sets(ss_0800v_25c,voltage)      "0.80"
-set library_sets(ss_0800v_25c,temperature)  "25"
-set library_sets(ss_0800v_25c,timing)       "$tech(library,stdcell_path)/${_STDCELL}ss0p80v25c_ccs.lib $tech(library,memory_path)/${_MEMORY}ss0p80v25c_ccs.lib $tech(library,io_path)/${_IO}_ss0p80v25c_ccs.lib"
-set library_sets(ss_0800v_25c,power)        "$tech(library,stdcell_path)/${_STDCELL}ss0p80v25c_power.lib $tech(library,memory_path)/${_MEMORY}ss0p80v25c_power.lib"
-
-# TT Corner (Typical) — Nominal
-set library_sets(tt_0800v_150c,description) "TT 0.80V 150C — nominal hot"
-set library_sets(tt_0800v_150c,corner)      "tt"
-set library_sets(tt_0800v_150c,voltage)     "0.80"
-set library_sets(tt_0800v_150c,temperature) "150"
-set library_sets(tt_0800v_150c,timing)      "$tech(library,stdcell_path)/${_STDCELL}tt0p80v150c_ccs.lib $tech(library,memory_path)/${_MEMORY}tt0p80v150c_ccs.lib $tech(library,io_path)/${_IO}_tt0p80v150c_ccs.lib"
-set library_sets(tt_0800v_150c,power)       "$tech(library,stdcell_path)/${_STDCELL}tt0p80v150c_power.lib $tech(library,memory_path)/${_MEMORY}tt0p80v150c_power.lib"
-
-set library_sets(tt_0800v_25c,description)  "TT 0.80V 25C — nominal"
-set library_sets(tt_0800v_25c,corner)       "tt"
-set library_sets(tt_0800v_25c,voltage)      "0.80"
-set library_sets(tt_0800v_25c,temperature)  "25"
-set library_sets(tt_0800v_25c,timing)       "$tech(library,stdcell_path)/${_STDCELL}tt0p80v25c_ccs.lib $tech(library,memory_path)/${_MEMORY}tt0p80v25c_ccs.lib $tech(library,io_path)/${_IO}_tt0p80v25c_ccs.lib"
-set library_sets(tt_0800v_25c,power)        "$tech(library,stdcell_path)/${_STDCELL}tt0p80v25c_power.lib $tech(library,memory_path)/${_MEMORY}tt0p80v25c_power.lib"
-
-set library_sets(tt_0800v_m40c,description) "TT 0.80V -40C — nominal cold"
-set library_sets(tt_0800v_m40c,corner)      "tt"
-set library_sets(tt_0800v_m40c,voltage)     "0.80"
-set library_sets(tt_0800v_m40c,temperature) "-40"
-set library_sets(tt_0800v_m40c,timing)      "$tech(library,stdcell_path)/${_STDCELL}tt0p80vm40c_ccs.lib $tech(library,memory_path)/${_MEMORY}tt0p80vm40c_ccs.lib $tech(library,io_path)/${_IO}_tt0p80vm40c_ccs.lib"
-set library_sets(tt_0800v_m40c,power)       "$tech(library,stdcell_path)/${_STDCELL}tt0p80vm40c_power.lib $tech(library,memory_path)/${_MEMORY}tt0p80vm40c_power.lib"
-
-# FF Corner (Fast-Fast) — Hold Critical
-set library_sets(ff_0800v_m40c,description) "FF 0.80V -40C"
-set library_sets(ff_0800v_m40c,corner)      "ff"
-set library_sets(ff_0800v_m40c,voltage)     "0.80"
-set library_sets(ff_0800v_m40c,temperature) "-40"
-set library_sets(ff_0800v_m40c,timing)      "$tech(library,stdcell_path)/${_STDCELL}ff0p80vm40c_ccs.lib $tech(library,memory_path)/${_MEMORY}ff0p80vm40c_ccs.lib $tech(library,io_path)/${_IO}_ff0p80vm40c_ccs.lib"
-set library_sets(ff_0800v_m40c,power)       "$tech(library,stdcell_path)/${_STDCELL}ff0p80vm40c_power.lib $tech(library,memory_path)/${_MEMORY}ff0p80vm40c_power.lib"
-
-set library_sets(ff_0840v_150c,description) "FF 0.84V 150C"
-set library_sets(ff_0840v_150c,corner)      "ff"
-set library_sets(ff_0840v_150c,voltage)     "0.84"
-set library_sets(ff_0840v_150c,temperature) "150"
-set library_sets(ff_0840v_150c,timing)      "$tech(library,stdcell_path)/${_STDCELL}ff0p84v150c_ccs.lib $tech(library,memory_path)/${_MEMORY}ff0p84v150c_ccs.lib $tech(library,io_path)/${_IO}_ff0p84v150c_ccs.lib"
-set library_sets(ff_0840v_150c,power)       "$tech(library,stdcell_path)/${_STDCELL}ff0p84v150c_power.lib $tech(library,memory_path)/${_MEMORY}ff0p84v150c_power.lib"
-
-set library_sets(ff_0840v_25c,description)  "FF 0.84V 25C"
-set library_sets(ff_0840v_25c,corner)       "ff"
-set library_sets(ff_0840v_25c,voltage)      "0.84"
-set library_sets(ff_0840v_25c,temperature)  "25"
-set library_sets(ff_0840v_25c,timing)       "$tech(library,stdcell_path)/${_STDCELL}ff0p84v25c_ccs.lib $tech(library,memory_path)/${_MEMORY}ff0p84v25c_ccs.lib $tech(library,io_path)/${_IO}_ff0p84v25c_ccs.lib"
-set library_sets(ff_0840v_25c,power)        "$tech(library,stdcell_path)/${_STDCELL}ff0p84v25c_power.lib $tech(library,memory_path)/${_MEMORY}ff0p84v25c_power.lib"
-
-set library_sets(ff_0840v_m40c,description) "FF 0.84V -40C — worst hold"
-set library_sets(ff_0840v_m40c,corner)      "ff"
-set library_sets(ff_0840v_m40c,voltage)     "0.84"
-set library_sets(ff_0840v_m40c,temperature) "-40"
-set library_sets(ff_0840v_m40c,timing)      "$tech(library,stdcell_path)/${_STDCELL}ff0p84vm40c_ccs.lib $tech(library,memory_path)/${_MEMORY}ff0p84vm40c_ccs.lib $tech(library,io_path)/${_IO}_ff0p84vm40c_ccs.lib"
-set library_sets(ff_0840v_m40c,power)       "$tech(library,stdcell_path)/${_STDCELL}ff0p84vm40c_power.lib $tech(library,memory_path)/${_MEMORY}ff0p84vm40c_power.lib"
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# TECHNOLOGY SCRIPTS (alongside this file)
-# ═══════════════════════════════════════════════════════════════════════════════
-set tech(tech_setup_script)     "$_tech_dir/tech_setup.tcl"
-set tech(lib_cell_purpose_file) "$_tech_dir/set_lib_cell_purpose.tcl"
-set tech(cts_ndr_file)          "$_tech_dir/cts_ndr.tcl"
-
-# Tech file (.tf) — routing rules and layer definitions
-set tech(tech_file) ""
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# CELL RESTRICTIONS (used by set_lib_cell_purpose.tcl)
-# ═══════════════════════════════════════════════════════════════════════════════
-set tech(dont_use_cells) {
-    "*/GF22FDX_SC9T_*_DELLN*"
-    "*/GF22FDX_SC9T_*_DEL0*"
-    "*/GF22FDX_SC9T_*_ANTENNA*"
-    "*/GF22FDX_SC9T_*_DCAP*X1"
+if {[info exists tech(${_trk},lef)] && [llength $tech(${_trk},lef)] > 0} {
+    set tech(lef,standard_cells) [lindex $tech(${_trk},lef) 0]
 }
-set tech(tie_lib_cells)       "*/GF22FDX_SC9T_*_TIEH* */GF22FDX_SC9T_*_TIEL*"
-set tech(hold_fix_lib_cells)  "*/GF22FDX_SC9T_*_BUFX1 */GF22FDX_SC9T_*_BUFX2 */GF22FDX_SC9T_*_DLYB*"
-set tech(cts_lib_cells)       "*/GF22FDX_SC9T_*_CKBUF* */GF22FDX_SC9T_*_CKINV* */GF22FDX_SC9T_*_CKND* */GF22FDX_SC9T_*_SDFF*"
-set tech(cts_only_lib_cells)  "*/GF22FDX_SC9T_*_CKBUF* */GF22FDX_SC9T_*_CKINV*"
+set tech(library,root_path)    $tech(lib_root)
+set tech(library,stdcell_path) "$tech(lib_root)/Front_End/timing/stdcell"
+set tech(library,memory_path)  "$tech(lib_root)/Front_End/timing/memory"
+set tech(library,io_path)      "$tech(lib_root)/Front_End/timing/io"
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# CTS NDR CONFIGURATION
-# ═══════════════════════════════════════════════════════════════════════════════
-set tech(cts_ndr,root_rule)     "rm_2w2s"
-set tech(cts_ndr,internal_rule) "rm_2w2s"
-set tech(cts_ndr,leaf_rule)     ""
-set tech(cts_ndr,min_layer)     "M3"
-set tech(cts_ndr,max_layer)     "M7"
-set tech(via_ladder_file)       ""
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# ON-CHIP VARIATION (OCV)
-# ═══════════════════════════════════════════════════════════════════════════════
-set tech(ocv,derate_file) ""
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# DESIGN RULES (GF 22FDX 9T)
-# ═══════════════════════════════════════════════════════════════════════════════
-set tech(dr,min_width)   "0.064"
-set tech(dr,min_spacing) "0.064"
-set tech(dr,via_size)    "0.050"
-set tech(dr,track_pitch) "0.090"
-set tech(dr,m1_pitch)    "0.064"
-set tech(dr,site_width)  "0.114"
-set tech(dr,site_height) "0.810"
-
-# Metal stack (GF 22FDX 11M: 1P11M)
-set tech(metal_stack) {
-    {M1  horizontal 0.064}
-    {M2  vertical   0.064}
-    {M3  horizontal 0.090}
-    {M4  vertical   0.090}
-    {M5  horizontal 0.090}
-    {M6  vertical   0.090}
-    {M7  horizontal 0.090}
-    {M8  vertical   0.180}
-    {M9  horizontal 0.180}
-    {M10 vertical   0.720}
-    {M11 horizontal 0.720}
-}
-
-# Routing layer constraints
-set tech(routing,min_layer)    "M2"
-set tech(routing,max_layer)    "M9"
-set tech(routing,clock_min)    "M3"
-set tech(routing,clock_max)    "M7"
-set tech(routing,power_layers) "M10 M11"
-
-# Tech setup variables (used by tech_setup.tcl)
-set tech(routing_layer_direction_offset) {
-    {M1  horizontal 0.0}
-    {M2  vertical   0.0}
-    {M3  horizontal 0.0}
-    {M4  vertical   0.0}
-    {M5  horizontal 0.0}
-    {M6  vertical   0.0}
-    {M7  horizontal 0.0}
-}
-set tech(site_default)  "GF22FDX_SC9T"
-set tech(site_symmetry) "Y"
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# STANDARD CELL NAMES (GF 22FDX 9T SVT)
-# ═══════════════════════════════════════════════════════════════════════════════
-set tech(cells,site)       "GF22FDX_SC9T"
-set tech(cells,height)     "0.810"
-set tech(cells,min_width)  "0.114"
-set tech(cells,power_pins) "VDD VSS"
-
-# Physical cells
-set tech(cells,well_tap)   "GF22FDX_SC9T_SVT_FILLTIE1 GF22FDX_SC9T_SVT_FILLTIE2"
-set tech(cells,tie_high)   "GF22FDX_SC9T_SVT_TIEH"
-set tech(cells,tie_low)    "GF22FDX_SC9T_SVT_TIEL"
-set tech(cells,filler)     "GF22FDX_SC9T_SVT_FILL1 GF22FDX_SC9T_SVT_FILL2 GF22FDX_SC9T_SVT_FILL4 GF22FDX_SC9T_SVT_FILL8 GF22FDX_SC9T_SVT_FILL16 GF22FDX_SC9T_SVT_FILL32"
-set tech(cells,decap)      "GF22FDX_SC9T_SVT_DCAP4 GF22FDX_SC9T_SVT_DCAP8 GF22FDX_SC9T_SVT_DCAP16"
-set tech(cells,endcap)     "GF22FDX_SC9T_SVT_ENDCAP"
-set tech(cells,antenna)    "GF22FDX_SC9T_SVT_ANTENNAX1"
-
-# Logic cells
-set tech(cells,buf)        "GF22FDX_SC9T_SVT_BUFX1 GF22FDX_SC9T_SVT_BUFX2 GF22FDX_SC9T_SVT_BUFX4 GF22FDX_SC9T_SVT_BUFX8 GF22FDX_SC9T_SVT_BUFX16"
-set tech(cells,inv)        "GF22FDX_SC9T_SVT_INVX1 GF22FDX_SC9T_SVT_INVX2 GF22FDX_SC9T_SVT_INVX4 GF22FDX_SC9T_SVT_INVX8"
-set tech(cells,delay)      "GF22FDX_SC9T_SVT_DLYB1X1 GF22FDX_SC9T_SVT_DLYB2X1 GF22FDX_SC9T_SVT_DLYB4X1"
-
-# Clock cells
-set tech(cells,clk_buf)    "GF22FDX_SC9T_SVT_CKBUFX2 GF22FDX_SC9T_SVT_CKBUFX4 GF22FDX_SC9T_SVT_CKBUFX8 GF22FDX_SC9T_SVT_CKBUFX16 GF22FDX_SC9T_SVT_CKBUFX20"
-set tech(cells,clk_inv)    "GF22FDX_SC9T_SVT_CKINVX2 GF22FDX_SC9T_SVT_CKINVX4 GF22FDX_SC9T_SVT_CKINVX8 GF22FDX_SC9T_SVT_CKINVX16"
-set tech(cells,icg)        "GF22FDX_SC9T_SVT_ICGX1 GF22FDX_SC9T_SVT_ICGX2 GF22FDX_SC9T_SVT_ICGX4"
-set tech(cells,clk_gate)   "GF22FDX_SC9T_SVT_TLATNCAX2 GF22FDX_SC9T_SVT_TLATNCAX4"
-
-# Voltage threshold variants
-set tech(vt_types)   "ULVT LVT SVT HVT"
-set tech(vt_default) "SVT"
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# MULTI-TRACK LIBRARY SUPPORT
-# ═══════════════════════════════════════════════════════════════════════════════
-set tech(track,available_variants) {9T 7.5T 8T}
-set tech(track,default_variant)    "9T"
-
-if {![info exists tech(track,active_variant)]} {
-    set tech(track,active_variant) $tech(track,default_variant)
-}
-
-array set track_variants {
-    "9T" {
-        cell_height     "0.810"
-        site_height     "0.810"
-        site_width      "0.114"
-        track_pitch     "0.090"
-        stdcell_prefix  "GF22FDX_SC9T"
-        site_name       "GF22FDX_SC9T"
-        filler_cells    "GF22FDX_SC9T_SVT_FILL1 GF22FDX_SC9T_SVT_FILL2 GF22FDX_SC9T_SVT_FILL4 GF22FDX_SC9T_SVT_FILL8 GF22FDX_SC9T_SVT_FILL16 GF22FDX_SC9T_SVT_FILL32"
-        well_tap        "GF22FDX_SC9T_SVT_FILLTIE1"
-        description     "GF 22FDX 9-Track High Performance"
-    }
-    "7.5T" {
-        cell_height     "0.675"
-        site_height     "0.675"
-        site_width      "0.116"
-        track_pitch     "0.090"
-        stdcell_prefix  "GF22FDX_SC7P5T"
-        site_name       "GF22FDX_SC7P5T"
-        filler_cells    "GF22FDX_SC7P5T_SVT_FILL1 GF22FDX_SC7P5T_SVT_FILL2 GF22FDX_SC7P5T_SVT_FILL4 GF22FDX_SC7P5T_SVT_FILL8"
-        well_tap        "GF22FDX_SC7P5T_SVT_FILLTIE1"
-        description     "GF 22FDX 7.5-Track Ultra Low Power"
-    }
-    "8T" {
-        cell_height     "0.720"
-        site_height     "0.720"
-        site_width      "0.114"
-        track_pitch     "0.090"
-        stdcell_prefix  "GF22FDX_SC8T"
-        site_name       "GF22FDX_SC8T"
-        filler_cells    "GF22FDX_SC8T_SVT_FILL1 GF22FDX_SC8T_SVT_FILL2 GF22FDX_SC8T_SVT_FILL4 GF22FDX_SC8T_SVT_FILL8"
-        well_tap        "GF22FDX_SC8T_SVT_FILLTIE1"
-        description     "GF 22FDX 8-Track Low Power with Body Bias"
-    }
-}
-
-# ── Track Resolution ──────────────────────────────────────────────────────────
-proc resolve_track_variant {} {
-    global tech track_variants
-    set variant $tech(track,active_variant)
-    if {![info exists track_variants($variant)]} {
-        puts "WARNING: Track variant '$variant' not found. Using default."
-        set variant $tech(track,default_variant)
-        set tech(track,active_variant) $variant
-    }
-    array set vinfo $track_variants($variant)
-    set tech(cells,height)         $vinfo(cell_height)
-    set tech(cells,site)           $vinfo(site_name)
-    set tech(cells,filler)         $vinfo(filler_cells)
-    set tech(cells,well_tap)       $vinfo(well_tap)
-    set tech(track,cell_height)    $vinfo(cell_height)
-    set tech(track,stdcell_prefix) $vinfo(stdcell_prefix)
-    set tech(track,description)    $vinfo(description)
-    puts "INFO: Track variant: $variant ($vinfo(description))"
-}
-
-catch {resolve_track_variant}
+puts "INFO: GF 22FDX tech config loaded — track=$tech(track), metal=$tech(metal_stack), libs=[llength $tech(${_trk},ndm)] NDMs"
