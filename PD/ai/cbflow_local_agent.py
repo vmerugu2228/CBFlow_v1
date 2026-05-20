@@ -706,25 +706,44 @@ def run_agent(prompt: str, interactive: bool = False):
             # Action: parse intent and execute EXACT commands — don't trust LLM to build commands
             commands = _parse_action_intent(user_input)
             if commands:
+                had_error = False
                 for cmd_desc, cmd in commands:
                     info(f"{cmd_desc}")
                     result = execute_tool("bash", {"command": cmd, "cwd": DEFAULT_WORKSPACE})
                     lines = result.strip().split('\n')
-                    for l in lines[:8]:
-                        if 'ERROR' in l or 'FAIL' in l:
-                            from cli_ui import red
-                            print(f"    {red(l[:120])}")
-                        elif 'PASS' in l or 'SUCCESS' in l or 'Created' in l or 'Directory' in l:
-                            from cli_ui import green
-                            print(f"    {green(l[:120])}")
-                        elif l.strip():
-                            from cli_ui import dim
-                            print(f"    {dim(l[:120])}")
-                    if len(lines) > 8:
-                        from cli_ui import dim
-                        print(f"    {dim(f'... ({len(lines)-8} more lines)')}")
+                    # Check for errors
+                    result_has_error = any('ERROR' in l or 'FAIL' in l for l in lines)
+                    result_has_exists = any('already exists' in l for l in lines)
+
+                    if result_has_exists:
+                        from cli_ui import yellow
+                        error(f"Run already exists! Use a different run name.")
+                        for l in lines:
+                            if 'already exists' in l or 'Use --force' in l:
+                                print(f"    {yellow(l.strip()[:120])}")
+                        had_error = True
+                        break
+                    elif result_has_error:
+                        for l in lines:
+                            if 'ERROR' in l or 'FAIL' in l:
+                                from cli_ui import red
+                                print(f"    {red(l.strip()[:120])}")
+                        had_error = True
+                        break
+                    else:
+                        for l in lines[:8]:
+                            if 'PASS' in l or 'SUCCESS' in l or 'Created' in l or 'Directory' in l:
+                                from cli_ui import green
+                                print(f"    {green(l.strip()[:120])}")
+                            elif l.strip() and 'STDERR' not in l and '██' not in l:
+                                from cli_ui import dim
+                                print(f"    {dim(l.strip()[:120])}")
+
                 separator()
-                success("Done.")
+                if had_error:
+                    error("Failed. Check the error above.")
+                else:
+                    success("Done.")
                 print()
                 messages.append({"role": "user", "content": user_input})
                 messages.append({"role": "assistant", "content": f"Executed: {'; '.join(c[0] for c in commands)}"})
