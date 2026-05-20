@@ -89,6 +89,26 @@ Available tools:
 
 ## User configs: uc_SYNTH.tcl, uc_PNR.tcl, uc_SYNTH_PNR.tcl, uc_STA.tcl, uc_LEC.tcl, uc_CLP.tcl
 
+## EMBEDDED KNOWLEDGE (always available — no search needed)
+### 12 Flows
+- SYNTH: 7 stages (rtl1→sdc1→upf1→init_design1→synthesis1→export_data1→release_data1) — synopsys/fc
+- PNR: 13 stages (netlist1→sdc1→def1→upf1→init_design1→place1→cts1→cts_opt1→route1→pro1→signoff1→export_data1→release_data1) — synopsys/fc
+- SYNTH_PNR: 13 stages (rtl1→sdc1→upf1→init_design1→synthesis1→place1→cts1→cts_opt1→route1→pro1→signoff1→export_data1→release_data1) — synopsys/fc
+- STA: 8 stages (netlist1→sdc1→spef1→library1→extraction1→timing1→reporting1→release_data1) — synopsys/pt
+- LEC: 5 stages (netlist_golden1→netlist_revised1→constraints1→compare1→release_data1) — synopsys/formality
+- CLP: 5 stages (netlist1→upf1→power_spec1→clp1→release_data1) — synopsys/vc_lp
+- PV: 11 stages (netlist1→def1→gds1→fill1→drc1→lvs1→erc1→perc1→xor1→merge_data1→release_data1) — synopsys/icv
+- EMIR: 7 stages — synopsys/redhawk
+- FP: 12 stages — synopsys/fc
+- FCFP: 17 stages — synopsys/fc
+- ECO: 6 stages — synopsys/fc
+- POPT: 7 stages — synopsys/pt
+### Projects
+- ravendrive: blocks = cpu_core, memory_ctrl, io_ctrl
+- phoenix: blocks = cpu_core, memory_ctrl, io_ctrl
+### Release Tags
+FP_EXIT(P0), PLACE_EXIT(P0), CTS_EXIT(P1), PRO_EXIT(P1), BTO(P2), MTO(P3)
+
 ## CRITICAL RULES
 1. When user asks you to DO something (create, run, execute, delete, build, set up) — USE TOOLS IMMEDIATELY. Do NOT explain steps. Do NOT show instructions. Just DO IT by calling bash tool.
 2. When user asks a QUESTION (what, how, explain, list, describe) — answer briefly from knowledge. Max 10 lines.

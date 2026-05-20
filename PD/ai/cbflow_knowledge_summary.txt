@@ -1,0 +1,30 @@
+## CBflow Complete Reference
+
+### Flows and Stages
+- CLP: 5 stages (netlist1, upf1, power_spec1, clp1, release_data1) — synopsys/vc_lp
+- ECO: 6 stages (netlist1, def1, sdc1, library1, eco1...) — synopsys/fc
+- EMIR: 7 stages (netlist1, def1, spef1, library1, power_analysis1...) — synopsys/redhawk
+- FCFP: 17 stages (netlist1, sdc1, def1, upf1, library1...) — synopsys/fc
+- FP: 12 stages (netlist1, sdc1, def1, upf1, library1...) — synopsys/fc
+- LEC: 5 stages (netlist_golden1, netlist_revised1, constraints1, compare1, release_data1) — synopsys/formality
+- PNR: 13 stages (netlist1, sdc1, def1, upf1, init_design1...) — synopsys/fc
+- POPT: 7 stages (netlist1, sdc1, upf1, merge_timing1, power_opt1...) — synopsys/pt
+- PV: 11 stages (netlist1, def1, gds1, fill1, drc1...) — synopsys/icv
+- STA: 8 stages (netlist1, sdc1, spef1, library1, extraction1...) — synopsys/pt
+- SYNTH_PNR: 13 stages (rtl1, sdc1, upf1, init_design1, synthesis1...) — synopsys/fc
+- SYNTH: 7 stages (rtl1, sdc1, upf1, init_design1, synthesis1...) — synopsys/fc
+
+### Projects
+- phoenix: blocks = cpu_core memory_ctrl io_ctrl
+- ravendrive: blocks = cpu_core memory_ctrl io_ctrl
+
+### Release Tags: FP_EXIT(P0), PLACE_EXIT(P0), CTS_EXIT(P1), PRO_EXIT(P1), BTO(P2), MTO(P3)
+
+### Commands
+- cbflow workspace create --config <file.tcl>
+- cbflow workspace status / list-runs
+- cbflow run all / status / retrace --from <stage>
+- cbflow run add-node --node <n> --type <t> --dep <d>
+- cbflow run create-branch --branch <name> --from <stage>
+- cbflow run release --tag <TAG>
+- cbflow flow types / stages --flow <FLOW>
