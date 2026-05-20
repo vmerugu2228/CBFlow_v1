@@ -42,6 +42,8 @@ _cbflow() {
             'workspace:Workspace management'
             'run:Flow execution (RACE engine)'
             'flow:Flow info and management'
+            'smartgenie:AI agent (local LLM)'
+            'bundle:Create customer delivery package'
             '--version:Show version'
             '--help:Show help'
         )
@@ -102,12 +104,19 @@ _cbflow() {
                     'create-branch:Create flow branch'
                     'list-branches:List branches'
                     'delete-branch:Delete branch'
+                    'release:Milestone-gated release'
+                    'release-check:Check chip-level release readiness'
+                    'release-lock:Set production permissions'
                     'release-info:Show release info'
                     'targets:List available targets'
                     'update:Update to release'
+                    'gen-makefile:Verify engine DAG'
                     'email:Send email notifications'
                     'autoppt:Generate run summary PPT/HTML'
                     'checklist:Run exit milestone checklist'
+                    'db-manage:Manage RACE SQLite DB'
+                    'lsf-status:Show LSF job queue'
+                    'gui:Launch web dashboard'
                     'help:Show help'
                 )
                 _describe 'run command' run_cmds
@@ -225,6 +234,37 @@ _cbflow() {
                         fi ;;
                 esac
             fi ;;
+
+        smartgenie)
+            if (( CURRENT == 3 )); then
+                local -a sg_cmds
+                sg_cmds=(
+                    'serve:Start central server'
+                    'setup:Check Ollama + model + KB'
+                    'ingest:Ingest docs + code + EDA guides'
+                    'reingest:Re-ingest all + rebuild server DB'
+                    'search:Search knowledge base'
+                    'stats:Show knowledge base sizes'
+                    'learn:Record experience'
+                    'usage:User stats + maturity levels'
+                    'cloud:Use Claude API'
+                    'code:Launch Claude Code agent'
+                    '--help:Show SmartGenie help'
+                    '--hybrid:Use Claude API hybrid mode'
+                )
+                _describe 'smartgenie command' sg_cmds
+            else
+                case "${words[3]}" in
+                    serve)  _describe 'option' '(--port --host)' ;;
+                    ingest) _describe 'option' '(--all)' ;;
+                    learn)  _describe 'option' '(--category --content)' ;;
+                    search) ;; # free text
+                    --server) ;; # URL
+                esac
+            fi ;;
+
+        bundle)
+            _describe 'option' '(--output --version)' ;;
     esac
 }
 

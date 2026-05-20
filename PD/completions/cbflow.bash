@@ -13,7 +13,7 @@ _cbflow_completions() {
 
     # Level 1: main commands
     if [[ ${cword} -eq 1 ]]; then
-        COMPREPLY=( $(compgen -W "workspace run flow --version --help" -- "${cur}") )
+        COMPREPLY=( $(compgen -W "workspace run flow smartgenie bundle --version --help" -- "${cur}") )
         return 0
     fi
 
@@ -26,10 +26,16 @@ _cbflow_completions() {
                 COMPREPLY=( $(compgen -W "template create status list-runs clean validate" -- "${cur}") )
                 ;;
             run)
-                COMPREPLY=( $(compgen -W "all stage status retrace bypass force forcevalidate gui interactive clean validate logs report show-graph list-nodes add-node delete-node create-branch list-branches delete-branch release-info targets update email autoppt checklist help" -- "${cur}") )
+                COMPREPLY=( $(compgen -W "all stage status retrace bypass force forcevalidate gui interactive clean validate logs report show-graph list-nodes add-node delete-node create-branch list-branches delete-branch release release-check release-lock release-info targets update gen-makefile email autoppt checklist db-manage lsf-status help" -- "${cur}") )
                 ;;
             flow)
-                COMPREPLY=( $(compgen -W "types info stages nodes check version release config plugin metrics gui checklist qor-report trending library-manager mmmc-manager" -- "${cur}") )
+                COMPREPLY=( $(compgen -W "types info stages nodes check version release config plugin metrics gui checklist qor-report trending library-manager mmmc-manager lsf-manager dashboard dev project" -- "${cur}") )
+                ;;
+            smartgenie)
+                COMPREPLY=( $(compgen -W "serve setup ingest reingest search stats learn usage cloud code --help --hybrid --server" -- "${cur}") )
+                ;;
+            bundle)
+                COMPREPLY=( $(compgen -W "--output --version" -- "${cur}") )
                 ;;
         esac
         return 0
