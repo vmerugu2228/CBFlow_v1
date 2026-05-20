@@ -29,12 +29,12 @@
 # Basic project configuration that controls flow behavior and options.
 
 # ┌─ Project and Technology Settings ──────────────────────────────────────────┐
-set flow(project_name) "ravendrive"                         ; # Project name - used for <project_name>_config.tcl
-set flow(tech_node) "gf_22nm"                           ; # Technology node - used for <tech_node>_config.tcl
+set flow(project_name) ""                                    ; # Resolved from user_config/project_config at runtime
+set flow(tech_node) ""                                   ; # Resolved from project(technology) at runtime
 
 # Set hierarchical variables for configuration system
-set project(name) $flow(project_name)                    ; # Project name for hierarchical access
-set tech(node) $flow(tech_node)                          ; # Technology node for hierarchical access - used to load tech config
+if {$flow(project_name) ne ""} { set project(name) $flow(project_name) }
+if {$flow(tech_node) ne ""} { set tech(node) $flow(tech_node) }
 
 # ┌─ Flow Types and Options ───────────────────────────────────────────────────┐
 set flow(type) "SYNTH"                                                ; # Current flow type

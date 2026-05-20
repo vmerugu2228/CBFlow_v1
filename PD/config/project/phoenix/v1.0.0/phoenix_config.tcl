@@ -6,6 +6,8 @@
 
 # Project identification
 set project(name) "phoenix"
+set project(technology) "tsmc_5nm"
+set project(track_variant) "5T"
 set project(version) "1.0"
 set project(description) "Phoenix chip design project"
 set project(owner) "Phoenix Design Team"

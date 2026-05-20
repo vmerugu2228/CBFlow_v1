@@ -17,10 +17,10 @@ if {[file exists $config_file]} { source $config_file }
 global synth_pnr project tech flow
 set mmmc_config_file "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
 
-}
 
 # Source FC tool config
 set _fc_config "[file dirname [info script]]/fc_config.tcl"
+if {[file exists $_fc_config]} { source $_fc_config }
 
 handle_info "Starting SYNTH_PNR signoff (FC-RM Y-2026.03: chip_finish + icv_in_design)..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }

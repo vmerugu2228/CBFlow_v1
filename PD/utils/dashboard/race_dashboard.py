@@ -305,10 +305,18 @@ class RaceDashboard:
             if env.get('CBFLOW_RUN_NAME'):
                 run_info['run_name'] = env['CBFLOW_RUN_NAME']
 
-            # Get tech node info
+            # Get tech node info — use TECH_NAME from run env, not glob all tech dirs
             if self.flow_dir:
                 import glob as _glob
-                for tech_dir in _glob.glob(os.path.join(self.flow_dir, 'config', 'tech', '*', '*/tech_config.tcl')):
+                tech_name = env.get('TECH_NAME', '')
+                tech_version = env.get('TECH_VERSION', 'v1.0.0')
+                if tech_name:
+                    # Use the specific tech config for this run
+                    tech_dirs = [os.path.join(self.flow_dir, 'config', 'tech', tech_name, tech_version, 'tech_config.tcl')]
+                else:
+                    # Fallback: glob (but this picks wrong tech)
+                    tech_dirs = _glob.glob(os.path.join(self.flow_dir, 'config', 'tech', '*', '*/tech_config.tcl'))
+                for tech_dir in tech_dirs:
                     try:
                         with open(tech_dir) as tf:
                             for line in tf:

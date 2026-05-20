@@ -25,6 +25,7 @@ set project(root_dir) $ROOT_DIR
 
 # Track variant selection
 # Available: 9T (high performance), 7.5T (balanced), 6.75T (high density)
+set project(technology) "gf_22nm"
 set project(track_variant) "9T"
 
 # Multi-track configuration (for mixed-track designs)

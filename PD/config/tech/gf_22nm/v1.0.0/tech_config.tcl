@@ -35,9 +35,13 @@ set tech(track,9T,description)  "9-Track — balanced performance/density"
 set tech(track,7.5T,stdcell)    "tcbn22cllbwp7t"
 set tech(track,7.5T,description) "7.5-Track — highest density, lowest power"
 
-# Resolve active track variant
+# Resolve active track variant (check flow override → project config → default)
 if {[info exists flow(track_variant)] && $flow(track_variant) ne ""} {
     set tech(track,active_variant) $flow(track_variant)
+} elseif {[info exists project(track_variant)] && $project(track_variant) ne ""} {
+    set tech(track,active_variant) $project(track_variant)
+} elseif {[info exists ::env(CBFLOW_TRACK_VARIANT)] && $::env(CBFLOW_TRACK_VARIANT) ne ""} {
+    set tech(track,active_variant) $::env(CBFLOW_TRACK_VARIANT)
 } else {
     set tech(track,active_variant) $tech(track,default)
 }
