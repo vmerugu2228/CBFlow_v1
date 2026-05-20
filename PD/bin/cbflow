@@ -234,7 +234,6 @@ main() {
 
             case "$subcmd" in
                 serve)
-                    # Start the central server
                     exec python3 "$server_script" "$@"
                     ;;
                 setup)
@@ -242,6 +241,15 @@ main() {
                     ;;
                 ingest)
                     exec python3 "$CBFLOW_CORE_DIR/ai/cbflow_knowledge.py" ingest "$@"
+                    ;;
+                reingest)
+                    # Re-ingest all + rebuild central DB
+                    echo "  Re-ingesting local knowledge base..."
+                    python3 "$CBFLOW_CORE_DIR/ai/cbflow_knowledge.py" ingest --all
+                    echo ""
+                    echo "  Rebuilding central server knowledge base..."
+                    rm -rf "$CBFLOW_CORE_DIR/ai/.central_knowledge_db"
+                    echo "  Done. Restart server to pick up new knowledge."
                     ;;
                 search)
                     exec python3 "$CBFLOW_CORE_DIR/ai/cbflow_knowledge.py" search "$@"
@@ -253,7 +261,6 @@ main() {
                     exec python3 "$CBFLOW_CORE_DIR/ai/cbflow_knowledge.py" learn "$@"
                     ;;
                 usage)
-                    # Show usage stats (requires server or local DB)
                     python3 -c "
 import sys; sys.path.insert(0, '$CBFLOW_CORE_DIR/ai')
 from usage_tracker import UsageTracker
@@ -262,8 +269,54 @@ print(t.format_stats_report())
 "
                     ;;
                 cloud)
-                    # Use Anthropic API (requires ANTHROPIC_API_KEY)
                     exec python3 "$cloud_agent" "$@"
+                    ;;
+                code)
+                    # Launch Claude Code as agent in this project
+                    echo "  Launching Claude Code agent..."
+                    exec claude
+                    ;;
+                -h|--help|help)
+                    cat << SGEOF
+
+  SmartGenie — CBflow AI Agent (100% Private)
+  ════════════════════════════════════════════
+
+  Interactive & One-shot:
+    cbflow smartgenie                         Interactive mode (local LLM)
+    cbflow smartgenie "your prompt"           One-shot command
+    cbflow smartgenie --hybrid                Use Claude API + local learning
+    cbflow smartgenie --server URL "prompt"   Connect to central server
+    cbflow smartgenie code                    Launch Claude Code agent
+
+  Knowledge Base:
+    cbflow smartgenie ingest --all            Ingest docs + code + EDA guides
+    cbflow smartgenie reingest                Re-ingest all + rebuild server DB
+    cbflow smartgenie search "query"          Search knowledge base
+    cbflow smartgenie learn --category fix --content "..."
+    cbflow smartgenie stats                   Show knowledge base sizes
+
+  Server (Enterprise):
+    cbflow smartgenie serve                   Start central server
+    cbflow smartgenie serve --port 9090       Custom port
+
+  Monitoring:
+    cbflow smartgenie usage                   User stats + maturity levels
+    cbflow smartgenie setup                   Check Ollama + model + KB
+
+  Slash Commands (inside interactive):
+    /help     Show commands        /status   Workspace status
+    /flows    List flows           /search   Search KB
+    /stats    KB stats             /clear    Clear conversation
+    exit      End session
+
+  Environment Variables:
+    SMARTGENIE_SERVER    Central server URL (http://ip:8091)
+    SMARTGENIE_HYBRID    Set to 1 for Claude API hybrid mode
+    ANTHROPIC_API_KEY    Required for hybrid/cloud mode
+    CBFLOW_MODEL         Override LLM model (default: qwen2.5:14b)
+
+SGEOF
                     ;;
                 *)
                     # Default: local agent (Ollama, 100% private)
