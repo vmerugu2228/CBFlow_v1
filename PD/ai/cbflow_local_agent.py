@@ -424,6 +424,67 @@ def run_agent(prompt: str, interactive: bool = False):
         words = set(text.lower().split())
         return bool(words & ACTION_WORDS)
 
+    def _quick_lookup(query):
+        """Answer common project/flow questions directly from config files — no LLM needed."""
+        q = query.lower()
+
+        # Blocks / designs in project
+        if any(w in q for w in ['block', 'design']) and any(w in q for w in ['available', 'list', 'what', 'which', 'show']):
+            # Read block_list from project config
+            for proj in ['ravendrive', 'phoenix']:
+                cfg = os.path.join(CBFLOW_CORE, 'config', 'project', proj, 'v1.0.0', f'{proj}_config.tcl')
+                if os.path.exists(cfg):
+                    with open(cfg) as f:
+                        for line in f:
+                            m = re.search(r'set\s+project\(block_list\)\s+"([^"]*)"', line)
+                            if m:
+                                blocks = m.group(1).split()
+                                return f"Project '{proj}' has {len(blocks)} blocks:\n" + '\n'.join(f"  - {b}" for b in blocks)
+
+        # Flow types
+        if any(w in q for w in ['flow']) and any(w in q for w in ['available', 'list', 'what', 'which', 'show', 'all']):
+            result = execute_tool("bash", {"command": f"{CBFLOW_BIN} flow types", "cwd": DEFAULT_WORKSPACE})
+            if result and 'ERROR' not in result:
+                # Extract just the flow names
+                lines = [l.strip() for l in result.split('\n') if l.strip() and 'INFO' in l and not l.strip().startswith('=')]
+                flows = []
+                for l in lines:
+                    parts = l.split()
+                    for p in parts:
+                        if p.isupper() and len(p) >= 2 and p not in ('INFO', 'FLOW', 'TYPE'):
+                            flows.append(p)
+                if flows:
+                    return f"CBflow supports {len(flows)} flows:\n" + '\n'.join(f"  - {f}" for f in flows)
+
+        # Stages for a flow
+        if 'stage' in q and any(w in q for w in ['available', 'list', 'what', 'which', 'show']):
+            for ft in ['SYNTH_PNR', 'SYNTH', 'PNR', 'STA', 'LEC', 'CLP', 'PV', 'EMIR', 'FP', 'FCFP']:
+                if ft.lower() in q or ft.lower().replace('_', ' ') in q:
+                    cfg = os.path.join(CBFLOW_CORE, 'config', 'flow', 'v1.0.0', 'node_configs', f'{ft}_config.tcl')
+                    if os.path.exists(cfg):
+                        with open(cfg) as f:
+                            for line in f:
+                                m = re.search(r'stages\s+\{([^}]+)\}', line)
+                                if m:
+                                    stages = m.group(1).split()
+                                    return f"{ft} has {len(stages)} stages:\n" + '\n'.join(f"  {i+1}. {s}" for i, s in enumerate(stages))
+
+        # Project info
+        if 'project' in q and any(w in q for w in ['available', 'list', 'what', 'which', 'show']):
+            proj_dir = os.path.join(CBFLOW_CORE, 'config', 'project')
+            if os.path.isdir(proj_dir):
+                projects = [d for d in os.listdir(proj_dir) if os.path.isdir(os.path.join(proj_dir, d)) and not d.startswith('.')]
+                return f"Available projects:\n" + '\n'.join(f"  - {p}" for p in projects)
+
+        # Runs in workspace
+        if 'run' in q and any(w in q for w in ['available', 'list', 'what', 'which', 'show', 'existing']):
+            runs = [d for d in os.listdir(DEFAULT_WORKSPACE) if '_run_' in d and os.path.isdir(os.path.join(DEFAULT_WORKSPACE, d))]
+            if runs:
+                return f"Existing runs ({len(runs)}):\n" + '\n'.join(f"  - {r}" for r in sorted(runs))
+            return "No runs found in workspace."
+
+        return None  # Can't quick-lookup, use KB search
+
     def _parse_action_intent(user_input):
         """Parse user's natural language into exact cbflow commands.
         Returns list of (description, command) tuples, or None if can't parse."""
@@ -755,7 +816,16 @@ def run_agent(prompt: str, interactive: bool = False):
                     if done:
                         break
         else:
-            # Question: try KB first, fall back to LLM
+            # Question: try quick lookup first, then KB, then LLM
+            quick = _quick_lookup(user_input)
+            if quick:
+                separator()
+                agent_text(quick)
+                print()
+                messages.append({"role": "user", "content": user_input})
+                messages.append({"role": "assistant", "content": quick})
+                return messages
+
             answer = _answer_from_knowledge(messages, user_input)
             if answer:
                 separator()
