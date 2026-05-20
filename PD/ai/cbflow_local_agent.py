@@ -424,6 +424,170 @@ def run_agent(prompt: str, interactive: bool = False):
         words = set(text.lower().split())
         return bool(words & ACTION_WORDS)
 
+    def _parse_action_intent(user_input):
+        """Parse user's natural language into exact cbflow commands.
+        Returns list of (description, command) tuples, or None if can't parse."""
+        text = user_input.lower()
+        cbflow = CBFLOW_BIN
+        ws = DEFAULT_WORKSPACE
+
+        # Extract parameters from natural language
+        flow_type = None
+        for ft in ['SYNTH_PNR', 'SYNTH_FP_PNR', 'SYNTH', 'PNR', 'STA', 'LEC', 'CLP', 'PV', 'EMIR', 'FP', 'FCFP', 'POPT', 'ECO']:
+            if ft.lower() in text or ft.lower().replace('_', ' ') in text:
+                flow_type = ft
+                break
+        # Common aliases
+        if not flow_type:
+            if 'synth' in text and 'pnr' in text: flow_type = 'SYNTH_PNR'
+            elif 'synth' in text: flow_type = 'SYNTH'
+            elif 'place' in text and 'route' in text: flow_type = 'PNR'
+            elif 'timing' in text or 'sta' in text: flow_type = 'STA'
+            elif 'verification' in text or 'drc' in text or 'lvs' in text: flow_type = 'PV'
+
+        # Extract run name
+        run_name = None
+        import re as _re
+        m = _re.search(r'(?:run\s+name|named?)\s+(\w+)', text)
+        if m: run_name = m.group(1)
+        m = _re.search(r'name\s+(?:as\s+)?(\w+)', text)
+        if m and not run_name: run_name = m.group(1)
+
+        # Extract block/design name
+        block_name = None
+        m = _re.search(r'(?:block|design)\s+(?:name\s+)?(?:as\s+)?(\w+)', text)
+        if m: block_name = m.group(1)
+
+        # ── CREATE A RUN ──
+        if ('create' in text or 'set up' in text or 'make' in text) and ('run' in text or 'workspace' in text or 'flow' in text):
+            if not flow_type:
+                return None  # Can't determine flow type
+
+            # Check if a matching user config exists
+            uc_file = f"uc_{flow_type}.tcl"
+            uc_path = os.path.join(ws, uc_file)
+
+            commands = []
+
+            if run_name or block_name:
+                # Need to create a custom user config
+                config_name = f"uc_{flow_type}_{run_name or 'custom'}.tcl"
+                arr = flow_type.lower().replace('_', '_')
+                config_content = f'set project(name) "ravendrive"\\n'
+                config_content += f'set project(phase) "P0"\\n'
+                config_content += f'set flow(type) "{flow_type}"\\n'
+                config_content += f'set flow(design_name) "{block_name or "cpu_core"}"\\n'
+                config_content += f'set flow(run_name) "{run_name or "run1"}"\\n'
+                config_content += f'set flow(test_mode) "true"\\n'
+
+                # Add flow-specific inputs from existing config
+                if os.path.exists(uc_path):
+                    with open(uc_path) as f:
+                        for line in f:
+                            if 'input,' in line and 'set ' in line:
+                                config_content += line.strip() + '\\n'
+
+                commands.append((
+                    f"Creating config: {config_name}",
+                    f'printf "{config_content}" > {ws}/{config_name}'
+                ))
+                commands.append((
+                    f"Creating {flow_type} run '{run_name or 'run1'}' for {block_name or 'cpu_core'}",
+                    f'{cbflow} workspace create --config {config_name}'
+                ))
+            elif os.path.exists(uc_path):
+                commands.append((
+                    f"Creating {flow_type} run using {uc_file}",
+                    f'{cbflow} workspace create --config {uc_file}'
+                ))
+            else:
+                return None
+            return commands
+
+        # ── RUN A FLOW ──
+        if 'run' in text and ('all' in text or 'flow' in text or 'execute' in text):
+            if flow_type:
+                # Find the run directory
+                run_dirs = [d for d in os.listdir(ws) if f'_run_{flow_type}_' in d and os.path.isdir(os.path.join(ws, d))]
+                if run_dirs:
+                    run_dir = os.path.join(ws, sorted(run_dirs)[-1])
+                    return [
+                        (f"Running {flow_type} flow", f'cd {run_dir} && {cbflow} run all')
+                    ]
+            return None
+
+        # ── CHECK STATUS ──
+        if 'status' in text:
+            if flow_type:
+                run_dirs = [d for d in os.listdir(ws) if f'_run_{flow_type}_' in d]
+                if run_dirs:
+                    run_dir = os.path.join(ws, sorted(run_dirs)[-1])
+                    return [(f"Checking {flow_type} status", f'cd {run_dir} && {cbflow} run status')]
+            return [(f"Listing all runs", f'cd {ws} && {cbflow} workspace status')]
+
+        # ── ADD NODE ──
+        if 'add' in text and 'node' in text:
+            m = _re.search(r'node\s+(\w+)', text)
+            node_name = m.group(1) if m else None
+            m = _re.search(r'type\s+(\w+)', text)
+            node_type = m.group(1) if m else None
+            m = _re.search(r'(?:dep|after|from)\s+(\w+)', text)
+            dep = m.group(1) if m else None
+            if node_type and dep:
+                if flow_type:
+                    run_dirs = [d for d in os.listdir(ws) if f'_run_{flow_type}_' in d]
+                    if run_dirs:
+                        run_dir = os.path.join(ws, sorted(run_dirs)[-1])
+                        cmd = f'cd {run_dir} && {cbflow} run add-node'
+                        if node_name: cmd += f' --node {node_name}'
+                        cmd += f' --type {node_type} --dep {dep}'
+                        return [(f"Adding node {node_name or node_type} after {dep}", cmd)]
+            return None
+
+        # ── CREATE BRANCH ──
+        if 'branch' in text and ('create' in text or 'make' in text):
+            m = _re.search(r'branch\s+(?:named?\s+)?(\w+)', text)
+            branch_name = m.group(1) if m else None
+            m = _re.search(r'from\s+(\w+)', text)
+            from_stage = m.group(1) if m else None
+            if branch_name and from_stage and flow_type:
+                run_dirs = [d for d in os.listdir(ws) if f'_run_{flow_type}_' in d]
+                if run_dirs:
+                    run_dir = os.path.join(ws, sorted(run_dirs)[-1])
+                    return [(f"Creating branch '{branch_name}' from {from_stage}",
+                             f'cd {run_dir} && {cbflow} run create-branch --branch {branch_name} --from {from_stage}')]
+            return None
+
+        # ── RETRACE ──
+        if 'retrace' in text or 'rerun' in text or 're-run' in text:
+            m = _re.search(r'from\s+(\w+)', text)
+            from_stage = m.group(1) if m else None
+            if from_stage and flow_type:
+                run_dirs = [d for d in os.listdir(ws) if f'_run_{flow_type}_' in d]
+                if run_dirs:
+                    run_dir = os.path.join(ws, sorted(run_dirs)[-1])
+                    return [(f"Retracing from {from_stage}", f'cd {run_dir} && {cbflow} run retrace --from {from_stage}')]
+            return None
+
+        # ── RELEASE ──
+        if 'release' in text:
+            tag = None
+            for t in ['FP_EXIT', 'PLACE_EXIT', 'CTS_EXIT', 'PRO_EXIT', 'BTO', 'MTO']:
+                if t.lower() in text: tag = t; break
+            if tag:
+                return [(f"Release {tag}", f'cd {ws} && {cbflow} run release --tag {tag}')]
+            return [(f"Release check", f'cd {ws} && {cbflow} run release --dry-run')]
+
+        # ── DELETE / CLEAN ──
+        if 'delete' in text or 'clean' in text or 'remove' in text:
+            if flow_type:
+                run_dirs = [d for d in os.listdir(ws) if f'_run_{flow_type}_' in d]
+                if run_dirs:
+                    return [(f"Removing {flow_type} runs", f'rm -rf {ws}/{run_dirs[-1]}')]
+            return None
+
+        return None  # Can't parse — fall back to LLM
+
     def _answer_from_knowledge(messages, query):
         """Answer directly from KB without LLM tool calling."""
         # Show search progress
@@ -539,69 +703,38 @@ def run_agent(prompt: str, interactive: bool = False):
                 return messages
 
         if _is_action_request(user_input):
-            # Action: EXECUTE directly with tools — no knowledge search
-            # Build a focused action prompt that forces tool use
-            action_messages = [
-                {"role": "system", "content": f"""You are a CBflow automation agent. Execute the user's request using tools.
-
-WORKSPACE: {DEFAULT_WORKSPACE}
-CBFLOW: {CBFLOW_BIN}
-USER CONFIGS: uc_SYNTH.tcl, uc_PNR.tcl, uc_SYNTH_PNR.tcl, uc_STA.tcl, uc_LEC.tcl, uc_CLP.tcl
-
-RULES:
-- USE TOOLS IMMEDIATELY. Do NOT explain. Do NOT give instructions. EXECUTE.
-- To create a run: write a user config TCL file, then run cbflow workspace create --config <file>
-- Always cd to workspace dir first: cd {DEFAULT_WORKSPACE}
-- Respond with tool call JSON: {{"tool": "bash", "args": {{"command": "...", "cwd": "..."}}}}
-- After tool result, report what happened in 2-3 lines. Done."""},
-                {"role": "user", "content": user_input}
-            ]
-            for turn in range(MAX_TURNS):
-                spinner = Spinner("Executing")
-                spinner.start()
-                t0 = time.time()
-                response = ollama_chat(action_messages)
-                elapsed = time.time() - t0
-                spinner.stop()
-                turn_indicator(turn + 1, elapsed)
-
-                if response.startswith("ERROR:"):
-                    error(response)
-                    break
-
-                tool_name, tool_args = parse_tool_call(response)
-                if tool_name:
-                    info(f"Running {tool_name}...")
-                    result = execute_tool(tool_name, tool_args)
-                    # Show brief result
+            # Action: parse intent and execute EXACT commands — don't trust LLM to build commands
+            commands = _parse_action_intent(user_input)
+            if commands:
+                for cmd_desc, cmd in commands:
+                    info(f"{cmd_desc}")
+                    result = execute_tool("bash", {"command": cmd, "cwd": DEFAULT_WORKSPACE})
                     lines = result.strip().split('\n')
-                    for l in lines[:5]:
+                    for l in lines[:8]:
                         if 'ERROR' in l or 'FAIL' in l:
                             from cli_ui import red
                             print(f"    {red(l[:120])}")
                         elif 'PASS' in l or 'SUCCESS' in l or 'Created' in l or 'Directory' in l:
                             from cli_ui import green
                             print(f"    {green(l[:120])}")
-                        else:
+                        elif l.strip():
                             from cli_ui import dim
                             print(f"    {dim(l[:120])}")
-                    if len(lines) > 5:
+                    if len(lines) > 8:
                         from cli_ui import dim
-                        print(f"    {dim(f'... ({len(lines)-5} more lines)')}")
-                    action_messages.append({"role": "assistant", "content": response})
-                    action_messages.append({"role": "user", "content": f"Tool result:\n{result[-2000:]}\n\nReport what happened in 2 lines. No more tools."})
-                else:
-                    clean = re.sub(r'\{["\']tool["\'].*?\}', '', response, flags=re.DOTALL).strip()
-                    clean = re.sub(r'```json.*?```', '', clean, flags=re.DOTALL).strip()
-                    clean = re.sub(r'```\w*\n.*?```', '', clean, flags=re.DOTALL).strip()
-                    if clean and len(clean) > 10:
-                        separator()
-                        agent_text(clean)
-                        print()
-                    break
-            # Save to main conversation
-            messages.append({"role": "user", "content": user_input})
-            messages.append({"role": "assistant", "content": response})
+                        print(f"    {dim(f'... ({len(lines)-8} more lines)')}")
+                separator()
+                success("Done.")
+                print()
+                messages.append({"role": "user", "content": user_input})
+                messages.append({"role": "assistant", "content": f"Executed: {'; '.join(c[0] for c in commands)}"})
+            else:
+                # Can't parse — fall back to LLM with tool calling
+                messages.append({"role": "user", "content": user_input})
+                for turn in range(MAX_TURNS):
+                    messages, done = _agent_turn(messages, turn + 1)
+                    if done:
+                        break
         else:
             # Question: try KB first, fall back to LLM
             answer = _answer_from_knowledge(messages, user_input)
