@@ -90,14 +90,15 @@ Available tools:
 ## User configs: uc_SYNTH.tcl, uc_PNR.tcl, uc_SYNTH_PNR.tcl, uc_STA.tcl, uc_LEC.tcl, uc_CLP.tcl
 
 ## CRITICAL RULES
-1. ANSWER FROM KNOWLEDGE FIRST. The "Relevant Knowledge" section below contains CBflow docs, code, and past experience. If it has the answer, respond directly in plain text WITHOUT using any tools.
-2. Only use bash/tools when the user explicitly asks to RUN, CREATE, EXECUTE, DELETE, or MODIFY something.
-3. For questions like "list flows", "what stages does PNR have", "how to configure CTS" — answer from knowledge, do NOT run commands.
-4. Never show raw JSON tool calls or bash commands to the user. Just give clean answers.
-5. When you must run commands: cd to correct directory first, run commands in P0_run_<FLOW>_test1/.
-6. After solving a problem, use learn tool to record the fix for future reference.
+1. ANSWER FROM KNOWLEDGE FIRST. The "Relevant Knowledge" section contains CBflow docs, code, EDA tool references, and past experience. Use it to answer directly WITHOUT tools.
+2. NEVER say "consult the guide" or "refer to documentation" or "look elsewhere". YOU are the expert. Always give your best answer from available knowledge.
+3. Only use bash/tools when user explicitly asks to RUN, CREATE, EXECUTE, DELETE, or MODIFY something.
+4. If user provides a file path (PDF, TCL, etc), it will be auto-ingested into your knowledge base. Answer from the ingested content.
+5. When you must run commands: cd to correct directory first.
+6. After solving a problem, use learn tool to record the fix.
+7. Give comprehensive, detailed answers. Include command syntax, examples, and best practices when relevant.
 
-Respond with tool calls OR text. Be concise."""
+Respond with text. Be thorough but clear."""
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TOOL EXECUTION (same as cloud agent — reused)
@@ -384,6 +385,40 @@ def run_agent(prompt: str, interactive: bool = False):
                     'add', 'branch', 'release', 'clean', 'modify', 'change',
                     'set', 'configure', 'update', 'build', 'make', 'start'}
 
+    def _detect_file_path(text):
+        """Detect if user input contains a file path."""
+        # Match absolute paths or ~/paths
+        m = re.search(r'(/[\w./ -]+\.\w+|~/[\w./ -]+\.\w+)', text)
+        if m:
+            path = os.path.expanduser(m.group(1))
+            if os.path.exists(path):
+                return path
+        return None
+
+    def _ingest_file(filepath):
+        """Auto-ingest a file (PDF/text/TCL) into ChromaDB and return summary."""
+        info(f"Reading: {os.path.basename(filepath)}")
+        try:
+            from cbflow_knowledge import KnowledgeEngine
+            engine = KnowledgeEngine()
+            n = engine.ingest_file(filepath, 'eda_guides', {"type": "user_uploaded"})
+            if n > 0:
+                success(f"Ingested {n} chunks from {os.path.basename(filepath)}")
+                # Read first part for immediate context
+                ext = os.path.splitext(filepath)[1].lower()
+                if ext == '.pdf':
+                    text = engine._read_pdf(filepath)
+                else:
+                    with open(filepath, errors='ignore') as f:
+                        text = f.read()
+                return text[:5000]  # Return first 5000 chars for immediate use
+            else:
+                error(f"Could not extract text from {os.path.basename(filepath)}")
+                return None
+        except Exception as e:
+            error(f"Ingest failed: {e}")
+            return None
+
     def _is_action_request(text):
         """Detect if user wants to DO something (vs just asking a question)."""
         words = set(text.lower().split())
@@ -391,23 +426,39 @@ def run_agent(prompt: str, interactive: bool = False):
 
     def _answer_from_knowledge(messages, query):
         """Answer directly from KB without LLM tool calling."""
-        kb_result = execute_tool("search_kb", {"query": query, "n": 5})
-        if not kb_result or "No results" in kb_result or "error" in kb_result.lower():
-            return None  # No knowledge found, fall back to LLM
+        # Show search progress
+        from cli_ui import dim, cyan
+        spinner = Spinner("Searching knowledge base")
+        spinner.start()
 
-        # Ask LLM to synthesize the knowledge into an answer (NO tools)
+        kb_result = execute_tool("search_kb", {"query": query, "n": 8})
+        spinner.stop()
+
+        if not kb_result or "No results" in kb_result or "error" in kb_result.lower():
+            info("No matching knowledge found — using LLM reasoning")
+            return None
+
+        # Show what was found
+        result_lines = kb_result.strip().split('\n')
+        sources = [l.strip() for l in result_lines if l.strip().startswith('[')]
+        if sources:
+            info(f"Found {len(sources)} relevant sources:")
+            for s in sources[:4]:
+                print(f"    {dim(s[:80])}")
+
+        # Ask LLM to synthesize — increased context to 4000 chars
         synth_messages = [
-            {"role": "system", "content": "You are a helpful VLSI/EDA expert. Answer the user's question using ONLY the provided knowledge. Do NOT use any tools. Give a clean, formatted answer."},
-            {"role": "user", "content": f"Knowledge:\n{kb_result[:3000]}\n\nQuestion: {query}\n\nAnswer clearly and concisely:"}
+            {"role": "system", "content": "You are a VLSI/EDA expert with deep knowledge. Answer the question thoroughly using the provided knowledge. NEVER say 'refer to documentation' or 'consult the guide'. YOU are the guide. Include specific commands, syntax, and examples when relevant."},
+            {"role": "user", "content": f"Knowledge:\n{kb_result[:4000]}\n\nQuestion: {query}\n\nGive a comprehensive, expert answer:"}
         ]
-        spinner = Spinner("Searching knowledge")
+        spinner = Spinner("Thinking")
         spinner.start()
         t0 = time.time()
         response = ollama_chat(synth_messages)
         elapsed = time.time() - t0
         spinner.stop()
 
-        # Strip any tool call attempts from the response
+        # Strip any tool call attempts
         clean = re.sub(r'\{["\']tool["\'].*?\}', '', response, flags=re.DOTALL).strip()
         clean = re.sub(r'```json.*?```', '', clean, flags=re.DOTALL).strip()
         return clean if clean and len(clean) > 20 else None
@@ -455,7 +506,38 @@ def run_agent(prompt: str, interactive: bool = False):
             return messages, True  # Always done after a text response
 
     def _handle_prompt(messages, user_input):
-        """Handle a user prompt — question answered from KB, action uses tools."""
+        """Handle a user prompt — file ingest, question from KB, or action with tools."""
+
+        # Check if user provided a file path — auto-ingest it
+        filepath = _detect_file_path(user_input)
+        if filepath:
+            file_content = _ingest_file(filepath)
+            if file_content:
+                # Extract the question part (remove file path from input)
+                question = re.sub(r'/[\w./ -]+\.\w+|~/[\w./ -]+\.\w+', '', user_input).strip(' -')
+                if not question or len(question) < 5:
+                    question = f"summarize the contents of {os.path.basename(filepath)}"
+
+                # Answer using the ingested content + KB
+                info(f"Answering from ingested content...")
+                synth_messages = [
+                    {"role": "system", "content": "You are a VLSI/EDA expert. Answer using the document content provided. Be thorough and specific. Include command syntax and examples."},
+                    {"role": "user", "content": f"Document ({os.path.basename(filepath)}):\n{file_content[:4000]}\n\nQuestion: {question}\n\nAnswer comprehensively:"}
+                ]
+                spinner = Spinner("Analyzing document")
+                spinner.start()
+                response = ollama_chat(synth_messages)
+                spinner.stop()
+                clean = re.sub(r'\{["\']tool["\'].*?\}', '', response, flags=re.DOTALL).strip()
+                clean = re.sub(r'```json.*?```', '', clean, flags=re.DOTALL).strip()
+                if clean:
+                    separator()
+                    agent_text(clean)
+                    print()
+                messages.append({"role": "user", "content": user_input})
+                messages.append({"role": "assistant", "content": clean or response})
+                return messages
+
         if _is_action_request(user_input):
             # Action: use full agent with tools
             messages.append({"role": "user", "content": user_input})
