@@ -90,15 +90,15 @@ Available tools:
 ## User configs: uc_SYNTH.tcl, uc_PNR.tcl, uc_SYNTH_PNR.tcl, uc_STA.tcl, uc_LEC.tcl, uc_CLP.tcl
 
 ## CRITICAL RULES
-1. ANSWER FROM KNOWLEDGE FIRST. The "Relevant Knowledge" section contains CBflow docs, code, EDA tool references, and past experience. Use it to answer directly WITHOUT tools.
-2. NEVER say "consult the guide" or "refer to documentation" or "look elsewhere". YOU are the expert. Always give your best answer from available knowledge.
-3. Only use bash/tools when user explicitly asks to RUN, CREATE, EXECUTE, DELETE, or MODIFY something.
-4. If user provides a file path (PDF, TCL, etc), it will be auto-ingested into your knowledge base. Answer from the ingested content.
-5. When you must run commands: cd to correct directory first.
-6. After solving a problem, use learn tool to record the fix.
-7. Give comprehensive, detailed answers. Include command syntax, examples, and best practices when relevant.
+1. When user asks you to DO something (create, run, execute, delete, build, set up) — USE TOOLS IMMEDIATELY. Do NOT explain steps. Do NOT show instructions. Just DO IT by calling bash tool.
+2. When user asks a QUESTION (what, how, explain, list, describe) — answer briefly from knowledge. Max 10 lines.
+3. NEVER give step-by-step instructions. NEVER show "example commands". Just execute them.
+4. NEVER say "consult the guide" or "Would you like me to proceed". Just DO it.
+5. Keep answers SHORT. Max 10 lines for questions. For actions, just execute and report result.
+6. When you must run commands: cd to correct directory first.
+7. "yes" means proceed with whatever was discussed. Remember context.
 
-Respond with text. Be thorough but clear."""
+Respond with tool calls for actions, short text for questions."""
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TOOL EXECUTION (same as cloud agent — reused)
@@ -446,10 +446,10 @@ def run_agent(prompt: str, interactive: bool = False):
             for s in sources[:4]:
                 print(f"    {dim(s[:80])}")
 
-        # Ask LLM to synthesize — increased context to 4000 chars
+        # Ask LLM to synthesize — SHORT answer
         synth_messages = [
-            {"role": "system", "content": "You are a VLSI/EDA expert with deep knowledge. Answer the question thoroughly using the provided knowledge. NEVER say 'refer to documentation' or 'consult the guide'. YOU are the guide. Include specific commands, syntax, and examples when relevant."},
-            {"role": "user", "content": f"Knowledge:\n{kb_result[:4000]}\n\nQuestion: {query}\n\nGive a comprehensive, expert answer:"}
+            {"role": "system", "content": "You are a VLSI/EDA expert. Answer the question using the provided knowledge. Be BRIEF — max 10 lines. Use bullet points. No lengthy explanations."},
+            {"role": "user", "content": f"Knowledge:\n{kb_result[:4000]}\n\nQuestion: {query}\n\nAnswer in max 10 lines:"}
         ]
         spinner = Spinner("Thinking")
         spinner.start()
@@ -539,12 +539,69 @@ def run_agent(prompt: str, interactive: bool = False):
                 return messages
 
         if _is_action_request(user_input):
-            # Action: use full agent with tools
-            messages.append({"role": "user", "content": user_input})
+            # Action: EXECUTE directly with tools — no knowledge search
+            # Build a focused action prompt that forces tool use
+            action_messages = [
+                {"role": "system", "content": f"""You are a CBflow automation agent. Execute the user's request using tools.
+
+WORKSPACE: {DEFAULT_WORKSPACE}
+CBFLOW: {CBFLOW_BIN}
+USER CONFIGS: uc_SYNTH.tcl, uc_PNR.tcl, uc_SYNTH_PNR.tcl, uc_STA.tcl, uc_LEC.tcl, uc_CLP.tcl
+
+RULES:
+- USE TOOLS IMMEDIATELY. Do NOT explain. Do NOT give instructions. EXECUTE.
+- To create a run: write a user config TCL file, then run cbflow workspace create --config <file>
+- Always cd to workspace dir first: cd {DEFAULT_WORKSPACE}
+- Respond with tool call JSON: {{"tool": "bash", "args": {{"command": "...", "cwd": "..."}}}}
+- After tool result, report what happened in 2-3 lines. Done."""},
+                {"role": "user", "content": user_input}
+            ]
             for turn in range(MAX_TURNS):
-                messages, done = _agent_turn(messages, turn + 1)
-                if done:
+                spinner = Spinner("Executing")
+                spinner.start()
+                t0 = time.time()
+                response = ollama_chat(action_messages)
+                elapsed = time.time() - t0
+                spinner.stop()
+                turn_indicator(turn + 1, elapsed)
+
+                if response.startswith("ERROR:"):
+                    error(response)
                     break
+
+                tool_name, tool_args = parse_tool_call(response)
+                if tool_name:
+                    info(f"Running {tool_name}...")
+                    result = execute_tool(tool_name, tool_args)
+                    # Show brief result
+                    lines = result.strip().split('\n')
+                    for l in lines[:5]:
+                        if 'ERROR' in l or 'FAIL' in l:
+                            from cli_ui import red
+                            print(f"    {red(l[:120])}")
+                        elif 'PASS' in l or 'SUCCESS' in l or 'Created' in l or 'Directory' in l:
+                            from cli_ui import green
+                            print(f"    {green(l[:120])}")
+                        else:
+                            from cli_ui import dim
+                            print(f"    {dim(l[:120])}")
+                    if len(lines) > 5:
+                        from cli_ui import dim
+                        print(f"    {dim(f'... ({len(lines)-5} more lines)')}")
+                    action_messages.append({"role": "assistant", "content": response})
+                    action_messages.append({"role": "user", "content": f"Tool result:\n{result[-2000:]}\n\nReport what happened in 2 lines. No more tools."})
+                else:
+                    clean = re.sub(r'\{["\']tool["\'].*?\}', '', response, flags=re.DOTALL).strip()
+                    clean = re.sub(r'```json.*?```', '', clean, flags=re.DOTALL).strip()
+                    clean = re.sub(r'```\w*\n.*?```', '', clean, flags=re.DOTALL).strip()
+                    if clean and len(clean) > 10:
+                        separator()
+                        agent_text(clean)
+                        print()
+                    break
+            # Save to main conversation
+            messages.append({"role": "user", "content": user_input})
+            messages.append({"role": "assistant", "content": response})
         else:
             # Question: try KB first, fall back to LLM
             answer = _answer_from_knowledge(messages, user_input)
