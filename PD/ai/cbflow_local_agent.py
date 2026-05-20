@@ -380,6 +380,36 @@ def run_agent(prompt: str, interactive: bool = False):
     banner(MODEL, SMARTGENIE_SERVER, USERNAME, DEFAULT_WORKSPACE)
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    _last_action = {"command": None, "params": {}, "failed": False, "error": ""}
+
+    def _resolve_followup(user_input):
+        """Detect follow-up to a previous failed action and rebuild the command."""
+        if not _last_action["failed"]:
+            return None
+        text = user_input.lower()
+        # Patterns: "okay use X", "consider X", "try X", "use X instead", "yes X"
+        followup_patterns = [
+            r'(?:okay|ok|yes|sure|try|use|consider|let.s use|go with|pick)\s+(\w+)',
+            r'(\w+)\s+(?:instead|for that|for this|please)',
+        ]
+        for pat in followup_patterns:
+            m = re.search(pat, text)
+            if m:
+                new_value = m.group(1)
+                old_params = _last_action["params"].copy()
+                old_error = _last_action["error"]
+                # Figure out what failed and substitute
+                if 'not found in project' in old_error and 'design' in old_error:
+                    old_params["block_name"] = new_value
+                elif 'already exists' in old_error:
+                    old_params["run_name"] = new_value
+                # Rebuild the create command
+                if old_params.get("flow_type") and old_params.get("action") == "create":
+                    ft = old_params["flow_type"]
+                    rn = old_params.get("run_name", "run1")
+                    bn = old_params.get("block_name", "cpu_core")
+                    return f"create a {ft} run with run name {rn} and block name {bn}"
+        return None
 
     def _inject_knowledge(msgs, query):
         """Search KB and add relevant context to the system message."""
@@ -751,7 +781,13 @@ def run_agent(prompt: str, interactive: bool = False):
             return messages, True  # Always done after a text response
 
     def _handle_prompt(messages, user_input):
-        """Handle a user prompt — file ingest, question from KB, or action with tools."""
+        """Handle a user prompt — follow-up, file ingest, question from KB, or action."""
+
+        # Check for follow-up to a previous failed action
+        resolved = _resolve_followup(user_input)
+        if resolved:
+            info(f"Retrying: {resolved}")
+            user_input = resolved
 
         # Check if user provided a file path — auto-ingest it
         filepath = _detect_file_path(user_input)
@@ -784,10 +820,21 @@ def run_agent(prompt: str, interactive: bool = False):
                 return messages
 
         if _is_action_request(user_input):
-            # Action: parse intent and execute EXACT commands — don't trust LLM to build commands
+            # Action: parse intent and execute EXACT commands
             commands = _parse_action_intent(user_input)
             if commands:
                 had_error = False
+                # Extract params from user_input for context tracking
+                _ft = None
+                for ft in ['SYNTH_PNR','SYNTH','PNR','STA','LEC','CLP','PV','EMIR','FP','FCFP']:
+                    if ft.lower() in user_input.lower(): _ft = ft; break
+                _rn = None
+                m = re.search(r'(?:run\s+name|named?)\s+(\w+)', user_input.lower())
+                if m: _rn = m.group(1)
+                _bn = None
+                m = re.search(r'(?:block|design)\s+(?:name\s+)?(?:as\s+)?(\w+)', user_input.lower())
+                if m: _bn = m.group(1)
+
                 for cmd_desc, cmd in commands:
                     info(f"{cmd_desc}")
                     result = execute_tool("bash", {"command": cmd, "cwd": DEFAULT_WORKSPACE})
@@ -803,8 +850,13 @@ def run_agent(prompt: str, interactive: bool = False):
                             if 'already exists' in l or 'Use --force' in l:
                                 print(f"    {yellow(l.strip()[:120])}")
                         had_error = True
+                        _last_action.update({"failed": True, "error": "already exists",
+                            "params": {"flow_type": _ft, "run_name": _rn, "block_name": _bn, "action": "create"}})
                         break
                     elif result_has_error:
+                        error_text = ' '.join(l for l in lines if 'ERROR' in l)
+                        _last_action.update({"failed": True, "error": error_text,
+                            "params": {"flow_type": _ft, "run_name": _rn, "block_name": _bn, "action": "create"}})
                         for l in lines:
                             if 'ERROR' in l or 'FAIL' in l:
                                 from cli_ui import red
@@ -825,6 +877,7 @@ def run_agent(prompt: str, interactive: bool = False):
                     error("Failed. Check the error above.")
                 else:
                     success("Done.")
+                    _last_action.update({"failed": False, "error": "", "params": {}})
                 print()
                 messages.append({"role": "user", "content": user_input})
                 messages.append({"role": "assistant", "content": f"Executed: {'; '.join(c[0] for c in commands)}"})
