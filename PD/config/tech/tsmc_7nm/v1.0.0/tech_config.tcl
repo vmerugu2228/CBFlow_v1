@@ -69,6 +69,68 @@ set tech(9T,ndm) [list \
 ]
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# SECTION 4b: DB FILES (per track — for Synopsys DC/Genus)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+set tech(6T,db) [list \
+    "$_R/Front_End/timing/stdcell/tcbn07bwp6tsvttt0p80v25c.db" \
+    "$_R/Front_End/timing/stdcell/tcbn07bwp6tlvttt0p80v25c.db" \
+    "$_R/Front_End/timing/stdcell/tcbn07bwp6tulvttt0p80v25c.db" \
+    "$_R/Front_End/timing/stdcell/tcbn07bwp6thvttt0p80v25c.db" \
+    "$_R/Front_End/timing/memory/ts1n07tt0p80v25c.db" \
+    "$_R/Front_End/timing/io/tpbn07v_tt0p80v25c.db" \
+]
+
+set tech(7.5T,db) [list \
+    "$_R/Front_End/timing/stdcell/tcbn07bwp7p5tsvttt0p80v25c.db" \
+    "$_R/Front_End/timing/stdcell/tcbn07bwp7p5tlvttt0p80v25c.db" \
+    "$_R/Front_End/timing/stdcell/tcbn07bwp7p5tulvttt0p80v25c.db" \
+    "$_R/Front_End/timing/stdcell/tcbn07bwp7p5thvttt0p80v25c.db" \
+    "$_R/Front_End/timing/memory/ts1n07tt0p80v25c.db" \
+    "$_R/Front_End/timing/io/tpbn07v_tt0p80v25c.db" \
+]
+
+set tech(9T,db) [list \
+    "$_R/Front_End/timing/stdcell/tcbn07bwp9tsvttt0p80v25c.db" \
+    "$_R/Front_End/timing/stdcell/tcbn07bwp9tlvttt0p80v25c.db" \
+    "$_R/Front_End/timing/stdcell/tcbn07bwp9tulvttt0p80v25c.db" \
+    "$_R/Front_End/timing/stdcell/tcbn07bwp9thvttt0p80v25c.db" \
+    "$_R/Front_End/timing/memory/ts1n07tt0p80v25c.db" \
+    "$_R/Front_End/timing/io/tpbn07v_tt0p80v25c.db" \
+]
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECTION 4c: NOMINAL .LIB FILES (per track — for Cadence Innovus/Tempus)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+set tech(6T,lib_nom) [list \
+    "$_R/Front_End/timing/stdcell/tcbn07bwp6tsvttt0p80v25c_ccs.lib" \
+    "$_R/Front_End/timing/stdcell/tcbn07bwp6tlvttt0p80v25c_ccs.lib" \
+    "$_R/Front_End/timing/stdcell/tcbn07bwp6tulvttt0p80v25c_ccs.lib" \
+    "$_R/Front_End/timing/stdcell/tcbn07bwp6thvttt0p80v25c_ccs.lib" \
+    "$_R/Front_End/timing/memory/ts1n07tt0p80v25c.lib" \
+    "$_R/Front_End/timing/io/tpbn07v_tt0p80v25c.lib" \
+]
+
+set tech(7.5T,lib_nom) [list \
+    "$_R/Front_End/timing/stdcell/tcbn07bwp7p5tsvttt0p80v25c_ccs.lib" \
+    "$_R/Front_End/timing/stdcell/tcbn07bwp7p5tlvttt0p80v25c_ccs.lib" \
+    "$_R/Front_End/timing/stdcell/tcbn07bwp7p5tulvttt0p80v25c_ccs.lib" \
+    "$_R/Front_End/timing/stdcell/tcbn07bwp7p5thvttt0p80v25c_ccs.lib" \
+    "$_R/Front_End/timing/memory/ts1n07tt0p80v25c.lib" \
+    "$_R/Front_End/timing/io/tpbn07v_tt0p80v25c.lib" \
+]
+
+set tech(9T,lib_nom) [list \
+    "$_R/Front_End/timing/stdcell/tcbn07bwp9tsvttt0p80v25c_ccs.lib" \
+    "$_R/Front_End/timing/stdcell/tcbn07bwp9tlvttt0p80v25c_ccs.lib" \
+    "$_R/Front_End/timing/stdcell/tcbn07bwp9tulvttt0p80v25c_ccs.lib" \
+    "$_R/Front_End/timing/stdcell/tcbn07bwp9thvttt0p80v25c_ccs.lib" \
+    "$_R/Front_End/timing/memory/ts1n07tt0p80v25c.lib" \
+    "$_R/Front_End/timing/io/tpbn07v_tt0p80v25c.lib" \
+]
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # SECTION 5: LEF FILES (per track)
 # ═══════════════════════════════════════════════════════════════════════════════
 
