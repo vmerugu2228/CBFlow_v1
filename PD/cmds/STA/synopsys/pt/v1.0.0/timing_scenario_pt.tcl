@@ -14,6 +14,12 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
+# Source scenario context (globals set by subnode handler)
+if {[info exists ::env(CBFLOW_SCENARIO)]} {
+    set _ctx "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/$::env(CBFLOW_SCENARIO)_context.tcl"
+    if {[file exists $_ctx]} { source $_ctx }
+}
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # PT-RM: APP VARIABLES (from pt_setup.tcl)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -121,7 +127,11 @@ flow_proc read_design {
 flow_proc read_parasitics_spef {
     handle_info "PT-RM: Reading parasitics..."
 
-    if {[info exists sta(input,spef)] && $sta(input,spef) ne ""} {
+    # Prefer per-scenario ::SPEF_FILE from context, fall back to sta(input,spef)
+    if {[info exists ::SPEF_FILE] && [file exists $::SPEF_FILE]} {
+        read_parasitics -format spef $::SPEF_FILE
+        handle_info "  read_parasitics: [file tail $::SPEF_FILE]"
+    } elseif {[info exists sta(input,spef)] && $sta(input,spef) ne ""} {
         foreach spef $sta(input,spef) {
             if {[file exists $spef]} {
                 read_parasitics -format spef $spef
@@ -139,10 +149,13 @@ flow_proc read_parasitics_spef {
 flow_proc read_constraints {
     handle_info "PT-RM: Reading constraints..."
 
-    # Primary SDC
-    if {[info exists sta(input,sdc_func_file)] && [file exists $sta(input,sdc_func_file)]} {
+    # Primary SDC — prefer per-scenario ::SDC_FILE from context, fall back to sta(input,sdc_func_file)
+    if {[info exists ::SDC_FILE] && [file exists $::SDC_FILE]} {
+        read_sdc $::SDC_FILE
+        handle_info "  read_sdc: [file tail $::SDC_FILE]"
+    } elseif {[info exists sta(input,sdc_func_file)] && [file exists $sta(input,sdc_func_file)]} {
         read_sdc $sta(input,sdc_func_file)
-        handle_info "  read_sdc: [file tail $sta(input,sdc_func_file)]"
+        handle_info "  read_sdc: [file tail $sta(input,sdc_func_file)] (fallback)"
     }
 
     # UPF (IEEE 1801)

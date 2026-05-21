@@ -49,7 +49,8 @@ if {[file exists $_launch_config]} { source $_launch_config }
 set ::flow_type "STA"
 set stage_name "timing"
 if {$node_name eq ""} { set node_name $stage_name }
-set cmd_file "$::env(FLOW_DIR)/cmds/STA/cadence/tempus/[expr {[info exists ::env(TEMPUS_VERSION)] ? $::env(TEMPUS_VERSION) : "v1.0.0"}]/timing_tempus.tcl"
+set _tool_ver [expr {[info exists ::env(TEMPUS_VERSION)] ? $::env(TEMPUS_VERSION) : "v1.0.0"}]
+set cmd_file "$::env(FLOW_DIR)/cmds/STA/cadence/tempus/$_tool_ver/timing_tempus.tcl"
 
 # Check test mode
 set test_mode false
@@ -279,8 +280,7 @@ switch $subnode_name {
         file mkdir $_work_dir
         file mkdir "$run_dir/reports/sta"
 
-        set _tempus_ver [expr {[info exists ::env(TEMPUS_VERSION)] ? $::env(TEMPUS_VERSION) : "v1.0.0"}]
-        set _scenario_handler "$::env(FLOW_DIR)/cmds/STA/cadence/tempus/$_tempus_ver/timing_scenario_handler.tcl"
+        set _scenario_handler "$::env(FLOW_DIR)/cmds/STA/cadence/tempus/$_tool_ver/timing_scenario_handler.tcl"
 
         foreach scenario $all_scenarios {
             puts "INFO: ── Scenario: $scenario ──"
@@ -309,46 +309,80 @@ switch $subnode_name {
         puts "INFO: $stage_name dynamic completed — [llength $all_scenarios] scenarios processed"
     }
     default {
-        # Individual MMMC scenario subnode (e.g., func_ss_0p76v_rcmax_150c)
         set scenario $subnode_name
         puts "INFO: $stage_name scenario: $scenario"
 
+        # Source mmmc_config
+        set _mmmc_cfg "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
+        if {[file exists $_mmmc_cfg]} { source $_mmmc_cfg }
+
+        if {![info exists analysis_views($scenario)]} {
+            puts "ERROR: Scenario '$scenario' not found in analysis_views"
+            exit 1
+        }
+        array set _sv $analysis_views($scenario)
+
+        # Write scenario context
         set _work_dir "$run_dir/work/$::flow_type/$node_name/run"
         file mkdir $_work_dir
         file mkdir "$run_dir/reports/sta"
 
-        # Resolve scenario handler from same directory as this handler (vendor-agnostic)
-        set _handler_dir [file dirname [info script]]
-        set _scenario_handler [file join $_handler_dir "timing_scenario_handler.tcl"]
-
-        if {$test_mode} {
-            if {[file exists $_scenario_handler]} {
-                if {[catch {exec tclsh $_scenario_handler $scenario $run_dir} result]} {
-                    puts "WARNING: Scenario $scenario: $result"
-                } else {
-                    puts $result
-                }
-            } else {
-                puts "INFO: \[TEST MODE\] Scenario $scenario — creating report stub"
-                set rpt [open "$run_dir/reports/sta/timing_${scenario}_summary.rpt" "w"]
-                puts $rpt "# Test mode summary for scenario: $scenario"
-                puts $rpt "# Generated: [clock format [clock seconds]]"
-                puts $rpt "Setup WNS: 0.000ns  Hold WNS: 0.000ns"
-                close $rpt
-            }
-        } else {
-            if {[file exists $_scenario_handler]} {
-                puts "INFO: Executing: tclsh $_scenario_handler $scenario $run_dir"
-                if {[catch {exec tclsh $_scenario_handler $scenario $run_dir} result]} {
-                    puts "ERROR: Scenario $scenario failed: $result"
-                    exit 1
-                }
-                puts $result
-            } else {
-                puts "ERROR: Scenario handler not found: $_scenario_handler"
-                exit 1
+        set _ctx "$_work_dir/${scenario}_context.tcl"
+        set _fh [open $_ctx "w"]
+        puts $_fh "set ::scenario_name \"$scenario\""
+        puts $_fh "set ::CORNER \"$_sv(corner)\""
+        puts $_fh "set ::MODE \"$_sv(mode)\""
+        puts $_fh "set ::VOLTAGE \"$_sv(voltage)\""
+        puts $_fh "set ::TEMPERATURE \"$_sv(temperature)\""
+        puts $_fh "set ::RC_CORNER \"$_sv(rc_corner)\""
+        puts $_fh "set ::LIB_SET \"$_sv(lib_set_ref)\""
+        puts $_fh "set ::DESIGN_NAME \"$flow(design_name)\""
+        set _sdc_dir "$run_dir/work/$::flow_type/sdc1/sdc"
+        puts $_fh "set ::SDC_FILE \"$_sdc_dir/$_sv(constraint_file)\""
+        set _spef_manifest "$_work_dir/../setup/spef_manifest.tcl"
+        if {[file exists $_spef_manifest]} {
+            source $_spef_manifest
+            if {[info exists spef_map($_sv(rc_corner))]} {
+                puts $_fh "set ::SPEF_FILE \"$spef_map($_sv(rc_corner))\""
             }
         }
-        puts "INFO: $stage_name scenario $scenario completed"
+        close $_fh
+
+        set cmd_file "$::env(FLOW_DIR)/cmds/STA/cadence/tempus/$_tool_ver/timing_scenario_tempus.tcl"
+
+        if {$test_mode} {
+            puts "INFO: \[TEST MODE\] Scenario $scenario"
+            puts "INFO:   Corner=$_sv(corner) Mode=$_sv(mode) Voltage=$_sv(voltage) Temp=$_sv(temperature)"
+            set rpt [open "$run_dir/reports/sta/timing_${scenario}_summary.rpt" "w"]
+            puts $rpt "# Test mode: $scenario"
+            puts $rpt "Setup WNS: 0.000ns  Hold WNS: 0.000ns"
+            close $rpt
+            puts "INFO: $stage_name scenario $scenario completed \[TEST MODE\]"
+        } else {
+            set _tool_name [expr {[info exists sta(tool,name)] ? $sta(tool,name) : "tempus"}]
+            set _log_file "$_work_dir/${scenario}.log"
+            set _module_cmd ""
+            set _tool_shell "tempus"
+            set _wrapper_shell "/bin/csh -f"
+            catch {
+                if {[info exists lsf(module,$_tool_name)]} { set _module_cmd $lsf(module,$_tool_name) }
+                if {[info exists lsf(tool_shell,$_tool_name)]} { set _tool_shell $lsf(tool_shell,$_tool_name) }
+                if {[info exists lsf(tool_wrapper_shell)]} { set _wrapper_shell $lsf(tool_wrapper_shell) }
+            }
+            set _wrapper "$_work_dir/launch_${scenario}.csh"
+            set _wf [open $_wrapper "w"]
+            puts $_wf "#!$_wrapper_shell"
+            puts $_wf "setenv CBFLOW_SCENARIO $scenario"
+            if {$_module_cmd ne ""} { puts $_wf "$_module_cmd" }
+            puts $_wf "$_tool_shell -f $cmd_file -log $_log_file"
+            close $_wf
+            catch { file attributes $_wrapper -permissions rwxr-xr-x }
+            if {[catch {exec $_wrapper_shell $_wrapper} result]} {
+                puts "ERROR: Scenario $scenario failed: $result"
+                exit 1
+            }
+            puts $result
+            puts "INFO: $stage_name scenario $scenario completed"
+        }
     }
 }

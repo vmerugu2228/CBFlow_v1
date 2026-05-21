@@ -14,6 +14,12 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
+# Source scenario context written by subnode_handler
+if {[info exists ::env(CBFLOW_SCENARIO)]} {
+    set _ctx "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/$::env(CBFLOW_SCENARIO)_context.tcl"
+    if {[file exists $_ctx]} { source $_ctx }
+}
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # STEP 1: CREATE MMMC OBJECTS (Tempus native MMMC)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -41,7 +47,12 @@ flow_proc create_mmmc_view {
 
     # Create constraint mode
     set cm_name "cm_${::MODE}"
-    set sdc_file [expr {[info exists sta(input,sdc_func_file)] ? $sta(input,sdc_func_file) : ""}]
+    set sdc_file ""
+    if {[info exists ::SDC_FILE] && $::SDC_FILE ne ""} {
+        set sdc_file $::SDC_FILE
+    } elseif {[info exists sta(input,sdc_func_file)]} {
+        set sdc_file $sta(input,sdc_func_file)
+    }
     if {$sdc_file ne "" && [file exists $sdc_file]} {
         create_constraint_mode -name $cm_name -sdc_files $sdc_file
         handle_info "  Constraint mode: $cm_name (SDC: [file tail $sdc_file])"
@@ -93,7 +104,10 @@ flow_proc read_design {
 flow_proc read_parasitics_data {
     handle_info "Reading parasitics..."
 
-    if {[info exists sta(input,spef)] && $sta(input,spef) ne ""} {
+    if {[info exists ::SPEF_FILE] && $::SPEF_FILE ne "" && [file exists $::SPEF_FILE]} {
+        read_spef $::SPEF_FILE
+        handle_info "  SPEF: [file tail $::SPEF_FILE]"
+    } elseif {[info exists sta(input,spef)] && $sta(input,spef) ne ""} {
         foreach spef $sta(input,spef) {
             if {[file exists $spef]} {
                 read_spef $spef
