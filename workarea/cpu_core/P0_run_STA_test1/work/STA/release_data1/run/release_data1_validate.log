@@ -1,0 +1,4 @@
+INFO: release_data validate...
+INFO: Running validation: STA release_data release_data1
+INFO: Validation passed for release_data
+INFO: release_data validate completed

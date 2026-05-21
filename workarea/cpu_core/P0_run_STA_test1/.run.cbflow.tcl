@@ -1,9 +1,9 @@
 #!/usr/bin/env tclsh
 # CBFlow Native TCL Run-Specific Environment
-# Generated: Thu May 21 22:04:13  2026
+# Generated: Thu May 21 23:14:50  2026
 
 # Run-Specific Information
-set ::env(CBFLOW_RUN_DIR) "/Users/vmerugu/projects/CBflow_clone/workarea_test/P0_run_STA_test1"
+set ::env(CBFLOW_RUN_DIR) "/Users/vmerugu/projects/CBflow_clone/workarea/cpu_core/P0_run_STA_test1"
 set ::env(CBFLOW_FLOW_TYPE) "STA"
 set ::env(CBFLOW_DESIGN_NAME) "cpu_core"
 set ::env(CBFLOW_RUN_NAME) "test1"

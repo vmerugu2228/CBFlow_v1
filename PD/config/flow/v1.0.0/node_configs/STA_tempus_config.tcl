@@ -55,3 +55,25 @@ array set sta {
     timing,ocv_mode                                      ""
     timing,si_aware                                      ""
 }
+
+# ┌─ Tempus RAK Additions ─────────────────────────────────────────────────────┐
+array set sta {
+    # Tempus threading
+    tool,cpu_count              "8"
+
+    # SI / Crosstalk
+    timing,si_aware             "true"
+    timing,si_glitch_report     "true"
+    timing,si_glitch_propagation "true"
+
+    # PBA / EPBA
+    timing,pba_nworst           "2"
+    timing,pba_max_paths        "1000"
+    timing,epba_max_paths       "10000"
+    timing,epba_max_slack       "0.200"
+
+    # Analysis
+    analysis,max_paths          "100"
+    analysis,report_power       "true"
+    analysis,ocv_mode           "aocv"
+}

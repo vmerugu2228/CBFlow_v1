@@ -1,0 +1,31 @@
+INFO: release_data run...
+INFO: [TEST MODE] Bypassing EDA tool invocation
+INFO: Command file: /Users/vmerugu/projects/CBflow_clone/PD/cmds/STA/synopsys/pt/v1.0.0/release_data_pt.tcl
+INFO: ╔══════════════════════════════════════════════════╗
+INFO: ║  Command File: release_data_pt.tcl
+INFO: ╚══════════════════════════════════════════════════╝
+INFO:   #!/usr/bin/env tclsh
+INFO:   # CBFlow STA release_data - Synopsys PrimeTime
+INFO:   
+INFO:   # ── Bootstrap ────────────────────────────────────────────────────────────────
+INFO:   set run_dir $::env(CBFLOW_RUN_DIR)
+INFO:   source "$run_dir/.run.cbflow.tcl"
+INFO:   source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+INFO:   
+INFO:   set FLOW_TYPE "STA"
+INFO:   set STAGE_NAME "release_data"
+INFO:   set NODE_NAME "${STAGE_NAME}1"
+INFO:   
+INFO:   source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+INFO:   source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+INFO:   setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
+INFO:   
+INFO:   # ==============================================================================
+INFO:   flow_proc setup_release_dirs {
+INFO:       handle_info "Setting up release directories..."
+INFO:       global sta project flow
+INFO:   ... (174 more lines)
+INFO: ══════════════════════════════════════════════════
+INFO: Wrapper script: /Users/vmerugu/projects/CBflow_clone/workarea/cpu_core/P0_run_STA_test1/work/STA/release_data1/run/launch_release_data.csh
+INFO: [TEST MODE] Launch mode: LSF (interactive xterm)
+INFO: release_data run completed [TEST MODE]

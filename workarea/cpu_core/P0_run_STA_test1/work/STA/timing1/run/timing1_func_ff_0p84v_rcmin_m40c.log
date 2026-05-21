@@ -1,0 +1,8 @@
+INFO: timing scenario: func_ff_0p84v_rcmin_m40c
+INFO: MMMC loaded — 24 views, 32 node assignments
+INFO: Scenario context written: /Users/vmerugu/projects/CBflow_clone/workarea/cpu_core/P0_run_STA_test1/work/STA/timing1/run/func_ff_0p84v_rcmin_m40c_context.tcl
+INFO: [TEST MODE] Scenario func_ff_0p84v_rcmin_m40c
+INFO:   Corner=ff Mode=func Voltage=0p84v Temp=m40c
+INFO:   RC=rcmin LibSet=ff_0p84v_m40c
+INFO:   SDC=${design_name}_func.sdc
+INFO: timing scenario func_ff_0p84v_rcmin_m40c completed [TEST MODE]

@@ -1,0 +1,10 @@
+INFO: MMMC loaded — 24 views, 32 node assignments
+INFO: GF 22FDX active track: 9T
+INFO: GF 22FDX tech config loaded — track=9T, metal=11M, libs=6 NDMs
+INFO: extraction validate...
+INFO: SPEF manifest: /Users/vmerugu/projects/CBflow_clone/workarea/cpu_core/P0_run_STA_test1/work/STA/extraction1/results/spef_manifest.tcl (4 corners)
+INFO:   rc_max -> 
+INFO:   rc_max_cworst -> 
+INFO:   rc_min -> 
+INFO:   rc_typ -> 
+INFO: extraction validate completed

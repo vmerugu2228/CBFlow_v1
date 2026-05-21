@@ -16,6 +16,17 @@ setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 handle_info "Starting STA extraction stage with Cadence Tempus..."
 
+# ── CPU threading (Tempus RAK) ───────────────────────────────────────────────
+set _cpu [expr {[info exists sta(tool,cpu_count)] && $sta(tool,cpu_count) ne "" ? $sta(tool,cpu_count) : 8}]
+set_multi_cpu_usage -localCpu $_cpu
+handle_info "CPUs: $_cpu"
+
+# ── SI-aware delay cal mode (before extraction, Tempus RAK) ──────────────────
+if {[info exists sta(timing,si_aware)] && $sta(timing,si_aware) eq "true"} {
+    set_delay_cal_mode -siAware true
+    handle_info "SI-aware delay calculation: enabled (pre-extraction)"
+}
+
 # ┌─────────────────────────────────────────────────────────────────────────────┐
 # │                       MMMC CONFIGURATION                                   │
 # └─────────────────────────────────────────────────────────────────────────────┘
@@ -90,13 +101,13 @@ flow_proc setup_libraries {
             set lef_path [file join $project_root [subst $tech(lef,technology)]]
             if {[file exists $lef_path]} {
                 puts "   [file tail $tech(lef,technology)]"
-                read_physical -lef $lef_path
+                read_lef $lef_path
             }
         }
         set lef_path [file join $project_root [subst $tech(lef,standard_cells)]]
         if {[file exists $lef_path]} {
             puts "   [file tail $tech(lef,standard_cells)]"
-            read_physical -lef $lef_path
+            read_lef $lef_path
         }
     }
 
