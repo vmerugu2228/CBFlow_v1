@@ -1301,8 +1301,8 @@ array set flow_input_handshake {
     FP,upf_file           {SYNTH    upf       "${design_name}.upf"}
 
     STA,netlist           {SYNTH_PNR netlist  "${design_name}.pt.v"}
-    STA,sdc               {SYNTH_PNR sdc     "${design_name}.sdc"}
-    STA,spef              {SYNTH_PNR spef    "${design_name}.spef"}
+    STA,sdc,func          {SYNTH_PNR sdc     "${design_name}_func.sdc"}
+    STA,sdc,test          {SYNTH_PNR sdc     "${design_name}_test.sdc"}
     STA,def_file          {SYNTH_PNR def     "${design_name}.def"}
 
     PV,gds                {SYNTH_PNR gds     "${design_name}.gds"}

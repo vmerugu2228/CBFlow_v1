@@ -2,7 +2,7 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # CBFlow STA INPUTS Subnode Handler
 # Description: Handles inputs stage subnodes for STA flow
-# Subnodes: setup, netlist, sdc, spef, library, validate, finish
+# Subnodes: setup, netlist, sdc, def, library, validate, finish
 # Supports test_mode: bypasses EDA tool and shows command file instead
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -59,7 +59,7 @@ switch $subnode_name {
         file mkdir "$run_dir/work/STA/$node_name"
         file mkdir "$run_dir/work/STA/$node_name/netlist"
         file mkdir "$run_dir/work/STA/$node_name/sdc"
-        file mkdir "$run_dir/work/STA/$node_name/spef"
+        file mkdir "$run_dir/work/STA/$node_name/def"
         file mkdir "$run_dir/work/STA/$node_name/library"
         puts "INFO: STA $stage_name setup completed"
     }
@@ -89,18 +89,18 @@ switch $subnode_name {
         close $fh
         puts "INFO: STA $stage_name sdc completed"
     }
-    "spef" {
-        puts "INFO: STA $stage_name spef..."
+    "def" {
+        puts "INFO: STA $stage_name def..."
         if {$test_mode} {
             puts "INFO: \[TEST MODE\] SPEF loading skipped"
         }
-        set info_file "$run_dir/work/STA/$node_name/spef/spef_info.tcl"
+        set info_file "$run_dir/work/STA/$node_name/def/def_info.tcl"
         file mkdir [file dirname $info_file]
         set fh [open $info_file "w"]
-        puts $fh "set spef_info(timestamp) \"[clock format [clock seconds]]\""
-        puts $fh "set spef_info(status) \"loaded\""
+        puts $fh "set def_info(timestamp) \"[clock format [clock seconds]]\""
+        puts $fh "set def_info(status) \"loaded\""
         close $fh
-        puts "INFO: STA $stage_name spef completed"
+        puts "INFO: STA $stage_name def completed"
     }
     "library" {
         puts "INFO: STA $stage_name library..."

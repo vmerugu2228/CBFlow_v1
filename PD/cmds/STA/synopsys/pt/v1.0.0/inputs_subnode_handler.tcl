@@ -29,7 +29,7 @@ switch $subnode_name {
         puts "INFO: STA $stage_name setup..."
         file mkdir "$run_dir/work/STA/$node_name/netlist"
         file mkdir "$run_dir/work/STA/$node_name/sdc"
-        file mkdir "$run_dir/work/STA/$node_name/spef"
+        file mkdir "$run_dir/work/STA/$node_name/def"
         file mkdir "$run_dir/work/STA/$node_name/library"
         puts "INFO: STA $stage_name setup completed"
     }
@@ -42,20 +42,52 @@ switch $subnode_name {
         puts "INFO: STA $stage_name netlist completed"
     }
     "sdc" {
-        puts "INFO: STA $stage_name sdc..."
-        if {$test_mode} { puts "INFO: \[TEST MODE\] sdc loading skipped" }
-        set ff "$run_dir/work/STA/$node_name/sdc/sdc_info.tcl"
-        file mkdir [file dirname $ff]
-        set fh [open $ff "w"]; puts $fh "set sdc_info(timestamp) \"[clock format [clock seconds]]\""; puts $fh "set sdc_info(status) \"loaded\""; close $fh
-        puts "INFO: STA $stage_name sdc completed"
+        puts "INFO: STA $stage_name sdc (per-mode)..."
+        # Link per-mode SDC files from sta(input,sdc,<mode>) into work dir
+        global sta operating_modes
+        set sdc_dir "$run_dir/work/STA/$node_name/sdc"
+        file mkdir $sdc_dir
+        set mode_count 0
+        if {[array exists operating_modes]} {
+            foreach _mode [array names operating_modes] {
+                set sdc_var "input,sdc,$_mode"
+                if {[info exists sta($sdc_var)] && $sta($sdc_var) ne ""} {
+                    set src $sta($sdc_var)
+                    set dst "$sdc_dir/[file tail $src]"
+                    if {[file exists $src]} {
+                        file link -symbolic $dst $src
+                        puts "INFO:   SDC mode=$_mode: [file tail $src]"
+                    } else {
+                        puts "WARNING: SDC not found for mode $_mode: $src"
+                    }
+                    incr mode_count
+                }
+            }
+        }
+        # Backward compat: single sdc_func_file
+        if {$mode_count == 0 && [info exists sta(input,sdc_func_file)] && $sta(input,sdc_func_file) ne ""} {
+            set src $sta(input,sdc_func_file)
+            set dst "$sdc_dir/[file tail $src]"
+            if {[file exists $src]} {
+                file link -symbolic $dst $src
+                puts "INFO:   SDC (single): [file tail $src]"
+                incr mode_count
+            }
+        }
+        set ff "$sdc_dir/sdc_info.tcl"
+        set fh [open $ff "w"]
+        puts $fh "set sdc_info(timestamp) \"[clock format [clock seconds]]\""
+        puts $fh "set sdc_info(mode_count) $mode_count"
+        close $fh
+        puts "INFO: STA $stage_name sdc completed ($mode_count modes)"
     }
-    "spef" {
-        puts "INFO: STA $stage_name spef..."
-        if {$test_mode} { puts "INFO: \[TEST MODE\] spef loading skipped" }
-        set ff "$run_dir/work/STA/$node_name/spef/spef_info.tcl"
+    "def" {
+        puts "INFO: STA $stage_name def..."
+        if {$test_mode} { puts "INFO: \[TEST MODE\] DEF loading skipped" }
+        set ff "$run_dir/work/STA/$node_name/def/def_info.tcl"
         file mkdir [file dirname $ff]
-        set fh [open $ff "w"]; puts $fh "set spef_info(timestamp) \"[clock format [clock seconds]]\""; puts $fh "set spef_info(status) \"loaded\""; close $fh
-        puts "INFO: STA $stage_name spef completed"
+        set fh [open $ff "w"]; puts $fh "set def_info(timestamp) \"[clock format [clock seconds]]\""; puts $fh "set def_info(status) \"loaded\""; close $fh
+        puts "INFO: STA $stage_name def completed"
     }
     "library" {
         puts "INFO: STA $stage_name library..."

@@ -1942,6 +1942,7 @@ function showCtxMenu(name, event) {
   var menuHtml = '<div class="ctx-hdr" id="ctx-hdr">' + name + '</div>';
   if (isSubnode) {
     menuHtml += '<a onclick="ctxAction(\'run-stage\')">&#9654; Run to This Subnode</a>';
+    menuHtml += '<a onclick="ctxAction(\'open-log\')">&#128196; Open Log</a>';
     menuHtml += '<hr>';
     menuHtml += '<a onclick="ctxAction(\'bypass\')">&#10140; Bypass</a>';
     menuHtml += '<a onclick="ctxAction(\'forcevalidate\')">&#10004; Force Validate</a>';
@@ -1950,6 +1951,7 @@ function showCtxMenu(name, event) {
   } else {
     menuHtml += '<a onclick="ctxAction(\'run-stage\')">&#9654; Run This Stage</a>';
     menuHtml += '<a onclick="ctxAction(\'retrace-from\')">&#8635; Retrace From Here</a>';
+    menuHtml += '<a onclick="ctxAction(\'open-log\')">&#128196; Open Log</a>';
     menuHtml += '<hr>';
     menuHtml += '<a onclick="ctxAction(\'bypass\')">&#10140; Bypass</a>';
     menuHtml += '<a onclick="ctxAction(\'force\')">&#8634; Force Re-run</a>';
@@ -2011,6 +2013,11 @@ function ctxAction(action) {
   else if (action === 'forcevalidate') {
     if (isSubnode) apiAction('forcevalidate', {jobs: [name]});
     else apiAction('forcevalidate', {stages: [stage]});
+  }
+  else if (action === 'open-log') {
+    // Open log file for this stage/subnode
+    var logName = isSubnode ? name : stage;
+    window.open('/api/log/' + logName, '_blank');
   }
   else if (action === 'edit') openNodeConfigEditor(stage);
   else if (action === 'mmmc') openMMMCModal(stage);

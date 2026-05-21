@@ -16,8 +16,9 @@ namespace eval ::CBFlow::InputResolve {
     variable handshake_map
     array set handshake_map {
         STA,netlist         "netlist,pt"
-        STA,sdc_func_file   "sdc"
-        STA,spef            "spef"
+        STA,sdc,func        "sdc,func"
+        STA,sdc,test        "sdc,test"
+        STA,sdc_func_file   "sdc,func"
         STA,def_file        "def"
 
         LEC,netlist_revised "netlist,logic"

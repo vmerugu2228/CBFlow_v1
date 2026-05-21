@@ -1600,10 +1600,6 @@ class RaceEngine:
         self.db.record_start(job)
         logger.info(f"  [{job.stage}/{job.subnode}] running...")
 
-        # Test mode delay — so GUI can observe status transitions
-        import time as _time
-        _time.sleep(5)
-
         # Build environment: os.environ + .run.cbflow.env + engine vars
         run_env = os.environ.copy()
         # Load ALL vars from .run.cbflow.env (SCRIPTS_ROOT, CONFIG_ROOT, etc.)
@@ -1624,15 +1620,39 @@ class RaceEngine:
         run_env['CBFLOW_SUBNODE'] = job.subnode
 
         try:
-            result = subprocess.run(
-                job.command, shell=True, env=run_env,
-                cwd=self.run_dir, timeout=self._get_timeout(job))
+            # Log to work/<FLOW>/<stage>/run/<node_name>.log (tool run log)
+            log_dir = os.path.join(self.run_dir, 'work', self.flow_type, job.stage, 'run')
+            os.makedirs(log_dir, exist_ok=True)
+            log_file = os.path.join(log_dir, f'{job.name}.log')
+
+            with open(log_file, 'w') as lf:
+                result = subprocess.run(
+                    job.command, shell=True, env=run_env,
+                    cwd=self.run_dir, timeout=self._get_timeout(job),
+                    stdout=lf, stderr=subprocess.STDOUT)
 
             exit_code = result.returncode
             error_msg = ''
 
             if exit_code != 0:
-                error_msg = f"Handler exited with code {exit_code}"
+                # Read log for detailed error context
+                try:
+                    with open(log_file) as lf:
+                        lines = lf.readlines()
+
+                    # Extract ERROR/FATAL/error lines for summary
+                    error_lines = [l.rstrip() for l in lines if any(
+                        k in l.upper() for k in ('ERROR', 'FATAL', 'FAILED', 'ABORT')
+                    )]
+                    tail = ''.join(lines[-30:]) if len(lines) > 30 else ''.join(lines)
+
+                    if error_lines:
+                        error_summary = '\n'.join(error_lines[-10:])
+                        error_msg = f"ERRORS:\n{error_summary}\n\nLog tail:\n{tail}"
+                    else:
+                        error_msg = f"Process exited with code {exit_code} (no ERROR lines found)\n\nLog tail:\n{tail}"
+                except Exception:
+                    error_msg = f"Process exited with code {exit_code}. Log: {log_file}"
 
             self.db.record_complete(job, exit_code, error_msg)
 
@@ -1640,15 +1660,22 @@ class RaceEngine:
                 logger.info(f"  [{job.stage}/{job.subnode}] done")
             else:
                 logger.error(f"  [{job.stage}/{job.subnode}] FAILED (exit={exit_code})")
+                logger.error(f"  Log: {log_file}")
+                # Print first few error lines to console
+                if error_msg:
+                    for line in error_msg.split('\n')[:5]:
+                        logger.error(f"  {line}")
 
             return exit_code
 
         except subprocess.TimeoutExpired:
-            self.db.record_complete(job, 124, 'Timeout exceeded')
-            logger.error(f"  [{job.stage}/{job.subnode}] TIMEOUT")
+            error_msg = f"Job timed out after {self._get_timeout(job)}s. Stage: {job.stage}, Subnode: {job.subnode}"
+            self.db.record_complete(job, 124, error_msg)
+            logger.error(f"  [{job.stage}/{job.subnode}] TIMEOUT — {error_msg}")
             return 124
         except Exception as e:
-            self.db.record_complete(job, 1, str(e))
+            error_msg = f"Execution error: {str(e)}\nCommand: {job.command}"
+            self.db.record_complete(job, 1, error_msg)
             logger.error(f"  [{job.stage}/{job.subnode}] ERROR: {e}")
             return 1
 

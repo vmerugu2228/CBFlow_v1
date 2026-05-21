@@ -1082,6 +1082,9 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         elif path.startswith('/api/input-vars/'):
             node_name = path[len('/api/input-vars/'):]
             self._json_response(self.dashboard.get_input_vars(node_name))
+        elif path.startswith('/api/log/'):
+            job_name = path[len('/api/log/'):]
+            self._serve_log(job_name)
         elif path.startswith('/static/'):
             self._serve_static(path[len('/static/'):])
         else:
@@ -1716,6 +1719,90 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
         self.wfile.write(body)
+
+    def _serve_log(self, job_name):
+        """Serve log file for a stage or subnode.
+        Primary location: work/<FLOW>/<stage>/run/<job_name>.log"""
+        run_dir = self.dashboard.run_dir
+        flow_type = self.dashboard.flow_type
+
+        # Resolve stage from job_name (timing1_setup → timing1)
+        import glob as _glob
+        log_path = None
+
+        # Primary: work/<FLOW>/<stage>/run/<job_name>.log
+        for stage_dir in _glob.glob(os.path.join(run_dir, 'work', flow_type, '*')):
+            candidate = os.path.join(stage_dir, 'run', f'{job_name}.log')
+            if os.path.exists(candidate):
+                log_path = candidate
+                break
+
+        # Fallback: search all .log files matching job_name
+        if not log_path:
+            for match in _glob.glob(os.path.join(run_dir, 'work', flow_type, '**', f'{job_name}.log'), recursive=True):
+                log_path = match
+                break
+
+        log_content = ''
+        if log_path and os.path.exists(log_path):
+            with open(log_path, errors='replace') as f:
+                log_content = f.read()
+        else:
+            log_content = f"No log file found for: {job_name}\n\nExpected: work/{flow_type}/<stage>/run/{job_name}.log"
+
+        # Also get error_msg from DB for context
+        db_error = ''
+        try:
+            import sqlite3
+            for db_file in sorted(Path(run_dir).glob('.race_*.db')):
+                conn = sqlite3.connect(str(db_file))
+                row = conn.execute("SELECT error_msg FROM jobs WHERE job_name=? AND error_msg != '' ORDER BY rowid DESC LIMIT 1",
+                                   (job_name,)).fetchone()
+                if row:
+                    db_error = row[0]
+                conn.close()
+                break
+        except Exception:
+            pass
+
+        # Highlight errors in the log
+        import html as _html
+        log_html = _html.escape(log_content)
+        # Color ERROR/FATAL lines red
+        log_lines = []
+        for line in log_html.split('\n'):
+            if any(k in line.upper() for k in ('ERROR', 'FATAL', 'FAILED', 'ABORT')):
+                log_lines.append(f'<span style="color:#f44336;font-weight:bold">{line}</span>')
+            elif any(k in line.upper() for k in ('WARNING', 'WARN')):
+                log_lines.append(f'<span style="color:#ff9800">{line}</span>')
+            elif any(k in line.upper() for k in ('INFO:', 'PASS', 'COMPLETE', 'SUCCESS')):
+                log_lines.append(f'<span style="color:#4caf50">{line}</span>')
+            else:
+                log_lines.append(line)
+
+        error_section = ''
+        if db_error:
+            error_section = f'<div style="background:#2d1111;border:1px solid #f44336;padding:12px;margin-bottom:16px;border-radius:4px"><span style="color:#f44336;font-weight:bold">DB Error Record:</span>\n{_html.escape(db_error)}</div>'
+
+        body = f"""<!DOCTYPE html><html><head><title>Log: {job_name}</title>
+<style>
+body{{font-family:'Consolas','Monaco',monospace;font-size:12px;background:#1e1e1e;color:#d4d4d4;padding:16px;margin:0;line-height:1.4}}
+.hdr{{color:#569cd6;font-weight:bold;font-size:14px;margin-bottom:4px}}
+.path{{color:#9cdcfe;font-size:11px}}
+pre{{white-space:pre-wrap;word-wrap:break-word;margin:0}}
+</style></head>
+<body>
+<div class="hdr">Log: {job_name}</div>
+<div class="path">File: {log_path or 'not found'}</div>
+<hr style="border-color:#333;margin:8px 0">
+{error_section}
+<pre>{'<br>'.join(log_lines)}</pre>
+</body></html>"""
+
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html')
+        self.end_headers()
+        self.wfile.write(body.encode('utf-8', errors='replace'))
 
     def log_message(self, fmt, *args):
         pass  # Suppress access logs

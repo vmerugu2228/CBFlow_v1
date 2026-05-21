@@ -11,13 +11,13 @@
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 array set sta {
-    stages {netlist1 sdc1 spef1 library1 extraction1 timing1 reporting1 release_data1}
+    stages {netlist1 sdc1 def1 library1 extraction1 timing1 reporting1 release_data1}
 
     dependencies,netlist1       {}
     dependencies,sdc1           {}
-    dependencies,spef1          {}
+    dependencies,def1           {}
     dependencies,library1       {}
-    dependencies,extraction1    {netlist1 sdc1 spef1 library1}
+    dependencies,extraction1    {netlist1 sdc1 def1 library1}
     dependencies,timing1        {extraction1}
     dependencies,reporting1     {timing1}
     dependencies,release_data1  {reporting1}
@@ -56,7 +56,7 @@ foreach _s $_sta_exec_stages {
 array set sta {
     stage_types,netlist1       "inputs"
     stage_types,sdc1           "inputs"
-    stage_types,spef1          "inputs"
+    stage_types,def1           "inputs"
     stage_types,library1       "inputs"
     stage_types,extraction1    "execution"
     stage_types,timing1        "execution"
@@ -65,7 +65,7 @@ array set sta {
 
     node_types,netlist1       "inputs"
     node_types,sdc1           "inputs"
-    node_types,spef1          "inputs"
+    node_types,def1           "inputs"
     node_types,library1       "inputs"
     node_types,extraction1    "extraction"
     node_types,timing1        "timing"
@@ -74,7 +74,7 @@ array set sta {
 
     node_descriptions,netlist1       "Gate-level netlist input"
     node_descriptions,sdc1           "SDC timing constraints input"
-    node_descriptions,spef1          "SPEF parasitic data input"
+    node_descriptions,def1           "DEF physical design input (for extraction)"
     node_descriptions,library1       "Technology library input"
     node_descriptions,extraction1    "Per-RC-corner parasitic extraction (dynamic: rc_max, rc_typ, rc_min run in parallel)"
     node_descriptions,timing1        "Dynamic per-scenario timing analysis - each scenario runs setup+hold (parallelizable via make -j)"
@@ -96,7 +96,7 @@ array set sta {
 
     runtime,timeout,netlist1       10
     runtime,timeout,sdc1           10
-    runtime,timeout,spef1          10
+    runtime,timeout,def1           10
     runtime,timeout,library1       10
     runtime,timeout,extraction1    30
     runtime,timeout,timing1        60
@@ -109,8 +109,8 @@ array set sta {
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 array set sta {
-    critical_files,extraction1    {sta(input,netlist) sta(input,sdc_func_file)}
-    critical_files,timing1        {sta(input,netlist) sta(input,spef) sta(input,sdc_func_file)}
+    critical_files,extraction1    {sta(input,netlist)}
+    critical_files,timing1        {sta(input,netlist) sta(input,def_file)}
     critical_files,reporting1     {}
     critical_files,release_data1  {}
 
@@ -120,9 +120,15 @@ array set sta {
 
     mandatory_input_groups {
         netlist_inputs {sta(input,netlist)}
-        sdc_inputs {sta(input,sdc_release_tag) sta(input,sdc_release_dir) sta(input,sdc_func_file)}
-        spef_inputs {sta(input,spef)}
+        def_inputs {sta(input,def_file)}
     }
+
+    # SDC per mode — resolved from operating_modes constraint_file
+    # User provides per-mode SDC files:
+    #   sta(input,sdc,func) "/path/to/${design_name}_func.sdc"
+    #   sta(input,sdc,test) "/path/to/${design_name}_test.sdc"
+    # Or single file that covers all modes:
+    #   sta(input,sdc_func_file) "/path/to/func.sdc"
 
     mmmc_reports,base              {mmmc_timing mmmc_scenarios}
     mmmc_reports,timing1           {mmmc_hold_timing mmmc_hold_violations}
@@ -140,11 +146,12 @@ array set sta {
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 array set sta {
-    release_types,timing,description "MMMC timing analysis reports and sign-off data"
+    release_types,timing,description "MMMC timing analysis reports, SPEF, and SDF"
     release_types,timing,files {
-        "reports/sta/mmmc_timing_summary.rpt"     "reports/final_mmmc_timing.rpt"
+        "reports/sta/mmmc_timing_summary.rpt"       "reports/final_mmmc_timing.rpt"
         "reports/sta/mmmc_hold_summary.rpt"         "reports/hold_timing_summary.rpt"
         "results/extraction/parasitic.spef"         "spef/final_parasitic.spef"
+        "outputs/${design_name}.sdf"                "sdf/${design_name}.sdf"
     }
 }
 
@@ -157,7 +164,15 @@ array set sta {
     reporting,include_input_pins true
     reporting,include_nets     true
     reporting,report_format    "rpt"
+
+    sdf,enabled                false
+    sdf,timing_type            "max_min"
 }
+
+# NOTE: When sta(sdf,enabled) is set to true in user_config:
+#   - SDF files generated during timing stage per scenario
+#   - SDF files included in release deliverables
+#   - Output: outputs/${design_name}_<scenario>.sdf
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║                        SUPPORTED TOOLS & TOOL CONFIG                        ║
