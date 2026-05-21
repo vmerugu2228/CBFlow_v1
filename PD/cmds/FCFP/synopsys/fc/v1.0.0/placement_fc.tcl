@@ -1,41 +1,18 @@
 #!/usr/bin/env tclsh
 # CBFlow FCFP placement - Synopsys Fusion Compiler
-# FC-RM: placement.tcl -- Congestion/timing-driven placement,
-#         push-down objects, abstract creation
-# Aligned with FC-RM Y-2026.03
+
+# ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
-set env_file "$run_dir/.run.cbflow.tcl"
-if {[file exists $env_file]} { source $env_file } else { puts stderr "ERROR: .run.cbflow.tcl not found"; exit 1 }
-if {[info exists ::env(FLOW_DIR)]} { set FLOW_DIR $::env(FLOW_DIR) } else { puts stderr "ERROR: FLOW_DIR not set"; exit 1 }
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} { puts stderr "ERROR: UTILITIES_VERSION not set"; exit 1 }
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
-namespace import ::CBFlow::Utilities::print_header
-set config_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/config.tcl"
-if {[file exists $config_file]} { source $config_file }
-global fcfp project tech flow
-# Source FC tool config
-set _tool_config "[file dirname [info script]]/fc_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "Starting FCFP placement..."
-if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
-set ::flow::exec_mode "auto"
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" &&
-    [info exists ::env(TECH_VERSION)] && $::env(TECH_VERSION) ne ""} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
+set FLOW_TYPE "FCFP"
+set STAGE_NAME "placement"
+set NODE_NAME "${STAGE_NAME}1"
 
-set WORK_DIR "$run_dir/work/FCFP/placement1"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 # ==============================================================================
 # flow_proc: load_design
@@ -44,13 +21,13 @@ flow_proc load_design {
     handle_info "Loading design for placement..."
     global fcfp flow
 
-    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fcfp(common,design_name)] ? $fcfp(common,design_name) : $flow(design_name)}]
 
-    if {[info exists fc(common,open_lib)] && $fc(common,open_lib) ne ""} {
-        open_lib $fc(common,open_lib)
+    if {[info exists fcfp(common,open_lib)] && $fcfp(common,open_lib) ne ""} {
+        open_lib $fcfp(common,open_lib)
     }
 
-    set from_label [expr {[info exists fc(placement,from_label)] ? $fc(placement,from_label) : "shaping"}]
+    set from_label [expr {[info exists fcfp(placement,from_label)] ? $fcfp(placement,from_label) : "shaping"}]
     copy_block -from ${design_name}/${from_label} -to ${design_name}/placement
     current_block ${design_name}/placement
     link_block
@@ -69,18 +46,18 @@ flow_proc create_placement {
     set place_cmd "create_placement -congestion -timing_driven"
 
     # Effort level
-    if {[info exists fc(placement,effort)] && $fc(placement,effort) ne ""} {
-        lappend place_cmd -effort $fc(placement,effort)
+    if {[info exists fcfp(placement,effort)] && $fcfp(placement,effort) ne ""} {
+        lappend place_cmd -effort $fcfp(placement,effort)
     }
 
     # Congestion-driven options
-    if {[info exists fc(placement,congestion_effort)] && $fc(placement,congestion_effort) ne ""} {
-        set_app_option -name place.coarse.congestion_layer_aware -value $fc(placement,congestion_effort)
+    if {[info exists fcfp(placement,congestion_effort)] && $fcfp(placement,congestion_effort) ne ""} {
+        set_app_option -name place.coarse.congestion_layer_aware -value $fcfp(placement,congestion_effort)
     }
 
     # Source placement constraints
-    if {[info exists fc(placement,constraint_script)] && [file exists $fc(placement,constraint_script)]} {
-        source -e $fc(placement,constraint_script)
+    if {[info exists fcfp(placement,constraint_script)] && [file exists $fcfp(placement,constraint_script)]} {
+        source -e $fcfp(placement,constraint_script)
     }
 
     handle_info "Running: $place_cmd"
@@ -104,19 +81,19 @@ flow_proc push_down_objects {
     global fcfp
 
     # Push down site rows
-    if {[info exists fc(placement,push_down_site_rows)] && $fc(placement,push_down_site_rows)} {
+    if {[info exists fcfp(placement,push_down_site_rows)] && $fcfp(placement,push_down_site_rows)} {
         push_down_objects -site_rows
         handle_info "Site rows pushed down"
     }
 
     # Push down blockages
-    if {[info exists fc(placement,push_down_blockages)] && $fc(placement,push_down_blockages)} {
+    if {[info exists fcfp(placement,push_down_blockages)] && $fcfp(placement,push_down_blockages)} {
         push_down_objects -blockages
         handle_info "Blockages pushed down"
     }
 
     # Push down PG
-    if {[info exists fc(placement,push_down_pg)] && $fc(placement,push_down_pg)} {
+    if {[info exists fcfp(placement,push_down_pg)] && $fcfp(placement,push_down_pg)} {
         push_down_objects -pg
         handle_info "PG pushed down"
     }
@@ -132,7 +109,7 @@ flow_proc create_abstracts {
     handle_info "Creating abstracts with timing estimation..."
     global fcfp
 
-    if {[info exists fc(placement,abstract_timing)] && $fc(placement,abstract_timing)} {
+    if {[info exists fcfp(placement,abstract_timing)] && $fcfp(placement,abstract_timing)} {
         create_abstract -estimate_timing
         handle_info "Abstracts created with timing estimation"
     } else {
@@ -148,7 +125,7 @@ flow_proc save_design {
     handle_info "Saving placement block..."
     global fcfp flow
 
-    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fcfp(common,design_name)] ? $fcfp(common,design_name) : $flow(design_name)}]
 
     save_lib -all
     save_block
@@ -163,7 +140,7 @@ flow_proc generate_reports {
     handle_info "Generating placement reports..."
     global fcfp
 
-    set max_paths [expr {[info exists fc(analysis,max_paths)] ? $fc(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists fcfp(analysis,max_paths)] ? $fcfp(analysis,max_paths) : 100}]
 
     redirect -file $::REPORTS_DIR/report_qor.rpt { report_qor }
     redirect -file $::REPORTS_DIR/report_timing.rpt {
@@ -181,14 +158,7 @@ flow_proc generate_reports {
 }
 
 # ==============================================================================
-# Source setup.tcl and overrides before flow_exec_all
 # ==============================================================================
-set _setup_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/setup.tcl"
-if {[file exists $_setup_file]} { handle_info "Sourcing setup hooks: $_setup_file"; source $_setup_file }
-set _override_file "$run_dir/setup/override_setup.tcl"
-if {[file exists $_override_file]} { handle_info "Sourcing user override: $_override_file"; source $_override_file }
-set _stage_override "$run_dir/setup/override_setup.placement.tcl"
-if {[file exists $_stage_override]} { handle_info "Sourcing stage override: $_stage_override"; source $_stage_override }
 
 flow_exec_all
 

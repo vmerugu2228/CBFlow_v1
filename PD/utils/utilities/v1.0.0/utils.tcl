@@ -575,6 +575,75 @@ proc flow_proc_replace {name body} {
     flow_replace $name $body
 }
 
+# ── File Validation ────────────────────────────────────────────────────────────
+
+proc validate_file_naming {file_path file_type} {
+    global FILE_VALIDATION_RULES
+    set ext [file extension $file_path]
+    set base [file rootname [file tail $file_path]]
+    if {![info exists FILE_VALIDATION_RULES($file_type)]} {
+        return [list false "Unknown file type: $file_type"]
+    }
+    if {[lsearch -exact $FILE_VALIDATION_RULES($file_type) $ext] == -1} {
+        return [list false "Invalid extension '$ext' for $file_type. Expected: [join $FILE_VALIDATION_RULES($file_type) {, }]"]
+    }
+    if {![regexp {^[a-zA-Z][a-zA-Z0-9_]*$} $base]} {
+        return [list false "Invalid name '$base'. Must start with letter, contain only [a-zA-Z0-9_]"]
+    }
+    return [list true "Valid"]
+}
+
+# ── MMMC Utilities ────────────────────────────────────────────────────────────
+
+proc is_mmmc_stage {stage_name} {
+    global flow
+    return [expr {[lsearch $flow(mmmc,enabled_stages) $stage_name] != -1}]
+}
+
+proc load_mmmc_config {} {
+    global flow FLOW_DIR
+    if {!$flow(mmmc,enabled)} { return false }
+    set mmmc_path "$FLOW_DIR/config/mmmc_config.tcl"
+    if {[file exists $mmmc_path]} {
+        source $mmmc_path
+        return true
+    }
+    puts "ERROR: MMMC config not found: $mmmc_path"
+    exit 1
+}
+
+# ── Runtime Directory Setup ────────────────────────────────────────────────────
+# Called by command files: setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
+# Sets DIRS() array + backward-compat vars (WORK_DIR, REPORTS_DIR, etc.)
+
+proc setup_dirs {run_dir flow_type node_name} {
+    global DIRS
+    set DIRS(run)         $run_dir
+    set DIRS(work)        "$run_dir/work/$flow_type/$node_name"
+    set DIRS(reports)     "$run_dir/work/$flow_type/$node_name/reports"
+    set DIRS(outputs)     "$run_dir/outputs"
+    set DIRS(logs)        "$run_dir/logs"
+    set DIRS(setup)       "$run_dir/setup"
+    set DIRS(rtl)         "$run_dir/work/$flow_type/rtl1/rtl"
+    set DIRS(sdc)         "$run_dir/work/$flow_type/sdc1/sdc"
+    set DIRS(upf)         "$run_dir/work/$flow_type/upf1/upf"
+    set DIRS(netlist)     "$run_dir/work/$flow_type/netlist1/netlist"
+    set DIRS(def)         "$run_dir/work/$flow_type/def1/def"
+    set DIRS(gds)         "$run_dir/work/$flow_type/gds1/gds"
+    set DIRS(spef)        "$run_dir/work/$flow_type/spef1/spef"
+    set DIRS(library)     "$run_dir/work/$flow_type/library1/library"
+    file mkdir $DIRS(reports)
+    file mkdir $DIRS(outputs)
+    # Backward compat — old variable names
+    foreach {old new} {
+        WORK_DIR work  REPORTS_DIR reports  OUTPUTS_DIR outputs
+        RTL_DIR rtl  SDC_DIR sdc  UPF_DIR upf
+        NETLIST_DIR netlist  DEF_DIR def  GDS_DIR gds
+        SPEF_DIR spef  LIBRARY_DIR library
+    } { uplevel 1 [list set $old $DIRS($new)] }
+    uplevel 1 [list set INPUTS_DIR "$run_dir/work/$flow_type/rtl1"]
+}
+
 # Legacy completion message (debug only)
 if {[info exists ::env(CBFLOW_DEBUG)] && $::env(CBFLOW_DEBUG) eq "1"} {
     puts "CBFlow utilities loaded successfully"

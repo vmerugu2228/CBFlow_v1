@@ -3,41 +3,22 @@
 # FC-RM: init_design_dp.tcl -- Design library creation, technology setup,
 #         netlist read, constraints, power connections, and initial save
 # Aligned with FC-RM Y-2026.03
+
+# ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
-set env_file "$run_dir/.run.cbflow.tcl"
-if {[file exists $env_file]} { source $env_file } else { puts stderr "ERROR: .run.cbflow.tcl not found"; exit 1 }
-if {[info exists ::env(FLOW_DIR)]} { set FLOW_DIR $::env(FLOW_DIR) } else { puts stderr "ERROR: FLOW_DIR not set"; exit 1 }
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} { puts stderr "ERROR: UTILITIES_VERSION not set"; exit 1 }
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
-namespace import ::CBFlow::Utilities::print_header
-set config_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/config.tcl"
-if {[file exists $config_file]} { source $config_file }
-global fp project tech flow
-# Source FC tool config
-set _tool_config "[file dirname [info script]]/fc_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "Starting FP init_design..."
-if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
-set ::flow::exec_mode "auto"
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" &&
-    [info exists ::env(TECH_VERSION)] && $::env(TECH_VERSION) ne ""} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
+set FLOW_TYPE "FP"
+set STAGE_NAME "init_design"
+set NODE_NAME "init_design1"
 
-set WORK_DIR "$run_dir/work/FP/init_design1"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
+# ── Config (full cascade: project → tech → flow → node → mmmc → tool → user) ─
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+
+# ── Directories ──────────────────────────────────────────────────────────────
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 # ==============================================================================
 # flow_proc: create_design_library
@@ -51,61 +32,73 @@ flow_proc create_design_library {
     set run_dir $::env(CBFLOW_RUN_DIR)
     file mkdir "$run_dir/work/FP/init_design1/run"
 
-    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
-    set lib_name [expr {[info exists fc(common,design_lib_name)] ? $fc(common,design_lib_name) : "${design_name}.nlib"}]
+    set design_name [expr {[info exists fp(common,design_name)] ? $fp(common,design_name) : $flow(design_name)}]
+    set lib_name [expr {[info exists fp(common,design_lib_name)] ? $fp(common,design_lib_name) : "${design_name}.nlib"}]
 
     # Delete existing library if present
     if {[file exists $lib_name]} {
         file delete -force $lib_name
     }
 
-    # Build reference library list (from tech array)
+    # ── Build reference library list (track-aware) ─────────────────────────────
     set ref_libs [list]
+    set _trk [expr {[info exists tech(track)] ? $tech(track) : ""}]
 
-    # NDM reference libraries (preferred -- contain timing+physical+logical)
-    if {[info exists tech(ndm,standard_cells)] && $tech(ndm,standard_cells) ne ""} {
-        lappend ref_libs $tech(ndm,standard_cells)
-    }
-    if {[info exists tech(ndm,memory)] && $tech(ndm,memory) ne ""} {
-        lappend ref_libs $tech(ndm,memory)
-    }
-    if {[info exists tech(ndm,io_pads)] && $tech(ndm,io_pads) ne ""} {
-        lappend ref_libs $tech(ndm,io_pads)
+    # Priority 1: Track-categorized NDM list (new format)
+    if {$_trk ne "" && [info exists tech(${_trk},ndm)]} {
+        set ref_libs $tech(${_trk},ndm)
+        handle_info "NDM libraries from track ${_trk}: [llength $ref_libs] libs"
     }
 
-    # Sub-block abstract NDM libs -- only for hierarchical designs
-    set chip_type "flat"
-    if {[info exists fc(common,chip_type)]} { set chip_type $fc(common,chip_type) }
-    if {$chip_type eq "hierarchical" && [info exists tech(ndm,sub_blocks)] && [llength $tech(ndm,sub_blocks)] > 0} {
-        foreach lib $tech(ndm,sub_blocks) {
-            if {$lib ne ""} { lappend ref_libs $lib }
+    # Priority 2: Backward compat — old single-file format
+    if {[llength $ref_libs] == 0} {
+        if {[info exists tech(ndm,standard_cells)] && $tech(ndm,standard_cells) ne ""} {
+            lappend ref_libs $tech(ndm,standard_cells)
         }
-        handle_info "Hierarchical flow: [llength $tech(ndm,sub_blocks)] sub-block libraries added"
-    }
-
-    # Additional NDM libs (analog, custom)
-    if {[info exists tech(ndm,additional)] && [llength $tech(ndm,additional)] > 0} {
-        foreach lib $tech(ndm,additional) {
-            if {$lib ne ""} { lappend ref_libs $lib }
+        if {[info exists tech(ndm,memory)] && $tech(ndm,memory) ne ""} {
+            lappend ref_libs $tech(ndm,memory)
+        }
+        if {[info exists tech(ndm,io_pads)] && $tech(ndm,io_pads) ne ""} {
+            lappend ref_libs $tech(ndm,io_pads)
         }
     }
 
-    # On-the-fly fusion library creation (LEF + DB from tech)
+    # Sub-block NDMs — hierarchical designs (validated from project config)
+    if {$flow(run_type) eq "hier"} {
+        foreach _block $project(block_list) {
+            if {![info exists project(${_block},ndm)] || $project(${_block},ndm) eq ""} {
+                handle_error "Missing NDM for sub-block '$_block'. Set project(${_block},ndm) in project_config."
+                exit 1
+            }
+            lappend ref_libs $project(${_block},ndm)
+        }
+        handle_info "Hierarchical: [llength $project(block_list)] sub-block NDMs added"
+    }
+
+    # ── On-the-fly fusion library creation (LEF + DB — when no NDM available) ─
     set fusion_lef_list [list]
     set fusion_db_list [list]
 
     if {[llength $ref_libs] == 0} {
-        handle_info "No NDM reference libraries, checking LEF+DB for fusion library creation..."
+        handle_info "No NDM libraries — creating fusion libs from LEF+DB..."
 
-        if {[info exists tech(lef,standard_cells)]} { lappend fusion_lef_list $tech(lef,standard_cells) }
-        if {[info exists tech(lef,macros)]}         { lappend fusion_lef_list $tech(lef,macros) }
-        if {[info exists tech(lef,io_pads)]}        { lappend fusion_lef_list $tech(lef,io_pads) }
-        if {[info exists tech(lef,memory)]}         { lappend fusion_lef_list $tech(lef,memory) }
+        # Track-categorized LEF list
+        if {$_trk ne "" && [info exists tech(${_trk},lef)]} {
+            set fusion_lef_list $tech(${_trk},lef)
+        } else {
+            if {[info exists tech(lef,standard_cells)]} { lappend fusion_lef_list $tech(lef,standard_cells) }
+            if {[info exists tech(lef,macros)]}         { lappend fusion_lef_list $tech(lef,macros) }
+            if {[info exists tech(lef,io_pads)]}        { lappend fusion_lef_list $tech(lef,io_pads) }
+        }
 
-        if {[info exists tech(db,standard_cells)]}  { lappend fusion_db_list $tech(db,standard_cells) }
-        if {[info exists tech(db,macros)]}          { lappend fusion_db_list $tech(db,macros) }
-        if {[info exists tech(db,io_pads)]}         { lappend fusion_db_list $tech(db,io_pads) }
-        if {[info exists tech(db,memory)]}          { lappend fusion_db_list $tech(db,memory) }
+        # Track-categorized DB list
+        if {$_trk ne "" && [info exists tech(${_trk},db)]} {
+            set fusion_db_list $tech(${_trk},db)
+        } else {
+            if {[info exists tech(db,standard_cells)]}  { lappend fusion_db_list $tech(db,standard_cells) }
+            if {[info exists tech(db,memory)]}          { lappend fusion_db_list $tech(db,memory) }
+            if {[info exists tech(db,io_pads)]}         { lappend fusion_db_list $tech(db,io_pads) }
+        }
 
         if {[llength $fusion_lef_list] > 0 && [llength $fusion_db_list] > 0} {
             handle_info "Creating fusion reference libraries from LEF+DB..."
@@ -120,7 +113,7 @@ flow_proc create_design_library {
             }
             handle_info "Fusion reference libraries created"
         } elseif {[llength $fusion_lef_list] > 0} {
-            handle_warning "LEF files found but no timing DB -- set tech(db,*) in tech_config.tcl"
+            handle_warning "LEF files found but no timing DB — set tech(db,*) in tech_config.tcl"
             set ref_libs $fusion_lef_list
         }
     }
@@ -175,17 +168,17 @@ flow_proc read_design {
     handle_info "Reading design..."
     global fp flow
 
-    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fp(common,design_name)] ? $fp(common,design_name) : $flow(design_name)}]
 
     # Read synthesized netlist
     if {[info exists fp(input,netlist)] && $fp(input,netlist) ne ""} {
         handle_info "Reading netlist: $fp(input,netlist)"
         read_verilog -top $design_name $fp(input,netlist)
-    } elseif {[info exists fc(common,input_netlist)] && $fc(common,input_netlist) ne ""} {
-        handle_info "Reading netlist: $fc(common,input_netlist)"
-        read_verilog -top $design_name $fc(common,input_netlist)
+    } elseif {[info exists fp(common,input_netlist)] && $fp(common,input_netlist) ne ""} {
+        handle_info "Reading netlist: $fp(common,input_netlist)"
+        read_verilog -top $design_name $fp(common,input_netlist)
     } else {
-        handle_error "No netlist specified -- set fp(input,netlist) or fc(common,input_netlist)"
+        handle_error "No netlist specified -- set fp(input,netlist) or fp(common,input_netlist)"
         return -code error "Missing netlist"
     }
 
@@ -212,8 +205,8 @@ flow_proc setup_technology {
 
     # Set technology node
     set tech_node ""
-    if {[info exists fc(common,technology_node)] && $fc(common,technology_node) ne ""} {
-        set tech_node $fc(common,technology_node)
+    if {[info exists fp(common,technology_node)] && $fp(common,technology_node) ne ""} {
+        set tech_node $fp(common,technology_node)
     } elseif {[info exists tech(node)] && $tech(node) ne ""} {
         set tech_node $tech(node)
     }
@@ -253,8 +246,8 @@ flow_proc load_constraints {
             handle_info "Reading SDC: $fp(input,sdc_file)"
             read_sdc $fp(input,sdc_file)
         }
-    } elseif {[info exists fc(common,input_sdc)] && $fc(common,input_sdc) ne ""} {
-        foreach sdc_file $fc(common,input_sdc) {
+    } elseif {[info exists fp(common,input_sdc)] && $fp(common,input_sdc) ne ""} {
+        foreach sdc_file $fp(common,input_sdc) {
             if {[file exists $sdc_file]} {
                 handle_info "Reading SDC: $sdc_file"
                 read_sdc $sdc_file
@@ -269,16 +262,16 @@ flow_proc load_constraints {
             load_upf $fp(input,upf_file)
 
             # Supplemental UPF
-            if {[info exists fc(common,input_upf_supplemental)] && [file exists $fc(common,input_upf_supplemental)]} {
-                handle_info "Loading supplemental UPF: $fc(common,input_upf_supplemental)"
-                load_upf -supplemental $fc(common,input_upf_supplemental)
+            if {[info exists fp(common,input_upf_supplemental)] && [file exists $fp(common,input_upf_supplemental)]} {
+                handle_info "Loading supplemental UPF: $fp(common,input_upf_supplemental)"
+                load_upf -supplemental $fp(common,input_upf_supplemental)
             }
 
             handle_info "Committing UPF..."
             commit_upf
         }
-    } elseif {[info exists fc(common,input_upf)] && $fc(common,input_upf) ne ""} {
-        foreach upf_file $fc(common,input_upf) {
+    } elseif {[info exists fp(common,input_upf)] && $fp(common,input_upf) ne ""} {
+        foreach upf_file $fp(common,input_upf) {
             if {[file exists $upf_file]} {
                 handle_info "Loading UPF: $upf_file"
                 load_upf $upf_file
@@ -299,8 +292,8 @@ flow_proc connect_power_ground {
     global fp
 
     # User PG connection script or automatic
-    if {[info exists fc(common,connect_pg_net_script)] && [file exists $fc(common,connect_pg_net_script)]} {
-        source -e $fc(common,connect_pg_net_script)
+    if {[info exists fp(common,connect_pg_net_script)] && [file exists $fp(common,connect_pg_net_script)]} {
+        source -e $fp(common,connect_pg_net_script)
     } else {
         connect_pg_net
     }
@@ -317,7 +310,7 @@ flow_proc save_design {
     global fp flow
 
     set run_dir $::env(CBFLOW_RUN_DIR)
-    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fp(common,design_name)] ? $fp(common,design_name) : $flow(design_name)}]
 
     # Save UPF if applicable
     if {[info exists fp(input,upf_file)] && $fp(input,upf_file) ne ""} {
@@ -344,7 +337,7 @@ flow_proc generate_reports {
     set run_dir $::env(CBFLOW_RUN_DIR)
     file mkdir "$::REPORTS_DIR"
 
-    set max_paths [expr {[info exists fc(analysis,max_paths)] ? $fc(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists fp(analysis,max_paths)] ? $fp(analysis,max_paths) : 100}]
 
     # Core reports
     redirect -file $::REPORTS_DIR/report_qor.rpt { report_qor }

@@ -1,57 +1,25 @@
 #!/usr/bin/env tclsh
-# ═══════════════════════════════════════════════════════════════════════════════
-# CBFlow - PV Inputs Command File
-# Description: Input validation and preparation for Physical Verification
-# Tool: Mentor Calibre
-# ═══════════════════════════════════════════════════════════════════════════════
+# CBFlow PV inputs - Mentor Calibre
 
+# ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
-set env_file "$run_dir/.run.cbflow.tcl"
-if {[file exists $env_file]} { source $env_file } else { puts stderr "ERROR: .run.cbflow.tcl not found"; exit 1 }
-if {[info exists ::env(FLOW_DIR)]} { set FLOW_DIR $::env(FLOW_DIR) } else { puts stderr "ERROR: FLOW_DIR not set"; exit 1 }
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} { puts stderr "ERROR: UTILITIES_VERSION not set"; exit 1 }
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
-namespace import ::CBFlow::Utilities::print_header
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-set config_file "$run_dir/work/PV/inputs/run/config.tcl"
-if {[file exists $config_file]} { source $config_file }
+set FLOW_TYPE "PV"
+set STAGE_NAME "inputs"
+set NODE_NAME "${STAGE_NAME}1"
 
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
-global phyv project tech flow
-# Source CALIBRE tool config
-set _tool_config "[file dirname [info script]]/calibre_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "Starting PV inputs stage..."
-
-set WORK_DIR "$run_dir/work/PV/inputs"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
-
-# Source release utilities for input resolution
-set _release_utils "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
-if {[file exists $_release_utils]} { source $_release_utils }
-set _release_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
-if {[file exists $_release_config]} { source $_release_config }
-
-# ==============================================================================
-# flow_proc: resolve_inputs
-# Resolve input files from release tags or direct paths.
 # ==============================================================================
 flow_proc resolve_inputs {
     handle_info "Resolving input files..."
     global pv flow project flow_input_handshake
 
-    set design_name [expr {[info exists calibre(common,design_name)] ? $calibre(common,design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists pv(common,design_name)] ? $pv(common,design_name) : $flow(design_name)}]
 
     if {![namespace exists ::CBFlow::InputResolve]} {
         handle_info "Release input resolution not available — using direct paths only"
@@ -82,14 +50,14 @@ flow_proc resolve_inputs {
         }
     }
 
-    # ── def: pv(input,def_release_tag) -> pv(input,def) ────────────────────
+    # ── def: pv(input,def_release_tag) -> pv(input,def_file) ────────────────
     if {[info exists pv(input,def_release_tag)] && $pv(input,def_release_tag) ne ""} {
-        set hs [get_input_handshake "PV" "def"]
+        set hs [get_input_handshake "PV" "def_file"]
         if {[llength $hs] == 3} {
-            set _file [::CBFlow::InputResolve::resolve pv "def" \
+            set _file [::CBFlow::InputResolve::resolve pv "def_file" \
                 [lindex $hs 0] [lindex $hs 1] \
                 [regsub -all {\$\{design_name\}} [lindex $hs 2] $design_name]]
-            set pv(input,def) $_file
+            set pv(input,def_file) $_file
             handle_info "  DEF resolved: $_file"
         }
     }

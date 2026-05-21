@@ -1,78 +1,18 @@
 #!/usr/bin/env tclsh
-# CBFlow FP init_design - Cadence Innovus
-# Innovus-RM: init_design -- Library setup, netlist read, floorplan
-#              initialization, constraints, power connections, and design checks
-# Aligned with Innovus 23.1 Reference Methodology
+# FP init_design - Cadence Innovus
 
-# -- Environment & Utilities --------------------------------------------------
+# -- Bootstrap -----------------------------------------------------------------
 set run_dir $::env(CBFLOW_RUN_DIR)
-set env_file "$run_dir/.run.cbflow.tcl"
-if {[file exists $env_file]} { source $env_file } else { puts stderr "ERROR: .run.cbflow.tcl not found"; exit 1 }
-if {![info exists ::env(FLOW_DIR)] || $::env(FLOW_DIR) eq ""} { puts stderr "ERROR: FLOW_DIR not set"; exit 1 }
-set FLOW_DIR $::env(FLOW_DIR)
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} { puts stderr "ERROR: UTILITIES_VERSION not set"; exit 1 }
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found: $utils_path"; exit 1 }
-namespace import ::CBFlow::Utilities::print_header
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-# -- Flow Type & Stage --------------------------------------------------------
 set FLOW_TYPE "FP"
 set STAGE_NAME "init_design"
 set NODE_NAME "init_design1"
 
-# -- Config --------------------------------------------------------------------
-set config_file "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
-if {[file exists $config_file]} { source $config_file }
-global fp project tech flow
-
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" &&
-    [info exists ::env(TECH_VERSION)] && $::env(TECH_VERSION) ne ""} {
-    set _tech_config "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tech_config]} {
-        source $_tech_config
-        # Source INNOVUS tool config
-set _tool_config "[file dirname [info script]]/innovus_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "Tech config loaded: $_tech_config"
-    } else {
-        handle_warning "Tech config not found: $_tech_config"
-    }
-}
-
-# Source MMMC config
-catch {
-    set mmmc_config_file "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
-    if {[file exists $mmmc_config_file]} { source $mmmc_config_file }
-}
-
-# Source user_config (overrides)
-if {[file exists "$run_dir/setup/user_config.tcl"]} {
-    source "$run_dir/setup/user_config.tcl"
-}
-
-# -- Flow Initialization ------------------------------------------------------
-handle_info "Starting $FLOW_TYPE $STAGE_NAME (Innovus)..."
-if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
-set ::flow::exec_mode "auto"
-
-# -- Directories ---------------------------------------------------------------
-set WORK_DIR "$run_dir/work/$FLOW_TYPE/$NODE_NAME"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-# Input directories — each input type has its own node directory
-set RTL_DIR "$run_dir/work/$FLOW_TYPE/rtl1/rtl"
-set SDC_DIR "$run_dir/work/$FLOW_TYPE/sdc1/sdc"
-set UPF_DIR "$run_dir/work/$FLOW_TYPE/upf1/upf"
-set NETLIST_DIR "$run_dir/work/$FLOW_TYPE/netlist1/netlist"
-set DEF_DIR "$run_dir/work/$FLOW_TYPE/def1/def"
-set GDS_DIR "$run_dir/work/$FLOW_TYPE/gds1/gds"
-set SPEF_DIR "$run_dir/work/$FLOW_TYPE/spef1/spef"
-set LIBRARY_DIR "$run_dir/work/$FLOW_TYPE/library1/library"
-# Backward compat — INPUTS_DIR points to first input node
-set INPUTS_DIR "$run_dir/work/$FLOW_TYPE/netlist1"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 # ==============================================================================
 # flow_proc: setup_libraries
@@ -83,10 +23,11 @@ flow_proc setup_libraries {
     handle_info "Setting up libraries..."
     global fp tech flow
 
-    # -- LEF files (technology + standard cells + macros) ----------------------
+    # ── LEF files (track-aware) ────────────────────────────────────────────────
     set lef_files [list]
+    set _trk [expr {[info exists tech(track)] ? $tech(track) : ""}]
 
-    # Technology LEF (must be first)
+    # Technology LEF (must be first — shared across tracks)
     if {[info exists tech(lef,technology)] && $tech(lef,technology) ne ""} {
         if {[file exists $tech(lef,technology)]} {
             lappend lef_files $tech(lef,technology)
@@ -95,31 +36,33 @@ flow_proc setup_libraries {
         }
     }
 
-    # Standard cell LEFs
-    if {[info exists tech(lef,standard_cells)] && $tech(lef,standard_cells) ne ""} {
-        foreach lef $tech(lef,standard_cells) {
+    # Track-categorized LEF list (new format — ALL cells per track)
+    if {$_trk ne "" && [info exists tech(${_trk},lef)]} {
+        foreach lef $tech(${_trk},lef) {
             if {$lef ne "" && [file exists $lef]} { lappend lef_files $lef }
         }
-    }
-
-    # Macro LEFs
-    if {[info exists tech(lef,macros)] && $tech(lef,macros) ne ""} {
-        foreach lef $tech(lef,macros) {
-            if {$lef ne "" && [file exists $lef]} { lappend lef_files $lef }
+        handle_info "LEF libraries from track ${_trk}: [llength $tech(${_trk},lef)] libs"
+    } else {
+        # Backward compat — old category-based format
+        if {[info exists tech(lef,standard_cells)] && $tech(lef,standard_cells) ne ""} {
+            foreach lef $tech(lef,standard_cells) {
+                if {$lef ne "" && [file exists $lef]} { lappend lef_files $lef }
+            }
         }
-    }
-
-    # Memory LEFs
-    if {[info exists tech(lef,memory)] && $tech(lef,memory) ne ""} {
-        foreach lef $tech(lef,memory) {
-            if {$lef ne "" && [file exists $lef]} { lappend lef_files $lef }
+        if {[info exists tech(lef,macros)] && $tech(lef,macros) ne ""} {
+            foreach lef $tech(lef,macros) {
+                if {$lef ne "" && [file exists $lef]} { lappend lef_files $lef }
+            }
         }
-    }
-
-    # IO pad LEFs
-    if {[info exists tech(lef,io_pads)] && $tech(lef,io_pads) ne ""} {
-        foreach lef $tech(lef,io_pads) {
-            if {$lef ne "" && [file exists $lef]} { lappend lef_files $lef }
+        if {[info exists tech(lef,memory)] && $tech(lef,memory) ne ""} {
+            foreach lef $tech(lef,memory) {
+                if {$lef ne "" && [file exists $lef]} { lappend lef_files $lef }
+            }
+        }
+        if {[info exists tech(lef,io_pads)] && $tech(lef,io_pads) ne ""} {
+            foreach lef $tech(lef,io_pads) {
+                if {$lef ne "" && [file exists $lef]} { lappend lef_files $lef }
+            }
         }
     }
 
@@ -130,25 +73,34 @@ flow_proc setup_libraries {
             read_lef $lef
         }
     } else {
-        handle_warning "No LEF files found -- check tech(lef,*) in tech_config.tcl"
+        handle_warning "No LEF files found — check tech(<track>,lef) in tech_config.tcl"
     }
 
-    # -- Liberty timing libraries ---------------------------------------------
+    # ── Liberty timing libraries (track-aware) ────────────────────────────────
     set lib_files [list]
 
-    if {[info exists tech(lib,timing)] && $tech(lib,timing) ne ""} {
-        foreach lib $tech(lib,timing) {
+    # Track-categorized nominal lib list (new format)
+    if {$_trk ne "" && [info exists tech(${_trk},lib_nom)]} {
+        foreach lib $tech(${_trk},lib_nom) {
             if {$lib ne "" && [file exists $lib]} { lappend lib_files $lib }
         }
-    }
-    if {[info exists tech(lib,memory)] && $tech(lib,memory) ne ""} {
-        foreach lib $tech(lib,memory) {
-            if {$lib ne "" && [file exists $lib]} { lappend lib_files $lib }
+        handle_info "Liberty libraries from track ${_trk}: [llength $tech(${_trk},lib_nom)] libs"
+    } else {
+        # Backward compat — old category-based format
+        if {[info exists tech(lib,timing)] && $tech(lib,timing) ne ""} {
+            foreach lib $tech(lib,timing) {
+                if {$lib ne "" && [file exists $lib]} { lappend lib_files $lib }
+            }
         }
-    }
-    if {[info exists tech(lib,io_pads)] && $tech(lib,io_pads) ne ""} {
-        foreach lib $tech(lib,io_pads) {
-            if {$lib ne "" && [file exists $lib]} { lappend lib_files $lib }
+        if {[info exists tech(lib,memory)] && $tech(lib,memory) ne ""} {
+            foreach lib $tech(lib,memory) {
+                if {$lib ne "" && [file exists $lib]} { lappend lib_files $lib }
+            }
+        }
+        if {[info exists tech(lib,io_pads)] && $tech(lib,io_pads) ne ""} {
+            foreach lib $tech(lib,io_pads) {
+                if {$lib ne "" && [file exists $lib]} { lappend lib_files $lib }
+            }
         }
     }
 
@@ -171,15 +123,15 @@ flow_proc read_design {
     handle_info "Reading design netlist..."
     global fp project flow
 
-    set design_name [expr {[info exists innovus(common,design_name)] ? $innovus(common,design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fp(common,design_name)] ? $fp(common,design_name) : $flow(design_name)}]
     set top_module [expr {[info exists project(top_module)] ? $project(top_module) : $design_name}]
 
     # Read gate-level netlist from synthesis output
     set netlist_file ""
     if {[info exists fp(input,netlist)] && $fp(input,netlist) ne ""} {
         set netlist_file $fp(input,netlist)
-    } elseif {[info exists innovus(common,input_netlist)] && $innovus(common,input_netlist) ne ""} {
-        set netlist_file $innovus(common,input_netlist)
+    } elseif {[info exists fp(common,input_netlist)] && $fp(common,input_netlist) ne ""} {
+        set netlist_file $fp(common,input_netlist)
     } else {
         set netlist_file "$::NETLIST_DIR/${design_name}.v"
         if {![file exists $netlist_file]} {
@@ -210,14 +162,14 @@ flow_proc load_constraints {
     handle_info "Loading timing constraints..."
     global fp flow
 
-    set design_name [expr {[info exists innovus(common,design_name)] ? $innovus(common,design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fp(common,design_name)] ? $fp(common,design_name) : $flow(design_name)}]
 
     # SDC constraints
     set sdc_file ""
     if {[info exists fp(input,sdc_file)] && $fp(input,sdc_file) ne ""} {
         set sdc_file $fp(input,sdc_file)
-    } elseif {[info exists innovus(common,input_sdc)] && $innovus(common,input_sdc) ne ""} {
-        set sdc_file [lindex $innovus(common,input_sdc) 0]
+    } elseif {[info exists fp(common,input_sdc)] && $fp(common,input_sdc) ne ""} {
+        set sdc_file [lindex $fp(common,input_sdc) 0]
     } else {
         set sdc_file "$::SDC_DIR/${design_name}.sdc"
     }
@@ -243,9 +195,9 @@ flow_proc setup_mmmc {
     global analysis_views library_sets
 
     # User MMMC setup file
-    if {[info exists innovus(common,mmmc_setup_file)] && [file exists $innovus(common,mmmc_setup_file)]} {
-        handle_info "Sourcing MMMC setup: $innovus(common,mmmc_setup_file)"
-        source $innovus(common,mmmc_setup_file)
+    if {[info exists fp(common,mmmc_setup_file)] && [file exists $fp(common,mmmc_setup_file)]} {
+        handle_info "Sourcing MMMC setup: $fp(common,mmmc_setup_file)"
+        source $fp(common,mmmc_setup_file)
         handle_info "MMMC setup completed from user script"
         return
     }
@@ -349,11 +301,11 @@ flow_proc run_init_design {
     handle_info "Running Innovus init_design..."
     global fp project tech flow
 
-    set design_name [expr {[info exists innovus(common,design_name)] ? $innovus(common,design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fp(common,design_name)] ? $fp(common,design_name) : $flow(design_name)}]
 
     # Set power/ground nets
-    set pwr_net [expr {[info exists innovus(common,power_net)] ? $innovus(common,power_net) : "VDD"}]
-    set gnd_net [expr {[info exists innovus(common,ground_net)] ? $innovus(common,ground_net) : "VSS"}]
+    set pwr_net [expr {[info exists fp(common,power_net)] ? $fp(common,power_net) : "VDD"}]
+    set gnd_net [expr {[info exists fp(common,ground_net)] ? $fp(common,ground_net) : "VSS"}]
     set init_pwr_net $pwr_net
     set init_gnd_net $gnd_net
 
@@ -410,9 +362,9 @@ flow_proc setup_power_intent {
             handle_info "Reading UPF: $fp(input,upf_file)"
             read_power_intent -1801 $fp(input,upf_file)
 
-            if {[info exists innovus(common,input_upf_supplemental)] && [file exists $innovus(common,input_upf_supplemental)]} {
-                handle_info "Reading supplemental UPF: $innovus(common,input_upf_supplemental)"
-                read_power_intent -1801 $innovus(common,input_upf_supplemental)
+            if {[info exists fp(common,input_upf_supplemental)] && [file exists $fp(common,input_upf_supplemental)]} {
+                handle_info "Reading supplemental UPF: $fp(common,input_upf_supplemental)"
+                read_power_intent -1801 $fp(common,input_upf_supplemental)
             }
 
             handle_info "Committing power intent..."
@@ -436,7 +388,7 @@ flow_proc save_design {
     global fp flow
 
     set run_dir $::env(CBFLOW_RUN_DIR)
-    set design_name [expr {[info exists innovus(common,design_name)] ? $innovus(common,design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fp(common,design_name)] ? $fp(common,design_name) : $flow(design_name)}]
 
     file mkdir "$run_dir/outputs"
 
@@ -465,7 +417,7 @@ flow_proc generate_reports {
 
     file mkdir "$::REPORTS_DIR"
 
-    set max_paths [expr {[info exists innovus(analysis,max_paths)] ? $innovus(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists fp(analysis,max_paths)] ? $fp(analysis,max_paths) : 100}]
 
     # Design summary
     catch { report_design -outfile "$::REPORTS_DIR/design_summary.rpt" }

@@ -1,34 +1,18 @@
 #!/usr/bin/env tclsh
 # ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║                 STATIC TIMING ANALYSIS FLOW CONFIGURATION                   ║
-# ║                    MMMC-Aware Multi-Stage Pipeline                          ║
+# ║              STA Flow Configuration (Tool-Independent)                      ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 #
-# Enhanced STA flow with MMMC automation, split setup/hold analysis,
-# and dual tool support (Synopsys PrimeTime + Cadence Tempus).
-#
-# Pipeline:
-#   inputs1 -> extraction1 -> timing1 (per-corner) -> reporting1 -> release_data1
-#
-# Usage: source config/flow/v1.0.0/node_configs/STA_config.tcl
+# Common stages, dependencies, subnodes — same for all tools (PT, Tempus).
+# Tool-specific settings sourced from STA_<tool>_config.tcl
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║                         STA CONFIGURATION ARRAY                            ║
+# ║                        STAGES & DEPENDENCIES                                ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
-# ┌─ Flow Stage Definitions ──────────────────────────────────────────────┐
 array set sta {
     stages {netlist1 sdc1 spef1 library1 extraction1 timing1 reporting1 release_data1}
-    subnodes,extraction1    {dynamic}
-    subnodes,timing1        {dynamic}
-    subnodes,reporting1     {setup run validate finish}
-    subnodes,release_data1  {setup run validate finish}
-}
 
-# ┌─ Stage Dependencies ────────────────────────────────────────────────────┐
-# Note: timing1 uses dynamic subnodes (per-scenario), enabling parallel
-#       execution for different MMMC scenarios.
-array set sta {
     dependencies,netlist1       {}
     dependencies,sdc1           {}
     dependencies,spef1          {}
@@ -39,60 +23,36 @@ array set sta {
     dependencies,release_data1  {reporting1}
 }
 
-# ┌─ Subnode Dependencies ──────────────────────────────────────────────────┐
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║                        SUBNODES & WORK DIRS                                 ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+# Dynamic subnodes for extraction and timing (per-scenario parallelism)
 array set sta {
+    subnodes,extraction1    {dynamic}
+    subnodes,timing1        {dynamic}
 
     subnode_dependencies,extraction1,dynamic {}
-
     subnode_dependencies,timing1,dynamic {}
-
-    subnode_dependencies,reporting1,setup {}
-    subnode_dependencies,reporting1,run {setup}
-    subnode_dependencies,reporting1,validate {run}
-    subnode_dependencies,reporting1,finish {validate}
-
-
-    subnode_dependencies,release_data1,setup {}
-    subnode_dependencies,release_data1,run {setup}
-    subnode_dependencies,release_data1,validate {run}
-    subnode_dependencies,release_data1,finish {validate}
 }
 
-# ┌─ Tool Configuration ────────────────────────────────────────────────────┐
-array set sta {
-    tool,vendor "synopsys"
-    tool,name "pt"
-    tool,version "v1.0.0"
-    tool,args "-batch -no_gui"
-    supported_tools {pt tempus}
-    default_tool "pt"
+# Execution stages with standard 4-subnode pattern
+set _sta_exec_stages {reporting1 release_data1}
+foreach _s $_sta_exec_stages {
+    set sta(subnodes,$_s) {setup run validate finish}
+    set sta(subnode_dependencies,${_s},setup)    {}
+    set sta(subnode_dependencies,${_s},run)      {setup}
+    set sta(subnode_dependencies,${_s},validate) {run}
+    set sta(subnode_dependencies,${_s},finish)   {validate}
+    foreach _sub {setup run validate finish} {
+        set sta(subnode_work_dirs,${_s},${_sub}) "work/${_s}/${_sub}"
+    }
 }
 
-# ┌─ MMMC Configuration ────────────────────────────────────────────────────┐
-# Controls which MMMC scenarios are used for timing analysis.
-# scenario_set references mmmc_config.tcl scenario sets.
-array set sta {
-    mmmc,enabled            true
-    mmmc,enabled_stages     {extraction1 timing1 reporting1}
-    mmmc,default_scenario_set "signoff"
-    mmmc,scenario_set       "signoff"
-    mmmc,dynamic_scenarios  true
-    mmmc,parallel_scenarios true
-}
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║                        NODE TYPES & STAGE TYPES                             ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
 
-# ┌─ Runtime Settings ───────────────────────────────────────────────────────┐
-array set sta {
-    runtime,timeout,netlist1       10
-    runtime,timeout,sdc1           10
-    runtime,timeout,spef1          10
-    runtime,timeout,library1       10
-    runtime,timeout,extraction1    30
-    runtime,timeout,timing1        60
-    runtime,timeout,reporting1     20
-    runtime,timeout,release_data1  10
-}
-
-# ┌─ Stage Type Mappings and Descriptions ───────────────────────────────────┐
 array set sta {
     stage_types,netlist1       "inputs"
     stage_types,sdc1           "inputs"
@@ -122,7 +82,32 @@ array set sta {
     node_descriptions,release_data1  "Package and release final timing sign-off deliverables (4 subnodes)"
 }
 
-# ┌─ File Requirements ───────────────────────────────────────────────────────┐
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║                        MMMC & RUNTIME                                       ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+array set sta {
+    mmmc,enabled            true
+    mmmc,enabled_stages     {extraction1 timing1 reporting1}
+    mmmc,default_scenario_set "signoff"
+    mmmc,scenario_set       "signoff"
+    mmmc,dynamic_scenarios  true
+    mmmc,parallel_scenarios true
+
+    runtime,timeout,netlist1       10
+    runtime,timeout,sdc1           10
+    runtime,timeout,spef1          10
+    runtime,timeout,library1       10
+    runtime,timeout,extraction1    30
+    runtime,timeout,timing1        60
+    runtime,timeout,reporting1     20
+    runtime,timeout,release_data1  10
+}
+
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║                        INPUTS & OUTPUTS                                     ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
 array set sta {
     critical_files,extraction1    {sta(input,netlist) sta(input,sdc_func_file)}
     critical_files,timing1        {sta(input,netlist) sta(input,spef) sta(input,sdc_func_file)}
@@ -133,30 +118,27 @@ array set sta {
     mandatory_outputs,timing1        {}
     mandatory_outputs,reporting1     {reports/sta/mmmc_timing_summary.rpt}
 
-}
-
-# ┌─ Mandatory Input Groups ──────────────────────────────────────────────────┐
-array set sta {
     mandatory_input_groups {
         netlist_inputs {sta(input,netlist)}
         sdc_inputs {sta(input,sdc_release_tag) sta(input,sdc_release_dir) sta(input,sdc_func_file)}
         spef_inputs {sta(input,spef)}
     }
-}
 
-# ┌─ MMMC Report Expectations ────────────────────────────────────────────────┐
-array set sta {
     mmmc_reports,base              {mmmc_timing mmmc_scenarios}
     mmmc_reports,timing1           {mmmc_hold_timing mmmc_hold_violations}
     mmmc_reports,reporting1        {mmmc_final_summary mmmc_cross_corner}
-}
 
-# ┌─ Merge Configuration (for merged/flat mode) ─────────────────────────────┐
-array set sta {
     merge_parallel_stages {release_data1}
+
+    output,report_dir          "reports/sta"
+    output,results_dir         "results/sta"
+    output,work_dir            "work/STA"
 }
 
-# ┌─ Release Configuration ────────────────────────────────────────────────────┐
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║                        RELEASE CONFIGURATION                                ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
 array set sta {
     release_types,timing,description "MMMC timing analysis reports and sign-off data"
     release_types,timing,files {
@@ -166,18 +148,10 @@ array set sta {
     }
 }
 
-# ┌─ Analysis Control ─────────────────────────────────────────────────────┐
-array set sta {
-    analysis,setup_margin      "0.0"
-    analysis,hold_margin       "0.0"
-    analysis,max_paths         100
-    analysis,significant_digits 4
-    analysis,ocv_mode          "aocv"
-    analysis,si_aware          true
-    analysis,derating_file     ""
-}
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║                        COMMON ANALYSIS CONTROL                              ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
 
-# ┌─ Reporting Control ────────────────────────────────────────────────────┐
 array set sta {
     reporting,top_violations   50
     reporting,include_input_pins true
@@ -185,41 +159,25 @@ array set sta {
     reporting,report_format    "rpt"
 }
 
-# ┌─ Output Paths ─────────────────────────────────────────────────────────┐
-array set sta {
-    output,report_dir          "reports/sta"
-    output,results_dir         "results/sta"
-    output,work_dir            "work/STA"
-}
-
 # ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║                              INITIALIZATION                                 ║
+# ║                        SUPPORTED TOOLS & TOOL CONFIG                        ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
-if {![info exists ::sta_config_loaded]} {
-    set _total_subnodes 0
-    foreach _stage $sta(stages) {
-        if {[info exists sta(subnodes,$_stage)]} {
-            incr _total_subnodes [llength $sta(subnodes,$_stage)]
-        } else {
-            incr _total_subnodes 1 ;# leaf node counts as 1
-        }
-    }
-    puts "INFO: STA configuration loaded - [llength $sta(stages)] stages, $_total_subnodes total subnodes"
-    puts "INFO: MMMC enabled=$sta(mmmc,enabled), scenario_set=$sta(mmmc,scenario_set)"
-    puts "INFO: Tools: $sta(supported_tools) (default: $sta(default_tool))"
-    puts "INFO: Dynamic timing stage: per-scenario parallelism via make -j"
-    set ::sta_config_loaded true
+array set sta {
+    supported_tools {pt tempus}
+    default_tool    "pt"
 }
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# END OF STA CONFIGURATION
-# ═══════════════════════════════════════════════════════════════════════════════
+# Source tool-specific configuration
+# Tool is set via: user_config sta(tool,name) or defaults to sta(default_tool)
+set _node_config_dir [file dirname [info script]]
+set _tool_name [expr {[info exists sta(tool,name)] ? $sta(tool,name) : $sta(default_tool)}]
 
-# ┌─ PT-RM W-2024.09 Analysis Variables ───────────────────────────────────────┐
-array set sta {
-    analysis,nworst            1
-    analysis,report_power      "true"
-    analysis,pba_mode          "exhaustive"
-    extract_etm                "false"
+set _tool_config "$_node_config_dir/STA_${_tool_name}_config.tcl"
+if {[file exists $_tool_config]} {
+    source $_tool_config
+} else {
+    puts "ERROR: Tool config not found: $_tool_config"
+    puts "       Supported tools: $sta(supported_tools)"
+    exit 1
 }

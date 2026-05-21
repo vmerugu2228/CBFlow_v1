@@ -1,50 +1,33 @@
 #!/usr/bin/env tclsh
-# ═══════════════════════════════════════════════════════════════════════════════
-# CBFlow - FP Inputs Stage for Innovus
-# Description: Read libraries, design netlist, and constraints for floorplanning
-# Usage: Source this file in Innovus or run via CBFlow
-# Output: Libraries, netlist, and constraints loaded into Innovus session
-# ═══════════════════════════════════════════════════════════════════════════════
+# FP Inputs Stage - Cadence Innovus
 
-# Validate required environment variables
-if {![info exists ::env(FLOW_DIR)] || $::env(FLOW_DIR) eq ""} {
-    puts "ERROR: FLOW_DIR not set. Ensure .run.cbflow.tcl is properly generated."
-    exit 1
-}
+# -- Bootstrap -----------------------------------------------------------------
+set run_dir $::env(CBFLOW_RUN_DIR)
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} {
-    puts "ERROR: UTILITIES_VERSION not set. Ensure .run.cbflow.tcl is properly generated."
-    exit 1
-}
+set FLOW_TYPE "FP"
+set STAGE_NAME "inputs"
+set NODE_NAME "inputs1"
 
-set flow_dir $::env(FLOW_DIR)
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 # Source flow utilities using release version
 set utils_path "$flow_dir/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 if {[file exists $utils_path]} {
     source $utils_path
-} else {
     puts "ERROR: Cannot find flow utilities at: $utils_path"
     exit 1
-}
-
 set run_dir $::env(CBFLOW_RUN_DIR)
-
-set WORK_DIR "$run_dir/work/FP/inputs"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
-
 # Source release utilities for input resolution
 set _release_utils "$flow_dir/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
+
 if {[file exists $_release_utils]} { source $_release_utils }
 set _release_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
 if {[file exists $_release_config]} { source $_release_config }
 
-# Source INNOVUS tool config
-set _tool_config "[file dirname [info script]]/innovus_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting CBFlow FP inputs stage for Innovus"
 
 # Define common procedures used in config files
@@ -114,7 +97,7 @@ flow_proc resolve_inputs {
     handle_info "Resolving input files..."
     global fp flow project flow_input_handshake
 
-    set design_name [expr {[info exists innovus(common,design_name)] ? $innovus(common,design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fp(common,design_name)] ? $fp(common,design_name) : $flow(design_name)}]
 
     if {![namespace exists ::CBFlow::InputResolve]} {
         handle_info "Release input resolution not available — using direct paths only"
@@ -320,8 +303,8 @@ flow_proc read_constraints {
         } else {
             handle_warning "CPF file not found: $cpf_file"
         }
-    } elseif {[info exists fp(input,upf)]} {
-        set upf_file $fp(input,upf)
+    } elseif {[info exists fp(input,upf_file)]} {
+        set upf_file $fp(input,upf_file)
         if {![file exists $upf_file]} {
             set upf_file [file join $project_root $upf_file]
         }

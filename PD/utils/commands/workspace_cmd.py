@@ -240,7 +240,7 @@ set fp(input,sdc_func_file)    ""           ;# Functional mode SDC
 set sta(input,netlist)         ""           ;# Gate-level netlist (.pt.v)
 set sta(input,sdc_func_file)   ""           ;# Functional mode SDC
 # set sta(input,spef)            ""          ;# SPEF parasitic file
-# set sta(input,def)             ""          ;# DEF floorplan
+# set sta(input,def_file)         ""          ;# DEF floorplan
 """)
 
     elif ft == 'ECO':

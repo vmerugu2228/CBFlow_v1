@@ -17,9 +17,6 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/ECO/eco/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global eco project tech flow
-# Source ICC2 tool config
-set _tool_config "[file dirname [info script]]/icc2_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting ECO implementation with Synopsys IC Compiler II..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -90,12 +87,12 @@ flow_proc apply_timing_eco {
     handle_info "Applying timing ECO optimizations..."
     set run_dir $::env(CBFLOW_RUN_DIR)
 
-    if {[info exists icc2(timing_eco,enable)] && $icc2(timing_eco,enable) eq "true"} {
-        if {[info exists icc2(timing_eco,setup_margin)]} {
-            set_app_options -name opt.timing.setup_margin -value $icc2(timing_eco,setup_margin)
+    if {[info exists eco(timing_eco,enable)] && $eco(timing_eco,enable) eq "true"} {
+        if {[info exists eco(timing_eco,setup_margin)]} {
+            set_app_options -name opt.timing.setup_margin -value $eco(timing_eco,setup_margin)
         }
-        if {[info exists icc2(timing_eco,hold_margin)]} {
-            set_app_options -name opt.timing.hold_margin -value $icc2(timing_eco,hold_margin)
+        if {[info exists eco(timing_eco,hold_margin)]} {
+            set_app_options -name opt.timing.hold_margin -value $eco(timing_eco,hold_margin)
         }
 
         handle_info "Running timing ECO optimization..."
@@ -104,7 +101,7 @@ flow_proc apply_timing_eco {
         report_timing -type eco -file "$::REPORTS_DIR/timing_eco.rpt"
         handle_info "Timing ECO applied"
     } else {
-        handle_info "Timing ECO not requested (icc2(timing_eco,enable) not set)"
+        handle_info "Timing ECO not requested (eco(timing_eco,enable) not set)"
     }
 }
 
@@ -168,7 +165,7 @@ flow_proc validate_eco {
 
     # Check timing
     handle_info "Running timing analysis..."
-    report_timing -max_paths [expr {[info exists icc2(analysis,max_paths)] ? $icc2(analysis,max_paths) : 100}] -file "$::REPORTS_DIR/eco_timing_final.rpt"
+    report_timing -max_paths [expr {[info exists eco(analysis,max_paths)] ? $eco(analysis,max_paths) : 100}] -file "$::REPORTS_DIR/eco_timing_final.rpt"
     report_qor -file "$::REPORTS_DIR/eco_qor.rpt"
 
     # Parse timing

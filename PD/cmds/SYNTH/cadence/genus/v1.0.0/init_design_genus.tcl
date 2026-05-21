@@ -1,78 +1,18 @@
 #!/usr/bin/env tclsh
-# CBFlow SYNTH init_design - Cadence Genus
-# Genus-RM: init_design -- Library setup, RTL read, elaboration,
-#           constraints, MMMC, power, and design checks
-# Aligned with Genus 23.1 Reference Methodology
+# SYNTH init_design - Cadence Genus
 
-# -- Environment & Utilities --------------------------------------------------
+# -- Bootstrap -----------------------------------------------------------------
 set run_dir $::env(CBFLOW_RUN_DIR)
-set env_file "$run_dir/.run.cbflow.tcl"
-if {[file exists $env_file]} { source $env_file } else { puts stderr "ERROR: .run.cbflow.tcl not found"; exit 1 }
-if {![info exists ::env(FLOW_DIR)] || $::env(FLOW_DIR) eq ""} { puts stderr "ERROR: FLOW_DIR not set"; exit 1 }
-set FLOW_DIR $::env(FLOW_DIR)
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} { puts stderr "ERROR: UTILITIES_VERSION not set"; exit 1 }
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found: $utils_path"; exit 1 }
-namespace import ::CBFlow::Utilities::print_header
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-# -- Flow Type & Stage --------------------------------------------------------
 set FLOW_TYPE "SYNTH"
 set STAGE_NAME "init_design"
 set NODE_NAME "init_design1"
 
-# -- Config --------------------------------------------------------------------
-set config_file "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
-if {[file exists $config_file]} { source $config_file }
-global synth project tech flow
-
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" &&
-    [info exists ::env(TECH_VERSION)] && $::env(TECH_VERSION) ne ""} {
-    set _tech_config "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tech_config]} {
-        source $_tech_config
-        # Source GENUS tool config
-set _tool_config "[file dirname [info script]]/genus_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "Tech config loaded: $_tech_config"
-    } else {
-        handle_warning "Tech config not found: $_tech_config"
-    }
-}
-
-# Source MMMC config
-catch {
-    set mmmc_config_file "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
-    if {[file exists $mmmc_config_file]} { source $mmmc_config_file }
-}
-
-# Source user_config (overrides)
-if {[file exists "$run_dir/setup/user_config.tcl"]} {
-    source "$run_dir/setup/user_config.tcl"
-}
-
-# -- Flow Initialization ------------------------------------------------------
-handle_info "Starting $FLOW_TYPE $STAGE_NAME (Genus)..."
-if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
-set ::flow::exec_mode "auto"
-
-# -- Directories ---------------------------------------------------------------
-set WORK_DIR "$run_dir/work/$FLOW_TYPE/$NODE_NAME"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-# Input directories — each input type has its own node directory
-set RTL_DIR "$run_dir/work/$FLOW_TYPE/rtl1/rtl"
-set SDC_DIR "$run_dir/work/$FLOW_TYPE/sdc1/sdc"
-set UPF_DIR "$run_dir/work/$FLOW_TYPE/upf1/upf"
-set NETLIST_DIR "$run_dir/work/$FLOW_TYPE/netlist1/netlist"
-set DEF_DIR "$run_dir/work/$FLOW_TYPE/def1/def"
-set GDS_DIR "$run_dir/work/$FLOW_TYPE/gds1/gds"
-set SPEF_DIR "$run_dir/work/$FLOW_TYPE/spef1/spef"
-set LIBRARY_DIR "$run_dir/work/$FLOW_TYPE/library1/library"
-# Backward compat — INPUTS_DIR points to first input node
-set INPUTS_DIR "$run_dir/work/$FLOW_TYPE/rtl1"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 # ==============================================================================
 # flow_proc: setup_libraries
@@ -83,31 +23,40 @@ flow_proc setup_libraries {
     handle_info "Setting up libraries..."
     global synth tech flow
 
-    # -- Liberty timing libraries (from tech array) ----------------------------
+    # ── Liberty timing libraries (track-aware) ────────────────────────────────
     set lib_files [list]
+    set _trk [expr {[info exists tech(track)] ? $tech(track) : ""}]
 
-    # Standard cell timing libraries
-    if {[info exists tech(lib,timing)] && $tech(lib,timing) ne ""} {
-        foreach lib $tech(lib,timing) {
+    # Track-categorized nominal lib list (new format)
+    if {$_trk ne "" && [info exists tech(${_trk},lib_nom)]} {
+        foreach lib $tech(${_trk},lib_nom) {
             if {$lib ne "" && [file exists $lib]} {
                 lappend lib_files $lib
             } elseif {$lib ne ""} {
                 handle_warning "Liberty file not found: $lib"
             }
         }
-    }
-
-    # Macro/memory timing libraries
-    if {[info exists tech(lib,memory)] && $tech(lib,memory) ne ""} {
-        foreach lib $tech(lib,memory) {
-            if {$lib ne "" && [file exists $lib]} { lappend lib_files $lib }
+        handle_info "Liberty libraries from track ${_trk}: [llength $tech(${_trk},lib_nom)] libs"
+    } else {
+        # Backward compat — old category-based format
+        if {[info exists tech(lib,timing)] && $tech(lib,timing) ne ""} {
+            foreach lib $tech(lib,timing) {
+                if {$lib ne "" && [file exists $lib]} {
+                    lappend lib_files $lib
+                } elseif {$lib ne ""} {
+                    handle_warning "Liberty file not found: $lib"
+                }
+            }
         }
-    }
-
-    # IO pad timing libraries
-    if {[info exists tech(lib,io_pads)] && $tech(lib,io_pads) ne ""} {
-        foreach lib $tech(lib,io_pads) {
-            if {$lib ne "" && [file exists $lib]} { lappend lib_files $lib }
+        if {[info exists tech(lib,memory)] && $tech(lib,memory) ne ""} {
+            foreach lib $tech(lib,memory) {
+                if {$lib ne "" && [file exists $lib]} { lappend lib_files $lib }
+            }
+        }
+        if {[info exists tech(lib,io_pads)] && $tech(lib,io_pads) ne ""} {
+            foreach lib $tech(lib,io_pads) {
+                if {$lib ne "" && [file exists $lib]} { lappend lib_files $lib }
+            }
         }
     }
 
@@ -116,44 +65,46 @@ flow_proc setup_libraries {
         read_libs $lib_files
         handle_info "Liberty libraries loaded"
     } else {
-        handle_warning "No Liberty libraries found -- check tech(lib,timing) in tech_config.tcl"
+        handle_warning "No Liberty libraries found — check tech(<track>,lib_nom) in tech_config.tcl"
     }
 
-    # -- LEF physical libraries ------------------------------------------------
+    # ── LEF physical libraries (track-aware) ──────────────────────────────────
     set lef_files [list]
 
-    # Technology LEF
+    # Technology LEF (shared across tracks)
     if {[info exists tech(lef,technology)] && $tech(lef,technology) ne ""} {
         if {[file exists $tech(lef,technology)]} {
             lappend lef_files $tech(lef,technology)
         }
     }
 
-    # Standard cell LEF
-    if {[info exists tech(lef,standard_cells)] && $tech(lef,standard_cells) ne ""} {
-        foreach lef $tech(lef,standard_cells) {
+    # Track-categorized LEF list (new format)
+    if {$_trk ne "" && [info exists tech(${_trk},lef)]} {
+        foreach lef $tech(${_trk},lef) {
             if {$lef ne "" && [file exists $lef]} { lappend lef_files $lef }
         }
-    }
-
-    # Macro LEFs
-    if {[info exists tech(lef,macros)] && $tech(lef,macros) ne ""} {
-        foreach lef $tech(lef,macros) {
-            if {$lef ne "" && [file exists $lef]} { lappend lef_files $lef }
+        handle_info "LEF libraries from track ${_trk}: [llength $tech(${_trk},lef)] libs"
+    } else {
+        # Backward compat — old category-based format
+        if {[info exists tech(lef,standard_cells)] && $tech(lef,standard_cells) ne ""} {
+            foreach lef $tech(lef,standard_cells) {
+                if {$lef ne "" && [file exists $lef]} { lappend lef_files $lef }
+            }
         }
-    }
-
-    # Memory LEFs
-    if {[info exists tech(lef,memory)] && $tech(lef,memory) ne ""} {
-        foreach lef $tech(lef,memory) {
-            if {$lef ne "" && [file exists $lef]} { lappend lef_files $lef }
+        if {[info exists tech(lef,macros)] && $tech(lef,macros) ne ""} {
+            foreach lef $tech(lef,macros) {
+                if {$lef ne "" && [file exists $lef]} { lappend lef_files $lef }
+            }
         }
-    }
-
-    # IO pad LEFs
-    if {[info exists tech(lef,io_pads)] && $tech(lef,io_pads) ne ""} {
-        foreach lef $tech(lef,io_pads) {
-            if {$lef ne "" && [file exists $lef]} { lappend lef_files $lef }
+        if {[info exists tech(lef,memory)] && $tech(lef,memory) ne ""} {
+            foreach lef $tech(lef,memory) {
+                if {$lef ne "" && [file exists $lef]} { lappend lef_files $lef }
+            }
+        }
+        if {[info exists tech(lef,io_pads)] && $tech(lef,io_pads) ne ""} {
+            foreach lef $tech(lef,io_pads) {
+                if {$lef ne "" && [file exists $lef]} { lappend lef_files $lef }
+            }
         }
     }
 
@@ -182,11 +133,11 @@ flow_proc setup_genus_options {
 
     # -- Design name -----------------------------------------------------------
     set design_name ""
-    if {[info exists genus(common,design_name)]} { set design_name $genus(common,design_name) }
+    if {[info exists synth(common,design_name)]} { set design_name $synth(common,design_name) }
 
     # -- Genus application options ---------------------------------------------
     # Effort level
-    set effort [expr {[info exists genus(compile,effort)] ? $genus(compile,effort) : "medium"}]
+    set effort [expr {[info exists synth(compile,effort)] ? $synth(compile,effort) : "medium"}]
     set_db syn_global_effort $effort
     handle_info "Synthesis effort: $effort"
 
@@ -197,29 +148,29 @@ flow_proc setup_genus_options {
     }
 
     # Leakage power optimization
-    if {[info exists genus(compile,leakage_power_effort)] && $genus(compile,leakage_power_effort) ne ""} {
-        set_db / .leakage_power_effort $genus(compile,leakage_power_effort)
-        handle_info "Leakage power effort: $genus(compile,leakage_power_effort)"
+    if {[info exists synth(compile,leakage_power_effort)] && $synth(compile,leakage_power_effort) ne ""} {
+        set_db / .leakage_power_effort $synth(compile,leakage_power_effort)
+        handle_info "Leakage power effort: $synth(compile,leakage_power_effort)"
     }
 
     # Dynamic power optimization
-    if {[info exists genus(compile,dynamic_power_effort)] && $genus(compile,dynamic_power_effort) ne ""} {
-        set_db / .dynamic_power_effort $genus(compile,dynamic_power_effort)
-        handle_info "Dynamic power effort: $genus(compile,dynamic_power_effort)"
+    if {[info exists synth(compile,dynamic_power_effort)] && $synth(compile,dynamic_power_effort) ne ""} {
+        set_db / .dynamic_power_effort $synth(compile,dynamic_power_effort)
+        handle_info "Dynamic power effort: $synth(compile,dynamic_power_effort)"
     }
 
     # Max routing layers (for physical-aware)
-    if {[info exists genus(common,route_max_layer)] && $genus(common,route_max_layer) ne ""} {
-        set_db design_top_routing_layer $genus(common,route_max_layer)
+    if {[info exists synth(common,route_max_layer)] && $synth(common,route_max_layer) ne ""} {
+        set_db design_top_routing_layer $synth(common,route_max_layer)
     }
-    if {[info exists genus(common,route_min_layer)] && $genus(common,route_min_layer) ne ""} {
-        set_db design_bottom_routing_layer $genus(common,route_min_layer)
+    if {[info exists synth(common,route_min_layer)] && $synth(common,route_min_layer) ne ""} {
+        set_db design_bottom_routing_layer $synth(common,route_min_layer)
     }
 
     # Genus user options file
-    if {[info exists genus(common,genus_options_file)] && [file exists $genus(common,genus_options_file)]} {
-        handle_info "Sourcing Genus options: $genus(common,genus_options_file)"
-        source $genus(common,genus_options_file)
+    if {[info exists synth(common,genus_options_file)] && [file exists $synth(common,genus_options_file)]} {
+        handle_info "Sourcing Genus options: $synth(common,genus_options_file)"
+        source $synth(common,genus_options_file)
     }
 
     handle_info "Genus options set"
@@ -233,7 +184,7 @@ flow_proc read_design {
     handle_info "Reading RTL design..."
     global synth flow
 
-    set design_name [expr {[info exists genus(common,design_name)] ? $genus(common,design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists synth(common,design_name)] ? $synth(common,design_name) : $flow(design_name)}]
 
     # -- Read RTL files --------------------------------------------------------
     # Determine RTL source: filelist or direct list
@@ -312,7 +263,7 @@ flow_proc setup_design_checks {
     handle_info "Running design checks..."
     global synth flow
 
-    set design_name [expr {[info exists genus(common,design_name)] ? $genus(common,design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists synth(common,design_name)] ? $synth(common,design_name) : $flow(design_name)}]
 
     # Uniquify the design
     uniquify $design_name
@@ -332,7 +283,7 @@ flow_proc load_constraints {
     handle_info "Loading timing constraints..."
     global synth flow
 
-    set design_name [expr {[info exists genus(common,design_name)] ? $genus(common,design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists synth(common,design_name)] ? $synth(common,design_name) : $flow(design_name)}]
 
     # -- SDC constraints -------------------------------------------------------
     set sdc_file ""
@@ -412,9 +363,9 @@ flow_proc setup_mmmc {
     global analysis_views library_sets
 
     # User MMMC setup script
-    if {[info exists genus(common,mcmm_setup_file)] && [file exists $genus(common,mcmm_setup_file)]} {
-        handle_info "Sourcing MMMC setup: $genus(common,mcmm_setup_file)"
-        source $genus(common,mcmm_setup_file)
+    if {[info exists synth(common,mcmm_setup_file)] && [file exists $synth(common,mcmm_setup_file)]} {
+        handle_info "Sourcing MMMC setup: $synth(common,mcmm_setup_file)"
+        source $synth(common,mcmm_setup_file)
         handle_info "MMMC setup completed from user script"
         return
     }
@@ -474,9 +425,9 @@ flow_proc setup_dont_use {
     }
 
     # Lib cell purpose file
-    if {[info exists genus(common,lib_cell_purpose_file)] && [file exists $genus(common,lib_cell_purpose_file)]} {
-        handle_info "Sourcing lib cell purpose: $genus(common,lib_cell_purpose_file)"
-        source $genus(common,lib_cell_purpose_file)
+    if {[info exists synth(common,lib_cell_purpose_file)] && [file exists $synth(common,lib_cell_purpose_file)]} {
+        handle_info "Sourcing lib cell purpose: $synth(common,lib_cell_purpose_file)"
+        source $synth(common,lib_cell_purpose_file)
     } elseif {[info exists tech(lib_cell_purpose_file)] && [file exists $tech(lib_cell_purpose_file)]} {
         handle_info "Sourcing lib cell purpose from tech: $tech(lib_cell_purpose_file)"
         source $tech(lib_cell_purpose_file)
@@ -493,12 +444,12 @@ flow_proc setup_dft {
     handle_info "Setting up DFT..."
     global synth
 
-    if {[info exists genus(common,dft_setup_file)] && [file exists $genus(common,dft_setup_file)]} {
-        handle_info "Sourcing DFT setup: $genus(common,dft_setup_file)"
-        source $genus(common,dft_setup_file)
-    } elseif {[info exists genus(common,dft_ports_file)] && [file exists $genus(common,dft_ports_file)]} {
-        handle_info "Sourcing DFT ports: $genus(common,dft_ports_file)"
-        source $genus(common,dft_ports_file)
+    if {[info exists synth(common,dft_setup_file)] && [file exists $synth(common,dft_setup_file)]} {
+        handle_info "Sourcing DFT setup: $synth(common,dft_setup_file)"
+        source $synth(common,dft_setup_file)
+    } elseif {[info exists synth(common,dft_ports_file)] && [file exists $synth(common,dft_ports_file)]} {
+        handle_info "Sourcing DFT ports: $synth(common,dft_ports_file)"
+        source $synth(common,dft_ports_file)
     }
 
     handle_info "DFT setup completed"
@@ -513,7 +464,7 @@ flow_proc save_design {
     global synth flow
 
     set run_dir $::env(CBFLOW_RUN_DIR)
-    set design_name [expr {[info exists genus(common,design_name)] ? $genus(common,design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists synth(common,design_name)] ? $synth(common,design_name) : $flow(design_name)}]
 
     file mkdir "$run_dir/outputs"
 
@@ -540,7 +491,7 @@ flow_proc generate_reports {
 
     file mkdir "$::REPORTS_DIR"
 
-    set max_paths [expr {[info exists genus(analysis,max_paths)] ? $genus(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists synth(analysis,max_paths)] ? $synth(analysis,max_paths) : 100}]
 
     # Design summary
     catch { report_summary > $::REPORTS_DIR/report_summary.rpt }

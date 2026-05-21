@@ -17,9 +17,6 @@ namespace import ::CBFlow::Utilities::print_header
 set config_file "$run_dir/work/ECO/export_db/run/config.tcl"
 if {[file exists $config_file]} { source $config_file }
 global eco project tech flow
-# Source ICC2 tool config
-set _tool_config "[file dirname [info script]]/icc2_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting ECO export_db with Synopsys IC Compiler II..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -55,7 +52,7 @@ flow_proc export_netlist {
     handle_info "Netlist exported: $netlist_file"
 
     # Write PG netlist if requested
-    if {[info exists icc2(export,pg_netlist)] && $icc2(export,pg_netlist) eq "true"} {
+    if {[info exists eco(export,pg_netlist)] && $eco(export,pg_netlist) eq "true"} {
         set pg_netlist "$::OUTPUTS_DIR/eco_netlist_pg.v"
         write_verilog -hierarchy all -pg $pg_netlist
         handle_info "PG netlist exported: $pg_netlist"
@@ -76,7 +73,7 @@ flow_proc export_def {
     handle_info "DEF exported: $def_file"
 
     # Write incremental DEF showing only ECO changes
-    if {[info exists icc2(export,incremental_def)] && $icc2(export,incremental_def) eq "true"} {
+    if {[info exists eco(export,incremental_def)] && $eco(export,incremental_def) eq "true"} {
         set inc_def "$::OUTPUTS_DIR/eco_incremental.def"
         write_def -eco_changed_cells $inc_def
         handle_info "Incremental DEF exported: $inc_def"

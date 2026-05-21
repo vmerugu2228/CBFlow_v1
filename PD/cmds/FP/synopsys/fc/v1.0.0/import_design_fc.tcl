@@ -2,39 +2,22 @@
 # CBFlow FP import_design - Synopsys Fusion Compiler
 # FC-RM: compile_dp.tcl -- Load design, set QoR strategy, run compile_dp
 # Aligned with FC-RM Y-2026.03
+
+# ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
-set env_file "$run_dir/.run.cbflow.tcl"
-if {[file exists $env_file]} { source $env_file } else { puts stderr "ERROR: .run.cbflow.tcl not found"; exit 1 }
-if {[info exists ::env(FLOW_DIR)]} { set FLOW_DIR $::env(FLOW_DIR) } else { puts stderr "ERROR: FLOW_DIR not set"; exit 1 }
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} { puts stderr "ERROR: UTILITIES_VERSION not set"; exit 1 }
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
-namespace import ::CBFlow::Utilities::print_header
-set config_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/config.tcl"
-if {[file exists $config_file]} { source $config_file }
-global fp project tech flow
-# Source FC tool config
-set _tool_config "[file dirname [info script]]/fc_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "Starting FP import_design..."
-if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
-set ::flow::exec_mode "auto"
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" &&
-    [info exists ::env(TECH_VERSION)] && $::env(TECH_VERSION) ne ""} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
+set FLOW_TYPE "FP"
+set STAGE_NAME "import_design"
+set NODE_NAME "import_design1"
 
-set WORK_DIR "$run_dir/work/FP/import_design1"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
+# ── Config (full cascade: project → tech → flow → node → mmmc → tool → user) ─
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+
+# ── Directories ──────────────────────────────────────────────────────────────
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 # ==============================================================================
 # flow_proc: load_design
@@ -44,8 +27,8 @@ flow_proc load_design {
     handle_info "Loading design from library..."
     global fp flow
 
-    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
-    set lib_name [expr {[info exists fc(common,design_lib_name)] ? $fc(common,design_lib_name) : "${design_name}.nlib"}]
+    set design_name [expr {[info exists fp(common,design_name)] ? $fp(common,design_name) : $flow(design_name)}]
+    set lib_name [expr {[info exists fp(common,design_lib_name)] ? $fp(common,design_lib_name) : "${design_name}.nlib"}]
 
     # Open the design library
     handle_info "Opening library: $lib_name"
@@ -74,13 +57,13 @@ flow_proc set_qor_strategy {
     global fp
 
     # Set QoR strategy for DP stage -- reduced effort for early exploration
-    set metric [expr {[info exists fc(compile,qor_metric)] ? $fc(compile,qor_metric) : "timing"}]
+    set metric [expr {[info exists fp(compile,qor_metric)] ? $fp(compile,qor_metric) : "timing"}]
 
     set_qor_strategy -stage compile_initial -reduced_effort -metric $metric
 
     # Apply user-specified app options for compile_dp
-    if {[info exists fc(compile_dp,app_options)] && $fc(compile_dp,app_options) ne ""} {
-        foreach {opt val} $fc(compile_dp,app_options) {
+    if {[info exists fp(compile_dp,app_options)] && $fp(compile_dp,app_options) ne ""} {
+        foreach {opt val} $fp(compile_dp,app_options) {
             handle_info "Setting app option: $opt = $val"
             set_app_options -name $opt -value $val
         }
@@ -101,8 +84,8 @@ flow_proc run_compile_dp {
     set compile_cmd "compile_fusion -to logic_opto"
 
     # Add user-specified compile options
-    if {[info exists fc(compile_dp,options)] && $fc(compile_dp,options) ne ""} {
-        append compile_cmd " $fc(compile_dp,options)"
+    if {[info exists fp(compile_dp,options)] && $fp(compile_dp,options) ne ""} {
+        append compile_cmd " $fp(compile_dp,options)"
     }
 
     handle_info "Executing: $compile_cmd"
@@ -124,8 +107,8 @@ flow_proc save_design {
     global fp flow
 
     set run_dir $::env(CBFLOW_RUN_DIR)
-    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
-    set lib_name [expr {[info exists fc(common,design_lib_name)] ? $fc(common,design_lib_name) : "${design_name}.nlib"}]
+    set design_name [expr {[info exists fp(common,design_name)] ? $fp(common,design_name) : $flow(design_name)}]
+    set lib_name [expr {[info exists fp(common,design_lib_name)] ? $fp(common,design_lib_name) : "${design_name}.nlib"}]
 
     # Save library and block
     save_lib -all
@@ -145,7 +128,7 @@ flow_proc generate_reports {
 
     file mkdir "$::REPORTS_DIR"
 
-    set max_paths [expr {[info exists fc(analysis,max_paths)] ? $fc(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists fp(analysis,max_paths)] ? $fp(analysis,max_paths) : 100}]
 
     # Core reports
     redirect -file $::REPORTS_DIR/report_qor.rpt { report_qor }

@@ -100,21 +100,47 @@ class DagBuilder:
           1. Base stages from node_config.tcl (flow-level, never changes)
           2. Custom nodes from $run_dir/setup/runtime_flow_config.tcl (run-level)
         """
-        config = self._load_node_config()
-        if not config:
+        cfg = self._resolve_config()
+        if not cfg:
+            return {}, []
+        self._resolved_cfg = cfg  # stored for _resolve_dynamic_subnodes
+
+        stages = cfg.get('stages', '').split()
+        if not stages:
+            logger.error("No stages found in config")
             return {}, []
 
-        stages = self._parse_stages(config)
-        stage_deps = self._parse_dependencies(config, stages)
-        subnodes = self._parse_subnodes(config, stages)
-        resource_map = self._parse_resource_map(config, stages)
+        stage_deps = {}
+        subnodes = {}
+        for stage in stages:
+            stage_deps[stage] = cfg.get(f'dependencies,{stage}', '').split()
+            subs_str = cfg.get(f'subnodes,{stage}', '')
+            if subs_str:
+                subs = subs_str.split()
+                if subs == ['dynamic']:
+                    subs = self._resolve_dynamic_subnodes(stage)
+                subnodes[stage] = subs
+
+        # Store node_types and tool_info from resolved config
+        self._node_types = {}
+        for stage in stages:
+            nt = cfg.get(f'node_types,{stage}', '')
+            if nt:
+                self._node_types[stage] = nt
+
+        self._tool_info = {
+            'vendor': cfg.get('tool,vendor', 'synopsys'),
+            'name': cfg.get('tool,name', 'fc'),
+            'version': cfg.get('tool,version', 'v1.0.0'),
+        }
+
+        resource_map = self._parse_resource_map(self._load_node_config(), stages)
 
         # Merge custom nodes from run-level runtime config
         custom_nodes, custom_deps = self._load_runtime_custom_nodes()
         self._custom_node_types = {}  # custom node name → base handler name
         for name, info in custom_nodes.items():
             if name not in stages:
-                # Insert after the dependency stage
                 dep = info.get('dependency', '')
                 if dep and dep in stages:
                     idx = stages.index(dep) + 1
@@ -122,16 +148,52 @@ class DagBuilder:
                 else:
                     stages.append(name)
                 stage_deps[name] = [dep] if dep else []
-                subnodes[name] = info.get('subnodes', ['setup', 'run', 'validate', 'finish'])
                 resource_map[name] = info.get('resource_tier', 'M')
-                # Map custom node to its base handler (e.g., synthesis2_xyz → synthesis)
-                node_type = info.get('type', '')
-                if node_type:
-                    self._custom_node_types[name] = re.sub(r'\d+$', '', node_type)
-                logger.info(f"Custom node: {name} (dep={dep})")
 
-        # Parse subnode-level dependencies (for parallel subnodes like PV drc/lvs)
-        sub_deps = self._parse_subnode_dependencies(config, stages, subnodes)
+                # Resolve subnodes: find base node type, inherit its subnodes
+                node_type = info.get('type', '')
+                type_base = re.sub(r'\d+$', '', node_type) if node_type else ''
+                if node_type:
+                    self._custom_node_types[name] = type_base
+
+                # Check if base node type is dynamic (timing/extraction)
+                dynamic_types = {'timing', 'extraction'}
+                if type_base in dynamic_types:
+                    # Always resolve independently — each node gets its own scenarios
+                    subnodes[name] = self._resolve_dynamic_subnodes(name)
+                else:
+                    # Non-dynamic: inherit subnodes from base node of same type
+                    base_subs = None
+                    for existing in stages:
+                        if existing != name and existing.rstrip('0123456789') == type_base:
+                            base_subs = subnodes.get(existing)
+                            break
+                    if base_subs:
+                        subnodes[name] = list(base_subs)
+                    else:
+                        # No base node found — read from resolved config
+                        subs_str = cfg.get(f'subnodes,{name}', '')
+                    if subs_str:
+                        subs = subs_str.split()
+                        if subs == ['dynamic']:
+                            subnodes[name] = self._resolve_dynamic_subnodes(name)
+                        else:
+                            subnodes[name] = subs
+                    else:
+                        # Stage type from config determines subnodes
+                        st = cfg.get(f'stage_types,{name}', '')
+                        if st in ('execution', 'export_data', 'release_data'):
+                            subnodes[name] = ['setup', 'run', 'validate', 'finish']
+
+                logger.info(f"Custom node: {name} (type={node_type}, dep={dep}, subs={subnodes.get(name, [])})")
+
+        # Parse subnode-level dependencies from resolved config
+        sub_deps = {}
+        for stage in stages:
+            for sn in subnodes.get(stage, []):
+                dep_key = f'subnode_dependencies,{stage},{sn}'
+                if dep_key in cfg and cfg[dep_key]:
+                    sub_deps[f'{stage}_{sn}'] = [f'{stage}_{d}' for d in cfg[dep_key].split()]
 
         # Auto-generate parallel deps for dynamic subnodes (MMMC scenarios)
         # Pattern: setup has no deps, each scenario depends on setup,
@@ -210,115 +272,118 @@ class DagBuilder:
 
         return jobs, stage_order
 
+    def _resolve_config(self) -> dict:
+        """Execute node config via tclsh and capture resolved variables.
+
+        Returns dict of key→value from TCL-resolved config.
+        No regex parsing — TCL foreach loops, variable substitution all work.
+        """
+        flow_dir = self.env_vars.get('FLOW_DIR', '')
+        resolver = os.path.join(flow_dir, 'utils', 'commands', 'config_resolver.tcl')
+        if not os.path.exists(resolver):
+            logger.error(f"Config resolver not found: {resolver}")
+            return {}
+
+        try:
+            result = subprocess.run(
+                ['tclsh', resolver, self.flow_type, self.run_dir],
+                capture_output=True, text=True, timeout=30,
+                env={**os.environ, **{k: v for k, v in self.env_vars.items() if v}}
+            )
+            if result.returncode != 0:
+                logger.error(f"Config resolver failed: {result.stderr.strip()}")
+                return {}
+
+            cfg = {}
+            for line in result.stdout.splitlines():
+                if line.startswith('CBFLOW_CFG:'):
+                    kv = line[len('CBFLOW_CFG:'):]
+                    eq = kv.find('=')
+                    if eq > 0:
+                        cfg[kv[:eq]] = kv[eq+1:]
+            return cfg
+
+        except subprocess.TimeoutExpired:
+            logger.error("Config resolver timed out (30s)")
+            return {}
+        except Exception as e:
+            logger.error(f"Config resolver error: {e}")
+            return {}
+
     def _load_node_config(self) -> str:
-        """Load node config TCL file content."""
+        """Load node config TCL file content (for resource_map regex parsing)."""
         config_root = self.env_vars.get('CONFIG_ROOT',
                       self.env_vars.get('FLOW_DIR', ''))
         flow_version = self.env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0')
         config_path = os.path.join(config_root, 'config', 'flow', flow_version,
                                    'node_configs', f'{self.flow_type}_config.tcl')
         if not os.path.exists(config_path):
-            # Try from FLOW_DIR directly
             config_path = os.path.join(self.env_vars.get('FLOW_DIR', ''),
                                        'config', 'flow', flow_version,
                                        'node_configs', f'{self.flow_type}_config.tcl')
         if os.path.exists(config_path):
             with open(config_path) as f:
                 return f.read()
-        logger.error(f"Node config not found: {config_path}")
         return ""
-
-    def _parse_stages(self, config: str) -> list:
-        m = re.search(r'stages\s+\{([^}]+)\}', config)
-        return m.group(1).split() if m else []
-
-    def _parse_dependencies(self, config: str, stages: list) -> dict:
-        deps = {}
-        for stage in stages:
-            m = re.search(rf'dependencies,{stage}\s+\{{([^}}]*)\}}', config)
-            if m:
-                dep_list = m.group(1).split()
-                deps[stage] = dep_list
-            else:
-                deps[stage] = []
-        return deps
-
-    def _parse_subnodes(self, config: str, stages: list) -> dict:
-        subnodes = {}
-        for stage in stages:
-            m = re.search(rf'subnodes,{stage}\s+\{{([^}}]+)\}}', config)
-            if m:
-                subs = m.group(1).split()
-                if subs == ['dynamic']:
-                    # Dynamic stage (e.g., STA timing1) — resolve scenarios from user_config
-                    subs = self._resolve_dynamic_subnodes(stage)
-                subnodes[stage] = subs
-        return subnodes
 
     def _resolve_dynamic_subnodes(self, stage: str) -> list:
         """Resolve dynamic subnodes for per-scenario/per-corner stages.
 
-        Extraction stages → per-RC-corner (rc_max, rc_typ, rc_min)
-        Timing stages     → per-MMMC-scenario
+        Uses resolved config from _resolve_config() — no regex on file text.
+        Extraction stages → per-RC-corner (from rc_corner_list)
+        Timing stages     → per-MMMC-scenario (from user_config or scenario sets)
         """
+        cfg = self._resolved_cfg
         stage_base = re.sub(r'\d+(_\w+)?$', '', stage)
 
         # ── Extraction stages: dynamic per RC corner ──
         if stage_base == 'extraction':
-            corners = self._resolve_rc_corners()
-            if corners:
+            # From resolved config (rc_corner_list set by mmmc_config via [lsort [array names rc_corners]])
+            rc_list = cfg.get('rc_corner_list', '')
+            if rc_list:
+                corners = rc_list.split()
                 return ['setup'] + corners + ['validate', 'finish']
-            return ['setup', 'run', 'validate', 'finish']
+            logger.error(f"No rc_corner_list found for dynamic extraction stage {stage}")
+            return []
 
         # ── Timing/other stages: dynamic per MMMC scenario ──
+        flow_array = self.flow_type.lower()
         scenarios = []
-        user_config = os.path.join(self.run_dir, 'setup', 'user_config.tcl')
-        if os.path.exists(user_config):
-            with open(user_config) as f:
+
+        # Priority 1: Per-node override — setup/override_config.<stage>.tcl
+        override_file = os.path.join(self.run_dir, 'setup', f'override_config.{stage}.tcl')
+        if os.path.exists(override_file):
+            with open(override_file) as f:
                 for line in f:
-                    m = re.match(r'set\s+\w+\(mmmc,\w+_scenarios\)\s+"([^"]+)"', line.strip())
+                    m = re.match(rf'set\s+{flow_array}\(mmmc,\w+_scenarios\)\s+"([^"]+)"', line.strip())
                     if m:
                         for s in m.group(1).split():
                             if s not in scenarios:
                                 scenarios.append(s)
+
+        # Priority 2: Generic scenarios in user_config — sta(mmmc,setup_scenarios)
+        if not scenarios:
+            user_config = os.path.join(self.run_dir, 'setup', 'user_config.tcl')
+            if os.path.exists(user_config):
+                with open(user_config) as f:
+                    for line in f:
+                        m = re.match(rf'set\s+{flow_array}\(mmmc,\w+_scenarios\)\s+"([^"]+)"', line.strip())
+                        if m:
+                            for s in m.group(1).split():
+                                if s not in scenarios:
+                                    scenarios.append(s)
+
+        # Priority 3: scenario set from node config
+        if not scenarios:
+            scenario_set = cfg.get('mmmc,scenario_set', 'signoff')
+            set_scenarios = cfg.get(f'mmmc_scenario_set,{scenario_set}', '')
+            if set_scenarios:
+                scenarios = set_scenarios.split()
+
         if scenarios:
             return ['setup'] + scenarios + ['validate', 'finish']
-        # Fallback: standard subnodes
-        return ['setup', 'run', 'validate', 'finish']
 
-    def _resolve_rc_corners(self) -> list:
-        """Resolve RC corners for extraction dynamic subnodes.
-
-        Priority:
-          1. User override: sta(extraction,rc_corners) "rc_max rc_min" in user_config
-          2. mmmc_config.tcl: rc_corner_list variable
-          3. mmmc_config.tcl: rc_corners array keys
-        """
-        # Priority 1: user_config override
-        user_config = os.path.join(self.run_dir, 'setup', 'user_config.tcl')
-        if os.path.exists(user_config):
-            with open(user_config) as f:
-                for line in f:
-                    m = re.match(r'set\s+\w+\(extraction,rc_corners\)\s+"([^"]+)"', line.strip())
-                    if m:
-                        return m.group(1).split()
-
-        # Priority 2+3: mmmc_config.tcl
-        flow_dir = self.env_vars.get('FLOW_DIR', '')
-        ver = self.env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0')
-        mmmc_path = os.path.join(flow_dir, 'config', 'flow', ver, 'mmmc_config.tcl')
-        if os.path.exists(mmmc_path):
-            with open(mmmc_path) as f:
-                content = f.read()
-            # Priority 2: rc_corner_list variable
-            m = re.search(r'set\s+rc_corner_list\s+\{([^}]+)\}', content)
-            if m:
-                return m.group(1).split()
-            # Priority 3: rc_corners array keys
-            corners = re.findall(r'^\s+(rc_\w+)\s+\{', content, re.MULTILINE)
-            if corners:
-                return corners
-
+        logger.error(f"No MMMC scenarios resolved for dynamic stage {stage}")
         return []
 
     def _load_runtime_custom_nodes(self) -> tuple:
@@ -373,15 +438,10 @@ class DagBuilder:
                 m = re.search(rf'{flow_lower}\(stages,{name},branch_key\)\s+"([^"]*)"', content)
                 if m: branch = m.group(1)
 
-                # Determine subnodes based on node_type
-                type_base = re.sub(r'\d+$', '', node_type) if node_type else name
-                type_subnodes = ['setup', 'run', 'validate', 'finish']
-
                 custom_nodes[name] = {
                     'type': node_type,
                     'dependency': dep,
                     'branch_key': branch,
-                    'subnodes': type_subnodes,
                 }
                 custom_deps[name] = [dep] if dep else []
 
@@ -423,36 +483,12 @@ class DagBuilder:
 
     def _build_command(self, stage: str, subnode: str) -> str:
         """Build the tclsh handler invocation command.
-        Tool info (vendor, name, version) comes from the flow's node config —
-        NOT from env vars."""
+        Tool info and node_types set by _resolve_config() in build()."""
         flow_dir = self.env_vars.get('FLOW_DIR', '')
-
-        # Read tool info from node config (single source of truth)
-        if not hasattr(self, '_tool_info'):
-            self._tool_info = {'vendor': 'synopsys', 'name': 'fc', 'version': 'v1.0.0'}
-            config = self._load_node_config()
-            if config:
-                m = re.search(r'tool,vendor\s+"([^"]+)"', config)
-                if m:
-                    self._tool_info['vendor'] = m.group(1)
-                m = re.search(r'tool,name\s+"([^"]+)"', config)
-                if m:
-                    self._tool_info['name'] = m.group(1)
-                m = re.search(r'tool,version\s+"([^"]+)"', config)
-                if m:
-                    self._tool_info['version'] = m.group(1)
 
         tool_vendor = self._tool_info['vendor']
         tool_name = self._tool_info['name']
         tool_version = self._tool_info['version']
-
-        # Check node_types mapping in config (e.g., rtl1 → "inputs" uses inputs_subnode_handler.tcl)
-        if not hasattr(self, '_node_types'):
-            self._node_types = {}
-            config = self._load_node_config()
-            if config:
-                for m in re.finditer(r'node_types,(\w+)\s+"([^"]+)"', config):
-                    self._node_types[m.group(1)] = m.group(2)
 
         # For custom nodes (e.g., synthesis2_xyz), use the stored base type
         custom_types = getattr(self, '_custom_node_types', {})
@@ -1387,7 +1423,6 @@ class RaceEngine:
         """Warn if RACE DB session count approaches or exceeds the configured limit."""
         try:
             max_sessions = 10
-            warn_threshold = 8
             flow_dir = self.env_vars.get('FLOW_DIR', '')
             fc_path = os.path.join(flow_dir, 'config', 'flow',
                                    self.env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0'),
@@ -1397,8 +1432,7 @@ class RaceEngine:
                     for line in f:
                         m = re.search(r'flow\(race,db_max_sessions\)\s+(\d+)', line)
                         if m: max_sessions = int(m.group(1))
-                        m = re.search(r'flow\(race,db_warn_threshold\)\s+(\d+)', line)
-                        if m: warn_threshold = int(m.group(1))
+            warn_threshold = int(max_sessions * 0.8)
 
             # Count DBs in workarea
             workarea = os.path.dirname(self.run_dir)
@@ -1407,10 +1441,10 @@ class RaceEngine:
                        for _ in d.glob('.race_*.db'))
 
             if count >= max_sessions:
-                logger.warning(f"RACE DB session limit reached ({count}/{max_sessions})! "
-                              f"Run 'cbflow run db-manage --cleanup' to free sessions.")
+                logger.error(f"RACE DB session limit reached ({count}/{max_sessions})! "
+                            f"Run 'cbflow run db-manage --cleanup' to free sessions.")
             elif count >= warn_threshold:
-                logger.warning(f"RACE DB sessions approaching limit ({count}/{max_sessions}). "
+                logger.warning(f"RACE DB sessions at {count}/{max_sessions} (80% threshold). "
                               f"Consider: cbflow run db-manage --list")
         except Exception:
             pass  # Non-critical — don't block init

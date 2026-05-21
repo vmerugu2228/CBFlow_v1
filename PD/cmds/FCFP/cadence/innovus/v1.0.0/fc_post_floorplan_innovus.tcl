@@ -33,9 +33,6 @@ set OUTPUTS_DIR "$run_dir/outputs"
 file mkdir $REPORTS_DIR
 file mkdir $OUTPUTS_DIR
 
-# Source INNOVUS tool config
-set _tool_config "[file dirname [info script]]/innovus_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting FCFP fc_post_floorplan stage with Innovus..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -83,8 +80,8 @@ flow_proc run_congestion {
 
     # Run trial route for congestion estimation
     puts "Running trial route..."
-    if {[info exists innovus(post_floorplan,trial_route_effort)]} {
-        set effort $innovus(post_floorplan,trial_route_effort)
+    if {[info exists fcfp(post_floorplan,trial_route_effort)]} {
+        set effort $fcfp(post_floorplan,trial_route_effort)
     } else {
         set effort "medium"
     }
@@ -104,8 +101,8 @@ flow_proc run_congestion {
     handle_info "  Congestion hotspot map: $cong_map_rpt"
 
     # Check congestion threshold from config
-    if {[info exists innovus(post_floorplan,congestion_threshold)]} {
-        puts "   Congestion threshold: $innovus(post_floorplan,congestion_threshold)%"
+    if {[info exists fcfp(post_floorplan,congestion_threshold)]} {
+        puts "   Congestion threshold: $fcfp(post_floorplan,congestion_threshold)%"
     }
 
     puts " Congestion analysis completed"
@@ -125,8 +122,8 @@ flow_proc run_timing {
     handle_info "  Pre-place timing: $::REPORTS_DIR/timing/"
 
     # Generate detailed timing report
-    if {[info exists innovus(post_floorplan,max_timing_paths)]} {
-        set max_paths $innovus(post_floorplan,max_timing_paths)
+    if {[info exists fcfp(post_floorplan,max_timing_paths)]} {
+        set max_paths $fcfp(post_floorplan,max_timing_paths)
     } else {
         set max_paths 50
     }

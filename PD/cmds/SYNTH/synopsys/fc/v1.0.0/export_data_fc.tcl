@@ -1,36 +1,21 @@
 #!/usr/bin/env tclsh
 # CBFlow SYNTH export_data1 - Synopsys Fusion Compiler | SYNTH export_data1
+
+# ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
-set env_file "$run_dir/.run.cbflow.tcl"
-if {[file exists $env_file]} { source $env_file } else { puts stderr "ERROR: .run.cbflow.tcl not found"; exit 1 }
-if {[info exists ::env(FLOW_DIR)]} { set FLOW_DIR $::env(FLOW_DIR) } else { puts stderr "ERROR: FLOW_DIR not set"; exit 1 }
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} { puts stderr "ERROR: UTILITIES_VERSION not set"; exit 1 }
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
-namespace import ::CBFlow::Utilities::print_header
-set config_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/config.tcl"
-if {[file exists $config_file]} { source $config_file }
-global synth project tech flow
-# Source FC tool config
-set _tool_config "[file dirname [info script]]/fc_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "Starting SYNTH export_data1 with Synopsys Fusion Compiler..."
-if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
-set ::flow::exec_mode "auto"
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+
+set FLOW_TYPE "SYNTH"
+set STAGE_NAME "export_data"
+set NODE_NAME "export_data1"
+
+# ── Config (full cascade: project → tech → flow → node → mmmc → tool → user) ─
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 
 # ── Directories ──────────────────────────────────────────────────────────────
-set WORK_DIR "$run_dir/work/SYNTH/export_data1"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
-
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" &&
-    [info exists ::env(TECH_VERSION)] && $::env(TECH_VERSION) ne ""} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 # ==============================================================================
 # flow_proc: export_netlist
@@ -44,8 +29,8 @@ flow_proc export_netlist {
     file mkdir "$::OUTPUTS_DIR/netlist"
 
     # Write gate-level Verilog netlist
-    if {[info exists fc(common,design_name)]} {
-        set netlist_file "$::OUTPUTS_DIR/netlist/$fc(common,design_name).v"
+    if {[info exists synth(common,design_name)]} {
+        set netlist_file "$::OUTPUTS_DIR/netlist/$synth(common,design_name).v"
     } else {
         set netlist_file "$::OUTPUTS_DIR/netlist/synth.v"
     }
@@ -85,15 +70,15 @@ flow_proc export_constraints {
     set run_dir $::env(CBFLOW_RUN_DIR)
     file mkdir "$::OUTPUTS_DIR/sdc"
 
-    if {[info exists fc(common,design_name)]} {
-        set sdc_file "$::OUTPUTS_DIR/sdc/$fc(common,design_name).sdc"
+    if {[info exists synth(common,design_name)]} {
+        set sdc_file "$::OUTPUTS_DIR/sdc/$synth(common,design_name).sdc"
     } else {
         set sdc_file "$::OUTPUTS_DIR/sdc/synth.sdc"
     }
 
     handle_info "Writing SDC: $sdc_file"
     write_sdc $sdc_file \
-        -significant_digits [expr {[info exists fc(analysis,significant_digits)] ? $fc(analysis,significant_digits) : 4}] \
+        -significant_digits [expr {[info exists synth(analysis,significant_digits)] ? $synth(analysis,significant_digits) : 4}] \
         -nosplit
 
     # Verify SDC was created
@@ -150,8 +135,8 @@ flow_proc validate_exports {
     set export_pass true
 
     # Determine design name for file paths
-    if {[info exists fc(common,design_name)]} {
-        set dname $fc(common,design_name)
+    if {[info exists synth(common,design_name)]} {
+        set dname $synth(common,design_name)
     } else {
         set dname "synth"
     }

@@ -10,7 +10,7 @@
 #   resolve_flow_inputs $flow_type $run_dir
 # ═══════════════════════════════════════════════════════════════════════════════
 
-namespace eval ::CBFlow::ResolveInputs {
+namespace eval ::CBFlow::InputResolve {
 
     # Map: downstream flow input variable → manifest key
     variable handshake_map
@@ -18,9 +18,9 @@ namespace eval ::CBFlow::ResolveInputs {
         STA,netlist         "netlist,pt"
         STA,sdc_func_file   "sdc"
         STA,spef            "spef"
-        STA,def             "def"
+        STA,def_file        "def"
 
-        LEC,netlist_revised "netlist,fm"
+        LEC,netlist_revised "netlist,logic"
         LEC,netlist_golden  "netlist,logic"
 
         CLP,netlist         "netlist,vc_lp"
@@ -29,10 +29,10 @@ namespace eval ::CBFlow::ResolveInputs {
 
         PV,gds              "gds"
         PV,netlist           "netlist,lvs"
-        PV,def              "def"
+        PV,def_file         "def"
 
         EMIR,netlist        "netlist,logic"
-        EMIR,def            "def"
+        EMIR,def_file       "def"
         EMIR,spef           "spef"
         EMIR,gds            "gds"
 
@@ -41,7 +41,7 @@ namespace eval ::CBFlow::ResolveInputs {
         POPT,spef           "spef"
 
         ECO,netlist         "netlist,logic"
-        ECO,def             "def"
+        ECO,def_file        "def"
     }
 
     proc resolve_flow_inputs {flow_type run_dir} {
@@ -293,8 +293,9 @@ namespace eval ::CBFlow::ResolveInputs {
         return $count
     }
 
-    namespace export resolve_flow_inputs generate_output_manifest
+    namespace export resolve_flow_inputs resolve_from_run generate_output_manifest
 }
 
-namespace import ::CBFlow::ResolveInputs::resolve_flow_inputs
-namespace import ::CBFlow::ResolveInputs::generate_output_manifest
+namespace import ::CBFlow::InputResolve::resolve_flow_inputs
+namespace import ::CBFlow::InputResolve::resolve_from_run
+namespace import ::CBFlow::InputResolve::generate_output_manifest

@@ -1,60 +1,19 @@
 #!/usr/bin/env tclsh
-# ═══════════════════════════════════════════════════════════════════════════════
-# CBFlow - STA Extraction Command File
-# Description: Parasitic extraction for accurate timing analysis
-# Tool: Cadence Tempus
-# Usage: Source this file in Tempus or run standalone
-# ═══════════════════════════════════════════════════════════════════════════════
+# STA extraction - Cadence Tempus
 
+# -- Bootstrap -----------------------------------------------------------------
 set run_dir $::env(CBFLOW_RUN_DIR)
-set env_file "$run_dir/.run.cbflow.tcl"
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-if {[file exists $env_file]} {
-    source $env_file
-} else {
-    puts stderr "ERROR: Environment file (.run.cbflow.tcl) not found at $env_file"
-    exit 1
-}
+set FLOW_TYPE "STA"
+set STAGE_NAME "extraction"
+set NODE_NAME "extraction1"
 
-if {[info exists ::env(FLOW_DIR)]} {
-    set FLOW_DIR $::env(FLOW_DIR)
-} else {
-    puts stderr "ERROR: FLOW_DIR not found in environment"
-    exit 1
-}
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} {
-    puts stderr "ERROR: UTILITIES_VERSION not set."
-    exit 1
-}
-
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} {
-    source $utils_path
-} else {
-    puts stderr "ERROR: Cannot find flow utilities at $utils_path"
-    exit 1
-}
-
-namespace import ::CBFlow::Utilities::print_header
-
-set config_file "$run_dir/work/STA/extraction/run/config.tcl"
-if {[file exists $config_file]} { source $config_file }
-
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
-
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
-
-global sta project tech flow
-
-# Source TEMPUS tool config
-set _tool_config "[file dirname [info script]]/tempus_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting STA extraction stage with Cadence Tempus..."
 
 # ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -208,14 +167,14 @@ flow_proc run_extraction {
     file mkdir "$::REPORTS_DIR"
 
     # Configure extraction settings
-    if {[info exists tempus(extraction,mode)]} {
-        puts "Extraction mode: $tempus(extraction,mode)"
+    if {[info exists sta(extraction,mode)]} {
+        puts "Extraction mode: $sta(extraction,mode)"
     } else {
         puts "Extraction mode: default (coupled)"
     }
 
-    if {[info exists tempus(extraction,effort)]} {
-        puts "Extraction effort: $tempus(extraction,effort)"
+    if {[info exists sta(extraction,effort)]} {
+        puts "Extraction effort: $sta(extraction,effort)"
     }
 
     # Run extraction

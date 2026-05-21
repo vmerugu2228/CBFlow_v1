@@ -1,51 +1,19 @@
 #!/usr/bin/env tclsh
-# ===============================================================================
-# CBFlow - CLP Low-Power Verification Command File
-# Description: Low-power static signoff verification using Synopsys VC LP
-# Tool: Synopsys Verification Compiler Low Power
-# Based on: FC-RM Y-2026.03 vc_lp.tcl
-# ===============================================================================
+# CBFlow CLP verification - Synopsys VC LP (FC-RM Y-2026.03)
 
+# ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
-set env_file "$run_dir/.run.cbflow.tcl"
-if {[file exists $env_file]} { source -e $env_file } else { puts stderr "ERROR: .run.cbflow.tcl not found"; exit 1 }
-if {[info exists ::env(FLOW_DIR)]} { set FLOW_DIR $::env(FLOW_DIR) } else { puts stderr "ERROR: FLOW_DIR not set"; exit 1 }
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} { puts stderr "ERROR: UTILITIES_VERSION not set"; exit 1 }
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} { source -e $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
-namespace import ::CBFlow::Utilities::print_header
-set config_file "$run_dir/work/CLP/clp1/run/config.tcl"
-if {[file exists $config_file]} { source -e $config_file }
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
+set FLOW_TYPE "CLP"
+set STAGE_NAME "clp"
+set NODE_NAME "${STAGE_NAME}1"
 
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
-global clp project tech flow
-# Source VC_LP tool config
-set _tool_config "[file dirname [info script]]/vc_lp_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "Starting CLP verification with Synopsys VC LP..."
-if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
-set ::flow::exec_mode "auto"
-
-# ── Directories ──────────────────────────────────────────────────────────────
-set WORK_DIR "$run_dir/work/CLP/clp1"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
-
-# ==============================================================================
-# flow_proc: configure_lp_checks
-# Description: Set app_vars for LP verification options
-# FC-RM: sh_continue_on_error, handle_hanging_crossover, enable_local_policy_match,
-#         upf_iso_filter_elements_with_applies_to, enable_multi_driver_analysis, etc.
 # ==============================================================================
 flow_proc configure_lp_checks {
     global clp project tech
@@ -65,17 +33,17 @@ flow_proc configure_lp_checks {
     set_app_var enable_verdi_debug true
 
     # Optional overrides from config
-    if {[info exists vc_lp(check,continue_on_error)] && $vc_lp(check,continue_on_error) ne ""} {
-        set_app_var sh_continue_on_error $vc_lp(check,continue_on_error)
+    if {[info exists clp(check,continue_on_error)] && $clp(check,continue_on_error) ne ""} {
+        set_app_var sh_continue_on_error $clp(check,continue_on_error)
     }
-    if {[info exists vc_lp(check,hanging_crossover)] && $vc_lp(check,hanging_crossover) ne ""} {
-        set_app_var handle_hanging_crossover $vc_lp(check,hanging_crossover)
+    if {[info exists clp(check,hanging_crossover)] && $clp(check,hanging_crossover) ne ""} {
+        set_app_var handle_hanging_crossover $clp(check,hanging_crossover)
     }
-    if {[info exists vc_lp(check,multi_driver)] && $vc_lp(check,multi_driver) ne ""} {
-        set_app_var enable_multi_driver_analysis $vc_lp(check,multi_driver)
+    if {[info exists clp(check,multi_driver)] && $clp(check,multi_driver) ne ""} {
+        set_app_var enable_multi_driver_analysis $clp(check,multi_driver)
     }
-    if {[info exists vc_lp(check,verdi_debug)] && $vc_lp(check,verdi_debug) ne ""} {
-        set_app_var enable_verdi_debug $vc_lp(check,verdi_debug)
+    if {[info exists clp(check,verdi_debug)] && $clp(check,verdi_debug) ne ""} {
+        set_app_var enable_verdi_debug $clp(check,verdi_debug)
     }
 
     # Set link_library
@@ -120,8 +88,8 @@ flow_proc read_power_intent {
 
     # Determine UPF mode: golden or prime
     set upf_mode "prime"
-    if {[info exists vc_lp(common,upf_mode)] && $vc_lp(common,upf_mode) ne ""} {
-        set upf_mode $vc_lp(common,upf_mode)
+    if {[info exists clp(common,upf_mode)] && $clp(common,upf_mode) ne ""} {
+        set upf_mode $clp(common,upf_mode)
     }
 
     if {![info exists clp(input,upf_file)] || $clp(input,upf_file) eq ""} {
@@ -254,14 +222,7 @@ flow_proc save_session {
 }
 
 # ==============================================================================
-# Source setup.tcl and overrides before flow_exec_all
 # ==============================================================================
-set _setup_file "$run_dir/work/CLP/clp1/run/setup.tcl"
-if {[file exists $_setup_file]} { handle_info "Sourcing setup hooks: $_setup_file"; source -e $_setup_file }
-set _override_file "$run_dir/setup/override_setup.tcl"
-if {[file exists $_override_file]} { handle_info "Sourcing user override: $_override_file"; source -e $_override_file }
-set _stage_override "$run_dir/setup/override_setup.clp.tcl"
-if {[file exists $_stage_override]} { handle_info "Sourcing stage override: $_stage_override"; source -e $_stage_override }
 
 flow_exec_all
 exit

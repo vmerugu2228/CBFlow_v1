@@ -4,35 +4,22 @@
 # Aligned with FC-RM Y-2026.03
 # Stages: pre_initial_map → initial_map → logic_opto → insert_dft →
 #          initial_place → initial_drc → initial_opto → final_place → final_opto
+
+# ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
-set env_file "$run_dir/.run.cbflow.tcl"
-if {[file exists $env_file]} { source $env_file } else { puts stderr "ERROR: .run.cbflow.tcl not found"; exit 1 }
-if {[info exists ::env(FLOW_DIR)]} { set FLOW_DIR $::env(FLOW_DIR) } else { puts stderr "ERROR: FLOW_DIR not set"; exit 1 }
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} { puts stderr "ERROR: UTILITIES_VERSION not set"; exit 1 }
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
-namespace import ::CBFlow::Utilities::print_header
-set config_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/config.tcl"
-if {[file exists $config_file]} { source $config_file }
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-global synth_pnr project tech flow
-set mmmc_config_file "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
+set FLOW_TYPE "SYNTH_PNR"
+set STAGE_NAME "synthesis"
+set NODE_NAME "synthesis1"
 
-}
+# ── Config (full cascade: project → tech → flow → node → mmmc → tool → user) ─
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 
-# Source FC tool config
-set _fc_config "[file dirname [info script]]/fc_config.tcl"
-if {[file exists $_fc_config]} { source $_fc_config }
-
-handle_info "Starting SYNTH_PNR synthesis (FC-RM Y-2026.03 aligned)..."
-if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
-set ::flow::exec_mode "auto"
-
-set WORK_DIR "$run_dir/work/SYNTH_PNR/synthesis1"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
+# ── Directories ──────────────────────────────────────────────────────────────
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 # ==============================================================================
 # flow_proc: load_design
@@ -43,8 +30,8 @@ flow_proc load_design {
     handle_info "Opening design for synthesis..."
     global synth_pnr flow
 
-    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
-    set lib_name [expr {[info exists fc(common,design_lib_name)] ? $fc(common,design_lib_name) : "${design_name}.nlib"}]
+    set design_name [expr {$synth_pnr(common,design_name) ne "" ? $synth_pnr(common,design_name) : $flow(design_name)}]
+    set lib_name [expr {$synth_pnr(common,design_lib_name) ne "" ? $synth_pnr(common,design_lib_name) : "${design_name}.nlib"}]
 
     # FC-RM: open_lib, copy_block from init_design to compile
     open_lib $lib_name
@@ -52,8 +39,7 @@ flow_proc load_design {
     current_block ${design_name}/compile
 
     # FC-RM: set_early_data_check_policy
-    set qor_mode "balanced"
-    if {[info exists fc(common,compile,qor_mode)]} { set qor_mode $fc(common,compile,qor_mode) }
+    set qor_mode [expr {$synth_pnr(common,compile,qor_mode) ne "" ? $synth_pnr(common,compile,qor_mode) : "balanced"}]
     if {$qor_mode eq "early_design"} {
         set_early_data_check_policy -policy lenient -if_not_exist
     }
@@ -61,12 +47,12 @@ flow_proc load_design {
     link_block
 
     # FC-RM: Hierarchical — swap abstracts and set editability
-    set chip_type [expr {[info exists fc(common,chip_type)] ? $fc(common,chip_type) : "flat"}]
-    if {$chip_type eq "hierarchical"} {
-        if {[info exists fc(common,block_abstract_for_compile)] && $fc(common,block_abstract_for_compile) ne ""} {
+    set _run_type $flow(run_type)
+    if {$_run_type eq "hier"} {
+        if {$synth_pnr(common,block_abstract_for_compile) ne ""} {
             change_abstract -references [get_blocks -hierarchical] \
-                -label [lindex $fc(common,block_abstract_for_compile) 0] \
-                -view [lindex $fc(common,block_abstract_for_compile) 1]
+                -label [lindex $synth_pnr(common,block_abstract_for_compile) 0] \
+                -view [lindex $synth_pnr(common,block_abstract_for_compile) 1]
             report_abstracts
         }
         set_editability -blocks [get_blocks -hierarchical] -value false
@@ -84,10 +70,10 @@ flow_proc set_active_scenarios {
     global synth_pnr
 
     # Priority: synth_pnr user override > mmmc_config get_node_scenarios("synthesis")
-    if {[info exists fc(synthesis,compile,active_scenarios)] && $fc(synthesis,compile,active_scenarios) ne ""} {
+    if {$synth_pnr(synthesis,compile,active_scenarios) ne ""} {
         set_scenario_status -active false [get_scenarios -filter active]
-        set_scenario_status -active true $fc(synthesis,compile,active_scenarios)
-        handle_info "Active scenarios (user override): $fc(synthesis,compile,active_scenarios)"
+        set_scenario_status -active true $synth_pnr(synthesis,compile,active_scenarios)
+        handle_info "Active scenarios (user override): $synth_pnr(synthesis,compile,active_scenarios)"
     } elseif {[info commands get_node_scenarios] ne ""} {
         set node_scenarios [get_node_scenarios "synthesis" "all"]
         if {[llength $node_scenarios] > 0} {
@@ -98,8 +84,8 @@ flow_proc set_active_scenarios {
     }
 
     # FC-RM: Adjustment file for modes/corners/scenarios
-    if {[info exists fc(common,mcmm_adjustment_file)] && [file exists $fc(common,mcmm_adjustment_file)]} {
-        source -e $fc(common,mcmm_adjustment_file)
+    if {$synth_pnr(common,mcmm_adjustment_file) ne "" && [file exists $synth_pnr(common,mcmm_adjustment_file)]} {
+        source -e $synth_pnr(common,mcmm_adjustment_file)
     }
 
     # FC-RM: Check for hold scenarios (needed for CCD)
@@ -117,25 +103,23 @@ flow_proc set_qor_strategy {
     global synth_pnr
 
     # FC-RM: QoR strategy version
-    if {[info exists fc(common,compile,qor_version)] && $fc(common,compile,qor_version) ne ""} {
-        set_app_options -name flow.set_qor_strategy.version -value $fc(common,compile,qor_version)
+    if {$synth_pnr(common,compile,qor_version) ne ""} {
+        set_app_options -name flow.set_qor_strategy.version -value $synth_pnr(common,compile,qor_version)
     }
 
     # FC-RM: Build set_qor_strategy command
     set cmd "set_qor_strategy -stage compile_initial"
-    set metric "timing"
-    set mode "balanced"
-    if {[info exists fc(common,compile,qor_metric)]} { set metric $fc(common,compile,qor_metric) }
-    if {[info exists fc(common,compile,qor_mode)]}   { set mode $fc(common,compile,qor_mode) }
+    set metric [expr {$synth_pnr(common,compile,qor_metric) ne "" ? $synth_pnr(common,compile,qor_metric) : "timing"}]
+    set mode [expr {$synth_pnr(common,compile,qor_mode) ne "" ? $synth_pnr(common,compile,qor_mode) : "balanced"}]
     lappend cmd -metric $metric -mode $mode
 
-    if {[info exists fc(common,compile,reduced_effort)] && $fc(common,compile,reduced_effort)} {
+    if {$synth_pnr(common,compile,reduced_effort) ne "" && $synth_pnr(common,compile,reduced_effort)} {
         lappend cmd -reduced_effort
-    } elseif {[info exists fc(synthesis,compile,high_effort_timing)] && $fc(synthesis,compile,high_effort_timing)} {
+    } elseif {$synth_pnr(synthesis,compile,high_effort_timing) ne "" && $synth_pnr(synthesis,compile,high_effort_timing)} {
         lappend cmd -high_effort_timing
     }
-    if {[info exists fc(common,compile,congestion_effort)] && $fc(common,compile,congestion_effort) ne ""} {
-        lappend cmd -congestion_effort $fc(common,compile,congestion_effort)
+    if {$synth_pnr(common,compile,congestion_effort) ne ""} {
+        lappend cmd -congestion_effort $synth_pnr(common,compile,congestion_effort)
     }
 
     handle_info "Running: $cmd"
@@ -143,11 +127,11 @@ flow_proc set_qor_strategy {
     eval $cmd
 
     # FC-RM: set_ignored_layers (routing layer constraints)
-    if {[info exists fc(common,route_max_layer)] && $fc(common,route_max_layer) ne ""} {
-        set_ignored_layers -max_routing_layer $fc(common,route_max_layer)
+    if {$synth_pnr(common,route_max_layer) ne ""} {
+        set_ignored_layers -max_routing_layer $synth_pnr(common,route_max_layer)
     }
-    if {[info exists fc(common,route_min_layer)] && $fc(common,route_min_layer) ne ""} {
-        set_ignored_layers -min_routing_layer $fc(common,route_min_layer)
+    if {$synth_pnr(common,route_min_layer) ne ""} {
+        set_ignored_layers -min_routing_layer $synth_pnr(common,route_min_layer)
     }
 
     # FC-RM: Disable dynamic power for leakage_power metric
@@ -177,26 +161,26 @@ flow_proc configure_compile {
     set_app_options -name hdlin.naming.upf_compatible -value true
 
     # FC-RM: Lib cell purpose restrictions
-    if {[info exists fc(common,lib_cell_purpose_file)] && [file exists $fc(common,lib_cell_purpose_file)]} {
-        source -e $fc(common,lib_cell_purpose_file)
-    } elseif {[info exists tech(lib_cell_purpose_file)] && [file exists $tech(lib_cell_purpose_file)]} {
+    if {$synth_pnr(common,lib_cell_purpose_file) ne "" && [file exists $synth_pnr(common,lib_cell_purpose_file)]} {
+        source -e $synth_pnr(common,lib_cell_purpose_file)
+    } elseif {$tech(lib_cell_purpose_file) ne "" && [file exists $tech(lib_cell_purpose_file)]} {
         source -e $tech(lib_cell_purpose_file)
     }
 
     # FC-RM: Multi-Vt constraint file
-    if {[info exists fc(common,multi_vt_constraint_file)] && [file exists $fc(common,multi_vt_constraint_file)]} {
-        source -e $fc(common,multi_vt_constraint_file)
+    if {$synth_pnr(common,multi_vt_constraint_file) ne "" && [file exists $synth_pnr(common,multi_vt_constraint_file)]} {
+        source -e $synth_pnr(common,multi_vt_constraint_file)
     }
 
     # FC-RM: Non-persistent settings
-    if {[info exists fc(common,non_persistent_script)] && [file exists $fc(common,non_persistent_script)]} {
-        source -e $fc(common,non_persistent_script)
+    if {$synth_pnr(common,non_persistent_script) ne "" && [file exists $synth_pnr(common,non_persistent_script)]} {
+        source -e $synth_pnr(common,non_persistent_script)
     }
 
     # FC-RM: CTS primary corner
-    if {[info exists fc(common,cts_primary_corner)] && $fc(common,cts_primary_corner) ne ""} {
-        set_app_options -name cts.compile.primary_corner -value $fc(common,cts_primary_corner)
-        handle_info "CTS primary corner: $fc(common,cts_primary_corner)"
+    if {$synth_pnr(common,cts_primary_corner) ne ""} {
+        set_app_options -name cts.compile.primary_corner -value $synth_pnr(common,cts_primary_corner)
+        handle_info "CTS primary corner: $synth_pnr(common,cts_primary_corner)"
     }
 
     # FC-RM: Remove propagated clocks
@@ -223,20 +207,20 @@ flow_proc pre_compile_setup {
     handle_info "Running pre-compile setup..."
     global synth_pnr flow
 
-    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
+    set design_name [expr {$synth_pnr(common,design_name) ne "" ? $synth_pnr(common,design_name) : $flow(design_name)}]
 
     # FC-RM: set_svf for formality
     set_svf $::OUTPUTS_DIR/${design_name}_compile.svf
 
     # FC-RM: User pre-compile script
-    if {[info exists fc(synthesis,compile_pre_script)] && [file exists $fc(synthesis,compile_pre_script)]} {
+    if {$synth_pnr(synthesis,compile_pre_script) ne "" && [file exists $synth_pnr(synthesis,compile_pre_script)]} {
         handle_info "Sourcing compile pre-script"
-        source -e $fc(synthesis,compile_pre_script)
+        source -e $synth_pnr(synthesis,compile_pre_script)
     }
 
     # FC-RM: Read test model for sub-blocks (hierarchical)
-    if {[info exists fc(pro,ctl_for_abstract_blocks)] && [llength $fc(pro,ctl_for_abstract_blocks)] > 0} {
-        foreach ctl $fc(pro,ctl_for_abstract_blocks) {
+    if {$synth_pnr(pro,ctl_for_abstract_blocks) ne "" && [llength $synth_pnr(pro,ctl_for_abstract_blocks)] > 0} {
+        foreach ctl $synth_pnr(pro,ctl_for_abstract_blocks) {
             read_test_model $ctl
         }
     }
@@ -251,8 +235,8 @@ flow_proc pre_compile_setup {
     create_mv_cells -verbose
 
     # FC-RM: DFT pre-compile setup
-    if {[info exists fc(synthesis,dft_pre_compile_setup_file)] && [file exists $fc(synthesis,dft_pre_compile_setup_file)]} {
-        source -e $fc(synthesis,dft_pre_compile_setup_file)
+    if {$synth_pnr(synthesis,dft_pre_compile_setup_file) ne "" && [file exists $synth_pnr(synthesis,dft_pre_compile_setup_file)]} {
+        source -e $synth_pnr(synthesis,dft_pre_compile_setup_file)
     }
 
     # FC-RM: Mark clock trees for NDR impact modeling
@@ -260,8 +244,8 @@ flow_proc pre_compile_setup {
     mark_clock_trees -routing_rules
 
     # FC-RM: Spare cell insertion before initial_place
-    if {[info exists fc(common,spare_cell_pre_script)] && [file exists $fc(common,spare_cell_pre_script)]} {
-        source -e $fc(common,spare_cell_pre_script)
+    if {$synth_pnr(common,spare_cell_pre_script) ne "" && [file exists $synth_pnr(common,spare_cell_pre_script)]} {
+        source -e $synth_pnr(common,spare_cell_pre_script)
     }
 
     # FC-RM: Pre-flight check
@@ -280,9 +264,9 @@ flow_proc run_compile {
     handle_info "Running compile_fusion..."
     global synth_pnr flow
 
-    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
+    set design_name [expr {$synth_pnr(common,design_name) ne "" ? $synth_pnr(common,design_name) : $flow(design_name)}]
 
-    if {[info exists fc(synthesis,compile,unified_flow)] && $fc(synthesis,compile,unified_flow)} {
+    if {$synth_pnr(synthesis,compile,unified_flow) ne "" && $synth_pnr(synthesis,compile,unified_flow)} {
         # ── Unified compile (all stages end-to-end) ───────────────────────────
         handle_info "Running compile_fusion (unified flow — all stages)"
         compile_fusion
@@ -317,10 +301,10 @@ flow_proc run_compile {
         redirect -file $::REPORTS_DIR/report_qor_summary.logic_opto.rpt { report_qor -summary }
 
         # FC-RM: insert_dft (if enabled)
-        if {[info exists fc(synthesis,dft_insert_enable)] && $fc(synthesis,dft_insert_enable)} {
+        if {$synth_pnr(synthesis,dft_insert_enable) ne "" && $synth_pnr(synthesis,dft_insert_enable)} {
             handle_info "DFT insertion enabled"
-            if {[info exists fc(synthesis,dft_setup_file)] && [file exists $fc(synthesis,dft_setup_file)]} {
-                source -e $fc(synthesis,dft_setup_file)
+            if {$synth_pnr(synthesis,dft_setup_file) ne "" && [file exists $synth_pnr(synthesis,dft_setup_file)]} {
+                source -e $synth_pnr(synthesis,dft_setup_file)
             }
             create_test_protocol
             redirect -file $::REPORTS_DIR/pre_insert_dft.dft_drc { dft_drc -test_mode all_dft }
@@ -347,18 +331,16 @@ flow_proc run_compile {
         # FC-RM: final_place + final_opto (set_qor_strategy for final)
         handle_info "Setting QoR strategy for compile_final_place"
         set final_cmd "set_qor_strategy -stage compile_final_place"
-        set metric "timing"
-        if {[info exists fc(common,compile,qor_metric)]} { set metric $fc(common,compile,qor_metric) }
-        set mode "balanced"
-        if {[info exists fc(common,compile,qor_mode)]} { set mode $fc(common,compile,qor_mode) }
+        set metric [expr {$synth_pnr(common,compile,qor_metric) ne "" ? $synth_pnr(common,compile,qor_metric) : "timing"}]
+        set mode [expr {$synth_pnr(common,compile,qor_mode) ne "" ? $synth_pnr(common,compile,qor_mode) : "balanced"}]
         lappend final_cmd -metric $metric -mode $mode
-        if {[info exists fc(common,compile,congestion_effort)] && $fc(common,compile,congestion_effort) ne ""} {
-            lappend final_cmd -congestion_effort $fc(common,compile,congestion_effort)
+        if {$synth_pnr(common,compile,congestion_effort) ne ""} {
+            lappend final_cmd -congestion_effort $synth_pnr(common,compile,congestion_effort)
         }
         eval $final_cmd
 
         # FC-RM: Enable IRDP
-        if {[info exists fc(synthesis,compile,enable_irdp)] && $fc(synthesis,compile,enable_irdp)} {
+        if {$synth_pnr(synthesis,compile,enable_irdp) ne "" && $synth_pnr(synthesis,compile,enable_irdp)} {
             set_app_options -name compile.flow.enable_irap -value true
         }
 
@@ -383,14 +365,14 @@ flow_proc post_compile {
     global synth_pnr
 
     # FC-RM: User post-compile script
-    if {[info exists fc(synthesis,compile_post_script)] && [file exists $fc(synthesis,compile_post_script)]} {
+    if {$synth_pnr(synthesis,compile_post_script) ne "" && [file exists $synth_pnr(synthesis,compile_post_script)]} {
         handle_info "Sourcing compile post-script"
-        source -e $fc(synthesis,compile_post_script)
+        source -e $synth_pnr(synthesis,compile_post_script)
     }
 
     # FC-RM: Spare cell insertion after final_opto
-    if {[info exists fc(common,spare_cell_post_script)] && [file exists $fc(common,spare_cell_post_script)]} {
-        source -e $fc(common,spare_cell_post_script)
+    if {$synth_pnr(common,spare_cell_post_script) ne "" && [file exists $synth_pnr(common,spare_cell_post_script)]} {
+        source -e $synth_pnr(common,spare_cell_post_script)
     }
 
     # FC-RM: Re-enable dynamic power scenarios
@@ -400,8 +382,8 @@ flow_proc post_compile {
     }
 
     # FC-RM: connect_pg_net
-    if {[info exists fc(common,connect_pg_net_script)] && [file exists $fc(common,connect_pg_net_script)]} {
-        source -e $fc(common,connect_pg_net_script)
+    if {$synth_pnr(common,connect_pg_net_script) ne "" && [file exists $synth_pnr(common,connect_pg_net_script)]} {
+        source -e $synth_pnr(common,connect_pg_net_script)
     } else {
         connect_pg_net
     }
@@ -415,19 +397,18 @@ flow_proc finalize_netlist {
     handle_info "Finalizing netlist..."
     global synth_pnr flow
 
-    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
+    set design_name [expr {$synth_pnr(common,design_name) ne "" ? $synth_pnr(common,design_name) : $flow(design_name)}]
 
     # FC-RM: Define and apply name rules for verilog output
-    if {[info exists fc(common,define_name_rules_options)] && $fc(common,define_name_rules_options) ne ""} {
-        eval define_name_rules verilog $fc(common,define_name_rules_options)
+    if {$synth_pnr(common,define_name_rules_options) ne ""} {
+        eval define_name_rules verilog $synth_pnr(common,define_name_rules_options)
     }
     redirect -file $::REPORTS_DIR/report_name_rules.log { report_name_rules }
     change_names -rules verilog -hierarchy -skip_physical_only_cells
     redirect -file $::REPORTS_DIR/report_names.log { report_names -rules verilog }
 
     # FC-RM: write_ascii_files (netlist + UPF + SDC for downstream)
-    set upf_mode "none"
-    if {[info exists fc(common,upf_mode)]} { set upf_mode $fc(common,upf_mode) }
+    set upf_mode [expr {$synth_pnr(common,upf_mode) ne "" ? $synth_pnr(common,upf_mode) : "none"}]
     if {$upf_mode eq "golden" && [info exists synth_pnr(input,upf_file)]} {
         write_ascii_files -force -compress gzip \
             -output $::OUTPUTS_DIR/compile.ascii_files \
@@ -450,11 +431,10 @@ flow_proc create_abstracts {
     handle_info "Creating abstracts..."
     global synth_pnr
 
-    set chip_type [expr {[info exists fc(common,chip_type)] ? $fc(common,chip_type) : "flat"}]
+    set _run_type $flow(run_type)
 
-    if {$chip_type eq "hierarchical"} {
-        set hier_level "bottom"
-        if {[info exists fc(common,physical_hierarchy_level)]} { set hier_level $fc(common,physical_hierarchy_level) }
+    if {$_run_type eq "hier"} {
+        set hier_level [expr {$synth_pnr(common,physical_hierarchy_level) ne "" ? $synth_pnr(common,physical_hierarchy_level) : "bottom"}]
 
         if {$hier_level ne "top"} {
             handle_info "Creating abstract and frame for hierarchical design (level=$hier_level)"
@@ -466,8 +446,8 @@ flow_proc create_abstracts {
     }
 
     # FC-RM: Write DFT test model
-    if {[info exists fc(synthesis,dft_insert_enable)] && $fc(synthesis,dft_insert_enable)} {
-        write_test_model -output $::OUTPUTS_DIR/${fc(common,design_name)}.ctl
+    if {$synth_pnr(synthesis,dft_insert_enable) ne "" && $synth_pnr(synthesis,dft_insert_enable)} {
+        write_test_model -output $::OUTPUTS_DIR/${synth_pnr(common,design_name)}.ctl
     }
 
     handle_info "Abstracts completed"
@@ -479,11 +459,10 @@ flow_proc save_design {
     handle_info "Saving compile design..."
     global synth_pnr flow
 
-    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
+    set design_name [expr {$synth_pnr(common,design_name) ne "" ? $synth_pnr(common,design_name) : $flow(design_name)}]
 
     # FC-RM: Save UPF
-    set upf_mode "none"
-    if {[info exists fc(common,upf_mode)]} { set upf_mode $fc(common,upf_mode) }
+    set upf_mode [expr {$synth_pnr(common,upf_mode) ne "" ? $synth_pnr(common,upf_mode) : "none"}]
     if {$upf_mode eq "golden"} {
         save_upf $::OUTPUTS_DIR/compile.supplemental.upf
     } elseif {[info exists synth_pnr(input,upf_file)] && $synth_pnr(input,upf_file) ne ""} {
@@ -491,13 +470,13 @@ flow_proc save_design {
     }
 
     # FC-RM: FUSA
-    if {[info exists fc(common,enable_fusa)] && $fc(common,enable_fusa)} {
+    if {$synth_pnr(common,enable_fusa) ne "" && $synth_pnr(common,enable_fusa)} {
         save_ssf $::OUTPUTS_DIR/compile.ssf
     }
 
     # FC-RM: save_block
     save_block
-    if {[info exists fc(common,output,block_labeling)] && $fc(common,output,block_labeling)} {
+    if {$synth_pnr(common,output,block_labeling) ne "" && $synth_pnr(common,output,block_labeling)} {
         save_block -as ${design_name}/compile
         handle_info "Block saved: ${design_name}/compile"
     }
@@ -515,7 +494,7 @@ flow_proc generate_reports {
     handle_info "Generating synthesis reports..."
     global synth_pnr
 
-    set max_paths [expr {[info exists fc(common,analysis,max_paths)] ? $fc(common,analysis,max_paths) : 100}]
+    set max_paths [expr {$synth_pnr(common,analysis,max_paths) ne "" ? $synth_pnr(common,analysis,max_paths) : 100}]
 
     # FC-RM: Timing reports
     redirect -file $::REPORTS_DIR/report_timing.max.rpt {

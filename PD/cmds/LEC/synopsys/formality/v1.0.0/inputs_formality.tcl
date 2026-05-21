@@ -1,80 +1,18 @@
 #!/usr/bin/env tclsh
-# ═══════════════════════════════════════════════════════════════════════════════
-# CBFlow - LEC Inputs Command File
-# Description: Input validation and preparation for Logic Equivalence Checking
-# Tool: Synopsys Formality
-# Usage: Source this file in Formality or run standalone
-# ═══════════════════════════════════════════════════════════════════════════════
+# CBFlow LEC inputs - Synopsys Formality
 
-# Source environment variables
+# ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
-set env_file "$run_dir/.run.cbflow.tcl"
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-if {[file exists $env_file]} {
-    source -e $env_file
-} else {
-    puts stderr "ERROR: Environment file (.run.cbflow.tcl) not found at $env_file"
-    exit 1
-}
+set FLOW_TYPE "LEC"
+set STAGE_NAME "inputs"
+set NODE_NAME "${STAGE_NAME}1"
 
-# Source flow utilities
-if {[info exists ::env(FLOW_DIR)]} {
-    set FLOW_DIR $::env(FLOW_DIR)
-} else {
-    puts stderr "ERROR: FLOW_DIR not found in environment"
-    exit 1
-}
-
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} {
-    puts stderr "ERROR: UTILITIES_VERSION not set."
-    exit 1
-}
-
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} {
-    source -e $utils_path
-} else {
-    puts stderr "ERROR: Cannot find flow utilities at $utils_path"
-    exit 1
-}
-
-namespace import ::CBFlow::Utilities::print_header
-
-# Source generated configuration file (from setup stage)
-set config_file "$run_dir/work/LEC/inputs/run/config.tcl"
-if {[file exists $config_file]} {
-    source -e $config_file
-}
-
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
-
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
-
-# Declare global arrays
-global lec project tech flow
-
-# Source FORMALITY tool config
-set _tool_config "[file dirname [info script]]/formality_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "Starting LEC inputs stage..."
-
-# ── Directories ──────────────────────────────────────────────────────────────
-set WORK_DIR "$run_dir/work/LEC/inputs1"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
-
-# Source release utilities for input resolution
-set _release_utils "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
-if {[file exists $_release_utils]} { source $_release_utils }
-set _release_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
-if {[file exists $_release_config]} { source $_release_config }
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 # ┌─────────────────────────────────────────────────────────────────────────────┐
 # │                       RESOLVE INPUTS                                       │
@@ -84,7 +22,7 @@ flow_proc resolve_inputs {
     handle_info "Resolving input files..."
     global lec flow project flow_input_handshake
 
-    set design_name [expr {[info exists formality(common,design_name)] ? $formality(common,design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists lec(common,design_name)] ? $lec(common,design_name) : $flow(design_name)}]
 
     if {![namespace exists ::CBFlow::InputResolve]} {
         handle_info "Release input resolution not available — using direct paths only"

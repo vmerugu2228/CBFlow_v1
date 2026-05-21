@@ -113,6 +113,19 @@ set directory(FCFP) {
     "work/FCFP"
 }
 
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║                       SYNTH_PNR Flow Directories                            ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+set directory(SYNTH_PNR) {
+    "logs"
+    "setup"
+    "work"
+    ".make"
+    "work/SYNTH_PNR"
+}
+
 # ═══════════════════════════════════════════════════════════════════════════════
-# END OF DIRECTORY CONFIGURATION
+# Runtime path setup proc: setup_dirs — defined in utils/utilities/utils.tcl
+# Called by command files: setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 # ═══════════════════════════════════════════════════════════════════════════════

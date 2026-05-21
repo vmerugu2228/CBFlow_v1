@@ -1,85 +1,57 @@
 #!/usr/bin/env tclsh
-# ===============================================================================
-# CBFlow - EMIR Thermal Analysis Command File
-# Description: Thermal simulation and hotspot identification
-# Tool: Synopsys RedHawk
-# ===============================================================================
+# CBFlow EMIR thermal analysis - Synopsys RedHawk
 
+# ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
-set env_file "$run_dir/.run.cbflow.tcl"
-if {[file exists $env_file]} { source $env_file } else { puts stderr "ERROR: .run.cbflow.tcl not found"; exit 1 }
-if {[info exists ::env(FLOW_DIR)]} { set FLOW_DIR $::env(FLOW_DIR) } else { puts stderr "ERROR: FLOW_DIR not set"; exit 1 }
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} { puts stderr "ERROR: UTILITIES_VERSION not set"; exit 1 }
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
-namespace import ::CBFlow::Utilities::print_header
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-set config_file "$run_dir/work/EMIR/thermal_analysis/run/config.tcl"
-if {[file exists $config_file]} { source $config_file }
+set FLOW_TYPE "EMIR"
+set STAGE_NAME "thermal_analysis"
+set NODE_NAME "${STAGE_NAME}1"
 
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
-global emir project tech flow
-# Source REDHAWK tool config
-set _tool_config "[file dirname [info script]]/redhawk_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "Starting EMIR thermal_analysis with Synopsys RedHawk..."
-if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
-set ::flow::exec_mode "auto"
-
-set WORK_DIR "$run_dir/work/EMIR/thermal_analysis"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
-
-# --------------------------------------------------------------------------
-# Procedure: configure_thermal
-#   Set up thermal simulation parameters
 # --------------------------------------------------------------------------
 flow_proc configure_thermal {
     global emir project tech
     handle_info "Configuring thermal analysis..."
 
     # Ambient temperature
-    if {[info exists redhawk(thermal,ambient_temp)]} {
-        set ::thermal_ambient $redhawk(thermal,ambient_temp)
+    if {[info exists emir(thermal,ambient_temp)]} {
+        set ::thermal_ambient $emir(thermal,ambient_temp)
     } else {
         set ::thermal_ambient 25.0
     }
 
     # Thermal threshold for hotspot detection
-    if {[info exists redhawk(thermal,threshold)]} {
-        set ::thermal_threshold $redhawk(thermal,threshold)
+    if {[info exists emir(thermal,threshold)]} {
+        set ::thermal_threshold $emir(thermal,threshold)
     } else {
         set ::thermal_threshold 105.0
     }
 
     # Package thermal resistance
-    if {[info exists redhawk(thermal,theta_ja)]} {
-        set ::thermal_theta_ja $redhawk(thermal,theta_ja)
-        set_thermal_option -theta_ja $redhawk(thermal,theta_ja)
+    if {[info exists emir(thermal,theta_ja)]} {
+        set ::thermal_theta_ja $emir(thermal,theta_ja)
+        set_thermal_option -theta_ja $emir(thermal,theta_ja)
     }
 
     # Thermal conductivity of substrate
-    if {[info exists redhawk(thermal,substrate_k)]} {
-        set_thermal_option -substrate_conductivity $redhawk(thermal,substrate_k)
+    if {[info exists emir(thermal,substrate_k)]} {
+        set_thermal_option -substrate_conductivity $emir(thermal,substrate_k)
     }
 
     # Boundary conditions
-    if {[info exists redhawk(thermal,boundary)]} {
-        set_thermal_option -boundary_condition $redhawk(thermal,boundary)
+    if {[info exists emir(thermal,boundary)]} {
+        set_thermal_option -boundary_condition $emir(thermal,boundary)
     }
 
     # Grid resolution
-    if {[info exists redhawk(thermal,grid_resolution)]} {
-        set_thermal_option -grid_resolution $redhawk(thermal,grid_resolution)
+    if {[info exists emir(thermal,grid_resolution)]} {
+        set_thermal_option -grid_resolution $emir(thermal,grid_resolution)
     }
 
     handle_info "Thermal configuration:"

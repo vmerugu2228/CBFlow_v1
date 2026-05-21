@@ -1,35 +1,19 @@
 #!/usr/bin/env tclsh
-# ===============================================================================
-# CBFlow EMIR release_data - Cadence Voltus
-# Description: Package EMIR analysis results for release
-# Sources release_config.tcl for phase-wise mandatory file validation
-# Generates: release directory, manifest, release notes, completion stamp
-# Deliverables: power/IR drop/thermal reports
-# Tool: Cadence Voltus
-# ===============================================================================
+# EMIR release_data - Cadence Voltus
 
+# -- Bootstrap -----------------------------------------------------------------
 set run_dir $::env(CBFLOW_RUN_DIR)
-set env_file "$run_dir/.run.cbflow.tcl"
-if {[file exists $env_file]} { source $env_file } else { puts stderr "ERROR: .run.cbflow.tcl not found"; exit 1 }
-if {[info exists ::env(FLOW_DIR)]} { set FLOW_DIR $::env(FLOW_DIR) } else { puts stderr "ERROR: FLOW_DIR not set"; exit 1 }
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} { puts stderr "ERROR: UTILITIES_VERSION not set"; exit 1 }
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
-namespace import ::CBFlow::Utilities::print_header
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-set config_file "$run_dir/work/EMIR/release_data/run/config.tcl"
-if {[file exists $config_file]} { source $config_file }
-global emir project tech flow
+set FLOW_TYPE "EMIR"
+set STAGE_NAME "release_data"
+set NODE_NAME "release_data1"
 
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
-# Source release utilities
 set release_utils "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
 if {[file exists $release_utils]} { source $release_utils }
 
@@ -37,9 +21,7 @@ if {[file exists $release_utils]} { source $release_utils }
 set release_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
 if {[file exists $release_config]} { source $release_config }
 
-# Source VOLTUS tool config
-set _tool_config "[file dirname [info script]]/voltus_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
+# Note: voltus_config.tcl merged into EMIR_voltus_config.tcl (node_configs)
 handle_info "Starting EMIR release_data with Cadence Voltus..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -62,8 +44,8 @@ flow_proc init_release {
 
     # ── Validate mandatory variables ─────────────────────────────────────────
     set missing_vars {}
-    if {![info exists voltus(common,design_name)] && ![info exists flow(design_name)]} {
-        lappend missing_vars "design_name (voltus(common,design_name) or flow(design_name))"
+    if {![info exists emir(common,design_name)] && ![info exists flow(design_name)]} {
+        lappend missing_vars "design_name (emir(common,design_name) or flow(design_name))"
     }
     if {![info exists project(release,tag)] || $project(release,tag) eq ""} {
         lappend missing_vars "project(release,tag) in project_config.tcl"
@@ -81,12 +63,12 @@ flow_proc init_release {
         handle_warning "Release may be incomplete"
     }
 
-    set design_name [expr {[info exists voltus(common,design_name)] ? $voltus(common,design_name) : [expr {[info exists flow(design_name)] ? $flow(design_name) : "emir"}]}]
+    set design_name [expr {[info exists emir(common,design_name)] ? $emir(common,design_name) : [expr {[info exists flow(design_name)] ? $flow(design_name) : "emir"}]}]
 
     # ── Determine release phase ──────────────────────────────────────────────
     set release_phase "P0"
     if {[info exists project(release_phase)]} { set release_phase $project(release_phase) }
-    if {[info exists voltus(common,release_phase)]} { set release_phase $voltus(common,release_phase) }
+    if {[info exists emir(common,release_phase)]} { set release_phase $emir(common,release_phase) }
     if {[info exists project(release,phase)] && $project(release,phase) ne ""} { set release_phase $project(release,phase) }
 
     # ── Initialize release using utilities ───────────────────────────────────

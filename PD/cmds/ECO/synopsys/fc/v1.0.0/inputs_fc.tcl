@@ -1,58 +1,25 @@
 #!/usr/bin/env tclsh
-# ===============================================================================
-# CBFlow - ECO Inputs Command File
-# Description: Input validation and design loading for ECO
-# Tool: Synopsys Fusion Compiler
-# ===============================================================================
+# CBFlow ECO inputs - Synopsys Fusion Compiler
 
+# ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
-set env_file "$run_dir/.run.cbflow.tcl"
-if {[file exists $env_file]} { source $env_file } else { puts stderr "ERROR: .run.cbflow.tcl not found"; exit 1 }
-if {[info exists ::env(FLOW_DIR)]} { set FLOW_DIR $::env(FLOW_DIR) } else { puts stderr "ERROR: FLOW_DIR not set"; exit 1 }
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} { puts stderr "ERROR: UTILITIES_VERSION not set"; exit 1 }
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
-namespace import ::CBFlow::Utilities::print_header
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-set config_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/config.tcl"
-if {[file exists $config_file]} { source $config_file }
-global eco project tech flow
-# Source FC tool config
-set _tool_config "[file dirname [info script]]/fc_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "Starting ECO inputs with Synopsys Fusion Compiler..."
-if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
-set ::flow::exec_mode "auto"
+set FLOW_TYPE "ECO"
+set STAGE_NAME "inputs"
+set NODE_NAME "${STAGE_NAME}1"
 
-# ── Directories ──────────────────────────────────────────────────────────────
-set WORK_DIR "$run_dir/work/ECO/inputs1"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" &&
-    [info exists ::env(TECH_VERSION)] && $::env(TECH_VERSION) ne ""} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
-
-# Source release utilities for input resolution
-set _release_utils "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
-if {[file exists $_release_utils]} { source $_release_utils }
-set _release_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
-if {[file exists $_release_config]} { source $_release_config }
-
-# --------------------------------------------------------------------------
-# Procedure: resolve_inputs
-#   Resolve input files from release tags or direct paths
 # --------------------------------------------------------------------------
 flow_proc resolve_inputs {
     handle_info "Resolving input files..."
     global eco flow project flow_input_handshake
 
-    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists eco(common,design_name)] ? $eco(common,design_name) : $flow(design_name)}]
 
     if {![namespace exists ::CBFlow::InputResolve]} {
         handle_info "Release input resolution not available — using direct paths only"
@@ -71,14 +38,14 @@ flow_proc resolve_inputs {
         }
     }
 
-    # ── def: eco(input,def_release_tag) -> eco(input,def) ──────────────────
+    # ── def: eco(input,def_release_tag) -> eco(input,def_file) ─────────────
     if {[info exists eco(input,def_release_tag)] && $eco(input,def_release_tag) ne ""} {
-        set hs [get_input_handshake "ECO" "def"]
+        set hs [get_input_handshake "ECO" "def_file"]
         if {[llength $hs] == 3} {
-            set _file [::CBFlow::InputResolve::resolve eco "def" \
+            set _file [::CBFlow::InputResolve::resolve eco "def_file" \
                 [lindex $hs 0] [lindex $hs 1] \
                 [regsub -all {\$\{design_name\}} [lindex $hs 2] $design_name]]
-            set eco(input,def) $_file
+            set eco(input,def_file) $_file
             handle_info "  DEF resolved: $_file"
         }
     }
@@ -208,7 +175,7 @@ flow_proc validate_inputs {
     set run_dir $::env(CBFLOW_RUN_DIR)
     set errors {}
 
-    if {![info exists project(top_module)] && ![info exists fc(common,top_cell)]} {
+    if {![info exists project(top_module)] && ![info exists eco(common,top_cell)]} {
         lappend errors "Top cell not defined"
     }
     if {[llength $::eco_change_files] == 0} {

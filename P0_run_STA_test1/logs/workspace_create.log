@@ -1,0 +1,54 @@
+======================================================================
+  CBflow Workspace Creation Log
+======================================================================
+
+  Timestamp:      2026-05-20 13:22:02
+  User:           vmerugu
+  Hostname:       Varuns-MacBook-Pro.local
+  Run Directory:  /Users/vmerugu/projects/CBflow_clone/P0_run_STA_test1
+  Flow Type:      STA
+  Design:         cpu_core
+  Phase:          
+  Release:        v1.0.0
+  Config File:    workarea_test/uc_STA.tcl
+  Dispatcher:     RACE (Run Automation & Control Engine)
+
+──────────────────────────────────────────────────────────────────────
+  User Config Variables
+──────────────────────────────────────────────────────────────────────
+
+  set project(name) "ravendrive"
+  set project(phase) "P0"
+  set flow(type) "STA"
+  set flow(design_name) "cpu_core"
+  set flow(run_name) "test1"
+  set flow(test_mode) "true"
+  set sta(mmmc,scenario_set) "custom"
+  set sta(mmmc,setup_scenarios) "func_ss_0p76v_rcmax_150c"
+  set sta(mmmc,hold_scenarios) "func_ff_0p84v_rcmin_m40c"
+  set sta(input,netlist) "/Users/vmerugu/projects/CBflow_clone/netlist.v"
+  set sta(input,sdc_func_file) "/Users/vmerugu/projects/CBflow_clone/func.sdc"
+
+──────────────────────────────────────────────────────────────────────
+  Environment Variables
+──────────────────────────────────────────────────────────────────────
+
+  CBFLOW_DESIGN_NAME = cpu_core
+  CBFLOW_FLOW_TYPE = STA
+  CBFLOW_PROJECT_NAME = ravendrive
+  CBFLOW_RELEASE_VERSION = v1.0.0
+  CONFIG_ROOT = /Users/vmerugu/projects/CBflow_clone/PD/config
+  FLOW_DIR = /Users/vmerugu/projects/CBflow_clone/PD
+  SCRIPTS_ROOT = /Users/vmerugu/projects/CBflow_clone/PD/utils
+
+──────────────────────────────────────────────────────────────────────
+  RACE DAG Summary
+──────────────────────────────────────────────────────────────────────
+
+  Stages:  8
+  Jobs:    27
+  Order:   netlist1 → sdc1 → spef1 → library1 → extraction1 → timing1 → reporting1 → release_data1
+
+======================================================================
+  End of Workspace Creation Log
+======================================================================

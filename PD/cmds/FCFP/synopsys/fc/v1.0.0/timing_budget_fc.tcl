@@ -1,41 +1,18 @@
 #!/usr/bin/env tclsh
 # CBFlow FCFP timing_budget - Synopsys Fusion Compiler
-# FC-RM: timing_budget.tcl -- Abstract timing estimation,
-#         budget creation, and distribution to sub-blocks
-# Aligned with FC-RM Y-2026.03
+
+# ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
-set env_file "$run_dir/.run.cbflow.tcl"
-if {[file exists $env_file]} { source $env_file } else { puts stderr "ERROR: .run.cbflow.tcl not found"; exit 1 }
-if {[info exists ::env(FLOW_DIR)]} { set FLOW_DIR $::env(FLOW_DIR) } else { puts stderr "ERROR: FLOW_DIR not set"; exit 1 }
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} { puts stderr "ERROR: UTILITIES_VERSION not set"; exit 1 }
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
-namespace import ::CBFlow::Utilities::print_header
-set config_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/config.tcl"
-if {[file exists $config_file]} { source $config_file }
-global fcfp project tech flow
-# Source FC tool config
-set _tool_config "[file dirname [info script]]/fc_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "Starting FCFP timing_budget..."
-if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
-set ::flow::exec_mode "auto"
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" &&
-    [info exists ::env(TECH_VERSION)] && $::env(TECH_VERSION) ne ""} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
+set FLOW_TYPE "FCFP"
+set STAGE_NAME "timing_budget"
+set NODE_NAME "${STAGE_NAME}1"
 
-set WORK_DIR "$run_dir/work/FCFP/timing_budget1"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 # ==============================================================================
 # flow_proc: load_design
@@ -44,13 +21,13 @@ flow_proc load_design {
     handle_info "Loading design for timing_budget..."
     global fcfp flow
 
-    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fcfp(common,design_name)] ? $fcfp(common,design_name) : $flow(design_name)}]
 
-    if {[info exists fc(common,open_lib)] && $fc(common,open_lib) ne ""} {
-        open_lib $fc(common,open_lib)
+    if {[info exists fcfp(common,open_lib)] && $fcfp(common,open_lib) ne ""} {
+        open_lib $fcfp(common,open_lib)
     }
 
-    set from_label [expr {[info exists fc(timing_budget,from_label)] ? $fc(timing_budget,from_label) : "top_compile"}]
+    set from_label [expr {[info exists fcfp(timing_budget,from_label)] ? $fcfp(timing_budget,from_label) : "top_compile"}]
     copy_block -from ${design_name}/${from_label} -to ${design_name}/timing_budget
     current_block ${design_name}/timing_budget
     link_block
@@ -74,7 +51,7 @@ flow_proc estimate_timing {
     estimate_timing
 
     # Pre-budget timing reports
-    set max_paths [expr {[info exists fc(analysis,max_paths)] ? $fc(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists fcfp(analysis,max_paths)] ? $fcfp(analysis,max_paths) : 100}]
     redirect -file $::REPORTS_DIR/report_timing.pre_budget.rpt {
         report_timing -max_paths $max_paths -delay_type max
     }
@@ -94,19 +71,19 @@ flow_proc create_budgets {
     set budget_cmd "budget_timing"
 
     # Budget mode: default, aggressive, or conservative
-    if {[info exists fc(timing_budget,mode)] && $fc(timing_budget,mode) ne ""} {
-        lappend budget_cmd -mode $fc(timing_budget,mode)
+    if {[info exists fcfp(timing_budget,mode)] && $fcfp(timing_budget,mode) ne ""} {
+        lappend budget_cmd -mode $fcfp(timing_budget,mode)
     }
 
     # Scenarios for budgeting
-    if {[info exists fc(timing_budget,active_scenarios)] && $fc(timing_budget,active_scenarios) ne ""} {
+    if {[info exists fcfp(timing_budget,active_scenarios)] && $fcfp(timing_budget,active_scenarios) ne ""} {
         set_scenario_status -active false [get_scenarios -filter active]
-        set_scenario_status -active true $fc(timing_budget,active_scenarios)
+        set_scenario_status -active true $fcfp(timing_budget,active_scenarios)
     }
 
     # Source user budget constraints before budget_timing
-    if {[info exists fc(timing_budget,constraint_script)] && [file exists $fc(timing_budget,constraint_script)]} {
-        source -e $fc(timing_budget,constraint_script)
+    if {[info exists fcfp(timing_budget,constraint_script)] && [file exists $fcfp(timing_budget,constraint_script)]} {
+        source -e $fcfp(timing_budget,constraint_script)
     }
 
     handle_info "Running: $budget_cmd"
@@ -127,8 +104,8 @@ flow_proc distribute_budgets {
     set budget_dir "$run_dir/results/fcfp/timing_budgets"
     file mkdir $budget_dir
 
-    if {[info exists fc(common,sub_blocks)] && [llength $fc(common,sub_blocks)] > 0} {
-        foreach block $fc(common,sub_blocks) {
+    if {[info exists fcfp(common,sub_blocks)] && [llength $fcfp(common,sub_blocks)] > 0} {
+        foreach block $fcfp(common,sub_blocks) {
             file mkdir "$budget_dir/$block"
             catch {
                 write_sdc -block $block "$budget_dir/$block/${block}_budgeted.sdc"
@@ -153,7 +130,7 @@ flow_proc save_design {
     handle_info "Saving timing_budget block..."
     global fcfp flow
 
-    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fcfp(common,design_name)] ? $fcfp(common,design_name) : $flow(design_name)}]
 
     save_lib -all
     save_block
@@ -168,7 +145,7 @@ flow_proc generate_reports {
     handle_info "Generating timing_budget reports..."
     global fcfp
 
-    set max_paths [expr {[info exists fc(analysis,max_paths)] ? $fc(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists fcfp(analysis,max_paths)] ? $fcfp(analysis,max_paths) : 100}]
 
     redirect -file $::REPORTS_DIR/report_qor.rpt { report_qor }
     redirect -file $::REPORTS_DIR/report_timing.rpt {
@@ -187,14 +164,7 @@ flow_proc generate_reports {
 }
 
 # ==============================================================================
-# Source setup.tcl and overrides before flow_exec_all
 # ==============================================================================
-set _setup_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/setup.tcl"
-if {[file exists $_setup_file]} { handle_info "Sourcing setup hooks: $_setup_file"; source $_setup_file }
-set _override_file "$run_dir/setup/override_setup.tcl"
-if {[file exists $_override_file]} { handle_info "Sourcing user override: $_override_file"; source $_override_file }
-set _stage_override "$run_dir/setup/override_setup.timing_budget.tcl"
-if {[file exists $_stage_override]} { handle_info "Sourcing stage override: $_stage_override"; source $_stage_override }
 
 flow_exec_all
 

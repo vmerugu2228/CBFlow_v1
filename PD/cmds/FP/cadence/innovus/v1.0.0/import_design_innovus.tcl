@@ -1,46 +1,27 @@
 #!/usr/bin/env tclsh
-# ═══════════════════════════════════════════════════════════════════════════════
-# CBFlow - FP Import Design Stage for Innovus
-# Description: Import design into Innovus for floorplanning
-# Usage: Source this file in Innovus or run via CBFlow
-# Output: import_design.enc - Imported design database
-# ═══════════════════════════════════════════════════════════════════════════════
+# FP import_design - Cadence Innovus
 
-# Validate required environment variables
-if {![info exists ::env(FLOW_DIR)] || $::env(FLOW_DIR) eq ""} {
-    puts "ERROR: FLOW_DIR not set. Ensure .run.cbflow.tcl is properly generated."
-    exit 1
-}
+# -- Bootstrap -----------------------------------------------------------------
+set run_dir $::env(CBFLOW_RUN_DIR)
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} {
-    puts "ERROR: UTILITIES_VERSION not set. Ensure .run.cbflow.tcl is properly generated."
-    exit 1
-}
+set FLOW_TYPE "FP"
+set STAGE_NAME "import_design"
+set NODE_NAME "import_design1"
 
-set flow_dir $::env(FLOW_DIR)
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 # Source flow utilities using release version
 set utils_path "$flow_dir/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 if {[file exists $utils_path]} {
     source $utils_path
-} else {
     puts "ERROR: Cannot find flow utilities at: $utils_path"
     exit 1
-}
-
 set run_dir $::env(CBFLOW_RUN_DIR)
-
-set WORK_DIR "$run_dir/work/FP/import_design"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
-
-# Source INNOVUS tool config
-set _tool_config "[file dirname [info script]]/innovus_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting CBFlow FP import_design stage for Innovus"
-
 # Define common procedures used in config files
 if {[info procs INFO] eq ""} {
     proc INFO {} {
@@ -52,7 +33,6 @@ if {[info procs WARNING] eq ""} {
         return "WARNING"
     }
 }
-
 # Define flow_proc if not already defined
 if {[info procs flow_proc] eq ""} {
     proc flow_proc {name body} {
@@ -61,7 +41,6 @@ if {[info procs flow_proc] eq ""} {
         handle_info "Flow procedure '$name' defined"
     }
 }
-
 # Source generated configuration file (from setup stage)
 set flow_type "FP"
 set config_files [list \
@@ -69,21 +48,13 @@ set config_files [list \
     "work/$flow_type/import_design/run/config.tcl" \
     "../work/$flow_type/import_design/run/config.tcl" \
 ]
-
 set config_found 0
 foreach config_file $config_files {
     if {[file exists $config_file]} {
         handle_info "Sourcing configuration: $config_file"
         if {[catch {source $config_file} error]} {
-
-# Source tech_config
 if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
 }
-
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
             handle_warning "Minor error in config file $config_file: $error"
             handle_info "Continuing with available configuration..."
         }
@@ -91,12 +62,10 @@ if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/
         break
     }
 }
-
 if {!$config_found} {
     handle_error "Cannot find generated config file. Run 'make import_design_setup' first."
     exit 1
 }
-
 # Setup file will source this command file - no need to source setup here to avoid circular dependency
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -108,13 +77,13 @@ flow_proc initialize_import_environment {
     handle_info "Initializing import design environment..."
 
     # Set Innovus mode to floorplan
-    if {[info exists innovus(common,tool_mode)]} {
-        handle_info "Setting tool mode: $innovus(common,tool_mode)"
-        set_global _INNOVUS_MODE_ $innovus(common,tool_mode)
+    if {[info exists fp(common,tool_mode)]} {
+        handle_info "Setting tool mode: $fp(common,tool_mode)"
+        set_global _INNOVUS_MODE_ $fp(common,tool_mode)
     }
 
     # Configure design import settings
-    if {[info exists innovus(common,import_mode)] && $innovus(common,import_mode) eq "incremental"} {
+    if {[info exists fp(common,import_mode)] && $fp(common,import_mode) eq "incremental"} {
         handle_info "Enabling incremental import mode"
         set_global incremental_import true
     }
@@ -237,8 +206,8 @@ flow_proc apply_design_constraints {
     }
 
     # Read UPF power intent if available
-    if {[info exists fp(input,upf)]} {
-        set upf_file $fp(input,upf)
+    if {[info exists fp(input,upf_file)]} {
+        set upf_file $fp(input,upf_file)
         if {[file exists $upf_file]} {
             handle_info "Reading UPF power intent: [file tail $upf_file]"
             read_power_intent -1801 $upf_file
@@ -248,8 +217,8 @@ flow_proc apply_design_constraints {
     }
 
     # Apply floorplan constraints if available
-    if {[info exists fp(input,def)]} {
-        set def_file $fp(input,def)
+    if {[info exists fp(input,def_file)]} {
+        set def_file $fp(input,def_file)
         if {[file exists $def_file]} {
             handle_info "Reading DEF floorplan: [file tail $def_file]"
             read_def $def_file
@@ -278,7 +247,7 @@ flow_proc perform_design_checks {
 
     # Verify floorplan if DEF was read
     global fp
-    if {[info exists fp(input,def)] && [file exists $fp(input,def)]} {
+    if {[info exists fp(input,def_file)] && [file exists $fp(input,def_file)]} {
         handle_info "Verifying floorplan consistency..."
         check_floorplan
     }
@@ -297,19 +266,19 @@ flow_proc initialize_floorplan_environment {
     global fp
 
     # Set core utilization if specified
-    if {[info exists innovus(common,core_utilization)]} {
-        handle_info "Setting core utilization: $innovus(common,core_utilization)"
-        set_global core_utilization $innovus(common,core_utilization)
+    if {[info exists fp(common,core_utilization)]} {
+        handle_info "Setting core utilization: $fp(common,core_utilization)"
+        set_global core_utilization $fp(common,core_utilization)
     }
 
     # Set aspect ratio if specified
-    if {[info exists innovus(common,aspect_ratio)]} {
-        handle_info "Setting aspect ratio: $innovus(common,aspect_ratio)"
-        set_global aspect_ratio $innovus(common,aspect_ratio)
+    if {[info exists fp(common,aspect_ratio)]} {
+        handle_info "Setting aspect ratio: $fp(common,aspect_ratio)"
+        set_global aspect_ratio $fp(common,aspect_ratio)
     }
 
     # Initialize power domains if UPF was read
-    if {[info exists fp(input,upf)] && [file exists $fp(input,upf)]} {
+    if {[info exists fp(input,upf_file)] && [file exists $fp(input,upf_file)]} {
         handle_info "Initializing power domains..."
         init_power_domain
     }
@@ -371,7 +340,7 @@ flow_proc generate_import_reports {
 
     # Power domain report (if UPF was used)
     global fp
-    if {[info exists fp(input,upf)] && [file exists $fp(input,upf)]} {
+    if {[info exists fp(input,upf_file)] && [file exists $fp(input,upf_file)]} {
         handle_info "Generating power domain report..."
         report_power_domain > $::REPORTS_DIR/power_domains.rpt
     }

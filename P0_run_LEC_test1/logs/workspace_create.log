@@ -1,0 +1,52 @@
+======================================================================
+  CBflow Workspace Creation Log
+======================================================================
+
+  Timestamp:      2026-05-20 13:22:11
+  User:           vmerugu
+  Hostname:       Varuns-MacBook-Pro.local
+  Run Directory:  /Users/vmerugu/projects/CBflow_clone/P0_run_LEC_test1
+  Flow Type:      LEC
+  Design:         cpu_core
+  Phase:          
+  Release:        v1.0.0
+  Config File:    workarea_test/uc_LEC.tcl
+  Dispatcher:     RACE (Run Automation & Control Engine)
+
+──────────────────────────────────────────────────────────────────────
+  User Config Variables
+──────────────────────────────────────────────────────────────────────
+
+  set project(name) "ravendrive"
+  set project(phase) "P0"
+  set flow(type) "LEC"
+  set flow(design_name) "cpu_core"
+  set flow(run_name) "test1"
+  set flow(test_mode) "true"
+  set lec(input,netlist_golden) "/Users/vmerugu/projects/CBflow_clone/netlist_golden.v"
+  set lec(input,netlist_revised) "/Users/vmerugu/projects/CBflow_clone/netlist_revised.v"
+  set lec(input,sdc_file) "/Users/vmerugu/projects/CBflow_clone/func.sdc"
+
+──────────────────────────────────────────────────────────────────────
+  Environment Variables
+──────────────────────────────────────────────────────────────────────
+
+  CBFLOW_DESIGN_NAME = cpu_core
+  CBFLOW_FLOW_TYPE = LEC
+  CBFLOW_PROJECT_NAME = ravendrive
+  CBFLOW_RELEASE_VERSION = v1.0.0
+  CONFIG_ROOT = /Users/vmerugu/projects/CBflow_clone/PD/config
+  FLOW_DIR = /Users/vmerugu/projects/CBflow_clone/PD
+  SCRIPTS_ROOT = /Users/vmerugu/projects/CBflow_clone/PD/utils
+
+──────────────────────────────────────────────────────────────────────
+  RACE DAG Summary
+──────────────────────────────────────────────────────────────────────
+
+  Stages:  5
+  Jobs:    13
+  Order:   netlist_golden1 → netlist_revised1 → constraints1 → compare1 → release_data1
+
+======================================================================
+  End of Workspace Creation Log
+======================================================================

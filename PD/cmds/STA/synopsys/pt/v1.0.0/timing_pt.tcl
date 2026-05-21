@@ -1,42 +1,19 @@
 #!/usr/bin/env tclsh
-# CBFlow STA timing - Synopsys PrimeTime | Static timing analysis
+# CBFlow STA timing - Synopsys PrimeTime
+
+# ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
-set env_file "$run_dir/.run.cbflow.tcl"
-if {[file exists $env_file]} { source -e $env_file } else { puts stderr "ERROR: .run.cbflow.tcl not found"; exit 1 }
-if {[info exists ::env(FLOW_DIR)]} { set FLOW_DIR $::env(FLOW_DIR) } else { puts stderr "ERROR: FLOW_DIR not set"; exit 1 }
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} { puts stderr "ERROR: UTILITIES_VERSION not set"; exit 1 }
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} { source -e $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
-namespace import ::CBFlow::Utilities::print_header
-set config_file "$run_dir/work/STA/timing/run/config.tcl"
-if {[file exists $config_file]} { source -e $config_file }
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
+set FLOW_TYPE "STA"
+set STAGE_NAME "timing"
+set NODE_NAME "${STAGE_NAME}1"
 
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
-global sta project tech flow
-# Source PT tool config
-set _tool_config "[file dirname [info script]]/pt_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "Starting STA timing with Synopsys PrimeTime..."
-if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
-set ::flow::exec_mode "auto"
-
-set WORK_DIR "$run_dir/work/STA/timing"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
-
-# ---------------------------------------------------------------------------
-# flow_proc: configure_timing
-# Configure timing analysis settings and options
 # ---------------------------------------------------------------------------
 flow_proc configure_timing {
     handle_info "Configuring timing analysis settings..."
@@ -51,18 +28,18 @@ flow_proc configure_timing {
     }
 
     # Enable POCV/AOCV based on ocv_mode config
-    set_app_var timing_pocvm_enable_analysis [expr {$pt(analysis,ocv_mode) eq "pocv"}]
-    if {[expr {$pt(analysis,ocv_mode) eq "pocv"}]} {
+    set_app_var timing_pocvm_enable_analysis [expr {$sta(analysis,ocv_mode) eq "pocv"}]
+    if {[expr {$sta(analysis,ocv_mode) eq "pocv"}]} {
         handle_info "POCV analysis enabled"
     }
-    set_app_var timing_aocvm_enable_analysis [expr {$pt(analysis,ocv_mode) eq "aocv"}]
-    if {[expr {$pt(analysis,ocv_mode) eq "aocv"}]} {
+    set_app_var timing_aocvm_enable_analysis [expr {$sta(analysis,ocv_mode) eq "aocv"}]
+    if {[expr {$sta(analysis,ocv_mode) eq "aocv"}]} {
         handle_info "AOCV analysis enabled"
     }
 
     # Set SI analysis options
-    set_app_var si_enable_analysis $pt(analysis,si_aware)
-    if {$pt(analysis,si_aware)} {
+    set_app_var si_enable_analysis $sta(analysis,si_aware)
+    if {$sta(analysis,si_aware)} {
         set_app_var si_xtalk_delay_analysis_mode bottom_up
         handle_info "Signal integrity analysis enabled"
     }
@@ -84,7 +61,7 @@ flow_proc configure_timing {
     }
 
     # Set max paths for reporting
-    set ::sta_max_paths $pt(analysis,max_paths)
+    set ::sta_max_paths $sta(analysis,max_paths)
 
     handle_info "Timing analysis configuration completed"
 }
@@ -98,7 +75,7 @@ flow_proc run_sta {
     set run_dir $::env(CBFLOW_RUN_DIR)
     set rpt_dir "$::REPORTS_DIR"
 
-    if {![info exists ::sta_max_paths]} { set ::sta_max_paths $pt(analysis,max_paths) }
+    if {![info exists ::sta_max_paths]} { set ::sta_max_paths $sta(analysis,max_paths) }
 
     # Full timing update
     update_timing -full
@@ -107,25 +84,25 @@ flow_proc run_sta {
     # Setup (max delay) analysis
     handle_info "Running setup analysis..."
     report_timing -delay max -max_paths $::sta_max_paths -nworst 5 \
-        -significant_digits $pt(analysis,significant_digits) \
+        -significant_digits $sta(analysis,significant_digits) \
         > "$rpt_dir/setup_timing.rpt"
 
     # Hold (min delay) analysis
     handle_info "Running hold analysis..."
     report_timing -delay min -max_paths $::sta_max_paths -nworst 5 \
-        -significant_digits $pt(analysis,significant_digits) \
+        -significant_digits $sta(analysis,significant_digits) \
         > "$rpt_dir/hold_timing.rpt"
 
     # Path group analysis
-    report_timing -delay max -max_paths $pt(analysis,max_paths) -group reg2reg \
+    report_timing -delay max -max_paths $sta(analysis,max_paths) -group reg2reg \
         > "$rpt_dir/reg2reg_timing.rpt"
-    report_timing -delay max -max_paths $pt(analysis,max_paths) -group in2reg \
+    report_timing -delay max -max_paths $sta(analysis,max_paths) -group in2reg \
         > "$rpt_dir/in2reg_timing.rpt"
-    report_timing -delay max -max_paths $pt(analysis,max_paths) -group reg2out \
+    report_timing -delay max -max_paths $sta(analysis,max_paths) -group reg2out \
         > "$rpt_dir/reg2out_timing.rpt"
 
     # Clock domain crossing paths
-    report_timing -delay max -max_paths $pt(analysis,max_paths) -path_type full_clock \
+    report_timing -delay max -max_paths $sta(analysis,max_paths) -path_type full_clock \
         > "$rpt_dir/clock_domain_timing.rpt"
 
     # Clock latency and skew
@@ -163,9 +140,9 @@ flow_proc check_violations {
         > "$rpt_dir/max_fanout_violations.rpt"
 
     # Negative slack paths
-    report_timing -delay max -slack_lesser_than 0 -max_paths $pt(analysis,max_paths) \
+    report_timing -delay max -slack_lesser_than 0 -max_paths $sta(analysis,max_paths) \
         > "$rpt_dir/negative_slack_setup.rpt"
-    report_timing -delay min -slack_lesser_than 0 -max_paths $pt(analysis,max_paths) \
+    report_timing -delay min -slack_lesser_than 0 -max_paths $sta(analysis,max_paths) \
         > "$rpt_dir/negative_slack_hold.rpt"
 
     # Noise violations (if SI enabled)

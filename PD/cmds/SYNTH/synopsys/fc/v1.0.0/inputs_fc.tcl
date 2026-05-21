@@ -1,49 +1,21 @@
 #!/usr/bin/env tclsh
 # CBFlow SYNTH inputs1 - Synopsys Fusion Compiler | Input preparation for SYNTH
+
+# ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
-set env_file "$run_dir/.run.cbflow.tcl"
-if {[file exists $env_file]} { source $env_file } else { puts stderr "ERROR: .run.cbflow.tcl not found"; exit 1 }
-if {[info exists ::env(FLOW_DIR)]} { set FLOW_DIR $::env(FLOW_DIR) } else { puts stderr "ERROR: FLOW_DIR not set"; exit 1 }
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} { puts stderr "ERROR: UTILITIES_VERSION not set"; exit 1 }
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
-namespace import ::CBFlow::Utilities::print_header
-set config_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/config.tcl"
-if {[file exists $config_file]} { source $config_file }
-global synth project tech flow
-# Source FC tool config
-set _tool_config "[file dirname [info script]]/fc_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "Starting SYNTH inputs1 with Synopsys Fusion Compiler..."
-if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
-set ::flow::exec_mode "auto"
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+
+set FLOW_TYPE "SYNTH"
+set STAGE_NAME "inputs"
+set NODE_NAME "inputs1"
+
+# ── Config (full cascade: project → tech → flow → node → mmmc → tool → user) ─
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 
 # ── Directories ──────────────────────────────────────────────────────────────
-set WORK_DIR "$run_dir/work/SYNTH/inputs1"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
-
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" &&
-    [info exists ::env(TECH_VERSION)] && $::env(TECH_VERSION) ne ""} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
-
-# Source MMMC configuration
-set mmmc_config_file "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
-
-# Source active scenarios if mmmc_setup has run
-set active_scenarios_file "$run_dir/work/SYNTH/mmmc_setup/run/active_scenarios.tcl"
-if {[file exists $active_scenarios_file]} { source -e $active_scenarios_file }
-
-# Source release utilities for input resolution
-set _release_utils "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
-if {[file exists $_release_utils]} { source $_release_utils }
-set _release_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
-if {[file exists $_release_config]} { source $_release_config }
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 # ==============================================================================
 # flow_proc: resolve_inputs
@@ -53,7 +25,7 @@ flow_proc resolve_inputs {
     handle_info "Resolving input files..."
     global synth flow project flow_input_handshake
 
-    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists synth(common,design_name)] ? $synth(common,design_name) : $flow(design_name)}]
 
     if {![namespace exists ::CBFlow::InputResolve]} {
         handle_info "Release input resolution not available — using direct paths only"
@@ -132,18 +104,18 @@ flow_proc read_libraries {
     set_app_var link_library "* $tech(target_lib) $tech(additional_libs)"
 
     # Create the design library with reference libs (NDM) for FC
-    if {[info exists fc(common,ndm_libs)]} {
+    if {[info exists synth(common,ndm_libs)]} {
         set ref_lib_list [list]
-        foreach lib $fc(common,ndm_libs) {
+        foreach lib $synth(common,ndm_libs) {
             lappend ref_lib_list $lib
         }
         handle_info "Creating library with reference libs: $ref_lib_list"
-        create_lib $fc(common,design_lib_name) \
+        create_lib $synth(common,design_lib_name) \
             -technology $tech(tech_file) \
             -ref_libs $ref_lib_list
     } else {
-        handle_warning "No NDM reference libraries specified in fc(common,ndm_libs)"
-        create_lib $fc(common,design_lib_name) \
+        handle_warning "No NDM reference libraries specified in synth(common,ndm_libs)"
+        create_lib $synth(common,design_lib_name) \
             -technology $tech(tech_file)
     }
 
@@ -173,8 +145,8 @@ flow_proc read_rtl {
     global synth project
 
     # Determine RTL file list from config
-    if {[info exists fc(common,rtl_files)]} {
-        set rtl_list $fc(common,rtl_files)
+    if {[info exists synth(common,rtl_files)]} {
+        set rtl_list $synth(common,rtl_files)
     } else {
         # Auto-discover RTL files from inputs directory
         set run_dir $::env(CBFLOW_RUN_DIR)
@@ -189,8 +161,8 @@ flow_proc read_rtl {
     }
 
     # Read include directories if specified
-    if {[info exists fc(common,include_dirs)]} {
-        foreach inc_dir $fc(common,include_dirs) {
+    if {[info exists synth(common,include_dirs)]} {
+        foreach inc_dir $synth(common,include_dirs) {
             set_app_var search_path "$inc_dir [get_app_var search_path]"
         }
     }
@@ -219,11 +191,11 @@ flow_proc read_rtl {
     if {[info exists project(top_module)]} {
         handle_info "Elaborating top module: $project(top_module)..."
         elaborate $project(top_module)
-    } elseif {[info exists fc(common,top_module)]} {
-        handle_info "Elaborating top module: $fc(common,top_module)..."
-        elaborate $fc(common,top_module)
+    } elseif {[info exists synth(common,top_module)]} {
+        handle_info "Elaborating top module: $synth(common,top_module)..."
+        elaborate $synth(common,top_module)
     } else {
-        handle_error "No top module specified in project(top_module) or fc(common,top_module)"
+        handle_error "No top module specified in project(top_module) or synth(common,top_module)"
         return -code error "Missing top module"
     }
 
@@ -247,8 +219,8 @@ flow_proc read_constraints {
     global synth
 
     # Read SDC timing constraints
-    if {[info exists fc(common,input_sdc)]} {
-        foreach sdc_file $fc(common,input_sdc) {
+    if {[info exists synth(common,input_sdc)]} {
+        foreach sdc_file $synth(common,input_sdc) {
             if {[file exists $sdc_file]} {
                 handle_info "Reading SDC: $sdc_file"
                 read_sdc $sdc_file
@@ -270,8 +242,8 @@ flow_proc read_constraints {
     }
 
     # Read UPF power intent if specified
-    if {[info exists fc(common,input_upf)]} {
-        foreach upf_file $fc(common,input_upf) {
+    if {[info exists synth(common,input_upf)]} {
+        foreach upf_file $synth(common,input_upf) {
             if {[file exists $upf_file]} {
                 handle_info "Reading UPF: $upf_file"
                 read_upf $upf_file

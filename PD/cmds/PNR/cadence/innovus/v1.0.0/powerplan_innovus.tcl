@@ -1,39 +1,23 @@
 #!/usr/bin/env tclsh
-# CBFlow PNR powerplan - Cadence Innovus
+# PNR powerplan - Cadence Innovus
+
+# -- Bootstrap -----------------------------------------------------------------
 set run_dir $::env(CBFLOW_RUN_DIR)
-set env_file "$run_dir/.run.cbflow.tcl"
-if {[file exists $env_file]} { source $env_file } else { puts stderr "ERROR: .run.cbflow.tcl not found"; exit 1 }
-if {[info exists ::env(FLOW_DIR)]} { set FLOW_DIR $::env(FLOW_DIR) } else { puts stderr "ERROR: FLOW_DIR not set"; exit 1 }
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} { puts stderr "ERROR: UTILITIES_VERSION not set"; exit 1 }
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
-namespace import ::CBFlow::Utilities::print_header
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
-
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
-global pnr project tech flow
-# Source INNOVUS tool config
-set _tool_config "[file dirname [info script]]/innovus_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "Starting PNR powerplan with Cadence Innovus..."
-if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
-set ::flow::exec_mode "auto"
-
-# -- Directories ---------------------------------------------------------------
 set FLOW_TYPE "PNR"
 set STAGE_NAME "powerplan"
 set NODE_NAME "powerplan1"
-set WORK_DIR "$run_dir/work/$FLOW_TYPE/$NODE_NAME"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
+
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
+
+handle_info "Starting PNR powerplan with Cadence Innovus..."
+set FLOW_TYPE "PNR"
+set STAGE_NAME "powerplan"
+set NODE_NAME "powerplan1"
 
 flow_proc enable_mmmc {
     # Enable MMMC scenarios for powerplan stage
@@ -72,11 +56,11 @@ flow_proc create_power_rings {
     handle_info "Creating power rings..."
     
     # Get power ring parameters from hierarchical configuration
-    set ring_nets $innovus(powerplan,ring_nets)
-    set ring_width $innovus(powerplan,ring_width)
-    set ring_spacing $innovus(powerplan,ring_spacing)
-    set ring_offset $innovus(powerplan,ring_offset)
-    set ring_layers $innovus(powerplan,ring_layers)
+    set ring_nets $pnr(powerplan,ring_nets)
+    set ring_width $pnr(powerplan,ring_width)
+    set ring_spacing $pnr(powerplan,ring_spacing)
+    set ring_offset $pnr(powerplan,ring_offset)
+    set ring_layers $pnr(powerplan,ring_layers)
     
     handle_info "Power ring parameters:"
     handle_info "  Width: $ring_width"
@@ -102,11 +86,11 @@ flow_proc create_power_stripes {
     handle_info "Creating power stripes..."
     
     # Get stripe parameters from hierarchical configuration
-    set stripe_nets $innovus(powerplan,stripe_nets)
-    set stripe_width $innovus(powerplan,stripe_width)
-    set stripe_spacing $innovus(powerplan,stripe_spacing)
-    set stripe_layers $innovus(powerplan,stripe_layers)
-    set stripe_direction $innovus(powerplan,stripe_direction)
+    set stripe_nets $pnr(powerplan,stripe_nets)
+    set stripe_width $pnr(powerplan,stripe_width)
+    set stripe_spacing $pnr(powerplan,stripe_spacing)
+    set stripe_layers $pnr(powerplan,stripe_layers)
+    set stripe_direction $pnr(powerplan,stripe_direction)
     
     handle_info "Power stripe parameters:"
     handle_info "  Width: $stripe_width"
@@ -154,9 +138,9 @@ flow_proc add_well_ties {
     handle_info "Adding well ties..."
     
     # Get well tie parameters from hierarchical configuration
-    set well_tie_cells $innovus(powerplan,well_tie_cells)
-    set well_tie_spacing $innovus(powerplan,well_tie_spacing)
-    set well_tie_rule $innovus(powerplan,well_tie_rule)
+    set well_tie_cells $pnr(powerplan,well_tie_cells)
+    set well_tie_spacing $pnr(powerplan,well_tie_spacing)
+    set well_tie_rule $pnr(powerplan,well_tie_rule)
     
     handle_info "Well tie spacing: $well_tie_spacing"
     
@@ -194,7 +178,6 @@ flow_proc powerplan_complete {
 
     log_stage_status "powerplan" "COMPLETE" "Power planning completed successfully"
 }
-
 
 
 # Exit tool after stage completion

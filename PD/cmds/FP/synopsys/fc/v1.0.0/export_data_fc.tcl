@@ -1,35 +1,21 @@
 #!/usr/bin/env tclsh
 # CBFlow FP export_data - Synopsys Fusion Compiler | FP export_data
+
+# ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
-set env_file "$run_dir/.run.cbflow.tcl"
-if {[file exists $env_file]} { source $env_file } else { puts stderr "ERROR: .run.cbflow.tcl not found"; exit 1 }
-if {[info exists ::env(FLOW_DIR)]} { set FLOW_DIR $::env(FLOW_DIR) } else { puts stderr "ERROR: FLOW_DIR not set"; exit 1 }
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} { puts stderr "ERROR: UTILITIES_VERSION not set"; exit 1 }
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
-namespace import ::CBFlow::Utilities::print_header
-set config_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/config.tcl"
-if {[file exists $config_file]} { source $config_file }
-global fp project tech flow
-# Source FC tool config
-set _tool_config "[file dirname [info script]]/fc_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "Starting FP export_data with Synopsys Fusion Compiler..."
-if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
-set ::flow::exec_mode "auto"
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" &&
-    [info exists ::env(TECH_VERSION)] && $::env(TECH_VERSION) ne ""} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
+set FLOW_TYPE "FP"
+set STAGE_NAME "export_data"
+set NODE_NAME "export_data1"
 
-set WORK_DIR "$run_dir/work/FP/export_data"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
+# ── Config (full cascade: project → tech → flow → node → mmmc → tool → user) ─
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+
+# ── Directories ──────────────────────────────────────────────────────────────
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 # ==============================================================================
 # flow_proc: export_def
@@ -42,8 +28,8 @@ flow_proc export_def {
     set run_dir $::env(CBFLOW_RUN_DIR)
     file mkdir "$run_dir/results/fp/def"
 
-    if {[info exists fc(common,design_name)]} {
-        set def_file "$run_dir/results/fp/def/$fc(common,design_name).def"
+    if {[info exists fp(common,design_name)]} {
+        set def_file "$run_dir/results/fp/def/$fp(common,design_name).def"
     } else {
         set def_file "$run_dir/results/fp/def/floorplan.def"
     }
@@ -77,8 +63,8 @@ flow_proc export_design {
     file mkdir "$run_dir/results/fp/db"
 
     # Save the design block
-    if {[info exists fc(common,design_lib_name)] && [info exists fc(common,design_name)]} {
-        set save_name "$fc(common,design_lib_name):$fc(common,design_name)/fp_done"
+    if {[info exists fp(common,design_lib_name)] && [info exists fp(common,design_name)]} {
+        set save_name "$fp(common,design_lib_name):$fp(common,design_name)/fp_done"
         handle_info "Saving design block as: $save_name"
         save_block -as $save_name
     } else {
@@ -153,8 +139,8 @@ flow_proc validate_exports {
     set export_pass true
 
     # Determine file names
-    if {[info exists fc(common,design_name)]} {
-        set dname $fc(common,design_name)
+    if {[info exists fp(common,design_name)]} {
+        set dname $fp(common,design_name)
     } else {
         set dname "floorplan"
     }

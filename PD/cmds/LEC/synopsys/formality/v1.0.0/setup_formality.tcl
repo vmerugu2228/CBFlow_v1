@@ -1,86 +1,18 @@
 #!/usr/bin/env tclsh
-# ═══════════════════════════════════════════════════════════════════════════════
-# CBFlow - LEC Setup Command File
-# Description: Setup and configuration for Logic Equivalence Checking
-# Tool: Synopsys Formality
-# Usage: Source this file in Formality or run standalone
-# ═══════════════════════════════════════════════════════════════════════════════
+# CBFlow LEC setup - Synopsys Formality
 
-# Source environment variables
+# ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
-set env_file "$run_dir/.run.cbflow.tcl"
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-if {[file exists $env_file]} {
-    source -e $env_file
-} else {
-    puts stderr "ERROR: Environment file (.run.cbflow.tcl) not found at $env_file"
-    exit 1
-}
+set FLOW_TYPE "LEC"
+set STAGE_NAME "setup"
+set NODE_NAME "${STAGE_NAME}1"
 
-# Source flow utilities
-if {[info exists ::env(FLOW_DIR)]} {
-    set FLOW_DIR $::env(FLOW_DIR)
-} else {
-    puts stderr "ERROR: FLOW_DIR not found in environment"
-    exit 1
-}
-
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} {
-    puts stderr "ERROR: UTILITIES_VERSION not set."
-    exit 1
-}
-
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} {
-    source -e $utils_path
-} else {
-    puts stderr "ERROR: Cannot find flow utilities at $utils_path"
-    exit 1
-}
-
-namespace import ::CBFlow::Utilities::print_header
-
-# Source generated configuration file
-set config_file "$run_dir/work/LEC/setup1/run/config.tcl"
-if {[file exists $config_file]} {
-    source -e $config_file
-}
-
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
-
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
-
-# Declare global arrays
-global lec project tech flow
-
-# Source FORMALITY tool config
-set _tool_config "[file dirname [info script]]/formality_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "Starting LEC setup stage with Synopsys Formality..."
-
-# Initialize flow namespace
-if {![namespace exists ::flow]} {
-    namespace eval ::flow {
-        variable exec_mode "auto"
-        variable current_stage ""
-        variable start_time [clock seconds]
-        variable flow_errors {}
-    }
-}
-
-set ::flow::exec_mode "auto"
-
-# ── Directories ──────────────────────────────────────────────────────────────
-set WORK_DIR "$run_dir/work/LEC/setup1"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 # ┌─────────────────────────────────────────────────────────────────────────────┐
 # │                       SETUP LIBRARIES                                      │
@@ -220,21 +152,21 @@ flow_proc configure_verification {
     handle_info "Configuring verification settings..."
 
     # Set verification mode
-    if {[info exists formality(verification,mode)]} {
-        puts "Verification mode: $formality(verification,mode)"
+    if {[info exists lec(verification,mode)]} {
+        puts "Verification mode: $lec(verification,mode)"
     } else {
         puts "Verification mode: default (combinational)"
     }
 
     # Configure matching settings
-    if {[info exists formality(matching,multibit)] && $formality(matching,multibit) eq "true"} {
+    if {[info exists lec(matching,multibit)] && $lec(matching,multibit) eq "true"} {
         set_constant_folding true
         puts "Multi-bit matching: enabled"
     }
 
     # Configure effort level
-    if {[info exists formality(common,effort)]} {
-        puts "Verification effort: $formality(common,effort)"
+    if {[info exists lec(common,effort)]} {
+        puts "Verification effort: $lec(common,effort)"
     }
 
     # Set undriven/unloaded signal handling

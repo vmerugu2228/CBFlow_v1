@@ -1,39 +1,21 @@
 #!/usr/bin/env tclsh
 # CBFlow PNR route1 - Synopsys Fusion Compiler | PNR route1
+
+# ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
-set env_file "$run_dir/.run.cbflow.tcl"
-if {[file exists $env_file]} { source $env_file } else { puts stderr "ERROR: .run.cbflow.tcl not found"; exit 1 }
-if {[info exists ::env(FLOW_DIR)]} { set FLOW_DIR $::env(FLOW_DIR) } else { puts stderr "ERROR: FLOW_DIR not set"; exit 1 }
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} { puts stderr "ERROR: UTILITIES_VERSION not set"; exit 1 }
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
-namespace import ::CBFlow::Utilities::print_header
-set config_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/config.tcl"
-if {[file exists $config_file]} { source $config_file }
-global pnr project tech flow
-# Source FC tool config
-set _tool_config "[file dirname [info script]]/fc_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "Starting PNR route1 with Synopsys Fusion Compiler..."
-if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
-set ::flow::exec_mode "auto"
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-# -- Directories ---------------------------------------------------------------
-set WORK_DIR "$run_dir/work/PNR/route1"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
+set FLOW_TYPE "PNR"
+set STAGE_NAME "route"
+set NODE_NAME "route1"
 
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" &&
-    [info exists ::env(TECH_VERSION)] && $::env(TECH_VERSION) ne ""} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
+# ── Config (full cascade: project → tech → flow → node → mmmc → tool → user) ─
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 
-# Source MMMC configuration
-set mmmc_config_file "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
+# ── Directories ──────────────────────────────────────────────────────────────
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 # ==============================================================================
 # flow_proc: configure_routing
@@ -44,17 +26,17 @@ flow_proc configure_routing {
     global pnr tech
 
     # Set QoR strategy for route stage
-    if {[info exists fc(compile,qor_version)] && $fc(compile,qor_version) ne ""} {
-        set_app_options -name flow.set_qor_strategy.version -value $fc(compile,qor_version)
+    if {[info exists pnr(compile,qor_version)] && $pnr(compile,qor_version) ne ""} {
+        set_app_options -name flow.set_qor_strategy.version -value $pnr(compile,qor_version)
     }
     set set_qor_strategy_cmd "set_qor_strategy -stage route"
-    if {[info exists fc(compile,qor_metric)] && $fc(compile,qor_metric) ne ""} {
-        lappend set_qor_strategy_cmd -metric $fc(compile,qor_metric)
+    if {[info exists pnr(compile,qor_metric)] && $pnr(compile,qor_metric) ne ""} {
+        lappend set_qor_strategy_cmd -metric $pnr(compile,qor_metric)
     }
-    if {[info exists fc(compile,qor_mode)] && $fc(compile,qor_mode) ne ""} {
-        lappend set_qor_strategy_cmd -mode $fc(compile,qor_mode)
+    if {[info exists pnr(compile,qor_mode)] && $pnr(compile,qor_mode) ne ""} {
+        lappend set_qor_strategy_cmd -mode $pnr(compile,qor_mode)
     }
-    if {[info exists fc(compile,reduced_effort)] && $fc(compile,reduced_effort)} {
+    if {[info exists pnr(compile,reduced_effort)] && $pnr(compile,reduced_effort)} {
         lappend set_qor_strategy_cmd -reduced_effort
     }
     handle_info "Running: $set_qor_strategy_cmd"
@@ -64,17 +46,17 @@ flow_proc configure_routing {
     set_app_options -name opt.common.user_instance_name_prefix -value route_auto_
 
     # Set active scenarios for routing
-    if {[info exists fc(route,active_scenarios)] && $fc(route,active_scenarios) ne ""} {
+    if {[info exists pnr(route,active_scenarios)] && $pnr(route,active_scenarios) ne ""} {
         set_scenario_status -active false [get_scenarios -filter active]
-        set_scenario_status -active true $fc(route,active_scenarios)
+        set_scenario_status -active true $pnr(route,active_scenarios)
     }
 
     # Set routing layer constraints
-    if {[info exists fc(common,route_max_layer)] && $fc(common,route_max_layer) ne ""} {
-        set_ignored_layers -max_routing_layer $fc(common,route_max_layer)
+    if {[info exists pnr(common,route_max_layer)] && $pnr(common,route_max_layer) ne ""} {
+        set_ignored_layers -max_routing_layer $pnr(common,route_max_layer)
     }
-    if {[info exists fc(common,route_min_layer)] && $fc(common,route_min_layer) ne ""} {
-        set_ignored_layers -min_routing_layer $fc(common,route_min_layer)
+    if {[info exists pnr(common,route_min_layer)] && $pnr(common,route_min_layer) ne ""} {
+        set_ignored_layers -min_routing_layer $pnr(common,route_min_layer)
     }
 
     # Antenna rules
@@ -106,16 +88,16 @@ flow_proc create_shields {
     handle_info "Checking shield creation settings..."
     global pnr
 
-    if {[info exists fc(route,enable_shields)] && $fc(route,enable_shields)} {
+    if {[info exists pnr(route,enable_shields)] && $pnr(route,enable_shields)} {
         handle_info "Creating shields..."
         set_extraction_options -virtual_shield_extraction false
 
         set create_shields_cmd "create_shields"
-        if {[info exists fc(route,shields_options)] && $fc(route,shields_options) ne ""} {
-            append create_shields_cmd " $fc(route,shields_options)"
+        if {[info exists pnr(route,shields_options)] && $pnr(route,shields_options) ne ""} {
+            append create_shields_cmd " $pnr(route,shields_options)"
         }
-        if {[info exists fc(route,shields_ground_net)] && $fc(route,shields_ground_net) ne ""} {
-            lappend create_shields_cmd -with_ground $fc(route,shields_ground_net)
+        if {[info exists pnr(route,shields_ground_net)] && $pnr(route,shields_ground_net) ne ""} {
+            lappend create_shields_cmd -with_ground $pnr(route,shields_ground_net)
         }
         handle_info "Running: $create_shields_cmd"
         eval $create_shields_cmd
@@ -125,7 +107,7 @@ flow_proc create_shields {
     }
 
     # Redundant via insertion after routing
-    if {[info exists fc(route,redundant_via)] && $fc(route,redundant_via)} {
+    if {[info exists pnr(route,redundant_via)] && $pnr(route,redundant_via)} {
         handle_info "Running add_redundant_vias"
         add_redundant_vias
     }
@@ -149,9 +131,9 @@ flow_proc save_design_block {
     handle_info "Saving design block..."
     global pnr
 
-    if {[info exists fc(output,block_labeling)] && $fc(output,block_labeling)} {
-        save_block -as $fc(common,design_name)/route
-        handle_info "Block saved as $fc(common,design_name)/route"
+    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling)} {
+        save_block -as $pnr(common,design_name)/route
+        handle_info "Block saved as $pnr(common,design_name)/route"
     } else {
         save_block
         handle_info "Block saved"
@@ -167,7 +149,7 @@ flow_proc generate_reports {
     global pnr
 
     set run_dir $::env(CBFLOW_RUN_DIR)
-    set max_paths [expr {[info exists fc(analysis,max_paths)] ? $fc(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists pnr(analysis,max_paths)] ? $pnr(analysis,max_paths) : 100}]
 
     # FC-RM: Recommended timing settings for routed designs
     set_app_options -name time.delay_calc_waveform_analysis_mode -value full_design

@@ -1,0 +1,7 @@
+set project(name) "ravendrive"
+set project(phase) "P0"
+set flow(type) "STA"
+set flow(design_name) "cpu_core"
+set flow(run_name) "test1"
+set flow(test_mode) "true"
+set sta(input,from_run) "/Users/vmerugu/projects/CBflow_clone/workarea_test/P0_run_SYNTH_PNR_test1"

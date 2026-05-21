@@ -1,46 +1,27 @@
 #!/usr/bin/env tclsh
-# ═══════════════════════════════════════════════════════════════════════════════
-# CBFlow - FP Powerplan Stage for Innovus
-# Description: Create power rings, straps, and global net connections
-# Usage: Source this file in Innovus or run via CBFlow
-# Output: Complete power distribution network with PG verification
-# ═══════════════════════════════════════════════════════════════════════════════
+# FP powerplan - Cadence Innovus
 
-# Validate required environment variables
-if {![info exists ::env(FLOW_DIR)] || $::env(FLOW_DIR) eq ""} {
-    puts "ERROR: FLOW_DIR not set. Ensure .run.cbflow.tcl is properly generated."
-    exit 1
-}
+# -- Bootstrap -----------------------------------------------------------------
+set run_dir $::env(CBFLOW_RUN_DIR)
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} {
-    puts "ERROR: UTILITIES_VERSION not set. Ensure .run.cbflow.tcl is properly generated."
-    exit 1
-}
+set FLOW_TYPE "FP"
+set STAGE_NAME "powerplan"
+set NODE_NAME "powerplan1"
 
-set flow_dir $::env(FLOW_DIR)
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 # Source flow utilities using release version
 set utils_path "$flow_dir/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 if {[file exists $utils_path]} {
     source $utils_path
-} else {
     puts "ERROR: Cannot find flow utilities at: $utils_path"
     exit 1
-}
-
 set run_dir $::env(CBFLOW_RUN_DIR)
-
-set WORK_DIR "$run_dir/work/FP/powerplan"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
-
-# Source INNOVUS tool config
-set _tool_config "[file dirname [info script]]/innovus_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting CBFlow FP powerplan stage for Innovus"
-
 # Define common procedures used in config files
 if {[info procs INFO] eq ""} {
     proc INFO {} {
@@ -52,7 +33,6 @@ if {[info procs WARNING] eq ""} {
         return "WARNING"
     }
 }
-
 # Define flow_proc if not already defined
 if {[info procs flow_proc] eq ""} {
     proc flow_proc {name body} {
@@ -60,7 +40,6 @@ if {[info procs flow_proc] eq ""} {
         handle_info "Flow procedure '$name' defined"
     }
 }
-
 # Source generated configuration file (from setup stage)
 set flow_type "FP"
 set config_files [list \
@@ -68,21 +47,13 @@ set config_files [list \
     "work/$flow_type/powerplan/run/config.tcl" \
     "../work/$flow_type/powerplan/run/config.tcl" \
 ]
-
 set config_found 0
 foreach config_file $config_files {
     if {[file exists $config_file]} {
         handle_info "Sourcing configuration: $config_file"
         if {[catch {source $config_file} error]} {
-
-# Source tech_config
 if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
 }
-
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
             handle_warning "Minor error in config file $config_file: $error"
             handle_info "Continuing with available configuration..."
         }
@@ -90,7 +61,6 @@ if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/
         break
     }
 }
-
 if {!$config_found} {
     handle_error "Cannot find generated config file. Run 'make powerplan_setup' first."
     exit 1
@@ -105,15 +75,15 @@ flow_proc create_power_rings {
     handle_info "Creating power rings..."
 
     # Get power net names from config
-    set pwr_net  [expr {[info exists innovus(power,vdd_net)]  ? $innovus(power,vdd_net)  : "VDD"}]
-    set gnd_net  [expr {[info exists innovus(power,vss_net)]  ? $innovus(power,vss_net)  : "VSS"}]
+    set pwr_net  [expr {[info exists fp(power,vdd_net)]  ? $fp(power,vdd_net)  : "VDD"}]
+    set gnd_net  [expr {[info exists fp(power,vss_net)]  ? $fp(power,vss_net)  : "VSS"}]
 
     # Ring parameters from config
-    set ring_width   [expr {[info exists innovus(power,ring_width)]   ? $innovus(power,ring_width)   : 3.0}]
-    set ring_spacing [expr {[info exists innovus(power,ring_spacing)] ? $innovus(power,ring_spacing) : 1.0}]
-    set ring_offset  [expr {[info exists innovus(power,ring_offset)}  ? $innovus(power,ring_offset)  : 1.0}]
-    set ring_layer_h [expr {[info exists innovus(power,ring_layer_h)] ? $innovus(power,ring_layer_h) : "M1"}]
-    set ring_layer_v [expr {[info exists innovus(power,ring_layer_v)] ? $innovus(power,ring_layer_v) : "M2"}]
+    set ring_width   [expr {[info exists fp(power,ring_width)]   ? $fp(power,ring_width)   : 3.0}]
+    set ring_spacing [expr {[info exists fp(power,ring_spacing)] ? $fp(power,ring_spacing) : 1.0}]
+    set ring_offset  [expr {[info exists fp(power,ring_offset)}  ? $fp(power,ring_offset)  : 1.0}]
+    set ring_layer_h [expr {[info exists fp(power,ring_layer_h)] ? $fp(power,ring_layer_h) : "M1"}]
+    set ring_layer_v [expr {[info exists fp(power,ring_layer_v)] ? $fp(power,ring_layer_v) : "M2"}]
 
     handle_info "Power nets: $pwr_net / $gnd_net"
     handle_info "Ring width: ${ring_width}um, spacing: ${ring_spacing}um"
@@ -129,9 +99,9 @@ flow_proc create_power_rings {
         -follow core
 
     # Create block-level rings around macros if configured
-    if {[info exists innovus(power,macro_rings)] && $innovus(power,macro_rings) eq "true"} {
-        set macro_ring_width   [expr {[info exists innovus(power,macro_ring_width)]   ? $innovus(power,macro_ring_width)   : 1.5}]
-        set macro_ring_spacing [expr {[info exists innovus(power,macro_ring_spacing)] ? $innovus(power,macro_ring_spacing) : 0.5}]
+    if {[info exists fp(power,macro_rings)] && $fp(power,macro_rings) eq "true"} {
+        set macro_ring_width   [expr {[info exists fp(power,macro_ring_width)]   ? $fp(power,macro_ring_width)   : 1.5}]
+        set macro_ring_spacing [expr {[info exists fp(power,macro_ring_spacing)] ? $fp(power,macro_ring_spacing) : 0.5}]
         handle_info "Creating macro power rings (width=${macro_ring_width}um)..."
 
         addRing -nets [list $pwr_net $gnd_net] \
@@ -151,12 +121,12 @@ flow_proc create_power_straps {
     handle_info "Creating power straps..."
 
     # Get power net names
-    set pwr_net [expr {[info exists innovus(power,vdd_net)] ? $innovus(power,vdd_net) : "VDD"}]
-    set gnd_net [expr {[info exists innovus(power,vss_net)] ? $innovus(power,vss_net) : "VSS"}]
+    set pwr_net [expr {[info exists fp(power,vdd_net)] ? $fp(power,vdd_net) : "VDD"}]
+    set gnd_net [expr {[info exists fp(power,vss_net)] ? $fp(power,vss_net) : "VSS"}]
 
     # Strap configuration from config
-    if {[info exists innovus(power,straps)]} {
-        foreach strap_spec $innovus(power,straps) {
+    if {[info exists fp(power,straps)]} {
+        foreach strap_spec $fp(power,straps) {
             array set strap_info $strap_spec
             set layer   $strap_info(layer)
             set width   $strap_info(width)
@@ -178,9 +148,9 @@ flow_proc create_power_straps {
         }
     } else {
         # Default strap configuration
-        set strap_layer [expr {[info exists innovus(power,strap_layer)} ? $innovus(power,strap_layer) : "M4"}]
-        set strap_width [expr {[info exists innovus(power,strap_width)] ? $innovus(power,strap_width) : 2.0}]
-        set strap_pitch [expr {[info exists innovus(power,strap_pitch)] ? $innovus(power,strap_pitch) : 40.0}]
+        set strap_layer [expr {[info exists fp(power,strap_layer)} ? $fp(power,strap_layer) : "M4"}]
+        set strap_width [expr {[info exists fp(power,strap_width)] ? $fp(power,strap_width) : 2.0}]
+        set strap_pitch [expr {[info exists fp(power,strap_pitch)] ? $fp(power,strap_pitch) : 40.0}]
 
         handle_info "Using default strap config: layer=$strap_layer width=${strap_width}um pitch=${strap_pitch}um"
 
@@ -201,12 +171,12 @@ flow_proc connect_power {
     handle_info "Connecting global power nets..."
 
     # Get power/ground net names
-    set pwr_net [expr {[info exists innovus(power,vdd_net)] ? $innovus(power,vdd_net) : "VDD"}]
-    set gnd_net [expr {[info exists innovus(power,vss_net)] ? $innovus(power,vss_net) : "VSS"}]
+    set pwr_net [expr {[info exists fp(power,vdd_net)] ? $fp(power,vdd_net) : "VDD"}]
+    set gnd_net [expr {[info exists fp(power,vss_net)] ? $fp(power,vss_net) : "VSS"}]
 
     # Get power/ground pin names
-    set pwr_pin [expr {[info exists innovus(power,vdd_pin)} ? $innovus(power,vdd_pin) : "VDD"}]
-    set gnd_pin [expr {[info exists innovus(power,vss_pin)} ? $innovus(power,vss_pin) : "VSS"}]
+    set pwr_pin [expr {[info exists fp(power,vdd_pin)} ? $fp(power,vdd_pin) : "VDD"}]
+    set gnd_pin [expr {[info exists fp(power,vss_pin)} ? $fp(power,vss_pin) : "VSS"}]
 
     # Connect VDD
     handle_info "Connecting $pwr_net to pin $pwr_pin on all instances..."
@@ -217,18 +187,18 @@ flow_proc connect_power {
     globalNetConnect $gnd_net -type pgpin -pin $gnd_pin -inst * -override
 
     # Connect tie-high/tie-low if specified
-    if {[info exists innovus(power,tie_high_pin)]} {
-        handle_info "Connecting tie-high pin: $innovus(power,tie_high_pin)"
-        globalNetConnect $pwr_net -type tiehi -pin $innovus(power,tie_high_pin) -inst * -override
+    if {[info exists fp(power,tie_high_pin)]} {
+        handle_info "Connecting tie-high pin: $fp(power,tie_high_pin)"
+        globalNetConnect $pwr_net -type tiehi -pin $fp(power,tie_high_pin) -inst * -override
     }
 
-    if {[info exists innovus(power,tie_low_pin)]} {
-        handle_info "Connecting tie-low pin: $innovus(power,tie_low_pin)"
-        globalNetConnect $gnd_net -type tielo -pin $innovus(power,tie_low_pin) -inst * -override
+    if {[info exists fp(power,tie_low_pin)]} {
+        handle_info "Connecting tie-low pin: $fp(power,tie_low_pin)"
+        globalNetConnect $gnd_net -type tielo -pin $fp(power,tie_low_pin) -inst * -override
     }
 
     # Special rail connections for standard cells
-    sroute -connect blockPin -layerChangeRange [list $innovus(power,sroute_bottom_layer) $innovus(power,sroute_top_layer)] \
+    sroute -connect blockPin -layerChangeRange [list $fp(power,sroute_bottom_layer) $fp(power,sroute_top_layer)] \
         -nets [list $pwr_net $gnd_net] 2>/dev/null
 
     handle_info "Global power connections completed"
@@ -239,8 +209,8 @@ flow_proc verify_power {
     handle_info "Verifying power grid integrity..."
 
     # Get power/ground net names
-    set pwr_net [expr {[info exists innovus(power,vdd_net)] ? $innovus(power,vdd_net) : "VDD"}]
-    set gnd_net [expr {[info exists innovus(power,vss_net)] ? $innovus(power,vss_net) : "VSS"}]
+    set pwr_net [expr {[info exists fp(power,vdd_net)] ? $fp(power,vdd_net) : "VDD"}]
+    set gnd_net [expr {[info exists fp(power,vss_net)] ? $fp(power,vss_net) : "VSS"}]
 
     set verification_errors 0
 
@@ -283,9 +253,9 @@ flow_proc generate_reports {
     }
 
     # IR drop estimation if available
-    if {[info exists innovus(power,analyze_ir)] && $innovus(power,analyze_ir) eq "true"} {
+    if {[info exists fp(power,analyze_ir)] && $fp(power,analyze_ir) eq "true"} {
         handle_info "Running early IR drop analysis..."
-        if {[catch {analyzeIR -net [expr {[info exists innovus(power,vdd_net)] ? $innovus(power,vdd_net) : "VDD"}] \
+        if {[catch {analyzeIR -net [expr {[info exists fp(power,vdd_net)] ? $fp(power,vdd_net) : "VDD"}] \
                 -report $::REPORTS_DIR/ir_drop_estimate.rpt} result]} {
             handle_warning "IR drop analysis skipped: $result"
         }

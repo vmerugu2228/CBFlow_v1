@@ -1,65 +1,18 @@
 #!/usr/bin/env tclsh
-# ═══════════════════════════════════════════════════════════════════════════════
-# CBFlow STA Per-Corner Timing Analysis — Cadence Tempus
-# Runs setup (late) + hold (early) analysis for a single PVT corner/scenario
-# Usage: tempus -batch -f timing_scenario_tempus.tcl <scenario_name>
-# ═══════════════════════════════════════════════════════════════════════════════
+# STA Per-Corner Timing Analysis - Cadence Tempus
 
-# ── Environment & Utilities ──────────────────────────────────────────────────
+# -- Bootstrap -----------------------------------------------------------------
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
-set FLOW_DIR $::env(FLOW_DIR)
-source "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-namespace import ::CBFlow::Utilities::print_header
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-# Source configs
-set config_file "$run_dir/work/STA/timing1/run/config.tcl"
-if {[file exists $config_file]} { source $config_file }
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source "$run_dir/setup/user_config.tcl" }
-global sta project tech flow library_sets
-
-# Source MMMC and tech config
-set mmmc_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
-if {[file exists $mmmc_config]} { source $mmmc_config }
-set tech_config "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-if {[file exists $tech_config]} { source $tech_config }
-
-# ── Scenario Name ────────────────────────────────────────────────────────────
-if {$argc < 1} {
-    puts stderr "ERROR: Missing scenario_name. Usage: tempus -batch -f timing_scenario_tempus.tcl <scenario>"
-    exit 1
-}
-set scenario_name [lindex $argv 0]
 set FLOW_TYPE "STA"
 set STAGE_NAME "timing"
+set NODE_NAME "timing1"
 
-global analysis_views
-if {![info exists analysis_views($scenario_name)]} {
-    puts stderr "ERROR: Scenario '$scenario_name' not found in analysis_views"
-    exit 1
-}
-array set VIEW $analysis_views($scenario_name)
-
-set CORNER      $VIEW(corner)
-set MODE        $VIEW(mode)
-set VOLTAGE     $VIEW(voltage)
-set TEMPERATURE $VIEW(temperature)
-set RC_CORNER   $VIEW(rc_corner)
-set LIB_SET     $VIEW(lib_set_ref)
-set SDC_FILE    $VIEW(constraint_file)
-
-set WORK_DIR    "$run_dir/work/$FLOW_TYPE/timing1/run"
-set REPORTS_DIR "$run_dir/reports/sta/$scenario_name"
-file mkdir $WORK_DIR $REPORTS_DIR
-
-# Source TEMPUS tool config
-set _tool_config "[file dirname [info script]]/tempus_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "═══════════════════════════════════════════════════════════"
-handle_info "  Tempus Per-Corner Timing: $scenario_name"
-handle_info "  Corner=$CORNER  Mode=$MODE  V=${VOLTAGE}V  T=${TEMPERATURE}C"
-handle_info "  RC=$RC_CORNER  LibSet=$LIB_SET"
-handle_info "═══════════════════════════════════════════════════════════"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # STEP 1: CREATE MMMC OBJECTS (Tempus native MMMC)
@@ -167,7 +120,7 @@ flow_proc update_timing_data {
 flow_proc run_setup_analysis {
     handle_info "Running SETUP analysis (late paths)..."
 
-    set max_paths [expr {[info exists tempus(analysis,max_paths)] ? $tempus(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists sta(analysis,max_paths)] ? $sta(analysis,max_paths) : 100}]
 
     # Setup timing
     report_timing -late \
@@ -199,7 +152,7 @@ flow_proc run_setup_analysis {
 flow_proc run_hold_analysis {
     handle_info "Running HOLD analysis (early paths)..."
 
-    set max_paths [expr {[info exists tempus(analysis,max_paths)] ? $tempus(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists sta(analysis,max_paths)] ? $sta(analysis,max_paths) : 100}]
 
     # Hold timing
     report_timing -early \
@@ -224,7 +177,7 @@ flow_proc run_hold_analysis {
 # STEP 7: POWER ANALYSIS
 # ═══════════════════════════════════════════════════════════════════════════════
 flow_proc run_power_analysis {
-    if {[info exists tempus(analysis,report_power)] && $tempus(analysis,report_power) eq "true"} {
+    if {[info exists sta(analysis,report_power)] && $sta(analysis,report_power) eq "true"} {
         handle_info "Running power analysis..."
         report_power > "$::REPORTS_DIR/power.rpt"
         report_power -hierarchy > "$::REPORTS_DIR/power_hierarchy.rpt"

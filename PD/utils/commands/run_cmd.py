@@ -3033,15 +3033,13 @@ def cmd_db_manage(args):
 
     # Read limits from flow_config
     max_sessions = 10
-    warn_threshold = 8
     fc_path = os.path.join(flow_dir, 'config', 'flow', 'v1.0.0', 'flow_config.tcl')
     if os.path.exists(fc_path):
         with open(fc_path) as f:
             for line in f:
                 m = _re.search(r'flow\(race,db_max_sessions\)\s+(\d+)', line)
                 if m: max_sessions = int(m.group(1))
-                m = _re.search(r'flow\(race,db_warn_threshold\)\s+(\d+)', line)
-                if m: warn_threshold = int(m.group(1))
+    warn_threshold = int(max_sessions * 0.8)
 
     # Find all RACE DBs — search workarea and structured DB paths
     user = os.environ.get('USER', 'unknown')

@@ -1,0 +1,2 @@
+// Logic netlist
+// [TEST MODE]

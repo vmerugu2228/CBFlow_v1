@@ -1,40 +1,19 @@
 #!/usr/bin/env tclsh
-# CBFlow POPT merge_timing - Synopsys PrimeTime | Merge multi-scenario timing data
+# CBFlow POPT merge_timing - Synopsys PrimeTime
+
+# ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
-if {[file exists "$run_dir/.run.cbflow.tcl"]} { source "$run_dir/.run.cbflow.tcl" } else { puts stderr "ERROR: .run.cbflow.tcl not found"; exit 1 }
-if {[info exists ::env(FLOW_DIR)]} { set FLOW_DIR $::env(FLOW_DIR) } else { puts stderr "ERROR: FLOW_DIR not set"; exit 1 }
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} { puts stderr "ERROR: UTILITIES_VERSION not set"; exit 1 }
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
-namespace import ::CBFlow::Utilities::print_header
-set config_file "$run_dir/work/POPT/merge_timing/run/config.tcl"
-if {[file exists $config_file]} { source $config_file }
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
+set FLOW_TYPE "POPT"
+set STAGE_NAME "merge_timing"
+set NODE_NAME "${STAGE_NAME}1"
 
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
-global popt project tech flow
-# Source PT tool config
-set _tool_config "[file dirname [info script]]/pt_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "Starting POPT merge_timing with Synopsys PrimeTime..."
-if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
-set ::flow::exec_mode "auto"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
-set WORK_DIR "$run_dir/work/POPT/merge_timing"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
-
-# ---------------------------------------------------------------------------
-# flow_proc: load_scenarios
-# Load per-scenario timing data from individual corner runs
 # ---------------------------------------------------------------------------
 flow_proc load_scenarios {
     handle_info "Loading multi-scenario timing data..."
@@ -101,8 +80,8 @@ flow_proc merge_timing_data {
     foreach scenario $scenarios {
         handle_info "Updating timing for corner: $scenario"
         update_timing -full
-        report_timing -delay max -max_paths [expr {[info exists pt(analysis,max_paths)] ? $pt(analysis,max_paths) : 100}] > "$rpt_dir/setup_${scenario}.rpt"
-        report_timing -delay min -max_paths [expr {[info exists pt(analysis,max_paths)] ? $pt(analysis,max_paths) : 100}] > "$rpt_dir/hold_${scenario}.rpt"
+        report_timing -delay max -max_paths [expr {[info exists popt(analysis,max_paths)] ? $popt(analysis,max_paths) : 100}] > "$rpt_dir/setup_${scenario}.rpt"
+        report_timing -delay min -max_paths [expr {[info exists popt(analysis,max_paths)] ? $popt(analysis,max_paths) : 100}] > "$rpt_dir/hold_${scenario}.rpt"
     }
 
     # Run cross-scenario timing merge
@@ -132,12 +111,12 @@ flow_proc generate_merged_report {
     set res_dir "$::OUTPUTS_DIR/popt"
 
     # Setup timing report across all scenarios
-    report_timing -delay max -max_paths [expr {[info exists pt(analysis,max_paths)] ? $pt(analysis,max_paths) : 100}] -nworst 3 \
+    report_timing -delay max -max_paths [expr {[info exists popt(analysis,max_paths)] ? $popt(analysis,max_paths) : 100}] -nworst 3 \
         > "$rpt_dir/merged_setup_timing.rpt"
     handle_info "Generated merged setup timing report"
 
     # Hold timing report across all scenarios
-    report_timing -delay min -max_paths [expr {[info exists pt(analysis,max_paths)] ? $pt(analysis,max_paths) : 100}] -nworst 3 \
+    report_timing -delay min -max_paths [expr {[info exists popt(analysis,max_paths)] ? $popt(analysis,max_paths) : 100}] -nworst 3 \
         > "$rpt_dir/merged_hold_timing.rpt"
     handle_info "Generated merged hold timing report"
 

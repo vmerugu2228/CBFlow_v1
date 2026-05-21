@@ -401,15 +401,8 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
             lappend config_files [list "eda_stage_config" "$eda_dir/${node_type_base}_config.tcl"]
         }
 
-        # 5b. Tool-specific config from cmds/ directory (fc_config.tcl, pt_config.tcl, etc.)
-        set _flow_dir [expr {[info exists ::env(FLOW_DIR)] ? $::env(FLOW_DIR) : ""}]
-        if {$_flow_dir ne ""} {
-            set _tool_config_dir "$_flow_dir/cmds/$flow_type/$vendor/$tool_name/$tool_version"
-            set _tool_cfg "$_tool_config_dir/${tool_name}_config.tcl"
-            if {[file exists $_tool_cfg]} {
-                lappend config_files [list "tool_config_${tool_name}" "$_tool_cfg"]
-            }
-        }
+        # 5b. Tool-specific app variables now merged into node_configs/<FLOW>_<tool>_config.tcl
+        #     (previously sourced from cmds/<FLOW>/<vendor>/<tool>/<ver>/<tool>_config.tcl)
 
         # 6. User Configuration
         lappend config_files [list "user_config" "$run_dir/setup/user_config.tcl"]

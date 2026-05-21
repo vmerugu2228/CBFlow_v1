@@ -33,9 +33,6 @@ set OUTPUTS_DIR "$run_dir/outputs"
 file mkdir $REPORTS_DIR
 file mkdir $OUTPUTS_DIR
 
-# Source INNOVUS tool config
-set _tool_config "[file dirname [info script]]/innovus_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting FCFP fc_floorplan stage with Innovus..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -52,43 +49,43 @@ flow_proc initialize_floorplan {
     file mkdir "$::REPORTS_DIR"
 
     # Get floorplan parameters from config
-    if {[info exists innovus(floorplan,site_name)]} {
-        set site_name $innovus(floorplan,site_name)
+    if {[info exists fcfp(floorplan,site_name)]} {
+        set site_name $fcfp(floorplan,site_name)
     } else {
         set site_name "core"
     }
 
     # Initialize floorplan using site
-    if {[info exists innovus(floorplan,die_width)] && [info exists innovus(floorplan,die_height)]} {
+    if {[info exists fcfp(floorplan,die_width)] && [info exists fcfp(floorplan,die_height)]} {
         # Fixed die size mode
         puts "Floorplan mode: fixed die size"
-        puts "Die size: $innovus(floorplan,die_width) x $innovus(floorplan,die_height)"
+        puts "Die size: $fcfp(floorplan,die_width) x $fcfp(floorplan,die_height)"
 
-        if {[info exists innovus(floorplan,core_margin_left)]} {
+        if {[info exists fcfp(floorplan,core_margin_left)]} {
             floorPlan -site $site_name \
-                -d $innovus(floorplan,die_width) $innovus(floorplan,die_height) \
-                $innovus(floorplan,core_margin_left) \
-                $innovus(floorplan,core_margin_bottom) \
-                $innovus(floorplan,core_margin_right) \
-                $innovus(floorplan,core_margin_top)
+                -d $fcfp(floorplan,die_width) $fcfp(floorplan,die_height) \
+                $fcfp(floorplan,core_margin_left) \
+                $fcfp(floorplan,core_margin_bottom) \
+                $fcfp(floorplan,core_margin_right) \
+                $fcfp(floorplan,core_margin_top)
         } else {
             floorPlan -site $site_name \
-                -d $innovus(floorplan,die_width) $innovus(floorplan,die_height) \
+                -d $fcfp(floorplan,die_width) $fcfp(floorplan,die_height) \
                 10 10 10 10
         }
-    } elseif {[info exists innovus(floorplan,utilization)]} {
+    } elseif {[info exists fcfp(floorplan,utilization)]} {
         # Utilization-based mode
         puts "Floorplan mode: utilization-based"
-        puts "Target utilization: $innovus(floorplan,utilization)"
+        puts "Target utilization: $fcfp(floorplan,utilization)"
 
-        if {[info exists innovus(floorplan,aspect_ratio)]} {
-            set aspect $innovus(floorplan,aspect_ratio)
+        if {[info exists fcfp(floorplan,aspect_ratio)]} {
+            set aspect $fcfp(floorplan,aspect_ratio)
         } else {
             set aspect 1.0
         }
 
         floorPlan -site $site_name \
-            -r $aspect $innovus(floorplan,utilization) \
+            -r $aspect $fcfp(floorplan,utilization) \
             10 10 10 10
     } else {
         # Default
@@ -109,15 +106,15 @@ flow_proc place_partitions {
     handle_info "Placing hierarchical partitions..."
 
     # Place partitions/blocks from hierarchical design
-    if {[info exists innovus(floorplan,partition_list)]} {
-        foreach partition $innovus(floorplan,partition_list) {
+    if {[info exists fcfp(floorplan,partition_list)]} {
+        foreach partition $fcfp(floorplan,partition_list) {
             puts "   Placing partition: $partition"
         }
     }
 
     # Apply partition constraints from config
-    if {[info exists innovus(floorplan,partition_constraints_file)]} {
-        set constraint_file $innovus(floorplan,partition_constraints_file)
+    if {[info exists fcfp(floorplan,partition_constraints_file)]} {
+        set constraint_file $fcfp(floorplan,partition_constraints_file)
         if {[file exists $constraint_file]} {
             puts "   Sourcing partition constraints: $constraint_file"
             source $constraint_file
@@ -125,9 +122,9 @@ flow_proc place_partitions {
     }
 
     # Set partition pin assignment mode
-    if {[info exists innovus(floorplan,partition_pin_mode)]} {
-        set_partition_pin_mode -mode $innovus(floorplan,partition_pin_mode)
-        puts "   Partition pin mode: $innovus(floorplan,partition_pin_mode)"
+    if {[info exists fcfp(floorplan,partition_pin_mode)]} {
+        set_partition_pin_mode -mode $fcfp(floorplan,partition_pin_mode)
+        puts "   Partition pin mode: $fcfp(floorplan,partition_pin_mode)"
     }
 
     puts " Partitions placed"
@@ -142,8 +139,8 @@ flow_proc place_macros {
     handle_info "Placing hard macros..."
 
     # Apply macro placement constraints
-    if {[info exists innovus(floorplan,macro_placement_file)]} {
-        set macro_file $innovus(floorplan,macro_placement_file)
+    if {[info exists fcfp(floorplan,macro_placement_file)]} {
+        set macro_file $fcfp(floorplan,macro_placement_file)
         if {[file exists $macro_file]} {
             puts "   Loading macro placement: $macro_file"
             source $macro_file
@@ -151,9 +148,9 @@ flow_proc place_macros {
     } else {
         # Auto-place macros using Innovus macro placer
         puts "   Running automatic macro placement..."
-        if {[info exists innovus(floorplan,macro_halo_x)]} {
-            set halo_x $innovus(floorplan,macro_halo_x)
-            set halo_y $innovus(floorplan,macro_halo_y)
+        if {[info exists fcfp(floorplan,macro_halo_x)]} {
+            set halo_x $fcfp(floorplan,macro_halo_x)
+            set halo_y $fcfp(floorplan,macro_halo_y)
         } else {
             set halo_x 5.0
             set halo_y 5.0
@@ -168,10 +165,10 @@ flow_proc place_macros {
     }
 
     # Create blockages around macros
-    if {[info exists innovus(floorplan,create_macro_blockage)] && $innovus(floorplan,create_macro_blockage) eq "true"} {
+    if {[info exists fcfp(floorplan,create_macro_blockage)] && $fcfp(floorplan,create_macro_blockage) eq "true"} {
         puts "   Creating placement blockages around macros..."
-        if {[info exists innovus(floorplan,blockage_margin)]} {
-            set margin $innovus(floorplan,blockage_margin)
+        if {[info exists fcfp(floorplan,blockage_margin)]} {
+            set margin $fcfp(floorplan,blockage_margin)
         } else {
             set margin 2.0
         }
@@ -190,8 +187,8 @@ flow_proc assign_io {
     handle_info "Assigning IO placement..."
 
     # Load IO constraint file if available
-    if {[info exists innovus(floorplan,io_constraint_file)]} {
-        set io_file $innovus(floorplan,io_constraint_file)
+    if {[info exists fcfp(floorplan,io_constraint_file)]} {
+        set io_file $fcfp(floorplan,io_constraint_file)
         if {[file exists $io_file]} {
             puts "   Loading IO constraints: $io_file"
             loadIoFile $io_file
@@ -201,15 +198,15 @@ flow_proc assign_io {
         puts "   Running automatic IO assignment..."
 
         # Set IO filler cells
-        if {[info exists innovus(floorplan,io_filler_cells)]} {
-            set io_fillers $innovus(floorplan,io_filler_cells)
+        if {[info exists fcfp(floorplan,io_filler_cells)]} {
+            set io_fillers $fcfp(floorplan,io_filler_cells)
         } else {
             set io_fillers {}
         }
 
         # Place IO pins
-        if {[info exists innovus(floorplan,io_pin_layer)]} {
-            set pin_layer $innovus(floorplan,io_pin_layer)
+        if {[info exists fcfp(floorplan,io_pin_layer)]} {
+            set pin_layer $fcfp(floorplan,io_pin_layer)
         } else {
             set pin_layer "metal4"
         }
@@ -220,9 +217,9 @@ flow_proc assign_io {
     }
 
     # Add IO filler cells
-    if {[info exists innovus(floorplan,io_filler_cells)]} {
+    if {[info exists fcfp(floorplan,io_filler_cells)]} {
         puts "   Adding IO filler cells..."
-        place_io_fill -cells $innovus(floorplan,io_filler_cells)
+        place_io_fill -cells $fcfp(floorplan,io_filler_cells)
     }
 
     puts " IO assignment completed"
@@ -261,8 +258,8 @@ flow_proc generate_report {
     if {[info exists project(top_module)]} { puts $fp "Design: $project(top_module)" }
     if {[info exists project(name)]} { puts $fp "Project: $project(name)" }
     puts $fp ""
-    if {[info exists innovus(floorplan,utilization)]} {
-        puts $fp "Target utilization: $innovus(floorplan,utilization)"
+    if {[info exists fcfp(floorplan,utilization)]} {
+        puts $fp "Target utilization: $fcfp(floorplan,utilization)"
     }
     puts $fp ""
     puts $fp "Reports:"

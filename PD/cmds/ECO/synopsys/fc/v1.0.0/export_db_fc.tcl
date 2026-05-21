@@ -1,46 +1,19 @@
 #!/usr/bin/env tclsh
-# ===============================================================================
-# CBFlow - ECO Export DB Command File
-# Description: Export ECO-modified design data
-# Tool: Synopsys Fusion Compiler
-# ===============================================================================
+# CBFlow ECO export_db - Synopsys Fusion Compiler
 
+# ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
-set env_file "$run_dir/.run.cbflow.tcl"
-if {[file exists $env_file]} { source $env_file } else { puts stderr "ERROR: .run.cbflow.tcl not found"; exit 1 }
-if {[info exists ::env(FLOW_DIR)]} { set FLOW_DIR $::env(FLOW_DIR) } else { puts stderr "ERROR: FLOW_DIR not set"; exit 1 }
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} { puts stderr "ERROR: UTILITIES_VERSION not set"; exit 1 }
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
-namespace import ::CBFlow::Utilities::print_header
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-set config_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/config.tcl"
-if {[file exists $config_file]} { source $config_file }
-global eco project tech flow
-# Source FC tool config
-set _tool_config "[file dirname [info script]]/fc_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "Starting ECO export_db with Synopsys Fusion Compiler..."
-if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
-set ::flow::exec_mode "auto"
+set FLOW_TYPE "ECO"
+set STAGE_NAME "export_db"
+set NODE_NAME "${STAGE_NAME}1"
 
-# ── Directories ──────────────────────────────────────────────────────────────
-set WORK_DIR "$run_dir/work/ECO/export_db1"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" &&
-    [info exists ::env(TECH_VERSION)] && $::env(TECH_VERSION) ne ""} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
-
-# --------------------------------------------------------------------------
-# Procedure: export_netlist
-#   Write post-ECO Verilog netlist
 # --------------------------------------------------------------------------
 flow_proc export_netlist {
     global eco project
@@ -55,7 +28,7 @@ flow_proc export_netlist {
     handle_info "Netlist exported: $netlist_file"
 
     # Write PG netlist if requested
-    if {[info exists fc(export,pg_netlist)] && $fc(export,pg_netlist) eq "true"} {
+    if {[info exists eco(export,pg_netlist)] && $eco(export,pg_netlist) eq "true"} {
         set pg_netlist "$::OUTPUTS_DIR/eco_netlist_pg.v"
         write_verilog -hierarchy all -pg $pg_netlist
         handle_info "PG netlist exported: $pg_netlist"
@@ -76,7 +49,7 @@ flow_proc export_def {
     handle_info "DEF exported: $def_file"
 
     # Write incremental DEF showing only ECO changes
-    if {[info exists fc(export,incremental_def)] && $fc(export,incremental_def) eq "true"} {
+    if {[info exists eco(export,incremental_def)] && $eco(export,incremental_def) eq "true"} {
         set inc_def "$::OUTPUTS_DIR/eco_incremental.def"
         write_def -eco_changed_cells $inc_def
         handle_info "Incremental DEF exported: $inc_def"
@@ -165,14 +138,7 @@ flow_proc validate_exports {
 }
 
 # ==============================================================================
-# Source setup.tcl and overrides before flow_exec_all
 # ==============================================================================
-set _setup_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/setup.tcl"
-if {[file exists $_setup_file]} { handle_info "Sourcing setup hooks: $_setup_file"; source -e $_setup_file }
-set _override_file "$run_dir/setup/override_setup.tcl"
-if {[file exists $_override_file]} { handle_info "Sourcing user override: $_override_file"; source -e $_override_file }
-set _stage_override "$run_dir/setup/override_setup.export_db.tcl"
-if {[file exists $_stage_override]} { handle_info "Sourcing stage override: $_stage_override"; source -e $_stage_override }
 
 flow_exec_all
 

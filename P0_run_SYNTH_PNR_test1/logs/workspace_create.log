@@ -1,0 +1,53 @@
+======================================================================
+  CBflow Workspace Creation Log
+======================================================================
+
+  Timestamp:      2026-05-20 13:21:36
+  User:           vmerugu
+  Hostname:       Varuns-MacBook-Pro.local
+  Run Directory:  /Users/vmerugu/projects/CBflow_clone/P0_run_SYNTH_PNR_test1
+  Flow Type:      SYNTH_PNR
+  Design:         cpu_core
+  Phase:          
+  Release:        v1.0.0
+  Config File:    workarea_test/uc_SYNTH_PNR.tcl
+  Dispatcher:     RACE (Run Automation & Control Engine)
+
+──────────────────────────────────────────────────────────────────────
+  User Config Variables
+──────────────────────────────────────────────────────────────────────
+
+  set project(name) "ravendrive"
+  set project(phase) "P0"
+  set flow(type) "SYNTH_PNR"
+  set flow(design_name) "cpu_core"
+  set flow(run_name) "test1"
+  set flow(test_mode) "true"
+  set synth_pnr(input,rtl_filelist) "/Users/vmerugu/projects/CBflow_clone/rtl.list"
+  set synth_pnr(input,rtl_format) "sverilog"
+  set synth_pnr(input,sdc_func_file) "/Users/vmerugu/projects/CBflow_clone/func.sdc"
+  set synth_pnr(input,upf_file) "/Users/vmerugu/projects/CBflow_clone/power.upf"
+
+──────────────────────────────────────────────────────────────────────
+  Environment Variables
+──────────────────────────────────────────────────────────────────────
+
+  CBFLOW_DESIGN_NAME = cpu_core
+  CBFLOW_FLOW_TYPE = SYNTH_PNR
+  CBFLOW_PROJECT_NAME = ravendrive
+  CBFLOW_RELEASE_VERSION = v1.0.0
+  CONFIG_ROOT = /Users/vmerugu/projects/CBflow_clone/PD/config
+  FLOW_DIR = /Users/vmerugu/projects/CBflow_clone/PD
+  SCRIPTS_ROOT = /Users/vmerugu/projects/CBflow_clone/PD/utils
+
+──────────────────────────────────────────────────────────────────────
+  RACE DAG Summary
+──────────────────────────────────────────────────────────────────────
+
+  Stages:  13
+  Jobs:    53
+  Order:   rtl1 → sdc1 → upf1 → init_design1 → synthesis1 → place1 → cts1 → cts_opt1 → route1 → pro1 → signoff1 → export_data1 → release_data1
+
+======================================================================
+  End of Workspace Creation Log
+======================================================================

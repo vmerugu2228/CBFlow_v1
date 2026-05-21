@@ -2328,18 +2328,32 @@ function openMMMCModal(stage) {
     if (data.error) { showToast(data.error, 'error'); return; }
 
     var allScenarios = data.scenarios || [];
-    var nodeCfg = data.nodes[nodeBase] || {setup:[], hold:[]};
     var sets = data.sets || {};
+    var flowType = data.flow_type || '';
+    var activeSubs = data.active_subnodes || {};
+
+    // Detect STA dynamic scenario mode (timing/extraction nodes)
+    var isDynamic = (flowType === 'STA' && (nodeBase === 'timing' || nodeBase === 'extraction'));
+    var activeSet = new Set(activeSubs[stage] || []);
+
+    // For PNR mode, use node config assignments
+    var nodeCfg = data.nodes[nodeBase] || {setup:[], hold:[]};
     var assignedSetup = new Set(nodeCfg.setup);
     var assignedHold = new Set(nodeCfg.hold);
 
     var html = '<div style="max-height:70vh;overflow-y:auto;padding:0">';
     html += '<div style="padding:12px 16px;background:var(--surface2);border-bottom:1px solid var(--border)">';
-    html += '<div style="font-size:14px;font-weight:700">' + stage + ' — MMMC Scenarios</div>';
-    html += '<div style="font-size:11px;color:var(--text-dim);margin-top:2px">Setup: ' + nodeCfg.setup.length + ' | Hold: ' + nodeCfg.hold.length + ' assigned</div>';
+
+    if (isDynamic) {
+      html += '<div style="font-size:14px;font-weight:700">' + stage + ' — Dynamic Scenario Subnodes</div>';
+      html += '<div style="font-size:11px;color:var(--text-dim);margin-top:2px">Active: ' + activeSet.size + ' scenarios running as parallel subnodes</div>';
+    } else {
+      html += '<div style="font-size:14px;font-weight:700">' + stage + ' — MMMC Scenarios</div>';
+      html += '<div style="font-size:11px;color:var(--text-dim);margin-top:2px">Setup: ' + nodeCfg.setup.length + ' | Hold: ' + nodeCfg.hold.length + ' assigned</div>';
+    }
     html += '</div>';
 
-    // Filters
+    // Quick assign buttons
     html += '<div style="padding:8px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center">';
     html += '<span style="font-size:11px;font-weight:600;color:var(--text-dim)">Quick assign:</span>';
     Object.keys(sets).forEach(function(sn) {
@@ -2348,7 +2362,7 @@ function openMMMCModal(stage) {
     html += '<button onclick="mmmcClearAll()" style="padding:2px 8px;font-size:10px;border:1px solid var(--red);border-radius:3px;background:#fff;color:var(--red);cursor:pointer">Clear All</button>';
     html += '</div>';
 
-    // Filters by corner/mode
+    // Filters
     html += '<div style="padding:6px 16px;border-bottom:1px solid var(--border);display:flex;gap:6px;align-items:center">';
     html += '<span style="font-size:10px;font-weight:600;color:var(--text-dim)">Filter:</span>';
     html += '<select id="mmmc-filter-corner" onchange="mmmcFilter()" style="font-size:10px;padding:2px 6px;border:1px solid var(--border);border-radius:3px"><option value="">All Corners</option>';
@@ -2359,14 +2373,21 @@ function openMMMCModal(stage) {
     html += '<select id="mmmc-filter-mode" onchange="mmmcFilter()" style="font-size:10px;padding:2px 6px;border:1px solid var(--border);border-radius:3px"><option value="">All Modes</option>';
     modes.forEach(function(m){ html += '<option value="'+m+'">'+m+'</option>'; });
     html += '</select>';
-    html += '<select id="mmmc-filter-type" onchange="mmmcFilter()" style="font-size:10px;padding:2px 6px;border:1px solid var(--border);border-radius:3px"><option value="">All Types</option><option value="setup">Setup</option><option value="hold">Hold</option></select>';
+    if (!isDynamic) {
+      html += '<select id="mmmc-filter-type" onchange="mmmcFilter()" style="font-size:10px;padding:2px 6px;border:1px solid var(--border);border-radius:3px"><option value="">All Types</option><option value="setup">Setup</option><option value="hold">Hold</option></select>';
+    }
     html += '</div>';
 
-    // Scenario table with checkboxes
+    // Scenario table
     html += '<div style="padding:8px 16px"><table style="width:100%;font-size:11px;border-collapse:collapse">';
     html += '<thead><tr style="background:var(--surface2)">';
-    html += '<th style="padding:4px 6px;text-align:left">Setup</th>';
-    html += '<th style="padding:4px 6px;text-align:left">Hold</th>';
+
+    if (isDynamic) {
+      html += '<th style="padding:4px 6px;text-align:center;width:40px">Run</th>';
+    } else {
+      html += '<th style="padding:4px 6px;text-align:left">Setup</th>';
+      html += '<th style="padding:4px 6px;text-align:left">Hold</th>';
+    }
     html += '<th style="padding:4px 6px;text-align:left">Scenario</th>';
     html += '<th style="padding:4px 6px;text-align:left">Corner</th>';
     html += '<th style="padding:4px 6px;text-align:left">Mode</th>';
@@ -2375,33 +2396,42 @@ function openMMMCModal(stage) {
     html += '</tr></thead><tbody>';
 
     allScenarios.forEach(function(s) {
-      var setupChecked = assignedSetup.has(s.name) ? ' checked' : '';
-      var holdChecked = assignedHold.has(s.name) ? ' checked' : '';
       html += '<tr class="mmmc-row" data-corner="'+s.corner+'" data-mode="'+s.mode+'" data-type="'+s.type+'" style="border-bottom:1px solid #eee">';
-      html += '<td style="padding:3px 6px;text-align:center"><input type="checkbox" class="mmmc-setup-cb" value="'+s.name+'"'+setupChecked+'></td>';
-      html += '<td style="padding:3px 6px;text-align:center"><input type="checkbox" class="mmmc-hold-cb" value="'+s.name+'"'+holdChecked+'></td>';
+      if (isDynamic) {
+        var checked = activeSet.has(s.name) ? ' checked' : '';
+        html += '<td style="padding:3px 6px;text-align:center"><input type="checkbox" class="mmmc-dynamic-cb" value="'+s.name+'"'+checked+'></td>';
+      } else {
+        var setupChecked = assignedSetup.has(s.name) ? ' checked' : '';
+        var holdChecked = assignedHold.has(s.name) ? ' checked' : '';
+        html += '<td style="padding:3px 6px;text-align:center"><input type="checkbox" class="mmmc-setup-cb" value="'+s.name+'"'+setupChecked+'></td>';
+        html += '<td style="padding:3px 6px;text-align:center"><input type="checkbox" class="mmmc-hold-cb" value="'+s.name+'"'+holdChecked+'></td>';
+      }
       html += '<td style="padding:3px 6px;font-family:monospace;font-size:10px">'+s.name+'</td>';
       html += '<td style="padding:3px 6px">'+s.corner.toUpperCase()+'</td>';
       html += '<td style="padding:3px 6px">'+s.mode+'</td>';
-      html += '<td style="padding:3px 6px">'+s.voltage+'V</td>';
-      html += '<td style="padding:3px 6px">'+s.temp+'C</td>';
+      html += '<td style="padding:3px 6px">'+s.voltage+'</td>';
+      html += '<td style="padding:3px 6px">'+s.temp+'</td>';
       html += '</tr>';
     });
     html += '</tbody></table></div>';
 
-    // Save button
-    html += '<div style="padding:10px 16px;border-top:1px solid var(--border);text-align:right">';
-    html += '<label style="font-size:11px;display:flex;align-items:center;gap:4px;margin-right:12px;cursor:pointer">' +
-      '<input type="checkbox" id="mmmc-apply-all"> Apply to all ' + nodeBase + ' nodes</label>';
-    html += '<button onclick="saveMMMCScenarios(\'' + stage + '\',\'' + nodeBase + '\')" class="fm-btn fm-btn-primary" style="padding:5px 16px;font-size:12px">Save Scenarios</button>';
+    // Action buttons
+    html += '<div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">';
+    if (isDynamic) {
+      html += '<span style="font-size:10px;color:var(--text-dim)">Selected scenarios will run as parallel subnodes</span>';
+      html += '<button onclick="saveAndRetraceDynamic(\'' + stage + '\')" class="fm-btn fm-btn-primary" style="padding:5px 16px;font-size:12px">Save Scenarios</button>';
+    } else {
+      html += '<label style="font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer">' +
+        '<input type="checkbox" id="mmmc-apply-all"> Apply to all ' + nodeBase + ' nodes</label>';
+      html += '<button onclick="saveMMMCScenarios(\'' + stage + '\',\'' + nodeBase + '\')" class="fm-btn fm-btn-primary" style="padding:5px 16px;font-size:12px">Save Scenarios</button>';
+    }
     html += '</div></div>';
 
     openModal('edit-modal');
-    document.getElementById('edit-title').textContent = stage + ' — MMMC Scenarios';
+    document.getElementById('edit-title').textContent = isDynamic ? stage + ' — Dynamic Scenarios' : stage + ' — MMMC Scenarios';
     document.querySelector('#edit-modal .modal-bd').innerHTML = html;
-
-    // Store sets data for quick-assign buttons
     window._mmmcSets = sets;
+    window._mmmcIsDynamic = isDynamic;
   }).catch(function(e) { showToast('Failed to load MMMC: ' + e, 'error'); });
 }
 
@@ -2422,18 +2452,49 @@ function mmmcApplySet(setName) {
   var setData = window._mmmcSets[setName];
   if (!setData) return;
   var scenarios = new Set(setData.scenarios);
-  document.querySelectorAll('.mmmc-setup-cb').forEach(function(cb) {
-    if (scenarios.has(cb.value)) cb.checked = true;
-  });
-  document.querySelectorAll('.mmmc-hold-cb').forEach(function(cb) {
-    if (scenarios.has(cb.value)) cb.checked = true;
-  });
+  if (window._mmmcIsDynamic) {
+    document.querySelectorAll('.mmmc-dynamic-cb').forEach(function(cb) {
+      if (scenarios.has(cb.value)) cb.checked = true;
+    });
+  } else {
+    document.querySelectorAll('.mmmc-setup-cb').forEach(function(cb) {
+      if (scenarios.has(cb.value)) cb.checked = true;
+    });
+    document.querySelectorAll('.mmmc-hold-cb').forEach(function(cb) {
+      if (scenarios.has(cb.value)) cb.checked = true;
+    });
+  }
   showToast('Applied set: ' + setName + ' (' + setData.scenarios.length + ' scenarios)', 'success');
 }
 
 function mmmcClearAll() {
-  document.querySelectorAll('.mmmc-setup-cb, .mmmc-hold-cb').forEach(function(cb) { cb.checked = false; });
+  document.querySelectorAll('.mmmc-setup-cb, .mmmc-hold-cb, .mmmc-dynamic-cb').forEach(function(cb) { cb.checked = false; });
   showToast('All scenarios cleared', 'success');
+}
+
+function saveAndRetraceDynamic(stage) {
+  var selected = [];
+  document.querySelectorAll('.mmmc-dynamic-cb:checked').forEach(function(cb) { selected.push(cb.value); });
+  if (selected.length === 0) { showToast('Select at least one scenario', 'error'); return; }
+
+  // Split into setup (ss corners) and hold (ff corners) for user_config
+  var setup = []; var hold = [];
+  selected.forEach(function(s) {
+    if (s.indexOf('_ss_') !== -1) setup.push(s);
+    else if (s.indexOf('_ff_') !== -1) hold.push(s);
+    else setup.push(s); // tt goes to setup
+  });
+
+  fetch('/api/action/save-mmmc', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({node: stage, setup: setup, hold: hold, dynamic: true})
+  }).then(function(r){return r.json();}).then(function(data) {
+    if (data.error) { showToast(data.error, 'error'); return; }
+    showToast('Saved ' + selected.length + ' scenarios for ' + stage + '. Retrace manually when ready.', 'success');
+    closeModal('edit-modal');
+    setTimeout(function(){ location.reload(); }, 1000);
+  }).catch(function(e) { showToast('Error: ' + e, 'error'); });
 }
 
 function saveMMMCScenarios(fullName, baseName) {

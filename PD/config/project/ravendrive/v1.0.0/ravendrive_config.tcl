@@ -28,11 +28,6 @@ set project(root_dir) $ROOT_DIR
 set project(technology) "gf_22nm"
 set project(track_variant) "9T"
 
-# Multi-track configuration (for mixed-track designs)
-set project(track,multi_track_enabled) false
-set project(track,primary_variant) "9T"
-set project(track,secondary_variants) {}
-# Example: set project(track,secondary_variants) {7.5T 6.75T}
 
 # Design hierarchy
 set project(top_module) "ravendrive_top"

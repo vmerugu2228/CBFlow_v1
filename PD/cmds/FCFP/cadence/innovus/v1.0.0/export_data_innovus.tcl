@@ -33,9 +33,6 @@ set OUTPUTS_DIR "$run_dir/outputs"
 file mkdir $REPORTS_DIR
 file mkdir $OUTPUTS_DIR
 
-# Source INNOVUS tool config
-set _tool_config "[file dirname [info script]]/innovus_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting FCFP export_data stage with Innovus..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
@@ -68,7 +65,7 @@ flow_proc export_def {
     handle_info "  DEF exported: $def_file"
 
     # Export floorplan-only DEF if configured
-    if {[info exists innovus(export,floorplan_only_def)] && $innovus(export,floorplan_only_def) eq "true"} {
+    if {[info exists fcfp(export,floorplan_only_def)] && $fcfp(export,floorplan_only_def) eq "true"} {
         set fp_def "$run_dir/results/fcfp/def/${def_name}_floorplan.def"
         defOut $fp_def -floorplan
         handle_info "  Floorplan DEF: $fp_def"
@@ -101,7 +98,7 @@ flow_proc export_design {
     handle_info "  Design database: $db_path"
 
     # Save netlist
-    if {![info exists innovus(export,skip_netlist)] || $innovus(export,skip_netlist) ne "true"} {
+    if {![info exists fcfp(export,skip_netlist)] || $fcfp(export,skip_netlist) ne "true"} {
         file mkdir "$run_dir/results/fcfp/netlist"
         set netlist_file "$run_dir/results/fcfp/netlist/${design_name}.v"
         saveNetlist $netlist_file
@@ -109,7 +106,7 @@ flow_proc export_design {
     }
 
     # Save SDC constraints
-    if {![info exists innovus(export,skip_sdc)] || $innovus(export,skip_sdc) ne "true"} {
+    if {![info exists fcfp(export,skip_sdc)] || $fcfp(export,skip_sdc) ne "true"} {
         file mkdir "$run_dir/results/fcfp/sdc"
         set sdc_file "$run_dir/results/fcfp/sdc/${design_name}.sdc"
         write_sdc $sdc_file

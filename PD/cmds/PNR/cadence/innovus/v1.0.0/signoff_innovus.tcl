@@ -1,61 +1,32 @@
 #!/usr/bin/env tclsh
-# ═══════════════════════════════════════════════════════════════════════════════
-# CBFlow - PNR Signoff Stage with MMMC Support
-# Description: Final signoff checks and deliverables generation with per-scenario reports
-# Usage: Source this file in PNR tool
-# ═══════════════════════════════════════════════════════════════════════════════
+# PNR signoff - Cadence Innovus
 
-# Source flow utilities (includes flow procedure management)
-if {[file exists "$FLOW_DIR/utils/utils.tcl"]} {
-    source "$FLOW_DIR/utils/utils.tcl"
-} else {
-    handle_error "Cannot find flow utilities"
-}
+# -- Bootstrap -----------------------------------------------------------------
+set run_dir $::env(CBFLOW_RUN_DIR)
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-# Source generated configuration file (from setup stage)
-if {[file exists "work/PNR/signoff/run/config.tcl"]} {
-    source "work/PNR/signoff/run/config.tcl"
-} else {
-    handle_error "Cannot find generated config file. Run 'make signoff_setup' first."
-}
-
-# Source generated setup file (from setup stage)
-if {[file exists "work/PNR/signoff/run/setup.tcl"]} {
-    source "work/PNR/signoff/run/setup.tcl"
-} else {
-    handle_error "Cannot find generated setup file. Run 'make signoff_setup' first."
-}
-
-# Source MMMC configuration
-set mmmc_config_file "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
-if {[file exists $mmmc_config_file]} { source $mmmc_config_file }
-
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
-
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
-
-global pnr project tech flow
-# Source INNOVUS tool config
-set _tool_config "[file dirname [info script]]/innovus_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "Starting PNR signoff with Cadence Innovus..."
-if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
-set ::flow::exec_mode "auto"
-
-# -- Directories ---------------------------------------------------------------
 set FLOW_TYPE "PNR"
 set STAGE_NAME "signoff"
 set NODE_NAME "signoff1"
-set WORK_DIR "$run_dir/work/$FLOW_TYPE/$NODE_NAME"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
+
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
+
+    handle_error "Cannot find flow utilities"
+# Source generated configuration file (from setup stage)
+if {[file exists "work/PNR/signoff/run/config.tcl"]} {
+    source "work/PNR/signoff/run/config.tcl"
+    handle_error "Cannot find generated config file. Run 'make signoff_setup' first."
+# Source generated setup file (from setup stage)
+if {[file exists "work/PNR/signoff/run/setup.tcl"]} {
+    source "work/PNR/signoff/run/setup.tcl"
+    handle_error "Cannot find generated setup file. Run 'make signoff_setup' first."
+handle_info "Starting PNR signoff with Cadence Innovus..."
+set FLOW_TYPE "PNR"
+set STAGE_NAME "signoff"
+set NODE_NAME "signoff1"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SIGNOFF
@@ -141,7 +112,7 @@ flow_proc run_signoff_timing {
 
     # Extract final parasitics for signoff
     global pnr
-    set signoff_extract_effort [expr {[info exists innovus(signoff,extract_effort)] ? $innovus(signoff,extract_effort) : "signoff"}]
+    set signoff_extract_effort [expr {[info exists pnr(signoff,extract_effort)] ? $pnr(signoff,extract_effort) : "signoff"}]
     setExtractRCMode -engine postRoute -effort $signoff_extract_effort
     extractRC -engine postRoute
 
@@ -207,7 +178,7 @@ flow_proc generate_deliverables {
     write_sdc "$::OUTPUTS_DIR/sdc/${top_module}_final.sdc"
 
     # GDS generation
-    if {[info exists innovus(output,gds)] && $innovus(output,gds) ne ""} {
+    if {[info exists pnr(output,gds)] && $pnr(output,gds) ne ""} {
         handle_info "Generating GDS..."
         if {$stream_map_file ne ""} {
             streamOut "$::OUTPUTS_DIR/gds/${top_module}.gds" -mapFile $stream_map_file
@@ -296,7 +267,6 @@ flow_proc signoff_complete {
     
     log_stage_status "signoff" "COMPLETE" "Signoff completed - design ready for tapeout"
 }
-
 
 
 # Exit tool after stage completion

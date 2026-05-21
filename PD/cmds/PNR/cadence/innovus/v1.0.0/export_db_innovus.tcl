@@ -1,39 +1,23 @@
 #!/usr/bin/env tclsh
-# CBFlow PNR export_db - Cadence Innovus
+# PNR export_db - Cadence Innovus
+
+# -- Bootstrap -----------------------------------------------------------------
 set run_dir $::env(CBFLOW_RUN_DIR)
-set env_file "$run_dir/.run.cbflow.tcl"
-if {[file exists $env_file]} { source $env_file } else { puts stderr "ERROR: .run.cbflow.tcl not found"; exit 1 }
-if {[info exists ::env(FLOW_DIR)]} { set FLOW_DIR $::env(FLOW_DIR) } else { puts stderr "ERROR: FLOW_DIR not set"; exit 1 }
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} { puts stderr "ERROR: UTILITIES_VERSION not set"; exit 1 }
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
-namespace import ::CBFlow::Utilities::print_header
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
-
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
-global pnr project tech flow
-# Source INNOVUS tool config
-set _tool_config "[file dirname [info script]]/innovus_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "Starting PNR export_db with Cadence Innovus..."
-if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
-set ::flow::exec_mode "auto"
-
-# -- Directories ---------------------------------------------------------------
 set FLOW_TYPE "PNR"
 set STAGE_NAME "export_db"
 set NODE_NAME "export_data1"
-set WORK_DIR "$run_dir/work/$FLOW_TYPE/$NODE_NAME"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
+
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
+
+handle_info "Starting PNR export_db with Cadence Innovus..."
+set FLOW_TYPE "PNR"
+set STAGE_NAME "export_db"
+set NODE_NAME "export_data1"
 
 flow_proc enable_mmmc {
     # Enable MMMC scenarios for export_db stage
@@ -129,10 +113,10 @@ flow_proc export_layout_data {
     set export_base "results/export"
 
     # Get export parameters
-    set gds_enable [expr {[info exists innovus(export,gds)] ? $innovus(export,gds) : "true"}]
-    set def_enable [expr {[info exists innovus(export,def)] ? $innovus(export,def) : "true"}]
-    set oasis_enable [expr {[info exists innovus(export,oasis)] ? $innovus(export,oasis) : "false"}]
-    set abstract_enable [expr {[info exists innovus(export,abstract)] ? $innovus(export,abstract) : "true"}]
+    set gds_enable [expr {[info exists pnr(export,gds)] ? $pnr(export,gds) : "true"}]
+    set def_enable [expr {[info exists pnr(export,def)] ? $pnr(export,def) : "true"}]
+    set oasis_enable [expr {[info exists pnr(export,oasis)] ? $pnr(export,oasis) : "false"}]
+    set abstract_enable [expr {[info exists pnr(export,abstract)] ? $pnr(export,abstract) : "true"}]
     
     handle_info "Layout export parameters:"
     handle_info "  GDS export: $gds_enable"
@@ -209,9 +193,9 @@ flow_proc export_netlist_data {
     set export_base "results/export"
     
     # Get netlist export parameters
-    set verilog_enable [expr {[info exists innovus(export,verilog)] ? $innovus(export,verilog) : "true"}]
-    set spice_enable [expr {[info exists innovus(export,spice)] ? $innovus(export,spice) : "false"}]
-    set lef_enable [expr {[info exists innovus(export,lef)} ? $innovus(export,lef) : "true"}]
+    set verilog_enable [expr {[info exists pnr(export,verilog)] ? $pnr(export,verilog) : "true"}]
+    set spice_enable [expr {[info exists pnr(export,spice)] ? $pnr(export,spice) : "false"}]
+    set lef_enable [expr {[info exists pnr(export,lef)} ? $pnr(export,lef) : "true"}]
     
     handle_info "Netlist export parameters:"
     handle_info "  Verilog export: $verilog_enable"
@@ -285,9 +269,9 @@ flow_proc export_timing_data {
     set export_base "results/export"
     
     # Get timing export parameters
-    set sdc_enable [expr {[info exists innovus(export,sdc)] ? $innovus(export,sdc) : "true"}]
-    set spef_enable [expr {[info exists innovus(export,spef)] ? $innovus(export,spef) : "true"}]
-    set sdf_enable [expr {[info exists innovus(export,sdf)] ? $innovus(export,sdf) : "false"}]
+    set sdc_enable [expr {[info exists pnr(export,sdc)] ? $pnr(export,sdc) : "true"}]
+    set spef_enable [expr {[info exists pnr(export,spef)] ? $pnr(export,spef) : "true"}]
+    set sdf_enable [expr {[info exists pnr(export,sdf)] ? $pnr(export,sdf) : "false"}]
     set mmmc_enable [expr {[info exists mmmc(enable)] ? $mmmc(enable) : "false"}]
     
     handle_info "Timing export parameters:"
@@ -383,9 +367,9 @@ flow_proc export_power_data {
     set export_base "results/export"
     
     # Get power export parameters
-    set upf_enable [expr {[info exists innovus(export,upf)] ? $innovus(export,upf) : "true"}]
-    set power_reports [expr {[info exists innovus(export,power_reports)] ? $innovus(export,power_reports) : "true"}]
-    set rail_analysis [expr {[info exists innovus(export,rail_analysis)] ? $innovus(export,rail_analysis) : "true"}]
+    set upf_enable [expr {[info exists pnr(export,upf)] ? $pnr(export,upf) : "true"}]
+    set power_reports [expr {[info exists pnr(export,power_reports)] ? $pnr(export,power_reports) : "true"}]
+    set rail_analysis [expr {[info exists pnr(export,rail_analysis)] ? $pnr(export,rail_analysis) : "true"}]
     
     handle_info "Power export parameters:"
     handle_info "  UPF export: $upf_enable"
@@ -451,9 +435,9 @@ flow_proc export_physical_data {
     set export_base "results/export"
     
     # Get physical export parameters
-    set floorplan_enable [expr {[info exists innovus(export,floorplan)] ? $innovus(export,floorplan) : "true"}]
-    set placement_enable [expr {[info exists innovus(export,placement)] ? $innovus(export,placement) : "true"}]
-    set routing_enable [expr {[info exists innovus(export,routing)] ? $innovus(export,routing) : "true"}]
+    set floorplan_enable [expr {[info exists pnr(export,floorplan)] ? $pnr(export,floorplan) : "true"}]
+    set placement_enable [expr {[info exists pnr(export,placement)] ? $pnr(export,placement) : "true"}]
+    set routing_enable [expr {[info exists pnr(export,routing)] ? $pnr(export,routing) : "true"}]
     
     handle_info "Physical export parameters:"
     handle_info "  Floorplan data: $floorplan_enable"
@@ -531,9 +515,9 @@ flow_proc export_verification_data {
     set export_base "results/export"
     
     # Get verification export parameters
-    set drc_enable [expr {[info exists innovus(export,drc)] ? $innovus(export,drc) : "true"}]
-    set lvs_enable [expr {[info exists innovus(export,lvs)] ? $innovus(export,lvs) : "true"}]
-    set antenna_enable [expr {[info exists innovus(export,antenna)] ? $innovus(export,antenna) : "true"}]
+    set drc_enable [expr {[info exists pnr(export,drc)] ? $pnr(export,drc) : "true"}]
+    set lvs_enable [expr {[info exists pnr(export,lvs)] ? $pnr(export,lvs) : "true"}]
+    set antenna_enable [expr {[info exists pnr(export,antenna)] ? $pnr(export,antenna) : "true"}]
     
     handle_info "Verification export parameters:"
     handle_info "  DRC data: $drc_enable"
@@ -781,11 +765,11 @@ flow_proc generate_export_documentation {
     puts $fd "PHYSICAL PARAMETERS"
     puts $fd "==================="
     # Add physical parameters from configuration
-    if {[info exists innovus(floorplan,core_util)]} {
-        puts $fd "Core Utilization: $innovus(floorplan,core_util)"
+    if {[info exists pnr(floorplan,core_util)]} {
+        puts $fd "Core Utilization: $pnr(floorplan,core_util)"
     }
-    if {[info exists innovus(floorplan,aspect_ratio)]} {
-        puts $fd "Aspect Ratio: $innovus(floorplan,aspect_ratio)"
+    if {[info exists pnr(floorplan,aspect_ratio)]} {
+        puts $fd "Aspect Ratio: $pnr(floorplan,aspect_ratio)"
     }
     puts $fd ""
     puts $fd "TIMING PARAMETERS"
@@ -932,11 +916,11 @@ flow_proc export_db_complete {
     
     # Report what was exported
     puts $fd "=== EXPORTED DATA ==="
-    set gds_enable [expr {[info exists innovus(export,gds)] ? $innovus(export,gds) : "true"}]
-    set def_enable [expr {[info exists innovus(export,def)] ? $innovus(export,def) : "true"}]
-    set verilog_enable [expr {[info exists innovus(export,verilog)] ? $innovus(export,verilog) : "true"}]
-    set sdc_enable [expr {[info exists innovus(export,sdc)] ? $innovus(export,sdc) : "true"}]
-    set spef_enable [expr {[info exists innovus(export,spef)] ? $innovus(export,spef) : "true"}]
+    set gds_enable [expr {[info exists pnr(export,gds)] ? $pnr(export,gds) : "true"}]
+    set def_enable [expr {[info exists pnr(export,def)] ? $pnr(export,def) : "true"}]
+    set verilog_enable [expr {[info exists pnr(export,verilog)] ? $pnr(export,verilog) : "true"}]
+    set sdc_enable [expr {[info exists pnr(export,sdc)] ? $pnr(export,sdc) : "true"}]
+    set spef_enable [expr {[info exists pnr(export,spef)] ? $pnr(export,spef) : "true"}]
     
     puts $fd "Layout Data:"
     puts $fd "  GDS: $gds_enable"

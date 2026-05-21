@@ -1,61 +1,32 @@
 #!/usr/bin/env tclsh
-# ═══════════════════════════════════════════════════════════════════════════════
-# CBFlow - PNR Post Route Stage with MMMC Support
-# Description: Post-route optimization and ECO with multi-corner analysis
-# Usage: Source this file in PNR tool
-# ═══════════════════════════════════════════════════════════════════════════════
+# PNR post_route - Cadence Innovus
 
-# Source flow utilities (includes flow procedure management)
-if {[file exists "$FLOW_DIR/utils/utils.tcl"]} {
-    source "$FLOW_DIR/utils/utils.tcl"
-} else {
-    handle_error "Cannot find flow utilities"
-}
+# -- Bootstrap -----------------------------------------------------------------
+set run_dir $::env(CBFLOW_RUN_DIR)
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-# Source generated configuration file (from setup stage)
-if {[file exists "work/PNR/post_route/run/config.tcl"]} {
-    source "work/PNR/post_route/run/config.tcl"
-} else {
-    handle_error "Cannot find generated config file. Run 'make post_route_setup' first."
-}
-
-# Source generated setup file (from setup stage)
-if {[file exists "work/PNR/post_route/run/setup.tcl"]} {
-    source "work/PNR/post_route/run/setup.tcl"
-} else {
-    handle_error "Cannot find generated setup file. Run 'make post_route_setup' first."
-}
-
-# Source MMMC configuration
-set mmmc_config_file "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
-if {[file exists $mmmc_config_file]} { source $mmmc_config_file }
-
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
-
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
-
-global pnr project tech flow
-# Source INNOVUS tool config
-set _tool_config "[file dirname [info script]]/innovus_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "Starting PNR post_route with Cadence Innovus..."
-if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
-set ::flow::exec_mode "auto"
-
-# -- Directories ---------------------------------------------------------------
 set FLOW_TYPE "PNR"
 set STAGE_NAME "post_route"
 set NODE_NAME "pro1"
-set WORK_DIR "$run_dir/work/$FLOW_TYPE/$NODE_NAME"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
+
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
+
+    handle_error "Cannot find flow utilities"
+# Source generated configuration file (from setup stage)
+if {[file exists "work/PNR/post_route/run/config.tcl"]} {
+    source "work/PNR/post_route/run/config.tcl"
+    handle_error "Cannot find generated config file. Run 'make post_route_setup' first."
+# Source generated setup file (from setup stage)
+if {[file exists "work/PNR/post_route/run/setup.tcl"]} {
+    source "work/PNR/post_route/run/setup.tcl"
+    handle_error "Cannot find generated setup file. Run 'make post_route_setup' first."
+handle_info "Starting PNR post_route with Cadence Innovus..."
+set FLOW_TYPE "PNR"
+set STAGE_NAME "post_route"
+set NODE_NAME "pro1"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # POST ROUTE
@@ -116,9 +87,9 @@ flow_proc extract_parasitics {
 
     # Get extraction parameters from config
     global pnr
-    set extraction_mode $innovus(extract,mode)
-    set rc_corner       $innovus(extract,rc_corner)
-    set extract_effort  [expr {[info exists innovus(extract,effort)] ? $innovus(extract,effort) : "high"}]
+    set extraction_mode $pnr(extract,mode)
+    set rc_corner       $pnr(extract,rc_corner)
+    set extract_effort  [expr {[info exists pnr(extract,effort)] ? $pnr(extract,effort) : "high"}]
 
     handle_info "Extraction parameters:"
     handle_info "  Mode: $extraction_mode"
@@ -137,9 +108,9 @@ flow_proc run_post_route_opt {
 
     # Post-route timing optimization from config
     global pnr
-    set opt_effort   $innovus(route,post_opt_effort)
-    set setup_margin $innovus(opt,setup_margin)
-    set hold_margin  $innovus(opt,hold_margin)
+    set opt_effort   $pnr(route,post_opt_effort)
+    set setup_margin $pnr(opt,setup_margin)
+    set hold_margin  $pnr(opt,hold_margin)
 
     handle_info "Post-route optimization parameters:"
     handle_info "  Effort: $opt_effort"
@@ -168,7 +139,7 @@ flow_proc run_eco_fixes {
 
     # Metal fill insertion
     global pnr
-    set insert_metal_fill $innovus(opt,insert_metal_fill)
+    set insert_metal_fill $pnr(opt,insert_metal_fill)
     if {$insert_metal_fill eq "true"} {
         handle_info "Inserting metal fill..."
         addMetalFill
@@ -255,7 +226,6 @@ flow_proc post_route_complete {
 
     log_stage_status "post_route" "COMPLETE" "Post-route optimization completed successfully"
 }
-
 
 
 # Exit tool after stage completion

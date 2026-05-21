@@ -140,10 +140,6 @@ def _load_flow_config() -> Dict[str, Any]:
     if 'flow(phases)' in set_vars:
         parsed['phases'] = _parse_tcl_list(set_vars['flow(phases)'])
 
-    # flow(default_phase)
-    if 'flow(default_phase)' in set_vars:
-        parsed['default_phase'] = _parse_tcl_string(set_vars['flow(default_phase)'])
-
     # flow(exit_milestones)
     if 'flow(exit_milestones)' in set_vars:
         parsed['exit_milestones'] = _parse_tcl_list(set_vars['flow(exit_milestones)'])

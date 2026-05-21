@@ -1,82 +1,54 @@
 #!/usr/bin/env tclsh
-# ===============================================================================
-# CBFlow - EMIR IR Drop Command File
-# Description: IR drop analysis and hotspot identification
-# Tool: Synopsys RedHawk
-# ===============================================================================
+# CBFlow EMIR IR drop analysis - Synopsys RedHawk
 
+# ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
-set env_file "$run_dir/.run.cbflow.tcl"
-if {[file exists $env_file]} { source $env_file } else { puts stderr "ERROR: .run.cbflow.tcl not found"; exit 1 }
-if {[info exists ::env(FLOW_DIR)]} { set FLOW_DIR $::env(FLOW_DIR) } else { puts stderr "ERROR: FLOW_DIR not set"; exit 1 }
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} { puts stderr "ERROR: UTILITIES_VERSION not set"; exit 1 }
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
-namespace import ::CBFlow::Utilities::print_header
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-set config_file "$run_dir/work/EMIR/ir_drop/run/config.tcl"
-if {[file exists $config_file]} { source $config_file }
+set FLOW_TYPE "EMIR"
+set STAGE_NAME "ir_drop"
+set NODE_NAME "${STAGE_NAME}1"
 
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
-global emir project tech flow
-# Source REDHAWK tool config
-set _tool_config "[file dirname [info script]]/redhawk_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "Starting EMIR ir_drop with Synopsys RedHawk..."
-if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
-set ::flow::exec_mode "auto"
-
-set WORK_DIR "$run_dir/work/EMIR/ir_drop"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
-
-# --------------------------------------------------------------------------
-# Procedure: configure_ir
-#   Configure IR drop analysis parameters and thresholds
 # --------------------------------------------------------------------------
 flow_proc configure_ir {
     global emir project tech
     handle_info "Configuring IR drop analysis..."
 
     # Set IR drop thresholds
-    if {[info exists redhawk(ir,vdd_threshold)]} {
-        set ::ir_vdd_threshold $redhawk(ir,vdd_threshold)
+    if {[info exists emir(ir,vdd_threshold)]} {
+        set ::ir_vdd_threshold $emir(ir,vdd_threshold)
     } else {
         set ::ir_vdd_threshold 0.05
     }
 
-    if {[info exists redhawk(ir,vss_threshold)]} {
-        set ::ir_vss_threshold $redhawk(ir,vss_threshold)
+    if {[info exists emir(ir,vss_threshold)]} {
+        set ::ir_vss_threshold $emir(ir,vss_threshold)
     } else {
         set ::ir_vss_threshold 0.02
     }
 
     # Set supply voltage
-    if {[info exists redhawk(power,vdd_voltage)]} {
-        set ::ir_supply_voltage $redhawk(power,vdd_voltage)
+    if {[info exists emir(power,vdd_voltage)]} {
+        set ::ir_supply_voltage $emir(power,vdd_voltage)
     } else {
         set ::ir_supply_voltage 0.9
     }
 
     # EM threshold
-    if {[info exists redhawk(ir,em_threshold)]} {
-        set ::em_threshold $redhawk(ir,em_threshold)
+    if {[info exists emir(ir,em_threshold)]} {
+        set ::em_threshold $emir(ir,em_threshold)
     } else {
         set ::em_threshold 1.0
     }
 
     # Analysis mode
-    if {[info exists redhawk(ir,mode)]} {
-        set ::ir_mode $redhawk(ir,mode)
+    if {[info exists emir(ir,mode)]} {
+        set ::ir_mode $emir(ir,mode)
     } else {
         set ::ir_mode "both"
     }

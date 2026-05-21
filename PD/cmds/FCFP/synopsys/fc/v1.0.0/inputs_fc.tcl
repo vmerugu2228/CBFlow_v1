@@ -1,51 +1,19 @@
 #!/usr/bin/env tclsh
 # CBFlow FCFP inputs - Synopsys Fusion Compiler
-# Input preparation: library creation, hierarchical design read,
-#         constraints, early compile, PG connection
-# Aligned with FC-RM Y-2026.03
+
+# ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
-set env_file "$run_dir/.run.cbflow.tcl"
-if {[file exists $env_file]} { source $env_file } else { puts stderr "ERROR: .run.cbflow.tcl not found"; exit 1 }
-if {[info exists ::env(FLOW_DIR)]} { set FLOW_DIR $::env(FLOW_DIR) } else { puts stderr "ERROR: FLOW_DIR not set"; exit 1 }
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} { puts stderr "ERROR: UTILITIES_VERSION not set"; exit 1 }
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
-namespace import ::CBFlow::Utilities::print_header
-set config_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/config.tcl"
-if {[file exists $config_file]} { source $config_file }
-global fcfp project tech flow
-# Source FC tool config
-set _tool_config "[file dirname [info script]]/fc_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "Starting FCFP inputs..."
-if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
-set ::flow::exec_mode "auto"
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" &&
-    [info exists ::env(TECH_VERSION)] && $::env(TECH_VERSION) ne ""} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
+set FLOW_TYPE "FCFP"
+set STAGE_NAME "inputs"
+set NODE_NAME "${STAGE_NAME}1"
 
-set WORK_DIR "$run_dir/work/FCFP/inputs1"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
-# Source release utilities for input resolution
-set _release_utils "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
-if {[file exists $_release_utils]} { source $_release_utils }
-set _release_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
-if {[file exists $_release_config]} { source $_release_config }
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
-
-# ==============================================================================
-# flow_proc: setup_dirs
-# Create directory structure for FCFP input stage
 # ==============================================================================
 flow_proc resolve_inputs {
     handle_info "Resolving input files..."
@@ -84,7 +52,7 @@ flow_proc read_libraries {
 
     set run_dir $::env(CBFLOW_RUN_DIR)
 
-    set lib_name [expr {[info exists fc(common,DESIGN_LIB)] ? $fc(common,DESIGN_LIB) : "FCFP_DESIGN_LIB"}]
+    set lib_name [expr {[info exists fcfp(common,DESIGN_LIB)] ? $fcfp(common,DESIGN_LIB) : "FCFP_DESIGN_LIB"}]
 
     if {[info exists tech(TECH_FILE)] && $tech(TECH_FILE) ne ""} {
         handle_info "Reading tech file: $tech(TECH_FILE)"
@@ -126,8 +94,8 @@ flow_proc read_hierarchical_design {
     set partition_dir "$run_dir/work/FCFP/inputs/partitions"
 
     # Read top-level netlist
-    if {[info exists fc(common,TOP_NETLIST)]} {
-        set top_netlist $fc(common,TOP_NETLIST)
+    if {[info exists fcfp(common,TOP_NETLIST)]} {
+        set top_netlist $fcfp(common,TOP_NETLIST)
     } else {
         set top_netlist [glob -nocomplain "$netlist_dir/*.v" "$netlist_dir/*.sv"]
     }
@@ -137,8 +105,8 @@ flow_proc read_hierarchical_design {
     }
 
     # Read partition netlists
-    if {[info exists fc(common,PARTITION_NETLISTS)]} {
-        set part_netlists $fc(common,PARTITION_NETLISTS)
+    if {[info exists fcfp(common,PARTITION_NETLISTS)]} {
+        set part_netlists $fcfp(common,PARTITION_NETLISTS)
     } else {
         set part_netlists [glob -nocomplain "$partition_dir/*.v" "$partition_dir/*.sv"]
     }
@@ -148,8 +116,8 @@ flow_proc read_hierarchical_design {
     }
 
     # Link design
-    if {[info exists fc(common,TOP_MODULE)]} {
-        set top $fc(common,TOP_MODULE)
+    if {[info exists fcfp(common,TOP_MODULE)]} {
+        set top $fcfp(common,TOP_MODULE)
     } elseif {[info exists project(DESIGN_NAME)]} {
         set top $project(DESIGN_NAME)
     } else {
@@ -173,8 +141,8 @@ flow_proc read_constraints {
     set run_dir $::env(CBFLOW_RUN_DIR)
     set sdc_dir "$run_dir/work/FCFP/inputs/sdc"
 
-    if {[info exists fc(common,SDC_FILES)]} {
-        set sdc_files $fc(common,SDC_FILES)
+    if {[info exists fcfp(common,SDC_FILES)]} {
+        set sdc_files $fcfp(common,SDC_FILES)
     } else {
         set sdc_files [glob -nocomplain "$sdc_dir/*.sdc"]
     }
@@ -183,15 +151,15 @@ flow_proc read_constraints {
         read_sdc $sdc
     }
 
-    if {[info exists fc(common,UPF_FILE)] && $fc(common,UPF_FILE) ne ""} {
-        handle_info "Reading UPF: $fc(common,UPF_FILE)"
-        load_upf $fc(common,UPF_FILE)
+    if {[info exists fcfp(common,UPF_FILE)] && $fcfp(common,UPF_FILE) ne ""} {
+        handle_info "Reading UPF: $fcfp(common,UPF_FILE)"
+        load_upf $fcfp(common,UPF_FILE)
         commit_upf
     }
 
-    if {[info exists fc(common,SCENARIO_SETUP)] && [file exists $fc(common,SCENARIO_SETUP)]} {
-        handle_info "Reading MCMM scenario setup: $fc(common,SCENARIO_SETUP)"
-        source -e $fc(common,SCENARIO_SETUP)
+    if {[info exists fcfp(common,SCENARIO_SETUP)] && [file exists $fcfp(common,SCENARIO_SETUP)]} {
+        handle_info "Reading MCMM scenario setup: $fcfp(common,SCENARIO_SETUP)"
+        source -e $fcfp(common,SCENARIO_SETUP)
     }
 
     handle_info "Constraints loaded"
@@ -249,19 +217,19 @@ flow_proc set_dp_qor_strategy {
 
     set qor_cmd "set_qor_strategy -stage compile_initial"
 
-    if {[info exists fc(compile,qor_metric)] && $fc(compile,qor_metric) ne ""} {
-        lappend qor_cmd -metric $fc(compile,qor_metric)
+    if {[info exists fcfp(compile,qor_metric)] && $fcfp(compile,qor_metric) ne ""} {
+        lappend qor_cmd -metric $fcfp(compile,qor_metric)
     } else {
         lappend qor_cmd -metric timing
     }
 
-    if {[info exists fc(compile,reduced_effort)] && $fc(compile,reduced_effort)} {
+    if {[info exists fcfp(compile,reduced_effort)] && $fcfp(compile,reduced_effort)} {
         lappend qor_cmd -reduced_effort
     }
 
-    if {[info exists fc(compile,active_scenarios)] && $fc(compile,active_scenarios) ne ""} {
+    if {[info exists fcfp(compile,active_scenarios)] && $fcfp(compile,active_scenarios) ne ""} {
         set_scenario_status -active false [get_scenarios -filter active]
-        set_scenario_status -active true $fc(compile,active_scenarios)
+        set_scenario_status -active true $fcfp(compile,active_scenarios)
     }
 
     handle_info "Running: $qor_cmd"
@@ -285,7 +253,7 @@ flow_proc run_early_compile {
     handle_info "Running early compile_fusion for area estimation..."
     global fcfp
 
-    set early_stage [expr {[info exists fc(compile,early_stage)] && $fc(compile,early_stage) ne "" ? $fc(compile,early_stage) : "initial_map"}]
+    set early_stage [expr {[info exists fcfp(compile,early_stage)] && $fcfp(compile,early_stage) ne "" ? $fcfp(compile,early_stage) : "initial_map"}]
 
     handle_info "compile_fusion -to $early_stage"
     compile_fusion -to $early_stage
@@ -305,14 +273,7 @@ flow_proc connect_pg_dp {
 }
 
 # ==============================================================================
-# Source setup.tcl and overrides before flow_exec_all
 # ==============================================================================
-set _setup_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/setup.tcl"
-if {[file exists $_setup_file]} { handle_info "Sourcing setup hooks: $_setup_file"; source $_setup_file }
-set _override_file "$run_dir/setup/override_setup.tcl"
-if {[file exists $_override_file]} { handle_info "Sourcing user override: $_override_file"; source $_override_file }
-set _stage_override "$run_dir/setup/override_setup.inputs.tcl"
-if {[file exists $_stage_override]} { handle_info "Sourcing stage override: $_stage_override"; source $_stage_override }
 
 flow_exec_all
 

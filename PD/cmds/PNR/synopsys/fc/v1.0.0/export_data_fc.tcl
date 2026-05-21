@@ -1,36 +1,21 @@
 #!/usr/bin/env tclsh
 # CBFlow PNR export_data1 - Synopsys Fusion Compiler | PNR export_data1
+
+# ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
-set env_file "$run_dir/.run.cbflow.tcl"
-if {[file exists $env_file]} { source $env_file } else { puts stderr "ERROR: .run.cbflow.tcl not found"; exit 1 }
-if {[info exists ::env(FLOW_DIR)]} { set FLOW_DIR $::env(FLOW_DIR) } else { puts stderr "ERROR: FLOW_DIR not set"; exit 1 }
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} { puts stderr "ERROR: UTILITIES_VERSION not set"; exit 1 }
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
-namespace import ::CBFlow::Utilities::print_header
-set config_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/config.tcl"
-if {[file exists $config_file]} { source $config_file }
-global pnr project tech flow
-# Source FC tool config
-set _tool_config "[file dirname [info script]]/fc_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "Starting PNR export_data1 with Synopsys Fusion Compiler..."
-if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
-set ::flow::exec_mode "auto"
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-# -- Directories ---------------------------------------------------------------
-set WORK_DIR "$run_dir/work/PNR/export_data1"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
+set FLOW_TYPE "PNR"
+set STAGE_NAME "export_data"
+set NODE_NAME "export_data1"
 
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" &&
-    [info exists ::env(TECH_VERSION)] && $::env(TECH_VERSION) ne ""} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
+# ── Config (full cascade: project → tech → flow → node → mmmc → tool → user) ─
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+
+# ── Directories ──────────────────────────────────────────────────────────────
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 # ==============================================================================
 # flow_proc: write_netlist
@@ -44,14 +29,14 @@ flow_proc write_netlist {
     file mkdir "$run_dir/results/pnr/netlist"
 
     # Apply change_names for verilog compliance
-    if {[info exists fc(output,name_rules_options)] && $fc(output,name_rules_options) ne ""} {
-        eval define_name_rules verilog $fc(output,name_rules_options)
+    if {[info exists pnr(output,name_rules_options)] && $pnr(output,name_rules_options) ne ""} {
+        eval define_name_rules verilog $pnr(output,name_rules_options)
     }
     change_names -rules verilog -hierarchy
     save_block
 
     # Write logic-only Verilog (no PG, no physical only cells)
-    set netlist_logic "$run_dir/results/pnr/netlist/$fc(common,design_name).v"
+    set netlist_logic "$run_dir/results/pnr/netlist/$pnr(common,design_name).v"
     handle_info "Writing logic-only netlist: $netlist_logic"
     write_verilog -compress gzip \
         -exclude {scalar_wire_declarations leaf_module_declarations pg_objects end_cap_cells well_tap_cells filler_cells pad_spacer_cells physical_only_cells cover_cells} \
@@ -59,7 +44,7 @@ flow_proc write_netlist {
         ${netlist_logic}
 
     # Write PG-aware netlist for LVS
-    set netlist_lvs "$run_dir/results/pnr/netlist/$fc(common,design_name).lvs.v"
+    set netlist_lvs "$run_dir/results/pnr/netlist/$pnr(common,design_name).lvs.v"
     handle_info "Writing LVS netlist: $netlist_lvs"
     write_verilog -compress gzip \
         -exclude {scalar_wire_declarations leaf_module_declarations empty_modules} \
@@ -67,7 +52,7 @@ flow_proc write_netlist {
         ${netlist_lvs}
 
     # Write PT-compatible netlist
-    set netlist_pt "$run_dir/results/pnr/netlist/$fc(common,design_name).pt.v"
+    set netlist_pt "$run_dir/results/pnr/netlist/$pnr(common,design_name).pt.v"
     handle_info "Writing PT netlist: $netlist_pt"
     write_verilog -compress gzip \
         -exclude {scalar_wire_declarations leaf_module_declarations pg_objects end_cap_cells well_tap_cells filler_cells pad_spacer_cells physical_only_cells cover_cells flip_chip_pad_cells} \
@@ -75,7 +60,7 @@ flow_proc write_netlist {
         ${netlist_pt}
 
     # Write FM-compatible netlist
-    set netlist_fm "$run_dir/results/pnr/netlist/$fc(common,design_name).fm.v"
+    set netlist_fm "$run_dir/results/pnr/netlist/$pnr(common,design_name).fm.v"
     handle_info "Writing FM netlist: $netlist_fm"
     write_verilog -compress gzip \
         -exclude {scalar_wire_declarations leaf_module_declarations end_cap_cells well_tap_cells filler_cells pad_spacer_cells physical_only_cells cover_cells supply_statements} \
@@ -96,12 +81,12 @@ flow_proc write_def_output {
     set run_dir $::env(CBFLOW_RUN_DIR)
     file mkdir "$run_dir/results/pnr/def"
 
-    set def_file "$run_dir/results/pnr/def/$fc(common,design_name).def"
+    set def_file "$run_dir/results/pnr/def/$pnr(common,design_name).def"
     handle_info "Writing DEF: $def_file"
 
     set write_def_cmd "write_def -compress gzip -version 5.8 -include_tech_via_definitions"
-    if {[info exists fc(output,def_convert_sites)] && $fc(output,def_convert_sites) ne ""} {
-        lappend write_def_cmd -convert_sites $fc(output,def_convert_sites)
+    if {[info exists pnr(output,def_convert_sites)] && $pnr(output,def_convert_sites) ne ""} {
+        lappend write_def_cmd -convert_sites $pnr(output,def_convert_sites)
     }
     lappend write_def_cmd $def_file
 
@@ -129,8 +114,8 @@ flow_proc write_gds_output {
     file mkdir "$run_dir/results/pnr/gds"
 
     # Write GDS
-    if {[info exists fc(output,write_gds)] && $fc(output,write_gds)} {
-        set gds_file "$run_dir/results/pnr/gds/$fc(common,design_name).gds"
+    if {[info exists pnr(output,write_gds)] && $pnr(output,write_gds)} {
+        set gds_file "$run_dir/results/pnr/gds/$pnr(common,design_name).gds"
         handle_info "Writing GDSII: $gds_file"
 
         set gds_cmd "write_gds -compress -hierarchy all -long_names -keep_data_type"
@@ -152,8 +137,8 @@ flow_proc write_gds_output {
     }
 
     # Write OASIS
-    if {[info exists fc(output,write_oasis)] && $fc(output,write_oasis)} {
-        set oasis_file "$run_dir/results/pnr/gds/$fc(common,design_name).oasis"
+    if {[info exists pnr(output,write_oasis)] && $pnr(output,write_oasis)} {
+        set oasis_file "$run_dir/results/pnr/gds/$pnr(common,design_name).oasis"
         handle_info "Writing OASIS: $oasis_file"
 
         set oasis_cmd "write_oasis -compress 6 -hierarchy all -keep_data_type"
@@ -188,7 +173,7 @@ flow_proc write_parasitics_output {
     update_timing
 
     # Write parasitics (SPEF)
-    set spef_output "$run_dir/results/pnr/spef/$fc(common,design_name)"
+    set spef_output "$run_dir/results/pnr/spef/$pnr(common,design_name)"
     handle_info "Writing SPEF parasitics: $spef_output"
     write_parasitics -compress -output $spef_output
 
@@ -208,13 +193,13 @@ flow_proc write_sdc_output {
 
     # Write scripts (mode/corner/scenario scripts for PT)
     write_script -force -compress gzip \
-        -output "$run_dir/results/pnr/sdc/${fc(common,design_name)}_wscript"
+        -output "$run_dir/results/pnr/sdc/${pnr(common,design_name)}_wscript"
     write_script -force -compress gzip -format pt \
-        -output "$run_dir/results/pnr/sdc/${fc(common,design_name)}_wscript_for_pt"
+        -output "$run_dir/results/pnr/sdc/${pnr(common,design_name)}_wscript_for_pt"
 
     # Write routing constraints
     write_routing_constraints \
-        "$run_dir/results/pnr/sdc/${fc(common,design_name)}_routing_constraints"
+        "$run_dir/results/pnr/sdc/${pnr(common,design_name)}_routing_constraints"
 
     # Write floorplan
     write_floorplan \
@@ -225,11 +210,11 @@ flow_proc write_sdc_output {
         -exclude {scan_chains fills pg_metal_fills routing_rules} \
         -net_types {power ground} \
         -include_physical_status {fixed locked} \
-        -output "$run_dir/results/pnr/sdc/${fc(common,design_name)}_floorplan"
+        -output "$run_dir/results/pnr/sdc/${pnr(common,design_name)}_floorplan"
 
     # Write UPF if power intent exists
-    if {[info exists fc(output,write_upf)] && $fc(output,write_upf)} {
-        save_upf "$run_dir/results/pnr/sdc/$fc(common,design_name).upf"
+    if {[info exists pnr(output,write_upf)] && $pnr(output,write_upf)} {
+        save_upf "$run_dir/results/pnr/sdc/$pnr(common,design_name).upf"
         handle_info "UPF written"
     }
 
@@ -239,7 +224,7 @@ flow_proc write_sdc_output {
         set scnN [get_object_name $scn]
         handle_info "Writing SDC for scenario $scnN"
         write_sdc -compress gzip \
-            -output "$run_dir/results/pnr/sdc/${fc(common,design_name)}_${scnN}.sdc"
+            -output "$run_dir/results/pnr/sdc/${pnr(common,design_name)}_${scnN}.sdc"
     }
 
     handle_info "SDC and script export completed"
@@ -253,9 +238,9 @@ flow_proc save_design_block {
     handle_info "Saving final design block..."
     global pnr
 
-    if {[info exists fc(output,block_labeling)] && $fc(output,block_labeling)} {
-        save_block -as $fc(common,design_name)/export_data
-        handle_info "Block saved as $fc(common,design_name)/export_data"
+    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling)} {
+        save_block -as $pnr(common,design_name)/export_data
+        handle_info "Block saved as $pnr(common,design_name)/export_data"
     } else {
         save_block
         handle_info "Block saved"

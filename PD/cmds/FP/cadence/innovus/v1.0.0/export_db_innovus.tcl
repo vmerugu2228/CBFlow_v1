@@ -1,46 +1,27 @@
 #!/usr/bin/env tclsh
-# ═══════════════════════════════════════════════════════════════════════════════
-# CBFlow - FP Export DB Stage for Innovus
-# Description: Export DEF, design database, and reports for downstream flows
-# Usage: Source this file in Innovus or run via CBFlow
-# Output: DEF, .enc database, and summary reports
-# ═══════════════════════════════════════════════════════════════════════════════
+# FP export_db - Cadence Innovus
 
-# Validate required environment variables
-if {![info exists ::env(FLOW_DIR)] || $::env(FLOW_DIR) eq ""} {
-    puts "ERROR: FLOW_DIR not set. Ensure .run.cbflow.tcl is properly generated."
-    exit 1
-}
+# -- Bootstrap -----------------------------------------------------------------
+set run_dir $::env(CBFLOW_RUN_DIR)
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} {
-    puts "ERROR: UTILITIES_VERSION not set. Ensure .run.cbflow.tcl is properly generated."
-    exit 1
-}
+set FLOW_TYPE "FP"
+set STAGE_NAME "export_db"
+set NODE_NAME "export_db1"
 
-set flow_dir $::env(FLOW_DIR)
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 # Source flow utilities using release version
 set utils_path "$flow_dir/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 if {[file exists $utils_path]} {
     source $utils_path
-} else {
     puts "ERROR: Cannot find flow utilities at: $utils_path"
     exit 1
-}
-
 set run_dir $::env(CBFLOW_RUN_DIR)
-
-set WORK_DIR "$run_dir/work/FP/export_db"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
-
-# Source INNOVUS tool config
-set _tool_config "[file dirname [info script]]/innovus_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting CBFlow FP export_db stage for Innovus"
-
 # Define common procedures used in config files
 if {[info procs INFO] eq ""} {
     proc INFO {} {
@@ -52,7 +33,6 @@ if {[info procs WARNING] eq ""} {
         return "WARNING"
     }
 }
-
 # Define flow_proc if not already defined
 if {[info procs flow_proc] eq ""} {
     proc flow_proc {name body} {
@@ -60,7 +40,6 @@ if {[info procs flow_proc] eq ""} {
         handle_info "Flow procedure '$name' defined"
     }
 }
-
 # Source generated configuration file (from setup stage)
 set flow_type "FP"
 set config_files [list \
@@ -68,21 +47,13 @@ set config_files [list \
     "work/$flow_type/export_db/run/config.tcl" \
     "../work/$flow_type/export_db/run/config.tcl" \
 ]
-
 set config_found 0
 foreach config_file $config_files {
     if {[file exists $config_file]} {
         handle_info "Sourcing configuration: $config_file"
         if {[catch {source $config_file} error]} {
-
-# Source tech_config
 if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
 }
-
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
             handle_warning "Minor error in config file $config_file: $error"
             handle_info "Continuing with available configuration..."
         }
@@ -90,7 +61,6 @@ if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/
         break
     }
 }
-
 if {!$config_found} {
     handle_error "Cannot find generated config file. Run 'make export_db_setup' first."
     exit 1
@@ -208,7 +178,7 @@ flow_proc export_reports {
     }
 
     # Power domain report (if UPF/CPF was used)
-    if {[info exists fp(input,upf)] || [info exists fp(input,cpf)]} {
+    if {[info exists fp(input,upf_file)] || [info exists fp(input,cpf)]} {
         handle_info "Generating power domain report..."
         if {[catch {report_power_domain > $::REPORTS_DIR/export_power_domains.rpt} result]} {
             handle_warning "Could not generate power domain report: $result"

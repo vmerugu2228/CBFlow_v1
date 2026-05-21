@@ -1,67 +1,37 @@
 #!/usr/bin/env tclsh
-# ═══════════════════════════════════════════════════════════════════════════════
-# CBFlow - PNR Clock Tree Synthesis Stage with MMMC Support
-# Description: Clock tree synthesis and optimization across multiple scenarios
-# Usage: Source this file in PNR tool
-# ═══════════════════════════════════════════════════════════════════════════════
+# PNR cts - Cadence Innovus
 
-# Source flow utilities (includes flow procedure management)
-if {[file exists "$FLOW_DIR/utils/utils.tcl"]} {
-    source "$FLOW_DIR/utils/utils.tcl"
-} else {
+# -- Bootstrap -----------------------------------------------------------------
+set run_dir $::env(CBFLOW_RUN_DIR)
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+
+set FLOW_TYPE "PNR"
+set STAGE_NAME "cts"
+set NODE_NAME "cts1"
+
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
+
     handle_error "Cannot find flow utilities"
-}
-
 # Source generated configuration file (from setup stage)
 if {[file exists "work/PNR/cts/run/config.tcl"]} {
     source "work/PNR/cts/run/config.tcl"
-} else {
     handle_error "Cannot find generated config file. Run 'make cts_setup' first."
-}
-
 # Source generated setup file (from setup stage)
 if {[file exists "work/PNR/cts/run/setup.tcl"]} {
     source "work/PNR/cts/run/setup.tcl"
-} else {
     handle_error "Cannot find generated setup file. Run 'make cts_setup' first."
-}
-
-# Source MMMC configuration
-set mmmc_config_file "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
-if {[file exists $mmmc_config_file]} { source $mmmc_config_file }
-
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
-
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
-
-global pnr project tech flow
-# Source INNOVUS tool config
-set _tool_config "[file dirname [info script]]/innovus_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
 handle_info "Starting PNR cts with Cadence Innovus..."
-if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
-set ::flow::exec_mode "auto"
-
 # Load MMMC configuration if enabled
 if {[is_mmmc_stage "cts"]} {
     load_mmmc_config
     handle_info "MMMC mode enabled for CTS stage"
 }
-
-# -- Directories ---------------------------------------------------------------
 set FLOW_TYPE "PNR"
 set STAGE_NAME "cts"
 set NODE_NAME "cts1"
-set WORK_DIR "$run_dir/work/$FLOW_TYPE/$NODE_NAME"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CLOCK TREE SYNTHESIS
@@ -122,9 +92,9 @@ flow_proc setup_cts {
 
     # Get CTS parameters from config
     global pnr
-    set cts_target_skew $innovus(cts,target_skew)
-    set cts_max_trans   $innovus(cts,max_trans)
-    set cts_max_cap     $innovus(cts,max_cap)
+    set cts_target_skew $pnr(cts,target_skew)
+    set cts_max_trans   $pnr(cts,max_trans)
+    set cts_max_cap     $pnr(cts,max_cap)
 
     handle_info "CTS parameters:"
     handle_info "  Target skew: ${cts_target_skew}ps"
@@ -152,14 +122,14 @@ flow_proc create_clock_spec {
     }
     
     # Configure clock tree cells
-    if {[info exists innovus(cts,buffer_cells)]} {
-        handle_info "CTS buffer cells: $innovus(cts,buffer_cells)"
-        set_ccopt_property buffer_cells $innovus(cts,buffer_cells)
+    if {[info exists pnr(cts,buffer_cells)]} {
+        handle_info "CTS buffer cells: $pnr(cts,buffer_cells)"
+        set_ccopt_property buffer_cells $pnr(cts,buffer_cells)
     }
 
-    if {[info exists innovus(cts,inverter_cells)]} {
-        handle_info "CTS inverter cells: $innovus(cts,inverter_cells)"
-        set_ccopt_property inverter_cells $innovus(cts,inverter_cells)
+    if {[info exists pnr(cts,inverter_cells)]} {
+        handle_info "CTS inverter cells: $pnr(cts,inverter_cells)"
+        set_ccopt_property inverter_cells $pnr(cts,inverter_cells)
     }
 }
 
@@ -177,7 +147,7 @@ flow_proc optimize_cts {
 
     # Post-CTS optimization
     global pnr
-    set optimization_effort $innovus(cts,opt_effort)
+    set optimization_effort $pnr(cts,opt_effort)
 
     handle_info "CTS optimization effort: $optimization_effort"
 
@@ -295,7 +265,6 @@ flow_proc cts_complete {
 
     log_stage_status "cts" "COMPLETE" "Clock tree synthesis completed successfully"
 }
-
 
 
 # Exit tool after stage completion

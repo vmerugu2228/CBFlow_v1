@@ -1,39 +1,23 @@
 #!/usr/bin/env tclsh
-# CBFlow PNR chip_finish - Cadence Innovus
+# PNR chip_finish - Cadence Innovus
+
+# -- Bootstrap -----------------------------------------------------------------
 set run_dir $::env(CBFLOW_RUN_DIR)
-set env_file "$run_dir/.run.cbflow.tcl"
-if {[file exists $env_file]} { source $env_file } else { puts stderr "ERROR: .run.cbflow.tcl not found"; exit 1 }
-if {[info exists ::env(FLOW_DIR)]} { set FLOW_DIR $::env(FLOW_DIR) } else { puts stderr "ERROR: FLOW_DIR not set"; exit 1 }
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} { puts stderr "ERROR: UTILITIES_VERSION not set"; exit 1 }
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
-namespace import ::CBFlow::Utilities::print_header
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
-
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
-global pnr project tech flow
-# Source INNOVUS tool config
-set _tool_config "[file dirname [info script]]/innovus_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "Starting PNR chip_finish with Cadence Innovus..."
-if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
-set ::flow::exec_mode "auto"
-
-# -- Directories ---------------------------------------------------------------
 set FLOW_TYPE "PNR"
 set STAGE_NAME "chip_finish"
 set NODE_NAME "signoff1"
-set WORK_DIR "$run_dir/work/$FLOW_TYPE/$NODE_NAME"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
+
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
+
+handle_info "Starting PNR chip_finish with Cadence Innovus..."
+set FLOW_TYPE "PNR"
+set STAGE_NAME "chip_finish"
+set NODE_NAME "signoff1"
 
 flow_proc enable_mmmc {
     # Enable MMMC scenarios for chip_finish stage
@@ -73,10 +57,10 @@ flow_proc insert_metal_fill {
     
     # Get metal fill parameters
     global pnr
-    set fill_enable [expr {[info exists innovus(chip_finish,metal_fill)] ? $innovus(chip_finish,metal_fill) : "true"}]
-    set fill_density [expr {[info exists innovus(chip_finish,fill_density)] ? $innovus(chip_finish,fill_density) : 0.6}]
-    set fill_spacing [expr {[info exists innovus(chip_finish,fill_spacing)] ? $innovus(chip_finish,fill_spacing) : 1.0}]
-    set fill_layers [expr {[info exists innovus(chip_finish,fill_layers)] ? $innovus(chip_finish,fill_layers) : "M1:M8"}]
+    set fill_enable [expr {[info exists pnr(chip_finish,metal_fill)] ? $pnr(chip_finish,metal_fill) : "true"}]
+    set fill_density [expr {[info exists pnr(chip_finish,fill_density)] ? $pnr(chip_finish,fill_density) : 0.6}]
+    set fill_spacing [expr {[info exists pnr(chip_finish,fill_spacing)] ? $pnr(chip_finish,fill_spacing) : 1.0}]
+    set fill_layers [expr {[info exists pnr(chip_finish,fill_layers)] ? $pnr(chip_finish,fill_layers) : "M1:M8"}]
     
     if {$fill_enable eq "true"} {
         handle_info "Metal fill parameters:"
@@ -98,9 +82,9 @@ flow_proc insert_spare_cells {
     
     # Get spare cell parameters
     global pnr
-    set spare_enable [expr {[info exists innovus(chip_finish,spare_cells)] ? $innovus(chip_finish,spare_cells) : "true"}]
-    set spare_ratio [expr {[info exists innovus(chip_finish,spare_ratio)] ? $innovus(chip_finish,spare_ratio) : 0.01}]
-    set spare_types [expr {[info exists innovus(chip_finish,spare_types)] ? $innovus(chip_finish,spare_types) : "BUFX4 INVX4 NAND2X2 NOR2X2"}]
+    set spare_enable [expr {[info exists pnr(chip_finish,spare_cells)] ? $pnr(chip_finish,spare_cells) : "true"}]
+    set spare_ratio [expr {[info exists pnr(chip_finish,spare_ratio)] ? $pnr(chip_finish,spare_ratio) : 0.01}]
+    set spare_types [expr {[info exists pnr(chip_finish,spare_types)] ? $pnr(chip_finish,spare_types) : "BUFX4 INVX4 NAND2X2 NOR2X2"}]
     
     if {$spare_enable eq "true"} {
         handle_info "Spare cell parameters:"
@@ -129,9 +113,9 @@ flow_proc insert_filler_cells {
     
     # Get filler cell parameters
     global pnr
-    set filler_enable [expr {[info exists innovus(chip_finish,filler_cells)] ? $innovus(chip_finish,filler_cells) : "true"}]
-    set filler_types [expr {[info exists innovus(chip_finish,filler_types)] ? $innovus(chip_finish,filler_types) : "FILL1 FILL2 FILL4 FILL8 FILL16"}]
-    set filler_prefix [expr {[info exists innovus(chip_finish,filler_prefix)] ? $innovus(chip_finish,filler_prefix) : "FILLER"}]
+    set filler_enable [expr {[info exists pnr(chip_finish,filler_cells)] ? $pnr(chip_finish,filler_cells) : "true"}]
+    set filler_types [expr {[info exists pnr(chip_finish,filler_types)] ? $pnr(chip_finish,filler_types) : "FILL1 FILL2 FILL4 FILL8 FILL16"}]
+    set filler_prefix [expr {[info exists pnr(chip_finish,filler_prefix)] ? $pnr(chip_finish,filler_prefix) : "FILLER"}]
     
     if {$filler_enable eq "true"} {
         handle_info "Filler cell parameters:"
@@ -179,8 +163,8 @@ flow_proc run_lvs_preparation {
     global pnr project tech
     set top_module [expr {[info exists project(top_module)] ? $project(top_module) : [handle_error "project(top_module) not defined"]}]
     set stream_map_file [expr {[info exists tech(gds_map_file)] ? $tech(gds_map_file) : ""}]
-    set lvs_enable [expr {[info exists innovus(chip_finish,lvs_prep)] ? $innovus(chip_finish,lvs_prep) : "true"}]
-    set lvs_netlist_type [expr {[info exists innovus(chip_finish,lvs_netlist)] ? $innovus(chip_finish,lvs_netlist) : "spice"}]
+    set lvs_enable [expr {[info exists pnr(chip_finish,lvs_prep)] ? $pnr(chip_finish,lvs_prep) : "true"}]
+    set lvs_netlist_type [expr {[info exists pnr(chip_finish,lvs_netlist)] ? $pnr(chip_finish,lvs_netlist) : "spice"}]
 
     if {$lvs_enable eq "true"} {
         handle_info "LVS preparation parameters:"
@@ -206,8 +190,8 @@ flow_proc run_antenna_check {
     
     # Get antenna parameters
     global pnr
-    set antenna_enable [expr {[info exists innovus(chip_finish,antenna_check)] ? $innovus(chip_finish,antenna_check) : "true"}]
-    set antenna_fix [expr {[info exists innovus(chip_finish,antenna_fix)] ? $innovus(chip_finish,antenna_fix) : "true"}]
+    set antenna_enable [expr {[info exists pnr(chip_finish,antenna_check)] ? $pnr(chip_finish,antenna_check) : "true"}]
+    set antenna_fix [expr {[info exists pnr(chip_finish,antenna_fix)] ? $pnr(chip_finish,antenna_fix) : "true"}]
     
     if {$antenna_enable eq "true"} {
         handle_info "Antenna verification parameters:"
@@ -234,9 +218,9 @@ flow_proc optimize_power_rails {
     
     # Get power optimization parameters
     global pnr
-    set power_opt_enable [expr {[info exists innovus(chip_finish,power_opt)] ? $innovus(chip_finish,power_opt) : "true"}]
-    set ir_drop_target [expr {[info exists innovus(chip_finish,ir_drop_target)] ? $innovus(chip_finish,ir_drop_target) : 50}]
-    set rail_analysis [expr {[info exists innovus(chip_finish,rail_analysis)] ? $innovus(chip_finish,rail_analysis) : "true"}]
+    set power_opt_enable [expr {[info exists pnr(chip_finish,power_opt)] ? $pnr(chip_finish,power_opt) : "true"}]
+    set ir_drop_target [expr {[info exists pnr(chip_finish,ir_drop_target)] ? $pnr(chip_finish,ir_drop_target) : 50}]
+    set rail_analysis [expr {[info exists pnr(chip_finish,rail_analysis)] ? $pnr(chip_finish,rail_analysis) : "true"}]
     
     if {$power_opt_enable eq "true"} {
         handle_info "Power optimization parameters:"
@@ -266,8 +250,8 @@ flow_proc run_eco_verification {
     
     # Get ECO parameters
     global pnr
-    set eco_enable [expr {[info exists innovus(chip_finish,eco_check)] ? $innovus(chip_finish,eco_check) : "true"}]
-    set eco_timing_check [expr {[info exists innovus(chip_finish,eco_timing)] ? $innovus(chip_finish,eco_timing) : "true"}]
+    set eco_enable [expr {[info exists pnr(chip_finish,eco_check)] ? $pnr(chip_finish,eco_check) : "true"}]
+    set eco_timing_check [expr {[info exists pnr(chip_finish,eco_timing)] ? $pnr(chip_finish,eco_timing) : "true"}]
     
     if {$eco_enable eq "true"} {
         handle_info "ECO verification parameters:"
@@ -442,9 +426,9 @@ flow_proc cleanup_intermediate_files {
     
     # Get cleanup parameters
     global pnr
-    set cleanup_enable [expr {[info exists innovus(chip_finish,cleanup)] ? $innovus(chip_finish,cleanup) : "true"}]
-    set keep_checkpoints [expr {[info exists innovus(chip_finish,keep_checkpoints)] ? $innovus(chip_finish,keep_checkpoints) : "true"}]
-    set cleanup_level [expr {[info exists innovus(chip_finish,cleanup_level)] ? $innovus(chip_finish,cleanup_level) : "moderate"}]
+    set cleanup_enable [expr {[info exists pnr(chip_finish,cleanup)] ? $pnr(chip_finish,cleanup) : "true"}]
+    set keep_checkpoints [expr {[info exists pnr(chip_finish,keep_checkpoints)] ? $pnr(chip_finish,keep_checkpoints) : "true"}]
+    set cleanup_level [expr {[info exists pnr(chip_finish,cleanup_level)] ? $pnr(chip_finish,cleanup_level) : "moderate"}]
     
     if {$cleanup_enable eq "true"} {
         handle_info "Cleanup parameters:"
@@ -500,9 +484,9 @@ flow_proc chip_finish_complete {
     puts $fd "=== CHIP FINISHING OPERATIONS ==="
     
     # Report what was done
-    set metal_fill [expr {[info exists innovus(chip_finish,metal_fill)] ? $innovus(chip_finish,metal_fill) : "true"}]
-    set spare_cells [expr {[info exists innovus(chip_finish,spare_cells)] ? $innovus(chip_finish,spare_cells) : "true"}]
-    set filler_cells [expr {[info exists innovus(chip_finish,filler_cells)] ? $innovus(chip_finish,filler_cells) : "true"}]
+    set metal_fill [expr {[info exists pnr(chip_finish,metal_fill)] ? $pnr(chip_finish,metal_fill) : "true"}]
+    set spare_cells [expr {[info exists pnr(chip_finish,spare_cells)] ? $pnr(chip_finish,spare_cells) : "true"}]
+    set filler_cells [expr {[info exists pnr(chip_finish,filler_cells)] ? $pnr(chip_finish,filler_cells) : "true"}]
     
     puts $fd "Metal Fill: $metal_fill"
     puts $fd "Spare Cells: $spare_cells"

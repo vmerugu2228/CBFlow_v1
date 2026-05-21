@@ -1,43 +1,18 @@
 #!/usr/bin/env tclsh
-# CBFlow FCFP init_design - Synopsys Fusion Compiler
-# FC-RM: init_dp.tcl -- Design library creation, technology setup,
-#         netlist read, constraints, power connections, and initial save
-# Aligned with FC-RM Y-2026.03
+# CBFlow FCFP init_design - Synopsys Fusion Compiler (FC-RM Y-2026.03)
+
+# ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
-set env_file "$run_dir/.run.cbflow.tcl"
-if {[file exists $env_file]} { source $env_file } else { puts stderr "ERROR: .run.cbflow.tcl not found"; exit 1 }
-if {[info exists ::env(FLOW_DIR)]} { set FLOW_DIR $::env(FLOW_DIR) } else { puts stderr "ERROR: FLOW_DIR not set"; exit 1 }
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} { puts stderr "ERROR: UTILITIES_VERSION not set"; exit 1 }
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
-namespace import ::CBFlow::Utilities::print_header
-set config_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/config.tcl"
-if {[file exists $config_file]} { source $config_file }
-global fcfp project tech flow
-# Source FC tool config
-set _tool_config "[file dirname [info script]]/fc_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "Starting FCFP init_design..."
-if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
-set ::flow::exec_mode "auto"
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" &&
-    [info exists ::env(TECH_VERSION)] && $::env(TECH_VERSION) ne ""} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
+set FLOW_TYPE "FCFP"
+set STAGE_NAME "init_design"
+set NODE_NAME "${STAGE_NAME}1"
 
-set WORK_DIR "$run_dir/work/FCFP/init_design1"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 # ==============================================================================
 # flow_proc: create_design_library
@@ -50,8 +25,8 @@ flow_proc create_design_library {
     set run_dir $::env(CBFLOW_RUN_DIR)
     file mkdir "$run_dir/work/FCFP/init_design/run"
 
-    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
-    set lib_name [expr {[info exists fc(common,design_lib_name)] ? $fc(common,design_lib_name) : "${design_name}.nlib"}]
+    set design_name [expr {[info exists fcfp(common,design_name)] ? $fcfp(common,design_name) : $flow(design_name)}]
+    set lib_name [expr {[info exists fcfp(common,design_lib_name)] ? $fcfp(common,design_lib_name) : "${design_name}.nlib"}]
 
     if {[file exists $lib_name]} { file delete -force $lib_name }
 
@@ -67,13 +42,18 @@ flow_proc create_design_library {
         lappend ref_libs $tech(ndm,io_pads)
     }
 
-    # Sub-block abstract NDM libs -- hierarchical DP flow
-    if {[info exists fc(common,chip_type)] && $fc(common,chip_type) eq "hierarchical"} {
-        if {[info exists tech(ndm,sub_blocks)] && [llength $tech(ndm,sub_blocks)] > 0} {
-            foreach lib $tech(ndm,sub_blocks) {
-                if {$lib ne ""} { lappend ref_libs $lib }
+    # Sub-block NDMs — hierarchical designs (validated from project config)
+    if {$flow(run_type) eq "hier"} {
+        foreach _block $project(block_list) {
+            if {![info exists project(${_block},ndm)] || $project(${_block},ndm) eq ""} {
+                handle_error "Missing NDM for sub-block '$_block'. Set project(${_block},ndm) in project_config."
+                exit 1
             }
-            handle_info "Hierarchical flow: [llength $tech(ndm,sub_blocks)] sub-block libraries added"
+            lappend ref_libs $project(${_block},ndm)
+        }
+        handle_info "Hierarchical: [llength $project(block_list)] sub-block NDMs added"
+    }
+            handle_info "Hierarchical flow: [llength $tech(ndm,hierarchical)] sub-block libraries added"
         }
     }
 
@@ -157,16 +137,16 @@ flow_proc read_design {
     handle_info "Reading design..."
     global fcfp flow
 
-    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fcfp(common,design_name)] ? $fcfp(common,design_name) : $flow(design_name)}]
 
     if {[info exists fcfp(input,netlist)] && $fcfp(input,netlist) ne ""} {
         handle_info "Reading netlist: $fcfp(input,netlist)"
         read_verilog -top $design_name $fcfp(input,netlist)
-    } elseif {[info exists fc(common,input_netlist)] && $fc(common,input_netlist) ne ""} {
-        handle_info "Reading netlist: $fc(common,input_netlist)"
-        read_verilog -top $design_name $fc(common,input_netlist)
+    } elseif {[info exists fcfp(common,input_netlist)] && $fcfp(common,input_netlist) ne ""} {
+        handle_info "Reading netlist: $fcfp(common,input_netlist)"
+        read_verilog -top $design_name $fcfp(common,input_netlist)
     } else {
-        handle_error "No netlist specified -- set fcfp(input,netlist) or fc(common,input_netlist)"
+        handle_error "No netlist specified -- set fcfp(input,netlist) or fcfp(common,input_netlist)"
         return -code error "Missing netlist"
     }
 
@@ -190,8 +170,8 @@ flow_proc setup_technology {
     global fcfp tech
 
     set tech_node ""
-    if {[info exists fc(common,technology_node)] && $fc(common,technology_node) ne ""} {
-        set tech_node $fc(common,technology_node)
+    if {[info exists fcfp(common,technology_node)] && $fcfp(common,technology_node) ne ""} {
+        set tech_node $fcfp(common,technology_node)
     } elseif {[info exists tech(node)] && $tech(node) ne ""} {
         set tech_node $tech(node)
     }
@@ -229,8 +209,8 @@ flow_proc load_constraints {
             handle_info "Reading SDC: $fcfp(input,sdc_file)"
             read_sdc $fcfp(input,sdc_file)
         }
-    } elseif {[info exists fc(common,input_sdc)] && $fc(common,input_sdc) ne ""} {
-        foreach sdc_file $fc(common,input_sdc) {
+    } elseif {[info exists fcfp(common,input_sdc)] && $fcfp(common,input_sdc) ne ""} {
+        foreach sdc_file $fcfp(common,input_sdc) {
             if {[file exists $sdc_file]} {
                 handle_info "Reading SDC: $sdc_file"
                 read_sdc $sdc_file
@@ -243,9 +223,9 @@ flow_proc load_constraints {
         if {[file exists $fcfp(input,upf_file)]} {
             handle_info "Loading UPF: $fcfp(input,upf_file)"
             load_upf $fcfp(input,upf_file)
-            if {[info exists fc(common,input_upf_supplemental)] && [file exists $fc(common,input_upf_supplemental)]} {
-                handle_info "Loading supplemental UPF: $fc(common,input_upf_supplemental)"
-                load_upf -supplemental $fc(common,input_upf_supplemental)
+            if {[info exists fcfp(common,input_upf_supplemental)] && [file exists $fcfp(common,input_upf_supplemental)]} {
+                handle_info "Loading supplemental UPF: $fcfp(common,input_upf_supplemental)"
+                load_upf -supplemental $fcfp(common,input_upf_supplemental)
             }
             handle_info "Committing UPF..."
             commit_upf
@@ -263,8 +243,8 @@ flow_proc connect_power_ground {
     handle_info "Connecting power/ground nets..."
     global fcfp
 
-    if {[info exists fc(common,connect_pg_net_script)] && [file exists $fc(common,connect_pg_net_script)]} {
-        source -e $fc(common,connect_pg_net_script)
+    if {[info exists fcfp(common,connect_pg_net_script)] && [file exists $fcfp(common,connect_pg_net_script)]} {
+        source -e $fcfp(common,connect_pg_net_script)
     } else {
         connect_pg_net
     }
@@ -281,7 +261,7 @@ flow_proc save_design {
     global fcfp flow
 
     set run_dir $::env(CBFLOW_RUN_DIR)
-    set design_name [expr {[info exists fc(common,design_name)] ? $fc(common,design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists fcfp(common,design_name)] ? $fcfp(common,design_name) : $flow(design_name)}]
 
     if {[info exists fcfp(input,upf_file)] && $fcfp(input,upf_file) ne ""} {
         save_upf ${run_dir}/outputs/init_design.save_upf
@@ -293,8 +273,8 @@ flow_proc save_design {
     handle_info "Block saved: ${design_name}/init_design"
 
     # Set SVF for formal verification
-    if {[info exists fc(common,svf_file)] && $fc(common,svf_file) ne ""} {
-        set_svf $fc(common,svf_file)
+    if {[info exists fcfp(common,svf_file)] && $fcfp(common,svf_file) ne ""} {
+        set_svf $fcfp(common,svf_file)
     }
 
     handle_info "Init design saved"
@@ -311,7 +291,7 @@ flow_proc generate_reports {
     set run_dir $::env(CBFLOW_RUN_DIR)
     file mkdir "$::REPORTS_DIR"
 
-    set max_paths [expr {[info exists fc(analysis,max_paths)] ? $fc(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists fcfp(analysis,max_paths)] ? $fcfp(analysis,max_paths) : 100}]
 
     redirect -file $::REPORTS_DIR/report_qor.rpt { report_qor }
     redirect -file $::REPORTS_DIR/report_timing.rpt {
@@ -329,14 +309,7 @@ flow_proc generate_reports {
 }
 
 # ==============================================================================
-# Source setup.tcl and overrides before flow_exec_all
 # ==============================================================================
-set _setup_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/setup.tcl"
-if {[file exists $_setup_file]} { handle_info "Sourcing setup hooks: $_setup_file"; source $_setup_file }
-set _override_file "$run_dir/setup/override_setup.tcl"
-if {[file exists $_override_file]} { handle_info "Sourcing user override: $_override_file"; source $_override_file }
-set _stage_override "$run_dir/setup/override_setup.init_design.tcl"
-if {[file exists $_stage_override]} { handle_info "Sourcing stage override: $_stage_override"; source $_stage_override }
 
 flow_exec_all
 

@@ -1,41 +1,18 @@
 #!/usr/bin/env tclsh
-# ═══════════════════════════════════════════════════════════════════════════════
-# CBflow PV XOR Check — Synopsys IC Validator
-# XOR comparison between pre-fill and post-fill layouts
-# Verifies fill insertion didn't corrupt original design data
-# Usage: icv -f xor_icv.tcl
-# ═══════════════════════════════════════════════════════════════════════════════
+# CBflow PV XOR check - Synopsys ICV
 
+# ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
-source -e "$run_dir/.run.cbflow.tcl"
-set FLOW_DIR $::env(FLOW_DIR)
-source -e "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-if {[file exists "$run_dir/work/PV/xor1/run/config.tcl"]} {
-    source -e "$run_dir/work/PV/xor1/run/config.tcl"
-}
+set FLOW_TYPE "PV"
+set STAGE_NAME "xor"
+set NODE_NAME "${STAGE_NAME}1"
 
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
-
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
-global pv tech
-
-set DESIGN_NAME [expr {[info exists ::env(CBFLOW_DESIGN_NAME)] ? $::env(CBFLOW_DESIGN_NAME) : "design"}]
-set WORK_DIR    "$run_dir/work/PV/xor1/run"
-set REPORTS_DIR "$WORK_DIR/reports"
-file mkdir $WORK_DIR $REPORTS_DIR
-
-# Source ICV tool config
-set _tool_config "[file dirname [info script]]/icv_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "═══════════════════════════════════════════════════════"
-handle_info "  ICV XOR Check: $DESIGN_NAME"
-handle_info "═══════════════════════════════════════════════════════"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # XOR: Compare pre-fill vs post-fill layouts
@@ -43,8 +20,8 @@ handle_info "══════════════════════�
 flow_proc run_xor_check {
     handle_info "Running XOR comparison..."
 
-    set lib_format [expr {[info exists icv(icv,library_format)] ? $icv(icv,library_format) : "GDSII"}]
-    set num_cpus [expr {[info exists icv(icv,num_cpus)] ? $icv(icv,num_cpus) : 8}]
+    set lib_format [expr {[info exists pv(icv,library_format)] ? $pv(icv,library_format) : "GDSII"}]
+    set num_cpus [expr {[info exists pv(icv,num_cpus)] ? $pv(icv,num_cpus) : 8}]
 
     # Pre-fill layout (original input)
     set pre_fill ""

@@ -1,48 +1,19 @@
 #!/usr/bin/env tclsh
-# ===============================================================================
-# CBFlow - PV ERC Command File
-# Description: Electrical Rule Check using Synopsys ICV
-# Tool: Synopsys ICV
-# ===============================================================================
+# CBFlow PV ERC - Synopsys ICV
 
+# ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
-set env_file "$run_dir/.run.cbflow.tcl"
-if {[file exists $env_file]} { source -e $env_file } else { puts stderr "ERROR: .run.cbflow.tcl not found"; exit 1 }
-if {[info exists ::env(FLOW_DIR)]} { set FLOW_DIR $::env(FLOW_DIR) } else { puts stderr "ERROR: FLOW_DIR not set"; exit 1 }
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} { puts stderr "ERROR: UTILITIES_VERSION not set"; exit 1 }
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} { source -e $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
-namespace import ::CBFlow::Utilities::print_header
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-set config_file "$run_dir/work/PV/erc/run/config.tcl"
-if {[file exists $config_file]} { source -e $config_file }
+set FLOW_TYPE "PV"
+set STAGE_NAME "erc"
+set NODE_NAME "${STAGE_NAME}1"
 
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
-
-global pv project tech flow
-# Source ICV tool config
-set _tool_config "[file dirname [info script]]/icv_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "Starting PV ERC stage with Synopsys ICV..."
-if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
-set ::flow::exec_mode "auto"
-
-set WORK_DIR "$run_dir/work/PV/erc"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
-
-# --------------------------------------------------------------------------
-# Procedure: configure_erc
-#   Set up ERC rule deck and options
 # --------------------------------------------------------------------------
 flow_proc configure_erc {
     global pv tech project
@@ -50,8 +21,8 @@ flow_proc configure_erc {
     set run_dir $::env(CBFLOW_RUN_DIR)
 
     # ERC rule deck (may be standalone or embedded in LVS deck)
-    if {[info exists icv(erc,rule_deck)]} {
-        set ::erc_rules $icv(erc,rule_deck)
+    if {[info exists pv(erc,rule_deck)]} {
+        set ::erc_rules $pv(erc,rule_deck)
     } elseif {[info exists tech(rules,erc)]} {
         set ::erc_rules $tech(rules,erc)
     } elseif {[info exists ::pv_erc_rules]} {
@@ -80,26 +51,26 @@ flow_proc configure_erc {
     }
 
     # Top cell
-    if {[info exists icv(common,top_cell)]} {
-        set ::erc_top_cell $icv(common,top_cell)
+    if {[info exists pv(common,top_cell)]} {
+        set ::erc_top_cell $pv(common,top_cell)
     } elseif {[info exists project(top_module)]} {
         set ::erc_top_cell $project(top_module)
     } else {
-        handle_error "Top cell not defined — set icv(common,top_cell) or project(top_module)"
+        handle_error "Top cell not defined — set pv(common,top_cell) or project(top_module)"
     }
 
     # ERC-specific options
     set ::erc_options ""
-    if {[info exists icv(erc,threads)]} {
-        append ::erc_options " -dp $icv(erc,threads)"
+    if {[info exists pv(erc,threads)]} {
+        append ::erc_options " -dp $pv(erc,threads)"
     } else {
         append ::erc_options " -dp 4"
     }
-    if {[info exists icv(erc,power_nets)]} {
-        append ::erc_options " -power_nets $icv(erc,power_nets)"
+    if {[info exists pv(erc,power_nets)]} {
+        append ::erc_options " -power_nets $pv(erc,power_nets)"
     }
-    if {[info exists icv(erc,ground_nets)]} {
-        append ::erc_options " -ground_nets $icv(erc,ground_nets)"
+    if {[info exists pv(erc,ground_nets)]} {
+        append ::erc_options " -ground_nets $pv(erc,ground_nets)"
     }
 
     handle_info "ERC configuration:"

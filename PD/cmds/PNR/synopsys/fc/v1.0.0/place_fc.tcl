@@ -1,39 +1,21 @@
 #!/usr/bin/env tclsh
 # CBFlow PNR place1 - Synopsys Fusion Compiler | PNR place1
+
+# ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
-set env_file "$run_dir/.run.cbflow.tcl"
-if {[file exists $env_file]} { source $env_file } else { puts stderr "ERROR: .run.cbflow.tcl not found"; exit 1 }
-if {[info exists ::env(FLOW_DIR)]} { set FLOW_DIR $::env(FLOW_DIR) } else { puts stderr "ERROR: FLOW_DIR not set"; exit 1 }
-if {![info exists ::env(UTILITIES_VERSION)] || $::env(UTILITIES_VERSION) eq ""} { puts stderr "ERROR: UTILITIES_VERSION not set"; exit 1 }
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
-namespace import ::CBFlow::Utilities::print_header
-set config_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/config.tcl"
-if {[file exists $config_file]} { source $config_file }
-global pnr project tech flow
-# Source FC tool config
-set _tool_config "[file dirname [info script]]/fc_config.tcl"
-if {[file exists $_tool_config]} { source $_tool_config }
-handle_info "Starting PNR place1 with Synopsys Fusion Compiler..."
-if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
-set ::flow::exec_mode "auto"
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-# -- Directories ---------------------------------------------------------------
-set WORK_DIR "$run_dir/work/PNR/place1"
-set REPORTS_DIR "$WORK_DIR/reports"
-set OUTPUTS_DIR "$run_dir/outputs"
-file mkdir $REPORTS_DIR
-file mkdir $OUTPUTS_DIR
+set FLOW_TYPE "PNR"
+set STAGE_NAME "place"
+set NODE_NAME "place1"
 
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" &&
-    [info exists ::env(TECH_VERSION)] && $::env(TECH_VERSION) ne ""} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
-}
+# ── Config (full cascade: project → tech → flow → node → mmmc → tool → user) ─
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 
-# Source MMMC configuration
-set mmmc_config_file "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
+# ── Directories ──────────────────────────────────────────────────────────────
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 # ==============================================================================
 # flow_proc: set_stage_qor_strategy
@@ -44,35 +26,35 @@ flow_proc set_stage_qor_strategy {
     global pnr
 
     # Set QoR strategy version if specified
-    if {[info exists fc(compile,qor_version)] && $fc(compile,qor_version) ne ""} {
-        set_app_options -name flow.set_qor_strategy.version -value $fc(compile,qor_version)
+    if {[info exists pnr(compile,qor_version)] && $pnr(compile,qor_version) ne ""} {
+        set_app_options -name flow.set_qor_strategy.version -value $pnr(compile,qor_version)
     }
 
     set set_qor_strategy_cmd "set_qor_strategy -stage compile_initial"
-    if {[info exists fc(compile,qor_metric)] && $fc(compile,qor_metric) ne ""} {
-        lappend set_qor_strategy_cmd -metric $fc(compile,qor_metric)
+    if {[info exists pnr(compile,qor_metric)] && $pnr(compile,qor_metric) ne ""} {
+        lappend set_qor_strategy_cmd -metric $pnr(compile,qor_metric)
     }
-    if {[info exists fc(compile,qor_mode)] && $fc(compile,qor_mode) ne ""} {
-        lappend set_qor_strategy_cmd -mode $fc(compile,qor_mode)
+    if {[info exists pnr(compile,qor_mode)] && $pnr(compile,qor_mode) ne ""} {
+        lappend set_qor_strategy_cmd -mode $pnr(compile,qor_mode)
     }
-    if {[info exists fc(compile,reduced_effort)] && $fc(compile,reduced_effort)} {
+    if {[info exists pnr(compile,reduced_effort)] && $pnr(compile,reduced_effort)} {
         lappend set_qor_strategy_cmd -reduced_effort
-    } elseif {[info exists fc(compile,high_effort_timing)] && $fc(compile,high_effort_timing)} {
+    } elseif {[info exists pnr(compile,high_effort_timing)] && $pnr(compile,high_effort_timing)} {
         lappend set_qor_strategy_cmd -high_effort_timing
     }
-    if {[info exists fc(compile,congestion_effort)] && $fc(compile,congestion_effort) ne ""} {
-        lappend set_qor_strategy_cmd -congestion_effort $fc(compile,congestion_effort)
+    if {[info exists pnr(compile,congestion_effort)] && $pnr(compile,congestion_effort) ne ""} {
+        lappend set_qor_strategy_cmd -congestion_effort $pnr(compile,congestion_effort)
     }
 
     handle_info "Running: $set_qor_strategy_cmd"
     eval $set_qor_strategy_cmd
 
     # Set routing layer constraints
-    if {[info exists fc(common,route_max_layer)] && $fc(common,route_max_layer) ne ""} {
-        set_ignored_layers -max_routing_layer $fc(common,route_max_layer)
+    if {[info exists pnr(common,route_max_layer)] && $pnr(common,route_max_layer) ne ""} {
+        set_ignored_layers -max_routing_layer $pnr(common,route_max_layer)
     }
-    if {[info exists fc(common,route_min_layer)] && $fc(common,route_min_layer) ne ""} {
-        set_ignored_layers -min_routing_layer $fc(common,route_min_layer)
+    if {[info exists pnr(common,route_min_layer)] && $pnr(common,route_min_layer) ne ""} {
+        set_ignored_layers -min_routing_layer $pnr(common,route_min_layer)
     }
 
     handle_info "QoR strategy for compile stage set successfully"
@@ -91,9 +73,9 @@ flow_proc configure_compile {
     set_app_options -name cts.common.user_instance_name_prefix -value compile_cts_
 
     # Set active scenarios for compile if specified
-    if {[info exists fc(compile,active_scenarios)] && $fc(compile,active_scenarios) ne ""} {
+    if {[info exists pnr(compile,active_scenarios)] && $pnr(compile,active_scenarios) ne ""} {
         set_scenario_status -active false [get_scenarios -filter active]
-        set_scenario_status -active true $fc(compile,active_scenarios)
+        set_scenario_status -active true $pnr(compile,active_scenarios)
     }
 
     # Clock NDR modeling at compile_fusion
@@ -115,7 +97,7 @@ flow_proc run_compile {
     handle_info "Running compile_fusion..."
     global pnr
 
-    if {[info exists fc(compile,unified_flow)] && $fc(compile,unified_flow)} {
+    if {[info exists pnr(compile,unified_flow)] && $pnr(compile,unified_flow)} {
         # Unified compile flow: runs all stages end-to-end
         handle_info "Running compile_fusion (unified flow)"
         compile_fusion
@@ -138,24 +120,24 @@ flow_proc run_classic_place_opt {
     handle_info "Checking if classic place_opt is needed..."
     global pnr
 
-    if {[info exists fc(compile,unified_flow)] && $fc(compile,unified_flow)} {
+    if {[info exists pnr(compile,unified_flow)] && $pnr(compile,unified_flow)} {
         handle_info "Unified flow enabled -- skipping classic place_opt"
         return
     }
 
     # Set QoR strategy for place_initial stage
     set set_qor_strategy_cmd "set_qor_strategy -stage place_initial"
-    if {[info exists fc(compile,qor_metric)] && $fc(compile,qor_metric) ne ""} {
-        lappend set_qor_strategy_cmd -metric $fc(compile,qor_metric)
+    if {[info exists pnr(compile,qor_metric)] && $pnr(compile,qor_metric) ne ""} {
+        lappend set_qor_strategy_cmd -metric $pnr(compile,qor_metric)
     }
-    if {[info exists fc(compile,qor_mode)] && $fc(compile,qor_mode) ne ""} {
-        lappend set_qor_strategy_cmd -mode $fc(compile,qor_mode)
+    if {[info exists pnr(compile,qor_mode)] && $pnr(compile,qor_mode) ne ""} {
+        lappend set_qor_strategy_cmd -mode $pnr(compile,qor_mode)
     }
-    if {[info exists fc(compile,reduced_effort)] && $fc(compile,reduced_effort)} {
+    if {[info exists pnr(compile,reduced_effort)] && $pnr(compile,reduced_effort)} {
         lappend set_qor_strategy_cmd -reduced_effort
     }
-    if {[info exists fc(compile,congestion_effort)] && $fc(compile,congestion_effort) ne ""} {
-        lappend set_qor_strategy_cmd -congestion_effort $fc(compile,congestion_effort)
+    if {[info exists pnr(compile,congestion_effort)] && $pnr(compile,congestion_effort) ne ""} {
+        lappend set_qor_strategy_cmd -congestion_effort $pnr(compile,congestion_effort)
     }
     handle_info "Running: $set_qor_strategy_cmd"
     eval $set_qor_strategy_cmd
@@ -184,7 +166,7 @@ flow_proc run_classic_place_opt {
     mark_clock_trees -routing_rules
 
     # High-utilization flow support (from FC-RM place_opt.tcl)
-    if {[info exists fc(place,high_utilization_flow)] && $fc(place,high_utilization_flow)} {
+    if {[info exists pnr(place,high_utilization_flow)] && $pnr(place,high_utilization_flow)} {
         handle_info "High-utilization flow enabled"
         handle_info "Disabling AWP, running remove_buffer_trees, create_placement -buffering_aware_timing_driven, and initial_drc"
         reset_app_options time.delay_calc_wareform_analysis_mode
@@ -215,13 +197,13 @@ flow_proc run_classic_place_opt {
     place_opt -from initial_drc
 
     # Extra place_opt pass for high-utilization flow
-    if {[info exists fc(place,high_utilization_flow)] && $fc(place,high_utilization_flow)} {
+    if {[info exists pnr(place,high_utilization_flow)] && $pnr(place,high_utilization_flow)} {
         handle_info "High-utilization flow: running extra place_opt -from final_place"
         place_opt -from final_place
     }
 
     # SPG flow support
-    if {[info exists fc(compile,enable_spg)] && $fc(compile,enable_spg)} {
+    if {[info exists pnr(compile,enable_spg)] && $pnr(compile,enable_spg)} {
         handle_info "SPG flow enabled -- running full place_opt"
         place_opt
     }
@@ -249,9 +231,9 @@ flow_proc save_design_block {
     handle_info "Saving design block..."
     global pnr
 
-    if {[info exists fc(output,block_labeling)] && $fc(output,block_labeling)} {
-        save_block -as $fc(common,design_name)/place
-        handle_info "Block saved as $fc(common,design_name)/place"
+    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling)} {
+        save_block -as $pnr(common,design_name)/place
+        handle_info "Block saved as $pnr(common,design_name)/place"
     } else {
         save_block
         handle_info "Block saved"
@@ -267,7 +249,7 @@ flow_proc generate_reports {
     global pnr
 
     set run_dir $::env(CBFLOW_RUN_DIR)
-    set max_paths [expr {[info exists fc(analysis,max_paths)] ? $fc(analysis,max_paths) : 100}]
+    set max_paths [expr {[info exists pnr(analysis,max_paths)] ? $pnr(analysis,max_paths) : 100}]
 
     # FC-RM: Timing
     redirect -file $::REPORTS_DIR/report_timing.max.rpt {

@@ -392,8 +392,8 @@ proc process_signoff_inputs {inputs_work_dir} {
     }
     
     # Link DEF file
-    if {[info exists signoff(input,def)] && $signoff(input,def) ne ""} {
-        set source_def $signoff(input,def)
+    if {[info exists signoff(input,def_file)] && $signoff(input,def_file) ne ""} {
+        set source_def $signoff(input,def_file)
         set target_def "$inputs_work_dir/def/[file tail $source_def]"
         link_or_copy_file $source_def $target_def $use_symlinks
     }
@@ -475,8 +475,8 @@ proc generate_summary_report {flow_type inputs_work_dir} {
             if {[info exists signoff(input,spef)]} {
                 puts $fp "  SPEF: $signoff(input,spef)"
             }
-            if {[info exists signoff(input,def)]} {
-                puts $fp "  DEF: $signoff(input,def)"
+            if {[info exists signoff(input,def_file)]} {
+                puts $fp "  DEF: $signoff(input,def_file)"
             }
             if {[info exists signoff(input,gds)] && $signoff(input,gds) ne ""} {
                 puts $fp "  GDS: $signoff(input,gds)"
