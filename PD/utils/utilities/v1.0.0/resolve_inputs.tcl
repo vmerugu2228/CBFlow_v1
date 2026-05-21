@@ -16,8 +16,6 @@ namespace eval ::CBFlow::InputResolve {
     variable handshake_map
     array set handshake_map {
         STA,netlist         "netlist,pt"
-        STA,sdc,func        "sdc,func"
-        STA,sdc,test        "sdc,test"
         STA,sdc_func_file   "sdc,func"
         STA,def_file        "def"
 
@@ -43,6 +41,13 @@ namespace eval ::CBFlow::InputResolve {
 
         ECO,netlist         "netlist,logic"
         ECO,def_file        "def"
+    }
+
+    # Auto-generate STA per-mode SDC handshake entries from operating_modes
+    if {[array exists ::operating_modes]} {
+        foreach _mode [array names ::operating_modes] {
+            set handshake_map(STA,sdc,$_mode) "sdc,$_mode"
+        }
     }
 
     proc resolve_flow_inputs {flow_type run_dir} {

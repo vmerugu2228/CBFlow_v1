@@ -1301,8 +1301,6 @@ array set flow_input_handshake {
     FP,upf_file           {SYNTH    upf       "${design_name}.upf"}
 
     STA,netlist           {SYNTH_PNR netlist  "${design_name}.pt.v"}
-    STA,sdc,func          {SYNTH_PNR sdc     "${design_name}_func.sdc"}
-    STA,sdc,test          {SYNTH_PNR sdc     "${design_name}_test.sdc"}
     STA,def_file          {SYNTH_PNR def     "${design_name}.def"}
 
     PV,gds                {SYNTH_PNR gds     "${design_name}.gds"}
@@ -1326,6 +1324,14 @@ array set flow_input_handshake {
     POPT,netlist          {SYNTH_PNR netlist  "${design_name}.pt.v"}
     POPT,spef             {SYNTH_PNR spef    "${design_name}.spef"}
     POPT,sdc              {SYNTH_PNR sdc     "${design_name}.sdc"}
+}
+
+# Auto-generate STA per-mode SDC handshake entries from operating_modes
+if {[array exists operating_modes]} {
+    foreach _mode [array names operating_modes] {
+        set _sdc_file [dict get $operating_modes($_mode) constraint_file]
+        set flow_input_handshake(STA,sdc,$_mode) [list SYNTH_PNR sdc $_sdc_file]
+    }
 }
 
 # Helper: get handshake info for a flow/input combination
