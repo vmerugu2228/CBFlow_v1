@@ -24,6 +24,10 @@ if {[info exists ::env(PROJECT_ROOT)]} {
 }
 set project(root_dir) $ROOT_DIR
 
+# Workarea path — all runs MUST be created under workarea_path/<design_name>/
+# cbflow workspace create enforces this. Use full absolute path.
+set project(workarea_path) "/projects/phoenix/workarea"
+
 # Design hierarchy
 set project(top_module) "phoenix_top"
 set project(block_list) "cpu_core memory_ctrl io_ctrl"

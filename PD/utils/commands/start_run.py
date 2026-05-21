@@ -389,10 +389,46 @@ def create_run(config_file: str, env_vars: Dict[str, str],
     if not valid:
         return False, ''
 
-    # Step 4: Build run directory name
+    # Step 4: Validate workarea path
+    # Runs must be created in project(workarea_path)/<design_name>/
+    # Read workarea_path from project config if not in user config
+    workarea_path = user_config.get('project(workarea_path)', '')
+    if not workarea_path:
+        project_name = user_config.get('project(name)', '')
+        config_root = env_vars.get('CONFIG_ROOT', '')
+        proj_ver = env_vars.get('PROJECT_VERSION', 'v1.0.0')
+        if project_name and config_root:
+            proj_cfg = os.path.join(config_root, 'project', project_name, proj_ver, f'{project_name}_config.tcl')
+            if os.path.exists(proj_cfg):
+                import re as _re
+                with open(proj_cfg) as _f:
+                    for _line in _f:
+                        _m = _re.match(r'set\s+project\(workarea_path\)\s+"([^"]*)"', _line.strip())
+                        if _m:
+                            workarea_path = _m.group(1)
+                            break
+    if workarea_path:
+        workarea_design = os.path.join(os.path.abspath(workarea_path), design_name)
+        cwd = os.path.abspath(os.getcwd())
+        # CWD must be workarea/<design>/ or any subdirectory under it
+        if not (cwd == workarea_design or cwd.startswith(workarea_design + os.sep)):
+            logger.error("")
+            logger.error(f"  ERROR: Runs must be created under the project workarea")
+            logger.error(f"    Required: {workarea_design}/  (or any subdirectory)")
+            logger.error(f"    Current:  {cwd}")
+            logger.error("")
+            logger.error(f"  Examples:")
+            logger.error(f"    cd {workarea_design}")
+            logger.error(f"    cd {workarea_design}/testruns")
+            logger.error(f"    cd {workarea_design}/timing_experiments")
+            logger.error(f"    cbflow workspace create --config <config_file>")
+            logger.error("")
+            return False, ''
+
+    # Step 5: Build run directory name
     run_dir_name = f"{phase}_run_{flow_type}_{run_name}"
 
-    # Step 5: Handle existing directory
+    # Step 6: Handle existing directory
     if os.path.exists(run_dir_name):
         if not force:
             logger.error(f"  Error: Run directory already exists: {run_dir_name}")
