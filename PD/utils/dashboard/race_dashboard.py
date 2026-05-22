@@ -132,26 +132,37 @@ class RaceDashboard:
     # ── DB access ─────────────────────────────────────────────────────────
 
     def _find_db(self) -> str:
+        """Find the RACE database for this run.
+
+        Resolution order:
+          1. .race_db_pointer file (points to race area DB)
+          2. Local .race_*.db files (legacy fallback)
+          3. Construct default path for new DB creation
+        """
         import hashlib
-        uid = hashlib.md5(os.path.abspath(self.run_dir).encode()).hexdigest()[:6]
-        # Try new naming: .race_{run_name}_{uid}.db
-        env = self._load_env()
-        run_name = env.get('CBFLOW_RUN_NAME', '')
-        if run_name:
-            named = os.path.join(self.run_dir, f'.race_{run_name}_{uid}.db')
-            if os.path.exists(named):
-                return named
-        # Try old naming: .race_{uid}.db
-        local = os.path.join(self.run_dir, f'.race_{uid}.db')
-        if os.path.exists(local):
-            return local
-        # Glob fallback
+
+        # Priority 1: Pointer file → race area DB
+        pointer_path = os.path.join(self.run_dir, '.race_db_pointer')
+        if os.path.exists(pointer_path):
+            try:
+                with open(pointer_path) as f:
+                    stored_path = f.read().strip()
+                if stored_path and os.path.exists(stored_path):
+                    return stored_path
+            except (OSError, IOError):
+                pass
+
+        # Priority 2: Local DB files (legacy / no race area configured)
         for f in Path(self.run_dir).glob('.race_*.db'):
             return str(f)
-        # Default for new DB creation
-        if run_name:
-            return os.path.join(self.run_dir, f'.race_{run_name}_{uid}.db')
-        return local
+
+        # Priority 3: Construct default path for new DB
+        uid = hashlib.md5(os.path.abspath(self.run_dir).encode()).hexdigest()[:6]
+        env = self._load_env()
+        run_name = env.get('CBFLOW_RUN_NAME', '')
+        run_dir_name = os.path.basename(os.path.abspath(self.run_dir))
+        user = os.environ.get('USER', 'unknown')
+        return os.path.join(self.run_dir, f'.race_{run_dir_name}_{user}_{uid}.db')
 
     def _load_run_info(self):
         conn = self._connect()
@@ -1085,6 +1096,161 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         elif path.startswith('/api/log/'):
             job_name = path[len('/api/log/'):]
             self._serve_log(job_name)
+        elif path == '/api/design-info':
+            rows = self._query_db_table('design_info')
+            data = {r['key']: r['value'] for r in rows} if rows else {}
+            self._json_response(data)
+        elif path == '/api/checklist-results':
+            params = parse_qs(parsed.query)
+            filters = {}
+            if 'milestone' in params:
+                filters['milestone'] = params['milestone'][0]
+            self._json_response(self._query_db_table('checklist_results', filters))
+        elif path == '/api/release-info':
+            self._json_response(self._query_db_table('release_info'))
+        elif path == '/api/lsf-details':
+            params = parse_qs(parsed.query)
+            filters = {}
+            if 'job_name' in params:
+                filters['job_name'] = params['job_name'][0]
+            self._json_response(self._query_db_table('lsf_details', filters))
+        elif path == '/api/lsf-summary':
+            try:
+                conn = sqlite3.connect(self.dashboard.db_path)
+                row = conn.execute(
+                    'SELECT COALESCE(SUM(cost), 0) AS total_cost, '
+                    'COALESCE(MAX(peak_memory_mb), 0) AS peak_memory_mb, '
+                    'COALESCE(AVG(runtime_sec), 0) AS avg_runtime_sec, '
+                    'COUNT(*) AS total_jobs '
+                    'FROM lsf_details'
+                ).fetchone()
+                conn.close()
+                self._json_response({
+                    'total_cost': row[0],
+                    'peak_memory_mb': row[1],
+                    'avg_runtime_sec': round(row[2], 2),
+                    'total_jobs': row[3],
+                })
+            except Exception:
+                self._json_response({
+                    'total_cost': 0, 'peak_memory_mb': 0,
+                    'avg_runtime_sec': 0, 'total_jobs': 0,
+                })
+        elif path == '/api/metrics':
+            params = parse_qs(parsed.query)
+            filters = {}
+            if 'stage' in params:
+                filters['stage'] = params['stage'][0]
+            if 'category' in params:
+                filters['category'] = params['category'][0]
+            self._json_response(self._query_db_table('metrics_snapshot', filters))
+        elif path == '/api/logs':
+            try:
+                conn = sqlite3.connect(self.dashboard.db_path)
+                conn.row_factory = sqlite3.Row
+                rows = [dict(r) for r in conn.execute('SELECT * FROM run_logs').fetchall()]
+                conn.close()
+                # Add error/warning counts
+                error_count = sum(1 for r in rows if r.get('level', '').upper() in ('ERROR', 'FATAL'))
+                warning_count = sum(1 for r in rows if r.get('level', '').upper() in ('WARNING', 'WARN'))
+                self._json_response({
+                    'logs': rows,
+                    'error_count': error_count,
+                    'warning_count': warning_count,
+                })
+            except Exception:
+                self._json_response({'logs': [], 'error_count': 0, 'warning_count': 0})
+        elif path == '/api/config-history':
+            self._json_response(self._query_db_table('config_history'))
+        elif path == '/api/run-summary':
+            try:
+                conn = sqlite3.connect(self.dashboard.db_path)
+                conn.row_factory = sqlite3.Row
+                # Owner info from run_info
+                run_info = {}
+                try:
+                    for r in conn.execute('SELECT key, value FROM run_info'):
+                        run_info[r['key']] = r['value']
+                except Exception:
+                    pass
+                # Design info
+                design_info = {}
+                try:
+                    for r in conn.execute('SELECT key, value FROM design_info'):
+                        design_info[r['key']] = r['value']
+                except Exception:
+                    pass
+                # Stage counts from jobs
+                stage_counts = {'total': 0, 'done': 0, 'failed': 0, 'running': 0, 'pending': 0}
+                try:
+                    row = conn.execute(
+                        "SELECT COUNT(*) AS total, "
+                        "SUM(CASE WHEN status IN ('DONE','BYPASSED','FORCE_VALIDATED') THEN 1 ELSE 0 END) AS done, "
+                        "SUM(CASE WHEN status = 'FAIL' THEN 1 ELSE 0 END) AS failed, "
+                        "SUM(CASE WHEN status = 'RUNNING' THEN 1 ELSE 0 END) AS running, "
+                        "SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) AS pending "
+                        "FROM jobs WHERE id IN (SELECT MAX(id) FROM jobs GROUP BY job_name)"
+                    ).fetchone()
+                    if row:
+                        stage_counts = {
+                            'total': row['total'] or 0,
+                            'done': row['done'] or 0,
+                            'failed': row['failed'] or 0,
+                            'running': row['running'] or 0,
+                            'pending': row['pending'] or 0,
+                        }
+                except Exception:
+                    pass
+                # Total cost from lsf_details
+                total_cost = 0
+                try:
+                    cost_row = conn.execute('SELECT COALESCE(SUM(cost), 0) FROM lsf_details').fetchone()
+                    if cost_row:
+                        total_cost = cost_row[0]
+                except Exception:
+                    pass
+                conn.close()
+                self._json_response({
+                    'run_info': run_info,
+                    'design_info': design_info,
+                    'stage_counts': stage_counts,
+                    'total_cost': total_cost,
+                })
+            except Exception:
+                self._json_response({
+                    'run_info': {}, 'design_info': {},
+                    'stage_counts': {}, 'total_cost': 0,
+                })
+        elif path == '/api/ownership':
+            try:
+                conn = sqlite3.connect(self.dashboard.db_path)
+                owner = ''
+                owner_uid = ''
+                try:
+                    row = conn.execute("SELECT value FROM run_info WHERE key = 'owner'").fetchone()
+                    if row:
+                        owner = row[0]
+                    row = conn.execute("SELECT value FROM run_info WHERE key = 'owner_uid'").fetchone()
+                    if row:
+                        owner_uid = row[0]
+                except Exception:
+                    pass
+                conn.close()
+                is_owner = True
+                if owner_uid:
+                    try:
+                        is_owner = (os.getuid() == int(owner_uid))
+                    except (ValueError, TypeError):
+                        is_owner = False
+                self._json_response({
+                    'owner': owner,
+                    'owner_uid': owner_uid,
+                    'is_owner': is_owner,
+                })
+            except Exception:
+                self._json_response({
+                    'owner': '', 'owner_uid': '', 'is_owner': False,
+                })
         elif path.startswith('/static/'):
             self._serve_static(path[len('/static/'):])
         else:
@@ -1138,6 +1304,8 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 self._json_response({'error': f'Unknown action: {path}'}, 404)
                 return
             self._json_response(result)
+        except PermissionError as e:
+            self._json_response({'ok': False, 'error': str(e)}, 403)
         except Exception as e:
             self._json_response({'error': str(e)}, 500)
 
@@ -1146,6 +1314,27 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         if length > 0:
             return json.loads(self.rfile.read(length))
         return {}
+
+    # ── Ownership check for non-engine actions ────────────────────────────
+
+    def _check_run_ownership(self):
+        """Check if current user owns this run. Raises PermissionError if not."""
+        db_path = self.dashboard.db_path
+        if not db_path or not os.path.exists(db_path):
+            return
+        conn = sqlite3.connect(db_path)
+        row = conn.execute("SELECT value FROM run_info WHERE key = 'owner_uid'").fetchone()
+        conn.close()
+        if row:
+            owner_uid = int(row[0])
+            if os.getuid() != owner_uid:
+                conn2 = sqlite3.connect(db_path)
+                owner_row = conn2.execute("SELECT value FROM run_info WHERE key = 'owner'").fetchone()
+                conn2.close()
+                owner_name = owner_row[0] if owner_row else 'unknown'
+                raise PermissionError(
+                    f"Run owned by '{owner_name}' — only the owner can modify this run"
+                )
 
     # ── Action Handlers ──────────────────────────────────────────────────
 
@@ -1256,6 +1445,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
     def _action_save_mmmc(self, body):
         """Save MMMC scenario overrides. Supports both PNR node mode and STA dynamic mode."""
+        self._check_run_ownership()
         node = body.get('node', '')
         setup = body.get('setup', [])
         hold = body.get('hold', [])
@@ -1352,6 +1542,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
     def _action_add_node(self, body):
         """Add custom node. If auto_name=true, auto-generate next available name."""
+        self._check_run_ownership()
         name = body.get('name', '')
         node_type = body.get('type', '')
         dep = body.get('dep', '')
@@ -1377,6 +1568,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
     def _action_delete_node(self, body):
         """Delete custom node."""
+        self._check_run_ownership()
         name = body.get('name', '')
         if not name:
             return {'error': 'name required'}
@@ -1400,6 +1592,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
     def _action_save_node_full_config(self, body):
         """Save edited config variables to override_config file.
         Scope: 'node' (this node), 'branch' (all branch nodes), 'type' (all nodes of this type)."""
+        self._check_run_ownership()
         stage = body.get('stage', '')
         stage_base = body.get('stage_base', '') or re.sub(r'\d+(_\w+)?$', '', stage)
         branch_key = body.get('branch_key', '')
@@ -1460,6 +1653,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
     def _action_delete_branch(self, body):
         """Delete an entire branch by key. Blocks if external nodes depend on it."""
+        self._check_run_ownership()
         branch_key = body.get('branch_key', '')
         if not branch_key:
             return {'error': 'branch_key required'}
@@ -1528,6 +1722,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
     def _action_create_branch(self, body):
         """Create flow branch."""
+        self._check_run_ownership()
         name = body.get('name', '')
         from_stage = body.get('from_stage', '')
         if not name or not from_stage:
@@ -1581,6 +1776,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
     def _action_save_input_vars(self, node_name, body):
         """Save input variables to user_config.tcl."""
+        self._check_run_ownership()
         variables = body.get('variables', {})
         if not variables:
             return {'error': 'No variables to save'}
@@ -1712,13 +1908,37 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         else:
             self.send_error(404)
 
-    def _json_response(self, data):
+    def _json_response(self, data, status=200):
         body = json.dumps(data, default=str).encode()
-        self.send_response(200)
+        self.send_response(status)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
         self.wfile.write(body)
+
+    def _query_db_table(self, table_name, filters=None):
+        """Query a DB table with optional column filters. Returns list of dicts.
+        Handles missing tables gracefully (returns empty list)."""
+        try:
+            conn = sqlite3.connect(self.dashboard.db_path)
+            conn.row_factory = sqlite3.Row
+            query = f'SELECT * FROM {table_name}'
+            params = []
+            if filters:
+                clauses = []
+                for col, val in filters.items():
+                    clauses.append(f'{col} = ?')
+                    params.append(val)
+                query += ' WHERE ' + ' AND '.join(clauses)
+            cur = conn.execute(query, params)
+            rows = [dict(r) for r in cur.fetchall()]
+            conn.close()
+            return rows
+        except sqlite3.OperationalError:
+            # Table doesn't exist or schema mismatch
+            return []
+        except Exception:
+            return []
 
     def _serve_log(self, job_name):
         """Serve log file for a stage or subnode.
@@ -1819,32 +2039,104 @@ def _file_watcher(dashboard):
         time.sleep(1)
 
 
+def _is_port_free(port: int) -> bool:
+    """Check if a port is available to bind."""
+    import socket
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(('0.0.0.0', port))
+            return True
+    except OSError:
+        return False
+
+
 def _find_free_port(start: int = 8080, end: int = 8180) -> int:
     """Find a free port in the given range."""
-    import socket
     for port in range(start, end):
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind(('0.0.0.0', port))
-                return port
-        except OSError:
-            continue
+        if _is_port_free(port):
+            return port
     raise RuntimeError(f"No free port found in range {start}-{end}")
+
+
+def _get_run_port(run_dir: str) -> int:
+    """Get deterministic port for a run directory.
+
+    Port is derived from hash of the canonical run_dir path, mapped to range
+    10000-60000. This gives each run a stable port across restarts.
+    The port is stored in the SQLite DB (run_info table) so it is automatically
+    cleaned up when the DB is removed.
+
+    Resolution order:
+      1. Read from DB (if previously stored)
+      2. Compute from hash of run_dir
+      3. If computed port is busy, increment until free
+      4. Store final port in DB
+    """
+    import hashlib
+    canonical = os.path.realpath(os.path.abspath(run_dir))
+    db_path = os.path.join(run_dir, 'race_status.db')
+
+    # 1. Try to read from DB
+    if os.path.exists(db_path):
+        try:
+            conn = sqlite3.connect(db_path)
+            row = conn.execute(
+                "SELECT value FROM run_info WHERE key = 'dashboard_port'"
+            ).fetchone()
+            conn.close()
+            if row:
+                stored_port = int(row[0])
+                if _is_port_free(stored_port):
+                    return stored_port
+                # Port busy (another process) — fall through to recompute
+        except Exception:
+            pass
+
+    # 2. Compute deterministic port from hash
+    h = int(hashlib.md5(canonical.encode()).hexdigest(), 16)
+    base_port = 10000 + (h % 50000)
+
+    # 3. Find free port starting from base
+    port = base_port
+    for _ in range(200):
+        if _is_port_free(port):
+            break
+        port = 10000 + ((port - 10000 + 1) % 50000)
+    else:
+        raise RuntimeError(f"No free port found near {base_port}")
+
+    # 4. Store in DB
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS run_info (key TEXT PRIMARY KEY, value TEXT)"
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO run_info (key, value) VALUES ('dashboard_port', ?)",
+            (str(port),)
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass  # Non-critical — port still works, just won't persist
+
+    return port
 
 
 def start_dashboard(run_dir: str, port: int = 0, open_browser: bool = True):
     """Start the RACE Dashboard web server.
 
     Args:
-        port: Port number. 0 = auto-find free port starting from 8080.
-              Allows multiple users / runs to open dashboards simultaneously.
+        port: Port number. 0 = auto-assign deterministic port from run_dir hash
+              (stored in SQLite DB, cleaned up when DB is removed).
+              Explicit port overrides the deterministic assignment.
     """
     dashboard = RaceDashboard(run_dir)
     DashboardHandler.dashboard = dashboard
 
-    # Auto-find free port if not specified or default
+    # Determine port: explicit > DB-stored > hash-derived
     if port == 0:
-        port = _find_free_port()
+        port = _get_run_port(run_dir)
 
     # Start file watcher thread for near-instant change detection
     watcher = threading.Thread(target=_file_watcher, args=(dashboard,), daemon=True)
@@ -1853,9 +2145,21 @@ def start_dashboard(run_dir: str, port: int = 0, open_browser: bool = True):
     try:
         server = http.server.HTTPServer(('0.0.0.0', port), DashboardHandler)
     except OSError:
-        # Requested port busy — auto-find a free one
-        port = _find_free_port(port + 1)
+        # Requested port busy — find next free one and update DB
+        port = _find_free_port(port + 1, port + 200)
         server = http.server.HTTPServer(('0.0.0.0', port), DashboardHandler)
+        # Update stored port
+        try:
+            db_path = os.path.join(run_dir, 'race_status.db')
+            conn = sqlite3.connect(db_path)
+            conn.execute(
+                "INSERT OR REPLACE INTO run_info (key, value) VALUES ('dashboard_port', ?)",
+                (str(port),)
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
 
     url = f'http://localhost:{port}'
 
@@ -1865,6 +2169,7 @@ def start_dashboard(run_dir: str, port: int = 0, open_browser: bool = True):
     print(f'  Run:       {os.path.basename(run_dir)}')
     print(f'  Flow:      {dashboard.flow_type}')
     print(f'  DB:        {os.path.basename(dashboard.db_path)}')
+    print(f'  Port:      {port} (deterministic)')
     print(f'  {"=" * 50}')
     print(f'  Press Ctrl+C to stop\n')
 

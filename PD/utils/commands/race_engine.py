@@ -507,35 +507,100 @@ class DagBuilder:
 class StatusDB:
     """SQLite database for job status tracking.
 
-    DB path structure: $project(race,db_path)/$project/$domain/$flow/$user_$run_$uid.db
-    Example: /proj/phoenix/cbflow_db/phoenix/PD/SYNTH_PNR/vmerugu_run0_a3f2b1.db
+    DB is stored in the RACE area: $project(race,db_path)/$project/$domain/$flow/<run>_<user>_<uid>.db
+    Example: /proj/phoenix/race_db/phoenix/PD/SYNTH_PNR/P0_run_SYNTH_PNR_test1_vmerugu_a3f2b1.db
+
+    A pointer file (.race_db_pointer) in the run_dir stores the absolute path
+    to the DB in the race area — used by dashboard and other tools to locate it.
 
     UID is a 6-char hex derived from run_dir absolute path — unique per run,
-    deterministic (same run_dir always produces same UID), so the engine
-    reconnects to the same DB on resume without creating duplicates.
+    deterministic (same run_dir always produces same UID).
 
-    Falls back to $run_dir/.race_engine.db if project(race,db_path) not configured.
+    Falls back to local $run_dir/.race_<name>.db only if race area not configured.
     """
+
+    # Pointer file stored in run_dir that contains absolute path to DB
+    DB_POINTER_FILE = '.race_db_pointer'
 
     def __init__(self, run_dir: str, project_name: str = '', domain: str = 'PD',
                  flow_type: str = '', run_name: str = '', user: str = '',
                  db_base_path: str = ''):
         import hashlib
+        self.run_dir = run_dir
         # Generate deterministic 6-char UID from run_dir absolute path
         uid = hashlib.md5(os.path.abspath(run_dir).encode()).hexdigest()[:6]
+        user = user or os.environ.get('USER', 'unknown')
+        # Full run directory basename for human-readable DB identification
+        run_dir_name = os.path.basename(os.path.abspath(run_dir))
+        db_filename = f'{run_dir_name}_{user}_{uid}.db'
 
+        # Priority 1: Check existing pointer file (for reconnect/resume)
+        pointer_path = os.path.join(run_dir, self.DB_POINTER_FILE)
+        if os.path.exists(pointer_path):
+            try:
+                with open(pointer_path) as f:
+                    stored_path = f.read().strip()
+                if stored_path and os.path.exists(stored_path):
+                    self.db_path = stored_path
+                    self._init_db()
+                    return
+            except (OSError, IOError):
+                pass
+
+        # Priority 2: Race area (from project config)
         if db_base_path:
-            user = user or os.environ.get('USER', 'unknown')
             db_dir = os.path.join(db_base_path, project_name, domain, flow_type)
             os.makedirs(db_dir, exist_ok=True)
-            self.db_path = os.path.join(db_dir, f'{user}_{run_name}_{uid}.db')
+            self.db_path = os.path.join(db_dir, db_filename)
+            # Write pointer file in run_dir for other tools to find the DB
+            self._write_pointer(pointer_path, self.db_path)
         else:
-            # Include run_name in local DB filename for identification
-            if run_name:
-                self.db_path = os.path.join(run_dir, f'.race_{run_name}_{uid}.db')
-            else:
-                self.db_path = os.path.join(run_dir, f'.race_{uid}.db')
+            # Fallback: local DB (only if race area not configured)
+            self.db_path = os.path.join(run_dir, f'.race_{db_filename}')
+
+        # Backward compat: if old DB exists locally, use it (avoid losing state)
+        old_path = os.path.join(run_dir, f'.race_{run_name}_{uid}.db') if run_name else ''
+        if old_path and os.path.exists(old_path) and not os.path.exists(self.db_path):
+            self.db_path = old_path
+
         self._init_db()
+
+    @staticmethod
+    def _write_pointer(pointer_path: str, db_path: str):
+        """Write pointer file in run_dir with absolute path to DB."""
+        try:
+            with open(pointer_path, 'w') as f:
+                f.write(os.path.abspath(db_path) + '\n')
+        except (OSError, IOError):
+            pass  # Non-critical — tools can still find DB via race area scan
+
+    @staticmethod
+    def find_db_from_run_dir(run_dir: str) -> str:
+        """Find the RACE database for a run directory.
+
+        Resolution order:
+          1. .race_db_pointer file in run_dir (points to race area)
+          2. Local .race_*.db files in run_dir (legacy fallback)
+          3. None
+        """
+        # Check pointer file
+        pointer_path = os.path.join(run_dir, StatusDB.DB_POINTER_FILE)
+        if os.path.exists(pointer_path):
+            try:
+                with open(pointer_path) as f:
+                    stored_path = f.read().strip()
+                if stored_path and os.path.exists(stored_path):
+                    return stored_path
+            except (OSError, IOError):
+                pass
+
+        # Fallback: local DB files
+        import glob as _glob
+        matches = _glob.glob(os.path.join(run_dir, '.race_*.db'))
+        if matches:
+            return matches[0]
+
+        return None
 
     def _init_db(self):
         conn = sqlite3.connect(self.db_path)
@@ -594,6 +659,96 @@ class StatusDB:
             branch_key TEXT,
             branch_name TEXT,
             node_type TEXT
+        )''')
+
+        # ── New tables: comprehensive data collection ─────────────────────
+        conn.execute('''CREATE TABLE IF NOT EXISTS design_info (
+            key TEXT PRIMARY KEY,
+            value TEXT,
+            updated_at TEXT DEFAULT (datetime('now'))
+        )''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS checklist_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            milestone TEXT NOT NULL,
+            check_name TEXT NOT NULL,
+            check_type TEXT,
+            category TEXT,
+            severity TEXT,
+            status TEXT,
+            metric_value TEXT,
+            threshold TEXT,
+            detail TEXT,
+            report_file TEXT,
+            phase TEXT,
+            evaluated_at TEXT DEFAULT (datetime('now')),
+            evaluated_by TEXT
+        )''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS release_info (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            release_tag TEXT NOT NULL,
+            milestone TEXT,
+            phase TEXT,
+            release_dir TEXT,
+            released_by TEXT,
+            released_at TEXT DEFAULT (datetime('now')),
+            description TEXT,
+            status TEXT DEFAULT 'active',
+            files_json TEXT,
+            signoff_json TEXT
+        )''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS lsf_details (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_name TEXT NOT NULL,
+            lsf_job_id TEXT,
+            queue TEXT,
+            resource_tier TEXT,
+            requested_mem_mb INTEGER,
+            requested_cpu INTEGER,
+            requested_walltime TEXT,
+            actual_mem_peak_mb REAL,
+            actual_cpu_time_sec REAL,
+            actual_walltime_sec REAL,
+            exec_host TEXT,
+            submit_time TEXT,
+            start_time TEXT,
+            end_time TEXT,
+            exit_code INTEGER,
+            exit_reason TEXT,
+            cost_estimate REAL,
+            submitted_at TEXT DEFAULT (datetime('now'))
+        )''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS run_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_name TEXT NOT NULL,
+            stage TEXT,
+            log_file TEXT,
+            log_size_bytes INTEGER,
+            error_count INTEGER DEFAULT 0,
+            warning_count INTEGER DEFAULT 0,
+            critical_errors TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS metrics_snapshot (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            stage TEXT NOT NULL,
+            node_name TEXT,
+            metric_category TEXT,
+            metric_name TEXT NOT NULL,
+            metric_value REAL,
+            metric_unit TEXT,
+            scenario TEXT,
+            corner TEXT,
+            captured_from TEXT,
+            captured_at TEXT DEFAULT (datetime('now'))
+        )''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS config_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            config_file TEXT,
+            change_type TEXT,
+            changed_by TEXT,
+            changed_at TEXT DEFAULT (datetime('now')),
+            content_hash TEXT,
+            summary TEXT
         )''')
         conn.commit()
         conn.close()
@@ -917,6 +1072,16 @@ class RaceEngine:
         self.db.set_run_info('user', user)
         self.db.set_run_info('initialized', datetime.now().isoformat())
 
+        # ── Ownership: store owner on first init, verify on subsequent ────
+        existing_owner = self.db.get_run_info('owner_uid')
+        if not existing_owner:
+            # First initialization — record owner
+            self.db.set_run_info('owner', user)
+            self.db.set_run_info('owner_uid', str(os.getuid()))
+            self.db.set_run_info('owner_host', os.uname().nodename)
+            self.db.set_run_info('created_at', datetime.now().isoformat())
+            logger.info(f"Run owner: {user} (uid={os.getuid()})")
+
         # Restore completed state from DB (for resume after crash)
         completed = self.db.get_completed()
         for name, job in self.jobs.items():
@@ -960,12 +1125,160 @@ class RaceEngine:
                         logger.info(f"  CHANGED: {stage} → {f}")
                     self._auto_retrace_from(stage)
 
+        # ── Populate design_info and track config changes ──
+        self._populate_design_info()
+        self._track_config_changes()
+
         logger.info(f"RACE initialized: {len(self.jobs)} jobs, "
                      f"{len(self.stage_order)} stages")
 
         # Check DB session count against limit
         self._check_db_session_limit()
         return True
+
+    # ── Ownership enforcement ────────────────────────────────────────────────
+
+    def _check_ownership(self):
+        """Verify current user is the run owner. Raises PermissionError if not."""
+        if not self.db:
+            return
+        owner_uid = self.db.get_run_info('owner_uid')
+        if owner_uid:
+            if os.getuid() != int(owner_uid):
+                owner_name = self.db.get_run_info('owner') or 'unknown'
+                raise PermissionError(
+                    f"Run owned by '{owner_name}' — only the owner can modify this run"
+                )
+
+    # ── Design info + config tracking ─────────────────────────────────────
+
+    def _populate_design_info(self):
+        """Extract design metadata from resolved config and store in DB."""
+        if not self.db:
+            return
+        info_keys = {
+            'CBFLOW_DESIGN_NAME': 'design_name',
+            'CBFLOW_BLOCK_NAME': 'block_name',
+            'CBFLOW_PROJECT_NAME': 'project_name',
+            'CBFLOW_PROJECT_PHASE': 'phase',
+            'CBFLOW_FLOW_TYPE': 'flow_type',
+        }
+        conn = sqlite3.connect(self.db.db_path)
+        for env_key, db_key in info_keys.items():
+            val = self.env_vars.get(env_key, '')
+            if val:
+                conn.execute(
+                    "INSERT OR REPLACE INTO design_info (key, value, updated_at) "
+                    "VALUES (?, ?, datetime('now'))", (db_key, val)
+                )
+        # Store run_name and flow_type for quick access
+        conn.execute(
+            "INSERT OR REPLACE INTO design_info (key, value, updated_at) "
+            "VALUES ('run_name', ?, datetime('now'))",
+            (self.env_vars.get('CBFLOW_RUN_NAME', ''),)
+        )
+        conn.commit()
+        conn.close()
+
+    def _track_config_changes(self):
+        """Track config file changes via content hashing."""
+        import hashlib
+        if not self.db:
+            return
+        config_files = [
+            os.path.join(self.run_dir, 'setup', 'user_config.tcl'),
+            os.path.join(self.run_dir, 'setup', 'override_config.tcl'),
+            os.path.join(self.run_dir, 'setup', 'runtime_flow_config.tcl'),
+        ]
+        # Include all override_config.*.tcl files
+        setup_dir = os.path.join(self.run_dir, 'setup')
+        if os.path.isdir(setup_dir):
+            for f in os.listdir(setup_dir):
+                if f.startswith('override_config.') and f.endswith('.tcl'):
+                    config_files.append(os.path.join(setup_dir, f))
+
+        conn = sqlite3.connect(self.db.db_path)
+        user = os.environ.get('USER', 'unknown')
+        for cfg_path in config_files:
+            if not os.path.exists(cfg_path):
+                continue
+            with open(cfg_path, 'rb') as f:
+                content_hash = hashlib.md5(f.read()).hexdigest()
+            fname = os.path.basename(cfg_path)
+            # Check if hash changed
+            row = conn.execute(
+                "SELECT content_hash FROM config_history "
+                "WHERE config_file = ? ORDER BY id DESC LIMIT 1", (fname,)
+            ).fetchone()
+            if not row:
+                conn.execute(
+                    "INSERT INTO config_history (config_file, change_type, changed_by, content_hash, summary) "
+                    "VALUES (?, 'created', ?, ?, 'Initial config')",
+                    (fname, user, content_hash)
+                )
+            elif row[0] != content_hash:
+                conn.execute(
+                    "INSERT INTO config_history (config_file, change_type, changed_by, content_hash, summary) "
+                    "VALUES (?, 'modified', ?, ?, 'Config updated')",
+                    (fname, user, content_hash)
+                )
+        conn.commit()
+        conn.close()
+
+    def _record_log_summary(self, job_name: str, stage: str, log_file: str):
+        """Scan a log file for errors/warnings and store summary in DB."""
+        if not self.db or not log_file or not os.path.exists(log_file):
+            return
+        try:
+            with open(log_file, 'r', errors='replace') as f:
+                content = f.read()
+            log_size = os.path.getsize(log_file)
+            error_count = len(re.findall(r'\bERROR\b', content, re.IGNORECASE))
+            warning_count = len(re.findall(r'\bWARNING\b', content, re.IGNORECASE))
+            # Extract critical error lines (first 10)
+            critical = []
+            for line in content.splitlines():
+                if re.search(r'\b(ERROR|FATAL|CRITICAL)\b', line, re.IGNORECASE):
+                    critical.append(line.strip()[:200])
+                    if len(critical) >= 10:
+                        break
+            import json
+            conn = sqlite3.connect(self.db.db_path)
+            conn.execute(
+                "INSERT INTO run_logs (job_name, stage, log_file, log_size_bytes, "
+                "error_count, warning_count, critical_errors) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (job_name, stage, os.path.relpath(log_file, self.run_dir),
+                 log_size, error_count, warning_count,
+                 json.dumps(critical) if critical else None)
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass  # Non-critical — don't fail job because of log scanning
+
+    def _record_lsf_details(self, job_name: str, job):
+        """Record LSF resource details for a completed job."""
+        if not self.db or not getattr(job, 'lsf_job_id', None):
+            return
+        try:
+            conn = sqlite3.connect(self.db.db_path)
+            conn.execute(
+                "INSERT INTO lsf_details (job_name, lsf_job_id, queue, resource_tier, "
+                "exec_host, start_time, end_time, exit_code) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (job_name, job.lsf_job_id,
+                 getattr(job, 'lsf_queue', None),
+                 getattr(job, 'resource_tier', None),
+                 getattr(job, 'hostname', None),
+                 getattr(job, 'start_time', None),
+                 getattr(job, 'end_time', None),
+                 getattr(job, 'exit_code', None))
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
 
     # ── Invalidation helper ─────────────────────────────────────────────────
 
@@ -980,6 +1293,7 @@ class RaceEngine:
 
     def bypass(self, stages: list) -> int:
         """Mark stages as skipped (bypass). Works on any current status."""
+        self._check_ownership()
         count = 0
         for stage in stages:
             for name, job in self.jobs.items():
@@ -994,6 +1308,7 @@ class RaceEngine:
         """Mark stages + all upstream as completed (force-validate).
         If you force-validate cts1, then rtl1/sdc1/upf1 → init_design1 → synthesis1 → place1 → cts1
         all get marked as FORCE_VALIDATED."""
+        self._check_ownership()
         all_jobs = set()
         for stage in stages:
             upstream = self._get_jobs_for_target(stage)
@@ -1039,6 +1354,7 @@ class RaceEngine:
 
     def force(self, stages: list) -> int:
         """Force re-execute specific stages + upstream deps. Invalidate true downstream."""
+        self._check_ownership()
         target_jobs = set()
         for stage in stages:
             stage_jobs = self._get_jobs_for_target(stage)
@@ -1095,6 +1411,7 @@ class RaceEngine:
 
     def execute(self, target: str = 'all', env_vars: dict = None) -> int:
         """Execute target (stage name or 'all')."""
+        self._check_ownership()
         if env_vars:
             self.env_vars.update(env_vars)
 
@@ -1230,6 +1547,7 @@ class RaceEngine:
 
     def retrace(self, from_stage: str = None, stages: list = None) -> bool:
         """Smart retrace — invalidate specified stages + TRUE downstream via dependency graph."""
+        self._check_ownership()
         invalidate_names = []
 
         if from_stage:
@@ -1434,18 +1752,25 @@ class RaceEngine:
                         if m: max_sessions = int(m.group(1))
             warn_threshold = int(max_sessions * 0.8)
 
-            # Count DBs in workarea
-            workarea = os.path.dirname(self.run_dir)
-            count = sum(1 for d in Path(workarea).iterdir()
-                       if d.is_dir()
-                       for _ in d.glob('.race_*.db'))
+            # Count DBs: prefer race area, fallback to workarea local scan
+            count = 0
+            if self.db and hasattr(self.db, 'db_path'):
+                db_dir = os.path.dirname(self.db.db_path)
+                if os.path.isdir(db_dir):
+                    count = sum(1 for f in os.listdir(db_dir) if f.endswith('.db'))
+            if count == 0:
+                # Fallback: count local .race_*.db in workarea
+                workarea = os.path.dirname(self.run_dir)
+                count = sum(1 for d in Path(workarea).iterdir()
+                           if d.is_dir()
+                           for _ in d.glob('.race_*.db'))
 
             if count >= max_sessions:
                 logger.error(f"RACE DB session limit reached ({count}/{max_sessions})! "
-                            f"Run 'cbflow run db-manage --cleanup' to free sessions.")
+                            f"Run 'cbflow manage delete-db' to free sessions.")
             elif count >= warn_threshold:
                 logger.warning(f"RACE DB sessions at {count}/{max_sessions} (80% threshold). "
-                              f"Consider: cbflow run db-manage --list")
+                              f"Consider: cbflow manage list --path <race_area>")
         except Exception:
             pass  # Non-critical — don't block init
 
@@ -1655,6 +1980,10 @@ class RaceEngine:
                     error_msg = f"Process exited with code {exit_code}. Log: {log_file}"
 
             self.db.record_complete(job, exit_code, error_msg)
+
+            # ── Record log summary and LSF details to DB ──
+            self._record_log_summary(job.name, job.stage, log_file)
+            self._record_lsf_details(job.name, job)
 
             if exit_code == 0:
                 logger.info(f"  [{job.stage}/{job.subnode}] done")

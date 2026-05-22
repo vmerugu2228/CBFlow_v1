@@ -1,94 +1,142 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # PLACE_EXIT Milestone Configuration
-# Placement Exit - Design ready for Clock Tree Synthesis (CTS)
+# Placement Exit — Design ready for Clock Tree Synthesis (CTS)
+# Stage: place1 (SYNTH_PNR flow)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Milestone information
-set milestone_info(name) "PLACE_EXIT"
-set milestone_info(stage) "placement"
-set milestone_info(description) "Placement Exit - Design ready for Clock Tree Synthesis (CTS)"
+set milestone_info(name)        "PLACE_EXIT"
+set milestone_info(stage)       "place"
+set milestone_info(description) "Placement Exit - Design ready for Clock Tree Synthesis"
+set milestone_info(stage_node)  "place1"
+set milestone_info(report_dir)  "work/SYNTH_PNR/place1/reports"
 
-# Mandatory checks that must pass for milestone exit
+# ── Check packs ──────────────────────────────────────────────────────────
+array set check_packs {
+    timing      "P0"
+    placement   "P0"
+    clock       "P1"
+    power       "P1"
+    physical    "P1"
+}
+
+# ── Mandatory checks ─────────────────────────────────────────────────────────
 array set mandatory_checks {
-    "placement_legality" {
-        "script" "check_placement_legality.tcl"
-        "description" "Validate all cells are legally placed"
-        "criteria" "illegal_cells == 0"
+    "place_legality" {
+        "script"      "check_legality.tcl"
+        "description" "All cells legally placed — zero illegal cells"
+        "criteria"    "illegal_cells == 0"
+        "min_phase"   "P0"
+        "report_file" "work/SYNTH_PNR/place1/reports/check_legality.rpt"
     }
-    "placement_density" {
-        "script" "check_placement_density.tcl" 
-        "description" "Verify placement density is within acceptable range"
-        "criteria" "density >= 0.7 && density <= 0.85"
+    "place_setup_timing" {
+        "script"      "check_timing.tcl"
+        "description" "Setup WNS meets phase threshold"
+        "criteria"    "setup_wns >= threshold"
+        "min_phase"   "P0"
+        "report_file" "work/SYNTH_PNR/place1/reports/report_timing.max.rpt"
     }
-    "timing_closure" {
-        "script" "validate_timing_closure.tcl"
-        "description" "Check timing meets setup requirements"
-        "criteria" "setup_wns >= -50ps && setup_tns >= -500ps"
+    "place_qor" {
+        "script"      "check_timing.tcl"
+        "description" "QoR summary — WNS/TNS/area/power"
+        "criteria"    "report exists and parseable"
+        "min_phase"   "P0"
+        "report_file" "work/SYNTH_PNR/place1/reports/report_qor.rpt"
     }
-    "congestion_analysis" {
-        "script" "check_congestion.tcl"
-        "description" "Validate congestion levels are acceptable"
-        "criteria" "max_congestion <= 0.85"
+    "place_congestion" {
+        "script"      "check_congestion.tcl"
+        "description" "Congestion within acceptable limits"
+        "criteria"    "max_congestion <= threshold"
+        "min_phase"   "P0"
+        "report_file" "work/SYNTH_PNR/place1/reports/report_congestion.rpt"
     }
-    "power_analysis" {
-        "script" "check_power.tcl"
-        "description" "Verify power consumption is within budget"
-        "criteria" "total_power <= power_budget"
+    "place_hold_timing" {
+        "script"      "check_timing.tcl"
+        "description" "Hold WNS meets phase threshold"
+        "criteria"    "hold_wns >= threshold"
+        "min_phase"   "P1"
+        "report_file" "work/SYNTH_PNR/place1/reports/report_timing.min.rpt"
+    }
+    "place_power" {
+        "script"      "check_power.tcl"
+        "description" "Power consumption within budget"
+        "criteria"    "total_power <= power_budget"
+        "min_phase"   "P1"
+        "report_file" "work/SYNTH_PNR/place1/reports/report_power.rpt"
     }
 }
 
-# Optional checks (warnings if failed, but don't block exit)
+# ── Optional checks ──────────────────────────────────────────────────────────
 array set optional_checks {
-    "hold_timing" {
-        "script" "check_hold_timing.tcl"
-        "description" "Early hold timing analysis"
-        "criteria" "hold_wns >= -10ps"
+    "place_utilization" {
+        "script"      "check_utilization.tcl"
+        "description" "Placement utilization within target"
+        "criteria"    "utilization within range"
+        "min_phase"   "P1"
+        "report_file" "work/SYNTH_PNR/place1/reports/report_utilization.rpt"
     }
-    "IR_drop_analysis" {
-        "script" "check_ir_drop.tcl"
-        "description" "Early IR drop analysis"
-        "criteria" "max_ir_drop <= 50mV"
+    "place_qor_summary" {
+        "script"      "check_file_exists.tcl"
+        "description" "QoR summary report generated"
+        "criteria"    "file exists"
+        "min_phase"   "P2"
+        "report_file" "work/SYNTH_PNR/place1/reports/report_qor_summary.rpt"
     }
-    "placement_quality" {
-        "script" "check_placement_quality.tcl"
-        "description" "Placement quality metrics"
-        "criteria" "displacement_quality >= 0.8"
+    "place_vt_group" {
+        "script"      "check_file_exists.tcl"
+        "description" "Threshold voltage group distribution"
+        "criteria"    "file exists"
+        "min_phase"   "P2"
+        "report_file" "work/SYNTH_PNR/place1/reports/report_threshold_voltage_group.rpt"
+    }
+    "place_constraint_check" {
+        "script"      "check_constraints.tcl"
+        "description" "Max cap/tran/fanout constraint check"
+        "criteria"    "constraint violations == 0"
+        "min_phase"   "P3"
+        "report_file" "work/SYNTH_PNR/place1/reports/check_timing.rpt"
+    }
+    "place_signoff_drc" {
+        "script"      "check_drc.tcl"
+        "description" "Early signoff DRC check"
+        "criteria"    "drc_violations <= threshold"
+        "min_phase"   "P3"
+        "report_file" "work/SYNTH_PNR/place1/reports/signoff_check_drc.rpt"
     }
 }
 
-# Mandatory files that must exist for milestone exit
+# ── Mandatory files ───────────────────────────────────────────────────────────
 set mandatory_files {
-    "work/PNR/placement.enc"
-    "reports/place/placement_summary.rpt"
-    "reports/timing/setup_timing.rpt"
-    "reports/congestion/congestion_map.rpt"
+    "work/SYNTH_PNR/place1/run/place1.nlib"
+    "work/SYNTH_PNR/place1/reports/report_qor.rpt"
+    "work/SYNTH_PNR/place1/reports/report_timing.max.rpt"
+    "work/SYNTH_PNR/place1/reports/report_congestion.rpt"
 }
 
-# Deliverables to be generated for this milestone
+# ── Deliverables ──────────────────────────────────────────────────────────────
 array set deliverables {
-    "placement_def" {
-        "source" "work/PNR/placement.enc"
-        "target" "def/placement_exit.def"
-        "type" "design_file"
+    "placement_db" {
+        "source" "work/SYNTH_PNR/place1/run/place1.nlib"
+        "target" "releases/PLACE_EXIT/place1.nlib"
+        "type"   "design_db"
     }
-    "placement_report" {
-        "source" "reports/place/placement_summary.rpt"
-        "target" "reports/placement_exit_summary.rpt"
-        "type" "report"
+    "qor_report" {
+        "source" "work/SYNTH_PNR/place1/reports/report_qor.rpt"
+        "target" "releases/PLACE_EXIT/report_qor.rpt"
+        "type"   "report"
     }
     "timing_report" {
-        "source" "reports/timing/setup_timing.rpt"
-        "target" "reports/timing_exit_summary.rpt"
-        "type" "report"
+        "source" "work/SYNTH_PNR/place1/reports/report_timing.max.rpt"
+        "target" "releases/PLACE_EXIT/report_timing.max.rpt"
+        "type"   "report"
     }
     "congestion_report" {
-        "source" "reports/congestion/congestion_map.rpt"
-        "target" "reports/congestion_exit_summary.rpt"
-        "type" "report"
+        "source" "work/SYNTH_PNR/place1/reports/report_congestion.rpt"
+        "target" "releases/PLACE_EXIT/report_congestion.rpt"
+        "type"   "report"
     }
-    "placement_script" {
-        "source" "setup/placement_constraints.tcl"
-        "target" "utils/placement_constraints.tcl"
-        "type" "script"
+    "power_report" {
+        "source" "work/SYNTH_PNR/place1/reports/report_power.rpt"
+        "target" "releases/PLACE_EXIT/report_power.rpt"
+        "type"   "report"
     }
 }

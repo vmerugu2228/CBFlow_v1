@@ -3041,49 +3041,102 @@ def cmd_db_manage(args):
                 if m: max_sessions = int(m.group(1))
     warn_threshold = int(max_sessions * 0.8)
 
-    # Find all RACE DBs — search workarea and structured DB paths
+    # Find all RACE DBs — search race area first, then local workarea fallback
     user = os.environ.get('USER', 'unknown')
     dbs = []
 
-    # Search current workarea
-    workarea = os.path.dirname(os.getcwd()) if is_run_directory() else os.getcwd()
-    for run_dir in Path(workarea).iterdir():
-        if not run_dir.is_dir():
-            continue
-        for db_file in run_dir.glob('.race_*.db'):
+    def _scan_db(db_file, run_dir_name=''):
+        """Read DB metadata and append to dbs list."""
+        try:
+            conn = sqlite3.connect(str(db_file))
+            info = {}
             try:
-                conn = sqlite3.connect(str(db_file))
-                info = {}
-                try:
-                    for k, v in conn.execute('SELECT key, value FROM run_info'):
-                        info[k] = v
-                except Exception:
-                    pass
-                job_count = 0
-                try:
-                    job_count = conn.execute('SELECT COUNT(DISTINCT job_name) FROM jobs').fetchone()[0]
-                except Exception:
-                    pass
-                conn.close()
-
-                size = db_file.stat().st_size
-                mtime = datetime.fromtimestamp(db_file.stat().st_mtime)
-                dbs.append({
-                    'path': str(db_file),
-                    'run_dir': str(run_dir.name),
-                    'flow_type': info.get('flow_type', '?'),
-                    'result': info.get('result', '?'),
-                    'user': info.get('user', '?'),
-                    'initialized': info.get('initialized', '?'),
-                    'size': size,
-                    'mtime': mtime,
-                    'jobs': job_count,
-                })
+                for k, v in conn.execute('SELECT key, value FROM run_info'):
+                    info[k] = v
             except Exception:
                 pass
+            job_count = 0
+            try:
+                job_count = conn.execute('SELECT COUNT(DISTINCT job_name) FROM jobs').fetchone()[0]
+            except Exception:
+                pass
+            conn.close()
+
+            size = db_file.stat().st_size
+            mtime = datetime.fromtimestamp(db_file.stat().st_mtime)
+
+            # Determine status: ACTIVE (run_dir exists) or ORPHANED (run_dir deleted)
+            actual_run_dir = info.get('run_dir', '')
+            if actual_run_dir and os.path.isdir(actual_run_dir):
+                run_status = 'ACTIVE'
+            else:
+                run_status = 'ORPHANED'
+
+            dbs.append({
+                'path': str(db_file),
+                'run_dir': run_dir_name or info.get('run_dir', str(db_file.stem)),
+                'run_dir_abs': actual_run_dir,
+                'flow_type': info.get('flow_type', '?'),
+                'result': info.get('result', '?'),
+                'owner': info.get('owner', info.get('user', '?')),
+                'owner_uid': info.get('owner_uid', ''),
+                'initialized': info.get('initialized', '?'),
+                'size': size,
+                'mtime': mtime,
+                'jobs': job_count,
+                'status': run_status,
+            })
+        except Exception:
+            pass
+
+    # Search race area (primary location)
+    race_area = ''
+    project_name = os.environ.get('CBFLOW_PROJECT_NAME', '')
+    config_root = os.environ.get('CONFIG_ROOT', flow_dir)
+    if project_name and config_root:
+        for cfg_file in Path(os.path.join(config_root, 'config', 'project', project_name)).rglob('*_config.tcl'):
+            try:
+                with open(cfg_file) as f:
+                    for line in f:
+                        m = _re.match(r'set\s+project\(race,db_path\)\s+"([^"]+)"', line.strip())
+                        if m:
+                            race_area = m.group(1)
+                            break
+            except (OSError, UnicodeDecodeError):
+                pass
+            if race_area:
+                break
+
+    if race_area and os.path.isdir(race_area):
+        # Scan all .db files in race area for this user
+        for db_file in Path(race_area).rglob('*.db'):
+            _scan_db(db_file, db_file.stem)
+    else:
+        # Fallback: search local workarea
+        workarea = os.path.dirname(os.getcwd()) if is_run_directory() else os.getcwd()
+        for run_dir in Path(workarea).iterdir():
+            if not run_dir.is_dir():
+                continue
+            # Check pointer file first
+            pointer = run_dir / '.race_db_pointer'
+            if pointer.exists():
+                try:
+                    db_path = pointer.read_text().strip()
+                    if db_path and os.path.exists(db_path):
+                        _scan_db(Path(db_path), str(run_dir.name))
+                        continue
+                except (OSError, IOError):
+                    pass
+            # Local .race_*.db files
+            for db_file in run_dir.glob('.race_*.db'):
+                _scan_db(db_file, str(run_dir.name))
 
     # Sort by modification time (newest first)
     dbs.sort(key=lambda d: d['mtime'], reverse=True)
+
+    # Filter: only show current user's databases
+    current_uid = str(os.getuid())
+    dbs = [d for d in dbs if not d.get('owner_uid') or d['owner_uid'] == current_uid]
 
     # --check: just check count against limit
     if getattr(args, 'check', False) or (not getattr(args, 'db_list', False) and not getattr(args, 'delete', None) and not getattr(args, 'cleanup', False)):
@@ -3106,49 +3159,62 @@ def cmd_db_manage(args):
         logger.info(f"")
         return 0
 
-    # --list: show all databases
+    # --list: show all databases (only current user's)
     if getattr(args, 'db_list', False):
+        orphaned = sum(1 for d in dbs if d['status'] == 'ORPHANED')
         logger.info(f"")
-        logger.info(f"  RACE Database Sessions ({len(dbs)} found, limit={max_sessions})")
-        logger.info(f"  {'='*80}")
-        logger.info(f"  {'#':>3s}  {'Run Directory':30s} {'Flow':10s} {'Result':8s} {'Jobs':5s} {'Size':8s} {'Last Modified':20s}")
-        logger.info(f"  {'─'*80}")
+        logger.info(f"  RACE Database Sessions ({len(dbs)} found, {orphaned} orphaned, limit={max_sessions})")
+        logger.info(f"  {'='*95}")
+        logger.info(f"  {'#':>3s}  {'Status':8s} {'Run Directory':30s} {'Flow':10s} {'Result':8s} {'Jobs':5s} {'Size':8s} {'Modified':16s}")
+        logger.info(f"  {'─'*95}")
         for i, d in enumerate(dbs):
             size_str = f"{d['size'] / 1024:.0f}KB" if d['size'] < 1048576 else f"{d['size'] / 1048576:.1f}MB"
             mtime_str = d['mtime'].strftime('%Y-%m-%d %H:%M')
-            logger.info(f"  {i+1:3d}  {d['run_dir']:30s} {d['flow_type']:10s} {d['result']:8s} {d['jobs']:5d} {size_str:8s} {mtime_str:20s}")
+            logger.info(f"  {i+1:3d}  {d['status']:8s} {d['run_dir'][:30]:30s} {d['flow_type']:10s} {d['result']:8s} {d['jobs']:5d} {size_str:8s} {mtime_str}")
         logger.info(f"")
+        if orphaned:
+            logger.info(f"  TIP: {orphaned} ORPHANED database(s) can be safely deleted (run directory no longer exists)")
+            logger.info(f"       Use: cbflow run db-manage --cleanup  then type 'orphaned'")
         if len(dbs) >= warn_threshold:
             logger.warning(f"  WARNING: {len(dbs)}/{max_sessions} sessions used. Consider: cbflow run db-manage --cleanup")
         return 0
 
-    # --delete: delete specific run's DB
+    # --delete: delete specific run's DB (ownership check)
     if getattr(args, 'delete', None):
         target = args.delete
         found = [d for d in dbs if target in d['run_dir']]
         if not found:
             logger.error(f"  No database found matching '{target}'")
             return 1
+        current_uid = str(os.getuid())
         for d in found:
+            if d.get('owner_uid') and d['owner_uid'] != current_uid:
+                logger.error(f"  Cannot delete: owned by '{d['owner']}' — only the owner can delete")
+                return 1
             os.remove(d['path'])
             logger.info(f"  Deleted: {d['path']}")
         logger.info(f"  Removed {len(found)} database(s)")
         return 0
 
-    # --cleanup: interactive cleanup
+    # --cleanup: interactive cleanup (only shows your own DBs)
     if getattr(args, 'cleanup', False):
         if not dbs:
             logger.info("  No RACE databases found.")
             return 0
+
+        orphaned = sum(1 for d in dbs if d['status'] == 'ORPHANED')
         logger.info(f"")
-        logger.info(f"  RACE Database Cleanup ({len(dbs)} sessions, limit={max_sessions})")
-        logger.info(f"  {'='*80}")
+        logger.info(f"  RACE Database Cleanup ({len(dbs)} sessions, {orphaned} orphaned, limit={max_sessions})")
+        logger.info(f"  {'='*95}")
+        logger.info(f"  {'#':>3s}  {'Status':8s} {'Run Directory':30s} {'Flow':10s} {'Result':8s} {'Jobs':5s} {'Size':8s} {'Modified':16s}")
+        logger.info(f"  {'─'*95}")
         for i, d in enumerate(dbs):
             size_str = f"{d['size'] / 1024:.0f}KB" if d['size'] < 1048576 else f"{d['size'] / 1048576:.1f}MB"
             mtime_str = d['mtime'].strftime('%Y-%m-%d %H:%M')
-            logger.info(f"  [{i+1:2d}] {d['run_dir']:30s} {d['flow_type']:10s} {d['result']:8s} {size_str:8s} {mtime_str}")
+            logger.info(f"  [{i+1:2d}] {d['status']:8s} {d['run_dir'][:30]:30s} {d['flow_type']:10s} {d['result']:8s} {d['jobs']:5d} {size_str:8s} {mtime_str}")
         logger.info(f"")
-        logger.info(f"  Enter numbers to delete (comma-separated), 'old' to delete oldest, or 'q' to quit:")
+        logger.info(f"  ORPHANED = run directory deleted (safe to remove)")
+        logger.info(f"  Enter numbers to delete (comma-separated), 'orphaned' to delete all orphaned, 'old' to delete oldest, or 'q' to quit:")
 
         try:
             choice = input("  > ").strip()
@@ -3160,9 +3226,12 @@ def cmd_db_manage(args):
             return 0
 
         to_delete = []
-        if choice.lower() == 'old':
+        if choice.lower() == 'orphaned':
+            # Delete all orphaned DBs (list is already filtered to current user)
+            to_delete = [d for d in dbs if d['status'] == 'ORPHANED']
+        elif choice.lower() == 'old':
             # Delete oldest half (keep newest)
-            keep = max_sessions // 2
+            keep = max(len(dbs) // 2, 1)
             to_delete = dbs[keep:]
         else:
             for part in choice.split(','):
@@ -3176,10 +3245,22 @@ def cmd_db_manage(args):
             logger.info("  Nothing to delete.")
             return 0
 
+        deleted = 0
         for d in to_delete:
-            os.remove(d['path'])
-            logger.info(f"  Deleted: {d['run_dir']} ({d['path']})")
-        logger.info(f"  Removed {len(to_delete)} database(s). Remaining: {len(dbs) - len(to_delete)}")
+            try:
+                os.remove(d['path'])
+                logger.info(f"  Deleted: {d['run_dir'][:40]} ({os.path.basename(d['path'])})")
+                # Also remove pointer file if run_dir still exists
+                run_dir_path = d.get('run_dir_abs', '')
+                if run_dir_path and os.path.isdir(run_dir_path):
+                    pointer = os.path.join(run_dir_path, '.race_db_pointer')
+                    if os.path.exists(pointer):
+                        os.remove(pointer)
+                deleted += 1
+            except OSError as e:
+                logger.error(f"  Failed to delete {d['path']}: {e}")
+
+        logger.info(f"  Removed {deleted} database(s). Remaining: {len(dbs) - deleted}")
         return 0
 
     return 0

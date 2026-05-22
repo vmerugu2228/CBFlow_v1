@@ -1,73 +1,103 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # FP_EXIT Milestone Configuration
-# Floorplan Exit - Design ready for placement
+# Floorplan Exit — Design ready for placement
+# Stage: init_design1 (SYNTH_PNR flow)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Milestone information
-set milestone_info(name) "FP_EXIT"
-set milestone_info(stage) "floorplan"
+set milestone_info(name)        "FP_EXIT"
+set milestone_info(stage)       "init_design"
 set milestone_info(description) "Floorplan Exit - Design ready for placement"
+set milestone_info(stage_node)  "init_design1"
+set milestone_info(report_dir)  "work/SYNTH_PNR/init_design1/reports"
 
-# Mandatory checks that must pass for milestone exit
+# ── Check packs — which check library categories to activate ──────────────
+# Format: category → min_phase when this category starts applying to this milestone
+array set check_packs {
+    timing      "P0"
+    placement   "P0"
+    clock       "P1"
+    power       "P1"
+}
+
+# ── Mandatory checks ─────────────────────────────────────────────────────────
 array set mandatory_checks {
-    "floorplan_utilization" {
-        "script" "check_utilization.tcl"
-        "description" "Validate floorplan utilization is within target range"
-        "criteria" "utilization >= 0.6 && utilization <= 0.8"}
-}
-    "macro_placement" {
-        "script" "validate_macro_placement.tcl" 
-        "description" "Verify all macros are legally placed"
-        "criteria" "all_macros_legal == true"
+    "fp_qor" {
+        "script"      "check_timing.tcl"
+        "description" "QoR summary — WNS/TNS/area/power snapshot"
+        "criteria"    "report exists and parseable"
+        "min_phase"   "P0"
+        "report_file" "work/SYNTH_PNR/init_design1/reports/report_qor.rpt"
     }
-    "pin_assignment" {
-        "script" "validate_pin_assignment.tcl"
-        "description" "Check pin assignment and accessibility"
-        "criteria" "pin_accessibility >= 0.95"
+    "fp_utilization" {
+        "script"      "check_utilization.tcl"
+        "description" "Floorplan utilization within target range"
+        "criteria"    "utilization >= utilization_min && utilization <= utilization_max"
+        "min_phase"   "P0"
+        "report_file" "work/SYNTH_PNR/init_design1/reports/report_utilization.rpt"
     }
-    "power_domains" {
-        "script" "check_power_domains.tcl"
-        "description" "Validate power domain setup"
-        "criteria" "power_domains_defined == true"
+    "fp_design_summary" {
+        "script"      "check_file_exists.tcl"
+        "description" "Design summary report exists"
+        "criteria"    "file exists"
+        "min_phase"   "P0"
+        "report_file" "work/SYNTH_PNR/init_design1/reports/report_design.rpt"
+    }
+    "fp_clock_definitions" {
+        "script"      "check_file_exists.tcl"
+        "description" "Clock definitions report — all clocks defined"
+        "criteria"    "file exists"
+        "min_phase"   "P1"
+        "report_file" "work/SYNTH_PNR/init_design1/reports/report_clocks.rpt"
     }
 }
 
-# Optional checks (warnings if failed, but don't block exit)
+# ── Optional checks ──────────────────────────────────────────────────────────
 array set optional_checks {
-    "congestion_analysis" {
-        "script" "check_congestion.tcl"
-        "description" "Early congestion analysis"
-        "criteria" "max_congestion <= 0.8"
+    "fp_timing_estimate" {
+        "script"      "check_timing.tcl"
+        "description" "Early timing estimation after floorplan"
+        "criteria"    "setup_wns >= threshold"
+        "min_phase"   "P0"
+        "report_file" "work/SYNTH_PNR/init_design1/reports/report_timing.max.rpt"
     }
-    "timing_estimate" {
-        "script" "early_timing_check.tcl"
-        "description" "Early timing estimation"
-        "criteria" "estimated_wns >= -200ps"
+    "fp_constraint_check" {
+        "script"      "check_file_exists.tcl"
+        "description" "Constraint completeness check"
+        "criteria"    "file exists"
+        "min_phase"   "P1"
+        "report_file" "work/SYNTH_PNR/init_design1/reports/check_timing.rpt"
+    }
+    "fp_floorplan_rules" {
+        "script"      "check_file_exists.tcl"
+        "description" "Floorplan design rule check"
+        "criteria"    "file exists"
+        "min_phase"   "P2"
+        "report_file" "work/SYNTH_PNR/init_design1/reports/check_floorplan_rules.rpt"
     }
 }
 
-# Mandatory files that must exist for milestone exit
+# ── Mandatory files ───────────────────────────────────────────────────────────
 set mandatory_files {
-    "work/FP/floorplan.enc"
-    "reports/floorplan/floorplan.rpt"
-    "reports/floorplan/utilization.rpt"
+    "work/SYNTH_PNR/init_design1/run/init_design1.nlib"
+    "work/SYNTH_PNR/init_design1/reports/report_qor.rpt"
+    "work/SYNTH_PNR/init_design1/reports/report_utilization.rpt"
 }
 
-# Deliverables to be generated for this milestone
+# ── Deliverables ──────────────────────────────────────────────────────────────
 array set deliverables {
-    "floorplan_def" {
-        "source" "work/FP/floorplan.enc"
-        "target" "def/floorplan_exit.def"
-        "type" "design_file"
+    "floorplan_db" {
+        "source" "work/SYNTH_PNR/init_design1/run/init_design1.nlib"
+        "target" "releases/FP_EXIT/init_design1.nlib"
+        "type"   "design_db"
     }
-    "floorplan_report" {
-        "source" "reports/floorplan/floorplan.rpt"
-        "target" "reports/floorplan_exit_summary.rpt"
-        "type" "report"
+    "qor_report" {
+        "source" "work/SYNTH_PNR/init_design1/reports/report_qor.rpt"
+        "target" "releases/FP_EXIT/report_qor.rpt"
+        "type"   "report"
     }
-    "constraint_script" {
-        "source" "setup/floorplan_constraints.tcl"
-        "target" "utils/floorplan_constraints.tcl"
-        "type" "script"
+    "utilization_report" {
+        "source" "work/SYNTH_PNR/init_design1/reports/report_utilization.rpt"
+        "target" "releases/FP_EXIT/report_utilization.rpt"
+        "type"   "report"
     }
 }

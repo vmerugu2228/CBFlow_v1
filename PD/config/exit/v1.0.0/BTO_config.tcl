@@ -1,134 +1,188 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # BTO Milestone Configuration
-# Backend Tape Out - Design ready for Mask Generation
+# Backend Tape Out — Design ready for Physical Verification signoff
+# Stage: signoff1 (SYNTH_PNR flow) + cross-flow checks (STA, LEC, PV, CLP)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Milestone information
-set milestone_info(name) "BTO"
-set milestone_info(stage) "backend_tapeout"
-set milestone_info(description) "Backend Tape Out - Design ready for Mask Generation"
+set milestone_info(name)        "BTO"
+set milestone_info(stage)       "signoff"
+set milestone_info(description) "Backend Tape Out - Design ready for mask generation"
+set milestone_info(stage_node)  "signoff1"
+set milestone_info(report_dir)  "work/SYNTH_PNR/signoff1/reports"
 
-# Mandatory checks that must pass for milestone exit
+# ── Check packs — all categories active for BTO ──────────────────────────
+array set check_packs {
+    timing         "P0"
+    placement      "P0"
+    clock          "P0"
+    power          "P1"
+    routing        "P0"
+    physical       "P1"
+    si             "P2"
+    manufacturing  "P2"
+}
+
+# ── Mandatory checks ─────────────────────────────────────────────────────────
 array set mandatory_checks {
-    "gds_integrity" {
-        "script" "check_gds_integrity.tcl"
-        "description" "Validate GDS file integrity and completeness"
-        "criteria" "gds_errors == 0 && gds_completeness == 100%"
+    "bto_setup_timing" {
+        "script"      "check_timing.tcl"
+        "description" "Signoff setup timing — WNS >= 0 at P2+"
+        "criteria"    "setup_wns >= threshold"
+        "min_phase"   "P0"
+        "report_file" "work/SYNTH_PNR/signoff1/reports/report_timing.max.rpt"
     }
-    "drc_clean" {
-        "script" "validate_drc_clean.tcl" 
-        "description" "Final DRC verification - must be completely clean"
-        "criteria" "drc_violations == 0"
+    "bto_qor" {
+        "script"      "check_timing.tcl"
+        "description" "Signoff QoR summary"
+        "criteria"    "report exists and parseable"
+        "min_phase"   "P0"
+        "report_file" "work/SYNTH_PNR/signoff1/reports/report_qor.rpt"
     }
-    "lvs_clean" {
-        "script" "validate_lvs_clean.tcl"
-        "description" "Layout vs Schematic verification - must match"
-        "criteria" "lvs_match == true && lvs_errors == 0"
+    "bto_routing" {
+        "script"      "check_routing.tcl"
+        "description" "Final route check — zero opens/shorts"
+        "criteria"    "opens == 0 && shorts == 0"
+        "min_phase"   "P0"
+        "report_file" "work/SYNTH_PNR/signoff1/reports/check_routes.final"
     }
-    "antenna_clean" {
-        "script" "check_antenna_final.tcl"
-        "description" "Final antenna rule compliance"
-        "criteria" "antenna_violations == 0"
+    "bto_hold_timing" {
+        "script"      "check_timing.tcl"
+        "description" "Signoff hold timing — WNS >= 0 at P2+"
+        "criteria"    "hold_wns >= threshold"
+        "min_phase"   "P1"
+        "report_file" "work/SYNTH_PNR/signoff1/reports/report_timing.min.rpt"
     }
-    "metal_density" {
-        "script" "validate_metal_density.tcl"
-        "description" "Metal density compliance for all layers"
-        "criteria" "metal_density_violations == 0"
+    "bto_signoff_drc" {
+        "script"      "check_drc.tcl"
+        "description" "Signoff DRC — zero violations"
+        "criteria"    "drc_violations == 0"
+        "min_phase"   "P1"
+        "report_file" "work/SYNTH_PNR/signoff1/reports/signoff_check_drc.rpt"
     }
-    "timing_closure" {
-        "script" "final_timing_signoff.tcl"
-        "description" "Final timing signoff with SPEF"
-        "criteria" "setup_wns >= 0ps && hold_wns >= 0ps"
+    "bto_power" {
+        "script"      "check_power.tcl"
+        "description" "Signoff power analysis"
+        "criteria"    "total_power <= budget"
+        "min_phase"   "P2"
+        "report_file" "work/SYNTH_PNR/signoff1/reports/report_power.rpt"
     }
-    "power_signoff" {
-        "script" "final_power_signoff.tcl"
-        "description" "Final power analysis and signoff"
-        "criteria" "power_violations == 0 && em_violations == 0"
+    "bto_si" {
+        "script"      "check_signal_integrity.tcl"
+        "description" "Signal integrity — crosstalk clean"
+        "criteria"    "si_violations == 0"
+        "min_phase"   "P2"
+        "report_file" "work/SYNTH_PNR/signoff1/reports/report_si.rpt"
+    }
+    "bto_legality" {
+        "script"      "check_legality.tcl"
+        "description" "Final cell legality"
+        "criteria"    "illegal_cells == 0"
+        "min_phase"   "P2"
+        "report_file" "work/SYNTH_PNR/signoff1/reports/check_legality.rpt"
+    }
+    "bto_constraint_check" {
+        "script"      "check_constraints.tcl"
+        "description" "All constraint checks pass"
+        "criteria"    "constraint violations == 0"
+        "min_phase"   "P3"
+        "report_file" "work/SYNTH_PNR/signoff1/reports/check_timing.rpt"
     }
 }
 
-# Optional checks (warnings if failed, but don't block exit)
+# ── Optional checks ──────────────────────────────────────────────────────────
 array set optional_checks {
-    "reliability_check" {
-        "script" "check_reliability.tcl"
-        "description" "Reliability analysis including aging effects"
-        "criteria" "reliability_margin >= 10%"
+    "bto_qor_summary" {
+        "script"      "check_file_exists.tcl"
+        "description" "QoR summary condensed"
+        "criteria"    "file exists"
+        "min_phase"   "P2"
+        "report_file" "work/SYNTH_PNR/signoff1/reports/report_qor_summary.rpt"
     }
-    "yield_analysis" {
-        "script" "check_yield_impact.tcl"
-        "description" "Yield impact analysis"
-        "criteria" "yield_loss <= 5%"
+    "bto_vt_group" {
+        "script"      "check_file_exists.tcl"
+        "description" "Threshold voltage group distribution"
+        "criteria"    "file exists"
+        "min_phase"   "P2"
+        "report_file" "work/SYNTH_PNR/signoff1/reports/report_threshold_voltage_group.rpt"
     }
-    "thermal_analysis" {
-        "script" "check_thermal.tcl"
-        "description" "Thermal hotspot analysis"
-        "criteria" "max_temperature <= thermal_limit"
+    "bto_utilization" {
+        "script"      "check_utilization.tcl"
+        "description" "Final area utilization"
+        "criteria"    "utilization within range"
+        "min_phase"   "P2"
+        "report_file" "work/SYNTH_PNR/signoff1/reports/report_utilization.rpt"
     }
 }
 
-# Mandatory files that must exist for milestone exit
+# ── Mandatory files ───────────────────────────────────────────────────────────
+# Progressive: P0 core files, P2+ additional netlists
 set mandatory_files {
-    "results/gds/final.gds"
-    "results/netlist/final_lvs.v"
-    "results/sdc/final_signoff.sdc"
-    "results/spef/final_signoff.spef"
-    "reports/drc/final_drc.rpt"
-    "reports/lvs/final_lvs.rpt"
-    "reports/timing/final_timing.rpt"
-    "reports/power/final_power.rpt"
+    "work/SYNTH_PNR/signoff1/run/signoff1.nlib"
+    "work/SYNTH_PNR/signoff1/reports/report_qor.rpt"
+    "work/SYNTH_PNR/signoff1/reports/report_timing.max.rpt"
+    "outputs/${design_name}.v"
+    "outputs/${design_name}.def"
     "outputs/${design_name}.gds"
+    "outputs/${design_name}.lef"
+    "outputs/${design_name}.nlib"
+    "outputs/${design_name}.enc"
 }
 
-# Deliverables to be generated for this milestone
+# ── Deliverables ──────────────────────────────────────────────────────────────
 array set deliverables {
-    "final_gds" {
-        "source" "results/gds/final.gds"
-        "target" "tapeout/final_design.gds"
-        "type" "layout"
+    "signoff_db" {
+        "source" "work/SYNTH_PNR/signoff1/run/signoff1.nlib"
+        "target" "releases/BTO/signoff1.nlib"
+        "type"   "design_db"
     }
-    "final_netlist" {
-        "source" "results/netlist/final_lvs.v"
-        "target" "tapeout/final_design.v"
-        "type" "netlist"
+    "gds" {
+        "source" "outputs/${design_name}.gds"
+        "target" "releases/BTO/${design_name}.gds"
+        "type"   "layout"
     }
-    "final_lef" {
-        "source" "results/lef/final.lef"
-        "target" "tapeout/final_design.lef"
-        "type" "abstract"
+    "netlist" {
+        "source" "outputs/${design_name}.v"
+        "target" "releases/BTO/${design_name}.v"
+        "type"   "netlist"
     }
-    "timing_constraints" {
-        "source" "results/sdc/final_signoff.sdc"
-        "target" "tapeout/timing_constraints.sdc"
-        "type" "constraint"
+    "def" {
+        "source" "outputs/${design_name}.def"
+        "target" "releases/BTO/${design_name}.def"
+        "type"   "physical"
     }
-    "parasitics" {
-        "source" "results/spef/final_signoff.spef"
-        "target" "tapeout/parasitics.spef"
-        "type" "parasitic"
+    "lef" {
+        "source" "outputs/${design_name}.lef"
+        "target" "releases/BTO/${design_name}.lef"
+        "type"   "abstract"
     }
-    "drc_signoff" {
-        "source" "reports/drc/final_drc.rpt"
-        "target" "tapeout/drc_signoff.rpt"
-        "type" "verification"
+    "pt_netlist" {
+        "source" "outputs/${design_name}.pt.v"
+        "target" "releases/BTO/${design_name}.pt.v"
+        "type"   "netlist"
     }
-    "lvs_signoff" {
-        "source" "reports/lvs/final_lvs.rpt"
-        "target" "tapeout/lvs_signoff.rpt"
-        "type" "verification"
+    "fm_netlist" {
+        "source" "outputs/${design_name}.fm.v"
+        "target" "releases/BTO/${design_name}.fm.v"
+        "type"   "netlist"
     }
-    "timing_signoff" {
-        "source" "reports/timing/final_timing.rpt"
-        "target" "tapeout/timing_signoff.rpt"
-        "type" "report"
+    "qor_report" {
+        "source" "work/SYNTH_PNR/signoff1/reports/report_qor.rpt"
+        "target" "releases/BTO/report_qor.rpt"
+        "type"   "report"
     }
-    "power_signoff" {
-        "source" "reports/power/final_power.rpt"
-        "target" "tapeout/power_signoff.rpt"
-        "type" "report"
+    "drc_report" {
+        "source" "work/SYNTH_PNR/signoff1/reports/signoff_check_drc.rpt"
+        "target" "releases/BTO/signoff_check_drc.rpt"
+        "type"   "verification"
     }
-    "tapeout_checklist" {
-        "source" "docs/tapeout_checklist.md"
-        "target" "tapeout/tapeout_checklist.md"
-        "type" "documentation"
+    "timing_report" {
+        "source" "work/SYNTH_PNR/signoff1/reports/report_timing.max.rpt"
+        "target" "releases/BTO/report_timing.max.rpt"
+        "type"   "report"
+    }
+    "power_report" {
+        "source" "work/SYNTH_PNR/signoff1/reports/report_power.rpt"
+        "target" "releases/BTO/report_power.rpt"
+        "type"   "report"
     }
 }

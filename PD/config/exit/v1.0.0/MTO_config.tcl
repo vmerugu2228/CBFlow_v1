@@ -1,132 +1,197 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # MTO Milestone Configuration
-# Mask Tape Out - Final delivery for Mask Shop
+# Mask Tape Out — Final delivery package for mask shop
+# Stage: signoff (SYNTH_PNR flow) — all BTO checks must pass first
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Milestone information
-set milestone_info(name) "MTO"
-set milestone_info(stage) "mask_tapeout"
-set milestone_info(description) "Mask Tape Out - Final delivery for Mask Shop"
+set milestone_info(name)        "MTO"
+set milestone_info(stage)       "signoff"
+set milestone_info(description) "Mask Tape Out - Final delivery for mask generation"
+set milestone_info(stage_node)  "signoff1"
+set milestone_info(report_dir)  "work/SYNTH_PNR/signoff1/reports"
 
-# Mandatory checks that must pass for milestone exit
+# ── Check packs — all categories active for MTO ──────────────────────────
+array set check_packs {
+    timing         "P0"
+    placement      "P0"
+    clock          "P0"
+    power          "P1"
+    routing        "P0"
+    physical       "P1"
+    si             "P2"
+    manufacturing  "P2"
+}
+
+# ── Mandatory checks ─────────────────────────────────────────────────────────
+# MTO checks focus on completeness of the delivery package.
+# All BTO quality checks (timing, DRC, routing, etc.) are prerequisites.
 array set mandatory_checks {
-    "mask_shop_drc" {
-        "script" "check_mask_shop_drc.tcl"
-        "description" "Mask shop specific DRC rules compliance"
-        "criteria" "mask_drc_violations == 0"
+    "mto_gds_complete" {
+        "script"      "check_file_exists.tcl"
+        "description" "Final GDS layout exists"
+        "criteria"    "file exists and non-empty"
+        "min_phase"   "P0"
+        "report_file" "outputs/${design_name}.gds"
     }
-    "opc_readiness" {
-        "script" "validate_opc_readiness.tcl" 
-        "description" "Optical Proximity Correction readiness check"
-        "criteria" "opc_compatibility == 100%"
+    "mto_netlist_complete" {
+        "script"      "check_file_exists.tcl"
+        "description" "Final Verilog netlist exists"
+        "criteria"    "file exists and non-empty"
+        "min_phase"   "P0"
+        "report_file" "outputs/${design_name}.v"
     }
-    "fracture_check" {
-        "script" "check_fracture_compliance.tcl"
-        "description" "E-beam fracture and shot count optimization"
-        "criteria" "fracture_violations == 0 && shot_count_optimized == true"
+    "mto_def_complete" {
+        "script"      "check_file_exists.tcl"
+        "description" "Final DEF exists"
+        "criteria"    "file exists and non-empty"
+        "min_phase"   "P0"
+        "report_file" "outputs/${design_name}.def"
     }
-    "datapath_integrity" {
-        "script" "validate_datapath_integrity.tcl"
-        "description" "GDS datapath and hierarchy integrity"
-        "criteria" "datapath_errors == 0 && hierarchy_intact == true"
+    "mto_lef_complete" {
+        "script"      "check_file_exists.tcl"
+        "description" "Final LEF abstract exists"
+        "criteria"    "file exists and non-empty"
+        "min_phase"   "P0"
+        "report_file" "outputs/${design_name}.lef"
     }
-    "mask_layers" {
-        "script" "check_mask_layers.tcl"
-        "description" "All required mask layers present and correct"
-        "criteria" "missing_layers == 0 && layer_mapping_correct == true"
+    "mto_upf_complete" {
+        "script"      "check_file_exists.tcl"
+        "description" "UPF power intent exists"
+        "criteria"    "file exists"
+        "min_phase"   "P1"
+        "report_file" "outputs/${design_name}.upf"
     }
-    "reticle_placement" {
-        "script" "validate_reticle_placement.tcl"
-        "description" "Reticle placement and stepping verification"
-        "criteria" "reticle_violations == 0"
+    "mto_pt_netlist" {
+        "script"      "check_file_exists.tcl"
+        "description" "PT-format netlist for STA"
+        "criteria"    "file exists"
+        "min_phase"   "P2"
+        "report_file" "outputs/${design_name}.pt.v"
     }
-    "jobdeck_validation" {
-        "script" "check_jobdeck.tcl"
-        "description" "Mask generation jobdeck validation"
-        "criteria" "jobdeck_errors == 0"
+    "mto_fm_netlist" {
+        "script"      "check_file_exists.tcl"
+        "description" "Formality netlist for LEC"
+        "criteria"    "file exists"
+        "min_phase"   "P2"
+        "report_file" "outputs/${design_name}.fm.v"
+    }
+    "mto_lvs_netlist" {
+        "script"      "check_file_exists.tcl"
+        "description" "LVS netlist for physical verification"
+        "criteria"    "file exists"
+        "min_phase"   "P3"
+        "report_file" "outputs/${design_name}.lvs.v"
+    }
+    "mto_vclp_netlist" {
+        "script"      "check_file_exists.tcl"
+        "description" "VC-LP netlist for power verification"
+        "criteria"    "file exists"
+        "min_phase"   "P3"
+        "report_file" "outputs/${design_name}.vc_lp.v"
+    }
+    "mto_dc_netlist" {
+        "script"      "check_file_exists.tcl"
+        "description" "DC netlist"
+        "criteria"    "file exists"
+        "min_phase"   "P3"
+        "report_file" "outputs/${design_name}.dc.v"
     }
 }
 
-# Optional checks (warnings if failed, but don't block exit)
+# ── Optional checks ──────────────────────────────────────────────────────────
 array set optional_checks {
-    "mask_cost_optimization" {
-        "script" "check_mask_cost.tcl"
-        "description" "Mask cost optimization analysis"
-        "criteria" "cost_optimized == true"
+    "mto_floorplan" {
+        "script"      "check_file_exists.tcl"
+        "description" "Floorplan file for downstream blocks"
+        "criteria"    "file exists"
+        "min_phase"   "P2"
+        "report_file" "outputs/${design_name}_floorplan"
     }
-    "cycle_time_check" {
-        "script" "check_cycle_time.tcl"
-        "description" "Mask manufacturing cycle time estimate"
-        "criteria" "cycle_time <= target_time"
+    "mto_wscript" {
+        "script"      "check_file_exists.tcl"
+        "description" "Wavescope script"
+        "criteria"    "file exists"
+        "min_phase"   "P2"
+        "report_file" "outputs/${design_name}_wscript"
     }
-    "defect_analysis" {
-        "script" "check_defect_sensitivity.tcl"
-        "description" "Critical area and defect sensitivity analysis"
-        "criteria" "critical_area <= threshold"
+    "mto_wscript_pt" {
+        "script"      "check_file_exists.tcl"
+        "description" "Wavescope script for PT"
+        "criteria"    "file exists"
+        "min_phase"   "P2"
+        "report_file" "outputs/${design_name}_wscript_for_pt"
+    }
+    "mto_routing_constraints" {
+        "script"      "check_file_exists.tcl"
+        "description" "Routing constraints for downstream"
+        "criteria"    "file exists"
+        "min_phase"   "P3"
+        "report_file" "outputs/${design_name}_routing_constraints"
+    }
+    "mto_design_db_nlib" {
+        "script"      "check_file_exists.tcl"
+        "description" "FC design database (.nlib)"
+        "criteria"    "file exists"
+        "min_phase"   "P3"
+        "report_file" "outputs/${design_name}.nlib"
+    }
+    "mto_design_db_enc" {
+        "script"      "check_file_exists.tcl"
+        "description" "Innovus design database (.enc)"
+        "criteria"    "file exists"
+        "min_phase"   "P3"
+        "report_file" "outputs/${design_name}.enc"
     }
 }
 
-# Mandatory files that must exist for milestone exit
+# ── Mandatory files ───────────────────────────────────────────────────────────
 set mandatory_files {
-    "tapeout/final_design.gds"
-    "tapeout/mask_jobdeck.txt"
-    "tapeout/layer_mapping.txt"
-    "tapeout/reticle_floorplan.gds"
-    "reports/mask_drc/final_mask_drc.rpt"
-    "reports/fracture/fracture_analysis.rpt"
-    "docs/mask_specifications.pdf"
+    "outputs/${design_name}.v"
+    "outputs/${design_name}.def"
+    "outputs/${design_name}.gds"
+    "outputs/${design_name}.lef"
 }
 
-# Deliverables to be generated for this milestone
+# ── Deliverables ──────────────────────────────────────────────────────────────
 array set deliverables {
-    "mask_gds" {
-        "source" "tapeout/final_design.gds"
-        "target" "delivery/mask_ready.gds"
-        "type" "layout"
+    "gds" {
+        "source" "outputs/${design_name}.gds"
+        "target" "releases/MTO/${design_name}.gds"
+        "type"   "layout"
     }
-    "jobdeck" {
-        "source" "tapeout/mask_jobdeck.txt"
-        "target" "delivery/mask_jobdeck.txt"
-        "type" "jobdeck"
+    "netlist" {
+        "source" "outputs/${design_name}.v"
+        "target" "releases/MTO/${design_name}.v"
+        "type"   "netlist"
     }
-    "layer_map" {
-        "source" "tapeout/layer_mapping.txt"
-        "target" "delivery/layer_mapping.txt"
-        "type" "mapping"
+    "def" {
+        "source" "outputs/${design_name}.def"
+        "target" "releases/MTO/${design_name}.def"
+        "type"   "physical"
     }
-    "reticle_plan" {
-        "source" "tapeout/reticle_floorplan.gds"
-        "target" "delivery/reticle_floorplan.gds"
-        "type" "layout"
+    "lef" {
+        "source" "outputs/${design_name}.lef"
+        "target" "releases/MTO/${design_name}.lef"
+        "type"   "abstract"
     }
-    "mask_specifications" {
-        "source" "docs/mask_specifications.pdf"
-        "target" "delivery/mask_specifications.pdf"
-        "type" "documentation"
+    "pt_netlist" {
+        "source" "outputs/${design_name}.pt.v"
+        "target" "releases/MTO/${design_name}.pt.v"
+        "type"   "netlist"
     }
-    "drc_deck" {
-        "source" "setup/mask_drc.deck"
-        "target" "delivery/drc_runset.deck"
-        "type" "runset"
+    "fm_netlist" {
+        "source" "outputs/${design_name}.fm.v"
+        "target" "releases/MTO/${design_name}.fm.v"
+        "type"   "netlist"
     }
-    "mask_drc_report" {
-        "source" "reports/mask_drc/final_mask_drc.rpt"
-        "target" "delivery/mask_drc_clean.rpt"
-        "type" "verification"
+    "lvs_netlist" {
+        "source" "outputs/${design_name}.lvs.v"
+        "target" "releases/MTO/${design_name}.lvs.v"
+        "type"   "netlist"
     }
-    "fracture_report" {
-        "source" "reports/fracture/fracture_analysis.rpt"
-        "target" "delivery/fracture_summary.rpt"
-        "type" "report"
-    }
-    "delivery_checklist" {
-        "source" "docs/mask_delivery_checklist.md"
-        "target" "delivery/mask_delivery_checklist.md"
-        "type" "documentation"
-    }
-    "contact_info" {
-        "source" "docs/mask_contact_info.txt"
-        "target" "delivery/contact_information.txt"
-        "type" "documentation"
+    "upf" {
+        "source" "outputs/${design_name}.upf"
+        "target" "releases/MTO/${design_name}.upf"
+        "type"   "power_intent"
     }
 }

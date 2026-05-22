@@ -6,7 +6,9 @@ Usage: cbflow flow checklist <subcommand> [options]
 """
 
 import argparse
+import glob
 import os
+import sqlite3
 import sys
 import re
 import json
@@ -101,6 +103,58 @@ def parse_mandatory_files(content: str) -> list:
     return quoted if quoted else m.group(1).strip().split()
 
 
+def parse_simple_tcl_array(content: str, array_name: str) -> dict:
+    """Parse a TCL 'array set <name> { k1 v1 k2 v2 ... }' (flat key-value pairs)."""
+    pat = rf'array\s+set\s+{re.escape(array_name)}\s+\{{([^}}]+)\}}'
+    m = re.search(pat, content)
+    if not m:
+        return {}
+    pairs = re.findall(r'(\w+)\s+"?([^"\s}]+)"?', m.group(1))
+    return dict(pairs)
+
+
+def load_check_library(milestone_name: str, check_packs: dict) -> dict:
+    """Load checks from category library files that apply to a milestone.
+
+    Args:
+        milestone_name: e.g. 'FP_EXIT', 'PRO_EXIT', 'BTO'
+        check_packs: {category: min_phase} from the milestone config
+
+    Returns:
+        dict of check_name -> check_config (with pack_min_phase injected)
+    """
+    checks_dir = os.path.join(get_exit_config_dir(), 'checks')
+    if not os.path.isdir(checks_dir):
+        return {}
+
+    library_checks = {}
+    for category, pack_min_phase in check_packs.items():
+        lib_file = os.path.join(checks_dir, f'{category}_checks.tcl')
+        if not os.path.exists(lib_file):
+            continue
+
+        with open(lib_file, 'r') as f:
+            content = f.read()
+
+        # Parse the <category>_checks array
+        all_checks = parse_tcl_array_block(content, f'{category}_checks')
+
+        for name, cfg in all_checks.items():
+            # Filter: only include checks whose applicable_milestones contains this milestone
+            applicable = cfg.get('applicable_milestones', '')
+            if milestone_name not in applicable.split():
+                continue
+
+            # Effective min_phase = max(check's own min_phase, pack's min_phase)
+            check_phase = cfg.get('min_phase', 'P0')
+            effective_phase = max(check_phase, pack_min_phase)
+            cfg['min_phase'] = effective_phase
+            cfg['source'] = f'{category}_checks'
+            library_checks[name] = cfg
+
+    return library_checks
+
+
 def parse_milestone_config(config_path: str) -> dict:
     """Parse a complete milestone exit config TCL file into a structured dict."""
     if not os.path.exists(config_path):
@@ -110,13 +164,26 @@ def parse_milestone_config(config_path: str) -> dict:
     with open(config_path, 'r') as f:
         content = f.read()
 
-    return {
+    config = {
         'milestone_info': parse_milestone_info(content),
         'mandatory_checks': parse_tcl_array_block(content, 'mandatory_checks'),
         'optional_checks': parse_tcl_array_block(content, 'optional_checks'),
         'mandatory_files': parse_mandatory_files(content),
         'deliverables': parse_tcl_array_block(content, 'deliverables'),
+        'check_packs': parse_simple_tcl_array(content, 'check_packs'),
     }
+
+    # Load library checks from check packs and merge as optional checks
+    if config['check_packs']:
+        milestone_name = config['milestone_info'].get('name', '')
+        lib_checks = load_check_library(milestone_name, config['check_packs'])
+        # Library checks go into a separate key (not merged into optional_checks)
+        # so they can be displayed/evaluated separately
+        config['library_checks'] = lib_checks
+    else:
+        config['library_checks'] = {}
+
+    return config
 
 
 def parse_waiver_config() -> dict:
@@ -327,8 +394,8 @@ def format_checklist_html(config: dict, waivers: list, overrides: dict) -> str:
 def format_status_text(milestone: str, sd: dict) -> str:
     """Format milestone status as a terminal text report."""
     sep, thin = '='*72, '─'*68
-    icon_map = {'PASS': '[PASS]', 'FAIL': '[FAIL]', 'WAIVED': '[WAIV]', 'PENDING': '[ -- ]'}
-    opt_map = {'PASS': '[PASS]', 'FAIL': '[WARN]', 'WAIVED': '[WAIV]', 'PENDING': '[ -- ]'}
+    icon_map = {'PASS': '[PASS]', 'FAIL': '[FAIL]', 'WAIVED': '[WAIV]', 'PENDING': '[ -- ]', 'SKIPPED': '[SKIP]'}
+    opt_map = {'PASS': '[PASS]', 'FAIL': '[WARN]', 'WAIVED': '[WAIV]', 'PENDING': '[ -- ]', 'SKIPPED': '[SKIP]'}
     L = ['', sep, f'  MILESTONE STATUS: {milestone}', sep,
          f'  Run Dir: {sd.get("run_dir","")}  |  {sd.get("timestamp","")}',
          f'  Completion: {sd.get("completion_pct",0):.1f}%  |  Verdict: {sd.get("verdict","UNKNOWN")}',
@@ -340,6 +407,12 @@ def format_status_text(milestone: str, sd: dict) -> str:
     L += ['', '  OPTIONAL CHECKS', f'  {thin}']
     for c in sd.get('optional_checks', []):
         L.append(f'    {opt_map.get(c["status"],"[??]")}  {c["name"]}')
+    lib_checks = sd.get('library_checks', [])
+    active_lib = [c for c in lib_checks if c.get('status') != 'SKIPPED']
+    if active_lib:
+        L += ['', f'  LIBRARY CHECKS ({len(active_lib)} active)', f'  {thin}']
+        for c in active_lib:
+            L.append(f'    {opt_map.get(c["status"],"[??]")}  {c["name"]}')
     L += ['', '  REQUIRED FILES', f'  {thin}']
     for f in sd.get('file_status', []):
         L.append(f'    {"[PASS]" if f["exists"] else "[FAIL]"}  {f["path"]}')
@@ -351,8 +424,21 @@ def format_status_text(milestone: str, sd: dict) -> str:
     return '\n'.join(L)
 
 
-def _find_check_report(run_dir: str, check_name: str) -> str:
-    """Find a report file for a check in the run directory, or return None."""
+def _find_check_report(run_dir: str, check_name: str, check_config: dict = None) -> str:
+    """Find a report file for a check in the run directory, or return None.
+
+    Priority: check_config['report_file'] > check_config['grep_file'] > convention fallback.
+    """
+    # Use explicit report_file from check config
+    if check_config:
+        for field in ('report_file', 'grep_file'):
+            val = check_config.get(field, '')
+            if val:
+                path = os.path.join(run_dir, val)
+                if os.path.exists(path):
+                    return path
+
+    # Fallback: convention-based lookup
     candidates = [
         os.path.join(run_dir, 'reports', f'{check_name}.rpt'),
         os.path.join(run_dir, 'reports', f'{check_name}_summary.rpt'),
@@ -378,22 +464,171 @@ def _evaluate_report(report_path: str) -> str:
         return 'FAIL'
 
 
-def _evaluate_checks(run_dir: str, checks: dict, waivered: set) -> list:
-    """Evaluate checks against a run directory. Returns [{name, status, detail}]."""
+def _evaluate_checks(run_dir: str, checks: dict, waivered: set, phase: str = '') -> list:
+    """Evaluate checks against a run directory. Returns [{name, status, detail}].
+
+    Phase-aware: checks with min_phase higher than current phase are SKIPPED.
+    Supports grep-based evaluation via grep_pattern/grep_pass_if fields.
+    """
+    _phase_order = {'P0': 0, 'P1': 1, 'P2': 2, 'P3': 3}
     results = []
-    for name in checks:
+    for name, config in checks.items():
+        # Phase filtering: skip checks not yet active at current phase
+        if phase and config.get('min_phase'):
+            cur = _phase_order.get(phase.upper(), 0)
+            req = _phase_order.get(config['min_phase'].upper(), 0)
+            if cur < req:
+                results.append({'name': name, 'status': 'SKIPPED',
+                                'detail': f'Requires phase {config["min_phase"]} (current: {phase})'})
+                continue
+
         if name in waivered:
             results.append({'name': name, 'status': 'WAIVED', 'detail': 'Waived'})
             continue
-        report = _find_check_report(run_dir, name)
+
+        report = _find_check_report(run_dir, name, check_config=config)
+
         if report:
-            status = _evaluate_report(report)
-            detail = (f'{status} (from {os.path.basename(report)})' if status != 'PENDING'
-                      else f'No clear verdict: {os.path.basename(report)}')
+            # Grep-based evaluation
+            if config.get('grep_pattern'):
+                try:
+                    with open(report, 'r') as f:
+                        content = f.read()
+                    found = bool(re.search(config['grep_pattern'], content))
+                    pass_if = config.get('grep_pass_if', 'found')
+                    if (pass_if == 'found' and found) or (pass_if == 'not_found' and not found):
+                        status = 'PASS'
+                    else:
+                        status = 'FAIL'
+                    detail = f'{status} (grep {"found" if found else "not found"}: {config["grep_pattern"]})'
+                except Exception as e:
+                    status, detail = 'FAIL', f'Grep error: {e}'
+            else:
+                # Standard PASS/FAIL keyword evaluation
+                status = _evaluate_report(report)
+                detail = (f'{status} (from {os.path.basename(report)})' if status != 'PENDING'
+                          else f'No clear verdict: {os.path.basename(report)}')
             results.append({'name': name, 'status': status, 'detail': detail})
         else:
             results.append({'name': name, 'status': 'PENDING', 'detail': 'No report found'})
     return results
+
+
+def _find_run_db(run_dir: str) -> str:
+    """Find the RACE SQLite database for a run directory.
+
+    Resolution order:
+      1. .race_db_pointer file (points to race area DB)
+      2. Local .race_*.db files (legacy fallback)
+      3. None
+    """
+    # Check pointer file first (race area DB)
+    pointer_path = os.path.join(run_dir, '.race_db_pointer')
+    if os.path.exists(pointer_path):
+        try:
+            with open(pointer_path) as f:
+                stored_path = f.read().strip()
+            if stored_path and os.path.exists(stored_path):
+                return stored_path
+        except (OSError, IOError):
+            pass
+
+    # Fallback: local DB files
+    pattern = os.path.join(run_dir, '.race_*.db')
+    matches = glob.glob(pattern)
+    if matches:
+        return matches[0]
+    return None
+
+
+def _write_checklist_to_db(run_dir: str, milestone: str, phase: str,
+                           mand_res: list, opt_res: list, lib_res: list,
+                           checks_config: dict) -> None:
+    """Write checklist evaluation results to the run's SQLite database.
+
+    Args:
+        run_dir: Path to the run directory containing the .race_*.db file.
+        milestone: Milestone name (e.g. 'FP_EXIT', 'BTO').
+        phase: Design phase (e.g. 'P0', 'P1') or empty string.
+        mand_res: Evaluation results for mandatory checks (from _evaluate_checks).
+        opt_res: Evaluation results for optional checks (from _evaluate_checks).
+        lib_res: Evaluation results for library checks (from _evaluate_checks).
+        checks_config: Parsed milestone config dict (from parse_milestone_config).
+    """
+    db_path = _find_run_db(run_dir)
+    if not db_path:
+        logger.debug(f"No RACE database found in {run_dir}, skipping DB write")
+        return
+
+    mandatory_checks = checks_config.get('mandatory_checks', {})
+    optional_checks = checks_config.get('optional_checks', {})
+    library_checks = checks_config.get('library_checks', {})
+
+    evaluated_by = os.environ.get('USER', '')
+
+    try:
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+
+        cur.execute('''CREATE TABLE IF NOT EXISTS checklist_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            milestone TEXT NOT NULL,
+            check_name TEXT NOT NULL,
+            check_type TEXT,
+            category TEXT,
+            severity TEXT,
+            status TEXT,
+            metric_value TEXT,
+            threshold TEXT,
+            detail TEXT,
+            report_file TEXT,
+            phase TEXT,
+            evaluated_at TEXT DEFAULT (datetime('now')),
+            evaluated_by TEXT
+        )''')
+
+        rows = []
+        for check_type, results, cfg_dict in [
+            ('mandatory', mand_res, mandatory_checks),
+            ('optional', opt_res, optional_checks),
+            ('library', lib_res, library_checks),
+        ]:
+            for r in results:
+                name = r['name']
+                cfg = cfg_dict.get(name, {})
+                category = cfg.get('category', cfg.get('source', ''))
+                severity = cfg.get('severity', '')
+                report_file = cfg.get('report_file', cfg.get('grep_file', ''))
+                threshold = cfg.get('criteria', '')
+                rows.append((
+                    milestone,
+                    name,
+                    check_type,
+                    category,
+                    severity,
+                    r.get('status', 'PENDING'),
+                    '',           # metric_value — not evaluated here
+                    threshold,
+                    r.get('detail', ''),
+                    report_file,
+                    phase,
+                    evaluated_by,
+                ))
+
+        cur.executemany(
+            '''INSERT INTO checklist_results
+               (milestone, check_name, check_type, category, severity,
+                status, metric_value, threshold, detail, report_file,
+                phase, evaluated_by)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+            rows,
+        )
+
+        conn.commit()
+        conn.close()
+        logger.info(f"Wrote {len(rows)} checklist results to {os.path.basename(db_path)}")
+    except Exception as e:
+        logger.warning(f"Failed to write checklist results to DB: {e}")
 
 
 def _load_and_validate_config(milestone: str, run_dir: str = None):
@@ -449,22 +684,28 @@ def cmd_status(args: argparse.Namespace) -> int:
     """Check actual status of a milestone against a run directory."""
     milestone, run_dir = args.milestone, args.run_dir
     project = getattr(args, 'project', '') or os.environ.get('CBFLOW_PROJECT', '')
+    phase = getattr(args, 'phase', '') or ''
 
     config, _ = _load_and_validate_config(milestone, run_dir)
     if not config:
         return 1
-    logger.info(f"Checking milestone status: {milestone} in {run_dir}")
+    logger.info(f"Checking milestone status: {milestone} in {run_dir}" +
+                (f" (phase: {phase})" if phase else ""))
 
     waivers = get_active_waivers_for_milestone(milestone, project=project or '*')
     waivered_checks = {w.get('check') for w in waivers}
 
-    # Evaluate checks
-    mand_res = _evaluate_checks(run_dir, config.get('mandatory_checks', {}), waivered_checks)
-    opt_res = _evaluate_checks(run_dir, config.get('optional_checks', {}), waivered_checks)
+    # Evaluate checks (phase-aware)
+    mand_res = _evaluate_checks(run_dir, config.get('mandatory_checks', {}), waivered_checks, phase=phase)
+    opt_res = _evaluate_checks(run_dir, config.get('optional_checks', {}), waivered_checks, phase=phase)
 
-    # Compute blockers and passed counts
-    blocking, m_pass, m_total = [], 0, len(mand_res)
-    for r in mand_res:
+    # Evaluate library checks (from check packs — treated as optional/informational)
+    lib_res = _evaluate_checks(run_dir, config.get('library_checks', {}), waivered_checks, phase=phase)
+
+    # Compute blockers and passed counts (SKIPPED checks don't count)
+    active_mand = [r for r in mand_res if r['status'] != 'SKIPPED']
+    blocking, m_pass, m_total = [], 0, len(active_mand)
+    for r in active_mand:
         if r['status'] in ('PASS', 'WAIVED'):
             m_pass += 1
         else:
@@ -488,9 +729,14 @@ def cmd_status(args: argparse.Namespace) -> int:
         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'completion_pct': pct, 'verdict': verdict,
         'mandatory_checks': mand_res, 'optional_checks': opt_res,
+        'library_checks': lib_res,
         'file_status': file_status, 'blocking_items': blocking,
         'active_waivers': waivers,
     }
+
+    # Write results to SQLite database
+    _write_checklist_to_db(run_dir, milestone, phase, mand_res, opt_res, lib_res, config)
+
     print(format_status_text(milestone, status_data))
 
     # Save report
@@ -506,21 +752,25 @@ def cmd_status(args: argparse.Namespace) -> int:
 def cmd_signoff(args: argparse.Namespace) -> int:
     """Record a sign-off for a milestone."""
     milestone, run_dir, approver = args.milestone, args.run_dir, args.approver
+    phase = getattr(args, 'phase', '') or ''
 
     config, _ = _load_and_validate_config(milestone, run_dir)
     if not config:
         return 1
-    logger.info(f"Sign-off: {milestone} by {approver} in {run_dir}")
+    logger.info(f"Sign-off: {milestone} by {approver} in {run_dir}" +
+                (f" (phase: {phase})" if phase else ""))
 
     project = os.environ.get('CBFLOW_PROJECT', '')
     waivers = get_active_waivers_for_milestone(milestone, project=project or '*')
     waivered_checks = {w.get('check') for w in waivers}
 
-    # Evaluate all checks using shared helpers
+    # Evaluate all checks using shared helpers (phase-aware)
     mandatory_eval = _evaluate_checks(
-        run_dir, config.get('mandatory_checks', {}), waivered_checks)
+        run_dir, config.get('mandatory_checks', {}), waivered_checks, phase=phase)
     optional_eval = _evaluate_checks(
-        run_dir, config.get('optional_checks', {}), waivered_checks)
+        run_dir, config.get('optional_checks', {}), waivered_checks, phase=phase)
+    library_eval = _evaluate_checks(
+        run_dir, config.get('library_checks', {}), waivered_checks, phase=phase)
 
     # Build snapshot dict from evaluations
     checks_snapshot = {}
@@ -532,7 +782,7 @@ def cmd_signoff(args: argparse.Namespace) -> int:
                 'type': ctype, 'status': r['status'],
                 'description': src.get(r['name'], {}).get('description', ''),
             }
-            if ctype == 'mandatory' and r['status'] not in ('PASS', 'WAIVED'):
+            if ctype == 'mandatory' and r['status'] not in ('PASS', 'WAIVED', 'SKIPPED'):
                 all_passed = False
 
     # Check mandatory files
@@ -578,6 +828,10 @@ def cmd_signoff(args: argparse.Namespace) -> int:
     with open(signoff_file, 'w') as f:
         json.dump(signoff_record, f, indent=2, default=str)
 
+    # Write results to SQLite database
+    _write_checklist_to_db(run_dir, milestone, phase,
+                           mandatory_eval, optional_eval, library_eval, config)
+
     # Print summary
     s = signoff_record['summary']
     logger.info(f'\n{"="*60}\n  Sign-Off Recorded: {milestone}\n{"="*60}')
@@ -601,17 +855,19 @@ def cmd_list(args: argparse.Namespace) -> int:
         logger.error(f"No milestone configs found at {get_exit_config_dir()}")
         return 1
 
-    logger.info(f'\n{"="*72}\n  AVAILABLE EXIT MILESTONES\n{"="*72}')
+    logger.info(f'\n{"="*80}\n  AVAILABLE EXIT MILESTONES\n{"="*80}')
     logger.info(f'  Config directory: {get_exit_config_dir()}')
-    logger.info(f'  {"Milestone":<16} {"Stage":<22} {"Mand":>5} {"Opt":>5}  Description')
-    logger.info(f'  {"─"*16} {"─"*22} {"─"*5} {"─"*5}  {"─"*30}')
+    logger.info(f'  {"Milestone":<16} {"Stage":<14} {"Mand":>5} {"Opt":>5} {"Lib":>5}  Description')
+    logger.info(f'  {"─"*16} {"─"*14} {"─"*5} {"─"*5} {"─"*5}  {"─"*30}')
 
     for ms_name in milestones:
         cfg = parse_milestone_config(get_milestone_config_path(ms_name))
         info = cfg.get('milestone_info', {})
-        logger.info(f'  {ms_name:<16} {info.get("stage",""):<22} '
+        logger.info(f'  {ms_name:<16} {info.get("stage",""):<14} '
                     f'{len(cfg.get("mandatory_checks",{})):>5} '
-                    f'{len(cfg.get("optional_checks",{})):>5}  {info.get("description","")}')
+                    f'{len(cfg.get("optional_checks",{})):>5} '
+                    f'{len(cfg.get("library_checks",{})):>5}  '
+                    f'{info.get("description","")}')
 
     logger.info(f'  Total: {len(milestones)} milestones\n{"="*72}\n')
     return 0
@@ -992,6 +1248,33 @@ def cmd_list_checks(args: argparse.Namespace) -> int:
         if fields.get('criteria'):
             print(f'      Criteria:    {fields["criteria"]}')
 
+    # Library checks (from check packs)
+    lib = cfg.get('library_checks', {})
+    if lib:
+        # Group by category
+        by_cat = {}
+        for name, fields in lib.items():
+            cat = fields.get('source', fields.get('category', 'unknown'))
+            by_cat.setdefault(cat, []).append((name, fields))
+
+        print(f'\n  LIBRARY CHECKS ({len(lib)} from {len(by_cat)} categories):')
+        print(f'  {"─" * 68}')
+        for cat in sorted(by_cat.keys()):
+            checks = by_cat[cat]
+            print(f'    [{cat}] ({len(checks)} checks)')
+            for name, fields in checks:
+                sev = fields.get('severity', '')
+                phase = fields.get('min_phase', '')
+                print(f'      {name:<35} {sev:<10} {phase}')
+
+    # Check packs
+    packs = cfg.get('check_packs', {})
+    if packs:
+        print(f'\n  CHECK PACKS ({len(packs)} categories):')
+        print(f'  {"─" * 68}')
+        for cat, phase in sorted(packs.items()):
+            print(f'    {cat:<20} active from {phase}')
+
     # Mandatory files
     files = cfg.get('mandatory_files', [])
     print(f'\n  MANDATORY FILES ({len(files)}):')
@@ -1046,6 +1329,7 @@ Examples:
     so.add_argument('--milestone', required=True, help='Exit milestone name')
     so.add_argument('--run-dir', required=True, dest='run_dir', help='Run directory path')
     so.add_argument('--approver', required=True, help='Approver name')
+    so.add_argument('--phase', default='', help='Design phase (P0/P1/P2/P3)')
 
     # list milestones
     sub.add_parser('list', help='List all available milestones')

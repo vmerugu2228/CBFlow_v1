@@ -1,99 +1,134 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # CTS_EXIT Milestone Configuration
-# Clock Tree Synthesis Exit - Design ready for Routing
+# Clock Tree Synthesis Exit — Design ready for Routing
+# Stage: cts_opt1 (SYNTH_PNR flow), also references cts1 for clock reports
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Milestone information
-set milestone_info(name) "CTS_EXIT"
-set milestone_info(stage) "clock_tree_synthesis"
+set milestone_info(name)        "CTS_EXIT"
+set milestone_info(stage)       "cts_opt"
 set milestone_info(description) "Clock Tree Synthesis Exit - Design ready for Routing"
+set milestone_info(stage_node)  "cts_opt1"
+set milestone_info(report_dir)  "work/SYNTH_PNR/cts_opt1/reports"
 
-# Mandatory checks that must pass for milestone exit
+# ── Check packs ──────────────────────────────────────────────────────────
+array set check_packs {
+    timing      "P0"
+    placement   "P0"
+    clock       "P0"
+    power       "P1"
+    physical    "P1"
+}
+
+# ── Mandatory checks ─────────────────────────────────────────────────────────
 array set mandatory_checks {
-    "clock_tree_quality" {
-        "script" "check_clock_tree_quality.tcl"
-        "description" "Validate clock tree structure and quality"
-        "criteria" "clock_skew <= 50ps && max_insertion_delay <= 500ps"
+    "cts_clock_qor" {
+        "script"      "check_clock_quality.tcl"
+        "description" "Clock tree quality — skew, insertion delay"
+        "criteria"    "clock_skew <= threshold"
+        "min_phase"   "P0"
+        "report_file" "work/SYNTH_PNR/cts1/reports/report_clock_qor.rpt"
     }
-    "clock_timing" {
-        "script" "validate_clock_timing.tcl" 
-        "description" "Check clock timing meets setup/hold requirements"
-        "criteria" "setup_wns >= -30ps && hold_wns >= -10ps"
+    "cts_opt_qor" {
+        "script"      "check_timing.tcl"
+        "description" "Post-CTS optimization QoR"
+        "criteria"    "report exists and parseable"
+        "min_phase"   "P0"
+        "report_file" "work/SYNTH_PNR/cts_opt1/reports/report_qor.rpt"
     }
-    "clock_power" {
-        "script" "check_clock_power.tcl"
-        "description" "Verify clock tree power consumption"
-        "criteria" "clock_power <= clock_power_budget"
+    "cts_setup_timing" {
+        "script"      "check_timing.tcl"
+        "description" "Post-CTS setup timing"
+        "criteria"    "setup_wns >= threshold"
+        "min_phase"   "P1"
+        "report_file" "work/SYNTH_PNR/cts_opt1/reports/report_timing.max.rpt"
     }
-    "clock_coverage" {
-        "script" "validate_clock_coverage.tcl"
-        "description" "Check all sequential elements are properly clocked"
-        "criteria" "clock_coverage >= 99.5%"
+    "cts_clock_timing" {
+        "script"      "check_clock_quality.tcl"
+        "description" "Clock timing — setup slack on clock paths"
+        "criteria"    "clock setup timing clean"
+        "min_phase"   "P1"
+        "report_file" "work/SYNTH_PNR/cts1/reports/report_clock_timing.setup.rpt"
     }
-    "useful_skew" {
-        "script" "check_useful_skew.tcl"
-        "description" "Validate useful skew optimization"
-        "criteria" "useful_skew_benefit >= 20ps"
+    "cts_hold_timing" {
+        "script"      "check_timing.tcl"
+        "description" "Post-CTS hold timing"
+        "criteria"    "hold_wns >= threshold"
+        "min_phase"   "P2"
+        "report_file" "work/SYNTH_PNR/cts_opt1/reports/report_timing.min.rpt"
     }
 }
 
-# Optional checks (warnings if failed, but don't block exit)
+# ── Optional checks ──────────────────────────────────────────────────────────
 array set optional_checks {
-    "clock_latency" {
-        "script" "check_clock_latency.tcl"
-        "description" "Clock latency analysis"
-        "criteria" "max_clock_latency <= 400ps"
-    }
-    "clock_transition" {
-        "script" "check_clock_transitions.tcl"
-        "description" "Clock transition time analysis"
-        "criteria" "max_clock_transition <= 100ps"
+    "cts_power" {
+        "script"      "check_power.tcl"
+        "description" "Clock power consumption"
+        "criteria"    "clock_power <= budget"
+        "min_phase"   "P1"
+        "report_file" "work/SYNTH_PNR/cts_opt1/reports/report_power.rpt"
     }
     "cts_congestion" {
-        "script" "check_cts_congestion.tcl"
+        "script"      "check_congestion.tcl"
         "description" "Congestion impact from clock tree"
-        "criteria" "cts_congestion_impact <= 0.1"
+        "criteria"    "congestion <= threshold"
+        "min_phase"   "P2"
+        "report_file" "work/SYNTH_PNR/cts_opt1/reports/report_congestion.rpt"
+    }
+    "cts_vt_group" {
+        "script"      "check_file_exists.tcl"
+        "description" "Threshold voltage group distribution"
+        "criteria"    "file exists"
+        "min_phase"   "P2"
+        "report_file" "work/SYNTH_PNR/cts_opt1/reports/report_threshold_voltage_group.rpt"
+    }
+    "cts_legality" {
+        "script"      "check_legality.tcl"
+        "description" "Post-CTS cell legality"
+        "criteria"    "illegal_cells == 0"
+        "min_phase"   "P3"
+        "report_file" "work/SYNTH_PNR/cts_opt1/reports/check_legality.rpt"
+    }
+    "cts_constraint_check" {
+        "script"      "check_constraints.tcl"
+        "description" "Constraint completeness after CTS"
+        "criteria"    "constraint violations == 0"
+        "min_phase"   "P3"
+        "report_file" "work/SYNTH_PNR/cts_opt1/reports/check_timing.rpt"
     }
 }
 
-# Mandatory files that must exist for milestone exit
+# ── Mandatory files ───────────────────────────────────────────────────────────
 set mandatory_files {
-    "work/PNR/cts.enc"
-    "reports/cts/clock_tree_summary.rpt"
-    "reports/timing/cts_timing.rpt"
-    "reports/power/clock_power.rpt"
+    "work/SYNTH_PNR/cts_opt1/run/cts_opt1.nlib"
+    "work/SYNTH_PNR/cts_opt1/reports/report_qor.rpt"
+    "work/SYNTH_PNR/cts1/reports/report_clock_qor.rpt"
 }
 
-# Deliverables to be generated for this milestone
+# ── Deliverables ──────────────────────────────────────────────────────────────
 array set deliverables {
-    "cts_def" {
-        "source" "work/PNR/cts.enc"
-        "target" "def/cts_exit.def"
-        "type" "design_file"
+    "cts_db" {
+        "source" "work/SYNTH_PNR/cts_opt1/run/cts_opt1.nlib"
+        "target" "releases/CTS_EXIT/cts_opt1.nlib"
+        "type"   "design_db"
     }
-    "clock_tree_report" {
-        "source" "reports/cts/clock_tree_summary.rpt"
-        "target" "reports/cts_exit_summary.rpt"
-        "type" "report"
+    "qor_report" {
+        "source" "work/SYNTH_PNR/cts_opt1/reports/report_qor.rpt"
+        "target" "releases/CTS_EXIT/report_qor.rpt"
+        "type"   "report"
     }
-    "cts_timing_report" {
-        "source" "reports/timing/cts_timing.rpt"
-        "target" "reports/cts_timing_exit.rpt"
-        "type" "report"
+    "clock_qor_report" {
+        "source" "work/SYNTH_PNR/cts1/reports/report_clock_qor.rpt"
+        "target" "releases/CTS_EXIT/report_clock_qor.rpt"
+        "type"   "report"
     }
-    "clock_power_report" {
-        "source" "reports/power/clock_power.rpt"
-        "target" "reports/clock_power_exit.rpt"
-        "type" "report"
+    "timing_report" {
+        "source" "work/SYNTH_PNR/cts_opt1/reports/report_timing.max.rpt"
+        "target" "releases/CTS_EXIT/report_timing.max.rpt"
+        "type"   "report"
     }
-    "cts_script" {
-        "source" "setup/cts_constraints.tcl"
-        "target" "utils/cts_constraints.tcl"
-        "type" "script"
-    }
-    "clock_spec" {
-        "source" "setup/clock_specification.tcl"
-        "target" "specs/clock_specification.tcl"
-        "type" "specification"
+    "power_report" {
+        "source" "work/SYNTH_PNR/cts_opt1/reports/report_power.rpt"
+        "target" "releases/CTS_EXIT/report_power.rpt"
+        "type"   "report"
     }
 }

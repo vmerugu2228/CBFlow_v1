@@ -101,6 +101,12 @@ Run Commands (run from within a run directory):
   cbflow run release-lock                     Lock permissions (production: 444/555/755)
   cbflow run release-lock --unlock            Unlock permissions (development: 777)
 
+Database Management (from run directory or workarea):
+  cbflow run db-manage                        Check session count vs limit
+  cbflow run db-manage --list                 List all DBs (owner, flow, result, size)
+  cbflow run db-manage --cleanup              Interactive delete (numbered list, owner only)
+  cbflow run db-manage --delete <run_name>    Delete specific run's DB (owner only)
+
 Bundle (create customer delivery package):
   cbflow bundle                               Create tar.gz with 777 permissions
   cbflow bundle --output /path/to/dir         Custom output directory

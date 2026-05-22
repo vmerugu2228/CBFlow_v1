@@ -1,128 +1,168 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # PRO_EXIT Milestone Configuration
-# Post Route Optimization Exit - Design ready for Physical Verification
+# Post Route Optimization Exit — Design ready for Physical Verification
+# Stage: pro1 (SYNTH_PNR flow)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Milestone information
-set milestone_info(name) "PRO_EXIT"
-set milestone_info(stage) "post_route_optimization"
+set milestone_info(name)        "PRO_EXIT"
+set milestone_info(stage)       "pro"
 set milestone_info(description) "Post Route Optimization Exit - Design ready for Physical Verification"
+set milestone_info(stage_node)  "pro1"
+set milestone_info(report_dir)  "work/SYNTH_PNR/pro1/reports"
 
-# Mandatory checks that must pass for milestone exit
+# ── Check packs ──────────────────────────────────────────────────────────
+array set check_packs {
+    timing      "P0"
+    placement   "P0"
+    clock       "P0"
+    power       "P1"
+    routing     "P0"
+    physical    "P1"
+    si          "P2"
+}
+
+# ── Mandatory checks ─────────────────────────────────────────────────────────
 array set mandatory_checks {
-    "routing_completion" {
-        "script" "check_routing_completion.tcl"
-        "description" "Validate routing is 100% complete with no opens/shorts"
-        "criteria" "routing_completion == 100% && opens == 0 && shorts == 0"
-    "timing_closure" {
-        "description" "Setup WNS must be non-negative"
-        "script" "check_timing_closure.tcl"
-        "criteria" "setup_wns >= 0"
-    "hold_timing_clean" {
-        "description" "Hold WNS must be non-negative after route_opt"
-        "grep_file" "work/SYNTH_PNR/pro1/reports/report_timing.min.rpt"
-        "grep_pattern" "slack.*MET"
-        "grep_pass_if" "found"
-        "script" "grep_check"
-        "criteria" "grep found: slack.*MET"
+    "pro_routing" {
+        "script"      "check_routing.tcl"
+        "description" "Routing 100% complete — zero opens/shorts"
+        "criteria"    "routing_completion == 100% && opens == 0 && shorts == 0"
+        "min_phase"   "P0"
+        "report_file" "work/SYNTH_PNR/pro1/reports/check_routes"
     }
-}
-}
-    "timing_signoff" {
-        "script" "validate_timing_signoff.tcl" 
-        "description" "Check timing meets signoff requirements"
-        "criteria" "setup_wns >= 0ps && hold_wns >= 0ps"
+    "pro_setup_timing" {
+        "script"      "check_timing.tcl"
+        "description" "Post-route setup timing meets threshold"
+        "criteria"    "setup_wns >= threshold"
+        "min_phase"   "P0"
+        "report_file" "work/SYNTH_PNR/pro1/reports/report_timing.max.rpt"
     }
-    "design_rule_check" {
-        "script" "check_design_rules.tcl"
-        "description" "Verify design rule compliance"
-        "criteria" "drc_violations == 0"
+    "pro_qor" {
+        "script"      "check_timing.tcl"
+        "description" "Post-route QoR summary"
+        "criteria"    "report exists and parseable"
+        "min_phase"   "P0"
+        "report_file" "work/SYNTH_PNR/pro1/reports/report_qor.rpt"
     }
-    "power_integrity" {
-        "script" "check_power_integrity.tcl"
-        "description" "Validate power integrity and IR drop"
-        "criteria" "max_ir_drop <= 30mV && em_violations == 0"
+    "pro_hold_timing" {
+        "script"      "check_timing.tcl"
+        "description" "Post-route hold timing meets threshold"
+        "criteria"    "hold_wns >= threshold"
+        "min_phase"   "P1"
+        "report_file" "work/SYNTH_PNR/pro1/reports/report_timing.min.rpt"
     }
-    "signal_integrity" {
-        "script" "check_signal_integrity.tcl"
-        "description" "Check crosstalk and signal integrity"
-        "criteria" "crosstalk_violations == 0 && si_violations == 0"
-    }
-    "area_utilization" {
-        "script" "check_final_utilization.tcl"
-        "description" "Final area utilization check"
-        "criteria" "utilization <= target_utilization"
+    "pro_power" {
+        "script"      "check_power.tcl"
+        "description" "Post-route power within budget"
+        "criteria"    "total_power <= power_budget"
+        "min_phase"   "P1"
+        "report_file" "work/SYNTH_PNR/pro1/reports/report_power.rpt"
     }
 }
 
-# Optional checks (warnings if failed, but don't block exit)
+# ── Optional checks ──────────────────────────────────────────────────────────
 array set optional_checks {
-    "antenna_check" {
-        "script" "check_antenna_violations.tcl"
-        "description" "Antenna rule violations check"
-        "criteria" "antenna_violations == 0"
+    "pro_congestion" {
+        "script"      "check_congestion.tcl"
+        "description" "Post-route congestion"
+        "criteria"    "congestion <= threshold"
+        "min_phase"   "P1"
+        "report_file" "work/SYNTH_PNR/pro1/reports/report_congestion.rpt"
     }
-    "metal_density" {
-        "script" "check_metal_density.tcl"
-        "description" "Metal density uniformity check"
-        "criteria" "metal_density_variance <= 0.1"
+    "pro_signal_integrity" {
+        "script"      "check_signal_integrity.tcl"
+        "description" "Signal integrity — crosstalk violations"
+        "criteria"    "si_violations == 0"
+        "min_phase"   "P2"
+        "report_file" "work/SYNTH_PNR/pro1/reports/report_si.rpt"
     }
-    "via_resistance" {
-        "script" "check_via_resistance.tcl"
-        "description" "Via resistance and reliability check"
-        "criteria" "max_via_resistance <= via_limit"
+    "pro_qor_summary" {
+        "script"      "check_file_exists.tcl"
+        "description" "QoR summary condensed report"
+        "criteria"    "file exists"
+        "min_phase"   "P2"
+        "report_file" "work/SYNTH_PNR/pro1/reports/report_qor_summary.rpt"
+    }
+    "pro_vt_group" {
+        "script"      "check_file_exists.tcl"
+        "description" "Threshold voltage group distribution"
+        "criteria"    "file exists"
+        "min_phase"   "P2"
+        "report_file" "work/SYNTH_PNR/pro1/reports/report_threshold_voltage_group.rpt"
+    }
+    "pro_legality" {
+        "script"      "check_legality.tcl"
+        "description" "Final cell legality check"
+        "criteria"    "illegal_cells == 0"
+        "min_phase"   "P3"
+        "report_file" "work/SYNTH_PNR/pro1/reports/check_legality.rpt"
+    }
+    "pro_constraint_check" {
+        "script"      "check_constraints.tcl"
+        "description" "Max cap/tran/fanout constraint compliance"
+        "criteria"    "constraint violations == 0"
+        "min_phase"   "P3"
+        "report_file" "work/SYNTH_PNR/pro1/reports/check_timing.rpt"
+    }
+    "pro_signoff_drc" {
+        "script"      "check_drc.tcl"
+        "description" "In-design signoff DRC"
+        "criteria"    "drc_violations == 0"
+        "min_phase"   "P3"
+        "report_file" "work/SYNTH_PNR/pro1/reports/signoff_check_drc.rpt"
+    }
+    "pro_routes_final" {
+        "script"      "check_routing.tcl"
+        "description" "Final route check — zero violations"
+        "criteria"    "route_violations == 0"
+        "min_phase"   "P3"
+        "report_file" "work/SYNTH_PNR/pro1/reports/check_routes.final"
     }
 }
 
-# Mandatory files that must exist for milestone exit
+# ── Mandatory files ───────────────────────────────────────────────────────────
 set mandatory_files {
-    "work/PNR/route_opt.enc"
-    "reports/route/routing_summary.rpt"
-    "reports/timing/signoff_timing.rpt"
-    "reports/power/power_analysis.rpt"
-    "reports/drc/drc_summary.rpt"
+    "work/SYNTH_PNR/pro1/run/pro1.nlib"
+    "work/SYNTH_PNR/pro1/reports/report_qor.rpt"
+    "work/SYNTH_PNR/pro1/reports/report_timing.max.rpt"
+    "work/SYNTH_PNR/pro1/reports/report_timing.min.rpt"
 }
 
-# Deliverables to be generated for this milestone
+# ── Deliverables ──────────────────────────────────────────────────────────────
 array set deliverables {
-    "routed_def" {
-        "source" "work/PNR/route_opt.enc"
-        "target" "def/pro_exit.def"
-        "type" "design_file"
+    "pro_db" {
+        "source" "work/SYNTH_PNR/pro1/run/pro1.nlib"
+        "target" "releases/PRO_EXIT/pro1.nlib"
+        "type"   "design_db"
     }
-    "routed_netlist" {
-        "source" "results/netlist/routed.v"
-        "target" "netlist/pro_exit.v"
-        "type" "netlist"
+    "netlist" {
+        "source" "outputs/${design_name}.v"
+        "target" "releases/PRO_EXIT/${design_name}.v"
+        "type"   "netlist"
     }
-    "final_sdc" {
-        "source" "results/sdc/final.sdc"
-        "target" "sdc/pro_exit.sdc"
-        "type" "constraint"
+    "def" {
+        "source" "outputs/${design_name}.def"
+        "target" "releases/PRO_EXIT/${design_name}.def"
+        "type"   "physical"
     }
-    "spef_file" {
-        "source" "results/spef/final.spef"
-        "target" "spef/pro_exit.spef"
-        "type" "parasitic"
+    "qor_report" {
+        "source" "work/SYNTH_PNR/pro1/reports/report_qor.rpt"
+        "target" "releases/PRO_EXIT/report_qor.rpt"
+        "type"   "report"
     }
-    "routing_report" {
-        "source" "reports/route/routing_summary.rpt"
-        "target" "reports/pro_routing_summary.rpt"
-        "type" "report"
+    "timing_setup_report" {
+        "source" "work/SYNTH_PNR/pro1/reports/report_timing.max.rpt"
+        "target" "releases/PRO_EXIT/report_timing.max.rpt"
+        "type"   "report"
     }
-    "timing_report" {
-        "source" "reports/timing/signoff_timing.rpt"
-        "target" "reports/pro_timing_signoff.rpt"
-        "type" "report"
+    "timing_hold_report" {
+        "source" "work/SYNTH_PNR/pro1/reports/report_timing.min.rpt"
+        "target" "releases/PRO_EXIT/report_timing.min.rpt"
+        "type"   "report"
     }
     "power_report" {
-        "source" "reports/power/power_analysis.rpt"
-        "target" "reports/pro_power_analysis.rpt"
-        "type" "report"
-    }
-    "drc_report" {
-        "source" "reports/drc/drc_summary.rpt"
-        "target" "reports/pro_drc_summary.rpt"
-        "type" "report"
+        "source" "work/SYNTH_PNR/pro1/reports/report_power.rpt"
+        "target" "releases/PRO_EXIT/report_power.rpt"
+        "type"   "report"
     }
 }
