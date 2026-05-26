@@ -919,5 +919,53 @@ This capability is particularly valuable during tool evaluation periods, where a
 
 ---
 
+## 14. v2.0.0 Updates (May 2026)
+
+### 14.1 Exit Checklist System
+
+CBflow v2.0.0 introduces a comprehensive exit checklist system providing structured quality gates across the entire PD flow. The system defines 11 milestones (FP_EXIT, PLACE_EXIT, CTS_EXIT, PRO_EXIT, BTO, MTO, STA_SIGNOFF, LEC_SIGNOFF, CLP_SIGNOFF, PV_SIGNOFF, EMIR_SIGNOFF) backed by a library of 292 individual checks spanning 14 categories: timing (TMG), placement (PLC), clock (CLK), power (PWR), routing (RTG), physical (PHY), signal integrity (SI), manufacturing (MFG), plus 6 flow-specific categories.
+
+The system is phase-aware: checks activate progressively from P0 (relaxed, exploration-grade) through P3 (zero-tolerance, tapeout-grade). Each check has a unique ID (e.g., TMG-001, PLC-001), severity level, and phase activation threshold. Check configurations reside in `PD/config/exit/v1.0.0/` with executable check scripts in `PD/utils/validation/v1.0.0/checks/`. The CLI supports full lifecycle management: `cbflow flow checklist {list, list-checks, generate, status, sign-off, add-check, remove-check, waiver}`. Milestone, phase, and project are auto-detected from the run directory context.
+
+### 14.2 Metal Stack Configuration
+
+Technology configurations now support multiple metal stack options per process node. Available stacks are declared via `tech(metal_stacks_available)` in the technology config, and the active stack is selected via `project(metal_stack)` in the project config. Per-stack configuration files reside at `config/tech/<node>/v1.0.0/metal_stack/<stack_name>.tcl` and define per-layer properties including routing direction, pitch, width, spacing, and layer type classification (Qx/Cx/Jx/Mx). The framework auto-resolves dependent parameters: routing layer definitions, TLU+/QRC parasitic extraction paths, and power/ground strap layer assignments all derive from the active metal stack selection.
+
+### 14.3 Run Ownership Protection
+
+RACE engine runs are now protected by UID-based ownership. On first initialization, the owner's username and UID are recorded in the `run_info` table of the SQLite database. All mutating operations -- execute, retrace, bypass, force-validate, and force -- invoke `_check_ownership()` before proceeding. Unauthorized users receive a clear rejection message identifying the run owner. The web dashboard enforces the same policy, returning HTTP 403 for unauthorized mutation requests. Read-only access (status queries, GUI visualization, log viewing) remains unrestricted for all users, enabling team-wide visibility without compromising run integrity.
+
+### 14.4 Comprehensive Database
+
+The RACE status database has been expanded from 6 to 13 tables. The original tables (jobs, run_info, run_config, job_order, dag_structure, stage_metrics) are augmented with 7 new tables: design_info (block metadata), checklist_results (exit check outcomes), release_info (release records), lsf_details (HPC job metadata), run_logs (structured log entries), metrics_snapshot (point-in-time QoR captures), and config_history (configuration change tracking). Database naming follows the convention `.race_<run_dir_name>_<user>_<hash>.db`. When `project(race,db_path)` is configured, databases are stored in a centralized race area with a `.race_db_pointer` file in the run directory providing the reference. Session management supports concurrent GUI and CLI access to the same database.
+
+### 14.5 Deterministic GUI Port
+
+The FlowTracer GUI now uses a deterministic port assignment based on a hash of the run directory path, mapped to the range 10000-60000. This eliminates port conflicts between concurrent GUI sessions on the same host and ensures that the same run always launches on the same port, making bookmarked URLs stable across GUI restarts.
+
+### 14.6 No Hardcoded Values
+
+A systematic audit identified and resolved 12 HIGH-severity instances of hardcoded values throughout the framework. All previously hardcoded defaults -- including tool paths, resource limits, queue names, timeout values, and technology parameters -- are now fully config-driven. The engine reads every operational parameter from the configuration cascade and raises an explicit error if a required variable is not set. No fallback values exist anywhere in the codebase.
+
+### 14.7 Production Test Suite
+
+CBflow includes a production test suite comprising 41 tests organized across 8 sections: workspace creation, run execution, status tracking, retrace operations, branch management, release workflow, checklist validation, and database integrity. All tests run in test_mode (no EDA tool licenses required) and validate end-to-end flow behavior from workspace setup through release signoff. The test suite serves as both a regression gate and a living specification of framework behavior.
+
+### 14.8 Documentation
+
+Nine reference documents are maintained covering the full scope of the framework:
+
+1. **Feature Document** (this document) -- comprehensive capability reference
+2. **CLAUDE.md** -- codebase context and developer guide
+3. **GUI User Guide** -- FlowTracer dashboard operation
+4. **Config Architecture** -- configuration cascade and variable reference
+5. **RACE Engine Design** -- engine internals and state management
+6. **Exit Checklist Guide** -- milestone system and check library
+7. **Metal Stack Reference** -- per-technology stack configuration
+8. **Run Ownership** -- access control and multi-user operation
+9. **Test Suite Guide** -- test execution and coverage
+
+---
+
 *CBflow v2.0.0 -- Physical Design Automation Framework*
 *Feature Document -- Confidential*

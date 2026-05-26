@@ -18,12 +18,16 @@
 8. [Run Execution](#8-run-execution)
 9. [Flow Information & Management](#9-flow-information--management)
 10. [Configuration System](#10-configuration-system)
-11. [LSF Resource Management](#11-lsf-resource-management)
-12. [MMMC Support](#12-mmmc-support)
-13. [Validation Framework](#13-validation-framework)
-14. [Release Management](#14-release-management)
-15. [Advanced Features](#15-advanced-features)
-16. [Troubleshooting](#16-troubleshooting)
+11. [Metal Stack Configuration](#11-metal-stack-configuration)
+12. [LSF Resource Management](#12-lsf-resource-management)
+13. [MMMC Support](#13-mmmc-support)
+14. [Validation Framework](#14-validation-framework)
+15. [Run Ownership & Protection](#15-run-ownership--protection)
+16. [Database Schema](#16-database-schema)
+17. [Exit Checklist System](#17-exit-checklist-system)
+18. [Release Management](#18-release-management)
+19. [Advanced Features](#19-advanced-features)
+20. [Troubleshooting](#20-troubleshooting)
 
 > **GUI Dashboard**: For the full web-based dashboard reference (DAG visualization, config editor, branch management, MMMC scenario editor, keyboard shortcuts), see the dedicated **[GUI User Guide](cbflow-gui-user-guide.md)**.
 
@@ -185,7 +189,8 @@ When a run is created, CBflow generates this structure:
 
 ```
 P0_run_PNR_run1/
-├── .race_*.db                   RACE SQLite status database (sole status tracking)
+├── .race_db_pointer             Points to RACE DB in race area
+├── .race_<run>_<user>_<hash>.db  RACE SQLite status database (in race area)
 ├── logs/                        Execution logs
 ├── setup/                       User configuration
 │   └── user_config.tcl
@@ -973,9 +978,68 @@ set directory(PNR) {
 
 ---
 
-## 11. LSF Resource Management
+## 11. Metal Stack Configuration
 
-### 11.1 Launch Modes
+### 11.1 Setting the Metal Stack
+
+The metal stack defines the full interconnect layer configuration for your technology node. Set it in your project config:
+
+```tcl
+# In config/project/<name>/v1.0.0/<name>_config.tcl
+set project(metal_stack) "gf22naphlogl24uhf116a_11M_2Mx_6Cx_1Jx_2Qx_LB"
+```
+
+### 11.2 Available Options
+
+Each technology node provides multiple metal stack options. The naming convention encodes the layer composition:
+
+| Stack | Layers | Composition |
+|-------|:---:|---|
+| 8M | 8 | 2Mx + 4Cx + 1Jx + 1Qx |
+| 9M | 9 | 2Mx + 5Cx + 1Jx + 1Qx |
+| 10M | 10 | 2Mx + 5Cx + 1Jx + 2Qx |
+| 11M | 11 | 2Mx + 6Cx + 1Jx + 2Qx |
+
+Layer types: **Mx** (thin metal), **Cx** (intermediate metal), **Jx** (semi-global metal), **Qx** (global/thick metal).
+
+### 11.3 What Auto-Resolves
+
+Once `project(metal_stack)` is set, the following are automatically resolved:
+
+- **Routing layers** -- Number and names of routable layers
+- **Clock layers** -- Preferred layers for clock tree routing
+- **TLU+ files** -- Parasitic extraction models per RC corner
+- **PG strap definitions** -- Power grid width/pitch/layers for each strap tier
+- **Via stacks** -- Available via definitions between layers
+
+### 11.4 Per-Layer Properties
+
+Each layer in the stack provides these properties:
+
+```tcl
+# Auto-populated per layer:
+tech(metal_stack,M1,direction)    ;# horizontal or vertical
+tech(metal_stack,M1,pitch)        ;# minimum pitch (nm)
+tech(metal_stack,M1,width)        ;# minimum width (nm)
+tech(metal_stack,M1,spacing)      ;# minimum spacing (nm)
+tech(metal_stack,M1,type)         ;# Mx, Cx, Jx, or Qx
+```
+
+### 11.5 Adding a New Metal Stack Option
+
+To add a new metal stack option for a technology node:
+
+1. Define the stack in `config/tech/<node>/v1.0.0/tech_config.tcl`
+2. Provide per-layer properties (direction, pitch, width, spacing, type)
+3. Map the stack to TLU+ files for each RC corner
+4. Define PG strap configurations for the new layer count
+5. The stack becomes available via `project(metal_stack)` in any project config
+
+---
+
+## 12. LSF Resource Management
+
+### 12.1 Launch Modes
 
 CBflow supports 4 launch modes for stage execution, controlled by `flow(use_lsf)` and `flow(use_xterm)` in `user_config.tcl`:
 
@@ -994,7 +1058,7 @@ set flow(use_lsf)    true    ;# Enable LSF job submission
 set flow(use_xterm)  true    ;# Launch in xterm windows
 ```
 
-### 11.2 Wrapper Script Generation
+### 12.2 Wrapper Script Generation
 
 For every stage's `run` subnode, CBflow generates a `launch_<stage>.csh` wrapper script under `work/<FLOW>/<stage>/run/`. This wrapper includes:
 
@@ -1003,7 +1067,7 @@ For every stage's `run` subnode, CBflow generates a `launch_<stage>.csh` wrapper
 
 The module loads and tool shell commands are read from `tool_launch_config.tcl`.
 
-### 11.3 bsub Command Construction
+### 12.3 bsub Command Construction
 
 When LSF is enabled, the `bsub` command is built from settings in `tool_launch_config.tcl`:
 
@@ -1013,7 +1077,7 @@ When LSF is enabled, the `bsub` command is built from settings in `tool_launch_c
 - **Runtime limit** -- Maximum wall-clock time
 - **Interactive flag** -- `-Is` when `flow(use_xterm)` is true
 
-### 11.4 Queue Type Mapping
+### 12.4 Queue Type Mapping
 
 Each flow/stage combination maps to a queue type in `tool_launch_config.tcl`:
 
@@ -1025,7 +1089,7 @@ Each flow/stage combination maps to a queue type in `tool_launch_config.tcl`:
 | **PV** | inputs, merge, release | erc, perc, xor | fill, drc, lvs | - |
 | **EMIR** | inputs | - | power, ir_drop | thermal |
 
-### 11.5 Escape Hatch: CBFLOW_BSUB_CMD
+### 12.5 Escape Hatch: CBFLOW_BSUB_CMD
 
 For advanced use cases where the auto-generated bsub command is insufficient, you can set the `CBFLOW_BSUB_CMD` environment variable to provide a fully custom bsub command string. When set, CBflow uses this command directly instead of building one from `tool_launch_config.tcl`.
 
@@ -1036,11 +1100,11 @@ export CBFLOW_BSUB_CMD="bsub -q custom_queue -R 'rusage[mem=48000]' -n 24 -Is"
 
 ---
 
-## 12. MMMC Support
+## 13. MMMC Support
 
 Multi-Mode Multi-Corner analysis is configured in `mmmc_config.tcl`.
 
-### 12.1 Process Corners
+### 13.1 Process Corners
 
 | Corner | Name | Setup Critical | Hold Critical |
 |:---:|---|:---:|:---:|
@@ -1049,14 +1113,14 @@ Multi-Mode Multi-Corner analysis is configured in `mmmc_config.tcl`.
 | ff | fast_fast | No | Yes |
 | sf | slow_fast | No | Yes |
 
-### 12.2 Operating Conditions
+### 13.2 Operating Conditions
 
 - **Nominal Voltage:** 0.80V
 - **Low Voltage:** 0.72V
 - **Hot Temperature:** 125C
 - **Cold Temperature:** -40C
 
-### 12.3 Timing Derates
+### 13.3 Timing Derates
 
 - Early (hold): 0.95
 - Late (setup): 1.05
@@ -1064,9 +1128,9 @@ Multi-Mode Multi-Corner analysis is configured in `mmmc_config.tcl`.
 
 ---
 
-## 13. Validation Framework
+## 14. Validation Framework
 
-### 13.1 Validation Types
+### 14.1 Validation Types
 
 ```bash
 cbflow run validate                    # Full validation
@@ -1076,7 +1140,7 @@ cbflow run validate --type outputs     # Output files only
 cbflow run validate --stage place1     # Stage-specific validation
 ```
 
-### 13.2 Critical Error Detection
+### 14.2 Critical Error Detection
 
 CBflow monitors logs for critical errors with tool-specific patterns:
 
@@ -1086,7 +1150,7 @@ CBflow monitors logs for critical errors with tool-specific patterns:
 
 When critical errors are detected, CBflow can launch an xterm alert for immediate visibility.
 
-### 13.3 Exit Milestones
+### 14.3 Exit Milestones
 
 CBflow defines exit criteria at key design milestones:
 
@@ -1101,9 +1165,185 @@ CBflow defines exit criteria at key design milestones:
 
 ---
 
-## 14. Release Management
+## 15. Run Ownership & Protection
 
-### 14.1 Release Structure
+### 15.1 Ownership Model
+
+Every run in CBflow is owned by its creator. The ownership is enforced via UID-based checks in both the RACE engine and the web dashboard.
+
+**Only the run creator can:**
+- Retrace (re-run from a stage)
+- Add or delete nodes
+- Bypass or force nodes
+- Delete the run
+- Modify run configuration
+
+**Everyone can:**
+- View run status (`cbflow run status`)
+- Access the GUI dashboard (`cbflow run gui`)
+- Read logs (`cbflow run logs`)
+- View the DAG graph (`cbflow run show-graph`)
+
+### 15.2 Enforcement
+
+Ownership is determined by the UID of the user who executed `cbflow workspace create`. This is stored in the RACE database at creation time. Any modification attempt by a different UID results in an error:
+
+```
+ERROR: Permission denied. Run owned by <creator_uid>. Only the creator can modify this run.
+```
+
+---
+
+## 16. Database Schema
+
+### 16.1 Overview
+
+The RACE engine uses a SQLite database with 13 tables for comprehensive run tracking and data collection.
+
+### 16.2 Database Tables
+
+| Table | Purpose |
+|-------|---------|
+| `jobs` | Node/subnode execution status, start/end times, exit codes |
+| `run_info` | Run metadata (creator, creation time, flow type, phase) |
+| `run_config` | Resolved configuration snapshot at run creation |
+| `job_order` | DAG execution order and dependency tracking |
+| `dag_structure` | Full DAG definition (nodes, edges, subnode hierarchy) |
+| `stage_metrics` | Per-stage metrics (runtime, memory, QoR data) |
+| `design_info` | Design metadata (cell count, area, utilization) |
+| `checklist_results` | Exit milestone check results and waivers |
+| `release_info` | Release history and milestone tags |
+| `lsf_details` | LSF job IDs, queues, resource usage |
+| `run_logs` | Structured log entries with severity levels |
+| `metrics_snapshot` | Point-in-time metrics for trending |
+| `config_history` | Configuration change tracking across retraces |
+
+### 16.3 Database Location
+
+The RACE database is stored in the race area configured by `project(race,db_path)`. A pointer file (`.race_db_pointer`) in the run directory references the actual database location.
+
+**Database naming convention:**
+```
+.race_<run_dir>_<user>_<hash>.db
+```
+
+Where:
+- `<run_dir>` -- Abbreviated run directory name
+- `<user>` -- Creator's username
+- `<hash>` -- Short hash for uniqueness
+
+### 16.4 Database Management
+
+```bash
+# List all RACE databases with status
+cbflow run db-manage --list
+# Shows: database path, run association, ACTIVE/ORPHANED status, size, creator
+
+# Interactive cleanup of orphaned databases (owner-only)
+cbflow run db-manage --cleanup
+# Prompts for confirmation before removing orphaned DBs
+# Only the DB owner can clean up their databases
+```
+
+---
+
+## 17. Exit Checklist System
+
+### 17.1 Overview
+
+CBflow provides a comprehensive exit checklist system with 11 milestones, 292 checks across 14 categories. The system enforces quality gates at each design phase.
+
+### 17.2 Milestones
+
+| Milestone | Description | Flow Context |
+|-----------|-------------|--------------|
+| FP_EXIT | Floorplan complete | FP, SYNTH_PNR |
+| PLACE_EXIT | Placement complete | PNR, SYNTH_PNR |
+| CTS_EXIT | Clock tree synthesis complete | PNR, SYNTH_PNR |
+| PRO_EXIT | Post-route optimization complete | PNR, SYNTH_PNR |
+| BTO | Backend tapeout ready | PNR, SYNTH_PNR |
+| MTO | Manufacturing tapeout ready | PNR, SYNTH_PNR |
+| STA_SIGNOFF | Static timing sign-off | STA |
+| LEC_SIGNOFF | Logic equivalence sign-off | LEC |
+| CLP_SIGNOFF | Low power verification sign-off | CLP |
+| PV_SIGNOFF | Physical verification sign-off | PV |
+| EMIR_SIGNOFF | EM/IR analysis sign-off | EMIR |
+
+### 17.3 Check Categories and IDs
+
+Each check has a unique ID with a category prefix:
+
+| Prefix | Category | Example Checks |
+|--------|----------|----------------|
+| TMG | Timing | Setup/hold slack, clock skew, transition |
+| PLC | Placement | Utilization, congestion, cell overlap |
+| CLK | Clock | Skew targets, insertion delay, clock DRC |
+| RTE | Routing | DRC violations, antenna, shorts |
+| PWR | Power | IR drop, EM violations, power budget |
+| PHY | Physical | Cell density, pin access, blockage |
+| LIB | Library | Cell usage, dont_use compliance |
+| CON | Constraints | SDC coverage, false/multi-cycle paths |
+| FLR | Floorplan | Macro placement, channel width, halo |
+| VER | Verification | LVS/DRC clean, formal equivalence |
+| SGN | Signoff | Timing closure, SI, noise |
+| MFG | Manufacturing | Metal density, via redundancy, antenna |
+| REL | Reliability | EM limits, ESD, latchup |
+| DOC | Documentation | Reports generated, waivers documented |
+
+### 17.4 CLI Commands
+
+```bash
+# List all checks for a milestone (auto-detects from run dir)
+cbflow flow checklist list-checks
+cbflow flow checklist list-checks --milestone BTO --phase P2
+
+# Summary mode (category counts only)
+cbflow flow checklist list-checks -s
+
+# Evaluate checks against current run
+cbflow flow checklist status
+cbflow flow checklist status --milestone PLACE_EXIT
+
+# Generate checklist report
+cbflow flow checklist generate --milestone BTO
+
+# Record sign-off
+cbflow flow checklist sign-off
+cbflow flow checklist sign-off --milestone BTO --signee "john.doe"
+
+# Manage individual checks
+cbflow flow checklist add-check --milestone BTO --id "TMG-099" --desc "Custom timing check"
+cbflow flow checklist remove-check --milestone BTO --id "TMG-099"
+
+# Waiver management
+cbflow flow checklist waiver --id "RTE-003" --reason "Known DRC waiver per foundry" --approver "lead"
+```
+
+### 17.5 Phase Filtering
+
+Checks are phase-aware. The same milestone applies different criteria depending on the project phase:
+
+| Phase | Behavior |
+|-------|----------|
+| P0 | Relaxed -- many checks are advisory, waivers auto-approved |
+| P1 | Moderate -- key checks enforced, others advisory |
+| P2 | Strict -- most checks enforced, waivers require lead approval |
+| P3 | Zero-tolerance -- all checks must pass or have documented waivers |
+
+### 17.6 Auto-Detection
+
+When running checklist commands from within a run directory, CBflow auto-detects:
+- The milestone (from flow type and completed stages)
+- The phase (from `project(release,phase)`)
+- The run context (from `.run.cbflow.tcl`)
+
+No flags needed for the common case -- just `cbflow flow checklist status` from your run directory.
+
+---
+
+## 18. Release Management
+
+### 18.1 Release Structure
 
 ```
 releases/
@@ -1119,7 +1359,7 @@ releases/
 └── current -> v1.0.0
 ```
 
-### 14.2 Release Commands
+### 18.2 Release Commands
 
 ```bash
 cbflow flow release list
@@ -1128,7 +1368,7 @@ cbflow flow release create --type patch --desc "Bug fix release"
 cbflow flow release diff --v1 v1.0.0 --v2 v1.0.1
 ```
 
-### 14.3 Version Management
+### 18.3 Version Management
 
 ```bash
 cbflow flow version list --dir cmds/SYNTH
@@ -1136,7 +1376,7 @@ cbflow flow version create --dir cmds/SYNTH --type minor --desc "Added new optim
 cbflow flow version promote --dir cmds/SYNTH --version v1.1.0
 ```
 
-### 14.4 Version Locking
+### 18.4 Version Locking
 
 Released versions are permanently read-only. When a version is released, CBflow applies `chmod 444` to all files and creates a `.locked` marker file. This is irreversible -- there is no way to unlock or revert a locked version.
 
@@ -1151,7 +1391,7 @@ Released versions are permanently read-only. When a version is released, CBflow 
 
 To make changes to a locked version, create a new version (copy) or use the dev workflow.
 
-### 14.5 Dev Workflow
+### 18.5 Dev Workflow
 
 The dev workflow provides a structured way to develop and test changes before promoting them to a released version. Dev versions use the `-dev` suffix convention (e.g., `v1.0.0-dev`).
 
@@ -1179,9 +1419,9 @@ cbflow flow dev promote --dir cmds/SYNTH --version v1.0.1
 
 ---
 
-## 15. Advanced Features
+## 19. Advanced Features
 
-### 15.1 Merged Flows
+### 19.1 Merged Flows
 
 CBflow supports merging multiple flows into a single run:
 
@@ -1194,7 +1434,7 @@ cbflow workspace create --config user_config.tcl
 # Stages will be prefixed: synth_inputs, synth_synthesis, ..., fp_inputs, fp_floorplan, ...
 ```
 
-### 15.2 Custom Nodes
+### 19.2 Custom Nodes
 
 Add custom stages to an existing flow:
 
@@ -1208,7 +1448,7 @@ cbflow run add-node --node eco1 --type eco --dep signoff1
 cbflow run create-branch --name experiment_timing
 ```
 
-### 15.3 Plugin System
+### 19.3 Plugin System
 
 Create custom flow plugins:
 
@@ -1223,7 +1463,7 @@ cbflow flow plugin register --name MYFLOW
 cbflow flow plugin list
 ```
 
-### 15.4 Metrics and Dashboard
+### 19.4 Metrics and Dashboard
 
 ```bash
 # Collect run metrics
@@ -1243,7 +1483,7 @@ cbflow run gui
 
 The web dashboard provides a full GUI for DAG visualization, node execution control, configuration editing, branch management, and MMMC scenario management. For the complete dashboard reference, see the **[GUI User Guide](cbflow-gui-user-guide.md)**.
 
-### 15.5 Flat Execution Mode
+### 19.5 Flat Execution Mode
 
 Merge execution nodes to reduce EDA tool license usage:
 
@@ -1256,9 +1496,9 @@ In flat mode, multiple stages are combined into a single merged execution to min
 
 ---
 
-## 16. Troubleshooting
+## 20. Troubleshooting
 
-### 16.1 Common Issues
+### 20.1 Common Issues
 
 **Problem:** `cbflow run all` fails with DAG build error
 - **Cause:** RACE DAG build failure
@@ -1280,7 +1520,7 @@ In flat mode, multiple stages are combined into a single merged execution to min
 - **Cause:** Stage name mismatch between config and LSF mappings
 - **Fix:** Verify stage names in `{FLOW}_config.tcl` match `lsf_config.tcl`
 
-### 16.2 Useful Debug Commands
+### 20.2 Useful Debug Commands
 
 ```bash
 # Show what would run without executing
@@ -1300,7 +1540,7 @@ cbflow run force --node place1
 cbflow run all
 ```
 
-### 16.3 Test Mode Debugging
+### 20.3 Test Mode Debugging
 
 Enable test mode to validate flow structure without EDA tools:
 

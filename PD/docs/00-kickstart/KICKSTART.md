@@ -39,6 +39,17 @@ set project(release,block_name) "top"
 set project(release,tag)        "v1.0.0"
 ```
 
+## 3b. Metal Stack Configuration
+
+Set the metal stack in your project config to auto-resolve routing layers, TLU+ files, and PG strap definitions:
+
+```tcl
+# In project_config.tcl:
+set project(metal_stack) "gf22naphlogl24uhf116a_11M_2Mx_6Cx_1Jx_2Qx_LB"
+```
+
+Available stacks: 8M, 9M, 10M, 11M. Everything auto-resolves (routing layers, TLU+, PG straps) based on the selected stack.
+
 ## 4. Create User Config
 
 ```tcl
@@ -76,12 +87,18 @@ cbflow run autoppt
 CBflow v2.0.0 uses the **RACE (Run Automation & Control Engine)** as its dispatcher. RACE is a Python-native DAG executor that:
 
 - Builds the execution DAG from `node_config.tcl` at runtime
-- Tracks all node status in a SQLite database (`.race_<uid>.db`)
+- Tracks all node status in a SQLite database (`.race_<run_dir>_<user>_<hash>.db`)
 - Detects file changes on inputs and auto-retraces downstream nodes
 - Runs independent subnodes in parallel (e.g., PV: drc/lvs/erc/perc/xor)
 - Generates dynamic subnodes (e.g., STA per-corner from user_config)
 
 There is no Makefile, no `.make/` directory, and no `make` command. All execution is handled by RACE.
+
+Additional RACE features:
+- **Run ownership**: Only the run creator can modify a run (retrace, add-node, delete, bypass, force). Everyone can view status, GUI, and logs.
+- **13 database tables** for comprehensive data collection (jobs, run_info, run_config, job_order, dag_structure, stage_metrics, design_info, checklist_results, release_info, lsf_details, run_logs, metrics_snapshot, config_history)
+- **Deterministic GUI port**: Each run gets a consistent port for the web dashboard
+- **DB stored in race area**: Configured via `project(race,db_path)`, with a `.race_db_pointer` in the run directory
 
 ## 7. Key Commands
 
@@ -103,6 +120,12 @@ There is no Makefile, no `.make/` directory, and no `make` command. All executio
 | `cbflow run add-node --node <n> --type <t>` | Add custom node to DAG |
 | `cbflow run create-branch --name <n>` | Create a flow branch |
 | `cbflow run show-graph` | Visualize DAG |
+| `cbflow flow checklist list-checks` | List all checks with IDs (auto-detects milestone/phase from run dir) |
+| `cbflow flow checklist list-checks -s` | Summary mode |
+| `cbflow flow checklist status` | Evaluate checks against run (auto-detects context) |
+| `cbflow flow checklist sign-off` | Record sign-off |
+| `cbflow run db-manage --list` | List RACE databases (ACTIVE/ORPHANED status) |
+| `cbflow run db-manage --cleanup` | Interactive cleanup (owner-only) |
 
 ## 8. Supported Flows (12)
 
@@ -121,7 +144,27 @@ There is no Makefile, no `.make/` directory, and no `make` command. All executio
 | `POPT` | Power optimization |
 | `FCFP` | Full chip floorplan (hierarchical) |
 
-## 9. Input Handshaking
+## 9. Exit Milestones
+
+CBflow defines 11 exit milestones across the PD lifecycle with 292 library checks across 14 categories:
+
+| Milestone | Flow |
+|-----------|------|
+| FP_EXIT | Floorplanning complete |
+| PLACE_EXIT | Placement complete |
+| CTS_EXIT | Clock tree synthesis complete |
+| PRO_EXIT | Post-route optimization complete |
+| BTO | Backend tapeout ready |
+| MTO | Manufacturing tapeout ready |
+| STA_SIGNOFF | Static timing sign-off |
+| LEC_SIGNOFF | Logic equivalence sign-off |
+| CLP_SIGNOFF | Low power verification sign-off |
+| PV_SIGNOFF | Physical verification sign-off |
+| EMIR_SIGNOFF | EM/IR analysis sign-off |
+
+Milestones are **phase-aware**: P0 applies relaxed criteria, P3 enforces zero-tolerance on all checks.
+
+## 10. Input Handshaking
 
 ```tcl
 # In user_config.tcl — two modes:
@@ -133,7 +176,7 @@ set pnr(input,netlist_release_tag) "v1.0.2"
 set pnr(input,netlist) "/proj/runs/synth_run1/outputs/my_design.v"
 ```
 
-## 10. Override Hierarchy
+## 11. Override Hierarchy
 
 All configs are consolidated into a single generated `config.tcl` per node. Command files source it once.
 
@@ -153,7 +196,7 @@ project_config.tcl            (project-specific)
 
 Flow type must be explicitly set (via `CBFLOW_FLOW_TYPE` env var or user_config). If missing or invalid, CBflow exits with error and lists available flows.
 
-## 11. Milestone Release
+## 12. Milestone Release
 
 Releases are milestone-gated. Tags are predefined; leads set the active tag in project config.
 
@@ -167,7 +210,7 @@ cbflow run release --dry-run            # Validate without copying
 # Release path: <base>/<project>/<design>/<phase>_<tag>/<FLOW>/
 ```
 
-## 12. SmartGenie AI Agent
+## 13. SmartGenie AI Agent
 
 ```bash
 # Setup (one time)
@@ -188,7 +231,7 @@ cbflow smartgenie "prompt"           # All users connect, knowledge auto-shared
 
 100% private — runs on-premise via Ollama. No data leaves your network. See [SmartGenie User Guide](../02-user-guide/smartgenie-user-guide.md).
 
-## 13. Customer Bundle & Permissions
+## 14. Customer Bundle & Permissions
 
 ```bash
 # Create customer bundle (all files 777 for safe unzip)
@@ -209,7 +252,7 @@ set project(release,expiry_date) "2026-06-30"
 set project(release,path)        "/proj/releases"
 ```
 
-## 12. Test Suite
+## 15. Test Suite
 
 ```bash
 bin/cbflow-test-suite              # 994 tests, all categories

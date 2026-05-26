@@ -52,6 +52,13 @@ project_init → project → team → tech → flow → node_common → node_too
 - Per-RC-corner parasitics: `tech(rcx,<rc_corner>,<format>)` where format = tluplus/qrc/nxtgrd
 - Physical cells: clock_buffers, clock_inverters, hold_buffers, delay_cells, icg_cells, power_switch, isolation, level_shifter, tie_cells, fillers, well_tap, endcap, decap
 
+### Metal Stack Configuration
+- Available stacks per technology: tech(metal_stacks_available)
+- Active stack: project(metal_stack) in project_config
+- Per-stack configs: config/tech/<node>/v1.0.0/metal_stack/<stack_name>.tcl
+- Per-layer properties: direction, pitch, width, spacing, type (Qx/Cx/Jx/Mx)
+- Auto-resolves: routing layers, TLU+/QRC paths, PG strap layers
+
 ### MMMC Auto-Generation
 - PVT building blocks: `mmmc(pvt,ss)`, `mmmc(pvt,tt)`, `mmmc(pvt,ff)` + RC pairing rules
 - Analysis views auto-generated: modes × corners × PVT points
@@ -61,6 +68,16 @@ project_init → project → team → tech → flow → node_common → node_too
 ### Node Config Split
 - `<FLOW>_config.tcl` — common: stages, dependencies, subnodes (foreach loop), node_types, MMMC, runtime
 - `<FLOW>_<tool>_config.tcl` — tool-specific: app settings, compile/place/cts/route options, required_inputs
+
+### Exit Checklist System
+- 11 milestones: FP_EXIT, PLACE_EXIT, CTS_EXIT, PRO_EXIT, BTO, MTO, STA_SIGNOFF, LEC_SIGNOFF, CLP_SIGNOFF, PV_SIGNOFF, EMIR_SIGNOFF
+- 292 library checks across 14 categories (timing, placement, clock, power, routing, physical, SI, manufacturing + 6 flow-specific)
+- Phase-aware: P0 relaxed → P3 zero-tolerance (checks activate progressively)
+- Check IDs: TMG-001, PLC-001, CLK-001, PWR-001, RTG-001, PHY-001, SI-001, MFG-001
+- Config: PD/config/exit/v1.0.0/ (milestone configs + checks/ library)
+- Scripts: PD/utils/validation/v1.0.0/checks/ (11 executable check scripts)
+- CLI: cbflow flow checklist {list, list-checks, generate, status, sign-off, add-check, remove-check, waiver}
+- Auto-detects milestone/phase/project from run directory
 
 ## CBflow Commands
 
@@ -87,9 +104,21 @@ cbflow run gui                    # Web dashboard
 ### Checklist
 ```bash
 cbflow flow checklist list                                    # Show all milestones
+cbflow flow checklist list-checks --milestone BTO             # List checks for milestone
 cbflow flow checklist generate --milestone PLACE_EXIT         # Generate checklist
 cbflow flow checklist status --milestone BTO --run-dir .      # Check status
-cbflow flow checklist signoff --milestone BTO --run-dir .     # Sign off
+cbflow flow checklist sign-off --milestone BTO --run-dir .    # Sign off
+cbflow flow checklist add-check --milestone BTO --check-id TMG-042  # Add custom check
+cbflow flow checklist remove-check --milestone BTO --check-id TMG-042  # Remove check
+cbflow flow checklist waiver --milestone BTO --check-id TMG-010 --reason "..."  # Waive check
+```
+
+### Database Management
+```bash
+cbflow run db-manage status                                   # Show DB location and size
+cbflow run db-manage backup                                   # Backup current DB
+cbflow run db-manage query --table jobs --status FAIL         # Query DB tables
+cbflow run db-manage export --format csv                      # Export DB data
 ```
 
 ## Command File Bootstrap
@@ -113,6 +142,18 @@ setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 - Dynamic subnodes: timing/extraction nodes resolve independently per node
 - Per-node scenario override via `override_config.<node>.tcl`
 - Log capture: stdout/stderr → `work/<FLOW>/<stage>/run/<job_name>.log`
+
+### Run Ownership
+- Owner stored: owner + owner_uid in run_info table on first init
+- Enforcement: _check_ownership() before execute/retrace/bypass/forcevalidate/force
+- Dashboard: HTTP 403 for unauthorized mutations
+- Read-only access (status, GUI, logs) unrestricted
+
+### Comprehensive Database (13 tables)
+Original: jobs, run_info, run_config, job_order, dag_structure, stage_metrics
+New: design_info, checklist_results, release_info, lsf_details, run_logs, metrics_snapshot, config_history
+DB naming: .race_<run_dir_name>_<user>_<hash>.db
+DB location: project(race,db_path) race area, .race_db_pointer in run_dir
 
 ## Flow-to-Flow Handoff
 Three mechanisms:
