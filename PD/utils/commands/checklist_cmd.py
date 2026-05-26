@@ -648,17 +648,40 @@ def _load_and_validate_config(milestone: str, run_dir: str = None):
 
 
 def cmd_generate(args: argparse.Namespace) -> int:
-    """Generate a formatted checklist for a milestone."""
-    milestone = args.milestone
+    """Generate a formatted checklist for a milestone.
+
+    When run from a run directory, auto-detects milestone, project, and phase.
+    """
+    milestone = getattr(args, 'milestone', '') or ''
     project = getattr(args, 'project', '') or os.environ.get('CBFLOW_PROJECT', '')
     phase = getattr(args, 'phase', '') or ''
     output_format = getattr(args, 'format', 'text') or 'text'
+
+    # Auto-detect from CWD if in a run directory
+    run_dir = _detect_run_dir()
+    if run_dir:
+        if not phase:
+            phase = _detect_phase(run_dir)
+        if not project:
+            project = _detect_project(run_dir)
+        if not milestone:
+            flow_type = _detect_flow_type(run_dir)
+            milestone = _detect_milestone_for_flow(flow_type)
+            if milestone:
+                logger.info(f"Auto-detected: flow={flow_type}, milestone={milestone}, "
+                           f"phase={phase}, project={project}")
+
+    if not milestone:
+        logger.error(f"--milestone required (not in a run directory)")
+        logger.error(f"Available: {', '.join(get_available_milestones())}")
+        return 1
 
     config, _ = _load_and_validate_config(milestone)
     if not config:
         logger.error(f"Available milestones: {', '.join(get_available_milestones())}")
         return 1
-    logger.info(f"Generating checklist for milestone: {milestone}")
+    logger.info(f"Generating checklist for milestone: {milestone}" +
+                (f" (phase: {phase})" if phase else ""))
 
     # Load waivers
     waivers = get_active_waivers_for_milestone(milestone, project=project or '*')
@@ -1211,6 +1234,73 @@ def cmd_remove_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def _detect_run_dir() -> str:
+    """Detect if CWD is a run directory. Returns run_dir path or empty string."""
+    cwd = os.getcwd()
+    # A run dir has .run.cbflow.env or .race_*.db or setup/user_config.tcl
+    if os.path.exists(os.path.join(cwd, '.run.cbflow.env')):
+        return cwd
+    if glob.glob(os.path.join(cwd, '.race_*.db')):
+        return cwd
+    if os.path.exists(os.path.join(cwd, '.race_db_pointer')):
+        return cwd
+    if os.path.exists(os.path.join(cwd, 'setup', 'user_config.tcl')):
+        return cwd
+    return ''
+
+
+def _detect_flow_type(run_dir: str) -> str:
+    """Detect flow type from run directory."""
+    db_path = _find_run_db(run_dir)
+    if db_path:
+        try:
+            conn = sqlite3.connect(db_path)
+            row = conn.execute(
+                "SELECT value FROM run_info WHERE key = 'flow_type'"
+            ).fetchone()
+            conn.close()
+            if row:
+                return row[0]
+        except (sqlite3.OperationalError, OSError):
+            pass
+    # Fallback: parse dir name (P0_run_SYNTH_PNR_test1 → SYNTH_PNR)
+    dirname = os.path.basename(os.path.abspath(run_dir))
+    import re as _re
+    m = _re.match(r'P\d_run_(\w+?)_', dirname)
+    if m:
+        return m.group(1)
+    return ''
+
+
+def _detect_milestone_for_flow(flow_type: str) -> str:
+    """Suggest the primary milestone for a flow type."""
+    flow_milestones = {
+        'SYNTH_PNR': 'BTO', 'PNR': 'BTO', 'SYNTH': 'FP_EXIT',
+        'FP': 'FP_EXIT', 'FCFP': 'FP_EXIT',
+        'STA': 'STA_SIGNOFF', 'LEC': 'LEC_SIGNOFF',
+        'CLP': 'CLP_SIGNOFF', 'PV': 'PV_SIGNOFF',
+        'EMIR': 'EMIR_SIGNOFF', 'ECO': 'BTO', 'POPT': 'BTO',
+    }
+    return flow_milestones.get(flow_type, '')
+
+
+def _detect_project(run_dir: str) -> str:
+    """Detect project name from run directory."""
+    db_path = _find_run_db(run_dir)
+    if db_path:
+        try:
+            conn = sqlite3.connect(db_path)
+            row = conn.execute(
+                "SELECT value FROM run_info WHERE key = 'project'"
+            ).fetchone()
+            conn.close()
+            if row:
+                return row[0]
+        except (sqlite3.OperationalError, OSError):
+            pass
+    return ''
+
+
 def _detect_phase(run_dir: str) -> str:
     """Auto-detect project phase from run directory.
 
@@ -1290,15 +1380,30 @@ def _status_color(status: str) -> str:
 
 def cmd_list_checks(args: argparse.Namespace) -> int:
     """List all checks in a milestone in tabular format with check IDs."""
-    milestone = args.milestone
+    milestone = getattr(args, 'milestone', '') or ''
     phase = getattr(args, 'phase', '') or ''
     output_file = getattr(args, 'output', '') or ''
     summary_mode = getattr(args, 'summary', False)
     run_dir = getattr(args, 'run_dir', '') or ''
 
-    # Auto-detect phase from run directory if not explicitly provided
-    if not phase and run_dir:
-        phase = _detect_phase(run_dir)
+    # Auto-detect from CWD if in a run directory
+    if not run_dir:
+        detected = _detect_run_dir()
+        if detected:
+            run_dir = detected
+    if run_dir:
+        if not phase:
+            phase = _detect_phase(run_dir)
+        if not milestone:
+            flow_type = _detect_flow_type(run_dir)
+            milestone = _detect_milestone_for_flow(flow_type)
+            if milestone:
+                logger.info(f"Auto-detected: flow={flow_type}, milestone={milestone}, phase={phase}")
+
+    if not milestone:
+        logger.error(f"--milestone required (not in a run directory)")
+        logger.error(f"Available: {', '.join(get_available_milestones())}")
+        return 1
 
     config_path = get_milestone_config_path(milestone)
     if not os.path.exists(config_path):
@@ -1566,7 +1671,7 @@ Examples:
 
     # generate
     g = sub.add_parser('generate', help='Generate a formatted checklist for a milestone')
-    g.add_argument('--milestone', required=True, help='Exit milestone name')
+    g.add_argument('--milestone', default='', help='Exit milestone name (auto-detected from run dir if omitted)')
     g.add_argument('--project', default='', help='Project name for threshold overrides')
     g.add_argument('--phase', default='', help='Design phase (e.g., P0, P1, P2)')
     g.add_argument('--format', choices=['text', 'json', 'html'], default='text', help='Output format')
@@ -1599,7 +1704,7 @@ Examples:
   cbflow flow checklist list-checks --milestone BTO --phase P3 --run-dir . --summary
   cbflow flow checklist list-checks --milestone BTO --output checks_BTO.txt
 """)
-    lc.add_argument('--milestone', required=True, help='Milestone name (e.g., FP_EXIT, BTO, STA_SIGNOFF)')
+    lc.add_argument('--milestone', default='', help='Milestone name (auto-detected from run dir if omitted)')
     lc.add_argument('--phase', default='', help='Filter checks active at this phase (P0/P1/P2/P3)')
     lc.add_argument('--run-dir', dest='run_dir', default='', help='Run directory to evaluate PASS/FAIL status')
     lc.add_argument('--output', '-o', default='', help='Write output to file (no ANSI colors)')
