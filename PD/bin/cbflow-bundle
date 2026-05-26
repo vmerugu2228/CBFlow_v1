@@ -82,6 +82,12 @@ done > PD/MANIFEST.checksums)
 MANIFEST_COUNT=$(wc -l < "$STAGE_DIR/PD/MANIFEST.checksums" | tr -d ' ')
 echo "         $MANIFEST_COUNT files checksummed"
 
+# Initialize state tracking (lightweight VCS)
+echo "  [3/6] Initializing state tracking..."
+CBFLOW_CORE_DIR="$STAGE_DIR/PD" python3 "$STAGE_DIR/PD/utils/commands/state_cmd.py" init 2>/dev/null || true
+STATE_COUNT=$(sqlite3 "$STAGE_DIR/PD/.cbflow_state.db" "SELECT file_count FROM commits LIMIT 1" 2>/dev/null || echo "0")
+echo "         $STATE_COUNT files tracked in .cbflow_state.db"
+
 # Count files
 FILE_COUNT=$(find "$STAGE_DIR" -type f | wc -l | tr -d ' ')
 DIR_COUNT=$(find "$STAGE_DIR" -type d | wc -l | tr -d ' ')

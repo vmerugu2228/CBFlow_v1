@@ -211,6 +211,11 @@ main() {
             exec python3 "$COMMANDS_DIR/run_cmd.py" "$@"
             ;;
 
+        # State tracking (lightweight VCS for bundles)
+        state)
+            exec python3 "$COMMANDS_DIR/state_cmd.py" "$@"
+            ;;
+
         # Migrate commands (path migration, file upgrade)
         migrate)
             exec python3 "$COMMANDS_DIR/migrate_cmd.py" "$@"
