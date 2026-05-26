@@ -58,15 +58,21 @@ TMPDIR=$(mktemp -d)
 STAGE_DIR="$TMPDIR/$BUNDLE_NAME"
 mkdir -p "$STAGE_DIR"
 
-# Copy PD/ excluding dev artifacts
-echo "  [1/4] Copying files..."
+# Copy entire CBflow project excluding git, AI, and dev artifacts
+CBFLOW_PROJECT_DIR="$(dirname "$CBFLOW_CORE_DIR")"
+echo "  [1/4] Copying files (excluding .git, ai/, __pycache__)..."
 rsync -a --quiet \
     --exclude='.git' \
     --exclude='.DS_Store' \
     --exclude='__pycache__' \
     --exclude='*.pyc' \
     --exclude='.claude' \
-    "$CBFLOW_CORE_DIR/" "$STAGE_DIR/"
+    --exclude='PD/ai' \
+    --exclude='PD/ai/' \
+    --exclude='*.tar.gz' \
+    --exclude='.race_*.db' \
+    --exclude='.race_db_pointer' \
+    "$CBFLOW_PROJECT_DIR/" "$STAGE_DIR/"
 
 # Count files
 FILE_COUNT=$(find "$STAGE_DIR" -type f | wc -l | tr -d ' ')
