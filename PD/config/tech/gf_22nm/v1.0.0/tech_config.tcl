@@ -39,6 +39,10 @@ if {[lsearch $tech(metal_stacks_available) $tech(metal_stack)] < 0} {
     error "Invalid metal stack configuration"
 }
 
+# ── Library root (needed by metal stack configs for tech_file paths) ───────
+set tech(lib_root) "/tmp/test_libs/gf_22nm"
+set _R "$tech(lib_root)"
+
 # ── Load per-metal-stack configuration ────────────────────────────────────
 # Sources: metal_stack/<stack_name>.tcl
 set _ms_file "$_tech_dir/metal_stack/$tech(metal_stack).tcl"
@@ -71,11 +75,8 @@ set tech(track) $project(track_variant)
 puts "INFO: $tech(process) active track: $tech(track)"
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 3: LIBRARY ROOT PATHS
+# SECTION 3: LIBRARY ROOT PATHS (set above, before metal stack load)
 # ═══════════════════════════════════════════════════════════════════════════════
-
-set tech(lib_root) "/tmp/test_libs/gf_22nm"
-set _R "$tech(lib_root)"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SECTION 4: NDM LIBRARIES
