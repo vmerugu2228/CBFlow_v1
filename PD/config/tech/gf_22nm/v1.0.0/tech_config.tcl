@@ -13,8 +13,44 @@ set _tech_dir [file dirname [file normalize [info script]]]
 set tech(node)        "22nm"
 set tech(process)     "GF 22FDX"
 set tech(foundry)     "GlobalFoundries"
-set tech(metal_stack) "11M"
 set tech(tracks_available) "9T 7.5T 8T"
+
+# ── Metal Stack Options ──────────────────────────────────────────────────
+# Each metal stack defines: layer count, layer types, tech file, TLU+/QRC
+# Naming: <process>_<total_metals>M_<thick>Mx_<inter>Cx_<junc>Jx_<thin>Qx_<bump>
+set tech(metal_stacks_available) {
+    gf22naphlogl24uhf116a_10M_2Mx_5Cx_1Jx_2Qx_LB
+    gf22naphlogl24uhf116a_11M_2Mx_6Cx_1Jx_2Qx_LB
+    gf22naphlogl24uhf116a_8M_2Mx_3Cx_1Jx_2Qx_LB
+    gf22naphlogl24uhf116a_9M_2Mx_4Cx_1Jx_2Qx_LB
+}
+
+# Active metal stack — set from project config, validated below
+if {[info exists project(metal_stack)] && $project(metal_stack) ne ""} {
+    set tech(metal_stack) $project(metal_stack)
+} else {
+    set tech(metal_stack) "gf22naphlogl24uhf116a_11M_2Mx_6Cx_1Jx_2Qx_LB"
+}
+
+# Validate metal stack
+if {[lsearch $tech(metal_stacks_available) $tech(metal_stack)] < 0} {
+    puts "ERROR: Invalid metal_stack '$tech(metal_stack)'"
+    puts "ERROR: Available: $tech(metal_stacks_available)"
+    error "Invalid metal stack configuration"
+}
+
+# ── Load per-metal-stack configuration ────────────────────────────────────
+# Sources: metal_stack/<stack_name>.tcl
+set _ms_file "$_tech_dir/metal_stack/$tech(metal_stack).tcl"
+if {[file exists $_ms_file]} {
+    source $_ms_file
+} else {
+    puts "WARNING: Metal stack config not found: $_ms_file — using defaults"
+    # Defaults for the 11M stack
+    set tech(metal_stack_label) "11M"
+    set tech(metal_count) 11
+    set tech(metal_layers) {M1 M2 M3 M4 M5 M6 M7 M8 M9 M10 M11}
+}
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SECTION 2: ACTIVE TRACK
@@ -194,21 +230,24 @@ foreach _t $tech(tracks_available) {
 set tech(tluplus_map) "$_R/Back_End/rcx/gf22nm_tf_itf_tluplus.map"
 
 # ── Per RC corner: Synopsys TLU+, nxtgrd, Cadence QRC ──
-set tech(rcx,rc_max,tluplus)   "$_R/Back_End/rcx/gf22nm_1p11m_Cmax.tluplus"
-set tech(rcx,rc_max,nxtgrd)    "$_R/Back_End/rcx/gf22nm_1p11m_Cmax.nxtgrd"
-set tech(rcx,rc_max,qrc)       "$_R/Back_End/rcx/gf22nm_1p11m_Cmax.qrcTechFile"
+# Parasitic files are metal-stack-specific (1p11m, 1p10m, etc.)
+set _ms_label "1p${tech(metal_count)}m"
 
-set tech(rcx,rc_typ,tluplus)   "$_R/Back_End/rcx/gf22nm_1p11m_Ctyp.tluplus"
-set tech(rcx,rc_typ,nxtgrd)    "$_R/Back_End/rcx/gf22nm_1p11m_Ctyp.nxtgrd"
-set tech(rcx,rc_typ,qrc)       "$_R/Back_End/rcx/gf22nm_1p11m_Ctyp.qrcTechFile"
+set tech(rcx,rc_max,tluplus)   "$_R/Back_End/rcx/gf22nm_${_ms_label}_Cmax.tluplus"
+set tech(rcx,rc_max,nxtgrd)    "$_R/Back_End/rcx/gf22nm_${_ms_label}_Cmax.nxtgrd"
+set tech(rcx,rc_max,qrc)       "$_R/Back_End/rcx/gf22nm_${_ms_label}_Cmax.qrcTechFile"
 
-set tech(rcx,rc_min,tluplus)   "$_R/Back_End/rcx/gf22nm_1p11m_Cmin.tluplus"
-set tech(rcx,rc_min,nxtgrd)    "$_R/Back_End/rcx/gf22nm_1p11m_Cmin.nxtgrd"
-set tech(rcx,rc_min,qrc)       "$_R/Back_End/rcx/gf22nm_1p11m_Cmin.qrcTechFile"
+set tech(rcx,rc_typ,tluplus)   "$_R/Back_End/rcx/gf22nm_${_ms_label}_Ctyp.tluplus"
+set tech(rcx,rc_typ,nxtgrd)    "$_R/Back_End/rcx/gf22nm_${_ms_label}_Ctyp.nxtgrd"
+set tech(rcx,rc_typ,qrc)       "$_R/Back_End/rcx/gf22nm_${_ms_label}_Ctyp.qrcTechFile"
 
-set tech(rcx,rc_max_cworst,tluplus) "$_R/Back_End/rcx/gf22nm_1p11m_Cmax.tluplus"
-set tech(rcx,rc_max_cworst,nxtgrd)  "$_R/Back_End/rcx/gf22nm_1p11m_Cmax.nxtgrd"
-set tech(rcx,rc_max_cworst,qrc)     "$_R/Back_End/rcx/gf22nm_1p11m_Cmax.qrcTechFile"
+set tech(rcx,rc_min,tluplus)   "$_R/Back_End/rcx/gf22nm_${_ms_label}_Cmin.tluplus"
+set tech(rcx,rc_min,nxtgrd)    "$_R/Back_End/rcx/gf22nm_${_ms_label}_Cmin.nxtgrd"
+set tech(rcx,rc_min,qrc)       "$_R/Back_End/rcx/gf22nm_${_ms_label}_Cmin.qrcTechFile"
+
+set tech(rcx,rc_max_cworst,tluplus) "$_R/Back_End/rcx/gf22nm_${_ms_label}_Cmax.tluplus"
+set tech(rcx,rc_max_cworst,nxtgrd)  "$_R/Back_End/rcx/gf22nm_${_ms_label}_Cmax.nxtgrd"
+set tech(rcx,rc_max_cworst,qrc)     "$_R/Back_End/rcx/gf22nm_${_ms_label}_Cmax.qrcTechFile"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SECTION 7: PHYSICAL CELLS (per track — site, fillers, CTS, tap, endcap)
@@ -445,10 +484,11 @@ foreach _t $tech(tracks_available) {
 # SECTION 9: DESIGN RULES & ROUTING (shared — same for all tracks)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-set tech(min_routing_layer) "M2"
-set tech(max_routing_layer) "M10"
-set tech(clock_routing_layer_min) "M4"
-set tech(clock_routing_layer_max) "M8"
+# Routing layers — derived from metal stack config (can be overridden in project/user config)
+if {![info exists tech(min_routing_layer)]}    { set tech(min_routing_layer)    "M2" }
+if {![info exists tech(max_routing_layer)]}    { set tech(max_routing_layer)    [lindex $tech(metal_layers) end-1] }
+if {![info exists tech(clock_routing_layer_min)]} { set tech(clock_routing_layer_min) "M4" }
+if {![info exists tech(clock_routing_layer_max)]} { set tech(clock_routing_layer_max) "M8" }
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SECTION 10: BODY BIAS (GF 22FDX specific — FD-SOI advantage)
@@ -501,4 +541,4 @@ if {[info exists tech(${_trk},decap)]} {
     set tech(decap_cells) $tech(${_trk},decap)
 }
 
-puts "INFO: $tech(process) tech config loaded — track=$tech(track), metal=$tech(metal_stack), libs=[llength $tech(${_trk},ndm)] NDMs"
+puts "INFO: $tech(process) tech config loaded — track=$tech(track), metal_stack=$tech(metal_stack) (${tech(metal_count)}M), libs=[llength $tech(${_trk},ndm)] NDMs"
