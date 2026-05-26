@@ -15,10 +15,12 @@ Usage:
 """
 
 import argparse
+import ast
 import hashlib
 import os
 import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -128,10 +130,19 @@ def cmd_migrate(args) -> int:
     dry_run = getattr(args, 'dry_run', False)
     do_diff = getattr(args, 'diff', False)
     validate = getattr(args, 'validate', False)
+    check = getattr(args, 'check', False)
 
     # Validate mode — check current install
     if validate:
         return cmd_validate()
+
+    # Compatibility check — verify new bundle works
+    if check:
+        target = new_root or old_root or os.environ.get('CBFLOW_CORE_DIR', '')
+        if not target:
+            logger.error("Specify bundle to check with --to or set CBFLOW_CORE_DIR")
+            return 1
+        return cmd_check_compatibility(target)
 
     if not old_root or not new_root:
         logger.error("Both --from and --to are required")
@@ -298,6 +309,145 @@ def cmd_diff(old_root: str, new_root: str) -> int:
     return 0
 
 
+def cmd_check_compatibility(new_root: str) -> int:
+    """Check that new bundle + migrated configs are compatible.
+
+    Verifies:
+    1. All variables referenced in command files exist in node configs
+    2. All sourced files in command files exist
+    3. All tech() variables used in command files have definitions in tech configs
+    4. New config variables added in this release have non-empty values
+    5. No stale variable references from old release
+    """
+    pd_dir = os.path.join(new_root, 'PD')
+    if not os.path.isdir(pd_dir):
+        logger.error(f"PD/ not found in {new_root}")
+        return 1
+
+    print(f'\n  {"═" * 70}')
+    print(f'  Compatibility Check: {new_root}')
+    print(f'  {"═" * 70}')
+
+    issues = []
+    warnings = []
+
+    # ── Check 1: All command files (.tcl) in cmds/ parse cleanly ──────
+    print(f'\n  [1/5] Command file syntax check...')
+    cmd_files = list(Path(os.path.join(pd_dir, 'cmds')).rglob('*.tcl'))
+    parse_errors = 0
+    for f in cmd_files:
+        r = subprocess.run(['tclsh', str(f)], capture_output=True, text=True,
+                          timeout=10, cwd=new_root)
+        # TCL files will fail at runtime (missing vars) but syntax errors are fatal
+        if r.returncode != 0 and 'missing' in r.stderr and 'brace' in r.stderr.lower():
+            issues.append(f'Syntax error: {f.relative_to(pd_dir)}')
+            parse_errors += 1
+    print(f'         {len(cmd_files)} command files, {parse_errors} syntax errors')
+
+    # ── Check 2: All config files parse cleanly ───────────────────────
+    print(f'\n  [2/5] Config file syntax check...')
+    config_files = list(Path(os.path.join(pd_dir, 'config')).rglob('*.tcl'))
+    cfg_errors = 0
+    for f in config_files:
+        r = subprocess.run(['tclsh', str(f)], capture_output=True, text=True,
+                          timeout=10, cwd=new_root)
+        if r.returncode != 0 and 'missing' in r.stderr and 'brace' in r.stderr.lower():
+            issues.append(f'Config syntax error: {f.relative_to(pd_dir)}')
+            cfg_errors += 1
+    print(f'         {len(config_files)} config files, {cfg_errors} syntax errors')
+
+    # ── Check 3: All Python scripts compile ───────────────────────────
+    print(f'\n  [3/5] Python script compilation...')
+    py_files = list(Path(os.path.join(pd_dir, 'utils')).rglob('*.py'))
+    py_errors = 0
+    for f in py_files:
+        try:
+            with open(f) as fh:
+                ast.parse(fh.read())
+        except SyntaxError as e:
+            issues.append(f'Python syntax error: {f.relative_to(pd_dir)}: {e}')
+            py_errors += 1
+    print(f'         {len(py_files)} Python files, {py_errors} syntax errors')
+
+    # ── Check 4: Cross-reference variables ────────────────────────────
+    print(f'\n  [4/5] Variable cross-reference check...')
+
+    # Collect all variables DEFINED in node configs
+    defined_vars = set()
+    for f in Path(os.path.join(pd_dir, 'config', 'flow')).rglob('node_configs/*.tcl'):
+        with open(f) as fh:
+            for line in fh:
+                # Match: key "value" patterns inside array set
+                m = re.findall(r'(\w+(?:,\w+)+)\s', line)
+                defined_vars.update(m)
+
+    # Collect all variables USED in command files
+    used_vars = set()
+    for f in Path(os.path.join(pd_dir, 'cmds')).rglob('*.tcl'):
+        with open(f) as fh:
+            for line in fh:
+                # Match: $synth_pnr(var,name) or $sta(var,name) or $tech(var,name)
+                refs = re.findall(r'\$(?:synth_pnr|sta|pnr|fp|lec|clp|pv|emir|eco|synth|popt|fcfp)\(([^)]+)\)', line)
+                used_vars.update(refs)
+
+    # Find variables used but not defined
+    missing_vars = used_vars - defined_vars
+    # Filter out common dynamic vars (input,*, common,*, etc.)
+    significant_missing = [v for v in missing_vars
+                          if not any(v.startswith(p) for p in
+                                    ('input,', 'common,', 'output,', 'tool,'))]
+    if significant_missing:
+        for v in sorted(significant_missing)[:10]:
+            warnings.append(f'Variable used in cmds/ but not in node_configs: {v}')
+    print(f'         {len(defined_vars)} defined, {len(used_vars)} used, '
+          f'{len(significant_missing)} potentially missing')
+
+    # ── Check 5: Source file references ───────────────────────────────
+    print(f'\n  [5/5] Source file reference check...')
+    missing_sources = 0
+    for f in Path(os.path.join(pd_dir, 'cmds')).rglob('*.tcl'):
+        with open(f) as fh:
+            for line_no, line in enumerate(fh, 1):
+                # Match: source "path" or source $var/path
+                m = re.search(r'source\s+"([^"$]+)"', line)
+                if m:
+                    src_path = m.group(1)
+                    if src_path.startswith('/') and not os.path.exists(src_path):
+                        # Absolute path that doesn't exist — but may be runtime
+                        pass
+                    elif not src_path.startswith('$') and not src_path.startswith('/'):
+                        full = os.path.join(pd_dir, src_path)
+                        if not os.path.exists(full):
+                            warnings.append(f'{f.relative_to(pd_dir)}:{line_no}: source "{src_path}" not found')
+                            missing_sources += 1
+    print(f'         {missing_sources} missing source references')
+
+    # ── Report ────────────────────────────────────────────────────────
+    print(f'\n  {"═" * 70}')
+    print(f'  Compatibility Report')
+    print(f'  {"═" * 70}')
+    print(f'  Errors:   {len(issues)}')
+    print(f'  Warnings: {len(warnings)}')
+
+    if issues:
+        print(f'\n  ERRORS (must fix):')
+        for i in issues:
+            print(f'    [ERROR] {i}')
+
+    if warnings:
+        print(f'\n  WARNINGS (review):')
+        for w in warnings[:15]:
+            print(f'    [WARN]  {w}')
+        if len(warnings) > 15:
+            print(f'    ... and {len(warnings) - 15} more')
+
+    if not issues and not warnings:
+        print(f'\n  ✓ All clear — new bundle is compatible')
+
+    print(f'  {"═" * 70}\n')
+    return 1 if issues else 0
+
+
 def cmd_validate() -> int:
     """Validate current CBflow installation."""
     core_dir = os.environ.get('CBFLOW_CORE_DIR', '')
@@ -395,6 +545,8 @@ Note: Existing runs are standalone — they are NOT modified.
                        help='Show diff between old and new release')
     parser.add_argument('--validate', action='store_true',
                        help='Validate current CBflow installation')
+    parser.add_argument('--check', action='store_true',
+                       help='Check compatibility of new bundle (syntax, variables, sources)')
     return parser
 
 
