@@ -619,8 +619,7 @@ def _validate_mandatory_inputs(user_config: dict, flow_type: str) -> list:
                     errors.append(f"design '{design_name}' not found in project '{project_name}'. "
                                   f"Available designs: {', '.join(valid_designs)}")
 
-    # Flow-specific mandatory inputs
-    # First check node config for user-defined mandatory_user_inputs, then hardcoded defaults
+    # Flow-specific mandatory inputs — driven entirely by node_config
     mandatory_from_config = _get_mandatory_inputs_from_config(core_dir, ft)
 
     if mandatory_from_config:
@@ -628,51 +627,10 @@ def _validate_mandatory_inputs(user_config: dict, flow_type: str) -> list:
         for var_key in mandatory_from_config:
             if not user_config.get(var_key, ''):
                 errors.append(f"{var_key} is empty — required by {ft} flow config")
-    elif ft == 'SYNTH_PNR':
-        if not user_config.get('synth_pnr(input,rtl_filelist)', ''):
-            errors.append("synth_pnr(input,rtl_filelist) is empty — RTL filelist required")
-        if not user_config.get('synth_pnr(input,sdc_func_file)', ''):
-            errors.append("synth_pnr(input,sdc_func_file) is empty — SDC constraints required")
-        if not user_config.get('synth_pnr(input,upf_file)', ''):
-            errors.append("synth_pnr(input,upf_file) is empty — UPF power intent required for SYNTH_PNR")
-
-    elif ft == 'SYNTH':
-        if not user_config.get('synth(input,rtl_filelist)', ''):
-            errors.append("synth(input,rtl_filelist) is empty — RTL filelist required")
-        if not user_config.get('synth(input,sdc_func_file)', ''):
-            errors.append("synth(input,sdc_func_file) is empty — SDC constraints required")
-
-    elif ft == 'PNR':
-        if not user_config.get('pnr(input,netlist)', ''):
-            errors.append("pnr(input,netlist) is empty — gate-level netlist is required for PnR")
-        if not user_config.get('pnr(input,sdc_func_file)', ''):
-            errors.append("pnr(input,sdc_func_file) is empty — SDC constraints are required")
-
-    elif ft == 'FP':
-        if not user_config.get('fp(input,netlist)', ''):
-            errors.append("fp(input,netlist) is empty — netlist is required for floorplan")
-
-    elif ft == 'FCFP':
-        if not user_config.get('fcfp(input,netlist)', ''):
-            errors.append("fcfp(input,netlist) is empty — netlist is required")
-
-    elif ft == 'ECO':
-        if not user_config.get('eco(eco,type)', ''):
-            errors.append("eco(eco,type) is empty — must be 'timing' or 'functional'")
-
-    elif ft == 'LEC':
-        has_ref = user_config.get('lec(input,rtl_files)', '') or \
-                  user_config.get('lec(input,netlist_golden)', '')
-        if not has_ref:
-            errors.append("No reference design — set lec(input,rtl_files) or lec(input,netlist_golden)")
-        if not user_config.get('lec(input,netlist_revised)', ''):
-            errors.append("lec(input,netlist_revised) is empty — implementation netlist is required")
-
-    elif ft == 'CLP':
-        if not user_config.get('clp(input,reference_netlist)', ''):
-            errors.append("clp(input,reference_netlist) is empty — PG netlist is required")
-        if not user_config.get('clp(input,upf_file)', ''):
-            errors.append("clp(input,upf_file) is empty — UPF is required for low-power verification")
+    else:
+        # If config-driven validation found nothing, warn but don't block
+        logger.warning(f"No mandatory_user_inputs defined in node_config for {ft}")
+        logger.warning(f"Skipping mandatory input validation")
 
     return errors
 

@@ -31,56 +31,32 @@ logger = configure_logging('cbflow.qor_report')
 
 VERSION = "2.0.0"
 
-VALID_MILESTONES = [
-    'FP_EXIT', 'PLACE_EXIT', 'CTS_EXIT', 'PRO_EXIT', 'MTO', 'BTO',
-]
+def _get_valid_milestones():
+    """Scan exit config directory for available milestones."""
+    exit_dir = os.path.join(os.environ.get('CBFLOW_CORE_DIR', ''), 'config', 'exit',
+                           os.environ.get('FLOW_CONFIG_VERSION', 'v1.0.0'))
+    if not os.path.isdir(exit_dir):
+        return []
+    skip = ('waiver_config.tcl', 'threshold_overrides.tcl', 'remediation_config.tcl')
+    return sorted(f.replace('_config.tcl', '') for f in os.listdir(exit_dir)
+                  if f.endswith('_config.tcl') and f not in skip)
 
-MILESTONE_CONFIG_MAP = {
-    'FP_EXIT':    'FP_EXIT_config.tcl',
-    'PLACE_EXIT': 'PLACE_EXIT_config.tcl',
-    'CTS_EXIT':   'CTS_EXIT_config.tcl',
-    'PRO_EXIT':   'PRO_EXIT_config.tcl',
-    'MTO':        'MTO_config.tcl',
-    'BTO':        'BTO_config.tcl',
-}
 
-# Default thresholds per milestone (used when config files are unavailable)
-DEFAULT_THRESHOLDS = {
-    'FP_EXIT': {
-        'utilization_min': 0.60, 'utilization_max': 0.80,
-        'setup_wns': -200, 'pin_accessibility': 0.95,
-    },
-    'PLACE_EXIT': {
-        'setup_wns': -50, 'setup_tns': -500, 'hold_wns': -10,
-        'max_congestion': 0.85, 'utilization_min': 0.70,
-        'utilization_max': 0.85,
-    },
-    'CTS_EXIT': {
-        'setup_wns': -30, 'hold_wns': -10, 'clock_skew': 50,
-        'max_insertion_delay': 500, 'clock_coverage': 99.5,
-    },
-    'PRO_EXIT': {
-        'setup_wns': 0, 'setup_tns': 0, 'hold_wns': 0,
-        'drc_violations': 0, 'max_ir_drop': 30,
-    },
-    'MTO': {
-        'setup_wns': 0, 'hold_wns': 0, 'drc_violations': 0,
-        'lvs_match': 1,
-    },
-    'BTO': {
-        'setup_wns': 0, 'hold_wns': 0, 'drc_violations': 0,
-        'lvs_match': 1,
-    },
-}
-
-# Stage-to-milestone auto-detection mapping
-STAGE_TO_MILESTONE = {
-    'floorplan': 'FP_EXIT', 'fp': 'FP_EXIT',
-    'place': 'PLACE_EXIT', 'placement': 'PLACE_EXIT',
-    'cts': 'CTS_EXIT', 'clock_tree': 'CTS_EXIT',
-    'route': 'PRO_EXIT', 'route_opt': 'PRO_EXIT', 'pro': 'PRO_EXIT',
-    'signoff': 'MTO', 'mto': 'MTO',
-}
+def _get_milestone_stage_mapping():
+    """Read MILESTONE_STAGE_MAPPING from release_config.tcl."""
+    flow_dir = os.environ.get('FLOW_DIR', os.environ.get('CBFLOW_CORE_DIR', ''))
+    version = os.environ.get('FLOW_CONFIG_VERSION', 'v1.0.0')
+    rc_path = os.path.join(flow_dir, 'config', 'flow', version, 'release_config.tcl')
+    mapping = {}
+    if os.path.exists(rc_path):
+        with open(rc_path) as f:
+            content = f.read()
+        # Parse: array set MILESTONE_STAGE_MAPPING { FP_EXIT "init_design" ... }
+        m = re.search(r'array\s+set\s+MILESTONE_STAGE_MAPPING\s+\{([^}]+)\}', content)
+        if m:
+            pairs = re.findall(r'(\w+)\s+"?(\w+)"?', m.group(1))
+            mapping = dict(pairs)
+    return mapping
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -559,9 +535,16 @@ def auto_detect_milestone(run_dir: Path) -> str:
     stage = detect_current_stage(run_dir)
     if stage:
         base = stage.rstrip('0123456789').lower()
-        if base in STAGE_TO_MILESTONE:
-            return STAGE_TO_MILESTONE[base]
-    return 'PRO_EXIT'
+        # Invert mapping: stage_name -> milestone
+        mapping = _get_milestone_stage_mapping()
+        stage_to_milestone = {v.lower(): k for k, v in mapping.items()}
+        if base in stage_to_milestone:
+            return stage_to_milestone[base]
+    # No hardcoded default — return None and let caller handle
+    milestones = _get_valid_milestones()
+    if milestones:
+        return milestones[-1]  # Last milestone alphabetically as best guess
+    return ''
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -573,7 +556,7 @@ def load_thresholds(milestone: str, project: str = '', phase: str = '') -> dict:
 
     Resolution order: phase override > project override > exit config default.
     """
-    thresholds = dict(DEFAULT_THRESHOLDS.get(milestone, {}))
+    thresholds = {}
 
     # Try to load from threshold_overrides.tcl
     override_path = os.path.join(get_exit_config_dir(), 'threshold_overrides.tcl')
@@ -725,7 +708,8 @@ def format_text_report(metrics: QoRMetrics, milestone: str,
     lines.append(f'  {"Overflow Count":<30s} {_fmt_val(metrics.overflow_count):>15s}')
 
     # Clock tree quality (only for CTS/post-CTS milestones)
-    if milestone in ('CTS_EXIT', 'PRO_EXIT', 'MTO', 'BTO') or \
+    valid_milestones = _get_valid_milestones()
+    if milestone in valid_milestones or \
        metrics.clock_skew is not None or metrics.insertion_delay is not None:
         lines.append('')
         lines.append(f'  Clock Tree Quality')
@@ -1380,7 +1364,7 @@ Examples:
     )
     gen_parser.add_argument(
         '--milestone',
-        choices=VALID_MILESTONES,
+        choices=_get_valid_milestones() or None,
         default=None,
         help='Exit milestone to evaluate against (auto-detected if omitted)'
     )

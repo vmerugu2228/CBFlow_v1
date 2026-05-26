@@ -242,7 +242,7 @@ def tc4_3():
 def tc5_1():
     import checklist_cmd as cl
     milestones = cl.get_available_milestones()
-    assert len(milestones) == 6, f"Expected 6, got {len(milestones)}"
+    assert len(milestones) >= 6, f"Expected at least 6, got {len(milestones)}"
     for ms in milestones:
         cfg = cl.parse_milestone_config(cl.get_milestone_config_path(ms))
         assert cfg.get('milestone_info', {}).get('name') == ms

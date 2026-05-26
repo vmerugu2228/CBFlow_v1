@@ -129,10 +129,14 @@ class DagBuilder:
                 self._node_types[stage] = nt
 
         self._tool_info = {
-            'vendor': cfg.get('tool,vendor', 'synopsys'),
-            'name': cfg.get('tool,name', 'fc'),
-            'version': cfg.get('tool,version', 'v1.0.0'),
+            'vendor': cfg.get('tool,vendor', ''),
+            'name': cfg.get('tool,name', ''),
+            'version': cfg.get('tool,version', ''),
         }
+        if not self._tool_info['vendor'] or not self._tool_info['name']:
+            logger.error("tool,vendor and tool,name must be set in config — "
+                         "no defaults. Check flow_config.tcl or user_config.tcl.")
+            raise ValueError("Missing required config: tool,vendor and tool,name")
 
         resource_map = self._parse_resource_map(self._load_node_config(), stages)
 
@@ -156,8 +160,14 @@ class DagBuilder:
                 if node_type:
                     self._custom_node_types[name] = type_base
 
-                # Check if base node type is dynamic (timing/extraction)
-                dynamic_types = {'timing', 'extraction'}
+                # Derive dynamic types from config (stages with subnodes = {dynamic})
+                dynamic_types = set()
+                for k, v in cfg.items():
+                    if k.startswith('subnodes,') and v.strip() == 'dynamic':
+                        # Extract stage base type (e.g., timing1 → timing)
+                        stage_name = k.split(',')[1]
+                        stage_type = cfg.get(f'stages,{stage_name},type', stage_name.rstrip('0123456789'))
+                        dynamic_types.add(stage_type)
                 if type_base in dynamic_types:
                     # Always resolve independently — each node gets its own scenarios
                     subnodes[name] = self._resolve_dynamic_subnodes(name)
@@ -180,10 +190,15 @@ class DagBuilder:
                         else:
                             subnodes[name] = subs
                     else:
-                        # Stage type from config determines subnodes
-                        st = cfg.get(f'stage_types,{name}', '')
-                        if st in ('execution', 'export_data', 'release_data'):
-                            subnodes[name] = ['setup', 'run', 'validate', 'finish']
+                        # Read subnodes from config, fallback to standard pattern
+                        configured_subs = cfg.get(f'subnodes,{name}', '').strip()
+                        if configured_subs and configured_subs != 'dynamic':
+                            subnodes[name] = configured_subs.split()
+                        else:
+                            # Stage type from config determines subnodes
+                            st = cfg.get(f'stage_types,{name}', '')
+                            if st in ('execution', 'export_data', 'release_data'):
+                                subnodes[name] = ['setup', 'run', 'validate', 'finish']
 
                 logger.info(f"Custom node: {name} (type={node_type}, dep={dep}, subs={subnodes.get(name, [])})")
 
@@ -1047,6 +1062,9 @@ class RaceEngine:
         if not self.jobs:
             logger.error(f"Failed to build DAG for {self.flow_type}")
             return False
+
+        # Store resolved config for runtime lookups (e.g., _get_timeout)
+        self._resolved_config = getattr(builder, '_resolved_cfg', {})
 
         # Initialize status DB
         # Path: $project(race,db_path)/$project_name/$domain/$flow_type/$user_$run_name.db
@@ -2046,9 +2064,19 @@ class RaceEngine:
                                 self._collect_upstream(dep, needed)
 
     def _get_timeout(self, job: Job) -> int:
-        """Get timeout in seconds for a job from config."""
-        # Default: 4 hours
-        return 14400
+        """Get timeout in seconds for a job from config.
+
+        Reads runtime,timeout,<stage> from resolved config (value in minutes).
+        Falls back to 14400 seconds (4 hours) if not configured.
+        """
+        timeout_key = f'runtime,timeout,{job.stage}'
+        timeout_val = self._resolved_config.get(timeout_key, '') if hasattr(self, '_resolved_config') else ''
+        if timeout_val:
+            try:
+                return int(timeout_val) * 60  # config is in minutes
+            except ValueError:
+                pass
+        return 14400  # 4 hour default if not in config
 
     def _calc_runtime(self, job: Job) -> float:
         if job.start_time and job.end_time:

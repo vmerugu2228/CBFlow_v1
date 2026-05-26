@@ -18,6 +18,9 @@ from datetime import datetime, date, timedelta
 from logging_config import configure_logging, get_logger
 logger = configure_logging('cbflow.checklist')
 
+# Phase ordering constant — phases are a fixed concept in the design flow
+PHASE_ORDER = {'P0': 0, 'P1': 1, 'P2': 2, 'P3': 3}
+
 
 def get_cbflow_core_dir() -> str:
     """Get CBFlow core directory from environment or determine from script location."""
@@ -470,13 +473,12 @@ def _evaluate_checks(run_dir: str, checks: dict, waivered: set, phase: str = '')
     Phase-aware: checks with min_phase higher than current phase are SKIPPED.
     Supports grep-based evaluation via grep_pattern/grep_pass_if fields.
     """
-    _phase_order = {'P0': 0, 'P1': 1, 'P2': 2, 'P3': 3}
     results = []
     for name, config in checks.items():
         # Phase filtering: skip checks not yet active at current phase
         if phase and config.get('min_phase'):
-            cur = _phase_order.get(phase.upper(), 0)
-            req = _phase_order.get(config['min_phase'].upper(), 0)
+            cur = PHASE_ORDER.get(phase.upper(), 0)
+            req = PHASE_ORDER.get(config['min_phase'].upper(), 0)
             if cur < req:
                 results.append({'name': name, 'status': 'SKIPPED',
                                 'detail': f'Requires phase {config["min_phase"]} (current: {phase})'})
@@ -1273,15 +1275,19 @@ def _detect_flow_type(run_dir: str) -> str:
 
 
 def _detect_milestone_for_flow(flow_type: str) -> str:
-    """Suggest the primary milestone for a flow type."""
-    flow_milestones = {
-        'SYNTH_PNR': 'BTO', 'PNR': 'BTO', 'SYNTH': 'FP_EXIT',
-        'FP': 'FP_EXIT', 'FCFP': 'FP_EXIT',
-        'STA': 'STA_SIGNOFF', 'LEC': 'LEC_SIGNOFF',
-        'CLP': 'CLP_SIGNOFF', 'PV': 'PV_SIGNOFF',
-        'EMIR': 'EMIR_SIGNOFF', 'ECO': 'BTO', 'POPT': 'BTO',
-    }
-    return flow_milestones.get(flow_type, '')
+    """Detect primary milestone for a flow by scanning exit config directory."""
+    # Check for flow-specific signoff config (STA → STA_SIGNOFF, LEC → LEC_SIGNOFF, etc.)
+    signoff_name = f'{flow_type}_SIGNOFF'
+    if os.path.exists(get_milestone_config_path(signoff_name)):
+        return signoff_name
+
+    # For PNR-family flows, BTO is the primary milestone
+    available = get_available_milestones()
+    if 'BTO' in available:
+        return 'BTO'
+
+    # Return first available milestone as fallback
+    return available[0] if available else ''
 
 
 def _detect_project(run_dir: str) -> str:
@@ -1415,7 +1421,6 @@ def cmd_list_checks(args: argparse.Namespace) -> int:
     info = cfg.get('milestone_info', {})
 
     # Build unified check list with IDs
-    _phase_order = {'P0': 0, 'P1': 1, 'P2': 2, 'P3': 3}
     all_checks = []
     id_counters = {}
 
@@ -1456,8 +1461,8 @@ def cmd_list_checks(args: argparse.Namespace) -> int:
 
             # Phase filter: skip if check's min_phase > requested phase
             if phase:
-                cur = _phase_order.get(phase.upper(), 0)
-                req = _phase_order.get(min_phase.upper(), 0)
+                cur = PHASE_ORDER.get(phase.upper(), 0)
+                req = PHASE_ORDER.get(min_phase.upper(), 0)
                 if cur < req:
                     continue
 

@@ -42,6 +42,24 @@ def get_exit_config_dir() -> str:
     return os.path.join(core_dir, 'config', 'exit', version)
 
 
+def _get_milestone_stage_mapping():
+    """Read MILESTONE_STAGE_MAPPING from release_config.tcl."""
+    import re
+    flow_dir = os.environ.get('FLOW_DIR', os.environ.get('CBFLOW_CORE_DIR', ''))
+    version = os.environ.get('FLOW_CONFIG_VERSION', 'v1.0.0')
+    rc_path = os.path.join(flow_dir, 'config', 'flow', version, 'release_config.tcl')
+    mapping = {}
+    if os.path.exists(rc_path):
+        with open(rc_path) as f:
+            content = f.read()
+        # Parse: array set MILESTONE_STAGE_MAPPING { FP_EXIT "init_design" ... }
+        m = re.search(r'array\s+set\s+MILESTONE_STAGE_MAPPING\s+\{([^}]+)\}', content)
+        if m:
+            pairs = re.findall(r'(\w+)\s+"?(\w+)"?', m.group(1))
+            mapping = dict(pairs)
+    return mapping
+
+
 class ValidationRunner:
     """Orchestrates validation across workspace and run stages."""
 
@@ -205,17 +223,12 @@ class ValidationRunner:
 
         Loads the appropriate exit config and checks if criteria are met.
         """
-        # Map stages to exit config files
-        stage_to_exit = {
-            'floorplan': 'FP_EXIT_config.tcl',
-            'fp': 'FP_EXIT_config.tcl',
-            'place': 'PLACE_EXIT_config.tcl',
-            'placement': 'PLACE_EXIT_config.tcl',
-            'cts': 'CTS_EXIT_config.tcl',
-            'route': 'PRO_EXIT_config.tcl',
-            'pro': 'PRO_EXIT_config.tcl',
-            'signoff': 'MTO_config.tcl',
-        }
+        # Dynamically resolve stage->exit from MILESTONE_STAGE_MAPPING in release_config.tcl
+        stage_to_exit = {}
+        mapping = _get_milestone_stage_mapping()
+        # Invert: stage_name -> milestone config file
+        for milestone, stage_name in mapping.items():
+            stage_to_exit[stage_name.lower()] = f'{milestone}_config.tcl'
 
         stage_base = stage.rstrip('0123456789')
         exit_config = stage_to_exit.get(stage_base)

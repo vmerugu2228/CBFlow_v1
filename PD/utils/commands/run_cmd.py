@@ -1541,7 +1541,7 @@ def cmd_update(args: argparse.Namespace) -> int:
     # Regenerate env files
     design = env_vars.get('CBFLOW_DESIGN_NAME', '')
     run_name = env_vars.get('CBFLOW_RUN_NAME', '')
-    phase = env_vars.get('CBFLOW_PROJECT_PHASE', 'P0')
+    phase = env_vars.get('CBFLOW_PROJECT_PHASE', '')
 
     _generate_run_tcl_env(os.getcwd(), env_vars, flow_type, design, run_name, phase)
     _generate_run_shell_env(os.getcwd(), env_vars, flow_type, design, run_name, phase)
@@ -1649,9 +1649,7 @@ def cmd_release(args: argparse.Namespace) -> int:
     flow_dir = env_vars.get('FLOW_DIR', '')
     project_name = env_vars.get('CBFLOW_PROJECT_NAME', env_vars.get('PROJECT_NAME', ''))
     design_name = env_vars.get('CBFLOW_DESIGN_NAME', '')
-    phase = env_vars.get('CBFLOW_PROJECT_PHASE', 'P0')
-    if not phase:
-        phase = 'P0'
+    phase = env_vars.get('CBFLOW_PROJECT_PHASE', '')
 
     # Load release_config for predefined tags
     release_tags = {}
@@ -2136,6 +2134,22 @@ def cmd_targets(args: argparse.Namespace) -> int:
     return 0
 
 
+def _load_tool_shell_map(env_vars: dict) -> dict:
+    """Load tool→shell mapping from tool_launch_config.tcl."""
+    import re
+    flow_dir = env_vars.get('FLOW_DIR', os.environ.get('FLOW_DIR', ''))
+    version = env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0')
+    config_path = os.path.join(flow_dir, 'config', 'flow', version, 'tool_launch_config.tcl')
+    shell_map = {}
+    if os.path.exists(config_path):
+        with open(config_path) as f:
+            for line in f:
+                m = re.match(r'set\s+tool_shell\((\w+)\)\s+"([^"]+)"', line.strip())
+                if m:
+                    shell_map[m.group(1)] = m.group(2)
+    return shell_map
+
+
 def cmd_interactive(args: argparse.Namespace) -> int:
     """Launch interactive EDA tool session in xterm."""
     if not is_run_directory():
@@ -2160,19 +2174,18 @@ def cmd_interactive(args: argparse.Namespace) -> int:
     try:
         from tcl_config_parser import get_tool_info
         tool_info = get_tool_info(flow_type)
-        vendor = tool_info.get('vendor', 'synopsys')
-        tool_name = tool_info.get('name', 'fc')
+        vendor = tool_info.get('vendor', '')
+        tool_name = tool_info.get('name', '')
     except Exception:
-        vendor = vendor or 'synopsys'
-        tool_name = tool_name or 'fc'
+        pass
+    if not vendor or not tool_name:
+        logger.error("Tool vendor/name not configured. Check node_config.")
+        return 1
 
-    # Resolve tool shell from tool_launch_config
-    tool_shell_map = {
-        'fc': 'fc_shell', 'pt': 'pt_shell', 'fm': 'fm_shell',
-        'genus': 'genus', 'innovus': 'innovus', 'tempus': 'tempus',
-        'icv': 'icv', 'vc_lp': 'vc_lp_shell', 'redhawk': 'redhawk',
-        'voltus': 'voltus', 'calibre': 'calibre',
-    }
+    # Resolve tool shell from tool_launch_config.tcl (single source of truth)
+    tool_shell_map = _load_tool_shell_map(env_vars)
+    if not tool_shell_map:
+        logger.warning("Could not load tool_launch_config.tcl; using tool_name as shell command")
     tool_shell = tool_shell_map.get(tool_name, tool_name)
 
     # Module load — read from flow_config (single source of truth)

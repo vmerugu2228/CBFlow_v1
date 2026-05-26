@@ -642,13 +642,14 @@ class RaceDashboard:
         configs = {}
         # Read tool_launch_config for LSF mappings
         flow_dir = self.flow_dir
+        flow_ver = self._load_env().get('FLOW_CONFIG_VERSION', 'v1.0.0')
 
         # Read queue tiers from lsf_config.tcl (single source of truth)
         # and stage mappings from tool_launch_config.tcl
         queue_map = {}
         queue_resources = {}
 
-        lsf_path = os.path.join(flow_dir, 'config', 'flow', 'v1.0.0', 'lsf_config.tcl')
+        lsf_path = os.path.join(flow_dir, 'config', 'flow', flow_ver, 'lsf_config.tcl')
         if os.path.exists(lsf_path):
             with open(lsf_path) as f:
                 lsf_content = f.read()
@@ -656,7 +657,7 @@ class RaceDashboard:
             for m in re.finditer(r'queue_types,(\w+),(\w+)\s+"([^"]+)"', lsf_content):
                 queue_resources.setdefault(m.group(1), {})[m.group(2)] = m.group(3)
 
-        tlc_path = os.path.join(flow_dir, 'config', 'flow', 'v1.0.0', 'tool_launch_config.tcl')
+        tlc_path = os.path.join(flow_dir, 'config', 'flow', flow_ver, 'tool_launch_config.tcl')
         if os.path.exists(tlc_path):
             with open(tlc_path) as f:
                 tlc = f.read()
@@ -686,7 +687,7 @@ class RaceDashboard:
                 'lsf_cpu': resources.get('cpu', '8'),
                 'lsf_runtime': resources.get('runtime_limit', '4:00'),
                 'timeout': '60',
-                'tool_version': 'v1.0.0',
+                'tool_version': flow_ver,
             }
 
             # Check for overrides (type-level then node-level, node wins)
@@ -704,7 +705,6 @@ class RaceDashboard:
                                 if m: configs[stage]['lsf_cpu'] = m.group(1)
 
         # Read timeouts from node_config
-        flow_ver = 'v1.0.0'
         nc_path = os.path.join(flow_dir, 'config', 'flow', flow_ver,
                                 'node_configs', f'{self.flow_type}_config.tcl')
         if os.path.exists(nc_path):
@@ -717,7 +717,7 @@ class RaceDashboard:
 
         # Read tool module versions from flow_config (single source of truth)
         tool_modules = {}
-        fc_path = os.path.join(flow_dir, 'config', 'flow', 'v1.0.0', 'flow_config.tcl')
+        fc_path = os.path.join(flow_dir, 'config', 'flow', flow_ver, 'flow_config.tcl')
         if os.path.exists(fc_path):
             with open(fc_path) as f:
                 for line in f:
