@@ -1,7 +1,7 @@
 #!/usr/bin/env tclsh
 # ═══════════════════════════════════════════════════════════════════════════════
 # CBFlow - Setup Hooks for SYNTH_PNR export_data1 (export_data1_default)
-# Generated: Thu May 21 09:50:16 IST 2026
+# Generated: Tue May 26 12:09:28 IST 2026
 # Description: flow_proc hooks only (NO configuration variables)
 # ═══════════════════════════════════════════════════════════════════════════════
 

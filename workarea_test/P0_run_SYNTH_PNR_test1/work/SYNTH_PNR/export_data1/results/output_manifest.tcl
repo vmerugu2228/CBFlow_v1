@@ -1,5 +1,5 @@
 # Output Manifest — SYNTH_PNR export_data1
-# Generated: Thu May 21 09:50:30 IST 2026
+# Generated: Tue May 26 12:09:31 IST 2026
 # Design: cpu_core
 
 set manifest(netlist,logic) "/Users/vmerugu/projects/CBflow_clone/workarea_test/P0_run_SYNTH_PNR_test1/outputs/cpu_core.v"
@@ -11,7 +11,7 @@ set manifest(netlist,dc) "/Users/vmerugu/projects/CBflow_clone/workarea_test/P0_
 set manifest(gds) "/Users/vmerugu/projects/CBflow_clone/workarea_test/P0_run_SYNTH_PNR_test1/outputs/cpu_core.gds"
 set manifest(def) "/Users/vmerugu/projects/CBflow_clone/workarea_test/P0_run_SYNTH_PNR_test1/outputs/cpu_core.def"
 set manifest(lef) "/Users/vmerugu/projects/CBflow_clone/workarea_test/P0_run_SYNTH_PNR_test1/outputs/cpu_core.lef"
-set manifest(sdc) "/Users/vmerugu/projects/CBflow_clone/workarea_test/P0_run_SYNTH_PNR_test1/outputs/cpu_core_func_tt_0p80v_rctyp_25c.sdc"
+set manifest(sdc) "/Users/vmerugu/projects/CBflow_clone/workarea_test/P0_run_SYNTH_PNR_test1/outputs/cpu_core_func.sdc"
 set manifest(upf) "/Users/vmerugu/projects/CBflow_clone/workarea_test/P0_run_SYNTH_PNR_test1/outputs/cpu_core.upf"
 set manifest(spef) "/Users/vmerugu/projects/CBflow_clone/workarea_test/P0_run_SYNTH_PNR_test1/outputs/cpu_core.spef"
 set manifest(wscript) "/Users/vmerugu/projects/CBflow_clone/workarea_test/P0_run_SYNTH_PNR_test1/outputs/cpu_core_wscript"
@@ -25,9 +25,5 @@ set manifest(flow) "SYNTH_PNR"
 set manifest(node) "export_data1"
 set manifest(design) "cpu_core"
 set manifest(run_dir) "/Users/vmerugu/projects/CBflow_clone/workarea_test/P0_run_SYNTH_PNR_test1"
-set manifest(timestamp) "Thu May 21 09:50:30 IST 2026"
+set manifest(timestamp) "Tue May 26 12:09:31 IST 2026"
 set manifest(file_count) 18
-
-# Per-mode SDC files
-set manifest(sdc,func) "/Users/vmerugu/projects/CBflow_clone/workarea_test/P0_run_SYNTH_PNR_test1/outputs/cpu_core_func.sdc"
-set manifest(sdc,test) "/Users/vmerugu/projects/CBflow_clone/workarea_test/P0_run_SYNTH_PNR_test1/outputs/cpu_core_test.sdc"
