@@ -54,8 +54,14 @@ proc place_pins_on_side {args} {
         if {$pitch_override ne ""} {
             lappend pitches $pitch_override
         } else {
-            set p [get_attribute [get_layers $l] pitch]
-            if {$p eq "" || $p <= 0} { set p 0.080 }
+            set _lobj [get_layers $l -quiet]
+            if {$_lobj eq "" || [sizeof_collection $_lobj] == 0} {
+                error "Layer '$l' not found in technology"
+            }
+            set p [get_attribute $_lobj pitch]
+            if {$p eq "" || $p <= 0} {
+                error "Cannot read pitch for layer '$l' from technology"
+            }
             lappend pitches $p
         }
     }
