@@ -1203,94 +1203,303 @@ def cmd_remove_check(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_list_checks(args: argparse.Namespace) -> int:
-    """List all checks in a milestone with details."""
-    milestone = args.milestone
-    config_path = get_milestone_config_path(milestone)
+def _check_id_prefix(category: str) -> str:
+    """Map category to check ID prefix."""
+    prefixes = {
+        'timing': 'TMG', 'timing_checks': 'TMG',
+        'placement': 'PLC', 'placement_checks': 'PLC',
+        'clock': 'CLK', 'clock_checks': 'CLK',
+        'power': 'PWR', 'power_checks': 'PWR',
+        'routing': 'RTG', 'routing_checks': 'RTG',
+        'physical': 'PHY', 'physical_checks': 'PHY',
+        'si': 'SI', 'si_checks': 'SI',
+        'manufacturing': 'MFG', 'manufacturing_checks': 'MFG',
+        'sta_flow': 'STA', 'sta_flow_checks': 'STA',
+        'lec_flow': 'LEC', 'lec_flow_checks': 'LEC',
+        'clp_flow': 'CLP', 'clp_flow_checks': 'CLP',
+        'pv_flow': 'PV', 'pv_flow_checks': 'PV',
+        'emir_flow': 'EMIR', 'emir_flow_checks': 'EMIR',
+        'eco_flow': 'ECO', 'eco_flow_checks': 'ECO',
+    }
+    return prefixes.get(category, category[:3].upper())
 
+
+def _color(text: str, color: str) -> str:
+    """Apply ANSI color to text. Returns plain text if not a TTY."""
+    if not sys.stdout.isatty():
+        return text
+    codes = {
+        'red': '\033[91m', 'green': '\033[92m', 'yellow': '\033[93m',
+        'cyan': '\033[96m', 'bold': '\033[1m', 'dim': '\033[2m',
+        'reset': '\033[0m',
+    }
+    return f'{codes.get(color, "")}{text}{codes["reset"]}'
+
+
+def _status_color(status: str) -> str:
+    """Color a status string: PASS=green, FAIL=red, SKIP=dim, etc."""
+    if status == 'PASS':
+        return _color('PASS', 'green')
+    elif status == 'FAIL':
+        return _color('FAIL', 'red')
+    elif status == 'SKIPPED':
+        return _color('SKIP', 'dim')
+    elif status == 'WAIVED':
+        return _color('WAIV', 'yellow')
+    return status[:4]
+
+
+def cmd_list_checks(args: argparse.Namespace) -> int:
+    """List all checks in a milestone in tabular format with check IDs."""
+    milestone = args.milestone
+    phase = getattr(args, 'phase', '') or ''
+    output_file = getattr(args, 'output', '') or ''
+    summary_mode = getattr(args, 'summary', False)
+    run_dir = getattr(args, 'run_dir', '') or ''
+
+    config_path = get_milestone_config_path(milestone)
     if not os.path.exists(config_path):
         logger.error(f"Milestone config not found: {config_path}")
+        logger.error(f"Available: {', '.join(get_available_milestones())}")
         return 1
 
     cfg = parse_milestone_config(config_path)
     info = cfg.get('milestone_info', {})
 
-    print(f'\n{"=" * 72}')
-    print(f'  {milestone} — {info.get("description", "")}')
-    print(f'  Stage: {info.get("stage", "")}')
-    print(f'{"=" * 72}')
+    # Build unified check list with IDs
+    _phase_order = {'P0': 0, 'P1': 1, 'P2': 2, 'P3': 3}
+    all_checks = []
+    id_counters = {}
 
-    # Mandatory checks
-    mand = cfg.get('mandatory_checks', {})
-    print(f'\n  MANDATORY CHECKS ({len(mand)}):')
-    print(f'  {"─" * 68}')
-    for i, (name, fields) in enumerate(mand.items(), 1):
-        print(f'  {i:2d}. {name}')
-        print(f'      Description: {fields.get("description", "")}')
-        if fields.get('script'):
-            print(f'      Script:      {fields["script"]}')
-        if fields.get('criteria'):
-            print(f'      Criteria:    {fields["criteria"]}')
-        if fields.get('grep_file'):
-            print(f'      Grep file:   {fields["grep_file"]}')
-            print(f'      Grep pattern:{fields.get("grep_pattern", "")}')
-            print(f'      Pass if:     {fields.get("grep_pass_if", "found")}')
+    def _add_checks(checks_dict, check_type):
+        for name, fields in checks_dict.items():
+            cat = fields.get('source', fields.get('category', ''))
+            if not cat or cat in ('mandatory', 'optional'):
+                # Inline checks: derive prefix from check name or script
+                script = fields.get('script', '')
+                if 'timing' in name or 'timing' in script or 'qor' in name:
+                    cat = 'timing'
+                elif 'utilization' in name or 'density' in name:
+                    cat = 'placement'
+                elif 'clock' in name or 'cts' in name:
+                    cat = 'clock'
+                elif 'power' in name or 'ir_drop' in name:
+                    cat = 'power'
+                elif 'routing' in name or 'route' in name or 'drc' in name:
+                    cat = 'routing'
+                elif 'congestion' in name:
+                    cat = 'routing'
+                elif 'legality' in name or 'physical' in name:
+                    cat = 'physical'
+                elif name.startswith('si_') or 'signal_integrity' in name:
+                    cat = 'si'
+                else:
+                    cat = 'CHK'
+            prefix = _check_id_prefix(cat)
+            id_counters.setdefault(prefix, 0)
+            id_counters[prefix] += 1
+            check_id = f'{prefix}-{id_counters[prefix]:03d}'
 
-    # Optional checks
-    opt = cfg.get('optional_checks', {})
-    print(f'\n  OPTIONAL CHECKS ({len(opt)}):')
-    print(f'  {"─" * 68}')
-    for i, (name, fields) in enumerate(opt.items(), 1):
-        print(f'  {i:2d}. {name}')
-        print(f'      Description: {fields.get("description", "")}')
-        if fields.get('script'):
-            print(f'      Script:      {fields["script"]}')
-        if fields.get('criteria'):
-            print(f'      Criteria:    {fields["criteria"]}')
+            min_phase = fields.get('min_phase', 'P0')
+            script = fields.get('script', fields.get('grep_pattern', ''))
+            severity = fields.get('severity', '-')
 
-    # Library checks (from check packs)
-    lib = cfg.get('library_checks', {})
-    if lib:
-        # Group by category
-        by_cat = {}
-        for name, fields in lib.items():
-            cat = fields.get('source', fields.get('category', 'unknown'))
-            by_cat.setdefault(cat, []).append((name, fields))
+            # Phase filter: skip if check's min_phase > requested phase
+            if phase:
+                cur = _phase_order.get(phase.upper(), 0)
+                req = _phase_order.get(min_phase.upper(), 0)
+                if cur < req:
+                    continue
 
-        print(f'\n  LIBRARY CHECKS ({len(lib)} from {len(by_cat)} categories):')
-        print(f'  {"─" * 68}')
-        for cat in sorted(by_cat.keys()):
-            checks = by_cat[cat]
-            print(f'    [{cat}] ({len(checks)} checks)')
-            for name, fields in checks:
-                sev = fields.get('severity', '')
-                phase = fields.get('min_phase', '')
-                print(f'      {name:<35} {sev:<10} {phase}')
+            # Evaluate status if run_dir provided
+            status = '-'
+            if run_dir:
+                report = _find_check_report(run_dir, name, check_config=fields)
+                if report:
+                    if fields.get('grep_pattern'):
+                        try:
+                            with open(report) as f:
+                                content = f.read()
+                            found = bool(re.search(fields['grep_pattern'], content))
+                            pass_if = fields.get('grep_pass_if', 'found')
+                            status = 'PASS' if (pass_if == 'found' and found) or (pass_if == 'not_found' and not found) else 'FAIL'
+                        except Exception:
+                            status = 'FAIL'
+                    else:
+                        status = _evaluate_report(report)
+                else:
+                    status = 'PENDING'
 
-    # Check packs
-    packs = cfg.get('check_packs', {})
-    if packs:
-        print(f'\n  CHECK PACKS ({len(packs)} categories):')
-        print(f'  {"─" * 68}')
-        for cat, phase in sorted(packs.items()):
-            print(f'    {cat:<20} active from {phase}')
+            all_checks.append({
+                'id': check_id, 'name': name, 'type': check_type,
+                'description': fields.get('description', ''),
+                'script': script[:30] if script else '-',
+                'phase': min_phase, 'severity': severity,
+                'status': status,
+            })
+
+    _add_checks(cfg.get('mandatory_checks', {}), 'mandatory')
+    _add_checks(cfg.get('optional_checks', {}), 'optional')
+    _add_checks(cfg.get('library_checks', {}), 'library')
+
+    # ── Summary mode ──────────────────────────────────────────────────
+    if summary_mode:
+        lines = _format_summary(milestone, info, all_checks, phase, cfg)
+        output = '\n'.join(lines)
+        if output_file:
+            with open(output_file, 'w') as f:
+                f.write(output + '\n')
+            print(f'  Summary written to: {output_file}')
+        else:
+            print(output)
+        return 0
+
+    # ── Full tabular output ───────────────────────────────────────────
+    lines = []
+    sep = '═' * 120
+    thin = '─' * 120
+
+    phase_label = f' (Phase: {phase})' if phase else ''
+    lines.append(f'\n{sep}')
+    lines.append(f'  {milestone} — {info.get("description", "")}{phase_label}')
+    lines.append(f'  Stage: {info.get("stage", "")}  |  Node: {info.get("stage_node", "")}  |  Checks: {len(all_checks)}')
+    lines.append(sep)
+
+    # Table header
+    has_status = run_dir != ''
+    if has_status:
+        hdr = f'  {"ID":<10} {"Status":<6} {"Type":<10} {"Phase":<6} {"Severity":<10} {"Check Name":<32} {"Description":<40}'
+        lines.append(hdr)
+        lines.append(f'  {thin}')
+        for c in all_checks:
+            st = _status_color(c['status'])
+            lines.append(
+                f'  {c["id"]:<10} {st:<15} {c["type"]:<10} {c["phase"]:<6} {c["severity"]:<10} '
+                f'{c["name"]:<32} {c["description"][:40]}'
+            )
+    else:
+        hdr = f'  {"ID":<10} {"Type":<10} {"Phase":<6} {"Severity":<10} {"Check Name":<32} {"Script/Pattern":<30}'
+        lines.append(hdr)
+        lines.append(f'  {thin}')
+        for c in all_checks:
+            lines.append(
+                f'  {c["id"]:<10} {c["type"]:<10} {c["phase"]:<6} {c["severity"]:<10} '
+                f'{c["name"]:<32} {c["script"]:<30}'
+            )
 
     # Mandatory files
     files = cfg.get('mandatory_files', [])
-    print(f'\n  MANDATORY FILES ({len(files)}):')
-    print(f'  {"─" * 68}')
-    for i, fp in enumerate(files, 1):
-        print(f'  {i:2d}. {fp}')
+    if files:
+        lines.append(f'\n  MANDATORY FILES ({len(files)}):')
+        lines.append(f'  {"─" * 68}')
+        for i, fp in enumerate(files, 1):
+            lines.append(f'  {i:2d}. {fp}')
 
-    # Deliverables
-    delivs = cfg.get('deliverables', {})
-    print(f'\n  DELIVERABLES ({len(delivs)}):')
-    print(f'  {"─" * 68}')
-    for i, (name, fields) in enumerate(delivs.items(), 1):
-        print(f'  {i:2d}. {name}: {fields.get("source", "")} → {fields.get("target", "")}')
+    lines.append(f'\n{sep}\n')
 
-    print(f'\n{"=" * 72}\n')
+    output = '\n'.join(lines)
+    if output_file:
+        # Strip ANSI colors for file output
+        clean = re.sub(r'\033\[[0-9;]*m', '', output)
+        with open(output_file, 'w') as f:
+            f.write(clean + '\n')
+        print(f'  Checklist written to: {output_file}')
+    else:
+        print(output)
+
     return 0
+
+
+def _format_summary(milestone: str, info: dict, checks: list, phase: str, cfg: dict) -> list:
+    """Format a compact summary of check counts by type, severity, and category."""
+    L = []
+    sep = '═' * 80
+    thin = '─' * 80
+
+    phase_label = f' (Phase: {phase})' if phase else ''
+    L.append(f'\n{sep}')
+    L.append(f'  {milestone} — SUMMARY{phase_label}')
+    L.append(f'  {info.get("description", "")}')
+    L.append(sep)
+
+    # By type
+    types = {}
+    for c in checks:
+        types.setdefault(c['type'], []).append(c)
+    L.append(f'\n  BY TYPE:')
+    L.append(f'  {"Type":<12} {"Count":>6}  {"PASS":>6} {"FAIL":>6} {"PEND":>6} {"SKIP":>6}')
+    L.append(f'  {thin}')
+    for t in ['mandatory', 'optional', 'library']:
+        if t not in types:
+            continue
+        tc = types[t]
+        p = sum(1 for c in tc if c['status'] == 'PASS')
+        f = sum(1 for c in tc if c['status'] == 'FAIL')
+        pn = sum(1 for c in tc if c['status'] == 'PENDING')
+        sk = sum(1 for c in tc if c['status'] == 'SKIPPED')
+        L.append(f'  {t:<12} {len(tc):>6}  {p:>6} {f:>6} {pn:>6} {sk:>6}')
+
+    total = len(checks)
+    tp = sum(1 for c in checks if c['status'] == 'PASS')
+    tf = sum(1 for c in checks if c['status'] == 'FAIL')
+    tpn = sum(1 for c in checks if c['status'] == 'PENDING')
+    tsk = sum(1 for c in checks if c['status'] == 'SKIPPED')
+    L.append(f'  {"TOTAL":<12} {total:>6}  {tp:>6} {tf:>6} {tpn:>6} {tsk:>6}')
+
+    # By severity
+    sevs = {}
+    for c in checks:
+        sevs.setdefault(c['severity'], []).append(c)
+    L.append(f'\n  BY SEVERITY:')
+    L.append(f'  {"Severity":<12} {"Count":>6}  {"PASS":>6} {"FAIL":>6}')
+    L.append(f'  {thin}')
+    for s in ['critical', 'major', 'minor', '-']:
+        if s not in sevs:
+            continue
+        sc = sevs[s]
+        p = sum(1 for c in sc if c['status'] == 'PASS')
+        f = sum(1 for c in sc if c['status'] == 'FAIL')
+        L.append(f'  {s:<12} {len(sc):>6}  {p:>6} {f:>6}')
+
+    # By category
+    cats = {}
+    for c in checks:
+        prefix = c['id'].split('-')[0]
+        cats.setdefault(prefix, []).append(c)
+    L.append(f'\n  BY CATEGORY:')
+    L.append(f'  {"Category":<12} {"Count":>6}  {"PASS":>6} {"FAIL":>6}')
+    L.append(f'  {thin}')
+    for cat in sorted(cats.keys()):
+        cc = cats[cat]
+        p = sum(1 for c in cc if c['status'] == 'PASS')
+        f = sum(1 for c in cc if c['status'] == 'FAIL')
+        L.append(f'  {cat:<12} {len(cc):>6}  {p:>6} {f:>6}')
+
+    # By phase
+    phases = {}
+    for c in checks:
+        phases.setdefault(c['phase'], []).append(c)
+    L.append(f'\n  BY PHASE:')
+    L.append(f'  {"Phase":<12} {"Count":>6}')
+    L.append(f'  {thin}')
+    for p in ['P0', 'P1', 'P2', 'P3']:
+        if p in phases:
+            L.append(f'  {p:<12} {len(phases[p]):>6}')
+
+    # Files
+    files = cfg.get('mandatory_files', [])
+    L.append(f'\n  MANDATORY FILES: {len(files)}')
+
+    # Failed checks (if any evaluated)
+    failed = [c for c in checks if c['status'] == 'FAIL']
+    if failed:
+        L.append(f'\n  {_color(f"FAILED CHECKS ({len(failed)}):", "red")}')
+        L.append(f'  {thin}')
+        for c in failed:
+            L.append(f'  {_color(c["id"], "red")}  {c["name"]}  ({c["severity"]})')
+
+    L.append(f'\n{sep}\n')
+    return L
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -1337,8 +1546,19 @@ Examples:
     # list-checks
     lc = sub.add_parser('list-checks', help='List all checks in a milestone',
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        description='Show all mandatory/optional checks, files, and deliverables for a milestone.')
-    lc.add_argument('--milestone', required=True, help='Milestone name (e.g., FP_EXIT, BTO)')
+        description="""List checks in tabular format with check IDs, severity, phase, and status.
+
+Examples:
+  cbflow flow checklist list-checks --milestone FP_EXIT
+  cbflow flow checklist list-checks --milestone PRO_EXIT --phase P2
+  cbflow flow checklist list-checks --milestone BTO --phase P3 --run-dir . --summary
+  cbflow flow checklist list-checks --milestone BTO --output checks_BTO.txt
+""")
+    lc.add_argument('--milestone', required=True, help='Milestone name (e.g., FP_EXIT, BTO, STA_SIGNOFF)')
+    lc.add_argument('--phase', default='', help='Filter checks active at this phase (P0/P1/P2/P3)')
+    lc.add_argument('--run-dir', dest='run_dir', default='', help='Run directory to evaluate PASS/FAIL status')
+    lc.add_argument('--output', '-o', default='', help='Write output to file (no ANSI colors)')
+    lc.add_argument('--summary', '-s', action='store_true', help='Show compact summary (counts by type/severity/category)')
 
     # add-check
     _fmt = argparse.RawDescriptionHelpFormatter
