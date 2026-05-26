@@ -1,25 +1,67 @@
 #!/usr/bin/env tclsh
 # ═══════════════════════════════════════════════════════════════════════════════
 # IO Pin Placement — Generates set_individual_pin_constraints
+# Standalone script for Fusion Compiler (fc_shell / Innovus)
+# Reads layer pitch from tool's loaded technology. No CBflow dependency.
 #
-# Usage:
+# ═══════════════════════════════════════════════════════════════════════════════
+# USAGE:
 #   source place_io_pins.tcl
+#   place_pins -ports <sel> -side <side> -start <um> -layers <list> [options]
 #
-#   # All ports
+# ARGUMENTS:
+#   -ports <sel>       Port selection:
+#                        *           All design ports
+#                        "data*"     Glob pattern (data_in*, addr*, clk*)
+#                        {clk rst}   Explicit list (buses auto-expand: addr → addr[0..N])
+#   -side <side>       Placement side: left | right | top | bottom
+#   -start <um>        Starting offset from corner in microns
+#   -layers <list>     Metal layers: {M4} or {M4 M6} (pins alternate layers)
+#   -pitch <um>        Override track pitch (default: read from technology)
+#   -pattern <bits>    Track usage pattern: 1=place, 0=skip (repeats)
+#                        "11101110" = 3 pins, skip 1 track, repeat
+#                        "10"       = every other track
+#                        "1"        = every track (default)
+#   -out <file>        Write constraints to TCL file instead of executing
+#
+# SIDE REFERENCE:
+#                ┌──────── top ────────┐
+#   start→      │                     │      ←start
+#   offset      left                right     offset
+#   bottom→up   │                     │      bottom→up
+#                └────── bottom ───────┘
+#                         start→ offset left→right
+#
+# EXAMPLES:
+#
+#   # All ports on left side, single layer
 #   place_pins -ports * -side left -start 10.0 -layers {M4}
 #
-#   # Pattern match
+#   # Bus ports on left, two layers (alternates M4/M6, each on track)
 #   place_pins -ports "data_in*" -side left -start 10.0 -layers {M4 M6}
 #
-#   # Specific ports
-#   place_pins -ports {clk reset_n} -side bottom -start 30.0 -layers {M5}
+#   # Specific scalar ports on bottom
+#   place_pins -ports {clk reset_n scan_en} -side bottom -start 30.0 -layers {M5}
 #
-#   # Track pattern: 1=place, 0=skip (repeats)
-#   # 11101110 = place 3 pins, skip 1 track, place 3 pins, skip 1 track, ...
-#   place_pins -ports "data*" -side left -start 10.0 -layers {M4} -pattern 11101110
+#   # Track pattern: place 3 pins, skip 1 track, repeat
+#   place_pins -ports "data_out*" -side right -start 10.0 -layers {M4} -pattern 11101110
 #
-#   # Write to file instead of executing
-#   place_pins -ports * -side left -start 10.0 -layers {M4} -out pins.tcl
+#   # Every other track
+#   place_pins -ports "addr*" -side left -start 50.0 -layers {M4} -pattern 10
+#
+#   # Custom pitch override (ignore technology pitch)
+#   place_pins -ports * -side left -start 5.0 -layers {M4} -pitch 3.0
+#
+#   # Write to file, source later
+#   place_pins -ports * -side right -start 5.0 -layers {M4 M6} -out pin_constraints.tcl
+#   source pin_constraints.tcl
+#
+# NOTES:
+#   - Pins are snapped to the metal track (pitch from technology)
+#   - Multiple layers: pin0→layer0, pin1→layer1, pin2→layer0, ...
+#   - Bus ports (name[N]) are auto-sorted by bit index
+#   - No legalizer called — just sets constraints
+#   - Errors out if layer not found or pitch unreadable (no fallbacks)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 proc place_pins {args} {
