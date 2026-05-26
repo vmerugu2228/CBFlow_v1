@@ -314,12 +314,45 @@ def get_flow_stages_with_suffix(flow_type: str, suffix: str = "1") -> List[str]:
 def get_tool_info(flow_type: str) -> Dict[str, str]:
     """Get tool configuration for a flow type.
 
-    Returns: {'vendor': 'cadence', 'name': 'innovus', 'version': 'v1.0.0', 'args': '-batch -no_gui'}
+    Reads from the tool-specific config (e.g., SYNTH_PNR_fc_config.tcl)
+    which has tool,vendor/name/version. Falls back to common config.
+
+    Returns: {'vendor': 'synopsys', 'name': 'fc', 'version': 'v1.0.0', 'args': '-batch -no_gui'}
     """
     node_config = _load_node_config(flow_type)
+
+    # tool,vendor/name may be in the tool-specific config, not the common config
+    vendor = _parse_tcl_string(node_config.get('tool,vendor', ''))
+    name = _parse_tcl_string(node_config.get('tool,name', ''))
+
+    if not vendor or not name:
+        # Load tool-specific config: <FLOW>_<default_tool>_config.tcl
+        default_tool = _parse_tcl_string(node_config.get('default_tool', ''))
+        if default_tool:
+            config_root = _get_config_root()
+            version = _get_flow_config_version()
+            if config_root:
+                tool_config_path = os.path.join(
+                    config_root, 'config', 'flow', version,
+                    'node_configs', f'{flow_type}_{default_tool}_config.tcl'
+                )
+                if os.path.isfile(tool_config_path):
+                    with open(tool_config_path, 'r') as f:
+                        for line in f:
+                            line = line.strip()
+                            if not line or line.startswith('#'):
+                                continue
+                            m = re.match(r'["\s]*(tool,\w+)["\s]+["\s]*([^"}\s]+)', line)
+                            if m:
+                                key, val = m.group(1), m.group(2)
+                                if key == 'tool,vendor' and not vendor:
+                                    vendor = val
+                                elif key == 'tool,name' and not name:
+                                    name = val
+
     return {
-        'vendor': _parse_tcl_string(node_config.get('tool,vendor', '')),
-        'name': _parse_tcl_string(node_config.get('tool,name', '')),
+        'vendor': vendor,
+        'name': name or _parse_tcl_string(node_config.get('default_tool', '')),
         'version': _parse_tcl_string(node_config.get('tool,version', '')),
         'args': _parse_tcl_string(node_config.get('tool,args', '')),
     }
