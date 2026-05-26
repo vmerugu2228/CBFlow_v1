@@ -2,34 +2,27 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # CBflow — IO Pin Placement Script for Fusion Compiler
 #
-# Auto-detects port groups from design netlist by naming convention.
-# User only specifies: group name, side, starting point.
-# Buses (name[N]) are auto-detected and placed in bit order.
+# Places ALL design ports on a specified side, starting from a given offset.
+# Pins are placed ON TRACK using the metal pitch from tech config.
+# Supports multiple layers — pins alternate across layers.
 #
 # Usage:
 #   source place_io_pins.tcl
 #
-#   # Place a bus — auto-detects data_in[0] through data_in[15]
-#   place_pin_group "data_in" -side left -start 10.0
+#   # Place all ports on the left side starting at 10um, on M4
+#   place_pins_on_side -side left -start 10.0 -layers {M4}
 #
-#   # Place with custom layer and pitch
-#   place_pin_group "addr" -side left -start 50.0 -layer M6 -pitch 3.0
+#   # Multiple layers — pins alternate M4/M6 (horizontal/vertical)
+#   place_pins_on_side -side left -start 10.0 -layers {M4 M6}
 #
-#   # Place a scalar pin
-#   place_pin_group "clk" -side bottom -start 30.0
-#
-#   # Place all remaining unplaced ports automatically
-#   place_remaining -side top -start 5.0
+#   # Custom pitch (overrides track pitch)
+#   place_pins_on_side -side right -start 5.0 -layers {M4} -pitch 3.0
 #
 #   # Report
 #   report_pin_placement
 # ═══════════════════════════════════════════════════════════════════════════════
 
 namespace eval ::CBFlow::IOPin {
-
-    variable default_layer "M4"
-    variable default_pitch 2.0
-    variable placed_pins [list]
 
     # ── Get die boundary ──────────────────────────────────────────────────
     proc get_die_boundary {} {
@@ -41,80 +34,83 @@ namespace eval ::CBFlow::IOPin {
         return [list $llx $lly $urx $ury]
     }
 
-    # ── Find all ports matching a group name ──────────────────────────────
-    # "data_in" matches: data_in, data_in[0], data_in[1], ..., data_in[31]
-    # Returns sorted list: scalars first, then bus bits in ascending order
-    proc find_ports_for_group {group_name} {
-        set all_ports [list]
-
-        # Try exact scalar match
-        set scalar [get_ports $group_name -quiet]
-        if {$scalar ne "" && [sizeof_collection $scalar] > 0} {
-            lappend all_ports $group_name
-        }
-
-        # Try bus match: group_name[*]
-        set bus_ports [get_ports "${group_name}\[*\]" -quiet]
-        if {$bus_ports ne "" && [sizeof_collection $bus_ports] > 0} {
-            # Collect names and sort by bit index
-            set bus_list [list]
-            foreach_in_collection p $bus_ports {
-                set pname [get_attribute $p full_name]
-                lappend bus_list $pname
+    # ── Get track pitch for a metal layer ─────────────────────────────────
+    proc get_layer_pitch {layer_name} {
+        # Read pitch from technology
+        set layer_obj [get_layers $layer_name -quiet]
+        if {$layer_obj ne "" && [sizeof_collection $layer_obj] > 0} {
+            set pitch [get_attribute $layer_obj pitch]
+            if {$pitch ne "" && $pitch > 0} {
+                return $pitch
             }
-            # Sort by bit index numerically
-            set bus_list [lsort -command [list apply {{a b} {
-                regexp {\[(\d+)\]} $a -> ai
-                regexp {\[(\d+)\]} $b -> bi
-                return [expr {$ai - $bi}]
-            }}] $bus_list]
-            set all_ports [concat $all_ports $bus_list]
         }
-
-        return $all_ports
+        # Fallback: try tech_metal_layer array from metal stack config
+        if {[info exists ::tech_metal_layer(${layer_name},pitch)]} {
+            # Convert nm to um
+            return [expr {$::tech_metal_layer(${layer_name},pitch) / 1000.0}]
+        }
+        # Default pitch
+        return 0.080
     }
 
-    # ── Place a group of pins ─────────────────────────────────────────────
-    proc place_pin_group {group_name args} {
-        variable default_layer
-        variable default_pitch
-        variable placed_pins
+    # ── Snap coordinate to nearest track ──────────────────────────────────
+    proc snap_to_track {coord pitch {offset 0.0}} {
+        if {$pitch <= 0} { return $coord }
+        set adjusted [expr {$coord - $offset}]
+        set track_num [expr {round($adjusted / $pitch)}]
+        return [expr {($track_num * $pitch) + $offset}]
+    }
 
+    # ── Get all design ports sorted by name ───────────────────────────────
+    proc get_all_ports_sorted {} {
+        set all_ports [get_ports * -quiet]
+        if {$all_ports eq "" || [sizeof_collection $all_ports] == 0} {
+            return [list]
+        }
+        set port_list [list]
+        foreach_in_collection p $all_ports {
+            lappend port_list [get_attribute $p full_name]
+        }
+        # Sort: group buses together, then by bit index
+        return [lsort -dictionary $port_list]
+    }
+
+    # ── Main: place all ports on a side ───────────────────────────────────
+    proc place_pins_on_side {args} {
         # Parse arguments
         set side ""
         set start 0.0
-        set layer $default_layer
-        set pitch $default_pitch
+        set layers [list]
+        set pitch_override ""
+        set track_offset 0.0
 
         for {set i 0} {$i < [llength $args]} {incr i} {
             set arg [lindex $args $i]
             switch -- $arg {
-                -side   { incr i; set side [lindex $args $i] }
-                -start  { incr i; set start [lindex $args $i] }
-                -layer  { incr i; set layer [lindex $args $i] }
-                -pitch  { incr i; set pitch [lindex $args $i] }
+                -side    { incr i; set side [lindex $args $i] }
+                -start   { incr i; set start [lindex $args $i] }
+                -layers  { incr i; set layers [lindex $args $i] }
+                -layer   { incr i; set layers [list [lindex $args $i]] }
+                -pitch   { incr i; set pitch_override [lindex $args $i] }
+                -offset  { incr i; set track_offset [lindex $args $i] }
             }
         }
 
         if {$side eq ""} {
-            error "place_pin_group: -side is required (left/right/top/bottom)"
+            error "place_pins_on_side: -side required (left/right/top/bottom)"
+        }
+        if {[llength $layers] == 0} {
+            error "place_pins_on_side: -layers required (e.g., {M4} or {M4 M6})"
         }
 
-        # Find matching ports
-        set pins [find_ports_for_group $group_name]
-        if {[llength $pins] == 0} {
-            puts "WARNING: No ports found matching '$group_name' or '${group_name}\[*\]'"
-            return 0
-        }
-
-        set pin_count [llength $pins]
+        # Get die boundary
         set die_bbox [get_die_boundary]
         set llx [lindex $die_bbox 0]
         set lly [lindex $die_bbox 1]
         set urx [lindex $die_bbox 2]
         set ury [lindex $die_bbox 3]
 
-        # Map side to FC side number: 1=left, 2=top, 3=right, 4=bottom
+        # Side number for FC
         switch -- $side {
             "left"   { set side_num 1 }
             "top"    { set side_num 2 }
@@ -123,140 +119,107 @@ namespace eval ::CBFlow::IOPin {
             default  { error "Invalid side: $side" }
         }
 
-        set end_offset [expr {$start + (($pin_count - 1) * $pitch)}]
+        # Get all ports
+        set ports [get_all_ports_sorted]
+        set port_count [llength $ports]
+        if {$port_count == 0} {
+            puts "  No ports found in design"
+            return 0
+        }
+
+        # Determine pitch per layer
+        set layer_count [llength $layers]
+        set pitches [list]
+        foreach l $layers {
+            if {$pitch_override ne ""} {
+                lappend pitches $pitch_override
+            } else {
+                lappend pitches [get_layer_pitch $l]
+            }
+        }
+
+        # For multiple layers, effective pitch = min pitch across layers
+        # Pins alternate layers: pin0→layer0, pin1→layer1, pin2→layer0, ...
+        # Spacing between pins on SAME layer = pitch * layer_count
+        set min_pitch [lindex $pitches 0]
+        foreach p $pitches {
+            if {$p < $min_pitch} { set min_pitch $p }
+        }
+
+        # Pin spacing: if 1 layer, use that pitch. If N layers, use min_pitch.
+        set pin_spacing $min_pitch
+
+        set end_offset [expr {$start + (($port_count - 1) * $pin_spacing)}]
+
+        # Check boundary
+        switch -- $side {
+            "left" - "right" { set max_range [expr {$ury - $lly}] }
+            "top" - "bottom" { set max_range [expr {$urx - $llx}] }
+        }
 
         puts ""
-        puts "  Placing: $group_name ($pin_count pins)"
-        puts "  Side: $side | Layer: $layer | Start: ${start}um | Pitch: ${pitch}um | End: ${end_offset}um"
-        puts "  ─────────────────────────────────────────────────────"
+        puts "  ═══════════════════════════════════════════════════════════"
+        puts "  IO Pin Placement"
+        puts "  ═══════════════════════════════════════════════════════════"
+        puts "  Die:    ($llx, $lly) to ($urx, $ury)"
+        puts "  Side:   $side"
+        puts "  Layers: $layers"
+        puts "  Ports:  $port_count"
+        puts "  Start:  ${start}um"
+        puts "  Pitch:  ${pin_spacing}um (on track)"
+        puts "  Range:  ${start}um → ${end_offset}um (max: ${max_range}um)"
+        if {$end_offset > $max_range} {
+            puts "  WARNING: Pins exceed die boundary!"
+        }
+        puts "  ───────────────────────────────────────────────────────────"
 
-        # Place each pin
+        # Place each port
         set count 0
-        for {set i 0} {$i < $pin_count} {incr i} {
-            set pin_name [lindex $pins $i]
-            set offset [expr {$start + ($i * $pitch)}]
+        for {set i 0} {$i < $port_count} {incr i} {
+            set pin_name [lindex $ports $i]
+            set raw_offset [expr {$start + ($i * $pin_spacing)}]
+
+            # Select layer (round-robin across provided layers)
+            set layer_idx [expr {$i % $layer_count}]
+            set layer [lindex $layers $layer_idx]
+            set layer_pitch [lindex $pitches $layer_idx]
+
+            # Snap to track for this layer
+            set snapped_offset [snap_to_track $raw_offset $layer_pitch $track_offset]
 
             # Compute coordinates
             switch -- $side {
-                "left"   { set x $llx; set y [expr {$lly + $offset}] }
-                "right"  { set x $urx; set y [expr {$lly + $offset}] }
-                "bottom" { set x [expr {$llx + $offset}]; set y $lly }
-                "top"    { set x [expr {$llx + $offset}]; set y $ury }
+                "left"   { set x $llx; set y [expr {$lly + $snapped_offset}] }
+                "right"  { set x $urx; set y [expr {$lly + $snapped_offset}] }
+                "bottom" { set x [expr {$llx + $snapped_offset}]; set y $lly }
+                "top"    { set x [expr {$llx + $snapped_offset}]; set y $ury }
             }
 
-            # Set pin constraint
+            # Verify port exists
             set port [get_ports $pin_name -quiet]
             if {$port eq "" || [sizeof_collection $port] == 0} {
-                puts "    SKIP: $pin_name (not found)"
                 continue
             }
 
+            # Set constraint
             set_individual_pin_constraints \
                 -ports $pin_name \
                 -allowed_layers $layer \
                 -side $side_num \
                 -location [list $x $y]
 
-            lappend placed_pins $pin_name
             incr count
         }
 
-        puts "  Placed: $count / $pin_count"
-        return $count
-    }
-
-    # ── Place all remaining unplaced ports ────────────────────────────────
-    proc place_remaining {args} {
-        variable placed_pins
-        variable default_layer
-        variable default_pitch
-
-        set side "top"
-        set start 5.0
-        set layer $default_layer
-        set pitch $default_pitch
-
-        for {set i 0} {$i < [llength $args]} {incr i} {
-            set arg [lindex $args $i]
-            switch -- $arg {
-                -side   { incr i; set side [lindex $args $i] }
-                -start  { incr i; set start [lindex $args $i] }
-                -layer  { incr i; set layer [lindex $args $i] }
-                -pitch  { incr i; set pitch [lindex $args $i] }
-            }
-        }
-
-        # Get all ports
-        set all_ports [get_ports * -quiet]
-        if {$all_ports eq "" || [sizeof_collection $all_ports] == 0} {
-            puts "  No ports in design"
-            return 0
-        }
-
-        # Find unplaced
-        set unplaced [list]
-        foreach_in_collection p $all_ports {
-            set pname [get_attribute $p full_name]
-            if {[lsearch -exact $placed_pins $pname] < 0} {
-                lappend unplaced $pname
-            }
-        }
-
-        if {[llength $unplaced] == 0} {
-            puts "  All ports already placed"
-            return 0
-        }
-
-        set unplaced [lsort $unplaced]
-
-        switch -- $side {
-            "left"   { set side_num 1 }
-            "top"    { set side_num 2 }
-            "right"  { set side_num 3 }
-            "bottom" { set side_num 4 }
-        }
-
-        set die_bbox [get_die_boundary]
-        set llx [lindex $die_bbox 0]
-        set lly [lindex $die_bbox 1]
-        set urx [lindex $die_bbox 2]
-        set ury [lindex $die_bbox 3]
+        # Legalize
+        puts "  Legalizing..."
+        place_pins -self
 
         puts ""
-        puts "  Placing remaining: [llength $unplaced] ports on $side"
-        puts "  ─────────────────────────────────────────────────────"
-
-        set count 0
-        for {set i 0} {$i < [llength $unplaced]} {incr i} {
-            set pin_name [lindex $unplaced $i]
-            set offset [expr {$start + ($i * $pitch)}]
-
-            switch -- $side {
-                "left"   { set x $llx; set y [expr {$lly + $offset}] }
-                "right"  { set x $urx; set y [expr {$lly + $offset}] }
-                "bottom" { set x [expr {$llx + $offset}]; set y $lly }
-                "top"    { set x [expr {$llx + $offset}]; set y $ury }
-            }
-
-            set_individual_pin_constraints \
-                -ports $pin_name \
-                -allowed_layers $layer \
-                -side $side_num \
-                -location [list $x $y]
-
-            lappend placed_pins $pin_name
-            incr count
-        }
-
-        puts "  Placed: $count"
+        puts "  Placed: $count / $port_count ports"
+        puts "  ═══════════════════════════════════════════════════════════"
+        puts ""
         return $count
-    }
-
-    # ── Legalize all pin placements ───────────────────────────────────────
-    proc legalize {} {
-        puts "\n  Legalizing pin placement..."
-        place_pins -self
-        puts "  Done."
     }
 
     # ── Report pin placement ──────────────────────────────────────────────
@@ -287,8 +250,6 @@ namespace eval ::CBFlow::IOPin {
                 set loc [get_attribute $p location]
                 lappend pin_list [list $name $layer $dir $loc]
             }
-
-            # Sort by location
             foreach item [lsort -index 0 $pin_list] {
                 lappend lines [format "  %-30s %-6s %-6s %s" \
                     [lindex $item 0] [lindex $item 1] [lindex $item 2] [lindex $item 3]]
@@ -296,7 +257,7 @@ namespace eval ::CBFlow::IOPin {
         }
 
         lappend lines ""
-        lappend lines "  Total: $total ports placed"
+        lappend lines "  Total: $total ports"
         lappend lines "═══════════════════════════════════════════════════════════"
 
         set report [join $lines "\n"]
@@ -310,53 +271,24 @@ namespace eval ::CBFlow::IOPin {
         }
     }
 
-    # ── Set defaults ──────────────────────────────────────────────────────
-    proc set_defaults {args} {
-        variable default_layer
-        variable default_pitch
-        for {set i 0} {$i < [llength $args]} {incr i} {
-            switch -- [lindex $args $i] {
-                -layer { incr i; set default_layer [lindex $args $i] }
-                -pitch { incr i; set default_pitch [lindex $args $i] }
-            }
-        }
-        puts "  Defaults: layer=$default_layer pitch=${default_pitch}um"
-    }
-
-    # ── Reset placed pin tracking ─────────────────────────────────────────
-    proc reset {} {
-        variable placed_pins
-        set placed_pins [list]
-        puts "  Pin tracking reset"
-    }
-
-    namespace export place_pin_group place_remaining legalize \
-                     report_pin_placement set_defaults reset
+    namespace export place_pins_on_side report_pin_placement
 }
 
 namespace import ::CBFlow::IOPin::*
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# USAGE EXAMPLE (in FC shell):
+# USAGE:
 #
 #   source place_io_pins.tcl
 #
-#   # Set defaults (optional)
-#   set_defaults -layer M4 -pitch 2.0
+#   # All ports on left, single layer
+#   place_pins_on_side -side left -start 10.0 -layers {M4}
 #
-#   # Place by group name — auto-finds data_in[0..15], addr[0..11], etc.
-#   place_pin_group "data_in"  -side left   -start 10.0
-#   place_pin_group "addr"     -side left   -start 50.0
-#   place_pin_group "data_out" -side right  -start 10.0
-#   place_pin_group "clk"      -side bottom -start 30.0
-#   place_pin_group "reset_n"  -side bottom -start 40.0
-#   place_pin_group "scan"     -side top    -start 20.0 -layer M5 -pitch 5.0
+#   # All ports on left, two layers (pins alternate M4/M6, on track)
+#   place_pins_on_side -side left -start 10.0 -layers {M4 M6}
 #
-#   # Place everything else on top
-#   place_remaining -side top -start 60.0
-#
-#   # Legalize
-#   legalize
+#   # Custom pitch override
+#   place_pins_on_side -side bottom -start 5.0 -layers {M5} -pitch 5.0
 #
 #   # Report
 #   report_pin_placement "reports/pin_placement.rpt"
