@@ -102,18 +102,13 @@ Run Commands (run from within a run directory):
   cbflow run release-lock --unlock            Unlock permissions (development: 777)
 
 Migration (after receiving new bundle):
-  cbflow migrate --new-root /new/path --workarea /proj/workarea
-                                              Migrate all run paths to new install location
-  cbflow migrate --new-root /new/path --workarea /proj/workarea --dry-run
+  cbflow migrate --from /opt/cbflow_v1 --to /opt/cbflow_v2
+                                              Migrate user customizations to new bundle
+  cbflow migrate --from /opt/cbflow_v1 --to /opt/cbflow_v2 --dry-run
                                               Preview changes without modifying
-  cbflow migrate --validate --workarea /proj/workarea
-                                              Validate all paths resolve correctly
-  cbflow migrate --rollback --workarea /proj/workarea
-                                              Restore from backups
-  cbflow migrate --upgrade --old-root /old --new-root /new
-                                              Upgrade files (3-way merge, conflict detection)
-  cbflow migrate --diff --old-root /old --new-root /new
+  cbflow migrate --diff --from /opt/cbflow_v1 --to /opt/cbflow_v2
                                               Show what changed between releases
+  cbflow migrate --validate                   Validate current installation
 
 Database Management (from run directory or workarea):
   cbflow run db-manage                        Check session count vs limit
