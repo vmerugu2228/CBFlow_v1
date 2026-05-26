@@ -34,22 +34,22 @@ namespace eval ::CBFlow::IOPin {
         return [list $llx $lly $urx $ury]
     }
 
-    # ── Get track pitch for a metal layer ─────────────────────────────────
+    # ── Get track pitch for a metal layer (from tool's loaded technology) ──
     proc get_layer_pitch {layer_name} {
-        # Read pitch from technology
+        # Read directly from the EDA tool's technology database
         set layer_obj [get_layers $layer_name -quiet]
         if {$layer_obj ne "" && [sizeof_collection $layer_obj] > 0} {
             set pitch [get_attribute $layer_obj pitch]
             if {$pitch ne "" && $pitch > 0} {
                 return $pitch
             }
+            # Try min_pitch if pitch not available
+            set min_pitch [get_attribute $layer_obj min_pitch -quiet]
+            if {$min_pitch ne "" && $min_pitch > 0} {
+                return $min_pitch
+            }
         }
-        # Fallback: try tech_metal_layer array from metal stack config
-        if {[info exists ::tech_metal_layer(${layer_name},pitch)]} {
-            # Convert nm to um
-            return [expr {$::tech_metal_layer(${layer_name},pitch) / 1000.0}]
-        }
-        # Default pitch
+        puts "WARNING: Cannot read pitch for $layer_name from tool — using 0.080um"
         return 0.080
     }
 
