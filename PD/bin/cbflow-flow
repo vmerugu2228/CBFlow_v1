@@ -15,40 +15,7 @@ if [[ -z "${CBFLOW_CORE_DIR:-}" ]]; then
     export CBFLOW_CORE_DIR
 fi
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# DIRECTORY CHECK: some commands require CBFLOW_CORE_DIR, others work anywhere
-# ═══════════════════════════════════════════════════════════════════════════════
-CURRENT_DIR="$(pwd)"
-CORE_DIR_REALPATH="$(cd "$CBFLOW_CORE_DIR" && pwd)"
-
-# Commands that work from any directory (tools, not flow-dependent)
-_SUBCMD="${1:-help}"
-case "$_SUBCMD" in
-    library-manager|mmmc-manager|lsf-manager|checklist|qor-report|trending|metrics|dashboard|--help|-h|help)
-        # These commands work from anywhere
-        ;;
-    *)
-        # Flow/config commands need CBFLOW_CORE_DIR
-        if [[ "$CURRENT_DIR" != "$CORE_DIR_REALPATH" ]]; then
-            echo ""
-            echo "[WARNING] cbflow flow $1 must be executed from CBFLOW_CORE_DIR"
-            echo ""
-            echo "  Current directory:  $CURRENT_DIR"
-            echo "  Required directory: $CORE_DIR_REALPATH"
-            echo ""
-            echo "Please run:"
-            echo "  cd $CORE_DIR_REALPATH"
-            echo "  cbflow flow $1"
-            echo ""
-            echo "These commands work from any directory:"
-            echo "  cbflow flow library-manager    cbflow flow mmmc-manager"
-            echo "  cbflow flow checklist          cbflow flow qor-report"
-            echo "  cbflow flow trending           cbflow flow metrics"
-            echo ""
-            exit 1
-        fi
-        ;;
-esac
+# All commands work from any directory — CBFLOW_CORE_DIR resolved from binary location
 
 # Source environment if available
 [[ -f "$CBFLOW_CORE_DIR/config/cbflow.env" ]] && source "$CBFLOW_CORE_DIR/config/cbflow.env"
@@ -58,7 +25,7 @@ COMMANDS_DIR="$CBFLOW_CORE_DIR/utils/commands"
 # Show help for flow command
 show_flow_help() {
     cat << EOF
-CBFlow - Flow Management (run from CBFLOW_CORE_DIR: $CBFLOW_CORE_DIR)
+CBFlow - Flow Management (works from any directory)
 
 Usage: cbflow flow <subcommand> [options]
 
