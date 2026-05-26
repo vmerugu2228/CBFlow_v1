@@ -15,14 +15,23 @@ rsync -avz CBflow_clone/PD user@server:/opt/cbflow
 
 ## 2. Set Environment
 
+**Bash** (`~/.bashrc` or `~/.bash_profile`):
 ```bash
 export CBFLOW_HOME=/opt/cbflow
 export PATH=$CBFLOW_HOME/bin:$PATH
 
 # Tab completion (bash)
 source $CBFLOW_HOME/completions/cbflow.bash
+```
 
-# Verify
+**C-Shell** (`~/.cshrc` or `~/.tcshrc`):
+```csh
+setenv CBFLOW_HOME /opt/cbflow
+set path = ($CBFLOW_HOME/bin $path)
+```
+
+**Verify:**
+```bash
 cbflow --version
 ```
 
