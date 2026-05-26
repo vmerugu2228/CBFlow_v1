@@ -12,6 +12,7 @@ array set sta_flow_checks {
 
     "sta_scenario_complete" {
         "description"             "All MMMC scenarios ran to completion without errors"
+        "script"                  "check_file_exists.tcl"
         "category"                "sta_flow"
         "severity"                "critical"
         "min_phase"               "P0"
@@ -24,6 +25,7 @@ array set sta_flow_checks {
 
     "sta_setup_signoff" {
         "description"             "Setup WNS across all scenarios must be non-negative"
+        "script"                  "check_timing.tcl"
         "category"                "sta_flow"
         "severity"                "critical"
         "min_phase"               "P0"
@@ -36,6 +38,7 @@ array set sta_flow_checks {
 
     "sta_hold_signoff" {
         "description"             "Hold WNS across all scenarios must be non-negative"
+        "script"                  "check_timing.tcl"
         "category"                "sta_flow"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -48,6 +51,7 @@ array set sta_flow_checks {
 
     "sta_cross_corner_setup" {
         "description"             "Worst setup WNS across all corners must meet threshold"
+        "script"                  "check_timing.tcl"
         "category"                "sta_flow"
         "severity"                "critical"
         "min_phase"               "P2"
@@ -60,6 +64,7 @@ array set sta_flow_checks {
 
     "sta_cross_corner_hold" {
         "description"             "Worst hold WNS across all corners must meet threshold"
+        "script"                  "check_timing.tcl"
         "category"                "sta_flow"
         "severity"                "critical"
         "min_phase"               "P2"
@@ -72,6 +77,7 @@ array set sta_flow_checks {
 
     "sta_pba_setup" {
         "description"             "Path-based analysis setup timing must be clean"
+        "script"                  "check_timing.tcl"
         "category"                "sta_flow"
         "severity"                "critical"
         "min_phase"               "P2"
@@ -84,6 +90,7 @@ array set sta_flow_checks {
 
     "sta_pba_hold" {
         "description"             "Path-based analysis hold timing must be clean"
+        "script"                  "check_timing.tcl"
         "category"                "sta_flow"
         "severity"                "critical"
         "min_phase"               "P2"
@@ -96,6 +103,7 @@ array set sta_flow_checks {
 
     "sta_epba_setup" {
         "description"             "Exhaustive PBA setup analysis WNS must meet threshold"
+        "script"                  "check_timing.tcl"
         "category"                "sta_flow"
         "severity"                "major"
         "min_phase"               "P3"
@@ -108,6 +116,7 @@ array set sta_flow_checks {
 
     "sta_epba_hold" {
         "description"             "Exhaustive PBA hold analysis WNS must meet threshold"
+        "script"                  "check_timing.tcl"
         "category"                "sta_flow"
         "severity"                "major"
         "min_phase"               "P3"
@@ -120,6 +129,7 @@ array set sta_flow_checks {
 
     "sta_si_delta" {
         "description"             "SI-aware timing delta must be within acceptable limit"
+        "script"                  "check_signal_integrity.tcl"
         "category"                "sta_flow"
         "severity"                "major"
         "min_phase"               "P2"
@@ -132,6 +142,7 @@ array set sta_flow_checks {
 
     "sta_clock_reconvergence" {
         "description"             "CRPR (clock reconvergence pessimism removal) applied correctly"
+        "script"                  "check_timing.tcl"
         "category"                "sta_flow"
         "severity"                "major"
         "min_phase"               "P2"
@@ -144,6 +155,7 @@ array set sta_flow_checks {
 
     "sta_constraint_coverage" {
         "description"             "All SDC constraints must be exercised in timing analysis"
+        "script"                  "check_constraints.tcl"
         "category"                "sta_flow"
         "severity"                "major"
         "min_phase"               "P1"
@@ -156,6 +168,7 @@ array set sta_flow_checks {
 
     "sta_unconstrained_paths" {
         "description"             "Zero unconstrained timing paths must remain"
+        "script"                  "check_constraints.tcl"
         "category"                "sta_flow"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -168,6 +181,7 @@ array set sta_flow_checks {
 
     "sta_max_cap_clean" {
         "description"             "Max capacitance violations must be zero across all scenarios"
+        "script"                  "check_constraints.tcl"
         "category"                "sta_flow"
         "severity"                "major"
         "min_phase"               "P1"
@@ -180,6 +194,7 @@ array set sta_flow_checks {
 
     "sta_max_tran_clean" {
         "description"             "Max transition violations must be zero across all scenarios"
+        "script"                  "check_constraints.tcl"
         "category"                "sta_flow"
         "severity"                "major"
         "min_phase"               "P1"
@@ -192,6 +207,7 @@ array set sta_flow_checks {
 
     "sta_max_fanout_clean" {
         "description"             "Max fanout violations must be zero across all scenarios"
+        "script"                  "check_constraints.tcl"
         "category"                "sta_flow"
         "severity"                "major"
         "min_phase"               "P1"
@@ -204,6 +220,7 @@ array set sta_flow_checks {
 
     "sta_clock_uncertainty" {
         "description"             "Clock uncertainty properly set for all clock domains"
+        "script"                  "check_clock_quality.tcl"
         "category"                "sta_flow"
         "severity"                "major"
         "min_phase"               "P1"
@@ -216,6 +233,7 @@ array set sta_flow_checks {
 
     "sta_input_delay_coverage" {
         "description"             "All input ports must have input delay constraints defined"
+        "script"                  "check_file_exists.tcl"
         "category"                "sta_flow"
         "severity"                "minor"
         "min_phase"               "P2"
@@ -228,6 +246,7 @@ array set sta_flow_checks {
 
     "sta_output_delay_coverage" {
         "description"             "All output ports must have output delay constraints defined"
+        "script"                  "check_file_exists.tcl"
         "category"                "sta_flow"
         "severity"                "minor"
         "min_phase"               "P2"
@@ -240,6 +259,7 @@ array set sta_flow_checks {
 
     "sta_mmmc_summary" {
         "description"             "Cross-scenario MMMC summary report must be generated"
+        "script"                  "check_file_exists.tcl"
         "category"                "sta_flow"
         "severity"                "major"
         "min_phase"               "P0"
@@ -252,6 +272,7 @@ array set sta_flow_checks {
 
     "sta_power_report" {
         "description"             "Power analysis report must be generated during STA"
+        "script"                  "check_power.tcl"
         "category"                "sta_flow"
         "severity"                "minor"
         "min_phase"               "P2"
@@ -264,6 +285,7 @@ array set sta_flow_checks {
 
     "sta_noise_analysis" {
         "description"             "Noise and glitch analysis must be clean"
+        "script"                  "check_signal_integrity.tcl"
         "category"                "sta_flow"
         "severity"                "major"
         "min_phase"               "P3"
@@ -276,6 +298,7 @@ array set sta_flow_checks {
 
     "sta_sdf_generated" {
         "description"             "SDF timing annotation file must be generated for gate-sim"
+        "script"                  "check_file_exists.tcl"
         "category"                "sta_flow"
         "severity"                "minor"
         "min_phase"               "P3"
@@ -288,6 +311,7 @@ array set sta_flow_checks {
 
     "sta_bottleneck_report" {
         "description"             "Timing bottleneck analysis report must be complete"
+        "script"                  "check_file_exists.tcl"
         "category"                "sta_flow"
         "severity"                "minor"
         "min_phase"               "P2"
@@ -300,6 +324,7 @@ array set sta_flow_checks {
 
     "sta_eco_guidance" {
         "description"             "ECO guidance report must be generated for timing closure"
+        "script"                  "check_file_exists.tcl"
         "category"                "sta_flow"
         "severity"                "minor"
         "min_phase"               "P3"

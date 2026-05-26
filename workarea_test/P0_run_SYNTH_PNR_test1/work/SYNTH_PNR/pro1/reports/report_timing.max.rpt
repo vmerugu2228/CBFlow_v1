@@ -1,0 +1,12 @@
+Report : timing -delay max
+Design : cpu_core
+Scenario: func_ss_0p76v_rcmax_150c
+
+  Startpoint: reg_a/Q (rising edge-triggered flip-flop)
+  Endpoint: reg_b/D (rising edge-triggered flip-flop)
+  Path Group: clk
+  Path Type: max
+
+  slack (MET)                   0.012
+
+PASSED

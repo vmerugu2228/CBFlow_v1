@@ -12,6 +12,7 @@ array set eco_flow_checks {
 
     "eco_implementation" {
         "description"             "ECO changes implemented successfully"
+        "script"                  "check_file_exists.tcl"
         "category"                "eco"
         "severity"                "critical"
         "min_phase"               "P0"
@@ -24,6 +25,7 @@ array set eco_flow_checks {
 
     "eco_netlist_generated" {
         "description"             "Post-ECO netlist generated successfully"
+        "script"                  "check_file_exists.tcl"
         "category"                "eco"
         "severity"                "critical"
         "min_phase"               "P0"
@@ -36,6 +38,7 @@ array set eco_flow_checks {
 
     "eco_timing_impact" {
         "description"             "ECO timing impact must be within acceptable range"
+        "script"                  "check_timing.tcl"
         "category"                "eco_timing"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -48,6 +51,7 @@ array set eco_flow_checks {
 
     "eco_hold_impact" {
         "description"             "ECO hold timing impact must be within acceptable range"
+        "script"                  "check_timing.tcl"
         "category"                "eco_timing"
         "severity"                "major"
         "min_phase"               "P1"
@@ -60,6 +64,7 @@ array set eco_flow_checks {
 
     "eco_drc_clean" {
         "description"             "Post-ECO DRC must be clean"
+        "script"                  "check_drc.tcl"
         "category"                "eco_physical"
         "severity"                "major"
         "min_phase"               "P2"
@@ -72,6 +77,7 @@ array set eco_flow_checks {
 
     "eco_connectivity" {
         "description"             "Post-ECO connectivity must be verified"
+        "script"                  "check_legality.tcl"
         "category"                "eco_physical"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -84,6 +90,7 @@ array set eco_flow_checks {
 
     "eco_legality" {
         "description"             "Post-ECO cell placement must be legal"
+        "script"                  "check_legality.tcl"
         "category"                "eco_physical"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -96,6 +103,7 @@ array set eco_flow_checks {
 
     "eco_lec_verify" {
         "description"             "Post-ECO LEC verification recommended"
+        "script"                  "check_file_exists.tcl"
         "category"                "eco"
         "severity"                "major"
         "min_phase"               "P2"
@@ -108,6 +116,7 @@ array set eco_flow_checks {
 
     "eco_spare_cell_usage" {
         "description"             "Spare cells used vs available within acceptable ratio"
+        "script"                  "check_utilization.tcl"
         "category"                "eco"
         "severity"                "minor"
         "min_phase"               "P1"
@@ -120,6 +129,7 @@ array set eco_flow_checks {
 
     "eco_routing_complete" {
         "description"             "ECO routing must be completed"
+        "script"                  "check_routing.tcl"
         "category"                "eco_physical"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -132,6 +142,7 @@ array set eco_flow_checks {
 
     "eco_changes_report" {
         "description"             "ECO changes report generated"
+        "script"                  "check_file_exists.tcl"
         "category"                "eco"
         "severity"                "major"
         "min_phase"               "P0"
@@ -144,6 +155,7 @@ array set eco_flow_checks {
 
     "eco_summary_report" {
         "description"             "Complete ECO summary report generated"
+        "script"                  "check_file_exists.tcl"
         "category"                "eco"
         "severity"                "major"
         "min_phase"               "P0"

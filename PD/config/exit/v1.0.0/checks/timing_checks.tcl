@@ -11,6 +11,7 @@ array set timing_checks {
 
     "setup_wns" {
         "description"             "Worst negative slack (setup) must meet threshold"
+        "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "critical"
         "min_phase"               "P0"
@@ -23,6 +24,7 @@ array set timing_checks {
 
     "setup_tns" {
         "description"             "Total negative slack (setup) must meet threshold"
+        "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "critical"
         "min_phase"               "P0"
@@ -35,6 +37,7 @@ array set timing_checks {
 
     "hold_wns" {
         "description"             "Worst negative slack (hold) must meet threshold"
+        "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -47,6 +50,7 @@ array set timing_checks {
 
     "hold_tns" {
         "description"             "Total negative slack (hold) must meet threshold"
+        "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -59,6 +63,7 @@ array set timing_checks {
 
     "setup_nvp" {
         "description"             "Number of violating paths (setup) within limit"
+        "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "major"
         "min_phase"               "P1"
@@ -71,6 +76,7 @@ array set timing_checks {
 
     "hold_nvp" {
         "description"             "Number of violating paths (hold) within limit"
+        "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "major"
         "min_phase"               "P2"
@@ -83,6 +89,7 @@ array set timing_checks {
 
     "max_cap_violations" {
         "description"             "Max capacitance violations count within limit"
+        "script"                  "check_constraints.tcl"
         "category"                "timing"
         "severity"                "major"
         "min_phase"               "P1"
@@ -95,6 +102,7 @@ array set timing_checks {
 
     "max_tran_violations" {
         "description"             "Max transition violations count within limit"
+        "script"                  "check_constraints.tcl"
         "category"                "timing"
         "severity"                "major"
         "min_phase"               "P1"
@@ -107,6 +115,7 @@ array set timing_checks {
 
     "max_fanout_violations" {
         "description"             "Max fanout violations count within limit"
+        "script"                  "check_constraints.tcl"
         "category"                "timing"
         "severity"                "major"
         "min_phase"               "P1"
@@ -119,6 +128,7 @@ array set timing_checks {
 
     "net_length_violations" {
         "description"             "Nets exceeding max length threshold"
+        "script"                  "check_constraints.tcl"
         "category"                "timing"
         "severity"                "minor"
         "min_phase"               "P2"
@@ -131,6 +141,7 @@ array set timing_checks {
 
     "setup_wns_per_group" {
         "description"             "Worst WNS per timing path group must meet threshold"
+        "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "major"
         "min_phase"               "P2"
@@ -143,6 +154,7 @@ array set timing_checks {
 
     "hold_wns_per_group" {
         "description"             "Worst hold WNS per timing path group must meet threshold"
+        "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "major"
         "min_phase"               "P2"
@@ -155,6 +167,7 @@ array set timing_checks {
 
     "recovery_violations" {
         "description"             "Recovery timing violations count within limit"
+        "script"                  "check_constraints.tcl"
         "category"                "timing"
         "severity"                "major"
         "min_phase"               "P2"
@@ -167,6 +180,7 @@ array set timing_checks {
 
     "removal_violations" {
         "description"             "Removal timing violations count within limit"
+        "script"                  "check_constraints.tcl"
         "category"                "timing"
         "severity"                "major"
         "min_phase"               "P2"
@@ -179,6 +193,7 @@ array set timing_checks {
 
     "pulse_width_violations" {
         "description"             "Min pulse width violations count within limit"
+        "script"                  "check_constraints.tcl"
         "category"                "timing"
         "severity"                "major"
         "min_phase"               "P2"
@@ -191,6 +206,7 @@ array set timing_checks {
 
     "clock_gating_check" {
         "description"             "Clock gating timing violations count within limit"
+        "script"                  "check_constraints.tcl"
         "category"                "timing"
         "severity"                "major"
         "min_phase"               "P2"
@@ -203,6 +219,7 @@ array set timing_checks {
 
     "multicycle_path_check" {
         "description"             "Multicycle path constraint coverage percentage"
+        "script"                  "check_file_exists.tcl"
         "category"                "timing"
         "severity"                "minor"
         "min_phase"               "P2"
@@ -215,6 +232,7 @@ array set timing_checks {
 
     "false_path_coverage" {
         "description"             "False path constraint validation count"
+        "script"                  "check_file_exists.tcl"
         "category"                "timing"
         "severity"                "minor"
         "min_phase"               "P2"
@@ -227,6 +245,7 @@ array set timing_checks {
 
     "case_analysis_coverage" {
         "description"             "Case analysis constraint count validated"
+        "script"                  "check_file_exists.tcl"
         "category"                "timing"
         "severity"                "minor"
         "min_phase"               "P2"
@@ -239,6 +258,7 @@ array set timing_checks {
 
     "timing_exception_coverage" {
         "description"             "Timing exception coverage ratio must meet threshold"
+        "script"                  "check_file_exists.tcl"
         "category"                "timing"
         "severity"                "minor"
         "min_phase"               "P3"
@@ -251,6 +271,7 @@ array set timing_checks {
 
     "setup_slack_histogram" {
         "description"             "Setup slack distribution — paths with slack below threshold"
+        "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "minor"
         "min_phase"               "P2"
@@ -263,6 +284,7 @@ array set timing_checks {
 
     "hold_slack_histogram" {
         "description"             "Hold slack distribution — paths with slack below threshold"
+        "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "minor"
         "min_phase"               "P2"
@@ -275,6 +297,7 @@ array set timing_checks {
 
     "cross_corner_wns" {
         "description"             "Worst WNS across all MMMC corners must meet threshold"
+        "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "critical"
         "min_phase"               "P2"
@@ -287,6 +310,7 @@ array set timing_checks {
 
     "cross_corner_tns" {
         "description"             "Worst TNS across all MMMC corners must meet threshold"
+        "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "critical"
         "min_phase"               "P2"
@@ -299,6 +323,7 @@ array set timing_checks {
 
     "interface_timing" {
         "description"             "I/O timing constraint compliance — interface WNS"
+        "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "major"
         "min_phase"               "P1"
@@ -311,6 +336,7 @@ array set timing_checks {
 
     "reg2reg_wns" {
         "description"             "Register-to-register worst setup slack"
+        "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "major"
         "min_phase"               "P1"
@@ -323,6 +349,7 @@ array set timing_checks {
 
     "io2reg_wns" {
         "description"             "IO-to-register worst setup slack"
+        "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "major"
         "min_phase"               "P2"
@@ -335,6 +362,7 @@ array set timing_checks {
 
     "reg2io_wns" {
         "description"             "Register-to-IO worst setup slack"
+        "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "major"
         "min_phase"               "P2"
@@ -347,6 +375,7 @@ array set timing_checks {
 
     "memory_timing" {
         "description"             "Memory interface timing slack must meet threshold"
+        "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "major"
         "min_phase"               "P2"
@@ -359,6 +388,7 @@ array set timing_checks {
 
     "signoff_vs_implementation" {
         "description"             "Signoff/implementation WNS correlation delta within limit"
+        "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "major"
         "min_phase"               "P3"

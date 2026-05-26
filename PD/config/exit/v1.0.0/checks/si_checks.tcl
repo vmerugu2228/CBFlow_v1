@@ -6,6 +6,7 @@
 array set si_checks {
     "crosstalk_delay" {
         "description"             "Crosstalk-induced delay violations"
+        "script"                  "check_signal_integrity.tcl"
         "category"                "signal_integrity"
         "severity"                "critical"
         "min_phase"               "P2"
@@ -17,6 +18,7 @@ array set si_checks {
     }
     "crosstalk_noise" {
         "description"             "Crosstalk noise violations (DC)"
+        "script"                  "check_signal_integrity.tcl"
         "category"                "signal_integrity"
         "severity"                "critical"
         "min_phase"               "P2"
@@ -28,6 +30,7 @@ array set si_checks {
     }
     "glitch_violations" {
         "description"             "Glitch propagation violations"
+        "script"                  "check_signal_integrity.tcl"
         "category"                "signal_integrity"
         "severity"                "critical"
         "min_phase"               "P2"
@@ -39,6 +42,7 @@ array set si_checks {
     }
     "coupling_cap_ratio" {
         "description"             "Max coupling cap to total cap ratio"
+        "script"                  "check_signal_integrity.tcl"
         "category"                "signal_integrity"
         "severity"                "major"
         "min_phase"               "P2"
@@ -50,6 +54,7 @@ array set si_checks {
     }
     "aggressor_count" {
         "description"             "Nets with excessive aggressors"
+        "script"                  "check_signal_integrity.tcl"
         "category"                "signal_integrity"
         "severity"                "major"
         "min_phase"               "P2"
@@ -61,6 +66,7 @@ array set si_checks {
     }
     "victim_slack_degradation" {
         "description"             "Timing degradation from SI effects"
+        "script"                  "check_signal_integrity.tcl"
         "category"                "signal_integrity"
         "severity"                "major"
         "min_phase"               "P2"
@@ -72,6 +78,7 @@ array set si_checks {
     }
     "si_hold_violations" {
         "description"             "SI-induced hold timing violations"
+        "script"                  "check_signal_integrity.tcl"
         "category"                "signal_integrity"
         "severity"                "critical"
         "min_phase"               "P3"
@@ -83,6 +90,7 @@ array set si_checks {
     }
     "si_setup_violations" {
         "description"             "SI-induced setup timing violations"
+        "script"                  "check_signal_integrity.tcl"
         "category"                "signal_integrity"
         "severity"                "critical"
         "min_phase"               "P3"
@@ -94,6 +102,7 @@ array set si_checks {
     }
     "noise_margin" {
         "description"             "Worst noise margin remaining"
+        "script"                  "check_signal_integrity.tcl"
         "category"                "signal_integrity"
         "severity"                "major"
         "min_phase"               "P2"
@@ -105,6 +114,7 @@ array set si_checks {
     }
     "shielding_effectiveness" {
         "description"             "Shield net effectiveness percentage"
+        "script"                  "check_utilization.tcl"
         "category"                "signal_integrity"
         "severity"                "minor"
         "min_phase"               "P3"
@@ -116,6 +126,7 @@ array set si_checks {
     }
     "si_aware_timing_delta" {
         "description"             "SI vs non-SI timing delta"
+        "script"                  "check_timing.tcl"
         "category"                "signal_integrity"
         "severity"                "minor"
         "min_phase"               "P2"
@@ -127,6 +138,7 @@ array set si_checks {
     }
     "bus_crosstalk" {
         "description"             "Bus self-coupling analysis violations"
+        "script"                  "check_signal_integrity.tcl"
         "category"                "signal_integrity"
         "severity"                "major"
         "min_phase"               "P3"
@@ -138,6 +150,7 @@ array set si_checks {
     }
     "clock_si_impact" {
         "description"             "SI impact on clock network"
+        "script"                  "check_signal_integrity.tcl"
         "category"                "signal_integrity"
         "severity"                "critical"
         "min_phase"               "P2"
@@ -149,6 +162,7 @@ array set si_checks {
     }
     "power_rail_noise" {
         "description"             "Power rail noise coupling violations"
+        "script"                  "check_signal_integrity.tcl"
         "category"                "signal_integrity"
         "severity"                "major"
         "min_phase"               "P3"
@@ -160,6 +174,7 @@ array set si_checks {
     }
     "simultaneous_switching" {
         "description"             "SSO/SSN simultaneous switching analysis"
+        "script"                  "check_signal_integrity.tcl"
         "category"                "signal_integrity"
         "severity"                "major"
         "min_phase"               "P3"

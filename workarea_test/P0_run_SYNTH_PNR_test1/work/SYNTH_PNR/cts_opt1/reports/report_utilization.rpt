@@ -1,0 +1,9 @@
+Report : utilization
+Design : cpu_core
+
+  Cell Density: 0.723
+  Utilization: 72.3%
+  Total Cell Area: 1250000
+  Total Site Area: 1728395
+
+PASSED

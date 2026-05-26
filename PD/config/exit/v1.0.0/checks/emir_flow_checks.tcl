@@ -12,6 +12,7 @@ array set emir_flow_checks {
 
     "emir_power_total" {
         "description"             "Total power must be within budget"
+        "script"                  "check_power.tcl"
         "category"                "power_analysis"
         "severity"                "major"
         "min_phase"               "P0"
@@ -24,6 +25,7 @@ array set emir_flow_checks {
 
     "emir_power_leakage" {
         "description"             "Leakage power must be within limit"
+        "script"                  "check_power.tcl"
         "category"                "power_analysis"
         "severity"                "major"
         "min_phase"               "P1"
@@ -36,6 +38,7 @@ array set emir_flow_checks {
 
     "emir_power_dynamic" {
         "description"             "Dynamic power must be within limit"
+        "script"                  "check_power.tcl"
         "category"                "power_analysis"
         "severity"                "major"
         "min_phase"               "P1"
@@ -48,6 +51,7 @@ array set emir_flow_checks {
 
     "emir_power_clock" {
         "description"             "Clock power percentage must be acceptable"
+        "script"                  "check_power.tcl"
         "category"                "power_analysis"
         "severity"                "minor"
         "min_phase"               "P1"
@@ -60,6 +64,7 @@ array set emir_flow_checks {
 
     "emir_power_per_domain" {
         "description"             "Per-power-domain power must be within budget"
+        "script"                  "check_power.tcl"
         "category"                "power_analysis"
         "severity"                "major"
         "min_phase"               "P2"
@@ -72,6 +77,7 @@ array set emir_flow_checks {
 
     "emir_static_ir_vdd" {
         "description"             "Static VDD IR drop must be within threshold"
+        "script"                  "check_power.tcl"
         "category"                "ir_drop"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -84,6 +90,7 @@ array set emir_flow_checks {
 
     "emir_static_ir_vss" {
         "description"             "Static VSS IR drop (ground bounce) must be within threshold"
+        "script"                  "check_power.tcl"
         "category"                "ir_drop"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -96,6 +103,7 @@ array set emir_flow_checks {
 
     "emir_dynamic_ir" {
         "description"             "Dynamic IR drop must be within threshold"
+        "script"                  "check_power.tcl"
         "category"                "ir_drop"
         "severity"                "critical"
         "min_phase"               "P2"
@@ -108,6 +116,7 @@ array set emir_flow_checks {
 
     "emir_ir_worst_instance" {
         "description"             "Worst instance voltage drop must be within margin"
+        "script"                  "check_power.tcl"
         "category"                "ir_drop"
         "severity"                "critical"
         "min_phase"               "P2"
@@ -120,6 +129,7 @@ array set emir_flow_checks {
 
     "emir_ir_coverage" {
         "description"             "IR analysis coverage (percent of PG mesh analyzed)"
+        "script"                  "check_utilization.tcl"
         "category"                "ir_drop"
         "severity"                "major"
         "min_phase"               "P1"
@@ -132,6 +142,7 @@ array set emir_flow_checks {
 
     "emir_em_signal" {
         "description"             "Signal EM violations must be zero"
+        "script"                  "check_power.tcl"
         "category"                "em"
         "severity"                "critical"
         "min_phase"               "P2"
@@ -144,6 +155,7 @@ array set emir_flow_checks {
 
     "emir_em_power" {
         "description"             "Power net EM violations must be zero"
+        "script"                  "check_power.tcl"
         "category"                "em"
         "severity"                "critical"
         "min_phase"               "P2"
@@ -156,6 +168,7 @@ array set emir_flow_checks {
 
     "emir_em_via" {
         "description"             "Via EM violations must be zero"
+        "script"                  "check_power.tcl"
         "category"                "em"
         "severity"                "major"
         "min_phase"               "P2"
@@ -168,6 +181,7 @@ array set emir_flow_checks {
 
     "emir_em_worst_ratio" {
         "description"             "Worst EM current ratio must be within limit"
+        "script"                  "check_power.tcl"
         "category"                "em"
         "severity"                "major"
         "min_phase"               "P2"
@@ -180,6 +194,7 @@ array set emir_flow_checks {
 
     "emir_thermal_max" {
         "description"             "Max junction temperature must be within limit"
+        "script"                  "check_file_exists.tcl"
         "category"                "thermal"
         "severity"                "major"
         "min_phase"               "P2"
@@ -192,6 +207,7 @@ array set emir_flow_checks {
 
     "emir_thermal_hotspot" {
         "description"             "Number of thermal hotspots must be within limit"
+        "script"                  "check_file_exists.tcl"
         "category"                "thermal"
         "severity"                "major"
         "min_phase"               "P2"
@@ -204,6 +220,7 @@ array set emir_flow_checks {
 
     "emir_thermal_gradient" {
         "description"             "Thermal gradient must be within limit"
+        "script"                  "check_file_exists.tcl"
         "category"                "thermal"
         "severity"                "minor"
         "min_phase"               "P3"
@@ -216,6 +233,7 @@ array set emir_flow_checks {
 
     "emir_pg_missing_via" {
         "description"             "Missing PG vias must be zero"
+        "script"                  "check_routing.tcl"
         "category"                "power_mesh"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -228,6 +246,7 @@ array set emir_flow_checks {
 
     "emir_pg_strap_integrity" {
         "description"             "PG strap connectivity must be verified"
+        "script"                  "check_routing.tcl"
         "category"                "power_mesh"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -240,6 +259,7 @@ array set emir_flow_checks {
 
     "emir_summary_report" {
         "description"             "Complete EMIR summary report generated"
+        "script"                  "check_file_exists.tcl"
         "category"                "emir"
         "severity"                "major"
         "min_phase"               "P0"

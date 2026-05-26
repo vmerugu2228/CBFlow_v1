@@ -12,6 +12,7 @@ array set lec_flow_checks {
 
     "lec_equivalence" {
         "description"             "Overall logical equivalence verification must SUCCEED"
+        "script"                  "check_file_exists.tcl"
         "category"                "lec_flow"
         "severity"                "critical"
         "min_phase"               "P0"
@@ -24,6 +25,7 @@ array set lec_flow_checks {
 
     "lec_non_equivalent" {
         "description"             "Zero non-equivalent comparison points"
+        "script"                  "check_file_exists.tcl"
         "category"                "lec_flow"
         "severity"                "critical"
         "min_phase"               "P0"
@@ -36,6 +38,7 @@ array set lec_flow_checks {
 
     "lec_unmapped_points" {
         "description"             "Zero unmapped comparison points between golden and revised"
+        "script"                  "check_file_exists.tcl"
         "category"                "lec_flow"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -48,6 +51,7 @@ array set lec_flow_checks {
 
     "lec_abort_points" {
         "description"             "Zero aborted comparison points during verification"
+        "script"                  "check_file_exists.tcl"
         "category"                "lec_flow"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -60,6 +64,7 @@ array set lec_flow_checks {
 
     "lec_black_box" {
         "description"             "Zero unresolved black boxes in the design hierarchy"
+        "script"                  "check_file_exists.tcl"
         "category"                "lec_flow"
         "severity"                "major"
         "min_phase"               "P1"
@@ -72,6 +77,7 @@ array set lec_flow_checks {
 
     "lec_setup_warnings" {
         "description"             "Zero setup and configuration warnings during LEC run"
+        "script"                  "check_file_exists.tcl"
         "category"                "lec_flow"
         "severity"                "major"
         "min_phase"               "P1"
@@ -84,6 +90,7 @@ array set lec_flow_checks {
 
     "lec_failing_points_report" {
         "description"             "Failing points detailed report generated if any failures exist"
+        "script"                  "check_file_exists.tcl"
         "category"                "lec_flow"
         "severity"                "major"
         "min_phase"               "P1"
@@ -96,6 +103,7 @@ array set lec_flow_checks {
 
     "lec_golden_netlist_read" {
         "description"             "Golden (reference) netlist read without errors"
+        "script"                  "check_file_exists.tcl"
         "category"                "lec_flow"
         "severity"                "critical"
         "min_phase"               "P0"
@@ -108,6 +116,7 @@ array set lec_flow_checks {
 
     "lec_revised_netlist_read" {
         "description"             "Revised (implementation) netlist read without errors"
+        "script"                  "check_file_exists.tcl"
         "category"                "lec_flow"
         "severity"                "critical"
         "min_phase"               "P0"
@@ -120,6 +129,7 @@ array set lec_flow_checks {
 
     "lec_datapath_verify" {
         "description"             "Datapath equivalence verification completed successfully"
+        "script"                  "check_file_exists.tcl"
         "category"                "lec_flow"
         "severity"                "major"
         "min_phase"               "P2"
@@ -132,6 +142,7 @@ array set lec_flow_checks {
 
     "lec_multibit_matching" {
         "description"             "Multi-bit register matching verified correctly"
+        "script"                  "check_file_exists.tcl"
         "category"                "lec_flow"
         "severity"                "major"
         "min_phase"               "P2"
@@ -144,6 +155,7 @@ array set lec_flow_checks {
 
     "lec_scan_chain_verify" {
         "description"             "Scan chain logic equivalence verified between golden and revised"
+        "script"                  "check_file_exists.tcl"
         "category"                "lec_flow"
         "severity"                "major"
         "min_phase"               "P2"
@@ -156,6 +168,7 @@ array set lec_flow_checks {
 
     "lec_power_domain_verify" {
         "description"             "Power domain logic equivalence verified across UPF domains"
+        "script"                  "check_file_exists.tcl"
         "category"                "lec_flow"
         "severity"                "major"
         "min_phase"               "P2"
@@ -168,6 +181,7 @@ array set lec_flow_checks {
 
     "lec_svf_applied" {
         "description"             "SVF guidance file applied correctly during comparison"
+        "script"                  "check_file_exists.tcl"
         "category"                "lec_flow"
         "severity"                "major"
         "min_phase"               "P1"
@@ -180,6 +194,7 @@ array set lec_flow_checks {
 
     "lec_summary_report" {
         "description"             "Complete comparison summary report generated successfully"
+        "script"                  "check_file_exists.tcl"
         "category"                "lec_flow"
         "severity"                "major"
         "min_phase"               "P0"

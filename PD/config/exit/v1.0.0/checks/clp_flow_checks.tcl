@@ -12,6 +12,7 @@ array set clp_flow_checks {
 
     "clp_isolation_check" {
         "description"             "All isolation cells present at power domain crossings"
+        "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "critical"
         "min_phase"               "P0"
@@ -24,6 +25,7 @@ array set clp_flow_checks {
 
     "clp_level_shifter_check" {
         "description"             "All level shifters present at voltage domain crossings"
+        "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "critical"
         "min_phase"               "P0"
@@ -36,6 +38,7 @@ array set clp_flow_checks {
 
     "clp_retention_check" {
         "description"             "Retention save and restore paths verified correctly"
+        "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -48,6 +51,7 @@ array set clp_flow_checks {
 
     "clp_power_domain_check" {
         "description"             "All power domains correctly defined and connected"
+        "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "critical"
         "min_phase"               "P0"
@@ -60,6 +64,7 @@ array set clp_flow_checks {
 
     "clp_always_on_check" {
         "description"             "Always-on logic properly connected to always-on supply"
+        "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -72,6 +77,7 @@ array set clp_flow_checks {
 
     "clp_voltage_area_check" {
         "description"             "Voltage areas correctly bounded and non-overlapping"
+        "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -84,6 +90,7 @@ array set clp_flow_checks {
 
     "clp_supply_check" {
         "description"             "Supply net connections verified for all power domains"
+        "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -96,6 +103,7 @@ array set clp_flow_checks {
 
     "clp_isolation_enable" {
         "description"             "Isolation enable signal timing verified for all domains"
+        "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "major"
         "min_phase"               "P2"
@@ -108,6 +116,7 @@ array set clp_flow_checks {
 
     "clp_level_shifter_placement" {
         "description"             "Level shifters placed in correct voltage area"
+        "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "major"
         "min_phase"               "P2"
@@ -120,6 +129,7 @@ array set clp_flow_checks {
 
     "clp_power_switch_check" {
         "description"             "Power switch chain integrity and connectivity verified"
+        "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "major"
         "min_phase"               "P2"
@@ -132,6 +142,7 @@ array set clp_flow_checks {
 
     "clp_corruption_check" {
         "description"             "State corruption during power transitions must be zero"
+        "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "major"
         "min_phase"               "P2"
@@ -144,6 +155,7 @@ array set clp_flow_checks {
 
     "clp_upf_syntax" {
         "description"             "UPF file lint and syntax check must be clean"
+        "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "major"
         "min_phase"               "P0"
@@ -156,6 +168,7 @@ array set clp_flow_checks {
 
     "clp_upf_vs_impl" {
         "description"             "UPF power intent must match physical implementation"
+        "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -168,6 +181,7 @@ array set clp_flow_checks {
 
     "clp_multi_driver" {
         "description"             "Multi-driver net checks at power domain boundaries"
+        "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "major"
         "min_phase"               "P1"
@@ -180,6 +194,7 @@ array set clp_flow_checks {
 
     "clp_hanging_crossover" {
         "description"             "Hanging crossover signal detection at domain boundaries"
+        "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "major"
         "min_phase"               "P1"
@@ -192,6 +207,7 @@ array set clp_flow_checks {
 
     "clp_sleep_wakeup" {
         "description"             "Sleep and wakeup sequence verification for all domains"
+        "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "major"
         "min_phase"               "P3"
@@ -204,6 +220,7 @@ array set clp_flow_checks {
 
     "clp_ao_buffer" {
         "description"             "Always-on buffer chain verification for power-gated domains"
+        "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "major"
         "min_phase"               "P2"
@@ -216,6 +233,7 @@ array set clp_flow_checks {
 
     "clp_power_state_table" {
         "description"             "Power state table completeness across all defined states"
+        "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "minor"
         "min_phase"               "P2"
@@ -228,6 +246,7 @@ array set clp_flow_checks {
 
     "clp_esd_domain" {
         "description"             "ESD discharge path integrity through power domains"
+        "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "minor"
         "min_phase"               "P3"
@@ -240,6 +259,7 @@ array set clp_flow_checks {
 
     "clp_summary_report" {
         "description"             "Complete CLP verification summary report generated"
+        "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "major"
         "min_phase"               "P0"

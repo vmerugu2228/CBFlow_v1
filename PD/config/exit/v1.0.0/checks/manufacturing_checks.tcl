@@ -6,6 +6,7 @@
 array set manufacturing_checks {
     "metal_density_m1" {
         "description"             "Metal 1 density within foundry limits"
+        "script"                  "check_utilization.tcl"
         "category"                "manufacturing"
         "severity"                "critical"
         "min_phase"               "P2"
@@ -17,6 +18,7 @@ array set manufacturing_checks {
     }
     "metal_density_m2" {
         "description"             "Metal 2 density within foundry limits"
+        "script"                  "check_utilization.tcl"
         "category"                "manufacturing"
         "severity"                "critical"
         "min_phase"               "P2"
@@ -28,6 +30,7 @@ array set manufacturing_checks {
     }
     "metal_density_upper" {
         "description"             "Upper metal density compliance"
+        "script"                  "check_utilization.tcl"
         "category"                "manufacturing"
         "severity"                "critical"
         "min_phase"               "P2"
@@ -39,6 +42,7 @@ array set manufacturing_checks {
     }
     "metal_density_uniformity" {
         "description"             "Density window uniformity within limits"
+        "script"                  "check_utilization.tcl"
         "category"                "manufacturing"
         "severity"                "major"
         "min_phase"               "P3"
@@ -50,6 +54,7 @@ array set manufacturing_checks {
     }
     "via_density_check" {
         "description"             "Via density per layer within limits"
+        "script"                  "check_file_exists.tcl"
         "category"                "manufacturing"
         "severity"                "major"
         "min_phase"               "P3"
@@ -61,6 +66,7 @@ array set manufacturing_checks {
     }
     "critical_area_analysis" {
         "description"             "Random defect critical area analysis"
+        "script"                  "check_file_exists.tcl"
         "category"                "manufacturing"
         "severity"                "minor"
         "min_phase"               "P3"
@@ -72,6 +78,7 @@ array set manufacturing_checks {
     }
     "antenna_per_layer" {
         "description"             "Per-layer antenna ratio check"
+        "script"                  "check_drc.tcl"
         "category"                "manufacturing"
         "severity"                "major"
         "min_phase"               "P2"
@@ -83,6 +90,7 @@ array set manufacturing_checks {
     }
     "double_patterning" {
         "description"             "Double patterning compliance (advanced nodes)"
+        "script"                  "check_drc.tcl"
         "category"                "manufacturing"
         "severity"                "major"
         "min_phase"               "P2"
@@ -94,6 +102,7 @@ array set manufacturing_checks {
     }
     "minimum_density_fill" {
         "description"             "Post-fill minimum density check"
+        "script"                  "check_utilization.tcl"
         "category"                "manufacturing"
         "severity"                "major"
         "min_phase"               "P3"
@@ -105,6 +114,7 @@ array set manufacturing_checks {
     }
     "filler_metal_check" {
         "description"             "Dummy metal fill coverage"
+        "script"                  "check_utilization.tcl"
         "category"                "manufacturing"
         "severity"                "major"
         "min_phase"               "P3"
@@ -116,6 +126,7 @@ array set manufacturing_checks {
     }
     "opc_friendly_check" {
         "description"             "OPC-friendly routing patterns"
+        "script"                  "check_file_exists.tcl"
         "category"                "manufacturing"
         "severity"                "minor"
         "min_phase"               "P3"
@@ -127,6 +138,7 @@ array set manufacturing_checks {
     }
     "lithography_hotspot" {
         "description"             "Lithography hotspot detection"
+        "script"                  "check_file_exists.tcl"
         "category"                "manufacturing"
         "severity"                "minor"
         "min_phase"               "P3"
@@ -138,6 +150,7 @@ array set manufacturing_checks {
     }
     "etch_proximity" {
         "description"             "Etch proximity effect violations"
+        "script"                  "check_file_exists.tcl"
         "category"                "manufacturing"
         "severity"                "minor"
         "min_phase"               "P3"
@@ -149,6 +162,7 @@ array set manufacturing_checks {
     }
     "cmp_uniformity" {
         "description"             "CMP planarity and uniformity analysis"
+        "script"                  "check_file_exists.tcl"
         "category"                "manufacturing"
         "severity"                "minor"
         "min_phase"               "P3"
@@ -160,6 +174,7 @@ array set manufacturing_checks {
     }
     "esd_protection" {
         "description"             "ESD structure completeness check"
+        "script"                  "check_file_exists.tcl"
         "category"                "manufacturing"
         "severity"                "major"
         "min_phase"               "P3"

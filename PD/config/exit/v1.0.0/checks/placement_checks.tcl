@@ -11,6 +11,7 @@ array set placement_checks {
 
     "illegal_cells" {
         "description"             "Zero illegal cell placement violations required"
+        "script"                  "check_legality.tcl"
         "category"                "placement"
         "severity"                "critical"
         "min_phase"               "P0"
@@ -23,6 +24,7 @@ array set placement_checks {
 
     "cell_density" {
         "description"             "Overall cell density percentage within target range"
+        "script"                  "check_utilization.tcl"
         "category"                "placement"
         "severity"                "major"
         "min_phase"               "P0"
@@ -35,6 +37,7 @@ array set placement_checks {
 
     "brickwall_density" {
         "description"             "Local density hotspots must not exceed 90%"
+        "script"                  "check_utilization.tcl"
         "category"                "placement"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -47,6 +50,7 @@ array set placement_checks {
 
     "displacement_quality" {
         "description"             "Cell displacement from optimal placement position"
+        "script"                  "check_file_exists.tcl"
         "category"                "placement"
         "severity"                "minor"
         "min_phase"               "P1"
@@ -59,6 +63,7 @@ array set placement_checks {
 
     "pin_accessibility" {
         "description"             "Pin access violations for routing must be zero"
+        "script"                  "check_file_exists.tcl"
         "category"                "placement"
         "severity"                "major"
         "min_phase"               "P1"
@@ -71,6 +76,7 @@ array set placement_checks {
 
     "macro_spacing" {
         "description"             "Macro-to-macro minimum spacing compliance"
+        "script"                  "check_file_exists.tcl"
         "category"                "placement"
         "severity"                "major"
         "min_phase"               "P0"
@@ -83,6 +89,7 @@ array set placement_checks {
 
     "macro_orientation" {
         "description"             "Macro orientation legality — all macros correctly oriented"
+        "script"                  "check_file_exists.tcl"
         "category"                "placement"
         "severity"                "major"
         "min_phase"               "P0"
@@ -95,6 +102,7 @@ array set placement_checks {
 
     "macro_channel_width" {
         "description"             "Routing channel width between macros meets minimum"
+        "script"                  "check_file_exists.tcl"
         "category"                "placement"
         "severity"                "major"
         "min_phase"               "P1"
@@ -107,6 +115,7 @@ array set placement_checks {
 
     "halo_violations" {
         "description"             "Halo/keepout region violations count"
+        "script"                  "check_legality.tcl"
         "category"                "placement"
         "severity"                "major"
         "min_phase"               "P1"
@@ -119,6 +128,7 @@ array set placement_checks {
 
     "blockage_overlap" {
         "description"             "Cell-in-blockage placement violations"
+        "script"                  "check_legality.tcl"
         "category"                "placement"
         "severity"                "major"
         "min_phase"               "P1"
@@ -131,6 +141,7 @@ array set placement_checks {
 
     "cell_orientation" {
         "description"             "Standard cell orientation violations"
+        "script"                  "check_legality.tcl"
         "category"                "placement"
         "severity"                "minor"
         "min_phase"               "P1"
@@ -143,6 +154,7 @@ array set placement_checks {
 
     "well_tap_spacing" {
         "description"             "Well tap proximity compliance — max spacing within limit"
+        "script"                  "check_legality.tcl"
         "category"                "placement"
         "severity"                "major"
         "min_phase"               "P2"
@@ -155,6 +167,7 @@ array set placement_checks {
 
     "endcap_placement" {
         "description"             "Endcap cell placement completeness"
+        "script"                  "check_legality.tcl"
         "category"                "placement"
         "severity"                "major"
         "min_phase"               "P2"
@@ -167,6 +180,7 @@ array set placement_checks {
 
     "filler_coverage" {
         "description"             "Filler cell coverage ratio percentage"
+        "script"                  "check_utilization.tcl"
         "category"                "placement"
         "severity"                "major"
         "min_phase"               "P2"
@@ -179,6 +193,7 @@ array set placement_checks {
 
     "power_domain_boundary" {
         "description"             "Power domain boundary cell placement violations"
+        "script"                  "check_legality.tcl"
         "category"                "placement"
         "severity"                "major"
         "min_phase"               "P1"
@@ -191,6 +206,7 @@ array set placement_checks {
 
     "io_placement_legality" {
         "description"             "IO pad placement legality violations"
+        "script"                  "check_legality.tcl"
         "category"                "placement"
         "severity"                "major"
         "min_phase"               "P0"
@@ -203,6 +219,7 @@ array set placement_checks {
 
     "utilization_uniformity" {
         "description"             "Utilization variance across placement regions"
+        "script"                  "check_utilization.tcl"
         "category"                "placement"
         "severity"                "minor"
         "min_phase"               "P2"
@@ -215,6 +232,7 @@ array set placement_checks {
 
     "congestion_hotspot" {
         "description"             "Local congestion hotspot overflow percentage"
+        "script"                  "check_congestion.tcl"
         "category"                "placement"
         "severity"                "major"
         "min_phase"               "P1"
@@ -227,6 +245,7 @@ array set placement_checks {
 
     "placement_wirelength" {
         "description"             "Total estimated wirelength within budget"
+        "script"                  "check_file_exists.tcl"
         "category"                "placement"
         "severity"                "minor"
         "min_phase"               "P1"
@@ -239,6 +258,7 @@ array set placement_checks {
 
     "scan_chain_reorder" {
         "description"             "Scan chain physical order quality — reorder distance"
+        "script"                  "check_file_exists.tcl"
         "category"                "placement"
         "severity"                "minor"
         "min_phase"               "P2"

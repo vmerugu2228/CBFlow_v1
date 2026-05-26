@@ -12,6 +12,7 @@ array set pv_flow_checks {
 
     "pv_drc_total" {
         "description"             "Total DRC violations must be zero"
+        "script"                  "check_drc.tcl"
         "category"                "drc"
         "severity"                "critical"
         "min_phase"               "P0"
@@ -24,6 +25,7 @@ array set pv_flow_checks {
 
     "pv_drc_spacing" {
         "description"             "Metal spacing violations must be zero"
+        "script"                  "check_drc.tcl"
         "category"                "drc"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -36,6 +38,7 @@ array set pv_flow_checks {
 
     "pv_drc_width" {
         "description"             "Min width violations must be zero"
+        "script"                  "check_drc.tcl"
         "category"                "drc"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -48,6 +51,7 @@ array set pv_flow_checks {
 
     "pv_drc_enclosure" {
         "description"             "Via enclosure violations must be zero"
+        "script"                  "check_drc.tcl"
         "category"                "drc"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -60,6 +64,7 @@ array set pv_flow_checks {
 
     "pv_drc_area" {
         "description"             "Min area violations must be zero"
+        "script"                  "check_drc.tcl"
         "category"                "drc"
         "severity"                "major"
         "min_phase"               "P2"
@@ -72,6 +77,7 @@ array set pv_flow_checks {
 
     "pv_drc_density" {
         "description"             "Density rule violations must be zero"
+        "script"                  "check_drc.tcl"
         "category"                "drc"
         "severity"                "major"
         "min_phase"               "P2"
@@ -84,6 +90,7 @@ array set pv_flow_checks {
 
     "pv_drc_antenna" {
         "description"             "Antenna DRC violations must be zero"
+        "script"                  "check_drc.tcl"
         "category"                "drc"
         "severity"                "major"
         "min_phase"               "P2"
@@ -96,6 +103,7 @@ array set pv_flow_checks {
 
     "pv_drc_off_grid" {
         "description"             "Off-grid violations must be zero"
+        "script"                  "check_drc.tcl"
         "category"                "drc"
         "severity"                "major"
         "min_phase"               "P1"
@@ -108,6 +116,7 @@ array set pv_flow_checks {
 
     "pv_drc_overlap" {
         "description"             "Metal overlap violations must be zero"
+        "script"                  "check_drc.tcl"
         "category"                "drc"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -120,6 +129,7 @@ array set pv_flow_checks {
 
     "pv_drc_notch" {
         "description"             "Notch violations must be zero"
+        "script"                  "check_drc.tcl"
         "category"                "drc"
         "severity"                "major"
         "min_phase"               "P2"
@@ -132,6 +142,7 @@ array set pv_flow_checks {
 
     "pv_lvs_match" {
         "description"             "LVS comparison result must be MATCH"
+        "script"                  "check_file_exists.tcl"
         "category"                "lvs"
         "severity"                "critical"
         "min_phase"               "P0"
@@ -144,6 +155,7 @@ array set pv_flow_checks {
 
     "pv_lvs_shorts" {
         "description"             "LVS short circuits must be zero"
+        "script"                  "check_file_exists.tcl"
         "category"                "lvs"
         "severity"                "critical"
         "min_phase"               "P0"
@@ -156,6 +168,7 @@ array set pv_flow_checks {
 
     "pv_lvs_opens" {
         "description"             "LVS open circuits must be zero"
+        "script"                  "check_file_exists.tcl"
         "category"                "lvs"
         "severity"                "critical"
         "min_phase"               "P0"
@@ -168,6 +181,7 @@ array set pv_flow_checks {
 
     "pv_lvs_device_mismatch" {
         "description"             "Device count mismatch must be zero"
+        "script"                  "check_file_exists.tcl"
         "category"                "lvs"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -180,6 +194,7 @@ array set pv_flow_checks {
 
     "pv_lvs_net_mismatch" {
         "description"             "Net count mismatch must be zero"
+        "script"                  "check_file_exists.tcl"
         "category"                "lvs"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -192,6 +207,7 @@ array set pv_flow_checks {
 
     "pv_lvs_property_mismatch" {
         "description"             "Device property mismatch must be zero"
+        "script"                  "check_file_exists.tcl"
         "category"                "lvs"
         "severity"                "major"
         "min_phase"               "P2"
@@ -204,6 +220,7 @@ array set pv_flow_checks {
 
     "pv_lvs_floating_nets" {
         "description"             "Floating nets in layout must be zero"
+        "script"                  "check_file_exists.tcl"
         "category"                "lvs"
         "severity"                "major"
         "min_phase"               "P1"
@@ -216,6 +233,7 @@ array set pv_flow_checks {
 
     "pv_lvs_missing_connections" {
         "description"             "Missing connections must be zero"
+        "script"                  "check_file_exists.tcl"
         "category"                "lvs"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -228,6 +246,7 @@ array set pv_flow_checks {
 
     "pv_erc_total" {
         "description"             "Total ERC violations must be zero"
+        "script"                  "check_file_exists.tcl"
         "category"                "erc"
         "severity"                "major"
         "min_phase"               "P1"
@@ -240,6 +259,7 @@ array set pv_flow_checks {
 
     "pv_erc_well_contact" {
         "description"             "Well contact violations must be zero"
+        "script"                  "check_file_exists.tcl"
         "category"                "erc"
         "severity"                "major"
         "min_phase"               "P2"
@@ -252,6 +272,7 @@ array set pv_flow_checks {
 
     "pv_erc_floating_gate" {
         "description"             "Floating gate violations must be zero"
+        "script"                  "check_file_exists.tcl"
         "category"                "erc"
         "severity"                "critical"
         "min_phase"               "P2"
@@ -264,6 +285,7 @@ array set pv_flow_checks {
 
     "pv_erc_latchup" {
         "description"             "Latch-up violations must be zero"
+        "script"                  "check_file_exists.tcl"
         "category"                "erc"
         "severity"                "critical"
         "min_phase"               "P2"
@@ -276,6 +298,7 @@ array set pv_flow_checks {
 
     "pv_perc_esd" {
         "description"             "ESD protection path violations must be zero"
+        "script"                  "check_file_exists.tcl"
         "category"                "perc"
         "severity"                "major"
         "min_phase"               "P2"
@@ -288,6 +311,7 @@ array set pv_flow_checks {
 
     "pv_perc_voltage" {
         "description"             "Voltage-aware DRC violations must be zero"
+        "script"                  "check_file_exists.tcl"
         "category"                "perc"
         "severity"                "major"
         "min_phase"               "P2"
@@ -300,6 +324,7 @@ array set pv_flow_checks {
 
     "pv_perc_latchup" {
         "description"             "PERC latch-up check violations must be zero"
+        "script"                  "check_file_exists.tcl"
         "category"                "perc"
         "severity"                "major"
         "min_phase"               "P2"
@@ -312,6 +337,7 @@ array set pv_flow_checks {
 
     "pv_fill_complete" {
         "description"             "Metal fill generation completed successfully"
+        "script"                  "check_file_exists.tcl"
         "category"                "fill"
         "severity"                "major"
         "min_phase"               "P2"
@@ -324,6 +350,7 @@ array set pv_flow_checks {
 
     "pv_fill_density" {
         "description"             "Post-fill density within foundry limits"
+        "script"                  "check_file_exists.tcl"
         "category"                "fill"
         "severity"                "major"
         "min_phase"               "P2"
@@ -336,6 +363,7 @@ array set pv_flow_checks {
 
     "pv_xor_clean" {
         "description"             "XOR comparison (pre/post fill) must be clean"
+        "script"                  "check_file_exists.tcl"
         "category"                "fill"
         "severity"                "major"
         "min_phase"               "P3"
@@ -348,6 +376,7 @@ array set pv_flow_checks {
 
     "pv_merge_complete" {
         "description"             "Layout merge completed without errors"
+        "script"                  "check_file_exists.tcl"
         "category"                "fill"
         "severity"                "major"
         "min_phase"               "P3"
@@ -360,6 +389,7 @@ array set pv_flow_checks {
 
     "pv_summary_report" {
         "description"             "Complete PV summary report generated"
+        "script"                  "check_file_exists.tcl"
         "category"                "pv"
         "severity"                "major"
         "min_phase"               "P0"

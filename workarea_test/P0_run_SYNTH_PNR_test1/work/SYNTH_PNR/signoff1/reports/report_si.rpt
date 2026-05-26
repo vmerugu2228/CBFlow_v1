@@ -1,0 +1,8 @@
+Report : timing -crosstalk_delta
+Design : cpu_core
+
+  SI Violations: 0
+  Crosstalk Violations: 0
+  Noise Violations: 0
+
+PASSED

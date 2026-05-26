@@ -10,6 +10,7 @@ array set routing_checks {
 
     "routing_completion" {
         "description"             "Routing 100% complete — all nets fully routed"
+        "script"                  "check_routing.tcl"
         "category"                "routing"
         "severity"                "critical"
         "min_phase"               "P0"
@@ -22,6 +23,7 @@ array set routing_checks {
 
     "opens" {
         "description"             "Zero open nets — no incomplete routing"
+        "script"                  "check_routing.tcl"
         "category"                "routing"
         "severity"                "critical"
         "min_phase"               "P0"
@@ -34,6 +36,7 @@ array set routing_checks {
 
     "shorts" {
         "description"             "Zero short violations — no shorted nets"
+        "script"                  "check_routing.tcl"
         "category"                "routing"
         "severity"                "critical"
         "min_phase"               "P0"
@@ -46,6 +49,7 @@ array set routing_checks {
 
     "drc_total" {
         "description"             "Total DRC violations within threshold"
+        "script"                  "check_drc.tcl"
         "category"                "routing"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -58,6 +62,7 @@ array set routing_checks {
 
     "drc_spacing" {
         "description"             "Metal spacing violations within threshold"
+        "script"                  "check_drc.tcl"
         "category"                "routing"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -70,6 +75,7 @@ array set routing_checks {
 
     "drc_width" {
         "description"             "Minimum width violations within threshold"
+        "script"                  "check_drc.tcl"
         "category"                "routing"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -82,6 +88,7 @@ array set routing_checks {
 
     "drc_via" {
         "description"             "Via enclosure violations within threshold"
+        "script"                  "check_drc.tcl"
         "category"                "routing"
         "severity"                "major"
         "min_phase"               "P2"
@@ -94,6 +101,7 @@ array set routing_checks {
 
     "drc_area" {
         "description"             "Minimum area violations within threshold"
+        "script"                  "check_drc.tcl"
         "category"                "routing"
         "severity"                "major"
         "min_phase"               "P2"
@@ -106,6 +114,7 @@ array set routing_checks {
 
     "congestion_h" {
         "description"             "Horizontal routing congestion overflow percentage"
+        "script"                  "check_congestion.tcl"
         "category"                "routing"
         "severity"                "major"
         "min_phase"               "P0"
@@ -118,6 +127,7 @@ array set routing_checks {
 
     "congestion_v" {
         "description"             "Vertical routing congestion overflow percentage"
+        "script"                  "check_congestion.tcl"
         "category"                "routing"
         "severity"                "major"
         "min_phase"               "P0"
@@ -130,6 +140,7 @@ array set routing_checks {
 
     "antenna_violations" {
         "description"             "Antenna rule violations count"
+        "script"                  "check_drc.tcl"
         "category"                "routing"
         "severity"                "major"
         "min_phase"               "P2"
@@ -142,6 +153,7 @@ array set routing_checks {
 
     "antenna_ratio" {
         "description"             "Worst antenna ratio within allowed limit"
+        "script"                  "check_drc.tcl"
         "category"                "routing"
         "severity"                "major"
         "min_phase"               "P2"
@@ -154,6 +166,7 @@ array set routing_checks {
 
     "net_length_threshold" {
         "description"             "Number of nets exceeding maximum length threshold"
+        "script"                  "check_constraints.tcl"
         "category"                "routing"
         "severity"                "minor"
         "min_phase"               "P2"
@@ -166,6 +179,7 @@ array set routing_checks {
 
     "detour_routing" {
         "description"             "Routing detour percentage — ratio of actual to ideal length"
+        "script"                  "check_file_exists.tcl"
         "category"                "routing"
         "severity"                "minor"
         "min_phase"               "P2"
@@ -178,6 +192,7 @@ array set routing_checks {
 
     "via_count_optimization" {
         "description"             "Via count per net optimization — excess via percentage"
+        "script"                  "check_file_exists.tcl"
         "category"                "routing"
         "severity"                "minor"
         "min_phase"               "P3"
@@ -190,6 +205,7 @@ array set routing_checks {
 
     "ndr_compliance" {
         "description"             "Non-default rule compliance — all NDR nets meet rules"
+        "script"                  "check_drc.tcl"
         "category"                "routing"
         "severity"                "major"
         "min_phase"               "P2"
@@ -202,6 +218,7 @@ array set routing_checks {
 
     "shielding_coverage" {
         "description"             "Critical net shielding coverage percentage"
+        "script"                  "check_file_exists.tcl"
         "category"                "routing"
         "severity"                "major"
         "min_phase"               "P2"
@@ -214,6 +231,7 @@ array set routing_checks {
 
     "metal_density_min" {
         "description"             "Minimum metal density per layer meets foundry requirement"
+        "script"                  "check_utilization.tcl"
         "category"                "routing"
         "severity"                "major"
         "min_phase"               "P2"
@@ -226,6 +244,7 @@ array set routing_checks {
 
     "metal_density_max" {
         "description"             "Maximum metal density per layer within foundry limit"
+        "script"                  "check_utilization.tcl"
         "category"                "routing"
         "severity"                "major"
         "min_phase"               "P2"
@@ -238,6 +257,7 @@ array set routing_checks {
 
     "via_density" {
         "description"             "Via density uniformity across design"
+        "script"                  "check_file_exists.tcl"
         "category"                "routing"
         "severity"                "minor"
         "min_phase"               "P3"
@@ -250,6 +270,7 @@ array set routing_checks {
 
     "power_shorts" {
         "description"             "Power-to-signal short violations — zero allowed"
+        "script"                  "check_routing.tcl"
         "category"                "routing"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -262,6 +283,7 @@ array set routing_checks {
 
     "power_opens" {
         "description"             "Power mesh open connections — zero allowed"
+        "script"                  "check_routing.tcl"
         "category"                "routing"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -274,6 +296,7 @@ array set routing_checks {
 
     "critical_net_routing" {
         "description"             "Critical net routing quality — DRC-clean critical nets"
+        "script"                  "check_file_exists.tcl"
         "category"                "routing"
         "severity"                "major"
         "min_phase"               "P2"
@@ -286,6 +309,7 @@ array set routing_checks {
 
     "clock_route_drc" {
         "description"             "Clock routing specific DRC violations"
+        "script"                  "check_drc.tcl"
         "category"                "routing"
         "severity"                "major"
         "min_phase"               "P2"
@@ -298,6 +322,7 @@ array set routing_checks {
 
     "multi_cut_via_ratio" {
         "description"             "Multi-cut via usage ratio for reliability"
+        "script"                  "check_file_exists.tcl"
         "category"                "routing"
         "severity"                "minor"
         "min_phase"               "P3"

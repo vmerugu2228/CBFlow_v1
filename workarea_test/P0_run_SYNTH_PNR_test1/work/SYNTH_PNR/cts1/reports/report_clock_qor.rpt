@@ -1,0 +1,9 @@
+Report : clock_qor
+Design : cpu_core
+
+  Global Skew: 45ps
+  Max Insertion Delay: 350ps
+  Clock Coverage: 99.8%
+  Max Clock Transition: 85ps
+
+PASSED

@@ -686,6 +686,10 @@ def cmd_status(args: argparse.Namespace) -> int:
     project = getattr(args, 'project', '') or os.environ.get('CBFLOW_PROJECT', '')
     phase = getattr(args, 'phase', '') or ''
 
+    # Auto-detect phase from run if not provided
+    if not phase:
+        phase = _detect_phase(run_dir)
+
     config, _ = _load_and_validate_config(milestone, run_dir)
     if not config:
         return 1
@@ -753,6 +757,10 @@ def cmd_signoff(args: argparse.Namespace) -> int:
     """Record a sign-off for a milestone."""
     milestone, run_dir, approver = args.milestone, args.run_dir, args.approver
     phase = getattr(args, 'phase', '') or ''
+
+    # Auto-detect phase from run if not provided
+    if not phase:
+        phase = _detect_phase(run_dir)
 
     config, _ = _load_and_validate_config(milestone, run_dir)
     if not config:
@@ -1203,6 +1211,37 @@ def cmd_remove_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def _detect_phase(run_dir: str) -> str:
+    """Auto-detect project phase from run directory.
+
+    Resolution order:
+      1. SQLite DB: run_config 'env.CBFLOW_PROJECT_PHASE'
+      2. Run dir name prefix: P0_run_..., P1_run_..., P2_run_..., P3_run_...
+      3. Empty string (no phase filtering)
+    """
+    # Try DB first
+    db_path = _find_run_db(run_dir)
+    if db_path:
+        try:
+            conn = sqlite3.connect(db_path)
+            row = conn.execute(
+                "SELECT value FROM run_config WHERE key = 'env.CBFLOW_PROJECT_PHASE'"
+            ).fetchone()
+            conn.close()
+            if row and row[0]:
+                return row[0]
+        except (sqlite3.OperationalError, OSError):
+            pass
+
+    # Try run dir name prefix
+    dirname = os.path.basename(os.path.abspath(run_dir))
+    for p in ('P0', 'P1', 'P2', 'P3'):
+        if dirname.startswith(f'{p}_'):
+            return p
+
+    return ''
+
+
 def _check_id_prefix(category: str) -> str:
     """Map category to check ID prefix."""
     prefixes = {
@@ -1257,6 +1296,10 @@ def cmd_list_checks(args: argparse.Namespace) -> int:
     summary_mode = getattr(args, 'summary', False)
     run_dir = getattr(args, 'run_dir', '') or ''
 
+    # Auto-detect phase from run directory if not explicitly provided
+    if not phase and run_dir:
+        phase = _detect_phase(run_dir)
+
     config_path = get_milestone_config_path(milestone)
     if not os.path.exists(config_path):
         logger.error(f"Milestone config not found: {config_path}")
@@ -1301,7 +1344,9 @@ def cmd_list_checks(args: argparse.Namespace) -> int:
             check_id = f'{prefix}-{id_counters[prefix]:03d}'
 
             min_phase = fields.get('min_phase', 'P0')
-            script = fields.get('script', fields.get('grep_pattern', ''))
+            # Show phase range: P0 → "P0-P3", P2 → "P2-P3"
+            phase_range = f'{min_phase}-P3' if min_phase != 'P3' else 'P3'
+            script = fields.get('script', fields.get('report_pattern', fields.get('grep_pattern', '')))
             severity = fields.get('severity', '-')
 
             # Phase filter: skip if check's min_phase > requested phase
@@ -1334,8 +1379,8 @@ def cmd_list_checks(args: argparse.Namespace) -> int:
                 'id': check_id, 'name': name, 'type': check_type,
                 'description': fields.get('description', ''),
                 'script': script[:30] if script else '-',
-                'phase': min_phase, 'severity': severity,
-                'status': status,
+                'phase': phase_range, 'min_phase': min_phase,
+                'severity': severity, 'status': status,
             })
 
     _add_checks(cfg.get('mandatory_checks', {}), 'mandatory')
@@ -1368,22 +1413,22 @@ def cmd_list_checks(args: argparse.Namespace) -> int:
     # Table header
     has_status = run_dir != ''
     if has_status:
-        hdr = f'  {"ID":<10} {"Status":<6} {"Type":<10} {"Phase":<6} {"Severity":<10} {"Check Name":<32} {"Description":<40}'
+        hdr = f'  {"ID":<10} {"Status":<6} {"Type":<10} {"Phase":<7} {"Severity":<10} {"Check Name":<32} {"Description":<40}'
         lines.append(hdr)
         lines.append(f'  {thin}')
         for c in all_checks:
             st = _status_color(c['status'])
             lines.append(
-                f'  {c["id"]:<10} {st:<15} {c["type"]:<10} {c["phase"]:<6} {c["severity"]:<10} '
+                f'  {c["id"]:<10} {st:<15} {c["type"]:<10} {c["phase"]:<7} {c["severity"]:<10} '
                 f'{c["name"]:<32} {c["description"][:40]}'
             )
     else:
-        hdr = f'  {"ID":<10} {"Type":<10} {"Phase":<6} {"Severity":<10} {"Check Name":<32} {"Script/Pattern":<30}'
+        hdr = f'  {"ID":<10} {"Type":<10} {"Phase":<7} {"Severity":<10} {"Check Name":<32} {"Script/Pattern":<30}'
         lines.append(hdr)
         lines.append(f'  {thin}')
         for c in all_checks:
             lines.append(
-                f'  {c["id"]:<10} {c["type"]:<10} {c["phase"]:<6} {c["severity"]:<10} '
+                f'  {c["id"]:<10} {c["type"]:<10} {c["phase"]:<7} {c["severity"]:<10} '
                 f'{c["name"]:<32} {c["script"]:<30}'
             )
 

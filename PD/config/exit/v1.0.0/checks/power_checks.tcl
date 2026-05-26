@@ -6,6 +6,7 @@
 array set power_checks {
     "missing_isolation" {
         "description"             "Missing isolation cells at power domain crossings"
+        "script"                  "check_file_exists.tcl"
         "category"                "power"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -17,6 +18,7 @@ array set power_checks {
     }
     "missing_level_shifters" {
         "description"             "Missing level shifter cells at voltage domain crossings"
+        "script"                  "check_file_exists.tcl"
         "category"                "power"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -28,6 +30,7 @@ array set power_checks {
     }
     "power_switch_distance" {
         "description"             "Maximum distance from power switch to controlled logic"
+        "script"                  "check_file_exists.tcl"
         "category"                "power"
         "severity"                "major"
         "min_phase"               "P2"
@@ -39,6 +42,7 @@ array set power_checks {
     }
     "always_on_violations" {
         "description"             "Always-on path violations in power-gated domains"
+        "script"                  "check_file_exists.tcl"
         "category"                "power"
         "severity"                "critical"
         "min_phase"               "P2"
@@ -50,6 +54,7 @@ array set power_checks {
     }
     "retention_check" {
         "description"             "Retention register save and restore path verification"
+        "script"                  "check_file_exists.tcl"
         "category"                "power"
         "severity"                "critical"
         "min_phase"               "P2"
@@ -61,6 +66,7 @@ array set power_checks {
     }
     "upf_implementation_match" {
         "description"             "Mismatch count between UPF intent and implementation"
+        "script"                  "check_file_exists.tcl"
         "category"                "power"
         "severity"                "critical"
         "min_phase"               "P2"
@@ -72,6 +78,7 @@ array set power_checks {
     }
     "power_domain_crossing" {
         "description"             "Unprotected signals crossing power domain boundaries"
+        "script"                  "check_file_exists.tcl"
         "category"                "power"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -83,6 +90,7 @@ array set power_checks {
     }
     "supply_net_connectivity" {
         "description"             "VDD and VSS supply net connectivity integrity"
+        "script"                  "check_file_exists.tcl"
         "category"                "power"
         "severity"                "critical"
         "min_phase"               "P2"
@@ -94,6 +102,7 @@ array set power_checks {
     }
     "power_switch_chain" {
         "description"             "Power switch daisy-chain connectivity and ordering integrity"
+        "script"                  "check_file_exists.tcl"
         "category"                "power"
         "severity"                "major"
         "min_phase"               "P2"
@@ -105,6 +114,7 @@ array set power_checks {
     }
     "isolation_enable_timing" {
         "description"             "Isolation cell enable signal timing verification"
+        "script"                  "check_timing.tcl"
         "category"                "power"
         "severity"                "major"
         "min_phase"               "P2"
@@ -116,6 +126,7 @@ array set power_checks {
     }
     "level_shifter_placement" {
         "description"             "Level shifter placement location compliance"
+        "script"                  "check_legality.tcl"
         "category"                "power"
         "severity"                "major"
         "min_phase"               "P2"
@@ -127,6 +138,7 @@ array set power_checks {
     }
     "power_state_coverage" {
         "description"             "Percentage of defined power states exercised in verification"
+        "script"                  "check_file_exists.tcl"
         "category"                "power"
         "severity"                "minor"
         "min_phase"               "P3"
@@ -138,6 +150,7 @@ array set power_checks {
     }
     "corruption_analysis" {
         "description"             "State corruption risk analysis during power transitions"
+        "script"                  "check_file_exists.tcl"
         "category"                "power"
         "severity"                "major"
         "min_phase"               "P3"
@@ -149,6 +162,7 @@ array set power_checks {
     }
     "sleep_wakeup_sequence" {
         "description"             "Sleep and wakeup power sequence verification"
+        "script"                  "check_file_exists.tcl"
         "category"                "power"
         "severity"                "major"
         "min_phase"               "P3"
@@ -160,6 +174,7 @@ array set power_checks {
     }
     "power_intent_lint" {
         "description"             "UPF power intent lint and syntax check violations"
+        "script"                  "check_file_exists.tcl"
         "category"                "power"
         "severity"                "major"
         "min_phase"               "P0"
@@ -171,6 +186,7 @@ array set power_checks {
     }
     "voltage_area_overlap" {
         "description"             "Overlapping voltage area boundary violations"
+        "script"                  "check_legality.tcl"
         "category"                "power"
         "severity"                "critical"
         "min_phase"               "P1"
@@ -182,6 +198,7 @@ array set power_checks {
     }
     "ao_buffer_usage" {
         "description"             "Always-on buffer insertion and usage verification"
+        "script"                  "check_file_exists.tcl"
         "category"                "power"
         "severity"                "major"
         "min_phase"               "P2"
@@ -193,6 +210,7 @@ array set power_checks {
     }
     "power_domain_boundary_cells" {
         "description"             "Completeness of boundary cells at power domain edges"
+        "script"                  "check_legality.tcl"
         "category"                "power"
         "severity"                "major"
         "min_phase"               "P2"
@@ -204,6 +222,7 @@ array set power_checks {
     }
     "esd_path_check" {
         "description"             "ESD discharge path integrity through power domains"
+        "script"                  "check_file_exists.tcl"
         "category"                "power"
         "severity"                "major"
         "min_phase"               "P3"
@@ -215,6 +234,7 @@ array set power_checks {
     }
     "power_gating_leakage" {
         "description"             "Residual leakage current in power-gated domains"
+        "script"                  "check_power.tcl"
         "category"                "power"
         "severity"                "minor"
         "min_phase"               "P3"
