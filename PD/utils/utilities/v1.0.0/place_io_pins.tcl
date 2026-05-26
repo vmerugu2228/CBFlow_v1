@@ -18,10 +18,11 @@
 #   -start <um>        Starting offset from corner in microns
 #   -layers <list>     Metal layers: {M4} or {M4 M6} (pins alternate layers)
 #   -pitch <um>        Override track pitch (default: read from technology)
-#   -pattern <bits>    Track usage pattern: 1=place, 0=skip (repeats)
-#                        "11101110" = 3 pins, skip 1 track, repeat
-#                        "10"       = every other track
-#                        "1"        = every track (default)
+#   -pattern <bits>    Track usage pattern: exactly 8 digits, 1=place 0=skip (repeats)
+#                        "11101110" = 3 pins, skip 1 track, 3 pins, skip 1
+#                        "10101010" = every other track
+#                        "11111111" = every track (same as no pattern)
+#                        "11001100" = 2 pins, skip 2, repeat
 #   -out <file>        Write constraints to TCL file instead of executing
 #
 # SIDE REFERENCE:
@@ -170,17 +171,17 @@ proc place_pins {args} {
         error "No ports resolved"
     }
 
-    # Parse track pattern (e.g., "11101110")
+    # Parse track pattern (must be exactly 8 digits of 0/1)
     set pattern_bits [list]
     if {$track_pattern ne ""} {
+        if {[string length $track_pattern] != 8} {
+            error "Track pattern must be exactly 8 digits (e.g., 11101110, 10101010). Got: $track_pattern"
+        }
         foreach ch [split $track_pattern ""] {
             if {$ch ne "0" && $ch ne "1"} {
                 error "Invalid pattern character '$ch' — use only 0 and 1"
             }
             lappend pattern_bits $ch
-        }
-        if {[llength $pattern_bits] == 0} {
-            error "Empty track pattern"
         }
     }
 
