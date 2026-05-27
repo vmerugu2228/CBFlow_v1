@@ -48,9 +48,10 @@ array set operating_modes {
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # PVT points per corner — {voltage temperature} pairs that exist in tech_config
-set mmmc(pvt,ss) {{0p76v 150c} {0p76v 25c} {0p76v m40c} {0p80v 150c} {0p80v 25c}}
-set mmmc(pvt,tt) {{0p80v 25c} {0p80v 150c} {0p80v m40c}}
-set mmmc(pvt,ff) {{0p84v m40c} {0p84v 25c} {0p84v 150c} {0p80v m40c}}
+# Full PVT combinations: all voltages × all temperatures per corner
+set mmmc(pvt,ss) {{0p76v 150c} {0p76v 25c} {0p76v m40c} {0p80v 150c} {0p80v 25c} {0p80v m40c} {0p84v 150c} {0p84v 25c} {0p84v m40c}}
+set mmmc(pvt,tt) {{0p76v 150c} {0p76v 25c} {0p76v m40c} {0p80v 150c} {0p80v 25c} {0p80v m40c} {0p84v 150c} {0p84v 25c} {0p84v m40c}}
+set mmmc(pvt,ff) {{0p76v 150c} {0p76v 25c} {0p76v m40c} {0p80v 150c} {0p80v 25c} {0p80v m40c} {0p84v 150c} {0p84v 25c} {0p84v m40c}}
 
 # Corner → RC corner pairing
 set mmmc(rc_pair,ss) "rcmax"
