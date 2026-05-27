@@ -684,20 +684,21 @@ def cmd_add_pvt(args: argparse.Namespace) -> int:
     content = _read_config(config_path)
     _backup_config(config_path)
 
-    # Find the line: set mmmc(pvt,<corner>) { ... }
+    # Find the line: set mmmc(pvt,<corner>) {....}
+    # PVT line is single line with nested braces — match from 'set mmmc(pvt,X)' to end of line
     pattern = re.compile(
-        rf'(set\s+mmmc\(pvt,{re.escape(corner)}\)\s+\{{)(.*?)(\}})',
-        re.DOTALL
+        rf'(set\s+mmmc\(pvt,{re.escape(corner)}\)\s+\{{)(.+)(\}}\s*)$',
+        re.MULTILINE
     )
     match = pattern.search(content)
     if not match:
         logger.error("Could not find mmmc(pvt,%s) in config", corner)
         return 1
 
-    # Append new PVT point before closing brace
-    old_body = match.group(2)
+    # Append new PVT point before the final closing brace
+    old_body = match.group(2)  # e.g., "{0p84v m40c} {0p84v 25c} {0p84v 150c} {0p80v m40c}"
     new_body = old_body.rstrip() + f' {{{voltage} {temperature}}}'
-    content = content[:match.start(2)] + new_body + content[match.start(3):]
+    content = content[:match.start(2)] + new_body + content[match.end(2):]
 
     _write_config(config_path, content)
     logger.info("Added PVT point {%s %s} to corner '%s'", voltage, temperature, corner)
@@ -737,10 +738,9 @@ def cmd_remove_pvt(args: argparse.Namespace) -> int:
     _backup_config(config_path)
 
     # Remove {voltage temperature} from the pvt line
-    # Match the specific pair within the line
     pattern = re.compile(
-        rf'(set\s+mmmc\(pvt,{re.escape(corner)}\)\s+\{{)(.*?)(\}})',
-        re.DOTALL
+        rf'(set\s+mmmc\(pvt,{re.escape(corner)}\)\s+\{{)(.+)(\}}\s*)$',
+        re.MULTILINE
     )
     match = pattern.search(content)
     if not match:
