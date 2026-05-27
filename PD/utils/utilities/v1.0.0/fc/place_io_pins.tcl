@@ -220,35 +220,41 @@ proc place_io {args} {
         return
     }
 
-    # ── Output: Execute directly via set_attribute (safest) ─────────
-    # Directly sets pin location/layer on existing port terminals.
-    # Does NOT touch boundary, macros, or floorplan.
+    # ── Output: Execute directly via temp DEF (most reliable) ─────────
+    # Write a temp DEF, load it — avoids set_pin_physical_constraints version issues
+    set _tmpdef [file join [pwd] ".pin_placement_tmp.def"]
+    set dbu 1000
+    set fh [open $_tmpdef "w"]
+    puts $fh "VERSION 5.8 ;"
+    puts $fh "DIVIDERCHAR \"/\" ;"
+    puts $fh "BUSBITCHARS \"\[\]\" ;"
+    puts $fh ""
+    puts $fh "DESIGN [get_attribute [current_design] full_name] ;"
+    puts $fh ""
+    puts $fh "PINS [llength $pin_data] ;"
     foreach pd $pin_data {
         set pname [lindex $pd 0]
         set player [lindex $pd 1]
         set px [lindex $pd 2]
         set py [lindex $pd 3]
-
-        set _port [get_ports $pname -quiet]
-        if {$_port eq "" || [sizeof_collection $_port] == 0} {
-            continue
-        }
-
-        # Get or create terminal on the port
-        set _terms [get_terminals -of_objects $_port -quiet]
-        if {$_terms eq "" || [sizeof_collection $_terms] == 0} {
-            # Create terminal if not exists
-            create_terminal -port $pname -layer $player
-            set _terms [get_terminals -of_objects $_port -quiet]
-        }
-
-        if {$_terms ne "" && [sizeof_collection $_terms] > 0} {
-            set _term [index_collection $_terms 0]
-            set_attribute $_term layer $player
-            set_attribute $_term location [list $px $py]
-            set_attribute $_term side $side_num
-        }
+        set pdir [lindex $pd 4]
+        set porient [lindex $pd 5]
+        set px_dbu [expr {int($px * $dbu)}]
+        set py_dbu [expr {int($py * $dbu)}]
+        puts $fh "  - $pname + NET $pname + DIRECTION $pdir"
+        puts $fh "    + LAYER $player ( 0 0 ) ( 40 40 )"
+        puts $fh "    + PLACED ( $px_dbu $py_dbu ) $porient ;"
     }
+    puts $fh "END PINS"
+    puts $fh ""
+    puts $fh "END DESIGN"
+    close $fh
+
+    # Load DEF to place pins
+    read_def -add_def_only_objects {pins} $_tmpdef
+
+    # Cleanup
+    file delete $_tmpdef
 }
 
 # ── FC port resolution ────────────────────────────────────────────────────
