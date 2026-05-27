@@ -41,7 +41,7 @@
 #   get_attribute [current_design] boundary
 #   get_layers / get_attribute [get_layers] pitch
 #   get_ports / get_attribute [get_ports] full_name / sizeof_collection
-#   set_individual_pin_constraints
+#   set_pin_physical_constraints (places immediately — no place_pins needed)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 proc place_io {args} {
@@ -143,7 +143,7 @@ proc place_io {args} {
             "top"    { set x [expr {$llx + $snapped}]; set y $ury }
         }
 
-        lappend lines "set_individual_pin_constraints -ports {$pin} -allowed_layers {$layer} -side $side_num -location {$x $y}"
+        lappend lines "set_pin_physical_constraints -pin_name {$pin} -layers {$layer} -side $side_num -offset $snapped"
         incr pin_idx
         incr track_idx
     }
@@ -151,14 +151,9 @@ proc place_io {args} {
     if {$outfile ne ""} {
         set fh [open $outfile "w"]
         puts $fh [join $lines "\n"]
-        puts $fh ""
-        puts $fh "# Execute placement"
-        puts $fh "place_pins -self"
         close $fh
     } else {
         foreach line $lines { eval $line }
-        # Execute FC's built-in place_pins to actually place them
-        place_pins -self
     }
 }
 
