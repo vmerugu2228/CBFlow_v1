@@ -210,20 +210,51 @@ proc place_io {args} {
         foreach pd $pin_data {
             set pname [lindex $pd 0]
             set player [lindex $pd 1]
-            set poffset [lindex $pd 6]
-            puts $fh "set_pin_physical_constraints -pin_name {$pname} -layers {$player} -side $side_num -offset $poffset"
+            set px [lindex $pd 2]
+            set py [lindex $pd 3]
+            set porient [lindex $pd 5]
+            puts $fh "remove_pin_constraints -self -pin_name {$pname}"
+            puts $fh "create_terminal -port {$pname} -layer $player -location {$px $py} -orientation $porient"
         }
         close $fh
         return
     }
 
-    # ── Output: Execute directly ──────────────────────────────────────
+    # ── Output: Execute directly via temp DEF (most reliable) ─────────
+    # Write a temp DEF, load it — avoids set_pin_physical_constraints version issues
+    set _tmpdef [file join [pwd] ".pin_placement_tmp.def"]
+    set dbu 1000
+    set fh [open $_tmpdef "w"]
+    puts $fh "VERSION 5.8 ;"
+    puts $fh "DIVIDERCHAR \"/\" ;"
+    puts $fh "BUSBITCHARS \"\[\]\" ;"
+    puts $fh ""
+    puts $fh "DESIGN [get_attribute [current_design] full_name] ;"
+    puts $fh ""
+    puts $fh "PINS [llength $pin_data] ;"
     foreach pd $pin_data {
         set pname [lindex $pd 0]
         set player [lindex $pd 1]
-        set poffset [lindex $pd 6]
-        set_pin_physical_constraints -pin_name $pname -layers $player -side $side_num -offset $poffset
+        set px [lindex $pd 2]
+        set py [lindex $pd 3]
+        set pdir [lindex $pd 4]
+        set porient [lindex $pd 5]
+        set px_dbu [expr {int($px * $dbu)}]
+        set py_dbu [expr {int($py * $dbu)}]
+        puts $fh "  - $pname + NET $pname + DIRECTION $pdir"
+        puts $fh "    + LAYER $player ( 0 0 ) ( 40 40 )"
+        puts $fh "    + PLACED ( $px_dbu $py_dbu ) $porient ;"
     }
+    puts $fh "END PINS"
+    puts $fh ""
+    puts $fh "END DESIGN"
+    close $fh
+
+    # Load DEF to place pins
+    read_def -add_def_only_objects {pins} $_tmpdef
+
+    # Cleanup
+    file delete $_tmpdef
 }
 
 # ── FC port resolution ────────────────────────────────────────────────────
