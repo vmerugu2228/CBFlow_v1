@@ -6,7 +6,7 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # USAGE:
 #   source place_io_pins.tcl
-#   place_pins -ports <sel> -side <side> -start <um> -layers <list> [options]
+#   place_io -ports <sel> -side <side> -start <um> -layers <list> [options]
 #
 # ARGUMENTS:
 #   -ports <sel>       Port selection:
@@ -31,11 +31,11 @@
 #                         start→ left to right
 #
 # EXAMPLES:
-#   place_pins -ports * -side left -start 10.0 -layers {M4}
-#   place_pins -ports "data*" -side left -start 10.0 -layers {M4 M6}
-#   place_pins -ports {clk reset_n} -side bottom -start 30.0 -layers {M5}
-#   place_pins -ports "data*" -side right -start 10.0 -layers {M4} -pattern 11101110
-#   place_pins -ports * -side right -start 5.0 -layers {M4} -out pins.tcl
+#   place_io -ports * -side left -start 10.0 -layers {M4}
+#   place_io -ports "data*" -side left -start 10.0 -layers {M4 M6}
+#   place_io -ports {clk reset_n} -side bottom -start 30.0 -layers {M5}
+#   place_io -ports "data*" -side right -start 10.0 -layers {M4} -pattern 11101110
+#   place_io -ports * -side right -start 5.0 -layers {M4} -out pins.tcl
 #
 # FC-SPECIFIC COMMANDS USED:
 #   get_attribute [current_design] boundary
@@ -44,7 +44,7 @@
 #   set_individual_pin_constraints
 # ═══════════════════════════════════════════════════════════════════════════════
 
-proc place_pins {args} {
+proc place_io {args} {
     set ports_arg ""
     set side ""
     set start 0.0
@@ -151,9 +151,14 @@ proc place_pins {args} {
     if {$outfile ne ""} {
         set fh [open $outfile "w"]
         puts $fh [join $lines "\n"]
+        puts $fh ""
+        puts $fh "# Execute placement"
+        puts $fh "place_pins -self"
         close $fh
     } else {
         foreach line $lines { eval $line }
+        # Execute FC's built-in place_pins to actually place them
+        place_pins -self
     }
 }
 
