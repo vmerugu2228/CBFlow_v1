@@ -20,7 +20,9 @@
 #   -pattern <bits>    8-digit track pattern: 1=place 0=skip (repeats)
 #                        "11101110" = 3 on, 1 off, repeat
 #                        "10101010" = every other track
-#   -out <file>        Write TCL file instead of executing
+#   -out <file>        Write TCL constraints file
+#   -def <file>        Write DEF pin placement file — most reliable method
+#                      Use: read_def -add_def_only_objects {pins} <file>
 #
 # SIDE REFERENCE:
 #                ┌──────── top ────────┐
@@ -37,11 +39,16 @@
 #   place_io -ports "data*" -side right -start 10.0 -layers {M4} -pattern 11101110
 #   place_io -ports * -side right -start 5.0 -layers {M4} -out pins.tcl
 #
+#   # Write DEF and load (most reliable — no placer needed):
+#   place_io -ports * -side left -start 10.0 -layers {M4 M6} -def pins.def
+#   read_def -add_def_only_objects {pins} pins.def
+#
 # FC-SPECIFIC COMMANDS USED:
 #   get_attribute [current_design] boundary
 #   get_layers / get_attribute [get_layers] pitch
-#   get_ports / get_attribute [get_ports] full_name / sizeof_collection
-#   set_pin_physical_constraints (places immediately — no place_pins needed)
+#   get_ports / get_attribute [get_ports] full_name / sizeof_collection / direction
+#   set_pin_physical_constraints (constraint mode)
+#   -def mode writes DEF directly — use read_def to load
 # ═══════════════════════════════════════════════════════════════════════════════
 
 proc place_io {args} {
@@ -51,12 +58,14 @@ proc place_io {args} {
     set layers [list]
     set pitch_override ""
     set outfile ""
+    set deffile ""
     set track_pattern ""
 
     for {set i 0} {$i < [llength $args]} {incr i} {
         switch -- [lindex $args $i] {
             -ports   { incr i; set ports_arg [lindex $args $i] }
             -side    { incr i; set side [lindex $args $i] }
+            -def     { incr i; set deffile [lindex $args $i] }
             -start   { incr i; set start [lindex $args $i] }
             -layers  { incr i; set layers [lindex $args $i] }
             -layer   { incr i; set layers [list [lindex $args $i]] }
@@ -143,17 +152,77 @@ proc place_io {args} {
             "top"    { set x [expr {$llx + $snapped}]; set y $ury }
         }
 
-        lappend lines "set_pin_physical_constraints -pin_name {$pin} -layers {$layer} -side $side_num -offset $snapped"
+        # Get port direction for DEF
+        set _port [get_ports $pin -quiet]
+        set _dir "INPUT"
+        if {$_port ne "" && [sizeof_collection $_port] > 0} {
+            set _d [get_attribute $_port direction]
+            if {$_d eq "out"} { set _dir "OUTPUT" } elseif {$_d eq "inout"} { set _dir "INOUT" }
+        }
+
+        # DEF orientation from side
+        switch -- $side {
+            "left"   { set orient "W" }
+            "right"  { set orient "E" }
+            "bottom" { set orient "S" }
+            "top"    { set orient "N" }
+        }
+
+        lappend pin_data [list $pin $layer $x $y $_dir $orient $snapped]
         incr pin_idx
         incr track_idx
     }
 
+    # ── Output: DEF file ──────────────────────────────────────────────
+    if {$deffile ne ""} {
+        set dbu 1000
+        set fh [open $deffile "w"]
+        puts $fh "VERSION 5.8 ;"
+        puts $fh "DIVIDERCHAR \"/\" ;"
+        puts $fh "BUSBITCHARS \"\[\]\" ;"
+        puts $fh ""
+        puts $fh "DESIGN [get_attribute [current_design] full_name] ;"
+        puts $fh ""
+        puts $fh "PINS [llength $pin_data] ;"
+        foreach pd $pin_data {
+            set pname [lindex $pd 0]
+            set player [lindex $pd 1]
+            set px [lindex $pd 2]
+            set py [lindex $pd 3]
+            set pdir [lindex $pd 4]
+            set porient [lindex $pd 5]
+            set px_dbu [expr {int($px * $dbu)}]
+            set py_dbu [expr {int($py * $dbu)}]
+            puts $fh "  - $pname + NET $pname + DIRECTION $pdir"
+            puts $fh "    + LAYER $player ( 0 0 ) ( 40 40 )"
+            puts $fh "    + PLACED ( $px_dbu $py_dbu ) $porient ;"
+        }
+        puts $fh "END PINS"
+        puts $fh ""
+        puts $fh "END DESIGN"
+        close $fh
+        return
+    }
+
+    # ── Output: TCL constraint file ───────────────────────────────────
     if {$outfile ne ""} {
         set fh [open $outfile "w"]
-        puts $fh [join $lines "\n"]
+        foreach pd $pin_data {
+            set pname [lindex $pd 0]
+            set player [lindex $pd 1]
+            set poffset [lindex $pd 6]
+            puts $fh "set_pin_physical_constraints -pin_name {$pname} -layers {$player} -side $side_num -offset $poffset"
+        }
         close $fh
-    } else {
-        foreach line $lines { eval $line }
+        return
+    }
+
+    # ── Output: Execute directly ──────────────────────────────────────
+    foreach pd $pin_data {
+        set pname [lindex $pd 0]
+        set player [lindex $pd 1]
+        set poffset [lindex $pd 6]
+        set_pin_physical_constraints -pin_name $pname -layers $player -side $side_num -offset $poffset
     }
 }
 
