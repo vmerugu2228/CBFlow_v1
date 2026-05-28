@@ -143,10 +143,14 @@ flow_proc rockbottom_swap {
     set target_vt       $::popt(vt_swap,target_vt)
     set available_vts   $::popt(vt_swap,available_vts)
     set vt_suffixes     $::popt(vt_swap,vt_suffixes)
-    set exclude_clk     $::popt(vt_swap,exclude_clock_cells)
-    set exclude_dt      $::popt(vt_swap,exclude_dont_touch)
-    set exclude_ao      $::popt(vt_swap,exclude_always_on)
-    set exclude_cells   $::popt(vt_swap,exclude_cells)
+    set exclude_clk         $::popt(vt_swap,exclude_clock_cells)
+    set exclude_dt          $::popt(vt_swap,exclude_dont_touch)
+    set exclude_ao          $::popt(vt_swap,exclude_always_on)
+    set exclude_pwr         $::popt(vt_swap,exclude_power_cells)
+    set exclude_cell_pats   $::popt(vt_swap,exclude_cell_patterns)
+    set exclude_inst_pats   $::popt(vt_swap,exclude_inst_patterns)
+    set exclude_ref_pats    $::popt(vt_swap,exclude_ref_patterns)
+    set critical_insts      $::popt(vt_swap,critical_instances)
 
     handle_info "Target VT: $target_vt"
     handle_info "Available VTs: $available_vts"
@@ -192,6 +196,8 @@ flow_proc rockbottom_swap {
         set cell_name [get_object_name $cell]
         set skip 0
 
+        set ref_name [get_attribute $cell ref_name -quiet]
+
         # Exclude clock network cells
         if {$exclude_clk eq "true"} {
             set is_clock [get_attribute $cell is_clock_network_cell -quiet]
@@ -216,13 +222,51 @@ flow_proc rockbottom_swap {
             }
         }
 
-        # Exclude explicitly listed cells
-        if {$skip == 0 && $exclude_cells ne ""} {
-            foreach exc_pattern $exclude_cells {
-                if {[string match $exc_pattern $cell_name]} {
+        # Exclude power switch / isolation / level shifter cells
+        if {$skip == 0 && $exclude_pwr eq "true"} {
+            set is_iso [get_attribute $cell is_isolation_cell -quiet]
+            set is_ls  [get_attribute $cell is_level_shifter -quiet]
+            set is_ps  [get_attribute $cell is_power_switch -quiet]
+            set is_ret [get_attribute $cell is_retention_cell -quiet]
+            if {$is_iso eq "true" || $is_ls eq "true" || $is_ps eq "true" || $is_ret eq "true"} {
+                set skip 1
+            }
+        }
+
+        # Exclude by instance name patterns (e.g., */clk_gate_* */ICG_*)
+        if {$skip == 0 && $exclude_inst_pats ne ""} {
+            foreach pat $exclude_inst_pats {
+                if {[string match $pat $cell_name]} {
                     set skip 1
                     break
                 }
+            }
+        }
+
+        # Exclude by cell reference patterns (e.g., SNPS_CLOCK* TIEL* TIEH*)
+        if {$skip == 0 && $exclude_ref_pats ne ""} {
+            foreach pat $exclude_ref_pats {
+                if {[string match $pat $ref_name]} {
+                    set skip 1
+                    break
+                }
+            }
+        }
+
+        # Exclude by legacy cell pattern (backward compat)
+        if {$skip == 0 && $exclude_cell_pats ne ""} {
+            foreach pat $exclude_cell_pats {
+                if {[string match $pat $cell_name] || [string match $pat $ref_name]} {
+                    set skip 1
+                    break
+                }
+            }
+        }
+
+        # Exclude critical instances (explicit list — never touch these)
+        if {$skip == 0 && $critical_insts ne ""} {
+            if {[lsearch -exact $critical_insts $cell_name] >= 0} {
+                set skip 1
             }
         }
 

@@ -52,10 +52,14 @@ array set popt {
     vt_swap,target_vt           "hvt"
     vt_swap,available_vts       "lvt svt hvt"
     vt_swap,vt_suffixes         "LVT SVT HVT"
-    vt_swap,exclude_clock_cells "true"
-    vt_swap,exclude_dont_touch  "true"
-    vt_swap,exclude_always_on   "true"
-    vt_swap,exclude_cells       ""
+    vt_swap,exclude_clock_cells  "true"
+    vt_swap,exclude_dont_touch   "true"
+    vt_swap,exclude_always_on    "true"
+    vt_swap,exclude_power_cells  "true"
+    vt_swap,exclude_cell_patterns ""
+    vt_swap,exclude_inst_patterns ""
+    vt_swap,exclude_ref_patterns  ""
+    vt_swap,critical_instances    ""
 }
 
 # ┌─ Iteration Control ────────────────────────────────────────────────────────┐
