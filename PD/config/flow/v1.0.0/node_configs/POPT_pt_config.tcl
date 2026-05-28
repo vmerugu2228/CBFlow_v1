@@ -44,3 +44,48 @@ array set popt {
     common,design_name                                   ""
     common,release_phase                                 ""
 }
+
+# ┌─ VT Swap Configuration ────────────────────────────────────────────────────┐
+array set popt {
+    vt_swap,enabled             "true"
+    vt_swap,rockbottom          "true"
+    vt_swap,target_vt           "hvt"
+    vt_swap,available_vts       "lvt svt hvt"
+    vt_swap,vt_suffixes         "LVT SVT HVT"
+    vt_swap,exclude_clock_cells "true"
+    vt_swap,exclude_dont_touch  "true"
+    vt_swap,exclude_always_on   "true"
+    vt_swap,exclude_cells       ""
+}
+
+# ┌─ Iteration Control ────────────────────────────────────────────────────────┐
+array set popt {
+    vt_swap,max_iterations      "20"
+    vt_swap,paths_per_iteration "500"
+    vt_swap,convergence_threshold "0.005"
+    vt_swap,setup_target        "0.0"
+    vt_swap,hold_target         "0.0"
+}
+
+# ┌─ Budget Constraints ───────────────────────────────────────────────────────┐
+array set popt {
+    vt_swap,leakage_budget      ""
+    vt_swap,max_lvt_percentage  "15.0"
+    vt_swap,max_svt_percentage  "60.0"
+}
+
+# ┌─ DMSA Configuration ───────────────────────────────────────────────────────┐
+array set popt {
+    dmsa,enabled                "true"
+    dmsa,scenarios              ""
+    dmsa,workers                "4"
+    dmsa,host_list              ""
+    dmsa,launch_method          "local"
+}
+
+# ┌─ Reporting ─────────────────────────────────────────────────────────────────┐
+array set popt {
+    report,per_iteration        "true"
+    report,vt_distribution      "true"
+    report,power_breakdown      "true"
+}
