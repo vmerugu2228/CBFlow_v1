@@ -2191,12 +2191,28 @@ def start_dashboard(run_dir: str, port: int = 0, open_browser: bool = True):
 
     if open_browser:
         def _open_browser():
-            try:
-                # Try opening in new tab (avoids Firefox profile lock)
-                webbrowser.open_new_tab(url)
-            except Exception:
+            import subprocess as _sp
+            import shutil as _sh
+            opened = False
+            # Try browser-specific new-tab commands (works with running instance)
+            for browser, args in [
+                ('firefox',        ['-new-tab', url]),
+                ('google-chrome',  [url]),
+                ('chromium-browser', [url]),
+                ('xdg-open',       [url]),
+                ('open',           [url]),   # macOS
+            ]:
+                exe = _sh.which(browser)
+                if exe:
+                    try:
+                        _sp.Popen([exe] + args, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+                        opened = True
+                        break
+                    except Exception:
+                        continue
+            if not opened:
                 try:
-                    webbrowser.open(url)
+                    webbrowser.open_new_tab(url)
                 except Exception:
                     print(f'  Could not open browser. Open manually: {url}')
         threading.Timer(1.0, _open_browser).start()
