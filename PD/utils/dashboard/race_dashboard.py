@@ -2074,10 +2074,24 @@ def _get_run_port(run_dir: str) -> int:
     """
     import hashlib
     canonical = os.path.realpath(os.path.abspath(run_dir))
-    db_path = os.path.join(run_dir, 'race_status.db')
 
-    # 1. Try to read from DB
-    if os.path.exists(db_path):
+    # 1. Try to read from actual RACE DB (via pointer or glob)
+    db_path = None
+    pointer = os.path.join(run_dir, '.race_db_pointer')
+    if os.path.exists(pointer):
+        try:
+            with open(pointer) as f:
+                p = f.read().strip()
+            if p and os.path.exists(p):
+                db_path = p
+        except (OSError, IOError):
+            pass
+    if not db_path:
+        for f in Path(run_dir).glob('.race_*.db'):
+            db_path = str(f)
+            break
+
+    if db_path:
         try:
             conn = sqlite3.connect(db_path)
             row = conn.execute(
@@ -2105,20 +2119,21 @@ def _get_run_port(run_dir: str) -> int:
     else:
         raise RuntimeError(f"No free port found near {base_port}")
 
-    # 4. Store in DB
-    try:
-        conn = sqlite3.connect(db_path)
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS run_info (key TEXT PRIMARY KEY, value TEXT)"
-        )
-        conn.execute(
-            "INSERT OR REPLACE INTO run_info (key, value) VALUES ('dashboard_port', ?)",
-            (str(port),)
-        )
-        conn.commit()
-        conn.close()
-    except Exception:
-        pass  # Non-critical — port still works, just won't persist
+    # 4. Store in DB (use actual RACE DB found above)
+    if db_path:
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS run_info (key TEXT PRIMARY KEY, value TEXT)"
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO run_info (key, value) VALUES ('dashboard_port', ?)",
+                (str(port),)
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
 
     return port
 
@@ -2148,16 +2163,17 @@ def start_dashboard(run_dir: str, port: int = 0, open_browser: bool = True):
         # Requested port busy — find next free one and update DB
         port = _find_free_port(port + 1, port + 200)
         server = http.server.HTTPServer(('0.0.0.0', port), DashboardHandler)
-        # Update stored port
+        # Update stored port in actual RACE DB
         try:
-            db_path = os.path.join(run_dir, 'race_status.db')
-            conn = sqlite3.connect(db_path)
-            conn.execute(
-                "INSERT OR REPLACE INTO run_info (key, value) VALUES ('dashboard_port', ?)",
-                (str(port),)
-            )
-            conn.commit()
-            conn.close()
+            _db = dashboard.db_path
+            if _db and os.path.exists(_db):
+                conn = sqlite3.connect(_db)
+                conn.execute(
+                    "INSERT OR REPLACE INTO run_info (key, value) VALUES ('dashboard_port', ?)",
+                    (str(port),)
+                )
+                conn.commit()
+                conn.close()
         except Exception:
             pass
 
