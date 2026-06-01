@@ -2190,7 +2190,16 @@ def start_dashboard(run_dir: str, port: int = 0, open_browser: bool = True):
     print(f'  Press Ctrl+C to stop\n')
 
     if open_browser:
-        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+        def _open_browser():
+            try:
+                # Try opening in new tab (avoids Firefox profile lock)
+                webbrowser.open_new_tab(url)
+            except Exception:
+                try:
+                    webbrowser.open(url)
+                except Exception:
+                    print(f'  Could not open browser. Open manually: {url}')
+        threading.Timer(1.0, _open_browser).start()
 
     try:
         server.serve_forever()
