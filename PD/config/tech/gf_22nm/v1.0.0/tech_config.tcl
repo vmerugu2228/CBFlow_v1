@@ -15,6 +15,14 @@ set tech(process)     "GF 22FDX"
 set tech(foundry)     "GlobalFoundries"
 set tech(tracks_available) "9T 7.5T 8T"
 
+# ── VT Variant Patterns (for dont_use selection) ─────────────────────────
+# project(vt_flavors) selects which VTs to use; others get dont_use
+set tech(vt_variants_available) {svt lvt ulvt hvt}
+set tech(vt_pattern,svt)  "*svt*"
+set tech(vt_pattern,lvt)  "*lvt*"
+set tech(vt_pattern,ulvt) "*ulvt*"
+set tech(vt_pattern,hvt)  "*hvt*"
+
 # ── Metal Stack Options ──────────────────────────────────────────────────
 # Each metal stack defines: layer count, layer types, tech file, TLU+/QRC
 # Naming: <process>_<total_metals>M_<thick>Mx_<inter>Cx_<junc>Jx_<thin>Qx_<bump>

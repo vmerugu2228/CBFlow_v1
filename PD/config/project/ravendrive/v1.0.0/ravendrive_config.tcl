@@ -32,6 +32,7 @@ set project(workarea_path) "/Users/vmerugu/projects/CBflow_clone/workarea"
 set project(technology) "gf_22nm"
 set project(track_variant) "9T"
 set project(metal_stack) "gf22naphlogl24uhf116a_11M_2Mx_6Cx_1Jx_2Qx_LB"
+set project(vt_flavors) "svt lvt hvt"
 
 
 # Design hierarchy

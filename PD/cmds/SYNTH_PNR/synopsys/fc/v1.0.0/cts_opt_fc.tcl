@@ -155,6 +155,7 @@ flow_proc set_qor_strategy {
 flow_proc configure_opto {
     handle_info "Configuring clock_opt_opto settings..."
     global synth_pnr tech
+    apply_vt_dont_use
 
     # FC-RM: IR-driven placement (IRDP)
     if {$synth_pnr(synthesis,compile,enable_irdp) ne "" && $synth_pnr(synthesis,compile,enable_irdp)} {

@@ -587,6 +587,7 @@ flow_proc setup_timing_variations {
 flow_proc setup_lib_cell_purpose {
     handle_info "Setting library cell purpose restrictions..."
     global synth_pnr tech
+    apply_vt_dont_use
 
     set _trk $tech(track)
 

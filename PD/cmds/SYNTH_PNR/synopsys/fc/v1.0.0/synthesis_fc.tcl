@@ -152,6 +152,7 @@ flow_proc set_qor_strategy {
 flow_proc configure_compile {
     handle_info "Configuring compile settings..."
     global synth_pnr tech
+    apply_vt_dont_use
 
     # FC-RM: Instance name prefixes
     set_app_options -name opt.common.user_instance_name_prefix -value compile_

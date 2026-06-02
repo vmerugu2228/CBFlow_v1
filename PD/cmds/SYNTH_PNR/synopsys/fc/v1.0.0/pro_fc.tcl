@@ -124,6 +124,7 @@ flow_proc set_qor_strategy {
 flow_proc configure_route_opt {
     handle_info "Configuring route_opt settings..."
     global synth_pnr tech
+    apply_vt_dont_use
 
     # FC-RM: Lib cell purpose
     if {$synth_pnr(common,lib_cell_purpose_file) ne "" && [file exists $synth_pnr(common,lib_cell_purpose_file)]} {

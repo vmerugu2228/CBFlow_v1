@@ -616,6 +616,38 @@ proc load_mmmc_config {} {
 # Called by command files: setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 # Sets DIRS() array + backward-compat vars (WORK_DIR, REPORTS_DIR, etc.)
 
+# ── VT Flavor Selection — dont_use excluded VT cells ─────────────────────
+# Called in every optimization stage (init_design through pro).
+# Reads project(vt_flavors) for allowed VTs.
+# Cells matching excluded VT patterns get set_lib_cell_purpose -exclude.
+# Existing dont_use and dont_touch settings are preserved.
+proc apply_vt_dont_use {} {
+    if {![info exists ::project(vt_flavors)]} { return }
+    if {![info exists ::tech(vt_variants_available)]} { return }
+
+    set _use_vts $::project(vt_flavors)
+    set _excluded 0
+
+    foreach _vt $::tech(vt_variants_available) {
+        if {[lsearch -exact $_use_vts $_vt] < 0} {
+            if {[info exists ::tech(vt_pattern,$_vt)]} {
+                set _pattern $::tech(vt_pattern,$_vt)
+                set _cells [get_lib_cells $_pattern -quiet]
+                if {$_cells ne "" && [sizeof_collection $_cells] > 0} {
+                    set_lib_cell_purpose -exclude optimization $_cells
+                    set _count [sizeof_collection $_cells]
+                    puts "INFO: VT dont_use: $_vt ($_pattern) — $_count cells excluded"
+                    incr _excluded $_count
+                }
+            }
+        }
+    }
+
+    if {$_excluded > 0} {
+        puts "INFO: VT selection: using {$_use_vts}, excluded $_excluded cells"
+    }
+}
+
 proc setup_dirs {run_dir flow_type node_name} {
     global DIRS
     set DIRS(run)         $run_dir
