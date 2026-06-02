@@ -27,6 +27,17 @@ if {[file exists "$run_dir/.run.cbflow.tcl"]} {
 # Load error handling
 source "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/error_utils.tcl"
 
+# Load configuration cascade: project → flow → node → tech → user
+if {[info exists ::env(CBFLOW_PROJECT_NAME)] && $::env(CBFLOW_PROJECT_NAME) ne ""} {
+    set _proj_dir "$::env(CONFIG_ROOT)/project/$::env(CBFLOW_PROJECT_NAME)"
+    foreach _pv [glob -nocomplain "$_proj_dir/v*"] {
+        foreach _pc [glob -nocomplain "$_pv/*_config.tcl"] {
+            if {[file exists $_pc]} { source $_pc }
+        }
+        break
+    }
+}
+
 # Load flow and STA configuration
 set flow_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/flow_config.tcl"
 if {[file exists $flow_config]} { source $flow_config }

@@ -28,14 +28,25 @@ if {[file exists "$run_dir/.run.cbflow.tcl"]} {
 # Load error handling
 source "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/error_utils.tcl"
 
-# Load flow and STA configuration
+# Load configuration cascade: project → flow → node → tech → user
+# Project config MUST be sourced before tech_config (needs project(track_variant))
+if {[info exists ::env(CBFLOW_PROJECT_NAME)] && $::env(CBFLOW_PROJECT_NAME) ne ""} {
+    set _proj_dir "$::env(CONFIG_ROOT)/project/$::env(CBFLOW_PROJECT_NAME)"
+    foreach _pv [glob -nocomplain "$_proj_dir/v*"] {
+        foreach _pc [glob -nocomplain "$_pv/*_config.tcl"] {
+            if {[file exists $_pc]} { source $_pc }
+        }
+        break
+    }
+}
+
 set flow_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/flow_config.tcl"
 if {[file exists $flow_config]} { source $flow_config }
 
 set sta_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/node_configs/STA_config.tcl"
 if {[file exists $sta_config]} { source $sta_config }
 
-# Source tech_config
+# Source tech_config (requires project(track_variant) from project_config above)
 if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
     set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
     if {[file exists $_tc]} { source $_tc }
