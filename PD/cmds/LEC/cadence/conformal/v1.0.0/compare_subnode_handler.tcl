@@ -16,6 +16,17 @@ set cmd_file "$cmd_dir/compare_conformal.tcl"
 
 set test_mode false
 catch { set test_mode [expr {$::flow(test_mode) eq "true"}] }
+if {!$test_mode} {
+    catch { set test_mode [expr {$::env(CBFLOW_TEST_MODE) eq "true"}] }
+}
+# Also check user_config for test_mode
+if {!$test_mode} {
+    set _uc "$run_dir/setup/user_config.tcl"
+    if {[file exists $_uc]} {
+        set _fh [open $_uc r]; set _c [read $_fh]; close $_fh
+        if {[string match "*test_mode*true*" $_c]} { set test_mode true }
+    }
+}
 
 switch -- $subnode {
     "setup" {

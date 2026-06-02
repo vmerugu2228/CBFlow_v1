@@ -17,6 +17,16 @@ set stage_base [regsub {\d+$} $node_name ""]
 set work_dir "$run_dir/work/$flow_type/$node_name"
 set test_mode false
 catch { set test_mode [expr {$::flow(test_mode) eq "true"}] }
+if {!$test_mode} {
+    catch { set test_mode [expr {$::env(CBFLOW_TEST_MODE) eq "true"}] }
+}
+if {!$test_mode} {
+    set _uc "$run_dir/setup/user_config.tcl"
+    if {[file exists $_uc]} {
+        set _fh [open $_uc r]; set _c [read $_fh]; close $_fh
+        if {[string match "*test_mode*true*" $_c]} { set test_mode true }
+    }
+}
 
 switch -- $subnode {
     "setup" {
@@ -24,7 +34,11 @@ switch -- $subnode {
         file mkdir "$work_dir/results"
         puts "INFO: $node_name setup completed"
     }
-    "run" - $stage_base {
+    "run" -
+    "netlist_golden" -
+    "netlist_revised" -
+    "constraints" -
+    $stage_base {
         # Validate input file exists
         set _var_map {
             netlist_golden "lec(input,netlist_golden)"
