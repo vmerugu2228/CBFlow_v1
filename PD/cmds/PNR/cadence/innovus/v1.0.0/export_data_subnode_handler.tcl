@@ -34,6 +34,16 @@ if {[file exists $flow_config]} { source $flow_config }
 set pnr_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/node_configs/PNR_config.tcl"
 if {[file exists $pnr_config]} { source $pnr_config }
 
+# Load project config before tech_config
+if {[info exists ::env(CBFLOW_PROJECT_NAME)] && $::env(CBFLOW_PROJECT_NAME) ne ""} {
+    set _proj_dir "$::env(CONFIG_ROOT)/project/$::env(CBFLOW_PROJECT_NAME)"
+    foreach _pv [glob -nocomplain "$_proj_dir/v*"] {
+        foreach _pc [glob -nocomplain "$_pv/*_config.tcl"] {
+            if {[file exists $_pc]} { source $_pc }
+        }
+        break
+    }
+}
 # Source tech_config
 if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
     set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"

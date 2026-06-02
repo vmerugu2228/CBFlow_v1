@@ -35,6 +35,16 @@ if {[file exists $flow_config]} { source $flow_config }
 set clp_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/node_configs/CLP_config.tcl"
 if {[file exists $clp_config]} { source $clp_config }
 
+# Load project config before tech_config
+if {[info exists ::env(CBFLOW_PROJECT_NAME)] && $::env(CBFLOW_PROJECT_NAME) ne ""} {
+    set _proj_dir "$::env(CONFIG_ROOT)/project/$::env(CBFLOW_PROJECT_NAME)"
+    foreach _pv [glob -nocomplain "$_proj_dir/v*"] {
+        foreach _pc [glob -nocomplain "$_pv/*_config.tcl"] {
+            if {[file exists $_pc]} { source $_pc }
+        }
+        break
+    }
+}
 # Source tech_config
 if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
     set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
@@ -68,6 +78,13 @@ switch $subnode_name {
         file mkdir "$run_dir/work/CLP/$node_name/netlist"
         file mkdir "$run_dir/work/CLP/$node_name/upf"
         file mkdir "$run_dir/work/CLP/$node_name/power_spec"
+    # Generate config.tcl + setup.tcl via config cascade
+    if {[info exists ::env(GENERATION_VERSION)] && $::env(GENERATION_VERSION) ne ""} {
+        set _gen "$::env(FLOW_DIR)/utils/generation/$::env(GENERATION_VERSION)/generate_setup.tcl"
+        if {[file exists $_gen]} {
+            catch {exec tclsh $_gen $::flow_type $node_name ${node_name}_default $run_dir}
+        }
+    }
         puts "INFO: CLP $stage_name setup completed"
     }
     "netlist" {
