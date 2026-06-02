@@ -31,6 +31,15 @@ array set sta {
     extract_etm                "false"
 }
 
+# ── Extraction Configuration ───────────────────────────────────────────
+array set sta {
+    extraction,mode            "starrc"
+    extraction,starrc_binary   "StarXtract"
+    extraction,coupling        "RCCC"
+    extraction,couple_to_ground "NO"
+    extraction,format          "spef"
+}
+
 # ── PT-RM App Variables ──────────────────────────────────────────────
 # --- ANALYSIS (5 vars) ---
 array set sta {

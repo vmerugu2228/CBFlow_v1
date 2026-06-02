@@ -242,40 +242,44 @@ switch $subnode_name {
             file mkdir "$_corner_dir/run"
             file mkdir "$_corner_dir/results"
 
-            # Resolve RC parasitic file from mmmc_config rc_corners array
-            # Priority: rc_corners(<corner>,tluplus_file) → rc_corners(<corner>,qrc_techfile) → rc_corners(<corner>,nxtgrd_file)
+            # Resolve RC parasitic file from tech_config
+            # Keys: tech(rcx,<rc_corner>,nxtgrd), tech(rcx,<rc_corner>,tluplus), tech(rcx,<rc_corner>,qrc)
+            # Priority: nxtgrd (StarRC) → tluplus (Synopsys) → qrc (Cadence)
             set _rc_file ""
             set _rc_file_type ""
-            if {[info exists rc_corners($subnode_name)]} {
-                set _corner_data $rc_corners($subnode_name)
-                # Parse the corner dict for parasitic file references
-                foreach {_k _v} $_corner_data {
-                    if {$_k eq "tluplus_file" && $_v ne ""} {
-                        # Resolve tech() variable reference (e.g., "tech(tluplus,max)" → actual path)
-                        if {[regexp {^tech\((.+)\)$} $_v _m _techkey]} {
-                            if {[info exists tech($_techkey)]} { set _rc_file $tech($_techkey) }
-                        } else {
-                            set _rc_file $_v
-                        }
-                        if {$_rc_file ne ""} { set _rc_file_type "tluplus"; break }
-                    }
-                    if {$_k eq "qrc_techfile" && $_v ne ""} { set _rc_file $_v; set _rc_file_type "qrc"; break }
-                    if {$_k eq "nxtgrd_file" && $_v ne ""} { set _rc_file $_v; set _rc_file_type "nxtgrd"; break }
-                }
+            set _rc_corner $subnode_name  ;# e.g., rc_max, rc_typ, rc_min, rc_max_cworst
+
+            # Try nxtgrd first (StarRC native format)
+            if {[info exists tech(rcx,${_rc_corner},nxtgrd)] && $tech(rcx,${_rc_corner},nxtgrd) ne ""} {
+                set _rc_file $tech(rcx,${_rc_corner},nxtgrd)
+                set _rc_file_type "nxtgrd"
             }
-            # Fallback: use tech(tluplus,max/min) based on corner name
-            if {$_rc_file eq ""} {
-                if {[string match "*min*" $subnode_name] && [info exists tech(tluplus,min)]} {
-                    set _rc_file $tech(tluplus,min); set _rc_file_type "tluplus"
-                } elseif {[info exists tech(tluplus,max)]} {
-                    set _rc_file $tech(tluplus,max); set _rc_file_type "tluplus"
-                }
+            # Try tluplus (Synopsys format)
+            if {$_rc_file eq "" && [info exists tech(rcx,${_rc_corner},tluplus)] && $tech(rcx,${_rc_corner},tluplus) ne ""} {
+                set _rc_file $tech(rcx,${_rc_corner},tluplus)
+                set _rc_file_type "tluplus"
             }
+            # Try qrc (Cadence format)
+            if {$_rc_file eq "" && [info exists tech(rcx,${_rc_corner},qrc)] && $tech(rcx,${_rc_corner},qrc) ne ""} {
+                set _rc_file $tech(rcx,${_rc_corner},qrc)
+                set _rc_file_type "qrc"
+            }
+
+            # Also resolve mapping file and LEF for StarRC
+            set _mapping_file ""
+            if {[info exists tech(tluplus_map)]} { set _mapping_file $tech(tluplus_map) }
+            set _lef_file ""
+            if {[info exists tech(lef_tech)]} { set _lef_file $tech(lef_tech) }
+            set _def_file ""
+            if {[info exists sta(input,def_file)]} { set _def_file $sta(input,def_file) }
 
             if {$test_mode} {
                 puts "INFO: \[TEST MODE\] Extraction for RC corner: $subnode_name"
-                puts "INFO: RC parasitic file: $_rc_file ($_rc_file_type)"
-                puts "INFO: Corner work dir: $_corner_dir"
+                puts "INFO:   RC file:     $_rc_file ($_rc_file_type)"
+                puts "INFO:   Mapping:     $_mapping_file"
+                puts "INFO:   LEF:         $_lef_file"
+                puts "INFO:   DEF:         $_def_file"
+                puts "INFO:   Corner dir:  $_corner_dir"
                 # Create mock SPEF output for downstream stages
                 set _spef "$_corner_dir/results/${node_name}_${subnode_name}.spef"
                 set fh [open $_spef "w"]
@@ -298,9 +302,54 @@ switch $subnode_name {
                 set ::env(CBFLOW_RC_FILE) $_rc_file
                 set ::env(CBFLOW_RC_FILE_TYPE) $_rc_file_type
                 set ::env(CBFLOW_EXTRACTION_DIR) $_corner_dir
-                puts "INFO: Executing extraction for $subnode_name (rc_file=$_rc_file)"
-                if {[catch {exec $_tool_shell -f $cmd_file -output_log_file $_log_file} result]} {
-                    puts "ERROR: extraction $subnode_name failed: $result"; exit 1
+                set ::env(CBFLOW_MAPPING_FILE) $_mapping_file
+                set ::env(CBFLOW_LEF_FILE) $_lef_file
+                set ::env(CBFLOW_DEF_FILE) $_def_file
+
+                # Determine extraction mode: StarRC standalone or PT internal
+                set _ext_mode "starrc"
+                if {[info exists sta(extraction,mode)]} { set _ext_mode $sta(extraction,mode) }
+
+                if {$_ext_mode eq "starrc"} {
+                    # Generate StarRC command file and invoke StarXtract
+                    set _star_cmd "$_work_dir/star_cmd_${subnode_name}"
+                    set _spef_out "$_corner_dir/results/${node_name}_${subnode_name}.spef"
+                    set _starrc_bin "StarXtract"
+                    if {[info exists sta(extraction,starrc_binary)]} { set _starrc_bin $sta(extraction,starrc_binary) }
+                    set _coupling "RCCC"
+                    if {[info exists sta(extraction,coupling)]} { set _coupling $sta(extraction,coupling) }
+
+                    # Write star_cmd file
+                    set _fh [open $_star_cmd "w"]
+                    puts $_fh "STAR_DIRECTORY: $_work_dir/star_work"
+                    puts $_fh "BLOCK: $::flow(design_name)"
+                    if {$_rc_file_type eq "nxtgrd"} {
+                        puts $_fh "TCAD_GRD_FILE: $_rc_file"
+                    } elseif {$_rc_file_type eq "tluplus"} {
+                        puts $_fh "TCAD_GRD_FILE: $_rc_file"
+                    }
+                    if {$_mapping_file ne ""} { puts $_fh "MAPPING_FILE: $_mapping_file" }
+                    if {$_def_file ne ""}     { puts $_fh "TOP_DEF_FILE: $_def_file" }
+                    if {$_lef_file ne ""}     { puts $_fh "LEF_FILE: $_lef_file" }
+                    puts $_fh "NETLIST_FILE: $_spef_out"
+                    puts $_fh "EXTRACTION: $_coupling"
+                    puts $_fh "COUPLE_TO_GROUND: NO"
+                    puts $_fh "STAR_SPEF_FORMAT: YES"
+                    puts $_fh "OPERATING_TEMPERATURE: [lindex [array get rc_corners $subnode_name] 1]"
+                    close $_fh
+
+                    puts "INFO: Generated StarRC cmd: $_star_cmd"
+                    puts "INFO: Invoking: $_starrc_bin $_star_cmd"
+                    file mkdir "$_work_dir/star_work"
+                    if {[catch {exec $_starrc_bin $_star_cmd >& "$_work_dir/${node_name}_${subnode_name}.log"} result]} {
+                        puts "ERROR: StarRC extraction $subnode_name failed: $result"; exit 1
+                    }
+                } else {
+                    # PT internal extraction
+                    puts "INFO: Executing PT extraction for $subnode_name (rc_file=$_rc_file)"
+                    if {[catch {exec $_tool_shell -f $cmd_file -output_log_file $_log_file} result]} {
+                        puts "ERROR: extraction $subnode_name failed: $result"; exit 1
+                    }
                 }
                 puts "INFO: extraction $subnode_name completed"
             }
