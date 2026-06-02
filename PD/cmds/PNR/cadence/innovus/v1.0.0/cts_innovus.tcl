@@ -90,6 +90,7 @@ flow_proc enable_mmmc {
 flow_proc setup_cts {
     handle_info "Setting up CTS parameters..."
 
+    apply_vt_dont_use
     # Get CTS parameters from config
     global pnr
     set cts_target_skew $pnr(cts,target_skew)

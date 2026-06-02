@@ -22,6 +22,7 @@ setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 flow_proc setup_libraries {
     handle_info "Setting up libraries..."
     global pnr tech flow
+    apply_vt_dont_use
 
     # ── LEF files (track-aware) ────────────────────────────────────────────────
     set lef_files [list]

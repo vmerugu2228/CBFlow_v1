@@ -628,23 +628,34 @@ proc apply_vt_dont_use {} {
     set _use_vts $::project(vt_flavors)
     set _excluded 0
 
+    # Detect tool: FC uses set_lib_cell_purpose, Innovus uses setDontUse
+    set _is_innovus [expr {[info commands setDontUse] ne ""}]
+
     foreach _vt $::tech(vt_variants_available) {
         if {[lsearch -exact $_use_vts $_vt] < 0} {
             if {[info exists ::tech(vt_pattern,$_vt)]} {
                 set _pattern $::tech(vt_pattern,$_vt)
-                set _cells [get_lib_cells $_pattern -quiet]
-                if {$_cells ne "" && [sizeof_collection $_cells] > 0} {
-                    set_lib_cell_purpose -exclude optimization $_cells
-                    set _count [sizeof_collection $_cells]
-                    puts "INFO: VT dont_use: $_vt ($_pattern) — $_count cells excluded"
-                    incr _excluded $_count
+                if {$_is_innovus} {
+                    # Innovus: setDontUse <pattern> true
+                    catch { setDontUse $_pattern true }
+                    puts "INFO: VT dont_use (Innovus): $_vt ($_pattern)"
+                    incr _excluded
+                } else {
+                    # FC: set_lib_cell_purpose -exclude optimization
+                    set _cells [get_lib_cells $_pattern -quiet]
+                    if {$_cells ne "" && [sizeof_collection $_cells] > 0} {
+                        set_lib_cell_purpose -exclude optimization $_cells
+                        set _count [sizeof_collection $_cells]
+                        puts "INFO: VT dont_use: $_vt ($_pattern) — $_count cells excluded"
+                        incr _excluded $_count
+                    }
                 }
             }
         }
     }
 
     if {$_excluded > 0} {
-        puts "INFO: VT selection: using {$_use_vts}, excluded $_excluded cells"
+        puts "INFO: VT selection: using {$_use_vts}, excluded $_excluded cells/patterns"
     }
 }
 

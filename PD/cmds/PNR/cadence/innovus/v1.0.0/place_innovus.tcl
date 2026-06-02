@@ -90,6 +90,7 @@ flow_proc enable_mmmc {
 flow_proc setup_placement {
     handle_info "Setting up placement parameters..."
 
+    apply_vt_dont_use
     # Get placement parameters from config
     global pnr
     set place_effort  $pnr(place,effort)

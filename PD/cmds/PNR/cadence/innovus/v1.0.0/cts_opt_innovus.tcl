@@ -55,6 +55,7 @@ flow_proc enable_mmmc {
 flow_proc optimize_clock_tree {
     handle_info "Running clock tree optimization..."
     
+    apply_vt_dont_use
     # Advanced CTS optimization
     global pnr
     set optimization_effort [expr {[info exists pnr(cts_opt,effort)] ? $pnr(cts_opt,effort) : "high"}]

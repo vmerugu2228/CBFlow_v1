@@ -85,6 +85,7 @@ flow_proc enable_mmmc {
 flow_proc extract_parasitics {
     handle_info "Extracting parasitics..."
 
+    apply_vt_dont_use
     # Get extraction parameters from config
     global pnr
     set extraction_mode $pnr(extract,mode)

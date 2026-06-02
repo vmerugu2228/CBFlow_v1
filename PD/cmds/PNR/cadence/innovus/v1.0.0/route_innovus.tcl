@@ -90,6 +90,7 @@ flow_proc enable_mmmc {
 flow_proc setup_routing {
     handle_info "Setting up routing parameters..."
 
+    apply_vt_dont_use
     # Get routing parameters from config
     global pnr
     set route_effort   $pnr(route,effort)
