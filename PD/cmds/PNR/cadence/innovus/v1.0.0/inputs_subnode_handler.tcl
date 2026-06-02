@@ -84,8 +84,7 @@ if {[file exists $error_utils_path]} {
     # Define basic error handling functions if not available
     proc handle_error {msg} { puts "ERROR: $msg"; exit 1 }
     proc handle_warning {msg} { puts "WARNING: $msg" }
-    proc # Source INNOVUS tool config
-handle_info {msg} { puts "INFO: $msg" }
+    proc handle_info {msg} { puts "INFO: $msg" }
 }
 
 # Load only PNR configuration using release version
@@ -207,12 +206,15 @@ proc handle_sdc_subnode {run_dir} {
     
     set target_dir "$run_dir/work/$flow_type/$node_name/sdc"
     
-    # Check if SDC is defined
-    if {![info exists pnr(input,sdc)]} {
-        puts "ERROR: pnr(input,sdc) not defined in configuration"
+    # Check if SDC is defined — try sdc_func_file first, then sdc_file fallback
+    if {[info exists pnr(input,sdc_func_file)] && $pnr(input,sdc_func_file) ne ""} {
+        set sdc_file $pnr(input,sdc_func_file)
+    } elseif {[info exists pnr(input,sdc_file)] && $pnr(input,sdc_file) ne ""} {
+        set sdc_file $pnr(input,sdc_file)
+    } else {
+        puts "ERROR: pnr(input,sdc_func_file) not defined in configuration"
+        exit 1
     }
-    
-    set sdc_file $pnr(input,sdc)
     
     # Validate SDC file exists
     if {![file exists $sdc_file]} {

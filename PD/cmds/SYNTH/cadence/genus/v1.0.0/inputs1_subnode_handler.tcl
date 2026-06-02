@@ -93,6 +93,13 @@ if {[file exists $flow_config_path]} {
     exit 1
 }
 
+# Load SYNTH node configuration (defines synth() array with stage/input variables)
+set synth_config_path "$FLOW_DIR/config/flow/$::env(FLOW_CONFIG_VERSION)/node_configs/SYNTH_config.tcl"
+if {[file exists $synth_config_path]} {
+    source $synth_config_path
+    puts "INFO: SYNTH node configuration loaded from: $synth_config_path"
+}
+
 # Check arguments
 if {$argc < 1} {
     # Get valid subnodes dynamically from flow config

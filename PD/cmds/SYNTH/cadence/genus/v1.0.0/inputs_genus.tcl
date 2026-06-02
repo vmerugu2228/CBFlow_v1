@@ -14,12 +14,11 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
-    if {[file exists ".config.tcl"]} {
 handle_info "Starting SYNTH inputs stage with Genus..."
-    namespace eval ::flow {
-        variable exec_mode "auto"
-        variable start_time [clock seconds]
-        variable flow_errors {}
+namespace eval ::flow {
+    variable exec_mode "auto"
+    variable start_time [clock seconds]
+    variable flow_errors {}
 }
 # ── Directories ──────────────────────────────────────────────────────────────
 # Source release utilities for input resolution

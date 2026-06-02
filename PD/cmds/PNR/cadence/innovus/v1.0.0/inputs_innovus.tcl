@@ -147,22 +147,28 @@ flow_proc validate_input_files {
         handle_error "✗ Netlist not specified in pnr(input,netlist)"
     }
     
-    # Check SDC
-    if {[info exists pnr(input,sdc)]} {
-        if {[file exists $pnr(input,sdc)]} {
-            handle_info "✓ SDC: [file tail $pnr(input,sdc)]"
-            lappend input_files $pnr(input,sdc)
+    # Check SDC — try sdc_func_file first, then sdc_file fallback
+    set _sdc_var ""
+    if {[info exists pnr(input,sdc_func_file)] && $pnr(input,sdc_func_file) ne ""} {
+        set _sdc_var "input,sdc_func_file"
+    } elseif {[info exists pnr(input,sdc_file)] && $pnr(input,sdc_file) ne ""} {
+        set _sdc_var "input,sdc_file"
+    }
+    if {$_sdc_var ne ""} {
+        if {[file exists $pnr($_sdc_var)]} {
+            handle_info "✓ SDC: [file tail $pnr($_sdc_var)]"
+            lappend input_files $pnr($_sdc_var)
         } else {
-            handle_error "✗ SDC not found: $pnr(input,sdc)"
+            handle_error "✗ SDC not found: $pnr($_sdc_var)"
         }
     } else {
-        handle_error "✗ SDC not specified in pnr(input,sdc)"
+        handle_error "✗ SDC not specified in pnr(input,sdc_func_file)"
     }
     
     # Check optional files
     foreach {var_name file_type} {
-        "input,def" "DEF"
-        "input,upf" "UPF" 
+        "input,def_file" "DEF"
+        "input,upf_file" "UPF"
         "input,io_file" "I/O placement"
     } {
         if {[info exists pnr($var_name)] && $pnr($var_name) ne ""} {
@@ -206,11 +212,17 @@ flow_proc link_input_files {
         }
     }
     
-    # Link SDC
-    if {[info exists pnr(input,sdc)] && [file exists $pnr(input,sdc)]} {
-        set dest_sdc "$input_dir/constraints/[file tail $pnr(input,sdc)]"
+    # Link SDC — try sdc_func_file first, then sdc_file fallback
+    set _sdc_src ""
+    if {[info exists pnr(input,sdc_func_file)] && $pnr(input,sdc_func_file) ne ""} {
+        set _sdc_src $pnr(input,sdc_func_file)
+    } elseif {[info exists pnr(input,sdc_file)] && $pnr(input,sdc_file) ne ""} {
+        set _sdc_src $pnr(input,sdc_file)
+    }
+    if {$_sdc_src ne "" && [file exists $_sdc_src]} {
+        set dest_sdc "$input_dir/constraints/[file tail $_sdc_src]"
         if {![file exists $dest_sdc]} {
-            file copy $pnr(input,sdc) $dest_sdc
+            file copy $_sdc_src $dest_sdc
             handle_info "Linked SDC: $dest_sdc"
         } else {
             handle_info "SDC already linked: $dest_sdc"
@@ -219,8 +231,8 @@ flow_proc link_input_files {
     
     # Link optional files
     foreach {var_name subdir file_type} {
-        "input,def" "def" "DEF"
-        "input,upf" "upf" "UPF"
+        "input,def_file" "def" "DEF"
+        "input,upf_file" "upf" "UPF"
         "input,io_file" "io" "I/O placement"
     } {
         if {[info exists pnr($var_name)] && $pnr($var_name) ne "" && [file exists $pnr($var_name)]} {
@@ -288,11 +300,17 @@ flow_proc inputs_complete {
         }
     }
     
-    if {[info exists pnr(input,sdc)]} {
-        puts $fd "SDC: $pnr(input,sdc)"
-        if {[file exists $pnr(input,sdc)]} {
-            puts $fd "  Size: [file size $pnr(input,sdc)] bytes"
-            puts $fd "  Modified: [clock format [file mtime $pnr(input,sdc)]]"
+    set _sdc_rpt ""
+    if {[info exists pnr(input,sdc_func_file)] && $pnr(input,sdc_func_file) ne ""} {
+        set _sdc_rpt $pnr(input,sdc_func_file)
+    } elseif {[info exists pnr(input,sdc_file)] && $pnr(input,sdc_file) ne ""} {
+        set _sdc_rpt $pnr(input,sdc_file)
+    }
+    if {$_sdc_rpt ne ""} {
+        puts $fd "SDC: $_sdc_rpt"
+        if {[file exists $_sdc_rpt]} {
+            puts $fd "  Size: [file size $_sdc_rpt] bytes"
+            puts $fd "  Modified: [clock format [file mtime $_sdc_rpt]]"
         }
     }
     

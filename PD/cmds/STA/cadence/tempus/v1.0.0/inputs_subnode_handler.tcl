@@ -38,10 +38,10 @@ if {[file exists $sta_config]} { source $sta_config }
 # Source tech_config
 if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
     set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
+    if {[file exists $_tc]} { source $_tc }
 }
 # Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
+if {[file exists "$run_dir/setup/user_config.tcl"]} { source "$run_dir/setup/user_config.tcl" }
 
 set ::flow_type "STA"
 set stage_name "inputs"
@@ -51,6 +51,15 @@ if {$node_name eq ""} { set node_name $stage_name }
 set test_mode false
 if {[info exists flow(test_mode)] && $flow(test_mode) eq "true"} {
     set test_mode true
+}
+
+# Resolve inputs from upstream run manifest or release tag (before processing subnodes)
+if {[info exists ::env(SCRIPTS_ROOT)] && [info exists ::env(UTILITIES_VERSION)]} {
+    set _resolve_lib "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/resolve_inputs.tcl"
+    if {[file exists $_resolve_lib]} {
+        source $_resolve_lib
+        resolve_flow_inputs $::flow_type $run_dir
+    }
 }
 
 switch $subnode_name {

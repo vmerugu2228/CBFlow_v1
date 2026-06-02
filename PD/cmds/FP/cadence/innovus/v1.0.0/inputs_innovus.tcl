@@ -67,11 +67,11 @@ foreach config_file $config_files {
 # Source tech_config
 if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
     set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
+    if {[file exists $_tc]} { source $_tc }
 }
 
 # Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
+if {[file exists "$run_dir/setup/user_config.tcl"]} { source "$run_dir/setup/user_config.tcl" }
             handle_warning "Minor error in config file $config_file: $error"
             handle_info "Continuing with available configuration..."
         }
