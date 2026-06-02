@@ -47,7 +47,10 @@ array set sta {
 
 array set sta {
     extraction,effort                                    ""
-    extraction,mode                                      ""
+    extraction,mode                                      "qrc"
+    extraction,quantus_binary                             "quantus"
+    extraction,coupling                                  "YES"
+    extraction,format                                    "spef"
 }
 
 array set sta {
