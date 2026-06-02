@@ -1,5 +1,7 @@
 #!/usr/bin/env tclsh
 # EMIR Thermal Analysis - Cadence Voltus
+# Note: Voltus integrates thermal into power analysis -- there is no standalone
+# thermal solver. Thermal analysis = temperature-dependent power + IR analysis.
 
 # -- Bootstrap -----------------------------------------------------------------
 set run_dir $::env(CBFLOW_RUN_DIR)
@@ -18,215 +20,188 @@ handle_info "Starting EMIR thermal_analysis stage with Voltus..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
 
-set WORK_DIR "$run_dir/work/EMIR/thermal_analysis"
+set WORK_DIR "$run_dir/work/EMIR/thermal_analysis1"
 set REPORTS_DIR "$WORK_DIR/reports"
 set OUTPUTS_DIR "$run_dir/outputs"
 file mkdir $REPORTS_DIR
 file mkdir $OUTPUTS_DIR
 
 # ┌─────────────────────────────────────────────────────────────────────────────┐
-# │                     CONFIGURE THERMAL                                      │
+# │                     SETUP THERMAL                                          │
 # └─────────────────────────────────────────────────────────────────────────────┘
 
-flow_proc configure_thermal {
-    global emir project tech flow
-    handle_info "Configuring thermal analysis settings..."
+flow_proc setup_thermal {
+    global emir
+    handle_info "Configuring thermal-aware analysis settings..."
 
     file mkdir "$::REPORTS_DIR/thermal"
     file mkdir "$::OUTPUTS_DIR/emir/thermal"
 
     # Set ambient temperature
-    if {[info exists emir(thermal,ambient_temperature)]} {
-        puts "Ambient temperature: $emir(thermal,ambient_temperature)C"
-        set_thermal_analysis_mode -ambient_temperature $emir(thermal,ambient_temperature)
-    } else {
-        puts "Ambient temperature: 25C (default)"
-        set_thermal_analysis_mode -ambient_temperature 25
+    if {[info exists emir(thermal,ambient_temperature)] && $emir(thermal,ambient_temperature) ne ""} {
+        handle_info "  set_db thermal_ambient_temperature $emir(thermal,ambient_temperature)"
+        set_db thermal_ambient_temperature $emir(thermal,ambient_temperature)
+    } elseif {[info exists emir(voltus,ambient_temp)] && $emir(voltus,ambient_temp) ne ""} {
+        handle_info "  set_db thermal_ambient_temperature $emir(voltus,ambient_temp)"
+        set_db thermal_ambient_temperature $emir(voltus,ambient_temp)
     }
 
-    # Set thermal conductivity model
-    if {[info exists emir(thermal,conductivity_model)]} {
-        set_thermal_analysis_mode -conductivity_model $emir(thermal,conductivity_model)
-        puts "Conductivity model: $emir(thermal,conductivity_model)"
+    # Set operating temperature for power analysis
+    if {[info exists emir(voltus,junction_temp)] && $emir(voltus,junction_temp) ne ""} {
+        handle_info "  set_db power_temperature $emir(voltus,junction_temp)"
+        set_db power_temperature $emir(voltus,junction_temp)
+    } elseif {[info exists emir(thermal,max_temperature)] && $emir(thermal,max_temperature) ne ""} {
+        handle_info "  set_db power_temperature $emir(thermal,max_temperature)"
+        set_db power_temperature $emir(thermal,max_temperature)
     }
 
-    # Set thermal mesh resolution
-    if {[info exists emir(thermal,mesh_resolution)]} {
-        set_thermal_analysis_mode -mesh_resolution $emir(thermal,mesh_resolution)
-        puts "Mesh resolution: $emir(thermal,mesh_resolution)"
-    }
-
-    # Set package thermal resistance (junction to ambient)
-    if {[info exists emir(thermal,theta_ja)]} {
-        set_thermal_analysis_mode -theta_ja $emir(thermal,theta_ja)
-        puts "Theta-JA: $emir(thermal,theta_ja) C/W"
-    }
-
-    # Set thermal analysis type (steady-state or transient)
-    if {[info exists emir(thermal,analysis_type)]} {
-        set_thermal_analysis_mode -type $emir(thermal,analysis_type)
-        puts "Analysis type: $emir(thermal,analysis_type)"
-    } else {
-        set_thermal_analysis_mode -type steady_state
-        puts "Analysis type: steady_state (default)"
-    }
-
-    # Configure heat sink parameters if available
-    if {[info exists emir(thermal,heat_sink_enabled)] && $emir(thermal,heat_sink_enabled) eq "true"} {
-        if {[info exists emir(thermal,heat_sink_coefficient)]} {
-            set_thermal_analysis_mode -heat_sink_coefficient $emir(thermal,heat_sink_coefficient)
-            puts "Heat sink coefficient: $emir(thermal,heat_sink_coefficient)"
+    # Read thermal model if available
+    if {[info exists emir(thermal,thermal_model_file)] && $emir(thermal,thermal_model_file) ne ""} {
+        if {[file exists $emir(thermal,thermal_model_file)]} {
+            handle_info "  read_thermal_model $emir(thermal,thermal_model_file)"
+            read_thermal_model $emir(thermal,thermal_model_file)
+        } else {
+            handle_warning "Thermal model file not found: $emir(thermal,thermal_model_file)"
         }
     }
 
-    puts " Thermal analysis configuration completed"
+    # Read temperature map if available (for non-uniform temperature distribution)
+    if {[info exists emir(thermal,temperature_map_file)] && $emir(thermal,temperature_map_file) ne ""} {
+        if {[file exists $emir(thermal,temperature_map_file)]} {
+            handle_info "  set_thermal_map -file $emir(thermal,temperature_map_file)"
+            set_thermal_map -file $emir(thermal,temperature_map_file)
+        } else {
+            handle_warning "Temperature map file not found: $emir(thermal,temperature_map_file)"
+        }
+    }
+
+    handle_info "Thermal configuration completed"
 }
 
 # ┌─────────────────────────────────────────────────────────────────────────────┐
-# │                     RUN THERMAL ANALYSIS                                   │
+# │                     RUN THERMAL-AWARE ANALYSIS                             │
 # └─────────────────────────────────────────────────────────────────────────────┘
 
-flow_proc run_thermal {
-    global emir project tech flow
-    handle_info "Running thermal simulation..."
+flow_proc run_thermal_aware_analysis {
+    global emir flow
+    handle_info "Running thermal-aware power and IR analysis..."
 
-    # Run Voltus thermal analysis
-    puts "Executing thermal analysis..."
-    analyze_thermal
+    set vdd_net [expr {[info exists emir(power,vdd_net)] && $emir(power,vdd_net) ne "" ? $emir(power,vdd_net) : "VDD"}]
+    set vss_net [expr {[info exists emir(power,vss_net)] && $emir(power,vss_net) ne "" ? $emir(power,vss_net) : "VSS"}]
 
-    # Generate thermal map
-    set thermal_map "$::OUTPUTS_DIR/emir/thermal/thermal_map.rptdb"
-    report_thermal -map \
-        -out_file $thermal_map
-    handle_info "  Thermal map: $thermal_map"
-
-    # Generate temperature distribution report
-    set temp_dist_rpt "$::REPORTS_DIR/thermal/temperature_distribution.rpt"
-    report_thermal \
-        -out_file $temp_dist_rpt
-    handle_info "  Temperature distribution: $temp_dist_rpt"
-
-    # Per-layer thermal report
-    if {[info exists emir(thermal,per_layer_report)] && $emir(thermal,per_layer_report) eq "true"} {
-        set layer_rpt "$::REPORTS_DIR/thermal/thermal_per_layer.rpt"
-        report_thermal -per_layer \
-            -out_file $layer_rpt
-        handle_info "  Per-layer thermal: $layer_rpt"
-    }
-
-    # Generate thermal profile for power-thermal iteration
-    if {[info exists emir(thermal,power_thermal_loop)] && $emir(thermal,power_thermal_loop) eq "true"} {
-        set thermal_profile "$::OUTPUTS_DIR/emir/thermal/thermal_profile.dat"
-        write_thermal_profile $thermal_profile
-        handle_info "  Thermal profile for iteration: $thermal_profile"
-    }
-
-    puts " Thermal simulation completed"
-}
-
-# ┌─────────────────────────────────────────────────────────────────────────────┐
-# │                     IDENTIFY HOTSPOTS                                      │
-# └─────────────────────────────────────────────────────────────────────────────┘
-
-flow_proc identify_hotspots {
-    global emir project tech flow
-    handle_info "Identifying thermal hotspots..."
-
-    set hotspot_rpt "$::REPORTS_DIR/thermal/thermal_hotspots.rpt"
-
-    # Set hotspot threshold from config
-    if {[info exists emir(thermal,hotspot_threshold)]} {
-        report_thermal_hotspot \
-            -temperature_threshold $emir(thermal,hotspot_threshold) \
-            -out_file $hotspot_rpt
-        puts "Hotspot threshold: $emir(thermal,hotspot_threshold)C"
+    # Thermal-aware power analysis: includes temperature-dependent leakage
+    handle_info "  set_power_analysis_mode -method static -thermal_aware true"
+    if {[info exists emir(power,analysis_view)] && $emir(power,analysis_view) ne ""} {
+        set_power_analysis_mode -method static \
+            -analysis_view $emir(power,analysis_view) \
+            -thermal_aware true
     } else {
-        report_thermal_hotspot \
-            -out_file $hotspot_rpt
-    }
-    handle_info "  Hotspot report: $hotspot_rpt"
-
-    # Report worst-case thermal instances
-    if {[info exists emir(thermal,max_hotspots)]} {
-        set max_hotspots $emir(thermal,max_hotspots)
-    } else {
-        set max_hotspots 50
+        set_power_analysis_mode -method static \
+            -thermal_aware true
     }
 
-    set worst_rpt "$::REPORTS_DIR/thermal/worst_thermal_instances.rpt"
-    report_thermal -worst_case $max_hotspots \
-        -out_file $worst_rpt
-    handle_info "  Worst thermal instances ($max_hotspots): $worst_rpt"
+    # Power report at operating temperature
+    set thermal_power_rpt "$::REPORTS_DIR/thermal/thermal_power.rpt"
+    handle_info "  report_power -hierarchy all > $thermal_power_rpt"
+    report_power -hierarchy all > $thermal_power_rpt
 
-    # Report thermal gradient violations
-    if {[info exists emir(thermal,gradient_threshold)]} {
-        set gradient_rpt "$::REPORTS_DIR/thermal/thermal_gradient.rpt"
-        report_thermal -gradient_threshold $emir(thermal,gradient_threshold) \
-            -out_file $gradient_rpt
-        handle_info "  Gradient violations: $gradient_rpt"
-    }
+    # Temperature-dependent leakage report
+    set leak_rpt "$::REPORTS_DIR/thermal/thermal_leakage.rpt"
+    handle_info "  report_power -leakage > $leak_rpt"
+    report_power -leakage > $leak_rpt
 
-    puts " Hotspot identification completed"
+    # IR drop at operating temperature
+    handle_info "  set_pg_analysis_mode -power_grid_analysis static -voltage_from_pg_pin true"
+    set_pg_analysis_mode -power_grid_analysis static \
+        -voltage_from_pg_pin true
+
+    handle_info "  analyze_power_grid -net $vdd_net -temperature_dependent true"
+    analyze_power_grid -net $vdd_net -temperature_dependent true
+
+    # IR drop report at temperature
+    set thermal_ir_rpt "$::REPORTS_DIR/thermal/thermal_ir_drop.rpt"
+    handle_info "  report_power_rail -net $vdd_net -type ir_drop -temperature_dependent"
+    report_power_rail -net $vdd_net -type ir_drop \
+        -temperature_dependent > $thermal_ir_rpt
+
+    # Standard IR drop at temperature for comparison
+    set ir_rpt "$::REPORTS_DIR/thermal/ir_drop_at_temp.rpt"
+    report_power_rail -net $vdd_net -type ir_drop \
+        -output_file $ir_rpt
+
+    handle_info "Thermal-aware analysis completed"
 }
 
 # ┌─────────────────────────────────────────────────────────────────────────────┐
-# │                     GENERATE REPORT                                        │
+# │                     GENERATE THERMAL REPORT                                │
 # └─────────────────────────────────────────────────────────────────────────────┘
 
-flow_proc generate_report {
-    global emir project tech flow
-    handle_info "Generating thermal analysis summary..."
+flow_proc generate_thermal_report {
+    global emir flow
+    handle_info "Generating thermal analysis reports..."
 
+    # Voltus thermal report
+    set thermal_rpt "$::REPORTS_DIR/thermal/thermal_results.rpt"
+    handle_info "  report_thermal -output_file $thermal_rpt"
+    report_thermal -output_file $thermal_rpt
+
+    # Power density report (proxy for thermal hotspots)
+    set density_rpt "$::REPORTS_DIR/thermal/power_density.rpt"
+    handle_info "  report_power -density > $density_rpt"
+    report_power -density > $density_rpt
+
+    # Summary report
     set summary_file "$::REPORTS_DIR/thermal/thermal_analysis_summary.rpt"
-    file mkdir [file dirname $summary_file]
     set fp [open $summary_file w]
-    puts $fp "═══════════════════════════════════════════════════════════════"
+    puts $fp "================================================================"
     puts $fp "CBFlow EMIR Thermal Analysis Summary - Voltus"
-    puts $fp "═══════════════════════════════════════════════════════════════"
+    puts $fp "================================================================"
     puts $fp "Generated: [clock format [clock seconds]]"
     puts $fp "Tool: Cadence Voltus"
-    if {[info exists project(top_module)]} { puts $fp "Design: $project(top_module)" }
-    if {[info exists project(name)]} { puts $fp "Project: $project(name)" }
+    puts $fp "Design: $flow(design_name)"
     puts $fp ""
     puts $fp "Configuration:"
-    if {[info exists emir(thermal,ambient_temperature)]} {
-        puts $fp "  Ambient temperature: $emir(thermal,ambient_temperature)C"
+    if {[info exists emir(thermal,ambient_temperature)] && $emir(thermal,ambient_temperature) ne ""} {
+        puts $fp "  Ambient temperature:    $emir(thermal,ambient_temperature)C"
     }
-    if {[info exists emir(thermal,theta_ja)]} {
-        puts $fp "  Theta-JA: $emir(thermal,theta_ja) C/W"
+    if {[info exists emir(voltus,junction_temp)] && $emir(voltus,junction_temp) ne ""} {
+        puts $fp "  Junction temperature:   $emir(voltus,junction_temp)C"
     }
-    if {[info exists emir(thermal,analysis_type)]} {
-        puts $fp "  Analysis type: $emir(thermal,analysis_type)"
-    }
-    if {[info exists emir(thermal,hotspot_threshold)]} {
-        puts $fp "  Hotspot threshold: $emir(thermal,hotspot_threshold)C"
+    if {[info exists emir(thermal,max_temperature)] && $emir(thermal,max_temperature) ne ""} {
+        puts $fp "  Max temperature limit:  $emir(thermal,max_temperature)C"
     }
     puts $fp ""
+    puts $fp "Note: Voltus integrates thermal into power analysis."
+    puts $fp "      Temperature-dependent leakage and IR drop are computed"
+    puts $fp "      using the configured junction/ambient temperatures."
+    puts $fp "      Power density serves as proxy for thermal hotspot detection."
+    puts $fp ""
     puts $fp "Reports Generated:"
-    puts $fp "  Temperature distribution: reports/emir/thermal/temperature_distribution.rpt"
-    puts $fp "  Thermal hotspots:         reports/emir/thermal/thermal_hotspots.rpt"
-    puts $fp "  Worst instances:          reports/emir/thermal/worst_thermal_instances.rpt"
-    puts $fp "  Thermal map:              results/emir/thermal/thermal_map.rptdb"
+    puts $fp "  Thermal power:      thermal/thermal_power.rpt"
+    puts $fp "  Thermal leakage:    thermal/thermal_leakage.rpt"
+    puts $fp "  Thermal IR drop:    thermal/thermal_ir_drop.rpt"
+    puts $fp "  IR at temperature:  thermal/ir_drop_at_temp.rpt"
+    puts $fp "  Thermal results:    thermal/thermal_results.rpt"
+    puts $fp "  Power density:      thermal/power_density.rpt"
     close $fp
 
     handle_info "  Summary: $summary_file"
-    puts " Thermal analysis reporting completed"
+    handle_info "Thermal analysis reporting completed"
 }
 
 # ┌─────────────────────────────────────────────────────────────────────────────┐
 # │                           EXECUTION CONTROL                                │
 # └─────────────────────────────────────────────────────────────────────────────┘
 
-handle_info "═══════════════════════════════════════════════════════════════"
+handle_info "================================================================"
 handle_info " CBFlow EMIR thermal_analysis with Voltus"
-handle_info "═══════════════════════════════════════════════════════════════"
+handle_info "================================================================"
 
 flow_proc thermal_analysis_flow {
     handle_info "Executing EMIR thermal_analysis flow..."
-    flow_exec configure_thermal
-    flow_exec run_thermal
-    flow_exec identify_hotspots
-    flow_exec generate_report
+    flow_exec setup_thermal
+    flow_exec run_thermal_aware_analysis
+    flow_exec generate_thermal_report
     handle_info "EMIR thermal_analysis completed successfully"
 }
 

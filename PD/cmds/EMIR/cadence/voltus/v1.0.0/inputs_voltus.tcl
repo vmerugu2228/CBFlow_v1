@@ -18,7 +18,7 @@ handle_info "Starting EMIR inputs stage with Voltus..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
 
-set WORK_DIR "$run_dir/work/EMIR/inputs"
+set WORK_DIR "$run_dir/work/EMIR/inputs1"
 set REPORTS_DIR "$WORK_DIR/reports"
 set OUTPUTS_DIR "$run_dir/outputs"
 file mkdir $REPORTS_DIR
@@ -38,10 +38,10 @@ flow_proc resolve_inputs {
     handle_info "Resolving input files..."
     global emir flow project flow_input_handshake
 
-    set design_name [expr {[info exists emir(common,design_name)] ? $emir(common,design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists emir(common,design_name)] && $emir(common,design_name) ne "" ? $emir(common,design_name) : $flow(design_name)}]
 
     if {![namespace exists ::CBFlow::InputResolve]} {
-        handle_info "Release input resolution not available — using direct paths only"
+        handle_info "Release input resolution not available -- using direct paths only"
         return
     }
 
@@ -97,30 +97,76 @@ flow_proc resolve_inputs {
 }
 
 # ┌─────────────────────────────────────────────────────────────────────────────┐
-# │                        SETUP DIRECTORIES                                   │
+# │                        READ LIBRARIES                                      │
 # └─────────────────────────────────────────────────────────────────────────────┘
 
-flow_proc setup_dirs {
-    handle_info "Setting up EMIR input directories..."
-    set run_dir $::env(CBFLOW_RUN_DIR)
+flow_proc read_libraries {
+    global emir tech flow
+    handle_info "Reading timing libraries..."
 
-    foreach dir {
-        "work/EMIR/inputs/netlist"
-        "work/EMIR/inputs/def"
-        "work/EMIR/inputs/spef"
-        "work/EMIR/inputs/library"
-        "work/EMIR/inputs/activity"
-        "work/EMIR/inputs/pg_lib"
-        "logs/inputs"
-        "reports/emir"
-        "reports/emir/power"
-        "reports/emir/ir_drop"
-        "reports/emir/thermal"
-        "results/emir"
-    } {
-        file mkdir "$run_dir/$dir"
+    # Read Liberty (.lib) files from tech config
+    # Uses track-specific combined timing list: tech($tech(track),lib_nom)
+    set _trk $tech(track)
+    if {[info exists tech(${_trk},lib_nom)]} {
+        foreach lib $tech(${_trk},lib_nom) {
+            if {[file exists $lib]} {
+                handle_info "  read_lib $lib"
+                read_lib $lib
+            } else {
+                handle_warning "Liberty file not found: $lib"
+            }
+        }
+    } elseif {[info exists tech(lib,timing)]} {
+        # Fallback to backward-compat alias
+        foreach lib $tech(lib,timing) {
+            if {[file exists $lib]} {
+                handle_info "  read_lib $lib"
+                read_lib $lib
+            } else {
+                handle_warning "Liberty file not found: $lib"
+            }
+        }
+    } else {
+        handle_error "No timing libraries defined -- set tech($tech(track),lib_nom) in tech config"
     }
-    puts " EMIR input directories created"
+
+    handle_info "Timing libraries loaded"
+}
+
+# ┌─────────────────────────────────────────────────────────────────────────────┐
+# │                        READ PHYSICAL                                       │
+# └─────────────────────────────────────────────────────────────────────────────┘
+
+flow_proc read_physical {
+    global emir tech flow
+    handle_info "Reading LEF physical data..."
+
+    # Read technology LEF
+    if {[info exists tech(lef_tech)] && $tech(lef_tech) ne ""} {
+        if {[file exists $tech(lef_tech)]} {
+            handle_info "  read_lef $tech(lef_tech)"
+            read_lef $tech(lef_tech)
+        } else {
+            handle_warning "Tech LEF not found: $tech(lef_tech)"
+        }
+    }
+
+    # Read cell LEFs from track-specific list: tech($tech(track),lef)
+    set _trk $tech(track)
+    if {[info exists tech(${_trk},lef)]} {
+        foreach lef $tech(${_trk},lef) {
+            if {[file exists $lef]} {
+                handle_info "  read_lef $lef"
+                read_lef $lef
+            } else {
+                handle_warning "Cell LEF not found: $lef"
+            }
+        }
+    } else {
+        handle_error "No LEF files defined -- set tech($tech(track),lef) in tech config"
+    }
+
+    handle_info "LEF data loaded"
 }
 
 # ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -128,136 +174,91 @@ flow_proc setup_dirs {
 # └─────────────────────────────────────────────────────────────────────────────┘
 
 flow_proc read_design {
-    global emir project tech flow FLOW_DIR
-    handle_info "Reading design with physical data for EMIR analysis..."
-    set run_dir $::env(CBFLOW_RUN_DIR)
+    global emir flow
+    handle_info "Reading design netlist and DEF..."
 
-    # Read timing libraries
-    if {[info exists tech(lib,timing)]} {
-        puts "Reading Liberty files:"
-        set lib_files [expr {[string match "*{*}*" $tech(lib,timing)] ? $tech(lib,timing) : [list $tech(lib,timing)]}]
-        set project_root [file dirname $FLOW_DIR]
-        foreach lib $lib_files {
-            set expanded_lib [subst $lib]
-            set lib_path [file join $project_root $expanded_lib]
-            if {[file exists $lib_path]} {
-                puts "   $lib"
-                read_lib $lib_path
-            } else {
-                handle_warning "Liberty file not found: $lib_path"
-            }
+    # Read gate-level netlist
+    if {[info exists emir(input,netlist)] && $emir(input,netlist) ne ""} {
+        if {[file exists $emir(input,netlist)]} {
+            handle_info "  read_verilog $emir(input,netlist)"
+            read_verilog $emir(input,netlist)
+        } else {
+            handle_error "Netlist file not found: $emir(input,netlist)"
         }
     } else {
-        handle_error "tech(lib,timing) not defined in configuration"
-    }
-
-    # Read LEF files for physical data
-    if {[info exists tech(lef,standard_cells)]} {
-        puts "Reading LEF files:"
-        set project_root [file dirname $FLOW_DIR]
-        if {[info exists tech(lef,technology)]} {
-            set lef_path [file join $project_root [subst $tech(lef,technology)]]
-            if {[file exists $lef_path]} {
-                puts "   [file tail $tech(lef,technology)]"
-                read_physical -lef $lef_path
-            }
-        }
-        set lef_path [file join $project_root [subst $tech(lef,standard_cells)]]
-        if {[file exists $lef_path]} {
-            puts "   [file tail $tech(lef,standard_cells)]"
-            read_physical -lef $lef_path
-        }
-    }
-
-    # Read DEF for physical placement and routing data
-    set def_files [glob -nocomplain "$run_dir/work/EMIR/inputs/def/*.def" "$run_dir/work/EMIR/inputs/def/*.def.gz"]
-    if {[llength $def_files] > 0} {
-        foreach def $def_files {
-            puts "   Reading DEF: [file tail $def]"
-            read_design -physical_data $def
-        }
-    } else {
-        handle_warning "No DEF files found in inputs/def"
-    }
-
-    # Read netlist
-    set netlist_files [glob -nocomplain "$run_dir/work/EMIR/inputs/netlist/*.v" "$run_dir/work/EMIR/inputs/netlist/*.sv" "$run_dir/work/EMIR/inputs/netlist/*.vg"]
-    if {[llength $netlist_files] > 0} {
-        foreach netlist $netlist_files {
-            puts "   Reading netlist: [file tail $netlist]"
-            read_verilog $netlist
-        }
-    } else {
-        handle_warning "No netlist files found in inputs/netlist"
+        handle_error "emir(input,netlist) not defined"
     }
 
     # Set top module
-    if {[info exists project(top_module)]} {
-        puts "Setting top module: $project(top_module)"
-        set_top_module $project(top_module)
-    }
+    handle_info "  set_top_module $flow(design_name)"
+    set_top_module $flow(design_name)
 
-    # Read SPEF parasitics
-    set spef_files [glob -nocomplain "$run_dir/work/EMIR/inputs/spef/*.spef" "$run_dir/work/EMIR/inputs/spef/*.spef.gz"]
-    if {[llength $spef_files] > 0} {
-        foreach spef $spef_files {
-            puts "   Reading SPEF: [file tail $spef]"
-            read_parasitics -format spef $spef
+    # Read DEF (placement + routing)
+    if {[info exists emir(input,def_file)] && $emir(input,def_file) ne ""} {
+        if {[file exists $emir(input,def_file)]} {
+            handle_info "  read_def $emir(input,def_file)"
+            read_def $emir(input,def_file)
+        } else {
+            handle_error "DEF file not found: $emir(input,def_file)"
         }
     } else {
-        handle_warning "No SPEF files found in inputs/spef"
+        handle_error "emir(input,def_file) not defined"
     }
 
-    puts " Design read completed"
+    handle_info "Design loaded"
 }
 
 # ┌─────────────────────────────────────────────────────────────────────────────┐
-# │                        READ POWER DATA                                     │
+# │                        READ PARASITICS                                     │
 # └─────────────────────────────────────────────────────────────────────────────┘
 
-flow_proc read_power_data {
-    global emir project tech flow
-    handle_info "Reading power activity data..."
-    set run_dir $::env(CBFLOW_RUN_DIR)
+flow_proc read_parasitics {
+    global emir
+    handle_info "Reading parasitic data..."
 
-    # Read switching activity files (VCD/SAIF)
-    set activity_dir "$run_dir/work/EMIR/inputs/activity"
-    set vcd_files [glob -nocomplain "$activity_dir/*.vcd" "$activity_dir/*.vcd.gz"]
-    set saif_files [glob -nocomplain "$activity_dir/*.saif"]
-
-    if {[llength $vcd_files] > 0} {
-        foreach vcd $vcd_files {
-            puts "   Reading VCD activity: [file tail $vcd]"
-            read_activity_file -format vcd $vcd
-        }
-    } elseif {[llength $saif_files] > 0} {
-        foreach saif $saif_files {
-            puts "   Reading SAIF activity: [file tail $saif]"
-            read_activity_file -format saif $saif
+    if {[info exists emir(input,spef)] && $emir(input,spef) ne ""} {
+        if {[file exists $emir(input,spef)]} {
+            handle_info "  read_spef $emir(input,spef)"
+            read_spef $emir(input,spef)
+        } else {
+            handle_error "SPEF file not found: $emir(input,spef)"
         }
     } else {
-        handle_warning "No switching activity files found (VCD/SAIF)"
-        # Set default switching activity from config
-        if {[info exists emir(power,default_toggle_rate)]} {
-            puts "   Using default toggle rate: $emir(power,default_toggle_rate)"
-            set_default_switching_activity -toggle_rate $emir(power,default_toggle_rate)
-        }
-        if {[info exists emir(power,default_static_probability)]} {
-            puts "   Using default static probability: $emir(power,default_static_probability)"
-            set_default_switching_activity -static_probability $emir(power,default_static_probability)
-        }
+        handle_warning "emir(input,spef) not defined -- IR drop accuracy may be reduced"
     }
 
-    # Read power grid library models
-    set pg_lib_files [glob -nocomplain "$run_dir/work/EMIR/inputs/pg_lib/*.cl"]
-    if {[llength $pg_lib_files] > 0} {
-        foreach pg_lib $pg_lib_files {
-            puts "   Reading PG library: [file tail $pg_lib]"
-            read_pg_library $pg_lib
-        }
-    }
+    handle_info "Parasitics loaded"
+}
 
-    puts " Power data loaded"
+# ┌─────────────────────────────────────────────────────────────────────────────┐
+# │                        SETUP POWER NETS                                    │
+# └─────────────────────────────────────────────────────────────────────────────┘
+
+flow_proc setup_power_nets {
+    global emir
+    handle_info "Configuring power/ground net connections..."
+
+    # Get power/ground net names from config
+    set vdd_net [expr {[info exists emir(power,vdd_net)] && $emir(power,vdd_net) ne "" ? $emir(power,vdd_net) : "VDD"}]
+    set vss_net [expr {[info exists emir(power,vss_net)] && $emir(power,vss_net) ne "" ? $emir(power,vss_net) : "VSS"}]
+
+    # Connect global power nets to cell pins
+    handle_info "  globalNetConnect $vdd_net -type pgpin -pin $vdd_net -all"
+    globalNetConnect $vdd_net -type pgpin -pin $vdd_net -all
+    handle_info "  globalNetConnect $vss_net -type pgpin -pin $vss_net -all"
+    globalNetConnect $vss_net -type pgpin -pin $vss_net -all
+
+    # Tie-high/tie-low connections
+    globalNetConnect $vdd_net -type tiehi
+    globalNetConnect $vss_net -type tielo
+
+    # Register power/ground nets with Voltus
+    handle_info "  set_db init_power_nets {$vdd_net}"
+    set_db init_power_nets [list $vdd_net]
+    handle_info "  set_db init_ground_nets {$vss_net}"
+    set_db init_ground_nets [list $vss_net]
+
+    handle_info "Power net setup completed: VDD=$vdd_net VSS=$vss_net"
 }
 
 # ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -265,29 +266,54 @@ flow_proc read_power_data {
 # └─────────────────────────────────────────────────────────────────────────────┘
 
 flow_proc read_constraints {
-    global emir project tech flow
-    handle_info "Reading constraints for EMIR analysis..."
-    set run_dir $::env(CBFLOW_RUN_DIR)
+    global emir
+    handle_info "Reading timing constraints..."
 
-    # Read SDC timing constraints
-    set sdc_files [glob -nocomplain "$run_dir/work/EMIR/inputs/sdc/*.sdc"]
-    if {[llength $sdc_files] > 0} {
-        foreach sdc $sdc_files {
-            puts "   Reading SDC: [file tail $sdc]"
-            read_sdc $sdc
+    # Read SDC if available (needed for clock-aware power analysis)
+    if {[info exists emir(input,sdc)] && $emir(input,sdc) ne ""} {
+        if {[file exists $emir(input,sdc)]} {
+            handle_info "  read_sdc $emir(input,sdc)"
+            read_sdc $emir(input,sdc)
+        } else {
+            handle_warning "SDC file not found: $emir(input,sdc)"
         }
-        puts " SDC constraints loaded"
     } else {
-        handle_warning "No SDC files found for EMIR analysis"
+        handle_warning "No SDC file specified -- clock power estimation disabled"
     }
 
-    # Set power supply voltage from config
-    if {[info exists emir(power,supply_voltage)]} {
-        puts "   Setting supply voltage: $emir(power,supply_voltage)V"
-        set_voltage $emir(power,supply_voltage) -object_type domain
+    handle_info "Constraints loaded"
+}
+
+# ┌─────────────────────────────────────────────────────────────────────────────┐
+# │                        SETUP POWER CONFIG                                  │
+# └─────────────────────────────────────────────────────────────────────────────┘
+
+flow_proc setup_power_config {
+    global emir
+    handle_info "Setting power analysis configuration..."
+
+    # Operating temperature
+    if {[info exists emir(thermal,ambient_temperature)] && $emir(thermal,ambient_temperature) ne ""} {
+        handle_info "  set_db power_temperature $emir(thermal,ambient_temperature)"
+        set_db power_temperature $emir(thermal,ambient_temperature)
+    } elseif {[info exists emir(voltus,junction_temp)] && $emir(voltus,junction_temp) ne ""} {
+        handle_info "  set_db power_temperature $emir(voltus,junction_temp)"
+        set_db power_temperature $emir(voltus,junction_temp)
     }
 
-    puts " Constraints loaded"
+    # Default supply voltage
+    if {[info exists emir(power,supply_voltage)] && $emir(power,supply_voltage) ne ""} {
+        handle_info "  set_db power_default_voltage $emir(power,supply_voltage)"
+        set_db power_default_voltage $emir(power,supply_voltage)
+    }
+
+    # Multi-threading
+    if {[info exists emir(voltus,num_cpus)] && $emir(voltus,num_cpus) ne ""} {
+        handle_info "  set_multi_cpu_usage -local_cpu $emir(voltus,num_cpus)"
+        set_multi_cpu_usage -local_cpu $emir(voltus,num_cpus)
+    }
+
+    handle_info "Power configuration completed"
 }
 
 # ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -295,57 +321,48 @@ flow_proc read_constraints {
 # └─────────────────────────────────────────────────────────────────────────────┘
 
 flow_proc validate_inputs {
-    global emir project tech flow
+    global emir flow
     handle_info "Validating EMIR input completeness..."
-    set run_dir $::env(CBFLOW_RUN_DIR)
     set errors 0
 
-    # Check mandatory files
-    set netlist_count [llength [glob -nocomplain "$run_dir/work/EMIR/inputs/netlist/*"]]
-    set def_count [llength [glob -nocomplain "$run_dir/work/EMIR/inputs/def/*"]]
-
-    if {$netlist_count == 0} {
-        handle_warning "No netlist files found -- EMIR analysis may fail"
+    # Check mandatory inputs
+    if {![info exists emir(input,netlist)] || $emir(input,netlist) eq ""} {
+        handle_warning "emir(input,netlist) not defined"
         incr errors
-    } else {
-        puts "  Netlist files: $netlist_count"
+    } elseif {![file exists $emir(input,netlist)]} {
+        handle_warning "Netlist file not found: $emir(input,netlist)"
+        incr errors
     }
 
-    if {$def_count == 0} {
-        handle_warning "No DEF files found -- physical data required for EMIR"
+    if {![info exists emir(input,def_file)] || $emir(input,def_file) eq ""} {
+        handle_warning "emir(input,def_file) not defined"
         incr errors
-    } else {
-        puts "  DEF files: $def_count"
+    } elseif {![file exists $emir(input,def_file)]} {
+        handle_warning "DEF file not found: $emir(input,def_file)"
+        incr errors
     }
 
-    set spef_count [llength [glob -nocomplain "$run_dir/work/EMIR/inputs/spef/*"]]
-    puts "  SPEF files: $spef_count"
-
-    set activity_count [llength [glob -nocomplain "$run_dir/work/EMIR/inputs/activity/*"]]
-    puts "  Activity files: $activity_count"
-
-    # Validate config variables
-    if {![info exists emir(ir_drop,threshold)]} {
-        handle_warning "emir(ir_drop,threshold) not defined -- using tool defaults"
+    # Optional but recommended
+    if {![info exists emir(input,spef)] || $emir(input,spef) eq ""} {
+        handle_warning "emir(input,spef) not defined -- IR analysis accuracy reduced"
     }
 
     # Generate validation summary
     set summary_file "$::REPORTS_DIR/inputs_summary.txt"
     file mkdir [file dirname $summary_file]
     set fp [open $summary_file w]
-    puts $fp "═══════════════════════════════════════════════════════════════"
+    puts $fp "================================================================"
     puts $fp "CBFlow EMIR Input Summary - Voltus"
-    puts $fp "═══════════════════════════════════════════════════════════════"
+    puts $fp "================================================================"
     puts $fp "Generated: [clock format [clock seconds]]"
     puts $fp "Tool: Cadence Voltus"
-    if {[info exists project(top_module)]} { puts $fp "Design: $project(top_module)" }
-    if {[info exists project(name)]} { puts $fp "Project: $project(name)" }
+    puts $fp "Design: $flow(design_name)"
     puts $fp ""
     puts $fp "Input Files:"
-    puts $fp "  Netlist files:  $netlist_count"
-    puts $fp "  DEF files:      $def_count"
-    puts $fp "  SPEF files:     $spef_count"
-    puts $fp "  Activity files: $activity_count"
+    if {[info exists emir(input,netlist)]}  { puts $fp "  Netlist:  $emir(input,netlist)" }
+    if {[info exists emir(input,def_file)]} { puts $fp "  DEF:      $emir(input,def_file)" }
+    if {[info exists emir(input,spef)]}     { puts $fp "  SPEF:     $emir(input,spef)" }
+    if {[info exists emir(input,sdc)]}      { puts $fp "  SDC:      $emir(input,sdc)" }
     puts $fp ""
     if {$errors > 0} {
         puts $fp "WARNINGS: $errors input issues detected"
@@ -354,24 +371,28 @@ flow_proc validate_inputs {
     }
     close $fp
 
-    puts " Input validation completed ($errors warnings)"
-    puts " Summary: $summary_file"
+    handle_info "Input validation completed ($errors warnings)"
+    handle_info "  Summary: $summary_file"
 }
 
 # ┌─────────────────────────────────────────────────────────────────────────────┐
 # │                           EXECUTION CONTROL                                │
 # └─────────────────────────────────────────────────────────────────────────────┘
 
-handle_info "═══════════════════════════════════════════════════════════════"
+handle_info "================================================================"
 handle_info " CBFlow EMIR inputs with Voltus"
-handle_info "═══════════════════════════════════════════════════════════════"
+handle_info "================================================================"
 
 flow_proc inputs_flow {
     handle_info "Executing EMIR inputs flow..."
-    flow_exec setup_dirs
+    flow_exec resolve_inputs
+    flow_exec read_libraries
+    flow_exec read_physical
     flow_exec read_design
-    flow_exec read_power_data
+    flow_exec read_parasitics
+    flow_exec setup_power_nets
     flow_exec read_constraints
+    flow_exec setup_power_config
     flow_exec validate_inputs
     handle_info "EMIR inputs completed successfully"
 }
