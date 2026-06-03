@@ -16,7 +16,10 @@ import os
 import re
 import sqlite3
 import sys
-from dataclasses import dataclass, field, asdict
+try:
+    from dataclasses import dataclass, field, asdict
+except ImportError:
+    raise ImportError("dataclasses required — run: pip install dataclasses (Python 3.6 backport)")
 from datetime import datetime
 from pathlib import Path
 from typing import Optional

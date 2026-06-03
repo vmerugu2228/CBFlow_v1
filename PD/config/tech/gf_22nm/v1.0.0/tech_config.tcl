@@ -2,6 +2,7 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # CBflow Technology Configuration — GlobalFoundries 22FDX (22nm FD-SOI)
 # ALL track heights (9T, 7.5T, 8T) in ONE file — flow picks via tech(track)
+# Library sets auto-generated in lib_config.tcl by library-manager
 # ═══════════════════════════════════════════════════════════════════════════════
 
 set _tech_dir [file dirname [file normalize [info script]]]
@@ -15,8 +16,7 @@ set tech(process)     "GF 22FDX"
 set tech(foundry)     "GlobalFoundries"
 set tech(tracks_available) "9T 7.5T 8T"
 
-# ── VT Variant Patterns (for dont_use selection) ─────────────────────────
-# project(vt_flavors) selects which VTs to use; others get dont_use
+# ── VT Variant Patterns (for dont_use selection + lib filtering) ───────
 set tech(vt_variants_available) {svt lvt ulvt hvt}
 set tech(vt_pattern,svt)  "*svt*"
 set tech(vt_pattern,lvt)  "*lvt*"
@@ -24,8 +24,6 @@ set tech(vt_pattern,ulvt) "*ulvt*"
 set tech(vt_pattern,hvt)  "*hvt*"
 
 # ── Metal Stack Options ──────────────────────────────────────────────────
-# Each metal stack defines: layer count, layer types, tech file, TLU+/QRC
-# Naming: <process>_<total_metals>M_<thick>Mx_<inter>Cx_<junc>Jx_<thin>Qx_<bump>
 set tech(metal_stacks_available) {
     gf22naphlogl24uhf116a_10M_2Mx_5Cx_1Jx_2Qx_LB
     gf22naphlogl24uhf116a_11M_2Mx_6Cx_1Jx_2Qx_LB
@@ -40,33 +38,41 @@ if {[info exists project(metal_stack)] && $project(metal_stack) ne ""} {
     set tech(metal_stack) "gf22naphlogl24uhf116a_11M_2Mx_6Cx_1Jx_2Qx_LB"
 }
 
-# Validate metal stack
 if {[lsearch $tech(metal_stacks_available) $tech(metal_stack)] < 0} {
     puts "ERROR: Invalid metal_stack '$tech(metal_stack)'"
     puts "ERROR: Available: $tech(metal_stacks_available)"
     error "Invalid metal stack configuration"
 }
 
-# ── Library root (needed by metal stack configs for tech_file paths) ───────
+# ── Library root ───────────────────────────────────────────────────────
+# ── Library paths (multiple roots supported — list format) ────────────
+# Primary lib root
 set tech(lib_root) "/tmp/test_libs/gf_22nm"
 set _R "$tech(lib_root)"
 
-# ── Load per-metal-stack configuration ────────────────────────────────────
-# Sources: metal_stack/<stack_name>.tcl
+# Additional stdcell lib roots (e.g., eco cells, channel cells)
+# set tech(lib_paths,stdcell) [list "/libs/gf_22nm_eco" "/libs/gf_22nm_channel"]
+set tech(lib_paths,stdcell) [list]
+
+# Additional memory/IO lib paths
+# set tech(lib_paths,memory) [list "/libs/sram_v2/timing" "/libs/rom_v1/timing"]
+# set tech(lib_paths,io) [list "/libs/gpio_v3/timing"]
+set tech(lib_paths,memory) [list]
+set tech(lib_paths,io) [list]
+
+# ── Load per-metal-stack configuration ────────────────────────────────
 set _ms_file "$_tech_dir/metal_stack/$tech(metal_stack).tcl"
 if {[file exists $_ms_file]} {
     source $_ms_file
 } else {
     puts "WARNING: Metal stack config not found: $_ms_file — using defaults"
-    # Defaults for the 11M stack
     set tech(metal_stack_label) "11M"
     set tech(metal_count) 11
     set tech(metal_layers) {M1 M2 M3 M4 M5 M6 M7 M8 M9 M10 M11}
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 2: ACTIVE TRACK
-# Source: project(track_variant) — mandatory, set in project_config.tcl
+# SECTION 2: ACTIVE TRACK + VT FLAVORS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 if {![info exists project(track_variant)] || $project(track_variant) eq ""} {
@@ -80,166 +86,43 @@ if {[lsearch -exact $tech(tracks_available) $project(track_variant)] == -1} {
     exit 1
 }
 set tech(track) $project(track_variant)
-puts "INFO: $tech(process) active track: $tech(track)"
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 3: LIBRARY ROOT PATHS (set above, before metal stack load)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 4: NDM LIBRARIES
-# Categorized: stdcell (per track) + memory/io/analog/hierarchical (shared)
-# Command files read: tech($tech(track),ndm)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# ── Stdcell NDMs per track (only these change with track) ──
-set tech(9T,ndm,stdcell) [list \
-    "$_R/Back_End/ndm/tcbn22cllbwp9tsvt.ndm" \
-    "$_R/Back_End/ndm/tcbn22cllbwp9tlvt.ndm" \
-    "$_R/Back_End/ndm/tcbn22cllbwp9tulvt.ndm" \
-    "$_R/Back_End/ndm/tcbn22cllbwp9thvt.ndm" \
-]
-set tech(7.5T,ndm,stdcell) [list \
-    "$_R/Back_End/ndm/tcbn22cllbwp7p5tsvt.ndm" \
-    "$_R/Back_End/ndm/tcbn22cllbwp7p5tlvt.ndm" \
-    "$_R/Back_End/ndm/tcbn22cllbwp7p5tulvt.ndm" \
-    "$_R/Back_End/ndm/tcbn22cllbwp7p5thvt.ndm" \
-]
-set tech(8T,ndm,stdcell) [list \
-    "$_R/Back_End/ndm/tcbn22cllbwp8tsvt.ndm" \
-    "$_R/Back_End/ndm/tcbn22cllbwp8tlvt.ndm" \
-    "$_R/Back_End/ndm/tcbn22cllbwp8tulvt.ndm" \
-    "$_R/Back_End/ndm/tcbn22cllbwp8thvt.ndm" \
-]
-
-# ── Shared NDMs (same for all tracks — define once) ──
-set tech(ndm,memory)       [list "$_R/Back_End/ndm/ts6n22cllhdlvt_memory.ndm"]
-set tech(ndm,io)           [list "$_R/Back_End/ndm/tphn22v_io.ndm"]
-set tech(ndm,analog)       [list]
-
-# ── Auto-build combined NDM list per track ──
-foreach _t $tech(tracks_available) {
-    set tech(${_t},ndm) [concat $tech(${_t},ndm,stdcell) $tech(ndm,memory) $tech(ndm,io) $tech(ndm,analog)]
+set _vt_load $tech(vt_variants_available)
+if {[info exists project(vt_flavors)] && $project(vt_flavors) ne ""} {
+    set _vt_load $project(vt_flavors)
 }
+set tech(vt_flavors_loaded) $_vt_load
+
+puts "INFO: $tech(process) active track: $tech(track), VT flavors: $_vt_load"
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 4b: DB FILES (for Synopsys synthesis)
-# Categorized: stdcell (per track) + memory/io (shared)
-# Cadence Genus reads: tech($tech(track),db)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# ── Stdcell DBs per track ──
-set tech(9T,db,stdcell) [list \
-    "$_R/Front_End/timing/stdcell/tcbn22cllbwp9tsvttt0p80v25c.db" \
-    "$_R/Front_End/timing/stdcell/tcbn22cllbwp9tlvttt0p80v25c.db" \
-    "$_R/Front_End/timing/stdcell/tcbn22cllbwp9tulvttt0p80v25c.db" \
-    "$_R/Front_End/timing/stdcell/tcbn22cllbwp9thvttt0p80v25c.db" \
-]
-set tech(7.5T,db,stdcell) [list \
-    "$_R/Front_End/timing/stdcell/tcbn22cllbwp7p5tsvttt0p80v25c.db" \
-    "$_R/Front_End/timing/stdcell/tcbn22cllbwp7p5tlvttt0p80v25c.db" \
-    "$_R/Front_End/timing/stdcell/tcbn22cllbwp7p5tulvttt0p80v25c.db" \
-    "$_R/Front_End/timing/stdcell/tcbn22cllbwp7p5thvttt0p80v25c.db" \
-]
-set tech(8T,db,stdcell) [list \
-    "$_R/Front_End/timing/stdcell/tcbn22cllbwp8tsvttt0p80v25c.db" \
-    "$_R/Front_End/timing/stdcell/tcbn22cllbwp8tlvttt0p80v25c.db" \
-    "$_R/Front_End/timing/stdcell/tcbn22cllbwp8tulvttt0p80v25c.db" \
-    "$_R/Front_End/timing/stdcell/tcbn22cllbwp8thvttt0p80v25c.db" \
-]
-
-# ── Shared DBs ──
-set tech(db,memory) [list "$_R/Front_End/timing/memory/ts6n22cllhdlvttt0p80v25c.db"]
-set tech(db,io)     [list "$_R/Front_End/timing/io/tphn22v_tt0p80v25c.db"]
-
-# ── Auto-build combined DB list per track ──
-foreach _t $tech(tracks_available) {
-    set tech(${_t},db) [concat $tech(${_t},db,stdcell) $tech(db,memory) $tech(db,io)]
-}
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 4c: NOMINAL .LIB FILES (for Cadence Innovus/Tempus)
-# Categorized: stdcell (per track) + memory/io (shared)
-# Cadence tools read: tech($tech(track),lib_nom)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# ── Stdcell nominal libs per track ──
-set tech(9T,lib_nom,stdcell) [list \
-    "$_R/Front_End/timing/stdcell/tcbn22cllbwp9tsvttt0p80v25c_ccs.lib" \
-    "$_R/Front_End/timing/stdcell/tcbn22cllbwp9tlvttt0p80v25c_ccs.lib" \
-    "$_R/Front_End/timing/stdcell/tcbn22cllbwp9tulvttt0p80v25c_ccs.lib" \
-    "$_R/Front_End/timing/stdcell/tcbn22cllbwp9thvttt0p80v25c_ccs.lib" \
-]
-set tech(7.5T,lib_nom,stdcell) [list \
-    "$_R/Front_End/timing/stdcell/tcbn22cllbwp7p5tsvttt0p80v25c_ccs.lib" \
-    "$_R/Front_End/timing/stdcell/tcbn22cllbwp7p5tlvttt0p80v25c_ccs.lib" \
-    "$_R/Front_End/timing/stdcell/tcbn22cllbwp7p5tulvttt0p80v25c_ccs.lib" \
-    "$_R/Front_End/timing/stdcell/tcbn22cllbwp7p5thvttt0p80v25c_ccs.lib" \
-]
-set tech(8T,lib_nom,stdcell) [list \
-    "$_R/Front_End/timing/stdcell/tcbn22cllbwp8tsvttt0p80v25c_ccs.lib" \
-    "$_R/Front_End/timing/stdcell/tcbn22cllbwp8tlvttt0p80v25c_ccs.lib" \
-    "$_R/Front_End/timing/stdcell/tcbn22cllbwp8tulvttt0p80v25c_ccs.lib" \
-    "$_R/Front_End/timing/stdcell/tcbn22cllbwp8thvttt0p80v25c_ccs.lib" \
-]
-
-# ── Shared nominal libs ──
-set tech(lib_nom,memory) [list "$_R/Front_End/timing/memory/ts6n22cllhdlvttt0p80v25c.lib"]
-set tech(lib_nom,io)     [list "$_R/Front_End/timing/io/tphn22v_tt0p80v25c.lib"]
-
-# ── Auto-build combined nominal lib list per track ──
-foreach _t $tech(tracks_available) {
-    set tech(${_t},lib_nom) [concat $tech(${_t},lib_nom,stdcell) $tech(lib_nom,memory) $tech(lib_nom,io)]
-}
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 5: LEF FILES
-# Categorized: stdcell (per track) + memory/io (shared)
-# Command files read: tech($tech(track),lef)
+# SECTION 3: LIBRARY SETS (sourced from generated lib_config.tcl)
+# Generated by: cbflow flow library-manager generate --lib-root <path> --tech gf_22nm
+# Contains: NDM, DB, LEF, lib_nom, per-corner timing — fully resolved paths
 # ═══════════════════════════════════════════════════════════════════════════════
 
 set tech(lef_tech) "$_R/Back_End/lef/gf22nm_tech.lef"
 
-# ── Stdcell LEFs per track ──
-set tech(9T,lef,stdcell) [list \
-    "$_R/Back_End/lef/tcbn22cllbwp9tsvt.lef" \
-    "$_R/Back_End/lef/tcbn22cllbwp9tlvt.lef" \
-    "$_R/Back_End/lef/tcbn22cllbwp9tulvt.lef" \
-    "$_R/Back_End/lef/tcbn22cllbwp9thvt.lef" \
-]
-set tech(7.5T,lef,stdcell) [list \
-    "$_R/Back_End/lef/tcbn22cllbwp7p5tsvt.lef" \
-    "$_R/Back_End/lef/tcbn22cllbwp7p5tlvt.lef" \
-    "$_R/Back_End/lef/tcbn22cllbwp7p5tulvt.lef" \
-    "$_R/Back_End/lef/tcbn22cllbwp7p5thvt.lef" \
-]
-set tech(8T,lef,stdcell) [list \
-    "$_R/Back_End/lef/tcbn22cllbwp8tsvt.lef" \
-    "$_R/Back_End/lef/tcbn22cllbwp8tlvt.lef" \
-    "$_R/Back_End/lef/tcbn22cllbwp8tulvt.lef" \
-    "$_R/Back_End/lef/tcbn22cllbwp8thvt.lef" \
-]
-
-# ── Shared LEFs ──
-set tech(lef,memory) [list "$_R/Back_End/lef/ts6n22cllhdlvt_memory.lef"]
-set tech(lef,io)     [list "$_R/Back_End/lef/tphn22v_io.lef"]
-
-# ── Auto-build combined LEF list per track ──
-foreach _t $tech(tracks_available) {
-    set tech(${_t},lef) [concat $tech(${_t},lef,stdcell) $tech(lef,memory) $tech(lef,io)]
+# lib_config tag — set project(lib_config_version) "P0" in project_config
+# Resolves to: lib_config_P0.tcl (falls back to lib_config.tcl)
+if {[info exists project(lib_config_version)] && $project(lib_config_version) ne ""} {
+    set _lib_config "$_tech_dir/lib_config_$project(lib_config_version).tcl"
+} else {
+    set _lib_config "$_tech_dir/lib_config.tcl"
+}
+if {[file exists $_lib_config]} {
+    source $_lib_config
+} else {
+    puts "WARNING: lib_config not found: $_lib_config"
+    puts "         Run: cbflow flow library-manager generate --lib-root <path> --tech gf_22nm"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 6: PARASITIC EXTRACTION (shared — same for all tracks)
-# Synopsys (FC/StarRC): TLU+ and nxtgrd
-# Cadence (Innovus/Quantus): QRC tech file
+# SECTION 4: PARASITIC EXTRACTION (shared — same for all tracks)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# ── Shared (all RC corners) ──
 set tech(tluplus_map) "$_R/Back_End/rcx/gf22nm_tf_itf_tluplus.map"
 
-# ── Per RC corner: Synopsys TLU+, nxtgrd, Cadence QRC ──
-# Parasitic files are metal-stack-specific (1p11m, 1p10m, etc.)
 set _ms_label "1p${tech(metal_count)}m"
 
 set tech(rcx,rc_max,tluplus)   "$_R/Back_End/rcx/gf22nm_${_ms_label}_Cmax.tluplus"
@@ -259,8 +142,7 @@ set tech(rcx,rc_max_cworst,nxtgrd)  "$_R/Back_End/rcx/gf22nm_${_ms_label}_Cmax.n
 set tech(rcx,rc_max_cworst,qrc)     "$_R/Back_End/rcx/gf22nm_${_ms_label}_Cmax.qrcTechFile"
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 7: PHYSICAL CELLS (per track — site, fillers, CTS, tap, endcap)
-# Command files read: tech($tech(track),site), tech($tech(track),fillers), etc.
+# SECTION 5: PHYSICAL CELLS (per track — site, fillers, CTS, tap, endcap)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ── 9T Physical ──
@@ -321,186 +203,16 @@ set tech(8T,tie_cells)      "tcbn22cllbwp8tsvt_TIEHI tcbn22cllbwp8tsvt_TIELO"
 set tech(8T,dont_use)       "*D0BWP8T* *OPTHOLD* *DEL*"
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 8: LIBRARY SETS PER TRACK + PER PVT CORNER
-# Categorized: stdcell timing (per track) + shared memory/io timing
-# MMMC reads: tech($tech(track),lib,<corner>,timing)
+# SECTION 6: DESIGN RULES & ROUTING
 # ═══════════════════════════════════════════════════════════════════════════════
 
-set _T "$_R/Front_End/timing"
-
-# ── Available corners ──
-set tech(corners) {ss_0p76v_150c ss_0p76v_25c ss_0p76v_m40c ss_0p80v_150c ss_0p80v_25c tt_0p80v_25c tt_0p80v_150c tt_0p80v_m40c ff_0p84v_m40c ff_0p84v_25c ff_0p84v_150c ff_0p80v_m40c}
-
-# ── Shared timing libraries per corner (memory + IO — same for all tracks) ──
-set tech(lib,ss_0p76v_150c,timing,memory)  [list "$_T/memory/ts6n22cllhdlvtss0p76v150c.lib"]
-set tech(lib,ss_0p76v_150c,timing,io)      [list "$_T/io/tphn22v_ss0p76v150c.lib"]
-set tech(lib,ss_0p76v_25c,timing,memory)   [list "$_T/memory/ts6n22cllhdlvtss0p76v25c.lib"]
-set tech(lib,ss_0p76v_25c,timing,io)       [list "$_T/io/tphn22v_ss0p76v25c.lib"]
-set tech(lib,ss_0p76v_m40c,timing,memory)  [list "$_T/memory/ts6n22cllhdlvtss0p76vm40c.lib"]
-set tech(lib,ss_0p76v_m40c,timing,io)      [list "$_T/io/tphn22v_ss0p76vm40c.lib"]
-set tech(lib,ss_0p80v_150c,timing,memory)  [list "$_T/memory/ts6n22cllhdlvtss0p80v150c.lib"]
-set tech(lib,ss_0p80v_150c,timing,io)      [list "$_T/io/tphn22v_ss0p80v150c.lib"]
-set tech(lib,ss_0p80v_25c,timing,memory)   [list "$_T/memory/ts6n22cllhdlvtss0p80v25c.lib"]
-set tech(lib,ss_0p80v_25c,timing,io)       [list "$_T/io/tphn22v_ss0p80v25c.lib"]
-set tech(lib,tt_0p80v_25c,timing,memory)   [list "$_T/memory/ts6n22cllhdlvttt0p80v25c.lib"]
-set tech(lib,tt_0p80v_25c,timing,io)       [list "$_T/io/tphn22v_tt0p80v25c.lib"]
-set tech(lib,tt_0p80v_150c,timing,memory)  [list "$_T/memory/ts6n22cllhdlvttt0p80v150c.lib"]
-set tech(lib,tt_0p80v_150c,timing,io)      [list "$_T/io/tphn22v_tt0p80v150c.lib"]
-set tech(lib,tt_0p80v_m40c,timing,memory)  [list "$_T/memory/ts6n22cllhdlvttt0p80vm40c.lib"]
-set tech(lib,tt_0p80v_m40c,timing,io)      [list "$_T/io/tphn22v_tt0p80vm40c.lib"]
-set tech(lib,ff_0p84v_m40c,timing,memory)  [list "$_T/memory/ts6n22cllhdlvtff0p84vm40c.lib"]
-set tech(lib,ff_0p84v_m40c,timing,io)      [list "$_T/io/tphn22v_ff0p84vm40c.lib"]
-set tech(lib,ff_0p84v_25c,timing,memory)   [list "$_T/memory/ts6n22cllhdlvtff0p84v25c.lib"]
-set tech(lib,ff_0p84v_25c,timing,io)       [list "$_T/io/tphn22v_ff0p84v25c.lib"]
-set tech(lib,ff_0p84v_150c,timing,memory)  [list "$_T/memory/ts6n22cllhdlvtff0p84v150c.lib"]
-set tech(lib,ff_0p84v_150c,timing,io)      [list "$_T/io/tphn22v_ff0p84v150c.lib"]
-set tech(lib,ff_0p80v_m40c,timing,memory)  [list "$_T/memory/ts6n22cllhdlvtff0p80vm40c.lib"]
-set tech(lib,ff_0p80v_m40c,timing,io)      [list "$_T/io/tphn22v_ff0p80vm40c.lib"]
-
-# ┌──────────────────────────────────────────────────────────────────────────┐
-# │  9T STDCELL STDCELL TIMING LIBS PER CORNER                             │
-# └──────────────────────────────────────────────────────────────────────────┘
-
-# SS corners (setup-critical)
-set tech(9T,lib,ss_0p76v_150c,timing,stdcell) [list \
-    "$_T/stdcell/tcbn22cllbwp9tsvtss0p76v150c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9tlvtss0p76v150c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9tulvtss0p76v150c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9thvtss0p76v150c_ccs.lib" \
-]
-
-set tech(9T,lib,ss_0p76v_25c,timing,stdcell) [list \
-    "$_T/stdcell/tcbn22cllbwp9tsvtss0p76v25c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9tlvtss0p76v25c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9tulvtss0p76v25c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9thvtss0p76v25c_ccs.lib" \
-]
-
-set tech(9T,lib,ss_0p76v_m40c,timing,stdcell) [list \
-    "$_T/stdcell/tcbn22cllbwp9tsvtss0p76vm40c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9tlvtss0p76vm40c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9tulvtss0p76vm40c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9thvtss0p76vm40c_ccs.lib" \
-]
-
-set tech(9T,lib,ss_0p80v_150c,timing,stdcell) [list \
-    "$_T/stdcell/tcbn22cllbwp9tsvtss0p80v150c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9tlvtss0p80v150c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9tulvtss0p80v150c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9thvtss0p80v150c_ccs.lib" \
-]
-
-set tech(9T,lib,ss_0p80v_25c,timing,stdcell) [list \
-    "$_T/stdcell/tcbn22cllbwp9tsvtss0p80v25c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9tlvtss0p80v25c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9tulvtss0p80v25c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9thvtss0p80v25c_ccs.lib" \
-]
-
-# TT corners (nominal)
-set tech(9T,lib,tt_0p80v_25c,timing,stdcell) [list \
-    "$_T/stdcell/tcbn22cllbwp9tsvttt0p80v25c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9tlvttt0p80v25c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9tulvttt0p80v25c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9thvttt0p80v25c_ccs.lib" \
-]
-
-set tech(9T,lib,tt_0p80v_150c,timing,stdcell) [list \
-    "$_T/stdcell/tcbn22cllbwp9tsvttt0p80v150c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9tlvttt0p80v150c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9tulvttt0p80v150c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9thvttt0p80v150c_ccs.lib" \
-]
-
-set tech(9T,lib,tt_0p80v_m40c,timing,stdcell) [list \
-    "$_T/stdcell/tcbn22cllbwp9tsvttt0p80vm40c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9tlvttt0p80vm40c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9tulvttt0p80vm40c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9thvttt0p80vm40c_ccs.lib" \
-]
-
-# FF corners (hold-critical)
-set tech(9T,lib,ff_0p84v_m40c,timing,stdcell) [list \
-    "$_T/stdcell/tcbn22cllbwp9tsvtff0p84vm40c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9tlvtff0p84vm40c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9tulvtff0p84vm40c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9thvtff0p84vm40c_ccs.lib" \
-]
-
-set tech(9T,lib,ff_0p84v_25c,timing,stdcell) [list \
-    "$_T/stdcell/tcbn22cllbwp9tsvtff0p84v25c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9tlvtff0p84v25c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9tulvtff0p84v25c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9thvtff0p84v25c_ccs.lib" \
-]
-
-set tech(9T,lib,ff_0p84v_150c,timing,stdcell) [list \
-    "$_T/stdcell/tcbn22cllbwp9tsvtff0p84v150c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9tlvtff0p84v150c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9tulvtff0p84v150c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9thvtff0p84v150c_ccs.lib" \
-]
-
-set tech(9T,lib,ff_0p80v_m40c,timing,stdcell) [list \
-    "$_T/stdcell/tcbn22cllbwp9tsvtff0p80vm40c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9tlvtff0p80vm40c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9tulvtff0p80vm40c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp9thvtff0p80vm40c_ccs.lib" \
-]
-
-# ┌──────────────────────────────────────────────────────────────────────────┐
-# │  7.5T STDCELL STDCELL TIMING LIBS PER CORNER                           │
-# └──────────────────────────────────────────────────────────────────────────┘
-
-set tech(7.5T,lib,ss_0p76v_150c,timing,stdcell) [list \
-    "$_T/stdcell/tcbn22cllbwp7p5tsvtss0p76v150c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp7p5tlvtss0p76v150c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp7p5tulvtss0p76v150c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp7p5thvtss0p76v150c_ccs.lib" \
-]
-
-set tech(7.5T,lib,tt_0p80v_25c,timing,stdcell) [list \
-    "$_T/stdcell/tcbn22cllbwp7p5tsvttt0p80v25c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp7p5tlvttt0p80v25c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp7p5tulvttt0p80v25c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp7p5thvttt0p80v25c_ccs.lib" \
-]
-
-set tech(7.5T,lib,ff_0p84v_m40c,timing,stdcell) [list \
-    "$_T/stdcell/tcbn22cllbwp7p5tsvtff0p84vm40c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp7p5tlvtff0p84vm40c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp7p5tulvtff0p84vm40c_ccs.lib" \
-    "$_T/stdcell/tcbn22cllbwp7p5thvtff0p84vm40c_ccs.lib" \
-]
-
-# ┌──────────────────────────────────────────────────────────────────────────┐
-# │  AUTO-BUILD COMBINED TIMING LISTS PER TRACK + CORNER                   │
-# └──────────────────────────────────────────────────────────────────────────┘
-
-foreach _t $tech(tracks_available) {
-    foreach _c $tech(corners) {
-        if {[info exists tech(${_t},lib,${_c},timing,stdcell)]} {
-            set tech(${_t},lib,${_c},timing) [concat \
-                $tech(${_t},lib,${_c},timing,stdcell) \
-                $tech(lib,${_c},timing,memory) \
-                $tech(lib,${_c},timing,io) \
-            ]
-        }
-    }
-}
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 9: DESIGN RULES & ROUTING (shared — same for all tracks)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# Routing layers — derived from metal stack config (can be overridden in project/user config)
 if {![info exists tech(min_routing_layer)]}    { set tech(min_routing_layer)    "M2" }
 if {![info exists tech(max_routing_layer)]}    { set tech(max_routing_layer)    [lindex $tech(metal_layers) end-1] }
 if {![info exists tech(clock_routing_layer_min)]} { set tech(clock_routing_layer_min) "M4" }
 if {![info exists tech(clock_routing_layer_max)]} { set tech(clock_routing_layer_max) "M8" }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 10: BODY BIAS (GF 22FDX specific — FD-SOI advantage)
+# SECTION 7: BODY BIAS (GF 22FDX specific — FD-SOI advantage)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 set tech(body_bias,fbb_voltage) "0.8"
@@ -508,7 +220,7 @@ set tech(body_bias,rbb_voltage) "-0.3"
 set tech(body_bias,enabled) "true"
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 11: SIGNOFF, DRC & GDS
+# SECTION 8: SIGNOFF, DRC & GDS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 set tech(gds_layer_map_file)        "$_R/Back_End/layermap/gf22nm_layermap.map"
@@ -520,12 +232,10 @@ set tech(signal_em_constraint_format) "sigem"
 set tech(stream_files_for_merge)    ""
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 12: BACKWARD COMPATIBILITY — old variable names → new
-# Remove this section after all command files are updated
+# SECTION 9: BACKWARD COMPATIBILITY — old variable names → new
 # ═══════════════════════════════════════════════════════════════════════════════
 
 set _trk $tech(track)
-# Old-style single vars that some command files may still reference
 if {[info exists tech(${_trk},ndm)] && [llength $tech(${_trk},ndm)] > 0} {
     set tech(ndm,standard_cells) [lindex $tech(${_trk},ndm) 0]
 }
@@ -537,17 +247,14 @@ set tech(library,stdcell_path) "$tech(lib_root)/Front_End/timing/stdcell"
 set tech(library,memory_path)  "$tech(lib_root)/Front_End/timing/memory"
 set tech(library,io_path)      "$tech(lib_root)/Front_End/timing/io"
 
-# Alias: tech(lef,technology) → tech(lef_tech) (12 command files reference this)
 set tech(lef,technology) $tech(lef_tech)
 
-# Alias: tech(lib,timing) → nominal lib list for active track (STA/LEC command files)
 if {[info exists tech(${_trk},lib_nom)]} {
     set tech(lib,timing) $tech(${_trk},lib_nom)
 }
 
-# Alias: tech(decap_cells) → track-specific decap (signoff command files)
 if {[info exists tech(${_trk},decap)]} {
     set tech(decap_cells) $tech(${_trk},decap)
 }
 
-puts "INFO: $tech(process) tech config loaded — track=$tech(track), metal_stack=$tech(metal_stack) (${tech(metal_count)}M), libs=[llength $tech(${_trk},ndm)] NDMs"
+puts "INFO: $tech(process) tech config loaded — track=$tech(track), VT=$tech(vt_flavors_loaded), metal_stack=$tech(metal_stack) (${tech(metal_count)}M), libs=[expr {[info exists tech(${_trk},ndm)] ? [llength $tech(${_trk},ndm)] : 0}] NDMs"

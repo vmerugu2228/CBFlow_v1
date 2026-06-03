@@ -1,7 +1,7 @@
 #!/usr/bin/env tclsh
 # ═══════════════════════════════════════════════════════════════════════════════
-# CBflow PV ERC — Siemens Calibre
-# Invokes Calibre ERC (via DRC engine) with foundry SVRF runset
+# CBflow PV XOR — Siemens Calibre
+# Compares pre-fill vs post-fill layouts using calibrediff
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ── Bootstrap ────────────────────────────────────────────────────────────────
@@ -10,7 +10,7 @@ source "$run_dir/.run.cbflow.tcl"
 source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "PV"
-set STAGE_NAME "erc"
+set STAGE_NAME "xor"
 set NODE_NAME "${STAGE_NAME}1"
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
@@ -18,127 +18,146 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Setup Calibre ERC environment variables for SVRF runset
+# Setup XOR environment
 # ═══════════════════════════════════════════════════════════════════════════════
-flow_proc setup_erc_environment {
+flow_proc setup_xor_environment {
     global pv project tech
 
-    handle_info "Setting up Calibre ERC environment..."
+    handle_info "Setting up Calibre XOR environment..."
 
-    # LAYOUT_FILE — GDS/OASIS input layout
+    # Pre-fill layout (original GDS input)
+    set ::_pre_fill ""
     if {[info exists pv(input,gds)] && $pv(input,gds) ne ""} {
-        set ::env(LAYOUT_FILE) $pv(input,gds)
-        handle_info "  LAYOUT_FILE: $pv(input,gds)"
+        set ::_pre_fill $pv(input,gds)
     } elseif {[info exists pv(input,gds_file)] && $pv(input,gds_file) ne ""} {
-        set ::env(LAYOUT_FILE) $pv(input,gds_file)
-        handle_info "  LAYOUT_FILE: $pv(input,gds_file)"
+        set ::_pre_fill $pv(input,gds_file)
+    }
+    if {$::_pre_fill ne ""} {
+        handle_info "  Pre-fill layout: $::_pre_fill"
     } else {
-        handle_error "pv(input,gds) not set — cannot run ERC"
+        handle_error "pv(input,gds) not set — cannot run XOR"
     }
 
-    # LAYOUT_PRIMARY — top cell name
+    # Post-fill layout (output from fill stage)
+    set ::_post_fill "$run_dir/work/PV/fill1/results/${::DESIGN_NAME}.filled.gds"
+    if {[file exists $::_post_fill]} {
+        handle_info "  Post-fill layout: $::_post_fill"
+    } else {
+        handle_info "  Post-fill layout: $::_post_fill (not yet generated)"
+    }
+
+    # Top cell
+    set ::_top_cell ""
     if {[info exists pv(common,top_cell)] && $pv(common,top_cell) ne ""} {
-        set ::env(LAYOUT_PRIMARY) $pv(common,top_cell)
+        set ::_top_cell $pv(common,top_cell)
     } elseif {[info exists project(top_module)] && $project(top_module) ne ""} {
-        set ::env(LAYOUT_PRIMARY) $project(top_module)
+        set ::_top_cell $project(top_module)
     }
-    if {[info exists ::env(LAYOUT_PRIMARY)]} {
-        handle_info "  LAYOUT_PRIMARY: $::env(LAYOUT_PRIMARY)"
+    if {$::_top_cell ne ""} {
+        handle_info "  Top cell: $::_top_cell"
     }
 
-    # RESULTS_DB
-    set ::env(RESULTS_DB) "$::WORK_DIR/results/erc"
-    file mkdir $::env(RESULTS_DB)
-    handle_info "  RESULTS_DB: $::env(RESULTS_DB)"
+    file mkdir "$::WORK_DIR/results/xor"
+    file mkdir "$::REPORTS_DIR"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Run Calibre ERC (uses DRC engine with ERC-specific runset)
+# Run XOR comparison
 # ═══════════════════════════════════════════════════════════════════════════════
-flow_proc run_erc_checks {
+flow_proc run_xor_check {
     global pv
 
-    handle_info "Running Calibre ERC..."
+    handle_info "Running Calibre XOR comparison..."
 
-    # Resolve runset
-    set runset ""
-    if {[info exists pv(erc,runset)] && $pv(erc,runset) ne ""} {
-        set runset $pv(erc,runset)
-    } elseif {[info exists pv(input,rule_deck_erc)] && $pv(input,rule_deck_erc) ne ""} {
-        set runset $pv(input,rule_deck_erc)
-    }
-    if {$runset eq "" || ![file exists $runset]} {
-        handle_error "ERC runset not found: '$runset' — set pv(erc,runset) in user_config"
+    # Option 1: Use XOR-specific runset with calibre -drc
+    set xor_runset ""
+    if {[info exists pv(xor,runset)] && $pv(xor,runset) ne ""} {
+        set xor_runset $pv(xor,runset)
     }
 
-    # Build command — ERC uses the DRC engine with an ERC-specific runset
-    set num_cpus [expr {[info exists pv(erc,num_cpus)] ? $pv(erc,num_cpus) : 4}]
+    if {$xor_runset ne "" && [file exists $xor_runset]} {
+        # Runset-based XOR — set env vars for the runset
+        set ::env(LAYOUT_FILE) $::_pre_fill
+        set ::env(LAYOUT_FILE2) $::_post_fill
+        if {$::_top_cell ne ""} {
+            set ::env(LAYOUT_PRIMARY) $::_top_cell
+        }
+        set ::env(RESULTS_DB) "$::WORK_DIR/results/xor"
 
-    set calibre_cmd "calibre -drc -hier -64 -turbo $num_cpus"
-    append calibre_cmd " $runset"
+        set num_cpus [expr {[info exists pv(xor,num_cpus)] ? $pv(xor,num_cpus) : 4}]
+        set calibre_cmd "calibre -drc -hier -64 -turbo $num_cpus $xor_runset"
 
-    file mkdir "$::WORK_DIR/results/erc"
-    file mkdir "$::REPORTS_DIR"
+        handle_info "  CMD: $calibre_cmd"
+        if {[catch {exec {*}$calibre_cmd >& "$::WORK_DIR/results/xor/xor.log"} result]} {
+            handle_warning "Calibre XOR returned non-zero: $result"
+        }
+    } else {
+        # calibrediff-based XOR — direct GDS comparison
+        set xor_output "$::WORK_DIR/results/xor/${::DESIGN_NAME}_xor.gds"
 
-    handle_info "  CMD: $calibre_cmd"
-    handle_info "  Log: $::WORK_DIR/results/erc/erc.log"
+        set calibre_cmd "calibrediff $::_pre_fill $::_post_fill"
+        if {$::_top_cell ne ""} {
+            append calibre_cmd " -cell $::_top_cell"
+        }
+        append calibre_cmd " -xor -gds $xor_output"
 
-    if {[catch {exec {*}$calibre_cmd >& "$::WORK_DIR/results/erc/erc.log"} result]} {
-        handle_warning "Calibre ERC returned non-zero (may have violations): $result"
+        handle_info "  CMD: $calibre_cmd"
+        if {[catch {exec {*}$calibre_cmd >& "$::WORK_DIR/results/xor/xor.log"} result]} {
+            handle_warning "calibrediff returned non-zero: $result"
+        }
     }
-    handle_info "  ERC run completed"
+
+    handle_info "  XOR comparison completed"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Generate ERC summary report
+# Generate XOR summary report
 # ═══════════════════════════════════════════════════════════════════════════════
-flow_proc generate_erc_report {
+flow_proc generate_xor_report {
     global pv project tech
 
-    handle_info "Generating ERC report..."
+    handle_info "Generating XOR report..."
 
-    set rpt_file "$::REPORTS_DIR/erc_results.rpt"
+    set rpt_file "$::REPORTS_DIR/${::DESIGN_NAME}_xor_summary.rpt"
     set rpt [open $rpt_file "w"]
     puts $rpt "═══════════════════════════════════════════════════════════════════════════════"
-    puts $rpt "CBflow PV — ERC Results (Siemens Calibre)"
+    puts $rpt "CBflow PV — XOR Results (Siemens Calibre)"
     puts $rpt "═══════════════════════════════════════════════════════════════════════════════"
     puts $rpt "Generated: [clock format [clock seconds]]"
     if {[info exists project(top_module)]} { puts $rpt "Design: $project(top_module)" }
     if {[info exists tech(node)]} { puts $rpt "Technology: $tech(node)" }
-    puts $rpt "Tool: Siemens Calibre ERC (via DRC engine)"
-    if {[info exists pv(erc,runset)]} { puts $rpt "Runset: $pv(erc,runset)" }
+    puts $rpt "Tool: Siemens Calibre XOR (calibrediff)"
+    puts $rpt ""
+    puts $rpt "Pre-fill layout:  $::_pre_fill"
+    puts $rpt "Post-fill layout: $::_post_fill"
     puts $rpt ""
 
-    # Parse ERC results from log
-    set erc_log "$::WORK_DIR/results/erc/erc.log"
-    if {[file exists $erc_log]} {
-        set f [open $erc_log "r"]
+    # Parse XOR log for differences
+    set xor_log "$::WORK_DIR/results/xor/xor.log"
+    set xor_status "UNKNOWN"
+    if {[file exists $xor_log]} {
+        set f [open $xor_log "r"]
         set content [read $f]
         close $f
-        set total_violations 0
-        foreach line [split $content "\n"] {
-            if {[regexp -nocase {TOTAL.*Results.*?(\d+)} $line -> count]} {
-                set total_violations $count
-            }
+        if {[string match "*no differences*" [string tolower $content]] ||
+            [string match "*identical*" [string tolower $content]]} {
+            set xor_status "CLEAN (no differences)"
+        } elseif {[string match "*difference*" [string tolower $content]]} {
+            set xor_status "DIFFERENCES FOUND"
         }
-        puts $rpt "Total ERC violations: $total_violations"
-    } else {
-        puts $rpt "ERC log not found — check execution"
     }
 
+    puts $rpt "XOR Status: $xor_status"
     puts $rpt ""
-    puts $rpt "Results DB: $::WORK_DIR/results/erc/"
+    puts $rpt "Results: $::WORK_DIR/results/xor/"
     puts $rpt "═══════════════════════════════════════════════════════════════════════════════"
     close $rpt
-
-    # Copy as mandatory output
-    file copy -force $rpt_file "$::WORK_DIR/results/erc/erc.rpt"
-    handle_info "  ERC report: $rpt_file"
+    handle_info "  XOR report: $rpt_file (Status: $xor_status)"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Execute
 # ═══════════════════════════════════════════════════════════════════════════════
 flow_exec_all
-handle_info "Calibre ERC completed: $DESIGN_NAME"
+handle_info "Calibre XOR completed: $DESIGN_NAME"
 exit

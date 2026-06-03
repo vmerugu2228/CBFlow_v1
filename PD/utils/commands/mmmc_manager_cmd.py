@@ -1138,6 +1138,526 @@ def cmd_generate_view_def(args: argparse.Namespace) -> int:
 # Argument Parser
 # ===============================================================================
 
+# ===============================================================================
+# Generate mmmc_config.tcl — user-driven PVT matrix, validated against lib_config
+# ===============================================================================
+
+def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
+    """Generate mmmc_config.tcl from user-specified PVT matrix, validated against lib_config.
+
+    Flow: User defines corners/voltages/temps → Cartesian product → validate each
+    lib_set_ref against lib_config → skip missing → write only valid scenarios.
+    """
+    from datetime import datetime
+
+    version = os.environ.get('FLOW_CONFIG_VERSION', 'v1.0.0')
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    core_dir = os.path.dirname(os.path.dirname(script_dir))
+
+    # ── Interactive CLI: prompt for missing inputs ──
+    print('')
+    print('=' * 60)
+    print('  CBflow MMMC Config Generator')
+    print('=' * 60)
+    print('')
+
+    # Tech name
+    tech_name = args.tech
+    if not tech_name:
+        tech_base = os.path.join(core_dir, 'config', 'tech')
+        available_techs = sorted(d for d in os.listdir(tech_base)
+                                if os.path.isdir(os.path.join(tech_base, d))) if os.path.isdir(tech_base) else []
+        if not available_techs:
+            logger.error("No technologies found in {}".format(tech_base))
+            return 1
+        print('  Available technologies:')
+        for i, t in enumerate(available_techs, 1):
+            print('    {}. {}'.format(i, t))
+        choice = input('  Select technology [1-{}]: '.format(len(available_techs))).strip()
+        try:
+            idx = int(choice) - 1
+            if 0 <= idx < len(available_techs):
+                tech_name = available_techs[idx]
+            else:
+                logger.error("Invalid selection")
+                return 1
+        except ValueError:
+            # Allow typing the name directly too
+            if choice in available_techs:
+                tech_name = choice
+            else:
+                logger.error("Invalid selection: {}".format(choice))
+                return 1
+        print('  Selected: {}'.format(tech_name))
+
+    tech_dir = os.path.join(core_dir, 'config', 'tech', tech_name, version)
+
+    # Corners
+    corners_input = args.corners.split() if args.corners else None
+    if not corners_input:
+        raw = input('  Process corners [ss tt ff]: ').strip()
+        corners_input = raw.split() if raw else ['ss', 'tt', 'ff']
+
+    # Voltages
+    voltages_input = args.voltages.split() if args.voltages else None
+    if not voltages_input:
+        raw = input('  Voltages (e.g., 0p76v 0p80v 0p84v): ').strip()
+        if not raw:
+            logger.error("Voltages are required")
+            return 1
+        voltages_input = raw.split()
+
+    # Temperatures
+    temps_input = args.temperatures.split() if args.temperatures else None
+    if not temps_input:
+        raw = input('  Temperatures (e.g., 150c 25c m40c): ').strip()
+        if not raw:
+            logger.error("Temperatures are required")
+            return 1
+        temps_input = raw.split()
+
+    print('')
+
+    # Build full Cartesian product: corners × voltages × temps
+    requested_pvt = {}  # corner → [(voltage, temp), ...]
+    all_lib_refs = []   # all lib_set_ref strings to validate
+    for corner in corners_input:
+        pts = []
+        for v in voltages_input:
+            for t in temps_input:
+                pts.append((v, t))
+                all_lib_refs.append('{}_{}'.format(corner, '{}_{}'.format(v, t)))
+        requested_pvt[corner] = pts
+
+    total_requested = sum(len(pts) for pts in requested_pvt.values())
+    logger.info("Requested PVT matrix: {} corners x {} voltages x {} temps = {} combinations".format(
+        len(corners_input), len(voltages_input), len(temps_input), total_requested))
+
+    # ── 2. Resolve lib_config for validation ──
+    lib_tag = args.lib_tag if hasattr(args, 'lib_tag') and args.lib_tag else None
+    lib_config_path = None
+
+    if lib_tag:
+        lib_config_path = os.path.join(tech_dir, 'lib_config_{}.tcl'.format(lib_tag))
+    else:
+        # Try default first
+        default_path = os.path.join(tech_dir, 'lib_config.tcl')
+        if os.path.exists(default_path):
+            lib_config_path = default_path
+        else:
+            # No default — find available tagged configs
+            available = sorted(f for f in os.listdir(tech_dir)
+                              if f.startswith('lib_config') and f.endswith('.tcl'))
+            if len(available) == 1:
+                # Only one lib_config exists — use it automatically
+                lib_config_path = os.path.join(tech_dir, available[0])
+                tag_found = available[0].replace('lib_config_', '').replace('lib_config', '').replace('.tcl', '')
+                logger.info("Auto-selected: {} (only lib_config available)".format(available[0]))
+            elif len(available) > 1:
+                logger.error("No default lib_config.tcl found. Multiple tagged configs available:")
+                for a in available:
+                    tag = a.replace('lib_config_', '').replace('.tcl', '')
+                    logger.error("  {} → use --lib-tag {}".format(a, tag))
+                logger.error("Please specify --lib-tag to select which one to validate against")
+                return 1
+            else:
+                logger.error("No lib_config found in {}".format(tech_dir))
+                logger.info("  Run: cbflow flow library-manager generate --tech {}".format(tech_name))
+                return 1
+
+    if not os.path.exists(lib_config_path):
+        logger.error("lib_config not found: {}".format(lib_config_path))
+        available = sorted(f for f in os.listdir(tech_dir)
+                          if f.startswith('lib_config') and f.endswith('.tcl'))
+        if available:
+            logger.error("  Available: {}".format(', '.join(available)))
+        return 1
+
+    with open(lib_config_path, 'r') as f:
+        lib_content = f.read()
+
+    logger.info("Validating against: {}".format(os.path.basename(lib_config_path)))
+
+    # ── 3. Validate each lib_set_ref against lib_config ──
+    track_for_check = args.track if hasattr(args, 'track') and args.track else None
+    if not track_for_check:
+        trk_m = re.search(r'set tech\((\S+?),lib,\S+?,timing\)', lib_content)
+        if trk_m:
+            track_for_check = trk_m.group(1).split(',')[0]
+
+    valid_refs = set()
+    missing_refs = set()
+    for ref in all_lib_refs:
+        if track_for_check:
+            pattern = re.escape('tech({},lib,{},timing)'.format(track_for_check, ref))
+        else:
+            pattern = r'tech\(\S+,lib,{},timing\)'.format(re.escape(ref))
+        if re.search(pattern, lib_content):
+            valid_refs.add(ref)
+        else:
+            missing_refs.add(ref)
+
+    # Filter PVT: only keep combos that have matching libs
+    valid_pvt = {}
+    skipped_pvt = {}
+    for corner, pts in requested_pvt.items():
+        valid_pts = []
+        skip_pts = []
+        for v, t in pts:
+            ref = '{}_{}'.format(corner, '{}_{}'.format(v, t))
+            if ref in valid_refs:
+                valid_pts.append((v, t))
+            else:
+                skip_pts.append((v, t))
+        if valid_pts:
+            valid_pvt[corner] = valid_pts
+        if skip_pts:
+            skipped_pvt[corner] = skip_pts
+
+    process_corners = sorted(valid_pvt.keys())
+
+    # VT filter
+    vt_filter = args.vts.split() if hasattr(args, 'vts') and args.vts else None
+
+    # ── 4. Derive voltage/temperature ranges from valid PVT ──
+    def v_to_float(vs):
+        return float(vs.rstrip('v').replace('p', '.'))
+    def t_to_int(ts):
+        ts = ts.rstrip('c')
+        return -int(ts[1:]) if ts.startswith('m') else int(ts)
+
+    v_floats = sorted(set(v_to_float(v) for v in voltages_input))
+    v_nom = v_floats[len(v_floats) // 2] if v_floats else 0.80
+    v_low = v_floats[0] if v_floats else 0.76
+    v_high = v_floats[-1] if v_floats else 0.84
+
+    t_ints = sorted(set(t_to_int(t) for t in temps_input))
+    t_hot = t_ints[-1] if t_ints else 150
+    t_nom = 25 if 25 in t_ints else (t_ints[len(t_ints) // 2] if t_ints else 25)
+    t_cold = t_ints[0] if t_ints else -40
+
+    # ── 5. Operating modes ──
+    modes = {}
+    sdc_pattern = args.sdc_pattern if hasattr(args, 'sdc_pattern') and args.sdc_pattern else '${design_name}_{mode}.sdc'
+    if hasattr(args, 'modes') and args.modes:
+        for mode_name in args.modes.split():
+            modes[mode_name] = sdc_pattern.replace('{mode}', mode_name)
+    else:
+        existing_config = os.path.join(core_dir, 'config', 'flow', version, 'mmmc_config.tcl')
+        if os.path.exists(existing_config):
+            try:
+                p = MmmcConfigParser(existing_config)
+                for m, props in p.operating_modes.items():
+                    modes[m] = props.get('constraint_file', sdc_pattern.replace('{mode}', m))
+            except Exception:
+                pass
+        if not modes:
+            modes = {'func': '${design_name}_func.sdc', 'test': '${design_name}_test.sdc'}
+
+    # ── 6. RC corners from existing or defaults ──
+    rc_corners_data = {}
+    existing_config = os.path.join(core_dir, 'config', 'flow', version, 'mmmc_config.tcl')
+    if os.path.exists(existing_config):
+        try:
+            p = MmmcConfigParser(existing_config)
+            rc_corners_data = p.rc_corners
+        except Exception:
+            pass
+    if not rc_corners_data:
+        rc_corners_data = {
+            'rc_max': {'temperature': '125', 'metal_multiplier': '1.15', 'via_multiplier': '1.25',
+                       'cap_multiplier': '1.10', 'res_multiplier': '1.15'},
+            'rc_typ': {'temperature': '25', 'metal_multiplier': '1.00', 'via_multiplier': '1.00',
+                       'cap_multiplier': '1.00', 'res_multiplier': '1.00'},
+            'rc_min': {'temperature': '-40', 'metal_multiplier': '0.85', 'via_multiplier': '0.75',
+                       'cap_multiplier': '0.90', 'res_multiplier': '0.85'},
+        }
+
+    # ── 7. Node assignments (only from valid PVT) ──
+    total_views = len(modes) * sum(len(pts) for pts in valid_pvt.values())
+
+    def pick_scenarios(pvt_type, count, mode='func'):
+        pts = valid_pvt.get(pvt_type, [])
+        rc = {'ss': 'rcmax', 'tt': 'rctyp', 'ff': 'rcmin'}.get(pvt_type, 'rctyp')
+        return ['{}_{}_{}_{}_{}'.format(mode, pvt_type, v, rc, t) for v, t in pts[:count]]
+
+    nodes = {
+        'init_design': {'setup': pick_scenarios('tt', 1) or pick_scenarios('ss', 1),
+                        'hold':  pick_scenarios('tt', 1) or pick_scenarios('ff', 1)},
+        'floorplan':   {'setup': pick_scenarios('ss', 1), 'hold': pick_scenarios('ff', 1)},
+        'powerplan':   {'setup': pick_scenarios('ss', 1), 'hold': pick_scenarios('ff', 1)},
+        'placement':   {'setup': pick_scenarios('ss', 2), 'hold': pick_scenarios('ff', 2)},
+        'cts':         {'setup': pick_scenarios('ss', 3), 'hold': pick_scenarios('ff', 3)},
+        'cts_opt':     {'setup': pick_scenarios('ss', 3), 'hold': pick_scenarios('ff', 3)},
+        'route':       {'setup': pick_scenarios('ss', 3), 'hold': pick_scenarios('ff', 3)},
+        'post_route':  {'setup': pick_scenarios('ss', 4), 'hold': pick_scenarios('ff', 4)},
+        'synthesis':   {'setup': pick_scenarios('ss', 3), 'hold': pick_scenarios('ff', 2)},
+    }
+    # Signoff: all valid corners
+    nodes['signoff'] = {
+        'setup': ['{}_ss_{}_rcmax_{}'.format('func', v, t) for v, t in valid_pvt.get('ss', [])],
+        'hold':  ['{}_ff_{}_rcmin_{}'.format('func', v, t) for v, t in valid_pvt.get('ff', [])],
+    }
+
+    # ── Write mmmc_config.tcl ──
+    output_path = os.path.join(core_dir, 'config', 'flow', version, 'mmmc_config.tcl')
+
+    lines = []
+    w = lines.append
+
+    w('#!/usr/bin/env tclsh')
+    w('# ' + '=' * 77)
+    w('# CBflow MMMC Configuration — Auto-Generated')
+    w('# Generated: {} | Tech: {} | Corners: {}'.format(
+        datetime.now().strftime('%Y-%m-%d %H:%M'), tech_name, len(valid_refs)))
+    w('# Source: {}'.format(os.path.basename(lib_config_path)))
+    w('# Views: {} | Modes: {} | Process: {}'.format(
+        total_views, " ".join(sorted(modes.keys())), " ".join(process_corners)))
+    w('# Regenerate: cbflow flow mmmc-manager generate --tech {}'.format(tech_name))
+    w('# ' + '=' * 77)
+    w('')
+
+    # Global config
+    w('# Global MMMC configuration')
+    w('array set mmmc_config {')
+    w('    timing_derate_early    0.95')
+    w('    timing_derate_late     1.05')
+    w('    clock_uncertainty      0.1')
+    w('    max_transition         0.5')
+    w('    max_capacitance        2.0')
+    w('    max_fanout             16')
+    w('}')
+    w('')
+
+    # Voltage & Temperature
+    w('# ' + '=' * 77)
+    w('# VOLTAGE & TEMPERATURE (discovered from lib_config corners)')
+    w('# ' + '=' * 77)
+    w('')
+    w('set mmmc(voltage,nom)        {:.2f}'.format(v_nom))
+    w('set mmmc(voltage,low)        {:.2f}'.format(v_low))
+    w('set mmmc(voltage,high)       {:.2f}'.format(v_high))
+    w('set mmmc(temperature,hot)    {}'.format(t_hot))
+    w('set mmmc(temperature,nom)    {}'.format(t_nom))
+    w('set mmmc(temperature,cold)   {}'.format(t_cold))
+    w('')
+
+    # Process corners
+    w('# ' + '=' * 77)
+    w('# PROCESS CORNERS & OPERATING MODES')
+    w('# ' + '=' * 77)
+    w('')
+    w('set mmmc(process_corners) {{{}}}'.format(' '.join(process_corners)))
+    w('')
+
+    # Operating modes
+    w('array set operating_modes {')
+    for mode_name in sorted(modes.keys()):
+        sdc = modes[mode_name]
+        w('    {} {{ constraint_file "{}" }}'.format(mode_name, sdc))
+    w('}')
+    w('')
+
+    # PVT points (only validated combos — missing lib sets skipped)
+    w('# ' + '=' * 77)
+    w('# PVT POINTS (user-specified, validated against lib_config)')
+    w('# ' + '=' * 77)
+    w('')
+    for pvt_type in process_corners:
+        pts = valid_pvt.get(pvt_type, [])
+        pvt_str = ' '.join('{{{} {}}}'.format(v, t) for v, t in pts)
+        w('set mmmc(pvt,{}) {{{}}}'.format(pvt_type, pvt_str))
+    w('')
+
+    # RC pairing
+    w('# Corner -> RC corner pairing')
+    for pvt_type in process_corners:
+        rc = {'ss': 'rcmax', 'tt': 'rctyp', 'ff': 'rcmin'}.get(pvt_type, 'rctyp')
+        w('set mmmc(rc_pair,{}) "{}"'.format(pvt_type, rc))
+    w('')
+
+    # Analysis view generation (TCL code — same as before)
+    w('# ' + '=' * 77)
+    w('# AUTO-GENERATE ANALYSIS VIEWS & SCENARIO SETS')
+    w('# ' + '=' * 77)
+    w('')
+    w('array set analysis_views {}')
+    w('foreach _mode [array names operating_modes] {')
+    w('    set _sdc [dict get $operating_modes($_mode) constraint_file]')
+    w('    foreach _corner $mmmc(process_corners) {')
+    w('        set _rc $mmmc(rc_pair,$_corner)')
+    w('        switch $_corner {')
+    w('            ss { set _atype "setup" }')
+    w('            tt { set _atype "setup_hold" }')
+    w('            ff { set _atype "hold" }')
+    w('        }')
+    w('        foreach _pvt $mmmc(pvt,$_corner) {')
+    w('            set _v [lindex $_pvt 0]')
+    w('            set _t [lindex $_pvt 1]')
+    w('            set _name "${_mode}_${_corner}_${_v}_${_rc}_${_t}"')
+    w('            set _lib_ref "${_corner}_${_v}_${_t}"')
+    w('            set analysis_views($_name) [list \\')
+    w('                corner $_corner mode $_mode voltage $_v temperature $_t \\')
+    w('                analysis_type $_atype constraint_file $_sdc \\')
+    w('                lib_set_ref $_lib_ref rc_corner $_rc \\')
+    w('            ]')
+    w('        }')
+    w('    }')
+    w('}')
+    w('')
+
+    # Scenario sets
+    w('# ── Scenario sets ──')
+    w('set _all [lsort [array names analysis_views]]')
+    w('')
+    w('array set mmmc_scenario_sets {}')
+    w('set mmmc_scenario_sets(setup)       [lsearch -all -inline $_all "*_ss_*"]')
+    w('set mmmc_scenario_sets(hold)        [lsearch -all -inline $_all "*_ff_*"]')
+    w('set mmmc_scenario_sets(power)       [concat \\')
+    w('    [lsearch -all -inline $_all "*_tt_*_rctyp_*"] \\')
+    w('    [lsearch -all -inline $_all "*_ss_*_rctyp_*"] \\')
+    w(']')
+    w('set mmmc_scenario_sets(signoff)     [concat \\')
+    w('    $mmmc_scenario_sets(setup) \\')
+    w('    $mmmc_scenario_sets(hold) \\')
+    w('    [lsearch -all -inline $_all "func_tt_*_rctyp_*"] \\')
+    w(']')
+    w('set mmmc_scenario_sets(all)         $_all')
+    w('set mmmc_scenario_sets(sta_setup)   $mmmc_scenario_sets(setup)')
+    w('set mmmc_scenario_sets(sta_hold)    $mmmc_scenario_sets(hold)')
+    w('set mmmc_scenario_sets(sta_signoff) $mmmc_scenario_sets(signoff)')
+    w('')
+
+    # RC corners
+    w('# ' + '=' * 77)
+    w('# RC CORNERS')
+    w('# ' + '=' * 77)
+    w('')
+    w('array set rc_corners {')
+    for rc_name in sorted(rc_corners_data.keys()):
+        props = rc_corners_data[rc_name]
+        w('    {} {{'.format(rc_name))
+        for k in ['temperature', 'metal_multiplier', 'via_multiplier', 'cap_multiplier', 'res_multiplier']:
+            if k in props:
+                w('        {:<24s}{}'.format(k, props[k]))
+        w('    }')
+    w('}')
+    w('')
+    w('set rc_corner_list [lsort [array names rc_corners]]')
+    w('')
+
+    # Node assignments — NOT in mmmc_config (project-level, goes in project_config.tcl)
+    w('# ' + '=' * 77)
+    w('# NODE-SPECIFIC SCENARIO ASSIGNMENTS')
+    w('# Defined in project_config.tcl (project-level decision, not auto-generated)')
+    w('# ' + '=' * 77)
+    w('')
+
+    # Build node assignment block for project_config
+    node_lines = []
+    nw = node_lines.append
+    nw('# ── MMMC Node Scenario Assignments ──')
+    nw('# Generated by: cbflow flow mmmc-manager generate --tech {}'.format(tech_name))
+    nw('# Add/modify these in project_config.tcl')
+    nw('array set mmmc {')
+    for node_name in ['init_design', 'floorplan', 'powerplan', 'placement',
+                      'cts', 'cts_opt', 'route', 'post_route', 'signoff', 'synthesis']:
+        if node_name not in nodes:
+            continue
+        nd = nodes[node_name]
+        nw('    {} {{'.format(node_name))
+        for atype in ['setup', 'hold']:
+            scenarios = nd.get(atype, [])
+            if len(scenarios) <= 1:
+                nw('        {} {{{}}}'.format(atype, scenarios[0] if scenarios else ''))
+            else:
+                nw('        {} {{'.format(atype))
+                for s in scenarios:
+                    nw('            {}'.format(s))
+                nw('        }')
+        nw('    }')
+        nw('')
+    nw('}')
+    node_assignment_text = '\n'.join(node_lines) + '\n'
+
+    # Write — confirm overwrite + backup
+    output_text = '\n'.join(lines) + '\n'
+
+    if os.path.exists(output_path):
+        print('  WARNING: {} already exists'.format(output_path))
+        confirm = input('  Overwrite? (y/n) [y]: ').strip().lower()
+        if confirm and confirm not in ('y', 'yes'):
+            print('  Aborted — no changes made.')
+            return 0
+        # Backup with timestamp
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_path = '{}.bak_{}'.format(output_path, ts)
+        shutil.copy2(output_path, backup_path)
+        print('  Backup: {}'.format(backup_path))
+
+    with open(output_path, 'w') as fh:
+        fh.write(output_text)
+
+    # Write node assignments template alongside mmmc_config
+    node_template_path = os.path.join(os.path.dirname(output_path), 'mmmc_node_scenarios.tcl')
+    with open(node_template_path, 'w') as fh:
+        fh.write(node_assignment_text)
+
+    print('  Node scenario template: {}'.format(node_template_path))
+    print('  Copy node assignments to project_config.tcl if not already present')
+
+    # ── Report ──
+    print('')
+    print('=' * 60)
+    print('  MMMC Generation Report — {}'.format(tech_name))
+    print('=' * 60)
+    print('  Validated against: {}'.format(os.path.basename(lib_config_path)))
+    print('')
+    print('  Requested PVT matrix:')
+    print('    Corners:      {}'.format(' '.join(corners_input)))
+    print('    Voltages:     {}'.format(' '.join(voltages_input)))
+    print('    Temperatures: {}'.format(' '.join(temps_input)))
+    print('    Total combos: {}'.format(total_requested))
+    print('')
+
+    # Validation results
+    print('  Library Set Validation{}:'.format(
+        ' (track={})'.format(track_for_check) if track_for_check else ''))
+    for ref in sorted(all_lib_refs):
+        status = 'ok' if ref in valid_refs else 'SKIPPED (no libs)'
+        sym = ' ' if ref in valid_refs else '!'
+        print('   {} {:<30s} {}'.format(sym, ref, status))
+    print('')
+    print('  Valid:   {} / {}  |  Skipped: {}'.format(
+        len(valid_refs), len(all_lib_refs), len(missing_refs)))
+
+    if skipped_pvt:
+        print('')
+        print('  Skipped scenarios (no matching lib set in lib_config):')
+        for corner, pts in sorted(skipped_pvt.items()):
+            for v, t in pts:
+                print('    {}_{}_{} — not in lib_config'.format(corner, v, t))
+
+    print('')
+    print('  Generated:')
+    print('    Process corners: {}'.format(' '.join(process_corners)))
+    for pc in process_corners:
+        print('      {}: {} PVT points'.format(pc, len(valid_pvt.get(pc, []))))
+    print('    Modes: {}'.format(' '.join(sorted(modes.keys()))))
+    print('    Analysis views: {}'.format(total_views))
+    if vt_filter:
+        print('    VT filter: {}'.format(' '.join(vt_filter)))
+    print('')
+    print('  Output: {}'.format(output_path))
+    print('=' * 60)
+    print('')
+
+    if missing_refs:
+        logger.warning('{} PVT combos skipped — no matching libs in lib_config'.format(len(missing_refs)))
+
+    return 0
+
+
 def create_parser() -> argparse.ArgumentParser:
     """Create the argument parser with all subcommands."""
     top = argparse.ArgumentParser(
@@ -1247,6 +1767,28 @@ Examples:
     p.add_argument('--config', default=None,
                    help='Path to mmmc_config.tcl')
 
+    # -- generate --
+    p = sub.add_parser('generate',
+                       help='Generate mmmc_config.tcl — interactive CLI, validated against lib_config')
+    p.add_argument('--tech', default=None,
+                   help='Technology name (e.g., gf_22nm). Prompted if omitted')
+    p.add_argument('--corners', default=None,
+                   help='Process corners (e.g., "ss tt ff"). Prompted if omitted')
+    p.add_argument('--voltages', default=None,
+                   help='Voltage points (e.g., "0p76v 0p80v 0p84v"). Prompted if omitted')
+    p.add_argument('--temperatures', default=None,
+                   help='Temperature points (e.g., "150c 25c m40c"). Prompted if omitted')
+    p.add_argument('--vts', default=None,
+                   help='VT flavors to include (e.g., "svt lvt hvt")')
+    p.add_argument('--modes', default=None,
+                   help='Operating modes (e.g., "func test scan"). Default: from existing config or func+test')
+    p.add_argument('--sdc-pattern', default=None,
+                   help='SDC naming pattern (default: ${design_name}_{mode}.sdc)')
+    p.add_argument('--track', default=None,
+                   help='Track to validate against (e.g., 9T)')
+    p.add_argument('--lib-tag', default=None,
+                   help='lib_config tag (e.g., P0 reads lib_config_P0.tcl)')
+
     return top
 
 
@@ -1275,6 +1817,7 @@ def main() -> int:
         'list-views':        cmd_list_views,
         'list-scenarios':    cmd_list_scenarios,
         'generate-view-def': cmd_generate_view_def,
+        'generate':          cmd_generate_mmmc_config,
     }
 
     handler = dispatch.get(args.command)

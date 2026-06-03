@@ -516,6 +516,22 @@ def _build_env_from_user_config(config_file: str) -> dict:
     arr = flow_type.lower().replace('_', '_')  # pnr, synth_pnr, sta, etc.
     tool_vendor = uc.get(f'{arr}(tool,vendor)', '')
     tool_name = uc.get(f'{arr}(tool,name)', '')
+    # Auto-resolve vendor from tool-specific config: <FLOW>_<tool>_config.tcl
+    if not tool_vendor and tool_name:
+        import re as _re
+        core = os.environ.get('CBFLOW_CORE_DIR', '')
+        if not core:
+            core = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        cfg_ver = os.environ.get('FLOW_CONFIG_VERSION', 'v1.0.0')
+        tool_cfg = os.path.join(core, 'config', 'flow', cfg_ver,
+                                'node_configs', '{}_{}_config.tcl'.format(flow_type, tool_name))
+        if os.path.isfile(tool_cfg):
+            with open(tool_cfg, 'r') as _tcf:
+                for _line in _tcf:
+                    _m = _re.search(r'tool,vendor["\s]+["\s]*([^"}\s]+)', _line)
+                    if _m:
+                        tool_vendor = _m.group(1)
+                        break
     if tool_vendor:
         env['CBFLOW_TOOL_VENDOR'] = tool_vendor
     if tool_name:

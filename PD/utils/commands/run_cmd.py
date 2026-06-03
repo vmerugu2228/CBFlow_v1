@@ -870,6 +870,19 @@ def cmd_report(args: argparse.Namespace) -> int:
     version = (node_config.get('tool,version', '').strip('"')
                or env_vars.get('CBFLOW_TOOL_VERSION', '')
                or os.environ.get('CBFLOW_TOOL_VERSION', ''))
+    # Auto-resolve vendor from tool-specific config: <FLOW>_<tool>_config.tcl
+    if not vendor and tool and core_dir:
+        flow_type = env_vars.get('CBFLOW_FLOW_TYPE', '') or os.environ.get('CBFLOW_FLOW_TYPE', '')
+        cfg_ver = env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0')
+        tool_cfg = os.path.join(core_dir, 'config', 'flow', cfg_ver,
+                                'node_configs', '{}_{}_config.tcl'.format(flow_type, tool))
+        if os.path.isfile(tool_cfg):
+            with open(tool_cfg, 'r') as _tcf:
+                for _line in _tcf:
+                    _m = _re.search(r'tool,vendor["\s]+["\s]*([^"}\s]+)', _line)
+                    if _m:
+                        vendor = _m.group(1)
+                        break
     core_dir = os.environ.get('FLOW_DIR', '') or env_vars.get('FLOW_DIR', '')
 
     dump_setup = getattr(args, 'dump_setup', True)

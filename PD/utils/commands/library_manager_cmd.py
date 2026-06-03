@@ -13,7 +13,12 @@ import re
 import json
 import logging
 from pathlib import Path
-from dataclasses import dataclass, field, asdict
+try:
+    from dataclasses import dataclass, field, asdict
+except ImportError:
+    # Python 3.6 fallback — dataclasses added in 3.7
+    # pip install dataclasses  (backport available on PyPI)
+    raise ImportError("dataclasses required — run: pip install dataclasses (Python 3.6 backport)")
 from typing import List, Dict, Optional, Tuple
 from collections import defaultdict
 
@@ -28,6 +33,31 @@ def get_cbflow_core_dir() -> str:
         return os.environ['CBFLOW_CORE_DIR']
     script_dir = os.path.dirname(os.path.abspath(__file__))
     return os.path.dirname(os.path.dirname(script_dir))
+
+
+def _resolve_lib_root_from_tech_config(tech_name=None) -> str:
+    """Read tech(lib_root) from tech_config.tcl. Returns path or empty string."""
+    core_dir = get_cbflow_core_dir()
+    version = os.environ.get('FLOW_CONFIG_VERSION', 'v1.0.0')
+    # Try specific tech
+    if tech_name:
+        tc = os.path.join(core_dir, 'config', 'tech', tech_name, version, 'tech_config.tcl')
+        if os.path.exists(tc):
+            with open(tc, 'r') as f:
+                m = re.search(r'set\s+tech\(lib_root\)\s+"([^"]+)"', f.read())
+                if m:
+                    return m.group(1)
+    # Scan all tech configs
+    tech_dir = os.path.join(core_dir, 'config', 'tech')
+    if os.path.isdir(tech_dir):
+        for t in os.listdir(tech_dir):
+            tc = os.path.join(tech_dir, t, version, 'tech_config.tcl')
+            if os.path.exists(tc):
+                with open(tc, 'r') as f:
+                    m = re.search(r'set\s+tech\(lib_root\)\s+"([^"]+)"', f.read())
+                    if m:
+                        return m.group(1)
+    return ''
 
 
 # -------------------------------------------------------------------------------
@@ -927,6 +957,778 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
 
 # -------------------------------------------------------------------------------
+# Generate lib_config.tcl — auto-discover libraries from directories
+# -------------------------------------------------------------------------------
+
+# Patterns for parsing library filenames
+_TRACK_RE = re.compile(r'(\d+p?\d*t)', re.IGNORECASE)
+_CORNER_RE = re.compile(r'(ss|tt|ff)(0p\d+v)(m?\d+c)')
+_VT_KEYWORDS = ['ulvt', 'lvt', 'svt', 'hvt']  # ordered: longest first to avoid partial matches
+
+
+def _extract_vt(filename, vt_patterns=None):
+    """Extract VT flavor from filename. Returns (vt, match_pos) or (None, -1)."""
+    fn_lower = filename.lower()
+    # Use provided patterns or defaults
+    vts = vt_patterns or _VT_KEYWORDS
+    for vt in sorted(vts, key=len, reverse=True):  # longest first (ulvt before lvt)
+        idx = fn_lower.find(vt.lower())
+        if idx >= 0:
+            return vt, idx
+    return None, -1
+
+
+def _extract_track(filename, tracks_available=None):
+    """Extract track from filename (e.g., '9t', '7p5t', '5t')."""
+    fn_lower = filename.lower()
+    if tracks_available:
+        # Try exact match against known tracks (longest first)
+        for trk in sorted(tracks_available, key=len, reverse=True):
+            trk_lower = trk.lower().replace('.', 'p')
+            if trk_lower in fn_lower:
+                return trk
+    # Fallback: regex
+    m = _TRACK_RE.search(fn_lower)
+    if m:
+        raw = m.group(1).upper().replace('P', '.').rstrip('T') + 'T'
+        return raw
+    return None
+
+
+def _extract_corner(filename):
+    """Extract corner key from filename (e.g., 'ss_0p76v_150c')."""
+    m = _CORNER_RE.search(filename.lower())
+    if m:
+        pvt = m.group(1)
+        voltage = m.group(2)
+        temp = m.group(3)
+        return "{}_{}_{}".format(pvt, voltage, temp)
+    return None
+
+
+def _format_corner_key(corner_str):
+    """Normalize corner key to standard format (e.g., 'ss_0p76v_150c')."""
+    return corner_str
+
+
+def cmd_generate(args: argparse.Namespace) -> int:
+    """Generate lib_config.tcl by scanning library directories.
+
+    Discovers all available libraries (NDM, DB, LEF, lib_nom, timing)
+    organized by track × VT × corner. Writes fully resolved absolute paths.
+    """
+    lib_root = args.lib_root
+    if not lib_root or not os.path.isdir(lib_root):
+        logger.error("--lib-root is required and must be a valid directory")
+        return 1
+
+    lib_root = os.path.abspath(lib_root)
+    tech_name = args.tech or os.path.basename(lib_root)
+    version = args.version or "v1.0.0"
+
+    # Exclude patterns (glob wildcards)
+    import fnmatch
+    exclude_patterns = args.exclude if hasattr(args, 'exclude') and args.exclude else []
+    def _is_excluded(filepath):
+        """Match exclude patterns against full absolute path and filename."""
+        fp_lower = filepath.lower()
+        fn_lower = os.path.basename(filepath).lower()
+        for pat in exclude_patterns:
+            pat_lower = pat.lower()
+            if fnmatch.fnmatch(fp_lower, pat_lower) or fnmatch.fnmatch(fn_lower, pat_lower):
+                return True
+        return False
+
+    # Resolve tracks and VTs — try reading from tech_config.tcl first
+    tracks = args.tracks.split() if args.tracks else None
+    vt_list = args.vts.split() if args.vts else None
+
+    if not tracks or not vt_list:
+        core_dir = get_cbflow_core_dir()
+        tc_path = os.path.join(core_dir, "config", "tech", tech_name, version, "tech_config.tcl")
+        if os.path.exists(tc_path):
+            with open(tc_path, 'r') as _tcf:
+                _tc_content = _tcf.read()
+            if not tracks:
+                m = re.search(r'set\s+tech\(tracks_available\)\s+"([^"]+)"', _tc_content)
+                if m:
+                    tracks = m.group(1).split()
+                    logger.info("Auto-detected tracks from tech_config: {}".format(" ".join(tracks)))
+            if not vt_list:
+                m = re.search(r'set\s+tech\(vt_variants_available\)\s+\{([^}]+)\}', _tc_content)
+                if m:
+                    vt_list = m.group(1).split()
+                    logger.info("Auto-detected VTs from tech_config: {}".format(" ".join(vt_list)))
+            # Read additional lib paths from tech_config
+            if not (hasattr(args, 'stdcell_path') and args.stdcell_path):
+                m = re.search(r'set\s+tech\(lib_paths,stdcell\)\s+\[list\s+(.+?)\]', _tc_content)
+                if m and m.group(1).strip():
+                    extra = re.findall(r'"([^"]+)"', m.group(1))
+                    if extra:
+                        args.stdcell_path = extra
+                        logger.info("Auto-detected stdcell paths from tech_config: {}".format(" ".join(extra)))
+            if not (hasattr(args, 'memory_path') and args.memory_path):
+                m = re.search(r'set\s+tech\(lib_paths,memory\)\s+\[list\s+(.+?)\]', _tc_content)
+                if m and m.group(1).strip():
+                    extra = re.findall(r'"([^"]+)"', m.group(1))
+                    if extra:
+                        args.memory_path = extra
+                        logger.info("Auto-detected memory paths from tech_config: {}".format(" ".join(extra)))
+            if not (hasattr(args, 'io_path') and args.io_path):
+                m = re.search(r'set\s+tech\(lib_paths,io\)\s+\[list\s+(.+?)\]', _tc_content)
+                if m and m.group(1).strip():
+                    extra = re.findall(r'"([^"]+)"', m.group(1))
+                    if extra:
+                        args.io_path = extra
+                        logger.info("Auto-detected IO paths from tech_config: {}".format(" ".join(extra)))
+
+    if not vt_list:
+        vt_list = _VT_KEYWORDS
+
+    if exclude_patterns:
+        logger.info("Exclude patterns: {}".format(", ".join(exclude_patterns)))
+
+    # Directory structure — try standard layout, fall back to recursive scan
+    ndm_dirs = []
+    lef_dirs = []
+    stdcell_dirs = []
+    memory_dirs = []
+    io_dirs = []
+
+    # Standard foundry layout
+    _std = os.path.join(lib_root, "Back_End", "ndm")
+    if os.path.isdir(_std): ndm_dirs.append(_std)
+    _std = os.path.join(lib_root, "Back_End", "lef")
+    if os.path.isdir(_std): lef_dirs.append(_std)
+    _std = os.path.join(lib_root, "Front_End", "timing", "stdcell")
+    if os.path.isdir(_std): stdcell_dirs.append(_std)
+    _std = os.path.join(lib_root, "Front_End", "timing", "memory")
+    if os.path.isdir(_std): memory_dirs.append(_std)
+    _std = os.path.join(lib_root, "Front_End", "timing", "io")
+    if os.path.isdir(_std): io_dirs.append(_std)
+
+    # If standard layout not found, scan lib_root recursively
+    if not ndm_dirs and not stdcell_dirs:
+        logger.info("Standard layout not found — scanning {} recursively".format(lib_root))
+        for root, dirs, files in os.walk(lib_root):
+            has_ndm = any(f.endswith('.ndm') for f in files)
+            has_lef = any(f.endswith('.lef') for f in files)
+            has_lib = any(f.endswith('.lib') or f.endswith('.db') for f in files)
+            rl = root.lower()
+            if has_ndm:
+                ndm_dirs.append(root)
+            if has_lef:
+                lef_dirs.append(root)
+            if has_lib:
+                if 'memory' in rl or 'mem' in rl:
+                    memory_dirs.append(root)
+                elif 'io' in rl or 'iolib' in rl:
+                    io_dirs.append(root)
+                else:
+                    stdcell_dirs.append(root)
+
+    # Additional stdcell paths — scan recursively for lib files in whatever structure
+    if hasattr(args, 'stdcell_path') and args.stdcell_path:
+        for sp in args.stdcell_path:
+            sp = os.path.abspath(sp)
+            if not os.path.isdir(sp):
+                logger.warning("stdcell-path not found: {}".format(sp))
+                continue
+            # Walk the entire tree, collect directories that contain relevant files
+            for root, dirs, files in os.walk(sp):
+                has_ndm = any(f.endswith('.ndm') for f in files)
+                has_lef = any(f.endswith('.lef') for f in files)
+                has_lib = any(f.endswith('.lib') or f.endswith('.db') for f in files)
+                if has_ndm and root not in ndm_dirs:
+                    ndm_dirs.append(root)
+                if has_lef and root not in lef_dirs:
+                    lef_dirs.append(root)
+                if has_lib and root not in stdcell_dirs:
+                    stdcell_dirs.append(root)
+            logger.info("Additional stdcell path: {} (recursive scan)".format(sp))
+
+    if hasattr(args, 'memory_path') and args.memory_path:
+        memory_dirs = [os.path.abspath(p) for p in args.memory_path]
+    if hasattr(args, 'io_path') and args.io_path:
+        io_dirs = [os.path.abspath(p) for p in args.io_path]
+
+    # ── Discovery ──────────────────────────────────────────────────────────
+    # Data structures: {(track, vt): [path, ...]}
+    ndm_libs = defaultdict(list)      # (track,vt) → [ndm paths]
+    db_libs = defaultdict(list)       # (track,vt) → [db paths]
+    lef_libs = defaultdict(list)      # (track,vt) → [lef paths]
+    lib_nom_libs = defaultdict(list)  # (track,vt) → [lib_nom paths]
+    timing_libs = defaultdict(list)   # (track,vt,corner) → [timing lib paths]
+
+    # Shared libs
+    ndm_memory = []
+    ndm_io = []
+    lef_memory = []
+    lef_io = []
+    lib_nom_memory = []
+    lib_nom_io = []
+    timing_memory = defaultdict(list)   # corner → [paths]
+    timing_io = defaultdict(list)       # corner → [paths]
+
+    discovered_tracks = set()
+    discovered_vts = set()
+    discovered_corners = set()
+
+    excluded_count = 0
+
+    # ── Scan NDMs ──
+    for ndm_dir in ndm_dirs:
+        if not os.path.isdir(ndm_dir):
+            continue
+        for f in sorted(os.listdir(ndm_dir)):
+            if not f.endswith('.ndm'):
+                continue
+            fpath = os.path.join(ndm_dir, f)
+            if _is_excluded(fpath):
+                excluded_count += 1; continue
+            fl = f.lower()
+            if 'memory' in fl or 'mem' in fl:
+                ndm_memory.append(fpath)
+                continue
+            if '_io' in fl or 'io.' in fl:
+                ndm_io.append(fpath)
+                continue
+            vt, _ = _extract_vt(f, vt_list)
+            trk = _extract_track(f, tracks)
+            if vt and trk:
+                ndm_libs[(trk, vt)].append(fpath)
+                discovered_tracks.add(trk)
+                discovered_vts.add(vt)
+
+    # ── Scan LEFs ──
+    for lef_dir in lef_dirs:
+        if not os.path.isdir(lef_dir):
+            continue
+        for f in sorted(os.listdir(lef_dir)):
+            if not f.endswith('.lef'):
+                continue
+            fpath = os.path.join(lef_dir, f)
+            if _is_excluded(fpath):
+                excluded_count += 1; continue
+            fl = f.lower()
+            if 'tech' in fl:
+                continue
+            if 'memory' in fl or 'mem' in fl:
+                lef_memory.append(fpath)
+                continue
+            if '_io' in fl or 'io.' in fl:
+                lef_io.append(fpath)
+                continue
+            vt, _ = _extract_vt(f, vt_list)
+            trk = _extract_track(f, tracks)
+            if vt and trk:
+                lef_libs[(trk, vt)].append(fpath)
+
+    # ── Scan stdcell timing/DB ──
+    for stdcell_dir in stdcell_dirs:
+        if not os.path.isdir(stdcell_dir):
+            continue
+        for f in sorted(os.listdir(stdcell_dir)):
+            fpath = os.path.join(stdcell_dir, f)
+            if _is_excluded(fpath):
+                excluded_count += 1; continue
+            vt, _ = _extract_vt(f, vt_list)
+            trk = _extract_track(f, tracks)
+            corner = _extract_corner(f)
+
+            if f.endswith('.db'):
+                if vt and trk:
+                    db_libs[(trk, vt)].append(fpath)
+            elif f.endswith('_ccs.lib') or f.endswith('_nldm.lib'):
+                if vt and trk and corner:
+                    timing_libs[(trk, vt, corner)].append(fpath)
+                    discovered_corners.add(corner)
+                elif vt and trk and not corner:
+                    # Nominal lib (no corner in name = tt nominal)
+                    lib_nom_libs[(trk, vt)].append(fpath)
+            elif f.endswith('.lib'):
+                if vt and trk and corner:
+                    timing_libs[(trk, vt, corner)].append(fpath)
+                    discovered_corners.add(corner)
+                elif vt and trk:
+                    lib_nom_libs[(trk, vt)].append(fpath)
+
+    # ── Scan memory timing libs ──
+    for memory_dir in memory_dirs:
+        if not os.path.isdir(memory_dir):
+            continue
+        for f in sorted(os.listdir(memory_dir)):
+            if not f.endswith('.lib'):
+                continue
+            fpath = os.path.join(memory_dir, f)
+            if _is_excluded(fpath):
+                excluded_count += 1; continue
+            corner = _extract_corner(f)
+            if corner:
+                timing_memory[corner].append(fpath)
+            else:
+                lib_nom_memory.append(fpath)
+
+    # ── Scan IO timing libs ──
+    for io_dir in io_dirs:
+        if not os.path.isdir(io_dir):
+            continue
+        for f in sorted(os.listdir(io_dir)):
+            if not f.endswith('.lib'):
+                continue
+            fpath = os.path.join(io_dir, f)
+            if _is_excluded(fpath):
+                excluded_count += 1; continue
+            corner = _extract_corner(f)
+            if corner:
+                timing_io[corner].append(fpath)
+            else:
+                lib_nom_io.append(fpath)
+
+    # ── Sort discovered sets ──
+    all_tracks = sorted(discovered_tracks, key=lambda t: float(t.replace('T','').replace('P','.')))
+    if tracks:
+        all_tracks = [t for t in tracks if t in discovered_tracks]
+    all_vts = [v for v in vt_list if v in discovered_vts]
+    all_corners = sorted(discovered_corners)
+
+    if not all_tracks:
+        logger.error("No tracks discovered. Check --lib-root directory structure.")
+        return 1
+
+    # ── Verify: read .lib headers and cross-check PVT against filenames ──
+    pvt_mismatches = []
+    pvt_verified = 0
+    pvt_skipped = 0
+    # Collect all .lib paths from timing_libs + timing_memory + timing_io
+    all_lib_paths = []
+    for paths in timing_libs.values():
+        all_lib_paths.extend(paths)
+    for paths in timing_memory.values():
+        all_lib_paths.extend(paths)
+    for paths in timing_io.values():
+        all_lib_paths.extend(paths)
+
+    for libpath in all_lib_paths:
+        if not os.path.isfile(libpath) or os.path.getsize(libpath) == 0:
+            pvt_skipped += 1
+            continue
+        fname = os.path.basename(libpath)
+        # Extract PVT from filename
+        fn_corner = _extract_corner(fname)
+        if not fn_corner:
+            pvt_skipped += 1
+            continue
+        # Parse: corner format is "ss_0p76v_150c"
+        parts = fn_corner.split('_')
+        if len(parts) != 3:
+            pvt_skipped += 1
+            continue
+        fn_voltage = float(parts[1].rstrip('v').replace('p', '.'))
+        t_str = parts[2].rstrip('c')
+        fn_temp = -int(t_str[1:]) if t_str.startswith('m') else int(t_str)
+
+        # Read .lib header
+        char = LibertyParser.parse_file(libpath)
+        if char.nom_voltage == 0 and char.oc_voltage == 0:
+            pvt_skipped += 1
+            continue
+
+        pvt_verified += 1
+        mismatch_details = []
+        lib_v = char.nom_voltage if char.nom_voltage > 0 else char.oc_voltage
+        lib_t = int(char.nom_temperature) if char.nom_temperature != 0 else int(char.oc_temperature)
+
+        if lib_v > 0 and abs(lib_v - fn_voltage) > 0.01:
+            mismatch_details.append("voltage: file={:.3f}V header={:.3f}V".format(fn_voltage, lib_v))
+        if lib_t != 0 and lib_t != fn_temp:
+            mismatch_details.append("temp: file={}C header={}C".format(fn_temp, lib_t))
+
+        if mismatch_details:
+            pvt_mismatches.append((fname, mismatch_details))
+
+    # ── Generate output ────────────────────────────────────────────────────
+    from datetime import datetime
+    lines = []
+    w = lines.append
+
+    w("#!/usr/bin/env tclsh")
+    w("# " + "=" * 77)
+    w("# AUTO-GENERATED by: cbflow flow library-manager generate")
+    w("# Tech: {} | Generated: {}".format(tech_name, datetime.now().strftime("%Y-%m-%d %H:%M")))
+    w("# Source: {}".format(lib_root))
+    w("# Tracks: {} | VTs: {}".format(" ".join(all_tracks), " ".join(all_vts)))
+    w("# Corners: {}".format(len(all_corners)))
+    w("# DO NOT EDIT — regenerate with: cbflow flow library-manager generate")
+    w("# " + "=" * 77)
+    w("")
+
+    # ── NDM per track per VT ──
+    w("# ── NDM per track per VT ──")
+    for trk in all_tracks:
+        for vt in all_vts:
+            paths = ndm_libs.get((trk, vt), [])
+            if paths:
+                w('set tech({},{},ndm) [list {}]'.format(
+                    trk, vt, " ".join('"{}"'.format(p) for p in paths)))
+    w("")
+
+    # ── NDM shared ──
+    w("# ── NDM shared ──")
+    w('set tech(ndm,memory) [list {}]'.format(
+        " ".join('"{}"'.format(p) for p in ndm_memory) if ndm_memory else ""))
+    w('set tech(ndm,io) [list {}]'.format(
+        " ".join('"{}"'.format(p) for p in ndm_io) if ndm_io else ""))
+    w('set tech(ndm,analog) [list]')
+    w("")
+
+    # ── NDM combined per track (all VTs + shared) ──
+    w("# ── NDM combined per track ──")
+    for trk in all_tracks:
+        combined = []
+        for vt in all_vts:
+            combined.extend(ndm_libs.get((trk, vt), []))
+        combined.extend(ndm_memory)
+        combined.extend(ndm_io)
+        w('set tech({},ndm) [list {}]'.format(
+            trk, " ".join('"{}"'.format(p) for p in combined)))
+    w("")
+
+    # ── DB per track per VT ──
+    w("# ── DB per track per VT ──")
+    for trk in all_tracks:
+        for vt in all_vts:
+            paths = db_libs.get((trk, vt), [])
+            if paths:
+                w('set tech({},{},db) [list {}]'.format(
+                    trk, vt, " ".join('"{}"'.format(p) for p in paths)))
+    w("")
+
+    # ── DB shared ──
+    db_mem = []
+    db_io = []
+    # DB memory/io: scan for .db files in memory/io dirs
+    for dirs, lst in [(memory_dirs, db_mem), (io_dirs, db_io)]:
+        for d in dirs:
+            if os.path.isdir(d):
+                for f in sorted(os.listdir(d)):
+                    if f.endswith('.db'):
+                        lst.append(os.path.join(d, f))
+    w("# ── DB shared ──")
+    w('set tech(db,memory) [list {}]'.format(
+        " ".join('"{}"'.format(p) for p in db_mem) if db_mem else ""))
+    w('set tech(db,io) [list {}]'.format(
+        " ".join('"{}"'.format(p) for p in db_io) if db_io else ""))
+    w("")
+
+    # ── DB combined per track ──
+    w("# ── DB combined per track ──")
+    for trk in all_tracks:
+        combined = []
+        for vt in all_vts:
+            combined.extend(db_libs.get((trk, vt), []))
+        combined.extend(db_mem)
+        combined.extend(db_io)
+        w('set tech({},db) [list {}]'.format(
+            trk, " ".join('"{}"'.format(p) for p in combined)))
+    w("")
+
+    # ── lib_nom per track per VT ──
+    w("# ── lib_nom per track per VT ──")
+    for trk in all_tracks:
+        for vt in all_vts:
+            paths = lib_nom_libs.get((trk, vt), [])
+            if paths:
+                w('set tech({},{},lib_nom) [list {}]'.format(
+                    trk, vt, " ".join('"{}"'.format(p) for p in paths)))
+    w("")
+
+    # ── lib_nom shared ──
+    w("# ── lib_nom shared ──")
+    w('set tech(lib_nom,memory) [list {}]'.format(
+        " ".join('"{}"'.format(p) for p in lib_nom_memory) if lib_nom_memory else ""))
+    w('set tech(lib_nom,io) [list {}]'.format(
+        " ".join('"{}"'.format(p) for p in lib_nom_io) if lib_nom_io else ""))
+    w("")
+
+    # ── lib_nom combined per track ──
+    # lib_nom = nominal corner (first TT corner found). If no explicit lib_nom,
+    # use the TT nominal timing libs as lib_nom (standard practice)
+    tt_corners = [c for c in all_corners if c.startswith('tt')]
+    # Prefer room temperature (25c) as nominal
+    nom_corner = None
+    for c in tt_corners:
+        if '25c' in c:
+            nom_corner = c
+            break
+    if not nom_corner and tt_corners:
+        nom_corner = tt_corners[0]
+    w("# ── lib_nom combined per track (from TT nominal: {}) ──".format(nom_corner or "none"))
+    for trk in all_tracks:
+        combined = []
+        for vt in all_vts:
+            explicit = lib_nom_libs.get((trk, vt), [])
+            if explicit:
+                combined.extend(explicit)
+            elif nom_corner:
+                combined.extend(timing_libs.get((trk, vt, nom_corner), []))
+        if not combined:
+            combined.extend(lib_nom_memory)
+            combined.extend(lib_nom_io)
+        else:
+            mem_nom = lib_nom_memory if lib_nom_memory else timing_memory.get(nom_corner, [])
+            io_nom = lib_nom_io if lib_nom_io else timing_io.get(nom_corner, [])
+            combined.extend(mem_nom)
+            combined.extend(io_nom)
+        w('set tech({},lib_nom) [list {}]'.format(
+            trk, " ".join('"{}"'.format(p) for p in combined)))
+    w("")
+
+    # ── LEF per track per VT ──
+    w("# ── LEF per track per VT ──")
+    for trk in all_tracks:
+        for vt in all_vts:
+            paths = lef_libs.get((trk, vt), [])
+            if paths:
+                w('set tech({},{},lef) [list {}]'.format(
+                    trk, vt, " ".join('"{}"'.format(p) for p in paths)))
+    w("")
+
+    # ── LEF shared ──
+    w("# ── LEF shared ──")
+    w('set tech(lef,memory) [list {}]'.format(
+        " ".join('"{}"'.format(p) for p in lef_memory) if lef_memory else ""))
+    w('set tech(lef,io) [list {}]'.format(
+        " ".join('"{}"'.format(p) for p in lef_io) if lef_io else ""))
+    w("")
+
+    # ── LEF combined per track ──
+    w("# ── LEF combined per track ──")
+    for trk in all_tracks:
+        combined = []
+        for vt in all_vts:
+            combined.extend(lef_libs.get((trk, vt), []))
+        combined.extend(lef_memory)
+        combined.extend(lef_io)
+        w('set tech({},lef) [list {}]'.format(
+            trk, " ".join('"{}"'.format(p) for p in combined)))
+    w("")
+
+    # ── Corners discovered ──
+    w("# ── Corners discovered ──")
+    w('set tech(corners) {{{}}}'.format(" ".join(all_corners)))
+    w("")
+
+    # ── Timing libs per track per VT per corner ──
+    w("# ── Timing libs per track per VT per corner ──")
+    for trk in all_tracks:
+        for corner in all_corners:
+            for vt in all_vts:
+                paths = timing_libs.get((trk, vt, corner), [])
+                if paths:
+                    w('set tech({},{},lib,{},timing) [list {}]'.format(
+                        trk, vt, corner, " ".join('"{}"'.format(p) for p in paths)))
+    w("")
+
+    # ── Timing libs shared per corner ──
+    w("# ── Timing libs shared per corner (memory + IO) ──")
+    for corner in all_corners:
+        mem_paths = timing_memory.get(corner, [])
+        io_paths = timing_io.get(corner, [])
+        w('set tech(lib,{},timing,memory) [list {}]'.format(
+            corner, " ".join('"{}"'.format(p) for p in mem_paths) if mem_paths else ""))
+        w('set tech(lib,{},timing,io) [list {}]'.format(
+            corner, " ".join('"{}"'.format(p) for p in io_paths) if io_paths else ""))
+    w("")
+
+    # ── Timing combined per track per corner (all VTs + shared) ──
+    w("# ── Timing combined per track per corner ──")
+    for trk in all_tracks:
+        for corner in all_corners:
+            combined = []
+            for vt in all_vts:
+                combined.extend(timing_libs.get((trk, vt, corner), []))
+            combined.extend(timing_memory.get(corner, []))
+            combined.extend(timing_io.get(corner, []))
+            if combined:
+                w('set tech({},lib,{},timing) [list {}]'.format(
+                    trk, corner, " ".join('"{}"'.format(p) for p in combined)))
+    w("")
+
+    # ── Write output ──
+    output_text = "\n".join(lines) + "\n"
+
+    output_path = args.output
+    tag = args.tag if hasattr(args, 'tag') and args.tag else None
+    if not output_path:
+        core_dir = get_cbflow_core_dir()
+        if tag:
+            fname = "lib_config_{}.tcl".format(tag)
+        else:
+            fname = "lib_config.tcl"
+        output_path = os.path.join(core_dir, "config", "tech", tech_name, version, fname)
+
+    # ── Incremental: merge with existing lib_config ──
+    incremental = hasattr(args, 'incremental') and args.incremental
+    if incremental and os.path.exists(output_path):
+        # Read existing entries, keep anything not overwritten by new scan
+        existing_keys = set()
+        new_keys = set()
+        for line in lines:
+            m = re.match(r'set tech\(([^)]+)\)', line)
+            if m:
+                new_keys.add(m.group(1))
+
+        existing_lines = []
+        with open(output_path, 'r') as ef:
+            for eline in ef:
+                m = re.match(r'set tech\(([^)]+)\)', eline.strip())
+                if m:
+                    key = m.group(1)
+                    if key not in new_keys:
+                        existing_lines.append(eline.rstrip())
+                        existing_keys.add(key)
+
+        if existing_lines:
+            lines.append("")
+            lines.append("# ── Retained from previous lib_config (incremental merge) ──")
+            lines.extend(existing_lines)
+            output_text = "\n".join(lines) + "\n"
+            logger.info("Incremental: retained {} existing entries, added {} new".format(
+                len(existing_keys), len(new_keys)))
+
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    with open(output_path, 'w') as fh:
+        fh.write(output_text)
+
+    # ── Discovery report ──
+    total_stdcell_timing = len(timing_libs)
+    missing_memory = []
+    missing_io = []
+    for corner in all_corners:
+        if corner not in timing_memory:
+            missing_memory.append(corner)
+        if corner not in timing_io:
+            missing_io.append(corner)
+
+    print("")
+    print("=" * 60)
+    print("  Library Discovery Report — {}".format(tech_name))
+    print("=" * 60)
+    if excluded_count > 0:
+        print("  Excluded:  {} files (patterns: {})".format(excluded_count, ", ".join(exclude_patterns)))
+    print("  Tracks:    {}".format(" ".join(all_tracks)))
+    print("  VTs:       {}".format(" ".join(all_vts)))
+    print("  Corners:   {}".format(len(all_corners)))
+    print("  NDM:       {} stdcell + {} memory + {} io".format(
+        len(ndm_libs), len(ndm_memory), len(ndm_io)))
+    print("  DB:        {} stdcell".format(len(db_libs)))
+    print("  LEF:       {} stdcell + {} memory + {} io".format(
+        len(lef_libs), len(lef_memory), len(lef_io)))
+    print("  lib_nom:   {} stdcell".format(len(lib_nom_libs)))
+    print("  Timing:    {} stdcell sets".format(total_stdcell_timing))
+    print("")
+    mem_ok = len(all_corners) - len(missing_memory)
+    io_ok = len(all_corners) - len(missing_io)
+    sym_mem = "ok" if not missing_memory else "MISSING"
+    sym_io = "ok" if not missing_io else "MISSING"
+    print("  Memory corners: {}/{} {}".format(mem_ok, len(all_corners), sym_mem))
+    if missing_memory:
+        for c in missing_memory:
+            print("    MISSING: memory corner {}".format(c))
+    print("  IO corners:     {}/{} {}".format(io_ok, len(all_corners), sym_io))
+    if missing_io:
+        for c in missing_io:
+            print("    MISSING: io corner {}".format(c))
+    print("")
+    # PVT verification results
+    print("  PVT Verification (filename vs .lib header):")
+    if pvt_verified == 0 and pvt_skipped > 0:
+        print("    Skipped: {} (empty/mock files)".format(pvt_skipped))
+    else:
+        print("    Verified: {}  Skipped: {}".format(pvt_verified, pvt_skipped))
+        if pvt_mismatches:
+            print("    MISMATCHES: {}".format(len(pvt_mismatches)))
+            for fname, details in pvt_mismatches:
+                print("      {} — {}".format(fname, "; ".join(details)))
+        else:
+            print("    All verified libs match — PVT consistent")
+    print("")
+    print("  Output: {}".format(output_path))
+    print("=" * 60)
+    print("")
+
+    return 0
+
+
+def cmd_coverage(args: argparse.Namespace) -> int:
+    """Show library coverage matrix: tracks × VTs × corners."""
+    # Read lib_config.tcl and parse tech() variables
+    tech_name = args.tech
+    version = args.version or "v1.0.0"
+    core_dir = get_cbflow_core_dir()
+
+    lib_config = os.path.join(core_dir, "config", "tech", tech_name, version, "lib_config.tcl")
+    if not os.path.exists(lib_config):
+        logger.error("lib_config.tcl not found: {}".format(lib_config))
+        logger.info("  Run: cbflow flow library-manager generate --tech {} first".format(tech_name))
+        return 1
+
+    # Parse the file for tech() keys
+    with open(lib_config, 'r') as f:
+        content = f.read()
+
+    # Extract timing keys: tech(<track>,<vt>,lib,<corner>,timing)
+    timing_re = re.compile(r'set tech\((\S+?),(\S+?),lib,(\S+?),timing\)')
+    coverage = defaultdict(set)  # (track, corner) → set of VTs
+    for m in timing_re.finditer(content):
+        trk, vt, corner = m.group(1), m.group(2), m.group(3)
+        coverage[(trk, corner)].add(vt)
+
+    # Extract tracks and corners
+    tracks_m = re.search(r'Tracks:\s*(.+?)(?:\||$)', content)
+    corners_m = re.search(r'set tech\(corners\)\s*\{(.+?)\}', content)
+
+    tracks = tracks_m.group(1).strip().split() if tracks_m else sorted(set(k[0] for k in coverage))
+    corners = corners_m.group(1).strip().split() if corners_m else sorted(set(k[1] for k in coverage))
+
+    # All VTs found
+    all_vts = sorted(set(v for vts in coverage.values() for v in vts),
+                     key=lambda x: _VT_KEYWORDS.index(x) if x in _VT_KEYWORDS else 99)
+
+    print("")
+    print("=" * 70)
+    print("  Library Coverage Matrix — {}".format(tech_name))
+    print("=" * 70)
+
+    # Header
+    hdr = "  {:>20s}".format("Corner")
+    for trk in tracks:
+        hdr += "  {:>10s}".format(trk)
+    print(hdr)
+    print("  " + "-" * (22 + 12 * len(tracks)))
+
+    for corner in corners:
+        row = "  {:>20s}".format(corner)
+        for trk in tracks:
+            vts = coverage.get((trk, corner), set())
+            if len(vts) == len(all_vts):
+                row += "  {:>10s}".format("ALL")
+            elif vts:
+                row += "  {:>10s}".format(",".join(sorted(vts)))
+            else:
+                row += "  {:>10s}".format("---")
+        print(row)
+
+    print("")
+    print("  VTs: {}".format(", ".join(all_vts)))
+    print("  Total corners: {}  |  Tracks: {}".format(len(corners), len(tracks)))
+    print("=" * 70)
+    print("")
+    return 0
+
+
+# -------------------------------------------------------------------------------
 # Argument Parser
 # -------------------------------------------------------------------------------
 
@@ -946,6 +1748,8 @@ Examples:
   cbflow flow library-manager check --verbose
   cbflow flow library-manager list --corner ss --voltage 0.80
   cbflow flow library-manager generate-mmmc --path /libs/gf22 --output mmmc_scenarios.tcl
+  cbflow flow library-manager generate --lib-root /libs/gf_22nm --tech gf_22nm
+  cbflow flow library-manager coverage --tech gf_22nm
         """
     )
 
@@ -953,7 +1757,7 @@ Examples:
 
     # scan command
     scan_parser = subparsers.add_parser('scan', help='Scan directory for .lib files')
-    scan_parser.add_argument('--path', required=True,
+    scan_parser.add_argument('--path', default=None,
                              help='Directory to scan for .lib files')
     scan_parser.add_argument('--recursive', action='store_true', default=False,
                              help='Scan subdirectories recursively')
@@ -963,7 +1767,7 @@ Examples:
     # create command
     create_parser_sub = subparsers.add_parser(
         'create', help='Generate tech_config library_sets TCL block')
-    create_parser_sub.add_argument('--path', required=True,
+    create_parser_sub.add_argument('--path', default=None,
                                    help='Directory to scan for .lib files')
     create_parser_sub.add_argument('--tech-node', default=None,
                                    help='Technology node identifier (e.g., gf_22nm)')
@@ -994,7 +1798,7 @@ Examples:
     # verify command
     verify_parser = subparsers.add_parser(
         'verify', help='Verify library characterization by reading .lib file contents')
-    verify_parser.add_argument('--path', required=True,
+    verify_parser.add_argument('--path', default=None,
                                 help='Directory to scan for .lib files')
     verify_parser.add_argument('--recursive', action='store_true', default=False,
                                 help='Scan subdirectories recursively')
@@ -1006,10 +1810,46 @@ Examples:
     # generate-mmmc command
     mmmc_parser = subparsers.add_parser(
         'generate-mmmc', help='Generate MMMC analysis views')
-    mmmc_parser.add_argument('--path', required=True,
+    mmmc_parser.add_argument('--path', default=None,
                              help='Directory to scan for .lib files')
     mmmc_parser.add_argument('--output', default=None,
                              help='Output file path (default: stdout)')
+
+    # generate command — auto-discover and write lib_config.tcl
+    gen_parser = subparsers.add_parser(
+        'generate', help='Generate lib_config.tcl from library directories')
+    gen_parser.add_argument('--lib-root', required=True,
+                            help='Library root directory (contains Back_End/ and Front_End/)')
+    gen_parser.add_argument('--tech', default=None,
+                            help='Technology name (e.g., gf_22nm). Default: dirname of lib-root')
+    gen_parser.add_argument('--version', default='v1.0.0',
+                            help='Config version (default: v1.0.0)')
+    gen_parser.add_argument('--tracks', default=None,
+                            help='Space-separated track list (e.g., "9T 7.5T 8T"). Auto-detected if omitted')
+    gen_parser.add_argument('--vts', default=None,
+                            help='Space-separated VT list (e.g., "svt lvt hvt"). Default: svt lvt ulvt hvt')
+    gen_parser.add_argument('--stdcell-path', nargs='+', default=None,
+                            help='Additional stdcell lib roots (can be lib_root structure or flat dirs)')
+    gen_parser.add_argument('--memory-path', nargs='+', default=None,
+                            help='Override memory lib directories (multiple allowed)')
+    gen_parser.add_argument('--io-path', nargs='+', default=None,
+                            help='Override IO lib directories (multiple allowed)')
+    gen_parser.add_argument('--exclude', nargs='+', default=[],
+                            help='Glob patterns to exclude (e.g., "*channel*" "*dummy*" "*eco*")')
+    gen_parser.add_argument('--tag', default=None,
+                            help='Named tag for lib_config (e.g., P0, timing_closure). Output: lib_config_<tag>.tcl')
+    gen_parser.add_argument('--incremental', action='store_true', default=False,
+                            help='Merge new libs into existing lib_config (keep entries not in current scan)')
+    gen_parser.add_argument('--output', default=None,
+                            help='Output file path (default: config/tech/<tech>/<version>/lib_config[_<tag>].tcl)')
+
+    # coverage command — show track × VT × corner matrix
+    cov_parser = subparsers.add_parser(
+        'coverage', help='Show library coverage matrix')
+    cov_parser.add_argument('--tech', required=True,
+                            help='Technology name (e.g., gf_22nm)')
+    cov_parser.add_argument('--version', default='v1.0.0',
+                            help='Config version (default: v1.0.0)')
 
     return parser
 
@@ -1062,6 +1902,8 @@ def main() -> int:
         'list': cmd_list,
         'verify': cmd_verify,
         'generate-mmmc': cmd_generate_mmmc,
+        'generate': cmd_generate,
+        'coverage': cmd_coverage,
     }
 
     if args.command not in commands:
@@ -1069,9 +1911,25 @@ def main() -> int:
         logger.info(f"Available commands: {', '.join(commands.keys())}")
         return 1
 
+    # Auto-resolve --path from tech_config if not provided
+    if hasattr(args, 'path') and args.path is None and args.command in ('scan', 'create', 'verify', 'generate-mmmc'):
+        tech_name = args.tech_node if hasattr(args, 'tech_node') and args.tech_node else None
+        resolved = _resolve_lib_root_from_tech_config(tech_name)
+        if resolved:
+            args.path = resolved
+            logger.info("Using lib_root from tech_config: {}".format(resolved))
+        else:
+            logger.error("--path not provided and tech(lib_root) not found in tech_config")
+            logger.info("  Provide --path <lib_directory> or ensure tech_config has tech(lib_root)")
+            return 1
+
     # Validate path arguments before dispatching
     if hasattr(args, 'path') and args.path is not None:
         if not _validate_path_arg(args, 'path'):
+            return 1
+
+    if hasattr(args, 'lib_root') and args.lib_root is not None:
+        if not _validate_path_arg(args, 'lib_root'):
             return 1
 
     if hasattr(args, 'tech_config') and args.tech_config is not None:

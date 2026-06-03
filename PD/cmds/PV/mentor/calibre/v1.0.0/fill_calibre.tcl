@@ -1,7 +1,7 @@
 #!/usr/bin/env tclsh
 # ═══════════════════════════════════════════════════════════════════════════════
-# CBflow PV DRC — Siemens Calibre
-# Invokes Calibre DRC with foundry SVRF runset
+# CBflow PV Metal Fill — Siemens Calibre
+# Invokes Calibre metal fill (BEOL/FEOL) with foundry SVRF runset
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ── Bootstrap ────────────────────────────────────────────────────────────────
@@ -10,7 +10,7 @@ source "$run_dir/.run.cbflow.tcl"
 source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "PV"
-set STAGE_NAME "drc"
+set STAGE_NAME "fill"
 set NODE_NAME "${STAGE_NAME}1"
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
@@ -18,12 +18,12 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Setup Calibre DRC environment variables for SVRF runset
+# Setup Calibre fill environment variables for SVRF runset
 # ═══════════════════════════════════════════════════════════════════════════════
-flow_proc setup_drc_environment {
+flow_proc setup_fill_environment {
     global pv project tech
 
-    handle_info "Setting up Calibre DRC environment..."
+    handle_info "Setting up Calibre fill environment..."
 
     # LAYOUT_FILE — GDS/OASIS input layout
     if {[info exists pv(input,gds)] && $pv(input,gds) ne ""} {
@@ -33,7 +33,7 @@ flow_proc setup_drc_environment {
         set ::env(LAYOUT_FILE) $pv(input,gds_file)
         handle_info "  LAYOUT_FILE: $pv(input,gds_file)"
     } else {
-        handle_error "pv(input,gds) not set — cannot run DRC"
+        handle_error "pv(input,gds) not set — cannot run fill"
     }
 
     # LAYOUT_PRIMARY — top cell name
@@ -46,137 +46,155 @@ flow_proc setup_drc_environment {
         handle_info "  LAYOUT_PRIMARY: $::env(LAYOUT_PRIMARY)"
     }
 
-    # RESULTS_DB — DRC results database output path
-    set ::env(RESULTS_DB) "$::WORK_DIR/results/drc"
-    file mkdir $::env(RESULTS_DB)
-    handle_info "  RESULTS_DB: $::env(RESULTS_DB)"
+    # FILL_OUTPUT — output GDS with fill shapes
+    set ::env(FILL_OUTPUT) "$::WORK_DIR/results/${::DESIGN_NAME}.filled.gds"
+    handle_info "  FILL_OUTPUT: $::env(FILL_OUTPUT)"
+
+    # Metal stack info
+    if {[info exists pv(fill,metal_stack)] && $pv(fill,metal_stack) ne ""} {
+        handle_info "  Metal stack: $pv(fill,metal_stack)"
+    } elseif {[info exists tech(metal_stack_name)]} {
+        handle_info "  Metal stack: $tech(metal_stack_name)"
+    }
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Run Calibre DRC
+# Run Calibre BEOL metal fill
 # ═══════════════════════════════════════════════════════════════════════════════
-flow_proc run_drc_checks {
+flow_proc run_beol_fill {
     global pv
 
-    handle_info "Running Calibre DRC..."
+    handle_info "Running Calibre BEOL metal fill..."
 
-    # Resolve runset
+    # Resolve BEOL fill runset — try specific beol_runset first, then generic fill,runset
     set runset ""
-    if {[info exists pv(drc,runset)] && $pv(drc,runset) ne ""} {
-        set runset $pv(drc,runset)
-    } elseif {[info exists pv(input,rule_deck_drc)] && $pv(input,rule_deck_drc) ne ""} {
-        set runset $pv(input,rule_deck_drc)
+    if {[info exists pv(fill,beol_runset)] && $pv(fill,beol_runset) ne ""} {
+        set runset $pv(fill,beol_runset)
+    } elseif {[info exists pv(fill,runset)] && $pv(fill,runset) ne ""} {
+        set runset $pv(fill,runset)
     }
     if {$runset eq "" || ![file exists $runset]} {
-        handle_error "DRC runset not found: '$runset' — set pv(drc,runset) in user_config"
+        handle_error "Fill runset not found: '$runset' — set pv(fill,runset) in user_config"
     }
 
-    # Build command
-    set num_cpus [expr {[info exists pv(drc,num_cpus)] ? $pv(drc,num_cpus) : 8}]
-    set turbo [expr {[info exists pv(drc,turbo_mode)] && $pv(drc,turbo_mode) eq "true"}]
+    # Build command — fill uses DRC engine with fill-specific runset
+    set num_cpus [expr {[info exists pv(fill,num_cpus)] ? $pv(fill,num_cpus) : 8}]
 
-    set calibre_cmd "calibre -drc -hier -64"
-    if {$turbo} {
-        append calibre_cmd " -turbo $num_cpus"
-    }
-    if {[info exists pv(drc,hcell_file)] && $pv(drc,hcell_file) ne "" && [file exists $pv(drc,hcell_file)]} {
-        append calibre_cmd " -hcell $pv(drc,hcell_file)"
-    }
+    set calibre_cmd "calibre -drc -hier -64 -turbo $num_cpus"
     append calibre_cmd " $runset"
 
-    file mkdir "$::WORK_DIR/results/drc"
+    file mkdir "$::WORK_DIR/results"
     file mkdir "$::REPORTS_DIR"
 
     handle_info "  CMD: $calibre_cmd"
-    handle_info "  Log: $::WORK_DIR/results/drc/drc.log"
+    handle_info "  Log: $::WORK_DIR/results/fill_beol.log"
 
-    if {[catch {exec {*}$calibre_cmd >& "$::WORK_DIR/results/drc/drc.log"} result]} {
-        handle_warning "Calibre DRC returned non-zero (may have violations): $result"
+    if {[catch {exec {*}$calibre_cmd >& "$::WORK_DIR/results/fill_beol.log"} result]} {
+        handle_warning "Calibre BEOL fill returned non-zero: $result"
     }
-    handle_info "  DRC run completed"
+    handle_info "  BEOL fill completed"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Run Calibre Antenna DRC (optional)
+# Run Calibre FEOL fill (optional — only if feol_runset is specified)
 # ═══════════════════════════════════════════════════════════════════════════════
-flow_proc run_antenna_check {
+flow_proc run_feol_fill {
     global pv
 
-    set antenna_runset ""
-    if {[info exists pv(drc,antenna_runset)] && $pv(drc,antenna_runset) ne ""} {
-        set antenna_runset $pv(drc,antenna_runset)
+    set feol_runset ""
+    if {[info exists pv(fill,feol_runset)] && $pv(fill,feol_runset) ne ""} {
+        set feol_runset $pv(fill,feol_runset)
     }
-    if {$antenna_runset eq "" || ![file exists $antenna_runset]} {
-        handle_info "Antenna runset not specified — skipping antenna check"
+    if {$feol_runset eq "" || ![file exists $feol_runset]} {
+        handle_info "FEOL runset not specified — skipping FEOL fill"
         return
     }
 
-    handle_info "Running Calibre Antenna DRC..."
-    set num_cpus [expr {[info exists pv(drc,num_cpus)] ? $pv(drc,num_cpus) : 8}]
+    handle_info "Running Calibre FEOL fill..."
+    set num_cpus [expr {[info exists pv(fill,num_cpus)] ? $pv(fill,num_cpus) : 8}]
 
-    set calibre_cmd "calibre -drc -hier -64 -turbo $num_cpus $antenna_runset"
+    set calibre_cmd "calibre -drc -hier -64 -turbo $num_cpus $feol_runset"
     handle_info "  CMD: $calibre_cmd"
 
-    if {[catch {exec {*}$calibre_cmd >& "$::WORK_DIR/results/drc/antenna.log"} result]} {
-        handle_warning "Antenna DRC returned non-zero: $result"
+    if {[catch {exec {*}$calibre_cmd >& "$::WORK_DIR/results/fill_feol.log"} result]} {
+        handle_warning "Calibre FEOL fill returned non-zero: $result"
     }
-    handle_info "  Antenna check completed"
+    handle_info "  FEOL fill completed"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Generate DRC summary report
+# Validate fill output
 # ═══════════════════════════════════════════════════════════════════════════════
-flow_proc generate_drc_report {
+flow_proc validate_fill {
+    global pv
+
+    handle_info "Validating fill results..."
+
+    set fill_output "$::WORK_DIR/results/${::DESIGN_NAME}.filled.gds"
+    if {[file exists $fill_output]} {
+        handle_info "  Fill output: $fill_output ([file size $fill_output] bytes)"
+    } else {
+        handle_info "  Fill output not yet generated (expected at: $fill_output)"
+    }
+
+    # Check fill log for errors
+    set fill_log "$::WORK_DIR/results/fill_beol.log"
+    if {[file exists $fill_log]} {
+        set f [open $fill_log "r"]
+        set content [read $f]
+        close $f
+        set error_count 0
+        foreach line [split $content "\n"] {
+            if {[regexp -nocase {^ERROR} $line]} { incr error_count }
+        }
+        if {$error_count > 0} {
+            handle_warning "  Fill log contains $error_count error(s)"
+        } else {
+            handle_info "  Fill log: clean"
+        }
+    }
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Generate fill summary report
+# ═══════════════════════════════════════════════════════════════════════════════
+flow_proc generate_fill_report {
     global pv project tech
 
-    handle_info "Generating DRC report..."
+    handle_info "Generating fill report..."
 
-    set rpt_file "$::REPORTS_DIR/drc_results.rpt"
+    set rpt_file "$::REPORTS_DIR/fill_results.rpt"
     set rpt [open $rpt_file "w"]
     puts $rpt "═══════════════════════════════════════════════════════════════════════════════"
-    puts $rpt "CBflow PV — DRC Results (Siemens Calibre)"
+    puts $rpt "CBflow PV — Metal Fill Results (Siemens Calibre)"
     puts $rpt "═══════════════════════════════════════════════════════════════════════════════"
     puts $rpt "Generated: [clock format [clock seconds]]"
     if {[info exists project(top_module)]} { puts $rpt "Design: $project(top_module)" }
     if {[info exists tech(node)]} { puts $rpt "Technology: $tech(node)" }
-    puts $rpt "Tool: Siemens Calibre DRC"
-    if {[info exists pv(drc,runset)]} { puts $rpt "Runset: $pv(drc,runset)" }
+    puts $rpt "Tool: Siemens Calibre Fill (via DRC engine)"
+    if {[info exists pv(fill,runset)]} { puts $rpt "BEOL Runset: $pv(fill,runset)" }
+    if {[info exists pv(fill,feol_runset)] && $pv(fill,feol_runset) ne ""} {
+        puts $rpt "FEOL Runset: $pv(fill,feol_runset)"
+    }
     puts $rpt ""
 
-    # Parse DRC summary from log if available
-    set drc_log "$::WORK_DIR/results/drc/drc.log"
-    if {[file exists $drc_log]} {
-        set f [open $drc_log "r"]
-        set content [read $f]
-        close $f
-        # Look for violation summary lines
-        set total_violations 0
-        foreach line [split $content "\n"] {
-            if {[regexp -nocase {TOTAL.*Results.*?(\d+)} $line -> count]} {
-                set total_violations $count
-            }
-            if {[regexp -nocase {TOTAL DRC Results.*?(\d+)} $line -> count]} {
-                set total_violations $count
-            }
-        }
-        puts $rpt "Total DRC violations: $total_violations"
+    set fill_output "$::WORK_DIR/results/${::DESIGN_NAME}.filled.gds"
+    if {[file exists $fill_output]} {
+        puts $rpt "Fill output: $fill_output"
+        puts $rpt "Output size: [file size $fill_output] bytes"
     } else {
-        puts $rpt "DRC log not found — check execution"
+        puts $rpt "Fill output: pending"
     }
 
     puts $rpt ""
-    puts $rpt "Results DB: $::WORK_DIR/results/drc/"
     puts $rpt "═══════════════════════════════════════════════════════════════════════════════"
     close $rpt
-
-    # Copy as mandatory output
-    file copy -force $rpt_file "$::WORK_DIR/results/drc/drc.rpt"
-    handle_info "  DRC report: $rpt_file"
+    handle_info "  Fill report: $rpt_file"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Execute
 # ═══════════════════════════════════════════════════════════════════════════════
 flow_exec_all
-handle_info "Calibre DRC completed: $DESIGN_NAME"
+handle_info "Calibre Metal Fill completed: $DESIGN_NAME"
 exit

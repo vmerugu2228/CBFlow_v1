@@ -133,6 +133,26 @@ class DagBuilder:
             'name': cfg.get('tool,name', ''),
             'version': cfg.get('tool,version', ''),
         }
+        # Re-resolve vendor when user overrode tool,name (vendor may be stale from default tool)
+        default_tool = cfg.get('default_tool', '')
+        if (self._tool_info['name'] and default_tool
+                and self._tool_info['name'] != default_tool):
+            import re as _re
+            flow_dir = self.env_vars.get('FLOW_DIR', '')
+            cfg_ver = self.env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0')
+            tool_cfg = os.path.join(flow_dir, 'config', 'flow', cfg_ver,
+                                    'node_configs', '{}_{}_config.tcl'.format(
+                                        self.flow_type, self._tool_info['name']))
+            if os.path.isfile(tool_cfg):
+                with open(tool_cfg, 'r') as _tcf:
+                    for _line in _tcf:
+                        _m = _re.search(r'tool,vendor["\s]+["\s]*([^"}\s]+)', _line)
+                        if _m:
+                            self._tool_info['vendor'] = _m.group(1)
+                            logger.info("Auto-resolved vendor from %s: %s",
+                                       os.path.basename(tool_cfg), self._tool_info['vendor'])
+                            break
+
         if not self._tool_info['vendor'] or not self._tool_info['name']:
             logger.error("tool,vendor and tool,name must be set in config — "
                          "no defaults. Check flow_config.tcl or user_config.tcl.")

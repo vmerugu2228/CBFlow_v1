@@ -350,9 +350,25 @@ def get_tool_info(flow_type: str) -> Dict[str, str]:
                                 elif key == 'tool,name' and not name:
                                     name = val
 
+    resolved_name = name or _parse_tcl_string(node_config.get('default_tool', ''))
+    # Auto-resolve vendor from tool-specific config if still not found
+    if not vendor and resolved_name:
+        config_root = _get_config_root()
+        ver = _get_flow_config_version()
+        if config_root:
+            tool_cfg = os.path.join(config_root, 'config', 'flow', ver,
+                                    'node_configs', '{}_{}_config.tcl'.format(flow_type, resolved_name))
+            if os.path.isfile(tool_cfg):
+                with open(tool_cfg, 'r') as _tcf:
+                    for _line in _tcf:
+                        _m = re.search(r'tool,vendor["\s]+["\s]*([^"}\s]+)', _line)
+                        if _m:
+                            vendor = _m.group(1)
+                            break
+
     return {
         'vendor': vendor,
-        'name': name or _parse_tcl_string(node_config.get('default_tool', '')),
+        'name': resolved_name,
         'version': _parse_tcl_string(node_config.get('tool,version', '')),
         'args': _parse_tcl_string(node_config.get('tool,args', '')),
     }
@@ -638,7 +654,8 @@ def get_merged_flow_stages(flow_spec: str) -> List[dict]:
 
         # Helper to convert stage name to merged form
         def to_merged(stage_name):
-            return f"{prefix}_{re.sub(r'd+$', '', stage_name) if False else re.sub(r'\\d+$', '', stage_name)}"
+            base = re.sub(r'\d+$', '', stage_name)
+            return "{}_{}".format(prefix, base)
 
         for i, stage in enumerate(stages):
             base_name = re.sub(r'\d+$', '', stage)

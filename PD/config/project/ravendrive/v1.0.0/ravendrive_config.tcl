@@ -650,3 +650,123 @@ set project(lsf,sla,resource_availability_target) "0.95" ; # 95% availability
 set project(lsf,sla,cost_predictability_variance) "0.1"  ; # 10% variance from estimate
 set project(lsf,sla,completion_time_accuracy) "0.8"     ; # 80% of jobs complete within estimated time
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# MMMC NODE SCENARIO ASSIGNMENTS
+# Which scenarios to use at each PNR/STA stage (setup/hold)
+# Edit these to match your project's timing closure strategy
+# Scenario format: <mode>_<corner>_<voltage>_<rc>_<temperature>
+# ═══════════════════════════════════════════════════════════════════════════════
+
+array set mmmc {
+    init_design {
+        setup {func_tt_0p80v_rctyp_25c}
+        hold  {func_tt_0p80v_rctyp_25c}
+    }
+
+    floorplan {
+        setup {func_ss_0p76v_rcmax_150c}
+        hold  {func_ff_0p84v_rcmin_m40c}
+    }
+
+    powerplan {
+        setup {func_ss_0p76v_rcmax_150c}
+        hold  {func_ff_0p84v_rcmin_m40c}
+    }
+
+    placement {
+        setup {
+            func_ss_0p76v_rcmax_150c
+            func_ss_0p76v_rcmax_25c
+        }
+        hold {
+            func_ff_0p84v_rcmin_m40c
+            func_ff_0p84v_rcmin_25c
+        }
+    }
+
+    cts {
+        setup {
+            func_ss_0p76v_rcmax_150c
+            func_ss_0p76v_rcmax_25c
+            func_ss_0p76v_rcmax_m40c
+        }
+        hold {
+            func_ff_0p84v_rcmin_m40c
+            func_ff_0p84v_rcmin_25c
+            func_ff_0p84v_rcmin_150c
+        }
+    }
+
+    cts_opt {
+        setup {
+            func_ss_0p76v_rcmax_150c
+            func_ss_0p76v_rcmax_25c
+            func_ss_0p76v_rcmax_m40c
+        }
+        hold {
+            func_ff_0p84v_rcmin_m40c
+            func_ff_0p84v_rcmin_25c
+            func_ff_0p84v_rcmin_150c
+        }
+    }
+
+    route {
+        setup {
+            func_ss_0p76v_rcmax_150c
+            func_ss_0p76v_rcmax_25c
+            func_ss_0p76v_rcmax_m40c
+        }
+        hold {
+            func_ff_0p84v_rcmin_m40c
+            func_ff_0p84v_rcmin_25c
+            func_ff_0p84v_rcmin_150c
+        }
+    }
+
+    post_route {
+        setup {
+            func_ss_0p76v_rcmax_150c
+            func_ss_0p76v_rcmax_25c
+            func_ss_0p76v_rcmax_m40c
+            func_ss_0p80v_rcmax_150c
+        }
+        hold {
+            func_ff_0p84v_rcmin_m40c
+            func_ff_0p84v_rcmin_25c
+            func_ff_0p84v_rcmin_150c
+            func_ff_0p80v_rcmin_m40c
+        }
+    }
+
+    signoff {
+        setup {
+            func_ss_0p76v_rcmax_150c
+            func_ss_0p76v_rcmax_25c
+            func_ss_0p76v_rcmax_m40c
+            func_ss_0p80v_rcmax_150c
+            func_ss_0p80v_rcmax_25c
+            test_ss_0p76v_rcmax_150c
+        }
+        hold {
+            func_ff_0p84v_rcmin_m40c
+            func_ff_0p84v_rcmin_25c
+            func_ff_0p84v_rcmin_150c
+            func_ff_0p80v_rcmin_m40c
+            test_ff_0p84v_rcmin_m40c
+            test_ff_0p84v_rcmin_25c
+        }
+    }
+
+    synthesis {
+        setup {
+            func_ss_0p76v_rcmax_150c
+            func_ss_0p76v_rcmax_25c
+            func_ss_0p76v_rcmax_m40c
+        }
+        hold {
+            func_ff_0p84v_rcmin_m40c
+            func_ff_0p84v_rcmin_25c
+        }
+    }
+}
+

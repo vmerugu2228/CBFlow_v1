@@ -36,7 +36,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CBFLOW_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(SCRIPT_DIR))))
 PD_DIR = os.path.join(CBFLOW_ROOT, 'PD')
 COMMANDS_DIR = os.path.join(PD_DIR, 'utils', 'commands')
-WORKAREA = os.path.join(CBFLOW_ROOT, 'workarea_test')
+WORKAREA = os.path.join(CBFLOW_ROOT, 'workarea', 'cpu_core')
 sys.path.insert(0, COMMANDS_DIR)
 
 os.environ['CBFLOW_CORE_DIR'] = PD_DIR

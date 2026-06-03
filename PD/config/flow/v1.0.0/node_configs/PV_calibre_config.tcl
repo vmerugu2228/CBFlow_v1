@@ -6,7 +6,7 @@
 
 # ┌─ Calibre Tool Settings ───────────────────────────────────────────────────┐
 array set pv {
-    tool,vendor   "siemens"
+    tool,vendor   "mentor"
     tool,name     "calibre"
     tool,version  "v1.0.0"
     tool,args     "-batch -no_gui"
@@ -43,6 +43,8 @@ array set pv {
 # ┌─ Calibre Fill Settings ───────────────────────────────────────────────────┐
 array set pv {
     fill,runset            ""
+    fill,beol_runset       ""
+    fill,feol_runset       ""
     fill,num_cpus          8
     fill,metal_stack       ""
 }
@@ -60,7 +62,14 @@ array set pv {
     erc,num_cpus           4
 }
 
+# ┌─ Calibre XOR Settings ───────────────────────────────────────────────────┐
+array set pv {
+    xor,runset             ""
+    xor,num_cpus           4
+}
+
 # ── Calibre-RM App Variables (user overrides via user_config) ──
 array set pv {
     common,design_name                                   ""
+    common,top_cell                                      ""
 }
