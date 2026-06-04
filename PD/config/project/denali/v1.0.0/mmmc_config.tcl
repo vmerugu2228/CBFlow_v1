@@ -1,10 +1,10 @@
 #!/usr/bin/env tclsh
 # =============================================================================
 # CBflow MMMC Configuration — Auto-Generated
-# Generated: 2026-06-03 09:12 | Tech: gf_22nm | Corners: 0
-# Source: lib_config.tcl
-# Views: 0 | Modes: func test | Process: 
-# Regenerate: cbflow flow mmmc-manager generate --tech gf_22nm
+# Generated: 2026-06-04 21:56 | Tech: gf_28nm | Corners: 10
+# Source: lib_config_LIB02.tcl
+# Views: 20 | Modes: func test | Process: ff ss tt
+# Regenerate: cbflow flow mmmc-manager generate --tech gf_28nm
 # =============================================================================
 
 # Global MMMC configuration
@@ -22,8 +22,8 @@ array set mmmc_config {
 # =============================================================================
 
 set mmmc(voltage,nom)        0.90
-set mmmc(voltage,low)        0.81
-set mmmc(voltage,high)       0.99
+set mmmc(voltage,low)        0.80
+set mmmc(voltage,high)       1.10
 set mmmc(temperature,hot)    125
 set mmmc(temperature,nom)    25
 set mmmc(temperature,cold)   -40
@@ -32,7 +32,7 @@ set mmmc(temperature,cold)   -40
 # PROCESS CORNERS & OPERATING MODES
 # =============================================================================
 
-set mmmc(process_corners) {}
+set mmmc(process_corners) {ff ss tt}
 
 array set operating_modes {
     func { constraint_file "${design_name}_func.sdc" }
@@ -43,8 +43,14 @@ array set operating_modes {
 # PVT POINTS (user-specified, validated against lib_config)
 # =============================================================================
 
+set mmmc(pvt,ff) {{1p10v 125c} {1p10v 25c} {1p10v m40c}}
+set mmmc(pvt,ss) {{0p80v 125c} {0p80v m40c} {0p90v 125c} {0p90v m40c}}
+set mmmc(pvt,tt) {{0p90v 125c} {0p90v 25c} {0p90v m40c}}
 
 # Corner -> RC corner pairing
+set mmmc(rc_pair,ff) "rcmin"
+set mmmc(rc_pair,ss) "rcmax"
+set mmmc(rc_pair,tt) "rctyp"
 
 # =============================================================================
 # AUTO-GENERATE ANALYSIS VIEWS & SCENARIO SETS
@@ -126,58 +132,6 @@ set rc_corner_list [lsort [array names rc_corners]]
 
 # =============================================================================
 # NODE-SPECIFIC SCENARIO ASSIGNMENTS
+# Defined in project_config.tcl (project-level decision, not auto-generated)
 # =============================================================================
-
-array set mmmc {
-    init_design {
-        setup {}
-        hold {}
-    }
-
-    floorplan {
-        setup {}
-        hold {}
-    }
-
-    powerplan {
-        setup {}
-        hold {}
-    }
-
-    placement {
-        setup {}
-        hold {}
-    }
-
-    cts {
-        setup {}
-        hold {}
-    }
-
-    cts_opt {
-        setup {}
-        hold {}
-    }
-
-    route {
-        setup {}
-        hold {}
-    }
-
-    post_route {
-        setup {}
-        hold {}
-    }
-
-    signoff {
-        setup {}
-        hold {}
-    }
-
-    synthesis {
-        setup {}
-        hold {}
-    }
-
-}
 

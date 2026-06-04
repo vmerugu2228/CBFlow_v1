@@ -18,6 +18,9 @@ from typing import Dict, List, Optional, Tuple
 
 from logging_config import configure_logging, get_logger
 
+import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core.paths import get_cbflow_core_dir, get_flow_config_version
+
 logger = configure_logging('cbflow.mmmc_manager')
 
 
@@ -1240,30 +1243,23 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
     if lib_tag:
         lib_config_path = os.path.join(tech_dir, 'lib_config_{}.tcl'.format(lib_tag))
     else:
-        # Try default first
-        default_path = os.path.join(tech_dir, 'lib_config.tcl')
-        if os.path.exists(default_path):
-            lib_config_path = default_path
+        # No tag — find available tagged configs
+        available = sorted(f for f in os.listdir(tech_dir)
+                          if f.startswith('lib_config_') and f.endswith('.tcl'))
+        if len(available) == 1:
+            lib_config_path = os.path.join(tech_dir, available[0])
+            logger.info("Auto-selected: {} (only lib_config available)".format(available[0]))
+        elif len(available) > 1:
+            logger.error("Multiple lib_config tags available:")
+            for a in available:
+                tag = a.replace('lib_config_', '').replace('.tcl', '')
+                logger.error("  {} -> use --lib-tag {}".format(a, tag))
+            logger.error("Please specify --lib-tag to select one")
+            return 1
         else:
-            # No default — find available tagged configs
-            available = sorted(f for f in os.listdir(tech_dir)
-                              if f.startswith('lib_config') and f.endswith('.tcl'))
-            if len(available) == 1:
-                # Only one lib_config exists — use it automatically
-                lib_config_path = os.path.join(tech_dir, available[0])
-                tag_found = available[0].replace('lib_config_', '').replace('lib_config', '').replace('.tcl', '')
-                logger.info("Auto-selected: {} (only lib_config available)".format(available[0]))
-            elif len(available) > 1:
-                logger.error("No default lib_config.tcl found. Multiple tagged configs available:")
-                for a in available:
-                    tag = a.replace('lib_config_', '').replace('.tcl', '')
-                    logger.error("  {} → use --lib-tag {}".format(a, tag))
-                logger.error("Please specify --lib-tag to select which one to validate against")
-                return 1
-            else:
-                logger.error("No lib_config found in {}".format(tech_dir))
-                logger.info("  Run: cbflow flow library-manager generate --tech {}".format(tech_name))
-                return 1
+            logger.error("No lib_config_<tag>.tcl found in {}".format(tech_dir))
+            logger.info("  Run: cbflow flow library-manager generate --tech {} --tag <tag>".format(tech_name))
+            return 1
 
     if not os.path.exists(lib_config_path):
         logger.error("lib_config not found: {}".format(lib_config_path))
@@ -1381,26 +1377,127 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
         rc = {'ss': 'rcmax', 'tt': 'rctyp', 'ff': 'rcmin'}.get(pvt_type, 'rctyp')
         return ['{}_{}_{}_{}_{}'.format(mode, pvt_type, v, rc, t) for v, t in pts[:count]]
 
-    nodes = {
-        'init_design': {'setup': pick_scenarios('tt', 1) or pick_scenarios('ss', 1),
-                        'hold':  pick_scenarios('tt', 1) or pick_scenarios('ff', 1)},
-        'floorplan':   {'setup': pick_scenarios('ss', 1), 'hold': pick_scenarios('ff', 1)},
-        'powerplan':   {'setup': pick_scenarios('ss', 1), 'hold': pick_scenarios('ff', 1)},
-        'placement':   {'setup': pick_scenarios('ss', 2), 'hold': pick_scenarios('ff', 2)},
-        'cts':         {'setup': pick_scenarios('ss', 3), 'hold': pick_scenarios('ff', 3)},
-        'cts_opt':     {'setup': pick_scenarios('ss', 3), 'hold': pick_scenarios('ff', 3)},
-        'route':       {'setup': pick_scenarios('ss', 3), 'hold': pick_scenarios('ff', 3)},
-        'post_route':  {'setup': pick_scenarios('ss', 4), 'hold': pick_scenarios('ff', 4)},
-        'synthesis':   {'setup': pick_scenarios('ss', 3), 'hold': pick_scenarios('ff', 2)},
-    }
-    # Signoff: all valid corners
-    nodes['signoff'] = {
-        'setup': ['{}_ss_{}_rcmax_{}'.format('func', v, t) for v, t in valid_pvt.get('ss', [])],
-        'hold':  ['{}_ff_{}_rcmin_{}'.format('func', v, t) for v, t in valid_pvt.get('ff', [])],
+    # ── Discover real node_types from project's active flows ──
+    # Read project(default_tools) to find active flows, then read their node_configs
+    _active_node_types = set()
+    project_name = args.project if hasattr(args, 'project') and args.project else None
+    # Try to find project config for flow detection
+    _proj_config = ''
+    if project_name:
+        _proj_config = os.path.join(core_dir, 'config', 'project', project_name, version,
+                                    '{}_config.tcl'.format(project_name))
+    _active_flows = []
+    if os.path.exists(_proj_config):
+        with open(_proj_config, 'r') as _pf:
+            _pc = _pf.read()
+        # Parse project(default_tools) { SYNTH "genus" PNR "innovus" ... }
+        m = re.search(r'set\s+project\(default_tools\)\s*\{([^}]+)\}', _pc)
+        if m:
+            _pairs = m.group(1).split()
+            _active_flows = [_pairs[i] for i in range(0, len(_pairs), 2)]
+            logger.info("Active flows from project: {}".format(' '.join(_active_flows)))
+
+    if _active_flows:
+        flow_config_ver = version
+        for flow in _active_flows:
+            nc_path = os.path.join(core_dir, 'config', 'flow', flow_config_ver,
+                                   'node_configs', '{}_config.tcl'.format(flow))
+            if os.path.exists(nc_path):
+                with open(nc_path, 'r') as _nf:
+                    for _m in re.finditer(r'node_types,\S+\s+"([^"]+)"', _nf.read()):
+                        nt = _m.group(1)
+                        # Only timing-driven node_types need MMMC scenarios
+                        # Exclude: inputs, export, release, merge, reporting,
+                        #          PV stages, LEC/CLP, EMIR analysis
+                        _non_mmmc = ('inputs', 'export_data', 'export_db',
+                                     'release_data', 'merge_data', 'reporting',
+                                     'drc', 'lvs', 'fill', 'erc', 'perc', 'xor',
+                                     'compare', 'clp', 'eco',
+                                     'power_analysis', 'ir_drop', 'thermal_analysis')
+                        if nt not in _non_mmmc:
+                            _active_node_types.add(nt)
+        logger.info("Active node_types: {}".format(' '.join(sorted(_active_node_types))))
+
+    if not _active_node_types:
+        # Fallback: common node_types across major flows
+        _active_node_types = {'init_design', 'synthesis', 'place', 'cts', 'cts_opt',
+                              'route', 'pro', 'signoff', 'timing', 'extraction'}
+        logger.info("Using default node_types (no project flows detected)")
+
+    # Node scenario assignments — only for active node_types
+    # Scenario count grows as design matures through the flow
+    _all_ss_setup = ['{}_ss_{}_rcmax_{}'.format('func', v, t) for v, t in valid_pvt.get('ss', [])]
+    _all_ff_hold  = ['{}_ff_{}_rcmin_{}'.format('func', v, t) for v, t in valid_pvt.get('ff', [])]
+
+    # Complexity mapping: node_type -> (setup_count, hold_count)
+    _complexity = {
+        # Early (1 scenario)
+        'init_design': (1, 1, 'tt'), 'init_compile': (1, 1, 'tt'), 'import_design': (1, 1, 'tt'),
+        'commit_blocks': (1, 1, 'tt'),
+        # Floorplan/power (1 scenario)
+        'floorplan': (1, 1, 'ss'), 'create_floorplan': (1, 1, 'ss'), 'powerplan': (1, 1, 'ss'),
+        'create_power': (1, 1, 'ss'), 'shaping': (1, 1, 'ss'), 'place_pins': (1, 1, 'ss'),
+        'timing_budget': (1, 1, 'ss'), 'top_compile': (1, 1, 'ss'),
+        # Placement (2 scenarios)
+        'place': (2, 2, 'ss'), 'placement': (2, 2, 'ss'), 'power_opt': (2, 2, 'ss'),
+        # CTS/Route (3 scenarios)
+        'cts': (3, 3, 'ss'), 'cts_opt': (3, 3, 'ss'), 'route': (3, 3, 'ss'),
+        # Post-route optimization
+        'pro': (4, 3, 'ss'),
+        # Signoff (all corners)
+        'signoff': (-1, -1, 'ss'), 'timing': (-1, -1, 'ss'), 'extraction': (-1, -1, 'ss'),
+        # Synthesis
+        'synthesis': (3, 2, 'ss'),
+        # Verification (1 scenario)
+        'clp': (1, 1, 'ss'), 'compare': (1, 1, 'ss'), 'eco': (1, 1, 'ss'),
+        'drc': (1, 1, 'ss'), 'lvs': (1, 1, 'ss'), 'fill': (1, 1, 'ss'),
+        'erc': (1, 1, 'ss'), 'perc': (1, 1, 'ss'), 'xor': (1, 1, 'ss'),
+        'ir_drop': (1, 1, 'ss'), 'power_analysis': (1, 1, 'ss'), 'thermal_analysis': (1, 1, 'ss'),
     }
 
-    # ── Write mmmc_config.tcl ──
-    output_path = os.path.join(core_dir, 'config', 'flow', version, 'mmmc_config.tcl')
+    nodes = {}
+    for nt in sorted(_active_node_types):
+        s_count, h_count, corner_type = _complexity.get(nt, (1, 1, 'ss'))
+        if s_count == -1:  # all corners
+            nodes[nt] = {'setup': _all_ss_setup, 'hold': _all_ff_hold}
+        elif corner_type == 'tt':
+            nodes[nt] = {'setup': pick_scenarios('tt', s_count) or pick_scenarios('ss', s_count),
+                         'hold':  pick_scenarios('tt', h_count) or pick_scenarios('ff', h_count)}
+        else:
+            nodes[nt] = {'setup': pick_scenarios('ss', s_count),
+                         'hold':  pick_scenarios('ff', h_count)}
+
+    # ── Write mmmc_config.tcl (per project) ──
+    project_name = args.project if hasattr(args, 'project') and args.project else None
+    if not project_name:
+        # Try to auto-detect: list available projects
+        proj_base = os.path.join(core_dir, 'config', 'project')
+        available_projects = sorted(d for d in os.listdir(proj_base)
+                                   if os.path.isdir(os.path.join(proj_base, d))) if os.path.isdir(proj_base) else []
+        if sys.stdin.isatty() and available_projects:
+            print('  Available projects:')
+            for i, p in enumerate(available_projects, 1):
+                print('    {}. {}'.format(i, p))
+            choice = input('  Select project [1-{}]: '.format(len(available_projects))).strip()
+            try:
+                idx = int(choice) - 1
+                if 0 <= idx < len(available_projects):
+                    project_name = available_projects[idx]
+            except ValueError:
+                if choice in available_projects:
+                    project_name = choice
+        elif len(available_projects) == 1:
+            project_name = available_projects[0]
+        if not project_name:
+            logger.error("--project is required (e.g., --project denali)")
+            return 1
+        print('  Project: {}'.format(project_name))
+
+    proj_dir = os.path.join(core_dir, 'config', 'project', project_name, version)
+    if not os.path.isdir(proj_dir):
+        logger.error("Project directory not found: {}".format(proj_dir))
+        return 1
+    output_path = os.path.join(proj_dir, 'mmmc_config.tcl')
 
     lines = []
     w = lines.append
@@ -1560,8 +1657,8 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
     nw('# Generated by: cbflow flow mmmc-manager generate --tech {}'.format(tech_name))
     nw('# Add/modify these in project_config.tcl')
     nw('array set mmmc {')
-    for node_name in ['init_design', 'floorplan', 'powerplan', 'placement',
-                      'cts', 'cts_opt', 'route', 'post_route', 'signoff', 'synthesis']:
+    # Write all node_types that have scenario assignments
+    for node_name in sorted(nodes.keys()):
         if node_name not in nodes:
             continue
         nd = nodes[node_name]
@@ -1585,10 +1682,11 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
 
     if os.path.exists(output_path):
         print('  WARNING: {} already exists'.format(output_path))
-        confirm = input('  Overwrite? (y/n) [y]: ').strip().lower()
-        if confirm and confirm not in ('y', 'yes'):
-            print('  Aborted — no changes made.')
-            return 0
+        if sys.stdin.isatty():
+            confirm = input('  Overwrite? (y/n) [y]: ').strip().lower()
+            if confirm and confirm not in ('y', 'yes'):
+                print('  Aborted — no changes made.')
+                return 0
         # Backup with timestamp
         ts = datetime.now().strftime('%Y%m%d_%H%M%S')
         backup_path = '{}.bak_{}'.format(output_path, ts)
@@ -1788,6 +1886,8 @@ Examples:
                    help='Track to validate against (e.g., 9T)')
     p.add_argument('--lib-tag', default=None,
                    help='lib_config tag (e.g., P0 reads lib_config_P0.tcl)')
+    p.add_argument('--project', default=None,
+                   help='Project name (e.g., denali). Output goes to config/project/<name>/v1.0.0/')
 
     return top
 

@@ -30,8 +30,9 @@ set project(workarea_path) "/Users/vmerugu/projects/CBflow_clone/workarea"
 # Technology — GF 28nm SLP-E
 set project(technology) "gf_28nm"
 set project(track_variant) "9T"
-set project(metal_stack) "gf28slpe_10M_2Mx_5Cx_1Jx_2Qx"
+set project(metal_stack) "10M"
 set project(vt_flavors) "rvt lvt hvt"
+set project(lib_config_tag) "LIB02"
 set project(lib_root) "/proj/libs/gf_28nm"
 
 # Design hierarchy
@@ -248,7 +249,7 @@ set project(lsf,max_daily_cost) "500.00"        ;# USD
 set project(lsf,priority_class) "normal"         ;# normal, high, critical
 set project(lsf,budget_alert_threshold) "0.8"    ;# 80% of budget
 
-# Node-specific resource requirements — SYNTH
+# Node-specific resource requirements — SYNTH (node_types: inputs, init_design, synthesis, export_data)
 set project(lsf,node_requirements,SYNTH,inputs,queue) "S"
 set project(lsf,node_requirements,SYNTH,inputs,memory) "4GB"
 set project(lsf,node_requirements,SYNTH,inputs,cpu) "2"
@@ -264,53 +265,48 @@ set project(lsf,node_requirements,SYNTH,export_data,memory) "4GB"
 set project(lsf,node_requirements,SYNTH,export_data,cpu) "2"
 set project(lsf,node_requirements,SYNTH,export_data,runtime_estimate) "0.5"
 
-# Node-specific resource requirements — PNR
+# Node-specific resource requirements — PNR (node_types: inputs, init_design, place, cts, cts_opt, route, pro, signoff, export_data)
 set project(lsf,node_requirements,PNR,inputs,queue) "S"
 set project(lsf,node_requirements,PNR,inputs,memory) "4GB"
 set project(lsf,node_requirements,PNR,inputs,cpu) "2"
 set project(lsf,node_requirements,PNR,inputs,runtime_estimate) "0.25"
 
-set project(lsf,node_requirements,PNR,import_design,queue) "M"
-set project(lsf,node_requirements,PNR,import_design,memory) "12GB"
-set project(lsf,node_requirements,PNR,import_design,cpu) "4"
-set project(lsf,node_requirements,PNR,import_design,runtime_estimate) "0.75"
+set project(lsf,node_requirements,PNR,init_design,queue) "M"
+set project(lsf,node_requirements,PNR,init_design,memory) "12GB"
+set project(lsf,node_requirements,PNR,init_design,cpu) "4"
+set project(lsf,node_requirements,PNR,init_design,runtime_estimate) "0.75"
 
-set project(lsf,node_requirements,PNR,floorplan,queue) "M"
-set project(lsf,node_requirements,PNR,floorplan,memory) "12GB"
-set project(lsf,node_requirements,PNR,floorplan,cpu) "4"
-set project(lsf,node_requirements,PNR,floorplan,runtime_estimate) "1.0"
-
-set project(lsf,node_requirements,PNR,powerplan,queue) "M"
-set project(lsf,node_requirements,PNR,powerplan,memory) "16GB"
-set project(lsf,node_requirements,PNR,powerplan,cpu) "8"
-set project(lsf,node_requirements,PNR,powerplan,runtime_estimate) "2.0"
-
-set project(lsf,node_requirements,PNR,placement,queue) "L"
-set project(lsf,node_requirements,PNR,placement,memory) "24GB"
-set project(lsf,node_requirements,PNR,placement,cpu) "8"
-set project(lsf,node_requirements,PNR,placement,runtime_estimate) "3.0"
+set project(lsf,node_requirements,PNR,place,queue) "L"
+set project(lsf,node_requirements,PNR,place,memory) "24GB"
+set project(lsf,node_requirements,PNR,place,cpu) "8"
+set project(lsf,node_requirements,PNR,place,runtime_estimate) "3.0"
 
 set project(lsf,node_requirements,PNR,cts,queue) "L"
 set project(lsf,node_requirements,PNR,cts,memory) "24GB"
 set project(lsf,node_requirements,PNR,cts,cpu) "8"
 set project(lsf,node_requirements,PNR,cts,runtime_estimate) "2.5"
 
+set project(lsf,node_requirements,PNR,cts_opt,queue) "L"
+set project(lsf,node_requirements,PNR,cts_opt,memory) "24GB"
+set project(lsf,node_requirements,PNR,cts_opt,cpu) "8"
+set project(lsf,node_requirements,PNR,cts_opt,runtime_estimate) "2.5"
+
 set project(lsf,node_requirements,PNR,route,queue) "L"
 set project(lsf,node_requirements,PNR,route,memory) "32GB"
 set project(lsf,node_requirements,PNR,route,cpu) "16"
 set project(lsf,node_requirements,PNR,route,runtime_estimate) "5.0"
 
-set project(lsf,node_requirements,PNR,route_opt,queue) "L"
-set project(lsf,node_requirements,PNR,route_opt,memory) "32GB"
-set project(lsf,node_requirements,PNR,route_opt,cpu) "16"
-set project(lsf,node_requirements,PNR,route_opt,runtime_estimate) "4.0"
+set project(lsf,node_requirements,PNR,pro,queue) "L"
+set project(lsf,node_requirements,PNR,pro,memory) "32GB"
+set project(lsf,node_requirements,PNR,pro,cpu) "16"
+set project(lsf,node_requirements,PNR,pro,runtime_estimate) "4.0"
 
-set project(lsf,node_requirements,PNR,post_route,queue) "M"
-set project(lsf,node_requirements,PNR,post_route,memory) "16GB"
-set project(lsf,node_requirements,PNR,post_route,cpu) "8"
-set project(lsf,node_requirements,PNR,post_route,runtime_estimate) "1.5"
+set project(lsf,node_requirements,PNR,signoff,queue) "M"
+set project(lsf,node_requirements,PNR,signoff,memory) "16GB"
+set project(lsf,node_requirements,PNR,signoff,cpu) "8"
+set project(lsf,node_requirements,PNR,signoff,runtime_estimate) "1.5"
 
-# Node-specific resource requirements — STA
+# Node-specific resource requirements — STA (node_types: inputs, extraction, timing, reporting)
 set project(lsf,node_requirements,STA,inputs,queue) "S"
 set project(lsf,node_requirements,STA,inputs,memory) "4GB"
 set project(lsf,node_requirements,STA,inputs,cpu) "2"
@@ -326,48 +322,48 @@ set project(lsf,node_requirements,STA,timing,memory) "16GB"
 set project(lsf,node_requirements,STA,timing,cpu) "8"
 set project(lsf,node_requirements,STA,timing,runtime_estimate) "2.0"
 
-# Node-specific resource requirements — LEC
+# Node-specific resource requirements — LEC (node_types: inputs, compare)
 set project(lsf,node_requirements,LEC,inputs,queue) "S"
 set project(lsf,node_requirements,LEC,inputs,memory) "4GB"
 set project(lsf,node_requirements,LEC,inputs,cpu) "2"
 set project(lsf,node_requirements,LEC,inputs,runtime_estimate) "0.25"
 
-set project(lsf,node_requirements,LEC,equivalence_check,queue) "M"
-set project(lsf,node_requirements,LEC,equivalence_check,memory) "12GB"
-set project(lsf,node_requirements,LEC,equivalence_check,cpu) "4"
-set project(lsf,node_requirements,LEC,equivalence_check,runtime_estimate) "1.5"
+set project(lsf,node_requirements,LEC,compare,queue) "M"
+set project(lsf,node_requirements,LEC,compare,memory) "12GB"
+set project(lsf,node_requirements,LEC,compare,cpu) "4"
+set project(lsf,node_requirements,LEC,compare,runtime_estimate) "1.5"
 
-# Node-specific resource requirements — EMIR
+# Node-specific resource requirements — EMIR (node_types: inputs, power_analysis, ir_drop, thermal_analysis)
 set project(lsf,node_requirements,EMIR,inputs,queue) "S"
 set project(lsf,node_requirements,EMIR,inputs,memory) "4GB"
 set project(lsf,node_requirements,EMIR,inputs,cpu) "2"
 set project(lsf,node_requirements,EMIR,inputs,runtime_estimate) "0.25"
 
-set project(lsf,node_requirements,EMIR,ir_analysis,queue) "M"
-set project(lsf,node_requirements,EMIR,ir_analysis,memory) "16GB"
-set project(lsf,node_requirements,EMIR,ir_analysis,cpu) "8"
-set project(lsf,node_requirements,EMIR,ir_analysis,runtime_estimate) "3.0"
+set project(lsf,node_requirements,EMIR,power_analysis,queue) "M"
+set project(lsf,node_requirements,EMIR,power_analysis,memory) "16GB"
+set project(lsf,node_requirements,EMIR,power_analysis,cpu) "8"
+set project(lsf,node_requirements,EMIR,power_analysis,runtime_estimate) "3.0"
 
-set project(lsf,node_requirements,EMIR,em_analysis,queue) "M"
-set project(lsf,node_requirements,EMIR,em_analysis,memory) "16GB"
-set project(lsf,node_requirements,EMIR,em_analysis,cpu) "8"
-set project(lsf,node_requirements,EMIR,em_analysis,runtime_estimate) "2.5"
+set project(lsf,node_requirements,EMIR,ir_drop,queue) "M"
+set project(lsf,node_requirements,EMIR,ir_drop,memory) "16GB"
+set project(lsf,node_requirements,EMIR,ir_drop,cpu) "8"
+set project(lsf,node_requirements,EMIR,ir_drop,runtime_estimate) "2.5"
 
-# Node-specific resource requirements — PV
+# Node-specific resource requirements — PV (node_types: inputs, drc, lvs, fill, perc, erc, xor)
 set project(lsf,node_requirements,PV,inputs,queue) "S"
 set project(lsf,node_requirements,PV,inputs,memory) "4GB"
 set project(lsf,node_requirements,PV,inputs,cpu) "2"
 set project(lsf,node_requirements,PV,inputs,runtime_estimate) "0.25"
 
-set project(lsf,node_requirements,PV,drc_check,queue) "M"
-set project(lsf,node_requirements,PV,drc_check,memory) "16GB"
-set project(lsf,node_requirements,PV,drc_check,cpu) "8"
-set project(lsf,node_requirements,PV,drc_check,runtime_estimate) "2.5"
+set project(lsf,node_requirements,PV,drc,queue) "M"
+set project(lsf,node_requirements,PV,drc,memory) "16GB"
+set project(lsf,node_requirements,PV,drc,cpu) "8"
+set project(lsf,node_requirements,PV,drc,runtime_estimate) "2.5"
 
-set project(lsf,node_requirements,PV,lvs_check,queue) "M"
-set project(lsf,node_requirements,PV,lvs_check,memory) "12GB"
-set project(lsf,node_requirements,PV,lvs_check,cpu) "4"
-set project(lsf,node_requirements,PV,lvs_check,runtime_estimate) "2.0"
+set project(lsf,node_requirements,PV,lvs,queue) "M"
+set project(lsf,node_requirements,PV,lvs,memory) "12GB"
+set project(lsf,node_requirements,PV,lvs,cpu) "4"
+set project(lsf,node_requirements,PV,lvs,runtime_estimate) "2.0"
 
 # Notification settings
 set project(lsf,notifications,email_list) "denali@smartsoc.com"
@@ -382,115 +378,47 @@ set project(lsf,notifications,weekly_summary) "true"
 # Scenario format: <mode>_<corner>_<voltage>_<rc>_<temperature>
 # ---------------------------------------------------------------------------
 
+# Generated by: cbflow flow mmmc-manager generate --tech gf_28nm --project denali
+# node_types match: SYNTH, PNR, STA, LEC, CLP, EMIR, PV flows
 array set mmmc {
     init_design {
-        setup {func_tt_0p80v_rctyp_25c}
-        hold  {func_tt_0p80v_rctyp_25c}
+        setup {func_tt_0p90v_rctyp_125c}
+        hold  {func_tt_0p90v_rctyp_125c}
     }
-
-    floorplan {
-        setup {func_ss_0p76v_rcmax_150c}
-        hold  {func_ff_0p84v_rcmin_m40c}
-    }
-
-    powerplan {
-        setup {func_ss_0p76v_rcmax_150c}
-        hold  {func_ff_0p84v_rcmin_m40c}
-    }
-
-    placement {
-        setup {
-            func_ss_0p76v_rcmax_150c
-            func_ss_0p76v_rcmax_25c
-        }
-        hold {
-            func_ff_0p84v_rcmin_m40c
-            func_ff_0p84v_rcmin_25c
-        }
-    }
-
-    cts {
-        setup {
-            func_ss_0p76v_rcmax_150c
-            func_ss_0p76v_rcmax_25c
-            func_ss_0p76v_rcmax_m40c
-        }
-        hold {
-            func_ff_0p84v_rcmin_m40c
-            func_ff_0p84v_rcmin_25c
-            func_ff_0p84v_rcmin_150c
-        }
-    }
-
-    cts_opt {
-        setup {
-            func_ss_0p76v_rcmax_150c
-            func_ss_0p76v_rcmax_25c
-            func_ss_0p76v_rcmax_m40c
-        }
-        hold {
-            func_ff_0p84v_rcmin_m40c
-            func_ff_0p84v_rcmin_25c
-            func_ff_0p84v_rcmin_150c
-        }
-    }
-
-    route {
-        setup {
-            func_ss_0p76v_rcmax_150c
-            func_ss_0p76v_rcmax_25c
-            func_ss_0p76v_rcmax_m40c
-        }
-        hold {
-            func_ff_0p84v_rcmin_m40c
-            func_ff_0p84v_rcmin_25c
-            func_ff_0p84v_rcmin_150c
-        }
-    }
-
-    post_route {
-        setup {
-            func_ss_0p76v_rcmax_150c
-            func_ss_0p76v_rcmax_25c
-            func_ss_0p76v_rcmax_m40c
-            func_ss_0p80v_rcmax_150c
-        }
-        hold {
-            func_ff_0p84v_rcmin_m40c
-            func_ff_0p84v_rcmin_25c
-            func_ff_0p84v_rcmin_150c
-            func_ff_0p80v_rcmin_m40c
-        }
-    }
-
-    signoff {
-        setup {
-            func_ss_0p76v_rcmax_150c
-            func_ss_0p76v_rcmax_25c
-            func_ss_0p76v_rcmax_m40c
-            func_ss_0p80v_rcmax_150c
-            func_ss_0p80v_rcmax_25c
-            test_ss_0p76v_rcmax_150c
-        }
-        hold {
-            func_ff_0p84v_rcmin_m40c
-            func_ff_0p84v_rcmin_25c
-            func_ff_0p84v_rcmin_150c
-            func_ff_0p80v_rcmin_m40c
-            test_ff_0p84v_rcmin_m40c
-            test_ff_0p84v_rcmin_25c
-        }
-    }
-
     synthesis {
-        setup {
-            func_ss_0p76v_rcmax_150c
-            func_ss_0p76v_rcmax_25c
-            func_ss_0p76v_rcmax_m40c
-        }
-        hold {
-            func_ff_0p84v_rcmin_m40c
-            func_ff_0p84v_rcmin_25c
-        }
+        setup {func_ss_0p80v_rcmax_125c func_ss_0p80v_rcmax_m40c func_ss_0p90v_rcmax_125c}
+        hold  {func_ff_1p10v_rcmin_125c func_ff_1p10v_rcmin_25c}
+    }
+    place {
+        setup {func_ss_0p80v_rcmax_125c func_ss_0p80v_rcmax_m40c}
+        hold  {func_ff_1p10v_rcmin_125c func_ff_1p10v_rcmin_25c}
+    }
+    cts {
+        setup {func_ss_0p80v_rcmax_125c func_ss_0p80v_rcmax_m40c func_ss_0p90v_rcmax_125c}
+        hold  {func_ff_1p10v_rcmin_125c func_ff_1p10v_rcmin_25c func_ff_1p10v_rcmin_m40c}
+    }
+    cts_opt {
+        setup {func_ss_0p80v_rcmax_125c func_ss_0p80v_rcmax_m40c func_ss_0p90v_rcmax_125c}
+        hold  {func_ff_1p10v_rcmin_125c func_ff_1p10v_rcmin_25c func_ff_1p10v_rcmin_m40c}
+    }
+    route {
+        setup {func_ss_0p80v_rcmax_125c func_ss_0p80v_rcmax_m40c func_ss_0p90v_rcmax_125c}
+        hold  {func_ff_1p10v_rcmin_125c func_ff_1p10v_rcmin_25c func_ff_1p10v_rcmin_m40c}
+    }
+    pro {
+        setup {func_ss_0p80v_rcmax_125c func_ss_0p80v_rcmax_m40c func_ss_0p90v_rcmax_125c func_ss_0p90v_rcmax_m40c}
+        hold  {func_ff_1p10v_rcmin_125c func_ff_1p10v_rcmin_25c func_ff_1p10v_rcmin_m40c}
+    }
+    signoff {
+        setup {func_ss_0p80v_rcmax_125c func_ss_0p80v_rcmax_m40c func_ss_0p90v_rcmax_125c func_ss_0p90v_rcmax_m40c}
+        hold  {func_ff_1p10v_rcmin_125c func_ff_1p10v_rcmin_25c func_ff_1p10v_rcmin_m40c}
+    }
+    extraction {
+        setup {func_ss_0p80v_rcmax_125c func_ss_0p80v_rcmax_m40c func_ss_0p90v_rcmax_125c func_ss_0p90v_rcmax_m40c}
+        hold  {func_ff_1p10v_rcmin_125c func_ff_1p10v_rcmin_25c func_ff_1p10v_rcmin_m40c}
+    }
+    timing {
+        setup {func_ss_0p80v_rcmax_125c func_ss_0p80v_rcmax_m40c func_ss_0p90v_rcmax_125c func_ss_0p90v_rcmax_m40c}
+        hold  {func_ff_1p10v_rcmin_125c func_ff_1p10v_rcmin_25c func_ff_1p10v_rcmin_m40c}
     }
 }

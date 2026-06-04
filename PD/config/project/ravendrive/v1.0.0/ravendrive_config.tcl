@@ -31,8 +31,9 @@ set project(workarea_path) "/Users/vmerugu/projects/CBflow_clone/workarea"
 # Available: 9T (high performance), 7.5T (balanced), 6.75T (high density)
 set project(technology) "gf_22nm"
 set project(track_variant) "9T"
-set project(metal_stack) "gf22naphlogl24uhf116a_11M_2Mx_6Cx_1Jx_2Qx_LB"
+set project(metal_stack) "11M"
 set project(vt_flavors) "svt lvt hvt"
+set project(lib_config_tag) "P0"
 set project(lib_root) "/tmp/test_libs/gf_22nm"
 
 

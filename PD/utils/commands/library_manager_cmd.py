@@ -1061,15 +1061,70 @@ def _format_corner_key(corner_str):
     return corner_str
 
 
+def _prompt_choice(prompt_text, options):
+    """Display numbered list and prompt user to select one."""
+    print('  {}:'.format(prompt_text))
+    for i, opt in enumerate(options, 1):
+        print('    {}. {}'.format(i, opt))
+    choice = input('  Select [1-{}]: '.format(len(options))).strip()
+    try:
+        idx = int(choice) - 1
+        if 0 <= idx < len(options):
+            return options[idx]
+    except ValueError:
+        if choice in options:
+            return choice
+    return None
+
+
+def _prompt_paths(label, base_dir=None):
+    """Prompt user for one or more directory paths. Empty line to finish.
+    Paths are resolved as absolute. If base_dir is given, relative paths
+    resolve relative to it (not cwd)."""
+    paths = []
+    hint = ' (relative to {})'.format(base_dir) if base_dir else ''
+    print('  {}{} (one per line, empty line to finish):'.format(label, hint))
+    while True:
+        p = input('    path: ').strip()
+        if not p:
+            break
+        # Resolve relative paths against base_dir, not cwd
+        if not os.path.isabs(p) and base_dir:
+            p = os.path.join(base_dir, p)
+        p = os.path.abspath(p)
+        if os.path.isdir(p):
+            paths.append(p)
+            print('    OK: {}'.format(p))
+        else:
+            print('    WARNING: directory not found: {}'.format(p))
+            add_anyway = input('    Add anyway? [y/N]: ').strip().lower()
+            if add_anyway == 'y':
+                paths.append(p)
+    return paths if paths else None
+
+
 def cmd_generate(args: argparse.Namespace) -> int:
-    """Generate lib_config.tcl by scanning library directories.
+    """Generate lib_config_<tag>.tcl by scanning library directories.
 
     Discovers all available libraries (NDM, DB, LEF, lib_nom, timing)
-    organized by track × VT × corner. Writes fully resolved absolute paths.
+    organized by track x VT x corner. Writes fully resolved absolute paths.
     """
-    # Resolve tech name — prompt if not given
+    # Detect interactive mode (stdin is a terminal)
+    _interactive = sys.stdin.isatty()
+
+    if _interactive:
+        print('')
+        print('  ============================================================')
+        print('  CBflow Library Config Generator')
+        print('  ============================================================')
+        print('')
+
+    # 1. Technology
     tech_name = args.tech
     if not tech_name:
+        if not _interactive:
+            logger.error("--tech is required in non-interactive mode")
+            return 1
         core_dir = get_cbflow_core_dir()
         tech_base = os.path.join(core_dir, 'config', 'tech')
         available = sorted(d for d in os.listdir(tech_base)
@@ -1077,44 +1132,147 @@ def cmd_generate(args: argparse.Namespace) -> int:
         if not available:
             logger.error("No technologies found in {}".format(tech_base))
             return 1
-        print('  Available technologies:')
-        for i, t in enumerate(available, 1):
-            print('    {}. {}'.format(i, t))
-        choice = input('  Select technology [1-{}]: '.format(len(available))).strip()
-        try:
-            idx = int(choice) - 1
-            if 0 <= idx < len(available):
-                tech_name = available[idx]
-            else:
-                logger.error("Invalid selection"); return 1
-        except ValueError:
-            if choice in available:
-                tech_name = choice
-            else:
-                logger.error("Invalid selection: {}".format(choice)); return 1
-        print('  Selected: {}'.format(tech_name))
+        tech_name = _prompt_choice('Select technology', available)
+        if not tech_name:
+            logger.error("Invalid selection"); return 1
+        print('  -> {}'.format(tech_name))
     args.tech = tech_name
 
-    # Resolve lib_root — from CLI, tech_config, or prompt
+    # 2. Tag (mandatory)
+    tag = args.tag if hasattr(args, 'tag') and args.tag else None
+    if not tag and not args.output:
+        if not _interactive:
+            logger.error("--tag is required (e.g., --tag P0, --tag timing_v1)")
+            return 1
+        print('')
+        # Show existing tags
+        core_dir = get_cbflow_core_dir()
+        version = args.version or "v1.0.0"
+        _tag_dir = os.path.join(core_dir, "config", "tech", tech_name, version)
+        _existing_tags = []
+        if os.path.isdir(_tag_dir):
+            for f in sorted(os.listdir(_tag_dir)):
+                if f.startswith('lib_config_') and f.endswith('.tcl'):
+                    _existing_tags.append(f.replace('lib_config_', '').replace('.tcl', ''))
+        if _existing_tags:
+            print('  Existing lib_config tags: {}'.format(', '.join(_existing_tags)))
+        tag = input('  Config tag (e.g., P0, timing_v1, signoff): ').strip()
+        if not tag:
+            logger.error("Tag is required. Output will be: lib_config_<tag>.tcl")
+            return 1
+        args.tag = tag
+        # Check if tag already exists
+        _tag_file = os.path.join(_tag_dir, 'lib_config_{}.tcl'.format(tag))
+        if os.path.exists(_tag_file):
+            print('  WARNING: lib_config_{}.tcl already exists'.format(tag))
+            overwrite = input('  Overwrite? [y/N]: ').strip().lower()
+            if overwrite != 'y':
+                logger.info("Aborted — choose a different tag")
+                return 1
+            print('  -> will overwrite lib_config_{}.tcl'.format(tag))
+        else:
+            print('  -> lib_config_{}.tcl (new)'.format(tag))
+
+    # 3. Library root (stdcell base)
     lib_root = args.lib_root
     if not lib_root:
         lib_root = _resolve_lib_root_from_tech_config(tech_name)
-        if lib_root:
-            logger.info("Using lib_root from tech_config: {}".format(lib_root))
+        if lib_root and _interactive:
+            print('')
+            print('  Stdcell lib root (from project_config): {}'.format(lib_root))
+            use_it = input('  Use this? [Y/n]: ').strip().lower()
+            if use_it == 'n':
+                lib_root = None
+    if not lib_root and _interactive:
+        print('')
+        lib_root = input('  Stdcell library root path: ').strip()
     if not lib_root:
-        lib_root = input('  Library root path: ').strip()
-    if not lib_root:
-        logger.error("lib_root is required. Provide --lib-root or set tech(lib_root) in tech_config")
+        logger.error("lib_root is required. Provide --lib-root or set project(lib_root) in project_config")
         return 1
     if not os.path.isdir(lib_root):
         logger.error("lib_root directory not found: {}".format(lib_root))
-        logger.info("  This path is set in tech_config.tcl as tech(lib_root)")
-        logger.info("  Update tech(lib_root) to your actual library path, or use --lib-root to override")
+        logger.info("  Update project(lib_root) in project_config, or use --lib-root to override")
         return 1
 
     lib_root = os.path.abspath(lib_root)
     tech_name = args.tech or os.path.basename(lib_root)
     version = args.version or "v1.0.0"
+
+    # 4. Additional library paths — interactive prompts only if stdin is a terminal
+    _interactive = sys.stdin.isatty()
+
+    if _interactive:
+        if not (hasattr(args, 'stdcell_path') and args.stdcell_path):
+            print('')
+            print('  Additional stdcell paths? (beyond lib_root)')
+            extra = _prompt_paths('Stdcell paths', lib_root)
+            if extra:
+                args.stdcell_path = extra
+
+        if not (hasattr(args, 'memory_path') and args.memory_path):
+            print('')
+            extra = _prompt_paths('Memory library paths', lib_root)
+            if extra:
+                args.memory_path = extra
+
+        if not (hasattr(args, 'io_path') and args.io_path):
+            print('')
+            extra = _prompt_paths('IO library paths', lib_root)
+            if extra:
+                args.io_path = extra
+
+        if not (hasattr(args, 'ip_path') and args.ip_path):
+            print('')
+            extra = _prompt_paths('IP/Analog library paths', lib_root)
+            if extra:
+                args.ip_path = extra
+
+        # 5. Exclude patterns
+        if not (hasattr(args, 'exclude') and args.exclude):
+            print('')
+            excl = input('  Exclude patterns (space-separated globs, e.g., *channel* *dummy*): ').strip()
+            if excl:
+                args.exclude = excl.split()
+
+    # ── Confirm all inputs ──
+    print('')
+    print('  ────────────────────────────────────────────────────────────')
+    print('  Configuration Summary')
+    print('  ────────────────────────────────────────────────────────────')
+    print('  Technology:    {}'.format(tech_name))
+    print('  Tag:           {}'.format(args.tag if hasattr(args, 'tag') and args.tag else '(custom output)'))
+    print('  Lib root:      {}'.format(lib_root))
+    _all_paths_ok = os.path.isdir(lib_root)
+    for label, attr in [('Stdcell paths', 'stdcell_path'), ('Memory paths', 'memory_path'),
+                        ('IO paths', 'io_path'), ('IP paths', 'ip_path')]:
+        paths = getattr(args, attr, None) if hasattr(args, attr) else None
+        if paths:
+            for p in paths:
+                exists = os.path.isdir(p)
+                status = '' if exists else ' [NOT FOUND]'
+                if not exists:
+                    _all_paths_ok = False
+                print('  {}:  {}{}'.format(label, p, status))
+    excl = getattr(args, 'exclude', [])
+    if excl:
+        print('  Exclude:       {}'.format(' '.join(excl)))
+    print('  ────────────────────────────────────────────────────────────')
+
+    if not _all_paths_ok:
+        print('')
+        print('  WARNING: Some paths do not exist.')
+        if _interactive:
+            proceed = input('  Continue anyway? [y/N]: ').strip().lower()
+            if proceed != 'y':
+                logger.info("Aborted by user")
+                return 1
+
+    if _interactive:
+        confirm = input('  Proceed with scan? [Y/n]: ').strip().lower()
+        if confirm == 'n':
+            logger.info("Aborted by user")
+            return 1
+    print('')
 
     # Exclude patterns (glob wildcards)
     import fnmatch
@@ -1187,69 +1345,81 @@ def cmd_generate(args: argparse.Namespace) -> int:
     if exclude_patterns:
         logger.info("Exclude patterns: {}".format(", ".join(exclude_patterns)))
 
-    # Directory structure — try standard layout, fall back to recursive scan
+    # ── Directory discovery — NO hardcoded paths ──
+    # Recursively scan all user-given paths and classify by file content.
+    # Classification: ndm → .ndm files, lef → .lef files,
+    #   memory → dir name contains 'memory'/'mem', io → 'io'/'iolib',
+    #   everything else with .lib/.db → stdcell
     ndm_dirs = []
     lef_dirs = []
     stdcell_dirs = []
     memory_dirs = []
     io_dirs = []
 
-    # Standard foundry layout
-    _std = os.path.join(lib_root, "Back_End", "ndm")
-    if os.path.isdir(_std): ndm_dirs.append(_std)
-    _std = os.path.join(lib_root, "Back_End", "lef")
-    if os.path.isdir(_std): lef_dirs.append(_std)
-    _std = os.path.join(lib_root, "Front_End", "timing", "stdcell")
-    if os.path.isdir(_std): stdcell_dirs.append(_std)
-    _std = os.path.join(lib_root, "Front_End", "timing", "memory")
-    if os.path.isdir(_std): memory_dirs.append(_std)
-    _std = os.path.join(lib_root, "Front_End", "timing", "io")
-    if os.path.isdir(_std): io_dirs.append(_std)
-
-    # If standard layout not found, scan lib_root recursively
-    if not ndm_dirs and not stdcell_dirs:
-        logger.info("Standard layout not found — scanning {} recursively".format(lib_root))
-        for root, dirs, files in os.walk(lib_root):
+    def _scan_tree(root_path, target_category=None):
+        """Recursively walk root_path, classify each directory by content.
+        If target_category is set, all lib/db dirs go to that category."""
+        if not os.path.isdir(root_path):
+            return
+        for root, dirs, files in os.walk(root_path):
             has_ndm = any(_is_ndm_file(f) for f in files)
             has_lef = any(_is_lef_file(f) for f in files)
             has_lib = any(_is_lib_file(f) or _is_db_file(f) for f in files)
-            rl = root.lower()
-            if has_ndm:
+            if has_ndm and root not in ndm_dirs:
                 ndm_dirs.append(root)
-            if has_lef:
+            if has_lef and root not in lef_dirs:
                 lef_dirs.append(root)
-            if has_lib:
-                if 'memory' in rl or 'mem' in rl:
+            if has_lib and root not in stdcell_dirs and root not in memory_dirs and root not in io_dirs:
+                if target_category == 'memory':
                     memory_dirs.append(root)
-                elif 'io' in rl or 'iolib' in rl:
+                elif target_category == 'io':
                     io_dirs.append(root)
-                else:
+                elif target_category == 'stdcell':
                     stdcell_dirs.append(root)
+                else:
+                    # Auto-classify by directory name components
+                    _dir_parts = root.lower().replace('\\', '/').split('/')
+                    _basename = _dir_parts[-1] if _dir_parts else ''
+                    if any(p in ('memory', 'mem') or p.startswith('mem_') for p in _dir_parts):
+                        memory_dirs.append(root)
+                    elif any(p in ('io', 'iolib') or p.startswith('io_') for p in _dir_parts):
+                        io_dirs.append(root)
+                    else:
+                        stdcell_dirs.append(root)
 
-    # Additional stdcell paths — scan recursively for lib files in whatever structure
+    # 1. Scan lib_root (auto-classify)
+    logger.info("Scanning lib_root: {}".format(lib_root))
+    _scan_tree(lib_root)
+
+    # 2. Additional stdcell paths (force stdcell category)
     if hasattr(args, 'stdcell_path') and args.stdcell_path:
         for sp in args.stdcell_path:
             sp = os.path.abspath(sp)
-            if not os.path.isdir(sp):
-                logger.warning("stdcell-path not found: {}".format(sp))
-                continue
-            # Walk the entire tree, collect directories that contain relevant files
-            for root, dirs, files in os.walk(sp):
-                has_ndm = any(_is_ndm_file(f) for f in files)
-                has_lef = any(_is_lef_file(f) for f in files)
-                has_lib = any(_is_lib_file(f) or _is_db_file(f) for f in files)
-                if has_ndm and root not in ndm_dirs:
-                    ndm_dirs.append(root)
-                if has_lef and root not in lef_dirs:
-                    lef_dirs.append(root)
-                if has_lib and root not in stdcell_dirs:
-                    stdcell_dirs.append(root)
-            logger.info("Additional stdcell path: {} (recursive scan)".format(sp))
+            logger.info("Scanning stdcell path: {}".format(sp))
+            _scan_tree(sp, target_category='stdcell')
 
+    # 3. Memory paths override auto-classification
     if hasattr(args, 'memory_path') and args.memory_path:
-        memory_dirs = [os.path.abspath(p) for p in args.memory_path]
+        memory_dirs = []  # reset auto-detected
+        for mp in args.memory_path:
+            mp = os.path.abspath(mp)
+            logger.info("Scanning memory path: {}".format(mp))
+            _scan_tree(mp, target_category='memory')
+
+    # 4. IO paths override auto-classification
     if hasattr(args, 'io_path') and args.io_path:
-        io_dirs = [os.path.abspath(p) for p in args.io_path]
+        io_dirs = []  # reset auto-detected
+        for ip in args.io_path:
+            ip = os.path.abspath(ip)
+            logger.info("Scanning IO path: {}".format(ip))
+            _scan_tree(ip, target_category='io')
+
+    # 5. IP/Analog paths (treat as stdcell for now — separate category TBD)
+    if hasattr(args, 'ip_path') and args.ip_path:
+        for ipp in args.ip_path:
+            ipp = os.path.abspath(ipp)
+            logger.info("Scanning IP path: {}".format(ipp))
+            _scan_tree(ipp, target_category='stdcell')
 
     # ── Discovery ──────────────────────────────────────────────────────────
     # Data structures: {(track, vt): [path, ...]}
@@ -1683,12 +1853,13 @@ def cmd_generate(args: argparse.Namespace) -> int:
 
     output_path = args.output
     tag = args.tag if hasattr(args, 'tag') and args.tag else None
+    if not tag and not output_path:
+        logger.error("--tag is required (e.g., --tag P0, --tag timing_v1)")
+        logger.error("This sets the lib_config name: lib_config_<tag>.tcl")
+        return 1
     if not output_path:
         core_dir = get_cbflow_core_dir()
-        if tag:
-            fname = "lib_config_{}.tcl".format(tag)
-        else:
-            fname = "lib_config.tcl"
+        fname = "lib_config_{}.tcl".format(tag)
         output_path = os.path.join(core_dir, "config", "tech", tech_name, version, fname)
 
     # ── Incremental: merge with existing lib_config ──
@@ -1942,6 +2113,8 @@ Examples:
                             help='Override memory lib directories (multiple allowed)')
     gen_parser.add_argument('--io-path', nargs='+', default=None,
                             help='Override IO lib directories (multiple allowed)')
+    gen_parser.add_argument('--ip-path', nargs='+', default=None,
+                            help='IP/Analog lib directories (multiple allowed)')
     gen_parser.add_argument('--exclude', nargs='+', default=[],
                             help='Glob patterns to exclude (e.g., "*channel*" "*dummy*" "*eco*")')
     gen_parser.add_argument('--tag', default=None,

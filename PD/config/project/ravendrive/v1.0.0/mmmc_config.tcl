@@ -1,10 +1,10 @@
 #!/usr/bin/env tclsh
 # =============================================================================
 # CBflow MMMC Configuration — Auto-Generated
-# Generated: 2026-06-03 09:25 | Tech: gf_22nm | Corners: 12
-# Source: lib_config.tcl
-# Views: 24 | Modes: func test | Process: ff ss tt
-# Regenerate: cbflow flow mmmc-manager generate --tech gf_22nm
+# Generated: 2026-06-04 20:24 | Tech: gf_28nm | Corners: 10
+# Source: lib_config_LIB02.tcl
+# Views: 20 | Modes: func test | Process: ff ss tt
+# Regenerate: cbflow flow mmmc-manager generate --tech gf_28nm
 # =============================================================================
 
 # Global MMMC configuration
@@ -21,10 +21,10 @@ array set mmmc_config {
 # VOLTAGE & TEMPERATURE (discovered from lib_config corners)
 # =============================================================================
 
-set mmmc(voltage,nom)        0.80
-set mmmc(voltage,low)        0.76
-set mmmc(voltage,high)       0.84
-set mmmc(temperature,hot)    150
+set mmmc(voltage,nom)        0.90
+set mmmc(voltage,low)        0.80
+set mmmc(voltage,high)       1.10
+set mmmc(temperature,hot)    125
 set mmmc(temperature,nom)    25
 set mmmc(temperature,cold)   -40
 
@@ -43,9 +43,9 @@ array set operating_modes {
 # PVT POINTS (user-specified, validated against lib_config)
 # =============================================================================
 
-set mmmc(pvt,ff) {{0p80v m40c} {0p84v 150c} {0p84v 25c} {0p84v m40c}}
-set mmmc(pvt,ss) {{0p76v 150c} {0p76v 25c} {0p76v m40c} {0p80v 150c} {0p80v 25c}}
-set mmmc(pvt,tt) {{0p80v 150c} {0p80v 25c} {0p80v m40c}}
+set mmmc(pvt,ff) {{1p10v 125c} {1p10v 25c} {1p10v m40c}}
+set mmmc(pvt,ss) {{0p80v 125c} {0p80v m40c} {0p90v 125c} {0p90v m40c}}
+set mmmc(pvt,tt) {{0p90v 125c} {0p90v 25c} {0p90v m40c}}
 
 # Corner -> RC corner pairing
 set mmmc(rc_pair,ff) "rcmin"
