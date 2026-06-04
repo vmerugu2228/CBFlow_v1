@@ -49,4 +49,10 @@ set tech(pg_strap_layers) "M7 M8"
 set tech(pg_strap_width,M7)  "1.600"
 set tech(pg_strap_width,M8)  "1.600"
 
+# Routing layers
+set tech(min_routing_layer)        "M2"
+set tech(max_routing_layer)        [lindex $tech(metal_layers) end-1]
+set tech(clock_routing_layer_min)  "M4"
+set tech(clock_routing_layer_max)  "M8"
+
 set tech(via_stack) {VIA1 VIA2 VIA3 VIA4 VIA5 VIA6 VIA7}

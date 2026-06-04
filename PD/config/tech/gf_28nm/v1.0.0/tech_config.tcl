@@ -34,12 +34,13 @@ set tech(metal_stacks_available) {
     gf28slpe_10M_2Mx_5Cx_1Jx_2Qx
 }
 
-# Active metal stack — set from project config
-if {[info exists project(metal_stack)] && $project(metal_stack) ne ""} {
-    set tech(metal_stack) $project(metal_stack)
-} else {
-    set tech(metal_stack) "gf28slpe_10M_2Mx_5Cx_1Jx_2Qx"
+# Active metal stack — MUST be set in project_config, no default
+if {![info exists project(metal_stack)] || $project(metal_stack) eq ""} {
+    puts "ERROR: project(metal_stack) not set. Define it in project_config.tcl"
+    puts "       Available: $tech(metal_stacks_available)"
+    exit 1
 }
+set tech(metal_stack) $project(metal_stack)
 
 if {[lsearch $tech(metal_stacks_available) $tech(metal_stack)] < 0} {
     puts "ERROR: Invalid metal_stack '$tech(metal_stack)'"
@@ -58,14 +59,12 @@ set tech(lib_paths,io) [list]
 
 # ── Load per-metal-stack configuration ────────────────────────────────
 set _ms_file "$_tech_dir/metal_stack/$tech(metal_stack).tcl"
-if {[file exists $_ms_file]} {
-    source $_ms_file
-} else {
-    puts "WARNING: Metal stack config not found: $_ms_file — using defaults"
-    set tech(metal_stack_label) "10M"
-    set tech(metal_count) 10
-    set tech(metal_layers) {M1 M2 M3 M4 M5 M6 M7 M8 M9 M10}
+if {![file exists $_ms_file]} {
+    puts "ERROR: Metal stack config not found: $_ms_file"
+    puts "       Create: config/tech/gf_28nm/v1.0.0/metal_stack/$tech(metal_stack).tcl"
+    exit 1
 }
+source $_ms_file
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SECTION 2: ACTIVE TRACK + VT FLAVORS
@@ -83,10 +82,12 @@ if {[lsearch -exact $tech(tracks_available) $project(track_variant)] == -1} {
 }
 set tech(track) $project(track_variant)
 
-set _vt_load $tech(vt_variants_available)
-if {[info exists project(vt_flavors)] && $project(vt_flavors) ne ""} {
-    set _vt_load $project(vt_flavors)
+if {![info exists project(vt_flavors)] || $project(vt_flavors) eq ""} {
+    puts "ERROR: project(vt_flavors) not set. Define it in project_config.tcl"
+    puts "       Available: $tech(vt_variants_available)"
+    exit 1
 }
+set _vt_load $project(vt_flavors)
 set tech(vt_flavors_loaded) $_vt_load
 
 puts "INFO: $tech(process) active track: $tech(track), VT flavors: $_vt_load"
@@ -105,12 +106,12 @@ if {[info exists project(lib_config_version)] && $project(lib_config_version) ne
 } else {
     set _lib_config "$_tech_dir/lib_config.tcl"
 }
-if {[file exists $_lib_config]} {
-    source $_lib_config
-} else {
-    puts "WARNING: lib_config not found: $_lib_config"
-    puts "         Run: cbflow flow library-manager generate --lib-root <lib_path> --tech gf_28nm"
+if {![file exists $_lib_config]} {
+    puts "ERROR: lib_config not found: $_lib_config"
+    puts "       Run: cbflow flow library-manager generate --tech gf_28nm"
+    exit 1
 }
+source $_lib_config
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SECTION 4: PARASITIC EXTRACTION (shared — same for all tracks)
@@ -182,10 +183,13 @@ set tech(9T,dont_use)       "*D0BWP9T* *OPTHOLD* *DEL*"
 # SECTION 6: DESIGN RULES & ROUTING
 # ═══════════════════════════════════════════════════════════════════════════════
 
-if {![info exists tech(min_routing_layer)]}    { set tech(min_routing_layer)    "M2" }
-if {![info exists tech(max_routing_layer)]}    { set tech(max_routing_layer)    [lindex $tech(metal_layers) end-1] }
-if {![info exists tech(clock_routing_layer_min)]} { set tech(clock_routing_layer_min) "M4" }
-if {![info exists tech(clock_routing_layer_max)]} { set tech(clock_routing_layer_max) "M8" }
+# Routing layers — must be set by metal_stack config
+if {![info exists tech(min_routing_layer)] || ![info exists tech(max_routing_layer)]} {
+    puts "ERROR: Routing layers not set. Metal stack config must define:"
+    puts "       tech(min_routing_layer), tech(max_routing_layer)"
+    puts "       tech(clock_routing_layer_min), tech(clock_routing_layer_max)"
+    exit 1
+}
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SECTION 7: SIGNOFF, DRC & GDS

@@ -14,7 +14,6 @@ set _tech_dir [file dirname [file normalize [info script]]]
 set tech(node)        "7nm"
 set tech(process)     "TSMC N7"
 set tech(foundry)     "TSMC"
-set tech(metal_stack) "12M"
 set tech(tracks_available) "6T 7.5T 9T"
 
 # ── VT Variant Patterns (for dont_use selection + lib filtering) ───────
@@ -24,6 +23,23 @@ set tech(vt_pattern,lvt)  "*lvt*"
 set tech(vt_pattern,ulvt) "*ulvt*"
 set tech(vt_pattern,hvt)  "*hvt*"
 
+# ── Metal Stack Options ──────────────────────────────────────────────────
+set tech(metal_stacks_available) {12M 14M}
+
+# Active metal stack — MUST be set in project_config, no default
+if {![info exists project(metal_stack)] || $project(metal_stack) eq ""} {
+    puts "ERROR: project(metal_stack) not set. Define it in project_config.tcl"
+    puts "       Available: $tech(metal_stacks_available)"
+    exit 1
+}
+set tech(metal_stack) $project(metal_stack)
+
+if {[lsearch $tech(metal_stacks_available) $tech(metal_stack)] < 0} {
+    puts "ERROR: Invalid metal_stack '$tech(metal_stack)'"
+    puts "ERROR: Available: $tech(metal_stacks_available)"
+    error "Invalid metal stack configuration"
+}
+
 # ── Library root ───────────────────────────────────────────────────────
 set tech(lib_root) "/tmp/test_libs/tsmc_7nm"
 set _R "$tech(lib_root)"
@@ -32,6 +48,15 @@ set _R "$tech(lib_root)"
 set tech(lib_paths,stdcell) [list]
 set tech(lib_paths,memory) [list]
 set tech(lib_paths,io) [list]
+
+# ── Load per-metal-stack configuration ────────────────────────────────
+set _ms_file "$_tech_dir/metal_stack/$tech(metal_stack).tcl"
+if {![file exists $_ms_file]} {
+    puts "ERROR: Metal stack config not found: $_ms_file"
+    puts "       Create: config/tech/tsmc_7nm/v1.0.0/metal_stack/$tech(metal_stack).tcl"
+    exit 1
+}
+source $_ms_file
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SECTION 2: ACTIVE TRACK + VT FLAVORS
@@ -49,10 +74,12 @@ if {[lsearch -exact $tech(tracks_available) $project(track_variant)] == -1} {
 }
 set tech(track) $project(track_variant)
 
-set _vt_load $tech(vt_variants_available)
-if {[info exists project(vt_flavors)] && $project(vt_flavors) ne ""} {
-    set _vt_load $project(vt_flavors)
+if {![info exists project(vt_flavors)] || $project(vt_flavors) eq ""} {
+    puts "ERROR: project(vt_flavors) not set. Define it in project_config.tcl"
+    puts "       Available: $tech(vt_variants_available)"
+    exit 1
 }
+set _vt_load $project(vt_flavors)
 set tech(vt_flavors_loaded) $_vt_load
 
 puts "INFO: $tech(process) active track: $tech(track), VT flavors: $_vt_load"
@@ -70,12 +97,12 @@ if {[info exists project(lib_config_version)] && $project(lib_config_version) ne
 } else {
     set _lib_config "$_tech_dir/lib_config.tcl"
 }
-if {[file exists $_lib_config]} {
-    source $_lib_config
-} else {
-    puts "WARNING: lib_config not found: $_lib_config"
-    puts "         Run: cbflow flow library-manager generate --lib-root <lib_path> --tech tsmc_7nm"
+if {![file exists $_lib_config]} {
+    puts "ERROR: lib_config not found: $_lib_config"
+    puts "       Run: cbflow flow library-manager generate --tech tsmc_7nm"
+    exit 1
 }
+source $_lib_config
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SECTION 4: PARASITIC EXTRACTION (shared — same for all tracks)
