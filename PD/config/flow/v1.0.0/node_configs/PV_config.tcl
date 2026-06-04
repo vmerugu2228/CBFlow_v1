@@ -128,6 +128,10 @@ array set pv {
         def_inputs {pv(input,def_file)}
         gds_inputs {pv(input,gds)}
     }
+
+    mandatory_user_inputs {
+        pv(input,gds)
+    }
 }
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗

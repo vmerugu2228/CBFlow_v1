@@ -54,6 +54,13 @@ switch $subnode_name {
         puts "INFO: $stage_name setup..."
         file mkdir "$run_dir/work/$::flow_type/$node_name/run"
         file mkdir "$run_dir/work/$::flow_type/$node_name/setup"
+    # Generate config.tcl + setup.tcl via config cascade
+    if {[info exists ::env(GENERATION_VERSION)] && $::env(GENERATION_VERSION) ne ""} {
+        set _gen "$::env(FLOW_DIR)/utils/generation/$::env(GENERATION_VERSION)/generate_setup.tcl"
+        if {[file exists $_gen]} {
+            catch {exec tclsh $_gen $::flow_type $node_name ${node_name}_default $run_dir}
+        }
+    }
         puts "INFO: $stage_name setup completed"
     }
     "run" {
@@ -87,7 +94,7 @@ switch $subnode_name {
             puts $_wf "# CBFlow tool launch wrapper — $::flow_type $stage_name"
             puts $_wf "# Generated: [clock format [clock seconds]]"
             if {$_module_cmd ne ""} { puts $_wf "$_module_cmd" }
-            puts $_wf "$_tool_shell -f $cmd_file -output_log_file $_log_file"
+            puts $_wf "$_tool_shell $cmd_file |& tee $_log_file"
             close $_wf
             catch { file attributes $_wrapper -permissions rwxr-xr-x }
             puts "INFO: Wrapper script: $_wrapper"
@@ -133,7 +140,7 @@ switch $subnode_name {
             puts $_wf "# CBFlow tool launch wrapper — $::flow_type $stage_name"
             puts $_wf "# Generated: [clock format [clock seconds]]"
             if {$_module_cmd ne ""} { puts $_wf "$_module_cmd" }
-            puts $_wf "$_tool_shell -f $cmd_file -output_log_file $_log_file"
+            puts $_wf "$_tool_shell $cmd_file |& tee $_log_file"
             close $_wf
             catch { file attributes $_wrapper -permissions rwxr-xr-x }
             puts "INFO: Wrapper: $_wrapper"

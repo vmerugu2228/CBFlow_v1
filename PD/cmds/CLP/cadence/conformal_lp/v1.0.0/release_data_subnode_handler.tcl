@@ -99,10 +99,10 @@ switch $subnode_name {
             # Generate wrapper script even in test mode (for review)
             set _work_dir "$run_dir/work/$::flow_type/$node_name/run"
             file mkdir $_work_dir
-            set _tool_name [expr {[info exists clp(tool,name)] ? $clp(tool,name) : "vc_lp"}]
+            set _tool_name [expr {[info exists clp(tool,name)] ? $clp(tool,name) : "conformal_lp"}]
             set _log_file "$_work_dir/${node_name}.log"
             set _module_cmd ""
-            set _tool_shell "vc_lp_shell"
+            set _tool_shell "lec"
             catch {
                 if {[info exists lsf(module,$_tool_name)]} { set _module_cmd $lsf(module,$_tool_name) }
                 if {[info exists lsf(tool_shell,$_tool_name)]} { set _tool_shell $lsf(tool_shell,$_tool_name) }
@@ -113,7 +113,7 @@ switch $subnode_name {
             puts $_wf "# CBFlow tool launch wrapper — $::flow_type $stage_name"
             puts $_wf "# Generated: [clock format [clock seconds]]"
             if {$_module_cmd ne ""} { puts $_wf "$_module_cmd" }
-            puts $_wf "$_tool_shell -f $cmd_file -output_log_file $_log_file"
+            puts $_wf "$_tool_shell -dofile $cmd_file -logfile $_log_file"
             close $_wf
             catch { file attributes $_wrapper -permissions rwxr-xr-x }
             puts "INFO: Wrapper script: $_wrapper"
@@ -143,10 +143,10 @@ switch $subnode_name {
         } else {
             if {![file exists $cmd_file]} { puts "ERROR: Command file not found: $cmd_file"; exit 1 }
             set _work_dir "$run_dir/work/$::flow_type/$node_name/run"
-            set _tool_name [expr {[info exists clp(tool,name)] ? $clp(tool,name) : "vc_lp"}]
+            set _tool_name [expr {[info exists clp(tool,name)] ? $clp(tool,name) : "conformal_lp"}]
             set _log_file "$_work_dir/${node_name}.log"
             set _module_cmd ""
-            set _tool_shell "vc_lp_shell"
+            set _tool_shell "lec"
             set _wrapper_shell "/bin/csh -f"
             catch {
                 if {[info exists lsf(module,$_tool_name)]} { set _module_cmd $lsf(module,$_tool_name) }
@@ -159,7 +159,7 @@ switch $subnode_name {
             puts $_wf "# CBFlow tool launch wrapper — $::flow_type $stage_name"
             puts $_wf "# Generated: [clock format [clock seconds]]"
             if {$_module_cmd ne ""} { puts $_wf "$_module_cmd" }
-            puts $_wf "$_tool_shell -f $cmd_file -output_log_file $_log_file"
+            puts $_wf "$_tool_shell -dofile $cmd_file -logfile $_log_file"
             close $_wf
             catch { file attributes $_wrapper -permissions rwxr-xr-x }
             puts "INFO: Wrapper: $_wrapper"

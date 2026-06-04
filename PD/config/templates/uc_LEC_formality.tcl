@@ -21,6 +21,10 @@ set flow(test_mode)            "false"                ;# Set "true" for dry run 
 # ── Tool ─────────────────────────────────────────────────────────────────────
 # Formality is the default tool for LEC — no tool,name needed.
 
+# ── Execution ──
+set flow(use_lsf)       "false"              ;# Set "true" to submit via LSF (bsub)
+set flow(use_xterm)     "false"              ;# Set "true" to launch in xterm
+
 # ── Inputs ───────────────────────────────────────────────────────────────────
 set lec(input,netlist_golden)    "<PROJECT_ROOT>/netlist_golden.v"   ;# Golden reference netlist (pre-change)
 set lec(input,netlist_revised)   "<PROJECT_ROOT>/netlist_revised.v"  ;# Revised netlist (post-change)

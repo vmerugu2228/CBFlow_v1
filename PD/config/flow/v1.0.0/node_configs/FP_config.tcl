@@ -130,6 +130,11 @@ array set fp {
         upf_inputs {fp(input,upf_release_tag) fp(input,upf_release_dir) fp(input,upf_file)}
     }
 
+    mandatory_user_inputs {
+        fp(input,netlist)
+        fp(input,sdc_func_file)
+    }
+
     output,write_def            true
     output,write_floorplan      true
     output,floorplan_dir        "results/fp"

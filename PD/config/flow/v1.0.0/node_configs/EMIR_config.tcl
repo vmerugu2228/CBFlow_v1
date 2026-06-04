@@ -101,6 +101,11 @@ array set emir {
         def_inputs {emir(input,def_file)}
         spef_inputs {emir(input,spef)}
     }
+
+    mandatory_user_inputs {
+        emir(input,netlist)
+        emir(input,def_file)
+    }
 }
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗

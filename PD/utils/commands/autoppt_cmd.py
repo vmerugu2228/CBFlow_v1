@@ -391,13 +391,15 @@ def generate_pptx(data: dict, output_path: str):
     prs.save(output_path)
 
 
-def _rgb(hex_color: str) -> RGBColor:
+def _rgb(hex_color: str):
     """Convert hex color to RGBColor."""
     h = hex_color.lstrip('#')
     return RGBColor(int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
 
 
-def _set_cell(table, row, col, text, font_size=8, bold=False, color=BLACK, align=PP_ALIGN.CENTER):
+def _set_cell(table, row, col, text, font_size=8, bold=False, color=BLACK, align=None):
+    if align is None:
+        align = PP_ALIGN.CENTER
     """Set table cell text with formatting."""
     cell = table.cell(row, col)
     cell.text = str(text)

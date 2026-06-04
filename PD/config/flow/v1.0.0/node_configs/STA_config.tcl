@@ -123,6 +123,11 @@ array set sta {
         def_inputs {sta(input,def_file)}
     }
 
+    mandatory_user_inputs {
+        sta(input,netlist)
+        sta(input,sdc,func)
+    }
+
     # SDC per mode — resolved from operating_modes constraint_file
     # User provides per-mode SDC files:
     #   sta(input,sdc,func) "/path/to/${design_name}_func.sdc"

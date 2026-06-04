@@ -14,20 +14,6 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
-    handle_error "Cannot find flow utilities"
-# Source generated configuration file (from setup stage)
-if {[file exists "work/PNR/post_route/run/config.tcl"]} {
-    source "work/PNR/post_route/run/config.tcl"
-    handle_error "Cannot find generated config file. Run 'make post_route_setup' first."
-# Source generated setup file (from setup stage)
-if {[file exists "work/PNR/post_route/run/setup.tcl"]} {
-    source "work/PNR/post_route/run/setup.tcl"
-    handle_error "Cannot find generated setup file. Run 'make post_route_setup' first."
-handle_info "Starting PNR post_route with Cadence Innovus..."
-set FLOW_TYPE "PNR"
-set STAGE_NAME "post_route"
-set NODE_NAME "pro1"
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # POST ROUTE
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -27,6 +27,10 @@ set flow(test_mode)            "false"                ;# Set "true" for dry run 
 # set sta(mmmc,setup_scenarios)   "func_ss_0p76v_rcmax_150c"               ;# Setup analysis scenarios
 # set sta(mmmc,hold_scenarios)    "func_ff_0p84v_rcmin_m40c"               ;# Hold analysis scenarios
 
+# ── Execution ──
+set flow(use_lsf)       "false"              ;# Set "true" to submit via LSF (bsub)
+set flow(use_xterm)     "false"              ;# Set "true" to launch in xterm
+
 # ── Inputs ───────────────────────────────────────────────────────────────────
 set sta(input,netlist)           "<PROJECT_ROOT>/netlist.v"                  ;# Gate-level netlist
 set sta(input,def_file)          "<PROJECT_ROOT>/design.def"                ;# DEF floorplan/placement

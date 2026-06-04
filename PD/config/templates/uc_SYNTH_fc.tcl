@@ -21,6 +21,10 @@ set flow(test_mode)            "false"                ;# Set "true" for dry run 
 # ── Tool ─────────────────────────────────────────────────────────────────────
 # FC (Fusion Compiler) is the default tool for SYNTH — no tool,name needed.
 
+# ── Execution ──
+set flow(use_lsf)       "false"              ;# Set "true" to submit via LSF (bsub)
+set flow(use_xterm)     "false"              ;# Set "true" to launch in xterm
+
 # ── Inputs ───────────────────────────────────────────────────────────────────
 set synth(input,rtl_filelist)    "<PROJECT_ROOT>/rtl.list"       ;# RTL file list (one file per line)
 set synth(input,rtl_format)      "sverilog"                      ;# RTL format: verilog, sverilog, vhdl

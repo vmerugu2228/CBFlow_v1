@@ -109,6 +109,7 @@ if {$argc < 1} {
 
 set subnode_name [lindex $argv 0]
 set run_dir [expr {$argc > 1 ? [lindex $argv 1] : $::env(CBFLOW_RUN_DIR)}]
+set node_name [expr {$argc > 2 ? [lindex $argv 2] : ""}]
 
 # Validate subnode name against flow configuration
 if {[info exists fp(subnodes,inputs)]} {
@@ -141,7 +142,7 @@ if {[file exists "$run_dir/setup/user_config.tcl"]} {
 # Create work directory for this subnode
 set ::flow_type "FP"
 set flow_type $::flow_type
-file mkdir "$run_dir/work/$flow_type/inputs/$subnode_name"
+file mkdir "$run_dir/work/$flow_type/$node_name/$subnode_name"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SUBNODE HANDLERS
@@ -152,7 +153,7 @@ proc handle_netlist_subnode {run_dir} {
 
     handle_info "Processing netlist subnode..."
 
-    set target_dir "$run_dir/work/$flow_type/inputs/netlist"
+    set target_dir "$run_dir/work/$flow_type/$node_name/netlist"
 
     # Check if netlist is defined directly or via synthesis run
     set netlist_file ""
@@ -209,7 +210,7 @@ proc handle_sdc_subnode {run_dir} {
 
     handle_info "Processing SDC subnode..."
 
-    set target_dir "$run_dir/work/$flow_type/inputs/sdc"
+    set target_dir "$run_dir/work/$flow_type/$node_name/sdc"
 
     # Check if SDC is defined directly or via release tag
     set sdc_file ""
@@ -272,7 +273,7 @@ proc handle_upf_subnode {run_dir} {
 
     handle_info "Processing UPF subnode..."
 
-    set target_dir "$run_dir/work/$flow_type/inputs/upf"
+    set target_dir "$run_dir/work/$flow_type/$node_name/upf"
 
     # Check if UPF file is defined (optional for FP)
     set upf_file ""
@@ -360,13 +361,13 @@ proc handle_setup_subnode {run_dir} {
     handle_info "Processing setup subnode - generating consolidated config.tcl and setup.tcl..."
 
     # Create working directory for consolidated files
-    set target_dir "$run_dir/work/$flow_type/inputs/run"
+    set target_dir "$run_dir/work/$flow_type/$node_name/run"
     file mkdir $target_dir
 
     # Determine flow parameters
     set flow_type "FP"
     set node_type "inputs"
-    set node_name "inputs"
+    if {$node_name eq ""} { set node_name "inputs" }
 
     # Validate GENERATION_VERSION is set
     if {![info exists ::env(GENERATION_VERSION)] || $::env(GENERATION_VERSION) eq ""} {
@@ -408,7 +409,7 @@ proc handle_setup_subnode {run_dir} {
     }
 
     # Create legacy setup info file for backward compatibility
-    set legacy_target_dir "$run_dir/work/$flow_type/inputs/setup"
+    set legacy_target_dir "$run_dir/work/$flow_type/$node_name/setup"
     file mkdir $legacy_target_dir
     set info_file "$legacy_target_dir/setup_info.tcl"
     set setup_fp [open $info_file "w"]
@@ -428,7 +429,7 @@ proc handle_def_subnode {run_dir} {
 
     handle_info "Processing DEF subnode..."
 
-    set target_dir "$run_dir/work/$flow_type/inputs/def"
+    set target_dir "$run_dir/work/$flow_type/$node_name/def"
 
     # Check if DEF file is defined (optional for FP)
     if {![info exists fp(input,def_file)] || $fp(input,def_file) eq ""} {
@@ -504,7 +505,7 @@ proc handle_library_subnode {run_dir} {
 
     handle_info "Processing library subnode..."
 
-    set target_dir "$run_dir/work/$flow_type/inputs/library"
+    set target_dir "$run_dir/work/$flow_type/$node_name/library"
 
     # Create library info file
     set info_file "$target_dir/library_info.tcl"
@@ -524,7 +525,7 @@ proc handle_validate_subnode {run_dir} {
     handle_info "                          INPUTS VALIDATION SUBNODE"
     handle_info "══════════════════════════════════════════════════════════════════════════════"
 
-    set target_dir "$run_dir/work/$flow_type/inputs/validate"
+    set target_dir "$run_dir/work/$flow_type/$node_name/validate"
     set validation_passed true
     set validation_errors {}
     set validation_warnings {}
@@ -562,7 +563,7 @@ proc handle_validate_subnode {run_dir} {
 
     if {[info exists fp(input,netlist)]} {
         set netlist_file $fp(input,netlist)
-        set netlist_link "$run_dir/work/$flow_type/inputs/netlist/[file tail $netlist_file]"
+        set netlist_link "$run_dir/work/$flow_type/$node_name/netlist/[file tail $netlist_file]"
 
         # PRIMARY CHECK: Verify the linked file exists in run directory (what flow actually uses)
         if {[file exists $netlist_link]} {
@@ -605,7 +606,7 @@ proc handle_validate_subnode {run_dir} {
     # Check for SDC functional file
     if {[info exists fp(input,sdc_func_file)]} {
         set sdc_file $fp(input,sdc_func_file)
-        set sdc_link "$run_dir/work/$flow_type/inputs/sdc/[file tail $sdc_file]"
+        set sdc_link "$run_dir/work/$flow_type/$node_name/sdc/[file tail $sdc_file]"
 
         # PRIMARY CHECK: Verify the linked file exists in run directory
         if {[file exists $sdc_link]} {
@@ -666,7 +667,7 @@ proc handle_validate_subnode {run_dir} {
 
     if {[info exists fp(input,def_file)]} {
         set def_file $fp(input,def_file)
-        set def_link "$run_dir/work/$flow_type/inputs/def/[file tail $def_file]"
+        set def_link "$run_dir/work/$flow_type/$node_name/def/[file tail $def_file]"
 
         # PRIMARY CHECK: Verify the linked file exists in run directory (optional input)
         if {[file exists $def_link]} {
@@ -705,7 +706,7 @@ proc handle_validate_subnode {run_dir} {
 
     if {[info exists fp(input,upf_file)]} {
         set upf_file $fp(input,upf_file)
-        set upf_link "$run_dir/work/$flow_type/inputs/upf/[file tail $upf_file]"
+        set upf_link "$run_dir/work/$flow_type/$node_name/upf/[file tail $upf_file]"
 
         # PRIMARY CHECK: Verify the linked file exists in run directory (optional input)
         if {[file exists $upf_link]} {
@@ -761,7 +762,7 @@ proc handle_validate_subnode {run_dir} {
     handle_info "Phase 6: Validating library inputs..."
 
     # Check for library info file created by library subnode
-    set lib_info_file "$run_dir/work/$flow_type/inputs/library/library_info.tcl"
+    set lib_info_file "$run_dir/work/$flow_type/$node_name/library/library_info.tcl"
     if {[file exists $lib_info_file]} {
         handle_info "✓ Library processing completed (library_info.tcl found)"
     } else {
@@ -885,7 +886,7 @@ proc handle_validate_subnode {run_dir} {
 
     puts $readable_fp "Phase 2: Netlist Input Validation"
     if {[info exists fp(input,netlist)]} {
-        set netlist_link "$run_dir/work/$flow_type/inputs/netlist/[file tail $fp(input,netlist)]"
+        set netlist_link "$run_dir/work/$flow_type/$node_name/netlist/[file tail $fp(input,netlist)]"
         if {[file exists $netlist_link]} {
             puts $readable_fp "  \[OK\] Netlist file: [file tail $fp(input,netlist)]"
             puts $readable_fp "       Linked in: $netlist_link"
@@ -962,7 +963,7 @@ proc handle_validate_subnode {run_dir} {
     puts $readable_fp ""
 
     puts $readable_fp "Phase 6: Library Input Validation"
-    set lib_info_file "$run_dir/work/$flow_type/inputs/library/library_info.tcl"
+    set lib_info_file "$run_dir/work/$flow_type/$node_name/library/library_info.tcl"
     if {[file exists $lib_info_file]} {
         puts $readable_fp "  \[OK\] Library processing completed (library_info.tcl found)"
     } else {
@@ -1145,7 +1146,7 @@ proc handle_finish_subnode {run_dir} {
 
     handle_info "Processing finish subnode..."
 
-    set target_dir "$run_dir/work/$flow_type/inputs/finish"
+    set target_dir "$run_dir/work/$flow_type/$node_name/finish"
 
     # Create finish info file
     set info_file "$target_dir/finish_info.tcl"

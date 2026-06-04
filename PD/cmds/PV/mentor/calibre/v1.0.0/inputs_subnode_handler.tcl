@@ -55,6 +55,14 @@ switch $subnode_name {
         file mkdir "$run_dir/work/$::flow_type/$node_name/netlist"
         file mkdir "$run_dir/work/$::flow_type/$node_name/def"
         file mkdir "$run_dir/work/$::flow_type/$node_name/gds"
+        file mkdir "$run_dir/work/$::flow_type/$node_name/run"
+    # Generate config.tcl + setup.tcl via config cascade
+    if {[info exists ::env(GENERATION_VERSION)] && $::env(GENERATION_VERSION) ne ""} {
+        set _gen "$::env(FLOW_DIR)/utils/generation/$::env(GENERATION_VERSION)/generate_setup.tcl"
+        if {[file exists $_gen]} {
+            catch {exec tclsh $_gen $::flow_type $node_name ${node_name}_default $run_dir}
+        }
+    }
         puts "INFO: $stage_name setup completed"
     }
     "netlist" {

@@ -14,25 +14,6 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
-# Source flow utilities using release version
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} {
-    source $utils_path
-    puts "ERROR: Cannot find flow utilities at: $utils_path"
-    exit 1
-# Source generated configuration file (from setup stage)
-if {[file exists "work/PNR/placement/run/config.tcl"]} {
-    source "work/PNR/placement/run/config.tcl"
-    handle_error "Cannot find generated config file. Run 'make placement_setup' first."
-# Source generated setup file (from setup stage)
-if {[file exists "work/PNR/placement/run/setup.tcl"]} {
-    source "work/PNR/placement/run/setup.tcl"
-    handle_error "Cannot find generated setup file. Run 'make placement_setup' first."
-handle_info "Starting PNR place with Cadence Innovus..."
-set FLOW_TYPE "PNR"
-set STAGE_NAME "place"
-set NODE_NAME "place1"
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # PLACEMENT
 # ═══════════════════════════════════════════════════════════════════════════════

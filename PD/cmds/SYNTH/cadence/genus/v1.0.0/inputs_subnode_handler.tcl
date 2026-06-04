@@ -114,6 +114,7 @@ if {$argc < 1} {
 
 set subnode_name [lindex $argv 0]
 set run_dir [expr {$argc > 1 ? [lindex $argv 1] : $::env(CBFLOW_RUN_DIR)}]
+set node_name [expr {$argc > 2 ? [lindex $argv 2] : ""}]
 
 # Validate subnode name against flow configuration
 if {[info exists flow(subnodes,synth,inputs)]} {
@@ -134,22 +135,24 @@ if {[file exists "$run_dir/setup/user_config.tcl"]} {
     handle_error "Cannot find configuration file in $run_dir"
 }
 
-# Create work directory for this subnode using proper flow hierarchy (work/<FLOW>/inputs/<type>)
+# Create work directory for this subnode: work/<FLOW>/<node_name>/<subnode_type>
 set ::flow_type "SYNTH"
 set flow_type $::flow_type
-set subnode_type [lindex [split $subnode_name "_"] 1]  ; # Extract "rtl", "sdc", etc. from "inputs_rtl"
-file mkdir "$run_dir/work/$flow_type/inputs/$subnode_type"
+set subnode_type $subnode_name
+# node_name comes from 3rd arg (e.g., sdc1, rtl1, upf1); fallback to subnode-derived name
+if {$node_name eq ""} { set node_name "${subnode_type}1" }
+file mkdir "$run_dir/work/$flow_type/$node_name/$subnode_type"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SUBNODE HANDLERS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 proc handle_rtl_subnode {run_dir} {
-    global synth project flow flow_type
+    global synth project flow flow_type node_name
 
 handle_info "Processing RTL subnode..."
 
-    set target_dir "$run_dir/work/$flow_type/inputs/rtl"
+    set target_dir "$run_dir/work/$flow_type/$node_name/rtl"
 
     # Create target directory if it doesn't exist
     file mkdir $target_dir
@@ -306,11 +309,11 @@ handle_info "Processing RTL subnode..."
 }
 
 proc handle_sdc_subnode {run_dir} {
-    global synth project flow flow_type
+    global synth project flow flow_type node_name
 
     handle_info "Processing constraints (SDC) subnode..."
 
-    set target_dir "$run_dir/work/$flow_type/inputs/sdc"
+    set target_dir "$run_dir/work/$flow_type/$node_name/sdc"
 
     # Resolve SDC files using three-tier input mechanism
     set sdc_file ""
@@ -474,11 +477,11 @@ proc handle_sdc_subnode {run_dir} {
 }
 
 proc handle_upf_subnode {run_dir} {
-    global synth project flow flow_type
+    global synth project flow flow_type node_name
 
     handle_info "Processing UPF subnode..."
 
-    set target_dir "$run_dir/work/$flow_type/inputs/upf"
+    set target_dir "$run_dir/work/$flow_type/$node_name/upf"
 
     # Create target directory if it doesn't exist
     file mkdir $target_dir
@@ -617,11 +620,11 @@ proc handle_upf_subnode {run_dir} {
 }
 
 proc handle_library_subnode {run_dir} {
-    global synth tech flow flow_type
+    global synth tech flow flow_type node_name
 
     handle_info "Processing library subnode..."
 
-    set target_dir "$run_dir/work/$flow_type/inputs/library"
+    set target_dir "$run_dir/work/$flow_type/$node_name/library"
 
     # Create target directory if it doesn't exist
     file mkdir $target_dir
@@ -816,7 +819,7 @@ switch $subnode_name {
         handle_info "Processing setup subnode - generating consolidated config.tcl and setup.tcl..."
 
         # Create working directory for consolidated files
-        set target_dir "$run_dir/work/$flow_type/inputs/run"
+        set target_dir "$run_dir/work/$flow_type/$node_name/run"
         file mkdir $target_dir
 
         # Determine flow parameters
@@ -871,7 +874,7 @@ switch $subnode_name {
         }
 
         # Create legacy setup info file for backward compatibility
-        set legacy_target_dir "$run_dir/work/$flow_type/inputs/setup"
+        set legacy_target_dir "$run_dir/work/$flow_type/$node_name/setup"
         file mkdir $legacy_target_dir
         set info_file "$legacy_target_dir/setup_info.tcl"
         set file_handle [open $info_file "w"]

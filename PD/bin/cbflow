@@ -50,6 +50,35 @@ show_logo() {
     echo "  ╚██████╗██████╔╝██║     ███████╗╚██████╔╝╚███╔███╔╝"
     echo "   ╚═════╝╚═════╝ ╚═╝     ╚══════╝ ╚═════╝  ╚══╝╚══╝"
     echo "  Physical Design Flow Management System  v${CBFLOW_VERSION}"
+    echo "  Developed by SmartSoc Solutions Pvt Limited"
+    # Show project context if inside a run directory
+    if [[ -f ".run.cbflow.tcl" ]]; then
+        local _proj="" _tech="" _metal="" _lib="" _flow=""
+        _proj=$(grep 'CBFLOW_PROJECT_NAME' .run.cbflow.tcl 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/')
+        _flow=$(grep 'CBFLOW_FLOW_TYPE' .run.cbflow.tcl 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/')
+        if [[ -f "setup/user_config.tcl" ]]; then
+            _tech=$(grep 'project(technology)' setup/user_config.tcl 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/')
+            _metal=$(grep 'project(metal_stack)' setup/user_config.tcl 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/' | sed 's/.*_\([0-9]*M\)_.*/\1/')
+            _lib=$(grep 'project(lib_config_version)' setup/user_config.tcl 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/')
+        fi
+        # Try project_config for tech/metal if not in user_config
+        if [[ -z "$_tech" && -n "$_proj" ]]; then
+            local _pc="$CBFLOW_CORE_DIR/config/project/$_proj/v1.0.0/${_proj}_config.tcl"
+            if [[ -f "$_pc" ]]; then
+                _tech=$(grep 'project(technology)' "$_pc" 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/')
+                [[ -z "$_metal" ]] && _metal=$(grep 'project(metal_stack)' "$_pc" 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/' | sed 's/.*_\([0-9]*M\)_.*/\1/')
+                [[ -z "$_lib" ]] && _lib=$(grep 'project(lib_config_version)' "$_pc" 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/')
+            fi
+        fi
+        if [[ -n "$_proj" ]]; then
+            local _info="  Project: ${_proj}"
+            [[ -n "$_tech" ]] && _info="${_info} | Tech: ${_tech}"
+            [[ -n "$_metal" ]] && _info="${_info} | Metal: ${_metal}"
+            [[ -n "$_lib" ]] && _info="${_info} | Lib: ${_lib}"
+            [[ -n "$_flow" ]] && _info="${_info} | Flow: ${_flow}"
+            echo "${_info}"
+        fi
+    fi
     echo ""
 }
 

@@ -14,10 +14,6 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
-handle_info "Starting PNR floorplan with Cadence Innovus..."
-set FLOW_TYPE "PNR"
-set STAGE_NAME "floorplan"
-set NODE_NAME "floorplan1"
 
 flow_proc read_floorplan {
     handle_info "Reading floorplan constraints..."

@@ -14,25 +14,6 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
-    handle_error "Cannot find flow utilities"
-# Source generated configuration file (from setup stage)
-if {[file exists "work/PNR/cts/run/config.tcl"]} {
-    source "work/PNR/cts/run/config.tcl"
-    handle_error "Cannot find generated config file. Run 'make cts_setup' first."
-# Source generated setup file (from setup stage)
-if {[file exists "work/PNR/cts/run/setup.tcl"]} {
-    source "work/PNR/cts/run/setup.tcl"
-    handle_error "Cannot find generated setup file. Run 'make cts_setup' first."
-handle_info "Starting PNR cts with Cadence Innovus..."
-# Load MMMC configuration if enabled
-if {[is_mmmc_stage "cts"]} {
-    load_mmmc_config
-    handle_info "MMMC mode enabled for CTS stage"
-}
-set FLOW_TYPE "PNR"
-set STAGE_NAME "cts"
-set NODE_NAME "cts1"
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # CLOCK TREE SYNTHESIS
 # ═══════════════════════════════════════════════════════════════════════════════

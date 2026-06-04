@@ -104,6 +104,11 @@ array set synth {
         upf_inputs {synth(input,upf_release_tag) synth(input,upf_release_dir) synth(input,upf_file)}
     }
 
+    mandatory_user_inputs {
+        synth(input,rtl_filelist)
+        synth(input,sdc_func_file)
+    }
+
     chip_type "flat"
 
     input,format              "verilog"

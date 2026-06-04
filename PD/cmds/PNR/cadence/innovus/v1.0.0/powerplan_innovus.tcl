@@ -14,10 +14,6 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
-handle_info "Starting PNR powerplan with Cadence Innovus..."
-set FLOW_TYPE "PNR"
-set STAGE_NAME "powerplan"
-set NODE_NAME "powerplan1"
 
 flow_proc enable_mmmc {
     # Enable MMMC scenarios for powerplan stage

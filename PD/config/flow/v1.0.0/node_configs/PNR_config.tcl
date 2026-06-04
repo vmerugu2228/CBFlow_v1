@@ -142,6 +142,12 @@ array set pnr {
         def_inputs {pnr(input,def_file)}
     }
 
+    mandatory_user_inputs {
+        pnr(input,netlist)
+        pnr(input,sdc_func_file)
+        pnr(input,def_file)
+    }
+
     chip_type "flat"
 
     output,netlist_dir         "results/pnr"

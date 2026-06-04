@@ -20,6 +20,10 @@ set flow(test_mode)            "false"                ;# Set "true" for dry run 
 # ── Tool ─────────────────────────────────────────────────────────────────────
 set emir(tool,name)            "voltus"               ;# Cadence Voltus (vendor auto-resolves)
 
+# ── Execution ──
+set flow(use_lsf)       "false"              ;# Set "true" to submit via LSF (bsub)
+set flow(use_xterm)     "false"              ;# Set "true" to launch in xterm
+
 # ── Inputs ───────────────────────────────────────────────────────────────────
 set emir(input,netlist)          "<PROJECT_ROOT>/netlist.v"          ;# Gate-level netlist
 set emir(input,def_file)         "<PROJECT_ROOT>/design.def"        ;# DEF floorplan/placement

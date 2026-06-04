@@ -2961,12 +2961,12 @@ Examples:
     except ImportError:
         subparsers.add_parser('email', help='Send email notifications (email_cmd.py not found)')
 
-    # autoppt command
+    # autoppt command (optional — disabled by default, enable via project(autoppt,enabled) "true")
     try:
         from autoppt_cmd import create_parser as autoppt_create_parser
         autoppt_create_parser(subparsers)
-    except ImportError:
-        subparsers.add_parser('autoppt', help='Generate run summary PPT/HTML (autoppt_cmd.py not found)')
+    except Exception:
+        pass
 
     # checklist command — run-level only: status, generate, sign-off
     ck = subparsers.add_parser('checklist', help='Run exit milestone checklist',
@@ -3304,11 +3304,31 @@ def _cmd_email_dispatch(args):
 
 def _cmd_autoppt_dispatch(args):
     """Dispatch to autoppt command."""
+    # Check project(autoppt,enabled) — default false
+    _enabled = False
+    _uc = os.path.join(os.getcwd(), 'setup', 'user_config.tcl')
+    if os.path.exists(_uc):
+        with open(_uc, 'r') as _f:
+            for _line in _f:
+                if 'autoppt,enabled' in _line and '"true"' in _line:
+                    _enabled = True
+                    break
+    if not _enabled:
+        # Also check project_config via env
+        env_vars = load_run_env() if 'load_run_env' in dir() else {}
+        _enabled = os.environ.get('CBFLOW_AUTOPPT_ENABLED', 'false').lower() == 'true'
+
+    if not _enabled:
+        print("AutoPPT is disabled. Enable in project_config:")
+        print('  set project(autoppt,enabled) "true"')
+        return 1
+
     try:
         from autoppt_cmd import cmd_autoppt
         return cmd_autoppt(args)
-    except ImportError:
-        print("ERROR: autoppt_cmd module not found")
+    except Exception as e:
+        print("ERROR: autoppt unavailable — {}".format(e))
+        print("  HTML mode works without python-pptx: cbflow run autoppt --format html")
         return 1
 
 

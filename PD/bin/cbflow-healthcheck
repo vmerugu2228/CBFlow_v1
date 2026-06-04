@@ -109,13 +109,24 @@ def check_system():
 # 2. Python Standard Library Imports
 # ═══════════════════════════════════════════════════════════════════════════════
 def check_stdlib():
-    section("2. Python Standard Library")
+    section("2. Python Standard Library & Required Modules")
 
+    # All stdlib modules used across CBflow Python code
     stdlib_modules = [
-        "argparse", "os", "sys", "re", "json", "logging", "subprocess",
-        "shutil", "csv", "getpass", "io", "signal", "sqlite3",
-        "pathlib", "datetime", "collections", "dataclasses", "typing",
+        "argparse", "ast", "os", "sys", "re", "json", "logging",
+        "subprocess", "shutil", "csv", "getpass", "io", "signal",
+        "sqlite3", "pathlib", "datetime", "collections", "typing",
+        "hashlib", "glob", "difflib", "socket", "threading", "time",
+        "webbrowser", "http.server", "urllib.parse", "smtplib",
+        "email.mime.text", "email.mime.multipart", "email.mime.base",
+        "email.encoders", "logging.handlers",
     ]
+    # Python 3.7+ modules (may need pip install on 3.6)
+    optional_stdlib = [
+        ("dataclasses", "pip install dataclasses (Python 3.6 backport)"),
+    ]
+
+    fail_count = 0
     for mod in stdlib_modules:
         try:
             importlib.import_module(mod)
@@ -123,9 +134,19 @@ def check_stdlib():
                 ok(f"{mod}")
         except ImportError:
             fail(f"{mod} — missing from Python installation")
+            fail_count += 1
 
-    if not VERBOSE:
-        ok(f"All {len(stdlib_modules)} standard library modules present")
+    for mod, install_hint in optional_stdlib:
+        try:
+            importlib.import_module(mod)
+            if VERBOSE:
+                ok(f"{mod}")
+        except ImportError:
+            fail(f"{mod} — {install_hint}")
+            fail_count += 1
+
+    if not VERBOSE and fail_count == 0:
+        ok(f"All {len(stdlib_modules) + len(optional_stdlib)} required Python modules present")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -201,20 +222,53 @@ def check_python_modules():
                 if not (COMMANDS_DIR / filename).exists():
                     fail(f"  Missing: {filename} — {desc}")
 
-    # Check cross-module imports work
+    # Check cross-module imports work — tests ALL command modules
     sys.path.insert(0, str(COMMANDS_DIR))
     critical_imports = [
-        ("tcl_config_parser", "Config parser"),
         ("logging_config", "Logging config"),
+        ("tcl_config_parser", "Config parser"),
         ("makefile_generator", "Makefile generator"),
         ("start_run", "Run creator"),
+        ("run_cmd", "Run command dispatcher"),
+        ("workspace_cmd", "Workspace management"),
+        ("race_engine", "RACE DAG engine"),
+        ("flow_cmd", "Flow info"),
+        ("config_cmd", "Config management"),
+        ("version_cmd", "Version management"),
+        ("release_cmd", "Release management"),
+        ("project_cmd", "Project management"),
+        ("plugin_cmd", "Plugin system"),
+        ("lsf_cmd", "LSF submission"),
+        ("lsf_manager_cmd", "LSF manager"),
+        ("library_manager_cmd", "Library manager"),
+        ("mmmc_manager_cmd", "MMMC manager"),
+        ("node_manager", "Node management"),
+        ("validation_cmd", "Validation framework"),
+        ("metrics_cmd", "Metrics collection"),
+        ("checklist_cmd", "Exit checklist"),
+        ("qor_report_cmd", "QoR reporting"),
+        ("trending_cmd", "QoR trending"),
+        ("dashboard_cmd", "Web dashboard"),
+        ("log_viewer", "Log viewer"),
+        ("graph_renderer", "Graph renderer"),
+        ("autoppt_cmd", "AutoPPT generator"),
     ]
+    import_pass = 0
+    import_fail = 0
     for mod, desc in critical_imports:
         try:
             importlib.import_module(mod)
-            ok(f"import {mod} — {desc}")
+            import_pass += 1
+            if VERBOSE:
+                ok(f"import {mod} — {desc}")
         except Exception as e:
+            import_fail += 1
             fail(f"import {mod} — {e}")
+
+    if not VERBOSE and import_fail == 0:
+        ok(f"All {import_pass} command modules import successfully")
+    elif not VERBOSE:
+        ok(f"{import_pass}/{len(critical_imports)} command modules OK")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

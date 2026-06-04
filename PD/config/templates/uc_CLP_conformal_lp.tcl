@@ -20,6 +20,10 @@ set flow(test_mode)            "false"                ;# Set "true" for dry run 
 # ── Tool ─────────────────────────────────────────────────────────────────────
 set clp(tool,name)             "conformal_lp"         ;# Cadence Conformal LP (vendor auto-resolves)
 
+# ── Execution ──
+set flow(use_lsf)       "false"              ;# Set "true" to submit via LSF (bsub)
+set flow(use_xterm)     "false"              ;# Set "true" to launch in xterm
+
 # ── Inputs ───────────────────────────────────────────────────────────────────
 set clp(input,netlist)           "<PROJECT_ROOT>/netlist.v"          ;# Gate-level netlist
 set clp(input,upf_file)          "<PROJECT_ROOT>/power.upf"         ;# UPF power intent specification

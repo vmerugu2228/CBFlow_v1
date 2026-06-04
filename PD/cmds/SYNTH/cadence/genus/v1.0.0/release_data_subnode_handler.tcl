@@ -113,7 +113,7 @@ switch $subnode_name {
             puts $_wf "# CBFlow tool launch wrapper — $::flow_type $stage_name"
             puts $_wf "# Generated: [clock format [clock seconds]]"
             if {$_module_cmd ne ""} { puts $_wf "$_module_cmd" }
-            puts $_wf "$_tool_shell -f $cmd_file -output_log_file $_log_file"
+            puts $_wf "$_tool_shell -f $cmd_file -log $_log_file"
             close $_wf
             catch { file attributes $_wrapper -permissions rwxr-xr-x }
             puts "INFO: Wrapper script: $_wrapper"
@@ -159,7 +159,7 @@ switch $subnode_name {
             puts $_wf "# CBFlow tool launch wrapper — $::flow_type $stage_name"
             puts $_wf "# Generated: [clock format [clock seconds]]"
             if {$_module_cmd ne ""} { puts $_wf "$_module_cmd" }
-            puts $_wf "$_tool_shell -f $cmd_file -output_log_file $_log_file"
+            puts $_wf "$_tool_shell -f $cmd_file -log $_log_file"
             close $_wf
             catch { file attributes $_wrapper -permissions rwxr-xr-x }
             puts "INFO: Wrapper: $_wrapper"

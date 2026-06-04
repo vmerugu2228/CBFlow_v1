@@ -168,7 +168,13 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
                 set user_config_handle [open "$run_dir/setup/user_config.tcl" r]
                 set content [read $user_config_handle]
                 close $user_config_handle
-                if {[regexp {set\\s+flow\\(tool\\)\\s+[\"']?([^\"'\\s]+)[\"']?} $content -> extracted_tool]} {
+                # Match: set <arr>(tool,name) "genus" or set flow(tool) "genus"
+                set fl [string tolower $flow_type]
+                if {[regexp "set\\s+${fl}\\(tool,name\\)\\s+\"(\[^\"]+)\"" $content -> extracted_tool]} {
+                    set tool_name $extracted_tool
+                } elseif {[regexp {set\s+\w+\(tool,name\)\s+"([^"]+)"} $content -> extracted_tool]} {
+                    set tool_name $extracted_tool
+                } elseif {[regexp {set\s+flow\(tool\)\s+"([^"]+)"} $content -> extracted_tool]} {
                     set tool_name $extracted_tool
                 }
             }]} {

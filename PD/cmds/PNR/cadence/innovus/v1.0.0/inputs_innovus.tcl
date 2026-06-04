@@ -14,10 +14,6 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
-handle_info "Starting PNR inputs with Cadence Innovus..."
-set FLOW_TYPE "PNR"
-set STAGE_NAME "inputs"
-set NODE_NAME "inputs1"
 # Source release utilities for input resolution
 set _release_utils "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
 

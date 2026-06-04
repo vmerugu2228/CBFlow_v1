@@ -2177,7 +2177,8 @@ def start_dashboard(run_dir: str, port: int = 0, open_browser: bool = True):
         except Exception:
             pass
 
-    url = f'http://localhost:{port}'
+    # Use 127.0.0.1 instead of localhost to avoid HSTS/HTTPS redirect issues
+    url = f'http://127.0.0.1:{port}'
 
     print(f'\n  RACE Dashboard')
     print(f'  {"=" * 50}')
@@ -2196,9 +2197,9 @@ def start_dashboard(run_dir: str, port: int = 0, open_browser: bool = True):
             opened = False
             # Try browser-specific new-tab commands (works with running instance)
             for browser, args in [
-                ('firefox',        ['-new-tab', url]),
                 ('google-chrome',  [url]),
                 ('chromium-browser', [url]),
+                ('firefox',        ['-new-tab', url]),
                 ('xdg-open',       [url]),
                 ('open',           [url]),   # macOS
             ]:
@@ -2214,8 +2215,10 @@ def start_dashboard(run_dir: str, port: int = 0, open_browser: bool = True):
                 try:
                     webbrowser.open_new_tab(url)
                 except Exception:
-                    print(f'  Could not open browser. Open manually: {url}')
-        threading.Timer(1.0, _open_browser).start()
+                    pass
+            if not opened:
+                print(f'  Browser not opened. Access manually: {url}')
+        threading.Timer(1.5, _open_browser).start()
 
     try:
         server.serve_forever()

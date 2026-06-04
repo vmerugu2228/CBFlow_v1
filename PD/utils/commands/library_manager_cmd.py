@@ -962,32 +962,118 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
 # Patterns for parsing library filenames
 _TRACK_RE = re.compile(r'(\d+p?\d*t)', re.IGNORECASE)
-_CORNER_RE = re.compile(r'(ss|tt|ff)(0p\d+v)(m?\d+c)')
-_VT_KEYWORDS = ['ulvt', 'lvt', 'svt', 'hvt']  # ordered: longest first to avoid partial matches
+
+# Corner regex: handles both formats
+#   TSMC/GF22 style: ss0p76v150c (no separators)
+#   GF28 style:      ss_nominal_max_0p90v_m40c (underscores, extra fields)
+# Corner regex: handles both formats
+#   TSMC/GF22: tcbn22cllbwp9tsvtss0p76v150c (no separators, ss after cell name)
+#   GF28:      sc7mcz_base_rvt_c30_ss_nominal_max_0p90v_m40c (underscores, extra fields)
+_CORNER_RE = re.compile(
+    r'(ss|tt|ff|sf|fs)'                      # process corner
+    r'(?:_[a-z]+)*?'                         # optional condition words (nominal, max, etc.)
+    r'_?(\d+p\d+v)'                          # voltage: 0p76v, 0p90v, 1p10v
+    r'_?(m?\d+c)',                            # temperature
+    re.IGNORECASE
+)
+
+# Channel length regex: c28, c30, c35
+_CHANNEL_RE = re.compile(r'[_/]c(\d+)[_/.]', re.IGNORECASE)
+
+# Default VT keywords — covers all common foundry VTs
+_VT_KEYWORDS = ['ulvt', 'elvt', 'slvt', 'lvt', 'svt', 'rvt', 'hvt']
+
+
+def _is_lib_file(filename):
+    """Check if file is a liberty library (handles .gz, multi-part extensions)."""
+    fn = filename.lower()
+    return (fn.endswith('.lib') or fn.endswith('.lib.gz')
+            or '.lib_ccs' in fn or '.lib_nldm' in fn)
+
+
+def _is_lef_file(filename):
+    """Check if file is a LEF."""
+    return filename.lower().endswith('.lef')
+
+
+def _is_ndm_file(filename):
+    """Check if file is an NDM."""
+    return filename.lower().endswith('.ndm')
+
+
+def _is_db_file(filename):
+    """Check if file is a DB."""
+    return filename.lower().endswith('.db')
+
+
+def _strip_lib_extension(filename):
+    """Strip library extension for parsing. Returns (base_name, lib_type)."""
+    fn = filename
+    if fn.endswith('.gz'):
+        fn = fn[:-3]
+    if '.lib_ccs_tn' in fn:
+        return fn.split('.lib_ccs_tn')[0], 'ccs_tn'
+    if '.lib_ccs_p' in fn:
+        return fn.split('.lib_ccs_p')[0], 'ccs_p'
+    if fn.endswith('_ccs.lib'):
+        return fn[:-8], 'ccs'
+    if fn.endswith('_nldm.lib'):
+        return fn[:-9], 'nldm'
+    if fn.endswith('.lib'):
+        return fn[:-4], 'lib'
+    return fn, 'unknown'
+
+
+def _detect_lib_type_from_path(filepath):
+    """Detect library type from parent directory name."""
+    parts = filepath.lower().replace('\\', '/').split('/')
+    for p in parts:
+        if 'lib-ccs-tn' in p or 'lib_ccs_tn' in p or 'timing' in p:
+            return 'timing'
+        if 'lib-ccs-p' in p or 'lib_ccs_p' in p or 'power' in p:
+            return 'power'
+        if 'lib-nldm' in p or 'nldm' in p:
+            return 'timing'
+    return 'timing'  # default
 
 
 def _extract_vt(filename, vt_patterns=None):
     """Extract VT flavor from filename. Returns (vt, match_pos) or (None, -1)."""
     fn_lower = filename.lower()
-    # Use provided patterns or defaults
     vts = vt_patterns or _VT_KEYWORDS
     for vt in sorted(vts, key=len, reverse=True):  # longest first (ulvt before lvt)
+        # Match VT as a whole word boundary: _rvt_ or _rvt. or start/end
+        pattern = r'(?:^|[_/])' + re.escape(vt.lower()) + r'(?:[_/.]|$)'
+        m = re.search(pattern, fn_lower)
+        if m:
+            return vt, m.start()
+    # Fallback: simple substring (backward compat)
+    for vt in sorted(vts, key=len, reverse=True):
         idx = fn_lower.find(vt.lower())
         if idx >= 0:
             return vt, idx
     return None, -1
 
 
-def _extract_track(filename, tracks_available=None):
-    """Extract track from filename (e.g., '9t', '7p5t', '5t')."""
+def _extract_track(filename, tracks_available=None, track_patterns=None):
+    """Extract track from filename (e.g., '9t', '7p5t', '5t').
+
+    Supports track_patterns dict: {'7T': '*sc7*', '9T': '*sc9*'} for non-standard naming.
+    """
+    import fnmatch as _fn
     fn_lower = filename.lower()
+    # Priority 1: track patterns from tech_config (e.g., tech(track_pattern,7T) "*sc7*")
+    if track_patterns:
+        for trk, pat in track_patterns.items():
+            if _fn.fnmatch(fn_lower, pat.lower()):
+                return trk
+    # Priority 2: substring match (TSMC/GF22 style: "9t" in filename)
     if tracks_available:
-        # Try exact match against known tracks (longest first)
         for trk in sorted(tracks_available, key=len, reverse=True):
             trk_lower = trk.lower().replace('.', 'p')
             if trk_lower in fn_lower:
                 return trk
-    # Fallback: regex
+    # Priority 3: regex fallback
     m = _TRACK_RE.search(fn_lower)
     if m:
         raw = m.group(1).upper().replace('P', '.').rstrip('T') + 'T'
@@ -1043,7 +1129,9 @@ def cmd_generate(args: argparse.Namespace) -> int:
     tracks = args.tracks.split() if args.tracks else None
     vt_list = args.vts.split() if args.vts else None
 
-    if not tracks or not vt_list:
+    _track_patterns = {}  # tech(track_pattern,<track>) patterns for non-standard naming
+
+    if not tracks or not vt_list or not _track_patterns:
         core_dir = get_cbflow_core_dir()
         tc_path = os.path.join(core_dir, "config", "tech", tech_name, version, "tech_config.tcl")
         if os.path.exists(tc_path):
@@ -1054,6 +1142,13 @@ def cmd_generate(args: argparse.Namespace) -> int:
                 if m:
                     tracks = m.group(1).split()
                     logger.info("Auto-detected tracks from tech_config: {}".format(" ".join(tracks)))
+            # Read track patterns: tech(track_pattern,7T) "*sc7*"
+            _track_patterns = {}
+            for tp_m in re.finditer(r'set\s+tech\(track_pattern,(\S+)\)\s+"([^"]+)"', _tc_content):
+                _track_patterns[tp_m.group(1)] = tp_m.group(2)
+            if _track_patterns:
+                logger.info("Track patterns: {}".format(
+                    ", ".join("{}={}".format(k, v) for k, v in _track_patterns.items())))
             if not vt_list:
                 m = re.search(r'set\s+tech\(vt_variants_available\)\s+\{([^}]+)\}', _tc_content)
                 if m:
@@ -1111,9 +1206,9 @@ def cmd_generate(args: argparse.Namespace) -> int:
     if not ndm_dirs and not stdcell_dirs:
         logger.info("Standard layout not found — scanning {} recursively".format(lib_root))
         for root, dirs, files in os.walk(lib_root):
-            has_ndm = any(f.endswith('.ndm') for f in files)
-            has_lef = any(f.endswith('.lef') for f in files)
-            has_lib = any(f.endswith('.lib') or f.endswith('.db') for f in files)
+            has_ndm = any(_is_ndm_file(f) for f in files)
+            has_lef = any(_is_lef_file(f) for f in files)
+            has_lib = any(_is_lib_file(f) or _is_db_file(f) for f in files)
             rl = root.lower()
             if has_ndm:
                 ndm_dirs.append(root)
@@ -1136,9 +1231,9 @@ def cmd_generate(args: argparse.Namespace) -> int:
                 continue
             # Walk the entire tree, collect directories that contain relevant files
             for root, dirs, files in os.walk(sp):
-                has_ndm = any(f.endswith('.ndm') for f in files)
-                has_lef = any(f.endswith('.lef') for f in files)
-                has_lib = any(f.endswith('.lib') or f.endswith('.db') for f in files)
+                has_ndm = any(_is_ndm_file(f) for f in files)
+                has_lef = any(_is_lef_file(f) for f in files)
+                has_lib = any(_is_lib_file(f) or _is_db_file(f) for f in files)
                 if has_ndm and root not in ndm_dirs:
                     ndm_dirs.append(root)
                 if has_lef and root not in lef_dirs:
@@ -1159,6 +1254,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
     lef_libs = defaultdict(list)      # (track,vt) → [lef paths]
     lib_nom_libs = defaultdict(list)  # (track,vt) → [lib_nom paths]
     timing_libs = defaultdict(list)   # (track,vt,corner) → [timing lib paths]
+    power_libs = defaultdict(list)    # (track,vt,corner) → [power lib paths]
 
     # Shared libs
     ndm_memory = []
@@ -1181,7 +1277,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
         if not os.path.isdir(ndm_dir):
             continue
         for f in sorted(os.listdir(ndm_dir)):
-            if not f.endswith('.ndm'):
+            if not _is_ndm_file(f):
                 continue
             fpath = os.path.join(ndm_dir, f)
             if _is_excluded(fpath):
@@ -1194,7 +1290,9 @@ def cmd_generate(args: argparse.Namespace) -> int:
                 ndm_io.append(fpath)
                 continue
             vt, _ = _extract_vt(f, vt_list)
-            trk = _extract_track(f, tracks)
+            trk = _extract_track(f, tracks, _track_patterns)
+            if not trk and vt:
+                trk = tracks[0] if tracks else 'default'
             if vt and trk:
                 ndm_libs[(trk, vt)].append(fpath)
                 discovered_tracks.add(trk)
@@ -1205,7 +1303,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
         if not os.path.isdir(lef_dir):
             continue
         for f in sorted(os.listdir(lef_dir)):
-            if not f.endswith('.lef'):
+            if not _is_lef_file(f):
                 continue
             fpath = os.path.join(lef_dir, f)
             if _is_excluded(fpath):
@@ -1220,7 +1318,9 @@ def cmd_generate(args: argparse.Namespace) -> int:
                 lef_io.append(fpath)
                 continue
             vt, _ = _extract_vt(f, vt_list)
-            trk = _extract_track(f, tracks)
+            trk = _extract_track(f, tracks, _track_patterns)
+            if not trk and vt:
+                trk = tracks[0] if tracks else 'default'
             if vt and trk:
                 lef_libs[(trk, vt)].append(fpath)
 
@@ -1233,24 +1333,36 @@ def cmd_generate(args: argparse.Namespace) -> int:
             if _is_excluded(fpath):
                 excluded_count += 1; continue
             vt, _ = _extract_vt(f, vt_list)
-            trk = _extract_track(f, tracks)
-            corner = _extract_corner(f)
+            trk = _extract_track(f, tracks, _track_patterns)
+            base_for_corner, _ = _strip_lib_extension(f)
+            corner = _extract_corner(base_for_corner)
+            # Use default track when filename has no track identifier
+            if not trk and vt:
+                trk = tracks[0] if tracks else 'default'
 
-            if f.endswith('.db'):
+            if vt and trk:
+                discovered_tracks.add(trk)
+                discovered_vts.add(vt)
+
+            if _is_db_file(f):
                 if vt and trk:
                     db_libs[(trk, vt)].append(fpath)
-            elif f.endswith('_ccs.lib') or f.endswith('_nldm.lib'):
-                if vt and trk and corner:
+            elif _is_lib_file(f):
+                # Determine lib type from extension/path
+                base_name, lib_type = _strip_lib_extension(f)
+                path_lib_type = _detect_lib_type_from_path(fpath)
+                is_timing = lib_type in ('ccs', 'ccs_tn', 'nldm', 'lib') and path_lib_type == 'timing'
+                is_power = lib_type == 'ccs_p' or path_lib_type == 'power'
+
+                # Parse corner from base name (stripped of extension)
+                corner = _extract_corner(base_name)
+
+                if vt and trk and corner and is_timing:
                     timing_libs[(trk, vt, corner)].append(fpath)
                     discovered_corners.add(corner)
+                elif vt and trk and corner and is_power:
+                    power_libs[(trk, vt, corner)].append(fpath)
                 elif vt and trk and not corner:
-                    # Nominal lib (no corner in name = tt nominal)
-                    lib_nom_libs[(trk, vt)].append(fpath)
-            elif f.endswith('.lib'):
-                if vt and trk and corner:
-                    timing_libs[(trk, vt, corner)].append(fpath)
-                    discovered_corners.add(corner)
-                elif vt and trk:
                     lib_nom_libs[(trk, vt)].append(fpath)
 
     # ── Scan memory timing libs ──
@@ -1258,12 +1370,13 @@ def cmd_generate(args: argparse.Namespace) -> int:
         if not os.path.isdir(memory_dir):
             continue
         for f in sorted(os.listdir(memory_dir)):
-            if not f.endswith('.lib'):
+            if not _is_lib_file(f):
                 continue
             fpath = os.path.join(memory_dir, f)
             if _is_excluded(fpath):
                 excluded_count += 1; continue
-            corner = _extract_corner(f)
+            base_name, _ = _strip_lib_extension(f)
+            corner = _extract_corner(base_name)
             if corner:
                 timing_memory[corner].append(fpath)
             else:
@@ -1274,19 +1387,25 @@ def cmd_generate(args: argparse.Namespace) -> int:
         if not os.path.isdir(io_dir):
             continue
         for f in sorted(os.listdir(io_dir)):
-            if not f.endswith('.lib'):
+            if not _is_lib_file(f):
                 continue
             fpath = os.path.join(io_dir, f)
             if _is_excluded(fpath):
                 excluded_count += 1; continue
-            corner = _extract_corner(f)
+            base_name, _ = _strip_lib_extension(f)
+            corner = _extract_corner(base_name)
             if corner:
                 timing_io[corner].append(fpath)
             else:
                 lib_nom_io.append(fpath)
 
     # ── Sort discovered sets ──
-    all_tracks = sorted(discovered_tracks, key=lambda t: float(t.replace('T','').replace('P','.')))
+    def _track_sort_key(t):
+        try:
+            return float(t.replace('T', '').replace('P', '.'))
+        except ValueError:
+            return 0.0
+    all_tracks = sorted(discovered_tracks, key=_track_sort_key)
     if tracks:
         all_tracks = [t for t in tracks if t in discovered_tracks]
     all_vts = [v for v in vt_list if v in discovered_vts]
@@ -1412,7 +1531,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
         for d in dirs:
             if os.path.isdir(d):
                 for f in sorted(os.listdir(d)):
-                    if f.endswith('.db'):
+                    if _is_db_file(f):
                         lst.append(os.path.join(d, f))
     w("# ── DB shared ──")
     w('set tech(db,memory) [list {}]'.format(

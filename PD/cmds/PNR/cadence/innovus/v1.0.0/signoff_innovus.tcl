@@ -14,20 +14,6 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
-    handle_error "Cannot find flow utilities"
-# Source generated configuration file (from setup stage)
-if {[file exists "work/PNR/signoff/run/config.tcl"]} {
-    source "work/PNR/signoff/run/config.tcl"
-    handle_error "Cannot find generated config file. Run 'make signoff_setup' first."
-# Source generated setup file (from setup stage)
-if {[file exists "work/PNR/signoff/run/setup.tcl"]} {
-    source "work/PNR/signoff/run/setup.tcl"
-    handle_error "Cannot find generated setup file. Run 'make signoff_setup' first."
-handle_info "Starting PNR signoff with Cadence Innovus..."
-set FLOW_TYPE "PNR"
-set STAGE_NAME "signoff"
-set NODE_NAME "signoff1"
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # SIGNOFF
 # ═══════════════════════════════════════════════════════════════════════════════

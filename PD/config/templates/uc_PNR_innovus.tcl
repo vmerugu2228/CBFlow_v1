@@ -21,6 +21,10 @@ set flow(test_mode)            "false"                ;# Set "true" for dry run 
 # ── Tool ─────────────────────────────────────────────────────────────────────
 set pnr(tool,name)             "innovus"              ;# Cadence Innovus (vendor auto-resolves)
 
+# ── Execution ──
+set flow(use_lsf)       "false"              ;# Set "true" to submit via LSF (bsub)
+set flow(use_xterm)     "false"              ;# Set "true" to launch in xterm
+
 # ── Inputs ───────────────────────────────────────────────────────────────────
 set pnr(input,netlist)           "<PROJECT_ROOT>/netlist.v"      ;# Gate-level netlist from synthesis
 set pnr(input,sdc_func_file)    "<PROJECT_ROOT>/func.sdc"       ;# Functional mode SDC constraints

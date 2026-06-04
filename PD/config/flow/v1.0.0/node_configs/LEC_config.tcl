@@ -90,6 +90,11 @@ array set lec {
         netlist_golden_inputs {lec(input,netlist_golden)}
         netlist_revised_inputs {lec(input,netlist_revised)}
     }
+
+    mandatory_user_inputs {
+        lec(input,netlist_golden)
+        lec(input,netlist_revised)
+    }
 }
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗

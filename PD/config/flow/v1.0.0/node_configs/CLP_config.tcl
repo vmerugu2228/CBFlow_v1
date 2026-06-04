@@ -95,6 +95,11 @@ array set clp {
         upf_inputs {clp(input,upf_release_tag) clp(input,upf_release_dir) clp(input,upf_file)}
         power_spec_inputs {clp(input,power_spec)}
     }
+
+    mandatory_user_inputs {
+        clp(input,netlist)
+        clp(input,upf_file)
+    }
 }
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗

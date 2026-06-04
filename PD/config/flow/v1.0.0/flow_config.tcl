@@ -31,8 +31,8 @@ set flow(mandatory_vars,all) {flow(run_name) flow(type) flow(design_name)}
 
 # ┌─ Dispatcher ────────────────────────────────────────────────────────────────┐
 set flow(dispatcher)    "race"                                            ;# "race" (RACE) or "make" (GNU Make)
-set flow(use_lsf)       true                                              ;# Enable LSF job submission
-set flow(use_xterm)     true                                              ;# Enable xterm for interactive sessions
+set flow(use_lsf)       false                                             ;# Enable LSF job submission (set true in user_config when bsub available)
+set flow(use_xterm)     false                                             ;# Enable xterm for interactive sessions (set true in user_config)
 
 # ┌─ Flow Mode ─────────────────────────────────────────────────────────────────┐
 set flow(mode)                  "default"                                 ;# default | merged
