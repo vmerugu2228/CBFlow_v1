@@ -207,8 +207,12 @@ _cbflow() {
                     'release:Release management'
                     'config:Configuration management'
                     'checklist:Checklist management'
-                    'library-manager:Library management'
-                    'mmmc-manager:MMMC management'
+                    'library-manager:Library discovery and lib_config generation'
+                    'mmmc-manager:MMMC config generation and management'
+                    'lsf-manager:LSF resource management'
+                    'plugin:Plugin management'
+                    'dashboard:Web dashboard'
+                    'project:Project management'
                     'qor-report:QoR reporting'
                     'trending:QoR trending'
                 )
@@ -230,6 +234,63 @@ _cbflow() {
                                 --format)       _describe 'format' '(text json html)' ;;
                                 --action)       _describe 'action' '(list add revoke)' ;;
                                 *) _describe 'option' '(--milestone --name --check-type --description --script --criteria --grep-file --grep-pattern --grep-pass-if --file-path --format --run-dir --project --phase --approver --action)' ;;
+                            esac
+                        fi ;;
+                    library-manager)
+                        if (( CURRENT == 4 )); then
+                            local -a lm_cmds
+                            lm_cmds=(
+                                'generate:Generate lib_config.tcl from library directories'
+                                'scan:Scan directory for .lib files'
+                                'create:Generate tech_config library_sets TCL block'
+                                'check:Validate library paths exist on disk'
+                                'list:List configured library sets'
+                                'verify:Verify .lib file headers match filenames'
+                                'coverage:Show track x VT x corner coverage matrix'
+                                'generate-mmmc:Generate MMMC analysis views'
+                            )
+                            _describe 'library-manager command' lm_cmds
+                        else
+                            case "${words[CURRENT-1]}" in
+                                --tech)          _describe 'tech' '(gf_22nm tsmc_5nm tsmc_7nm)' ;;
+                                --lib-root)      _path_files -/ ;;
+                                --stdcell-path)  _path_files -/ ;;
+                                --memory-path)   _path_files -/ ;;
+                                --io-path)       _path_files -/ ;;
+                                --output)        _files -g '*.tcl' ;;
+                                --format)        _describe 'format' '(text json)' ;;
+                                --path)          _path_files -/ ;;
+                                *) _describe 'option' '(--lib-root --tech --version --tracks --vts --stdcell-path --memory-path --io-path --exclude --tag --incremental --output --path --recursive --verbose --format --corner --voltage --temp)' ;;
+                            esac
+                        fi ;;
+                    mmmc-manager)
+                        if (( CURRENT == 4 )); then
+                            local -a mm_cmds
+                            mm_cmds=(
+                                'generate:Generate mmmc_config.tcl (interactive CLI)'
+                                'show:Display current MMMC config'
+                                'validate:Check config consistency'
+                                'add-mode:Add operating mode'
+                                'remove-mode:Remove operating mode'
+                                'add-pvt:Add PVT point to corner'
+                                'remove-pvt:Remove PVT point'
+                                'add-rc:Add RC corner definition'
+                                'set-node:Set node scenario assignments'
+                                'list-views:List all analysis views'
+                                'list-scenarios:List scenarios in a set'
+                                'generate-view-def:Generate Cadence view_definition.tcl'
+                            )
+                            _describe 'mmmc-manager command' mm_cmds
+                        else
+                            case "${words[CURRENT-1]}" in
+                                --tech)          _describe 'tech' '(gf_22nm tsmc_5nm tsmc_7nm)' ;;
+                                --corners)       _describe 'corners' '("ss tt ff")' ;;
+                                --corner)        _describe 'corner' '(ss tt ff sf fs)' ;;
+                                --set)           _describe 'set' '(setup hold signoff power all sta_setup sta_hold sta_signoff)' ;;
+                                --config)        _files -g '*.tcl' ;;
+                                --output)        _files -g '*.tcl' ;;
+                                --node)          _describe 'node' '(init_design floorplan powerplan placement cts cts_opt route post_route signoff synthesis)' ;;
+                                *) _describe 'option' '(--tech --corners --voltages --temperatures --vts --modes --sdc-pattern --track --lib-tag --config --name --sdc --corner --voltage --temperature --node --setup --hold --set --output)' ;;
                             esac
                         fi ;;
                 esac

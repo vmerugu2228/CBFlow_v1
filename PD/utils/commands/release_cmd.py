@@ -21,15 +21,13 @@ from pathlib import Path
 
 # Configure unified logging
 from logging_config import configure_logging, get_logger
+
+import sys; sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core.paths import get_cbflow_core_dir
+
 logger = configure_logging('cbflow.release')
 
-
-def get_cbflow_core_dir() -> str:
-    """Get CBFlow core directory from environment or determine from script location."""
-    if 'CBFLOW_CORE_DIR' in os.environ:
-        return os.environ['CBFLOW_CORE_DIR']
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    return os.path.dirname(os.path.dirname(script_dir))
 
 
 def get_releases_dir() -> Path:
@@ -330,7 +328,7 @@ def get_previous_release_components(releases_dir: Path) -> dict:
         with open(manifest_file, 'r') as f:
             manifest = json.load(f)
         return manifest.get('components', {})
-    except:
+    except Exception:
         return {}
 
 
@@ -910,7 +908,7 @@ def cmd_list(args: argparse.Namespace) -> int:
                     manifest = json.load(f)
                     description = manifest.get('description', '')[:35]
                     num_components = len(manifest.get('components', {}))
-            except:
+            except Exception:
                 pass
 
         status = "CURRENT" if version == current else ""

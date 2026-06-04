@@ -1,75 +1,50 @@
 #!/usr/bin/env tclsh
 # ═══════════════════════════════════════════════════════════════════════════════
-# CBflow LEC — Conformal — Release Data Subnode Handler
+# CBflow LEC — release_data Subnode Handler (Cadence Conformal)
+# Subnodes: setup, run, validate, finish
 # ═══════════════════════════════════════════════════════════════════════════════
 
-set run_dir    $::env(CBFLOW_RUN_DIR)
-set node_name  $::env(CBFLOW_NODE_NAME)
-set subnode    $::env(CBFLOW_SUBNODE)
-set flow_type  "LEC"
+# ── Load shared handler utilities ──
+source "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/handler_common.tcl"
+source "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/launch_utils.tcl"
 
-source "$run_dir/.run.cbflow.tcl"
+# ── Parse arguments and load configs ──
+lassign [handler_parse_args $argv $argc] subnode_name run_dir node_name
+handler_load_configs $run_dir "LEC"
 
-set work_dir "$run_dir/work/$flow_type/$node_name"
+set ::flow_type "LEC"
+set stage_name "release_data"
+if {$node_name eq ""} { set node_name "${stage_name}1" }
 
-set test_mode false
-catch { set test_mode [expr {$::flow(test_mode) eq "true"}] }
-if {!$test_mode} {
-    catch { set test_mode [expr {$::env(CBFLOW_TEST_MODE) eq "true"}] }
-}
-if {!$test_mode} {
-    set _uc "$run_dir/setup/user_config.tcl"
-    if {[file exists $_uc]} {
-        set _fh [open $_uc r]; set _c [read $_fh]; close $_fh
-        if {[string match "*test_mode*true*" $_c]} { set test_mode true }
-    }
-}
+set _tool_ver [expr {[info exists ::env(CONFORMAL_VERSION)] ? $::env(CONFORMAL_VERSION) : "v1.0.0"}]
+set cmd_file "$::env(FLOW_DIR)/cmds/LEC/cadence/conformal/$_tool_ver/release_data_conformal.tcl"
 
-switch -- $subnode {
+set test_mode [handler_is_test_mode]
+
+# ── Subnode dispatch ──
+switch $subnode_name {
     "setup" {
-        file mkdir "$work_dir/run"
-        file mkdir "$work_dir/results"
-    # Generate config.tcl + setup.tcl via config cascade
-    if {[info exists ::env(GENERATION_VERSION)] && $::env(GENERATION_VERSION) ne ""} {
-        set _gen "$::env(FLOW_DIR)/utils/generation/$::env(GENERATION_VERSION)/generate_setup.tcl"
-        if {[file exists $_gen]} {
-            catch {exec tclsh $_gen $::flow_type $node_name ${node_name}_default $run_dir}
-        }
-    }
-        puts "INFO: $node_name setup completed"
+        puts "INFO: $stage_name setup..."
+        handler_setup $run_dir $::flow_type $node_name
+        puts "INFO: $stage_name setup completed"
     }
     "run" {
-        set compare_rpt_dir "$run_dir/work/$flow_type/compare1/reports"
-        set rel_dir "$work_dir/results"
-
-        foreach rpt {comparison_summary.rpt equivalence_analysis.rpt status.rpt PASSED FAILED} {
-            set src "$compare_rpt_dir/$rpt"
-            if {[file exists $src]} {
-                file copy -force $src "$rel_dir/$rpt"
-            }
-        }
-        puts "INFO: $node_name release data prepared"
+        puts "INFO: $stage_name run..."
+        set _tool [expr {[info exists lec(tool,name)] ? $lec(tool,name) : "conformal"}]
+        handler_run $run_dir $::flow_type $node_name $stage_name $cmd_file $test_mode $_tool
     }
     "validate" {
-        set rel_dir "$work_dir/results"
-        if {[file exists "$rel_dir/comparison_summary.rpt"]} {
-            puts "INFO: $node_name release validation passed"
-        } elseif {$test_mode} {
-            puts "INFO: $node_name release validation skipped (test_mode)"
-        } else {
-            puts "ERROR: Missing comparison_summary.rpt in release"
-            exit 1
-        }
+        puts "INFO: $stage_name validate..."
+        handler_validate $run_dir $::flow_type $node_name $stage_name $test_mode
+        puts "INFO: $stage_name validate completed"
     }
     "finish" {
-        set ts "$work_dir/run/release_data_finish.timestamp"
-        set fh [open $ts "w"]
-        puts $fh "[clock format [clock seconds]]"
-        close $fh
-        puts "INFO: $node_name finish completed"
+        puts "INFO: $stage_name finish..."
+        handler_finish $run_dir $::flow_type $node_name $stage_name
+        puts "INFO: $stage_name finish completed"
     }
     default {
-        puts "ERROR: Unknown subnode: $subnode"
+        puts "ERROR: Unknown subnode: $subnode_name"
         exit 1
     }
 }

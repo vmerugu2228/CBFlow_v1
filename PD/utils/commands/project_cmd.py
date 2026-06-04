@@ -20,19 +20,17 @@ logger = configure_logging('cbflow.project')
 
 # Available flow types and project phases - loaded from existing Tcl config files
 from tcl_config_parser import get_flow_descriptions as _get_flow_desc, get_phase_descriptions as _get_phase_desc
+
+import sys; sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core.paths import get_cbflow_core_dir
+
 AVAILABLE_FLOWS = _get_flow_desc()
 PROJECT_PHASES = _get_phase_desc()
 
 # Version
 VERSION = "2.0.0"
 
-
-def get_cbflow_core_dir() -> str:
-    """Get CBFlow core directory from environment or determine from script location."""
-    if 'CBFLOW_CORE_DIR' in os.environ:
-        return os.environ['CBFLOW_CORE_DIR']
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    return os.path.dirname(os.path.dirname(script_dir))
 
 
 def get_projects_file() -> str:

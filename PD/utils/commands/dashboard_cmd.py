@@ -12,14 +12,13 @@ import subprocess
 import signal
 
 from logging_config import configure_logging, get_logger
+
+import sys; sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core.paths import get_cbflow_core_dir
+
 logger = configure_logging('cbflow.dashboard')
 
-
-def get_cbflow_core_dir() -> str:
-    if 'CBFLOW_CORE_DIR' in os.environ:
-        return os.environ['CBFLOW_CORE_DIR']
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    return os.path.dirname(os.path.dirname(script_dir))
 
 
 def cmd_start(args: argparse.Namespace) -> int:

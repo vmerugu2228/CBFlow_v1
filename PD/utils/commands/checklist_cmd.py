@@ -16,18 +16,16 @@ from datetime import datetime, date, timedelta
 
 # Configure unified logging
 from logging_config import configure_logging, get_logger
+
+import sys; sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core.paths import get_cbflow_core_dir
+
 logger = configure_logging('cbflow.checklist')
 
 # Phase ordering constant — phases are a fixed concept in the design flow
 PHASE_ORDER = {'P0': 0, 'P1': 1, 'P2': 2, 'P3': 3}
 
-
-def get_cbflow_core_dir() -> str:
-    """Get CBFlow core directory from environment or determine from script location."""
-    if 'CBFLOW_CORE_DIR' in os.environ:
-        return os.environ['CBFLOW_CORE_DIR']
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    return os.path.dirname(os.path.dirname(script_dir))
 
 
 def get_exit_config_dir() -> str:

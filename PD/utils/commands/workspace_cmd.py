@@ -24,16 +24,13 @@ VERSION = "2.0.0"
 
 # Valid flow types - loaded from existing Tcl config files
 from tcl_config_parser import get_flow_types as _get_flow_types
+
+import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core.paths import get_cbflow_core_dir
+
 FLOW_TYPES = _get_flow_types()
 
 
-
-def get_cbflow_core_dir() -> str:
-    """Get CBFlow core directory from environment or determine from script location."""
-    if 'CBFLOW_CORE_DIR' in os.environ:
-        return os.environ['CBFLOW_CORE_DIR']
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    return os.path.dirname(os.path.dirname(script_dir))
 
 
 def get_cbflow_root() -> str:
@@ -110,7 +107,7 @@ def get_project_config(project: str, version: str = 'v1.0.0') -> dict:
                         if len(parts) >= 2:
                             config['technology'] = parts[1]
                             break
-        except:
+        except Exception:
             pass
 
     return config

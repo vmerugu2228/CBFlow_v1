@@ -1,263 +1,43 @@
 #!/usr/bin/env tclsh
 # ═══════════════════════════════════════════════════════════════════════════════
-# CBFlow STA EXTRACTION Subnode Handler
-# Description: Handles extraction stage subnodes (setup, run, validate, finish)
-# Supports test_mode: bypasses EDA tool and shows command file instead
+# CBflow STA — extraction Subnode Handler (Cadence Tempus)
+# Subnodes: setup, run, validate, finish, rc_* (dynamic RC corners)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Parse arguments
-if {$argc < 1} {
-    puts "ERROR: Missing subnode argument"
-    puts "Usage: $argv0 <subnode_name> \[run_dir\]"
-    exit 1
-}
+source "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/handler_common.tcl"
+source "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/launch_utils.tcl"
 
-set subnode_name [lindex $argv 0]
-set run_dir [expr {$argc > 1 ? [lindex $argv 1] : [pwd]}]
-set node_name [expr {$argc > 2 ? [lindex $argv 2] : ""}]
-
-# Load environment
-if {[file exists "$run_dir/.run.cbflow.tcl"]} {
-    source "$run_dir/.run.cbflow.tcl"
-} else {
-    puts "ERROR: Cannot find .run.cbflow.tcl in $run_dir"
-    exit 1
-}
-
-# Load error handling
-source "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/error_utils.tcl"
-
-# Load configuration cascade: project → flow → node → tech → user
-if {[info exists ::env(CBFLOW_PROJECT_NAME)] && $::env(CBFLOW_PROJECT_NAME) ne ""} {
-    set _proj_dir "$::env(CONFIG_ROOT)/project/$::env(CBFLOW_PROJECT_NAME)"
-    foreach _pv [glob -nocomplain "$_proj_dir/v*"] {
-        foreach _pc [glob -nocomplain "$_pv/*_config.tcl"] {
-            if {[file exists $_pc]} { source $_pc }
-        }
-        break
-    }
-}
-
-set flow_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/flow_config.tcl"
-if {[file exists $flow_config]} { source $flow_config }
-
-set sta_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/node_configs/STA_config.tcl"
-if {[file exists $sta_config]} { source $sta_config }
-
-# Source tech_config (requires project(track_variant) from project_config above)
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source $_tc }
-}
-# Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source "$run_dir/setup/user_config.tcl" }
-
-# Source tool launch config (module load, tool shell, bsub, xterm)
-set _launch_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/tool_launch_config.tcl"
-if {[file exists $_launch_config]} { source $_launch_config }
+lassign [handler_parse_args $argv $argc] subnode_name run_dir node_name
+handler_load_configs $run_dir "STA"
 
 set ::flow_type "STA"
 set stage_name "extraction"
-if {$node_name eq ""} { set node_name $stage_name }
-set cmd_file "$::env(FLOW_DIR)/cmds/STA/cadence/tempus/[expr {[info exists ::env(TEMPUS_VERSION)] ? $::env(TEMPUS_VERSION) : "v1.0.0"}]/extraction_tempus.tcl"
+if {$node_name eq ""} { set node_name "${stage_name}1" }
 
-# Check test mode
-set test_mode false
-if {[info exists flow(test_mode)] && $flow(test_mode) eq "true"} {
-    set test_mode true
-}
+set _tool_ver [expr {[info exists ::env(TEMPUS_VERSION)] ? $::env(TEMPUS_VERSION) : "v1.0.0"}]
+set cmd_file "$::env(FLOW_DIR)/cmds/STA/cadence/tempus/$_tool_ver/extraction_tempus.tcl"
+
+set test_mode [handler_is_test_mode]
 
 switch $subnode_name {
     "setup" {
         puts "INFO: $stage_name setup..."
-        file mkdir "$run_dir/work/$::flow_type/$node_name/run"
-        file mkdir "$run_dir/work/$::flow_type/$node_name/setup"
-    # Generate config.tcl + setup.tcl via config cascade
-    if {[info exists ::env(GENERATION_VERSION)] && $::env(GENERATION_VERSION) ne ""} {
-        set _gen "$::env(FLOW_DIR)/utils/generation/$::env(GENERATION_VERSION)/generate_setup.tcl"
-        if {[file exists $_gen]} {
-            catch {exec tclsh $_gen $::flow_type $node_name ${node_name}_default $run_dir}
-        }
-    }
+        handler_setup $run_dir $::flow_type $node_name
         puts "INFO: $stage_name setup completed"
     }
     "run" {
         puts "INFO: $stage_name run..."
-        if {$test_mode} {
-            puts "INFO: \[TEST MODE\] Bypassing EDA tool invocation"
-            puts "INFO: Command file: $cmd_file"
-            if {[file exists $cmd_file]} {
-                puts "INFO: ╔══════════════════════════════════════════════════╗"
-                puts "INFO: ║  Command File: [file tail $cmd_file]"
-                puts "INFO: ╚══════════════════════════════════════════════════╝"
-                set _f [open $cmd_file r]; set _lines [split [read $_f] "\n"]; close $_f
-                set _lc 0
-                foreach _line $_lines { incr _lc; if {$_lc <= 20} { puts "INFO:   $_line" } }
-                if {$_lc > 20} { puts "INFO:   ... ([expr {$_lc - 20}] more lines)" }
-                puts "INFO: ══════════════════════════════════════════════════"
-            } else { puts "WARNING: Command file not found: $cmd_file" }
-            # Generate wrapper script even in test mode (for review)
-            set _work_dir "$run_dir/work/$::flow_type/$node_name/run"
-            file mkdir $_work_dir
-            set _tool_name [expr {[info exists sta(tool,name)] ? $sta(tool,name) : "tempus"}]
-            set _log_file "$_work_dir/${node_name}.log"
-            set _module_cmd ""
-            set _tool_shell "tempus"
-            catch {
-                if {[info exists lsf(module,$_tool_name)]} { set _module_cmd $lsf(module,$_tool_name) }
-                if {[info exists lsf(tool_shell,$_tool_name)]} { set _tool_shell $lsf(tool_shell,$_tool_name) }
-            }
-            set _wrapper "$_work_dir/launch_${stage_name}.csh"
-            set _wf [open $_wrapper "w"]
-            puts $_wf "#!/bin/csh -f"
-            puts $_wf "# CBFlow tool launch wrapper — $::flow_type $stage_name"
-            puts $_wf "# Generated: [clock format [clock seconds]]"
-            if {$_module_cmd ne ""} { puts $_wf "$_module_cmd" }
-            puts $_wf "$_tool_shell -files $cmd_file -log $_log_file"
-            close $_wf
-            catch { file attributes $_wrapper -permissions rwxr-xr-x }
-            puts "INFO: Wrapper script: $_wrapper"
-            # Show planned launch mode in test mode
-            set _use_lsf false
-            set _use_xterm false
-            if {[info exists ::env(CBFLOW_BSUB_CMD)] && $::env(CBFLOW_BSUB_CMD) ne ""} {
-                set _use_lsf true
-            } elseif {[info exists flow(use_lsf)] && $flow(use_lsf) eq "true"} {
-                set _use_lsf true
-            } elseif {[info exists ::env(CBFLOW_USE_LSF)] && $::env(CBFLOW_USE_LSF) eq "1"} {
-                set _use_lsf true
-            }
-            if {[info exists flow(use_xterm)] && $flow(use_xterm) eq "true"} {
-                set _use_xterm true
-            } elseif {[info exists ::env(CBFLOW_USE_XTERM)] && $::env(CBFLOW_USE_XTERM) eq "1"} {
-                set _use_xterm true
-            }
-            if {$_use_lsf} {
-                puts "INFO: \[TEST MODE\] Launch mode: LSF ([expr {$_use_xterm ? "interactive xterm" : "batch"}])"
-            } elseif {$_use_xterm} {
-                puts "INFO: \[TEST MODE\] Launch mode: xterm (local)"
-            } else {
-                puts "INFO: \[TEST MODE\] Launch mode: local execution"
-            }
-            puts "INFO: $stage_name run completed \[TEST MODE\]"
-        } else {
-            if {![file exists $cmd_file]} { puts "ERROR: Command file not found: $cmd_file"; exit 1 }
-            set _work_dir "$run_dir/work/$::flow_type/$node_name/run"
-            set _tool_name [expr {[info exists sta(tool,name)] ? $sta(tool,name) : "tempus"}]
-            set _log_file "$_work_dir/${node_name}.log"
-            set _module_cmd ""
-            set _tool_shell "tempus"
-            set _wrapper_shell "/bin/csh -f"
-            catch {
-                if {[info exists lsf(module,$_tool_name)]} { set _module_cmd $lsf(module,$_tool_name) }
-                if {[info exists lsf(tool_shell,$_tool_name)]} { set _tool_shell $lsf(tool_shell,$_tool_name) }
-                if {[info exists lsf(tool_wrapper_shell)]} { set _wrapper_shell $lsf(tool_wrapper_shell) }
-            }
-            set _wrapper "$_work_dir/launch_${stage_name}.csh"
-            set _wf [open $_wrapper "w"]
-            puts $_wf "#!$_wrapper_shell"
-            puts $_wf "# CBFlow tool launch wrapper — $::flow_type $stage_name"
-            puts $_wf "# Generated: [clock format [clock seconds]]"
-            if {$_module_cmd ne ""} { puts $_wf "$_module_cmd" }
-            puts $_wf "$_tool_shell -files $cmd_file -log $_log_file"
-            close $_wf
-            catch { file attributes $_wrapper -permissions rwxr-xr-x }
-            puts "INFO: Wrapper: $_wrapper"
-
-            # Determine launch mode: LSF > XTERM > LOCAL
-            set _use_lsf false
-            set _use_xterm false
-            if {[info exists ::env(CBFLOW_BSUB_CMD)] && $::env(CBFLOW_BSUB_CMD) ne ""} {
-                set _use_lsf true
-            } elseif {[info exists flow(use_lsf)] && $flow(use_lsf) eq "true"} {
-                set _use_lsf true
-            } elseif {[info exists ::env(CBFLOW_USE_LSF)] && $::env(CBFLOW_USE_LSF) eq "1"} {
-                set _use_lsf true
-            }
-            if {[info exists flow(use_xterm)] && $flow(use_xterm) eq "true"} {
-                set _use_xterm true
-            } elseif {[info exists ::env(CBFLOW_USE_XTERM)] && $::env(CBFLOW_USE_XTERM) eq "1"} {
-                set _use_xterm true
-            }
-
-            # Resolve xterm settings
-            set _xterm "xterm"
-            set _geom "200x50"
-            catch { set _xterm $lsf(xterm,command) }
-            catch { set _geom $lsf(xterm,geometry) }
-
-            if {$_use_lsf} {
-                if {[info exists ::env(CBFLOW_BSUB_CMD)] && $::env(CBFLOW_BSUB_CMD) ne ""} {
-                    set bsub_cmd $::env(CBFLOW_BSUB_CMD)
-                } else {
-                    # Build bsub from config
-                    set _qtype "M"
-                    catch { set _qtype $lsf(flow_mapping,$::flow_type,$stage_name) }
-                    set _mem "16GB"; set _cpu "8"; set _time "4:00"
-                    catch { set _mem $lsf(queue_types,$_qtype,memory) }
-                    catch { set _cpu $lsf(queue_types,$_qtype,cpu) }
-                    catch { set _time $lsf(queue_types,$_qtype,runtime_limit) }
-                    set _bsub "bsub"
-                    set _queue_name "normal"
-                    set _project ""
-                    set _affinity ""
-                    catch { set _bsub $lsf(bsub,command) }
-                    catch { set _queue_name $lsf(bsub,queue) }
-                    catch { set _project $lsf(bsub,project) }
-                    catch { set _affinity $lsf(bsub,affinity) }
-                    set bsub_cmd "$_bsub"
-                    if {$_project ne ""} { append bsub_cmd " -P $_project" }
-                    append bsub_cmd " -J cbflow_${::flow_type}_${stage_name}"
-                    if {$_use_xterm} { append bsub_cmd " -Is" }
-                    append bsub_cmd " -q $_queue_name -n $_cpu -W $_time"
-                    append bsub_cmd " -R \"rusage\[mem=$_mem\]"
-                    if {$_affinity ne ""} { append bsub_cmd " $_affinity" }
-                    append bsub_cmd "\""
-                    append bsub_cmd " -o $_work_dir/lsf_${node_name}_%J.log"
-                    append bsub_cmd " -e $_work_dir/lsf_${node_name}_%J.err"
-                }
-                if {$_use_xterm} {
-                    # LSF + xterm: submit to LSF, opens xterm on compute node
-                    set _launch_target "$_xterm -geometry $_geom -title \"CBFlow $::flow_type $stage_name\" -e $_wrapper"
-                    puts "INFO: Submitting via LSF (xterm): $bsub_cmd $_launch_target"
-                    if {[catch {exec {*}$bsub_cmd $_xterm -geometry $_geom -title "CBFlow $::flow_type $stage_name" -e $_wrapper} result]} {
-                        puts "ERROR: LSF submit failed: $result"; exit 1
-                    }
-                } else {
-                    # LSF batch: submit wrapper directly
-                    puts "INFO: Submitting via LSF (batch): $bsub_cmd $_wrapper"
-                    if {[catch {exec {*}$bsub_cmd $_wrapper} result]} { puts "ERROR: LSF submit failed: $result"; exit 1 }
-                }
-                puts $result
-            } elseif {$_use_xterm} {
-                # Local xterm: opens xterm window running wrapper locally
-                puts "INFO: Launching in xterm: $_xterm -geometry $_geom -e $_wrapper"
-                exec $_xterm -geometry $_geom -title "CBFlow $::flow_type $stage_name" -e $_wrapper &
-            } else {
-                # Local execution in current terminal
-                puts "INFO: Executing locally: $_wrapper"
-                if {[catch {exec $_wrapper} result]} { puts "ERROR: $stage_name failed: $result"; exit 1 }
-                puts $result
-            }
-            puts "INFO: $stage_name run completed"
-        }
+        set _tool [expr {[info exists ::sta(tool,name)] ? $::sta(tool,name) : "tempus"}]
+        handler_run $run_dir $::flow_type $node_name $stage_name $cmd_file $test_mode $_tool
     }
     "validate" {
         puts "INFO: $stage_name validate..."
-        if {$test_mode} {
-            puts "INFO: \[TEST MODE\] Validation skipped"
-        } else {
-            puts "INFO: $stage_name validation passed"
-        }
+        handler_validate $run_dir $::flow_type $node_name $stage_name $test_mode
         puts "INFO: $stage_name validate completed"
     }
     "finish" {
         puts "INFO: $stage_name finish..."
-        set finish_file "$run_dir/work/$::flow_type/$node_name/run/${stage_name}_finish.timestamp"
-        file mkdir [file dirname $finish_file]
-        set fh [open $finish_file "w"]
-        puts $fh "Completed: [clock format [clock seconds]]"
-        close $fh
+        handler_finish $run_dir $::flow_type $node_name $stage_name
         puts "INFO: $stage_name finish completed"
     }
     default {
@@ -268,30 +48,21 @@ switch $subnode_name {
             file mkdir "$_corner_dir/run"
             file mkdir "$_corner_dir/results"
 
-            # Resolve QRC tech file from tech_config: tech(rcx,<corner>,qrc)
-            # Priority: qrc → nxtgrd → tluplus
+            # Resolve QRC tech file: priority qrc > nxtgrd > tluplus
             set _rc_file ""
             set _rc_file_type ""
             set _rc_corner $subnode_name
-
-            if {[info exists tech(rcx,${_rc_corner},qrc)] && $tech(rcx,${_rc_corner},qrc) ne ""} {
-                set _rc_file $tech(rcx,${_rc_corner},qrc)
-                set _rc_file_type "qrc"
-            }
-            if {$_rc_file eq "" && [info exists tech(rcx,${_rc_corner},nxtgrd)] && $tech(rcx,${_rc_corner},nxtgrd) ne ""} {
-                set _rc_file $tech(rcx,${_rc_corner},nxtgrd)
-                set _rc_file_type "nxtgrd"
-            }
-            if {$_rc_file eq "" && [info exists tech(rcx,${_rc_corner},tluplus)] && $tech(rcx,${_rc_corner},tluplus) ne ""} {
-                set _rc_file $tech(rcx,${_rc_corner},tluplus)
-                set _rc_file_type "tluplus"
+            foreach {_fmt} {qrc nxtgrd tluplus} {
+                if {$_rc_file eq "" && [info exists ::tech(rcx,${_rc_corner},${_fmt})] && $::tech(rcx,${_rc_corner},${_fmt}) ne ""} {
+                    set _rc_file $::tech(rcx,${_rc_corner},${_fmt})
+                    set _rc_file_type $_fmt
+                }
             }
 
-            # Resolve LEF and DEF
             set _lef_file ""
-            if {[info exists tech(lef_tech)]} { set _lef_file $tech(lef_tech) }
+            if {[info exists ::tech(lef_tech)]} { set _lef_file $::tech(lef_tech) }
             set _def_file ""
-            if {[info exists sta(input,def_file)]} { set _def_file $sta(input,def_file) }
+            if {[info exists ::sta(input,def_file)]} { set _def_file $::sta(input,def_file) }
 
             if {$test_mode} {
                 puts "INFO: \[TEST MODE\] Extraction for RC corner: $subnode_name"
@@ -299,7 +70,6 @@ switch $subnode_name {
                 puts "INFO:   LEF:         $_lef_file"
                 puts "INFO:   DEF:         $_def_file"
                 puts "INFO:   Corner dir:  $_corner_dir"
-                # Create mock SPEF
                 set _spef "$_corner_dir/results/${node_name}_${subnode_name}.spef"
                 set fh [open $_spef "w"]
                 puts $fh "// SPEF for $subnode_name extraction (QRC/Quantus)"
@@ -310,15 +80,11 @@ switch $subnode_name {
                 puts "INFO: Mock SPEF: $_spef"
                 puts "INFO: extraction $subnode_name completed \[TEST MODE\]"
             } else {
-                # Generate Quantus/QRC command file and invoke
                 set _work_dir "$_corner_dir/run"
                 set _spef_out "$_corner_dir/results/${node_name}_${subnode_name}.spef"
                 set _qrc_cmd "$_work_dir/qrc_cmd_${subnode_name}"
-
                 set _quantus_bin "quantus"
-                if {[info exists sta(extraction,quantus_binary)]} { set _quantus_bin $sta(extraction,quantus_binary) }
-
-                # Write QRC command file
+                if {[info exists ::sta(extraction,quantus_binary)]} { set _quantus_bin $::sta(extraction,quantus_binary) }
                 set _fh [open $_qrc_cmd "w"]
                 puts $_fh "extract_typ_file $_rc_file"
                 if {$_lef_file ne ""} { puts $_fh "lef_file $_lef_file" }
@@ -327,7 +93,6 @@ switch $subnode_name {
                 puts $_fh "output_format SPEF"
                 puts $_fh "coupled_extraction YES"
                 close $_fh
-
                 puts "INFO: Generated QRC cmd: $_qrc_cmd"
                 file mkdir "$_work_dir/qrc_work"
                 if {[catch {exec $_quantus_bin -cmd $_qrc_cmd >& "$_work_dir/${node_name}_${subnode_name}.log"} result]} {

@@ -18,6 +18,11 @@ from datetime import datetime
 from pathlib import Path
 
 from logging_config import configure_logging, get_logger
+
+import sys; sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core.paths import get_cbflow_core_dir
+
 logger = configure_logging('cbflow.trending')
 
 KNOWN_METRICS = ['wns', 'tns', 'power', 'utilization', 'drc', 'cell_count',
@@ -27,13 +32,6 @@ TREND_IMPROVED, TREND_DEGRADED, TREND_STABLE = 'IMPROVED', 'DEGRADED', 'STABLE'
 LOWER_IS_BETTER = {'tns', 'drc', 'congestion', 'hold_tns'}
 HIGHER_IS_BETTER = {'wns', 'hold_wns'}
 
-
-def get_cbflow_core_dir() -> str:
-    """Get CBFlow core directory."""
-    if 'CBFLOW_CORE_DIR' in os.environ:
-        return os.environ['CBFLOW_CORE_DIR']
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    return os.path.dirname(os.path.dirname(script_dir))
 
 
 def get_metrics_db_path() -> str:

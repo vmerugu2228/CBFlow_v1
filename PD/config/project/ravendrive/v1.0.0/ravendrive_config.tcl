@@ -253,6 +253,9 @@ set project(ravendrive,isa) "RV32I"
 set project(ravendrive,cache_size) "32KB"
 set project(ravendrive,memory_map) "ravendrive_memmap.tcl"
 
+# Feature toggles
+set project(autoppt,enabled) "false"         ;# Enable AutoPPT summary generation (requires python-pptx)
+
 # Custom settings
 set project(custom,scripts) "ravendrive_hooks.tcl"
 set project(custom,constraints) "ravendrive_constraints.sdc"

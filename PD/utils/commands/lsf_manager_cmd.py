@@ -17,14 +17,13 @@ import sys
 from collections import OrderedDict
 
 from logging_config import configure_logging, get_logger
+
+import sys; sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core.paths import get_cbflow_core_dir
+
 logger = configure_logging('cbflow.lsf_manager')
 
-
-def get_cbflow_core_dir() -> str:
-    if 'FLOW_DIR' in os.environ:
-        return os.environ['FLOW_DIR']
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    return os.path.dirname(os.path.dirname(script_dir))
 
 
 def _get_lsf_config_path() -> str:

@@ -29,7 +29,7 @@ _cbflow_completions() {
                 COMPREPLY=( $(compgen -W "all stage status retrace bypass force forcevalidate gui interactive clean validate logs report show-graph list-nodes add-node delete-node create-branch list-branches delete-branch release release-check release-lock release-info targets update gen-makefile email autoppt checklist db-manage lsf-status help" -- "${cur}") )
                 ;;
             flow)
-                COMPREPLY=( $(compgen -W "types info stages nodes check version release config plugin metrics gui checklist qor-report trending library-manager mmmc-manager lsf-manager dashboard dev project" -- "${cur}") )
+                COMPREPLY=( $(compgen -W "types info stages nodes check version release config plugin metrics gui checklist qor-report trending library-manager mmmc-manager lsf-manager dashboard dev project healthcheck" -- "${cur}") )
                 ;;
             smartgenie)
                 COMPREPLY=( $(compgen -W "serve setup ingest reingest search stats learn usage cloud code --help --hybrid --server" -- "${cur}") )
@@ -181,11 +181,34 @@ _cbflow_completions() {
                     fi ;;
                 library-manager)
                     if [[ ${cword} -eq 3 ]]; then
-                        COMPREPLY=( $(compgen -W "scan check list generate-mmmc" -- "${cur}") )
+                        COMPREPLY=( $(compgen -W "generate scan create check list verify coverage generate-mmmc" -- "${cur}") )
+                    else
+                        case "${prev}" in
+                            --tech)          COMPREPLY=( $(compgen -W "gf_22nm tsmc_5nm tsmc_7nm" -- "${cur}") ) ;;
+                            --lib-root)      COMPREPLY=( $(compgen -d -- "${cur}") ) ;;
+                            --stdcell-path)  COMPREPLY=( $(compgen -d -- "${cur}") ) ;;
+                            --memory-path)   COMPREPLY=( $(compgen -d -- "${cur}") ) ;;
+                            --io-path)       COMPREPLY=( $(compgen -d -- "${cur}") ) ;;
+                            --output)        COMPREPLY=( $(compgen -f -X '!*.tcl' -- "${cur}") ) ;;
+                            --format)        COMPREPLY=( $(compgen -W "text json" -- "${cur}") ) ;;
+                            --version)       COMPREPLY=( $(compgen -W "v1.0.0" -- "${cur}") ) ;;
+                            *)               COMPREPLY=( $(compgen -W "--lib-root --tech --version --tracks --vts --stdcell-path --memory-path --io-path --exclude --tag --incremental --output --recursive --verbose --format --path --corner --voltage --temp" -- "${cur}") ) ;;
+                        esac
                     fi ;;
                 mmmc-manager)
                     if [[ ${cword} -eq 3 ]]; then
-                        COMPREPLY=( $(compgen -W "create show validate" -- "${cur}") )
+                        COMPREPLY=( $(compgen -W "generate show validate add-mode remove-mode add-pvt remove-pvt add-rc set-node list-views list-scenarios generate-view-def" -- "${cur}") )
+                    else
+                        case "${prev}" in
+                            --tech)           COMPREPLY=( $(compgen -W "gf_22nm tsmc_5nm tsmc_7nm" -- "${cur}") ) ;;
+                            --corners)        COMPREPLY=( $(compgen -W "\"ss tt ff\"" -- "${cur}") ) ;;
+                            --corner)         COMPREPLY=( $(compgen -W "ss tt ff sf fs" -- "${cur}") ) ;;
+                            --set)            COMPREPLY=( $(compgen -W "setup hold signoff power all sta_setup sta_hold sta_signoff" -- "${cur}") ) ;;
+                            --config)         COMPREPLY=( $(compgen -f -X '!*.tcl' -- "${cur}") ) ;;
+                            --output)         COMPREPLY=( $(compgen -f -X '!*.tcl' -- "${cur}") ) ;;
+                            --node)           COMPREPLY=( $(compgen -W "init_design floorplan powerplan placement cts cts_opt route post_route signoff synthesis" -- "${cur}") ) ;;
+                            *)                COMPREPLY=( $(compgen -W "--tech --corners --voltages --temperatures --vts --modes --sdc-pattern --track --lib-tag --config --name --sdc --corner --voltage --temperature --node --setup --hold --set --output" -- "${cur}") ) ;;
+                        esac
                     fi ;;
             esac ;;
     esac

@@ -24,6 +24,11 @@ from datetime import datetime
 from pathlib import Path
 
 import logging
+
+import sys; sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core.paths import get_cbflow_core_dir
+
 logger = logging.getLogger('cbflow.dev')
 if not logger.handlers:
     handler = logging.StreamHandler()
@@ -31,13 +36,6 @@ if not logger.handlers:
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
 
-
-def get_cbflow_core_dir() -> str:
-    """Get CBFlow core directory."""
-    core = os.environ.get('FLOW_DIR', '')
-    if not core:
-        core = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    return core
 
 
 def _is_locked(version_dir: str) -> bool:
