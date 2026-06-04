@@ -27,26 +27,14 @@ set tech(vt_pattern,lvt)  "*lvt*"
 set tech(vt_pattern,ulvt) "*ulvt*"
 set tech(vt_pattern,hvt)  "*hvt*"
 
-# ── Metal Stack Options ──────────────────────────────────────────────────
-set tech(metal_stacks_available) {
-    gf28slpe_8M_2Mx_3Cx_1Jx_2Qx
-    gf28slpe_9M_2Mx_4Cx_1Jx_2Qx
-    gf28slpe_10M_2Mx_5Cx_1Jx_2Qx
-}
 
 # Active metal stack — MUST be set in project_config, no default
 if {![info exists project(metal_stack)] || $project(metal_stack) eq ""} {
     puts "ERROR: project(metal_stack) not set. Define it in project_config.tcl"
-    puts "       Available: $tech(metal_stacks_available)"
     exit 1
 }
 set tech(metal_stack) $project(metal_stack)
 
-if {[lsearch $tech(metal_stacks_available) $tech(metal_stack)] < 0} {
-    puts "ERROR: Invalid metal_stack '$tech(metal_stack)'"
-    puts "ERROR: Available: $tech(metal_stacks_available)"
-    error "Invalid metal stack configuration"
-}
 
 # ── Library root + additional paths ────────────────────────────────────
 set tech(lib_root) "/proj/libs/gf_28nm"

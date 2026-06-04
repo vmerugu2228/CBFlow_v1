@@ -23,27 +23,14 @@ set tech(vt_pattern,lvt)  "*lvt*"
 set tech(vt_pattern,ulvt) "*ulvt*"
 set tech(vt_pattern,hvt)  "*hvt*"
 
-# ── Metal Stack Options ──────────────────────────────────────────────────
-set tech(metal_stacks_available) {
-    gf22naphlogl24uhf116a_10M_2Mx_5Cx_1Jx_2Qx_LB
-    gf22naphlogl24uhf116a_11M_2Mx_6Cx_1Jx_2Qx_LB
-    gf22naphlogl24uhf116a_8M_2Mx_3Cx_1Jx_2Qx_LB
-    gf22naphlogl24uhf116a_9M_2Mx_4Cx_1Jx_2Qx_LB
-}
 
 # Active metal stack — MUST be set in project_config, no default
 if {![info exists project(metal_stack)] || $project(metal_stack) eq ""} {
     puts "ERROR: project(metal_stack) not set. Define it in project_config.tcl"
-    puts "       Available: $tech(metal_stacks_available)"
     exit 1
 }
 set tech(metal_stack) $project(metal_stack)
 
-if {[lsearch $tech(metal_stacks_available) $tech(metal_stack)] < 0} {
-    puts "ERROR: Invalid metal_stack '$tech(metal_stack)'"
-    puts "ERROR: Available: $tech(metal_stacks_available)"
-    error "Invalid metal stack configuration"
-}
 
 # ── Library root ───────────────────────────────────────────────────────
 # ── Library paths (multiple roots supported — list format) ────────────
