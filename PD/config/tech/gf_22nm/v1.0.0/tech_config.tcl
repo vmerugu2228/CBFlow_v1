@@ -1,133 +1,48 @@
 #!/usr/bin/env tclsh
 # ═══════════════════════════════════════════════════════════════════════════════
 # CBflow Technology Configuration — GlobalFoundries 22FDX (22nm FD-SOI)
-# ALL track heights (9T, 7.5T, 8T) in ONE file — flow picks via tech(track)
-# Library sets auto-generated in lib_config.tcl by library-manager
+# PURE DATA — no if/else, no source, no exit, no logic
+# Engine (generate_setup.tcl) handles validation, sourcing, and assembly
 # ═══════════════════════════════════════════════════════════════════════════════
 
-set _tech_dir [file dirname [file normalize [info script]]]
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 1: TECHNOLOGY IDENTITY
-# ═══════════════════════════════════════════════════════════════════════════════
-
+# ── Technology Identity ──
 set tech(node)        "22nm"
 set tech(process)     "GF 22FDX"
 set tech(foundry)     "GlobalFoundries"
 set tech(tracks_available) "9T 7.5T 8T"
 
-# ── VT Variant Patterns (for dont_use selection + lib filtering) ───────
+# ── VT Variant Patterns ──
 set tech(vt_variants_available) {svt lvt ulvt hvt}
 set tech(vt_pattern,svt)  "*svt*"
 set tech(vt_pattern,lvt)  "*lvt*"
 set tech(vt_pattern,ulvt) "*ulvt*"
 set tech(vt_pattern,hvt)  "*hvt*"
 
+# ── LEF Tech File ──
+set tech(lef_tech) "$project(lib_root)/Back_End/lef/gf22nm_tech.lef"
 
+# ── Parasitic Extraction (per RC corner) ──
+# Paths use project(lib_root) — set in project_config
+# Metal count suffix resolved per metal_stack config (set by engine before this file)
+set tech(tluplus_map) "$project(lib_root)/Back_End/rcx/gf22nm_tf_itf_tluplus.map"
 
+set tech(rcx,rc_max,tluplus)   "$project(lib_root)/Back_End/rcx/gf22nm_1p${tech(metal_count)}m_Cmax.tluplus"
+set tech(rcx,rc_max,nxtgrd)    "$project(lib_root)/Back_End/rcx/gf22nm_1p${tech(metal_count)}m_Cmax.nxtgrd"
+set tech(rcx,rc_max,qrc)       "$project(lib_root)/Back_End/rcx/gf22nm_1p${tech(metal_count)}m_Cmax.qrcTechFile"
 
-# ── Library root ───────────────────────────────────────────────────────
-# ── Library paths (multiple roots supported — list format) ────────────
-# Primary lib root
-set tech(lib_root) "/tmp/test_libs/gf_22nm"
-set _R "$tech(lib_root)"
+set tech(rcx,rc_typ,tluplus)   "$project(lib_root)/Back_End/rcx/gf22nm_1p${tech(metal_count)}m_Ctyp.tluplus"
+set tech(rcx,rc_typ,nxtgrd)    "$project(lib_root)/Back_End/rcx/gf22nm_1p${tech(metal_count)}m_Ctyp.nxtgrd"
+set tech(rcx,rc_typ,qrc)       "$project(lib_root)/Back_End/rcx/gf22nm_1p${tech(metal_count)}m_Ctyp.qrcTechFile"
 
-# Additional stdcell lib roots (e.g., eco cells, channel cells)
-# set tech(lib_paths,stdcell) [list "/libs/gf_22nm_eco" "/libs/gf_22nm_channel"]
-set tech(lib_paths,stdcell) [list]
+set tech(rcx,rc_min,tluplus)   "$project(lib_root)/Back_End/rcx/gf22nm_1p${tech(metal_count)}m_Cmin.tluplus"
+set tech(rcx,rc_min,nxtgrd)    "$project(lib_root)/Back_End/rcx/gf22nm_1p${tech(metal_count)}m_Cmin.nxtgrd"
+set tech(rcx,rc_min,qrc)       "$project(lib_root)/Back_End/rcx/gf22nm_1p${tech(metal_count)}m_Cmin.qrcTechFile"
 
-# Additional memory/IO lib paths
-# set tech(lib_paths,memory) [list "/libs/sram_v2/timing" "/libs/rom_v1/timing"]
-# set tech(lib_paths,io) [list "/libs/gpio_v3/timing"]
-set tech(lib_paths,memory) [list]
-set tech(lib_paths,io) [list]
+set tech(rcx,rc_max_cworst,tluplus) "$project(lib_root)/Back_End/rcx/gf22nm_1p${tech(metal_count)}m_Cmax.tluplus"
+set tech(rcx,rc_max_cworst,nxtgrd)  "$project(lib_root)/Back_End/rcx/gf22nm_1p${tech(metal_count)}m_Cmax.nxtgrd"
+set tech(rcx,rc_max_cworst,qrc)     "$project(lib_root)/Back_End/rcx/gf22nm_1p${tech(metal_count)}m_Cmax.qrcTechFile"
 
-# ── Load per-metal-stack configuration ────────────────────────────────
-set _ms_file "$_tech_dir/metal_stack/$project(metal_stack).tcl"
-if {![file exists $_ms_file]} {
-    puts "ERROR: Metal stack config not found: $_ms_file"
-    puts "       Create: config/tech/gf_22nm/v1.0.0/metal_stack/$project(metal_stack).tcl"
-    exit 1
-}
-source $_ms_file
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 2: ACTIVE TRACK + VT FLAVORS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-if {![info exists project(track_variant)] || $project(track_variant) eq ""} {
-    puts "ERROR: project(track_variant) not set. Define it in your project_config.tcl"
-    puts "       Technology: $tech(process) | Available tracks: $tech(tracks_available)"
-    exit 1
-}
-if {[lsearch -exact $tech(tracks_available) $project(track_variant)] == -1} {
-    puts "ERROR: Invalid track '$project(track_variant)' for $tech(process)"
-    puts "       Available tracks: $tech(tracks_available)"
-    exit 1
-}
-set tech(track) $project(track_variant)
-
-if {![info exists project(vt_flavors)] || $project(vt_flavors) eq ""} {
-    puts "ERROR: project(vt_flavors) not set. Define it in project_config.tcl"
-    puts "       Available: $tech(vt_variants_available)"
-    exit 1
-}
-set _vt_load $project(vt_flavors)
-set tech(vt_flavors_loaded) $_vt_load
-
-puts "INFO: $tech(process) active track: $tech(track), VT flavors: $_vt_load"
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 3: LIBRARY SETS (sourced from generated lib_config.tcl)
-# Generated by: cbflow flow library-manager generate --lib-root <path> --tech gf_22nm
-# Contains: NDM, DB, LEF, lib_nom, per-corner timing — fully resolved paths
-# ═══════════════════════════════════════════════════════════════════════════════
-
-set tech(lef_tech) "$_R/Back_End/lef/gf22nm_tech.lef"
-
-# lib_config tag — set project(lib_config_version) "P0" in project_config
-# Resolves to: lib_config_P0.tcl (falls back to lib_config.tcl)
-if {[info exists project(lib_config_version)] && $project(lib_config_version) ne ""} {
-    set _lib_config "$_tech_dir/lib_config_$project(lib_config_version).tcl"
-} else {
-    set _lib_config "$_tech_dir/lib_config.tcl"
-}
-if {![file exists $_lib_config]} {
-    puts "ERROR: lib_config not found: $_lib_config"
-    puts "       Run: cbflow flow library-manager generate --tech gf_22nm"
-    exit 1
-}
-source $_lib_config
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 4: PARASITIC EXTRACTION (shared — same for all tracks)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-set tech(tluplus_map) "$_R/Back_End/rcx/gf22nm_tf_itf_tluplus.map"
-
-set _ms_label "1p${tech(metal_count)}m"
-
-set tech(rcx,rc_max,tluplus)   "$_R/Back_End/rcx/gf22nm_${_ms_label}_Cmax.tluplus"
-set tech(rcx,rc_max,nxtgrd)    "$_R/Back_End/rcx/gf22nm_${_ms_label}_Cmax.nxtgrd"
-set tech(rcx,rc_max,qrc)       "$_R/Back_End/rcx/gf22nm_${_ms_label}_Cmax.qrcTechFile"
-
-set tech(rcx,rc_typ,tluplus)   "$_R/Back_End/rcx/gf22nm_${_ms_label}_Ctyp.tluplus"
-set tech(rcx,rc_typ,nxtgrd)    "$_R/Back_End/rcx/gf22nm_${_ms_label}_Ctyp.nxtgrd"
-set tech(rcx,rc_typ,qrc)       "$_R/Back_End/rcx/gf22nm_${_ms_label}_Ctyp.qrcTechFile"
-
-set tech(rcx,rc_min,tluplus)   "$_R/Back_End/rcx/gf22nm_${_ms_label}_Cmin.tluplus"
-set tech(rcx,rc_min,nxtgrd)    "$_R/Back_End/rcx/gf22nm_${_ms_label}_Cmin.nxtgrd"
-set tech(rcx,rc_min,qrc)       "$_R/Back_End/rcx/gf22nm_${_ms_label}_Cmin.qrcTechFile"
-
-set tech(rcx,rc_max_cworst,tluplus) "$_R/Back_End/rcx/gf22nm_${_ms_label}_Cmax.tluplus"
-set tech(rcx,rc_max_cworst,nxtgrd)  "$_R/Back_End/rcx/gf22nm_${_ms_label}_Cmax.nxtgrd"
-set tech(rcx,rc_max_cworst,qrc)     "$_R/Back_End/rcx/gf22nm_${_ms_label}_Cmax.qrcTechFile"
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 5: PHYSICAL CELLS (per track — site, fillers, CTS, tap, endcap)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# ── 9T Physical ──
+# ── Physical Cells: 9T ──
 set tech(9T,site)           "GF22FDX_SC9T"
 set tech(9T,cell_height)    "0.810"
 set tech(9T,site_width)     "0.114"
@@ -146,7 +61,7 @@ set tech(9T,level_shifter)  "tcbn22cllbwp9tsvt_LSDOWN1 tcbn22cllbwp9tsvt_LSUP1 t
 set tech(9T,tie_cells)      "tcbn22cllbwp9tsvt_TIEHI tcbn22cllbwp9tsvt_TIELO"
 set tech(9T,dont_use)       "*D0BWP9T* *OPTHOLD* *DEL*"
 
-# ── 7.5T Physical ──
+# ── Physical Cells: 7.5T ──
 set tech(7.5T,site)           "GF22FDX_SC7P5T"
 set tech(7.5T,cell_height)    "0.675"
 set tech(7.5T,site_width)     "0.116"
@@ -165,7 +80,7 @@ set tech(7.5T,level_shifter)  "tcbn22cllbwp7p5tsvt_LSDOWN1 tcbn22cllbwp7p5tsvt_L
 set tech(7.5T,tie_cells)      "tcbn22cllbwp7p5tsvt_TIEHI tcbn22cllbwp7p5tsvt_TIELO"
 set tech(7.5T,dont_use)       "*D0BWP7P5T* *OPTHOLD* *DEL*"
 
-# ── 8T Physical ──
+# ── Physical Cells: 8T ──
 set tech(8T,site)           "GF22FDX_SC8T"
 set tech(8T,cell_height)    "0.720"
 set tech(8T,site_width)     "0.114"
@@ -184,62 +99,16 @@ set tech(8T,level_shifter)  "tcbn22cllbwp8tsvt_LSDOWN1 tcbn22cllbwp8tsvt_LSUP1 t
 set tech(8T,tie_cells)      "tcbn22cllbwp8tsvt_TIEHI tcbn22cllbwp8tsvt_TIELO"
 set tech(8T,dont_use)       "*D0BWP8T* *OPTHOLD* *DEL*"
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 6: DESIGN RULES & ROUTING
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# Routing layers — must be set by metal_stack config
-if {![info exists tech(min_routing_layer)] || ![info exists tech(max_routing_layer)]} {
-    puts "ERROR: Routing layers not set. Metal stack config must define:"
-    puts "       tech(min_routing_layer), tech(max_routing_layer)"
-    puts "       tech(clock_routing_layer_min), tech(clock_routing_layer_max)"
-    exit 1
-}
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 7: BODY BIAS (GF 22FDX specific — FD-SOI advantage)
-# ═══════════════════════════════════════════════════════════════════════════════
-
+# ── Body Bias (GF 22FDX specific — FD-SOI) ──
 set tech(body_bias,fbb_voltage) "0.8"
 set tech(body_bias,rbb_voltage) "-0.3"
 set tech(body_bias,enabled) "true"
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 8: SIGNOFF, DRC & GDS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-set tech(gds_layer_map_file)        "$_R/Back_End/layermap/gf22nm_layermap.map"
-set tech(antenna_rule_file)         "$_R/Back_End/antenna/gf22nm_antenna.rules"
+# ── Signoff, DRC & GDS ──
+set tech(gds_layer_map_file)        "$project(lib_root)/Back_End/layermap/gf22nm_layermap.map"
+set tech(antenna_rule_file)         "$project(lib_root)/Back_End/antenna/gf22nm_antenna.rules"
 set tech(lib_cell_purpose_file)     ""
 set tech(filler_sidefile)           ""
 set tech(signal_em_constraint_file) ""
 set tech(signal_em_constraint_format) "sigem"
 set tech(stream_files_for_merge)    ""
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 9: BACKWARD COMPATIBILITY — old variable names → new
-# ═══════════════════════════════════════════════════════════════════════════════
-
-set _trk $tech(track)
-if {[info exists tech(${_trk},ndm)] && [llength $tech(${_trk},ndm)] > 0} {
-    set tech(ndm,standard_cells) [lindex $tech(${_trk},ndm) 0]
-}
-if {[info exists tech(${_trk},lef)] && [llength $tech(${_trk},lef)] > 0} {
-    set tech(lef,standard_cells) [lindex $tech(${_trk},lef) 0]
-}
-set tech(library,root_path)    $tech(lib_root)
-set tech(library,stdcell_path) "$tech(lib_root)/Front_End/timing/stdcell"
-set tech(library,memory_path)  "$tech(lib_root)/Front_End/timing/memory"
-set tech(library,io_path)      "$tech(lib_root)/Front_End/timing/io"
-
-set tech(lef,technology) $tech(lef_tech)
-
-if {[info exists tech(${_trk},lib_nom)]} {
-    set tech(lib,timing) $tech(${_trk},lib_nom)
-}
-
-if {[info exists tech(${_trk},decap)]} {
-    set tech(decap_cells) $tech(${_trk},decap)
-}
-
-puts "INFO: $tech(process) tech config loaded — track=$tech(track), VT=$tech(vt_flavors_loaded), metal_stack=$project(metal_stack) (${tech(metal_count)}M), libs=[expr {[info exists tech(${_trk},ndm)] ? [llength $tech(${_trk},ndm)] : 0}] NDMs"

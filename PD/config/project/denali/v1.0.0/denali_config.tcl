@@ -32,6 +32,7 @@ set project(technology) "gf_28nm"
 set project(track_variant) "9T"
 set project(metal_stack) "gf28slpe_10M_2Mx_5Cx_1Jx_2Qx"
 set project(vt_flavors) "rvt lvt hvt"
+set project(lib_root) "/proj/libs/gf_28nm"
 
 # Design hierarchy
 set project(top_module) "denali_top"

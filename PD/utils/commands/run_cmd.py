@@ -17,12 +17,9 @@ from pathlib import Path
 from logging_config import configure_logging, get_logger
 
 import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from core.paths import get_cbflow_core_dir, get_flow_config_version
+from core.paths import get_cbflow_core_dir, get_flow_config_version, CBFLOW_VERSION as VERSION
 
 logger = configure_logging('cbflow.run')
-
-# Version
-from core.paths import CBFLOW_VERSION as VERSION
 
 
 

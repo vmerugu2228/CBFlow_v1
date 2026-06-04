@@ -181,7 +181,7 @@ _cbflow_completions() {
                     fi ;;
                 library-manager)
                     if [[ ${cword} -eq 3 ]]; then
-                        COMPREPLY=( $(compgen -W "generate scan create check list verify coverage generate-mmmc" -- "${cur}") )
+                        COMPREPLY=( $(compgen -W "generate scan check list verify coverage generate-mmmc" -- "${cur}") )
                     else
                         case "${prev}" in
                             --tech)          COMPREPLY=( $(compgen -W "gf_22nm tsmc_5nm tsmc_7nm" -- "${cur}") ) ;;

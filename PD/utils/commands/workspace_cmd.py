@@ -19,14 +19,11 @@ from pathlib import Path
 from logging_config import configure_logging, get_logger
 logger = configure_logging('cbflow.workspace')
 
-# Version
-from core.paths import CBFLOW_VERSION as VERSION
+import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core.paths import CBFLOW_VERSION as VERSION, get_cbflow_core_dir, get_flow_config_version
 
 # Valid flow types - loaded from existing Tcl config files
 from tcl_config_parser import get_flow_types as _get_flow_types
-
-import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from core.paths import get_cbflow_core_dir, get_flow_config_version
 
 FLOW_TYPES = _get_flow_types()
 

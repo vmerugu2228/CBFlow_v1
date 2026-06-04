@@ -1,129 +1,52 @@
 #!/usr/bin/env tclsh
 # ═══════════════════════════════════════════════════════════════════════════════
 # CBflow Technology Configuration — GlobalFoundries 28SLP-E (28nm SLP Enhanced)
-# Track heights: 7T, 9T | VTs: rvt, lvt, ulvt, hvt | Channel: c30
-# Library sets auto-generated in lib_config.tcl by library-manager
+# PURE DATA — no if/else, no source, no exit, no logic
+# Engine (generate_setup.tcl) handles validation, sourcing, and assembly
 # ═══════════════════════════════════════════════════════════════════════════════
 
-set _tech_dir [file dirname [file normalize [info script]]]
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 1: TECHNOLOGY IDENTITY
-# ═══════════════════════════════════════════════════════════════════════════════
-
+# ── Technology Identity ──
 set tech(node)        "28nm"
 set tech(process)     "GF 28SLP-E"
 set tech(foundry)     "GlobalFoundries"
 set tech(tracks_available) "7T 9T"
 
-# Track patterns for library filename matching (library-manager uses these)
+# ── Track Patterns (for library filename matching) ──
 set tech(track_pattern,7T) "*sc7*"
 set tech(track_pattern,9T) "*sc9*"
 
-# ── VT Variant Patterns (for dont_use selection + lib filtering) ───────
+# ── VT Variant Patterns ──
 set tech(vt_variants_available) {rvt lvt ulvt hvt}
 set tech(vt_pattern,rvt)  "*rvt*"
 set tech(vt_pattern,lvt)  "*lvt*"
 set tech(vt_pattern,ulvt) "*ulvt*"
 set tech(vt_pattern,hvt)  "*hvt*"
 
+# ── LEF Tech File ──
+set tech(lef_tech) "$project(lib_root)/Back_End/lef/gf28slpe_tech.lef"
 
+# ── Parasitic Extraction (per RC corner) ──
+# Paths use project(lib_root) — set in project_config
+# Metal count suffix resolved per metal_stack config (set by engine before this file)
+set tech(tluplus_map) "$project(lib_root)/Back_End/rcx/gf28slpe_tf_itf_tluplus.map"
 
+set tech(rcx,rc_max,tluplus)   "$project(lib_root)/Back_End/rcx/gf28slpe_1p${tech(metal_count)}m_Cmax.tluplus"
+set tech(rcx,rc_max,nxtgrd)    "$project(lib_root)/Back_End/rcx/gf28slpe_1p${tech(metal_count)}m_Cmax.nxtgrd"
+set tech(rcx,rc_max,qrc)       "$project(lib_root)/Back_End/rcx/gf28slpe_1p${tech(metal_count)}m_Cmax.qrcTechFile"
 
-# ── Library root + additional paths ────────────────────────────────────
-set tech(lib_root) "/proj/libs/gf_28nm"
-set _R "$tech(lib_root)"
+set tech(rcx,rc_typ,tluplus)   "$project(lib_root)/Back_End/rcx/gf28slpe_1p${tech(metal_count)}m_Ctyp.tluplus"
+set tech(rcx,rc_typ,nxtgrd)    "$project(lib_root)/Back_End/rcx/gf28slpe_1p${tech(metal_count)}m_Ctyp.nxtgrd"
+set tech(rcx,rc_typ,qrc)       "$project(lib_root)/Back_End/rcx/gf28slpe_1p${tech(metal_count)}m_Ctyp.qrcTechFile"
 
-# Additional lib paths (multiple roots — auto-read by library-manager generate)
-set tech(lib_paths,stdcell) [list]
-set tech(lib_paths,memory) [list]
-set tech(lib_paths,io) [list]
+set tech(rcx,rc_min,tluplus)   "$project(lib_root)/Back_End/rcx/gf28slpe_1p${tech(metal_count)}m_Cmin.tluplus"
+set tech(rcx,rc_min,nxtgrd)    "$project(lib_root)/Back_End/rcx/gf28slpe_1p${tech(metal_count)}m_Cmin.nxtgrd"
+set tech(rcx,rc_min,qrc)       "$project(lib_root)/Back_End/rcx/gf28slpe_1p${tech(metal_count)}m_Cmin.qrcTechFile"
 
-# ── Load per-metal-stack configuration ────────────────────────────────
-set _ms_file "$_tech_dir/metal_stack/$project(metal_stack).tcl"
-if {![file exists $_ms_file]} {
-    puts "ERROR: Metal stack config not found: $_ms_file"
-    puts "       Create: config/tech/gf_28nm/v1.0.0/metal_stack/$project(metal_stack).tcl"
-    exit 1
-}
-source $_ms_file
+set tech(rcx,rc_max_cworst,tluplus) "$project(lib_root)/Back_End/rcx/gf28slpe_1p${tech(metal_count)}m_Cmax.tluplus"
+set tech(rcx,rc_max_cworst,nxtgrd)  "$project(lib_root)/Back_End/rcx/gf28slpe_1p${tech(metal_count)}m_Cmax.nxtgrd"
+set tech(rcx,rc_max_cworst,qrc)     "$project(lib_root)/Back_End/rcx/gf28slpe_1p${tech(metal_count)}m_Cmax.qrcTechFile"
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 2: ACTIVE TRACK + VT FLAVORS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-if {![info exists project(track_variant)] || $project(track_variant) eq ""} {
-    puts "ERROR: project(track_variant) not set. Define it in your project_config.tcl"
-    puts "       Technology: $tech(process) | Available tracks: $tech(tracks_available)"
-    exit 1
-}
-if {[lsearch -exact $tech(tracks_available) $project(track_variant)] == -1} {
-    puts "ERROR: Invalid track '$project(track_variant)' for $tech(process)"
-    puts "       Available tracks: $tech(tracks_available)"
-    exit 1
-}
-set tech(track) $project(track_variant)
-
-if {![info exists project(vt_flavors)] || $project(vt_flavors) eq ""} {
-    puts "ERROR: project(vt_flavors) not set. Define it in project_config.tcl"
-    puts "       Available: $tech(vt_variants_available)"
-    exit 1
-}
-set _vt_load $project(vt_flavors)
-set tech(vt_flavors_loaded) $_vt_load
-
-puts "INFO: $tech(process) active track: $tech(track), VT flavors: $_vt_load"
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 3: LIBRARY SETS (sourced from generated lib_config.tcl)
-# Generated by: cbflow flow library-manager generate --lib-root <path> --tech gf_28nm
-# Contains: NDM, DB, LEF, lib_nom, per-corner timing — fully resolved paths
-# ═══════════════════════════════════════════════════════════════════════════════
-
-set tech(lef_tech) "$_R/Back_End/lef/gf28slpe_tech.lef"
-
-# lib_config tag — set project(lib_config_version) "P0" in project_config
-if {[info exists project(lib_config_version)] && $project(lib_config_version) ne ""} {
-    set _lib_config "$_tech_dir/lib_config_$project(lib_config_version).tcl"
-} else {
-    set _lib_config "$_tech_dir/lib_config.tcl"
-}
-if {![file exists $_lib_config]} {
-    puts "ERROR: lib_config not found: $_lib_config"
-    puts "       Run: cbflow flow library-manager generate --tech gf_28nm"
-    exit 1
-}
-source $_lib_config
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 4: PARASITIC EXTRACTION (shared — same for all tracks)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-set tech(tluplus_map) "$_R/Back_End/rcx/gf28slpe_tf_itf_tluplus.map"
-
-set _ms_label "1p${tech(metal_count)}m"
-
-set tech(rcx,rc_max,tluplus)   "$_R/Back_End/rcx/gf28slpe_${_ms_label}_Cmax.tluplus"
-set tech(rcx,rc_max,nxtgrd)    "$_R/Back_End/rcx/gf28slpe_${_ms_label}_Cmax.nxtgrd"
-set tech(rcx,rc_max,qrc)       "$_R/Back_End/rcx/gf28slpe_${_ms_label}_Cmax.qrcTechFile"
-
-set tech(rcx,rc_typ,tluplus)   "$_R/Back_End/rcx/gf28slpe_${_ms_label}_Ctyp.tluplus"
-set tech(rcx,rc_typ,nxtgrd)    "$_R/Back_End/rcx/gf28slpe_${_ms_label}_Ctyp.nxtgrd"
-set tech(rcx,rc_typ,qrc)       "$_R/Back_End/rcx/gf28slpe_${_ms_label}_Ctyp.qrcTechFile"
-
-set tech(rcx,rc_min,tluplus)   "$_R/Back_End/rcx/gf28slpe_${_ms_label}_Cmin.tluplus"
-set tech(rcx,rc_min,nxtgrd)    "$_R/Back_End/rcx/gf28slpe_${_ms_label}_Cmin.nxtgrd"
-set tech(rcx,rc_min,qrc)       "$_R/Back_End/rcx/gf28slpe_${_ms_label}_Cmin.qrcTechFile"
-
-set tech(rcx,rc_max_cworst,tluplus) "$_R/Back_End/rcx/gf28slpe_${_ms_label}_Cmax.tluplus"
-set tech(rcx,rc_max_cworst,nxtgrd)  "$_R/Back_End/rcx/gf28slpe_${_ms_label}_Cmax.nxtgrd"
-set tech(rcx,rc_max_cworst,qrc)     "$_R/Back_End/rcx/gf28slpe_${_ms_label}_Cmax.qrcTechFile"
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 5: PHYSICAL CELLS (per track — site, fillers, CTS, tap, endcap)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# ── 7T Physical ──
+# ── Physical Cells: 7T ──
 set tech(7T,site)           "GF28SLPE_SC7T"
 set tech(7T,cell_height)    "1.008"
 set tech(7T,site_width)     "0.140"
@@ -142,7 +65,7 @@ set tech(7T,level_shifter)  "sc7mcz_28slpe_base_rvt_c30_LSDOWN1 sc7mcz_28slpe_ba
 set tech(7T,tie_cells)      "sc7mcz_28slpe_base_rvt_c30_TIEHI sc7mcz_28slpe_base_rvt_c30_TIELO"
 set tech(7T,dont_use)       "*D0BWP7T* *OPTHOLD* *DEL*"
 
-# ── 9T Physical ──
+# ── Physical Cells: 9T ──
 set tech(9T,site)           "GF28SLPE_SC9T"
 set tech(9T,cell_height)    "1.296"
 set tech(9T,site_width)     "0.140"
@@ -161,54 +84,11 @@ set tech(9T,level_shifter)  "sc9mcz_28slpe_base_rvt_c30_LSDOWN1 sc9mcz_28slpe_ba
 set tech(9T,tie_cells)      "sc9mcz_28slpe_base_rvt_c30_TIEHI sc9mcz_28slpe_base_rvt_c30_TIELO"
 set tech(9T,dont_use)       "*D0BWP9T* *OPTHOLD* *DEL*"
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 6: DESIGN RULES & ROUTING
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# Routing layers — must be set by metal_stack config
-if {![info exists tech(min_routing_layer)] || ![info exists tech(max_routing_layer)]} {
-    puts "ERROR: Routing layers not set. Metal stack config must define:"
-    puts "       tech(min_routing_layer), tech(max_routing_layer)"
-    puts "       tech(clock_routing_layer_min), tech(clock_routing_layer_max)"
-    exit 1
-}
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 7: SIGNOFF, DRC & GDS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-set tech(gds_layer_map_file)        "$_R/Back_End/layermap/gf28slpe_layermap.map"
-set tech(antenna_rule_file)         "$_R/Back_End/antenna/gf28slpe_antenna.rules"
+# ── Signoff, DRC & GDS ──
+set tech(gds_layer_map_file)        "$project(lib_root)/Back_End/layermap/gf28slpe_layermap.map"
+set tech(antenna_rule_file)         "$project(lib_root)/Back_End/antenna/gf28slpe_antenna.rules"
 set tech(lib_cell_purpose_file)     ""
 set tech(filler_sidefile)           ""
 set tech(signal_em_constraint_file) ""
 set tech(signal_em_constraint_format) "sigem"
 set tech(stream_files_for_merge)    ""
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 8: BACKWARD COMPATIBILITY
-# ═══════════════════════════════════════════════════════════════════════════════
-
-set _trk $tech(track)
-if {[info exists tech(${_trk},ndm)] && [llength $tech(${_trk},ndm)] > 0} {
-    set tech(ndm,standard_cells) [lindex $tech(${_trk},ndm) 0]
-}
-if {[info exists tech(${_trk},lef)] && [llength $tech(${_trk},lef)] > 0} {
-    set tech(lef,standard_cells) [lindex $tech(${_trk},lef) 0]
-}
-set tech(library,root_path)    $tech(lib_root)
-set tech(library,stdcell_path) "$tech(lib_root)/Front_End/timing/stdcell"
-set tech(library,memory_path)  "$tech(lib_root)/Front_End/timing/memory"
-set tech(library,io_path)      "$tech(lib_root)/Front_End/timing/io"
-
-set tech(lef,technology) $tech(lef_tech)
-
-if {[info exists tech(${_trk},lib_nom)]} {
-    set tech(lib,timing) $tech(${_trk},lib_nom)
-}
-
-if {[info exists tech(${_trk},decap)]} {
-    set tech(decap_cells) $tech(${_trk},decap)
-}
-
-puts "INFO: $tech(process) tech config loaded — track=$tech(track), VT=$tech(vt_flavors_loaded), metal_stack=$project(metal_stack) (${tech(metal_count)}M), libs=[expr {[info exists tech(${_trk},ndm)] ? [llength $tech(${_trk},ndm)] : 0}] NDMs"
