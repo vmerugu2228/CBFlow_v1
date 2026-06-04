@@ -19,7 +19,10 @@ set tech(vt_pattern,ulvt) "*ulvt*"
 set tech(vt_pattern,hvt)  "*hvt*"
 
 # ── LEF Tech File ──
-set tech(lef_tech) "$project(lib_root)/Back_End/lef/tsmc7nm_tech.lef"
+# ── Tech LEF per track ──
+set tech(6T,lef_tech) "$project(lib_root)/Back_End/lef/tsmc7nm_6t_tech.lef"
+set tech(7.5T,lef_tech) "$project(lib_root)/Back_End/lef/tsmc7nm_7p5t_tech.lef"
+set tech(9T,lef_tech) "$project(lib_root)/Back_End/lef/tsmc7nm_9t_tech.lef"
 
 # ── Parasitic Extraction (per RC corner) ──
 # Paths use project(lib_root) — set in project_config

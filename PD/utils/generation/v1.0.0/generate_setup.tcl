@@ -950,6 +950,24 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
             }
         }
 
+        # ── Derived variables (backward compat — set AFTER all configs loaded) ──
+        lappend lines ""
+        lappend lines "# ═══════════════════════════════════════════════════════════════════════════════"
+        lappend lines "# DERIVED VARIABLES (engine-generated from project + tech configs)"
+        lappend lines "# ═══════════════════════════════════════════════════════════════════════════════"
+        lappend lines ""
+        lappend lines "# Active track and VT (from project_config)"
+        lappend lines "set tech(track) \$project(track_variant)"
+        lappend lines "set tech(vt_flavors_loaded) \$project(vt_flavors)"
+        lappend lines ""
+        lappend lines "# Tech LEF for active track"
+        lappend lines "if {\[info exists tech(\$project(track_variant),lef_tech)\]} {"
+        lappend lines "    set tech(lef_tech) \$tech(\$project(track_variant),lef_tech)"
+        lappend lines "}"
+        lappend lines ""
+        lappend lines "# tech(lib_root) alias for backward compat with command files"
+        lappend lines "if {\[info exists project(lib_root)\]} { set tech(lib_root) \$project(lib_root) }"
+        lappend lines ""
         lappend lines "puts \"INFO: Consolidated configuration loading complete for $flow_type $node_type ($node_name)\""
 
         return [join $lines "\n"]
