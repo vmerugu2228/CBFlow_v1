@@ -239,11 +239,13 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
             }
         }
 
-        # Method 3: Flow-specific fallback defaults from centralized config
+        # Method 3: Flow-specific default from centralized config — no hardcoded fallback
         if {$tool_name eq ""} {
             set tool_name [::CBFlow::Config::get_tool_name $flow_type]
             if {$tool_name eq ""} {
-                set tool_name "innovus"
+                puts "ERROR: Cannot resolve tool_name for flow $flow_type"
+                puts "  Set <arr>(tool,name) in user_config or default_tool in node_config"
+                error "Missing required config: tool,name"
             }
         }
 
@@ -789,8 +791,11 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
         lappend lines "if {\[info exists ::env(TECH_NAME)\]} {"
         lappend lines "    set TECH_NAME \$::env(TECH_NAME)"
         lappend lines "} else {"
-        set _tn "unknown_tech"
-        if {[info exists ::env(TECH_NAME)]} { set _tn $::env(TECH_NAME) }
+        if {![info exists ::env(TECH_NAME)] || $::env(TECH_NAME) eq ""} {
+            puts "ERROR: TECH_NAME environment variable not set"
+            error "Missing required env: TECH_NAME"
+        }
+        set _tn $::env(TECH_NAME)
         lappend lines "    set TECH_NAME \"$_tn\""
         lappend lines "}"
         lappend lines "if {\[info exists ::env(TOOL_VERSION)\]} {"

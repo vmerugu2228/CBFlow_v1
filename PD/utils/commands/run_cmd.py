@@ -17,12 +17,12 @@ from pathlib import Path
 from logging_config import configure_logging, get_logger
 
 import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from core.paths import get_cbflow_core_dir
+from core.paths import get_cbflow_core_dir, get_flow_config_version
 
 logger = configure_logging('cbflow.run')
 
 # Version
-VERSION = "2.0.0"
+from core.paths import CBFLOW_VERSION as VERSION
 
 
 
@@ -2009,7 +2009,7 @@ def cmd_release_check(args: argparse.Namespace) -> int:
         logger.error("Cannot determine FLOW_DIR. Set env or run from workspace.")
         return 1
 
-    ver = os.environ.get('FLOW_CONFIG_VERSION', 'v1.0.0')
+    ver = get_flow_config_version()
 
     # Load release_tags from release_config
     release_tags = {}

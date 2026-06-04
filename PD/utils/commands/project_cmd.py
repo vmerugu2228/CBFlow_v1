@@ -29,7 +29,7 @@ AVAILABLE_FLOWS = _get_flow_desc()
 PROJECT_PHASES = _get_phase_desc()
 
 # Version
-VERSION = "2.0.0"
+from core.paths import CBFLOW_VERSION as VERSION
 
 
 

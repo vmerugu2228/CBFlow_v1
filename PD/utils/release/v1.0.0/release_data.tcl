@@ -791,7 +791,7 @@ proc create_release_directory {tag} {
     global release_base_dir project force_overwrite
     
     # Get block name from project configuration
-    set block_name "unknown_block"
+    puts "ERROR: block_name not set"; exit 1
     if {[info exists project(name)]} {
         set block_name $project(name)
     } elseif {[info exists project(top_module)]} {
@@ -896,7 +896,7 @@ proc generate_readme {type tag release_path} {
     global total_files_required total_optional_files run_dir
     
     # Get block name
-    set block_name "unknown_block"
+    puts "ERROR: block_name not set"; exit 1
     if {[info exists project(name)]} {
         set block_name $project(name)
     } elseif {[info exists project(top_module)]} {
@@ -1177,7 +1177,7 @@ proc main {args} {
     puts ""
     # Get block name for display (same logic as create_release_directory)
     global project
-    set block_name "unknown_block"
+    puts "ERROR: block_name not set"; exit 1
     if {[info exists project(name)]} {
         set block_name $project(name)
     } elseif {[info exists project(top_module)]} {

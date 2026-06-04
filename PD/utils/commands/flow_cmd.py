@@ -21,7 +21,7 @@ from core.paths import get_cbflow_core_dir
 logger = configure_logging('cbflow.flow')
 
 # Version
-VERSION = "2.0.0"
+from core.paths import CBFLOW_VERSION as VERSION
 
 # Flow type definitions - loaded from existing Tcl config files
 def _build_flow_types_dict():

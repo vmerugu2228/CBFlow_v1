@@ -27,7 +27,7 @@ from logging_config import configure_logging, get_logger
 
 import sys; sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from core.paths import get_cbflow_core_dir
+from core.paths import get_cbflow_core_dir, get_flow_config_version
 
 logger = configure_logging('cbflow.library_manager')
 
@@ -36,7 +36,7 @@ logger = configure_logging('cbflow.library_manager')
 def _resolve_lib_root_from_tech_config(tech_name=None) -> str:
     """Read tech(lib_root) from tech_config.tcl. Returns path or empty string."""
     core_dir = get_cbflow_core_dir()
-    version = os.environ.get('FLOW_CONFIG_VERSION', 'v1.0.0')
+    version = get_flow_config_version()
     # Try specific tech
     if tech_name:
         tc = os.path.join(core_dir, 'config', 'tech', tech_name, version, 'tech_config.tcl')

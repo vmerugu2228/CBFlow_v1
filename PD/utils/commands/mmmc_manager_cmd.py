@@ -32,7 +32,7 @@ def get_mmmc_config_path() -> str:
         # Fall back to relative from this script
         script_dir = os.path.dirname(os.path.abspath(__file__))
         core_dir = os.path.dirname(os.path.dirname(script_dir))
-    version = os.environ.get('FLOW_CONFIG_VERSION', 'v1.0.0')
+    version = get_flow_config_version()
     return os.path.join(core_dir, 'config', 'flow', version, 'mmmc_config.tcl')
 
 
@@ -1150,7 +1150,7 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
     """
     from datetime import datetime
 
-    version = os.environ.get('FLOW_CONFIG_VERSION', 'v1.0.0')
+    version = get_flow_config_version()
     script_dir = os.path.dirname(os.path.abspath(__file__))
     core_dir = os.path.dirname(os.path.dirname(script_dir))
 

@@ -32,6 +32,9 @@ namespace eval ::CBFlow::LSF {
 
 # Main LSF queue configuration array
 array set lsf {
+    # Default queue type when no flow_mapping exists for a stage
+    default_queue_type "M"
+
     # ═══════════════════════════════════════════════════════════════════════════
     # CORE LSF QUEUE TYPES
     # ═══════════════════════════════════════════════════════════════════════════

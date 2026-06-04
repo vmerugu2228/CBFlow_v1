@@ -20,13 +20,13 @@ from logging_config import configure_logging, get_logger
 logger = configure_logging('cbflow.workspace')
 
 # Version
-VERSION = "2.0.0"
+from core.paths import CBFLOW_VERSION as VERSION
 
 # Valid flow types - loaded from existing Tcl config files
 from tcl_config_parser import get_flow_types as _get_flow_types
 
 import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from core.paths import get_cbflow_core_dir
+from core.paths import get_cbflow_core_dir, get_flow_config_version
 
 FLOW_TYPES = _get_flow_types()
 
@@ -143,7 +143,7 @@ def load_cbflow_env() -> dict:
 def _get_flow_mode(core_dir: str) -> str:
     """Read flow(mode) from flow_config.tcl. Returns 'default' or 'merged'."""
     import re
-    version = os.environ.get('FLOW_CONFIG_VERSION', 'v1.0.0')
+    version = get_flow_config_version()
     config_path = os.path.join(core_dir, 'config', 'flow', version, 'flow_config.tcl')
     if os.path.exists(config_path):
         try:
@@ -519,7 +519,7 @@ def _build_env_from_user_config(config_file: str) -> dict:
         core = os.environ.get('CBFLOW_CORE_DIR', '')
         if not core:
             core = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        cfg_ver = os.environ.get('FLOW_CONFIG_VERSION', 'v1.0.0')
+        cfg_ver = get_flow_config_version()
         tool_cfg = os.path.join(core, 'config', 'flow', cfg_ver,
                                 'node_configs', '{}_{}_config.tcl'.format(flow_type, tool_name))
         if os.path.isfile(tool_cfg):
@@ -552,7 +552,7 @@ def _get_mandatory_inputs_from_config(core_dir: str, flow_type: str) -> list:
     Returns list of variable keys, or empty list if not defined.
     """
     import re as _re
-    flow_config_ver = os.environ.get('FLOW_CONFIG_VERSION', 'v1.0.0')
+    flow_config_ver = get_flow_config_version()
     config_file = os.path.join(core_dir, 'config', 'flow', flow_config_ver,
                                'node_configs', f'{flow_type}_config.tcl')
     if not os.path.exists(config_file):

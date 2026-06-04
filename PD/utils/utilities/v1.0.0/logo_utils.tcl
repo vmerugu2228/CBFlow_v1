@@ -330,7 +330,7 @@ namespace eval ::CBFlow::Logo {
         } elseif {[info exists ::env(PROJECT_NAME)] && $::env(PROJECT_NAME) ne ""} {
             set project_name $::env(PROJECT_NAME)
         } else {
-            set project_name "unknown_project"
+            puts "WARNING: project name not available"; set project_name ""
         }
 
         set team_config "$flow_root/config/project/$project_name/$::env(PROJECT_CONFIG_VERSION)/team_config.tcl"

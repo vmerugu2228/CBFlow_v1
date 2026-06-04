@@ -100,28 +100,43 @@ proc submit_job {wrapper flow_type stage_name node_name work_dir} {
 
     lassign [determine_launch_mode] use_lsf use_xterm
 
-    # Resolve xterm settings
-    set xterm_cmd "xterm"
-    set xterm_geom "200x50"
-    catch { set xterm_cmd $lsf(xterm,command) }
-    catch { set xterm_geom $lsf(xterm,geometry) }
+    # Resolve xterm settings — from config, no hardcoded defaults
+    if {![info exists lsf(xterm,command)]} {
+        puts "ERROR: lsf(xterm,command) not set in tool_launch_config.tcl"; exit 1
+    }
+    set xterm_cmd $lsf(xterm,command)
+    set xterm_geom [expr {[info exists lsf(xterm,geometry)] ? $lsf(xterm,geometry) : "200x50"}]
 
     if {$use_lsf} {
         # Build bsub command
         if {[info exists ::env(CBFLOW_BSUB_CMD)] && $::env(CBFLOW_BSUB_CMD) ne ""} {
             set bsub_cmd $::env(CBFLOW_BSUB_CMD)
         } else {
-            set qtype "M"
-            catch { set qtype $lsf(flow_mapping,$flow_type,$stage_name) }
-            set mem "16GB"; set cpu "8"; set runtime "4:00"
-            catch { set mem $lsf(queue_types,$qtype,memory) }
-            catch { set cpu $lsf(queue_types,$qtype,cpu) }
-            catch { set runtime $lsf(queue_types,$qtype,runtime_limit) }
-            set bsub "bsub"; set queue "normal"; set project ""; set affinity ""
-            catch { set bsub $lsf(bsub,command) }
-            catch { set queue $lsf(bsub,queue) }
-            catch { set project $lsf(bsub,project) }
-            catch { set affinity $lsf(bsub,affinity) }
+            # Queue type — from config, no hardcoded fallback
+            if {![info exists lsf(flow_mapping,$flow_type,$stage_name)]} {
+                if {![info exists lsf(default_queue_type)]} {
+                    puts "ERROR: lsf(default_queue_type) not set in lsf_config.tcl and no flow_mapping for $flow_type/$stage_name"
+                    exit 1
+                }
+                set qtype $lsf(default_queue_type)
+            } else {
+                set qtype $lsf(flow_mapping,$flow_type,$stage_name)
+            }
+            # Resource limits — must come from lsf_config queue_types
+            if {![info exists lsf(queue_types,$qtype,memory)]} {
+                puts "ERROR: lsf(queue_types,$qtype,memory) not set in lsf_config.tcl"; exit 1
+            }
+            set mem $lsf(queue_types,$qtype,memory)
+            set cpu $lsf(queue_types,$qtype,cpu)
+            set runtime $lsf(queue_types,$qtype,runtime_limit)
+            # bsub command settings — from config
+            if {![info exists lsf(bsub,command)]} {
+                puts "ERROR: lsf(bsub,command) not set in lsf_config.tcl"; exit 1
+            }
+            set bsub $lsf(bsub,command)
+            set queue [expr {[info exists lsf(bsub,queue)] ? $lsf(bsub,queue) : "normal"}]
+            set project [expr {[info exists lsf(bsub,project)] ? $lsf(bsub,project) : ""}]
+            set affinity [expr {[info exists lsf(bsub,affinity)] ? $lsf(bsub,affinity) : ""}]
             set bsub_cmd "$bsub"
             if {$project ne ""} { append bsub_cmd " -P $project" }
             append bsub_cmd " -J cbflow_${flow_type}_${stage_name}"
@@ -164,13 +179,14 @@ proc handler_run {run_dir flow_type node_name stage_name cmd_file test_mode {too
     file mkdir $work_dir
     set log_file "$work_dir/${node_name}.log"
 
-    # Resolve tool name
+    # Resolve tool name — no hardcoded fallback
     if {$tool_name eq ""} {
         set fl [string tolower $flow_type]
         if {[info exists ::${fl}(tool,name)]} {
             set tool_name [set ::${fl}(tool,name)]
         } else {
-            set tool_name "innovus"
+            puts "ERROR: tool,name not set for flow $flow_type — set ${fl}(tool,name) in user_config or node_config"
+            exit 1
         }
     }
 

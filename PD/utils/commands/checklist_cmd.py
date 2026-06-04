@@ -19,7 +19,7 @@ from logging_config import configure_logging, get_logger
 
 import sys; sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from core.paths import get_cbflow_core_dir
+from core.paths import get_cbflow_core_dir, get_flow_config_version
 
 logger = configure_logging('cbflow.checklist')
 
@@ -31,7 +31,7 @@ PHASE_ORDER = {'P0': 0, 'P1': 1, 'P2': 2, 'P3': 3}
 def get_exit_config_dir() -> str:
     """Get exit criteria config directory."""
     core_dir = get_cbflow_core_dir()
-    version = os.environ.get('FLOW_CONFIG_VERSION', 'v1.0.0')
+    version = get_flow_config_version()
     return os.path.join(core_dir, 'config', 'exit', version)
 
 

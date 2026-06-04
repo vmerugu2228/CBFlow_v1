@@ -8,6 +8,13 @@ Every command module imports from here instead of re-implementing.
 import os
 import sys
 
+# ── Single source of truth for framework version ──
+CBFLOW_VERSION = "2.0.0"
+
+# ── Default config version — used ONLY during development/testing ──
+# In production, FLOW_CONFIG_VERSION env var MUST be set
+_DEFAULT_CONFIG_VERSION = "v1.0.0"
+
 
 def get_cbflow_core_dir() -> str:
     """Resolve the CBflow core directory (PD/).

@@ -295,7 +295,8 @@ namespace eval ::CBFlow::Utilities {
         } elseif {[info exists ::env(PROJECT_NAME)] && $::env(PROJECT_NAME) ne ""} {
             set project_name $::env(PROJECT_NAME)
         } else {
-            set project_name "unknown_project"
+            puts "ERROR: CBFLOW_PROJECT_NAME not set — cannot load project config"
+            return
         }
         lappend config_files "$flow_root/config/project/$project_name/$::env(PROJECT_CONFIG_VERSION)/phoenix_config.tcl"
 
@@ -305,7 +306,8 @@ namespace eval ::CBFlow::Utilities {
         } elseif {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne ""} {
             set tech_node $::env(TECH_NAME)
         } else {
-            set tech_node "unknown_tech"
+            puts "ERROR: TECH_NAME not set — cannot load tech config"
+            return
         }
         lappend config_files "$flow_root/config/tech/$tech_node/$::env(TECH_CONFIG_VERSION)/tech_config.tcl"
 
