@@ -24,12 +24,6 @@ set tech(vt_pattern,ulvt) "*ulvt*"
 set tech(vt_pattern,hvt)  "*hvt*"
 
 
-# Active metal stack — MUST be set in project_config, no default
-if {![info exists project(metal_stack)] || $project(metal_stack) eq ""} {
-    puts "ERROR: project(metal_stack) not set. Define it in project_config.tcl"
-    exit 1
-}
-set tech(metal_stack) $project(metal_stack)
 
 
 # ── Library root ───────────────────────────────────────────────────────
@@ -42,10 +36,10 @@ set tech(lib_paths,memory) [list]
 set tech(lib_paths,io) [list]
 
 # ── Load per-metal-stack configuration ────────────────────────────────
-set _ms_file "$_tech_dir/metal_stack/$tech(metal_stack).tcl"
+set _ms_file "$_tech_dir/metal_stack/$project(metal_stack).tcl"
 if {![file exists $_ms_file]} {
     puts "ERROR: Metal stack config not found: $_ms_file"
-    puts "       Create: config/tech/tsmc_5nm/v1.0.0/metal_stack/$tech(metal_stack).tcl"
+    puts "       Create: config/tech/tsmc_5nm/v1.0.0/metal_stack/$project(metal_stack).tcl"
     exit 1
 }
 source $_ms_file
@@ -226,4 +220,4 @@ if {[info exists tech(${_trk},decap)]} {
     set tech(decap_cells) $tech(${_trk},decap)
 }
 
-puts "INFO: $tech(process) tech config loaded — track=$tech(track), VT=$tech(vt_flavors_loaded), metal=$tech(metal_stack), libs=[expr {[info exists tech(${_trk},ndm)] ? [llength $tech(${_trk},ndm)] : 0}] NDMs"
+puts "INFO: $tech(process) tech config loaded — track=$tech(track), VT=$tech(vt_flavors_loaded), metal=$project(metal_stack), libs=[expr {[info exists tech(${_trk},ndm)] ? [llength $tech(${_trk},ndm)] : 0}] NDMs"

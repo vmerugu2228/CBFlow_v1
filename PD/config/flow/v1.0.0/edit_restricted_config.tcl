@@ -21,7 +21,7 @@ set restricted_tech_variables {
     "tech(node)"
     "tech(process)"
     "tech(foundry)"
-    "tech(metal_stack)"
+    "project(metal_stack)"
     "tech(tracks_available)"
     "tech(tluplus_map)"
     "tech(lef_tech)"
