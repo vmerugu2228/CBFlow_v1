@@ -125,7 +125,7 @@ function showJob(name) {
         const sj = jobs.filter(x => x.stage === name);
         let html = '<table class="data-table"><thead><tr><th>Job</th><th>Status</th><th>Runtime</th><th>Exit</th></tr></thead><tbody>';
         sj.forEach(x => {
-          html += '<tr><td>' + x.name + '</td><td><span class="status-badge" style="background:' + statusColor(x.status) + '">' + x.status + '</span></td><td>' + formatTime(x.runtime) + '</td><td>' + (x.exit_code!=null?x.exit_code:'-') + '</td></tr>';
+          html += '<tr oncontextmenu="showCtxMenu(event,\'' + x.name + '\')" style="cursor:pointer"><td>' + x.name + '</td><td><span class="status-badge" style="background:' + statusColor(x.status) + '">' + x.status + '</span></td><td>' + formatTime(x.runtime) + '</td><td>' + (x.exit_code!=null?x.exit_code:'-') + '</td></tr>';
         });
         html += '</tbody></table>';
         document.getElementById('modal-title').textContent = name;
