@@ -2177,8 +2177,11 @@ def start_dashboard(run_dir: str, port: int = 0, open_browser: bool = True):
         except Exception:
             pass
 
-    # Use 127.0.0.1 instead of localhost to avoid HSTS/HTTPS redirect issues
+    # Show both 127.0.0.1 and hostname URLs for remote access
+    import socket as _socket
+    _hostname = _socket.gethostname()
     url = f'http://127.0.0.1:{port}'
+    url_remote = f'http://{_hostname}:{port}'
 
     # Read project context from run env
     _env = {}
@@ -2206,6 +2209,7 @@ def start_dashboard(run_dir: str, port: int = 0, open_browser: bool = True):
     print(f'  Flow:      {dashboard.flow_type}')
     print(f'  Run:       {os.path.basename(run_dir)}')
     print(f'  URL:       {url}')
+    print(f'  Remote:    {url_remote}')
     print(f'  DB:        {os.path.basename(dashboard.db_path)}')
     print(f'  Port:      {port} (deterministic)')
     print(f'  {"=" * 55}')
