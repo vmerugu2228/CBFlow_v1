@@ -50,37 +50,24 @@ show_logo() {
     echo "  ╚██████╗██████╔╝██║     ███████╗╚██████╔╝╚███╔███╔╝"
     echo "   ╚═════╝╚═════╝ ╚═╝     ╚══════╝ ╚═════╝  ╚══╝╚══╝"
     echo "  Physical Design Flow Management System  v${CBFLOW_VERSION}"
-    echo "  Developed by SmartSoc Solutions Pvt Limited"
-    # Show project context if inside a run directory
+    # Show project context box
+    local _proj="" _tech="" _metal="" _lib="" _flow="" _design="" _phase=""
     if [[ -f ".run.cbflow.tcl" ]]; then
-        local _proj="" _tech="" _metal="" _lib="" _flow="" _design=""
         _proj=$(grep 'CBFLOW_PROJECT_NAME' .run.cbflow.tcl 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/')
         _flow=$(grep 'CBFLOW_FLOW_TYPE' .run.cbflow.tcl 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/')
         _design=$(grep 'CBFLOW_DESIGN_NAME' .run.cbflow.tcl 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/')
-        if [[ -f "setup/user_config.tcl" ]]; then
-            _tech=$(grep 'project(technology)' setup/user_config.tcl 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/')
-            _metal=$(grep 'project(metal_stack)' setup/user_config.tcl 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/' | sed 's/.*_\([0-9]*M\)_.*/\1/')
-            _lib=$(grep 'project(lib_config_tag)' setup/user_config.tcl 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/')
-        fi
-        # Try project_config for tech/metal if not in user_config
-        if [[ -z "$_tech" && -n "$_proj" ]]; then
-            local _pc="$CBFLOW_CORE_DIR/config/project/$_proj/v1.0.0/${_proj}_config.tcl"
-            if [[ -f "$_pc" ]]; then
-                _tech=$(grep 'project(technology)' "$_pc" 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/')
-                [[ -z "$_metal" ]] && _metal=$(grep 'project(metal_stack)' "$_pc" 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/' | sed 's/.*_\([0-9]*M\)_.*/\1/')
-                [[ -z "$_lib" ]] && _lib=$(grep 'project(lib_config_tag)' "$_pc" 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/')
-            fi
-        fi
-        if [[ -n "$_proj" ]]; then
-            local _info="  Project: ${_proj}"
-            [[ -n "$_design" ]] && _info="${_info} | Design: ${_design}"
-            [[ -n "$_tech" ]] && _info="${_info} | Tech: ${_tech}"
-            [[ -n "$_metal" ]] && _info="${_info} | Metal: ${_metal}"
-            [[ -n "$_lib" ]] && _info="${_info} | Lib: ${_lib}"
-            [[ -n "$_flow" ]] && _info="${_info} | Flow: ${_flow}"
-            echo "${_info}"
-        fi
+        _phase=$(grep 'CBFLOW_PROJECT_PHASE' .run.cbflow.tcl 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/')
+        _tech=$(grep 'TECH_NAME' .run.cbflow.tcl 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/')
     fi
+    echo "  ╔═════════════════════════════════════════════════════╗"
+    echo "  ║  Developed by SmartSoc Solutions Pvt Limited        ║"
+    if [[ -n "$_proj" ]]; then
+        echo "  ╠═════════════════════════════════════════════════════╣"
+        printf "  ║  Project:  %-20s Phase:  %-10s ║\n" "$_proj" "$_phase"
+        [[ -n "$_design" ]] && printf "  ║  Design:   %-20s Flow:   %-10s ║\n" "$_design" "$_flow"
+        [[ -n "$_tech" ]] && printf "  ║  Tech:     %-42s ║\n" "$_tech"
+    fi
+    echo "  ╚═════════════════════════════════════════════════════╝"
     echo ""
 }
 
