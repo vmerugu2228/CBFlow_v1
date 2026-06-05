@@ -21,103 +21,28 @@ setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 # ==============================================================================
 flow_proc setup_libraries {
     handle_info "Setting up libraries..."
-    global synth tech flow
+    global synth tech project
 
-    # ── Liberty timing libraries (track-aware) ────────────────────────────────
-    set lib_files [list]
-    set _trk [expr {[info exists tech(track)] ? $tech(track) : ""}]
+    set _trk $project(track_variant)
 
-    # Track-categorized nominal lib list (new format)
-    if {$_trk ne "" && [info exists tech(${_trk},lib_nom)]} {
-        foreach lib $tech(${_trk},lib_nom) {
-            if {$lib ne "" && [file exists $lib]} {
-                lappend lib_files $lib
-            } elseif {$lib ne ""} {
-                handle_warning "Liberty file not found: $lib"
-            }
-        }
-        handle_info "Liberty libraries from track ${_trk}: [llength $tech(${_trk},lib_nom)] libs"
-    } else {
-        # Backward compat — old category-based format
-        if {[info exists tech(lib,timing)] && $tech(lib,timing) ne ""} {
-            foreach lib $tech(lib,timing) {
-                if {$lib ne "" && [file exists $lib]} {
-                    lappend lib_files $lib
-                } elseif {$lib ne ""} {
-                    handle_warning "Liberty file not found: $lib"
-                }
-            }
-        }
-        if {[info exists tech(lib,memory)] && $tech(lib,memory) ne ""} {
-            foreach lib $tech(lib,memory) {
-                if {$lib ne "" && [file exists $lib]} { lappend lib_files $lib }
-            }
-        }
-        if {[info exists tech(lib,io_pads)] && $tech(lib,io_pads) ne ""} {
-            foreach lib $tech(lib,io_pads) {
-                if {$lib ne "" && [file exists $lib]} { lappend lib_files $lib }
-            }
-        }
+    # ── Tech LEF (engine-resolved from metal_stack × track) ──
+    handle_info "Tech LEF: [file tail $tech(lef_tech)]"
+    read_physical -lef $tech(lef_tech)
+
+    # ── Cell LEFs (stdcell + memory + IO — from lib_config) ──
+    handle_info "Cell LEFs ($_{trk}): [llength $tech(${_trk},lef)] files"
+    foreach _lef $tech(${_trk},lef) {
+        read_physical -lef $_lef
     }
 
-    if {[llength $lib_files] > 0} {
-        handle_info "Reading [llength $lib_files] Liberty libraries..."
-        read_libs $lib_files
-        handle_info "Liberty libraries loaded"
-    } else {
-        handle_warning "No Liberty libraries found — check tech(<track>,lib_nom) in tech_config.tcl"
-    }
+    # ── Timing libs (nominal for synthesis — from lib_config) ──
+    handle_info "Timing libs ($_{trk}): [llength $tech(${_trk},lib_nom)] files"
+    read_libs $tech(${_trk},lib_nom)
 
-    # ── LEF physical libraries (track-aware) ──────────────────────────────────
-    set lef_files [list]
-
-    # Technology LEF (shared across tracks)
-    if {[info exists tech(lef,technology)] && $tech(lef,technology) ne ""} {
-        if {[file exists $tech(lef,technology)]} {
-            lappend lef_files $tech(lef,technology)
-        }
-    }
-
-    # Track-categorized LEF list (new format)
-    if {$_trk ne "" && [info exists tech(${_trk},lef)]} {
-        foreach lef $tech(${_trk},lef) {
-            if {$lef ne "" && [file exists $lef]} { lappend lef_files $lef }
-        }
-        handle_info "LEF libraries from track ${_trk}: [llength $tech(${_trk},lef)] libs"
-    } else {
-        # Backward compat — old category-based format
-        if {[info exists tech(lef,standard_cells)] && $tech(lef,standard_cells) ne ""} {
-            foreach lef $tech(lef,standard_cells) {
-                if {$lef ne "" && [file exists $lef]} { lappend lef_files $lef }
-            }
-        }
-        if {[info exists tech(lef,macros)] && $tech(lef,macros) ne ""} {
-            foreach lef $tech(lef,macros) {
-                if {$lef ne "" && [file exists $lef]} { lappend lef_files $lef }
-            }
-        }
-        if {[info exists tech(lef,memory)] && $tech(lef,memory) ne ""} {
-            foreach lef $tech(lef,memory) {
-                if {$lef ne "" && [file exists $lef]} { lappend lef_files $lef }
-            }
-        }
-        if {[info exists tech(lef,io_pads)] && $tech(lef,io_pads) ne ""} {
-            foreach lef $tech(lef,io_pads) {
-                if {$lef ne "" && [file exists $lef]} { lappend lef_files $lef }
-            }
-        }
-    }
-
-    if {[llength $lef_files] > 0} {
-        handle_info "Reading [llength $lef_files] LEF files..."
-        read_physical -lefs $lef_files
-        handle_info "LEF files loaded"
-    }
-
-    # -- QRC extraction tech (for physical-aware synthesis) --------------------
-    if {[info exists tech(ext,qrc_tech)] && $tech(ext,qrc_tech) ne "" && [file exists $tech(ext,qrc_tech)]} {
-        handle_info "Setting QRC tech file: $tech(ext,qrc_tech)"
-        set_db qrc_tech_file $tech(ext,qrc_tech)
+    # ── QRC tech file (physical-aware synthesis) ──
+    if {[info exists tech(rcx,rc_typ,qrc)] && $tech(rcx,rc_typ,qrc) ne ""} {
+        handle_info "QRC tech: [file tail $tech(rcx,rc_typ,qrc)]"
+        set_db qrc_tech_file $tech(rcx,rc_typ,qrc)
     }
 
     handle_info "Library setup completed"
