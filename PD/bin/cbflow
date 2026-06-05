@@ -43,15 +43,18 @@ print_warning() {
 # Show help
 show_logo() {
     echo ""
-    echo "   ██████╗██████╗ ███████╗██╗      ██████╗ ██╗    ██╗"
-    echo "  ██╔════╝██╔══██╗██╔════╝██║     ██╔═══██╗██║    ██║"
-    echo "  ██║     ██████╔╝█████╗  ██║     ██║   ██║██║ █╗ ██║"
-    echo "  ██║     ██╔══██╗██╔══╝  ██║     ██║   ██║██║███╗██║"
-    echo "  ╚██████╗██████╔╝██║     ███████╗╚██████╔╝╚███╔███╔╝"
-    echo "   ╚═════╝╚═════╝ ╚═╝     ╚══════╝ ╚═════╝  ╚══╝╚══╝"
-    echo "  Physical Design Flow Management System  v${CBFLOW_VERSION}"
-    # Show project context box
-    local _proj="" _tech="" _metal="" _lib="" _flow="" _design="" _phase=""
+    echo "  ╔═════════════════════════════════════════════════════╗"
+    echo "  ║  ██████╗██████╗ ███████╗██╗      ██████╗ ██╗    ██╗║"
+    echo "  ║ ██╔════╝██╔══██╗██╔════╝██║     ██╔═══██╗██║    ██║║"
+    echo "  ║ ██║     ██████╔╝█████╗  ██║     ██║   ██║██║ █╗ ██║║"
+    echo "  ║ ██║     ██╔══██╗██╔══╝  ██║     ██║   ██║██║███╗██║║"
+    echo "  ║ ╚██████╗██████╔╝██║     ███████╗╚██████╔╝╚███╔███╔╝║"
+    echo "  ║  ╚═════╝╚═════╝ ╚═╝     ╚══════╝ ╚═════╝  ╚══╝╚══╝║"
+    echo "  ║  Physical Design Flow Management System  v${CBFLOW_VERSION}    ║"
+    echo "  ╠═════════════════════════════════════════════════════╣"
+    echo "  ║  Developed by SmartSoc Solutions Pvt Limited        ║"
+    # Show project context if inside a run directory
+    local _proj="" _tech="" _flow="" _design="" _phase=""
     if [[ -f ".run.cbflow.tcl" ]]; then
         _proj=$(grep 'CBFLOW_PROJECT_NAME' .run.cbflow.tcl 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/')
         _flow=$(grep 'CBFLOW_FLOW_TYPE' .run.cbflow.tcl 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/')
@@ -59,8 +62,6 @@ show_logo() {
         _phase=$(grep 'CBFLOW_PROJECT_PHASE' .run.cbflow.tcl 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/')
         _tech=$(grep 'TECH_NAME' .run.cbflow.tcl 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/')
     fi
-    echo "  ╔═════════════════════════════════════════════════════╗"
-    echo "  ║  Developed by SmartSoc Solutions Pvt Limited        ║"
     if [[ -n "$_proj" ]]; then
         echo "  ╠═════════════════════════════════════════════════════╣"
         printf "  ║  Project:  %-20s Phase:  %-10s ║\n" "$_proj" "$_phase"

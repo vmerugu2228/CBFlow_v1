@@ -119,13 +119,16 @@ def add_file_handler(logger: logging.Logger, log_dir: str, filename: str, json_o
 
 
 CBFLOW_LOGO = """
-   ██████╗██████╗ ███████╗██╗      ██████╗ ██╗    ██╗
-  ██╔════╝██╔══██╗██╔════╝██║     ██╔═══██╗██║    ██║
-  ██║     ██████╔╝█████╗  ██║     ██║   ██║██║ █╗ ██║
-  ██║     ██╔══██╗██╔══╝  ██║     ██║   ██║██║███╗██║
-  ╚██████╗██████╔╝██║     ███████╗╚██████╔╝╚███╔███╔╝
-   ╚═════╝╚═════╝ ╚═╝     ╚══════╝ ╚═════╝  ╚══╝╚══╝
-  Physical Design Flow Management System  v2.0.0
+  ╔═════════════════════════════════════════════════════╗
+  ║  ██████╗██████╗ ███████╗██╗      ██████╗ ██╗    ██╗║
+  ║ ██╔════╝██╔══██╗██╔════╝██║     ██╔═══██╗██║    ██║║
+  ║ ██║     ██████╔╝█████╗  ██║     ██║   ██║██║ █╗ ██║║
+  ║ ██║     ██╔══██╗██╔══╝  ██║     ██║   ██║██║███╗██║║
+  ║ ╚██████╗██████╔╝██║     ███████╗╚██████╔╝╚███╔███╔╝║
+  ║  ╚═════╝╚═════╝ ╚═╝     ╚══════╝ ╚═════╝  ╚══╝╚══╝║
+  ║  Physical Design Flow Management System  v2.0.0    ║
+  ╠═════════════════════════════════════════════════════╣
+  ║  Developed by SmartSoc Solutions Pvt Limited        ║
 """
 
 
@@ -134,6 +137,8 @@ def print_logo():
     import sys
     import os
     sys.stderr.write(CBFLOW_LOGO)
+
+    w = sys.stderr.write
 
     # Add project context if in a run directory
     env_file = os.path.join(os.getcwd(), '.run.cbflow.env')
@@ -152,19 +157,16 @@ def print_logo():
         phase = env.get('CBFLOW_PROJECT_PHASE', '')
         metal = env.get('METAL_STACK', '')
 
-        w = sys.stderr.write
-        w('  ╔═════════════════════════════════════════════════════╗\n')
-        w('  ║  Developed by SmartSoc Solutions Pvt Limited        ║\n')
         if proj:
             w('  ╠═════════════════════════════════════════════════════╣\n')
-            w('  ║  Project:  {:<20s} Phase:  {:<10s}  ║\n'.format(proj, phase))
+            w('  ║  Project:  {:<20s} Phase:  {:<10s} ║\n'.format(proj, phase))
             if design:
-                w('  ║  Design:   {:<20s} Flow:   {:<10s}  ║\n'.format(design, flow))
+                w('  ║  Design:   {:<20s} Flow:   {:<10s} ║\n'.format(design, flow))
             if tech:
                 t_info = tech
                 if metal:
                     t_info = '{} ({})'.format(tech, metal)
-                w('  ║  Tech:     {:<40s}  ║\n'.format(t_info))
-        w('  ╚═════════════════════════════════════════════════════╝\n')
+                w('  ║  Tech:     {:<41s} ║\n'.format(t_info))
 
+    w('  ╚═════════════════════════════════════════════════════╝\n')
     sys.stderr.flush()
