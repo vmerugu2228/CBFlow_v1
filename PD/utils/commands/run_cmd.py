@@ -2176,18 +2176,69 @@ def cmd_interactive(args: argparse.Namespace) -> int:
     # Determine tool from run env → user_config override → flow config default
     _ensure_run_env_loaded()
 
-    # Read tool info from node config (single source of truth — not env vars)
+    # Read tool info: user_config override > node config default
     vendor = ''
     tool_name = ''
-    try:
-        from tcl_config_parser import get_tool_info
-        tool_info = get_tool_info(flow_type)
-        vendor = tool_info.get('vendor', '')
-        tool_name = tool_info.get('name', '')
-    except Exception:
-        pass
+
+    # Priority 1: user_config (has the actual tool selection)
+    flow_lower = flow_type.lower()
+    user_config = os.path.join(run_dir, 'setup', 'user_config.tcl')
+    if os.path.exists(user_config):
+        import re as _re2
+        with open(user_config) as _uc:
+            for _line in _uc:
+                m = _re2.search(rf'{flow_lower}\(tool,name\)\s+"([^"]+)"', _line)
+                if m: tool_name = m.group(1)
+                m = _re2.search(rf'{flow_lower}\(tool,vendor\)\s+"([^"]+)"', _line)
+                if m: vendor = m.group(1)
+
+    # Priority 2: project default_tools
+    if not tool_name:
+        proj_name = env_vars.get('CBFLOW_PROJECT_NAME', '')
+        if proj_name:
+            flow_dir_val = env_vars.get('FLOW_DIR', '')
+            cfg_ver = env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0')
+            proj_cfg = os.path.join(flow_dir_val, 'config', 'project', proj_name, cfg_ver,
+                                    '{}_config.tcl'.format(proj_name))
+            if os.path.exists(proj_cfg):
+                import re as _re3
+                with open(proj_cfg) as _pc:
+                    content = _pc.read()
+                m = _re3.search(r'default_tools\)\s*\{([^}]+)\}', content)
+                if m:
+                    pairs = m.group(1).split()
+                    for i in range(0, len(pairs) - 1, 2):
+                        if pairs[i] == flow_type:
+                            tool_name = pairs[i + 1].strip('"')
+                            break
+
+    # Priority 3: node config default
+    if not tool_name:
+        try:
+            from tcl_config_parser import get_tool_info
+            tool_info = get_tool_info(flow_type)
+            if not vendor: vendor = tool_info.get('vendor', '')
+            if not tool_name: tool_name = tool_info.get('name', '')
+        except Exception:
+            pass
+
+    # Auto-resolve vendor from tool-specific node config if missing
+    if tool_name and not vendor:
+        flow_dir_val = env_vars.get('FLOW_DIR', '')
+        cfg_ver = env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0')
+        import re as _re4
+        tool_cfg = os.path.join(flow_dir_val, 'config', 'flow', cfg_ver,
+                                'node_configs', '{}_{}_config.tcl'.format(flow_type, tool_name))
+        if os.path.exists(tool_cfg):
+            with open(tool_cfg) as _tcf:
+                for _line in _tcf:
+                    m = _re4.search(r'tool,vendor["\s]+["\s]*([^"}\s]+)', _line)
+                    if m:
+                        vendor = m.group(1)
+                        break
+
     if not vendor or not tool_name:
-        logger.error("Tool vendor/name not configured. Check node_config.")
+        logger.error("Tool vendor/name not configured. Check user_config or project default_tools.")
         return 1
 
     # Resolve tool shell from tool_launch_config.tcl (single source of truth)
