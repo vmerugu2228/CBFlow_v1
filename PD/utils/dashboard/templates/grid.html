@@ -59,6 +59,25 @@
   </div>
 </main>
 
+<!-- Right-click context menu -->
+<div class="ctx-menu" id="ctx-menu">
+  <div class="ctx-header" id="ctx-title">Node</div>
+  <a onclick="ctxAction('retrace')">&#8635; Retrace from here</a>
+  <a onclick="ctxAction('run-stage')">&#9654; Rerun this node</a>
+  <div class="ctx-sep"></div>
+  <a onclick="ctxAction('bypass')">&#9723; Bypass</a>
+  <a onclick="ctxAction('forcevalidate')">&#10004; Force Validate</a>
+  <div class="ctx-sep"></div>
+  <a onclick="showJob(ctxNode)">&#128269; View Details</a>
+</div>
+<style>
+.ctx-menu { position:fixed; background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:4px 0; min-width:180px; box-shadow:0 8px 24px rgba(0,0,0,0.3); z-index:1000; display:none; }
+.ctx-menu .ctx-header { padding:8px 14px; font-size:11px; font-weight:700; color:var(--text-dim); border-bottom:1px solid var(--border); }
+.ctx-menu a { display:block; padding:8px 14px; color:var(--text); text-decoration:none; font-size:13px; cursor:pointer; }
+.ctx-menu a:hover { background:var(--primary); color:white; }
+.ctx-menu .ctx-sep { border-top:1px solid var(--border); margin:4px 0; }
+</style>
+
 <!-- Job Details Modal -->
 <div class="modal-overlay" id="modal-overlay" onclick="closeModal()">
   <div class="modal" onclick="event.stopPropagation()">
@@ -119,7 +138,7 @@ function renderGrid() {
   const tbody = document.getElementById('grid-body');
   tbody.innerHTML = filtered.map(j => {
     const color = statusColor(j.status);
-    return '<tr onclick="showJob(\'' + j.name + '\')" style="cursor:pointer">' +
+    return '<tr onclick="showJob(\'' + j.name + '\')" oncontextmenu="showCtxMenu(event,\'' + j.name + '\')" style="cursor:pointer">' +
       '<td><strong>' + j.name + '</strong></td>' +
       '<td>' + j.stage + '</td>' +
       '<td>' + (j.subnode || '-') + '</td>' +
@@ -170,7 +189,40 @@ function showJob(name) {
 }
 
 function closeModal() { document.getElementById('modal-overlay').style.display = 'none'; }
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); hideCtxMenu(); } });
+
+// Context menu
+var ctxNode = '';
+function showCtxMenu(e, node) {
+  e.preventDefault();
+  ctxNode = node;
+  const menu = document.getElementById('ctx-menu');
+  document.getElementById('ctx-title').textContent = node;
+  menu.style.left = e.clientX + 'px';
+  menu.style.top = e.clientY + 'px';
+  menu.style.display = 'block';
+}
+function hideCtxMenu() { document.getElementById('ctx-menu').style.display = 'none'; }
+document.addEventListener('click', hideCtxMenu);
+
+function ctxAction(action) {
+  hideCtxMenu();
+  const body = action === 'retrace' ? {from: ctxNode} :
+               action === 'run-stage' ? {stage: ctxNode} :
+               {stage: ctxNode};
+  fetch('/api/action/' + action, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  }).then(r => r.json()).then(res => {
+    if (res.ok) {
+      alert(action + ' on ' + ctxNode + ': ' + (res.message || 'OK'));
+    } else {
+      alert('Error: ' + (res.error || 'Failed'));
+    }
+    loadJobs();
+  }).catch(err => alert('Error: ' + err));
+}
 document.getElementById('search').addEventListener('input', renderGrid);
 document.getElementById('filter-status').addEventListener('change', renderGrid);
 document.getElementById('filter-stage').addEventListener('change', renderGrid);
