@@ -2171,7 +2171,8 @@ def cmd_interactive(args: argparse.Namespace) -> int:
     env_vars = load_run_env()
     flow_type = get_flow_type()
     run_dir = os.getcwd()
-    load_node = getattr(args, 'load', None)
+    load_node = getattr(args, 'node', None)
+    notiming = getattr(args, 'notiming', False)
 
     # Determine tool from run env → user_config override → flow config default
     _ensure_run_env_loaded()
@@ -2456,7 +2457,8 @@ def cmd_interactive(args: argparse.Namespace) -> int:
             elif tool_name in ('pt', 'tempus'):
                 wf.write(f'{tool_shell} -f "{load_tcl_path}"\n')
             elif tool_name == 'innovus':
-                wf.write(f'{tool_shell} -init "{load_tcl_path}"\n')
+                _nt_flag = ' -noTiming' if notiming else ''
+                wf.write(f'{tool_shell}{_nt_flag} -init "{load_tcl_path}"\n')
             elif tool_name == 'genus':
                 wf.write(f'{tool_shell} -f "{load_tcl_path}"\n')
             elif tool_name == 'fm':
@@ -3020,15 +3022,17 @@ Examples:
     interactive_parser = subparsers.add_parser('interactive', help='Launch interactive EDA tool session',
         formatter_class=_fmt, description="""Open an interactive EDA tool session in xterm.
 
-By default, launches the tool in GUI mode. Use --load to restore a saved design.
+Restores a node's saved design and opens the tool in GUI mode.
 Creates a working directory under INTERACTIVE/<node>_<timestamp>.
 
 Examples:
-  cbflow run interactive                        Open tool in xterm (empty session)
-  cbflow run interactive --load place1          Load place1 saved session/NDM
-  cbflow run interactive --load signoff1        Load signoff1 checkpoint""")
-    interactive_parser.add_argument('--load', '-l', default=None,
-                                   help='Load saved design from this node (e.g., place1, cts1, signoff1)')
+  cbflow run interactive --node place1          Load place1 design
+  cbflow run interactive --node signoff1        Load signoff1 checkpoint
+  cbflow run interactive -n floorplan1          Load floorplan1 design""")
+    interactive_parser.add_argument('--node', '-n', required=True,
+                                   help='Node to restore (e.g., place1, cts1, signoff1)')
+    interactive_parser.add_argument('--notiming', action='store_true', default=False,
+                                   help='Launch Innovus without timing libraries (faster startup)')
 
     # email command
     try:
