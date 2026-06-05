@@ -374,6 +374,14 @@ class NodeManager:
             logger.error(f"  Error: Stage '{from_stage}' not found")
             return False
 
+        # Check for duplicate branch name
+        existing_branches = [v.get('branch_name', '') for v in self.custom_nodes.values()
+                            if isinstance(v, dict)]
+        if branch_name in existing_branches:
+            logger.error(f"  Error: Branch '{branch_name}' already exists")
+            logger.error(f"  Use a different name or delete the existing branch first")
+            return False
+
         # Generate branch key
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         base_type = re.sub(r'\d+$', '', from_stage)
@@ -417,6 +425,7 @@ class NodeManager:
                         'type': sbase,
                         'dependencies': prev_dep,
                         'branch_key': branch_key,
+                        'branch_name': branch_name,
                     }
                     prev_dep = new_name
             else:
@@ -436,27 +445,35 @@ class NodeManager:
         else:
             # Create branch nodes for remaining stages
             stages_to_branch = self.base_stages[from_idx:]
-            # First branch node depends on the stage BEFORE from_stage
-            if from_idx > 0:
-                prev_dep = self.base_stages[from_idx - 1]
-            else:
-                prev_dep = self._get_stage_dependencies(from_stage) or ''
 
+            first_node = True
+            prev_dep = ''
             for stage in stages_to_branch:
                 base_name = re.sub(r'\d+$', '', stage)
                 suffix = self._next_suffix(base_name)
                 tag_suffix = f"_{tag}" if tag else ""
                 new_name = f"{base_name}{suffix}{tag_suffix}"
-                # Safety: never overwrite a base stage
                 while new_name in self.base_stages or new_name in self.custom_nodes:
                     suffix += 1
                     new_name = f"{base_name}{suffix}{tag_suffix}"
 
-                self.custom_nodes[new_name] = {
-                    'type': base_name,
-                    'dependencies': prev_dep,
-                    'branch_key': branch_key,
-                }
+                if first_node:
+                    # First branch node inherits same dependencies as original stage
+                    orig_deps = self._get_stage_dependencies(from_stage) or ''
+                    self.custom_nodes[new_name] = {
+                        'type': base_name,
+                        'dependencies': orig_deps,
+                        'branch_key': branch_key,
+                        'branch_name': branch_name,
+                    }
+                    first_node = False
+                else:
+                    self.custom_nodes[new_name] = {
+                        'type': base_name,
+                        'dependencies': prev_dep,
+                        'branch_key': branch_key,
+                        'branch_name': branch_name,
+                    }
                 prev_dep = new_name
 
         # Store branch metadata
@@ -597,14 +614,14 @@ class NodeManager:
         raw = self.node_config.get(dep_key, '')
         if raw:
             deps = _parse_tcl_list(raw)
-            return deps[0] if deps else ''
+            return ' '.join(deps) if deps else ''
         # Try without suffix
         stripped = re.sub(r'\d+$', '', stage)
         if stripped != stage:
             raw = self.node_config.get(f'dependencies,{stripped}', '')
             if raw:
                 deps = _parse_tcl_list(raw)
-                return deps[0] if deps else ''
+                return ' '.join(deps) if deps else ''
         return ''
 
     def _has_circular_dependency(self, new_node: str, dependency: str) -> bool:

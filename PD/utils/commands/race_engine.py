@@ -171,7 +171,7 @@ class DagBuilder:
                     stages.insert(idx, name)
                 else:
                     stages.append(name)
-                stage_deps[name] = [dep] if dep else []
+                stage_deps[name] = dep.split() if dep else []
                 resource_map[name] = info.get('resource_tier', 'M')
 
                 # Resolve subnodes: find base node type, inherit its subnodes
@@ -461,8 +461,8 @@ class DagBuilder:
                 # Try format 1 (array set)
                 m = re.search(rf'stages,{name},type\s+(\S+)', content)
                 if m: node_type = m.group(1).strip('"')
-                m = re.search(rf'stages,{name},dependencies\s+(\S+)', content)
-                if m: dep = m.group(1).strip('"')
+                m = re.search(rf'stages,{name},dependencies\s+(.+)', content)
+                if m: dep = m.group(1).strip().strip('"')
                 m = re.search(rf'stages,{name},branch_key\s+(\S+)', content)
                 if m: branch = m.group(1).strip('"')
                 # Try format 2 (set command) — overrides if found
@@ -478,7 +478,7 @@ class DagBuilder:
                     'dependency': dep,
                     'branch_key': branch,
                 }
-                custom_deps[name] = [dep] if dep else []
+                custom_deps[name] = dep.split() if dep else []
 
         except Exception as e:
             logger.debug(f"Error loading runtime config: {e}")
