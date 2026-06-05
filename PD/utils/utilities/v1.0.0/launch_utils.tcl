@@ -100,12 +100,17 @@ proc submit_job {wrapper flow_type stage_name node_name work_dir} {
 
     lassign [determine_launch_mode] use_lsf use_xterm
 
-    # Resolve xterm settings — from config, no hardcoded defaults
-    if {![info exists lsf(xterm,command)]} {
-        puts "ERROR: lsf(xterm,command) not set in tool_launch_config.tcl"; exit 1
+    # Resolve xterm settings only if needed
+    set xterm_cmd "xterm"
+    set xterm_geom "200x50"
+    if {$use_xterm || $use_lsf} {
+        if {[info exists lsf(xterm,command)]} {
+            set xterm_cmd $lsf(xterm,command)
+        }
+        if {[info exists lsf(xterm,geometry)]} {
+            set xterm_geom $lsf(xterm,geometry)
+        }
     }
-    set xterm_cmd $lsf(xterm,command)
-    set xterm_geom [expr {[info exists lsf(xterm,geometry)] ? $lsf(xterm,geometry) : "200x50"}]
 
     if {$use_lsf} {
         # Build bsub command
