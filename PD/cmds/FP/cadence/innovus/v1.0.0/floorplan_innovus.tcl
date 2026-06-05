@@ -1,8 +1,9 @@
 #!/usr/bin/env tclsh
 # ==============================================================================
 # FP floorplan — Cadence Innovus
-# Description: Load design from init_design, create floorplan, place macros,
-#              add boundary/tap cells, save to outputs/
+# Description: Load design, load floorplan (.fp or .def), optional pin placement,
+#              save to outputs/
+# User provides floorplan/pin files in override_setup.floorplan.tcl or user_config
 # ==============================================================================
 
 # ── Bootstrap ─────────────────────────────────────────────────────────────────
@@ -22,7 +23,7 @@ handle_info "Starting CBflow FP floorplan for Innovus"
 
 # ==============================================================================
 # flow_proc: load_design
-# Description: Restore design database from init_design stage
+# Description: Restore design from init_design stage
 # ==============================================================================
 flow_proc load_design {
     global run_dir flow
@@ -38,120 +39,55 @@ flow_proc load_design {
 }
 
 # ==============================================================================
-# flow_proc: create_floorplan
-# Description: Initialize floorplan — die size or utilization-based
+# flow_proc: load_floorplan
+# Description: Load floorplan from .fp file or .def file
+#   Config: fp(input,floorplan_file) — Innovus .fp file (loadFPlan)
+#           fp(input,def_file)       — DEF file (defIn)
 # ==============================================================================
-flow_proc create_floorplan {
-    global fp project
-
-    handle_info "Creating floorplan..."
-
-    # Floorplan parameters — all from config
-    if {![info exists fp(common,site_name)] || $fp(common,site_name) eq ""} {
-        handle_error "fp(common,site_name) not set"
-        exit 1
-    }
-
-    set _site $fp(common,site_name)
-
-    if {[info exists fp(die,width)] && [info exists fp(die,height)]} {
-        # Explicit die size
-        if {![info exists fp(core,margin_left)]} {
-            handle_error "fp(core,margin_left/bottom/right/top) not set"
-            exit 1
-        }
-        handle_info "  Die: $fp(die,width) x $fp(die,height)"
-        floorPlan -site $_site \
-            -d $fp(die,width) $fp(die,height) \
-               $fp(core,margin_left) $fp(core,margin_bottom) \
-               $fp(core,margin_right) $fp(core,margin_top)
-    } else {
-        # Utilization-based
-        if {![info exists fp(common,utilization)] || ![info exists fp(common,aspect_ratio)]} {
-            handle_error "fp(common,utilization) and fp(common,aspect_ratio) not set"
-            exit 1
-        }
-        handle_info "  Util=$fp(common,utilization) AR=$fp(common,aspect_ratio)"
-        floorPlan -site $_site \
-            -r $fp(common,aspect_ratio) $fp(common,utilization) \
-               $fp(core,margin_left) $fp(core,margin_bottom) \
-               $fp(core,margin_right) $fp(core,margin_top)
-    }
-
-    handle_info "Floorplan created"
-}
-
-# ==============================================================================
-# flow_proc: place_macros
-# Description: Place macros from placement file or config specs
-# ==============================================================================
-flow_proc place_macros {
+flow_proc load_floorplan {
     global fp
 
-    handle_info "Placing macros..."
-
-    # Macro placement file (user provides TCL with placeInstance commands)
-    if {[info exists fp(input,macro_placement)] && $fp(input,macro_placement) ne ""} {
-        if {[file exists $fp(input,macro_placement)]} {
-            handle_info "  Sourcing: [file tail $fp(input,macro_placement)]"
-            source $fp(input,macro_placement)
-        } else {
-            handle_error "Macro placement file not found: $fp(input,macro_placement)"
+    if {[info exists fp(input,floorplan_file)] && $fp(input,floorplan_file) ne ""} {
+        if {![file exists $fp(input,floorplan_file)]} {
+            handle_error "Floorplan file not found: $fp(input,floorplan_file)"
             exit 1
         }
-    }
-
-    # Inline macro specs from config
-    if {[info exists fp(common,macros)]} {
-        foreach macro_spec $fp(common,macros) {
-            array set m $macro_spec
-            if {[info exists m(name)] && [info exists m(x)] && [info exists m(y)]} {
-                set orient [expr {[info exists m(orient)] ? $m(orient) : "R0"}]
-                handle_info "  $m(name) at ($m(x),$m(y)) $orient"
-                placeInstance $m(name) $m(x) $m(y) $orient -placed
-            }
-            array unset m
+        handle_info "Loading floorplan: [file tail $fp(input,floorplan_file)]"
+        loadFPlan $fp(input,floorplan_file)
+    } elseif {[info exists fp(input,def_file)] && $fp(input,def_file) ne ""} {
+        if {![file exists $fp(input,def_file)]} {
+            handle_error "DEF file not found: $fp(input,def_file)"
+            exit 1
         }
+        handle_info "Loading DEF: [file tail $fp(input,def_file)]"
+        defIn $fp(input,def_file)
+    } else {
+        handle_info "No floorplan or DEF file provided — starting with empty floorplan"
+        handle_info "  Set fp(input,floorplan_file) or fp(input,def_file) in user_config"
     }
 
-    # Macro halo
-    if {[info exists fp(macro_halo,x)] && [info exists fp(macro_halo,y)]} {
-        handle_info "  Halo: $fp(macro_halo,x)um x $fp(macro_halo,y)um"
-        addHaloToBlock $fp(macro_halo,x) $fp(macro_halo,y) $fp(macro_halo,x) $fp(macro_halo,y) -allBlock
-    }
-
-    handle_info "Macro placement done"
+    handle_info "Floorplan loaded"
 }
 
 # ==============================================================================
-# flow_proc: add_endcaps_welltaps
-# Description: Insert boundary cells and well taps
+# flow_proc: place_pins
+# Description: Optional pin placement from user-provided file
+#   Config: fp(input,pin_placement_file) — TCL script with pin commands
 # ==============================================================================
-flow_proc add_endcaps_welltaps {
-    global fp tech
+flow_proc place_pins {
+    global fp
 
-    handle_info "Adding endcaps and well taps..."
-
-    # Endcaps
-    if {[info exists tech($::project(track_variant),endcap)] && $tech($::project(track_variant),endcap) ne ""} {
-        set _endcap $tech($::project(track_variant),endcap)
-        handle_info "  Endcap: $_endcap"
-        setEndCap -prefix ENDCAP -cell $_endcap
-        addEndCap
-    }
-
-    # Well taps
-    if {[info exists tech($::project(track_variant),well_tap)] && $tech($::project(track_variant),well_tap) ne ""} {
-        set _welltap $tech($::project(track_variant),well_tap)
-        if {![info exists fp(welltap,interval)] || $fp(welltap,interval) eq ""} {
-            handle_error "fp(welltap,interval) not set — required for well tap insertion"
+    if {[info exists fp(input,pin_placement_file)] && $fp(input,pin_placement_file) ne ""} {
+        if {[file exists $fp(input,pin_placement_file)]} {
+            handle_info "Loading pin placement: [file tail $fp(input,pin_placement_file)]"
+            source $fp(input,pin_placement_file)
+        } else {
+            handle_error "Pin placement file not found: $fp(input,pin_placement_file)"
             exit 1
         }
-        handle_info "  Well tap: $_welltap every $fp(welltap,interval)um"
-        addWellTap -cell $_welltap -cellInterval $fp(welltap,interval) -prefix WELLTAP
+    } else {
+        handle_info "No pin placement file — skipping (set fp(input,pin_placement_file) to enable)"
     }
-
-    handle_info "Endcaps and well taps added"
 }
 
 # ==============================================================================
@@ -183,7 +119,7 @@ flow_proc save_design {
 }
 
 # ==============================================================================
-# Source setup hooks
+# Source setup hooks (user overrides — applied AFTER flow_proc defs)
 # ==============================================================================
 foreach _hook [list \
     "$run_dir/setup/override_setup.tcl" \
@@ -204,9 +140,8 @@ handle_info "================================================================"
 
 foreach step {
     load_design
-    create_floorplan
-    place_macros
-    add_endcaps_welltaps
+    load_floorplan
+    place_pins
     generate_reports
     save_design
 } {
