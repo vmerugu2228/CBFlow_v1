@@ -1391,6 +1391,7 @@ def cmd_create_branch(args: argparse.Namespace) -> int:
         logger.error("  Navigate to a run directory first: cd P0_run_PNR_run1")
         return 1
 
+    _ensure_run_env_loaded()
     mgr = _get_node_manager()
     success = mgr.create_branch(args.branch, args.from_stage)
     return 0 if success else 1
