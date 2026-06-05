@@ -125,6 +125,9 @@ array set fp {
         fp(input,sdc_func_file)
     }
 
+    input,floorplan_file        ""
+    input,pin_placement_file    ""
+
     output,write_def            true
     output,write_floorplan      true
     output,floorplan_dir        "results/fp"
