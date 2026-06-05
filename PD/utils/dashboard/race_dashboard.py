@@ -2208,14 +2208,26 @@ def start_dashboard(run_dir: str, port: int = 0, open_browser: bool = True):
         print(f'  Design:    {_design}' + (f'  Phase: {_phase}' if _phase else ''))
     print(f'  Flow:      {dashboard.flow_type}')
     print(f'  Run:       {os.path.basename(run_dir)}')
-    print(f'  URL:       {url}')
-    print(f'  Remote:    {url_remote}')
+    # Detect SSH session
+    _is_ssh = bool(os.environ.get('SSH_CLIENT') or os.environ.get('SSH_TTY') or os.environ.get('SSH_CONNECTION'))
+
+    if _is_ssh:
+        # Extract client IP from SSH_CLIENT (format: "client_ip client_port server_port")
+        _ssh_client = os.environ.get('SSH_CLIENT', '').split()
+        _client_ip = _ssh_client[0] if _ssh_client else 'your_machine'
+        print(f'  URL:       {url_remote}')
+        print(f'  ')
+        print(f'  SSH detected — to access from your local browser:')
+        print(f'    ssh -L {port}:localhost:{port} $USER@{_hostname}')
+        print(f'    Then open: {url}')
+    else:
+        print(f'  URL:       {url}')
     print(f'  DB:        {os.path.basename(dashboard.db_path)}')
     print(f'  Port:      {port} (deterministic)')
     print(f'  {"=" * 55}')
     print(f'  Press Ctrl+C to stop\n')
 
-    if open_browser:
+    if open_browser and not _is_ssh:
         def _open_browser():
             import subprocess as _sp
             import shutil as _sh
