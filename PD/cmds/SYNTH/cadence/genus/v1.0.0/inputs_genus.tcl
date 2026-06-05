@@ -79,7 +79,7 @@ flow_proc source_mmmc_config {
     handle_info "Loading MMMC configuration for synthesis..."
 
     # Source MMMC config file
-    set mmmc_config_file "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
+    set mmmc_config_file "$::env(CONFIG_ROOT)/project/$::env(CBFLOW_PROJECT_NAME)/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
     if {[file exists $mmmc_config_file]} {
         source $mmmc_config_file
         handle_info "  MMMC config loaded: $mmmc_config_file"

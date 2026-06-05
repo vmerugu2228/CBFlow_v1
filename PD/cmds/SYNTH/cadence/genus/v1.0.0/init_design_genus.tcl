@@ -285,42 +285,38 @@ flow_proc setup_power_intent {
 # ==============================================================================
 flow_proc setup_mmmc {
     handle_info "Setting up MMMC for Genus..."
-    global synth tech
-    global analysis_views library_sets
+    global synth project mmmc STAGE_NAME
 
-    # User MMMC setup script
-    if {[info exists synth(common,mcmm_setup_file)] && [file exists $synth(common,mcmm_setup_file)]} {
-        handle_info "Sourcing MMMC setup: $synth(common,mcmm_setup_file)"
-        source $synth(common,mcmm_setup_file)
-        handle_info "MMMC setup completed from user script"
+    # Source the pre-generated MMMC view definition file
+    set _vd_file "$::env(FLOW_DIR)/config/project/$project(name)/$project(cbflow_release)/mmmc_view_definition.tcl"
+
+    # User override
+    if {[info exists synth(input,mmmc_file)] && $synth(input,mmmc_file) ne ""} {
+        set _vd_file $synth(input,mmmc_file)
+    }
+
+    if {[file exists $_vd_file]} {
+        handle_info "Sourcing MMMC view definition: [file tail $_vd_file]"
+        source $_vd_file
+        handle_info "MMMC views loaded"
+    } else {
+        handle_info "No MMMC view definition — single corner mode"
+        handle_info "  Generate with: cbflow flow mmmc-manager generate --project $project(name)"
         return
     }
 
-    # Auto MMMC from mmmc_config analysis_views
-    if {[info exists analysis_views] && [array size analysis_views] > 0} {
-        handle_info "Creating MMMC from mmmc_config: [array size analysis_views] views"
+    # Activate only synthesis node scenarios
+    if {[info exists mmmc($STAGE_NAME)]} {
+        array set _nd $mmmc($STAGE_NAME)
+        set _setup [expr {[info exists _nd(setup)] ? $_nd(setup) : {}}]
+        set _hold  [expr {[info exists _nd(hold)]  ? $_nd(hold)  : {}}]
 
-        foreach scenario [lsort [array names analysis_views]] {
-            array set _v $analysis_views($scenario)
+        handle_info "  Activating scenarios for: $STAGE_NAME"
+        handle_info "    Setup: $_setup"
+        handle_info "    Hold:  $_hold"
 
-            # Get library set for this view
-            set lib_ref [expr {[info exists _v(lib_set_ref)] ? $_v(lib_set_ref) : ""}]
-            set _timing_libs {}
-            if {$lib_ref ne "" && [info exists library_sets(${lib_ref},timing)]} {
-                set _timing_libs $library_sets(${lib_ref},timing)
-            }
-
-            if {[llength $_timing_libs] > 0} {
-                handle_info "  View $scenario: corner=$_v(corner), libs=[llength $_timing_libs]"
-                # Genus MMMC: create_library_set, create_timing_condition,
-                # create_rc_corner, create_delay_corner, create_constraint_mode,
-                # create_analysis_view
-            }
-
-            array unset _v
-        }
-    } else {
-        handle_info "No MMMC analysis_views defined -- single corner mode"
+        set_analysis_view -setup {} -hold {}
+        set_analysis_view -setup $_setup -hold $_hold
     }
 
     handle_info "MMMC setup completed"
