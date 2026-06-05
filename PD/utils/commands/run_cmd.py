@@ -2356,8 +2356,9 @@ def cmd_interactive(args: argparse.Namespace) -> int:
                 tf.write(f"# Restore Innovus design\n")
                 tf.write(f'set _db "{enc_dat}"\n')
                 tf.write(f'if {{[file exists $_db]}} {{\n')
-                tf.write(f'    restoreDesign $_db {design_name}\n')
-                tf.write(f'    puts "INFO: Restored design: $_db ({design_name})"\n')
+                _nt = ' -noTiming' if notiming else ''
+                tf.write(f'    restoreDesign{_nt} $_db {design_name}\n')
+                tf.write(f'    puts "INFO: Restored design: $_db ({design_name}){"  [noTiming]" if notiming else ""}"\n')
                 tf.write(f'}} else {{\n')
                 tf.write(f'    puts "WARNING: No .enc.dat found: $_db"\n')
                 tf.write(f'    puts "  Run the flow first or check outputs/ directory"\n')
@@ -2457,8 +2458,7 @@ def cmd_interactive(args: argparse.Namespace) -> int:
             elif tool_name in ('pt', 'tempus'):
                 wf.write(f'{tool_shell} -f "{load_tcl_path}"\n')
             elif tool_name == 'innovus':
-                _nt_flag = ' -noTiming' if notiming else ''
-                wf.write(f'{tool_shell}{_nt_flag} -init "{load_tcl_path}"\n')
+                wf.write(f'{tool_shell} -init "{load_tcl_path}"\n')
             elif tool_name == 'genus':
                 wf.write(f'{tool_shell} -f "{load_tcl_path}"\n')
             elif tool_name == 'fm':
