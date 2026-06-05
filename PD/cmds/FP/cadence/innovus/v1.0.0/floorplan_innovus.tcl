@@ -91,6 +91,43 @@ flow_proc place_pins {
 }
 
 # ==============================================================================
+# flow_proc: add_endcaps_welltaps
+# Description: Insert boundary endcap cells and well tap cells
+#   Config: tech(<track>,endcap)       — endcap cell name
+#           tech(<track>,well_tap)     — well tap cell name
+#           fp(welltap,interval)       — well tap spacing (um)
+# ==============================================================================
+flow_proc add_endcaps_welltaps {
+    global fp tech project
+
+    handle_info "Adding endcaps and well taps..."
+    set _trk $project(track_variant)
+
+    # Endcaps
+    if {[info exists tech(${_trk},endcap)] && $tech(${_trk},endcap) ne ""} {
+        handle_info "  Endcap: $tech(${_trk},endcap)"
+        setEndCap -prefix ENDCAP -cell $tech(${_trk},endcap)
+        addEndCap
+    } else {
+        handle_info "  No endcap cell defined — skipping"
+    }
+
+    # Well taps
+    if {[info exists tech(${_trk},well_tap)] && $tech(${_trk},well_tap) ne ""} {
+        if {![info exists fp(welltap,interval)] || $fp(welltap,interval) eq ""} {
+            handle_error "fp(welltap,interval) not set — required for well tap insertion"
+            exit 1
+        }
+        handle_info "  Well tap: $tech(${_trk},well_tap) every $fp(welltap,interval)um"
+        addWellTap -cell $tech(${_trk},well_tap) -cellInterval $fp(welltap,interval) -prefix WELLTAP
+    } else {
+        handle_info "  No well tap cell defined — skipping"
+    }
+
+    handle_info "Endcaps and well taps done"
+}
+
+# ==============================================================================
 # flow_proc: generate_reports
 # Description: Floorplan reports
 # ==============================================================================
@@ -142,6 +179,7 @@ foreach step {
     load_design
     load_floorplan
     place_pins
+    add_endcaps_welltaps
     generate_reports
     save_design
 } {
