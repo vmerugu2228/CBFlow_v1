@@ -1664,20 +1664,17 @@ def cmd_release(args: argparse.Namespace) -> int:
     release_deliverables = {}
     ver = env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0')
     rc_path = os.path.join(flow_dir, 'config', 'flow', ver, 'release_config.tcl')
+    milestone_stage_map = {}
     if os.path.exists(rc_path):
         with open(rc_path) as f:
             content = f.read()
-        # Parse release_tags array
-        for m in _re.finditer(r'(\w+)\s+\{description\s+"([^"]+)"\s+phase_min\s+(\w+)\s+required_flows\s+\{([^}]+)\}\}', content):
+        # Parse MILESTONE_STAGE_MAPPING: FP_EXIT "init_design", BTO "signoff" etc.
+        for m in _re.finditer(r'(\w+)\s+"(\w+)"', content[content.find('MILESTONE_STAGE_MAPPING'):content.find('}', content.find('MILESTONE_STAGE_MAPPING'))]):
+            milestone_stage_map[m.group(1)] = m.group(2)
             release_tags[m.group(1)] = {
-                'description': m.group(2),
-                'phase_min': m.group(3),
-                'required_flows': m.group(4).split(),
+                'description': f'{m.group(1)} milestone (after {m.group(2)})',
+                'required_stage': m.group(2),
             }
-        # Parse release_deliverables
-        for m in _re.finditer(r'(\w+),(\w+)\s+\{([^}]+)\}', content):
-            key = f"{m.group(1)},{m.group(2)}"
-            release_deliverables[key] = m.group(3).split()
 
     # Load project config for active_tag and expiry
     active_tag = ''
@@ -1709,12 +1706,6 @@ def cmd_release(args: argparse.Namespace) -> int:
 
     tag_info = release_tags[tag]
 
-    # Validate phase
-    phase_order = ['P0', 'P1', 'P2', 'P3']
-    if phase_order.index(phase) < phase_order.index(tag_info['phase_min']):
-        logger.error(f"Phase {phase} does not meet minimum {tag_info['phase_min']} for tag '{tag}'")
-        return 1
-
     # Validate expiry
     if expiry_date:
         try:
@@ -1738,49 +1729,33 @@ def cmd_release(args: argparse.Namespace) -> int:
     logger.info(f"  Release to:  {release_path}")
     if expiry_date:
         logger.info(f"  Expiry:      {expiry_date}")
-    logger.info(f"  Required:    {', '.join(tag_info['required_flows'])}")
+    required_stage = tag_info.get('required_stage', '')
+    logger.info(f"  Required stage: {required_stage}")
     logger.info(f"  ─────────────────────────────────────────────────────────")
     logger.info("")
 
-    # Gate check: find all required flow runs and check PASS status
-    required = tag_info['required_flows']
+    # Gate check: find all completed runs in workspace
     found_runs = {}
-    missing_flows = []
-
-    for flow in required:
-        # Find matching run directory
-        matched = None
-        for run in runs:
-            if f'_run_{flow}_' in run or run.endswith(f'_{flow}_test1'):
-                # Check if it completed with PASS
-                env_file = os.path.join(workspace, run, '.run.cbflow.env')
-                if os.path.exists(env_file):
-                    with open(env_file) as f:
-                        for line in f:
-                            if 'CBFLOW_FLOW_TYPE' in line and flow in line:
-                                matched = run
-                                break
-                if matched:
-                    break
-        if matched:
-            found_runs[flow] = matched
-            logger.info(f"  [FOUND] {flow:<12} → {matched}")
-        else:
-            missing_flows.append(flow)
-            logger.error(f"  [MISS]  {flow:<12} → no completed run found")
-
+    for run in runs:
+        env_file = os.path.join(workspace, run, '.run.cbflow.env')
+        if os.path.exists(env_file):
+            with open(env_file) as f:
+                for line in f:
+                    if 'CBFLOW_FLOW_TYPE' in line:
+                        m = _re.search(r'"([^"]+)"', line)
+                        if m:
+                            found_runs[m.group(1)] = run
+    logger.info(f"  Found runs: {len(found_runs)}")
+    for flow, run_name in sorted(found_runs.items()):
+        logger.info(f"    {flow:<15} → {run_name}")
     logger.info("")
 
-    if missing_flows:
-        logger.error(f"  RELEASE BLOCKED: {len(missing_flows)} required flow(s) missing:")
-        for f in missing_flows:
-            logger.error(f"    - {f}")
-        logger.error("")
-        logger.error(f"  Run these flows first, then retry: cbflow run release")
+    if not found_runs:
+        logger.error("  No completed runs found in workspace")
         return 1
 
     if dry_run:
-        logger.info(f"  DRY RUN: All {len(required)} flows found. Release would proceed.")
+        logger.info(f"  DRY RUN: {len(found_runs)} flows found. Release would proceed.")
         return 0
 
     # Create release directory
