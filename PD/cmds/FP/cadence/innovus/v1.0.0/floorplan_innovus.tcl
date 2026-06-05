@@ -65,7 +65,7 @@ flow_proc create_floorplan {
             -d $fp(die,width) $fp(die,height) \
                $fp(core,margin_left) $fp(core,margin_bottom) \
                $fp(core,margin_right) $fp(core,margin_top)
-    else {
+    } else {
         # Utilization-based
         if {![info exists fp(common,utilization)] || ![info exists fp(common,aspect_ratio)]} {
             handle_error "fp(common,utilization) and fp(common,aspect_ratio) not set"
