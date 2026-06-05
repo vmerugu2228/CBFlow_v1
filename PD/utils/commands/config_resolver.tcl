@@ -34,9 +34,14 @@ if {[file exists $flow_config]} {
     exit 1
 }
 
-# Source mmmc_config (scenarios, rc_corners, analysis_views)
-set _mmmc_cfg_path "$config_root/flow/$flow_ver/mmmc_config.tcl"
-if {[file exists $_mmmc_cfg_path]} {
+# Source mmmc_config (scenarios, rc_corners, analysis_views) — per project
+set _proj_name [expr {[info exists ::env(CBFLOW_PROJECT_NAME)] ? $::env(CBFLOW_PROJECT_NAME) : ""}]
+set _proj_ver  [expr {[info exists ::env(FLOW_CONFIG_VERSION)] ? $::env(FLOW_CONFIG_VERSION) : "v1.0.0"}]
+set _mmmc_cfg_path ""
+if {$_proj_name ne ""} {
+    set _mmmc_cfg_path "$config_root/project/$_proj_name/$_proj_ver/mmmc_config.tcl"
+}
+if {$_mmmc_cfg_path ne "" && [file exists $_mmmc_cfg_path]} {
     source $_mmmc_cfg_path
 }
 

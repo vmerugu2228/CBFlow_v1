@@ -85,6 +85,12 @@ set project(io,slew_rate) "slow"
 set project(io,placement) "denali_io.def"
 set project(io,count) "128"
 
+# Power & Ground Nets
+set project(power,vdd_net) "VDD"
+set project(power,vss_net) "VSS"
+set project(power,vdd_pin) "VDD"
+set project(power,vss_pin) "VSS"
+
 # Power intent
 set project(power,domains) "PD_TOM PD_TOP"
 set project(power,states) "ON OFF RETENTION"

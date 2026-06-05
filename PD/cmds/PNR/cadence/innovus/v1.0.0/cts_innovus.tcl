@@ -1,7 +1,12 @@
 #!/usr/bin/env tclsh
-# PNR cts - Cadence Innovus
+# ==============================================================================
+# PNR cts — Cadence Innovus
+# Description: Clock tree synthesis using CCOpt engine.
+#   Follows Cadence Foundation Flow:
+#     NDR setup → create_ccopt_clock_tree_spec → clock_opt_design -cts
+# ==============================================================================
 
-# -- Bootstrap -----------------------------------------------------------------
+# ── Bootstrap ─────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
 source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
@@ -14,240 +19,168 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# CLOCK TREE SYNTHESIS
-# ═══════════════════════════════════════════════════════════════════════════════
+handle_info "Starting CBflow PNR CTS for Innovus"
 
-flow_proc enable_mmmc {
-    # Enable MMMC scenarios for cts stage
-    global analysis_views mmmc
-    
-    handle_info "Enabling MMMC scenarios for cts stage"
-    
-    # Load MMMC configuration
-    if {![load_mmmc_config]} {
-        handle_info "MMMC not configured, skipping scenario setup"
+# ==============================================================================
+# flow_proc: activate_node_scenarios
+# Description: Set MMMC scenarios for CTS stage
+# ==============================================================================
+flow_proc activate_node_scenarios {
+    global mmmc STAGE_NAME
+
+    if {![info exists mmmc($STAGE_NAME)]} {
+        handle_info "No node-specific scenarios for $STAGE_NAME"
         return
     }
-    
-    # Get effective scenarios (user override or hardcoded defaults)
-    set setup_scenarios [get_effective_scenarios "cts" "setup"]
-    set hold_scenarios [get_effective_scenarios "cts" "hold"]
-    
-    if {![llength $setup_scenarios] && ![llength $hold_scenarios]} {
-        handle_info "No MMMC scenarios configured for cts, using default single-corner mode"
-        return
-    }
-    
-    # Combine setup and hold scenarios
-    set all_scenarios [get_node_all_scenarios "cts"]
-    
-    handle_info "cts MMMC scenarios:"
-    handle_info "  Setup scenarios ([llength $setup_scenarios]): [join $setup_scenarios { }]"
-    handle_info "  Hold scenarios ([llength $hold_scenarios]): [join $hold_scenarios { }]"
-    handle_info "  Total unique scenarios: [llength $all_scenarios]"
-    
-    # Create analysis views for each CTS scenario
-    create_mmmc_scenarios_for_node "cts"
 
-    foreach scenario $all_scenarios {
-        if {[info exists analysis_views($scenario)]} {
-            array set view_info $analysis_views($scenario)
-            handle_info "Creating analysis view: $scenario"
-            create_analysis_view -name $scenario \
-                -constraint_file $view_info(constraint_file) \
-                -library_set $view_info(lib_set) \
-                -rc_corner $view_info(rc_corner)
-            array unset view_info
-        }
-    }
+    handle_info "Activating scenarios for: $STAGE_NAME"
+    array set _nd $mmmc($STAGE_NAME)
+    set _setup [expr {[info exists _nd(setup)] ? $_nd(setup) : {}}]
+    set _hold  [expr {[info exists _nd(hold)]  ? $_nd(hold)  : {}}]
 
-    # Set active analysis views
-    set_analysis_view -setup $setup_scenarios -hold $hold_scenarios
+    handle_info "  Setup: $_setup"
+    handle_info "  Hold:  $_hold"
 
-    handle_info "MMMC scenarios configured for cts stage"
+    set_analysis_view -setup {} -hold {}
+    set_analysis_view -setup $_setup -hold $_hold
 }
 
-flow_proc setup_cts {
-    handle_info "Setting up CTS parameters..."
-
-    apply_vt_dont_use
-    # Get CTS parameters from config
+# ==============================================================================
+# flow_proc: setup_ndr
+# Description: Source NDR script — add_ndr, create_route_type, set_ccopt_property
+# ==============================================================================
+flow_proc setup_ndr {
     global pnr
-    set cts_target_skew $pnr(cts,target_skew)
-    set cts_max_trans   $pnr(cts,max_trans)
-    set cts_max_cap     $pnr(cts,max_cap)
 
-    handle_info "CTS parameters:"
-    handle_info "  Target skew: ${cts_target_skew}ps"
-    handle_info "  Max transition: ${cts_max_trans}ps"
-    handle_info "  Max capacitance: ${cts_max_cap}fF"
+    # Source the Cadence NDR script
+    set ndr_script "$::env(FLOW_DIR)/cmds/$::FLOW_TYPE/cadence/innovus/v1.0.0/scripts/cts_ndr.tcl"
 
-    # Configure CTS engine properties
-    set_ccopt_property target_skew $cts_target_skew
-    set_ccopt_property max_transition $cts_max_trans
-    set_ccopt_property max_capacitance $cts_max_cap
+    # Allow user override
+    if {[info exists pnr(cts,ndr_script)] && $pnr(cts,ndr_script) ne ""} {
+        set ndr_script $pnr(cts,ndr_script)
+    }
+
+    if {[file exists $ndr_script]} {
+        handle_info "Sourcing CTS NDR: [file tail $ndr_script]"
+        source $ndr_script
+    } else {
+        handle_warning "CTS NDR script not found: $ndr_script"
+        handle_warning "CTS will run without NDR rules"
+    }
 }
 
+# ==============================================================================
+# flow_proc: create_clock_spec
+# Description: Generate and source ccopt clock tree specification
+#   Reference: create_ccopt_clock_tree_spec -file ccopt.spec
+#              source ccopt.spec
+# ==============================================================================
 flow_proc create_clock_spec {
-    handle_info "Creating clock tree specification..."
-    
-    # Get clock information from hierarchical configuration
-    global project pnr
-    if {[info exists project(clock,period)]} {
-        handle_info "Clock period: $project(clock,period)ns"
-    }
-    
-    if {[info exists project(clock,ports)]} {
-        handle_info "Clock ports: $project(clock,ports)"
-        # create_ccopt_clock_tree -name MAIN_CLK -source $project(clock,ports)
-    }
-    
-    # Configure clock tree cells
-    if {[info exists pnr(cts,buffer_cells)]} {
-        handle_info "CTS buffer cells: $pnr(cts,buffer_cells)"
-        set_ccopt_property buffer_cells $pnr(cts,buffer_cells)
-    }
-
-    if {[info exists pnr(cts,inverter_cells)]} {
-        handle_info "CTS inverter cells: $pnr(cts,inverter_cells)"
-        set_ccopt_property inverter_cells $pnr(cts,inverter_cells)
-    }
-}
-
-flow_proc run_cts {
-    handle_info "Running clock tree synthesis..."
-
-    # Run CTS engine
-    ccopt_design
-
-    handle_info "Clock tree synthesis completed"
-}
-
-flow_proc optimize_cts {
-    handle_info "Optimizing clock tree..."
-
-    # Post-CTS optimization
     global pnr
-    set optimization_effort $pnr(cts,opt_effort)
 
-    handle_info "CTS optimization effort: $optimization_effort"
+    handle_info "Creating clock tree specification..."
 
-    # Post-CTS timing optimization
-    optDesign -postCTS -effort $optimization_effort
+    set spec_file "$::WORK_DIR/scripts/ccopt.spec"
+    file mkdir [file dirname $spec_file]
 
-    handle_info "Clock tree optimization completed"
+    create_ccopt_clock_tree_spec -file $spec_file
+    handle_info "Clock spec generated: $spec_file"
+
+    source $spec_file
+    handle_info "Clock spec sourced"
 }
 
-flow_proc setup_mmmc_cts {
-    handle_info "Setting up MMMC scenarios for CTS..."
-    
-    if {![is_mmmc_stage "cts"]} {
-        handle_info "MMMC not enabled for CTS stage"
-        return
-    }
-    
-    global mmmc_config analysis_views
-    set scenarios [get_mmmc_scenarios "cts"]
-    
-    # Create MMMC setup script
-    set mmmc_dir "scripts"
-    ensure_directory $mmmc_dir
-    set mmmc_script "${mmmc_dir}/mmmc_setup_cts.tcl"
-    
-    set fp [open $mmmc_script "w"]
-    puts $fp "# MMMC Setup for CTS Stage"
-    puts $fp "# Auto-generated by OMNI FLOW"
-    puts $fp ""
-    
-    # Setup analysis views for CTS scenarios
-    foreach scenario $scenarios {
-        if {[info exists analysis_views($scenario)]} {
-            array set view_info $analysis_views($scenario)
-            puts $fp "# Analysis view: $scenario"
-            puts $fp "# Description: $view_info(description)"
-            puts $fp "create_analysis_view -name $scenario \\"
-            puts $fp "    -constraint_file $view_info(constraint_file) \\"
-            puts $fp "    -library_set $view_info(lib_set) \\"
-            puts $fp "    -rc_corner $view_info(rc_corner)"
-            puts $fp ""
-        }
-    }
-    
-    puts $fp "# Set active scenarios for CTS"
-    puts $fp "set_analysis_view -setup [list $scenarios]"
-    puts $fp "set_analysis_view -hold [list $scenarios]"
-    puts $fp ""
-    puts $fp "puts \"MMMC setup completed for CTS with scenarios: $scenarios\""
-    
-    close $fp
-    handle_info "MMMC setup script created: $mmmc_script"
-    
-    # Source the MMMC setup script in tool
-    # source $mmmc_script
+# ==============================================================================
+# flow_proc: run_cts
+# Description: Run Innovus CTS engine
+#   Reference: clock_opt_design -cts
+# ==============================================================================
+flow_proc run_cts {
+    handle_info "Running clock_opt_design -cts..."
+
+    clock_opt_design -cts
+
+    handle_info "CTS completed"
 }
 
-flow_proc analyze_cts {
-    handle_info "Analyzing clock tree..."
+# ==============================================================================
+# flow_proc: post_cts_timing
+# Description: Post-CTS timing analysis
+#   Reference: timeDesign -postCTS
+# ==============================================================================
+flow_proc post_cts_timing {
+    handle_info "Running post-CTS timing..."
 
-    # Generate CTS reports
+    timeDesign -postCTS -outDir "$::REPORTS_DIR" -prefix postCTS_setup
+    timeDesign -postCTS -hold -outDir "$::REPORTS_DIR" -prefix postCTS_hold
+
+    handle_info "Post-CTS timing done"
+}
+
+# ==============================================================================
+# flow_proc: generate_reports
+# Description: CTS reports
+# ==============================================================================
+flow_proc generate_reports {
+    handle_info "Generating CTS reports..."
+
     file mkdir "$::REPORTS_DIR"
 
-    # Standard CTS analysis
-    catch { report_ccopt_skew_groups > "$::REPORTS_DIR/report_ccopt_skew_groups.rpt" }
-    catch { report_ccopt_clock_trees > "$::REPORTS_DIR/report_ccopt_clock_trees.rpt" }
-    catch { report_clock_timing -type summary > "$::REPORTS_DIR/report_clock_timing.rpt" }
+    catch { report_ccopt_skew_groups > "$::REPORTS_DIR/ccopt_skew_groups.rpt" }
+    catch { report_ccopt_clock_trees > "$::REPORTS_DIR/ccopt_clock_trees.rpt" }
+    catch { report_clock_timing -type summary > "$::REPORTS_DIR/clock_timing_summary.rpt" }
+    catch { report_power -outfile "$::REPORTS_DIR/report_power.rpt" }
 
-    # MMMC-aware timing analysis
-    if {[is_mmmc_stage "cts"]} {
-        handle_info "Running MMMC timing analysis for CTS..."
-        set scenarios [get_mmmc_scenarios "cts"]
+    handle_info "Reports: $::REPORTS_DIR/"
+}
 
-        # Generate MMMC timing reports per scenario
-        foreach scenario $scenarios {
-            catch { report_timing -delay_type max -scenarios $scenario > "$::REPORTS_DIR/report_timing.setup.${scenario}.rpt" }
-            catch { report_timing -delay_type min -scenarios $scenario > "$::REPORTS_DIR/report_timing.hold.${scenario}.rpt" }
-        }
+# ==============================================================================
+# flow_proc: save_design
+# Description: Save CTS checkpoint
+#   Reference: saveDesign DBS/cts.enc
+# ==============================================================================
+flow_proc save_design {
+    set checkpoint "$::WORK_DIR/checkpoints/cts.enc"
+    file mkdir [file dirname $checkpoint]
 
-        # Generate MMMC summary reports
-        catch { report_timing -scenarios $scenarios > "$::REPORTS_DIR/report_timing.mmmc_cts.rpt" }
-        catch { report_constraint -scenarios $scenarios > "$::REPORTS_DIR/report_constraint.mmmc_cts.rpt" }
-        catch { report_analysis_views > "$::REPORTS_DIR/report_analysis_views.rpt" }
+    saveDesign $checkpoint
+    handle_info "Design saved: $checkpoint"
+}
 
-        handle_info "MMMC analysis completed for scenarios: $scenarios"
-    } else {
-        # Standard single-corner analysis
-        catch { report_timing -delay_type max > "$::REPORTS_DIR/report_timing.setup.rpt" }
-        catch { report_timing -delay_type min > "$::REPORTS_DIR/report_timing.hold.rpt" }
+# ==============================================================================
+# Source setup hooks
+# ==============================================================================
+foreach _hook [list \
+    "$run_dir/setup/override_setup.tcl" \
+    "$run_dir/setup/override_setup.cts.tcl" \
+] {
+    if {[file exists $_hook]} {
+        handle_info "Sourcing hook: [file tail $_hook]"
+        source $_hook
     }
-
-    handle_info "Clock tree analysis completed"
 }
 
-flow_proc fix_hold_violations {
-    handle_info "Fixing hold violations..."
+# ==============================================================================
+# Execute — Cadence Foundation Flow CTS sequence
+# ==============================================================================
+handle_info "================================================================"
+handle_info "CBflow PNR CTS — Innovus"
+handle_info "================================================================"
 
-    # Post-CTS hold fixing
-    optDesign -postCTS -hold
-
-    handle_info "Hold violation fixing completed"
+foreach step {
+    activate_node_scenarios
+    setup_ndr
+    create_clock_spec
+    run_cts
+    post_cts_timing
+    generate_reports
+    save_design
+} {
+    handle_info "── $step ──"
+    if {[catch {$step} err]} {
+        handle_error "Step '$step' failed: $err"
+        exit 1
+    }
 }
 
-flow_proc cts_complete {
-    handle_info "CTS stage complete"
-
-    # Save checkpoint
-    set checkpoint_dir "$::WORK_DIR/checkpoints"
-    file mkdir $checkpoint_dir
-    saveDesign "${checkpoint_dir}/cts.enc"
-
-    # Final CTS verification
-    catch { verifyConnectivity -report "$::REPORTS_DIR/verify_connectivity.rpt" }
-    catch { timeDesign -postCTS -outDir "$::REPORTS_DIR" -prefix postCTS }
-
-    log_stage_status "cts" "COMPLETE" "Clock tree synthesis completed successfully"
-}
-
-
-# Exit tool after stage completion
-exit
+handle_info "PNR CTS completed"

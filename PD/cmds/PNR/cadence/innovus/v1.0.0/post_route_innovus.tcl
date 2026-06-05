@@ -74,9 +74,17 @@ flow_proc extract_parasitics {
     apply_vt_dont_use
     # Get extraction parameters from config
     global pnr
+    if {![info exists pnr(extract,mode)] || $pnr(extract,mode) eq ""} {
+        handle_error "pnr(extract,mode) not set (e.g., postRoute, signoff)"
+        exit 1
+    }
+    if {![info exists pnr(extract,effort)] || $pnr(extract,effort) eq ""} {
+        handle_error "pnr(extract,effort) not set (e.g., low, medium, high, signoff)"
+        exit 1
+    }
     set extraction_mode $pnr(extract,mode)
     set rc_corner       $pnr(extract,rc_corner)
-    set extract_effort  [expr {[info exists pnr(extract,effort)] ? $pnr(extract,effort) : "high"}]
+    set extract_effort  $pnr(extract,effort)
 
     handle_info "Extraction parameters:"
     handle_info "  Mode: $extraction_mode"

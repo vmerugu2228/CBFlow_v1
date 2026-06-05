@@ -98,7 +98,11 @@ flow_proc run_signoff_timing {
 
     # Extract final parasitics for signoff
     global pnr
-    set signoff_extract_effort [expr {[info exists pnr(signoff,extract_effort)] ? $pnr(signoff,extract_effort) : "signoff"}]
+    if {![info exists pnr(signoff,extract_effort)] || $pnr(signoff,extract_effort) eq ""} {
+        handle_error "pnr(signoff,extract_effort) not set (e.g., signoff, high)"
+        exit 1
+    }
+    set signoff_extract_effort $pnr(signoff,extract_effort)
     setExtractRCMode -engine postRoute -effort $signoff_extract_effort
     extractRC -engine postRoute
 

@@ -1704,6 +1704,154 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
     print('  Node scenario template: {}'.format(node_template_path))
     print('  Copy node assignments to project_config.tcl if not already present')
 
+    # ── Generate Cadence MMMC View Definition File ──
+    # Uses signoff scenarios as the superset — individual nodes activate their subset
+    signoff_scenarios = sorted(set(
+        (nodes.get('signoff', {}).get('setup', [])) +
+        (nodes.get('signoff', {}).get('hold', []))
+    ))
+
+    if signoff_scenarios:
+        vd_lines = []
+        vw = vd_lines.append
+        vw('#!/usr/bin/env tclsh')
+        vw('# ' + '=' * 77)
+        vw('# Cadence MMMC View Definition — Auto-Generated')
+        vw('# Generated: {} | Tech: {} | Project: {}'.format(
+            datetime.now().strftime('%Y-%m-%d %H:%M'), tech_name, project_name))
+        vw('# Scenarios: {} (from signoff node)'.format(len(signoff_scenarios)))
+        vw('# Sourced via: read_mmmc -file <this_file>')
+        vw('# DO NOT EDIT — regenerate with: cbflow flow mmmc-manager generate')
+        vw('# ' + '=' * 77)
+        vw('')
+
+        # Parse scenario names: <mode>_<corner>_<voltage>_<rc>_<temp>
+        # e.g., func_ss_0p80v_rcmax_125c
+        unique_lib_sets = {}    # lib_set_ref → (corner, voltage, temp)
+        unique_rc_corners = {}  # rc_name → temp
+        unique_modes = set()
+        scenario_parts = {}     # scenario_name → {mode, corner, voltage, rc, temp, lib_set_ref}
+
+        for sc in signoff_scenarios:
+            parts = sc.split('_')
+            if len(parts) < 5:
+                continue
+            mode = parts[0]
+            corner = parts[1]
+            voltage = parts[2]
+            rc = parts[3]
+            temp = parts[4]
+
+            lib_ref = '{}_{}_{}'.format(corner, voltage, temp)
+            unique_lib_sets[lib_ref] = (corner, voltage, temp)
+            unique_modes.add(mode)
+
+            if rc not in unique_rc_corners:
+                unique_rc_corners[rc] = True
+
+            scenario_parts[sc] = {
+                'mode': mode, 'corner': corner, 'voltage': voltage,
+                'rc': rc, 'temp': temp, 'lib_set_ref': lib_ref
+            }
+
+        # 1. Library Sets
+        vw('# ' + '-' * 77)
+        vw('# Library Sets')
+        vw('# ' + '-' * 77)
+        vw('')
+        for lib_ref in sorted(unique_lib_sets.keys()):
+            vw('create_library_set -name {}_ls \\'.format(lib_ref))
+            vw('    -timing $tech($project(track_variant),lib,{},timing)'.format(lib_ref))
+            vw('')
+
+        # 2. RC Corners
+        vw('# ' + '-' * 77)
+        vw('# RC Corners')
+        vw('# ' + '-' * 77)
+        vw('')
+        for rc_name in sorted(unique_rc_corners.keys()):
+            # Map rcmax/rcmin/rctyp to full rc corner key and get temp from rc_corners_data
+            rc_qrc_key = rc_name.replace('rcmax', 'rc_max').replace('rcmin', 'rc_min').replace('rctyp', 'rc_typ')
+            rc_full = rc_name.replace('rcmax', 'rc_max').replace('rcmin', 'rc_min').replace('rctyp', 'rc_typ')
+            rc_temp = rc_corners_data.get(rc_full, {}).get('temperature', '25')
+            vw('create_rc_corner -name {} \\'.format(rc_name))
+            vw('    -qrc_tech $tech(rcx,{},qrc) \\'.format(rc_qrc_key))
+            vw('    -T {}'.format(rc_temp))
+            vw('')
+
+        # 3. Delay Corners (one per scenario — lib_set + rc_corner)
+        vw('# ' + '-' * 77)
+        vw('# Delay Corners')
+        vw('# ' + '-' * 77)
+        vw('')
+        written_delay_corners = set()
+        for sc in signoff_scenarios:
+            sp = scenario_parts.get(sc)
+            if not sp:
+                continue
+            # Delay corner per unique (lib_set + rc_corner) — includes temp for uniqueness
+            dc_name = '{}_{}_{}_{}_dc'.format(sp['corner'], sp['voltage'], sp['rc'], sp['temp'])
+            if dc_name in written_delay_corners:
+                continue
+            written_delay_corners.add(dc_name)
+            vw('create_delay_corner -name {} \\'.format(dc_name))
+            vw('    -library_set {}_ls \\'.format(sp['lib_set_ref']))
+            vw('    -rc_corner {}'.format(sp['rc']))
+            vw('')
+
+        # 4. Constraint Modes — SDC resolved at runtime from operating_modes
+        vw('# ' + '-' * 77)
+        vw('# Constraint Modes')
+        vw('# ' + '-' * 77)
+        vw('')
+        vw('# SDC files resolved at runtime from operating_modes array')
+        for mode in sorted(unique_modes):
+            vw('if {[info exists operating_modes(%s,constraint_file)]} {' % mode)
+            vw('    create_constraint_mode -name %s_cm \\' % mode)
+            vw('        -sdc_files [list [subst $operating_modes(%s,constraint_file)]]' % mode)
+            vw('} else {')
+            vw('    create_constraint_mode -name %s_cm' % mode)
+            vw('}')
+            vw('')
+
+        # 5. Analysis Views
+        vw('# ' + '-' * 77)
+        vw('# Analysis Views')
+        vw('# ' + '-' * 77)
+        vw('')
+        for sc in signoff_scenarios:
+            sp = scenario_parts.get(sc)
+            if not sp:
+                continue
+            dc_name = '{}_{}_{}_{}_dc'.format(sp['corner'], sp['voltage'], sp['rc'], sp['temp'])
+            vw('create_analysis_view -name {} \\'.format(sc))
+            vw('    -constraint_mode {}_cm \\'.format(sp['mode']))
+            vw('    -delay_corner {}'.format(dc_name))
+            vw('')
+
+        # 6. Set all views active (default state after read_mmmc)
+        # Command files will deactivate all, then activate node-specific subset
+        setup_views = [sc for sc in signoff_scenarios
+                       if scenario_parts.get(sc, {}).get('corner') in ('ss', 'tt')]
+        hold_views = [sc for sc in signoff_scenarios
+                      if scenario_parts.get(sc, {}).get('corner') in ('ff', 'tt')]
+        vw('# ' + '-' * 77)
+        vw('# Activate All Signoff Views')
+        vw('# Command files will: set_analysis_view -setup {} -hold {} (deactivate all)')
+        vw('# then activate only their node-specific scenarios')
+        vw('# ' + '-' * 77)
+        vw('')
+        vw('set_analysis_view \\')
+        vw('    -setup [list {}] \\'.format(' '.join(setup_views)))
+        vw('    -hold  [list {}]'.format(' '.join(hold_views)))
+        vw('')
+
+        # Write the view definition file
+        vd_path = os.path.join(os.path.dirname(output_path), 'mmmc_view_definition.tcl')
+        with open(vd_path, 'w') as fh:
+            fh.write('\n'.join(vd_lines) + '\n')
+        print('  View definition: {}'.format(vd_path))
+
     # ── Report ──
     print('')
     print('=' * 60)

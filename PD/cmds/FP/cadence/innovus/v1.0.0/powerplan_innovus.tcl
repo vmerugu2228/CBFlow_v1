@@ -1,7 +1,11 @@
 #!/usr/bin/env tclsh
-# FP powerplan - Cadence Innovus
+# ==============================================================================
+# FP powerplan — Cadence Innovus
+# Description: Power grid creation — rings, straps, mesh, rail routing,
+#              global net connections, and PG verification
+# ==============================================================================
 
-# -- Bootstrap -----------------------------------------------------------------
+# ── Bootstrap ─────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
 source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
@@ -14,295 +18,346 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
-# Source flow utilities using release version
-set utils_path "$flow_dir/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} {
-    source $utils_path
-    puts "ERROR: Cannot find flow utilities at: $utils_path"
-    exit 1
-set run_dir $::env(CBFLOW_RUN_DIR)
-handle_info "Starting CBFlow FP powerplan stage for Innovus"
-# Define common procedures used in config files
-if {[info procs INFO] eq ""} {
-    proc INFO {} {
-        return "INFO"
+handle_info "Starting CBflow FP powerplan stage for Innovus"
+
+# ==============================================================================
+# Mandatory config variables — error if not set
+# ==============================================================================
+
+foreach _req {fp(power,vdd_net) fp(power,vss_net) fp(power,vdd_pin) fp(power,vss_pin)} {
+    if {![info exists $_req] || [set $_req] eq ""} {
+        handle_error "$_req is not set. Define in user_config or FP tool config."
+        exit 1
     }
 }
-if {[info procs WARNING] eq ""} {
-    proc WARNING {} {
-        return "WARNING"
+
+set PG_VDD $fp(power,vdd_net)
+set PG_VSS $fp(power,vss_net)
+
+# ==============================================================================
+# flow_proc: connect_global_nets
+# Description: Connect VDD/VSS to all instances before PG creation
+# ==============================================================================
+flow_proc connect_global_nets {
+    global fp PG_VDD PG_VSS
+
+    handle_info "Connecting global power nets: $PG_VDD / $PG_VSS"
+
+    # Primary power/ground pin connections
+    globalNetConnect $PG_VDD -type pgpin -pin $fp(power,vdd_pin) -inst * -override
+    globalNetConnect $PG_VSS -type pgpin -pin $fp(power,vss_pin) -inst * -override
+
+    # Tie-high/tie-low connections
+    if {[info exists fp(power,tie_high_pin)] && $fp(power,tie_high_pin) ne ""} {
+        handle_info "  Tie-high: $fp(power,tie_high_pin) -> $PG_VDD"
+        globalNetConnect $PG_VDD -type tiehi -pin $fp(power,tie_high_pin) -inst * -override
     }
-}
-# Define flow_proc if not already defined
-if {[info procs flow_proc] eq ""} {
-    proc flow_proc {name body} {
-        proc $name {} $body
-        handle_info "Flow procedure '$name' defined"
+    if {[info exists fp(power,tie_low_pin)] && $fp(power,tie_low_pin) ne ""} {
+        handle_info "  Tie-low: $fp(power,tie_low_pin) -> $PG_VSS"
+        globalNetConnect $PG_VSS -type tielo -pin $fp(power,tie_low_pin) -inst * -override
     }
-}
-# Source generated configuration file (from setup stage)
-set flow_type "FP"
-set config_files [list \
-    "config.tcl" \
-    "work/$flow_type/powerplan/run/config.tcl" \
-    "../work/$flow_type/powerplan/run/config.tcl" \
-]
-set config_found 0
-foreach config_file $config_files {
-    if {[file exists $config_file]} {
-        handle_info "Sourcing configuration: $config_file"
-        if {[catch {source $config_file} error]} {
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-}
-            handle_warning "Minor error in config file $config_file: $error"
-            handle_info "Continuing with available configuration..."
+
+    # Additional power domains (multi-voltage)
+    if {[info exists fp(power,additional_nets)]} {
+        foreach {net pin} $fp(power,additional_nets) {
+            handle_info "  Additional: $net -> $pin"
+            globalNetConnect $net -type pgpin -pin $pin -inst * -override
         }
-        set config_found 1
-        break
     }
-}
-if {!$config_found} {
-    handle_error "Cannot find generated config file. Run 'make powerplan_setup' first."
-    exit 1
+
+    handle_info "Global net connections completed"
 }
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# FLOW_PROC HOOKS - Powerplan Process
-# ═══════════════════════════════════════════════════════════════════════════════
-
+# ==============================================================================
+# flow_proc: create_power_rings
+# Description: Core boundary rings + optional macro rings
+# ==============================================================================
 flow_proc create_power_rings {
-    global fp project tech flow FLOW_DIR RUN_DIR ROOT_DIR
+    global fp tech PG_VDD PG_VSS
+
     handle_info "Creating power rings..."
 
-    # Get power net names from config
-    set pwr_net  [expr {[info exists fp(power,vdd_net)]  ? $fp(power,vdd_net)  : "VDD"}]
-    set gnd_net  [expr {[info exists fp(power,vss_net)]  ? $fp(power,vss_net)  : "VSS"}]
+    # Ring layers — from tech config (metal stack provides these)
+    if {![info exists fp(power,ring_layer_h)] || ![info exists fp(power,ring_layer_v)]} {
+        handle_error "fp(power,ring_layer_h) and fp(power,ring_layer_v) must be set"
+        handle_error "Typically top two thick metals, e.g., M10 (H) and M9 (V)"
+        exit 1
+    }
 
-    # Ring parameters from config
-    set ring_width   [expr {[info exists fp(power,ring_width)]   ? $fp(power,ring_width)   : 3.0}]
-    set ring_spacing [expr {[info exists fp(power,ring_spacing)] ? $fp(power,ring_spacing) : 1.0}]
-    set ring_offset  [expr {[info exists fp(power,ring_offset)}  ? $fp(power,ring_offset)  : 1.0}]
-    set ring_layer_h [expr {[info exists fp(power,ring_layer_h)] ? $fp(power,ring_layer_h) : "M1"}]
-    set ring_layer_v [expr {[info exists fp(power,ring_layer_v)] ? $fp(power,ring_layer_v) : "M2"}]
+    set layer_h $fp(power,ring_layer_h)
+    set layer_v $fp(power,ring_layer_v)
 
-    handle_info "Power nets: $pwr_net / $gnd_net"
-    handle_info "Ring width: ${ring_width}um, spacing: ${ring_spacing}um"
-    handle_info "Ring layers: H=$ring_layer_h, V=$ring_layer_v"
+    # Ring dimensions — must be defined in config
+    if {![info exists fp(power,ring_width)]} {
+        handle_error "fp(power,ring_width) must be set"
+        exit 1
+    }
 
-    # Create core power rings
-    addRing -nets [list $pwr_net $gnd_net] \
+    set ring_width   $fp(power,ring_width)
+    set ring_spacing [expr {[info exists fp(power,ring_spacing)] ? $fp(power,ring_spacing) : $ring_width}]
+    set ring_offset  [expr {[info exists fp(power,ring_offset)]  ? $fp(power,ring_offset)  : $ring_spacing}]
+
+    handle_info "  Layers: H=$layer_h V=$layer_v"
+    handle_info "  Width=${ring_width}um Spacing=${ring_spacing}um Offset=${ring_offset}um"
+
+    # Core rings
+    addRing \
+        -nets [list $PG_VDD $PG_VSS] \
         -type core_rings \
+        -layer [list $layer_h $layer_v] \
         -width $ring_width \
         -spacing $ring_spacing \
         -offset $ring_offset \
-        -layer [list $ring_layer_h $ring_layer_v] \
-        -follow core
+        -follow core \
+        -jog_distance 0.5 \
+        -threshold 0.5
 
-    # Create block-level rings around macros if configured
+    # Macro rings
     if {[info exists fp(power,macro_rings)] && $fp(power,macro_rings) eq "true"} {
-        set macro_ring_width   [expr {[info exists fp(power,macro_ring_width)]   ? $fp(power,macro_ring_width)   : 1.5}]
-        set macro_ring_spacing [expr {[info exists fp(power,macro_ring_spacing)] ? $fp(power,macro_ring_spacing) : 0.5}]
-        handle_info "Creating macro power rings (width=${macro_ring_width}um)..."
+        set mr_width   [expr {[info exists fp(power,macro_ring_width)]   ? $fp(power,macro_ring_width)   : [expr {$ring_width * 0.5}]}]
+        set mr_spacing [expr {[info exists fp(power,macro_ring_spacing)] ? $fp(power,macro_ring_spacing) : [expr {$mr_width * 0.5}]}]
+        set mr_offset  [expr {[info exists fp(power,macro_ring_offset)]  ? $fp(power,macro_ring_offset)  : $mr_spacing}]
 
-        addRing -nets [list $pwr_net $gnd_net] \
+        handle_info "  Macro rings: width=${mr_width}um spacing=${mr_spacing}um"
+
+        addRing \
+            -nets [list $PG_VDD $PG_VSS] \
             -type block_rings \
-            -width $macro_ring_width \
-            -spacing $macro_ring_spacing \
-            -offset $macro_ring_spacing \
-            -layer [list $ring_layer_h $ring_layer_v] \
+            -layer [list $layer_h $layer_v] \
+            -width $mr_width \
+            -spacing $mr_spacing \
+            -offset $mr_offset \
             -around each_block
     }
 
-    handle_info "Power rings created successfully"
+    handle_info "Power rings created"
 }
 
+# ==============================================================================
+# flow_proc: create_power_straps
+# Description: Multi-layer power mesh using addStripe
+#   Config: fp(power,straps) — list of per-layer strap specifications
+#   Each spec: {layer <L> width <W> spacing <S> pitch <P> direction <H|V>}
+# ==============================================================================
 flow_proc create_power_straps {
-    global fp project tech flow FLOW_DIR RUN_DIR ROOT_DIR
+    global fp tech PG_VDD PG_VSS
+
     handle_info "Creating power straps..."
 
-    # Get power net names
-    set pwr_net [expr {[info exists fp(power,vdd_net)] ? $fp(power,vdd_net) : "VDD"}]
-    set gnd_net [expr {[info exists fp(power,vss_net)] ? $fp(power,vss_net) : "VSS"}]
+    if {![info exists fp(power,straps)]} {
+        handle_error "fp(power,straps) not defined — no power mesh will be created"
+        handle_error "Define in user_config, e.g.:"
+        handle_error "  set fp(power,straps) {"
+        handle_error "    {layer M10 width 3.2 spacing 1.6 pitch 30.0 direction horizontal}"
+        handle_error "    {layer M9  width 3.2 spacing 1.6 pitch 30.0 direction vertical}"
+        handle_error "  }"
+        exit 1
+    }
 
-    # Strap configuration from config
-    if {[info exists fp(power,straps)]} {
-        foreach strap_spec $fp(power,straps) {
-            array set strap_info $strap_spec
-            set layer   $strap_info(layer)
-            set width   $strap_info(width)
-            set spacing $strap_info(spacing)
-            set pitch   [expr {[info exists strap_info(pitch)]     ? $strap_info(pitch)     : [expr {$width * 10}]}]
-            set dir     [expr {[info exists strap_info(direction)] ? $strap_info(direction) : "vertical"}]
+    foreach strap_spec $fp(power,straps) {
+        array set s $strap_spec
 
-            handle_info "Adding stripes on $layer: width=${width}um spacing=${spacing}um pitch=${pitch}um dir=$dir"
-
-            addStripe -nets [list $pwr_net $gnd_net] \
-                -layer $layer \
-                -width $width \
-                -spacing $spacing \
-                -set_to_set_distance $pitch \
-                -direction $dir \
-                -start_from left
-
-            array unset strap_info
+        # Validate required keys
+        foreach _k {layer width spacing pitch direction} {
+            if {![info exists s($_k)]} {
+                handle_error "Power strap spec missing '$_k': $strap_spec"
+                exit 1
+            }
         }
+
+        handle_info "  $s(layer): width=$s(width)um spacing=$s(spacing)um pitch=$s(pitch)um dir=$s(direction)"
+
+        set stripe_cmd [list addStripe \
+            -nets [list $PG_VDD $PG_VSS] \
+            -layer $s(layer) \
+            -width $s(width) \
+            -spacing $s(spacing) \
+            -set_to_set_distance $s(pitch) \
+            -direction $s(direction)]
+
+        # Optional: start offset
+        if {[info exists s(start_offset)]} {
+            lappend stripe_cmd -start_offset $s(start_offset)
+        } else {
+            lappend stripe_cmd -start_from left
+        }
+
+        # Optional: number of sets
+        if {[info exists s(number_of_sets)]} {
+            lappend stripe_cmd -number_of_sets $s(number_of_sets)
+        }
+
+        # Optional: over specific area
+        if {[info exists s(area)]} {
+            lappend stripe_cmd -area $s(area)
+        }
+
+        # Optional: snap to grid
+        lappend stripe_cmd -snap_wire_center_to_grid grid
+
+        eval $stripe_cmd
+        array unset s
+    }
+
+    handle_info "Power straps created"
+}
+
+# ==============================================================================
+# flow_proc: route_secondary_pg
+# Description: Standard cell rail routing (M1 followpin) + block pin connections
+# ==============================================================================
+flow_proc route_secondary_pg {
+    global fp tech PG_VDD PG_VSS
+
+    handle_info "Routing standard cell PG rails and block pin connections..."
+
+    # Standard cell followpin routing (M1 rails)
+    sroute \
+        -connect {blockPin padPin corePin floatingStripe} \
+        -layerChangeRange [list $fp(power,sroute_bottom_layer) $fp(power,sroute_top_layer)] \
+        -blockPinTarget nearestTarget \
+        -padPinPortConnect allPort \
+        -corePinTarget firstAfterRowEnd \
+        -crossoverViaLayerRange [list $fp(power,sroute_bottom_layer) $fp(power,sroute_top_layer)] \
+        -nets [list $PG_VDD $PG_VSS] \
+        -allowJogging 1 \
+        -allowLayerChange 1 \
+        -targetViaLayerRange [list $fp(power,sroute_bottom_layer) $fp(power,sroute_top_layer)]
+
+    handle_info "Secondary PG routing completed"
+}
+
+# ==============================================================================
+# flow_proc: add_pg_vias
+# Description: Insert vias at power grid intersections for connectivity
+# ==============================================================================
+flow_proc add_pg_vias {
+    global fp tech PG_VDD PG_VSS
+
+    handle_info "Adding PG vias at strap intersections..."
+
+    # Via stacking at ring/strap intersections
+    if {[info exists fp(power,add_vias)] && $fp(power,add_vias) eq "true"} {
+        set bottom_layer [expr {[info exists fp(power,via_bottom_layer)] ? $fp(power,via_bottom_layer) : $fp(power,sroute_bottom_layer)}]
+        set top_layer    [expr {[info exists fp(power,via_top_layer)]    ? $fp(power,via_top_layer)    : $fp(power,sroute_top_layer)}]
+
+        addVia \
+            -nets [list $PG_VDD $PG_VSS] \
+            -layerRange [list $bottom_layer $top_layer] \
+            -allNet
+
+        handle_info "PG vias added ($bottom_layer to $top_layer)"
     } else {
-        # Default strap configuration
-        set strap_layer [expr {[info exists fp(power,strap_layer)} ? $fp(power,strap_layer) : "M4"}]
-        set strap_width [expr {[info exists fp(power,strap_width)] ? $fp(power,strap_width) : 2.0}]
-        set strap_pitch [expr {[info exists fp(power,strap_pitch)] ? $fp(power,strap_pitch) : 40.0}]
-
-        handle_info "Using default strap config: layer=$strap_layer width=${strap_width}um pitch=${strap_pitch}um"
-
-        addStripe -nets [list $pwr_net $gnd_net] \
-            -layer $strap_layer \
-            -width $strap_width \
-            -spacing 1.0 \
-            -set_to_set_distance $strap_pitch \
-            -direction vertical \
-            -start_from left
+        handle_info "PG via insertion skipped (fp(power,add_vias) not set to true)"
     }
-
-    handle_info "Power straps created successfully"
 }
 
-flow_proc connect_power {
-    global fp project tech flow FLOW_DIR RUN_DIR ROOT_DIR
-    handle_info "Connecting global power nets..."
-
-    # Get power/ground net names
-    set pwr_net [expr {[info exists fp(power,vdd_net)] ? $fp(power,vdd_net) : "VDD"}]
-    set gnd_net [expr {[info exists fp(power,vss_net)] ? $fp(power,vss_net) : "VSS"}]
-
-    # Get power/ground pin names
-    set pwr_pin [expr {[info exists fp(power,vdd_pin)} ? $fp(power,vdd_pin) : "VDD"}]
-    set gnd_pin [expr {[info exists fp(power,vss_pin)} ? $fp(power,vss_pin) : "VSS"}]
-
-    # Connect VDD
-    handle_info "Connecting $pwr_net to pin $pwr_pin on all instances..."
-    globalNetConnect $pwr_net -type pgpin -pin $pwr_pin -inst * -override
-
-    # Connect VSS
-    handle_info "Connecting $gnd_net to pin $gnd_pin on all instances..."
-    globalNetConnect $gnd_net -type pgpin -pin $gnd_pin -inst * -override
-
-    # Connect tie-high/tie-low if specified
-    if {[info exists fp(power,tie_high_pin)]} {
-        handle_info "Connecting tie-high pin: $fp(power,tie_high_pin)"
-        globalNetConnect $pwr_net -type tiehi -pin $fp(power,tie_high_pin) -inst * -override
-    }
-
-    if {[info exists fp(power,tie_low_pin)]} {
-        handle_info "Connecting tie-low pin: $fp(power,tie_low_pin)"
-        globalNetConnect $gnd_net -type tielo -pin $fp(power,tie_low_pin) -inst * -override
-    }
-
-    # Special rail connections for standard cells
-    sroute -connect blockPin -layerChangeRange [list $fp(power,sroute_bottom_layer) $fp(power,sroute_top_layer)] \
-        -nets [list $pwr_net $gnd_net] 2>/dev/null
-
-    handle_info "Global power connections completed"
-}
-
+# ==============================================================================
+# flow_proc: verify_power
+# Description: Check PG connectivity, DRC, and IR drop
+# ==============================================================================
 flow_proc verify_power {
-    global fp project tech flow FLOW_DIR RUN_DIR ROOT_DIR
-    handle_info "Verifying power grid integrity..."
+    global fp tech PG_VDD PG_VSS
 
-    # Get power/ground net names
-    set pwr_net [expr {[info exists fp(power,vdd_net)] ? $fp(power,vdd_net) : "VDD"}]
-    set gnd_net [expr {[info exists fp(power,vss_net)] ? $fp(power,vss_net) : "VSS"}]
+    handle_info "Verifying power grid..."
+    set errors 0
 
-    set verification_errors 0
-
-    # Verify PG connectivity
-    handle_info "Checking power/ground connectivity..."
-    if {[catch {verifyConnectivity -type pgpin -net [list $pwr_net $gnd_net] \
-            -report $::REPORTS_DIR/pg_connectivity.rpt} result]} {
-        handle_warning "PG connectivity check reported issues: $result"
-        incr verification_errors
+    # 1. PG connectivity check
+    handle_info "  Checking PG connectivity..."
+    if {[catch {
+        verifyConnectivity \
+            -type all \
+            -noAntenna \
+            -report $::REPORTS_DIR/pg_connectivity.rpt
+    } result]} {
+        handle_warning "PG connectivity issue: $result"
+        incr errors
     }
 
-    # Verify power via DRC
-    handle_info "Checking power grid geometry..."
-    if {[catch {verify_pg_net -net [list $pwr_net $gnd_net] \
-            -report $::REPORTS_DIR/pg_net_verify.rpt} result]} {
-        handle_warning "PG net verification reported issues: $result"
-        incr verification_errors
+    # 2. PG net geometry check
+    handle_info "  Checking PG net geometry..."
+    if {[catch {
+        verify_pg_net \
+            -net [list $PG_VDD $PG_VSS] \
+            -report $::REPORTS_DIR/pg_net_verify.rpt
+    } result]} {
+        handle_warning "PG net geometry issue: $result"
+        incr errors
     }
 
-    if {$verification_errors > 0} {
-        handle_warning "Power verification completed with $verification_errors issue(s)"
+    # 3. Early IR drop estimate (optional)
+    if {[info exists fp(power,analyze_ir)] && $fp(power,analyze_ir) eq "true"} {
+        handle_info "  Running early IR drop analysis..."
+        if {[catch {
+            if {![info exists fp(power,ir_drop_limit)]} {
+                handle_error "fp(power,ir_drop_limit) not set — required when fp(power,analyze_ir) is true"
+                exit 1
+            }
+            set ir_limit $fp(power,ir_drop_limit)
+            analyzeIR \
+                -net $PG_VDD \
+                -limit $ir_limit \
+                -report $::REPORTS_DIR/ir_drop_vdd.rpt
+            analyzeIR \
+                -net $PG_VSS \
+                -limit $ir_limit \
+                -report $::REPORTS_DIR/ir_drop_vss.rpt
+        } result]} {
+            handle_warning "IR drop analysis: $result"
+        }
+    }
+
+    if {$errors > 0} {
+        handle_warning "Power verification completed with $errors issue(s) — review reports"
     } else {
         handle_info "Power grid verification passed"
     }
 }
 
+# ==============================================================================
+# flow_proc: generate_reports
+# Description: Power grid summary reports
+# ==============================================================================
 flow_proc generate_reports {
-    global fp project tech flow FLOW_DIR RUN_DIR ROOT_DIR
+    global fp PG_VDD PG_VSS
+
     handle_info "Generating powerplan reports..."
 
-    # Create reports directory
-    if {![file exists "reports"]} {
-        file mkdir "reports"
+    if {[catch {report_power_domain > $::REPORTS_DIR/power_domain.rpt}]} {
+        handle_warning "Could not generate power domain report"
+    }
+
+    if {[catch {reportPGDensity > $::REPORTS_DIR/pg_density.rpt}]} {
+        handle_warning "Could not generate PG density report"
     }
 
     # Power grid summary
-    handle_info "Generating power grid summary..."
-    if {[catch {report_power_domain > $::REPORTS_DIR/power_domain.rpt} result]} {
-        handle_warning "Could not generate power domain report: $result"
+    if {[catch {
+        reportNetStat $PG_VDD > $::REPORTS_DIR/pg_net_stat_vdd.rpt
+        reportNetStat $PG_VSS > $::REPORTS_DIR/pg_net_stat_vss.rpt
+    }]} {
+        handle_warning "Could not generate PG net stat reports"
     }
 
-    # IR drop estimation if available
-    if {[info exists fp(power,analyze_ir)] && $fp(power,analyze_ir) eq "true"} {
-        handle_info "Running early IR drop analysis..."
-        if {[catch {analyzeIR -net [expr {[info exists fp(power,vdd_net)] ? $fp(power,vdd_net) : "VDD"}] \
-                -report $::REPORTS_DIR/ir_drop_estimate.rpt} result]} {
-            handle_warning "IR drop analysis skipped: $result"
-        }
-    }
-
-    # Power grid density report
-    handle_info "Generating PG density report..."
-    if {[catch {reportPGDensity > $::REPORTS_DIR/pg_density.rpt} result]} {
-        handle_warning "Could not generate PG density report: $result"
-    }
-
-    handle_info "═══════════════════════════════════════════════════════════════"
-    handle_info "CBFlow FP Powerplan Stage - COMPLETED SUCCESSFULLY"
-    handle_info "Reports: reports/"
-    handle_info "Next Stage: export_db (make export_db)"
-    handle_info "═══════════════════════════════════════════════════════════════"
+    handle_info "Powerplan reports generated in $::REPORTS_DIR/"
 }
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# MAIN EXECUTION FLOW
-# ═══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
+# MAIN EXECUTION
+# ==============================================================================
 
-handle_info "═══════════════════════════════════════════════════════════════"
-handle_info "CBFlow FP Powerplan Stage - Starting Execution"
-handle_info "═══════════════════════════════════════════════════════════════"
+handle_info "================================================================"
+handle_info "CBflow FP Powerplan — Innovus"
+handle_info "  VDD=$PG_VDD  VSS=$PG_VSS"
+handle_info "================================================================"
 
-# Execute flow procedures in sequence
-set flow_steps {
-    create_power_rings
-    create_power_straps
-    connect_power
-    verify_power
-    generate_reports
-}
-
-foreach step $flow_steps {
-    handle_info "Executing flow step: $step"
-
-    if {[catch {$step} error]} {
-        handle_error "Flow step '$step' failed: $error"
+# Execute flow steps in sequence
+foreach step {connect_global_nets create_power_rings create_power_straps route_secondary_pg add_pg_vias verify_power generate_reports} {
+    handle_info "── $step ──"
+    if {[catch {$step} err]} {
+        handle_error "Step '$step' failed: $err"
         exit 1
     }
-
-    handle_info "Flow step '$step' completed successfully"
 }
 
-handle_info "CBFlow FP powerplan stage completed successfully"
-
-# Exit tool after stage completion
-exit
+handle_info "CBflow FP powerplan completed successfully"
