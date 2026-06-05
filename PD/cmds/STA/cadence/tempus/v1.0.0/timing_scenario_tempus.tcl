@@ -71,10 +71,13 @@ flow_proc read_physical_data {
     handle_info "Reading physical data (LEF)..."
     global tech
 
-    # Technology LEF
-    if {$tech(lef_tech) ne "" && [file exists $tech(lef_tech)]} {
-        read_lef $tech(lef_tech)
-        handle_info "  Tech LEF: [file tail $tech(lef_tech)]"
+    # Technology LEF (metal_stack × track)
+    set _ms $project(metal_stack)
+    set _trk $project(track_variant)
+    set _tech_lef $tech(${_ms},${_trk},lef_tech)
+    if {$_tech_lef ne "" && [file exists $_tech_lef]} {
+        read_lef $_tech_lef
+        handle_info "  Tech LEF: [file tail $_tech_lef]"
     }
 
     # Cell LEFs (per track)

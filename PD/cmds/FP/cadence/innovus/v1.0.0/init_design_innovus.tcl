@@ -59,13 +59,12 @@ flow_proc generate_globals {
     # ── LEF files ──
     set lef_list [list]
 
-    # Tech LEF
-    if {[info exists tech(lef_tech)] && $tech(lef_tech) ne ""} {
-        lappend lef_list $tech(lef_tech)
-    }
+    # Tech LEF (metal_stack × track)
+    set _trk $project(track_variant)
+    set _ms $project(metal_stack)
+    lappend lef_list $tech(${_ms},${_trk},lef_tech)
 
     # Cell LEFs per track
-    set _trk $project(track_variant)
     if {[info exists tech(${_trk},lef)]} {
         foreach lef $tech(${_trk},lef) {
             if {$lef ne ""} { lappend lef_list $lef }
@@ -80,7 +79,7 @@ flow_proc generate_globals {
     }
 
     if {[llength $lef_list] == 0} {
-        handle_error "No LEF files — check tech(lef_tech) and tech(<track>,lef)"
+        handle_error "No LEF files — check tech(<ms>,<track>,lef_tech) and tech(<track>,lef)"
         exit 1
     }
     puts $gf "set init_lef_file {[join $lef_list { }]}"

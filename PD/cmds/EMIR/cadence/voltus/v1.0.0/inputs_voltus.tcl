@@ -141,14 +141,11 @@ flow_proc read_physical {
     global emir tech flow
     handle_info "Reading LEF physical data..."
 
-    # Read technology LEF
-    if {[info exists tech(lef_tech)] && $tech(lef_tech) ne ""} {
-        if {[file exists $tech(lef_tech)]} {
-            handle_info "  read_lef $tech(lef_tech)"
-            read_lef $tech(lef_tech)
-        } else {
-            handle_warning "Tech LEF not found: $tech(lef_tech)"
-        }
+    # Read technology LEF (metal_stack × track)
+    set _tech_lef $tech($project(metal_stack),$project(track_variant),lef_tech)
+    if {$_tech_lef ne ""} {
+        handle_info "  read_lef [file tail $_tech_lef]"
+        read_lef $_tech_lef
     }
 
     # Read cell LEFs from track-specific list: tech($tech(track),lef)

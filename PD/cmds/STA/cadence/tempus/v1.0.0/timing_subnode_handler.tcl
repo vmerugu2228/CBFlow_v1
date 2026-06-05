@@ -186,7 +186,7 @@ switch $subnode_name {
 
         # Section 4: Read LEFs
         puts $_fh "# ── LEF ──"
-        puts $_fh "read_lib -lef \$tech(lef_tech)"
+        puts $_fh "read_lib -lef \$tech(\$project(metal_stack),\$project(track_variant),lef_tech)"
         puts $_fh "foreach _lef \$tech(\$project(track_variant),lef) {"
         puts $_fh "    read_lib -lef \$_lef"
         puts $_fh "}"

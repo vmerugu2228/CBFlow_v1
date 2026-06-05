@@ -25,9 +25,10 @@ flow_proc setup_libraries {
 
     set _trk $project(track_variant)
 
-    # ── Tech LEF (engine-resolved from metal_stack × track) ──
-    handle_info "Tech LEF: [file tail $tech(lef_tech)]"
-    read_physical -lef $tech(lef_tech)
+    # ── Tech LEF (metal_stack × track from tech_config) ──
+    set _ms $project(metal_stack)
+    handle_info "Tech LEF: [file tail $tech(${_ms},${_trk},lef_tech)]"
+    read_physical -lef $tech(${_ms},${_trk},lef_tech)
 
     # ── Cell LEFs (stdcell + memory + IO — from lib_config) ──
     handle_info "Cell LEFs ($_{trk}): [llength $tech(${_trk},lef)] files"
