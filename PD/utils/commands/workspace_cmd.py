@@ -744,8 +744,10 @@ def cmd_create(args: argparse.Namespace) -> int:
     create_thread = threading.Thread(target=do_create)
     create_thread.start()
 
-    # Show progress while thread runs
+    # Show progress while thread runs — stop early on error
     for i, (step_name, step_time) in enumerate(steps):
+        if result_holder['error']:
+            break
         pct = int((i / total_steps) * 100)
         filled = int(bar_width * i / total_steps)
         bar = '\033[32m' + '#' * filled + '\033[0m' + '-' * (bar_width - filled)
@@ -756,10 +758,10 @@ def cmd_create(args: argparse.Namespace) -> int:
     # Wait for creation to finish
     create_thread.join()
 
-    # Final 100%
-    bar = '\033[32m' + '#' * bar_width + '\033[0m'
-    sys.stdout.write(f"\r  [{bar}] 100%  Complete.{' ' * 30}\n")
-    sys.stdout.flush()
+    if not result_holder['error']:
+        bar = '\033[32m' + '#' * bar_width + '\033[0m'
+        sys.stdout.write(f"\r  [{bar}] 100%  Complete.{' ' * 30}\n")
+        sys.stdout.flush()
     print()
 
     success = result_holder['success']
