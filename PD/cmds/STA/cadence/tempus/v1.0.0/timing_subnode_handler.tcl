@@ -143,7 +143,7 @@ switch $subnode_name {
         set _vd_file "$::env(FLOW_DIR)/config/project/$::env(CBFLOW_PROJECT_NAME)/$::env(FLOW_CONFIG_VERSION)/mmmc_view_definition.tcl"
 
         # ── Generate per-corner Tempus command file ──
-        set _cmd_file "$_run_dir/${scenario}.tcl"
+        set _cmd_file "$_run_dir/${scenario}.tempus.tcl"
         set _fh [open $_cmd_file "w"]
 
         puts $_fh "#!/usr/bin/env tclsh"

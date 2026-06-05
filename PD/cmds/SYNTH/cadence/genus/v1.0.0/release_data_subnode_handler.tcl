@@ -27,7 +27,7 @@ switch $subnode_name {
         puts "INFO: $stage_name setup..."
         handler_setup $run_dir $::flow_type $node_name
         # Generate local command file (copy from PD/cmds, add header)
-        set _gen_file "$run_dir/work/$::flow_type/$node_name/run/${node_name}.tcl"
+        set _gen_file "$run_dir/work/$::flow_type/$node_name/run/${node_name}.genus.tcl"
         if {[file exists $cmd_file]} {
             set _src_fh [open $cmd_file r]
             set _src_content [read $_src_fh]
@@ -45,7 +45,7 @@ switch $subnode_name {
     }
     "run" {
         puts "INFO: $stage_name run..."
-        set _gen_file "$run_dir/work/$::flow_type/$node_name/run/${node_name}.tcl"
+        set _gen_file "$run_dir/work/$::flow_type/$node_name/run/${node_name}.genus.tcl"
         set _tool [expr {[info exists synth(tool,name)] ? $synth(tool,name) : "genus"}]
         handler_run $run_dir $::flow_type $node_name $stage_name $_gen_file $test_mode $_tool
     }

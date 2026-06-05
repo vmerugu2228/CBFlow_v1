@@ -87,7 +87,7 @@ switch $subnode_name {
         if {[info exists ::sta(input,netlist)]} { set _netlist $::sta(input,netlist) }
 
         # ── Generate QRC/Quantus command file ──
-        set _cmd_file "$_run_dir/${rc_corner}.cmd"
+        set _cmd_file "$_run_dir/${rc_corner}.quantus.cmd"
         set _fh [open $_cmd_file "w"]
 
         puts $_fh "// ================================================================"
