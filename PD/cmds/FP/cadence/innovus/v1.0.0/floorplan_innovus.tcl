@@ -91,6 +91,32 @@ flow_proc place_pins {
 }
 
 # ==============================================================================
+# flow_proc: activate_node_scenarios
+# Description: Activate MMMC scenarios for this node (deactivate rest)
+#   Views were loaded by init_design via mmmc_view_definition.tcl
+#   This proc activates only the scenarios assigned to this node_type
+# ==============================================================================
+flow_proc activate_node_scenarios {
+    global mmmc STAGE_NAME
+
+    if {![info exists mmmc($STAGE_NAME)]} {
+        handle_info "No node-specific scenarios for $STAGE_NAME — all views remain active"
+        return
+    }
+
+    handle_info "Activating scenarios for: $STAGE_NAME"
+    array set _nd $mmmc($STAGE_NAME)
+    set _setup [expr {[info exists _nd(setup)] ? $_nd(setup) : {}}]
+    set _hold  [expr {[info exists _nd(hold)]  ? $_nd(hold)  : {}}]
+
+    handle_info "  Setup: $_setup"
+    handle_info "  Hold:  $_hold"
+
+    set_analysis_view -setup {} -hold {}
+    set_analysis_view -setup $_setup -hold $_hold
+}
+
+# ==============================================================================
 # flow_proc: add_endcaps_welltaps
 # Description: Insert boundary endcap cells and well tap cells
 #   Config: tech(<track>,endcap)       — endcap cell name
@@ -179,6 +205,7 @@ handle_info "================================================================"
 
 foreach step {
     load_design
+    activate_node_scenarios
     load_floorplan
     place_pins
     add_endcaps_welltaps

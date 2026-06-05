@@ -38,6 +38,30 @@ flow_proc load_design {
 }
 
 # ==============================================================================
+# flow_proc: activate_node_scenarios
+# Description: Activate MMMC scenarios for this node (deactivate rest)
+# ==============================================================================
+flow_proc activate_node_scenarios {
+    global mmmc STAGE_NAME
+
+    if {![info exists mmmc($STAGE_NAME)]} {
+        handle_info "No node-specific scenarios for $STAGE_NAME — all views remain active"
+        return
+    }
+
+    handle_info "Activating scenarios for: $STAGE_NAME"
+    array set _nd $mmmc($STAGE_NAME)
+    set _setup [expr {[info exists _nd(setup)] ? $_nd(setup) : {}}]
+    set _hold  [expr {[info exists _nd(hold)]  ? $_nd(hold)  : {}}]
+
+    handle_info "  Setup: $_setup"
+    handle_info "  Hold:  $_hold"
+
+    set_analysis_view -setup {} -hold {}
+    set_analysis_view -setup $_setup -hold $_hold
+}
+
+# ==============================================================================
 # Mandatory config variables — error if not set
 # ==============================================================================
 
@@ -381,7 +405,7 @@ flow_proc save_design {
 }
 
 # Execute flow steps in sequence
-foreach step {load_design connect_global_nets create_power_rings create_power_straps route_secondary_pg add_pg_vias verify_power generate_reports save_design} {
+foreach step {load_design activate_node_scenarios connect_global_nets create_power_rings create_power_straps route_secondary_pg add_pg_vias verify_power generate_reports save_design} {
     handle_info "── $step ──"
     if {[catch {$step} err]} {
         handle_error "Step '$step' failed: $err"
