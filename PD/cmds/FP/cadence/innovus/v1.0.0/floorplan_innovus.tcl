@@ -105,8 +105,9 @@ flow_proc add_endcaps_welltaps {
 
     # Endcaps
     if {[info exists tech(${_trk},endcap)] && $tech(${_trk},endcap) ne ""} {
-        handle_info "  Endcap: $tech(${_trk},endcap)"
-        setEndCap -prefix ENDCAP -cell $tech(${_trk},endcap)
+        set _ecprefix [expr {[info exists fp(endcap,prefix)] && $fp(endcap,prefix) ne "" ? $fp(endcap,prefix) : "ENDCAP"}]
+        handle_info "  Endcap: $tech(${_trk},endcap) prefix=$_ecprefix"
+        setEndCap -prefix $_ecprefix -cell $tech(${_trk},endcap)
         addEndCap
     } else {
         handle_info "  No endcap cell defined — skipping"
@@ -118,8 +119,9 @@ flow_proc add_endcaps_welltaps {
             handle_error "fp(welltap,interval) not set — required for well tap insertion"
             exit 1
         }
-        handle_info "  Well tap: $tech(${_trk},well_tap) every $fp(welltap,interval)um"
-        addWellTap -cell $tech(${_trk},well_tap) -cellInterval $fp(welltap,interval) -prefix WELLTAP
+        set _wtprefix [expr {[info exists fp(welltap,prefix)] && $fp(welltap,prefix) ne "" ? $fp(welltap,prefix) : "WELLTAP"}]
+        handle_info "  Well tap: $tech(${_trk},well_tap) every $fp(welltap,interval)um prefix=$_wtprefix"
+        addWellTap -cell $tech(${_trk},well_tap) -cellInterval $fp(welltap,interval) -prefix $_wtprefix
     } else {
         handle_info "  No well tap cell defined — skipping"
     }

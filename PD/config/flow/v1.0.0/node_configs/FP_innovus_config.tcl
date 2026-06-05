@@ -24,7 +24,9 @@ array set fp {
     floorplan,macro_channel     "5.0"
     floorplan,boundary_cells    true
     floorplan,tap_cells         true
+    endcap,prefix               "ENDCAP"
     welltap,interval            ""
+    welltap,prefix              "WELLTAP"
 
     power,net_names             "VDD VSS"
     power,ring_width            "2.0"
