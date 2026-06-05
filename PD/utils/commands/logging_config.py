@@ -126,7 +126,6 @@ CBFLOW_LOGO = """
   ╚██████╗██████╔╝██║     ███████╗╚██████╔╝╚███╔███╔╝
    ╚═════╝╚═════╝ ╚═╝     ╚══════╝ ╚═════╝  ╚══╝╚══╝
   Physical Design Flow Management System  v2.0.0
-  Developed by SmartSoc Solutions Pvt Limited
 """
 
 
@@ -151,16 +150,21 @@ def print_logo():
         tech = env.get('TECH_NAME', '')
         flow = env.get('CBFLOW_FLOW_TYPE', '')
         phase = env.get('CBFLOW_PROJECT_PHASE', '')
+        metal = env.get('METAL_STACK', '')
+
+        w = sys.stderr.write
+        w('  ╔═════════════════════════════════════════════════════╗\n')
+        w('  ║  Developed by SmartSoc Solutions Pvt Limited        ║\n')
         if proj:
-            info = '  Project: {}'.format(proj)
+            w('  ╠═════════════════════════════════════════════════════╣\n')
+            w('  ║  Project:  {:<20s} Phase:  {:<10s}  ║\n'.format(proj, phase))
             if design:
-                info += ' | Design: {}'.format(design)
+                w('  ║  Design:   {:<20s} Flow:   {:<10s}  ║\n'.format(design, flow))
             if tech:
-                info += ' | Tech: {}'.format(tech)
-            if flow:
-                info += ' | Flow: {}'.format(flow)
-            if phase:
-                info += ' | Phase: {}'.format(phase)
-            sys.stderr.write(info + '\n')
+                t_info = tech
+                if metal:
+                    t_info = '{} ({})'.format(tech, metal)
+                w('  ║  Tech:     {:<40s}  ║\n'.format(t_info))
+        w('  ╚═════════════════════════════════════════════════════╝\n')
 
     sys.stderr.flush()
