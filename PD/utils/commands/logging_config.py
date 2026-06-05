@@ -126,11 +126,41 @@ CBFLOW_LOGO = """
   ╚██████╗██████╔╝██║     ███████╗╚██████╔╝╚███╔███╔╝
    ╚═════╝╚═════╝ ╚═╝     ╚══════╝ ╚═════╝  ╚══╝╚══╝
   Physical Design Flow Management System  v2.0.0
+  Developed by SmartSoc Solutions Pvt Limited
 """
 
 
 def print_logo():
-    """Print CBflow ASCII logo to stderr (same stream as logger output)."""
+    """Print CBflow ASCII logo with project context to stderr."""
     import sys
+    import os
     sys.stderr.write(CBFLOW_LOGO)
+
+    # Add project context if in a run directory
+    env_file = os.path.join(os.getcwd(), '.run.cbflow.env')
+    if os.path.exists(env_file):
+        env = {}
+        with open(env_file) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith('export ') and '=' in line:
+                    k, v = line[7:].split('=', 1)
+                    env[k] = v.strip('"\'')
+        proj = env.get('CBFLOW_PROJECT_NAME', '')
+        design = env.get('CBFLOW_DESIGN_NAME', '')
+        tech = env.get('TECH_NAME', '')
+        flow = env.get('CBFLOW_FLOW_TYPE', '')
+        phase = env.get('CBFLOW_PROJECT_PHASE', '')
+        if proj:
+            info = '  Project: {}'.format(proj)
+            if design:
+                info += ' | Design: {}'.format(design)
+            if tech:
+                info += ' | Tech: {}'.format(tech)
+            if flow:
+                info += ' | Flow: {}'.format(flow)
+            if phase:
+                info += ' | Phase: {}'.format(phase)
+            sys.stderr.write(info + '\n')
+
     sys.stderr.flush()
