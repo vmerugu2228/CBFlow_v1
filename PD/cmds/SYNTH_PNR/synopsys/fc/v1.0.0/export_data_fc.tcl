@@ -22,7 +22,7 @@ setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 # ==============================================================================
 # flow_proc: load_design
-# FC-RM: open_lib, copy_block from chip_finish, link_block
+# FC-RM: open_lib, copy_block from signoff, link_block
 # ==============================================================================
 flow_proc load_design {
     handle_info "Loading design for write_data..."
@@ -32,7 +32,7 @@ flow_proc load_design {
     set lib_name [expr {$synth_pnr(common,design_lib_name) ne "" ? $synth_pnr(common,design_lib_name) : "${design_name}.nlib"}]
 
     open_lib $lib_name
-    copy_block -from ${design_name}/chip_finish -to ${design_name}/write_data
+    copy_block -from ${design_name}/signoff -to ${design_name}/write_data
     current_block ${design_name}/write_data
     link_block
 

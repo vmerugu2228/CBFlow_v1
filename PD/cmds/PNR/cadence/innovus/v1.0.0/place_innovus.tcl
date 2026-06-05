@@ -14,6 +14,25 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
+
+# ==============================================================================
+# flow_proc: load_design
+# Description: Restore design from init_design stage
+# ==============================================================================
+flow_proc load_design {
+    global run_dir flow
+
+    set _db "$run_dir/work/$::FLOW_TYPE/init_design1/outputs/init_design.enc.dat"
+    if {![file exists $_db]} {
+        handle_error "init_design database not found: $_db"
+        exit 1
+    }
+    handle_info "Restoring design: $_db"
+    restoreDesign $_db $flow(design_name)
+    handle_info "Design restored: $flow(design_name)"
+}
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # PLACEMENT
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -217,9 +236,9 @@ flow_proc placement_complete {
     validate_pnr_placement_results
 
     # Save checkpoint
-    set checkpoint_dir "$::WORK_DIR/checkpoints"
-    file mkdir $checkpoint_dir
-    saveDesign "${checkpoint_dir}/placement.enc"
+    set _outputs "$::WORK_DIR/outputs"
+    file mkdir $_outputs
+    saveDesign "$_outputs/placement.enc"
 
     # Final placement verification
     catch { verifyConnectivity -report "$::REPORTS_DIR/verify_connectivity.rpt" }

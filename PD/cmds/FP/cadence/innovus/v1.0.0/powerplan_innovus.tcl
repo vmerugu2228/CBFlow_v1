@@ -21,6 +21,23 @@ setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 handle_info "Starting CBflow FP powerplan stage for Innovus"
 
 # ==============================================================================
+# flow_proc: load_design
+# Description: Restore design from floorplan stage
+# ==============================================================================
+flow_proc load_design {
+    global run_dir flow
+
+    set _db "$run_dir/work/FP/floorplan1/outputs/floorplan.enc.dat"
+    if {![file exists $_db]} {
+        handle_error "Floorplan database not found: $_db"
+        exit 1
+    }
+    handle_info "Restoring design: $_db"
+    restoreDesign $_db $flow(design_name)
+    handle_info "Design restored: $flow(design_name)"
+}
+
+# ==============================================================================
 # Mandatory config variables — error if not set
 # ==============================================================================
 
@@ -351,8 +368,20 @@ handle_info "CBflow FP Powerplan — Innovus"
 handle_info "  VDD=$PG_VDD  VSS=$PG_VSS"
 handle_info "================================================================"
 
+# ==============================================================================
+# flow_proc: save_design
+# Description: Save database to outputs/ for next stage
+# ==============================================================================
+flow_proc save_design {
+    set _outputs "$::WORK_DIR/outputs"
+    file mkdir $_outputs
+
+    saveDesign "$_outputs/powerplan.enc"
+    handle_info "Design saved: $_outputs/powerplan.enc"
+}
+
 # Execute flow steps in sequence
-foreach step {connect_global_nets create_power_rings create_power_straps route_secondary_pg add_pg_vias verify_power generate_reports} {
+foreach step {load_design connect_global_nets create_power_rings create_power_straps route_secondary_pg add_pg_vias verify_power generate_reports save_design} {
     handle_info "── $step ──"
     if {[catch {$step} err]} {
         handle_error "Step '$step' failed: $err"

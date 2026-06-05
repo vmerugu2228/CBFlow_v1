@@ -70,44 +70,18 @@ array set pnr {
 
 # ┌─ Innovus Required Inputs (enc handoff between stages) ────────────────────┐
 set pnr(required_inputs,init_design1)  "work/PNR/netlist1/netlist work/PNR/sdc1/sdc work/PNR/def1/def work/PNR/upf1/upf"
-set pnr(required_inputs,place1)        "work/PNR/init_design1/run/init_design1.enc"
-set pnr(required_inputs,cts1)          "work/PNR/place1/run/place1.enc"
-set pnr(required_inputs,cts_opt1)      "work/PNR/cts1/run/cts1.enc"
-set pnr(required_inputs,route1)        "work/PNR/cts_opt1/run/cts_opt1.enc"
-set pnr(required_inputs,pro1)          "work/PNR/route1/run/route1.enc"
-set pnr(required_inputs,signoff1)      "work/PNR/pro1/run/pro1.enc"
-set pnr(required_inputs,export_data1)  "work/PNR/signoff1/run/signoff1.enc"
+set pnr(required_inputs,place1)        "work/PNR/init_design1/outputs/init_design.enc.dat"
+set pnr(required_inputs,cts1)          "work/PNR/place1/outputs/place.enc.dat"
+set pnr(required_inputs,cts_opt1)      "work/PNR/cts1/outputs/cts.enc.dat"
+set pnr(required_inputs,route1)        "work/PNR/cts_opt1/outputs/cts_opt.enc.dat"
+set pnr(required_inputs,pro1)          "work/PNR/route1/outputs/route.enc.dat"
+set pnr(required_inputs,signoff1)      "work/PNR/pro1/outputs/pro.enc.dat"
+set pnr(required_inputs,export_data1)  "work/PNR/signoff1/outputs/signoff.enc.dat"
 
 # ── Innovus-RM App Variables ──────────────────────────────────────────────
 # --- ANALYSIS (1 vars) ---
 array set pnr {
     analysis,max_paths                                   ""
-}
-
-# --- CHIP_FINISH (22 vars) ---
-array set pnr {
-    chip_finish,antenna_check                            ""
-    chip_finish,antenna_fix                              ""
-    chip_finish,cleanup                                  ""
-    chip_finish,cleanup_level                            ""
-    chip_finish,eco_check                                ""
-    chip_finish,eco_timing                               ""
-    chip_finish,fill_density                             ""
-    chip_finish,fill_layers                              ""
-    chip_finish,fill_spacing                             ""
-    chip_finish,filler_cells                             ""
-    chip_finish,filler_prefix                            ""
-    chip_finish,filler_types                             ""
-    chip_finish,ir_drop_target                           ""
-    chip_finish,keep_checkpoints                         ""
-    chip_finish,lvs_netlist                              ""
-    chip_finish,lvs_prep                                 ""
-    chip_finish,metal_fill                               ""
-    chip_finish,power_opt                                ""
-    chip_finish,rail_analysis                            ""
-    chip_finish,spare_cells                              ""
-    chip_finish,spare_ratio                              ""
-    chip_finish,spare_types                              ""
 }
 
 # --- COMMON (7 vars) ---
@@ -234,7 +208,15 @@ array set pnr {
     route,via_opt                                        ""
 }
 
-# --- SIGNOFF (1 vars) ---
+# --- SIGNOFF ---
 array set pnr {
     signoff,extract_effort                               ""
+    signoff,filler_cells                                 ""
+    signoff,filler_prefix                                ""
+    signoff,metal_fill                                   ""
+    signoff,metal_fill_density                           ""
+    signoff,metal_fill_layers                            ""
+    signoff,antenna_fix                                  ""
+    signoff,spare_cells                                  ""
+    signoff,lvs_netlist                                  ""
 }

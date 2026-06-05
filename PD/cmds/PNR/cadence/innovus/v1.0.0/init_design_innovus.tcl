@@ -509,10 +509,10 @@ flow_proc save_design {
     file mkdir "$run_dir/outputs"
 
     # Save Innovus design database
-    set checkpoint_dir "$::WORK_DIR/checkpoints"
-    file mkdir $checkpoint_dir
-    saveDesign "${checkpoint_dir}/init_design.enc"
-    handle_info "Design saved: ${checkpoint_dir}/init_design.enc"
+    set _outputs "$::WORK_DIR/outputs"
+    file mkdir $_outputs
+    saveDesign "$_outputs/init_design.enc"
+    handle_info "Design saved: $_outputs/init_design.enc"
 
     # Write DEF for downstream consumption
     catch {

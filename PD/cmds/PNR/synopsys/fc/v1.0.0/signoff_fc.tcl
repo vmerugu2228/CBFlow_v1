@@ -263,7 +263,7 @@ flow_proc generate_reports {
     # FC-RM: write_qor_data
     catch {
         write_qor_data -report_list "performance host_machine report_app_options" \
-            -label chip_finish -output $run_dir/qor_data
+            -label signoff -output $run_dir/qor_data
     }
 
     # FC-RM: report_msg summary

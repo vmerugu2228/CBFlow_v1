@@ -1,7 +1,8 @@
 #!/usr/bin/env tclsh
 # ═══════════════════════════════════════════════════════════════════════════════
-# CBflow STA — extraction Subnode Handler (Cadence Tempus)
-# Subnodes: setup, run, validate, finish, rc_* (dynamic RC corners)
+# CBflow STA — extraction Subnode Handler (Cadence Tempus / Quantus)
+# Dynamic subnodes: setup, rc_max, rc_min, rc_typ, ..., validate, finish
+# Each rc_* subnode generates a per-corner command file in corner/run/
 # ═══════════════════════════════════════════════════════════════════════════════
 
 source "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/handler_common.tcl"
@@ -14,9 +15,6 @@ set ::flow_type "STA"
 set stage_name "extraction"
 if {$node_name eq ""} { set node_name "${stage_name}1" }
 
-set _tool_ver [expr {[info exists ::env(TEMPUS_VERSION)] ? $::env(TEMPUS_VERSION) : "v1.0.0"}]
-set cmd_file "$::env(FLOW_DIR)/cmds/STA/cadence/tempus/$_tool_ver/extraction_tempus.tcl"
-
 set test_mode [handler_is_test_mode]
 
 switch $subnode_name {
@@ -24,11 +22,6 @@ switch $subnode_name {
         puts "INFO: $stage_name setup..."
         handler_setup $run_dir $::flow_type $node_name
         puts "INFO: $stage_name setup completed"
-    }
-    "run" {
-        puts "INFO: $stage_name run..."
-        set _tool [expr {[info exists ::sta(tool,name)] ? $::sta(tool,name) : "tempus"}]
-        handler_run $run_dir $::flow_type $node_name $stage_name $cmd_file $test_mode $_tool
     }
     "validate" {
         puts "INFO: $stage_name validate..."
@@ -42,67 +35,147 @@ switch $subnode_name {
     }
     default {
         # Dynamic RC corner subnode (e.g., rc_max, rc_typ, rc_min, rc_max_cworst)
-        if {[string match "rc_*" $subnode_name]} {
-            puts "INFO: extraction $subnode_name ($node_name)..."
-            set _corner_dir "$run_dir/work/$::flow_type/$node_name/$subnode_name"
-            file mkdir "$_corner_dir/run"
-            file mkdir "$_corner_dir/results"
-
-            # Resolve QRC tech file: priority qrc > nxtgrd > tluplus
-            set _rc_file ""
-            set _rc_file_type ""
-            set _rc_corner $subnode_name
-            foreach {_fmt} {qrc nxtgrd tluplus} {
-                if {$_rc_file eq "" && [info exists ::tech(rcx,${_rc_corner},${_fmt})] && $::tech(rcx,${_rc_corner},${_fmt}) ne ""} {
-                    set _rc_file $::tech(rcx,${_rc_corner},${_fmt})
-                    set _rc_file_type $_fmt
-                }
-            }
-
-            set _lef_file ""
-            if {[info exists ::tech(lef_tech)]} { set _lef_file $::tech(lef_tech) }
-            set _def_file ""
-            if {[info exists ::sta(input,def_file)]} { set _def_file $::sta(input,def_file) }
-
-            if {$test_mode} {
-                puts "INFO: \[TEST MODE\] Extraction for RC corner: $subnode_name"
-                puts "INFO:   RC file:     $_rc_file ($_rc_file_type)"
-                puts "INFO:   LEF:         $_lef_file"
-                puts "INFO:   DEF:         $_def_file"
-                puts "INFO:   Corner dir:  $_corner_dir"
-                set _spef "$_corner_dir/results/${node_name}_${subnode_name}.spef"
-                set fh [open $_spef "w"]
-                puts $fh "// SPEF for $subnode_name extraction (QRC/Quantus)"
-                puts $fh "// Corner: $subnode_name  Node: $node_name"
-                puts $fh "// RC file: $_rc_file ($_rc_file_type)"
-                puts $fh "// Generated: [clock format [clock seconds]]"
-                close $fh
-                puts "INFO: Mock SPEF: $_spef"
-                puts "INFO: extraction $subnode_name completed \[TEST MODE\]"
-            } else {
-                set _work_dir "$_corner_dir/run"
-                set _spef_out "$_corner_dir/results/${node_name}_${subnode_name}.spef"
-                set _qrc_cmd "$_work_dir/qrc_cmd_${subnode_name}"
-                set _quantus_bin "quantus"
-                if {[info exists ::sta(extraction,quantus_binary)]} { set _quantus_bin $::sta(extraction,quantus_binary) }
-                set _fh [open $_qrc_cmd "w"]
-                puts $_fh "extract_typ_file $_rc_file"
-                if {$_lef_file ne ""} { puts $_fh "lef_file $_lef_file" }
-                if {$_def_file ne ""} { puts $_fh "def_file $_def_file" }
-                puts $_fh "output_name $_spef_out"
-                puts $_fh "output_format SPEF"
-                puts $_fh "coupled_extraction YES"
-                close $_fh
-                puts "INFO: Generated QRC cmd: $_qrc_cmd"
-                file mkdir "$_work_dir/qrc_work"
-                if {[catch {exec $_quantus_bin -cmd $_qrc_cmd >& "$_work_dir/${node_name}_${subnode_name}.log"} result]} {
-                    puts "ERROR: QRC extraction $subnode_name failed: $result"; exit 1
-                }
-                puts "INFO: extraction $subnode_name completed"
-            }
-        } else {
-            puts "ERROR: Unknown subnode: $subnode_name"
+        if {![string match "rc_*" $subnode_name]} {
+            puts "ERROR: Unknown subnode: $subnode_name (expected rc_* corner)"
             exit 1
         }
+
+        set rc_corner $subnode_name
+        puts "INFO: extraction corner: $rc_corner"
+
+        # Corner directory structure
+        set _corner_dir "$run_dir/work/$::flow_type/$node_name/$rc_corner"
+        set _run_dir "$_corner_dir/run"
+        set _reports_dir "$_corner_dir/reports"
+        set _outputs_dir "$_corner_dir/outputs"
+        file mkdir $_run_dir
+        file mkdir $_reports_dir
+        file mkdir $_outputs_dir
+
+        # Resolve RC tech file: priority qrc > nxtgrd > tluplus
+        set _rc_file ""
+        set _rc_file_type ""
+        foreach _fmt {qrc nxtgrd tluplus} {
+            if {$_rc_file eq "" && [info exists ::tech(rcx,${rc_corner},${_fmt})] && $::tech(rcx,${rc_corner},${_fmt}) ne ""} {
+                set _rc_file $::tech(rcx,${rc_corner},${_fmt})
+                set _rc_file_type $_fmt
+            }
+        }
+
+        # SPEF output path
+        set _spef_file "$_outputs_dir/$::flow(design_name).${rc_corner}.spef"
+
+        # Resolve inputs for QRC command file
+        set _lef_file ""
+        if {[info exists ::tech(lef_tech)]} { set _lef_file $::tech(lef_tech) }
+
+        # Cell LEFs — track resolved at runtime via config.tcl
+        set _cell_lefs [list]
+        if {[info exists ::project(track_variant)]} {
+            set _trk $::project(track_variant)
+            if {[info exists ::tech(${_trk},lef)]} {
+                foreach _l $::tech(${_trk},lef) {
+                    if {$_l ne ""} { lappend _cell_lefs $_l }
+                }
+            }
+        }
+
+        set _def_file ""
+        if {[info exists ::sta(input,def_file)]} { set _def_file $::sta(input,def_file) }
+
+        set _netlist ""
+        if {[info exists ::sta(input,netlist)]} { set _netlist $::sta(input,netlist) }
+
+        # ── Generate QRC/Quantus command file ──
+        set _cmd_file "$_run_dir/${rc_corner}.cmd"
+        set _fh [open $_cmd_file "w"]
+
+        puts $_fh "// ================================================================"
+        puts $_fh "// QRC/Quantus Extraction — RC Corner: $rc_corner"
+        puts $_fh "// Generated by CBflow extraction subnode handler"
+        puts $_fh "// Launch: quantus -cmd $rc_corner.cmd"
+        puts $_fh "// ================================================================"
+        puts $_fh ""
+
+        # QRC tech file
+        if {$_rc_file ne ""} {
+            puts $_fh "extract_typ_file $_rc_file"
+        }
+        puts $_fh ""
+
+        # LEF files
+        if {$_lef_file ne ""} {
+            puts $_fh "lef_file $_lef_file"
+        }
+        foreach _cl $_cell_lefs {
+            puts $_fh "lef_file $_cl"
+        }
+        puts $_fh ""
+
+        # Design inputs
+        if {$_def_file ne ""} {
+            puts $_fh "def_file $_def_file"
+        }
+        if {$_netlist ne ""} {
+            puts $_fh "spice_netlist $_netlist"
+        }
+        puts $_fh ""
+
+        # Output
+        puts $_fh "output_name $_spef_file"
+        puts $_fh "output_format SPEF"
+        puts $_fh ""
+
+        # Extraction settings
+        puts $_fh "coupled_extraction YES"
+        if {[info exists ::sta(extraction,effort)] && $::sta(extraction,effort) ne ""} {
+            puts $_fh "extraction_effort_level $::sta(extraction,effort)"
+        }
+        if {[info exists ::sta(extraction,coupling_cap_threshold)]} {
+            puts $_fh "coupling_c_threshold $::sta(extraction,coupling_cap_threshold)"
+        }
+        puts $_fh ""
+
+        # Multi-CPU
+        if {[info exists ::sta(common,cpu_count)] && $::sta(common,cpu_count) ne ""} {
+            puts $_fh "num_cores $::sta(common,cpu_count)"
+        }
+        puts $_fh ""
+
+        # Log
+        puts $_fh "log_file $_run_dir/${rc_corner}.log"
+        puts $_fh ""
+
+        close $_fh
+        puts "INFO: Generated QRC command file: $_cmd_file"
+
+        # ── Execute or stub ──
+        if {$test_mode} {
+            puts "INFO: \[TEST MODE\] Extraction corner: $rc_corner"
+            puts "INFO:   RC file:   $_rc_file ($_rc_file_type)"
+            puts "INFO:   QRC cmd:   $_cmd_file"
+            # Create mock SPEF
+            set fh [open $_spef_file "w"]
+            puts $fh "// SPEF for $rc_corner extraction"
+            puts $fh "// Corner: $rc_corner  Design: $::flow(design_name)"
+            puts $fh "// RC file: $_rc_file ($_rc_file_type)"
+            puts $fh "// Generated: [clock format [clock seconds]]"
+            close $fh
+            puts "INFO: Mock SPEF: $_spef_file"
+        } else {
+            # Launch Quantus with the generated QRC command file
+            set _quantus_bin "quantus"
+            if {[info exists ::sta(extraction,quantus_binary)]} {
+                set _quantus_bin $::sta(extraction,quantus_binary)
+            }
+            set _log "$_run_dir/${rc_corner}.log"
+            puts "INFO: Launching: $_quantus_bin -cmd $_cmd_file"
+            if {[catch {exec $_quantus_bin -cmd $_cmd_file >& $_log} result]} {
+                puts "ERROR: QRC extraction $rc_corner failed: $result"
+                puts "ERROR: Log: $_log"
+                exit 1
+            }
+        }
+        puts "INFO: extraction $rc_corner done"
     }
 }

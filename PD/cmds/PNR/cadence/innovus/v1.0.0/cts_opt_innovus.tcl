@@ -15,6 +15,25 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 
+# ==============================================================================
+# flow_proc: load_design
+# Description: Restore design from cts stage
+# ==============================================================================
+flow_proc load_design {
+    global run_dir flow
+
+    set _db "$run_dir/work/$::FLOW_TYPE/cts1/outputs/cts.enc.dat"
+    if {![file exists $_db]} {
+        handle_error "cts database not found: $_db"
+        exit 1
+    }
+    handle_info "Restoring design: $_db"
+    restoreDesign $_db $flow(design_name)
+    handle_info "Design restored: $flow(design_name)"
+}
+
+
+
 flow_proc enable_mmmc {
     # Enable MMMC scenarios for cts_opt stage
     global analysis_views mmmc
@@ -142,9 +161,9 @@ flow_proc cts_opt_complete {
     handle_info "CTS optimization stage complete"
 
     # Save checkpoint
-    set checkpoint_dir "$::WORK_DIR/checkpoints"
-    file mkdir $checkpoint_dir
-    saveDesign "${checkpoint_dir}/cts_opt.enc"
+    set _outputs "$::WORK_DIR/outputs"
+    file mkdir $_outputs
+    saveDesign "$_outputs/cts_opt.enc"
 
     # Final CTS optimization verification
     catch { verifyConnectivity -report "$::REPORTS_DIR/verify_connectivity.rpt" }

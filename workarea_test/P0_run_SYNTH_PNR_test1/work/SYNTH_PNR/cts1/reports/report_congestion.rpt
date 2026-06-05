@@ -1,9 +1,0 @@
-Report : congestion
-Design : cpu_core
-
-  Overall Overflow: 0.02
-  Horizontal Overflow: 0.01
-  Vertical Overflow: 0.03
-  Max Congestion: 45%
-
-PASSED

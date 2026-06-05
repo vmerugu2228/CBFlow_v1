@@ -34,7 +34,7 @@ set flow(dispatcher)    "race"                                            ;# "ra
 set flow(use_lsf)       false                                             ;# Enable LSF job submission (set true in user_config when bsub available)
 set flow(use_xterm)     false                                             ;# Enable xterm for interactive sessions (set true in user_config)
 set flow(cbflow_version) "2.0.0"                                          ;# Framework version — single source of truth
-set flow(dashboard,default_port) 8080                                     ;# Default GUI dashboard port
+set flow(dashboard,default_port) 0                                        ;# 0 = auto-select free port (avoids multi-user conflicts)
 
 # ┌─ Flow Mode ─────────────────────────────────────────────────────────────────┐
 set flow(mode)                  "default"                                 ;# default | merged

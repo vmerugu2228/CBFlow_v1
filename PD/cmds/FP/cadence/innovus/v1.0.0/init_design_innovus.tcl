@@ -311,11 +311,11 @@ flow_proc activate_node_scenarios {
 # Description: Save Innovus database checkpoint
 # ==============================================================================
 flow_proc save_design {
-    set checkpoint "$::WORK_DIR/checkpoints/init_design.enc"
-    file mkdir [file dirname $checkpoint]
+    set _outputs "$::WORK_DIR/outputs"
+    file mkdir $_outputs
 
-    saveDesign $checkpoint
-    handle_info "Design saved: $checkpoint"
+    saveDesign "$_outputs/init_design.enc"
+    handle_info "Design saved: $_outputs/init_design.enc"
 }
 
 # ==============================================================================

@@ -24,18 +24,12 @@ array set fp {
     floorplan,macro_channel     "5.0"
     floorplan,boundary_cells    true
     floorplan,tap_cells         true
-    floorplan,place_pins        true
-
     power,net_names             "VDD VSS"
     power,ring_width            "2.0"
     power,ring_spacing          "1.0"
     power,strap_width           "0.8"
     power,strap_pitch           "20.0"
     power,mesh_layers           "M8 M9"
-
-    place_pins,legalize         true
-    place_pins,constraint_file  ""
-    place_pins,fix_ports        true
 }
 
 # ┌─ FC-RM Init Design DP Control ─────────────────────────────────────────────┐
@@ -62,11 +56,9 @@ array set fp {
 
 # ┌─ FC Required Inputs (nlib handoff between stages) ─────────────────────────┐
 set fp(required_inputs,init_design1)      "work/FP/netlist1/netlist work/FP/sdc1/sdc work/FP/def1/def work/FP/upf1/upf work/FP/library1/library"
-set fp(required_inputs,import_design1)    "work/FP/init_design1/run/init_design1.nlib"
-set fp(required_inputs,floorplan1)        "work/FP/import_design1/run/import_design1.nlib"
-set fp(required_inputs,powerplan1)        "work/FP/floorplan1/run/floorplan1.nlib"
-set fp(required_inputs,place_pins1)       "work/FP/powerplan1/run/powerplan1.nlib"
-set fp(required_inputs,export_data1)      "work/FP/place_pins1/run/place_pins1.nlib"
+set fp(required_inputs,floorplan1)        "work/FP/init_design1/outputs/init_design.nlib"
+set fp(required_inputs,powerplan1)        "work/FP/floorplan1/outputs/floorplan.nlib"
+set fp(required_inputs,export_data1)      "work/FP/powerplan1/outputs/powerplan.nlib"
 
 # ── FC-RM App Variables ──────────────────────────────────────────────
 # --- ANALYSIS (1 vars) ---
@@ -127,9 +119,3 @@ array set fp {
     output,block_labeling                                ""
 }
 
-# --- PLACE_PINS (3 vars) ---
-array set fp {
-    place_pins,constraint_file                           ""
-    place_pins,fix_ports                                 ""
-    place_pins,legalize                                  ""
-}

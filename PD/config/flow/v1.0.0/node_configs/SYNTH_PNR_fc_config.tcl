@@ -236,8 +236,8 @@ array set synth_pnr {
 # --- PRO - Post-route optimization (21 vars) ---
 array set synth_pnr {
     pro,block_abstract                                   ""
-    pro,chip_finish_post_script                          ""
-    pro,chip_finish_pre_script                           ""
+    pro,signoff_post_script                              ""
+    pro,signoff_pre_script                               ""
     pro,ctl_for_abstract_blocks                          ""
     pro,endpoint_opt,auto_metric                         ""
     pro,endpoint_opt,loop_count                          ""

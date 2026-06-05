@@ -14,6 +14,25 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
+
+# ==============================================================================
+# flow_proc: load_design
+# Description: Restore design from route stage
+# ==============================================================================
+flow_proc load_design {
+    global run_dir flow
+
+    set _db "$run_dir/work/$::FLOW_TYPE/route1/outputs/route.enc.dat"
+    if {![file exists $_db]} {
+        handle_error "route database not found: $_db"
+        exit 1
+    }
+    handle_info "Restoring design: $_db"
+    restoreDesign $_db $flow(design_name)
+    handle_info "Design restored: $flow(design_name)"
+}
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # POST ROUTE
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -198,9 +217,9 @@ flow_proc post_route_complete {
     handle_info "Post-route stage complete"
 
     # Save final checkpoint
-    set checkpoint_dir "$::WORK_DIR/checkpoints"
-    file mkdir $checkpoint_dir
-    saveDesign "${checkpoint_dir}/post_route.enc"
+    set _outputs "$::WORK_DIR/outputs"
+    file mkdir $_outputs
+    saveDesign "$_outputs/post_route.enc"
 
     # Generate final database
     global project

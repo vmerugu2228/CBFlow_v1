@@ -14,6 +14,25 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
+
+# ==============================================================================
+# flow_proc: load_design
+# Description: Restore design from cts_opt stage
+# ==============================================================================
+flow_proc load_design {
+    global run_dir flow
+
+    set _db "$run_dir/work/$::FLOW_TYPE/cts_opt1/outputs/cts_opt.enc.dat"
+    if {![file exists $_db]} {
+        handle_error "cts_opt database not found: $_db"
+        exit 1
+    }
+    handle_info "Restoring design: $_db"
+    restoreDesign $_db $flow(design_name)
+    handle_info "Design restored: $flow(design_name)"
+}
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # ROUTING
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -234,9 +253,9 @@ flow_proc route_complete {
     validate_pnr_route_results
 
     # Save checkpoint
-    set checkpoint_dir "$::WORK_DIR/checkpoints"
-    file mkdir $checkpoint_dir
-    saveDesign "${checkpoint_dir}/route.enc"
+    set _outputs "$::WORK_DIR/outputs"
+    file mkdir $_outputs
+    saveDesign "$_outputs/route.enc"
 
     # Final route verification
     catch { verifyConnectivity -report "$::REPORTS_DIR/verify_connectivity.rpt" }

@@ -207,8 +207,24 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         pass  # Suppress default logging
 
 
-def start_server(port: int = 8080):
-    """Start the dashboard server."""
+def _find_free_port(start: int = 8080, end: int = 8999) -> int:
+    """Find a free port in the given range."""
+    import socket
+    for p in range(start, end):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.bind(('', p))
+            s.close()
+            return p
+        except OSError:
+            continue
+    raise RuntimeError(f"No free port found in range {start}-{end}")
+
+
+def start_server(port: int = 0):
+    """Start the dashboard server. Port 0 = auto-select free port."""
+    if port == 0:
+        port = _find_free_port()
     server = http.server.HTTPServer(('0.0.0.0', port), DashboardHandler)
     print(f"CBFlow Dashboard running at http://localhost:{port}")
     print(f"Press Ctrl+C to stop")
@@ -220,5 +236,5 @@ def start_server(port: int = 8080):
 
 
 if __name__ == '__main__':
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 0
     start_server(port)

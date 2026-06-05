@@ -1,6 +1,6 @@
 #!/usr/bin/env tclsh
-# CBFlow SYNTH_PNR signoff (chip_finish + icv_in_design) - Synopsys Fusion Compiler
-# FC-RM: chip_finish.tcl + icv_in_design.tcl -- Filler insertion, signal EM,
+# CBFlow SYNTH_PNR signoff (signoff + icv_in_design) - Synopsys Fusion Compiler
+# FC-RM: signoff.tcl + icv_in_design.tcl -- Filler insertion, signal EM,
 #         ICV signoff DRC, metal fill, base fill
 # Aligned with FC-RM Y-2026.03
 
@@ -32,8 +32,8 @@ flow_proc load_design {
     set lib_name [expr {$synth_pnr(common,design_lib_name) ne "" ? $synth_pnr(common,design_lib_name) : "${design_name}.nlib"}]
 
     open_lib $lib_name
-    copy_block -from ${design_name}/route_opt -to ${design_name}/chip_finish
-    current_block ${design_name}/chip_finish
+    copy_block -from ${design_name}/route_opt -to ${design_name}/signoff
+    current_block ${design_name}/signoff
     link_block
 
     # FC-RM: Hierarchical abstract swap
@@ -47,7 +47,7 @@ flow_proc load_design {
         }
     }
 
-    handle_info "Design loaded: ${design_name}/chip_finish"
+    handle_info "Design loaded: ${design_name}/signoff"
 # ==============================================================================
 # flow_proc: set_active_scenarios
 # FC-RM: set_scenario_status for signoff (all scenarios)
@@ -86,7 +86,7 @@ flow_proc set_active_scenarios {
     handle_info "Active scenarios configured"
 # ==============================================================================
 # flow_proc: insert_filler_cells
-# FC-RM: chip_finish filler cell insertion (metal and non-metal)
+# FC-RM: signoff filler cell insertion (metal and non-metal)
 # ==============================================================================
 flow_proc insert_filler_cells {
     handle_info "Inserting filler cells..."
@@ -95,7 +95,7 @@ flow_proc insert_filler_cells {
     set design_name [expr {$synth_pnr(common,design_name) ne "" ? $synth_pnr(common,design_name) : $flow(design_name)}]
 
     # FC-RM: set_svf for formality tracking
-    set_svf $::OUTPUTS_DIR/${design_name}_chip_finish.svf
+    set_svf $::OUTPUTS_DIR/${design_name}_signoff.svf
 
     # FC-RM: set_qor_strategy -stage signoff
     set cmd "set_qor_strategy -stage signoff"
@@ -104,9 +104,9 @@ flow_proc insert_filler_cells {
     handle_info "Running: $cmd"
     eval $cmd
 
-    # FC-RM: Pre-chip_finish script
-    if {[info exists synth_pnr(pro,chip_finish_pre_script)] && [file exists $synth_pnr(pro,chip_finish_pre_script)]} {
-        source -e $synth_pnr(pro,chip_finish_pre_script)
+    # FC-RM: Pre-signoff script
+    if {[info exists synth_pnr(pro,signoff_pre_script)] && [file exists $synth_pnr(pro,signoff_pre_script)]} {
+        source -e $synth_pnr(pro,signoff_pre_script)
     }
 
     # FC-RM: Pre-reports
@@ -312,8 +312,8 @@ flow_proc post_signoff {
     global synth_pnr
 
     # FC-RM: User post-script
-    if {[info exists synth_pnr(pro,chip_finish_post_script)] && [file exists $synth_pnr(pro,chip_finish_post_script)]} {
-        source -e $synth_pnr(pro,chip_finish_post_script)
+    if {[info exists synth_pnr(pro,signoff_post_script)] && [file exists $synth_pnr(pro,signoff_post_script)]} {
+        source -e $synth_pnr(pro,signoff_post_script)
     }
 
     # FC-RM: connect_pg_net
@@ -345,8 +345,8 @@ flow_proc create_abstracts {
             create_abstract -read_only
             create_frame -block_all true
             # FC-RM: Derive hierarchical antenna property
-            derive_hier_antenna_property -design ${design_name}/chip_finish
-            save_block ${design_name}/chip_finish.frame
+            derive_hier_antenna_property -design ${design_name}/signoff
+            save_block ${design_name}/signoff.frame
         }
     }
 
@@ -363,8 +363,8 @@ flow_proc save_design {
 
     save_block
     if {$synth_pnr(common,output,block_labeling) ne "" && $synth_pnr(common,output,block_labeling)} {
-        save_block -as ${design_name}/chip_finish
-        handle_info "Block saved: ${design_name}/chip_finish"
+        save_block -as ${design_name}/signoff
+        handle_info "Block saved: ${design_name}/signoff"
     }
 
     set_svf -off
@@ -426,7 +426,7 @@ flow_proc generate_reports {
     # FC-RM: write_qor_data
     catch {
         write_qor_data -report_list "performance host_machine report_app_options" \
-            -label chip_finish -output $run_dir/qor_data
+            -label signoff -output $run_dir/qor_data
     }
 
     # FC-RM: run_end

@@ -162,9 +162,9 @@ flow_proc powerplan_complete {
     handle_info "Power planning stage complete"
 
     # Save checkpoint
-    set checkpoint_dir "$::WORK_DIR/checkpoints"
-    file mkdir $checkpoint_dir
-    saveDesign "${checkpoint_dir}/powerplan.enc"
+    set _outputs "$::WORK_DIR/outputs"
+    file mkdir $_outputs
+    saveDesign "$_outputs/powerplan.enc"
 
     # Generate final reports
     file mkdir "$::REPORTS_DIR"

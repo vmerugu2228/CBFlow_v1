@@ -22,6 +22,24 @@ setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 handle_info "Starting CBflow PNR CTS for Innovus"
 
 # ==============================================================================
+# flow_proc: load_design
+# Description: Restore design from place stage
+# ==============================================================================
+flow_proc load_design {
+    global run_dir flow
+
+    set _db "$run_dir/work/$::FLOW_TYPE/place1/outputs/place.enc.dat"
+    if {![file exists $_db]} {
+        handle_error "place database not found: $_db"
+        exit 1
+    }
+    handle_info "Restoring design: $_db"
+    restoreDesign $_db $flow(design_name)
+    handle_info "Design restored: $flow(design_name)"
+}
+
+
+# ==============================================================================
 # flow_proc: activate_node_scenarios
 # Description: Set MMMC scenarios for CTS stage
 # ==============================================================================
@@ -140,11 +158,10 @@ flow_proc generate_reports {
 #   Reference: saveDesign DBS/cts.enc
 # ==============================================================================
 flow_proc save_design {
-    set checkpoint "$::WORK_DIR/checkpoints/cts.enc"
-    file mkdir [file dirname $checkpoint]
-
-    saveDesign $checkpoint
-    handle_info "Design saved: $checkpoint"
+    set _outputs "$::WORK_DIR/outputs"
+    file mkdir $_outputs
+    saveDesign "$_outputs/cts.enc"
+    handle_info "Design saved: $_outputs/cts.enc"
 }
 
 # ==============================================================================
@@ -168,6 +185,7 @@ handle_info "CBflow PNR CTS — Innovus"
 handle_info "================================================================"
 
 foreach step {
+    load_design
     activate_node_scenarios
     setup_ndr
     create_clock_spec

@@ -1,7 +1,0 @@
-Report : timing -delay min
-Design : cpu_core
-Scenario: func_ff_0p84v_rcmin_m40c
-
-  slack (MET)                   0.025
-
-PASSED

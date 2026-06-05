@@ -89,13 +89,13 @@ array set pnr {
 
 # ┌─ FC Required Inputs (nlib handoff between stages) ─────────────────────────┐
 set pnr(required_inputs,init_design1)  "work/PNR/netlist1/netlist work/PNR/sdc1/sdc work/PNR/def1/def work/PNR/upf1/upf"
-set pnr(required_inputs,place1)        "work/PNR/init_design1/run/init_design1.nlib"
-set pnr(required_inputs,cts1)          "work/PNR/place1/run/place1.nlib"
-set pnr(required_inputs,cts_opt1)      "work/PNR/cts1/run/cts1.nlib"
-set pnr(required_inputs,route1)        "work/PNR/cts_opt1/run/cts_opt1.nlib"
-set pnr(required_inputs,pro1)          "work/PNR/route1/run/route1.nlib"
-set pnr(required_inputs,signoff1)      "work/PNR/pro1/run/pro1.nlib"
-set pnr(required_inputs,export_data1)  "work/PNR/signoff1/run/signoff1.nlib"
+set pnr(required_inputs,place1)        "work/PNR/init_design1/outputs/init_design.nlib"
+set pnr(required_inputs,cts1)          "work/PNR/place1/outputs/place.nlib"
+set pnr(required_inputs,cts_opt1)      "work/PNR/cts1/outputs/cts.nlib"
+set pnr(required_inputs,route1)        "work/PNR/cts_opt1/outputs/cts_opt.nlib"
+set pnr(required_inputs,pro1)          "work/PNR/route1/outputs/route.nlib"
+set pnr(required_inputs,signoff1)      "work/PNR/pro1/outputs/pro.nlib"
+set pnr(required_inputs,export_data1)  "work/PNR/signoff1/outputs/signoff.nlib"
 
 # ── FC-RM App Variables ──────────────────────────────────────────────
 # --- ANALYSIS (1 vars) ---

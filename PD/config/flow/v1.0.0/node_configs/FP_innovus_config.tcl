@@ -24,18 +24,12 @@ array set fp {
     floorplan,macro_channel     "5.0"
     floorplan,boundary_cells    true
     floorplan,tap_cells         true
-    floorplan,place_pins        true
-
     power,net_names             "VDD VSS"
     power,ring_width            "2.0"
     power,ring_spacing          "1.0"
     power,strap_width           "0.8"
     power,strap_pitch           "20.0"
     power,mesh_layers           "M8 M9"
-
-    place_pins,legalize         true
-    place_pins,constraint_file  ""
-    place_pins,fix_ports        true
 }
 
 # ┌─ Innovus Init Design Control ──────────────────────────────────────────────┐
@@ -60,11 +54,9 @@ array set fp {
 
 # ┌─ Innovus Required Inputs (enc handoff between stages) ────────────────────┐
 set fp(required_inputs,init_design1)      "work/FP/netlist1/netlist work/FP/sdc1/sdc work/FP/def1/def work/FP/upf1/upf work/FP/library1/library"
-set fp(required_inputs,import_design1)    "work/FP/init_design1/run/init_design1.enc"
-set fp(required_inputs,floorplan1)        "work/FP/import_design1/run/import_design1.enc"
-set fp(required_inputs,powerplan1)        "work/FP/floorplan1/run/floorplan1.enc"
-set fp(required_inputs,place_pins1)       "work/FP/powerplan1/run/powerplan1.enc"
-set fp(required_inputs,export_data1)      "work/FP/place_pins1/run/place_pins1.enc"
+set fp(required_inputs,floorplan1)        "work/FP/init_design1/outputs/init_design.enc.dat"
+set fp(required_inputs,powerplan1)        "work/FP/floorplan1/outputs/floorplan.enc.dat"
+set fp(required_inputs,export_data1)      "work/FP/powerplan1/outputs/powerplan.enc.dat"
 
 # ── Innovus-RM App Variables ──────────────────────────────────────────────
 # --- ANALYSIS (1 vars) ---

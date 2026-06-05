@@ -11,7 +11,7 @@
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 array set fp {
-    stages {netlist1 sdc1 def1 upf1 library1 init_design1 import_design1 floorplan1 powerplan1 place_pins1 export_data1 release_data1}
+    stages {netlist1 sdc1 def1 upf1 library1 init_design1 floorplan1 powerplan1 export_data1 release_data1}
 
     merge_entry_stage     netlist1
     merge_handoff_stage   export_data1
@@ -23,11 +23,9 @@ array set fp {
     dependencies,upf1              {}
     dependencies,library1          {}
     dependencies,init_design1      {netlist1 sdc1 def1 upf1 library1}
-    dependencies,import_design1    {init_design1}
-    dependencies,floorplan1        {import_design1}
+    dependencies,floorplan1        {init_design1}
     dependencies,powerplan1        {floorplan1}
-    dependencies,place_pins1       {powerplan1}
-    dependencies,export_data1      {place_pins1}
+    dependencies,export_data1      {powerplan1}
     dependencies,release_data1     {export_data1}
 }
 
@@ -36,7 +34,7 @@ array set fp {
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 # All execution stages share the same subnode pattern
-set _fp_exec_stages {init_design1 import_design1 floorplan1 powerplan1 place_pins1 export_data1 release_data1}
+set _fp_exec_stages {init_design1 floorplan1 powerplan1 export_data1 release_data1}
 foreach _s $_fp_exec_stages {
     set fp(subnodes,$_s) {setup run validate finish}
     set fp(subnode_dependencies,${_s},setup)    {}
@@ -59,10 +57,8 @@ array set fp {
     node_types,upf1              "inputs"
     node_types,library1          "inputs"
     node_types,init_design1      "init_design"
-    node_types,import_design1    "import_design"
     node_types,floorplan1        "floorplan"
     node_types,powerplan1        "powerplan"
-    node_types,place_pins1       "place_pins"
     node_types,export_data1      "export_data"
     node_types,release_data1     "release_data"
 
@@ -72,10 +68,8 @@ array set fp {
     stage_types,upf1             "inputs"
     stage_types,library1         "inputs"
     stage_types,init_design1     "execution"
-    stage_types,import_design1   "execution"
     stage_types,floorplan1       "execution"
     stage_types,powerplan1       "execution"
-    stage_types,place_pins1      "execution"
     stage_types,export_data1     "export_data"
     stage_types,release_data1    "release_data"
 
@@ -85,10 +79,8 @@ array set fp {
     node_descriptions,upf1              "UPF power intent input"
     node_descriptions,library1          "Technology library input"
     node_descriptions,init_design1      "Design library creation, RTL/netlist load, technology setup"
-    node_descriptions,import_design1    "Early compile for area estimation"
     node_descriptions,floorplan1        "Floorplan creation: initialize, macros, boundaries, tap cells"
     node_descriptions,powerplan1        "Power network synthesis and stdcell placement"
-    node_descriptions,place_pins1       "Pin placement and legalization"
     node_descriptions,export_data1      "Export floorplan DEF, netlist, and data"
     node_descriptions,release_data1     "Release FP deliverables"
 }
@@ -104,10 +96,8 @@ array set fp {
     runtime,timeout,upf1              10
     runtime,timeout,library1          10
     runtime,timeout,init_design1      30
-    runtime,timeout,import_design1    60
     runtime,timeout,floorplan1        90
     runtime,timeout,powerplan1        60
-    runtime,timeout,place_pins1       30
     runtime,timeout,export_data1      20
     runtime,timeout,release_data1     15
 }
@@ -149,11 +139,9 @@ array set fp {
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 array set fp {
-    critical_files,import_design1 {fp(input,netlist)}
     critical_files,floorplan1     {fp(input,netlist) fp(input,def_file)}
     critical_files,powerplan1     {fp(input,upf_file)}
 
-    mandatory_outputs,import_design1 {results/design/design_imported.def}
     mandatory_outputs,floorplan1     {results/floorplan/floorplan.def results/floorplan/io_placement.rpt}
     mandatory_outputs,powerplan1     {results/powerplan/power_grid.def results/powerplan/power_analysis.rpt}
 

@@ -2180,14 +2180,35 @@ def start_dashboard(run_dir: str, port: int = 0, open_browser: bool = True):
     # Use 127.0.0.1 instead of localhost to avoid HSTS/HTTPS redirect issues
     url = f'http://127.0.0.1:{port}'
 
-    print(f'\n  RACE Dashboard')
-    print(f'  {"=" * 50}')
-    print(f'  URL:       {url}')
-    print(f'  Run:       {os.path.basename(run_dir)}')
+    # Read project context from run env
+    _env = {}
+    _env_file = os.path.join(run_dir, '.run.cbflow.env')
+    if os.path.exists(_env_file):
+        with open(_env_file) as _ef:
+            for _line in _ef:
+                _line = _line.strip()
+                if _line.startswith('export ') and '=' in _line:
+                    _kv = _line[7:].split('=', 1)
+                    _env[_kv[0]] = _kv[1].strip('"\'')
+
+    _project = _env.get('CBFLOW_PROJECT_NAME', '')
+    _design = _env.get('CBFLOW_DESIGN_NAME', '')
+    _phase = _env.get('CBFLOW_PROJECT_PHASE', '')
+    _tech = _env.get('TECH_NAME', '')
+
+    print(f'\n  CBflow RACE Dashboard')
+    print(f'  Developed by SmartSoc Solutions Pvt Limited')
+    print(f'  {"=" * 55}')
+    if _project:
+        print(f'  Project:   {_project}' + (f' ({_tech})' if _tech else ''))
+    if _design:
+        print(f'  Design:    {_design}' + (f'  Phase: {_phase}' if _phase else ''))
     print(f'  Flow:      {dashboard.flow_type}')
+    print(f'  Run:       {os.path.basename(run_dir)}')
+    print(f'  URL:       {url}')
     print(f'  DB:        {os.path.basename(dashboard.db_path)}')
     print(f'  Port:      {port} (deterministic)')
-    print(f'  {"=" * 50}')
+    print(f'  {"=" * 55}')
     print(f'  Press Ctrl+C to stop\n')
 
     if open_browser:

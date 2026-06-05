@@ -86,9 +86,9 @@ flow_proc floorplan_complete {
     handle_info "Floorplan stage complete"
 
     # Save checkpoint
-    set checkpoint_dir "$::WORK_DIR/checkpoints"
-    file mkdir $checkpoint_dir
-    saveDesign "${checkpoint_dir}/floorplan.enc"
+    set _outputs "$::WORK_DIR/outputs"
+    file mkdir $_outputs
+    saveDesign "$_outputs/floorplan.enc"
 
     # Generate floorplan reports
     file mkdir "$::REPORTS_DIR"

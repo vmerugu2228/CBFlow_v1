@@ -1,7 +1,11 @@
 #!/usr/bin/env tclsh
-# FP floorplan - Cadence Innovus
+# ==============================================================================
+# FP floorplan — Cadence Innovus
+# Description: Load design from init_design, create floorplan, place macros,
+#              add boundary/tap cells, save to outputs/
+# ==============================================================================
 
-# -- Bootstrap -----------------------------------------------------------------
+# ── Bootstrap ─────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
 source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
@@ -14,318 +18,203 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
-# Source flow utilities using release version
-set utils_path "$flow_dir/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} {
-    source $utils_path
-    puts "ERROR: Cannot find flow utilities at: $utils_path"
-    exit 1
-set run_dir $::env(CBFLOW_RUN_DIR)
-handle_info "Starting CBFlow FP floorplan stage for Innovus"
-# Define common procedures used in config files
-if {[info procs INFO] eq ""} {
-    proc INFO {} {
-        return "INFO"
+handle_info "Starting CBflow FP floorplan for Innovus"
+
+# ==============================================================================
+# flow_proc: load_design
+# Description: Restore design database from init_design stage
+# ==============================================================================
+flow_proc load_design {
+    global run_dir flow
+
+    set _db "$run_dir/work/FP/init_design1/outputs/init_design.enc.dat"
+    if {![file exists $_db]} {
+        handle_error "init_design database not found: $_db"
+        exit 1
     }
-}
-if {[info procs WARNING] eq ""} {
-    proc WARNING {} {
-        return "WARNING"
-    }
-}
-# Define flow_proc if not already defined
-if {[info procs flow_proc] eq ""} {
-    proc flow_proc {name body} {
-        proc $name {} $body
-        handle_info "Flow procedure '$name' defined"
-    }
-}
-# Source generated configuration file (from setup stage)
-set flow_type "FP"
-set config_files [list \
-    "config.tcl" \
-    "work/$flow_type/floorplan/run/config.tcl" \
-    "../work/$flow_type/floorplan/run/config.tcl" \
-]
-set config_found 0
-foreach config_file $config_files {
-    if {[file exists $config_file]} {
-        handle_info "Sourcing configuration: $config_file"
-        if {[catch {source $config_file} error]} {
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-}
-            handle_warning "Minor error in config file $config_file: $error"
-            handle_info "Continuing with available configuration..."
-        }
-        set config_found 1
-        break
-    }
-}
-if {!$config_found} {
-    handle_error "Cannot find generated config file. Run 'make floorplan_setup' first."
-    exit 1
+    handle_info "Restoring design: $_db"
+    restoreDesign $_db $flow(design_name)
+    handle_info "Design restored: $flow(design_name)"
 }
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# FLOW_PROC HOOKS - Floorplan Process
-# ═══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
+# flow_proc: create_floorplan
+# Description: Initialize floorplan — die size or utilization-based
+# ==============================================================================
+flow_proc create_floorplan {
+    global fp project
 
-flow_proc configure_floorplan {
-    global fp project tech flow FLOW_DIR RUN_DIR ROOT_DIR
-    handle_info "Configuring floorplan parameters..."
+    handle_info "Creating floorplan..."
 
-    # Get floorplan dimensions from config
-    if {[info exists fp(die,width)] && [info exists fp(die,height)]} {
-        set die_width $fp(die,width)
-        set die_height $fp(die,height)
-        handle_info "Die dimensions: ${die_width}um x ${die_height}um"
-    }
-
-    # Get core utilization
-    set core_util [expr {[info exists fp(common,core_utilization)] ? $fp(common,core_utilization) : 0.70}]
-    handle_info "Target core utilization: $core_util"
-
-    # Get aspect ratio
-    set aspect_ratio [expr {[info exists fp(common,aspect_ratio)] ? $fp(common,aspect_ratio) : 1.0}]
-    handle_info "Aspect ratio: $aspect_ratio"
-
-    # Core margins
-    set core_margin_left   [expr {[info exists fp(core_margin,left)]   ? $fp(core_margin,left)   : 10.0}]
-    set core_margin_right  [expr {[info exists fp(core_margin,right)]  ? $fp(core_margin,right)  : 10.0}]
-    set core_margin_top    [expr {[info exists fp(core_margin,top)]    ? $fp(core_margin,top)    : 10.0}]
-    set core_margin_bottom [expr {[info exists fp(core_margin,bottom)] ? $fp(core_margin,bottom) : 10.0}]
-
-    handle_info "Core margins (L/R/T/B): $core_margin_left / $core_margin_right / $core_margin_top / $core_margin_bottom"
-
-    # Initialize floorplan
-    if {[info exists fp(die,width)] && [info exists fp(die,height)]} {
-        # Use explicit die size
-        floorPlan -site $fp(common,site_name) \
-            -d $die_width $die_height \
-               $core_margin_left $core_margin_bottom \
-               $core_margin_right $core_margin_top
-    } else {
-        # Use utilization-based floorplan
-        floorPlan -site [expr {[info exists fp(common,site_name)] ? $fp(common,site_name) : "core"}] \
-            -r $aspect_ratio $core_util \
-              $core_margin_left $core_margin_bottom \
-              $core_margin_right $core_margin_top
-    }
-
-    handle_info "Floorplan initialized successfully"
-}
-
-flow_proc place_macros {
-    global fp project tech flow FLOW_DIR RUN_DIR ROOT_DIR
-    handle_info "Placing macros and configuring routing tracks..."
-
-    # Read macro placement file if provided
-    if {[info exists fp(input,macro_placement)]} {
-        set macro_file $fp(input,macro_placement)
-        if {[file exists $macro_file]} {
-            handle_info "Reading macro placement from: [file tail $macro_file]"
-            source $macro_file
-        } else {
-            handle_warning "Macro placement file not found: $macro_file"
-        }
-    }
-
-    # Place individual macros from config
-    if {[info exists fp(common,macros)]} {
-        foreach macro_spec $fp(common,macros) {
-            array set macro_info $macro_spec
-            if {[info exists macro_info(name)] && [info exists macro_info(x)] && [info exists macro_info(y)]} {
-                set orient [expr {[info exists macro_info(orient)] ? $macro_info(orient) : "R0"}]
-                handle_info "Placing macro: $macro_info(name) at ($macro_info(x), $macro_info(y)) orient=$orient"
-                placeInstance $macro_info(name) $macro_info(x) $macro_info(y) $orient -placed
-            }
-            array unset macro_info
-        }
-    }
-
-    # Add halo around macros
-    set halo_x [expr {[info exists fp(macro_halo,x)] ? $fp(macro_halo,x) : 5.0}]
-    set halo_y [expr {[info exists fp(macro_halo,y)] ? $fp(macro_halo,y) : 5.0}]
-    handle_info "Adding macro halo: ${halo_x}um x ${halo_y}um"
-    addHaloToBlock $halo_x $halo_y $halo_x $halo_y -allBlock
-
-    # Add routing tracks
-    if {[info exists fp(common,tracks)]} {
-        foreach track_spec $fp(common,tracks) {
-            array set track_info $track_spec
-            if {[info exists track_info(layer)] && [info exists track_info(pitch)] && [info exists track_info(offset)]} {
-                set direction [expr {[info exists track_info(direction)] ? $track_info(direction) : "both"}]
-                handle_info "Adding tracks on $track_info(layer): pitch=$track_info(pitch) offset=$track_info(offset) dir=$direction"
-                add_tracks -direction $direction \
-                    -layer $track_info(layer) \
-                    -pitch $track_info(pitch) \
-                    -offset $track_info(offset)
-            }
-            array unset track_info
-        }
-    } else {
-        handle_info "No custom track definitions - using default tracks"
-    }
-
-    handle_info "Macro placement and track configuration completed"
-}
-
-flow_proc create_rows {
-    global fp project tech flow FLOW_DIR RUN_DIR ROOT_DIR
-    handle_info "Creating standard cell rows..."
-
-    # Create rows with site from config
-    set site_name [expr {[info exists fp(common,site_name)] ? $fp(common,site_name) : "core"}]
-    set row_spacing [expr {[info exists fp(common,row_spacing)] ? $fp(common,row_spacing) : 0.0}]
-
-    handle_info "Site: $site_name, Row spacing: $row_spacing"
-
-    # Create rows within the core area
-    if {[info exists fp(common,rows)]} {
-        foreach row_spec $fp(common,rows) {
-            array set row_info $row_spec
-            if {[info exists row_info(name)] && [info exists row_info(site)] && \
-                [info exists row_info(x)] && [info exists row_info(y)] && \
-                [info exists row_info(orient)] && [info exists row_info(num_x)] && \
-                [info exists row_info(step_x)]} {
-                handle_info "Creating row: $row_info(name)"
-                create_row -name $row_info(name) \
-                    -site $row_info(site) \
-                    -origin "$row_info(x) $row_info(y)" \
-                    -orient $row_info(orient) \
-                    -num_x $row_info(num_x) \
-                    -step_x $row_info(step_x)
-            }
-            array unset row_info
-        }
-    } else {
-        # Use automatic row creation
-        handle_info "Using automatic row creation for site: $site_name"
-    }
-
-    # Verify row creation
-    handle_info "Standard cell rows created successfully"
-}
-
-flow_proc place_io {
-    global fp project tech flow FLOW_DIR RUN_DIR ROOT_DIR
-    handle_info "Placing I/O pads and filler cells..."
-
-    # Read I/O assignment file if provided
-    if {[info exists fp(input,io_file)]} {
-        set io_file $fp(input,io_file)
-        if {[file exists $io_file]} {
-            handle_info "Reading I/O assignment from: [file tail $io_file]"
-            loadIoFile $io_file
-        } else {
-            handle_warning "I/O assignment file not found: $io_file"
-        }
-    }
-
-    # Place I/O pads from config
-    if {[info exists fp(common,io_pads)]} {
-        foreach io_spec $fp(common,io_pads) {
-            array set io_info $io_spec
-            if {[info exists io_info(name)] && [info exists io_info(side)]} {
-                set order [expr {[info exists io_info(order)] ? $io_info(order) : 0}]
-                handle_info "Assigning I/O: $io_info(name) on $io_info(side) side"
-            }
-            array unset io_info
-        }
-    }
-
-    # Place I/O filler cells
-    if {[info exists fp(common,io_filler_cells)]} {
-        handle_info "Placing I/O filler cells: $fp(common,io_filler_cells)"
-        addIoFiller -cell $fp(common,io_filler_cells) -prefix IO_FILL
-    }
-
-    # Snap floorplan to grid
-    if {[info exists fp(common,snap_to_grid)] && $fp(common,snap_to_grid) eq "true"} {
-        handle_info "Snapping floorplan to manufacturing grid..."
-        snapFPlan
-    }
-
-    handle_info "I/O placement completed"
-}
-
-flow_proc validate_floorplan {
-    global fp project tech flow FLOW_DIR RUN_DIR ROOT_DIR
-    handle_info "Validating floorplan..."
-
-    set validation_errors 0
-
-    # Check placement legality
-    handle_info "Checking placement legality..."
-    if {[catch {checkPlace} result]} {
-        handle_warning "Placement check reported issues: $result"
-        incr validation_errors
-    }
-
-    # Verify floorplan geometry
-    handle_info "Verifying floorplan geometry..."
-    if {[catch {checkFPlan -reportUtil} result]} {
-        handle_info "Floorplan utilization: $result"
-    }
-
-    # Generate floorplan reports
-    set report_dir "reports"
-    if {![file exists $report_dir]} {
-        file mkdir $report_dir
-    }
-
-    handle_info "Generating floorplan summary report..."
-    if {[catch {reportFPlan > $::REPORTS_DIR/floorplan_summary.rpt} result]} {
-        handle_warning "Could not generate floorplan report: $result"
-    }
-
-    # Report macro placement
-    handle_info "Generating macro placement report..."
-    if {[catch {report_placement -macro > $::REPORTS_DIR/macro_placement.rpt} result]} {
-        handle_warning "Could not generate macro placement report: $result"
-    }
-
-    if {$validation_errors > 0} {
-        handle_warning "Floorplan validation completed with $validation_errors issue(s)"
-    } else {
-        handle_info "Floorplan validation passed"
-    }
-
-    handle_info "═══════════════════════════════════════════════════════════════"
-    handle_info "CBFlow FP Floorplan Stage - COMPLETED SUCCESSFULLY"
-    handle_info "Next Stage: powerplan (make powerplan)"
-    handle_info "═══════════════════════════════════════════════════════════════"
-}
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# MAIN EXECUTION FLOW
-# ═══════════════════════════════════════════════════════════════════════════════
-
-handle_info "═══════════════════════════════════════════════════════════════"
-handle_info "CBFlow FP Floorplan Stage - Starting Execution"
-handle_info "═══════════════════════════════════════════════════════════════"
-
-# Execute flow procedures in sequence
-set flow_steps {
-    configure_floorplan
-    place_macros
-    create_rows
-    place_io
-    validate_floorplan
-}
-
-foreach step $flow_steps {
-    handle_info "Executing flow step: $step"
-
-    if {[catch {$step} error]} {
-        handle_error "Flow step '$step' failed: $error"
+    # Floorplan parameters — all from config
+    if {![info exists fp(common,site_name)] || $fp(common,site_name) eq ""} {
+        handle_error "fp(common,site_name) not set"
         exit 1
     }
 
-    handle_info "Flow step '$step' completed successfully"
+    set _site $fp(common,site_name)
+
+    if {[info exists fp(die,width)] && [info exists fp(die,height)]} {
+        # Explicit die size
+        if {![info exists fp(core,margin_left)]} {
+            handle_error "fp(core,margin_left/bottom/right/top) not set"
+            exit 1
+        }
+        handle_info "  Die: $fp(die,width) x $fp(die,height)"
+        floorPlan -site $_site \
+            -d $fp(die,width) $fp(die,height) \
+               $fp(core,margin_left) $fp(core,margin_bottom) \
+               $fp(core,margin_right) $fp(core,margin_top)
+    else {
+        # Utilization-based
+        if {![info exists fp(common,utilization)] || ![info exists fp(common,aspect_ratio)]} {
+            handle_error "fp(common,utilization) and fp(common,aspect_ratio) not set"
+            exit 1
+        }
+        handle_info "  Util=$fp(common,utilization) AR=$fp(common,aspect_ratio)"
+        floorPlan -site $_site \
+            -r $fp(common,aspect_ratio) $fp(common,utilization) \
+               $fp(core,margin_left) $fp(core,margin_bottom) \
+               $fp(core,margin_right) $fp(core,margin_top)
+    }
+
+    handle_info "Floorplan created"
 }
 
-handle_info "CBFlow FP floorplan stage completed successfully"
+# ==============================================================================
+# flow_proc: place_macros
+# Description: Place macros from placement file or config specs
+# ==============================================================================
+flow_proc place_macros {
+    global fp
 
-# Exit tool after stage completion
-exit
+    handle_info "Placing macros..."
+
+    # Macro placement file (user provides TCL with placeInstance commands)
+    if {[info exists fp(input,macro_placement)] && $fp(input,macro_placement) ne ""} {
+        if {[file exists $fp(input,macro_placement)]} {
+            handle_info "  Sourcing: [file tail $fp(input,macro_placement)]"
+            source $fp(input,macro_placement)
+        } else {
+            handle_error "Macro placement file not found: $fp(input,macro_placement)"
+            exit 1
+        }
+    }
+
+    # Inline macro specs from config
+    if {[info exists fp(common,macros)]} {
+        foreach macro_spec $fp(common,macros) {
+            array set m $macro_spec
+            if {[info exists m(name)] && [info exists m(x)] && [info exists m(y)]} {
+                set orient [expr {[info exists m(orient)] ? $m(orient) : "R0"}]
+                handle_info "  $m(name) at ($m(x),$m(y)) $orient"
+                placeInstance $m(name) $m(x) $m(y) $orient -placed
+            }
+            array unset m
+        }
+    }
+
+    # Macro halo
+    if {[info exists fp(macro_halo,x)] && [info exists fp(macro_halo,y)]} {
+        handle_info "  Halo: $fp(macro_halo,x)um x $fp(macro_halo,y)um"
+        addHaloToBlock $fp(macro_halo,x) $fp(macro_halo,y) $fp(macro_halo,x) $fp(macro_halo,y) -allBlock
+    }
+
+    handle_info "Macro placement done"
+}
+
+# ==============================================================================
+# flow_proc: add_endcaps_welltaps
+# Description: Insert boundary cells and well taps
+# ==============================================================================
+flow_proc add_endcaps_welltaps {
+    global fp tech
+
+    handle_info "Adding endcaps and well taps..."
+
+    # Endcaps
+    if {[info exists tech($::project(track_variant),endcap)] && $tech($::project(track_variant),endcap) ne ""} {
+        set _endcap $tech($::project(track_variant),endcap)
+        handle_info "  Endcap: $_endcap"
+        setEndCap -prefix ENDCAP -cell $_endcap
+        addEndCap
+    }
+
+    # Well taps
+    if {[info exists tech($::project(track_variant),well_tap)] && $tech($::project(track_variant),well_tap) ne ""} {
+        set _welltap $tech($::project(track_variant),well_tap)
+        if {![info exists fp(welltap,interval)] || $fp(welltap,interval) eq ""} {
+            handle_error "fp(welltap,interval) not set — required for well tap insertion"
+            exit 1
+        }
+        handle_info "  Well tap: $_welltap every $fp(welltap,interval)um"
+        addWellTap -cell $_welltap -cellInterval $fp(welltap,interval) -prefix WELLTAP
+    }
+
+    handle_info "Endcaps and well taps added"
+}
+
+# ==============================================================================
+# flow_proc: generate_reports
+# Description: Floorplan reports
+# ==============================================================================
+flow_proc generate_reports {
+    handle_info "Generating floorplan reports..."
+    file mkdir "$::REPORTS_DIR"
+
+    catch { reportFPlan > "$::REPORTS_DIR/floorplan_summary.rpt" }
+    catch { report_placement -macro > "$::REPORTS_DIR/macro_placement.rpt" }
+    catch { checkPlace > "$::REPORTS_DIR/check_placement.rpt" }
+    catch { report_area -outfile "$::REPORTS_DIR/report_area.rpt" }
+
+    handle_info "Reports: $::REPORTS_DIR/"
+}
+
+# ==============================================================================
+# flow_proc: save_design
+# Description: Save database to outputs/ for next stage
+# ==============================================================================
+flow_proc save_design {
+    set _outputs "$::WORK_DIR/outputs"
+    file mkdir $_outputs
+
+    saveDesign "$_outputs/floorplan.enc"
+    handle_info "Design saved: $_outputs/floorplan.enc"
+}
+
+# ==============================================================================
+# Source setup hooks
+# ==============================================================================
+foreach _hook [list \
+    "$run_dir/setup/override_setup.tcl" \
+    "$run_dir/setup/override_setup.floorplan.tcl" \
+] {
+    if {[file exists $_hook]} {
+        handle_info "Sourcing hook: [file tail $_hook]"
+        source $_hook
+    }
+}
+
+# ==============================================================================
+# Execute
+# ==============================================================================
+handle_info "================================================================"
+handle_info "CBflow FP floorplan — Innovus"
+handle_info "================================================================"
+
+foreach step {
+    load_design
+    create_floorplan
+    place_macros
+    add_endcaps_welltaps
+    generate_reports
+    save_design
+} {
+    handle_info "── $step ──"
+    if {[catch {$step} err]} {
+        handle_error "Step '$step' failed: $err"
+        exit 1
+    }
+}
+
+handle_info "FP floorplan completed"

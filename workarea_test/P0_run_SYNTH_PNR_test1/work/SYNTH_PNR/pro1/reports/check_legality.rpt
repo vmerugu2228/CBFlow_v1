@@ -1,7 +1,0 @@
-Report : check_legality
-Design : cpu_core
-
-  Number of illegal cells: 0
-  Total illegal: 0
-
-PASSED

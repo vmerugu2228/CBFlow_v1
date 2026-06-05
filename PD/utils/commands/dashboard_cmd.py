@@ -23,7 +23,7 @@ logger = configure_logging('cbflow.dashboard')
 
 def cmd_start(args: argparse.Namespace) -> int:
     """Start the dashboard server."""
-    port = getattr(args, 'port', 8080) or 8080
+    port = getattr(args, 'port', 0) or 0
 
     dashboard_app = os.path.join(get_cbflow_core_dir(), 'utils', 'dashboard', 'app.py')
 
@@ -31,8 +31,11 @@ def cmd_start(args: argparse.Namespace) -> int:
         logger.error(f"Dashboard app not found: {dashboard_app}")
         return 1
 
-    logger.info(f"Starting CBFlow Dashboard on port {port}...")
-    logger.info(f"Open http://localhost:{port} in your browser")
+    if port == 0:
+        logger.info("Starting CBFlow Dashboard (auto-selecting free port)...")
+    else:
+        logger.info(f"Starting CBFlow Dashboard on port {port}...")
+        logger.info(f"Open http://localhost:{port} in your browser")
 
     try:
         os.execvp('python3', ['python3', dashboard_app, str(port)])
@@ -56,7 +59,7 @@ def create_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest='command')
 
     start_parser = subparsers.add_parser('start', help='Start dashboard')
-    start_parser.add_argument('--port', '-p', type=int, default=8080, help='Port number')
+    start_parser.add_argument('--port', '-p', type=int, default=0, help='Port number (0 = auto-select free port)')
 
     subparsers.add_parser('stop', help='Stop dashboard')
 

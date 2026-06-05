@@ -26,7 +26,7 @@ flow_proc load_design {
     set lib_name [expr {[info exists eco(common,design_lib_name)] ? $eco(common,design_lib_name) : "${design_name}.nlib"}]
 
     # FC-RM: Determine previous step based on ECO type
-    set prev_step "chip_finish"
+    set prev_step "signoff"
     if {[info exists eco(input,from_block)]} { set prev_step $eco(input,from_block) }
 
     open_lib $lib_name
