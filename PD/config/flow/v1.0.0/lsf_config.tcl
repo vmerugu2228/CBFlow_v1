@@ -103,6 +103,11 @@ array set lsf {
     # QUEUE MANAGEMENT POLICIES
     # ═══════════════════════════════════════════════════════════════════════════
 
+    # Interactive session settings
+    interactive,queue "M"
+    interactive,memory "40GB"
+    interactive,cpu "4"
+
     # Available queue types list
     available_queues "XS S M L XL ultra"
     default_queue "M"

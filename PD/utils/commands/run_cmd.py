@@ -2396,16 +2396,33 @@ def cmd_interactive(args: argparse.Namespace) -> int:
     lsf_memory = '16000'
 
     flow_dir = env_vars.get('FLOW_DIR', os.environ.get('FLOW_DIR', ''))
-    fc_path = os.path.join(flow_dir, 'config', 'flow',
-                           env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0'),
-                           'flow_config.tcl')
+    cfg_ver = env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0')
+
+    fc_path = os.path.join(flow_dir, 'config', 'flow', cfg_ver, 'flow_config.tcl')
     if os.path.exists(fc_path):
         with open(fc_path) as f:
             for line in f:
                 if 'flow(use_lsf)' in line and 'true' in line.lower():
                     use_lsf = True
-                if 'flow(use_xterm)' in line and 'false' in line.lower():
-                    pass  # interactive always uses xterm
+
+    # Read interactive LSF settings from lsf_config.tcl
+    lsf_cfg_path = os.path.join(flow_dir, 'config', 'flow', cfg_ver, 'lsf_config.tcl')
+    if os.path.exists(lsf_cfg_path):
+        with open(lsf_cfg_path) as f:
+            for line in f:
+                line = line.strip()
+                if 'interactive,queue' in line:
+                    m = _re.search(r'"([^"]+)"', line)
+                    if m: lsf_queue = m.group(1)
+                elif 'interactive,memory' in line:
+                    m = _re.search(r'"([^"]+)"', line)
+                    if m:
+                        mem = m.group(1)
+                        # Convert GB to MB for bsub
+                        if mem.upper().endswith('GB'):
+                            lsf_memory = str(int(mem[:-2]) * 1000)
+                        else:
+                            lsf_memory = mem
 
     tlc_path = os.path.join(flow_dir, 'config', 'flow',
                             env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0'),
