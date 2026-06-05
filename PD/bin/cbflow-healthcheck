@@ -315,7 +315,6 @@ def check_configs():
         ("flow_config.tcl", "Flow types, phases, stages"),
         ("tool_launch_config.tcl", "Module loads, tool shells, bsub, xterm, queue mappings"),
         ("lsf_config.tcl", "LSF queue definitions, ML analytics, cost"),
-        ("mmmc_config.tcl", "Multi-mode multi-corner analysis views"),
     ]
     for f, desc in flow_files:
         if (flow_dir / f).exists():
