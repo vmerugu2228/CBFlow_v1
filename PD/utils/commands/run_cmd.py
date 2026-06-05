@@ -2275,9 +2275,9 @@ def cmd_interactive(args: argparse.Namespace) -> int:
     # ── Generate TCL load script for the node ──────────────────────────────
     load_tcl_path = None
     if load_node:
-        load_tcl_path = os.path.join(interactive_dir, f'load_{load_node}.tcl')
+        load_tcl_path = os.path.join(interactive_dir, f'interactive.{load_node}.{tool_name}.tcl')
         node_base = load_node.rstrip('0123456789')
-        work_dir = os.path.join(run_dir, 'work', flow_type, load_node, 'run')
+        work_dir = os.path.join(run_dir, 'work', flow_type, load_node)
 
         with open(load_tcl_path, 'w') as tf:
             tf.write(f"# CBflow Interactive — Load {load_node}\n")
@@ -2345,16 +2345,29 @@ def cmd_interactive(args: argparse.Namespace) -> int:
                 tf.write(f'puts "═══════════════════════════════════════════════════"\n')
 
             elif tool_name == 'innovus':
-                # Innovus — restore design
-                enc_path = os.path.join(work_dir, f'{load_node}.enc')
+                # Innovus — restore design from outputs/
+                enc_dat = os.path.join(work_dir, 'outputs', f'{node_base}.enc.dat')
+                design_name = env_vars.get('CBFLOW_DESIGN_NAME', '')
+                tf.write(f"# Source config for variable resolution\n")
+                config_tcl = os.path.join(work_dir, 'run', 'config.tcl')
+                if os.path.exists(config_tcl):
+                    tf.write(f'source "{config_tcl}"\n\n')
                 tf.write(f"# Restore Innovus design\n")
-                tf.write(f'set enc_path "{enc_path}"\n')
-                tf.write(f'if {{[file exists $enc_path]}} {{\n')
-                tf.write(f'    restoreDesign $enc_path\n')
-                tf.write(f'    puts "INFO: Restored design: $enc_path"\n')
+                tf.write(f'set _db "{enc_dat}"\n')
+                tf.write(f'if {{[file exists $_db]}} {{\n')
+                tf.write(f'    restoreDesign $_db {design_name}\n')
+                tf.write(f'    puts "INFO: Restored design: $_db ({design_name})"\n')
                 tf.write(f'}} else {{\n')
-                tf.write(f'    puts "WARNING: No .enc checkpoint found for {load_node}"\n')
+                tf.write(f'    puts "WARNING: No .enc.dat found: $_db"\n')
+                tf.write(f'    puts "  Run the flow first or check outputs/ directory"\n')
                 tf.write(f'}}\n')
+                tf.write(f'\nputs ""\n')
+                tf.write(f'puts "═══════════════════════════════════════════════════"\n')
+                tf.write(f'puts "  CBflow Interactive — {load_node} ({tool_name})"\n')
+                tf.write(f'puts "  Design: {design_name}"\n')
+                tf.write(f'puts "  Run directory: {run_dir}"\n')
+                tf.write(f'puts "  Session: INTERACTIVE/{session_name}"\n')
+                tf.write(f'puts "═══════════════════════════════════════════════════"\n')
 
             elif tool_name == 'tempus':
                 # Tempus — similar to PT
