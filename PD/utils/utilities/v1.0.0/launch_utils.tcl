@@ -217,6 +217,135 @@ proc handler_run {run_dir flow_type node_name stage_name cmd_file test_mode {too
         } else {
             puts "INFO: \[TEST MODE\] Launch mode: local execution"
         }
+        # Generate dummy output files for release testing
+        set _design [expr {[info exists ::flow(design_name)] ? $::flow(design_name) : "design"}]
+        set _outputs_dir "$run_dir/work/$flow_type/$node_name/outputs"
+        set _reports_dir "$run_dir/work/$flow_type/$node_name/reports"
+        file mkdir $_outputs_dir
+        file mkdir $_reports_dir
+
+        # Stage-specific dummy outputs
+        set _ts "[clock format [clock seconds]]"
+        switch -glob -- $stage_name {
+            "init_design" {
+                file mkdir "$_outputs_dir/init_design.enc.dat"
+                set _f [open "$_outputs_dir/init_design.enc.dat/init_design.globals" w]
+                puts $_f "# Test mode init_design checkpoint - $_ts"; close $_f
+            }
+            "synthesis" {
+                set _f [open "$_outputs_dir/${_design}.v" w]
+                puts $_f "// Synthesized netlist - $_ts\nmodule ${_design} (); endmodule"; close $_f
+                set _f [open "$_outputs_dir/${_design}.sdc" w]
+                puts $_f "# SDC constraints - $_ts"; close $_f
+                set _f [open "$_reports_dir/qor.rpt" w]
+                puts $_f "QoR Report - $_ts\nWNS: 0.000ns TNS: 0.000ns"; close $_f
+            }
+            "place" - "placement" {
+                file mkdir "$_outputs_dir/place.enc.dat"
+                set _f [open "$_outputs_dir/place.enc.dat/place.globals" w]
+                puts $_f "# Test mode place checkpoint - $_ts"; close $_f
+                set _f [open "$_reports_dir/qor.rpt" w]
+                puts $_f "QoR Report - $_ts\nWNS: 0.000ns TNS: 0.000ns"; close $_f
+            }
+            "floorplan" {
+                file mkdir "$_outputs_dir/floorplan.enc.dat"
+                set _f [open "$_outputs_dir/floorplan.enc.dat/floorplan.globals" w]
+                puts $_f "# Test mode floorplan checkpoint - $_ts"; close $_f
+                set _f [open "$_outputs_dir/${_design}.def" w]
+                puts $_f "VERSION 5.8 ;\nDESIGN ${_design} ;\nEND DESIGN"; close $_f
+            }
+            "powerplan" {
+                file mkdir "$_outputs_dir/powerplan.enc.dat"
+                set _f [open "$_outputs_dir/powerplan.enc.dat/powerplan.globals" w]
+                puts $_f "# Test mode powerplan checkpoint - $_ts"; close $_f
+            }
+            "cts" - "cts_opt" {
+                file mkdir "$_outputs_dir/${stage_name}.enc.dat"
+                set _f [open "$_outputs_dir/${stage_name}.enc.dat/${stage_name}.globals" w]
+                puts $_f "# Test mode $stage_name checkpoint - $_ts"; close $_f
+                set _f [open "$_reports_dir/clock_timing.rpt" w]
+                puts $_f "Clock Timing - $_ts\nSkew: 0.050ns Latency: 0.200ns"; close $_f
+            }
+            "route" {
+                file mkdir "$_outputs_dir/route.enc.dat"
+                set _f [open "$_outputs_dir/route.enc.dat/route.globals" w]
+                puts $_f "# Test mode route checkpoint - $_ts"; close $_f
+            }
+            "pro" {
+                file mkdir "$_outputs_dir/pro.enc.dat"
+                set _f [open "$_outputs_dir/pro.enc.dat/pro.globals" w]
+                puts $_f "# Test mode pro checkpoint - $_ts"; close $_f
+            }
+            "signoff" {
+                file mkdir "$_outputs_dir/signoff.enc.dat"
+                set _f [open "$_outputs_dir/signoff.enc.dat/signoff.globals" w]
+                puts $_f "# Test mode signoff checkpoint - $_ts"; close $_f
+                set _f [open "$_outputs_dir/${_design}.v" w]
+                puts $_f "// Signoff netlist - $_ts\nmodule ${_design} (); endmodule"; close $_f
+                set _f [open "$_outputs_dir/${_design}.def" w]
+                puts $_f "VERSION 5.8 ;\nDESIGN ${_design} ;\nEND DESIGN"; close $_f
+                set _f [open "$_outputs_dir/${_design}.gds" w]
+                puts $_f "HEADER 600\nLIBNAME ${_design}\nENDLIB"; close $_f
+                set _f [open "$_outputs_dir/${_design}.spef" w]
+                puts $_f "*SPEF \"IEEE 1481-1998\"\n*DESIGN \"${_design}\""; close $_f
+                set _f [open "$_reports_dir/timing_signoff.rpt" w]
+                puts $_f "Signoff Timing - $_ts\nSetup WNS: 0.000ns Hold WNS: 0.000ns"; close $_f
+            }
+            "export_data" {
+                # Copy key outputs from previous stage to export
+                set _f [open "$_outputs_dir/${_design}.v" w]
+                puts $_f "// Export netlist - $_ts\nmodule ${_design} (); endmodule"; close $_f
+                set _f [open "$_outputs_dir/${_design}.def" w]
+                puts $_f "VERSION 5.8 ;\nDESIGN ${_design} ;\nEND DESIGN"; close $_f
+                set _f [open "$_outputs_dir/${_design}.sdc" w]
+                puts $_f "# Export SDC - $_ts"; close $_f
+                # Write output_manifest.tcl
+                set _mf [open "$_outputs_dir/output_manifest.tcl" w]
+                puts $_mf "array set manifest {"
+                puts $_mf "    flow     \"$flow_type\""
+                puts $_mf "    design   \"$_design\""
+                puts $_mf "    netlist  \"$_outputs_dir/${_design}.v\""
+                puts $_mf "    def      \"$_outputs_dir/${_design}.def\""
+                puts $_mf "    sdc      \"$_outputs_dir/${_design}.sdc\""
+                puts $_mf "}"
+                close $_mf
+            }
+            "compare" {
+                set _f [open "$_reports_dir/lec_compare.rpt" w]
+                puts $_f "LEC Compare - $_ts\nStatus: PASS Equivalent: YES"; close $_f
+            }
+            "clp" {
+                set _f [open "$_reports_dir/clp_check.rpt" w]
+                puts $_f "CLP Check - $_ts\nStatus: PASS Violations: 0"; close $_f
+            }
+            "drc" {
+                set _f [open "$_reports_dir/drc.rpt" w]
+                puts $_f "DRC Report - $_ts\nViolations: 0"; close $_f
+            }
+            "lvs" {
+                set _f [open "$_reports_dir/lvs.rpt" w]
+                puts $_f "LVS Report - $_ts\nStatus: CLEAN"; close $_f
+            }
+            "fill" {
+                set _f [open "$_reports_dir/metal_fill.rpt" w]
+                puts $_f "Metal Fill - $_ts\nDensity: 45%"; close $_f
+            }
+            "erc" - "perc" - "xor" {
+                set _f [open "$_reports_dir/${stage_name}.rpt" w]
+                puts $_f "${stage_name} Report - $_ts\nStatus: PASS"; close $_f
+            }
+            "power_analysis" - "ir_drop" - "thermal_analysis" {
+                set _f [open "$_reports_dir/${stage_name}.rpt" w]
+                puts $_f "${stage_name} Report - $_ts\nStatus: PASS"; close $_f
+            }
+        }
+
+        set _out_count [llength [glob -nocomplain "$_outputs_dir/*"]]
+        set _rpt_count [llength [glob -nocomplain "$_reports_dir/*"]]
+        if {$_out_count > 0 || $_rpt_count > 0} {
+            puts "INFO: \[TEST MODE\] Created dummy files: $_out_count outputs, $_rpt_count reports"
+        }
+
         puts "INFO: $stage_name run completed \[TEST MODE\]"
     } else {
         if {![file exists $cmd_file]} {

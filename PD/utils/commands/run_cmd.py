@@ -1779,11 +1779,15 @@ def cmd_release(args: argparse.Namespace) -> int:
                     manifests.append(os.path.join(root, fname))
 
         if manifests:
-            # Use manifest to find files
+            # Use manifest to find files (supports both 'set manifest(key) "val"' and 'array set manifest { key "val" }')
             manifest_path = sorted(manifests)[-1]
             with open(manifest_path) as mf:
                 for line in mf:
+                    # Format 1: set manifest(key) "value"
                     m = _re.match(r'set\s+manifest\((\S+)\)\s+"([^"]*)"', line.strip())
+                    # Format 2: key "value" (inside array set block)
+                    if not m:
+                        m = _re.match(r'(\w+)\s+"([^"]+)"', line.strip())
                     if m and m.group(1) not in ('flow', 'node', 'design', 'run_dir', 'timestamp', 'file_count'):
                         src = m.group(2)
                         key = m.group(1)
@@ -1802,9 +1806,20 @@ def cmd_release(args: argparse.Namespace) -> int:
                             shutil.copy2(src, dest_dir)
                             flow_files += 1
         else:
-            # Fallback: scan outputs/ and results/ directories
-            for scan_dir in [os.path.join(run_path, 'outputs'),
-                             os.path.join(run_path, 'results')]:
+            # Fallback: scan all outputs/ and reports/ directories (top-level + per-node)
+            scan_dirs = [os.path.join(run_path, 'outputs'), os.path.join(run_path, 'results')]
+            # Also scan per-node outputs/reports under work/
+            work_path = os.path.join(run_path, 'work')
+            if os.path.isdir(work_path):
+                for _flow_dir in os.listdir(work_path):
+                    _flow_path = os.path.join(work_path, _flow_dir)
+                    if os.path.isdir(_flow_path):
+                        for _node_dir in os.listdir(_flow_path):
+                            for _sub in ('outputs', 'reports'):
+                                _sd = os.path.join(_flow_path, _node_dir, _sub)
+                                if os.path.isdir(_sd):
+                                    scan_dirs.append(_sd)
+            for scan_dir in scan_dirs:
                 if os.path.isdir(scan_dir):
                     for root, dirs, files in os.walk(scan_dir):
                         for fname in files:
