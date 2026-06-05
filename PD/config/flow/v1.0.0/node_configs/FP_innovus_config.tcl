@@ -113,7 +113,11 @@ array set fp {
 
 # --- POWER (21 vars) ---
 array set fp {
+    power,additional_nets                                 ""
+    power,add_vias                                       ""
     power,analyze_ir                                     ""
+    power,ir_drop_limit                                  ""
+    power,macro_ring_offset                              ""
     power,macro_ring_spacing                             ""
     power,macro_ring_width                               ""
     power,macro_rings                                    ""
@@ -132,6 +136,8 @@ array set fp {
     power,tie_low_pin                                    ""
     power,vdd_net                                        ""
     power,vdd_pin                                        ""
+    power,via_bottom_layer                               ""
+    power,via_top_layer                                  ""
     power,vss_net                                        ""
     power,vss_pin                                        ""
 }
