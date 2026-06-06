@@ -52,7 +52,7 @@ array set lsf {
     # Small Queue - Light workloads, fast turnaround
     queue_types,S,memory "8GB"
     queue_types,S,cpu "4"
-    queue_types,S,runtime_limit "2:00"
+    queue_types,S,runtime_limit "8:00"
     queue_types,S,description "Small jobs - synthesis inputs, validation, quick checks"
     queue_types,S,priority "50"
     queue_types,S,cost_factor "1.0"
@@ -62,7 +62,7 @@ array set lsf {
     # Medium Queue - Standard workloads, balanced resources
     queue_types,M,memory "40GB"
     queue_types,M,cpu "8"
-    queue_types,M,runtime_limit "8:00"
+    queue_types,M,runtime_limit "24:00"
     queue_types,M,description "Medium jobs - synthesis, floorplan, basic PNR stages"
     queue_types,M,priority "40"
     queue_types,M,cost_factor "2.0"
@@ -107,6 +107,7 @@ array set lsf {
     interactive,queue "M"
     interactive,memory "40GB"
     interactive,cpu "4"
+    interactive,runtime_limit "6:00"
 
     # Available queue types list
     available_queues "XS S M L XL ultra"
@@ -166,17 +167,16 @@ array set lsf {
     flow_mapping,PNR,export_data   "M"
     flow_mapping,PNR,release_data  "XS"
 
-    # FP (stages: netlist1 sdc1 def1 upf1 library1 init_design1 import_design1 floorplan1 powerplan1 place_pins1 export_data1 release_data1)
+    # FP (stages: netlist1 sdc1 def1 upf1 library1 init_design1 floorplan1 powerplan1 export_data1 release_data1)
+    # FP execution nodes: 8 hours (S queue)
     flow_mapping,FP,netlist          "XS"
     flow_mapping,FP,sdc              "XS"
     flow_mapping,FP,def              "XS"
     flow_mapping,FP,upf              "XS"
     flow_mapping,FP,library          "XS"
     flow_mapping,FP,init_design      "S"
-    flow_mapping,FP,import_design    "M"
-    flow_mapping,FP,floorplan        "M"
-    flow_mapping,FP,powerplan        "L"
-    flow_mapping,FP,place_pins       "M"
+    flow_mapping,FP,floorplan        "S"
+    flow_mapping,FP,powerplan        "S"
     flow_mapping,FP,export_data      "S"
     flow_mapping,FP,release_data     "XS"
 

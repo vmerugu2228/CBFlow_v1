@@ -2386,6 +2386,7 @@ def cmd_interactive(args: argparse.Namespace) -> int:
     xterm_geom = '200x50'
     lsf_queue = 'normal'
     lsf_memory = '16000'
+    lsf_runtime = '6:00'
 
     flow_dir = env_vars.get('FLOW_DIR', os.environ.get('FLOW_DIR', ''))
     cfg_ver = env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0')
@@ -2406,6 +2407,9 @@ def cmd_interactive(args: argparse.Namespace) -> int:
                 if 'interactive,queue' in line:
                     m = _re.search(r'"([^"]+)"', line)
                     if m: lsf_queue = m.group(1)
+                elif 'interactive,runtime_limit' in line:
+                    m = _re.search(r'"([^"]+)"', line)
+                    if m: lsf_runtime = m.group(1)
                 elif 'interactive,memory' in line:
                     m = _re.search(r'"([^"]+)"', line)
                     if m:
@@ -2493,7 +2497,8 @@ def cmd_interactive(args: argparse.Namespace) -> int:
     if use_lsf:
         # Submit via LSF with interactive xterm
         bsub_cmd = [
-            'bsub', '-Is', '-q', lsf_queue, '-R',
+            'bsub', '-Is', '-q', lsf_queue,
+            '-W', lsf_runtime, '-R',
             f'rusage[mem={lsf_memory}]',
             xterm_cmd, '-geometry', xterm_geom,
             '-title', title, '-e', wrapper_path
