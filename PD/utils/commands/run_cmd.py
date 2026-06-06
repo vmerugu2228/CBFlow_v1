@@ -378,6 +378,7 @@ def cmd_stage(args: argparse.Namespace) -> int:
         return 1
 
     stage = args.stage
+    subnode = getattr(args, 'subnode', None)
     flow_type = get_flow_type()
     valid_stages = get_all_stages(flow_type)
     validate = getattr(args, 'validate', False)
@@ -388,6 +389,18 @@ def cmd_stage(args: argparse.Namespace) -> int:
         logger.error(f"Invalid stage: {stage}")
         logger.info(f"Valid stages for {flow_type}: {', '.join(valid_stages)}")
         return 1
+
+    # Single subnode execution
+    if subnode:
+        _ensure_run_env_loaded()
+        run_dir = os.getcwd()
+        target = f"{stage}_{subnode}"
+        logger.info(f"")
+        logger.info(f"  Running {flow_type} Subnode: {stage} / {subnode}")
+        logger.info(f"  ───────────────────────────────────────────────────────")
+        logger.info(f"")
+        result = run_target(target, load_run_env())
+        return result
 
     # Pre-stage validation
     if validate:
@@ -2720,14 +2733,18 @@ Examples:
 
     # stage command
     stage_parser = subparsers.add_parser('stage', help='Run a specific stage',
-        formatter_class=_fmt, description="""Run a single stage of the flow.
+        formatter_class=_fmt, description="""Run a single stage or subnode of the flow.
 
 Examples:
-  cbflow run stage --name place      Run the placement stage
-  cbflow run stage -n cts            Short form
+  cbflow run stage --name place              Run full placement stage (all subnodes)
+  cbflow run stage -n cts                    Short form
+  cbflow run stage --name init_design1 --subnode run    Run only the 'run' subnode
+  cbflow run stage -n cts1 -s setup          Run only CTS setup subnode
   cbflow run stage --name route --validate   Run with validation
   cbflow run stage --name signoff --lsf      Submit to LSF""")
     stage_parser.add_argument('--name', '-n', dest='stage', required=True, help='Stage name')
+    stage_parser.add_argument('--subnode', '-s', default=None,
+                             help='Run a specific subnode only (e.g., setup, run, validate, finish)')
     stage_parser.add_argument('--validate', action='store_true', help='Enable pre/post validation')
     stage_parser.add_argument('--lsf', action='store_true', help='Submit via LSF')
     stage_parser.add_argument('--queue', help='LSF queue override')
