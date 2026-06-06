@@ -50,7 +50,7 @@ array set lsf {
     queue_types,XS,max_concurrent "30"
 
     # Small Queue - Light workloads, fast turnaround
-    queue_types,S,memory "8GB"
+    queue_types,S,memory "16GB"
     queue_types,S,cpu "4"
     queue_types,S,runtime_limit "8:00"
     queue_types,S,description "Small jobs - synthesis inputs, validation, quick checks"
@@ -60,7 +60,7 @@ array set lsf {
     queue_types,S,max_concurrent "20"
 
     # Medium Queue - Standard workloads, balanced resources
-    queue_types,M,memory "40GB"
+    queue_types,M,memory "64GB"
     queue_types,M,cpu "8"
     queue_types,M,runtime_limit "24:00"
     queue_types,M,description "Medium jobs - synthesis, floorplan, basic PNR stages"
@@ -70,7 +70,7 @@ array set lsf {
     queue_types,M,max_concurrent "15"
 
     # Large Queue - Heavy workloads, high memory requirements
-    queue_types,L,memory "120GB"
+    queue_types,L,memory "128GB"
     queue_types,L,cpu "8"
     queue_types,L,runtime_limit "48:00"
     queue_types,L,description "Large jobs - placement, routing, timing optimization"
