@@ -329,7 +329,6 @@ set lsf(bsub,project)       "RD"
 set lsf(bsub,queue)         "normal_rhel8"
 set lsf(bsub,affinity)      "affinity\[core(1):cpubind=socket:membind=localonly\]"
 
-# XTerm settings
-set lsf(xterm,enabled)      "true"
+# XTerm settings (xterm enable/disable controlled by flow(use_xterm) in flow_config)
 set lsf(xterm,command)       "xterm"
 set lsf(xterm,geometry)      "200x50"
