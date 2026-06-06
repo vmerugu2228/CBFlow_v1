@@ -32,7 +32,7 @@ set flow(mandatory_vars,all) {flow(run_name) flow(type) flow(design_name)}
 # ┌─ Dispatcher ────────────────────────────────────────────────────────────────┐
 set flow(dispatcher)    "race"                                            ;# "race" (RACE) or "make" (GNU Make)
 set flow(use_lsf)       false                                             ;# Enable LSF job submission (set true in user_config when bsub available)
-set flow(use_xterm)     false                                             ;# Enable xterm for interactive sessions (set true in user_config)
+set flow(use_xterm)     true                                              ;# Launch EDA tools in xterm (set false for direct terminal execution)
 set flow(cbflow_version) "2.0.0"                                          ;# Framework version — single source of truth
 set flow(dashboard,default_port) 0                                        ;# 0 = auto-select free port (avoids multi-user conflicts)
 
