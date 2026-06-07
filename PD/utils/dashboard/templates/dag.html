@@ -68,6 +68,7 @@
   <div class="ctx-sep"></div>
   <a onclick="ctxAction('bypass')">&#9723; Bypass</a>
   <a onclick="ctxAction('forcevalidate')">&#10004; Force Validate</a>
+  <a onclick="ctxAction('force-stop')" style="color:#b71c1c">&#9632; Force Stop</a>
   <div class="ctx-sep"></div>
   <a onclick="showJob(ctxNode)">&#128269; View Details</a>
 </div>
@@ -169,8 +170,10 @@ document.addEventListener('click', hideCtxMenu);
 
 function ctxAction(action) {
   hideCtxMenu();
+  if (action === 'force-stop' && !confirm('Force stop ' + ctxNode + '? This will kill the running process.')) return;
   const body = action === 'retrace' ? {from: ctxNode} :
                action === 'run-stage' ? {stage: ctxNode} :
+               action === 'force-stop' ? {node: ctxNode} :
                {stage: ctxNode};
   fetch('/api/action/' + action, {
     method: 'POST',

@@ -1283,6 +1283,8 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 result = self._action_save_mmmc(body)
             elif path == '/api/action/stop':
                 result = self._action_stop(body)
+            elif path == '/api/action/force-stop':
+                result = self._action_force_stop(body)
             elif path == '/api/action/add-node':
                 result = self._action_add_node(body)
             elif path == '/api/action/delete-node':
@@ -1524,6 +1526,20 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             engine._interrupted = True
             stopped += 1
         return {'ok': True, 'message': f'Stop signal sent to {stopped} running engine(s)'}
+
+    def _action_force_stop(self, body):
+        """Force-stop a specific node/subnode job — kill (local) or bkill (LSF)."""
+        self._check_run_ownership()
+        node = body.get('node') or body.get('stage', '')
+        if not node:
+            return {'ok': False, 'error': 'node parameter required'}
+        with _engines_lock:
+            engines = list(_active_engines)
+        if not engines:
+            return {'ok': False, 'error': 'No active engine — nothing to stop'}
+        # Try on the most recent active engine
+        engine = engines[-1]
+        return engine.force_stop_job(node)
 
     def _action_forcevalidate(self, body):
         """Force-validate stages or specific jobs. Updates active engine if one is running."""

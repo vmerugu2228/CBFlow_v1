@@ -1066,6 +1066,7 @@ class RaceEngine:
         self.stage_order = []
         self.db = None
         self._interrupted = False
+        self._running_processes = {}  # job_name -> subprocess.Popen
 
     def initialize(self, reset_stale=True) -> bool:
         """Build DAG and initialize status DB.
@@ -1544,9 +1545,12 @@ class RaceEngine:
                             else:
                                 failed.add(job.name)
                                 logger.error(f"FAILED: {job.name} (exit={rc})")
+                                # Kill all other running processes to release licenses
+                                self._kill_running_processes()
                         except Exception as e:
                             failed.add(job.name)
                             logger.error(f"FAILED: {job.name} (exception={e})")
+                            self._kill_running_processes()
 
             if failed:
                 # Reset all remaining PENDING jobs back to READY
@@ -1561,6 +1565,10 @@ class RaceEngine:
                     self.db.record_ready(remaining_pending)
                     logger.info(f"Reset {len(remaining_pending)} downstream jobs to READY")
                 break
+
+        # Ensure all processes are dead (release licenses)
+        if self._running_processes:
+            self._kill_running_processes()
 
         # Summary
         done_count = len([j for j in self.jobs.values()
@@ -1989,12 +1997,18 @@ class RaceEngine:
             log_file = os.path.join(log_dir, f'{job.name}.log')
 
             with open(log_file, 'w') as lf:
-                result = subprocess.run(
+                proc = subprocess.Popen(
                     job.command, shell=True, env=run_env,
-                    cwd=self.run_dir, timeout=self._get_timeout(job),
+                    cwd=self.run_dir, start_new_session=True,
                     stdout=lf, stderr=subprocess.STDOUT)
+                job.pid = proc.pid
+                self._running_processes[job.name] = proc
+                try:
+                    proc.wait(timeout=self._get_timeout(job))
+                finally:
+                    self._running_processes.pop(job.name, None)
 
-            exit_code = result.returncode
+            exit_code = proc.returncode
             error_msg = ''
 
             if exit_code != 0:
@@ -2036,15 +2050,96 @@ class RaceEngine:
             return exit_code
 
         except subprocess.TimeoutExpired:
+            proc.kill()
+            self._running_processes.pop(job.name, None)
             error_msg = f"Job timed out after {self._get_timeout(job)}s. Stage: {job.stage}, Subnode: {job.subnode}"
             self.db.record_complete(job, 124, error_msg)
             logger.error(f"  [{job.stage}/{job.subnode}] TIMEOUT — {error_msg}")
             return 124
         except Exception as e:
+            self._running_processes.pop(job.name, None)
             error_msg = f"Execution error: {str(e)}\nCommand: {job.command}"
             self.db.record_complete(job, 1, error_msg)
             logger.error(f"  [{job.stage}/{job.subnode}] ERROR: {e}")
             return 1
+
+    def force_stop_job(self, job_name: str) -> dict:
+        """Force-stop a running job by killing its process (local) or bkill (LSF)."""
+        import signal
+
+        # Check if LSF is enabled
+        use_lsf = self._resolved_config.get('flow(use_lsf)', 'false') if hasattr(self, '_resolved_config') else 'false'
+        use_lsf = use_lsf.lower() == 'true'
+
+        # Find matching running processes (exact match or stage-level: kill all subnodes)
+        killed = []
+        job_names_to_kill = []
+
+        # If job_name matches a stage, kill all its subnodes
+        for name, job in self.jobs.items():
+            if name == job_name or job.stage == job_name:
+                job_names_to_kill.append(name)
+
+        if not job_names_to_kill:
+            return {'ok': False, 'error': f'Job not found: {job_name}'}
+
+        for name in job_names_to_kill:
+            job = self.jobs.get(name)
+            if not job:
+                continue
+
+            # Try active Popen process first (local execution)
+            proc = self._running_processes.get(name)
+            if proc and proc.poll() is None:
+                if use_lsf and job.lsf_job_id:
+                    # LSF mode — use bkill
+                    try:
+                        subprocess.run(['bkill', str(job.lsf_job_id)],
+                                       capture_output=True, timeout=10)
+                        killed.append(f'{name} (bkill {job.lsf_job_id})')
+                    except Exception as e:
+                        logger.error(f"bkill failed for {name}: {e}")
+                        proc.kill()
+                        killed.append(f'{name} (kill pid={proc.pid})')
+                else:
+                    # Local mode — kill process group
+                    try:
+                        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                    except (ProcessLookupError, PermissionError):
+                        proc.kill()
+                    killed.append(f'{name} (kill pid={proc.pid})')
+
+                self._running_processes.pop(name, None)
+                job.status = Job.READY
+                if self.db:
+                    self.db.record_complete(job, 137, 'Force-stopped by user')
+
+            elif use_lsf and job.lsf_job_id and job.status == 'RUNNING':
+                # Process not in our dict but has LSF ID — bkill it
+                try:
+                    subprocess.run(['bkill', str(job.lsf_job_id)],
+                                   capture_output=True, timeout=10)
+                    killed.append(f'{name} (bkill {job.lsf_job_id})')
+                except Exception as e:
+                    logger.error(f"bkill failed for {name}: {e}")
+                job.status = Job.READY
+                if self.db:
+                    self.db.record_complete(job, 137, 'Force-stopped by user (bkill)')
+
+            elif job.pid and job.status == 'RUNNING':
+                # Fallback: we have a PID but no Popen reference
+                try:
+                    os.kill(job.pid, signal.SIGTERM)
+                    killed.append(f'{name} (kill pid={job.pid})')
+                except (ProcessLookupError, PermissionError):
+                    killed.append(f'{name} (pid={job.pid} already dead)')
+                job.status = Job.READY
+                if self.db:
+                    self.db.record_complete(job, 137, 'Force-stopped by user')
+
+        if killed:
+            return {'ok': True, 'message': f'Stopped: {", ".join(killed)}'}
+        return {'ok': False, 'error': f'No running process found for: {job_name}'}
 
     def _get_jobs_for_target(self, target: str) -> set:
         """Get all jobs needed to complete a target (stage + its dependencies)."""
@@ -2108,9 +2203,26 @@ class RaceEngine:
                 pass
         return 0
 
+    def _kill_running_processes(self):
+        """Kill all currently running job processes to release licenses."""
+        import signal as _sig
+        procs = list(self._running_processes.items())
+        for name, proc in procs:
+            if proc.poll() is None:
+                try:
+                    os.killpg(os.getpgid(proc.pid), _sig.SIGTERM)
+                    logger.info(f"  Killed {name} (pid={proc.pid})")
+                except (ProcessLookupError, PermissionError, OSError):
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+        self._running_processes.clear()
+
     def _handle_interrupt(self, signum, frame):
-        logger.warning("\nInterrupt received — stopping after current job...")
+        logger.warning("\nInterrupt received — killing running jobs and stopping...")
         self._interrupted = True
+        self._kill_running_processes()
 
     def _report_failures(self, failed: set):
         """Print failure summary."""

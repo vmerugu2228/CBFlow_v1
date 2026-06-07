@@ -31,19 +31,19 @@ flow_proc setup_libraries {
     read_physical -lef $tech(${_ms},${_trk},lef_tech)
 
     # ── Cell LEFs (stdcell + memory + IO — from lib_config) ──
-    handle_info "Cell LEFs ($_{trk}): [llength $tech(${_trk},lef)] files"
+    handle_info "Cell LEFs ($_trk): [llength $tech(${_trk},lef)] files"
     foreach _lef $tech(${_trk},lef) {
         read_physical -lef $_lef
     }
 
     # ── Timing libs (nominal for synthesis — from lib_config) ──
-    handle_info "Timing libs ($_{trk}): [llength $tech(${_trk},lib_nom)] files"
+    handle_info "Timing libs ($_trk): [llength $tech(${_trk},lib_nom)] files"
     read_libs $tech(${_trk},lib_nom)
 
-    # ── QRC tech file (physical-aware synthesis) ──
-    if {[info exists tech(rcx,rc_typ,qrc)] && $tech(rcx,rc_typ,qrc) ne ""} {
-        handle_info "QRC tech: [file tail $tech(rcx,rc_typ,qrc)]"
-        set_db qrc_tech_file $tech(rcx,rc_typ,qrc)
+    # ── QRC tech file (physical-aware synthesis — typical RC) ──
+    if {[info exists tech(rcx,${_ms},rc_typ,qrc)] && $tech(rcx,${_ms},rc_typ,qrc) ne ""} {
+        handle_info "QRC tech: [file tail $tech(rcx,${_ms},rc_typ,qrc)]"
+        set_db qrc_tech_file $tech(rcx,${_ms},rc_typ,qrc)
     }
 
     handle_info "Library setup completed"
@@ -55,7 +55,7 @@ flow_proc setup_libraries {
 # ==============================================================================
 flow_proc setup_genus_options {
     handle_info "Setting Genus options..."
-    global synth tech
+    global synth tech project
 
     # -- Design name -----------------------------------------------------------
     set design_name ""
@@ -68,7 +68,8 @@ flow_proc setup_genus_options {
     handle_info "Synthesis effort: $effort"
 
     # Enable physical-aware synthesis if QRC is available
-    if {[info exists tech(ext,qrc_tech)] && $tech(ext,qrc_tech) ne "" && [file exists $tech(ext,qrc_tech)]} {
+    set _ms $project(metal_stack)
+    if {[info exists tech(rcx,${_ms},rc_typ,qrc)] && $tech(rcx,${_ms},rc_typ,qrc) ne ""} {
         set_db / .phys_syn_effort $effort
         handle_info "Physical-aware synthesis enabled"
     }
@@ -110,46 +111,58 @@ flow_proc read_design {
     handle_info "Reading RTL design..."
     global synth flow
 
-    set design_name [expr {[info exists synth(common,design_name)] ? $synth(common,design_name) : $flow(design_name)}]
+    set design_name $flow(design_name)
 
-    # -- Read RTL files --------------------------------------------------------
-    # Determine RTL source: filelist or direct list
-    set rtl_filelist "$::RTL_DIR/${design_name}.f"
-    set rtl_format [expr {[info exists synth(input,rtl_format)] ? $synth(input,rtl_format) : "sv"}]
+    # ── Read RTL from filelist (mandatory) ──
+    if {![info exists synth(input,rtl_filelist)] || $synth(input,rtl_filelist) eq ""} {
+        handle_error "synth(input,rtl_filelist) not set — RTL filelist required"
+        exit 1
+    }
 
-    if {[info exists synth(input,rtl_list)] && [llength $synth(input,rtl_list)] > 0} {
-        # Direct RTL file list from config
-        handle_info "Reading RTL from synth(input,rtl_list): [llength $synth(input,rtl_list)] files"
-        foreach rtl_file $synth(input,rtl_list) {
-            if {[file exists $rtl_file]} {
-                read_hdl -$rtl_format $rtl_file
-            } else {
-                handle_warning "RTL file not found: $rtl_file"
-            }
+    set _rtl_file $synth(input,rtl_filelist)
+    if {![file exists $_rtl_file]} {
+        handle_error "RTL filelist not found: $_rtl_file"
+        exit 1
+    }
+
+    handle_info "Reading RTL from filelist: $_rtl_file"
+
+    # Parse filelist and classify by extension
+    set _vhdl_files {}
+    set _sv_files {}
+    set _v_files {}
+
+    set _fh [open $_rtl_file r]
+    while {[gets $_fh _line] >= 0} {
+        set _line [string trim $_line]
+        if {$_line eq "" || [string index $_line 0] eq "#"} { continue }
+        if {![file exists $_line]} {
+            handle_warning "RTL file not found: $_line"
+            continue
         }
-    } elseif {[file exists $rtl_filelist]} {
-        # Filelist (.f file)
-        handle_info "Reading RTL from filelist: $rtl_filelist (format=$rtl_format)"
-        read_hdl -$rtl_format -f $rtl_filelist
-    } else {
-        # Glob for RTL in inputs directory
-        set rtl_files [glob -nocomplain "$::RTL_DIR/*.v" "$::RTL_DIR/*.sv" "$::RTL_DIR/*.vhd"]
-        if {[llength $rtl_files] > 0} {
-            handle_info "Reading [llength $rtl_files] RTL files from inputs directory"
-            foreach rtl_file $rtl_files {
-                set ext [file extension $rtl_file]
-                if {$ext eq ".sv"} {
-                    read_hdl -sv $rtl_file
-                } elseif {$ext eq ".vhd"} {
-                    read_hdl -vhdl $rtl_file
-                } else {
-                    read_hdl -v2001 $rtl_file
-                }
-            }
-        } else {
-            handle_error "No RTL files found. Set synth(input,rtl_list) or provide $rtl_filelist"
-            return -code error "No RTL files"
+        set _ext [file extension $_line]
+        switch -- $_ext {
+            ".vhd"  { lappend _vhdl_files $_line }
+            ".vhdl" { lappend _vhdl_files $_line }
+            ".sv"   { lappend _sv_files $_line }
+            ".svh"  { lappend _sv_files $_line }
+            default { lappend _v_files $_line }
         }
+    }
+    close $_fh
+
+    # Read VHDL first, then SystemVerilog, then Verilog
+    if {[llength $_vhdl_files] > 0} {
+        handle_info "Reading [llength $_vhdl_files] VHDL files"
+        read_hdl -vhdl $_vhdl_files
+    }
+    if {[llength $_sv_files] > 0} {
+        handle_info "Reading [llength $_sv_files] SystemVerilog files"
+        read_hdl -sv $_sv_files
+    }
+    if {[llength $_v_files] > 0} {
+        handle_info "Reading [llength $_v_files] Verilog files"
+        read_hdl -v2001 $_v_files
     }
 
     # -- Include directories ---------------------------------------------------
