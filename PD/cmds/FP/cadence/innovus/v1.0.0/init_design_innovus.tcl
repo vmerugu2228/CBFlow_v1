@@ -336,19 +336,6 @@ flow_proc generate_reports {
 }
 
 # ==============================================================================
-# Source setup hooks (user overrides — applied AFTER flow_proc defs)
-# ==============================================================================
-foreach _hook [list \
-    "$run_dir/setup/override_setup.tcl" \
-    "$run_dir/setup/override_setup.init_design.tcl" \
-] {
-    if {[file exists $_hook]} {
-        handle_info "Sourcing hook: [file tail $_hook]"
-        source $_hook
-    }
-}
-
-# ==============================================================================
 # Execute — Cadence Foundation Flow sequence
 #   1. Generate design.globals (LEFs, netlist, MMMC, power nets)
 #   2. Source globals + init_design

@@ -451,26 +451,6 @@ flow_proc generate_reports {
     handle_info "Init design reports generated in: $::REPORTS_DIR"
 }
 
-# ==============================================================================
-# Source setup.tcl (flow_proc hooks: prepend, append, replace)
-# Must be sourced AFTER flow_proc definitions but BEFORE flow_exec_all
-# ==============================================================================
-set _setup_file "$run_dir/work/SYNTH/init_design1/run/setup.tcl"
-if {[file exists $_setup_file]} {
-    handle_info "Sourcing setup hooks: $_setup_file"
-    source $_setup_file
-}
-# Also source user override directly if present
-set _override_file "$run_dir/setup/override_setup.tcl"
-if {[file exists $_override_file]} {
-    handle_info "Sourcing user override: $_override_file"
-    source $_override_file
-}
-set _stage_override "$run_dir/setup/override_setup.init_design.tcl"
-if {[file exists $_stage_override]} {
-    handle_info "Sourcing stage override: $_stage_override"
-    source $_stage_override
-}
 
 # ==============================================================================
 # Execute all flow_procs in definition order

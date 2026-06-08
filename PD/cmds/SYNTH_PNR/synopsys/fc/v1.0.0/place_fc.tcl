@@ -435,23 +435,7 @@ flow_proc generate_reports {
 
     handle_info "Place_opt reports generated in: $::REPORTS_DIR"
 # ==============================================================================
-# Source setup.tcl (flow_proc hooks: prepend, append, replace)
-# Must be sourced AFTER flow_proc definitions but BEFORE flow_exec_all
 # ==============================================================================
-set _setup_file "$run_dir/work/$::env(CBFLOW_FLOW_TYPE)/$::env(CBFLOW_NODE_NAME)/run/setup.tcl"
-if {[file exists $_setup_file]} {
-    handle_info "Sourcing setup hooks: $_setup_file"
-    source -e $_setup_file
-}
-set _override_file "$run_dir/setup/override_setup.tcl"
-if {[file exists $_override_file]} {
-    handle_info "Sourcing user override: $_override_file"
-    source -e $_override_file
-}
-set _stage_override "$run_dir/setup/override_setup.place.tcl"
-if {[file exists $_stage_override]} {
-    handle_info "Sourcing stage override: $_stage_override"
-    source -e $_stage_override
 flow_exec_all
 
 # BUG FIX #7: Exit tool after stage completion

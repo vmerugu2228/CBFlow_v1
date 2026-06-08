@@ -184,19 +184,6 @@ flow_proc save_design {
 }
 
 # ==============================================================================
-# Source setup hooks (user overrides — applied AFTER flow_proc defs)
-# ==============================================================================
-foreach _hook [list \
-    "$run_dir/setup/override_setup.tcl" \
-    "$run_dir/setup/override_setup.floorplan.tcl" \
-] {
-    if {[file exists $_hook]} {
-        handle_info "Sourcing hook: [file tail $_hook]"
-        source $_hook
-    }
-}
-
-# ==============================================================================
 # Execute
 # ==============================================================================
 handle_info "================================================================"
