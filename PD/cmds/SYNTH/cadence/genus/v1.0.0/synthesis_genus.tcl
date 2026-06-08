@@ -514,23 +514,8 @@ flow_proc save_design {
 }
 
 # ==============================================================================
-# Source setup.tcl (flow_proc hooks: prepend, append, replace)
-# ==============================================================================
-set _setup_file "$run_dir/work/SYNTH/synthesis1/run/setup.tcl"
-if {[file exists $_setup_file]} {
-    source $_setup_file
-}
-set _override_file "$run_dir/setup/override_setup.tcl"
-if {[file exists $_override_file]} {
-    source $_override_file
-}
-set _stage_override "$run_dir/setup/override_setup.synthesis.tcl"
-if {[file exists $_stage_override]} {
-    source $_stage_override
-}
-
-# ==============================================================================
 # Execute all flow_procs in definition order
+# (setup.tcl and overrides already sourced via bootstrap config.tcl/setup.tcl)
 # ==============================================================================
 flow_exec_all
 

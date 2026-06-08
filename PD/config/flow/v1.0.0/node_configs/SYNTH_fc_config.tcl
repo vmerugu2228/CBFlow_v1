@@ -54,9 +54,8 @@ array set synth {
 }
 
 # ┌─ FC Required Inputs (nlib handoff between stages) ──────────────────────────┐
-set synth(required_inputs,init_design1)  "work/SYNTH/rtl1/rtl work/SYNTH/sdc1/sdc work/SYNTH/upf1/upf"
-set synth(required_inputs,synthesis1)    "work/SYNTH/init_design1/run/init_design1.nlib"
-set synth(required_inputs,export_data1)  "work/SYNTH/synthesis1/run/synthesis1.nlib"
+set synth(required_inputs,synthesis1)    "work/SYNTH/rtl1/rtl work/SYNTH/sdc1/sdc"
+set synth(required_inputs,export_data1)  "work/SYNTH/synthesis1/outputs/synthesis.nlib"
 
 # ── FC-RM App Variables ──────────────────────────────────────────────
 # --- ANALYSIS (2 vars) ---
