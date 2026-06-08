@@ -394,6 +394,13 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
         #    Always requires project(lib_config_tag) — no default lib_config.tcl
         if {$tech_name ne ""} {
             set _lib_tag ""
+            # Pre-source project_config to resolve lib_config_tag (not yet sourced at generation time)
+            if {![info exists project(lib_config_tag)] || $project(lib_config_tag) eq ""} {
+                set _proj_cfg "$config_root/project/$project_name/$project_version/${project_name}_config.tcl"
+                if {[file exists $_proj_cfg]} {
+                    catch { source $_proj_cfg }
+                }
+            }
             if {[info exists project(lib_config_tag)] && $project(lib_config_tag) ne ""} {
                 set _lib_tag $project(lib_config_tag)
             }
