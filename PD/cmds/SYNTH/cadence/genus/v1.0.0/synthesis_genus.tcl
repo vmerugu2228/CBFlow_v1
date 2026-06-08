@@ -1,5 +1,5 @@
 #!/usr/bin/env tclsh
-# SYNTH Synthesis - Cadence Genus
+# SYNTH synthesis - Cadence Genus
 
 # -- Bootstrap -----------------------------------------------------------------
 set run_dir $::env(CBFLOW_RUN_DIR)
@@ -14,638 +14,300 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
-# ┌─────────────────────────────────────────────────────────────────────────────┐
-# │                           SETUP LIBRARIES                                  │
-# └─────────────────────────────────────────────────────────────────────────────┘
+# ==============================================================================
+# flow_proc: load_design
+# Genus-RM: read_db -- Restore design from init_design checkpoint
+# ==============================================================================
+flow_proc load_design {
+    handle_info "Loading design from init_design checkpoint..."
+    global synth flow
 
-flow_proc setup_libraries {
-    global synth project tech flow FLOW_DIR RUN_DIR ROOT_DIR
-    handle_info "Setting up libraries and search paths..."
+    set _init_db "$run_dir/work/SYNTH/init_design1/outputs/init_design_genus.db"
 
-    # Get library configuration from hierarchical structure
-    
-    # Read timing library files
-    if {[info exists tech(lib,timing)]} {
-        puts "Reading Liberty files:"
-        set lib_files [expr {[string match "*{*}*" $tech(lib,timing)] ? $tech(lib,timing) : [list $tech(lib,timing)]}]
-        foreach lib $lib_files {
-            # ROOT_DIR should be project root, construct from FLOW_DIR
-            set project_root [file dirname $FLOW_DIR]
-            # Expand any variables in the library path
-            set expanded_lib [subst $lib]
-            set lib_path [file join $project_root $expanded_lib]
-            if {[file exists $lib_path]} {
-                puts "   $lib"
-                read_libs $lib_path
-            } else {
-                puts "   Liberty file not found: $lib_path"
-                handle_warning "Liberty file not found: $lib_path"
-            }
-        }
-    } else {
-        handle_error "tech(lib,timing) not defined in configuration"
+    if {![file exists $_init_db]} {
+        handle_error "init_design DB not found: $_init_db"
+        exit 1
     }
-    
-    # Read LEF files if available
-    if {[info exists tech(lef,standard_cells)]} {
-        puts "Reading LEF files:"
 
-        # ROOT_DIR should be project root, construct from FLOW_DIR
-        set project_root [file dirname $FLOW_DIR]
+    read_db $_init_db
+    handle_info "Design loaded: $_init_db"
 
-        # Read technology LEF
-        if {[info exists tech(lef,technology)]} {
-            set expanded_lef [subst $tech(lef,technology)]
-            set lef_path [file join $project_root $expanded_lef]
-            if {[file exists $lef_path]} {
-                puts "   [file tail $tech(lef,technology)]"
-                read_physical -lef $lef_path
-            } else {
-                puts "   Technology LEF file not found: $lef_path"
-            }
-        }
-        
-        # Read standard cell LEF
-        set expanded_lef [subst $tech(lef,standard_cells)]
-        set lef_path [file join $project_root $expanded_lef]
-        if {[file exists $lef_path]} {
-            puts "   [file tail $tech(lef,standard_cells)]"
-            read_physical -lef $lef_path
-        } else {
-            puts "   Standard cell LEF file not found: $lef_path"
-        }
+    # Verify design loaded
+    if {[get_db current_design] eq ""} {
+        handle_error "Failed to load design from DB"
+        exit 1
     }
-    
-    puts " Libraries setup completed"
+
+    handle_info "Current design: [get_db current_design]"
 }
 
-# ┌─────────────────────────────────────────────────────────────────────────────┐
-# │                            READ RTL FILES                                  │
-# └─────────────────────────────────────────────────────────────────────────────┘
+# ==============================================================================
+# flow_proc: setup_synthesis_options
+# Genus-RM: set_db -- Configure synthesis effort, timing, area, power
+# ==============================================================================
+flow_proc setup_synthesis_options {
+    handle_info "Configuring synthesis options..."
+    global synth
 
-flow_proc read_rtl_files {
-    global synth project tech flow FLOW_DIR RUN_DIR ROOT_DIR
-    puts " Reading RTL files..."
-
-    # Find RTL files from inputs directory (relative to workspace root)
-    set rtl_files [glob -nocomplain "$RUN_DIR/work/SYNTH/inputs/rtl/*"]
-
-    if {[llength $rtl_files] > 0} {
-        puts "Found [llength $rtl_files] RTL files in work/SYNTH/inputs/rtl/"
-        
-        # Auto-detect RTL format
-        if {![info exists synth(input,format)]} {
-            if {[llength [glob -nocomplain "$RUN_DIR/work/SYNTH/inputs/rtl/*.sv"]] > 0} {
-                set synth(input,format) "sv"
-            } elseif {[llength [glob -nocomplain "$RUN_DIR/work/SYNTH/inputs/rtl/*.v"]] > 0} {
-                set synth(input,format) "verilog"
-            } elseif {[llength [glob -nocomplain "$RUN_DIR/work/SYNTH/inputs/rtl/*.vhd*"]] > 0} {
-                set synth(input,format) "vhdl"
-            } else {
-                set synth(input,format) "verilog"  # Default
-            }
-            puts "Auto-detected RTL format: $synth(input,format)"
-        }
-        
-        # Read RTL files
-        foreach rtl_file $rtl_files {
-            puts "   Reading: [file tail $rtl_file]"
-        }
-        read_hdl -format $synth(input,format) $rtl_files
-        puts " Read [llength $rtl_files] RTL files"
-    } else {
-        handle_error "No RTL files found in work/SYNTH/inputs/rtl/"
+    # ── Effort level ──
+    if {[info exists synth(compile,effort)] && $synth(compile,effort) ne ""} {
+        set_db syn_global_effort $synth(compile,effort)
+        handle_info "Global effort: $synth(compile,effort)"
     }
-    
-    # Set top module
-    if {[info exists project(top_module)]} {
-        puts "Setting top module: $project(top_module)"
-        set_top_module $project(top_module)
-    } else {
-        handle_error "project(top_module) not defined in configuration"
+
+    # ── Timing-driven synthesis ──
+    if {[info exists synth(synthesis,timing_driven)] && $synth(synthesis,timing_driven) ne ""} {
+        set_db syn_opt_effort $synth(synthesis,timing_driven)
     }
+
+    # ── Max fanout ──
+    if {[info exists synth(synthesis,max_fanout)] && $synth(synthesis,max_fanout) ne ""} {
+        set_db design_max_fanout $synth(synthesis,max_fanout)
+        handle_info "Max fanout: $synth(synthesis,max_fanout)"
+    }
+
+    # ── Max transition ──
+    if {[info exists synth(synthesis,max_transition)] && $synth(synthesis,max_transition) ne ""} {
+        set_db design_max_transition $synth(synthesis,max_transition)
+        handle_info "Max transition: $synth(synthesis,max_transition)"
+    }
+
+    # ── Max capacitance ──
+    if {[info exists synth(synthesis,max_capacitance)] && $synth(synthesis,max_capacitance) ne ""} {
+        set_db design_max_capacitance $synth(synthesis,max_capacitance)
+        handle_info "Max capacitance: $synth(synthesis,max_capacitance)"
+    }
+
+    # ── Multi-CPU ──
+    if {[info exists synth(synthesis,max_cores)] && $synth(synthesis,max_cores) ne ""} {
+        set_db max_cpus_per_server $synth(synthesis,max_cores)
+        handle_info "Max cores: $synth(synthesis,max_cores)"
+    }
+
+    # ── Leakage power optimization ──
+    if {[info exists synth(compile,leakage_power_effort)] && $synth(compile,leakage_power_effort) ne ""} {
+        set_db / .leakage_power_effort $synth(compile,leakage_power_effort)
+        handle_info "Leakage power effort: $synth(compile,leakage_power_effort)"
+    }
+
+    # ── Dynamic power optimization ──
+    if {[info exists synth(compile,dynamic_power_effort)] && $synth(compile,dynamic_power_effort) ne ""} {
+        set_db / .dynamic_power_effort $synth(compile,dynamic_power_effort)
+        handle_info "Dynamic power effort: $synth(compile,dynamic_power_effort)"
+    }
+
+    # ── Clock gating ──
+    if {[info exists synth(synthesis,clock_gating)] && $synth(synthesis,clock_gating) eq "true"} {
+        set_db lp_insert_clock_gating true
+        handle_info "Clock gating: enabled"
+    }
+
+    # ── Boundary optimization ──
+    if {[info exists synth(synthesis,boundary_opt)] && $synth(synthesis,boundary_opt) ne ""} {
+        set_db syn_opt_boundary_optimization $synth(synthesis,boundary_opt)
+    }
+
+    # ── Auto ungroup ──
+    if {[info exists synth(compile,auto_ungroup)] && $synth(compile,auto_ungroup) eq "true"} {
+        set_db auto_ungroup both
+        handle_info "Auto ungroup: enabled"
+    }
+
+    handle_info "Synthesis options configured"
 }
 
-# ┌─────────────────────────────────────────────────────────────────────────────┐
-# │                          READ CONSTRAINTS                                  │
-# └─────────────────────────────────────────────────────────────────────────────┘
+# ==============================================================================
+# flow_proc: syn_generic_step
+# Genus-RM: syn_generic -- Technology-independent optimization
+# ==============================================================================
+flow_proc syn_generic_step {
+    handle_info "Running syn_generic (technology-independent optimization)..."
 
-flow_proc read_constraints {
-    global synth project tech flow FLOW_DIR RUN_DIR ROOT_DIR
-    puts " Reading constraints..."
-    
-    # Find SDC files
-    set sdc_files [glob -nocomplain "work/SYNTH/inputs/constraints/*.sdc"]
-    if {[llength $sdc_files] > 0} {
-        puts "Found [llength $sdc_files] SDC files"
-        foreach sdc_file $sdc_files {
-            puts "   Reading: [file tail $sdc_file]"
-            read_sdc $sdc_file
-        }
-        puts " Constraints loaded successfully"
-    } else {
-        puts " No SDC files found in work/SYNTH/inputs/constraints/"
-        handle_warning "No constraint files found - synthesis may not meet timing"
-    }
-    
-    # Apply additional synthesis constraints from config
-    if {[info exists project(clock,period)]} {
-        puts "Clock period constraint: $project(clock,period) ns"
-    }
-    
-    if {[info exists project(estimated_area)]} {
-        puts "Estimated area: $project(estimated_area) um²"
-    }
-}
-
-# ┌─────────────────────────────────────────────────────────────────────────────┐
-# │                         ELABORATE DESIGN                                   │
-# └─────────────────────────────────────────────────────────────────────────────┘
-
-flow_proc elaborate_design {
-    puts " Starting RTL elaboration..."
-    
-    # Create reports directory
-    file mkdir $::REPORTS_DIR
-
-    # Elaborate the design
-    if {[info exists project(top_module)]} {
-        elaborate $project(top_module)
-    } else {
-        handle_error "project(top_module) not defined"
-    }
-
-    # Basic design checks
-    check_design -type pre_mapping > "$::REPORTS_DIR/synth_check.rpt"
-
-    # Generate hierarchy report
-    report_design > "$::REPORTS_DIR/synth_hierarchy.rpt"
-
-    puts " RTL elaboration completed"
-    puts " Check reports: $::REPORTS_DIR/synth_check.rpt"
-}
-
-# ┌─────────────────────────────────────────────────────────────────────────────┐
-# │                        SYNTHESIZE DESIGN                                   │
-# └─────────────────────────────────────────────────────────────────────────────┘
-
-flow_proc synthesize_design {
-    puts " Starting synthesis and mapping..."
-    
-    # Configure synthesis options from hierarchical structure
-    if {[info exists synth(common,effort)]} {
-        set_db syn_opt_effort $synth(common,effort)
-        puts "Synthesis effort: $synth(common,effort)"
-    }
-    
-    if {[info exists synth(effort,mapping)]} {
-        set_db syn_map_effort $synth(effort,mapping)
-        puts "Mapping effort: $synth(effort,mapping)"
-    }
-    
-    # Set timing-driven synthesis
-    if {[info exists synth(effort,timing)]} {
-        set_db syn_opt_timing_effort $synth(effort,timing)
-        puts "Timing effort: $synth(effort,timing)"
-    }
-    
-    # Set area-driven synthesis
-    if {[info exists synth(effort,area)]} {
-        set_db syn_opt_area_effort $synth(effort,area)
-        puts "Area effort: $synth(effort,area)"
-    }
-    
-    # Set synthesis strategy
-    if {[info exists synth(common,strategy)]} {
-        puts "Synthesis strategy: $synth(common,strategy)"
-        switch $synth(common,strategy) {
-            "timing" {
-                set_db syn_opt_timing_driven true
-                set_db syn_opt_area_driven false
-            }
-            "area" {
-                set_db syn_opt_timing_driven false  
-                set_db syn_opt_area_driven true
-            }
-            "power" {
-                set_db syn_opt_timing_driven false
-                set_db syn_opt_area_driven false
-                set_db syn_opt_power_effort high
-            }
-            "timing_power" {
-                set_db syn_opt_timing_driven true
-                set_db syn_opt_area_driven false
-                set_db syn_opt_power_effort medium
-            }
-            default {
-                # Default balanced approach
-                set_db syn_opt_timing_driven true
-                set_db syn_opt_area_driven true
-            }
-        }
-    }
-    
-    # Configure boundary optimization
-    if {[info exists synth(optimization,boundary)]} {
-        set_db syn_opt_boundary_optimization $synth(optimization,boundary)
-    }
-    
-    # Set design constraints from hierarchical structure
-    if {[info exists synth(constraints,max_fanout)]} {
-        set_db design_max_fanout $synth(constraints,max_fanout)
-        puts "Max fanout: $synth(constraints,max_fanout)"
-    }
-    
-    if {[info exists synth(constraints,max_transition)]} {
-        set_db design_max_transition $synth(constraints,max_transition)
-        puts "Max transition: $synth(constraints,max_transition)"
-    }
-    
-    # Run synthesis steps
-    puts "Running syn_generic..."
     syn_generic
-    
-    puts "Running syn_map..."
-    syn_map
-    
-    puts " Initial synthesis and mapping completed"
+
+    handle_info "syn_generic completed"
 }
 
-# ┌─────────────────────────────────────────────────────────────────────────────┐
-# │                         OPTIMIZE DESIGN                                    │
-# └─────────────────────────────────────────────────────────────────────────────┘
+# ==============================================================================
+# flow_proc: syn_map_step
+# Genus-RM: syn_map -- Technology mapping to target library cells
+# ==============================================================================
+flow_proc syn_map_step {
+    handle_info "Running syn_map (technology mapping)..."
+    global synth
 
-flow_proc optimize_design {
-    puts " Starting optimization..."
-    
-    # Set up optimization options from hierarchical structure
-    if {[info exists synth(area,recover_design_area)] && $synth(area,recover_design_area) eq "true"} {
-        set_db syn_opt_area_recovery true
-        puts "Area recovery: enabled"
+    # ── Mapping effort ──
+    if {[info exists synth(effort,mapping)] && $synth(effort,mapping) ne ""} {
+        set_db syn_map_effort $synth(effort,mapping)
+        handle_info "Mapping effort: $synth(effort,mapping)"
     }
-    
-    # Fix hold violations if required
+
+    syn_map
+
+    handle_info "syn_map completed"
+}
+
+# ==============================================================================
+# flow_proc: syn_opt_step
+# Genus-RM: syn_opt -- Post-mapping optimization (timing/area/power)
+# ==============================================================================
+flow_proc syn_opt_step {
+    handle_info "Running syn_opt (post-mapping optimization)..."
+    global synth
+
+    # ── Area recovery ──
+    if {[info exists synth(synthesis,area_recovery)] && $synth(synthesis,area_recovery) eq "true"} {
+        set_db syn_opt_area_recovery true
+        handle_info "Area recovery: enabled"
+    }
+
+    # ── Hold fixing ──
     if {[info exists synth(optimization,hold_fix)] && $synth(optimization,hold_fix) eq "true"} {
         set_db syn_opt_fix_hold_all_clocks true
-        puts "Hold violation fixing: enabled"
+        handle_info "Hold fixing: enabled"
     }
-    
-    # Multi-Vt optimization
+
+    # ── Multi-Vt optimization ──
     if {[info exists synth(optimization,multi_vt)] && $synth(optimization,multi_vt) eq "true"} {
         set_db syn_opt_multiple_vt_optimization true
-        puts "Multi-Vt optimization: enabled"
+        handle_info "Multi-Vt optimization: enabled"
     }
-    
-    # Power optimization
-    if {[info exists synth(power,effort)] && $synth(power,effort) ne "none"} {
+
+    # ── Power effort ──
+    if {[info exists synth(power,effort)] && $synth(power,effort) ne ""} {
         set_db syn_opt_power_effort $synth(power,effort)
-        puts "Power effort: $synth(power,effort)"
+        handle_info "Power effort: $synth(power,effort)"
     }
-    
-    # Run optimization
-    puts "Running syn_opt..."
+
+    # ── Timing effort ──
+    if {[info exists synth(effort,timing)] && $synth(effort,timing) ne ""} {
+        set_db syn_opt_timing_effort $synth(effort,timing)
+        handle_info "Timing effort: $synth(effort,timing)"
+    }
+
+    # ── Area effort ──
+    if {[info exists synth(effort,area)] && $synth(effort,area) ne ""} {
+        set_db syn_opt_area_effort $synth(effort,area)
+        handle_info "Area effort: $synth(effort,area)"
+    }
+
     syn_opt
-    
-    puts " Optimization completed"
+
+    handle_info "syn_opt completed"
 }
 
-# ┌─────────────────────────────────────────────────────────────────────────────┐
-# │                          GENERATE REPORTS                                  │
-# └─────────────────────────────────────────────────────────────────────────────┘
-
+# ==============================================================================
+# flow_proc: generate_reports
+# Genus-RM: report_timing, report_area, report_power, report_qor
+# ==============================================================================
 flow_proc generate_reports {
-    puts " Generating reports..."
-    
-    # Ensure reports directory exists
-    file mkdir $::REPORTS_DIR
+    handle_info "Generating synthesis reports..."
+    global synth flow
 
-    # Generate timing reports
-    puts "Generating timing reports..."
-    report_timing -format {instance cell arc delay slew load} > "$::REPORTS_DIR/synth_timing.rpt"
-    report_timing -summary > "$::REPORTS_DIR/synth_timing_summary.rpt"
+    file mkdir "$::REPORTS_DIR"
 
-    # Generate area reports
-    puts "Generating area reports..."
-    report_area > "$::REPORTS_DIR/synth_area.rpt"
-    report_gates > "$::REPORTS_DIR/synth_gates.rpt"
-
-    # Generate power reports
-    puts "Generating power reports..."
-    report_power > "$::REPORTS_DIR/synth_power.rpt"
-
-    # Generate QoR report
-    puts "Generating QoR report..."
-    report_qor > "$::REPORTS_DIR/synth_qor.rpt"
-
-    # Generate constraint reports
-    puts "Generating constraint reports..."
-    report_constraints > "$::REPORTS_DIR/synth_constraints.rpt"
-
-    # Generate design summary
-    puts "Generating design summary..."
-    report_design -summary > "$::REPORTS_DIR/synth_design_summary.rpt"
-    
-    # ┌─────────────────────────────────────────────────────────────────────────┐
-    # │                     PER-CORNER MMMC REPORTING                         │
-    # └─────────────────────────────────────────────────────────────────────────┘
-
-    global analysis_views
-    if {[info exists analysis_views]} {
-        puts "Generating per-corner MMMC reports..."
-        file mkdir "$::REPORTS_DIR/mmmc"
-
-        foreach scenario [lsort [array names analysis_views]] {
-            array set view_info $analysis_views($scenario)
-
-            puts "  Reporting for scenario: $scenario (corner=$view_info(corner))"
-
-            # Per-corner timing report
-            report_timing -format {instance cell arc delay slew load} \
-                > "$::REPORTS_DIR/mmmc/timing_${scenario}.rpt"
-
-            # Per-corner power report
-            report_power > "$::REPORTS_DIR/mmmc/power_${scenario}.rpt"
-
-            # Per-corner area report
-            report_area > "$::REPORTS_DIR/mmmc/area_${scenario}.rpt"
-
-            handle_info "  Corner $scenario reports generated"
-            array unset view_info
-        }
-
-        # Generate MMMC synthesis summary
-        set mmmc_summary "$::REPORTS_DIR/mmmc/synthesis_mmmc_summary.rpt"
-        set fh [open $mmmc_summary "w"]
-        puts $fh "═══════════════════════════════════════════════════════════════"
-        puts $fh "CBFlow MMMC Synthesis Summary - Genus"
-        puts $fh "═══════════════════════════════════════════════════════════════"
-        puts $fh "Generated: [clock format [clock seconds]]"
-        puts $fh "Scenarios: [llength [array names analysis_views]]"
-        puts $fh ""
-        puts $fh [format "%-40s %-10s %-10s %-10s" "Scenario" "Corner" "Voltage" "Temp"]
-        puts $fh [string repeat "-" 80]
-        foreach scenario [lsort [array names analysis_views]] {
-            array set view_info $analysis_views($scenario)
-            puts $fh [format "%-40s %-10s %-10s %-10s" \
-                $scenario $view_info(corner) "$view_info(voltage)V" "$view_info(temperature)C"]
-            array unset view_info
-        }
-        puts $fh [string repeat "-" 80]
-        puts $fh ""
-        puts $fh "Per-corner reports in: $::REPORTS_DIR/mmmc/"
-        close $fh
-        handle_info "MMMC synthesis summary: $mmmc_summary"
+    set _max_paths 100
+    if {[info exists synth(analysis,max_paths)] && $synth(analysis,max_paths) ne ""} {
+        set _max_paths $synth(analysis,max_paths)
     }
 
-    puts " Reports generated successfully"
-    puts " Check reports in: reports/synthesis/"
+    # Timing
+    catch { report_timing -max_paths $_max_paths > $::REPORTS_DIR/report_timing.rpt }
+
+    # Timing summary
+    catch { report_timing -summary > $::REPORTS_DIR/report_timing_summary.rpt }
+
+    # Area
+    catch { report_area > $::REPORTS_DIR/report_area.rpt }
+
+    # Gates
+    catch { report_gates > $::REPORTS_DIR/report_gates.rpt }
+
+    # Power
+    catch { report_power > $::REPORTS_DIR/report_power.rpt }
+
+    # QoR
+    catch { report_qor > $::REPORTS_DIR/report_qor.rpt }
+
+    # Constraints
+    catch { report_constraints > $::REPORTS_DIR/report_constraints.rpt }
+
+    # Design summary
+    catch { report_summary > $::REPORTS_DIR/report_summary.rpt }
+
+    # Messages
+    catch { report_messages > $::REPORTS_DIR/report_messages.rpt }
+
+    handle_info "Reports generated in: $::REPORTS_DIR"
 }
 
-# ┌─────────────────────────────────────────────────────────────────────────────┐
-# │                            SAVE OUTPUTS                                    │
-# └─────────────────────────────────────────────────────────────────────────────┘
+# ==============================================================================
+# flow_proc: save_design
+# Genus-RM: write_db, write_hdl, write_sdc -- Save synthesis outputs
+# ==============================================================================
+flow_proc save_design {
+    handle_info "Saving synthesis outputs..."
+    global synth flow
 
-flow_proc save_outputs {
-    puts " Saving outputs..."
-    
-    # Create output directories
-    file mkdir "$::OUTPUTS_DIR/netlist"
-    file mkdir "$::OUTPUTS_DIR/sdc"
-    
-    # Save in different formats
-    if {![info exists synth(output,save_ddc)] || $synth(output,save_ddc) eq "true"} {
-        puts "Saving design database..."
-        write_design -basename "$::OUTPUTS_DIR/synthesize"
+    file mkdir "$::OUTPUTS_DIR"
+
+    set _design $flow(design_name)
+
+    # ── Genus DB ──
+    write_db $::OUTPUTS_DIR/synthesis_genus.db
+    handle_info "Genus DB: $::OUTPUTS_DIR/synthesis_genus.db"
+
+    # ── Verilog netlist ──
+    if {![info exists synth(output,save_verilog)] || $synth(output,save_verilog) ne "false"} {
+        write_hdl > $::OUTPUTS_DIR/${_design}.v
+        handle_info "Netlist: $::OUTPUTS_DIR/${_design}.v"
     }
-    
-    if {![info exists synth(output,save_verilog)] || $synth(output,save_verilog) eq "true"} {
-        puts "Saving Verilog netlist..."
-        write_hdl > "$::OUTPUTS_DIR/netlist/synth.v"
+
+    # ── SDC constraints ──
+    if {![info exists synth(output,save_sdc)] || $synth(output,save_sdc) ne "false"} {
+        write_sdc > $::OUTPUTS_DIR/${_design}.sdc
+        handle_info "SDC: $::OUTPUTS_DIR/${_design}.sdc"
     }
-    
+
+    # ── SDF (optional) ──
     if {[info exists synth(output,save_sdf)] && $synth(output,save_sdf) eq "true"} {
-        puts "Saving SDF..."
-        write_sdf > "$::OUTPUTS_DIR/netlist/synth.sdf"
+        write_sdf > $::OUTPUTS_DIR/${_design}.sdf
+        handle_info "SDF: $::OUTPUTS_DIR/${_design}.sdf"
     }
-    
-    if {![info exists synth(output,save_constraints)] || $synth(output,save_constraints) eq "true"} {
-        puts "Saving constraints..."
-        write_sdc > "$::OUTPUTS_DIR/sdc/synth.sdc"
+
+    # ── Design snapshot ──
+    catch {
+        write_snapshot -outdir $::REPORTS_DIR -tag synthesis
+        handle_info "Design snapshot saved"
     }
-    
-    # Generate Conformal scripts
-    if {[info exists synth(output,save_svf)] && $synth(output,save_svf) eq "true"} {
-        puts "Saving formal verification scripts..."
-        file mkdir "$::OUTPUTS_DIR/fv_scripts"
-        write_design_verification_files -dir "$::OUTPUTS_DIR/fv_scripts"
-    }
-    
-    # Create output summary
-    set summary_file "$::OUTPUTS_DIR/synthesis_summary.txt"
-    set fp [open $summary_file w]
-    puts $fp "═══════════════════════════════════════════════════════════════════════════════"
-    puts $fp "OMNI FLOW - Synthesis Output Summary"
-    puts $fp "═══════════════════════════════════════════════════════════════════════════════"
-    puts $fp "Generated: [clock format [clock seconds]]"
-    if {[info exists project(top_module)]} { puts $fp "Design: $project(top_module)" }
-    if {[info exists tech(node)]} { puts $fp "Technology: $tech(node)" }
-    if {[info exists project(name)]} { puts $fp "Project: $project(name)" }
-    puts $fp ""
-    puts $fp "Output Files:"
-    puts $fp "  • results/netlist/synth.v"
-    puts $fp "  • results/sdc/synth.sdc"
-    puts $fp "  • work/SYNTH/synthesize.g"
-    puts $fp ""
-    puts $fp "Reports:"
-    puts $fp "  • reports/synthesis/synth_qor.rpt"
-    puts $fp "  • reports/synthesis/synth_timing.rpt"
-    puts $fp "  • reports/synthesis/synth_area.rpt"
-    puts $fp "  • reports/synthesis/synth_power.rpt"
-    puts $fp ""
-    puts $fp "Command Summary:"
-    if {[info exists tech(lib,timing)]} {
-        set lib_count [llength [expr {[string match "*{*}*" $tech(lib,timing)] ? $tech(lib,timing) : [list $tech(lib,timing)]}]]
-        puts $fp "  Libraries: $lib_count timing libs loaded"
-    }
-    if {[info exists tech(lef,standard_cells)]} {
-        puts $fp "  Physical: LEF files loaded"
-    }
-    puts $fp "  RTL Format: $synth(input,format)"
-    if {[info exists synth(common,strategy)]} {
-        puts $fp "  Strategy: $synth(common,strategy)"
-    }
-    close $fp
-    
-    puts " Outputs saved successfully"
-    puts " Summary: $summary_file"
+
+    handle_info "Synthesis outputs saved"
 }
 
-# ┌─────────────────────────────────────────────────────────────────────────────┐
-# │                         ENHANCED VALIDATION INTEGRATION                    │
-# └─────────────────────────────────────────────────────────────────────────────┘
-
-flow_proc validate_synthesis_results {
-    global synth project tech flow FLOW_DIR RUN_DIR ROOT_DIR
-
-    handle_info "Running enhanced validation for synthesis stage..."
-
-    # Determine current working directory and flow directory
-    set current_dir $::env(CBFLOW_RUN_DIR)
-    set validation_flow_dir ""
-
-    if {[info exists FLOW_DIR]} {
-        set validation_flow_dir $FLOW_DIR
-    } elseif {[info exists ::env(FLOW_DIR)]} {
-        set validation_flow_dir $::env(FLOW_DIR)
-    } else {
-        # Try to determine flow directory from current location
-        set script_dir [file dirname [file normalize [info script]]]
-        set validation_flow_dir [file dirname [file dirname [file dirname [file dirname $script_dir]]]]
-    }
-
-    # Enhanced validation script path
-    set enhanced_validation_script "$validation_flow_dir/utils/validation/v1.0.0/enhanced_validate_run.tcl"
-
-    if {![file exists $enhanced_validation_script]} {
-        handle_warning "Enhanced validation script not found: $enhanced_validation_script"
-        handle_info "Falling back to basic validation if available..."
-
-        # Try basic validation
-        set basic_validation_script "$validation_flow_dir/utils/validation/v1.0.0/validate_run.tcl"
-        if {[file exists $basic_validation_script]} {
-            handle_info "Running basic validation for synthesis..."
-            if {[catch {exec tclsh $basic_validation_script SYNTH synthesis $current_dir $validation_flow_dir} validation_result]} {
-                handle_error "Basic validation failed: $validation_result"
-                return 0
-            } else {
-                handle_info "Basic validation completed successfully"
-                return 1
-            }
-        } else {
-            handle_warning "No validation script available, skipping validation"
-            return 1
-        }
-    }
-
-    # Run enhanced validation
-    handle_info "Executing enhanced validation with critical error detection..."
-    handle_info "Command: tclsh $enhanced_validation_script SYNTH synthesis $current_dir $validation_flow_dir"
-
-    if {[catch {exec tclsh $enhanced_validation_script SYNTH synthesis $current_dir $validation_flow_dir} validation_result]} {
-        handle_error "Enhanced validation failed with critical errors detected"
-        handle_info "Validation output: $validation_result"
-
-        # Check if this is a critical error failure (exit code 1) vs other errors
-        if {[string match "*critical*error*" [string tolower $validation_result]] ||
-            [string match "*xterm*" [string tolower $validation_result]]} {
-            handle_error "Critical errors detected in synthesis logs - check xterm display"
-        }
-        return 0
-    } else {
-        handle_info "Enhanced validation completed successfully"
-        handle_info "Validation output: $validation_result"
-        return 1
-    }
+# ==============================================================================
+# Source setup.tcl (flow_proc hooks: prepend, append, replace)
+# Must be sourced AFTER flow_proc definitions but BEFORE flow_exec_all
+# ==============================================================================
+set _setup_file "$run_dir/work/SYNTH/synthesis1/run/setup.tcl"
+if {[file exists $_setup_file]} {
+    handle_info "Sourcing setup hooks: $_setup_file"
+    source $_setup_file
+}
+set _override_file "$run_dir/setup/override_setup.tcl"
+if {[file exists $_override_file]} {
+    handle_info "Sourcing user override: $_override_file"
+    source $_override_file
+}
+set _stage_override "$run_dir/setup/override_setup.synthesis.tcl"
+if {[file exists $_stage_override]} {
+    handle_info "Sourcing stage override: $_stage_override"
+    source $_stage_override
 }
 
-# ┌─────────────────────────────────────────────────────────────────────────────┐
-# │                            EXECUTION CONTROL                               │
-# └─────────────────────────────────────────────────────────────────────────────┘
+# ==============================================================================
+# Execute all flow_procs in definition order
+# ==============================================================================
+flow_exec_all
 
-handle_info "═══════════════════════════════════════════════════════════════════════════════"
-handle_info " CBFlow Synthesis with flow_proc Integration"
-handle_info "═══════════════════════════════════════════════════════════════════════════════"
-puts "Starting synthesis flow sequence with proper flow_proc hooks..."
-
-# Define the synthesis flow sequence
-flow_proc synthesis_flow {
-    handle_info "Executing complete synthesis flow..."
-
-    # Execute synthesis procedures in sequence using flow_proc framework
-    flow_exec setup_libraries
-    flow_exec read_rtl_files
-    flow_exec read_constraints
-    flow_exec elaborate_design
-    flow_exec synthesize_design
-    flow_exec optimize_design
-    flow_exec generate_reports
-    flow_exec save_outputs
-
-    # Enhanced validation with critical error detection
-    flow_exec validate_synthesis_results
-
-    # Flow completion summary
-    handle_info "═══════════════════════════════════════════════════════════════════════════════"
-    handle_info " Synthesis Flow Complete!"
-    handle_info "═══════════════════════════════════════════════════════════════════════════════"
-    puts "Final netlist: results/netlist/synth.v"
-    puts "Final constraints: results/sdc/synth.sdc"
-    puts "Check reports in: reports/synthesis/"
-    handle_info "Synthesis flow completed successfully"
-}
-
-# Check if being run directly or sourced
-if {[info exists argv0] && $argv0 eq [info script]} {
-    # Running directly - execute the synthesis flow
-    puts "Direct execution mode - running complete synthesis flow with flow_proc integration"
-    flow_exec synthesis_flow
-} else {
-    # Being sourced - procedures are available for interactive use
-    puts " CBFlow Synthesis procedures loaded and ready with flow_proc integration"
-    puts "Available flow_proc procedures: setup_libraries, read_rtl_files, read_constraints, elaborate_design, synthesize_design, optimize_design, generate_reports, save_outputs, validate_synthesis_results, synthesis_flow"
-    puts "Simply call procedure names directly (e.g., 'setup_libraries', 'synthesis_flow')"
-}
-
-# ┌─────────────────────────────────────────────────────────────────────────────┐
-# │                         FLOW_PROC INTEGRATION NOTES                        │
-# └─────────────────────────────────────────────────────────────────────────────┘
-
-# CBFlow flow_proc Integration:
-# - All procedures are now defined using flow_proc with proper prepend/append hooks
-# - Status tracking and stage management is handled automatically by flow_proc framework
-# - Procedures can be called directly by name (setup_libraries, read_rtl_files, etc.)
-# - Manual wrapper functions are no longer needed
-# - Override capabilities available through setup.tcl flow_proc hooks
-
-# ┌─────────────────────────────────────────────────────────────────────────────┐
-# │                         CONVENIENCE FUNCTIONS                              │
-# └─────────────────────────────────────────────────────────────────────────────┘
-
-proc run_synthesis_subset {stage_list} {
-    # Run a subset of synthesis stages using flow_proc integration
-    puts " Running synthesis subset: [join $stage_list {, }]"
-
-    foreach stage $stage_list {
-        switch $stage {
-            "setup_libraries" { setup_libraries }
-            "read_rtl_files" { read_rtl_files }
-            "read_constraints" { read_constraints }
-            "elaborate_design" { elaborate_design }
-            "synthesize_design" { synthesize_design }
-            "optimize_design" { optimize_design }
-            "generate_reports" { generate_reports }
-            "save_outputs" { save_outputs }
-            "validate_synthesis_results" { validate_synthesis_results }
-            "synthesis_flow" { synthesis_flow }
-            default {
-                puts "Unknown stage: $stage"
-                puts "Valid stages: setup_libraries, read_rtl_files, read_constraints, elaborate_design, synthesize_design, optimize_design, generate_reports, save_outputs, validate_synthesis_results, synthesis_flow"
-            }
-        }
-    }
-}
-
-# Display completion message
-puts " CBFlow Synthesis command file loaded successfully with flow_proc integration"
-
-if {[info exists argv0] && $argv0 ne [info script]} {
-    puts " Interactive mode available:"
-    puts "  • synthesis_flow                   - Run complete synthesis flow with enhanced validation"
-    puts "  • run_synthesis_subset {stages}    - Run specific stages"
-    puts "  • <stage_name>                     - Run individual stage directly"
-    puts "  Available stages: setup_libraries, read_rtl_files, read_constraints, elaborate_design, synthesize_design, optimize_design, generate_reports, save_outputs, validate_synthesis_results"
-    puts ""
-}
-
-# Exit tool after stage completion
+handle_info "Synthesis completed -- exiting Genus"
 exit
