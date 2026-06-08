@@ -11,13 +11,12 @@
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 array set synth {
-    stages {rtl1 sdc1 upf1 init_design1 synthesis1 export_data1 release_data1}
+    stages {rtl1 sdc1 upf1 synthesis1 export_data1 release_data1}
 
     dependencies,rtl1             {}
     dependencies,sdc1             {}
     dependencies,upf1             {}
-    dependencies,init_design1     {rtl1 sdc1 upf1}
-    dependencies,synthesis1       {init_design1}
+    dependencies,synthesis1       {rtl1 sdc1 upf1}
     dependencies,export_data1     {synthesis1}
     dependencies,release_data1    {export_data1}
 }
@@ -27,7 +26,7 @@ array set synth {
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 # All execution stages share the same subnode pattern
-set _synth_exec_stages {init_design1 synthesis1 export_data1 release_data1}
+set _synth_exec_stages {synthesis1 export_data1 release_data1}
 foreach _s $_synth_exec_stages {
     set synth(subnodes,$_s) {setup run validate finish}
     set synth(subnode_dependencies,${_s},setup)    {}
@@ -47,7 +46,6 @@ array set synth {
     node_types,rtl1           "inputs"
     node_types,sdc1           "inputs"
     node_types,upf1           "inputs"
-    node_types,init_design1   "init_design"
     node_types,synthesis1     "synthesis"
     node_types,export_data1   "export_data"
     node_types,release_data1  "release_data"
@@ -55,7 +53,6 @@ array set synth {
     stage_types,rtl1          "inputs"
     stage_types,sdc1          "inputs"
     stage_types,upf1          "inputs"
-    stage_types,init_design1  "execution"
     stage_types,synthesis1    "execution"
     stage_types,export_data1  "export_data"
     stage_types,release_data1 "release_data"
@@ -63,8 +60,7 @@ array set synth {
     node_descriptions,rtl1           "RTL source input"
     node_descriptions,sdc1           "SDC timing constraints input"
     node_descriptions,upf1           "UPF power intent input"
-    node_descriptions,init_design1   "Design library creation, technology setup (4 subnodes: setup, run, validate, finish)"
-    node_descriptions,synthesis1     "Logic synthesis and optimization (4 subnodes: setup, run, validate, finish)"
+    node_descriptions,synthesis1     "Library setup, RTL read, elaboration, compile and optimization (4 subnodes: setup, run, validate, finish)"
     node_descriptions,export_data1   "Export synthesis data and results (4 subnodes: setup, run, validate, finish)"
     node_descriptions,release_data1  "Release synthesis deliverables (4 subnodes: setup, run, validate, finish)"
 }
@@ -83,8 +79,7 @@ array set synth {
     runtime,timeout,rtl1             10
     runtime,timeout,sdc1             10
     runtime,timeout,upf1             10
-    runtime,timeout,init_design1     30
-    runtime,timeout,synthesis1       120
+    runtime,timeout,synthesis1       150
     runtime,timeout,export_data1     15
     runtime,timeout,release_data1    10
 }

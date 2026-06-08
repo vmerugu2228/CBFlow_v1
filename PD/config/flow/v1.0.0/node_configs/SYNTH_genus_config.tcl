@@ -49,9 +49,8 @@ array set synth {
 }
 
 # ┌─ Genus Required Inputs (enc handoff between stages) ────────────────────────┐
-set synth(required_inputs,init_design1)  "work/SYNTH/rtl1/rtl work/SYNTH/sdc1/sdc work/SYNTH/upf1/upf"
-set synth(required_inputs,synthesis1)    "work/SYNTH/init_design1/run/init_design1.enc"
-set synth(required_inputs,export_data1)  "work/SYNTH/synthesis1/run/synthesis1.enc"
+set synth(required_inputs,synthesis1)    "work/SYNTH/rtl1/rtl work/SYNTH/sdc1/sdc"
+set synth(required_inputs,export_data1)  "work/SYNTH/synthesis1/outputs/synthesis_genus.db"
 
 # ── Genus-RM App Variables ──────────────────────────────────────────────
 # --- ANALYSIS (1 vars) ---
