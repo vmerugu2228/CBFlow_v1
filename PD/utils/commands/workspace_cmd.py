@@ -635,10 +635,31 @@ def _validate_mandatory_inputs(user_config: dict, flow_type: str) -> list:
     mandatory_from_config = _get_mandatory_inputs_from_config(core_dir, ft)
 
     if mandatory_from_config:
-        # Data-driven: mandatory inputs defined in <FLOW>_config.tcl
-        for var_key in mandatory_from_config:
-            if not user_config.get(var_key, ''):
-                errors.append(f"{var_key} is empty — required by {ft} flow config")
+        # Check if handshake mechanism is active (from_run or release_tag)
+        # These auto-resolve inputs at runtime, so skip mandatory checks for direct input paths
+        flow_arr = ft.lower().replace('_', '_')  # e.g., "sta", "synth_pnr"
+        has_from_run = any(
+            user_config.get(k, '') != ''
+            for k in user_config
+            if 'input,from_run' in k
+        )
+        has_release_tag = any(
+            user_config.get(k, '') != ''
+            for k in user_config
+            if 'release_tag' in k and 'input,' in k
+        )
+
+        if has_from_run:
+            logger.info(f"  Handshake: from_run is set — skipping mandatory input checks")
+            logger.info(f"  Inputs will be auto-resolved from upstream run at runtime")
+        elif has_release_tag:
+            logger.info(f"  Handshake: release_tag is set — skipping mandatory input checks")
+            logger.info(f"  Inputs will be auto-resolved from release at runtime")
+        else:
+            # No handshake — enforce mandatory inputs
+            for var_key in mandatory_from_config:
+                if not user_config.get(var_key, ''):
+                    errors.append(f"{var_key} is empty — required by {ft} flow config")
     else:
         # If config-driven validation found nothing, warn but don't block
         logger.warning(f"No mandatory_user_inputs defined in node_config for {ft}")
