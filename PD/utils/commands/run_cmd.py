@@ -2288,12 +2288,18 @@ def cmd_interactive(args: argparse.Namespace) -> int:
             tf.write(f"# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             tf.write(f"# Flow: {flow_type} / Tool: {tool_name}\n\n")
 
-            # Source run environment
-            tf.write(f"# Source run configuration\n")
+            # Source run environment + config + utilities (all tools)
+            tf.write(f"# Source run environment\n")
             tf.write(f'set ::env(CBFLOW_RUN_DIR) "{run_dir}"\n')
             run_tcl = os.path.join(run_dir, '.run.cbflow.tcl')
             if os.path.exists(run_tcl):
-                tf.write(f'source "{run_tcl}"\n\n')
+                tf.write(f'source "{run_tcl}"\n')
+
+            # Source node config (tech/project/flow arrays) and utilities
+            config_tcl = os.path.join(work_dir, 'run', 'config.tcl')
+            if os.path.exists(config_tcl):
+                tf.write(f'source "{config_tcl}"\n')
+            tf.write(f'source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"\n\n')
 
             if tool_name == 'fc':
                 # Fusion Compiler — open NDM library
@@ -2352,10 +2358,6 @@ def cmd_interactive(args: argparse.Namespace) -> int:
                 # Innovus — restore design from outputs/
                 enc_dat = os.path.join(work_dir, 'outputs', f'{node_base}.enc.dat')
                 design_name = env_vars.get('CBFLOW_DESIGN_NAME', '')
-                tf.write(f"# Source config for variable resolution\n")
-                config_tcl = os.path.join(work_dir, 'run', 'config.tcl')
-                if os.path.exists(config_tcl):
-                    tf.write(f'source "{config_tcl}"\n\n')
                 tf.write(f"# Restore Innovus design\n")
                 tf.write(f'set _db "{enc_dat}"\n')
                 tf.write(f'if {{[file exists $_db]}} {{\n')

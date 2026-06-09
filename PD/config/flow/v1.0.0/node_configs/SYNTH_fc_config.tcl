@@ -117,11 +117,6 @@ array set synth {
     fp,tap_cell_distance                                 ""
 }
 
-# --- INIT_DESIGN (1 vars) ---
-array set synth {
-    init_design,active_scenarios                         ""
-}
-
 # --- OUTPUT (1 vars) ---
 array set synth {
     output,block_labeling                                ""
