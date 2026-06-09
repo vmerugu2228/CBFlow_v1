@@ -15,7 +15,7 @@ set stage_name "place_pins"
 if {$node_name eq ""} { set node_name "${stage_name}1" }
 
 set _tool_ver [expr {[info exists ::env(FC_VERSION)] ? $::env(FC_VERSION) : "v1.0.0"}]
-set cmd_file "$::env(FLOW_DIR)/cmds/FCFP/synopsys/fc/$_tool_ver/place_pins_place_pins_fc.tcl"
+set cmd_file "$::env(FLOW_DIR)/cmds/FCFP/synopsys/fc/$_tool_ver/place_pins_fc.tcl"
 
 set test_mode [handler_is_test_mode]
 

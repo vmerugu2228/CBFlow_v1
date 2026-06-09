@@ -15,7 +15,7 @@ set stage_name "timing"
 if {$node_name eq ""} { set node_name "${stage_name}1" }
 
 set _tool_ver [expr {[info exists ::env(TEMPUS_VERSION)] ? $::env(TEMPUS_VERSION) : "v1.0.0"}]
-set cmd_file "$::env(FLOW_DIR)/cmds/STA/cadence/tempus/$_tool_ver/timing_tempus.tcl"
+set cmd_file "$::env(FLOW_DIR)/cmds/STA/cadence/tempus/$_tool_ver/timing_scenario_tempus.tcl"
 
 set test_mode [handler_is_test_mode]
 
