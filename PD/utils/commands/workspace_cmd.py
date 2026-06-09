@@ -636,25 +636,95 @@ def _validate_mandatory_inputs(user_config: dict, flow_type: str) -> list:
 
     if mandatory_from_config:
         # Check if handshake mechanism is active (from_run or release_tag)
-        # These auto-resolve inputs at runtime, so skip mandatory checks for direct input paths
-        flow_arr = ft.lower().replace('_', '_')  # e.g., "sta", "synth_pnr"
-        has_from_run = any(
-            user_config.get(k, '') != ''
-            for k in user_config
-            if 'input,from_run' in k
-        )
-        has_release_tag = any(
-            user_config.get(k, '') != ''
-            for k in user_config
-            if 'release_tag' in k and 'input,' in k
-        )
+        from_run_path = ''
+        for k in user_config:
+            if 'input,from_run' in k and user_config[k]:
+                from_run_path = user_config[k]
+                break
 
-        if has_from_run:
-            logger.info(f"  Handshake: from_run is set — skipping mandatory input checks")
-            logger.info(f"  Inputs will be auto-resolved from upstream run at runtime")
-        elif has_release_tag:
-            logger.info(f"  Handshake: release_tag is set — skipping mandatory input checks")
-            logger.info(f"  Inputs will be auto-resolved from release at runtime")
+        release_tags = {}
+        for k in user_config:
+            if 'release_tag' in k and 'input,' in k and user_config[k]:
+                release_tags[k] = user_config[k]
+
+        if from_run_path:
+            # ── Validate from_run: upstream run dir + output_manifest ──
+            logger.info(f"  Handshake: from_run → {from_run_path}")
+            if not os.path.isdir(from_run_path):
+                errors.append(f"from_run directory not found: {from_run_path}")
+            else:
+                # Check for output_manifest.tcl
+                import glob as _glob
+                manifests = _glob.glob(os.path.join(from_run_path, 'work', '*', 'export_data*', 'outputs', 'output_manifest.tcl'))
+                manifests += _glob.glob(os.path.join(from_run_path, 'work', '*', 'release_data*', 'results', 'output_manifest.tcl'))
+                if not manifests:
+                    errors.append(f"No output_manifest.tcl found in from_run: {from_run_path}")
+                    errors.append(f"  Run the upstream flow to completion first, or use explicit input paths")
+                else:
+                    # Parse manifest and check required files exist
+                    manifest_file = sorted(manifests)[-1]
+                    logger.info(f"  Validating upstream manifest: {os.path.basename(manifest_file)}")
+                    manifest_data = {}
+                    try:
+                        with open(manifest_file) as mf:
+                            import re as _re
+                            for line in mf:
+                                m = _re.match(r'\s*(\w+)\s+"([^"]*)"', line)
+                                if m:
+                                    manifest_data[m.group(1)] = m.group(2)
+                    except Exception:
+                        pass
+
+                    # Check required files from manifest
+                    missing_files = []
+                    for key in ('netlist', 'def', 'sdc'):
+                        if key in manifest_data:
+                            fpath = manifest_data[key]
+                            if fpath and not os.path.exists(fpath):
+                                missing_files.append(f"{key}: {fpath}")
+                            elif fpath:
+                                logger.info(f"    {key}: {os.path.basename(fpath)}")
+                    if missing_files:
+                        for mf in missing_files:
+                            errors.append(f"from_run missing file — {mf}")
+
+        elif release_tags:
+            # ── Validate release_tag: release directory + required files ──
+            project_name = user_config.get('project(name)', '')
+            design_name = user_config.get('flow(design_name)', '')
+            phase = user_config.get('project(phase)', '')
+            tag = list(release_tags.values())[0]
+
+            # Resolve release base dir
+            release_base = os.path.join(core_dir, '..', 'test_releases')
+            release_base = os.path.normpath(release_base)
+
+            release_dir = os.path.join(release_base, project_name, design_name, f"{phase}_{tag}")
+
+            logger.info(f"  Handshake: release_tag → {tag}")
+            if not os.path.isdir(release_dir):
+                errors.append(f"Release directory not found: {release_dir}")
+                errors.append(f"  Run 'cbflow run release --tag {tag}' from workspace first")
+            else:
+                logger.info(f"  Release dir: {release_dir}")
+                # Check MANIFEST.json exists
+                manifest_json = os.path.join(release_dir, 'MANIFEST.json')
+                if not os.path.exists(manifest_json):
+                    errors.append(f"MANIFEST.json not found in release: {release_dir}")
+                else:
+                    # Check for common required subdirectories/files
+                    found = []
+                    for subdir in ('SYNTH_PNR', 'PNR', 'SYNTH'):
+                        flow_dir = os.path.join(release_dir, subdir)
+                        if os.path.isdir(flow_dir):
+                            for cat in ('netlist', 'sdc', 'def'):
+                                cat_dir = os.path.join(flow_dir, cat)
+                                if os.path.isdir(cat_dir) and os.listdir(cat_dir):
+                                    found.append(f"{subdir}/{cat}")
+                    if found:
+                        logger.info(f"    Available: {', '.join(found)}")
+                    else:
+                        logger.warning(f"  No netlist/sdc/def found in release — runtime resolution may fail")
         else:
             # No handshake — enforce mandatory inputs
             for var_key in mandatory_from_config:
