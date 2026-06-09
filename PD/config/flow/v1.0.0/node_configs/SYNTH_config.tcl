@@ -120,6 +120,9 @@ array set synth {
     input,upf_release_tag     ""
     input,upf_release_dir     ""
     input,upf_file            ""
+    input,upf_supplemental    ""
+    input,include_dirs        ""
+    input,defines             ""
 
     output,netlist_dir        "results/synth"
     output,report_dir         "reports/synth"
