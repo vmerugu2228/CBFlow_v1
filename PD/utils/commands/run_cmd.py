@@ -2295,10 +2295,13 @@ def cmd_interactive(args: argparse.Namespace) -> int:
             if os.path.exists(run_tcl):
                 tf.write(f'source "{run_tcl}"\n')
 
-            # Source node config (tech/project/flow arrays) and utilities
+            # Source node config + setup (tech/project/flow arrays + flow_proc hooks)
             config_tcl = os.path.join(work_dir, 'run', 'config.tcl')
+            setup_tcl = os.path.join(work_dir, 'run', 'setup.tcl')
             if os.path.exists(config_tcl):
                 tf.write(f'source "{config_tcl}"\n')
+            if os.path.exists(setup_tcl):
+                tf.write(f'source "{setup_tcl}"\n')
             tf.write(f'source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"\n\n')
 
             if tool_name == 'fc':
