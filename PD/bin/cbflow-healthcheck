@@ -406,9 +406,102 @@ def check_handlers():
 
     ok(f"Total: {total} subnode handlers")
 
-    # Check wrapper launch pattern
+    # ── Broken cmd_file references ──
+    import re as _re
+    broken_refs = []
+    for root, dirs, files in os.walk(cmds_dir):
+        if 'current' in root:
+            continue
+        for f in files:
+            if not f.endswith("_subnode_handler.tcl"):
+                continue
+            path = Path(root) / f
+            content = path.read_text()
+            m = _re.search(r'set cmd_file .*\$_tool_ver/([^"]+)"', content)
+            if not m:
+                continue
+            ref_file = m.group(1)
+            if not (Path(root) / ref_file).exists():
+                rel = path.relative_to(cmds_dir)
+                broken_refs.append((str(rel), ref_file))
+
+    if broken_refs:
+        for h, ref in broken_refs:
+            fail(f"Broken cmd_file: {h} → {ref}")
+    else:
+        ok(f"All handler cmd_file references valid")
+
+    # ── Duplicate numbered handlers ──
+    duplicates = []
+    for root, dirs, files in os.walk(cmds_dir):
+        if 'current' in root:
+            continue
+        for f in files:
+            if not f.endswith("_subnode_handler.tcl"):
+                continue
+            if _re.match(r'.*\d+_subnode_handler\.tcl$', f):
+                base = _re.sub(r'\d+_subnode_handler', '_subnode_handler', f)
+                if (Path(root) / base).exists():
+                    duplicates.append(str((Path(root) / f).relative_to(cmds_dir)))
+
+    if duplicates:
+        for d in duplicates:
+            warn(f"Duplicate numbered handler: {d}")
+    else:
+        ok("No duplicate numbered handlers")
+
+    # ── Stage ↔ Handler coverage ──
+    node_cfg_dir = CBFLOW_CORE / "config" / "flow" / "v1.0.0" / "node_configs"
+    coverage_missing = []
+    if node_cfg_dir.exists():
+        vendor_map = {
+            'fc': 'synopsys', 'pt': 'synopsys', 'formality': 'synopsys',
+            'vc_lp': 'synopsys', 'icv': 'synopsys', 'redhawk': 'synopsys',
+            'power_compiler': 'synopsys', 'icc2': 'synopsys',
+            'genus': 'cadence', 'innovus': 'cadence', 'tempus': 'cadence',
+            'conformal': 'cadence', 'conformal_lp': 'cadence', 'voltus': 'cadence',
+            'calibre': 'mentor',
+        }
+        for cfg_file in sorted(node_cfg_dir.iterdir()):
+            if not cfg_file.name.endswith('_config.tcl') or cfg_file.name.count('_') > 1:
+                continue
+            flow_name = cfg_file.name.replace('_config.tcl', '')
+            content = cfg_file.read_text()
+            m = _re.search(r'stages\s+\{([^}]+)\}', content)
+            if not m:
+                continue
+            stages = m.group(1).split()
+            node_types = {}
+            for nt_m in _re.finditer(r'node_types,(\w+)\s+"(\w+)"', content):
+                node_types[nt_m.group(1)] = nt_m.group(2)
+            # Find tools
+            tool_cfgs = list(node_cfg_dir.glob(f'{flow_name}_*_config.tcl'))
+            tools = [tc.name.replace(f'{flow_name}_', '').replace('_config.tcl', '') for tc in tool_cfgs]
+            if not tools:
+                st_m = _re.search(r'supported_tools\s+\{([^}]+)\}', content)
+                if st_m:
+                    tools = st_m.group(1).split()
+            for tool in tools:
+                vendor = vendor_map.get(tool, 'synopsys')
+                handler_dir = cmds_dir / flow_name / vendor / tool / 'v1.0.0'
+                if not handler_dir.is_dir():
+                    continue
+                for stage in stages:
+                    nt = node_types.get(stage, stage.rstrip('0123456789'))
+                    if nt == 'inputs':
+                        continue
+                    if not (handler_dir / f'{nt}_subnode_handler.tcl').exists():
+                        coverage_missing.append(f"{flow_name}/{tool}: {nt}_subnode_handler.tcl (stage {stage})")
+
+    if coverage_missing:
+        for cm in coverage_missing:
+            warn(f"Missing handler: {cm}")
+    else:
+        ok("All execution stages have handlers")
+
+    # ── Launch pattern check ──
     with_launch = 0
-    with_wrapper = 0
+    old_pattern = 0
     for root, dirs, files in os.walk(cmds_dir):
         for f in files:
             if f.endswith("_subnode_handler.tcl"):
@@ -416,24 +509,12 @@ def check_handlers():
                 content = path.read_text()
                 if "Determine launch mode" in content:
                     with_launch += 1
-                if "tool_launch_config" in content:
-                    with_wrapper += 1
-
-    ok(f"{with_launch} handlers with config-driven launch (LSF/xterm/local)")
-    ok(f"{with_wrapper} handlers sourcing tool_launch_config.tcl")
-
-    # Check for any still using old pattern
-    old_pattern = 0
-    for root, dirs, files in os.walk(cmds_dir):
-        for f in files:
-            if f.endswith("_subnode_handler.tcl"):
-                path = Path(root) / f
-                content = path.read_text()
                 if "CBFLOW_USE_LSF" in content and "Determine launch mode" not in content:
                     old_pattern += 1
                     if VERBOSE:
                         warn(f"Old launch pattern: {path.relative_to(cmds_dir)}")
 
+    ok(f"{with_launch} handlers with config-driven launch")
     if old_pattern > 0:
         warn(f"{old_pattern} handlers still using old CBFLOW_USE_LSF pattern")
     else:
