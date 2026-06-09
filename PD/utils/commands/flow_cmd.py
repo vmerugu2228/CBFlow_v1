@@ -111,75 +111,281 @@ def cmd_nodes(args: argparse.Namespace) -> int:
 
 
 def cmd_check(args: argparse.Namespace) -> int:
-    """Check CBFlow installation."""
+    """Check CBFlow installation and flow integrity."""
+    import re as _re
+    import glob as _glob
+
     core_dir = get_cbflow_core_dir()
 
     logger.info("")
-    logger.info("  CBFlow Installation Check")
+    logger.info("  CBFlow Health Check")
     logger.info("  " + "═" * 57)
     logger.info("")
     logger.info(f"  CBFLOW_CORE_DIR: {core_dir}")
     logger.info("")
 
-    # Check directories (updated for new structure)
-    dirs_to_check = [
-        'bin',
-        'cmds',
-        'config',
-        'config/flow',
-        'config/setup',
-        'config/project',
-        'config/tech',
-        'utils',
-        'docs',
-    ]
-
-    logger.info(f"  {'Directory':<20} Status")
-    logger.info("  " + "─" * 57)
-
     all_ok = True
     passed = 0
+    failed = 0
+    warnings = 0
     total = 0
-    for d in dirs_to_check:
-        path = os.path.join(core_dir, d)
-        exists = os.path.exists(path)
-        total += 1
-        if exists:
-            passed += 1
-            logger.info(f"  [PASS] {d + '/':<18} Found")
-        else:
-            all_ok = False
-            logger.info(f"  [FAIL] {d + '/':<18} Missing")
 
-    # Check config files
-    config_files = [
-        'config/flow/v1.0.0/flow_config.tcl',
-        'config/project/phoenix/v1.0.0/phoenix_config.tcl',
-    ]
-
-    logger.info("")
-    logger.info(f"  {'Config File':<20} Status")
+    # ── 1. Directory Structure ──────────────────────────────────────────
+    logger.info("  1. Directory Structure")
     logger.info("  " + "─" * 57)
 
-    for f in config_files:
-        path = os.path.join(core_dir, f)
-        exists = os.path.exists(path)
+    dirs_to_check = [
+        'bin', 'cmds', 'config', 'config/flow', 'config/setup',
+        'config/project', 'config/tech', 'utils', 'docs',
+    ]
+
+    for d in dirs_to_check:
+        path = os.path.join(core_dir, d)
         total += 1
-        if exists:
+        if os.path.exists(path):
             passed += 1
-            logger.info(f"  [PASS] {f}")
         else:
             all_ok = False
-            logger.info(f"  [FAIL] {f}")
+            failed += 1
+            logger.error(f"  [FAIL] {d}/ — missing")
 
+    logger.info(f"  [PASS] {len(dirs_to_check)} directories checked")
+
+    # ── 2. Config Files ─────────────────────────────────────────────────
     logger.info("")
-    logger.info(f"  Result: {passed}/{total} checks passed")
+    logger.info("  2. Config Files")
+    logger.info("  " + "─" * 57)
+
+    config_files = [
+        'config/flow/v1.0.0/flow_config.tcl',
+        'config/flow/v1.0.0/release_config.tcl',
+        'config/flow/v1.0.0/lsf_config.tcl',
+    ]
+    # Add all node configs
+    nc_dir = os.path.join(core_dir, 'config', 'flow', 'v1.0.0', 'node_configs')
+    if os.path.isdir(nc_dir):
+        for f in sorted(os.listdir(nc_dir)):
+            if f.endswith('_config.tcl'):
+                config_files.append(f'config/flow/v1.0.0/node_configs/{f}')
+
+    cfg_pass = 0
+    for f in config_files:
+        path = os.path.join(core_dir, f)
+        total += 1
+        if os.path.exists(path):
+            passed += 1
+            cfg_pass += 1
+        else:
+            all_ok = False
+            failed += 1
+            logger.error(f"  [FAIL] {f} — missing")
+
+    logger.info(f"  [PASS] {cfg_pass}/{len(config_files)} config files found")
+
+    # ── 3. Handler Integrity ────────────────────────────────────────────
+    logger.info("")
+    logger.info("  3. Handler → Command File Integrity")
+    logger.info("  " + "─" * 57)
+
+    cmds_dir = os.path.join(core_dir, 'cmds')
+    broken_refs = []
+    duplicate_handlers = []
+    handler_count = 0
+
+    for root, dirs, files in os.walk(cmds_dir):
+        if 'current' in root:
+            continue
+        for f in files:
+            if not f.endswith('_subnode_handler.tcl'):
+                continue
+            handler_count += 1
+            fpath = os.path.join(root, f)
+
+            # Check for duplicate numbered handlers
+            if _re.match(r'.*\d+_subnode_handler\.tcl$', f):
+                base = _re.sub(r'\d+_subnode_handler', '_subnode_handler', f)
+                base_path = os.path.join(root, base)
+                if os.path.exists(base_path):
+                    duplicate_handlers.append(fpath)
+
+            # Check cmd_file reference
+            try:
+                with open(fpath) as fh:
+                    content = fh.read()
+            except Exception:
+                continue
+
+            m = _re.search(r'set cmd_file .*\$_tool_ver/([^"]+)"', content)
+            if not m:
+                continue  # inputs handlers — no cmd_file by design
+
+            ref_file = m.group(1)
+            ref_path = os.path.join(root, ref_file)
+            total += 1
+            if os.path.exists(ref_path):
+                passed += 1
+            else:
+                all_ok = False
+                failed += 1
+                rel_handler = os.path.relpath(fpath, core_dir)
+                broken_refs.append((rel_handler, ref_file))
+
+    if broken_refs:
+        for h, ref in broken_refs:
+            logger.error(f"  [FAIL] {h}")
+            logger.error(f"         → {ref} (NOT FOUND)")
+    else:
+        logger.info(f"  [PASS] {handler_count} handlers checked — all cmd_file references valid")
+
+    if duplicate_handlers:
+        for h in duplicate_handlers:
+            rel = os.path.relpath(h, core_dir)
+            logger.warning(f"  [WARN] Duplicate handler: {rel}")
+            warnings += 1
+    else:
+        logger.info(f"  [PASS] No duplicate numbered handlers")
+
+    # ── 4. Stage ↔ Handler Coverage ─────────────────────────────────────
+    logger.info("")
+    logger.info("  4. Stage ↔ Handler Coverage")
+    logger.info("  " + "─" * 57)
+
+    node_cfg_dir = os.path.join(core_dir, 'config', 'flow', 'v1.0.0', 'node_configs')
+    coverage_issues = []
+
+    if os.path.isdir(node_cfg_dir):
+        for cfg_file in sorted(os.listdir(node_cfg_dir)):
+            if not cfg_file.endswith('_config.tcl'):
+                continue
+            # Only check base flow configs (not tool-specific)
+            if cfg_file.count('_') > 1:
+                continue
+
+            flow_name = cfg_file.replace('_config.tcl', '')
+            cfg_path = os.path.join(node_cfg_dir, cfg_file)
+
+            # Parse stages and node_types
+            try:
+                with open(cfg_path) as fh:
+                    content = fh.read()
+            except Exception:
+                continue
+
+            m = _re.search(r'stages\s+\{([^}]+)\}', content)
+            if not m:
+                continue
+            stages = m.group(1).split()
+
+            # Parse node_types
+            node_types = {}
+            for nt_m in _re.finditer(r'node_types,(\w+)\s+"(\w+)"', content):
+                node_types[nt_m.group(1)] = nt_m.group(2)
+
+            # Check tool-specific configs to find supported tools
+            tool_configs = _glob.glob(os.path.join(node_cfg_dir, f'{flow_name}_*_config.tcl'))
+            tools = []
+            for tc in tool_configs:
+                tc_name = os.path.basename(tc)
+                tool = tc_name.replace(f'{flow_name}_', '').replace('_config.tcl', '')
+                tools.append(tool)
+
+            if not tools:
+                # Read supported_tools from config
+                st_m = _re.search(r'supported_tools\s+\{([^}]+)\}', content)
+                if st_m:
+                    tools = st_m.group(1).split()
+
+            # For each tool, check handler exists for each execution stage
+            for tool in tools:
+                # Determine vendor from tool
+                vendor_map = {
+                    'fc': 'synopsys', 'pt': 'synopsys', 'formality': 'synopsys',
+                    'vc_lp': 'synopsys', 'icv': 'synopsys', 'redhawk': 'synopsys',
+                    'power_compiler': 'synopsys', 'icc2': 'synopsys',
+                    'genus': 'cadence', 'innovus': 'cadence', 'tempus': 'cadence',
+                    'conformal': 'cadence', 'conformal_lp': 'cadence', 'voltus': 'cadence',
+                    'calibre': 'mentor',
+                }
+                vendor = vendor_map.get(tool, 'synopsys')
+                handler_dir = os.path.join(cmds_dir, flow_name, vendor, tool, 'v1.0.0')
+
+                if not os.path.isdir(handler_dir):
+                    continue
+
+                for stage in stages:
+                    node_type = node_types.get(stage, stage.rstrip('0123456789'))
+                    # Skip input stages — they use a shared inputs_subnode_handler
+                    if node_type == 'inputs':
+                        continue
+                    handler_file = os.path.join(handler_dir, f'{node_type}_subnode_handler.tcl')
+                    total += 1
+                    if os.path.exists(handler_file):
+                        passed += 1
+                    else:
+                        coverage_issues.append(f"{flow_name}/{tool}: missing {node_type}_subnode_handler.tcl for stage {stage}")
+                        warnings += 1
+
+    if coverage_issues:
+        for issue in coverage_issues:
+            logger.warning(f"  [WARN] {issue}")
+    else:
+        logger.info(f"  [PASS] All execution stages have handlers")
+
+    # ── 5. Project Configs ──────────────────────────────────────────────
+    logger.info("")
+    logger.info("  5. Project Configs")
+    logger.info("  " + "─" * 57)
+
+    proj_dir = os.path.join(core_dir, 'config', 'project')
+    if os.path.isdir(proj_dir):
+        projects = [d for d in os.listdir(proj_dir) if os.path.isdir(os.path.join(proj_dir, d))]
+        for proj in sorted(projects):
+            proj_cfg = os.path.join(proj_dir, proj, 'v1.0.0', f'{proj}_config.tcl')
+            total += 1
+            if os.path.exists(proj_cfg):
+                passed += 1
+                logger.info(f"  [PASS] {proj}")
+            else:
+                failed += 1
+                all_ok = False
+                logger.error(f"  [FAIL] {proj} — {proj}_config.tcl missing")
+
+    # ── 6. Tech Configs ─────────────────────────────────────────────────
+    logger.info("")
+    logger.info("  6. Tech Configs")
+    logger.info("  " + "─" * 57)
+
+    tech_dir = os.path.join(core_dir, 'config', 'tech')
+    if os.path.isdir(tech_dir):
+        techs = [d for d in os.listdir(tech_dir) if os.path.isdir(os.path.join(tech_dir, d))]
+        for tech in sorted(techs):
+            tech_cfg = os.path.join(tech_dir, tech, 'v1.0.0', 'tech_config.tcl')
+            total += 1
+            if os.path.exists(tech_cfg):
+                passed += 1
+                # Check for lib_config files
+                lib_cfgs = _glob.glob(os.path.join(tech_dir, tech, 'v1.0.0', 'lib_config_*.tcl'))
+                lib_tags = [os.path.basename(f).replace('lib_config_', '').replace('.tcl', '') for f in lib_cfgs]
+                tag_str = f" (lib tags: {', '.join(lib_tags)})" if lib_tags else " (no lib_config)"
+                logger.info(f"  [PASS] {tech}{tag_str}")
+            else:
+                failed += 1
+                all_ok = False
+                logger.error(f"  [FAIL] {tech} — tech_config.tcl missing")
+
+    # ── Summary ─────────────────────────────────────────────────────────
+    logger.info("")
+    logger.info("  " + "═" * 57)
+    logger.info(f"  RESULT: {passed} passed, {failed} failed, {warnings} warnings")
+    logger.info("  " + "═" * 57)
     logger.info("")
 
     if not all_ok:
-        logger.warning("  Some checks failed - installation may be incomplete")
-        logger.info("")
+        logger.error("  HEALTH CHECK FAILED — fix errors above before production use")
+    else:
+        logger.info("  HEALTH CHECK PASSED")
 
+    logger.info("")
     return 0 if all_ok else 1
 
 
