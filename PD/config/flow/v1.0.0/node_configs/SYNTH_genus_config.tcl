@@ -34,6 +34,7 @@ array set synth {
     compile,dft_insert_enable     false
     compile,spatial_opt           false
     compile,auto_ungroup          true
+    compile,syn_opt_mode          "logical"
     upf_mode                      "none"
 }
 

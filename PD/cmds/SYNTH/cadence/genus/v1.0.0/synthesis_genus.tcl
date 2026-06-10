@@ -438,7 +438,15 @@ flow_proc syn_opt_step {
         set_db syn_opt_area_effort $synth(effort,area)
     }
 
-    syn_opt
+    # syn_opt mode: -logical (default) or -spatial
+    set _opt_mode [expr {[info exists synth(compile,syn_opt_mode)] && $synth(compile,syn_opt_mode) ne "" ? $synth(compile,syn_opt_mode) : "logical"}]
+    if {$_opt_mode eq "spatial"} {
+        handle_info "syn_opt -spatial"
+        syn_opt -spatial
+    } else {
+        handle_info "syn_opt -logical"
+        syn_opt -logical
+    }
 
     handle_info "syn_opt completed"
 }
