@@ -199,28 +199,29 @@ proc handler_run {run_dir flow_type node_name stage_name cmd_file test_mode {too
     set wrapper [generate_launch_wrapper $work_dir $stage_name $cmd_file $tool_name $log_file]
 
     if {$test_mode} {
-        puts "INFO: \[TEST MODE\] Bypassing EDA tool invocation"
-        puts "INFO: Command file: $cmd_file"
-        if {[file exists $cmd_file]} {
-            puts "INFO: ╔══════════════════════════════════════════════════╗"
-            puts "INFO: ║  Command File: [file tail $cmd_file]"
-            puts "INFO: ╚══════════════════════════════════════════════════╝"
-            set _f [open $cmd_file r]; set _lines [split [read $_f] "\n"]; close $_f
-            set _lc 0
-            foreach _line $_lines { incr _lc; if {$_lc <= 20} { puts "INFO:   $_line" } }
-            if {$_lc > 20} { puts "INFO:   ... ([expr {$_lc - 20}] more lines)" }
-            puts "INFO: ══════════════════════════════════════════════════"
+        puts "INFO: \[TEST MODE\] Running flow_procs with variable substitution"
+        puts "INFO: Command file: [file tail $cmd_file]"
+
+        # Execute the generated command file through tclsh
+        # flow_exec in utils.tcl detects test_mode and intercepts EDA commands
+        set _gen_file "$work_dir/${node_name}.${tool_name}.tcl"
+        if {[file exists $_gen_file]} {
+            puts "INFO: Executing: $_gen_file"
+            if {[catch {exec tclsh $_gen_file 2>@1} _output]} {
+                # Catch exits (test_mode intercepts exit but tclsh may still return non-zero)
+                puts "$_output"
+            } else {
+                puts "$_output"
+            }
+        } elseif {[file exists $cmd_file]} {
+            puts "INFO: Executing: $cmd_file"
+            if {[catch {exec tclsh $cmd_file 2>@1} _output]} {
+                puts "$_output"
+            } else {
+                puts "$_output"
+            }
         } else {
             puts "WARNING: Command file not found: $cmd_file"
-        }
-        puts "INFO: Wrapper script: $wrapper"
-        lassign [determine_launch_mode] _lsf _xterm
-        if {$_lsf} {
-            puts "INFO: \[TEST MODE\] Launch mode: LSF ([expr {$_xterm ? "interactive xterm" : "batch"}])"
-        } elseif {$_xterm} {
-            puts "INFO: \[TEST MODE\] Launch mode: xterm (local)"
-        } else {
-            puts "INFO: \[TEST MODE\] Launch mode: local execution"
         }
         # Generate dummy output files for release testing
         set _design [expr {[info exists ::flow(design_name)] ? $::flow(design_name) : "design"}]

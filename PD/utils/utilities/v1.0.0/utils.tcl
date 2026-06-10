@@ -443,15 +443,31 @@ proc flow_exec {name} {
         return
     }
 
-    handle_info "Executing flow procedure: $name"
+    set _test_mode [expr {[info exists ::flow(test_mode)] && $::flow(test_mode) eq "true"}]
+
+    if {$_test_mode} {
+        handle_info "── flow_proc: $name ──"
+    } else {
+        handle_info "Executing flow procedure: $name"
+    }
 
     # Execute prepend hooks if they exist
     if {[info exists ::flow::prepend($name)]} {
         eval $::flow::prepend($name)
     }
 
-    # Execute the main procedure
+    # In test mode, install EDA command interceptor before execution
+    if {$_test_mode} {
+        _cbflow_test_mode_enable
+    }
+
+    # Execute the main procedure (errors propagate — missing vars crash immediately)
     eval $::flow::procs($name)
+
+    # Restore after execution
+    if {$_test_mode} {
+        _cbflow_test_mode_disable
+    }
 
     # Execute append hooks if they exist
     if {[info exists ::flow::append($name)]} {
@@ -467,6 +483,16 @@ proc flow_exec_all {} {
         handle_warning "No flow steps registered"
         return
     }
+
+    set _test_mode [expr {[info exists ::flow(test_mode)] && $::flow(test_mode) eq "true"}]
+
+    if {$_test_mode} {
+        handle_info "═══════════════════════════════════════════════════════"
+        handle_info "  CBflow TEST MODE — flow_proc dry run"
+        handle_info "  All variables resolved, EDA commands printed (not executed)"
+        handle_info "═══════════════════════════════════════════════════════"
+    }
+
     handle_info "Executing all flow procedures ([llength $::flow::steps] steps)..."
     foreach name $::flow::steps {
         if {[info exists ::flow::procs($name)]} {
@@ -474,6 +500,83 @@ proc flow_exec_all {} {
         }
     }
     handle_info "All flow procedures completed"
+}
+
+# ── Test Mode: EDA Command Interceptor ────────────────────────────────────────
+# In test_mode, command files run under tclsh (not genus/innovus/fc_shell).
+# EDA-specific commands don't exist in tclsh and trigger TCL's 'unknown' proc.
+# We override 'unknown' to print the command with fully-resolved arguments
+# instead of erroring out. TCL builtins (file, puts, set, if, foreach, etc.)
+# execute normally — only EDA commands are intercepted.
+
+proc _cbflow_test_mode_enable {} {
+    # Save original unknown handler if present
+    if {[info commands unknown] ne "" && [info commands _cbflow_saved_unknown] eq ""} {
+        rename unknown _cbflow_saved_unknown
+    }
+
+    # Override exit to prevent tclsh termination in test mode
+    if {[info commands _cbflow_saved_exit] eq ""} {
+        rename exit _cbflow_saved_exit
+        proc exit {{code 0}} {
+            puts "  TEST_CMD: exit $code (intercepted — continuing)"
+        }
+    }
+
+    # Install EDA command interceptor
+    proc unknown {cmd args} {
+        # Format command with fully-resolved argument values
+        set _parts [list $cmd]
+        foreach _a $args { lappend _parts $_a }
+        puts "  TEST_CMD: [join $_parts { }]"
+
+        # Return sensible defaults for query commands so conditionals work
+        switch -glob -- $cmd {
+            "get_db"              { return "test_value" }
+            "get_object_name"     { return "test_design" }
+            "sizeof_collection"   { return 0 }
+            "current_design"      { return "test_design" }
+            "current_mode"        { return "func" }
+            "current_block"       { return "" }
+            "all_modes"           { return "" }
+            "all_clocks"          { return "" }
+            "get_cells"           { return "" }
+            "get_scenarios"       { return "" }
+            "get_lib_cells"       { return "" }
+            "get_ports"           { return "" }
+            "get_pins"            { return "" }
+            "get_site_rows"       { return "" }
+            "get_object_name"     { return "" }
+            "foreach_in_collection" {
+                # foreach_in_collection var collection body — skip body
+                return ""
+            }
+            "redirect" {
+                # redirect -file <path> { body } — execute body (which will also be intercepted)
+                set _body [lindex $args end]
+                if {$_body ne ""} {
+                    catch { uplevel 1 $_body }
+                }
+                return ""
+            }
+            default               { return "" }
+        }
+    }
+}
+
+proc _cbflow_test_mode_disable {} {
+    # Remove interceptor and restore original unknown
+    if {[info commands unknown] ne ""} {
+        rename unknown ""
+    }
+    if {[info commands _cbflow_saved_unknown] ne ""} {
+        rename _cbflow_saved_unknown unknown
+    }
+    # Restore exit
+    if {[info commands _cbflow_saved_exit] ne ""} {
+        rename exit ""
+        rename _cbflow_saved_exit exit
+    }
 }
 
 proc flow_set_log_level {level} {
