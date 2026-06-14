@@ -184,7 +184,7 @@ flow_proc generate_report {
     set fp [open "$res_dir/timing.rpt" w]
     puts $fp "================================================================"
     puts $fp "STA Timing Analysis Summary - PrimeTime"
-    puts $fp "Date: [clock format [clock seconds]]"
+    puts $fp "Date: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fp "================================================================"
     puts $fp ""
     puts $fp "Analysis steps:"
@@ -202,7 +202,7 @@ flow_proc generate_report {
 
     # Create violations summary
     set fp2 [open "$res_dir/violations.rpt" w]
-    puts $fp2 "Violations Summary - [clock format [clock seconds]]"
+    puts $fp2 "Violations Summary - [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fp2 "================================================================"
     puts $fp2 "See detailed reports in: $rpt_dir/"
     close $fp2

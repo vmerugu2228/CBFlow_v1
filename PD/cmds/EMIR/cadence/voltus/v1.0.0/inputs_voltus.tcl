@@ -138,7 +138,7 @@ flow_proc read_libraries {
 # └─────────────────────────────────────────────────────────────────────────────┘
 
 flow_proc read_physical {
-    global emir tech flow
+    global emir flow project tech
     handle_info "Reading LEF physical data..."
 
     # Read technology LEF (metal_stack × track)
@@ -210,7 +210,7 @@ flow_proc read_design {
 # └─────────────────────────────────────────────────────────────────────────────┘
 
 flow_proc read_parasitics {
-    global emir
+    global emir flow
     handle_info "Reading parasitic data..."
 
     if {[info exists emir(input,spef)] && $emir(input,spef) ne ""} {
@@ -232,7 +232,7 @@ flow_proc read_parasitics {
 # └─────────────────────────────────────────────────────────────────────────────┘
 
 flow_proc setup_power_nets {
-    global emir
+    global emir flow
     handle_info "Configuring power/ground net connections..."
 
     # Get power/ground net names from config
@@ -263,7 +263,7 @@ flow_proc setup_power_nets {
 # └─────────────────────────────────────────────────────────────────────────────┘
 
 flow_proc read_constraints {
-    global emir
+    global emir flow
     handle_info "Reading timing constraints..."
 
     # Read SDC if available (needed for clock-aware power analysis)
@@ -286,7 +286,7 @@ flow_proc read_constraints {
 # └─────────────────────────────────────────────────────────────────────────────┘
 
 flow_proc setup_power_config {
-    global emir
+    global emir flow
     handle_info "Setting power analysis configuration..."
 
     # Operating temperature
@@ -351,7 +351,7 @@ flow_proc validate_inputs {
     puts $fp "================================================================"
     puts $fp "CBFlow EMIR Input Summary - Voltus"
     puts $fp "================================================================"
-    puts $fp "Generated: [clock format [clock seconds]]"
+    puts $fp "Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fp "Tool: Cadence Voltus"
     puts $fp "Design: $flow(design_name)"
     puts $fp ""

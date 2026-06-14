@@ -1,6 +1,8 @@
 # CBflow Documentation
 
-Complete documentation for CBflow v2.0.0 -- a comprehensive PD automation framework for ASIC physical design flows.
+Complete documentation for **CBflow v2.1.1** (released 2026-06-12) — a comprehensive PD automation framework for ASIC physical design flows.
+
+> **New in v2.1.1**: per-user **Dashboard Daemon** (one server per user, stable URL), built-in **`cbflow test`** suite (10 static categories + 18 e2e checks per flow), **dead-code audit** (cat 9), **FP user-config templates**, and a hardening pass over ~250 cmd files. See [v2.1.1 Feature Document](CBflow_v2.1.1_Feature_Document.md).
 
 ## What is CBflow?
 

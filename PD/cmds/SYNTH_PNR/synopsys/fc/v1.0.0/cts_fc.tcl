@@ -39,16 +39,16 @@ flow_proc load_design {
     # FC-RM: Hierarchical — swap abstracts, promote clock balance points
     set _run_type $flow(run_type)
     if {$_run_type eq "hier"} {
-        if {$synth_pnr(common,block_abstract_for_cts) ne ""} {
+        if {[info exists synth_pnr(common,block_abstract_for_cts)] && $synth_pnr(common,block_abstract_for_cts) ne ""} {
             change_abstract -references [get_blocks -hierarchical] \
                 -label [lindex $synth_pnr(common,block_abstract_for_cts) 0] \
                 -view [lindex $synth_pnr(common,block_abstract_for_cts) 1]
             report_abstracts
         }
         # FC-RM: Promote clock tree exceptions from blocks to top
-        if {$synth_pnr(common,promote_clock_balance_points) ne "" && $synth_pnr(common,promote_clock_balance_points)} {
-            if {$synth_pnr(common,promote_abstract_clock_data_file) ne "" && [file exists $synth_pnr(common,promote_abstract_clock_data_file)]} {
-                source -e $synth_pnr(common,promote_abstract_clock_data_file)
+        if {[info exists synth_pnr(common,promote_clock_balance_points)] && $synth_pnr(common,promote_clock_balance_points) ne "" && $synth_pnr(common,promote_clock_balance_points)} {
+            if {[info exists synth_pnr(common,promote_abstract_clock_data_file)] && $synth_pnr(common,promote_abstract_clock_data_file) ne "" && [file exists $synth_pnr(common,promote_abstract_clock_data_file)]} {
+                source $synth_pnr(common,promote_abstract_clock_data_file)
             }
         }
         # FC-RM: Disable sub-block timing paths
@@ -60,12 +60,13 @@ flow_proc load_design {
 # flow_proc: set_active_scenarios
 # FC-RM: set_scenario_status for CTS (include hold for CCD)
 # ==============================================================================
+}
 flow_proc set_active_scenarios {
     handle_info "Setting active scenarios for clock_opt_cts..."
     global synth_pnr
 
     # Priority: synth_pnr override > mmmc_config get_node_scenarios("cts")
-    if {$synth_pnr(cts,clock_opt_cts,active_scenarios) ne ""} {
+    if {[info exists synth_pnr(cts,clock_opt_cts,active_scenarios)] && $synth_pnr(cts,clock_opt_cts,active_scenarios) ne ""} {
         set_scenario_status -active false [get_scenarios -filter active]
         set_scenario_status -active true $synth_pnr(cts,clock_opt_cts,active_scenarios)
         handle_info "Active scenarios (user override): $synth_pnr(cts,clock_opt_cts,active_scenarios)"
@@ -79,8 +80,8 @@ flow_proc set_active_scenarios {
     }
 
     # FC-RM: MCMM adjustment file
-    if {$synth_pnr(common,mcmm_adjustment_file) ne "" && [file exists $synth_pnr(common,mcmm_adjustment_file)]} {
-        source -e $synth_pnr(common,mcmm_adjustment_file)
+    if {[info exists synth_pnr(common,mcmm_adjustment_file)] && $synth_pnr(common,mcmm_adjustment_file) ne "" && [file exists $synth_pnr(common,mcmm_adjustment_file)]} {
+        source $synth_pnr(common,mcmm_adjustment_file)
     }
 
     # FC-RM: Check hold scenarios — critical for CCD skewing
@@ -93,23 +94,24 @@ flow_proc set_active_scenarios {
 # flow_proc: set_qor_strategy
 # FC-RM: set_qor_strategy -stage cts, disable power scenarios
 # ==============================================================================
+}
 flow_proc set_qor_strategy {
     handle_info "Setting QoR strategy for CTS..."
     global synth_pnr
 
     # FC-RM: QoR strategy version
-    if {$synth_pnr(common,compile,qor_version) ne ""} {
+    if {[info exists synth_pnr(common,compile,qor_version)] && $synth_pnr(common,compile,qor_version) ne ""} {
         set_app_options -name flow.set_qor_strategy.version -value $synth_pnr(common,compile,qor_version)
     }
 
     set cmd "set_qor_strategy -stage cts"
     set metric "timing"
     set mode "balanced"
-    if {$synth_pnr(common,compile,qor_metric) ne ""} { set metric $synth_pnr(common,compile,qor_metric) }
-    if {$synth_pnr(common,compile,qor_mode) ne ""}   { set mode $synth_pnr(common,compile,qor_mode) }
+    if {[info exists synth_pnr(common,compile,qor_metric)] && $synth_pnr(common,compile,qor_metric) ne ""} { set metric $synth_pnr(common,compile,qor_metric) }
+    if {[info exists synth_pnr(common,compile,qor_mode)] && $synth_pnr(common,compile,qor_mode) ne ""}   { set mode $synth_pnr(common,compile,qor_mode) }
     lappend cmd -metric $metric -mode $mode
 
-    if {$synth_pnr(common,compile,reduced_effort) ne "" && $synth_pnr(common,compile,reduced_effort)} {
+    if {[info exists synth_pnr(common,compile,reduced_effort)] && $synth_pnr(common,compile,reduced_effort) ne "" && $synth_pnr(common,compile,reduced_effort)} {
         lappend cmd -reduced_effort
     }
 
@@ -139,6 +141,7 @@ flow_proc set_qor_strategy {
 # FC-RM: Instance prefixes, lib_cell_purpose, non-persistent, multi-Vt,
 #         antenna rules, sidefile, MSCTS mesh routing
 # ==============================================================================
+}
 flow_proc configure_cts {
     handle_info "Configuring CTS settings..."
     global synth_pnr tech
@@ -149,36 +152,36 @@ flow_proc configure_cts {
     set_app_options -name opt.common.user_instance_name_prefix -value clock_opt_cts_opt_
 
     # FC-RM: Lib cell purpose
-    if {$synth_pnr(common,lib_cell_purpose_file) ne "" && [file exists $synth_pnr(common,lib_cell_purpose_file)]} {
-        source -e $synth_pnr(common,lib_cell_purpose_file)
+    if {[info exists synth_pnr(common,lib_cell_purpose_file)] && $synth_pnr(common,lib_cell_purpose_file) ne "" && [file exists $synth_pnr(common,lib_cell_purpose_file)]} {
+        source $synth_pnr(common,lib_cell_purpose_file)
     } elseif {[info exists tech(lib_cell_purpose_file)] && [file exists $tech(lib_cell_purpose_file)]} {
-        source -e $tech(lib_cell_purpose_file)
+        source $tech(lib_cell_purpose_file)
     }
 
     # FC-RM: CTS sidefile
-    if {$synth_pnr(cts,cts_sidefile) ne "" && [file exists $synth_pnr(cts,cts_sidefile)]} {
-        source -e $synth_pnr(cts,cts_sidefile)
+    if {[info exists synth_pnr(cts,cts_sidefile)] && $synth_pnr(cts,cts_sidefile) ne "" && [file exists $synth_pnr(cts,cts_sidefile)]} {
+        source $synth_pnr(cts,cts_sidefile)
     }
 
     # FC-RM: Non-persistent settings
-    if {$synth_pnr(common,non_persistent_script) ne "" && [file exists $synth_pnr(common,non_persistent_script)]} {
-        source -e $synth_pnr(common,non_persistent_script)
+    if {[info exists synth_pnr(common,non_persistent_script)] && $synth_pnr(common,non_persistent_script) ne "" && [file exists $synth_pnr(common,non_persistent_script)]} {
+        source $synth_pnr(common,non_persistent_script)
     }
 
     # FC-RM: Multi-Vt constraint
-    if {$synth_pnr(common,multi_vt_constraint_file) ne "" && [file exists $synth_pnr(common,multi_vt_constraint_file)]} {
-        source -e $synth_pnr(common,multi_vt_constraint_file)
+    if {[info exists synth_pnr(common,multi_vt_constraint_file)] && $synth_pnr(common,multi_vt_constraint_file) ne "" && [file exists $synth_pnr(common,multi_vt_constraint_file)]} {
+        source $synth_pnr(common,multi_vt_constraint_file)
     }
 
     # FC-RM: Antenna rule file
     if {[info exists tech(antenna_rule_file)] && [file exists $tech(antenna_rule_file)]} {
         handle_info "Sourcing antenna rules: $tech(antenna_rule_file)"
-        source -e $tech(antenna_rule_file)
+        source $tech(antenna_rule_file)
     }
 
     # FC-RM: User CTS pre-script
-    if {$synth_pnr(cts,cts_pre_script) ne "" && [file exists $synth_pnr(cts,cts_pre_script)]} {
-        source -e $synth_pnr(cts,cts_pre_script)
+    if {[info exists synth_pnr(cts,cts_pre_script)] && $synth_pnr(cts,cts_pre_script) ne "" && [file exists $synth_pnr(cts,cts_pre_script)]} {
+        source $synth_pnr(cts,cts_pre_script)
     }
 
     # FC-RM: Pre-CTS reports
@@ -190,9 +193,9 @@ flow_proc configure_cts {
     redirect -file $::REPORTS_DIR/pre_cts.check_clock_tree { check_clock_trees }
 
     # FC-RM: MSCTS mesh routing (if configured)
-    if {$synth_pnr(cts,mscts_mesh_routing_script) ne "" && [file exists $synth_pnr(cts,mscts_mesh_routing_script)]} {
+    if {[info exists synth_pnr(cts,mscts_mesh_routing_script)] && $synth_pnr(cts,mscts_mesh_routing_script) ne "" && [file exists $synth_pnr(cts,mscts_mesh_routing_script)]} {
         mark_clock_trees -clear -dont_touch
-        source -e $synth_pnr(cts,mscts_mesh_routing_script)
+        source $synth_pnr(cts,mscts_mesh_routing_script)
     }
 
     handle_info "CTS configuration completed"
@@ -200,6 +203,7 @@ flow_proc configure_cts {
 # flow_proc: build_clock_trees
 # FC-RM: clock_opt -from build_clock -to build_clock (with relaxed transition)
 # ==============================================================================
+}
 flow_proc build_clock_trees {
     handle_info "Building clock trees..."
     global synth_pnr flow
@@ -233,6 +237,7 @@ flow_proc build_clock_trees {
 # flow_proc: route_clock_nets
 # FC-RM: clock_opt -from route_clock -to route_clock
 # ==============================================================================
+}
 flow_proc route_clock_nets {
     handle_info "Routing clock nets..."
 
@@ -245,15 +250,16 @@ flow_proc route_clock_nets {
 # flow_proc: post_cts_optimization
 # FC-RM: Redundant via insertion, AOCV enable, create_shields
 # ==============================================================================
+}
 flow_proc post_cts_optimization {
     handle_info "Running post-CTS optimization..."
     global synth_pnr tech
 
     # FC-RM: Redundant via insertion
-    if {$synth_pnr(cts,redundant_via) ne "" && $synth_pnr(cts,redundant_via)} {
+    if {[info exists synth_pnr(cts,redundant_via)] && $synth_pnr(cts,redundant_via) ne "" && $synth_pnr(cts,redundant_via)} {
         if {[info exists tech(redundant_via_mapping_file)] && [file exists $tech(redundant_via_mapping_file)]} {
             handle_info "Sourcing redundant via mapping"
-            source -e $tech(redundant_via_mapping_file)
+            source $tech(redundant_via_mapping_file)
             redirect -file $::REPORTS_DIR/report_via_mapping.rpt { report_via_mapping }
         }
         handle_info "Adding redundant vias"
@@ -261,18 +267,18 @@ flow_proc post_cts_optimization {
     }
 
     # FC-RM: Enable AOCV after CTS (recommended)
-    if {$synth_pnr(cts,clock_opt_cts,enable_aocv) ne "" && $synth_pnr(cts,clock_opt_cts,enable_aocv)} {
+    if {[info exists synth_pnr(cts,clock_opt_cts,enable_aocv)] && $synth_pnr(cts,clock_opt_cts,enable_aocv) ne "" && $synth_pnr(cts,clock_opt_cts,enable_aocv)} {
         set_app_options -name time.aocvm_enable_analysis -value true
         handle_info "AOCV analysis enabled after CTS"
     }
 
     # FC-RM: Create shields
-    if {$synth_pnr(cts,cts,enable_shields) ne "" && $synth_pnr(cts,cts,enable_shields)} {
+    if {[info exists synth_pnr(cts,cts,enable_shields)] && $synth_pnr(cts,cts,enable_shields) ne "" && $synth_pnr(cts,cts,enable_shields)} {
         set shields_cmd "create_shields"
-        if {$synth_pnr(cts,cts,shields_options) ne ""} {
+        if {[info exists synth_pnr(cts,cts,shields_options)] && $synth_pnr(cts,cts,shields_options) ne ""} {
             append shields_cmd " $synth_pnr(cts,cts,shields_options)"
         }
-        if {$synth_pnr(cts,cts,shields_ground_net) ne ""} {
+        if {[info exists synth_pnr(cts,cts,shields_ground_net)] && $synth_pnr(cts,cts,shields_ground_net) ne ""} {
             lappend shields_cmd -with_ground $synth_pnr(cts,cts,shields_ground_net)
         }
         handle_info "Running: $shields_cmd"
@@ -280,8 +286,8 @@ flow_proc post_cts_optimization {
     }
 
     # FC-RM: User post-CTS script
-    if {$synth_pnr(cts,cts_post_script) ne "" && [file exists $synth_pnr(cts,cts_post_script)]} {
-        source -e $synth_pnr(cts,cts_post_script)
+    if {[info exists synth_pnr(cts,cts_post_script)] && $synth_pnr(cts,cts_post_script) ne "" && [file exists $synth_pnr(cts,cts_post_script)]} {
+        source $synth_pnr(cts,cts_post_script)
     }
 
     handle_info "Post-CTS optimization completed"
@@ -289,13 +295,14 @@ flow_proc post_cts_optimization {
 # flow_proc: connect_power_ground
 # FC-RM: connect_pg_net, re-enable power scenarios, check_routes
 # ==============================================================================
+}
 flow_proc connect_power_ground {
     handle_info "Connecting PG nets and finalizing..."
     global synth_pnr
 
     # FC-RM: connect_pg_net
-    if {$synth_pnr(common,connect_pg_net_script) ne "" && [file exists $synth_pnr(common,connect_pg_net_script)]} {
-        source -e $synth_pnr(common,connect_pg_net_script)
+    if {[info exists synth_pnr(common,connect_pg_net_script)] && $synth_pnr(common,connect_pg_net_script) ne "" && [file exists $synth_pnr(common,connect_pg_net_script)]} {
+        source $synth_pnr(common,connect_pg_net_script)
     } else {
         connect_pg_net
     }
@@ -318,15 +325,16 @@ flow_proc connect_power_ground {
 # flow_proc: create_abstracts
 # FC-RM: create_abstract, create_frame for hierarchical
 # ==============================================================================
+}
 flow_proc create_abstracts {
     handle_info "Creating abstracts..."
-    global synth_pnr
+    global flow synth_pnr
 
     set _run_type $flow(run_type)
 
     if {$_run_type eq "hier"} {
         set hier_level "bottom"
-        if {$synth_pnr(common,physical_hierarchy_level) ne ""} { set hier_level $synth_pnr(common,physical_hierarchy_level) }
+        if {[info exists synth_pnr(common,physical_hierarchy_level)] && $synth_pnr(common,physical_hierarchy_level) ne ""} { set hier_level $synth_pnr(common,physical_hierarchy_level) }
         if {$hier_level ne "top"} {
             handle_info "Creating abstract and frame (level=$hier_level)"
             create_abstract -read_only
@@ -339,6 +347,7 @@ flow_proc create_abstracts {
 # flow_proc: save_design
 # FC-RM: save_block, set_svf -off
 # ==============================================================================
+}
 flow_proc save_design {
     handle_info "Saving clock_opt_cts design..."
     global synth_pnr flow
@@ -346,7 +355,7 @@ flow_proc save_design {
     set design_name [expr {$synth_pnr(common,design_name) ne "" ? $synth_pnr(common,design_name) : $flow(design_name)}]
 
     save_block
-    if {$synth_pnr(common,output,block_labeling) ne "" && $synth_pnr(common,output,block_labeling)} {
+    if {[info exists synth_pnr(common,output,block_labeling)] && $synth_pnr(common,output,block_labeling) ne "" && $synth_pnr(common,output,block_labeling)} {
         save_block -as ${design_name}/clock_opt_cts
         handle_info "Block saved: ${design_name}/clock_opt_cts"
     }
@@ -358,6 +367,7 @@ flow_proc save_design {
 # FC-RM: report_qor, report_timing, report_clock_qor, report_clock_timing,
 #         write_qor_data, run_end
 # ==============================================================================
+}
 flow_proc generate_reports {
     handle_info "Generating CTS reports..."
     global synth_pnr
@@ -414,6 +424,7 @@ flow_proc generate_reports {
     handle_info "CTS reports generated in: $::REPORTS_DIR"
 # ==============================================================================
 # ==============================================================================
+}
 flow_exec_all
 
 # BUG FIX #7: Exit tool after stage completion

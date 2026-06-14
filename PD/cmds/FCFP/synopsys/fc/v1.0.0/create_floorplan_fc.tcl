@@ -67,7 +67,7 @@ flow_proc initialize_floorplan {
 
     # Source track creation file
     if {[info exists fcfp(floorplan,track_file)] && [file exists $fcfp(floorplan,track_file)]} {
-        source -e $fcfp(floorplan,track_file)
+        source $fcfp(floorplan,track_file)
     }
 
     # Check design pre-floorplan
@@ -77,7 +77,7 @@ flow_proc initialize_floorplan {
 
     # Source physical constraints (macro pre-placement, blockages, voltage areas)
     if {[info exists fcfp(floorplan,physical_constraints)] && [file exists $fcfp(floorplan,physical_constraints)]} {
-        source -e $fcfp(floorplan,physical_constraints)
+        source $fcfp(floorplan,physical_constraints)
         handle_info "Physical constraints applied"
     }
 
@@ -93,7 +93,7 @@ flow_proc place_macros {
     global fcfp
 
     if {[info exists fcfp(floorplan,macro_constraints)] && [file exists $fcfp(floorplan,macro_constraints)]} {
-        source -e $fcfp(floorplan,macro_constraints)
+        source $fcfp(floorplan,macro_constraints)
     }
 
     set all_macros [get_cells -quiet -physical_context -filter "design_type == macro"]
@@ -139,7 +139,7 @@ flow_proc insert_boundary_cells {
     global fcfp tech
 
     if {[info exists fcfp(floorplan,boundary_cell_script)] && [file exists $fcfp(floorplan,boundary_cell_script)]} {
-        source -e $fcfp(floorplan,boundary_cell_script)
+        source $fcfp(floorplan,boundary_cell_script)
     } elseif {[info exists tech(cells,boundary)] && $tech(cells,boundary) ne ""} {
         create_boundary_cells -left_boundary_cell $tech(cells,boundary) \
             -right_boundary_cell $tech(cells,boundary)
@@ -164,7 +164,7 @@ flow_proc insert_tap_cells {
     global fcfp tech
 
     if {[info exists fcfp(floorplan,tap_cell_script)] && [file exists $fcfp(floorplan,tap_cell_script)]} {
-        source -e $fcfp(floorplan,tap_cell_script)
+        source $fcfp(floorplan,tap_cell_script)
     } elseif {[info exists tech(cells,well_tap)] && $tech(cells,well_tap) ne ""} {
         set tap_distance "30"
         if {[info exists tech(cells,well_tap_distance)]} {
@@ -199,7 +199,7 @@ flow_proc check_floorplan {
     }
 
     # Initial pin placement for downstream stages
-    if {[info exists fcfp(floorplan,place_pins)] && $fcfp(floorplan,place_pins)} {
+    if {[info exists fcfp(floorplan,place_pins)] && $fcfp(floorplan,place_pins) ne "" && [string is true -strict $fcfp(floorplan,place_pins)]} {
         place_pins -self
         handle_info "Initial pin placement done"
     }
@@ -215,7 +215,7 @@ flow_proc create_abstracts {
     handle_info "Creating abstracts..."
     global fcfp
 
-    if {[info exists fcfp(create_abstract,enable)] && $fcfp(create_abstract,enable)} {
+    if {[info exists fcfp(create_abstract,enable)] && $fcfp(create_abstract,enable) ne "" && [string is true -strict $fcfp(create_abstract,enable)]} {
         create_abstract -read_only
         handle_info "Abstracts created"
     } else {

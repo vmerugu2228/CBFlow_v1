@@ -83,7 +83,7 @@ flow_proc create_budgets {
 
     # Source user budget constraints before budget_timing
     if {[info exists fcfp(timing_budget,constraint_script)] && [file exists $fcfp(timing_budget,constraint_script)]} {
-        source -e $fcfp(timing_budget,constraint_script)
+        source $fcfp(timing_budget,constraint_script)
     }
 
     handle_info "Running: $budget_cmd"

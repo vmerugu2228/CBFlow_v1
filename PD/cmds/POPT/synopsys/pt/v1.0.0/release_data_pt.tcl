@@ -14,6 +14,14 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
+
+
+# Source release utilities for ::CBFlow::Release namespace
+set _ru "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
+if {[file exists $_ru]} { source $_ru }
+# Source release utilities for ::CBFlow::Release namespace
+set _ru "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
+if {[file exists $_ru]} { source $_ru }
 # ==============================================================================
 flow_proc init_release {
     handle_info "Initializing release..."
@@ -61,7 +69,8 @@ flow_proc init_release {
     }
 
     handle_info "Release phase: $release_phase"
-    handle_info "Release tag: $project(release,tag)"
+    set _release_tag [expr {[info exists project(release,tag)] ? $project(release,tag) : "(unset)"}]
+    handle_info "Release tag: $_release_tag"
 }
 
 # ---------------------------------------------------------------------------

@@ -14,6 +14,11 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
+
+# ── Design name (resolve from pv(...) or flow(...)) ──────────────────────
+set DESIGN_NAME [expr {[info exists pv(common,design_name)] ? $pv(common,design_name) :
+                       [expr {[info exists flow(design_name)] ? $flow(design_name) : "design"}]}]
+set ::DESIGN_NAME $DESIGN_NAME
 # ═══════════════════════════════════════════════════════════════════════════════
 # ICV-RM: SETUP (from icv_run_fill.tcl)
 # ═══════════════════════════════════════════════════════════════════════════════

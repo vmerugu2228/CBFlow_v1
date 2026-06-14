@@ -109,7 +109,7 @@ flow_proc report_baseline {
     set baseline_fp [open "$rpt_dir/baseline_summary.rpt" w]
     puts $baseline_fp "================================================================"
     puts $baseline_fp "POPT Baseline Summary"
-    puts $baseline_fp "Date: [clock format [clock seconds]]"
+    puts $baseline_fp "Date: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $baseline_fp "================================================================"
     puts $baseline_fp ""
     puts $baseline_fp "Reports generated:"
@@ -340,7 +340,7 @@ flow_proc rockbottom_swap {
     set rb_fp [open "$rpt_dir/rockbottom_summary.rpt" w]
     puts $rb_fp "================================================================"
     puts $rb_fp "Rockbottom VT Swap Summary"
-    puts $rb_fp "Date: [clock format [clock seconds]]"
+    puts $rb_fp "Date: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $rb_fp "================================================================"
     puts $rb_fp "Target VT:          $target_vt ($target_suffix)"
     puts $rb_fp "Total cells:        $num_total"
@@ -625,7 +625,7 @@ flow_proc fix_hold {
     set hold_fp [open "$rpt_dir/hold_fix_summary.rpt" w]
     puts $hold_fp "================================================================"
     puts $hold_fp "Hold Fix Summary"
-    puts $hold_fp "Date: [clock format [clock seconds]]"
+    puts $hold_fp "Date: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $hold_fp "================================================================"
     puts $hold_fp "Hold target:              $hold_target"
     puts $hold_fp "Violations before fix:    $num_hold_viol"
@@ -682,7 +682,7 @@ flow_proc report_final {
     set final_fp [open "$rpt_dir/final_optimization_summary.rpt" w]
     puts $final_fp "================================================================"
     puts $final_fp "POPT Rockbottom VT Swap — Final Optimization Summary"
-    puts $final_fp "Date: [clock format [clock seconds]]"
+    puts $final_fp "Date: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $final_fp "================================================================"
     puts $final_fp ""
 
@@ -758,7 +758,7 @@ flow_proc write_outputs {
     set vt_fp [open $vt_log w]
     puts $vt_fp "================================================================"
     puts $vt_fp "VT Swap Log"
-    puts $vt_fp "Date: [clock format [clock seconds]]"
+    puts $vt_fp "Date: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $vt_fp "================================================================"
     puts $vt_fp ""
     puts $vt_fp "Algorithm: Rockbottom VT Swap"

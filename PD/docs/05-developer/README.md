@@ -16,8 +16,17 @@ Guide for extending and contributing to CBflow v2.0.0.
 ### [Contributing](contributing.md)
 - Directory-based versioning workflow
 - Code conventions (TCL, Python)
-- Testing with `bin/cbflow-test-suite`
+- Testing with `cbflow test`
 - Documentation standards
+
+### [Test Suite Developer Guide](test-suite.md) *(new in v2.1.1)*
+The full reference for `cbflow test`:
+- Module layout, results collector, reporters (console / JSON / JUnit)
+- Static categories 1-9 (Cat 9 is the new dead-code & cross-reference audit)
+- E2E checks 1-18 with their bug-class targets
+- How to add a new static or e2e check
+- CI integration (Jenkins / GitHub Actions / GitLab CI)
+- The pseudo-stage / dynamic-subnode allowlist
 
 ## Quick Reference
 
@@ -54,12 +63,18 @@ cbflow flow checklist add-check --milestone BTO \
   --grep-file "report.rpt" --grep-pattern "PASS" --grep-pass-if found
 ```
 
-### Test Suite
+### Test Suite (v2.1.1)
 ```bash
-bin/cbflow-test-suite --verbose    # 994 tests
-bin/cbflow-test-suite --category 2 # RACE DAG/handler tests only
+cbflow test                            # static cats 1-9 + e2e all 12 flows
+cbflow test --static                   # cats 1-9 only (~0.2s)
+cbflow test --e2e --flow SYNTH_PNR     # one flow (~20s)
+cbflow test --static --category 9      # the new dead-code audit
+cbflow test --ci                       # junit + non-zero exit on fail
+bin/cbflow-test-suite                  # back-compat shim → cbflow test --static
 ```
+
+See [Test Suite Developer Guide](test-suite.md) for the full reference (10 static check categories, 18 e2e checks per flow).
 
 ---
 
-**Documentation Version**: 2.0.0
+**Documentation Version**: 2.1.1

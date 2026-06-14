@@ -16,6 +16,16 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
+# ── Resolve any release-tag / from_run inputs declared in user_config ─────
+# (golden/revised netlists may be supplied directly or via a release tag)
+set _release_utils "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
+if {[file exists $_release_utils]} {
+    source $_release_utils
+    if {[info procs resolve_inputs] ne ""} {
+        resolve_inputs LEC
+    }
+}
+
 # ── Read golden netlist ───────────────────────────────────────────────────
 flow_proc read_golden_netlist {
     handle_info "Reading golden reference netlist..."

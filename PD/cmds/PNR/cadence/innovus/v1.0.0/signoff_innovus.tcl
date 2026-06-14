@@ -25,7 +25,7 @@ flow_proc load_design {
     set _db "$run_dir/work/$::FLOW_TYPE/pro1/outputs/pro.enc.dat"
     if {![file exists $_db]} {
         handle_error "pro database not found: $_db"
-        exit 1
+        return
     }
     handle_info "Restoring design: $_db"
     restoreDesign $_db $flow(design_name)
@@ -119,7 +119,7 @@ flow_proc run_signoff_timing {
     global pnr
     if {![info exists pnr(signoff,extract_effort)] || $pnr(signoff,extract_effort) eq ""} {
         handle_error "pnr(signoff,extract_effort) not set (e.g., signoff, high)"
-        exit 1
+        return
     }
     set signoff_extract_effort $pnr(signoff,extract_effort)
     setExtractRCMode -engine postRoute -effort $signoff_extract_effort
@@ -262,7 +262,7 @@ flow_proc signoff_complete {
     
     set fd [open $manifest_file "w"]
     puts $fd "# OMNI FLOW Design Manifest"
-    puts $fd "# Generated: [clock format [clock seconds]]"
+    puts $fd "# Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     global project
     set top_module [expr {[info exists project(top_module)] ? $project(top_module) : [handle_error "project(top_module) not defined"]}]
     puts $fd "# Design: $top_module"
@@ -271,7 +271,7 @@ flow_proc signoff_complete {
     puts $fd "DESIGN_NAME: $top_module"
     puts $fd "DESIGN_VERSION: $design_version"
     puts $fd "FLOW_VERSION: CBFLOW_v2.0.0"
-    puts $fd "SIGNOFF_DATE: [clock format [clock seconds]]"
+    puts $fd "SIGNOFF_DATE: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     close $fd
     
     log_stage_status "signoff" "COMPLETE" "Signoff completed - design ready for tapeout"
@@ -279,4 +279,6 @@ flow_proc signoff_complete {
 
 
 # Exit tool after stage completion
+
+flow_exec_all
 exit

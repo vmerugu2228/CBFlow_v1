@@ -114,7 +114,7 @@ flow_proc write_gds_output {
     file mkdir "$run_dir/results/pnr/gds"
 
     # Write GDS
-    if {[info exists pnr(output,write_gds)] && $pnr(output,write_gds)} {
+    if {[info exists pnr(output,write_gds)] && $pnr(output,write_gds) ne "" && [string is true -strict $pnr(output,write_gds)]} {
         set gds_file "$run_dir/results/pnr/gds/$pnr(common,design_name).gds"
         handle_info "Writing GDSII: $gds_file"
 
@@ -137,7 +137,7 @@ flow_proc write_gds_output {
     }
 
     # Write OASIS
-    if {[info exists pnr(output,write_oasis)] && $pnr(output,write_oasis)} {
+    if {[info exists pnr(output,write_oasis)] && $pnr(output,write_oasis) ne "" && [string is true -strict $pnr(output,write_oasis)]} {
         set oasis_file "$run_dir/results/pnr/gds/$pnr(common,design_name).oasis"
         handle_info "Writing OASIS: $oasis_file"
 
@@ -213,7 +213,7 @@ flow_proc write_sdc_output {
         -output "$run_dir/results/pnr/sdc/${pnr(common,design_name)}_floorplan"
 
     # Write UPF if power intent exists
-    if {[info exists pnr(output,write_upf)] && $pnr(output,write_upf)} {
+    if {[info exists pnr(output,write_upf)] && $pnr(output,write_upf) ne "" && [string is true -strict $pnr(output,write_upf)]} {
         save_upf "$run_dir/results/pnr/sdc/$pnr(common,design_name).upf"
         handle_info "UPF written"
     }
@@ -238,7 +238,7 @@ flow_proc save_design_block {
     handle_info "Saving final design block..."
     global pnr
 
-    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling)} {
+    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling) ne "" && [string is true -strict $pnr(output,block_labeling)]} {
         save_block -as $pnr(common,design_name)/export_data
         handle_info "Block saved as $pnr(common,design_name)/export_data"
     } else {

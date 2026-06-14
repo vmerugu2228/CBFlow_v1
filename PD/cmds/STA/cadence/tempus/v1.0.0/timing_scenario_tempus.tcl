@@ -69,7 +69,7 @@ flow_proc read_libraries {
 # ═══════════════════════════════════════════════════════════════════════════════
 flow_proc read_physical_data {
     handle_info "Reading physical data (LEF)..."
-    global tech
+    global project tech
 
     # Technology LEF (metal_stack × track)
     set _ms $project(metal_stack)
@@ -98,14 +98,14 @@ flow_proc read_physical_data {
 # ═══════════════════════════════════════════════════════════════════════════════
 flow_proc read_design {
     handle_info "Reading design netlist..."
-    global sta
+    global sta tech
 
-    if {$sta(input,netlist) ne "" && [file exists $sta(input,netlist)]} {
+    if {[info exists sta(input,netlist)] && $sta(input,netlist) ne "" && [file exists $sta(input,netlist)]} {
         read_verilog $sta(input,netlist)
         handle_info "  read_verilog: [file tail $sta(input,netlist)]"
     } else {
         handle_error "Netlist not found: $sta(input,netlist)"
-        exit 1
+        return
     }
 
     set_top_module $::DESIGN_NAME -ignore_undefined_cell
@@ -147,12 +147,12 @@ flow_proc setup_mmmc {
         handle_info "  Constraint mode: $_cm_name (SDC: [file tail $::SDC_FILE])"
     } else {
         # Fallback: use sdc_func_file
-        if {$sta(input,sdc_func_file) ne "" && [file exists $sta(input,sdc_func_file)]} {
+        if {[info exists sta(input,sdc_func_file)] && $sta(input,sdc_func_file) ne "" && [file exists $sta(input,sdc_func_file)]} {
             create_constraint_mode -name $_cm_name -sdc_files $sta(input,sdc_func_file)
             handle_info "  Constraint mode: $_cm_name (SDC: [file tail $sta(input,sdc_func_file)])"
         } else {
             handle_error "No SDC file found for mode $::MODE"
-            exit 1
+            return
         }
     }
 
@@ -190,19 +190,19 @@ flow_proc setup_si {
     handle_info "Configuring SI/crosstalk settings..."
     global sta
 
-    if {$sta(timing,si_aware) ne "" && $sta(timing,si_aware) eq "true"} {
+    if {[info exists sta(timing,si_aware)] && $sta(timing,si_aware) ne "" && $sta(timing,si_aware) eq "true"} {
         set_delay_cal_mode -siAware true
         handle_info "  SI-aware delay calculation: enabled"
 
         set_si_mode -enable_delay_report true
         handle_info "  SI delay reporting: enabled"
 
-        if {$sta(timing,si_glitch_report) ne "" && $sta(timing,si_glitch_report) eq "true"} {
+        if {[info exists sta(timing,si_glitch_report)] && $sta(timing,si_glitch_report) ne "" && $sta(timing,si_glitch_report) eq "true"} {
             set_si_mode -enable_glitch_report true
             handle_info "  SI glitch reporting: enabled"
         }
 
-        if {$sta(timing,si_glitch_propagation) ne "" && $sta(timing,si_glitch_propagation) eq "true"} {
+        if {[info exists sta(timing,si_glitch_propagation)] && $sta(timing,si_glitch_propagation) ne "" && $sta(timing,si_glitch_propagation) eq "true"} {
             set_si_mode -enable_glitch_propagation true
             handle_info "  SI glitch propagation: enabled"
         }
@@ -283,7 +283,7 @@ flow_proc generate_reports {
     handle_info "  QoR: ${dn}_${sc}_qor.rpt"
 
     # Power (if enabled)
-    if {$sta(analysis,report_power) ne "" && $sta(analysis,report_power) eq "true"} {
+    if {[info exists sta(analysis,report_power)] && $sta(analysis,report_power) ne "" && $sta(analysis,report_power) eq "true"} {
         report_power > $rpt_dir/${dn}_${sc}_power.rpt
         handle_info "  Power: ${dn}_${sc}_power.rpt"
     }
@@ -305,7 +305,7 @@ flow_proc generate_summary {
     set fh [open $summary "w"]
     puts $fh "═══════════════════════════════════════════════════════════════"
     puts $fh "  CBflow Tempus Per-Scenario Timing Summary"
-    puts $fh "  Generated: [clock format [clock seconds]]"
+    puts $fh "  Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fh "═══════════════════════════════════════════════════════════════"
     puts $fh ""
     puts $fh "  Scenario:    $::scenario_name"

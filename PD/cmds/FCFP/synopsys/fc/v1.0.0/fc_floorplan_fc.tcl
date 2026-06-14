@@ -58,7 +58,7 @@ flow_proc initialize_floorplan {
 
     # FC-RM: Source track creation file if provided
     if {[info exists fcfp(floorplan,track_file)] && $fcfp(floorplan,track_file) ne ""} {
-        source -e $fcfp(floorplan,track_file)
+        source $fcfp(floorplan,track_file)
         handle_info "Track creation file sourced"
     }
 
@@ -78,7 +78,7 @@ flow_proc initialize_floorplan {
 
     # FC-RM: Source physical constraints (macro pre-placement, blockages, voltage areas)
     if {[info exists fcfp(floorplan,physical_constraints)] && $fcfp(floorplan,physical_constraints) ne ""} {
-        source -e $fcfp(floorplan,physical_constraints)
+        source $fcfp(floorplan,physical_constraints)
         handle_info "Physical constraints applied"
     }
 
@@ -96,7 +96,7 @@ flow_proc place_macros {
 
     # FC-RM: Source auto-placement constraints
     if {[info exists fcfp(floorplan,macro_constraints)] && $fcfp(floorplan,macro_constraints) ne ""} {
-        source -e $fcfp(floorplan,macro_constraints)
+        source $fcfp(floorplan,macro_constraints)
         handle_info "Macro placement constraints loaded"
     }
 
@@ -166,7 +166,7 @@ flow_proc insert_tap_cells {
     # FC-RM: Tap cell insertion via node-specific sidefile or config
     if {[info exists fcfp(floorplan,tap_cell_script)] && $fcfp(floorplan,tap_cell_script) ne ""} {
         # Source user-provided tap cell script
-        source -e $fcfp(floorplan,tap_cell_script)
+        source $fcfp(floorplan,tap_cell_script)
         handle_info "Tap cells inserted from script"
     } elseif {[info exists tech(cells,well_tap)] && $tech(cells,well_tap) ne ""} {
         # FC-RM: Insert well tap cells from technology config
@@ -202,7 +202,7 @@ flow_proc insert_boundary_cells {
 
     # FC-RM: Boundary cell insertion via node-specific sidefile or config
     if {[info exists fcfp(floorplan,boundary_cell_script)] && $fcfp(floorplan,boundary_cell_script) ne ""} {
-        source -e $fcfp(floorplan,boundary_cell_script)
+        source $fcfp(floorplan,boundary_cell_script)
         handle_info "Boundary cells inserted from script"
     } elseif {[info exists tech(cells,boundary)] && $tech(cells,boundary) ne ""} {
         puts "CBflow-info: Inserting boundary cells: $tech(cells,boundary)"
@@ -228,7 +228,7 @@ flow_proc save_design_block {
     handle_info "Saving design block..."
     global fcfp project
 
-    if {[info exists fcfp(output,block_labeling)] && $fcfp(output,block_labeling)} {
+    if {[info exists fcfp(output,block_labeling)] && $fcfp(output,block_labeling) ne "" && [string is true -strict $fcfp(output,block_labeling)]} {
         if {[info exists project(top_module)] && $project(top_module) ne ""} {
             set design_name $project(top_module)
         } else {
@@ -269,7 +269,7 @@ flow_proc generate_reports {
     puts $fp "================================================================"
     puts $fp "FCFP Fullchip Floorplan Summary - Fusion Compiler"
     puts $fp "Ported from FC-RM Y-2026.03 create_floorplan.tcl"
-    puts $fp "Date: [clock format [clock seconds]]"
+    puts $fp "Date: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fp "================================================================"
     puts $fp ""
     puts $fp "Floorplan stages:"

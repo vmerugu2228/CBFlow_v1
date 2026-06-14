@@ -31,7 +31,7 @@ flow_proc create_pg_rings {
     # FC-RM: PG ring creation from config or defaults
     if {[info exists fcfp(power,ring_config)] && $fcfp(power,ring_config) ne ""} {
         # Source user PG ring configuration
-        source -e $fcfp(power,ring_config)
+        source $fcfp(power,ring_config)
         handle_info "PG rings created from config file"
     } else {
         # Build PG rings from individual config variables
@@ -80,7 +80,7 @@ flow_proc create_pg_mesh {
 
     if {[info exists fcfp(power,mesh_config)] && $fcfp(power,mesh_config) ne ""} {
         # Source user PG mesh configuration
-        source -e $fcfp(power,mesh_config)
+        source $fcfp(power,mesh_config)
         handle_info "PG mesh created from config file"
     } else {
         # Build PG mesh from config variables
@@ -131,7 +131,7 @@ flow_proc create_pg_straps {
 
     if {[info exists fcfp(power,strap_config)] && $fcfp(power,strap_config) ne ""} {
         # Source user strap configuration
-        source -e $fcfp(power,strap_config)
+        source $fcfp(power,strap_config)
         handle_info "PG straps created from config file"
     } else {
         set vdd_net "VDD"
@@ -178,7 +178,7 @@ flow_proc connect_pg_net {
     }
 
     # FC-RM: Place and legalize stdcells for robust PG analysis
-    if {[info exists fcfp(power,place_stdcells)] && $fcfp(power,place_stdcells)} {
+    if {[info exists fcfp(power,place_stdcells)] && $fcfp(power,place_stdcells) ne "" && [string is true -strict $fcfp(power,place_stdcells)]} {
         set_app_options -name place.coarse.continue_on_missing_scandef -value true
         create_placement -effort low
         reset_app_options place.coarse.continue_on_missing_scandef
@@ -231,7 +231,7 @@ flow_proc save_design_block {
     handle_info "Saving design block..."
     global fcfp project
 
-    if {[info exists fcfp(output,block_labeling)] && $fcfp(output,block_labeling)} {
+    if {[info exists fcfp(output,block_labeling)] && $fcfp(output,block_labeling) ne "" && [string is true -strict $fcfp(output,block_labeling)]} {
         if {[info exists project(top_module)] && $project(top_module) ne ""} {
             set design_name $project(top_module)
         } else {
@@ -274,7 +274,7 @@ flow_proc generate_reports {
     puts $fp "================================================================"
     puts $fp "FCFP Power Plan Summary - Fusion Compiler"
     puts $fp "Ported from FC-RM Y-2026.03 create_power.tcl"
-    puts $fp "Date: [clock format [clock seconds]]"
+    puts $fp "Date: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fp "================================================================"
     puts $fp ""
     puts $fp "Power plan stages:"

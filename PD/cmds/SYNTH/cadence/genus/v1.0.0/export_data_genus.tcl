@@ -1,5 +1,5 @@
 #!/usr/bin/env tclsh
-# SYNTH export_db - Cadence Genus
+# SYNTH export_data - Cadence Genus
 
 # -- Bootstrap -----------------------------------------------------------------
 set run_dir $::env(CBFLOW_RUN_DIR)
@@ -7,17 +7,17 @@ source "$run_dir/.run.cbflow.tcl"
 source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "SYNTH"
-set STAGE_NAME "export_db"
-set NODE_NAME "export_db1"
+set STAGE_NAME "export_data"
+set NODE_NAME "export_data1"
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
-handle_info "Starting SYNTH export_db with Cadence Genus..."
+handle_info "Starting SYNTH export_data with Cadence Genus..."
 # ── Directories ──────────────────────────────────────────────────────────────
 
-flow_proc export_db_database {
+flow_proc export_data_database {
     puts "INFO: Exporting synthesis database..."
     
     # Export database for PNR tools
@@ -31,7 +31,7 @@ flow_proc export_db_database {
 }
 
 # Export liberty libraries
-flow_proc export_db_libraries {
+flow_proc export_data_libraries {
     puts "INFO: Exporting timing libraries..."
     
     # Export characterized libraries
@@ -45,7 +45,7 @@ flow_proc export_db_libraries {
 }
 
 # Export design constraints
-flow_proc export_db_constraints {
+flow_proc export_data_constraints {
     puts "INFO: Exporting design constraints..."
     
     # Export updated SDC for PNR
@@ -62,7 +62,7 @@ flow_proc export_db_constraints {
 }
 
 # Export design data
-flow_proc export_db_design {
+flow_proc export_data_design {
     puts "INFO: Exporting design netlist and data..."
     
     # Export final netlist
@@ -77,7 +77,7 @@ flow_proc export_db_design {
 }
 
 # Export characterization data
-flow_proc export_db_characterization {
+flow_proc export_data_characterization {
     puts "INFO: Exporting characterization data..."
     
     # Export timing models
@@ -92,7 +92,7 @@ flow_proc export_db_characterization {
 }
 
 # Export verification data
-flow_proc export_db_verification {
+flow_proc export_data_verification {
     puts "INFO: Exporting verification data..."
     
     # Export for LEC verification
@@ -106,7 +106,7 @@ flow_proc export_db_verification {
 }
 
 # Export reports and documentation
-flow_proc export_db_reports {
+flow_proc export_data_reports {
     puts "INFO: Exporting final reports..."
     
     # Export comprehensive QoR report
@@ -127,7 +127,7 @@ flow_proc export_db_reports {
 }
 
 # Export metadata and configuration
-flow_proc export_db_metadata {
+flow_proc export_data_metadata {
     puts "INFO: Exporting metadata and configuration..."
     
     # Export synthesis configuration
@@ -135,7 +135,7 @@ flow_proc export_db_metadata {
     set config_file "$::OUTPUTS_DIR/config/synth_export.tcl"
     set fp [open $config_file w]
     puts $fp "# Synthesis Export Metadata"
-    puts $fp "# Generated: [clock format [clock seconds]]"
+    puts $fp "# Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fp "set synth(export,version) \"[get_version]\""
     puts $fp "set synth(export,design) \"[get_top_module]\""
     puts $fp "set synth(export,cells) [llength [get_cells -hier]]"
@@ -145,7 +145,7 @@ flow_proc export_db_metadata {
 }
 
 # Validate exported files
-flow_proc export_db_validate {
+flow_proc export_data_validate {
     puts "INFO: Validating exported files..."
     
     set required_files [list \
@@ -175,7 +175,7 @@ flow_proc export_db_validate {
 }
 
 # Cleanup and finalize
-flow_proc export_db_cleanup {
+flow_proc export_data_cleanup {
     puts "INFO: Cleaning up export process..."
     
     # Remove temporary files
@@ -186,7 +186,7 @@ flow_proc export_db_cleanup {
     set fp [open $summary_file w]
     puts $fp "SYNTHESIS EXPORT SUMMARY"
     puts $fp "========================"
-    puts $fp "Export Date: [clock format [clock seconds]]"
+    puts $fp "Export Date: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fp "Design: [get_top_module]"
     puts $fp "Tool Version: [get_version]"
     puts $fp ""
@@ -200,6 +200,8 @@ flow_proc export_db_cleanup {
     puts "INFO: Export summary: $summary_file"
 }
 
-puts "INFO: SYNTH export_db stage loaded"
+puts "INFO: SYNTH export_data stage loaded"
 # Exit tool after stage completion
+
+flow_exec_all
 exit

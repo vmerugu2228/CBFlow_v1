@@ -177,4 +177,6 @@ flow_proc powerplan_complete {
 
 
 # Exit tool after stage completion
+
+flow_exec_all
 exit

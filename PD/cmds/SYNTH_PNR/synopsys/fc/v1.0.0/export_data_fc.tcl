@@ -37,13 +37,13 @@ flow_proc load_design {
     link_block
 
     # FC-RM: Non-persistent settings
-    if {$synth_pnr(common,non_persistent_script) ne "" && [file exists $synth_pnr(common,non_persistent_script)]} {
-        source -e $synth_pnr(common,non_persistent_script)
+    if {[info exists synth_pnr(common,non_persistent_script)] && $synth_pnr(common,non_persistent_script) ne "" && [file exists $synth_pnr(common,non_persistent_script)]} {
+        source $synth_pnr(common,non_persistent_script)
     }
 
     # FC-RM: User pre-write_data script
     if {[info exists synth_pnr(export_data,pre_script)] && [file exists $synth_pnr(export_data,pre_script)]} {
-        source -e $synth_pnr(export_data,pre_script)
+        source $synth_pnr(export_data,pre_script)
     }
 
     handle_info "Design loaded: ${design_name}/write_data"
@@ -51,6 +51,7 @@ flow_proc load_design {
 # flow_proc: change_names
 # FC-RM: define_name_rules, change_names -rules verilog -hierarchy
 # ==============================================================================
+}
 flow_proc change_names {
     handle_info "Applying verilog naming rules..."
     global synth_pnr flow
@@ -74,6 +75,7 @@ flow_proc change_names {
 # flow_proc: write_netlist
 # FC-RM: Multiple write_verilog variants (logic_only, PT, FM, LVS, VC_LP)
 # ==============================================================================
+}
 flow_proc write_netlist {
     handle_info "Writing netlists..."
     global synth_pnr flow
@@ -118,6 +120,7 @@ flow_proc write_netlist {
 # flow_proc: write_gds_output
 # FC-RM: write_gds with layer map, compression
 # ==============================================================================
+}
 flow_proc write_gds_output {
     handle_info "Writing GDS..."
     global synth_pnr tech flow
@@ -125,9 +128,9 @@ flow_proc write_gds_output {
     set design_name [expr {$synth_pnr(common,design_name) ne "" ? $synth_pnr(common,design_name) : $flow(design_name)}]
     set out $::OUTPUTS_DIR
 
-    if {[info exists synth_pnr(export_data,write_gds)] && $synth_pnr(export_data,write_gds)} {
+    if {[info exists synth_pnr(export_data,write_gds)] && $synth_pnr(export_data,write_gds) ne "" && [string is true -strict $synth_pnr(export_data,write_gds)]} {
         set cmd "write_gds -compress -hierarchy all -long_names -keep_data_type"
-        if {$tech(gds_layer_map_file) ne "" && [file exists $tech(gds_layer_map_file)]} {
+        if {[info exists tech(gds_layer_map_file)] && $tech(gds_layer_map_file) ne "" && [file exists $tech(gds_layer_map_file)]} {
             lappend cmd -layer_map $tech(gds_layer_map_file)
         }
         lappend cmd ${out}/${design_name}.gds
@@ -136,9 +139,9 @@ flow_proc write_gds_output {
     }
 
     # FC-RM: write_oasis (optional)
-    if {[info exists synth_pnr(export_data,write_oasis)] && $synth_pnr(export_data,write_oasis)} {
+    if {[info exists synth_pnr(export_data,write_oasis)] && $synth_pnr(export_data,write_oasis) ne "" && [string is true -strict $synth_pnr(export_data,write_oasis)]} {
         set cmd "write_oasis -compress 6 -hierarchy all -keep_data_type"
-        if {$tech(oasis_layer_map_file) ne "" && [file exists $tech(oasis_layer_map_file)]} {
+        if {[info exists tech(oasis_layer_map_file)] && $tech(oasis_layer_map_file) ne "" && [file exists $tech(oasis_layer_map_file)]} {
             lappend cmd -layer_map $tech(oasis_layer_map_file)
         }
         lappend cmd ${out}/${design_name}.oasis
@@ -155,6 +158,7 @@ flow_proc write_gds_output {
 # flow_proc: write_def_output
 # FC-RM: write_def, write_floorplan
 # ==============================================================================
+}
 flow_proc write_def_output {
     handle_info "Writing DEF and floorplan..."
     global synth_pnr flow tech
@@ -185,6 +189,7 @@ flow_proc write_def_output {
 # flow_proc: write_parasitics_output
 # FC-RM: update_timing, write_parasitics (SPEF)
 # ==============================================================================
+}
 flow_proc write_parasitics_output {
     handle_info "Writing parasitics..."
     global synth_pnr flow
@@ -204,6 +209,7 @@ flow_proc write_parasitics_output {
 # flow_proc: write_sdc_output
 # FC-RM: write_script (SDC per scenario), write_routing_constraints
 # ==============================================================================
+}
 flow_proc write_sdc_output {
     handle_info "Writing SDC and routing constraints..."
     global synth_pnr flow
@@ -234,6 +240,7 @@ flow_proc write_sdc_output {
 # flow_proc: write_upf_output
 # FC-RM: save_upf (prime or golden mode)
 # ==============================================================================
+}
 flow_proc write_upf_output {
     handle_info "Writing UPF..."
     global synth_pnr flow
@@ -261,7 +268,7 @@ flow_proc write_upf_output {
     saif_map -write_map ${out}/${design_name}.saif.fc.map
 
     # FC-RM: FUSA SSF
-    if {$synth_pnr(common,enable_fusa) ne "" && $synth_pnr(common,enable_fusa)} {
+    if {[info exists synth_pnr(common,enable_fusa)] && $synth_pnr(common,enable_fusa) ne "" && $synth_pnr(common,enable_fusa)} {
         save_ssf ${out}/${design_name}.ssf
     }
 
@@ -270,6 +277,7 @@ flow_proc write_upf_output {
 # flow_proc: save_design
 # FC-RM: save_block
 # ==============================================================================
+}
 flow_proc save_design {
     handle_info "Saving export_data design..."
     global synth_pnr flow
@@ -277,14 +285,14 @@ flow_proc save_design {
     set design_name [expr {$synth_pnr(common,design_name) ne "" ? $synth_pnr(common,design_name) : $flow(design_name)}]
 
     save_block
-    if {[info exists synth_pnr(export_data,block_labeling)] && $synth_pnr(export_data,block_labeling)} {
+    if {[info exists synth_pnr(export_data,block_labeling)] && $synth_pnr(export_data,block_labeling) ne "" && [string is true -strict $synth_pnr(export_data,block_labeling)]} {
         save_block -as ${design_name}/write_data
         handle_info "Block saved: ${design_name}/write_data"
     }
 
     # FC-RM: User post-write_data script
     if {[info exists synth_pnr(export_data,post_script)] && [file exists $synth_pnr(export_data,post_script)]} {
-        source -e $synth_pnr(export_data,post_script)
+        source $synth_pnr(export_data,post_script)
     }
 
     handle_info "Export data saved"
@@ -292,6 +300,7 @@ flow_proc save_design {
 # flow_proc: generate_reports
 # FC-RM: run_end, report_msg
 # ==============================================================================
+}
 flow_proc generate_reports {
     handle_info "Generating export_data reports..."
 
@@ -310,6 +319,7 @@ flow_proc generate_reports {
     handle_info "Export data reports generated"
 # ==============================================================================
 # ==============================================================================
+}
 flow_exec_all
 
 # BUG FIX #7: Exit tool after stage completion

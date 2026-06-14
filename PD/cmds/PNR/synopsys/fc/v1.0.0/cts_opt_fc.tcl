@@ -36,7 +36,7 @@ flow_proc configure_data_opt {
     if {[info exists pnr(compile,qor_mode)] && $pnr(compile,qor_mode) ne ""} {
         lappend set_qor_strategy_cmd -mode $pnr(compile,qor_mode)
     }
-    if {[info exists pnr(compile,reduced_effort)] && $pnr(compile,reduced_effort)} {
+    if {[info exists pnr(compile,reduced_effort)] && $pnr(compile,reduced_effort) ne "" && [string is true -strict $pnr(compile,reduced_effort)]} {
         lappend set_qor_strategy_cmd -reduced_effort
     }
     handle_info "Running: $set_qor_strategy_cmd"
@@ -118,7 +118,7 @@ flow_proc save_design_block {
     handle_info "Saving design block..."
     global pnr
 
-    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling)} {
+    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling) ne "" && [string is true -strict $pnr(output,block_labeling)]} {
         save_block -as $pnr(common,design_name)/cts_opt
         handle_info "Block saved as $pnr(common,design_name)/cts_opt"
     } else {

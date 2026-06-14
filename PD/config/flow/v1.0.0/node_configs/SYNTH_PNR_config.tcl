@@ -128,6 +128,15 @@ array set synth_pnr {
     output,write_gds      true
     output,write_oasis    false
     output,block_labeling true
+
+    release_types,signoff1,description "SYNTH_PNR signoff deliverables for tapeout"
+    release_types,signoff1,files {
+        "results/gds/final.gds"          "gds/final_layout.gds"
+        "results/netlist/final.v"        "netlist/final_netlist.v"
+        "results/def/final.def"          "def/final_design.def"
+        "results/spef/final.spef"        "spef/final_parasitic.spef"
+        "results/timing/final_timing.rpt" "reports/final_timing.rpt"
+    }
 }
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗

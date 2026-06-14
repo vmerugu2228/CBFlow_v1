@@ -192,7 +192,7 @@ proc handle_netlist_subnode {run_dir} {
     puts $fp "# Netlist Information"
     puts $fp "set netlist_info(source_file) \"$netlist_file\""
     puts $fp "set netlist_info(target_file) \"$target_netlist\""
-    puts $fp "set netlist_info(timestamp) \"[clock format [clock seconds]]\""
+    puts $fp "set netlist_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
     puts $fp "set netlist_info(size) \"[file size $netlist_file]\""
     close $fp
     
@@ -243,7 +243,7 @@ proc handle_sdc_subnode {run_dir} {
     puts $fp "# SDC Information"
     puts $fp "set sdc_info(source_file) \"$sdc_file\""
     puts $fp "set sdc_info(target_file) \"$target_sdc\""
-    puts $fp "set sdc_info(timestamp) \"[clock format [clock seconds]]\""
+    puts $fp "set sdc_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
     puts $fp "set sdc_info(size) \"[file size $sdc_file]\""
     close $fp
     
@@ -262,7 +262,7 @@ proc handle_library_subnode {run_dir} {
     set fp [open $lib_setup_file "w"]
     
     puts $fp "# Library Setup Information"
-    puts $fp "# Generated on [clock format [clock seconds]]"
+    puts $fp "# Generated on [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fp ""
     
     # Link timing libraries
@@ -370,7 +370,7 @@ proc handle_floorplan_subnode {run_dir} {
     puts $fp "# Floorplan Information"
     puts $fp "set floorplan_info(source_file) \"$def_file\""
     puts $fp "set floorplan_info(target_file) \"$target_def\""
-    puts $fp "set floorplan_info(timestamp) \"[clock format [clock seconds]]\""
+    puts $fp "set floorplan_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
     puts $fp "set floorplan_info(size) \"[file size $def_file]\""
     close $fp
     
@@ -394,7 +394,7 @@ proc handle_upf_subnode {run_dir} {
         puts $fp "# UPF Information"
         puts $fp "set upf_info(source_file) \"\""
         puts $fp "set upf_info(target_file) \"\""
-        puts $fp "set upf_info(timestamp) \"[clock format [clock seconds]]\""
+        puts $fp "set upf_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
         puts $fp "set upf_info(status) \"not_provided\""
         close $fp
         
@@ -415,7 +415,7 @@ proc handle_upf_subnode {run_dir} {
         puts $fp "# UPF Information"
         puts $fp "set upf_info(source_file) \"$upf_file\""
         puts $fp "set upf_info(target_file) \"\""
-        puts $fp "set upf_info(timestamp) \"[clock format [clock seconds]]\""
+        puts $fp "set upf_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
         puts $fp "set upf_info(status) \"file_not_found\""
         close $fp
         
@@ -445,7 +445,7 @@ proc handle_upf_subnode {run_dir} {
     puts $fp "# UPF Information"
     puts $fp "set upf_info(source_file) \"$upf_file\""
     puts $fp "set upf_info(target_file) \"$target_upf\""
-    puts $fp "set upf_info(timestamp) \"[clock format [clock seconds]]\""
+    puts $fp "set upf_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
     puts $fp "set upf_info(size) \"[file size $upf_file]\""
     puts $fp "set upf_info(status) \"linked\""
     close $fp
@@ -471,7 +471,7 @@ proc handle_setup_subnode {run_dir} {
     set fp [open $info_file "w"]
     puts $fp "# Inputs Setup Information"
     puts $fp "set setup_info(run_dir) \"$run_dir\""
-    puts $fp "set setup_info(timestamp) \"[clock format [clock seconds]]\""
+    puts $fp "set setup_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
     puts $fp "set setup_info(flow_type) \"$flow_type\""
     if {[info exists ::env(CBFLOW_DESIGN_NAME)]} {
         puts $fp "set setup_info(design_name) \"$::env(CBFLOW_DESIGN_NAME)\""
@@ -523,7 +523,7 @@ proc handle_def_subnode {run_dir} {
     puts $fp "# DEF Information"
     puts $fp "set def_info(source_file) \"$def_file\""
     puts $fp "set def_info(target_file) \"$target_def\""
-    puts $fp "set def_info(timestamp) \"[clock format [clock seconds]]\""
+    puts $fp "set def_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
     puts $fp "set def_info(size) \"[file size $def_file]\""
     close $fp
 
@@ -542,7 +542,7 @@ proc handle_validate_subnode {run_dir} {
     set validate_file "$target_dir/validation_report.tcl"
     set fp [open $validate_file "w"]
     puts $fp "# Validation Report"
-    puts $fp "set validation_info(timestamp) \"[clock format [clock seconds]]\""
+    puts $fp "set validation_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
     puts $fp "set validation_info(status) \"passed\""
     close $fp
 
@@ -561,7 +561,7 @@ proc handle_finish_subnode {run_dir} {
     set finish_file "$target_dir/finish_info.tcl"
     set fp [open $finish_file "w"]
     puts $fp "# Finish Information"
-    puts $fp "set finish_info(timestamp) \"[clock format [clock seconds]]\""
+    puts $fp "set finish_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
     puts $fp "set finish_info(inputs_stage) \"completed\""
     close $fp
 

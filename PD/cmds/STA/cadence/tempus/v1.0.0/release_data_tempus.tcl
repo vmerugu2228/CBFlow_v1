@@ -14,6 +14,10 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
+
+# Source release utilities for ::CBFlow::Release namespace
+set _ru "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
+if {[file exists $_ru]} { source $_ru }
 set release_utils "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
 if {[file exists $release_utils]} { source $release_utils }
 
@@ -104,8 +108,8 @@ flow_proc setup_release_dirs {
     }
 
     handle_info "Release phase: $release_phase"
-    handle_info "Release tag: $project(release,tag)"
-
+    set _release_tag [expr {[info exists project(release,tag)] ? $project(release,tag) : "(unset)"}]
+    handle_info "Release tag: $_release_tag"
     # Determine release directory
     if {[info exists sta(common,release_dir)]} {
         set release_base $sta(common,release_dir)
@@ -205,11 +209,11 @@ flow_proc generate_release_output {
         set fh [open $manifest_file "w"]
         puts $fh "#!/usr/bin/env tclsh"
         puts $fh "# CBFlow STA Release Manifest"
-        puts $fh "# Generated: [clock format [clock seconds]]"
+        puts $fh "# Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
         puts $fh ""
         puts $fh "set release_info(tool)       \"Tempus\""
         puts $fh "set release_info(vendor)     \"Cadence\""
-        puts $fh "set release_info(timestamp)  \"[clock format [clock seconds]]\""
+        puts $fh "set release_info(timestamp)  \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
         puts $fh "set release_info(scenario_set) \"$::mmmc_active_scenario_set\""
         puts $fh "set release_info(scenarios)  [list $::mmmc_active_scenarios]"
         puts $fh ""

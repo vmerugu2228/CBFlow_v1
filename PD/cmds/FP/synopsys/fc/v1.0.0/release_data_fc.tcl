@@ -19,6 +19,14 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 # ── Directories ──────────────────────────────────────────────────────────────
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
+
+
+# Source release utilities for ::CBFlow::Release namespace
+set _ru "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
+if {[file exists $_ru]} { source $_ru }
+# Source release utilities for ::CBFlow::Release namespace
+set _ru "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
+if {[file exists $_ru]} { source $_ru }
 # ==============================================================================
 # flow_proc: prepare_release
 # Description: Prepare release directory and copy all FP deliverables
@@ -76,8 +84,8 @@ flow_proc prepare_release {
     }
 
     handle_info "Release phase: $release_phase"
-    handle_info "Release tag: $project(release,tag)"
-
+    set _release_tag [expr {[info exists project(release,tag)] ? $project(release,tag) : "(unset)"}]
+    handle_info "Release tag: $_release_tag"
     # Create legacy release directory structure
     set release_dir "$run_dir/results/release"
     foreach subdir {

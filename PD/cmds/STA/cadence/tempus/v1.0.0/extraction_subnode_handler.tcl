@@ -159,7 +159,7 @@ switch $subnode_name {
             puts $fh "// SPEF for $rc_corner extraction"
             puts $fh "// Corner: $rc_corner  Design: $::flow(design_name)"
             puts $fh "// RC file: $_rc_file ($_rc_file_type)"
-            puts $fh "// Generated: [clock format [clock seconds]]"
+            puts $fh "// Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
             close $fh
             puts "INFO: Mock SPEF: $_spef_file"
         } else {

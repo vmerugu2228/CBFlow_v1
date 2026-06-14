@@ -57,7 +57,7 @@ flow_proc create_placement {
 
     # Source placement constraints
     if {[info exists fcfp(placement,constraint_script)] && [file exists $fcfp(placement,constraint_script)]} {
-        source -e $fcfp(placement,constraint_script)
+        source $fcfp(placement,constraint_script)
     }
 
     handle_info "Running: $place_cmd"
@@ -81,19 +81,19 @@ flow_proc push_down_objects {
     global fcfp
 
     # Push down site rows
-    if {[info exists fcfp(placement,push_down_site_rows)] && $fcfp(placement,push_down_site_rows)} {
+    if {[info exists fcfp(placement,push_down_site_rows)] && $fcfp(placement,push_down_site_rows) ne "" && [string is true -strict $fcfp(placement,push_down_site_rows)]} {
         push_down_objects -site_rows
         handle_info "Site rows pushed down"
     }
 
     # Push down blockages
-    if {[info exists fcfp(placement,push_down_blockages)] && $fcfp(placement,push_down_blockages)} {
+    if {[info exists fcfp(placement,push_down_blockages)] && $fcfp(placement,push_down_blockages) ne "" && [string is true -strict $fcfp(placement,push_down_blockages)]} {
         push_down_objects -blockages
         handle_info "Blockages pushed down"
     }
 
     # Push down PG
-    if {[info exists fcfp(placement,push_down_pg)] && $fcfp(placement,push_down_pg)} {
+    if {[info exists fcfp(placement,push_down_pg)] && $fcfp(placement,push_down_pg) ne "" && [string is true -strict $fcfp(placement,push_down_pg)]} {
         push_down_objects -pg
         handle_info "PG pushed down"
     }
@@ -109,7 +109,7 @@ flow_proc create_abstracts {
     handle_info "Creating abstracts with timing estimation..."
     global fcfp
 
-    if {[info exists fcfp(placement,abstract_timing)] && $fcfp(placement,abstract_timing)} {
+    if {[info exists fcfp(placement,abstract_timing)] && $fcfp(placement,abstract_timing) ne "" && [string is true -strict $fcfp(placement,abstract_timing)]} {
         create_abstract -estimate_timing
         handle_info "Abstracts created with timing estimation"
     } else {

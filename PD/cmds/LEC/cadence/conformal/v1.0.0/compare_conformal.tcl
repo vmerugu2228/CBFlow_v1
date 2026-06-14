@@ -105,16 +105,22 @@ flow_proc generate_reports {
     redirect "$rpt_dir/unmapped_points.rpt" { report_unmapped_points }
 
     # Check result
+    # Tcl's `clock format` needs timezone data that isn't always available
+    # in the subshell context. Fall back to epoch seconds if formatting fails.
+    set _ts [clock seconds]
+    if {[catch {clock format $_ts -format {%Y-%m-%d %H:%M:%S}} _human]} {
+        set _human "epoch $_ts"
+    }
     set _status [report_compare_data -summary]
     if {[string match "*SUCCEEDED*" $_status] || [string match "*Equivalent*" $_status]} {
         handle_info "LEC Result: PASSED — designs are equivalent"
         set fh [open "$rpt_dir/PASSED" "w"]
-        puts $fh "LEC PASSED — [clock format [clock seconds]]"
+        puts $fh "LEC PASSED — $_human"
         close $fh
     } else {
         handle_error "LEC Result: FAILED — designs are NOT equivalent"
         set fh [open "$rpt_dir/FAILED" "w"]
-        puts $fh "LEC FAILED — [clock format [clock seconds]]"
+        puts $fh "LEC FAILED — $_human"
         close $fh
     }
 

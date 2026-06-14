@@ -94,7 +94,7 @@ flow_proc generate_report {
     set fp [open "$res_dir/pc_post_merge_summary.rpt" w]
     puts $fp "================================================================"
     puts $fp "Power Compiler Post-Merge Summary"
-    puts $fp "Date: [clock format [clock seconds]]"
+    puts $fp "Date: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fp "================================================================"
     puts $fp ""
     puts $fp "Validation checks:"

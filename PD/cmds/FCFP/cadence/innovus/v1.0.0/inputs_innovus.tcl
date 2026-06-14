@@ -262,7 +262,7 @@ flow_proc validate {
     puts $fp "═══════════════════════════════════════════════════════════════"
     puts $fp "CBFlow FCFP Input Summary - Innovus"
     puts $fp "═══════════════════════════════════════════════════════════════"
-    puts $fp "Generated: [clock format [clock seconds]]"
+    puts $fp "Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fp "Tool: Cadence Innovus"
     if {[info exists project(top_module)]} { puts $fp "Design: $project(top_module)" }
     if {[info exists project(name)]} { puts $fp "Project: $project(name)" }

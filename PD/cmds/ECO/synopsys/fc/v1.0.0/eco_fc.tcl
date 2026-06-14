@@ -86,12 +86,12 @@ flow_proc configure_eco {
 
     # FC-RM: Non-persistent settings
     if {[info exists eco(common,non_persistent_script)] && [file exists $eco(common,non_persistent_script)]} {
-        source -e $eco(common,non_persistent_script)
+        source $eco(common,non_persistent_script)
     }
 
     # FC-RM: User pre-ECO script
     if {[info exists eco(common,eco_pre_script)] && [file exists $eco(common,eco_pre_script)]} {
-        source -e $eco(common,eco_pre_script)
+        source $eco(common,eco_pre_script)
     }
 
     # FC-RM: Pre-ECO reports and checks
@@ -198,7 +198,7 @@ flow_proc apply_eco {
         # FC-RM: User-provided timing ECO change file (alternative to eco_opt)
         if {[info exists eco(input,change_file)] && $eco(input,change_file) ne "" && [file exists $eco(input,change_file)]} {
             handle_info "Sourcing timing ECO change file: $eco(input,change_file)"
-            source -e $eco(input,change_file)
+            source $eco(input,change_file)
         }
 
     } elseif {$::eco_type eq "functional"} {
@@ -221,12 +221,12 @@ flow_proc apply_eco {
                     # FC-RM: Freeze-silicon mode
                     handle_info "Freeze-silicon mode: enable + source changes + place_freeze_silicon"
                     set_app_options -name design.freeze_silicon.enabled -value true
-                    if {[file exists $changes_file]} { source -e $changes_file }
+                    if {[file exists $changes_file]} { source $changes_file }
                     place_freeze_silicon
                 } else {
                     # FC-RM: MPI mode (minimum physical impact)
                     handle_info "MPI mode: source changes + place_eco_cells + legalize"
-                    if {[file exists $changes_file]} { source -e $changes_file }
+                    if {[file exists $changes_file]} { source $changes_file }
                 }
             } else {
                 handle_error "Functional ECO verilog not found: $eco(input,eco_verilog)"
@@ -234,7 +234,7 @@ flow_proc apply_eco {
         } elseif {[info exists eco(input,change_file)] && $eco(input,change_file) ne "" && [file exists $eco(input,change_file)]} {
             # FC-RM: User-provided functional change file
             handle_info "Sourcing functional ECO change file: $eco(input,change_file)"
-            source -e $eco(input,change_file)
+            source $eco(input,change_file)
         }
     }
 
@@ -266,7 +266,7 @@ flow_proc place_eco_cells {
     }
 
     # FC-RM: Legalize placement if configured
-    if {[info exists eco(eco,legalize_placement)] && $eco(eco,legalize_placement)} {
+    if {[info exists eco(eco,legalize_placement)] && $eco(eco,legalize_placement) ne "" && [string is true -strict $eco(eco,legalize_placement)]} {
         redirect -file $::REPORTS_DIR/check_legality.post_place { check_legality }
     }
 
@@ -286,7 +286,7 @@ flow_proc route_eco_nets {
     route_eco -utilize_dangling_wires -reroute -open_net_driven
 
     # FC-RM: Incremental route_detail for DRC fix
-    if {[info exists eco(eco,incr_route_post)] && $eco(eco,incr_route_post)} {
+    if {[info exists eco(eco,incr_route_post)] && $eco(eco,incr_route_post) ne "" && [string is true -strict $eco(eco,incr_route_post)]} {
         handle_info "Running incremental route_detail"
         route_detail -incremental true -initial_drc_from_input true
     }
@@ -305,7 +305,7 @@ flow_proc reinsert_fillers {
     if {$::had_fillers} {
         # FC-RM: Reinsert fillers with -post_eco flag
         if {[info exists tech(filler_sidefile)] && [file exists $tech(filler_sidefile)]} {
-            source -e $tech(filler_sidefile)
+            source $tech(filler_sidefile)
         } else {
             handle_info "Running create_stdcell_fillers (post-ECO)"
             create_stdcell_fillers -lib_cells [get_lib_cells */FILL*]
@@ -345,7 +345,7 @@ flow_proc post_eco {
 
     # FC-RM: User post-ECO script
     if {[info exists eco(common,eco_post_script)] && [file exists $eco(common,eco_post_script)]} {
-        source -e $eco(common,eco_post_script)
+        source $eco(common,eco_post_script)
     }
 
     handle_info "Post-ECO tasks completed"
@@ -362,7 +362,7 @@ flow_proc save_design {
     set design_name [expr {[info exists eco(common,design_name)] ? $eco(common,design_name) : $flow(design_name)}]
 
     save_block
-    if {[info exists eco(output,block_labeling)] && $eco(output,block_labeling)} {
+    if {[info exists eco(output,block_labeling)] && $eco(output,block_labeling) ne "" && [string is true -strict $eco(output,block_labeling)]} {
         save_block -as ${design_name}/${::eco_type}_eco
         handle_info "Block saved: ${design_name}/${::eco_type}_eco"
     }

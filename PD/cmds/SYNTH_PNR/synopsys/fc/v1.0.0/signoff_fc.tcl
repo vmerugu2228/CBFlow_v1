@@ -39,7 +39,7 @@ flow_proc load_design {
     # FC-RM: Hierarchical abstract swap
     set _run_type $flow(run_type)
     if {$_run_type eq "hier"} {
-        if {$synth_pnr(common,block_abstract_for_signoff) ne ""} {
+        if {[info exists synth_pnr(common,block_abstract_for_signoff)] && $synth_pnr(common,block_abstract_for_signoff) ne ""} {
             change_abstract -references [get_blocks -hierarchical] \
                 -label [lindex $synth_pnr(common,block_abstract_for_signoff) 0] \
                 -view [lindex $synth_pnr(common,block_abstract_for_signoff) 1]
@@ -52,6 +52,7 @@ flow_proc load_design {
 # flow_proc: set_active_scenarios
 # FC-RM: set_scenario_status for signoff (all scenarios)
 # ==============================================================================
+}
 flow_proc set_active_scenarios {
     handle_info "Setting active scenarios for signoff..."
     global synth_pnr
@@ -71,13 +72,13 @@ flow_proc set_active_scenarios {
     }
 
     # FC-RM: Adjustment file
-    if {$synth_pnr(common,mcmm_adjustment_file) ne "" && [file exists $synth_pnr(common,mcmm_adjustment_file)]} {
-        source -e $synth_pnr(common,mcmm_adjustment_file)
+    if {[info exists synth_pnr(common,mcmm_adjustment_file)] && $synth_pnr(common,mcmm_adjustment_file) ne "" && [file exists $synth_pnr(common,mcmm_adjustment_file)]} {
+        source $synth_pnr(common,mcmm_adjustment_file)
     }
 
     # FC-RM: Non-persistent settings
-    if {$synth_pnr(common,non_persistent_script) ne "" && [file exists $synth_pnr(common,non_persistent_script)]} {
-        source -e $synth_pnr(common,non_persistent_script)
+    if {[info exists synth_pnr(common,non_persistent_script)] && $synth_pnr(common,non_persistent_script) ne "" && [file exists $synth_pnr(common,non_persistent_script)]} {
+        source $synth_pnr(common,non_persistent_script)
     }
 
     # FC-RM: Disable soft-rule timing opt during ECO routing
@@ -88,9 +89,10 @@ flow_proc set_active_scenarios {
 # flow_proc: insert_filler_cells
 # FC-RM: signoff filler cell insertion (metal and non-metal)
 # ==============================================================================
+}
 flow_proc insert_filler_cells {
     handle_info "Inserting filler cells..."
-    global synth_pnr tech
+    global flow synth_pnr tech
 
     set design_name [expr {$synth_pnr(common,design_name) ne "" ? $synth_pnr(common,design_name) : $flow(design_name)}]
 
@@ -106,7 +108,7 @@ flow_proc insert_filler_cells {
 
     # FC-RM: Pre-signoff script
     if {[info exists synth_pnr(pro,signoff_pre_script)] && [file exists $synth_pnr(pro,signoff_pre_script)]} {
-        source -e $synth_pnr(pro,signoff_pre_script)
+        source $synth_pnr(pro,signoff_pre_script)
     }
 
     # FC-RM: Pre-reports
@@ -119,11 +121,11 @@ flow_proc insert_filler_cells {
     }
 
     # FC-RM: Filler cell insertion
-    if {[info exists synth_pnr(signoff,insert_filler)] && $synth_pnr(signoff,insert_filler)} {
+    if {[info exists synth_pnr(signoff,insert_filler)] && $synth_pnr(signoff,insert_filler) ne "" && [string is true -strict $synth_pnr(signoff,insert_filler)]} {
         # Source filler sidefile (foundry-specific filler commands)
-        if {$tech(filler_sidefile) ne "" && [file exists $tech(filler_sidefile)]} {
+        if {[info exists tech(filler_sidefile)] && $tech(filler_sidefile) ne "" && [file exists $tech(filler_sidefile)]} {
             handle_info "Sourcing filler sidefile: $tech(filler_sidefile)"
-            source -e $tech(filler_sidefile)
+            source $tech(filler_sidefile)
         } else {
             # Default: create_stdcell_fillers
             handle_info "Running create_stdcell_fillers"
@@ -132,8 +134,8 @@ flow_proc insert_filler_cells {
     }
 
     # FC-RM: Decap cell insertion
-    if {[info exists synth_pnr(signoff,insert_decap)] && $synth_pnr(signoff,insert_decap)} {
-        if {$tech(decap_cells) ne ""} {
+    if {[info exists synth_pnr(signoff,insert_decap)] && $synth_pnr(signoff,insert_decap) ne "" && [string is true -strict $synth_pnr(signoff,insert_decap)]} {
+        if {[info exists tech(decap_cells)] && $tech(decap_cells) ne ""} {
             handle_info "Inserting decap cells"
             create_stdcell_fillers -lib_cells [get_lib_cells $tech(decap_cells)]
         }
@@ -144,14 +146,15 @@ flow_proc insert_filler_cells {
 # flow_proc: fix_signal_em
 # FC-RM: Signal EM analysis and fixing (read constraints, report, fix)
 # ==============================================================================
+}
 flow_proc fix_signal_em {
     handle_info "Running signal EM analysis..."
-    global synth_pnr tech
+    global flow synth_pnr tech
 
     # FC-RM: Signal EM constraint file
-    if {$tech(signal_em_constraint_file) ne "" && [file exists $tech(signal_em_constraint_file)]} {
+    if {[info exists tech(signal_em_constraint_file)] && $tech(signal_em_constraint_file) ne "" && [file exists $tech(signal_em_constraint_file)]} {
         set cmd "read_signal_em_constraints $tech(signal_em_constraint_file)"
-        if {$tech(signal_em_constraint_format) ne ""} {
+        if {[info exists tech(signal_em_constraint_format)] && $tech(signal_em_constraint_format) ne ""} {
             lappend cmd -format $tech(signal_em_constraint_format)
         }
         handle_info "Running: $cmd"
@@ -169,7 +172,7 @@ flow_proc fix_signal_em {
             current_scenario $synth_pnr(signoff,em_scenario)
             redirect -file $::REPORTS_DIR/report_signal_em { report_signal_em -violated }
 
-            if {[info exists synth_pnr(signoff,em_fixing)] && $synth_pnr(signoff,em_fixing)} {
+            if {[info exists synth_pnr(signoff,em_fixing)] && $synth_pnr(signoff,em_fixing) ne "" && [string is true -strict $synth_pnr(signoff,em_fixing)]} {
                 handle_info "Fixing signal EM violations"
                 fix_signal_em
                 redirect -file $::REPORTS_DIR/report_signal_em.post { report_signal_em -violated }
@@ -183,21 +186,22 @@ flow_proc fix_signal_em {
 # flow_proc: run_signoff_drc
 # FC-RM: ICV in-design signoff DRC check (signoff_check_drc)
 # ==============================================================================
+}
 flow_proc run_signoff_drc {
     handle_info "Running signoff DRC (ICV in-design)..."
-    global synth_pnr tech
+    global flow synth_pnr tech
 
     # FC-RM: DRC runset
     if {[info exists synth_pnr(signoff,drc_runset)] && [file exists $synth_pnr(signoff,drc_runset)]} {
         set_app_options -name signoff.check_drc.runset -value $synth_pnr(signoff,drc_runset)
 
         # FC-RM: Layer map file
-        if {$tech(gds_layer_map_file) ne ""} {
+        if {[info exists tech(gds_layer_map_file)] && $tech(gds_layer_map_file) ne ""} {
             set_app_options -name signoff.physical.layer_map_file -value $tech(gds_layer_map_file)
         }
 
         # FC-RM: Stream files for merge
-        if {$tech(stream_files_for_merge) ne ""} {
+        if {[info exists tech(stream_files_for_merge)] && $tech(stream_files_for_merge) ne ""} {
             set_app_options -name signoff.physical.merge_stream_files -value $tech(stream_files_for_merge)
         }
 
@@ -220,7 +224,7 @@ flow_proc run_signoff_drc {
         }
 
         # FC-RM: signoff_fix_drc — automatically fix DRC violations
-        if {[info exists synth_pnr(signoff,fix_drc)] && $synth_pnr(signoff,fix_drc)} {
+        if {[info exists synth_pnr(signoff,fix_drc)] && $synth_pnr(signoff,fix_drc) ne "" && [string is true -strict $synth_pnr(signoff,fix_drc)]} {
             handle_info "Running signoff_fix_drc"
             signoff_fix_drc
             redirect -file $::REPORTS_DIR/signoff_check_drc.post_fix.rpt {
@@ -236,12 +240,12 @@ flow_proc run_signoff_drc {
     route_detail -incremental true
 
     # FC-RM: insert_diode_on_nets — antenna diode insertion
-    if {[info exists synth_pnr(signoff,insert_diodes)] && $synth_pnr(signoff,insert_diodes)} {
+    if {[info exists synth_pnr(signoff,insert_diodes)] && $synth_pnr(signoff,insert_diodes) ne "" && [string is true -strict $synth_pnr(signoff,insert_diodes)]} {
         handle_info "Inserting antenna diodes"
         insert_diode_on_nets -diode_cell $tech(cells,antenna_diode) -verbose
         route_detail -incremental true
         handle_info "Antenna diodes inserted and rerouted"
-    } elseif {$tech(cells,antenna_diode) ne ""} {
+    } elseif {[info exists tech(cells,antenna_diode)] && $tech(cells,antenna_diode) ne ""} {
         handle_info "Inserting antenna diodes (auto)"
         insert_diode_on_nets -diode_cell $tech(cells,antenna_diode)
         route_detail -incremental true
@@ -252,13 +256,14 @@ flow_proc run_signoff_drc {
 # flow_proc: create_metal_fill
 # FC-RM: ICV in-design metal fill (signoff_create_metal_fill)
 # ==============================================================================
+}
 flow_proc create_metal_fill {
     handle_info "Creating metal fill..."
-    global synth_pnr tech
+    global flow synth_pnr tech
 
-    if {[info exists synth_pnr(signoff,metal_fill)] && $synth_pnr(signoff,metal_fill)} {
+    if {[info exists synth_pnr(signoff,metal_fill)] && $synth_pnr(signoff,metal_fill) ne "" && [string is true -strict $synth_pnr(signoff,metal_fill)]} {
         # FC-RM: Metal fill runset
-        if {$tech(metal_fill_runset) ne "" && [file exists $tech(metal_fill_runset)]} {
+        if {[info exists tech(metal_fill_runset)] && $tech(metal_fill_runset) ne "" && [file exists $tech(metal_fill_runset)]} {
             set_app_options -name signoff.create_metal_fill.runset -value $tech(metal_fill_runset)
         }
 
@@ -307,18 +312,19 @@ flow_proc create_metal_fill {
 # flow_proc: post_signoff
 # FC-RM: User post-script, connect_pg_net, check_routes
 # ==============================================================================
+}
 flow_proc post_signoff {
     handle_info "Running post-signoff tasks..."
-    global synth_pnr
+    global flow synth_pnr
 
     # FC-RM: User post-script
     if {[info exists synth_pnr(pro,signoff_post_script)] && [file exists $synth_pnr(pro,signoff_post_script)]} {
-        source -e $synth_pnr(pro,signoff_post_script)
+        source $synth_pnr(pro,signoff_post_script)
     }
 
     # FC-RM: connect_pg_net
-    if {$synth_pnr(common,connect_pg_net_script) ne "" && [file exists $synth_pnr(common,connect_pg_net_script)]} {
-        source -e $synth_pnr(common,connect_pg_net_script)
+    if {[info exists synth_pnr(common,connect_pg_net_script)] && $synth_pnr(common,connect_pg_net_script) ne "" && [file exists $synth_pnr(common,connect_pg_net_script)]} {
+        source $synth_pnr(common,connect_pg_net_script)
     } else {
         connect_pg_net
     }
@@ -331,6 +337,7 @@ flow_proc post_signoff {
 # flow_proc: create_abstracts
 # FC-RM: create_abstract, create_frame, derive_hier_antenna_property
 # ==============================================================================
+}
 flow_proc create_abstracts {
     handle_info "Creating abstracts..."
     global synth_pnr flow
@@ -355,6 +362,7 @@ flow_proc create_abstracts {
 # flow_proc: save_design
 # FC-RM: save_block, set_svf -off
 # ==============================================================================
+}
 flow_proc save_design {
     handle_info "Saving signoff design..."
     global synth_pnr flow
@@ -362,7 +370,7 @@ flow_proc save_design {
     set design_name [expr {$synth_pnr(common,design_name) ne "" ? $synth_pnr(common,design_name) : $flow(design_name)}]
 
     save_block
-    if {$synth_pnr(common,output,block_labeling) ne "" && $synth_pnr(common,output,block_labeling)} {
+    if {[info exists synth_pnr(common,output,block_labeling)] && $synth_pnr(common,output,block_labeling) ne "" && $synth_pnr(common,output,block_labeling)} {
         save_block -as ${design_name}/signoff
         handle_info "Block saved: ${design_name}/signoff"
     }
@@ -374,6 +382,7 @@ flow_proc save_design {
 # FC-RM: report_qor, report_timing, report_power, check_routes,
 #         write_qor_data, run_end
 # ==============================================================================
+}
 flow_proc generate_reports {
     handle_info "Generating signoff reports..."
     global synth_pnr
@@ -436,6 +445,7 @@ flow_proc generate_reports {
     handle_info "Signoff reports generated in: $::REPORTS_DIR"
 # ==============================================================================
 # ==============================================================================
+}
 flow_exec_all
 
 # BUG FIX #7: Exit tool after stage completion

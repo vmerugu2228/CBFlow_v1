@@ -1150,6 +1150,10 @@ def cmd_clean(args: argparse.Namespace) -> int:
         logger.info("  Use --confirm to proceed")
         return 1
 
+    # Best-effort: drop this run from the dashboard daemon's registry.
+    # Silent if daemon isn't running or the run was never registered.
+    _deregister_from_dashboard(os.getcwd())
+
     import shutil
     for d in dirs_to_clean:
         if os.path.exists(d):
@@ -1163,6 +1167,25 @@ def cmd_clean(args: argparse.Namespace) -> int:
 
     logger.info("[DONE] Clean completed")
     return 0
+
+
+def _deregister_from_dashboard(run_dir):
+    """Best-effort deregister of run_dir from the dashboard daemon.
+    Never raises — clean must proceed even if the daemon is unreachable."""
+    try:
+        import sys as _sys
+        dashboard_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'dashboard')
+        if dashboard_dir not in _sys.path:
+            _sys.path.insert(0, dashboard_dir)
+        import lifecycle  # noqa: E402
+        if lifecycle.status()['state'] != 'running':
+            return
+        reply = lifecycle.send_deregister(run_dir)
+        if reply.get('ok'):
+            logger.info(f"Dashboard: deregistered run from daemon")
+    except Exception:
+        pass
 
 
 def cmd_list_nodes(args: argparse.Namespace) -> int:
@@ -3091,15 +3114,28 @@ Examples:
 
     # dashboard command
     dash_parser = subparsers.add_parser('gui', help='Open RACE GUI',
-        formatter_class=_fmt, description="""Start the RACE GUI — a web-based flow visualization GUI.
-Opens in browser with stage pipeline, DAG view, job grid, and job details.
+        formatter_class=_fmt, description="""Open the run in the CBflow dashboard.
+
+Default: registers this run with the per-user dashboard daemon
+(starts the daemon if not running) and opens the browser to the
+run's deep-link. The daemon's port is deterministic per-user
+(9000 + uid %% 1000) — pass --port to 'cbflow dashboard start',
+not here.
 
 Examples:
-  cbflow run gui                  Start at http://localhost:8080
-  cbflow run gui --port 9090      Custom port
-  cbflow run gui --no-browser     Don't auto-open browser""")
-    dash_parser.add_argument('--port', '-p', type=int, default=8080, help='Port (default: 8080)')
+  cbflow run gui                  Register + open in daemon (default)
+  cbflow run gui --no-browser     Register but don't open browser
+  cbflow run gui --foreground     Legacy: per-run foreground server
+  cbflow run gui --foreground --port 9090
+                                  Legacy server on a specific port""")
+    dash_parser.add_argument('--port', '-p', type=int, default=0,
+                             help='Port for --foreground mode only (default: auto). '
+                                  'In daemon mode use: cbflow dashboard start --port N')
     dash_parser.add_argument('--no-browser', action='store_true', dest='no_browser', help='Don\'t open browser')
+    dash_parser.add_argument('--foreground', action='store_true',
+                             help='Run a per-run foreground server (legacy). Skips the daemon.')
+    dash_parser.add_argument('--daemon', action='store_true',
+                             help='Explicitly use daemon mode (now the default; flag kept for clarity)')
 
     db_parser = subparsers.add_parser('db-manage', help='Manage RACE database sessions',
         formatter_class=_fmt, description="""Manage RACE SQLite database sessions.
@@ -3120,23 +3156,88 @@ in flow_config.tcl (default: 10). A warning is issued when the threshold is reac
 
 
 def cmd_gui(args):
-    """Start RACE Dashboard web GUI."""
+    """Open the run in the CBflow dashboard.
+
+    Default: per-user daemon (Phase 2). Legacy foreground server via
+    --foreground. Passing --port without --foreground is an error — the
+    daemon's port is set at daemon start.
+    """
     if not is_run_directory():
         logger.error("Error: Not in a valid run directory")
         return 1
+
+    use_foreground = getattr(args, 'foreground', False)
+    explicit_daemon = getattr(args, 'daemon', False)
+    no_browser = getattr(args, 'no_browser', False)
+    port = getattr(args, 'port', 0) or 0
+
+    if use_foreground and explicit_daemon:
+        logger.error("--foreground and --daemon are mutually exclusive")
+        return 2
+
+    # Default = daemon. Foreground only if user opted out.
+    if not use_foreground:
+        if port:
+            logger.error(
+                "--port is not used in daemon mode (the daemon owns a single "
+                "deterministic port).")
+            logger.error("To change the daemon's port:")
+            logger.error("  cbflow dashboard stop")
+            logger.error(f"  cbflow dashboard start --port {port}")
+            return 2
+        return _cmd_gui_daemon(no_browser)
+
+    # --foreground: legacy per-run server (unchanged).
     import sys
     sys.path.insert(0, os.path.join(os.environ.get('FLOW_DIR', ''), 'utils', 'dashboard'))
     try:
         from race_dashboard import start_dashboard
     except ImportError:
-        # Try relative path
         dashboard_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'dashboard')
         sys.path.insert(0, dashboard_dir)
         from race_dashboard import start_dashboard
-
-    port = getattr(args, 'port', 0) or 0  # 0 = auto-find free port
-    no_browser = getattr(args, 'no_browser', False)
     return start_dashboard(os.getcwd(), port=port, open_browser=not no_browser) or 0
+
+
+def _cmd_gui_daemon(no_browser):
+    """Register the current run with the per-user dashboard daemon."""
+    import sys
+    dashboard_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'dashboard')
+    if dashboard_dir not in sys.path:
+        sys.path.insert(0, dashboard_dir)
+    import lifecycle  # noqa: E402
+
+    try:
+        lifecycle.ensure_daemon()
+        reply = lifecycle.send_register(os.getcwd())
+    except (RuntimeError, OSError) as e:
+        logger.error(f'dashboard daemon error: {e}')
+        return 1
+
+    if not reply.get('ok'):
+        logger.error(f'register failed: {reply.get("error", "unknown")}')
+        return 1
+
+    url = reply['url']
+    logger.info(f'Dashboard URL: {url}')
+
+    if no_browser:
+        return 0
+
+    if lifecycle.is_ssh_session():
+        import socket
+        port = lifecycle.status()['port']
+        host = socket.gethostname()
+        logger.info('SSH session detected — not opening browser.')
+        logger.info(f'  Tunnel:    ssh -L {port}:localhost:{port} $USER@{host}')
+        logger.info(f'  Then open: {url}')
+        return 0
+
+    if lifecycle.open_browser(url):
+        return 0
+    logger.info(f'Browser launch failed; open manually: {url}')
+    return 0
 
 
 def cmd_db_manage(args):

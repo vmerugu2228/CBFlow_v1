@@ -1,5 +1,5 @@
 #!/usr/bin/env tclsh
-# SYNTH release_db - Cadence Genus
+# SYNTH release_data - Cadence Genus
 
 # -- Bootstrap -----------------------------------------------------------------
 set run_dir $::env(CBFLOW_RUN_DIR)
@@ -7,13 +7,17 @@ source "$run_dir/.run.cbflow.tcl"
 source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "SYNTH"
-set STAGE_NAME "release_db"
-set NODE_NAME "release_db1"
+set STAGE_NAME "release_data"
+set NODE_NAME "release_data1"
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
+
+# Source release utilities for ::CBFlow::Release namespace
+set _ru "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
+if {[file exists $_ru]} { source $_ru }
 # Source release utilities
 set release_utils "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
 
@@ -24,12 +28,12 @@ set release_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/release
 if {[file exists $release_config]} { source $release_config }
 
 global synth project tech flow
-handle_info "Starting SYNTH release_db with Cadence Genus..."
+handle_info "Starting SYNTH release_data with Cadence Genus..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
 
 # ── Directories ──────────────────────────────────────────────────────────────
-set WORK_DIR "$run_dir/work/SYNTH/release_db1"
+set WORK_DIR "$run_dir/work/SYNTH/release_data1"
 set REPORTS_DIR "$WORK_DIR/reports"
 set OUTPUTS_DIR "$run_dir/outputs"
 file mkdir $REPORTS_DIR
@@ -85,14 +89,15 @@ flow_proc init_release {
     }
 
     handle_info "Release phase: $release_phase"
-    handle_info "Release tag: $project(release,tag)"
+    set _release_tag [expr {[info exists project(release,tag)] ? $project(release,tag) : "(unset)"}]
+    handle_info "Release tag: $_release_tag"
 }
 
 # ==============================================================================
-# flow_proc: release_db_database
+# flow_proc: release_data_database
 # Release synthesis database for downstream flows
 # ==============================================================================
-flow_proc release_db_database {
+flow_proc release_data_database {
     puts "INFO: Releasing synthesis database for downstream flows..."
 
     # Create release directory structure
@@ -130,7 +135,7 @@ flow_proc release_db_database {
     set manifest_file "results/release/release_manifest.txt"
     set fp [open $manifest_file w]
     puts $fp "# CBFlow Synthesis Release Manifest"
-    puts $fp "# Generated: [clock format [clock seconds]]"
+    puts $fp "# Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fp "# Flow: SYNTH"
     puts $fp "# Tool: Genus"
     puts $fp ""
@@ -207,11 +212,11 @@ flow_proc generate_release_output {
 }
 
 # Main release procedure
-flow_proc release_db_main {
+flow_proc release_data_main {
     puts "INFO: Starting synthesis database release process..."
 
     # Release database files
-    release_db_database
+    release_data_database
 
     # Verify release
     if {[verify_release_integrity]} {
@@ -225,7 +230,9 @@ flow_proc release_db_main {
 
 # Execute main procedure if called directly
 if {[info exists argv0] && [file tail $argv0] eq [file tail [info script]]} {
-    exit [release_db_main]
+    exit [release_data_main]
 }
 # Exit tool after stage completion
+
+flow_exec_all
 exit

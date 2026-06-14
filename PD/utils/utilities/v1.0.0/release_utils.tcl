@@ -40,20 +40,28 @@ proc init {args_flow_type args_design_name args_run_dir {args_phase "P0"}} {
     set run_dir $args_run_dir
     set release_phase $args_phase
 
-    global project
+    global project flow
 
-    # All from project_config.tcl and user_config.tcl — no env var lookups
+    # Detect test_mode — relaxed validation, uses placeholder values for
+    # mandatory release vars so the test suite can exercise the full release
+    # path without requiring per-project release config.
+    set _test_mode [expr {[info exists flow(test_mode)] && $flow(test_mode) eq "true"}]
 
-    # ── Release tag (MANDATORY — from project_config or user_config) ─────────
+    # ── Release tag (MANDATORY in real runs; placeholder in test_mode) ───────
     if {[info exists project(release,tag)] && $project(release,tag) ne ""} {
         set release_tag $project(release,tag)
+    } elseif {$_test_mode} {
+        set release_tag "test_release_tag"
+        ::handle_info "test_mode: using placeholder release_tag=$release_tag"
     } else {
         error "ERROR: project(release,tag) must be set in project_config.tcl for release"
     }
 
-    # ── Release phase (MANDATORY — from project_config) ──────────────────────
+    # ── Release phase (MANDATORY in real runs; defaults to args_phase in test) ─
     if {[info exists project(release,phase)] && $project(release,phase) ne ""} {
         set release_phase $project(release,phase)
+    } elseif {$_test_mode} {
+        # already set from args_phase above
     } else {
         error "ERROR: project(release,phase) must be set in project_config.tcl for release"
     }
@@ -64,15 +72,21 @@ proc init {args_flow_type args_design_name args_run_dir {args_phase "P0"}} {
         set block_name $project(release,block_name)
     } elseif {$design_name ne ""} {
         set block_name $design_name
+    } elseif {$_test_mode} {
+        set block_name "test_block"
     } else {
         error "ERROR: project(release,block_name) or design_name must be set for release"
     }
 
-    # ── Release base path (MANDATORY — from project_config) ──────────────────
-    if {![info exists project(release,path)] || $project(release,path) eq ""} {
+    # ── Release base path (MANDATORY in real runs; test uses run_dir/release) ─
+    if {[info exists project(release,path)] && $project(release,path) ne ""} {
+        set release_base $project(release,path)
+    } elseif {$_test_mode} {
+        set release_base "$run_dir/release"
+        ::handle_info "test_mode: using placeholder release_base=$release_base"
+    } else {
         error "ERROR: project(release,path) must be set in project_config.tcl for release"
     }
-    set release_base $project(release,path)
 
     # ── Assemble: $release_path/$phase/$block_name/$release_tag ──────────────
     set release_dir "$release_base/$release_phase/$block_name/$release_tag"
@@ -132,6 +146,18 @@ proc copy_glob {src_pattern dest_subdir} {
 # ── Validate Mandatory Files ────────────────────────────────────────────────
 proc validate_mandatory_files {} {
     variable release_dir release_phase flow_type run_dir release_errors
+
+    # Defensive defaults — if init() wasn't called or namespace var binding
+    # didn't propagate, fall back so we don't crash on `$release_phase`.
+    if {![info exists release_phase] || $release_phase eq ""} {
+        set release_phase "P0"
+    }
+    if {![info exists flow_type] || $flow_type eq ""} {
+        set flow_type "UNKNOWN"
+    }
+    if {![info exists release_dir]} { set release_dir "" }
+    if {![info exists run_dir]} { set run_dir "" }
+    if {![info exists release_errors]} { set release_errors {} }
 
     # Source release_config.tcl if not already loaded
     if {![info exists ::release_exit_files]} {

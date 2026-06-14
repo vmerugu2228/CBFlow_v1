@@ -15,7 +15,7 @@ set stage_name "export_data"
 if {$node_name eq ""} { set node_name "${stage_name}1" }
 
 set _tool_ver [expr {[info exists ::env(INNOVUS_VERSION)] ? $::env(INNOVUS_VERSION) : "v1.0.0"}]
-set cmd_file "$::env(FLOW_DIR)/cmds/PNR/cadence/innovus/$_tool_ver/export_db_innovus.tcl"
+set cmd_file "$::env(FLOW_DIR)/cmds/PNR/cadence/innovus/$_tool_ver/export_data_innovus.tcl"
 
 set test_mode [handler_is_test_mode]
 

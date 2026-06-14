@@ -38,7 +38,7 @@ flow_proc load_design {
 
     # FC-RM: set_early_data_check_policy
     set qor_mode "balanced"
-    if {$synth_pnr(common,compile,qor_mode) ne ""} { set qor_mode $synth_pnr(common,compile,qor_mode) }
+    if {[info exists synth_pnr(common,compile,qor_mode)] && $synth_pnr(common,compile,qor_mode) ne ""} { set qor_mode $synth_pnr(common,compile,qor_mode) }
     if {$qor_mode eq "early_design"} {
         set_early_data_check_policy -policy lenient -if_not_exist
     }
@@ -48,7 +48,7 @@ flow_proc load_design {
     # FC-RM: Hierarchical — swap abstracts for place_opt
     set _run_type $flow(run_type)
     if {$_run_type eq "hier"} {
-        if {$synth_pnr(common,block_abstract_for_place_opt) ne ""} {
+        if {[info exists synth_pnr(common,block_abstract_for_place_opt)] && $synth_pnr(common,block_abstract_for_place_opt) ne ""} {
             change_abstract -references [get_blocks -hierarchical] \
                 -label [lindex $synth_pnr(common,block_abstract_for_place_opt) 0] \
                 -view [lindex $synth_pnr(common,block_abstract_for_place_opt) 1]
@@ -68,12 +68,13 @@ flow_proc load_design {
 # flow_proc: set_active_scenarios
 # FC-RM: set_scenario_status, hold scenario check
 # ==============================================================================
+}
 flow_proc set_active_scenarios {
     handle_info "Setting active scenarios for place_opt..."
     global synth_pnr
 
     # Priority: synth_pnr user override > mmmc_config get_node_scenarios("placement")
-    if {$synth_pnr(place,opt_active_scenarios) ne ""} {
+    if {[info exists synth_pnr(place,opt_active_scenarios)] && $synth_pnr(place,opt_active_scenarios) ne ""} {
         set_scenario_status -active false [get_scenarios -filter active]
         set_scenario_status -active true $synth_pnr(place,opt_active_scenarios)
         handle_info "Active scenarios (user override): $synth_pnr(place,opt_active_scenarios)"
@@ -87,8 +88,8 @@ flow_proc set_active_scenarios {
     }
 
     # FC-RM: Adjustment file
-    if {$synth_pnr(common,mcmm_adjustment_file) ne "" && [file exists $synth_pnr(common,mcmm_adjustment_file)]} {
-        source -e $synth_pnr(common,mcmm_adjustment_file)
+    if {[info exists synth_pnr(common,mcmm_adjustment_file)] && $synth_pnr(common,mcmm_adjustment_file) ne "" && [file exists $synth_pnr(common,mcmm_adjustment_file)]} {
+        source $synth_pnr(common,mcmm_adjustment_file)
     }
 
     # FC-RM: Check hold scenarios for CCD
@@ -102,6 +103,7 @@ flow_proc set_active_scenarios {
 # FC-RM: set_qor_strategy -stage place_initial, routing layers,
 #         disable power scenarios for timing metric
 # ==============================================================================
+}
 flow_proc set_qor_strategy {
     handle_info "Setting QoR strategy for place_opt..."
     global synth_pnr
@@ -110,14 +112,14 @@ flow_proc set_qor_strategy {
     set cmd "set_qor_strategy -stage place_initial"
     set metric "timing"
     set mode "balanced"
-    if {$synth_pnr(common,compile,qor_metric) ne ""} { set metric $synth_pnr(common,compile,qor_metric) }
-    if {$synth_pnr(common,compile,qor_mode) ne ""}   { set mode $synth_pnr(common,compile,qor_mode) }
+    if {[info exists synth_pnr(common,compile,qor_metric)] && $synth_pnr(common,compile,qor_metric) ne ""} { set metric $synth_pnr(common,compile,qor_metric) }
+    if {[info exists synth_pnr(common,compile,qor_mode)] && $synth_pnr(common,compile,qor_mode) ne ""}   { set mode $synth_pnr(common,compile,qor_mode) }
     lappend cmd -metric $metric -mode $mode
 
-    if {$synth_pnr(common,compile,reduced_effort) ne "" && $synth_pnr(common,compile,reduced_effort)} {
+    if {[info exists synth_pnr(common,compile,reduced_effort)] && $synth_pnr(common,compile,reduced_effort) ne "" && $synth_pnr(common,compile,reduced_effort)} {
         lappend cmd -reduced_effort
     }
-    if {$synth_pnr(common,compile,congestion_effort) ne ""} {
+    if {[info exists synth_pnr(common,compile,congestion_effort)] && $synth_pnr(common,compile,congestion_effort) ne ""} {
         lappend cmd -congestion_effort $synth_pnr(common,compile,congestion_effort)
     }
 
@@ -126,10 +128,10 @@ flow_proc set_qor_strategy {
     eval $cmd
 
     # FC-RM: Routing layer constraints
-    if {$synth_pnr(common,route_max_layer) ne ""} {
+    if {[info exists synth_pnr(common,route_max_layer)] && $synth_pnr(common,route_max_layer) ne ""} {
         set_ignored_layers -max_routing_layer $synth_pnr(common,route_max_layer)
     }
-    if {$synth_pnr(common,route_min_layer) ne ""} {
+    if {[info exists synth_pnr(common,route_min_layer)] && $synth_pnr(common,route_min_layer) ne ""} {
         set_ignored_layers -min_routing_layer $synth_pnr(common,route_min_layer)
     }
 
@@ -155,9 +157,10 @@ flow_proc set_qor_strategy {
 # FC-RM: Instance prefixes, non-persistent settings, multi-Vt, CTS primary
 #         corner, spare cells, freeze ports, mark ideal clocks, mark_clock_trees
 # ==============================================================================
+}
 flow_proc configure_place_opt {
     handle_info "Configuring place_opt settings..."
-    global synth_pnr tech
+    global flow synth_pnr tech
     apply_vt_dont_use
 
     # FC-RM: Instance name prefixes
@@ -165,41 +168,41 @@ flow_proc configure_place_opt {
     set_app_options -name cts.common.user_instance_name_prefix -value place_opt_cts_
 
     # FC-RM: Non-persistent settings
-    if {$synth_pnr(common,non_persistent_script) ne "" && [file exists $synth_pnr(common,non_persistent_script)]} {
-        source -e $synth_pnr(common,non_persistent_script)
+    if {[info exists synth_pnr(common,non_persistent_script)] && $synth_pnr(common,non_persistent_script) ne "" && [file exists $synth_pnr(common,non_persistent_script)]} {
+        source $synth_pnr(common,non_persistent_script)
     }
 
     # FC-RM: Multi-Vt constraint
-    if {$synth_pnr(common,multi_vt_constraint_file) ne "" && [file exists $synth_pnr(common,multi_vt_constraint_file)]} {
-        source -e $synth_pnr(common,multi_vt_constraint_file)
+    if {[info exists synth_pnr(common,multi_vt_constraint_file)] && $synth_pnr(common,multi_vt_constraint_file) ne "" && [file exists $synth_pnr(common,multi_vt_constraint_file)]} {
+        source $synth_pnr(common,multi_vt_constraint_file)
     }
 
     # FC-RM: Lib cell purpose
-    if {$synth_pnr(common,lib_cell_purpose_file) ne "" && [file exists $synth_pnr(common,lib_cell_purpose_file)]} {
-        source -e $synth_pnr(common,lib_cell_purpose_file)
+    if {[info exists synth_pnr(common,lib_cell_purpose_file)] && $synth_pnr(common,lib_cell_purpose_file) ne "" && [file exists $synth_pnr(common,lib_cell_purpose_file)]} {
+        source $synth_pnr(common,lib_cell_purpose_file)
     } elseif {[info exists tech(lib_cell_purpose_file)] && [file exists $tech(lib_cell_purpose_file)]} {
-        source -e $tech(lib_cell_purpose_file)
+        source $tech(lib_cell_purpose_file)
     }
 
     # FC-RM: CTS primary corner
-    if {$synth_pnr(common,cts_primary_corner) ne ""} {
+    if {[info exists synth_pnr(common,cts_primary_corner)] && $synth_pnr(common,cts_primary_corner) ne ""} {
         set_app_options -name cts.compile.primary_corner -value $synth_pnr(common,cts_primary_corner)
     }
 
     # FC-RM: Spare cells before place_opt
-    if {$synth_pnr(common,spare_cell_pre_script) ne "" && [file exists $synth_pnr(common,spare_cell_pre_script)]} {
-        source -e $synth_pnr(common,spare_cell_pre_script)
+    if {[info exists synth_pnr(common,spare_cell_pre_script)] && $synth_pnr(common,spare_cell_pre_script) ne "" && [file exists $synth_pnr(common,spare_cell_pre_script)]} {
+        source $synth_pnr(common,spare_cell_pre_script)
     }
 
     # FC-RM: Freeze ports for DFT hierarchy preservation
-    if {$synth_pnr(common,optimization_freeze_port_list) ne ""} {
+    if {[info exists synth_pnr(common,optimization_freeze_port_list)] && $synth_pnr(common,optimization_freeze_port_list) ne ""} {
         set_app_options -name opt.dft.hier_preservation -value true
         set_freeze_port -all [get_cells $synth_pnr(common,optimization_freeze_port_list)]
     }
 
     # FC-RM: User pre-place_opt script
-    if {$synth_pnr(place,place_opt_pre_script) ne "" && [file exists $synth_pnr(place,place_opt_pre_script)]} {
-        source -e $synth_pnr(place,place_opt_pre_script)
+    if {[info exists synth_pnr(place,place_opt_pre_script)] && $synth_pnr(place,place_opt_pre_script) ne "" && [file exists $synth_pnr(place,place_opt_pre_script)]} {
+        source $synth_pnr(place,place_opt_pre_script)
     }
 
     # FC-RM: Pre-place_opt reports
@@ -241,6 +244,7 @@ flow_proc configure_place_opt {
 # FC-RM: place_opt — SPG or non-SPG (two-pass) flow,
 #         high utilization flow support
 # ==============================================================================
+}
 flow_proc run_place_opt {
     handle_info "Running place_opt..."
     global synth_pnr flow
@@ -251,7 +255,7 @@ flow_proc run_place_opt {
     set_svf $::OUTPUTS_DIR/${design_name}_place_opt.svf
 
     set enable_spg false
-    if {$synth_pnr(synthesis,compile,enable_spg) ne ""} { set enable_spg $synth_pnr(synthesis,compile,enable_spg) }
+    if {[info exists synth_pnr(synthesis,compile,enable_spg)] && $synth_pnr(synthesis,compile,enable_spg) ne ""} { set enable_spg $synth_pnr(synthesis,compile,enable_spg) }
 
     if {$enable_spg} {
         # ── SPG flow ──────────────────────────────────────────────────────────
@@ -262,7 +266,7 @@ flow_proc run_place_opt {
 
         # FC-RM: High utilization flow (pre-pass)
         set high_util false
-        if {$synth_pnr(place,place_opt,high_utilization_flow) ne ""} {
+        if {[info exists synth_pnr(place,place_opt,high_utilization_flow)] && $synth_pnr(place,place_opt,high_utilization_flow) ne ""} {
             set high_util $synth_pnr(place,place_opt,high_utilization_flow)
         }
         if {$high_util} {
@@ -288,8 +292,8 @@ flow_proc run_place_opt {
         save_block -as ${design_name}/place_opt_two_pass
 
         # FC-RM: User script between passes
-        if {$synth_pnr(place,place_opt_incremental_post_script) ne "" && [file exists $synth_pnr(place,place_opt_incremental_post_script)]} {
-            source -e $synth_pnr(place,place_opt_incremental_post_script)
+        if {[info exists synth_pnr(place,place_opt_incremental_post_script)] && $synth_pnr(place,place_opt_incremental_post_script) ne "" && [file exists $synth_pnr(place,place_opt_incremental_post_script)]} {
+            source $synth_pnr(place,place_opt_incremental_post_script)
         }
 
         # FC-RM: Final place_opt from initial_drc
@@ -309,23 +313,24 @@ flow_proc run_place_opt {
 # FC-RM: User post script, spare cells, connect_pg_net,
 #         re-enable power scenarios
 # ==============================================================================
+}
 flow_proc post_place_opt {
     handle_info "Running post-place_opt tasks..."
-    global synth_pnr
+    global flow synth_pnr
 
     # FC-RM: User post-place_opt script
-    if {$synth_pnr(place,place_opt_post_script) ne "" && [file exists $synth_pnr(place,place_opt_post_script)]} {
-        source -e $synth_pnr(place,place_opt_post_script)
+    if {[info exists synth_pnr(place,place_opt_post_script)] && $synth_pnr(place,place_opt_post_script) ne "" && [file exists $synth_pnr(place,place_opt_post_script)]} {
+        source $synth_pnr(place,place_opt_post_script)
     }
 
     # FC-RM: Spare cell insertion after place_opt
-    if {$synth_pnr(common,spare_cell_post_script) ne "" && [file exists $synth_pnr(common,spare_cell_post_script)]} {
-        source -e $synth_pnr(common,spare_cell_post_script)
+    if {[info exists synth_pnr(common,spare_cell_post_script)] && $synth_pnr(common,spare_cell_post_script) ne "" && [file exists $synth_pnr(common,spare_cell_post_script)]} {
+        source $synth_pnr(common,spare_cell_post_script)
     }
 
     # FC-RM: connect_pg_net
-    if {$synth_pnr(common,connect_pg_net_script) ne "" && [file exists $synth_pnr(common,connect_pg_net_script)]} {
-        source -e $synth_pnr(common,connect_pg_net_script)
+    if {[info exists synth_pnr(common,connect_pg_net_script)] && $synth_pnr(common,connect_pg_net_script) ne "" && [file exists $synth_pnr(common,connect_pg_net_script)]} {
+        source $synth_pnr(common,connect_pg_net_script)
     } else {
         connect_pg_net
     }
@@ -345,15 +350,16 @@ flow_proc post_place_opt {
 # flow_proc: create_abstracts
 # FC-RM: create_abstract, create_frame for hierarchical designs
 # ==============================================================================
+}
 flow_proc create_abstracts {
     handle_info "Creating abstracts..."
-    global synth_pnr
+    global flow synth_pnr
 
     set _run_type $flow(run_type)
 
     if {$_run_type eq "hier"} {
         set hier_level "bottom"
-        if {$synth_pnr(common,physical_hierarchy_level) ne ""} { set hier_level $synth_pnr(common,physical_hierarchy_level) }
+        if {[info exists synth_pnr(common,physical_hierarchy_level)] && $synth_pnr(common,physical_hierarchy_level) ne ""} { set hier_level $synth_pnr(common,physical_hierarchy_level) }
         if {$hier_level ne "top"} {
             handle_info "Creating abstract and frame (level=$hier_level)"
             create_abstract -read_only
@@ -366,6 +372,7 @@ flow_proc create_abstracts {
 # flow_proc: save_design
 # FC-RM: save_block, set_svf -off
 # ==============================================================================
+}
 flow_proc save_design {
     handle_info "Saving place_opt design..."
     global synth_pnr flow
@@ -373,7 +380,7 @@ flow_proc save_design {
     set design_name [expr {$synth_pnr(common,design_name) ne "" ? $synth_pnr(common,design_name) : $flow(design_name)}]
 
     save_block
-    if {$synth_pnr(common,output,block_labeling) ne "" && $synth_pnr(common,output,block_labeling)} {
+    if {[info exists synth_pnr(common,output,block_labeling)] && $synth_pnr(common,output,block_labeling) ne "" && $synth_pnr(common,output,block_labeling)} {
         save_block -as ${design_name}/place_opt
         handle_info "Block saved: ${design_name}/place_opt"
     }
@@ -385,6 +392,7 @@ flow_proc save_design {
 # FC-RM: report_qor, report_timing, report_congestion, report_power,
 #         write_qor_data, run_end
 # ==============================================================================
+}
 flow_proc generate_reports {
     handle_info "Generating place_opt reports..."
     global synth_pnr
@@ -436,6 +444,7 @@ flow_proc generate_reports {
     handle_info "Place_opt reports generated in: $::REPORTS_DIR"
 # ==============================================================================
 # ==============================================================================
+}
 flow_exec_all
 
 # BUG FIX #7: Exit tool after stage completion

@@ -17,11 +17,17 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
+
+# ── Design name (resolve from pv(...) or flow(...)) ──────────────────────
+set DESIGN_NAME [expr {[info exists pv(common,design_name)] ? $pv(common,design_name) :
+                       [expr {[info exists flow(design_name)] ? $flow(design_name) : "design"}]}]
+set ::DESIGN_NAME $DESIGN_NAME
 # ═══════════════════════════════════════════════════════════════════════════════
 # Setup XOR environment
 # ═══════════════════════════════════════════════════════════════════════════════
 flow_proc setup_xor_environment {
     global pv project tech
+    set run_dir $::env(CBFLOW_RUN_DIR)
 
     handle_info "Setting up Calibre XOR environment..."
 
@@ -123,7 +129,7 @@ flow_proc generate_xor_report {
     puts $rpt "═══════════════════════════════════════════════════════════════════════════════"
     puts $rpt "CBflow PV — XOR Results (Siemens Calibre)"
     puts $rpt "═══════════════════════════════════════════════════════════════════════════════"
-    puts $rpt "Generated: [clock format [clock seconds]]"
+    puts $rpt "Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     if {[info exists project(top_module)]} { puts $rpt "Design: $project(top_module)" }
     if {[info exists tech(node)]} { puts $rpt "Technology: $tech(node)" }
     puts $rpt "Tool: Siemens Calibre XOR (calibrediff)"

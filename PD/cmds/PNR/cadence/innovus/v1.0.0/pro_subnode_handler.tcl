@@ -15,7 +15,7 @@ set stage_name "pro"
 if {$node_name eq ""} { set node_name "${stage_name}1" }
 
 set _tool_ver [expr {[info exists ::env(INNOVUS_VERSION)] ? $::env(INNOVUS_VERSION) : "v1.0.0"}]
-set cmd_file "$::env(FLOW_DIR)/cmds/PNR/cadence/innovus/$_tool_ver/post_route_innovus.tcl"
+set cmd_file "$::env(FLOW_DIR)/cmds/PNR/cadence/innovus/$_tool_ver/pro_innovus.tcl"
 
 set test_mode [handler_is_test_mode]
 

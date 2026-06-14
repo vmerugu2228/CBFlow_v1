@@ -1,5 +1,5 @@
 #!/usr/bin/env tclsh
-# PNR export_db - Cadence Innovus
+# PNR export_data - Cadence Innovus
 
 # -- Bootstrap -----------------------------------------------------------------
 set run_dir $::env(CBFLOW_RUN_DIR)
@@ -7,7 +7,7 @@ source "$run_dir/.run.cbflow.tcl"
 source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "PNR"
-set STAGE_NAME "export_db"
+set STAGE_NAME "export_data"
 set NODE_NAME "export_data1"
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
@@ -25,7 +25,7 @@ flow_proc load_design {
     set _db "$run_dir/work/$::FLOW_TYPE/signoff1/outputs/signoff.enc.dat"
     if {![file exists $_db]} {
         handle_error "signoff database not found: $_db"
-        exit 1
+        return
     }
     handle_info "Restoring design: $_db"
     restoreDesign $_db $flow(design_name)
@@ -35,10 +35,10 @@ flow_proc load_design {
 
 
 flow_proc enable_mmmc {
-    # Enable MMMC scenarios for export_db stage
+    # Enable MMMC scenarios for export_data stage
     global analysis_views mmmc
     
-    handle_info "Enabling MMMC scenarios for export_db stage"
+    handle_info "Enabling MMMC scenarios for export_data stage"
     
     # Load MMMC configuration
     if {![load_mmmc_config]} {
@@ -47,24 +47,24 @@ flow_proc enable_mmmc {
     }
     
     # Get effective scenarios (user override or hardcoded defaults)
-    set setup_scenarios [get_effective_scenarios "export_db" "setup"]
-    set hold_scenarios [get_effective_scenarios "export_db" "hold"]
+    set setup_scenarios [get_effective_scenarios "export_data" "setup"]
+    set hold_scenarios [get_effective_scenarios "export_data" "hold"]
     
     if {![llength $setup_scenarios] && ![llength $hold_scenarios]} {
-        handle_info "No MMMC scenarios configured for export_db, using default single-corner mode"
+        handle_info "No MMMC scenarios configured for export_data, using default single-corner mode"
         return
     }
     
     # Combine setup and hold scenarios
-    set all_scenarios [get_node_all_scenarios "export_db"]
+    set all_scenarios [get_node_all_scenarios "export_data"]
     
-    handle_info "export_db MMMC scenarios:"
+    handle_info "export_data MMMC scenarios:"
     handle_info "  Setup scenarios ([llength $setup_scenarios]): [join $setup_scenarios { }]"
     handle_info "  Hold scenarios ([llength $hold_scenarios]): [join $hold_scenarios { }]"
     handle_info "  Total unique scenarios: [llength $all_scenarios]"
     
     # Tool-specific MMMC scenario setup would go here
-    handle_info "MMMC scenarios configured for export_db stage"
+    handle_info "MMMC scenarios configured for export_data stage"
 }
 
 flow_proc setup_export_directories {
@@ -274,7 +274,6 @@ flow_proc export_netlist_data {
         
         handle_info "LEF file export completed"
     }
-}
 
 flow_proc export_timing_data {
     handle_info "Exporting timing data..."
@@ -356,8 +355,8 @@ flow_proc export_timing_data {
         puts $fd ""
         
         # Get active scenarios
-        if {[is_mmmc_stage "export_db"]} {
-            set all_scenarios [get_node_all_scenarios "export_db"]
+        if {[is_mmmc_stage "export_data"]} {
+            set all_scenarios [get_node_all_scenarios "export_data"]
             foreach scenario $all_scenarios {
                 puts $fd "# Scenario: $scenario"
                 # Export scenario-specific data
@@ -525,7 +524,7 @@ flow_proc export_physical_data {
 flow_proc export_verification_data {
     handle_info "Exporting verification data..."
     
-    global pnr project
+    global pnr project tech
     set top_module [expr {[info exists project(top_module)] ? $project(top_module) : [handle_error "project(top_module) not defined"]}]
     set export_base "results/export"
     
@@ -622,7 +621,7 @@ flow_proc generate_export_scripts {
     }
     puts $fd ""
     puts $fd "# Load netlist"
-    global project
+    global project tech
     set top_module [expr {[info exists project(top_module)] ? $project(top_module) : [handle_error "project(top_module) not defined"]}]
     puts $fd "read_netlist ../netlist/verilog/${top_module}_final.v"
     puts $fd ""
@@ -658,7 +657,7 @@ flow_proc generate_export_scripts {
     set manifest_script "$scripts_dir/file_manifest.txt"
     set fd [open $manifest_script "w"]
     puts $fd "# OMNI FLOW Export File Manifest"
-    puts $fd "# Generated: [clock format [clock seconds]]"
+    puts $fd "# Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fd "# Design: $top_module"
     puts $fd ""
     puts $fd "=== LAYOUT FILES ==="
@@ -696,7 +695,7 @@ flow_proc generate_export_documentation {
     set export_base "results/export"
     set doc_dir "$export_base/documentation"
     
-    global pnr project
+    global pnr project tech
     set top_module [expr {[info exists project(top_module)] ? $project(top_module) : [handle_error "project(top_module) not defined"]}]
     
     # Create comprehensive README
@@ -704,7 +703,7 @@ flow_proc generate_export_documentation {
     set fd [open $readme_file "w"]
     puts $fd "# $top_module Export Package"
     puts $fd ""
-    puts $fd "Generated by OMNI FLOW on [clock format [clock seconds]]"
+    puts $fd "Generated by OMNI FLOW on [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fd ""
     puts $fd "## Design Information"
     puts $fd ""
@@ -716,7 +715,7 @@ flow_proc generate_export_documentation {
         puts $fd "- **Technology:** $tech(node)"
     }
     puts $fd "- **Flow Tool:** innovus"
-    puts $fd "- **Export Date:** [clock format [clock seconds]]"
+    puts $fd "- **Export Date:** [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fd ""
     puts $fd "## Directory Structure"
     puts $fd ""
@@ -775,7 +774,7 @@ flow_proc generate_export_documentation {
     puts $fd "==================="
     puts $fd ""
     puts $fd "Design: $top_module"
-    puts $fd "Generated: [clock format [clock seconds]]"
+    puts $fd "Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fd ""
     puts $fd "PHYSICAL PARAMETERS"
     puts $fd "==================="
@@ -871,7 +870,7 @@ flow_proc validate_export_data {
     puts $fd "========================"
     puts $fd ""
     puts $fd "Design: $top_module"
-    puts $fd "Validation Date: [clock format [clock seconds]]"
+    puts $fd "Validation Date: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fd ""
     puts $fd "SUMMARY"
     puts $fd "======="
@@ -904,13 +903,13 @@ flow_proc validate_export_data {
     handle_info "Validation report: $validation_file"
 }
 
-flow_proc export_db_complete {
+flow_proc export_data_complete {
     handle_info "Database export stage complete"
 
     # Save checkpoint
     set _outputs "$::WORK_DIR/outputs"
     file mkdir $_outputs
-    saveDesign "$_outputs/export_db.enc"
+    saveDesign "$_outputs/export_data.enc"
 
     # Generate final export summary
     file mkdir "$::REPORTS_DIR"
@@ -918,7 +917,7 @@ flow_proc export_db_complete {
     set summary_file "$::REPORTS_DIR/export_summary.rpt"
     set fd [open $summary_file "w"]
     puts $fd "# OMNI FLOW Database Export Summary"
-    puts $fd "# Generated: [clock format [clock seconds]]"
+    puts $fd "# Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fd ""
     
     global project pnr
@@ -966,7 +965,10 @@ flow_proc export_db_complete {
     close $fd
     handle_info "Export summary generated: $summary_file"
     
-    log_stage_status "export_db" "COMPLETE" "Database export completed - all deliverables ready"
+    log_stage_status "export_data" "COMPLETE" "Database export completed - all deliverables ready"
 }
+
+flow_exec_all
+
 # Exit tool after stage completion
 exit

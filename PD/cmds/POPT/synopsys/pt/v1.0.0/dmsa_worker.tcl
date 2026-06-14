@@ -124,7 +124,7 @@ set _status_file "$_worker_rpt_dir/${::SCENARIO_NAME}_worker_status.rpt"
 if {[catch {
     set _sfh [open $_status_file w]
     puts $_sfh "DMSA Worker Status — $::SCENARIO_NAME"
-    puts $_sfh "Generated: [clock format [clock seconds]]"
+    puts $_sfh "Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $_sfh [string repeat "─" 50]
     puts $_sfh "Corner:      $::CORNER"
     puts $_sfh "Mode:        $::MODE"

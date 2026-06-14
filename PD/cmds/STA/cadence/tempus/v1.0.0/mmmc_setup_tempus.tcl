@@ -78,7 +78,7 @@ flow_proc resolve_scenarios {
     file mkdir [file dirname $out_file]
     set fh [open $out_file "w"]
     puts $fh "#!/usr/bin/env tclsh"
-    puts $fh "# Auto-generated MMMC active scenarios - [clock format [clock seconds]]"
+    puts $fh "# Auto-generated MMMC active scenarios - [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fh "# Scenario set: $scenario_set"
     puts $fh "# Tool: Cadence Tempus"
     puts $fh ""

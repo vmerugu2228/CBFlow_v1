@@ -301,7 +301,7 @@ handle_info "Processing RTL subnode..."
     puts $file_handle "# RTL Information"
     puts $file_handle "set rtl_info(source_files) \{$rtl_files\}"
     puts $file_handle "set rtl_info(target_files) \{$rtl_file_list\}"
-    puts $file_handle "set rtl_info(timestamp) \"[clock format [clock seconds]]\""
+    puts $file_handle "set rtl_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
     puts $file_handle "set rtl_info(file_count) \"[llength $rtl_file_list]\""
     close $file_handle
     
@@ -469,7 +469,7 @@ proc handle_sdc_subnode {run_dir} {
     puts $file_handle "# Constraints Information"
     puts $file_handle "set cons_info(source_file) \"$sdc_file\""
     puts $file_handle "set cons_info(target_file) \"$target_sdc\""
-    puts $file_handle "set cons_info(timestamp) \"[clock format [clock seconds]]\""
+    puts $file_handle "set cons_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
     puts $file_handle "set cons_info(size) \"[file size $sdc_file]\""
     close $file_handle
     
@@ -562,7 +562,7 @@ proc handle_upf_subnode {run_dir} {
         puts $file_handle "# UPF Information"
         puts $file_handle "set upf_info(source_file) \"\""
         puts $file_handle "set upf_info(target_file) \"\""
-        puts $file_handle "set upf_info(timestamp) \"[clock format [clock seconds]]\""
+        puts $file_handle "set upf_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
         puts $file_handle "set upf_info(status) \"not_provided\""
         close $file_handle
         
@@ -581,7 +581,7 @@ proc handle_upf_subnode {run_dir} {
         puts $file_handle "# UPF Information"
         puts $file_handle "set upf_info(source_file) \"$upf_file\""
         puts $file_handle "set upf_info(target_file) \"\""
-        puts $file_handle "set upf_info(timestamp) \"[clock format [clock seconds]]\""
+        puts $file_handle "set upf_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
         puts $file_handle "set upf_info(status) \"file_not_found\""
         close $file_handle
         
@@ -611,7 +611,7 @@ proc handle_upf_subnode {run_dir} {
     puts $file_handle "# UPF Information"
     puts $file_handle "set upf_info(source_file) \"$upf_file\""
     puts $file_handle "set upf_info(target_file) \"$target_upf\""
-    puts $file_handle "set upf_info(timestamp) \"[clock format [clock seconds]]\""
+    puts $file_handle "set upf_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
     puts $file_handle "set upf_info(size) \"[file size $upf_file]\""
     puts $file_handle "set upf_info(status) \"linked\""
     close $file_handle
@@ -793,7 +793,7 @@ proc handle_library_subnode {run_dir} {
         puts $file_handle "set library_info(analog_tag) \"$tech(library_tags,analog)\""
     }
 
-    puts $file_handle "set library_info(timestamp) \"[clock format [clock seconds]]\""
+    puts $file_handle "set library_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
     puts $file_handle "set library_info(files_count) [llength $linked_files]"
     if {[llength $linked_files] > 0} {
         puts $file_handle "set library_info(status) \"linked\""
@@ -879,7 +879,7 @@ switch $subnode_name {
         set info_file "$legacy_target_dir/setup_info.tcl"
         set file_handle [open $info_file "w"]
         puts $file_handle "# Setup Information - Legacy Compatibility"
-        puts $file_handle "set setup_info(timestamp) \"[clock format [clock seconds]]\""
+        puts $file_handle "set setup_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
         puts $file_handle "set setup_info(flow_type) \"SYNTH\""
         puts $file_handle "set setup_info(config_file) \"$config_file\""
         puts $file_handle "set setup_info(setup_file) \"$setup_file\""

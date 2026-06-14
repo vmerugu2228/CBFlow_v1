@@ -31,7 +31,7 @@ set ::design_name [expr {$synth_pnr(common,design_name) ne "" ? $synth_pnr(commo
 # ==============================================================================
 flow_proc create_design_library {
     handle_info "Creating design library..."
-    global synth_pnr tech flow
+    global flow project synth_pnr tech
 
     set run_dir $::env(CBFLOW_RUN_DIR)
     file mkdir "$run_dir/work/SYNTH_PNR/init_design1/run"
@@ -69,23 +69,23 @@ flow_proc create_design_library {
 
     # Priority 2: Backward compat — old single-file format
     if {[llength $ref_libs] == 0} {
-        if {$tech(ndm,standard_cells) ne ""} {
+        if {[info exists tech(ndm,standard_cells)] && $tech(ndm,standard_cells) ne ""} {
             lappend ref_libs $tech(ndm,standard_cells)
         }
-        if {$tech(ndm,memory) ne ""} {
+        if {[info exists tech(ndm,memory)] && $tech(ndm,memory) ne ""} {
             lappend ref_libs $tech(ndm,memory)
         }
-        if {$tech(ndm,io_pads) ne ""} {
+        if {[info exists tech(ndm,io_pads)] && $tech(ndm,io_pads) ne ""} {
             lappend ref_libs $tech(ndm,io_pads)
         }
     }
 
     # Sub-block NDMs — hierarchical designs (validated from project config)
-    if {$flow(run_type) eq "hier"} {
+    if {$flow(run_type) eq "hier" && [info exists project(block_list)] && [llength $project(block_list)] > 0} {
         foreach _block $project(block_list) {
             if {![info exists project(${_block},ndm)] || $project(${_block},ndm) eq ""} {
                 handle_error "Missing NDM for sub-block '$_block'. Set project(${_block},ndm) in project_config."
-                exit 1
+                return
             }
             lappend ref_libs $project(${_block},ndm)
         }
@@ -103,18 +103,18 @@ flow_proc create_design_library {
         if {$_trk ne "" && $tech(${_trk},lef) ne ""} {
             set fusion_lef_list $tech(${_trk},lef)
         } else {
-            if {$tech(lef,standard_cells) ne ""} { lappend fusion_lef_list $tech(lef,standard_cells) }
-            if {$tech(lef,macros) ne ""}         { lappend fusion_lef_list $tech(lef,macros) }
-            if {$tech(lef,io_pads) ne ""}        { lappend fusion_lef_list $tech(lef,io_pads) }
+            if {[info exists tech(lef,standard_cells)] && $tech(lef,standard_cells) ne ""} { lappend fusion_lef_list $tech(lef,standard_cells) }
+            if {[info exists tech(lef,macros)] && $tech(lef,macros) ne ""}         { lappend fusion_lef_list $tech(lef,macros) }
+            if {[info exists tech(lef,io_pads)] && $tech(lef,io_pads) ne ""}        { lappend fusion_lef_list $tech(lef,io_pads) }
         }
 
         # Track-categorized DB list
         if {$_trk ne "" && $tech(${_trk},db) ne ""} {
             set fusion_db_list $tech(${_trk},db)
         } else {
-            if {$tech(db,standard_cells) ne ""}  { lappend fusion_db_list $tech(db,standard_cells) }
-            if {$tech(db,memory) ne ""}          { lappend fusion_db_list $tech(db,memory) }
-            if {$tech(db,io_pads) ne ""}         { lappend fusion_db_list $tech(db,io_pads) }
+            if {[info exists tech(db,standard_cells)] && $tech(db,standard_cells) ne ""}  { lappend fusion_db_list $tech(db,standard_cells) }
+            if {[info exists tech(db,memory)] && $tech(db,memory) ne ""}          { lappend fusion_db_list $tech(db,memory) }
+            if {[info exists tech(db,io_pads)] && $tech(db,io_pads) ne ""}         { lappend fusion_db_list $tech(db,io_pads) }
         }
 
         if {[llength $fusion_lef_list] > 0 && [llength $fusion_db_list] > 0} {
@@ -136,11 +136,11 @@ flow_proc create_design_library {
     }
 
     # ── Technology file (from tech array) ─────────────────────────────────────
-    set tech_file $tech(tech_file)
-    set tech_lib $tech(ndm,tech_lib)
+    set tech_file [expr {[info exists tech(tech_file)] ? $tech(tech_file) : ""}]
+    set tech_lib  [expr {[info exists tech(ndm,tech_lib)] ? $tech(ndm,tech_lib) : ""}]
 
     # Parasitic tech library
-    set parasitic_tech_lib $tech(ndm,parasitic_tech)
+    set parasitic_tech_lib [expr {[info exists tech(ndm,parasitic_tech)] ? $tech(ndm,parasitic_tech) : ""}]
 
     # ── Build and execute create_lib command ──────────────────────────────────
     set create_lib_cmd "create_lib $lib_name"
@@ -149,7 +149,7 @@ flow_proc create_design_library {
     } elseif {$tech_lib ne ""} {
         lappend create_lib_cmd -use_technology_lib $tech_lib
     }
-    if {$tech(design_lib_scale_factor) ne ""} {
+    if {[info exists tech(design_lib_scale_factor)] && $tech(design_lib_scale_factor) ne ""} {
         lappend create_lib_cmd -scale_factor $tech(design_lib_scale_factor)
     }
     if {$parasitic_tech_lib ne ""} {
@@ -181,7 +181,7 @@ flow_proc create_design_library {
 # ==============================================================================
 flow_proc read_design {
     handle_info "Reading design..."
-    global synth_pnr flow
+    global flow synth_pnr tech
 
     # FC-RM: set_svf for formality
     set_svf $::OUTPUTS_DIR/init_design.svf
@@ -224,7 +224,7 @@ flow_proc setup_technology {
     global synth_pnr tech
 
     # FC-RM: set_technology -node
-    if {$tech(node) ne ""} {
+    if {[info exists tech(node)] && $tech(node) ne ""} {
         redirect -file $::REPORTS_DIR/set_technology { set_technology -node $tech(node) -report_only }
         set_technology -node $tech(node)
         handle_info "Technology node set: $tech(node)"
@@ -232,13 +232,13 @@ flow_proc setup_technology {
 
     # FC-RM: Technology setup (routing direction, offset, site default, site symmetry)
     # Script lives alongside tech_config.tcl in config/tech/<tech_name>/<version>/
-    if {$tech(tech_setup_script) ne "" && [file exists $tech(tech_setup_script)]} {
+    if {[info exists tech(tech_setup_script)] && $tech(tech_setup_script) ne "" && [file exists $tech(tech_setup_script)]} {
         handle_info "Sourcing tech setup: $tech(tech_setup_script)"
-        source -e $tech(tech_setup_script)
+        source $tech(tech_setup_script)
     }
 
     # FC-RM: read_physical_rules
-    if {$tech(physical_rules_file) ne "" && [file exists $tech(physical_rules_file)]} {
+    if {[info exists tech(physical_rules_file)] && $tech(physical_rules_file) ne "" && [file exists $tech(physical_rules_file)]} {
         handle_info "Reading physical rules: $tech(physical_rules_file)"
         read_physical_rules $tech(physical_rules_file)
     }
@@ -259,7 +259,7 @@ flow_proc load_floorplan {
     # FC-RM: TCL_FLOORPLAN_FILE or DEF_FLOORPLAN_FILES
     if {[info exists synth_pnr(input,fp_tcl)] && $synth_pnr(input,fp_tcl) ne "" && [file exists $synth_pnr(input,fp_tcl)]} {
         handle_info "Sourcing floorplan TCL: $synth_pnr(input,fp_tcl)"
-        source -e $synth_pnr(input,fp_tcl)
+        source $synth_pnr(input,fp_tcl)
     } elseif {[info exists synth_pnr(input,def_file)] && $synth_pnr(input,def_file) ne ""} {
         if {[file exists $synth_pnr(input,def_file)]} {
             handle_info "Reading DEF floorplan: $synth_pnr(input,def_file)"
@@ -277,8 +277,8 @@ flow_proc load_floorplan {
     }
 
     # FC-RM: Source switch connectivity and associate MV cells
-    if {$synth_pnr(common,switch_connectivity_file) ne "" && [file exists $synth_pnr(common,switch_connectivity_file)]} {
-        source -e $synth_pnr(common,switch_connectivity_file)
+    if {[info exists synth_pnr(common,switch_connectivity_file)] && $synth_pnr(common,switch_connectivity_file) ne "" && [file exists $synth_pnr(common,switch_connectivity_file)]} {
+        source $synth_pnr(common,switch_connectivity_file)
         associate_mv_cell -power_switches
     }
 
@@ -409,9 +409,9 @@ flow_proc insert_physical_cells {
     }
 
     # ── FC-RM: Spare cells (optional) ────────────────────────────────────────
-    if {$synth_pnr(common,spare_cells_file) ne "" && [file exists $synth_pnr(common,spare_cells_file)]} {
+    if {[info exists synth_pnr(common,spare_cells_file)] && $synth_pnr(common,spare_cells_file) ne "" && [file exists $synth_pnr(common,spare_cells_file)]} {
         handle_info "  Sourcing spare cells: $synth_pnr(common,spare_cells_file)"
-        source -e $synth_pnr(common,spare_cells_file)
+        source $synth_pnr(common,spare_cells_file)
     }
 
     save_lib -all
@@ -425,7 +425,7 @@ flow_proc insert_physical_cells {
 # ==============================================================================
 flow_proc setup_design_checks {
     handle_info "Running design checks..."
-    global synth_pnr flow
+    global flow synth_pnr tech
 
     # FC-RM: Uniquify design
     set_app_option -name design.uniquify_naming_style -value ${::design_name}_%s_%d
@@ -457,7 +457,7 @@ flow_proc setup_mcmm {
     set run_dir $::env(CBFLOW_RUN_DIR)
 
     # ── Step 1: Load UPF (before MCMM) ──────────────────────────────────────
-    if {$synth_pnr(common,upf_mode) ne "" && $synth_pnr(common,upf_mode) eq "golden"} {
+    if {[info exists synth_pnr(common,upf_mode)] && $synth_pnr(common,upf_mode) ne "" && $synth_pnr(common,upf_mode) eq "golden"} {
         set_app_options -name mv.upf.enable_golden_upf -value true
     }
     set upf_file "$::UPF_DIR/${::design_name}.upf"
@@ -480,19 +480,23 @@ flow_proc setup_mcmm {
 
     # ── Step 3: Create corners (from analysis_views — timing libs + parasitics)
     global analysis_views
-    set _trk $tech(track)
+    set _trk [expr {[info exists tech(track)] ? $tech(track) : ""}]
     set _corners_created {}
     foreach scenario [array names analysis_views] {
         array set _v $analysis_views($scenario)
         set _corner_name "${_v(corner)}_${_v(lib_set_ref)}"
         if {$_corner_name ni $_corners_created} {
-            # Timing libs from tech_config
+            # Timing libs from tech_config — skip corner if not defined for this track.
             set _lib_key "${_trk},lib,${_v(lib_set_ref)},timing"
+            if {![info exists tech($_lib_key)]} {
+                handle_warning "Skipping corner ${_corner_name}: tech($_lib_key) not defined"
+                continue
+            }
             set _timing_libs $tech($_lib_key)
 
             # RC parasitic from tech_config
             set _rc $_v(rc_corner)
-            set _tlu $tech(rcx,${_rc},tluplus)
+            set _tlu [expr {[info exists tech(rcx,${_rc},tluplus)] ? $tech(rcx,${_rc},tluplus) : ""}]
 
             create_corner $_corner_name
             set_parasitic_parameters -corner $_corner_name \
@@ -534,9 +538,9 @@ flow_proc setup_mcmm {
     }
 
     # FC-RM: Design constraints (dont_touch, clock_gating, etc.)
-    if {$synth_pnr(common,constraints_setup_file) ne "" && [file exists $synth_pnr(common,constraints_setup_file)]} {
+    if {[info exists synth_pnr(common,constraints_setup_file)] && $synth_pnr(common,constraints_setup_file) ne "" && [file exists $synth_pnr(common,constraints_setup_file)]} {
         handle_info "Sourcing constraints setup: $synth_pnr(common,constraints_setup_file)"
-        source -e $synth_pnr(common,constraints_setup_file)
+        source $synth_pnr(common,constraints_setup_file)
     }
 
     # ── Step 5: Remove propagated clocks (FC-RM requirement for ASCII input) ─
@@ -561,20 +565,20 @@ flow_proc setup_timing_variations {
     global synth_pnr tech
 
     # FC-RM: POCV setup (preferred over AOCV)
-    if {$synth_pnr(common,pocv_setup_file) ne "" && [file exists $synth_pnr(common,pocv_setup_file)]} {
+    if {[info exists synth_pnr(common,pocv_setup_file)] && $synth_pnr(common,pocv_setup_file) ne "" && [file exists $synth_pnr(common,pocv_setup_file)]} {
         handle_info "Sourcing POCV setup: $synth_pnr(common,pocv_setup_file)"
-        source -e $synth_pnr(common,pocv_setup_file)
+        source $synth_pnr(common,pocv_setup_file)
         set_app_options -name time.pocvm_enable_analysis -value true
         reset_app_options time.aocvm_enable_analysis
         handle_info "POCV analysis enabled"
-    } elseif {$synth_pnr(common,aocv_setup_file) ne "" && [file exists $synth_pnr(common,aocv_setup_file)]} {
+    } elseif {[info exists synth_pnr(common,aocv_setup_file)] && $synth_pnr(common,aocv_setup_file) ne "" && [file exists $synth_pnr(common,aocv_setup_file)]} {
         # FC-RM: AOCV setup (mutually exclusive with POCV)
         handle_info "Sourcing AOCV setup: $synth_pnr(common,aocv_setup_file)"
-        source -e $synth_pnr(common,aocv_setup_file)
+        source $synth_pnr(common,aocv_setup_file)
         handle_info "AOCV analysis enabled"
-    } elseif {$tech(ocv,derate_file) ne "" && [file exists $tech(ocv,derate_file)]} {
+    } elseif {[info exists tech(ocv,derate_file)] && $tech(ocv,derate_file) ne "" && [file exists $tech(ocv,derate_file)]} {
         handle_info "Sourcing OCV derate: $tech(ocv,derate_file)"
-        source -e $tech(ocv,derate_file)
+        source $tech(ocv,derate_file)
     }
 
     handle_info "Timing variation setup completed"
@@ -592,12 +596,12 @@ flow_proc setup_lib_cell_purpose {
     set _trk $tech(track)
 
     # FC-RM: Source lib cell purpose file
-    if {$synth_pnr(common,lib_cell_purpose_file) ne "" && [file exists $synth_pnr(common,lib_cell_purpose_file)]} {
+    if {[info exists synth_pnr(common,lib_cell_purpose_file)] && $synth_pnr(common,lib_cell_purpose_file) ne "" && [file exists $synth_pnr(common,lib_cell_purpose_file)]} {
         handle_info "Sourcing lib cell purpose: $synth_pnr(common,lib_cell_purpose_file)"
-        source -e $synth_pnr(common,lib_cell_purpose_file)
-    } elseif {$tech(lib_cell_purpose_file) ne "" && [file exists $tech(lib_cell_purpose_file)]} {
+        source $synth_pnr(common,lib_cell_purpose_file)
+    } elseif {[info exists tech(lib_cell_purpose_file)] && $tech(lib_cell_purpose_file) ne "" && [file exists $tech(lib_cell_purpose_file)]} {
         handle_info "Sourcing lib cell purpose from tech: $tech(lib_cell_purpose_file)"
-        source -e $tech(lib_cell_purpose_file)
+        source $tech(lib_cell_purpose_file)
     }
 
     # FC-RM: Dont-use cells (track-specific)
@@ -627,17 +631,17 @@ flow_proc setup_clock_ndr {
     global synth_pnr tech
 
     # FC-RM: Source CTS NDR rule file
-    if {$synth_pnr(cts,cts_ndr_file) ne "" && [file exists $synth_pnr(cts,cts_ndr_file)]} {
+    if {[info exists synth_pnr(cts,cts_ndr_file)] && $synth_pnr(cts,cts_ndr_file) ne "" && [file exists $synth_pnr(cts,cts_ndr_file)]} {
         handle_info "Sourcing CTS NDR rules: $synth_pnr(cts,cts_ndr_file)"
-        source -e $synth_pnr(cts,cts_ndr_file)
-    } elseif {$tech(cts_ndr_file) ne "" && [file exists $tech(cts_ndr_file)]} {
-        source -e $tech(cts_ndr_file)
+        source $synth_pnr(cts,cts_ndr_file)
+    } elseif {[info exists tech(cts_ndr_file)] && $tech(cts_ndr_file) ne "" && [file exists $tech(cts_ndr_file)]} {
+        source $tech(cts_ndr_file)
     }
 
     # FC-RM: Via ladder definitions
-    if {$tech(via_ladder_file) ne "" && [file exists $tech(via_ladder_file)]} {
+    if {[info exists tech(via_ladder_file)] && $tech(via_ladder_file) ne "" && [file exists $tech(via_ladder_file)]} {
         handle_info "Sourcing via ladder definitions"
-        source -e $tech(via_ladder_file)
+        source $tech(via_ladder_file)
     }
 
     redirect -file $::REPORTS_DIR/report_routing_rules { report_routing_rules -verbose }
@@ -656,18 +660,18 @@ flow_proc setup_placement_constraints {
     global synth_pnr
 
     # FC-RM: Source placement constraint files
-    if {$synth_pnr(place,placement_constraint_files) ne "" && [llength $synth_pnr(place,placement_constraint_files)] > 0} {
+    if {[info exists synth_pnr(place,placement_constraint_files)] && $synth_pnr(place,placement_constraint_files) ne "" && [llength $synth_pnr(place,placement_constraint_files)] > 0} {
         foreach file $synth_pnr(place,placement_constraint_files) {
             if {[file exists $file]} {
                 handle_info "Sourcing placement constraint: $file"
-                source -e $file
+                source $file
             }
         }
     }
 
     # FC-RM: Additional floorplan constraints
-    if {$synth_pnr(common,additional_floorplan_file) ne "" && [file exists $synth_pnr(common,additional_floorplan_file)]} {
-        source -e $synth_pnr(common,additional_floorplan_file)
+    if {[info exists synth_pnr(common,additional_floorplan_file)] && $synth_pnr(common,additional_floorplan_file) ne "" && [file exists $synth_pnr(common,additional_floorplan_file)]} {
+        source $synth_pnr(common,additional_floorplan_file)
     }
 
     handle_info "Placement constraints applied"
@@ -685,16 +689,16 @@ flow_proc setup_power_activity {
     saif_map -start
 
     # FC-RM: read_saif
-    if {$synth_pnr(common,saif_file) ne ""} {
+    if {[info exists synth_pnr(common,saif_file)] && $synth_pnr(common,saif_file) ne ""} {
         if {[file exists $synth_pnr(common,saif_file)]} {
             set read_saif_cmd "read_saif $synth_pnr(common,saif_file)"
-            if {$synth_pnr(common,saif_power_scenario) ne ""} {
+            if {[info exists synth_pnr(common,saif_power_scenario)] && $synth_pnr(common,saif_power_scenario) ne ""} {
                 lappend read_saif_cmd -scenarios $synth_pnr(common,saif_power_scenario)
             }
-            if {$synth_pnr(common,saif_source_instance) ne ""} {
+            if {[info exists synth_pnr(common,saif_source_instance)] && $synth_pnr(common,saif_source_instance) ne ""} {
                 lappend read_saif_cmd -strip_path $synth_pnr(common,saif_source_instance)
             }
-            if {$synth_pnr(common,saif_target_instance) ne ""} {
+            if {[info exists synth_pnr(common,saif_target_instance)] && $synth_pnr(common,saif_target_instance) ne ""} {
                 lappend read_saif_cmd -path $synth_pnr(common,saif_target_instance)
             }
             handle_info "Reading SAIF: $read_saif_cmd"
@@ -725,9 +729,9 @@ flow_proc setup_dft {
     global synth_pnr
 
     # FC-RM: DFT ports file
-    if {$synth_pnr(synthesis,dft_ports_file) ne "" && [file exists $synth_pnr(synthesis,dft_ports_file)]} {
+    if {[info exists synth_pnr(synthesis,dft_ports_file)] && $synth_pnr(synthesis,dft_ports_file) ne "" && [file exists $synth_pnr(synthesis,dft_ports_file)]} {
         handle_info "Sourcing DFT ports: $synth_pnr(synthesis,dft_ports_file)"
-        source -e $synth_pnr(synthesis,dft_ports_file)
+        source $synth_pnr(synthesis,dft_ports_file)
     }
 
     handle_info "DFT setup completed"
@@ -742,8 +746,8 @@ flow_proc connect_power_ground {
     global synth_pnr
 
     # FC-RM: User PG connection script or automatic
-    if {$synth_pnr(common,connect_pg_net_script) ne "" && [file exists $synth_pnr(common,connect_pg_net_script)]} {
-        source -e $synth_pnr(common,connect_pg_net_script)
+    if {[info exists synth_pnr(common,connect_pg_net_script)] && $synth_pnr(common,connect_pg_net_script) ne "" && [file exists $synth_pnr(common,connect_pg_net_script)]} {
+        source $synth_pnr(common,connect_pg_net_script)
     } else {
         connect_pg_net
     }
@@ -781,8 +785,8 @@ flow_proc run_floorplan_checks {
     }
 
     # FC-RM: Floorplan rule script
-    if {$synth_pnr(common,floorplan_rule_script) ne "" && [file exists $synth_pnr(common,floorplan_rule_script)]} {
-        source -e $synth_pnr(common,floorplan_rule_script)
+    if {[info exists synth_pnr(common,floorplan_rule_script)] && $synth_pnr(common,floorplan_rule_script) ne "" && [file exists $synth_pnr(common,floorplan_rule_script)]} {
+        source $synth_pnr(common,floorplan_rule_script)
     }
 
     handle_info "Floorplan checks completed"
@@ -810,7 +814,7 @@ flow_proc save_design {
     # FC-RM: save_lib -all, save_block
     save_lib -all
     save_block
-    if {$synth_pnr(common,output,block_labeling) ne "" && $synth_pnr(common,output,block_labeling)} {
+    if {[info exists synth_pnr(common,output,block_labeling)] && $synth_pnr(common,output,block_labeling) ne "" && $synth_pnr(common,output,block_labeling)} {
         save_block -as ${::design_name}/init_design
         handle_info "Block saved: ${::design_name}/init_design"
     }

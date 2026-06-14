@@ -45,7 +45,7 @@ flow_proc shape_blocks {
 
     # Source pre-shaping constraints
     if {[info exists fcfp(shaping,constraint_script)] && [file exists $fcfp(shaping,constraint_script)]} {
-        source -e $fcfp(shaping,constraint_script)
+        source $fcfp(shaping,constraint_script)
         handle_info "Shaping constraints loaded"
     }
 

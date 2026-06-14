@@ -62,6 +62,14 @@ Automated change tracking:
 - Release CHANGELOGs
 - Read-only, system-generated files
 
+### [Dashboard Daemon Guide](dashboard-daemon-guide.md) *(new in v2.1.1)*
+Per-user web dashboard daemon:
+- One process serves all runs (replaces per-run foreground server)
+- Deterministic per-user port (9000 + uid%1000)
+- In-browser Register / Browse / Deregister UI
+- SSH-tunnel auto-detection and CLI lifecycle (`cbflow dashboard ...`)
+- Troubleshooting common issues
+
 ### [Troubleshooting](troubleshooting.md)
 Common issues and solutions:
 - Flow execution failures

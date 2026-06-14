@@ -96,7 +96,7 @@ switch $subnode_name {
         set info_file "$run_dir/work/CLP/$node_name/netlist/netlist_info.tcl"
         file mkdir [file dirname $info_file]
         set fh [open $info_file "w"]
-        puts $fh "set netlist_info(timestamp) \"[clock format [clock seconds]]\""
+        puts $fh "set netlist_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
         puts $fh "set netlist_info(status) \"loaded\""
         close $fh
         puts "INFO: CLP $stage_name netlist completed"
@@ -110,7 +110,7 @@ switch $subnode_name {
         set info_file "$run_dir/work/CLP/$node_name/upf/upf_info.tcl"
         file mkdir [file dirname $info_file]
         set fh [open $info_file "w"]
-        puts $fh "set upf_info(timestamp) \"[clock format [clock seconds]]\""
+        puts $fh "set upf_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
         puts $fh "set upf_info(status) \"loaded\""
         close $fh
         puts "INFO: CLP $stage_name upf completed"
@@ -124,7 +124,7 @@ switch $subnode_name {
         set info_file "$run_dir/work/CLP/$node_name/power_spec/power_spec_info.tcl"
         file mkdir [file dirname $info_file]
         set fh [open $info_file "w"]
-        puts $fh "set power_spec_info(timestamp) \"[clock format [clock seconds]]\""
+        puts $fh "set power_spec_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
         puts $fh "set power_spec_info(status) \"loaded\""
         close $fh
         puts "INFO: CLP $stage_name power_spec completed"
@@ -143,7 +143,7 @@ switch $subnode_name {
         set finish_file "$run_dir/work/CLP/$node_name/finish/finish_info.tcl"
         file mkdir [file dirname $finish_file]
         set fh [open $finish_file "w"]
-        puts $fh "set finish_info(timestamp) \"[clock format [clock seconds]]\""
+        puts $fh "set finish_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
         close $fh
         puts "INFO: CLP $stage_name finish completed"
     }

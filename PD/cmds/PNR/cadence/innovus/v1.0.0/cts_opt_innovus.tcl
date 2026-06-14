@@ -25,7 +25,7 @@ flow_proc load_design {
     set _db "$run_dir/work/$::FLOW_TYPE/cts1/outputs/cts.enc.dat"
     if {![file exists $_db]} {
         handle_error "cts database not found: $_db"
-        exit 1
+        return
     }
     handle_info "Restoring design: $_db"
     restoreDesign $_db $flow(design_name)
@@ -174,4 +174,6 @@ flow_proc cts_opt_complete {
 
 
 # Exit tool after stage completion
+
+flow_exec_all
 exit

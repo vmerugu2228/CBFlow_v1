@@ -243,9 +243,13 @@ flow_proc generate_power_reports {
         report_routing_statistics -type pg
     }
 
-    # Save powerplan state
+    # Save powerplan state — only if we have a design library context.
     handle_info "Saving powerplan state..."
-    save_block -as $fp(common,design_lib_name):$fp(common,design_name)/powerplan_done
+    if {[info exists fp(common,design_lib_name)] && [info exists fp(common,design_name)]} {
+        save_block -as $fp(common,design_lib_name):$fp(common,design_name)/powerplan_done
+    } else {
+        handle_warning "Skipping save_block: fp(common,design_lib_name) or fp(common,design_name) not set"
+    }
 
     handle_info "Power grid reports generated in: $::REPORTS_DIR"
 }

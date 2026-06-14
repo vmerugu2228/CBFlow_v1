@@ -62,7 +62,7 @@ flow_proc pt_app_setup {
 
     # OCV derate file
     if {[info exists tech(ocv,derate_file)] && $tech(ocv,derate_file) ne "" && [file exists $tech(ocv,derate_file)]} {
-        source -e $tech(ocv,derate_file)
+        source $tech(ocv,derate_file)
         handle_info "  OCV derate: [file tail $tech(ocv,derate_file)]"
     }
 
@@ -358,7 +358,7 @@ flow_proc generate_summary {
     set fh [open $summary "w"]
     puts $fh "═══════════════════════════════════════════════════════════════"
     puts $fh "  CBflow PT-RM W-2024.09 Per-Corner Timing Summary"
-    puts $fh "  Generated: [clock format [clock seconds]]"
+    puts $fh "  Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fh "═══════════════════════════════════════════════════════════════"
     puts $fh ""
     puts $fh "  Scenario:    $::scenario_name"

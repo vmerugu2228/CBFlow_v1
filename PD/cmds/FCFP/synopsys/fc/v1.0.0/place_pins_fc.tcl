@@ -46,7 +46,7 @@ flow_proc place_pins_final {
     # Read TCL-format pin constraints
     if {[info exists fcfp(input,tcl_pin_constraint_file)] && [file exists $fcfp(input,tcl_pin_constraint_file)]} {
         handle_info "Sourcing TCL pin constraints: $fcfp(input,tcl_pin_constraint_file)"
-        source -e $fcfp(input,tcl_pin_constraint_file)
+        source $fcfp(input,tcl_pin_constraint_file)
     }
 
     # Read pin constraint file
@@ -56,7 +56,7 @@ flow_proc place_pins_final {
     }
 
     # Pre-pin-placement design check
-    if {[info exists fcfp(common,check_design)] && $fcfp(common,check_design)} {
+    if {[info exists fcfp(common,check_design)] && $fcfp(common,check_design) ne "" && [string is true -strict $fcfp(common,check_design)]} {
         redirect -file $::REPORTS_DIR/check_design.pre_pin_placement {
             check_design -ems_database check_design.pre_pin_placement.ems \
                 -checks dp_pre_pin_placement
@@ -78,7 +78,7 @@ flow_proc place_pins_final {
     place_pins -self -legalize
 
     # Fix port placement
-    if {[info exists fcfp(common,fix_port_placement)] && $fcfp(common,fix_port_placement)} {
+    if {[info exists fcfp(common,fix_port_placement)] && $fcfp(common,fix_port_placement) ne "" && [string is true -strict $fcfp(common,fix_port_placement)]} {
         set port_list [get_ports -quiet -filter "port_type!=power && port_type!=ground && physical_status==placed"]
         if {[sizeof_collection $port_list] > 0} {
             set_attribute $port_list physical_status "fixed"

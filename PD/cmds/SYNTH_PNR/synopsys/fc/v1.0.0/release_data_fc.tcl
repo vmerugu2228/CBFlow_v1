@@ -19,6 +19,10 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 # ── Directories ──────────────────────────────────────────────────────────────
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
+
+# Source release utilities for ::CBFlow::Release namespace
+set _ru "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
+if {[file exists $_ru]} { source $_ru }
 # ==============================================================================
 # flow_proc: init_release
 # Initialize release directory and validate mandatory variables
@@ -65,11 +69,13 @@ flow_proc init_release {
     ::CBFlow::Release::init "SYNTH_PNR" $design_name $run_dir $release_phase
 
     handle_info "Release phase: $release_phase"
-    handle_info "Release tag: $project(release,tag)"
+    set _release_tag [expr {[info exists project(release,tag)] ? $project(release,tag) : "(unset)"}]
+    handle_info "Release tag: $_release_tag"
 # ==============================================================================
 # flow_proc: copy_deliverables
 # Copy all design deliverables from outputs/ and work/ to release directory
 # ==============================================================================
+}
 flow_proc copy_deliverables {
     handle_info "Copying deliverables to release directory..."
     global synth_pnr flow
@@ -124,6 +130,7 @@ flow_proc copy_deliverables {
 # flow_proc: validate_release
 # Validate against release_config.tcl phase-wise mandatory files
 # ==============================================================================
+}
 flow_proc validate_release {
     handle_info "Validating release completeness..."
 
@@ -137,6 +144,7 @@ flow_proc validate_release {
 # flow_proc: generate_release_output
 # Generate manifest, release notes, and completion stamp
 # ==============================================================================
+}
 flow_proc generate_release_output {
     handle_info "Generating release output..."
     global synth_pnr project
@@ -152,6 +160,7 @@ flow_proc generate_release_output {
     handle_info "Release output generated"
 # ==============================================================================
 # ==============================================================================
+}
 flow_exec_all
 
 # Exit tool after stage completion

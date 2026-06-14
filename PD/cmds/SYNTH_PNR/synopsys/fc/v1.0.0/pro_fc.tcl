@@ -52,6 +52,7 @@ flow_proc load_design {
 # flow_proc: set_active_scenarios
 # FC-RM: set_scenario_status for route_opt (post_route scenarios)
 # ==============================================================================
+}
 flow_proc set_active_scenarios {
     handle_info "Setting active scenarios for route_opt..."
     global synth_pnr
@@ -71,8 +72,8 @@ flow_proc set_active_scenarios {
     }
 
     # FC-RM: Adjustment file
-    if {$synth_pnr(common,mcmm_adjustment_file) ne "" && [file exists $synth_pnr(common,mcmm_adjustment_file)]} {
-        source -e $synth_pnr(common,mcmm_adjustment_file)
+    if {[info exists synth_pnr(common,mcmm_adjustment_file)] && $synth_pnr(common,mcmm_adjustment_file) ne "" && [file exists $synth_pnr(common,mcmm_adjustment_file)]} {
+        source $synth_pnr(common,mcmm_adjustment_file)
     }
 
     handle_info "Active scenarios configured"
@@ -81,11 +82,12 @@ flow_proc set_active_scenarios {
 # FC-RM: set_qor_strategy -stage post_route, instance prefixes,
 #         disable dynamic power for optimization
 # ==============================================================================
+}
 flow_proc set_qor_strategy {
     handle_info "Setting QoR strategy for route_opt..."
     global synth_pnr
 
-    if {$synth_pnr(common,compile,qor_version) ne ""} {
+    if {[info exists synth_pnr(common,compile,qor_version)] && $synth_pnr(common,compile,qor_version) ne ""} {
         set_app_options -name flow.set_qor_strategy.version -value $synth_pnr(common,compile,qor_version)
     }
 
@@ -94,7 +96,7 @@ flow_proc set_qor_strategy {
     set mode [expr {$synth_pnr(common,compile,qor_mode) ne "" ? $synth_pnr(common,compile,qor_mode) : "balanced"}]
     lappend cmd -metric $metric -mode $mode
 
-    if {$synth_pnr(common,compile,reduced_effort) ne "" && $synth_pnr(common,compile,reduced_effort)} {
+    if {[info exists synth_pnr(common,compile,reduced_effort)] && $synth_pnr(common,compile,reduced_effort) ne "" && $synth_pnr(common,compile,reduced_effort)} {
         lappend cmd -reduced_effort
     }
 
@@ -121,29 +123,30 @@ flow_proc set_qor_strategy {
 # FC-RM: Extraction mode (StarRC/native), StarRC config, VMF setup,
 #         lib_cell_purpose, sidefile, non-persistent, multi-Vt, pre-reports
 # ==============================================================================
+}
 flow_proc configure_route_opt {
     handle_info "Configuring route_opt settings..."
-    global synth_pnr tech
+    global flow synth_pnr tech
     apply_vt_dont_use
 
     # FC-RM: Lib cell purpose
-    if {$synth_pnr(common,lib_cell_purpose_file) ne "" && [file exists $synth_pnr(common,lib_cell_purpose_file)]} {
-        source -e $synth_pnr(common,lib_cell_purpose_file)
+    if {[info exists synth_pnr(common,lib_cell_purpose_file)] && $synth_pnr(common,lib_cell_purpose_file) ne "" && [file exists $synth_pnr(common,lib_cell_purpose_file)]} {
+        source $synth_pnr(common,lib_cell_purpose_file)
     }
 
     # FC-RM: Non-persistent settings
-    if {$synth_pnr(common,non_persistent_script) ne "" && [file exists $synth_pnr(common,non_persistent_script)]} {
-        source -e $synth_pnr(common,non_persistent_script)
+    if {[info exists synth_pnr(common,non_persistent_script)] && $synth_pnr(common,non_persistent_script) ne "" && [file exists $synth_pnr(common,non_persistent_script)]} {
+        source $synth_pnr(common,non_persistent_script)
     }
 
     # FC-RM: Multi-Vt constraint
-    if {$synth_pnr(common,multi_vt_constraint_file) ne "" && [file exists $synth_pnr(common,multi_vt_constraint_file)]} {
-        source -e $synth_pnr(common,multi_vt_constraint_file)
+    if {[info exists synth_pnr(common,multi_vt_constraint_file)] && $synth_pnr(common,multi_vt_constraint_file) ne "" && [file exists $synth_pnr(common,multi_vt_constraint_file)]} {
+        source $synth_pnr(common,multi_vt_constraint_file)
     }
 
     # FC-RM: Route_opt sidefile
     if {[info exists synth_pnr(pro,route_opt_sidefile)] && [file exists $synth_pnr(pro,route_opt_sidefile)]} {
-        source -e $synth_pnr(pro,route_opt_sidefile)
+        source $synth_pnr(pro,route_opt_sidefile)
     }
 
     # FC-RM: Set extraction mode (fusion_adv, in_design, or none)
@@ -152,11 +155,11 @@ flow_proc configure_route_opt {
     handle_info "Extraction mode: $extraction_mode"
 
     # FC-RM: StarRC in-design config
-    if {$synth_pnr(common,route_opt,starrc_config) ne ""} {
+    if {[info exists synth_pnr(common,route_opt,starrc_config)] && $synth_pnr(common,route_opt,starrc_config) ne ""} {
         if {[file exists $synth_pnr(common,route_opt,starrc_config)]} {
             set config_file [file normalize $synth_pnr(common,route_opt,starrc_config)]
             set cmd "set_starrc_in_design -config $config_file"
-            if {$synth_pnr(common,route_opt,starrc_options) ne ""} {
+            if {[info exists synth_pnr(common,route_opt,starrc_options)] && $synth_pnr(common,route_opt,starrc_options) ne ""} {
                 append cmd " $synth_pnr(common,route_opt,starrc_options)"
             }
             handle_info "StarRC: $cmd"
@@ -165,10 +168,10 @@ flow_proc configure_route_opt {
     }
 
     # FC-RM: Virtual Metal Fill
-    if {$synth_pnr(common,route_opt,vmf_parameter_file) ne ""} {
+    if {[info exists synth_pnr(common,route_opt,vmf_parameter_file)] && $synth_pnr(common,route_opt,vmf_parameter_file) ne ""} {
         if {[file exists $synth_pnr(common,route_opt,vmf_parameter_file)]} {
             set vmf_file [file normalize $synth_pnr(common,route_opt,vmf_parameter_file)]
-            if {$synth_pnr(common,route_opt,enable_advanced_vmf) ne "" && $synth_pnr(common,route_opt,enable_advanced_vmf)} {
+            if {[info exists synth_pnr(common,route_opt,enable_advanced_vmf)] && $synth_pnr(common,route_opt,enable_advanced_vmf) ne "" && $synth_pnr(common,route_opt,enable_advanced_vmf)} {
                 set_app_options -name extract.fusion_starrc_vmf -value advanced
             }
             set_extraction_options -virtual_metalfill_parameter_file $vmf_file
@@ -178,7 +181,7 @@ flow_proc configure_route_opt {
 
     # FC-RM: User pre-route_opt script
     if {[info exists synth_pnr(pro,route_opt_pre_script)] && [file exists $synth_pnr(pro,route_opt_pre_script)]} {
-        source -e $synth_pnr(pro,route_opt_pre_script)
+        source $synth_pnr(pro,route_opt_pre_script)
     }
 
     # FC-RM: Pre-reports
@@ -199,6 +202,7 @@ flow_proc configure_route_opt {
 # FC-RM: PBA mode, compute_clock_latency, hyper_route_opt (with redundant
 #         vias in post_eco proc), IRD-CCD
 # ==============================================================================
+}
 flow_proc run_route_opt {
     handle_info "Running route_opt (hyper_route_opt)..."
     global synth_pnr flow
@@ -229,19 +233,19 @@ flow_proc run_route_opt {
     }
 
     # FC-RM: IRD-CCD (IR-drop aware concurrent clock-data optimization)
-    if {[info exists synth_pnr(pro,route_opt,enable_irdccd)] && $synth_pnr(pro,route_opt,enable_irdccd)} {
-        if {$synth_pnr(common,irdccd_config_file) ne "" && [file exists $synth_pnr(common,irdccd_config_file)]} {
+    if {[info exists synth_pnr(pro,route_opt,enable_irdccd)] && $synth_pnr(pro,route_opt,enable_irdccd) ne "" && [string is true -strict $synth_pnr(pro,route_opt,enable_irdccd)]} {
+        if {[info exists synth_pnr(common,irdccd_config_file)] && $synth_pnr(common,irdccd_config_file) ne "" && [file exists $synth_pnr(common,irdccd_config_file)]} {
             handle_info "Sourcing IRD-CCD config: $synth_pnr(common,irdccd_config_file)"
-            source -e $synth_pnr(common,irdccd_config_file)
+            source $synth_pnr(common,irdccd_config_file)
 
         }
     }
 
     # FC-RM: hyper_route_opt (includes route_opt phases 1-3)
     # The snps_hyper_route_opt_post_eco proc runs between phase2 and phase3
-    if {[info exists synth_pnr(pro,route_opt,enable_hyper)] && $synth_pnr(pro,route_opt,enable_hyper)} {
+    if {[info exists synth_pnr(pro,route_opt,enable_hyper)] && $synth_pnr(pro,route_opt,enable_hyper) ne "" && [string is true -strict $synth_pnr(pro,route_opt,enable_hyper)]} {
         # Define post_eco proc for redundant vias during hyper_route_opt
-        if {[info exists synth_pnr(pro,route_opt,redundant_via)] && $synth_pnr(pro,route_opt,redundant_via)} {
+        if {[info exists synth_pnr(pro,route_opt,redundant_via)] && $synth_pnr(pro,route_opt,redundant_via) ne "" && [string is true -strict $synth_pnr(pro,route_opt,redundant_via)]} {
             proc snps_hyper_route_opt_post_eco {} {
                 handle_info "hyper_route_opt post_eco: adding redundant vias"
                 add_redundant_vias -timing_preserve_setup_slack_threshold 0
@@ -262,12 +266,13 @@ flow_proc run_route_opt {
 #         FuSa safety taps, user post-script, connect_pg_net, check_routes,
 #         re-enable power
 # ==============================================================================
+}
 flow_proc post_route_opt {
     handle_info "Running post-route_opt tasks..."
-    global synth_pnr
+    global flow synth_pnr
 
     # FC-RM: Post route_opt redundant via insertion (for DRC-sensitive nodes)
-    if {[info exists synth_pnr(pro,route_opt,post_redundant_via)] && $synth_pnr(pro,route_opt,post_redundant_via)} {
+    if {[info exists synth_pnr(pro,route_opt,post_redundant_via)] && $synth_pnr(pro,route_opt,post_redundant_via) ne "" && [string is true -strict $synth_pnr(pro,route_opt,post_redundant_via)]} {
         handle_info "Adding post-route_opt redundant vias"
         add_redundant_vias
     }
@@ -283,7 +288,7 @@ flow_proc post_route_opt {
     }
 
     # FC-RM: FuSa safety tap cells
-    if {$synth_pnr(common,enable_fusa) ne "" && $synth_pnr(common,enable_fusa)} {
+    if {[info exists synth_pnr(common,enable_fusa)] && $synth_pnr(common,enable_fusa) ne "" && $synth_pnr(common,enable_fusa)} {
         catch {
             if {[sizeof_collection [get_safety_register_groups -quiet]]} {
                 create_safety_tap_cells
@@ -293,12 +298,12 @@ flow_proc post_route_opt {
 
     # FC-RM: User post-route_opt script
     if {[info exists synth_pnr(pro,route_opt_post_script)] && [file exists $synth_pnr(pro,route_opt_post_script)]} {
-        source -e $synth_pnr(pro,route_opt_post_script)
+        source $synth_pnr(pro,route_opt_post_script)
     }
 
     # FC-RM: connect_pg_net
-    if {$synth_pnr(common,connect_pg_net_script) ne "" && [file exists $synth_pnr(common,connect_pg_net_script)]} {
-        source -e $synth_pnr(common,connect_pg_net_script)
+    if {[info exists synth_pnr(common,connect_pg_net_script)] && $synth_pnr(common,connect_pg_net_script) ne "" && [file exists $synth_pnr(common,connect_pg_net_script)]} {
+        source $synth_pnr(common,connect_pg_net_script)
     } else {
         connect_pg_net
     }
@@ -318,12 +323,13 @@ flow_proc post_route_opt {
 # FC-RM: endpoint_opt.tcl -- PBA-CCD targeted optimization on worst endpoints
 # Enabled by synth_pnr(pro,route_opt,enable_endpoint_opt) in SYNTH_PNR_config.tcl
 # ==============================================================================
+}
 flow_proc run_endpoint_opt {
     handle_info "Checking endpoint optimization..."
     global synth_pnr flow
 
     # Only run if enabled in config
-    if {![info exists synth_pnr(pro,route_opt,enable_endpoint_opt)] || !$synth_pnr(pro,route_opt,enable_endpoint_opt)} {
+    if {![info exists synth_pnr(pro,route_opt,enable_endpoint_opt)] || (![info exists synth_pnr(pro,route_opt,enable_endpoint_opt)] || ![string is true -strict $synth_pnr(pro,route_opt,enable_endpoint_opt)])} {
         handle_info "Endpoint optimization disabled (route_opt,enable_endpoint_opt=false)"
         return
     }
@@ -396,9 +402,10 @@ flow_proc run_endpoint_opt {
 # flow_proc: create_abstracts
 # FC-RM: create_abstract, create_frame for hierarchical
 # ==============================================================================
+}
 flow_proc create_abstracts {
     handle_info "Creating abstracts..."
-    global synth_pnr
+    global flow synth_pnr
 
     set _run_type $flow(run_type)
 
@@ -416,6 +423,7 @@ flow_proc create_abstracts {
 # flow_proc: save_design
 # FC-RM: save_block, set_svf -off
 # ==============================================================================
+}
 flow_proc save_design {
     handle_info "Saving route_opt design..."
     global synth_pnr flow
@@ -423,7 +431,7 @@ flow_proc save_design {
     set design_name [expr {$synth_pnr(common,design_name) ne "" ? $synth_pnr(common,design_name) : $flow(design_name)}]
 
     save_block
-    if {$synth_pnr(common,output,block_labeling) ne "" && $synth_pnr(common,output,block_labeling)} {
+    if {[info exists synth_pnr(common,output,block_labeling)] && $synth_pnr(common,output,block_labeling) ne "" && $synth_pnr(common,output,block_labeling)} {
         save_block -as ${design_name}/route_opt
         handle_info "Block saved: ${design_name}/route_opt"
     }
@@ -435,6 +443,7 @@ flow_proc save_design {
 # FC-RM: report_qor, report_timing (with AWP/CCS), report_power,
 #         write_qor_data, run_end
 # ==============================================================================
+}
 flow_proc generate_reports {
     handle_info "Generating route_opt reports..."
     global synth_pnr
@@ -491,6 +500,7 @@ flow_proc generate_reports {
     handle_info "Route_opt reports generated in: $::REPORTS_DIR"
 # ==============================================================================
 # ==============================================================================
+}
 flow_exec_all
 
 # BUG FIX #7: Exit tool after stage completion

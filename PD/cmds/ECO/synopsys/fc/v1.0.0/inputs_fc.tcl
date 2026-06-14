@@ -187,7 +187,7 @@ flow_proc validate_inputs {
     puts $fp "==============================================================================="
     puts $fp "CBFlow ECO - Input Validation Report"
     puts $fp "==============================================================================="
-    puts $fp "Generated: [clock format [clock seconds]]"
+    puts $fp "Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fp "Tool: Synopsys Fusion Compiler"
     if {[info exists project(top_module)]} { puts $fp "Design: $project(top_module)" }
     puts $fp ""

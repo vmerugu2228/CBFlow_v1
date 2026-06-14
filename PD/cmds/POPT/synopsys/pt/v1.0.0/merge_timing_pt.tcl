@@ -90,7 +90,7 @@ flow_proc merge_timing_data {
 
     # Generate per-corner slack summary
     set fp [open "$rpt_dir/corner_slack_summary.rpt" w]
-    puts $fp "Corner Slack Summary - [clock format [clock seconds]]"
+    puts $fp "Corner Slack Summary - [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fp "======================================================="
     foreach scenario $scenarios {
         puts $fp [format "  %-30s : merged" $scenario]
@@ -133,7 +133,7 @@ flow_proc generate_merged_report {
     set fp [open "$res_dir/merge_timing_summary.rpt" w]
     puts $fp "================================================================"
     puts $fp "POPT Merge Timing Summary - PrimeTime"
-    puts $fp "Date: [clock format [clock seconds]]"
+    puts $fp "Date: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fp "================================================================"
     puts $fp ""
     puts $fp "Reports generated:"

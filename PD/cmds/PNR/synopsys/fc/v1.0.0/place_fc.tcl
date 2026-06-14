@@ -37,9 +37,9 @@ flow_proc set_stage_qor_strategy {
     if {[info exists pnr(compile,qor_mode)] && $pnr(compile,qor_mode) ne ""} {
         lappend set_qor_strategy_cmd -mode $pnr(compile,qor_mode)
     }
-    if {[info exists pnr(compile,reduced_effort)] && $pnr(compile,reduced_effort)} {
+    if {[info exists pnr(compile,reduced_effort)] && $pnr(compile,reduced_effort) ne "" && [string is true -strict $pnr(compile,reduced_effort)]} {
         lappend set_qor_strategy_cmd -reduced_effort
-    } elseif {[info exists pnr(compile,high_effort_timing)] && $pnr(compile,high_effort_timing)} {
+    } elseif {[info exists pnr(compile,high_effort_timing)] && $pnr(compile,high_effort_timing) ne "" && [string is true -strict $pnr(compile,high_effort_timing)]} {
         lappend set_qor_strategy_cmd -high_effort_timing
     }
     if {[info exists pnr(compile,congestion_effort)] && $pnr(compile,congestion_effort) ne ""} {
@@ -97,7 +97,7 @@ flow_proc run_compile {
     handle_info "Running compile_fusion..."
     global pnr
 
-    if {[info exists pnr(compile,unified_flow)] && $pnr(compile,unified_flow)} {
+    if {[info exists pnr(compile,unified_flow)] && $pnr(compile,unified_flow) ne "" && [string is true -strict $pnr(compile,unified_flow)]} {
         # Unified compile flow: runs all stages end-to-end
         handle_info "Running compile_fusion (unified flow)"
         compile_fusion
@@ -120,7 +120,7 @@ flow_proc run_classic_place_opt {
     handle_info "Checking if classic place_opt is needed..."
     global pnr
 
-    if {[info exists pnr(compile,unified_flow)] && $pnr(compile,unified_flow)} {
+    if {[info exists pnr(compile,unified_flow)] && $pnr(compile,unified_flow) ne "" && [string is true -strict $pnr(compile,unified_flow)]} {
         handle_info "Unified flow enabled -- skipping classic place_opt"
         return
     }
@@ -133,7 +133,7 @@ flow_proc run_classic_place_opt {
     if {[info exists pnr(compile,qor_mode)] && $pnr(compile,qor_mode) ne ""} {
         lappend set_qor_strategy_cmd -mode $pnr(compile,qor_mode)
     }
-    if {[info exists pnr(compile,reduced_effort)] && $pnr(compile,reduced_effort)} {
+    if {[info exists pnr(compile,reduced_effort)] && $pnr(compile,reduced_effort) ne "" && [string is true -strict $pnr(compile,reduced_effort)]} {
         lappend set_qor_strategy_cmd -reduced_effort
     }
     if {[info exists pnr(compile,congestion_effort)] && $pnr(compile,congestion_effort) ne ""} {
@@ -166,7 +166,7 @@ flow_proc run_classic_place_opt {
     mark_clock_trees -routing_rules
 
     # High-utilization flow support (from FC-RM place_opt.tcl)
-    if {[info exists pnr(place,high_utilization_flow)] && $pnr(place,high_utilization_flow)} {
+    if {[info exists pnr(place,high_utilization_flow)] && $pnr(place,high_utilization_flow) ne "" && [string is true -strict $pnr(place,high_utilization_flow)]} {
         handle_info "High-utilization flow enabled"
         handle_info "Disabling AWP, running remove_buffer_trees, create_placement -buffering_aware_timing_driven, and initial_drc"
         reset_app_options time.delay_calc_wareform_analysis_mode
@@ -197,13 +197,13 @@ flow_proc run_classic_place_opt {
     place_opt -from initial_drc
 
     # Extra place_opt pass for high-utilization flow
-    if {[info exists pnr(place,high_utilization_flow)] && $pnr(place,high_utilization_flow)} {
+    if {[info exists pnr(place,high_utilization_flow)] && $pnr(place,high_utilization_flow) ne "" && [string is true -strict $pnr(place,high_utilization_flow)]} {
         handle_info "High-utilization flow: running extra place_opt -from final_place"
         place_opt -from final_place
     }
 
     # SPG flow support
-    if {[info exists pnr(compile,enable_spg)] && $pnr(compile,enable_spg)} {
+    if {[info exists pnr(compile,enable_spg)] && $pnr(compile,enable_spg) ne "" && [string is true -strict $pnr(compile,enable_spg)]} {
         handle_info "SPG flow enabled -- running full place_opt"
         place_opt
     }
@@ -231,7 +231,7 @@ flow_proc save_design_block {
     handle_info "Saving design block..."
     global pnr
 
-    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling)} {
+    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling) ne "" && [string is true -strict $pnr(output,block_labeling)]} {
         save_block -as $pnr(common,design_name)/place
         handle_info "Block saved as $pnr(common,design_name)/place"
     } else {

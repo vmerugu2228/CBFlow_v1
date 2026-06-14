@@ -135,7 +135,7 @@ flow_proc validate_extraction {
 
     # Write validation summary
     set fp [open "$rpt_dir/extraction_validation.rpt" w]
-    puts $fp "Extraction Validation Report - [clock format [clock seconds]]"
+    puts $fp "Extraction Validation Report - [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fp "============================================================"
     puts $fp "SPEF file:  $spef_file"
     if {[file exists $spef_file]} {
@@ -171,7 +171,7 @@ flow_proc generate_report {
     set fp [open "$res_dir/extraction_summary.rpt" w]
     puts $fp "================================================================"
     puts $fp "STA Extraction Summary - PrimeTime"
-    puts $fp "Date: [clock format [clock seconds]]"
+    puts $fp "Date: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fp "================================================================"
     puts $fp ""
     puts $fp "Extraction steps:"

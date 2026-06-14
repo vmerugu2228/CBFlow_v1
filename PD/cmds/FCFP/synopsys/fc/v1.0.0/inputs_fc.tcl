@@ -159,7 +159,7 @@ flow_proc read_constraints {
 
     if {[info exists fcfp(common,SCENARIO_SETUP)] && [file exists $fcfp(common,SCENARIO_SETUP)]} {
         handle_info "Reading MCMM scenario setup: $fcfp(common,SCENARIO_SETUP)"
-        source -e $fcfp(common,SCENARIO_SETUP)
+        source $fcfp(common,SCENARIO_SETUP)
     }
 
     handle_info "Constraints loaded"
@@ -193,7 +193,7 @@ flow_proc validate {
     }
 
     set rpt [open "$::REPORTS_DIR/input_validation.rpt" w]
-    puts $rpt "FCFP Input Validation Report - [clock format [clock seconds]]"
+    puts $rpt "FCFP Input Validation Report - [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $rpt "============================================================"
     puts $rpt "Design:     $current"
     puts $rpt "Clocks:     [sizeof_collection $clocks]"
@@ -223,7 +223,7 @@ flow_proc set_dp_qor_strategy {
         lappend qor_cmd -metric timing
     }
 
-    if {[info exists fcfp(compile,reduced_effort)] && $fcfp(compile,reduced_effort)} {
+    if {[info exists fcfp(compile,reduced_effort)] && $fcfp(compile,reduced_effort) ne "" && [string is true -strict $fcfp(compile,reduced_effort)]} {
         lappend qor_cmd -reduced_effort
     }
 

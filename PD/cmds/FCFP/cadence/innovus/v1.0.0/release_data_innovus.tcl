@@ -97,7 +97,8 @@ flow_proc init_release {
     }
 
     handle_info "Release phase: $release_phase"
-    handle_info "Release tag: $project(release,tag)"
+    set _release_tag [expr {[info exists project(release,tag)] ? $project(release,tag) : "(unset)"}]
+    handle_info "Release tag: $_release_tag"
 }
 
 # ==============================================================================

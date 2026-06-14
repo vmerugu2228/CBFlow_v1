@@ -1,5 +1,5 @@
 #!/usr/bin/env tclsh
-# FP export_db - Cadence Innovus
+# FP export_data - Cadence Innovus
 
 # -- Bootstrap -----------------------------------------------------------------
 set run_dir $::env(CBFLOW_RUN_DIR)
@@ -7,21 +7,14 @@ source "$run_dir/.run.cbflow.tcl"
 source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "FP"
-set STAGE_NAME "export_db"
-set NODE_NAME "export_db1"
+set STAGE_NAME "export_data"
+set NODE_NAME "export_data1"
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
-# Source flow utilities using release version
-set utils_path "$flow_dir/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} {
-    source $utils_path
-    puts "ERROR: Cannot find flow utilities at: $utils_path"
-    exit 1
-set run_dir $::env(CBFLOW_RUN_DIR)
-handle_info "Starting CBFlow FP export_db stage for Innovus"
+handle_info "Starting CBFlow FP export_data stage for Innovus"
 # Define common procedures used in config files
 if {[info procs INFO] eq ""} {
     proc INFO {} {
@@ -44,8 +37,8 @@ if {[info procs flow_proc] eq ""} {
 set flow_type "FP"
 set config_files [list \
     "config.tcl" \
-    "work/$flow_type/export_db/run/config.tcl" \
-    "../work/$flow_type/export_db/run/config.tcl" \
+    "work/$flow_type/export_data/run/config.tcl" \
+    "../work/$flow_type/export_data/run/config.tcl" \
 ]
 set config_found 0
 foreach config_file $config_files {
@@ -62,7 +55,7 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::
     }
 }
 if {!$config_found} {
-    handle_error "Cannot find generated config file. Run 'make export_db_setup' first."
+    handle_error "Cannot find generated config file. Run 'make export_data_setup' first."
     exit 1
 }
 
@@ -253,18 +246,9 @@ set flow_steps {
     validate_exports
 }
 
-foreach step $flow_steps {
-    handle_info "Executing flow step: $step"
+flow_exec_all
 
-    if {[catch {$step} error]} {
-        handle_error "Flow step '$step' failed: $error"
-        exit 1
-    }
-
-    handle_info "Flow step '$step' completed successfully"
-}
-
-handle_info "CBFlow FP export_db stage completed successfully"
+handle_info "CBFlow FP export_data stage completed successfully"
 
 # Exit tool after stage completion
 exit

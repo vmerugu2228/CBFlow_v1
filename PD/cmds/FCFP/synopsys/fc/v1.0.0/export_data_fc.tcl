@@ -147,7 +147,7 @@ flow_proc generate_reports {
 
     # Generate manifest
     set mf [open "$res_dir/export_manifest.txt" w]
-    puts $mf "FCFP Export Manifest - [clock format [clock seconds]]"
+    puts $mf "FCFP Export Manifest - [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $mf "======================================================="
     puts $mf "Files exported:"
     foreach f [glob -nocomplain "$res_dir/def/*.def" "$res_dir/def/partitions/*.def" "$res_dir/*.v" "$res_dir/*.sdc" "$res_dir/*.tcl"] {

@@ -38,10 +38,10 @@ if {[file exists $_release_config]} { source $_release_config }
 if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" &&
     [info exists ::env(TECH_VERSION)] && $::env(TECH_VERSION) ne ""} {
     set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
+    if {[file exists $_tc]} { source $_tc }
 }
 # Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
+if {[file exists "$run_dir/setup/user_config.tcl"]} { source "$run_dir/setup/user_config.tcl" }
 
 # --------------------------------------------------------------------------
 # Procedure: setup_dirs
@@ -187,7 +187,7 @@ flow_proc validate_inputs {
     puts $fp "==============================================================================="
     puts $fp "CBFlow ECO - Input Validation Report"
     puts $fp "==============================================================================="
-    puts $fp "Generated: [clock format [clock seconds]]"
+    puts $fp "Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fp "Tool: Synopsys IC Compiler II"
     if {[info exists project(top_module)]} { puts $fp "Design: $project(top_module)" }
     puts $fp ""

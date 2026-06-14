@@ -281,7 +281,7 @@ flow_proc inputs_complete {
     set summary_file "$::REPORTS_DIR/input_summary.rpt"
     set fd [open $summary_file "w"]
     puts $fd "# PNR Input Summary Report"
-    puts $fd "# Generated: [clock format [clock seconds]]"
+    puts $fd "# Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fd ""
     
     global pnr project
@@ -331,4 +331,6 @@ flow_proc inputs_complete {
 
 
 # Exit tool after stage completion
+
+flow_exec_all
 exit

@@ -70,7 +70,7 @@ switch $subnode_name {
         set info_file "$run_dir/work/$::flow_type/$node_name/netlist/netlist.info"
         file mkdir [file dirname $info_file]
         set fh [open $info_file "w"]
-        puts $fh "Netlist input prepared: [clock format [clock seconds]]"
+        puts $fh "Netlist input prepared: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
         close $fh
         if {$test_mode} {
             puts "INFO: \[TEST MODE\] Skipping netlist loading"
@@ -84,7 +84,7 @@ switch $subnode_name {
         set info_file "$run_dir/work/$::flow_type/$node_name/def/def.info"
         file mkdir [file dirname $info_file]
         set fh [open $info_file "w"]
-        puts $fh "DEF input prepared: [clock format [clock seconds]]"
+        puts $fh "DEF input prepared: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
         close $fh
         if {$test_mode} {
             puts "INFO: \[TEST MODE\] Skipping DEF loading"
@@ -98,7 +98,7 @@ switch $subnode_name {
         set info_file "$run_dir/work/$::flow_type/$node_name/gds/gds.info"
         file mkdir [file dirname $info_file]
         set fh [open $info_file "w"]
-        puts $fh "GDS input prepared: [clock format [clock seconds]]"
+        puts $fh "GDS input prepared: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
         close $fh
         if {$test_mode} {
             puts "INFO: \[TEST MODE\] Skipping GDS loading"
@@ -121,7 +121,7 @@ switch $subnode_name {
         set finish_file "$run_dir/work/$::flow_type/$node_name/${stage_name}_finish.timestamp"
         file mkdir [file dirname $finish_file]
         set fh [open $finish_file "w"]
-        puts $fh "Completed: [clock format [clock seconds]]"
+        puts $fh "Completed: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
         close $fh
         puts "INFO: $stage_name finish completed"
     }

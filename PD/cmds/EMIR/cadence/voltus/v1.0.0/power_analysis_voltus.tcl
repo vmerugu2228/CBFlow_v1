@@ -234,7 +234,7 @@ flow_proc generate_reports {
     puts $fp "================================================================"
     puts $fp "CBFlow EMIR Power Analysis Summary - Voltus"
     puts $fp "================================================================"
-    puts $fp "Generated: [clock format [clock seconds]]"
+    puts $fp "Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fp "Tool: Cadence Voltus"
     puts $fp "Design: $flow(design_name)"
     puts $fp ""

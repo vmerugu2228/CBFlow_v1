@@ -74,7 +74,7 @@ switch $subnode_name {
         set info_file "$run_dir/work/LEC/$node_name/netlist_golden/golden_info.tcl"
         file mkdir [file dirname $info_file]
         set fh [open $info_file "w"]
-        puts $fh "set netlist_golden_info(timestamp) \"[clock format [clock seconds]]\""
+        puts $fh "set netlist_golden_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
         puts $fh "set netlist_golden_info(status) \"loaded\""
         close $fh
         puts "INFO: LEC $stage_name netlist_golden completed"
@@ -87,7 +87,7 @@ switch $subnode_name {
         set info_file "$run_dir/work/LEC/$node_name/netlist_revised/revised_info.tcl"
         file mkdir [file dirname $info_file]
         set fh [open $info_file "w"]
-        puts $fh "set netlist_revised_info(timestamp) \"[clock format [clock seconds]]\""
+        puts $fh "set netlist_revised_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
         puts $fh "set netlist_revised_info(status) \"loaded\""
         close $fh
         puts "INFO: LEC $stage_name netlist_revised completed"
@@ -113,7 +113,7 @@ switch $subnode_name {
         set finish_file "$run_dir/work/LEC/$node_name/finish/finish_info.tcl"
         file mkdir [file dirname $finish_file]
         set fh [open $finish_file "w"]
-        puts $fh "set finish_info(timestamp) \"[clock format [clock seconds]]\""
+        puts $fh "set finish_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
         close $fh
         puts "INFO: LEC $stage_name finish completed"
     }

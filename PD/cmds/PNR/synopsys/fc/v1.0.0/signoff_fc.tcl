@@ -25,7 +25,7 @@ flow_proc insert_filler {
     handle_info "Checking filler cell insertion settings..."
     global pnr tech
 
-    if {[info exists pnr(signoff,insert_filler)] && $pnr(signoff,insert_filler)} {
+    if {[info exists pnr(signoff,insert_filler)] && $pnr(signoff,insert_filler) ne "" && [string is true -strict $pnr(signoff,insert_filler)]} {
         # Build filler cell list from tech config
         if {[info exists tech(cells,filler)] && $tech(cells,filler) ne ""} {
             handle_info "Inserting filler cells: $tech(cells,filler)"
@@ -50,7 +50,7 @@ flow_proc insert_decap {
     handle_info "Checking decap cell insertion settings..."
     global pnr tech
 
-    if {[info exists pnr(signoff,insert_decap)] && $pnr(signoff,insert_decap)} {
+    if {[info exists pnr(signoff,insert_decap)] && $pnr(signoff,insert_decap) ne "" && [string is true -strict $pnr(signoff,insert_decap)]} {
         if {[info exists tech(cells,decap)] && $tech(cells,decap) ne ""} {
             handle_info "Inserting decap cells: $tech(cells,decap)"
             set decap_cmd "create_stdcell_fillers -lib_cells \[get_lib_cells $tech(cells,decap)\]"
@@ -116,7 +116,7 @@ flow_proc fix_drc {
     handle_info "Checking signoff DRC fix settings..."
     global pnr
 
-    if {[info exists pnr(signoff,fix_drc)] && $pnr(signoff,fix_drc)} {
+    if {[info exists pnr(signoff,fix_drc)] && $pnr(signoff,fix_drc) ne "" && [string is true -strict $pnr(signoff,fix_drc)]} {
         handle_info "Running signoff_fix_drc"
         signoff_fix_drc
         handle_info "signoff_fix_drc completed"
@@ -133,7 +133,7 @@ flow_proc create_metal_fill {
     handle_info "Checking metal fill settings..."
     global pnr tech
 
-    if {[info exists pnr(signoff,metal_fill)] && $pnr(signoff,metal_fill)} {
+    if {[info exists pnr(signoff,metal_fill)] && $pnr(signoff,metal_fill) ne "" && [string is true -strict $pnr(signoff,metal_fill)]} {
         # Configure metal fill runset if provided
         if {[info exists pnr(signoff,metal_fill_runset)] && [file exists $pnr(signoff,metal_fill_runset)]} {
             set_app_options -name signoff.create_metal_fill.runset -value $pnr(signoff,metal_fill_runset)
@@ -197,7 +197,7 @@ flow_proc save_design_block {
     handle_info "Saving design block..."
     global pnr
 
-    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling)} {
+    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling) ne "" && [string is true -strict $pnr(output,block_labeling)]} {
         save_block -as $pnr(common,design_name)/signoff
         handle_info "Block saved as $pnr(common,design_name)/signoff"
     } else {

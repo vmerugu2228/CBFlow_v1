@@ -232,7 +232,7 @@ flow_proc validate_inputs {
 
     # Write validation report
     set fp [open "$::REPORTS_DIR/input_validation.rpt" w]
-    puts $fp "POPT Input Validation Report - [clock format [clock seconds]]"
+    puts $fp "POPT Input Validation Report - [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fp "============================================================"
     puts $fp "Design:    $current"
     puts $fp "Clocks:    [sizeof_collection $clocks]"

@@ -48,6 +48,10 @@ flow_proc aggregate_results {
     set overall_worst_hold_wns 0.0
     set overall_worst_hold_scenario ""
 
+    if {![info exists mmmc_active_scenarios] || [llength $mmmc_active_scenarios] == 0} {
+        handle_info "No MMMC scenarios active — nothing to aggregate"
+        return
+    }
     foreach scenario $mmmc_active_scenarios {
         array set view_info $analysis_views($scenario)
 
@@ -104,7 +108,7 @@ flow_proc aggregate_results {
     set fh [open $summary_file "w"]
     puts $fh "# ═══════════════════════════════════════════════════════════════════════════════"
     puts $fh "# CBFlow MMMC Timing Summary - Tempus (Cross-Corner)"
-    puts $fh "# Generated: [clock format [clock seconds]]"
+    puts $fh "# Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fh "# Scenario Set: $::mmmc_active_scenario_set"
     puts $fh "# Total Scenarios: [llength $mmmc_active_scenarios]"
     puts $fh "# ═══════════════════════════════════════════════════════════════════════════════"

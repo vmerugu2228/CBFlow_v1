@@ -103,7 +103,7 @@ switch $subnode_name {
         puts "INFO: SYNTH_PNR $stage_name finish..."
         set ff "$run_dir/work/SYNTH_PNR/$node_name/finish/finish_info.tcl"
         file mkdir [file dirname $ff]
-        set fh [open $ff "w"]; puts $fh "set finish_info(timestamp) \"[clock format [clock seconds]]\""; close $fh
+        set fh [open $ff "w"]; puts $fh "set finish_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""; close $fh
         puts "INFO: SYNTH_PNR $stage_name finish completed"
     }
     default { puts "ERROR: Unknown subnode: $subnode_name"; exit 1 }

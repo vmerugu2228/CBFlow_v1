@@ -117,13 +117,13 @@ flow_proc read_design {
     # ── Read RTL from filelist (mandatory) ──
     if {![info exists synth(input,rtl_filelist)] || $synth(input,rtl_filelist) eq ""} {
         handle_error "synth(input,rtl_filelist) not set — RTL filelist required"
-        exit 1
+        return
     }
 
     set _rtl_file $synth(input,rtl_filelist)
     if {![file exists $_rtl_file]} {
         handle_error "RTL filelist not found: $_rtl_file"
-        exit 1
+        return
     }
 
     # Parse filelist and classify by extension
@@ -186,7 +186,7 @@ flow_proc setup_technology {
     }
 
     if {[info exists tech(tech_setup_script)] && [file exists $tech(tech_setup_script)]} {
-        source -e $tech(tech_setup_script)
+        source $tech(tech_setup_script)
     }
 
     save_lib -all
@@ -222,10 +222,10 @@ flow_proc load_constraints {
     # ── SDC ──
     if {[info exists synth(input,sdc_func_file)] && $synth(input,sdc_func_file) ne "" && [file exists $synth(input,sdc_func_file)]} {
         handle_info "Reading SDC: $synth(input,sdc_func_file)"
-        source -e $synth(input,sdc_func_file)
+        source $synth(input,sdc_func_file)
     } elseif {[info exists synth(input,sdc_file)] && $synth(input,sdc_file) ne "" && [file exists $synth(input,sdc_file)]} {
         handle_info "Reading SDC: $synth(input,sdc_file)"
-        source -e $synth(input,sdc_file)
+        source $synth(input,sdc_file)
     } else {
         handle_warning "No SDC file found"
     }
@@ -254,7 +254,7 @@ flow_proc setup_mcmm {
 
     if {[info exists synth(common,mcmm_setup_file)] && [file exists $synth(common,mcmm_setup_file)]} {
         handle_info "Sourcing MCMM setup: $synth(common,mcmm_setup_file)"
-        source -e $synth(common,mcmm_setup_file)
+        source $synth(common,mcmm_setup_file)
     } else {
         # Auto-create from mmmc_config analysis_views
         global analysis_views library_sets
@@ -316,9 +316,9 @@ flow_proc setup_lib_cell_purpose {
     global synth tech
 
     if {[info exists synth(common,lib_cell_purpose_file)] && [file exists $synth(common,lib_cell_purpose_file)]} {
-        source -e $synth(common,lib_cell_purpose_file)
+        source $synth(common,lib_cell_purpose_file)
     } elseif {[info exists tech(lib_cell_purpose_file)] && [file exists $tech(lib_cell_purpose_file)]} {
-        source -e $tech(lib_cell_purpose_file)
+        source $tech(lib_cell_purpose_file)
     }
 
     if {[info exists tech(dont_use_cells)] && $tech(dont_use_cells) ne ""} {
@@ -340,14 +340,14 @@ flow_proc setup_timing_variations {
     global synth tech
 
     if {[info exists synth(common,pocv_setup_file)] && [file exists $synth(common,pocv_setup_file)]} {
-        source -e $synth(common,pocv_setup_file)
+        source $synth(common,pocv_setup_file)
         set_app_options -name time.pocvm_enable_analysis -value true
         handle_info "POCV enabled"
     } elseif {[info exists synth(common,aocv_setup_file)] && [file exists $synth(common,aocv_setup_file)]} {
-        source -e $synth(common,aocv_setup_file)
+        source $synth(common,aocv_setup_file)
         handle_info "AOCV enabled"
     } elseif {[info exists tech(ocv,derate_file)] && [file exists $tech(ocv,derate_file)]} {
-        source -e $tech(ocv,derate_file)
+        source $tech(ocv,derate_file)
     }
 
     handle_info "Timing variation setup completed"
@@ -365,7 +365,7 @@ flow_proc set_qor_strategy {
     set _mode [expr {[info exists synth(compile,qor_mode)] && $synth(compile,qor_mode) ne "" ? $synth(compile,qor_mode) : "balanced"}]
 
     set _cmd "set_qor_strategy -stage synthesis -metric $_metric -mode $_mode"
-    if {[info exists synth(compile,high_effort_timing)] && $synth(compile,high_effort_timing)} {
+    if {[info exists synth(compile,high_effort_timing)] && $synth(compile,high_effort_timing) ne "" && [string is true -strict $synth(compile,high_effort_timing)]} {
         append _cmd " -high_effort_timing"
     }
 
@@ -385,7 +385,7 @@ flow_proc configure_compile {
     set_app_options -name cts.common.user_instance_name_prefix -value compile_cts_
     set_app_options -name hdlin.naming.upf_compatible -value true
 
-    if {[info exists synth(compile,enable_spg)] && $synth(compile,enable_spg)} {
+    if {[info exists synth(compile,enable_spg)] && $synth(compile,enable_spg) ne "" && [string is true -strict $synth(compile,enable_spg)]} {
         set_app_options -name compile.flow.enable_spg -value true
         handle_info "SPG enabled"
     }
@@ -400,7 +400,7 @@ flow_proc configure_compile {
     if {[info exists synth(synthesis,timing_driven)]} {
         set_app_options -name compile.flow.enable_timing_driven -value $synth(synthesis,timing_driven)
     }
-    if {[info exists synth(synthesis,clock_gating)] && $synth(synthesis,clock_gating)} {
+    if {[info exists synth(synthesis,clock_gating)] && $synth(synthesis,clock_gating) ne "" && [string is true -strict $synth(synthesis,clock_gating)]} {
         set_app_options -name compile.flow.clock_gate_insertion -value true
     }
     if {[info exists synth(synthesis,boundary_opt)] && $synth(synthesis,boundary_opt) ne ""} {
@@ -459,7 +459,7 @@ flow_proc connect_pg {
     global synth
 
     if {[info exists synth(common,connect_pg_net_script)] && [file exists $synth(common,connect_pg_net_script)]} {
-        source -e $synth(common,connect_pg_net_script)
+        source $synth(common,connect_pg_net_script)
     } else {
         connect_pg_net -automatic
     }
@@ -540,7 +540,7 @@ flow_proc save_design {
     # ── Save block ──
     save_lib -all
     save_block
-    if {[info exists synth(output,block_labeling)] && $synth(output,block_labeling)} {
+    if {[info exists synth(output,block_labeling)] && $synth(output,block_labeling) ne "" && [string is true -strict $synth(output,block_labeling)]} {
         save_block -as ${_design}/synthesis
         handle_info "Block saved: ${_design}/synthesis"
     }

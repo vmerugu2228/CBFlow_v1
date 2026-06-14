@@ -1,5 +1,5 @@
 #!/usr/bin/env tclsh
-# PNR post_route - Cadence Innovus
+# PNR pro (post-route optimization) - Cadence Innovus
 
 # -- Bootstrap -----------------------------------------------------------------
 set run_dir $::env(CBFLOW_RUN_DIR)
@@ -7,7 +7,7 @@ source "$run_dir/.run.cbflow.tcl"
 source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "PNR"
-set STAGE_NAME "post_route"
+set STAGE_NAME "pro"
 set NODE_NAME "pro1"
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
@@ -25,7 +25,7 @@ flow_proc load_design {
     set _db "$run_dir/work/$::FLOW_TYPE/route1/outputs/route.enc.dat"
     if {![file exists $_db]} {
         handle_error "route database not found: $_db"
-        exit 1
+        return
     }
     handle_info "Restoring design: $_db"
     restoreDesign $_db $flow(design_name)
@@ -95,11 +95,11 @@ flow_proc extract_parasitics {
     global pnr
     if {![info exists pnr(extract,mode)] || $pnr(extract,mode) eq ""} {
         handle_error "pnr(extract,mode) not set (e.g., postRoute, signoff)"
-        exit 1
+        return
     }
     if {![info exists pnr(extract,effort)] || $pnr(extract,effort) eq ""} {
         handle_error "pnr(extract,effort) not set (e.g., low, medium, high, signoff)"
-        exit 1
+        return
     }
     set extraction_mode $pnr(extract,mode)
     set rc_corner       $pnr(extract,rc_corner)
@@ -243,4 +243,6 @@ flow_proc post_route_complete {
 
 
 # Exit tool after stage completion
+
+flow_exec_all
 exit

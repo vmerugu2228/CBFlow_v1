@@ -86,7 +86,7 @@ flow_proc initialize_floorplan {
     # Source floorplan TCL if provided
     if {[info exists fp(common,fp_tcl)] && $fp(common,fp_tcl) ne "" && [file exists $fp(common,fp_tcl)]} {
         handle_info "Sourcing floorplan TCL: $fp(common,fp_tcl)"
-        source -e $fp(common,fp_tcl)
+        source $fp(common,fp_tcl)
     }
 
     handle_info "Floorplan initialization completed"
@@ -104,7 +104,7 @@ flow_proc place_macros {
     if {[info exists fp(common,macro_constraints_file)] && $fp(common,macro_constraints_file) ne ""} {
         if {[file exists $fp(common,macro_constraints_file)]} {
             handle_info "Sourcing macro constraints: $fp(common,macro_constraints_file)"
-            source -e $fp(common,macro_constraints_file)
+            source $fp(common,macro_constraints_file)
         }
     }
 
@@ -214,7 +214,7 @@ flow_proc place_pins_initial {
     if {[info exists fp(common,pin_placement_file)] && $fp(common,pin_placement_file) ne ""} {
         if {[file exists $fp(common,pin_placement_file)]} {
             handle_info "Sourcing pin placement: $fp(common,pin_placement_file)"
-            source -e $fp(common,pin_placement_file)
+            source $fp(common,pin_placement_file)
         }
     }
 

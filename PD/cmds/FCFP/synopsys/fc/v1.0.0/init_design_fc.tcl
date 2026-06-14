@@ -20,7 +20,7 @@ setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 # ==============================================================================
 flow_proc create_design_library {
     handle_info "Creating design library..."
-    global fcfp tech flow
+    global fcfp flow project tech
 
     set run_dir $::env(CBFLOW_RUN_DIR)
     file mkdir "$run_dir/work/FCFP/init_design/run"
@@ -43,18 +43,15 @@ flow_proc create_design_library {
     }
 
     # Sub-block NDMs — hierarchical designs (validated from project config)
-    if {$flow(run_type) eq "hier"} {
+    if {$flow(run_type) eq "hier" && [info exists project(block_list)] && [llength $project(block_list)] > 0} {
         foreach _block $project(block_list) {
             if {![info exists project(${_block},ndm)] || $project(${_block},ndm) eq ""} {
                 handle_error "Missing NDM for sub-block '$_block'. Set project(${_block},ndm) in project_config."
-                exit 1
+                return
             }
             lappend ref_libs $project(${_block},ndm)
         }
         handle_info "Hierarchical: [llength $project(block_list)] sub-block NDMs added"
-    }
-            handle_info "Hierarchical flow: [llength $tech(ndm,hierarchical)] sub-block libraries added"
-        }
     }
 
     # Additional NDM libs
@@ -135,7 +132,7 @@ flow_proc create_design_library {
 # ==============================================================================
 flow_proc read_design {
     handle_info "Reading design..."
-    global fcfp flow
+    global fcfp flow tech
 
     set design_name [expr {[info exists fcfp(common,design_name)] ? $fcfp(common,design_name) : $flow(design_name)}]
 
@@ -167,7 +164,7 @@ flow_proc read_design {
 # ==============================================================================
 flow_proc setup_technology {
     handle_info "Setting up technology..."
-    global fcfp tech
+    global fcfp flow tech
 
     set tech_node ""
     if {[info exists fcfp(common,technology_node)] && $fcfp(common,technology_node) ne ""} {
@@ -183,7 +180,7 @@ flow_proc setup_technology {
 
     if {[info exists tech(tech_setup_script)] && [file exists $tech(tech_setup_script)]} {
         handle_info "Sourcing tech setup: $tech(tech_setup_script)"
-        source -e $tech(tech_setup_script)
+        source $tech(tech_setup_script)
     }
 
     if {[info exists tech(physical_rules_file)] && [file exists $tech(physical_rules_file)]} {
@@ -201,7 +198,7 @@ flow_proc setup_technology {
 # ==============================================================================
 flow_proc load_constraints {
     handle_info "Loading timing and power constraints..."
-    global fcfp
+    global fcfp flow
 
     # Read SDC
     if {[info exists fcfp(input,sdc_file)] && $fcfp(input,sdc_file) ne ""} {
@@ -241,10 +238,10 @@ flow_proc load_constraints {
 # ==============================================================================
 flow_proc connect_power_ground {
     handle_info "Connecting power/ground nets..."
-    global fcfp
+    global fcfp flow
 
     if {[info exists fcfp(common,connect_pg_net_script)] && [file exists $fcfp(common,connect_pg_net_script)]} {
-        source -e $fcfp(common,connect_pg_net_script)
+        source $fcfp(common,connect_pg_net_script)
     } else {
         connect_pg_net
     }

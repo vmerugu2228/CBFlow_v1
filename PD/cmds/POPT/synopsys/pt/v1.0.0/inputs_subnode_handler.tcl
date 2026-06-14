@@ -29,7 +29,7 @@ switch $subnode_name {
         if {$test_mode} { puts "INFO: \[TEST MODE\] $subnode_name loading skipped" }
         set ff "$run_dir/work/POPT/$node_name/$subnode_name/${subnode_name}_info.tcl"
         file mkdir [file dirname $ff]
-        set fh [open $ff "w"]; puts $fh "set ${subnode_name}_info(timestamp) \"[clock format [clock seconds]]\""; close $fh
+        set fh [open $ff "w"]; puts $fh "set ${subnode_name}_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""; close $fh
         puts "INFO: POPT $stage_name $subnode_name completed"
     }
     "validate" {
@@ -41,7 +41,7 @@ switch $subnode_name {
         puts "INFO: POPT $stage_name finish..."
         set ff "$run_dir/work/POPT/$node_name/finish/finish_info.tcl"
         file mkdir [file dirname $ff]
-        set fh [open $ff "w"]; puts $fh "set finish_info(timestamp) \"[clock format [clock seconds]]\""; close $fh
+        set fh [open $ff "w"]; puts $fh "set finish_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""; close $fh
         puts "INFO: POPT $stage_name finish completed"
     }
     default { puts "ERROR: Unknown subnode: $subnode_name"; exit 1 }

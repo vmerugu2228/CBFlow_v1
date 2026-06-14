@@ -761,12 +761,38 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
             }
         }
 
-        # Load command file (tool-specific with vendor and version)
+        # Load command file (tool-specific with vendor and version).
+        # Resolve the vendor dynamically — `cadence` was hard-coded; that's
+        # wrong for synopsys tools (fc, pt, genus -> cadence, fm -> synopsys, etc.).
+        # Build a tool→vendor map covering all tools the framework supports.
         set tool_name [get_tool_name $run_dir]
+        # Tool→vendor map (kept in sync with cmds/<FLOW>/<vendor>/<tool>/ layout).
+        array set _tool_vendor {
+            fc            synopsys
+            pt            synopsys
+            fm            synopsys
+            formality     synopsys
+            icv           synopsys
+            redhawk       synopsys
+            vc_lp         synopsys
+            power_compiler synopsys
+            innovus       cadence
+            genus         cadence
+            tempus        cadence
+            voltus        cadence
+            joules        cadence
+            conformal     cadence
+            conformal_lp  cadence
+            calibre       mentor
+        }
+        set tool_vendor [expr {[info exists _tool_vendor($tool_name)] ? $_tool_vendor($tool_name) : "synopsys"}]
         lappend lines "# Load tool-specific command file with all flow_proc hooks applied"
         lappend lines "set tool_name \"$tool_name\""
+        lappend lines "set tool_vendor \"$tool_vendor\""
+        # Strip trailing digits from node_type → stage_name (release_data1 → release_data)
+        set stage_name [regsub -- {[0-9]+$} $node_type ""]
         lappend lines "# Construct proper tool command file path with vendor and version"
-        lappend lines "set tool_cmd_path \"\$FLOW_DIR/cmds/$flow_type/cadence/\$\{tool_name\}/\$\{TOOL_VERSION\}/${node_type}_\$\{tool_name\}.tcl\""
+        lappend lines "set tool_cmd_path \"\$FLOW_DIR/cmds/$flow_type/$tool_vendor/\$\{tool_name\}/\$\{TOOL_VERSION\}/${stage_name}_\$\{tool_name\}.tcl\""
         lappend lines "if {\[file exists \$tool_cmd_path\]} {"
         lappend lines "    puts \"INFO: Loading tool-specific command file: \$tool_cmd_path\""
         lappend lines "    source \$tool_cmd_path"

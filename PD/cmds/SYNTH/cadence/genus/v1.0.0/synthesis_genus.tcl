@@ -144,13 +144,13 @@ flow_proc read_design {
     # ── Read RTL from filelist (mandatory) ──
     if {![info exists synth(input,rtl_filelist)] || $synth(input,rtl_filelist) eq ""} {
         handle_error "synth(input,rtl_filelist) not set — RTL filelist required"
-        exit 1
+        return
     }
 
     set _rtl_file $synth(input,rtl_filelist)
     if {![file exists $_rtl_file]} {
         handle_error "RTL filelist not found: $_rtl_file"
-        exit 1
+        return
     }
 
     handle_info "Reading RTL from filelist: $_rtl_file"

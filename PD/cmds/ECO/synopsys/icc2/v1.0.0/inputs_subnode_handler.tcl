@@ -69,7 +69,7 @@ switch $subnode_name {
         set info_file "$run_dir/work/ECO/$node_name/netlist/netlist_info.tcl"
         file mkdir [file dirname $info_file]
         set fh [open $info_file "w"]
-        puts $fh "set netlist_info(timestamp) \"[clock format [clock seconds]]\""
+        puts $fh "set netlist_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
         puts $fh "set netlist_info(status) \"loaded\""
         close $fh
         puts "INFO: ECO $stage_name netlist completed"
@@ -83,7 +83,7 @@ switch $subnode_name {
         set info_file "$run_dir/work/ECO/$node_name/def/def_info.tcl"
         file mkdir [file dirname $info_file]
         set fh [open $info_file "w"]
-        puts $fh "set def_info(timestamp) \"[clock format [clock seconds]]\""
+        puts $fh "set def_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
         puts $fh "set def_info(status) \"loaded\""
         close $fh
         puts "INFO: ECO $stage_name def completed"
@@ -97,7 +97,7 @@ switch $subnode_name {
         set info_file "$run_dir/work/ECO/$node_name/sdc/sdc_info.tcl"
         file mkdir [file dirname $info_file]
         set fh [open $info_file "w"]
-        puts $fh "set sdc_info(timestamp) \"[clock format [clock seconds]]\""
+        puts $fh "set sdc_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
         puts $fh "set sdc_info(status) \"loaded\""
         close $fh
         puts "INFO: ECO $stage_name sdc completed"
@@ -111,7 +111,7 @@ switch $subnode_name {
         set info_file "$run_dir/work/ECO/$node_name/library/library_info.tcl"
         file mkdir [file dirname $info_file]
         set fh [open $info_file "w"]
-        puts $fh "set library_info(timestamp) \"[clock format [clock seconds]]\""
+        puts $fh "set library_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
         puts $fh "set library_info(status) \"loaded\""
         close $fh
         puts "INFO: ECO $stage_name library completed"
@@ -130,7 +130,7 @@ switch $subnode_name {
         set finish_file "$run_dir/work/ECO/$node_name/finish/finish_info.tcl"
         file mkdir [file dirname $finish_file]
         set fh [open $finish_file "w"]
-        puts $fh "set finish_info(timestamp) \"[clock format [clock seconds]]\""
+        puts $fh "set finish_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
         close $fh
         puts "INFO: ECO $stage_name finish completed"
     }

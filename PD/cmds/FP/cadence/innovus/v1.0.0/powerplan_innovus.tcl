@@ -30,7 +30,7 @@ flow_proc load_design {
     set _db "$run_dir/work/FP/floorplan1/outputs/floorplan.enc.dat"
     if {![file exists $_db]} {
         handle_error "Floorplan database not found: $_db"
-        exit 1
+        return
     }
     handle_info "Restoring design: $_db"
     restoreDesign $_db $flow(design_name)
@@ -122,7 +122,7 @@ flow_proc create_power_rings {
     if {![info exists fp(power,ring_layer_h)] || ![info exists fp(power,ring_layer_v)]} {
         handle_error "fp(power,ring_layer_h) and fp(power,ring_layer_v) must be set"
         handle_error "Typically top two thick metals, e.g., M10 (H) and M9 (V)"
-        exit 1
+        return
     }
 
     set layer_h $fp(power,ring_layer_h)
@@ -131,7 +131,7 @@ flow_proc create_power_rings {
     # Ring dimensions — must be defined in config
     if {![info exists fp(power,ring_width)]} {
         handle_error "fp(power,ring_width) must be set"
-        exit 1
+        return
     }
 
     set ring_width   $fp(power,ring_width)
@@ -192,7 +192,7 @@ flow_proc create_power_straps {
         handle_error "    {layer M10 width 3.2 spacing 1.6 pitch 30.0 direction horizontal}"
         handle_error "    {layer M9  width 3.2 spacing 1.6 pitch 30.0 direction vertical}"
         handle_error "  }"
-        exit 1
+        return
     }
 
     foreach strap_spec $fp(power,straps) {
@@ -202,7 +202,7 @@ flow_proc create_power_straps {
         foreach _k {layer width spacing pitch direction} {
             if {![info exists s($_k)]} {
                 handle_error "Power strap spec missing '$_k': $strap_spec"
-                exit 1
+                return
             }
         }
 
@@ -332,7 +332,7 @@ flow_proc verify_power {
         if {[catch {
             if {![info exists fp(power,ir_drop_limit)]} {
                 handle_error "fp(power,ir_drop_limit) not set — required when fp(power,analyze_ir) is true"
-                exit 1
+                return
             }
             set ir_limit $fp(power,ir_drop_limit)
             analyzeIR \
@@ -405,12 +405,6 @@ flow_proc save_design {
 }
 
 # Execute flow steps in sequence
-foreach step {load_design activate_node_scenarios connect_global_nets create_power_rings create_power_straps route_secondary_pg add_pg_vias verify_power generate_reports save_design} {
-    handle_info "── $step ──"
-    if {[catch {$step} err]} {
-        handle_error "Step '$step' failed: $err"
-        exit 1
-    }
-}
+flow_exec_all
 
 handle_info "CBflow FP powerplan completed successfully"

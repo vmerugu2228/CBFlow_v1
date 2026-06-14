@@ -68,7 +68,7 @@ flow_proc configure_redhawk {
     }
 
     # ── EM tech file (for electromigration analysis) ──
-    if {[info exists emir(em,enable)] && $emir(em,enable)} {
+    if {[info exists emir(em,enable)] && $emir(em,enable) ne "" && [string is true -strict $emir(em,enable)]} {
         if {[info exists emir(input,em_tech_file)] && [file exists [which $emir(input,em_tech_file)]]} {
             handle_info "Setting EM tech file: $emir(input,em_tech_file)"
             set_app_options -name rail.em_only_tech_file -value $emir(input,em_tech_file)
@@ -191,7 +191,7 @@ flow_proc configure_analysis {
     }
 
     # ── Use FC power ──
-    if {[info exists emir(power,use_fc_power)] && $emir(power,use_fc_power)} {
+    if {[info exists emir(power,use_fc_power)] && $emir(power,use_fc_power) ne "" && [string is true -strict $emir(power,use_fc_power)]} {
         set ::emir_use_fc_power 1
     } else {
         set ::emir_use_fc_power 0
@@ -226,7 +226,7 @@ flow_proc run_rail_analysis {
 
     # EM analysis flag
     set em_analysis 0
-    if {[info exists emir(em,enable)] && $emir(em,enable)} {
+    if {[info exists emir(em,enable)] && $emir(em,enable) ne "" && [string is true -strict $emir(em,enable)]} {
         set em_analysis 1
     }
 
@@ -290,7 +290,7 @@ flow_proc fix_missing_vias {
     handle_info "Checking for missing via fixes..."
 
     set fix_vias 0
-    if {[info exists emir(ir_drop,fix_missing_vias)] && $emir(ir_drop,fix_missing_vias)} {
+    if {[info exists emir(ir_drop,fix_missing_vias)] && $emir(ir_drop,fix_missing_vias) ne "" && [string is true -strict $emir(ir_drop,fix_missing_vias)]} {
         set fix_vias 1
     }
 
@@ -347,7 +347,7 @@ flow_proc generate_reports {
     }
 
     # ── EM report ──
-    if {[info exists emir(em,enable)] && $emir(em,enable)} {
+    if {[info exists emir(em,enable)] && $emir(em,enable) ne "" && [string is true -strict $emir(em,enable)]} {
         if {[info exists emir(output,em_report)] && $emir(output,em_report) ne ""} {
             handle_info "Generating EM report: $emir(output,em_report)"
             set fd [open $emir(output,em_report) w]
@@ -387,7 +387,7 @@ flow_proc generate_reports {
     puts $fp "==============================================================================="
     puts $fp "CBFlow EMIR - Rail Analysis Results (Synopsys RedHawk in-design)"
     puts $fp "==============================================================================="
-    puts $fp "Generated: [clock format [clock seconds]]"
+    puts $fp "Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     if {[info exists project(top_module)]} { puts $fp "Design:     $project(top_module)" }
     if {[info exists tech(node)]}          { puts $fp "Technology: $tech(node)" }
     puts $fp "Tool:       Synopsys RedHawk (in-design)"
@@ -397,7 +397,7 @@ flow_proc generate_reports {
     if {[info exists emir(ir_drop,threshold)] && $emir(ir_drop,threshold) ne ""} {
         puts $fp "IR-Drop Threshold: $emir(ir_drop,threshold)"
     }
-    if {[info exists emir(thermal,enable)] && $emir(thermal,enable)} {
+    if {[info exists emir(thermal,enable)] && $emir(thermal,enable) ne "" && [string is true -strict $emir(thermal,enable)]} {
         puts $fp "Thermal Analysis: enabled"
     }
     puts $fp ""

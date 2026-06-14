@@ -60,7 +60,7 @@ flow_proc generate_equivalence_report {
     puts $fp "═══════════════════════════════════════════════════════════════════════════════"
     puts $fp "CBFlow LEC - Equivalence Analysis Report"
     puts $fp "═══════════════════════════════════════════════════════════════════════════════"
-    puts $fp "Generated: [clock format [clock seconds]]"
+    puts $fp "Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     if {[info exists project(top_module)]} { puts $fp "Design: $project(top_module)" }
     if {[info exists project(name)]} { puts $fp "Project: $project(name)" }
     if {[info exists tech(node)]} { puts $fp "Technology: $tech(node)" }
@@ -97,7 +97,7 @@ flow_proc generate_analysis_log {
     puts $fp "═══════════════════════════════════════════════════════════════════════════════"
     puts $fp "CBFlow LEC - Analysis Log"
     puts $fp "═══════════════════════════════════════════════════════════════════════════════"
-    puts $fp "Timestamp: [clock format [clock seconds]]"
+    puts $fp "Timestamp: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fp ""
     puts $fp "Flow: LEC (Logic Equivalence Checking)"
     puts $fp "Tool: Synopsys Formality"
@@ -135,7 +135,7 @@ flow_proc generate_summary_report {
     puts $fp "═══════════════════════════════════════════════════════════════════════════════"
     puts $fp "CBFlow LEC - Final Summary"
     puts $fp "═══════════════════════════════════════════════════════════════════════════════"
-    puts $fp "Generated: [clock format [clock seconds]]"
+    puts $fp "Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fp ""
 
     set run_dir $::env(CBFLOW_RUN_DIR)

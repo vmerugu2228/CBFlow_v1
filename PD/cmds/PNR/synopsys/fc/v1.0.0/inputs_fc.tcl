@@ -170,7 +170,7 @@ flow_proc read_design_inputs {
     # Source floorplan Tcl if provided
     if {[info exists pnr(common,fp_tcl)] && [file exists $pnr(common,fp_tcl)]} {
         handle_info "Sourcing floorplan Tcl: $pnr(common,fp_tcl)"
-        source -e $pnr(common,fp_tcl)
+        source $pnr(common,fp_tcl)
     }
 
     handle_info "Design inputs loaded successfully"
@@ -229,7 +229,7 @@ flow_proc read_parasitics {
 
     if {![info exists tech(tluplus_map)]} {
         handle_error "tech(tluplus_map) not defined in tech_config.tcl"
-        exit 1
+        return
     }
     if {[info exists tech(rcx,rc_max,tluplus)]} {
         handle_info "Setting TLU+ parasitic models (per RC corner)..."
@@ -253,7 +253,7 @@ flow_proc read_parasitics {
         }
     } else {
         handle_error "No parasitic tech files defined. Set tech(rcx,rc_max,tluplus) or tech(rcx,rc_max,nxtgrd) in tech_config.tcl"
-        exit 1
+        return
     }
 
     handle_info "Parasitic technology loaded successfully"
@@ -309,7 +309,7 @@ flow_proc save_design_block {
     handle_info "Saving design block..."
     global pnr
 
-    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling)} {
+    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling) ne "" && [string is true -strict $pnr(output,block_labeling)]} {
         save_block -as $pnr(common,design_name)/inputs
         handle_info "Block saved as $pnr(common,design_name)/inputs"
     } else {

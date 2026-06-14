@@ -19,6 +19,14 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 # ── Directories ──────────────────────────────────────────────────────────────
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
+
+
+# Source release utilities for ::CBFlow::Release namespace
+set _ru "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
+if {[file exists $_ru]} { source $_ru }
+# Source release utilities for ::CBFlow::Release namespace
+set _ru "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
+if {[file exists $_ru]} { source $_ru }
 # ==============================================================================
 # flow_proc: prepare_release
 # Description: Prepare release directory structure and copy deliverables
@@ -70,8 +78,8 @@ flow_proc prepare_release {
     }
 
     handle_info "Release phase: $release_phase"
-    handle_info "Release tag: $project(release,tag)"
-
+    set _release_tag [expr {[info exists project(release,tag)] ? $project(release,tag) : "(unset)"}]
+    handle_info "Release tag: $_release_tag"
     # Create legacy release directory structure
     set release_dir "$run_dir/results/release"
     foreach subdir {
@@ -189,7 +197,7 @@ flow_proc generate_manifest {
     set fh [open $manifest_file w]
     puts $fh "# CBFlow PNR Release Manifest"
     puts $fh "# Design: $pnr(common,design_name)"
-    puts $fh "# Generated: [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}]"
+    puts $fh "# Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     if {[info exists project(name)]} {
         puts $fh "# Project: $project(name)"
     }
@@ -298,7 +306,7 @@ flow_proc validate_release {
         handle_info "RELEASE VALIDATION PASSED: All required deliverables present"
         # Write a release stamp file
         set stamp_fh [open "$release_dir/RELEASE_COMPLETE" w]
-        puts $stamp_fh "Release completed: [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}]"
+        puts $stamp_fh "Release completed: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
         puts $stamp_fh "Design: $pnr(common,design_name)"
         puts $stamp_fh "Status: PASS"
         close $stamp_fh

@@ -86,23 +86,24 @@ flow_proc resolve_inputs {
 # flow_proc: create_design_lib
 # Description: Create design library with technology and reference libraries
 # ==============================================================================
+}
 flow_proc create_design_lib {
     handle_info "Creating design library..."
     global synth_pnr tech
 
     # Remove stale library if it exists
-    if {$synth_pnr(common,design_lib_name) ne "" && [file exists $synth_pnr(common,design_lib_name)]} {
+    if {[info exists synth_pnr(common,design_lib_name)] && $synth_pnr(common,design_lib_name) ne "" && [file exists $synth_pnr(common,design_lib_name)]} {
         file delete -force $synth_pnr(common,design_lib_name)
     }
 
     # Build create_lib command with technology and reference libraries
     set create_lib_cmd "create_lib $synth_pnr(common,design_lib_name)"
-    if {$tech(tech_file) ne "" && [file exists [which $tech(tech_file)]]} {
+    if {[info exists tech(tech_file)] && $tech(tech_file) ne "" && [file exists [which $tech(tech_file)]]} {
         lappend create_lib_cmd -tech $tech(tech_file)
-    } elseif {$tech(tech_lib) ne ""} {
+    } elseif {[info exists tech(tech_lib)] && $tech(tech_lib) ne ""} {
         lappend create_lib_cmd -use_technology_lib $tech(tech_lib)
     }
-    if {$synth_pnr(init_design,design_lib_scale_factor) ne ""} {
+    if {[info exists synth_pnr(init_design,design_lib_scale_factor)] && $synth_pnr(init_design,design_lib_scale_factor) ne ""} {
         lappend create_lib_cmd -scale_factor $synth_pnr(init_design,design_lib_scale_factor)
     }
 
@@ -126,6 +127,7 @@ flow_proc create_design_lib {
 # flow_proc: read_rtl_inputs
 # Description: Read RTL source files and elaborate the design
 # ==============================================================================
+}
 flow_proc read_rtl_inputs {
     handle_info "Reading RTL design inputs..."
     global synth_pnr
@@ -167,6 +169,7 @@ flow_proc read_rtl_inputs {
 # flow_proc: read_floorplan
 # Description: Read floorplan DEF from floorplan stage
 # ==============================================================================
+}
 flow_proc read_floorplan {
     handle_info "Reading floorplan data..."
     global synth_pnr
@@ -184,7 +187,7 @@ flow_proc read_floorplan {
     # Source floorplan Tcl if provided
     if {[info exists synth_pnr(input,fp_tcl)] && [file exists $synth_pnr(input,fp_tcl)]} {
         handle_info "Sourcing floorplan Tcl: $synth_pnr(input,fp_tcl)"
-        source -e $synth_pnr(input,fp_tcl)
+        source $synth_pnr(input,fp_tcl)
     }
 
     handle_info "Floorplan data loaded successfully"
@@ -192,6 +195,7 @@ flow_proc read_floorplan {
 # flow_proc: read_constraints
 # Description: Read SDC timing constraints and UPF power intent
 # ==============================================================================
+}
 flow_proc read_constraints {
     handle_info "Reading design constraints..."
     global synth_pnr
@@ -233,34 +237,35 @@ flow_proc read_constraints {
 # flow_proc: read_parasitics
 # Description: Read parasitic technology files (TLU+/NXTGRD) for RC estimation
 # ==============================================================================
+}
 flow_proc read_parasitics {
     handle_info "Reading parasitic technology files..."
     global tech synth_pnr
 
     # tech(tluplus_map) must be defined in tech_config — crash if missing
-    if {$tech(rcx,rc_max,tluplus) ne ""} {
+    if {[info exists tech(rcx,rc_max,tluplus)] && $tech(rcx,rc_max,tluplus) ne ""} {
         handle_info "Setting TLU+ parasitic models (per RC corner)..."
         read_parasitic_tech \
             -tlup $tech(rcx,rc_max,tluplus) \
             -layermap $tech(tluplus_map)
-        if {$tech(rcx,rc_min,tluplus) ne ""} {
+        if {[info exists tech(rcx,rc_min,tluplus)] && $tech(rcx,rc_min,tluplus) ne ""} {
             set_parasitic_parameters \
                 -early_spec $tech(rcx,rc_min,tluplus) \
                 -late_spec $tech(rcx,rc_max,tluplus)
         }
-    } elseif {$tech(rcx,rc_max,nxtgrd) ne ""} {
+    } elseif {[info exists tech(rcx,rc_max,nxtgrd)] && $tech(rcx,rc_max,nxtgrd) ne ""} {
         handle_info "Setting NXTGRD parasitic models (per RC corner)..."
         read_parasitic_tech \
             -tlup $tech(rcx,rc_max,nxtgrd) \
             -layermap $tech(tluplus_map)
-        if {$tech(rcx,rc_min,nxtgrd) ne ""} {
+        if {[info exists tech(rcx,rc_min,nxtgrd)] && $tech(rcx,rc_min,nxtgrd) ne ""} {
             set_parasitic_parameters \
                 -early_spec $tech(rcx,rc_min,nxtgrd) \
                 -late_spec $tech(rcx,rc_max,nxtgrd)
         }
     } else {
         handle_error "No parasitic tech files defined. Set tech(rcx,rc_max,tluplus) or tech(rcx,rc_max,nxtgrd) in tech_config.tcl"
-        exit 1
+        return
     }
 
     handle_info "Parasitic technology loaded successfully"
@@ -268,15 +273,16 @@ flow_proc read_parasitics {
 # flow_proc: set_qor_strategy_init
 # Description: Set QoR strategy for initial design setup
 # ==============================================================================
+}
 flow_proc set_qor_strategy_init {
     handle_info "Setting QoR strategy for init design..."
     global synth_pnr
 
     set set_qor_strategy_cmd "set_qor_strategy -stage pnr"
-    if {$synth_pnr(common,compile,qor_metric) ne ""} {
+    if {[info exists synth_pnr(common,compile,qor_metric)] && $synth_pnr(common,compile,qor_metric) ne ""} {
         lappend set_qor_strategy_cmd -metric $synth_pnr(common,compile,qor_metric)
     }
-    if {$synth_pnr(common,compile,qor_mode) ne ""} {
+    if {[info exists synth_pnr(common,compile,qor_mode)] && $synth_pnr(common,compile,qor_mode) ne ""} {
         lappend set_qor_strategy_cmd -mode $synth_pnr(common,compile,qor_mode)
     }
 
@@ -284,7 +290,7 @@ flow_proc set_qor_strategy_init {
     eval $set_qor_strategy_cmd
 
     # Set technology node if specified
-    if {$synth_pnr(common,tech_node) ne ""} {
+    if {[info exists synth_pnr(common,tech_node)] && $synth_pnr(common,tech_node) ne ""} {
         set_technology -node $synth_pnr(common,tech_node)
         save_lib -all
     }
@@ -294,6 +300,7 @@ flow_proc set_qor_strategy_init {
 # flow_proc: connect_power_ground
 # Description: Connect PG nets automatically
 # ==============================================================================
+}
 flow_proc connect_power_ground {
     handle_info "Connecting power/ground nets..."
 
@@ -306,11 +313,12 @@ flow_proc connect_power_ground {
 # flow_proc: save_design_block
 # Description: Save the design block after input loading
 # ==============================================================================
+}
 flow_proc save_design_block {
     handle_info "Saving design block..."
     global synth_pnr
 
-    if {$synth_pnr(common,output,block_labeling) ne "" && $synth_pnr(common,output,block_labeling)} {
+    if {[info exists synth_pnr(common,output,block_labeling)] && $synth_pnr(common,output,block_labeling) ne "" && $synth_pnr(common,output,block_labeling)} {
         save_block -as $synth_pnr(common,design_name)/inputs
         handle_info "Block saved as $synth_pnr(common,design_name)/inputs"
     } else {
@@ -321,6 +329,7 @@ flow_proc save_design_block {
 # flow_proc: generate_reports
 # Description: Generate input validation and design quality reports
 # ==============================================================================
+}
 flow_proc generate_reports {
     handle_info "Generating input reports..."
     global synth_pnr
@@ -356,6 +365,7 @@ flow_proc generate_reports {
 # ==============================================================================
 # ==============================================================================
 # ==============================================================================
+}
 flow_exec_all
 
 # Exit tool after stage completion

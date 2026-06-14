@@ -14,16 +14,8 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
-# Source flow utilities using release version
-set utils_path "$flow_dir/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
-if {[file exists $utils_path]} {
-    source $utils_path
-    puts "ERROR: Cannot find flow utilities at: $utils_path"
-    exit 1
-set run_dir $::env(CBFLOW_RUN_DIR)
 # Source release utilities for input resolution
-set _release_utils "$flow_dir/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
-
+set _release_utils "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
 if {[file exists $_release_utils]} { source $_release_utils }
 set _release_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
 if {[file exists $_release_config]} { source $_release_config }
@@ -383,16 +375,7 @@ set flow_steps {
     validate_inputs
 }
 
-foreach step $flow_steps {
-    handle_info "Executing flow step: $step"
-
-    if {[catch {$step} error]} {
-        handle_error "Flow step '$step' failed: $error"
-        exit 1
-    }
-
-    handle_info "Flow step '$step' completed successfully"
-}
+flow_exec_all
 
 handle_info "CBFlow FP inputs stage completed successfully"
 

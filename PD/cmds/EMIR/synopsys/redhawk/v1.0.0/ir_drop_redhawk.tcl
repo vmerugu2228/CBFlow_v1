@@ -170,7 +170,7 @@ flow_proc generate_ir_report {
     puts $fp "==============================================================================="
     puts $fp "CBFlow EMIR - IR Drop Analysis Results (Synopsys RedHawk)"
     puts $fp "==============================================================================="
-    puts $fp "Generated: [clock format [clock seconds]]"
+    puts $fp "Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     if {[info exists project(top_module)]} { puts $fp "Design:          $project(top_module)" }
     if {[info exists tech(node)]}          { puts $fp "Technology:      $tech(node)" }
     puts $fp "Tool:            Synopsys RedHawk"

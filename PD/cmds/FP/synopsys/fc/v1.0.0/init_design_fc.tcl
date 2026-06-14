@@ -27,7 +27,7 @@ setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 # ==============================================================================
 flow_proc create_design_library {
     handle_info "Creating design library..."
-    global fp tech flow
+    global flow fp project tech
 
     set run_dir $::env(CBFLOW_RUN_DIR)
     file mkdir "$run_dir/work/FP/init_design1/run"
@@ -64,11 +64,11 @@ flow_proc create_design_library {
     }
 
     # Sub-block NDMs — hierarchical designs (validated from project config)
-    if {$flow(run_type) eq "hier"} {
+    if {$flow(run_type) eq "hier" && [info exists project(block_list)] && [llength $project(block_list)] > 0} {
         foreach _block $project(block_list) {
             if {![info exists project(${_block},ndm)] || $project(${_block},ndm) eq ""} {
                 handle_error "Missing NDM for sub-block '$_block'. Set project(${_block},ndm) in project_config."
-                exit 1
+                return
             }
             lappend ref_libs $project(${_block},ndm)
         }
@@ -166,7 +166,7 @@ flow_proc create_design_library {
 # ==============================================================================
 flow_proc read_design {
     handle_info "Reading design..."
-    global fp flow
+    global flow fp tech
 
     set design_name [expr {[info exists fp(common,design_name)] ? $fp(common,design_name) : $flow(design_name)}]
 
@@ -201,7 +201,7 @@ flow_proc read_design {
 # ==============================================================================
 flow_proc setup_technology {
     handle_info "Setting up technology..."
-    global fp tech
+    global flow fp tech
 
     # Set technology node
     set tech_node ""
@@ -219,7 +219,7 @@ flow_proc setup_technology {
     # Source technology setup script (routing direction, offset, site)
     if {[info exists tech(tech_setup_script)] && [file exists $tech(tech_setup_script)]} {
         handle_info "Sourcing tech setup: $tech(tech_setup_script)"
-        source -e $tech(tech_setup_script)
+        source $tech(tech_setup_script)
     }
 
     # Read physical rules
@@ -238,7 +238,7 @@ flow_proc setup_technology {
 # ==============================================================================
 flow_proc load_constraints {
     handle_info "Loading timing and power constraints..."
-    global fp
+    global flow fp
 
     # Read SDC
     if {[info exists fp(input,sdc_file)] && $fp(input,sdc_file) ne ""} {
@@ -289,11 +289,11 @@ flow_proc load_constraints {
 # ==============================================================================
 flow_proc connect_power_ground {
     handle_info "Connecting power/ground nets..."
-    global fp
+    global flow fp
 
     # User PG connection script or automatic
     if {[info exists fp(common,connect_pg_net_script)] && [file exists $fp(common,connect_pg_net_script)]} {
-        source -e $fp(common,connect_pg_net_script)
+        source $fp(common,connect_pg_net_script)
     } else {
         connect_pg_net
     }

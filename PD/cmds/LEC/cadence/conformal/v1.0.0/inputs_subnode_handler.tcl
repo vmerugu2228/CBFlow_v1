@@ -74,7 +74,7 @@ switch -- $subnode {
     "finish" {
         set ts "$work_dir/run/${stage_base}_finish.timestamp"
         set fh [open $ts "w"]
-        puts $fh "[clock format [clock seconds]]"
+        puts $fh "[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
         close $fh
         puts "INFO: $node_name finish completed"
     }

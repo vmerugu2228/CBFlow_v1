@@ -140,6 +140,38 @@ Bundle (create customer delivery package):
   cbflow bundle --output /path/to/dir         Custom output directory
   cbflow bundle --version v2.0.0_rc1          Custom version tag
 
+Test Suite (static config validation + end-to-end flow execution):
+  cbflow test                                 Run full suite (static + e2e, all flows)
+  cbflow test --static                        Static config-validation checks only
+  cbflow test --e2e                           End-to-end flow execution only
+  cbflow test --flow SYNTH_PNR                Test a single flow
+  cbflow test --flows SYNTH,PNR,STA           Test a subset
+  cbflow test --category 3                    Run one static category (1-8)
+  cbflow test --report results.json           JSON report
+  cbflow test --junit junit.xml               JUnit XML report
+  cbflow test --ci                            CI mode (junit + plain console)
+  cbflow test --list                          List categories and exit
+  cbflow test --keep                          Keep sandboxes (debug)
+
+Dashboard Daemon (one server per user, all runs share it):
+  cbflow dashboard start                      Start daemon (port = 9000 + uid%1000)
+  cbflow dashboard start --port 9999          Override port
+  cbflow dashboard start --foreground         Run in foreground (debug)
+  cbflow dashboard stop                       Stop the daemon
+  cbflow dashboard restart                    Restart
+  cbflow dashboard status                     Show pid/port/registered runs
+  cbflow dashboard open                       Open browser to the index page
+  cbflow dashboard open <run_dir>             Deep-link a specific run
+  cbflow dashboard list                       List registered runs
+  cbflow dashboard register <run_dir>         Register a run with the daemon
+  cbflow dashboard deregister <run-or-id>     Deregister
+  cbflow dashboard logs --follow              Tail the daemon log
+  cbflow run gui                              Register run + open in daemon (default)
+  cbflow run gui --no-browser                 Register without opening browser
+  cbflow run gui --foreground                 Legacy: per-run foreground server
+  cbflow run gui --foreground --port 9090     Legacy server on specific port
+  cbflow run clean --confirm                  Also deregisters the run from daemon
+
 SmartGenie AI Agent (100% private, runs locally):
   cbflow smartgenie                           Interactive AI agent (local LLM)
   cbflow smartgenie "run all 6 flows"         One-shot command
@@ -248,6 +280,16 @@ main() {
         # Bundle for customer delivery
         bundle)
             exec "$SCRIPT_DIR/cbflow-bundle" "$@"
+            ;;
+
+        # Test suite (static config validation + e2e flow execution)
+        test|test-suite)
+            exec python3 "$COMMANDS_DIR/test_cmd.py" "$@"
+            ;;
+
+        # Per-user dashboard daemon
+        dashboard)
+            exec python3 "$COMMANDS_DIR/dashboard_daemon_cmd.py" "$@"
             ;;
 
         # SmartGenie AI Agent

@@ -171,7 +171,7 @@ flow_proc generate_perc_report {
     puts $fp "==============================================================================="
     puts $fp "CBFlow PV - PERC Results (Synopsys ICV)"
     puts $fp "==============================================================================="
-    puts $fp "Generated: [clock format [clock seconds]]"
+    puts $fp "Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     if {[info exists project(top_module)]} { puts $fp "Design:     $project(top_module)" }
     if {[info exists tech(node)]}          { puts $fp "Technology: $tech(node)" }
     puts $fp "Tool:       Synopsys ICV"

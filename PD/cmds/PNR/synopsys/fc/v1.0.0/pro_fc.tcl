@@ -37,7 +37,7 @@ flow_proc configure_route_opt {
     if {[info exists pnr(compile,qor_mode)] && $pnr(compile,qor_mode) ne ""} {
         lappend set_qor_strategy_cmd -mode $pnr(compile,qor_mode)
     }
-    if {[info exists pnr(compile,reduced_effort)] && $pnr(compile,reduced_effort)} {
+    if {[info exists pnr(compile,reduced_effort)] && $pnr(compile,reduced_effort) ne "" && [string is true -strict $pnr(compile,reduced_effort)]} {
         lappend set_qor_strategy_cmd -reduced_effort
     }
     handle_info "Running: $set_qor_strategy_cmd"
@@ -145,7 +145,7 @@ flow_proc run_route_opt_pass3 {
     global pnr
 
     # Post-route_opt redundant via insertion
-    if {[info exists pnr(pro,redundant_via_post)] && $pnr(pro,redundant_via_post)} {
+    if {[info exists pnr(pro,redundant_via_post)] && $pnr(pro,redundant_via_post) ne "" && [string is true -strict $pnr(pro,redundant_via_post)]} {
         handle_info "Running post-route_opt add_redundant_vias"
         add_redundant_vias
     }
@@ -169,7 +169,7 @@ flow_proc add_redundant_vias {
     handle_info "Checking redundant via insertion settings..."
     global pnr
 
-    if {[info exists pnr(pro,redundant_via)] && $pnr(pro,redundant_via)} {
+    if {[info exists pnr(pro,redundant_via)] && $pnr(pro,redundant_via) ne "" && [string is true -strict $pnr(pro,redundant_via)]} {
         handle_info "Running add_redundant_vias -timing_preserve_setup_slack_threshold 0"
         add_redundant_vias -timing_preserve_setup_slack_threshold 0
     } else {
@@ -185,7 +185,7 @@ flow_proc save_design_block {
     handle_info "Saving design block..."
     global pnr
 
-    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling)} {
+    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling) ne "" && [string is true -strict $pnr(output,block_labeling)]} {
         save_block -as $pnr(common,design_name)/pro
         handle_info "Block saved as $pnr(common,design_name)/pro"
     } else {
@@ -265,7 +265,7 @@ flow_proc run_endpoint_opt {
     handle_info "Checking if endpoint optimization is enabled..."
     global pnr
 
-    if {![info exists pnr(pro,enable_endpoint_opt)] || !$pnr(pro,enable_endpoint_opt)} {
+    if {![info exists pnr(pro,enable_endpoint_opt)] || (![info exists pnr(pro,enable_endpoint_opt)] || ![string is true -strict $pnr(pro,enable_endpoint_opt)])} {
         handle_info "Endpoint optimization not enabled -- skipping"
         return
     }
@@ -277,7 +277,7 @@ flow_proc run_endpoint_opt {
     set rm_drc_before_ep [sizeof_collection [get_drc_errors -quiet -error_data zroute.err]]
 
     # Build targeted_ep_ropt_pba_ccd arguments
-    if {[info exists pnr(pro,endpoint_opt_auto)] && $pnr(pro,endpoint_opt_auto)} {
+    if {[info exists pnr(pro,endpoint_opt_auto)] && $pnr(pro,endpoint_opt_auto) ne "" && [string is true -strict $pnr(pro,endpoint_opt_auto)]} {
         # Auto mode: let the tool determine endpoints and metrics
         set targeted_ep_args "-auto true"
     } else {

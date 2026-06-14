@@ -14,6 +14,11 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
+
+# ── Design name (resolve from pv(...) or flow(...)) ──────────────────────
+set DESIGN_NAME [expr {[info exists pv(common,design_name)] ? $pv(common,design_name) :
+                       [expr {[info exists flow(design_name)] ? $flow(design_name) : "design"}]}]
+set ::DESIGN_NAME $DESIGN_NAME
 # ═══════════════════════════════════════════════════════════════════════════════
 # XOR: Compare pre-fill vs post-fill layouts
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -55,7 +60,7 @@ flow_proc run_xor_check {
     set rpt [open "$::REPORTS_DIR/${::DESIGN_NAME}_xor_summary.rpt" "w"]
     puts $rpt "═══════════════════════════════════════════════════════"
     puts $rpt "  XOR Check Summary: $::DESIGN_NAME"
-    puts $rpt "  Generated: [clock format [clock seconds]]"
+    puts $rpt "  Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $rpt "═══════════════════════════════════════════════════════"
     puts $rpt ""
     puts $rpt "  Pre-fill layout:  $pre_fill"

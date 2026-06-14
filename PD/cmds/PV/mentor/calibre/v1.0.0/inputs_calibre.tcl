@@ -94,7 +94,7 @@ flow_proc generate_input_summary {
     file mkdir [file dirname $sf]
     set fp [open $sf w]
     puts $fp "CBFlow PV - Input Summary"
-    puts $fp "Generated: [clock format [clock seconds]]"
+    puts $fp "Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     if {[info exists project(top_module)]} { puts $fp "Design: $project(top_module)" }
     puts $fp "Netlist: [llength [glob -nocomplain "$run_dir/work/PV/inputs/netlist/*"]]"
     puts $fp "DEF: [llength [glob -nocomplain "$run_dir/work/PV/inputs/def/*"]]"

@@ -63,7 +63,7 @@ switch $subnode_name {
                 puts "INFO:   RC file: $_rc_file ($_rc_file_type)"
                 set _spef "$_corner_dir/results/${node_name}_${subnode_name}.spef"
                 set fh [open $_spef "w"]
-                puts $fh "// SPEF for $subnode_name (StarRC) [clock format [clock seconds]]"
+                puts $fh "// SPEF for $subnode_name (StarRC) [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
                 close $fh
                 puts "INFO: Mock SPEF: $_spef"
                 puts "INFO: extraction $subnode_name completed \[TEST MODE\]"

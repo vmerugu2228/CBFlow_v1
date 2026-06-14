@@ -31,7 +31,7 @@ flow_proc load_design {
     set _db "$run_dir/work/FP/init_design1/outputs/init_design.enc.dat"
     if {![file exists $_db]} {
         handle_error "init_design database not found: $_db"
-        exit 1
+        return
     }
     handle_info "Restoring design: $_db"
     restoreDesign $_db $flow(design_name)
@@ -50,14 +50,14 @@ flow_proc load_floorplan {
     if {[info exists fp(input,floorplan_file)] && $fp(input,floorplan_file) ne ""} {
         if {![file exists $fp(input,floorplan_file)]} {
             handle_error "Floorplan file not found: $fp(input,floorplan_file)"
-            exit 1
+            return
         }
         handle_info "Loading floorplan: [file tail $fp(input,floorplan_file)]"
         loadFPlan $fp(input,floorplan_file)
     } elseif {[info exists fp(input,def_file)] && $fp(input,def_file) ne ""} {
         if {![file exists $fp(input,def_file)]} {
             handle_error "DEF file not found: $fp(input,def_file)"
-            exit 1
+            return
         }
         handle_info "Loading DEF: [file tail $fp(input,def_file)]"
         defIn $fp(input,def_file)
@@ -83,7 +83,7 @@ flow_proc place_pins {
             source $fp(input,pin_placement_file)
         } else {
             handle_error "Pin placement file not found: $fp(input,pin_placement_file)"
-            exit 1
+            return
         }
     } else {
         handle_info "No pin placement file — skipping (set fp(input,pin_placement_file) to enable)"
@@ -143,7 +143,7 @@ flow_proc add_endcaps_welltaps {
     if {[info exists tech(${_trk},well_tap)] && $tech(${_trk},well_tap) ne ""} {
         if {![info exists fp(welltap,interval)] || $fp(welltap,interval) eq ""} {
             handle_error "fp(welltap,interval) not set — required for well tap insertion"
-            exit 1
+            return
         }
         set _wtprefix [expr {[info exists fp(welltap,prefix)] && $fp(welltap,prefix) ne "" ? $fp(welltap,prefix) : "WELLTAP"}]
         handle_info "  Well tap: $tech(${_trk},well_tap) every $fp(welltap,interval)um prefix=$_wtprefix"
@@ -190,20 +190,6 @@ handle_info "================================================================"
 handle_info "CBflow FP floorplan — Innovus"
 handle_info "================================================================"
 
-foreach step {
-    load_design
-    activate_node_scenarios
-    load_floorplan
-    place_pins
-    add_endcaps_welltaps
-    generate_reports
-    save_design
-} {
-    handle_info "── $step ──"
-    if {[catch {$step} err]} {
-        handle_error "Step '$step' failed: $err"
-        exit 1
-    }
-}
+flow_exec_all
 
 handle_info "FP floorplan completed"

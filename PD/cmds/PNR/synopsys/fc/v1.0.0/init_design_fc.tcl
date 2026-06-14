@@ -28,7 +28,7 @@ setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 # ==============================================================================
 flow_proc create_design_library {
     handle_info "Creating design library..."
-    global pnr tech flow
+    global flow pnr project tech
 
     set run_dir $::env(CBFLOW_RUN_DIR)
     file mkdir "$run_dir/work/PNR/init_design1/run"
@@ -77,11 +77,11 @@ flow_proc create_design_library {
     }
 
     # Sub-block NDMs — hierarchical designs (validated from project config)
-    if {$flow(run_type) eq "hier"} {
+    if {$flow(run_type) eq "hier" && [info exists project(block_list)] && [llength $project(block_list)] > 0} {
         foreach _block $project(block_list) {
             if {![info exists project(${_block},ndm)] || $project(${_block},ndm) eq ""} {
                 handle_error "Missing NDM for sub-block '$_block'. Set project(${_block},ndm) in project_config."
-                exit 1
+                return
             }
             lappend ref_libs $project(${_block},ndm)
         }
@@ -189,7 +189,7 @@ flow_proc create_design_library {
 # ==============================================================================
 flow_proc read_design {
     handle_info "Reading design netlist..."
-    global pnr flow
+    global flow pnr tech
 
     set design_name [expr {[info exists pnr(common,design_name)] ? $pnr(common,design_name) : $flow(design_name)}]
 
@@ -236,7 +236,7 @@ flow_proc read_design {
 # ==============================================================================
 flow_proc setup_technology {
     handle_info "Setting up technology..."
-    global pnr tech
+    global flow pnr tech
 
     # FC-RM: set_technology -node
     if {[info exists tech(node)] && $tech(node) ne ""} {
@@ -248,7 +248,7 @@ flow_proc setup_technology {
     # FC-RM: Technology setup (routing direction, offset, site default, site symmetry)
     if {[info exists tech(tech_setup_script)] && $tech(tech_setup_script) ne "" && [file exists $tech(tech_setup_script)]} {
         handle_info "Sourcing tech setup: $tech(tech_setup_script)"
-        source -e $tech(tech_setup_script)
+        source $tech(tech_setup_script)
     }
 
     # FC-RM: read_physical_rules
@@ -268,12 +268,12 @@ flow_proc setup_technology {
 # ==============================================================================
 flow_proc load_floorplan {
     handle_info "Loading floorplan..."
-    global pnr tech
+    global flow pnr tech
 
     # FC-RM: TCL_FLOORPLAN_FILE or DEF_FLOORPLAN_FILES
     if {[info exists pnr(input,fp_tcl)] && $pnr(input,fp_tcl) ne "" && [file exists $pnr(input,fp_tcl)]} {
         handle_info "Sourcing floorplan TCL: $pnr(input,fp_tcl)"
-        source -e $pnr(input,fp_tcl)
+        source $pnr(input,fp_tcl)
     } elseif {[info exists pnr(input,def_file)] && $pnr(input,def_file) ne ""} {
         if {[file exists $pnr(input,def_file)]} {
             handle_info "Reading DEF floorplan: $pnr(input,def_file)"
@@ -292,7 +292,7 @@ flow_proc load_floorplan {
 
     # FC-RM: Source switch connectivity and associate MV cells
     if {[info exists pnr(common,switch_connectivity_file)] && [file exists $pnr(common,switch_connectivity_file)]} {
-        source -e $pnr(common,switch_connectivity_file)
+        source $pnr(common,switch_connectivity_file)
         associate_mv_cell -power_switches
     }
 
@@ -327,7 +327,7 @@ flow_proc load_floorplan {
 # ==============================================================================
 flow_proc initialize_floorplan {
     handle_info "Initializing floorplan (FC-RM)..."
-    global pnr tech
+    global flow pnr tech
 
     # Skip if floorplan was already loaded from DEF or TCL
     if {[sizeof_collection [get_cells -hier -filter "is_hard_macro==true" -quiet]] > 0 ||
@@ -365,7 +365,7 @@ flow_proc initialize_floorplan {
 # ==============================================================================
 flow_proc insert_physical_cells {
     handle_info "Inserting physical cells (FC-RM)..."
-    global pnr tech
+    global flow pnr tech
 
     # -- FC-RM: Tap cells (well tie) ------------------------------------------
     if {[info exists tech(cells,well_tap)] && $tech(cells,well_tap) ne ""} {
@@ -404,7 +404,7 @@ flow_proc insert_physical_cells {
     # -- FC-RM: Spare cells (optional) ----------------------------------------
     if {[info exists pnr(common,spare_cells_file)] && [file exists $pnr(common,spare_cells_file)]} {
         handle_info "  Sourcing spare cells: $pnr(common,spare_cells_file)"
-        source -e $pnr(common,spare_cells_file)
+        source $pnr(common,spare_cells_file)
     }
 
     save_lib -all
@@ -417,7 +417,7 @@ flow_proc insert_physical_cells {
 # ==============================================================================
 flow_proc setup_design_checks {
     handle_info "Running design checks..."
-    global pnr flow
+    global flow pnr tech
 
     set design_name [expr {[info exists pnr(common,design_name)] ? $pnr(common,design_name) : $flow(design_name)}]
 
@@ -440,7 +440,7 @@ flow_proc setup_design_checks {
 # ==============================================================================
 flow_proc load_constraints {
     handle_info "Loading timing and power constraints..."
-    global pnr flow
+    global flow pnr tech
 
     set design_name [expr {[info exists pnr(common,design_name)] ? $pnr(common,design_name) : $flow(design_name)}]
 
@@ -456,7 +456,7 @@ flow_proc load_constraints {
 
     if {$sdc_file ne "" && [file exists $sdc_file]} {
         handle_info "Reading SDC: $sdc_file"
-        source -e $sdc_file
+        source $sdc_file
     } else {
         handle_warning "SDC file not found: $sdc_file"
     }
@@ -498,7 +498,7 @@ flow_proc load_constraints {
 # ==============================================================================
 flow_proc setup_parasitics {
     handle_info "Setting up parasitic technology..."
-    global tech
+    global flow tech
 
     # FC-RM: Only source parasitic setup if PARASITIC_TECH_LIB was not specified in create_lib
     set parasitic_in_lib false
@@ -549,14 +549,14 @@ flow_proc setup_parasitics {
 # ==============================================================================
 flow_proc setup_mcmm {
     handle_info "Setting up MCMM scenarios..."
-    global pnr tech
+    global flow pnr tech
 
     set run_dir $::env(CBFLOW_RUN_DIR)
 
     # FC-RM: Source user MCMM setup script if provided
     if {[info exists pnr(common,mcmm_setup_file)] && [file exists $pnr(common,mcmm_setup_file)]} {
         handle_info "Sourcing MCMM setup: $pnr(common,mcmm_setup_file)"
-        source -e $pnr(common,mcmm_setup_file)
+        source $pnr(common,mcmm_setup_file)
     } else {
         # Auto-create MCMM from CBflow mmmc_config analysis_views
         handle_info "Creating MCMM scenarios from mmmc_config..."
@@ -574,7 +574,7 @@ flow_proc setup_mcmm {
                     if {[file exists $_sdc_path]} {
                         create_mode $_mode
                         current_mode $_mode
-                        source -e $_sdc_path
+                        source $_sdc_path
                         handle_info "  Created mode: $_mode (SDC: $_sdc_file)"
                     } else {
                         handle_warning "  SDC not found for mode $_mode: $_sdc_path"
@@ -637,7 +637,7 @@ flow_proc setup_mcmm {
     # FC-RM: Design constraints (dont_touch, clock_gating, etc.)
     if {[info exists pnr(common,constraints_setup_file)] && [file exists $pnr(common,constraints_setup_file)]} {
         handle_info "Sourcing constraints setup: $pnr(common,constraints_setup_file)"
-        source -e $pnr(common,constraints_setup_file)
+        source $pnr(common,constraints_setup_file)
     }
 
     # FC-RM: Remove propagated clocks (for ASCII/netlist input)
@@ -659,22 +659,22 @@ flow_proc setup_mcmm {
 # ==============================================================================
 flow_proc setup_timing_variations {
     handle_info "Setting up timing variation analysis..."
-    global pnr tech
+    global flow pnr tech
 
     # FC-RM: POCV setup (preferred over AOCV)
     if {[info exists pnr(common,pocv_setup_file)] && [file exists $pnr(common,pocv_setup_file)]} {
         handle_info "Sourcing POCV setup: $pnr(common,pocv_setup_file)"
-        source -e $pnr(common,pocv_setup_file)
+        source $pnr(common,pocv_setup_file)
         set_app_options -name time.pocvm_enable_analysis -value true
         reset_app_options time.aocvm_enable_analysis
         handle_info "POCV analysis enabled"
     } elseif {[info exists pnr(common,aocv_setup_file)] && [file exists $pnr(common,aocv_setup_file)]} {
         handle_info "Sourcing AOCV setup: $pnr(common,aocv_setup_file)"
-        source -e $pnr(common,aocv_setup_file)
+        source $pnr(common,aocv_setup_file)
         handle_info "AOCV analysis enabled"
     } elseif {[info exists tech(ocv,derate_file)] && [file exists $tech(ocv,derate_file)]} {
         handle_info "Sourcing OCV derate: $tech(ocv,derate_file)"
-        source -e $tech(ocv,derate_file)
+        source $tech(ocv,derate_file)
     }
 
     handle_info "Timing variation setup completed"
@@ -686,15 +686,15 @@ flow_proc setup_timing_variations {
 # ==============================================================================
 flow_proc setup_lib_cell_purpose {
     handle_info "Setting library cell purpose restrictions..."
-    global pnr tech
+    global flow pnr tech
 
     # FC-RM: Source lib cell purpose file
     if {[info exists pnr(common,lib_cell_purpose_file)] && [file exists $pnr(common,lib_cell_purpose_file)]} {
         handle_info "Sourcing lib cell purpose: $pnr(common,lib_cell_purpose_file)"
-        source -e $pnr(common,lib_cell_purpose_file)
+        source $pnr(common,lib_cell_purpose_file)
     } elseif {[info exists tech(lib_cell_purpose_file)] && [file exists $tech(lib_cell_purpose_file)]} {
         handle_info "Sourcing lib cell purpose from tech: $tech(lib_cell_purpose_file)"
-        source -e $tech(lib_cell_purpose_file)
+        source $tech(lib_cell_purpose_file)
     }
 
     # FC-RM: Dont-use cells
@@ -714,20 +714,20 @@ flow_proc setup_lib_cell_purpose {
 # ==============================================================================
 flow_proc setup_clock_ndr {
     handle_info "Setting up clock NDR rules..."
-    global pnr tech
+    global flow pnr tech
 
     # FC-RM: Source CTS NDR rule file
     if {[info exists pnr(common,cts_ndr_file)] && [file exists $pnr(common,cts_ndr_file)]} {
         handle_info "Sourcing CTS NDR rules: $pnr(common,cts_ndr_file)"
-        source -e $pnr(common,cts_ndr_file)
+        source $pnr(common,cts_ndr_file)
     } elseif {[info exists tech(cts_ndr_file)] && [file exists $tech(cts_ndr_file)]} {
-        source -e $tech(cts_ndr_file)
+        source $tech(cts_ndr_file)
     }
 
     # FC-RM: Via ladder definitions
     if {[info exists tech(via_ladder_file)] && [file exists $tech(via_ladder_file)]} {
         handle_info "Sourcing via ladder definitions"
-        source -e $tech(via_ladder_file)
+        source $tech(via_ladder_file)
     }
 
     redirect -file $::REPORTS_DIR/report_routing_rules { report_routing_rules -verbose }
@@ -743,21 +743,21 @@ flow_proc setup_clock_ndr {
 # ==============================================================================
 flow_proc setup_placement_constraints {
     handle_info "Setting up placement constraints..."
-    global pnr
+    global flow pnr
 
     # FC-RM: Source placement constraint files
     if {[info exists pnr(common,placement_constraint_files)] && [llength $pnr(common,placement_constraint_files)] > 0} {
         foreach file $pnr(common,placement_constraint_files) {
             if {[file exists $file]} {
                 handle_info "Sourcing placement constraint: $file"
-                source -e $file
+                source $file
             }
         }
     }
 
     # FC-RM: Additional floorplan constraints
     if {[info exists pnr(common,additional_floorplan_file)] && [file exists $pnr(common,additional_floorplan_file)]} {
-        source -e $pnr(common,additional_floorplan_file)
+        source $pnr(common,additional_floorplan_file)
     }
 
     handle_info "Placement constraints applied"
@@ -769,7 +769,7 @@ flow_proc setup_placement_constraints {
 # ==============================================================================
 flow_proc setup_power_activity {
     handle_info "Setting up power activity..."
-    global pnr
+    global flow pnr
 
     # FC-RM: saif_map -start
     saif_map -start
@@ -801,12 +801,12 @@ flow_proc setup_power_activity {
 # ==============================================================================
 flow_proc setup_dft {
     handle_info "Setting up DFT..."
-    global pnr
+    global flow pnr
 
     # FC-RM: DFT ports file
     if {[info exists pnr(common,dft_ports_file)] && [file exists $pnr(common,dft_ports_file)]} {
         handle_info "Sourcing DFT ports: $pnr(common,dft_ports_file)"
-        source -e $pnr(common,dft_ports_file)
+        source $pnr(common,dft_ports_file)
     }
 
     handle_info "DFT setup completed"
@@ -818,11 +818,11 @@ flow_proc setup_dft {
 # ==============================================================================
 flow_proc connect_power_ground {
     handle_info "Connecting power/ground nets..."
-    global pnr
+    global flow pnr
 
     # FC-RM: User PG connection script or automatic
     if {[info exists pnr(common,connect_pg_net_script)] && [file exists $pnr(common,connect_pg_net_script)]} {
-        source -e $pnr(common,connect_pg_net_script)
+        source $pnr(common,connect_pg_net_script)
     } else {
         connect_pg_net
     }
@@ -836,7 +836,7 @@ flow_proc connect_power_ground {
 # ==============================================================================
 flow_proc set_qor_strategy_init {
     handle_info "Setting QoR strategy..."
-    global pnr
+    global flow pnr
 
     set metric [expr {[info exists pnr(compile,qor_metric)] ? $pnr(compile,qor_metric) : "timing"}]
     set mode [expr {[info exists pnr(compile,qor_mode)] ? $pnr(compile,qor_mode) : "balanced"}]
@@ -852,7 +852,7 @@ flow_proc set_qor_strategy_init {
 # ==============================================================================
 flow_proc run_floorplan_checks {
     handle_info "Running floorplan checks..."
-    global pnr
+    global flow pnr
 
     # FC-RM: check_floorplan_rules
     catch {
@@ -861,7 +861,7 @@ flow_proc run_floorplan_checks {
 
     # FC-RM: Floorplan rule script
     if {[info exists pnr(common,floorplan_rule_script)] && [file exists $pnr(common,floorplan_rule_script)]} {
-        source -e $pnr(common,floorplan_rule_script)
+        source $pnr(common,floorplan_rule_script)
     }
 
     handle_info "Floorplan checks completed"
@@ -891,7 +891,7 @@ flow_proc save_design {
     # FC-RM: save_lib -all, save_block
     save_lib -all
     save_block
-    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling)} {
+    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling) ne "" && [string is true -strict $pnr(output,block_labeling)]} {
         save_block -as ${design_name}/init_design
         handle_info "Block saved: ${design_name}/init_design"
     }

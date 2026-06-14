@@ -49,7 +49,7 @@ flow_proc load_design {
     # FC-RM: Hierarchical — swap abstracts and set editability
     set _run_type $flow(run_type)
     if {$_run_type eq "hier"} {
-        if {$synth_pnr(common,block_abstract_for_compile) ne ""} {
+        if {[info exists synth_pnr(common,block_abstract_for_compile)] && $synth_pnr(common,block_abstract_for_compile) ne ""} {
             change_abstract -references [get_blocks -hierarchical] \
                 -label [lindex $synth_pnr(common,block_abstract_for_compile) 0] \
                 -view [lindex $synth_pnr(common,block_abstract_for_compile) 1]
@@ -65,12 +65,13 @@ flow_proc load_design {
 # flow_proc: set_active_scenarios
 # FC-RM: set_scenario_status for compile, check hold scenarios
 # ==============================================================================
+}
 flow_proc set_active_scenarios {
     handle_info "Setting active scenarios for synthesis..."
     global synth_pnr
 
     # Priority: synth_pnr user override > mmmc_config get_node_scenarios("synthesis")
-    if {$synth_pnr(synthesis,compile,active_scenarios) ne ""} {
+    if {[info exists synth_pnr(synthesis,compile,active_scenarios)] && $synth_pnr(synthesis,compile,active_scenarios) ne ""} {
         set_scenario_status -active false [get_scenarios -filter active]
         set_scenario_status -active true $synth_pnr(synthesis,compile,active_scenarios)
         handle_info "Active scenarios (user override): $synth_pnr(synthesis,compile,active_scenarios)"
@@ -84,8 +85,8 @@ flow_proc set_active_scenarios {
     }
 
     # FC-RM: Adjustment file for modes/corners/scenarios
-    if {$synth_pnr(common,mcmm_adjustment_file) ne "" && [file exists $synth_pnr(common,mcmm_adjustment_file)]} {
-        source -e $synth_pnr(common,mcmm_adjustment_file)
+    if {[info exists synth_pnr(common,mcmm_adjustment_file)] && $synth_pnr(common,mcmm_adjustment_file) ne "" && [file exists $synth_pnr(common,mcmm_adjustment_file)]} {
+        source $synth_pnr(common,mcmm_adjustment_file)
     }
 
     # FC-RM: Check for hold scenarios (needed for CCD)
@@ -98,12 +99,13 @@ flow_proc set_active_scenarios {
 # flow_proc: set_qor_strategy
 # FC-RM: set_qor_strategy -stage compile_initial, routing layers
 # ==============================================================================
+}
 flow_proc set_qor_strategy {
     handle_info "Setting QoR strategy for synthesis..."
     global synth_pnr
 
     # FC-RM: QoR strategy version
-    if {$synth_pnr(common,compile,qor_version) ne ""} {
+    if {[info exists synth_pnr(common,compile,qor_version)] && $synth_pnr(common,compile,qor_version) ne ""} {
         set_app_options -name flow.set_qor_strategy.version -value $synth_pnr(common,compile,qor_version)
     }
 
@@ -113,12 +115,12 @@ flow_proc set_qor_strategy {
     set mode [expr {$synth_pnr(common,compile,qor_mode) ne "" ? $synth_pnr(common,compile,qor_mode) : "balanced"}]
     lappend cmd -metric $metric -mode $mode
 
-    if {$synth_pnr(common,compile,reduced_effort) ne "" && $synth_pnr(common,compile,reduced_effort)} {
+    if {[info exists synth_pnr(common,compile,reduced_effort)] && $synth_pnr(common,compile,reduced_effort) ne "" && $synth_pnr(common,compile,reduced_effort)} {
         lappend cmd -reduced_effort
-    } elseif {$synth_pnr(synthesis,compile,high_effort_timing) ne "" && $synth_pnr(synthesis,compile,high_effort_timing)} {
+    } elseif {[info exists synth_pnr(synthesis,compile,high_effort_timing)] && $synth_pnr(synthesis,compile,high_effort_timing) ne "" && $synth_pnr(synthesis,compile,high_effort_timing)} {
         lappend cmd -high_effort_timing
     }
-    if {$synth_pnr(common,compile,congestion_effort) ne ""} {
+    if {[info exists synth_pnr(common,compile,congestion_effort)] && $synth_pnr(common,compile,congestion_effort) ne ""} {
         lappend cmd -congestion_effort $synth_pnr(common,compile,congestion_effort)
     }
 
@@ -127,10 +129,10 @@ flow_proc set_qor_strategy {
     eval $cmd
 
     # FC-RM: set_ignored_layers (routing layer constraints)
-    if {$synth_pnr(common,route_max_layer) ne ""} {
+    if {[info exists synth_pnr(common,route_max_layer)] && $synth_pnr(common,route_max_layer) ne ""} {
         set_ignored_layers -max_routing_layer $synth_pnr(common,route_max_layer)
     }
-    if {$synth_pnr(common,route_min_layer) ne ""} {
+    if {[info exists synth_pnr(common,route_min_layer)] && $synth_pnr(common,route_min_layer) ne ""} {
         set_ignored_layers -min_routing_layer $synth_pnr(common,route_min_layer)
     }
 
@@ -149,6 +151,7 @@ flow_proc set_qor_strategy {
 # FC-RM: Instance prefixes, lib_cell_purpose, multi-Vt, CTS primary corner,
 #         remove propagated clocks, non-persistent settings
 # ==============================================================================
+}
 flow_proc configure_compile {
     handle_info "Configuring compile settings..."
     global synth_pnr tech
@@ -162,24 +165,24 @@ flow_proc configure_compile {
     set_app_options -name hdlin.naming.upf_compatible -value true
 
     # FC-RM: Lib cell purpose restrictions
-    if {$synth_pnr(common,lib_cell_purpose_file) ne "" && [file exists $synth_pnr(common,lib_cell_purpose_file)]} {
-        source -e $synth_pnr(common,lib_cell_purpose_file)
-    } elseif {$tech(lib_cell_purpose_file) ne "" && [file exists $tech(lib_cell_purpose_file)]} {
-        source -e $tech(lib_cell_purpose_file)
+    if {[info exists synth_pnr(common,lib_cell_purpose_file)] && $synth_pnr(common,lib_cell_purpose_file) ne "" && [file exists $synth_pnr(common,lib_cell_purpose_file)]} {
+        source $synth_pnr(common,lib_cell_purpose_file)
+    } elseif {[info exists tech(lib_cell_purpose_file)] && $tech(lib_cell_purpose_file) ne "" && [file exists $tech(lib_cell_purpose_file)]} {
+        source $tech(lib_cell_purpose_file)
     }
 
     # FC-RM: Multi-Vt constraint file
-    if {$synth_pnr(common,multi_vt_constraint_file) ne "" && [file exists $synth_pnr(common,multi_vt_constraint_file)]} {
-        source -e $synth_pnr(common,multi_vt_constraint_file)
+    if {[info exists synth_pnr(common,multi_vt_constraint_file)] && $synth_pnr(common,multi_vt_constraint_file) ne "" && [file exists $synth_pnr(common,multi_vt_constraint_file)]} {
+        source $synth_pnr(common,multi_vt_constraint_file)
     }
 
     # FC-RM: Non-persistent settings
-    if {$synth_pnr(common,non_persistent_script) ne "" && [file exists $synth_pnr(common,non_persistent_script)]} {
-        source -e $synth_pnr(common,non_persistent_script)
+    if {[info exists synth_pnr(common,non_persistent_script)] && $synth_pnr(common,non_persistent_script) ne "" && [file exists $synth_pnr(common,non_persistent_script)]} {
+        source $synth_pnr(common,non_persistent_script)
     }
 
     # FC-RM: CTS primary corner
-    if {$synth_pnr(common,cts_primary_corner) ne ""} {
+    if {[info exists synth_pnr(common,cts_primary_corner)] && $synth_pnr(common,cts_primary_corner) ne ""} {
         set_app_options -name cts.compile.primary_corner -value $synth_pnr(common,cts_primary_corner)
         handle_info "CTS primary corner: $synth_pnr(common,cts_primary_corner)"
     }
@@ -204,6 +207,7 @@ flow_proc configure_compile {
 # FC-RM: SVF, DFT pre-compile setup, autoungroup check,
 #         create_mv_cells, compile_fusion -check_only, mark_clock_trees
 # ==============================================================================
+}
 flow_proc pre_compile_setup {
     handle_info "Running pre-compile setup..."
     global synth_pnr flow
@@ -214,13 +218,13 @@ flow_proc pre_compile_setup {
     set_svf $::OUTPUTS_DIR/${design_name}_compile.svf
 
     # FC-RM: User pre-compile script
-    if {$synth_pnr(synthesis,compile_pre_script) ne "" && [file exists $synth_pnr(synthesis,compile_pre_script)]} {
+    if {[info exists synth_pnr(synthesis,compile_pre_script)] && $synth_pnr(synthesis,compile_pre_script) ne "" && [file exists $synth_pnr(synthesis,compile_pre_script)]} {
         handle_info "Sourcing compile pre-script"
-        source -e $synth_pnr(synthesis,compile_pre_script)
+        source $synth_pnr(synthesis,compile_pre_script)
     }
 
     # FC-RM: Read test model for sub-blocks (hierarchical)
-    if {$synth_pnr(pro,ctl_for_abstract_blocks) ne "" && [llength $synth_pnr(pro,ctl_for_abstract_blocks)] > 0} {
+    if {[info exists synth_pnr(pro,ctl_for_abstract_blocks)] && $synth_pnr(pro,ctl_for_abstract_blocks) ne "" && [llength $synth_pnr(pro,ctl_for_abstract_blocks)] > 0} {
         foreach ctl $synth_pnr(pro,ctl_for_abstract_blocks) {
             read_test_model $ctl
         }
@@ -236,8 +240,8 @@ flow_proc pre_compile_setup {
     create_mv_cells -verbose
 
     # FC-RM: DFT pre-compile setup
-    if {$synth_pnr(synthesis,dft_pre_compile_setup_file) ne "" && [file exists $synth_pnr(synthesis,dft_pre_compile_setup_file)]} {
-        source -e $synth_pnr(synthesis,dft_pre_compile_setup_file)
+    if {[info exists synth_pnr(synthesis,dft_pre_compile_setup_file)] && $synth_pnr(synthesis,dft_pre_compile_setup_file) ne "" && [file exists $synth_pnr(synthesis,dft_pre_compile_setup_file)]} {
+        source $synth_pnr(synthesis,dft_pre_compile_setup_file)
     }
 
     # FC-RM: Mark clock trees for NDR impact modeling
@@ -245,8 +249,8 @@ flow_proc pre_compile_setup {
     mark_clock_trees -routing_rules
 
     # FC-RM: Spare cell insertion before initial_place
-    if {$synth_pnr(common,spare_cell_pre_script) ne "" && [file exists $synth_pnr(common,spare_cell_pre_script)]} {
-        source -e $synth_pnr(common,spare_cell_pre_script)
+    if {[info exists synth_pnr(common,spare_cell_pre_script)] && $synth_pnr(common,spare_cell_pre_script) ne "" && [file exists $synth_pnr(common,spare_cell_pre_script)]} {
+        source $synth_pnr(common,spare_cell_pre_script)
     }
 
     # FC-RM: Pre-flight check
@@ -261,13 +265,14 @@ flow_proc pre_compile_setup {
 # flow_proc: run_compile
 # FC-RM: compile_fusion — unified or stage-by-stage execution
 # ==============================================================================
+}
 flow_proc run_compile {
     handle_info "Running compile_fusion..."
     global synth_pnr flow
 
     set design_name [expr {$synth_pnr(common,design_name) ne "" ? $synth_pnr(common,design_name) : $flow(design_name)}]
 
-    if {$synth_pnr(synthesis,compile,unified_flow) ne "" && $synth_pnr(synthesis,compile,unified_flow)} {
+    if {[info exists synth_pnr(synthesis,compile,unified_flow)] && $synth_pnr(synthesis,compile,unified_flow) ne "" && $synth_pnr(synthesis,compile,unified_flow)} {
         # ── Unified compile (all stages end-to-end) ───────────────────────────
         handle_info "Running compile_fusion (unified flow — all stages)"
         compile_fusion
@@ -302,10 +307,10 @@ flow_proc run_compile {
         redirect -file $::REPORTS_DIR/report_qor_summary.logic_opto.rpt { report_qor -summary }
 
         # FC-RM: insert_dft (if enabled)
-        if {$synth_pnr(synthesis,dft_insert_enable) ne "" && $synth_pnr(synthesis,dft_insert_enable)} {
+        if {[info exists synth_pnr(synthesis,dft_insert_enable)] && $synth_pnr(synthesis,dft_insert_enable) ne "" && $synth_pnr(synthesis,dft_insert_enable)} {
             handle_info "DFT insertion enabled"
-            if {$synth_pnr(synthesis,dft_setup_file) ne "" && [file exists $synth_pnr(synthesis,dft_setup_file)]} {
-                source -e $synth_pnr(synthesis,dft_setup_file)
+            if {[info exists synth_pnr(synthesis,dft_setup_file)] && $synth_pnr(synthesis,dft_setup_file) ne "" && [file exists $synth_pnr(synthesis,dft_setup_file)]} {
+                source $synth_pnr(synthesis,dft_setup_file)
             }
             create_test_protocol
             redirect -file $::REPORTS_DIR/pre_insert_dft.dft_drc { dft_drc -test_mode all_dft }
@@ -335,13 +340,13 @@ flow_proc run_compile {
         set metric [expr {$synth_pnr(common,compile,qor_metric) ne "" ? $synth_pnr(common,compile,qor_metric) : "timing"}]
         set mode [expr {$synth_pnr(common,compile,qor_mode) ne "" ? $synth_pnr(common,compile,qor_mode) : "balanced"}]
         lappend final_cmd -metric $metric -mode $mode
-        if {$synth_pnr(common,compile,congestion_effort) ne ""} {
+        if {[info exists synth_pnr(common,compile,congestion_effort)] && $synth_pnr(common,compile,congestion_effort) ne ""} {
             lappend final_cmd -congestion_effort $synth_pnr(common,compile,congestion_effort)
         }
         eval $final_cmd
 
         # FC-RM: Enable IRDP
-        if {$synth_pnr(synthesis,compile,enable_irdp) ne "" && $synth_pnr(synthesis,compile,enable_irdp)} {
+        if {[info exists synth_pnr(synthesis,compile,enable_irdp)] && $synth_pnr(synthesis,compile,enable_irdp) ne "" && $synth_pnr(synthesis,compile,enable_irdp)} {
             set_app_options -name compile.flow.enable_irap -value true
         }
 
@@ -361,19 +366,20 @@ flow_proc run_compile {
 # FC-RM: User post script, spare cells, re-enable dynamic power,
 #         connect_pg_net
 # ==============================================================================
+}
 flow_proc post_compile {
     handle_info "Running post-compile tasks..."
     global synth_pnr
 
     # FC-RM: User post-compile script
-    if {$synth_pnr(synthesis,compile_post_script) ne "" && [file exists $synth_pnr(synthesis,compile_post_script)]} {
+    if {[info exists synth_pnr(synthesis,compile_post_script)] && $synth_pnr(synthesis,compile_post_script) ne "" && [file exists $synth_pnr(synthesis,compile_post_script)]} {
         handle_info "Sourcing compile post-script"
-        source -e $synth_pnr(synthesis,compile_post_script)
+        source $synth_pnr(synthesis,compile_post_script)
     }
 
     # FC-RM: Spare cell insertion after final_opto
-    if {$synth_pnr(common,spare_cell_post_script) ne "" && [file exists $synth_pnr(common,spare_cell_post_script)]} {
-        source -e $synth_pnr(common,spare_cell_post_script)
+    if {[info exists synth_pnr(common,spare_cell_post_script)] && $synth_pnr(common,spare_cell_post_script) ne "" && [file exists $synth_pnr(common,spare_cell_post_script)]} {
+        source $synth_pnr(common,spare_cell_post_script)
     }
 
     # FC-RM: Re-enable dynamic power scenarios
@@ -383,8 +389,8 @@ flow_proc post_compile {
     }
 
     # FC-RM: connect_pg_net
-    if {$synth_pnr(common,connect_pg_net_script) ne "" && [file exists $synth_pnr(common,connect_pg_net_script)]} {
-        source -e $synth_pnr(common,connect_pg_net_script)
+    if {[info exists synth_pnr(common,connect_pg_net_script)] && $synth_pnr(common,connect_pg_net_script) ne "" && [file exists $synth_pnr(common,connect_pg_net_script)]} {
+        source $synth_pnr(common,connect_pg_net_script)
     } else {
         connect_pg_net
     }
@@ -394,6 +400,7 @@ flow_proc post_compile {
 # flow_proc: finalize_netlist
 # FC-RM: change_names, write_ascii_files, saif_map
 # ==============================================================================
+}
 flow_proc finalize_netlist {
     handle_info "Finalizing netlist..."
     global synth_pnr flow
@@ -401,7 +408,7 @@ flow_proc finalize_netlist {
     set design_name [expr {$synth_pnr(common,design_name) ne "" ? $synth_pnr(common,design_name) : $flow(design_name)}]
 
     # FC-RM: Define and apply name rules for verilog output
-    if {$synth_pnr(common,define_name_rules_options) ne ""} {
+    if {[info exists synth_pnr(common,define_name_rules_options)] && $synth_pnr(common,define_name_rules_options) ne ""} {
         eval define_name_rules verilog $synth_pnr(common,define_name_rules_options)
     }
     redirect -file $::REPORTS_DIR/report_name_rules.log { report_name_rules }
@@ -428,9 +435,10 @@ flow_proc finalize_netlist {
 # flow_proc: create_abstracts
 # FC-RM: create_abstract, create_frame for hierarchical designs
 # ==============================================================================
+}
 flow_proc create_abstracts {
     handle_info "Creating abstracts..."
-    global synth_pnr
+    global flow synth_pnr
 
     set _run_type $flow(run_type)
 
@@ -447,7 +455,7 @@ flow_proc create_abstracts {
     }
 
     # FC-RM: Write DFT test model
-    if {$synth_pnr(synthesis,dft_insert_enable) ne "" && $synth_pnr(synthesis,dft_insert_enable)} {
+    if {[info exists synth_pnr(synthesis,dft_insert_enable)] && $synth_pnr(synthesis,dft_insert_enable) ne "" && $synth_pnr(synthesis,dft_insert_enable)} {
         write_test_model -output $::OUTPUTS_DIR/${synth_pnr(common,design_name)}.ctl
     }
 
@@ -456,6 +464,7 @@ flow_proc create_abstracts {
 # flow_proc: save_design
 # FC-RM: save_upf, save_block, set_svf -off
 # ==============================================================================
+}
 flow_proc save_design {
     handle_info "Saving compile design..."
     global synth_pnr flow
@@ -471,13 +480,13 @@ flow_proc save_design {
     }
 
     # FC-RM: FUSA
-    if {$synth_pnr(common,enable_fusa) ne "" && $synth_pnr(common,enable_fusa)} {
+    if {[info exists synth_pnr(common,enable_fusa)] && $synth_pnr(common,enable_fusa) ne "" && $synth_pnr(common,enable_fusa)} {
         save_ssf $::OUTPUTS_DIR/compile.ssf
     }
 
     # FC-RM: save_block
     save_block
-    if {$synth_pnr(common,output,block_labeling) ne "" && $synth_pnr(common,output,block_labeling)} {
+    if {[info exists synth_pnr(common,output,block_labeling)] && $synth_pnr(common,output,block_labeling) ne "" && $synth_pnr(common,output,block_labeling)} {
         save_block -as ${design_name}/compile
         handle_info "Block saved: ${design_name}/compile"
     }
@@ -491,6 +500,7 @@ flow_proc save_design {
 # FC-RM: report_qor, report_timing, report_power, report_congestion,
 #         write_qor_data, run_end
 # ==============================================================================
+}
 flow_proc generate_reports {
     handle_info "Generating synthesis reports..."
     global synth_pnr
@@ -537,6 +547,7 @@ flow_proc generate_reports {
     handle_info "Synthesis reports generated in: $::REPORTS_DIR"
 # ==============================================================================
 # ==============================================================================
+}
 flow_exec_all
 
 # BUG FIX #7: Exit tool after stage completion

@@ -78,7 +78,7 @@ flow_proc run_setup_timing {
     set fh [open $summary_file "w"]
     puts $fh "# ═══════════════════════════════════════════════════════════════════════════════"
     puts $fh "# CBFlow MMMC Setup Timing Summary - PrimeTime"
-    puts $fh "# Generated: [clock format [clock seconds]]"
+    puts $fh "# Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fh "# Scenario Set: $::mmmc_active_scenario_set"
     puts $fh "# ═══════════════════════════════════════════════════════════════════════════════"
     puts $fh ""

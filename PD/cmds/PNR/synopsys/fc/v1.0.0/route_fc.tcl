@@ -36,7 +36,7 @@ flow_proc configure_routing {
     if {[info exists pnr(compile,qor_mode)] && $pnr(compile,qor_mode) ne ""} {
         lappend set_qor_strategy_cmd -mode $pnr(compile,qor_mode)
     }
-    if {[info exists pnr(compile,reduced_effort)] && $pnr(compile,reduced_effort)} {
+    if {[info exists pnr(compile,reduced_effort)] && $pnr(compile,reduced_effort) ne "" && [string is true -strict $pnr(compile,reduced_effort)]} {
         lappend set_qor_strategy_cmd -reduced_effort
     }
     handle_info "Running: $set_qor_strategy_cmd"
@@ -62,7 +62,7 @@ flow_proc configure_routing {
     # Antenna rules
     if {[info exists tech(antenna_rule_file)] && [file exists $tech(antenna_rule_file)]} {
         handle_info "Reading antenna rules: $tech(antenna_rule_file)"
-        source -e $tech(antenna_rule_file)
+        source $tech(antenna_rule_file)
     }
 
     handle_info "Routing configuration completed"
@@ -88,7 +88,7 @@ flow_proc create_shields {
     handle_info "Checking shield creation settings..."
     global pnr
 
-    if {[info exists pnr(route,enable_shields)] && $pnr(route,enable_shields)} {
+    if {[info exists pnr(route,enable_shields)] && $pnr(route,enable_shields) ne "" && [string is true -strict $pnr(route,enable_shields)]} {
         handle_info "Creating shields..."
         set_extraction_options -virtual_shield_extraction false
 
@@ -107,7 +107,7 @@ flow_proc create_shields {
     }
 
     # Redundant via insertion after routing
-    if {[info exists pnr(route,redundant_via)] && $pnr(route,redundant_via)} {
+    if {[info exists pnr(route,redundant_via)] && $pnr(route,redundant_via) ne "" && [string is true -strict $pnr(route,redundant_via)]} {
         handle_info "Running add_redundant_vias"
         add_redundant_vias
     }
@@ -131,7 +131,7 @@ flow_proc save_design_block {
     handle_info "Saving design block..."
     global pnr
 
-    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling)} {
+    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling) ne "" && [string is true -strict $pnr(output,block_labeling)]} {
         save_block -as $pnr(common,design_name)/route
         handle_info "Block saved as $pnr(common,design_name)/route"
     } else {

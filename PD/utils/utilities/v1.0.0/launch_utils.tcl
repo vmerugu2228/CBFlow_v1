@@ -319,30 +319,64 @@ proc handler_run {run_dir flow_type node_name stage_name cmd_file test_mode {too
             "compare" {
                 set _f [open "$_reports_dir/lec_compare.rpt" w]
                 puts $_f "LEC Compare - $_ts\nStatus: PASS Equivalent: YES"; close $_f
+                set _f [open "$_outputs_dir/PASSED" w]
+                puts $_f "LEC PASSED - $_ts"; close $_f
             }
             "clp" {
                 set _f [open "$_reports_dir/clp_check.rpt" w]
                 puts $_f "CLP Check - $_ts\nStatus: PASS Violations: 0"; close $_f
+                set _f [open "$_outputs_dir/clp_status.rpt" w]
+                puts $_f "CLP PASS - $_ts"; close $_f
             }
-            "drc" {
-                set _f [open "$_reports_dir/drc.rpt" w]
-                puts $_f "DRC Report - $_ts\nViolations: 0"; close $_f
-            }
-            "lvs" {
-                set _f [open "$_reports_dir/lvs.rpt" w]
-                puts $_f "LVS Report - $_ts\nStatus: CLEAN"; close $_f
-            }
-            "fill" {
-                set _f [open "$_reports_dir/metal_fill.rpt" w]
-                puts $_f "Metal Fill - $_ts\nDensity: 45%"; close $_f
-            }
-            "erc" - "perc" - "xor" {
+            "drc" - "lvs" - "fill" - "erc" - "perc" - "xor" - "merge_data" {
                 set _f [open "$_reports_dir/${stage_name}.rpt" w]
                 puts $_f "${stage_name} Report - $_ts\nStatus: PASS"; close $_f
+                set _f [open "$_outputs_dir/${stage_name}_summary.txt" w]
+                puts $_f "${stage_name} Summary - $_ts\nViolations: 0\nStatus: PASS"; close $_f
             }
             "power_analysis" - "ir_drop" - "thermal_analysis" {
                 set _f [open "$_reports_dir/${stage_name}.rpt" w]
                 puts $_f "${stage_name} Report - $_ts\nStatus: PASS"; close $_f
+            }
+            "reporting" {
+                set _f [open "$_reports_dir/${stage_name}.rpt" w]
+                puts $_f "${stage_name} Report - $_ts\nStatus: PASS"; close $_f
+                set _f [open "$_outputs_dir/reporting_summary.txt" w]
+                puts $_f "Reporting Summary - $_ts"; close $_f
+            }
+            "release_data" {
+                # Release package contains a manifest, release notes, and a
+                # completion stamp. Mirrors what the real ::CBFlow::Release
+                # procs would produce.
+                set _f [open "$_outputs_dir/release_manifest.txt" w]
+                puts $_f "# CBflow Release Manifest"
+                puts $_f "# Flow:    $flow_type"
+                puts $_f "# Design:  $_design"
+                puts $_f "# Date:    $_ts"
+                puts $_f "# Status:  COMPLETE (test_mode)"
+                close $_f
+                set _f [open "$_outputs_dir/release_notes.md" w]
+                puts $_f "# Release Notes ($_design, $flow_type)\n\nTest-mode release."; close $_f
+                set _f [open "$_outputs_dir/RELEASE_COMPLETE" w]
+                puts $_f "Release completed: $_ts"; close $_f
+                set _f [open "$_reports_dir/release_validation.rpt" w]
+                puts $_f "Release Validation - $_ts\nStatus: PASS (test_mode)"; close $_f
+            }
+            "extraction" {
+                set _f [open "$_outputs_dir/${_design}.spef" w]
+                puts $_f "*SPEF \"IEEE 1481-1998\"\n*DESIGN \"${_design}\""; close $_f
+                set _f [open "$_reports_dir/extraction.rpt" w]
+                puts $_f "Extraction Report - $_ts\nStatus: PASS"; close $_f
+            }
+            "timing" {
+                set _f [open "$_outputs_dir/${_design}_timing.rpt" w]
+                puts $_f "Timing Report - $_ts\nSetup: 0.000ns Hold: 0.000ns"; close $_f
+                set _f [open "$_reports_dir/timing_summary.rpt" w]
+                puts $_f "Timing Summary - $_ts\nStatus: PASS"; close $_f
+            }
+            "power_spec" {
+                set _f [open "$_outputs_dir/${_design}.upf" w]
+                puts $_f "# UPF - $_ts\nset_design_top ${_design}"; close $_f
             }
         }
 

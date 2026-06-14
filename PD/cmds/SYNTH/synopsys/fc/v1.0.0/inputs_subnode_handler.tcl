@@ -22,7 +22,7 @@ switch $subnode_name {
         if {$test_mode} { puts "INFO: \[TEST MODE\] rtl loading skipped" }
         set ff "$run_dir/work/SYNTH/$node_name/rtl/rtl_info.tcl"
         file mkdir [file dirname $ff]
-        set fh [open $ff "w"]; puts $fh "set rtl_info(timestamp) \"[clock format [clock seconds]]\""; puts $fh "set rtl_info(status) \"loaded\""; close $fh
+        set fh [open $ff "w"]; puts $fh "set rtl_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""; puts $fh "set rtl_info(status) \"loaded\""; close $fh
         puts "INFO: SYNTH $stage_name rtl completed"
     }
     "sdc" {
@@ -30,7 +30,7 @@ switch $subnode_name {
         if {$test_mode} { puts "INFO: \[TEST MODE\] sdc loading skipped" }
         set ff "$run_dir/work/SYNTH/$node_name/sdc/sdc_info.tcl"
         file mkdir [file dirname $ff]
-        set fh [open $ff "w"]; puts $fh "set sdc_info(timestamp) \"[clock format [clock seconds]]\""; puts $fh "set sdc_info(status) \"loaded\""; close $fh
+        set fh [open $ff "w"]; puts $fh "set sdc_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""; puts $fh "set sdc_info(status) \"loaded\""; close $fh
         puts "INFO: SYNTH $stage_name sdc completed"
     }
     "library" {
@@ -38,7 +38,7 @@ switch $subnode_name {
         if {$test_mode} { puts "INFO: \[TEST MODE\] library loading skipped" }
         set ff "$run_dir/work/SYNTH/$node_name/library/library_info.tcl"
         file mkdir [file dirname $ff]
-        set fh [open $ff "w"]; puts $fh "set library_info(timestamp) \"[clock format [clock seconds]]\""; puts $fh "set library_info(status) \"loaded\""; close $fh
+        set fh [open $ff "w"]; puts $fh "set library_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""; puts $fh "set library_info(status) \"loaded\""; close $fh
         puts "INFO: SYNTH $stage_name library completed"
     }
     "upf" {
@@ -46,7 +46,7 @@ switch $subnode_name {
         if {$test_mode} { puts "INFO: \[TEST MODE\] upf loading skipped" }
         set ff "$run_dir/work/SYNTH/$node_name/upf/upf_info.tcl"
         file mkdir [file dirname $ff]
-        set fh [open $ff "w"]; puts $fh "set upf_info(timestamp) \"[clock format [clock seconds]]\""; puts $fh "set upf_info(status) \"loaded\""; close $fh
+        set fh [open $ff "w"]; puts $fh "set upf_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""; puts $fh "set upf_info(status) \"loaded\""; close $fh
         puts "INFO: SYNTH $stage_name upf completed"
     }
     "validate" {
@@ -58,7 +58,7 @@ switch $subnode_name {
         puts "INFO: SYNTH $stage_name finish..."
         set ff "$run_dir/work/SYNTH/$node_name/finish/finish_info.tcl"
         file mkdir [file dirname $ff]
-        set fh [open $ff "w"]; puts $fh "set finish_info(timestamp) \"[clock format [clock seconds]]\""; close $fh
+        set fh [open $ff "w"]; puts $fh "set finish_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""; close $fh
         puts "INFO: SYNTH $stage_name finish completed"
     }
     default { puts "ERROR: Unknown subnode: $subnode_name"; exit 1 }

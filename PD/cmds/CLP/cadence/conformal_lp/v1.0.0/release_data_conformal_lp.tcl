@@ -14,6 +14,10 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
+
+# Source release utilities for ::CBFlow::Release namespace
+set _ru "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
+if {[file exists $_ru]} { source $_ru }
 set release_utils "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
 if {[file exists $release_utils]} { source $release_utils }
 
@@ -95,7 +99,8 @@ flow_proc init_release {
     }
 
     handle_info "Release phase: $release_phase"
-    handle_info "Release tag: $project(release,tag)"
+    set _release_tag [expr {[info exists project(release,tag)] ? $project(release,tag) : "(unset)"}]
+    handle_info "Release tag: $_release_tag"
 }
 
 # ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -226,7 +231,7 @@ flow_proc generate_release_output {
         puts $fp "==============================================================================="
         puts $fp "CBFlow CLP - Release Manifest"
         puts $fp "==============================================================================="
-        puts $fp "Generated: [clock format [clock seconds]]"
+        puts $fp "Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
         puts $fp "Flow: CLP (Conformal Low Power)"
         puts $fp "Tool: Cadence Conformal LP"
         if {[info exists project(top_module)]} { puts $fp "Design: $project(top_module)" }

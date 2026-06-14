@@ -50,7 +50,7 @@ flow_proc create_power_network {
 
     if {[info exists fcfp(power,pns_script)] && [file exists $fcfp(power,pns_script)]} {
         handle_info "Sourcing PNS script: $fcfp(power,pns_script)"
-        source -e $fcfp(power,pns_script)
+        source $fcfp(power,pns_script)
     } else {
         # Build from config variables
         set vdd_net [expr {[info exists fcfp(power,vdd_net)] ? $fcfp(power,vdd_net) : "VDD"}]
@@ -58,17 +58,17 @@ flow_proc create_power_network {
 
         # PG rings
         if {[info exists fcfp(power,ring_config)] && [file exists $fcfp(power,ring_config)]} {
-            source -e $fcfp(power,ring_config)
+            source $fcfp(power,ring_config)
         }
 
         # PG mesh
         if {[info exists fcfp(power,mesh_config)] && [file exists $fcfp(power,mesh_config)]} {
-            source -e $fcfp(power,mesh_config)
+            source $fcfp(power,mesh_config)
         }
 
         # PG straps / std cell rails
         if {[info exists fcfp(power,strap_config)] && [file exists $fcfp(power,strap_config)]} {
-            source -e $fcfp(power,strap_config)
+            source $fcfp(power,strap_config)
         }
 
         handle_info "PG network created for $vdd_net/$vss_net"
@@ -85,7 +85,7 @@ flow_proc stdcell_placement {
     handle_info "Running low-effort stdcell placement for PG analysis..."
     global fcfp
 
-    if {[info exists fcfp(power,place_stdcells)] && $fcfp(power,place_stdcells)} {
+    if {[info exists fcfp(power,place_stdcells)] && $fcfp(power,place_stdcells) ne "" && [string is true -strict $fcfp(power,place_stdcells)]} {
         set_app_options -name place.coarse.continue_on_missing_scandef -value true
         create_placement -effort low
         reset_app_options place.coarse.continue_on_missing_scandef
@@ -104,7 +104,7 @@ flow_proc connect_pg {
     global fcfp
 
     if {[info exists fcfp(common,connect_pg_net_script)] && [file exists $fcfp(common,connect_pg_net_script)]} {
-        source -e $fcfp(common,connect_pg_net_script)
+        source $fcfp(common,connect_pg_net_script)
     } else {
         connect_pg_net
     }

@@ -36,7 +36,7 @@ flow_proc configure_cts {
     if {[info exists pnr(compile,qor_mode)] && $pnr(compile,qor_mode) ne ""} {
         lappend set_qor_strategy_cmd -mode $pnr(compile,qor_mode)
     }
-    if {[info exists pnr(compile,reduced_effort)] && $pnr(compile,reduced_effort)} {
+    if {[info exists pnr(compile,reduced_effort)] && $pnr(compile,reduced_effort) ne "" && [string is true -strict $pnr(compile,reduced_effort)]} {
         lappend set_qor_strategy_cmd -reduced_effort
     }
     handle_info "Running: $set_qor_strategy_cmd"
@@ -70,7 +70,7 @@ flow_proc configure_cts {
     # Antenna rules
     if {[info exists tech(antenna_rule_file)] && [file exists $tech(antenna_rule_file)]} {
         handle_info "Reading antenna rules: $tech(antenna_rule_file)"
-        source -e $tech(antenna_rule_file)
+        source $tech(antenna_rule_file)
     }
 
     # CTS primary corner override
@@ -99,7 +99,7 @@ flow_proc build_clock_trees {
     clock_opt -from build_clock -to build_clock
 
     # Save intermediate state
-    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling)} {
+    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling) ne "" && [string is true -strict $pnr(output,block_labeling)]} {
         save_block -as $pnr(common,design_name)/clock_opt_cts_build_clock
     }
 
@@ -170,7 +170,7 @@ flow_proc save_design_block {
     handle_info "Saving design block..."
     global pnr
 
-    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling)} {
+    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling) ne "" && [string is true -strict $pnr(output,block_labeling)]} {
         save_block -as $pnr(common,design_name)/cts
         handle_info "Block saved as $pnr(common,design_name)/cts"
     } else {

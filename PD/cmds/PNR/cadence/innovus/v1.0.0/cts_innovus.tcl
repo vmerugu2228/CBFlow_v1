@@ -31,7 +31,7 @@ flow_proc load_design {
     set _db "$run_dir/work/$::FLOW_TYPE/place1/outputs/place.enc.dat"
     if {![file exists $_db]} {
         handle_error "place database not found: $_db"
-        exit 1
+        return
     }
     handle_info "Restoring design: $_db"
     restoreDesign $_db $flow(design_name)
@@ -171,21 +171,6 @@ handle_info "================================================================"
 handle_info "CBflow PNR CTS — Innovus"
 handle_info "================================================================"
 
-foreach step {
-    load_design
-    activate_node_scenarios
-    setup_ndr
-    create_clock_spec
-    run_cts
-    post_cts_timing
-    generate_reports
-    save_design
-} {
-    handle_info "── $step ──"
-    if {[catch {$step} err]} {
-        handle_error "Step '$step' failed: $err"
-        exit 1
-    }
-}
+flow_exec_all
 
 handle_info "PNR CTS completed"

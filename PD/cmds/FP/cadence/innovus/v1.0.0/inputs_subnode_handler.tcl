@@ -22,7 +22,7 @@ proc write_input_info {run_dir flow_type node_name input_type} {
     file mkdir $info_dir
     set info_file "$info_dir/${input_type}_info.tcl"
     set fh [open $info_file "w"]
-    puts $fh "set ${input_type}_info(timestamp) \"[clock format [clock seconds]]\""
+    puts $fh "set ${input_type}_info(timestamp) \"[expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\""
     puts $fh "set ${input_type}_info(status) \"loaded\""
     close $fh
     return $info_file

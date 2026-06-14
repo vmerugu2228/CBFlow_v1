@@ -32,10 +32,10 @@ file mkdir $OUTPUTS_DIR
 if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" &&
     [info exists ::env(TECH_VERSION)] && $::env(TECH_VERSION) ne ""} {
     set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source -e $_tc }
+    if {[file exists $_tc]} { source $_tc }
 }
 # Source user_config for overrides
-if {[file exists "$run_dir/setup/user_config.tcl"]} { source -e "$run_dir/setup/user_config.tcl" }
+if {[file exists "$run_dir/setup/user_config.tcl"]} { source "$run_dir/setup/user_config.tcl" }
 
 # --------------------------------------------------------------------------
 # Procedure: apply_functional_eco
@@ -204,7 +204,7 @@ flow_proc generate_eco_report {
     puts $fp "==============================================================================="
     puts $fp "CBFlow ECO - Implementation Results (Synopsys ICC2)"
     puts $fp "==============================================================================="
-    puts $fp "Generated: [clock format [clock seconds]]"
+    puts $fp "Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     if {[info exists project(top_module)]} { puts $fp "Design: $project(top_module)" }
     if {[info exists tech(node)]}          { puts $fp "Technology: $tech(node)" }
     puts $fp "Tool: Synopsys IC Compiler II"

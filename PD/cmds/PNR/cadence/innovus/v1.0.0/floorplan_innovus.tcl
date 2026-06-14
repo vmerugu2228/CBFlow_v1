@@ -135,4 +135,6 @@ flow_proc enable_mmmc {
 
 
 # Exit tool after stage completion
+
+flow_exec_all
 exit

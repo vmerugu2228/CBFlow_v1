@@ -57,7 +57,7 @@ flow_proc create_block_refs {
     # Power domain mapping for sub-blocks
     if {[info exists fcfp(common,power_domain_map_script)] && [file exists $fcfp(common,power_domain_map_script)]} {
         handle_info "Sourcing power domain map: $fcfp(common,power_domain_map_script)"
-        source -e $fcfp(common,power_domain_map_script)
+        source $fcfp(common,power_domain_map_script)
     }
 
     # Commit blocks
@@ -86,7 +86,7 @@ flow_proc split_constraints {
     file mkdir $split_dir
 
     if {[info exists fcfp(common,split_constraints_script)] && [file exists $fcfp(common,split_constraints_script)]} {
-        source -e $fcfp(common,split_constraints_script)
+        source $fcfp(common,split_constraints_script)
     } else {
         # Auto-split constraints per sub-block
         if {[info exists fcfp(common,sub_blocks)] && [llength $fcfp(common,sub_blocks)] > 0} {

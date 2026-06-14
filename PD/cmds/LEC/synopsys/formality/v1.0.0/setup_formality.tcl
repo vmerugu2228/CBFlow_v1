@@ -133,7 +133,7 @@ flow_proc read_constraints {
                     read_sdc $cf
                 }
                 default {
-                    source -e $cf
+                    source $cf
                 }
             }
         }
