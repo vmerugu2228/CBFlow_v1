@@ -1036,7 +1036,10 @@ def cmd_generate_view_def(args: argparse.Namespace) -> int:
     lines.append('')
     for ls in sorted(lib_sets):
         lines.append(f'create_library_set -name {ls} \\')
-        lines.append(f'    -timing [list ${{lib_dir}}/{ls}_ccs.lib]')
+        # ::lib_dir — fully qualified so the ref resolves when this file is
+        # sourced from inside `read_mmmc` (a Tcl proc) rather than the global
+        # scope.
+        lines.append(f'    -timing [list ${{::lib_dir}}/{ls}_ccs.lib]')
         lines.append('')
 
     # -- RC Corners --
@@ -1054,7 +1057,7 @@ def cmd_generate_view_def(args: argparse.Namespace) -> int:
         lines.append(f'    -preRoute_cap {cap} \\')
         lines.append(f'    -postRoute_res {res} \\')
         lines.append(f'    -postRoute_cap {cap} \\')
-        lines.append(f'    -qx_tech_file [list ${{tech_dir}}/qrc/{rc_name}/qrcTechFile]')
+        lines.append(f'    -qx_tech_file [list ${{::tech_dir}}/qrc/{rc_name}/qrcTechFile]')
         lines.append('')
 
     # -- Constraint Modes --
@@ -1735,6 +1738,14 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
         vw('# DO NOT EDIT — regenerate with: cbflow flow mmmc-manager generate')
         vw('# ' + '=' * 77)
         vw('')
+        # EDA tools (Innovus / Tempus / Genus) source this file from inside their
+        # internal `read_mmmc` procedure. Bare `$tech(...)` refs would resolve
+        # against THAT proc's local scope and error with "can't read tech: no
+        # such variable". The fully-qualified `$::tech(...)` always resolves
+        # to the global. Same reasoning for project / operating_modes below.
+        vw('# Variables are referenced via the global namespace ($::) so the')
+        vw('# file works when sourced from inside read_mmmc (a Tcl proc).')
+        vw('')
 
         # Parse scenario names: <mode>_<corner>_<voltage>_<rc>_<temp>
         # e.g., func_ss_0p80v_rcmax_125c
@@ -1772,7 +1783,7 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
         vw('')
         for lib_ref in sorted(unique_lib_sets.keys()):
             vw('create_library_set -name {}_ls \\'.format(lib_ref))
-            vw('    -timing $tech($project(track_variant),lib,{},timing)'.format(lib_ref))
+            vw('    -timing $::tech($::project(track_variant),lib,{},timing)'.format(lib_ref))
             vw('')
 
         # 2. RC Corners
@@ -1788,7 +1799,7 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
             # ABSENT — an empty string would slip through. Coerce to '25'.
             rc_temp = rc_corners_data.get(rc_full, {}).get('temperature') or '25'
             vw('create_rc_corner -name {} \\'.format(rc_name))
-            vw('    -qrc_tech $tech(rcx,{},qrc) \\'.format(rc_qrc_key))
+            vw('    -qrc_tech $::tech(rcx,{},qrc) \\'.format(rc_qrc_key))
             vw('    -T {}'.format(rc_temp))
             vw('')
 
@@ -1820,14 +1831,14 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
         vw('# SDC files resolved at runtime from operating_modes array')
         vw('# create_constraint_mode REQUIRES -sdc_files — error loudly if missing.')
         for mode in sorted(unique_modes):
-            vw('if {![info exists operating_modes(%s,constraint_file)] || $operating_modes(%s,constraint_file) eq ""} {'
+            vw('if {![info exists ::operating_modes(%s,constraint_file)] || $::operating_modes(%s,constraint_file) eq ""} {'
                % (mode, mode))
             vw('    error "MMMC: operating_modes(%s,constraint_file) not set — '
                'create_constraint_mode requires -sdc_files (mode=%s)"' % (mode, mode))
             vw('}')
             # Emit the create_constraint_mode on a single line so a future hand-
             # edit that drops the -sdc_files argument can't leave a dangling '\'.
-            vw('create_constraint_mode -name %s_cm -sdc_files [list [subst $operating_modes(%s,constraint_file)]]'
+            vw('create_constraint_mode -name %s_cm -sdc_files [list [subst $::operating_modes(%s,constraint_file)]]'
                % (mode, mode))
             vw('')
 
