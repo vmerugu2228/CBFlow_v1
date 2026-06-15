@@ -1063,9 +1063,16 @@ def cmd_generate_view_def(args: argparse.Namespace) -> int:
     lines.append('# ' + '-' * 70)
     lines.append('')
     for mode, info in sorted(parser.operating_modes.items()):
-        sdc = info.get('constraint_file', '')
-        lines.append(f'create_constraint_mode -name {mode}_mode \\')
-        lines.append(f'    -sdc_files [list {sdc}]')
+        sdc = (info.get('constraint_file') or '').strip()
+        if not sdc:
+            logger.error(
+                "operating_mode '%s' missing constraint_file — "
+                "create_constraint_mode requires -sdc_files; aborting", mode)
+            return 1
+        # Emit on a single line — eliminates any chance of a dangling '\'
+        # if downstream edits remove the continuation argument.
+        lines.append(
+            f'create_constraint_mode -name {mode}_mode -sdc_files [list {sdc}]')
         lines.append('')
 
     # -- Delay Corners --
@@ -1112,10 +1119,14 @@ def cmd_generate_view_def(args: argparse.Namespace) -> int:
     lines.append('')
     setup_views = [v for v in views if '_ss_' in v]
     hold_views = [v for v in views if '_ff_' in v]
-    if setup_views:
-        lines.append(f'set_analysis_view \\')
-        lines.append(f'    -setup [list {" ".join(setup_views)}] \\')
-        lines.append(f'    -hold  [list {" ".join(hold_views)}]')
+    if setup_views or hold_views:
+        # One line — no trailing-backslash continuation. Empty {} for either
+        # side is still legal: Innovus reads it as "deactivate all of that kind",
+        # which command files then override.
+        lines.append(
+            f'set_analysis_view '
+            f'-setup [list {" ".join(setup_views)}] '
+            f'-hold [list {" ".join(hold_views)}]')
         lines.append('')
 
     content = '\n'.join(lines)
@@ -1773,7 +1784,9 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
             # Map rcmax/rcmin/rctyp to full rc corner key and get temp from rc_corners_data
             rc_qrc_key = rc_name.replace('rcmax', 'rc_max').replace('rcmin', 'rc_min').replace('rctyp', 'rc_typ')
             rc_full = rc_name.replace('rcmax', 'rc_max').replace('rcmin', 'rc_min').replace('rctyp', 'rc_typ')
-            rc_temp = rc_corners_data.get(rc_full, {}).get('temperature', '25')
+            # `dict.get(key, default)` returns default only when the key is
+            # ABSENT — an empty string would slip through. Coerce to '25'.
+            rc_temp = rc_corners_data.get(rc_full, {}).get('temperature') or '25'
             vw('create_rc_corner -name {} \\'.format(rc_name))
             vw('    -qrc_tech $tech(rcx,{},qrc) \\'.format(rc_qrc_key))
             vw('    -T {}'.format(rc_temp))
@@ -1805,13 +1818,17 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
         vw('# ' + '-' * 77)
         vw('')
         vw('# SDC files resolved at runtime from operating_modes array')
+        vw('# create_constraint_mode REQUIRES -sdc_files — error loudly if missing.')
         for mode in sorted(unique_modes):
-            vw('if {[info exists operating_modes(%s,constraint_file)]} {' % mode)
-            vw('    create_constraint_mode -name %s_cm \\' % mode)
-            vw('        -sdc_files [list [subst $operating_modes(%s,constraint_file)]]' % mode)
-            vw('} else {')
-            vw('    create_constraint_mode -name %s_cm' % mode)
+            vw('if {![info exists operating_modes(%s,constraint_file)] || $operating_modes(%s,constraint_file) eq ""} {'
+               % (mode, mode))
+            vw('    error "MMMC: operating_modes(%s,constraint_file) not set — '
+               'create_constraint_mode requires -sdc_files (mode=%s)"' % (mode, mode))
             vw('}')
+            # Emit the create_constraint_mode on a single line so a future hand-
+            # edit that drops the -sdc_files argument can't leave a dangling '\'.
+            vw('create_constraint_mode -name %s_cm -sdc_files [list [subst $operating_modes(%s,constraint_file)]]'
+               % (mode, mode))
             vw('')
 
         # 5. Analysis Views
@@ -1841,9 +1858,9 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
         vw('# then activate only their node-specific scenarios')
         vw('# ' + '-' * 77)
         vw('')
-        vw('set_analysis_view \\')
-        vw('    -setup [list {}] \\'.format(' '.join(setup_views)))
-        vw('    -hold  [list {}]'.format(' '.join(hold_views)))
+        # One line — no chance of a stray trailing '\' if either side is empty.
+        vw('set_analysis_view -setup [list {}] -hold [list {}]'.format(
+            ' '.join(setup_views), ' '.join(hold_views)))
         vw('')
 
         # Write the view definition file

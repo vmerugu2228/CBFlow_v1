@@ -161,10 +161,20 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
 <!-- ══ Toolbar ══ -->
 <div class="toolbar">
   <span class="tb-title" style="font-family:monospace;font-size:11px;letter-spacing:1px;background:linear-gradient(90deg,#1565c0,#0d47a1);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-weight:900">CBflow</span>
+  <span id="tb-discipline" style="font-size:10px;font-weight:700;letter-spacing:.08em;padding:2px 8px;border-radius:999px;background:#1565c0;color:#fff;text-transform:uppercase;border:1px solid #0d47a1">{{DISCIPLINE}}</span>
   <span class="tb-title" style="font-size:11px;color:#666;font-weight:400">RACE FlowTracer</span>
   <div class="sep"></div>
   <span id="tb-run-name" style="font-size:12px;font-weight:600;color:var(--text);margin-right:4px">{{RUN_DIR}}</span>
   <div class="sep"></div>
+  <script>
+    (function() {
+      var el = document.getElementById('tb-discipline');
+      if (el && el.textContent.trim() === 'DFT') {
+        el.style.background = '#0d9488';
+        el.style.borderColor = '#0f766e';
+      }
+    })();
+  </script>
 
   <!-- Flow menu -->
   <div class="tb-menu">

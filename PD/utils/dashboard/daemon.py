@@ -44,10 +44,17 @@ import state_paths
 
 # ── Port selection ──────────────────────────────────────────────────────────
 
-def deterministic_port():
-    """Per-user deterministic port in 9000-9999. Clear of app.py (8080-8180)
-    and race_dashboard.py legacy hash range (10000-60000)."""
-    return 9000 + (os.getuid() % 1000)
+def deterministic_port(discipline=None):
+    """Per-user deterministic port, scoped by discipline so PD and DFT daemons
+    coexist:
+      PD:  9000 + (uid % 500)   →  9000..9499
+      DFT: 9500 + (uid % 500)   →  9500..9999
+
+    Clear of app.py (8080-8180) and race_dashboard.py hash range
+    (10000-60000)."""
+    d = state_paths._disc(discipline)
+    base = 9000 if d == 'PD' else 9500
+    return base + (os.getuid() % 500)
 
 
 # ── PID liveness + identity ─────────────────────────────────────────────────
@@ -390,9 +397,14 @@ def main(argv=None):
     sub = parser.add_subparsers(dest='cmd', required=True)
     serve_p = sub.add_parser('serve', help='Run the daemon in foreground')
     serve_p.add_argument('--port', type=int, default=0,
-                         help='Port (default: 9000 + uid%%1000)')
+                         help='Port (default: per-discipline deterministic)')
+    serve_p.add_argument('--discipline', choices=('PD', 'DFT'), default=None,
+                         help='Discipline this daemon serves (default: $CBFLOW_DASHBOARD_DISCIPLINE or PD)')
     args = parser.parse_args(argv)
     if args.cmd == 'serve':
+        if args.discipline:
+            state_paths.set_discipline(args.discipline)
+            os.environ['CBFLOW_DASHBOARD_DISCIPLINE'] = args.discipline
         port = args.port or deterministic_port()
         serve_foreground(port)
         return 0

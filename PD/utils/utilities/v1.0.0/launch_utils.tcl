@@ -378,6 +378,91 @@ proc handler_run {run_dir flow_type node_name stage_name cmd_file test_mode {too
                 set _f [open "$_outputs_dir/${_design}.upf" w]
                 puts $_f "# UPF - $_ts\nset_design_top ${_design}"; close $_f
             }
+
+            # ── DFT discipline (Tessent / TestMAX / VCS / Questa) ────────────
+            "init_dft" - "init_scan" - "init_atpg" - "init_sim" {
+                set _f [open "$_reports_dir/${stage_name}.rpt" w]
+                puts $_f "${stage_name} init - $_ts\nStatus: OK"; close $_f
+            }
+            "insert_mbist" {
+                set _f [open "$_outputs_dir/${_design}.mbist.v" w]
+                puts $_f "// MBIST insertion - $_ts\nmodule ${_design}_mbist (); endmodule"; close $_f
+                set _f [open "$_reports_dir/mbist_insertion.rpt" w]
+                puts $_f "MBIST Report - $_ts\nMemories instrumented: 4\nStatus: PASS"; close $_f
+            }
+            "insert_occ" {
+                set _f [open "$_outputs_dir/${_design}.occ.v" w]
+                puts $_f "// OCC insertion - $_ts\nmodule ${_design}_occ (); endmodule"; close $_f
+                set _f [open "$_reports_dir/occ_insertion.rpt" w]
+                puts $_f "OCC Report - $_ts\nClocks instrumented: 4\nStatus: PASS"; close $_f
+            }
+            "insert_edt" {
+                set _f [open "$_outputs_dir/${_design}.edt.v" w]
+                puts $_f "// EDT/SSN insertion - $_ts\nmodule ${_design}_edt (); endmodule"; close $_f
+                set _f [open "$_reports_dir/edt_insertion.rpt" w]
+                puts $_f "EDT Report - $_ts\nCompression ratio: 100x\nStatus: PASS"; close $_f
+            }
+            "dft_verify" {
+                set _f [open "$_reports_dir/dft_verify.rpt" w]
+                puts $_f "DFT Verify - $_ts\nStatus: PASS\nViolations: 0"; close $_f
+            }
+            "dft_inserted_export" {
+                set _f [open "$_outputs_dir/${_design}.dft.v" w]
+                puts $_f "// DFT-inserted RTL - $_ts\nmodule ${_design} (); endmodule"; close $_f
+            }
+            "scan_stitch" {
+                set _f [open "$_outputs_dir/${_design}.scan.v" w]
+                puts $_f "// Scan-stitched netlist - $_ts\nmodule ${_design} (); endmodule"; close $_f
+                set _f [open "$_outputs_dir/scan.scandef" w]
+                puts $_f "VERSION 5.8 ;\nDESIGN ${_design} ;\nSCANCHAINS 16 ;\nEND DESIGN"; close $_f
+                set _f [open "$_reports_dir/scan_chains.rpt" w]
+                puts $_f "Scan Chains - $_ts\nChains: 16  AvgLength: 256\nStatus: PASS"; close $_f
+            }
+            "scan_check" {
+                set _f [open "$_reports_dir/scan_drc.rpt" w]
+                puts $_f "Scan DRC - $_ts\nStatus: PASS\nViolations: 0"; close $_f
+            }
+            "scan_export" {
+                set _f [open "$_outputs_dir/${_design}.scan_export.v" w]
+                puts $_f "// Scan export - $_ts\nmodule ${_design} (); endmodule"; close $_f
+            }
+            "pattern_gen" {
+                set _f [open "$_outputs_dir/${_design}.patterns.stil" w]
+                puts $_f "STIL 1.0 ;\nHeader { Title \"${_design} ATPG patterns - $_ts\"; }"
+                close $_f
+                set _f [open "$_reports_dir/pattern_gen.rpt" w]
+                puts $_f "Pattern Gen - $_ts\nPatterns: 1024\nStatus: PASS"; close $_f
+            }
+            "fault_sim" {
+                set _f [open "$_reports_dir/fault_coverage.rpt" w]
+                puts $_f "Fault Simulation - $_ts\nFault coverage: 99.2%\nTest coverage: 99.5%"
+                close $_f
+            }
+            "coverage_report" - "coverage" {
+                set _f [open "$_reports_dir/${stage_name}.rpt" w]
+                puts $_f "${stage_name} - $_ts\nCoverage: 99.5%\nStatus: PASS"; close $_f
+                set _f [open "$_outputs_dir/${stage_name}_summary.txt" w]
+                puts $_f "Coverage: 99.5%"; close $_f
+            }
+            "export_patterns" {
+                set _f [open "$_outputs_dir/${_design}.patterns.stil" w]
+                puts $_f "STIL 1.0 ;\nHeader { Title \"${_design} ATPG patterns - $_ts\"; }"
+                close $_f
+            }
+            "compile" {
+                set _f [open "$_reports_dir/compile.log" w]
+                puts $_f "Compile - $_ts\nStatus: PASS"; close $_f
+            }
+            "run_sim" {
+                set _f [open "$_outputs_dir/sim.log" w]
+                puts $_f "Simulation - $_ts\nStatus: PASS\nErrors: 0"; close $_f
+                set _f [open "$_outputs_dir/coverage.ucdb" w]
+                puts $_f "# Coverage DB stub - $_ts"; close $_f
+            }
+            "testbench" - "patterns" {
+                set _f [open "$_outputs_dir/${stage_name}.sv" w]
+                puts $_f "// ${stage_name} - $_ts"; close $_f
+            }
         }
 
         set _out_count [llength [glob -nocomplain "$_outputs_dir/*"]]

@@ -8,7 +8,7 @@
 </head>
 <body>
 <nav class="topnav">
-  <div class="nav-brand">RACE Dashboard</div>
+  <div class="nav-brand">RACE Dashboard <span id="nav-disc" style="font-size:10px;font-weight:700;letter-spacing:.08em;padding:2px 8px;border-radius:999px;background:#1565c0;color:#fff;text-transform:uppercase;border:1px solid #0d47a1;margin-left:8px">{{DISCIPLINE}}</span></div>
   <div class="nav-links">
     <a href="/">Overview</a>
     <a href="/dag">DAG</a>
@@ -16,6 +16,15 @@
   </div>
   <div class="nav-info"><span>{{FLOW_TYPE}}</span></div>
 </nav>
+<script>
+  (function() {
+    var el = document.getElementById('nav-disc');
+    if (el && el.textContent.trim() === 'DFT') {
+      el.style.background = '#0d9488';
+      el.style.borderColor = '#0f766e';
+    }
+  })();
+</script>
 
 <main class="container">
   <div class="header-card" style="justify-content:flex-start;gap:20px">

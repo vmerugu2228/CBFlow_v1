@@ -683,19 +683,34 @@ def _resolve_handler_cmd_path(pd_dir, raw_cmd, flow, vendor, tool):
     return p
 
 
+def _discipline_roots(pd_dir):
+    """List of roots that may host cmds/<FLOW>/<vendor>/<tool>/. PD first, then
+    sibling disciplines exposed via env (currently CBFLOW_DFT_DIR)."""
+    roots = [pd_dir]
+    for env_var in ('CBFLOW_DFT_DIR',):
+        extra = os.environ.get(env_var, '')
+        if extra and os.path.isdir(extra) and extra not in roots:
+            roots.append(extra)
+    return roots
+
+
 def _tool_dirs_for(pd_dir, flow):
-    """Yield (vendor, tool, dir) for every concrete cmds/<FLOW>/<vendor>/<tool>/v1.0.0/ that exists."""
-    flow_root = os.path.join(pd_dir, 'cmds', flow)
-    if not os.path.isdir(flow_root):
-        return
-    for vendor in sorted(os.listdir(flow_root)):
-        vroot = os.path.join(flow_root, vendor)
-        if not os.path.isdir(vroot):
+    """Yield (vendor, tool, dir) for every concrete cmds/<FLOW>/<vendor>/<tool>/v1.0.0/
+    that exists across PD and any sibling discipline tree."""
+    seen = set()
+    for root in _discipline_roots(pd_dir):
+        flow_root = os.path.join(root, 'cmds', flow)
+        if not os.path.isdir(flow_root):
             continue
-        for tool in sorted(os.listdir(vroot)):
-            d = os.path.join(vroot, tool, 'v1.0.0')
-            if os.path.isdir(d):
-                yield vendor, tool, d
+        for vendor in sorted(os.listdir(flow_root)):
+            vroot = os.path.join(flow_root, vendor)
+            if not os.path.isdir(vroot):
+                continue
+            for tool in sorted(os.listdir(vroot)):
+                d = os.path.join(vroot, tool, 'v1.0.0')
+                if os.path.isdir(d) and d not in seen:
+                    seen.add(d)
+                    yield vendor, tool, d
 
 
 def _resolve_flow_tool(pd_dir, flow, content):

@@ -276,11 +276,13 @@ def make_daemon_handler(pool):
                 content = f.read()
 
             # Re-apply the same {{TOKEN}} substitutions the parent does.
+            import state_paths
             run_info = self.dashboard.get_status().get('run_info', {}) or {}
             content = content.replace(b'{{FLOW_TYPE}}', run_info.get('flow_type', '').encode())
             content = content.replace(b'{{PROJECT}}', run_info.get('project', '').encode())
             content = content.replace(b'{{RUN_DIR}}', self.dashboard.run_dir.encode())
             content = content.replace(b'{{RESULT}}', run_info.get('result', '').encode())
+            content = content.replace(b'{{DISCIPLINE}}', state_paths.get_discipline().encode())
 
             # Now the daemon-scope rewrites.
             if self._daemon_run_id:
@@ -303,7 +305,8 @@ def make_daemon_handler(pool):
 
         def _serve_index(self):
             runs = registry.list_all()
-            html = _render_index(runs)
+            import state_paths
+            html = _render_index(runs, discipline=state_paths.get_discipline())
             body = html.encode('utf-8')
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
@@ -426,12 +429,20 @@ _FLOW_COLORS = {
 }
 
 
-def _render_index(runs):
+def _render_index(runs, discipline='PD'):
     """Index page for the per-user dashboard daemon.
 
     Stdlib-only (no JS framework). Vanilla CSS + a small client script that
     talks to /api/runs, /api/register, /api/deregister.
     """
+    disc = (discipline or 'PD').upper()
+    disc_label = disc
+    disc_pill_bg = '#0d9488' if disc == 'DFT' else '#1565c0'
+    disc_pill_border = '#0f766e' if disc == 'DFT' else '#0d47a1'
+    disc_banner_grad = ('linear-gradient(135deg, #0d9488 0%, #0ea5e9 55%, #6366f1 100%)'
+                        if disc == 'DFT'
+                        else 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #0ea5e9 100%)')
+    title_prefix = f'CBflow {disc} Dashboard'
     active = [r for r in runs if not r.get('archived')]
     archived = [r for r in runs if r.get('archived')]
     project_set = {r.get('project') for r in active if r.get('project')}
@@ -457,7 +468,7 @@ def _render_index(runs):
     return f"""<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
-<title>CBflow Dashboard</title>
+<title>{title_prefix}</title>
 <style>
   :root {{
     --bg:         #f6f7fb;
@@ -478,10 +489,23 @@ def _render_index(runs):
                 Roboto, Oxygen, Ubuntu, sans-serif; }}
 
   header.banner {{
-    background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #0ea5e9 100%);
+    background: {disc_banner_grad};
     color: white;
     padding: 28px 36px 28px;
     box-shadow: 0 4px 12px rgba(79,70,229,.18);
+  }}
+  header.banner .discipline-pill {{
+    display:inline-block;
+    background: {disc_pill_bg};
+    border: 1px solid {disc_pill_border};
+    color: #fff;
+    padding: 4px 14px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    box-shadow: 0 2px 6px rgba(0,0,0,.18);
   }}
   header.banner .logo-row {{ display: flex; align-items: center; gap: 14px; }}
   header.banner .logo {{ font-size: 26px; font-weight: 700; letter-spacing: -.02em; }}
@@ -632,6 +656,7 @@ def _render_index(runs):
 <header class="banner">
   <div class="logo-row">
     <div class="logo">CBflow<span class="lite">Dashboard</span></div>
+    <span class="discipline-pill" title="This dashboard serves the {disc} discipline">{disc_label}</span>
     <span class="engine-pill" title="Python-native DAG execution engine">RACE engine</span>
   </div>
   <div class="byline">Developed by SmartSoc</div>

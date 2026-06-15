@@ -1,7 +1,7 @@
 #!/usr/bin/env tclsh
 # =============================================================================
 # Cadence MMMC View Definition — Auto-Generated
-# Generated: 2026-06-04 23:22 | Tech: gf_28nm | Project: denali
+# Generated: 2026-06-15 09:40 | Tech: gf_28nm | Project: denali
 # Scenarios: 7 (from signoff node)
 # Sourced via: read_mmmc -file <this_file>
 # DO NOT EDIT — regenerate with: cbflow flow mmmc-manager generate
@@ -81,12 +81,11 @@ create_delay_corner -name ss_0p90v_rcmax_m40c_dc \
 # -----------------------------------------------------------------------------
 
 # SDC files resolved at runtime from operating_modes array
-if {[info exists operating_modes(func,constraint_file)]} {
-    create_constraint_mode -name func_cm \
-        -sdc_files [list [subst $operating_modes(func,constraint_file)]]
-} else {
-    create_constraint_mode -name func_cm
+# create_constraint_mode REQUIRES -sdc_files — error loudly if missing.
+if {![info exists operating_modes(func,constraint_file)] || $operating_modes(func,constraint_file) eq ""} {
+    error "MMMC: operating_modes(func,constraint_file) not set — create_constraint_mode requires -sdc_files (mode=func)"
 }
+create_constraint_mode -name func_cm -sdc_files [list [subst $operating_modes(func,constraint_file)]]
 
 # -----------------------------------------------------------------------------
 # Analysis Views
@@ -126,7 +125,5 @@ create_analysis_view -name func_ss_0p90v_rcmax_m40c \
 # then activate only their node-specific scenarios
 # -----------------------------------------------------------------------------
 
-set_analysis_view \
-    -setup [list func_ss_0p80v_rcmax_125c func_ss_0p80v_rcmax_m40c func_ss_0p90v_rcmax_125c func_ss_0p90v_rcmax_m40c] \
-    -hold  [list func_ff_1p10v_rcmin_125c func_ff_1p10v_rcmin_25c func_ff_1p10v_rcmin_m40c]
+set_analysis_view -setup [list func_ss_0p80v_rcmax_125c func_ss_0p80v_rcmax_m40c func_ss_0p90v_rcmax_125c func_ss_0p90v_rcmax_m40c] -hold [list func_ff_1p10v_rcmin_125c func_ff_1p10v_rcmin_25c func_ff_1p10v_rcmin_m40c]
 

@@ -33,12 +33,16 @@ def is_running():
     return status()['state'] == 'running'
 
 
-def ensure_daemon(port=0, wait_s=4.0):
-    """Make sure the daemon is up. Spawn it in the background if not.
-    Returns the port the daemon is listening on.
+def ensure_daemon(port=0, wait_s=4.0, discipline=None):
+    """Make sure the daemon for `discipline` is up. Spawn it in the background
+    if not. Returns the port the daemon is listening on.
 
     Raises RuntimeError on bring-up failure (e.g. port collision).
     """
+    if discipline:
+        state_paths.set_discipline(discipline)
+    disc = state_paths.get_discipline()
+
     st = status()
     if st['state'] == 'running':
         return st['port']
@@ -50,13 +54,17 @@ def ensure_daemon(port=0, wait_s=4.0):
 
     daemon_py = os.path.join(SCRIPT_DIR, 'daemon.py')
     log_fd = open(state_paths.logfile(), 'ab', buffering=0)
+    env = os.environ.copy()
+    env['CBFLOW_DASHBOARD_DISCIPLINE'] = disc
     proc = subprocess.Popen(
-        [sys.executable, daemon_py, 'serve', '--port', str(chosen)],
+        [sys.executable, daemon_py, 'serve',
+         '--port', str(chosen), '--discipline', disc],
         stdin=subprocess.DEVNULL,
         stdout=log_fd,
         stderr=log_fd,
         start_new_session=True,
         close_fds=True,
+        env=env,
     )
 
     deadline = time.time() + wait_s

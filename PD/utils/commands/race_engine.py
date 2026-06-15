@@ -518,7 +518,12 @@ class DagBuilder:
 
     def _build_command(self, stage: str, subnode: str) -> str:
         """Build the tclsh handler invocation command.
-        Tool info and node_types set by _resolve_config() in build()."""
+        Tool info and node_types set by _resolve_config() in build().
+
+        Handler lookup tries `$FLOW_DIR/cmds/...` (PD) first, then any
+        sibling discipline tree exposed via `CBFLOW_DFT_DIR` (and future
+        `CBFLOW_<XYZ>_DIR` env vars). First hit wins.
+        """
         flow_dir = self.env_vars.get('FLOW_DIR', '')
 
         tool_vendor = self._tool_info['vendor']
@@ -528,9 +533,26 @@ class DagBuilder:
         # For custom nodes (e.g., synthesis2_xyz), use the stored base type
         custom_types = getattr(self, '_custom_node_types', {})
         handler_base = custom_types.get(stage) or self._node_types.get(stage, stage.rstrip('0123456789'))
-        handler = os.path.join(flow_dir, 'cmds', self.flow_type,
-                               tool_vendor, tool_name, tool_version,
-                               f'{handler_base}_subnode_handler.tcl')
+        handler_rel = os.path.join('cmds', self.flow_type,
+                                   tool_vendor, tool_name, tool_version,
+                                   f'{handler_base}_subnode_handler.tcl')
+
+        # Try PD first (flow_dir) then any sibling discipline roots.
+        roots = [flow_dir] if flow_dir else []
+        for env_var in ('CBFLOW_DFT_DIR',):
+            extra = self.env_vars.get(env_var) or os.environ.get(env_var, '')
+            if extra and extra not in roots:
+                roots.append(extra)
+
+        handler = ''
+        for root in roots:
+            cand = os.path.join(root, handler_rel)
+            if os.path.exists(cand):
+                handler = cand
+                break
+        if not handler:
+            # Fall back so the engine reports a useful error rather than ''.
+            handler = os.path.join(flow_dir, handler_rel)
 
         return f'tclsh "{handler}" {subnode} "{self.run_dir}" {stage}'
 

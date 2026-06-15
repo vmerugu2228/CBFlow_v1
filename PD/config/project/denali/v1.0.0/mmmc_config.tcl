@@ -1,9 +1,9 @@
 #!/usr/bin/env tclsh
 # =============================================================================
 # CBflow MMMC Configuration — Auto-Generated
-# Generated: 2026-06-04 23:22 | Tech: gf_28nm | Corners: 10
-# Source: lib_config_LIB02.tcl
-# Views: 20 | Modes: func test | Process: ff ss tt
+# Generated: 2026-06-15 09:40 | Tech: gf_28nm | Corners: 7
+# Source: lib_config_P0.tcl
+# Views: 7 | Modes: func | Process: ff ss
 # Regenerate: cbflow flow mmmc-manager generate --tech gf_28nm
 # =============================================================================
 
@@ -32,11 +32,10 @@ set mmmc(temperature,cold)   -40
 # PROCESS CORNERS & OPERATING MODES
 # =============================================================================
 
-set mmmc(process_corners) {ff ss tt}
+set mmmc(process_corners) {ff ss}
 
 array set operating_modes {
     func { constraint_file "${design_name}_func.sdc" }
-    test { constraint_file "${design_name}_test.sdc" }
 }
 
 # =============================================================================
@@ -45,12 +44,10 @@ array set operating_modes {
 
 set mmmc(pvt,ff) {{1p10v 125c} {1p10v 25c} {1p10v m40c}}
 set mmmc(pvt,ss) {{0p80v 125c} {0p80v m40c} {0p90v 125c} {0p90v m40c}}
-set mmmc(pvt,tt) {{0p90v 125c} {0p90v 25c} {0p90v m40c}}
 
 # Corner -> RC corner pairing
 set mmmc(rc_pair,ff) "rcmin"
 set mmmc(rc_pair,ss) "rcmax"
-set mmmc(rc_pair,tt) "rctyp"
 
 # =============================================================================
 # AUTO-GENERATE ANALYSIS VIEWS & SCENARIO SETS

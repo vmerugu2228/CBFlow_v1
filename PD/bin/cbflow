@@ -14,6 +14,14 @@ CBFLOW_ROOT="$(dirname "$CBFLOW_CORE_DIR")"
 export CBFLOW_ROOT
 export CBFLOW_CORE_DIR
 
+# Discipline disciplines: PD lives at $CBFLOW_CORE_DIR; sibling DFT/ (if it
+# exists) hosts DFT cmd handlers and docs. The framework checks both roots
+# when resolving cmds/<FLOW>/... paths. Other disciplines can be added later
+# the same way.
+if [[ -d "$CBFLOW_ROOT/DFT" ]]; then
+    export CBFLOW_DFT_DIR="$CBFLOW_ROOT/DFT"
+fi
+
 # Source environment if available
 [[ -f "$CBFLOW_CORE_DIR/config/cbflow.env" ]] && source "$CBFLOW_CORE_DIR/config/cbflow.env"
 

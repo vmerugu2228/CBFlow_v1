@@ -19,7 +19,7 @@ set config_dir [file dirname $script_path]
 
 # ┌─ Flow Types ────────────────────────────────────────────────────────────────┐
 set flow(type)      ""                                                    ;# Mandatory — set in user_config
-set flow(types)     {SYNTH FP PNR STA LEC EMIR PV ECO CLP POPT FCFP SYNTH_PNR}
+set flow(types)     {SYNTH FP PNR STA LEC EMIR PV ECO CLP POPT FCFP SYNTH_PNR DFT_INSERT SCAN_INSERT ATPG GLS_FUNC GLS_SCAN_MBIST}
 
 # ┌─ Flow Runtime ──────────────────────────────────────────────────────────────┐
 set flow(run_name)      ""                                                ;# Mandatory — set in user_config

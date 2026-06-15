@@ -57,10 +57,10 @@ flow_proc generate_globals {
     puts $gf "set init_verilog {$fp(input,netlist)}"
 
     # ── Top cell ──
+    # The top cell in .globals is the *design* being implemented, not the
+    # project-level umbrella module. (project(top_module) is the SoC top —
+    # used only when the entire chip is treated as one design.)
     set top_cell $design_name
-    if {[info exists project(top_module)] && $project(top_module) ne ""} {
-        set top_cell $project(top_module)
-    }
     puts $gf "set init_design_settop 1"
     puts $gf "set init_top_cell {$top_cell}"
 

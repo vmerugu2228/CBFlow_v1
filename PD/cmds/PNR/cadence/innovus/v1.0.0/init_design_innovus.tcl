@@ -126,7 +126,8 @@ flow_proc read_design {
     global pnr project flow
 
     set design_name [expr {[info exists pnr(common,design_name)] ? $pnr(common,design_name) : $flow(design_name)}]
-    set top_module [expr {[info exists project(top_module)] ? $project(top_module) : $design_name}]
+    # PNR top is the design being implemented, not the SoC umbrella module.
+    set top_module $design_name
 
     # Read gate-level netlist from synthesis output
     set netlist_file ""

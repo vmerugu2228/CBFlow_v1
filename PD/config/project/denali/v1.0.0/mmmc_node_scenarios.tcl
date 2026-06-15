@@ -43,8 +43,8 @@ array set mmmc {
     }
 
     init_design {
-        setup {func_tt_0p90v_rctyp_125c}
-        hold {func_tt_0p90v_rctyp_125c}
+        setup {func_ss_0p80v_rcmax_125c}
+        hold {func_ff_1p10v_rcmin_125c}
     }
 
     place {

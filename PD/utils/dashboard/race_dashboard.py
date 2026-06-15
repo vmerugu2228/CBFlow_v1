@@ -1902,6 +1902,10 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             content = content.replace(b'{{PROJECT}}', run_info.get('project', '').encode())
             content = content.replace(b'{{RUN_DIR}}', self.dashboard.run_dir.encode())
             content = content.replace(b'{{RESULT}}', run_info.get('result', '').encode())
+            # Discipline: derive from flow_type when not in a daemon context.
+            _DFT = {'DFT_INSERT', 'SCAN_INSERT', 'ATPG', 'GLS_FUNC', 'GLS_SCAN_MBIST'}
+            _disc = 'DFT' if run_info.get('flow_type') in _DFT else 'PD'
+            content = content.replace(b'{{DISCIPLINE}}', _disc.encode())
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
             self.end_headers()

@@ -141,7 +141,7 @@ RACE (Run Automation & Control Engine) is the Python-native DAG executor at the 
 | `cbflow run report --node pro1` | Detailed node report |
 | `cbflow run show-graph` | Show flow dependency graph |
 
-### Supported Flows (12)
+### Supported Flows — PD discipline (12)
 
 | Flow | Description | Synopsys Tool | Cadence Tool |
 |------|-------------|---------------|--------------|
@@ -157,6 +157,19 @@ RACE (Run Automation & Control Engine) is the Python-native DAG executor at the 
 | POPT | Power Optimization | PT | -- |
 | FCFP | Full Chip Floorplan | FC | Innovus |
 | SYNTH_PNR | Unified Synth + PNR | FC | -- |
+
+### Supported Flows — DFT discipline (5)
+
+DFT discipline lives at the sibling `DFT/` tree and shares the same engine,
+dashboard, and CLI as PD. See [`../../DFT/docs/`](../../DFT/docs/README.md).
+
+| Flow | Description | Synopsys Tool | Mentor Tool |
+|------|-------------|---------------|-------------|
+| DFT_INSERT | MBIST + OCC + EDT/SSN insertion into RTL | DFT Compiler | Tessent |
+| SCAN_INSERT | Scan chain stitching + scandef | DFT Compiler | Tessent |
+| ATPG | Pattern generation + fault sim + coverage | TestMAX | Tessent |
+| GLS_FUNC | Gate-level functional simulation (ZD/SDF) | VCS | Questa |
+| GLS_SCAN_MBIST | Gate-level scan/MBIST/BSCAN sim (ZD/SDF) | VCS | Questa |
 
 ### Input Handshaking
 
