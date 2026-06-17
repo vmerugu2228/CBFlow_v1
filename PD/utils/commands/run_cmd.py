@@ -89,18 +89,16 @@ def get_flow_type() -> str:
     return env_vars.get('FLOW_TYPE', 'UNKNOWN')
 
 
-def get_flow_stages(flow_type: str) -> list:
-    """Get ordered stages for a flow type (base stages only).
-
-    For single flows: loads from node config (e.g., PNR_config.tcl).
-    For merged flows: builds combined prefixed stage list (e.g., synth_inputs, fp_floorplan).
+def get_flow_stages(flow_type: str, run_dir=None) -> list:
+    """Ordered stages for a flow type. `run_dir=None` reads the project
+    baseline; pass a run dir to honor user_config overrides.
     """
     from tcl_config_parser import is_merged_flow, get_merged_flow_stage_names
     from tcl_config_parser import get_flow_stages as _get_stages
 
     if is_merged_flow(flow_type):
         return get_merged_flow_stage_names(flow_type)
-    return _get_stages(flow_type)
+    return _get_stages(flow_type, run_dir=run_dir)
 
 
 def get_all_stages(flow_type: str) -> list:
@@ -535,6 +533,56 @@ def cmd_force(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_debug(args: argparse.Namespace) -> int:
+    """Inspect the engine-visible config cascade.
+
+    --dump-resolved-cfg → every key the engine sees, sorted, one per line.
+    --key 'flow(use_lsf)' → single key, value + cascade source files.
+    """
+    if not is_run_directory():
+        logger.error("Error: Not in a valid run directory")
+        return 1
+
+    flow_type = get_flow_type()
+    run_dir = os.getcwd()
+    env = load_run_env()
+
+    import cbflow_config as _cbc
+    try:
+        cfg = _cbc.load_resolved_config(flow_type, run_dir, env=env)
+    except Exception as e:
+        logger.error(f"resolver failed: {e}")
+        return 2
+
+    sources = cfg.get('_sources', '')
+    schema = cfg.get('_schema_version', '?')
+
+    if args.key:
+        key = args.key
+        if key in cfg:
+            print(f"{key}={cfg[key]}")
+            if sources:
+                print(f"  contributing sources: {sources}")
+            return 0
+        print(f"# key not in resolved cascade: {key}")
+        print(f"# contributing sources: {sources or '<unknown>'}")
+        return 3
+
+    if not args.dump_resolved_cfg:
+        logger.error("Pass --dump-resolved-cfg (full dump) or --key <name> "
+                     "(single key + sources)")
+        return 1
+
+    print(f"# CBflow resolved-config dump (schema v{schema})")
+    print(f"# flow={flow_type} run_dir={run_dir}")
+    print(f"# sources: {sources}")
+    print(f"# {len(cfg)} keys")
+    print()
+    for key in sorted(cfg.keys()):
+        print(f"{key}={cfg[key]}")
+    return 0
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     """Show run status."""
     if not is_run_directory():
@@ -858,10 +906,11 @@ def cmd_report(args: argparse.Namespace) -> int:
         return 1
 
     flow_type = get_flow_type()
-    stages = get_flow_stages(flow_type)
+    run_dir = os.getcwd()
+    stages = get_flow_stages(flow_type, run_dir=run_dir)
 
     from tcl_config_parser import get_subnodes, _load_node_config, _parse_tcl_list
-    node_config = _load_node_config(flow_type)
+    node_config = _load_node_config(flow_type, run_dir=run_dir)
 
     completed = _get_completed_from_db()
 
@@ -1271,9 +1320,10 @@ def cmd_show_graph(args: argparse.Namespace) -> int:
         from tcl_config_parser import (
             _load_node_config, _parse_tcl_list, get_parallel_stages
         )
-        stages = get_flow_stages(flow_type)
-        node_config = _load_node_config(flow_type)
-        parallel_set = set(get_parallel_stages(flow_type))
+        _rd = os.getcwd() if is_run_directory() else None
+        stages = get_flow_stages(flow_type, run_dir=_rd)
+        node_config = _load_node_config(flow_type, run_dir=_rd)
+        parallel_set = set(get_parallel_stages(flow_type, run_dir=_rd))
         stages_data = []
         for i, stage in enumerate(stages):
             # Look up dependency
@@ -1306,7 +1356,8 @@ def cmd_show_graph(args: argparse.Namespace) -> int:
     subnodes_map = {}
     if detail:
         from tcl_config_parser import _load_node_config, _parse_tcl_list
-        node_config = _load_node_config(flow_type)
+        _rd2 = os.getcwd() if is_run_directory() else None
+        node_config = _load_node_config(flow_type, run_dir=_rd2)
         for sd in stages_data:
             stage = sd['name']
             key = f'subnodes,{stage}'
@@ -2429,50 +2480,21 @@ def cmd_interactive(args: argparse.Namespace) -> int:
     lsf_memory = '16000'
     lsf_runtime = '6:00'
 
-    flow_dir = env_vars.get('FLOW_DIR', os.environ.get('FLOW_DIR', ''))
-    cfg_ver = env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0')
-
-    fc_path = os.path.join(flow_dir, 'config', 'flow', cfg_ver, 'flow_config.tcl')
-    if os.path.exists(fc_path):
-        with open(fc_path) as f:
-            for line in f:
-                if 'flow(use_lsf)' in line and 'true' in line.lower():
-                    use_lsf = True
-
-    # Read interactive LSF settings from lsf_config.tcl
-    lsf_cfg_path = os.path.join(flow_dir, 'config', 'flow', cfg_ver, 'lsf_config.tcl')
-    if os.path.exists(lsf_cfg_path):
-        with open(lsf_cfg_path) as f:
-            for line in f:
-                line = line.strip()
-                if 'interactive,queue' in line:
-                    m = _re.search(r'"([^"]+)"', line)
-                    if m: lsf_queue = m.group(1)
-                elif 'interactive,runtime_limit' in line:
-                    m = _re.search(r'"([^"]+)"', line)
-                    if m: lsf_runtime = m.group(1)
-                elif 'interactive,memory' in line:
-                    m = _re.search(r'"([^"]+)"', line)
-                    if m:
-                        mem = m.group(1)
-                        # Convert GB to MB for bsub
-                        if mem.upper().endswith('GB'):
-                            lsf_memory = str(int(mem[:-2]) * 1000)
-                        else:
-                            lsf_memory = mem
-
-    tlc_path = os.path.join(flow_dir, 'config', 'flow',
-                            env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0'),
-                            'tool_launch_config.tcl')
-    if os.path.exists(tlc_path):
-        with open(tlc_path) as f:
-            for line in f:
-                if 'lsf(xterm,command)' in line:
-                    m = _re.search(r'"([^"]+)"', line)
-                    if m: xterm_cmd = m.group(1)
-                elif 'lsf(xterm,geometry)' in line:
-                    m = _re.search(r'"([^"]+)"', line)
-                    if m: xterm_geom = m.group(1)
+    # All four files (flow_config, user_config, lsf_config, tool_launch_config)
+    # contribute keys to the resolver — no raw .tcl reads here anymore. The
+    # cascade order is enforced by the resolver, so user_config's override of
+    # flow(use_lsf) takes effect automatically.
+    import cbflow_config as _cbflow_cfg
+    resolved = _cbflow_cfg.load_resolved_config(flow_type, run_dir, env=env_vars)
+    use_lsf = (_cbflow_cfg.optional(resolved, 'flow(use_lsf)') == 'true')
+    lsf_queue = _cbflow_cfg.optional(resolved, 'lsf(interactive,queue)') or lsf_queue
+    lsf_runtime = _cbflow_cfg.optional(resolved, 'lsf(interactive,runtime_limit)') or lsf_runtime
+    _mem = _cbflow_cfg.optional(resolved, 'lsf(interactive,memory)')
+    if _mem:
+        lsf_memory = (str(int(_mem[:-2]) * 1000)
+                      if _mem.upper().endswith('GB') else _mem)
+    xterm_cmd = _cbflow_cfg.optional(resolved, 'lsf(xterm,command)') or xterm_cmd
+    xterm_geom = _cbflow_cfg.optional(resolved, 'lsf(xterm,geometry)') or xterm_geom
 
     # ── Generate wrapper script ──────────────────────────────────────────
     wrapper_path = os.path.join(interactive_dir, 'launch_interactive.sh')
@@ -3057,6 +3079,26 @@ Examples:
     lsf_parser = subparsers.add_parser('lsf-status', help='Show LSF job status')
     lsf_parser.add_argument('--flow', help='Filter by flow type')
 
+    # debug command — print the resolved cascade dict for this run.
+    debug_parser = subparsers.add_parser(
+        'debug',
+        help='Inspect resolved config / engine internals',
+        description="""Inspect the cascade-resolved config dict the engine uses.
+
+Useful when production reports "use_lsf=true was ignored" or any config-shaped
+bug — one invocation shows exactly which key the engine sees and which file
+contributed it.
+
+Examples:
+  cbflow run debug --dump-resolved-cfg
+  cbflow run debug --dump-resolved-cfg --key 'flow(use_lsf)'""",
+        formatter_class=_fmt)
+    debug_parser.add_argument('--dump-resolved-cfg', action='store_true',
+                              help='Print every resolved config key=value, '
+                                   'one per line, plus contributing source files')
+    debug_parser.add_argument('--key',
+                              help='Print only this key (with cascade sources)')
+
     # help command
     # interactive command
     interactive_parser = subparsers.add_parser('interactive', help='Launch interactive EDA tool session',
@@ -3618,6 +3660,7 @@ def main() -> int:
         'gui': cmd_gui,
         'db-manage': cmd_db_manage,
         'help': cmd_help,
+        'debug': cmd_debug,
     }
 
     if args.command in commands:

@@ -76,10 +76,11 @@ class MakefileGenerator:
             self._init_single()
 
     def _init_single(self):
-        """Initialize for a single flow."""
-        self.stages: List[str] = get_flow_stages(self.flow_type)
-        self.tool_info: Dict[str, str] = get_tool_info(self.flow_type)
-        self.node_config: Dict[str, str] = _load_node_config(self.flow_type)
+        """Initialize for a single flow. Resolver-backed so user_config
+        overrides (e.g. tool selection, per-stage timeouts) take effect."""
+        self.stages: List[str] = get_flow_stages(self.flow_type, run_dir=self.run_dir)
+        self.tool_info: Dict[str, str] = get_tool_info(self.flow_type, run_dir=self.run_dir)
+        self.node_config: Dict[str, str] = _load_node_config(self.flow_type, run_dir=self.run_dir)
 
         # Allow user_config to override tool vendor/name via env_vars
         # user_config sets pnr(tool,vendor) "cadence" → passed as env CBFLOW_TOOL_VENDOR
@@ -1173,7 +1174,7 @@ class MakefileGenerator:
             meta = self.stage_meta.get(stage, {})
             original_stage = meta.get('original_stage', stage)
             original_flow = meta.get('flow', self.flow_type)
-            node_config = _load_node_config(original_flow)
+            node_config = _load_node_config(original_flow, run_dir=self.run_dir)
             key = f'subnode_dependencies,{original_stage},{subnode}'
             raw = node_config.get(key, '')
             if not raw:

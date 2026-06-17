@@ -17,10 +17,11 @@ from typing import Dict, List, Optional, Tuple
 
 from logging_config import get_logger
 from tcl_config_parser import (
-    _parse_set_statements, _parse_tcl_string, _parse_tcl_list,
+    _parse_tcl_string, _parse_tcl_list,
     get_flow_types, get_phases, _get_config_root, _get_flow_config_version,
     is_merged_flow, parse_merged_flow
 )
+from cbflow_config import preview_user_config
 
 logger = get_logger('cbflow.start_run')
 
@@ -100,19 +101,14 @@ def _validate_env_vars(env: Dict[str, str]) -> List[str]:
 # ── User Config Parsing ──────────────────────────────────────────────────────
 
 def _parse_user_config(config_file: str) -> Dict[str, str]:
-    """Parse user_config.tcl into a dict.
+    """Read flow(...) / project(...) atoms from a user-supplied user_config.tcl.
 
-    Uses tcl_config_parser._parse_set_statements() for consistency.
-    Returns dict like {'flow(type)': 'SYNTH', 'flow(run_name)': 'run1', ...}
+    Used at workspace-create time, before a run directory exists — at that
+    point the cascade resolver can't run. `preview_user_config` shells out to
+    tclsh to evaluate the file in isolation so escapes and `set` semantics
+    behave exactly as they will inside the cascade later.
     """
-    with open(config_file, 'r') as f:
-        content = f.read()
-
-    raw = _parse_set_statements(content)
-    result = {}
-    for key, raw_val in raw.items():
-        result[key] = _parse_tcl_string(raw_val)
-    return result
+    return preview_user_config(config_file)
 
 
 def _validate_user_config(user_config: Dict[str, str], env: Dict[str, str]

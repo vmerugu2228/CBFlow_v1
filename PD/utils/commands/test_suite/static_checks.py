@@ -984,6 +984,193 @@ def cat9_dead_code_audit(results, pd_dir, flows):
                                 f'comment says "{claimed}" but file lives under {flow}/')
 
 
+# ── Category 10: Resolved-Config Single Source of Truth ─────────────────────
+
+
+# Files in PD/utils/ outside cbflow_config.py / config_resolver.tcl that are
+# allowed to read a `.tcl` config file directly. Empty by design — every
+# entry here is a documented exception.
+_RAW_TCL_READ_ALLOWED = {
+    # cbflow_config.py is itself the resolver wrapper; it imports tclsh.
+    'PD/utils/commands/cbflow_config.py',
+    # config_resolver.tcl is the resolver; not Python but listed for completeness.
+    'PD/utils/commands/config_resolver.tcl',
+}
+
+
+def _scan_py_file_for_raw_tcl_reads(path):
+    """Return list of (line_no, line) where this Python source opens a
+    .tcl file and reads it. False-positive tolerant — only flags `.tcl`
+    file paths in `open(...)` calls, and skips comment lines + write-mode
+    opens."""
+    hits = []
+    try:
+        with open(path) as f:
+            for i, line in enumerate(f, 1):
+                stripped = line.strip()
+                if stripped.startswith('#'):
+                    continue
+                if re.search(r'open\(\s*[^)]*\.tcl', stripped):
+                    if "'w'" in line or '"w"' in line or "mode='w'" in line:
+                        continue
+                    hits.append((i, stripped))
+    except (OSError, UnicodeDecodeError):
+        pass
+    return hits
+
+
+def _scan_py_file_for_resolved_cfg_defaults(path):
+    """Lines where `.get(key, default)` is called on a name that is
+    unambiguously a resolved-config dict. Narrow names only — generic `cfg`
+    is too broad (it collides with checklist YAML, dashboard state dicts,
+    etc.). If you spot a new resolved-config-shaped dict name, add it here
+    so future regressions are caught."""
+    hits = []
+    try:
+        with open(path) as f:
+            for i, line in enumerate(f, 1):
+                stripped = line.strip()
+                if stripped.startswith('#'):
+                    continue
+                # _resolved_config.get('key', X)  or  _resolved_cfg.get('key', X)
+                if re.search(
+                    r'(?:_resolved_config|_resolved_cfg|resolved_cfg)\.get\(\s*'
+                    r'[\'"][^\'"]+[\'"]\s*,\s*[^)]',
+                    line,
+                ):
+                    hits.append((i, stripped))
+    except (OSError, UnicodeDecodeError):
+        pass
+    return hits
+
+
+def cat10_resolved_config_single_source(results, pd_dir, flows):
+    """Lock-down guards: every Python config read goes through
+    cbflow_config.py + config_resolver.tcl. No raw `.tcl` file reads, no
+    `.get(key, default)` on resolved-config dicts, and the resolver schema
+    matches what the engine consumes."""
+    suite = 'static'
+    category = 10
+
+    # Guard 1: no raw .tcl reads outside the allowed list.
+    pd_root = os.path.dirname(pd_dir) if pd_dir.endswith('/PD') else pd_dir
+    util_root = os.path.join(pd_dir, 'utils')
+    raw_read_violations = []
+    for dirpath, _, filenames in os.walk(util_root):
+        for fname in filenames:
+            if not fname.endswith('.py'):
+                continue
+            full = os.path.join(dirpath, fname)
+            rel_full = os.path.relpath(full, pd_root)
+            if rel_full in _RAW_TCL_READ_ALLOWED:
+                continue
+            hits = _scan_py_file_for_raw_tcl_reads(full)
+            for line_no, line in hits:
+                raw_read_violations.append(f'{rel_full}:{line_no}: {line}')
+
+    if raw_read_violations:
+        results.failed(
+            suite, category,
+            f'raw .tcl file reads outside cbflow_config.py ({len(raw_read_violations)} hits)',
+            '\n'.join(raw_read_violations[:5])
+            + ('' if len(raw_read_violations) <= 5
+               else f'\n… and {len(raw_read_violations) - 5} more')
+        )
+    else:
+        results.passed(suite, category,
+                       'no raw .tcl file reads in PD/utils/ outside cbflow_config.py')
+
+    # Guard 2: no `.get(key, default)` on resolved-config dicts.
+    default_violations = []
+    for dirpath, _, filenames in os.walk(util_root):
+        for fname in filenames:
+            if not fname.endswith('.py'):
+                continue
+            full = os.path.join(dirpath, fname)
+            rel_full = os.path.relpath(full, pd_root)
+            # cbflow_config.py itself implements optional() which mirrors
+            # .get(key, None) — exempt.
+            if rel_full == 'PD/utils/commands/cbflow_config.py':
+                continue
+            # static_checks.py contains the detection regex itself.
+            if rel_full == 'PD/utils/commands/test_suite/static_checks.py':
+                continue
+            hits = _scan_py_file_for_resolved_cfg_defaults(full)
+            for line_no, line in hits:
+                default_violations.append(f'{rel_full}:{line_no}: {line}')
+
+    if default_violations:
+        results.failed(
+            suite, category,
+            f'.get(key, default) on resolved-config dicts ({len(default_violations)} hits)',
+            '\n'.join(default_violations[:5])
+            + ('' if len(default_violations) <= 5
+               else f'\n… and {len(default_violations) - 5} more')
+        )
+    else:
+        results.passed(suite, category,
+                       'no .get(key, default) fallbacks on resolved-config dicts')
+
+    # Guard 3: resolver emits every key the engine consumes.
+    # The list is the contract — if you add a new require() call in race_engine,
+    # you must add the matching key here.
+    required_emissions = (
+        '_schema_version',
+        '_done',
+        'stages',
+        'flow(use_lsf)',
+        'flow(use_xterm)',
+        'flow(test_mode)',
+        'flow(dispatcher)',
+        'flow(types)',
+        'tool,vendor',
+        'tool,name',
+        'tool,version',
+        'default_tool',
+        'mandatory_user_inputs',
+    )
+    # Use SYNTH as the resolver vehicle — every install ships its node_config.
+    resolver = os.path.join(pd_dir, 'utils', 'commands', 'config_resolver.tcl')
+    if not os.path.exists(resolver):
+        results.failed(suite, category, 'config_resolver.tcl missing', resolver)
+        return
+
+    import subprocess as _sp
+    try:
+        env = dict(os.environ)
+        env.setdefault('CBFLOW_CORE_DIR', pd_dir)
+        proc = _sp.run(
+            ['tclsh', resolver, 'SYNTH', '--no-run'],
+            capture_output=True, text=True, timeout=15, env=env,
+        )
+    except _sp.SubprocessError as e:
+        results.failed(suite, category, 'resolver smoke run failed', str(e))
+        return
+
+    if proc.returncode != 0:
+        results.failed(suite, category, 'resolver --no-run exit != 0', proc.stderr.strip())
+        return
+
+    emitted_keys = set()
+    for line in proc.stdout.splitlines():
+        if line.startswith('CBFLOW_CFG:'):
+            kv = line[len('CBFLOW_CFG:'):]
+            eq = kv.find('=')
+            if eq > 0:
+                emitted_keys.add(kv[:eq])
+
+    missing = [k for k in required_emissions if k not in emitted_keys]
+    if missing:
+        results.failed(
+            suite, category,
+            f'resolver schema regression: {len(missing)} required key(s) not emitted',
+            ', '.join(missing),
+        )
+    else:
+        results.passed(suite, category,
+                       f'resolver emits all {len(required_emissions)} schema-v2 required keys')
+
+
 # ── Registry ────────────────────────────────────────────────────────────────
 
 CATEGORIES = {
@@ -996,6 +1183,7 @@ CATEGORIES = {
     7: ('Log Parsing & Error Halt', cat7_log_parsing),
     8: ('Cross-Cutting Checks', cat8_cross_cutting),
     9: ('Dead-Code & Cross-Reference Audit', cat9_dead_code_audit),
+   10: ('Resolved-Config Single Source of Truth', cat10_resolved_config_single_source),
 }
 
 

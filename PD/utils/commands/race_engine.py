@@ -33,6 +33,12 @@ from pathlib import Path
 from datetime import datetime
 
 import logging
+
+# Sole entry point for cascade-resolved config. No regex parsing of *_config.tcl
+# allowed in this module — every key the engine reads goes through require() /
+# optional(), and missing required keys error with the contributing source files
+# named.
+import cbflow_config as _cfg
 logger = logging.getLogger('cbflow.engine')
 
 
@@ -105,10 +111,15 @@ class DagBuilder:
             return {}, []
         self._resolved_cfg = cfg  # stored for _resolve_dynamic_subnodes
 
-        stages = cfg.get('stages', '').split()
-        if not stages:
-            logger.error("No stages found in config")
-            return {}, []
+        # Fail fast on missing cascade-required keys. These have documented
+        # defaults in flow_config.tcl and may be overridden in user_config.tcl
+        # — if a deploy commented them out or the cascade didn't run, the
+        # engine refuses to start instead of guessing.
+        for required in ('flow(use_lsf)', 'flow(use_xterm)', 'flow(test_mode)',
+                         'flow(dispatcher)'):
+            _cfg.require(cfg, required)
+
+        stages = _cfg.require_list(cfg, 'stages')
 
         stage_deps = {}
         subnodes = {}
@@ -158,7 +169,7 @@ class DagBuilder:
                          "no defaults. Check flow_config.tcl or user_config.tcl.")
             raise ValueError("Missing required config: tool,vendor and tool,name")
 
-        resource_map = self._parse_resource_map(self._load_node_config(), stages)
+        resource_map = self._parse_resource_map(cfg, stages)
 
         # Merge custom nodes from run-level runtime config
         custom_nodes, custom_deps = self._load_runtime_custom_nodes()
@@ -186,7 +197,11 @@ class DagBuilder:
                     if k.startswith('subnodes,') and v.strip() == 'dynamic':
                         # Extract stage base type (e.g., timing1 → timing)
                         stage_name = k.split(',')[1]
-                        stage_type = cfg.get(f'stages,{stage_name},type', stage_name.rstrip('0123456789'))
+                        # No more rstrip-the-digits guess — if a dynamic stage
+                        # made it here, the runtime_flow_config must have
+                        # declared its type explicitly. Resolver sources that
+                        # file; missing means truly unset, which is a bug.
+                        stage_type = _cfg.require(cfg, f'stages,{stage_name},type')
                         dynamic_types.add(stage_type)
                 if type_base in dynamic_types:
                     # Always resolve independently — each node gets its own scenarios
@@ -308,58 +323,15 @@ class DagBuilder:
         return jobs, stage_order
 
     def _resolve_config(self) -> dict:
-        """Execute node config via tclsh and capture resolved variables.
+        """Run the cascade resolver and return the resolved key→value dict.
 
-        Returns dict of key→value from TCL-resolved config.
-        No regex parsing — TCL foreach loops, variable substitution all work.
+        The resolver enforces a schema version; an unfamiliar version is a hard
+        error (Tcl/Python out of sync). The result is cached per-process by
+        cbflow_config, keyed on (flow_type, run_dir) with mtime invalidation
+        on user_config.tcl / runtime_flow_config.tcl.
         """
-        flow_dir = self.env_vars.get('FLOW_DIR', '')
-        resolver = os.path.join(flow_dir, 'utils', 'commands', 'config_resolver.tcl')
-        if not os.path.exists(resolver):
-            logger.error(f"Config resolver not found: {resolver}")
-            return {}
-
-        try:
-            result = subprocess.run(
-                ['tclsh', resolver, self.flow_type, self.run_dir],
-                capture_output=True, text=True, timeout=30,
-                env={**os.environ, **{k: v for k, v in self.env_vars.items() if v}}
-            )
-            if result.returncode != 0:
-                logger.error(f"Config resolver failed: {result.stderr.strip()}")
-                return {}
-
-            cfg = {}
-            for line in result.stdout.splitlines():
-                if line.startswith('CBFLOW_CFG:'):
-                    kv = line[len('CBFLOW_CFG:'):]
-                    eq = kv.find('=')
-                    if eq > 0:
-                        cfg[kv[:eq]] = kv[eq+1:]
-            return cfg
-
-        except subprocess.TimeoutExpired:
-            logger.error("Config resolver timed out (30s)")
-            return {}
-        except Exception as e:
-            logger.error(f"Config resolver error: {e}")
-            return {}
-
-    def _load_node_config(self) -> str:
-        """Load node config TCL file content (for resource_map regex parsing)."""
-        config_root = self.env_vars.get('CONFIG_ROOT',
-                      self.env_vars.get('FLOW_DIR', ''))
-        flow_version = self.env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0')
-        config_path = os.path.join(config_root, 'config', 'flow', flow_version,
-                                   'node_configs', f'{self.flow_type}_config.tcl')
-        if not os.path.exists(config_path):
-            config_path = os.path.join(self.env_vars.get('FLOW_DIR', ''),
-                                       'config', 'flow', flow_version,
-                                       'node_configs', f'{self.flow_type}_config.tcl')
-        if os.path.exists(config_path):
-            with open(config_path) as f:
-                return f.read()
-        return ""
+        return _cfg.load_resolved_config(self.flow_type, self.run_dir,
+                                         env=self.env_vars)
 
     def _resolve_dynamic_subnodes(self, stage: str) -> list:
         """Resolve dynamic subnodes for per-scenario/per-corner stages.
@@ -422,66 +394,38 @@ class DagBuilder:
         return []
 
     def _load_runtime_custom_nodes(self) -> tuple:
-        """Load custom nodes from $run_dir/setup/runtime_flow_config.tcl.
+        """Load custom nodes added by `cbflow run add-node` / `create-branch`.
 
-        These are added at run-level by:
-          cbflow run add-node --node place2 --type place --dep place1
-          cbflow run create-branch --name eco_branch --from signoff1
+        Source of truth is `setup/runtime_flow_config.tcl`. The resolver
+        sources it, so every custom node appears in the resolved cfg as
+        flow-array entries `stages,<name>,type|dependencies|branch_key`.
+        No regex pass on the raw file — the cascade does it.
 
         Returns: (custom_nodes_dict, custom_deps_dict)
         """
         custom_nodes = {}
         custom_deps = {}
-        runtime_config = os.path.join(self.run_dir, 'setup', 'runtime_flow_config.tcl')
-        if not os.path.exists(runtime_config):
-            return custom_nodes, custom_deps
+        cfg = getattr(self, '_resolved_cfg', None) or self._resolve_config()
 
-        try:
-            with open(runtime_config) as f:
-                content = f.read()
+        names = set()
+        for key in cfg:
+            # stages,<name>,type | stages,<name>,dependencies | stages,<name>,branch_key
+            if key.startswith('stages,') and ',' in key[len('stages,'):]:
+                rest = key[len('stages,'):]
+                comma = rest.find(',')
+                if comma > 0 and rest[comma + 1:] in ('type', 'dependencies', 'branch_key'):
+                    names.add(rest[:comma])
 
-            # Parse two formats:
-            # Format 1 (array set): stages,place2,type place
-            # Format 2 (set):       synth_pnr(stages,place2,type) "place"
-            node_names = set()
-
-            # Format 1: inside array set block
-            for m in re.finditer(r'stages,(\w+),(?:type|dependencies)', content):
-                node_names.add(m.group(1))
-
-            # Format 2: individual set commands
-            flow_lower = self.flow_type.lower()
-            for m in re.finditer(rf'{flow_lower}\(stages,(\w+),', content):
-                node_names.add(m.group(1))
-
-            for name in node_names:
-                node_type = ''
-                dep = ''
-                branch = ''
-                # Try format 1 (array set)
-                m = re.search(rf'stages,{name},type\s+(\S+)', content)
-                if m: node_type = m.group(1).strip('"')
-                m = re.search(rf'stages,{name},dependencies\s+(.+)', content)
-                if m: dep = m.group(1).strip().strip('"')
-                m = re.search(rf'stages,{name},branch_key\s+(\S+)', content)
-                if m: branch = m.group(1).strip('"')
-                # Try format 2 (set command) — overrides if found
-                m = re.search(rf'{flow_lower}\(stages,{name},type\)\s+"([^"]*)"', content)
-                if m: node_type = m.group(1)
-                m = re.search(rf'{flow_lower}\(stages,{name},dependencies\)\s+"([^"]*)"', content)
-                if m: dep = m.group(1)
-                m = re.search(rf'{flow_lower}\(stages,{name},branch_key\)\s+"([^"]*)"', content)
-                if m: branch = m.group(1)
-
-                custom_nodes[name] = {
-                    'type': node_type,
-                    'dependency': dep,
-                    'branch_key': branch,
-                }
-                custom_deps[name] = dep.split() if dep else []
-
-        except Exception as e:
-            logger.debug(f"Error loading runtime config: {e}")
+        for name in names:
+            node_type = _cfg.optional(cfg, f'stages,{name},type') or ''
+            dep       = _cfg.optional(cfg, f'stages,{name},dependencies') or ''
+            branch    = _cfg.optional(cfg, f'stages,{name},branch_key') or ''
+            custom_nodes[name] = {
+                'type': node_type,
+                'dependency': dep,
+                'branch_key': branch,
+            }
+            custom_deps[name] = dep.split() if dep else []
 
         return custom_nodes, custom_deps
 
@@ -497,23 +441,21 @@ class DagBuilder:
                     sub_deps[f'{stage}_{subnode}'] = [f'{stage}_{d}' for d in dep_list]
         return sub_deps
 
-    def _parse_resource_map(self, config: str, stages: list) -> dict:
-        """Map stages to resource tiers from tool_launch_config."""
+    def _parse_resource_map(self, cfg: dict, stages: list) -> dict:
+        """Map stages to resource tiers via lsf(flow_mapping,<flow>,<stage>)
+        keys emitted by the resolver from tool_launch_config.tcl.
+
+        Stages not listed in tool_launch_config legitimately have no per-stage
+        tier (a global lsf default applies at submit time) — `optional()`
+        returning None is fine here, not a fallback for a missing required key.
+        """
         resource_map = {}
-        tlc_path = os.path.join(self.env_vars.get('FLOW_DIR', ''),
-                                'config', 'flow',
-                                self.env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0'),
-                                'tool_launch_config.tcl')
-        if os.path.exists(tlc_path):
-            with open(tlc_path) as f:
-                tlc = f.read()
-            for stage in stages:
-                stage_base = stage.rstrip('0123456789')
-                flow_lower = self.flow_type.lower()
-                pattern = rf'flow_mapping,{flow_lower},{stage_base}\)\s+"(\w+)"'
-                m = re.search(pattern, tlc, re.IGNORECASE)
-                if m:
-                    resource_map[stage] = m.group(1)
+        flow_lower = self.flow_type.lower()
+        for stage in stages:
+            stage_base = stage.rstrip('0123456789')
+            tier = _cfg.optional(cfg, f'lsf(flow_mapping,{flow_lower},{stage_base})')
+            if tier:
+                resource_map[stage] = tier
         return resource_map
 
     def _build_command(self, stage: str, subnode: str) -> str:
@@ -2089,9 +2031,11 @@ class RaceEngine:
         """Force-stop a running job by killing its process (local) or bkill (LSF)."""
         import signal
 
-        # Check if LSF is enabled
-        use_lsf = self._resolved_config.get('flow(use_lsf)', 'false') if hasattr(self, '_resolved_config') else 'false'
-        use_lsf = use_lsf.lower() == 'true'
+        # flow(use_lsf) is set in flow_config.tcl with a documented default and
+        # may be overridden in user_config.tcl — the cascade resolver guarantees
+        # one of those wrote it. Missing here means the cascade is broken; we
+        # want a loud error rather than silently choosing 'false'.
+        use_lsf = _cfg.require(self._resolved_config, 'flow(use_lsf)') == 'true'
 
         # Find matching running processes (exact match or stage-level: kill all subnodes)
         killed = []
@@ -2201,19 +2145,22 @@ class RaceEngine:
                                 self._collect_upstream(dep, needed)
 
     def _get_timeout(self, job: Job) -> int:
-        """Get timeout in seconds for a job from config.
+        """Per-stage timeout in seconds from runtime,timeout,<stage>.
 
-        Reads runtime,timeout,<stage> from resolved config (value in minutes).
-        Falls back to 14400 seconds (4 hours) if not configured.
+        The node config for every shipped flow sets a per-stage timeout
+        (`runtime,timeout,<stage>` in minutes). require() errors loudly when
+        a stage lacks one — that's a node_config gap to fix, not a place to
+        silently apply a 4-hour blanket.
         """
         timeout_key = f'runtime,timeout,{job.stage}'
-        timeout_val = self._resolved_config.get(timeout_key, '') if hasattr(self, '_resolved_config') else ''
-        if timeout_val:
-            try:
-                return int(timeout_val) * 60  # config is in minutes
-            except ValueError:
-                pass
-        return 14400  # 4 hour default if not in config
+        timeout_min = _cfg.require(self._resolved_config, timeout_key)
+        try:
+            return int(timeout_min) * 60
+        except ValueError as e:
+            raise ValueError(
+                f"CBflow config: {timeout_key} is not an integer "
+                f"(got {timeout_min!r})"
+            ) from e
 
     def _calc_runtime(self, job: Job) -> float:
         if job.start_time and job.end_time:

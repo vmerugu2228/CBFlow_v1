@@ -514,7 +514,7 @@ class RaceDashboard:
             stage_deps = {}
             try:
                 from tcl_config_parser import _load_node_config
-                nc = _load_node_config(self.flow_type)
+                nc = _load_node_config(self.flow_type, run_dir=self.run_dir)
                 if nc:
                     for stage in stage_order:
                         dep_key = f'dependencies,{stage}'
@@ -525,14 +525,14 @@ class RaceDashboard:
                                 if d and d in seen:
                                     edges.append({'from': d, 'to': stage})
                                     stage_deps.setdefault(stage, []).append(d)
-                # Custom node deps from runtime config
-                rtf = os.path.join(self.run_dir, 'setup', 'runtime_flow_config.tcl')
-                if os.path.exists(rtf):
-                    with open(rtf) as f:
-                        rtc = f.read()
-                    import re as _re
-                    for m in _re.finditer(r'stages,(\w+),dependencies\s+(\w+)', rtc):
-                        cname, cdep = m.group(1), m.group(2)
+                # Custom node deps — resolver sources runtime_flow_config.tcl,
+                # so any cbflow-run-add-node deps surface as stages,<name>,dependencies
+                # entries in the same `nc` dict above.
+                for key, val in nc.items():
+                    if not key.startswith('stages,') or not key.endswith(',dependencies'):
+                        continue
+                    cname = key.split(',')[1]
+                    for cdep in val.split():
                         if cname in seen and cdep in seen:
                             edges.append({'from': cdep, 'to': cname})
                             stage_deps.setdefault(cname, []).append(cdep)
@@ -558,7 +558,7 @@ class RaceDashboard:
             base_stages = []
             try:
                 from tcl_config_parser import get_flow_stages
-                base_stages = list(get_flow_stages(self.flow_type))
+                base_stages = list(get_flow_stages(self.flow_type, run_dir=self.run_dir))
             except Exception:
                 base_stages = list(stage_order)
 
@@ -913,37 +913,26 @@ class RaceDashboard:
         }
 
     def get_mmmc_scenarios(self) -> dict:
-        """Read MMMC config — all scenarios, scenario sets, and per-node assignments.
-        Uses config_resolver.tcl to get TCL-resolved values (auto-generated scenarios work)."""
-        import subprocess as _sp
-
+        """Read MMMC config — all scenarios, scenario sets, and per-node
+        assignments — via the cascade resolver (so user_config overrides take
+        effect)."""
         env = self._load_env()
         flow_type = env.get('FLOW_TYPE', env.get('CBFLOW_FLOW_TYPE', 'SYNTH_PNR'))
-        resolver = os.path.join(self.flow_dir, 'utils', 'commands', 'config_resolver.tcl')
-
-        if not os.path.exists(resolver):
-            return {'error': 'config_resolver.tcl not found', 'scenarios': [], 'nodes': {}, 'sets': {}}
 
         try:
-            result = _sp.run(['tclsh', resolver, flow_type, self.run_dir],
-                           capture_output=True, text=True, timeout=30,
-                           env={**os.environ, **{k: v for k, v in env.items() if v}})
-            if result.returncode != 0:
-                return {'error': result.stderr.strip(), 'scenarios': [], 'nodes': {}, 'sets': {}}
-
-            cfg = {}
-            for line in result.stdout.splitlines():
-                if line.startswith('CBFLOW_CFG:'):
-                    kv = line[len('CBFLOW_CFG:'):]
-                    eq = kv.find('=')
-                    if eq > 0:
-                        cfg[kv[:eq]] = kv[eq+1:]
+            # Resolve through cbflow_config so the schema check and cache apply.
+            import sys as _sys
+            cmds_dir = os.path.join(self.flow_dir, 'utils', 'commands')
+            if cmds_dir not in _sys.path:
+                _sys.path.insert(0, cmds_dir)
+            import cbflow_config as _cbc
+            cfg = _cbc.load_resolved_config(flow_type, self.run_dir, env=env)
         except Exception as e:
             return {'error': str(e), 'scenarios': [], 'nodes': {}, 'sets': {}}
 
         # Build scenarios from resolved analysis_view_names
         all_scenarios = []
-        view_names = cfg.get('analysis_view_names', '').split()
+        view_names = (_cbc.optional(cfg, 'analysis_view_names') or '').split()
         for name in view_names:
             # Parse scenario name: <mode>_<corner>_<voltage>_<rc>_<temperature>
             parts = name.split('_')

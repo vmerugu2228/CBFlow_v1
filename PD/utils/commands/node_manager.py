@@ -34,8 +34,8 @@ from typing import Dict, List, Optional
 from tcl_config_parser import (
     get_flow_stages, get_subnodes, get_tool_info,
     _load_node_config, _parse_tcl_list, _parse_tcl_string,
-    _parse_array_set_blocks
 )
+import cbflow_config as _cfg
 # MakefileGenerator no longer used — RACE builds DAG at runtime
 from logging_config import get_logger
 
@@ -62,9 +62,9 @@ class NodeManager:
         self.env = env_vars or {}
         self.flow_lower = self.flow_type.lower()
 
-        # Load base stages from config
-        self.base_stages = get_flow_stages(self.flow_type)
-        self.node_config = _load_node_config(self.flow_type)
+        # Load base stages from config — run-aware so user_config overrides apply.
+        self.base_stages = get_flow_stages(self.flow_type, run_dir=self.run_dir)
+        self.node_config = _load_node_config(self.flow_type, run_dir=self.run_dir)
 
         # Load custom nodes from runtime config
         self.custom_nodes = {}   # {name: {type, dependencies, branch_key}}
@@ -90,44 +90,39 @@ class NodeManager:
     # ─────────────────────────────────────────────────────────────────────────
 
     def _load_runtime_config(self):
-        """Parse setup/runtime_flow_config.tcl for custom nodes and branches."""
-        config_file = os.path.join(self.run_dir, 'setup', 'runtime_flow_config.tcl')
-        if not os.path.exists(config_file):
-            return
+        """Hydrate custom_nodes + branches from the resolved cascade.
 
-        with open(config_file, 'r') as f:
-            content = f.read()
+        `setup/runtime_flow_config.tcl` is sourced by the resolver, so every
+        custom-node `stages,<name>,*` key and every `branch_keys,<key>,*`
+        key surfaces in the cascade dict — no regex pass over the raw file.
+        """
+        cfg = _cfg.load_resolved_config(self.flow_type, self.run_dir)
 
-        parsed = _parse_array_set_blocks(content, self.flow_lower)
-
-        # Extract custom nodes: keys like "stages,place2,type" -> "place"
+        # Extract custom nodes: keys like "stages,place2,type" → "place"
         node_names = set()
-        for key in parsed:
-            if key.startswith('stages,'):
+        for key in cfg:
+            if key.startswith('stages,') and key.count(',') >= 2:
                 parts = key.split(',')
-                if len(parts) >= 3:
-                    node_names.add(parts[1])
+                node_names.add(parts[1])
 
         for name in node_names:
             self.custom_nodes[name] = {
-                'type': _parse_tcl_string(parsed.get(f'stages,{name},type', '')),
-                'dependencies': _parse_tcl_string(parsed.get(f'stages,{name},dependencies', '')),
-                'branch_key': _parse_tcl_string(parsed.get(f'stages,{name},branch_key', '')),
+                'type':         _parse_tcl_string(_cfg.optional(cfg, f'stages,{name},type') or ''),
+                'dependencies': _parse_tcl_string(_cfg.optional(cfg, f'stages,{name},dependencies') or ''),
+                'branch_key':   _parse_tcl_string(_cfg.optional(cfg, f'stages,{name},branch_key') or ''),
             }
 
         # Extract branches: keys like "branch_keys,abc123,name"
         branch_keys = set()
-        for key in parsed:
-            if key.startswith('branch_keys,'):
-                parts = key.split(',')
-                if len(parts) >= 3:
-                    branch_keys.add(parts[1])
+        for key in cfg:
+            if key.startswith('branch_keys,') and key.count(',') >= 2:
+                branch_keys.add(key.split(',')[1])
 
         for bkey in branch_keys:
             self.branches[bkey] = {
-                'name': _parse_tcl_string(parsed.get(f'branch_keys,{bkey},name', bkey)),
-                'created_date': _parse_tcl_string(parsed.get(f'branch_keys,{bkey},created_date', '')),
-                'created_by': _parse_tcl_string(parsed.get(f'branch_keys,{bkey},created_by', '')),
+                'name':         _parse_tcl_string(_cfg.optional(cfg, f'branch_keys,{bkey},name') or bkey),
+                'created_date': _parse_tcl_string(_cfg.optional(cfg, f'branch_keys,{bkey},created_date') or ''),
+                'created_by':   _parse_tcl_string(_cfg.optional(cfg, f'branch_keys,{bkey},created_by') or ''),
             }
 
     def _save_runtime_config(self):
