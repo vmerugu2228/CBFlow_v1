@@ -29,11 +29,10 @@ set flow(release_base_dir)    "releases"
 set flow(release_default_tag) "latest"
 set flow(release_structure)   {netlist sdc def gds reports scripts}
 
-array set release_paths {
-    rtl         { "2024Q4_v2.0" "" "2024Q3_v1.8" "" "2024Q2_v1.5" "" }
-    constraints { "2024Q4_v2.0" "" "2024Q3_v1.8" "" "2024Q2_v1.5" "" }
-    power       { "2024Q4_v2.0" "" "2024Q3_v1.8" "" "2024Q2_v1.5" "" }
-}
+# array set release_paths { … } expanded to per-key `set` statements so `#` comments work natively (Tcl treats `#` as data inside `array set` literals).
+    set release_paths(rtl) { "2024Q4_v2.0" "" "2024Q3_v1.8" "" "2024Q2_v1.5" "" }
+    set release_paths(constraints) { "2024Q4_v2.0" "" "2024Q3_v1.8" "" "2024Q2_v1.5" "" }
+    set release_paths(power) { "2024Q4_v2.0" "" "2024Q3_v1.8" "" "2024Q2_v1.5" "" }
 
 foreach category [array names release_paths] {
     set tag_dict [dict create]
@@ -93,14 +92,13 @@ proc get_available_release_tags {category} {
 
 # ┌─ Milestone-to-Stage Mapping ────────────────────────────────────────────────┐
 # Maps each milestone to the stage that must complete before exit
-array set MILESTONE_STAGE_MAPPING {
-    FP_EXIT    "init_design"
-    PLACE_EXIT "place"
-    CTS_EXIT   "cts_opt"
-    PRO_EXIT   "pro"
-    BTO        "signoff"
-    MTO        "signoff"
-}
+# array set MILESTONE_STAGE_MAPPING { … } expanded to per-key `set` statements so `#` comments work natively (Tcl treats `#` as data inside `array set` literals).
+    set MILESTONE_STAGE_MAPPING(FP_EXIT) "init_design"
+    set MILESTONE_STAGE_MAPPING(PLACE_EXIT) "place"
+    set MILESTONE_STAGE_MAPPING(CTS_EXIT) "cts_opt"
+    set MILESTONE_STAGE_MAPPING(PRO_EXIT) "pro"
+    set MILESTONE_STAGE_MAPPING(BTO) "signoff"
+    set MILESTONE_STAGE_MAPPING(MTO) "signoff"
 
 # ── SYNTH_PNR Flow ────────────────────────────────────────────────────────────
 # ── PNR Flow ─────────────────────────────────────────────────────────────────
@@ -115,23 +113,23 @@ array set MILESTONE_STAGE_MAPPING {
 # ── ECO Flow ─────────────────────────────────────────────────────────────────
 # ── POPT Flow ────────────────────────────────────────────────────────────────
 
-array set release_exit_files {
+# array set release_exit_files { … } expanded to per-key `set` statements so `#` comments work natively (Tcl treats `#` as data inside `array set` literals).
 
     # ── SYNTH_PNR Flow ───────────────────────────────────────────────────────
 
-    SYNTH_PNR,FP_EXIT,P0 {
+    set release_exit_files(SYNTH_PNR,FP_EXIT,P0) {
         work/SYNTH_PNR/init_design1/reports/report_qor.rpt
         work/SYNTH_PNR/init_design1/reports/report_design.rpt
         work/SYNTH_PNR/init_design1/reports/report_utilization.rpt
     }
-    SYNTH_PNR,FP_EXIT,P1 {
+    set release_exit_files(SYNTH_PNR,FP_EXIT,P1) {
         work/SYNTH_PNR/init_design1/reports/report_qor.rpt
         work/SYNTH_PNR/init_design1/reports/report_design.rpt
         work/SYNTH_PNR/init_design1/reports/report_utilization.rpt
         work/SYNTH_PNR/init_design1/reports/check_timing.rpt
         work/SYNTH_PNR/init_design1/reports/report_clocks.rpt
     }
-    SYNTH_PNR,FP_EXIT,P2 {
+    set release_exit_files(SYNTH_PNR,FP_EXIT,P2) {
         work/SYNTH_PNR/init_design1/reports/report_qor.rpt
         work/SYNTH_PNR/init_design1/reports/report_design.rpt
         work/SYNTH_PNR/init_design1/reports/report_utilization.rpt
@@ -139,7 +137,7 @@ array set release_exit_files {
         work/SYNTH_PNR/init_design1/reports/report_clocks.rpt
         work/SYNTH_PNR/init_design1/reports/report_threshold_voltage_group.rpt
     }
-    SYNTH_PNR,FP_EXIT,P3 {
+    set release_exit_files(SYNTH_PNR,FP_EXIT,P3) {
         work/SYNTH_PNR/init_design1/reports/report_qor.rpt
         work/SYNTH_PNR/init_design1/reports/report_design.rpt
         work/SYNTH_PNR/init_design1/reports/report_utilization.rpt
@@ -149,12 +147,12 @@ array set release_exit_files {
         work/SYNTH_PNR/init_design1/reports/signoff_check_drc.rpt
     }
 
-    SYNTH_PNR,PLACE_EXIT,P0 {
+    set release_exit_files(SYNTH_PNR,PLACE_EXIT,P0) {
         work/SYNTH_PNR/place1/reports/report_qor.rpt
         work/SYNTH_PNR/place1/reports/report_timing.max.rpt
         work/SYNTH_PNR/place1/reports/report_congestion.rpt
     }
-    SYNTH_PNR,PLACE_EXIT,P1 {
+    set release_exit_files(SYNTH_PNR,PLACE_EXIT,P1) {
         work/SYNTH_PNR/place1/reports/report_qor.rpt
         work/SYNTH_PNR/place1/reports/report_timing.max.rpt
         work/SYNTH_PNR/place1/reports/report_timing.min.rpt
@@ -162,7 +160,7 @@ array set release_exit_files {
         work/SYNTH_PNR/place1/reports/report_power.rpt
         work/SYNTH_PNR/place1/reports/check_legality.rpt
     }
-    SYNTH_PNR,PLACE_EXIT,P2 {
+    set release_exit_files(SYNTH_PNR,PLACE_EXIT,P2) {
         work/SYNTH_PNR/place1/reports/report_qor.rpt
         work/SYNTH_PNR/place1/reports/report_qor_summary.rpt
         work/SYNTH_PNR/place1/reports/report_timing.max.rpt
@@ -174,7 +172,7 @@ array set release_exit_files {
         work/SYNTH_PNR/place1/reports/check_legality.rpt
         work/SYNTH_PNR/place1/reports/report_threshold_voltage_group.rpt
     }
-    SYNTH_PNR,PLACE_EXIT,P3 {
+    set release_exit_files(SYNTH_PNR,PLACE_EXIT,P3) {
         work/SYNTH_PNR/place1/reports/report_qor.rpt
         work/SYNTH_PNR/place1/reports/report_qor_summary.rpt
         work/SYNTH_PNR/place1/reports/report_timing.max.rpt
@@ -189,12 +187,12 @@ array set release_exit_files {
         work/SYNTH_PNR/place1/reports/signoff_check_drc.rpt
     }
 
-    SYNTH_PNR,CTS_EXIT,P0 {
+    set release_exit_files(SYNTH_PNR,CTS_EXIT,P0) {
         work/SYNTH_PNR/cts1/reports/report_qor.rpt
         work/SYNTH_PNR/cts1/reports/report_clock_qor.rpt
         work/SYNTH_PNR/cts_opt1/reports/report_qor.rpt
     }
-    SYNTH_PNR,CTS_EXIT,P1 {
+    set release_exit_files(SYNTH_PNR,CTS_EXIT,P1) {
         work/SYNTH_PNR/cts1/reports/report_qor.rpt
         work/SYNTH_PNR/cts1/reports/report_clock_qor.rpt
         work/SYNTH_PNR/cts1/reports/report_clock_timing.setup.rpt
@@ -204,7 +202,7 @@ array set release_exit_files {
         work/SYNTH_PNR/cts_opt1/reports/report_timing.min.rpt
         work/SYNTH_PNR/cts_opt1/reports/report_power.rpt
     }
-    SYNTH_PNR,CTS_EXIT,P2 {
+    set release_exit_files(SYNTH_PNR,CTS_EXIT,P2) {
         work/SYNTH_PNR/cts1/reports/report_qor.rpt
         work/SYNTH_PNR/cts1/reports/report_clock_qor.rpt
         work/SYNTH_PNR/cts1/reports/report_clock_timing.setup.rpt
@@ -218,7 +216,7 @@ array set release_exit_files {
         work/SYNTH_PNR/cts_opt1/reports/report_power.rpt
         work/SYNTH_PNR/cts_opt1/reports/report_threshold_voltage_group.rpt
     }
-    SYNTH_PNR,CTS_EXIT,P3 {
+    set release_exit_files(SYNTH_PNR,CTS_EXIT,P3) {
         work/SYNTH_PNR/cts1/reports/report_qor.rpt
         work/SYNTH_PNR/cts1/reports/report_clock_qor.rpt
         work/SYNTH_PNR/cts1/reports/report_clock_timing.setup.rpt
@@ -236,7 +234,7 @@ array set release_exit_files {
         work/SYNTH_PNR/cts_opt1/reports/signoff_check_drc.rpt
     }
 
-    SYNTH_PNR,PRO_EXIT,P0 {
+    set release_exit_files(SYNTH_PNR,PRO_EXIT,P0) {
         work/SYNTH_PNR/pro1/reports/report_qor.rpt
         work/SYNTH_PNR/pro1/reports/report_timing.max.rpt
         outputs/${design_name}.v
@@ -246,7 +244,7 @@ array set release_exit_files {
         outputs/${design_name}.nlib
         outputs/${design_name}.enc
     }
-    SYNTH_PNR,PRO_EXIT,P1 {
+    set release_exit_files(SYNTH_PNR,PRO_EXIT,P1) {
         work/SYNTH_PNR/pro1/reports/report_qor.rpt
         work/SYNTH_PNR/pro1/reports/report_timing.max.rpt
         work/SYNTH_PNR/pro1/reports/report_timing.min.rpt
@@ -259,7 +257,7 @@ array set release_exit_files {
         outputs/${design_name}.nlib
         outputs/${design_name}.enc
     }
-    SYNTH_PNR,PRO_EXIT,P2 {
+    set release_exit_files(SYNTH_PNR,PRO_EXIT,P2) {
         work/SYNTH_PNR/pro1/reports/report_qor.rpt
         work/SYNTH_PNR/pro1/reports/report_qor_summary.rpt
         work/SYNTH_PNR/pro1/reports/report_timing.max.rpt
@@ -277,7 +275,7 @@ array set release_exit_files {
         outputs/${design_name}.nlib
         outputs/${design_name}.enc
     }
-    SYNTH_PNR,PRO_EXIT,P3 {
+    set release_exit_files(SYNTH_PNR,PRO_EXIT,P3) {
         work/SYNTH_PNR/pro1/reports/report_qor.rpt
         work/SYNTH_PNR/pro1/reports/report_qor_summary.rpt
         work/SYNTH_PNR/pro1/reports/report_timing.max.rpt
@@ -301,7 +299,7 @@ array set release_exit_files {
         outputs/${design_name}.enc
     }
 
-    SYNTH_PNR,BTO,P0 {
+    set release_exit_files(SYNTH_PNR,BTO,P0) {
         work/SYNTH_PNR/signoff1/reports/report_qor.rpt
         work/SYNTH_PNR/signoff1/reports/report_timing.max.rpt
         outputs/${design_name}.v
@@ -311,7 +309,7 @@ array set release_exit_files {
         outputs/${design_name}.nlib
         outputs/${design_name}.enc
     }
-    SYNTH_PNR,BTO,P1 {
+    set release_exit_files(SYNTH_PNR,BTO,P1) {
         work/SYNTH_PNR/signoff1/reports/report_qor.rpt
         work/SYNTH_PNR/signoff1/reports/report_timing.max.rpt
         work/SYNTH_PNR/signoff1/reports/report_timing.min.rpt
@@ -324,7 +322,7 @@ array set release_exit_files {
         outputs/${design_name}.nlib
         outputs/${design_name}.enc
     }
-    SYNTH_PNR,BTO,P2 {
+    set release_exit_files(SYNTH_PNR,BTO,P2) {
         work/SYNTH_PNR/signoff1/reports/report_qor.rpt
         work/SYNTH_PNR/signoff1/reports/report_timing.max.rpt
         work/SYNTH_PNR/signoff1/reports/report_timing.min.rpt
@@ -340,7 +338,7 @@ array set release_exit_files {
         outputs/${design_name}.nlib
         outputs/${design_name}.enc
     }
-    SYNTH_PNR,BTO,P3 {
+    set release_exit_files(SYNTH_PNR,BTO,P3) {
         work/SYNTH_PNR/signoff1/reports/report_qor.rpt
         work/SYNTH_PNR/signoff1/reports/report_timing.max.rpt
         work/SYNTH_PNR/signoff1/reports/report_timing.min.rpt
@@ -362,7 +360,7 @@ array set release_exit_files {
         outputs/${design_name}.enc
     }
 
-    SYNTH_PNR,MTO,P0 {
+    set release_exit_files(SYNTH_PNR,MTO,P0) {
         outputs/${design_name}.v
         outputs/${design_name}.def
         outputs/${design_name}.gds
@@ -370,7 +368,7 @@ array set release_exit_files {
         outputs/${design_name}.nlib
         outputs/${design_name}.enc
     }
-    SYNTH_PNR,MTO,P1 {
+    set release_exit_files(SYNTH_PNR,MTO,P1) {
         outputs/${design_name}.v
         outputs/${design_name}.def
         outputs/${design_name}.gds
@@ -379,7 +377,7 @@ array set release_exit_files {
         outputs/${design_name}.enc
         outputs/${design_name}.upf
     }
-    SYNTH_PNR,MTO,P2 {
+    set release_exit_files(SYNTH_PNR,MTO,P2) {
         outputs/${design_name}.v
         outputs/${design_name}.pt.v
         outputs/${design_name}.fm.v
@@ -394,7 +392,7 @@ array set release_exit_files {
         outputs/${design_name}_wscript
         outputs/${design_name}_wscript_for_pt
     }
-    SYNTH_PNR,MTO,P3 {
+    set release_exit_files(SYNTH_PNR,MTO,P3) {
         outputs/${design_name}.v
         outputs/${design_name}.pt.v
         outputs/${design_name}.fm.v
@@ -416,19 +414,19 @@ array set release_exit_files {
 
     # ── PNR Flow ─────────────────────────────────────────────────────────────
 
-    PNR,FP_EXIT,P0 {
+    set release_exit_files(PNR,FP_EXIT,P0) {
         work/PNR/init_design1/reports/report_qor.rpt
         work/PNR/init_design1/reports/report_design.rpt
         work/PNR/init_design1/reports/report_utilization.rpt
     }
-    PNR,FP_EXIT,P1 {
+    set release_exit_files(PNR,FP_EXIT,P1) {
         work/PNR/init_design1/reports/report_qor.rpt
         work/PNR/init_design1/reports/report_design.rpt
         work/PNR/init_design1/reports/report_utilization.rpt
         work/PNR/init_design1/reports/check_timing.rpt
         work/PNR/init_design1/reports/report_clocks.rpt
     }
-    PNR,FP_EXIT,P2 {
+    set release_exit_files(PNR,FP_EXIT,P2) {
         work/PNR/init_design1/reports/report_qor.rpt
         work/PNR/init_design1/reports/report_design.rpt
         work/PNR/init_design1/reports/report_utilization.rpt
@@ -436,7 +434,7 @@ array set release_exit_files {
         work/PNR/init_design1/reports/report_clocks.rpt
         work/PNR/init_design1/reports/report_threshold_voltage_group.rpt
     }
-    PNR,FP_EXIT,P3 {
+    set release_exit_files(PNR,FP_EXIT,P3) {
         work/PNR/init_design1/reports/report_qor.rpt
         work/PNR/init_design1/reports/report_design.rpt
         work/PNR/init_design1/reports/report_utilization.rpt
@@ -446,12 +444,12 @@ array set release_exit_files {
         work/PNR/init_design1/reports/signoff_check_drc.rpt
     }
 
-    PNR,PLACE_EXIT,P0 {
+    set release_exit_files(PNR,PLACE_EXIT,P0) {
         work/PNR/place1/reports/report_qor.rpt
         work/PNR/place1/reports/report_timing.max.rpt
         work/PNR/place1/reports/report_congestion.rpt
     }
-    PNR,PLACE_EXIT,P1 {
+    set release_exit_files(PNR,PLACE_EXIT,P1) {
         work/PNR/place1/reports/report_qor.rpt
         work/PNR/place1/reports/report_timing.max.rpt
         work/PNR/place1/reports/report_timing.min.rpt
@@ -459,7 +457,7 @@ array set release_exit_files {
         work/PNR/place1/reports/report_power.rpt
         work/PNR/place1/reports/check_legality.rpt
     }
-    PNR,PLACE_EXIT,P2 {
+    set release_exit_files(PNR,PLACE_EXIT,P2) {
         work/PNR/place1/reports/report_qor.rpt
         work/PNR/place1/reports/report_qor_summary.rpt
         work/PNR/place1/reports/report_timing.max.rpt
@@ -471,7 +469,7 @@ array set release_exit_files {
         work/PNR/place1/reports/check_legality.rpt
         work/PNR/place1/reports/report_threshold_voltage_group.rpt
     }
-    PNR,PLACE_EXIT,P3 {
+    set release_exit_files(PNR,PLACE_EXIT,P3) {
         work/PNR/place1/reports/report_qor.rpt
         work/PNR/place1/reports/report_qor_summary.rpt
         work/PNR/place1/reports/report_timing.max.rpt
@@ -486,12 +484,12 @@ array set release_exit_files {
         work/PNR/place1/reports/signoff_check_drc.rpt
     }
 
-    PNR,CTS_EXIT,P0 {
+    set release_exit_files(PNR,CTS_EXIT,P0) {
         work/PNR/cts1/reports/report_qor.rpt
         work/PNR/cts1/reports/report_clock_qor.rpt
         work/PNR/cts_opt1/reports/report_qor.rpt
     }
-    PNR,CTS_EXIT,P1 {
+    set release_exit_files(PNR,CTS_EXIT,P1) {
         work/PNR/cts1/reports/report_qor.rpt
         work/PNR/cts1/reports/report_clock_qor.rpt
         work/PNR/cts1/reports/report_clock_timing.setup.rpt
@@ -501,7 +499,7 @@ array set release_exit_files {
         work/PNR/cts_opt1/reports/report_timing.min.rpt
         work/PNR/cts_opt1/reports/report_power.rpt
     }
-    PNR,CTS_EXIT,P2 {
+    set release_exit_files(PNR,CTS_EXIT,P2) {
         work/PNR/cts1/reports/report_qor.rpt
         work/PNR/cts1/reports/report_clock_qor.rpt
         work/PNR/cts1/reports/report_clock_timing.setup.rpt
@@ -515,7 +513,7 @@ array set release_exit_files {
         work/PNR/cts_opt1/reports/report_power.rpt
         work/PNR/cts_opt1/reports/report_threshold_voltage_group.rpt
     }
-    PNR,CTS_EXIT,P3 {
+    set release_exit_files(PNR,CTS_EXIT,P3) {
         work/PNR/cts1/reports/report_qor.rpt
         work/PNR/cts1/reports/report_clock_qor.rpt
         work/PNR/cts1/reports/report_clock_timing.setup.rpt
@@ -533,7 +531,7 @@ array set release_exit_files {
         work/PNR/cts_opt1/reports/signoff_check_drc.rpt
     }
 
-    PNR,PRO_EXIT,P0 {
+    set release_exit_files(PNR,PRO_EXIT,P0) {
         work/PNR/pro1/reports/report_qor.rpt
         work/PNR/pro1/reports/report_timing.max.rpt
         outputs/${design_name}.v
@@ -543,7 +541,7 @@ array set release_exit_files {
         outputs/${design_name}.nlib
         outputs/${design_name}.enc
     }
-    PNR,PRO_EXIT,P1 {
+    set release_exit_files(PNR,PRO_EXIT,P1) {
         work/PNR/pro1/reports/report_qor.rpt
         work/PNR/pro1/reports/report_timing.max.rpt
         work/PNR/pro1/reports/report_timing.min.rpt
@@ -556,7 +554,7 @@ array set release_exit_files {
         outputs/${design_name}.nlib
         outputs/${design_name}.enc
     }
-    PNR,PRO_EXIT,P2 {
+    set release_exit_files(PNR,PRO_EXIT,P2) {
         work/PNR/pro1/reports/report_qor.rpt
         work/PNR/pro1/reports/report_qor_summary.rpt
         work/PNR/pro1/reports/report_timing.max.rpt
@@ -574,7 +572,7 @@ array set release_exit_files {
         outputs/${design_name}.nlib
         outputs/${design_name}.enc
     }
-    PNR,PRO_EXIT,P3 {
+    set release_exit_files(PNR,PRO_EXIT,P3) {
         work/PNR/pro1/reports/report_qor.rpt
         work/PNR/pro1/reports/report_qor_summary.rpt
         work/PNR/pro1/reports/report_timing.max.rpt
@@ -598,7 +596,7 @@ array set release_exit_files {
         outputs/${design_name}.enc
     }
 
-    PNR,BTO,P0 {
+    set release_exit_files(PNR,BTO,P0) {
         work/PNR/signoff1/reports/report_qor.rpt
         work/PNR/signoff1/reports/report_timing.max.rpt
         outputs/${design_name}.v
@@ -608,7 +606,7 @@ array set release_exit_files {
         outputs/${design_name}.nlib
         outputs/${design_name}.enc
     }
-    PNR,BTO,P1 {
+    set release_exit_files(PNR,BTO,P1) {
         work/PNR/signoff1/reports/report_qor.rpt
         work/PNR/signoff1/reports/report_timing.max.rpt
         work/PNR/signoff1/reports/report_timing.min.rpt
@@ -621,7 +619,7 @@ array set release_exit_files {
         outputs/${design_name}.nlib
         outputs/${design_name}.enc
     }
-    PNR,BTO,P2 {
+    set release_exit_files(PNR,BTO,P2) {
         work/PNR/signoff1/reports/report_qor.rpt
         work/PNR/signoff1/reports/report_timing.max.rpt
         work/PNR/signoff1/reports/report_timing.min.rpt
@@ -637,7 +635,7 @@ array set release_exit_files {
         outputs/${design_name}.nlib
         outputs/${design_name}.enc
     }
-    PNR,BTO,P3 {
+    set release_exit_files(PNR,BTO,P3) {
         work/PNR/signoff1/reports/report_qor.rpt
         work/PNR/signoff1/reports/report_timing.max.rpt
         work/PNR/signoff1/reports/report_timing.min.rpt
@@ -659,7 +657,7 @@ array set release_exit_files {
         outputs/${design_name}.enc
     }
 
-    PNR,MTO,P0 {
+    set release_exit_files(PNR,MTO,P0) {
         outputs/${design_name}.v
         outputs/${design_name}.def
         outputs/${design_name}.gds
@@ -667,7 +665,7 @@ array set release_exit_files {
         outputs/${design_name}.nlib
         outputs/${design_name}.enc
     }
-    PNR,MTO,P1 {
+    set release_exit_files(PNR,MTO,P1) {
         outputs/${design_name}.v
         outputs/${design_name}.def
         outputs/${design_name}.gds
@@ -676,7 +674,7 @@ array set release_exit_files {
         outputs/${design_name}.enc
         outputs/${design_name}.upf
     }
-    PNR,MTO,P2 {
+    set release_exit_files(PNR,MTO,P2) {
         outputs/${design_name}.v
         outputs/${design_name}.pt.v
         outputs/${design_name}.fm.v
@@ -690,7 +688,7 @@ array set release_exit_files {
         outputs/${design_name}_wscript
         outputs/${design_name}_wscript_for_pt
     }
-    PNR,MTO,P3 {
+    set release_exit_files(PNR,MTO,P3) {
         outputs/${design_name}.v
         outputs/${design_name}.pt.v
         outputs/${design_name}.fm.v
@@ -709,11 +707,11 @@ array set release_exit_files {
 
     # ── FP Flow ──────────────────────────────────────────────────────────────
 
-    FP,FP_EXIT,P0 {
+    set release_exit_files(FP,FP_EXIT,P0) {
         work/FP/floorplan1/reports/report_design.rpt
         work/FP/floorplan1/reports/report_utilization.rpt
     }
-    FP,FP_EXIT,P1 {
+    set release_exit_files(FP,FP_EXIT,P1) {
         work/FP/floorplan1/reports/report_design.rpt
         work/FP/floorplan1/reports/report_utilization.rpt
         work/FP/init_design1/reports/check_timing.rpt
@@ -722,7 +720,7 @@ array set release_exit_files {
         work/FP/post_floorplan1/reports/report_power.rpt
         work/FP/post_floorplan1/reports/report_congestion.rpt
     }
-    FP,FP_EXIT,P2 {
+    set release_exit_files(FP,FP_EXIT,P2) {
         work/FP/floorplan1/reports/report_design.rpt
         work/FP/floorplan1/reports/report_utilization.rpt
         work/FP/init_design1/reports/check_timing.rpt
@@ -733,7 +731,7 @@ array set release_exit_files {
         work/FP/post_floorplan1/reports/report_threshold_voltage_group.rpt
         outputs/${design_name}.def
     }
-    FP,FP_EXIT,P3 {
+    set release_exit_files(FP,FP_EXIT,P3) {
         work/FP/floorplan1/reports/report_design.rpt
         work/FP/floorplan1/reports/report_utilization.rpt
         work/FP/init_design1/reports/check_timing.rpt
@@ -750,11 +748,11 @@ array set release_exit_files {
 
     # ── FCFP Flow ────────────────────────────────────────────────────────────
 
-    FCFP,FP_EXIT,P0 {
+    set release_exit_files(FCFP,FP_EXIT,P0) {
         work/FCFP/create_floorplan1/reports/report_design.rpt
         work/FCFP/placement1/reports/report_qor.rpt
     }
-    FCFP,FP_EXIT,P1 {
+    set release_exit_files(FCFP,FP_EXIT,P1) {
         work/FCFP/create_floorplan1/reports/report_design.rpt
         work/FCFP/placement1/reports/report_qor.rpt
         work/FCFP/placement1/reports/report_timing.max.rpt
@@ -762,7 +760,7 @@ array set release_exit_files {
         work/FCFP/placement1/reports/report_power.rpt
         work/FCFP/placement1/reports/report_congestion.rpt
     }
-    FCFP,FP_EXIT,P2 {
+    set release_exit_files(FCFP,FP_EXIT,P2) {
         work/FCFP/create_floorplan1/reports/report_design.rpt
         work/FCFP/placement1/reports/report_qor.rpt
         work/FCFP/placement1/reports/report_timing.max.rpt
@@ -772,7 +770,7 @@ array set release_exit_files {
         work/FCFP/placement1/reports/report_threshold_voltage_group.rpt
         outputs/${design_name}.def
     }
-    FCFP,FP_EXIT,P3 {
+    set release_exit_files(FCFP,FP_EXIT,P3) {
         work/FCFP/create_floorplan1/reports/report_design.rpt
         work/FCFP/placement1/reports/report_qor.rpt
         work/FCFP/placement1/reports/report_timing.max.rpt
@@ -788,11 +786,11 @@ array set release_exit_files {
 
     # ── SYNTH Flow ───────────────────────────────────────────────────────────
 
-    SYNTH,P0 {
+    set release_exit_files(SYNTH,P0) {
         work/SYNTH/synthesis1/reports/report_qor.rpt
         outputs/netlist/${design_name}.v
     }
-    SYNTH,P1 {
+    set release_exit_files(SYNTH,P1) {
         work/SYNTH/synthesis1/reports/report_qor.rpt
         work/SYNTH/synthesis1/reports/report_timing.max.rpt
         work/SYNTH/synthesis1/reports/report_timing.min.rpt
@@ -800,7 +798,7 @@ array set release_exit_files {
         outputs/netlist/${design_name}.v
         outputs/sdc/${design_name}.sdc
     }
-    SYNTH,P2 {
+    set release_exit_files(SYNTH,P2) {
         work/SYNTH/synthesis1/reports/report_qor.rpt
         work/SYNTH/synthesis1/reports/report_timing.max.rpt
         work/SYNTH/synthesis1/reports/report_timing.min.rpt
@@ -810,7 +808,7 @@ array set release_exit_files {
         outputs/sdc/${design_name}.sdc
         outputs/${design_name}_compile.svf
     }
-    SYNTH,P3 {
+    set release_exit_files(SYNTH,P3) {
         work/SYNTH/synthesis1/reports/report_qor.rpt
         work/SYNTH/synthesis1/reports/report_timing.max.rpt
         work/SYNTH/synthesis1/reports/report_timing.min.rpt
@@ -824,18 +822,18 @@ array set release_exit_files {
 
     # ── STA Flow ─────────────────────────────────────────────────────────────
 
-    STA,P0 {
+    set release_exit_files(STA,P0) {
         work/STA/timing1/reports/report_timing.max.rpt
         work/STA/timing1/reports/report_timing.min.rpt
     }
-    STA,P1 {
+    set release_exit_files(STA,P1) {
         work/STA/timing1/reports/report_timing.max.rpt
         work/STA/timing1/reports/report_timing.min.rpt
         work/STA/timing1/reports/report_qor.rpt
         work/STA/timing1/reports/report_power.rpt
         work/STA/timing1/reports/report_congestion.rpt
     }
-    STA,P2 {
+    set release_exit_files(STA,P2) {
         work/STA/timing1/reports/report_timing.max.rpt
         work/STA/timing1/reports/report_timing.min.rpt
         work/STA/timing1/reports/report_qor.rpt
@@ -843,24 +841,7 @@ array set release_exit_files {
         work/STA/timing1/reports/report_si.rpt
         work/STA/timing1/reports/report_threshold_voltage_group.rpt
     }
-    STA,P3 {
-        work/STA/timing1/reports/report_timing.max.rpt
-        work/STA/timing1/reports/report_timing.min.rpt
-        work/STA/timing1/reports/report_qor.rpt
-        work/STA/timing1/reports/report_power.rpt
-        work/STA/timing1/reports/report_si.rpt
-        work/STA/timing1/reports/report_threshold_voltage_group.rpt
-        work/STA/timing1/reports/check_timing.rpt
-    }
-    STA,BTO,P2 {
-        work/STA/timing1/reports/report_timing.max.rpt
-        work/STA/timing1/reports/report_timing.min.rpt
-        work/STA/timing1/reports/report_qor.rpt
-        work/STA/timing1/reports/report_power.rpt
-        work/STA/timing1/reports/report_si.rpt
-        work/STA/timing1/reports/report_threshold_voltage_group.rpt
-    }
-    STA,BTO,P3 {
+    set release_exit_files(STA,P3) {
         work/STA/timing1/reports/report_timing.max.rpt
         work/STA/timing1/reports/report_timing.min.rpt
         work/STA/timing1/reports/report_qor.rpt
@@ -869,7 +850,7 @@ array set release_exit_files {
         work/STA/timing1/reports/report_threshold_voltage_group.rpt
         work/STA/timing1/reports/check_timing.rpt
     }
-    STA,MTO,P2 {
+    set release_exit_files(STA,BTO,P2) {
         work/STA/timing1/reports/report_timing.max.rpt
         work/STA/timing1/reports/report_timing.min.rpt
         work/STA/timing1/reports/report_qor.rpt
@@ -877,7 +858,24 @@ array set release_exit_files {
         work/STA/timing1/reports/report_si.rpt
         work/STA/timing1/reports/report_threshold_voltage_group.rpt
     }
-    STA,MTO,P3 {
+    set release_exit_files(STA,BTO,P3) {
+        work/STA/timing1/reports/report_timing.max.rpt
+        work/STA/timing1/reports/report_timing.min.rpt
+        work/STA/timing1/reports/report_qor.rpt
+        work/STA/timing1/reports/report_power.rpt
+        work/STA/timing1/reports/report_si.rpt
+        work/STA/timing1/reports/report_threshold_voltage_group.rpt
+        work/STA/timing1/reports/check_timing.rpt
+    }
+    set release_exit_files(STA,MTO,P2) {
+        work/STA/timing1/reports/report_timing.max.rpt
+        work/STA/timing1/reports/report_timing.min.rpt
+        work/STA/timing1/reports/report_qor.rpt
+        work/STA/timing1/reports/report_power.rpt
+        work/STA/timing1/reports/report_si.rpt
+        work/STA/timing1/reports/report_threshold_voltage_group.rpt
+    }
+    set release_exit_files(STA,MTO,P3) {
         work/STA/timing1/reports/report_timing.max.rpt
         work/STA/timing1/reports/report_timing.min.rpt
         work/STA/timing1/reports/report_qor.rpt
@@ -889,41 +887,41 @@ array set release_exit_files {
 
     # ── LEC Flow ─────────────────────────────────────────────────────────────
 
-    LEC,P0 {
+    set release_exit_files(LEC,P0) {
         work/LEC/compare1/reports/comparison_summary.rpt
     }
-    LEC,P1 {
-        work/LEC/compare1/reports/comparison_summary.rpt
-        work/LEC/analyze1/reports/equivalence_analysis.rpt
-    }
-    LEC,P2 {
+    set release_exit_files(LEC,P1) {
         work/LEC/compare1/reports/comparison_summary.rpt
         work/LEC/analyze1/reports/equivalence_analysis.rpt
-        work/LEC/setup1/reports/setup_summary.rpt
     }
-    LEC,P3 {
-        work/LEC/compare1/reports/comparison_summary.rpt
-        work/LEC/analyze1/reports/equivalence_analysis.rpt
-        work/LEC/setup1/reports/setup_summary.rpt
-        work/LEC/analyze1/reports/failing_points.rpt
-    }
-    LEC,BTO,P2 {
+    set release_exit_files(LEC,P2) {
         work/LEC/compare1/reports/comparison_summary.rpt
         work/LEC/analyze1/reports/equivalence_analysis.rpt
         work/LEC/setup1/reports/setup_summary.rpt
     }
-    LEC,BTO,P3 {
+    set release_exit_files(LEC,P3) {
         work/LEC/compare1/reports/comparison_summary.rpt
         work/LEC/analyze1/reports/equivalence_analysis.rpt
         work/LEC/setup1/reports/setup_summary.rpt
         work/LEC/analyze1/reports/failing_points.rpt
     }
-    LEC,MTO,P2 {
+    set release_exit_files(LEC,BTO,P2) {
         work/LEC/compare1/reports/comparison_summary.rpt
         work/LEC/analyze1/reports/equivalence_analysis.rpt
         work/LEC/setup1/reports/setup_summary.rpt
     }
-    LEC,MTO,P3 {
+    set release_exit_files(LEC,BTO,P3) {
+        work/LEC/compare1/reports/comparison_summary.rpt
+        work/LEC/analyze1/reports/equivalence_analysis.rpt
+        work/LEC/setup1/reports/setup_summary.rpt
+        work/LEC/analyze1/reports/failing_points.rpt
+    }
+    set release_exit_files(LEC,MTO,P2) {
+        work/LEC/compare1/reports/comparison_summary.rpt
+        work/LEC/analyze1/reports/equivalence_analysis.rpt
+        work/LEC/setup1/reports/setup_summary.rpt
+    }
+    set release_exit_files(LEC,MTO,P3) {
         work/LEC/compare1/reports/comparison_summary.rpt
         work/LEC/analyze1/reports/equivalence_analysis.rpt
         work/LEC/setup1/reports/setup_summary.rpt
@@ -932,37 +930,22 @@ array set release_exit_files {
 
     # ── CLP Flow ─────────────────────────────────────────────────────────────
 
-    CLP,P0 {
+    set release_exit_files(CLP,P0) {
         work/CLP/clp1/reports/power_verification_summary.rpt
     }
-    CLP,P1 {
-        work/CLP/clp1/reports/power_verification_summary.rpt
-        work/CLP/clp1/reports/isolation_check.rpt
-        work/CLP/clp1/reports/retention_check.rpt
-    }
-    CLP,P2 {
+    set release_exit_files(CLP,P1) {
         work/CLP/clp1/reports/power_verification_summary.rpt
         work/CLP/clp1/reports/isolation_check.rpt
         work/CLP/clp1/reports/retention_check.rpt
-        work/CLP/clp1/reports/level_shifter_check.rpt
-        work/CLP/clp1/reports/always_on_check.rpt
     }
-    CLP,P3 {
-        work/CLP/clp1/reports/power_verification_summary.rpt
-        work/CLP/clp1/reports/isolation_check.rpt
-        work/CLP/clp1/reports/retention_check.rpt
-        work/CLP/clp1/reports/level_shifter_check.rpt
-        work/CLP/clp1/reports/always_on_check.rpt
-        work/CLP/clp1/reports/power_domain_check.rpt
-    }
-    CLP,BTO,P2 {
+    set release_exit_files(CLP,P2) {
         work/CLP/clp1/reports/power_verification_summary.rpt
         work/CLP/clp1/reports/isolation_check.rpt
         work/CLP/clp1/reports/retention_check.rpt
         work/CLP/clp1/reports/level_shifter_check.rpt
         work/CLP/clp1/reports/always_on_check.rpt
     }
-    CLP,BTO,P3 {
+    set release_exit_files(CLP,P3) {
         work/CLP/clp1/reports/power_verification_summary.rpt
         work/CLP/clp1/reports/isolation_check.rpt
         work/CLP/clp1/reports/retention_check.rpt
@@ -970,14 +953,29 @@ array set release_exit_files {
         work/CLP/clp1/reports/always_on_check.rpt
         work/CLP/clp1/reports/power_domain_check.rpt
     }
-    CLP,MTO,P2 {
+    set release_exit_files(CLP,BTO,P2) {
         work/CLP/clp1/reports/power_verification_summary.rpt
         work/CLP/clp1/reports/isolation_check.rpt
         work/CLP/clp1/reports/retention_check.rpt
         work/CLP/clp1/reports/level_shifter_check.rpt
         work/CLP/clp1/reports/always_on_check.rpt
     }
-    CLP,MTO,P3 {
+    set release_exit_files(CLP,BTO,P3) {
+        work/CLP/clp1/reports/power_verification_summary.rpt
+        work/CLP/clp1/reports/isolation_check.rpt
+        work/CLP/clp1/reports/retention_check.rpt
+        work/CLP/clp1/reports/level_shifter_check.rpt
+        work/CLP/clp1/reports/always_on_check.rpt
+        work/CLP/clp1/reports/power_domain_check.rpt
+    }
+    set release_exit_files(CLP,MTO,P2) {
+        work/CLP/clp1/reports/power_verification_summary.rpt
+        work/CLP/clp1/reports/isolation_check.rpt
+        work/CLP/clp1/reports/retention_check.rpt
+        work/CLP/clp1/reports/level_shifter_check.rpt
+        work/CLP/clp1/reports/always_on_check.rpt
+    }
+    set release_exit_files(CLP,MTO,P3) {
         work/CLP/clp1/reports/power_verification_summary.rpt
         work/CLP/clp1/reports/isolation_check.rpt
         work/CLP/clp1/reports/retention_check.rpt
@@ -988,39 +986,23 @@ array set release_exit_files {
 
     # ── PV Flow ──────────────────────────────────────────────────────────────
 
-    PV,P0 {
+    set release_exit_files(PV,P0) {
         work/PV/drc1/reports/drc_summary.rpt
         work/PV/lvs1/reports/lvs_summary.rpt
     }
-    PV,P1 {
-        work/PV/drc1/reports/drc_summary.rpt
-        work/PV/lvs1/reports/lvs_summary.rpt
-        work/PV/erc1/reports/erc_summary.rpt
-    }
-    PV,P2 {
+    set release_exit_files(PV,P1) {
         work/PV/drc1/reports/drc_summary.rpt
         work/PV/lvs1/reports/lvs_summary.rpt
         work/PV/erc1/reports/erc_summary.rpt
-        work/PV/perc1/reports/perc_summary.rpt
-        work/PV/fill1/reports/fill_summary.rpt
     }
-    PV,P3 {
-        work/PV/drc1/reports/drc_summary.rpt
-        work/PV/lvs1/reports/lvs_summary.rpt
-        work/PV/erc1/reports/erc_summary.rpt
-        work/PV/perc1/reports/perc_summary.rpt
-        work/PV/xor1/reports/xor_summary.rpt
-        work/PV/fill1/reports/fill_summary.rpt
-        work/PV/merge_data1/reports/merge_summary.rpt
-    }
-    PV,BTO,P2 {
+    set release_exit_files(PV,P2) {
         work/PV/drc1/reports/drc_summary.rpt
         work/PV/lvs1/reports/lvs_summary.rpt
         work/PV/erc1/reports/erc_summary.rpt
         work/PV/perc1/reports/perc_summary.rpt
         work/PV/fill1/reports/fill_summary.rpt
     }
-    PV,BTO,P3 {
+    set release_exit_files(PV,P3) {
         work/PV/drc1/reports/drc_summary.rpt
         work/PV/lvs1/reports/lvs_summary.rpt
         work/PV/erc1/reports/erc_summary.rpt
@@ -1029,14 +1011,30 @@ array set release_exit_files {
         work/PV/fill1/reports/fill_summary.rpt
         work/PV/merge_data1/reports/merge_summary.rpt
     }
-    PV,MTO,P2 {
+    set release_exit_files(PV,BTO,P2) {
         work/PV/drc1/reports/drc_summary.rpt
         work/PV/lvs1/reports/lvs_summary.rpt
         work/PV/erc1/reports/erc_summary.rpt
         work/PV/perc1/reports/perc_summary.rpt
         work/PV/fill1/reports/fill_summary.rpt
     }
-    PV,MTO,P3 {
+    set release_exit_files(PV,BTO,P3) {
+        work/PV/drc1/reports/drc_summary.rpt
+        work/PV/lvs1/reports/lvs_summary.rpt
+        work/PV/erc1/reports/erc_summary.rpt
+        work/PV/perc1/reports/perc_summary.rpt
+        work/PV/xor1/reports/xor_summary.rpt
+        work/PV/fill1/reports/fill_summary.rpt
+        work/PV/merge_data1/reports/merge_summary.rpt
+    }
+    set release_exit_files(PV,MTO,P2) {
+        work/PV/drc1/reports/drc_summary.rpt
+        work/PV/lvs1/reports/lvs_summary.rpt
+        work/PV/erc1/reports/erc_summary.rpt
+        work/PV/perc1/reports/perc_summary.rpt
+        work/PV/fill1/reports/fill_summary.rpt
+    }
+    set release_exit_files(PV,MTO,P3) {
         work/PV/drc1/reports/drc_summary.rpt
         work/PV/lvs1/reports/lvs_summary.rpt
         work/PV/erc1/reports/erc_summary.rpt
@@ -1048,46 +1046,46 @@ array set release_exit_files {
 
     # ── EMIR Flow ────────────────────────────────────────────────────────────
 
-    EMIR,P0 {
+    set release_exit_files(EMIR,P0) {
         work/EMIR/power_analysis1/reports/power_summary.rpt
     }
-    EMIR,P1 {
-        work/EMIR/power_analysis1/reports/power_summary.rpt
-        work/EMIR/ir_drop1/reports/ir_drop_summary.rpt
-    }
-    EMIR,P2 {
+    set release_exit_files(EMIR,P1) {
         work/EMIR/power_analysis1/reports/power_summary.rpt
         work/EMIR/ir_drop1/reports/ir_drop_summary.rpt
-        work/EMIR/ir_drop1/reports/em_summary.rpt
-        work/EMIR/thermal_analysis1/reports/thermal_summary.rpt
     }
-    EMIR,P3 {
-        work/EMIR/power_analysis1/reports/power_summary.rpt
-        work/EMIR/ir_drop1/reports/ir_drop_summary.rpt
-        work/EMIR/ir_drop1/reports/em_summary.rpt
-        work/EMIR/thermal_analysis1/reports/thermal_summary.rpt
-        work/EMIR/ir_drop1/reports/ir_drop_map.rpt
-    }
-    EMIR,BTO,P2 {
+    set release_exit_files(EMIR,P2) {
         work/EMIR/power_analysis1/reports/power_summary.rpt
         work/EMIR/ir_drop1/reports/ir_drop_summary.rpt
         work/EMIR/ir_drop1/reports/em_summary.rpt
         work/EMIR/thermal_analysis1/reports/thermal_summary.rpt
     }
-    EMIR,BTO,P3 {
+    set release_exit_files(EMIR,P3) {
         work/EMIR/power_analysis1/reports/power_summary.rpt
         work/EMIR/ir_drop1/reports/ir_drop_summary.rpt
         work/EMIR/ir_drop1/reports/em_summary.rpt
         work/EMIR/thermal_analysis1/reports/thermal_summary.rpt
         work/EMIR/ir_drop1/reports/ir_drop_map.rpt
     }
-    EMIR,MTO,P2 {
+    set release_exit_files(EMIR,BTO,P2) {
         work/EMIR/power_analysis1/reports/power_summary.rpt
         work/EMIR/ir_drop1/reports/ir_drop_summary.rpt
         work/EMIR/ir_drop1/reports/em_summary.rpt
         work/EMIR/thermal_analysis1/reports/thermal_summary.rpt
     }
-    EMIR,MTO,P3 {
+    set release_exit_files(EMIR,BTO,P3) {
+        work/EMIR/power_analysis1/reports/power_summary.rpt
+        work/EMIR/ir_drop1/reports/ir_drop_summary.rpt
+        work/EMIR/ir_drop1/reports/em_summary.rpt
+        work/EMIR/thermal_analysis1/reports/thermal_summary.rpt
+        work/EMIR/ir_drop1/reports/ir_drop_map.rpt
+    }
+    set release_exit_files(EMIR,MTO,P2) {
+        work/EMIR/power_analysis1/reports/power_summary.rpt
+        work/EMIR/ir_drop1/reports/ir_drop_summary.rpt
+        work/EMIR/ir_drop1/reports/em_summary.rpt
+        work/EMIR/thermal_analysis1/reports/thermal_summary.rpt
+    }
+    set release_exit_files(EMIR,MTO,P3) {
         work/EMIR/power_analysis1/reports/power_summary.rpt
         work/EMIR/ir_drop1/reports/ir_drop_summary.rpt
         work/EMIR/ir_drop1/reports/em_summary.rpt
@@ -1097,20 +1095,20 @@ array set release_exit_files {
 
     # ── ECO Flow ─────────────────────────────────────────────────────────────
 
-    ECO,P0 {
+    set release_exit_files(ECO,P0) {
         work/ECO/eco1/reports/report_qor.rpt
     }
-    ECO,P1 {
+    set release_exit_files(ECO,P1) {
         work/ECO/eco1/reports/report_qor.rpt
         work/ECO/eco1/reports/report_timing.max.rpt
     }
-    ECO,P2 {
+    set release_exit_files(ECO,P2) {
         work/ECO/eco1/reports/report_qor.rpt
         work/ECO/eco1/reports/report_timing.max.rpt
         work/ECO/eco1/reports/report_timing.min.rpt
         work/ECO/eco1/reports/report_power.rpt
     }
-    ECO,P3 {
+    set release_exit_files(ECO,P3) {
         work/ECO/eco1/reports/report_qor.rpt
         work/ECO/eco1/reports/report_timing.max.rpt
         work/ECO/eco1/reports/report_timing.min.rpt
@@ -1121,15 +1119,15 @@ array set release_exit_files {
 
     # ── POPT Flow ────────────────────────────────────────────────────────────
 
-    POPT,P0 {
+    set release_exit_files(POPT,P0) {
         work/POPT/power_opt1/reports/post_opt_power_summary.rpt
     }
-    POPT,P1 {
+    set release_exit_files(POPT,P1) {
         work/POPT/power_opt1/reports/pre_opt_power_summary.rpt
         work/POPT/power_opt1/reports/post_opt_power_summary.rpt
         work/POPT/merge_timing1/reports/merged_qor.rpt
     }
-    POPT,P2 {
+    set release_exit_files(POPT,P2) {
         work/POPT/power_opt1/reports/pre_opt_power_summary.rpt
         work/POPT/power_opt1/reports/post_opt_power_summary.rpt
         work/POPT/power_opt1/reports/post_opt_timing.rpt
@@ -1137,7 +1135,7 @@ array set release_exit_files {
         work/POPT/post_merge1/reports/post_merge_qor.rpt
         work/POPT/post_merge1/reports/post_merge_power.rpt
     }
-    POPT,P3 {
+    set release_exit_files(POPT,P3) {
         work/POPT/power_opt1/reports/pre_opt_power_summary.rpt
         work/POPT/power_opt1/reports/post_opt_power_summary.rpt
         work/POPT/power_opt1/reports/post_opt_timing.rpt
@@ -1146,81 +1144,78 @@ array set release_exit_files {
         work/POPT/post_merge1/reports/post_merge_power.rpt
         work/POPT/post_merge1/reports/post_merge_timing.rpt
     }
-}
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║          SECTION 3: CROSS-FLOW MILESTONE MAPPING                           ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 # Maps each milestone to required flows that must complete for sign-off
-array set milestone_flow_map {
-    FP_EXIT    {SYNTH_PNR PNR FP FCFP}
-    PLACE_EXIT {SYNTH_PNR PNR SYNTH}
-    CTS_EXIT   {SYNTH_PNR PNR SYNTH}
-    PRO_EXIT   {SYNTH_PNR PNR SYNTH STA LEC}
-    BTO        {SYNTH_PNR PNR SYNTH FP STA LEC CLP PV EMIR ECO}
-    MTO        {SYNTH_PNR PNR SYNTH FP STA LEC CLP PV EMIR ECO POPT}
-}
+# array set milestone_flow_map { … } expanded to per-key `set` statements so `#` comments work natively (Tcl treats `#` as data inside `array set` literals).
+    set milestone_flow_map(FP_EXIT) {SYNTH_PNR PNR FP FCFP}
+    set milestone_flow_map(PLACE_EXIT) {SYNTH_PNR PNR SYNTH}
+    set milestone_flow_map(CTS_EXIT) {SYNTH_PNR PNR SYNTH}
+    set milestone_flow_map(PRO_EXIT) {SYNTH_PNR PNR SYNTH STA LEC}
+    set milestone_flow_map(BTO) {SYNTH_PNR PNR SYNTH FP STA LEC CLP PV EMIR ECO}
+    set milestone_flow_map(MTO) {SYNTH_PNR PNR SYNTH FP STA LEC CLP PV EMIR ECO POPT}
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║          SECTION 4: PHASE CRITERIA THRESHOLDS                              ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
-array set phase_criteria {
-    FP_EXIT,P0,setup_wns        "-500"
-    FP_EXIT,P0,utilization_min  "0.50"
-    FP_EXIT,P1,setup_wns        "-200"
-    FP_EXIT,P1,utilization_min  "0.60"
-    FP_EXIT,P2,setup_wns        "-50"
-    FP_EXIT,P2,utilization_min  "0.65"
+# array set phase_criteria { … } expanded to per-key `set` statements so `#` comments work natively (Tcl treats `#` as data inside `array set` literals).
+    set phase_criteria(FP_EXIT,P0,setup_wns) "-500"
+    set phase_criteria(FP_EXIT,P0,utilization_min) "0.50"
+    set phase_criteria(FP_EXIT,P1,setup_wns) "-200"
+    set phase_criteria(FP_EXIT,P1,utilization_min) "0.60"
+    set phase_criteria(FP_EXIT,P2,setup_wns) "-50"
+    set phase_criteria(FP_EXIT,P2,utilization_min) "0.65"
 
-    PLACE_EXIT,P0,setup_wns     "-200"
-    PLACE_EXIT,P0,setup_tns     "-5000"
-    PLACE_EXIT,P0,hold_wns      "-500"
-    PLACE_EXIT,P1,setup_wns     "-80"
-    PLACE_EXIT,P1,setup_tns     "-800"
-    PLACE_EXIT,P1,hold_wns      "-200"
-    PLACE_EXIT,P2,setup_wns     "-20"
-    PLACE_EXIT,P2,setup_tns     "-100"
-    PLACE_EXIT,P2,hold_wns      "-50"
+    set phase_criteria(PLACE_EXIT,P0,setup_wns) "-200"
+    set phase_criteria(PLACE_EXIT,P0,setup_tns) "-5000"
+    set phase_criteria(PLACE_EXIT,P0,hold_wns) "-500"
+    set phase_criteria(PLACE_EXIT,P1,setup_wns) "-80"
+    set phase_criteria(PLACE_EXIT,P1,setup_tns) "-800"
+    set phase_criteria(PLACE_EXIT,P1,hold_wns) "-200"
+    set phase_criteria(PLACE_EXIT,P2,setup_wns) "-20"
+    set phase_criteria(PLACE_EXIT,P2,setup_tns) "-100"
+    set phase_criteria(PLACE_EXIT,P2,hold_wns) "-50"
 
-    CTS_EXIT,P0,setup_wns       "-150"
-    CTS_EXIT,P0,hold_wns        "-100"
-    CTS_EXIT,P0,max_skew        "0.200"
-    CTS_EXIT,P1,setup_wns       "-50"
-    CTS_EXIT,P1,hold_wns        "-30"
-    CTS_EXIT,P1,max_skew        "0.100"
-    CTS_EXIT,P2,setup_wns       "-10"
-    CTS_EXIT,P2,hold_wns        "-5"
-    CTS_EXIT,P2,max_skew        "0.050"
+    set phase_criteria(CTS_EXIT,P0,setup_wns) "-150"
+    set phase_criteria(CTS_EXIT,P0,hold_wns) "-100"
+    set phase_criteria(CTS_EXIT,P0,max_skew) "0.200"
+    set phase_criteria(CTS_EXIT,P1,setup_wns) "-50"
+    set phase_criteria(CTS_EXIT,P1,hold_wns) "-30"
+    set phase_criteria(CTS_EXIT,P1,max_skew) "0.100"
+    set phase_criteria(CTS_EXIT,P2,setup_wns) "-10"
+    set phase_criteria(CTS_EXIT,P2,hold_wns) "-5"
+    set phase_criteria(CTS_EXIT,P2,max_skew) "0.050"
 
-    PRO_EXIT,P0,setup_wns       "-50"
-    PRO_EXIT,P0,hold_wns        "-20"
-    PRO_EXIT,P0,drc_count       "100"
-    PRO_EXIT,P1,setup_wns       "-10"
-    PRO_EXIT,P1,hold_wns        "-5"
-    PRO_EXIT,P1,drc_count       "10"
-    PRO_EXIT,P2,setup_wns       "0"
-    PRO_EXIT,P2,hold_wns        "0"
-    PRO_EXIT,P2,drc_count       "0"
+    set phase_criteria(PRO_EXIT,P0,setup_wns) "-50"
+    set phase_criteria(PRO_EXIT,P0,hold_wns) "-20"
+    set phase_criteria(PRO_EXIT,P0,drc_count) "100"
+    set phase_criteria(PRO_EXIT,P1,setup_wns) "-10"
+    set phase_criteria(PRO_EXIT,P1,hold_wns) "-5"
+    set phase_criteria(PRO_EXIT,P1,drc_count) "10"
+    set phase_criteria(PRO_EXIT,P2,setup_wns) "0"
+    set phase_criteria(PRO_EXIT,P2,hold_wns) "0"
+    set phase_criteria(PRO_EXIT,P2,drc_count) "0"
 
-    BTO,P2,setup_wns            "0"
-    BTO,P2,hold_wns             "0"
-    BTO,P2,drc_count            "0"
-    BTO,P2,lvs_match            "true"
-    BTO,P3,setup_wns            "0"
-    BTO,P3,hold_wns             "0"
-    BTO,P3,drc_count            "0"
-    BTO,P3,lvs_match            "true"
-    BTO,P3,antenna_violations   "0"
-    BTO,P3,em_violations        "0"
+    set phase_criteria(BTO,P2,setup_wns) "0"
+    set phase_criteria(BTO,P2,hold_wns) "0"
+    set phase_criteria(BTO,P2,drc_count) "0"
+    set phase_criteria(BTO,P2,lvs_match) "true"
+    set phase_criteria(BTO,P3,setup_wns) "0"
+    set phase_criteria(BTO,P3,hold_wns) "0"
+    set phase_criteria(BTO,P3,drc_count) "0"
+    set phase_criteria(BTO,P3,lvs_match) "true"
+    set phase_criteria(BTO,P3,antenna_violations) "0"
+    set phase_criteria(BTO,P3,em_violations) "0"
 
-    MTO,P3,setup_wns            "0"
-    MTO,P3,hold_wns             "0"
-    MTO,P3,drc_count            "0"
-    MTO,P3,lvs_match            "true"
-    MTO,P3,gds_errors           "0"
-}
+    set phase_criteria(MTO,P3,setup_wns) "0"
+    set phase_criteria(MTO,P3,hold_wns) "0"
+    set phase_criteria(MTO,P3,drc_count) "0"
+    set phase_criteria(MTO,P3,lvs_match) "true"
+    set phase_criteria(MTO,P3,gds_errors) "0"
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║          SECTION 5: HELPER PROCEDURES                                      ║
@@ -1281,50 +1276,49 @@ proc check_release_readiness {run_dir flow milestone phase} {
 
 # Handshake map: downstream_flow → input_type → {upstream_flow subdir filename_pattern}
 # filename_pattern uses ${design_name} which is resolved at runtime
-array set flow_input_handshake {
-    SYNTH_PNR,rtl         {INPUTS   rtl      "${design_name}.f"}
-    SYNTH_PNR,sdc         {INPUTS   sdc      "${design_name}.sdc"}
-    SYNTH_PNR,upf_file    {INPUTS   upf      "${design_name}.upf"}
+# array set flow_input_handshake { … } expanded to per-key `set` statements so `#` comments work natively (Tcl treats `#` as data inside `array set` literals).
+    set flow_input_handshake(SYNTH_PNR,rtl) {INPUTS   rtl      "${design_name}.f"}
+    set flow_input_handshake(SYNTH_PNR,sdc) {INPUTS   sdc      "${design_name}.sdc"}
+    set flow_input_handshake(SYNTH_PNR,upf_file) {INPUTS   upf      "${design_name}.upf"}
 
-    SYNTH,rtl             {INPUTS   rtl      "${design_name}.f"}
-    SYNTH,sdc             {INPUTS   sdc      "${design_name}.sdc"}
-    SYNTH,upf_file        {INPUTS   upf      "${design_name}.upf"}
+    set flow_input_handshake(SYNTH,rtl) {INPUTS   rtl      "${design_name}.f"}
+    set flow_input_handshake(SYNTH,sdc) {INPUTS   sdc      "${design_name}.sdc"}
+    set flow_input_handshake(SYNTH,upf_file) {INPUTS   upf      "${design_name}.upf"}
 
-    PNR,netlist           {SYNTH    netlist   "${design_name}.v"}
-    PNR,sdc               {SYNTH    sdc       "${design_name}.sdc"}
-    PNR,upf_file          {SYNTH    upf       "${design_name}.upf"}
-    PNR,def_file          {FP       def       "${design_name}.def"}
-    PNR,fp_tcl            {FP       data      "floorplan.tcl"}
+    set flow_input_handshake(PNR,netlist) {SYNTH    netlist   "${design_name}.v"}
+    set flow_input_handshake(PNR,sdc) {SYNTH    sdc       "${design_name}.sdc"}
+    set flow_input_handshake(PNR,upf_file) {SYNTH    upf       "${design_name}.upf"}
+    set flow_input_handshake(PNR,def_file) {FP       def       "${design_name}.def"}
+    set flow_input_handshake(PNR,fp_tcl) {FP       data      "floorplan.tcl"}
 
-    FP,netlist            {SYNTH    netlist   "${design_name}.v"}
-    FP,sdc                {SYNTH    sdc       "${design_name}.sdc"}
-    FP,upf_file           {SYNTH    upf       "${design_name}.upf"}
+    set flow_input_handshake(FP,netlist) {SYNTH    netlist   "${design_name}.v"}
+    set flow_input_handshake(FP,sdc) {SYNTH    sdc       "${design_name}.sdc"}
+    set flow_input_handshake(FP,upf_file) {SYNTH    upf       "${design_name}.upf"}
 
-    STA,netlist           {SYNTH_PNR netlist  "${design_name}.pt.v"}
-    STA,def_file          {SYNTH_PNR def     "${design_name}.def"}
+    set flow_input_handshake(STA,netlist) {SYNTH_PNR netlist  "${design_name}.pt.v"}
+    set flow_input_handshake(STA,def_file) {SYNTH_PNR def     "${design_name}.def"}
 
-    PV,gds                {SYNTH_PNR gds     "${design_name}.gds"}
-    PV,netlist            {SYNTH_PNR netlist  "${design_name}.lvs.v"}
-    PV,def_file           {SYNTH_PNR def     "${design_name}.def"}
+    set flow_input_handshake(PV,gds) {SYNTH_PNR gds     "${design_name}.gds"}
+    set flow_input_handshake(PV,netlist) {SYNTH_PNR netlist  "${design_name}.lvs.v"}
+    set flow_input_handshake(PV,def_file) {SYNTH_PNR def     "${design_name}.def"}
 
-    LEC,netlist_golden    {SYNTH    netlist   "${design_name}.v"}
-    LEC,netlist_revised   {SYNTH_PNR netlist  "${design_name}.v"}
+    set flow_input_handshake(LEC,netlist_golden) {SYNTH    netlist   "${design_name}.v"}
+    set flow_input_handshake(LEC,netlist_revised) {SYNTH_PNR netlist  "${design_name}.v"}
 
-    CLP,netlist           {SYNTH_PNR netlist  "${design_name}.v"}
-    CLP,upf_file          {SYNTH_PNR upf     "${design_name}.upf"}
+    set flow_input_handshake(CLP,netlist) {SYNTH_PNR netlist  "${design_name}.v"}
+    set flow_input_handshake(CLP,upf_file) {SYNTH_PNR upf     "${design_name}.upf"}
 
-    EMIR,def_file         {SYNTH_PNR def     "${design_name}.def"}
-    EMIR,netlist          {SYNTH_PNR netlist  "${design_name}.v"}
-    EMIR,spef             {SYNTH_PNR spef    "${design_name}.spef"}
-    EMIR,gds              {SYNTH_PNR gds     "${design_name}.gds"}
+    set flow_input_handshake(EMIR,def_file) {SYNTH_PNR def     "${design_name}.def"}
+    set flow_input_handshake(EMIR,netlist) {SYNTH_PNR netlist  "${design_name}.v"}
+    set flow_input_handshake(EMIR,spef) {SYNTH_PNR spef    "${design_name}.spef"}
+    set flow_input_handshake(EMIR,gds) {SYNTH_PNR gds     "${design_name}.gds"}
 
-    ECO,netlist           {SYNTH_PNR netlist  "${design_name}.v"}
-    ECO,def_file          {SYNTH_PNR def     "${design_name}.def"}
+    set flow_input_handshake(ECO,netlist) {SYNTH_PNR netlist  "${design_name}.v"}
+    set flow_input_handshake(ECO,def_file) {SYNTH_PNR def     "${design_name}.def"}
 
-    POPT,netlist          {SYNTH_PNR netlist  "${design_name}.pt.v"}
-    POPT,spef             {SYNTH_PNR spef    "${design_name}.spef"}
-    POPT,sdc              {SYNTH_PNR sdc     "${design_name}.sdc"}
-}
+    set flow_input_handshake(POPT,netlist) {SYNTH_PNR netlist  "${design_name}.pt.v"}
+    set flow_input_handshake(POPT,spef) {SYNTH_PNR spef    "${design_name}.spef"}
+    set flow_input_handshake(POPT,sdc) {SYNTH_PNR sdc     "${design_name}.sdc"}
 
 # Auto-generate STA per-mode SDC handshake entries from operating_modes
 if {[array exists operating_modes]} {
@@ -1350,14 +1344,13 @@ proc get_input_handshake {flow input_type} {
 # ║  Release is milestone-gated: ALL required flows must PASS before release   ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
-array set release_tags {
-    FP_EXIT    {description "Floorplan Exit"    phase_min P0 required_flows {SYNTH_PNR PNR FP FCFP}}
-    PLACE_EXIT {description "Placement Exit"    phase_min P0 required_flows {SYNTH_PNR PNR SYNTH}}
-    CTS_EXIT   {description "CTS Exit"          phase_min P1 required_flows {SYNTH_PNR PNR SYNTH}}
-    PRO_EXIT   {description "Post-Route Exit"   phase_min P1 required_flows {SYNTH_PNR PNR SYNTH STA LEC}}
-    BTO        {description "Backend Tapeout"   phase_min P2 required_flows {SYNTH_PNR PNR SYNTH FP STA LEC CLP PV EMIR ECO}}
-    MTO        {description "Mask Tapeout"      phase_min P3 required_flows {SYNTH_PNR PNR SYNTH FP STA LEC CLP PV EMIR ECO POPT}}
-}
+# array set release_tags { … } expanded to per-key `set` statements so `#` comments work natively (Tcl treats `#` as data inside `array set` literals).
+    set release_tags(FP_EXIT) {description "Floorplan Exit"    phase_min P0 required_flows {SYNTH_PNR PNR FP FCFP}}
+    set release_tags(PLACE_EXIT) {description "Placement Exit"    phase_min P0 required_flows {SYNTH_PNR PNR SYNTH}}
+    set release_tags(CTS_EXIT) {description "CTS Exit"          phase_min P1 required_flows {SYNTH_PNR PNR SYNTH}}
+    set release_tags(PRO_EXIT) {description "Post-Route Exit"   phase_min P1 required_flows {SYNTH_PNR PNR SYNTH STA LEC}}
+    set release_tags(BTO) {description "Backend Tapeout"   phase_min P2 required_flows {SYNTH_PNR PNR SYNTH FP STA LEC CLP PV EMIR ECO}}
+    set release_tags(MTO) {description "Mask Tapeout"      phase_min P3 required_flows {SYNTH_PNR PNR SYNTH FP STA LEC CLP PV EMIR ECO POPT}}
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║                 SECTION 7: PER-FLOW RELEASE DELIVERABLES                   ║
@@ -1365,29 +1358,28 @@ array set release_tags {
 # ║  Used by release command to know what to copy per flow                     ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
-array set release_deliverables {
-    SYNTH_PNR,netlist  {.v .pt.v .fm.v .lvs.v .vc_lp.v .dc.v}
-    SYNTH_PNR,gds      {.gds}
-    SYNTH_PNR,def      {.def}
-    SYNTH_PNR,lef      {.lef}
-    SYNTH_PNR,sdc      {.sdc}
-    SYNTH_PNR,spef     {.spef}
-    SYNTH_PNR,upf      {.upf}
-    SYNTH_PNR,data     {_wscript _wscript_for_pt _routing_constraints _floorplan .saif.ptpx.map .saif.fc.map}
-    PNR,netlist  {.v .pt.v .fm.v .lvs.v}
-    PNR,gds      {.gds}
-    PNR,def      {.def}
-    PNR,sdc      {.sdc}
-    PNR,spef     {.spef}
-    PNR,upf      {.upf}
-    PNR,data     {_wscript _wscript_for_pt _routing_constraints _floorplan}
-    SYNTH,netlist  {.v}
-    SYNTH,sdc      {.sdc}
-    STA,reports    {timing_summary.rpt mmmc_timing_summary.rpt}
-    LEC,reports    {comparison_summary.rpt}
-    CLP,reports    {power_verification_summary.rpt}
-    PV,reports     {drc_summary.rpt lvs_summary.rpt erc_summary.rpt}
-    EMIR,reports   {power_summary.rpt ir_drop_summary.rpt}
-}
+# array set release_deliverables { … } expanded to per-key `set` statements so `#` comments work natively (Tcl treats `#` as data inside `array set` literals).
+    set release_deliverables(SYNTH_PNR,netlist) {.v .pt.v .fm.v .lvs.v .vc_lp.v .dc.v}
+    set release_deliverables(SYNTH_PNR,gds) {.gds}
+    set release_deliverables(SYNTH_PNR,def) {.def}
+    set release_deliverables(SYNTH_PNR,lef) {.lef}
+    set release_deliverables(SYNTH_PNR,sdc) {.sdc}
+    set release_deliverables(SYNTH_PNR,spef) {.spef}
+    set release_deliverables(SYNTH_PNR,upf) {.upf}
+    set release_deliverables(SYNTH_PNR,data) {_wscript _wscript_for_pt _routing_constraints _floorplan .saif.ptpx.map .saif.fc.map}
+    set release_deliverables(PNR,netlist) {.v .pt.v .fm.v .lvs.v}
+    set release_deliverables(PNR,gds) {.gds}
+    set release_deliverables(PNR,def) {.def}
+    set release_deliverables(PNR,sdc) {.sdc}
+    set release_deliverables(PNR,spef) {.spef}
+    set release_deliverables(PNR,upf) {.upf}
+    set release_deliverables(PNR,data) {_wscript _wscript_for_pt _routing_constraints _floorplan}
+    set release_deliverables(SYNTH,netlist) {.v}
+    set release_deliverables(SYNTH,sdc) {.sdc}
+    set release_deliverables(STA,reports) {timing_summary.rpt mmmc_timing_summary.rpt}
+    set release_deliverables(LEC,reports) {comparison_summary.rpt}
+    set release_deliverables(CLP,reports) {power_verification_summary.rpt}
+    set release_deliverables(PV,reports) {drc_summary.rpt lvs_summary.rpt erc_summary.rpt}
+    set release_deliverables(EMIR,reports) {power_summary.rpt ir_drop_summary.rpt}
 
 puts "INFO: Release configuration loaded — [array size release_exit_files] exit files, [array size release_tags] tags, [array size release_deliverables] deliverables"

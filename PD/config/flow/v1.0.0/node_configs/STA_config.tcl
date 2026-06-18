@@ -10,31 +10,29 @@
 # ║                        STAGES & DEPENDENCIES                                ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
-array set sta {
-    stages {netlist1 sdc1 def1 library1 extraction1 timing1 reporting1 release_data1}
+# array set sta { … } expanded to per-key `set` statements so `#` comments work natively (Tcl treats `#` as data inside `array set` literals).
+    set sta(stages) {netlist1 sdc1 def1 library1 extraction1 timing1 reporting1 release_data1}
 
-    dependencies,netlist1       {}
-    dependencies,sdc1           {}
-    dependencies,def1           {}
-    dependencies,library1       {}
-    dependencies,extraction1    {netlist1 sdc1 def1 library1}
-    dependencies,timing1        {extraction1}
-    dependencies,reporting1     {timing1}
-    dependencies,release_data1  {reporting1}
-}
+    set sta(dependencies,netlist1) {}
+    set sta(dependencies,sdc1) {}
+    set sta(dependencies,def1) {}
+    set sta(dependencies,library1) {}
+    set sta(dependencies,extraction1) {netlist1 sdc1 def1 library1}
+    set sta(dependencies,timing1) {extraction1}
+    set sta(dependencies,reporting1) {timing1}
+    set sta(dependencies,release_data1) {reporting1}
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║                        SUBNODES & WORK DIRS                                 ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 # Dynamic subnodes for extraction and timing (per-scenario parallelism)
-array set sta {
-    subnodes,extraction1    {dynamic}
-    subnodes,timing1        {dynamic}
+# array set sta { … } expanded to per-key `set` statements so `#` comments work natively (Tcl treats `#` as data inside `array set` literals).
+    set sta(subnodes,extraction1) {dynamic}
+    set sta(subnodes,timing1) {dynamic}
 
-    subnode_dependencies,extraction1,dynamic {}
-    subnode_dependencies,timing1,dynamic {}
-}
+    set sta(subnode_dependencies,extraction1,dynamic) {}
+    set sta(subnode_dependencies,timing1,dynamic) {}
 
 # Execution stages with standard 4-subnode pattern
 set _sta_exec_stages {reporting1 release_data1}
@@ -53,77 +51,75 @@ foreach _s $_sta_exec_stages {
 # ║                        NODE TYPES & STAGE TYPES                             ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
-array set sta {
-    stage_types,netlist1       "inputs"
-    stage_types,sdc1           "inputs"
-    stage_types,def1           "inputs"
-    stage_types,library1       "inputs"
-    stage_types,extraction1    "execution"
-    stage_types,timing1        "execution"
-    stage_types,reporting1     "execution"
-    stage_types,release_data1  "release_data"
+# array set sta { … } expanded to per-key `set` statements so `#` comments work natively (Tcl treats `#` as data inside `array set` literals).
+    set sta(stage_types,netlist1) "inputs"
+    set sta(stage_types,sdc1) "inputs"
+    set sta(stage_types,def1) "inputs"
+    set sta(stage_types,library1) "inputs"
+    set sta(stage_types,extraction1) "execution"
+    set sta(stage_types,timing1) "execution"
+    set sta(stage_types,reporting1) "execution"
+    set sta(stage_types,release_data1) "release_data"
 
-    node_types,netlist1       "inputs"
-    node_types,sdc1           "inputs"
-    node_types,def1           "inputs"
-    node_types,library1       "inputs"
-    node_types,extraction1    "extraction"
-    node_types,timing1        "timing"
-    node_types,reporting1     "reporting"
-    node_types,release_data1  "release_data"
+    set sta(node_types,netlist1) "inputs"
+    set sta(node_types,sdc1) "inputs"
+    set sta(node_types,def1) "inputs"
+    set sta(node_types,library1) "inputs"
+    set sta(node_types,extraction1) "extraction"
+    set sta(node_types,timing1) "timing"
+    set sta(node_types,reporting1) "reporting"
+    set sta(node_types,release_data1) "release_data"
 
-    node_descriptions,netlist1       "Gate-level netlist input"
-    node_descriptions,sdc1           "SDC timing constraints input"
-    node_descriptions,def1           "DEF physical design input (for extraction)"
-    node_descriptions,library1       "Technology library input"
-    node_descriptions,extraction1    "Per-RC-corner parasitic extraction (dynamic: rc_max, rc_typ, rc_min run in parallel)"
-    node_descriptions,timing1        "Dynamic per-scenario timing analysis - each scenario runs setup+hold (parallelizable via make -j)"
-    node_descriptions,reporting1     "Cross-corner aggregation - worst-case analysis, MMMC timing summary (4 subnodes)"
-    node_descriptions,release_data1  "Package and release final timing sign-off deliverables (4 subnodes)"
-}
+    set sta(node_descriptions,netlist1) "Gate-level netlist input"
+    set sta(node_descriptions,sdc1) "SDC timing constraints input"
+    set sta(node_descriptions,def1) "DEF physical design input (for extraction)"
+    set sta(node_descriptions,library1) "Technology library input"
+    set sta(node_descriptions,extraction1) "Per-RC-corner parasitic extraction (dynamic: rc_max, rc_typ, rc_min run in parallel)"
+    set sta(node_descriptions,timing1) "Dynamic per-scenario timing analysis - each scenario runs setup+hold (parallelizable via make -j)"
+    set sta(node_descriptions,reporting1) "Cross-corner aggregation - worst-case analysis, MMMC timing summary (4 subnodes)"
+    set sta(node_descriptions,release_data1) "Package and release final timing sign-off deliverables (4 subnodes)"
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║                        MMMC & RUNTIME                                       ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
-array set sta {
-    mmmc,enabled            true
-    mmmc,enabled_stages     {extraction1 timing1 reporting1}
-    mmmc,default_scenario_set "signoff"
-    mmmc,scenario_set       "signoff"
-    mmmc,dynamic_scenarios  true
-    mmmc,parallel_scenarios true
+# array set sta { … } expanded to per-key `set` statements so `#` comments work natively (Tcl treats `#` as data inside `array set` literals).
+    set sta(mmmc,enabled) true
+    set sta(mmmc,enabled_stages) {extraction1 timing1 reporting1}
+    set sta(mmmc,default_scenario_set) "signoff"
+    set sta(mmmc,scenario_set) "signoff"
+    set sta(mmmc,dynamic_scenarios) true
+    set sta(mmmc,parallel_scenarios) true
 
-    runtime,timeout,netlist1       10
-    runtime,timeout,sdc1           10
-    runtime,timeout,def1           10
-    runtime,timeout,library1       10
-    runtime,timeout,extraction1    30
-    runtime,timeout,timing1        60
-    runtime,timeout,reporting1     20
-    runtime,timeout,release_data1  10
-}
+    set sta(runtime,timeout,netlist1) 10
+    set sta(runtime,timeout,sdc1) 10
+    set sta(runtime,timeout,def1) 10
+    set sta(runtime,timeout,library1) 10
+    set sta(runtime,timeout,extraction1) 30
+    set sta(runtime,timeout,timing1) 60
+    set sta(runtime,timeout,reporting1) 20
+    set sta(runtime,timeout,release_data1) 10
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║                        INPUTS & OUTPUTS                                     ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
-array set sta {
-    critical_files,extraction1    {sta(input,netlist)}
-    critical_files,timing1        {sta(input,netlist) sta(input,def_file)}
-    critical_files,reporting1     {}
-    critical_files,release_data1  {}
+# array set sta { … } expanded to per-key `set` statements so `#` comments work natively (Tcl treats `#` as data inside `array set` literals).
+    set sta(critical_files,extraction1) {sta(input,netlist)}
+    set sta(critical_files,timing1) {sta(input,netlist) sta(input,def_file)}
+    set sta(critical_files,reporting1) {}
+    set sta(critical_files,release_data1) {}
 
-    mandatory_outputs,extraction1    {results/extraction/parasitic.spef}
-    mandatory_outputs,timing1        {}
-    mandatory_outputs,reporting1     {reports/sta/mmmc_timing_summary.rpt}
+    set sta(mandatory_outputs,extraction1) {results/extraction/parasitic.spef}
+    set sta(mandatory_outputs,timing1) {}
+    set sta(mandatory_outputs,reporting1) {reports/sta/mmmc_timing_summary.rpt}
 
-    mandatory_input_groups {
-        netlist_inputs {sta(input,netlist)}
-        def_inputs {sta(input,def_file)}
+    set sta(mandatory_input_groups) {
+        set sta(netlist_inputs) {sta(input,netlist)}
+        set sta(def_inputs) {sta(input,def_file)}
     }
 
-    mandatory_user_inputs {
+    set sta(mandatory_user_inputs) {
         sta(input,netlist)
         sta(input,sdc,func)
     }
@@ -135,44 +131,41 @@ array set sta {
     # Or single file that covers all modes:
     #   sta(input,sdc_func_file) "/path/to/func.sdc"
 
-    mmmc_reports,base              {mmmc_timing mmmc_scenarios}
-    mmmc_reports,timing1           {mmmc_hold_timing mmmc_hold_violations}
-    mmmc_reports,reporting1        {mmmc_final_summary mmmc_cross_corner}
+    set sta(mmmc_reports,base) {mmmc_timing mmmc_scenarios}
+    set sta(mmmc_reports,timing1) {mmmc_hold_timing mmmc_hold_violations}
+    set sta(mmmc_reports,reporting1) {mmmc_final_summary mmmc_cross_corner}
 
-    merge_parallel_stages {release_data1}
+    set sta(merge_parallel_stages) {release_data1}
 
-    output,report_dir          "reports/sta"
-    output,results_dir         "results/sta"
-    output,work_dir            "work/STA"
-}
+    set sta(output,report_dir) "reports/sta"
+    set sta(output,results_dir) "results/sta"
+    set sta(output,work_dir) "work/STA"
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║                        RELEASE CONFIGURATION                                ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
-array set sta {
-    release_types,timing,description "MMMC timing analysis reports, SPEF, and SDF"
-    release_types,timing,files {
+# array set sta { … } expanded to per-key `set` statements so `#` comments work natively (Tcl treats `#` as data inside `array set` literals).
+    set sta(release_types,timing,description) "MMMC timing analysis reports, SPEF, and SDF"
+    set sta(release_types,timing,files) {
         "reports/sta/mmmc_timing_summary.rpt"       "reports/final_mmmc_timing.rpt"
         "reports/sta/mmmc_hold_summary.rpt"         "reports/hold_timing_summary.rpt"
         "results/extraction/parasitic.spef"         "spef/final_parasitic.spef"
         "outputs/${design_name}.sdf"                "sdf/${design_name}.sdf"
     }
-}
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║                        COMMON ANALYSIS CONTROL                              ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
-array set sta {
-    reporting,top_violations   50
-    reporting,include_input_pins true
-    reporting,include_nets     true
-    reporting,report_format    "rpt"
+# array set sta { … } expanded to per-key `set` statements so `#` comments work natively (Tcl treats `#` as data inside `array set` literals).
+    set sta(reporting,top_violations) 50
+    set sta(reporting,include_input_pins) true
+    set sta(reporting,include_nets) true
+    set sta(reporting,report_format) "rpt"
 
-    sdf,enabled                false
-    sdf,timing_type            "max_min"
-}
+    set sta(sdf,enabled) false
+    set sta(sdf,timing_type) "max_min"
 
 # NOTE: When sta(sdf,enabled) is set to true in user_config:
 #   - SDF files generated during timing stage per scenario
@@ -183,10 +176,9 @@ array set sta {
 # ║                        SUPPORTED TOOLS & TOOL CONFIG                        ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
-array set sta {
-    supported_tools {pt tempus}
-    default_tool    "pt"
-}
+# array set sta { … } expanded to per-key `set` statements so `#` comments work natively (Tcl treats `#` as data inside `array set` literals).
+    set sta(supported_tools) {pt tempus}
+    set sta(default_tool) "pt"
 
 # Source tool-specific configuration
 # Tool is set via: user_config sta(tool,name) or defaults to sta(default_tool)
