@@ -11,19 +11,28 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ┌─ Tool Shell Commands ────────────────────────────────────────────────────┐
-set lsf(tool_shell,fc)          "fc_shell"
-set lsf(tool_shell,pt)          "pt_shell"
-set lsf(tool_shell,fm)          "fm_shell"
-set lsf(tool_shell,formality)   "fm_shell"
-set lsf(tool_shell,vc_lp)       "vc_lp_shell"
-set lsf(tool_shell,icv)         "icv"
-set lsf(tool_shell,redhawk)     "redhawk"
-set lsf(tool_shell,genus)       "genus"
-set lsf(tool_shell,innovus)     "innovus"
-set lsf(tool_shell,tempus)      "tempus"
-set lsf(tool_shell,voltus)      "voltus"
-set lsf(tool_shell,calibre)     "calibre"
+# PD discipline (Synopsys, Cadence, Mentor)
+set lsf(tool_shell,fc)           "fc_shell"
+set lsf(tool_shell,pt)           "pt_shell"
+set lsf(tool_shell,fm)           "fm_shell"
+set lsf(tool_shell,formality)    "fm_shell"
+set lsf(tool_shell,vc_lp)        "vc_lp_shell"
+set lsf(tool_shell,icv)          "icv"
+set lsf(tool_shell,redhawk)      "redhawk"
+set lsf(tool_shell,genus)        "genus"
+set lsf(tool_shell,innovus)      "innovus"
+set lsf(tool_shell,tempus)       "tempus"
+set lsf(tool_shell,voltus)       "voltus"
+set lsf(tool_shell,calibre)      "calibre"
 set lsf(tool_shell,conformal_lp) "conformal_lp"
+set lsf(tool_shell,conformal)    "conformal"
+set lsf(tool_shell,joules)       "joules"
+# DFT discipline (Mentor Tessent, Synopsys DFT/TestMAX/VCS, Mentor Questa)
+set lsf(tool_shell,tessent)      "tessent"
+set lsf(tool_shell,dft_compiler) "dc_shell"
+set lsf(tool_shell,testmax)      "tmax"
+set lsf(tool_shell,vcs)          "vcs"
+set lsf(tool_shell,questa)       "vsim"
 
 # ┌─ Wrapper Shell ──────────────────────────────────────────────────────────┐
 set lsf(tool_wrapper_shell)     "/bin/csh -f"

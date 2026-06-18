@@ -319,19 +319,10 @@ set lsf(module,genus)       "module load cadenceGenus/23.1"
 set lsf(module,innovus)     "module load cadenceInnovus/23.1"
 set lsf(module,tempus)      "module load cadenceTempus/23.1"
 
-# Tool shell commands
-set lsf(tool_shell,fc)      "fc_shell"
-set lsf(tool_shell,pt)      "pt_shell"
-set lsf(tool_shell,fm)      "fm_shell"
-set lsf(tool_shell,vc_lp)   "vc_lp_shell"
-set lsf(tool_shell,icv)     "icv"
-set lsf(tool_shell,redhawk) "redhawk"
-set lsf(tool_shell,genus)   "genus"
-set lsf(tool_shell,innovus) "innovus"
-set lsf(tool_shell,tempus)  "tempus"
-
-# Wrapper shell (for module load compatibility)
-set lsf(tool_wrapper_shell) "/bin/csh -f"
+# tool_shell,* and tool_wrapper_shell live in tool_launch_config.tcl —
+# not duplicated here. Sourcing this file after tool_launch_config used to
+# silently override the 9 overlapping entries, masking the DFT/Mentor tools
+# that only existed in tool_launch_config. Single source of truth wins.
 
 # LSF bsub settings
 # `bsub,command` is the binary `submit_job` execs — overridable per site so

@@ -1,0 +1,6 @@
+#!/bin/bash
+# CBflow dispatch-smoke tool stub. Captures invocation to CBFLOW_STUB_LOG.
+log="${CBFLOW_STUB_LOG:-/tmp/cbflow_tool.log}"
+self="$(basename "$0")"
+echo "$self $*" >> "$log"
+exit 0

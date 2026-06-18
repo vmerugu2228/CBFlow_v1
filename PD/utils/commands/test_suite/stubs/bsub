@@ -1,6 +1,29 @@
 #!/bin/bash
-# CBflow test-suite bsub stub. Captures all invocation args to the file
-# named in $CBFLOW_STUB_LOG (one line per invocation) and exits 0.
+# CBflow dispatch-smoke bsub stub. Captures all invocation args to the file
+# named in $CBFLOW_STUB_LOG (one line per invocation), then chains: if
+# `xterm -e <wrapper>` is in the args, exec the wrapper directly (the real
+# bsub submits to a cluster which spawns xterm which runs the wrapper; we
+# short-circuit that chain so the tool-shell stub at the bottom of the
+# wrapper gets exercised by the smoke).
 log="${CBFLOW_STUB_LOG:-/tmp/cbflow_bsub.log}"
 echo "bsub $*" >> "$log"
+
+# bsub args contain two `-e` slots:
+#   `-e <stderr_log>` (bsub's stderr capture file — not executable)
+#   `xterm ... -e <wrapper>` (xterm's "exec these args" — the wrapper)
+# Walk every `-e <arg>` and take the first one that points at an
+# executable file. That's the wrapper the cluster would have spawned.
+wrapper=""
+prev=""
+for arg in "$@"; do
+    if [[ "$prev" == "-e" && -x "$arg" ]]; then
+        wrapper="$arg"
+        break
+    fi
+    prev="$arg"
+done
+
+if [[ -n "$wrapper" ]]; then
+    "$wrapper" >> "$log" 2>&1
+fi
 exit 0

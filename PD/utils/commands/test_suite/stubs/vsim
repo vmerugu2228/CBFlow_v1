@@ -1,0 +1,4 @@
+#!/bin/bash
+log="${CBFLOW_STUB_LOG:-/tmp/cbflow_tool.log}"
+echo "$(basename $0) $*" >> "$log"
+exit 0

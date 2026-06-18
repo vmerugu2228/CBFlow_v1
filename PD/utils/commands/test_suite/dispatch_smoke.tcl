@@ -1,25 +1,43 @@
 #!/usr/bin/env tclsh
 # ═══════════════════════════════════════════════════════════════════════════════
-# CBflow dispatch smoke harness — directly exercises launch_utils::submit_job
-# with stubbed bsub + xterm. Catches the class of bugs `test_mode=true` masks
-# in the regular test suite (missing or corrupt lsf/flow config keys that
-# submit_job reads but `handler_run` short-circuits past).
+# CBflow dispatch smoke harness — directly exercises launch_utils::{generate_
+# launch_wrapper, submit_job} with stubbed bsub + xterm + every EDA tool shell.
 #
-# Args: <flow_type> <stage_name>
+# Catches the class of bugs `test_mode=true` masks in the regular test suite:
+# missing / corrupt `lsf(...)` config keys that the dispatch path reads but
+# `handler_run` short-circuits past.
+#
+# Two-stage exercise:
+#   1. generate_launch_wrapper(work_dir, stage, cmd_file, tool_name)
+#        → reads lsf(tool_shell,<tool>), lsf(module,<tool>),
+#          lsf(tool_wrapper_shell). Writes a wrapper .csh file.
+#   2. submit_job(wrapper, flow, stage, node, work_dir)
+#        → reads lsf(bsub,*), lsf(queue_types,<tier>,*), lsf(xterm,*),
+#          lsf(flow_mapping,<flow>,<stage>). Execs `bsub … xterm … wrapper`.
+#
+# Args: <flow_type> <stage_name> <tool_name>
+#       (tool_name maps to lsf(tool_shell,<tool_name>))
+#
 # Env:  CBFLOW_CORE_DIR must point at PD/ root.
-#       PATH must include the stubs/ dir so `bsub` and `xterm` resolve.
+#       PATH must include the stubs/ dir so bsub/xterm/tool shells resolve.
 #       CBFLOW_STUB_LOG (optional) directs stub captures somewhere readable.
 #
-# Exit: 0 on success, non-zero on dispatch failure.
+# Output (on success):
+#   WRAPPER_PATH=<path>     so the Python runner can read+verify content
+#   TOOL_SHELL=<binary>     the lsf(tool_shell,<tool>)-resolved binary name
+#
+# Exit: 0 on success, non-zero on dispatch failure (bsub stub never invoked,
+#       wrapper missing, lsf key missing, etc.).
 # ═══════════════════════════════════════════════════════════════════════════════
 
-if {$argc < 2} {
-    puts stderr "Usage: dispatch_smoke.tcl <flow_type> <stage_name>"
+if {$argc < 3} {
+    puts stderr "Usage: dispatch_smoke.tcl <flow_type> <stage_name> <tool_name>"
     exit 2
 }
 
 set flow_type  [lindex $argv 0]
 set stage_name [lindex $argv 1]
+set tool_name  [lindex $argv 2]
 
 if {![info exists ::env(CBFLOW_CORE_DIR)] || $::env(CBFLOW_CORE_DIR) eq ""} {
     puts stderr "ERROR: CBFLOW_CORE_DIR not set"
@@ -27,11 +45,7 @@ if {![info exists ::env(CBFLOW_CORE_DIR)] || $::env(CBFLOW_CORE_DIR) eq ""} {
 }
 set pd_dir $::env(CBFLOW_CORE_DIR)
 
-# Synthesize the env the cascade expects (mirrors what .run.cbflow.tcl sets
-# inside a real workspace). Use --no-run mode style: no project-level
-# mmmc_config, no user_config — just the project baseline. That's the
-# minimum a real LSF dispatch would see if the user hadn't overridden
-# anything in user_config.
+# Synthesize the env the cascade expects (same as a real .run.cbflow.tcl).
 set ::env(CBFLOW_FLOW_TYPE)    $flow_type
 set ::env(FLOW_DIR)            $pd_dir
 set ::env(CONFIG_ROOT)         "$pd_dir/config"
@@ -43,40 +57,48 @@ source "$pd_dir/config/flow/v1.0.0/flow_config.tcl"
 source "$pd_dir/config/flow/v1.0.0/tool_launch_config.tcl"
 source "$pd_dir/config/flow/v1.0.0/lsf_config.tcl"
 
-# Pretend the user wrote `set flow(use_lsf) "true"` and `set flow(use_xterm)
-# "true"` in user_config. submit_job reads these via determine_launch_mode.
 set ::flow(use_lsf)   "true"
 set ::flow(use_xterm) "true"
 
-# Source the dispatcher last so its `proc` definitions are bound to the
-# `lsf` array we just populated.
 source "$pd_dir/utils/utilities/v1.0.0/launch_utils.tcl"
 
-# Build a throwaway wrapper script that submit_job would hand to bsub.
-set tmp [pwd]
-set wrapper "$tmp/_dispatch_smoke_wrapper.csh"
-set work_dir $tmp
+set work_dir [pwd]
 set node_name "${stage_name}1"
 
-set fh [open $wrapper "w"]
-puts $fh "#!/bin/csh -f"
-puts $fh "# dispatch smoke wrapper — never actually runs"
-puts $fh "echo 'wrapper invoked (this is a stub)'"
+# Dummy command file. generate_launch_wrapper only uses its name as a tag.
+set cmd_file "$work_dir/_cmd_${stage_name}.tcl"
+set fh [open $cmd_file w]
+puts $fh "# dispatch smoke dummy cmd file for ${stage_name}_${tool_name}.tcl"
 close $fh
-file attributes $wrapper -permissions rwxr-xr-x
 
-# Now exercise the real dispatch path. submit_job will:
-#   (1) read $::flow(use_lsf) / use_xterm via determine_launch_mode
-#   (2) resolve qtype from $::lsf(flow_mapping,$flow_type,$stage_name)
-#   (3) read $::lsf(queue_types,$qtype,{memory,cpu,runtime_limit})
-#   (4) read $::lsf(bsub,{command,queue,project,affinity})
-#   (5) read $::lsf(xterm,{command,geometry}) since use_xterm=true
-#   (6) exec the stubbed bsub
-# Any missing key from steps 2-5 errors here with "no such element" or the
-# explicit `puts ERROR` + exit branches inside submit_job.
-puts "── invoking submit_job for ${flow_type}/${stage_name} ──"
+# ── Stage 1: generate the launch wrapper ─────────────────────────────────────
+puts "── generate_launch_wrapper(${stage_name}, ${tool_name}) ──"
+if {[catch {
+    set wrapper [generate_launch_wrapper $work_dir $stage_name $cmd_file $tool_name]
+} err]} {
+    puts stderr "DISPATCH_SMOKE_FAIL: generate_launch_wrapper: $err"
+    exit 1
+}
+
+if {![file exists $wrapper]} {
+    puts stderr "DISPATCH_SMOKE_FAIL: wrapper not written: $wrapper"
+    exit 1
+}
+if {![file executable $wrapper]} {
+    puts stderr "DISPATCH_SMOKE_FAIL: wrapper not executable: $wrapper"
+    exit 1
+}
+
+# Resolve what tool_shell launch_utils picked (mirrors its decision).
+set tool_shell $tool_name
+catch { if {[info exists ::lsf(tool_shell,$tool_name)]} { set tool_shell $::lsf(tool_shell,$tool_name) } }
+puts "WRAPPER_PATH=$wrapper"
+puts "TOOL_SHELL=$tool_shell"
+
+# ── Stage 2: submit_job (exec bsub-stub → xterm-stub → wrapper → tool-stub) ─
+puts "── submit_job(${flow_type}/${stage_name}) ──"
 if {[catch {submit_job $wrapper $flow_type $stage_name $node_name $work_dir} err]} {
-    puts stderr "DISPATCH_SMOKE_FAIL: $err"
+    puts stderr "DISPATCH_SMOKE_FAIL: submit_job: $err"
     exit 1
 }
 puts "── submit_job returned cleanly ──"
