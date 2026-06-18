@@ -1,0 +1,6 @@
+#!/bin/bash
+# CBflow test-suite bsub stub. Captures all invocation args to the file
+# named in $CBFLOW_STUB_LOG (one line per invocation) and exits 0.
+log="${CBFLOW_STUB_LOG:-/tmp/cbflow_bsub.log}"
+echo "bsub $*" >> "$log"
+exit 0

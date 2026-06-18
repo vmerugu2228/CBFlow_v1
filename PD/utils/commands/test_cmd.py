@@ -182,6 +182,11 @@ Examples:
     scope = parser.add_mutually_exclusive_group()
     scope.add_argument('--static', action='store_true', help='Static config checks only')
     scope.add_argument('--e2e', action='store_true', help='End-to-end execution only')
+    scope.add_argument('--dispatch-smoke', dest='dispatch_smoke',
+                       action='store_true',
+                       help='LSF dispatch smoke: exercise submit_job with '
+                            'stubbed bsub+xterm. Catches the class '
+                            'test_mode=true hides.')
 
     parser.add_argument('--flow', help='Test a single flow')
     parser.add_argument('--flows', help='Comma-separated list of flows')
@@ -224,8 +229,9 @@ Examples:
     results = Results()
 
     flows = _resolve_flows(args)
-    run_static = not args.e2e
-    run_e2e = not args.static
+    run_static = not args.e2e and not args.dispatch_smoke
+    run_e2e = not args.static and not args.dispatch_smoke
+    run_dispatch = bool(args.dispatch_smoke)
 
     console.section(
         f'CBflow Test Suite — flows={",".join(flows)}, '
@@ -246,6 +252,15 @@ Examples:
 
     if run_e2e:
         _run_e2e(results, console, flows, args)
+
+    if run_dispatch:
+        from test_suite import dispatch_smoke
+        before = len(results.entries)
+        console.section('DISPATCH SMOKE: launch_utils.tcl::submit_job '
+                        '(stubbed bsub + xterm)')
+        dispatch_smoke.run(results)
+        for entry in results.entries[before:]:
+            console.event(entry['status'], entry['test'], entry['detail'])
 
     # Reports
     if args.report:
