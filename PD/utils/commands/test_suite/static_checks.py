@@ -1302,6 +1302,291 @@ def cat11_tcl_array_set_hygiene(results, pd_dir, flows):
     )
 
 
+# ── Category 12: Resolver-output suspicious-key detector ───────────────────
+#
+# Defense-in-depth for the cat 11 bug class: even if cat 11's source-level
+# scan missed a corruption pattern (e.g., a brace-quoted value that smuggled
+# in a `# comment` Tcl ate as data), the resolved cascade output is the
+# ground truth of what Tcl actually built. Any key that looks like a
+# corruption artifact — a single-token English word, a literal `#`, a
+# Unicode box-drawing char, embedded whitespace — fails the suite here.
+#
+# Pattern of a real key: lowercase identifier or word with commas (e.g.,
+# `lsf(queue_types,L,memory)`, `flow(use_lsf)`, `runtime,timeout,place1`).
+# Pattern of a corruption artifact: bare English word (`Flow`, `Queue`,
+# `Description`), box-drawing char (`──`), the literal `#`.
+
+# A "suspicious" key matches any of these patterns. Tuned against the bogus
+# keys we've observed in the wild (lsf bug + release_config bug).
+_SUSPICIOUS_KEY_PATTERNS = [
+    # Standalone English words inside a section header that got eaten as a key.
+    (re.compile(r'^(Flow|Queue|Description|Resource|Memory|Tempus|Innovus|Settings)$'),
+     'bare English word — likely a section-header comment that Tcl swallowed'),
+    # Unicode box-drawing chars (─, ║, ╔, etc.) from comment dividers.
+    (re.compile(r'[─-▟☀-⛿]'),
+     'Unicode box-drawing char — from a `# ─── divider ───`'),
+    # The literal `#`.
+    (re.compile(r'^#$'),
+     'literal `#` — Tcl ate the comment marker as a key'),
+    # Embedded whitespace inside a single key (real keys can have commas
+    # but never spaces).
+    (re.compile(r'\s'),
+     'embedded whitespace — keys are comma/dot/word chars only'),
+]
+
+# Per-array narrow contract — every emitted key for these arrays must
+# match the pattern. Keeps the check tight without enumerating every
+# legitimate key the codebase ships.
+_ARRAY_KEY_CONTRACT = {
+    'lsf':            re.compile(r'^[\w.][\w.,]*$'),
+    'flow':           re.compile(r'^[\w][\w.,]*$'),
+    'release':        re.compile(r'^[\w][\w.,]*$'),
+    'validation':     re.compile(r'^[\w][\w.,]*$'),
+    'ml':             re.compile(r'^[\w][\w.,]*$'),
+}
+
+
+def _scan_resolved_for_suspicious_keys(cfg):
+    """Walk every emitted key in the resolver cfg dict. Return a list of
+    (key, reason) pairs for any key that looks like a corruption artifact."""
+    out = []
+    for key in cfg:
+        if key.startswith('_'):
+            # Resolver-internal keys: _schema_version, _sources, _done.
+            continue
+        # Pull the bare key portion (strip `array(...)` wrapping if present).
+        m = re.match(r'^([a-zA-Z_]\w*)\((.+)\)$', key)
+        if m:
+            arr_name = m.group(1)
+            inner = m.group(2)
+        else:
+            arr_name = None
+            inner = key
+        for rgx, reason in _SUSPICIOUS_KEY_PATTERNS:
+            if rgx.search(inner):
+                out.append((key, reason))
+                break
+        else:
+            contract = _ARRAY_KEY_CONTRACT.get(arr_name) if arr_name else None
+            if contract and not contract.fullmatch(inner):
+                out.append((key, f'fails {arr_name}() key contract'))
+    return out
+
+
+def cat12_resolver_suspicious_keys(results, pd_dir, flows):
+    """Run the cascade resolver against a representative flow and fail on
+    any emitted key shaped like a corruption artifact (English word, Unicode
+    box-drawing char, embedded whitespace, etc.). Catches the cat 11 bug
+    class from the emit side as defense-in-depth."""
+    suite = 'static'
+    category = 12
+
+    import subprocess as _sp
+    resolver = os.path.join(pd_dir, 'utils', 'commands', 'config_resolver.tcl')
+    if not os.path.exists(resolver):
+        results.failed(suite, category, 'config_resolver.tcl missing', resolver)
+        return
+
+    env = dict(os.environ)
+    env.setdefault('CBFLOW_CORE_DIR', pd_dir)
+
+    # SYNTH_PNR exercises the most key surface (LSF mapping, MMMC, release_exit_files,
+    # all flow tools). PD-baseline only — user_config would inject design-specific
+    # keys that legitimately don't match the strict patterns.
+    try:
+        proc = _sp.run(
+            ['tclsh', resolver, 'SYNTH_PNR', '--no-run'],
+            capture_output=True, text=True, timeout=15, env=env,
+        )
+    except _sp.SubprocessError as e:
+        results.failed(suite, category, 'resolver smoke failed', str(e))
+        return
+
+    if proc.returncode != 0:
+        results.failed(suite, category, 'resolver --no-run exit != 0',
+                       proc.stderr.strip())
+        return
+
+    cfg = {}
+    for line in proc.stdout.splitlines():
+        if line.startswith('CBFLOW_CFG:'):
+            kv = line[len('CBFLOW_CFG:'):]
+            eq = kv.find('=')
+            if eq > 0:
+                cfg[kv[:eq]] = kv[eq + 1:]
+
+    violations = _scan_resolved_for_suspicious_keys(cfg)
+    if not violations:
+        results.passed(suite, category,
+                       f'all {len(cfg)} resolved keys match expected shape '
+                       f'(no corruption artifacts)')
+        return
+
+    sample = '\n'.join(f'  {k!r}: {reason}' for k, reason in violations[:10])
+    if len(violations) > 10:
+        sample += f'\n  … {len(violations) - 10} more'
+    results.failed(
+        suite, category,
+        f'{len(violations)} resolved key(s) shaped like corruption artifacts',
+        sample,
+    )
+
+
+# ── Category 13: Handler-required keys vs resolver-emitted keys ────────────
+#
+# Defense against the bug class where a handler reads a `$lsf(...)` /
+# `$flow(...)` / `$tech(...)` key that the resolver doesn't emit. This is
+# how the missing `lsf(bsub,command)` slipped through — launch_utils.tcl
+# reads it, the resolver never saw it, test_mode=true bypassed the read
+# path, and production was the first place it surfaced.
+#
+# Two cross-references, both static (no process spawn beyond the resolver
+# subprocess that cat 10 and cat 12 already invoke):
+#
+# 1. Critical static keys — hardcoded list of variable-free references
+#    `launch_utils.tcl` makes (e.g., `$lsf(bsub,command)`). Every one must
+#    appear in the resolver output.
+#
+# 2. Per-tier completeness — every queue tier in `lsf(available_queues)`
+#    must have a full quartet of {memory, cpu, runtime_limit, description}.
+#    Each flow's `flow_mapping,<flow>,<stage>` entries must reference a
+#    tier that has a complete quartet.
+
+
+# Keys without variable substitution that launch_utils.tcl + handlers read
+# unconditionally. If you add a new bare `$lsf(...)` ref to a handler,
+# add the key here (and to lsf_config.tcl).
+_HANDLER_REQUIRED_LSF_KEYS = (
+    'lsf(bsub,command)',
+    'lsf(bsub,queue)',
+    'lsf(bsub,project)',
+    'lsf(bsub,affinity)',
+    'lsf(xterm,command)',
+    'lsf(xterm,geometry)',
+    'lsf(default_queue_type)',
+    'lsf(tool_wrapper_shell)',
+)
+
+# Per-tier attribute quartet — every tier listed in lsf(available_queues)
+# must define all of these or the bsub builder errors at runtime.
+_LSF_TIER_REQUIRED_ATTRS = ('memory', 'cpu', 'runtime_limit', 'description')
+
+
+def _resolve_for_cat13(pd_dir, flow_type):
+    """Run the resolver in --no-run mode and return its dict. Returns
+    None on resolver failure."""
+    import subprocess as _sp
+    resolver = os.path.join(pd_dir, 'utils', 'commands', 'config_resolver.tcl')
+    if not os.path.exists(resolver):
+        return None
+    env = dict(os.environ)
+    env.setdefault('CBFLOW_CORE_DIR', pd_dir)
+    try:
+        proc = _sp.run(
+            ['tclsh', resolver, flow_type, '--no-run'],
+            capture_output=True, text=True, timeout=15, env=env,
+        )
+    except _sp.SubprocessError:
+        return None
+    if proc.returncode != 0:
+        return None
+    cfg = {}
+    for line in proc.stdout.splitlines():
+        if line.startswith('CBFLOW_CFG:'):
+            kv = line[len('CBFLOW_CFG:'):]
+            eq = kv.find('=')
+            if eq > 0:
+                cfg[kv[:eq]] = kv[eq + 1:]
+    return cfg
+
+
+def cat13_handler_required_keys(results, pd_dir, flows):
+    """Every key a handler reads bare (no variable substitution) must appear
+    in the resolver output. Every queue tier in lsf(available_queues) must
+    have a complete {memory, cpu, runtime_limit, description} quartet.
+    Every `flow_mapping,<flow>,<stage>` value must reference a tier that
+    has the quartet.
+
+    Catches the bug class behind the missing `lsf(bsub,command)` and the
+    corrupted `lsf(queue_types,L,*)` — both of which test_mode=true masks
+    because submit_job never executes in test runs."""
+    suite = 'static'
+    category = 13
+
+    cfg = _resolve_for_cat13(pd_dir, 'SYNTH_PNR')
+    if cfg is None:
+        results.failed(suite, category, 'resolver smoke failed', '')
+        return
+
+    # 1. Critical static keys present.
+    missing_static = [k for k in _HANDLER_REQUIRED_LSF_KEYS if k not in cfg]
+    if missing_static:
+        results.failed(
+            suite, category,
+            f'handler reads {len(missing_static)} bare key(s) the resolver never emits',
+            '\n'.join(f'  {k} — read by launch_utils.tcl / handlers, missing in cascade'
+                      for k in missing_static),
+        )
+    else:
+        results.passed(suite, category,
+                       f'all {len(_HANDLER_REQUIRED_LSF_KEYS)} handler-required '
+                       'static lsf(...) keys emitted')
+
+    # 2. Every advertised tier in available_queues has the full quartet.
+    tiers_raw = cfg.get('lsf(available_queues)', '').strip().strip('"').strip()
+    tiers = tiers_raw.split()
+    if not tiers:
+        results.failed(suite, category,
+                       'lsf(available_queues) empty or missing — no tiers to validate',
+                       '')
+    else:
+        tier_failures = []
+        for tier in tiers:
+            for attr in _LSF_TIER_REQUIRED_ATTRS:
+                key = f'lsf(queue_types,{tier},{attr})'
+                if key not in cfg:
+                    tier_failures.append(f'  {key} (tier {tier!r} in lsf(available_queues))')
+        if tier_failures:
+            results.failed(
+                suite, category,
+                f'{len(tier_failures)} per-tier attr(s) missing — bsub builder '
+                f'will error at submit_job',
+                '\n'.join(tier_failures[:10])
+                + ('' if len(tier_failures) <= 10
+                   else f'\n  … {len(tier_failures) - 10} more'),
+            )
+        else:
+            results.passed(
+                suite, category,
+                f'all {len(tiers)} tier(s) × {len(_LSF_TIER_REQUIRED_ATTRS)} attr(s) '
+                f'emitted ({sorted(tiers)})',
+            )
+
+    # 3. Every flow_mapping,<flow>,<stage> references a defined tier.
+    flow_mapping_keys = [k for k in cfg
+                        if k.startswith('lsf(flow_mapping,') and k.endswith(')')]
+    mapping_failures = []
+    defined_tiers = set(tiers)
+    for fmk in flow_mapping_keys:
+        tier = cfg[fmk].strip().strip('"')
+        if tier and tier not in defined_tiers:
+            mapping_failures.append(f'  {fmk} → {tier!r} (not in lsf(available_queues))')
+    if mapping_failures:
+        results.failed(
+            suite, category,
+            f'{len(mapping_failures)} flow_mapping(s) point at undefined tiers',
+            '\n'.join(mapping_failures[:10])
+            + ('' if len(mapping_failures) <= 10
+               else f'\n  … {len(mapping_failures) - 10} more'),
+        )
+    elif flow_mapping_keys:
+        results.passed(
+            suite, category,
+            f'all {len(flow_mapping_keys)} flow_mapping entries point at '
+            f'defined tiers',
+        )
+
+
 # ── Registry ────────────────────────────────────────────────────────────────
 
 CATEGORIES = {
@@ -1316,6 +1601,8 @@ CATEGORIES = {
     9: ('Dead-Code & Cross-Reference Audit', cat9_dead_code_audit),
    10: ('Resolved-Config Single Source of Truth', cat10_resolved_config_single_source),
    11: ('Tcl Array-Set Hygiene', cat11_tcl_array_set_hygiene),
+   12: ('Resolver-Output Suspicious Keys', cat12_resolver_suspicious_keys),
+   13: ('Handler-Required Keys vs Resolver Emit', cat13_handler_required_keys),
 }
 
 
