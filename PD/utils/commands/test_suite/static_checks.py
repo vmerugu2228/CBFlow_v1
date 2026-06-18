@@ -1171,6 +1171,137 @@ def cat10_resolved_config_single_source(results, pd_dir, flows):
                        f'resolver emits all {len(required_emissions)} schema-v2 required keys')
 
 
+# ── Category 11: Tcl array-set hygiene ──────────────────────────────────────
+#
+# Inside an `array set NAME { ... }` literal, Tcl treats `#` as data, NOT a
+# comment. Every `# comment` line shifts the key/value pairs that follow,
+# silently producing bogus keys like `release_exit_files(FP) = "Flow"` or
+# `lsf(designs) = "queue_types,XL,memory"`. Tcl itself only errors when the
+# total item count is odd — same-parity corruption is undetectable at parse
+# time and only surfaces when a consumer looks up a missing key (e.g.
+# `lsf(queue_types,L,memory)`).
+#
+# This guard scans every shipped `.tcl` file for the pattern. The fix is
+# mechanical: rewrite the block as per-key `set NAME(<key>) <value>` lines
+# where `#` comments work natively. See commit d6b7f91 for an example.
+
+
+_ARRAY_SET_OPEN_RE = re.compile(r'^(\s*)array\s+set\s+(\S+)\s*\{\s*$')
+_INLINE_SEMI_HASH_RE = re.compile(r';\s*#')
+_COMMENT_LINE_RE = re.compile(r'^\s*#')
+
+
+def _find_array_set_close(lines, start_idx):
+    """Index of the closing `}` for the array-set block opened at start_idx,
+    counting brace depth. Returns None if unbalanced."""
+    depth = 1
+    i = start_idx + 1
+    while i < len(lines):
+        # Mask out double-quoted strings so braces inside them don't count.
+        masked = re.sub(r'"[^"]*"', '', lines[i])
+        depth += masked.count('{')
+        depth -= masked.count('}')
+        if depth <= 0:
+            return i
+        i += 1
+    return None
+
+
+def _scan_tcl_array_set_hygiene(path):
+    """Return list of (kind, lineno, content) violations for one .tcl file."""
+    try:
+        with open(path) as f:
+            lines = f.readlines()
+    except (OSError, UnicodeDecodeError):
+        return []
+
+    out = []
+    i = 0
+    while i < len(lines):
+        m = _ARRAY_SET_OPEN_RE.match(lines[i].rstrip('\n'))
+        if not m:
+            i += 1
+            continue
+        arr_name = m.group(2)
+        close_idx = _find_array_set_close(lines, i)
+        if close_idx is None:
+            out.append((f'UNBALANCED[{arr_name}]', i + 1, lines[i].rstrip('\n')))
+            break
+        for j in range(i + 1, close_idx):
+            ln = lines[j].rstrip('\n')
+            if _COMMENT_LINE_RE.match(ln):
+                out.append((f'COMMENT_IN_ARRAY_SET[{arr_name}]',
+                            j + 1, ln))
+            elif _INLINE_SEMI_HASH_RE.search(ln):
+                # False-positive guard: ;# inside a quoted string is harmless.
+                if _INLINE_SEMI_HASH_RE.search(re.sub(r'"[^"]*"', '', ln)):
+                    out.append((f'INLINE_SEMI_HASH[{arr_name}]',
+                                j + 1, ln))
+        i = close_idx + 1
+    return out
+
+
+def cat11_tcl_array_set_hygiene(results, pd_dir, flows):
+    """Fail if any `.tcl` file ships a `# comment` or `;#` inline comment
+    inside an `array set NAME { ... }` block. Tcl treats those as data; the
+    consequence is silently-corrupted arrays that masquerade as configured."""
+    suite = 'static'
+    category = 11
+
+    # Roots to scan: PD discipline, DFT discipline (if present), and the
+    # template user_config fixtures.
+    pd_root = os.path.dirname(pd_dir) if pd_dir.endswith('/PD') else pd_dir
+    roots = [pd_dir]
+    dft_dir = os.path.join(pd_root, 'DFT')
+    if os.path.isdir(dft_dir):
+        roots.append(dft_dir)
+    workarea_test = os.path.join(pd_root, 'workarea_test')
+    if os.path.isdir(workarea_test):
+        roots.append(workarea_test)
+
+    skip_dirs = {'workarea', 'test_releases', '__pycache__', '.git', 'node_modules'}
+    violations_by_file = {}
+    file_count = 0
+    for root in roots:
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d not in skip_dirs]
+            for fname in filenames:
+                if not fname.endswith('.tcl'):
+                    continue
+                file_count += 1
+                full = os.path.join(dirpath, fname)
+                hits = _scan_tcl_array_set_hygiene(full)
+                if hits:
+                    violations_by_file[full] = hits
+
+    if not violations_by_file:
+        results.passed(suite, category,
+                       f'all {file_count} .tcl files clean: no `#` / `;#` '
+                       'inside `array set` blocks')
+        return
+
+    total = sum(len(v) for v in violations_by_file.values())
+    sample = []
+    for path in sorted(violations_by_file)[:5]:
+        rel = os.path.relpath(path, pd_root)
+        sample.append(f'  {rel} ({len(violations_by_file[path])} hits):')
+        for kind, lineno, content in violations_by_file[path][:3]:
+            sample.append(f'    L{lineno} {kind}: {content[:80]}')
+        if len(violations_by_file[path]) > 3:
+            sample.append(f'    … {len(violations_by_file[path]) - 3} more in this file')
+    if len(violations_by_file) > 5:
+        sample.append(f'  … and {len(violations_by_file) - 5} more file(s)')
+
+    results.failed(
+        suite, category,
+        f'{total} `# comment` / `;#` line(s) inside `array set` blocks '
+        f'across {len(violations_by_file)} file(s) — Tcl will silently '
+        f'corrupt the arrays. Fix: rewrite each block as per-key '
+        f'`set NAME(key) value` lines.',
+        '\n'.join(sample),
+    )
+
+
 # ── Registry ────────────────────────────────────────────────────────────────
 
 CATEGORIES = {
@@ -1184,6 +1315,7 @@ CATEGORIES = {
     8: ('Cross-Cutting Checks', cat8_cross_cutting),
     9: ('Dead-Code & Cross-Reference Audit', cat9_dead_code_audit),
    10: ('Resolved-Config Single Source of Truth', cat10_resolved_config_single_source),
+   11: ('Tcl Array-Set Hygiene', cat11_tcl_array_set_hygiene),
 }
 
 
