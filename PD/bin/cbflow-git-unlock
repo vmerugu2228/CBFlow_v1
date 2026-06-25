@@ -1,0 +1,167 @@
+#!/bin/bash
+# ═════════════════════════════════════════════════════════════════════════════
+# cbflow-git-unlock — load the gpg-encrypted deploy key into ssh-agent so
+# git pull / push can talk to github.com without prompting for a password.
+#
+#   cbflow-git-unlock              # read-only key (default — for pull users)
+#   cbflow-git-unlock --write      # read-write key (for the committer)
+#   cbflow-git-unlock --status     # show what's loaded
+#   cbflow-git-unlock --lock       # clear the agent (revoke this session)
+#
+# The decrypted key NEVER hits disk — gpg pipes the plaintext directly to
+# ssh-add. The agent holds it in memory for this shell session only.
+#
+# Setup runbook: PD/docs/03-reference/production-git-setup.md
+# ═════════════════════════════════════════════════════════════════════════════
+
+set -euo pipefail
+
+# Where the encrypted keys live. Override via $CBFLOW_GIT_KEY_DIR.
+KEY_DIR="${CBFLOW_GIT_KEY_DIR:-/etc/cbflow/git}"
+KEY_RO="${KEY_DIR}/cbflow_ro.gpg"
+KEY_RW="${KEY_DIR}/cbflow_rw.gpg"
+
+# Default ssh-add lifetime: 8 hours (matches a workday). Override with
+# CBFLOW_GIT_KEY_TTL=N seconds. Set to 0 for "until ssh-agent dies".
+TTL="${CBFLOW_GIT_KEY_TTL:-28800}"
+
+# Where the hook lives (installed into each git repo's .git/hooks/).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HOOK_SRC="${SCRIPT_DIR}/../utils/git/prepare-commit-msg-host-trailer"
+
+usage() {
+    sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    exit "${1:-0}"
+}
+
+die() { echo "cbflow-git-unlock: $*" >&2; exit 1; }
+
+ensure_agent() {
+    # Reuse an existing agent if one is wired up; otherwise spin one up.
+    if [[ -n "${SSH_AUTH_SOCK:-}" && -S "${SSH_AUTH_SOCK}" ]]; then
+        return 0
+    fi
+    eval "$(ssh-agent -s)" >/dev/null
+    # Caller has to eval the export themselves — but ssh-agent in this
+    # process exported into our env, so subsequent ssh-add works.
+    echo "cbflow-git-unlock: started ssh-agent (pid=${SSH_AGENT_PID})" >&2
+    echo "  to keep this agent in your shell, run:" >&2
+    echo "    export SSH_AUTH_SOCK=${SSH_AUTH_SOCK}" >&2
+    echo "    export SSH_AGENT_PID=${SSH_AGENT_PID}" >&2
+}
+
+show_status() {
+    if [[ -z "${SSH_AUTH_SOCK:-}" || ! -S "${SSH_AUTH_SOCK}" ]]; then
+        echo "no ssh-agent in this shell"
+        exit 0
+    fi
+    echo "agent: ${SSH_AUTH_SOCK} (pid=${SSH_AGENT_PID:-unknown})"
+    if ssh-add -l 2>/dev/null; then
+        :
+    else
+        echo "no keys loaded"
+    fi
+}
+
+lock_session() {
+    if [[ -z "${SSH_AUTH_SOCK:-}" || ! -S "${SSH_AUTH_SOCK}" ]]; then
+        echo "no ssh-agent to lock"
+        exit 0
+    fi
+    ssh-add -D
+    echo "cbflow-git-unlock: all keys cleared from agent"
+}
+
+install_ssh_config() {
+    # Pin github.com to whatever agent currently exports SSH_AUTH_SOCK.
+    # IdentitiesOnly=yes stops ssh from offering the user's personal keys
+    # first and getting "too many auth failures" against the deploy key.
+    local cfg="${HOME}/.ssh/config"
+    mkdir -p "${HOME}/.ssh" && chmod 700 "${HOME}/.ssh"
+    if grep -q '^# BEGIN cbflow-git-unlock$' "${cfg}" 2>/dev/null; then
+        return 0
+    fi
+    {
+        echo ''
+        echo '# BEGIN cbflow-git-unlock'
+        echo '# Pins github.com to the running ssh-agent so the gpg-encrypted'
+        echo '# deploy key is used instead of any personal keys.'
+        echo 'Host github.com'
+        echo '    HostName github.com'
+        echo '    User git'
+        echo '    IdentitiesOnly yes'
+        echo '    IdentityAgent SSH_AUTH_SOCK'
+        echo '    AddKeysToAgent yes'
+        echo '# END cbflow-git-unlock'
+    } >> "${cfg}"
+    chmod 600 "${cfg}"
+    echo "cbflow-git-unlock: appended github.com block to ${cfg}" >&2
+}
+
+install_repo_hook() {
+    # Only meaningful inside a git repo + only for --write mode.
+    local git_dir
+    git_dir="$(git rev-parse --git-dir 2>/dev/null || true)"
+    [[ -z "${git_dir}" ]] && return 0
+    [[ ! -f "${HOOK_SRC}" ]] && return 0
+    local dst="${git_dir}/hooks/prepare-commit-msg"
+    if [[ -e "${dst}" && ! -L "${dst}" ]]; then
+        # Don't clobber a hand-written hook.
+        return 0
+    fi
+    install -m 755 "${HOOK_SRC}" "${dst}"
+    echo "cbflow-git-unlock: installed commit hook → ${dst}" >&2
+}
+
+unlock_key() {
+    local kind="$1" blob
+    case "${kind}" in
+        ro) blob="${KEY_RO}" ;;
+        rw) blob="${KEY_RW}" ;;
+        *)  die "internal: unknown kind ${kind}" ;;
+    esac
+
+    [[ -r "${blob}" ]] || die "encrypted key not readable: ${blob}
+  - check the file exists and your group has read access
+  - see: PD/docs/03-reference/production-git-setup.md"
+
+    ensure_agent
+    install_ssh_config
+
+    # Pipe decrypted key directly into ssh-add stdin — never touches disk.
+    # `ssh-add -t TTL -` reads private key bytes from stdin with the given
+    # lifetime. gpg prompts interactively for the passphrase via tty.
+    local ttl_args=()
+    [[ "${TTL}" != "0" ]] && ttl_args=(-t "${TTL}")
+    gpg --quiet --decrypt "${blob}" | ssh-add "${ttl_args[@]}" - \
+        || die "ssh-add rejected the decrypted key — wrong passphrase, or the
+            blob is corrupt. The agent state hasn't changed."
+
+    if [[ "${kind}" == "rw" ]]; then
+        install_repo_hook
+    fi
+
+    echo "cbflow-git-unlock: loaded ${kind} key into agent" \
+         "(TTL=${TTL}s, blob=${blob})"
+}
+
+# ── arg parse ──────────────────────────────────────────────────────────────
+KIND="ro"
+ACTION="unlock"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --write|-w) KIND="rw" ;;
+        --read|-r)  KIND="ro" ;;
+        --status|-s) ACTION="status" ;;
+        --lock|-L)  ACTION="lock" ;;
+        --help|-h)  usage 0 ;;
+        *)          die "unknown arg: $1 (try --help)" ;;
+    esac
+    shift
+done
+
+case "${ACTION}" in
+    unlock) unlock_key "${KIND}" ;;
+    status) show_status ;;
+    lock)   lock_session ;;
+esac

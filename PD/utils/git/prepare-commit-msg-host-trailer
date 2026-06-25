@@ -1,0 +1,44 @@
+#!/bin/bash
+# CBflow prepare-commit-msg hook — appends a `Committed-On:` trailer naming
+# the production host and the OS uid that ran git commit. Useful when a
+# shared deploy key is used: GitHub sees "deploy key" as the auth identity,
+# but this trailer captures who actually drove the commit.
+#
+# Installed by `cbflow-git-unlock --write` into the local repo's
+# .git/hooks/prepare-commit-msg.
+#
+# Hook contract:
+#   $1 = commit message file
+#   $2 = source ("message" | "template" | "merge" | "squash" | "commit" | "")
+#   $3 = commit sha (when $2 == "commit")
+#
+# Idempotent: skips if a Committed-On line is already present.
+
+set -euo pipefail
+
+MSG_FILE="$1"
+SOURCE="${2:-}"
+
+# Don't append to amend, merge, squash, or rebase commit messages — those
+# carry an existing trailer block we shouldn't double-stamp.
+case "${SOURCE}" in
+    commit|merge|squash) exit 0 ;;
+esac
+
+# Skip if the trailer is already there (re-run protection).
+if grep -q '^Committed-On:' "${MSG_FILE}"; then
+    exit 0
+fi
+
+HOST="$(hostname -s 2>/dev/null || hostname)"
+UID_NUM="$(id -u 2>/dev/null || echo unknown)"
+UID_NAME="$(id -un 2>/dev/null || echo unknown)"
+STAMP="${HOST} (user=${UID_NAME} uid=${UID_NUM})"
+
+# Use git interpret-trailers so the trailer sits in the proper block at
+# the bottom of the message, separated from the body by a blank line.
+tmp="$(mktemp)"
+git interpret-trailers \
+    --trailer "Committed-On: ${STAMP}" \
+    "${MSG_FILE}" > "${tmp}"
+mv "${tmp}" "${MSG_FILE}"
