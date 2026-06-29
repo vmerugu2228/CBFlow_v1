@@ -94,3 +94,27 @@ array set fp {
     output,block_labeling                                ""
 }
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# LOW-POWER INSERTION — FP/powerplan stage (POWER SWITCHES / PG CELLS)
+# ──────────────────────────────────────────────────────────────────────────────
+# Architecture split per user direction (2026-06-29):
+#   - Power switches (PG cells) → inserted HERE in FP/powerplan
+#   - Isolation cells, level shifters, AON buffers → inserted in PNR/place
+#
+# Master knob: `set fp(common,lowpower_enable) "true"` in user_config.
+# Per-stage:   `set fp(powerplan,lowpower_enable) "true"`.
+# Default OFF — existing runs unchanged.
+#
+# Prerequisite: UPF MUST already be loaded by FP/init_design's
+# load_constraints step. The `insert_power_switches` flow_proc in
+# FP/powerplan_fc.tcl enables FC's UPF implementation engine, applies
+# PSW lib cells, commits UPF, and runs check_mv_design + reports.
+# ──────────────────────────────────────────────────────────────────────────────
+array set fp {
+    common,lowpower_enable                               "false"
+    powerplan,lowpower_enable                            "false"
+
+    common,lowpower,power_switches                       "true"
+    common,lowpower,power_switch_lib_cells               ""
+}

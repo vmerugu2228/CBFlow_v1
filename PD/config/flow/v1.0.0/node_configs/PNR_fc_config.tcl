@@ -303,27 +303,26 @@ array set pnr {
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
-# LOW-POWER INSERTION (UPF-driven: power switches, isolation, level shifters)
+# LOW-POWER INSERTION — PNR/place stage (ISO + LS + AON BUFFERS)
 # ──────────────────────────────────────────────────────────────────────────────
+# Architecture split:
+#   - Power switches (PG cells) → inserted in FP/powerplan (see FP_fc_config.tcl)
+#   - Isolation cells, level shifters, AON buffers → inserted HERE
+#
 # Master knob to enable: `set pnr(common,lowpower_enable) "true"` in
 # user_config (or per-stage: `pnr(place,lowpower_enable)`).
 # Default OFF — existing runs unchanged.
 #
-# Prerequisite: the UPF file MUST already be loaded by init_design's
-# load_constraints step. This flow_proc enables FC's UPF implementation
-# engine and runs check_mv_design + reports — it does NOT re-load UPF.
-#
-# When enabled, the `insert_low_power_cells` flow_proc in place_fc.tcl
-# sources cmds/PNR/synopsys/fc/<ver>/lowpower_fc.tcl. See
-# PD/docs/03-reference/lowpower-integration.md for full description.
+# Prerequisite: UPF file MUST already be loaded by init_design's
+# load_constraints step. The `insert_low_power_cells` flow_proc in
+# place_fc.tcl enables FC's UPF implementation engine and runs
+# check_mv_design + reports — it does NOT re-load UPF.
 # ──────────────────────────────────────────────────────────────────────────────
 array set pnr {
     common,lowpower_enable                               "false"
     place,lowpower_enable                                "false"
 
-    common,lowpower,power_switches                       "true"
     common,lowpower,isolation_cells                      "true"
     common,lowpower,level_shifters                       "true"
     common,lowpower,always_on_buffers                    "true"
-    common,lowpower,power_switch_lib_cells               ""
 }

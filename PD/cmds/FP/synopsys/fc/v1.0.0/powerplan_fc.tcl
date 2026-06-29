@@ -217,6 +217,30 @@ flow_proc verify_power {
 }
 
 # ==============================================================================
+# flow_proc: insert_power_switches
+# Optional UPF-driven power-switch (PG cell) insertion. Gated on
+# fp(powerplan,lowpower_enable) OR fp(common,lowpower_enable) == "true".
+# PSW goes into the power network, so insertion belongs in the powerplan
+# stage AFTER straps/rings exist and BEFORE final PG verification reports.
+# Companion ISO/LS/AON insertion happens later in PNR/place_fc.tcl.
+# Default OFF.
+# ==============================================================================
+flow_proc insert_power_switches {
+    if {![lowpower_enabled powerplan]} {
+        handle_info "Power-switch insertion disabled (powerplan,lowpower_enable != true) — skipping"
+        return
+    }
+    handle_info "Power-switch insertion enabled — staging globals for powerplan"
+    lowpower_stage_globals powerplan
+    set _recipe "$::env(FLOW_DIR)/cmds/PNR/synopsys/fc/$::env(TOOL_VERSION)/lowpower_fc.tcl"
+    if {![file exists $_recipe]} {
+        set _recipe "$::env(FLOW_DIR)/cmds/PNR/synopsys/fc/v1.0.0/lowpower_fc.tcl"
+    }
+    handle_info "Sourcing low-power recipe: $_recipe"
+    source $_recipe
+}
+
+# ==============================================================================
 # flow_proc: generate_power_reports
 # Description: Generate comprehensive power grid reports
 # ==============================================================================
