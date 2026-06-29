@@ -41,7 +41,7 @@ flow_proc load_design {
     set lib_name    [cfg_get common,design_lib_name "${design_name}.nlib"]
 
     open_lib $lib_name
-    set _from_block [cbflow_get_head_block "place_opt"]
+    set _from_block [cbflow_resolve_head_block "place_opt" {place init_design}]
     handle_info "load_design: copying from ${design_name}/${_from_block} (head-block manifest)"
     copy_block -from ${design_name}/${_from_block} -to ${design_name}/clock_opt_cts
     current_block ${design_name}/clock_opt_cts
@@ -400,7 +400,7 @@ flow_proc save_design {
         save_block -as ${design_name}/clock_opt_cts
         handle_info "Block saved: ${design_name}/clock_opt_cts"
     }
-    cbflow_set_head_block "clock_opt_cts" $STAGE_NAME $NODE_NAME
+    cbflow_record_block_state $STAGE_NAME "clock_opt_cts" $NODE_NAME
 
     set_svf -off
     handle_info "CTS design saved"

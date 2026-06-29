@@ -256,7 +256,7 @@ flow_proc save_design_block {
     if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling) ne "" && [string is true -strict $pnr(output,block_labeling)]} {
         save_block -as $pnr(common,design_name)/place
         handle_info "Block saved as $pnr(common,design_name)/place"
-        cbflow_set_head_block "place" $STAGE_NAME $NODE_NAME
+        cbflow_record_block_state $STAGE_NAME "place" $NODE_NAME
     } else {
         save_block
         handle_info "Block saved"

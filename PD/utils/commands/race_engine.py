@@ -1283,19 +1283,54 @@ class RaceEngine:
         except Exception:
             pass
 
+    # ── Per-stage block-state cleanup (bypass-safe load_design) ─────────────
+    # Each FC PnR stage's save_design writes
+    #   <run_dir>/.cbflow_block_state/<stage>.tcl
+    # containing the block name it just saved. The next stage's load_design
+    # walks back through its upstream chain looking for the most recent file
+    # that exists. Bypass and retrace MUST delete the per-stage file for the
+    # affected stage, otherwise stale block names from a prior run cycle leak
+    # forward and cause load_design to copy_block the wrong upstream block.
+    # File deletion only — no fc_shell invoked.
+
+    def _block_state_path(self, stage: str) -> str:
+        return os.path.join(self.run_dir, '.cbflow_block_state', f'{stage}.tcl')
+
+    def _drop_block_state(self, stages):
+        """Delete the per-stage block-state file for each stage in `stages`.
+        Pure file removal; missing files are silently ignored."""
+        for stage in stages:
+            p = self._block_state_path(stage)
+            try:
+                os.remove(p)
+                logger.debug(f"Removed block-state: {p}")
+            except FileNotFoundError:
+                pass
+            except OSError as e:
+                logger.warning(f"Could not remove block-state {p}: {e}")
+
     # ── Invalidation helper ─────────────────────────────────────────────────
 
     def _invalidate_jobs(self, job_names: list):
-        """Invalidate jobs: set in-memory status + update DB."""
+        """Invalidate jobs: set in-memory status + update DB.
+        Also drops the per-stage block-state files so a re-run of any
+        invalidated stage doesn't read a stale upstream block name from
+        the previous iteration."""
+        invalidated_stages = set()
         for name in job_names:
             job = self.jobs.get(name)
             if job:
                 job.status = Job.INVALIDATED
+                invalidated_stages.add(job.stage)
         if job_names:
             self.db.invalidate(job_names)
+        if invalidated_stages:
+            self._drop_block_state(invalidated_stages)
 
     def bypass(self, stages: list) -> int:
-        """Mark stages as skipped (bypass). Works on any current status."""
+        """Mark stages as skipped (bypass). Works on any current status.
+        Also drops the per-stage block-state file so load_design's walk-back
+        skips this stage on the next downstream run."""
         self._check_ownership()
         count = 0
         for stage in stages:
@@ -1304,6 +1339,8 @@ class RaceEngine:
                     self.db.record_direct(job, Job.BYPASSED)
                     count += 1
             logger.info(f"Bypassed: {stage}")
+        if stages:
+            self._drop_block_state(stages)
         logger.info(f"Total bypassed: {count} jobs")
         return 0
 

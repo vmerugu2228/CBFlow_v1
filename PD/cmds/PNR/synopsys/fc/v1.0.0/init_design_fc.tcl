@@ -894,7 +894,7 @@ flow_proc save_design {
     if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling) ne "" && [string is true -strict $pnr(output,block_labeling)]} {
         save_block -as ${design_name}/init_design
         handle_info "Block saved: ${design_name}/init_design"
-        cbflow_set_head_block "init_design" $STAGE_NAME $NODE_NAME
+        cbflow_record_block_state $STAGE_NAME "init_design" $NODE_NAME
     }
 
     # FC-RM: Close SVF
