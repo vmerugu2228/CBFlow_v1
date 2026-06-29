@@ -144,7 +144,7 @@ array set synth_pnr {
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 array set synth_pnr {
-    supported_tools {fc innovus}
+    supported_tools {fc}
     default_tool    "fc"
 }
 

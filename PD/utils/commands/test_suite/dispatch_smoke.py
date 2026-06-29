@@ -22,19 +22,25 @@ from pathlib import Path
 # flow_mapping tier so we can verify the bsub command resolved the right
 # memory/cpu quartet. tool covers the PD discipline today.
 _PD_MATRIX = [
+    # SYNTH_PNR's only shipped tool today is fc. The other tools below
+    # don't actually ship handlers under cmds/SYNTH_PNR/, but the smoke
+    # harness only exercises the dispatch path (lsf flow_mapping lookup,
+    # tool_shell binary resolution, wrapper exec, bsub fire) — using
+    # SYNTH_PNR as the flow_mapping lookup vehicle here is enough to
+    # cover each tool's tool_shell entry. When a flow grows a new tool,
+    # add a row with the right (flow, stage) instead.
     ('SYNTH_PNR', 'init_design',  'S',     'fc'),
-    ('SYNTH_PNR', 'init_design',  'S',     'innovus'),
     ('SYNTH_PNR', 'synthesis',    'M',     'fc'),
     ('SYNTH_PNR', 'synthesis',    'M',     'genus'),
-    ('SYNTH_PNR', 'place',        'L',     'innovus'),
     ('SYNTH_PNR', 'place',        'L',     'fc'),
-    ('SYNTH_PNR', 'route',        'XL',    'innovus'),
-    ('SYNTH_PNR', 'signoff',      'M',     'tempus'),
     ('SYNTH_PNR', 'release_data', 'XS',    'fc'),
     ('SYNTH_PNR', 'release_data', 'XS',    'pt'),
-    # tools that don't ship via SYNTH_PNR — use a SYNTH_PNR stage as the
-    # `flow_mapping` lookup vehicle, but vary the tool to exercise the
-    # tool_shell resolution path.
+    # tools whose tool_shell mapping we still want to verify, even
+    # though they're not bound to SYNTH_PNR handlers:
+    ('SYNTH_PNR', 'init_design',  'S',     'innovus'),
+    ('SYNTH_PNR', 'place',        'L',     'innovus'),
+    ('SYNTH_PNR', 'route',        'XL',    'innovus'),
+    ('SYNTH_PNR', 'signoff',      'M',     'tempus'),
     ('SYNTH_PNR', 'signoff',      'M',     'formality'),
     ('SYNTH_PNR', 'signoff',      'M',     'fm'),
     ('SYNTH_PNR', 'signoff',      'M',     'vc_lp'),
