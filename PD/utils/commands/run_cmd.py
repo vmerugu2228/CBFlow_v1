@@ -3167,6 +3167,8 @@ not here.
 Examples:
   cbflow run gui                  Register + open in daemon (default)
   cbflow run gui --no-browser     Register but don't open browser
+  cbflow run gui --public         Bind daemon to LAN (http://<host>:<port>/)
+                                  — needed for remote browsers in production
   cbflow run gui --foreground     Legacy: per-run foreground server
   cbflow run gui --foreground --port 9090
                                   Legacy server on a specific port""")
@@ -3178,6 +3180,15 @@ Examples:
                              help='Run a per-run foreground server (legacy). Skips the daemon.')
     dash_parser.add_argument('--daemon', action='store_true',
                              help='Explicitly use daemon mode (now the default; flag kept for clarity)')
+    dash_parser.add_argument(
+        '--public', action='store_true',
+        help='Bind the daemon to 0.0.0.0 so remote browsers on the LAN can '
+             'reach the dashboard at http://<hostname>:<port>/. Default is '
+             'localhost-only (reach via SSH tunnel). Env: '
+             'CBFLOW_DASHBOARD_BIND_ADDR.')
+    dash_parser.add_argument(
+        '--bind-addr', dest='bind_addr', default=None,
+        help='Explicit bind interface — overrides --public when both given.')
 
     db_parser = subparsers.add_parser('db-manage', help='Manage RACE database sessions',
         formatter_class=_fmt, description="""Manage RACE SQLite database sessions.
@@ -3227,7 +3238,9 @@ def cmd_gui(args):
             logger.error("  cbflow dashboard stop")
             logger.error(f"  cbflow dashboard start --port {port}")
             return 2
-        return _cmd_gui_daemon(no_browser)
+        return _cmd_gui_daemon(no_browser,
+                               public=getattr(args, 'public', False),
+                               bind_addr=getattr(args, 'bind_addr', None))
 
     # --foreground: legacy per-run server (unchanged).
     import sys
@@ -3241,8 +3254,14 @@ def cmd_gui(args):
     return start_dashboard(os.getcwd(), port=port, open_browser=not no_browser) or 0
 
 
-def _cmd_gui_daemon(no_browser):
-    """Register the current run with the per-user dashboard daemon."""
+def _cmd_gui_daemon(no_browser, public=False, bind_addr=None):
+    """Register the current run with the per-user dashboard daemon.
+
+    `public` / `bind_addr` are forwarded to ensure_daemon if the daemon
+    isn't already running. If the daemon is already up with a different
+    bind, the user must `cbflow dashboard restart --public` (or stop and
+    restart) — we don't transparently rebind a running daemon.
+    """
     import sys
     dashboard_dir = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'dashboard')
@@ -3251,7 +3270,7 @@ def _cmd_gui_daemon(no_browser):
     import lifecycle  # noqa: E402
 
     try:
-        lifecycle.ensure_daemon()
+        lifecycle.ensure_daemon(public=public, bind_addr=bind_addr)
         reply = lifecycle.send_register(os.getcwd())
     except (RuntimeError, OSError) as e:
         logger.error(f'dashboard daemon error: {e}')

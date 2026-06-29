@@ -33,9 +33,14 @@ def is_running():
     return status()['state'] == 'running'
 
 
-def ensure_daemon(port=0, wait_s=4.0, discipline=None):
+def ensure_daemon(port=0, wait_s=4.0, discipline=None, bind_addr=None,
+                  public=False):
     """Make sure the daemon for `discipline` is up. Spawn it in the background
     if not. Returns the port the daemon is listening on.
+
+    `bind_addr` or `public=True` controls the interface the daemon binds to.
+    Default (None) → 127.0.0.1 unless CBFLOW_DASHBOARD_BIND_ADDR is set.
+    `public=True` → 0.0.0.0 (LAN-accessible).
 
     Raises RuntimeError on bring-up failure (e.g. port collision).
     """
@@ -56,9 +61,14 @@ def ensure_daemon(port=0, wait_s=4.0, discipline=None):
     log_fd = open(state_paths.logfile(), 'ab', buffering=0)
     env = os.environ.copy()
     env['CBFLOW_DASHBOARD_DISCIPLINE'] = disc
+    cmd = [sys.executable, daemon_py, 'serve',
+           '--port', str(chosen), '--discipline', disc]
+    if public:
+        cmd.append('--public')
+    elif bind_addr:
+        cmd += ['--bind-addr', bind_addr]
     proc = subprocess.Popen(
-        [sys.executable, daemon_py, 'serve',
-         '--port', str(chosen), '--discipline', disc],
+        cmd,
         stdin=subprocess.DEVNULL,
         stdout=log_fd,
         stderr=log_fd,
@@ -267,6 +277,30 @@ def _tail_log(n=20):
         return '(log unreadable)'
 
 
+def _emit_host():
+    """Hostname to use in URLs handed back to the user.
+
+    The daemon persists its bind address in `dashboard.bind_addr` at
+    start time. If it bound to a non-localhost interface (e.g. 0.0.0.0
+    via `--public`), the URL needs to point at the actual host so a
+    remote browser can resolve it — `0.0.0.0` literally is not a valid
+    URL host. Falls back to `127.0.0.1` for the default localhost bind.
+    """
+    bind_addr = '127.0.0.1'
+    try:
+        with open(state_paths.bind_addr_file()) as f:
+            bind_addr = f.read().strip() or '127.0.0.1'
+    except OSError:
+        pass
+    if bind_addr in ('127.0.0.1', 'localhost', '::1'):
+        return '127.0.0.1'
+    # 0.0.0.0 means "all interfaces" — pick the hostname so a remote
+    # browser can resolve it. socket.gethostname() returns the short
+    # name in most LAN setups (e.g. 'prod-host-01'); FQDN would be
+    # getfqdn() but is verbose.
+    return socket.gethostname()
+
+
 def url_for_run(run_dir):
     """Compute the deep-link URL for a registered run, given the daemon port.
     Raises RuntimeError if the daemon isn't running."""
@@ -274,11 +308,11 @@ def url_for_run(run_dir):
     if st['state'] != 'running' or not st['port']:
         raise RuntimeError('dashboard daemon is not running')
     rid = registry.run_id_for(run_dir)
-    return f'http://127.0.0.1:{st["port"]}/run/{rid}/'
+    return f'http://{_emit_host()}:{st["port"]}/run/{rid}/'
 
 
 def url_for_index():
     st = status()
     if st['state'] != 'running' or not st['port']:
         raise RuntimeError('dashboard daemon is not running')
-    return f'http://127.0.0.1:{st["port"]}/'
+    return f'http://{_emit_host()}:{st["port"]}/'

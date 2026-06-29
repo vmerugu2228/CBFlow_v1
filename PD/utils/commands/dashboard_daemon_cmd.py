@@ -69,10 +69,13 @@ def _apply_discipline(args):
 def cmd_start(args):
     _apply_discipline(args)
     port = args.port or _daemon.deterministic_port()
+    public = getattr(args, 'public', False)
+    bind_addr_arg = getattr(args, 'bind_addr', None)
+    bind_addr = '0.0.0.0' if public else _daemon.resolve_bind_addr(bind_addr_arg)
 
     if args.foreground:
         try:
-            _daemon.serve_foreground(port)
+            _daemon.serve_foreground(port, bind_addr=bind_addr)
         except RuntimeError as e:
             print(f'error: {e}', file=sys.stderr)
             return 1
@@ -81,15 +84,19 @@ def cmd_start(args):
     st = lifecycle.status()
     if st['state'] == 'running':
         print(f'dashboard daemon already running (pid={st["pid"]}, port={st["port"]})')
-        print(f'url: http://127.0.0.1:{st["port"]}/')
+        print(f'url: {lifecycle.url_for_index()}')
         return 0
 
     try:
-        actual_port = lifecycle.ensure_daemon(port=port)
+        actual_port = lifecycle.ensure_daemon(port=port, public=public,
+                                              bind_addr=bind_addr_arg)
     except RuntimeError as e:
         print(f'error: {e}', file=sys.stderr)
         return 1
-    print(f'dashboard daemon started on http://127.0.0.1:{actual_port}/')
+    print(f'dashboard daemon started on {lifecycle.url_for_index()}')
+    if bind_addr == '0.0.0.0':
+        print('  ⚠  bound to 0.0.0.0 — reachable from any host on the LAN. '
+              'Restrict via firewall if needed.')
     return 0
 
 
@@ -133,7 +140,20 @@ def _show_one_status():
     if st['reason']:
         print(f'reason: {st["reason"]}')
     if st['state'] == 'running':
-        print(f'url:    http://127.0.0.1:{st["port"]}/')
+        # url_for_index reads the persisted bind_addr and uses gethostname()
+        # when bound to a non-localhost interface.
+        print(f'url:    {lifecycle.url_for_index()}')
+        # Show the bind address explicitly so production admins know whether
+        # this daemon is reachable from the LAN or only via SSH tunnel.
+        try:
+            with open(state_paths.bind_addr_file()) as _bf:
+                bind = _bf.read().strip()
+        except OSError:
+            bind = '127.0.0.1'
+        if bind == '0.0.0.0':
+            print(f'bind:   {bind}  (LAN-accessible via http://<hostname>:{st["port"]}/)')
+        else:
+            print(f'bind:   {bind}  (localhost only — SSH-tunnel to reach remotely)')
         active = registry.list_active()
         archived = [r for r in registry.list_all() if r.get('archived')]
         print(f'runs:   {len(active)} active, {len(archived)} archived')
@@ -339,11 +359,24 @@ def create_parser():
                     'verb (register auto-detects from the run\'s flow_type).')
     sub = parser.add_subparsers(dest='cmd', required=False)
 
+    def _add_bind(p):
+        p.add_argument(
+            '--public', action='store_true',
+            help='Bind to 0.0.0.0 so remote browsers on the LAN can reach '
+                 'the dashboard at http://<hostname>:<port>/. Default is '
+                 'localhost-only (requires SSH tunnel to reach remotely).')
+        p.add_argument(
+            '--bind-addr', dest='bind_addr', default=None,
+            help='Explicit bind interface (e.g. 127.0.0.1, 0.0.0.0, '
+                 'or a specific NIC IP). Overrides --public if both given. '
+                 'Env: CBFLOW_DASHBOARD_BIND_ADDR.')
+
     p = sub.add_parser('start', help='Start the daemon')
     p.add_argument('--port', type=int, default=0,
                    help='Override the deterministic port')
     p.add_argument('--foreground', action='store_true',
                    help="Don't detach; useful for debugging")
+    _add_bind(p)
     _add_disc(p)
     p.set_defaults(func=cmd_start)
 
@@ -354,6 +387,7 @@ def create_parser():
     p = sub.add_parser('restart', help='Restart the daemon')
     p.add_argument('--port', type=int, default=0)
     p.add_argument('--foreground', action='store_true')
+    _add_bind(p)
     _add_disc(p)
     p.set_defaults(func=cmd_restart)
 

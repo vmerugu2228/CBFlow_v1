@@ -149,6 +149,7 @@ def existing_daemon_status():
 
 def cleanup_stale_state():
     for p in (state_paths.pidfile(), state_paths.portfile(),
+              state_paths.bind_addr_file(),
               state_paths.start_ts_file(), state_paths.control_sock()):
         try:
             os.unlink(p)
@@ -167,15 +168,16 @@ class _ThreadingHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
 
 
 class _Server:
-    def __init__(self, port):
+    def __init__(self, port, bind_addr='127.0.0.1'):
         self.port = port
+        self.bind_addr = bind_addr
         self.pool = router.DashboardPool()
         self.handler_cls = router.make_daemon_handler(self.pool)
         self.http = None
         self.watcher_stop = threading.Event()
 
     def serve(self):
-        self.http = _ThreadingHTTPServer(('127.0.0.1', self.port), self.handler_cls)
+        self.http = _ThreadingHTTPServer((self.bind_addr, self.port), self.handler_cls)
         threading.Thread(target=self._watcher, daemon=True).start()
         threading.Thread(target=self._registry_sweeper, daemon=True).start()
         threading.Thread(target=self._control_loop, daemon=True).start()
@@ -298,8 +300,15 @@ class _Server:
             if not run_dir:
                 return {'ok': False, 'error': 'register requires run_dir'}
             rec = registry.register(run_dir)
+            # Build a remote-reachable URL when the daemon is bound to a
+            # non-localhost interface — handing back 127.0.0.1 would only
+            # work from this host.
+            if self.bind_addr in ('127.0.0.1', 'localhost', '::1'):
+                host = '127.0.0.1'
+            else:
+                host = socket.gethostname()
             return {'ok': True, 'run_id': rec['run_id'],
-                    'url': f'http://127.0.0.1:{self.port}/run/{rec["run_id"]}/'}
+                    'url': f'http://{host}:{self.port}/run/{rec["run_id"]}/'}
         if op == 'deregister':
             target = msg.get('run_dir') or msg.get('run_id')
             if not target:
@@ -323,9 +332,14 @@ class _Server:
 
 # ── Foreground entry ────────────────────────────────────────────────────────
 
-def claim_state(port):
+def claim_state(port, bind_addr='127.0.0.1'):
     """Atomically take ownership of the on-disk state files. Raises
-    RuntimeError if another daemon already owns them."""
+    RuntimeError if another daemon already owns them.
+
+    `bind_addr` is persisted alongside the port so lifecycle clients
+    (url_for_run, status command) can emit the right URL host without
+    re-spawning the daemon.
+    """
     status = existing_daemon_status()
     if status['state'] == 'running':
         raise RuntimeError(
@@ -352,16 +366,38 @@ def claim_state(port):
         f.write(f'{port}\n')
     os.chmod(state_paths.portfile(), 0o600)
 
+    # bind_addr file — read by lifecycle.url_for_run/index to pick the right
+    # hostname for the URL.
+    with open(state_paths.bind_addr_file(), 'w') as f:
+        f.write(bind_addr + '\n')
+    os.chmod(state_paths.bind_addr_file(), 0o600)
+
 
 def release_state():
     cleanup_stale_state()
 
 
-def serve_foreground(port):
+def resolve_bind_addr(arg_value=None):
+    """Resolve the bind address from the explicit arg → env var → default.
+
+    Order: --bind-addr flag → $CBFLOW_DASHBOARD_BIND_ADDR → '127.0.0.1'.
+    The default keeps the daemon localhost-only for security; production
+    that wants LAN access opts in via `--public` (→ '0.0.0.0') or by
+    setting the env var.
+    """
+    if arg_value:
+        return arg_value
+    env_addr = os.environ.get('CBFLOW_DASHBOARD_BIND_ADDR', '').strip()
+    if env_addr:
+        return env_addr
+    return '127.0.0.1'
+
+
+def serve_foreground(port, bind_addr='127.0.0.1'):
     try:
         sock_check = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock_check.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock_check.bind(('127.0.0.1', port))
+        sock_check.bind((bind_addr, port))
         sock_check.close()
     except OSError as e:
         if e.errno == errno.EADDRINUSE:
@@ -370,9 +406,13 @@ def serve_foreground(port):
                 f'or stop the conflicting process.')
         raise
 
-    claim_state(port)
+    # Persist the bind address alongside the port so clients (lifecycle,
+    # url_for_run, status) emit the right URL host. Without this, a
+    # daemon bound to 0.0.0.0 would still hand back http://127.0.0.1/...,
+    # which is wrong for remote browsers.
+    claim_state(port, bind_addr=bind_addr)
 
-    server = _Server(port)
+    server = _Server(port, bind_addr=bind_addr)
 
     def _signal_handler(signum, frame):
         print(f'[daemon] received signal {signum}; shutting down', flush=True)
@@ -383,7 +423,16 @@ def serve_foreground(port):
     signal.signal(signal.SIGTERM, _signal_handler)
     signal.signal(signal.SIGINT, _signal_handler)
 
-    print(f'[daemon] cbflow dashboard daemon listening on 127.0.0.1:{port} '
+    if bind_addr in ('127.0.0.1', 'localhost'):
+        listening_msg = f'127.0.0.1:{port} (localhost only)'
+    elif bind_addr == '0.0.0.0':
+        listening_msg = (f'0.0.0.0:{port}  ⚠  LAN-accessible — anyone on '
+                         f'the network can reach this dashboard. '
+                         f'Restrict via firewall or unset --public for '
+                         f'SSH-tunnel-only access.')
+    else:
+        listening_msg = f'{bind_addr}:{port}'
+    print(f'[daemon] cbflow dashboard daemon listening on {listening_msg} '
           f'(pid={os.getpid()})', flush=True)
     try:
         server.serve()
@@ -400,13 +449,24 @@ def main(argv=None):
                          help='Port (default: per-discipline deterministic)')
     serve_p.add_argument('--discipline', choices=('PD', 'DFT'), default=None,
                          help='Discipline this daemon serves (default: $CBFLOW_DASHBOARD_DISCIPLINE or PD)')
+    serve_p.add_argument(
+        '--bind-addr', dest='bind_addr', default=None,
+        help='Interface to bind. Default: 127.0.0.1 (localhost-only, '
+             'reachable via SSH tunnel). Use 0.0.0.0 to expose to the LAN '
+             '— make sure your firewall is in place. Env override: '
+             'CBFLOW_DASHBOARD_BIND_ADDR.')
+    serve_p.add_argument(
+        '--public', action='store_true',
+        help='Shorthand for --bind-addr 0.0.0.0 — daemon becomes reachable '
+             'at http://<hostname>:<port>/ from any machine on the LAN.')
     args = parser.parse_args(argv)
     if args.cmd == 'serve':
         if args.discipline:
             state_paths.set_discipline(args.discipline)
             os.environ['CBFLOW_DASHBOARD_DISCIPLINE'] = args.discipline
         port = args.port or deterministic_port()
-        serve_foreground(port)
+        bind_addr = '0.0.0.0' if args.public else resolve_bind_addr(args.bind_addr)
+        serve_foreground(port, bind_addr=bind_addr)
         return 0
     return 1
 

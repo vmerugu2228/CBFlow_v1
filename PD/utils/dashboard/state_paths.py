@@ -100,6 +100,13 @@ def portfile(discipline=None):
     return os.path.join(root(discipline), 'dashboard.port')
 
 
+def bind_addr_file(discipline=None):
+    """Records the bind address the daemon used. Read by lifecycle to
+    pick the right hostname for the URL (127.0.0.1 stays as-is; anything
+    else uses gethostname() so remote browsers can reach it)."""
+    return os.path.join(root(discipline), 'dashboard.bind_addr')
+
+
 def start_ts_file(discipline=None):
     return os.path.join(root(discipline), 'dashboard.start_ts')
 
