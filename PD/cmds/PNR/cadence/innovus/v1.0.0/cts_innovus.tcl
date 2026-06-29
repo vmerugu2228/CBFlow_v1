@@ -78,7 +78,13 @@ flow_proc setup_ndr {
         set ndr_script $pnr(cts,ndr_script)
     }
 
-    if {[file exists $ndr_script]} {
+    # Only source the NDR script if the user has actually configured NDR
+    # knobs. The script's mandatory-knob checks otherwise fire and crash
+    # the cts stage for designs that don't need a custom NDR.
+    set _ndr_configured [expr {[info exists pnr(cts,ndr_name)] && $pnr(cts,ndr_name) ne ""}]
+    if {!$_ndr_configured} {
+        handle_info "NDR not configured (pnr(cts,ndr_name) unset) — skipping NDR setup"
+    } elseif {[file exists $ndr_script]} {
         handle_info "Sourcing CTS NDR: [file tail $ndr_script]"
         source $ndr_script
     } else {

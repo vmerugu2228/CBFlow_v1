@@ -46,7 +46,8 @@ set flow(merged,pnr_depends_fp) true
 set flow(race,db_max_sessions)  10                                        ;# Warning at 80%, error at 100%
 
 # ┌─ MMMC ────────────────────────────────────────────────────────────────────┐
-set flow(mmmc,enabled)      true
+set flow(mmmc,enabled)        true
+set flow(mmmc,enabled_stages) {place cts cts_opt route pro signoff}
 
 # ┌─ Phases & Milestones ────────────────────────────────────────────────────┐
 set flow(phases)          {P0 P1 P2 P3}

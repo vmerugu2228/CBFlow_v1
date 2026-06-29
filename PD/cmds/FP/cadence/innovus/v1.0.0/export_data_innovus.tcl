@@ -56,7 +56,7 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::
 }
 if {!$config_found} {
     handle_error "Cannot find generated config file. Run 'make export_data_setup' first."
-    exit 1
+    return -code error "Cannot find generated config file. Run 'make export_data_setup' first."
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════

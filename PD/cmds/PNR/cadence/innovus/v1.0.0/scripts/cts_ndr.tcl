@@ -33,7 +33,7 @@ foreach _var {
 } {
     if {![info exists $_var] || [set $_var] eq ""} {
         handle_error "$_var not set — required for CTS NDR setup"
-        exit 1
+        return -code error "$_var not set — required for CTS NDR setup"
     }
 }
 

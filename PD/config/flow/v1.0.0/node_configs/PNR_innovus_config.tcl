@@ -229,3 +229,17 @@ array set pnr {
     export,ilm                                           "false"
     export,lef_abstract                                  "false"
 }
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Defaults for keys that Innovus PNR cmd files read directly (without
+# [info exists] guard). Empty/safe defaults so test_mode runs don't crash
+# on missing-key Tcl errors; production runs override these in user_config.
+# ──────────────────────────────────────────────────────────────────────────────
+array set pnr {
+    place,density                                        ""
+    place,opt_effort                                     ""
+    route,effort                                         ""
+    route,fix_antenna                                    ""
+    route,post_opt_effort                                ""
+    opt,insert_metal_fill                                ""
+}

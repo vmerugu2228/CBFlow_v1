@@ -68,7 +68,7 @@ flow_proc activate_node_scenarios {
 foreach _req {fp(power,vdd_net) fp(power,vss_net) fp(power,vdd_pin) fp(power,vss_pin)} {
     if {![info exists $_req] || [set $_req] eq ""} {
         handle_error "$_req is not set. Define in user_config or FP tool config."
-        exit 1
+        return -code error "$_req is not set. Define in user_config or FP tool config."
     }
 }
 

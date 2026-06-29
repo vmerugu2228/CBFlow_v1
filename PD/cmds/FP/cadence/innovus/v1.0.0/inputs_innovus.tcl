@@ -74,7 +74,7 @@ if {[file exists "$run_dir/setup/user_config.tcl"]} { source "$run_dir/setup/use
 
 if {!$config_found} {
     handle_error "Cannot find generated config file. Run 'make inputs_setup' first."
-    exit 1
+    return -code error "Cannot find generated config file. Run 'make inputs_setup' first."
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════

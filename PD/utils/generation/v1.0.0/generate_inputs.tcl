@@ -41,7 +41,7 @@ cd $run_dir
 # Load configuration
 if {![file exists ".config.tcl"]} {
     handle_error "Configuration file not found: .config.tcl"
-    exit 1
+    return -code error "Configuration file not found: .config.tcl"
 }
 
 source ".config.tcl"
@@ -527,7 +527,7 @@ switch $flow_type {
     }
     default {
         handle_error "Unsupported flow type: $flow_type"
-        exit 1
+        return -code error "Unsupported flow type: $flow_type"
     }
 }
 

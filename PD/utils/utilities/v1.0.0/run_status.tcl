@@ -1247,7 +1247,7 @@ namespace eval ::CBFlow::Utilities::RunStatus {
                         set run_dir $arg
                     } else {
                         handle_error "Multiple run directories specified"
-                        exit 1
+                        return -code error "Multiple run directories specified"
                     }
                 }
             }
