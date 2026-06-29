@@ -199,11 +199,90 @@ flow_proc configure_cts {
     }
 
     handle_info "CTS configuration completed"
+}
+
+# ==============================================================================
+# flow_proc: construct_mscts
+# Description: Optional Multi-Source CTS (MSCTS / "multipoint CTS") step.
+#              Gated on `synth_pnr(cts,mpcts) == "true"`. When enabled, stages
+#              the user's MSCTS_* settings from the cascade and sources the
+#              standalone mscts_fc.tcl recipe (1:1 port of FC-RM Y-2026.03
+#              examples/mscts.regular.tcl).
+#
+# This is separate from the pre-existing `synth_pnr(cts,mscts_mesh_routing_script)`
+# hook above (handled in configure_cts), which only sources a user-provided
+# mesh-routing override. This flow_proc does the FULL MSCTS construction
+# (H-tree synthesis or tap-driver insertion + tap-assignment options).
+#
+# Position in flow: AFTER configure_cts, BEFORE build_clock_trees. The
+#                   subsequent `clock_opt -from build_clock` picks up the
+#                   tap assignment set via set_multisource_clock_tap_options
+#                   at the end of MSCTS.
+# ==============================================================================
+flow_proc construct_mscts {
+    global synth_pnr
+    # Gate. Default (absent / anything other than "true") = no-op, so
+    # existing SYNTH_PNR runs are unchanged.
+    set _on false
+    if {[info exists synth_pnr(cts,mpcts)]} {
+        if {[string is true -strict $synth_pnr(cts,mpcts)]} { set _on true }
+    }
+    if {!$_on} {
+        handle_info "MSCTS / multipoint CTS disabled (synth_pnr(cts,mpcts) != true) — skipping"
+        return
+    }
+
+    handle_info "MSCTS / multipoint CTS enabled — staging inputs from synth_pnr(cts,mpcts,*)"
+
+    set ::MSCTS_CLOCK                     [_synth_pnr_cts_mpcts_get clock                     ""]
+    set ::MSCTS_SOURCE                    [_synth_pnr_cts_mpcts_get source                    ""]
+    set ::MSCTS_TOPOLOGY                  [_synth_pnr_cts_mpcts_get topology                  "htree"]
+    set ::MSCTS_PITCH                     [_synth_pnr_cts_mpcts_get pitch                     "100"]
+    set ::MSCTS_TAP_DRIVER_LIB_CELLS      [_synth_pnr_cts_mpcts_get tap_driver_lib_cells      ""]
+    set ::MSCTS_NET                       [_synth_pnr_cts_mpcts_get net                       ""]
+    set ::MSCTS_TAP_DRIVER_MAX_DISPLACEMENT [_synth_pnr_cts_mpcts_get tap_driver_max_displacement ""]
+    set ::MSCTS_TAP_BOUNDARY              [_synth_pnr_cts_mpcts_get tap_boundary              ""]
+    set ::MSCTS_MACRO_KEEPOUT             [_synth_pnr_cts_mpcts_get macro_keepout             "false"]
+    set ::MSCTS_HTREE_LIB_CELLS           [_synth_pnr_cts_mpcts_get htree_lib_cells           ""]
+    set ::MSCTS_HTREE_NDR_RULE_NAME       [_synth_pnr_cts_mpcts_get htree_ndr_rule_name       ""]
+    set ::MSCTS_HTREE_MIN_ROUTING_LAYER   [_synth_pnr_cts_mpcts_get htree_min_routing_layer   ""]
+    set ::MSCTS_HTREE_MAX_ROUTING_LAYER   [_synth_pnr_cts_mpcts_get htree_max_routing_layer   ""]
+    set ::MSCTS_MESH_NET                  [_synth_pnr_cts_mpcts_get mesh_net                  ""]
+    set ::MSCTS_MESH_NET_PORT             [_synth_pnr_cts_mpcts_get mesh_net_port             ""]
+    set ::MSCTS_MESH_NET_PORT_TRANSITION  [_synth_pnr_cts_mpcts_get mesh_net_port_transition  ""]
+    set ::MSCTS_MESH_NET_PORT_DELAY       [_synth_pnr_cts_mpcts_get mesh_net_port_delay       ""]
+    set ::MSCTS_INPUT_TRANSITION          [_synth_pnr_cts_mpcts_get input_transition          ""]
+    set ::MSCTS_NET_DELAY                 [_synth_pnr_cts_mpcts_get net_delay                 ""]
+    set ::TCL_USER_MESH_ANNOTATION_SCRIPT [_synth_pnr_cts_mpcts_get user_mesh_annotation_script ""]
+
+    # The standalone MSCTS recipe lives under cmds/PNR/... — there's only
+    # one canonical copy for the project, shared across SYNTH_PNR and PNR
+    # so a future FC-RM bump touches one file, not two.
+    set _recipe "$::env(FLOW_DIR)/cmds/PNR/synopsys/fc/$::env(TOOL_VERSION)/mscts_fc.tcl"
+    if {![file exists $_recipe]} {
+        # Fallback: hard-code v1.0.0 if TOOL_VERSION isn't exported (test_mode).
+        set _recipe "$::env(FLOW_DIR)/cmds/PNR/synopsys/fc/v1.0.0/mscts_fc.tcl"
+    }
+    handle_info "Sourcing MSCTS recipe: $_recipe"
+    source $_recipe
+    handle_info "MSCTS construction completed"
+}
+
+# Helper for reading the cascade. Local because nothing else in this file
+# needs it.
+proc _synth_pnr_cts_mpcts_get {key default} {
+    global synth_pnr
+    set full "cts,mpcts,$key"
+    if {[info exists synth_pnr($full)] && $synth_pnr($full) ne ""} {
+        return $synth_pnr($full)
+    }
+    return $default
+}
+
 # ==============================================================================
 # flow_proc: build_clock_trees
 # FC-RM: clock_opt -from build_clock -to build_clock (with relaxed transition)
 # ==============================================================================
-}
 flow_proc build_clock_trees {
     handle_info "Building clock trees..."
     global synth_pnr flow

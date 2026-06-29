@@ -56,6 +56,37 @@ array set pnr {
     clock_opt_cts,enable_aocv     true
 }
 
+# ┌─ Multi-Source CTS / Multipoint CTS (FC-RM MSCTS) ──────────────────────────┐
+# Knob to enable: `set pnr(cts,mpcts) "true"` in user_config. Default off.
+# Per-block specs (clock, root, lib cells, layers) live alongside as
+# pnr(cts,mpcts,<key>). The cts1 stage's `construct_mscts` flow_proc reads
+# these, stages them into FC-RM-canonical MSCTS_* globals, and sources
+# mscts_fc.tcl. See PD/docs/03-reference/mscts-mpcts-reference.md for the
+# full input list and sample user_config block.
+array set pnr {
+    cts,mpcts                              "false"
+    cts,mpcts,clock                        ""
+    cts,mpcts,source                       ""
+    cts,mpcts,topology                     "htree"
+    cts,mpcts,pitch                        "100"
+    cts,mpcts,tap_driver_lib_cells         ""
+    cts,mpcts,net                          ""
+    cts,mpcts,tap_driver_max_displacement  ""
+    cts,mpcts,tap_boundary                 ""
+    cts,mpcts,macro_keepout                "false"
+    cts,mpcts,htree_lib_cells              ""
+    cts,mpcts,htree_ndr_rule_name          ""
+    cts,mpcts,htree_min_routing_layer      ""
+    cts,mpcts,htree_max_routing_layer      ""
+    cts,mpcts,mesh_net                     ""
+    cts,mpcts,mesh_net_port                ""
+    cts,mpcts,mesh_net_port_transition     ""
+    cts,mpcts,mesh_net_port_delay          ""
+    cts,mpcts,input_transition             ""
+    cts,mpcts,net_delay                    ""
+    cts,mpcts,user_mesh_annotation_script  ""
+}
+
 # ┌─ FC-RM Route Optimization Control ─────────────────────────────────────────┐
 array set pnr {
     route_opt,enable_hyper          false

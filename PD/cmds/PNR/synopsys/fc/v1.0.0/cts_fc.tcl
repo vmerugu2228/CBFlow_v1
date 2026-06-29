@@ -83,6 +83,96 @@ flow_proc configure_cts {
 }
 
 # ==============================================================================
+# flow_proc: construct_mscts
+# Description: Optional Multi-Source CTS (MSCTS / "multipoint CTS") step.
+#              Gated on `pnr(cts,mpcts) == "true"`. When enabled, stages the
+#              user's MSCTS_* settings from the cascade and sources the
+#              standalone mscts_fc.tcl recipe (1:1 port of FC-RM Y-2026.03
+#              examples/mscts.regular.tcl).
+#
+# Position in flow: AFTER configure_cts, BEFORE build_clock_trees. The
+#                   subsequent `clock_opt -from build_clock` then picks up
+#                   the tap assignment set via
+#                   set_multisource_clock_tap_options at the end of MSCTS.
+#
+# Note vs FC-RM:    FC-RM places MSCTS construction at the END of place_opt
+#                   so the H-tree exists before clock_opt_cts starts.
+#                   Per user direction, CBflow runs it as the first sub-step
+#                   of the cts1 node instead. Same net result for
+#                   `clock_opt`'s view of taps. If timing closure suffers
+#                   in production, the same flow_proc can be lifted into
+#                   place_fc.tcl with no other change.
+# ==============================================================================
+flow_proc construct_mscts {
+    global pnr
+    # Gate. Default (key absent or anything other than "true") = no-op,
+    # so existing PNR runs are unchanged.
+    set _on false
+    if {[info exists pnr(cts,mpcts)]} {
+        if {[string is true -strict $pnr(cts,mpcts)]} { set _on true }
+    }
+    if {!$_on} {
+        handle_info "MSCTS / multipoint CTS disabled (pnr(cts,mpcts) != true) — skipping"
+        return
+    }
+
+    handle_info "MSCTS / multipoint CTS enabled — staging inputs from pnr(cts,mpcts,*)"
+
+    # Stage cascade values into the FC-RM-canonical MSCTS_* globals the
+    # standalone recipe reads. Keeping the FC-RM names means mscts_fc.tcl
+    # stays a 1:1 port — no rename layer between CBflow's config keys
+    # and the recipe.
+    set ::MSCTS_CLOCK                     [_pnr_cts_mpcts_get clock                     ""]
+    set ::MSCTS_SOURCE                    [_pnr_cts_mpcts_get source                    ""]
+    set ::MSCTS_TOPOLOGY                  [_pnr_cts_mpcts_get topology                  "htree"]
+    set ::MSCTS_PITCH                     [_pnr_cts_mpcts_get pitch                     "100"]
+    set ::MSCTS_TAP_DRIVER_LIB_CELLS      [_pnr_cts_mpcts_get tap_driver_lib_cells      ""]
+    set ::MSCTS_NET                       [_pnr_cts_mpcts_get net                       ""]
+    set ::MSCTS_TAP_DRIVER_MAX_DISPLACEMENT [_pnr_cts_mpcts_get tap_driver_max_displacement ""]
+    set ::MSCTS_TAP_BOUNDARY              [_pnr_cts_mpcts_get tap_boundary              ""]
+    set ::MSCTS_MACRO_KEEPOUT             [_pnr_cts_mpcts_get macro_keepout             "false"]
+    # htree-mode inputs
+    set ::MSCTS_HTREE_LIB_CELLS           [_pnr_cts_mpcts_get htree_lib_cells           ""]
+    set ::MSCTS_HTREE_NDR_RULE_NAME       [_pnr_cts_mpcts_get htree_ndr_rule_name       ""]
+    set ::MSCTS_HTREE_MIN_ROUTING_LAYER   [_pnr_cts_mpcts_get htree_min_routing_layer   ""]
+    set ::MSCTS_HTREE_MAX_ROUTING_LAYER   [_pnr_cts_mpcts_get htree_max_routing_layer   ""]
+    # subtree_only-mode inputs
+    set ::MSCTS_MESH_NET                  [_pnr_cts_mpcts_get mesh_net                  ""]
+    set ::MSCTS_MESH_NET_PORT             [_pnr_cts_mpcts_get mesh_net_port             ""]
+    set ::MSCTS_MESH_NET_PORT_TRANSITION  [_pnr_cts_mpcts_get mesh_net_port_transition  ""]
+    set ::MSCTS_MESH_NET_PORT_DELAY       [_pnr_cts_mpcts_get mesh_net_port_delay       ""]
+    set ::MSCTS_INPUT_TRANSITION          [_pnr_cts_mpcts_get input_transition          ""]
+    set ::MSCTS_NET_DELAY                 [_pnr_cts_mpcts_get net_delay                 ""]
+    set ::TCL_USER_MESH_ANNOTATION_SCRIPT [_pnr_cts_mpcts_get user_mesh_annotation_script ""]
+
+    # Source the standalone recipe. It validates inputs internally and
+    # raises `return -code error` if anything required is missing, which
+    # propagates up through this flow_proc and aborts the cts1 stage —
+    # exactly what we want.
+    set _recipe "$::env(FLOW_DIR)/cmds/PNR/synopsys/fc/$::env(TOOL_VERSION)/mscts_fc.tcl"
+    if {![file exists $_recipe]} {
+        # Defensive fallback for TOOL_VERSION mismatch — try the version
+        # that the running handler was loaded from.
+        set _recipe "[file dirname [info script]]/mscts_fc.tcl"
+    }
+    handle_info "Sourcing MSCTS recipe: $_recipe"
+    source $_recipe
+    handle_info "MSCTS construction completed"
+}
+
+# Helper: read a `pnr(cts,mpcts,<key>)` from the resolved cascade, falling
+# back to a default. Kept local to this file because the only other reader
+# of these knobs is this flow_proc.
+proc _pnr_cts_mpcts_get {key default} {
+    global pnr
+    set full "cts,mpcts,$key"
+    if {[info exists pnr($full)] && $pnr($full) ne ""} {
+        return $pnr($full)
+    }
+    return $default
+}
+
+# ==============================================================================
 # flow_proc: build_clock_trees
 # Description: Build clock trees via clock_opt build_clock phase
 # ==============================================================================
