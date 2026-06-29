@@ -1,12 +1,16 @@
 #!/usr/bin/env tclsh
-# CBFlow PNR route1 - Synopsys Fusion Compiler | PNR route1
+# CBFlow shared (PNR + SYNTH_PNR) — synopsys/fc — route (route_auto) - Synopsys Fusion Compiler
+# FC-RM: route_auto.tcl -- Automatic signal routing, redundant vias, shields,
+#         StarRC in-design extraction, virtual metal fill
+# Aligned with FC-RM Y-2026.03
 
 # ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
 source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-set FLOW_TYPE "PNR"
+if {![info exists ::flow_type] || $::flow_type eq ""} { set ::flow_type $::env(CBFLOW_FLOW_TYPE) }
+set FLOW_TYPE $::flow_type
 set STAGE_NAME "route"
 set NODE_NAME "route1"
 
@@ -17,139 +21,336 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 # ── Directories ──────────────────────────────────────────────────────────────
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
-# ==============================================================================
-# flow_proc: configure_routing
-# Description: Set routing options, layer constraints, and antenna rules
-# ==============================================================================
-flow_proc configure_routing {
-    handle_info "Configuring routing options..."
-    global pnr tech
+# Active flow config array — pnr() or synth_pnr() depending on the run.
+# Use $cfg(...) / [info exists cfg(...)] throughout the file body.
+upvar #0 [string tolower $::flow_type] cfg
 
-    # Set QoR strategy for route stage
-    if {[info exists pnr(compile,qor_version)] && $pnr(compile,qor_version) ne ""} {
-        set_app_options -name flow.set_qor_strategy.version -value $pnr(compile,qor_version)
-    }
-    set set_qor_strategy_cmd "set_qor_strategy -stage route"
-    if {[info exists pnr(compile,qor_metric)] && $pnr(compile,qor_metric) ne ""} {
-        lappend set_qor_strategy_cmd -metric $pnr(compile,qor_metric)
-    }
-    if {[info exists pnr(compile,qor_mode)] && $pnr(compile,qor_mode) ne ""} {
-        lappend set_qor_strategy_cmd -mode $pnr(compile,qor_mode)
-    }
-    if {[info exists pnr(compile,reduced_effort)] && $pnr(compile,reduced_effort) ne "" && [string is true -strict $pnr(compile,reduced_effort)]} {
-        lappend set_qor_strategy_cmd -reduced_effort
-    }
-    handle_info "Running: $set_qor_strategy_cmd"
-    eval $set_qor_strategy_cmd
+# ==============================================================================
+# flow_proc: load_design
+# FC-RM: open_lib, copy_block from clock_opt_opto, link_block, hier abstracts
+# ==============================================================================
+flow_proc load_design {
+    handle_info "Loading design for route_auto..."
+    global cfg flow
 
-    # Set instance name prefix
+    set design_name [expr {$cfg(common,design_name) ne "" ? $cfg(common,design_name) : $flow(design_name)}]
+    set lib_name [expr {$cfg(common,design_lib_name) ne "" ? $cfg(common,design_lib_name) : "${design_name}.nlib"}]
+
+    open_lib $lib_name
+    copy_block -from ${design_name}/clock_opt_opto -to ${design_name}/route_auto
+    current_block ${design_name}/route_auto
+    link_block
+
+    # FC-RM: Hierarchical — swap abstracts
+    set _run_type $flow(run_type)
+    if {$_run_type eq "hier"} {
+        if {[info exists cfg(common,block_abstract_for_route)] && $cfg(common,block_abstract_for_route) ne ""} {
+            change_abstract -references [get_blocks -hierarchical] \
+                -label [lindex $cfg(common,block_abstract_for_route) 0] \
+                -view [lindex $cfg(common,block_abstract_for_route) 1]
+            report_abstracts
+        }
+    }
+
+    handle_info "Design loaded: ${design_name}/route_auto"
+# ==============================================================================
+# flow_proc: set_active_scenarios
+# FC-RM: set_scenario_status for route
+# ==============================================================================
+}
+flow_proc set_active_scenarios {
+    handle_info "Setting active scenarios for route_auto..."
+    global cfg
+
+    # Priority: user override > mmmc_config get_node_scenarios("route")
+    if {[info exists cfg(common,route_auto,active_scenarios)] && $cfg(common,route_auto,active_scenarios) ne ""} {
+        set_scenario_status -active false [get_scenarios -filter active]
+        set_scenario_status -active true $cfg(common,route_auto,active_scenarios)
+        handle_info "Active scenarios (user override): $cfg(common,route_auto,active_scenarios)"
+    } elseif {[info commands get_node_scenarios] ne ""} {
+        set node_scenarios [get_node_scenarios "route" "all"]
+        if {[llength $node_scenarios] > 0} {
+            set_scenario_status -active false [get_scenarios -filter active]
+            set_scenario_status -active true $node_scenarios
+            handle_info "Active scenarios (mmmc_config/route): $node_scenarios"
+        }
+    }
+
+    # FC-RM: Adjustment file
+    if {[info exists cfg(common,mcmm_adjustment_file)] && $cfg(common,mcmm_adjustment_file) ne "" && [file exists $cfg(common,mcmm_adjustment_file)]} {
+        source $cfg(common,mcmm_adjustment_file)
+    }
+
+    handle_info "Active scenarios configured"
+# ==============================================================================
+# flow_proc: set_qor_strategy
+# FC-RM: set_qor_strategy -stage route, instance prefix
+# ==============================================================================
+}
+flow_proc set_qor_strategy {
+    handle_info "Setting QoR strategy for route..."
+    global cfg
+
+    if {[info exists cfg(common,compile,qor_version)] && $cfg(common,compile,qor_version) ne ""} {
+        set_app_options -name flow.set_qor_strategy.version -value $cfg(common,compile,qor_version)
+    }
+
+    set cmd "set_qor_strategy -stage route"
+    set metric "timing"
+    set mode "balanced"
+    if {[info exists cfg(common,compile,qor_metric)] && $cfg(common,compile,qor_metric) ne ""} { set metric $cfg(common,compile,qor_metric) }
+    if {[info exists cfg(common,compile,qor_mode)] && $cfg(common,compile,qor_mode) ne ""}   { set mode $cfg(common,compile,qor_mode) }
+    lappend cmd -metric $metric -mode $mode
+
+    if {[info exists cfg(common,compile,reduced_effort)] && $cfg(common,compile,reduced_effort) ne "" && $cfg(common,compile,reduced_effort)} {
+        lappend cmd -reduced_effort
+    }
+
+    handle_info "Running: $cmd"
+    redirect -file $::REPORTS_DIR/set_qor_strategy { eval $cmd -report_only }
+    eval $cmd
+
+    # FC-RM: Instance prefix
     set_app_options -name opt.common.user_instance_name_prefix -value route_auto_
 
-    # Set active scenarios for routing
-    if {[info exists pnr(route,active_scenarios)] && $pnr(route,active_scenarios) ne ""} {
-        set_scenario_status -active false [get_scenarios -filter active]
-        set_scenario_status -active true $pnr(route,active_scenarios)
-    }
-
-    # Set routing layer constraints
-    if {[info exists pnr(common,route_max_layer)] && $pnr(common,route_max_layer) ne ""} {
-        set_ignored_layers -max_routing_layer $pnr(common,route_max_layer)
-    }
-    if {[info exists pnr(common,route_min_layer)] && $pnr(common,route_min_layer) ne ""} {
-        set_ignored_layers -min_routing_layer $pnr(common,route_min_layer)
-    }
-
-    # Antenna rules
-    if {[info exists tech(antenna_rule_file)] && [file exists $tech(antenna_rule_file)]} {
-        handle_info "Reading antenna rules: $tech(antenna_rule_file)"
-        source $tech(antenna_rule_file)
-    }
-
-    handle_info "Routing configuration completed"
+    handle_info "QoR strategy set: metric=$metric, mode=$mode"
+# ==============================================================================
+# flow_proc: configure_route
+# FC-RM: lib_cell_purpose, sidefile, non-persistent, multi-Vt,
+#         pre-route reports, sub-block timing disable
+# ==============================================================================
 }
+flow_proc configure_route {
+    handle_info "Configuring route settings..."
+    global flow cfg tech
+    apply_vt_dont_use
 
+    # FC-RM: Lib cell purpose
+    if {[info exists cfg(common,lib_cell_purpose_file)] && $cfg(common,lib_cell_purpose_file) ne "" && [file exists $cfg(common,lib_cell_purpose_file)]} {
+        source $cfg(common,lib_cell_purpose_file)
+    } elseif {[info exists tech(lib_cell_purpose_file)] && [file exists $tech(lib_cell_purpose_file)]} {
+        source $tech(lib_cell_purpose_file)
+    }
+
+    # FC-RM: Route sidefile
+    if {[info exists cfg(route,route_sidefile)] && $cfg(route,route_sidefile) ne "" && [file exists $cfg(route,route_sidefile)]} {
+        source $cfg(route,route_sidefile)
+    }
+
+    # FC-RM: Non-persistent settings
+    if {[info exists cfg(common,non_persistent_script)] && $cfg(common,non_persistent_script) ne "" && [file exists $cfg(common,non_persistent_script)]} {
+        source $cfg(common,non_persistent_script)
+    }
+
+    # FC-RM: Multi-Vt constraint
+    if {[info exists cfg(common,multi_vt_constraint_file)] && $cfg(common,multi_vt_constraint_file) ne "" && [file exists $cfg(common,multi_vt_constraint_file)]} {
+        source $cfg(common,multi_vt_constraint_file)
+    }
+
+    # FC-RM: User pre-route script
+    if {[info exists cfg(route,route_pre_script)] && $cfg(route,route_pre_script) ne "" && [file exists $cfg(route,route_pre_script)]} {
+        source $cfg(route,route_pre_script)
+    }
+
+    # FC-RM: Routing layer constraints
+    if {[info exists cfg(common,route_max_layer)] && $cfg(common,route_max_layer) ne ""} {
+        set_ignored_layers -max_routing_layer $cfg(common,route_max_layer)
+        handle_info "Max routing layer: $cfg(common,route_max_layer)"
+    }
+    if {[info exists cfg(common,route_min_layer)] && $cfg(common,route_min_layer) ne ""} {
+        set_ignored_layers -min_routing_layer $cfg(common,route_min_layer)
+        handle_info "Min routing layer: $cfg(common,route_min_layer)"
+    }
+
+    # FC-RM: Process antenna rules before routing
+    if {[info exists tech(antenna_rule_file)] && [file exists $tech(antenna_rule_file)]} {
+        handle_info "Processing antenna rules: $tech(antenna_rule_file)"
+        source $tech(antenna_rule_file)
+        process_antenna_rules
+    }
+
+    # FC-RM: Pre-route reports
+    redirect -file $::REPORTS_DIR/report_app_options.start { report_app_options -non_default * }
+    redirect -file $::REPORTS_DIR/report_lib_cell_purpose {
+        report_lib_cell -objects [get_lib_cells] -column {full_name:20 valid_purposes}
+    }
+
+    # FC-RM: check_design -checks pre_route_stage
+    handle_info "Running pre-route design checks"
+    redirect -file $::REPORTS_DIR/check_design.pre_route { check_design -checks pre_route_stage }
+
+    # FC-RM: Disable sub-block timing for hierarchical
+    set _run_type $flow(run_type)
+    if {$_run_type eq "hier"} {
+        set_timing_paths_disabled_blocks -all_sub_blocks
+    }
+
+    handle_info "Route configuration completed"
 # ==============================================================================
 # flow_proc: run_route_auto
-# Description: Run automatic routing (route_auto)
+# FC-RM: route_auto
 # ==============================================================================
+}
 flow_proc run_route_auto {
     handle_info "Running route_auto..."
+    global cfg flow
 
+    set design_name [expr {$cfg(common,design_name) ne "" ? $cfg(common,design_name) : $flow(design_name)}]
+
+    # FC-RM: set_svf
+    set_svf $::OUTPUTS_DIR/${design_name}_route_auto.svf
+
+    # FC-RM: route_auto
+    handle_info "Running route_auto command"
     route_auto
 
+    # FC-RM: Initial post-route optimization (route_opt initial_opto)
+    handle_info "Running route_opt -from initial_opto -to initial_opto"
+    route_opt -from initial_opto -to initial_opto
+
+    save_block -as ${design_name}/route_auto
     handle_info "route_auto completed"
+# ==============================================================================
+# flow_proc: post_route_auto
+# FC-RM: Redundant via insertion, shield extraction options,
+#         user post-script, connect_pg_net, check_routes
+# ==============================================================================
 }
+flow_proc post_route_auto {
+    handle_info "Running post-route tasks..."
+    global flow cfg tech
 
-# ==============================================================================
-# flow_proc: create_shields
-# Description: Create shields on clock/signal nets if enabled
-# ==============================================================================
-flow_proc create_shields {
-    handle_info "Checking shield creation settings..."
-    global pnr
-
-    if {[info exists pnr(route,enable_shields)] && $pnr(route,enable_shields) ne "" && [string is true -strict $pnr(route,enable_shields)]} {
-        handle_info "Creating shields..."
-        set_extraction_options -virtual_shield_extraction false
-
-        set create_shields_cmd "create_shields"
-        if {[info exists pnr(route,shields_options)] && $pnr(route,shields_options) ne ""} {
-            append create_shields_cmd " $pnr(route,shields_options)"
-        }
-        if {[info exists pnr(route,shields_ground_net)] && $pnr(route,shields_ground_net) ne ""} {
-            lappend create_shields_cmd -with_ground $pnr(route,shields_ground_net)
-        }
-        handle_info "Running: $create_shields_cmd"
-        eval $create_shields_cmd
-        handle_info "Shields created successfully"
-    } else {
-        handle_info "Shield creation not enabled -- skipping"
-    }
-
-    # Redundant via insertion after routing
-    if {[info exists pnr(route,redundant_via)] && $pnr(route,redundant_via) ne "" && [string is true -strict $pnr(route,redundant_via)]} {
-        handle_info "Running add_redundant_vias"
+    # FC-RM: Redundant via insertion
+    if {[info exists cfg(route,route_auto,enable_redundant_via)] && $cfg(route,route_auto,enable_redundant_via) ne "" && $cfg(route,route_auto,enable_redundant_via)} {
+        handle_info "Adding redundant vias"
         add_redundant_vias
     }
 
-    # Connect PG nets
-    connect_pg_net
-
-    # Check routes
-    redirect -file $::REPORTS_DIR/check_routes.rpt {
-        check_routes
+    # FC-RM: Shield extraction options (if shields were created during CTS)
+    if {[info exists cfg(cts,cts,enable_shields)] && $cfg(cts,cts,enable_shields) ne "" && $cfg(cts,cts,enable_shields)} {
+        set_extraction_options -virtual_shield_extraction false
     }
 
-    handle_info "Post-routing shields and checks completed"
-}
+    # FC-RM: User post-route script
+    if {[info exists cfg(route,route_post_script)] && $cfg(route,route_post_script) ne "" && [file exists $cfg(route,route_post_script)]} {
+        source $cfg(route,route_post_script)
+    }
 
-# ==============================================================================
-# flow_proc: save_design_block
-# Description: Save the design block after routing
-# ==============================================================================
-flow_proc save_design_block {
-    handle_info "Saving design block..."
-    global pnr
-
-    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling) ne "" && [string is true -strict $pnr(output,block_labeling)]} {
-        save_block -as $pnr(common,design_name)/route
-        handle_info "Block saved as $pnr(common,design_name)/route"
+    # FC-RM: connect_pg_net
+    if {[info exists cfg(common,connect_pg_net_script)] && $cfg(common,connect_pg_net_script) ne "" && [file exists $cfg(common,connect_pg_net_script)]} {
+        source $cfg(common,connect_pg_net_script)
     } else {
-        save_block
-        handle_info "Block saved"
+        connect_pg_net
     }
-}
 
+    # FC-RM: check_routes
+    redirect -file $::REPORTS_DIR/check_routes { check_routes }
+
+    handle_info "Post-route tasks completed"
+# ==============================================================================
+# flow_proc: setup_starrc_extraction
+# FC-RM: set_starrc_in_design for in-design parasitic extraction
+# ==============================================================================
+}
+flow_proc setup_starrc_extraction {
+    handle_info "Setting up StarRC in-design extraction..."
+    global flow cfg
+
+    # FC-RM: StarRC config file for in-design extraction
+    if {[info exists cfg(common,route_opt,starrc_config)] && $cfg(common,route_opt,starrc_config) ne ""} {
+        if {[file exists $cfg(common,route_opt,starrc_config)]} {
+            set config_file [file normalize $cfg(common,route_opt,starrc_config)]
+            set cmd "set_starrc_in_design -config $config_file"
+            if {[info exists cfg(common,route_opt,starrc_options)] && $cfg(common,route_opt,starrc_options) ne ""} {
+                append cmd " $cfg(common,route_opt,starrc_options)"
+            }
+            handle_info "Running: $cmd"
+            eval $cmd
+            save_block
+        } else {
+            handle_warning "StarRC config not found: $cfg(common,route_opt,starrc_config)"
+        }
+    }
+
+    handle_info "StarRC extraction setup completed"
+# ==============================================================================
+# flow_proc: setup_virtual_metal_fill
+# FC-RM: set_extraction_options -virtual_metalfill_parameter_file
+# ==============================================================================
+}
+flow_proc setup_virtual_metal_fill {
+    handle_info "Setting up virtual metal fill..."
+    global flow cfg
+
+    # FC-RM: VMF parameter file
+    if {[info exists cfg(common,route_opt,vmf_parameter_file)] && $cfg(common,route_opt,vmf_parameter_file) ne ""} {
+        if {[file exists $cfg(common,route_opt,vmf_parameter_file)]} {
+            set vmf_file [file normalize $cfg(common,route_opt,vmf_parameter_file)]
+            set cmd "set_extraction_options -virtual_metalfill_parameter_file $vmf_file"
+            # FC-RM: Advanced VMF mode
+            if {[info exists cfg(common,route_opt,enable_advanced_vmf)] && $cfg(common,route_opt,enable_advanced_vmf) ne "" && $cfg(common,route_opt,enable_advanced_vmf)} {
+                set_app_options -name extract.fusion_starrc_vmf -value advanced
+            }
+            handle_info "Running: $cmd"
+            eval $cmd
+        } else {
+            handle_warning "VMF parameter file not found: $cfg(common,route_opt,vmf_parameter_file)"
+        }
+    }
+
+    handle_info "Virtual metal fill setup completed"
+# ==============================================================================
+# flow_proc: create_abstracts
+# FC-RM: create_abstract, create_frame for hierarchical
+# ==============================================================================
+}
+flow_proc create_abstracts {
+    handle_info "Creating abstracts..."
+    global flow cfg
+
+    set _run_type $flow(run_type)
+
+    if {$_run_type eq "hier"} {
+        set hier_level "bottom"
+        if {[info exists cfg(common,physical_hierarchy_level)] && $cfg(common,physical_hierarchy_level) ne ""} { set hier_level $cfg(common,physical_hierarchy_level) }
+        if {$hier_level ne "top"} {
+            handle_info "Creating abstract and frame (level=$hier_level)"
+            create_abstract -read_only
+            create_frame -block_all true
+        }
+    }
+
+    handle_info "Abstracts completed"
+# ==============================================================================
+# flow_proc: save_design
+# FC-RM: save_block, set_svf -off
+# ==============================================================================
+}
+flow_proc save_design {
+    handle_info "Saving route_auto design..."
+    global cfg flow
+
+    set design_name [expr {$cfg(common,design_name) ne "" ? $cfg(common,design_name) : $flow(design_name)}]
+
+    save_block
+    if {[info exists cfg(common,output,block_labeling)] && $cfg(common,output,block_labeling) ne "" && $cfg(common,output,block_labeling)} {
+        save_block -as ${design_name}/route_auto
+        handle_info "Block saved: ${design_name}/route_auto"
+    }
+
+    set_svf -off
+    handle_info "Route design saved"
 # ==============================================================================
 # flow_proc: generate_reports
-# Description: Generate comprehensive routing reports
+# FC-RM: Timing settings for routed designs (AWP, CCS receiver, SI),
+#         report_qor, report_timing, write_qor_data, run_end
 # ==============================================================================
+}
 flow_proc generate_reports {
-    handle_info "Generating routing reports..."
-    global pnr
+    handle_info "Generating route reports..."
+    global cfg
 
-    set run_dir $::env(CBFLOW_RUN_DIR)
-    set max_paths [expr {[info exists pnr(analysis,max_paths)] ? $pnr(analysis,max_paths) : 100}]
+    set max_paths [expr {$cfg(common,analysis,max_paths) ne "" ? $cfg(common,analysis,max_paths) : 100}]
 
     # FC-RM: Recommended timing settings for routed designs
     set_app_options -name time.delay_calc_waveform_analysis_mode -value full_design
@@ -172,6 +373,7 @@ flow_proc generate_reports {
     redirect -file $::REPORTS_DIR/report_utilization.rpt { report_utilization }
 
     # FC-RM: Routing-specific reports
+    redirect -file $::REPORTS_DIR/report_routing.rpt { report_routing_rules -verbose }
     redirect -file $::REPORTS_DIR/report_congestion.rpt { report_congestion }
 
     # FC-RM: Power
@@ -192,17 +394,15 @@ flow_proc generate_reports {
             -label route_auto -output $run_dir/qor_data
     }
 
-    # FC-RM: report_msg summary
+    # FC-RM: run_end
+    # run_end removed (not a valid FC command)
     redirect -file $::REPORTS_DIR/report_msg_summary.rpt { report_msg -summary }
 
-    handle_info "Routing reports generated in: $::REPORTS_DIR"
+    handle_info "Route reports generated in: $::REPORTS_DIR"
+# ==============================================================================
+# ==============================================================================
 }
-
-
-# ==============================================================================
-# Execute all flow_procs in sequence
-# ==============================================================================
 flow_exec_all
 
-# Exit tool after stage completion
+# BUG FIX #7: Exit tool after stage completion
 exit

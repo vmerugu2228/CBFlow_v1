@@ -1,6 +1,6 @@
 #!/usr/bin/env tclsh
 # ═══════════════════════════════════════════════════════════════════════════════
-# CBflow PNR — cts_opt Subnode Handler (Synopsys FC)
+# CBflow shared (PNR + SYNTH_PNR) — cts_opt Subnode Handler (Synopsys FC)
 # Subnodes: setup, run, validate, finish
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -8,14 +8,14 @@ source "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/handler_common.
 source "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/launch_utils.tcl"
 
 lassign [handler_parse_args $argv $argc] subnode_name run_dir node_name
-handler_load_configs $run_dir "PNR"
+handler_load_configs $run_dir $::env(CBFLOW_FLOW_TYPE)
 
-set ::flow_type "PNR"
+set ::flow_type $::env(CBFLOW_FLOW_TYPE)
 set stage_name "cts_opt"
 if {$node_name eq ""} { set node_name "${stage_name}1" }
 
 set _tool_ver [expr {[info exists ::env(FC_VERSION)] ? $::env(FC_VERSION) : "v1.0.0"}]
-set cmd_file "$::env(FLOW_DIR)/cmds/PNR/synopsys/fc/$_tool_ver/cts_opt_fc.tcl"
+set cmd_file "$::env(FLOW_DIR)/cmds/$::flow_type/synopsys/fc/$_tool_ver/cts_opt_fc.tcl"
 
 set test_mode [handler_is_test_mode]
 
@@ -27,7 +27,8 @@ switch $subnode_name {
     }
     "run" {
         puts "INFO: $stage_name run..."
-        set _tool [expr {[info exists pnr(tool,name)] ? $pnr(tool,name) : "fc"}]
+        upvar #0 [string tolower $::flow_type] _cfg
+        set _tool [expr {[info exists _cfg(tool,name)] ? $_cfg(tool,name) : "fc"}]
         handler_run $run_dir $::flow_type $node_name $stage_name $cmd_file $test_mode $_tool
     }
     "validate" {

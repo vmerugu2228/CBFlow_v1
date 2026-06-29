@@ -1,12 +1,16 @@
 #!/usr/bin/env tclsh
-# CBFlow PNR signoff1 - Synopsys Fusion Compiler | PNR signoff1
+# CBFlow shared (PNR + SYNTH_PNR) — synopsys/fc — signoff (signoff + icv_in_design) - Synopsys Fusion Compiler
+# FC-RM: signoff.tcl + icv_in_design.tcl -- Filler insertion, signal EM,
+#         ICV signoff DRC, metal fill, base fill
+# Aligned with FC-RM Y-2026.03
 
 # ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
 source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-set FLOW_TYPE "PNR"
+if {![info exists ::flow_type] || $::flow_type eq ""} { set ::flow_type $::env(CBFLOW_FLOW_TYPE) }
+set FLOW_TYPE $::flow_type
 set STAGE_NAME "signoff"
 set NODE_NAME "signoff1"
 
@@ -17,138 +21,277 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 # ── Directories ──────────────────────────────────────────────────────────────
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
-# ==============================================================================
-# flow_proc: insert_filler
-# Description: Insert filler cells for DRC cleanliness and well-tie continuity
-# ==============================================================================
-flow_proc insert_filler {
-    handle_info "Checking filler cell insertion settings..."
-    global pnr tech
+# Active flow config array — pnr() or synth_pnr() depending on the run.
+# Use $cfg(...) / [info exists cfg(...)] throughout the file body.
+upvar #0 [string tolower $::flow_type] cfg
 
-    if {[info exists pnr(signoff,insert_filler)] && $pnr(signoff,insert_filler) ne "" && [string is true -strict $pnr(signoff,insert_filler)]} {
-        # Build filler cell list from tech config
-        if {[info exists tech(cells,filler)] && $tech(cells,filler) ne ""} {
-            handle_info "Inserting filler cells: $tech(cells,filler)"
-            set filler_cmd "create_stdcell_fillers -lib_cells \[get_lib_cells $tech(cells,filler)\]"
-            eval $filler_cmd
+# ==============================================================================
+# flow_proc: load_design
+# FC-RM: open_lib, copy_block from route_opt, link_block
+# ==============================================================================
+flow_proc load_design {
+    handle_info "Loading design for signoff..."
+    global cfg flow
+
+    set design_name [expr {$cfg(common,design_name) ne "" ? $cfg(common,design_name) : $flow(design_name)}]
+    set lib_name [expr {$cfg(common,design_lib_name) ne "" ? $cfg(common,design_lib_name) : "${design_name}.nlib"}]
+
+    open_lib $lib_name
+    copy_block -from ${design_name}/route_opt -to ${design_name}/signoff
+    current_block ${design_name}/signoff
+    link_block
+
+    # FC-RM: Hierarchical abstract swap
+    set _run_type $flow(run_type)
+    if {$_run_type eq "hier"} {
+        if {[info exists cfg(common,block_abstract_for_signoff)] && $cfg(common,block_abstract_for_signoff) ne ""} {
+            change_abstract -references [get_blocks -hierarchical] \
+                -label [lindex $cfg(common,block_abstract_for_signoff) 0] \
+                -view [lindex $cfg(common,block_abstract_for_signoff) 1]
+            report_abstracts
+        }
+    }
+
+    handle_info "Design loaded: ${design_name}/signoff"
+# ==============================================================================
+# flow_proc: set_active_scenarios
+# FC-RM: set_scenario_status for signoff (all scenarios)
+# ==============================================================================
+}
+flow_proc set_active_scenarios {
+    handle_info "Setting active scenarios for signoff..."
+    global cfg
+
+    # Priority: user override > mmmc_config get_node_scenarios("signoff")
+    if {[info exists cfg(signoff,active_scenarios)] && $cfg(signoff,active_scenarios) ne ""} {
+        set_scenario_status -active false [get_scenarios -filter active]
+        set_scenario_status -active true $cfg(signoff,active_scenarios)
+        handle_info "Active scenarios (user override): $cfg(signoff,active_scenarios)"
+    } elseif {[info commands get_node_scenarios] ne ""} {
+        set node_scenarios [get_node_scenarios "signoff" "all"]
+        if {[llength $node_scenarios] > 0} {
+            set_scenario_status -active false [get_scenarios -filter active]
+            set_scenario_status -active true $node_scenarios
+            handle_info "Active scenarios (mmmc_config/signoff): $node_scenarios"
+        }
+    }
+
+    # FC-RM: Adjustment file
+    if {[info exists cfg(common,mcmm_adjustment_file)] && $cfg(common,mcmm_adjustment_file) ne "" && [file exists $cfg(common,mcmm_adjustment_file)]} {
+        source $cfg(common,mcmm_adjustment_file)
+    }
+
+    # FC-RM: Non-persistent settings
+    if {[info exists cfg(common,non_persistent_script)] && $cfg(common,non_persistent_script) ne "" && [file exists $cfg(common,non_persistent_script)]} {
+        source $cfg(common,non_persistent_script)
+    }
+
+    # FC-RM: Disable soft-rule timing opt during ECO routing
+    set_app_options -name route.detail.eco_route_use_soft_spacing_for_timing_optimization -value false
+
+    handle_info "Active scenarios configured"
+# ==============================================================================
+# flow_proc: insert_filler_cells
+# FC-RM: signoff filler cell insertion (metal and non-metal)
+# ==============================================================================
+}
+flow_proc insert_filler_cells {
+    handle_info "Inserting filler cells..."
+    global flow cfg tech
+
+    set design_name [expr {$cfg(common,design_name) ne "" ? $cfg(common,design_name) : $flow(design_name)}]
+
+    # FC-RM: set_svf for formality tracking
+    set_svf $::OUTPUTS_DIR/${design_name}_signoff.svf
+
+    # FC-RM: set_qor_strategy -stage signoff
+    set cmd "set_qor_strategy -stage signoff"
+    set metric [expr {$cfg(common,compile,qor_metric) ne "" ? $cfg(common,compile,qor_metric) : "timing"}]
+    lappend cmd -metric $metric
+    handle_info "Running: $cmd"
+    eval $cmd
+
+    # FC-RM: Pre-signoff script
+    if {[info exists cfg(pro,signoff_pre_script)] && [file exists $cfg(pro,signoff_pre_script)]} {
+        source $cfg(pro,signoff_pre_script)
+    }
+
+    # FC-RM: Pre-reports
+    redirect -file $::REPORTS_DIR/report_app_options.start { report_app_options -non_default * }
+
+    # FC-RM: Disable sub-block timing
+    set _run_type $flow(run_type)
+    if {$_run_type eq "hier"} {
+        set_timing_paths_disabled_blocks -all_sub_blocks
+    }
+
+    # FC-RM: Filler cell insertion
+    if {[info exists cfg(signoff,insert_filler)] && $cfg(signoff,insert_filler) ne "" && [string is true -strict $cfg(signoff,insert_filler)]} {
+        # Source filler sidefile (foundry-specific filler commands)
+        if {[info exists tech(filler_sidefile)] && $tech(filler_sidefile) ne "" && [file exists $tech(filler_sidefile)]} {
+            handle_info "Sourcing filler sidefile: $tech(filler_sidefile)"
+            source $tech(filler_sidefile)
         } else {
-            handle_warning "pnr(signoff,insert_filler) is true but tech(cells,filler) not specified"
+            # Default: create_stdcell_fillers
+            handle_info "Running create_stdcell_fillers"
+            create_stdcell_fillers -lib_cells [get_lib_cells */FILL*]
+        }
+    }
+
+    # FC-RM: Decap cell insertion
+    if {[info exists cfg(signoff,insert_decap)] && $cfg(signoff,insert_decap) ne "" && [string is true -strict $cfg(signoff,insert_decap)]} {
+        if {[info exists tech(decap_cells)] && $tech(decap_cells) ne ""} {
+            handle_info "Inserting decap cells"
+            create_stdcell_fillers -lib_cells [get_lib_cells $tech(decap_cells)]
+        }
+    }
+
+    handle_info "Filler cell insertion completed"
+# ==============================================================================
+# flow_proc: fix_signal_em
+# FC-RM: Signal EM analysis and fixing (read constraints, report, fix)
+# ==============================================================================
+}
+flow_proc fix_signal_em {
+    handle_info "Running signal EM analysis..."
+    global flow cfg tech
+
+    # FC-RM: Signal EM constraint file
+    if {[info exists tech(signal_em_constraint_file)] && $tech(signal_em_constraint_file) ne "" && [file exists $tech(signal_em_constraint_file)]} {
+        set cmd "read_signal_em_constraints $tech(signal_em_constraint_file)"
+        if {[info exists tech(signal_em_constraint_format)] && $tech(signal_em_constraint_format) ne ""} {
+            lappend cmd -format $tech(signal_em_constraint_format)
+        }
+        handle_info "Running: $cmd"
+        eval $cmd
+
+        # FC-RM: EM SAIF file
+        if {[info exists cfg(signoff,em_saif)] && [file exists $cfg(signoff,em_saif)]} {
+            read_saif $cfg(signoff,em_saif)
         }
 
-        # Connect PG nets after filler insertion
-        connect_pg_net
-    } else {
-        handle_info "Filler cell insertion not enabled -- skipping"
+        # FC-RM: Signal EM analysis and fix
+        if {[info exists cfg(signoff,em_scenario)] && $cfg(signoff,em_scenario) ne ""} {
+            set_app_options -name time.si_enable_analysis -value true
+            set cur_sce [current_scenario]
+            current_scenario $cfg(signoff,em_scenario)
+            redirect -file $::REPORTS_DIR/report_signal_em { report_signal_em -violated }
+
+            if {[info exists cfg(signoff,em_fixing)] && $cfg(signoff,em_fixing) ne "" && [string is true -strict $cfg(signoff,em_fixing)]} {
+                handle_info "Fixing signal EM violations"
+                fix_signal_em
+                redirect -file $::REPORTS_DIR/report_signal_em.post { report_signal_em -violated }
+            }
+            current_scenario $cur_sce
+        }
     }
+
+    handle_info "Signal EM analysis completed"
+# ==============================================================================
+# flow_proc: run_signoff_drc
+# FC-RM: ICV in-design signoff DRC check (signoff_check_drc)
+# ==============================================================================
 }
+flow_proc run_signoff_drc {
+    handle_info "Running signoff DRC (ICV in-design)..."
+    global flow cfg tech
 
-# ==============================================================================
-# flow_proc: insert_decap
-# Description: Insert decap cells for IR drop mitigation
-# ==============================================================================
-flow_proc insert_decap {
-    handle_info "Checking decap cell insertion settings..."
-    global pnr tech
+    # FC-RM: DRC runset
+    if {[info exists cfg(signoff,drc_runset)] && [file exists $cfg(signoff,drc_runset)]} {
+        set_app_options -name signoff.check_drc.runset -value $cfg(signoff,drc_runset)
 
-    if {[info exists pnr(signoff,insert_decap)] && $pnr(signoff,insert_decap) ne "" && [string is true -strict $pnr(signoff,insert_decap)]} {
-        if {[info exists tech(cells,decap)] && $tech(cells,decap) ne ""} {
-            handle_info "Inserting decap cells: $tech(cells,decap)"
-            set decap_cmd "create_stdcell_fillers -lib_cells \[get_lib_cells $tech(cells,decap)\]"
-            eval $decap_cmd
-        } else {
-            handle_warning "pnr(signoff,insert_decap) is true but tech(cells,decap) not specified"
+        # FC-RM: Layer map file
+        if {[info exists tech(gds_layer_map_file)] && $tech(gds_layer_map_file) ne ""} {
+            set_app_options -name signoff.physical.layer_map_file -value $tech(gds_layer_map_file)
         }
 
-        # Connect PG nets after decap insertion
-        connect_pg_net
-    } else {
-        handle_info "Decap cell insertion not enabled -- skipping"
-    }
-}
+        # FC-RM: Stream files for merge
+        if {[info exists tech(stream_files_for_merge)] && $tech(stream_files_for_merge) ne ""} {
+            set_app_options -name signoff.physical.merge_stream_files -value $tech(stream_files_for_merge)
+        }
 
-# ==============================================================================
-# flow_proc: run_drc_check
-# Description: Run signoff DRC check using ICV in-design
-# ==============================================================================
-flow_proc run_drc_check {
-    handle_info "Running signoff DRC check..."
-    global pnr tech
+        # FC-RM: DRC select/unselect rules
+        if {[info exists cfg(signoff,drc_select_rules)] && $cfg(signoff,drc_select_rules) ne ""} {
+            set_app_options -name signoff.check_drc.select_rules -value $cfg(signoff,drc_select_rules)
+        }
 
-    # Configure DRC runset
-    if {[info exists pnr(signoff,drc_runset)] && [file exists $pnr(signoff,drc_runset)]} {
-        set_app_options -name signoff.check_drc.runset -value $pnr(signoff,drc_runset)
-    }
+        save_block
+        redirect -file $::REPORTS_DIR/report_app_options.signoff_physical {
+            report_app_options signoff.physical.*
+        }
 
-    # Configure layer mapping for signoff
-    if {[info exists tech(gds_layer_map)] && $tech(gds_layer_map) ne ""} {
-        set_app_options -name signoff.physical.layer_map_file -value $tech(gds_layer_map)
-    }
-    if {[info exists pnr(signoff,stream_files_for_merge)] && $pnr(signoff,stream_files_for_merge) ne ""} {
-        set_app_options -name signoff.physical.merge_stream_files -value $pnr(signoff,stream_files_for_merge)
-    }
-
-    # Save block before ICV (reads from disk)
-    save_block
-
-    # Run signoff_check_drc
-    if {[info exists pnr(signoff,drc_runset)] && [file exists $pnr(signoff,drc_runset)]} {
+        # FC-RM: signoff_check_drc
         handle_info "Running signoff_check_drc"
-        set drc_cmd "signoff_check_drc"
-        if {[info exists pnr(signoff,drc_select_rules)] && $pnr(signoff,drc_select_rules) ne ""} {
-            lappend drc_cmd -select_rules $pnr(signoff,drc_select_rules)
-        }
-        eval $drc_cmd
-    } else {
-        handle_info "No DRC runset specified -- running check_routes instead"
-        redirect -file $::REPORTS_DIR/check_routes.rpt {
-            check_routes
-        }
-    }
+        signoff_check_drc
 
-    handle_info "Signoff DRC check completed"
-}
-
-# ==============================================================================
-# flow_proc: fix_drc
-# Description: Fix DRC violations using signoff_fix_drc
-# ==============================================================================
-flow_proc fix_drc {
-    handle_info "Checking signoff DRC fix settings..."
-    global pnr
-
-    if {[info exists pnr(signoff,fix_drc)] && $pnr(signoff,fix_drc) ne "" && [string is true -strict $pnr(signoff,fix_drc)]} {
-        handle_info "Running signoff_fix_drc"
-        signoff_fix_drc
-        handle_info "signoff_fix_drc completed"
-    } else {
-        handle_info "signoff_fix_drc not enabled -- skipping"
-    }
-}
-
-# ==============================================================================
-# flow_proc: create_metal_fill
-# Description: Create metal fill for density rules compliance
-# ==============================================================================
-flow_proc create_metal_fill {
-    handle_info "Checking metal fill settings..."
-    global pnr tech
-
-    if {[info exists pnr(signoff,metal_fill)] && $pnr(signoff,metal_fill) ne "" && [string is true -strict $pnr(signoff,metal_fill)]} {
-        # Configure metal fill runset if provided
-        if {[info exists pnr(signoff,metal_fill_runset)] && [file exists $pnr(signoff,metal_fill_runset)]} {
-            set_app_options -name signoff.create_metal_fill.runset -value $pnr(signoff,metal_fill_runset)
+        redirect -file $::REPORTS_DIR/signoff_check_drc.rpt {
+            report_drc_errors -error_data zroute.err
         }
 
-        # Configure timing-driven metal fill
-        set fill_cmd "signoff_create_metal_fill"
-        if {[info exists pnr(signoff,metal_fill_track_based)] && $pnr(signoff,metal_fill_track_based) ne "off"} {
-            lappend fill_cmd -track_fill $pnr(signoff,metal_fill_track_based)
-            if {$pnr(signoff,metal_fill_track_based) ne "generic"} {
-                lappend fill_cmd -fill_all_tracks true
+        # FC-RM: signoff_fix_drc — automatically fix DRC violations
+        if {[info exists cfg(signoff,fix_drc)] && $cfg(signoff,fix_drc) ne "" && [string is true -strict $cfg(signoff,fix_drc)]} {
+            handle_info "Running signoff_fix_drc"
+            signoff_fix_drc
+            redirect -file $::REPORTS_DIR/signoff_check_drc.post_fix.rpt {
+                signoff_check_drc
             }
         }
-        if {[info exists pnr(signoff,metal_fill_timing_threshold)] && $pnr(signoff,metal_fill_timing_threshold) ne ""} {
-            lappend fill_cmd -timing_preserve_setup_slack_threshold $pnr(signoff,metal_fill_timing_threshold)
+    } else {
+        handle_info "No DRC runset specified, skipping signoff DRC check"
+    }
+
+    # FC-RM: route_detail -incremental — post-filler routing cleanup
+    handle_info "Running incremental route_detail for post-filler cleanup"
+    route_detail -incremental true
+
+    # FC-RM: insert_diode_on_nets — antenna diode insertion
+    if {[info exists cfg(signoff,insert_diodes)] && $cfg(signoff,insert_diodes) ne "" && [string is true -strict $cfg(signoff,insert_diodes)]} {
+        handle_info "Inserting antenna diodes"
+        insert_diode_on_nets -diode_cell $tech(cells,antenna_diode) -verbose
+        route_detail -incremental true
+        handle_info "Antenna diodes inserted and rerouted"
+    } elseif {[info exists tech(cells,antenna_diode)] && $tech(cells,antenna_diode) ne ""} {
+        handle_info "Inserting antenna diodes (auto)"
+        insert_diode_on_nets -diode_cell $tech(cells,antenna_diode)
+        route_detail -incremental true
+    }
+
+    handle_info "Signoff DRC completed"
+# ==============================================================================
+# flow_proc: create_metal_fill
+# FC-RM: ICV in-design metal fill (signoff_create_metal_fill)
+# ==============================================================================
+}
+flow_proc create_metal_fill {
+    handle_info "Creating metal fill..."
+    global flow cfg tech
+
+    if {[info exists cfg(signoff,metal_fill)] && $cfg(signoff,metal_fill) ne "" && [string is true -strict $cfg(signoff,metal_fill)]} {
+        # FC-RM: Metal fill runset
+        if {[info exists tech(metal_fill_runset)] && $tech(metal_fill_runset) ne "" && [file exists $tech(metal_fill_runset)]} {
+            set_app_options -name signoff.create_metal_fill.runset -value $tech(metal_fill_runset)
+        }
+
+        # FC-RM: Track-based or runset-based
+        set track_based "off"
+        if {[info exists cfg(signoff,metal_fill_track_based)] && $cfg(signoff,metal_fill_track_based) ne ""} {
+            set track_based $cfg(signoff,metal_fill_track_based)
+        }
+
+        if {$track_based eq "off"} {
+            # Runset-based metal fill
+            set fill_cmd "signoff_create_metal_fill"
+        } else {
+            # Track-based metal fill
+            set fill_cmd "signoff_create_metal_fill -track_fill $track_based -fill_all_tracks true"
+            if {[info exists cfg(signoff,metal_fill_parameter_file)] && [file exists $cfg(signoff,metal_fill_parameter_file)]} {
+                lappend fill_cmd -track_fill_parameter_file $cfg(signoff,metal_fill_parameter_file)
+            }
+        }
+
+        # FC-RM: Timing-driven metal fill
+        if {[info exists cfg(signoff,metal_fill_timing_threshold)] && $cfg(signoff,metal_fill_timing_threshold) ne ""} {
+            lappend fill_cmd -timing_preserve_setup_slack_threshold $cfg(signoff,metal_fill_timing_threshold)
             set_extraction_options -real_metalfill_extraction none
         }
 
@@ -157,65 +300,99 @@ flow_proc create_metal_fill {
         eval $fill_cmd
         save_block
 
-        # Set extraction options for metal fill
+        # FC-RM: Set extraction for real metal fill after fill creation
         set_extraction_options -real_metalfill_extraction floating -virtual_metalfill_extraction none
+
+        # FC-RM: Post-fill DRC check
+        if {[info exists cfg(signoff,drc_runset)] && [file exists $cfg(signoff,drc_runset)]} {
+            set_app_options -name signoff.check_drc.run_dir -value z_MFILL_after
+            signoff_check_drc -error_data POST_MFILL
+        }
     } else {
-        handle_info "Metal fill not enabled -- skipping"
+        handle_info "Metal fill disabled, skipping"
     }
+
+    handle_info "Metal fill completed"
+# ==============================================================================
+# flow_proc: post_signoff
+# FC-RM: User post-script, connect_pg_net, check_routes
+# ==============================================================================
 }
+flow_proc post_signoff {
+    handle_info "Running post-signoff tasks..."
+    global flow cfg
 
-# ==============================================================================
-# flow_proc: run_final_drc
-# Description: Run final signoff DRC check after all physical finishing
-# ==============================================================================
-flow_proc run_final_drc {
-    handle_info "Running final signoff DRC check..."
-    global pnr
-
-    # Run check_routes for final DRC summary
-    redirect -file $::REPORTS_DIR/check_routes.final.rpt {
-        check_routes
+    # FC-RM: User post-script
+    if {[info exists cfg(pro,signoff_post_script)] && [file exists $cfg(pro,signoff_post_script)]} {
+        source $cfg(pro,signoff_post_script)
     }
 
-    # Run signoff_check_drc if runset is available (post-metal-fill check)
-    if {[info exists pnr(signoff,drc_runset)] && [file exists $pnr(signoff,drc_runset)]} {
-        handle_info "Running final signoff_check_drc"
-        signoff_check_drc -error_data POST_FINISH
-    }
-
-    # Connect PG nets final pass
-    connect_pg_net
-
-    handle_info "Final DRC check completed"
-}
-
-# ==============================================================================
-# flow_proc: save_design_block
-# Description: Save the design block after signoff finishing
-# ==============================================================================
-flow_proc save_design_block {
-    handle_info "Saving design block..."
-    global pnr
-
-    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling) ne "" && [string is true -strict $pnr(output,block_labeling)]} {
-        save_block -as $pnr(common,design_name)/signoff
-        handle_info "Block saved as $pnr(common,design_name)/signoff"
+    # FC-RM: connect_pg_net
+    if {[info exists cfg(common,connect_pg_net_script)] && $cfg(common,connect_pg_net_script) ne "" && [file exists $cfg(common,connect_pg_net_script)]} {
+        source $cfg(common,connect_pg_net_script)
     } else {
-        save_block
-        handle_info "Block saved"
+        connect_pg_net
     }
-}
 
+    # FC-RM: check_routes
+    redirect -file $::REPORTS_DIR/check_routes { check_routes }
+
+    handle_info "Post-signoff tasks completed"
+# ==============================================================================
+# flow_proc: create_abstracts
+# FC-RM: create_abstract, create_frame, derive_hier_antenna_property
+# ==============================================================================
+}
+flow_proc create_abstracts {
+    handle_info "Creating abstracts..."
+    global cfg flow
+
+    set design_name [expr {$cfg(common,design_name) ne "" ? $cfg(common,design_name) : $flow(design_name)}]
+    set _run_type $flow(run_type)
+
+    if {$_run_type eq "hier"} {
+        set hier_level [expr {$cfg(common,physical_hierarchy_level) ne "" ? $cfg(common,physical_hierarchy_level) : "bottom"}]
+        if {$hier_level ne "top"} {
+            handle_info "Creating abstract and frame (level=$hier_level)"
+            create_abstract -read_only
+            create_frame -block_all true
+            # FC-RM: Derive hierarchical antenna property
+            derive_hier_antenna_property -design ${design_name}/signoff
+            save_block ${design_name}/signoff.frame
+        }
+    }
+
+    handle_info "Abstracts completed"
+# ==============================================================================
+# flow_proc: save_design
+# FC-RM: save_block, set_svf -off
+# ==============================================================================
+}
+flow_proc save_design {
+    handle_info "Saving signoff design..."
+    global cfg flow
+
+    set design_name [expr {$cfg(common,design_name) ne "" ? $cfg(common,design_name) : $flow(design_name)}]
+
+    save_block
+    if {[info exists cfg(common,output,block_labeling)] && $cfg(common,output,block_labeling) ne "" && $cfg(common,output,block_labeling)} {
+        save_block -as ${design_name}/signoff
+        handle_info "Block saved: ${design_name}/signoff"
+    }
+
+    set_svf -off
+    handle_info "Signoff design saved"
 # ==============================================================================
 # flow_proc: generate_reports
-# Description: Generate comprehensive signoff reports
+# FC-RM: report_qor, report_timing, report_power, check_routes,
+#         write_qor_data, run_end
 # ==============================================================================
+}
 flow_proc generate_reports {
     handle_info "Generating signoff reports..."
-    global pnr
+    global cfg
 
-    set run_dir $::env(CBFLOW_RUN_DIR)
-    set max_paths [expr {[info exists pnr(analysis,max_paths)] ? $pnr(analysis,max_paths) : 100}]
+    set max_paths [expr {$cfg(common,analysis,max_paths) ne "" ? $cfg(common,analysis,max_paths) : 100}]
 
     # FC-RM: Timing settings for post-route/signoff
     set_app_options -name time.delay_calc_waveform_analysis_mode -value full_design
@@ -246,7 +423,7 @@ flow_proc generate_reports {
     }
 
     # FC-RM: Final check_routes
-    redirect -file $::REPORTS_DIR/check_routes.signoff.rpt { check_routes }
+    redirect -file $::REPORTS_DIR/check_routes.final { check_routes }
 
     # FC-RM: check_timing (constraint completeness at signoff)
     redirect -file $::REPORTS_DIR/check_timing.rpt { check_timing }
@@ -266,17 +443,15 @@ flow_proc generate_reports {
             -label signoff -output $run_dir/qor_data
     }
 
-    # FC-RM: report_msg summary
+    # FC-RM: run_end
+    # run_end removed (not a valid FC command)
     redirect -file $::REPORTS_DIR/report_msg_summary.rpt { report_msg -summary }
 
     handle_info "Signoff reports generated in: $::REPORTS_DIR"
+# ==============================================================================
+# ==============================================================================
 }
-
-
-# ==============================================================================
-# Execute all flow_procs in sequence
-# ==============================================================================
 flow_exec_all
 
-# Exit tool after stage completion
+# BUG FIX #7: Exit tool after stage completion
 exit
