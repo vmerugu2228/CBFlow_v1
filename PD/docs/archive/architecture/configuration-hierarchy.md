@@ -1,5 +1,19 @@
 # CBFlow Configuration Hierarchy
 
+> ⚠️ **ARCHIVED — pre-v2.1 document.** This file describes the early 4-level
+> cascade and references `cbflow_init_config.tcl`, which was retired in v2.1.x
+> (duplicated `project(name/version)` with `<project>_config.tcl` causing
+> silent overwrites).
+>
+> The current cascade is 13 levels (project → team → tech → flow → node →
+> mmmc → tool → user → 5 overrides). See **`PD/docs/03-reference/configuration-reference.md`**
+> for the authoritative reference and **`PD/docs/04-architecture/system-design.md`**
+> for the runtime cascade diagram.
+>
+> Left in place for historical context only.
+
+---
+
 ## Overview
 
 CBFlow implements a sophisticated 4-level hierarchical configuration system that provides maximum flexibility while maintaining sensible defaults. This architecture allows for global defaults, technology-specific settings, project customizations, and user overrides with clear precedence rules.

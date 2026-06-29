@@ -28,3 +28,7 @@ Thumbs.db
 
 # VOV server state (future)
 .vov/server/
+
+# MMMC auto-backups (mmmc-manager generate creates one per regeneration —
+# they pile up under config/project/<name>/v1.0.0/mmmc_config.tcl.bak_<ts>).
+PD/config/project/*/*/mmmc_config.tcl.bak_*
