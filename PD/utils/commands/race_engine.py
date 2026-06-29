@@ -2145,41 +2145,55 @@ class RaceEngine:
         return {'ok': False, 'error': f'No running process found for: {job_name}'}
 
     def _get_jobs_for_target(self, target: str) -> set:
-        """Get all jobs needed to complete a target (stage + its dependencies)."""
+        """Get all jobs needed to complete a target (stage + its dependencies).
+
+        Two distinct paths:
+        - target is a STAGE job → include the stage's siblings (subnodes) and
+          all upstream stages' siblings. This is the "run the whole stage"
+          semantic.
+        - target is a non-stage job (a specific subnode) → include only that
+          subnode + its direct upstream deps, NOT sibling subnodes. This is
+          the "run just this subnode" semantic that `--subnode <X>` needs.
+        """
         if target in self.jobs and self.jobs[target].job_type == 'stage':
-            # Collect this stage and all upstream stages
             needed = set()
-            self._collect_upstream(target, needed)
+            self._collect_upstream(target, needed, fan_out_siblings=True)
             return needed
         elif target in self.jobs:
-            return {target}
+            # Specific subnode/job — do NOT fan out to siblings.
+            needed = set()
+            self._collect_upstream(target, needed, fan_out_siblings=False)
+            return needed
         else:
-            # Try as stage name
-            stage = target.rstrip('0123456789') + '1' if not target[-1].isdigit() else target
-            if stage in self.jobs:
-                needed = set()
-                self._collect_upstream(stage, needed)
-                return needed
-            logger.error(f"Unknown target: {target}")
+            # Unknown target — DO NOT silently rewrite to a stage name. Doing
+            # so caused subnode typos to pull in every sibling subnode of
+            # the inferred stage (bug from production). Surface the error.
+            logger.error(f"Unknown target: {target!r}")
             return set()
 
-    def _collect_upstream(self, job_name: str, needed: set):
-        """Recursively collect a job and all its upstream dependencies."""
+    def _collect_upstream(self, job_name: str, needed: set, fan_out_siblings: bool = False):
+        """Recursively collect a job and all its upstream dependencies.
+
+        fan_out_siblings: when True AND the current job is a STAGE, also pull
+        in every sibling subnode of that stage. When False, only deps follow.
+        Always False for recursive descent into upstream deps — we never want
+        an upstream stage to fan its siblings into the schedule for a
+        single-subnode target.
+        """
         if job_name in needed:
             return
         needed.add(job_name)
         job = self.jobs.get(job_name)
-        if job:
-            for dep in job.deps:
-                self._collect_upstream(dep, needed)
-            # Also collect all subnodes for this stage
-            if job.job_type == 'stage':
-                for name, j in self.jobs.items():
-                    if j.stage == job.stage:
-                        if name not in needed:
-                            needed.add(name)
-                            for dep in j.deps:
-                                self._collect_upstream(dep, needed)
+        if not job:
+            return
+        for dep in job.deps:
+            self._collect_upstream(dep, needed, fan_out_siblings=False)
+        if fan_out_siblings and job.job_type == 'stage':
+            for name, j in self.jobs.items():
+                if j.stage == job.stage and name not in needed:
+                    needed.add(name)
+                    for dep in j.deps:
+                        self._collect_upstream(dep, needed, fan_out_siblings=False)
 
     def _get_timeout(self, job: Job) -> int:
         """Per-stage timeout in seconds from runtime,timeout,<stage>.

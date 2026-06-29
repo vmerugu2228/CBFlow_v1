@@ -220,3 +220,12 @@ array set pnr {
     signoff,spare_cells                                  ""
     signoff,lvs_netlist                                  ""
 }
+
+# ──────────────────────────────────────────────────────────────────────────────
+# EXPORT_DATA — ILM + LEF abstract (new knobs; existing export,lef and
+# export,abstract are kept for full-design exports they currently drive)
+# ──────────────────────────────────────────────────────────────────────────────
+array set pnr {
+    export,ilm                                           "false"
+    export,lef_abstract                                  "false"
+}

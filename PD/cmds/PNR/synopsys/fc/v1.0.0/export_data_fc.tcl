@@ -154,9 +154,13 @@ flow_proc write_gds_output {
         eval $cmd
     }
 
-    # FC-RM: write_lef
-    handle_info "Writing LEF"
-    write_lef -design ${design_name}/write_data.design -slice_polygon ${out}/${design_name}.lef
+    # FC-RM: write_lef (gated)
+    if {[cfg_true export,lef]} {
+        handle_info "Writing LEF: ${out}/${design_name}.lef"
+        write_lef -design ${design_name}/write_data.design -slice_polygon ${out}/${design_name}.lef
+    } else {
+        handle_info "LEF export disabled (export,lef != true) — skipping"
+    }
 
     handle_info "GDS/OASIS/LEF output completed"
 # ==============================================================================
@@ -305,7 +309,34 @@ flow_proc save_design {
 # flow_proc: generate_reports
 # FC-RM: run_end, report_msg
 # ==============================================================================
+# flow_proc: write_abstract_output
+# FC abstract / hierarchical block view — save_block -as <design>/abstract +
+# write_abstract NDM. Gated on pnr(export,abstract) | synth_pnr(export,abstract).
+# ==============================================================================
 }
+flow_proc write_abstract_output {
+    if {![cfg_true export,abstract]} {
+        handle_info "Abstract export disabled (export,abstract != true) — skipping"
+        return
+    }
+    global cfg flow
+    set design_name [expr {$cfg(common,design_name) ne "" ? $cfg(common,design_name) : $flow(design_name)}]
+    set out $::OUTPUTS_DIR
+
+    set _block_abs "${design_name}/abstract"
+    handle_info "save_block -as $_block_abs"
+    save_block -as $_block_abs
+
+    set _nlib "${out}/${design_name}.abstract.nlib"
+    handle_info "write_abstract -block $_block_abs -output $_nlib"
+    catch { write_abstract -block $_block_abs -output $_nlib } _err
+    if {[info exists _err] && $_err ne ""} {
+        handle_warning "write_abstract: $_err"
+    }
+    handle_info "FC abstract written: $_nlib"
+}
+
+# ==============================================================================
 flow_proc generate_reports {
     handle_info "Generating export_data reports..."
 

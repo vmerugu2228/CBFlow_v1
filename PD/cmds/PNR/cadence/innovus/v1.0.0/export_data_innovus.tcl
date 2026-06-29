@@ -903,6 +903,44 @@ flow_proc validate_export_data {
     handle_info "Validation report: $validation_file"
 }
 
+# ─── Optional ILM export (block-level Interface Logic Model) ────────────────
+# Gated on pnr(export,ilm). Default OFF. Useful for hierarchical reuse —
+# upstream consumers read the ILM as a black-box timing/power model.
+flow_proc export_ilm {
+    global pnr
+    if {![info exists pnr(export,ilm)] || ![string is true -strict $pnr(export,ilm)]} {
+        handle_info "ILM export disabled (pnr(export,ilm) != true) — skipping"
+        return
+    }
+    set _out "$::OUTPUTS_DIR/ilm"
+    file mkdir $_out
+    handle_info "write_ilm -model_type all -to_dir $_out"
+    catch { write_ilm -model_type all -to_dir $_out } _err
+    if {[info exists _err] && $_err ne ""} {
+        handle_warning "write_ilm: $_err"
+    }
+    handle_info "ILM written: $_out"
+}
+
+# ─── Optional LEF-abstract export (block boundary + pins, no internals) ─────
+# Distinct from the existing export,lef (full design LEF). Gated on
+# pnr(export,lef_abstract). Default OFF.
+flow_proc export_lef_abstract {
+    global pnr project
+    if {![info exists pnr(export,lef_abstract)] || ![string is true -strict $pnr(export,lef_abstract)]} {
+        handle_info "LEF abstract export disabled (pnr(export,lef_abstract) != true) — skipping"
+        return
+    }
+    set top_module [expr {[info exists project(top_module)] ? $project(top_module) : "design"}]
+    set _lef "$::OUTPUTS_DIR/${top_module}.abstract.lef"
+    handle_info "write_lef_abstract $_lef"
+    catch { write_lef_abstract $_lef } _err
+    if {[info exists _err] && $_err ne ""} {
+        handle_warning "write_lef_abstract: $_err"
+    }
+    handle_info "LEF abstract written: $_lef"
+}
+
 flow_proc export_data_complete {
     handle_info "Database export stage complete"
 

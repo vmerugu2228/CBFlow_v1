@@ -797,20 +797,14 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
         set stage_name [regsub -- {[0-9]+$} $node_type ""]
         lappend lines "# Resolve tool command file across discipline roots."
         lappend lines "# Try PD (\$FLOW_DIR) first, then any sibling disciplines (\$CBFLOW_DFT_DIR, ...)."
-        lappend lines "set _cmd_rel \"cmds/$flow_type/$tool_vendor/\$\{tool_name\}/\$\{TOOL_VERSION\}/${stage_name}_\$\{tool_name\}.tcl\""
-        lappend lines "set _cmd_roots \[list \$FLOW_DIR\]"
-        lappend lines "if {\[info exists ::env(CBFLOW_DFT_DIR)\] && \$::env(CBFLOW_DFT_DIR) ne \"\"} { lappend _cmd_roots \$::env(CBFLOW_DFT_DIR) }"
-        lappend lines "set tool_cmd_path \"\""
-        lappend lines "foreach _r \$_cmd_roots {"
-        lappend lines "    set _try \"\$_r/\$_cmd_rel\""
-        lappend lines "    if {\[file exists \$_try\]} { set tool_cmd_path \$_try ; break }"
-        lappend lines "}"
-        lappend lines "if {\$tool_cmd_path ne \"\"} {"
-        lappend lines "    puts \"INFO: Loading tool-specific command file: \$tool_cmd_path\""
-        lappend lines "    source \$tool_cmd_path"
-        lappend lines "} else {"
-        lappend lines "    puts \"ERROR: Command file not found in any discipline root: \$_cmd_rel (searched: \$_cmd_roots)\""
-        lappend lines "}"
+        # NOTE: setup.tcl historically emitted a `source $tool_cmd_path`
+        # here. That was a bug: the cmd file sources setup.tcl, so
+        # re-sourcing the cmd file from inside setup.tcl created an
+        # infinite recursion. The subnode handler invokes the cmd file
+        # directly (handler_run … $cmd_file …); setup.tcl is purely for
+        # config + flow_proc hooks. Do NOT add a cmd-file source here.
+        lappend lines "# setup.tcl: config + flow_proc hooks only. Cmd file is"
+        lappend lines "# launched by the subnode handler — do NOT source it here."
         lappend lines ""
 
         return [join $lines "\n"]

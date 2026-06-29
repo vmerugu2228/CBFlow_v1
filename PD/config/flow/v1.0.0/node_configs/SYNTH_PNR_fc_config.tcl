@@ -378,3 +378,11 @@ array set synth_pnr {
     common,lowpower,level_shifters                       "true"
     common,lowpower,always_on_buffers                    "true"
 }
+
+# ──────────────────────────────────────────────────────────────────────────────
+# EXPORT_DATA — LEF + Abstract view (FC; symmetric with PNR_fc_config.tcl)
+# ──────────────────────────────────────────────────────────────────────────────
+array set synth_pnr {
+    export,lef                                           "false"
+    export,abstract                                      "false"
+}

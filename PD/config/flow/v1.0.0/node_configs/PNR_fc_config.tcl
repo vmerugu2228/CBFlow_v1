@@ -326,3 +326,12 @@ array set pnr {
     common,lowpower,level_shifters                       "true"
     common,lowpower,always_on_buffers                    "true"
 }
+
+# ──────────────────────────────────────────────────────────────────────────────
+# EXPORT_DATA — LEF + Abstract view (FC). Both default OFF — write_lef now
+# gated, new write_abstract_output flow_proc generates the NDM abstract.
+# ──────────────────────────────────────────────────────────────────────────────
+array set pnr {
+    export,lef                                           "false"
+    export,abstract                                      "false"
+}
