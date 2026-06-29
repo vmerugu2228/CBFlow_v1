@@ -764,6 +764,39 @@ proc apply_vt_dont_use {} {
     }
 }
 
+# ── Dynamic config-array accessor for shared cmd files ─────────────────────
+# Same-tool cmd files (synopsys/fc cts_fc.tcl etc.) are shared byte-identical
+# across PNR and SYNTH_PNR. The active flow's config lives in a flow-specific
+# array — pnr() for PNR, synth_pnr() for SYNTH_PNR. cfg_get does the dynamic
+# resolution so the cmd file body stays flow-agnostic.
+#
+# Lookup: $<flow_array>(<key>) where <flow_array> = string tolower $::flow_type.
+# Returns $default if key absent or empty.
+proc cfg_get {key {default ""}} {
+    if {![info exists ::flow_type]} { return $default }
+    upvar #0 [string tolower $::flow_type] arr
+    if {[info exists arr($key)] && $arr($key) ne ""} { return $arr($key) }
+    return $default
+}
+
+# Like cfg_get but returns the literal $default (no empty-string coercion).
+# Use when "" is itself a meaningful value.
+proc cfg_get_exact {key {default ""}} {
+    if {![info exists ::flow_type]} { return $default }
+    upvar #0 [string tolower $::flow_type] arr
+    if {[info exists arr($key)]} { return $arr($key) }
+    return $default
+}
+
+# Predicate: is $<flow_array>(<key>) set to a truthy value?
+proc cfg_true {key} {
+    if {![info exists ::flow_type]} { return 0 }
+    upvar #0 [string tolower $::flow_type] arr
+    if {![info exists arr($key)]} { return 0 }
+    if {$arr($key) eq ""} { return 0 }
+    return [string is true -strict $arr($key)]
+}
+
 proc setup_dirs {run_dir flow_type node_name} {
     global DIRS
     set DIRS(run)         $run_dir

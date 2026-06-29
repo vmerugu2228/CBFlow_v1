@@ -1,12 +1,24 @@
 #!/usr/bin/env tclsh
-# CBFlow PNR cts1 - Synopsys Fusion Compiler | PNR cts1
+# CBFlow shared cts_fc.tcl — synopsys/fc CTS stage (clock_opt_cts)
+# Same byte-identical file lives at:
+#   PD/cmds/PNR/synopsys/fc/v1.0.0/cts_fc.tcl
+#   PD/cmds/SYNTH_PNR/synopsys/fc/v1.0.0/cts_fc.tcl
+# Subnode handlers set ::flow_type to "PNR" or "SYNTH_PNR"; cfg_get/cfg_true
+# resolve pnr(...) vs synth_pnr(...) transparently. Edit ONE copy and then
+# sync the other (PD/utils/validation has a healthcheck for drift).
+#
+# FC-RM source of truth: Y-2026.03 clock_opt_cts.tcl
 
 # ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
 source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-set FLOW_TYPE "PNR"
+# Flow type — subnode handler sets ::flow_type; env is the standalone fallback.
+if {![info exists ::flow_type] || $::flow_type eq ""} {
+    set ::flow_type $::env(CBFLOW_FLOW_TYPE)
+}
+set FLOW_TYPE $::flow_type
 set STAGE_NAME "cts"
 set NODE_NAME "cts1"
 
@@ -18,65 +30,179 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 # ==============================================================================
+# flow_proc: load_design
+# FC-RM: open_lib + copy_block from place_opt → clock_opt_cts, hier abstract swap
+# ==============================================================================
+flow_proc load_design {
+    handle_info "Loading design for clock_opt_cts..."
+    global flow
+
+    set design_name [cfg_get common,design_name $flow(design_name)]
+    set lib_name    [cfg_get common,design_lib_name "${design_name}.nlib"]
+
+    open_lib $lib_name
+    copy_block -from ${design_name}/place_opt -to ${design_name}/clock_opt_cts
+    current_block ${design_name}/clock_opt_cts
+    link_block
+
+    if {$flow(run_type) eq "hier"} {
+        set _abs [cfg_get common,block_abstract_for_cts ""]
+        if {$_abs ne ""} {
+            change_abstract -references [get_blocks -hierarchical] \
+                -label [lindex $_abs 0] -view [lindex $_abs 1]
+            report_abstracts
+        }
+        if {[cfg_true common,promote_clock_balance_points]} {
+            set _f [cfg_get common,promote_abstract_clock_data_file ""]
+            if {$_f ne "" && [file exists $_f]} { source $_f }
+        }
+        set_timing_paths_disabled_blocks -all_sub_blocks
+    }
+
+    handle_info "Design loaded: ${design_name}/clock_opt_cts"
+}
+
+# ==============================================================================
+# flow_proc: set_active_scenarios
+# FC-RM: set_scenario_status for CTS (include hold scenarios for CCD)
+# ==============================================================================
+flow_proc set_active_scenarios {
+    handle_info "Setting active scenarios for clock_opt_cts..."
+
+    set _override [cfg_get cts,clock_opt_cts,active_scenarios ""]
+    if {$_override ne ""} {
+        set_scenario_status -active false [get_scenarios -filter active]
+        set_scenario_status -active true $_override
+        handle_info "Active scenarios (user override): $_override"
+    } elseif {[info commands get_node_scenarios] ne ""} {
+        set _ns [get_node_scenarios "cts" "all"]
+        if {[llength $_ns] > 0} {
+            set_scenario_status -active false [get_scenarios -filter active]
+            set_scenario_status -active true $_ns
+            handle_info "Active scenarios (mmmc_config/cts): $_ns"
+        }
+    }
+
+    set _adj [cfg_get common,mcmm_adjustment_file ""]
+    if {$_adj ne "" && [file exists $_adj]} { source $_adj }
+
+    if {[sizeof_collection [get_scenarios -filter "hold && active"]] == 0} {
+        handle_warning "No active hold scenario! CCD skewing requires hold scenarios for CTS."
+    }
+
+    handle_info "Active scenarios configured"
+}
+
+# ==============================================================================
+# flow_proc: set_qor_strategy
+# FC-RM: set_qor_strategy -stage cts, disable power scenarios for timing
+# ==============================================================================
+flow_proc set_qor_strategy {
+    handle_info "Setting QoR strategy for CTS..."
+
+    set _ver [cfg_get common,compile,qor_version ""]
+    if {$_ver ne ""} {
+        set_app_options -name flow.set_qor_strategy.version -value $_ver
+    }
+
+    set metric [cfg_get common,compile,qor_metric "timing"]
+    set mode   [cfg_get common,compile,qor_mode   "balanced"]
+    set cmd "set_qor_strategy -stage cts -metric $metric -mode $mode"
+    if {[cfg_true common,compile,reduced_effort]} { lappend cmd -reduced_effort }
+
+    handle_info "Running: $cmd"
+    redirect -file $::REPORTS_DIR/set_qor_strategy { eval $cmd -report_only }
+    eval $cmd
+
+    # Disable power scenarios for timing-focused QoR
+    if {$metric eq "timing"} {
+        set ::rm_leakage_scenarios [get_object_name [get_scenarios -filter "active==true&&leakage_power==true"]]
+        set ::rm_dynamic_scenarios [get_object_name [get_scenarios -filter "active==true&&dynamic_power==true"]]
+        if {[llength $::rm_leakage_scenarios] > 0 || [llength $::rm_dynamic_scenarios] > 0} {
+            handle_info "Disabling power analysis for timing optimization"
+            set_scenario_status -leakage_power false -dynamic_power false \
+                [get_scenarios "$::rm_leakage_scenarios $::rm_dynamic_scenarios"]
+        }
+    } elseif {$metric eq "leakage_power"} {
+        set ::rm_dynamic_scenarios [get_object_name [get_scenarios -filter "active==true&&dynamic_power==true"]]
+        if {[llength $::rm_dynamic_scenarios] > 0} {
+            set_scenario_status -dynamic_power false [get_scenarios $::rm_dynamic_scenarios]
+        }
+    }
+
+    handle_info "QoR strategy set: metric=$metric, mode=$mode"
+}
+
+# ==============================================================================
 # flow_proc: configure_cts
-# Description: Configure CTS options, NDR rules, and clock constraints
+# FC-RM: instance prefixes, lib_cell_purpose, non-persistent, multi-Vt,
+#        antenna rules, sidefile, MSCTS mesh routing hook
 # ==============================================================================
 flow_proc configure_cts {
-    handle_info "Configuring CTS options..."
-    global pnr tech
+    handle_info "Configuring CTS settings..."
+    global tech
+    apply_vt_dont_use
 
-    # Set QoR strategy for CTS stage
-    if {[info exists pnr(compile,qor_version)] && $pnr(compile,qor_version) ne ""} {
-        set_app_options -name flow.set_qor_strategy.version -value $pnr(compile,qor_version)
-    }
-    set set_qor_strategy_cmd "set_qor_strategy -stage cts"
-    if {[info exists pnr(compile,qor_metric)] && $pnr(compile,qor_metric) ne ""} {
-        lappend set_qor_strategy_cmd -metric $pnr(compile,qor_metric)
-    }
-    if {[info exists pnr(compile,qor_mode)] && $pnr(compile,qor_mode) ne ""} {
-        lappend set_qor_strategy_cmd -mode $pnr(compile,qor_mode)
-    }
-    if {[info exists pnr(compile,reduced_effort)] && $pnr(compile,reduced_effort) ne "" && [string is true -strict $pnr(compile,reduced_effort)]} {
-        lappend set_qor_strategy_cmd -reduced_effort
-    }
-    handle_info "Running: $set_qor_strategy_cmd"
-    eval $set_qor_strategy_cmd
-
-    # Set instance name prefixes
+    # FC-RM: instance name prefixes
     set_app_options -name cts.common.user_instance_name_prefix -value clock_opt_cts_
     set_app_options -name opt.common.user_instance_name_prefix -value clock_opt_cts_opt_
 
-    # Set active scenarios for CTS step
-    if {[info exists pnr(cts,active_scenarios)] && $pnr(cts,active_scenarios) ne ""} {
-        set_scenario_status -active false [get_scenarios -filter active]
-        set_scenario_status -active true $pnr(cts,active_scenarios)
+    # FC-RM: lib cell purpose
+    set _lcp [cfg_get common,lib_cell_purpose_file ""]
+    if {$_lcp ne "" && [file exists $_lcp]} {
+        source $_lcp
+    } elseif {[info exists tech(lib_cell_purpose_file)] && [file exists $tech(lib_cell_purpose_file)]} {
+        source $tech(lib_cell_purpose_file)
     }
 
-    # Lib cell purpose for CTS
-    if {[info exists pnr(cts,ref_cells)] && $pnr(cts,ref_cells) ne ""} {
-        set_lib_cell_purpose -include cts $pnr(cts,ref_cells)
-        handle_info "CTS reference cells: $pnr(cts,ref_cells)"
-    }
-    if {[info exists pnr(cts,exclude_cells)] && $pnr(cts,exclude_cells) ne ""} {
-        set_lib_cell_purpose -exclude cts $pnr(cts,exclude_cells)
-    }
+    # FC-RM: CTS sidefile
+    set _sf [cfg_get cts,cts_sidefile ""]
+    if {$_sf ne "" && [file exists $_sf]} { source $_sf }
 
-    # Configure NDR (non-default routing) rules for clock nets and mark trees
-    if {[info exists pnr(cts,ndr_rule)] && $pnr(cts,ndr_rule) ne ""} {
-        handle_info "Applying clock NDR rule: $pnr(cts,ndr_rule)"
-        mark_clock_trees -routing_rules
-    }
+    # FC-RM: non-persistent settings
+    set _nps [cfg_get common,non_persistent_script ""]
+    if {$_nps ne "" && [file exists $_nps]} { source $_nps }
 
-    # Antenna rules
+    # FC-RM: multi-Vt constraint
+    set _mvt [cfg_get common,multi_vt_constraint_file ""]
+    if {$_mvt ne "" && [file exists $_mvt]} { source $_mvt }
+
+    # FC-RM: antenna rules
     if {[info exists tech(antenna_rule_file)] && [file exists $tech(antenna_rule_file)]} {
-        handle_info "Reading antenna rules: $tech(antenna_rule_file)"
+        handle_info "Sourcing antenna rules: $tech(antenna_rule_file)"
         source $tech(antenna_rule_file)
     }
 
-    # CTS primary corner override
-    if {[info exists pnr(cts,primary_corner)] && $pnr(cts,primary_corner) ne ""} {
-        handle_info "Setting cts.compile.primary_corner to $pnr(cts,primary_corner)"
-        set_app_options -name cts.compile.primary_corner -value $pnr(cts,primary_corner)
+    # FC-RM: user CTS pre-script
+    set _pre [cfg_get cts,cts_pre_script ""]
+    if {$_pre ne "" && [file exists $_pre]} { source $_pre }
+
+    # FC-RM: pre-CTS reports
+    redirect -file $::REPORTS_DIR/report_app_options.start { report_app_options -non_default * }
+    redirect -file $::REPORTS_DIR/report_lib_cell_purpose {
+        report_lib_cell -objects [get_lib_cells] -column {full_name:20 valid_purposes}
+    }
+    redirect -file $::REPORTS_DIR/pre_cts.report_clock_settings { report_clock_settings }
+    redirect -file $::REPORTS_DIR/pre_cts.check_clock_tree { check_clock_trees }
+
+    # FC-RM: MSCTS mesh routing user override (separate from full construct_mscts)
+    set _mr [cfg_get cts,mscts_mesh_routing_script ""]
+    if {$_mr ne "" && [file exists $_mr]} {
+        mark_clock_trees -clear -dont_touch
+        source $_mr
+    }
+
+    # PNR-flavored knobs preserved (NDR rule + primary corner) — read via cfg_get
+    # so the same logic runs for SYNTH_PNR too if the keys are set there.
+    set _ndr [cfg_get cts,ndr_rule ""]
+    if {$_ndr ne ""} {
+        handle_info "Applying clock NDR rule: $_ndr"
+        mark_clock_trees -routing_rules
+    }
+    set _pc [cfg_get cts,primary_corner ""]
+    if {$_pc ne ""} {
+        handle_info "Setting cts.compile.primary_corner to $_pc"
+        set_app_options -name cts.compile.primary_corner -value $_pc
     }
 
     handle_info "CTS configuration completed"
@@ -84,203 +210,209 @@ flow_proc configure_cts {
 
 # ==============================================================================
 # flow_proc: construct_mscts
-# Description: Optional Multi-Source CTS (MSCTS / "multipoint CTS") step.
-#              Gated on `pnr(cts,mpcts) == "true"`. When enabled, stages the
-#              user's MSCTS_* settings from the cascade and sources the
-#              standalone mscts_fc.tcl recipe (1:1 port of FC-RM Y-2026.03
-#              examples/mscts.regular.tcl).
-#
-# Position in flow: AFTER configure_cts, BEFORE build_clock_trees. The
-#                   subsequent `clock_opt -from build_clock` then picks up
-#                   the tap assignment set via
-#                   set_multisource_clock_tap_options at the end of MSCTS.
-#
-# Note vs FC-RM:    FC-RM places MSCTS construction at the END of place_opt
-#                   so the H-tree exists before clock_opt_cts starts.
-#                   Per user direction, CBflow runs it as the first sub-step
-#                   of the cts1 node instead. Same net result for
-#                   `clock_opt`'s view of taps. If timing closure suffers
-#                   in production, the same flow_proc can be lifted into
-#                   place_fc.tcl with no other change.
+# Optional Multi-Source CTS step. Gated on `<flow>(cts,mpcts) == "true"`.
+# Stages cascade values into FC-RM-canonical MSCTS_* globals, then sources
+# the standalone mscts_fc.tcl recipe (1:1 port of FC-RM Y-2026.03
+# examples/mscts.regular.tcl). Single canonical copy lives under
+# cmds/PNR/synopsys/fc/v1.0.0/mscts_fc.tcl — shared across PNR + SYNTH_PNR.
 # ==============================================================================
 flow_proc construct_mscts {
-    global pnr
-    # Gate. Default (key absent or anything other than "true") = no-op,
-    # so existing PNR runs are unchanged.
-    set _on false
-    if {[info exists pnr(cts,mpcts)]} {
-        if {[string is true -strict $pnr(cts,mpcts)]} { set _on true }
-    }
-    if {!$_on} {
-        handle_info "MSCTS / multipoint CTS disabled (pnr(cts,mpcts) != true) — skipping"
+    if {![cfg_true cts,mpcts]} {
+        handle_info "MSCTS / multipoint CTS disabled (cts,mpcts != true) — skipping"
         return
     }
 
-    handle_info "MSCTS / multipoint CTS enabled — staging inputs from pnr(cts,mpcts,*)"
+    handle_info "MSCTS / multipoint CTS enabled — staging inputs from cts,mpcts,*"
 
-    # Stage cascade values into the FC-RM-canonical MSCTS_* globals the
-    # standalone recipe reads. Keeping the FC-RM names means mscts_fc.tcl
-    # stays a 1:1 port — no rename layer between CBflow's config keys
-    # and the recipe.
-    set ::MSCTS_CLOCK                     [_pnr_cts_mpcts_get clock                     ""]
-    set ::MSCTS_SOURCE                    [_pnr_cts_mpcts_get source                    ""]
-    set ::MSCTS_TOPOLOGY                  [_pnr_cts_mpcts_get topology                  "htree"]
-    set ::MSCTS_PITCH                     [_pnr_cts_mpcts_get pitch                     "100"]
-    set ::MSCTS_TAP_DRIVER_LIB_CELLS      [_pnr_cts_mpcts_get tap_driver_lib_cells      ""]
-    set ::MSCTS_NET                       [_pnr_cts_mpcts_get net                       ""]
-    set ::MSCTS_TAP_DRIVER_MAX_DISPLACEMENT [_pnr_cts_mpcts_get tap_driver_max_displacement ""]
-    set ::MSCTS_TAP_BOUNDARY              [_pnr_cts_mpcts_get tap_boundary              ""]
-    set ::MSCTS_MACRO_KEEPOUT             [_pnr_cts_mpcts_get macro_keepout             "false"]
-    # htree-mode inputs
-    set ::MSCTS_HTREE_LIB_CELLS           [_pnr_cts_mpcts_get htree_lib_cells           ""]
-    set ::MSCTS_HTREE_NDR_RULE_NAME       [_pnr_cts_mpcts_get htree_ndr_rule_name       ""]
-    set ::MSCTS_HTREE_MIN_ROUTING_LAYER   [_pnr_cts_mpcts_get htree_min_routing_layer   ""]
-    set ::MSCTS_HTREE_MAX_ROUTING_LAYER   [_pnr_cts_mpcts_get htree_max_routing_layer   ""]
-    # subtree_only-mode inputs
-    set ::MSCTS_MESH_NET                  [_pnr_cts_mpcts_get mesh_net                  ""]
-    set ::MSCTS_MESH_NET_PORT             [_pnr_cts_mpcts_get mesh_net_port             ""]
-    set ::MSCTS_MESH_NET_PORT_TRANSITION  [_pnr_cts_mpcts_get mesh_net_port_transition  ""]
-    set ::MSCTS_MESH_NET_PORT_DELAY       [_pnr_cts_mpcts_get mesh_net_port_delay       ""]
-    set ::MSCTS_INPUT_TRANSITION          [_pnr_cts_mpcts_get input_transition          ""]
-    set ::MSCTS_NET_DELAY                 [_pnr_cts_mpcts_get net_delay                 ""]
-    set ::TCL_USER_MESH_ANNOTATION_SCRIPT [_pnr_cts_mpcts_get user_mesh_annotation_script ""]
+    set ::MSCTS_CLOCK                       [cfg_get cts,mpcts,clock                       ""]
+    set ::MSCTS_SOURCE                      [cfg_get cts,mpcts,source                      ""]
+    set ::MSCTS_TOPOLOGY                    [cfg_get cts,mpcts,topology                    "htree"]
+    set ::MSCTS_PITCH                       [cfg_get cts,mpcts,pitch                       "100"]
+    set ::MSCTS_TAP_DRIVER_LIB_CELLS        [cfg_get cts,mpcts,tap_driver_lib_cells        ""]
+    set ::MSCTS_NET                         [cfg_get cts,mpcts,net                         ""]
+    set ::MSCTS_TAP_DRIVER_MAX_DISPLACEMENT [cfg_get cts,mpcts,tap_driver_max_displacement ""]
+    set ::MSCTS_TAP_BOUNDARY                [cfg_get cts,mpcts,tap_boundary                ""]
+    set ::MSCTS_MACRO_KEEPOUT               [cfg_get cts,mpcts,macro_keepout               "false"]
+    set ::MSCTS_HTREE_LIB_CELLS             [cfg_get cts,mpcts,htree_lib_cells             ""]
+    set ::MSCTS_HTREE_NDR_RULE_NAME         [cfg_get cts,mpcts,htree_ndr_rule_name         ""]
+    set ::MSCTS_HTREE_MIN_ROUTING_LAYER     [cfg_get cts,mpcts,htree_min_routing_layer     ""]
+    set ::MSCTS_HTREE_MAX_ROUTING_LAYER     [cfg_get cts,mpcts,htree_max_routing_layer     ""]
+    set ::MSCTS_MESH_NET                    [cfg_get cts,mpcts,mesh_net                    ""]
+    set ::MSCTS_MESH_NET_PORT               [cfg_get cts,mpcts,mesh_net_port               ""]
+    set ::MSCTS_MESH_NET_PORT_TRANSITION    [cfg_get cts,mpcts,mesh_net_port_transition    ""]
+    set ::MSCTS_MESH_NET_PORT_DELAY         [cfg_get cts,mpcts,mesh_net_port_delay         ""]
+    set ::MSCTS_INPUT_TRANSITION            [cfg_get cts,mpcts,input_transition            ""]
+    set ::MSCTS_NET_DELAY                   [cfg_get cts,mpcts,net_delay                   ""]
+    set ::TCL_USER_MESH_ANNOTATION_SCRIPT   [cfg_get cts,mpcts,user_mesh_annotation_script ""]
 
-    # Source the standalone recipe. It validates inputs internally and
-    # raises `return -code error` if anything required is missing, which
-    # propagates up through this flow_proc and aborts the cts1 stage —
-    # exactly what we want.
     set _recipe "$::env(FLOW_DIR)/cmds/PNR/synopsys/fc/$::env(TOOL_VERSION)/mscts_fc.tcl"
     if {![file exists $_recipe]} {
-        # Defensive fallback for TOOL_VERSION mismatch — try the version
-        # that the running handler was loaded from.
-        set _recipe "[file dirname [info script]]/mscts_fc.tcl"
+        set _recipe "$::env(FLOW_DIR)/cmds/PNR/synopsys/fc/v1.0.0/mscts_fc.tcl"
     }
     handle_info "Sourcing MSCTS recipe: $_recipe"
     source $_recipe
     handle_info "MSCTS construction completed"
 }
 
-# Helper: read a `pnr(cts,mpcts,<key>)` from the resolved cascade, falling
-# back to a default. Kept local to this file because the only other reader
-# of these knobs is this flow_proc.
-proc _pnr_cts_mpcts_get {key default} {
-    global pnr
-    set full "cts,mpcts,$key"
-    if {[info exists pnr($full)] && $pnr($full) ne ""} {
-        return $pnr($full)
-    }
-    return $default
-}
-
 # ==============================================================================
 # flow_proc: build_clock_trees
-# Description: Build clock trees via clock_opt build_clock phase
+# FC-RM: clock_opt -from build_clock -to build_clock (with relaxed transition)
 # ==============================================================================
 flow_proc build_clock_trees {
     handle_info "Building clock trees..."
-    global pnr
+    global flow
 
-    # Check and apply relaxed clock transition for better CTS convergence
-    handle_info "Running check_clock_transition -threshold 0.15 -apply_max_transition"
+    set design_name [cfg_get common,design_name $flow(design_name)]
+
+    set_svf $::OUTPUTS_DIR/${design_name}_clock_opt_cts.svf
+
+    handle_info "Checking relaxed clock transition constraint"
     check_clock_transition -threshold 0.15 -apply_max_transition
 
-    # Build clock tree
     handle_info "Running clock_opt -from build_clock -to build_clock"
     clock_opt -from build_clock -to build_clock
 
-    # Save intermediate state
-    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling) ne "" && [string is true -strict $pnr(output,block_labeling)]} {
-        save_block -as $pnr(common,design_name)/clock_opt_cts_build_clock
+    if {[cfg_true common,output,block_labeling] || [cfg_true output,block_labeling]} {
+        save_block -as ${design_name}/clock_opt_cts_build_clock
     }
 
-    # Restore original clock transition constraint
+    handle_info "Setting propagated clocks"
+    set_propagated_clock [all_clocks]
+
+    compute_clock_latency
     restore_clock_transition
 
-    handle_info "Clock tree build completed"
+    handle_info "Clock trees built"
 }
 
 # ==============================================================================
 # flow_proc: route_clock_nets
-# Description: Route clock nets via clock_opt route_clock phase
+# FC-RM: clock_opt -from route_clock -to route_clock
 # ==============================================================================
 flow_proc route_clock_nets {
     handle_info "Routing clock nets..."
-
     handle_info "Running clock_opt -from route_clock -to route_clock"
     clock_opt -from route_clock -to route_clock
+    handle_info "Clock nets routed"
+}
 
-    # Redundant via insertion on clock nets if enabled
-    if {[info exists ::pnr(cts,redundant_via)] && $::pnr(cts,redundant_via)} {
-        handle_info "Running add_redundant_vias for CTS"
+# ==============================================================================
+# flow_proc: post_cts_optimization
+# FC-RM: redundant via insertion, AOCV enable, create_shields, user post-script
+# ==============================================================================
+flow_proc post_cts_optimization {
+    handle_info "Running post-CTS optimization..."
+    global tech
+
+    if {[cfg_true cts,redundant_via]} {
+        if {[info exists tech(redundant_via_mapping_file)] && [file exists $tech(redundant_via_mapping_file)]} {
+            handle_info "Sourcing redundant via mapping"
+            source $tech(redundant_via_mapping_file)
+            redirect -file $::REPORTS_DIR/report_via_mapping.rpt { report_via_mapping }
+        }
+        handle_info "Adding redundant vias"
         add_redundant_vias
     }
 
-    # Enable AOCV analysis after CTS if configured
-    if {[info exists ::pnr(cts,enable_aocv)] && $::pnr(cts,enable_aocv)} {
+    if {[cfg_true cts,clock_opt_cts,enable_aocv] || [cfg_true cts,enable_aocv]} {
         set_app_options -name time.aocvm_enable_analysis -value true
-        handle_info "AOCV analysis enabled"
+        handle_info "AOCV analysis enabled after CTS"
     }
 
-    # Create shields if enabled
-    if {[info exists ::pnr(cts,enable_shields)] && $::pnr(cts,enable_shields)} {
-        handle_info "Creating clock shields..."
-        set create_shields_cmd "create_shields"
-        if {[info exists ::pnr(cts,shields_ground_net)] && $::pnr(cts,shields_ground_net) ne ""} {
-            lappend create_shields_cmd -with_ground $::pnr(cts,shields_ground_net)
-        }
-        eval $create_shields_cmd
+    if {[cfg_true cts,cts,enable_shields] || [cfg_true cts,enable_shields]} {
+        set shields_cmd "create_shields"
+        set _opts [cfg_get cts,cts,shields_options [cfg_get cts,shields_options ""]]
+        if {$_opts ne ""} { append shields_cmd " $_opts" }
+        set _gnd [cfg_get cts,cts,shields_ground_net [cfg_get cts,shields_ground_net ""]]
+        if {$_gnd ne ""} { lappend shields_cmd -with_ground $_gnd }
+        handle_info "Running: $shields_cmd"
+        eval $shields_cmd
     }
 
-    handle_info "Clock net routing completed"
+    set _post [cfg_get cts,cts_post_script ""]
+    if {$_post ne "" && [file exists $_post]} { source $_post }
+
+    handle_info "Post-CTS optimization completed"
 }
 
 # ==============================================================================
-# flow_proc: propagate_clocks
-# Description: Propagate clocks to inactive scenarios and connect PG nets
+# flow_proc: connect_power_ground
+# FC-RM: connect_pg_net, re-enable power scenarios, check_routes
 # ==============================================================================
-flow_proc propagate_clocks {
-    handle_info "Propagating clocks and connecting PG nets..."
+flow_proc connect_power_ground {
+    handle_info "Connecting PG nets and finalizing..."
 
-    # Connect PG nets
-    connect_pg_net
-
-    # Run check_routes to save updated routing DRC to the block
-    redirect -file $::REPORTS_DIR/check_routes.rpt {
-        check_routes -open_net false
-    }
-
-    handle_info "Clock propagation and PG connection completed"
-}
-
-# ==============================================================================
-# flow_proc: save_design_block
-# Description: Save the design block after CTS
-# ==============================================================================
-flow_proc save_design_block {
-    handle_info "Saving design block..."
-    global pnr
-
-    if {[info exists pnr(output,block_labeling)] && $pnr(output,block_labeling) ne "" && [string is true -strict $pnr(output,block_labeling)]} {
-        save_block -as $pnr(common,design_name)/cts
-        handle_info "Block saved as $pnr(common,design_name)/cts"
+    set _pgs [cfg_get common,connect_pg_net_script ""]
+    if {$_pgs ne "" && [file exists $_pgs]} {
+        source $_pgs
     } else {
-        save_block
-        handle_info "Block saved"
+        connect_pg_net
     }
+
+    if {[info exists ::rm_leakage_scenarios] && [llength $::rm_leakage_scenarios] > 0} {
+        handle_info "Re-enabling leakage power analysis"
+        set_scenario_status -leakage_power true [get_scenarios $::rm_leakage_scenarios]
+    }
+    if {[info exists ::rm_dynamic_scenarios] && [llength $::rm_dynamic_scenarios] > 0} {
+        handle_info "Re-enabling dynamic power analysis"
+        set_scenario_status -dynamic_power true [get_scenarios $::rm_dynamic_scenarios]
+    }
+
+    redirect -file $::REPORTS_DIR/check_routes { check_routes -open_net false }
+
+    handle_info "PG nets connected, routes checked"
+}
+
+# ==============================================================================
+# flow_proc: create_abstracts
+# FC-RM: create_abstract + create_frame for hierarchical bottom-level
+# ==============================================================================
+flow_proc create_abstracts {
+    handle_info "Creating abstracts..."
+    global flow
+
+    if {$flow(run_type) eq "hier"} {
+        set hier_level [cfg_get common,physical_hierarchy_level "bottom"]
+        if {$hier_level ne "top"} {
+            handle_info "Creating abstract and frame (level=$hier_level)"
+            create_abstract -read_only
+            create_frame -block_all true
+        }
+    }
+
+    handle_info "Abstracts completed"
+}
+
+# ==============================================================================
+# flow_proc: save_design
+# FC-RM: save_block, optional labeled save, set_svf -off
+# ==============================================================================
+flow_proc save_design {
+    handle_info "Saving clock_opt_cts design..."
+    global flow
+
+    set design_name [cfg_get common,design_name $flow(design_name)]
+
+    save_block
+    if {[cfg_true common,output,block_labeling] || [cfg_true output,block_labeling]} {
+        save_block -as ${design_name}/clock_opt_cts
+        handle_info "Block saved: ${design_name}/clock_opt_cts"
+    }
+
+    set_svf -off
+    handle_info "CTS design saved"
 }
 
 # ==============================================================================
 # flow_proc: generate_reports
-# Description: Generate comprehensive CTS reports
+# FC-RM: timing/QoR/clock_qor/skew, design/util/power, congestion, write_qor_data
 # ==============================================================================
 flow_proc generate_reports {
     handle_info "Generating CTS reports..."
-    global pnr
 
-    set run_dir $::env(CBFLOW_RUN_DIR)
-    set max_paths [expr {[info exists pnr(analysis,max_paths)] ? $pnr(analysis,max_paths) : 100}]
+    set max_paths [cfg_get common,analysis,max_paths [cfg_get analysis,max_paths 100]]
+    if {$max_paths eq ""} { set max_paths 100 }
 
-    # FC-RM: Timing reports
     redirect -file $::REPORTS_DIR/report_timing.max.rpt {
         report_timing -max_paths $max_paths -delay_type max -nosplit
     }
@@ -288,11 +420,9 @@ flow_proc generate_reports {
         report_timing -max_paths $max_paths -delay_type min -nosplit
     }
 
-    # FC-RM: QoR reports
     redirect -file $::REPORTS_DIR/report_qor.rpt { report_qor -nosplit }
     redirect -file $::REPORTS_DIR/report_qor_summary.rpt { report_qor -summary -nosplit }
 
-    # FC-RM: Clock-specific reports
     redirect -file $::REPORTS_DIR/report_clock_qor.rpt { report_clock_qor }
     redirect -file $::REPORTS_DIR/report_clock_timing.setup.rpt {
         report_clock_timing -type summary -scenarios [all_scenarios]
@@ -301,39 +431,26 @@ flow_proc generate_reports {
         report_clock_timing -type skew -scenarios [all_scenarios]
     }
 
-    # FC-RM: Design and congestion
     redirect -file $::REPORTS_DIR/report_design.rpt { report_design -summary }
     redirect -file $::REPORTS_DIR/report_utilization.rpt { report_utilization }
-
-    # FC-RM: Power
     redirect -file $::REPORTS_DIR/report_power.rpt { report_power }
-
-    # FC-RM: Threshold voltage group
     redirect -file $::REPORTS_DIR/report_threshold_voltage_group.rpt { report_threshold_voltage_group }
-
-    # FC-RM: Congestion after CTS
     redirect -file $::REPORTS_DIR/report_congestion.rpt { report_congestion }
-
-    # FC-RM: App options end state
     redirect -file $::REPORTS_DIR/report_app_options.end.rpt { report_app_options -non_default * }
 
-    # FC-RM: write_qor_data
     catch {
         write_qor_data -report_list "performance host_machine report_app_options" \
             -label clock_opt_cts -output $run_dir/qor_data
     }
 
-    # FC-RM: report_msg summary
     redirect -file $::REPORTS_DIR/report_msg_summary.rpt { report_msg -summary }
 
     handle_info "CTS reports generated in: $::REPORTS_DIR"
 }
 
-
 # ==============================================================================
-# Execute all flow_procs in sequence
+# Execute all registered flow_procs in definition order
 # ==============================================================================
 flow_exec_all
 
-# Exit tool after stage completion
 exit
