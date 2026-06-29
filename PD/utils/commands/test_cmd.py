@@ -220,6 +220,16 @@ Examples:
                        help='LSF dispatch smoke: exercise submit_job with '
                             'stubbed bsub+xterm. Catches the class '
                             'test_mode=true hides.')
+    scope.add_argument('--cli-smoke', dest='cli_smoke',
+                       action='store_true',
+                       help='CLI smoke: auto-discover every `cbflow ...` '
+                            'leaf command and run it with safe args. '
+                            'Catches broken --help text, missing args, '
+                            'import errors in command modules.')
+    parser.add_argument('--destructive', action='store_true',
+                        help='In --cli-smoke, also exercise destructive '
+                             'leaves (run all, release, create-branch, '
+                             'etc.) — they still only get --help by default')
 
     parser.add_argument('--flow', help='Test a single flow')
     parser.add_argument('--flows', help='Comma-separated list of flows')
@@ -268,9 +278,10 @@ Examples:
     results = Results()
 
     flows = _resolve_flows(args)
-    run_static = not args.e2e and not args.dispatch_smoke
-    run_e2e = not args.static and not args.dispatch_smoke
+    run_static   = not args.e2e and not args.dispatch_smoke and not args.cli_smoke
+    run_e2e      = not args.static and not args.dispatch_smoke and not args.cli_smoke
     run_dispatch = bool(args.dispatch_smoke)
+    run_cli      = bool(args.cli_smoke)
 
     console.section(
         f'CBflow Test Suite — flows={",".join(flows)}, '
@@ -298,6 +309,14 @@ Examples:
         console.section('DISPATCH SMOKE: launch_utils.tcl::submit_job '
                         '(stubbed bsub + xterm)')
         dispatch_smoke.run(results)
+        for entry in results.entries[before:]:
+            console.event(entry['status'], entry['test'], entry['detail'])
+
+    if run_cli:
+        from test_suite import cli_smoke
+        before = len(results.entries)
+        console.section('CLI SMOKE: every `cbflow ...` leaf, safe args')
+        cli_smoke.run(results, PD_DIR, args)
         for entry in results.entries[before:]:
             console.event(entry['status'], entry['test'], entry['detail'])
 
