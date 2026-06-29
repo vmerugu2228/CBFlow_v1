@@ -270,3 +270,34 @@ array set pnr {
     signoff,metal_fill_track_based                       ""
     signoff,stream_files_for_merge                       ""
 }
+
+# ──────────────────────────────────────────────────────────────────────────────
+# REDHAWK-SC RAIL ANALYSIS (Synopsys ↔ Ansys RedHawk-SC integration)
+# ──────────────────────────────────────────────────────────────────────────────
+# Master knob to enable: `set pnr(common,redhawk_enable) "true"` in user_config
+# (or per-stage: `pnr(cts_opt,redhawk_enable)` / `pnr(pro,redhawk_enable)`
+# / `pnr(signoff,redhawk_enable)`). Default OFF — existing runs unchanged.
+#
+# When enabled, the `redhawk_rail_analysis` flow_proc in cts_opt / pro / signoff
+# sources cmds/PNR/synopsys/fc/<ver>/redhawk_fc.tcl. Required inputs marked (*).
+# See PD/docs/03-reference/redhawk-integration.md for full description.
+# ──────────────────────────────────────────────────────────────────────────────
+array set pnr {
+    common,redhawk_enable                                "false"
+    cts_opt,redhawk_enable                               "false"
+    pro,redhawk_enable                                   "false"
+    signoff,redhawk_enable                               "false"
+
+    common,redhawk,gad_file                              ""
+    common,redhawk,tech_file                             ""
+    common,redhawk,power_net                             ""
+    common,redhawk,ground_net                            ""
+    common,redhawk,scenario                              ""
+    common,redhawk,ir_threshold                          "0.05"
+    common,redhawk,switching_activity                    ""
+    common,redhawk,static_ir                             "true"
+    common,redhawk,dynamic_ir                            "true"
+    common,redhawk,em_analysis                           "false"
+    common,redhawk,fix_violators                         "true"
+    common,redhawk,num_cpus                              "8"
+}

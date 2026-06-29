@@ -265,13 +265,36 @@ flow_proc run_route_opt {
     }
 
     handle_info "route_opt completed"
+}
+
+# ==============================================================================
+# flow_proc: redhawk_rail_analysis
+# Optional RedHawk-SC IR-driven rail analysis after route_opt. Gated on
+# <flow>(pro,redhawk_enable) OR <flow>(common,redhawk_enable) == "true".
+# Stages cfg(pro,redhawk,*) → ::REDHAWK_* globals, then sources the
+# standalone redhawk_fc.tcl recipe with stage="pro". Default OFF.
+# ==============================================================================
+flow_proc redhawk_rail_analysis {
+    if {![redhawk_enabled pro]} {
+        handle_info "RedHawk-SC disabled (pro,redhawk_enable != true) — skipping"
+        return
+    }
+    handle_info "RedHawk-SC enabled — staging globals for pro"
+    redhawk_stage_globals pro
+    set _recipe "$::env(FLOW_DIR)/cmds/PNR/synopsys/fc/$::env(TOOL_VERSION)/redhawk_fc.tcl"
+    if {![file exists $_recipe]} {
+        set _recipe "$::env(FLOW_DIR)/cmds/PNR/synopsys/fc/v1.0.0/redhawk_fc.tcl"
+    }
+    handle_info "Sourcing RedHawk recipe: $_recipe"
+    source $_recipe
+}
+
 # ==============================================================================
 # flow_proc: post_route_opt
 # FC-RM: Post-route_opt redundant vias, incremental route_detail for DRC fix,
 #         FuSa safety taps, user post-script, connect_pg_net, check_routes,
 #         re-enable power
 # ==============================================================================
-}
 flow_proc post_route_opt {
     handle_info "Running post-route_opt tasks..."
     global flow cfg

@@ -233,11 +233,34 @@ flow_proc run_clock_opt_opto {
     clock_opt -from final_opto -to final_opto
 
     handle_info "clock_opt final_opto completed"
+}
+
+# ==============================================================================
+# flow_proc: redhawk_rail_analysis
+# Optional RedHawk-SC IR-driven rail analysis between opto runs. Gated on
+# <flow>(cts_opt,redhawk_enable) OR <flow>(common,redhawk_enable) == "true".
+# Stages cfg(cts_opt,redhawk,*) → ::REDHAWK_* globals, then sources the
+# standalone redhawk_fc.tcl recipe with stage="cts_opt". Default OFF.
+# ==============================================================================
+flow_proc redhawk_rail_analysis {
+    if {![redhawk_enabled cts_opt]} {
+        handle_info "RedHawk-SC disabled (cts_opt,redhawk_enable != true) — skipping"
+        return
+    }
+    handle_info "RedHawk-SC enabled — staging globals for cts_opt"
+    redhawk_stage_globals cts_opt
+    set _recipe "$::env(FLOW_DIR)/cmds/PNR/synopsys/fc/$::env(TOOL_VERSION)/redhawk_fc.tcl"
+    if {![file exists $_recipe]} {
+        set _recipe "$::env(FLOW_DIR)/cmds/PNR/synopsys/fc/v1.0.0/redhawk_fc.tcl"
+    }
+    handle_info "Sourcing RedHawk recipe: $_recipe"
+    source $_recipe
+}
+
 # ==============================================================================
 # flow_proc: post_opto
 # FC-RM: User post-script, connect_pg_net, re-enable power scenarios
 # ==============================================================================
-}
 flow_proc post_opto {
     handle_info "Running post-opto tasks..."
     global flow cfg

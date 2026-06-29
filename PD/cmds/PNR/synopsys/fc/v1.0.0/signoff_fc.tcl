@@ -257,11 +257,35 @@ flow_proc run_signoff_drc {
     }
 
     handle_info "Signoff DRC completed"
+}
+
+# ==============================================================================
+# flow_proc: redhawk_rail_analysis
+# Optional RedHawk-SC IR signoff after signoff DRC. Gated on
+# <flow>(signoff,redhawk_enable) OR <flow>(common,redhawk_enable) == "true".
+# Stages cfg(signoff,redhawk,*) → ::REDHAWK_* globals, then sources the
+# standalone redhawk_fc.tcl recipe with stage="signoff". One-shot static +
+# dynamic IR check; no fix-point feedback (signoff is post-opto). Default OFF.
+# ==============================================================================
+flow_proc redhawk_rail_analysis {
+    if {![redhawk_enabled signoff]} {
+        handle_info "RedHawk-SC disabled (signoff,redhawk_enable != true) — skipping"
+        return
+    }
+    handle_info "RedHawk-SC enabled — staging globals for signoff"
+    redhawk_stage_globals signoff
+    set _recipe "$::env(FLOW_DIR)/cmds/PNR/synopsys/fc/$::env(TOOL_VERSION)/redhawk_fc.tcl"
+    if {![file exists $_recipe]} {
+        set _recipe "$::env(FLOW_DIR)/cmds/PNR/synopsys/fc/v1.0.0/redhawk_fc.tcl"
+    }
+    handle_info "Sourcing RedHawk recipe: $_recipe"
+    source $_recipe
+}
+
 # ==============================================================================
 # flow_proc: create_metal_fill
 # FC-RM: ICV in-design metal fill (signoff_create_metal_fill)
 # ==============================================================================
-}
 flow_proc create_metal_fill {
     handle_info "Creating metal fill..."
     global flow cfg tech

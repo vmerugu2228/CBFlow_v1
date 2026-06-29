@@ -680,6 +680,11 @@ def _resolve_handler_cmd_path(pd_dir, raw_cmd, flow, vendor, tool):
     p = p.replace('${_tool_ver}', 'v1.0.0')
     p = re.sub(r'\$::env\([A-Z_]+_VERSION\)', 'v1.0.0', p)
     p = re.sub(r'\$\{::env\([A-Z_]+_VERSION\)\}', 'v1.0.0', p)
+    # Shared cmd files (e.g. PNR↔SYNTH_PNR via symlink) embed $::flow_type
+    # so the subnode handler's literal path resolves to the per-flow
+    # directory at runtime. Substitute the current flow being checked.
+    p = p.replace('$::flow_type', flow)
+    p = p.replace('${::flow_type}', flow)
     return p
 
 

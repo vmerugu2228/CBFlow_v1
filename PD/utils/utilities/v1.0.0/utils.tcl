@@ -797,6 +797,35 @@ proc cfg_true {key} {
     return [string is true -strict $arr($key)]
 }
 
+# Stage cfg(<stage>,redhawk,*) into the ::REDHAWK_* globals that
+# redhawk_fc.tcl reads. Per-stage knob falls back to common knob, then to
+# the recipe's own default. Used by `redhawk_rail_analysis` flow_procs in
+# cts_opt_fc.tcl / pro_fc.tcl / signoff_fc.tcl.
+proc redhawk_stage_globals {stage} {
+    set ::REDHAWK_STAGE              $stage
+    set ::REDHAWK_GAD_FILE           [cfg_get $stage,redhawk,gad_file           [cfg_get common,redhawk,gad_file           ""]]
+    set ::REDHAWK_TECH_FILE          [cfg_get $stage,redhawk,tech_file          [cfg_get common,redhawk,tech_file          ""]]
+    set ::REDHAWK_POWER_NET          [cfg_get $stage,redhawk,power_net          [cfg_get common,redhawk,power_net          ""]]
+    set ::REDHAWK_GROUND_NET         [cfg_get $stage,redhawk,ground_net         [cfg_get common,redhawk,ground_net         ""]]
+    set ::REDHAWK_SCENARIO           [cfg_get $stage,redhawk,scenario           [cfg_get common,redhawk,scenario           ""]]
+    set ::REDHAWK_IR_THRESHOLD       [cfg_get $stage,redhawk,ir_threshold       [cfg_get common,redhawk,ir_threshold       "0.05"]]
+    set ::REDHAWK_SWITCHING_ACTIVITY [cfg_get $stage,redhawk,switching_activity [cfg_get common,redhawk,switching_activity ""]]
+    set ::REDHAWK_STATIC             [cfg_get $stage,redhawk,static_ir          [cfg_get common,redhawk,static_ir          "true"]]
+    set ::REDHAWK_DYNAMIC            [cfg_get $stage,redhawk,dynamic_ir         [cfg_get common,redhawk,dynamic_ir         "true"]]
+    set ::REDHAWK_EM                 [cfg_get $stage,redhawk,em_analysis        [cfg_get common,redhawk,em_analysis        "false"]]
+    set ::REDHAWK_FIX_VIOLATORS      [cfg_get $stage,redhawk,fix_violators      [cfg_get common,redhawk,fix_violators      "true"]]
+    set ::REDHAWK_NUM_CPUS           [cfg_get $stage,redhawk,num_cpus           [cfg_get common,redhawk,num_cpus           "8"]]
+    set ::REDHAWK_REPORTS_DIR        ""
+}
+
+# Predicate: did the user enable RedHawk for this stage? Per-stage flag OR
+# the global common knob — either turns it on.
+proc redhawk_enabled {stage} {
+    if {[cfg_true $stage,redhawk_enable]} { return 1 }
+    if {[cfg_true common,redhawk_enable]} { return 1 }
+    return 0
+}
+
 proc setup_dirs {run_dir flow_type node_name} {
     global DIRS
     set DIRS(run)         $run_dir
