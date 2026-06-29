@@ -565,6 +565,103 @@ def check_docs():
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# 10. Stale Claude / Background-Shell Cleanup
+# ═══════════════════════════════════════════════════════════════════════════════
+# Detect and (with --clean) kill leaked `zsh -c .../shell-snapshots/...`
+# polling loops (the `until [ -s outfile ]; sleep N; done` pattern) plus
+# orphaned tclsh/python helpers that an interrupted session left behind.
+# These accumulate over time and can pin file descriptors / hold cwd.
+def check_stale_shells():
+    section("10. Stale Background Shells")
+
+    clean = "--clean" in sys.argv
+
+    try:
+        out = subprocess.run(
+            ["ps", "-u", os.environ.get("USER", ""),
+             "-o", "pid=,etime=,command="],
+            capture_output=True, text=True, timeout=10,
+        ).stdout
+    except Exception as e:
+        warn(f"could not read ps output: {e}")
+        return
+
+    suspicious = []
+    SHELL_HINTS = ("shell-snapshots", "until [ -s")
+    for line in out.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        # Split into pid, elapsed, command
+        parts = line.split(None, 2)
+        if len(parts) < 3:
+            continue
+        pid_s, etime, cmd = parts
+        if not pid_s.isdigit():
+            continue
+
+        # Skip our own healthcheck process
+        if int(pid_s) == os.getpid():
+            continue
+
+        # Match the leak patterns
+        is_zsh_polling = ("/bin/zsh -c" in cmd
+                          and any(h in cmd for h in SHELL_HINTS))
+        is_orphan_tclsh = (cmd.lstrip().startswith("tclsh ")
+                           and "CBflow_clone" in cmd)
+        if not (is_zsh_polling or is_orphan_tclsh):
+            continue
+
+        # Only flag processes older than 5 minutes — younger ones may be
+        # legitimately in-flight from the current session.
+        if not _etime_over_5min(etime):
+            continue
+
+        suspicious.append((int(pid_s), etime, cmd))
+
+    if not suspicious:
+        ok("no stale Claude/background shells")
+        return
+
+    for pid, etime, cmd in suspicious:
+        snip = cmd[:80] + ("…" if len(cmd) > 80 else "")
+        if clean:
+            try:
+                os.kill(pid, 15)  # SIGTERM
+                ok(f"killed pid={pid} (elapsed={etime}): {snip}")
+            except ProcessLookupError:
+                ok(f"already gone pid={pid}")
+            except PermissionError:
+                warn(f"no permission to kill pid={pid}: {snip}")
+        else:
+            warn(f"stale shell pid={pid} (elapsed={etime}): {snip}")
+
+    if not clean:
+        print(f"  → run `cbflow-healthcheck --clean` to terminate "
+              f"the {len(suspicious)} stale shell(s) above.")
+
+
+def _etime_over_5min(etime: str) -> bool:
+    """Return True if `ps -o etime` value represents > 5 minutes.
+    BSD/Linux ps formats:
+        MM:SS               under 1 hour
+        HH:MM:SS            under 1 day
+        DD-HH:MM:SS         multi-day
+    """
+    if "-" in etime:                       # has days → over 5 min
+        return True
+    parts = etime.split(":")
+    if len(parts) == 3:                    # HH:MM:SS
+        return True
+    if len(parts) == 2:                    # MM:SS
+        try:
+            return int(parts[0]) >= 5
+        except ValueError:
+            return False
+    return False
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
 def main():
@@ -583,6 +680,7 @@ def main():
     check_handlers()
     check_command_files()
     check_docs()
+    check_stale_shells()
 
     # Summary
     print()
