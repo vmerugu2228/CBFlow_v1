@@ -37,7 +37,9 @@ flow_proc load_design {
     set lib_name [expr {$cfg(common,design_lib_name) ne "" ? $cfg(common,design_lib_name) : "${design_name}.nlib"}]
 
     open_lib $lib_name
-    copy_block -from ${design_name}/route_opt -to ${design_name}/signoff
+    set _from_block [cbflow_get_head_block "route_opt"]
+    handle_info "load_design: copying from ${design_name}/${_from_block} (head-block manifest)"
+    copy_block -from ${design_name}/${_from_block} -to ${design_name}/signoff
     current_block ${design_name}/signoff
     link_block
 
@@ -403,6 +405,7 @@ flow_proc save_design {
         save_block -as ${design_name}/signoff
         handle_info "Block saved: ${design_name}/signoff"
     }
+    cbflow_set_head_block "signoff" $STAGE_NAME $NODE_NAME
 
     set_svf -off
     handle_info "Signoff design saved"

@@ -406,6 +406,7 @@ flow_proc save_design {
     if {[info exists synth_pnr(common,output,block_labeling)] && $synth_pnr(common,output,block_labeling) ne "" && $synth_pnr(common,output,block_labeling)} {
         save_block -as ${design_name}/place_opt
         handle_info "Block saved: ${design_name}/place_opt"
+        cbflow_set_head_block "place_opt" $STAGE_NAME $NODE_NAME
     }
 
     set_svf -off

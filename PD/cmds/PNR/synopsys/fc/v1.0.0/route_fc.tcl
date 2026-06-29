@@ -37,7 +37,9 @@ flow_proc load_design {
     set lib_name [expr {$cfg(common,design_lib_name) ne "" ? $cfg(common,design_lib_name) : "${design_name}.nlib"}]
 
     open_lib $lib_name
-    copy_block -from ${design_name}/clock_opt_opto -to ${design_name}/route_auto
+    set _from_block [cbflow_get_head_block "clock_opt_opto"]
+    handle_info "load_design: copying from ${design_name}/${_from_block} (head-block manifest)"
+    copy_block -from ${design_name}/${_from_block} -to ${design_name}/route_auto
     current_block ${design_name}/route_auto
     link_block
 
@@ -337,6 +339,7 @@ flow_proc save_design {
         save_block -as ${design_name}/route_auto
         handle_info "Block saved: ${design_name}/route_auto"
     }
+    cbflow_set_head_block "route_auto" $STAGE_NAME $NODE_NAME
 
     set_svf -off
     handle_info "Route design saved"
