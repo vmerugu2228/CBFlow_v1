@@ -1,6 +1,6 @@
 #!/usr/bin/env tclsh
 # ═══════════════════════════════════════════════════════════════════════════════
-# CBflow ECO — export_db Subnode Handler (Synopsys ICC2)
+# CBflow ECO — eco Subnode Handler (Cadence Innovus)
 # Subnodes: setup, run, validate, finish
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -11,11 +11,11 @@ lassign [handler_parse_args $argv $argc] subnode_name run_dir node_name
 handler_load_configs $run_dir "ECO"
 
 set ::flow_type "ECO"
-set stage_name "export_db"
+set stage_name "eco"
 if {$node_name eq ""} { set node_name "${stage_name}1" }
 
-set _tool_ver [expr {[info exists ::env(ICC2_VERSION)] ? $::env(ICC2_VERSION) : "v1.0.0"}]
-set cmd_file "$::env(FLOW_DIR)/cmds/ECO/synopsys/icc2/$_tool_ver/export_db_icc2.tcl"
+set _tool_ver [expr {[info exists ::env(INNOVUS_VERSION)] ? $::env(INNOVUS_VERSION) : "v1.0.0"}]
+set cmd_file "$::env(FLOW_DIR)/cmds/ECO/cadence/innovus/$_tool_ver/eco_innovus.tcl"
 
 set test_mode [handler_is_test_mode]
 
@@ -27,7 +27,7 @@ switch $subnode_name {
     }
     "run" {
         puts "INFO: $stage_name run..."
-        set _tool [expr {[info exists eco(tool,name)] ? $eco(tool,name) : "icc2"}]
+        set _tool [expr {[info exists eco(tool,name)] ? $eco(tool,name) : "innovus"}]
         handler_run $run_dir $::flow_type $node_name $stage_name $cmd_file $test_mode $_tool
     }
     "validate" {
