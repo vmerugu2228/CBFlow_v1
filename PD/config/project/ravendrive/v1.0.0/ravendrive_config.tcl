@@ -199,54 +199,30 @@ set project(design_hierarchy) {
 # Generate valid design names from hierarchy
 set project(valid_design_names) [dict keys $project(design_hierarchy)]
 
-# Design constraints
+# Clock constraints (only `period` and `ports` are read downstream — used by
+# inputs_innovus.tcl for display/logging. The authoritative clock spec comes
+# from the SDC file referenced by `operating_modes(<mode>,constraint_file)`,
+# not from these keys.)
 set project(clock,period) "2.0"
 set project(clock,ports) "clk sys_clk ref_clk"
-set project(clock,uncertainty) "0.1"
-set project(clock,latency) "0.2"
-set project(clock,frequency) "500000000"
 
 # SDC Mode Definitions (used for file naming: <design_name>.<mode>.sdc)
 set project(sdc_modes) {func scan test dft}
 set project(default_sdc_mode) "func"
 
-# Reset constraints
-set project(reset,ports) "rst_n sys_rst_n"
-set project(reset,polarity) "active_low"
-set project(reset,async) "true"
-
-# I/O constraints
-set project(io,voltage) "1.8"
-set project(io,drive_strength) "4"
-set project(io,slew_rate) "slow"
-set project(io,placement) "ravendrive_io.def"
-set project(io,count) "256"
-
-# Power & Ground Nets
+# Power & Ground Nets (consumed by init_design/PNR — top-level SoC-wide)
 set project(power,vdd_net) "VDD"
 set project(power,vss_net) "VSS"
 set project(power,vdd_pin) "VDD"
 set project(power,vss_pin) "VSS"
 
-# Power intent
-set project(power,domains) "PD_CPU PD_MEM PD_IO PD_TOP"
-set project(power,states) "ON OFF RETENTION"
-set project(power,switches) "sw_cpu sw_mem"
-set project(power,isolation) "iso_cpu iso_mem"
-set project(power,retention) "ret_cpu ret_mem"
-
-# Design size estimates
-set project(estimated_area) "5000000"
-set project(estimated_power) "250"
-set project(gate_count) "250000"
-set project(register_count) "25000"
-set project(memory_bits) "8388608"
-
-# Technology targets
-set project(target,frequency) "500"
-set project(target,power) "200"
-set project(target,area) "4500000"
-set project(target,yield) "98"
+# Block-level specs (clock uncertainty, target frequency/power/area, reset
+# ports, I/O voltage, power domains, design-size estimates) used to live
+# here as `project(target,*)`, `project(estimated_*)`, `project(io,*)`,
+# `project(reset,*)`, `project(power,domains|states|switches|isolation|
+# retention)`. They were unread by any cmd handler and removed in the
+# cleanup commit. Block-shaped specs belong in user_config or a per-block
+# `<block_name>_floorplan.tcl`, not in this project-wide config.
 
 # Test and verification
 set project(dft,scan_chains) "8"
@@ -387,10 +363,6 @@ set project(release,structure) {
 set project(release,include_timestamp) "false"
 set project(release,generate_notes) "true"
 set project(release,validate_mandatory) "true"
-
-# Add missing hierarchical variables for legacy compatibility
-set project(target,utilization) 0.75
-set project(target,aspect_ratio) 1.0
 
 # ┌─────────────────────────────────────────────────────────────────────────────┐
 # │                         LSF RESOURCE MANAGEMENT                            │

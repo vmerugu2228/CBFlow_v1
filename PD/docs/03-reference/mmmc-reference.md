@@ -270,6 +270,62 @@ cbflow flow mmmc-manager remove-mode --name scan
 
 ---
 
+## Block awareness: how a project-level view definition serves many blocks
+
+`mmmc_view_definition.tcl` is **deliberately project-level**, not per-block:
+it lives at `config/project/<name>/v1.0.0/mmmc_view_definition.tcl` and is
+referenced by every cmd handler that needs MMMC (init_design, synthesis,
+timing, etc.) via the project-relative path.
+
+This is correct because **library sets, RC corners, delay corners, and
+analysis-view definitions are shared across all blocks in a project** —
+they describe the foundry PVT setup, which is the same regardless of which
+block is being implemented. Duplicating them per block would just produce
+N identical files.
+
+The **block-specific piece** is the SDC. The view definition handles this
+without needing per-block files:
+
+```tcl
+# Inside mmmc_view_definition.tcl
+create_constraint_mode -name func_cm \
+    -sdc_files [list [subst $::operating_modes(func,constraint_file)]]
+```
+
+The `[subst ...]` happens at `source` time, inside the running cmd file.
+`operating_modes(func,constraint_file)` is set in `mmmc_config.tcl` to
+`"${design_name}_func.sdc"`. When the view definition is sourced during a
+run, `${design_name}` resolves to the current run's `flow(design_name)` —
+so block A's run loads `<blockA>_func.sdc`, block B's run loads
+`<blockB>_func.sdc`. **Same view_definition.tcl, different SDC per block.**
+
+This means the SDC files must follow the convention. For a flow
+`flow(design_name) "cpu_core"`, the user_config must point at:
+
+```tcl
+set sta(input,sdc,func) "/path/to/cpu_core_func.sdc"
+set sta(input,sdc,test) "/path/to/cpu_core_test.sdc"
+```
+
+### When a block needs its own MMMC setup (different corners)
+
+If one block needs corners the project-level view definition doesn't cover,
+override per-run by setting `<flow>(input,mmmc_file)` in user_config:
+
+```tcl
+# Use a custom view definition for THIS run only
+set fp(input,mmmc_file) "/path/to/my_block_view_definition.tcl"
+```
+
+The `init_design_innovus.tcl` handler (line 150-156) checks for this
+override before falling back to the project-level file. No code changes
+needed; this hook already exists.
+
+This is rare in practice — projects normally standardize PVT corners so
+all blocks share the same view definition.
+
+---
+
 ## Utility Procedures (TCL)
 
 Available after sourcing `mmmc_config.tcl`:
