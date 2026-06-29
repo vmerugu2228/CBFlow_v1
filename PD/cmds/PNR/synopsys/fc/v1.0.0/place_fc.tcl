@@ -61,6 +61,28 @@ flow_proc set_stage_qor_strategy {
 }
 
 # ==============================================================================
+# flow_proc: insert_low_power_cells
+# Optional UPF-driven low-power insertion: power switches, isolation cells,
+# level shifters, always-on buffers. Gated on <flow>(place,lowpower_enable)
+# OR <flow>(common,lowpower_enable) == "true". UPF must already have been
+# loaded by init_design's load_constraints step. Default OFF.
+# ==============================================================================
+flow_proc insert_low_power_cells {
+    if {![lowpower_enabled place]} {
+        handle_info "Low-power insertion disabled (place,lowpower_enable != true) — skipping"
+        return
+    }
+    handle_info "Low-power insertion enabled — staging globals for place"
+    lowpower_stage_globals place
+    set _recipe "$::env(FLOW_DIR)/cmds/PNR/synopsys/fc/$::env(TOOL_VERSION)/lowpower_fc.tcl"
+    if {![file exists $_recipe]} {
+        set _recipe "$::env(FLOW_DIR)/cmds/PNR/synopsys/fc/v1.0.0/lowpower_fc.tcl"
+    }
+    handle_info "Sourcing low-power recipe: $_recipe"
+    source $_recipe
+}
+
+# ==============================================================================
 # flow_proc: configure_compile
 # Description: Set application options for compile_fusion
 # ==============================================================================

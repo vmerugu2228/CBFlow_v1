@@ -826,6 +826,27 @@ proc redhawk_enabled {stage} {
     return 0
 }
 
+# Stage cfg(<stage>,lowpower,*) into the ::LOWPOWER_* globals that
+# lowpower_fc.tcl reads. Per-stage knob falls back to common, then to recipe
+# defaults. Used by `insert_low_power_cells` flow_proc in place_fc.tcl.
+proc lowpower_stage_globals {stage} {
+    set ::LOWPOWER_STAGE                 $stage
+    set ::LOWPOWER_ENABLE_PWR_SWITCH     [cfg_get $stage,lowpower,power_switches    [cfg_get common,lowpower,power_switches    "true"]]
+    set ::LOWPOWER_ENABLE_ISOLATION      [cfg_get $stage,lowpower,isolation_cells   [cfg_get common,lowpower,isolation_cells   "true"]]
+    set ::LOWPOWER_ENABLE_LEVEL_SHIFTER  [cfg_get $stage,lowpower,level_shifters    [cfg_get common,lowpower,level_shifters    "true"]]
+    set ::LOWPOWER_ENABLE_AON_BUFFER     [cfg_get $stage,lowpower,always_on_buffers [cfg_get common,lowpower,always_on_buffers "true"]]
+    set ::LOWPOWER_PWR_SWITCH_LIBCELL    [cfg_get $stage,lowpower,power_switch_lib_cells [cfg_get common,lowpower,power_switch_lib_cells ""]]
+    set ::LOWPOWER_REPORTS_DIR           ""
+}
+
+# Predicate: did the user enable low-power insertion for this stage?
+# Per-stage flag OR common knob → on.
+proc lowpower_enabled {stage} {
+    if {[cfg_true $stage,lowpower_enable]} { return 1 }
+    if {[cfg_true common,lowpower_enable]} { return 1 }
+    return 0
+}
+
 proc setup_dirs {run_dir flow_type node_name} {
     global DIRS
     set DIRS(run)         $run_dir

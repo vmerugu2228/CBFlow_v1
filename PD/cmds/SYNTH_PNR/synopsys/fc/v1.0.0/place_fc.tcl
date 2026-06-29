@@ -152,12 +152,35 @@ flow_proc set_qor_strategy {
     }
 
     handle_info "QoR strategy set: metric=$metric, mode=$mode"
+}
+
+# ==============================================================================
+# flow_proc: insert_low_power_cells
+# Optional UPF-driven low-power insertion: power switches, isolation cells,
+# level shifters, always-on buffers. Gated on <flow>(place,lowpower_enable)
+# OR <flow>(common,lowpower_enable) == "true". UPF must already have been
+# loaded by init_design's load_constraints step. Default OFF.
+# ==============================================================================
+flow_proc insert_low_power_cells {
+    if {![lowpower_enabled place]} {
+        handle_info "Low-power insertion disabled (place,lowpower_enable != true) — skipping"
+        return
+    }
+    handle_info "Low-power insertion enabled — staging globals for place"
+    lowpower_stage_globals place
+    set _recipe "$::env(FLOW_DIR)/cmds/PNR/synopsys/fc/$::env(TOOL_VERSION)/lowpower_fc.tcl"
+    if {![file exists $_recipe]} {
+        set _recipe "$::env(FLOW_DIR)/cmds/PNR/synopsys/fc/v1.0.0/lowpower_fc.tcl"
+    }
+    handle_info "Sourcing low-power recipe: $_recipe"
+    source $_recipe
+}
+
 # ==============================================================================
 # flow_proc: configure_place_opt
 # FC-RM: Instance prefixes, non-persistent settings, multi-Vt, CTS primary
 #         corner, spare cells, freeze ports, mark ideal clocks, mark_clock_trees
 # ==============================================================================
-}
 flow_proc configure_place_opt {
     handle_info "Configuring place_opt settings..."
     global flow synth_pnr tech

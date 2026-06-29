@@ -353,3 +353,29 @@ array set synth_pnr {
     common,redhawk,fix_violators                         "true"
     common,redhawk,num_cpus                              "8"
 }
+
+# ──────────────────────────────────────────────────────────────────────────────
+# LOW-POWER INSERTION (UPF-driven: power switches, isolation, level shifters)
+# ──────────────────────────────────────────────────────────────────────────────
+# Master knob to enable: `set synth_pnr(common,lowpower_enable) "true"` in
+# user_config (or per-stage: `synth_pnr(place,lowpower_enable)`).
+# Default OFF — existing runs unchanged.
+#
+# Prerequisite: the UPF file MUST already be loaded by init_design's
+# load_constraints step. This flow_proc enables FC's UPF implementation
+# engine and runs check_mv_design + reports — it does NOT re-load UPF.
+#
+# When enabled, the `insert_low_power_cells` flow_proc in place_fc.tcl
+# sources cmds/PNR/synopsys/fc/<ver>/lowpower_fc.tcl. See
+# PD/docs/03-reference/lowpower-integration.md for full description.
+# ──────────────────────────────────────────────────────────────────────────────
+array set synth_pnr {
+    common,lowpower_enable                               "false"
+    place,lowpower_enable                                "false"
+
+    common,lowpower,power_switches                       "true"
+    common,lowpower,isolation_cells                      "true"
+    common,lowpower,level_shifters                       "true"
+    common,lowpower,always_on_buffers                    "true"
+    common,lowpower,power_switch_lib_cells               ""
+}
