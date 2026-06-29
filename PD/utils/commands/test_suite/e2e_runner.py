@@ -46,14 +46,20 @@ def _resolve_run_dir(workarea_path, design_name, phase, flow_type, run_name):
                         f'{phase}_run_{flow_type}_{run_name}')
 
 
-def prepare_sandbox(flow, repo_root, pd_dir, workarea_test, vendor=None):
+def prepare_sandbox(flow, repo_root, pd_dir, workarea_test, vendor=None,
+                    project=None):
     """Pick fixture + rewrite + compute expected run directory.
+
+    `project` filters fixtures by `project(name)` so the runner can
+    iterate (flow, project) pairs — each project gets exercised against
+    its own tool stack (e.g. ravendrive→Synopsys, denali→Cadence).
 
     Returns (sandbox, fixture_path, cwd_for_create) or (None, error_message, None).
     """
-    fixture = fixtures.pick_fixture(workarea_test, flow, vendor)
+    fixture = fixtures.pick_fixture(workarea_test, flow, vendor=vendor, project=project)
     if fixture is None:
-        return None, f'no fixture in {workarea_test} for flow={flow}', None
+        proj_note = f' (project={project})' if project else ''
+        return None, f'no fixture in {workarea_test} for flow={flow}{proj_note}', None
 
     sandbox = Sandbox(flow, repo_root)
     rewritten, run_name = fixtures.rewrite_for_isolation(fixture, sandbox.tmp_dir)

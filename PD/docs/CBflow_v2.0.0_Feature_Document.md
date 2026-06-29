@@ -74,7 +74,7 @@ CBflow employs a fourteen-level configuration cascade consolidated into a single
 
 | Priority | Configuration Level     | Scope           | Description                                              |
 |----------|------------------------|-----------------|----------------------------------------------------------|
-| 1 (base) | cbflow_init_config.tcl | Per-project     | Project initialization, workspace defaults               |
+| 1 (base) | ~~cbflow_init_config.tcl~~ | _retired_   | **Removed in v2.1.x** — duplicated `project(name/version)` with `project_config.tcl` causing silent overwrites. The cascade now starts at `project_config.tcl`. |
 | 2        | project_config.tcl     | Per-project     | Technology node, standard cells, project paths           |
 | 3        | team_config.tcl        | Per-team        | Team-specific settings and conventions                   |
 | 4        | tech_config.tcl        | Per-technology  | Libraries, library_sets (PVT), NDM, LEF, routing layers |

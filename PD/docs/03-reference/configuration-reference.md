@@ -8,7 +8,7 @@ Complete reference for all CBflow v2.0.0 configuration files.
 
 ```
 $CONFIG_ROOT/
-  project/<name>/<ver>/        cbflow_init_config.tcl, project_config.tcl, team_config.tcl
+  project/<name>/<ver>/        project_config.tcl, team_config.tcl
   tech/<tech>/<ver>/           tech_config.tcl (libraries, PVT, routing layers, NDM, tracks)
   flow/<ver>/
     flow_config.tcl            (flow types, dispatcher, email, autoppt, logging)
@@ -27,20 +27,19 @@ $FLOW_DIR/cmds/<FLOW>/<vendor>/<tool>/<ver>/
 `generate_setup.tcl` produces a single `config.tcl` per node that sources all configs in order:
 
 ```
- 1. cbflow_init_config.tcl          (project init)
- 2. project_config.tcl              (project-specific)
- 3. team_config.tcl                 (team settings)
- 4. tech_config.tcl                 (technology + libraries + library_sets)
- 5. flow_config.tcl                 (flow defaults)
- 6. node_config.tcl                 (stage definitions)
- 7. mmmc_config.tcl                 (MMMC scenarios, corners, modes)
- 8. <tool>_config.tcl               (tool-specific: fc_config.tcl, pt_config.tcl)
- 9. user_config.tcl                 (per-run user overrides)
-10. override_config.tcl             (global override)
-11. override_config.<flow>.tcl      (flow-level override)
-12. override_config.<stage>.tcl     (stage-type override, e.g., override_config.cts.tcl)
-13. override_config.<branch>.tcl    (branch-scoped override, e.g., override_config.timing_fix.tcl)
-14. override_config.<node>.tcl      (per-node override, e.g., override_config.cts2.tcl)
+ 1. project_config.tcl              (project-specific)
+ 2. team_config.tcl                 (team settings)
+ 3. tech_config.tcl                 (technology + libraries + library_sets)
+ 4. flow_config.tcl                 (flow defaults)
+ 5. node_config.tcl                 (stage definitions)
+ 6. mmmc_config.tcl                 (MMMC scenarios, corners, modes)
+ 7. <tool>_config.tcl               (tool-specific: fc_config.tcl, pt_config.tcl)
+ 8. user_config.tcl                 (per-run user overrides)
+ 9. override_config.tcl             (global override)
+10. override_config.<flow>.tcl      (flow-level override)
+11. override_config.<stage>.tcl     (stage-type override, e.g., override_config.cts.tcl)
+12. override_config.<branch>.tcl    (branch-scoped override, e.g., override_config.timing_fix.tcl)
+13. override_config.<node>.tcl      (per-node override, e.g., override_config.cts2.tcl)
 ```
 
 Command files source this single `config.tcl` instead of sourcing configs individually. The RACE engine sets `CBFLOW_NODE_NAME` and `CBFLOW_SUBNODE` env vars per job so command files use dynamic paths to locate the correct generated files.

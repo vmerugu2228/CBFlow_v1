@@ -51,6 +51,31 @@ def _resolve_categories(args):
     return [int(args.category)]
 
 
+# Default projects that the e2e suite exercises. ravendrive's fixtures use
+# the Synopsys toolchain (fc, pt, formality, …); denali's use Cadence
+# (innovus, tempus, conformal, …). Both must stay green for every release.
+DEFAULT_PROJECTS = ('ravendrive', 'denali')
+
+
+def _resolve_projects(args):
+    """Return the list of project names to iterate.
+
+    `--projects X,Y` filters to a comma-separated set (case-sensitive,
+    matched against `project(name)` in each fixture). `--projects ALL`
+    iterates every project found under PD/config/project/. Default is
+    DEFAULT_PROJECTS so every release covers both tool stacks."""
+    raw = getattr(args, 'projects', None)
+    if not raw:
+        return list(DEFAULT_PROJECTS)
+    if raw.upper() == 'ALL':
+        proj_root = os.path.join(PD_DIR, 'config', 'project')
+        if not os.path.isdir(proj_root):
+            return list(DEFAULT_PROJECTS)
+        return sorted(d for d in os.listdir(proj_root)
+                      if os.path.isdir(os.path.join(proj_root, d)))
+    return [p.strip() for p in raw.split(',') if p.strip()]
+
+
 # ── Listing ─────────────────────────────────────────────────────────────────
 
 def _do_list():
@@ -92,67 +117,75 @@ def _run_e2e(results, console, flows, args):
         results.skipped('e2e', 'setup', 'fixtures', f'no workarea_test/ under {REPO_ROOT}')
         return
 
+    # Default coverage: both projects. ravendrive exercises the Synopsys tool
+    # stack (fc, pt, formality, …); denali exercises the Cadence stack
+    # (innovus, tempus, conformal, …). Override with --projects "name" or
+    # --projects "name1,name2" or --projects ALL.
+    projects = _resolve_projects(args)
     for flow in flows:
-        console.section(f'E2E: {flow}')
+        for project in projects:
+            label = f'{project}/{flow}' if project else flow
+            console.section(f'E2E: {label}')
 
-        sandbox, fixture_or_err, cwd = e2e_runner.prepare_sandbox(
-            flow, REPO_ROOT, PD_DIR, workarea_test, vendor=args.vendor)
-        if sandbox is None:
-            console.event('SKIP', f'{flow}: prepare_sandbox', fixture_or_err)
-            results.skipped('e2e', flow, 'prepare_sandbox', fixture_or_err)
-            continue
+            sandbox, fixture_or_err, cwd = e2e_runner.prepare_sandbox(
+                flow, REPO_ROOT, PD_DIR, workarea_test,
+                vendor=args.vendor, project=project)
+            if sandbox is None:
+                console.event('SKIP', f'{label}: prepare_sandbox', fixture_or_err)
+                results.skipped('e2e', label, 'prepare_sandbox', fixture_or_err)
+                continue
 
-        log_buf = []
-        flow_failed = False
+            log_buf = []
+            flow_failed = False
 
-        # Workspace create
-        try:
-            rc, dur = e2e_runner.run_workspace_create(
-                PD_DIR, cwd, fixture_or_err, args.timeout, log_buf)
-        except Exception as e:
-            results.failed('e2e', flow, 'workspace_create', f'{type(e).__name__}: {e}')
-            console.event('FAIL', f'{flow}: workspace_create', str(e))
-            sandbox.cleanup(keep=args.keep or args.keep_on_fail)
-            continue
-        if rc != 0:
-            tail = log_buf[-1][-500:] if log_buf else ''
-            results.failed('e2e', flow, 'workspace_create', f'exit={rc}; tail: {tail}')
-            console.event('FAIL', f'{flow}: workspace_create', f'exit={rc}')
-            sandbox.cleanup(keep=args.keep or args.keep_on_fail)
-            continue
-        results.passed('e2e', flow, 'workspace_create', f'{dur:.1f}s')
-        console.event('PASS', f'{flow}: workspace_create', f'{dur:.1f}s')
-
-        # Run all
-        try:
-            rc, dur = e2e_runner.run_all(PD_DIR, sandbox.run_dir, args.timeout, log_buf)
-        except Exception as e:
-            results.failed('e2e', flow, 'run_all', f'{type(e).__name__}: {e}')
-            console.event('FAIL', f'{flow}: run_all', str(e))
-            flow_failed = True
-        else:
+            # Workspace create
+            try:
+                rc, dur = e2e_runner.run_workspace_create(
+                    PD_DIR, cwd, fixture_or_err, args.timeout, log_buf)
+            except Exception as e:
+                results.failed('e2e', label, 'workspace_create', f'{type(e).__name__}: {e}')
+                console.event('FAIL', f'{label}: workspace_create', str(e))
+                sandbox.cleanup(keep=args.keep or args.keep_on_fail)
+                continue
             if rc != 0:
                 tail = log_buf[-1][-500:] if log_buf else ''
-                results.failed('e2e', flow, 'run_all', f'exit={rc}; tail: {tail}')
-                console.event('FAIL', f'{flow}: run_all', f'exit={rc}')
+                results.failed('e2e', label, 'workspace_create', f'exit={rc}; tail: {tail}')
+                console.event('FAIL', f'{label}: workspace_create', f'exit={rc}')
+                sandbox.cleanup(keep=args.keep or args.keep_on_fail)
+                continue
+            results.passed('e2e', label, 'workspace_create', f'{dur:.1f}s')
+            console.event('PASS', f'{label}: workspace_create', f'{dur:.1f}s')
+
+            # Run all
+            try:
+                rc, dur = e2e_runner.run_all(PD_DIR, sandbox.run_dir, args.timeout, log_buf)
+            except Exception as e:
+                results.failed('e2e', label, 'run_all', f'{type(e).__name__}: {e}')
+                console.event('FAIL', f'{label}: run_all', str(e))
                 flow_failed = True
             else:
-                results.passed('e2e', flow, 'run_all', f'{dur:.1f}s')
-                console.event('PASS', f'{flow}: run_all', f'{dur:.1f}s')
+                if rc != 0:
+                    tail = log_buf[-1][-500:] if log_buf else ''
+                    results.failed('e2e', label, 'run_all', f'exit={rc}; tail: {tail}')
+                    console.event('FAIL', f'{label}: run_all', f'exit={rc}')
+                    flow_failed = True
+                else:
+                    results.passed('e2e', label, 'run_all', f'{dur:.1f}s')
+                    console.event('PASS', f'{label}: run_all', f'{dur:.1f}s')
 
-        # Post-execution checks (always run — partial DBs still inform us)
-        before = len(results.entries)
-        e2e_checks.run_all_checks(results, flow, PD_DIR, sandbox.run_dir or '')
-        for entry in results.entries[before:]:
-            console.event(entry['status'], f'{flow}: {entry["test"]}', entry['detail'])
-            if entry['status'] == 'FAIL':
-                flow_failed = True
+            # Post-execution checks (always run — partial DBs still inform us)
+            before = len(results.entries)
+            e2e_checks.run_all_checks(results, label, PD_DIR, sandbox.run_dir or '')
+            for entry in results.entries[before:]:
+                console.event(entry['status'], f'{label}: {entry["test"]}', entry['detail'])
+                if entry['status'] == 'FAIL':
+                    flow_failed = True
 
-        # Sandbox cleanup
-        keep = args.keep or (args.keep_on_fail and flow_failed)
-        if keep:
-            console.info(f'Keeping sandbox: {sandbox.tmp_dir} / {sandbox.run_dir}')
-        sandbox.cleanup(keep=keep)
+            # Sandbox cleanup
+            keep = args.keep or (args.keep_on_fail and flow_failed)
+            if keep:
+                console.info(f'Keeping sandbox: {sandbox.tmp_dir} / {sandbox.run_dir}')
+            sandbox.cleanup(keep=keep)
 
 
 # ── Main ────────────────────────────────────────────────────────────────────
@@ -192,6 +225,12 @@ Examples:
     parser.add_argument('--flows', help='Comma-separated list of flows')
     parser.add_argument('--category', type=int, help='Run one static category (1-8)')
     parser.add_argument('--vendor', help='Prefer fixtures matching this vendor (e.g. synopsys, cadence)')
+    parser.add_argument(
+        '--projects',
+        help='Comma-separated projects for e2e iteration. '
+             'Default: ravendrive,denali (covers both Synopsys + Cadence tool '
+             'stacks). Use --projects ALL to iterate every project under '
+             'PD/config/project/. Use --projects ravendrive to test only one.')
 
     parser.add_argument('--timeout', type=int, default=DEFAULT_TIMEOUT,
                         help=f'Per-flow timeout in seconds (default {DEFAULT_TIMEOUT})')

@@ -116,17 +116,16 @@ Hook files are sourced in this order at the end of each command file:
 Configuration loads in a strict cascade via `generate_setup.tcl`. Each layer can override values set by the previous layer. The generated `config.tcl` consolidates all config sources; command files source it once.
 
 ```
-cbflow_init_config.tcl                          #  1. Project init
-  -> project_config.tcl                         #  2. Project-specific settings
-    -> team_config.tcl                          #  3. Team settings
-      -> tech_config.tcl                        #  4. Technology/foundry (libraries, PVT)
-        -> flow_config.tcl                      #  5. Flow-wide defaults
-          -> node_config.tcl                    #  6. Per-flow stage definitions
-            -> mmmc_config.tcl                  #  7. MMMC scenarios, corners, modes
-              -> <tool>_config.tcl              #  8. Tool-specific (fc_config, pt_config)
-                -> user_config.tcl              #  9. Per-run user overrides
-                  -> override_config.tcl        # 10. Global override hook
-                    -> override_config.<flow>.tcl        # 11. Flow-level override
+project_config.tcl                              #  1. Project-specific settings
+  -> team_config.tcl                            #  2. Team settings
+    -> tech_config.tcl                          #  3. Technology/foundry (libraries, PVT)
+      -> flow_config.tcl                        #  4. Flow-wide defaults
+        -> node_config.tcl                      #  5. Per-flow stage definitions
+          -> mmmc_config.tcl                    #  6. MMMC scenarios, corners, modes
+            -> <tool>_config.tcl                #  7. Tool-specific (fc_config, pt_config)
+              -> user_config.tcl                #  8. Per-run user overrides
+                -> override_config.tcl          #  9. Global override hook
+                  -> override_config.<flow>.tcl          # 10. Flow-level override
                       -> override_config.<stage>.tcl     # 12. Stage-type override
                         -> override_config.<branch>.tcl  # 13. Branch-scoped override
                           -> override_config.<node>.tcl  # 14. Per-node override

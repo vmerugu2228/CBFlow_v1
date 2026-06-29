@@ -16,23 +16,73 @@ def list_fixtures(workarea_test):
     return sorted(Path(workarea_test).glob('uc_*.tcl'))
 
 
-def pick_fixture(workarea_test, flow, vendor=None):
-    """Pick the best fixture for a flow. Prefer plain uc_<FLOW>.tcl; if that's
-    missing fall back to a vendor-specific variant.
+def _fixture_matches_flow(path, flow):
+    """True iff the fixture's `flow(type)` field equals `flow`.
 
-    Returns None if no fixture is available.
+    Filename-only globbing can't distinguish `uc_SYNTH_*.tcl` from
+    `uc_SYNTH_PNR.tcl` — both names match `SYNTH_*`. The authoritative
+    answer is the `set flow(type) "..."` line inside the file.
     """
+    declared = parse_user_config_field(path, 'flow(type)')
+    return declared == flow
+
+
+def pick_fixture(workarea_test, flow, vendor=None, project=None):
+    """Pick the best fixture for a flow.
+
+    When `project` is set (e.g. 'ravendrive', 'denali'), only fixtures whose
+    `project(name)` parses to that project are considered — this is how the
+    e2e runner iterates per-project so each project's tool stack gets
+    exercised end-to-end.
+
+    Every returned fixture is verified to declare the right `flow(type)`,
+    not just match the filename glob (which would treat `uc_SYNTH_PNR.tcl`
+    as a SYNTH fixture).
+
+    Selection order when project is set:
+      1. uc_{flow}_{project}_<anything>.tcl    (explicit project tag in name)
+      2. uc_{flow}_*.tcl                       (any fixture for the flow whose
+                                                contents declare this project)
+      3. uc_{flow}.tcl                         (project-agnostic plain fixture
+                                                whose contents declare this project)
+
+    Without `project`, falls back to the original behavior: prefer plain
+    uc_{flow}.tcl, then a vendor variant, then any matching variant.
+
+    Returns None if no fixture matches.
+    """
+    def _ok(p):
+        return p.exists() and _fixture_matches_flow(p, flow)
+
+    if project:
+        # 1. Explicit project-tagged fixture (filename + flow + project match).
+        for cand in sorted(Path(workarea_test).glob(f'uc_{flow}_{project}_*.tcl')):
+            if _ok(cand) and parse_user_config_field(cand, 'project(name)') == project:
+                return cand
+        # 2. Any uc_{flow}_*.tcl whose contents declare the right project + flow.
+        for cand in sorted(Path(workarea_test).glob(f'uc_{flow}_*.tcl')):
+            if _ok(cand) and parse_user_config_field(cand, 'project(name)') == project:
+                return cand
+        # 3. Plain uc_{flow}.tcl, if it declares the right project + flow.
+        plain = Path(workarea_test) / f'uc_{flow}.tcl'
+        if _ok(plain) and parse_user_config_field(plain, 'project(name)') == project:
+            return plain
+        return None
+
+    # Original (project-agnostic) selection.
     plain = Path(workarea_test) / f'uc_{flow}.tcl'
-    if plain.exists():
+    if _ok(plain):
         return plain
 
     if vendor:
         variant = Path(workarea_test) / f'uc_{flow}_{vendor}.tcl'
-        if variant.exists():
+        if _ok(variant):
             return variant
 
-    matches = sorted(Path(workarea_test).glob(f'uc_{flow}_*.tcl'))
-    return matches[0] if matches else None
+    for cand in sorted(Path(workarea_test).glob(f'uc_{flow}_*.tcl')):
+        if _ok(cand):
+            return cand
+    return None
 
 
 _RUN_NAME_RE = re.compile(r'(set\s+flow\(run_name\)\s+)"[^"]*"')
