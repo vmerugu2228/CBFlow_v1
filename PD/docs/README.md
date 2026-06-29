@@ -73,6 +73,7 @@ RACE (Run Automation & Control Engine) is the Python-native DAG executor at the 
 - [MMMC Reference](03-reference/mmmc-reference.md) -- Multi-mode multi-corner
 - [Production Git Setup](03-reference/production-git-setup.md) -- gpg-encrypted SSH deploy keys for read/write access without plaintext passwords
 - [Production Dashboard Setup](03-reference/dashboard-production-setup.md) -- make the daemon reachable from remote browsers (SSH tunnel vs --public bind)
+- [MSCTS / Multipoint CTS](03-reference/mscts-mpcts-reference.md) -- standalone FC-RM-aligned MSCTS recipe (mscts_fc.tcl), inputs, sample usage
 
 ### [04. Architecture](04-architecture/)
 - [System Design](04-architecture/system-design.md) -- RACE engine, flow_proc, override, release, handshake
