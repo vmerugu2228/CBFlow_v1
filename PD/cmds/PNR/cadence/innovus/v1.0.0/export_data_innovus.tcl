@@ -22,7 +22,7 @@ setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 flow_proc load_design {
     global run_dir flow
 
-    set _db "$run_dir/work/$::FLOW_TYPE/signoff1/outputs/signoff.enc.dat"
+    set _db [cbflow_resolve_head_block "$run_dir/work/$::FLOW_TYPE/signoff1/outputs/signoff.enc.dat" {signoff pro route cts_opt cts place init_design}]
     if {![file exists $_db]} {
         handle_error "signoff database not found: $_db"
         return
@@ -910,6 +910,7 @@ flow_proc export_data_complete {
     set _outputs "$::WORK_DIR/outputs"
     file mkdir $_outputs
     saveDesign "$_outputs/export_data.enc"
+    cbflow_record_block_state $::STAGE_NAME "$_outputs/export_data.enc.dat" $::NODE_NAME
 
     # Generate final export summary
     file mkdir "$::REPORTS_DIR"

@@ -405,7 +405,7 @@ flow_proc save_design {
         save_block -as ${design_name}/signoff
         handle_info "Block saved: ${design_name}/signoff"
     }
-    cbflow_record_block_state $STAGE_NAME "signoff" $NODE_NAME
+    cbflow_record_block_state $::STAGE_NAME "signoff" $::NODE_NAME
 
     set_svf -off
     handle_info "Signoff design saved"

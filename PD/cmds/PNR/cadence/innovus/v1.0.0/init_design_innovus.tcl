@@ -513,6 +513,7 @@ flow_proc save_design {
     set _outputs "$::WORK_DIR/outputs"
     file mkdir $_outputs
     saveDesign "$_outputs/init_design.enc"
+    cbflow_record_block_state $::STAGE_NAME "$_outputs/init_design.enc.dat" $::NODE_NAME
     handle_info "Design saved: $_outputs/init_design.enc"
 
     # Write DEF for downstream consumption

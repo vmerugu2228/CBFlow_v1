@@ -339,7 +339,7 @@ flow_proc save_design {
         save_block -as ${design_name}/route_auto
         handle_info "Block saved: ${design_name}/route_auto"
     }
-    cbflow_record_block_state $STAGE_NAME "route_auto" $NODE_NAME
+    cbflow_record_block_state $::STAGE_NAME "route_auto" $::NODE_NAME
 
     set_svf -off
     handle_info "Route design saved"

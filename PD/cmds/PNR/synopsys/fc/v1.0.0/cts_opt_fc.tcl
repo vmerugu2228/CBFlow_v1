@@ -328,7 +328,7 @@ flow_proc save_design {
         save_block -as ${design_name}/clock_opt_opto
         handle_info "Block saved: ${design_name}/clock_opt_opto"
     }
-    cbflow_record_block_state $STAGE_NAME "clock_opt_opto" $NODE_NAME
+    cbflow_record_block_state $::STAGE_NAME "clock_opt_opto" $::NODE_NAME
 
     set_svf -off
     handle_info "CTS opto design saved"

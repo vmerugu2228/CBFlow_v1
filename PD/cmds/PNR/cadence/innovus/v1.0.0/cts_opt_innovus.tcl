@@ -22,7 +22,7 @@ setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 flow_proc load_design {
     global run_dir flow
 
-    set _db "$run_dir/work/$::FLOW_TYPE/cts1/outputs/cts.enc.dat"
+    set _db [cbflow_resolve_head_block "$run_dir/work/$::FLOW_TYPE/cts1/outputs/cts.enc.dat" {cts place init_design}]
     if {![file exists $_db]} {
         handle_error "cts database not found: $_db"
         return
@@ -164,6 +164,7 @@ flow_proc cts_opt_complete {
     set _outputs "$::WORK_DIR/outputs"
     file mkdir $_outputs
     saveDesign "$_outputs/cts_opt.enc"
+    cbflow_record_block_state $::STAGE_NAME "$_outputs/cts_opt.enc.dat" $::NODE_NAME
 
     # Final CTS optimization verification
     catch { verifyConnectivity -report "$::REPORTS_DIR/verify_connectivity.rpt" }

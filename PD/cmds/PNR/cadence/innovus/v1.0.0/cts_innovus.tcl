@@ -28,7 +28,7 @@ handle_info "Starting CBflow PNR CTS for Innovus"
 flow_proc load_design {
     global run_dir flow
 
-    set _db "$run_dir/work/$::FLOW_TYPE/place1/outputs/place.enc.dat"
+    set _db [cbflow_resolve_head_block "$run_dir/work/$::FLOW_TYPE/place1/outputs/placement.enc.dat" {place init_design}]
     if {![file exists $_db]} {
         handle_error "place database not found: $_db"
         return
@@ -161,6 +161,7 @@ flow_proc save_design {
     set _outputs "$::WORK_DIR/outputs"
     file mkdir $_outputs
     saveDesign "$_outputs/cts.enc"
+    cbflow_record_block_state $::STAGE_NAME "$_outputs/cts.enc.dat" $::NODE_NAME
     handle_info "Design saved: $_outputs/cts.enc"
 }
 
