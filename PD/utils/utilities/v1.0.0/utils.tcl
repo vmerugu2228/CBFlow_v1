@@ -522,8 +522,19 @@ proc flow_exec {name} {
     handle_info "Flow procedure '$name' completed"
 }
 
-proc flow_exec_all {} {
-    # Execute all registered flow procedures in DEFINITION ORDER
+proc flow_exec_all {args} {
+    # Execute flow procedures in DEFINITION ORDER.
+    #
+    # Signature is variadic to support two existing call patterns:
+    #   flow_exec_all                                   ;# run everything
+    #   flow_exec_all configure_ir run_ir_drop ...      ;# run an explicit
+    #                                                   ;# subset, in this order
+    # The variant with an argument list is used by several
+    # cmds/EMIR/synopsys/redhawk/*.tcl, cmds/PV/synopsys/icv/*.tcl, and
+    # cmds/ECO/*/inputs_*.tcl files — they pre-existed but used to crash
+    # under the old no-args definition. Now they're treated as an explicit
+    # filter/order; unknown names are silently skipped (the registry is the
+    # source of truth).
     if {[llength $::flow::steps] == 0} {
         handle_warning "No flow steps registered"
         return
@@ -538,10 +549,21 @@ proc flow_exec_all {} {
         handle_info "═══════════════════════════════════════════════════════"
     }
 
-    handle_info "Executing all flow procedures ([llength $::flow::steps] steps)..."
-    foreach name $::flow::steps {
-        if {[info exists ::flow::procs($name)]} {
-            flow_exec $name
+    if {[llength $args] > 0} {
+        handle_info "Executing [llength $args] explicit flow procedures..."
+        foreach name $args {
+            if {[info exists ::flow::procs($name)]} {
+                flow_exec $name
+            } else {
+                handle_warning "flow_exec_all: '$name' not in registry — skipped"
+            }
+        }
+    } else {
+        handle_info "Executing all flow procedures ([llength $::flow::steps] steps)..."
+        foreach name $::flow::steps {
+            if {[info exists ::flow::procs($name)]} {
+                flow_exec $name
+            }
         }
     }
     handle_info "All flow procedures completed"

@@ -23,7 +23,10 @@ flow_proc create_design_library {
     global fcfp flow project tech
 
     set run_dir $::env(CBFLOW_RUN_DIR)
-    file mkdir "$run_dir/work/FCFP/init_design/run"
+    # NB: stage NODE_NAME is init_design1 (with the `1` suffix). The previous
+    # literal `work/FCFP/init_design/run` created a bogus empty dir that
+    # e2e_checks._stage_dirs walked as a stage with no subnodes.
+    file mkdir "$run_dir/work/FCFP/${::NODE_NAME}/run"
 
     set design_name [expr {[info exists fcfp(common,design_name)] ? $fcfp(common,design_name) : $flow(design_name)}]
     set lib_name [expr {[info exists fcfp(common,design_lib_name)] ? $fcfp(common,design_lib_name) : "${design_name}.nlib"}]
@@ -75,7 +78,7 @@ flow_proc create_design_library {
         if {[info exists tech(db,io_pads)]}         { lappend fusion_db_list $tech(db,io_pads) }
         if {[info exists tech(db,memory)]}          { lappend fusion_db_list $tech(db,memory) }
         if {[llength $fusion_lef_list] > 0 && [llength $fusion_db_list] > 0} {
-            set fusion_dir "$run_dir/work/FCFP/init_design/fusion_libs"
+            set fusion_dir "$run_dir/work/FCFP/${::NODE_NAME}/fusion_libs"
             file mkdir $fusion_dir
             create_fusion_reference_library \
                 -output_directory $fusion_dir \

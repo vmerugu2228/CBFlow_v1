@@ -334,10 +334,6 @@ proc handler_run {run_dir flow_type node_name stage_name cmd_file test_mode {too
                 set _f [open "$_outputs_dir/${stage_name}_summary.txt" w]
                 puts $_f "${stage_name} Summary - $_ts\nViolations: 0\nStatus: PASS"; close $_f
             }
-            "power_analysis" - "ir_drop" - "thermal_analysis" {
-                set _f [open "$_reports_dir/${stage_name}.rpt" w]
-                puts $_f "${stage_name} Report - $_ts\nStatus: PASS"; close $_f
-            }
             "merge_reports" {
                 set _f [open "$_reports_dir/${stage_name}.rpt" w]
                 puts $_f "${stage_name} Report - $_ts\nStatus: PASS"; close $_f
@@ -462,6 +458,30 @@ proc handler_run {run_dir flow_type node_name stage_name cmd_file test_mode {too
             "testbench" - "patterns" {
                 set _f [open "$_outputs_dir/${stage_name}.sv" w]
                 puts $_f "// ${stage_name} - $_ts"; close $_f
+            }
+            "power_analysis" - "ir_drop" - "thermal_analysis" - "em_analysis" {
+                set _f [open "$_reports_dir/${stage_name}.rpt" w]
+                puts $_f "${stage_name} - $_ts\nStatus: PASS\nViolations: 0"; close $_f
+                set _f [open "$_outputs_dir/${stage_name}_summary.txt" w]
+                puts $_f "${stage_name} Summary - $_ts\nMax IR drop: 12.3 mV\nStatus: PASS"; close $_f
+            }
+            "merge_timing" - "power_opt" - "post_merge" {
+                set _f [open "$_reports_dir/${stage_name}.rpt" w]
+                puts $_f "${stage_name} - $_ts\nStatus: PASS"; close $_f
+                set _f [open "$_outputs_dir/${stage_name}_summary.txt" w]
+                puts $_f "${stage_name} Summary - $_ts\nLeakage reduction: 12%\nStatus: PASS"; close $_f
+            }
+            "eco" - "export_db" {
+                set _f [open "$_reports_dir/${stage_name}.rpt" w]
+                puts $_f "${stage_name} - $_ts\nStatus: PASS\nFixes applied: 7"; close $_f
+                set _f [open "$_outputs_dir/${stage_name}_summary.txt" w]
+                puts $_f "${stage_name} Summary - $_ts\nNet changes: 23\nStatus: PASS"; close $_f
+            }
+            "init_compile" - "shaping" - "placement" - "create_power" - "place_pins" - "top_compile" - "timing_budget" - "commit_blocks" - "create_floorplan" - "fc_floorplan" - "fc_powerplan" - "fc_post_floorplan" {
+                set _f [open "$_reports_dir/${stage_name}.rpt" w]
+                puts $_f "${stage_name} - $_ts\nStatus: PASS"; close $_f
+                set _f [open "$_outputs_dir/${stage_name}.enc" w]
+                puts $_f "FCFP ${stage_name} checkpoint stub - $_ts"; close $_f
             }
         }
 
