@@ -377,7 +377,8 @@ def _project_workarea_paths(pd_dir):
     return paths
 
 
-def _flow_type_for(run_dir):
+def _read_env_field(run_dir, key):
+    """Read one `export KEY=VALUE` from a run's .run.cbflow.env. Empty on miss."""
     env_file = os.path.join(run_dir, '.run.cbflow.env')
     if not os.path.exists(env_file):
         return ''
@@ -387,22 +388,34 @@ def _flow_type_for(run_dir):
                 line = line.strip()
                 if line.startswith('export ') and '=' in line:
                     k, v = line[7:].split('=', 1)
-                    if k == 'CBFLOW_FLOW_TYPE':
+                    if k == key:
                         return v.strip('"').strip("'")
     except OSError:
         pass
     return ''
 
 
+def _flow_type_for(run_dir):
+    return _read_env_field(run_dir, 'CBFLOW_FLOW_TYPE')
+
+
 def _discover_runs(pd_dir):
     """Return a list of run directories under any project's workarea_path.
 
     Each entry: {project, design, name, run_dir, flow_type}.
+
+    project comes from the run's own .run.cbflow.env (CBFLOW_PROJECT_NAME)
+    — NOT from the project iterator that found the workarea. Multiple
+    projects often share one workarea_path (e.g. denali + ravendrive both
+    point at workarea/, with their designs in workarea/tom/ and
+    workarea/cpu_core/); using the iterator's project name would tag every
+    discovered run with whichever project sorted first.
+
     Caller layers `registered` on top via the registry.
     """
     out = []
     seen = set()
-    for project, wa in _project_workarea_paths(pd_dir):
+    for _iter_project, wa in _project_workarea_paths(pd_dir):
         if not os.path.isdir(wa):
             continue
         for design in sorted(os.listdir(wa)):
@@ -416,8 +429,14 @@ def _discover_runs(pd_dir):
                 if not os.path.isdir(run_dir) or run_dir in seen:
                     continue
                 seen.add(run_dir)
+                # Project comes from the run's own env (authoritative).
+                # Fall back to the iterator's project only if env is missing,
+                # which preserves something useful for runs that pre-date the
+                # CBFLOW_PROJECT_NAME export.
+                run_project = _read_env_field(run_dir, 'CBFLOW_PROJECT_NAME') \
+                              or _iter_project
                 out.append({
-                    'project': project,
+                    'project': run_project,
                     'design': design,
                     'name': name,
                     'run_dir': run_dir,
@@ -755,6 +774,10 @@ def _render_index(runs, discipline='PD'):
                     font-style: italic; }}
   .picker-count {{ padding: 6px 20px; font-size: 11px; color: var(--muted);
                     background: white; border-bottom: 1px solid var(--border); }}
+  .picker-toolbar {{ display: flex; gap: 8px; padding: 8px 20px;
+                      background: white; border-bottom: 1px solid var(--border);
+                      flex-wrap: wrap; }}
+  .picker-toolbar select.flow-filter {{ font-size: 12px; padding: 5px 26px 5px 10px; }}
 
   table.runs {{ width: 100%; border-collapse: collapse; }}
   table.runs thead th {{ text-align: left; font-weight: 600; font-size: 12px;
@@ -860,6 +883,17 @@ def _render_index(runs, discipline='PD'):
       <button type="submit" class="primary">Register</button>
     </form>
     <div id="picker" class="picker" aria-hidden="true">
+      <div class="picker-toolbar">
+        <select id="picker-project-filter" class="flow-filter" title="Filter by project">
+          <option value="">All projects</option>
+        </select>
+        <select id="picker-design-filter"  class="flow-filter" title="Filter by block / design">
+          <option value="">All blocks</option>
+        </select>
+        <select id="picker-flow-filter"    class="flow-filter" title="Filter by flow">
+          <option value="">All flows</option>
+        </select>
+      </div>
       <div class="picker-count" id="picker-count">…</div>
       <div id="picker-body"></div>
     </div>
@@ -1122,6 +1156,7 @@ def _render_index(runs, discipline='PD'):
     try {{
       const data = await fetch('/api/discover-runs').then(r => r.json());
       discovered = data.runs || [];
+      refreshPickerFilterOptions();
       renderPicker();
     }} catch (e) {{
       document.getElementById('picker-body').innerHTML =
@@ -1129,12 +1164,24 @@ def _render_index(runs, discipline='PD'):
     }}
   }}
 
+  function refreshPickerFilterOptions() {{
+    _refreshSelect('picker-project-filter', 'All projects', r => r.project,   discovered);
+    _refreshSelect('picker-design-filter',  'All blocks',   r => r.design,    discovered);
+    _refreshSelect('picker-flow-filter',    'All flows',    r => r.flow_type, discovered);
+  }}
+
   function renderPicker() {{
     const body = document.getElementById('picker-body');
     const count = document.getElementById('picker-count');
-    const q = document.getElementById('reg-input').value.toLowerCase().trim();
+    const q       = document.getElementById('reg-input').value.toLowerCase().trim();
+    const fProj   = document.getElementById('picker-project-filter').value;
+    const fDes    = document.getElementById('picker-design-filter').value;
+    const fFlow   = document.getElementById('picker-flow-filter').value;
 
     const filtered = discovered.filter(r => {{
+      if (fProj && (r.project   || '?') !== fProj) return false;
+      if (fDes  && (r.design    || '?') !== fDes ) return false;
+      if (fFlow && (r.flow_type || '?') !== fFlow) return false;
       if (!q) return true;
       const hay = (r.project + ' ' + r.design + ' ' + r.name + ' ' +
                    r.run_dir + ' ' + (r.flow_type || '')).toLowerCase();
@@ -1211,6 +1258,13 @@ def _render_index(runs, discipline='PD'):
     pickerToggle.textContent = open ? 'Hide' : 'Browse';
     if (open && !discovered.length) loadDiscovered();
   }});
+
+  // Re-render the picker whenever a filter changes
+  ['picker-project-filter', 'picker-design-filter', 'picker-flow-filter']
+    .forEach(id => document.getElementById(id)
+      .addEventListener('change', () => {{
+        if (pickerEl.classList.contains('open')) renderPicker();
+      }}));
 
   // Live-filter picker when typing in the registration input
   document.getElementById('reg-input').addEventListener('input', () => {{
