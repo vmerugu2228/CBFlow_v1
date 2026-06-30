@@ -74,30 +74,16 @@ rsync -a --quiet \
     --exclude='.race_db_pointer' \
     "$CBFLOW_PROJECT_DIR/" "$STAGE_DIR/"
 
-# Generate MANIFEST.checksums for migration/upgrade support
-echo "  [2/6] Generating MANIFEST.checksums..."
-(cd "$STAGE_DIR" && find PD -type f | sort | while read f; do
-    md5sum "$f" 2>/dev/null || md5 -r "$f" 2>/dev/null
-done > PD/MANIFEST.checksums)
-MANIFEST_COUNT=$(wc -l < "$STAGE_DIR/PD/MANIFEST.checksums" | tr -d ' ')
-echo "         $MANIFEST_COUNT files checksummed"
-
-# Initialize state tracking (lightweight VCS)
-echo "  [3/6] Initializing state tracking..."
-CBFLOW_CORE_DIR="$STAGE_DIR/PD" python3 "$STAGE_DIR/PD/utils/commands/state_cmd.py" init 2>/dev/null || true
-STATE_COUNT=$(sqlite3 "$STAGE_DIR/PD/.cbflow_state.db" "SELECT file_count FROM commits LIMIT 1" 2>/dev/null || echo "0")
-echo "         $STATE_COUNT files tracked in .cbflow_state.db"
-
 # Count files
 FILE_COUNT=$(find "$STAGE_DIR" -type f | wc -l | tr -d ' ')
 DIR_COUNT=$(find "$STAGE_DIR" -type d | wc -l | tr -d ' ')
-echo "  [3/6] Setting permissions to 777 ($FILE_COUNT files, $DIR_COUNT dirs)..."
+echo "  [2/4] Setting permissions to 777 ($FILE_COUNT files, $DIR_COUNT dirs)..."
 
 # Set all permissions to 777
 chmod -R 777 "$STAGE_DIR"
 
 # Create bundle
-echo "  [4/6] Creating tar.gz..."
+echo "  [3/4] Creating tar.gz..."
 mkdir -p "$OUTPUT_DIR"
 tar -czf "$OUTPUT_DIR/${BUNDLE_NAME}.tar.gz" -C "$TMPDIR" "$BUNDLE_NAME"
 
@@ -107,7 +93,7 @@ BUNDLE_SIZE=$(du -sh "$OUTPUT_DIR/${BUNDLE_NAME}.tar.gz" | awk '{print $1}')
 # Cleanup
 rm -rf "$TMPDIR"
 
-echo "  [6/6] Done."
+echo "  [4/4] Done."
 echo ""
 echo "  ═══════════════════════════════════════════════════════════"
 echo "  Bundle Created Successfully"

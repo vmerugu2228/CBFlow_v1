@@ -1,1 +1,3 @@
-# DEF
+VERSION 5.8 ;
+DESIGN cpu_core ;
+END DESIGN

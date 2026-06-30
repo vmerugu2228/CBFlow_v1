@@ -128,15 +128,6 @@ Run Commands (run from within a run directory):
   cbflow run release-lock                     Lock permissions (production: 444/555/755)
   cbflow run release-lock --unlock            Unlock permissions (development: 777)
 
-Migration (after receiving new bundle):
-  cbflow migrate --from /opt/cbflow_v1 --to /opt/cbflow_v2
-                                              Migrate user customizations to new bundle
-  cbflow migrate --from /opt/cbflow_v1 --to /opt/cbflow_v2 --dry-run
-                                              Preview changes without modifying
-  cbflow migrate --diff --from /opt/cbflow_v1 --to /opt/cbflow_v2
-                                              Show what changed between releases
-  cbflow migrate --validate                   Validate current installation
-
 Database Management (from run directory or workarea):
   cbflow run db-manage                        Check session count vs limit
   cbflow run db-manage --list                 List all DBs (owner, flow, result, size)
@@ -268,16 +259,6 @@ main() {
         # Run commands (within a run directory)
         run)
             exec python3 "$COMMANDS_DIR/run_cmd.py" "$@"
-            ;;
-
-        # State tracking (lightweight VCS for bundles)
-        state)
-            exec python3 "$COMMANDS_DIR/state_cmd.py" "$@"
-            ;;
-
-        # Migrate commands (path migration, file upgrade)
-        migrate)
-            exec python3 "$COMMANDS_DIR/migrate_cmd.py" "$@"
             ;;
 
         # Flow commands (info, project, version, release, config)

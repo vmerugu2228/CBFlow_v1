@@ -1,7 +1,2 @@
 INFO: timing setup...
-INFO: Loaded SPEF manifest from extraction1: 4 corners
-INFO:   rc_max -> /Users/vmerugu/projects/CBflow_clone/workarea/cpu_core/P0_run_STA_test1/work/STA/extraction1/rc_max/results/extraction1_rc_max.spef
-INFO:   rc_max_cworst -> /Users/vmerugu/projects/CBflow_clone/workarea/cpu_core/P0_run_STA_test1/work/STA/extraction1/rc_max_cworst/results/extraction1_rc_max_cworst.spef
-INFO:   rc_min -> /Users/vmerugu/projects/CBflow_clone/workarea/cpu_core/P0_run_STA_test1/work/STA/extraction1/rc_min/results/extraction1_rc_min.spef
-INFO:   rc_typ -> /Users/vmerugu/projects/CBflow_clone/workarea/cpu_core/P0_run_STA_test1/work/STA/extraction1/rc_typ/results/extraction1_rc_typ.spef
 INFO: timing setup completed

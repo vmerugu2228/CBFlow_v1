@@ -1,8 +1,2 @@
 INFO: timing scenario: func_ss_0p76v_rcmax_150c
-INFO: MMMC loaded — 24 views, 32 node assignments
-INFO: Scenario context written: /Users/vmerugu/projects/CBflow_clone/workarea/cpu_core/P0_run_STA_test1/work/STA/timing1/run/func_ss_0p76v_rcmax_150c_context.tcl
-INFO: [TEST MODE] Scenario func_ss_0p76v_rcmax_150c
-INFO:   Corner=ss Mode=func Voltage=0p76v Temp=150c
-INFO:   RC=rcmax LibSet=ss_0p76v_150c
-INFO:   SDC=${design_name}_func.sdc
-INFO: timing scenario func_ss_0p76v_rcmax_150c completed [TEST MODE]
+INFO: [TEST MODE] Scenario func_ss_0p76v_rcmax_150c completed

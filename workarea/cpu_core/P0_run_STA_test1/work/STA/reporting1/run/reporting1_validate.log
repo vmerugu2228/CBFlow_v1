@@ -1,4 +1,3 @@
 INFO: reporting validate...
-INFO: Running validation: STA reporting reporting1
-INFO: Validation passed for reporting
+INFO: [TEST MODE] Validation skipped
 INFO: reporting validate completed

@@ -1,6 +1,2 @@
-INFO: MMMC loaded — 24 views, 32 node assignments
-INFO: Metal stack loaded: gf22naphlogl24uhf116a_11M_2Mx_6Cx_1Jx_2Qx_LB — 11 layers (1P11M_2Mx_6Cx_1Jx_2Qx_LB)
-INFO: GF 22FDX active track: 9T
-INFO: GF 22FDX tech config loaded — track=9T, metal_stack=gf22naphlogl24uhf116a_11M_2Mx_6Cx_1Jx_2Qx_LB (11M), libs=6 NDMs
 INFO: extraction setup...
 INFO: extraction setup completed

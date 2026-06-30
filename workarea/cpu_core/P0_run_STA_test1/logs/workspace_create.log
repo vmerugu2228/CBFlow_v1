@@ -2,7 +2,7 @@
   CBflow Workspace Creation Log
 ======================================================================
 
-  Timestamp:      2026-05-21 23:14:59
+  Timestamp:      2026-06-17 15:39:09
   User:           vmerugu
   Hostname:       Varuns-MacBook-Pro.local
   Run Directory:  /Users/vmerugu/projects/CBflow_clone/workarea/cpu_core/P0_run_STA_test1
@@ -10,7 +10,7 @@
   Design:         cpu_core
   Phase:          
   Release:        v1.0.0
-  Config File:    ../../workarea_test/uc_STA.tcl
+  Config File:    /Users/vmerugu/projects/CBflow_clone/workarea_test/uc_STA.tcl
   Dispatcher:     RACE (Run Automation & Control Engine)
 
 ──────────────────────────────────────────────────────────────────────
@@ -50,7 +50,7 @@
 ──────────────────────────────────────────────────────────────────────
 
   Stages:  8
-  Jobs:    28
+  Jobs:    27
   Order:   netlist1 → sdc1 → def1 → library1 → extraction1 → timing1 → reporting1 → release_data1
 
 ======================================================================

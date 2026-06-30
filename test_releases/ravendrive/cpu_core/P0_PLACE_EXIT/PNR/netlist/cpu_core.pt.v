@@ -1,2 +1,0 @@
-// PT netlist
-// [TEST MODE]

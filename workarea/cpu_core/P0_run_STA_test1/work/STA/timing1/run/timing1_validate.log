@@ -1,4 +1,3 @@
 INFO: timing validate...
-INFO: Running validation: STA timing timing1
-INFO: Validation passed for timing
+INFO: [TEST MODE] Validation skipped
 INFO: timing validate completed

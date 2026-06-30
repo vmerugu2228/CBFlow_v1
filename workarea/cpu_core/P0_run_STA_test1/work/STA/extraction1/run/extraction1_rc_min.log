@@ -1,10 +1,5 @@
-INFO: MMMC loaded — 24 views, 32 node assignments
-INFO: Metal stack loaded: gf22naphlogl24uhf116a_11M_2Mx_6Cx_1Jx_2Qx_LB — 11 layers (1P11M_2Mx_6Cx_1Jx_2Qx_LB)
-INFO: GF 22FDX active track: 9T
-INFO: GF 22FDX tech config loaded — track=9T, metal_stack=gf22naphlogl24uhf116a_11M_2Mx_6Cx_1Jx_2Qx_LB (11M), libs=6 NDMs
 INFO: extraction rc_min (extraction1)...
-INFO: [TEST MODE] Extraction for RC corner: rc_min
-INFO: RC parasitic file:  ()
-INFO: Corner work dir: /Users/vmerugu/projects/CBflow_clone/workarea/cpu_core/P0_run_STA_test1/work/STA/extraction1/rc_min
+INFO: [TEST MODE] StarRC extraction: rc_min
+INFO:   RC file:  ()
 INFO: Mock SPEF: /Users/vmerugu/projects/CBflow_clone/workarea/cpu_core/P0_run_STA_test1/work/STA/extraction1/rc_min/results/extraction1_rc_min.spef
 INFO: extraction rc_min completed [TEST MODE]

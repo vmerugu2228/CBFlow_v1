@@ -1,2 +1,0 @@
-// LVS netlist
-// [TEST MODE]
