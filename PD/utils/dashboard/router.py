@@ -650,17 +650,6 @@ def _render_index(runs, discipline='PD', project=''):
     archived = [r for r in runs if r.get('archived')]
     project_set = {r.get('project') for r in active if r.get('project')}
     design_set = {r.get('design') for r in active if r.get('design')}
-    project_counts = {}
-    for r in active:
-        proj = r.get('project') or '(unknown)'
-        project_counts[proj] = project_counts.get(proj, 0) + 1
-    if project_counts:
-        proj_chips_html = '\n'.join(
-            f'<span class="proj-chip">{p}<span class="count">{c}</span></span>'
-            for p, c in sorted(project_counts.items())
-        )
-    else:
-        proj_chips_html = '<span class="proj-chip empty">no runs registered</span>'
 
     # Stamp current_node / current_status server-side too so the initial
     # paint shows real status (otherwise every row would briefly read "NONE"
@@ -760,17 +749,6 @@ def _render_index(runs, discipline='PD', project=''):
                          border-radius: 8px; font-size: 13px; backdrop-filter: blur(6px);
                          border: 1px solid rgba(255,255,255,.15); }}
   header.banner .stat b {{ font-weight: 600; }}
-  header.banner .projects {{ display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap;
-                              align-items: center; font-size: 12px; opacity: .92; }}
-  header.banner .projects-label {{ opacity: .75; margin-right: 4px; }}
-  header.banner .proj-chip {{ background: rgba(255,255,255,.15);
-                               border: 1px solid rgba(255,255,255,.22);
-                               padding: 3px 12px; border-radius: 999px;
-                               font-weight: 500; font-size: 12px;
-                               backdrop-filter: blur(6px); }}
-  header.banner .proj-chip .count {{ opacity: .7; margin-left: 4px;
-                                      font-variant-numeric: tabular-nums; }}
-  header.banner .proj-chip.empty {{ opacity: .55; font-style: italic; }}
 
   main {{ max-width: 1280px; margin: 0 auto; padding: 24px 24px 64px; }}
 
@@ -966,10 +944,6 @@ def _render_index(runs, discipline='PD', project=''):
       <div class="stat">Archived: <b id="stat-archived">{len(archived)}</b></div>
       <div class="stat">Projects: <b id="stat-projects">{len(project_set)}</b></div>
       <div class="stat">Designs: <b id="stat-designs">{len(design_set)}</b></div>
-    </div>
-    <div class="projects">
-      <span class="projects-label">Projects:</span>
-      <span id="proj-chips">{proj_chips_html}</span>
     </div>
   </div>
   <aside class="milestone-block" id="milestone-block"
@@ -1276,11 +1250,6 @@ def _render_index(runs, discipline='PD', project=''):
       document.getElementById('stat-archived').textContent = archivedCount;
       document.getElementById('stat-projects').textContent = projectSet.size;
       document.getElementById('stat-designs').textContent = designSet.size;
-
-      const chipNames = Object.keys(projCounts).sort();
-      document.getElementById('proj-chips').innerHTML = chipNames.length
-        ? chipNames.map(p => `<span class="proj-chip">${{p}}<span class="count">${{projCounts[p]}}</span></span>`).join('')
-        : '<span class="proj-chip empty">no runs registered</span>';
 
       applyFilter();
     }} catch (e) {{
