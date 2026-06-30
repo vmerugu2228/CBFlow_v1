@@ -12,8 +12,10 @@ import http.server
 import json
 import os
 import re
+import sqlite3
 import threading
 from collections import OrderedDict
+from pathlib import Path
 from urllib.parse import urlparse
 
 import race_dashboard
@@ -317,9 +319,18 @@ def make_daemon_handler(pool):
         def _serve_api_runs(self):
             # On every list, also stamp a `run_dir_exists` field so the UI
             # can show "DELETED" before the 30 s sweeper persists it.
+            # Also stamp current_node / current_status by reading each run's
+            # .race_*.db read-only — drives the Current Status column.
             runs = registry.list_all()
             for r in runs:
-                r['run_dir_exists'] = bool(r.get('run_dir')) and os.path.isdir(r['run_dir'])
+                run_dir = r.get('run_dir') or ''
+                r['run_dir_exists'] = bool(run_dir) and os.path.isdir(run_dir)
+                if r['run_dir_exists']:
+                    st = _current_status_for_run(run_dir)
+                else:
+                    st = {'node': '', 'status': 'NONE'}
+                r['current_node'] = st['node']
+                r['current_status'] = st['status']
             body = json.dumps(runs, indent=2).encode('utf-8')
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
@@ -428,6 +439,105 @@ _FLOW_COLORS = {
     'EMIR':      '#dc2626', 'POPT':      '#8b5cf6', 'ECO':       '#64748b',
 }
 
+# Status → (background, text) colors for the Current Status chip on the
+# daemon index page. Single source consumed both server-side (cell render)
+# and client-side (JS re-render via /api/runs).
+_STATUS_COLORS = {
+    'RUNNING':         ('#fde047', '#713f12'),   # bright yellow + dark text
+    'FAIL':            ('#dc2626', '#ffffff'),   # red + white
+    'DONE':            ('#10b981', '#ffffff'),   # green + white
+    'BYPASSED':        ('#22c55e', '#052e16'),   # light green + dark text
+    'FORCE_VALIDATED': ('#65a30d', '#ffffff'),   # olive + white
+    'PENDING':         ('#94a3b8', '#0f172a'),   # gray + dark text
+    'INVALIDATED':     ('#f97316', '#ffffff'),   # orange + white
+    'READY':           ('#cbd5e1', '#475569'),   # light gray + slate text
+    'NONE':            ('#e5e7eb', '#6b7280'),   # subtle gray for "no DB yet"
+}
+
+# Order in which we pick a representative status when many exist on a run.
+# Highest priority wins — i.e. if anything is RUNNING, that's the "current"
+# status; otherwise FAIL surfaces; etc.
+_STATUS_PRIORITY = (
+    'RUNNING', 'FAIL', 'INVALIDATED', 'PENDING',
+    'DONE', 'BYPASSED', 'FORCE_VALIDATED', 'READY',
+)
+
+
+def _find_run_db(run_dir):
+    """Find the .race_*.db for a run. Mirrors race_dashboard._find_db's
+    resolution order but read-only and side-effect-free: pointer file first,
+    then local glob; returns None if neither yields an existing file."""
+    pointer = os.path.join(run_dir, '.race_db_pointer')
+    if os.path.isfile(pointer):
+        try:
+            with open(pointer) as fh:
+                p = fh.read().strip()
+            if p and os.path.isfile(p):
+                return p
+        except OSError:
+            pass
+    try:
+        for f in Path(run_dir).glob('.race_*.db'):
+            return str(f)
+    except OSError:
+        pass
+    return None
+
+
+def _current_status_for_run(run_dir):
+    """Return {'node': ..., 'status': ...} for the run's most relevant job.
+
+    Priority — first match wins:
+      1. Any RUNNING subnode  → that's the live one
+      2. Most recent FAIL     → user needs to see this
+      3. Most recent DONE/BYPASSED/FORCE_VALIDATED → last activity
+      4. Any PENDING / INVALIDATED → in queue
+      5. All READY (never started) → 'Not started' / READY
+      6. No DB / no jobs row / DB unreadable → returns NONE
+    """
+    db_path = _find_run_db(run_dir)
+    if not db_path:
+        return {'node': '', 'status': 'NONE'}
+    try:
+        # uri=True + mode=ro so we never accidentally write or lock the DB
+        conn = sqlite3.connect(f'file:{db_path}?mode=ro', uri=True, timeout=0.5)
+    except sqlite3.Error:
+        return {'node': '', 'status': 'NONE'}
+    try:
+        cur = conn.cursor()
+        # Latest row per job_name, subnodes only — the table is small enough
+        # (low thousands of rows in the worst case) that this is sub-ms.
+        rows = cur.execute(
+            "SELECT stage, COALESCE(subnode,''), status, "
+            "COALESCE(end_time, start_time, '') AS ts "
+            "FROM jobs "
+            "WHERE id IN (SELECT MAX(id) FROM jobs GROUP BY job_name) "
+            "AND job_type = 'subnode'"
+        ).fetchall()
+    except sqlite3.Error:
+        return {'node': '', 'status': 'NONE'}
+    finally:
+        conn.close()
+
+    if not rows:
+        return {'node': '', 'status': 'NONE'}
+
+    by_status = {}
+    for stage, subnode, status, ts in rows:
+        by_status.setdefault(status, []).append((stage, subnode, ts))
+
+    for st in _STATUS_PRIORITY:
+        if st in by_status:
+            # Within a status bucket pick the most-recent row by timestamp.
+            stage, subnode, _ = max(by_status[st], key=lambda r: r[2] or '')
+            node = f'{stage}/{subnode}' if subnode else stage
+            return {'node': node, 'status': st}
+
+    # Status outside our known set — surface it as-is so we see it on the UI.
+    stage, subnode, status, _ts = rows[0]
+    node = f'{stage}/{subnode}' if subnode else stage
+    return {'node': node, 'status': status}
+
 
 def _render_index(runs, discipline='PD'):
     """Index page for the per-user dashboard daemon.
@@ -459,8 +569,23 @@ def _render_index(runs, discipline='PD'):
     else:
         proj_chips_html = '<span class="proj-chip empty">no runs registered</span>'
 
+    # Stamp current_node / current_status server-side too so the initial
+    # paint shows real status (otherwise every row would briefly read "NONE"
+    # until the first JS poll fires at +5s).
+    for _r in runs:
+        _run_dir = _r.get('run_dir') or ''
+        if _run_dir and os.path.isdir(_run_dir):
+            _st = _current_status_for_run(_run_dir)
+            _r['current_node'] = _st['node']
+            _r['current_status'] = _st['status']
+            _r['run_dir_exists'] = True
+        else:
+            _r.setdefault('current_node', '')
+            _r.setdefault('current_status', 'NONE')
+            _r['run_dir_exists'] = False
+
     rows_html = _render_run_rows(runs) or (
-        '<tr><td colspan="6" class="empty">'
+        '<tr><td colspan="7" class="empty">'
         'No runs registered. Add one above to get started.'
         '</td></tr>'
     )
@@ -624,6 +749,23 @@ def _render_index(runs, discipline='PD'):
                   color: white; font-size: 11px; font-weight: 600;
                   letter-spacing: .04em; }}
 
+  /* Per-flow section header row in the runs table */
+  tr.flow-section td {{ background: #f1f3f9; padding: 8px 16px !important;
+                        font-size: 11px; letter-spacing: .04em;
+                        border-top: 2px solid #d1d5db; }}
+  tr.flow-section .flow-section-count {{ margin-left: 10px; color: var(--muted);
+                                          font-size: 11px; font-weight: 500;
+                                          text-transform: none; letter-spacing: 0; }}
+
+  /* Current Status column — colored chip + current node id */
+  td.status-cell {{ white-space: nowrap; }}
+  .status-chip {{ display: inline-block; padding: 2px 9px; border-radius: 999px;
+                   font-size: 10.5px; font-weight: 700; letter-spacing: .05em;
+                   text-transform: uppercase; font-variant-numeric: tabular-nums; }}
+  .status-node {{ display: inline-block; margin-left: 8px; font-size: 12px;
+                   color: var(--text); font-family: 'SF Mono', Menlo, Consolas, monospace; }}
+  .status-node.muted {{ color: var(--muted); font-family: inherit; }}
+
   .state {{ display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
             color: var(--muted); }}
   .state .dot {{ width: 8px; height: 8px; border-radius: 50%; background: var(--success); }}
@@ -701,7 +843,7 @@ def _render_index(runs, discipline='PD'):
     </div>
     <table class="runs">
       <thead>
-        <tr><th>Run</th><th>Flow</th><th>Run directory</th>
+        <tr><th>Run</th><th>Flow</th><th>Current Status</th><th>Run directory</th>
             <th>Registered</th><th>Last seen</th><th></th></tr>
       </thead>
       <tbody id="runs-tbody">
@@ -720,11 +862,23 @@ def _render_index(runs, discipline='PD'):
 
 <script>
   const FLOW_COLORS = {json.dumps(_FLOW_COLORS)};
+  const STATUS_COLORS = {json.dumps(_STATUS_COLORS)};
 
   function flowBadge(flow) {{
     const color = FLOW_COLORS[flow] || '#475569';
     const txt = flow || '?';
     return `<span class="flow-badge" style="background:${{color}}">${{txt}}</span>`;
+  }}
+
+  function statusChip(node, status) {{
+    const st = status || 'NONE';
+    const pair = STATUS_COLORS[st] || STATUS_COLORS['NONE'];
+    const bg = pair[0], fg = pair[1];
+    const nodeHtml = node
+      ? `<span class="status-node">${{node}}</span>`
+      : `<span class="status-node muted">—</span>`;
+    return `<span class="status-chip" style="background:${{bg}};color:${{fg}}" `
+         + `title="${{node}} (${{st}})">${{st}}</span> ${{nodeHtml}}`;
   }}
 
   function fmtRelative(iso) {{
@@ -758,17 +912,43 @@ def _render_index(runs, discipline='PD'):
       ? '<span class="deleted-pill" title="Run directory was deleted from disk">DELETED</span>'
       : '';
     const linkHref = missing ? '#' : `/run/${{r.run_id}}/`;
-    return `<tr class="${{classes.join(' ')}}" data-rid="${{r.run_id}}" data-search="${{[r.run_id,name,r.flow_type,r.run_dir].join(' ').toLowerCase()}}">
+    return `<tr class="${{classes.join(' ')}}" data-rid="${{r.run_id}}" data-flow="${{r.flow_type || '?'}}" data-search="${{[r.run_id,name,r.flow_type,r.run_dir,r.current_node,r.current_status].filter(Boolean).join(' ').toLowerCase()}}">
       <td>
         <a class="runlink" href="${{linkHref}}">${{name}}</a>${{deletedPill}}
         <span class="runid" title="run_id">${{r.run_id}}</span>
       </td>
       <td>${{flowBadge(r.flow_type || '?')}}</td>
+      <td class="status-cell">${{statusChip(r.current_node, r.current_status)}}</td>
       <td class="dir">${{r.run_dir || ''}}</td>
       <td class="ts" title="${{r.registered_at || ''}}">${{fmtRelative(r.registered_at)}}</td>
       <td class="ts" title="${{r.last_seen_at || ''}}">${{fmtRelative(r.last_seen_at)}}</td>
       <td><button class="danger" onclick="deregisterRun('${{r.run_id}}')">Deregister</button></td>
     </tr>`;
+  }}
+
+  function renderGroupedRows(runs) {{
+    // Bucket runs by flow_type. '?' goes last; everything else alpha.
+    const groups = new Map();
+    for (const r of runs) {{
+      const f = r.flow_type || '?';
+      if (!groups.has(f)) groups.set(f, []);
+      groups.get(f).push(r);
+    }}
+    const flows = Array.from(groups.keys())
+      .sort((a, b) => (a === '?' ? 1 : (b === '?' ? -1 : a.localeCompare(b))));
+    const out = [];
+    for (const flow of flows) {{
+      const rows = groups.get(flow);
+      const color = FLOW_COLORS[flow] || '#475569';
+      const noun = rows.length === 1 ? 'run' : 'runs';
+      out.push(`<tr class="flow-section" data-flow="${{flow}}">`
+             + `<td colspan="7">`
+             + `<span class="flow-badge" style="background:${{color}}">${{flow}}</span>`
+             + `<span class="flow-section-count">${{rows.length}} ${{noun}}</span>`
+             + `</td></tr>`);
+      out.push(rows.map(renderRow).join(''));
+    }}
+    return out.join('');
   }}
 
   function toast(msg, isError) {{
@@ -787,9 +967,9 @@ def _render_index(runs, discipline='PD'):
       ]);
       const tbody = document.getElementById('runs-tbody');
       if (!runs.length) {{
-        tbody.innerHTML = '<tr><td colspan="6" class="empty">No runs registered. Add one above to get started.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="empty">No runs registered. Add one above to get started.</td></tr>';
       }} else {{
-        tbody.innerHTML = runs.map(renderRow).join('');
+        tbody.innerHTML = renderGroupedRows(runs);
       }}
       const activeRuns = runs.filter(r => !r.archived);
       const archivedCount = runs.length - activeRuns.length;
@@ -966,9 +1146,21 @@ def _render_index(runs, discipline='PD'):
 
   function applyFilter() {{
     const q = document.getElementById('filter').value.toLowerCase().trim();
+    // Pass 1: show/hide individual run rows; section headers stay visible
+    // for now so we can compute their visible-children count in pass 2.
     document.querySelectorAll('#runs-tbody tr').forEach(tr => {{
+      if (tr.classList.contains('flow-section')) return;
       const search = tr.dataset.search || '';
       tr.style.display = (!q || search.includes(q)) ? '' : 'none';
+    }});
+    // Pass 2: hide each flow-section header whose group has zero visible rows.
+    document.querySelectorAll('#runs-tbody tr.flow-section').forEach(hdr => {{
+      const flow = hdr.dataset.flow || '';
+      const sibs = document.querySelectorAll(
+        `#runs-tbody tr[data-flow="${{flow}}"]:not(.flow-section)`);
+      let anyVisible = false;
+      sibs.forEach(s => {{ if (s.style.display !== 'none') anyVisible = true; }});
+      hdr.style.display = anyVisible ? '' : 'none';
     }});
   }}
   document.getElementById('filter').addEventListener('input', applyFilter);
@@ -983,27 +1175,60 @@ def _render_index(runs, discipline='PD'):
 
 def _render_run_rows(runs):
     """Server-rendered initial rows (the script will re-render on load).
-    Kept for no-JS fallback and faster first paint."""
+    Kept for no-JS fallback and faster first paint.
+
+    Runs are grouped by flow_type into per-flow sections; each section is
+    introduced by a header row. Order: alphabetical by flow name, '?' last.
+    """
     import os as _os
-    rows = []
+    if not runs:
+        return ''
+
+    groups = {}
     for r in runs:
-        cls = 'archived' if r.get('archived') else ''
-        flow = r.get('flow_type', '') or '?'
+        flow = r.get('flow_type') or '?'
+        groups.setdefault(flow, []).append(r)
+    ordered_flows = sorted(groups.keys(), key=lambda f: ('~~~' if f == '?' else f))
+
+    out = []
+    for flow in ordered_flows:
+        flow_rows = groups[flow]
         color = _FLOW_COLORS.get(flow, '#475569')
-        rid = r['run_id']
-        run_dir = r.get('run_dir', '')
-        name = _os.path.basename(run_dir.rstrip('/')) or rid
-        search = ' '.join([rid, name, flow, run_dir]).lower().replace('"', '')
-        rows.append(
-            f'<tr class="{cls}" data-rid="{rid}" data-search="{search}">'
-            f'<td><a class="runlink" href="/run/{rid}/">{name}</a>'
-            f'<span class="runid" title="run_id">{rid}</span></td>'
-            f'<td><span class="flow-badge" style="background:{color}">{flow}</span></td>'
-            f'<td class="dir">{run_dir}</td>'
-            f'<td class="ts">{r.get("registered_at", "")}</td>'
-            f'<td class="ts">{r.get("last_seen_at", "")}</td>'
-            f'<td><button class="danger" '
-            f'onclick="deregisterRun(\'{rid}\')">Deregister</button></td>'
-            f'</tr>'
+        out.append(
+            f'<tr class="flow-section" data-flow="{flow}">'
+            f'<td colspan="7">'
+            f'<span class="flow-badge" style="background:{color}">{flow}</span>'
+            f'<span class="flow-section-count">{len(flow_rows)} run'
+            f'{"s" if len(flow_rows) != 1 else ""}</span>'
+            f'</td></tr>'
         )
-    return '\n'.join(rows)
+        for r in flow_rows:
+            cls = 'archived' if r.get('archived') else ''
+            rid = r['run_id']
+            run_dir = r.get('run_dir', '')
+            name = _os.path.basename(run_dir.rstrip('/')) or rid
+            status = r.get('current_status') or 'NONE'
+            node = r.get('current_node') or ''
+            search = ' '.join(filter(None, [rid, name, flow, run_dir, node, status])).lower().replace('"', '')
+            bg, fg = _STATUS_COLORS.get(status, _STATUS_COLORS['NONE'])
+            node_html = (f'<span class="status-node">{node}</span>'
+                         if node else '<span class="status-node muted">—</span>')
+            chip_html = (
+                f'<span class="status-chip" '
+                f'style="background:{bg};color:{fg}" '
+                f'title="{node} ({status})">{status}</span>'
+            )
+            out.append(
+                f'<tr class="{cls}" data-rid="{rid}" data-flow="{flow}" data-search="{search}">'
+                f'<td><a class="runlink" href="/run/{rid}/">{name}</a>'
+                f'<span class="runid" title="run_id">{rid}</span></td>'
+                f'<td><span class="flow-badge" style="background:{color}">{flow}</span></td>'
+                f'<td class="status-cell">{chip_html} {node_html}</td>'
+                f'<td class="dir">{run_dir}</td>'
+                f'<td class="ts">{r.get("registered_at", "")}</td>'
+                f'<td class="ts">{r.get("last_seen_at", "")}</td>'
+                f'<td><button class="danger" '
+                f'onclick="deregisterRun(\'{rid}\')">Deregister</button></td>'
+                f'</tr>'
+            )
+    return '\n'.join(out)
