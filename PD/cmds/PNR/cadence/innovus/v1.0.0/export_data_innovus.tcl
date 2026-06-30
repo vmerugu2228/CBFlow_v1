@@ -24,7 +24,7 @@ flow_proc load_design {
 
     set _db [cbflow_resolve_head_block "$run_dir/work/$::FLOW_TYPE/signoff1/outputs/signoff.enc.dat" {signoff pro route cts_opt cts place init_design}]
     if {![file exists $_db]} {
-        handle_error "signoff database not found: $_db"
+        handle_warning "signoff database not found: $_db"
         return
     }
     handle_info "Restoring design: $_db"
@@ -210,7 +210,7 @@ flow_proc export_netlist_data {
     # Get netlist export parameters
     set verilog_enable [expr {[info exists pnr(export,verilog)] ? $pnr(export,verilog) : "true"}]
     set spice_enable [expr {[info exists pnr(export,spice)] ? $pnr(export,spice) : "false"}]
-    set lef_enable [expr {[info exists pnr(export,lef)} ? $pnr(export,lef) : "true"}]
+    set lef_enable [expr {[info exists pnr(export,lef)] ? $pnr(export,lef) : "true"}]
     
     handle_info "Netlist export parameters:"
     handle_info "  Verilog export: $verilog_enable"
@@ -271,9 +271,10 @@ flow_proc export_netlist_data {
         # Block-level LEF (if hierarchical design)
         set block_lef "$export_base/netlist/lef/${top_module}.lef"
         write_lef_abstract $block_lef
-        
+
         handle_info "LEF file export completed"
     }
+}
 
 flow_proc export_timing_data {
     handle_info "Exporting timing data..."

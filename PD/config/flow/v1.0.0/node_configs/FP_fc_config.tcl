@@ -118,3 +118,17 @@ array set fp {
     common,lowpower,power_switches                       "true"
     common,lowpower,power_switch_lib_cells               ""
 }
+
+
+# Power-net mandatory defaults — powerplan_innovus.tcl validates these 4
+# at script scope (runs during test_mode even when FP_innovus_config.tcl
+# doesn't load due to cascade-order). Mirror in FP_fc_config.tcl so the
+# defaults are visible regardless of which tool config the cascade loads.
+array set fp {
+    power,vdd_net      "VDD"
+    power,vss_net      "VSS"
+    power,vdd_pin      "VDD"
+    power,vss_pin      "VSS"
+    power,ring_layer_h "M8"
+    power,ring_layer_v "M9"
+}

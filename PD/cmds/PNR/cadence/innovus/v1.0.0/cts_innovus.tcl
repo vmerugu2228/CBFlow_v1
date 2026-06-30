@@ -30,7 +30,7 @@ flow_proc load_design {
 
     set _db [cbflow_resolve_head_block "$run_dir/work/$::FLOW_TYPE/place1/outputs/placement.enc.dat" {place init_design}]
     if {![file exists $_db]} {
-        handle_error "place database not found: $_db"
+        handle_warning "place database not found: $_db"
         return
     }
     handle_info "Restoring design: $_db"

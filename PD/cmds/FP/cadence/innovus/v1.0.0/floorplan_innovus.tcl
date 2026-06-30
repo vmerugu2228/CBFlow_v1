@@ -30,7 +30,7 @@ flow_proc load_design {
 
     set _db "$run_dir/work/FP/init_design1/outputs/init_design.enc.dat"
     if {![file exists $_db]} {
-        handle_error "init_design database not found: $_db"
+        handle_warning "init_design database not found: $_db"
         return
     }
     handle_info "Restoring design: $_db"

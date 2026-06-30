@@ -228,11 +228,11 @@ flow_proc release_data_main {
     }
 }
 
-# Execute main procedure if called directly
-if {[info exists argv0] && [file tail $argv0] eq [file tail [info script]]} {
-    exit [release_data_main]
-}
-# Exit tool after stage completion
+# `release_data_main` above is registered via flow_proc (lives in
+# ::flow::procs(...), NOT as a real Tcl proc). The legacy direct
+# invocation `[release_data_main]` is therefore an undefined command.
+# flow_exec_all runs all registered flow_procs in definition order — that
+# includes release_data_main — so the legacy call is redundant. Removed.
 
 flow_exec_all
 exit

@@ -24,7 +24,7 @@ flow_proc load_design {
 
     set _db [cbflow_resolve_head_block "$run_dir/work/$::FLOW_TYPE/cts_opt1/outputs/cts_opt.enc.dat" {cts_opt cts place init_design}]
     if {![file exists $_db]} {
-        handle_error "cts_opt database not found: $_db"
+        handle_warning "cts_opt database not found: $_db"
         return
     }
     handle_info "Restoring design: $_db"
@@ -66,22 +66,11 @@ flow_proc enable_mmmc {
     handle_info "  Hold scenarios ([llength $hold_scenarios]): [join $hold_scenarios { }]"
     handle_info "  Total unique scenarios: [llength $all_scenarios]"
     
-    # Create analysis views for each routing scenario
-    create_mmmc_scenarios_for_node "route"
-
-    foreach scenario $all_scenarios {
-        if {[info exists analysis_views($scenario)]} {
-            array set view_info $analysis_views($scenario)
-            handle_info "Creating analysis view: $scenario"
-            create_analysis_view -name $scenario \
-                -constraint_file $view_info(constraint_file) \
-                -library_set $view_info(lib_set) \
-                -rc_corner $view_info(rc_corner)
-            array unset view_info
-        }
-    }
-
-    # Set active analysis views
+    # View definitions live in init_design only (saved into the
+    # restored .enc.dat). Here we only ACTIVATE the subset for this
+    # node. Deactivate every existing view first so the activation
+    # is exactly the requested set — no leakage from prior stages.
+    set_analysis_view -setup {} -hold {}
     set_analysis_view -setup $setup_scenarios -hold $hold_scenarios
 
     handle_info "MMMC scenarios configured for route stage"

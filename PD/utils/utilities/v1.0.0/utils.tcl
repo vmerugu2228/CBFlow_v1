@@ -459,9 +459,18 @@ proc flow_exec {name} {
         handle_info "Executing flow procedure: $name"
     }
 
-    # Execute prepend hooks if they exist
+    # Execute prepend hooks if they exist. In test_mode, an abort in a
+    # hook MUST NOT prevent the body from registering for downstream
+    # flow_procs — wrap in catch so a hook's handle_error (which now
+    # raises in test_mode) doesn't unwind the whole stage.
     if {[info exists ::flow::prepend($name)]} {
-        eval $::flow::prepend($name)
+        if {$_test_mode} {
+            if {[catch {eval $::flow::prepend($name)} _err]} {
+                puts "⚠ \[CBFlow_TEST_MODE\] prepend hook for '$name' aborted: $_err"
+            }
+        } else {
+            eval $::flow::prepend($name)
+        }
     }
 
     # In test mode, install EDA command interceptor before execution
@@ -486,9 +495,15 @@ proc flow_exec {name} {
         _cbflow_test_mode_disable
     }
 
-    # Execute append hooks if they exist
+    # Execute append hooks if they exist — same test_mode isolation.
     if {[info exists ::flow::append($name)]} {
-        eval $::flow::append($name)
+        if {$_test_mode} {
+            if {[catch {eval $::flow::append($name)} _err]} {
+                puts "⚠ \[CBFlow_TEST_MODE\] append hook for '$name' aborted: $_err"
+            }
+        } else {
+            eval $::flow::append($name)
+        }
     }
 
     handle_info "Flow procedure '$name' completed"

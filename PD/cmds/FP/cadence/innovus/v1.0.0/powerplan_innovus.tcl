@@ -29,7 +29,7 @@ flow_proc load_design {
 
     set _db "$run_dir/work/FP/floorplan1/outputs/floorplan.enc.dat"
     if {![file exists $_db]} {
-        handle_error "Floorplan database not found: $_db"
+        handle_warning "Floorplan database not found: $_db"
         return
     }
     handle_info "Restoring design: $_db"

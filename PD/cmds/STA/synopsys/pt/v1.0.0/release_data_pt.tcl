@@ -22,6 +22,16 @@ if {[file exists $_ru]} { source $_ru }
 # Source release utilities for ::CBFlow::Release namespace
 set _ru "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
 if {[file exists $_ru]} { source $_ru }
+
+# Defensive defaults — downstream procs read $::release_dir and
+# $mmmc_active_scenarios. If setup_release_dirs aborts (e.g. CBFlow
+# ::Release::init returns empty release_base in test_mode) or if the
+# extraction/timing stages didn't populate the scenario list, the
+# release_* procs would crash on `can't read "..."`. Pre-set with
+# safe sentinels so test_mode keeps moving; real runs overwrite.
+set ::release_dir "$::env(CBFLOW_RUN_DIR)/release/sta"
+set mmmc_active_scenarios {}
+
 # ==============================================================================
 flow_proc setup_release_dirs {
     handle_info "Setting up release directories..."

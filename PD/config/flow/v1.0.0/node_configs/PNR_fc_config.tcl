@@ -335,3 +335,107 @@ array set pnr {
     export,lef                                           "false"
     export,abstract                                      "false"
 }
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Innovus-PNR-flavored knob defaults (workaround for cascade-order bug).
+# PNR_config.tcl computes _tool_name BEFORE user_config runs, so even when
+# user_config sets pnr(tool,name)="innovus", PNR_fc_config.tcl is loaded
+# (default_tool=fc). Mirror the Innovus knobs here with empty defaults so
+# test_mode reads against the Innovus cmd files don't crash on
+# "no such element in array".
+# Proper fix: re-source PNR_<tool>_config.tcl after user_config in the
+# consolidated config.tcl generator. Until then, dual-locate these keys.
+# ──────────────────────────────────────────────────────────────────────────────
+array set pnr {
+    place,density                                        ""
+    place,opt_effort                                     ""
+    route,effort                                         ""
+    route,fix_antenna                                    ""
+    route,post_opt_effort                                ""
+    opt,insert_metal_fill                                ""
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Innovus-PNR-flavored knob defaults (workaround for cascade-order bug).
+# ──────────────────────────────────────────────────────────────────────────────
+array set pnr {
+    place,density                                        ""
+    place,opt_effort                                     ""
+    route,effort                                         ""
+    route,fix_antenna                                    ""
+    route,post_opt_effort                                ""
+    opt,insert_metal_fill                                ""
+}
+
+# Round 2 — keys surfaced after PNR_innovus cmd files now run further.
+array set pnr {
+    route,layers                                         ""
+    opt,setup_margin                                     ""
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Round 3 — bulk-fill ALL Innovus-cmd-file pnr() reads with empty defaults.
+# Audit: grep $pnr(X,Y) across PD/cmds/{PNR,FP}/cadence/innovus → 22 keys
+# not in any PNR_*config.tcl. Plus 2 keys (route,via_opt, opt,hold_margin)
+# that surfaced in the last test run. Empty defaults are safe — production
+# overrides via user_config.
+# ──────────────────────────────────────────────────────────────────────────────
+array set pnr {
+    cts,ndr_script                                       ""
+    input,additional_sdc                                 ""
+    input,cpf_file                                       ""
+    input,def_file                                       ""
+    input,def_release_tag                                ""
+    input,floorplan_def                                  ""
+    input,fp_tcl                                         ""
+    input,fplan_file                                     ""
+    input,io_file                                        ""
+    input,netlist                                        ""
+    input,netlist_release_tag                            ""
+    input,scan_def                                       ""
+    input,sdc                                            ""
+    input,sdc_file                                       ""
+    input,sdc_func_file                                  ""
+    input,sdc_release_tag                                ""
+    input,upf_file                                       ""
+    input,upf_release_tag                                ""
+    input,upf_supplemental                               ""
+    mmmc,file                                            ""
+    subnodes,inputs                                      ""
+    route,via_opt                                        ""
+    opt,hold_margin                                      ""
+}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Round 3 — bulk-fill ALL Innovus-cmd-file pnr() reads with empty defaults.
+# Audit: grep $pnr(X,Y) across PD/cmds/{PNR,FP}/cadence/innovus surfaced 22
+# keys not present in any PNR_*config.tcl. Plus route,via_opt and
+# opt,hold_margin from the last test run. Empty defaults are safe — real
+# runs override via user_config.
+# ──────────────────────────────────────────────────────────────────────────────
+array set pnr {
+    cts,ndr_script                                       ""
+    input,additional_sdc                                 ""
+    input,cpf_file                                       ""
+    input,def_file                                       ""
+    input,def_release_tag                                ""
+    input,floorplan_def                                  ""
+    input,fp_tcl                                         ""
+    input,fplan_file                                     ""
+    input,io_file                                        ""
+    input,netlist                                        ""
+    input,netlist_release_tag                            ""
+    input,scan_def                                       ""
+    input,sdc                                            ""
+    input,sdc_file                                       ""
+    input,sdc_func_file                                  ""
+    input,sdc_release_tag                                ""
+    input,upf_file                                       ""
+    input,upf_release_tag                                ""
+    input,upf_supplemental                               ""
+    mmmc,file                                            ""
+    subnodes,inputs                                      ""
+    route,via_opt                                        ""
+    opt,hold_margin                                      ""
+}

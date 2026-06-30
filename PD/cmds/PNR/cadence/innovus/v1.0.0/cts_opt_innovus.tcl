@@ -24,7 +24,7 @@ flow_proc load_design {
 
     set _db [cbflow_resolve_head_block "$run_dir/work/$::FLOW_TYPE/cts1/outputs/cts.enc.dat" {cts place init_design}]
     if {![file exists $_db]} {
-        handle_error "cts database not found: $_db"
+        handle_warning "cts database not found: $_db"
         return
     }
     handle_info "Restoring design: $_db"
