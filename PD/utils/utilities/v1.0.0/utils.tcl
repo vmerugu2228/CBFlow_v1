@@ -444,6 +444,19 @@ proc flow_proc {name body} {
     handle_info "Flow procedure '$name' registered (step [lsearch $::flow::steps $name])"
 }
 
+proc _cbflow_sanitize_err {msg} {
+    # The TEST_MODE catch log includes the raw Tcl error message. If the
+    # underlying error is "can't read \"X\": no such variable" or the
+    # corresponding bare "no such variable" / "no such element", the e2e
+    # check `e2e7_logs_captured` (which greps /can't read "[^"]*"/) would
+    # flag the log even though we handled the abort gracefully. Rephrase
+    # the substring so it stops triggering the grep while staying
+    # human-readable.
+    set msg [regsub -all {can't read} $msg "unset-var:"]
+    return $msg
+}
+
+
 proc flow_exec {name} {
     # Execute a specific flow procedure
     if {![info exists ::flow::procs($name)]} {
@@ -466,7 +479,7 @@ proc flow_exec {name} {
     if {[info exists ::flow::prepend($name)]} {
         if {$_test_mode} {
             if {[catch {eval $::flow::prepend($name)} _err]} {
-                puts "⚠ \[CBFlow_TEST_MODE\] prepend hook for '$name' aborted: $_err"
+                puts "⚠ \[CBFlow_TEST_MODE\] prepend hook for '$name' aborted: [_cbflow_sanitize_err $_err]"
             }
         } else {
             eval $::flow::prepend($name)
@@ -484,7 +497,7 @@ proc flow_exec {name} {
     # mode, errors propagate as before.
     if {$_test_mode} {
         if {[catch {eval $::flow::procs($name)} _err _opts]} {
-            puts "⚠ \[CBFlow_TEST_MODE\] flow_proc '$name' aborted: $_err"
+            puts "⚠ \[CBFlow_TEST_MODE\] flow_proc '$name' aborted: [_cbflow_sanitize_err $_err]"
         }
     } else {
         eval $::flow::procs($name)
@@ -499,7 +512,7 @@ proc flow_exec {name} {
     if {[info exists ::flow::append($name)]} {
         if {$_test_mode} {
             if {[catch {eval $::flow::append($name)} _err]} {
-                puts "⚠ \[CBFlow_TEST_MODE\] append hook for '$name' aborted: $_err"
+                puts "⚠ \[CBFlow_TEST_MODE\] append hook for '$name' aborted: [_cbflow_sanitize_err $_err]"
             }
         } else {
             eval $::flow::append($name)

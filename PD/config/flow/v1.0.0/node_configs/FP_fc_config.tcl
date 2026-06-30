@@ -132,3 +132,11 @@ array set fp {
     power,ring_layer_h "M8"
     power,ring_layer_v "M9"
 }
+
+
+# fp(power,sroute_*) — surfaced from powerplan_innovus.tcl reads.
+array set fp {
+    power,sroute_bottom_layer   "M1"
+    power,sroute_top_layer      "M9"
+    power,sroute_layers         "M1 M2 M3 M4 M5 M6 M7 M8 M9"
+}
