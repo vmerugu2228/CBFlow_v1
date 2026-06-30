@@ -1090,12 +1090,36 @@ def cmd_add_check(args: argparse.Namespace) -> int:
     if args.file_path:
         # File existence check — add to mandatory_files
         file_path = args.file_path
-        # Find mandatory_files block and append
-        m = re.search(r'(set mandatory_files\s*\{)(.*?)(\})', content, re.DOTALL)
-        if m:
-            existing = m.group(2).rstrip()
+        # Find the `set mandatory_files {` opening and locate its MATCHING
+        # close-brace via balanced-brace counting. A simple non-greedy
+        # `(.*?)\}` would stop at the first `}` inside the list — which is
+        # the `}` inside literals like "outputs/${design_name}.v", and the
+        # new entry would be spliced inside that string, corrupting the
+        # config. Counting braces is the only correct walk.
+        opener = re.search(r'set\s+mandatory_files\s*\{', content)
+        if opener:
+            depth = 1
+            i = opener.end()
+            n = len(content)
+            while i < n and depth > 0:
+                c = content[i]
+                if c == '{':
+                    depth += 1
+                elif c == '}':
+                    depth -= 1
+                    if depth == 0:
+                        break
+                i += 1
+            if depth != 0:
+                logger.error(
+                    f'mandatory_files block in {config_file} has unbalanced '
+                    'braces — refusing to edit. Fix manually.')
+                return 1
+            existing = content[opener.end():i].rstrip()
             new_files = f'{existing}\n    "{file_path}"'
-            content = content[:m.start()] + f'{m.group(1)}{new_files}\n{m.group(3)}' + content[m.end():]
+            content = (content[:opener.start()]
+                       + f'set mandatory_files {{{new_files}\n}}'
+                       + content[i + 1:])
             logger.info(f'Added file check: "{file_path}" to mandatory_files')
         else:
             # No mandatory_files block — create one
