@@ -98,6 +98,7 @@ set project(release,phase) "P0"
 set project(release,block_name) ""
 set project(release,active_tag) "BTO"
 set project(release,expiry_date) "2027-06-30"
+set project(tapeout_date) "2027-01-31"          ;# ISO date — drives "Weeks to tapeout" on dashboard
 
 # Release settings
 set project(release,include_timestamp) "false"

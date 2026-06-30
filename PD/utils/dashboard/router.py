@@ -334,6 +334,7 @@ def make_daemon_handler(pool):
                 r['current_status']  = st['status']
                 r['current_start']   = st['start_time']
                 r['current_runtime'] = st['runtime_sec']
+                r['tapeout_date']    = _tapeout_date_for(r.get('project') or '')
             body = json.dumps(runs, indent=2).encode('utf-8')
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
@@ -375,6 +376,35 @@ def _project_workarea_paths(pd_dir):
                 except OSError:
                     continue
     return paths
+
+
+_PROJECT_TAPEOUT_CACHE = {}  # {project_name: 'YYYY-MM-DD' or ''}
+
+
+def _tapeout_date_for(project_name):
+    """Read project(tapeout_date) from PD/config/project/<name>/v1.0.0/<name>_config.tcl.
+
+    Cached per-process — project_config rarely changes during a daemon's
+    lifetime, and the per-poll cost would otherwise be a file read per run.
+    """
+    if not project_name:
+        return ''
+    if project_name in _PROJECT_TAPEOUT_CACHE:
+        return _PROJECT_TAPEOUT_CACHE[project_name]
+    cfg = os.path.join(_PD_DIR, 'config', 'project', project_name, 'v1.0.0',
+                       f'{project_name}_config.tcl')
+    out = ''
+    try:
+        with open(cfg) as fh:
+            for line in fh:
+                m = re.match(r'^\s*set\s+project\(tapeout_date\)\s+"([^"]*)"', line)
+                if m:
+                    out = m.group(1).strip()
+                    break
+    except OSError:
+        pass
+    _PROJECT_TAPEOUT_CACHE[project_name] = out
+    return out
 
 
 def _read_env_field(run_dir, key):
@@ -483,6 +513,31 @@ _STATUS_PRIORITY = (
     'RUNNING', 'FAIL', 'INVALIDATED', 'PENDING',
     'DONE', 'BYPASSED', 'FORCE_VALIDATED', 'READY',
 )
+
+
+def _tapeout_cell_html(tapeout):
+    """Render the Tapeout column cell. Color-codes weeks remaining:
+       >12  green       4-12  amber       0-4  red       <0   crimson "DUE"
+    Empty string returns em-dash."""
+    if not tapeout:
+        return '<span class="rt muted">—</span>'
+    try:
+        from datetime import date as _date
+        y, m, d = (int(x) for x in tapeout.split('-'))
+        days = (_date(y, m, d) - _date.today()).days
+    except (ValueError, TypeError):
+        return '<span class="rt muted">—</span>'
+    weeks = days // 7 + (1 if days >= 0 and days % 7 else 0)
+    if days < 0:
+        cls, txt = 'tape-overdue', f'OVERDUE {-weeks}w'
+    elif weeks <= 4:
+        cls, txt = 'tape-soon',    f'{weeks}w left'
+    elif weeks <= 12:
+        cls, txt = 'tape-mid',     f'{weeks}w left'
+    else:
+        cls, txt = 'tape-far',     f'{weeks}w left'
+    return (f'<div class="tape-date">{tapeout}</div>'
+            f'<div class="tape-weeks {cls}">{txt}</div>')
 
 
 def _fmt_duration(sec):
@@ -625,16 +680,18 @@ def _render_index(runs, discipline='PD'):
             _r['current_status']  = _st['status']
             _r['current_start']   = _st['start_time']
             _r['current_runtime'] = _st['runtime_sec']
+            _r['tapeout_date']    = _tapeout_date_for(_r.get('project') or '')
             _r['run_dir_exists']  = True
         else:
             _r.setdefault('current_node', '')
             _r.setdefault('current_status', 'NONE')
             _r.setdefault('current_start', '')
             _r.setdefault('current_runtime', None)
+            _r.setdefault('tapeout_date', '')
             _r['run_dir_exists']  = False
 
     rows_html = _render_run_rows(runs) or (
-        '<tr><td colspan="6" class="empty">'
+        '<tr><td colspan="7" class="empty">'
         'No runs registered. Add one above to get started.'
         '</td></tr>'
     )
@@ -823,6 +880,44 @@ def _render_index(runs, discipline='PD'):
   .rt.muted {{ color: var(--muted); font-family: inherit; }}
   .rt.running {{ color: #b45309; font-weight: 600; }}    /* amber for live elapsed */
 
+  /* Tapeout cell — date on top, color-coded "weeks left" below */
+  td.tape-cell {{ white-space: nowrap; font-variant-numeric: tabular-nums; }}
+  .tape-date {{ font-family: 'SF Mono', Menlo, Consolas, monospace;
+                font-size: 12px; color: var(--text); }}
+  .tape-weeks {{ font-size: 10.5px; font-weight: 700; letter-spacing: .04em;
+                  margin-top: 2px; }}
+  .tape-far      {{ color: #047857; }}    /* >12w: green */
+  .tape-mid      {{ color: #b45309; }}    /* 4-12w: amber */
+  .tape-soon     {{ color: #b91c1c; }}    /* 0-4w: red */
+  .tape-overdue  {{ color: #ffffff; background: #991b1b;
+                    padding: 1px 6px; border-radius: 4px; display: inline-block; }}
+
+  /* Top-right milestone block — phase + tapeout aggregate */
+  header.banner {{ position: relative; }}
+  .milestone-block {{ position: absolute; top: 20px; right: 28px;
+                       background: rgba(255,255,255,.15);
+                       border: 1px solid rgba(255,255,255,.28);
+                       padding: 10px 16px; border-radius: 10px;
+                       backdrop-filter: blur(8px); color: #fff;
+                       min-width: 200px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }}
+  .milestone-block .ms-row {{ display: flex; justify-content: space-between;
+                                align-items: baseline; gap: 12px;
+                                font-size: 12px; line-height: 1.5; }}
+  .milestone-block .ms-label {{ opacity: .7; text-transform: uppercase;
+                                  font-size: 10.5px; letter-spacing: .08em; }}
+  .milestone-block .ms-phase {{ font-weight: 700; font-size: 14px;
+                                  font-variant-numeric: tabular-nums; }}
+  .milestone-block .ms-tapeout {{ font-family: 'SF Mono', Menlo, Consolas, monospace;
+                                    font-size: 13px; }}
+  .milestone-block .ms-weeks-line {{ margin-top: 6px; padding-top: 6px;
+                                       border-top: 1px solid rgba(255,255,255,.22);
+                                       font-size: 11.5px; font-weight: 700;
+                                       letter-spacing: .04em; text-align: right; }}
+  .milestone-block .ms-weeks-line.ovd {{ color: #fecaca; }}
+  .milestone-block .ms-weeks-line.soon {{ color: #fed7aa; }}
+  .milestone-block .ms-weeks-line.mid  {{ color: #fef3c7; }}
+  .milestone-block .ms-weeks-line.far  {{ color: #d1fae5; }}
+
   .state {{ display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
             color: var(--muted); }}
   .state .dot {{ width: 8px; height: 8px; border-radius: 50%; background: var(--success); }}
@@ -864,6 +959,18 @@ def _render_index(runs, discipline='PD'):
     <div class="stat">Archived: <b id="stat-archived">{len(archived)}</b></div>
     <div class="stat">Projects: <b id="stat-projects">{len(project_set)}</b></div>
     <div class="stat">Designs: <b id="stat-designs">{len(design_set)}</b></div>
+  </div>
+  <div class="milestone-block" id="milestone-block"
+       title="Project milestone — phase + nearest tapeout across active runs">
+    <div class="ms-row">
+      <span class="ms-label">Phase</span>
+      <span class="ms-phase" id="ms-phase">—</span>
+    </div>
+    <div class="ms-row">
+      <span class="ms-label">Tapeout</span>
+      <span class="ms-tapeout" id="ms-tapeout-date">—</span>
+    </div>
+    <div class="ms-weeks-line" id="ms-weeks-line">—</div>
   </div>
   <div class="projects">
     <span class="projects-label">Projects:</span>
@@ -918,7 +1025,8 @@ def _render_index(runs, discipline='PD'):
     </div>
     <table class="runs">
       <thead>
-        <tr><th>Run</th><th>Flow</th><th>Current Status</th><th>Runtime</th><th>Run directory</th>
+        <tr><th>Run</th><th>Flow</th><th>Current Status</th><th>Runtime</th><th>Tapeout</th>
+            <th>Run directory</th>
             <th></th></tr>
       </thead>
       <tbody id="runs-tbody">
@@ -954,6 +1062,64 @@ def _render_index(runs, discipline='PD'):
       : `<span class="status-node muted">—</span>`;
     return `<span class="status-chip" style="background:${{bg}};color:${{fg}}" `
          + `title="${{node}} (${{st}})">${{st}}</span> ${{nodeHtml}}`;
+  }}
+
+  function tapeoutCellHtml(tapeout) {{
+    if (!tapeout) return '<span class="rt muted">—</span>';
+    const t = Date.parse(tapeout);
+    if (Number.isNaN(t)) return '<span class="rt muted">—</span>';
+    const days  = Math.floor((t - Date.now()) / 86400000);
+    const weeks = days >= 0 ? Math.ceil(days / 7) : Math.floor(days / 7);
+    let cls, txt;
+    if (days < 0)        {{ cls = 'tape-overdue'; txt = `OVERDUE ${{-weeks}}w`; }}
+    else if (weeks <= 4) {{ cls = 'tape-soon';    txt = `${{weeks}}w left`; }}
+    else if (weeks <= 12){{ cls = 'tape-mid';     txt = `${{weeks}}w left`; }}
+    else                 {{ cls = 'tape-far';     txt = `${{weeks}}w left`; }}
+    return `<div class="tape-date">${{tapeout}}</div>`
+         + `<div class="tape-weeks ${{cls}}">${{txt}}</div>`;
+  }}
+
+  function updateMilestoneBlock(runs) {{
+    // Active runs only — archived/deleted shouldn't drive the milestone view.
+    const active = runs.filter(r => !r.archived && r.run_dir_exists !== false);
+    // Phase: dominant (most-common) across active runs.
+    const phaseCount = {{}};
+    active.forEach(r => {{ const p = r.phase || ''; if (p) phaseCount[p] = (phaseCount[p] || 0) + 1; }});
+    const phases = Object.entries(phaseCount).sort((a, b) => b[1] - a[1]);
+    document.getElementById('ms-phase').textContent =
+      phases.length === 0 ? '—'
+      : phases.length === 1 ? phases[0][0]
+      : `${{phases[0][0]}} (+${{phases.length - 1}})`;
+
+    // Tapeout: nearest UPCOMING; if every tapeout is past, show most-recently-past.
+    const dated = active
+      .map(r => ({{r, t: r.tapeout_date ? Date.parse(r.tapeout_date) : NaN}}))
+      .filter(x => !Number.isNaN(x.t));
+    if (!dated.length) {{
+      document.getElementById('ms-tapeout-date').textContent = '—';
+      document.getElementById('ms-weeks-line').textContent = '—';
+      document.getElementById('ms-weeks-line').className = 'ms-weeks-line';
+      return;
+    }}
+    const now = Date.now();
+    const upcoming = dated.filter(x => x.t >= now).sort((a, b) => a.t - b.t);
+    const pick = upcoming.length ? upcoming[0] : dated.sort((a, b) => b.t - a.t)[0];
+    const days  = Math.floor((pick.t - now) / 86400000);
+    const weeks = days >= 0 ? Math.ceil(days / 7) : Math.floor(days / 7);
+    document.getElementById('ms-tapeout-date').textContent = pick.r.tapeout_date;
+    const wl = document.getElementById('ms-weeks-line');
+    let label, cls;
+    if (days < 0)         {{ label = `${{-weeks}} week(s) overdue`; cls = 'ovd'; }}
+    else if (weeks <= 4)  {{ label = `${{weeks}} week(s) remaining`; cls = 'soon'; }}
+    else if (weeks <= 12) {{ label = `${{weeks}} week(s) remaining`; cls = 'mid'; }}
+    else                  {{ label = `${{weeks}} week(s) remaining`; cls = 'far'; }}
+    // Append project tag if multiple project tapeouts exist.
+    const uniqueProjects = new Set(dated.map(x => x.r.project).filter(Boolean));
+    if (uniqueProjects.size > 1 && pick.r.project) {{
+      label += `  ·  ${{pick.r.project}}`;
+    }}
+    wl.textContent = label;
+    wl.className = `ms-weeks-line ${{cls}}`;
   }}
 
   function fmtDuration(sec) {{
@@ -1028,13 +1194,14 @@ def _render_index(runs, discipline='PD'):
       ? '<span class="deleted-pill" title="Run directory was deleted from disk">DELETED</span>'
       : '';
     const linkHref = missing ? '#' : `/run/${{r.run_id}}/`;
-    return `<tr class="${{classes.join(' ')}}" data-rid="${{r.run_id}}" data-flow="${{r.flow_type || '?'}}" data-project="${{r.project || ''}}" data-design="${{r.design || ''}}" data-status="${{r.current_status || ''}}" data-start="${{r.current_start || ''}}" data-runtime="${{r.current_runtime != null ? r.current_runtime : ''}}" data-search="${{[name,r.flow_type,r.run_dir,r.current_node,r.current_status,r.project,r.design].filter(Boolean).join(' ').toLowerCase()}}">
+    return `<tr class="${{classes.join(' ')}}" data-rid="${{r.run_id}}" data-flow="${{r.flow_type || '?'}}" data-project="${{r.project || ''}}" data-design="${{r.design || ''}}" data-status="${{r.current_status || ''}}" data-start="${{r.current_start || ''}}" data-runtime="${{r.current_runtime != null ? r.current_runtime : ''}}" data-tapeout="${{r.tapeout_date || ''}}" data-search="${{[name,r.flow_type,r.run_dir,r.current_node,r.current_status,r.project,r.design].filter(Boolean).join(' ').toLowerCase()}}">
       <td>
         <a class="runlink" href="${{linkHref}}">${{name}}</a>${{deletedPill}}
       </td>
       <td>${{flowBadge(r.flow_type || '?')}}</td>
       <td class="status-cell">${{statusChip(r.current_node, r.current_status)}}</td>
       <td class="rt-cell">${{runtimeCellHtml(r)}}</td>
+      <td class="tape-cell">${{tapeoutCellHtml(r.tapeout_date)}}</td>
       <td class="dir">${{r.run_dir || ''}}</td>
       <td><button class="danger" onclick="deregisterRun('${{r.run_id}}')">Deregister</button></td>
     </tr>`;
@@ -1078,11 +1245,12 @@ def _render_index(runs, discipline='PD'):
       const runs = await fetch('/api/runs').then(r => r.json());
       const tbody = document.getElementById('runs-tbody');
       if (!runs.length) {{
-        tbody.innerHTML = '<tr><td colspan="6" class="empty">No runs registered. Add one above to get started.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="empty">No runs registered. Add one above to get started.</td></tr>';
       }} else {{
         tbody.innerHTML = runs.map(renderRow).join('');
       }}
       refreshAllFilterOptions(runs);
+      updateMilestoneBlock(runs);
       const activeRuns = runs.filter(r => !r.archived);
       const archivedCount = runs.length - activeRuns.length;
       const projectSet = new Set(activeRuns.map(r => r.project).filter(Boolean));
@@ -1360,17 +1528,20 @@ def _render_run_rows(runs):
             runtime_html = '<span class="rt muted">—</span>'
         proj = r.get('project') or ''
         design = r.get('design') or ''
+        tapeout = r.get('tapeout_date') or ''
         out.append(
             f'<tr class="{cls}" data-rid="{rid}" data-flow="{flow}" '
             f'data-project="{proj}" data-design="{design}" '
             f'data-status="{status}" '
             f'data-start="{r.get("current_start") or ""}" '
             f'data-runtime="{r.get("current_runtime") if r.get("current_runtime") is not None else ""}" '
+            f'data-tapeout="{tapeout}" '
             f'data-search="{search}">'
             f'<td><a class="runlink" href="/run/{rid}/">{name}</a></td>'
             f'<td><span class="flow-badge" style="background:{color}">{flow}</span></td>'
             f'<td class="status-cell">{chip_html} {node_html}</td>'
             f'<td class="rt-cell">{runtime_html}</td>'
+            f'<td class="tape-cell">{_tapeout_cell_html(tapeout)}</td>'
             f'<td class="dir">{run_dir}</td>'
             f'<td><button class="danger" '
             f'onclick="deregisterRun(\'{rid}\')">Deregister</button></td>'
