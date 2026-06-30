@@ -777,22 +777,13 @@ def _render_index(runs, discipline='PD'):
                   color: white; font-size: 11px; font-weight: 600;
                   letter-spacing: .04em; }}
 
-  /* Per-flow section header row in the runs table (clickable, collapsible) */
-  tr.flow-section {{ cursor: pointer; user-select: none; }}
-  tr.flow-section td {{ background: #f1f3f9; padding: 8px 16px !important;
-                        font-size: 11px; letter-spacing: .04em;
-                        border-top: 2px solid #d1d5db; }}
-  tr.flow-section:hover td {{ background: #e6eaf3; }}
-  tr.flow-section .flow-section-count {{ margin-left: 10px; color: var(--muted);
-                                          font-size: 11px; font-weight: 500;
-                                          text-transform: none; letter-spacing: 0; }}
-  tr.flow-section .caret {{ display: inline-block; width: 10px; margin-right: 8px;
-                             color: var(--muted); font-size: 10px;
-                             transition: transform .15s; }}
-  tr.flow-section:not(.collapsed) .caret {{ transform: rotate(90deg); }}
-
-  /* Collapsed run rows hide entirely; expanded show normally. */
-  tr.run-row.collapsed {{ display: none; }}
+  /* Flow filter dropdown in the toolbar */
+  select.flow-filter {{ border: 1px solid var(--border); border-radius: 8px;
+                         padding: 7px 28px 7px 12px; font: inherit; font-size: 13px;
+                         background: white url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6" viewBox="0 0 10 6"><polygon points="0,0 10,0 5,6" fill="%236b7280"/></svg>') no-repeat right 10px center;
+                         appearance: none; -webkit-appearance: none; cursor: pointer; }}
+  select.flow-filter:focus {{ outline: none; border-color: var(--accent);
+                              box-shadow: 0 0 0 3px rgba(79,70,229,.18); }}
 
   /* Current Status column — colored chip + current node id */
   td.status-cell {{ white-space: nowrap; }}
@@ -880,7 +871,10 @@ def _render_index(runs, discipline='PD'):
     <div class="panel-hd">
       <h2>Registered runs</h2>
       <div class="toolbar">
-        <input type="search" id="filter" placeholder="Filter by flow, path, ID…">
+        <select id="flow-filter" class="flow-filter" title="Filter by flow type">
+          <option value="">All flows</option>
+        </select>
+        <input type="search" id="filter" placeholder="Filter by path, status, node…">
         <button class="primary" id="refresh" title="Reload from registry">Refresh</button>
       </div>
     </div>
@@ -951,20 +945,9 @@ def _render_index(runs, discipline='PD'):
     return `<span class="rt muted">—</span>`;
   }}
 
-  function toggleSection(hdr) {{
-    const flow = hdr.dataset.flow;
-    hdr.classList.toggle('collapsed');
-    const collapsed = hdr.classList.contains('collapsed');
-    document.querySelectorAll(
-      `#runs-tbody tr.run-row[data-flow="${{flow}}"]`
-    ).forEach(tr => {{
-      tr.classList.toggle('collapsed', collapsed);
-    }});
-  }}
-
   // Tick once per second to update live RUNNING runtimes without a full refetch.
   function tickRunningRuntimes() {{
-    document.querySelectorAll('#runs-tbody tr.run-row[data-status="RUNNING"]').forEach(tr => {{
+    document.querySelectorAll('#runs-tbody tr[data-status="RUNNING"]').forEach(tr => {{
       const cell = tr.querySelector('td.rt-cell');
       if (!cell) return;
       const start = tr.dataset.start;
@@ -994,15 +977,14 @@ def _render_index(runs, discipline='PD'):
     return (i >= 0 ? dir.slice(i + 1) : dir) || r.run_id;
   }}
 
-  function renderRow(r, sectionCollapsed) {{
+  function renderRow(r) {{
     // run_dir_exists is stamped by /api/runs on each request — captures
     // user-side `rm -rf` faster than the 30s daemon sweeper.
     const missing = (r.run_dir_exists === false);
     const archived = r.archived || missing;
-    const classes = ['run-row'];
+    const classes = [];
     if (archived) classes.push('archived');
     if (missing) classes.push('deleted');
-    if (sectionCollapsed) classes.push('collapsed');
     const name = runNameOf(r);
     const deletedPill = missing
       ? '<span class="deleted-pill" title="Run directory was deleted from disk">DELETED</span>'
@@ -1016,51 +998,24 @@ def _render_index(runs, discipline='PD'):
       <td class="status-cell">${{statusChip(r.current_node, r.current_status)}}</td>
       <td class="rt-cell">${{runtimeCellHtml(r)}}</td>
       <td class="dir">${{r.run_dir || ''}}</td>
-      <td><button class="danger" onclick="event.stopPropagation();deregisterRun('${{r.run_id}}')">Deregister</button></td>
+      <td><button class="danger" onclick="deregisterRun('${{r.run_id}}')">Deregister</button></td>
     </tr>`;
   }}
 
-  // Persist per-flow collapse state across re-renders. Default: collapsed.
-  const _collapseState = new Map();
-  function isFlowCollapsed(flow) {{
-    if (!_collapseState.has(flow)) _collapseState.set(flow, true);
-    return _collapseState.get(flow);
-  }}
-
-  // Wrap toggleSection so it also persists into _collapseState. The HTML
-  // onclick="toggleSection(this)" handler resolves to THIS function.
-  const _toggleSectionRaw = toggleSection;
-  toggleSection = function(hdr) {{
-    _toggleSectionRaw(hdr);
-    _collapseState.set(hdr.dataset.flow, hdr.classList.contains('collapsed'));
-  }};
-
-  function renderGroupedRows(runs) {{
-    // Bucket runs by flow_type. '?' goes last; everything else alpha.
-    const groups = new Map();
-    for (const r of runs) {{
-      const f = r.flow_type || '?';
-      if (!groups.has(f)) groups.set(f, []);
-      groups.get(f).push(r);
-    }}
-    const flows = Array.from(groups.keys())
+  function refreshFlowFilterOptions(runs) {{
+    // Populate the <select> with one option per observed flow_type while
+    // preserving the user's current selection. '?' (unknown) sorts last.
+    const sel = document.getElementById('flow-filter');
+    if (!sel) return;
+    const current = sel.value;
+    const flows = Array.from(new Set(runs.map(r => r.flow_type || '?')))
       .sort((a, b) => (a === '?' ? 1 : (b === '?' ? -1 : a.localeCompare(b))));
-    const out = [];
-    for (const flow of flows) {{
-      const rows = groups.get(flow);
-      const color = FLOW_COLORS[flow] || '#475569';
-      const noun = rows.length === 1 ? 'run' : 'runs';
-      const collapsed = isFlowCollapsed(flow);
-      const hdrCls = 'flow-section' + (collapsed ? ' collapsed' : '');
-      out.push(`<tr class="${{hdrCls}}" data-flow="${{flow}}" onclick="toggleSection(this)" title="click to expand">`
-             + `<td colspan="6">`
-             + `<span class="caret">▶</span>`
-             + `<span class="flow-badge" style="background:${{color}}">${{flow}}</span>`
-             + `<span class="flow-section-count">${{rows.length}} ${{noun}}</span>`
-             + `</td></tr>`);
-      out.push(rows.map(r => renderRow(r, collapsed)).join(''));
-    }}
-    return out.join('');
+    sel.innerHTML = `<option value="">All flows (${{runs.length}})</option>`
+      + flows.map(f => {{
+          const n = runs.filter(r => (r.flow_type || '?') === f).length;
+          return `<option value="${{f}}">${{f}} (${{n}})</option>`;
+        }}).join('');
+    if (current && flows.includes(current)) sel.value = current;
   }}
 
   function toast(msg, isError) {{
@@ -1081,8 +1036,9 @@ def _render_index(runs, discipline='PD'):
       if (!runs.length) {{
         tbody.innerHTML = '<tr><td colspan="6" class="empty">No runs registered. Add one above to get started.</td></tr>';
       }} else {{
-        tbody.innerHTML = renderGroupedRows(runs);
+        tbody.innerHTML = runs.map(renderRow).join('');
       }}
+      refreshFlowFilterOptions(runs);
       const activeRuns = runs.filter(r => !r.archived);
       const archivedCount = runs.length - activeRuns.length;
       const projectSet = new Set(activeRuns.map(r => r.project).filter(Boolean));
@@ -1258,24 +1214,17 @@ def _render_index(runs, discipline='PD'):
 
   function applyFilter() {{
     const q = document.getElementById('filter').value.toLowerCase().trim();
-    // Pass 1: show/hide individual run rows; section headers stay visible
-    // for now so we can compute their visible-children count in pass 2.
+    const flow = document.getElementById('flow-filter').value;
     document.querySelectorAll('#runs-tbody tr').forEach(tr => {{
-      if (tr.classList.contains('flow-section')) return;
       const search = tr.dataset.search || '';
-      tr.style.display = (!q || search.includes(q)) ? '' : 'none';
-    }});
-    // Pass 2: hide each flow-section header whose group has zero visible rows.
-    document.querySelectorAll('#runs-tbody tr.flow-section').forEach(hdr => {{
-      const flow = hdr.dataset.flow || '';
-      const sibs = document.querySelectorAll(
-        `#runs-tbody tr[data-flow="${{flow}}"]:not(.flow-section)`);
-      let anyVisible = false;
-      sibs.forEach(s => {{ if (s.style.display !== 'none') anyVisible = true; }});
-      hdr.style.display = anyVisible ? '' : 'none';
+      const rowFlow = tr.dataset.flow || '';
+      const matchesText = !q || search.includes(q);
+      const matchesFlow = !flow || rowFlow === flow;
+      tr.style.display = (matchesText && matchesFlow) ? '' : 'none';
     }});
   }}
   document.getElementById('filter').addEventListener('input', applyFilter);
+  document.getElementById('flow-filter').addEventListener('change', applyFilter);
   document.getElementById('refresh').addEventListener('click', loadRuns);
 
   loadRuns();
@@ -1288,88 +1237,65 @@ def _render_index(runs, discipline='PD'):
 
 def _render_run_rows(runs):
     """Server-rendered initial rows (the script will re-render on load).
-    Kept for no-JS fallback and faster first paint.
-
-    Runs are grouped by flow_type into per-flow sections; each section is
-    introduced by a header row and starts collapsed. JS toggles the
-    `collapsed` class on click. Order: alphabetical by flow name, '?' last.
-    """
+    Kept for no-JS fallback and faster first paint. Flat table; the flow
+    filter in the toolbar narrows on demand."""
     import os as _os
     if not runs:
         return ''
 
-    groups = {}
+    out = []
     for r in runs:
         flow = r.get('flow_type') or '?'
-        groups.setdefault(flow, []).append(r)
-    ordered_flows = sorted(groups.keys(), key=lambda f: ('~~~' if f == '?' else f))
-
-    out = []
-    for flow in ordered_flows:
-        flow_rows = groups[flow]
         color = _FLOW_COLORS.get(flow, '#475569')
-        out.append(
-            f'<tr class="flow-section collapsed" data-flow="{flow}" '
-            f'onclick="toggleSection(this)" title="click to expand">'
-            f'<td colspan="6">'
-            f'<span class="caret">▶</span>'
-            f'<span class="flow-badge" style="background:{color}">{flow}</span>'
-            f'<span class="flow-section-count">{len(flow_rows)} run'
-            f'{"s" if len(flow_rows) != 1 else ""}</span>'
-            f'</td></tr>'
+        cls = 'archived' if r.get('archived') else ''
+        rid = r['run_id']
+        run_dir = r.get('run_dir', '')
+        name = _os.path.basename(run_dir.rstrip('/')) or rid
+        status = r.get('current_status') or 'NONE'
+        node = r.get('current_node') or ''
+        search = ' '.join(filter(None, [name, flow, run_dir, node, status])).lower().replace('"', '')
+        bg, fg = _STATUS_COLORS.get(status, _STATUS_COLORS['NONE'])
+        node_html = (f'<span class="status-node">{node}</span>'
+                     if node else '<span class="status-node muted">—</span>')
+        chip_html = (
+            f'<span class="status-chip" '
+            f'style="background:{bg};color:{fg}" '
+            f'title="{node} ({status})">{status}</span>'
         )
-        for r in flow_rows:
-            cls = 'archived' if r.get('archived') else ''
-            rid = r['run_id']
-            run_dir = r.get('run_dir', '')
-            name = _os.path.basename(run_dir.rstrip('/')) or rid
-            status = r.get('current_status') or 'NONE'
-            node = r.get('current_node') or ''
-            search = ' '.join(filter(None, [name, flow, run_dir, node, status])).lower().replace('"', '')
-            bg, fg = _STATUS_COLORS.get(status, _STATUS_COLORS['NONE'])
-            node_html = (f'<span class="status-node">{node}</span>'
-                         if node else '<span class="status-node muted">—</span>')
-            chip_html = (
-                f'<span class="status-chip" '
-                f'style="background:{bg};color:{fg}" '
-                f'title="{node} ({status})">{status}</span>'
-            )
-            # SSR runtime: render the stored value if any; JS overrides to live
-            # elapsed for RUNNING jobs each second.
-            _rt = r.get('current_runtime')
-            if status == 'RUNNING':
-                # Compute initial elapsed from start_time so first paint shows it.
-                _start = r.get('current_start') or ''
-                _elapsed = None
-                if _start:
-                    from datetime import datetime as _dt
-                    try:
-                        _t0 = _dt.fromisoformat(_start)
-                        _elapsed = (_dt.now() - _t0).total_seconds()
-                    except ValueError:
-                        _elapsed = None
-                if _elapsed is not None and _elapsed >= 0:
-                    runtime_html = f'<span class="rt running">{_fmt_duration(_elapsed)}</span>'
-                else:
-                    runtime_html = '<span class="rt muted">—</span>'
-            elif _rt not in (None, ''):
-                runtime_html = f'<span class="rt">{_fmt_duration(_rt)}</span>'
+        # SSR runtime: render the stored value if any; JS overrides to live
+        # elapsed for RUNNING jobs each second.
+        _rt = r.get('current_runtime')
+        if status == 'RUNNING':
+            _start = r.get('current_start') or ''
+            _elapsed = None
+            if _start:
+                from datetime import datetime as _dt
+                try:
+                    _t0 = _dt.fromisoformat(_start)
+                    _elapsed = (_dt.now() - _t0).total_seconds()
+                except ValueError:
+                    _elapsed = None
+            if _elapsed is not None and _elapsed >= 0:
+                runtime_html = f'<span class="rt running">{_fmt_duration(_elapsed)}</span>'
             else:
                 runtime_html = '<span class="rt muted">—</span>'
-            row_cls = (cls + ' run-row collapsed').strip()
-            out.append(
-                f'<tr class="{row_cls}" data-rid="{rid}" data-flow="{flow}" '
-                f'data-status="{status}" '
-                f'data-start="{r.get("current_start") or ""}" '
-                f'data-runtime="{r.get("current_runtime") if r.get("current_runtime") is not None else ""}" '
-                f'data-search="{search}">'
-                f'<td><a class="runlink" href="/run/{rid}/">{name}</a></td>'
-                f'<td><span class="flow-badge" style="background:{color}">{flow}</span></td>'
-                f'<td class="status-cell">{chip_html} {node_html}</td>'
-                f'<td class="rt-cell">{runtime_html}</td>'
-                f'<td class="dir">{run_dir}</td>'
-                f'<td><button class="danger" '
-                f'onclick="deregisterRun(\'{rid}\')">Deregister</button></td>'
-                f'</tr>'
-            )
+        elif _rt not in (None, ''):
+            runtime_html = f'<span class="rt">{_fmt_duration(_rt)}</span>'
+        else:
+            runtime_html = '<span class="rt muted">—</span>'
+        out.append(
+            f'<tr class="{cls}" data-rid="{rid}" data-flow="{flow}" '
+            f'data-status="{status}" '
+            f'data-start="{r.get("current_start") or ""}" '
+            f'data-runtime="{r.get("current_runtime") if r.get("current_runtime") is not None else ""}" '
+            f'data-search="{search}">'
+            f'<td><a class="runlink" href="/run/{rid}/">{name}</a></td>'
+            f'<td><span class="flow-badge" style="background:{color}">{flow}</span></td>'
+            f'<td class="status-cell">{chip_html} {node_html}</td>'
+            f'<td class="rt-cell">{runtime_html}</td>'
+            f'<td class="dir">{run_dir}</td>'
+            f'<td><button class="danger" '
+            f'onclick="deregisterRun(\'{rid}\')">Deregister</button></td>'
+            f'</tr>'
+        )
     return '\n'.join(out)
