@@ -312,8 +312,32 @@ def cmd_check(args: argparse.Namespace) -> int:
                 if not os.path.isdir(handler_dir):
                     continue
 
-                for stage in stages:
-                    node_type = node_types.get(stage, stage.rstrip('0123456789'))
+                # Tool-specific config may override stages / node_types — read
+                # it and prefer its definitions if present. This lets a tool
+                # declare its own stage list when the base flow's FC-shaped
+                # list doesn't match (e.g. FCFP/innovus implements 5 floorplan
+                # stages, not FC's 10 hierarchical-planning stages).
+                tool_cfg_path = os.path.join(node_cfg_dir, f'{flow_name}_{tool}_config.tcl')
+                stages_for_tool = stages
+                node_types_for_tool = node_types
+                if os.path.isfile(tool_cfg_path):
+                    try:
+                        with open(tool_cfg_path) as fh:
+                            tool_content = fh.read()
+                    except Exception:
+                        tool_content = ''
+                    tm = _re.search(r'stages\s+\{([^}]+)\}', tool_content)
+                    if tm:
+                        stages_for_tool = tm.group(1).split()
+                        # When the tool overrides stages, also rebuild node_types
+                        # from the tool config (the inherited base entries no
+                        # longer apply — they referenced removed stages).
+                        node_types_for_tool = {}
+                        for nt_m in _re.finditer(r'node_types,(\w+)\s+"(\w+)"', tool_content):
+                            node_types_for_tool[nt_m.group(1)] = nt_m.group(2)
+
+                for stage in stages_for_tool:
+                    node_type = node_types_for_tool.get(stage, stage.rstrip('0123456789'))
                     # Skip input stages — they use a shared inputs_subnode_handler
                     if node_type == 'inputs':
                         continue

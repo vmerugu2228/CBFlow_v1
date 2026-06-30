@@ -12,6 +12,105 @@ array set fcfp {
     tool,args     "-batch -no_gui"
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# STAGE LIST OVERRIDE — Innovus's FCFP equivalent is different from FC's.
+#
+# FC's hierarchical-planning stages (init_design, commit_blocks, init_compile,
+# create_floorplan, shaping, placement, create_power, place_pins, top_compile,
+# timing_budget) don't map 1:1 to Innovus. Innovus collapses these into three
+# floorplan stages (fc_floorplan / fc_powerplan / fc_post_floorplan) — that's
+# what's actually implemented under PD/cmds/FCFP/cadence/innovus/v1.0.0/.
+#
+# Unset every FC-shaped per-stage key inherited from FCFP_config.tcl and
+# redefine for the Innovus stage set so `cbflow flow check` no longer flags
+# "missing <stage>_subnode_handler.tcl" warnings for stages Innovus doesn't
+# implement.
+# ─────────────────────────────────────────────────────────────────────────────
+
+foreach _k [array names fcfp dependencies,*]            { unset fcfp($_k) }
+foreach _k [array names fcfp node_types,*]              { unset fcfp($_k) }
+foreach _k [array names fcfp stage_types,*]             { unset fcfp($_k) }
+foreach _k [array names fcfp node_descriptions,*]       { unset fcfp($_k) }
+foreach _k [array names fcfp subnodes,*]                { unset fcfp($_k) }
+foreach _k [array names fcfp subnode_dependencies,*]    { unset fcfp($_k) }
+foreach _k [array names fcfp subnode_work_dirs,*]       { unset fcfp($_k) }
+foreach _k [array names fcfp runtime,timeout,*]         { unset fcfp($_k) }
+
+# Innovus FCFP stages: 5 input nodes (handled by inputs_subnode_handler.tcl)
+# + 3 floorplan stages + export + release. No FC-only stages.
+array set fcfp {
+    stages {netlist1 sdc1 def1 upf1 library1 fc_floorplan1 fc_powerplan1 fc_post_floorplan1 export_data1 release_data1}
+
+    dependencies,netlist1            {}
+    dependencies,sdc1                {}
+    dependencies,def1                {}
+    dependencies,upf1                {}
+    dependencies,library1            {}
+    dependencies,fc_floorplan1       {netlist1 sdc1 def1 upf1 library1}
+    dependencies,fc_powerplan1       {fc_floorplan1}
+    dependencies,fc_post_floorplan1  {fc_powerplan1}
+    dependencies,export_data1        {fc_post_floorplan1}
+    dependencies,release_data1       {export_data1}
+
+    node_types,netlist1              "inputs"
+    node_types,sdc1                  "inputs"
+    node_types,def1                  "inputs"
+    node_types,upf1                  "inputs"
+    node_types,library1              "inputs"
+    node_types,fc_floorplan1         "fc_floorplan"
+    node_types,fc_powerplan1         "fc_powerplan"
+    node_types,fc_post_floorplan1    "fc_post_floorplan"
+    node_types,export_data1          "export_data"
+    node_types,release_data1         "release_data"
+
+    stage_types,netlist1             "inputs"
+    stage_types,sdc1                 "inputs"
+    stage_types,def1                 "inputs"
+    stage_types,upf1                 "inputs"
+    stage_types,library1             "inputs"
+    stage_types,fc_floorplan1        "execution"
+    stage_types,fc_powerplan1        "execution"
+    stage_types,fc_post_floorplan1   "execution"
+    stage_types,export_data1         "export_data"
+    stage_types,release_data1        "release_data"
+
+    node_descriptions,netlist1            "Gate-level netlist input"
+    node_descriptions,sdc1                "SDC timing constraints input"
+    node_descriptions,def1                "DEF floorplan input"
+    node_descriptions,upf1                "UPF power intent input"
+    node_descriptions,library1            "Technology library input"
+    node_descriptions,fc_floorplan1       "Innovus FCFP: hierarchical floorplan create"
+    node_descriptions,fc_powerplan1       "Innovus FCFP: power network synthesis"
+    node_descriptions,fc_post_floorplan1  "Innovus FCFP: post-floorplan refinement"
+    node_descriptions,export_data1        "Export hierarchical design data"
+    node_descriptions,release_data1       "Release FCFP deliverables"
+
+    runtime,timeout,netlist1              10
+    runtime,timeout,sdc1                  10
+    runtime,timeout,def1                  10
+    runtime,timeout,upf1                  10
+    runtime,timeout,library1              10
+    runtime,timeout,fc_floorplan1         60
+    runtime,timeout,fc_powerplan1         60
+    runtime,timeout,fc_post_floorplan1    45
+    runtime,timeout,export_data1          20
+    runtime,timeout,release_data1         15
+}
+
+# Re-build subnode setup for the Innovus execution stages
+set _fcfp_innovus_exec_stages {fc_floorplan1 fc_powerplan1 fc_post_floorplan1 export_data1 release_data1}
+foreach _s $_fcfp_innovus_exec_stages {
+    set fcfp(subnodes,$_s) {setup run validate finish}
+    set fcfp(subnode_dependencies,${_s},setup)    {}
+    set fcfp(subnode_dependencies,${_s},run)      {setup}
+    set fcfp(subnode_dependencies,${_s},validate) {run}
+    set fcfp(subnode_dependencies,${_s},finish)   {validate}
+    foreach _sub {setup run validate finish} {
+        set fcfp(subnode_work_dirs,${_s},${_sub}) "work/${_s}/${_sub}"
+    }
+}
+
+
 # ┌─ FCFP App Settings (moved from common FCFP_config.tcl) ────────────────────┐
 array set fcfp {
     design_style            "hier"
