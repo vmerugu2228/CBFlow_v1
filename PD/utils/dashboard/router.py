@@ -328,9 +328,12 @@ def make_daemon_handler(pool):
                 if r['run_dir_exists']:
                     st = _current_status_for_run(run_dir)
                 else:
-                    st = {'node': '', 'status': 'NONE'}
-                r['current_node'] = st['node']
-                r['current_status'] = st['status']
+                    st = {'node': '', 'status': 'NONE',
+                          'start_time': '', 'runtime_sec': None}
+                r['current_node']    = st['node']
+                r['current_status']  = st['status']
+                r['current_start']   = st['start_time']
+                r['current_runtime'] = st['runtime_sec']
             body = json.dumps(runs, indent=2).encode('utf-8')
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
@@ -463,6 +466,23 @@ _STATUS_PRIORITY = (
 )
 
 
+def _fmt_duration(sec):
+    """Mirror of the JS fmtDuration() for SSR parity."""
+    if sec is None or sec == '':
+        return '—'
+    try:
+        s = max(0, int(round(float(sec))))
+    except (TypeError, ValueError):
+        return '—'
+    h, rem = divmod(s, 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        return f'{h}h {m:02d}m {s:02d}s'
+    if m:
+        return f'{m}m {s:02d}s'
+    return f'{s}s'
+
+
 def _find_run_db(run_dir):
     """Find the .race_*.db for a run. Mirrors race_dashboard._find_db's
     resolution order but read-only and side-effect-free: pointer file first,
@@ -485,7 +505,8 @@ def _find_run_db(run_dir):
 
 
 def _current_status_for_run(run_dir):
-    """Return {'node': ..., 'status': ...} for the run's most relevant job.
+    """Return {'node', 'status', 'start_time', 'runtime_sec'} for the run's
+    most relevant job.
 
     Priority — first match wins:
       1. Any RUNNING subnode  → that's the live one
@@ -494,49 +515,54 @@ def _current_status_for_run(run_dir):
       4. Any PENDING / INVALIDATED → in queue
       5. All READY (never started) → 'Not started' / READY
       6. No DB / no jobs row / DB unreadable → returns NONE
+
+    runtime_sec: for completed jobs the stored value; for RUNNING jobs None
+    (the client computes live elapsed from start_time on each render).
     """
+    none = {'node': '', 'status': 'NONE', 'start_time': '', 'runtime_sec': None}
     db_path = _find_run_db(run_dir)
     if not db_path:
-        return {'node': '', 'status': 'NONE'}
+        return none
     try:
-        # uri=True + mode=ro so we never accidentally write or lock the DB
         conn = sqlite3.connect(f'file:{db_path}?mode=ro', uri=True, timeout=0.5)
     except sqlite3.Error:
-        return {'node': '', 'status': 'NONE'}
+        return none
     try:
         cur = conn.cursor()
-        # Latest row per job_name, subnodes only — the table is small enough
-        # (low thousands of rows in the worst case) that this is sub-ms.
         rows = cur.execute(
             "SELECT stage, COALESCE(subnode,''), status, "
-            "COALESCE(end_time, start_time, '') AS ts "
+            "COALESCE(start_time,'') AS st, "
+            "COALESCE(end_time, start_time,'') AS ts, "
+            "runtime_sec "
             "FROM jobs "
             "WHERE id IN (SELECT MAX(id) FROM jobs GROUP BY job_name) "
             "AND job_type = 'subnode'"
         ).fetchall()
     except sqlite3.Error:
-        return {'node': '', 'status': 'NONE'}
+        return none
     finally:
         conn.close()
 
     if not rows:
-        return {'node': '', 'status': 'NONE'}
+        return none
 
     by_status = {}
-    for stage, subnode, status, ts in rows:
-        by_status.setdefault(status, []).append((stage, subnode, ts))
+    for stage, subnode, status, start, ts, rtsec in rows:
+        by_status.setdefault(status, []).append((stage, subnode, start, ts, rtsec))
 
     for st in _STATUS_PRIORITY:
         if st in by_status:
-            # Within a status bucket pick the most-recent row by timestamp.
-            stage, subnode, _ = max(by_status[st], key=lambda r: r[2] or '')
+            stage, subnode, start, _ts, rtsec = max(
+                by_status[st], key=lambda r: r[3] or '')
             node = f'{stage}/{subnode}' if subnode else stage
-            return {'node': node, 'status': st}
+            return {'node': node, 'status': st,
+                    'start_time': start or '', 'runtime_sec': rtsec}
 
-    # Status outside our known set — surface it as-is so we see it on the UI.
-    stage, subnode, status, _ts = rows[0]
+    # Status outside known set — surface it as-is so we see it on the UI.
+    stage, subnode, status, start, _ts, rtsec = rows[0]
     node = f'{stage}/{subnode}' if subnode else stage
-    return {'node': node, 'status': status}
+    return {'node': node, 'status': status,
+            'start_time': start or '', 'runtime_sec': rtsec}
 
 
 def _render_index(runs, discipline='PD'):
@@ -576,16 +602,20 @@ def _render_index(runs, discipline='PD'):
         _run_dir = _r.get('run_dir') or ''
         if _run_dir and os.path.isdir(_run_dir):
             _st = _current_status_for_run(_run_dir)
-            _r['current_node'] = _st['node']
-            _r['current_status'] = _st['status']
-            _r['run_dir_exists'] = True
+            _r['current_node']    = _st['node']
+            _r['current_status']  = _st['status']
+            _r['current_start']   = _st['start_time']
+            _r['current_runtime'] = _st['runtime_sec']
+            _r['run_dir_exists']  = True
         else:
             _r.setdefault('current_node', '')
             _r.setdefault('current_status', 'NONE')
-            _r['run_dir_exists'] = False
+            _r.setdefault('current_start', '')
+            _r.setdefault('current_runtime', None)
+            _r['run_dir_exists']  = False
 
     rows_html = _render_run_rows(runs) or (
-        '<tr><td colspan="7" class="empty">'
+        '<tr><td colspan="6" class="empty">'
         'No runs registered. Add one above to get started.'
         '</td></tr>'
     )
@@ -742,20 +772,27 @@ def _render_index(runs, discipline='PD'):
   a.runlink {{ color: var(--accent); text-decoration: none; font-weight: 600;
                font-size: 13.5px; letter-spacing: -0.01em; }}
   a.runlink:hover {{ text-decoration: underline; }}
-  .runid {{ display: block; margin-top: 2px; font-family: 'SF Mono', Menlo, Consolas, monospace;
-            font-size: 11px; color: var(--muted); font-weight: 400; letter-spacing: 0; }}
 
   .flow-badge {{ display: inline-block; padding: 2px 10px; border-radius: 999px;
                   color: white; font-size: 11px; font-weight: 600;
                   letter-spacing: .04em; }}
 
-  /* Per-flow section header row in the runs table */
+  /* Per-flow section header row in the runs table (clickable, collapsible) */
+  tr.flow-section {{ cursor: pointer; user-select: none; }}
   tr.flow-section td {{ background: #f1f3f9; padding: 8px 16px !important;
                         font-size: 11px; letter-spacing: .04em;
                         border-top: 2px solid #d1d5db; }}
+  tr.flow-section:hover td {{ background: #e6eaf3; }}
   tr.flow-section .flow-section-count {{ margin-left: 10px; color: var(--muted);
                                           font-size: 11px; font-weight: 500;
                                           text-transform: none; letter-spacing: 0; }}
+  tr.flow-section .caret {{ display: inline-block; width: 10px; margin-right: 8px;
+                             color: var(--muted); font-size: 10px;
+                             transition: transform .15s; }}
+  tr.flow-section:not(.collapsed) .caret {{ transform: rotate(90deg); }}
+
+  /* Collapsed run rows hide entirely; expanded show normally. */
+  tr.run-row.collapsed {{ display: none; }}
 
   /* Current Status column — colored chip + current node id */
   td.status-cell {{ white-space: nowrap; }}
@@ -765,6 +802,12 @@ def _render_index(runs, discipline='PD'):
   .status-node {{ display: inline-block; margin-left: 8px; font-size: 12px;
                    color: var(--text); font-family: 'SF Mono', Menlo, Consolas, monospace; }}
   .status-node.muted {{ color: var(--muted); font-family: inherit; }}
+
+  /* Runtime cell */
+  td.rt-cell {{ white-space: nowrap; font-variant-numeric: tabular-nums;
+                font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 12px; }}
+  .rt.muted {{ color: var(--muted); font-family: inherit; }}
+  .rt.running {{ color: #b45309; font-weight: 600; }}    /* amber for live elapsed */
 
   .state {{ display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
             color: var(--muted); }}
@@ -843,8 +886,8 @@ def _render_index(runs, discipline='PD'):
     </div>
     <table class="runs">
       <thead>
-        <tr><th>Run</th><th>Flow</th><th>Current Status</th><th>Run directory</th>
-            <th>Registered</th><th>Last seen</th><th></th></tr>
+        <tr><th>Run</th><th>Flow</th><th>Current Status</th><th>Runtime</th><th>Run directory</th>
+            <th></th></tr>
       </thead>
       <tbody id="runs-tbody">
 {rows_html}
@@ -881,6 +924,58 @@ def _render_index(runs, discipline='PD'):
          + `title="${{node}} (${{st}})">${{st}}</span> ${{nodeHtml}}`;
   }}
 
+  function fmtDuration(sec) {{
+    if (sec == null || sec === '' || Number.isNaN(sec)) return '—';
+    sec = Math.max(0, Math.round(sec));
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+    if (h > 0) return `${{h}}h ${{String(m).padStart(2,'0')}}m ${{String(s).padStart(2,'0')}}s`;
+    if (m > 0) return `${{m}}m ${{String(s).padStart(2,'0')}}s`;
+    return `${{s}}s`;
+  }}
+
+  function runtimeCellHtml(r) {{
+    // Live elapsed for RUNNING jobs (now - start_time); stored runtime_sec
+    // for completed; em-dash otherwise.
+    if (r.current_status === 'RUNNING' && r.current_start) {{
+      const t0 = Date.parse(r.current_start);
+      if (!Number.isNaN(t0)) {{
+        const elapsed = (Date.now() - t0) / 1000;
+        return `<span class="rt running">${{fmtDuration(elapsed)}}</span>`;
+      }}
+    }}
+    if (r.current_runtime != null && r.current_runtime !== '') {{
+      return `<span class="rt">${{fmtDuration(Number(r.current_runtime))}}</span>`;
+    }}
+    return `<span class="rt muted">—</span>`;
+  }}
+
+  function toggleSection(hdr) {{
+    const flow = hdr.dataset.flow;
+    hdr.classList.toggle('collapsed');
+    const collapsed = hdr.classList.contains('collapsed');
+    document.querySelectorAll(
+      `#runs-tbody tr.run-row[data-flow="${{flow}}"]`
+    ).forEach(tr => {{
+      tr.classList.toggle('collapsed', collapsed);
+    }});
+  }}
+
+  // Tick once per second to update live RUNNING runtimes without a full refetch.
+  function tickRunningRuntimes() {{
+    document.querySelectorAll('#runs-tbody tr.run-row[data-status="RUNNING"]').forEach(tr => {{
+      const cell = tr.querySelector('td.rt-cell');
+      if (!cell) return;
+      const start = tr.dataset.start;
+      if (!start) return;
+      const t0 = Date.parse(start);
+      if (Number.isNaN(t0)) return;
+      const elapsed = (Date.now() - t0) / 1000;
+      cell.innerHTML = `<span class="rt running">${{fmtDuration(elapsed)}}</span>`;
+    }});
+  }}
+
   function fmtRelative(iso) {{
     if (!iso) return '';
     const t = Date.parse(iso);
@@ -899,32 +994,46 @@ def _render_index(runs, discipline='PD'):
     return (i >= 0 ? dir.slice(i + 1) : dir) || r.run_id;
   }}
 
-  function renderRow(r) {{
+  function renderRow(r, sectionCollapsed) {{
     // run_dir_exists is stamped by /api/runs on each request — captures
     // user-side `rm -rf` faster than the 30s daemon sweeper.
     const missing = (r.run_dir_exists === false);
     const archived = r.archived || missing;
-    const classes = [];
+    const classes = ['run-row'];
     if (archived) classes.push('archived');
     if (missing) classes.push('deleted');
+    if (sectionCollapsed) classes.push('collapsed');
     const name = runNameOf(r);
     const deletedPill = missing
       ? '<span class="deleted-pill" title="Run directory was deleted from disk">DELETED</span>'
       : '';
     const linkHref = missing ? '#' : `/run/${{r.run_id}}/`;
-    return `<tr class="${{classes.join(' ')}}" data-rid="${{r.run_id}}" data-flow="${{r.flow_type || '?'}}" data-search="${{[r.run_id,name,r.flow_type,r.run_dir,r.current_node,r.current_status].filter(Boolean).join(' ').toLowerCase()}}">
+    return `<tr class="${{classes.join(' ')}}" data-rid="${{r.run_id}}" data-flow="${{r.flow_type || '?'}}" data-status="${{r.current_status || ''}}" data-start="${{r.current_start || ''}}" data-runtime="${{r.current_runtime != null ? r.current_runtime : ''}}" data-search="${{[name,r.flow_type,r.run_dir,r.current_node,r.current_status].filter(Boolean).join(' ').toLowerCase()}}">
       <td>
         <a class="runlink" href="${{linkHref}}">${{name}}</a>${{deletedPill}}
-        <span class="runid" title="run_id">${{r.run_id}}</span>
       </td>
       <td>${{flowBadge(r.flow_type || '?')}}</td>
       <td class="status-cell">${{statusChip(r.current_node, r.current_status)}}</td>
+      <td class="rt-cell">${{runtimeCellHtml(r)}}</td>
       <td class="dir">${{r.run_dir || ''}}</td>
-      <td class="ts" title="${{r.registered_at || ''}}">${{fmtRelative(r.registered_at)}}</td>
-      <td class="ts" title="${{r.last_seen_at || ''}}">${{fmtRelative(r.last_seen_at)}}</td>
-      <td><button class="danger" onclick="deregisterRun('${{r.run_id}}')">Deregister</button></td>
+      <td><button class="danger" onclick="event.stopPropagation();deregisterRun('${{r.run_id}}')">Deregister</button></td>
     </tr>`;
   }}
+
+  // Persist per-flow collapse state across re-renders. Default: collapsed.
+  const _collapseState = new Map();
+  function isFlowCollapsed(flow) {{
+    if (!_collapseState.has(flow)) _collapseState.set(flow, true);
+    return _collapseState.get(flow);
+  }}
+
+  // Wrap toggleSection so it also persists into _collapseState. The HTML
+  // onclick="toggleSection(this)" handler resolves to THIS function.
+  const _toggleSectionRaw = toggleSection;
+  toggleSection = function(hdr) {{
+    _toggleSectionRaw(hdr);
+    _collapseState.set(hdr.dataset.flow, hdr.classList.contains('collapsed'));
+  }};
 
   function renderGroupedRows(runs) {{
     // Bucket runs by flow_type. '?' goes last; everything else alpha.
@@ -941,12 +1050,15 @@ def _render_index(runs, discipline='PD'):
       const rows = groups.get(flow);
       const color = FLOW_COLORS[flow] || '#475569';
       const noun = rows.length === 1 ? 'run' : 'runs';
-      out.push(`<tr class="flow-section" data-flow="${{flow}}">`
-             + `<td colspan="7">`
+      const collapsed = isFlowCollapsed(flow);
+      const hdrCls = 'flow-section' + (collapsed ? ' collapsed' : '');
+      out.push(`<tr class="${{hdrCls}}" data-flow="${{flow}}" onclick="toggleSection(this)" title="click to expand">`
+             + `<td colspan="6">`
+             + `<span class="caret">▶</span>`
              + `<span class="flow-badge" style="background:${{color}}">${{flow}}</span>`
              + `<span class="flow-section-count">${{rows.length}} ${{noun}}</span>`
              + `</td></tr>`);
-      out.push(rows.map(renderRow).join(''));
+      out.push(rows.map(r => renderRow(r, collapsed)).join(''));
     }}
     return out.join('');
   }}
@@ -967,7 +1079,7 @@ def _render_index(runs, discipline='PD'):
       ]);
       const tbody = document.getElementById('runs-tbody');
       if (!runs.length) {{
-        tbody.innerHTML = '<tr><td colspan="7" class="empty">No runs registered. Add one above to get started.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="empty">No runs registered. Add one above to get started.</td></tr>';
       }} else {{
         tbody.innerHTML = renderGroupedRows(runs);
       }}
@@ -1167,7 +1279,8 @@ def _render_index(runs, discipline='PD'):
   document.getElementById('refresh').addEventListener('click', loadRuns);
 
   loadRuns();
-  setInterval(loadRuns, 5000);  // poll every 5s for live updates
+  setInterval(loadRuns, 5000);            // poll every 5s for live updates
+  setInterval(tickRunningRuntimes, 1000); // refresh RUNNING runtimes every 1s
 </script>
 </body></html>
 """
@@ -1178,7 +1291,8 @@ def _render_run_rows(runs):
     Kept for no-JS fallback and faster first paint.
 
     Runs are grouped by flow_type into per-flow sections; each section is
-    introduced by a header row. Order: alphabetical by flow name, '?' last.
+    introduced by a header row and starts collapsed. JS toggles the
+    `collapsed` class on click. Order: alphabetical by flow name, '?' last.
     """
     import os as _os
     if not runs:
@@ -1195,8 +1309,10 @@ def _render_run_rows(runs):
         flow_rows = groups[flow]
         color = _FLOW_COLORS.get(flow, '#475569')
         out.append(
-            f'<tr class="flow-section" data-flow="{flow}">'
-            f'<td colspan="7">'
+            f'<tr class="flow-section collapsed" data-flow="{flow}" '
+            f'onclick="toggleSection(this)" title="click to expand">'
+            f'<td colspan="6">'
+            f'<span class="caret">▶</span>'
             f'<span class="flow-badge" style="background:{color}">{flow}</span>'
             f'<span class="flow-section-count">{len(flow_rows)} run'
             f'{"s" if len(flow_rows) != 1 else ""}</span>'
@@ -1209,7 +1325,7 @@ def _render_run_rows(runs):
             name = _os.path.basename(run_dir.rstrip('/')) or rid
             status = r.get('current_status') or 'NONE'
             node = r.get('current_node') or ''
-            search = ' '.join(filter(None, [rid, name, flow, run_dir, node, status])).lower().replace('"', '')
+            search = ' '.join(filter(None, [name, flow, run_dir, node, status])).lower().replace('"', '')
             bg, fg = _STATUS_COLORS.get(status, _STATUS_COLORS['NONE'])
             node_html = (f'<span class="status-node">{node}</span>'
                          if node else '<span class="status-node muted">—</span>')
@@ -1218,15 +1334,40 @@ def _render_run_rows(runs):
                 f'style="background:{bg};color:{fg}" '
                 f'title="{node} ({status})">{status}</span>'
             )
+            # SSR runtime: render the stored value if any; JS overrides to live
+            # elapsed for RUNNING jobs each second.
+            _rt = r.get('current_runtime')
+            if status == 'RUNNING':
+                # Compute initial elapsed from start_time so first paint shows it.
+                _start = r.get('current_start') or ''
+                _elapsed = None
+                if _start:
+                    from datetime import datetime as _dt
+                    try:
+                        _t0 = _dt.fromisoformat(_start)
+                        _elapsed = (_dt.now() - _t0).total_seconds()
+                    except ValueError:
+                        _elapsed = None
+                if _elapsed is not None and _elapsed >= 0:
+                    runtime_html = f'<span class="rt running">{_fmt_duration(_elapsed)}</span>'
+                else:
+                    runtime_html = '<span class="rt muted">—</span>'
+            elif _rt not in (None, ''):
+                runtime_html = f'<span class="rt">{_fmt_duration(_rt)}</span>'
+            else:
+                runtime_html = '<span class="rt muted">—</span>'
+            row_cls = (cls + ' run-row collapsed').strip()
             out.append(
-                f'<tr class="{cls}" data-rid="{rid}" data-flow="{flow}" data-search="{search}">'
-                f'<td><a class="runlink" href="/run/{rid}/">{name}</a>'
-                f'<span class="runid" title="run_id">{rid}</span></td>'
+                f'<tr class="{row_cls}" data-rid="{rid}" data-flow="{flow}" '
+                f'data-status="{status}" '
+                f'data-start="{r.get("current_start") or ""}" '
+                f'data-runtime="{r.get("current_runtime") if r.get("current_runtime") is not None else ""}" '
+                f'data-search="{search}">'
+                f'<td><a class="runlink" href="/run/{rid}/">{name}</a></td>'
                 f'<td><span class="flow-badge" style="background:{color}">{flow}</span></td>'
                 f'<td class="status-cell">{chip_html} {node_html}</td>'
+                f'<td class="rt-cell">{runtime_html}</td>'
                 f'<td class="dir">{run_dir}</td>'
-                f'<td class="ts">{r.get("registered_at", "")}</td>'
-                f'<td class="ts">{r.get("last_seen_at", "")}</td>'
                 f'<td><button class="danger" '
                 f'onclick="deregisterRun(\'{rid}\')">Deregister</button></td>'
                 f'</tr>'

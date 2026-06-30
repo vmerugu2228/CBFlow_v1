@@ -1,26 +1,37 @@
 #!/usr/bin/env tclsh
-# CBFlow STA reporting - Synopsys PrimeTime
+# STA reporting - Cadence Tempus
 
-# ── Bootstrap ────────────────────────────────────────────────────────────────
+# -- Bootstrap -----------------------------------------------------------------
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
 source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "STA"
-set STAGE_NAME "reporting"
-set NODE_NAME "${STAGE_NAME}1"
+set STAGE_NAME "merge_reports"
+set NODE_NAME "merge_reports1"
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
+# Source active scenarios
+set scenarios_file "$run_dir/work/STA/mmmc_setup/run/active_scenarios.tcl"
+if {[file exists $scenarios_file]} {
+    source $scenarios_file
+} else {
+    puts stderr "ERROR: Active scenarios file not found: $scenarios_file"
+    puts stderr "ERROR: Run mmmc_setup stage first"
+    exit 1
+}
+
+# Source MMMC configuration for analysis_views
+set mmmc_config_file "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
+if {[file exists $mmmc_config_file]} { source $mmmc_config_file }
+
 flow_proc setup_reporting_dirs {
     handle_info "Setting up reporting directories..."
     set run_dir $::env(CBFLOW_RUN_DIR)
-    # Path is reporting1 (node name) — the previous literal
-    # `work/STA/reporting/run` created a bogus empty dir that
-    # e2e_checks._stage_dirs walked as a stage with no subnodes.
-    foreach dir {"work/STA/reporting1/run" "reports/sta" "logs/reporting"} {
+    foreach dir {"work/STA/reporting/run" "reports/sta" "logs/reporting"} {
         file mkdir "$run_dir/$dir"
     }
     puts " Reporting directories created"
@@ -96,7 +107,7 @@ flow_proc aggregate_results {
     set summary_file "$::REPORTS_DIR/mmmc_timing_summary.rpt"
     set fh [open $summary_file "w"]
     puts $fh "# ═══════════════════════════════════════════════════════════════════════════════"
-    puts $fh "# CBFlow MMMC Timing Summary - PrimeTime (Cross-Corner)"
+    puts $fh "# CBFlow MMMC Timing Summary - Tempus (Cross-Corner)"
     puts $fh "# Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
     puts $fh "# Scenario Set: $::mmmc_active_scenario_set"
     puts $fh "# Total Scenarios: [llength $mmmc_active_scenarios]"
@@ -140,4 +151,6 @@ flow_proc reporting_flow {
     handle_info "STA reporting completed successfully"
 }
 if {[info exists argv0] && $argv0 eq [info script]} { flow_exec reporting_flow } else { puts " STA reporting procedures loaded" }
+
+# Exit tool after stage completion
 exit

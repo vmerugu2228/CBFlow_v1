@@ -52,7 +52,7 @@ array set mandatory_checks {
         "description" "STA QoR report generated"
         "criteria"    "report exists and parseable"
         "min_phase"   "P0"
-        "report_file" "work/STA/reporting1/reports/report_qor.rpt"
+        "report_file" "work/STA/merge_reports1/reports/report_qor.rpt"
     }
 }
 
@@ -84,7 +84,7 @@ array set optional_checks {
 # ── Mandatory files ───────────────────────────────────────────────────────────
 set mandatory_files {
     "work/STA/timing1/reports/mmmc_timing_summary.rpt"
-    "work/STA/reporting1/reports/report_qor.rpt"
+    "work/STA/merge_reports1/reports/report_qor.rpt"
 }
 
 # ── Deliverables ──────────────────────────────────────────────────────────────
@@ -95,7 +95,7 @@ array set deliverables {
         "type"   "report"
     }
     "qor_report" {
-        "source" "work/STA/reporting1/reports/report_qor.rpt"
+        "source" "work/STA/merge_reports1/reports/report_qor.rpt"
         "target" "releases/STA_SIGNOFF/report_qor.rpt"
         "type"   "report"
     }

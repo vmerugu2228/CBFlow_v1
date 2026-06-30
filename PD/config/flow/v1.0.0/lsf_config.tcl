@@ -207,7 +207,7 @@ namespace eval ::CBFlow::LSF {
     set lsf(flow_mapping,FCFP,export_data) "S"
     set lsf(flow_mapping,FCFP,release_data) "XS"
 
-    # STA (stages: netlist1 sdc1 spef1 library1 extraction1 timing1 reporting1 release_data1)
+    # STA (stages: netlist1 sdc1 spef1 library1 extraction1 timing1 merge_reports1 release_data1)
     set lsf(flow_mapping,STA,netlist) "XS"
     set lsf(flow_mapping,STA,sdc) "XS"
     set lsf(flow_mapping,STA,spef) "XS"
