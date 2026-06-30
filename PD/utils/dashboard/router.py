@@ -1042,13 +1042,16 @@ def _render_index(runs, discipline='PD'):
 
   function _refreshSelect(selId, allLabel, keyOf, runs) {{
     // Populate a <select> with one option per observed value of keyOf(run).
+    // "All <thing>s (N)" → N is the count of DISTINCT values (i.e. how many
+    // projects / blocks / flows exist), not the row count.
+    // Per-option "<value> (n)" → n is the row count for that value.
     // Preserve the user's selection if the value still exists.
     const sel = document.getElementById(selId);
     if (!sel) return;
     const current = sel.value;
     const values = Array.from(new Set(runs.map(r => keyOf(r) || '?')))
       .sort((a, b) => (a === '?' ? 1 : (b === '?' ? -1 : a.localeCompare(b))));
-    sel.innerHTML = `<option value="">${{allLabel}} (${{runs.length}})</option>`
+    sel.innerHTML = `<option value="">${{allLabel}} (${{values.length}})</option>`
       + values.map(v => {{
           const n = runs.filter(r => (keyOf(r) || '?') === v).length;
           return `<option value="${{v}}">${{v}} (${{n}})</option>`;
@@ -1165,9 +1168,13 @@ def _render_index(runs, discipline='PD'):
   }}
 
   function refreshPickerFilterOptions() {{
-    _refreshSelect('picker-project-filter', 'All projects', r => r.project,   discovered);
-    _refreshSelect('picker-design-filter',  'All blocks',   r => r.design,    discovered);
-    _refreshSelect('picker-flow-filter',    'All flows',    r => r.flow_type, discovered);
+    // Filter dropdowns reflect ONLY the unregistered pool — once a run is
+    // registered it disappears from the picker, so its project/block/flow
+    // shouldn't keep occupying a slot in the dropdowns either.
+    const pool = discovered.filter(r => !r.registered);
+    _refreshSelect('picker-project-filter', 'All projects', r => r.project,   pool);
+    _refreshSelect('picker-design-filter',  'All blocks',   r => r.design,    pool);
+    _refreshSelect('picker-flow-filter',    'All flows',    r => r.flow_type, pool);
   }}
 
   function renderPicker() {{
@@ -1179,6 +1186,7 @@ def _render_index(runs, discipline='PD'):
     const fFlow   = document.getElementById('picker-flow-filter').value;
 
     const filtered = discovered.filter(r => {{
+      if (r.registered) return false;     // already registered — hide from picker
       if (fProj && (r.project   || '?') !== fProj) return false;
       if (fDes  && (r.design    || '?') !== fDes ) return false;
       if (fFlow && (r.flow_type || '?') !== fFlow) return false;
@@ -1188,9 +1196,14 @@ def _render_index(runs, discipline='PD'):
       return hay.includes(q);
     }});
 
+    const pool = discovered.filter(r => !r.registered);
+    const registeredCount = discovered.length - pool.length;
+
     if (!filtered.length) {{
-      body.innerHTML = '<div class="picker-empty">No discovered runs match.</div>';
-      count.textContent = discovered.length + ' discovered, 0 match filter';
+      body.innerHTML = pool.length
+        ? '<div class="picker-empty">No unregistered runs match the current filters.</div>'
+        : '<div class="picker-empty">All discovered runs are already registered.</div>';
+      count.textContent = `${{pool.length}} unregistered · ${{registeredCount}} already registered (hidden)`;
       return;
     }}
 
@@ -1201,24 +1214,19 @@ def _render_index(runs, discipline='PD'):
       (groups[key] = groups[key] || []).push(r);
     }});
 
-    const totalReg = filtered.filter(r => r.registered).length;
-    count.textContent = `${{filtered.length}} of ${{discovered.length}} runs · ${{totalReg}} already registered`;
+    const totalReg = registeredCount;
+    count.textContent = `${{filtered.length}} of ${{pool.length}} unregistered runs match · ${{totalReg}} already registered (hidden)`;
 
     body.innerHTML = Object.keys(groups).sort().map(g => {{
       const rows = groups[g].map(r => {{
-        const regCls = r.registered ? 'registered' : '';
-        const regPill = r.registered
-          ? '<span class="reg-pill">REGISTERED</span>'
-          : '<button class="primary" data-dir="' + escAttr(r.run_dir) + '" style="padding:4px 12px;font-size:12px">Register</button>';
-        const onclick = r.registered ? '' :
-          'onclick="useDirInForm(this.dataset.dir)" data-dir="' + escAttr(r.run_dir) + '"';
-        return `<div class="picker-row ${{regCls}}" ${{onclick}}>
+        return `<div class="picker-row"
+          onclick="useDirInForm('${{escAttr(r.run_dir)}}')" data-dir="${{escAttr(r.run_dir)}}">
           <div>
             <div class="pname">${{escHtml(r.name)}}</div>
             <div class="pdir" title="${{escAttr(r.run_dir)}}">${{escHtml(r.run_dir)}}</div>
           </div>
           <div>${{flowBadge(r.flow_type || '?')}}</div>
-          <div>${{regPill}}</div>
+          <div><button class="primary" data-dir="${{escAttr(r.run_dir)}}" style="padding:4px 12px;font-size:12px">Register</button></div>
         </div>`;
       }}).join('');
       return `<div class="picker-group">
