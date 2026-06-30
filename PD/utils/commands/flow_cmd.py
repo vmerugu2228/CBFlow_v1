@@ -373,6 +373,63 @@ def cmd_check(args: argparse.Namespace) -> int:
                 all_ok = False
                 logger.error(f"  [FAIL] {tech} — tech_config.tcl missing")
 
+    # ── 7. Project Config Key Parity ────────────────────────────────────
+    logger.info("")
+    logger.info("  7. Project Config Key Parity")
+    logger.info("  " + "─" * 57)
+
+    project_dir = os.path.join(core_dir, 'config', 'project')
+    project_keys = {}  # project_name -> set of project(...) keys
+    SET_KEY = _re.compile(r'^\s*set\s+(project\([^\)]+\))', _re.MULTILINE)
+
+    if os.path.isdir(project_dir):
+        for proj in sorted(os.listdir(project_dir)):
+            proj_v = os.path.join(project_dir, proj, 'v1.0.0')
+            if not os.path.isdir(proj_v):
+                continue
+            # Prefer <name>_config.tcl, fall back to project_config.tcl.
+            candidates = [
+                os.path.join(proj_v, f'{proj}_config.tcl'),
+                os.path.join(proj_v, 'project_config.tcl'),
+            ]
+            cfg_path = next((c for c in candidates if os.path.isfile(c)), None)
+            if not cfg_path:
+                continue
+            with open(cfg_path) as fh:
+                src = fh.read()
+            project_keys[proj] = set(SET_KEY.findall(src))
+
+    if len(project_keys) < 2:
+        logger.info(f"  [SKIP] need >= 2 projects to compare key parity "
+                    f"(found {len(project_keys)})")
+    else:
+        # Canonical = union of all keys across all projects. Any project missing
+        # one is flagged.
+        union = set().union(*project_keys.values())
+        intersection = set.intersection(*project_keys.values())
+        proj_names = sorted(project_keys)
+
+        total += 1
+        if len(union) == len(intersection):
+            passed += 1
+            logger.info(f"  [PASS] {len(intersection)} keys identical across "
+                        f"{len(project_keys)} projects: {', '.join(proj_names)}")
+        else:
+            warnings += 1
+            drift = union - intersection
+            logger.warning(
+                f"  [WARN] {len(drift)} key(s) drift across projects "
+                f"({len(intersection)} common / {len(union)} union) — "
+                f"projects: {', '.join(proj_names)}"
+            )
+            for key in sorted(drift):
+                present_in = [p for p in proj_names if key in project_keys[p]]
+                missing_in = [p for p in proj_names if key not in project_keys[p]]
+                logger.warning(
+                    f"           {key}  →  in: {','.join(present_in)}  "
+                    f"missing: {','.join(missing_in)}"
+                )
+
     # ── Summary ─────────────────────────────────────────────────────────
     logger.info("")
     logger.info("  " + "═" * 57)

@@ -86,46 +86,7 @@ namespace eval ::CBFlow::LSF::DataManager {
             CBFLOW_INFO "Created data directory: $data_dir" "DATA"
         }
 
-        # Initialize database using Python analytics module
-        if {[initialize_python_integration]} {
-            CBFLOW_INFO "Database initialized successfully at: $database_path" "DATA"
-            return true
-        } else {
-            CBFLOW_ERROR "Failed to initialize database" "DATA"
-            return false
-        }
-    }
-
-    proc initialize_python_integration {} {
-        variable python_analytics_path
-
-        # Find Python analytics script
-        set possible_paths {
-            "../ml_analytics/v1.0.0/lsf_ml_analytics.py"
-            "../../ml_analytics/v1.0.0/lsf_ml_analytics.py"
-            "$::env(SCRIPTS_ROOT)/ml_analytics/v1.0.0/lsf_ml_analytics.py"
-        }
-
-        foreach path $possible_paths {
-            set expanded_path [subst $path]
-            if {[file exists $expanded_path]} {
-                set python_analytics_path [file normalize $expanded_path]
-                CBFLOW_DEBUG "Found Python analytics at: $python_analytics_path" "ML"
-                break
-            }
-        }
-
-        if {$python_analytics_path eq ""} {
-            CBFLOW_WARNING "Python analytics module not found - limited functionality" "ML"
-            return false
-        }
-
-        # Test Python integration
-        if {[catch {exec python3 $python_analytics_path --action analyze} result]} {
-            CBFLOW_WARNING "Python analytics test failed: $result" "ML"
-            return false
-        }
-
+        CBFLOW_INFO "Database initialized successfully at: $database_path" "DATA"
         return true
     }
 

@@ -488,7 +488,16 @@ class LibraryValidator:
     """Validates library configuration from tech_config.tcl files."""
 
     def load_tech_config(self, path: str) -> Dict:
-        """Parse a tech_config.tcl file and extract library_sets array."""
+        """Parse a tech config and return library sets.
+
+        Tries two schemas in order:
+          1. Legacy `array set library_sets { ... }` in the tech_config.tcl
+             itself (older config style).
+          2. Per-key `set tech(<corner>,<voltage>,<temp>,db|lib) [list ...]`
+             and `set tech(<track>,<vt>,ndm) [list ...]` in the sibling
+             `lib_config.tcl` (current style — written by `library-manager
+             generate`, kept track-categorized).
+        """
         if not os.path.exists(path):
             logger.error(f"Tech config not found: {path}")
             return {}
@@ -496,7 +505,21 @@ class LibraryValidator:
         with open(path, 'r') as f:
             content = f.read()
 
-        return self._parse_library_sets(content)
+        sets = self._parse_library_sets(content)
+        if sets:
+            return sets
+
+        # Fall back to sibling lib_config.tcl (current generate output).
+        sibling = os.path.join(os.path.dirname(path), 'lib_config.tcl')
+        if os.path.exists(sibling):
+            logger.info(
+                f"No library_sets array in tech_config; using sibling "
+                f"{os.path.basename(sibling)} (per-key schema)"
+            )
+            with open(sibling, 'r') as f:
+                return self._parse_lib_config_per_key(f.read())
+
+        return sets
 
     def _parse_library_sets(self, content: str) -> Dict:
         """Extract library_sets from TCL array definition.
@@ -553,6 +576,95 @@ class LibraryValidator:
             body = set_match.group('body')
             set_data = self._parse_set_body(body)
             sets[set_name] = set_data
+
+        return sets
+
+    @staticmethod
+    def _voltage_str(v: str) -> str:
+        # "0p80v" → "0.80"
+        return v.replace('v', '').replace('p', '.')
+
+    @staticmethod
+    def _temp_str(t: str) -> str:
+        # "125c" → "125", "m40c" → "-40"
+        t = t.rstrip('c')
+        return f'-{t[1:]}' if t.startswith('m') else t
+
+    def _parse_lib_config_per_key(self, content: str) -> Dict:
+        """Synthesize a library_sets-shape dict from the per-key schema.
+
+        Recognized lines in lib_config.tcl:
+          set tech(<corner>,<voltage>,<temp>,db|lib)  [list "<path>" ...]
+          set tech(<track>,<vt>,ndm|db|lib)            [list "<path>" ...]
+          set tech(ndm|db|lib,memory|io|analog)        [list "<path>" ...]
+
+        Sets are keyed so list/check can present them in the same table
+        shape as the legacy library_sets array.
+        """
+        sets: Dict[str, Dict] = {}
+
+        def _split_paths(raw: str) -> List[str]:
+            return re.findall(r'"([^"]+)"', raw)
+
+        # PVT entries: <corner>,<voltage>,<temp>,<kind>
+        pvt_re = re.compile(
+            r'^\s*set\s+tech\(\s*(\w+)\s*,\s*(\d+p\d+v)\s*,\s*(\w+)\s*,\s*(db|lib|ndm)\s*\)'
+            r'\s+\[list\s+(.+?)\]\s*$',
+            re.MULTILINE
+        )
+        for m in pvt_re.finditer(content):
+            corner, volt, temp, kind = m.group(1), m.group(2), m.group(3), m.group(4)
+            paths = _split_paths(m.group(5))
+            if not paths:
+                continue
+            set_name = f'{corner}_{volt}_{temp}'
+            entry = sets.setdefault(set_name, {
+                'corner': corner,
+                'voltage': self._voltage_str(volt),
+                'temperature': self._temp_str(temp),
+            })
+            lib_key = 'timing_libraries' if kind in ('db', 'lib') else 'ndm_libraries'
+            entry.setdefault(lib_key, []).extend(paths)
+
+        # Per-track/per-VT physical: tech(<track>,<vt>,<kind>)
+        track_vt_re = re.compile(
+            r'^\s*set\s+tech\(\s*([0-9.]+T)\s*,\s*(\w+)\s*,\s*(ndm|db|lib)\s*\)'
+            r'\s+\[list\s+(.+?)\]\s*$',
+            re.MULTILINE
+        )
+        for m in track_vt_re.finditer(content):
+            track, vt, kind = m.group(1), m.group(2), m.group(3)
+            paths = _split_paths(m.group(4))
+            if not paths:
+                continue
+            set_name = f'physical_{track}_{vt}'
+            entry = sets.setdefault(set_name, {
+                'corner': 'physical',
+                'voltage': '-',
+                'temperature': '-',
+            })
+            lib_key = 'ndm_libraries' if kind == 'ndm' else 'timing_libraries'
+            entry.setdefault(lib_key, []).extend(paths)
+
+        # Shared physical: tech(<kind>,memory|io|analog)
+        shared_re = re.compile(
+            r'^\s*set\s+tech\(\s*(ndm|db|lib)\s*,\s*(memory|io|analog)\s*\)'
+            r'\s+\[list\s+(.+?)\]\s*$',
+            re.MULTILINE
+        )
+        for m in shared_re.finditer(content):
+            kind, category = m.group(1), m.group(2)
+            paths = _split_paths(m.group(3))
+            if not paths:
+                continue
+            set_name = f'shared_{category}'
+            entry = sets.setdefault(set_name, {
+                'corner': 'physical',
+                'voltage': '-',
+                'temperature': '-',
+            })
+            lib_key = 'ndm_libraries' if kind == 'ndm' else 'timing_libraries'
+            entry.setdefault(lib_key, []).extend(paths)
 
         return sets
 

@@ -2,7 +2,7 @@
 #===============================================================================
 # CBFlow LSF Utilities Framework
 #
-# Description: Comprehensive LSF management utilities for CBFlow with ML integration
+# Description: Comprehensive LSF management utilities for CBFlow
 # Version: 1.0.0
 # Author: CBFlow LSF Management System
 # Date: 2025-10-08
@@ -10,9 +10,8 @@
 # Features:
 # - LSF queue management and job submission
 # - Resource monitoring and analytics collection
-# - ML model integration for intelligent resource allocation
 # - Dynamic queue creation and management
-# - Cost optimization and budget tracking
+# - Cost accounting per job
 # - Performance monitoring and reporting
 #===============================================================================
 
@@ -148,12 +147,6 @@ namespace eval ::CBFlow::LSF::Utils {
         set mapped_queue [get_lsf_config $mapping_key ""]
 
         if {$mapped_queue ne ""} {
-            # Apply ML-based adjustments if enabled
-            if {[get_lsf_config "ml_analytics,enabled" "false"] eq "true"} {
-                set adjusted_queue [apply_ml_queue_adjustment $mapped_queue $flow_type $stage_name $design_characteristics]
-                CBFLOW_DEBUG "ML-adjusted queue: $mapped_queue -> $adjusted_queue for ${flow_type}:${stage_name}" "ML"
-                return $adjusted_queue
-            }
             return $mapped_queue
         }
 
@@ -161,25 +154,6 @@ namespace eval ::CBFlow::LSF::Utils {
         set default_queue [get_lsf_config "default_queue" "M"]
         CBFLOW_DEBUG "Using default queue '$default_queue' for ${flow_type}:${stage_name}" "QUEUE"
         return $default_queue
-    }
-
-    proc apply_ml_queue_adjustment {base_queue flow_type stage_name design_characteristics} {
-        # Placeholder for ML-based queue adjustment
-        # This will be implemented in Phase 2 with the ML analytics system
-
-        # For now, apply simple rule-based adjustments
-        if {[dict exists $design_characteristics gate_count]} {
-            set gate_count [dict get $design_characteristics gate_count]
-            set threshold [get_project_lsf_config "complexity_scaling,gate_count_threshold" "500000"]
-
-            if {$gate_count > $threshold} {
-                set upgraded_queue [upgrade_queue $base_queue]
-                CBFLOW_DEBUG "Upgraded queue due to large design: $base_queue -> $upgraded_queue" "ML"
-                return $upgraded_queue
-            }
-        }
-
-        return $base_queue
     }
 
     proc upgrade_queue {current_queue} {
@@ -502,27 +476,6 @@ namespace eval ::CBFlow::LSF::Utils {
         return $summary
     }
 
-    proc check_budget_limits {} {
-        set daily_limit [get_project_lsf_config "budget,daily_limit" "1000.00"]
-        set current_cost [get_daily_cost_summary]
-        set cost_today [dict get $current_cost total_cost]
-
-        set warning_threshold [get_project_lsf_config "alerts,cost_warning_threshold" "0.7"]
-        set critical_threshold [get_project_lsf_config "alerts,cost_critical_threshold" "0.9"]
-
-        set usage_ratio [expr $cost_today / $daily_limit]
-
-        if {$usage_ratio >= $critical_threshold} {
-            CBFLOW_ERROR "Critical budget alert: $cost_today/$daily_limit USD used (${usage_ratio}%)" "BUDGET"
-            return "CRITICAL"
-        } elseif {$usage_ratio >= $warning_threshold} {
-            CBFLOW_WARNING "Budget warning: $cost_today/$daily_limit USD used (${usage_ratio}%)" "BUDGET"
-            return "WARNING"
-        }
-
-        return "OK"
-    }
-
     #===========================================================================
     # DYNAMIC QUEUE MANAGEMENT
     #===========================================================================
@@ -657,15 +610,6 @@ namespace eval ::CBFlow::LSF::Utils {
             append report "  Average Cost per Job: \$[format %.2f $avg_cost]\n"
         }
 
-        append report "\nBudget Status:\n"
-        set budget_status [check_budget_limits]
-        append report "  Budget Status: $budget_status\n"
-
-        set daily_summary [get_daily_cost_summary]
-        set daily_limit [get_project_lsf_config "budget,daily_limit" "1000.00"]
-        set usage_pct [expr 100.0 * [dict get $daily_summary total_cost] / $daily_limit]
-        append report "  Daily Budget Usage: [format %.1f $usage_pct]%\n"
-
         return $report
     }
 
@@ -693,10 +637,6 @@ proc lsf_wait_for_completion {job_id {timeout 3600}} {
 
 proc lsf_get_recommended_queue {flow_type stage_name {design_characteristics {}}} {
     return [::CBFlow::LSF::Utils::get_recommended_queue_for_node $flow_type $stage_name $design_characteristics]
-}
-
-proc lsf_check_budget {} {
-    return [::CBFlow::LSF::Utils::check_budget_limits]
 }
 
 proc lsf_generate_makefile_target {flow_type stage_name target_name command} {

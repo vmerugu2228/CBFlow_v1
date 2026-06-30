@@ -232,10 +232,6 @@ set project(verification,formal) "true"
 set project(verification,simulation) "true"
 
 # Ravendrive-specific settings
-set project(ravendrive,cpu_type) "RISC-V"
-set project(ravendrive,isa) "RV32I"
-set project(ravendrive,cache_size) "32KB"
-set project(ravendrive,memory_map) "ravendrive_memmap.tcl"
 
 # Feature toggles
 set project(autoppt,enabled) "false"         ;# Enable AutoPPT summary generation (requires python-pptx)
@@ -380,15 +376,11 @@ set project(lsf,config_date) "2025-10-08"
 # Default LSF settings for Ravendrive project
 set project(lsf,default_queue) "M"
 set project(lsf,emergency_queue) "ultra"
-set project(lsf,selection_strategy) "ml_optimized"
-set project(lsf,cost_optimization) "true"
-set project(lsf,ml_analytics) "true"
 
 # Project resource constraints
 set project(lsf,max_concurrent_jobs) "25"
 set project(lsf,max_daily_cost) "1000.00"     ; # USD
 set project(lsf,priority_class) "normal"      ; # normal, high, critical
-set project(lsf,budget_alert_threshold) "0.8" ; # 80% of budget
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # NODE-SPECIFIC RESOURCE REQUIREMENTS
@@ -411,25 +403,9 @@ set project(lsf,node_requirements,SYNTH,export_data,cpu) "2"
 set project(lsf,node_requirements,SYNTH,export_data,runtime_estimate) "0.5"
 
 # FP Flow Node Requirements
-set project(lsf,node_requirements,FP,inputs,queue) "S"
-set project(lsf,node_requirements,FP,inputs,memory) "4GB"
-set project(lsf,node_requirements,FP,inputs,cpu) "2"
-set project(lsf,node_requirements,FP,inputs,runtime_estimate) "0.25"
 
-set project(lsf,node_requirements,FP,floorplan,queue) "M"
-set project(lsf,node_requirements,FP,floorplan,memory) "16GB"
-set project(lsf,node_requirements,FP,floorplan,cpu) "8"
-set project(lsf,node_requirements,FP,floorplan,runtime_estimate) "1.5"
 
-set project(lsf,node_requirements,FP,powerplan,queue) "L"
-set project(lsf,node_requirements,FP,powerplan,memory) "24GB"
-set project(lsf,node_requirements,FP,powerplan,cpu) "12"
-set project(lsf,node_requirements,FP,powerplan,runtime_estimate) "2.5"
 
-set project(lsf,node_requirements,FP,post_floorplan,queue) "M"
-set project(lsf,node_requirements,FP,post_floorplan,memory) "16GB"
-set project(lsf,node_requirements,FP,post_floorplan,cpu) "8"
-set project(lsf,node_requirements,FP,post_floorplan,runtime_estimate) "1.0"
 
 # PNR Flow Node Requirements (Most Resource Intensive)
 set project(lsf,node_requirements,PNR,inputs,queue) "S"
@@ -437,25 +413,9 @@ set project(lsf,node_requirements,PNR,inputs,memory) "4GB"
 set project(lsf,node_requirements,PNR,inputs,cpu) "2"
 set project(lsf,node_requirements,PNR,inputs,runtime_estimate) "0.25"
 
-set project(lsf,node_requirements,PNR,import_design,queue) "M"
-set project(lsf,node_requirements,PNR,import_design,memory) "16GB"
-set project(lsf,node_requirements,PNR,import_design,cpu) "8"
-set project(lsf,node_requirements,PNR,import_design,runtime_estimate) "1.0"
 
-set project(lsf,node_requirements,PNR,floorplan,queue) "M"
-set project(lsf,node_requirements,PNR,floorplan,memory) "16GB"
-set project(lsf,node_requirements,PNR,floorplan,cpu) "8"
-set project(lsf,node_requirements,PNR,floorplan,runtime_estimate) "1.5"
 
-set project(lsf,node_requirements,PNR,powerplan,queue) "L"
-set project(lsf,node_requirements,PNR,powerplan,memory) "32GB"
-set project(lsf,node_requirements,PNR,powerplan,cpu) "16"
-set project(lsf,node_requirements,PNR,powerplan,runtime_estimate) "3.0"
 
-set project(lsf,node_requirements,PNR,placement,queue) "L"
-set project(lsf,node_requirements,PNR,placement,memory) "32GB"
-set project(lsf,node_requirements,PNR,placement,cpu) "16"
-set project(lsf,node_requirements,PNR,placement,runtime_estimate) "4.0"
 
 set project(lsf,node_requirements,PNR,cts,queue) "L"
 set project(lsf,node_requirements,PNR,cts,memory) "32GB"
@@ -467,15 +427,7 @@ set project(lsf,node_requirements,PNR,route,memory) "64GB"
 set project(lsf,node_requirements,PNR,route,cpu) "32"
 set project(lsf,node_requirements,PNR,route,runtime_estimate) "8.0"
 
-set project(lsf,node_requirements,PNR,route_opt,queue) "XL"
-set project(lsf,node_requirements,PNR,route_opt,memory) "64GB"
-set project(lsf,node_requirements,PNR,route_opt,cpu) "32"
-set project(lsf,node_requirements,PNR,route_opt,runtime_estimate) "6.0"
 
-set project(lsf,node_requirements,PNR,post_route,queue) "L"
-set project(lsf,node_requirements,PNR,post_route,memory) "32GB"
-set project(lsf,node_requirements,PNR,post_route,cpu) "16"
-set project(lsf,node_requirements,PNR,post_route,runtime_estimate) "2.0"
 
 # STA Flow Node Requirements
 set project(lsf,node_requirements,STA,inputs,queue) "S"
@@ -499,10 +451,6 @@ set project(lsf,node_requirements,LEC,inputs,memory) "4GB"
 set project(lsf,node_requirements,LEC,inputs,cpu) "2"
 set project(lsf,node_requirements,LEC,inputs,runtime_estimate) "0.25"
 
-set project(lsf,node_requirements,LEC,equivalence_check,queue) "M"
-set project(lsf,node_requirements,LEC,equivalence_check,memory) "16GB"
-set project(lsf,node_requirements,LEC,equivalence_check,cpu) "8"
-set project(lsf,node_requirements,LEC,equivalence_check,runtime_estimate) "2.5"
 
 # EMIR Flow Node Requirements
 set project(lsf,node_requirements,EMIR,inputs,queue) "S"
@@ -510,20 +458,8 @@ set project(lsf,node_requirements,EMIR,inputs,memory) "4GB"
 set project(lsf,node_requirements,EMIR,inputs,cpu) "2"
 set project(lsf,node_requirements,EMIR,inputs,runtime_estimate) "0.25"
 
-set project(lsf,node_requirements,EMIR,ir_analysis,queue) "L"
-set project(lsf,node_requirements,EMIR,ir_analysis,memory) "32GB"
-set project(lsf,node_requirements,EMIR,ir_analysis,cpu) "16"
-set project(lsf,node_requirements,EMIR,ir_analysis,runtime_estimate) "5.0"
 
-set project(lsf,node_requirements,EMIR,em_analysis,queue) "L"
-set project(lsf,node_requirements,EMIR,em_analysis,memory) "32GB"
-set project(lsf,node_requirements,EMIR,em_analysis,cpu) "16"
-set project(lsf,node_requirements,EMIR,em_analysis,runtime_estimate) "4.5"
 
-set project(lsf,node_requirements,EMIR,si_analysis,queue) "XL"
-set project(lsf,node_requirements,EMIR,si_analysis,memory) "64GB"
-set project(lsf,node_requirements,EMIR,si_analysis,cpu) "32"
-set project(lsf,node_requirements,EMIR,si_analysis,runtime_estimate) "7.0"
 
 # PV Flow Node Requirements
 set project(lsf,node_requirements,PV,inputs,queue) "S"
@@ -531,74 +467,30 @@ set project(lsf,node_requirements,PV,inputs,memory) "4GB"
 set project(lsf,node_requirements,PV,inputs,cpu) "2"
 set project(lsf,node_requirements,PV,inputs,runtime_estimate) "0.25"
 
-set project(lsf,node_requirements,PV,drc_check,queue) "L"
-set project(lsf,node_requirements,PV,drc_check,memory) "32GB"
-set project(lsf,node_requirements,PV,drc_check,cpu) "16"
-set project(lsf,node_requirements,PV,drc_check,runtime_estimate) "4.0"
 
-set project(lsf,node_requirements,PV,lvs_check,queue) "L"
-set project(lsf,node_requirements,PV,lvs_check,memory) "24GB"
-set project(lsf,node_requirements,PV,lvs_check,cpu) "12"
-set project(lsf,node_requirements,PV,lvs_check,runtime_estimate) "3.5"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # DESIGN COMPLEXITY-BASED SCALING FACTORS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # Ravendrive-specific scaling based on design characteristics
-set project(lsf,complexity_scaling,gate_count_threshold) "500000"  ; # gates
-set project(lsf,complexity_scaling,memory_scaling_factor) "1.5"    ; # 50% more memory for large designs
-set project(lsf,complexity_scaling,cpu_scaling_factor) "1.3"       ; # 30% more CPUs for large designs
 
 # Hierarchical design scaling
-set project(lsf,hierarchical_scaling,enabled) "true"
-set project(lsf,hierarchical_scaling,block_count_threshold) "10"   ; # blocks
-set project(lsf,hierarchical_scaling,resource_multiplier) "1.8"    ; # 80% more resources for hierarchical
 
 # Memory estimation based on design size
-set project(lsf,memory_estimation,base_memory_per_kgate) "0.1"     ; # GB per 1K gates
-set project(lsf,memory_estimation,routing_memory_multiplier) "2.5" ; # Routing needs 2.5x more memory
-set project(lsf,memory_estimation,signoff_memory_multiplier) "3.0" ; # Signoff needs 3x more memory
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # COST BUDGETS AND CONSTRAINTS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # Ravendrive project cost budgets
-set project(lsf,budget,daily_limit) "1000.00"          ; # USD per day
-set project(lsf,budget,weekly_limit) "5000.00"         ; # USD per week
-set project(lsf,budget,monthly_limit) "20000.00"       ; # USD per month
-set project(lsf,budget,emergency_allowance) "2000.00"  ; # USD for emergency queue usage
 
-# Cost allocation by flow type
-set project(lsf,budget,allocation,SYNTH) "15"    ; # 15% of budget
-set project(lsf,budget,allocation,FP) "10"       ; # 10% of budget
-set project(lsf,budget,allocation,PNR) "50"      ; # 50% of budget (most expensive)
-set project(lsf,budget,allocation,STA) "10"      ; # 10% of budget
-set project(lsf,budget,allocation,LEC) "5"       ; # 5% of budget
-set project(lsf,budget,allocation,EMIR) "8"      ; # 8% of budget
-set project(lsf,budget,allocation,PV) "2"      ; # 2% of budget
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ML ANALYTICS SETTINGS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Ravendrive project ML analytics configuration
-set project(lsf,ml,learning_enabled) "true"
-set project(lsf,ml,data_collection_level) "detailed"   ; # basic, detailed, comprehensive
-set project(lsf,ml,model_training_frequency) "weekly"
-set project(lsf,ml,prediction_accuracy_target) "0.85"  ; # 85% accuracy
-set project(lsf,ml,historical_data_retention) "180"    ; # days
 
-# Ravendrive-specific ML features
-set project(lsf,ml,features,design_characteristics) {
-    "gate_count" "register_count" "memory_bits" "macro_count"
-    "hierarchy_depth" "clock_domains" "power_domains"
-}
-set project(lsf,ml,features,runtime_characteristics) {
-    "previous_runtime" "design_complexity_score" "tool_version"
-    "optimization_level" "target_frequency" "utilization_target"
-}
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # NOTIFICATION AND ALERTING
@@ -612,26 +504,11 @@ set project(lsf,notifications,completion_alerts) "false"  ; # Too many for large
 set project(lsf,notifications,weekly_summary) "true"
 
 # Alert thresholds specific to Ravendrive project
-set project(lsf,alerts,cost_warning_threshold) "0.7"     ; # 70% of daily budget
-set project(lsf,alerts,cost_critical_threshold) "0.9"    ; # 90% of daily budget
-set project(lsf,alerts,job_failure_rate_threshold) "0.05" ; # 5% failure rate
-set project(lsf,alerts,long_wait_time_threshold) "3600"  ; # 1 hour wait time
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# QUALITY OF SERVICE (QoS)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Ravendrive project QoS settings
-set project(lsf,qos,deadline_aware_scheduling) "true"
-set project(lsf,qos,priority_boost_for_critical_path) "true"
-set project(lsf,qos,resource_reservation_for_tapeout) "true"
-set project(lsf,qos,load_balancing_preference) "cost_optimized"  ; # performance_optimized, cost_optimized, balanced
 
-# SLA (Service Level Agreement) targets
-set project(lsf,sla,job_start_time_target) "300"        ; # seconds
-set project(lsf,sla,resource_availability_target) "0.95" ; # 95% availability
-set project(lsf,sla,cost_predictability_variance) "0.1"  ; # 10% variance from estimate
-set project(lsf,sla,completion_time_accuracy) "0.8"     ; # 80% of jobs complete within estimated time
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # MMMC NODE SCENARIO ASSIGNMENTS
@@ -753,3 +630,67 @@ array set mmmc {
     }
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage entries added to align with denali canonical schema
+# ─────────────────────────────────────────────────────────────────────────────
+
+set project(lsf,node_requirements,EMIR,ir_drop,queue) "M"
+set project(lsf,node_requirements,EMIR,ir_drop,memory) "16GB"
+set project(lsf,node_requirements,EMIR,ir_drop,cpu) "8"
+set project(lsf,node_requirements,EMIR,ir_drop,runtime_estimate) "2.5"
+
+set project(lsf,node_requirements,EMIR,power_analysis,queue) "M"
+set project(lsf,node_requirements,EMIR,power_analysis,memory) "16GB"
+set project(lsf,node_requirements,EMIR,power_analysis,cpu) "8"
+set project(lsf,node_requirements,EMIR,power_analysis,runtime_estimate) "3.0"
+
+set project(lsf,node_requirements,LEC,compare,queue) "M"
+set project(lsf,node_requirements,LEC,compare,memory) "12GB"
+set project(lsf,node_requirements,LEC,compare,cpu) "4"
+set project(lsf,node_requirements,LEC,compare,runtime_estimate) "1.5"
+
+set project(lsf,node_requirements,PNR,cts_opt,queue) "L"
+set project(lsf,node_requirements,PNR,cts_opt,memory) "24GB"
+set project(lsf,node_requirements,PNR,cts_opt,cpu) "8"
+set project(lsf,node_requirements,PNR,cts_opt,runtime_estimate) "2.5"
+
+set project(lsf,node_requirements,PNR,init_design,queue) "M"
+set project(lsf,node_requirements,PNR,init_design,memory) "12GB"
+set project(lsf,node_requirements,PNR,init_design,cpu) "4"
+set project(lsf,node_requirements,PNR,init_design,runtime_estimate) "0.75"
+
+set project(lsf,node_requirements,PNR,place,queue) "L"
+set project(lsf,node_requirements,PNR,place,memory) "24GB"
+set project(lsf,node_requirements,PNR,place,cpu) "8"
+set project(lsf,node_requirements,PNR,place,runtime_estimate) "3.0"
+
+set project(lsf,node_requirements,PNR,pro,queue) "L"
+set project(lsf,node_requirements,PNR,pro,memory) "32GB"
+set project(lsf,node_requirements,PNR,pro,cpu) "16"
+set project(lsf,node_requirements,PNR,pro,runtime_estimate) "4.0"
+
+set project(lsf,node_requirements,PNR,signoff,queue) "M"
+set project(lsf,node_requirements,PNR,signoff,memory) "16GB"
+set project(lsf,node_requirements,PNR,signoff,cpu) "8"
+set project(lsf,node_requirements,PNR,signoff,runtime_estimate) "1.5"
+
+set project(lsf,node_requirements,PV,drc,queue) "M"
+set project(lsf,node_requirements,PV,drc,memory) "16GB"
+set project(lsf,node_requirements,PV,drc,cpu) "8"
+set project(lsf,node_requirements,PV,drc,runtime_estimate) "2.5"
+
+set project(lsf,node_requirements,PV,lvs,queue) "M"
+set project(lsf,node_requirements,PV,lvs,memory) "12GB"
+set project(lsf,node_requirements,PV,lvs,cpu) "4"
+set project(lsf,node_requirements,PV,lvs,runtime_estimate) "2.0"
+
+# Default tool selections (aligned with denali canonical)
+set project(default_tools) {
+    SYNTH    "genus"
+    PNR      "innovus"
+    STA      "tempus"
+    LEC      "conformal"
+    CLP      "conformal_lp"
+    EMIR     "voltus"
+    PV       "calibre"
+}

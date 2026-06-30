@@ -1,7 +1,7 @@
 #!/usr/bin/env tclsh
 
 # LSF Dynamic Queue Management System
-# Provides intelligent queue creation and management based on ML analytics
+# Provides queue creation and management based on heuristic resource estimates
 
 # Source required modules
 source [file join [file dirname [info script]] "lsf_utils.tcl"]
@@ -31,16 +31,11 @@ proc ::lsf::dynamic::create_dynamic_queue {flow_type stage_name design_character
 
     CBFLOW_INFO "Creating dynamic queue for $flow_type:$stage_name" "LSF_DYNAMIC"
 
-    # Get ML prediction for optimal resources
-    set ml_prediction [get_ml_resource_prediction $flow_type $stage_name $design_characteristics]
-
-    if {[dict size $ml_prediction] == 0} {
-        CBFLOW_WARNING "No ML prediction available, using heuristic approach" "LSF_DYNAMIC"
-        set ml_prediction [get_heuristic_resource_prediction $flow_type $stage_name $design_characteristics]
-    }
+    # Heuristic resource prediction (rule-based — no ML)
+    set prediction [get_heuristic_resource_prediction $flow_type $stage_name $design_characteristics]
 
     # Calculate optimal queue parameters
-    set queue_spec [calculate_optimal_queue_spec $ml_prediction]
+    set queue_spec [calculate_optimal_queue_spec $prediction]
 
     # Generate unique queue name
     set queue_name [generate_dynamic_queue_name $flow_type $stage_name]
@@ -74,48 +69,7 @@ proc ::lsf::dynamic::create_dynamic_queue {flow_type stage_name design_character
     }
 }
 
-# Get ML-based resource prediction
-proc ::lsf::dynamic::get_ml_resource_prediction {flow_type stage_name design_characteristics} {
-    # Use the ML analytics engine for prediction
-    set ml_script [file join [file dirname [info script]] "../ml_analytics/v1.0.0/lsf_ml_analytics.py"]
-
-    # Prepare input data for ML engine
-    set input_data [dict create \
-        flow_type $flow_type \
-        stage_name $stage_name \
-        design_characteristics $design_characteristics \
-    ]
-
-    # Create temporary file for data exchange
-    set temp_file "/tmp/ml_prediction_input_[clock seconds]_[pid].json"
-    set fp [open $temp_file w]
-    puts $fp [dict_to_json $input_data]
-    close $fp
-
-    # Call ML engine
-    set result_file "/tmp/ml_prediction_output_[clock seconds]_[pid].json"
-
-    if {[catch {exec python3 $ml_script predict_optimal_queue $temp_file $result_file} ml_output]} {
-        CBFLOW_WARNING "ML prediction failed: $ml_output" "LSF_DYNAMIC"
-        file delete -force $temp_file
-        return [dict create]
-    }
-
-    # Parse ML results
-    set prediction [dict create]
-    if {[file exists $result_file]} {
-        set fp [open $result_file r]
-        set json_data [read $fp]
-        close $fp
-        set prediction [json_to_dict $json_data]
-        file delete -force $result_file
-    }
-
-    file delete -force $temp_file
-    return $prediction
-}
-
-# Fallback heuristic resource prediction when ML is unavailable
+# Heuristic resource prediction
 proc ::lsf::dynamic::get_heuristic_resource_prediction {flow_type stage_name design_characteristics} {
     set prediction [dict create]
 

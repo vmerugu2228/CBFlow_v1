@@ -218,15 +218,11 @@ set project(lsf,config_date) "2026-06-02"
 # Default LSF settings
 set project(lsf,default_queue) "M"
 set project(lsf,emergency_queue) "ultra"
-set project(lsf,selection_strategy) "ml_optimized"
-set project(lsf,cost_optimization) "true"
-set project(lsf,ml_analytics) "true"
 
 # Project resource constraints
 set project(lsf,max_concurrent_jobs) "15"
 set project(lsf,max_daily_cost) "500.00"        ;# USD
 set project(lsf,priority_class) "normal"         ;# normal, high, critical
-set project(lsf,budget_alert_threshold) "0.8"    ;# 80% of budget
 
 # Node-specific resource requirements — SYNTH (node_types: inputs, init_design, synthesis, export_data)
 set project(lsf,node_requirements,SYNTH,inputs,queue) "S"
@@ -401,3 +397,14 @@ array set mmmc {
         hold  {func_ff_1p10v_rcmin_125c func_ff_1p10v_rcmin_25c func_ff_1p10v_rcmin_m40c}
     }
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Design content + waivers (cross-project schema parity)
+# ─────────────────────────────────────────────────────────────────────────────
+set project(analog_blocks) ""        # Analog block list (project-specific; empty if none)
+set project(full_chip) ""        # Full-chip target name (project-specific; empty for block-level)
+set project(macro_list) ""        # Macro instance list (project-specific)
+set project(memory_list) ""        # Memory instance list (project-specific)
+set project(validation,post_route_waivers) ""        # Post-route validation waivers (project-specific)
+set project(validation,powerplan_waivers) ""        # Powerplan validation waivers (project-specific)
+set project(validation,SIGNOFF_waivers) ""        # Signoff validation waivers (project-specific)

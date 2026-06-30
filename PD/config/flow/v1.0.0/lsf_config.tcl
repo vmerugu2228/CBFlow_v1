@@ -4,16 +4,14 @@
 # ║                    Intelligent Resource Allocation System                    ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 #
-# Description: Comprehensive LSF configuration with ML-based resource optimization
+# Description: LSF queue + per-stage resource configuration
 # Version: 1.0.0
 # Author: CBFlow LSF Management System
 # Date: 2025-10-08
 #
 # Features:
-# - Intelligent LSF queue definitions (XS, S, M, L, XL, ultra)
-# - ML analytics configuration for resource optimization
+# - LSF queue definitions (XS, S, M, L, XL, ultra)
 # - Dynamic queue creation policies
-# - Cost optimization and performance tuning
 # - Node-specific resource allocation strategies
 
 # ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -118,8 +116,8 @@ namespace eval ::CBFlow::LSF {
     set lsf(emergency_queue) "ultra"
 
     # Queue selection strategies
-    # selection_strategy options: static, load_balanced, ml_optimized, cost_optimized
-    set lsf(selection_strategy) "ml_optimized"
+    # selection_strategy options: static, load_balanced
+    set lsf(selection_strategy) "load_balanced"
     # fallback_strategy options: next_larger, best_available, fail
     set lsf(fallback_strategy) "next_larger"
 
