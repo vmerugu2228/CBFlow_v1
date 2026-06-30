@@ -841,8 +841,6 @@ def _render_index(runs, discipline='PD'):
     <div class="stat">Archived: <b id="stat-archived">{len(archived)}</b></div>
     <div class="stat">Projects: <b id="stat-projects">{len(project_set)}</b></div>
     <div class="stat">Designs: <b id="stat-designs">{len(design_set)}</b></div>
-    <div class="stat">PID: <b id="stat-pid">…</b></div>
-    <div class="stat">Port: <b id="stat-port">…</b></div>
   </div>
   <div class="projects">
     <span class="projects-label">Projects:</span>
@@ -871,6 +869,12 @@ def _render_index(runs, discipline='PD'):
     <div class="panel-hd">
       <h2>Registered runs</h2>
       <div class="toolbar">
+        <select id="project-filter" class="flow-filter" title="Filter by project">
+          <option value="">All projects</option>
+        </select>
+        <select id="design-filter" class="flow-filter" title="Filter by block / design">
+          <option value="">All blocks</option>
+        </select>
         <select id="flow-filter" class="flow-filter" title="Filter by flow type">
           <option value="">All flows</option>
         </select>
@@ -990,7 +994,7 @@ def _render_index(runs, discipline='PD'):
       ? '<span class="deleted-pill" title="Run directory was deleted from disk">DELETED</span>'
       : '';
     const linkHref = missing ? '#' : `/run/${{r.run_id}}/`;
-    return `<tr class="${{classes.join(' ')}}" data-rid="${{r.run_id}}" data-flow="${{r.flow_type || '?'}}" data-status="${{r.current_status || ''}}" data-start="${{r.current_start || ''}}" data-runtime="${{r.current_runtime != null ? r.current_runtime : ''}}" data-search="${{[name,r.flow_type,r.run_dir,r.current_node,r.current_status].filter(Boolean).join(' ').toLowerCase()}}">
+    return `<tr class="${{classes.join(' ')}}" data-rid="${{r.run_id}}" data-flow="${{r.flow_type || '?'}}" data-project="${{r.project || ''}}" data-design="${{r.design || ''}}" data-status="${{r.current_status || ''}}" data-start="${{r.current_start || ''}}" data-runtime="${{r.current_runtime != null ? r.current_runtime : ''}}" data-search="${{[name,r.flow_type,r.run_dir,r.current_node,r.current_status,r.project,r.design].filter(Boolean).join(' ').toLowerCase()}}">
       <td>
         <a class="runlink" href="${{linkHref}}">${{name}}</a>${{deletedPill}}
       </td>
@@ -1002,20 +1006,26 @@ def _render_index(runs, discipline='PD'):
     </tr>`;
   }}
 
-  function refreshFlowFilterOptions(runs) {{
-    // Populate the <select> with one option per observed flow_type while
-    // preserving the user's current selection. '?' (unknown) sorts last.
-    const sel = document.getElementById('flow-filter');
+  function _refreshSelect(selId, allLabel, keyOf, runs) {{
+    // Populate a <select> with one option per observed value of keyOf(run).
+    // Preserve the user's selection if the value still exists.
+    const sel = document.getElementById(selId);
     if (!sel) return;
     const current = sel.value;
-    const flows = Array.from(new Set(runs.map(r => r.flow_type || '?')))
+    const values = Array.from(new Set(runs.map(r => keyOf(r) || '?')))
       .sort((a, b) => (a === '?' ? 1 : (b === '?' ? -1 : a.localeCompare(b))));
-    sel.innerHTML = `<option value="">All flows (${{runs.length}})</option>`
-      + flows.map(f => {{
-          const n = runs.filter(r => (r.flow_type || '?') === f).length;
-          return `<option value="${{f}}">${{f}} (${{n}})</option>`;
+    sel.innerHTML = `<option value="">${{allLabel}} (${{runs.length}})</option>`
+      + values.map(v => {{
+          const n = runs.filter(r => (keyOf(r) || '?') === v).length;
+          return `<option value="${{v}}">${{v}} (${{n}})</option>`;
         }}).join('');
-    if (current && flows.includes(current)) sel.value = current;
+    if (current && values.includes(current)) sel.value = current;
+  }}
+
+  function refreshAllFilterOptions(runs) {{
+    _refreshSelect('project-filter', 'All projects', r => r.project,   runs);
+    _refreshSelect('design-filter',  'All blocks',   r => r.design,    runs);
+    _refreshSelect('flow-filter',    'All flows',    r => r.flow_type, runs);
   }}
 
   function toast(msg, isError) {{
@@ -1028,17 +1038,14 @@ def _render_index(runs, discipline='PD'):
 
   async function loadRuns() {{
     try {{
-      const [runs, status] = await Promise.all([
-        fetch('/api/runs').then(r => r.json()),
-        fetch('/api/daemon-status').then(r => r.json()).catch(() => ({{}})),
-      ]);
+      const runs = await fetch('/api/runs').then(r => r.json());
       const tbody = document.getElementById('runs-tbody');
       if (!runs.length) {{
         tbody.innerHTML = '<tr><td colspan="6" class="empty">No runs registered. Add one above to get started.</td></tr>';
       }} else {{
         tbody.innerHTML = runs.map(renderRow).join('');
       }}
-      refreshFlowFilterOptions(runs);
+      refreshAllFilterOptions(runs);
       const activeRuns = runs.filter(r => !r.archived);
       const archivedCount = runs.length - activeRuns.length;
       const projectSet = new Set(activeRuns.map(r => r.project).filter(Boolean));
@@ -1053,8 +1060,6 @@ def _render_index(runs, discipline='PD'):
       document.getElementById('stat-archived').textContent = archivedCount;
       document.getElementById('stat-projects').textContent = projectSet.size;
       document.getElementById('stat-designs').textContent = designSet.size;
-      if (status.pid) document.getElementById('stat-pid').textContent = status.pid;
-      if (status.port) document.getElementById('stat-port').textContent = status.port;
 
       const chipNames = Object.keys(projCounts).sort();
       document.getElementById('proj-chips').innerHTML = chipNames.length
@@ -1213,17 +1218,25 @@ def _render_index(runs, discipline='PD'):
   }});
 
   function applyFilter() {{
-    const q = document.getElementById('filter').value.toLowerCase().trim();
-    const flow = document.getElementById('flow-filter').value;
+    const q       = document.getElementById('filter').value.toLowerCase().trim();
+    const project = document.getElementById('project-filter').value;
+    const design  = document.getElementById('design-filter').value;
+    const flow    = document.getElementById('flow-filter').value;
     document.querySelectorAll('#runs-tbody tr').forEach(tr => {{
-      const search = tr.dataset.search || '';
-      const rowFlow = tr.dataset.flow || '';
-      const matchesText = !q || search.includes(q);
-      const matchesFlow = !flow || rowFlow === flow;
-      tr.style.display = (matchesText && matchesFlow) ? '' : 'none';
+      const search   = tr.dataset.search || '';
+      const rowProj  = tr.dataset.project || '';
+      const rowDes   = tr.dataset.design  || '';
+      const rowFlow  = tr.dataset.flow    || '';
+      const matchesText    = !q       || search.includes(q);
+      const matchesProject = !project || rowProj === project;
+      const matchesDesign  = !design  || rowDes  === design;
+      const matchesFlow    = !flow    || rowFlow === flow;
+      tr.style.display = (matchesText && matchesProject && matchesDesign && matchesFlow) ? '' : 'none';
     }});
   }}
   document.getElementById('filter').addEventListener('input', applyFilter);
+  document.getElementById('project-filter').addEventListener('change', applyFilter);
+  document.getElementById('design-filter').addEventListener('change', applyFilter);
   document.getElementById('flow-filter').addEventListener('change', applyFilter);
   document.getElementById('refresh').addEventListener('click', loadRuns);
 
@@ -1283,8 +1296,11 @@ def _render_run_rows(runs):
             runtime_html = f'<span class="rt">{_fmt_duration(_rt)}</span>'
         else:
             runtime_html = '<span class="rt muted">—</span>'
+        proj = r.get('project') or ''
+        design = r.get('design') or ''
         out.append(
             f'<tr class="{cls}" data-rid="{rid}" data-flow="{flow}" '
+            f'data-project="{proj}" data-design="{design}" '
             f'data-status="{status}" '
             f'data-start="{r.get("current_start") or ""}" '
             f'data-runtime="{r.get("current_runtime") if r.get("current_runtime") is not None else ""}" '
