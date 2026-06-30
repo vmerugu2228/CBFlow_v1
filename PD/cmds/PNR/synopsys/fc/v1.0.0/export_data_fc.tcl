@@ -314,6 +314,23 @@ flow_proc save_design {
 # write_abstract NDM. Gated on pnr(export,abstract) | synth_pnr(export,abstract).
 # ==============================================================================
 }
+flow_proc write_lef_output {
+    if {![cfg_true export,lef]} {
+        handle_info "LEF export disabled (export,lef != true) — skipping"
+        return
+    }
+    global cfg flow
+    set design_name [expr {$cfg(common,design_name) ne "" ? $cfg(common,design_name) : $flow(design_name)}]
+    set _lef "$::OUTPUTS_DIR/${design_name}.lef"
+    handle_info "write_lef $_lef"
+    catch { write_lef $_lef } _err
+    if {[info exists _err] && $_err ne ""} {
+        handle_warning "write_lef: $_err"
+    }
+    handle_info "LEF written: $_lef"
+}
+
+# ==============================================================================
 flow_proc write_abstract_output {
     if {![cfg_true export,abstract]} {
         handle_info "Abstract export disabled (export,abstract != true) — skipping"
