@@ -39,26 +39,6 @@ set project(lib_root) "/proj/libs/gf_28nm"
 set project(top_module) "denali_top"
 set project(block_list) "tom"
 
-# ---------------------------------------------------------------------------
-# DESIGN INFORMATION
-# ---------------------------------------------------------------------------
-
-# Simple hierarchy: denali_top (DL1) -> tom (DL2)
-set project(design_hierarchy) {
-    denali_top {
-        description "Full chip top level (DL1)"
-        level "DL1"
-        parent ""
-        children {tom}
-    }
-    tom {
-        description "TOM processing block (DL2)"
-        level "DL2"
-        parent "denali_top"
-        children {}
-    }
-}
-
 # Generate valid design names from hierarchy
 set project(valid_design_names) [dict keys $project(design_hierarchy)]
 
@@ -93,17 +73,6 @@ set project(dft,compression) "true"
 set project(verification,formal) "true"
 set project(verification,simulation) "true"
 
-# Default Cadence tools
-set project(default_tools) {
-    SYNTH    "genus"
-    PNR      "innovus"
-    STA      "tempus"
-    LEC      "conformal"
-    CLP      "conformal_lp"
-    EMIR     "voltus"
-    PV       "calibre"
-}
-
 # Feature toggles
 set project(autoppt,enabled) "false"         ;# Enable AutoPPT summary generation (requires python-pptx)
 
@@ -113,69 +82,6 @@ set project(custom,constraints) "denali_constraints.sdc"
 set project(custom,hooks) "denali_custom.tcl"
 set project(custom,waivers) "denali_waivers.tcl"
 set project(custom,config_files) "denali_extra.tcl"
-
-# ---------------------------------------------------------------------------
-# VALIDATION WAIVER PATTERNS
-# ---------------------------------------------------------------------------
-
-# Global validation waivers - patterns that should be waivered across all stages
-set project(validation,global_waivers) {
-    ".*[Ww]arning.*clock.*skew.*"
-    ".*[Ww]arning.*timing.*convergence.*"
-    ".*[Ww]arning.*unconnected.*pin.*"
-    ".*[Ww]arning.*library.*characterization.*"
-    ".*[Ii]nfo.*optimization.*"
-    ".*[Nn]ote.*"
-}
-
-# Stage-specific validation waivers
-set project(validation,init_design_waivers) {
-    ".*[Ww]arning.*netlist.*case.*sensitivity.*"
-    ".*[Ww]arning.*module.*binding.*"
-    ".*[Ee]rror.*design.*has.*no.*clock.*constraint.*"
-}
-
-set project(validation,floorplan_waivers) {
-    ".*[Ww]arning.*macro.*overlap.*"
-    ".*[Ww]arning.*placement.*density.*"
-    ".*[Ww]arning.*utilization.*target.*"
-}
-
-set project(validation,cts_waivers) {
-    ".*[Ww]arning.*clock.*tree.*balance.*"
-    ".*[Ww]arning.*clock.*latency.*"
-    ".*[Ww]arning.*useful.*skew.*"
-}
-
-set project(validation,route_waivers) {
-    ".*[Ww]arning.*antenna.*violation.*"
-    ".*[Ww]arning.*routing.*congestion.*"
-}
-
-set project(validation,signoff_waivers) {
-    ".*[Ww]arning.*final.*timing.*report.*"
-    ".*[Ww]arning.*design.*margin.*"
-}
-
-# Flow-specific validation waivers
-set project(validation,PNR_waivers) {
-    ".*[Ww]arning.*place.*and.*route.*"
-}
-
-set project(validation,SYNTH_waivers) {
-    ".*[Ww]arning.*synthesis.*optimization.*"
-}
-
-# Critical error patterns that should NEVER be waivered
-set project(validation,critical_errors) {
-    ".*[Ee]rror.*license.*"
-    ".*[Ee]rror.*tool.*crash.*"
-    ".*[Ee]rror.*segmentation.*fault.*"
-    ".*[Ee]rror.*memory.*allocation.*"
-    ".*[Ff]atal.*"
-    ".*[Aa]bort.*"
-    ".*[Cc]ore.*dumped.*"
-}
 
 # ---------------------------------------------------------------------------
 # RELEASE CONFIGURATION
@@ -195,12 +101,6 @@ set project(release,phase) "P0"
 set project(release,block_name) ""
 set project(release,active_tag) "BTO"
 set project(release,expiry_date) "2027-06-30"
-
-# Release directory sub-structure
-set project(release,structure) {
-    "netlist" "sdc" "def" "gds" "spef" "upf"
-    "reports" "data" "db" "docs"
-}
 
 # Release settings
 set project(release,include_timestamp) "false"
@@ -408,3 +308,109 @@ set project(memory_list) ""        # Memory instance list (project-specific)
 set project(validation,post_route_waivers) ""        # Post-route validation waivers (project-specific)
 set project(validation,powerplan_waivers) ""        # Powerplan validation waivers (project-specific)
 set project(validation,SIGNOFF_waivers) ""        # Signoff validation waivers (project-specific)
+
+# ═════════════════════════════════════════════════════════════════════════════
+# MULTI-LINE VALUE BLOCKS (kept at the bottom so cross-project line-number
+# parity holds for every single-line set project(...) key above.
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+# ---------------------------------------------------------------------------
+# DESIGN INFORMATION
+# ---------------------------------------------------------------------------
+
+# Simple hierarchy: denali_top (DL1) -> tom (DL2)
+set project(design_hierarchy) {
+    denali_top {
+        description "Full chip top level (DL1)"
+        level "DL1"
+        parent ""
+        children {tom}
+    }
+    tom {
+        description "TOM processing block (DL2)"
+        level "DL2"
+        parent "denali_top"
+        children {}
+    }
+}
+
+# Default Cadence tools
+set project(default_tools) {
+    SYNTH    "genus"
+    PNR      "innovus"
+    STA      "tempus"
+    LEC      "conformal"
+    CLP      "conformal_lp"
+    EMIR     "voltus"
+    PV       "calibre"
+}
+
+# ---------------------------------------------------------------------------
+# VALIDATION WAIVER PATTERNS
+# ---------------------------------------------------------------------------
+
+# Global validation waivers - patterns that should be waivered across all stages
+set project(validation,global_waivers) {
+    ".*[Ww]arning.*clock.*skew.*"
+    ".*[Ww]arning.*timing.*convergence.*"
+    ".*[Ww]arning.*unconnected.*pin.*"
+    ".*[Ww]arning.*library.*characterization.*"
+    ".*[Ii]nfo.*optimization.*"
+    ".*[Nn]ote.*"
+}
+
+# Stage-specific validation waivers
+set project(validation,init_design_waivers) {
+    ".*[Ww]arning.*netlist.*case.*sensitivity.*"
+    ".*[Ww]arning.*module.*binding.*"
+    ".*[Ee]rror.*design.*has.*no.*clock.*constraint.*"
+}
+
+set project(validation,floorplan_waivers) {
+    ".*[Ww]arning.*macro.*overlap.*"
+    ".*[Ww]arning.*placement.*density.*"
+    ".*[Ww]arning.*utilization.*target.*"
+}
+
+set project(validation,cts_waivers) {
+    ".*[Ww]arning.*clock.*tree.*balance.*"
+    ".*[Ww]arning.*clock.*latency.*"
+    ".*[Ww]arning.*useful.*skew.*"
+}
+
+set project(validation,route_waivers) {
+    ".*[Ww]arning.*antenna.*violation.*"
+    ".*[Ww]arning.*routing.*congestion.*"
+}
+
+set project(validation,signoff_waivers) {
+    ".*[Ww]arning.*final.*timing.*report.*"
+    ".*[Ww]arning.*design.*margin.*"
+}
+
+# Flow-specific validation waivers
+set project(validation,PNR_waivers) {
+    ".*[Ww]arning.*place.*and.*route.*"
+}
+
+set project(validation,SYNTH_waivers) {
+    ".*[Ww]arning.*synthesis.*optimization.*"
+}
+
+# Critical error patterns that should NEVER be waivered
+set project(validation,critical_errors) {
+    ".*[Ee]rror.*license.*"
+    ".*[Ee]rror.*tool.*crash.*"
+    ".*[Ee]rror.*segmentation.*fault.*"
+    ".*[Ee]rror.*memory.*allocation.*"
+    ".*[Ff]atal.*"
+    ".*[Aa]bort.*"
+    ".*[Cc]ore.*dumped.*"
+}
+
+# Release directory sub-structure
+set project(release,structure) {
+    "netlist" "sdc" "def" "gds" "spef" "upf"
+    "reports" "data" "db" "docs"
+}

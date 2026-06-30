@@ -403,8 +403,9 @@ def cmd_check(args: argparse.Namespace) -> int:
     logger.info("  " + "─" * 57)
 
     project_dir = os.path.join(core_dir, 'config', 'project')
-    project_keys = {}  # project_name -> set of project(...) keys
-    SET_KEY = _re.compile(r'^\s*set\s+(project\([^\)]+\))', _re.MULTILINE)
+    project_keys  = {}  # project_name -> set of project(...) keys
+    project_lines = {}  # project_name -> { key: line_number }
+    SET_KEY_LINE = _re.compile(r'^\s*set\s+(project\([^\)]+\))')
 
     if os.path.isdir(project_dir):
         for proj in sorted(os.listdir(project_dir)):
@@ -419,9 +420,14 @@ def cmd_check(args: argparse.Namespace) -> int:
             cfg_path = next((c for c in candidates if os.path.isfile(c)), None)
             if not cfg_path:
                 continue
+            line_map = {}
             with open(cfg_path) as fh:
-                src = fh.read()
-            project_keys[proj] = set(SET_KEY.findall(src))
+                for i, line in enumerate(fh, start=1):
+                    m = SET_KEY_LINE.match(line)
+                    if m and m.group(1) not in line_map:
+                        line_map[m.group(1)] = i
+            project_keys[proj]  = set(line_map.keys())
+            project_lines[proj] = line_map
 
     if len(project_keys) < 2:
         logger.info(f"  [SKIP] need >= 2 projects to compare key parity "
@@ -453,6 +459,70 @@ def cmd_check(args: argparse.Namespace) -> int:
                     f"           {key}  →  in: {','.join(present_in)}  "
                     f"missing: {','.join(missing_in)}"
                 )
+
+        # Line-position parity: for each key common to all projects, every
+        # project should put it on the same line number. Multi-line braced
+        # value blocks (default_tools, design_hierarchy, validation,*) are
+        # allowed to drift because their contents are legitimately
+        # project-specific; we identify and skip them per project.
+        def _multi_line_keys(path):
+            """Return the set of project(KEY)s whose value spans > 1 line."""
+            out = set()
+            with open(path) as fh:
+                lines = fh.read().splitlines(keepends=True)
+            j = 0
+            while j < len(lines):
+                m = _re.match(r'^\s*set\s+(project\([^\)]+\))\s+(.*)$', lines[j])
+                if not m:
+                    j += 1
+                    continue
+                key, val = m.group(1), m.group(2)
+                if val.lstrip().startswith('{') and val.count('{') > val.count('}'):
+                    out.add(key)
+                    depth = val.count('{') - val.count('}')
+                    j += 1
+                    while j < len(lines) and depth > 0:
+                        depth += lines[j].count('{') - lines[j].count('}')
+                        j += 1
+                else:
+                    j += 1
+            return out
+
+        # Union of multi-line keys across all projects — exempt all of them.
+        exempt = set()
+        for proj in proj_names:
+            proj_v = os.path.join(project_dir, proj, 'v1.0.0')
+            candidates = [os.path.join(proj_v, f'{proj}_config.tcl'),
+                          os.path.join(proj_v, 'project_config.tcl')]
+            cfg_path = next((c for c in candidates if os.path.isfile(c)), None)
+            if cfg_path:
+                exempt |= _multi_line_keys(cfg_path)
+
+        checkable = intersection - exempt
+        misaligned = []
+        for key in sorted(checkable):
+            lns = [project_lines[p].get(key) for p in proj_names]
+            if len(set(lns)) > 1:
+                misaligned.append((key, lns))
+
+        total += 1
+        if not misaligned:
+            passed += 1
+            logger.info(f"  [PASS] {len(checkable)} single-line keys at identical "
+                        f"line numbers across {len(proj_names)} projects "
+                        f"({len(exempt)} multi-line blocks exempt)")
+        else:
+            warnings += 1
+            logger.warning(
+                f"  [WARN] {len(misaligned)} key(s) at different line numbers "
+                f"across projects — keys should be aligned line-for-line to "
+                f"ease diff/merge across project configs"
+            )
+            for key, lns in misaligned[:15]:
+                pairs = ', '.join(f'{p}:L{l}' for p, l in zip(proj_names, lns))
+                logger.warning(f"           {key}  →  {pairs}")
+            if len(misaligned) > 15:
+                logger.warning(f"           ... and {len(misaligned)-15} more")
 
     # ── Summary ─────────────────────────────────────────────────────────
     logger.info("")
