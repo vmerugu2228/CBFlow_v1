@@ -213,7 +213,12 @@ def make_daemon_handler(pool):
                 self._write_json(
                     {'ok': False, 'error': f'not a directory: {run_dir_abs}'}, 400)
                 return
-            rec = registry.register(run_dir_abs)
+            try:
+                rec = registry.register(run_dir_abs)
+            except ValueError as e:
+                # Project-scope mismatch (or other registry validation).
+                self._write_json({'ok': False, 'error': str(e)}, 400)
+                return
             pool.evict(rec['run_id'])  # force re-instantiation against fresh disk state
             self._write_json({'ok': True, 'run_id': rec['run_id'],
                               'url': f'/run/{rec["run_id"]}/'})
@@ -308,7 +313,9 @@ def make_daemon_handler(pool):
         def _serve_index(self):
             runs = registry.list_all()
             import state_paths
-            html = _render_index(runs, discipline=state_paths.get_discipline())
+            html = _render_index(runs,
+                                 discipline=state_paths.get_discipline(),
+                                 project=state_paths.get_project())
             body = html.encode('utf-8')
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
@@ -639,20 +646,31 @@ def _current_status_for_run(run_dir):
             'start_time': start or '', 'runtime_sec': rtsec}
 
 
-def _render_index(runs, discipline='PD'):
+def _render_index(runs, discipline='PD', project=''):
     """Index page for the per-user dashboard daemon.
 
     Stdlib-only (no JS framework). Vanilla CSS + a small client script that
     talks to /api/runs, /api/register, /api/deregister.
+
+    `project` (when set) puts the daemon in per-project scope — narrows the
+    visible runs to that project, shows the project name in the header pill,
+    and changes the page title.
     """
     disc = (discipline or 'PD').upper()
     disc_label = disc
+    project = (project or '').strip()
     disc_pill_bg = '#0d9488' if disc == 'DFT' else '#1565c0'
     disc_pill_border = '#0f766e' if disc == 'DFT' else '#0d47a1'
     disc_banner_grad = ('linear-gradient(135deg, #0d9488 0%, #0ea5e9 55%, #6366f1 100%)'
                         if disc == 'DFT'
                         else 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #0ea5e9 100%)')
-    title_prefix = f'CBflow {disc} Dashboard'
+    if project:
+        title_prefix = f'CBflow {disc} · {project} Dashboard'
+    else:
+        title_prefix = f'CBflow {disc} Dashboard'
+    project_pill_html = (
+        f'<span class="project-pill" title="Per-project daemon scope">'
+        f'{project.upper()}</span>') if project else ''
     active = [r for r in runs if not r.get('archived')]
     archived = [r for r in runs if r.get('archived')]
     project_set = {r.get('project') for r in active if r.get('project')}
@@ -729,6 +747,19 @@ def _render_index(runs, discipline='PD'):
     display:inline-block;
     background: {disc_pill_bg};
     border: 1px solid {disc_pill_border};
+    color: #fff;
+    padding: 4px 14px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    box-shadow: 0 2px 6px rgba(0,0,0,.18);
+  }}
+  header.banner .project-pill {{
+    display:inline-block;
+    background: rgba(0,0,0,.32);
+    border: 1px solid rgba(255,255,255,.30);
     color: #fff;
     padding: 4px 14px;
     border-radius: 999px;
@@ -963,6 +994,7 @@ def _render_index(runs, discipline='PD'):
     <div class="logo-row">
       <div class="logo">CBflow<span class="lite">Dashboard</span></div>
       <span class="discipline-pill" title="This dashboard serves the {disc} discipline">{disc_label}</span>
+      {project_pill_html}
       <span class="engine-pill" title="Python-native DAG execution engine">RACE engine</span>
     </div>
     <div class="byline">Developed by SmartSoc</div>

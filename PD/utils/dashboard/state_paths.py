@@ -17,10 +17,13 @@ Discipline resolution order (lowest wins):
 """
 
 import os
+import re
 import shutil
 
 _VALID = ('PD', 'DFT')
 _current = None
+_current_project = None
+_PROJECT_RE = re.compile(r'^[A-Za-z0-9_\-]+$')
 
 
 def set_discipline(d):
@@ -54,20 +57,67 @@ def _disc(d):
     return d
 
 
+def set_project(p):
+    """Set the process-wide project scope. When a project is active, state
+    paths get a project sub-dir and the daemon gets its own port band, so
+    each project's daemon is fully isolated. Pass None / empty to clear
+    (back-compat unscoped shared-discipline daemon)."""
+    global _current_project
+    if p is None or p == '':
+        _current_project = None
+        return
+    p = str(p).strip()
+    if not _PROJECT_RE.match(p):
+        raise ValueError(
+            f'invalid project name: {p!r} (must match [A-Za-z0-9_-]+)')
+    _current_project = p
+
+
+def get_project():
+    """Return the active project scope, or '' if unscoped."""
+    if _current_project:
+        return _current_project
+    env = os.environ.get('CBFLOW_DASHBOARD_PROJECT', '').strip()
+    if env and _PROJECT_RE.match(env):
+        return env
+    return ''
+
+
+def _proj(p):
+    """Normalize a project arg the same way _disc normalizes discipline."""
+    if p is None:
+        return get_project()
+    p = str(p).strip()
+    if not p:
+        return ''
+    if not _PROJECT_RE.match(p):
+        raise ValueError(f'invalid project name: {p!r}')
+    return p
+
+
 def _root_base():
     return os.path.join(os.path.expanduser('~'), '.cbflow', 'dashboard')
 
 
-def root(discipline=None):
-    """~/.cbflow/dashboard/<DISC>/ — created with mode 0700 if missing.
+def root(discipline=None, project=None):
+    """State dir for the (discipline, project) daemon.
 
-    On first access, migrates legacy single-daemon state
-    (~/.cbflow/dashboard/{runs/,*.pid,*.port,...}) into PD/."""
+      Unscoped (no project):  ~/.cbflow/dashboard/<DISC>/
+      Project-scoped:         ~/.cbflow/dashboard/<DISC>/projects/<NAME>/
+
+    Created with mode 0700 if missing. On first access, migrates legacy
+    single-daemon state into PD/. The project sub-tree lives under
+    `projects/` (not directly under the discipline) so it never collides
+    with the discipline-level files (dashboard.pid, runs/, …)."""
     base = _root_base()
     os.makedirs(base, mode=0o700, exist_ok=True)
     _migrate_legacy_to_pd(base)
     p = os.path.join(base, _disc(discipline))
     os.makedirs(p, mode=0o700, exist_ok=True)
+    proj = _proj(project)
+    if proj:
+        p = os.path.join(p, 'projects', proj)
+        os.makedirs(p, mode=0o700, exist_ok=True)
     return p
 
 
@@ -92,41 +142,41 @@ def _migrate_legacy_to_pd(base):
                 pass
 
 
-def pidfile(discipline=None):
-    return os.path.join(root(discipline), 'dashboard.pid')
+def pidfile(discipline=None, project=None):
+    return os.path.join(root(discipline, project), 'dashboard.pid')
 
 
-def portfile(discipline=None):
-    return os.path.join(root(discipline), 'dashboard.port')
+def portfile(discipline=None, project=None):
+    return os.path.join(root(discipline, project), 'dashboard.port')
 
 
-def bind_addr_file(discipline=None):
+def bind_addr_file(discipline=None, project=None):
     """Records the bind address the daemon used. Read by lifecycle to
     pick the right hostname for the URL (127.0.0.1 stays as-is; anything
     else uses gethostname() so remote browsers can reach it)."""
-    return os.path.join(root(discipline), 'dashboard.bind_addr')
+    return os.path.join(root(discipline, project), 'dashboard.bind_addr')
 
 
-def start_ts_file(discipline=None):
-    return os.path.join(root(discipline), 'dashboard.start_ts')
+def start_ts_file(discipline=None, project=None):
+    return os.path.join(root(discipline, project), 'dashboard.start_ts')
 
 
-def logfile(discipline=None):
-    return os.path.join(root(discipline), 'dashboard.log')
+def logfile(discipline=None, project=None):
+    return os.path.join(root(discipline, project), 'dashboard.log')
 
 
-def control_sock(discipline=None):
-    return os.path.join(root(discipline), 'control.sock')
+def control_sock(discipline=None, project=None):
+    return os.path.join(root(discipline, project), 'control.sock')
 
 
-def runs_dir(discipline=None):
-    p = os.path.join(root(discipline), 'runs')
+def runs_dir(discipline=None, project=None):
+    p = os.path.join(root(discipline, project), 'runs')
     os.makedirs(p, mode=0o700, exist_ok=True)
     return p
 
 
-def last_open_file(discipline=None):
-    return os.path.join(root(discipline), 'last_open.json')
+def last_open_file(discipline=None, project=None):
+    return os.path.join(root(discipline, project), 'last_open.json')
 
 
 def validate_socket_path(discipline=None):

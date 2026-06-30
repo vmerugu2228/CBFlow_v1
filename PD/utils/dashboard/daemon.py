@@ -44,17 +44,30 @@ import state_paths
 
 # ── Port selection ──────────────────────────────────────────────────────────
 
-def deterministic_port(discipline=None):
-    """Per-user deterministic port, scoped by discipline so PD and DFT daemons
-    coexist:
-      PD:  9000 + (uid % 500)   →  9000..9499
-      DFT: 9500 + (uid % 500)   →  9500..9999
+def deterministic_port(discipline=None, project=None):
+    """Per-user deterministic port. Two scoping modes:
 
-    Clear of app.py (8080-8180) and race_dashboard.py hash range
-    (10000-60000)."""
+      Discipline-only (unscoped — back-compat shared daemon):
+        PD:  9000 + (uid % 500)        →  9000..9499
+        DFT: 9500 + (uid % 500)        →  9500..9999
+
+      Per-project (separate daemon per project for the same user):
+        PD:  20000 + hash16(uid, name) % 2500   →  20000..22499
+        DFT: 22500 + hash16(uid, name) % 2500   →  22500..24999
+
+    Per-project bands are wider apart from each other to allow many
+    projects to coexist without colliding. Stays clear of app.py
+    (8080-8180) and race_dashboard.py per-run ports (10000-19999)."""
+    import hashlib
     d = state_paths._disc(discipline)
-    base = 9000 if d == 'PD' else 9500
-    return base + (os.getuid() % 500)
+    p = state_paths._proj(project)
+    if not p:
+        base = 9000 if d == 'PD' else 9500
+        return base + (os.getuid() % 500)
+    base = 20000 if d == 'PD' else 22500
+    key = f'{os.getuid()}:{p}'.encode()
+    h = int(hashlib.md5(key).hexdigest()[:6], 16)
+    return base + (h % 2500)
 
 
 # ── PID liveness + identity ─────────────────────────────────────────────────
@@ -299,7 +312,11 @@ class _Server:
             run_dir = msg.get('run_dir', '')
             if not run_dir:
                 return {'ok': False, 'error': 'register requires run_dir'}
-            rec = registry.register(run_dir)
+            try:
+                rec = registry.register(run_dir)
+            except ValueError as e:
+                # Project-scope mismatch or other registry validation.
+                return {'ok': False, 'error': str(e)}
             # Build a remote-reachable URL when the daemon is bound to a
             # non-localhost interface — handing back 127.0.0.1 would only
             # work from this host.
@@ -450,6 +467,12 @@ def main(argv=None):
     serve_p.add_argument('--discipline', choices=('PD', 'DFT'), default=None,
                          help='Discipline this daemon serves (default: $CBFLOW_DASHBOARD_DISCIPLINE or PD)')
     serve_p.add_argument(
+        '--project', default=None,
+        help='Project scope (e.g. denali). When set, this daemon serves '
+             'only that project — separate state dir and port from any '
+             'other project\'s daemon. Default: unscoped (shared across '
+             'all projects within the discipline).')
+    serve_p.add_argument(
         '--bind-addr', dest='bind_addr', default=None,
         help='Interface to bind. Default: 127.0.0.1 (localhost-only, '
              'reachable via SSH tunnel). Use 0.0.0.0 to expose to the LAN '
@@ -464,6 +487,9 @@ def main(argv=None):
         if args.discipline:
             state_paths.set_discipline(args.discipline)
             os.environ['CBFLOW_DASHBOARD_DISCIPLINE'] = args.discipline
+        if args.project:
+            state_paths.set_project(args.project)
+            os.environ['CBFLOW_DASHBOARD_PROJECT'] = args.project
         port = args.port or deterministic_port()
         bind_addr = '0.0.0.0' if args.public else resolve_bind_addr(args.bind_addr)
         serve_foreground(port, bind_addr=bind_addr)

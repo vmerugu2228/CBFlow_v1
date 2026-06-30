@@ -51,10 +51,22 @@ def _read_env_field(run_dir, key):
 
 
 def register(run_dir):
-    """Insert-or-update a run. Returns the registry record."""
+    """Insert-or-update a run. Returns the registry record.
+
+    When the daemon is in per-project mode (state_paths.get_project() is
+    set), the run's CBFLOW_PROJECT_NAME must match — otherwise this raises
+    ValueError so the caller can tell the user which daemon to use."""
     canonical = os.path.realpath(os.path.abspath(run_dir))
     rid = run_id_for(canonical)
     now = datetime.now().isoformat(timespec='seconds')
+
+    run_project = _read_env_field(canonical, 'CBFLOW_PROJECT_NAME')
+    daemon_project = state_paths.get_project()
+    if daemon_project and run_project and run_project != daemon_project:
+        raise ValueError(
+            f"run's project '{run_project}' doesn't match this daemon's "
+            f"scope '{daemon_project}'. Use the {run_project} daemon: "
+            f"cbflow dashboard register {run_dir} --project {run_project}")
 
     existing = _load(rid) or {}
     record = {
@@ -64,7 +76,7 @@ def register(run_dir):
         'last_seen_at': now,
         'owner_uid': existing.get('owner_uid', os.getuid()),
         'flow_type': _read_env_field(canonical, 'CBFLOW_FLOW_TYPE') or existing.get('flow_type', ''),
-        'project': _read_env_field(canonical, 'CBFLOW_PROJECT_NAME') or existing.get('project', ''),
+        'project': run_project or existing.get('project', ''),
         'design': _read_env_field(canonical, 'CBFLOW_DESIGN_NAME') or existing.get('design', ''),
         'phase': _read_env_field(canonical, 'CBFLOW_PROJECT_PHASE') or existing.get('phase', ''),
         'tech': _read_env_field(canonical, 'TECH_NAME') or existing.get('tech', ''),

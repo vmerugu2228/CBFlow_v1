@@ -34,19 +34,26 @@ def is_running():
 
 
 def ensure_daemon(port=0, wait_s=4.0, discipline=None, bind_addr=None,
-                  public=False):
-    """Make sure the daemon for `discipline` is up. Spawn it in the background
-    if not. Returns the port the daemon is listening on.
+                  public=False, project=None):
+    """Make sure the daemon for `(discipline, project)` is up. Spawn it in the
+    background if not. Returns the port the daemon is listening on.
 
     `bind_addr` or `public=True` controls the interface the daemon binds to.
     Default (None) → 127.0.0.1 unless CBFLOW_DASHBOARD_BIND_ADDR is set.
     `public=True` → 0.0.0.0 (LAN-accessible).
 
+    `project=<name>` runs the daemon in per-project mode (separate state
+    dir and port band, so multiple projects coexist independently). Pass
+    None / unset for the legacy shared-discipline daemon.
+
     Raises RuntimeError on bring-up failure (e.g. port collision).
     """
     if discipline:
         state_paths.set_discipline(discipline)
+    if project:
+        state_paths.set_project(project)
     disc = state_paths.get_discipline()
+    proj = state_paths.get_project()
 
     st = status()
     if st['state'] == 'running':
@@ -61,8 +68,12 @@ def ensure_daemon(port=0, wait_s=4.0, discipline=None, bind_addr=None,
     log_fd = open(state_paths.logfile(), 'ab', buffering=0)
     env = os.environ.copy()
     env['CBFLOW_DASHBOARD_DISCIPLINE'] = disc
+    if proj:
+        env['CBFLOW_DASHBOARD_PROJECT'] = proj
     cmd = [sys.executable, daemon_py, 'serve',
            '--port', str(chosen), '--discipline', disc]
+    if proj:
+        cmd += ['--project', proj]
     if public:
         cmd.append('--public')
     elif bind_addr:

@@ -59,9 +59,12 @@ def _discipline_for_run_dir(run_dir):
 
 
 def _apply_discipline(args):
-    """Apply --discipline flag from args to module state (for non-register verbs)."""
+    """Apply --discipline and --project flags from args to module state
+    (so subsequent state_paths.* calls return the right scoped paths)."""
     if getattr(args, 'discipline', None):
         state_paths.set_discipline(args.discipline)
+    if getattr(args, 'project', None):
+        state_paths.set_project(args.project)
 
 
 # ── start / stop / restart / status ─────────────────────────────────────────
@@ -88,8 +91,9 @@ def cmd_start(args):
         return 0
 
     try:
-        actual_port = lifecycle.ensure_daemon(port=port, public=public,
-                                              bind_addr=bind_addr_arg)
+        actual_port = lifecycle.ensure_daemon(
+            port=port, public=public, bind_addr=bind_addr_arg,
+            project=getattr(args, 'project', None))
     except RuntimeError as e:
         print(f'error: {e}', file=sys.stderr)
         return 1
@@ -307,8 +311,11 @@ def cmd_register(args):
     # Auto-route by flow_type unless caller forced --discipline.
     disc = args.discipline or _discipline_for_run_dir(run_dir)
     state_paths.set_discipline(disc)
+    project = getattr(args, 'project', None)
+    if project:
+        state_paths.set_project(project)
     try:
-        lifecycle.ensure_daemon(discipline=disc)
+        lifecycle.ensure_daemon(discipline=disc, project=project)
         reply = lifecycle.send_register(run_dir)
     except (RuntimeError, OSError) as e:
         print(f'error: {e}', file=sys.stderr)
@@ -316,7 +323,8 @@ def cmd_register(args):
     if not reply.get('ok'):
         print(f'error: {reply.get("error", "register failed")}', file=sys.stderr)
         return 1
-    print(f'registered ({disc}): {reply["url"]}')
+    scope = f'{disc}/{project}' if project else disc
+    print(f'registered ({scope}): {reply["url"]}')
     return 0
 
 
@@ -348,6 +356,11 @@ def _add_disc(p):
     p.add_argument('--discipline', choices=('PD', 'DFT'), default=None,
                    help='Discipline (PD or DFT). Defaults: register auto-detects '
                         'from the run\'s flow_type; other verbs default to PD.')
+    p.add_argument('--project', default=None,
+                   help='Project scope (e.g. denali, ravendrive). When set, the '
+                        'daemon runs in per-project mode with its own state dir '
+                        'and port — multiple projects coexist independently. '
+                        'Unset (default): legacy single-daemon-per-discipline.')
 
 
 def create_parser():
