@@ -1062,16 +1062,13 @@ def _render_index(runs, discipline='PD', project=''):
     const elWeeks   = document.getElementById('ms-weeks-line');
 
     if (!dated.length) {{
-      // No tapeouts → still show project + phase aggregate if available.
-      const projs = Array.from(new Set(active.map(r => r.project).filter(Boolean)));
-      elProject.textContent = projs.length === 0 ? '—'
-                              : projs.length === 1 ? projs[0]
-                              : `${{projs[0]}} (+${{projs.length - 1}})`;
-      const phases = Array.from(new Set(active.map(r => r.phase).filter(Boolean)));
-      elPhase.textContent = phases.length ? phases.join(' / ') : '—';
-      elTape.textContent  = '—';
-      elWeeks.textContent = '—';
-      elWeeks.className   = 'ms-weeks-line';
+      // No tapeouts → still show first project + its phase if available.
+      const first = active.find(r => r.project) || {{}};
+      elProject.textContent = first.project || '—';
+      elPhase.textContent   = first.phase   || '—';
+      elTape.textContent    = '—';
+      elWeeks.textContent   = '—';
+      elWeeks.className     = 'ms-weeks-line';
       return;
     }}
 
@@ -1082,20 +1079,8 @@ def _render_index(runs, discipline='PD', project=''):
     const days     = Math.floor((pick.t - now) / 86400000);
     const weeks    = days >= 0 ? Math.ceil(days / 7) : Math.floor(days / 7);
 
-    // Heading: that run's project. Add (+N) when there are other projects.
-    const otherProjs = new Set(
-      dated.map(x => x.r.project).filter(p => p && p !== pick.r.project));
-    elProject.textContent = pick.r.project +
-                            (otherProjs.size ? ` (+${{otherProjs.size}})` : '');
-
-    // Phase row: this project's phase. Append other-project phases when
-    // multiple distinct ones exist.
-    const pickProjPhase = pick.r.phase || '—';
-    const otherPhases = Array.from(new Set(
-      dated.map(x => x.r.phase).filter(p => p && p !== pickProjPhase)));
-    elPhase.textContent = otherPhases.length
-                          ? `${{pickProjPhase}}  ·  ${{otherPhases.join(', ')}}`
-                          : pickProjPhase;
+    elProject.textContent = pick.r.project || '—';
+    elPhase.textContent   = pick.r.phase   || '—';
 
     elTape.textContent = pick.r.tapeout_date;
 
