@@ -522,31 +522,6 @@ _STATUS_PRIORITY = (
 )
 
 
-def _tapeout_cell_html(tapeout):
-    """Render the Tapeout column cell. Color-codes weeks remaining:
-       >12  green       4-12  amber       0-4  red       <0   crimson "DUE"
-    Empty string returns em-dash."""
-    if not tapeout:
-        return '<span class="rt muted">—</span>'
-    try:
-        from datetime import date as _date
-        y, m, d = (int(x) for x in tapeout.split('-'))
-        days = (_date(y, m, d) - _date.today()).days
-    except (ValueError, TypeError):
-        return '<span class="rt muted">—</span>'
-    weeks = days // 7 + (1 if days >= 0 and days % 7 else 0)
-    if days < 0:
-        cls, txt = 'tape-overdue', f'OVERDUE {-weeks}w'
-    elif weeks <= 4:
-        cls, txt = 'tape-soon',    f'{weeks}w left'
-    elif weeks <= 12:
-        cls, txt = 'tape-mid',     f'{weeks}w left'
-    else:
-        cls, txt = 'tape-far',     f'{weeks}w left'
-    return (f'<div class="tape-date">{tapeout}</div>'
-            f'<div class="tape-weeks {cls}">{txt}</div>')
-
-
 def _fmt_duration(sec):
     """Mirror of the JS fmtDuration() for SSR parity."""
     if sec is None or sec == '':
@@ -709,7 +684,7 @@ def _render_index(runs, discipline='PD', project=''):
             _r['run_dir_exists']  = False
 
     rows_html = _render_run_rows(runs) or (
-        '<tr><td colspan="7" class="empty">'
+        '<tr><td colspan="6" class="empty">'
         'No runs registered. Add one above to get started.'
         '</td></tr>'
     )
@@ -911,18 +886,6 @@ def _render_index(runs, discipline='PD', project=''):
   .rt.muted {{ color: var(--muted); font-family: inherit; }}
   .rt.running {{ color: #b45309; font-weight: 600; }}    /* amber for live elapsed */
 
-  /* Tapeout cell — date on top, color-coded "weeks left" below */
-  td.tape-cell {{ white-space: nowrap; font-variant-numeric: tabular-nums; }}
-  .tape-date {{ font-family: 'SF Mono', Menlo, Consolas, monospace;
-                font-size: 12px; color: var(--text); }}
-  .tape-weeks {{ font-size: 10.5px; font-weight: 700; letter-spacing: .04em;
-                  margin-top: 2px; }}
-  .tape-far      {{ color: #047857; }}    /* >12w: green */
-  .tape-mid      {{ color: #b45309; }}    /* 4-12w: amber */
-  .tape-soon     {{ color: #b91c1c; }}    /* 0-4w: red */
-  .tape-overdue  {{ color: #ffffff; background: #991b1b;
-                    padding: 1px 6px; border-radius: 4px; display: inline-block; }}
-
   /* Banner layout — left column for stats, right column for milestone */
   header.banner {{ display: flex; align-items: flex-start;
                    justify-content: space-between; gap: 32px; }}
@@ -1071,8 +1034,7 @@ def _render_index(runs, discipline='PD', project=''):
     </div>
     <table class="runs">
       <thead>
-        <tr><th>Run</th><th>Flow</th><th>Current Status</th><th>Runtime</th><th>Tapeout</th>
-            <th>Run directory</th>
+        <tr><th>Run</th><th>Flow</th><th>Current Status</th><th>Runtime</th><th>Run directory</th>
             <th></th></tr>
       </thead>
       <tbody id="runs-tbody">
@@ -1108,21 +1070,6 @@ def _render_index(runs, discipline='PD', project=''):
       : `<span class="status-node muted">—</span>`;
     return `<span class="status-chip" style="background:${{bg}};color:${{fg}}" `
          + `title="${{node}} (${{st}})">${{st}}</span> ${{nodeHtml}}`;
-  }}
-
-  function tapeoutCellHtml(tapeout) {{
-    if (!tapeout) return '<span class="rt muted">—</span>';
-    const t = Date.parse(tapeout);
-    if (Number.isNaN(t)) return '<span class="rt muted">—</span>';
-    const days  = Math.floor((t - Date.now()) / 86400000);
-    const weeks = days >= 0 ? Math.ceil(days / 7) : Math.floor(days / 7);
-    let cls, txt;
-    if (days < 0)        {{ cls = 'tape-overdue'; txt = `OVERDUE ${{-weeks}}w`; }}
-    else if (weeks <= 4) {{ cls = 'tape-soon';    txt = `${{weeks}}w left`; }}
-    else if (weeks <= 12){{ cls = 'tape-mid';     txt = `${{weeks}}w left`; }}
-    else                 {{ cls = 'tape-far';     txt = `${{weeks}}w left`; }}
-    return `<div class="tape-date">${{tapeout}}</div>`
-         + `<div class="tape-weeks ${{cls}}">${{txt}}</div>`;
   }}
 
   function updateMilestoneBlock(runs) {{
@@ -1259,14 +1206,13 @@ def _render_index(runs, discipline='PD', project=''):
       ? '<span class="deleted-pill" title="Run directory was deleted from disk">DELETED</span>'
       : '';
     const linkHref = missing ? '#' : `/run/${{r.run_id}}/`;
-    return `<tr class="${{classes.join(' ')}}" data-rid="${{r.run_id}}" data-flow="${{r.flow_type || '?'}}" data-project="${{r.project || ''}}" data-design="${{r.design || ''}}" data-status="${{r.current_status || ''}}" data-start="${{r.current_start || ''}}" data-runtime="${{r.current_runtime != null ? r.current_runtime : ''}}" data-tapeout="${{r.tapeout_date || ''}}" data-search="${{[name,r.flow_type,r.run_dir,r.current_node,r.current_status,r.project,r.design].filter(Boolean).join(' ').toLowerCase()}}">
+    return `<tr class="${{classes.join(' ')}}" data-rid="${{r.run_id}}" data-flow="${{r.flow_type || '?'}}" data-project="${{r.project || ''}}" data-design="${{r.design || ''}}" data-status="${{r.current_status || ''}}" data-start="${{r.current_start || ''}}" data-runtime="${{r.current_runtime != null ? r.current_runtime : ''}}" data-search="${{[name,r.flow_type,r.run_dir,r.current_node,r.current_status,r.project,r.design].filter(Boolean).join(' ').toLowerCase()}}">
       <td>
         <a class="runlink" href="${{linkHref}}">${{name}}</a>${{deletedPill}}
       </td>
       <td>${{flowBadge(r.flow_type || '?')}}</td>
       <td class="status-cell">${{statusChip(r.current_node, r.current_status)}}</td>
       <td class="rt-cell">${{runtimeCellHtml(r)}}</td>
-      <td class="tape-cell">${{tapeoutCellHtml(r.tapeout_date)}}</td>
       <td class="dir">${{r.run_dir || ''}}</td>
       <td><button class="danger" onclick="deregisterRun('${{r.run_id}}')">Deregister</button></td>
     </tr>`;
@@ -1310,7 +1256,7 @@ def _render_index(runs, discipline='PD', project=''):
       const runs = await fetch('/api/runs').then(r => r.json());
       const tbody = document.getElementById('runs-tbody');
       if (!runs.length) {{
-        tbody.innerHTML = '<tr><td colspan="7" class="empty">No runs registered. Add one above to get started.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="empty">No runs registered. Add one above to get started.</td></tr>';
       }} else {{
         tbody.innerHTML = runs.map(renderRow).join('');
       }}
@@ -1593,20 +1539,17 @@ def _render_run_rows(runs):
             runtime_html = '<span class="rt muted">—</span>'
         proj = r.get('project') or ''
         design = r.get('design') or ''
-        tapeout = r.get('tapeout_date') or ''
         out.append(
             f'<tr class="{cls}" data-rid="{rid}" data-flow="{flow}" '
             f'data-project="{proj}" data-design="{design}" '
             f'data-status="{status}" '
             f'data-start="{r.get("current_start") or ""}" '
             f'data-runtime="{r.get("current_runtime") if r.get("current_runtime") is not None else ""}" '
-            f'data-tapeout="{tapeout}" '
             f'data-search="{search}">'
             f'<td><a class="runlink" href="/run/{rid}/">{name}</a></td>'
             f'<td><span class="flow-badge" style="background:{color}">{flow}</span></td>'
             f'<td class="status-cell">{chip_html} {node_html}</td>'
             f'<td class="rt-cell">{runtime_html}</td>'
-            f'<td class="tape-cell">{_tapeout_cell_html(tapeout)}</td>'
             f'<td class="dir">{run_dir}</td>'
             f'<td><button class="danger" '
             f'onclick="deregisterRun(\'{rid}\')">Deregister</button></td>'
