@@ -74,7 +74,30 @@ flow_proc setup_libraries {
             read_lef $lef
         }
     } else {
-        handle_warning "No LEF files found — check tech(<track>,lef) in tech_config.tcl"
+        # Production-grade hard fail. Silently continuing leaves the design
+        # with no LEF and lets init_design appear to "succeed", then a
+        # downstream stage explodes with cryptic errors. Surface the real
+        # cause + actionable hints here.
+        set _lib_tag [expr {[info exists project(lib_config_tag)] ? \
+                            $project(lib_config_tag) : "<UNSET>"}]
+        set _tech    [expr {[info exists project(technology)]   ? \
+                            $project(technology)   : "<UNSET>"}]
+        handle_error \
+            "No LEF files resolved for track '$_trk'.\n\
+             \    project(lib_config_tag) = $_lib_tag\n\
+             \    project(technology)     = $_tech\n\
+             \    project(track_variant)  = $_trk\n\
+             \   Checked:\n\
+             \    1. tech(${_trk},lef)            — track-aware list (preferred)\n\
+             \    2. tech(lef,standard_cells|macros|memory|io_pads) — legacy fallback\n\
+             \   Likely causes:\n\
+             \    (a) lib_config_<TAG>.tcl was NOT sourced — regenerate the run\n\
+             \        cd <run_dir>; cbflow run validate --type config\n\
+             \    (b) project(track_variant)='$_trk' has no entry in\n\
+             \        config/tech/$_tech/v1.0.0/lib_config_${_lib_tag}.tcl\n\
+             \        (run: cbflow flow library-manager coverage --tech $_tech)\n\
+             \    (c) project(lib_config_tag) not set in project_config"
+        return
     }
 
     # ── Liberty timing libraries (track-aware) ────────────────────────────────
@@ -111,6 +134,24 @@ flow_proc setup_libraries {
             handle_info "  LIB: [file tail $lib]"
             read_lib $lib
         }
+    } else {
+        # Same hard-fail pattern as the LEF block above — Liberty being
+        # absent is just as fatal as missing LEF for init_design.
+        set _lib_tag [expr {[info exists project(lib_config_tag)] ? \
+                            $project(lib_config_tag) : "<UNSET>"}]
+        set _tech    [expr {[info exists project(technology)]   ? \
+                            $project(technology)   : "<UNSET>"}]
+        handle_error \
+            "No Liberty (.lib/.db) files resolved for track '$_trk'.\n\
+             \    project(lib_config_tag) = $_lib_tag\n\
+             \    project(technology)     = $_tech\n\
+             \    project(track_variant)  = $_trk\n\
+             \   Checked:\n\
+             \    1. tech(${_trk},lib_nom)        — track-aware list (preferred)\n\
+             \    2. tech(lib,timing|memory|io_pads) — legacy fallback\n\
+             \   Same triage as LEF resolution above: confirm lib_config_<TAG>.tcl\n\
+             \   was sourced and that it has entries for project(track_variant)."
+        return
     }
 
     handle_info "Library setup completed"
