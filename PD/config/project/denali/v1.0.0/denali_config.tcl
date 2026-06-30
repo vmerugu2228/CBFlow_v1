@@ -321,29 +321,28 @@ set project(validation,SIGNOFF_waivers) ""        # Signoff validation waivers (
 
 # Simple hierarchy: denali_top (DL1) -> tom (DL2)
 set project(design_hierarchy) {
-    denali_top {
-        description "Full chip top level (DL1)"
-        level "DL1"
-        parent ""
-        children {tom}
-    }
-    tom {
-        description "TOM processing block (DL2)"
-        level "DL2"
-        parent "denali_top"
-        children {}
-    }
+    denali_top                    {
+    description                   "Full chip top level (DL1)"
+    level                         "DL1"
+    parent                        ""
+    children                      {tom}
+    }                             tom
+    {                             description
+    "TOM processing block (DL2)"  level
+    "DL2"                         parent
+    "denali_top"                  children
+    {}                            }
 }
 
 # Default Cadence tools
 set project(default_tools) {
-    SYNTH    "genus"
-    PNR      "innovus"
-    STA      "tempus"
-    LEC      "conformal"
-    CLP      "conformal_lp"
-    EMIR     "voltus"
-    PV       "calibre"
+    SYNTH  "genus"
+    PNR    "innovus"
+    STA    "tempus"
+    LEC    "conformal"
+    CLP    "conformal_lp"
+    EMIR   "voltus"
+    PV     "calibre"
 }
 
 # ---------------------------------------------------------------------------
@@ -352,12 +351,9 @@ set project(default_tools) {
 
 # Global validation waivers - patterns that should be waivered across all stages
 set project(validation,global_waivers) {
-    ".*[Ww]arning.*clock.*skew.*"
-    ".*[Ww]arning.*timing.*convergence.*"
-    ".*[Ww]arning.*unconnected.*pin.*"
-    ".*[Ww]arning.*library.*characterization.*"
-    ".*[Ii]nfo.*optimization.*"
-    ".*[Nn]ote.*"
+    ".*[Ww]arning.*clock.*skew.*"       ".*[Ww]arning.*timing.*convergence.*"
+    ".*[Ww]arning.*unconnected.*pin.*"  ".*[Ww]arning.*library.*characterization.*"
+    ".*[Ii]nfo.*optimization.*"         ".*[Nn]ote.*"
 }
 
 # Stage-specific validation waivers
@@ -380,13 +376,11 @@ set project(validation,cts_waivers) {
 }
 
 set project(validation,route_waivers) {
-    ".*[Ww]arning.*antenna.*violation.*"
-    ".*[Ww]arning.*routing.*congestion.*"
+    ".*[Ww]arning.*antenna.*violation.*"  ".*[Ww]arning.*routing.*congestion.*"
 }
 
 set project(validation,signoff_waivers) {
-    ".*[Ww]arning.*final.*timing.*report.*"
-    ".*[Ww]arning.*design.*margin.*"
+    ".*[Ww]arning.*final.*timing.*report.*"  ".*[Ww]arning.*design.*margin.*"
 }
 
 # Flow-specific validation waivers
@@ -411,6 +405,9 @@ set project(validation,critical_errors) {
 
 # Release directory sub-structure
 set project(release,structure) {
-    "netlist" "sdc" "def" "gds" "spef" "upf"
-    "reports" "data" "db" "docs"
+    "netlist"  "sdc"
+    "def"      "gds"
+    "spef"     "upf"
+    "reports"  "data"
+    "db"       "docs"
 }

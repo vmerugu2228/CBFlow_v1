@@ -311,7 +311,8 @@ set project(validation,post_route_waivers) {    ".*[Ww]arning.*timing.*violation
 set project(validation,powerplan_waivers) {    ".*[Ww]arning.*power.*stripe.*spacing.*"    ".*[Ww]arning.*via.*stack.*"
     ".*[Ww]arning.*power.*domain.*"
 }
-set project(validation,SIGNOFF_waivers) {    ".*[Ww]arning.*signoff.*quality.*"    ".*[Ww]arning.*verification.*"
+set project(validation,SIGNOFF_waivers) {
+    ".*[Ww]arning.*signoff.*quality.*"  ".*[Ww]arning.*verification.*"
 }
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -325,7 +326,9 @@ set project(validation,SIGNOFF_waivers) {    ".*[Ww]arning.*signoff.*quality.*" 
 # ---------------------------------------------------------------------------
 
 # Simple hierarchy: denali_top (DL1) -> tom (DL2)
-set project(design_hierarchy) {    chip_top {        description "Full chip top level (DL1)"
+set project(design_hierarchy) {
+    chip_top {
+        description "Full chip top level (DL1)"
         level "DL1"
         parent ""
         children {cpu_complex memory_subsys io_subsys power_mgmt}
@@ -466,7 +469,9 @@ set project(design_hierarchy) {    chip_top {        description "Full chip top 
 }
 
 # Default Cadence tools
-set project(default_tools) {    SYNTH    "genus"    PNR      "innovus"
+set project(default_tools) {
+    SYNTH    "genus"
+    PNR      "innovus"
     STA      "tempus"
     LEC      "conformal"
     CLP      "conformal_lp"
@@ -479,7 +484,9 @@ set project(default_tools) {    SYNTH    "genus"    PNR      "innovus"
 # ---------------------------------------------------------------------------
 
 # Global validation waivers - patterns that should be waivered across all stages
-set project(validation,global_waivers) {    ".*[Ww]arning.*clock.*skew.*"    ".*[Ww]arning.*timing.*convergence.*"
+set project(validation,global_waivers) {
+    ".*[Ww]arning.*clock.*skew.*"
+    ".*[Ww]arning.*timing.*convergence.*"
     ".*[Ww]arning.*unconnected.*pin.*"
     ".*[Ww]arning.*library.*characterization.*"
     ".*[Ii]nfo.*optimization.*"
@@ -487,36 +494,52 @@ set project(validation,global_waivers) {    ".*[Ww]arning.*clock.*skew.*"    ".*
 }
 
 # Stage-specific validation waivers
-set project(validation,init_design_waivers) {    ".*[Ww]arning.*netlist.*case.*sensitivity.*"    ".*[Ww]arning.*module.*binding.*"
+set project(validation,init_design_waivers) {
+    ".*[Ww]arning.*netlist.*case.*sensitivity.*"
+    ".*[Ww]arning.*module.*binding.*"
     ".*[Ee]rror.*design.*has.*no.*clock.*constraint.*"
     ".*[Ww]arning.*timing.*library.*missing.*"
 }
 
-set project(validation,floorplan_waivers) {    ".*[Ww]arning.*macro.*overlap.*"    ".*[Ww]arning.*placement.*density.*"
+set project(validation,floorplan_waivers) {
+    ".*[Ww]arning.*macro.*overlap.*"
+    ".*[Ww]arning.*placement.*density.*"
     ".*[Ww]arning.*utilization.*target.*"
     ".*[Ee]rror.*floorplan.*aspect.*ratio.*"
 }
 
-set project(validation,cts_waivers) {    ".*[Ww]arning.*clock.*tree.*balance.*"    ".*[Ww]arning.*clock.*latency.*"
+set project(validation,cts_waivers) {
+    ".*[Ww]arning.*clock.*tree.*balance.*"
+    ".*[Ww]arning.*clock.*latency.*"
     ".*[Ww]arning.*useful.*skew.*"
 }
 
-set project(validation,route_waivers) {    ".*[Ww]arning.*antenna.*violation.*"    ".*[Ww]arning.*routing.*congestion.*"
+set project(validation,route_waivers) {
+    ".*[Ww]arning.*antenna.*violation.*"
+    ".*[Ww]arning.*routing.*congestion.*"
     ".*[Ww]arning.*via.*pillar.*"
 }
 
-set project(validation,signoff_waivers) {    ".*[Ww]arning.*final.*timing.*report.*"    ".*[Ww]arning.*design.*margin.*"
+set project(validation,signoff_waivers) {
+    ".*[Ww]arning.*final.*timing.*report.*"
+    ".*[Ww]arning.*design.*margin.*"
 }
 
 # Flow-specific validation waivers
-set project(validation,PNR_waivers) {    ".*[Ww]arning.*place.*and.*route.*"    ".*[Ww]arning.*physical.*verification.*"
+set project(validation,PNR_waivers) {
+    ".*[Ww]arning.*place.*and.*route.*"
+    ".*[Ww]arning.*physical.*verification.*"
 }
 
-set project(validation,SYNTH_waivers) {    ".*[Ww]arning.*synthesis.*optimization.*"    ".*[Ww]arning.*logic.*optimization.*"
+set project(validation,SYNTH_waivers) {
+    ".*[Ww]arning.*synthesis.*optimization.*"
+    ".*[Ww]arning.*logic.*optimization.*"
 }
 
 # Critical error patterns that should NEVER be waivered
-set project(validation,critical_errors) {    ".*[Ee]rror.*license.*"    ".*[Ee]rror.*tool.*crash.*"
+set project(validation,critical_errors) {
+    ".*[Ee]rror.*license.*"
+    ".*[Ee]rror.*tool.*crash.*"
     ".*[Ee]rror.*segmentation.*fault.*"
     ".*[Ee]rror.*memory.*allocation.*"
     ".*[Ff]atal.*"
@@ -525,7 +548,9 @@ set project(validation,critical_errors) {    ".*[Ee]rror.*license.*"    ".*[Ee]r
 }
 
 # Release directory sub-structure
-set project(release,structure) {    "netlist"    "sdc"
+set project(release,structure) {
+    "netlist"
+    "sdc"
     "def"
     "gds"
     "spef"
