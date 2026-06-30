@@ -341,7 +341,9 @@ def make_daemon_handler(pool):
                 r['current_status']  = st['status']
                 r['current_start']   = st['start_time']
                 r['current_runtime'] = st['runtime_sec']
-                r['tapeout_date']    = _tapeout_date_for(r.get('project') or '')
+                _info = _project_info_for(r.get('project') or '')
+                r['tapeout_date']    = _info['tapeout_date']
+                r['project_info']    = _info
             body = json.dumps(runs, indent=2).encode('utf-8')
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
@@ -385,33 +387,55 @@ def _project_workarea_paths(pd_dir):
     return paths
 
 
-_PROJECT_TAPEOUT_CACHE = {}  # {project_name: 'YYYY-MM-DD' or ''}
+_PROJECT_INFO_CACHE = {}  # {project_name: {technology, metal_stack, lib_config_tag, cbflow_release, tapeout_date}}
+
+_PROJECT_KEYS_OF_INTEREST = (
+    'technology',
+    'metal_stack',
+    'lib_config_tag',
+    'cbflow_release',
+    'tapeout_date',
+)
 
 
-def _tapeout_date_for(project_name):
-    """Read project(tapeout_date) from PD/config/project/<name>/v1.0.0/<name>_config.tcl.
+def _project_info_for(project_name):
+    """Read selected project(...) values from PD/config/project/<name>/v1.0.0/
+    <name>_config.tcl in a single pass. Returns a dict with keys
+    matching _PROJECT_KEYS_OF_INTEREST (missing values come back '').
 
     Cached per-process — project_config rarely changes during a daemon's
-    lifetime, and the per-poll cost would otherwise be a file read per run.
-    """
+    lifetime, and the per-poll cost would otherwise be a file read per run."""
     if not project_name:
-        return ''
-    if project_name in _PROJECT_TAPEOUT_CACHE:
-        return _PROJECT_TAPEOUT_CACHE[project_name]
+        return {k: '' for k in _PROJECT_KEYS_OF_INTEREST}
+    if project_name in _PROJECT_INFO_CACHE:
+        return _PROJECT_INFO_CACHE[project_name]
     cfg = os.path.join(_PD_DIR, 'config', 'project', project_name, 'v1.0.0',
                        f'{project_name}_config.tcl')
-    out = ''
+    out = {k: '' for k in _PROJECT_KEYS_OF_INTEREST}
+    interest = set(_PROJECT_KEYS_OF_INTEREST)
     try:
         with open(cfg) as fh:
             for line in fh:
-                m = re.match(r'^\s*set\s+project\(tapeout_date\)\s+"([^"]*)"', line)
-                if m:
-                    out = m.group(1).strip()
-                    break
+                m = re.match(r'^\s*set\s+project\(([^)]+)\)\s+"([^"]*)"', line)
+                if not m:
+                    continue
+                key, val = m.group(1).strip(), m.group(2).strip()
+                if key in interest:
+                    out[key] = val
+                    interest.discard(key)
+                    if not interest:
+                        break
     except OSError:
         pass
-    _PROJECT_TAPEOUT_CACHE[project_name] = out
+    _PROJECT_INFO_CACHE[project_name] = out
     return out
+
+
+def _tapeout_date_for(project_name):
+    """Back-compat wrapper — milestone-block JS still consumes tapeout_date
+    as a top-level field on each run; the rest of project_info ships
+    alongside it."""
+    return _project_info_for(project_name).get('tapeout_date', '')
 
 
 def _read_env_field(run_dir, key):
@@ -651,6 +675,13 @@ def _render_index(runs, discipline='PD', project=''):
     project_set = {r.get('project') for r in active if r.get('project')}
     design_set = {r.get('design') for r in active if r.get('design')}
 
+    # SSR initial values for the project-metadata stat chips. Seeds from
+    # the first active run that has a project tag — the JS poll at +5s
+    # recomputes with the full nearest-tapeout logic. This avoids a flash
+    # of em-dashes on first paint.
+    _ssr_pick_project = next((r.get('project') for r in active if r.get('project')), '')
+    _ssr_chip_initial = _project_info_for(_ssr_pick_project)
+
     # Stamp current_node / current_status server-side too so the initial
     # paint shows real status (otherwise every row would briefly read "NONE"
     # until the first JS poll fires at +5s).
@@ -662,7 +693,9 @@ def _render_index(runs, discipline='PD', project=''):
             _r['current_status']  = _st['status']
             _r['current_start']   = _st['start_time']
             _r['current_runtime'] = _st['runtime_sec']
-            _r['tapeout_date']    = _tapeout_date_for(_r.get('project') or '')
+            _info = _project_info_for(_r.get('project') or '')
+            _r['tapeout_date']    = _info['tapeout_date']
+            _r['project_info']    = _info
             _r['run_dir_exists']  = True
         else:
             _r.setdefault('current_node', '')
@@ -670,6 +703,7 @@ def _render_index(runs, discipline='PD', project=''):
             _r.setdefault('current_start', '')
             _r.setdefault('current_runtime', None)
             _r.setdefault('tapeout_date', '')
+            _r.setdefault('project_info', {k: '' for k in _PROJECT_KEYS_OF_INTEREST})
             _r['run_dir_exists']  = False
 
     rows_html = _render_run_rows(runs) or (
@@ -941,9 +975,10 @@ def _render_index(runs, discipline='PD', project=''):
     <div class="byline">Developed by SmartSoc</div>
     <div class="stats">
       <div class="stat">Active runs: <b id="stat-active">{len(active)}</b></div>
-      <div class="stat">Archived: <b id="stat-archived">{len(archived)}</b></div>
-      <div class="stat">Projects: <b id="stat-projects">{len(project_set)}</b></div>
-      <div class="stat">Designs: <b id="stat-designs">{len(design_set)}</b></div>
+      <div class="stat">Tech: <b id="stat-tech">{_ssr_chip_initial.get('technology') or '—'}</b></div>
+      <div class="stat">Metal stack: <b id="stat-metalstack">{_ssr_chip_initial.get('metal_stack') or '—'}</b></div>
+      <div class="stat">Lib tag: <b id="stat-libtag">{_ssr_chip_initial.get('lib_config_tag') or '—'}</b></div>
+      <div class="stat">CBflow: <b id="stat-cbflow">{_ssr_chip_initial.get('cbflow_release') or '—'}</b></div>
     </div>
   </div>
   <aside class="milestone-block" id="milestone-block"
@@ -1044,6 +1079,34 @@ def _render_index(runs, discipline='PD', project=''):
       : `<span class="status-node muted">—</span>`;
     return `<span class="status-chip" style="background:${{bg}};color:${{fg}}" `
          + `title="${{node}} (${{st}})">${{st}}</span> ${{nodeHtml}}`;
+  }}
+
+  function _pickPrimaryRun(runs) {{
+    // Same logic the milestone block uses to choose which run drives the
+    // header chips: among active runs, prefer the nearest UPCOMING tapeout;
+    // fall back to most-recently-past; then to any first active run.
+    const active = runs.filter(r => !r.archived && r.run_dir_exists !== false);
+    if (!active.length) return null;
+    const dated = active
+      .map(r => ({{r, t: r.tapeout_date ? Date.parse(r.tapeout_date) : NaN}}))
+      .filter(x => !Number.isNaN(x.t));
+    if (!dated.length) return active[0];
+    const now      = Date.now();
+    const upcoming = dated.filter(x => x.t >= now).sort((a, b) => a.t - b.t);
+    return (upcoming.length ? upcoming[0]
+                            : dated.sort((a, b) => b.t - a.t)[0]).r;
+  }}
+
+  function updateProjectMetaChips(runs) {{
+    // Populate the project-metadata stat chips (Tech / Metal stack / Lib
+    // tag / CBflow release) from the same primary run the milestone block
+    // picks. Falls back to "—" when the chosen run lacks project_info.
+    const pick = _pickPrimaryRun(runs);
+    const info = (pick && pick.project_info) || {{}};
+    document.getElementById('stat-tech').textContent       = info.technology     || '—';
+    document.getElementById('stat-metalstack').textContent = info.metal_stack    || '—';
+    document.getElementById('stat-libtag').textContent     = info.lib_config_tag || '—';
+    document.getElementById('stat-cbflow').textContent     = info.cbflow_release || '—';
   }}
 
   function updateMilestoneBlock(runs) {{
@@ -1221,20 +1284,9 @@ def _render_index(runs, discipline='PD', project=''):
       }}
       refreshAllFilterOptions(runs);
       updateMilestoneBlock(runs);
+      updateProjectMetaChips(runs);
       const activeRuns = runs.filter(r => !r.archived);
-      const archivedCount = runs.length - activeRuns.length;
-      const projectSet = new Set(activeRuns.map(r => r.project).filter(Boolean));
-      const designSet = new Set(activeRuns.map(r => r.design).filter(Boolean));
-      const projCounts = {{}};
-      activeRuns.forEach(r => {{
-        const p = r.project || '(unknown)';
-        projCounts[p] = (projCounts[p] || 0) + 1;
-      }});
-
       document.getElementById('stat-active').textContent = activeRuns.length;
-      document.getElementById('stat-archived').textContent = archivedCount;
-      document.getElementById('stat-projects').textContent = projectSet.size;
-      document.getElementById('stat-designs').textContent = designSet.size;
 
       applyFilter();
     }} catch (e) {{
