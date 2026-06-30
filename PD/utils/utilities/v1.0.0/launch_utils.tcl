@@ -338,11 +338,11 @@ proc handler_run {run_dir flow_type node_name stage_name cmd_file test_mode {too
                 set _f [open "$_reports_dir/${stage_name}.rpt" w]
                 puts $_f "${stage_name} Report - $_ts\nStatus: PASS"; close $_f
             }
-            "reporting" {
+            "merge_reports" {
                 set _f [open "$_reports_dir/${stage_name}.rpt" w]
                 puts $_f "${stage_name} Report - $_ts\nStatus: PASS"; close $_f
-                set _f [open "$_outputs_dir/reporting_summary.txt" w]
-                puts $_f "Reporting Summary - $_ts"; close $_f
+                set _f [open "$_outputs_dir/merge_reports_summary.txt" w]
+                puts $_f "MMMC Cross-Corner Merge Reports Summary - $_ts"; close $_f
             }
             "release_data" {
                 # Release package contains a manifest, release notes, and a

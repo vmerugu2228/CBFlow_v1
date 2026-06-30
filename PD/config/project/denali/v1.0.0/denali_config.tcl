@@ -12,7 +12,7 @@ set project(description) "Denali chip design project"
 set project(owner) "Denali Design Team"
 set project(contact) "denali@smartsoc.com"
 
-# Project root directory for relative path resolution
+;# Project root directory for relative path resolution
 if {[info exists ::env(PROJECT_ROOT)]} {
     set ROOT_DIR $::env(PROJECT_ROOT)
 } elseif {[info exists cbflow(root)]} {
@@ -27,7 +27,7 @@ set project(root_dir) $ROOT_DIR
 # cbflow workspace create enforces this. Use full absolute path.
 set project(workarea_path) "/Users/vmerugu/projects/CBflow_clone/workarea"
 
-# Technology — GF 28nm SLP-E
+;# Technology — GF 28nm SLP-E
 set project(technology) "gf_28nm"
 set project(track_variant) "9T"
 set project(metal_stack) "10M"
@@ -35,30 +35,27 @@ set project(vt_flavors) "rvt lvt hvt"
 set project(lib_config_tag) "LIB02"
 set project(lib_root) "/proj/libs/gf_28nm"
 
-# Design hierarchy
+;# Design hierarchy
 set project(top_module) "denali_top"
 set project(block_list) "tom"
 
-# Generate valid design names from hierarchy
-set project(valid_design_names) [dict keys $project(design_hierarchy)]
-
-# Clock constraints (only `period` and `ports` are read downstream — used by
+;# Clock constraints (only `period` and `ports` are read downstream — used by
 # inputs_innovus.tcl for display/logging. The authoritative clock spec comes
 # from the SDC file referenced by `operating_modes(<mode>,constraint_file)`.)
 set project(clock,period) "2.5"
 set project(clock,ports) "clk ref_clk"
 
-# SDC Mode Definitions (used for file naming: <design_name>.<mode>.sdc)
+;# SDC Mode Definitions (used for file naming: <design_name>.<mode>.sdc)
 set project(sdc_modes) {func scan test}
 set project(default_sdc_mode) "func"
 
-# Power & Ground Nets (consumed by init_design/PNR — top-level SoC-wide)
+;# Power & Ground Nets (consumed by init_design/PNR — top-level SoC-wide)
 set project(power,vdd_net) "VDD"
 set project(power,vss_net) "VSS"
 set project(power,vdd_pin) "VDD"
 set project(power,vss_pin) "VSS"
 
-# Block-level specs (clock uncertainty, target frequency/power/area, reset
+;# Block-level specs (clock uncertainty, target frequency/power/area, reset
 # ports, I/O voltage, power domains, design-size estimates) used to live
 # here as `project(target,*)`, `project(estimated_*)`, `project(io,*)`,
 # `project(reset,*)`, `project(power,domains|states|switches|isolation|
@@ -73,7 +70,7 @@ set project(dft,compression) "true"
 set project(verification,formal) "true"
 set project(verification,simulation) "true"
 
-# Feature toggles
+;# Feature toggles
 set project(autoppt,enabled) "false"         ;# Enable AutoPPT summary generation (requires python-pptx)
 
 # Custom settings
@@ -83,7 +80,7 @@ set project(custom,hooks) "denali_custom.tcl"
 set project(custom,waivers) "denali_waivers.tcl"
 set project(custom,config_files) "denali_extra.tcl"
 
-# ---------------------------------------------------------------------------
+;# ---------------------------------------------------------------------------
 # RELEASE CONFIGURATION
 # ---------------------------------------------------------------------------
 
@@ -94,7 +91,7 @@ set project(race,db_path) "/proj/denali/race_db"
 set project(release,author) "Denali Design Team"
 set project(release,organization) "GF 28nm SLP-E Design Group"
 
-# Release Path Configuration
+;# Release Path Configuration
 # Release path structure: $release_path/$phase/$block_name/$release_tag
 set project(release,path) "/Users/vmerugu/projects/CBflow_clone/test_releases"
 set project(release,phase) "P0"
@@ -102,12 +99,12 @@ set project(release,block_name) ""
 set project(release,active_tag) "BTO"
 set project(release,expiry_date) "2027-06-30"
 
-# Release settings
+;# Release settings
 set project(release,include_timestamp) "false"
 set project(release,generate_notes) "true"
 set project(release,validate_mandatory) "true"
 
-# ---------------------------------------------------------------------------
+;# ---------------------------------------------------------------------------
 # LSF RESOURCE MANAGEMENT
 # ---------------------------------------------------------------------------
 
@@ -115,11 +112,11 @@ set project(lsf,enabled) "true"
 set project(lsf,version) "1.0.0"
 set project(lsf,config_date) "2026-06-02"
 
-# Default LSF settings
+;# Default LSF settings
 set project(lsf,default_queue) "M"
 set project(lsf,emergency_queue) "ultra"
 
-# Project resource constraints
+;# Project resource constraints
 set project(lsf,max_concurrent_jobs) "15"
 set project(lsf,max_daily_cost) "500.00"        ;# USD
 set project(lsf,priority_class) "normal"         ;# normal, high, critical
@@ -140,7 +137,7 @@ set project(lsf,node_requirements,SYNTH,export_data,memory) "4GB"
 set project(lsf,node_requirements,SYNTH,export_data,cpu) "2"
 set project(lsf,node_requirements,SYNTH,export_data,runtime_estimate) "0.5"
 
-# Node-specific resource requirements — PNR (node_types: inputs, init_design, place, cts, cts_opt, route, pro, signoff, export_data)
+;# Node-specific resource requirements — PNR (node_types: inputs, init_design, place, cts, cts_opt, route, pro, signoff, export_data)
 set project(lsf,node_requirements,PNR,inputs,queue) "S"
 set project(lsf,node_requirements,PNR,inputs,memory) "4GB"
 set project(lsf,node_requirements,PNR,inputs,cpu) "2"
@@ -181,7 +178,7 @@ set project(lsf,node_requirements,PNR,signoff,memory) "16GB"
 set project(lsf,node_requirements,PNR,signoff,cpu) "8"
 set project(lsf,node_requirements,PNR,signoff,runtime_estimate) "1.5"
 
-# Node-specific resource requirements — STA (node_types: inputs, extraction, timing, reporting)
+;# Node-specific resource requirements — STA (node_types: inputs, extraction, timing, reporting)
 set project(lsf,node_requirements,STA,inputs,queue) "S"
 set project(lsf,node_requirements,STA,inputs,memory) "4GB"
 set project(lsf,node_requirements,STA,inputs,cpu) "2"
@@ -197,7 +194,7 @@ set project(lsf,node_requirements,STA,timing,memory) "16GB"
 set project(lsf,node_requirements,STA,timing,cpu) "8"
 set project(lsf,node_requirements,STA,timing,runtime_estimate) "2.0"
 
-# Node-specific resource requirements — LEC (node_types: inputs, compare)
+;# Node-specific resource requirements — LEC (node_types: inputs, compare)
 set project(lsf,node_requirements,LEC,inputs,queue) "S"
 set project(lsf,node_requirements,LEC,inputs,memory) "4GB"
 set project(lsf,node_requirements,LEC,inputs,cpu) "2"
@@ -208,7 +205,7 @@ set project(lsf,node_requirements,LEC,compare,memory) "12GB"
 set project(lsf,node_requirements,LEC,compare,cpu) "4"
 set project(lsf,node_requirements,LEC,compare,runtime_estimate) "1.5"
 
-# Node-specific resource requirements — EMIR (node_types: inputs, power_analysis, ir_drop, thermal_analysis)
+;# Node-specific resource requirements — EMIR (node_types: inputs, power_analysis, ir_drop, thermal_analysis)
 set project(lsf,node_requirements,EMIR,inputs,queue) "S"
 set project(lsf,node_requirements,EMIR,inputs,memory) "4GB"
 set project(lsf,node_requirements,EMIR,inputs,cpu) "2"
@@ -224,7 +221,7 @@ set project(lsf,node_requirements,EMIR,ir_drop,memory) "16GB"
 set project(lsf,node_requirements,EMIR,ir_drop,cpu) "8"
 set project(lsf,node_requirements,EMIR,ir_drop,runtime_estimate) "2.5"
 
-# Node-specific resource requirements — PV (node_types: inputs, drc, lvs, fill, perc, erc, xor)
+;# Node-specific resource requirements — PV (node_types: inputs, drc, lvs, fill, perc, erc, xor)
 set project(lsf,node_requirements,PV,inputs,queue) "S"
 set project(lsf,node_requirements,PV,inputs,memory) "4GB"
 set project(lsf,node_requirements,PV,inputs,cpu) "2"
@@ -240,14 +237,14 @@ set project(lsf,node_requirements,PV,lvs,memory) "12GB"
 set project(lsf,node_requirements,PV,lvs,cpu) "4"
 set project(lsf,node_requirements,PV,lvs,runtime_estimate) "2.0"
 
-# Notification settings
+;# Notification settings
 set project(lsf,notifications,email_list) "denali@smartsoc.com"
 set project(lsf,notifications,cost_alerts) "true"
 set project(lsf,notifications,failure_alerts) "true"
 set project(lsf,notifications,completion_alerts) "false"
 set project(lsf,notifications,weekly_summary) "true"
 
-# ---------------------------------------------------------------------------
+;# ---------------------------------------------------------------------------
 # MMMC NODE SCENARIO ASSIGNMENTS
 # Which scenarios to use at each PNR/STA stage (setup/hold)
 # Scenario format: <mode>_<corner>_<voltage>_<rc>_<temperature>
@@ -301,13 +298,13 @@ array set mmmc {
 # ─────────────────────────────────────────────────────────────────────────────
 # Design content + waivers (cross-project schema parity)
 # ─────────────────────────────────────────────────────────────────────────────
-set project(analog_blocks) ""        # Analog block list (project-specific; empty if none)
-set project(full_chip) ""        # Full-chip target name (project-specific; empty for block-level)
-set project(macro_list) ""        # Macro instance list (project-specific)
-set project(memory_list) ""        # Memory instance list (project-specific)
-set project(validation,post_route_waivers) ""        # Post-route validation waivers (project-specific)
-set project(validation,powerplan_waivers) ""        # Powerplan validation waivers (project-specific)
-set project(validation,SIGNOFF_waivers) ""        # Signoff validation waivers (project-specific)
+set project(analog_blocks) ""        ;# Analog block list (project-specific; empty if none)
+set project(full_chip) ""        ;# Full-chip target name (project-specific; empty for block-level)
+set project(macro_list) ""        ;# Macro instance list (project-specific)
+set project(memory_list) ""        ;# Memory instance list (project-specific)
+set project(validation,post_route_waivers) ""        ;# Post-route validation waivers (project-specific)
+set project(validation,powerplan_waivers) ""        ;# Powerplan validation waivers (project-specific)
+set project(validation,SIGNOFF_waivers) ""        ;# Signoff validation waivers (project-specific)
 
 # ═════════════════════════════════════════════════════════════════════════════
 # MULTI-LINE VALUE BLOCKS (kept at the bottom so cross-project line-number
@@ -411,3 +408,10 @@ set project(release,structure) {
     "reports"  "data"
     "db"       "docs"
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Derived: valid_design_names — depends on design_hierarchy above, so this
+# line must come AFTER design_hierarchy is defined.
+# ─────────────────────────────────────────────────────────────────────────────
+# Generate valid design names from hierarchy
+set project(valid_design_names) [dict keys $project(design_hierarchy)]

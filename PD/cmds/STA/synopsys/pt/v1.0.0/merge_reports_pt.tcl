@@ -17,10 +17,10 @@ setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 flow_proc setup_reporting_dirs {
     handle_info "Setting up reporting directories..."
     set run_dir $::env(CBFLOW_RUN_DIR)
-    # Path is reporting1 (node name) — the previous literal
-    # `work/STA/reporting/run` created a bogus empty dir that
-    # e2e_checks._stage_dirs walked as a stage with no subnodes.
-    foreach dir {"work/STA/reporting1/run" "reports/sta" "logs/reporting"} {
+    # Path must match the active STA stage node name (merge_reports1).
+    # Any other value creates a bogus empty dir that
+    # e2e_checks._stage_dirs walks as a stage with no subnodes.
+    foreach dir {"work/STA/merge_reports1/run" "reports/sta" "logs/merge_reports"} {
         file mkdir "$run_dir/$dir"
     }
     puts " Reporting directories created"

@@ -39,9 +39,6 @@ set project(lib_root) "/tmp/test_libs/tsmc_5nm"
 set project(top_module) "phoenix_top"
 set project(block_list) "cpu_core memory_ctrl io_ctrl"
 
-# Generate valid design names from hierarchy
-set project(valid_design_names) [dict keys $project(design_hierarchy)]
-
 # Clock constraints (only `period` and `ports` are read downstream — used by
 # inputs_innovus.tcl for display/logging. The authoritative clock spec comes
 # from the SDC file referenced by `operating_modes(<mode>,constraint_file)`.)
@@ -560,3 +557,10 @@ set project(release,structure) {
     "db"
     "docs"
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Derived: valid_design_names — depends on design_hierarchy above, so this
+# line must come AFTER design_hierarchy is defined.
+# ─────────────────────────────────────────────────────────────────────────────
+# Generate valid design names from hierarchy
+set project(valid_design_names) [dict keys $project(design_hierarchy)]

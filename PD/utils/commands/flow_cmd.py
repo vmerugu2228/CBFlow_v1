@@ -461,12 +461,19 @@ def cmd_check(args: argparse.Namespace) -> int:
                 )
 
         # Line-position parity: for each key common to all projects, every
-        # project should put it on the same line number. Multi-line braced
-        # value blocks (default_tools, design_hierarchy, validation,*) are
-        # allowed to drift because their contents are legitimately
-        # project-specific; we identify and skip them per project.
-        def _multi_line_keys(path):
-            """Return the set of project(KEY)s whose value spans > 1 line."""
+        # project should put it on the same line number. Two classes of
+        # keys legitimately drift and are exempted:
+        #   (a) multi-line braced value blocks (default_tools,
+        #       design_hierarchy, validation,*) — their content sizes
+        #       differ per project, so they live at the bottom of the file
+        #   (b) derived keys whose RHS references another array element
+        #       (e.g. [dict keys $project(design_hierarchy)]) — must sit
+        #       after their dependency, so their line follows whatever the
+        #       size of that dependency was for each project
+        def _exempt_keys(path):
+            """Return the set of project(KEY)s allowed to have different
+            line numbers across projects: multi-line value blocks +
+            derived keys (RHS has `[...]` or `$project(...)`)."""
             out = set()
             with open(path) as fh:
                 lines = fh.read().splitlines(keepends=True)
@@ -484,11 +491,15 @@ def cmd_check(args: argparse.Namespace) -> int:
                     while j < len(lines) and depth > 0:
                         depth += lines[j].count('{') - lines[j].count('}')
                         j += 1
-                else:
-                    j += 1
+                    continue
+                # Derived value — has command substitution `[...]` or
+                # variable substitution against another project(...) entry.
+                if '[' in val or '$project(' in val:
+                    out.add(key)
+                j += 1
             return out
 
-        # Union of multi-line keys across all projects — exempt all of them.
+        # Union of exempt keys across all projects.
         exempt = set()
         for proj in proj_names:
             proj_v = os.path.join(project_dir, proj, 'v1.0.0')
@@ -496,7 +507,7 @@ def cmd_check(args: argparse.Namespace) -> int:
                           os.path.join(proj_v, 'project_config.tcl')]
             cfg_path = next((c for c in candidates if os.path.isfile(c)), None)
             if cfg_path:
-                exempt |= _multi_line_keys(cfg_path)
+                exempt |= _exempt_keys(cfg_path)
 
         checkable = intersection - exempt
         misaligned = []

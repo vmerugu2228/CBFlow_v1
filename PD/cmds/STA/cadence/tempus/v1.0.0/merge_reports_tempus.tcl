@@ -31,7 +31,8 @@ if {[file exists $mmmc_config_file]} { source $mmmc_config_file }
 flow_proc setup_reporting_dirs {
     handle_info "Setting up reporting directories..."
     set run_dir $::env(CBFLOW_RUN_DIR)
-    foreach dir {"work/STA/reporting/run" "reports/sta" "logs/reporting"} {
+    # Path must match the active STA stage node name (merge_reports1).
+    foreach dir {"work/STA/merge_reports1/run" "reports/sta" "logs/merge_reports"} {
         file mkdir "$run_dir/$dir"
     }
     puts " Reporting directories created"
