@@ -128,6 +128,14 @@ Run Commands (run from within a run directory):
   cbflow run release-lock                     Lock permissions (production: 444/555/755)
   cbflow run release-lock --unlock            Unlock permissions (development: 777)
 
+Config Migration (carry user values forward when upgrading bundles):
+  cbflow migrate --old <old.tcl> --new <new.tcl>
+                                              Copy old values into new file,
+                                              one file at a time. Writes in
+                                              place; backup at <new>.bak.
+  cbflow migrate --old <old.tcl> --new <new.tcl> --dry-run
+                                              Show report only; do not write.
+
 Database Management (from run directory or workarea):
   cbflow run db-manage                        Check session count vs limit
   cbflow run db-manage --list                 List all DBs (owner, flow, result, size)
@@ -269,6 +277,11 @@ main() {
         # Bundle for customer delivery
         bundle)
             exec "$SCRIPT_DIR/cbflow-bundle" "$@"
+            ;;
+
+        # Migrate user values from an old config file into a new one
+        migrate)
+            exec python3 "$COMMANDS_DIR/migrate_cmd.py" "$@"
             ;;
 
         # Test suite (static config validation + e2e flow execution)
