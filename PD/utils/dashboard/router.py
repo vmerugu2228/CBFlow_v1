@@ -892,28 +892,35 @@ def _render_index(runs, discipline='PD'):
   .tape-overdue  {{ color: #ffffff; background: #991b1b;
                     padding: 1px 6px; border-radius: 4px; display: inline-block; }}
 
-  /* Top-right milestone block — phase + tapeout aggregate */
+  /* Top-right milestone block — project + phase + tapeout aggregate */
   header.banner {{ position: relative; }}
-  .milestone-block {{ position: absolute; top: 20px; right: 28px;
-                       background: rgba(255,255,255,.15);
-                       border: 1px solid rgba(255,255,255,.28);
-                       padding: 10px 16px; border-radius: 10px;
-                       backdrop-filter: blur(8px); color: #fff;
-                       min-width: 200px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }}
+  .milestone-block {{ position: absolute; top: 24px; right: 32px;
+                       background: rgba(255,255,255,.16);
+                       border: 1px solid rgba(255,255,255,.30);
+                       padding: 16px 22px; border-radius: 14px;
+                       backdrop-filter: blur(10px); color: #fff;
+                       min-width: 280px; box-shadow: 0 4px 14px rgba(0,0,0,.18); }}
+  .milestone-block .ms-project {{ font-size: 22px; font-weight: 800;
+                                    letter-spacing: -0.01em; line-height: 1.15;
+                                    text-transform: uppercase;
+                                    padding-bottom: 10px; margin-bottom: 10px;
+                                    border-bottom: 1px solid rgba(255,255,255,.22); }}
   .milestone-block .ms-row {{ display: flex; justify-content: space-between;
-                                align-items: baseline; gap: 12px;
-                                font-size: 12px; line-height: 1.5; }}
-  .milestone-block .ms-label {{ opacity: .7; text-transform: uppercase;
-                                  font-size: 10.5px; letter-spacing: .08em; }}
-  .milestone-block .ms-phase {{ font-weight: 700; font-size: 14px;
+                                align-items: baseline; gap: 18px;
+                                font-size: 14px; line-height: 1.7; }}
+  .milestone-block .ms-label {{ opacity: .72; text-transform: uppercase;
+                                  font-size: 11px; letter-spacing: .10em;
+                                  font-weight: 600; }}
+  .milestone-block .ms-phase {{ font-weight: 800; font-size: 18px;
                                   font-variant-numeric: tabular-nums; }}
   .milestone-block .ms-tapeout {{ font-family: 'SF Mono', Menlo, Consolas, monospace;
-                                    font-size: 13px; }}
-  .milestone-block .ms-weeks-line {{ margin-top: 6px; padding-top: 6px;
+                                    font-size: 15px; font-weight: 600;
+                                    letter-spacing: -0.01em; }}
+  .milestone-block .ms-weeks-line {{ margin-top: 10px; padding-top: 10px;
                                        border-top: 1px solid rgba(255,255,255,.22);
-                                       font-size: 11.5px; font-weight: 700;
-                                       letter-spacing: .04em; text-align: right; }}
-  .milestone-block .ms-weeks-line.ovd {{ color: #fecaca; }}
+                                       font-size: 13px; font-weight: 700;
+                                       letter-spacing: .03em; text-align: right; }}
+  .milestone-block .ms-weeks-line.ovd  {{ color: #fecaca; }}
   .milestone-block .ms-weeks-line.soon {{ color: #fed7aa; }}
   .milestone-block .ms-weeks-line.mid  {{ color: #fef3c7; }}
   .milestone-block .ms-weeks-line.far  {{ color: #d1fae5; }}
@@ -962,6 +969,7 @@ def _render_index(runs, discipline='PD'):
   </div>
   <div class="milestone-block" id="milestone-block"
        title="Project milestone — phase + nearest tapeout across active runs">
+    <div class="ms-project" id="ms-project">—</div>
     <div class="ms-row">
       <span class="ms-label">Phase</span>
       <span class="ms-phase" id="ms-phase">—</span>
@@ -1082,44 +1090,63 @@ def _render_index(runs, discipline='PD'):
   function updateMilestoneBlock(runs) {{
     // Active runs only — archived/deleted shouldn't drive the milestone view.
     const active = runs.filter(r => !r.archived && r.run_dir_exists !== false);
-    // Phase: dominant (most-common) across active runs.
-    const phaseCount = {{}};
-    active.forEach(r => {{ const p = r.phase || ''; if (p) phaseCount[p] = (phaseCount[p] || 0) + 1; }});
-    const phases = Object.entries(phaseCount).sort((a, b) => b[1] - a[1]);
-    document.getElementById('ms-phase').textContent =
-      phases.length === 0 ? '—'
-      : phases.length === 1 ? phases[0][0]
-      : `${{phases[0][0]}} (+${{phases.length - 1}})`;
 
-    // Tapeout: nearest UPCOMING; if every tapeout is past, show most-recently-past.
+    // Pick the run with the nearest upcoming tapeout. That run's project
+    // is the title; its phase is the displayed phase.
     const dated = active
       .map(r => ({{r, t: r.tapeout_date ? Date.parse(r.tapeout_date) : NaN}}))
       .filter(x => !Number.isNaN(x.t));
+
+    const elProject = document.getElementById('ms-project');
+    const elPhase   = document.getElementById('ms-phase');
+    const elTape    = document.getElementById('ms-tapeout-date');
+    const elWeeks   = document.getElementById('ms-weeks-line');
+
     if (!dated.length) {{
-      document.getElementById('ms-tapeout-date').textContent = '—';
-      document.getElementById('ms-weeks-line').textContent = '—';
-      document.getElementById('ms-weeks-line').className = 'ms-weeks-line';
+      // No tapeouts → still show project + phase aggregate if available.
+      const projs = Array.from(new Set(active.map(r => r.project).filter(Boolean)));
+      elProject.textContent = projs.length === 0 ? '—'
+                              : projs.length === 1 ? projs[0]
+                              : `${{projs[0]}} (+${{projs.length - 1}})`;
+      const phases = Array.from(new Set(active.map(r => r.phase).filter(Boolean)));
+      elPhase.textContent = phases.length ? phases.join(' / ') : '—';
+      elTape.textContent  = '—';
+      elWeeks.textContent = '—';
+      elWeeks.className   = 'ms-weeks-line';
       return;
     }}
-    const now = Date.now();
+
+    const now      = Date.now();
     const upcoming = dated.filter(x => x.t >= now).sort((a, b) => a.t - b.t);
-    const pick = upcoming.length ? upcoming[0] : dated.sort((a, b) => b.t - a.t)[0];
-    const days  = Math.floor((pick.t - now) / 86400000);
-    const weeks = days >= 0 ? Math.ceil(days / 7) : Math.floor(days / 7);
-    document.getElementById('ms-tapeout-date').textContent = pick.r.tapeout_date;
-    const wl = document.getElementById('ms-weeks-line');
+    const pick     = upcoming.length ? upcoming[0]
+                                     : dated.sort((a, b) => b.t - a.t)[0];
+    const days     = Math.floor((pick.t - now) / 86400000);
+    const weeks    = days >= 0 ? Math.ceil(days / 7) : Math.floor(days / 7);
+
+    // Heading: that run's project. Add (+N) when there are other projects.
+    const otherProjs = new Set(
+      dated.map(x => x.r.project).filter(p => p && p !== pick.r.project));
+    elProject.textContent = pick.r.project +
+                            (otherProjs.size ? ` (+${{otherProjs.size}})` : '');
+
+    // Phase row: this project's phase. Append other-project phases when
+    // multiple distinct ones exist.
+    const pickProjPhase = pick.r.phase || '—';
+    const otherPhases = Array.from(new Set(
+      dated.map(x => x.r.phase).filter(p => p && p !== pickProjPhase)));
+    elPhase.textContent = otherPhases.length
+                          ? `${{pickProjPhase}}  ·  ${{otherPhases.join(', ')}}`
+                          : pickProjPhase;
+
+    elTape.textContent = pick.r.tapeout_date;
+
     let label, cls;
     if (days < 0)         {{ label = `${{-weeks}} week(s) overdue`; cls = 'ovd'; }}
     else if (weeks <= 4)  {{ label = `${{weeks}} week(s) remaining`; cls = 'soon'; }}
     else if (weeks <= 12) {{ label = `${{weeks}} week(s) remaining`; cls = 'mid'; }}
     else                  {{ label = `${{weeks}} week(s) remaining`; cls = 'far'; }}
-    // Append project tag if multiple project tapeouts exist.
-    const uniqueProjects = new Set(dated.map(x => x.r.project).filter(Boolean));
-    if (uniqueProjects.size > 1 && pick.r.project) {{
-      label += `  ·  ${{pick.r.project}}`;
-    }}
-    wl.textContent = label;
-    wl.className = `ms-weeks-line ${{cls}}`;
+    elWeeks.textContent = label;
+    elWeeks.className   = `ms-weeks-line ${{cls}}`;
   }}
 
   function fmtDuration(sec) {{
