@@ -892,14 +892,18 @@ def _render_index(runs, discipline='PD'):
   .tape-overdue  {{ color: #ffffff; background: #991b1b;
                     padding: 1px 6px; border-radius: 4px; display: inline-block; }}
 
-  /* Top-right milestone block — project + phase + tapeout aggregate */
-  header.banner {{ position: relative; }}
-  .milestone-block {{ position: absolute; top: 24px; right: 32px;
+  /* Banner layout — left column for stats, right column for milestone */
+  header.banner {{ display: flex; align-items: flex-start;
+                   justify-content: space-between; gap: 32px; }}
+  header.banner .banner-left {{ flex: 1 1 auto; min-width: 0; }}
+
+  /* Right-side milestone block — project + phase + tapeout aggregate */
+  .milestone-block {{ flex: 0 0 auto; align-self: flex-start;
                        background: rgba(255,255,255,.16);
                        border: 1px solid rgba(255,255,255,.30);
-                       padding: 16px 22px; border-radius: 14px;
+                       padding: 18px 24px; border-radius: 14px;
                        backdrop-filter: blur(10px); color: #fff;
-                       min-width: 280px; box-shadow: 0 4px 14px rgba(0,0,0,.18); }}
+                       min-width: 260px; box-shadow: 0 4px 14px rgba(0,0,0,.18); }}
   .milestone-block .ms-project {{ font-size: 22px; font-weight: 800;
                                     letter-spacing: -0.01em; line-height: 1.15;
                                     text-transform: uppercase;
@@ -955,20 +959,26 @@ def _render_index(runs, discipline='PD'):
 </head><body>
 
 <header class="banner">
-  <div class="logo-row">
-    <div class="logo">CBflow<span class="lite">Dashboard</span></div>
-    <span class="discipline-pill" title="This dashboard serves the {disc} discipline">{disc_label}</span>
-    <span class="engine-pill" title="Python-native DAG execution engine">RACE engine</span>
+  <div class="banner-left">
+    <div class="logo-row">
+      <div class="logo">CBflow<span class="lite">Dashboard</span></div>
+      <span class="discipline-pill" title="This dashboard serves the {disc} discipline">{disc_label}</span>
+      <span class="engine-pill" title="Python-native DAG execution engine">RACE engine</span>
+    </div>
+    <div class="byline">Developed by SmartSoc</div>
+    <div class="stats">
+      <div class="stat">Active runs: <b id="stat-active">{len(active)}</b></div>
+      <div class="stat">Archived: <b id="stat-archived">{len(archived)}</b></div>
+      <div class="stat">Projects: <b id="stat-projects">{len(project_set)}</b></div>
+      <div class="stat">Designs: <b id="stat-designs">{len(design_set)}</b></div>
+    </div>
+    <div class="projects">
+      <span class="projects-label">Projects:</span>
+      <span id="proj-chips">{proj_chips_html}</span>
+    </div>
   </div>
-  <div class="byline">Developed by SmartSoc</div>
-  <div class="stats">
-    <div class="stat">Active runs: <b id="stat-active">{len(active)}</b></div>
-    <div class="stat">Archived: <b id="stat-archived">{len(archived)}</b></div>
-    <div class="stat">Projects: <b id="stat-projects">{len(project_set)}</b></div>
-    <div class="stat">Designs: <b id="stat-designs">{len(design_set)}</b></div>
-  </div>
-  <div class="milestone-block" id="milestone-block"
-       title="Project milestone — phase + nearest tapeout across active runs">
+  <aside class="milestone-block" id="milestone-block"
+         title="Project milestone — phase + nearest tapeout across active runs">
     <div class="ms-project" id="ms-project">—</div>
     <div class="ms-row">
       <span class="ms-label">Phase</span>
@@ -979,11 +989,7 @@ def _render_index(runs, discipline='PD'):
       <span class="ms-tapeout" id="ms-tapeout-date">—</span>
     </div>
     <div class="ms-weeks-line" id="ms-weeks-line">—</div>
-  </div>
-  <div class="projects">
-    <span class="projects-label">Projects:</span>
-    <span id="proj-chips">{proj_chips_html}</span>
-  </div>
+  </aside>
 </header>
 
 <main>
