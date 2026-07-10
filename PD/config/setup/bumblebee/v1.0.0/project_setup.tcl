@@ -13,7 +13,7 @@ flow_proc_prepend flow_init {
 
     # Set project-specific environment
     if {![info exists ::env(PROJECT_NAME)]} {
-        set ::env(PROJECT_NAME) "ravendrive"
+        set ::env(PROJECT_NAME) "bumblebee"
     }
 
     # Create project-specific directories
@@ -35,7 +35,7 @@ flow_proc_append flow_init {
     handle_info "Project flow init append: Ravendrive project validation complete"
 
     # Validate project-specific requirements
-    if {[info exists project(name)] && $project(name) eq "ravendrive"} {
+    if {[info exists project(name)] && $project(name) eq "bumblebee"} {
         handle_info "Ravendrive project configuration validated"
     }
 }
@@ -46,9 +46,9 @@ flow_proc_prepend setup_libraries {
 
     # Set project-specific library search paths
     if {[info exists tech(library_root)]} {
-        set ravendrive_lib_path "$tech(library_root)/ravendrive_libs"
-        if {[file exists $ravendrive_lib_path]} {
-            handle_info "Ravendrive library path verified: $ravendrive_lib_path"
+        set bumblebee_lib_path "$tech(library_root)/bumblebee_libs"
+        if {[file exists $bumblebee_lib_path]} {
+            handle_info "Ravendrive library path verified: $bumblebee_lib_path"
         }
     }
 }
@@ -78,7 +78,7 @@ flow_proc_append generate_reports {
     }
 
     # Create project summary report
-    set summary_file "$project_report_dir/ravendrive_summary.rpt"
+    set summary_file "$project_report_dir/bumblebee_summary.rpt"
     set fp [open $summary_file w]
     puts $fp "═══════════════════════════════════════════════════════════════════════════════"
     puts $fp "Ravendrive Project Flow Summary"

@@ -23,8 +23,57 @@ from core.paths import get_cbflow_core_dir, get_flow_config_version
 
 logger = configure_logging('cbflow.checklist')
 
-# Phase ordering constant — phases are a fixed concept in the design flow
-PHASE_ORDER = {'P0': 0, 'P1': 1, 'P2': 2, 'P3': 3}
+# Phase-list cache (per run_dir). Phases are project-specific: each project
+# declares its own list via `project(phases)` (e.g. bumblebee=LC1..LC5, others
+# P0..P3). PHASE_ORDER is now derived at call time from the project's list.
+_PHASE_ORDER_CACHE: dict = {}
+
+
+def _phase_order(run_dir: str = None) -> dict:
+    """Return {phase_name: index} for the project associated with run_dir."""
+    key = run_dir or ''
+    if key in _PHASE_ORDER_CACHE:
+        return _PHASE_ORDER_CACHE[key]
+    try:
+        from tcl_config_parser import get_phases
+        phases = get_phases(run_dir=run_dir)
+    except Exception:
+        phases = []
+    if not phases:
+        phases = ['P0', 'P1', 'P2', 'P3']
+    order = {p.upper(): i for i, p in enumerate(phases)}
+    _PHASE_ORDER_CACHE[key] = order
+    return order
+
+
+def _phase_index(phase_name: str, run_dir: str = None) -> int:
+    """Return 0-based index of `phase_name` in the project's phase list.
+
+    Accepts either a phase name (P0, LC2, ...) or a numeric index string ("2").
+    Unknown values → 0 (assume earliest phase = always active).
+    """
+    if phase_name is None:
+        return 0
+    s = str(phase_name).strip()
+    if not s:
+        return 0
+    if s.isdigit():
+        return int(s)
+    return _phase_order(run_dir).get(s.upper(), 0)
+
+
+def _phase_from_index(idx: int, run_dir: str = None) -> str:
+    order = _phase_order(run_dir)
+    for name, i in order.items():
+        if i == idx:
+            return name
+    return f'phase[{idx}]'
+
+
+# Back-compat shim — some legacy callers still reference PHASE_ORDER as a
+# module-level dict. Populate with the current project's mapping when the
+# module is imported; per-run_dir accuracy still comes from _phase_index().
+PHASE_ORDER = _phase_order()
 
 
 
@@ -146,10 +195,13 @@ def load_check_library(milestone_name: str, check_packs: dict) -> dict:
             if milestone_name not in applicable.split():
                 continue
 
-            # Effective min_phase = max(check's own min_phase, pack's min_phase)
-            check_phase = cfg.get('min_phase', 'P0')
-            effective_phase = max(check_phase, pack_min_phase)
-            cfg['min_phase'] = effective_phase
+            # Effective phase = max(check's own index, pack's index). Prefer
+            # min_phase_index (numeric); fall back to legacy min_phase string.
+            check_idx = _phase_index(
+                cfg.get('min_phase_index', cfg.get('min_phase', '0')))
+            pack_idx = _phase_index(pack_min_phase)
+            cfg['min_phase_index'] = str(max(check_idx, pack_idx))
+            cfg.pop('min_phase', None)
             cfg['source'] = f'{category}_checks'
             library_checks[name] = cfg
 
@@ -473,13 +525,18 @@ def _evaluate_checks(run_dir: str, checks: dict, waivered: set, phase: str = '')
     """
     results = []
     for name, config in checks.items():
-        # Phase filtering: skip checks not yet active at current phase
-        if phase and config.get('min_phase'):
-            cur = PHASE_ORDER.get(phase.upper(), 0)
-            req = PHASE_ORDER.get(config['min_phase'].upper(), 0)
+        # Phase filtering: skip checks not yet active at current phase.
+        # New schema: min_phase_index is a 0-based ordinal into project(phases).
+        # Legacy schema: min_phase names a phase directly (P0..P3 / LCx / ...).
+        req_raw = config.get('min_phase_index', config.get('min_phase'))
+        if phase and req_raw is not None and str(req_raw).strip() != '':
+            cur = _phase_index(phase, run_dir=run_dir)
+            req = _phase_index(req_raw, run_dir=run_dir)
             if cur < req:
+                req_label = (req_raw if not str(req_raw).isdigit()
+                             else _phase_from_index(int(req_raw), run_dir=run_dir))
                 results.append({'name': name, 'status': 'SKIPPED',
-                                'detail': f'Requires phase {config["min_phase"]} (current: {phase})'})
+                                'detail': f'Requires phase {req_label} (current: {phase})'})
                 continue
 
         if name in waivered:
@@ -1475,17 +1532,22 @@ def cmd_list_checks(args: argparse.Namespace) -> int:
             id_counters[prefix] += 1
             check_id = f'{prefix}-{id_counters[prefix]:03d}'
 
-            min_phase = fields.get('min_phase', 'P0')
-            # Show phase range: P0 → "P0-P3", P2 → "P2-P3"
-            phase_range = f'{min_phase}-P3' if min_phase != 'P3' else 'P3'
+            # min_phase_index (0-based ordinal) is preferred; min_phase name
+            # is kept as a legacy fallback for pre-migration configs.
+            req_raw = fields.get('min_phase_index', fields.get('min_phase', '0'))
+            req_idx = _phase_index(req_raw, run_dir=run_dir)
+            proj_phases = list(_phase_order(run_dir=run_dir).keys())
+            min_name = (req_raw if not str(req_raw).isdigit()
+                        else _phase_from_index(req_idx, run_dir=run_dir))
+            last_name = proj_phases[-1] if proj_phases else min_name
+            phase_range = f'{min_name}-{last_name}' if min_name != last_name else min_name
             script = fields.get('script', fields.get('report_pattern', fields.get('grep_pattern', '')))
             severity = fields.get('severity', '-')
 
-            # Phase filter: skip if check's min_phase > requested phase
+            # Phase filter: skip if check's required phase > current phase
             if phase:
-                cur = PHASE_ORDER.get(phase.upper(), 0)
-                req = PHASE_ORDER.get(min_phase.upper(), 0)
-                if cur < req:
+                cur = _phase_index(phase, run_dir=run_dir)
+                if cur < req_idx:
                     continue
 
             # Evaluate status if run_dir provided
@@ -1511,7 +1573,7 @@ def cmd_list_checks(args: argparse.Namespace) -> int:
                 'id': check_id, 'name': name, 'type': check_type,
                 'description': fields.get('description', ''),
                 'script': script[:30] if script else '-',
-                'phase': phase_range, 'min_phase': min_phase,
+                'phase': phase_range, 'min_phase': min_name,
                 'severity': severity, 'status': status,
             })
 

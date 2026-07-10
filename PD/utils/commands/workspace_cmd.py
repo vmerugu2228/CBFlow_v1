@@ -312,13 +312,19 @@ set {arr}(input,sdc_func_file) ""           ;# Functional mode SDC
 
 
 def cmd_template(args: argparse.Namespace) -> int:
-    """Dump a user_config.tcl template for a specific flow type."""
+    """Dump a user_config.tcl template for a specific flow type.
+
+    --project and --flow come from the CLI. Phase is intentionally NOT
+    templated — it's read from the project's `project(current_phase)`
+    setting so switching phase happens in the project config, not per-run.
+    """
     flow_type = getattr(args, 'flow', '').upper()
     output = getattr(args, 'output', None)
+    project_name = getattr(args, 'project', None) or 'my_project'
 
     if not flow_type:
         logger.error("  Error: --flow is required")
-        logger.error("  Usage: cbflow workspace template --flow SYNTH_PNR")
+        logger.error("  Usage: cbflow workspace template --project bumblebee --flow SYNTH_PNR")
         return 1
 
     from tcl_config_parser import get_flow_types
@@ -328,23 +334,33 @@ def cmd_template(args: argparse.Namespace) -> int:
         logger.error(f"  Available: {', '.join(sorted(valid_flows))}")
         return 1
 
+    # Validate project exists (unless caller left it as the default sentinel)
+    if project_name != 'my_project':
+        proj_dir = os.path.join(get_cbflow_core_dir(), 'config', 'project', project_name)
+        if not os.path.isdir(proj_dir):
+            available = sorted(d for d in os.listdir(os.path.dirname(proj_dir))
+                               if os.path.isdir(os.path.join(os.path.dirname(proj_dir), d)))
+            logger.error(f"  Unknown project: {project_name}")
+            logger.error(f"  Available: {', '.join(available)}")
+            return 1
+
     design_name = "my_design"
-    project_name = "my_project"
 
     flow_inputs = _get_flow_specific_config(flow_type, design_name)
 
     template = f"""#!/usr/bin/env tclsh
 # ═══════════════════════════════════════════════════════════════════════════════
 # CBFlow User Configuration - {flow_type}
-# Generated template — edit all values before running
+# Generated: project={project_name}  flow={flow_type}
+# Phase is taken from project(current_phase) in the {project_name} config —
+# override there, not here.
 # Usage: cbflow workspace create --config <this_file>
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ─────────────────────────────────────────────────────────────────────────────────
 # Project & Flow [MANDATORY]
 # ─────────────────────────────────────────────────────────────────────────────────
-set project(name)        "{project_name}"     ;# Your project name (must match config/project/<name>)
-set project(phase)       "P0"                 ;# Design phase (P0, P1, etc.)
+set project(name)        "{project_name}"
 set flow(type)           "{flow_type}"
 set flow(design_name)    "{design_name}"      ;# Your design/block name
 set flow(run_name)       "run1"               ;# Unique run identifier
@@ -568,6 +584,63 @@ def _get_mandatory_inputs_from_config(core_dir: str, flow_type: str) -> list:
     return []
 
 
+def _confirm_restricted_vars(config_file: str, args: argparse.Namespace) -> bool:
+    """Scan user_config for edit-restricted variables.
+
+    If any restricted variable is set, print a warning and require the user
+    to type 'yes' to proceed. Returns True if creation should continue,
+    False to abort. --force / --yes flag or non-tty stdin bypasses the
+    prompt (warning is still printed and recorded).
+    """
+    try:
+        import restricted_vars
+    except ImportError:
+        return True
+    hits = restricted_vars.scan_file(config_file)
+    if not hits:
+        return True
+
+    sep = '\033[33m' + ('─' * 60) + '\033[0m'
+    print()
+    print(sep)
+    print('\033[33;1m  WARNING: edit-restricted variables in user_config\033[0m')
+    print(sep)
+    print(f"  File: {config_file}")
+    print(f"  Found {len(hits)} restricted variable(s) that are normally")
+    print(f"  controlled by the CAD team or project lead:")
+    print()
+    for lineno, var_name, raw in hits:
+        print(f"    line {lineno:>4}: \033[33m{var_name}\033[0m")
+    print()
+    print("  These variables affect tech identity, tool selection, RC corners,")
+    print("  MMMC, or release milestones. Overriding them in user_config bypasses")
+    print("  the CAD team's intended configuration.")
+    print(sep)
+    print()
+
+    force = bool(getattr(args, 'force', False) or getattr(args, 'yes', False))
+    if force:
+        print("  --force set: proceeding without confirmation.")
+        print()
+        return True
+    if not sys.stdin.isatty():
+        logger.error("  Non-interactive stdin and no --force flag. Aborting.")
+        logger.error("  Re-run with --force to bypass this prompt.")
+        return False
+
+    try:
+        ans = input("  Type 'yes' to create the run anyway: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        logger.error("  Aborted.")
+        return False
+    if ans != 'yes':
+        logger.error("  Run creation aborted by user.")
+        return False
+    print()
+    return True
+
+
 def _validate_mandatory_inputs(user_config: dict, flow_type: str) -> list:
     """Validate mandatory design inputs are set (non-empty) in user_config.
 
@@ -778,6 +851,14 @@ def cmd_create(args: argparse.Namespace) -> int:
             logger.error(f"    - {err}")
         logger.error("")
         logger.error(f"  Edit {config_file} and set the required values before creating a run.")
+        return 1
+
+    # ── Edit-restricted variable check ──
+    # Scan user_config.tcl for variables marked as protected in
+    # edit_restricted_config.tcl. If any are set, warn and require explicit
+    # "yes" confirmation before creating the run. --force or --yes bypasses
+    # the prompt but the warning is still printed.
+    if not _confirm_restricted_vars(config_file, args):
         return 1
 
     project = env_vars.get('PROJECT_NAME', '')
@@ -1767,6 +1848,9 @@ Examples:
   cbflow workspace template --flow FP""")
     template_parser.add_argument('--flow', '-t', required=True,
                                 help='Flow type (use cbflow workspace template --flow <TAB> for available types)')
+    template_parser.add_argument('--project', '-p', default=None,
+                                help='Project name — must match config/project/<name>/. '
+                                     'Phase is taken from that project config.')
     template_parser.add_argument('--output', '-o', default=None,
                                 help='Output file (default: print to stdout)')
 

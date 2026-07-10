@@ -104,7 +104,7 @@ Available tools:
 - ECO: 6 stages — synopsys/fc
 - POPT: 7 stages — synopsys/pt
 ### Projects
-- ravendrive: blocks = cpu_core, memory_ctrl, io_ctrl
+- bumblebee: blocks = cpu_core, memory_ctrl, io_ctrl
 - phoenix: blocks = cpu_core, memory_ctrl, io_ctrl
 ### Release Tags
 FP_EXIT(P0), PLACE_EXIT(P0), CTS_EXIT(P1), PRO_EXIT(P1), BTO(P2), MTO(P3)
@@ -481,7 +481,7 @@ def run_agent(prompt: str, interactive: bool = False):
         # Blocks / designs in project
         if any(w in q for w in ['block', 'design']) and any(w in q for w in ['available', 'list', 'what', 'which', 'show']):
             # Read block_list from project config
-            for proj in ['ravendrive', 'phoenix']:
+            for proj in ['bumblebee', 'phoenix']:
                 cfg = os.path.join(CBFLOW_CORE, 'config', 'project', proj, 'v1.0.0', f'{proj}_config.tcl')
                 if os.path.exists(cfg):
                     with open(cfg) as f:
@@ -584,7 +584,7 @@ def run_agent(prompt: str, interactive: bool = False):
                 # Need to create a custom user config
                 config_name = f"uc_{flow_type}_{run_name or 'custom'}.tcl"
                 arr = flow_type.lower().replace('_', '_')
-                config_content = f'set project(name) "ravendrive"\\n'
+                config_content = f'set project(name) "bumblebee"\\n'
                 config_content += f'set project(phase) "P0"\\n'
                 config_content += f'set flow(type) "{flow_type}"\\n'
                 config_content += f'set flow(design_name) "{block_name or "cpu_core"}"\\n'

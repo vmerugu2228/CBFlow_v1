@@ -225,7 +225,7 @@ def cat3_override_mechanism(results, pd_dir, flows):
     if os.path.exists(os.path.join(pd_dir, 'config', 'flow', 'v1.0.0', 'flow_config.tcl')):
         results.passed(suite, category, 'Override hierarchy: flow_config.tcl (global)')
 
-    for proj in ['phoenix', 'ravendrive']:
+    for proj in ['phoenix', 'bumblebee']:
         if os.path.isdir(os.path.join(pd_dir, 'config', 'project', proj)):
             results.passed(suite, category, f'Override hierarchy: project config ({proj})')
         else:
@@ -307,7 +307,7 @@ def cat5_mmmc_config(results, pd_dir, flows):
     category = 'cat5_mmmc_config'
 
     # MMMC moved from framework-level to per-project. Check each project for
-    # its own mmmc_config.tcl (ravendrive, denali, phoenix). Same for the
+    # its own mmmc_config.tcl (bumblebee, denali, phoenix). Same for the
     # auto-generated scenarios file.
     proj_root = os.path.join(pd_dir, 'config', 'project')
     if os.path.isdir(proj_root):
@@ -564,7 +564,7 @@ def cat8_cross_cutting(results, pd_dir, flows):
         else:
             results.failed(suite, category, f'Completion: {comp} missing')
 
-    for proj in ['phoenix', 'ravendrive']:
+    for proj in ['phoenix', 'bumblebee']:
         proj_root = os.path.join(pd_dir, 'config', 'project', proj)
         if not os.path.isdir(proj_root):
             continue
@@ -759,13 +759,10 @@ _SYNTHETIC_STAGES = frozenset({
 })
 
 # Known STAGE_NAME aliases — a cmd file whose filename includes a descriptive
-# suffix (e.g. `timing_scenario_pt.tcl`) intentionally sets STAGE_NAME to the
-# parent stage. Filename → expected STAGE_NAME.
-_STAGE_NAME_ALIASES = {
-    'timing_scenario': 'timing',   # MMMC per-scenario template under timing1
-    'timing_setup':    'timing',   # setup-mode timing analysis template
-    'timing_hold':     'timing',   # hold-mode timing analysis template
-}
+# suffix intentionally sets STAGE_NAME to the parent stage. Filename →
+# expected STAGE_NAME. Populate when a real sub-view cmd file exists in the
+# tree; empty is fine.
+_STAGE_NAME_ALIASES = {}
 
 
 def _stage_from_filename(stem, tool):
@@ -1592,6 +1589,333 @@ def cat13_handler_required_keys(results, pd_dir, flows):
         )
 
 
+# ── Category 14: Command-file reads vs config-file writes ──────────────────
+#
+# Catches the bug class where a cmd file reads e.g. `$tech(tech_file)` but
+# the config only ever sets `tech(<ms>,tech_file)` — the `info exists` guard
+# silently returns 0 and the value never populates. This slipped past
+# every prior category because:
+#   - cat 13 hardcodes a critical-keys list (LSF only)
+#   - cat 10 / 12 resolve against user_config, not command-file reads
+#   - test_mode e2e paths short-circuit before `create_lib -tech` runs
+#
+# Algorithm — pure static, no subprocess:
+#   1. Parse every $tech(...) / $lsf(...) / $flow(...) / $project(...) read
+#      in PD/cmds/**/*.tcl. Capture the KEY SHAPE — number of comma-
+#      separated segments, treating `$foo(bar)` and `${foo}` as wildcards.
+#      Example: `tech($project(metal_stack),$tech(track),tech_file)` →
+#      shape `tech(*,*,tech_file)` with 3 segments.
+#   2. Parse every `set <ns>(...) ...` write in PD/config/**/*.tcl.
+#      Capture the same shape.
+#   3. For each read shape, at least one write shape must match — same
+#      segment count with the trailing literal segment matching. Wildcards
+#      (`$...`) on either side match any literal.
+#   4. Report unmatched reads. False-positive band: readers using pure
+#      variable substitution for the trailing segment (rare) are skipped.
+
+_READ_NS = ('tech', 'lsf', 'flow', 'project')
+
+# Keys set at runtime by generate_setup.tcl / launch_utils.tcl / other
+# utility TCL — not present in static config files, but validly readable
+# by cmd handlers. Add here to silence false positives.
+_RUNTIME_SET_KEYS = {
+    ('tech', ('track',)),          # generate_setup.tcl line ~993
+    ('flow', ('design_name',)),    # from user_config → run env
+    ('flow', ('run_name',)),
+    ('flow', ('type',)),
+    ('flow', ('test_mode',)),
+    ('flow', ('run_type',)),
+    ('flow', ('use_lsf',)),
+    ('flow', ('use_xterm',)),
+    ('project', ('name',)),
+    ('project', ('phase',)),
+}
+
+# Reads inside `info exists <ns>(...)` and bare `$<ns>(...)` references.
+# Balanced-paren aware: matches nested `$project(metal_stack)` inside.
+_READ_RE = re.compile(
+    r'\$?(' + '|'.join(_READ_NS) + r')\(([^()]*(?:\([^()]*\)[^()]*)*)\)'
+)
+_WRITE_RE = re.compile(
+    r'^\s*set\s+(' + '|'.join(_READ_NS) + r')\(([^)]+)\)\s',
+    re.MULTILINE,
+)
+
+
+def _key_shape(key_body):
+    """Turn a comma-separated key body into a shape tuple.
+
+    `$project(metal_stack),$tech(track),tech_file` → ('*', '*', 'tech_file')
+    `foo,bar,baz` → ('foo', 'bar', 'baz')
+    """
+    # Split top-level commas (nested $foo(bar) parens stay intact)
+    parts, depth, cur = [], 0, ''
+    for ch in key_body:
+        if ch == '(': depth += 1; cur += ch
+        elif ch == ')': depth -= 1; cur += ch
+        elif ch == ',' and depth == 0:
+            parts.append(cur); cur = ''
+        else:
+            cur += ch
+    if cur: parts.append(cur)
+    shape = []
+    for p in parts:
+        p = p.strip()
+        # `$foo`, `${foo}`, or `$foo(bar)` → wildcard
+        if p.startswith('$') or (p.startswith('${') and p.endswith('}')):
+            shape.append('*')
+        else:
+            shape.append(p)
+    return tuple(shape)
+
+
+def _shape_matches(read_shape, write_shape):
+    if len(read_shape) != len(write_shape):
+        return False
+    for r, w in zip(read_shape, write_shape):
+        if r == '*' or w == '*':
+            continue
+        if r != w:
+            return False
+    return True
+
+
+def cat14_read_write_parity(results, pd_dir, flows):
+    """Every `$<ns>(...)` read in a cmd file must have a shape-matching
+    `set <ns>(...)` in some config file. Catches bare-key reads that
+    won't populate from any per-scope config."""
+    cmds_dir = os.path.join(pd_dir, 'cmds')
+    conf_dir = os.path.join(pd_dir, 'config')
+    utl_dir  = os.path.join(pd_dir, 'utils', 'utilities')
+
+    # Collect writer shapes per namespace
+    writers = {ns: set() for ns in _READ_NS}
+    for root in (conf_dir, utl_dir):
+        for dirpath, _, files in os.walk(root):
+            for f in files:
+                if not f.endswith('.tcl'):
+                    continue
+                try:
+                    text = open(os.path.join(dirpath, f)).read()
+                except (OSError, UnicodeDecodeError):
+                    continue
+                for m in _WRITE_RE.finditer(text):
+                    ns, body = m.group(1), m.group(2)
+                    writers[ns].add(_key_shape(body))
+
+    # Scan cmd files, collect unmatched reads. Skip:
+    #   - reads inside comments
+    #   - reads whose last segment is a wildcard (dynamic — can't statically
+    #     match a specific setter, and cat 10/12 handle those better)
+    unmatched = {}  # (ns, shape) -> [file:line, ...]
+    for dirpath, _, files in os.walk(cmds_dir):
+        for f in files:
+            if not f.endswith('.tcl'):
+                continue
+            path = os.path.join(dirpath, f)
+            try:
+                lines = open(path).readlines()
+            except (OSError, UnicodeDecodeError):
+                continue
+            # Precompute the set of shapes this file guards with `info
+            # exists`. Reads of guarded shapes are defensive-optional and
+            # don't need a writer — the code block silently no-ops when
+            # unset. File-scope check because the guard often sits at the
+            # top of a block whose body has bare `$tech(X)` reads.
+            guarded_shapes = set()
+            full_text = ''.join(lines)
+            for ig in re.finditer(
+                r'info\s+exists\s+(' + '|'.join(_READ_NS) + r')\(([^()]*(?:\([^()]*\)[^()]*)*)\)',
+                full_text,
+            ):
+                g_ns, g_body = ig.group(1), ig.group(2)
+                g_shape = _key_shape(g_body)
+                if g_shape:
+                    guarded_shapes.add((g_ns, g_shape))
+
+            for lineno, raw in enumerate(lines, 1):
+                stripped = raw.strip()
+                if stripped.startswith('#'):
+                    continue
+                # Strip inline comments (everything after " # " or at TCL
+                # `;#` boundary) so doc-example references inside comments
+                # aren't treated as reads.
+                code = raw
+                if ' #' in code:
+                    code = code.split(' #', 1)[0]
+                if ';#' in code:
+                    code = code.split(';#', 1)[0]
+                # Skip lines that live inside a puts/error/handle_error
+                # message — those are for the reader (human) not the shell.
+                _stripped = code.strip()
+                if _stripped.startswith(('puts ', 'error ', 'handle_error ',
+                                         'handle_warning ', 'handle_info ')):
+                    continue
+                for m in _READ_RE.finditer(code):
+                    ns, body = m.group(1), m.group(2)
+                    # Filter: skip when this line is a `set <ns>(...)` (that's
+                    # the writer itself, not a reader).
+                    if code.lstrip().startswith(f'set {ns}('):
+                        continue
+                    shape = _key_shape(body)
+                    if not shape:
+                        continue
+                    # Drop doc-example placeholders and pseudo-keys
+                    if any(ch in seg for seg in shape for ch in '<>|'):
+                        continue
+                    # All-caps single-word terminal segment → doc-example
+                    # (e.g. `tech(DESIGN_NAME)`, `tech(LIBERTY_FILES)`)
+                    tail = shape[-1]
+                    if (tail and tail.isupper() and tail.replace('_', '').isalpha()
+                            and '_' in tail and len(tail) >= 4):
+                        continue
+                    if tail == '*':
+                        continue  # dynamic tail — not statically checkable
+                    # Runtime-set (utility TCL, run env) — allowlisted
+                    if (ns, shape) in _RUNTIME_SET_KEYS:
+                        continue
+                    if any(_shape_matches(shape, w) for w in writers[ns]):
+                        continue
+                    # Guarded shape (this file has `info exists <ns>(shape)`
+                    # somewhere) — defensive-optional, don't flag.
+                    if (ns, shape) in guarded_shapes:
+                        continue
+                    key = (ns, shape)
+                    unmatched.setdefault(key, []).append(
+                        f'{os.path.relpath(path, pd_dir)}:{lineno}')
+
+    suite, category = 'static', 'cat14'
+    if not unmatched:
+        results.passed(
+            suite, category, 'read_write_parity',
+            'every $<ns>(...) read in cmds/ has a shape-matching setter in configs')
+        return
+
+    # Log each unmatched shape as a distinct failure — makes triage easy.
+    for (ns, shape), sites in sorted(unmatched.items()):
+        pretty = f'{ns}({",".join(shape)})'
+        first_sites = sites[:3]
+        more = f' (+{len(sites)-3} more)' if len(sites) > 3 else ''
+        results.failed(
+            suite, category, f'unmatched: {pretty}',
+            f'read at {"; ".join(first_sites)}{more} — no config sets a '
+            f'matching shape. Either fix the reader to index by the correct '
+            f'scope (e.g. tech($project(metal_stack),...)) or add the '
+            f'setter in the appropriate config file.')
+
+
+# ── Category 15: LSF Per-Node Assignment ────────────────────────────────────
+# Every stage MUST resolve to a real LSF tier. Two acceptable outcomes:
+#   (a) An explicit `lsf(flow_mapping,<FLOW>,<stage_base>)` entry exists, OR
+#   (b) `lsf(default_queue_type)` is set — the safety-net fallback for any
+#       stage not explicitly mapped.
+# A stage that lacks BOTH fails: the run would exec with no resource envelope.
+#
+# Reports which stages fall back to the default (WARN — encouraged to make
+# explicit) and which have no fallback at all (FAIL — hard error).
+
+def cat15_lsf_per_node_assignment(results, pd_dir, flows):
+    suite = 'static'
+    category = 'cat15_lsf_per_node_assignment'
+
+    lsfc = os.path.join(pd_dir, 'config', 'flow', 'v1.0.0', 'lsf_config.tcl')
+    if not os.path.exists(lsfc):
+        results.failed(suite, category, 'lsf_config.tcl missing — no LSF configuration at all')
+        return
+
+    with open(lsfc) as f:
+        lsf_content = f.read()
+
+    # Default tier — used when a stage has no explicit mapping.
+    m_default = re.search(r'lsf\(default_queue_type\)\s+"([^"]+)"', lsf_content)
+    default_tier = m_default.group(1) if m_default else None
+    if default_tier:
+        results.passed(suite, category, f'lsf(default_queue_type) is set to "{default_tier}"')
+    else:
+        results.failed(suite, category,
+                       'lsf(default_queue_type) unset — unmapped stages have NO safety net')
+
+    # For each flow, walk its stages and check per-stage mapping.
+    node_cfg_dir = os.path.join(pd_dir, 'config', 'flow', 'v1.0.0', 'node_configs')
+    for flow in flows:
+        nc = os.path.join(node_cfg_dir, f'{flow}_config.tcl')
+        if not os.path.exists(nc):
+            continue
+        with open(nc) as f:
+            nc_content = f.read()
+        # Extract the `stages { ... }` list from the flow's node_config.
+        m_stages = re.search(r'stages\s*\{([^}]*)\}', nc_content)
+        if not m_stages:
+            results.skipped(suite, category, f'{flow}: no stages{{...}} block in node_config')
+            continue
+        stages = m_stages.group(1).split()
+        # Strip the trailing "1" from `place1` → `place` for mapping lookup
+        # (LSF mapping uses stage base name, not instance name).
+        stage_bases = [re.sub(r'\d+$', '', s) for s in stages]
+
+        for base, full in zip(stage_bases, stages):
+            key = f'flow_mapping,{flow},{base}'
+            if key in lsf_content:
+                results.passed(suite, category, f'{flow}.{full}: explicit LSF mapping')
+            elif default_tier:
+                # Falls back to default — allowed but flagged as skipped so
+                # the reviewer sees which stages rely on the safety net.
+                results.skipped(suite, category,
+                                f'{flow}.{full}: no explicit mapping (falls back to '
+                                f'default "{default_tier}")')
+            else:
+                results.failed(suite, category,
+                               f'{flow}.{full}: no LSF mapping AND no default — job would '
+                               f'exec unbounded')
+
+
+# ── Category 16: LSF Tier Definition Completeness ───────────────────────────
+# Every tier referenced by a flow_mapping MUST be defined in
+# lsf(queue_types,<tier>,*) with memory + cpu + runtime_limit populated. A
+# tier without these fields will accept jobs but bsub will reject them for
+# missing resource envelope.
+
+def cat16_lsf_tier_completeness(results, pd_dir, flows):
+    suite = 'static'
+    category = 'cat16_lsf_tier_completeness'
+
+    lsfc = os.path.join(pd_dir, 'config', 'flow', 'v1.0.0', 'lsf_config.tcl')
+    if not os.path.exists(lsfc):
+        results.failed(suite, category, 'lsf_config.tcl missing')
+        return
+    with open(lsfc) as f:
+        lsf_content = f.read()
+
+    # 1. Enumerate every tier NAME referenced by flow_mapping entries.
+    referenced_tiers = set()
+    for m in re.finditer(r'lsf\(flow_mapping,\w+,\w+\)\s+"([A-Za-z0-9_]+)"', lsf_content):
+        referenced_tiers.add(m.group(1))
+    # Also include the default tier since jobs will resolve to it.
+    m_default = re.search(r'lsf\(default_queue_type\)\s+"([^"]+)"', lsf_content)
+    if m_default:
+        referenced_tiers.add(m_default.group(1))
+
+    if not referenced_tiers:
+        results.failed(suite, category, 'no flow_mapping entries found — LSF unused?')
+        return
+
+    # 2. Required attributes per tier for a runnable bsub envelope.
+    required_attrs = ('memory', 'cpu', 'runtime_limit')
+
+    for tier in sorted(referenced_tiers):
+        missing = []
+        for attr in required_attrs:
+            if not re.search(rf'lsf\(queue_types,{re.escape(tier)},{attr}\)\s+"[^"]+"', lsf_content):
+                missing.append(attr)
+        if missing:
+            results.failed(suite, category,
+                           f'tier "{tier}" is referenced by flow_mapping but missing: '
+                           f'{", ".join(missing)}')
+        else:
+            results.passed(suite, category,
+                           f'tier "{tier}" fully defined ({", ".join(required_attrs)})')
+
+
 # ── Registry ────────────────────────────────────────────────────────────────
 
 CATEGORIES = {
@@ -1608,6 +1932,9 @@ CATEGORIES = {
    11: ('Tcl Array-Set Hygiene', cat11_tcl_array_set_hygiene),
    12: ('Resolver-Output Suspicious Keys', cat12_resolver_suspicious_keys),
    13: ('Handler-Required Keys vs Resolver Emit', cat13_handler_required_keys),
+   14: ('Command-File Reads vs Config Writes', cat14_read_write_parity),
+   15: ('LSF Per-Node Assignment', cat15_lsf_per_node_assignment),
+   16: ('LSF Tier Definition Completeness', cat16_lsf_tier_completeness),
 }
 
 

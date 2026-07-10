@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RACE Grid — {{FLOW_TYPE}}</title>
 <link rel="stylesheet" href="/static/style.css">
+<script src="/static/adaptive_poll.js"></script>
 </head>
 <body>
 <nav class="topnav">
@@ -239,8 +240,14 @@ document.getElementById('search').addEventListener('input', renderGrid);
 document.getElementById('filter-status').addEventListener('change', renderGrid);
 document.getElementById('filter-stage').addEventListener('change', renderGrid);
 
-loadJobs();
-setInterval(loadJobs, 5000);
+// Adaptive polling: fast when a run is active, slow when idle.
+// Falls back to fixed setInterval if the helper failed to load.
+if (window.CBfAdaptive) {
+  window.CBfAdaptive.start(loadJobs);
+} else {
+  loadJobs();
+  setInterval(loadJobs, 5000);
+}
 </script>
 </body>
 </html>

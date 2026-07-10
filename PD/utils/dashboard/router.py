@@ -395,7 +395,11 @@ _PROJECT_KEYS_OF_INTEREST = (
     'lib_config_tag',
     'cbflow_release',
     'tapeout_date',
+    'current_phase',
+    'dashboard,developed_by',
 )
+
+_DEFAULT_BYLINE = 'SmartSoc Solutions Pvt Limited'
 
 
 def _project_info_for(project_name):
@@ -467,7 +471,7 @@ def _discover_runs(pd_dir):
 
     project comes from the run's own .run.cbflow.env (CBFLOW_PROJECT_NAME)
     — NOT from the project iterator that found the workarea. Multiple
-    projects often share one workarea_path (e.g. denali + ravendrive both
+    projects often share one workarea_path (e.g. denali + bumblebee both
     point at workarea/, with their designs in workarea/tom/ and
     workarea/cpu_core/); using the iterator's project name would tag every
     discovered run with whichever project sorted first.
@@ -679,8 +683,48 @@ def _render_index(runs, discipline='PD', project=''):
     # the first active run that has a project tag — the JS poll at +5s
     # recomputes with the full nearest-tapeout logic. This avoids a flash
     # of em-dashes on first paint.
-    _ssr_pick_project = next((r.get('project') for r in active if r.get('project')), '')
+    # Prefer any active run's project; fall back to the daemon's project scope
+    # (set via `cbflow dashboard start --project <name>`) so a freshly-started
+    # scoped daemon still shows the right byline / chip tiles before any runs
+    # are registered.
+    # Pick the primary project for header tiles. Priority:
+    #   1. Any active run whose project config resolves (has non-empty
+    #      technology / metal_stack — i.e. `PD/config/project/<name>` exists).
+    #   2. The daemon's --project scope (fresh scoped daemon with no runs yet).
+    #   3. Any active run's project name (even if stale/unresolvable) so at
+    #      least the project label shows.
+    def _valid(pname):
+        return bool(pname and _project_info_for(pname).get('technology'))
+    _ssr_pick_project = (
+        next((r.get('project') for r in active if _valid(r.get('project'))), '')
+        or (state_paths.get_project() if _valid(state_paths.get_project()) else '')
+        or state_paths.get_project()
+        or next((r.get('project') for r in active if r.get('project')), '')
+        or ''
+    )
     _ssr_chip_initial = _project_info_for(_ssr_pick_project)
+
+    # SSR weeks-to-tapeout so the milestone block paints correctly on first
+    # render even when no runs are registered yet. JS overrides after +5s.
+    _ssr_weeks_label = '—'
+    _ssr_weeks_cls = ''
+    _ssr_tapeout = _ssr_chip_initial.get('tapeout_date') or ''
+    if _ssr_tapeout:
+        try:
+            from datetime import date, datetime as _dt
+            _t = _dt.strptime(_ssr_tapeout, '%Y-%m-%d').date()
+            _days = (_t - date.today()).days
+            _weeks = (_days + 6) // 7 if _days >= 0 else -((-_days) // 7)
+            if _days < 0:
+                _ssr_weeks_label = f'{-_weeks} week(s) overdue'; _ssr_weeks_cls = 'ovd'
+            elif _weeks <= 4:
+                _ssr_weeks_label = f'{_weeks} week(s) remaining'; _ssr_weeks_cls = 'soon'
+            elif _weeks <= 12:
+                _ssr_weeks_label = f'{_weeks} week(s) remaining'; _ssr_weeks_cls = 'mid'
+            else:
+                _ssr_weeks_label = f'{_weeks} week(s) remaining'; _ssr_weeks_cls = 'far'
+        except ValueError:
+            pass
 
     # Stamp current_node / current_status server-side too so the initial
     # paint shows real status (otherwise every row would briefly read "NONE"
@@ -972,7 +1016,7 @@ def _render_index(runs, discipline='PD', project=''):
       {project_pill_html}
       <span class="engine-pill" title="Python-native DAG execution engine">RACE engine</span>
     </div>
-    <div class="byline">Developed by SmartSoc</div>
+    <div class="byline">Developed by {_ssr_chip_initial.get('dashboard,developed_by') or _DEFAULT_BYLINE}</div>
     <div class="stats">
       <div class="stat">Active runs: <b id="stat-active">{len(active)}</b></div>
       <div class="stat">Tech: <b id="stat-tech">{_ssr_chip_initial.get('technology') or '—'}</b></div>
@@ -983,16 +1027,16 @@ def _render_index(runs, discipline='PD', project=''):
   </div>
   <aside class="milestone-block" id="milestone-block"
          title="Project milestone — phase + nearest tapeout across active runs">
-    <div class="ms-project" id="ms-project">—</div>
+    <div class="ms-project" id="ms-project">{_ssr_pick_project or '—'}</div>
     <div class="ms-row">
       <span class="ms-label">Phase</span>
-      <span class="ms-phase" id="ms-phase">—</span>
+      <span class="ms-phase" id="ms-phase">{_ssr_chip_initial.get('current_phase') or '—'}</span>
     </div>
     <div class="ms-row">
       <span class="ms-label">Tapeout</span>
-      <span class="ms-tapeout" id="ms-tapeout-date">—</span>
+      <span class="ms-tapeout" id="ms-tapeout-date">{_ssr_chip_initial.get('tapeout_date') or '—'}</span>
     </div>
-    <div class="ms-weeks-line" id="ms-weeks-line">—</div>
+    <div class="ms-weeks-line {_ssr_weeks_cls}" id="ms-weeks-line">{_ssr_weeks_label}</div>
   </aside>
 </header>
 
@@ -1085,7 +1129,12 @@ def _render_index(runs, discipline='PD', project=''):
     // Same logic the milestone block uses to choose which run drives the
     // header chips: among active runs, prefer the nearest UPCOMING tapeout;
     // fall back to most-recently-past; then to any first active run.
-    const active = runs.filter(r => !r.archived && r.run_dir_exists !== false);
+    // Runs whose project_info didn't resolve (technology empty) are dropped
+    // — they're from projects that were renamed or removed and can't drive
+    // the header tiles.
+    const active = runs.filter(r =>
+      !r.archived && r.run_dir_exists !== false &&
+      r.project_info && r.project_info.technology);
     if (!active.length) return null;
     const dated = active
       .map(r => ({{r, t: r.tapeout_date ? Date.parse(r.tapeout_date) : NaN}}))
@@ -1100,9 +1149,12 @@ def _render_index(runs, discipline='PD', project=''):
   function updateProjectMetaChips(runs) {{
     // Populate the project-metadata stat chips (Tech / Metal stack / Lib
     // tag / CBflow release) from the same primary run the milestone block
-    // picks. Falls back to "—" when the chosen run lacks project_info.
+    // picks. When there is no primary run, leave the SSR-seeded values in
+    // place so a scoped daemon still shows correct info before any runs
+    // register.
     const pick = _pickPrimaryRun(runs);
-    const info = (pick && pick.project_info) || {{}};
+    if (!pick) return;
+    const info = pick.project_info || {{}};
     document.getElementById('stat-tech').textContent       = info.technology     || '—';
     document.getElementById('stat-metalstack').textContent = info.metal_stack    || '—';
     document.getElementById('stat-libtag').textContent     = info.lib_config_tag || '—';
@@ -1113,16 +1165,21 @@ def _render_index(runs, discipline='PD', project=''):
     // Active runs only — archived/deleted shouldn't drive the milestone view.
     const active = runs.filter(r => !r.archived && r.run_dir_exists !== false);
 
+    const elProject = document.getElementById('ms-project');
+    const elPhase   = document.getElementById('ms-phase');
+    const elTape    = document.getElementById('ms-tapeout-date');
+    const elWeeks   = document.getElementById('ms-weeks-line');
+
+    // No active runs → keep the SSR-seeded milestone tiles in place. The
+    // daemon may be project-scoped (`cbflow dashboard start --project X`)
+    // and SSR already showed the right phase/tapeout/weeks for that scope.
+    if (!active.length) return;
+
     // Pick the run with the nearest upcoming tapeout. That run's project
     // is the title; its phase is the displayed phase.
     const dated = active
       .map(r => ({{r, t: r.tapeout_date ? Date.parse(r.tapeout_date) : NaN}}))
       .filter(x => !Number.isNaN(x.t));
-
-    const elProject = document.getElementById('ms-project');
-    const elPhase   = document.getElementById('ms-phase');
-    const elTape    = document.getElementById('ms-tapeout-date');
-    const elWeeks   = document.getElementById('ms-weeks-line');
 
     if (!dated.length) {{
       // No tapeouts → still show first project + its phase if available.

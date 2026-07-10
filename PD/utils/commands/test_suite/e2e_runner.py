@@ -47,16 +47,21 @@ def _resolve_run_dir(workarea_path, design_name, phase, flow_type, run_name):
 
 
 def prepare_sandbox(flow, repo_root, pd_dir, workarea_test, vendor=None,
-                    project=None):
+                    project=None, fixture=None):
     """Pick fixture + rewrite + compute expected run directory.
 
     `project` filters fixtures by `project(name)` so the runner can
     iterate (flow, project) pairs — each project gets exercised against
-    its own tool stack (e.g. ravendrive→Synopsys, denali→Cadence).
+    its own tool stack (e.g. bumblebee→Synopsys, denali→Cadence).
+
+    `fixture`, if provided, skips the picker and uses that exact fixture
+    path — used by the multi-mode runner to iterate every input-handoff
+    variant for a (flow, project) pair.
 
     Returns (sandbox, fixture_path, cwd_for_create) or (None, error_message, None).
     """
-    fixture = fixtures.pick_fixture(workarea_test, flow, vendor=vendor, project=project)
+    if fixture is None:
+        fixture = fixtures.pick_fixture(workarea_test, flow, vendor=vendor, project=project)
     if fixture is None:
         proj_note = f' (project={project})' if project else ''
         return None, f'no fixture in {workarea_test} for flow={flow}{proj_note}', None

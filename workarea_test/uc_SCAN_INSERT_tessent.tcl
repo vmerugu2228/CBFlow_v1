@@ -1,5 +1,5 @@
-set project(name) "ravendrive"
-set project(phase) "P0"
+set project(name) "bumblebee"
+set project(phase) "LC1"
 set project(track_variant) "9T"
 set flow(type) "SCAN_INSERT"
 set flow(design_name) "cpu_core"

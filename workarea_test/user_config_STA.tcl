@@ -1,5 +1,5 @@
-set project(name) "ravendrive"
-set project(phase) "P0"
+set project(name) "bumblebee"
+set project(phase) "LC1"
 set flow(type) "STA"
 set flow(design_name) "cpu_core"
 set flow(run_name) "pt_test"

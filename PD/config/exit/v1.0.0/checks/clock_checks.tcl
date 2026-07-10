@@ -9,7 +9,7 @@ array set clock_checks {
         "script"                  "check_clock_quality.tcl"
         "category"                "clock"
         "severity"                "critical"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_clock_timing.skew.rpt"
         "metric_pattern"          {Max\s+Skew\s*:\s*([\d.]+)}
@@ -21,7 +21,7 @@ array set clock_checks {
         "script"                  "check_clock_quality.tcl"
         "category"                "clock"
         "severity"                "major"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_clock_timing.setup.rpt"
         "metric_pattern"          {Max\s+Insertion\s+Delay\s*:\s*([\d.]+)}
@@ -33,7 +33,7 @@ array set clock_checks {
         "script"                  "check_clock_quality.tcl"
         "category"                "clock"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_clock_qor.rpt"
         "metric_pattern"          {Clock\s+Coverage\s*:\s*([\d.]+)\s*%}
@@ -45,7 +45,7 @@ array set clock_checks {
         "script"                  "check_clock_quality.tcl"
         "category"                "clock"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_clock_qor.rpt"
         "metric_pattern"          {Latency\s+Imbalance\s*:\s*([\d.]+)}
@@ -57,7 +57,7 @@ array set clock_checks {
         "script"                  "check_clock_quality.tcl"
         "category"                "clock"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_clock_timing.setup.rpt"
         "metric_pattern"          {Max\s+Transition\s*:\s*([\d.]+)}
@@ -69,7 +69,7 @@ array set clock_checks {
         "script"                  "check_power.tcl"
         "category"                "clock"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_power.rpt"
         "metric_pattern"          {Clock\s+Network\s+Power\s*:\s*([\d.]+)}
@@ -81,7 +81,7 @@ array set clock_checks {
         "script"                  "check_clock_quality.tcl"
         "category"                "clock"
         "severity"                "minor"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_clock_qor.rpt"
         "metric_pattern"          {Max\s+Fanout\s*:\s*(\d+)}
@@ -93,7 +93,7 @@ array set clock_checks {
         "script"                  "check_clock_quality.tcl"
         "category"                "clock"
         "severity"                "minor"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_clock_timing.setup.rpt"
         "metric_pattern"          {Useful\s+Skew\s+Benefit\s*:\s*([\d.]+)}
@@ -105,7 +105,7 @@ array set clock_checks {
         "script"                  "check_clock_quality.tcl"
         "category"                "clock"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_clock_qor.rpt"
         "metric_pattern"          {Non-Clock\s+Cells\s*:\s*(\d+)}
@@ -117,7 +117,7 @@ array set clock_checks {
         "script"                  "check_clock_quality.tcl"
         "category"                "clock"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_clock_qor.rpt"
         "metric_pattern"          {Undefined\s+Clock\s+Cells\s*:\s*(\d+)}
@@ -129,7 +129,7 @@ array set clock_checks {
         "script"                  "check_clock_quality.tcl"
         "category"                "clock"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_clock_timing.setup.rpt"
         "metric_pattern"          {CRPR\s+Pessimism\s*:\s*([\d.]+)}
@@ -141,7 +141,7 @@ array set clock_checks {
         "script"                  "check_drc.tcl"
         "category"                "clock"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_clock_qor.rpt"
         "metric_pattern"          {Clock\s+Mesh\s+DRC\s*:\s*(\d+)}
@@ -153,7 +153,7 @@ array set clock_checks {
         "script"                  "check_utilization.tcl"
         "category"                "clock"
         "severity"                "minor"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_clock_qor.rpt"
         "metric_pattern"          {ICG\s+Utilization\s*:\s*([\d.]+)\s*%}
@@ -165,7 +165,7 @@ array set clock_checks {
         "script"                  "check_clock_quality.tcl"
         "category"                "clock"
         "severity"                "minor"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_clock_qor.rpt"
         "metric_pattern"          {Buffer/Inverter\s+Ratio\s*:\s*([\d.]+)}
@@ -177,7 +177,7 @@ array set clock_checks {
         "script"                  "check_drc.tcl"
         "category"                "clock"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_clock_qor.rpt"
         "metric_pattern"          {NDR\s+Violations\s*:\s*(\d+)}
@@ -189,7 +189,7 @@ array set clock_checks {
         "script"                  "check_clock_quality.tcl"
         "category"                "clock"
         "severity"                "minor"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_clock_qor.rpt"
         "metric_pattern"          {Max\s+Tree\s+Depth\s*:\s*(\d+)}
@@ -201,7 +201,7 @@ array set clock_checks {
         "script"                  "check_clock_quality.tcl"
         "category"                "clock"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_clock_timing.setup.rpt"
         "metric_pattern"          {Duty\s+Cycle\s+Distortion\s*:\s*([\d.]+)\s*%}
@@ -213,7 +213,7 @@ array set clock_checks {
         "script"                  "check_clock_quality.tcl"
         "category"                "clock"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_clock_timing.setup.rpt"
         "metric_pattern"          {Jitter\s+Margin\s*:\s*([\d.]+)}
@@ -225,7 +225,7 @@ array set clock_checks {
         "script"                  "check_clock_quality.tcl"
         "category"                "clock"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_clock_timing.skew.rpt"
         "metric_pattern"          {Inter-Domain\s+Skew\s*:\s*([\d.]+)}
@@ -237,7 +237,7 @@ array set clock_checks {
         "script"                  "check_utilization.tcl"
         "category"                "clock"
         "severity"                "minor"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_power.rpt"
         "metric_pattern"          {Clock\s+Gating\s+Efficiency\s*:\s*([\d.]+)\s*%}
@@ -249,7 +249,7 @@ array set clock_checks {
         "script"                  "check_timing.tcl"
         "category"                "clock"
         "severity"                "minor"
-        "min_phase"               "P3"
+        "min_phase_index"               "3"
         "applicable_milestones"   "BTO"
         "report_pattern"          "report_clock_timing.setup.rpt"
         "metric_pattern"          {OCC\s+WNS\s*:\s*([-\d.]+)}
@@ -261,7 +261,7 @@ array set clock_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "clock"
         "severity"                "minor"
-        "min_phase"               "P3"
+        "min_phase_index"               "3"
         "applicable_milestones"   "BTO"
         "report_pattern"          "report_clock_qor.rpt"
         "metric_pattern"          {DFT\s+Clock\s+Coverage\s*:\s*([\d.]+)\s*%}
@@ -273,7 +273,7 @@ array set clock_checks {
         "script"                  "check_clock_quality.tcl"
         "category"                "clock"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_clock_timing.setup.rpt"
         "metric_pattern"          {Max\s+Latency\s*:\s*([\d.]+)}
@@ -285,7 +285,7 @@ array set clock_checks {
         "script"                  "check_timing.tcl"
         "category"                "clock"
         "severity"                "critical"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_clock_timing.skew.rpt"
         "metric_pattern"          {Hold\s+Margin\s*:\s*([-\d.]+)}
@@ -297,7 +297,7 @@ array set clock_checks {
         "script"                  "check_power.tcl"
         "category"                "clock"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_power.rpt"
         "metric_pattern"          {Clock\s+Power\s+Budget\s+Used\s*:\s*([\d.]+)\s*%}

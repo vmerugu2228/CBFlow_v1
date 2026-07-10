@@ -3,7 +3,7 @@
 # project-tagged fixtures. SYNTH_PNR itself only ships a Synopsys FC
 # implementation (no Cadence Innovus), so the tool here is fc.
 set project(name) "denali"
-set project(phase) "P0"
+set project(phase) "LC1"
 set flow(type) "SYNTH_PNR"
 set flow(design_name) "tom"
 set flow(run_name) "denali_fc_test1"

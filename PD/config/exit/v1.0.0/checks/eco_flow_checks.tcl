@@ -15,7 +15,7 @@ array set eco_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "eco"
         "severity"                "critical"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "ECO_SIGNOFF"
         "report_pattern"          "eco_summary.rpt"
         "metric_pattern"          {ECO\s+Implementation\s+Status\s*:\s*(PASS|FAIL)}
@@ -28,7 +28,7 @@ array set eco_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "eco"
         "severity"                "critical"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "ECO_SIGNOFF"
         "report_pattern"          "eco_summary.rpt"
         "metric_pattern"          {Post-ECO\s+Netlist\s*:\s*(GENERATED|MISSING)}
@@ -41,7 +41,7 @@ array set eco_flow_checks {
         "script"                  "check_timing.tcl"
         "category"                "eco_timing"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "ECO_SIGNOFF"
         "report_pattern"          "eco_timing.rpt"
         "metric_pattern"          {ECO\s+Setup\s+WNS\s+Impact\s*:\s*(-?[0-9]+\.[0-9]+)}
@@ -54,7 +54,7 @@ array set eco_flow_checks {
         "script"                  "check_timing.tcl"
         "category"                "eco_timing"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "ECO_SIGNOFF"
         "report_pattern"          "eco_timing.rpt"
         "metric_pattern"          {ECO\s+Hold\s+WNS\s+Impact\s*:\s*(-?[0-9]+\.[0-9]+)}
@@ -67,7 +67,7 @@ array set eco_flow_checks {
         "script"                  "check_drc.tcl"
         "category"                "eco_physical"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "ECO_SIGNOFF"
         "report_pattern"          "eco_summary.rpt"
         "metric_pattern"          {Post-ECO\s+DRC\s+Violations\s*:\s*([0-9]+)}
@@ -80,7 +80,7 @@ array set eco_flow_checks {
         "script"                  "check_legality.tcl"
         "category"                "eco_physical"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "ECO_SIGNOFF"
         "report_pattern"          "eco_summary.rpt"
         "metric_pattern"          {Post-ECO\s+Connectivity\s*:\s*(PASS|FAIL)}
@@ -93,7 +93,7 @@ array set eco_flow_checks {
         "script"                  "check_legality.tcl"
         "category"                "eco_physical"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "ECO_SIGNOFF"
         "report_pattern"          "eco_summary.rpt"
         "metric_pattern"          {Post-ECO\s+Legality\s+Violations\s*:\s*([0-9]+)}
@@ -106,7 +106,7 @@ array set eco_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "eco"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "ECO_SIGNOFF"
         "report_pattern"          "eco_summary.rpt"
         "metric_pattern"          {Post-ECO\s+LEC\s+Status\s*:\s*(PASS|FAIL|PENDING)}
@@ -119,7 +119,7 @@ array set eco_flow_checks {
         "script"                  "check_utilization.tcl"
         "category"                "eco"
         "severity"                "minor"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "ECO_SIGNOFF"
         "report_pattern"          "eco_changes.rpt"
         "metric_pattern"          {Spare\s+Cell\s+Usage\s*:\s*([0-9]+\.[0-9]+)\s*%}
@@ -132,7 +132,7 @@ array set eco_flow_checks {
         "script"                  "check_routing.tcl"
         "category"                "eco_physical"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "ECO_SIGNOFF"
         "report_pattern"          "eco_summary.rpt"
         "metric_pattern"          {ECO\s+Routing\s+Status\s*:\s*(COMPLETED|INCOMPLETE)}
@@ -145,7 +145,7 @@ array set eco_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "eco"
         "severity"                "major"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "ECO_SIGNOFF"
         "report_pattern"          "eco_changes.rpt"
         "metric_pattern"          {ECO\s+Changes\s+Report\s*:\s*(GENERATED|MISSING)}
@@ -158,7 +158,7 @@ array set eco_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "eco"
         "severity"                "major"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "ECO_SIGNOFF"
         "report_pattern"          "eco_summary.rpt"
         "metric_pattern"          {ECO\s+Summary\s+Report\s*:\s*(GENERATED|MISSING)}

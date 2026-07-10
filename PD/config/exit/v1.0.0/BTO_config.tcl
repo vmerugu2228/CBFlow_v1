@@ -12,14 +12,14 @@ set milestone_info(report_dir)  "work/SYNTH_PNR/signoff1/reports"
 
 # ── Check packs — all categories active for BTO ──────────────────────────
 array set check_packs {
-    timing         "P0"
-    placement      "P0"
-    clock          "P0"
-    power          "P1"
-    routing        "P0"
-    physical       "P1"
-    si             "P2"
-    manufacturing  "P2"
+    timing         "0"
+    placement      "0"
+    clock          "0"
+    power          "1"
+    routing        "0"
+    physical       "1"
+    si             "2"
+    manufacturing  "2"
 }
 
 # ── Mandatory checks ─────────────────────────────────────────────────────────
@@ -28,63 +28,63 @@ array set mandatory_checks {
         "script"      "check_timing.tcl"
         "description" "Signoff setup timing — WNS >= 0 at P2+"
         "criteria"    "setup_wns >= threshold"
-        "min_phase"   "P0"
+        "min_phase_index"   "0"
         "report_file" "work/SYNTH_PNR/signoff1/reports/report_timing.max.rpt"
     }
     "bto_qor" {
         "script"      "check_timing.tcl"
         "description" "Signoff QoR summary"
         "criteria"    "report exists and parseable"
-        "min_phase"   "P0"
+        "min_phase_index"   "0"
         "report_file" "work/SYNTH_PNR/signoff1/reports/report_qor.rpt"
     }
     "bto_routing" {
         "script"      "check_routing.tcl"
         "description" "Final route check — zero opens/shorts"
         "criteria"    "opens == 0 && shorts == 0"
-        "min_phase"   "P0"
+        "min_phase_index"   "0"
         "report_file" "work/SYNTH_PNR/signoff1/reports/check_routes.final"
     }
     "bto_hold_timing" {
         "script"      "check_timing.tcl"
         "description" "Signoff hold timing — WNS >= 0 at P2+"
         "criteria"    "hold_wns >= threshold"
-        "min_phase"   "P1"
+        "min_phase_index"   "1"
         "report_file" "work/SYNTH_PNR/signoff1/reports/report_timing.min.rpt"
     }
     "bto_signoff_drc" {
         "script"      "check_drc.tcl"
         "description" "Signoff DRC — zero violations"
         "criteria"    "drc_violations == 0"
-        "min_phase"   "P1"
+        "min_phase_index"   "1"
         "report_file" "work/SYNTH_PNR/signoff1/reports/signoff_check_drc.rpt"
     }
     "bto_power" {
         "script"      "check_power.tcl"
         "description" "Signoff power analysis"
         "criteria"    "total_power <= budget"
-        "min_phase"   "P2"
+        "min_phase_index"   "2"
         "report_file" "work/SYNTH_PNR/signoff1/reports/report_power.rpt"
     }
     "bto_si" {
         "script"      "check_signal_integrity.tcl"
         "description" "Signal integrity — crosstalk clean"
         "criteria"    "si_violations == 0"
-        "min_phase"   "P2"
+        "min_phase_index"   "2"
         "report_file" "work/SYNTH_PNR/signoff1/reports/report_si.rpt"
     }
     "bto_legality" {
         "script"      "check_legality.tcl"
         "description" "Final cell legality"
         "criteria"    "illegal_cells == 0"
-        "min_phase"   "P2"
+        "min_phase_index"   "2"
         "report_file" "work/SYNTH_PNR/signoff1/reports/check_legality.rpt"
     }
     "bto_constraint_check" {
         "script"      "check_constraints.tcl"
         "description" "All constraint checks pass"
         "criteria"    "constraint violations == 0"
-        "min_phase"   "P3"
+        "min_phase_index"   "3"
         "report_file" "work/SYNTH_PNR/signoff1/reports/check_timing.rpt"
     }
 }
@@ -95,21 +95,21 @@ array set optional_checks {
         "script"      "check_file_exists.tcl"
         "description" "QoR summary condensed"
         "criteria"    "file exists"
-        "min_phase"   "P2"
+        "min_phase_index"   "2"
         "report_file" "work/SYNTH_PNR/signoff1/reports/report_qor_summary.rpt"
     }
     "bto_vt_group" {
         "script"      "check_file_exists.tcl"
         "description" "Threshold voltage group distribution"
         "criteria"    "file exists"
-        "min_phase"   "P2"
+        "min_phase_index"   "2"
         "report_file" "work/SYNTH_PNR/signoff1/reports/report_threshold_voltage_group.rpt"
     }
     "bto_utilization" {
         "script"      "check_utilization.tcl"
         "description" "Final area utilization"
         "criteria"    "utilization within range"
-        "min_phase"   "P2"
+        "min_phase_index"   "2"
         "report_file" "work/SYNTH_PNR/signoff1/reports/report_utilization.rpt"
     }
 }

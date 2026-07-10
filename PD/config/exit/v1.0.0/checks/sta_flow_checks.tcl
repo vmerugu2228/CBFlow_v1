@@ -15,7 +15,7 @@ array set sta_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "sta_flow"
         "severity"                "critical"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "STA_SIGNOFF"
         "report_pattern"          "mmmc_timing_summary.rpt"
         "metric_pattern"          {Scenarios\s+Completed\s*:\s*(\d+)/(\d+)}
@@ -28,7 +28,7 @@ array set sta_flow_checks {
         "script"                  "check_timing.tcl"
         "category"                "sta_flow"
         "severity"                "critical"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "STA_SIGNOFF"
         "report_pattern"          "report_timing.max.rpt"
         "metric_pattern"          {Worst\s+Setup\s+WNS\s*:\s*(-?[0-9]+\.[0-9]+)}
@@ -41,7 +41,7 @@ array set sta_flow_checks {
         "script"                  "check_timing.tcl"
         "category"                "sta_flow"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "STA_SIGNOFF"
         "report_pattern"          "report_timing.min.rpt"
         "metric_pattern"          {Worst\s+Hold\s+WNS\s*:\s*(-?[0-9]+\.[0-9]+)}
@@ -54,7 +54,7 @@ array set sta_flow_checks {
         "script"                  "check_timing.tcl"
         "category"                "sta_flow"
         "severity"                "critical"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "STA_SIGNOFF"
         "report_pattern"          "mmmc_timing_summary.rpt"
         "metric_pattern"          {Cross-Corner\s+Setup\s+WNS\s*:\s*(-?[0-9]+\.[0-9]+)}
@@ -67,7 +67,7 @@ array set sta_flow_checks {
         "script"                  "check_timing.tcl"
         "category"                "sta_flow"
         "severity"                "critical"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "STA_SIGNOFF"
         "report_pattern"          "mmmc_timing_summary.rpt"
         "metric_pattern"          {Cross-Corner\s+Hold\s+WNS\s*:\s*(-?[0-9]+\.[0-9]+)}
@@ -80,7 +80,7 @@ array set sta_flow_checks {
         "script"                  "check_timing.tcl"
         "category"                "sta_flow"
         "severity"                "critical"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "STA_SIGNOFF"
         "report_pattern"          "report_timing.max.rpt"
         "metric_pattern"          {PBA\s+Setup\s+WNS\s*:\s*(-?[0-9]+\.[0-9]+)}
@@ -93,7 +93,7 @@ array set sta_flow_checks {
         "script"                  "check_timing.tcl"
         "category"                "sta_flow"
         "severity"                "critical"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "STA_SIGNOFF"
         "report_pattern"          "report_timing.min.rpt"
         "metric_pattern"          {PBA\s+Hold\s+WNS\s*:\s*(-?[0-9]+\.[0-9]+)}
@@ -106,7 +106,7 @@ array set sta_flow_checks {
         "script"                  "check_timing.tcl"
         "category"                "sta_flow"
         "severity"                "major"
-        "min_phase"               "P3"
+        "min_phase_index"               "3"
         "applicable_milestones"   "STA_SIGNOFF"
         "report_pattern"          "report_timing.max.rpt"
         "metric_pattern"          {EPBA\s+Setup\s+WNS\s*:\s*(-?[0-9]+\.[0-9]+)}
@@ -119,7 +119,7 @@ array set sta_flow_checks {
         "script"                  "check_timing.tcl"
         "category"                "sta_flow"
         "severity"                "major"
-        "min_phase"               "P3"
+        "min_phase_index"               "3"
         "applicable_milestones"   "STA_SIGNOFF"
         "report_pattern"          "report_timing.min.rpt"
         "metric_pattern"          {EPBA\s+Hold\s+WNS\s*:\s*(-?[0-9]+\.[0-9]+)}
@@ -132,7 +132,7 @@ array set sta_flow_checks {
         "script"                  "check_signal_integrity.tcl"
         "category"                "sta_flow"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "STA_SIGNOFF"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {SI\s+Timing\s+Delta\s*:\s*(-?[0-9]+\.[0-9]+)}
@@ -145,7 +145,7 @@ array set sta_flow_checks {
         "script"                  "check_timing.tcl"
         "category"                "sta_flow"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "STA_SIGNOFF"
         "report_pattern"          "check_timing.rpt"
         "metric_pattern"          {CRPR\s+Applied\s*:\s*(yes|no)}
@@ -158,7 +158,7 @@ array set sta_flow_checks {
         "script"                  "check_constraints.tcl"
         "category"                "sta_flow"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "STA_SIGNOFF"
         "report_pattern"          "report_constraint.rpt"
         "metric_pattern"          {Constraint\s+Coverage\s*:\s*([0-9]+\.[0-9]+)\s*%}
@@ -171,7 +171,7 @@ array set sta_flow_checks {
         "script"                  "check_constraints.tcl"
         "category"                "sta_flow"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "STA_SIGNOFF"
         "report_pattern"          "check_timing.rpt"
         "metric_pattern"          {Unconstrained\s+Paths\s*:\s*(\d+)}
@@ -184,7 +184,7 @@ array set sta_flow_checks {
         "script"                  "check_constraints.tcl"
         "category"                "sta_flow"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "STA_SIGNOFF"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Max\s+Cap\s+Violations\s*:\s*(\d+)}
@@ -197,7 +197,7 @@ array set sta_flow_checks {
         "script"                  "check_constraints.tcl"
         "category"                "sta_flow"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "STA_SIGNOFF"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Max\s+Tran\s+Violations\s*:\s*(\d+)}
@@ -210,7 +210,7 @@ array set sta_flow_checks {
         "script"                  "check_constraints.tcl"
         "category"                "sta_flow"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "STA_SIGNOFF"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Max\s+Fanout\s+Violations\s*:\s*(\d+)}
@@ -223,7 +223,7 @@ array set sta_flow_checks {
         "script"                  "check_clock_quality.tcl"
         "category"                "sta_flow"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "STA_SIGNOFF"
         "report_pattern"          "check_timing.rpt"
         "metric_pattern"          {Clocks\s+Without\s+Uncertainty\s*:\s*(\d+)}
@@ -236,7 +236,7 @@ array set sta_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "sta_flow"
         "severity"                "minor"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "STA_SIGNOFF"
         "report_pattern"          "check_timing.rpt"
         "metric_pattern"          {Inputs\s+Without\s+Delay\s*:\s*(\d+)}
@@ -249,7 +249,7 @@ array set sta_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "sta_flow"
         "severity"                "minor"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "STA_SIGNOFF"
         "report_pattern"          "check_timing.rpt"
         "metric_pattern"          {Outputs\s+Without\s+Delay\s*:\s*(\d+)}
@@ -262,7 +262,7 @@ array set sta_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "sta_flow"
         "severity"                "major"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "STA_SIGNOFF"
         "report_pattern"          "mmmc_timing_summary.rpt"
         "metric_pattern"          {Summary\s+Generated\s*:\s*(yes|no)}
@@ -275,7 +275,7 @@ array set sta_flow_checks {
         "script"                  "check_power.tcl"
         "category"                "sta_flow"
         "severity"                "minor"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "STA_SIGNOFF"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Power\s+Report\s+Generated\s*:\s*(yes|no)}
@@ -288,7 +288,7 @@ array set sta_flow_checks {
         "script"                  "check_signal_integrity.tcl"
         "category"                "sta_flow"
         "severity"                "major"
-        "min_phase"               "P3"
+        "min_phase_index"               "3"
         "applicable_milestones"   "STA_SIGNOFF"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Noise\s+Violations\s*:\s*(\d+)}
@@ -301,7 +301,7 @@ array set sta_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "sta_flow"
         "severity"                "minor"
-        "min_phase"               "P3"
+        "min_phase_index"               "3"
         "applicable_milestones"   "STA_SIGNOFF"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {SDF\s+Generated\s*:\s*(yes|no)}
@@ -314,7 +314,7 @@ array set sta_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "sta_flow"
         "severity"                "minor"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "STA_SIGNOFF"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Bottleneck\s+Report\s+Generated\s*:\s*(yes|no)}
@@ -327,7 +327,7 @@ array set sta_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "sta_flow"
         "severity"                "minor"
-        "min_phase"               "P3"
+        "min_phase_index"               "3"
         "applicable_milestones"   "STA_SIGNOFF"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {ECO\s+Guidance\s+Generated\s*:\s*(yes|no)}

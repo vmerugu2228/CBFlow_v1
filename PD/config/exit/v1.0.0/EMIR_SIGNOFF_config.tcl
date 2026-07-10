@@ -12,7 +12,7 @@ set milestone_info(report_dir)  "work/EMIR/ir_drop1/reports"
 
 # ── Check packs ─────────────────────────────────────────────────────────────
 array set check_packs {
-    emir_flow   "P0"
+    emir_flow   "0"
 }
 
 # ── Mandatory checks ─────────────────────────────────────────────────────────
@@ -21,21 +21,21 @@ array set mandatory_checks {
         "script"      "check_emir.tcl"
         "description" "IR drop within specified limits"
         "criteria"    "grep ir_drop_summary.rpt for PASS"
-        "min_phase"   "P1"
+        "min_phase_index"   "1"
         "report_file" "work/EMIR/ir_drop1/reports/ir_drop_summary.rpt"
     }
     "emir_em_clean" {
         "script"      "check_emir.tcl"
         "description" "Electromigration check — zero violations"
         "criteria"    "grep em_summary.rpt for violations.*0"
-        "min_phase"   "P2"
+        "min_phase_index"   "2"
         "report_file" "work/EMIR/ir_drop1/reports/em_summary.rpt"
     }
     "emir_power_analysis" {
         "script"      "check_file_exists.tcl"
         "description" "Power analysis report generated"
         "criteria"    "report exists and parseable"
-        "min_phase"   "P0"
+        "min_phase_index"   "0"
         "report_file" "work/EMIR/power_analysis1/reports/power_summary.rpt"
     }
 }
@@ -46,14 +46,14 @@ array set optional_checks {
         "script"      "check_file_exists.tcl"
         "description" "Thermal analysis within limits"
         "criteria"    "file exists"
-        "min_phase"   "P2"
+        "min_phase_index"   "2"
         "report_file" "work/EMIR/ir_drop1/reports/thermal_analysis.rpt"
     }
     "emir_dynamic_ir" {
         "script"      "check_file_exists.tcl"
         "description" "Dynamic IR drop analysis"
         "criteria"    "file exists"
-        "min_phase"   "P3"
+        "min_phase_index"   "3"
         "report_file" "work/EMIR/ir_drop1/reports/dynamic_ir_drop.rpt"
     }
 }

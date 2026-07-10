@@ -1577,8 +1577,14 @@ def cmd_generate(args: argparse.Namespace) -> int:
                 continue
             vt, _ = _extract_vt(f, vt_list)
             trk = _extract_track(f, tracks, _track_patterns)
+            # When only one side is detectable, fall back to a default so a
+            # missing VT/track token in the filename doesn't drop the file
+            # entirely — this used to hide whole track directories when
+            # library filenames didn't encode VT.
             if not trk and vt:
                 trk = tracks[0] if tracks else 'default'
+            if trk and not vt:
+                vt = vt_list[0] if vt_list else 'default'
             if vt and trk:
                 ndm_libs[(trk, vt)].append(fpath)
                 discovered_tracks.add(trk)
@@ -1607,6 +1613,8 @@ def cmd_generate(args: argparse.Namespace) -> int:
             trk = _extract_track(f, tracks, _track_patterns)
             if not trk and vt:
                 trk = tracks[0] if tracks else 'default'
+            if trk and not vt:
+                vt = vt_list[0] if vt_list else 'default'
             if vt and trk:
                 lef_libs[(trk, vt)].append(fpath)
 
@@ -1622,9 +1630,13 @@ def cmd_generate(args: argparse.Namespace) -> int:
             trk = _extract_track(f, tracks, _track_patterns)
             base_for_corner, _ = _strip_lib_extension(f)
             corner = _extract_corner(base_for_corner)
-            # Use default track when filename has no track identifier
+            # Fall back to defaults when either side is missing — libraries
+            # with only one VT flavor or where the filename omits the VT
+            # token (encoded via directory) should still be catalogued.
             if not trk and vt:
                 trk = tracks[0] if tracks else 'default'
+            if trk and not vt:
+                vt = vt_list[0] if vt_list else 'default'
 
             if vt and trk:
                 discovered_tracks.add(trk)
@@ -1693,12 +1705,38 @@ def cmd_generate(args: argparse.Namespace) -> int:
             return 0.0
     all_tracks = sorted(discovered_tracks, key=_track_sort_key)
     if tracks:
-        all_tracks = [t for t in tracks if t in discovered_tracks]
+        declared = set(tracks)
+        extra   = discovered_tracks - declared
+        missing = declared - discovered_tracks
+        overlap = discovered_tracks & declared
+        # Warn about mismatches — but include ALL discovered tracks so the
+        # user's actual libraries are catalogued. Silently intersecting
+        # with tech(tracks_available) was hiding real libs when the config
+        # was out of date (e.g. gf_22nm declares 9T/7.5T/8T but disk has 6T).
+        if extra:
+            logger.warning(
+                "Discovered tracks {} not in tech(tracks_available) {}. "
+                "Cataloging them anyway — update tech_config to declare them "
+                "if they're real.".format(sorted(extra), sorted(declared)))
+        if missing:
+            logger.warning(
+                "tech(tracks_available) lists {} but no libraries were "
+                "found for {}.".format(sorted(declared), sorted(missing)))
+        if not overlap and not extra:
+            logger.error(
+                "No tracks matched. tech(tracks_available)={} but nothing "
+                "on disk matches. Check --lib-root and file naming.".format(
+                    sorted(declared)))
+            return 1
+        # Order: declared-and-found first (in tech_config order), then extras
+        all_tracks = ([t for t in tracks if t in discovered_tracks]
+                      + sorted(extra, key=_track_sort_key))
     all_vts = [v for v in vt_list if v in discovered_vts]
     all_corners = sorted(discovered_corners)
 
     if not all_tracks:
-        logger.error("No tracks discovered. Check --lib-root directory structure.")
+        logger.error("No tracks discovered. Check --lib-root directory structure "
+                     "and confirm library filenames encode the track (e.g. '9T', '6T').")
         return 1
 
     # ── Verify: read .lib headers and cross-check PVT against filenames ──

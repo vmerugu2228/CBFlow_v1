@@ -1348,7 +1348,7 @@ Examples:
   cbflow flow qor-report generate --run-dir ./run1 --format html -o qor.html
   cbflow flow qor-report compare --run-dir1 ./run1 --run-dir2 ./run2
   cbflow flow qor-report compare --run-dir1 ./run1 --run-dir2 ./run2 --format json
-  cbflow flow qor-report summary --project ravendrive
+  cbflow flow qor-report summary --project bumblebee
   cbflow flow qor-report summary --project india --flow PNR
         """
     )

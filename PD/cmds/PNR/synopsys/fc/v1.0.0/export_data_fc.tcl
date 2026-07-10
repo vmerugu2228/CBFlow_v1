@@ -135,8 +135,8 @@ flow_proc write_gds_output {
 
     if {[info exists cfg(export_data,write_gds)] && $cfg(export_data,write_gds) ne "" && [string is true -strict $cfg(export_data,write_gds)]} {
         set cmd "write_gds -compress -hierarchy all -long_names -keep_data_type"
-        if {[info exists tech(gds_layer_map_file)] && $tech(gds_layer_map_file) ne "" && [file exists $tech(gds_layer_map_file)]} {
-            lappend cmd -layer_map $tech(gds_layer_map_file)
+        if {[info exists tech($project(metal_stack),gds_layer_map_file)] && $tech($project(metal_stack),gds_layer_map_file) ne "" && [file exists $tech($project(metal_stack),gds_layer_map_file)]} {
+            lappend cmd -layer_map $tech($project(metal_stack),gds_layer_map_file)
         }
         lappend cmd ${out}/${design_name}.gds
         handle_info "Running: $cmd"

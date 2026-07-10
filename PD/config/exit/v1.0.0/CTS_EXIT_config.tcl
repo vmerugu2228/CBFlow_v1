@@ -12,11 +12,11 @@ set milestone_info(report_dir)  "work/SYNTH_PNR/cts_opt1/reports"
 
 # ── Check packs ──────────────────────────────────────────────────────────
 array set check_packs {
-    timing      "P0"
-    placement   "P0"
-    clock       "P0"
-    power       "P1"
-    physical    "P1"
+    timing      "0"
+    placement   "0"
+    clock       "0"
+    power       "1"
+    physical    "1"
 }
 
 # ── Mandatory checks ─────────────────────────────────────────────────────────
@@ -25,35 +25,35 @@ array set mandatory_checks {
         "script"      "check_clock_quality.tcl"
         "description" "Clock tree quality — skew, insertion delay"
         "criteria"    "clock_skew <= threshold"
-        "min_phase"   "P0"
+        "min_phase_index"   "0"
         "report_file" "work/SYNTH_PNR/cts1/reports/report_clock_qor.rpt"
     }
     "cts_opt_qor" {
         "script"      "check_timing.tcl"
         "description" "Post-CTS optimization QoR"
         "criteria"    "report exists and parseable"
-        "min_phase"   "P0"
+        "min_phase_index"   "0"
         "report_file" "work/SYNTH_PNR/cts_opt1/reports/report_qor.rpt"
     }
     "cts_setup_timing" {
         "script"      "check_timing.tcl"
         "description" "Post-CTS setup timing"
         "criteria"    "setup_wns >= threshold"
-        "min_phase"   "P1"
+        "min_phase_index"   "1"
         "report_file" "work/SYNTH_PNR/cts_opt1/reports/report_timing.max.rpt"
     }
     "cts_clock_timing" {
         "script"      "check_clock_quality.tcl"
         "description" "Clock timing — setup slack on clock paths"
         "criteria"    "clock setup timing clean"
-        "min_phase"   "P1"
+        "min_phase_index"   "1"
         "report_file" "work/SYNTH_PNR/cts1/reports/report_clock_timing.setup.rpt"
     }
     "cts_hold_timing" {
         "script"      "check_timing.tcl"
         "description" "Post-CTS hold timing"
         "criteria"    "hold_wns >= threshold"
-        "min_phase"   "P2"
+        "min_phase_index"   "2"
         "report_file" "work/SYNTH_PNR/cts_opt1/reports/report_timing.min.rpt"
     }
 }
@@ -64,35 +64,35 @@ array set optional_checks {
         "script"      "check_power.tcl"
         "description" "Clock power consumption"
         "criteria"    "clock_power <= budget"
-        "min_phase"   "P1"
+        "min_phase_index"   "1"
         "report_file" "work/SYNTH_PNR/cts_opt1/reports/report_power.rpt"
     }
     "cts_congestion" {
         "script"      "check_congestion.tcl"
         "description" "Congestion impact from clock tree"
         "criteria"    "congestion <= threshold"
-        "min_phase"   "P2"
+        "min_phase_index"   "2"
         "report_file" "work/SYNTH_PNR/cts_opt1/reports/report_congestion.rpt"
     }
     "cts_vt_group" {
         "script"      "check_file_exists.tcl"
         "description" "Threshold voltage group distribution"
         "criteria"    "file exists"
-        "min_phase"   "P2"
+        "min_phase_index"   "2"
         "report_file" "work/SYNTH_PNR/cts_opt1/reports/report_threshold_voltage_group.rpt"
     }
     "cts_legality" {
         "script"      "check_legality.tcl"
         "description" "Post-CTS cell legality"
         "criteria"    "illegal_cells == 0"
-        "min_phase"   "P3"
+        "min_phase_index"   "3"
         "report_file" "work/SYNTH_PNR/cts_opt1/reports/check_legality.rpt"
     }
     "cts_constraint_check" {
         "script"      "check_constraints.tcl"
         "description" "Constraint completeness after CTS"
         "criteria"    "constraint violations == 0"
-        "min_phase"   "P3"
+        "min_phase_index"   "3"
         "report_file" "work/SYNTH_PNR/cts_opt1/reports/check_timing.rpt"
     }
 }

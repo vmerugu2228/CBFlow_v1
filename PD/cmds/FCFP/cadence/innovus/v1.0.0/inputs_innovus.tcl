@@ -214,10 +214,6 @@ flow_proc read_constraints {
         handle_warning "No SDC files found for FCFP"
     }
 
-    # Apply clock period from config
-    if {[info exists project(clock,period)]} {
-        puts "   Clock period: $project(clock,period) ns"
-    }
 
     # Read floorplan constraints if available
     set fp_files [glob -nocomplain "$run_dir/work/FCFP/inputs/floorplan/*.tcl"]

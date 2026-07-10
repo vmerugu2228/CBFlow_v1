@@ -1,4 +1,4 @@
-set project(name) ravendrive
+set project(name) bumblebee
 set project(phase) P0
 set flow(type) SYNTH
 set flow(design_name) cpu_core

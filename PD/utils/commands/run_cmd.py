@@ -1315,15 +1315,17 @@ def cmd_show_graph(args: argparse.Namespace) -> int:
             for s in merged
         ]
     else:
-        # Single flow: build from node config
+        # Single flow: build from node config.
+        # merge_parallel_stages declares stages that run in parallel with the
+        # NEXT flow's entry in a merged sequence. For a standalone flow run
+        # there is no next flow, so those stages are linear (terminal). The
+        # parallel_set is therefore intentionally left empty here — see the
+        # is_merged_flow branch above for the merged-flow rendering.
         import re as _re
-        from tcl_config_parser import (
-            _load_node_config, _parse_tcl_list, get_parallel_stages
-        )
+        from tcl_config_parser import _load_node_config, _parse_tcl_list
         _rd = os.getcwd() if is_run_directory() else None
         stages = get_flow_stages(flow_type, run_dir=_rd)
         node_config = _load_node_config(flow_type, run_dir=_rd)
-        parallel_set = set(get_parallel_stages(flow_type, run_dir=_rd))
         stages_data = []
         for i, stage in enumerate(stages):
             # Look up dependency
@@ -1333,20 +1335,20 @@ def cmd_show_graph(args: argparse.Namespace) -> int:
                 base = _re.sub(r'\d+$', '', stage)
                 if base != stage:
                     raw = node_config.get(f'dependencies,{base}', '')
+            dep = ''
             if raw:
                 dep_list = _parse_tcl_list(raw)
-                dep = dep_list[0] if dep_list else ''
-                if dep and dep not in stages:
-                    for s in stages:
-                        if _re.sub(r'\d+$', '', s) == dep:
-                            dep = s
-                            break
-            else:
-                dep = stages[i - 1] if i > 0 else ''
+                if dep_list:
+                    dep = dep_list[0]
+                    if dep and dep not in stages:
+                        for s in stages:
+                            if _re.sub(r'\d+$', '', s) == dep:
+                                dep = s
+                                break
             stages_data.append({
                 'name': stage,
                 'dependency': dep,
-                'is_parallel': stage in parallel_set,
+                'is_parallel': False,
             })
 
     completed = _get_completed_from_db()
@@ -1755,13 +1757,29 @@ def cmd_release(args: argparse.Namespace) -> int:
     if os.path.exists(rc_path):
         with open(rc_path) as f:
             content = f.read()
-        # Parse MILESTONE_STAGE_MAPPING: FP_EXIT "init_design", BTO "signoff" etc.
-        for m in _re.finditer(r'(\w+)\s+"(\w+)"', content[content.find('MILESTONE_STAGE_MAPPING'):content.find('}', content.find('MILESTONE_STAGE_MAPPING'))]):
+        # Parse MILESTONE_STAGE_MAPPING — supports both the current per-key
+        # `set MILESTONE_STAGE_MAPPING(FP_EXIT) "init_design"` format and the
+        # legacy `array set MILESTONE_STAGE_MAPPING { FP_EXIT "init_design" }`.
+        for m in _re.finditer(
+            r'set\s+MILESTONE_STAGE_MAPPING\((\w+)\)\s+"([^"]+)"', content):
             milestone_stage_map[m.group(1)] = m.group(2)
             release_tags[m.group(1)] = {
                 'description': f'{m.group(1)} milestone (after {m.group(2)})',
                 'required_stage': m.group(2),
             }
+        # Legacy fallback if nothing matched above
+        if not milestone_stage_map:
+            idx = content.find('array set MILESTONE_STAGE_MAPPING')
+            if idx >= 0:
+                block = content[idx:content.find('}', idx)]
+                for m in _re.finditer(r'(\w+)\s+"(\w+)"', block):
+                    if m.group(1) == 'MILESTONE_STAGE_MAPPING':
+                        continue
+                    milestone_stage_map[m.group(1)] = m.group(2)
+                    release_tags[m.group(1)] = {
+                        'description': f'{m.group(1)} milestone (after {m.group(2)})',
+                        'required_stage': m.group(2),
+                    }
 
     # Load project config for active_tag and expiry
     active_tag = ''
@@ -1974,6 +1992,62 @@ def cmd_release(args: argparse.Namespace) -> int:
     logger.info(f"  Status:      PASS")
     logger.info(f"  MANIFEST:    {release_dir}/MANIFEST.json")
     logger.info("")
+
+    # ── Optional: snapshot to CBflow-ProjectDashboard ──
+    if getattr(args, 'publish', False):
+        rc = _publish_to_project_dashboard(
+            project=project_name, block=design_name, phase=phase,
+            milestone=tag, release_dir=release_dir,
+            workspace=workspace, runs=found_runs,
+            milestone_stage_map=milestone_stage_map,
+            override=getattr(args, 'override', False))
+        if rc != 0:
+            return rc
+    return 0
+
+
+def _publish_to_project_dashboard(project, block, phase, milestone, release_dir,
+                                   workspace, runs, milestone_stage_map, override):
+    """Snapshot the just-completed release into the project dashboard.
+
+    Failure to publish does not roll back the release itself — we log and
+    return non-zero so the shell exit reflects the miss.
+    """
+    import sys as _sys
+    pd_pkg = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          'project_dashboard')
+    if pd_pkg not in _sys.path:
+        _sys.path.insert(0, pd_pkg)
+    try:
+        import client as _pd_client
+        import tracker_db as _pd_tracker
+    except ImportError as e:
+        logger.error(f"  Publish failed: could not import project_dashboard ({e})")
+        return 1
+
+    published_by = os.environ.get('USER', 'unknown')
+    logger.info("  ─────────────────────────────────────────────────────────")
+    logger.info(f"  Publishing to CBflow-ProjectDashboard "
+                f"(project={project}, block={block}, phase={phase}, milestone={milestone})...")
+    try:
+        payload = _pd_client.build_payload(
+            project=project, block=block, phase=phase, milestone=milestone,
+            release_dir=release_dir, workspace=workspace,
+            runs=runs, milestone_stage_map=milestone_stage_map,
+            published_by=published_by, override=override)
+        reply = _pd_client.publish(project, payload)
+    except Exception as e:
+        logger.error(f"  Publish failed: {e}")
+        return 1
+
+    if not reply.get('ok'):
+        if reply.get('conflict'):
+            logger.error(f"  Publish conflict: {reply.get('error')}")
+            logger.error("  Re-run with --override to replace the existing entry.")
+        else:
+            logger.error(f"  Publish failed: {reply.get('error')}")
+        return 1
+    logger.info(f"  Published: {reply.get('url', '(no url)')}")
     return 0
 
 
@@ -2220,18 +2294,32 @@ def cmd_targets(args: argparse.Namespace) -> int:
 
 
 def _load_tool_shell_map(env_vars: dict) -> dict:
-    """Load tool→shell mapping from tool_launch_config.tcl."""
+    """Load tool→shell mapping from tool_launch_config.tcl.
+
+    Accepts both the current `set lsf(tool_shell,<name>) "..."` schema and
+    the legacy `set tool_shell(<name>) "..."` form so older installs keep
+    working during upgrades.
+    """
     import re
     flow_dir = env_vars.get('FLOW_DIR', os.environ.get('FLOW_DIR', ''))
+    if not flow_dir:
+        # Derive from module location: PD/utils/commands/run_cmd.py → PD/
+        flow_dir = os.path.abspath(
+            os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         os.pardir, os.pardir))
     version = env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0')
     config_path = os.path.join(flow_dir, 'config', 'flow', version, 'tool_launch_config.tcl')
     shell_map = {}
-    if os.path.exists(config_path):
-        with open(config_path) as f:
-            for line in f:
-                m = re.match(r'set\s+tool_shell\((\w+)\)\s+"([^"]+)"', line.strip())
-                if m:
-                    shell_map[m.group(1)] = m.group(2)
+    if not os.path.exists(config_path):
+        return shell_map
+    lsf_re = re.compile(r'^set\s+lsf\(tool_shell,(\w+)\)\s+"([^"]+)"')
+    old_re = re.compile(r'^set\s+tool_shell\((\w+)\)\s+"([^"]+)"')
+    with open(config_path) as f:
+        for line in f:
+            line = line.strip()
+            m = lsf_re.match(line) or old_re.match(line)
+            if m:
+                shell_map[m.group(1)] = m.group(2)
     return shell_map
 
 
@@ -2355,7 +2443,30 @@ def cmd_interactive(args: argparse.Namespace) -> int:
     if load_node:
         load_tcl_path = os.path.join(interactive_dir, f'interactive.{load_node}.{tool_name}.tcl')
         node_base = load_node.rstrip('0123456789')
-        work_dir = os.path.join(run_dir, 'work', flow_type, load_node)
+
+        # Resolve parent stage + scenario from load_node.
+        #   - If load_node IS a stage (e.g. timing1) → parent=load_node, scenario=None
+        #   - If load_node is a per-scenario subnode (e.g. timing1_func_ss_0p80v_rcmax_125c)
+        #     → parent=timing1, scenario=func_ss_0p80v_rcmax_125c
+        # This is needed for STA: a PT/Tempus session per scenario lives under
+        # work/STA/<parent_stage>/run/<load_node>.session, not under work/STA/<load_node>/.
+        parent_stage = load_node
+        scenario = None
+        try:
+            _flow_stages = get_flow_stages(flow_type, run_dir=run_dir)
+        except Exception:
+            _flow_stages = []
+        if load_node not in _flow_stages:
+            # Longest-match: prefer the most specific stage prefix.
+            for _s in sorted(_flow_stages, key=len, reverse=True):
+                if load_node.startswith(_s + '_'):
+                    parent_stage = _s
+                    scenario = load_node[len(_s) + 1:]
+                    break
+        if scenario:
+            logger.info(f"  Resolved subnode: {load_node} → stage={parent_stage}, scenario={scenario}")
+
+        work_dir = os.path.join(run_dir, 'work', flow_type, parent_stage)
 
         with open(load_tcl_path, 'w') as tf:
             tf.write(f"# CBflow Interactive — Load {load_node}\n")
@@ -2405,29 +2516,61 @@ def cmd_interactive(args: argparse.Namespace) -> int:
                 tf.write(f'puts "═══════════════════════════════════════════════════"\n')
 
             elif tool_name == 'pt':
-                # PrimeTime — restore session
-                ss_dir = os.path.join(run_dir, 'work', flow_type, load_node, 'run')
+                # PrimeTime — restore session.
+                # Session files live under work/<FLOW>/<parent_stage>/run/. For
+                # a per-scenario subnode (e.g. timing1_func_ss_0p80v_rcmax_125c)
+                # the exact session is <load_node>.session and the scenario
+                # context TCL (<scenario>_context.tcl) sets PVT/SDC/SPEF globals
+                # before restore so the environment matches the batch run.
+                ss_dir = os.path.join(work_dir, 'run')
                 tf.write(f"# Restore PrimeTime session\n")
                 tf.write(f'set session_dir "{ss_dir}"\n')
-                tf.write(f'set session_files [glob -nocomplain "$session_dir/*.session"]\n')
-                tf.write(f'if {{[llength $session_files] > 0}} {{\n')
-                tf.write(f'    set ss [lindex $session_files end]\n')
-                tf.write(f'    restore_session $ss\n')
-                tf.write(f'    puts "INFO: Restored session: $ss"\n')
-                tf.write(f'}} else {{\n')
-                tf.write(f'    # Try loading timing DB\n')
-                tf.write(f'    set db_files [glob -nocomplain "$session_dir/*.db"]\n')
-                tf.write(f'    if {{[llength $db_files] > 0}} {{\n')
-                tf.write(f'        read_db [lindex $db_files end]\n')
-                tf.write(f'        puts "INFO: Loaded timing DB"\n')
-                tf.write(f'    }} else {{\n')
-                tf.write(f'        puts "WARNING: No saved session found for {load_node}"\n')
-                tf.write(f'        puts "  Starting empty session — use read_verilog, read_sdc, etc."\n')
-                tf.write(f'    }}\n')
-                tf.write(f'}}\n\n')
+                if scenario:
+                    ctx_file = os.path.join(ss_dir, f'{scenario}_context.tcl')
+                    tf.write(f"# Scenario context — sets ::CORNER, ::MODE, ::VOLTAGE, ::TEMPERATURE,\n")
+                    tf.write(f"# ::RC_CORNER, ::LIB_SET, ::SDC_FILE, ::SPEF_FILE for {scenario}\n")
+                    tf.write(f'set ctx_file "{ctx_file}"\n')
+                    tf.write(f'if {{[file exists $ctx_file]}} {{\n')
+                    tf.write(f'    source $ctx_file\n')
+                    tf.write(f'    puts "INFO: Loaded scenario context: $ctx_file"\n')
+                    tf.write(f'}} else {{\n')
+                    tf.write(f'    puts "WARNING: Scenario context not found: $ctx_file"\n')
+                    tf.write(f'}}\n')
+                    exact_session = os.path.join(ss_dir, f'{load_node}.session')
+                    tf.write(f'set exact_session "{exact_session}"\n')
+                    tf.write(f'if {{[file exists $exact_session]}} {{\n')
+                    tf.write(f'    restore_session $exact_session\n')
+                    tf.write(f'    puts "INFO: Restored scenario session: $exact_session"\n')
+                    tf.write(f'}} else {{\n')
+                    tf.write(f'    puts "WARNING: No session for scenario {scenario}"\n')
+                    tf.write(f'    puts "  Expected: $exact_session"\n')
+                    tf.write(f'    puts "  Starting empty session — context globals are still set"\n')
+                    tf.write(f'}}\n\n')
+                else:
+                    tf.write(f'set session_files [glob -nocomplain "$session_dir/*.session"]\n')
+                    tf.write(f'if {{[llength $session_files] > 0}} {{\n')
+                    tf.write(f'    puts "INFO: Available sessions in {parent_stage}:"\n')
+                    tf.write(f'    foreach _s $session_files {{ puts "    [file tail $_s]" }}\n')
+                    tf.write(f'    set ss [lindex $session_files 0]\n')
+                    tf.write(f'    restore_session $ss\n')
+                    tf.write(f'    puts "INFO: Restored session: $ss"\n')
+                    tf.write(f'    puts "INFO: To load a specific scenario, re-run with:"\n')
+                    tf.write(f'    puts "      cbflow run interactive --node {parent_stage}_<scenario>"\n')
+                    tf.write(f'}} else {{\n')
+                    tf.write(f'    set db_files [glob -nocomplain "$session_dir/*.db"]\n')
+                    tf.write(f'    if {{[llength $db_files] > 0}} {{\n')
+                    tf.write(f'        read_db [lindex $db_files end]\n')
+                    tf.write(f'        puts "INFO: Loaded timing DB"\n')
+                    tf.write(f'    }} else {{\n')
+                    tf.write(f'        puts "WARNING: No saved session found for {load_node}"\n')
+                    tf.write(f'        puts "  Starting empty session — use read_verilog, read_sdc, etc."\n')
+                    tf.write(f'    }}\n')
+                    tf.write(f'}}\n\n')
                 tf.write(f'puts ""\n')
                 tf.write(f'puts "═══════════════════════════════════════════════════"\n')
                 tf.write(f'puts "  CBflow Interactive — {load_node} (PrimeTime)"\n')
+                if scenario:
+                    tf.write(f'puts "  Stage: {parent_stage}  Scenario: {scenario}"\n')
                 tf.write(f'puts "  Run directory: {run_dir}"\n')
                 tf.write(f'puts "═══════════════════════════════════════════════════"\n')
 
@@ -2454,16 +2597,34 @@ def cmd_interactive(args: argparse.Namespace) -> int:
                 tf.write(f'puts "═══════════════════════════════════════════════════"\n')
 
             elif tool_name == 'tempus':
-                # Tempus — similar to PT
+                # Tempus — per-scenario session support (same pattern as PT).
+                ss_dir = os.path.join(work_dir, 'run')
                 tf.write(f"# Restore Tempus session\n")
-                tf.write(f'set session_dir "{work_dir}"\n')
-                tf.write(f'set db_files [glob -nocomplain "$session_dir/*.db"]\n')
-                tf.write(f'if {{[llength $db_files] > 0}} {{\n')
-                tf.write(f'    read_db [lindex $db_files end]\n')
-                tf.write(f'    puts "INFO: Loaded timing DB"\n')
-                tf.write(f'}} else {{\n')
-                tf.write(f'    puts "WARNING: No saved session found for {load_node}"\n')
-                tf.write(f'}}\n')
+                tf.write(f'set session_dir "{ss_dir}"\n')
+                if scenario:
+                    ctx_file = os.path.join(ss_dir, f'{scenario}_context.tcl')
+                    tf.write(f'set ctx_file "{ctx_file}"\n')
+                    tf.write(f'if {{[file exists $ctx_file]}} {{\n')
+                    tf.write(f'    source $ctx_file\n')
+                    tf.write(f'    puts "INFO: Loaded scenario context: $ctx_file"\n')
+                    tf.write(f'}}\n')
+                    exact_db = os.path.join(ss_dir, f'{load_node}.db')
+                    tf.write(f'set exact_db "{exact_db}"\n')
+                    tf.write(f'if {{[file exists $exact_db]}} {{\n')
+                    tf.write(f'    read_db $exact_db\n')
+                    tf.write(f'    puts "INFO: Loaded scenario DB: $exact_db"\n')
+                    tf.write(f'}} else {{\n')
+                    tf.write(f'    puts "WARNING: No DB for scenario {scenario}"\n')
+                    tf.write(f'    puts "  Expected: $exact_db"\n')
+                    tf.write(f'}}\n')
+                else:
+                    tf.write(f'set db_files [glob -nocomplain "$session_dir/*.db"]\n')
+                    tf.write(f'if {{[llength $db_files] > 0}} {{\n')
+                    tf.write(f'    read_db [lindex $db_files end]\n')
+                    tf.write(f'    puts "INFO: Loaded timing DB"\n')
+                    tf.write(f'}} else {{\n')
+                    tf.write(f'    puts "WARNING: No saved session found for {load_node}"\n')
+                    tf.write(f'}}\n')
 
             else:
                 tf.write(f'puts "INFO: Interactive session for {load_node} ({tool_name})"\n')
@@ -2577,20 +2738,47 @@ def cmd_interactive(args: argparse.Namespace) -> int:
             logger.error(f"    {wrapper_path}")
             return 1
     else:
-        # Local xterm
+        # Local xterm — preflight before Popen so silent failures are caught.
         logger.info(f"  Launch: xterm (local)")
+        # (a) xterm binary present?
+        if not shutil.which(xterm_cmd):
+            logger.error(f"  '{xterm_cmd}' not found in PATH.")
+            logger.error(f"  Options:")
+            logger.error(f"    1. Install xterm  (apt/yum install xterm)")
+            logger.error(f"    2. Run the wrapper directly in this terminal:")
+            logger.error(f"       bash {wrapper_path}")
+            logger.error(f"    3. Set lsf(xterm,command) to another terminal")
+            return 1
+        # (b) DISPLAY set? (SSH without -X gives no DISPLAY → xterm exits silently)
+        if not os.environ.get('DISPLAY'):
+            logger.error(f"  DISPLAY is not set — xterm needs an X display.")
+            logger.error(f"  If you're on SSH, reconnect with `ssh -X <host>` or `ssh -Y <host>`.")
+            logger.error(f"  Or run the wrapper directly (no GUI): bash {wrapper_path}")
+            return 1
         logger.info(f"  Opening: {xterm_cmd} -geometry {xterm_geom} -title \"{title}\"")
-        logger.info("")
+        # -hold keeps the xterm window open when the tool exits so error
+        # messages stay visible instead of vanishing in half a second.
         try:
-            subprocess.Popen([
-                xterm_cmd, '-geometry', xterm_geom,
+            proc = subprocess.Popen([
+                xterm_cmd, '-hold', '-geometry', xterm_geom,
                 '-title', title, '-e', wrapper_path
             ])
-            logger.info(f"  Interactive session launched.")
         except FileNotFoundError:
-            logger.error(f"  xterm not found. Run the wrapper manually:")
-            logger.error(f"    {wrapper_path}")
+            logger.error(f"  Failed to launch {xterm_cmd}.")
+            logger.error(f"  Run the wrapper manually: bash {wrapper_path}")
             return 1
+        # Give xterm ~1s to fail. If it exits immediately, something went wrong
+        # (missing tool binary, bad DISPLAY, wrapper error) — surface it.
+        import time as _t
+        _t.sleep(1.0)
+        rc = proc.poll()
+        if rc is not None and rc != 0:
+            logger.error(f"  xterm exited immediately (rc={rc}).")
+            logger.error(f"  Most likely: the EDA tool ('{tool_shell}') isn't in PATH")
+            logger.error(f"  or its module wasn't loaded. Test in this terminal:")
+            logger.error(f"    bash {wrapper_path}")
+            return 1
+        logger.info(f"  Interactive session launched (pid={proc.pid}).")
 
     logger.info(f"  Working directory: {interactive_dir}")
     return 0
@@ -2993,6 +3181,12 @@ Examples:
   cbflow run release --dry-run          Validate only, don't copy files""")
     release_parser.add_argument('--tag', '-t', help='Release tag override (default: project active_tag)')
     release_parser.add_argument('--dry-run', action='store_true', help='Validate only, no file copy')
+    release_parser.add_argument('--publish', action='store_true',
+                                help='After release, snapshot metrics+checklist into '
+                                     'the CBflow-ProjectDashboard for management view')
+    release_parser.add_argument('--override', action='store_true',
+                                help='With --publish: replace an existing published entry '
+                                     'for this (project, block, phase, milestone) cell')
 
     # release-lock command (permissions)
     lock_parser = subparsers.add_parser('release-lock', help='Set production permissions',
@@ -3010,9 +3204,9 @@ Examples:
 Scans all blocks in project(block_list) and verifies each has complete releases for all required flows.
 
 Examples:
-  cbflow run release-check --tag BTO --project ravendrive --phase P2
-  cbflow run release-check --tag PLACE_EXIT --project ravendrive
-  cbflow run release-check --tag BTO --project ravendrive --block cpu_core""")
+  cbflow run release-check --tag BTO --project bumblebee --phase P2
+  cbflow run release-check --tag PLACE_EXIT --project bumblebee
+  cbflow run release-check --tag BTO --project bumblebee --block cpu_core""")
     rc_parser.add_argument('--tag', '-t', required=True, help='Release tag to check')
     rc_parser.add_argument('--project', '-p', required=True, help='Project name')
     rc_parser.add_argument('--phase', default='P0', help='Design phase (default: P0)')
@@ -3107,12 +3301,18 @@ Examples:
 Restores a node's saved design and opens the tool in GUI mode.
 Creates a working directory under INTERACTIVE/<node>_<timestamp>.
 
+For STA (PT/Tempus), --node may name either the stage (e.g. timing1) or a
+per-scenario subnode (e.g. timing1_func_ss_0p80v_rcmax_125c). The subnode form
+loads the exact scenario session AND sources the scenario context so
+CORNER/MODE/VOLTAGE/TEMPERATURE/RC_CORNER/SDC_FILE/SPEF_FILE match the batch run.
+
 Examples:
-  cbflow run interactive --node place1          Load place1 design
-  cbflow run interactive --node signoff1        Load signoff1 checkpoint
-  cbflow run interactive -n floorplan1          Load floorplan1 design""")
+  cbflow run interactive --node place1                            Load place1 (PNR)
+  cbflow run interactive --node signoff1                          Load signoff1 checkpoint
+  cbflow run interactive --node timing1                           STA — pick any session
+  cbflow run interactive --node timing1_func_ss_0p80v_rcmax_125c  STA — exact scenario""")
     interactive_parser.add_argument('--node', '-n', required=True,
-                                   help='Node to restore (e.g., place1, cts1, signoff1)')
+                                   help='Node or subnode to restore (stage names or STA per-scenario subnodes)')
     interactive_parser.add_argument('--notiming', action='store_true', default=False,
                                    help='Launch Innovus without timing libraries (faster startup)')
 

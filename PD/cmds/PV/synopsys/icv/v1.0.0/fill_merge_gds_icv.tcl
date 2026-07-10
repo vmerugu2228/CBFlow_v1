@@ -1,0 +1,64 @@
+#!/usr/bin/env tclsh
+# ═══════════════════════════════════════════════════════════════════════════════
+# CBflow PV fill_merge_gds — Synopsys ICV
+# Post-merge fill validation / stitching. Verifies that the merged GDS from
+# merge_gds1 is well-formed for the multi-patterning decomposition stage.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+set run_dir $::env(CBFLOW_RUN_DIR)
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+
+set FLOW_TYPE "PV"
+set STAGE_NAME "fill_merge_gds"
+set NODE_NAME "${STAGE_NAME}1"
+
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
+
+flow_proc configure_fill_merge_gds {
+    global pv
+    handle_info "Configuring post-merge fill validation..."
+    set ::fill_merge_input "$run_dir/results/pv/merged.gds"
+    set ::fill_merge_out   "$::RESULTS_DIR/fill_merged.gds"
+    handle_info "  Input:  $::fill_merge_input"
+    handle_info "  Output: $::fill_merge_out"
+}
+
+flow_proc run_fill_merge_gds {
+    handle_info "Running post-merge fill validation with Synopsys ICV..."
+    set run_dir $::env(CBFLOW_RUN_DIR)
+    file mkdir "$::RESULTS_DIR"
+    file mkdir "$::REPORTS_DIR"
+    set cmd "icv -fill_merge -i $::fill_merge_input -o $::fill_merge_out"
+    append cmd " -log $run_dir/logs/pv/fill_merge_gds_icv.log"
+    handle_info "ICV command: $cmd"
+    if {[catch {eval exec $cmd} _r]} {
+        handle_error "ICV fill_merge_gds failed: $_r"
+        set ::fill_merge_status "FAIL"
+    } else {
+        set ::fill_merge_status "PASS"
+        handle_info "Post-merge fill validation completed"
+    }
+}
+
+flow_proc report_fill_merge_gds {
+    set rpt_dir "$::REPORTS_DIR"
+    file mkdir $rpt_dir
+    set fp [open "$rpt_dir/fill_merge_gds_summary.rpt" w]
+    puts $fp "PV Post-Merge Fill Validation Summary — Synopsys ICV"
+    puts $fp "Input:  $::fill_merge_input"
+    puts $fp "Output: $::fill_merge_out"
+    puts $fp "Status: $::fill_merge_status"
+    close $fp
+    handle_info "Report written"
+}
+
+flow_proc fill_merge_gds_flow {
+    flow_exec configure_fill_merge_gds
+    flow_exec run_fill_merge_gds
+    flow_exec report_fill_merge_gds
+}
+if {[info exists argv0] && $argv0 eq [info script]} { flow_exec fill_merge_gds_flow } else { puts " PV fill_merge_gds procedures loaded" }
+exit

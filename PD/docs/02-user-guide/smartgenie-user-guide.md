@@ -214,7 +214,7 @@ Agent: Place1 failed due to high congestion (>85% utilization).
 You: "Check if we're ready for BTO release"
 
 Agent:
-  Tool: bash(cbflow run release-check --tag BTO --project ravendrive --phase P2)
+  Tool: bash(cbflow run release-check --tag BTO --project bumblebee --phase P2)
 
   Block          SYNTH_PNR  PNR        STA        PV         Status
   ───────────────────────────────────────────────────────────────

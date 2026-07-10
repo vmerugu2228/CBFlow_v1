@@ -80,7 +80,7 @@ def generate_cbflow_commands():
     add("Release with tag PLACE_EXIT",
         'cbflow run release --tag PLACE_EXIT', "command")
     add("Check release readiness for BTO",
-        'cbflow run release-check --tag BTO --project ravendrive --phase P2', "command")
+        'cbflow run release-check --tag BTO --project bumblebee --phase P2', "command")
     add("Lock permissions for production",
         'cbflow run release-lock', "command")
     add("Unlock permissions for development",
@@ -226,8 +226,8 @@ def generate_conversations():
         },
         {
             "conversations": [
-                {"role": "user", "content": "What blocks are available in ravendrive?"},
-                {"role": "assistant", "content": "Project 'ravendrive' has 3 blocks:\n- cpu_core\n- memory_ctrl\n- io_ctrl"},
+                {"role": "user", "content": "What blocks are available in bumblebee?"},
+                {"role": "assistant", "content": "Project 'bumblebee' has 3 blocks:\n- cpu_core\n- memory_ctrl\n- io_ctrl"},
                 {"role": "user", "content": "Create a run for memory_ctrl"},
                 {"role": "assistant", "content": "Creating SYNTH_PNR run for memory_ctrl...\n\nRun created: P0_run_SYNTH_PNR_run1"},
             ]

@@ -66,8 +66,8 @@ CBflow's MMMC system provides automated multi-corner timing analysis across the 
 
 | Mode | Description | Voltage | Clock | Constraint File |
 |------|-------------|--------:|------:|-----------------|
-| **func** | Normal functional operation | 0.80V nom | 1000MHz | ravendrive_func.sdc |
-| **test** | DFT scan test mode | 0.80V nom | 100MHz | ravendrive_test.sdc |
+| **func** | Normal functional operation | 0.80V nom | 1000MHz | bumblebee_func.sdc |
+| **test** | DFT scan test mode | 0.80V nom | 100MHz | bumblebee_test.sdc |
 
 Modes are user-configurable via `cbflow flow mmmc-manager add-mode` or `mmmc_config.tcl`.
 
@@ -356,7 +356,7 @@ Each analysis view contains:
     voltage         0.76
     temperature     150
     analysis_type   "setup"              # setup | hold | setup_hold
-    constraint_file "ravendrive_func.sdc"
+    constraint_file "bumblebee_func.sdc"
     lib_set_ref     "ss_0760v_150c"      # Maps to library_sets in tech_config
     rc_corner       "rc_max"
     description     "Func worst setup: SS, 0.76V, 150C, max RC"

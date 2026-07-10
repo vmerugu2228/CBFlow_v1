@@ -30,7 +30,7 @@ def _fixture_matches_flow(path, flow):
 def pick_fixture(workarea_test, flow, vendor=None, project=None):
     """Pick the best fixture for a flow.
 
-    When `project` is set (e.g. 'ravendrive', 'denali'), only fixtures whose
+    When `project` is set (e.g. 'bumblebee', 'denali'), only fixtures whose
     `project(name)` parses to that project are considered — this is how the
     e2e runner iterates per-project so each project's tool stack gets
     exercised end-to-end.
@@ -83,6 +83,86 @@ def pick_fixture(workarea_test, flow, vendor=None, project=None):
         if _ok(cand):
             return cand
     return None
+
+
+# ── Mode classification + multi-fixture picker ────────────────────────────
+# Downstream flows (STA, LEC, ECO, PV, EMIR, CLP, POPT) consume outputs from
+# upstream flows. CBflow supports three input mechanisms per CLAUDE.md:
+#   1. `direct`      — explicit paths + variables (netlist, def, sdc, spef …)
+#   2. `from_run`    — reads output_manifest.tcl of a prior run directory
+#   3. `release_tag` — reads from a release directory pinned by tag
+# `pick_fixtures` (plural) returns every fixture that matches (flow, project)
+# so the e2e runner can iterate all input modes for full-matrix coverage.
+
+_FROM_RUN_RE = re.compile(r'^\s*set\s+\w+\(input,from_run\)', re.M)
+_RELEASE_TAG_RE = re.compile(r'^\s*set\s+\w+\(input,\w+_release_tag\)', re.M)
+
+
+def classify_fixture_mode(path):
+    """Classify a fixture by its input-handoff style.
+
+    Returns one of: 'from_run', 'release_tag', 'direct'. `direct` is the
+    default — used both when explicit `input,<file>` keys are present and
+    when the fixture omits inputs entirely (upstream flows like SYNTH).
+    """
+    try:
+        text = Path(path).read_text(errors='replace')
+    except OSError:
+        return 'direct'
+    if _FROM_RUN_RE.search(text):
+        return 'from_run'
+    if _RELEASE_TAG_RE.search(text):
+        return 'release_tag'
+    return 'direct'
+
+
+def pick_fixtures(workarea_test, flow, vendor=None, project=None):
+    """Return ALL fixtures for (flow, project) so the runner can iterate
+    every input-mode variant.
+
+    Each returned entry is (fixture_path, mode_tag) where mode_tag is
+    'direct' / 'from_run' / 'release_tag'. When two fixtures share the
+    same mode, only the first (glob-sorted) one is kept — no point
+    running two "direct" variants for the same (project, flow).
+
+    Returns [] when no fixtures match.
+    """
+    seen_modes = set()
+    out = []
+
+    def _push(cand):
+        if not _fixture_matches_flow(cand, flow):
+            return
+        if project and parse_user_config_field(cand, 'project(name)') != project:
+            return
+        mode = classify_fixture_mode(cand)
+        if mode in seen_modes:
+            return
+        seen_modes.add(mode)
+        out.append((cand, mode))
+
+    # 1. Explicit project-tagged fixtures.
+    if project:
+        for cand in sorted(Path(workarea_test).glob(f'uc_{flow}_{project}_*.tcl')):
+            _push(cand)
+
+    # 2. Plain uc_{flow}.tcl.
+    plain = Path(workarea_test) / f'uc_{flow}.tcl'
+    if plain.exists():
+        _push(plain)
+
+    # 3. Vendor variant when unfiltered by project.
+    if vendor and not project:
+        variant = Path(workarea_test) / f'uc_{flow}_{vendor}.tcl'
+        if variant.exists():
+            _push(variant)
+
+    # 4. Any uc_{flow}_*.tcl variant (from_run / release_tag are the
+    #    typical suffixes; also picks up per-tool variants).
+    for cand in sorted(Path(workarea_test).glob(f'uc_{flow}_*.tcl')):
+        _push(cand)
+
+    return out
 
 
 _RUN_NAME_RE = re.compile(r'(set\s+flow\(run_name\)\s+)"[^"]*"')

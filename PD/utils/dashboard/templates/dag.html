@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RACE DAG — {{FLOW_TYPE}}</title>
 <link rel="stylesheet" href="/static/style.css">
+<script src="/static/adaptive_poll.js"></script>
 </head>
 <body>
 <nav class="topnav">
@@ -61,7 +62,8 @@
 .dag-node { cursor:pointer; transition: opacity 0.2s; }
 .dag-node:hover { opacity:0.8; }
 .dag-label { font-size:11px; fill:white; font-weight:600; text-anchor:middle; pointer-events:none; }
-.dag-arrow { stroke:var(--border); stroke-width:2; fill:none; marker-end:url(#arrowhead); }
+.dag-arrow { stroke:#334155; stroke-width:2; fill:none; marker-end:url(#arrowhead); opacity:0.85; }
+.dag-arrow.bypass { stroke:#94a3b8; stroke-dasharray:5,4; stroke-width:1.75; }
 .ctx-menu { position:fixed; background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:4px 0; min-width:180px; box-shadow:0 8px 24px rgba(0,0,0,0.3); z-index:1000; display:none; }
 .ctx-menu .ctx-header { padding:8px 14px; font-size:11px; font-weight:700; color:var(--text-dim); border-bottom:1px solid var(--border); }
 .ctx-menu a { display:block; padding:8px 14px; color:var(--text); text-decoration:none; font-size:13px; cursor:pointer; }
@@ -93,36 +95,149 @@ function formatTime(s) { return s < 60 ? s.toFixed(1)+'s' : (s/60).toFixed(1)+'m
 function renderDAG(data) {
   const svg = document.getElementById('dag-svg');
   const stages = data.stage_order || [];
+  const stageDeps = data.stage_deps || {};
   const nodes = data.nodes || [];
   const nodeMap = {};
   nodes.forEach(n => nodeMap[n.id] = n);
 
-  const stageW = 140, stageH = 50, gapX = 40, gapY = 20, padX = 40, padY = 40;
-  const totalW = stages.length * (stageW + gapX) + padX;
+  // ── Compute topological level (longest path from any root) ──
+  // Level 0 = no deps (input roots). Every other stage = 1 + max(dep levels).
+  // Stages with the same level render in the same column; parallel branches
+  // stack vertically. This replaces the old "flat horizontal chain" that
+  // ignored the actual DAG topology.
+  const level = {};
+  function levelOf(stage) {
+    if (stage in level) return level[stage];
+    const deps = stageDeps[stage] || [];
+    if (deps.length === 0) { level[stage] = 0; return 0; }
+    let m = 0;
+    for (const d of deps) {
+      const dl = levelOf(d) + 1;
+      if (dl > m) m = dl;
+    }
+    level[stage] = m;
+    return m;
+  }
+  stages.forEach(levelOf);
+
+  // Group stages by level → columns.
+  const columns = {};
+  stages.forEach(s => {
+    const L = level[s];
+    if (!columns[L]) columns[L] = [];
+    columns[L].push(s);
+  });
+  const maxLevel = Math.max(0, ...Object.keys(columns).map(Number));
+  const maxColHeight = Math.max(1, ...Object.values(columns).map(c => c.length));
+
+  // ── Layout ──
+  const stageW = 150, stageH = 52;
+  const gapX = 50, gapY = 12;
+  const padX = 30, padY = 30;
+
+  const totalW = padX * 2 + (maxLevel + 1) * (stageW + gapX);
+  const totalH = padY * 2 + maxColHeight * (stageH + gapY);
   svg.setAttribute('width', Math.max(totalW, 800));
-  svg.setAttribute('height', 200);
+  svg.setAttribute('height', Math.max(totalH, 240));
 
-  let html = '<defs><marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">' +
-    '<polygon points="0 0, 8 3, 0 6" fill="#475569"/></marker></defs>';
+  // Assign (x, y) per stage.
+  const pos = {};
+  for (let L = 0; L <= maxLevel; L++) {
+    const col = columns[L] || [];
+    const colH = col.length * stageH + (col.length - 1) * gapY;
+    const yOffset = padY + (totalH - 2 * padY - colH) / 2;
+    col.forEach((s, i) => {
+      pos[s] = {
+        x: padX + L * (stageW + gapX),
+        y: yOffset + i * (stageH + gapY),
+      };
+    });
+  }
 
-  stages.forEach((stage, i) => {
-    const x = padX + i * (stageW + gapX);
-    const y = padY + 30;
+  // ── Detect bypass diamonds and offset intermediate nodes ──
+  // For every stage S with exactly one parent P and one child C where P is
+  // ALSO a direct parent of C, S is a parallel branch of a "diamond". Offset
+  // it above the direct P→C line so the branch is visually distinct instead
+  // of sitting flat on top of the direct arrow.
+  const childrenOf = {};
+  for (const [child, deps] of Object.entries(stageDeps)) {
+    for (const p of deps) {
+      if (!childrenOf[p]) childrenOf[p] = [];
+      childrenOf[p].push(child);
+    }
+  }
+  const bypassParent = {};  // stage → parent (marks diamond intermediates)
+  for (const s of stages) {
+    const parents = stageDeps[s] || [];
+    const kids = childrenOf[s] || [];
+    if (parents.length !== 1 || kids.length !== 1) continue;
+    const p = parents[0], c = kids[0];
+    if ((stageDeps[c] || []).includes(p)) {
+      bypassParent[s] = p;
+    }
+  }
+  // Apply vertical offset so the intermediate rides above its two "sibling
+  // rails" (the direct P→C arrow). Bounded by stageH so it never leaves the
+  // svg.
+  for (const s of Object.keys(bypassParent)) {
+    if (s in pos) {
+      pos[s] = { x: pos[s].x, y: pos[s].y - (stageH + gapY / 2) };
+    }
+  }
+
+  let html = '<defs><marker id="arrowhead" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">' +
+    '<polygon points="0 0, 9 3.5, 0 7" fill="#334155"/></marker>' +
+    '<marker id="arrowhead-bypass" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">' +
+    '<polygon points="0 0, 9 3.5, 0 7" fill="#94a3b8"/></marker></defs>';
+
+  // ── Draw arrows from real dep edges ──
+  // Cubic Bezier so crossing branches (e.g. decomp_merge_gds1 has TWO parents)
+  // stay legible. Horizontal control points pull the curve toward the middle
+  // of each column so parallel deps don't overlap on top of one another.
+  // "Bypass" edges (parent→child where a parallel branch exists) render
+  // dashed & lighter so the primary chain remains visually dominant.
+  const drawnEdges = new Set();
+  for (const [child, deps] of Object.entries(stageDeps)) {
+    if (!(child in pos)) continue;
+    for (const parent of deps) {
+      if (!(parent in pos)) continue;
+      const key = parent + '→' + child;
+      if (drawnEdges.has(key)) continue;
+      drawnEdges.add(key);
+      const p = pos[parent], c = pos[child];
+      const x1 = p.x + stageW, y1 = p.y + stageH / 2;
+      const x2 = c.x,          y2 = c.y + stageH / 2;
+      const dx = Math.max(24, (x2 - x1) * 0.4);
+      // Detect the "direct" edge of a diamond: parent P has an intermediate
+      // hop S with bypassParent[S]==P and S→child. Render P→child dashed.
+      let isBypass = false;
+      for (const s of (childrenOf[parent] || [])) {
+        if (bypassParent[s] === parent && (childrenOf[s] || []).includes(child)) {
+          isBypass = true;
+          break;
+        }
+      }
+      const cls = isBypass ? 'dag-arrow bypass' : 'dag-arrow';
+      const marker = isBypass ? 'url(#arrowhead-bypass)' : 'url(#arrowhead)';
+      html += '<path class="' + cls + '" marker-end="' + marker + '" d="M ' + x1 + ' ' + y1 +
+              ' C ' + (x1 + dx) + ' ' + y1 + ', ' +
+                       (x2 - dx) + ' ' + y2 + ', ' +
+                       x2 + ' ' + y2 + '"/>';
+    }
+  }
+
+  // ── Draw stage nodes ──
+  stages.forEach(stage => {
+    if (!(stage in pos)) return;
+    const { x, y } = pos[stage];
     const n = nodeMap[stage] || {status:'READY'};
     const color = statusColor(n.status);
     const rt = n.runtime ? ' (' + formatTime(n.runtime) + ')' : '';
-
     html += '<g class="dag-node" onclick="showJob(\'' + stage + '\')" oncontextmenu="showCtxMenu(event,\'' + stage + '\')">' +
-      '<rect x="' + x + '" y="' + y + '" width="' + stageW + '" height="' + stageH + '" rx="8" fill="' + color + '" opacity="0.9"/>' +
+      '<rect x="' + x + '" y="' + y + '" width="' + stageW + '" height="' + stageH + '" rx="8" fill="' + color + '" opacity="0.92"/>' +
       '<text class="dag-label" x="' + (x + stageW/2) + '" y="' + (y + 22) + '">' + stage.replace(/1$/,'') + '</text>' +
-      '<text class="dag-label" x="' + (x + stageW/2) + '" y="' + (y + 38) + '" style="font-size:10px;opacity:0.8">' + (n.status||'') + rt + '</text>' +
+      '<text class="dag-label" x="' + (x + stageW/2) + '" y="' + (y + 40) + '" style="font-size:10px;opacity:0.85">' + (n.status||'') + rt + '</text>' +
       '</g>';
-
-    // Arrow to next
-    if (i < stages.length - 1) {
-      const x2 = padX + (i+1) * (stageW + gapX);
-      html += '<line class="dag-arrow" x1="' + (x + stageW) + '" y1="' + (y + stageH/2) + '" x2="' + x2 + '" y2="' + (y + stageH/2) + '"/>';
-    }
   });
 
   svg.innerHTML = html;
@@ -198,8 +313,13 @@ function ctxAction(action) {
   }).catch(err => alert('Error: ' + err));
 }
 
-fetch('/api/dag').then(r => r.json()).then(renderDAG);
-setInterval(() => fetch('/api/dag').then(r => r.json()).then(renderDAG), 5000);
+const _dagRefresh = () => fetch('/api/dag').then(r => r.json()).then(renderDAG);
+if (window.CBfAdaptive) {
+  window.CBfAdaptive.start(_dagRefresh);
+} else {
+  _dagRefresh();
+  setInterval(_dagRefresh, 5000);
+}
 </script>
 </body>
 </html>

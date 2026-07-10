@@ -1,7 +1,7 @@
 #!/usr/bin/env tclsh
 # ═══════════════════════════════════════════════════════════════════════════════
-# CBflow EMIR — power_analysis Subnode Handler (Synopsys REDHAWK)
-# Subnodes: setup, run, validate, finish
+# CBflow EMIR — power_analysis Subnode Handler
+# Subnodes: setup, run, validate, finish (delegated to handler_dispatch)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 source "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/handler_common.tcl"
@@ -18,30 +18,7 @@ set _tool_ver [expr {[info exists ::env(REDHAWK_VERSION)] ? $::env(REDHAWK_VERSI
 set cmd_file "$::env(FLOW_DIR)/cmds/EMIR/synopsys/redhawk/$_tool_ver/power_analysis_redhawk.tcl"
 
 set test_mode [handler_is_test_mode]
+set _tool [expr {[info exists ::emir(tool,name)] ? $::emir(tool,name) : "redhawk"}]
 
-switch $subnode_name {
-    "setup" {
-        puts "INFO: $stage_name setup..."
-        handler_setup $run_dir $::flow_type $node_name
-        puts "INFO: $stage_name setup completed"
-    }
-    "run" {
-        puts "INFO: $stage_name run..."
-        set _tool [expr {[info exists emir(tool,name)] ? $emir(tool,name) : "redhawk"}]
-        handler_run $run_dir $::flow_type $node_name $stage_name $cmd_file $test_mode $_tool
-    }
-    "validate" {
-        puts "INFO: $stage_name validate..."
-        handler_validate $run_dir $::flow_type $node_name $stage_name $test_mode
-        puts "INFO: $stage_name validate completed"
-    }
-    "finish" {
-        puts "INFO: $stage_name finish..."
-        handler_finish $run_dir $::flow_type $node_name $stage_name
-        puts "INFO: $stage_name finish completed"
-    }
-    default {
-        puts "ERROR: Unknown subnode: $subnode_name"
-        exit 1
-    }
-}
+handler_dispatch $subnode_name $run_dir $::flow_type $node_name $stage_name \
+                 $cmd_file $test_mode $_tool

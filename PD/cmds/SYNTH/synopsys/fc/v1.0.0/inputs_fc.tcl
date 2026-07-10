@@ -96,13 +96,6 @@ flow_proc read_libraries {
     handle_info "Reading technology libraries..."
     global synth project tech
 
-    # Set search path for library files
-    set_app_var search_path "$tech(lib_dir) $project(script_dir)"
-
-    # Set target library for synthesis mapping
-    set_app_var target_library $tech(target_lib)
-    set_app_var link_library "* $tech(target_lib) $tech(additional_libs)"
-
     # Create the design library with reference libs (NDM) for FC
     if {[info exists synth(common,ndm_libs)]} {
         set ref_lib_list [list]
@@ -111,12 +104,12 @@ flow_proc read_libraries {
         }
         handle_info "Creating library with reference libs: $ref_lib_list"
         create_lib $synth(common,design_lib_name) \
-            -technology $tech(tech_file) \
+            -technology $tech($project(metal_stack),$tech(track),tech_file) \
             -ref_libs $ref_lib_list
     } else {
         handle_warning "No NDM reference libraries specified in synth(common,ndm_libs)"
         create_lib $synth(common,design_lib_name) \
-            -technology $tech(tech_file)
+            -technology $tech($project(metal_stack),$tech(track),tech_file)
     }
 
     # Set technology-specific options

@@ -478,11 +478,77 @@ def cmd_validate_workspace(args: argparse.Namespace) -> int:
             logger.info(f"  [FAIL]  Release {release_version} not found at {release_dir}")
             checks_failed += 1
 
+    # Pre-flight cascade validation for each run directory found in the
+    # workspace. Runs the same mandatory_vars check that race_engine.build()
+    # runs — catches broken user_config.tcl before `cbflow run all`.
+    run_dirs = _discover_workspace_runs(workspace_dir)
+    if run_dirs:
+        logger.info(f"")
+        logger.info(f"  Cascade validation ({len(run_dirs)} run(s)):")
+        for run_dir in run_dirs:
+            rel = os.path.relpath(run_dir, workspace_dir)
+            ok, msg = _validate_run_cascade(run_dir)
+            if ok:
+                logger.info(f"  [PASS]  {rel}")
+                checks_passed += 1
+            else:
+                logger.info(f"  [FAIL]  {rel}")
+                for line in msg.splitlines():
+                    logger.info(f"          {line}")
+                checks_failed += 1
+
     logger.info(f"")
     logger.info(f"  Results: {checks_passed} passed, {checks_failed} failed")
     logger.info(f"{'═'*60}")
 
     return 0 if checks_failed == 0 else 1
+
+
+def _discover_workspace_runs(workspace_dir: str) -> list:
+    """Return run directories in the workspace (P*_run_* pattern)."""
+    import glob
+    return sorted(glob.glob(os.path.join(workspace_dir, 'P*_run_*')))
+
+
+def _validate_run_cascade(run_dir: str) -> tuple:
+    """Load the resolved cascade for one run and validate mandatory_vars.
+
+    Returns (True, "") on success, (False, error_msg) on failure. Handles
+    both the "cascade won't even load" case and the "mandatory var missing"
+    case with the same tuple shape.
+    """
+    # Read flow_type from .run.cbflow.env — same source the engine reads.
+    env_file = os.path.join(run_dir, '.run.cbflow.env')
+    if not os.path.exists(env_file):
+        return (False, f".run.cbflow.env not found in {run_dir}")
+
+    flow_type = ""
+    for line in open(env_file):
+        line = line.strip()
+        if line.startswith('export CBFLOW_FLOW_TYPE='):
+            flow_type = line.split('=', 1)[1].strip('"').strip("'")
+            break
+    if not flow_type:
+        return (False, "CBFLOW_FLOW_TYPE not set in .run.cbflow.env")
+
+    # Import lazily so this module doesn't grow a hard dep on the engine
+    # (validation_cmd runs even from environments where race_engine can't
+    # import — the resolver path stays lightweight).
+    try:
+        import cbflow_config as _cfg
+        import config_validator as _cfg_validator
+    except ImportError as e:
+        return (False, f"validation modules unavailable: {e}")
+
+    try:
+        cfg = _cfg.load_resolved_config(flow_type, run_dir)
+    except Exception as e:
+        return (False, f"cascade resolve failed: {e}")
+
+    missing = _cfg_validator.validate_mandatory_vars(cfg, flow_type)
+    if missing:
+        return (False, _cfg_validator.format_validation_error(missing, cfg, flow_type))
+    return (True, "")
 
 
 def create_parser() -> argparse.ArgumentParser:

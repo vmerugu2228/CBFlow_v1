@@ -133,22 +133,22 @@ array set phase_defaults {
 # Only specify metrics that differ from the defaults.
 # Unspecified metrics fall through to phase_defaults or default_thresholds.
 
-# ── ravendrive (22nm, relaxed early milestones) ───────────────────────────
+# ── bumblebee (22nm, relaxed early milestones) ───────────────────────────
 
 array set threshold_override {
-    ravendrive,FP_EXIT,utilization_min           0.55
-    ravendrive,FP_EXIT,utilization_max           0.82
-    ravendrive,FP_EXIT,setup_wns                 -300
+    bumblebee,FP_EXIT,utilization_min           0.55
+    bumblebee,FP_EXIT,utilization_max           0.82
+    bumblebee,FP_EXIT,setup_wns                 -300
 
-    ravendrive,PLACE_EXIT,setup_wns              -80
-    ravendrive,PLACE_EXIT,setup_tns              -800
-    ravendrive,PLACE_EXIT,max_congestion         0.88
+    bumblebee,PLACE_EXIT,setup_wns              -80
+    bumblebee,PLACE_EXIT,setup_tns              -800
+    bumblebee,PLACE_EXIT,max_congestion         0.88
 
-    ravendrive,CTS_EXIT,clock_skew               60
-    ravendrive,CTS_EXIT,max_insertion_delay       600
-    ravendrive,CTS_EXIT,clock_coverage            99.0
+    bumblebee,CTS_EXIT,clock_skew               60
+    bumblebee,CTS_EXIT,max_insertion_delay       600
+    bumblebee,CTS_EXIT,clock_coverage            99.0
 
-    ravendrive,PRO_EXIT,max_ir_drop              40
+    bumblebee,PRO_EXIT,max_ir_drop              40
 }
 
 # ── india (5nm, tighter thresholds) ───────────────────────────────────────
@@ -180,17 +180,17 @@ array set threshold_override {
 # Common pattern: relax thresholds at P0/P1, tighten at P2/P3.
 
 array set phase_override {
-    ravendrive,P0,FP_EXIT,utilization_min        0.50
-    ravendrive,P0,PLACE_EXIT,setup_wns           -150
-    ravendrive,P0,PLACE_EXIT,setup_tns           -2000
-    ravendrive,P0,CTS_EXIT,clock_skew            80
+    bumblebee,P0,FP_EXIT,utilization_min        0.50
+    bumblebee,P0,PLACE_EXIT,setup_wns           -150
+    bumblebee,P0,PLACE_EXIT,setup_tns           -2000
+    bumblebee,P0,CTS_EXIT,clock_skew            80
 
-    ravendrive,P1,PLACE_EXIT,setup_wns           -80
-    ravendrive,P1,PLACE_EXIT,setup_tns           -800
+    bumblebee,P1,PLACE_EXIT,setup_wns           -80
+    bumblebee,P1,PLACE_EXIT,setup_tns           -800
 
-    ravendrive,P2,PLACE_EXIT,setup_wns           -20
-    ravendrive,P2,PRO_EXIT,setup_wns             0
-    ravendrive,P2,PRO_EXIT,hold_wns              0
+    bumblebee,P2,PLACE_EXIT,setup_wns           -20
+    bumblebee,P2,PRO_EXIT,setup_wns             0
+    bumblebee,P2,PRO_EXIT,hold_wns              0
 
     india,P0,PLACE_EXIT,setup_wns                -80
     india,P0,CTS_EXIT,clock_skew                 50

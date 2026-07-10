@@ -159,8 +159,8 @@ flow_proc fix_signal_em {
     global flow cfg tech
 
     # FC-RM: Signal EM constraint file
-    if {[info exists tech(signal_em_constraint_file)] && $tech(signal_em_constraint_file) ne "" && [file exists $tech(signal_em_constraint_file)]} {
-        set cmd "read_signal_em_constraints $tech(signal_em_constraint_file)"
+    if {[info exists tech($project(metal_stack),signal_em_constraint_file)] && $tech($project(metal_stack),signal_em_constraint_file) ne "" && [file exists $tech($project(metal_stack),signal_em_constraint_file)]} {
+        set cmd "read_signal_em_constraints $tech($project(metal_stack),signal_em_constraint_file)"
         if {[info exists tech(signal_em_constraint_format)] && $tech(signal_em_constraint_format) ne ""} {
             lappend cmd -format $tech(signal_em_constraint_format)
         }
@@ -203,13 +203,13 @@ flow_proc run_signoff_drc {
         set_app_options -name signoff.check_drc.runset -value $cfg(signoff,drc_runset)
 
         # FC-RM: Layer map file
-        if {[info exists tech(gds_layer_map_file)] && $tech(gds_layer_map_file) ne ""} {
-            set_app_options -name signoff.physical.layer_map_file -value $tech(gds_layer_map_file)
+        if {[info exists tech($project(metal_stack),gds_layer_map_file)] && $tech($project(metal_stack),gds_layer_map_file) ne ""} {
+            set_app_options -name signoff.physical.layer_map_file -value $tech($project(metal_stack),gds_layer_map_file)
         }
 
         # FC-RM: Stream files for merge
-        if {[info exists tech(stream_files_for_merge)] && $tech(stream_files_for_merge) ne ""} {
-            set_app_options -name signoff.physical.merge_stream_files -value $tech(stream_files_for_merge)
+        if {[info exists tech($project(metal_stack),stream_files_for_merge)] && $tech($project(metal_stack),stream_files_for_merge) ne ""} {
+            set_app_options -name signoff.physical.merge_stream_files -value $tech($project(metal_stack),stream_files_for_merge)
         }
 
         # FC-RM: DRC select/unselect rules

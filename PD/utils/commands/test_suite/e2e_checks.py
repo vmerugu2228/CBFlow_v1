@@ -17,6 +17,16 @@ _TERMINAL_FAIL = {'FAIL', 'FAILED', 'ERROR', 'KILLED'}
 
 
 def _find_db(run_dir):
+    """Locate the RACE DB. Priority: pointer file → local legacy fallback."""
+    pointer = os.path.join(run_dir, '.race_db_pointer')
+    if os.path.isfile(pointer):
+        try:
+            with open(pointer) as f:
+                p = f.read().strip()
+            if p and os.path.isfile(p):
+                return p
+        except OSError:
+            pass
     for f in Path(run_dir).glob('.race_*.db'):
         return str(f)
     return None
@@ -35,7 +45,7 @@ def e2e1_run_dir_structure(run_dir):
 def e2e2_db_initialized(run_dir):
     db = _find_db(run_dir)
     if not db:
-        return 'FAIL', 'no .race_*.db file in run dir'
+        return 'FAIL', 'no RACE DB (checked .race_db_pointer and .race_*.db)'
     try:
         conn = sqlite3.connect(db)
         cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
@@ -474,6 +484,61 @@ def e2e17_db_run_logs_table(run_dir):
     return 'PASS', f'{n} run_logs rows'
 
 
+def e2e19_lsf_tier_resolved(run_dir):
+    """Every job in the DAG must have resolved to a real LSF tier at build
+    time. The engine seeds jobs with a `resource_tier` column; this check
+    verifies:
+      1. Every subnode job has a non-empty resource_tier (job would exec
+         with no resource envelope otherwise).
+      2. Every resolved tier is one of the known LSF tier names — no typos
+         or dangling references.
+
+    Runs against the same DB the engine writes to, so this catches broken
+    lsf(flow_mapping,*) OR broken default fallback at the exact point the
+    DAG got built."""
+    db = _find_db(run_dir)
+    if not db:
+        return 'SKIP', 'no DB'
+
+    valid_tiers = {'XS', 'S', 'M', 'L', 'XL', 'ultra'}
+
+    try:
+        conn = sqlite3.connect(db)
+        # Only look at subnode jobs (stage sentinels don't carry tiers by design).
+        rows = conn.execute(
+            "SELECT job_name, stage, resource_tier FROM jobs "
+            "WHERE job_type = 'subnode' "
+            "AND id IN (SELECT MAX(id) FROM jobs GROUP BY job_name)"
+        ).fetchall()
+        conn.close()
+    except sqlite3.OperationalError as e:
+        return 'SKIP', f'schema mismatch (no resource_tier column?): {e}'
+    except sqlite3.Error as e:
+        return 'FAIL', f'sqlite error: {e}'
+
+    if not rows:
+        return 'SKIP', 'no subnode jobs in DB'
+
+    missing = []
+    invalid = []
+    for name, stage, tier in rows:
+        if not tier:
+            missing.append((name, stage))
+        elif tier not in valid_tiers:
+            invalid.append((name, stage, tier))
+
+    if missing:
+        head = ', '.join(f'{n}' for n, _ in missing[:3])
+        return 'FAIL', (f'{len(missing)}/{len(rows)} jobs have no resource_tier '
+                        f'(examples: {head}) — LSF envelope would be empty at bsub time')
+    if invalid:
+        head = ', '.join(f'{n}(tier={t})' for n, _, t in invalid[:3])
+        return 'FAIL', (f'{len(invalid)}/{len(rows)} jobs have unknown resource_tier '
+                        f'(examples: {head}) — must be one of {sorted(valid_tiers)}')
+
+    return 'PASS', f'all {len(rows)} subnode jobs have valid LSF tier'
+
+
 def e2e18_no_handler_errors(run_dir):
     """Scan for 'ERROR: Command file not found' and similar handler errors.
     These would surface FP/cadence/innovus-style 'init_design1_innovus.tcl
@@ -515,6 +580,7 @@ CHECKS = [
     ('e2e16_no_array_element_missing', e2e16_no_array_element_missing, False),
     ('e2e17_db_run_logs_table',    e2e17_db_run_logs_table,    False),
     ('e2e18_no_handler_errors',    e2e18_no_handler_errors,    False),
+    ('e2e19_lsf_tier_resolved',    e2e19_lsf_tier_resolved,    False),
 ]
 
 

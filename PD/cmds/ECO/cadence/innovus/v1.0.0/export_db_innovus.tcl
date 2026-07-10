@@ -68,11 +68,11 @@ flow_proc export_gds {
     set gds_file "$::OUTPUTS_DIR/eco_modified.gds"
 
     set _cmd "streamOut $gds_file -mode ALL -merge"
-    if {[info exists tech(gds_layer_map_file)] && $tech(gds_layer_map_file) ne ""} {
-        append _cmd " -mapFile $tech(gds_layer_map_file)"
+    if {[info exists tech($project(metal_stack),gds_layer_map_file)] && $tech($project(metal_stack),gds_layer_map_file) ne ""} {
+        append _cmd " -mapFile $tech($project(metal_stack),gds_layer_map_file)"
     }
-    if {[info exists tech(stream_files_for_merge)] && $tech(stream_files_for_merge) ne ""} {
-        append _cmd " -merge \{$tech(stream_files_for_merge)\}"
+    if {[info exists tech($project(metal_stack),stream_files_for_merge)] && $tech($project(metal_stack),stream_files_for_merge) ne ""} {
+        append _cmd " -merge \{$tech($project(metal_stack),stream_files_for_merge)\}"
     }
     handle_info "Running: $_cmd"
     eval $_cmd

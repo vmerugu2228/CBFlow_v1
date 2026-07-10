@@ -1,5 +1,5 @@
 set project(name) "denali"
-set project(phase) "P0"
+set project(phase) "LC1"
 set flow(type) "CLP"
 set flow(design_name) "tom"
 set flow(run_name) "denali_conformal_lp_test1"

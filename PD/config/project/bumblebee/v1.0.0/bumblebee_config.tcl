@@ -1,16 +1,20 @@
 #!/usr/bin/env tclsh
 # ============================================================================
-# CBflow - Denali Project Configuration
-# Description: Denali project-specific parameters
+# CBflow - Bumblebee Project Configuration
+# Description: Bumblebee project-specific parameters
 # ============================================================================
 
 # Project identification
-set project(name) "ravendrive"
+set project(name) "bumblebee"
+
+# Phase timeline for this project (project-specific — flow(phases) is deprecated).
+set project(phases)          {LC1 LC2 LC3 LC4 LC5}
+set project(current_phase)   "LC1"
 set project(version) "1.0"
 set project(cbflow_release) "v1.0.0"   ;# CBflow release version for this project
-set project(description) "Ravendrive chip design project"
-set project(owner) "Ravendrive Design Team"
-set project(contact) "ravendrive@company.com"
+set project(description) "Bumblebee chip design project"
+set project(owner) "Bumblebee Design Team"
+set project(contact) "bumblebee@company.com"
 
 # Project root directory for relative path resolution
 if {[info exists ::env(PROJECT_ROOT)]} {
@@ -32,18 +36,11 @@ set project(technology) "gf_22nm"
 set project(track_variant) "9T"
 set project(metal_stack) "11M"
 set project(vt_flavors) "svt lvt hvt"
-set project(lib_config_tag) "P0"
+set project(lib_config_tag) "LIB01"
 set project(lib_root) "/tmp/test_libs/gf_22nm"
 
 # Design hierarchy
-set project(top_module) "ravendrive_top"
-set project(block_list) "cpu_core memory_ctrl io_ctrl"
-
-# Clock constraints (only `period` and `ports` are read downstream — used by
-# inputs_innovus.tcl for display/logging. The authoritative clock spec comes
-# from the SDC file referenced by `operating_modes(<mode>,constraint_file)`.)
-set project(clock,period) "2.0"
-set project(clock,ports) "clk sys_clk ref_clk"
+set project(top_module) "bumblebee_top"
 
 # SDC Mode Definitions (used for file naming: <design_name>.<mode>.sdc)
 set project(sdc_modes) {func scan test dft}
@@ -74,11 +71,11 @@ set project(verification,simulation) "true"
 set project(autoppt,enabled) "false"         ;# Enable AutoPPT summary generation (requires python-pptx)
 
 # Custom settings
-set project(custom,scripts) "ravendrive_hooks.tcl"
-set project(custom,constraints) "ravendrive_constraints.sdc"
-set project(custom,hooks) "ravendrive_custom.tcl"
-set project(custom,waivers) "ravendrive_waivers.tcl"
-set project(custom,config_files) "ravendrive_extra.tcl"
+set project(custom,scripts) "bumblebee_hooks.tcl"
+set project(custom,constraints) "bumblebee_constraints.sdc"
+set project(custom,hooks) "bumblebee_custom.tcl"
+set project(custom,waivers) "bumblebee_waivers.tcl"
+set project(custom,config_files) "bumblebee_extra.tcl"
 
 # ---------------------------------------------------------------------------
 # RELEASE CONFIGURATION
@@ -86,24 +83,19 @@ set project(custom,config_files) "ravendrive_extra.tcl"
 
 # RACE DB Path
 # DB structure: $db_path/$project_name/$domain/$flow_type/$user_$run_name.db
-set project(race,db_path) "/proj/ravendrive/race_db"
+set project(race,db_path) "/Users/vmerugu/projects/CBflow_clone/.race_area"
 
-set project(release,author) "Ravendrive Design Team"
-set project(release,organization) "GF 22FDX Design Group"
+# Dashboard byline — override the default "SmartSoc Solutions Pvt Limited" credit
+set project(dashboard,developed_by) "SmartSoC and MIPS"
 
 # Release Path Configuration
 # Release path structure: $release_path/$phase/$block_name/$release_tag
 set project(release,path) "/Users/vmerugu/projects/CBflow_clone/test_releases"
-set project(release,phase) "P0"
+set project(release,phase) "LC1"
 set project(release,block_name) ""
 set project(release,active_tag) "BTO"
-set project(release,expiry_date) "2026-06-30"
-set project(tapeout_date) "2026-08-15"          ;# ISO date — drives "Weeks to tapeout" on dashboard
-
-# Release settings
-set project(release,include_timestamp) "false"
-set project(release,generate_notes) "true"
-set project(release,validate_mandatory) "true"
+set project(release,expiry_date) "2027-06-30"
+set project(tapeout_date) "2026-12-07"          ;# ISO date — drives "Weeks to tapeout" on dashboard
 
 # ---------------------------------------------------------------------------
 # LSF RESOURCE MANAGEMENT
@@ -122,187 +114,17 @@ set project(lsf,max_concurrent_jobs) "25"
 set project(lsf,max_daily_cost) "1000.00"        ;# USD
 set project(lsf,priority_class) "normal"         ;# normal, high, critical
 
-# Node-specific resource requirements — SYNTH (node_types: inputs, init_design, synthesis, export_data)
-set project(lsf,node_requirements,SYNTH,inputs,queue) "S"
-set project(lsf,node_requirements,SYNTH,inputs,memory) "4GB"
-set project(lsf,node_requirements,SYNTH,inputs,cpu) "2"
-set project(lsf,node_requirements,SYNTH,inputs,runtime_estimate) "0.25"
-
-set project(lsf,node_requirements,SYNTH,synthesis,queue) "M"
-set project(lsf,node_requirements,SYNTH,synthesis,memory) "12GB"
-set project(lsf,node_requirements,SYNTH,synthesis,cpu) "6"
-set project(lsf,node_requirements,SYNTH,synthesis,runtime_estimate) "2.0"
-
-set project(lsf,node_requirements,SYNTH,export_data,queue) "S"
-set project(lsf,node_requirements,SYNTH,export_data,memory) "4GB"
-set project(lsf,node_requirements,SYNTH,export_data,cpu) "2"
-set project(lsf,node_requirements,SYNTH,export_data,runtime_estimate) "0.5"
-
-# Node-specific resource requirements — PNR (node_types: inputs, init_design, place, cts, cts_opt, route, pro, signoff, export_data)
-set project(lsf,node_requirements,PNR,inputs,queue) "S"
-set project(lsf,node_requirements,PNR,inputs,memory) "4GB"
-set project(lsf,node_requirements,PNR,inputs,cpu) "2"
-set project(lsf,node_requirements,PNR,inputs,runtime_estimate) "0.25"
-
-set project(lsf,node_requirements,PNR,init_design,queue) "M"
-set project(lsf,node_requirements,PNR,init_design,memory) "12GB"
-set project(lsf,node_requirements,PNR,init_design,cpu) "4"
-set project(lsf,node_requirements,PNR,init_design,runtime_estimate) "0.75"
-
-set project(lsf,node_requirements,PNR,place,queue) "L"
-set project(lsf,node_requirements,PNR,place,memory) "24GB"
-set project(lsf,node_requirements,PNR,place,cpu) "8"
-set project(lsf,node_requirements,PNR,place,runtime_estimate) "3.0"
-
-set project(lsf,node_requirements,PNR,cts,queue) "L"
-set project(lsf,node_requirements,PNR,cts,memory) "32GB"
-set project(lsf,node_requirements,PNR,cts,cpu) "16"
-set project(lsf,node_requirements,PNR,cts,runtime_estimate) "3.5"
-
-set project(lsf,node_requirements,PNR,cts_opt,queue) "L"
-set project(lsf,node_requirements,PNR,cts_opt,memory) "24GB"
-set project(lsf,node_requirements,PNR,cts_opt,cpu) "8"
-set project(lsf,node_requirements,PNR,cts_opt,runtime_estimate) "2.5"
-
-set project(lsf,node_requirements,PNR,route,queue) "XL"
-set project(lsf,node_requirements,PNR,route,memory) "64GB"
-set project(lsf,node_requirements,PNR,route,cpu) "32"
-set project(lsf,node_requirements,PNR,route,runtime_estimate) "8.0"
-
-set project(lsf,node_requirements,PNR,pro,queue) "L"
-set project(lsf,node_requirements,PNR,pro,memory) "32GB"
-set project(lsf,node_requirements,PNR,pro,cpu) "16"
-set project(lsf,node_requirements,PNR,pro,runtime_estimate) "4.0"
-
-set project(lsf,node_requirements,PNR,signoff,queue) "M"
-set project(lsf,node_requirements,PNR,signoff,memory) "16GB"
-set project(lsf,node_requirements,PNR,signoff,cpu) "8"
-set project(lsf,node_requirements,PNR,signoff,runtime_estimate) "1.5"
-
-# Node-specific resource requirements — STA (node_types: inputs, extraction, timing, reporting)
-set project(lsf,node_requirements,STA,inputs,queue) "S"
-set project(lsf,node_requirements,STA,inputs,memory) "4GB"
-set project(lsf,node_requirements,STA,inputs,cpu) "2"
-set project(lsf,node_requirements,STA,inputs,runtime_estimate) "0.25"
-
-set project(lsf,node_requirements,STA,extraction,queue) "L"
-set project(lsf,node_requirements,STA,extraction,memory) "32GB"
-set project(lsf,node_requirements,STA,extraction,cpu) "16"
-set project(lsf,node_requirements,STA,extraction,runtime_estimate) "4.0"
-
-set project(lsf,node_requirements,STA,timing,queue) "L"
-set project(lsf,node_requirements,STA,timing,memory) "24GB"
-set project(lsf,node_requirements,STA,timing,cpu) "12"
-set project(lsf,node_requirements,STA,timing,runtime_estimate) "3.0"
-
-# Node-specific resource requirements — LEC (node_types: inputs, compare)
-set project(lsf,node_requirements,LEC,inputs,queue) "S"
-set project(lsf,node_requirements,LEC,inputs,memory) "4GB"
-set project(lsf,node_requirements,LEC,inputs,cpu) "2"
-set project(lsf,node_requirements,LEC,inputs,runtime_estimate) "0.25"
-
-set project(lsf,node_requirements,LEC,compare,queue) "M"
-set project(lsf,node_requirements,LEC,compare,memory) "12GB"
-set project(lsf,node_requirements,LEC,compare,cpu) "4"
-set project(lsf,node_requirements,LEC,compare,runtime_estimate) "1.5"
-
-# Node-specific resource requirements — EMIR (node_types: inputs, power_analysis, ir_drop, thermal_analysis)
-set project(lsf,node_requirements,EMIR,inputs,queue) "S"
-set project(lsf,node_requirements,EMIR,inputs,memory) "4GB"
-set project(lsf,node_requirements,EMIR,inputs,cpu) "2"
-set project(lsf,node_requirements,EMIR,inputs,runtime_estimate) "0.25"
-
-set project(lsf,node_requirements,EMIR,power_analysis,queue) "M"
-set project(lsf,node_requirements,EMIR,power_analysis,memory) "16GB"
-set project(lsf,node_requirements,EMIR,power_analysis,cpu) "8"
-set project(lsf,node_requirements,EMIR,power_analysis,runtime_estimate) "3.0"
-
-set project(lsf,node_requirements,EMIR,ir_drop,queue) "M"
-set project(lsf,node_requirements,EMIR,ir_drop,memory) "16GB"
-set project(lsf,node_requirements,EMIR,ir_drop,cpu) "8"
-set project(lsf,node_requirements,EMIR,ir_drop,runtime_estimate) "2.5"
-
-# Node-specific resource requirements — PV (node_types: inputs, drc, lvs, fill, perc, erc, xor)
-set project(lsf,node_requirements,PV,inputs,queue) "S"
-set project(lsf,node_requirements,PV,inputs,memory) "4GB"
-set project(lsf,node_requirements,PV,inputs,cpu) "2"
-set project(lsf,node_requirements,PV,inputs,runtime_estimate) "0.25"
-
-set project(lsf,node_requirements,PV,drc,queue) "M"
-set project(lsf,node_requirements,PV,drc,memory) "16GB"
-set project(lsf,node_requirements,PV,drc,cpu) "8"
-set project(lsf,node_requirements,PV,drc,runtime_estimate) "2.5"
-
-set project(lsf,node_requirements,PV,lvs,queue) "M"
-set project(lsf,node_requirements,PV,lvs,memory) "12GB"
-set project(lsf,node_requirements,PV,lvs,cpu) "4"
-set project(lsf,node_requirements,PV,lvs,runtime_estimate) "2.0"
-
 # Notification settings
-set project(lsf,notifications,email_list) "ravendrive@company.com"
+set project(lsf,notifications,email_list) "bumblebee@company.com"
 set project(lsf,notifications,cost_alerts) "true"
 set project(lsf,notifications,failure_alerts) "true"
 set project(lsf,notifications,completion_alerts) "false"
 set project(lsf,notifications,weekly_summary) "true"
 
-# ---------------------------------------------------------------------------
-# MMMC NODE SCENARIO ASSIGNMENTS
-# Which scenarios to use at each PNR/STA stage (setup/hold)
-# Scenario format: <mode>_<corner>_<voltage>_<rc>_<temperature>
-# ---------------------------------------------------------------------------
-
-# Generated by: cbflow flow mmmc-manager generate --tech gf_28nm --project denali
-# node_types match: SYNTH, PNR, STA, LEC, CLP, EMIR, PV flows
-array set mmmc {
-    init_design {
-        setup {func_tt_0p90v_rctyp_125c}
-        hold  {func_tt_0p90v_rctyp_125c}
-    }
-    synthesis {
-        setup {func_ss_0p80v_rcmax_125c func_ss_0p80v_rcmax_m40c func_ss_0p90v_rcmax_125c}
-        hold  {func_ff_1p10v_rcmin_125c func_ff_1p10v_rcmin_25c}
-    }
-    place {
-        setup {func_ss_0p80v_rcmax_125c func_ss_0p80v_rcmax_m40c}
-        hold  {func_ff_1p10v_rcmin_125c func_ff_1p10v_rcmin_25c}
-    }
-    cts {
-        setup {func_ss_0p80v_rcmax_125c func_ss_0p80v_rcmax_m40c func_ss_0p90v_rcmax_125c}
-        hold  {func_ff_1p10v_rcmin_125c func_ff_1p10v_rcmin_25c func_ff_1p10v_rcmin_m40c}
-    }
-    cts_opt {
-        setup {func_ss_0p80v_rcmax_125c func_ss_0p80v_rcmax_m40c func_ss_0p90v_rcmax_125c}
-        hold  {func_ff_1p10v_rcmin_125c func_ff_1p10v_rcmin_25c func_ff_1p10v_rcmin_m40c}
-    }
-    route {
-        setup {func_ss_0p80v_rcmax_125c func_ss_0p80v_rcmax_m40c func_ss_0p90v_rcmax_125c}
-        hold  {func_ff_1p10v_rcmin_125c func_ff_1p10v_rcmin_25c func_ff_1p10v_rcmin_m40c}
-    }
-    pro {
-        setup {func_ss_0p80v_rcmax_125c func_ss_0p80v_rcmax_m40c func_ss_0p90v_rcmax_125c func_ss_0p90v_rcmax_m40c}
-        hold  {func_ff_1p10v_rcmin_125c func_ff_1p10v_rcmin_25c func_ff_1p10v_rcmin_m40c}
-    }
-    signoff {
-        setup {func_ss_0p80v_rcmax_125c func_ss_0p80v_rcmax_m40c func_ss_0p90v_rcmax_125c func_ss_0p90v_rcmax_m40c}
-        hold  {func_ff_1p10v_rcmin_125c func_ff_1p10v_rcmin_25c func_ff_1p10v_rcmin_m40c}
-    }
-    extraction {
-        setup {func_ss_0p80v_rcmax_125c func_ss_0p80v_rcmax_m40c func_ss_0p90v_rcmax_125c func_ss_0p90v_rcmax_m40c}
-        hold  {func_ff_1p10v_rcmin_125c func_ff_1p10v_rcmin_25c func_ff_1p10v_rcmin_m40c}
-    }
-    timing {
-        setup {func_ss_0p80v_rcmax_125c func_ss_0p80v_rcmax_m40c func_ss_0p90v_rcmax_125c func_ss_0p90v_rcmax_m40c}
-        hold  {func_ff_1p10v_rcmin_125c func_ff_1p10v_rcmin_25c func_ff_1p10v_rcmin_m40c}
-    }
-}
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Design content + waivers (cross-project schema parity)
 # ─────────────────────────────────────────────────────────────────────────────
 set project(analog_blocks) "pll_block adc_block"
-set project(full_chip) "chip_top"
-set project(macro_list) "sram_macro rom_macro"
-set project(memory_list) "cache_mem data_mem inst_mem"
 set project(validation,post_route_waivers) {    ".*[Ww]arning.*timing.*violation.*less.*than.*0\\.1ns.*"    ".*[Ww]arning.*hold.*time.*violation.*less.*than.*50ps.*"
     ".*[Ww]arning.*optimization.*convergence.*"
 }
@@ -317,7 +139,6 @@ set project(validation,SIGNOFF_waivers) {
 # MULTI-LINE VALUE BLOCKS (kept at the bottom so cross-project line-number
 # parity holds for every single-line set project(...) key above.
 # ═════════════════════════════════════════════════════════════════════════════
-
 
 # ---------------------------------------------------------------------------
 # DESIGN INFORMATION
@@ -466,15 +287,15 @@ set project(design_hierarchy) {
     }
 }
 
-# Default Cadence tools
+# Default Synopsys tools
 set project(default_tools) {
-    SYNTH    "genus"
-    PNR      "innovus"
-    STA      "tempus"
-    LEC      "conformal"
-    CLP      "conformal_lp"
-    EMIR     "voltus"
-    PV       "calibre"
+    SYNTH    "fc"
+    PNR      "fc"
+    STA      "pt"
+    LEC      "formality"
+    CLP      "vc_lp"
+    EMIR     "redhawk"
+    PV       "icv"
 }
 
 # ---------------------------------------------------------------------------
@@ -557,3 +378,16 @@ set project(release,structure) {
 # ─────────────────────────────────────────────────────────────────────────────
 # Generate valid design names from hierarchy
 set project(valid_design_names) [dict keys $project(design_hierarchy)]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Derived: project(block_list) — the DL2 subsystems of design_hierarchy.
+# Consumed by FCFP/FP init_design_fc.tcl for hierarchical NDM loading.
+# ─────────────────────────────────────────────────────────────────────────────
+set _blk_list {}
+dict for {_blk _spec} $project(design_hierarchy) {
+    if {[dict exists $_spec level] && [dict get $_spec level] eq "DL2"} {
+        lappend _blk_list $_blk
+    }
+}
+set project(block_list) $_blk_list
+unset _blk_list _blk _spec

@@ -62,7 +62,7 @@ SAFE_ARGS = {
 
     # ── flow project (read-only) ──────────────────────────────────────
     ('flow', 'project', 'list'):    [],
-    ('flow', 'project', 'info'):    ['--name', 'ravendrive'],
+    ('flow', 'project', 'info'):    ['--name', 'bumblebee'],
 
     # ── flow release (read-only) ──────────────────────────────────────
     ('flow', 'release', 'list'):    [],
@@ -202,10 +202,10 @@ NEGATIVE_TESTS = {
 # vendor stacks + the two structurally-distinct flows (PNR uses a
 # bigger stage set than STA).
 SANDBOX_MATRIX = [
-    ('SYNTH_PNR', 'ravendrive'),  # Synopsys, full PnR chain
-    ('PNR',       'ravendrive'),  # Synopsys, PNR only
+    ('SYNTH_PNR', 'bumblebee'),  # Synopsys, full PnR chain
+    ('PNR',       'bumblebee'),  # Synopsys, PNR only
     ('PNR',       'denali'),      # Cadence/Innovus
-    ('STA',       'ravendrive'),  # STA — smaller stage set
+    ('STA',       'bumblebee'),  # STA — smaller stage set
 ]
 
 

@@ -102,3 +102,151 @@ proc handler_validate {run_dir flow_type node_name stage_name test_mode} {
         puts "INFO: $stage_name validation passed"
     }
 }
+
+# ── Timestamp helper (used by inputs handlers for *_info.tcl stamps) ─────────
+proc handler_ts {} {
+    if {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts]} {
+        return "epoch [clock seconds]"
+    }
+    return $_ts
+}
+
+# ── Standard 4-subnode dispatch (setup / run / validate / finish) ────────────
+# Collapses the identical switch block that ~117 subnode handlers open-code.
+# Each handler now supplies only its stage_name, resolved cmd_file, tool_name,
+# and (optionally) a tool_suffix that triggers a local symlink at
+#   $run_dir/work/$flow_type/$node_name/run/${node_name}.${tool_suffix}.tcl
+# during `setup` — used by PNR-style handlers so `run` reads a canonical local
+# path even when the source cmd file lives in $FLOW_DIR/cmds/.
+# For handlers with no symlink pattern, pass an empty tool_suffix.
+proc handler_dispatch {subnode_name run_dir flow_type node_name stage_name
+                      cmd_file test_mode tool_name {tool_suffix ""}} {
+    switch $subnode_name {
+        "setup" {
+            puts "INFO: $stage_name setup..."
+            handler_setup $run_dir $flow_type $node_name
+            if {$tool_suffix ne "" && [file exists $cmd_file]} {
+                set _local "$run_dir/work/$flow_type/$node_name/run/${node_name}.${tool_suffix}.tcl"
+                catch {file delete $_local}
+                if {[catch {file link -symbolic $_local $cmd_file} _err]} {
+                    puts "WARN: symlink failed ($_err); falling back to copy"
+                    file copy -force $cmd_file $_local
+                } else {
+                    puts "INFO: Command file (symlink → $cmd_file): $_local"
+                }
+            }
+            puts "INFO: $stage_name setup completed"
+        }
+        "run" {
+            puts "INFO: $stage_name run..."
+            set _actual $cmd_file
+            if {$tool_suffix ne ""} {
+                set _local "$run_dir/work/$flow_type/$node_name/run/${node_name}.${tool_suffix}.tcl"
+                if {[file exists $_local]} { set _actual $_local }
+            }
+            handler_run $run_dir $flow_type $node_name $stage_name $_actual $test_mode $tool_name
+        }
+        "validate" {
+            puts "INFO: $stage_name validate..."
+            handler_validate $run_dir $flow_type $node_name $stage_name $test_mode
+            puts "INFO: $stage_name validate completed"
+        }
+        "finish" {
+            puts "INFO: $stage_name finish..."
+            handler_finish $run_dir $flow_type $node_name $stage_name
+            puts "INFO: $stage_name finish completed"
+        }
+        default {
+            puts "ERROR: Unknown subnode: '$subnode_name' (stage=$stage_name flow=$flow_type)"
+            puts "       Expected one of: setup, run, validate, finish"
+            exit 1
+        }
+    }
+}
+
+# ── Inputs dispatch (setup / <input_type> / validate / finish) ───────────────
+# The inputs stage has a different shape: each subnode corresponds to an input
+# TYPE (netlist, sdc, def, library, upf, spef, ...) rather than a lifecycle
+# phase. This proc handles the boilerplate that ~20 inputs handlers currently
+# re-implement identically — mkdir per input type, write a *_info.tcl stamp,
+# no-op validate/finish stamps.
+#
+# `input_types` is the flow's list of input types. For real (non-test) runs,
+# resolve_flow_inputs from resolve_inputs.tcl runs in setup and materializes
+# the actual files — the *_info.tcl stamps are metadata for the dashboard.
+proc handler_dispatch_inputs {subnode_name run_dir flow_type node_name
+                              input_types test_mode} {
+    set stage_name "inputs"
+    set node_dir "$run_dir/work/$flow_type/$node_name"
+
+    switch $subnode_name {
+        "setup" {
+            puts "INFO: $flow_type $stage_name setup..."
+            file mkdir $node_dir
+            foreach _itype $input_types {
+                file mkdir "$node_dir/$_itype"
+            }
+            # Generate config.tcl + setup.tcl via config cascade (same as
+            # handler_setup; inlined here because inputs stage has a different
+            # directory shape and doesn't need the standard work/setup dirs).
+            if {[info exists ::env(GENERATION_VERSION)] && $::env(GENERATION_VERSION) ne ""} {
+                set _gen "$::env(FLOW_DIR)/utils/generation/$::env(GENERATION_VERSION)/generate_setup.tcl"
+                if {[file exists $_gen]} {
+                    catch {exec tclsh $_gen $flow_type $node_name ${node_name}_default $run_dir}
+                }
+            }
+            puts "INFO: $flow_type $stage_name setup completed"
+        }
+        "validate" {
+            puts "INFO: $flow_type $stage_name validate..."
+            if {$test_mode} {
+                puts "INFO: \[TEST MODE\] Validation skipped"
+            } else {
+                puts "INFO: $flow_type inputs validation passed"
+            }
+            puts "INFO: $flow_type $stage_name validate completed"
+        }
+        "finish" {
+            puts "INFO: $flow_type $stage_name finish..."
+            set _finish_file "$node_dir/finish/finish_info.tcl"
+            file mkdir [file dirname $_finish_file]
+            set _fh [open $_finish_file "w"]
+            puts $_fh "set finish_info(timestamp) \"[handler_ts]\""
+            close $_fh
+            puts "INFO: $flow_type $stage_name finish completed"
+        }
+        default {
+            if {[lsearch -exact $input_types $subnode_name] < 0} {
+                puts "ERROR: Unknown subnode: '$subnode_name' (flow=$flow_type stage=$stage_name)"
+                puts "       Expected: setup, validate, finish, or one of: $input_types"
+                exit 1
+            }
+            puts "INFO: $flow_type $stage_name $subnode_name..."
+            if {$test_mode} {
+                puts "INFO: \[TEST MODE\] $subnode_name loading skipped"
+            }
+            set _info_file "$node_dir/$subnode_name/${subnode_name}_info.tcl"
+            file mkdir [file dirname $_info_file]
+            set _fh [open $_info_file "w"]
+            puts $_fh "set ${subnode_name}_info(timestamp) \"[handler_ts]\""
+            puts $_fh "set ${subnode_name}_info(status) \"loaded\""
+            close $_fh
+            puts "INFO: $flow_type $stage_name $subnode_name completed"
+        }
+    }
+}
+
+# ── Resolve upstream inputs (from_run / release_tag / direct paths) ──────────
+# Sources resolve_inputs.tcl and invokes resolve_flow_inputs. Safe to call
+# multiple times: the underlying proc checks for a persisted resolved_inputs.tcl
+# and skips re-resolution if present.
+proc handler_resolve_inputs {flow_type run_dir} {
+    if {![info exists ::env(SCRIPTS_ROOT)] || ![info exists ::env(UTILITIES_VERSION)]} {
+        return
+    }
+    set _lib "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/resolve_inputs.tcl"
+    if {[file exists $_lib]} {
+        uplevel #0 [list source $_lib]
+        uplevel #0 [list ::CBFlow::InputResolve::resolve_flow_inputs $flow_type $run_dir]
+    }
+}

@@ -165,9 +165,9 @@ flow_proc configure_route {
     }
 
     # FC-RM: Process antenna rules before routing
-    if {[info exists tech(antenna_rule_file)] && [file exists $tech(antenna_rule_file)]} {
-        handle_info "Processing antenna rules: $tech(antenna_rule_file)"
-        source $tech(antenna_rule_file)
+    if {[info exists tech($project(metal_stack),antenna_rule_file)] && [file exists $tech($project(metal_stack),antenna_rule_file)]} {
+        handle_info "Processing antenna rules: $tech($project(metal_stack),antenna_rule_file)"
+        source $tech($project(metal_stack),antenna_rule_file)
         process_antenna_rules
     }
 

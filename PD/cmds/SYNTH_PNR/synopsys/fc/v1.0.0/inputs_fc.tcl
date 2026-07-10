@@ -98,8 +98,8 @@ flow_proc create_design_lib {
 
     # Build create_lib command with technology and reference libraries
     set create_lib_cmd "create_lib $synth_pnr(common,design_lib_name)"
-    if {[info exists tech(tech_file)] && $tech(tech_file) ne "" && [file exists [which $tech(tech_file)]]} {
-        lappend create_lib_cmd -tech $tech(tech_file)
+    if {[info exists tech($project(metal_stack),$tech(track),tech_file)] && $tech($project(metal_stack),$tech(track),tech_file) ne "" && [file exists [which $tech($project(metal_stack),$tech(track),tech_file)]]} {
+        lappend create_lib_cmd -tech $tech($project(metal_stack),$tech(track),tech_file)
     } elseif {[info exists tech(tech_lib)] && $tech(tech_lib) ne ""} {
         lappend create_lib_cmd -use_technology_lib $tech(tech_lib)
     }
@@ -242,29 +242,29 @@ flow_proc read_parasitics {
     handle_info "Reading parasitic technology files..."
     global tech synth_pnr
 
-    # tech(tluplus_map) must be defined in tech_config — crash if missing
-    if {[info exists tech(rcx,rc_max,tluplus)] && $tech(rcx,rc_max,tluplus) ne ""} {
+    # tech($project(metal_stack),tluplus_map) must be defined in tech_config — crash if missing
+    if {[info exists tech(rcx,$project(metal_stack),rc_max,tluplus)] && $tech(rcx,$project(metal_stack),rc_max,tluplus) ne ""} {
         handle_info "Setting TLU+ parasitic models (per RC corner)..."
         read_parasitic_tech \
-            -tlup $tech(rcx,rc_max,tluplus) \
-            -layermap $tech(tluplus_map)
-        if {[info exists tech(rcx,rc_min,tluplus)] && $tech(rcx,rc_min,tluplus) ne ""} {
+            -tlup $tech(rcx,$project(metal_stack),rc_max,tluplus) \
+            -layermap $tech($project(metal_stack),tluplus_map)
+        if {[info exists tech(rcx,$project(metal_stack),rc_min,tluplus)] && $tech(rcx,$project(metal_stack),rc_min,tluplus) ne ""} {
             set_parasitic_parameters \
-                -early_spec $tech(rcx,rc_min,tluplus) \
-                -late_spec $tech(rcx,rc_max,tluplus)
+                -early_spec $tech(rcx,$project(metal_stack),rc_min,tluplus) \
+                -late_spec $tech(rcx,$project(metal_stack),rc_max,tluplus)
         }
-    } elseif {[info exists tech(rcx,rc_max,nxtgrd)] && $tech(rcx,rc_max,nxtgrd) ne ""} {
+    } elseif {[info exists tech(rcx,$project(metal_stack),rc_max,nxtgrd)] && $tech(rcx,$project(metal_stack),rc_max,nxtgrd) ne ""} {
         handle_info "Setting NXTGRD parasitic models (per RC corner)..."
         read_parasitic_tech \
-            -tlup $tech(rcx,rc_max,nxtgrd) \
-            -layermap $tech(tluplus_map)
-        if {[info exists tech(rcx,rc_min,nxtgrd)] && $tech(rcx,rc_min,nxtgrd) ne ""} {
+            -tlup $tech(rcx,$project(metal_stack),rc_max,nxtgrd) \
+            -layermap $tech($project(metal_stack),tluplus_map)
+        if {[info exists tech(rcx,$project(metal_stack),rc_min,nxtgrd)] && $tech(rcx,$project(metal_stack),rc_min,nxtgrd) ne ""} {
             set_parasitic_parameters \
-                -early_spec $tech(rcx,rc_min,nxtgrd) \
-                -late_spec $tech(rcx,rc_max,nxtgrd)
+                -early_spec $tech(rcx,$project(metal_stack),rc_min,nxtgrd) \
+                -late_spec $tech(rcx,$project(metal_stack),rc_max,nxtgrd)
         }
     } else {
-        handle_error "No parasitic tech files defined. Set tech(rcx,rc_max,tluplus) or tech(rcx,rc_max,nxtgrd) in tech_config.tcl"
+        handle_error "No parasitic tech files defined. Set tech(rcx,$project(metal_stack),rc_max,tluplus) or tech(rcx,$project(metal_stack),rc_max,nxtgrd) in tech_config.tcl"
         return
     }
 

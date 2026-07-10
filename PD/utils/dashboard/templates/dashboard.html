@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CBflow RACE FlowTracer — {{FLOW_TYPE}}</title>
+<script src="/static/adaptive_poll.js"></script>
 <style>
 :root {
   --bg: #e0e0e0; --surface: #ffffff; --surface2: #eeeeee;
@@ -2656,7 +2657,15 @@ function saveConfig(e) {
 // INIT
 // ═══════════════════════════════════════════════════════════════════
 refresh();
-setInterval(refresh, 2000);
+// Adaptive polling: 2s when active (tighter than other pages because this is
+// the primary flow view), 10s when idle. Falls back to fixed 2s if the helper
+// failed to load.
+if (window.CBfAdaptive) {
+  window.__cbfAdaptiveInterval = { active: 2000, idle: 10000 };
+  window.CBfAdaptive.start(refresh);
+} else {
+  setInterval(refresh, 2000);
+}
 
 // ── Keyboard Shortcuts ──
 document.addEventListener('keydown', function(e) {

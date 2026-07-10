@@ -1,0 +1,123 @@
+#!/usr/bin/env tclsh
+# ═══════════════════════════════════════════════════════════════════════════════
+# CBflow PV perc_ldl — Siemens Calibre PERC (2024.x)
+# Latch-up / leakage-driven layout (LDL) analysis. Runs in parallel with the
+# standard perc1 stage. Reference: Calibre PERC User's Manual — LDL flow.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+set run_dir $::env(CBFLOW_RUN_DIR)
+source "$::env(CBFLOW_RUN_DIR)/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+
+set FLOW_TYPE "PV"
+set STAGE_NAME "perc_ldl"
+set NODE_NAME "${STAGE_NAME}1"
+
+source "$::env(CBFLOW_RUN_DIR)/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$::env(CBFLOW_RUN_DIR)/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $::env(CBFLOW_RUN_DIR) $FLOW_TYPE $NODE_NAME
+
+set DESIGN_NAME [expr {[info exists pv(common,design_name)] ? $pv(common,design_name) :
+                       [expr {[info exists flow(design_name)] ? $flow(design_name) : "design"}]}]
+set ::DESIGN_NAME $DESIGN_NAME
+
+flow_proc configure_perc_ldl {
+    global pv tech project
+    handle_info "Configuring PERC-LDL run..."
+
+    # Post-signoff GDS from decomp_merge_gds1 — consistent with the other check
+    # stages which all share this artifact.
+    set ::perc_ldl_gds "$::env(CBFLOW_RUN_DIR)/results/pv/${::DESIGN_NAME}_signoff.gds"
+    if {![file exists $::perc_ldl_gds] && [info exists pv(input,gds)]} {
+        set ::perc_ldl_gds $pv(input,gds)
+    }
+
+    # LDL-specific SVRF runset. Resolution (matches DRC's convention):
+    #   pv(perc_ldl,runset) → pv(input,rule_deck_perc_ldl) → standard PERC deck
+    if {[info exists pv(perc_ldl,runset)] && $pv(perc_ldl,runset) ne ""} {
+        set ::perc_ldl_runset $pv(perc_ldl,runset)
+    } elseif {[info exists pv(input,rule_deck_perc_ldl)] && $pv(input,rule_deck_perc_ldl) ne ""} {
+        set ::perc_ldl_runset $pv(input,rule_deck_perc_ldl)
+    } elseif {[info exists pv(input,rule_deck_perc)] && $pv(input,rule_deck_perc) ne ""} {
+        set ::perc_ldl_runset $pv(input,rule_deck_perc)
+    } else {
+        set ::perc_ldl_runset ""
+    }
+
+    if {[info exists pv(common,top_cell)]} {
+        set ::perc_ldl_top $pv(common,top_cell)
+    } elseif {[info exists project(top_module)]} {
+        set ::perc_ldl_top $project(top_module)
+    } else {
+        set ::perc_ldl_top $::DESIGN_NAME
+    }
+
+    set ::perc_ldl_out_dir "$::env(CBFLOW_RUN_DIR)/results/pv/perc_ldl"
+    set ::perc_ldl_log     "$::env(CBFLOW_RUN_DIR)/logs/pv/perc_ldl_calibre.log"
+
+    handle_info "PERC-LDL configuration:"
+    handle_info "  GDS input: $::perc_ldl_gds"
+    handle_info "  Runset:    [expr {$::perc_ldl_runset eq {} ? {<none — will skip>} : $::perc_ldl_runset}]"
+    handle_info "  Top cell:  $::perc_ldl_top"
+    handle_info "  Out dir:   $::perc_ldl_out_dir"
+}
+
+flow_proc run_perc_ldl {
+    set ::perc_ldl_status "PASS"
+    handle_info "Running PERC-LDL with Calibre..."
+    set run_dir $::env(CBFLOW_RUN_DIR)
+    file mkdir "$::perc_ldl_out_dir"
+    file mkdir "$::REPORTS_DIR"
+    file mkdir "$::env(CBFLOW_RUN_DIR)/logs/pv"
+
+    if {$::perc_ldl_runset eq "" || ![file exists $::perc_ldl_runset]} {
+        handle_warning "No PERC-LDL runset available — skipping run (report only)"
+        set ::perc_ldl_status "SKIPPED"
+        return
+    }
+
+    # Calibre PERC-LDL invocation (2024.x):
+    #   calibre -perc -ldl -hier -64 -turbo N <runset>
+    # -ldl enables the latch-up/leakage-driven-layout topology check pass.
+    set num_cpus [expr {[info exists pv(perc_ldl,num_cpus)] ? $pv(perc_ldl,num_cpus) : 8}]
+    set calibre_cmd [list calibre -perc -ldl -hier -64 -turbo $num_cpus $::perc_ldl_runset]
+
+    handle_info "  CMD: $calibre_cmd"
+    handle_info "  Log: $::perc_ldl_log"
+
+    if {[catch {exec {*}$calibre_cmd >& $::perc_ldl_log} _r]} {
+        handle_warning "Calibre PERC-LDL returned non-zero (may have violations): $_r"
+        set ::perc_ldl_status "FAIL"
+    } else {
+        set ::perc_ldl_status "PASS"
+        handle_info "PERC-LDL completed"
+    }
+}
+
+flow_proc report_perc_ldl {
+    file mkdir $::REPORTS_DIR
+    file mkdir "$::perc_ldl_out_dir"
+    set fp [open "$::REPORTS_DIR/perc_ldl_summary.rpt" w]
+    puts $fp "═══════════════════════════════════════════════════════════════════════════════"
+    puts $fp "PV PERC-LDL Summary — Siemens Calibre"
+    puts $fp "═══════════════════════════════════════════════════════════════════════════════"
+    puts $fp "Design:    $::DESIGN_NAME"
+    puts $fp "GDS input: $::perc_ldl_gds"
+    puts $fp "Runset:    $::perc_ldl_runset"
+    puts $fp "Top cell:  $::perc_ldl_top"
+    puts $fp "Status:    $::perc_ldl_status"
+    close $fp
+    # Signoff artifact expected by mandatory_outputs
+    set mp [open "$::perc_ldl_out_dir/perc_ldl.rpt" w]
+    puts $mp "PERC-LDL sign-off report — $::perc_ldl_status"
+    close $mp
+    handle_info "Report written: $::REPORTS_DIR/perc_ldl_summary.rpt"
+}
+
+flow_proc perc_ldl_flow {
+    flow_exec configure_perc_ldl
+    flow_exec run_perc_ldl
+    flow_exec report_perc_ldl
+}
+if {[info exists argv0] && $argv0 eq [info script]} { flow_exec perc_ldl_flow } else { puts " PV perc_ldl procedures loaded" }
+exit

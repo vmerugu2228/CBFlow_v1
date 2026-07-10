@@ -123,7 +123,7 @@ Run Commands (run from within a run directory):
   cbflow run release                          Milestone-gated release (from workspace)
   cbflow run release --tag PLACE_EXIT         Release with specific tag
   cbflow run release --dry-run                Validate only, no copy
-  cbflow run release-check --tag BTO --project ravendrive --phase P2
+  cbflow run release-check --tag BTO --project bumblebee --phase P2
                                               Check all blocks released for milestone
   cbflow run release-lock                     Lock permissions (production: 444/555/755)
   cbflow run release-lock --unlock            Unlock permissions (development: 777)
@@ -160,24 +160,28 @@ Test Suite (static config validation + end-to-end flow execution):
   cbflow test --list                          List categories and exit
   cbflow test --keep                          Keep sandboxes (debug)
 
-Dashboard Daemon (one server per user, all runs share it):
-  cbflow dashboard start                      Start daemon (port = 9000 + uid%1000)
-  cbflow dashboard start --port 9999          Override port
-  cbflow dashboard start --foreground         Run in foreground (debug)
-  cbflow dashboard stop                       Stop the daemon
-  cbflow dashboard restart                    Restart
-  cbflow dashboard status                     Show pid/port/registered runs
-  cbflow dashboard open                       Open browser to the index page
-  cbflow dashboard open <run_dir>             Deep-link a specific run
-  cbflow dashboard list                       List registered runs
-  cbflow dashboard register <run_dir>         Register a run with the daemon
-  cbflow dashboard deregister <run-or-id>     Deregister
-  cbflow dashboard logs --follow              Tail the daemon log
-  cbflow run gui                              Register run + open in daemon (default)
-  cbflow run gui --no-browser                 Register without opening browser
-  cbflow run gui --foreground                 Legacy: per-run foreground server
-  cbflow run gui --foreground --port 9090     Legacy server on specific port
+Per-Run Dashboard Daemon (one daemon per user; every registered run shares it):
+  cbflow run dashboard start                  Start daemon (background; port 9000+uid%500)
+  cbflow run dashboard start --project <p>    Project-scoped daemon (port 20000+hash%2500)
+  cbflow run dashboard start --foreground     Run in foreground (debug)
+  cbflow run dashboard stop|restart|status    Lifecycle
+  cbflow run dashboard open [<run_dir>]       Open index or deep-link a run
+  cbflow run dashboard list                   List registered runs
+  cbflow run dashboard register <run_dir>     Register a run
+  cbflow run dashboard prune [-y]             Purge stale entries
+  cbflow run dashboard logs --follow          Tail the daemon log
+  cbflow run gui                              Register run + open in daemon
   cbflow run clean --confirm                  Also deregisters the run from daemon
+  (Legacy `cbflow dashboard ...` still works with a deprecation notice.)
+
+Project-Level Tracking Dashboard — CBflow-ProjectDashboard:
+  cbflow project-dashboard start --project <p>     Start (background; port 25000+hash%2500)
+  cbflow project-dashboard stop|restart|status --project <p>
+  cbflow project-dashboard open --project <p>      Open browser to the project view
+  cbflow project-dashboard list --project <p>      List published runs
+  cbflow project-dashboard unpublish --project <p> --block <b> --phase <ph> --milestone <m>
+  cbflow run release --tag <TAG> --publish         Release + snapshot for management
+  cbflow run release --tag <TAG> --publish --override    Replace existing publish
 
 SmartGenie AI Agent (100% private, runs locally):
   cbflow smartgenie                           Interactive AI agent (local LLM)
@@ -266,6 +270,13 @@ main() {
 
         # Run commands (within a run directory)
         run)
+            # Intercept `cbflow run dashboard ...` — the per-run daemon lives
+            # under `run` because it serves per-run views. All other run
+            # subcommands go through run_cmd.py as usual.
+            if [ "${1:-}" = "dashboard" ]; then
+                shift
+                exec python3 "$COMMANDS_DIR/dashboard_daemon_cmd.py" "$@"
+            fi
             exec python3 "$COMMANDS_DIR/run_cmd.py" "$@"
             ;;
 
@@ -289,9 +300,16 @@ main() {
             exec python3 "$COMMANDS_DIR/test_cmd.py" "$@"
             ;;
 
-        # Per-user dashboard daemon
+        # Per-run dashboard daemon (moved under `run dashboard` — this shim
+        # keeps old scripts working during the transition; remove next release)
         dashboard)
+            echo "note: 'cbflow dashboard' has moved to 'cbflow run dashboard'." >&2
             exec python3 "$COMMANDS_DIR/dashboard_daemon_cmd.py" "$@"
+            ;;
+
+        # Project-level tracking dashboard — CBflow-ProjectDashboard
+        project-dashboard)
+            exec python3 "$COMMANDS_DIR/project_dashboard_cmd.py" "$@"
             ;;
 
         # SmartGenie AI Agent

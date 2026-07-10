@@ -19,7 +19,7 @@
 # the emission schema changes — Python errors loudly on mismatch.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-set CBFLOW_CFG_SCHEMA_VERSION 2
+set CBFLOW_CFG_SCHEMA_VERSION 3
 
 if {$argc < 2} {
     puts stderr "Usage: config_resolver.tcl <flow_type> <run_dir|--no-run>"
@@ -87,7 +87,13 @@ if {[file exists $_release_cfg]} {
     catch { source $_release_cfg }
 }
 
-# ── 3. mmmc_config.tcl (full cascade only — needs project context) ──
+# ── 3. mmmc_config.tcl + mmmc_node_scenarios.tcl (full cascade only) ──
+# mmmc_config.tcl:         PVT building blocks + auto-gen views/scenarios
+# mmmc_node_scenarios.tcl: per-node (setup/hold) scenario assignments —
+#                         defines `array set mmmc { <node> { setup {...}
+#                         hold {...} } ... }`. Used to be embedded in each
+#                         project_config.tcl; now the standalone file is
+#                         authoritative so project_config stays lean.
 if {!$_no_run} {
     set _proj_name [expr {[info exists ::env(CBFLOW_PROJECT_NAME)] ? $::env(CBFLOW_PROJECT_NAME) : ""}]
     set _proj_ver  [expr {[info exists ::env(FLOW_CONFIG_VERSION)] ? $::env(FLOW_CONFIG_VERSION) : "v1.0.0"}]
@@ -95,6 +101,10 @@ if {!$_no_run} {
         set _mmmc_cfg_path "$config_root/project/$_proj_name/$_proj_ver/mmmc_config.tcl"
         if {[file exists $_mmmc_cfg_path]} {
             source $_mmmc_cfg_path
+        }
+        set _mmmc_ns_path "$config_root/project/$_proj_name/$_proj_ver/mmmc_node_scenarios.tcl"
+        if {[file exists $_mmmc_ns_path]} {
+            source $_mmmc_ns_path
         }
     }
 
@@ -186,10 +196,17 @@ foreach key {tool,vendor tool,name tool,version tool,args supported_tools defaul
 foreach key {types use_lsf use_xterm test_mode dispatcher cbflow_version
              mode merged,flows merged,fp_independent merged,pnr_depends_fp
              dashboard,default_port mmmc,enabled
-             race,db_max_sessions phases exit_milestones run_types} {
+             race,db_max_sessions phases exit_milestones run_types
+             run_name design_name type run_type} {
     if {[info exists ::flow($key)]} {
         puts "CBFLOW_CFG:flow($key)=[_flatten $::flow($key)]"
     }
+}
+
+# ── flow(mandatory_vars,*) — pre-flight validation contract. Consumed by
+# config_validator.validate_mandatory_vars() to fail-fast before DAG build. ──
+foreach key [lsort [array names ::flow "mandatory_vars,*"]] {
+    puts "CBFLOW_CFG:flow($key)=[_flatten $::flow($key)]"
 }
 
 # ── lsf(*) — flow_mapping for resource-tier dispatch + queue defs.

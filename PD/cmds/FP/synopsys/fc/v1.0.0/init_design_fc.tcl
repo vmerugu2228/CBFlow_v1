@@ -121,7 +121,7 @@ flow_proc create_design_library {
     # Technology file (from tech array)
     set tech_file ""
     set tech_lib ""
-    if {[info exists tech(tech_file)] && $tech(tech_file) ne ""} { set tech_file $tech(tech_file) }
+    if {[info exists tech($project(metal_stack),$tech(track),tech_file)] && $tech($project(metal_stack),$tech(track),tech_file) ne ""} { set tech_file $tech($project(metal_stack),$tech(track),tech_file) }
     if {[info exists tech(ndm,tech_lib)] && $tech(ndm,tech_lib) ne ""} { set tech_lib $tech(ndm,tech_lib) }
 
     # Parasitic tech library

@@ -32,10 +32,10 @@ import os
 import subprocess
 from typing import Dict, Optional, Tuple
 
-SCHEMA_VERSION = '2'
+SCHEMA_VERSION = '3'
 
 # (flow_type, abs_run_dir_or_NORUN) → (dict, (user_mtime, runtime_mtime))
-_cache: Dict[Tuple[str, str], Tuple[Dict[str, str], Tuple[float, float]]] = {}
+_cache: Dict[Tuple[str, str], Tuple[Dict[str, str], Tuple[float, ...]]] = {}
 
 
 # ── Public API ─────────────────────────────────────────────────────────────
@@ -70,7 +70,7 @@ def load_resolved_config(flow_type: str, run_dir: Optional[str] = None,
         raise ValueError("load_resolved_config: flow_type required")
 
     cache_key = (flow_type, _cache_path(run_dir))
-    mtimes = _mtimes(run_dir)
+    mtimes = _mtimes(run_dir, flow_type)
     if cache_key in _cache:
         cached_cfg, cached_mtimes = _cache[cache_key]
         if cached_mtimes == mtimes:
@@ -196,16 +196,46 @@ def _cache_path(run_dir: Optional[str]) -> str:
     return os.path.abspath(run_dir) if run_dir else '<NORUN>'
 
 
-def _mtimes(run_dir: Optional[str]) -> Tuple[float, float]:
-    """Return (user_config_mtime, runtime_flow_mtime). 0.0 if a file is absent.
-    Used to invalidate the cache when either file changes."""
+def _mtimes(run_dir: Optional[str], flow_type: Optional[str] = None) -> Tuple[float, ...]:
+    """Return an mtime tuple used to invalidate the cascade cache.
+
+    Watches: user_config.tcl, runtime_flow_config.tcl (per-run), PLUS the
+    framework-level flow_config.tcl and the flow's <FLOW>_config.tcl. The
+    framework files were previously untracked — long-lived processes (dashboard
+    daemon) held stale DAG structure across framework-config edits until
+    manually restarted. Adding them here means a config edit is picked up on
+    the next resolve call, not the next daemon restart.
+    """
+    framework_mtimes: list[float] = []
+    fc = _framework_config_paths(flow_type)
+    for p in fc:
+        framework_mtimes.append(_mtime_or_zero(p))
+
     if not run_dir:
-        return (0.0, 0.0)
+        return tuple(framework_mtimes)
     setup = os.path.join(run_dir, 'setup')
     return (
         _mtime_or_zero(os.path.join(setup, 'user_config.tcl')),
         _mtime_or_zero(os.path.join(setup, 'runtime_flow_config.tcl')),
+        *framework_mtimes,
     )
+
+
+def _framework_config_paths(flow_type: Optional[str]) -> list:
+    """Framework-level config files that participate in the cascade.
+
+    Resolved relative to the resolver's directory (PD/utils/commands/) since
+    that's the only fixed anchor. The flow_config directory sits at
+    PD/config/flow/v1.0.0/ — three parents up + explicit path.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    pd_root = os.path.abspath(os.path.join(here, '..', '..'))
+    flow_ver = os.environ.get('FLOW_CONFIG_VERSION', 'v1.0.0')
+    base = os.path.join(pd_root, 'config', 'flow', flow_ver)
+    paths = [os.path.join(base, 'flow_config.tcl')]
+    if flow_type:
+        paths.append(os.path.join(base, 'node_configs', f'{flow_type}_config.tcl'))
+    return paths
 
 
 def _mtime_or_zero(path: str) -> float:

@@ -146,27 +146,34 @@ def _load(run_id):
             rec = json.load(f)
     except (OSError, ValueError):
         return None
-    # Lazy backfill for pre-schema records. Upgrade in place so subsequent
-    # reads are cheap. Silent on any failure (best-effort).
-    needed = ('project', 'design', 'phase', 'tech')
-    if any(not rec.get(k) for k in needed):
-        run_dir = rec.get('run_dir', '')
-        if run_dir and os.path.isdir(run_dir):
-            changed = False
-            for key, env in (('project', 'CBFLOW_PROJECT_NAME'),
-                             ('design',  'CBFLOW_DESIGN_NAME'),
-                             ('phase',   'CBFLOW_PROJECT_PHASE'),
-                             ('tech',    'TECH_NAME')):
-                if not rec.get(key):
-                    v = _read_env_field(run_dir, env)
-                    if v:
-                        rec[key] = v
-                        changed = True
-            if changed:
-                try:
-                    _atomic_write(run_id, rec)
-                except OSError:
-                    pass
+    # ── Self-heal: re-read env on every load when the run_dir exists. ──
+    # Cached values can go stale when a project is renamed (e.g. ravendrive
+    # → bumblebee) or the design/phase changes. We prefer authoritative env
+    # values over cached JSON. If the run_dir is missing, mark the record
+    # as archived+run_dir_exists=false so the dashboard can filter it out.
+    run_dir = rec.get('run_dir', '')
+    changed = False
+    if run_dir and os.path.isdir(run_dir):
+        rec['run_dir_exists'] = True
+        for key, env in (('project', 'CBFLOW_PROJECT_NAME'),
+                         ('design',  'CBFLOW_DESIGN_NAME'),
+                         ('phase',   'CBFLOW_PROJECT_PHASE'),
+                         ('tech',    'TECH_NAME'),
+                         ('flow_type', 'CBFLOW_FLOW_TYPE')):
+            v = _read_env_field(run_dir, env)
+            if v and rec.get(key) != v:
+                rec[key] = v
+                changed = True
+    else:
+        if rec.get('run_dir_exists') is not False:
+            rec['run_dir_exists'] = False
+            rec['archived'] = True
+            changed = True
+    if changed:
+        try:
+            _atomic_write(run_id, rec)
+        except OSError:
+            pass
     return rec
 
 

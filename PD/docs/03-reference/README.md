@@ -14,7 +14,7 @@ All configuration files in the CBflow system:
 - **mmmc_config.tcl** -- 19 analysis views, 3 process corners, 2 operating modes, 3 RC corners, 8 scenario sets, per-node assignments, library_sets
 - **12 node configs** -- stages, dependencies, stage_types, node_types, work_dirs, timeouts, release_types, mandatory_input_groups (consumed by RACE to build DAG)
 - **3 tech configs** -- gf_22nm, tsmc_7nm, tsmc_5nm
-- **2 project configs** -- phoenix, ravendrive (with project(release,path/phase/block_name/tag))
+- **2 project configs** -- phoenix, bumblebee (with project(release,path/phase/block_name/tag))
 - **6 exit configs** -- FP_EXIT, PLACE_EXIT, CTS_EXIT, PRO_EXIT, BTO, MTO (plus waivers, thresholds, remediation)
 
 ### [Python Scripts Reference](python-scripts-reference.md)

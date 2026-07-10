@@ -9,7 +9,6 @@
 
 # ── Project ──────────────────────────────────────────────────────────────────
 set project(name)              "<project_name>"       ;# Project name (must match config/project/<name>)
-set project(phase)             "P0"                   ;# Design phase: P0, P1, P2, P3
 
 # ── Flow ─────────────────────────────────────────────────────────────────────
 set flow(type)                 "STA"                  ;# Flow type (static timing analysis)

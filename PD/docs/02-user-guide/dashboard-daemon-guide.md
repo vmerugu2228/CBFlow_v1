@@ -238,7 +238,7 @@ Each `runs/<id>.json` is small:
   "last_seen_at": "2026-06-11T15:31:38",
   "owner_uid": 501,
   "flow_type": "SYNTH_PNR",
-  "project": "ravendrive",
+  "project": "bumblebee",
   "design": "cpu_core",
   "phase": "P0",
   "tech": "gf_22nm",

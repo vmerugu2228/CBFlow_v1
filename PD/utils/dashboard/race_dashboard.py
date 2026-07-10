@@ -17,6 +17,7 @@ Provides:
     /api/job/X  JSON job details
 """
 
+import hashlib
 import http.server
 import json
 import logging
@@ -462,9 +463,14 @@ class RaceDashboard:
             failed = sum(s['jobs_failed'] for s in stages)
             invalidated = sum(1 for s in stages if s['status'] == 'INVALIDATED')
             ready = total - done - failed - running
+            # Activity indicator — client uses this to shrink polling interval
+            # while jobs are moving and expand it when the run is idle.
+            pending_total = sum(s.get('jobs_pending', 0) for s in stages)
+            run_activity = 'active' if (running > 0 or pending_total > 0) else 'idle'
             return {
                 'run_info': run_info,
                 'stages': stages,
+                'run_activity': run_activity,
                 'summary': {
                     'total': total, 'done': done, 'failed': failed,
                     'running': running, 'ready': max(0, ready),
@@ -1064,11 +1070,11 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         elif path == '/grid':
             self._serve_template('grid.html')
         elif path == '/api/status':
-            self._json_response(self.dashboard.get_status())
+            self._json_response_cached(self.dashboard.get_status())
         elif path == '/api/dag':
-            self._json_response(self.dashboard.get_dag())
+            self._json_response_cached(self.dashboard.get_dag())
         elif path == '/api/jobs':
-            self._json_response(self.dashboard.get_all_jobs())
+            self._json_response_cached(self.dashboard.get_all_jobs())
         elif path.startswith('/api/job/'):
             job_name = path[len('/api/job/'):]
             self._json_response(self.dashboard.get_job(job_name))
@@ -1421,16 +1427,35 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         return {'ok': True, 'message': f'Forcing: {", ".join(stages)}', 'async': True}
 
     def _action_interactive(self, body):
-        """Launch interactive EDA tool session for a node."""
+        """Launch interactive EDA tool session for a node.
+
+        Runs `cbflow run interactive --node <name>` in the run dir. STDOUT +
+        STDERR are captured to `INTERACTIVE/dashboard_launch.log` so the
+        dashboard user can inspect errors — the CLI's stdout is otherwise
+        invisible once we detach.
+        """
         node = body.get('node', '')
         if not node:
             return {'error': 'node required'}
         import subprocess
         run_dir = self.dashboard.run_dir
-        cmd = ['cbflow', 'run', 'interactive', '--load', node]
+        # `--node` is the current CLI arg (was `--load` in older versions).
+        cmd = ['cbflow', 'run', 'interactive', '--node', node]
+        log_dir = os.path.join(run_dir, 'INTERACTIVE')
+        os.makedirs(log_dir, exist_ok=True)
+        log_path = os.path.join(log_dir, 'dashboard_launch.log')
         try:
-            subprocess.Popen(cmd, cwd=run_dir)
-            return {'ok': True, 'message': f'Interactive session launching for {node}'}
+            with open(log_path, 'ab') as lf:
+                lf.write(f'\n--- {node} ---\n'.encode())
+                lf.flush()
+                subprocess.Popen(cmd, cwd=run_dir, stdout=lf, stderr=lf,
+                                 stdin=subprocess.DEVNULL, start_new_session=True)
+            return {'ok': True,
+                    'message': f'Interactive session launching for {node} '
+                               f'(log: INTERACTIVE/dashboard_launch.log)'}
+        except FileNotFoundError:
+            return {'error': "'cbflow' not in PATH on the dashboard server. "
+                             "Source the CBflow env or use absolute path."}
         except Exception as e:
             return {'error': f'Failed to launch: {e}'}
 
@@ -1922,6 +1947,47 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         self.send_response(status)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _db_etag(self) -> str:
+        """Return an ETag derived from the DB file's mtime (nanosecond precision).
+
+        Every race_engine status write updates the DB mtime; clients cache on
+        this etag and get 304 Not Modified until the next write, cutting most
+        polling overhead when the run is idle.
+        """
+        try:
+            st = os.stat(self.dashboard.db_path)
+            key = f'{st.st_mtime_ns}-{st.st_size}'
+        except OSError:
+            return ''
+        return hashlib.sha1(key.encode()).hexdigest()[:16]
+
+    def _json_response_cached(self, data, status=200):
+        """JSON response with ETag / If-None-Match support.
+
+        Use for endpoints whose response is a pure function of DB state. If
+        the client's If-None-Match matches the current DB etag, return 304
+        with no body. This is the primary bandwidth cut for idle-run polling.
+        """
+        etag = self._db_etag()
+        if etag:
+            client_etag = self.headers.get('If-None-Match', '').strip('"')
+            if client_etag and client_etag == etag:
+                self.send_response(304)
+                self.send_header('ETag', f'"{etag}"')
+                self.send_header('Cache-Control', 'no-cache')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                return
+        body = json.dumps(data, default=str).encode()
+        self.send_response(status)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        if etag:
+            self.send_header('ETag', f'"{etag}"')
+            self.send_header('Cache-Control', 'no-cache')
         self.end_headers()
         self.wfile.write(body)
 

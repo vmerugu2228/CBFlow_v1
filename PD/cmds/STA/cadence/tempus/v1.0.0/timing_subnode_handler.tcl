@@ -1,7 +1,10 @@
 #!/usr/bin/env tclsh
 # ═══════════════════════════════════════════════════════════════════════════════
 # CBflow STA — timing Subnode Handler (Cadence Tempus)
-# Subnodes: setup, run, validate, finish, dynamic, <scenario> (MMMC)
+# Subnodes emitted by _resolve_dynamic_subnodes(): setup, <per-MMMC-scenario>,
+#                                                  validate, finish.
+# The legacy `run` static-scenario subnode is retired (dynamic resolution
+# takes its place). `dynamic` is kept for direct-invoke compatibility.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 source "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/handler_common.tcl"
@@ -15,7 +18,6 @@ set stage_name "timing"
 if {$node_name eq ""} { set node_name "${stage_name}1" }
 
 set _tool_ver [expr {[info exists ::env(TEMPUS_VERSION)] ? $::env(TEMPUS_VERSION) : "v1.0.0"}]
-set cmd_file "$::env(FLOW_DIR)/cmds/STA/cadence/tempus/$_tool_ver/timing_scenario_tempus.tcl"
 
 set test_mode [handler_is_test_mode]
 
@@ -24,11 +26,6 @@ switch $subnode_name {
         puts "INFO: $stage_name setup..."
         handler_setup $run_dir $::flow_type $node_name
         puts "INFO: $stage_name setup completed"
-    }
-    "run" {
-        puts "INFO: $stage_name run..."
-        set _tool [expr {[info exists ::sta(tool,name)] ? $::sta(tool,name) : "tempus"}]
-        handler_run $run_dir $::flow_type $node_name $stage_name $cmd_file $test_mode $_tool
     }
     "validate" {
         puts "INFO: $stage_name validate..."
@@ -77,30 +74,17 @@ switch $subnode_name {
         file mkdir $_work_dir
         file mkdir "$run_dir/reports/sta"
 
-        set _scenario_handler "$::env(FLOW_DIR)/cmds/STA/cadence/tempus/$_tool_ver/timing_scenario_handler.tcl"
-
+        # Dispatch each scenario by re-invoking this handler with the scenario name
+        # as the subnode arg. That routes into the `default` branch below, which
+        # generates a per-scenario tempus command file and calls handler_run.
+        # When race_engine expands `dynamic` via _resolve_dynamic_subnodes(), each
+        # scenario becomes its own parallel subnode; this branch handles direct
+        # CLI invocation ("cbflow run node --subnode dynamic").
         foreach scenario $all_scenarios {
             puts "INFO: -- Scenario: $scenario --"
-            if {$test_mode} {
-                if {[file exists $_scenario_handler]} {
-                    catch {exec tclsh $_scenario_handler $scenario $run_dir} result
-                    puts $result
-                } else {
-                    puts "INFO: \[TEST MODE\] Scenario $scenario — creating stubs"
-                    set rpt [open "$run_dir/reports/sta/timing_${scenario}_summary.rpt" "w"]
-                    puts $rpt "# Test mode: $scenario"
-                    puts $rpt "Setup WNS: 0.000ns  Hold WNS: 0.000ns"
-                    close $rpt
-                }
-            } else {
-                if {[file exists $_scenario_handler]} {
-                    if {[catch {exec tclsh $_scenario_handler $scenario $run_dir} result]} {
-                        puts "ERROR: Scenario $scenario failed: $result"; exit 1
-                    }
-                    puts $result
-                } else {
-                    puts "ERROR: Scenario handler not found: $_scenario_handler"; exit 1
-                }
+            if {[catch {exec tclsh [info script] $scenario $run_dir $node_name >@ stdout 2>@ stderr} result]} {
+                puts "ERROR: Scenario $scenario failed: $result"
+                exit 1
             }
         }
         puts "INFO: $stage_name dynamic completed — [llength $all_scenarios] scenarios processed"

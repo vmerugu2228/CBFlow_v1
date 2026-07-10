@@ -136,11 +136,10 @@ namespace eval ::CBFlow::LSF {
     # FLOW-SPECIFIC QUEUE MAPPINGS
     # ═══════════════════════════════════════════════════════════════════════════
 
-    # SYNTH (stages: rtl1 sdc1 upf1 init_design1 synthesis1 export_data1 release_data1)
+    # SYNTH (stages: rtl1 sdc1 upf1 synthesis1 export_data1 release_data1)
     set lsf(flow_mapping,SYNTH,rtl) "XS"
     set lsf(flow_mapping,SYNTH,sdc) "XS"
     set lsf(flow_mapping,SYNTH,upf) "XS"
-    set lsf(flow_mapping,SYNTH,init_design) "S"
     set lsf(flow_mapping,SYNTH,synthesis) "M"
     set lsf(flow_mapping,SYNTH,export_data) "S"
     set lsf(flow_mapping,SYNTH,release_data) "XS"
@@ -207,14 +206,14 @@ namespace eval ::CBFlow::LSF {
     set lsf(flow_mapping,FCFP,export_data) "S"
     set lsf(flow_mapping,FCFP,release_data) "XS"
 
-    # STA (stages: netlist1 sdc1 spef1 library1 extraction1 timing1 merge_reports1 release_data1)
+    # STA (stages: netlist1 sdc1 def1 library1 extraction1 timing1 merge_reports1 release_data1)
     set lsf(flow_mapping,STA,netlist) "XS"
     set lsf(flow_mapping,STA,sdc) "XS"
-    set lsf(flow_mapping,STA,spef) "XS"
+    set lsf(flow_mapping,STA,def) "XS"
     set lsf(flow_mapping,STA,library) "XS"
     set lsf(flow_mapping,STA,extraction) "L"
     set lsf(flow_mapping,STA,timing) "L"
-    set lsf(flow_mapping,STA,reporting) "M"
+    set lsf(flow_mapping,STA,merge_reports) "M"
     set lsf(flow_mapping,STA,release_data) "XS"
 
     # LEC (stages: netlist_golden1 netlist_revised1 constraints1 compare1 release_data1)
@@ -231,15 +230,21 @@ namespace eval ::CBFlow::LSF {
     set lsf(flow_mapping,CLP,clp) "M"
     set lsf(flow_mapping,CLP,release_data) "XS"
 
-    # PV (stages: netlist1 def1 gds1 fill1 drc1 lvs1 perc1 erc1 xor1 merge_data1 release_data1)
+    # PV (stages: netlist1 def1 gds1 nettran1 merge_gds1 fill_merge_gds1
+    #             decomp1 decomp_merge_gds1 drc1 lvs1 perc1 perc_ldl1 xor1
+    #             merge_data1 release_data1)
     set lsf(flow_mapping,PV,netlist) "XS"
     set lsf(flow_mapping,PV,def) "XS"
     set lsf(flow_mapping,PV,gds) "XS"
-    set lsf(flow_mapping,PV,fill) "L"
+    set lsf(flow_mapping,PV,nettran) "S"
+    set lsf(flow_mapping,PV,merge_gds) "M"
+    set lsf(flow_mapping,PV,fill_merge_gds) "M"
+    set lsf(flow_mapping,PV,decomp) "L"
+    set lsf(flow_mapping,PV,decomp_merge_gds) "M"
     set lsf(flow_mapping,PV,drc) "L"
     set lsf(flow_mapping,PV,lvs) "L"
     set lsf(flow_mapping,PV,perc) "M"
-    set lsf(flow_mapping,PV,erc) "M"
+    set lsf(flow_mapping,PV,perc_ldl) "M"
     set lsf(flow_mapping,PV,xor) "M"
     set lsf(flow_mapping,PV,merge_data) "S"
     set lsf(flow_mapping,PV,release_data) "XS"
@@ -269,6 +274,30 @@ namespace eval ::CBFlow::LSF {
     set lsf(flow_mapping,POPT,power_opt) "L"
     set lsf(flow_mapping,POPT,post_merge) "M"
     set lsf(flow_mapping,POPT,release_data) "XS"
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # BLOCK-SPECIFIC OVERRIDES (set in user_config.tcl per design)
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Resolution order at submit time (highest priority first):
+    #   1. lsf(block,<design>,<stage>,queue)    block + stage queue
+    #   2. lsf(block,<design>,queue)            block-wide queue
+    #   3. lsf(flow_mapping,<FLOW>,<stage>)     flow + stage  (above)
+    #   4. lsf(default_queue_type)              global default
+    #
+    # Per-stage resource overrides take effect on top of the resolved queue.
+    # Each one is optional; unset keys fall through to the queue's defaults.
+    #   lsf(block,<design>,<stage>,memory)   e.g. "384GB"
+    #   lsf(block,<design>,<stage>,cpu)      e.g. "16"
+    #   lsf(block,<design>,<stage>,runtime)  e.g. "72:00"
+    #   lsf(block,<design>,<stage>,host)     bsub -m <host>
+    #   lsf(block,<design>,<stage>,resource) bsub -R "<resource>"
+    #
+    # Examples (do not enable here — copy into user_config.tcl as needed):
+    #   set lsf(block,cpu_core,queue)            "L"
+    #   set lsf(block,cpu_core,route,queue)      "ultra"
+    #   set lsf(block,cpu_core,route,host)       "highmem01"
+    #   set lsf(block,cpu_core,route,memory)     "384GB"
+    #   set lsf(block,cpu_core,signoff,resource) "select\[type==X86_64 && model==EPYC9654\]"
 
     # ═══════════════════════════════════════════════════════════════════════════
     # LSF COMMANDS
