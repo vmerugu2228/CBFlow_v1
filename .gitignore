@@ -40,3 +40,11 @@ CBflow_20*.tar.gz
 # AI/SmartGenie caches — regeneratable via `cbflow smartgenie ingest --all`
 PD/ai/.central_knowledge_db/
 PD/ai/.knowledge_db/
+
+# Materialized test runs — regenerable via `cbflow test --keep`
+workarea/*/P0_run_*/
+workarea/*/LC1_run_*/
+workarea/*/P*_run_*/
+
+# Screenshots (dev-time captures, not framework)
+Screenshot*.png
