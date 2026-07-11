@@ -32,3 +32,11 @@ Thumbs.db
 # MMMC auto-backups (mmmc-manager generate creates one per regeneration —
 # they pile up under config/project/<name>/v1.0.0/mmmc_config.tcl.bak_<ts>).
 PD/config/project/*/*/mmmc_config.tcl.bak_*
+
+# Release tarballs (produced by the delivery process, not source)
+CBflow_v*.tar.gz
+CBflow_20*.tar.gz
+
+# AI/SmartGenie caches — regeneratable via `cbflow smartgenie ingest --all`
+PD/ai/.central_knowledge_db/
+PD/ai/.knowledge_db/
