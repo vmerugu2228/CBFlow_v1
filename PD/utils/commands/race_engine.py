@@ -177,6 +177,7 @@ class DagBuilder:
             raise ValueError("Missing required config: tool,vendor and tool,name")
 
         resource_map = self._parse_resource_map(cfg, stages)
+        default_tier = self._default_tier(cfg)
 
         # Merge custom nodes from run-level runtime config
         custom_nodes, custom_deps = self._load_runtime_custom_nodes()
@@ -190,7 +191,25 @@ class DagBuilder:
                 else:
                     stages.append(name)
                 stage_deps[name] = dep.split() if dep else []
-                resource_map[name] = info.get('resource_tier', 'M')
+                # Tier resolution for custom nodes:
+                #   1. runtime_flow_config explicit resource_tier
+                #   2. base-stage flow_mapping (via node type — e.g. custom
+                #      "place2" inherits from PNR place tier)
+                #   3. site default_queue_type
+                # Prevents silent tier drift where a custom node gets 'M' even
+                # though its base stage is mapped to L/XL.
+                base_type = info.get('type', '')
+                base_stage_tier = None
+                if base_type:
+                    type_base = re.sub(r'\d+$', '', base_type)
+                    for existing_stage in stages:
+                        if existing_stage != name and existing_stage.rstrip('0123456789') == type_base:
+                            base_stage_tier = resource_map.get(existing_stage)
+                            if base_stage_tier:
+                                break
+                resource_map[name] = (info.get('resource_tier')
+                                      or base_stage_tier
+                                      or default_tier)
 
                 # Resolve subnodes: find base node type, inherit its subnodes
                 node_type = info.get('type', '')
@@ -281,7 +300,9 @@ class DagBuilder:
                 # Extract the input type from stage name (rtl1 → rtl)
                 input_type = stage.rstrip('0123456789')
                 cmd = self._build_command(stage, input_type)
-                tier = resource_map.get(stage, 'S')
+                # Honor site default_queue_type; hardcoded 'S' would mask a
+                # site's chosen default (e.g. 'L' for compute-heavy shops).
+                tier = resource_map.get(stage, default_tier)
                 job = Job(stage, stage, input_type, cmd,
                           job_type='stage', resource_tier=tier)
                 for dep_stage in stage_dep_jobs:
@@ -296,7 +317,9 @@ class DagBuilder:
             for subnode in stage_subnodes:
                 job_name = f'{stage}_{subnode}'
                 cmd = self._build_command(stage, subnode)
-                tier = resource_map.get(stage, 'M')
+                # Same default_tier logic as leaf branch — do not hardcode 'M',
+                # honor lsf(default_queue_type) from the cascade.
+                tier = resource_map.get(stage, default_tier)
 
                 job = Job(job_name, stage, subnode, cmd,
                           job_type='subnode', resource_tier=tier)
@@ -464,6 +487,13 @@ class DagBuilder:
             if tier:
                 resource_map[stage] = tier
         return resource_map
+
+    def _default_tier(self, cfg: dict) -> str:
+        """Site-wide default LSF tier used when a stage has no explicit
+        flow_mapping. Resolves lsf(default_queue_type) from the cascade;
+        falls back to 'M' only if the site config itself has no default.
+        Centralized so subnode / leaf / custom-node seeding all agree."""
+        return _cfg.optional(cfg, 'lsf(default_queue_type)') or 'M'
 
     def _build_command(self, stage: str, subnode: str) -> str:
         """Build the tclsh handler invocation command.

@@ -986,6 +986,10 @@ proc get_available_release_tags {category} {
 
     # ── PV Flow ──────────────────────────────────────────────────────────────
 
+    # PV stages current as of 2026-07-10: nettran1, merge_gds1, fill_merge_gds1,
+    # decomp1, decomp_merge_gds1, drc1, lvs1, perc1, perc_ldl1, xor1, merge_data1
+    # (fill1 + erc1 removed; new stages produce fill_merge_gds_summary.rpt,
+    # perc_ldl_summary.rpt, decomp_merge_gds_summary.rpt).
     set release_exit_files(PV,P0) {
         work/PV/drc1/reports/drc_summary.rpt
         work/PV/lvs1/reports/lvs_summary.rpt
@@ -993,54 +997,60 @@ proc get_available_release_tags {category} {
     set release_exit_files(PV,P1) {
         work/PV/drc1/reports/drc_summary.rpt
         work/PV/lvs1/reports/lvs_summary.rpt
-        work/PV/erc1/reports/erc_summary.rpt
+        work/PV/nettran1/reports/nettran_summary.rpt
     }
     set release_exit_files(PV,P2) {
         work/PV/drc1/reports/drc_summary.rpt
         work/PV/lvs1/reports/lvs_summary.rpt
-        work/PV/erc1/reports/erc_summary.rpt
+        work/PV/nettran1/reports/nettran_summary.rpt
         work/PV/perc1/reports/perc_summary.rpt
-        work/PV/fill1/reports/fill_summary.rpt
+        work/PV/fill_merge_gds1/reports/fill_merge_gds_summary.rpt
     }
     set release_exit_files(PV,P3) {
         work/PV/drc1/reports/drc_summary.rpt
         work/PV/lvs1/reports/lvs_summary.rpt
-        work/PV/erc1/reports/erc_summary.rpt
+        work/PV/nettran1/reports/nettran_summary.rpt
         work/PV/perc1/reports/perc_summary.rpt
+        work/PV/perc_ldl1/reports/perc_ldl_summary.rpt
         work/PV/xor1/reports/xor_summary.rpt
-        work/PV/fill1/reports/fill_summary.rpt
+        work/PV/fill_merge_gds1/reports/fill_merge_gds_summary.rpt
+        work/PV/decomp_merge_gds1/reports/decomp_merge_gds_summary.rpt
         work/PV/merge_data1/reports/merge_summary.rpt
     }
     set release_exit_files(PV,BTO,P2) {
         work/PV/drc1/reports/drc_summary.rpt
         work/PV/lvs1/reports/lvs_summary.rpt
-        work/PV/erc1/reports/erc_summary.rpt
+        work/PV/nettran1/reports/nettran_summary.rpt
         work/PV/perc1/reports/perc_summary.rpt
-        work/PV/fill1/reports/fill_summary.rpt
+        work/PV/fill_merge_gds1/reports/fill_merge_gds_summary.rpt
     }
     set release_exit_files(PV,BTO,P3) {
         work/PV/drc1/reports/drc_summary.rpt
         work/PV/lvs1/reports/lvs_summary.rpt
-        work/PV/erc1/reports/erc_summary.rpt
+        work/PV/nettran1/reports/nettran_summary.rpt
         work/PV/perc1/reports/perc_summary.rpt
+        work/PV/perc_ldl1/reports/perc_ldl_summary.rpt
         work/PV/xor1/reports/xor_summary.rpt
-        work/PV/fill1/reports/fill_summary.rpt
+        work/PV/fill_merge_gds1/reports/fill_merge_gds_summary.rpt
+        work/PV/decomp_merge_gds1/reports/decomp_merge_gds_summary.rpt
         work/PV/merge_data1/reports/merge_summary.rpt
     }
     set release_exit_files(PV,MTO,P2) {
         work/PV/drc1/reports/drc_summary.rpt
         work/PV/lvs1/reports/lvs_summary.rpt
-        work/PV/erc1/reports/erc_summary.rpt
+        work/PV/nettran1/reports/nettran_summary.rpt
         work/PV/perc1/reports/perc_summary.rpt
-        work/PV/fill1/reports/fill_summary.rpt
+        work/PV/fill_merge_gds1/reports/fill_merge_gds_summary.rpt
     }
     set release_exit_files(PV,MTO,P3) {
         work/PV/drc1/reports/drc_summary.rpt
         work/PV/lvs1/reports/lvs_summary.rpt
-        work/PV/erc1/reports/erc_summary.rpt
+        work/PV/nettran1/reports/nettran_summary.rpt
         work/PV/perc1/reports/perc_summary.rpt
+        work/PV/perc_ldl1/reports/perc_ldl_summary.rpt
         work/PV/xor1/reports/xor_summary.rpt
-        work/PV/fill1/reports/fill_summary.rpt
+        work/PV/fill_merge_gds1/reports/fill_merge_gds_summary.rpt
+        work/PV/decomp_merge_gds1/reports/decomp_merge_gds_summary.rpt
         work/PV/merge_data1/reports/merge_summary.rpt
     }
 

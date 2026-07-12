@@ -34,8 +34,13 @@ flow_proc run_xor_check {
         set pre_fill $pv(input,gds_file)
     }
 
-    # Post-fill layout (output from fill stage)
-    set post_fill "$run_dir/work/PV/fill1/run/${::DESIGN_NAME}.filled.gds"
+    # Post-fill / signoff layout (from decomp_merge_gds1 → fill_merge_gds1
+    # chain after the 2026-07-10 refactor).
+    set _run_dir $::env(CBFLOW_RUN_DIR)
+    set post_fill "$_run_dir/work/PV/decomp_merge_gds1/results/${::DESIGN_NAME}_signoff.gds"
+    if {![file exists $post_fill]} {
+        set post_fill "$_run_dir/work/PV/fill_merge_gds1/results/${::DESIGN_NAME}_fill_verified.gds"
+    }
 
     if {$pre_fill ne "" && [file exists $pre_fill]} {
         handle_info "  Pre-fill:  [file tail $pre_fill]"

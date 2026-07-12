@@ -48,3 +48,6 @@ workarea/*/P*_run_*/
 
 # Screenshots (dev-time captures, not framework)
 Screenshot*.png
+
+# RACE-engine per-run SQLite DBs (created by cbflow test / cbflow run)
+.race_area/

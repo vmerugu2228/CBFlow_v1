@@ -46,11 +46,29 @@ def _phase_order(run_dir: str = None) -> dict:
     return order
 
 
+#: sentinel for "phase not in the current project's list". Large enough
+#: to defer any comparison-based scheduling into the far future without
+#: risking int overflow in downstream arithmetic. int(1e6) instead of
+#: float('inf') so callers that pass the value into `str.zfill` / string
+#: formatting still work.
+_PHASE_INDEX_UNKNOWN = 10_000
+
+
 def _phase_index(phase_name: str, run_dir: str = None) -> int:
     """Return 0-based index of `phase_name` in the project's phase list.
 
     Accepts either a phase name (P0, LC2, ...) or a numeric index string ("2").
-    Unknown values → 0 (assume earliest phase = always active).
+
+    Unknown phase name → `_PHASE_INDEX_UNKNOWN` (a very large ordinal), NOT
+    0. Returning 0 for unknown phases made a check with `min_phase "LC5"`
+    look active from P0 in a P0..P3-only project — `cur < req` was False
+    when both sides were 0 — silently blocking early sign-offs with a
+    check that should have deferred. The sentinel keeps `cur < req` True
+    for any real current phase, so unknown-phase checks stay dormant
+    until the phase list is repaired or the check's min_phase is fixed.
+
+    None / empty → 0 (documented "always active" semantics — matches the
+    prior contract for the min_phase-omitted case).
     """
     if phase_name is None:
         return 0
@@ -59,7 +77,15 @@ def _phase_index(phase_name: str, run_dir: str = None) -> int:
         return 0
     if s.isdigit():
         return int(s)
-    return _phase_order(run_dir).get(s.upper(), 0)
+    order = _phase_order(run_dir)
+    if s.upper() not in order:
+        logger.warning(
+            f'_phase_index: phase {s!r} not in project phase list '
+            f'{list(order.keys())} — deferring check (sentinel index '
+            f'{_PHASE_INDEX_UNKNOWN}). Add {s!r} to project(phases) or '
+            f'fix the check\'s min_phase.')
+        return _PHASE_INDEX_UNKNOWN
+    return order[s.upper()]
 
 
 def _phase_from_index(idx: int, run_dir: str = None) -> str:
@@ -1213,13 +1239,36 @@ def cmd_add_check(args: argparse.Namespace) -> int:
         # Find the right array block and append
         array_name = 'mandatory_checks' if check_type == 'mandatory' else 'optional_checks'
 
-        # Find the closing brace of the array
-        pattern = rf'(array\s+set\s+{array_name}\s+\{{)(.*?)(\}})'
-        m = re.search(pattern, content, re.DOTALL)
-        if m:
-            existing = m.group(2).rstrip()
-            new_block = f'{existing}\n{check_entry}'
-            content = content[:m.start()] + f'{m.group(1)}{new_block}{m.group(3)}' + content[m.end():]
+        # Find the array's OPENING brace, then walk forward counting braces
+        # until the balanced closing brace. A regex like `(.*?)(\}})` would
+        # match the FIRST `}` inside the first entry (same class of bug that
+        # was fixed for mandatory_files in commit 10b1922); every subsequent
+        # add-check would splice the new entry INSIDE the first check, then
+        # corrupt the TCL parse for the whole file.
+        open_pat = rf'array\s+set\s+{re.escape(array_name)}\s+\{{'
+        open_m = re.search(open_pat, content)
+        if open_m:
+            body_start = open_m.end()
+            depth = 1
+            i = body_start
+            while i < len(content) and depth > 0:
+                c = content[i]
+                if c == '{':
+                    depth += 1
+                elif c == '}':
+                    depth -= 1
+                    if depth == 0:
+                        break
+                i += 1
+            if depth != 0:
+                raise ValueError(
+                    f'unbalanced braces in {config_path}: '
+                    f'array set {array_name} block never closed')
+            body_end = i           # points at the matching '}'
+            existing = content[body_start:body_end].rstrip()
+            content = (content[:body_start]
+                       + f'{existing}\n{check_entry}'
+                       + content[body_end:])
         else:
             # Array doesn't exist — create it
             content += f'\narray set {array_name} {{\n{check_entry}}}\n'

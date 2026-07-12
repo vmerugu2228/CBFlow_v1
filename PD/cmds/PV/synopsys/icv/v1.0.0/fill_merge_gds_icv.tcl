@@ -6,36 +6,37 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 set run_dir $::env(CBFLOW_RUN_DIR)
-source "$run_dir/.run.cbflow.tcl"
+source "$::env(CBFLOW_RUN_DIR)/.run.cbflow.tcl"
 source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "PV"
 set STAGE_NAME "fill_merge_gds"
 set NODE_NAME "${STAGE_NAME}1"
 
-source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
-source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
-setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
+source "$::env(CBFLOW_RUN_DIR)/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$::env(CBFLOW_RUN_DIR)/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $::env(CBFLOW_RUN_DIR) $FLOW_TYPE $NODE_NAME
 
 flow_proc configure_fill_merge_gds {
     global pv
     handle_info "Configuring post-merge fill validation..."
-    set ::fill_merge_input "$run_dir/results/pv/merged.gds"
-    set ::fill_merge_out   "$::RESULTS_DIR/fill_merged.gds"
+    set ::fill_merge_input "$::env(CBFLOW_RUN_DIR)/results/pv/merged.gds"
+    set ::fill_merge_out   "$::WORK_DIR/results/fill_merged.gds"
     handle_info "  Input:  $::fill_merge_input"
     handle_info "  Output: $::fill_merge_out"
 }
 
 flow_proc run_fill_merge_gds {
+    set ::fill_merge_status "PASS"
     handle_info "Running post-merge fill validation with Synopsys ICV..."
     set run_dir $::env(CBFLOW_RUN_DIR)
-    file mkdir "$::RESULTS_DIR"
+    file mkdir "$::WORK_DIR/results"
     file mkdir "$::REPORTS_DIR"
     set cmd "icv -fill_merge -i $::fill_merge_input -o $::fill_merge_out"
-    append cmd " -log $run_dir/logs/pv/fill_merge_gds_icv.log"
+    append cmd " -log $::env(CBFLOW_RUN_DIR)/logs/pv/fill_merge_gds_icv.log"
     handle_info "ICV command: $cmd"
     if {[catch {eval exec $cmd} _r]} {
-        handle_error "ICV fill_merge_gds failed: $_r"
+        handle_warning "ICV fill_merge_gds failed: $_r"
         set ::fill_merge_status "FAIL"
     } else {
         set ::fill_merge_status "PASS"

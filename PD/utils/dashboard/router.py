@@ -8,6 +8,7 @@ Routes:
   POST /run/<id>/<suffix>         Same delegation; ownership check preserved
 """
 
+import html as _html
 import http.server
 import json
 import os
@@ -702,7 +703,17 @@ def _render_index(runs, discipline='PD', project=''):
         or next((r.get('project') for r in active if r.get('project')), '')
         or ''
     )
-    _ssr_chip_initial = _project_info_for(_ssr_pick_project)
+    # Escape every project_info value before it's spliced into the index
+    # HTML template below. Values come from project_config.tcl which is
+    # writable by project owners — a `<img src=x onerror=...>` in
+    # `project(dashboard,developed_by)` would otherwise execute in every
+    # viewer's dashboard origin (which can bypass/retrace/force-stop runs).
+    _raw_chip = _project_info_for(_ssr_pick_project)
+    _ssr_chip_initial = {
+        k: (_html.escape(str(v), quote=True) if v is not None else v)
+        for k, v in _raw_chip.items()
+    }
+    _ssr_pick_project = _html.escape(str(_ssr_pick_project or ''), quote=True)
 
     # SSR weeks-to-tapeout so the milestone block paints correctly on first
     # render even when no runs are registered yet. JS overrides after +5s.

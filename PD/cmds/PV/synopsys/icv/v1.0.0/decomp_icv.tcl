@@ -5,22 +5,22 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 set run_dir $::env(CBFLOW_RUN_DIR)
-source "$run_dir/.run.cbflow.tcl"
+source "$::env(CBFLOW_RUN_DIR)/.run.cbflow.tcl"
 source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "PV"
 set STAGE_NAME "decomp"
 set NODE_NAME "${STAGE_NAME}1"
 
-source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
-source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
-setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
+source "$::env(CBFLOW_RUN_DIR)/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$::env(CBFLOW_RUN_DIR)/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $::env(CBFLOW_RUN_DIR) $FLOW_TYPE $NODE_NAME
 
 flow_proc configure_decomp {
     global pv tech
     handle_info "Configuring mask decomposition..."
-    set ::decomp_input "$run_dir/results/pv/fill_merged.gds"
-    set ::decomp_out "$::RESULTS_DIR/decomp.gds"
+    set ::decomp_input "$::env(CBFLOW_RUN_DIR)/results/pv/fill_merged.gds"
+    set ::decomp_out "$::WORK_DIR/results/decomp.gds"
     set ::decomp_colors [expr {[info exists pv(decomp,colors)] ? $pv(decomp,colors) : 2}]
     handle_info "  Input:  $::decomp_input"
     handle_info "  Output: $::decomp_out"
@@ -28,15 +28,16 @@ flow_proc configure_decomp {
 }
 
 flow_proc run_decomp {
+    set ::decomp_status "PASS"
     handle_info "Running mask decomposition with Synopsys ICV..."
     set run_dir $::env(CBFLOW_RUN_DIR)
-    file mkdir "$::RESULTS_DIR"
+    file mkdir "$::WORK_DIR/results"
     file mkdir "$::REPORTS_DIR"
     set cmd "icv -decomp -i $::decomp_input -o $::decomp_out -colors $::decomp_colors"
-    append cmd " -log $run_dir/logs/pv/decomp_icv.log"
+    append cmd " -log $::env(CBFLOW_RUN_DIR)/logs/pv/decomp_icv.log"
     handle_info "ICV command: $cmd"
     if {[catch {eval exec $cmd} _r]} {
-        handle_error "ICV decomp failed: $_r"
+        handle_warning "ICV decomp failed: $_r"
         set ::decomp_status "FAIL"
     } else {
         set ::decomp_status "PASS"

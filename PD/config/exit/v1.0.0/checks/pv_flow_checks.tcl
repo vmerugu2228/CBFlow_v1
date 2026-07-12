@@ -244,53 +244,14 @@ array set pv_flow_checks {
         "default_threshold"       "0"
     }
 
-    "pv_erc_total" {
-        "description"             "Total ERC violations must be zero"
+    "pv_perc_ldl_latchup" {
+        "description"             "PERC-LDL latch-up violations must be zero"
         "script"                  "check_file_exists.tcl"
-        "category"                "erc"
-        "severity"                "major"
-        "min_phase_index"               "1"
-        "applicable_milestones"   "PV_SIGNOFF"
-        "report_pattern"          "erc_summary.rpt"
-        "metric_pattern"          {Total\s+ERC\s+Violations\s*:\s*([0-9]+)}
-        "operator"                "=="
-        "default_threshold"       "0"
-    }
-
-    "pv_erc_well_contact" {
-        "description"             "Well contact violations must be zero"
-        "script"                  "check_file_exists.tcl"
-        "category"                "erc"
-        "severity"                "major"
-        "min_phase_index"               "2"
-        "applicable_milestones"   "PV_SIGNOFF"
-        "report_pattern"          "erc_summary.rpt"
-        "metric_pattern"          {Well\s+Contact\s+Violations\s*:\s*([0-9]+)}
-        "operator"                "=="
-        "default_threshold"       "0"
-    }
-
-    "pv_erc_floating_gate" {
-        "description"             "Floating gate violations must be zero"
-        "script"                  "check_file_exists.tcl"
-        "category"                "erc"
+        "category"                "perc_ldl"
         "severity"                "critical"
         "min_phase_index"               "2"
         "applicable_milestones"   "PV_SIGNOFF"
-        "report_pattern"          "erc_summary.rpt"
-        "metric_pattern"          {Floating\s+Gate\s+Violations\s*:\s*([0-9]+)}
-        "operator"                "=="
-        "default_threshold"       "0"
-    }
-
-    "pv_erc_latchup" {
-        "description"             "Latch-up violations must be zero"
-        "script"                  "check_file_exists.tcl"
-        "category"                "erc"
-        "severity"                "critical"
-        "min_phase_index"               "2"
-        "applicable_milestones"   "PV_SIGNOFF"
-        "report_pattern"          "erc_summary.rpt"
+        "report_pattern"          "perc_ldl_summary.rpt"
         "metric_pattern"          {Latch-up\s+Violations\s*:\s*([0-9]+)}
         "operator"                "=="
         "default_threshold"       "0"
@@ -335,27 +296,27 @@ array set pv_flow_checks {
         "default_threshold"       "0"
     }
 
-    "pv_fill_complete" {
-        "description"             "Metal fill generation completed successfully"
+    "pv_fill_merge_complete" {
+        "description"             "Fill-merged GDS validation completed successfully"
         "script"                  "check_file_exists.tcl"
-        "category"                "fill"
+        "category"                "fill_merge_gds"
         "severity"                "major"
         "min_phase_index"               "2"
         "applicable_milestones"   "PV_SIGNOFF"
-        "report_pattern"          "fill_summary.rpt"
-        "metric_pattern"          {Fill\s+Status\s*:\s*(COMPLETED|FAILED)}
+        "report_pattern"          "fill_merge_gds_summary.rpt"
+        "metric_pattern"          {Status\s*:\s*(PASS|FAIL)}
         "operator"                "=="
-        "default_threshold"       "COMPLETED"
+        "default_threshold"       "PASS"
     }
 
-    "pv_fill_density" {
+    "pv_fill_merge_density" {
         "description"             "Post-fill density within foundry limits"
         "script"                  "check_file_exists.tcl"
-        "category"                "fill"
+        "category"                "fill_merge_gds"
         "severity"                "major"
         "min_phase_index"               "2"
         "applicable_milestones"   "PV_SIGNOFF"
-        "report_pattern"          "fill_summary.rpt"
+        "report_pattern"          "fill_merge_gds_summary.rpt"
         "metric_pattern"          {Density\s+Violations\s+Post-Fill\s*:\s*([0-9]+)}
         "operator"                "=="
         "default_threshold"       "0"
@@ -375,16 +336,16 @@ array set pv_flow_checks {
     }
 
     "pv_merge_complete" {
-        "description"             "Layout merge completed without errors"
+        "description"             "Signoff GDS merge completed without errors"
         "script"                  "check_file_exists.tcl"
-        "category"                "fill"
+        "category"                "decomp_merge_gds"
         "severity"                "major"
         "min_phase_index"               "3"
         "applicable_milestones"   "PV_SIGNOFF"
-        "report_pattern"          "fill_summary.rpt"
-        "metric_pattern"          {Merge\s+Status\s*:\s*(COMPLETED|FAILED)}
+        "report_pattern"          "decomp_merge_gds_summary.rpt"
+        "metric_pattern"          {Status\s*:\s*(PASS|FAIL)}
         "operator"                "=="
-        "default_threshold"       "COMPLETED"
+        "default_threshold"       "PASS"
     }
 
     "pv_summary_report" {

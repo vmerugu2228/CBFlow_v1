@@ -92,6 +92,25 @@ function statusColor(s) {
 }
 function formatTime(s) { return s < 60 ? s.toFixed(1)+'s' : (s/60).toFixed(1)+'m'; }
 
+// XSS guards for user-supplied stage/job names that we splice into inline
+// HTML attributes (onclick, oncontextmenu) and text nodes. Stage names come
+// from `cbflow run add-node --node <name>` which accepts free-form input.
+function escAttr(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/'/g, '&#39;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\\/g, '&#92;');
+}
+function escText(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 function renderDAG(data) {
   const svg = document.getElementById('dag-svg');
   const stages = data.stage_order || [];
@@ -105,16 +124,33 @@ function renderDAG(data) {
   // Stages with the same level render in the same column; parallel branches
   // stack vertically. This replaces the old "flat horizontal chain" that
   // ignored the actual DAG topology.
+  //
+  // Cycle-safe: `visiting` guards against a stage referring back to an
+  // ancestor (self-dep, or a bad add-node/branch-merge that closed a
+  // loop) — without the guard the recursive call would blow the browser
+  // stack and freeze the tab. If a cycle is hit we treat the offending
+  // node as a root (level 0) so the DAG still renders, just less accurately.
   const level = {};
+  const visiting = new Set();
   function levelOf(stage) {
     if (stage in level) return level[stage];
-    const deps = stageDeps[stage] || [];
-    if (deps.length === 0) { level[stage] = 0; return 0; }
-    let m = 0;
-    for (const d of deps) {
-      const dl = levelOf(d) + 1;
-      if (dl > m) m = dl;
+    if (visiting.has(stage)) {
+      console.warn('DAG cycle detected involving', stage, '— rendering as root');
+      level[stage] = 0;
+      return 0;
     }
+    visiting.add(stage);
+    const deps = stageDeps[stage] || [];
+    let m = 0;
+    if (deps.length === 0) {
+      m = 0;
+    } else {
+      for (const d of deps) {
+        const dl = levelOf(d) + 1;
+        if (dl > m) m = dl;
+      }
+    }
+    visiting.delete(stage);
     level[stage] = m;
     return m;
   }
@@ -227,16 +263,22 @@ function renderDAG(data) {
   }
 
   // ── Draw stage nodes ──
+  // Stage names come from /api/dag JSON and can contain user-supplied text
+  // (via `cbflow run add-node --node <name>`). Escape before splicing into
+  // onclick/oncontextmenu attributes or inline SVG text so a name like
+  // `x'),fetch(...)//` cannot execute as JS in a viewer's dashboard.
   stages.forEach(stage => {
     if (!(stage in pos)) return;
     const { x, y } = pos[stage];
     const n = nodeMap[stage] || {status:'READY'};
     const color = statusColor(n.status);
     const rt = n.runtime ? ' (' + formatTime(n.runtime) + ')' : '';
-    html += '<g class="dag-node" onclick="showJob(\'' + stage + '\')" oncontextmenu="showCtxMenu(event,\'' + stage + '\')">' +
+    const sAttr = escAttr(stage);
+    const sText = escText(stage.replace(/1$/,''));
+    html += '<g class="dag-node" onclick="showJob(\'' + sAttr + '\')" oncontextmenu="showCtxMenu(event,\'' + sAttr + '\')">' +
       '<rect x="' + x + '" y="' + y + '" width="' + stageW + '" height="' + stageH + '" rx="8" fill="' + color + '" opacity="0.92"/>' +
-      '<text class="dag-label" x="' + (x + stageW/2) + '" y="' + (y + 22) + '">' + stage.replace(/1$/,'') + '</text>' +
-      '<text class="dag-label" x="' + (x + stageW/2) + '" y="' + (y + 40) + '" style="font-size:10px;opacity:0.85">' + (n.status||'') + rt + '</text>' +
+      '<text class="dag-label" x="' + (x + stageW/2) + '" y="' + (y + 22) + '">' + sText + '</text>' +
+      '<text class="dag-label" x="' + (x + stageW/2) + '" y="' + (y + 40) + '" style="font-size:10px;opacity:0.85">' + escText((n.status||'')) + escText(rt) + '</text>' +
       '</g>';
   });
 
@@ -250,7 +292,9 @@ function showJob(name) {
         const sj = jobs.filter(x => x.stage === name);
         let html = '<table class="data-table"><thead><tr><th>Job</th><th>Status</th><th>Runtime</th><th>Exit</th></tr></thead><tbody>';
         sj.forEach(x => {
-          html += '<tr oncontextmenu="showCtxMenu(event,\'' + x.name + '\')" style="cursor:pointer"><td>' + x.name + '</td><td><span class="status-badge" style="background:' + statusColor(x.status) + '">' + x.status + '</span></td><td>' + formatTime(x.runtime) + '</td><td>' + (x.exit_code!=null?x.exit_code:'-') + '</td></tr>';
+          const nAttr = escAttr(x.name);
+          const nText = escText(x.name);
+          html += '<tr oncontextmenu="showCtxMenu(event,\'' + nAttr + '\')" style="cursor:pointer"><td>' + nText + '</td><td><span class="status-badge" style="background:' + statusColor(x.status) + '">' + escText(x.status) + '</span></td><td>' + formatTime(x.runtime) + '</td><td>' + (x.exit_code!=null?x.exit_code:'-') + '</td></tr>';
         });
         html += '</tbody></table>';
         document.getElementById('modal-title').textContent = name;

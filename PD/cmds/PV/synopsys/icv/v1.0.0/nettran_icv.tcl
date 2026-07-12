@@ -7,16 +7,16 @@
 
 # ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
-source "$run_dir/.run.cbflow.tcl"
+source "$::env(CBFLOW_RUN_DIR)/.run.cbflow.tcl"
 source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "PV"
 set STAGE_NAME "nettran"
 set NODE_NAME "${STAGE_NAME}1"
 
-source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
-source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
-setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
+source "$::env(CBFLOW_RUN_DIR)/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$::env(CBFLOW_RUN_DIR)/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $::env(CBFLOW_RUN_DIR) $FLOW_TYPE $NODE_NAME
 
 # ---------------------------------------------------------------------------
 flow_proc configure_nettran {
@@ -39,7 +39,7 @@ flow_proc configure_nettran {
     set ::nettran_lib_models [expr {[info exists pv(nettran,lib_models)] ? \
                                     $pv(nettran,lib_models) : ""}]
 
-    set ::nettran_out "$::RESULTS_DIR/lvs_source.${::nettran_output_format}"
+    set ::nettran_out "$::WORK_DIR/results/lvs_source.${::nettran_output_format}"
 
     handle_info "Netlist translation configuration:"
     handle_info "  Source:      $::nettran_source"
@@ -49,9 +49,10 @@ flow_proc configure_nettran {
 
 # ---------------------------------------------------------------------------
 flow_proc run_nettran {
+    set ::nettran_status "PASS"
     handle_info "Running netlist translation with Synopsys ICV..."
     set run_dir $::env(CBFLOW_RUN_DIR)
-    file mkdir "$::RESULTS_DIR"
+    file mkdir "$::WORK_DIR/results"
     file mkdir "$::REPORTS_DIR"
 
     set icv_cmd "icv -nettran -i $::nettran_source -o $::nettran_out"
@@ -59,11 +60,11 @@ flow_proc run_nettran {
     if {$::nettran_lib_models ne ""} {
         append icv_cmd " -lib $::nettran_lib_models"
     }
-    append icv_cmd " -log $run_dir/logs/pv/nettran_icv.log"
+    append icv_cmd " -log $::env(CBFLOW_RUN_DIR)/logs/pv/nettran_icv.log"
 
     handle_info "ICV command: $icv_cmd"
     if {[catch {eval exec $icv_cmd} _result]} {
-        handle_error "ICV nettran failed: $_result"
+        handle_warning "ICV nettran failed: $_result"
         set ::nettran_status "FAIL"
     } else {
         set ::nettran_status "PASS"

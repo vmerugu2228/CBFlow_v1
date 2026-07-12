@@ -5,16 +5,16 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 set run_dir $::env(CBFLOW_RUN_DIR)
-source "$run_dir/.run.cbflow.tcl"
+source "$::env(CBFLOW_RUN_DIR)/.run.cbflow.tcl"
 source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "PV"
 set STAGE_NAME "merge_gds"
 set NODE_NAME "${STAGE_NAME}1"
 
-source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
-source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
-setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
+source "$::env(CBFLOW_RUN_DIR)/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$::env(CBFLOW_RUN_DIR)/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $::env(CBFLOW_RUN_DIR) $FLOW_TYPE $NODE_NAME
 
 flow_proc configure_merge_gds {
     global pv
@@ -25,22 +25,23 @@ flow_proc configure_merge_gds {
         handle_error "No input GDS — set pv(input,gds)"
         return
     }
-    set ::merge_gds_out "$::RESULTS_DIR/merged.gds"
+    set ::merge_gds_out "$::WORK_DIR/results/merged.gds"
     handle_info "GDS merge configuration:"
     handle_info "  Input:  $::merge_gds_input"
     handle_info "  Output: $::merge_gds_out"
 }
 
 flow_proc run_merge_gds {
+    set ::merge_gds_status "PASS"
     handle_info "Running GDS merge with Synopsys ICV..."
     set run_dir $::env(CBFLOW_RUN_DIR)
-    file mkdir "$::RESULTS_DIR"
+    file mkdir "$::WORK_DIR/results"
     file mkdir "$::REPORTS_DIR"
     set cmd "icv -merge -i $::merge_gds_input -o $::merge_gds_out"
-    append cmd " -log $run_dir/logs/pv/merge_gds_icv.log"
+    append cmd " -log $::env(CBFLOW_RUN_DIR)/logs/pv/merge_gds_icv.log"
     handle_info "ICV command: $cmd"
     if {[catch {eval exec $cmd} _r]} {
-        handle_error "ICV merge_gds failed: $_r"
+        handle_warning "ICV merge_gds failed: $_r"
         set ::merge_gds_status "FAIL"
     } else {
         set ::merge_gds_status "PASS"

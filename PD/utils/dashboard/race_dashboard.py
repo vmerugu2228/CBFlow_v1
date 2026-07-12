@@ -124,11 +124,29 @@ class RaceDashboard:
 
     def _get_engine(self):
         """Get a lightweight RACE engine (reset_stale=False).
-        Used by all API calls and action handlers — never resets active jobs."""
+        Used by all API calls and action handlers — never resets active jobs.
+
+        Returns None if the resolved cascade fails post-cascade validation
+        (config_validator.assert_mandatory_vars raises ConfigError). Callers
+        must handle the None case — a broken user_config.tcl should surface
+        as a graceful 4xx from the API rather than a daemon-thread crash.
+        """
         from race_engine import RaceEngine
-        engine = RaceEngine(self.run_dir, self.flow_type, self._load_env())
-        engine.initialize(reset_stale=False)
-        return engine
+        try:
+            from cbflow_config import ConfigError
+        except ImportError:
+            ConfigError = None
+        try:
+            engine = RaceEngine(self.run_dir, self.flow_type, self._load_env())
+            engine.initialize(reset_stale=False)
+            return engine
+        except Exception as e:
+            # Catch broadly: ConfigError, missing tclsh, corrupt DB pointer,
+            # anything that would kill the caller. Log and let callers decide
+            # whether to surface as 4xx / 5xx / silent no-op.
+            logger.warning(f"_get_engine failed: {type(e).__name__}: {e}")
+            self._last_engine_error = str(e)
+            return None
 
     # ── DB access ─────────────────────────────────────────────────────────
 
@@ -1070,11 +1088,14 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         elif path == '/grid':
             self._serve_template('grid.html')
         elif path == '/api/status':
-            self._json_response_cached(self.dashboard.get_status())
+            # Pass the method itself, not its result — producer only runs on
+            # cache miss inside _json_response_cached, so 304s skip the whole
+            # get_status() call (DB open, SQL, tech-file reads, etc.).
+            self._json_response_cached(self.dashboard.get_status)
         elif path == '/api/dag':
-            self._json_response_cached(self.dashboard.get_dag())
+            self._json_response_cached(self.dashboard.get_dag)
         elif path == '/api/jobs':
-            self._json_response_cached(self.dashboard.get_all_jobs())
+            self._json_response_cached(self.dashboard.get_all_jobs)
         elif path.startswith('/api/job/'):
             job_name = path[len('/api/job/'):]
             self._json_response(self.dashboard.get_job(job_name))
@@ -1355,6 +1376,11 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
         def run():
             engine = self._get_engine()
+            if engine is None:
+                logger.error(
+                    f"_action_run_to_subnode: engine init failed — "
+                    f"cannot run up to {subnode}")
+                return
             # Collect only the target subnode and its upstream deps within this stage
             target_jobs = set()
             target_jobs.add(subnode)
@@ -1413,6 +1439,11 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
         def run():
             engine = self._get_engine()
+            if engine is None:
+                logger.error(
+                    f"_action_force: engine init failed — cannot force "
+                    f"{', '.join(stages) if isinstance(stages, list) else stages}")
+                return
             with _engines_lock:
                 _active_engines.append(engine)
             try:
@@ -1892,6 +1923,10 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
         def run():
             engine = self._get_engine()
+            if engine is None:
+                logger.error(
+                    f"_exec_engine: engine init failed — cannot execute {target}")
+                return
             with _engines_lock:
                 _active_engines.append(engine)
             try:
@@ -1964,12 +1999,21 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             return ''
         return hashlib.sha1(key.encode()).hexdigest()[:16]
 
-    def _json_response_cached(self, data, status=200):
+    def _json_response_cached(self, producer, status=200):
         """JSON response with ETag / If-None-Match support.
 
-        Use for endpoints whose response is a pure function of DB state. If
-        the client's If-None-Match matches the current DB etag, return 304
-        with no body. This is the primary bandwidth cut for idle-run polling.
+        `producer` MUST be a zero-arg callable that materializes the payload.
+        The ETag is snapshotted BEFORE calling `producer` so:
+          1. On a cache hit (client's If-None-Match matches), we skip the
+             expensive DB+SQL+file-stat work entirely — send 304 and return.
+          2. On a cache miss, the producer runs and its result is JSON-
+             encoded with the SAME etag we just checked, closing the TOCTOU
+             window where a race_engine DB write between "materialize data"
+             and "compute etag" could leave the client caching (stale-data,
+             new-etag) — which used to persist stale data indefinitely.
+
+        Backwards-compat: if a non-callable is passed (legacy call site),
+        treat it as pre-materialized data and skip the producer branch.
         """
         etag = self._db_etag()
         if etag:
@@ -1981,6 +2025,8 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_header('Access-Control-Allow-Origin', '*')
                 self.end_headers()
                 return
+        # Materialize the payload after we've committed to a cache miss.
+        data = producer() if callable(producer) else producer
         body = json.dumps(data, default=str).encode()
         self.send_response(status)
         self.send_header('Content-Type', 'application/json')

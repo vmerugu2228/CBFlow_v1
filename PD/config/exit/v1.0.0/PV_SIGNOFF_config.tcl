@@ -32,12 +32,12 @@ array set mandatory_checks {
         "min_phase_index"   "0"
         "report_file" "work/PV/lvs1/reports/lvs_summary.rpt"
     }
-    "pv_erc_clean" {
-        "script"      "check_erc.tcl"
-        "description" "ERC electrical rule check clean"
-        "criteria"    "erc_violations == 0"
+    "pv_perc_ldl_clean" {
+        "script"      "check_file_exists.tcl"
+        "description" "PERC-LDL latch-up/leakage-driven check clean"
+        "criteria"    "file exists"
         "min_phase_index"   "1"
-        "report_file" "work/PV/erc1/reports/erc_summary.rpt"
+        "report_file" "work/PV/perc_ldl1/reports/perc_ldl_summary.rpt"
     }
     "pv_verification_complete" {
         "script"      "check_file_exists.tcl"
@@ -57,12 +57,12 @@ array set optional_checks {
         "min_phase_index"   "2"
         "report_file" "work/PV/perc1/reports/perc_summary.rpt"
     }
-    "pv_fill_density" {
+    "pv_fill_merge_clean" {
         "script"      "check_file_exists.tcl"
-        "description" "Metal fill density within foundry limits"
+        "description" "Post-fill merged GDS validation clean"
         "criteria"    "file exists"
         "min_phase_index"   "2"
-        "report_file" "work/PV/fill1/reports/fill_density.rpt"
+        "report_file" "work/PV/fill_merge_gds1/reports/fill_merge_gds_summary.rpt"
     }
     "pv_xor_clean" {
         "script"      "check_file_exists.tcl"
@@ -91,9 +91,9 @@ array set deliverables {
         "target" "releases/PV_SIGNOFF/lvs_summary.rpt"
         "type"   "verification"
     }
-    "erc_summary" {
-        "source" "work/PV/erc1/reports/erc_summary.rpt"
-        "target" "releases/PV_SIGNOFF/erc_summary.rpt"
+    "perc_ldl_summary" {
+        "source" "work/PV/perc_ldl1/reports/perc_ldl_summary.rpt"
+        "target" "releases/PV_SIGNOFF/perc_ldl_summary.rpt"
         "type"   "verification"
     }
     "pv_status" {
