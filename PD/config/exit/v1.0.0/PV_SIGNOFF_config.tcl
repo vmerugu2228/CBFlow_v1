@@ -55,7 +55,7 @@ array set optional_checks {
         "description" "PERC reliability check clean"
         "criteria"    "file exists"
         "min_phase_index"   "2"
-        "report_file" "work/PV/perc1/reports/perc_summary.rpt"
+        "report_file" "work/PV/perc1/reports/perc_results.rpt"
     }
     "pv_fill_merge_clean" {
         "script"      "check_file_exists.tcl"

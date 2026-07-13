@@ -159,28 +159,17 @@ def load_custom_nodes_from_runtime_config() -> dict:
         if not match:
             return result
 
-        # Find the matching closing brace. Use the same tokenizing walker as
-        # checklist_cmd._tcl_find_balanced_close so a legitimate `}` inside a
-        # quoted value or trailing `# ... }` comment doesn't mis-terminate.
-        # (The bug fixed for checklist_cmd's naive counter also applied here.)
-        try:
-            from checklist_cmd import _tcl_find_balanced_close as _tclbal
-            end_pos_1based = _tclbal(content, match.end(), open_depth=1)
-            if end_pos_1based < 0:
-                return result
-            end_pos = end_pos_1based + 1     # +1 to match old post-inc semantics
-        except ImportError:
-            # Fallback: old naive counter. Only reached if checklist_cmd is
-            # unavailable at import time (should not happen in normal cbflow).
-            start_pos = match.end()
-            brace_count = 1
-            end_pos = start_pos
-            while end_pos < len(content) and brace_count > 0:
-                if content[end_pos] == '{':
-                    brace_count += 1
-                elif content[end_pos] == '}':
-                    brace_count -= 1
-                end_pos += 1
+        # Find the matching closing brace via the shared word-boundary
+        # tokenizer (skips Tcl comments and `"..."` string bodies). Owning
+        # the walker in _tcl_utils rather than reaching into
+        # checklist_cmd's private symbol means a rename is caught at
+        # import time by both consumers, not silently reverted to the
+        # buggy naive counter via a swallowed ImportError.
+        from _tcl_utils import find_balanced_close as _tclbal
+        end_pos_1based = _tclbal(content, match.end(), open_depth=1)
+        if end_pos_1based < 0:
+            return result
+        end_pos = end_pos_1based + 1
         array_content = content[match.end():end_pos-1]
 
         # Parse key-value pairs from TCL array
@@ -1473,7 +1462,9 @@ def cmd_add_node(args: argparse.Namespace) -> int:
         logger.error("")
         return 1
 
-    success = mgr.add_node(node_name, node_type, dependency)
+    resource_tier = getattr(args, 'resource_tier', '') or ''
+    success = mgr.add_node(node_name, node_type, dependency,
+                           resource_tier=resource_tier)
     return 0 if success else 1
 
 
@@ -3121,6 +3112,10 @@ Examples:
                                 help='Node type - must be a valid stage type for current flow')
     add_node_parser.add_argument('--dep', '-d',
                                 help='Dependency node - the new node runs after this one')
+    add_node_parser.add_argument('--resource-tier', '-r', default='',
+                                help=('Override LSF resource tier for this node '
+                                      '(XS/S/M/L/XL/ultra). Omit to inherit from '
+                                      'the base stage or lsf(default_queue_type).'))
 
     # delete-node command
     del_node_parser = subparsers.add_parser('delete-node', help='Delete custom node',

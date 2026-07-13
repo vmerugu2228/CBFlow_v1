@@ -191,7 +191,8 @@ class NodeManager:
     # Node Operations
     # ─────────────────────────────────────────────────────────────────────────
 
-    def add_node(self, name: str, node_type: str, dependency: str) -> bool:
+    def add_node(self, name: str, node_type: str, dependency: str,
+                 resource_tier: str = '') -> bool:
         """
         Add a custom node to the flow.
 
@@ -200,6 +201,10 @@ class NodeManager:
             node_type: Type of stage this node represents (must match a base
                        stage or base type stripped of its numeric suffix).
             dependency: Name of the node this new node depends on.
+            resource_tier: Optional LSF resource tier ('XS'/'S'/'M'/'L'/'XL'/
+                       'ultra'). If empty, the tier cascade in
+                       race_engine._build_resource_map inherits from the base
+                       stage's tier and finally from `lsf(default_queue_type)`.
 
         Returns:
             True if the node was successfully added, False otherwise.
@@ -237,12 +242,14 @@ class NodeManager:
             'type': node_type,
             'dependencies': dependency or '',
             'branch_key': '',
+            'resource_tier': resource_tier or '',
         }
 
         self._save_runtime_config()
         self._regenerate_makefile()
 
-        logger.info(f"  [DONE] Added node '{name}' (type={node_type}, after={dependency})")
+        tier_suffix = f", tier={resource_tier}" if resource_tier else ""
+        logger.info(f"  [DONE] Added node '{name}' (type={node_type}, after={dependency}{tier_suffix})")
         return True
 
     def delete_node(self, name: str) -> bool:

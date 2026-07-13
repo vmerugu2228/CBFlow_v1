@@ -103,77 +103,8 @@ PHASE_ORDER = _phase_order()
 
 
 
-def _tcl_find_balanced_close(text: str, start: int, open_depth: int = 1) -> int:
-    """Find the index of the balanced closing `}` starting from `start`
-    with `open_depth` already open. Returns -1 on unbalanced.
-
-    Tokenizing walk (not just brace counting). Handles:
-      - `#` comments to end-of-line, after a command-terminator
-        (newline OR `;`, plus BOF and after `[` / `{`). DOS `\\r\\n`
-        line endings supported.
-      - `\\` escapes anywhere (including inside strings).
-      - `"..."` double-quoted strings ONLY when they appear at a
-        command-word boundary. A bare `"` inside a `{...}` block
-        (Tcl-legal literal character) is NOT treated as a string
-        opener — otherwise a value like `{6" wafer}` would eat the
-        whole rest of the file looking for a matching quote.
-
-    Necessary because cmd_add_check splices into a Tcl file that
-    legitimately contains braces inside quoted values (`"criteria"
-    "closing brace: }"`) and trailing comments — a naive counter
-    would decrement on those and mis-terminate.
-    """
-    depth = open_depth
-    i = start
-    n = len(text)
-
-    def _is_command_boundary(j: int) -> bool:
-        # A command starts after a newline, `;`, BOF, or an unclosed
-        # `[` / `{`. Strings and comments only *begin* at boundaries.
-        k = j - 1
-        while k >= 0 and text[k] in ' \t':
-            k -= 1
-        if k < 0:
-            return True
-        return text[k] in ('\n', '\r', ';', '[', '{')
-
-    while i < n and depth > 0:
-        c = text[i]
-        # Comment: `#` at a command boundary → skip to end-of-line,
-        # honoring `\` line-continuation and CRLF endings.
-        if c == '#' and _is_command_boundary(i):
-            while i < n and text[i] not in ('\n', '\r'):
-                if text[i] == '\\' and i + 1 < n:
-                    # `\` before newline continues the comment
-                    if text[i + 1] in ('\n', '\r'):
-                        i += 2
-                        continue
-                    i += 2
-                    continue
-                i += 1
-            continue
-        # Double-quoted string: only at command boundary.
-        if c == '"' and _is_command_boundary(i):
-            i += 1
-            while i < n and text[i] != '"':
-                if text[i] == '\\' and i + 1 < n:
-                    i += 2
-                    continue
-                i += 1
-            if i < n:
-                i += 1  # consume closing `"`
-            continue
-        if c == '\\' and i + 1 < n:
-            i += 2
-            continue
-        if c == '{':
-            depth += 1
-        elif c == '}':
-            depth -= 1
-            if depth == 0:
-                return i
-        i += 1
-    return -1
+from _tcl_utils import find_balanced_close as _tcl_find_balanced_close
+from _tcl_utils import tcl_quote as _tcl_quote_module
 
 
 def get_exit_config_dir() -> str:
@@ -546,8 +477,16 @@ def format_checklist_html(config: dict, waivers: list, overrides: dict) -> str:
 def format_status_text(milestone: str, sd: dict) -> str:
     """Format milestone status as a terminal text report."""
     sep, thin = '='*72, '─'*68
-    icon_map = {'PASS': '[PASS]', 'FAIL': '[FAIL]', 'WAIVED': '[WAIV]', 'PENDING': '[ -- ]', 'SKIPPED': '[SKIP]'}
-    opt_map = {'PASS': '[PASS]', 'FAIL': '[WARN]', 'WAIVED': '[WAIV]', 'PENDING': '[ -- ]', 'SKIPPED': '[SKIP]'}
+    icon_map = {'PASS': '[PASS]', 'FAIL': '[FAIL]', 'WAIVED': '[WAIV]',
+                'PENDING': '[ -- ]', 'SKIPPED': '[SKIP]',
+                # CONFIG_ERROR = current-phase-drift / phase env corrupt.
+                # Sign-off gate BLOCKS on this — surface it distinctly
+                # so the operator can trace the cause instead of seeing
+                # the anonymous `[??]` fallback.
+                'CONFIG_ERROR': '[CFGE]'}
+    opt_map  = {'PASS': '[PASS]', 'FAIL': '[WARN]', 'WAIVED': '[WAIV]',
+                'PENDING': '[ -- ]', 'SKIPPED': '[SKIP]',
+                'CONFIG_ERROR': '[CFGE]'}
     L = ['', sep, f'  MILESTONE STATUS: {milestone}', sep,
          f'  Run Dir: {sd.get("run_dir","")}  |  {sd.get("timestamp","")}',
          f'  Completion: {sd.get("completion_pct",0):.1f}%  |  Verdict: {sd.get("verdict","UNKNOWN")}',
@@ -1046,10 +985,17 @@ def cmd_signoff(args: argparse.Namespace) -> int:
                             'expiry_date': w.get('expiry_date','')} for w in waivers],
         'summary': {
             'total_mandatory': len(mand_snaps),
-            'passed': sum(1 for c in mand_snaps if c['status'] == 'PASS'),
-            'failed': sum(1 for c in mand_snaps if c['status'] == 'FAIL'),
-            'waived': sum(1 for c in mand_snaps if c['status'] == 'WAIVED'),
+            'passed':  sum(1 for c in mand_snaps if c['status'] == 'PASS'),
+            'failed':  sum(1 for c in mand_snaps if c['status'] == 'FAIL'),
+            'waived':  sum(1 for c in mand_snaps if c['status'] == 'WAIVED'),
             'pending': sum(1 for c in mand_snaps if c['status'] == 'PENDING'),
+            'skipped': sum(1 for c in mand_snaps if c['status'] == 'SKIPPED'),
+            # config_error counts CONFIG_ERROR verdicts (phase-drift /
+            # phase env corrupt). Included in the bucket totals so
+            # `passed+failed+waived+pending+skipped+config_error ==
+            # total_mandatory` — downstream tools that trust that
+            # invariant no longer silently miss checks.
+            'config_error': sum(1 for c in mand_snaps if c['status'] == 'CONFIG_ERROR'),
             'files_present': sum(files_snapshot.values()),
             'files_missing': sum(1 for v in files_snapshot.values() if not v),
         },
@@ -1290,17 +1236,39 @@ def cmd_add_check(args: argparse.Namespace) -> int:
 
     # Every user-provided field below is spliced into a Tcl `"..."` string
     # literal. Without escaping, an embedded `"` closes the string early
-    # and the next unrecognized token blows the parse of the WHOLE config
-    # file — corrupting every check for this milestone until hand-repair.
-    # A `\` before a special char likewise re-triggers Tcl's own escape
-    # processing (e.g. `\n` becomes a newline mid-attribute). Escape both.
+    # and blows the parse of the whole config file. And — critically —
+    # inside a Tcl `"..."` string, `$foo` performs variable substitution
+    # and `[cmd]` executes an embedded command AT SOURCE TIME. That is
+    # a command-injection sink: an add-check --description
+    # '[exec rm -rf /]' runs on the next `source` of the milestone config.
+    # Escape `\`, `"`, `$`, and `[` so all four lose their special meaning.
+    # (`]` is not special outside `[...]`; escaping isn't needed but is
+    # kept out of the escape set to preserve readability of paths.)
     def _tcl_quote(s: str) -> str:
         if s is None:
             return ''
-        return str(s).replace('\\', '\\\\').replace('"', '\\"')
+        return (str(s)
+                .replace('\\', '\\\\')
+                .replace('"',  '\\"')
+                .replace('$',  '\\$')
+                .replace('[',  '\\['))
 
-    # Check if name already exists
-    if f'"{check_name}"' in content:
+    # Check if name already exists. Two subtleties the naive
+    # `f'"{check_name}"' in content` version got wrong:
+    #  1. It searches for the RAW check_name; if the name contains `"`
+    #     or `\`, the file stores it as the ESCAPED form (`\"`, `\\`),
+    #     and the raw-form substring never matches — a real duplicate
+    #     slips through and corrupts the config.
+    #  2. Substring match against `"foo"` false-positives against any
+    #     other check whose VALUE happens to contain the token `"foo"`
+    #     (e.g. an "applicable_milestones" list). The proper form is
+    #     a regex bounded by the key-position pattern
+    #     `<newline><space>*"<name>"<space>*{`.
+    _quoted_name = _tcl_quote(check_name)
+    _key_pattern = re.compile(
+        r'(^|[\n\r;])\s*"' + re.escape(_quoted_name) + r'"\s*\{',
+        re.MULTILINE)
+    if _key_pattern.search(content):
         logger.error(f"Check '{check_name}' already exists in {milestone}. Remove it first or use a different name.")
         return 1
 

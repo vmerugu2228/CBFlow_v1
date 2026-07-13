@@ -35,7 +35,14 @@ flow_proc configure_perc_ldl {
     # topology. Fail loudly if the producer output is missing so the real
     # upstream problem surfaces instead of a phantom PASS at sign-off.
     set ::perc_ldl_gds "$::env(CBFLOW_RUN_DIR)/work/PV/decomp_merge_gds1/results/${::DESIGN_NAME}_signoff.gds"
-    if {![file exists $::perc_ldl_gds] && ![info exists ::flow(test_mode)]} {
+    # Guard fires only in REAL runs (test_mode not set OR explicitly disabled).
+    # The prior formulation `![info exists ::flow(test_mode)]` was inverted —
+    # a user setting `set flow(test_mode) "false"` (a documented pattern to
+    # turn test mode OFF) made the variable EXIST, the guard skipped, and a
+    # missing producer output silently propagated to a phantom PASS. Match
+    # the convention used everywhere else in the tree.
+    set _tm [expr {[info exists ::flow(test_mode)] && $::flow(test_mode) eq "true"}]
+    if {![file exists $::perc_ldl_gds] && !$_tm} {
         handle_error "perc_ldl input GDS missing: $::perc_ldl_gds — decomp_merge_gds1 must run first"
     }
 

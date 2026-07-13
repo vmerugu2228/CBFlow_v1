@@ -1563,6 +1563,33 @@ def _render_index(runs, discipline='PD', project=''):
 """
 
 
+def _html_attr(s):
+    """HTML-attribute-context escape (`quote=True` → `&#x27;` etc.).
+
+    Safe for splicing into `<tag attr="{...}">` or attribute values in
+    tag-body text. NOT sufficient for JS-string context inside an
+    event-handler attribute — use `_html_js_string` for those.
+    """
+    return _html.escape(str(s), quote=True)
+
+
+def _html_js_string(s):
+    """JS-string-context escape for values spliced into an event
+    handler attribute (onclick, onchange, etc.).
+
+    HTML-attribute-context escape alone (`&#x27;`) is decoded back to
+    `'` by the HTML parser BEFORE the JS parser sees the attribute
+    value — so `<button onclick="fn('{&#x27;}')">` decodes to
+    `onclick="fn(''}')"` and the JS parser hits invalid syntax (or
+    executes attacker payload). json.dumps produces a properly
+    escaped JS string literal INCLUDING the surrounding quotes, then
+    we HTML-attribute-escape the whole thing so the attribute value
+    survives HTML tokenization. The resulting decoded attribute is a
+    valid JS string literal regardless of what characters were in `s`.
+    """
+    return _html.escape(json.dumps(str(s)), quote=True)
+
+
 def _render_run_rows(runs):
     """Server-rendered initial rows (the script will re-render on load).
     Kept for no-JS fallback and faster first paint. Flat table; the flow
@@ -1581,24 +1608,12 @@ def _render_run_rows(runs):
         name = _os.path.basename(run_dir.rstrip('/')) or rid
         status = r.get('current_status') or 'NONE'
         node = r.get('current_node') or ''
-        # Every value below is spliced into HTML with an f-string, so escape
-        # anything that could contain user-controlled characters (node name
-        # via `cbflow run add-node`, run_dir path from disk, status from
-        # subnode-handler output, project / design from user_config). The
-        # colors + rid + flow tokens are internal constants — no escape.
-        _e = lambda s: _html.escape(str(s), quote=True)
-        # HTML-attribute-context escape (`&#x27;` etc.) is decoded back to
-        # `'` by the HTML parser BEFORE the JS parser sees an `onclick`
-        # attribute's value — so `_e` alone does NOT protect a JS-string
-        # context. For values interpolated inside JS string literals in
-        # an event handler, use `_js` — json.dumps produces a properly
-        # escaped JS string literal (with surrounding quotes) that resists
-        # both HTML entity decoding and JS-escape re-interpretation.
-        def _js(s):
-            # json.dumps + attribute-safe HTML escape. The resulting
-            # attribute-value bytes decode to a valid JS string literal
-            # regardless of what characters were in `s`.
-            return _html.escape(json.dumps(str(s)), quote=True)
+        # Module-level helpers: _html_attr for HTML-attribute context,
+        # _html_js_string for JS-string context inside event handlers.
+        # See their docstrings for the distinction (attribute-escape is
+        # NOT sufficient for JS-string context).
+        _e = _html_attr
+        _js = _html_js_string
         flow_html      = _e(flow)
         rid_html       = _e(rid)
         name_html      = _e(name)

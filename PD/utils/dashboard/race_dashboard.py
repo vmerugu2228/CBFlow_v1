@@ -2066,7 +2066,28 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 self.end_headers()
                 return
         # Materialize the payload after we've committed to a cache miss.
-        data = producer() if callable(producer) else producer
+        # producer() has NO exception guard in the original design — if it
+        # raised (locked DB, bad user_config), the exception propagated
+        # past send_response with no headers sent, BaseHTTPRequestHandler
+        # emitted a bare 500 with no CORS header, and the dashboard JS
+        # dropped it as a network error and retried every poll — hammering
+        # whatever underlying resource was already broken. Catch here so
+        # the client gets a JSON body it can render as a toast and stops
+        # tight-looping.
+        try:
+            data = producer() if callable(producer) else producer
+        except Exception as e:
+            logger.exception(f"_json_response_cached: producer raised: {e}")
+            self.send_response(500)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                'ok': False,
+                'error': f'server-side error: {e}',
+            }).encode())
+            return
         if extra and isinstance(data, dict):
             data = {**data, **extra}
         body = json.dumps(data, default=str).encode()

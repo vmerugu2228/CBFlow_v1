@@ -165,8 +165,14 @@ flow_proc generate_perc_report {
     handle_info "Generating PERC report..."
     set run_dir $::env(CBFLOW_RUN_DIR)
 
-    set rpt "$run_dir/results/perc/perc_results.rpt"
-    file mkdir [file dirname $rpt]
+    # Write to $::REPORTS_DIR (= work/PV/perc1/reports/) so the release
+    # verifier finds `work/PV/perc1/reports/perc_results.rpt` per
+    # release_config.tcl. The historical results/perc/ path is also written
+    # for backwards compatibility with any script that hardcoded it.
+    set rpt "$::REPORTS_DIR/perc_results.rpt"
+    set legacy_rpt "$run_dir/results/perc/perc_results.rpt"
+    file mkdir $::REPORTS_DIR
+    file mkdir [file dirname $legacy_rpt]
     set fp [open $rpt w]
     puts $fp "==============================================================================="
     puts $fp "CBFlow PV - PERC Results (Synopsys ICV)"
@@ -201,6 +207,8 @@ flow_proc generate_perc_report {
     puts $fp "Result Files: $run_dir/results/pv/perc/"
     puts $fp "Log File:     $run_dir/logs/pv/perc_icv.log"
     close $fp
+    # Mirror to the historical results/perc/ path.
+    catch {file copy -force $rpt $legacy_rpt}
 
     handle_info "PERC report: $rpt"
 }

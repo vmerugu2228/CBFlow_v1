@@ -303,7 +303,7 @@ array set pv_flow_checks {
         "severity"                "major"
         "min_phase_index"               "2"
         "applicable_milestones"   "PV_SIGNOFF"
-        "report_pattern"          "perc_summary.rpt"
+        "report_pattern"          "perc_results.rpt"
         "metric_pattern"          {ESD\s+Path\s+Violations\s*:\s*([0-9]+)}
         "operator"                "=="
         "default_threshold"       "0"
@@ -316,7 +316,7 @@ array set pv_flow_checks {
         "severity"                "major"
         "min_phase_index"               "2"
         "applicable_milestones"   "PV_SIGNOFF"
-        "report_pattern"          "perc_summary.rpt"
+        "report_pattern"          "perc_results.rpt"
         "metric_pattern"          {Voltage-Aware\s+DRC\s+Violations\s*:\s*([0-9]+)}
         "operator"                "=="
         "default_threshold"       "0"
@@ -329,7 +329,7 @@ array set pv_flow_checks {
         "severity"                "major"
         "min_phase_index"               "2"
         "applicable_milestones"   "PV_SIGNOFF"
-        "report_pattern"          "perc_summary.rpt"
+        "report_pattern"          "perc_results.rpt"
         "metric_pattern"          {PERC\s+Latch-up\s+Violations\s*:\s*([0-9]+)}
         "operator"                "=="
         "default_threshold"       "0"
