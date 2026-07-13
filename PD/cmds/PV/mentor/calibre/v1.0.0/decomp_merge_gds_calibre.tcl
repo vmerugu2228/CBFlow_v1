@@ -28,8 +28,10 @@ flow_proc configure_decomp_merge_gds {
 
     # Two upstream artifacts feed this stage: the fill-verified base GDS and
     # the colored GDS from decomp1. Both parents guaranteed by the DAG.
-    set ::dm_fill_input   "$::env(CBFLOW_RUN_DIR)/results/pv/${::DESIGN_NAME}_fill_verified.gds"
-    set ::dm_decomp_input "$::env(CBFLOW_RUN_DIR)/results/pv/${::DESIGN_NAME}_colored.gds"
+    # Inputs from producer stages fill_merge_gds1 and decomp1 (per-stage
+    # $WORK_DIR/results). Legacy shared results/pv/ path no longer written to.
+    set ::dm_fill_input   "$::env(CBFLOW_RUN_DIR)/work/PV/fill_merge_gds1/results/${::DESIGN_NAME}_fill_verified.gds"
+    set ::dm_decomp_input "$::env(CBFLOW_RUN_DIR)/work/PV/decomp1/results/${::DESIGN_NAME}_colored.gds"
 
     if {[info exists pv(common,top_cell)]} {
         set ::dm_top $pv(common,top_cell)
@@ -116,6 +118,9 @@ flow_proc decomp_merge_gds_flow {
     flow_exec configure_decomp_merge_gds
     flow_exec run_decomp_merge_gds
     flow_exec report_decomp_merge_gds
+    if {[info exists ::dm_status] && $::dm_status eq "FAIL"} {
+        handle_error "decomp_merge_gds failed — see $::REPORTS_DIR/decomp_merge_gds_summary.rpt"
+    }
 }
 if {[info exists argv0] && $argv0 eq [info script]} { flow_exec decomp_merge_gds_flow } else { puts " PV decomp_merge_gds procedures loaded" }
 exit

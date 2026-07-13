@@ -34,12 +34,14 @@ flow_proc run_xor_check {
         set pre_fill $pv(input,gds_file)
     }
 
-    # Post-fill / signoff layout (from decomp_merge_gds1 → fill_merge_gds1
-    # chain after the 2026-07-10 refactor).
+    # Post-fill / signoff layout from the ICV chain
+    # (decomp_merge_gds1 → fill_merge_gds1). ICV producers write bare filenames
+    # (signoff_layout.gds, fill_merged.gds) — the ${DESIGN_NAME}_ prefix
+    # convention is Calibre-only, so xor_calibre.tcl still uses prefixed names.
     set _run_dir $::env(CBFLOW_RUN_DIR)
-    set post_fill "$_run_dir/work/PV/decomp_merge_gds1/results/${::DESIGN_NAME}_signoff.gds"
+    set post_fill "$_run_dir/work/PV/decomp_merge_gds1/results/signoff_layout.gds"
     if {![file exists $post_fill]} {
-        set post_fill "$_run_dir/work/PV/fill_merge_gds1/results/${::DESIGN_NAME}_fill_verified.gds"
+        set post_fill "$_run_dir/work/PV/fill_merge_gds1/results/fill_merged.gds"
     }
 
     if {$pre_fill ne "" && [file exists $pre_fill]} {

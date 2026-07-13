@@ -1581,14 +1581,27 @@ def _render_run_rows(runs):
         name = _os.path.basename(run_dir.rstrip('/')) or rid
         status = r.get('current_status') or 'NONE'
         node = r.get('current_node') or ''
+        # Every value below is spliced into HTML with an f-string, so escape
+        # anything that could contain user-controlled characters (node name
+        # via `cbflow run add-node`, run_dir path from disk, status from
+        # subnode-handler output, project / design from user_config). The
+        # colors + rid + flow tokens are internal constants — no escape.
+        _e = lambda s: _html.escape(str(s), quote=True)
+        flow_html      = _e(flow)
+        rid_html       = _e(rid)
+        name_html      = _e(name)
+        status_html    = _e(status)
+        node_text_html = _e(node)
+        run_dir_html   = _e(run_dir)
         search = ' '.join(filter(None, [name, flow, run_dir, node, status])).lower().replace('"', '')
+        search_html = _e(search)
         bg, fg = _STATUS_COLORS.get(status, _STATUS_COLORS['NONE'])
-        node_html = (f'<span class="status-node">{node}</span>'
+        node_html = (f'<span class="status-node">{node_text_html}</span>'
                      if node else '<span class="status-node muted">—</span>')
         chip_html = (
             f'<span class="status-chip" '
             f'style="background:{bg};color:{fg}" '
-            f'title="{node} ({status})">{status}</span>'
+            f'title="{node_text_html} ({status_html})">{status_html}</span>'
         )
         # SSR runtime: render the stored value if any; JS overrides to live
         # elapsed for RUNNING jobs each second.
@@ -1611,22 +1624,25 @@ def _render_run_rows(runs):
             runtime_html = f'<span class="rt">{_fmt_duration(_rt)}</span>'
         else:
             runtime_html = '<span class="rt muted">—</span>'
-        proj = r.get('project') or ''
-        design = r.get('design') or ''
+        proj = _e(r.get('project') or '')
+        design = _e(r.get('design') or '')
+        current_start_html = _e(r.get('current_start') or '')
+        runtime_attr = r.get('current_runtime')
+        runtime_attr_html = _e(runtime_attr if runtime_attr is not None else '')
         out.append(
-            f'<tr class="{cls}" data-rid="{rid}" data-flow="{flow}" '
+            f'<tr class="{cls}" data-rid="{rid_html}" data-flow="{flow_html}" '
             f'data-project="{proj}" data-design="{design}" '
-            f'data-status="{status}" '
-            f'data-start="{r.get("current_start") or ""}" '
-            f'data-runtime="{r.get("current_runtime") if r.get("current_runtime") is not None else ""}" '
-            f'data-search="{search}">'
-            f'<td><a class="runlink" href="/run/{rid}/">{name}</a></td>'
-            f'<td><span class="flow-badge" style="background:{color}">{flow}</span></td>'
+            f'data-status="{status_html}" '
+            f'data-start="{current_start_html}" '
+            f'data-runtime="{runtime_attr_html}" '
+            f'data-search="{search_html}">'
+            f'<td><a class="runlink" href="/run/{rid_html}/">{name_html}</a></td>'
+            f'<td><span class="flow-badge" style="background:{color}">{flow_html}</span></td>'
             f'<td class="status-cell">{chip_html} {node_html}</td>'
             f'<td class="rt-cell">{runtime_html}</td>'
-            f'<td class="dir">{run_dir}</td>'
+            f'<td class="dir">{run_dir_html}</td>'
             f'<td><button class="danger" '
-            f'onclick="deregisterRun(\'{rid}\')">Deregister</button></td>'
+            f'onclick="deregisterRun(\'{rid_html}\')">Deregister</button></td>'
             f'</tr>'
         )
     return '\n'.join(out)

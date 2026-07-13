@@ -19,9 +19,11 @@ setup_dirs $::env(CBFLOW_RUN_DIR) $FLOW_TYPE $NODE_NAME
 
 flow_proc configure_decomp_merge_gds {
     handle_info "Configuring decomposed GDS merge..."
-    set ::dm_fill_input "$::env(CBFLOW_RUN_DIR)/results/pv/fill_merged.gds"
-    set ::dm_decomp_input "$::env(CBFLOW_RUN_DIR)/results/pv/decomp.gds"
-    set ::dm_out "$::WORK_DIR/results/signoff_layout.gds"
+    # Inputs from producer stages fill_merge_gds1 and decomp1
+    # (each in its own per-stage $WORK_DIR/results).
+    set ::dm_fill_input   "$::env(CBFLOW_RUN_DIR)/work/PV/fill_merge_gds1/results/fill_merged.gds"
+    set ::dm_decomp_input "$::env(CBFLOW_RUN_DIR)/work/PV/decomp1/results/decomp.gds"
+    set ::dm_out          "$::WORK_DIR/results/signoff_layout.gds"
     handle_info "  Fill-merged input: $::dm_fill_input"
     handle_info "  Decomp input:      $::dm_decomp_input"
     handle_info "  Output:            $::dm_out"
@@ -62,6 +64,9 @@ flow_proc decomp_merge_gds_flow {
     flow_exec configure_decomp_merge_gds
     flow_exec run_decomp_merge_gds
     flow_exec report_decomp_merge_gds
+    if {[info exists ::dm_status] && $::dm_status eq "FAIL"} {
+        handle_error "decomp_merge_gds failed — see $::REPORTS_DIR/decomp_merge_gds_summary.rpt"
+    }
 }
 if {[info exists argv0] && $argv0 eq [info script]} { flow_exec decomp_merge_gds_flow } else { puts " PV decomp_merge_gds procedures loaded" }
 exit

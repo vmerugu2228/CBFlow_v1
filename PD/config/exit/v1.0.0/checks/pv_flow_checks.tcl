@@ -244,6 +244,45 @@ array set pv_flow_checks {
         "default_threshold"       "0"
     }
 
+    "pv_perc_ldl_total" {
+        "description"             "PERC-LDL aggregate violations must be zero"
+        "script"                  "check_file_exists.tcl"
+        "category"                "perc_ldl"
+        "severity"                "critical"
+        "min_phase_index"               "2"
+        "applicable_milestones"   "PV_SIGNOFF"
+        "report_pattern"          "perc_ldl_summary.rpt"
+        "metric_pattern"          {Total\s+Violations\s*:\s*([0-9]+)}
+        "operator"                "=="
+        "default_threshold"       "0"
+    }
+
+    "pv_perc_ldl_well_contact" {
+        "description"             "PERC-LDL well-contact spacing violations must be zero"
+        "script"                  "check_file_exists.tcl"
+        "category"                "perc_ldl"
+        "severity"                "major"
+        "min_phase_index"               "2"
+        "applicable_milestones"   "PV_SIGNOFF"
+        "report_pattern"          "perc_ldl_summary.rpt"
+        "metric_pattern"          {Well\s+Contact\s+Violations\s*:\s*([0-9]+)}
+        "operator"                "=="
+        "default_threshold"       "0"
+    }
+
+    "pv_perc_ldl_floating_gate" {
+        "description"             "PERC-LDL floating-gate detection violations must be zero"
+        "script"                  "check_file_exists.tcl"
+        "category"                "perc_ldl"
+        "severity"                "major"
+        "min_phase_index"               "2"
+        "applicable_milestones"   "PV_SIGNOFF"
+        "report_pattern"          "perc_ldl_summary.rpt"
+        "metric_pattern"          {Floating\s+Gate\s+Violations\s*:\s*([0-9]+)}
+        "operator"                "=="
+        "default_threshold"       "0"
+    }
+
     "pv_perc_ldl_latchup" {
         "description"             "PERC-LDL latch-up violations must be zero"
         "script"                  "check_file_exists.tcl"

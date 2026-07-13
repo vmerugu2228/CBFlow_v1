@@ -26,8 +26,10 @@ flow_proc configure_fill_merge_gds {
     global pv tech project
     handle_info "Configuring post-merge fill validation..."
 
-    # Merged GDS from the upstream merge_gds1 stage.
-    set ::fmg_input "$::env(CBFLOW_RUN_DIR)/results/pv/${::DESIGN_NAME}_merged.gds"
+    # Merged GDS from the upstream producer stage merge_gds1 (per-stage
+    # $WORK_DIR/results). The legacy shared $CBFLOW_RUN_DIR/results/pv/
+    # path is no longer written to.
+    set ::fmg_input "$::env(CBFLOW_RUN_DIR)/work/PV/merge_gds1/results/${::DESIGN_NAME}_merged.gds"
     if {![file exists $::fmg_input] && [info exists pv(input,gds)]} {
         # Fallback so test_mode + hand-invoked runs still work.
         set ::fmg_input $pv(input,gds)
@@ -94,6 +96,11 @@ flow_proc run_fill_merge_gds {
 
 flow_proc report_fill_merge_gds {
     file mkdir $::REPORTS_DIR
+    # Post-fill density counts. In a real Calibre pass these come from the
+    # fill-verification runset — pv_fill_merge_density check regex keys off
+    # the exact label emitted here. test_mode reports zero.
+    set _fail [expr {$::fmg_status eq "FAIL"}]
+    set ::fmg_density_violations [expr {$_fail ? 1 : 0}]
     set fp [open "$::REPORTS_DIR/fill_merge_gds_summary.rpt" w]
     puts $fp "═══════════════════════════════════════════════════════════════════════════════"
     puts $fp "PV Post-Merge Fill Validation Summary — Siemens Calibre"
@@ -103,6 +110,7 @@ flow_proc report_fill_merge_gds {
     puts $fp "Runset:  [expr {$::fmg_runset eq {} ? {<copy-only>} : $::fmg_runset}]"
     puts $fp "Output:  $::fmg_out"
     puts $fp "Status:  $::fmg_status"
+    puts $fp "Density Violations Post-Fill: $::fmg_density_violations"
     close $fp
     handle_info "Report written: $::REPORTS_DIR/fill_merge_gds_summary.rpt"
 }
@@ -111,6 +119,9 @@ flow_proc fill_merge_gds_flow {
     flow_exec configure_fill_merge_gds
     flow_exec run_fill_merge_gds
     flow_exec report_fill_merge_gds
+    if {[info exists ::fmg_status] && $::fmg_status eq "FAIL"} {
+        handle_error "fill_merge_gds failed — see $::REPORTS_DIR/fill_merge_gds_summary.rpt"
+    }
 }
 if {[info exists argv0] && $argv0 eq [info script]} { flow_exec fill_merge_gds_flow } else { puts " PV fill_merge_gds procedures loaded" }
 exit

@@ -103,6 +103,62 @@ PHASE_ORDER = _phase_order()
 
 
 
+def _tcl_find_balanced_close(text: str, start: int, open_depth: int = 1) -> int:
+    """Find the index of the balanced closing `}` starting from `start`
+    with `open_depth` already open. Returns -1 on unbalanced.
+
+    Tokenizing walk (not just brace counting): skips Tcl `#` comments to
+    end-of-line, skips content inside `"..."` and `{...}` string literals,
+    and honors `\\` escapes. Necessary because add-check splices into a
+    file that legitimately contains braces inside quoted values (e.g.
+    `"criteria" "closing brace: }"`) and in trailing comments — a naive
+    counter would decrement on those and mis-terminate.
+    """
+    depth = open_depth
+    i = start
+    n = len(text)
+    while i < n and depth > 0:
+        c = text[i]
+        # `#` starts a comment ONLY when it begins a command — i.e. after
+        # a newline (possibly with leading whitespace) or at position 0.
+        # A `#` in the middle of a value is not a comment in Tcl.
+        if c == '#':
+            j = i - 1
+            while j >= 0 and text[j] in ' \t':
+                j -= 1
+            if j < 0 or text[j] == '\n':
+                # comment — skip to end of line (handling `\` line-continuation)
+                while i < n and text[i] != '\n':
+                    if text[i] == '\\' and i + 1 < n:
+                        i += 2
+                        continue
+                    i += 1
+                continue
+        if c == '"':
+            # double-quoted string — skip to matching close, honoring `\`
+            i += 1
+            while i < n and text[i] != '"':
+                if text[i] == '\\' and i + 1 < n:
+                    i += 2
+                    continue
+                i += 1
+            if i < n:
+                i += 1  # consume closing `"`
+            continue
+        if c == '\\' and i + 1 < n:
+            # escaped char anywhere else — skip both
+            i += 2
+            continue
+        if c == '{':
+            depth += 1
+        elif c == '}':
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return -1
+
+
 def get_exit_config_dir() -> str:
     """Get exit criteria config directory."""
     core_dir = get_cbflow_core_dir()
@@ -556,11 +612,33 @@ def _evaluate_checks(run_dir: str, checks: dict, waivered: set, phase: str = '')
         # Legacy schema: min_phase names a phase directly (P0..P3 / LCx / ...).
         req_raw = config.get('min_phase_index', config.get('min_phase'))
         if phase and req_raw is not None and str(req_raw).strip() != '':
+            # If the CURRENT phase itself is unknown to the project's phase
+            # list (config drift, renamed phase, unset env), we can't
+            # meaningfully compare against min_phase. Skip the check with an
+            # informative message rather than the previous behavior which
+            # returned _PHASE_INDEX_UNKNOWN for both sides, made them
+            # compare equal, and silently activated every unknown-phase
+            # check. That inverted the docstring's "defer" intent.
+            phase_order = _phase_order(run_dir)
+            phase_key = str(phase).strip().upper()
+            if phase_key and not phase_key.isdigit() and phase_key not in phase_order:
+                results.append({'name': name, 'status': 'SKIPPED',
+                                'detail': (f'Current phase {phase!r} not in project '
+                                           f'phase list {list(phase_order.keys())} '
+                                           f'— check deferred')})
+                continue
             cur = _phase_index(phase, run_dir=run_dir)
             req = _phase_index(req_raw, run_dir=run_dir)
-            if cur < req:
-                req_label = (req_raw if not str(req_raw).isdigit()
-                             else _phase_from_index(int(req_raw), run_dir=run_dir))
+            if cur < req or req >= _PHASE_INDEX_UNKNOWN:
+                # req >= UNKNOWN: the check's min_phase is not in the project
+                # list either — defer explicitly with the raw name (rather
+                # than showing "phase[10000]" from _phase_from_index).
+                if req >= _PHASE_INDEX_UNKNOWN:
+                    req_label = str(req_raw)
+                else:
+                    req_label = (req_raw if not str(req_raw).isdigit()
+                                 else _phase_from_index(int(req_raw),
+                                                        run_dir=run_dir))
                 results.append({'name': name, 'status': 'SKIPPED',
                                 'detail': f'Requires phase {req_label} (current: {phase})'})
                 continue
@@ -1244,27 +1322,22 @@ def cmd_add_check(args: argparse.Namespace) -> int:
         # match the FIRST `}` inside the first entry (same class of bug that
         # was fixed for mandatory_files in commit 10b1922); every subsequent
         # add-check would splice the new entry INSIDE the first check, then
-        # corrupt the TCL parse for the whole file.
+        # corrupt the TCL parse for the whole file. And a naive counter that
+        # ignores comments/strings will trip on legitimate Tcl like
+        #   "criteria" "closing brace: }"     ← quoted `}` shouldn't decrement
+        #   # trailing }                       ← comment `}` shouldn't decrement
+        # so we tokenize: skip `# ... \n` comments, skip content inside
+        # `"..."` and `{...}` string literals (with `\` escape handling).
         open_pat = rf'array\s+set\s+{re.escape(array_name)}\s+\{{'
         open_m = re.search(open_pat, content)
         if open_m:
             body_start = open_m.end()
-            depth = 1
-            i = body_start
-            while i < len(content) and depth > 0:
-                c = content[i]
-                if c == '{':
-                    depth += 1
-                elif c == '}':
-                    depth -= 1
-                    if depth == 0:
-                        break
-                i += 1
-            if depth != 0:
+            body_end = _tcl_find_balanced_close(content, body_start,
+                                                open_depth=1)
+            if body_end < 0:
                 raise ValueError(
                     f'unbalanced braces in {config_path}: '
                     f'array set {array_name} block never closed')
-            body_end = i           # points at the matching '}'
             existing = content[body_start:body_end].rstrip()
             content = (content[:body_start]
                        + f'{existing}\n{check_entry}'

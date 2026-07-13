@@ -127,6 +127,9 @@ flow_proc nettran_flow {
     flow_exec configure_nettran
     flow_exec run_nettran
     flow_exec report_nettran
+    if {[info exists ::nettran_status] && $::nettran_status eq "FAIL"} {
+        handle_error "nettran failed — see $::REPORTS_DIR/nettran_summary.rpt"
+    }
 }
 if {[info exists argv0] && $argv0 eq [info script]} { flow_exec nettran_flow } else { puts " PV nettran procedures loaded" }
 exit

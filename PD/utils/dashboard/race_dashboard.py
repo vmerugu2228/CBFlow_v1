@@ -314,9 +314,11 @@ class RaceDashboard:
         return edges
 
     def get_status(self) -> dict:
-        # Run file change detection on each status poll (lightweight check)
-        self._check_source_changes()
-
+        # Note: source-file change detection used to run here on every call.
+        # That side effect is now driven from the /api/status handler BEFORE
+        # the ETag cache check — if it stayed here, ETag-hit 304 responses
+        # would skip the whole get_status() call and source edits would
+        # never invalidate downstream nodes while the run was idle.
         conn = self._connect()
         if not conn:
             return {'run_info': {}, 'stages': [], 'summary': {}}
@@ -1088,9 +1090,17 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         elif path == '/grid':
             self._serve_template('grid.html')
         elif path == '/api/status':
-            # Pass the method itself, not its result — producer only runs on
-            # cache miss inside _json_response_cached, so 304s skip the whole
-            # get_status() call (DB open, SQL, tech-file reads, etc.).
+            # Source-change detection MUST run before the ETag check so an
+            # edit to user_config.tcl invalidates the affected jobs (which
+            # bumps DB mtime, which changes the ETag). If we only ran it
+            # inside get_status(), an ETag hit would 304 and the
+            # invalidation never fires while the run is idle.
+            try:
+                self.dashboard._check_source_changes()
+            except Exception as e:
+                logger.warning(f"_check_source_changes failed: {e}")
+            # Producer only runs on cache miss inside _json_response_cached,
+            # so 304s skip the whole get_status() call.
             self._json_response_cached(self.dashboard.get_status)
         elif path == '/api/dag':
             self._json_response_cached(self.dashboard.get_dag)
@@ -1408,6 +1418,9 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         from_stage = body.get('from_stage', '')
         # Use active running engine if available (so in-memory state is updated)
         engine = self._get_active_or_new_engine()
+        if engine is None:
+            return {'ok': False,
+                    'error': 'engine unavailable — check user_config.tcl and daemon logs'}
         if from_stage:
             engine.retrace(from_stage=from_stage)
             return {'ok': True, 'message': f'Retraced from {from_stage}'}
@@ -1418,6 +1431,9 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
     def _action_bypass(self, body):
         """Bypass stages or specific jobs. Updates active engine if one is running."""
         engine = self._get_active_or_new_engine()
+        if engine is None:
+            return {'ok': False,
+                    'error': 'engine unavailable — check user_config.tcl and daemon logs'}
         jobs = body.get('jobs', [])
         if jobs:
             if isinstance(jobs, str):
@@ -1589,6 +1605,9 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
     def _action_forcevalidate(self, body):
         """Force-validate stages or specific jobs. Updates active engine if one is running."""
         engine = self._get_active_or_new_engine()
+        if engine is None:
+            return {'ok': False,
+                    'error': 'engine unavailable — check user_config.tcl and daemon logs'}
         jobs = body.get('jobs', [])
         if jobs:
             if isinstance(jobs, str):

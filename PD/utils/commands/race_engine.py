@@ -437,23 +437,33 @@ class DagBuilder:
         custom_deps = {}
         cfg = getattr(self, '_resolved_cfg', None) or self._resolve_config()
 
+        # Recognized per-custom-node config keys. `resource_tier` was
+        # missing here — the tier cascade in _build_resource_map declares
+        # step 1 = "explicit runtime_flow_config resource_tier", but the
+        # loader never surfaced the key, so step 1 was dead code and any
+        # `cbflow run add-node --node place2 --resource-tier XL` silently
+        # fell through to base-stage inheritance or default_tier.
+        _NODE_KEYS = ('type', 'dependencies', 'branch_key', 'resource_tier')
+
         names = set()
         for key in cfg:
-            # stages,<name>,type | stages,<name>,dependencies | stages,<name>,branch_key
+            # stages,<name>,<attr>
             if key.startswith('stages,') and ',' in key[len('stages,'):]:
                 rest = key[len('stages,'):]
                 comma = rest.find(',')
-                if comma > 0 and rest[comma + 1:] in ('type', 'dependencies', 'branch_key'):
+                if comma > 0 and rest[comma + 1:] in _NODE_KEYS:
                     names.add(rest[:comma])
 
         for name in names:
             node_type = _cfg.optional(cfg, f'stages,{name},type') or ''
             dep       = _cfg.optional(cfg, f'stages,{name},dependencies') or ''
             branch    = _cfg.optional(cfg, f'stages,{name},branch_key') or ''
+            tier      = _cfg.optional(cfg, f'stages,{name},resource_tier') or ''
             custom_nodes[name] = {
                 'type': node_type,
                 'dependency': dep,
                 'branch_key': branch,
+                'resource_tier': tier,
             }
             custom_deps[name] = dep.split() if dep else []
 

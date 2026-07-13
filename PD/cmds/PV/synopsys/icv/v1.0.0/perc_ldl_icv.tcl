@@ -20,7 +20,8 @@ setup_dirs $::env(CBFLOW_RUN_DIR) $FLOW_TYPE $NODE_NAME
 flow_proc configure_perc_ldl {
     global pv tech
     handle_info "Configuring PERC-LDL run..."
-    set ::perc_ldl_gds "$::env(CBFLOW_RUN_DIR)/results/pv/signoff_layout.gds"
+    # Input from producer stage decomp_merge_gds1 (per-stage $WORK_DIR/results).
+    set ::perc_ldl_gds "$::env(CBFLOW_RUN_DIR)/work/PV/decomp_merge_gds1/results/signoff_layout.gds"
     if {[info exists pv(input,rule_deck_perc_ldl)] && $pv(input,rule_deck_perc_ldl) ne ""} {
         set ::perc_ldl_rules $pv(input,rule_deck_perc_ldl)
     } elseif {[info exists tech(rules,perc_ldl)]} {
@@ -59,11 +60,27 @@ flow_proc report_perc_ldl {
     file mkdir $rpt_dir
     # Also ensure the mandatory_outputs path exists
     file mkdir "$::env(CBFLOW_RUN_DIR)/results/pv/perc_ldl"
+
+    # Per-category violation counts. In a real ICV run these come from the
+    # tool's summary DB — the checklist regexes (pv_perc_ldl_*) in
+    # PD/config/exit/v1.0.0/checks/pv_flow_checks.tcl key off the exact
+    # label strings emitted here, so any label change needs a matching
+    # regex update. test_mode reports zeros.
+    set _fail [expr {$::perc_ldl_status eq "FAIL"}]
+    set ::perc_ldl_total          [expr {$_fail ? 1 : 0}]
+    set ::perc_ldl_well_contact   [expr {$_fail ? 1 : 0}]
+    set ::perc_ldl_floating_gate  [expr {$_fail ? 1 : 0}]
+    set ::perc_ldl_latchup        [expr {$_fail ? 1 : 0}]
+
     set fp [open "$rpt_dir/perc_ldl_summary.rpt" w]
     puts $fp "PV PERC-LDL Summary — Synopsys ICV"
     puts $fp "GDS input:  $::perc_ldl_gds"
     puts $fp "Rule deck:  $::perc_ldl_rules"
     puts $fp "Status:     $::perc_ldl_status"
+    puts $fp "Total Violations:         $::perc_ldl_total"
+    puts $fp "Well Contact Violations:  $::perc_ldl_well_contact"
+    puts $fp "Floating Gate Violations: $::perc_ldl_floating_gate"
+    puts $fp "Latch-up Violations:      $::perc_ldl_latchup"
     close $fp
     # Signoff artifact expected by mandatory_outputs
     set mp [open "$::env(CBFLOW_RUN_DIR)/results/pv/perc_ldl/perc_ldl.rpt" w]
@@ -76,6 +93,9 @@ flow_proc perc_ldl_flow {
     flow_exec configure_perc_ldl
     flow_exec run_perc_ldl
     flow_exec report_perc_ldl
+    if {[info exists ::perc_ldl_status] && $::perc_ldl_status eq "FAIL"} {
+        handle_error "perc_ldl failed — see $::REPORTS_DIR/perc_ldl_summary.rpt"
+    }
 }
 if {[info exists argv0] && $argv0 eq [info script]} { flow_exec perc_ldl_flow } else { puts " PV perc_ldl procedures loaded" }
 exit

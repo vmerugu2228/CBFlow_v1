@@ -129,6 +129,9 @@ flow_proc merge_gds_flow {
     flow_exec configure_merge_gds
     flow_exec run_merge_gds
     flow_exec report_merge_gds
+    if {[info exists ::merge_gds_status] && $::merge_gds_status eq "FAIL"} {
+        handle_error "merge_gds failed — see $::REPORTS_DIR/merge_gds_summary.rpt"
+    }
 }
 if {[info exists argv0] && $argv0 eq [info script]} { flow_exec merge_gds_flow } else { puts " PV merge_gds procedures loaded" }
 exit

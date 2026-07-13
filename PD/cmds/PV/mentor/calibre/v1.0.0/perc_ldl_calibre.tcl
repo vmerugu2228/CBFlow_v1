@@ -25,9 +25,10 @@ flow_proc configure_perc_ldl {
     global pv tech project
     handle_info "Configuring PERC-LDL run..."
 
-    # Post-signoff GDS from decomp_merge_gds1 — consistent with the other check
-    # stages which all share this artifact.
-    set ::perc_ldl_gds "$::env(CBFLOW_RUN_DIR)/results/pv/${::DESIGN_NAME}_signoff.gds"
+    # Post-signoff GDS from producer stage decomp_merge_gds1 (per-stage
+    # $WORK_DIR/results). The legacy shared $CBFLOW_RUN_DIR/results/pv/ path
+    # is no longer written to after the fill1/erc1 → new-DAG rework.
+    set ::perc_ldl_gds "$::env(CBFLOW_RUN_DIR)/work/PV/decomp_merge_gds1/results/${::DESIGN_NAME}_signoff.gds"
     if {![file exists $::perc_ldl_gds] && [info exists pv(input,gds)]} {
         set ::perc_ldl_gds $pv(input,gds)
     }
@@ -97,6 +98,18 @@ flow_proc run_perc_ldl {
 flow_proc report_perc_ldl {
     file mkdir $::REPORTS_DIR
     file mkdir "$::perc_ldl_out_dir"
+
+    # Per-category violation counts. In a real Calibre run these come from
+    # parsing the tool's SVDB — the checklist regexes (pv_perc_ldl_*)
+    # in PD/config/exit/v1.0.0/checks/pv_flow_checks.tcl key off the
+    # exact label strings emitted here, so any label change needs a
+    # matching regex update. test_mode reports zeros.
+    set _fail [expr {$::perc_ldl_status eq "FAIL"}]
+    set ::perc_ldl_total          [expr {$_fail ? 1 : 0}]
+    set ::perc_ldl_well_contact   [expr {$_fail ? 1 : 0}]
+    set ::perc_ldl_floating_gate  [expr {$_fail ? 1 : 0}]
+    set ::perc_ldl_latchup        [expr {$_fail ? 1 : 0}]
+
     set fp [open "$::REPORTS_DIR/perc_ldl_summary.rpt" w]
     puts $fp "═══════════════════════════════════════════════════════════════════════════════"
     puts $fp "PV PERC-LDL Summary — Siemens Calibre"
@@ -106,6 +119,10 @@ flow_proc report_perc_ldl {
     puts $fp "Runset:    $::perc_ldl_runset"
     puts $fp "Top cell:  $::perc_ldl_top"
     puts $fp "Status:    $::perc_ldl_status"
+    puts $fp "Total Violations:         $::perc_ldl_total"
+    puts $fp "Well Contact Violations:  $::perc_ldl_well_contact"
+    puts $fp "Floating Gate Violations: $::perc_ldl_floating_gate"
+    puts $fp "Latch-up Violations:      $::perc_ldl_latchup"
     close $fp
     # Signoff artifact expected by mandatory_outputs
     set mp [open "$::perc_ldl_out_dir/perc_ldl.rpt" w]
@@ -118,6 +135,9 @@ flow_proc perc_ldl_flow {
     flow_exec configure_perc_ldl
     flow_exec run_perc_ldl
     flow_exec report_perc_ldl
+    if {[info exists ::perc_ldl_status] && $::perc_ldl_status eq "FAIL"} {
+        handle_error "perc_ldl failed — see $::REPORTS_DIR/perc_ldl_summary.rpt"
+    }
 }
 if {[info exists argv0] && $argv0 eq [info script]} { flow_exec perc_ldl_flow } else { puts " PV perc_ldl procedures loaded" }
 exit

@@ -25,7 +25,8 @@ flow_proc configure_decomp {
     global pv tech project
     handle_info "Configuring mask decomposition (Calibre -mp)..."
 
-    set ::decomp_input "$::env(CBFLOW_RUN_DIR)/results/pv/${::DESIGN_NAME}_fill_verified.gds"
+    # Input from producer stage fill_merge_gds1 (per-stage $WORK_DIR/results).
+    set ::decomp_input "$::env(CBFLOW_RUN_DIR)/work/PV/fill_merge_gds1/results/${::DESIGN_NAME}_fill_verified.gds"
     if {![file exists $::decomp_input] && [info exists pv(input,gds)]} {
         set ::decomp_input $pv(input,gds)
     }
@@ -114,6 +115,9 @@ flow_proc decomp_flow {
     flow_exec configure_decomp
     flow_exec run_decomp
     flow_exec report_decomp
+    if {[info exists ::decomp_status] && $::decomp_status eq "FAIL"} {
+        handle_error "decomp failed — see $::REPORTS_DIR/decomp_summary.rpt"
+    }
 }
 if {[info exists argv0] && $argv0 eq [info script]} { flow_exec decomp_flow } else { puts " PV decomp procedures loaded" }
 exit

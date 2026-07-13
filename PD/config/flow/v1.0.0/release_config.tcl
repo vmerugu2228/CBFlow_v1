@@ -994,10 +994,15 @@ proc get_available_release_tags {category} {
         work/PV/drc1/reports/drc_summary.rpt
         work/PV/lvs1/reports/lvs_summary.rpt
     }
+    # PV,P1: DRC + LVS + netlist-prep + electrical-rule check. perc1 replaces
+    # the deleted erc1 stage as the electrical gate — dropping it entirely
+    # (as the fill1/erc1 removal did) would let a design pass P1 sign-off
+    # without any electrical rule verification (latch-up, ESD path, voltage).
     set release_exit_files(PV,P1) {
         work/PV/drc1/reports/drc_summary.rpt
         work/PV/lvs1/reports/lvs_summary.rpt
         work/PV/nettran1/reports/nettran_summary.rpt
+        work/PV/perc1/reports/perc_summary.rpt
     }
     set release_exit_files(PV,P2) {
         work/PV/drc1/reports/drc_summary.rpt
@@ -1389,7 +1394,7 @@ proc get_input_handshake {flow input_type} {
     set release_deliverables(STA,reports) {timing_summary.rpt mmmc_timing_summary.rpt}
     set release_deliverables(LEC,reports) {comparison_summary.rpt}
     set release_deliverables(CLP,reports) {power_verification_summary.rpt}
-    set release_deliverables(PV,reports) {drc_summary.rpt lvs_summary.rpt erc_summary.rpt}
+    set release_deliverables(PV,reports) {drc_summary.rpt lvs_summary.rpt perc_summary.rpt perc_ldl_summary.rpt}
     set release_deliverables(EMIR,reports) {power_summary.rpt ir_drop_summary.rpt}
 
 puts "INFO: Release configuration loaded — [array size release_exit_files] exit files, [array size release_tags] tags, [array size release_deliverables] deliverables"
