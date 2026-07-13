@@ -64,13 +64,25 @@ flow_proc report_perc_ldl {
     # Per-category violation counts. In a real ICV run these come from the
     # tool's summary DB — the checklist regexes (pv_perc_ldl_*) in
     # PD/config/exit/v1.0.0/checks/pv_flow_checks.tcl key off the exact
-    # label strings emitted here, so any label change needs a matching
-    # regex update. test_mode reports zeros.
-    set _fail [expr {$::perc_ldl_status eq "FAIL"}]
-    set ::perc_ldl_total          [expr {$_fail ? 1 : 0}]
-    set ::perc_ldl_well_contact   [expr {$_fail ? 1 : 0}]
-    set ::perc_ldl_floating_gate  [expr {$_fail ? 1 : 0}]
-    set ::perc_ldl_latchup        [expr {$_fail ? 1 : 0}]
+    # label strings emitted here.
+    #
+    # SKIPPED status (no runset available — the tool never ran) MUST emit
+    # a non-numeric marker so metric-parsing consumers don't misread the
+    # 0 as "0 violations, all clean". The consumer regex `([0-9]+)` won't
+    # match "N/A", so the check reports "metric not found" instead of a
+    # silent PASS.
+    if {$::perc_ldl_status eq "SKIPPED"} {
+        set ::perc_ldl_total          "N/A (runset unavailable)"
+        set ::perc_ldl_well_contact   "N/A (runset unavailable)"
+        set ::perc_ldl_floating_gate  "N/A (runset unavailable)"
+        set ::perc_ldl_latchup        "N/A (runset unavailable)"
+    } else {
+        set _fail [expr {$::perc_ldl_status eq "FAIL"}]
+        set ::perc_ldl_total          [expr {$_fail ? 1 : 0}]
+        set ::perc_ldl_well_contact   [expr {$_fail ? 1 : 0}]
+        set ::perc_ldl_floating_gate  [expr {$_fail ? 1 : 0}]
+        set ::perc_ldl_latchup        [expr {$_fail ? 1 : 0}]
+    }
 
     set fp [open "$rpt_dir/perc_ldl_summary.rpt" w]
     puts $fp "PV PERC-LDL Summary — Synopsys ICV"
@@ -93,9 +105,7 @@ flow_proc perc_ldl_flow {
     flow_exec configure_perc_ldl
     flow_exec run_perc_ldl
     flow_exec report_perc_ldl
-    if {[info exists ::perc_ldl_status] && $::perc_ldl_status eq "FAIL"} {
-        handle_error "perc_ldl failed — see $::REPORTS_DIR/perc_ldl_summary.rpt"
-    }
+    flow_fail_if_status ::perc_ldl_status "$::REPORTS_DIR/perc_ldl_summary.rpt"
 }
 if {[info exists argv0] && $argv0 eq [info script]} { flow_exec perc_ldl_flow } else { puts " PV perc_ldl procedures loaded" }
 exit

@@ -115,9 +115,7 @@ flow_proc decomp_flow {
     flow_exec configure_decomp
     flow_exec run_decomp
     flow_exec report_decomp
-    if {[info exists ::decomp_status] && $::decomp_status eq "FAIL"} {
-        handle_error "decomp failed — see $::REPORTS_DIR/decomp_summary.rpt"
-    }
+    flow_fail_if_status ::decomp_status "$::REPORTS_DIR/decomp_summary.rpt"
 }
 if {[info exists argv0] && $argv0 eq [info script]} { flow_exec decomp_flow } else { puts " PV decomp procedures loaded" }
 exit

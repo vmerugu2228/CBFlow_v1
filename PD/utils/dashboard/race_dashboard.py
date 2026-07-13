@@ -1095,13 +1095,27 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             # bumps DB mtime, which changes the ETag). If we only ran it
             # inside get_status(), an ETag hit would 304 and the
             # invalidation never fires while the run is idle.
+            source_check_error = None
             try:
                 self.dashboard._check_source_changes()
             except Exception as e:
-                logger.warning(f"_check_source_changes failed: {e}")
-            # Producer only runs on cache miss inside _json_response_cached,
-            # so 304s skip the whole get_status() call.
-            self._json_response_cached(self.dashboard.get_status)
+                # A silently-eaten exception here defeats the whole point
+                # of the invalidation restore: 304 responses persist and
+                # source edits never propagate. Log at ERROR and expose
+                # the exception so the endpoint returns fresh (skip cache)
+                # AND the client sees a hint in the payload. Force
+                # `no_cache=True` so the ETag branch doesn't 304 on stale
+                # state that failed to be invalidated.
+                source_check_error = str(e)
+                logger.error(
+                    f"_check_source_changes raised — invalidation not "
+                    f"performed for this poll; forcing fresh response: {e}",
+                    exc_info=True)
+            self._json_response_cached(
+                self.dashboard.get_status,
+                no_cache=source_check_error is not None,
+                extra={'_source_check_error': source_check_error}
+                       if source_check_error else None)
         elif path == '/api/dag':
             self._json_response_cached(self.dashboard.get_dag)
         elif path == '/api/jobs':
@@ -2018,7 +2032,8 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             return ''
         return hashlib.sha1(key.encode()).hexdigest()[:16]
 
-    def _json_response_cached(self, producer, status=200):
+    def _json_response_cached(self, producer, status=200,
+                              no_cache=False, extra=None):
         """JSON response with ETag / If-None-Match support.
 
         `producer` MUST be a zero-arg callable that materializes the payload.
@@ -2031,11 +2046,17 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
              and "compute etag" could leave the client caching (stale-data,
              new-etag) — which used to persist stale data indefinitely.
 
+        `no_cache=True` bypasses the 304 branch entirely — used when the
+        caller has already detected stale invariants (e.g. source-change
+        detection raised, so the DB may not have been invalidated yet).
+        `extra` is a dict merged into the response payload — used to carry
+        diagnostic keys (e.g. `_source_check_error`) back to the client.
+
         Backwards-compat: if a non-callable is passed (legacy call site),
         treat it as pre-materialized data and skip the producer branch.
         """
         etag = self._db_etag()
-        if etag:
+        if etag and not no_cache:
             client_etag = self.headers.get('If-None-Match', '').strip('"')
             if client_etag and client_etag == etag:
                 self.send_response(304)
@@ -2046,13 +2067,19 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 return
         # Materialize the payload after we've committed to a cache miss.
         data = producer() if callable(producer) else producer
+        if extra and isinstance(data, dict):
+            data = {**data, **extra}
         body = json.dumps(data, default=str).encode()
         self.send_response(status)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')
-        if etag:
+        if etag and not no_cache:
             self.send_header('ETag', f'"{etag}"')
             self.send_header('Cache-Control', 'no-cache')
+        elif no_cache:
+            # Explicitly tell the client not to cache — matches the
+            # semantics of the payload-embedded error hint.
+            self.send_header('Cache-Control', 'no-store')
         self.end_headers()
         self.wfile.write(body)
 

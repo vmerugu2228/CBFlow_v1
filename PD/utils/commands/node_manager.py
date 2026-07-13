@@ -107,9 +107,13 @@ class NodeManager:
 
         for name in node_names:
             self.custom_nodes[name] = {
-                'type':         _parse_tcl_string(_cfg.optional(cfg, f'stages,{name},type') or ''),
-                'dependencies': _parse_tcl_string(_cfg.optional(cfg, f'stages,{name},dependencies') or ''),
-                'branch_key':   _parse_tcl_string(_cfg.optional(cfg, f'stages,{name},branch_key') or ''),
+                'type':          _parse_tcl_string(_cfg.optional(cfg, f'stages,{name},type') or ''),
+                'dependencies':  _parse_tcl_string(_cfg.optional(cfg, f'stages,{name},dependencies') or ''),
+                'branch_key':    _parse_tcl_string(_cfg.optional(cfg, f'stages,{name},branch_key') or ''),
+                # resource_tier: kept in sync with race_engine._load_runtime_custom_nodes
+                # (which reads the same key) so add_node → save → reload round-trips
+                # preserve the tier instead of silently dropping it on the next mutation.
+                'resource_tier': _parse_tcl_string(_cfg.optional(cfg, f'stages,{name},resource_tier') or ''),
             }
 
         # Extract branches: keys like "branch_keys,abc123,name"
@@ -151,6 +155,11 @@ class NodeManager:
             lines.append(f'    stages,{name},dependencies {info.get("dependencies", "")}')
             if info.get('branch_key'):
                 lines.append(f'    stages,{name},branch_key {info["branch_key"]}')
+            # Preserve resource_tier round-trip. Only emit non-empty values so
+            # the file stays clean for nodes that inherit from base-stage or
+            # default_queue_type.
+            if info.get('resource_tier'):
+                lines.append(f'    stages,{name},resource_tier {info["resource_tier"]}')
 
         # Write branches
         for bkey, info in sorted(self.branches.items()):

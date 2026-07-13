@@ -2097,6 +2097,16 @@ function apiAction(action, body) {
       alert(data.error.replace(/; /g, '\n'));
       return;
     }
+    // ok:false means the action was refused (e.g. engine unavailable —
+    // user_config.tcl broken, daemon can't materialize the engine).
+    // Surface the error and DO NOT churn DAG/tree state or schedule
+    // refreshes — the invalidation would mask the real failure and can
+    // duplicate no-op requests if the user re-clicks. Matches
+    // grid.html / dag.html which already early-return on !res.ok.
+    if (data.ok === false) {
+      showToast(data.error || 'Action refused', 'error');
+      return;
+    }
     showToast(data.message || data.error, data.error ? 'error' : 'success');
     // Only rebuild on structural changes (add/delete node, branch)
     var isStructural = ['add-node','delete-node','create-branch','delete-branch','rename-node'].indexOf(action) !== -1;

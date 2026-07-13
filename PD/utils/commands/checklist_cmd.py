@@ -107,35 +107,53 @@ def _tcl_find_balanced_close(text: str, start: int, open_depth: int = 1) -> int:
     """Find the index of the balanced closing `}` starting from `start`
     with `open_depth` already open. Returns -1 on unbalanced.
 
-    Tokenizing walk (not just brace counting): skips Tcl `#` comments to
-    end-of-line, skips content inside `"..."` and `{...}` string literals,
-    and honors `\\` escapes. Necessary because add-check splices into a
-    file that legitimately contains braces inside quoted values (e.g.
-    `"criteria" "closing brace: }"`) and in trailing comments — a naive
-    counter would decrement on those and mis-terminate.
+    Tokenizing walk (not just brace counting). Handles:
+      - `#` comments to end-of-line, after a command-terminator
+        (newline OR `;`, plus BOF and after `[` / `{`). DOS `\\r\\n`
+        line endings supported.
+      - `\\` escapes anywhere (including inside strings).
+      - `"..."` double-quoted strings ONLY when they appear at a
+        command-word boundary. A bare `"` inside a `{...}` block
+        (Tcl-legal literal character) is NOT treated as a string
+        opener — otherwise a value like `{6" wafer}` would eat the
+        whole rest of the file looking for a matching quote.
+
+    Necessary because cmd_add_check splices into a Tcl file that
+    legitimately contains braces inside quoted values (`"criteria"
+    "closing brace: }"`) and trailing comments — a naive counter
+    would decrement on those and mis-terminate.
     """
     depth = open_depth
     i = start
     n = len(text)
+
+    def _is_command_boundary(j: int) -> bool:
+        # A command starts after a newline, `;`, BOF, or an unclosed
+        # `[` / `{`. Strings and comments only *begin* at boundaries.
+        k = j - 1
+        while k >= 0 and text[k] in ' \t':
+            k -= 1
+        if k < 0:
+            return True
+        return text[k] in ('\n', '\r', ';', '[', '{')
+
     while i < n and depth > 0:
         c = text[i]
-        # `#` starts a comment ONLY when it begins a command — i.e. after
-        # a newline (possibly with leading whitespace) or at position 0.
-        # A `#` in the middle of a value is not a comment in Tcl.
-        if c == '#':
-            j = i - 1
-            while j >= 0 and text[j] in ' \t':
-                j -= 1
-            if j < 0 or text[j] == '\n':
-                # comment — skip to end of line (handling `\` line-continuation)
-                while i < n and text[i] != '\n':
-                    if text[i] == '\\' and i + 1 < n:
+        # Comment: `#` at a command boundary → skip to end-of-line,
+        # honoring `\` line-continuation and CRLF endings.
+        if c == '#' and _is_command_boundary(i):
+            while i < n and text[i] not in ('\n', '\r'):
+                if text[i] == '\\' and i + 1 < n:
+                    # `\` before newline continues the comment
+                    if text[i + 1] in ('\n', '\r'):
                         i += 2
                         continue
-                    i += 1
-                continue
-        if c == '"':
-            # double-quoted string — skip to matching close, honoring `\`
+                    i += 2
+                    continue
+                i += 1
+            continue
+        # Double-quoted string: only at command boundary.
+        if c == '"' and _is_command_boundary(i):
             i += 1
             while i < n and text[i] != '"':
                 if text[i] == '\\' and i + 1 < n:
@@ -146,7 +164,6 @@ def _tcl_find_balanced_close(text: str, start: int, open_depth: int = 1) -> int:
                 i += 1  # consume closing `"`
             continue
         if c == '\\' and i + 1 < n:
-            # escaped char anywhere else — skip both
             i += 2
             continue
         if c == '{':
@@ -621,11 +638,35 @@ def _evaluate_checks(run_dir: str, checks: dict, waivered: set, phase: str = '')
             # check. That inverted the docstring's "defer" intent.
             phase_order = _phase_order(run_dir)
             phase_key = str(phase).strip().upper()
-            if phase_key and not phase_key.isdigit() and phase_key not in phase_order:
-                results.append({'name': name, 'status': 'SKIPPED',
-                                'detail': (f'Current phase {phase!r} not in project '
-                                           f'phase list {list(phase_order.keys())} '
-                                           f'— check deferred')})
+            # Two distinct kinds of "can't compare against min_phase" —
+            # they need DIFFERENT verdicts in the sign-off gate downstream:
+            #  1. phase-name-unknown: `phase='LCX'` on a P0..P3 project.
+            #     The project(phases) list either drifted or the run's
+            #     phase env is corrupt. → CONFIG_ERROR (blocks sign-off).
+            #  2. numeric-out-of-range: `phase='99'` on a P0..P3 project.
+            #     Same category — a numeric ordinal past the last real
+            #     phase is meaningless. `_phase_index` short-circuits
+            #     `s.isdigit()` to `int(s)` without validating, so we
+            #     have to catch it here.
+            #  3. current phase valid, check's min_phase is unknown/late
+            #     → SKIPPED (defer; treated as pass in sign-off).
+            #  4. current phase valid, check's min_phase not yet reached
+            #     → SKIPPED (defer; treated as pass in sign-off).
+            phase_known = False
+            if phase_key:
+                if phase_key.isdigit():
+                    # Numeric ordinal — must fall within the project's phase list.
+                    idx = int(phase_key)
+                    phase_known = 0 <= idx < len(phase_order)
+                else:
+                    phase_known = phase_key in phase_order
+            if not phase_known:
+                results.append({
+                    'name': name, 'status': 'CONFIG_ERROR',
+                    'detail': (f'Current phase {phase!r} not in project '
+                               f'phase list {list(phase_order.keys())} '
+                               f'— cannot evaluate min_phase; fix '
+                               f'project(phases) or the run\'s phase env')})
                 continue
             cur = _phase_index(phase, run_dir=run_dir)
             req = _phase_index(req_raw, run_dir=run_dir)
@@ -974,6 +1015,11 @@ def cmd_signoff(args: argparse.Namespace) -> int:
                 'type': ctype, 'status': r['status'],
                 'description': src.get(r['name'], {}).get('description', ''),
             }
+            # SKIPPED (phase not yet reached / min_phase unknown but current
+            # phase valid) counts as pass — the check is legitimately deferred.
+            # CONFIG_ERROR (current phase itself unknown / out of range) does
+            # NOT count as pass — we cannot sign off a milestone when we
+            # don't even know what phase the run is in.
             if ctype == 'mandatory' and r['status'] not in ('PASS', 'WAIVED', 'SKIPPED'):
                 all_passed = False
 
@@ -1242,6 +1288,17 @@ def cmd_add_check(args: argparse.Namespace) -> int:
     check_type = args.check_type  # mandatory or optional
     description = args.description or f"Check: {check_name}"
 
+    # Every user-provided field below is spliced into a Tcl `"..."` string
+    # literal. Without escaping, an embedded `"` closes the string early
+    # and the next unrecognized token blows the parse of the WHOLE config
+    # file — corrupting every check for this milestone until hand-repair.
+    # A `\` before a special char likewise re-triggers Tcl's own escape
+    # processing (e.g. `\n` becomes a newline mid-attribute). Escape both.
+    def _tcl_quote(s: str) -> str:
+        if s is None:
+            return ''
+        return str(s).replace('\\', '\\\\').replace('"', '\\"')
+
     # Check if name already exists
     if f'"{check_name}"' in content:
         logger.error(f"Check '{check_name}' already exists in {milestone}. Remove it first or use a different name.")
@@ -1250,7 +1307,7 @@ def cmd_add_check(args: argparse.Namespace) -> int:
     # ── Build the check entry ────────────────────────────────────────────
     if args.file_path:
         # File existence check — add to mandatory_files
-        file_path = args.file_path
+        file_path = _tcl_quote(args.file_path)
         # Find the `set mandatory_files {` opening and locate its MATCHING
         # close-brace via balanced-brace counting. A simple non-greedy
         # `(.*?)\}` would stop at the first `}` inside the list — which is
@@ -1288,31 +1345,31 @@ def cmd_add_check(args: argparse.Namespace) -> int:
             logger.info(f'Created mandatory_files with: "{file_path}"')
 
     else:
-        # Script or grep check
+        # Script or grep check. All values escaped for Tcl `"..."` context.
         script = args.script or ""
         criteria = args.criteria or ""
 
         # Build check fields
-        fields = f'        "description" "{description}"\n'
+        fields = f'        "description" "{_tcl_quote(description)}"\n'
         if script:
-            fields += f'        "script" "{script}"\n'
+            fields += f'        "script" "{_tcl_quote(script)}"\n'
         if criteria:
-            fields += f'        "criteria" "{criteria}"\n'
+            fields += f'        "criteria" "{_tcl_quote(criteria)}"\n'
 
         # Grep-based check — encode grep info in script/criteria
         if args.grep_file:
             grep_file = args.grep_file
             grep_pattern = args.grep_pattern or ""
             grep_pass_if = args.grep_pass_if or "found"  # "found" or "not_found"
-            fields += f'        "grep_file" "{grep_file}"\n'
-            fields += f'        "grep_pattern" "{grep_pattern}"\n'
-            fields += f'        "grep_pass_if" "{grep_pass_if}"\n'
+            fields += f'        "grep_file" "{_tcl_quote(grep_file)}"\n'
+            fields += f'        "grep_pattern" "{_tcl_quote(grep_pattern)}"\n'
+            fields += f'        "grep_pass_if" "{_tcl_quote(grep_pass_if)}"\n'
             if not script:
                 fields += f'        "script" "grep_check"\n'
             if not criteria:
-                fields += f'        "criteria" "grep {grep_pass_if}: {grep_pattern}"\n'
+                fields += f'        "criteria" "grep {_tcl_quote(grep_pass_if)}: {_tcl_quote(grep_pattern)}"\n'
 
-        check_entry = f'    "{check_name}" {{\n{fields}    }}\n'
+        check_entry = f'    "{_tcl_quote(check_name)}" {{\n{fields}    }}\n'
 
         # Find the right array block and append
         array_name = 'mandatory_checks' if check_type == 'mandatory' else 'optional_checks'

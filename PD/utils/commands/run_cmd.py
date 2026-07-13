@@ -159,18 +159,29 @@ def load_custom_nodes_from_runtime_config() -> dict:
         if not match:
             return result
 
-        # Find the matching closing brace
-        start_pos = match.end()
-        brace_count = 1
-        end_pos = start_pos
-        while end_pos < len(content) and brace_count > 0:
-            if content[end_pos] == '{':
-                brace_count += 1
-            elif content[end_pos] == '}':
-                brace_count -= 1
-            end_pos += 1
-
-        array_content = content[start_pos:end_pos-1]
+        # Find the matching closing brace. Use the same tokenizing walker as
+        # checklist_cmd._tcl_find_balanced_close so a legitimate `}` inside a
+        # quoted value or trailing `# ... }` comment doesn't mis-terminate.
+        # (The bug fixed for checklist_cmd's naive counter also applied here.)
+        try:
+            from checklist_cmd import _tcl_find_balanced_close as _tclbal
+            end_pos_1based = _tclbal(content, match.end(), open_depth=1)
+            if end_pos_1based < 0:
+                return result
+            end_pos = end_pos_1based + 1     # +1 to match old post-inc semantics
+        except ImportError:
+            # Fallback: old naive counter. Only reached if checklist_cmd is
+            # unavailable at import time (should not happen in normal cbflow).
+            start_pos = match.end()
+            brace_count = 1
+            end_pos = start_pos
+            while end_pos < len(content) and brace_count > 0:
+                if content[end_pos] == '{':
+                    brace_count += 1
+                elif content[end_pos] == '}':
+                    brace_count -= 1
+                end_pos += 1
+        array_content = content[match.end():end_pos-1]
 
         # Parse key-value pairs from TCL array
         # Format: key value (may have braces for values with spaces)
@@ -229,6 +240,11 @@ def load_custom_nodes_from_runtime_config() -> dict:
                     result['nodes'][node_name]['dependencies'] = value.split() if value else []
                 elif attribute == 'branch_key':
                     result['nodes'][node_name]['branch_key'] = value
+                elif attribute == 'resource_tier':
+                    # Kept in sync with race_engine._load_runtime_custom_nodes
+                    # and node_manager._load_runtime_config, both of which
+                    # already surface this key.
+                    result['nodes'][node_name]['resource_tier'] = value
                 continue
 
             # Parse branch_keys,<branch_key>,<attribute>

@@ -631,6 +631,30 @@ proc _cbflow_test_mode_enable {} {
     }
 }
 
+# ────────────────────────────────────────────────────────────────────────────
+# flow_fail_if_status VARNAME REPORT_PATH
+# ────────────────────────────────────────────────────────────────────────────
+# Test_mode-safe failure propagation. Called at the tail of every <stage>_flow
+# proc to translate a run_<stage> that used handle_warning into a real RACE
+# failure. The plain `handle_error` path is not enough here: in test_mode,
+# handle_error `return -code error`s, and the enclosing flow_exec wraps its
+# body in `catch`, so the process still exits 0 and RACE marks the job PASS.
+#
+# This helper bypasses that catch by using `_cbflow_saved_exit` — the REAL
+# exit that _cbflow_test_mode_enable renames when it installs the test-mode
+# no-op stub. Whichever mode we're in, we call the actual exit(1), so RACE
+# always observes a non-zero return.
+proc flow_fail_if_status {status_var report_path} {
+    upvar #0 $status_var _s
+    if {![info exists _s] || $_s ne "FAIL"} { return }
+    puts stderr "✗ \[CBFlow_ERROR\] $status_var eq FAIL — see $report_path"
+    if {[info commands _cbflow_saved_exit] ne ""} {
+        _cbflow_saved_exit 1
+    } else {
+        exit 1
+    }
+}
+
 proc _cbflow_test_mode_disable {} {
     # Remove interceptor and restore original unknown
     if {[info commands unknown] ne ""} {

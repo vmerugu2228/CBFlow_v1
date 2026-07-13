@@ -1002,20 +1002,20 @@ proc get_available_release_tags {category} {
         work/PV/drc1/reports/drc_summary.rpt
         work/PV/lvs1/reports/lvs_summary.rpt
         work/PV/nettran1/reports/nettran_summary.rpt
-        work/PV/perc1/reports/perc_summary.rpt
+        work/PV/perc1/reports/perc_results.rpt
     }
     set release_exit_files(PV,P2) {
         work/PV/drc1/reports/drc_summary.rpt
         work/PV/lvs1/reports/lvs_summary.rpt
         work/PV/nettran1/reports/nettran_summary.rpt
-        work/PV/perc1/reports/perc_summary.rpt
+        work/PV/perc1/reports/perc_results.rpt
         work/PV/fill_merge_gds1/reports/fill_merge_gds_summary.rpt
     }
     set release_exit_files(PV,P3) {
         work/PV/drc1/reports/drc_summary.rpt
         work/PV/lvs1/reports/lvs_summary.rpt
         work/PV/nettran1/reports/nettran_summary.rpt
-        work/PV/perc1/reports/perc_summary.rpt
+        work/PV/perc1/reports/perc_results.rpt
         work/PV/perc_ldl1/reports/perc_ldl_summary.rpt
         work/PV/xor1/reports/xor_summary.rpt
         work/PV/fill_merge_gds1/reports/fill_merge_gds_summary.rpt
@@ -1026,14 +1026,14 @@ proc get_available_release_tags {category} {
         work/PV/drc1/reports/drc_summary.rpt
         work/PV/lvs1/reports/lvs_summary.rpt
         work/PV/nettran1/reports/nettran_summary.rpt
-        work/PV/perc1/reports/perc_summary.rpt
+        work/PV/perc1/reports/perc_results.rpt
         work/PV/fill_merge_gds1/reports/fill_merge_gds_summary.rpt
     }
     set release_exit_files(PV,BTO,P3) {
         work/PV/drc1/reports/drc_summary.rpt
         work/PV/lvs1/reports/lvs_summary.rpt
         work/PV/nettran1/reports/nettran_summary.rpt
-        work/PV/perc1/reports/perc_summary.rpt
+        work/PV/perc1/reports/perc_results.rpt
         work/PV/perc_ldl1/reports/perc_ldl_summary.rpt
         work/PV/xor1/reports/xor_summary.rpt
         work/PV/fill_merge_gds1/reports/fill_merge_gds_summary.rpt
@@ -1044,14 +1044,14 @@ proc get_available_release_tags {category} {
         work/PV/drc1/reports/drc_summary.rpt
         work/PV/lvs1/reports/lvs_summary.rpt
         work/PV/nettran1/reports/nettran_summary.rpt
-        work/PV/perc1/reports/perc_summary.rpt
+        work/PV/perc1/reports/perc_results.rpt
         work/PV/fill_merge_gds1/reports/fill_merge_gds_summary.rpt
     }
     set release_exit_files(PV,MTO,P3) {
         work/PV/drc1/reports/drc_summary.rpt
         work/PV/lvs1/reports/lvs_summary.rpt
         work/PV/nettran1/reports/nettran_summary.rpt
-        work/PV/perc1/reports/perc_summary.rpt
+        work/PV/perc1/reports/perc_results.rpt
         work/PV/perc_ldl1/reports/perc_ldl_summary.rpt
         work/PV/xor1/reports/xor_summary.rpt
         work/PV/fill_merge_gds1/reports/fill_merge_gds_summary.rpt
@@ -1394,7 +1394,7 @@ proc get_input_handshake {flow input_type} {
     set release_deliverables(STA,reports) {timing_summary.rpt mmmc_timing_summary.rpt}
     set release_deliverables(LEC,reports) {comparison_summary.rpt}
     set release_deliverables(CLP,reports) {power_verification_summary.rpt}
-    set release_deliverables(PV,reports) {drc_summary.rpt lvs_summary.rpt perc_summary.rpt perc_ldl_summary.rpt}
+    set release_deliverables(PV,reports) {drc_summary.rpt lvs_summary.rpt perc_results.rpt perc_ldl_summary.rpt}
     set release_deliverables(EMIR,reports) {power_summary.rpt ir_drop_summary.rpt}
 
 puts "INFO: Release configuration loaded — [array size release_exit_files] exit files, [array size release_tags] tags, [array size release_deliverables] deliverables"

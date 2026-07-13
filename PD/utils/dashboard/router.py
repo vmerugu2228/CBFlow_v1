@@ -1587,6 +1587,18 @@ def _render_run_rows(runs):
         # subnode-handler output, project / design from user_config). The
         # colors + rid + flow tokens are internal constants — no escape.
         _e = lambda s: _html.escape(str(s), quote=True)
+        # HTML-attribute-context escape (`&#x27;` etc.) is decoded back to
+        # `'` by the HTML parser BEFORE the JS parser sees an `onclick`
+        # attribute's value — so `_e` alone does NOT protect a JS-string
+        # context. For values interpolated inside JS string literals in
+        # an event handler, use `_js` — json.dumps produces a properly
+        # escaped JS string literal (with surrounding quotes) that resists
+        # both HTML entity decoding and JS-escape re-interpretation.
+        def _js(s):
+            # json.dumps + attribute-safe HTML escape. The resulting
+            # attribute-value bytes decode to a valid JS string literal
+            # regardless of what characters were in `s`.
+            return _html.escape(json.dumps(str(s)), quote=True)
         flow_html      = _e(flow)
         rid_html       = _e(rid)
         name_html      = _e(name)
@@ -1642,7 +1654,7 @@ def _render_run_rows(runs):
             f'<td class="rt-cell">{runtime_html}</td>'
             f'<td class="dir">{run_dir_html}</td>'
             f'<td><button class="danger" '
-            f'onclick="deregisterRun(\'{rid_html}\')">Deregister</button></td>'
+            f'onclick="deregisterRun({_js(rid)})">Deregister</button></td>'
             f'</tr>'
         )
     return '\n'.join(out)

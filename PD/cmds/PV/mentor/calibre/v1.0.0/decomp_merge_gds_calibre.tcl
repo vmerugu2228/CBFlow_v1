@@ -118,9 +118,7 @@ flow_proc decomp_merge_gds_flow {
     flow_exec configure_decomp_merge_gds
     flow_exec run_decomp_merge_gds
     flow_exec report_decomp_merge_gds
-    if {[info exists ::dm_status] && $::dm_status eq "FAIL"} {
-        handle_error "decomp_merge_gds failed — see $::REPORTS_DIR/decomp_merge_gds_summary.rpt"
-    }
+    flow_fail_if_status ::dm_status "$::REPORTS_DIR/decomp_merge_gds_summary.rpt"
 }
 if {[info exists argv0] && $argv0 eq [info script]} { flow_exec decomp_merge_gds_flow } else { puts " PV decomp_merge_gds procedures loaded" }
 exit

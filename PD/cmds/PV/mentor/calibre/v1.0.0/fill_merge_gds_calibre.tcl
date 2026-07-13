@@ -119,9 +119,7 @@ flow_proc fill_merge_gds_flow {
     flow_exec configure_fill_merge_gds
     flow_exec run_fill_merge_gds
     flow_exec report_fill_merge_gds
-    if {[info exists ::fmg_status] && $::fmg_status eq "FAIL"} {
-        handle_error "fill_merge_gds failed — see $::REPORTS_DIR/fill_merge_gds_summary.rpt"
-    }
+    flow_fail_if_status ::fmg_status "$::REPORTS_DIR/fill_merge_gds_summary.rpt"
 }
 if {[info exists argv0] && $argv0 eq [info script]} { flow_exec fill_merge_gds_flow } else { puts " PV fill_merge_gds procedures loaded" }
 exit

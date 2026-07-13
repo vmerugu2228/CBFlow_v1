@@ -97,12 +97,7 @@ flow_proc nettran_flow {
     flow_exec run_nettran
     flow_exec report_nettran
     handle_info "PV netlist translation completed"
-    # Propagate failure to RACE: run_nettran uses handle_warning so the
-    # report step still runs, but we must exit non-zero here or RACE marks
-    # the job PASS while ICV actually crashed.
-    if {[info exists ::nettran_status] && $::nettran_status eq "FAIL"} {
-        handle_error "nettran failed — see $::REPORTS_DIR/nettran_summary.rpt"
-    }
+    flow_fail_if_status ::nettran_status "$::REPORTS_DIR/nettran_summary.rpt"
 }
 if {[info exists argv0] && $argv0 eq [info script]} { flow_exec nettran_flow } else { puts " PV nettran procedures loaded" }
 exit

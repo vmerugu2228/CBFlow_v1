@@ -26,11 +26,17 @@ flow_proc configure_perc_ldl {
     handle_info "Configuring PERC-LDL run..."
 
     # Post-signoff GDS from producer stage decomp_merge_gds1 (per-stage
-    # $WORK_DIR/results). The legacy shared $CBFLOW_RUN_DIR/results/pv/ path
-    # is no longer written to after the fill1/erc1 → new-DAG rework.
+    # $WORK_DIR/results). The legacy shared $CBFLOW_RUN_DIR/results/pv/
+    # path is no longer written to after the fill1/erc1 → new-DAG rework.
+    #
+    # NO fallback to pv(input,gds) — that is the raw pre-fill, pre-decomp
+    # layout. Running latch-up analysis on it silently gives a "clean"
+    # result for a check that must verify the POST-fill electrical
+    # topology. Fail loudly if the producer output is missing so the real
+    # upstream problem surfaces instead of a phantom PASS at sign-off.
     set ::perc_ldl_gds "$::env(CBFLOW_RUN_DIR)/work/PV/decomp_merge_gds1/results/${::DESIGN_NAME}_signoff.gds"
-    if {![file exists $::perc_ldl_gds] && [info exists pv(input,gds)]} {
-        set ::perc_ldl_gds $pv(input,gds)
+    if {![file exists $::perc_ldl_gds] && ![info exists ::flow(test_mode)]} {
+        handle_error "perc_ldl input GDS missing: $::perc_ldl_gds — decomp_merge_gds1 must run first"
     }
 
     # LDL-specific SVRF runset. Resolution (matches DRC's convention):
@@ -102,13 +108,25 @@ flow_proc report_perc_ldl {
     # Per-category violation counts. In a real Calibre run these come from
     # parsing the tool's SVDB — the checklist regexes (pv_perc_ldl_*)
     # in PD/config/exit/v1.0.0/checks/pv_flow_checks.tcl key off the
-    # exact label strings emitted here, so any label change needs a
-    # matching regex update. test_mode reports zeros.
-    set _fail [expr {$::perc_ldl_status eq "FAIL"}]
-    set ::perc_ldl_total          [expr {$_fail ? 1 : 0}]
-    set ::perc_ldl_well_contact   [expr {$_fail ? 1 : 0}]
-    set ::perc_ldl_floating_gate  [expr {$_fail ? 1 : 0}]
-    set ::perc_ldl_latchup        [expr {$_fail ? 1 : 0}]
+    # exact label strings emitted here.
+    #
+    # SKIPPED status (no runset available — the tool never ran) MUST emit
+    # a non-numeric marker so metric-parsing consumers can't misread 0 as
+    # "0 violations, all clean". The consumer regex `([0-9]+)` won't
+    # match "N/A", so the check reports "metric not found" instead of a
+    # silent PASS.
+    if {$::perc_ldl_status eq "SKIPPED"} {
+        set ::perc_ldl_total          "N/A (runset unavailable)"
+        set ::perc_ldl_well_contact   "N/A (runset unavailable)"
+        set ::perc_ldl_floating_gate  "N/A (runset unavailable)"
+        set ::perc_ldl_latchup        "N/A (runset unavailable)"
+    } else {
+        set _fail [expr {$::perc_ldl_status eq "FAIL"}]
+        set ::perc_ldl_total          [expr {$_fail ? 1 : 0}]
+        set ::perc_ldl_well_contact   [expr {$_fail ? 1 : 0}]
+        set ::perc_ldl_floating_gate  [expr {$_fail ? 1 : 0}]
+        set ::perc_ldl_latchup        [expr {$_fail ? 1 : 0}]
+    }
 
     set fp [open "$::REPORTS_DIR/perc_ldl_summary.rpt" w]
     puts $fp "═══════════════════════════════════════════════════════════════════════════════"
@@ -135,9 +153,7 @@ flow_proc perc_ldl_flow {
     flow_exec configure_perc_ldl
     flow_exec run_perc_ldl
     flow_exec report_perc_ldl
-    if {[info exists ::perc_ldl_status] && $::perc_ldl_status eq "FAIL"} {
-        handle_error "perc_ldl failed — see $::REPORTS_DIR/perc_ldl_summary.rpt"
-    }
+    flow_fail_if_status ::perc_ldl_status "$::REPORTS_DIR/perc_ldl_summary.rpt"
 }
 if {[info exists argv0] && $argv0 eq [info script]} { flow_exec perc_ldl_flow } else { puts " PV perc_ldl procedures loaded" }
 exit
