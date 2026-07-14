@@ -24,10 +24,25 @@ _sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..
 _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.paths import CBFLOW_VERSION as VERSION, get_cbflow_core_dir, get_flow_config_version
 
-# Valid flow types - loaded from existing Tcl config files
+# Valid flow types - loaded lazily via module `__getattr__` (PEP 562).
+# The resolver requires CBFLOW_CORE_DIR/FLOW_DIR/CONFIG_ROOT env vars
+# set by cbflow's launcher; a bare `import workspace_cmd` from tooling
+# (healthcheck, IDE, autodocs, tests) without that environment would
+# otherwise crash at import time. Deferring to first attribute access
+# keeps `import` side-effect-free while preserving the
+# `workspace_cmd.FLOW_TYPES` API for real callers.
 from tcl_config_parser import get_flow_types as _get_flow_types
 
-FLOW_TYPES = _get_flow_types()
+_FLOW_TYPES_CACHE = None
+
+
+def __getattr__(name):
+    if name == 'FLOW_TYPES':
+        global _FLOW_TYPES_CACHE
+        if _FLOW_TYPES_CACHE is None:
+            _FLOW_TYPES_CACHE = _get_flow_types()
+        return _FLOW_TYPES_CACHE
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 

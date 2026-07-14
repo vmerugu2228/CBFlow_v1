@@ -25,8 +25,24 @@ import sys; sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.p
 import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.paths import get_cbflow_core_dir
 
-AVAILABLE_FLOWS = _get_flow_desc()
-PROJECT_PHASES = _get_phase_desc()
+# Loaded lazily via module `__getattr__` (PEP 562). See workspace_cmd.py
+# for the rationale — a bare `import project_cmd` (healthcheck, IDE,
+# tests) shouldn't require CBFLOW_CORE_DIR/FLOW_DIR/CONFIG_ROOT env vars.
+_AVAILABLE_FLOWS_CACHE = None
+_PROJECT_PHASES_CACHE = None
+
+
+def __getattr__(name):
+    global _AVAILABLE_FLOWS_CACHE, _PROJECT_PHASES_CACHE
+    if name == 'AVAILABLE_FLOWS':
+        if _AVAILABLE_FLOWS_CACHE is None:
+            _AVAILABLE_FLOWS_CACHE = _get_flow_desc()
+        return _AVAILABLE_FLOWS_CACHE
+    if name == 'PROJECT_PHASES':
+        if _PROJECT_PHASES_CACHE is None:
+            _PROJECT_PHASES_CACHE = _get_phase_desc()
+        return _PROJECT_PHASES_CACHE
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 # Version
 from core.paths import CBFLOW_VERSION as VERSION
