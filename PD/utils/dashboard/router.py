@@ -1608,20 +1608,17 @@ def _render_run_rows(runs):
         name = _os.path.basename(run_dir.rstrip('/')) or rid
         status = r.get('current_status') or 'NONE'
         node = r.get('current_node') or ''
-        # Module-level helpers: _html_attr for HTML-attribute context,
-        # _html_js_string for JS-string context inside event handlers.
-        # See their docstrings for the distinction (attribute-escape is
-        # NOT sufficient for JS-string context).
-        _e = _html_attr
-        _js = _html_js_string
-        flow_html      = _e(flow)
-        rid_html       = _e(rid)
-        name_html      = _e(name)
-        status_html    = _e(status)
-        node_text_html = _e(node)
-        run_dir_html   = _e(run_dir)
+        # Escape helpers live at module scope (see _html_attr /
+        # _html_js_string docstrings for HTML-attribute vs JS-string
+        # distinction). Called directly here — no per-iteration alias.
+        flow_html      = _html_attr(flow)
+        rid_html       = _html_attr(rid)
+        name_html      = _html_attr(name)
+        status_html    = _html_attr(status)
+        node_text_html = _html_attr(node)
+        run_dir_html   = _html_attr(run_dir)
         search = ' '.join(filter(None, [name, flow, run_dir, node, status])).lower().replace('"', '')
-        search_html = _e(search)
+        search_html = _html_attr(search)
         bg, fg = _STATUS_COLORS.get(status, _STATUS_COLORS['NONE'])
         node_html = (f'<span class="status-node">{node_text_html}</span>'
                      if node else '<span class="status-node muted">—</span>')
@@ -1651,11 +1648,11 @@ def _render_run_rows(runs):
             runtime_html = f'<span class="rt">{_fmt_duration(_rt)}</span>'
         else:
             runtime_html = '<span class="rt muted">—</span>'
-        proj = _e(r.get('project') or '')
-        design = _e(r.get('design') or '')
-        current_start_html = _e(r.get('current_start') or '')
+        proj = _html_attr(r.get('project') or '')
+        design = _html_attr(r.get('design') or '')
+        current_start_html = _html_attr(r.get('current_start') or '')
         runtime_attr = r.get('current_runtime')
-        runtime_attr_html = _e(runtime_attr if runtime_attr is not None else '')
+        runtime_attr_html = _html_attr(runtime_attr if runtime_attr is not None else '')
         out.append(
             f'<tr class="{cls}" data-rid="{rid_html}" data-flow="{flow_html}" '
             f'data-project="{proj}" data-design="{design}" '
@@ -1669,7 +1666,7 @@ def _render_run_rows(runs):
             f'<td class="rt-cell">{runtime_html}</td>'
             f'<td class="dir">{run_dir_html}</td>'
             f'<td><button class="danger" '
-            f'onclick="deregisterRun({_js(rid)})">Deregister</button></td>'
+            f'onclick="deregisterRun({_html_js_string(rid)})">Deregister</button></td>'
             f'</tr>'
         )
     return '\n'.join(out)

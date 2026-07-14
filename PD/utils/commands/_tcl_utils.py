@@ -26,12 +26,16 @@ def find_balanced_close(text: str, start: int, open_depth: int = 1) -> int:
       - DOS `\\r\\n` line endings.
 
     A "word start" is TRUE at BOF, after whitespace, after `\\n`/`\\r`,
-    after `;`, after `[`, after `{`, and after `"` closes (Tcl syntax:
-    the space between two words resets word-start, but so does the
-    closing `"` — the next non-space char begins a new word). Getting
-    this right is what makes `"key" "value with }"` parse correctly:
-    the opening `"` of the value comes after whitespace, and its
-    contents (including `}`) are consumed as string body.
+    after `;`, after `[`, and after `{` — the set of characters that
+    terminate a Tcl command or begin a new nesting. NOT set true by a
+    closing `"` or `}` — those END a word, but the boundary itself is
+    a non-boundary char; word-start becomes true again when the next
+    whitespace/newline/;/[/{ is consumed. That indirection is what
+    makes `"key" "value with }"` parse correctly: closing `"` of "key"
+    sets at_word_start=False, then the SPACE between the two words
+    resets at_word_start=True (whitespace branch), then the opening
+    `"` of the value fires the string-skip branch and its contents
+    (including `}`) are consumed as string body.
     """
     depth = open_depth
     i = start

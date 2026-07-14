@@ -207,8 +207,13 @@ flow_proc generate_perc_report {
     puts $fp "Result Files: $run_dir/results/pv/perc/"
     puts $fp "Log File:     $run_dir/logs/pv/perc_icv.log"
     close $fp
-    # Mirror to the historical results/perc/ path.
-    catch {file copy -force $rpt $legacy_rpt}
+    # Mirror to the historical results/perc/ path. Log a warning on
+    # failure — silently swallowing this would leave downstream
+    # consumers (merge_data_icv.tcl:74 opens the legacy path) reading
+    # stale content from a previous run, with no diagnostic anywhere.
+    if {[catch {file copy -force $rpt $legacy_rpt} _copy_err]} {
+        handle_warning "PERC legacy-path mirror failed: $_copy_err — downstream consumers of $legacy_rpt will see stale content"
+    }
 
     handle_info "PERC report: $rpt"
 }

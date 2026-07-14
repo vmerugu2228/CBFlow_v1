@@ -26,6 +26,7 @@ import re
 import sqlite3
 import sys
 import threading
+import uuid
 import webbrowser
 from datetime import datetime
 from pathlib import Path
@@ -2075,9 +2076,18 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         # the client gets a JSON body it can render as a toast and stops
         # tight-looping.
         try:
-            data = producer() if callable(producer) else producer
+            data = producer()
         except Exception as e:
-            logger.exception(f"_json_response_cached: producer raised: {e}")
+            # DO NOT splice `str(e)` into the response — sqlite/FS
+            # exceptions embed absolute paths, DB names, and usernames
+            # (`.race_<run>_<user>_<hash>.db`), and the dashboard binds
+            # 0.0.0.0 (see race_dashboard.py:2349) so the 500 body is
+            # remotely reachable. Log the full exception server-side and
+            # return a generic message + a short correlation id the
+            # operator can grep out of the log.
+            corr = uuid.uuid4().hex[:8]
+            logger.exception(
+                f"_json_response_cached: producer raised (correlation_id={corr}): {e}")
             self.send_response(500)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Access-Control-Allow-Origin', '*')
@@ -2085,7 +2095,8 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({
                 'ok': False,
-                'error': f'server-side error: {e}',
+                'error': 'internal server error — see dashboard log',
+                'correlation_id': corr,
             }).encode())
             return
         if extra and isinstance(data, dict):

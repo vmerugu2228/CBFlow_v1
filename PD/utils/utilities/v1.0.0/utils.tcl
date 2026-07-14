@@ -645,6 +645,15 @@ proc _cbflow_test_mode_enable {} {
 # symbol directly, coupling every consumer to a private test_mode detail.
 # Consumers should call this, not the underscored symbol.
 proc cbflow_hard_exit {{code 1}} {
+    # Validate the exit code — Tcl `exit` requires an integer; a
+    # non-integer arg would raise a native Tcl error mid-shutdown that
+    # test_mode's exit stub might swallow, potentially leaving the
+    # process alive with an inconsistent state. Coerce a bad value to
+    # 1 (generic failure) rather than propagate the ambiguity.
+    if {![string is integer -strict $code]} {
+        puts stderr "cbflow_hard_exit: non-integer code $code — using 1"
+        set code 1
+    }
     if {[info commands _cbflow_saved_exit] ne ""} {
         _cbflow_saved_exit $code
     } else {

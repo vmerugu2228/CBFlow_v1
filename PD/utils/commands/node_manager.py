@@ -155,11 +155,17 @@ class NodeManager:
             lines.append(f'    stages,{name},dependencies {info.get("dependencies", "")}')
             if info.get('branch_key'):
                 lines.append(f'    stages,{name},branch_key {info["branch_key"]}')
-            # Preserve resource_tier round-trip. Only emit non-empty values so
-            # the file stays clean for nodes that inherit from base-stage or
-            # default_queue_type.
-            if info.get('resource_tier'):
-                lines.append(f'    stages,{name},resource_tier {info["resource_tier"]}')
+            # Preserve resource_tier round-trip. Only emit non-empty values
+            # so the file stays clean for nodes that inherit from base-stage
+            # or default_queue_type. Value is Tcl-quoted so a tier string
+            # with embedded whitespace (from an operator typo or a bad
+            # environment) doesn't split the value across two array cells
+            # and silently corrupt the runtime_flow_config on write.
+            _tier = info.get('resource_tier')
+            if _tier:
+                # Escape backslash + quote for Tcl `"..."` string context.
+                _t = str(_tier).replace('\\', '\\\\').replace('"', '\\"')
+                lines.append(f'    stages,{name},resource_tier "{_t}"')
 
         # Write branches
         for bkey, info in sorted(self.branches.items()):

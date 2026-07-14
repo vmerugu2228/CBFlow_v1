@@ -145,8 +145,18 @@ flow_proc generate_perc_report {
     puts $rpt "═══════════════════════════════════════════════════════════════════════════════"
     close $rpt
 
-    # Copy as mandatory output
-    file copy -force $rpt_file "$::WORK_DIR/results/perc/perc.rpt"
+    # Copy to the legacy per-tool results directory the merge/release
+    # stages read from. Filename MUST be `perc_results.rpt` — not `perc.rpt`
+    # — because merge_data_calibre.tcl:39 and release_data_calibre.tcl:87
+    # both open `results/perc/perc_results.rpt`. Prior name (`perc.rpt`)
+    # meant every Calibre PV merge_summary reported PERC as PENDING even
+    # on a successful run, and the release manifest silently omitted
+    # the PERC deliverable.
+    set _legacy_rpt "$::WORK_DIR/results/perc/perc_results.rpt"
+    file mkdir [file dirname $_legacy_rpt]
+    if {[catch {file copy -force $rpt_file $_legacy_rpt} _copy_err]} {
+        handle_warning "PERC legacy-path mirror failed: $_copy_err — downstream consumers of $_legacy_rpt will see stale content"
+    }
     handle_info "  PERC report: $rpt_file"
 }
 

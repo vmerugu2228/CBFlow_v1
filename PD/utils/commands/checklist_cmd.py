@@ -104,7 +104,7 @@ PHASE_ORDER = _phase_order()
 
 
 from _tcl_utils import find_balanced_close as _tcl_find_balanced_close
-from _tcl_utils import tcl_quote as _tcl_quote_module
+from _tcl_utils import tcl_quote as _tcl_quote
 
 
 def get_exit_config_dir() -> str:
@@ -1234,43 +1234,43 @@ def cmd_add_check(args: argparse.Namespace) -> int:
     check_type = args.check_type  # mandatory or optional
     description = args.description or f"Check: {check_name}"
 
-    # Every user-provided field below is spliced into a Tcl `"..."` string
+    # Every user-provided field below is spliced through the shared
+    # `_tcl_quote` (from _tcl_utils.tcl_quote) into a Tcl `"..."` string
     # literal. Without escaping, an embedded `"` closes the string early
     # and blows the parse of the whole config file. And — critically —
     # inside a Tcl `"..."` string, `$foo` performs variable substitution
-    # and `[cmd]` executes an embedded command AT SOURCE TIME. That is
-    # a command-injection sink: an add-check --description
-    # '[exec rm -rf /]' runs on the next `source` of the milestone config.
-    # Escape `\`, `"`, `$`, and `[` so all four lose their special meaning.
-    # (`]` is not special outside `[...]`; escaping isn't needed but is
-    # kept out of the escape set to preserve readability of paths.)
-    def _tcl_quote(s: str) -> str:
-        if s is None:
-            return ''
-        return (str(s)
-                .replace('\\', '\\\\')
-                .replace('"',  '\\"')
-                .replace('$',  '\\$')
-                .replace('[',  '\\['))
+    # and `[cmd]` executes an embedded command AT SOURCE TIME. That's a
+    # command-injection sink (add-check --description '[exec rm -rf /]'
+    # would run on the next `source` of the milestone config). The
+    # shared helper escapes `\`, `"`, `$`, and `[` — one source of truth
+    # for the escape rules across every consumer.
 
-    # Check if name already exists. Two subtleties the naive
-    # `f'"{check_name}"' in content` version got wrong:
-    #  1. It searches for the RAW check_name; if the name contains `"`
-    #     or `\`, the file stores it as the ESCAPED form (`\"`, `\\`),
-    #     and the raw-form substring never matches — a real duplicate
-    #     slips through and corrupts the config.
-    #  2. Substring match against `"foo"` false-positives against any
-    #     other check whose VALUE happens to contain the token `"foo"`
-    #     (e.g. an "applicable_milestones" list). The proper form is
-    #     a regex bounded by the key-position pattern
-    #     `<newline><space>*"<name>"<space>*{`.
+    # Check if name already exists. Three subtleties:
+    #  1. Substring match `f'"{check_name}"' in content` false-positives
+    #     against any check whose VALUE happens to contain the token
+    #     (e.g. `"applicable_milestones" "BTO drc PV_SIGNOFF"` matches
+    #     a search for `"drc"`). The proper form is a regex bounded by
+    #     the key-position pattern: `(newline|;|start)<ws>*"<name>"<ws>*{`.
+    #  2. Names ADDED by this tool get `_tcl_quote`d on write, so an
+    #     escape-sensitive name like `foo$bar` is stored as `foo\$bar`
+    #     in the file. To detect duplicates, we search for the escaped
+    #     form.
+    #  3. Shipped configs (PV_SIGNOFF_config.tcl etc.) are hand-authored —
+    #     their names were never `_tcl_quote`d, so a name like `pv_$env`
+    #     sits on disk in RAW form. Search for BOTH the escaped form
+    #     (matches tool-added checks) and the raw form (matches shipped
+    #     configs). Either match blocks a duplicate.
     _quoted_name = _tcl_quote(check_name)
-    _key_pattern = re.compile(
-        r'(^|[\n\r;])\s*"' + re.escape(_quoted_name) + r'"\s*\{',
-        re.MULTILINE)
-    if _key_pattern.search(content):
-        logger.error(f"Check '{check_name}' already exists in {milestone}. Remove it first or use a different name.")
-        return 1
+    _forms = {_quoted_name}
+    if check_name != _quoted_name:
+        _forms.add(check_name)
+    for _form in _forms:
+        _key_pattern = re.compile(
+            r'(^|[\n\r;])\s*"' + re.escape(_form) + r'"\s*\{',
+            re.MULTILINE)
+        if _key_pattern.search(content):
+            logger.error(f"Check '{check_name}' already exists in {milestone}. Remove it first or use a different name.")
+            return 1
 
     # ── Build the check entry ────────────────────────────────────────────
     if args.file_path:

@@ -172,40 +172,61 @@ def load_custom_nodes_from_runtime_config() -> dict:
         end_pos = end_pos_1based + 1
         array_content = content[match.end():end_pos-1]
 
-        # Parse key-value pairs from TCL array
-        # Format: key value (may have braces for values with spaces)
-        # TCL array elements are separated by whitespace, with key value pairs
-
-        # Tokenize the array content properly
+        # Parse key-value pairs from TCL array. Format: key value pairs
+        # separated by whitespace; values may be braced `{...}` or
+        # double-quoted `"..."` (both can contain whitespace/braces/
+        # newlines) or plain barewords. The inner tokenizer used to be a
+        # naive brace counter — same class of bug the outer walker was
+        # migrated away from — so a legit value like `"a}b"` mis-
+        # terminated on the inner `}` and mis-aligned every subsequent
+        # token. Now it delegates the `{...}` skip to the shared
+        # word-boundary walker and correctly handles `"..."` strings.
         tokens = []
         i = 0
-        while i < len(array_content):
+        n_ac = len(array_content)
+        while i < n_ac:
             # Skip whitespace
-            while i < len(array_content) and array_content[i] in ' \t\n\r':
+            while i < n_ac and array_content[i] in ' \t\n\r':
                 i += 1
-            if i >= len(array_content):
+            if i >= n_ac:
                 break
-
-            # Check for braced value
-            if array_content[i] == '{':
-                # Find matching close brace
-                brace_count = 1
+            c = array_content[i]
+            # Comment (`#` at word start — after our whitespace skip we ARE at word start)
+            if c == '#':
+                while i < n_ac and array_content[i] not in ('\n', '\r'):
+                    i += 1
+                continue
+            # Braced value: use the shared walker so `}` inside a `"..."`
+            # inside a `{...}` block doesn't decrement depth prematurely.
+            if c == '{':
                 start = i + 1
+                close = _tclbal(array_content, start, open_depth=1)
+                if close < 0:
+                    # Unbalanced — bail out rather than emit garbage
+                    break
+                tokens.append(array_content[start:close])
+                i = close + 1
+                continue
+            # Double-quoted value: skip to matching `"`, honoring `\`
+            # escapes. `}` inside is literal — must NOT decrement anything.
+            if c == '"':
                 i += 1
-                while i < len(array_content) and brace_count > 0:
-                    if array_content[i] == '{':
-                        brace_count += 1
-                    elif array_content[i] == '}':
-                        brace_count -= 1
-                    i += 1
-                tokens.append(array_content[start:i-1])
-            else:
-                # Regular word - stop at whitespace or brace
                 start = i
-                while i < len(array_content) and array_content[i] not in ' \t\n\r{}':
+                while i < n_ac and array_content[i] != '"':
+                    if array_content[i] == '\\' and i + 1 < n_ac:
+                        i += 2
+                        continue
                     i += 1
-                if start < i:
-                    tokens.append(array_content[start:i])
+                tokens.append(array_content[start:i])
+                if i < n_ac:
+                    i += 1  # consume closing `"`
+                continue
+            # Bareword: stop at whitespace or brace/quote
+            start = i
+            while i < n_ac and array_content[i] not in ' \t\n\r{}"':
+                i += 1
+            if start < i:
+                tokens.append(array_content[start:i])
 
         # Process key-value pairs (every two tokens form a key-value pair)
         idx = 0
@@ -3113,9 +3134,17 @@ Examples:
     add_node_parser.add_argument('--dep', '-d',
                                 help='Dependency node - the new node runs after this one')
     add_node_parser.add_argument('--resource-tier', '-r', default='',
+                                choices=['', 'XS', 'S', 'M', 'L', 'XL', 'ultra'],
                                 help=('Override LSF resource tier for this node '
                                       '(XS/S/M/L/XL/ultra). Omit to inherit from '
-                                      'the base stage or lsf(default_queue_type).'))
+                                      'the base stage or lsf(default_queue_type). '
+                                      'argparse validates against the known set '
+                                      'so a typo like --resource-tier XLL is '
+                                      'rejected at parse time — the tier value '
+                                      'is written verbatim into runtime_flow_config '
+                                      'and race_engine reads it directly, so an '
+                                      'unvalidated string would silently fall '
+                                      'through the cascade to base or default.'))
 
     # delete-node command
     del_node_parser = subparsers.add_parser('delete-node', help='Delete custom node',
