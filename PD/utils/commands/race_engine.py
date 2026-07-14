@@ -239,6 +239,13 @@ class DagBuilder:
                         if existing != name and existing.rstrip('0123456789') == type_base:
                             base_subs = subnodes.get(existing)
                             break
+                    # `subs_str` was previously only assigned in the else
+                    # branch, so falling through the base_subs branch hit
+                    # a NameError on the `if subs_str:` below → engine
+                    # init crashed for every add-node call whose base
+                    # stage already had resolved subnodes. Initialize
+                    # here so both branches leave the flag well-defined.
+                    subs_str = ''
                     if base_subs:
                         subnodes[name] = list(base_subs)
                     else:

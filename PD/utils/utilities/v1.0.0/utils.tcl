@@ -405,6 +405,17 @@ if {![info exists ::cbflow_utils_loaded]} {
             # on the FIRST undefined-var read after the handle_error gate.
             # Raise a Tcl error instead so the current flow_proc unwinds
             # cleanly; flow_exec catches it and lets the next proc run.
+            #
+            # NOTE (round-6 audit C11): This swallow means real handle_error
+            # calls don't propagate to RACE in test_mode → silent PASSes.
+            # The correct fix is NOT to change handle_error's semantics
+            # (that breaks legacy handlers that used handle_error deep
+            # inside procs to short-circuit a subroutine without exiting
+            # the whole stage). It's to make every `<stage>_flow` proc
+            # call `flow_fail_if_status ::<var>_status <report>` at its
+            # tail — Round 3 established that pattern in 12 PV files but
+            # 126 other command files still need it. Tracked as a
+            # coordinated sweep, not a semantic change here.
             if {[info exists ::flow(test_mode)] && $::flow(test_mode) eq "true"} {
                 return -code error $message
             }

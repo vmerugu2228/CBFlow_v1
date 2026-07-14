@@ -157,7 +157,13 @@ namespace eval ::CBFlow::InputResolve {
         return $count
     }
 
-    proc resolve_from_tag {flow_type arr tag run_dir} {
+    proc resolve_from_tag {flow_type arr tag run_dir {vars_var ""}} {
+        # `vars_var`: optional caller-scope var name to receive the
+        # resolved key/value pairs (parity with resolve_from_run). Prior
+        # signature had 4 args but resolve_flow_inputs called it with 5
+        # → 'wrong # args' crash on every release-tag-based resolution.
+        if {$vars_var ne ""} { upvar 1 $vars_var _out_vars }
+        set resolved_vars [list]
         variable handshake_map
 
         # Load release_config for base_dir and flow_input_handshake
@@ -194,6 +200,9 @@ namespace eval ::CBFlow::InputResolve {
                     if {![info exists ::${arr}(input,${hinput})] || [set ::${arr}(input,${hinput})] eq ""} {
                         set ::${arr}(input,${hinput}) $fpath
                         puts "INFO:   ${arr}(input,${hinput}) = $fpath (tag=$tag)"
+                        if {$vars_var ne ""} {
+                            lappend _out_vars "${arr}(input,${hinput})" $fpath
+                        }
                         incr count
                     }
                 }

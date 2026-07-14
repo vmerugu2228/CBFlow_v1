@@ -515,21 +515,75 @@ def format_status_text(milestone: str, sd: dict) -> str:
     return '\n'.join(L)
 
 
+def _expand_placeholders(path: str, run_dir: str = None) -> str:
+    """Expand `${design_name}`, `${DESIGN_NAME}`, `${flow_type}` in a path.
+
+    Every library-check and milestone config uses `${design_name}` in
+    report_pattern / mandatory_files paths. Prior to this fix the string
+    was passed to os.path.exists literally — so MTO / signoff checks
+    could NEVER locate their reports even when produced. Resolve the
+    values from the environment set by cbflow's run bootstrap.
+    """
+    if not path or '${' not in path:
+        return path
+    subs = {
+        'design_name': os.environ.get('CBFLOW_DESIGN_NAME', ''),
+        'DESIGN_NAME': os.environ.get('CBFLOW_DESIGN_NAME', ''),
+        'flow_type':   os.environ.get('CBFLOW_FLOW_TYPE',   ''),
+        'FLOW_TYPE':   os.environ.get('CBFLOW_FLOW_TYPE',   ''),
+        'run_dir':     run_dir or '',
+    }
+    for k, v in subs.items():
+        path = path.replace('${' + k + '}', v)
+    return path
+
+
 def _find_check_report(run_dir: str, check_name: str, check_config: dict = None) -> str:
     """Find a report file for a check in the run directory, or return None.
 
-    Priority: check_config['report_file'] > check_config['grep_file'] > convention fallback.
+    Resolution order (each with `${design_name}` etc. expanded):
+      1. Explicit `report_file` / `grep_file` (fixed absolute-ish path
+         inside run_dir) — used by mandatory / optional checks.
+      2. `report_pattern` (a filename basename) walked recursively under
+         `<run_dir>/work/` — used by 292 library checks that were
+         previously ignored entirely because the engine only read
+         `report_file`. First match wins.
+      3. Convention fallback: reports/<check_name>.rpt etc.
     """
-    # Use explicit report_file from check config
+    # Path 1: fixed path via report_file / grep_file
     if check_config:
         for field in ('report_file', 'grep_file'):
-            val = check_config.get(field, '')
+            val = _expand_placeholders(check_config.get(field, ''), run_dir)
             if val:
-                path = os.path.join(run_dir, val)
+                path = os.path.join(run_dir, val) if not os.path.isabs(val) else val
                 if os.path.exists(path):
                     return path
 
-    # Fallback: convention-based lookup
+    # Path 2: basename via report_pattern — walk under work/ (library checks)
+    if check_config:
+        pat = _expand_placeholders(check_config.get('report_pattern', ''), run_dir)
+        if pat:
+            work_root = os.path.join(run_dir, 'work')
+            # Support explicit path in report_pattern (e.g. "work/PV/drc1/reports/drc_results.rpt")
+            if os.sep in pat or '/' in pat:
+                path = os.path.join(run_dir, pat) if not os.path.isabs(pat) else pat
+                if os.path.exists(path):
+                    return path
+                # If explicit path doesn't exist, fall through to basename walk
+                pat = os.path.basename(pat)
+            if os.path.isdir(work_root):
+                # Bounded walk — first match wins, prefer shallower paths.
+                # os.walk gives DFS which is fine for a well-formed work/ tree.
+                matches = []
+                for root, _, files in os.walk(work_root):
+                    if pat in files:
+                        matches.append(os.path.join(root, pat))
+                if matches:
+                    # Prefer the shortest (shallowest) match — reports/ over logs/
+                    matches.sort(key=len)
+                    return matches[0]
+
+    # Path 3: convention fallback
     candidates = [
         os.path.join(run_dir, 'reports', f'{check_name}.rpt'),
         os.path.join(run_dir, 'reports', f'{check_name}_summary.rpt'),
@@ -539,6 +593,105 @@ def _find_check_report(run_dir: str, check_name: str, check_config: dict = None)
         if os.path.exists(path):
             return path
     return None
+
+
+_OPERATORS = {
+    '==': lambda a, b: a == b,
+    '!=': lambda a, b: a != b,
+    '<':  lambda a, b: a <  b,
+    '<=': lambda a, b: a <= b,
+    '>':  lambda a, b: a >  b,
+    '>=': lambda a, b: a >= b,
+}
+
+
+def _parse_metric_value(raw):
+    """Best-effort numeric or string coercion for metric comparison.
+
+    Numeric parsing tolerates common report-file suffixes (`ps`, `%`,
+    `mV`, `V`, comma thousand separators) which real checkers routinely
+    emit. Falls back to the trimmed original if none of that fits.
+    """
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    # Try direct numeric
+    for parser in (int, float):
+        try:
+            return parser(s.replace(',', ''))
+        except (ValueError, TypeError):
+            pass
+    # Strip common unit suffixes and retry
+    stripped = re.sub(r'\s*(ps|ns|us|ms|mV|V|%|MHz|GHz|W|mW)\s*$', '', s, flags=re.I).replace(',', '')
+    for parser in (int, float):
+        try:
+            return parser(stripped)
+        except (ValueError, TypeError):
+            pass
+    return s  # non-numeric string (e.g. 'PASS' vs 'PASS')
+
+
+def _evaluate_metric_pattern(report_path: str, check_config: dict) -> tuple:
+    """Extract a metric via regex and compare against threshold.
+
+    Returns (status, detail, metric_value) where status is
+    'PASS' / 'FAIL' / 'PENDING'. PENDING means the pattern didn't match
+    (not a failure — the check is genuinely unmeasurable). FAIL means
+    matched but comparison against threshold failed.
+
+    check_config fields honored:
+      metric_pattern       — Python regex; capture group 1 is the value
+      operator             — one of == != < <= > >= (default '==')
+      default_threshold    — threshold value (numeric or string)
+      threshold            — alias for default_threshold
+    """
+    pat = check_config.get('metric_pattern', '')
+    if not pat:
+        return None
+    try:
+        with open(report_path, 'r') as f:
+            content = f.read()
+    except Exception as e:
+        return ('FAIL', f'metric read error: {e}', None)
+    try:
+        m = re.search(pat, content)
+    except re.error as e:
+        return ('PENDING', f'metric regex invalid: {e}', None)
+    if not m:
+        return ('PENDING',
+                f'metric_pattern not found in {os.path.basename(report_path)}',
+                None)
+    if not m.groups():
+        # No capture group — treat any match as PASS
+        return ('PASS', f'metric_pattern matched (no capture group)', m.group(0))
+    raw_value = m.group(1)
+    value = _parse_metric_value(raw_value)
+    op = check_config.get('operator', '==').strip()
+    threshold_raw = check_config.get('default_threshold',
+                                     check_config.get('threshold', ''))
+    threshold = _parse_metric_value(threshold_raw)
+    if op not in _OPERATORS:
+        return ('PENDING', f'unknown operator {op!r}', raw_value)
+    # If both sides look numeric, compare as numbers; else fall back to
+    # string equality/inequality (numeric ops on strings are ambiguous
+    # and return PENDING).
+    if isinstance(value, (int, float)) and isinstance(threshold, (int, float)):
+        try:
+            ok = _OPERATORS[op](value, threshold)
+        except TypeError:
+            return ('PENDING', f'incomparable metric ({value!r} {op} {threshold!r})', raw_value)
+    else:
+        if op in ('==', '!='):
+            ok = _OPERATORS[op](str(value), str(threshold))
+        else:
+            return ('PENDING',
+                    f'non-numeric metric with numeric op ({value!r} {op} {threshold!r})',
+                    raw_value)
+    status = 'PASS' if ok else 'FAIL'
+    detail = f'{status} ({raw_value} {op} {threshold_raw})'
+    return (status, detail, raw_value)
 
 
 def _evaluate_report(report_path: str) -> str:
@@ -630,6 +783,17 @@ def _evaluate_checks(run_dir: str, checks: dict, waivered: set, phase: str = '')
         report = _find_check_report(run_dir, name, check_config=config)
 
         if report:
+            # Metric-pattern evaluation — extract numeric value via regex,
+            # compare against default_threshold with declared operator.
+            # This is the branch 292 library checks depend on; before
+            # this fix _evaluate_checks never consulted metric_pattern
+            # and the entire library-check subsystem was inert.
+            if config.get('metric_pattern'):
+                mp = _evaluate_metric_pattern(report, config)
+                if mp is not None:
+                    status, detail, _mv = mp
+                    results.append({'name': name, 'status': status, 'detail': detail})
+                    continue
             # Grep-based evaluation
             if config.get('grep_pattern'):
                 try:
@@ -963,9 +1127,14 @@ def cmd_signoff(args: argparse.Namespace) -> int:
                 all_passed = False
 
     # Check mandatory files
-    files_snapshot = {fp: os.path.exists(os.path.join(run_dir, fp))
-                      for fp in config.get('mandatory_files', [])}
-    if not all(files_snapshot.values()):
+    # Expand ${design_name} etc. in mandatory-file paths — MTO/BTO configs
+    # use these placeholders and prior code checked them literally, so
+    # MTO could never pass mandatory-file validation even on a clean run.
+    files_snapshot = {}
+    for fp in config.get('mandatory_files', []):
+        resolved = _expand_placeholders(fp, run_dir)
+        files_snapshot[resolved] = os.path.exists(os.path.join(run_dir, resolved))
+    if files_snapshot and not all(files_snapshot.values()):
         all_passed = False
 
     # Determine verdict

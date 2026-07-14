@@ -17,7 +17,7 @@ array set timing_checks {
         "min_phase_index"               "0"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_timing.max.rpt"
-        "metric_pattern"          {slack\s+\(MET\|VIOLATED\)\s+(-?[0-9]+\.[0-9]+)}
+        "metric_pattern"          {slack\s+\((?:MET|VIOLATED)\)\s+(-?[0-9]+\.[0-9]+)}
         "operator"                ">="
         "default_threshold"       "0.0"
     }
@@ -43,7 +43,7 @@ array set timing_checks {
         "min_phase_index"               "1"
         "applicable_milestones"   "CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_timing.min.rpt"
-        "metric_pattern"          {slack\s+\(MET\|VIOLATED\)\s+(-?[0-9]+\.[0-9]+)}
+        "metric_pattern"          {slack\s+\((?:MET|VIOLATED)\)\s+(-?[0-9]+\.[0-9]+)}
         "operator"                ">="
         "default_threshold"       "0.0"
     }
