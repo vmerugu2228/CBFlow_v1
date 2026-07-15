@@ -70,24 +70,23 @@ CBflow is organized into four distinct architectural layers, each with clearly d
 
 ### 2.2 Configuration Hierarchy
 
-CBflow employs a fourteen-level configuration cascade consolidated into a single generated `config.tcl` per node. Each level has a well-defined scope, and later levels override earlier ones:
+CBflow employs a thirteen-level configuration cascade consolidated into a single generated `config.tcl` per node. Each level has a well-defined scope, and later levels override earlier ones:
 
 | Priority | Configuration Level     | Scope           | Description                                              |
 |----------|------------------------|-----------------|----------------------------------------------------------|
-| 1 (base) | ~~cbflow_init_config.tcl~~ | _retired_   | **Removed in v2.1.x** — duplicated `project(name/version)` with `project_config.tcl` causing silent overwrites. The cascade now starts at `project_config.tcl`. |
-| 2        | project_config.tcl     | Per-project     | Technology node, standard cells, project paths           |
-| 3        | team_config.tcl        | Per-team        | Team-specific settings and conventions                   |
-| 4        | tech_config.tcl        | Per-technology  | Libraries, library_sets (PVT), NDM, LEF, routing layers |
-| 5        | flow_config.tcl        | Framework-wide  | Flow version, global settings, enabled features          |
-| 6        | node_config.tcl        | Per-flow        | Stage definitions, dependencies, subnodes, tool bindings |
-| 7        | mmmc_config.tcl        | Per-project     | MMMC scenario definitions, corners, modes, analysis views|
-| 8        | \<tool\>_config.tcl    | Per-tool        | Tool-specific variables (fc_config.tcl, pt_config.tcl)   |
-| 9        | user_config.tcl        | Per-run         | User inputs, file paths, design-specific overrides       |
-| 10       | override_config.tcl    | Global          | Global override hook                                     |
-| 11       | override_config.\<flow\>.tcl    | Per-flow  | Flow-level override                              |
-| 12       | override_config.\<stage\>.tcl   | Per-type  | Stage-type override (e.g., cts, route)           |
-| 13       | override_config.\<branch\>.tcl  | Per-branch| Branch-scoped override (e.g., timing_fix)        |
-| 14 (top) | override_config.\<node\>.tcl    | Per-node  | Per-node override (e.g., cts2, place2_eco)       |
+| 1 (base) | project_config.tcl     | Per-project     | Technology node, standard cells, project paths           |
+| 2        | team_config.tcl        | Per-team        | Team-specific settings and conventions                   |
+| 3        | tech_config.tcl        | Per-technology  | Libraries, library_sets (PVT), NDM, LEF, routing layers |
+| 4        | flow_config.tcl        | Framework-wide  | Flow version, global settings, enabled features          |
+| 5        | node_config.tcl        | Per-flow        | Stage definitions, dependencies, subnodes, tool bindings |
+| 6        | mmmc_config.tcl        | Per-project     | MMMC scenario definitions, corners, modes, analysis views|
+| 7        | \<tool\>_config.tcl    | Per-tool        | Tool-specific variables (fc_config.tcl, pt_config.tcl)   |
+| 8        | user_config.tcl        | Per-run         | User inputs, file paths, design-specific overrides       |
+| 9        | override_config.tcl    | Global          | Global override hook                                     |
+| 10       | override_config.\<flow\>.tcl    | Per-flow  | Flow-level override                              |
+| 11       | override_config.\<stage\>.tcl   | Per-type  | Stage-type override (e.g., cts, route)           |
+| 12       | override_config.\<branch\>.tcl  | Per-branch| Branch-scoped override (e.g., timing_fix)        |
+| 13 (top) | override_config.\<node\>.tcl    | Per-node  | Per-node override (e.g., cts2, place2_eco)       |
 
 The `generate_setup.tcl` script produces a consolidated `config.tcl` per node that sources all applicable levels. Command files source this single file instead of loading configs individually, eliminating redundancy and ensuring consistent configuration. The RACE engine exports `CBFLOW_NODE_NAME` and `CBFLOW_SUBNODE` env vars per job, enabling dynamic path resolution for custom nodes and branches.
 
