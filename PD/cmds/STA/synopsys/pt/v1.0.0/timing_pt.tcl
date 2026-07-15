@@ -21,6 +21,26 @@ flow_proc configure_timing {
     file mkdir "$::OUTPUTS_DIR/timing"
     file mkdir "$::REPORTS_DIR"
 
+    # Per-scenario context — set by the per-scenario command file generated
+    # by timing_subnode_handler.tcl. Prior code ignored these globals
+    # entirely, so every scenario ran an identical generic analysis (the
+    # per-scenario dispatch was architecturally a no-op — audit finding
+    # C16). Read the SDC that matches this scenario's operating mode and
+    # log the corner/PVT context so per-scenario reports below have
+    # correct provenance.
+    if {[info exists ::SCENARIO]} {
+        handle_info "Scenario:    $::SCENARIO"
+        if {[info exists ::MODE]}        { handle_info "  Mode:      $::MODE" }
+        if {[info exists ::CORNER]}      { handle_info "  Corner:    $::CORNER" }
+        if {[info exists ::VOLTAGE]}     { handle_info "  Voltage:   $::VOLTAGE" }
+        if {[info exists ::TEMPERATURE]} { handle_info "  Temp:      $::TEMPERATURE" }
+        if {[info exists ::RC_CORNER]}   { handle_info "  RC corner: $::RC_CORNER" }
+        if {[info exists ::SDC_FILE] && $::SDC_FILE ne "" && [file exists $::SDC_FILE]} {
+            handle_info "  SDC:       $::SDC_FILE"
+            read_sdc $::SDC_FILE
+        }
+    }
+
     # Set timing analysis mode
     if {[info exists ::sta(ANALYSIS_TYPE)]} {
         set_app_var timing_report_unconstrained_paths true
@@ -76,6 +96,18 @@ flow_proc run_sta {
     set rpt_dir "$::REPORTS_DIR"
 
     if {![info exists ::sta_max_paths]} { set ::sta_max_paths $sta(analysis,max_paths) }
+
+    # Per-scenario parasitics. Handler generates command file with
+    # `set ::SPEF_FILE "..."`; consume it here so each scenario runs
+    # against its own extraction corner instead of empty parasitics.
+    if {[info exists ::SPEF_FILE] && $::SPEF_FILE ne ""} {
+        if {[file exists $::SPEF_FILE]} {
+            handle_info "Reading parasitics: $::SPEF_FILE"
+            read_parasitics $::SPEF_FILE
+        } else {
+            handle_warning "SPEF file missing (::SPEF_FILE=$::SPEF_FILE) — timing will be zero-parasitic"
+        }
+    }
 
     # Full timing update
     update_timing -full

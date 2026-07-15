@@ -412,6 +412,25 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
 
 <script>
 // ═══════════════════════════════════════════════════════════════════
+// HTML-ESCAPE HELPERS — every user-controlled string that ends up in
+// an innerHTML assignment must go through these. Audit S9 found 13+
+// sinks (j.error_msg, j.command, j.log_tail, j.name, node names from
+// add-node) that were previously concatenated raw. All persist through
+// the DB or config, so a stored XSS in any of them fires for every
+// viewer of the dashboard.
+// ═══════════════════════════════════════════════════════════════════
+function escHtml(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+function escAttr(s) { return escHtml(s); }
+
+// ═══════════════════════════════════════════════════════════════════
 // STATE — namespaced to avoid global pollution
 // ═══════════════════════════════════════════════════════════════════
 var stagesData = [];
@@ -1789,9 +1808,12 @@ function showDetail(name) {
       html += '<div class="detail-section"><h4>Subnodes</h4>' +
         '<div class="detail-subjobs"><table><thead><tr><th>Name</th><th>Status</th><th>Time</th></tr></thead><tbody>' +
         stageJobs.map(function(j) {
-          return '<tr data-job="' + j.name + '"><td>' + (j.subnode||j.name) + '</td>' +
-          '<td><span class="detail-badge" style="background:' + sColorFill(j.status) + ';color:' + sTextColor(j.status) + ';font-size:9px;padding:1px 6px">' + statusLabel(j.status) + '</span></td>' +
-          '<td>' + formatTime(j.runtime) + '</td></tr>';
+          // j.name / j.subnode originate from `cbflow run add-node --node <name>`
+          // + subnode-handler output. Both are attacker-controllable in a
+          // multi-user setup — escape for HTML text AND attribute context.
+          return '<tr data-job="' + escAttr(j.name) + '"><td>' + escHtml(j.subnode||j.name) + '</td>' +
+          '<td><span class="detail-badge" style="background:' + sColorFill(j.status) + ';color:' + sTextColor(j.status) + ';font-size:9px;padding:1px 6px">' + escHtml(statusLabel(j.status)) + '</span></td>' +
+          '<td>' + escHtml(formatTime(j.runtime)) + '</td></tr>';
         }).join('') +
         '</tbody></table></div></div>';
     }
@@ -1815,23 +1837,26 @@ function showDetail(name) {
   }
 
   // It's a subnode — fetch full details from /api/job/{name}
+  // Every j.* field originates from the SQLite jobs table or the log
+  // tail on disk — writable indirectly by anyone with add-node or
+  // subnode-handler access. Escape ALL of them for HTML text context.
   fetch('/api/job/' + name).then(function(r){return r.json();}).then(function(j) {
     var html =
-      '<div class="detail-title">' + j.name + '</div>' +
-      '<div class="detail-row"><label>Status</label><span class="detail-badge" style="background:' + sColorFill(j.status) + ';color:' + sTextColor(j.status) + '">' + statusLabel(j.status) + '</span></div>' +
-      '<div class="detail-row"><label>Stage</label><span>' + j.stage + '</span></div>' +
-      '<div class="detail-row"><label>Subnode</label><span>' + (j.subnode||'-') + '</span></div>' +
-      '<div class="detail-row"><label>Runtime</label><span>' + formatTime(j.runtime) + '</span></div>' +
-      '<div class="detail-row"><label>Exit Code</label><span>' + (j.exit_code != null ? j.exit_code : '-') + '</span></div>' +
-      '<div class="detail-row"><label>Host</label><span>' + (j.hostname||'-') + '</span></div>' +
-      '<div class="detail-row"><label>LSF Job</label><span>' + (j.lsf_job_id||'-') + '</span></div>' +
-      '<div class="detail-row"><label>Tier</label><span>' + (j.resource_tier||'-') + '</span></div>' +
-      '<div class="detail-row"><label>Start</label><span>' + (j.start_time ? j.start_time.split('T').pop().substr(0,8) : '-') + '</span></div>' +
-      '<div class="detail-row"><label>End</label><span>' + (j.end_time ? j.end_time.split('T').pop().substr(0,8) : '-') + '</span></div>';
-    if (j.error_msg) html += '<div class="detail-section"><h4>Error</h4><div class="detail-error">' + j.error_msg + '</div></div>';
-    if (j.command) html += '<div class="detail-section"><h4>Command</h4><div class="detail-cmd">' + j.command + '</div></div>';
+      '<div class="detail-title">' + escHtml(j.name) + '</div>' +
+      '<div class="detail-row"><label>Status</label><span class="detail-badge" style="background:' + sColorFill(j.status) + ';color:' + sTextColor(j.status) + '">' + escHtml(statusLabel(j.status)) + '</span></div>' +
+      '<div class="detail-row"><label>Stage</label><span>' + escHtml(j.stage) + '</span></div>' +
+      '<div class="detail-row"><label>Subnode</label><span>' + escHtml(j.subnode||'-') + '</span></div>' +
+      '<div class="detail-row"><label>Runtime</label><span>' + escHtml(formatTime(j.runtime)) + '</span></div>' +
+      '<div class="detail-row"><label>Exit Code</label><span>' + escHtml(j.exit_code != null ? j.exit_code : '-') + '</span></div>' +
+      '<div class="detail-row"><label>Host</label><span>' + escHtml(j.hostname||'-') + '</span></div>' +
+      '<div class="detail-row"><label>LSF Job</label><span>' + escHtml(j.lsf_job_id||'-') + '</span></div>' +
+      '<div class="detail-row"><label>Tier</label><span>' + escHtml(j.resource_tier||'-') + '</span></div>' +
+      '<div class="detail-row"><label>Start</label><span>' + escHtml(j.start_time ? j.start_time.split('T').pop().substr(0,8) : '-') + '</span></div>' +
+      '<div class="detail-row"><label>End</label><span>' + escHtml(j.end_time ? j.end_time.split('T').pop().substr(0,8) : '-') + '</span></div>';
+    if (j.error_msg) html += '<div class="detail-section"><h4>Error</h4><div class="detail-error">' + escHtml(j.error_msg) + '</div></div>';
+    if (j.command) html += '<div class="detail-section"><h4>Command</h4><div class="detail-cmd">' + escHtml(j.command) + '</div></div>';
     if (j.log_tail && j.log_tail.length > 0) {
-      html += '<div class="detail-section"><h4>Log (tail)</h4><div class="detail-log">' + j.log_tail.join('\n') + '</div></div>';
+      html += '<div class="detail-section"><h4>Log (tail)</h4><div class="detail-log">' + escHtml(j.log_tail.join('\n')) + '</div></div>';
     }
     html += editFormHtml;
     panel.innerHTML = html;
@@ -1840,10 +1865,10 @@ function showDetail(name) {
     var j2 = allJobs.find(function(x){return x.name === name;});
     if (j2) {
       panel.innerHTML =
-        '<div class="detail-title">' + j2.name + '</div>' +
-        '<div class="detail-row"><label>Status</label><span class="detail-badge" style="background:' + sColorFill(j2.status) + ';color:' + sTextColor(j2.status) + '">' + statusLabel(j2.status) + '</span></div>' +
-        '<div class="detail-row"><label>Stage</label><span>' + j2.stage + '</span></div>' +
-        '<div class="detail-row"><label>Runtime</label><span>' + formatTime(j2.runtime) + '</span></div>' +
+        '<div class="detail-title">' + escHtml(j2.name) + '</div>' +
+        '<div class="detail-row"><label>Status</label><span class="detail-badge" style="background:' + sColorFill(j2.status) + ';color:' + sTextColor(j2.status) + '">' + escHtml(statusLabel(j2.status)) + '</span></div>' +
+        '<div class="detail-row"><label>Stage</label><span>' + escHtml(j2.stage) + '</span></div>' +
+        '<div class="detail-row"><label>Runtime</label><span>' + escHtml(formatTime(j2.runtime)) + '</span></div>' +
         editFormHtml;
       populateInlineEditForm(editStage);
     }

@@ -3491,7 +3491,9 @@ def cmd_gui(args):
         dashboard_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'dashboard')
         sys.path.insert(0, dashboard_dir)
         from race_dashboard import start_dashboard
-    return start_dashboard(os.getcwd(), port=port, open_browser=not no_browser) or 0
+    return start_dashboard(os.getcwd(), port=port,
+                           open_browser=not no_browser,
+                           public=getattr(args, 'public', False)) or 0
 
 
 def _cmd_gui_daemon(no_browser, public=False, bind_addr=None):

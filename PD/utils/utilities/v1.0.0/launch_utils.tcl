@@ -165,25 +165,34 @@ proc submit_job {wrapper flow_type stage_name node_name work_dir} {
             set queue [expr {[info exists lsf(bsub,queue)] ? $lsf(bsub,queue) : "normal"}]
             set project [expr {[info exists lsf(bsub,project)] ? $lsf(bsub,project) : ""}]
             set affinity [expr {[info exists lsf(bsub,affinity)] ? $lsf(bsub,affinity) : ""}]
-            set bsub_cmd "$bsub"
-            if {$project ne ""} { append bsub_cmd " -P $project" }
-            append bsub_cmd " -J cbflow_${flow_type}_${stage_name}"
-            if {$use_xterm} { append bsub_cmd " -Is" }
-            append bsub_cmd " -q $queue -n $cpu -W $runtime"
-            # Host pinning (-m) and extra select resources (-R) per block+stage.
+            # Build bsub cmd as a Tcl LIST, not a whitespace-joined string.
+            # The prior form appended `-R \"rusage\[mem=$mem\]\"` into a
+            # string and used `exec {*}$bsub_cmd` — {*} splits on
+            # whitespace but does NOT interpret shell quoting, so bsub
+            # received the literal `"rusage[mem=100]"` (with embedded
+            # double-quotes as characters), rejecting the resource spec.
+            # A proper Tcl list preserves whitespace within each element.
+            set bsub_cmd [list $bsub]
+            if {$project ne ""} { lappend bsub_cmd -P $project }
+            lappend bsub_cmd -J cbflow_${flow_type}_${stage_name}
+            if {$use_xterm} { lappend bsub_cmd -Is }
+            lappend bsub_cmd -q $queue -n $cpu -W $runtime
             if {$design ne "" && [info exists lsf(block,$design,$stage_name,host)]} {
-                append bsub_cmd " -m $lsf(block,$design,$stage_name,host)"
+                lappend bsub_cmd -m $lsf(block,$design,$stage_name,host)
             }
             set extra_resource ""
             if {$design ne "" && [info exists lsf(block,$design,$stage_name,resource)]} {
                 set extra_resource $lsf(block,$design,$stage_name,resource)
             }
-            append bsub_cmd " -R \"rusage\[mem=$mem\]"
-            if {$affinity ne ""} { append bsub_cmd " $affinity" }
-            if {$extra_resource ne ""} { append bsub_cmd " $extra_resource" }
-            append bsub_cmd "\""
-            append bsub_cmd " -o $work_dir/lsf_${node_name}_%J.log"
-            append bsub_cmd " -e $work_dir/lsf_${node_name}_%J.err"
+            # Build the -R argument as ONE list element. Extra clauses
+            # are appended with spaces INTO the same argument so bsub
+            # sees a single -R value.
+            set _R "rusage\[mem=$mem\]"
+            if {$affinity ne ""}       { append _R " $affinity" }
+            if {$extra_resource ne ""} { append _R " $extra_resource" }
+            lappend bsub_cmd -R $_R
+            lappend bsub_cmd -o "$work_dir/lsf_${node_name}_%J.log"
+            lappend bsub_cmd -e "$work_dir/lsf_${node_name}_%J.err"
         }
         if {$use_xterm} {
             puts "INFO: Submitting via LSF (xterm): $bsub_cmd $xterm_cmd ..."

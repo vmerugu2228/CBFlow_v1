@@ -215,6 +215,19 @@ class NodeManager:
         Returns:
             True if the node was successfully added, False otherwise.
         """
+        # Validate node NAME first — must match `^[A-Za-z_][A-Za-z0-9_]*$`.
+        # rename_node validates this already; add_node used to accept ANY
+        # string, so a name like `foo; rm -rf $HOME` propagated through
+        # runtime_flow_config.tcl into Job.command interpolation and
+        # subprocess(shell=True) execution — a live shell-injection vector.
+        # Reject whitespace, path separators, shell metacharacters.
+        if not name or not re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', name):
+            logger.error(
+                f"  Error: Invalid node name '{name}' — must match "
+                f"^[A-Za-z_][A-Za-z0-9_]*$ (letters, digits, underscore; "
+                f"can't start with a digit; no whitespace, '/', ';', quotes, etc.)")
+            return False
+
         # Check all stages (base + custom)
         all_stages = list(self.base_stages)
         all_stages.extend(self.custom_nodes.keys())

@@ -1352,8 +1352,26 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             self._json_response({'error': str(e)}, 500)
 
+    # Cap on request body size (bytes). Prevents Content-Length-based
+    # memory-exhaust DoS: prior code did `int(self.headers.get('Content-Length',0))`
+    # then `self.rfile.read(length)` unconditionally, so a header of
+    # 999999999 would allocate ~1GB per request. 1 MB is well above
+    # any legitimate dashboard mutation (add-node body ~500 bytes,
+    # save-node-config with 50 vars ~5 KB).
+    _MAX_BODY_BYTES = 1_000_000
+
     def _read_body(self) -> dict:
-        length = int(self.headers.get('Content-Length', 0))
+        raw = self.headers.get('Content-Length', '0')
+        try:
+            length = int(raw)
+        except (TypeError, ValueError):
+            length = 0
+        if length < 0 or length > self._MAX_BODY_BYTES:
+            # Refuse the read; leave the socket for the outer handler
+            # to close. Raise ValueError so do_POST's exception guard
+            # returns a 400 rather than a hung connection or 500.
+            raise ValueError(
+                f'request body too large or invalid Content-Length: {raw}')
         if length > 0:
             return json.loads(self.rfile.read(length))
         return {}
@@ -1833,30 +1851,55 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         self._seed_new_nodes_only()
         return {'ok': True, 'message': f'Branch "{name}" created from {from_stage}'}
 
+    # Escape user input for splicing into a Tcl `"..."` string literal.
+    # Inside `"..."`, `$var` performs variable substitution and `[cmd]`
+    # executes an embedded command AT SOURCE TIME — override_config
+    # files are later sourced by tclsh, so unescaped `[exec rm -rf ~]`
+    # runs as the user's shell. Escape `\`, `"`, `$`, `[`.
+    @staticmethod
+    def _tcl_quote(s):
+        if s is None:
+            return ''
+        return (str(s)
+                .replace('\\', '\\\\')
+                .replace('"',  '\\"')
+                .replace('$',  '\\$')
+                .replace('[',  '\\['))
+
+    # Validate a stage / node name — must match the same allowlist that
+    # node_manager.add_node uses. Prevents path traversal in the
+    # override_config.<stage>.tcl filename and shell metachar bleed-
+    # through into downstream Job.command interpolation.
+    @staticmethod
+    def _valid_stage_name(s):
+        return bool(s) and bool(re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', str(s)))
+
     def _action_update_node_config(self, body):
         """Update per-node config (LSF queue, memory, timeout, version)."""
         stage = body.get('stage', '')
-        if not stage:
-            return {'error': 'stage required'}
+        if not self._valid_stage_name(stage):
+            return {'ok': False, 'error': 'invalid stage name'}
 
         # Write overrides to setup/override_config.<node>.tcl (per-node, not per-type)
         override_file = os.path.join(self.dashboard.run_dir, 'setup',
                                       f'override_config.{stage}.tcl')
         lines = []
         flow_lower = self.dashboard.flow_type.lower()
+        _q = self._tcl_quote
+        _lsf_queue = _q(body.get("lsf_queue", "M"))
 
         if body.get('lsf_queue'):
-            lines.append(f'set lsf(flow_mapping,{flow_lower},{stage.rstrip("0123456789")}) "{body["lsf_queue"]}"')
+            lines.append(f'set lsf(flow_mapping,{flow_lower},{stage.rstrip("0123456789")}) "{_q(body["lsf_queue"])}"')
         if body.get('lsf_memory'):
-            lines.append(f'set lsf(queue_types,{body.get("lsf_queue","M")},memory) "{body["lsf_memory"]}"')
+            lines.append(f'set lsf(queue_types,{_lsf_queue},memory) "{_q(body["lsf_memory"])}"')
         if body.get('lsf_cpu'):
-            lines.append(f'set lsf(queue_types,{body.get("lsf_queue","M")},cpu) "{body["lsf_cpu"]}"')
+            lines.append(f'set lsf(queue_types,{_lsf_queue},cpu) "{_q(body["lsf_cpu"])}"')
         if body.get('timeout'):
-            lines.append(f'set {flow_lower}(runtime,timeout,{stage}) "{body["timeout"]}"')
+            lines.append(f'set {flow_lower}(runtime,timeout,{stage}) "{_q(body["timeout"])}"')
         if body.get('tool_version'):
-            lines.append(f'set {flow_lower}(tool,version) "{body["tool_version"]}"')
+            lines.append(f'set {flow_lower}(tool,version) "{_q(body["tool_version"])}"')
         if body.get('tool_module'):
-            lines.append(f'set flow(tool_module,{self._get_flow_tool()}) "{body["tool_module"]}"')
+            lines.append(f'set flow(tool_module,{self._get_flow_tool()}) "{_q(body["tool_module"])}"')
 
         if lines:
             os.makedirs(os.path.dirname(override_file), exist_ok=True)
@@ -1874,27 +1917,39 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         self._check_run_ownership()
         variables = body.get('variables', {})
         if not variables:
-            return {'error': 'No variables to save'}
+            return {'ok': False, 'error': 'No variables to save'}
 
         user_config = os.path.join(self.dashboard.run_dir, 'setup', 'user_config.tcl')
         if not os.path.exists(user_config):
-            return {'error': 'user_config.tcl not found'}
+            return {'ok': False, 'error': 'user_config.tcl not found'}
 
+        _q = self._tcl_quote
         with open(user_config) as f:
             lines = f.readlines()
 
-        # Update existing lines or append new ones
+        # Update existing lines or append new ones. Prior code used
+        # `if key in line and line.strip().startswith('set ')` — a
+        # substring match that false-positive'd against unrelated
+        # variables containing the key as a substring (e.g. saving
+        # `rtl` overwrote lines with `rtl_filelist`). Match on the
+        # exact `set <key>` prefix instead. Also tcl-quote values so
+        # embedded `"`/`$`/`[` don't inject.
         updated_keys = set()
         for i, line in enumerate(lines):
+            stripped = line.lstrip()
             for key, val in variables.items():
-                if key in line and line.strip().startswith('set '):
-                    lines[i] = f'set {key} "{val}"\n'
+                # Anchor on `set <key>` with a following whitespace / `(` /
+                # end. Prevents 'rtl' matching 'set rtl_filelist ...'.
+                if (stripped.startswith(f'set {key} ')
+                        or stripped.startswith(f'set {key}\t')
+                        or stripped.startswith(f'set {key}(')):
+                    lines[i] = f'set {key} "{_q(val)}"\n'
                     updated_keys.add(key)
 
         # Append any new variables not found in existing file
         for key, val in variables.items():
             if key not in updated_keys:
-                lines.append(f'set {key} "{val}"\n')
+                lines.append(f'set {key} "{_q(val)}"\n')
 
         with open(user_config, 'w') as f:
             f.writelines(lines)
@@ -1997,9 +2052,22 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             self.send_error(404, f'Template not found: {name}')
 
     def _serve_static(self, name):
-        filepath = os.path.join(STATIC_DIR, name)
-        if os.path.exists(filepath):
-            with open(filepath, 'rb') as f:
+        # Path traversal guard: the request path is user-controlled
+        # (`GET /static/../race_dashboard.py`). Reject any name that
+        # doesn't normalize to a file INSIDE STATIC_DIR. `realpath` +
+        # `commonpath` catches `..`, absolute paths, symlink escape,
+        # and Windows separators.
+        candidate = os.path.realpath(os.path.join(STATIC_DIR, name))
+        static_root = os.path.realpath(STATIC_DIR)
+        try:
+            common = os.path.commonpath([candidate, static_root])
+        except ValueError:
+            common = ''
+        if common != static_root:
+            self.send_error(404)
+            return
+        if os.path.isfile(candidate):
+            with open(candidate, 'rb') as f:
                 content = f.read()
             ctype = 'text/css' if name.endswith('.css') else \
                     'application/javascript' if name.endswith('.js') else \
@@ -2145,22 +2213,44 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         run_dir = self.dashboard.run_dir
         flow_type = self.dashboard.flow_type
 
+        # Path-traversal guard: job_name comes from the URL. A crafted
+        # value like `../../../etc/passwd` would let the glob resolve
+        # outside the run directory. Reject anything with '/', backslash,
+        # null-byte, or the '..' segment; require the allowlist
+        # `^[A-Za-z0-9_.-]+$` matching real job/subnode names.
+        if (not job_name
+                or not re.match(r'^[A-Za-z0-9_.-]+$', job_name)
+                or '..' in job_name.split('/') + job_name.split(os.sep)):
+            self.send_response(400)
+            self.send_header('Content-Type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b'invalid job_name')
+            return
+
         # Resolve stage from job_name (timing1_setup → timing1)
         import glob as _glob
         log_path = None
+        work_root = os.path.realpath(os.path.join(run_dir, 'work', flow_type))
+
+        def _in_work_root(p):
+            try:
+                return os.path.commonpath([os.path.realpath(p), work_root]) == work_root
+            except ValueError:
+                return False
 
         # Primary: work/<FLOW>/<stage>/run/<job_name>.log
         for stage_dir in _glob.glob(os.path.join(run_dir, 'work', flow_type, '*')):
             candidate = os.path.join(stage_dir, 'run', f'{job_name}.log')
-            if os.path.exists(candidate):
+            if os.path.exists(candidate) and _in_work_root(candidate):
                 log_path = candidate
                 break
 
         # Fallback: search all .log files matching job_name
         if not log_path:
             for match in _glob.glob(os.path.join(run_dir, 'work', flow_type, '**', f'{job_name}.log'), recursive=True):
-                log_path = match
-                break
+                if _in_work_root(match):
+                    log_path = match
+                    break
 
         log_content = ''
         if log_path and os.path.exists(log_path):
@@ -2337,13 +2427,21 @@ def _get_run_port(run_dir: str) -> int:
     return port
 
 
-def start_dashboard(run_dir: str, port: int = 0, open_browser: bool = True):
+def start_dashboard(run_dir: str, port: int = 0, open_browser: bool = True,
+                    public: bool = False):
     """Start the RACE Dashboard web server.
 
     Args:
         port: Port number. 0 = auto-assign deterministic port from run_dir hash
               (stored in SQLite DB, cleaned up when DB is removed).
               Explicit port overrides the deterministic assignment.
+        public: If True, bind to 0.0.0.0 (reachable from LAN); otherwise
+                bind to 127.0.0.1 only. Prior default was 0.0.0.0
+                unconditionally — combined with the unauthenticated
+                mutation endpoints, that made `cbflow run gui` on a
+                coffee-shop laptop a network-reachable RCE vector.
+                Localhost-only is now the safe default; explicit
+                --public opts in.
     """
     dashboard = RaceDashboard(run_dir)
     DashboardHandler.dashboard = dashboard
@@ -2356,12 +2454,14 @@ def start_dashboard(run_dir: str, port: int = 0, open_browser: bool = True):
     watcher = threading.Thread(target=_file_watcher, args=(dashboard,), daemon=True)
     watcher.start()
 
+    bind_host = '0.0.0.0' if public else '127.0.0.1'
+
     try:
-        server = http.server.HTTPServer(('0.0.0.0', port), DashboardHandler)
+        server = http.server.HTTPServer((bind_host, port), DashboardHandler)
     except OSError:
         # Requested port busy — find next free one and update DB
         port = _find_free_port(port + 1, port + 200)
-        server = http.server.HTTPServer(('0.0.0.0', port), DashboardHandler)
+        server = http.server.HTTPServer((bind_host, port), DashboardHandler)
         # Update stored port in actual RACE DB
         try:
             _db = dashboard.db_path

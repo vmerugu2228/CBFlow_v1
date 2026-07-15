@@ -63,6 +63,22 @@ flow_proc run_xor_check {
 
     handle_info "  CMD: icv -dp $num_cpus -c $::DESIGN_NAME -xor -i <pre> -i2 <post>"
 
+    # NOTE: the actual `icv -xor` invocation is not wired here yet — the
+    # ICV command line above is a comment for future implementation. We
+    # therefore cannot honestly report "0 (clean)". Previously the report
+    # hard-coded that clean status, which made pv_xor_clean pass at
+    # PV_SIGNOFF whether or not the check ever ran — a silent-PASS. Now
+    # emit N/A so metric-parsing consumers report metric-not-found
+    # instead of interpreting the missing tool as success. When ICV
+    # `-xor` is wired for real, parse actual output and replace the N/A
+    # with the numeric diff count.
+    set _xor_diffs "N/A (icv -xor not yet wired)"
+    if {$pre_fill eq "" || ![file exists $pre_fill]} {
+        set _xor_diffs "N/A (pre-fill layout missing)"
+    } elseif {![file exists $post_fill]} {
+        set _xor_diffs "N/A (post-fill layout missing)"
+    }
+
     # Generate XOR summary report
     set rpt [open "$::REPORTS_DIR/${::DESIGN_NAME}_xor_summary.rpt" "w"]
     puts $rpt "═══════════════════════════════════════════════════════"
@@ -72,7 +88,7 @@ flow_proc run_xor_check {
     puts $rpt ""
     puts $rpt "  Pre-fill layout:  $pre_fill"
     puts $rpt "  Post-fill layout: $post_fill"
-    puts $rpt "  XOR differences:  0 (clean)"
+    puts $rpt "  XOR differences:  $_xor_diffs"
     puts $rpt ""
     close $rpt
     handle_info "  XOR report: $::REPORTS_DIR/${::DESIGN_NAME}_xor_summary.rpt"

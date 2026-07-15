@@ -104,6 +104,18 @@
 let allJobs = [];
 let sortCol = -1, sortAsc = true;
 
+// HTML-escape helpers — every DB/config-sourced string spliced via
+// innerHTML must go through these. Audit S9 flagged j.name, j.stage,
+// j.status, j.error, j.error_msg, j.command, j.log_tail as stored-XSS
+// sinks in the grid + modal renderers.
+function escHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+                  .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function escAttr(s) { return escHtml(s); }
+function escJsStr(s) { return JSON.stringify(String(s == null ? '' : s)); }
+
 function statusColor(s) {
   return {READY:'#c8a600',PENDING:'#00838f',RUNNING:'#2e7d32',DONE:'#00838f',
           FAIL:'#b71c1c',INVALIDATED:'#7b1fa2',
@@ -149,16 +161,19 @@ function renderGrid() {
   const tbody = document.getElementById('grid-body');
   tbody.innerHTML = filtered.map(j => {
     const color = statusColor(j.status);
-    return '<tr onclick="showJob(\'' + j.name + '\')" oncontextmenu="showCtxMenu(event,\'' + j.name + '\')" style="cursor:pointer">' +
-      '<td><strong>' + j.name + '</strong></td>' +
-      '<td>' + j.stage + '</td>' +
-      '<td>' + (j.subnode || '-') + '</td>' +
-      '<td>' + (j.type || '-') + '</td>' +
-      '<td><span class="status-badge" style="background:' + color + '">' + j.status + '</span></td>' +
-      '<td class="mono">' + formatTime(j.runtime) + '</td>' +
-      '<td>' + (j.exit_code != null ? j.exit_code : '-') + '</td>' +
-      '<td class="mono">' + (j.hostname || '-') + '</td>' +
-      '<td class="error-text">' + (j.error || '') + '</td></tr>';
+    // JS-string context for onclick's argument — use escJsStr (JSON.stringify)
+    // to survive HTML-entity decode + JS string parsing. HTML-attribute
+    // context for text — use escAttr / escHtml.
+    return '<tr onclick="showJob(' + escAttr(escJsStr(j.name)) + ')" oncontextmenu="showCtxMenu(event,' + escAttr(escJsStr(j.name)) + ')" style="cursor:pointer">' +
+      '<td><strong>' + escHtml(j.name) + '</strong></td>' +
+      '<td>' + escHtml(j.stage) + '</td>' +
+      '<td>' + escHtml(j.subnode || '-') + '</td>' +
+      '<td>' + escHtml(j.type || '-') + '</td>' +
+      '<td><span class="status-badge" style="background:' + color + '">' + escHtml(j.status) + '</span></td>' +
+      '<td class="mono">' + escHtml(formatTime(j.runtime)) + '</td>' +
+      '<td>' + escHtml(j.exit_code != null ? j.exit_code : '-') + '</td>' +
+      '<td class="mono">' + escHtml(j.hostname || '-') + '</td>' +
+      '<td class="error-text">' + escHtml(j.error || '') + '</td></tr>';
   }).join('');
 
   document.getElementById('grid-footer').textContent =
@@ -172,26 +187,26 @@ function sortTable(col) {
 }
 
 function showJob(name) {
-  fetch('/api/job/' + name).then(r => r.json()).then(j => {
+  fetch('/api/job/' + encodeURIComponent(name)).then(r => r.json()).then(j => {
     if (!j.name) return;
     const color = statusColor(j.status);
     let html = '<div class="detail-grid">' +
-      '<div><label>Status</label><span class="status-badge" style="background:'+color+'">'+j.status+'</span></div>' +
-      '<div><label>Runtime</label>'+formatTime(j.runtime)+'</div>' +
-      '<div><label>Exit Code</label>'+(j.exit_code!=null?j.exit_code:'-')+'</div>' +
-      '<div><label>Stage</label>'+j.stage+'</div>' +
-      '<div><label>Subnode</label>'+(j.subnode||'-')+'</div>' +
-      '<div><label>Type</label>'+(j.type||'-')+'</div>' +
-      '<div><label>Host</label><span class="mono">'+(j.hostname||'-')+'</span></div>' +
-      '<div><label>LSF Job</label><span class="mono">'+(j.lsf_job_id||'-')+'</span></div>' +
-      '<div><label>Tier</label>'+(j.resource_tier||'-')+'</div>' +
-      '<div><label>Start</label><span class="mono">'+(j.start_time||'-')+'</span></div>' +
-      '<div><label>End</label><span class="mono">'+(j.end_time||'-')+'</span></div>' +
-      '<div><label>Retries</label>'+(j.retry_count||0)+'</div></div>';
-    if (j.error_msg) html += '<div class="error-box"><strong>Error:</strong> '+j.error_msg+'</div>';
-    if (j.command) html += '<div class="cmd-box"><strong>Command:</strong><pre>'+j.command+'</pre></div>';
+      '<div><label>Status</label><span class="status-badge" style="background:'+color+'">'+escHtml(j.status)+'</span></div>' +
+      '<div><label>Runtime</label>'+escHtml(formatTime(j.runtime))+'</div>' +
+      '<div><label>Exit Code</label>'+escHtml(j.exit_code!=null?j.exit_code:'-')+'</div>' +
+      '<div><label>Stage</label>'+escHtml(j.stage)+'</div>' +
+      '<div><label>Subnode</label>'+escHtml(j.subnode||'-')+'</div>' +
+      '<div><label>Type</label>'+escHtml(j.type||'-')+'</div>' +
+      '<div><label>Host</label><span class="mono">'+escHtml(j.hostname||'-')+'</span></div>' +
+      '<div><label>LSF Job</label><span class="mono">'+escHtml(j.lsf_job_id||'-')+'</span></div>' +
+      '<div><label>Tier</label>'+escHtml(j.resource_tier||'-')+'</div>' +
+      '<div><label>Start</label><span class="mono">'+escHtml(j.start_time||'-')+'</span></div>' +
+      '<div><label>End</label><span class="mono">'+escHtml(j.end_time||'-')+'</span></div>' +
+      '<div><label>Retries</label>'+escHtml(j.retry_count||0)+'</div></div>';
+    if (j.error_msg) html += '<div class="error-box"><strong>Error:</strong> '+escHtml(j.error_msg)+'</div>';
+    if (j.command) html += '<div class="cmd-box"><strong>Command:</strong><pre>'+escHtml(j.command)+'</pre></div>';
     if (j.log_tail && j.log_tail.length > 0) {
-      html += '<div class="log-box"><strong>Log:</strong><pre>'+j.log_tail.join('\n')+'</pre></div>';
+      html += '<div class="log-box"><strong>Log:</strong><pre>'+escHtml(j.log_tail.join('\n'))+'</pre></div>';
     }
     document.getElementById('modal-title').textContent = j.name;
     document.getElementById('modal-body').innerHTML = html;
