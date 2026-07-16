@@ -490,13 +490,23 @@ class LibraryValidator:
     def load_tech_config(self, path: str) -> Dict:
         """Parse a tech config and return library sets.
 
-        Tries two schemas in order:
+        Tries three schemas in order:
           1. Legacy `array set library_sets { ... }` in the tech_config.tcl
              itself (older config style).
           2. Per-key `set tech(<corner>,<voltage>,<temp>,db|lib) [list ...]`
              and `set tech(<track>,<vt>,ndm) [list ...]` in the sibling
              `lib_config.tcl` (current style — written by `library-manager
              generate`, kept track-categorized).
+          3. Track-schema declarations DIRECTLY in tech_config.tcl —
+             `tech(<metal_stack>,<track>,lef_tech)` for LEF-tech files,
+             `tech(rcx,<metal_stack>,<rc_corner>,<format>)` for extraction
+             files. This is the shipped `gf_22nm` / `gf_28nm` / `tsmc_5nm`
+             / `tsmc_7nm` layout — none of them declare `.lib`/`.ndm` file
+             paths in the tech config; those come from
+             `library-manager generate` writing a `lib_config.tcl` sibling.
+             Falling through to this parser means `list`/`check` don't
+             error out on shipped tech configs — they instead show what
+             IS declared (LEF, RCX) and note the .lib/.ndm gap explicitly.
         """
         if not os.path.exists(path):
             logger.error(f"Tech config not found: {path}")
@@ -518,6 +528,110 @@ class LibraryValidator:
             )
             with open(sibling, 'r') as f:
                 return self._parse_lib_config_per_key(f.read())
+
+        # Fall back to the track-schema (shipped tech configs). This
+        # never finds .lib/.ndm — those need library-manager generate —
+        # but it does surface LEF-tech and RCX declarations so the tool
+        # is useful against out-of-the-box configs instead of erroring.
+        track_sets = self._parse_tech_track_schema(content, path)
+        if track_sets:
+            logger.info(
+                f"No library_sets array and no sibling lib_config.tcl; "
+                f"using track-schema from {os.path.basename(path)} "
+                f"(LEF/RCX only — run `library-manager generate` to add "
+                f".lib/.ndm)"
+            )
+            return track_sets
+
+        return sets
+
+    def _parse_tech_track_schema(self, content: str, tech_config_path: str) -> Dict:
+        """Synthesize library_sets from track-schema declarations that
+        appear directly in tech_config.tcl (no library_sets array, no
+        sibling lib_config.tcl).
+
+        Recognized lines:
+          set tech(<ms>,<track>,lef_tech)             "<path>"
+          set tech(rcx,<ms>,<rc_corner>,<format>)     "<path>"
+              where <format> ∈ {tluplus, nxtgrd, qrc}
+          set tech(<track>,ndm|db|lib)                 "<path>"  (legacy shape)
+          set tech(<track>,<vt>,ndm|db|lib)            "<path>"  (per-VT shape)
+
+        `$project(...)` substitution is left literal — we return the
+        template path so the operator sees exactly what's declared and
+        can spot missing library-root vars themselves. Real resolution
+        happens later when tclsh sources the file.
+        """
+        sets: Dict[str, Dict] = {}
+
+        # LEF-tech per (metal_stack, track).
+        lef_re = re.compile(
+            r'^\s*set\s+tech\(\s*([0-9]+M)\s*,\s*([0-9.]+T)\s*,\s*lef_tech\s*\)\s+"([^"]+)"',
+            re.MULTILINE
+        )
+        for m in lef_re.finditer(content):
+            ms, trk, path = m.group(1), m.group(2), m.group(3)
+            set_name = f'lef_{ms}_{trk}'
+            entry = sets.setdefault(set_name, {
+                'corner': 'physical', 'voltage': '-', 'temperature': '-',
+                'metal_stack': ms, 'track': trk,
+            })
+            entry.setdefault('lef_files', []).append(path)
+
+        # RCX per (metal_stack, rc_corner, format).
+        rcx_re = re.compile(
+            r'^\s*set\s+tech\(\s*rcx\s*,\s*([0-9]+M)\s*,\s*(rc_\w+)\s*,\s*(tluplus|nxtgrd|qrc)\s*\)'
+            r'\s+"([^"]+)"',
+            re.MULTILINE
+        )
+        for m in rcx_re.finditer(content):
+            ms, rc, fmt, path = m.group(1), m.group(2), m.group(3), m.group(4)
+            set_name = f'rcx_{ms}_{rc}'
+            entry = sets.setdefault(set_name, {
+                'corner': rc, 'voltage': '-', 'temperature': '-',
+                'metal_stack': ms, 'rc_corner': rc,
+            })
+            entry.setdefault(f'{fmt}_files', []).append(path)
+
+        # Per-track NDM/DB/LIB (legacy shape without VT).
+        track_only_re = re.compile(
+            r'^\s*set\s+tech\(\s*([0-9.]+T)\s*,\s*(ndm|db|lib)\s*\)\s+"([^"]+)"',
+            re.MULTILINE
+        )
+        for m in track_only_re.finditer(content):
+            trk, kind, path = m.group(1), m.group(2), m.group(3)
+            set_name = f'physical_{trk}'
+            entry = sets.setdefault(set_name, {
+                'corner': 'physical', 'voltage': '-', 'temperature': '-',
+                'track': trk,
+            })
+            lib_key = 'ndm_libraries' if kind == 'ndm' else 'timing_libraries'
+            entry.setdefault(lib_key, []).append(path)
+
+        # Per-track per-VT NDM/DB/LIB.
+        track_vt_re = re.compile(
+            r'^\s*set\s+tech\(\s*([0-9.]+T)\s*,\s*(\w+)\s*,\s*(ndm|db|lib)\s*\)\s+"([^"]+)"',
+            re.MULTILINE
+        )
+        for m in track_vt_re.finditer(content):
+            trk, vt, kind = m.group(1), m.group(2), m.group(3)
+            # Skip cell-type keys (they aren't library files) — the
+            # regex above intentionally targets ndm/db/lib only, but
+            # `\w+` for VT overlaps with cell-type keys if they slip in.
+            if vt in ('cell_height', 'site', 'site_width', 'clock_buffers',
+                      'clock_inverters', 'decap', 'delay_cells', 'dont_use',
+                      'endcap', 'fillers', 'hold_buffers', 'icg_cells',
+                      'isolation', 'level_shifter', 'power_switch',
+                      'tie_cells', 'well_tap', 'lef_tech'):
+                continue
+            path = m.group(4)
+            set_name = f'physical_{trk}_{vt}'
+            entry = sets.setdefault(set_name, {
+                'corner': 'physical', 'voltage': '-', 'temperature': '-',
+                'track': trk, 'vt': vt,
+            })
+            lib_key = 'ndm_libraries' if kind == 'ndm' else 'timing_libraries'
+            entry.setdefault(lib_key, []).append(path)
 
         return sets
 
@@ -887,14 +1001,20 @@ def cmd_list(args: argparse.Namespace) -> int:
             voltage = set_data.get('voltage', '?')
             temperature = set_data.get('temperature', '?')
 
-            # Count libraries per type
+            # Count libraries per type. Cover the legacy shape
+            # (`*_libraries`), the track-schema NDM/timing lists, and the
+            # LEF-tech / RCX file lists that the shipped tech configs
+            # declare directly.
             lib_counts = []
             for key in ('timing_libraries', 'power_libraries',
-                        'noise_libraries', 'leakage_libraries'):
+                        'noise_libraries', 'leakage_libraries',
+                        'ndm_libraries', 'lef_files',
+                        'tluplus_files', 'nxtgrd_files', 'qrc_files'):
                 paths = set_data.get(key, [])
                 count = len(paths) if isinstance(paths, list) else 0
                 if count > 0:
-                    short_key = key.replace('_libraries', '')
+                    short_key = (key.replace('_libraries', '')
+                                    .replace('_files', ''))
                     lib_counts.append(f"{short_key}:{count}")
 
             count_str = ', '.join(lib_counts) if lib_counts else 'none'
@@ -2105,6 +2225,205 @@ def cmd_generate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_status(args: argparse.Namespace) -> int:
+    """Signoff-readiness report for a tech's library configuration.
+
+    Answers: is my multi-VT setup complete? Reads tech_config.tcl and
+    (if present) lib_config.tcl and reports:
+      - Available VT flavors (`tech(vt_variants_available)`)
+      - Project-enabled VTs (`project(vt_flavors)` — if a project is given)
+      - LEF-tech per (metal_stack, track)
+      - RCX per (metal_stack, rc_corner) × {tluplus, nxtgrd, qrc}
+      - Timing/NDM per (track, VT) — from lib_config.tcl if present
+      - Dont_use masks per track
+      - Missing corners / VT / format combinations, flagged red
+
+    The user's own before-signoff sanity check: `cbflow flow
+    library-manager status --tech gf_22nm --project bumblebee` should
+    show every declared axis present or explicitly missing.
+    """
+    tech_name = args.tech
+    version = getattr(args, 'version', None) or 'v1.0.0'
+    core_dir = get_cbflow_core_dir()
+    tech_config = os.path.join(core_dir, 'config', 'tech', tech_name, version, 'tech_config.tcl')
+    lib_config = os.path.join(core_dir, 'config', 'tech', tech_name, version, 'lib_config.tcl')
+
+    if not os.path.exists(tech_config):
+        logger.error(f"tech_config.tcl not found: {tech_config}")
+        return 1
+
+    with open(tech_config) as f:
+        tc = f.read()
+
+    def _tcl_scalar(key: str, text: str) -> str:
+        m = re.search(rf'set\s+tech\({re.escape(key)}\)\s+"?([^"\n]+)"?', text)
+        return m.group(1).strip() if m else ''
+
+    def _tcl_list(key: str, text: str) -> List[str]:
+        m = re.search(rf'set\s+tech\({re.escape(key)}\)\s+\{{([^}}]+)\}}', text)
+        if not m:
+            m = re.search(rf'set\s+tech\({re.escape(key)}\)\s+"([^"]+)"', text)
+        if not m:
+            return []
+        return m.group(1).split()
+
+    # ── Section 1: VT availability + project enablement ──
+    available_vts = _tcl_list('vt_variants_available', tc)
+    vt_patterns = {}
+    for m in re.finditer(r'set\s+tech\(vt_pattern,(\w+)\)\s+"([^"]+)"', tc):
+        vt_patterns[m.group(1)] = m.group(2)
+    metal_stacks = _tcl_list('metal_stacks_available', tc)
+    tracks = _tcl_list('tracks_available', tc)
+
+    project_name = getattr(args, 'project', None) or os.environ.get('CBFLOW_PROJECT_NAME')
+    project_vts: List[str] = []
+    if project_name:
+        proj_config = os.path.join(core_dir, 'config', 'project', project_name, version, f'{project_name}_config.tcl')
+        if os.path.exists(proj_config):
+            with open(proj_config) as f:
+                pc = f.read()
+            m = re.search(r'set\s+project\(vt_flavors\)\s+"([^"]+)"', pc)
+            if m:
+                project_vts = m.group(1).split()
+
+    # ── Section 2: LEF-tech coverage per (metal_stack, track) ──
+    lef_present = set()
+    for m in re.finditer(r'set\s+tech\(([0-9]+M),([0-9.]+T),lef_tech\)', tc):
+        lef_present.add((m.group(1), m.group(2)))
+
+    # ── Section 3: RCX per (metal_stack, rc_corner, format) ──
+    rcx_present = {}   # (ms, rc) → {fmt: True}
+    for m in re.finditer(r'set\s+tech\(rcx,([0-9]+M),(rc_\w+),(tluplus|nxtgrd|qrc)\)', tc):
+        rcx_present.setdefault((m.group(1), m.group(2)), set()).add(m.group(3))
+
+    # ── Section 4: Timing / NDM from lib_config.tcl (if generated) ──
+    lib_config_present = os.path.exists(lib_config)
+    lib_by_track_vt: Dict[tuple, Dict[str, int]] = {}   # (track, vt) → {'ndm': n, 'db': n, 'lib': n}
+    if lib_config_present:
+        with open(lib_config) as f:
+            lc = f.read()
+        for m in re.finditer(
+            r'set\s+tech\(([0-9.]+T)\s*,\s*(\w+)\s*,\s*(ndm|db|lib)\)\s+\[list\s+(.+?)\]',
+            lc
+        ):
+            trk, vt, kind, raw = m.group(1), m.group(2), m.group(3), m.group(4)
+            paths = re.findall(r'"([^"]+)"', raw)
+            if not paths:
+                continue
+            bucket = lib_by_track_vt.setdefault((trk, vt), {})
+            bucket[kind] = bucket.get(kind, 0) + len(paths)
+
+    # ── Section 5: dont_use per track ──
+    dont_use = {}
+    for m in re.finditer(r'set\s+tech\(([0-9.]+T),dont_use\)\s+"([^"]+)"', tc):
+        dont_use[m.group(1)] = m.group(2)
+
+    # ── Render ──
+    logger.info('')
+    logger.info(f'  Library Manager Status — tech={tech_name} version={version}')
+    logger.info(f'  {"=" * 70}')
+    logger.info(f'  Source: {tech_config}')
+    if lib_config_present:
+        logger.info(f'  lib_config: {lib_config}')
+    else:
+        logger.info(f'  lib_config: NOT GENERATED (run `library-manager generate`)')
+    logger.info('')
+
+    # VT block
+    logger.info('  VT flavors')
+    logger.info(f'    Available in tech: {" ".join(available_vts) or "(none declared)"}')
+    if project_name:
+        if project_vts:
+            enabled_set = set(project_vts)
+            for vt in available_vts:
+                mark = 'ENABLED' if vt in enabled_set else '  off  '
+                pat = vt_patterns.get(vt, '?')
+                logger.info(f'      {mark}  {vt:<6} pattern={pat}')
+            missing_from_tech = [v for v in project_vts if v not in available_vts]
+            if missing_from_tech:
+                logger.warning(
+                    f'    Project enables VTs not in tech: {" ".join(missing_from_tech)}'
+                )
+        else:
+            logger.info(f'    Project {project_name!r} sets no `vt_flavors` — all available VTs are candidates')
+    logger.info('')
+
+    # Metal stack / track block
+    logger.info(f'  Metal stacks:  {" ".join(metal_stacks) or "(not declared)"}')
+    logger.info(f'  Tracks:        {" ".join(tracks) or "(not declared)"}')
+    logger.info('')
+
+    # LEF coverage
+    logger.info('  LEF-tech coverage (metal_stack × track)')
+    if not metal_stacks or not tracks:
+        logger.info('    (metal_stacks_available / tracks_available not set — cannot check)')
+    else:
+        for ms in metal_stacks:
+            row = []
+            for trk in tracks:
+                have = (ms, trk) in lef_present
+                row.append(f'{trk}={"OK" if have else "MISSING"}')
+            logger.info(f'    {ms:<5} {" ".join(row)}')
+    logger.info('')
+
+    # RCX coverage
+    logger.info('  RCX coverage (metal_stack × rc_corner × format)')
+    if not rcx_present:
+        logger.info('    (no tech(rcx,...) entries)')
+    else:
+        for (ms, rc), fmts in sorted(rcx_present.items()):
+            missing = {'tluplus', 'nxtgrd', 'qrc'} - fmts
+            marker = 'OK' if not missing else f'MISSING: {",".join(sorted(missing))}'
+            logger.info(f'    {ms:<5} {rc:<8} formats={",".join(sorted(fmts)):<25} {marker}')
+    logger.info('')
+
+    # Timing/NDM coverage (from lib_config.tcl)
+    logger.info('  Timing/NDM coverage (track × VT — from lib_config.tcl)')
+    if not lib_config_present:
+        logger.info('    lib_config.tcl not generated — no .lib/.ndm paths declared.')
+        logger.info(f'    Generate: cbflow flow library-manager generate --tech {tech_name} \\')
+        logger.info(f'                 --lib-root <path/to/vendor/libs>')
+    else:
+        vt_list = project_vts if project_vts else available_vts
+        for trk in tracks:
+            for vt in vt_list:
+                counts = lib_by_track_vt.get((trk, vt), {})
+                if counts:
+                    parts = ' '.join(f'{k}={v}' for k, v in sorted(counts.items()))
+                    logger.info(f'    {trk:<5} {vt:<6} {parts}')
+                else:
+                    logger.warning(f'    {trk:<5} {vt:<6} MISSING — no ndm/db/lib entries')
+    logger.info('')
+
+    # Dont_use masks
+    if dont_use:
+        logger.info('  Dont_use masks per track')
+        for trk, mask in sorted(dont_use.items()):
+            logger.info(f'    {trk:<5} {mask}')
+        logger.info('')
+
+    # Summary verdict
+    total_issues = 0
+    if metal_stacks and tracks:
+        total_issues += sum(1 for ms in metal_stacks for trk in tracks
+                            if (ms, trk) not in lef_present)
+    for (ms, rc), fmts in rcx_present.items():
+        total_issues += len({'tluplus', 'nxtgrd', 'qrc'} - fmts)
+    if not lib_config_present:
+        total_issues += 1
+    else:
+        vt_list = project_vts if project_vts else available_vts
+        total_issues += sum(1 for trk in tracks for vt in vt_list
+                            if (trk, vt) not in lib_by_track_vt)
+
+    if total_issues == 0:
+        logger.info('  READY — all declared axes populated. Multi-VT setup complete.')
+        return 0
+    else:
+        logger.warning(f'  NOT READY — {total_issues} issue(s) above. See MISSING markers.')
+        return 1
+
+
 def cmd_coverage(args: argparse.Namespace) -> int:
     """Show library coverage matrix: tracks × VTs × corners."""
     # Read lib_config.tcl and parse tech() variables
@@ -2282,6 +2601,20 @@ Examples:
     cov_parser.add_argument('--version', default='v1.0.0',
                             help='Config version (default: v1.0.0)')
 
+    # status command — signoff-readiness report (multi-VT aware)
+    status_parser = subparsers.add_parser(
+        'status',
+        help='Signoff-readiness report — available VTs, enabled VTs, '
+             'per-track/per-VT library counts, LEF/RCX coverage, dont_use masks')
+    status_parser.add_argument('--tech', required=True,
+                               help='Technology name (e.g., gf_22nm)')
+    status_parser.add_argument('--project', default=None,
+                               help='Project name (auto-detects enabled VTs '
+                                    'from project(vt_flavors); omit for '
+                                    'tech-wide view)')
+    status_parser.add_argument('--version', default='v1.0.0',
+                               help='Config version (default: v1.0.0)')
+
     return parser
 
 
@@ -2334,6 +2667,7 @@ def main() -> int:
         'generate-mmmc': cmd_generate_mmmc,
         'generate': cmd_generate,
         'coverage': cmd_coverage,
+        'status': cmd_status,
     }
 
     if args.command not in commands:
