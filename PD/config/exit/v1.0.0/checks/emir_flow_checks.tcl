@@ -15,7 +15,7 @@ array set emir_flow_checks {
         "script"                  "check_power.tcl"
         "category"                "power_analysis"
         "severity"                "major"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "EMIR_SIGNOFF"
         "report_pattern"          "power_summary.rpt"
         "metric_pattern"          {Total\s+Power\s*:\s*([0-9]+\.[0-9]+)\s*mW}
@@ -28,7 +28,7 @@ array set emir_flow_checks {
         "script"                  "check_power.tcl"
         "category"                "power_analysis"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "EMIR_SIGNOFF"
         "report_pattern"          "power_summary.rpt"
         "metric_pattern"          {Leakage\s+Power\s*:\s*([0-9]+\.[0-9]+)\s*mW}
@@ -41,7 +41,7 @@ array set emir_flow_checks {
         "script"                  "check_power.tcl"
         "category"                "power_analysis"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "EMIR_SIGNOFF"
         "report_pattern"          "power_summary.rpt"
         "metric_pattern"          {Dynamic\s+Power\s*:\s*([0-9]+\.[0-9]+)\s*mW}
@@ -54,7 +54,7 @@ array set emir_flow_checks {
         "script"                  "check_power.tcl"
         "category"                "power_analysis"
         "severity"                "minor"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "EMIR_SIGNOFF"
         "report_pattern"          "power_summary.rpt"
         "metric_pattern"          {Clock\s+Power\s+Ratio\s*:\s*([0-9]+\.[0-9]+)\s*%}
@@ -67,7 +67,7 @@ array set emir_flow_checks {
         "script"                  "check_power.tcl"
         "category"                "power_analysis"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "EMIR_SIGNOFF"
         "report_pattern"          "power_summary.rpt"
         "metric_pattern"          {Domain\s+Power\s+Budget\s+Violations\s*:\s*([0-9]+)}
@@ -80,7 +80,7 @@ array set emir_flow_checks {
         "script"                  "check_power.tcl"
         "category"                "ir_drop"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "EMIR_SIGNOFF"
         "report_pattern"          "ir_drop_summary.rpt"
         "metric_pattern"          {Static\s+VDD\s+IR\s+Drop\s*:\s*([0-9]+\.[0-9]+)\s*mV}
@@ -93,7 +93,7 @@ array set emir_flow_checks {
         "script"                  "check_power.tcl"
         "category"                "ir_drop"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "EMIR_SIGNOFF"
         "report_pattern"          "ir_drop_summary.rpt"
         "metric_pattern"          {Static\s+VSS\s+IR\s+Drop\s*:\s*([0-9]+\.[0-9]+)\s*mV}
@@ -106,7 +106,7 @@ array set emir_flow_checks {
         "script"                  "check_power.tcl"
         "category"                "ir_drop"
         "severity"                "critical"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "EMIR_SIGNOFF"
         "report_pattern"          "ir_drop_summary.rpt"
         "metric_pattern"          {Dynamic\s+IR\s+Drop\s*:\s*([0-9]+\.[0-9]+)\s*mV}
@@ -119,7 +119,7 @@ array set emir_flow_checks {
         "script"                  "check_power.tcl"
         "category"                "ir_drop"
         "severity"                "critical"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "EMIR_SIGNOFF"
         "report_pattern"          "ir_drop_summary.rpt"
         "metric_pattern"          {Worst\s+Instance\s+Voltage\s+Drop\s*:\s*([0-9]+\.[0-9]+)\s*mV}
@@ -132,7 +132,7 @@ array set emir_flow_checks {
         "script"                  "check_utilization.tcl"
         "category"                "ir_drop"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "EMIR_SIGNOFF"
         "report_pattern"          "ir_drop_summary.rpt"
         "metric_pattern"          {IR\s+Analysis\s+Coverage\s*:\s*([0-9]+\.[0-9]+)\s*%}
@@ -145,7 +145,7 @@ array set emir_flow_checks {
         "script"                  "check_power.tcl"
         "category"                "em"
         "severity"                "critical"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "EMIR_SIGNOFF"
         "report_pattern"          "em_summary.rpt"
         "metric_pattern"          {Signal\s+EM\s+Violations\s*:\s*([0-9]+)}
@@ -158,7 +158,7 @@ array set emir_flow_checks {
         "script"                  "check_power.tcl"
         "category"                "em"
         "severity"                "critical"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "EMIR_SIGNOFF"
         "report_pattern"          "em_summary.rpt"
         "metric_pattern"          {Power\s+Net\s+EM\s+Violations\s*:\s*([0-9]+)}
@@ -171,7 +171,7 @@ array set emir_flow_checks {
         "script"                  "check_power.tcl"
         "category"                "em"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "EMIR_SIGNOFF"
         "report_pattern"          "em_summary.rpt"
         "metric_pattern"          {Via\s+EM\s+Violations\s*:\s*([0-9]+)}
@@ -184,7 +184,7 @@ array set emir_flow_checks {
         "script"                  "check_power.tcl"
         "category"                "em"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "EMIR_SIGNOFF"
         "report_pattern"          "em_summary.rpt"
         "metric_pattern"          {Worst\s+EM\s+Current\s+Ratio\s*:\s*([0-9]+\.[0-9]+)}
@@ -197,7 +197,7 @@ array set emir_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "thermal"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "EMIR_SIGNOFF"
         "report_pattern"          "thermal_summary.rpt"
         "metric_pattern"          {Max\s+Junction\s+Temperature\s*:\s*([0-9]+\.[0-9]+)\s*C}
@@ -210,7 +210,7 @@ array set emir_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "thermal"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "EMIR_SIGNOFF"
         "report_pattern"          "thermal_summary.rpt"
         "metric_pattern"          {Thermal\s+Hotspots\s*:\s*([0-9]+)}
@@ -223,7 +223,7 @@ array set emir_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "thermal"
         "severity"                "minor"
-        "min_phase"               "P3"
+        "min_phase_index"               "3"
         "applicable_milestones"   "EMIR_SIGNOFF"
         "report_pattern"          "thermal_summary.rpt"
         "metric_pattern"          {Thermal\s+Gradient\s*:\s*([0-9]+\.[0-9]+)\s*C/mm}
@@ -236,7 +236,7 @@ array set emir_flow_checks {
         "script"                  "check_routing.tcl"
         "category"                "power_mesh"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "EMIR_SIGNOFF"
         "report_pattern"          "ir_drop_summary.rpt"
         "metric_pattern"          {Missing\s+PG\s+Vias\s*:\s*([0-9]+)}
@@ -249,7 +249,7 @@ array set emir_flow_checks {
         "script"                  "check_routing.tcl"
         "category"                "power_mesh"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "EMIR_SIGNOFF"
         "report_pattern"          "ir_drop_summary.rpt"
         "metric_pattern"          {PG\s+Strap\s+Integrity\s*:\s*(PASS|FAIL)}
@@ -262,7 +262,7 @@ array set emir_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "emir"
         "severity"                "major"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "EMIR_SIGNOFF"
         "report_pattern"          "power_summary.rpt"
         "metric_pattern"          {EMIR\s+Summary\s+Report\s*:\s*(GENERATED|MISSING)}

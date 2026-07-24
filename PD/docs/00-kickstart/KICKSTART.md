@@ -59,6 +59,29 @@ set project(metal_stack) "gf22naphlogl24uhf116a_11M_2Mx_6Cx_1Jx_2Qx_LB"
 
 Available stacks: 8M, 9M, 10M, 11M. Everything auto-resolves (routing layers, TLU+, PG straps) based on the selected stack.
 
+## 3c. Library Manager
+
+Generate `lib_config.tcl` once from your vendor library root, then check readiness before signoff. Multi-VT is native: `tech(vt_variants_available)` declares availability, `project(vt_flavors)` picks the enabled subset, `generate` emits both per-VT and combined-per-track arrays.
+
+```bash
+cbflow flow library-manager generate --tech gf_22nm --lib-root /proj/libs/gf_22nm
+cbflow flow library-manager status   --tech gf_22nm --project bumblebee   # exits 0/1
+```
+
+See [02-user-guide/library-manager-user-guide.md](../02-user-guide/library-manager-user-guide.md) for every subcommand, VT filtering (`--exclude "*ulvt*"`), phase tags (`--tag P0`), and coverage matrix.
+
+## 3d. MMMC Manager
+
+Describes modes × PVTs × RC corners; expands into analysis views + scenario sets (`setup`/`hold`/`signoff`) that STA and MMMC-aware stages consume.
+
+```bash
+cbflow flow mmmc-manager show     --config PD/config/project/<name>/v1.0.0/mmmc_config.tcl
+cbflow flow mmmc-manager validate --config <path>                          # 6 checks
+cbflow flow mmmc-manager generate-view-def --config <path> --output view_definition.tcl
+```
+
+Every mutation (`add-mode`, `remove-mode`, `add-pvt`, `add-rc`, `set-node`) re-runs the six validation checks and refuses to write on inconsistency. See [02-user-guide/mmmc-manager-user-guide.md](../02-user-guide/mmmc-manager-user-guide.md) for the full mutation surface.
+
 ## 4. Create User Config
 
 ```tcl
@@ -133,6 +156,12 @@ Additional RACE features:
 | `cbflow flow checklist list-checks -s` | Summary mode |
 | `cbflow flow checklist status` | Evaluate checks against run (auto-detects context) |
 | `cbflow flow checklist sign-off` | Record sign-off |
+| `cbflow flow library-manager status --tech <T> --project <P>` | Signoff-readiness (LEF/RCX/VT coverage) — see §3c |
+| `cbflow flow library-manager generate --tech <T> --lib-root <path>` | Emit `lib_config.tcl` from a vendor library root |
+| `cbflow flow library-manager list --tech-config <path>` | List declared library sets |
+| `cbflow flow mmmc-manager show --config <path>` | Print modes / PVTs / RC corners / views / scenario sets |
+| `cbflow flow mmmc-manager validate --config <path>` | 6-check MMMC config validation |
+| `cbflow flow mmmc-manager generate-view-def --config <path> --output view_definition.tcl` | Emit Cadence view_definition.tcl |
 | `cbflow run db-manage --list` | List RACE databases (ACTIVE/ORPHANED status) |
 | `cbflow run db-manage --cleanup` | Interactive cleanup (owner-only) |
 

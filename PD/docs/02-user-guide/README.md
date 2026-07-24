@@ -62,13 +62,21 @@ Automated change tracking:
 - Release CHANGELOGs
 - Read-only, system-generated files
 
-### [Dashboard Daemon Guide](dashboard-daemon-guide.md) *(new in v2.1.1)*
+### [Dashboard Daemon Guide](dashboard-daemon-guide.md) *(new in v2.1.1; enhanced 2026-07-10)*
 Per-user web dashboard daemon:
 - One process serves all runs (replaces per-run foreground server)
 - Deterministic per-user port (9000 + uid%1000)
 - In-browser Register / Browse / Deregister UI
 - SSH-tunnel auto-detection and CLI lifecycle (`cbflow dashboard ...`)
+- **New (2026-07-10):** Adaptive polling with ETag support, topological DAG layout, framework-config auto-refresh
 - Troubleshooting common issues
+
+### [Project Dashboard Guide](project-dashboard-guide.md) *(new 2026-07-10)*
+Per-project milestone-rollup dashboard:
+- Aggregates release milestones across every design + phase in a project
+- Deterministic port per project (`25000 + hash(project) % 2500`)
+- Powered by a `tracker.db` written by `cbflow run release --tag`
+- CLI lifecycle: `cbflow project-dashboard start/stop/status/open/list/unpublish`
 
 ### [Troubleshooting](troubleshooting.md)
 Common issues and solutions:

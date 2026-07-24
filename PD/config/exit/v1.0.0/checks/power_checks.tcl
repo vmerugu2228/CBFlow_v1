@@ -9,7 +9,7 @@ array set power_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "power"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "check_mv.rpt"
         "metric_pattern"          {Missing\s+Isolation\s+Cells\s*:\s*(\d+)}
@@ -21,7 +21,7 @@ array set power_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "power"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "check_mv.rpt"
         "metric_pattern"          {Missing\s+Level\s+Shifters\s*:\s*(\d+)}
@@ -33,7 +33,7 @@ array set power_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "power"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "check_power_domains.rpt"
         "metric_pattern"          {Max\s+Switch\s+Distance\s*:\s*([\d.]+)}
@@ -45,7 +45,7 @@ array set power_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "power"
         "severity"                "critical"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "check_mv.rpt"
         "metric_pattern"          {Always-On\s+Violations\s*:\s*(\d+)}
@@ -57,7 +57,7 @@ array set power_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "power"
         "severity"                "critical"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "check_mv.rpt"
         "metric_pattern"          {Retention\s+Errors\s*:\s*(\d+)}
@@ -69,7 +69,7 @@ array set power_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "power"
         "severity"                "critical"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_upf.rpt"
         "metric_pattern"          {UPF\s+Mismatches\s*:\s*(\d+)}
@@ -81,7 +81,7 @@ array set power_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "power"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "check_mv.rpt"
         "metric_pattern"          {Unprotected\s+Crossings\s*:\s*(\d+)}
@@ -93,7 +93,7 @@ array set power_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "power"
         "severity"                "critical"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "check_power_domains.rpt"
         "metric_pattern"          {Supply\s+Connectivity\s+Errors\s*:\s*(\d+)}
@@ -105,7 +105,7 @@ array set power_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "power"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "check_power_domains.rpt"
         "metric_pattern"          {Switch\s+Chain\s+Errors\s*:\s*(\d+)}
@@ -117,7 +117,7 @@ array set power_checks {
         "script"                  "check_timing.tcl"
         "category"                "power"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "check_mv.rpt"
         "metric_pattern"          {Isolation\s+Enable\s+Violations\s*:\s*(\d+)}
@@ -129,7 +129,7 @@ array set power_checks {
         "script"                  "check_legality.tcl"
         "category"                "power"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "check_mv.rpt"
         "metric_pattern"          {Level\s+Shifter\s+Placement\s+Violations\s*:\s*(\d+)}
@@ -141,7 +141,7 @@ array set power_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "power"
         "severity"                "minor"
-        "min_phase"               "P3"
+        "min_phase_index"               "3"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_upf.rpt"
         "metric_pattern"          {Power\s+State\s+Coverage\s*:\s*([\d.]+)\s*%}
@@ -153,7 +153,7 @@ array set power_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "power"
         "severity"                "major"
-        "min_phase"               "P3"
+        "min_phase_index"               "3"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "check_mv.rpt"
         "metric_pattern"          {Corruption\s+Risks\s*:\s*(\d+)}
@@ -165,7 +165,7 @@ array set power_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "power"
         "severity"                "major"
-        "min_phase"               "P3"
+        "min_phase_index"               "3"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "check_power_domains.rpt"
         "metric_pattern"          {Sequence\s+Violations\s*:\s*(\d+)}
@@ -177,7 +177,7 @@ array set power_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "power"
         "severity"                "major"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "FP_EXIT PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_upf.rpt"
         "metric_pattern"          {UPF\s+Lint\s+Errors\s*:\s*(\d+)}
@@ -189,7 +189,7 @@ array set power_checks {
         "script"                  "check_legality.tcl"
         "category"                "power"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "check_power_domains.rpt"
         "metric_pattern"          {Voltage\s+Area\s+Overlaps\s*:\s*(\d+)}
@@ -201,7 +201,7 @@ array set power_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "power"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "check_mv.rpt"
         "metric_pattern"          {AO\s+Buffer\s+Violations\s*:\s*(\d+)}
@@ -213,7 +213,7 @@ array set power_checks {
         "script"                  "check_legality.tcl"
         "category"                "power"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "check_power_domains.rpt"
         "metric_pattern"          {Missing\s+Boundary\s+Cells\s*:\s*(\d+)}
@@ -225,7 +225,7 @@ array set power_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "power"
         "severity"                "major"
-        "min_phase"               "P3"
+        "min_phase_index"               "3"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "check_power_domains.rpt"
         "metric_pattern"          {ESD\s+Path\s+Errors\s*:\s*(\d+)}
@@ -237,7 +237,7 @@ array set power_checks {
         "script"                  "check_power.tcl"
         "category"                "power"
         "severity"                "minor"
-        "min_phase"               "P3"
+        "min_phase_index"               "3"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_power.rpt"
         "metric_pattern"          {Gated\s+Domain\s+Leakage\s*:\s*([\d.]+)}

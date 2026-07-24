@@ -117,23 +117,46 @@ proc submit_job {wrapper flow_type stage_name node_name work_dir} {
         if {[info exists ::env(CBFLOW_BSUB_CMD)] && $::env(CBFLOW_BSUB_CMD) ne ""} {
             set bsub_cmd $::env(CBFLOW_BSUB_CMD)
         } else {
-            # Queue type — from config, no hardcoded fallback
-            if {![info exists lsf(flow_mapping,$flow_type,$stage_name)]} {
-                if {![info exists lsf(default_queue_type)]} {
-                    puts "ERROR: lsf(default_queue_type) not set in lsf_config.tcl and no flow_mapping for $flow_type/$stage_name"
-                    exit 1
-                }
+            # Resolve queue type with block-level override chain.
+            # Priority (highest first):
+            #   1. lsf(block,<design>,<stage>,queue)
+            #   2. lsf(block,<design>,queue)
+            #   3. lsf(flow_mapping,<FLOW>,<stage>)
+            #   4. lsf(default_queue_type)
+            set design ""
+            if {[info exists ::flow(design_name)]} { set design $::flow(design_name) }
+            set qtype ""
+            if {$design ne "" && [info exists lsf(block,$design,$stage_name,queue)]} {
+                set qtype $lsf(block,$design,$stage_name,queue)
+            } elseif {$design ne "" && [info exists lsf(block,$design,queue)]} {
+                set qtype $lsf(block,$design,queue)
+            } elseif {[info exists lsf(flow_mapping,$flow_type,$stage_name)]} {
+                set qtype $lsf(flow_mapping,$flow_type,$stage_name)
+            } elseif {[info exists lsf(default_queue_type)]} {
                 set qtype $lsf(default_queue_type)
             } else {
-                set qtype $lsf(flow_mapping,$flow_type,$stage_name)
+                puts "ERROR: no queue resolved for $flow_type/$stage_name (design=$design); set lsf(flow_mapping,...) or lsf(default_queue_type)"
+                exit 1
             }
-            # Resource limits — must come from lsf_config queue_types
+            # Resource limits — queue defaults from lsf_config, overridable per
+            # block+stage.
             if {![info exists lsf(queue_types,$qtype,memory)]} {
                 puts "ERROR: lsf(queue_types,$qtype,memory) not set in lsf_config.tcl"; exit 1
             }
             set mem $lsf(queue_types,$qtype,memory)
             set cpu $lsf(queue_types,$qtype,cpu)
             set runtime $lsf(queue_types,$qtype,runtime_limit)
+            if {$design ne ""} {
+                if {[info exists lsf(block,$design,$stage_name,memory)]} {
+                    set mem $lsf(block,$design,$stage_name,memory)
+                }
+                if {[info exists lsf(block,$design,$stage_name,cpu)]} {
+                    set cpu $lsf(block,$design,$stage_name,cpu)
+                }
+                if {[info exists lsf(block,$design,$stage_name,runtime)]} {
+                    set runtime $lsf(block,$design,$stage_name,runtime)
+                }
+            }
             # bsub command settings — from config
             if {![info exists lsf(bsub,command)]} {
                 puts "ERROR: lsf(bsub,command) not set in lsf_config.tcl"; exit 1
@@ -142,16 +165,34 @@ proc submit_job {wrapper flow_type stage_name node_name work_dir} {
             set queue [expr {[info exists lsf(bsub,queue)] ? $lsf(bsub,queue) : "normal"}]
             set project [expr {[info exists lsf(bsub,project)] ? $lsf(bsub,project) : ""}]
             set affinity [expr {[info exists lsf(bsub,affinity)] ? $lsf(bsub,affinity) : ""}]
-            set bsub_cmd "$bsub"
-            if {$project ne ""} { append bsub_cmd " -P $project" }
-            append bsub_cmd " -J cbflow_${flow_type}_${stage_name}"
-            if {$use_xterm} { append bsub_cmd " -Is" }
-            append bsub_cmd " -q $queue -n $cpu -W $runtime"
-            append bsub_cmd " -R \"rusage\[mem=$mem\]"
-            if {$affinity ne ""} { append bsub_cmd " $affinity" }
-            append bsub_cmd "\""
-            append bsub_cmd " -o $work_dir/lsf_${node_name}_%J.log"
-            append bsub_cmd " -e $work_dir/lsf_${node_name}_%J.err"
+            # Build bsub cmd as a Tcl LIST, not a whitespace-joined string.
+            # The prior form appended `-R \"rusage\[mem=$mem\]\"` into a
+            # string and used `exec {*}$bsub_cmd` — {*} splits on
+            # whitespace but does NOT interpret shell quoting, so bsub
+            # received the literal `"rusage[mem=100]"` (with embedded
+            # double-quotes as characters), rejecting the resource spec.
+            # A proper Tcl list preserves whitespace within each element.
+            set bsub_cmd [list $bsub]
+            if {$project ne ""} { lappend bsub_cmd -P $project }
+            lappend bsub_cmd -J cbflow_${flow_type}_${stage_name}
+            if {$use_xterm} { lappend bsub_cmd -Is }
+            lappend bsub_cmd -q $queue -n $cpu -W $runtime
+            if {$design ne "" && [info exists lsf(block,$design,$stage_name,host)]} {
+                lappend bsub_cmd -m $lsf(block,$design,$stage_name,host)
+            }
+            set extra_resource ""
+            if {$design ne "" && [info exists lsf(block,$design,$stage_name,resource)]} {
+                set extra_resource $lsf(block,$design,$stage_name,resource)
+            }
+            # Build the -R argument as ONE list element. Extra clauses
+            # are appended with spaces INTO the same argument so bsub
+            # sees a single -R value.
+            set _R "rusage\[mem=$mem\]"
+            if {$affinity ne ""}       { append _R " $affinity" }
+            if {$extra_resource ne ""} { append _R " $extra_resource" }
+            lappend bsub_cmd -R $_R
+            lappend bsub_cmd -o "$work_dir/lsf_${node_name}_%J.log"
+            lappend bsub_cmd -e "$work_dir/lsf_${node_name}_%J.err"
         }
         if {$use_xterm} {
             puts "INFO: Submitting via LSF (xterm): $bsub_cmd $xterm_cmd ..."
@@ -328,11 +369,32 @@ proc handler_run {run_dir flow_type node_name stage_name cmd_file test_mode {too
                 set _f [open "$_outputs_dir/clp_status.rpt" w]
                 puts $_f "CLP PASS - $_ts"; close $_f
             }
-            "drc" - "lvs" - "fill" - "erc" - "perc" - "xor" - "merge_data" {
+            "drc" - "lvs" - "fill" - "erc" - "perc" - "perc_ldl" - "xor" - "merge_data" {
                 set _f [open "$_reports_dir/${stage_name}.rpt" w]
                 puts $_f "${stage_name} Report - $_ts\nStatus: PASS"; close $_f
                 set _f [open "$_outputs_dir/${stage_name}_summary.txt" w]
                 puts $_f "${stage_name} Summary - $_ts\nViolations: 0\nStatus: PASS"; close $_f
+            }
+            "nettran" {
+                # Netlist translation (v2lvs Verilog→SPICE for LVS)
+                set _f [open "$_outputs_dir/${_design}.cdl" w]
+                puts $_f "* Test mode CDL netlist - $_ts\n.SUBCKT ${_design}\n.ENDS ${_design}"; close $_f
+                set _f [open "$_reports_dir/nettran_summary.rpt" w]
+                puts $_f "Netlist Translation - $_ts\nStatus: PASS"; close $_f
+            }
+            "merge_gds" - "fill_merge_gds" - "decomp_merge_gds" {
+                # GDS-emitting layout-manipulation stages
+                set _f [open "$_outputs_dir/${_design}_${stage_name}.gds" w]
+                puts $_f "HEADER 600\nLIBNAME ${_design}\nENDLIB\n# Test mode $stage_name - $_ts"; close $_f
+                set _f [open "$_reports_dir/${stage_name}_summary.rpt" w]
+                puts $_f "${stage_name} Summary - $_ts\nStatus: PASS"; close $_f
+            }
+            "decomp" {
+                # Mask decomposition (multi-patterning colorization)
+                set _f [open "$_outputs_dir/${_design}_colored.gds" w]
+                puts $_f "HEADER 600\nLIBNAME ${_design}\nENDLIB\n# Test mode decomp - $_ts"; close $_f
+                set _f [open "$_reports_dir/decomp_summary.rpt" w]
+                puts $_f "Mask Decomposition - $_ts\nStatus: PASS\nColors: 2"; close $_f
             }
             "merge_reports" {
                 set _f [open "$_reports_dir/${stage_name}.rpt" w]

@@ -37,6 +37,50 @@ v2.1.1 replaces this with a **per-user daemon**: one HTTP server per user, deter
 | Dies when terminal closes | Persists across shells |
 | Up to 200 concurrent ports | Always 1 port |
 
+## 1a. What changed in the 2026-07-10 release
+
+Three quality-of-life improvements landed on top of the v2.1.1 architecture:
+
+### Adaptive polling with ETag support
+
+`/api/status`, `/api/dag`, `/api/jobs`, and `/api/run-summary` now support
+`ETag` / `If-None-Match`. The client-side `adaptive_poll.js` helper polls
+faster while a run is active and slows down when it's idle:
+
+| State | Interval |
+|---|---|
+| At least one job RUNNING or PENDING | **2 s** (dashboard.html), **3 s** (grid/dag) |
+| All jobs terminal | **10 s** |
+| After a network error | **15 s** back-off |
+
+The activity signal is a new `run_activity` field on `/api/status`
+(`"active"` / `"idle"`). Every request also uses `If-None-Match` — when the
+DB hasn't changed since the last poll the server returns `304 Not Modified`
+with no body, cutting bandwidth ~80% during idle windows.
+
+### DAG rendering rewrite
+
+`/dag` now renders a real topological layout instead of a flat left-to-right
+chain:
+
+- Stages are grouped into columns by their longest path from a root
+  (`level(stage) = max(level(dep) for dep in stage_deps[stage]) + 1`).
+- Arrows are cubic Bezier curves drawn from actual `stage_deps` entries
+  (previously the renderer just drew a line between the i-th and (i+1)-th
+  stage in `stage_order`).
+- Parallel branches sit at the same column, stacked vertically.
+- When one stage bypasses another via a longer path (e.g. `A → B → C` when
+  `A → C` also exists), the bypass edge renders **dashed light gray** and
+  the intermediate stage is nudged vertically so both branches are readable.
+
+### Framework config-cache invalidation
+
+Prior to this release, edits to `flow_config.tcl` or the per-flow
+`<FLOW>_config.tcl` were invisible to the long-lived daemon until you
+restarted it. The cascade cache now watches those files' mtimes in addition
+to `user_config.tcl` / `runtime_flow_config.tcl`, so framework edits show
+up on the next API call.
+
 ---
 
 ## 2. Quick start
@@ -238,7 +282,7 @@ Each `runs/<id>.json` is small:
   "last_seen_at": "2026-06-11T15:31:38",
   "owner_uid": 501,
   "flow_type": "SYNTH_PNR",
-  "project": "ravendrive",
+  "project": "bumblebee",
   "design": "cpu_core",
   "phase": "P0",
   "tech": "gf_22nm",

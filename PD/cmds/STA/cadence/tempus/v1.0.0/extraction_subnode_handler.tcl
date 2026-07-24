@@ -43,6 +43,15 @@ switch $subnode_name {
         set rc_corner $subnode_name
         puts "INFO: extraction corner: $rc_corner"
 
+        # Source the resolved node config (produced by handler_setup →
+        # generate_setup.tcl) so ::project(metal_stack), ::tech(track),
+        # tech(rcx,...) and friends are available in global scope. Without
+        # this, the reads below fail with "no such element in array".
+        set _resolved_cfg "$run_dir/work/$::flow_type/$node_name/run/config.tcl"
+        if {[file exists $_resolved_cfg]} {
+            uplevel #0 [list source $_resolved_cfg]
+        }
+
         # Corner directory structure
         set _corner_dir "$run_dir/work/$::flow_type/$node_name/$rc_corner"
         set _run_dir "$_corner_dir/run"
@@ -56,8 +65,8 @@ switch $subnode_name {
         set _rc_file ""
         set _rc_file_type ""
         foreach _fmt {qrc nxtgrd tluplus} {
-            if {$_rc_file eq "" && [info exists ::tech(rcx,${rc_corner},${_fmt})] && $::tech(rcx,${rc_corner},${_fmt}) ne ""} {
-                set _rc_file $::tech(rcx,${rc_corner},${_fmt})
+            if {$_rc_file eq "" && [info exists ::tech(rcx,$::project(metal_stack),${rc_corner},${_fmt})] && $::tech(rcx,$::project(metal_stack),${rc_corner},${_fmt}) ne ""} {
+                set _rc_file $::tech(rcx,$::project(metal_stack),${rc_corner},${_fmt})
                 set _rc_file_type $_fmt
             }
         }
@@ -67,7 +76,7 @@ switch $subnode_name {
 
         # Resolve inputs for QRC command file
         set _lef_file ""
-        if {[info exists ::tech(lef_tech)]} { set _lef_file $::tech(lef_tech) }
+        if {[info exists ::tech($::project(metal_stack),$::tech(track),lef_tech)]} { set _lef_file $::tech($::project(metal_stack),$::tech(track),lef_tech) }
 
         # Cell LEFs — track resolved at runtime via config.tcl
         set _cell_lefs [list]

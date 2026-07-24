@@ -405,6 +405,17 @@ if {![info exists ::cbflow_utils_loaded]} {
             # on the FIRST undefined-var read after the handle_error gate.
             # Raise a Tcl error instead so the current flow_proc unwinds
             # cleanly; flow_exec catches it and lets the next proc run.
+            #
+            # NOTE (round-6 audit C11): This swallow means real handle_error
+            # calls don't propagate to RACE in test_mode → silent PASSes.
+            # The correct fix is NOT to change handle_error's semantics
+            # (that breaks legacy handlers that used handle_error deep
+            # inside procs to short-circuit a subroutine without exiting
+            # the whole stage). It's to make every `<stage>_flow` proc
+            # call `flow_fail_if_status ::<var>_status <report>` at its
+            # tail — Round 3 established that pattern in 12 PV files but
+            # 126 other command files still need it. Tracked as a
+            # coordinated sweep, not a semantic change here.
             if {[info exists ::flow(test_mode)] && $::flow(test_mode) eq "true"} {
                 return -code error $message
             }
@@ -629,6 +640,53 @@ proc _cbflow_test_mode_enable {} {
             default               { return "" }
         }
     }
+}
+
+# ────────────────────────────────────────────────────────────────────────────
+# cbflow_hard_exit CODE
+# ────────────────────────────────────────────────────────────────────────────
+# The REAL exit — bypasses test_mode's `exit` stub AND flow_exec's `catch`
+# wrapper. Use this whenever a stage MUST propagate its return code to RACE
+# regardless of test/prod mode: e.g. tail-of-flow status gates, resource
+# exhaustion, or any other "unrecoverable, RACE must observe failure" path.
+#
+# Implementation resolves against `_cbflow_saved_exit` when test_mode has
+# renamed the real exit; otherwise falls back to plain `exit`. This is a
+# PUBLIC API — the prior tail-guard reached into the `_cbflow_saved_exit`
+# symbol directly, coupling every consumer to a private test_mode detail.
+# Consumers should call this, not the underscored symbol.
+proc cbflow_hard_exit {{code 1}} {
+    # Validate the exit code — Tcl `exit` requires an integer; a
+    # non-integer arg would raise a native Tcl error mid-shutdown that
+    # test_mode's exit stub might swallow, potentially leaving the
+    # process alive with an inconsistent state. Coerce a bad value to
+    # 1 (generic failure) rather than propagate the ambiguity.
+    if {![string is integer -strict $code]} {
+        puts stderr "cbflow_hard_exit: non-integer code $code — using 1"
+        set code 1
+    }
+    if {[info commands _cbflow_saved_exit] ne ""} {
+        _cbflow_saved_exit $code
+    } else {
+        exit $code
+    }
+}
+
+# ────────────────────────────────────────────────────────────────────────────
+# flow_fail_if_status VARNAME REPORT_PATH
+# ────────────────────────────────────────────────────────────────────────────
+# Test_mode-safe failure propagation. Called at the tail of every <stage>_flow
+# proc to translate a run_<stage> that used handle_warning into a real RACE
+# failure. The plain `handle_error` path is not enough here: in test_mode,
+# handle_error `return -code error`s, and the enclosing flow_exec wraps its
+# body in `catch`, so the process still exits 0 and RACE marks the job PASS.
+# Uses cbflow_hard_exit (public API) rather than reaching directly into
+# _cbflow_saved_exit — decoupled from test_mode's private internals.
+proc flow_fail_if_status {status_var report_path} {
+    upvar #0 $status_var _s
+    if {![info exists _s] || $_s ne "FAIL"} { return }
+    puts stderr "✗ \[CBFlow_ERROR\] $status_var eq FAIL — see $report_path"
+    cbflow_hard_exit 1
 }
 
 proc _cbflow_test_mode_disable {} {

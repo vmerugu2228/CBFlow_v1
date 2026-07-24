@@ -100,9 +100,20 @@ def get_flow_descriptions() -> Dict[str, str]:
     return out
 
 
-def get_phases() -> List[str]:
-    cfg = _resolved('SYNTH', run_dir=None)
-    return _parse_tcl_list(_cfg.optional(cfg, 'flow(phases)') or '')
+def get_phases(run_dir: Optional[str] = None) -> List[str]:
+    """Return the phase list for a project.
+
+    Phases are project-specific — each project sets `project(phases)`
+    (e.g. bumblebee uses LC1-LC5, another might use P0-P3). Falls back to
+    the legacy global `flow(phases)` only if the project didn't declare
+    its own — that fallback keeps older configs working during migration
+    and should be removed once every project sets project(phases).
+    """
+    cfg = _resolved('SYNTH', run_dir=run_dir)
+    return _parse_tcl_list(
+        _cfg.optional(cfg, 'project(phases)') or
+        _cfg.optional(cfg, 'flow(phases)') or ''
+    )
 
 
 def get_phase_descriptions() -> Dict[str, str]:

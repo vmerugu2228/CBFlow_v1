@@ -15,7 +15,7 @@ array set pv_flow_checks {
         "script"                  "check_drc.tcl"
         "category"                "drc"
         "severity"                "critical"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "PV_SIGNOFF"
         "report_pattern"          "drc_summary.rpt"
         "metric_pattern"          {Total\s+DRC\s+Violations\s*:\s*([0-9]+)}
@@ -28,7 +28,7 @@ array set pv_flow_checks {
         "script"                  "check_drc.tcl"
         "category"                "drc"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "PV_SIGNOFF"
         "report_pattern"          "drc_summary.rpt"
         "metric_pattern"          {Spacing\s+Violations\s*:\s*([0-9]+)}
@@ -41,7 +41,7 @@ array set pv_flow_checks {
         "script"                  "check_drc.tcl"
         "category"                "drc"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "PV_SIGNOFF"
         "report_pattern"          "drc_summary.rpt"
         "metric_pattern"          {Min\s+Width\s+Violations\s*:\s*([0-9]+)}
@@ -54,7 +54,7 @@ array set pv_flow_checks {
         "script"                  "check_drc.tcl"
         "category"                "drc"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "PV_SIGNOFF"
         "report_pattern"          "drc_summary.rpt"
         "metric_pattern"          {Enclosure\s+Violations\s*:\s*([0-9]+)}
@@ -67,7 +67,7 @@ array set pv_flow_checks {
         "script"                  "check_drc.tcl"
         "category"                "drc"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PV_SIGNOFF"
         "report_pattern"          "drc_summary.rpt"
         "metric_pattern"          {Min\s+Area\s+Violations\s*:\s*([0-9]+)}
@@ -80,7 +80,7 @@ array set pv_flow_checks {
         "script"                  "check_drc.tcl"
         "category"                "drc"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PV_SIGNOFF"
         "report_pattern"          "drc_summary.rpt"
         "metric_pattern"          {Density\s+Violations\s*:\s*([0-9]+)}
@@ -93,7 +93,7 @@ array set pv_flow_checks {
         "script"                  "check_drc.tcl"
         "category"                "drc"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PV_SIGNOFF"
         "report_pattern"          "drc_summary.rpt"
         "metric_pattern"          {Antenna\s+Violations\s*:\s*([0-9]+)}
@@ -106,7 +106,7 @@ array set pv_flow_checks {
         "script"                  "check_drc.tcl"
         "category"                "drc"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "PV_SIGNOFF"
         "report_pattern"          "drc_summary.rpt"
         "metric_pattern"          {Off-Grid\s+Violations\s*:\s*([0-9]+)}
@@ -119,7 +119,7 @@ array set pv_flow_checks {
         "script"                  "check_drc.tcl"
         "category"                "drc"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "PV_SIGNOFF"
         "report_pattern"          "drc_summary.rpt"
         "metric_pattern"          {Overlap\s+Violations\s*:\s*([0-9]+)}
@@ -132,7 +132,7 @@ array set pv_flow_checks {
         "script"                  "check_drc.tcl"
         "category"                "drc"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PV_SIGNOFF"
         "report_pattern"          "drc_summary.rpt"
         "metric_pattern"          {Notch\s+Violations\s*:\s*([0-9]+)}
@@ -145,7 +145,7 @@ array set pv_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "lvs"
         "severity"                "critical"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "PV_SIGNOFF"
         "report_pattern"          "lvs_summary.rpt"
         "metric_pattern"          {LVS\s+Result\s*:\s*(MATCH|INCORRECT)}
@@ -158,7 +158,7 @@ array set pv_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "lvs"
         "severity"                "critical"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "PV_SIGNOFF"
         "report_pattern"          "lvs_summary.rpt"
         "metric_pattern"          {Short\s+Circuits\s*:\s*([0-9]+)}
@@ -171,7 +171,7 @@ array set pv_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "lvs"
         "severity"                "critical"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "PV_SIGNOFF"
         "report_pattern"          "lvs_summary.rpt"
         "metric_pattern"          {Open\s+Circuits\s*:\s*([0-9]+)}
@@ -184,7 +184,7 @@ array set pv_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "lvs"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "PV_SIGNOFF"
         "report_pattern"          "lvs_summary.rpt"
         "metric_pattern"          {Device\s+Count\s+Mismatch\s*:\s*([0-9]+)}
@@ -197,7 +197,7 @@ array set pv_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "lvs"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "PV_SIGNOFF"
         "report_pattern"          "lvs_summary.rpt"
         "metric_pattern"          {Net\s+Count\s+Mismatch\s*:\s*([0-9]+)}
@@ -210,7 +210,7 @@ array set pv_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "lvs"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PV_SIGNOFF"
         "report_pattern"          "lvs_summary.rpt"
         "metric_pattern"          {Property\s+Mismatch\s*:\s*([0-9]+)}
@@ -223,7 +223,7 @@ array set pv_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "lvs"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "PV_SIGNOFF"
         "report_pattern"          "lvs_summary.rpt"
         "metric_pattern"          {Floating\s+Nets\s*:\s*([0-9]+)}
@@ -236,7 +236,7 @@ array set pv_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "lvs"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "PV_SIGNOFF"
         "report_pattern"          "lvs_summary.rpt"
         "metric_pattern"          {Missing\s+Connections\s*:\s*([0-9]+)}
@@ -244,53 +244,53 @@ array set pv_flow_checks {
         "default_threshold"       "0"
     }
 
-    "pv_erc_total" {
-        "description"             "Total ERC violations must be zero"
+    "pv_perc_ldl_total" {
+        "description"             "PERC-LDL aggregate violations must be zero"
         "script"                  "check_file_exists.tcl"
-        "category"                "erc"
-        "severity"                "major"
-        "min_phase"               "P1"
+        "category"                "perc_ldl"
+        "severity"                "critical"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PV_SIGNOFF"
-        "report_pattern"          "erc_summary.rpt"
-        "metric_pattern"          {Total\s+ERC\s+Violations\s*:\s*([0-9]+)}
+        "report_pattern"          "perc_ldl_summary.rpt"
+        "metric_pattern"          {Total\s+Violations\s*:\s*([0-9]+)}
         "operator"                "=="
         "default_threshold"       "0"
     }
 
-    "pv_erc_well_contact" {
-        "description"             "Well contact violations must be zero"
+    "pv_perc_ldl_well_contact" {
+        "description"             "PERC-LDL well-contact spacing violations must be zero"
         "script"                  "check_file_exists.tcl"
-        "category"                "erc"
+        "category"                "perc_ldl"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PV_SIGNOFF"
-        "report_pattern"          "erc_summary.rpt"
+        "report_pattern"          "perc_ldl_summary.rpt"
         "metric_pattern"          {Well\s+Contact\s+Violations\s*:\s*([0-9]+)}
         "operator"                "=="
         "default_threshold"       "0"
     }
 
-    "pv_erc_floating_gate" {
-        "description"             "Floating gate violations must be zero"
+    "pv_perc_ldl_floating_gate" {
+        "description"             "PERC-LDL floating-gate detection violations must be zero"
         "script"                  "check_file_exists.tcl"
-        "category"                "erc"
-        "severity"                "critical"
-        "min_phase"               "P2"
+        "category"                "perc_ldl"
+        "severity"                "major"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PV_SIGNOFF"
-        "report_pattern"          "erc_summary.rpt"
+        "report_pattern"          "perc_ldl_summary.rpt"
         "metric_pattern"          {Floating\s+Gate\s+Violations\s*:\s*([0-9]+)}
         "operator"                "=="
         "default_threshold"       "0"
     }
 
-    "pv_erc_latchup" {
-        "description"             "Latch-up violations must be zero"
+    "pv_perc_ldl_latchup" {
+        "description"             "PERC-LDL latch-up violations must be zero"
         "script"                  "check_file_exists.tcl"
-        "category"                "erc"
+        "category"                "perc_ldl"
         "severity"                "critical"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PV_SIGNOFF"
-        "report_pattern"          "erc_summary.rpt"
+        "report_pattern"          "perc_ldl_summary.rpt"
         "metric_pattern"          {Latch-up\s+Violations\s*:\s*([0-9]+)}
         "operator"                "=="
         "default_threshold"       "0"
@@ -301,9 +301,9 @@ array set pv_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "perc"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PV_SIGNOFF"
-        "report_pattern"          "perc_summary.rpt"
+        "report_pattern"          "perc_results.rpt"
         "metric_pattern"          {ESD\s+Path\s+Violations\s*:\s*([0-9]+)}
         "operator"                "=="
         "default_threshold"       "0"
@@ -314,9 +314,9 @@ array set pv_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "perc"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PV_SIGNOFF"
-        "report_pattern"          "perc_summary.rpt"
+        "report_pattern"          "perc_results.rpt"
         "metric_pattern"          {Voltage-Aware\s+DRC\s+Violations\s*:\s*([0-9]+)}
         "operator"                "=="
         "default_threshold"       "0"
@@ -327,35 +327,35 @@ array set pv_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "perc"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PV_SIGNOFF"
-        "report_pattern"          "perc_summary.rpt"
+        "report_pattern"          "perc_results.rpt"
         "metric_pattern"          {PERC\s+Latch-up\s+Violations\s*:\s*([0-9]+)}
         "operator"                "=="
         "default_threshold"       "0"
     }
 
-    "pv_fill_complete" {
-        "description"             "Metal fill generation completed successfully"
+    "pv_fill_merge_complete" {
+        "description"             "Fill-merged GDS validation completed successfully"
         "script"                  "check_file_exists.tcl"
-        "category"                "fill"
+        "category"                "fill_merge_gds"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PV_SIGNOFF"
-        "report_pattern"          "fill_summary.rpt"
-        "metric_pattern"          {Fill\s+Status\s*:\s*(COMPLETED|FAILED)}
+        "report_pattern"          "fill_merge_gds_summary.rpt"
+        "metric_pattern"          {Status\s*:\s*(PASS|FAIL)}
         "operator"                "=="
-        "default_threshold"       "COMPLETED"
+        "default_threshold"       "PASS"
     }
 
-    "pv_fill_density" {
+    "pv_fill_merge_density" {
         "description"             "Post-fill density within foundry limits"
         "script"                  "check_file_exists.tcl"
-        "category"                "fill"
+        "category"                "fill_merge_gds"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PV_SIGNOFF"
-        "report_pattern"          "fill_summary.rpt"
+        "report_pattern"          "fill_merge_gds_summary.rpt"
         "metric_pattern"          {Density\s+Violations\s+Post-Fill\s*:\s*([0-9]+)}
         "operator"                "=="
         "default_threshold"       "0"
@@ -366,7 +366,7 @@ array set pv_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "fill"
         "severity"                "major"
-        "min_phase"               "P3"
+        "min_phase_index"               "3"
         "applicable_milestones"   "PV_SIGNOFF"
         "report_pattern"          "xor_summary.rpt"
         "metric_pattern"          {XOR\s+Differences\s*:\s*([0-9]+)}
@@ -375,16 +375,16 @@ array set pv_flow_checks {
     }
 
     "pv_merge_complete" {
-        "description"             "Layout merge completed without errors"
+        "description"             "Signoff GDS merge completed without errors"
         "script"                  "check_file_exists.tcl"
-        "category"                "fill"
+        "category"                "decomp_merge_gds"
         "severity"                "major"
-        "min_phase"               "P3"
+        "min_phase_index"               "3"
         "applicable_milestones"   "PV_SIGNOFF"
-        "report_pattern"          "fill_summary.rpt"
-        "metric_pattern"          {Merge\s+Status\s*:\s*(COMPLETED|FAILED)}
+        "report_pattern"          "decomp_merge_gds_summary.rpt"
+        "metric_pattern"          {Status\s*:\s*(PASS|FAIL)}
         "operator"                "=="
-        "default_threshold"       "COMPLETED"
+        "default_threshold"       "PASS"
     }
 
     "pv_summary_report" {
@@ -392,7 +392,7 @@ array set pv_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "pv"
         "severity"                "major"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "PV_SIGNOFF"
         "report_pattern"          "drc_summary.rpt"
         "metric_pattern"          {PV\s+Summary\s+Report\s*:\s*(GENERATED|MISSING)}

@@ -14,10 +14,10 @@ array set timing_checks {
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "critical"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_timing.max.rpt"
-        "metric_pattern"          {slack\s+\(MET\|VIOLATED\)\s+(-?[0-9]+\.[0-9]+)}
+        "metric_pattern"          {slack\s+\((?:MET|VIOLATED)\)\s+(-?[0-9]+\.[0-9]+)}
         "operator"                ">="
         "default_threshold"       "0.0"
     }
@@ -27,7 +27,7 @@ array set timing_checks {
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "critical"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Total\s+Negative\s+Slack\s*:\s*(-?[0-9]+\.[0-9]+)}
@@ -40,10 +40,10 @@ array set timing_checks {
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_timing.min.rpt"
-        "metric_pattern"          {slack\s+\(MET\|VIOLATED\)\s+(-?[0-9]+\.[0-9]+)}
+        "metric_pattern"          {slack\s+\((?:MET|VIOLATED)\)\s+(-?[0-9]+\.[0-9]+)}
         "operator"                ">="
         "default_threshold"       "0.0"
     }
@@ -53,7 +53,7 @@ array set timing_checks {
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Total\s+Negative\s+Slack\s*\(Hold\)\s*:\s*(-?[0-9]+\.[0-9]+)}
@@ -66,7 +66,7 @@ array set timing_checks {
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {No\.\s+of\s+Violating\s+Paths\s*:\s*([0-9]+)}
@@ -79,7 +79,7 @@ array set timing_checks {
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {No\.\s+of\s+Hold\s+Violating\s+Paths\s*:\s*([0-9]+)}
@@ -92,7 +92,7 @@ array set timing_checks {
         "script"                  "check_constraints.tcl"
         "category"                "timing"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Max\s+Cap\s+Violations\s*:\s*([0-9]+)}
@@ -105,7 +105,7 @@ array set timing_checks {
         "script"                  "check_constraints.tcl"
         "category"                "timing"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Max\s+Tran\s+Violations\s*:\s*([0-9]+)}
@@ -118,7 +118,7 @@ array set timing_checks {
         "script"                  "check_constraints.tcl"
         "category"                "timing"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Max\s+Fanout\s+Violations\s*:\s*([0-9]+)}
@@ -131,7 +131,7 @@ array set timing_checks {
         "script"                  "check_constraints.tcl"
         "category"                "timing"
         "severity"                "minor"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Nets\s+With\s+Length\s+Violations\s*:\s*([0-9]+)}
@@ -144,7 +144,7 @@ array set timing_checks {
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Timing\s+Path\s+Group\s+\S+\s+WNS\s+(-?[0-9]+\.[0-9]+)}
@@ -157,7 +157,7 @@ array set timing_checks {
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Timing\s+Path\s+Group\s+\S+\s+Hold\s+WNS\s+(-?[0-9]+\.[0-9]+)}
@@ -170,7 +170,7 @@ array set timing_checks {
         "script"                  "check_constraints.tcl"
         "category"                "timing"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "check_timing.rpt"
         "metric_pattern"          {Recovery\s+Violations\s*:\s*([0-9]+)}
@@ -183,7 +183,7 @@ array set timing_checks {
         "script"                  "check_constraints.tcl"
         "category"                "timing"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "check_timing.rpt"
         "metric_pattern"          {Removal\s+Violations\s*:\s*([0-9]+)}
@@ -196,7 +196,7 @@ array set timing_checks {
         "script"                  "check_constraints.tcl"
         "category"                "timing"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "check_timing.rpt"
         "metric_pattern"          {Min\s+Pulse\s+Width\s+Violations\s*:\s*([0-9]+)}
@@ -209,7 +209,7 @@ array set timing_checks {
         "script"                  "check_constraints.tcl"
         "category"                "timing"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "check_timing.rpt"
         "metric_pattern"          {Clock\s+Gating\s+Check\s+Violations\s*:\s*([0-9]+)}
@@ -222,7 +222,7 @@ array set timing_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "timing"
         "severity"                "minor"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "check_timing.rpt"
         "metric_pattern"          {Multicycle\s+Paths\s*:\s*([0-9]+)}
@@ -235,7 +235,7 @@ array set timing_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "timing"
         "severity"                "minor"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "check_timing.rpt"
         "metric_pattern"          {False\s+Paths\s*:\s*([0-9]+)}
@@ -248,7 +248,7 @@ array set timing_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "timing"
         "severity"                "minor"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "check_timing.rpt"
         "metric_pattern"          {Case\s+Analysis\s+Constants\s*:\s*([0-9]+)}
@@ -261,7 +261,7 @@ array set timing_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "timing"
         "severity"                "minor"
-        "min_phase"               "P3"
+        "min_phase_index"               "3"
         "applicable_milestones"   "BTO"
         "report_pattern"          "check_timing.rpt"
         "metric_pattern"          {Exception\s+Coverage\s*:\s*([0-9]+\.[0-9]+)\s*%}
@@ -274,7 +274,7 @@ array set timing_checks {
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "minor"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Paths\s+with\s+Slack\s+<\s*-0\.100\s*:\s*([0-9]+)}
@@ -287,7 +287,7 @@ array set timing_checks {
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "minor"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Hold\s+Paths\s+with\s+Slack\s+<\s*-0\.050\s*:\s*([0-9]+)}
@@ -300,7 +300,7 @@ array set timing_checks {
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "critical"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Cross-Corner\s+WNS\s*:\s*(-?[0-9]+\.[0-9]+)}
@@ -313,7 +313,7 @@ array set timing_checks {
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "critical"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Cross-Corner\s+TNS\s*:\s*(-?[0-9]+\.[0-9]+)}
@@ -326,7 +326,7 @@ array set timing_checks {
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_timing.max.rpt"
         "metric_pattern"          {Group\s+'(in2reg|reg2out|in2out)'\s+WNS\s+(-?[0-9]+\.[0-9]+)}
@@ -339,7 +339,7 @@ array set timing_checks {
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Group\s+'reg2reg'\s+WNS\s+(-?[0-9]+\.[0-9]+)}
@@ -352,7 +352,7 @@ array set timing_checks {
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Group\s+'in2reg'\s+WNS\s+(-?[0-9]+\.[0-9]+)}
@@ -365,7 +365,7 @@ array set timing_checks {
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Group\s+'reg2out'\s+WNS\s+(-?[0-9]+\.[0-9]+)}
@@ -378,7 +378,7 @@ array set timing_checks {
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_timing.max.rpt"
         "metric_pattern"          {Group\s+'mem2reg|reg2mem'\s+WNS\s+(-?[0-9]+\.[0-9]+)}
@@ -391,7 +391,7 @@ array set timing_checks {
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "major"
-        "min_phase"               "P3"
+        "min_phase_index"               "3"
         "applicable_milestones"   "BTO"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Signoff\s+Correlation\s+Delta\s*:\s*(-?[0-9]+\.[0-9]+)}

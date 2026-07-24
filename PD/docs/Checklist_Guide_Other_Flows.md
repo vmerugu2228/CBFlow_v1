@@ -366,7 +366,7 @@ cbflow flow checklist generate --milestone PV_SIGNOFF
 
 | Check Name | Description | Criteria | Phase | Report File |
 |---|---|---|---|---|
-| `pv_perc_clean` | PERC reliability check clean | file exists | P2 | `work/PV/perc1/reports/perc_summary.rpt` |
+| `pv_perc_clean` | PERC reliability check clean | file exists | P2 | `work/PV/perc1/reports/perc_results.rpt` |
 | `pv_fill_density` | Metal fill density within foundry limits | file exists | P2 | `work/PV/fill1/reports/fill_density.rpt` |
 | `pv_xor_clean` | XOR check between revisions clean | file exists | P3 | `work/PV/xor1/reports/xor_summary.rpt` |
 

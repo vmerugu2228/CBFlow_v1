@@ -16,7 +16,7 @@
 
 ### Projects
 - phoenix: blocks = cpu_core memory_ctrl io_ctrl
-- ravendrive: blocks = cpu_core memory_ctrl io_ctrl
+- bumblebee: blocks = cpu_core memory_ctrl io_ctrl
 
 ### Release Tags: FP_EXIT(P0), PLACE_EXIT(P0), CTS_EXIT(P1), PRO_EXIT(P1), BTO(P2), MTO(P3)
 

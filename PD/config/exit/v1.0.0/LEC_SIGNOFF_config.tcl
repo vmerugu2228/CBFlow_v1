@@ -12,7 +12,7 @@ set milestone_info(report_dir)  "work/LEC/compare1/reports"
 
 # ── Check packs ─────────────────────────────────────────────────────────────
 array set check_packs {
-    lec_flow    "P0"
+    lec_flow    "0"
 }
 
 # ── Mandatory checks ─────────────────────────────────────────────────────────
@@ -21,21 +21,21 @@ array set mandatory_checks {
         "script"      "check_lec.tcl"
         "description" "Formal equivalence check passed"
         "criteria"    "grep comparison_summary.rpt for SUCCEEDED"
-        "min_phase"   "P0"
+        "min_phase_index"   "0"
         "report_file" "work/LEC/compare1/reports/comparison_summary.rpt"
     }
     "lec_zero_failures" {
         "script"      "check_lec.tcl"
         "description" "Zero non-equivalent points"
         "criteria"    "failing_points == 0"
-        "min_phase"   "P0"
+        "min_phase_index"   "0"
         "report_file" "work/LEC/compare1/reports/comparison_summary.rpt"
     }
     "lec_netlist_read_clean" {
         "script"      "check_lec.tcl"
         "description" "Netlist read without errors"
         "criteria"    "read errors == 0"
-        "min_phase"   "P0"
+        "min_phase_index"   "0"
         "report_file" "work/LEC/compare1/reports/read_design.rpt"
     }
 }
@@ -46,14 +46,14 @@ array set optional_checks {
         "script"      "check_file_exists.tcl"
         "description" "Datapath equivalence verification"
         "criteria"    "file exists"
-        "min_phase"   "P2"
+        "min_phase_index"   "2"
         "report_file" "work/LEC/compare1/reports/datapath_verify.rpt"
     }
     "lec_svf_applied" {
         "script"      "check_file_exists.tcl"
         "description" "SVF guidance file applied successfully"
         "criteria"    "file exists"
-        "min_phase"   "P1"
+        "min_phase_index"   "1"
         "report_file" "work/LEC/compare1/reports/svf_status.rpt"
     }
 }

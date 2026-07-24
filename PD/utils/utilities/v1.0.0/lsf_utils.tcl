@@ -133,13 +133,20 @@ namespace eval ::CBFlow::LSF::Utils {
     proc get_recommended_queue_for_node {flow_type stage_name {design_characteristics {}}} {
         global lsf project
 
-        # First check project-specific overrides
-        set project_key "node_requirements,${flow_type},${stage_name},queue"
-        set project_queue [get_project_lsf_config $project_key ""]
-
-        if {$project_queue ne ""} {
-            CBFLOW_DEBUG "Using project-specific queue '$project_queue' for ${flow_type}:${stage_name}" "QUEUE"
-            return $project_queue
+        # Block-level overrides (highest priority). Set in user_config:
+        #   set lsf(block,<design>,<stage>,queue) "<Q>"   per-stage
+        #   set lsf(block,<design>,queue) "<Q>"           block-wide
+        set design ""
+        if {[info exists ::flow(design_name)]} { set design $::flow(design_name) }
+        if {$design ne ""} {
+            if {[info exists lsf(block,$design,$stage_name,queue)]} {
+                CBFLOW_DEBUG "Using block+stage queue '$lsf(block,$design,$stage_name,queue)' for ${design}:${stage_name}" "QUEUE"
+                return $lsf(block,$design,$stage_name,queue)
+            }
+            if {[info exists lsf(block,$design,queue)]} {
+                CBFLOW_DEBUG "Using block-wide queue '$lsf(block,$design,queue)' for ${design}" "QUEUE"
+                return $lsf(block,$design,queue)
+            }
         }
 
         # Check flow mapping configuration

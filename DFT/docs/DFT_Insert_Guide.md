@@ -24,7 +24,7 @@ on both.
 ## Minimal user config
 
 ```tcl
-set project(name) "ravendrive"
+set project(name) "bumblebee"
 set project(phase) "P0"
 set project(track_variant) "9T"
 set flow(type) "DFT_INSERT"

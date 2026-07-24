@@ -12,14 +12,14 @@ set milestone_info(report_dir)  "work/SYNTH_PNR/signoff1/reports"
 
 # ── Check packs — all categories active for MTO ──────────────────────────
 array set check_packs {
-    timing         "P0"
-    placement      "P0"
-    clock          "P0"
-    power          "P1"
-    routing        "P0"
-    physical       "P1"
-    si             "P2"
-    manufacturing  "P2"
+    timing         "0"
+    placement      "0"
+    clock          "0"
+    power          "1"
+    routing        "0"
+    physical       "1"
+    si             "2"
+    manufacturing  "2"
 }
 
 # ── Mandatory checks ─────────────────────────────────────────────────────────
@@ -30,70 +30,70 @@ array set mandatory_checks {
         "script"      "check_file_exists.tcl"
         "description" "Final GDS layout exists"
         "criteria"    "file exists and non-empty"
-        "min_phase"   "P0"
+        "min_phase_index"   "0"
         "report_file" "outputs/${design_name}.gds"
     }
     "mto_netlist_complete" {
         "script"      "check_file_exists.tcl"
         "description" "Final Verilog netlist exists"
         "criteria"    "file exists and non-empty"
-        "min_phase"   "P0"
+        "min_phase_index"   "0"
         "report_file" "outputs/${design_name}.v"
     }
     "mto_def_complete" {
         "script"      "check_file_exists.tcl"
         "description" "Final DEF exists"
         "criteria"    "file exists and non-empty"
-        "min_phase"   "P0"
+        "min_phase_index"   "0"
         "report_file" "outputs/${design_name}.def"
     }
     "mto_lef_complete" {
         "script"      "check_file_exists.tcl"
         "description" "Final LEF abstract exists"
         "criteria"    "file exists and non-empty"
-        "min_phase"   "P0"
+        "min_phase_index"   "0"
         "report_file" "outputs/${design_name}.lef"
     }
     "mto_upf_complete" {
         "script"      "check_file_exists.tcl"
         "description" "UPF power intent exists"
         "criteria"    "file exists"
-        "min_phase"   "P1"
+        "min_phase_index"   "1"
         "report_file" "outputs/${design_name}.upf"
     }
     "mto_pt_netlist" {
         "script"      "check_file_exists.tcl"
         "description" "PT-format netlist for STA"
         "criteria"    "file exists"
-        "min_phase"   "P2"
+        "min_phase_index"   "2"
         "report_file" "outputs/${design_name}.pt.v"
     }
     "mto_fm_netlist" {
         "script"      "check_file_exists.tcl"
         "description" "Formality netlist for LEC"
         "criteria"    "file exists"
-        "min_phase"   "P2"
+        "min_phase_index"   "2"
         "report_file" "outputs/${design_name}.fm.v"
     }
     "mto_lvs_netlist" {
         "script"      "check_file_exists.tcl"
         "description" "LVS netlist for physical verification"
         "criteria"    "file exists"
-        "min_phase"   "P3"
+        "min_phase_index"   "3"
         "report_file" "outputs/${design_name}.lvs.v"
     }
     "mto_vclp_netlist" {
         "script"      "check_file_exists.tcl"
         "description" "VC-LP netlist for power verification"
         "criteria"    "file exists"
-        "min_phase"   "P3"
+        "min_phase_index"   "3"
         "report_file" "outputs/${design_name}.vc_lp.v"
     }
     "mto_dc_netlist" {
         "script"      "check_file_exists.tcl"
         "description" "DC netlist"
         "criteria"    "file exists"
-        "min_phase"   "P3"
+        "min_phase_index"   "3"
         "report_file" "outputs/${design_name}.dc.v"
     }
 }
@@ -104,42 +104,42 @@ array set optional_checks {
         "script"      "check_file_exists.tcl"
         "description" "Floorplan file for downstream blocks"
         "criteria"    "file exists"
-        "min_phase"   "P2"
+        "min_phase_index"   "2"
         "report_file" "outputs/${design_name}_floorplan"
     }
     "mto_wscript" {
         "script"      "check_file_exists.tcl"
         "description" "Wavescope script"
         "criteria"    "file exists"
-        "min_phase"   "P2"
+        "min_phase_index"   "2"
         "report_file" "outputs/${design_name}_wscript"
     }
     "mto_wscript_pt" {
         "script"      "check_file_exists.tcl"
         "description" "Wavescope script for PT"
         "criteria"    "file exists"
-        "min_phase"   "P2"
+        "min_phase_index"   "2"
         "report_file" "outputs/${design_name}_wscript_for_pt"
     }
     "mto_routing_constraints" {
         "script"      "check_file_exists.tcl"
         "description" "Routing constraints for downstream"
         "criteria"    "file exists"
-        "min_phase"   "P3"
+        "min_phase_index"   "3"
         "report_file" "outputs/${design_name}_routing_constraints"
     }
     "mto_design_db_nlib" {
         "script"      "check_file_exists.tcl"
         "description" "FC design database (.nlib)"
         "criteria"    "file exists"
-        "min_phase"   "P3"
+        "min_phase_index"   "3"
         "report_file" "outputs/${design_name}.nlib"
     }
     "mto_design_db_enc" {
         "script"      "check_file_exists.tcl"
         "description" "Innovus design database (.enc)"
         "criteria"    "file exists"
-        "min_phase"   "P3"
+        "min_phase_index"   "3"
         "report_file" "outputs/${design_name}.enc"
     }
 }

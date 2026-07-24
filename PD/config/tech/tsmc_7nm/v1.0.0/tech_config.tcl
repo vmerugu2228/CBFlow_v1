@@ -12,6 +12,22 @@ set tech(foundry)                "TSMC"
 set tech(tracks_available)       "6T 7.5T 9T"
 set tech(metal_stacks_available) "12M"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Physical Verification Runsets — foundry-provided SVRF / IC Validator decks
+# Empty defaults; populate with foundry paths for site-wide use, or override
+# per-run via user_config's pv(input,rule_deck_*) or pv(<stage>,runset).
+# ─────────────────────────────────────────────────────────────────────────────
+set tech(rules,drc)                               ""
+set tech(rules,lvs)                               ""
+set tech(rules,erc)                               ""
+set tech(rules,perc)                              ""
+set tech(rules,perc_ldl)                          ""
+set tech(rules,fill)                              ""
+set tech(rules,multi_patterning)                  ""
+set tech(rules,xor)                               ""
+set tech(rules,antenna)                           ""
+set tech(spice,stdcell)                           ""
+
 # ── VT Variant Patterns ──
 set tech(vt_variants_available) {svt lvt ulvt hvt}
 set tech(vt_pattern,svt)  "*svt*"

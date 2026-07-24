@@ -789,12 +789,6 @@ flow_proc generate_export_documentation {
     puts $fd ""
     puts $fd "TIMING PARAMETERS"
     puts $fd "================="
-    if {[info exists project(clock,period)]} {
-        puts $fd "Clock Period: $project(clock,period)ns"
-    }
-    if {[info exists project(clock,ports)]} {
-        puts $fd "Clock Ports: $project(clock,ports)"
-    }
     puts $fd ""
     puts $fd "TECHNOLOGY PARAMETERS"
     puts $fd "===================="

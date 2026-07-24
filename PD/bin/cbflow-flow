@@ -92,15 +92,15 @@ QoR Reports:
                                                  Generate QoR summary report
   cbflow flow qor-report compare --run-dir1 <p1> --run-dir2 <p2>
                                                  Compare QoR between runs
-  cbflow flow qor-report summary --project ravendrive
+  cbflow flow qor-report summary --project bumblebee
                                                  Aggregate QoR summary
 
 Trending & Baselines:
-  cbflow flow trending report --project ravendrive --metric wns
+  cbflow flow trending report --project bumblebee --metric wns
                                                  Show metric trend over runs
-  cbflow flow trending baseline set --project ravendrive --flow PNR --milestone PRO_EXIT --metric setup_wns --value 0
+  cbflow flow trending baseline set --project bumblebee --flow PNR --milestone PRO_EXIT --metric setup_wns --value 0
                                                  Set a QoR baseline
-  cbflow flow trending check --project ravendrive --run-dir <path>
+  cbflow flow trending check --project bumblebee --run-dir <path>
                                                  Check run against baselines
 
 MMMC Manager:

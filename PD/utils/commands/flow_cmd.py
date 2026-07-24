@@ -39,7 +39,20 @@ def _build_flow_types_dict():
         }
     return result
 
-FLOW_TYPES = _build_flow_types_dict()
+# FLOW_TYPES is loaded lazily via module `__getattr__` (PEP 562). See
+# workspace_cmd.py for the rationale — bare `import flow_cmd` (healthcheck,
+# IDE, tests) shouldn't require CBFLOW_CORE_DIR/FLOW_DIR/CONFIG_ROOT env
+# vars, only real command execution under cbflow's launcher should.
+_FLOW_TYPES_CACHE = None
+
+
+def __getattr__(name):
+    if name == 'FLOW_TYPES':
+        global _FLOW_TYPES_CACHE
+        if _FLOW_TYPES_CACHE is None:
+            _FLOW_TYPES_CACHE = _build_flow_types_dict()
+        return _FLOW_TYPES_CACHE
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 

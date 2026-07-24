@@ -76,7 +76,7 @@ cbflow flow checklist generate --milestone BTO --phase P3 --format html
 cbflow flow checklist generate --milestone BTO --phase P3 --format json
 
 # Generate for a specific project (applies project threshold overrides)
-cbflow flow checklist generate --milestone PLACE_EXIT --phase P1 --project ravendrive
+cbflow flow checklist generate --milestone PLACE_EXIT --phase P1 --project bumblebee
 ```
 
 ### 1.4 Evaluate Checklist Status
@@ -92,7 +92,7 @@ Evaluates all checks against actual report data in the run directory. Output inc
 cbflow flow checklist status --milestone BTO --run-dir . --phase P3 --details
 
 # Status for a specific project (applies project-level thresholds)
-cbflow flow checklist status --milestone CTS_EXIT --run-dir . --phase P1 --project ravendrive
+cbflow flow checklist status --milestone CTS_EXIT --run-dir . --phase P1 --project bumblebee
 
 # Quiet mode -- exit code only (0 = all pass, 1 = failures exist)
 cbflow flow checklist status --milestone PLACE_EXIT --run-dir . --phase P0 --quiet
@@ -280,7 +280,7 @@ cbflow flow checklist waiver --action list
 cbflow flow checklist waiver --action list --milestone FP_EXIT
 
 # Filter by project
-cbflow flow checklist waiver --action list --project ravendrive
+cbflow flow checklist waiver --action list --project bumblebee
 
 # Show expired and revoked waivers too
 cbflow flow checklist waiver --action list --all
@@ -307,7 +307,7 @@ cbflow flow checklist waiver \
     --reason "Hold fixing deferred to CTS stage per methodology" \
     --approver timing_lead \
     --expiry 2026-06-30 \
-    --project ravendrive \
+    --project bumblebee \
     --risk-level low \
     --conditions "Hold WNS must be >= -50ps"
 
@@ -319,7 +319,7 @@ cbflow flow checklist waiver \
     --reason "Clock mesh required for performance, power budget adjusted" \
     --approver clock_lead \
     --expiry 2026-09-15 \
-    --project ravendrive \
+    --project bumblebee \
     --block cpu_core \
     --risk-level medium
 ```
@@ -854,23 +854,23 @@ Thresholds that automatically relax at early phases and tighten toward signoff. 
 
 Override thresholds for a specific project. Place in `PD/config/exit/v1.0.0/threshold_overrides.tcl`.
 
-**Example: ravendrive (22nm, relaxed early milestones)**
+**Example: bumblebee (22nm, relaxed early milestones)**
 
 ```tcl
 array set threshold_override {
-    ravendrive,FP_EXIT,utilization_min           0.55
-    ravendrive,FP_EXIT,utilization_max           0.82
-    ravendrive,FP_EXIT,setup_wns                 -300
+    bumblebee,FP_EXIT,utilization_min           0.55
+    bumblebee,FP_EXIT,utilization_max           0.82
+    bumblebee,FP_EXIT,setup_wns                 -300
 
-    ravendrive,PLACE_EXIT,setup_wns              -80
-    ravendrive,PLACE_EXIT,setup_tns              -800
-    ravendrive,PLACE_EXIT,max_congestion         0.88
+    bumblebee,PLACE_EXIT,setup_wns              -80
+    bumblebee,PLACE_EXIT,setup_tns              -800
+    bumblebee,PLACE_EXIT,max_congestion         0.88
 
-    ravendrive,CTS_EXIT,clock_skew               60
-    ravendrive,CTS_EXIT,max_insertion_delay       600
-    ravendrive,CTS_EXIT,clock_coverage            99.0
+    bumblebee,CTS_EXIT,clock_skew               60
+    bumblebee,CTS_EXIT,max_insertion_delay       600
+    bumblebee,CTS_EXIT,clock_coverage            99.0
 
-    ravendrive,PRO_EXIT,max_ir_drop              40
+    bumblebee,PRO_EXIT,max_ir_drop              40
 }
 ```
 
@@ -901,17 +901,17 @@ The most specific override: per-project, per-phase thresholds that take the high
 
 ```tcl
 array set phase_override {
-    ravendrive,P0,FP_EXIT,utilization_min        0.50
-    ravendrive,P0,PLACE_EXIT,setup_wns           -150
-    ravendrive,P0,PLACE_EXIT,setup_tns           -2000
-    ravendrive,P0,CTS_EXIT,clock_skew            80
+    bumblebee,P0,FP_EXIT,utilization_min        0.50
+    bumblebee,P0,PLACE_EXIT,setup_wns           -150
+    bumblebee,P0,PLACE_EXIT,setup_tns           -2000
+    bumblebee,P0,CTS_EXIT,clock_skew            80
 
-    ravendrive,P1,PLACE_EXIT,setup_wns           -80
-    ravendrive,P1,PLACE_EXIT,setup_tns           -800
+    bumblebee,P1,PLACE_EXIT,setup_wns           -80
+    bumblebee,P1,PLACE_EXIT,setup_tns           -800
 
-    ravendrive,P2,PLACE_EXIT,setup_wns           -20
-    ravendrive,P2,PRO_EXIT,setup_wns             0
-    ravendrive,P2,PRO_EXIT,hold_wns              0
+    bumblebee,P2,PLACE_EXIT,setup_wns           -20
+    bumblebee,P2,PRO_EXIT,setup_wns             0
+    bumblebee,P2,PRO_EXIT,hold_wns              0
 }
 ```
 
@@ -937,7 +937,7 @@ set phase_override(<project>,<phase>,<milestone>,<metric>) <value>
 
 ```bash
 # Check what threshold will be used for a specific project/milestone/phase
-cbflow flow checklist generate --milestone PLACE_EXIT --phase P1 --project ravendrive
+cbflow flow checklist generate --milestone PLACE_EXIT --phase P1 --project bumblebee
 ```
 
 ### 8.7 Override Policy

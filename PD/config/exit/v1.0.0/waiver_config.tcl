@@ -47,7 +47,7 @@ array set waiver_policy {
 array set waiver {
     W001,milestone      "FP_EXIT"
     W001,check          "congestion_analysis"
-    W001,project        "ravendrive"
+    W001,project        "bumblebee"
     W001,block          "*"
     W001,reason         "Congestion acceptable at P0 phase, will re-evaluate at P1"
     W001,approved_by    "chip_lead"
@@ -59,7 +59,7 @@ array set waiver {
 
     W002,milestone      "PLACE_EXIT"
     W002,check          "hold_timing"
-    W002,project        "ravendrive"
+    W002,project        "bumblebee"
     W002,block          "*"
     W002,reason         "Hold fixing deferred to CTS stage per methodology"
     W002,approved_by    "timing_lead"

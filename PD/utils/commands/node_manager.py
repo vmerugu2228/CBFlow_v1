@@ -107,9 +107,13 @@ class NodeManager:
 
         for name in node_names:
             self.custom_nodes[name] = {
-                'type':         _parse_tcl_string(_cfg.optional(cfg, f'stages,{name},type') or ''),
-                'dependencies': _parse_tcl_string(_cfg.optional(cfg, f'stages,{name},dependencies') or ''),
-                'branch_key':   _parse_tcl_string(_cfg.optional(cfg, f'stages,{name},branch_key') or ''),
+                'type':          _parse_tcl_string(_cfg.optional(cfg, f'stages,{name},type') or ''),
+                'dependencies':  _parse_tcl_string(_cfg.optional(cfg, f'stages,{name},dependencies') or ''),
+                'branch_key':    _parse_tcl_string(_cfg.optional(cfg, f'stages,{name},branch_key') or ''),
+                # resource_tier: kept in sync with race_engine._load_runtime_custom_nodes
+                # (which reads the same key) so add_node → save → reload round-trips
+                # preserve the tier instead of silently dropping it on the next mutation.
+                'resource_tier': _parse_tcl_string(_cfg.optional(cfg, f'stages,{name},resource_tier') or ''),
             }
 
         # Extract branches: keys like "branch_keys,abc123,name"
@@ -151,6 +155,17 @@ class NodeManager:
             lines.append(f'    stages,{name},dependencies {info.get("dependencies", "")}')
             if info.get('branch_key'):
                 lines.append(f'    stages,{name},branch_key {info["branch_key"]}')
+            # Preserve resource_tier round-trip. Only emit non-empty values
+            # so the file stays clean for nodes that inherit from base-stage
+            # or default_queue_type. Value is Tcl-quoted so a tier string
+            # with embedded whitespace (from an operator typo or a bad
+            # environment) doesn't split the value across two array cells
+            # and silently corrupt the runtime_flow_config on write.
+            _tier = info.get('resource_tier')
+            if _tier:
+                # Escape backslash + quote for Tcl `"..."` string context.
+                _t = str(_tier).replace('\\', '\\\\').replace('"', '\\"')
+                lines.append(f'    stages,{name},resource_tier "{_t}"')
 
         # Write branches
         for bkey, info in sorted(self.branches.items()):
@@ -182,7 +197,8 @@ class NodeManager:
     # Node Operations
     # ─────────────────────────────────────────────────────────────────────────
 
-    def add_node(self, name: str, node_type: str, dependency: str) -> bool:
+    def add_node(self, name: str, node_type: str, dependency: str,
+                 resource_tier: str = '') -> bool:
         """
         Add a custom node to the flow.
 
@@ -191,10 +207,27 @@ class NodeManager:
             node_type: Type of stage this node represents (must match a base
                        stage or base type stripped of its numeric suffix).
             dependency: Name of the node this new node depends on.
+            resource_tier: Optional LSF resource tier ('XS'/'S'/'M'/'L'/'XL'/
+                       'ultra'). If empty, the tier cascade in
+                       race_engine._build_resource_map inherits from the base
+                       stage's tier and finally from `lsf(default_queue_type)`.
 
         Returns:
             True if the node was successfully added, False otherwise.
         """
+        # Validate node NAME first — must match `^[A-Za-z_][A-Za-z0-9_]*$`.
+        # rename_node validates this already; add_node used to accept ANY
+        # string, so a name like `foo; rm -rf $HOME` propagated through
+        # runtime_flow_config.tcl into Job.command interpolation and
+        # subprocess(shell=True) execution — a live shell-injection vector.
+        # Reject whitespace, path separators, shell metacharacters.
+        if not name or not re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', name):
+            logger.error(
+                f"  Error: Invalid node name '{name}' — must match "
+                f"^[A-Za-z_][A-Za-z0-9_]*$ (letters, digits, underscore; "
+                f"can't start with a digit; no whitespace, '/', ';', quotes, etc.)")
+            return False
+
         # Check all stages (base + custom)
         all_stages = list(self.base_stages)
         all_stages.extend(self.custom_nodes.keys())
@@ -228,12 +261,14 @@ class NodeManager:
             'type': node_type,
             'dependencies': dependency or '',
             'branch_key': '',
+            'resource_tier': resource_tier or '',
         }
 
         self._save_runtime_config()
         self._regenerate_makefile()
 
-        logger.info(f"  [DONE] Added node '{name}' (type={node_type}, after={dependency})")
+        tier_suffix = f", tier={resource_tier}" if resource_tier else ""
+        logger.info(f"  [DONE] Added node '{name}' (type={node_type}, after={dependency}{tier_suffix})")
         return True
 
     def delete_node(self, name: str) -> bool:

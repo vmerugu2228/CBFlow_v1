@@ -44,8 +44,14 @@ flow_proc setup_xor_environment {
         handle_error "pv(input,gds) not set — cannot run XOR"
     }
 
-    # Post-fill layout (output from fill stage)
-    set ::_post_fill "$run_dir/work/PV/fill1/results/${::DESIGN_NAME}.filled.gds"
+    # Post-fill / signoff layout (from decomp_merge_gds1 → fill_merge_gds1 chain
+    # after the 2026-07-10 refactor; fall back to the older single-stage path
+    # for tape-outs that predate the new PV DAG).
+    set _run_dir $::env(CBFLOW_RUN_DIR)
+    set ::_post_fill "$_run_dir/work/PV/decomp_merge_gds1/results/${::DESIGN_NAME}_signoff.gds"
+    if {![file exists $::_post_fill]} {
+        set ::_post_fill "$_run_dir/work/PV/fill_merge_gds1/results/${::DESIGN_NAME}_fill_verified.gds"
+    }
     if {[file exists $::_post_fill]} {
         handle_info "  Post-fill layout: $::_post_fill"
     } else {

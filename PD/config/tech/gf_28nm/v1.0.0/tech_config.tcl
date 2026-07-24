@@ -16,6 +16,22 @@ set tech(metal_stacks_available) "8M 9M 10M"
 set tech(track_pattern,7T) "*sc7*"
 set tech(track_pattern,9T) "*sc9*"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Physical Verification Runsets — foundry-provided SVRF / IC Validator decks
+# Empty defaults; populate with foundry paths for site-wide use, or override
+# per-run via user_config's pv(input,rule_deck_*) or pv(<stage>,runset).
+# ─────────────────────────────────────────────────────────────────────────────
+set tech(rules,drc)                               ""
+set tech(rules,lvs)                               ""
+set tech(rules,erc)                               ""
+set tech(rules,perc)                              ""
+set tech(rules,perc_ldl)                          ""
+set tech(rules,fill)                              ""
+set tech(rules,multi_patterning)                  ""
+set tech(rules,xor)                               ""
+set tech(rules,antenna)                           ""
+set tech(spice,stdcell)                           ""
+
 # ── VT Variant Patterns ──
 set tech(vt_variants_available) {rvt lvt ulvt hvt}
 set tech(vt_pattern,lvt)  "*lvt*"

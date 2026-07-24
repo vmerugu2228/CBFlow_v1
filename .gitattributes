@@ -6,3 +6,8 @@
 *.pptx binary
 *.pdf binary
 *.db binary
+
+# Claude-related — kept in repo for local workflow, excluded from delivery bundle
+CLAUDE.md      export-ignore
+.claude/       export-ignore
+.claude/**     export-ignore

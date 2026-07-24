@@ -379,11 +379,6 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
         # Config files (lowest to highest priority) - configuration variables only
 
         # 1. Project Configuration (Base Layer)
-        # `cbflow_init_config.tcl` is intentionally NOT sourced from the cascade.
-        # It used to set project(name)/version/description, but `<project>_config.tcl`
-        # owns those keys today — sourcing both produced silent overwrites and
-        # a version-string mismatch (v1.0.0 vs 1.0). Removed in the cleanup
-        # commit that retired the duplicate.
         if {$project_name ne ""} {
             lappend config_files [list "project_config" "$config_root/project/$project_name/$project_version/${project_name}_config.tcl"]
             lappend config_files [list "team_config" "$config_root/project/$project_name/$project_version/team_config.tcl"]

@@ -29,6 +29,29 @@ set flow(run_types)     {hier flat}
 set flow(test_mode)     "false"                                           ;# Bypass EDA tools, show commands only
 set flow(mandatory_vars,all) {flow(run_name) flow(type) flow(design_name)}
 
+# Per-flow mandatory keys. Validated pre-flight by config_validator.py after
+# the cascade resolves — a missing/empty key here fails `cbflow run` and
+# `cbflow workspace validate` before any work/ directory is created.
+# Keep this list to genuine cross-cutting invariants (tool selection). Stage-
+# specific inputs are validated by resolve_inputs / enhanced_validate_run.
+#
+# Naming convention: the resolver emits keys of the *current flow's* array
+# WITHOUT the array-name prefix (e.g. `default_tool=pt`, not `sta(default_tool)=pt`).
+# List them here in the emission form, i.e. bare `default_tool`, not
+# `sta(default_tool)`. Cross-flow keys (`flow(...)`) keep their prefix.
+set flow(mandatory_vars,SYNTH)      {default_tool}
+set flow(mandatory_vars,PNR)        {default_tool}
+set flow(mandatory_vars,SYNTH_PNR)  {default_tool}
+set flow(mandatory_vars,STA)        {default_tool}
+set flow(mandatory_vars,FP)         {default_tool}
+set flow(mandatory_vars,FCFP)       {default_tool}
+set flow(mandatory_vars,LEC)        {default_tool}
+set flow(mandatory_vars,CLP)        {default_tool}
+set flow(mandatory_vars,PV)         {default_tool}
+set flow(mandatory_vars,EMIR)       {default_tool}
+set flow(mandatory_vars,ECO)        {default_tool}
+set flow(mandatory_vars,POPT)       {default_tool}
+
 # ┌─ Dispatcher ────────────────────────────────────────────────────────────────┐
 set flow(dispatcher)    "race"                                            ;# "race" (RACE) or "make" (GNU Make)
 set flow(use_lsf)       false                                             ;# Enable LSF job submission (set true in user_config when bsub available)
@@ -50,7 +73,9 @@ set flow(mmmc,enabled)        true
 set flow(mmmc,enabled_stages) {place cts cts_opt route pro signoff}
 
 # ┌─ Phases & Milestones ────────────────────────────────────────────────────┐
-set flow(phases)          {P0 P1 P2 P3}
+# Phases are project-specific — each project declares its own list via
+# `project(phases)` and current phase via `project(current_phase)`. The old
+# global `flow(phases)` has been removed. Exit milestones remain global.
 set flow(exit_milestones) {FP_EXIT PLACE_EXIT CTS_EXIT PRO_EXIT BTO MTO}
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗

@@ -168,9 +168,9 @@ flow_proc insert_tap_cells {
         # Source user-provided tap cell script
         source $fcfp(floorplan,tap_cell_script)
         handle_info "Tap cells inserted from script"
-    } elseif {[info exists tech(cells,well_tap)] && $tech(cells,well_tap) ne ""} {
+    } elseif {[info exists tech($tech(track),well_tap)] && $tech($tech(track),well_tap) ne ""} {
         # FC-RM: Insert well tap cells from technology config
-        set tap_cell $tech(cells,well_tap)
+        set tap_cell $tech($tech(track),well_tap)
         set tap_distance "30"
         if {[info exists tech(cells,well_tap_distance)]} {
             set tap_distance $tech(cells,well_tap_distance)

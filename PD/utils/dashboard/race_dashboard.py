@@ -17,6 +17,7 @@ Provides:
     /api/job/X  JSON job details
 """
 
+import hashlib
 import http.server
 import json
 import logging
@@ -25,6 +26,7 @@ import re
 import sqlite3
 import sys
 import threading
+import uuid
 import webbrowser
 from datetime import datetime
 from pathlib import Path
@@ -123,11 +125,29 @@ class RaceDashboard:
 
     def _get_engine(self):
         """Get a lightweight RACE engine (reset_stale=False).
-        Used by all API calls and action handlers — never resets active jobs."""
+        Used by all API calls and action handlers — never resets active jobs.
+
+        Returns None if the resolved cascade fails post-cascade validation
+        (config_validator.assert_mandatory_vars raises ConfigError). Callers
+        must handle the None case — a broken user_config.tcl should surface
+        as a graceful 4xx from the API rather than a daemon-thread crash.
+        """
         from race_engine import RaceEngine
-        engine = RaceEngine(self.run_dir, self.flow_type, self._load_env())
-        engine.initialize(reset_stale=False)
-        return engine
+        try:
+            from cbflow_config import ConfigError
+        except ImportError:
+            ConfigError = None
+        try:
+            engine = RaceEngine(self.run_dir, self.flow_type, self._load_env())
+            engine.initialize(reset_stale=False)
+            return engine
+        except Exception as e:
+            # Catch broadly: ConfigError, missing tclsh, corrupt DB pointer,
+            # anything that would kill the caller. Log and let callers decide
+            # whether to surface as 4xx / 5xx / silent no-op.
+            logger.warning(f"_get_engine failed: {type(e).__name__}: {e}")
+            self._last_engine_error = str(e)
+            return None
 
     # ── DB access ─────────────────────────────────────────────────────────
 
@@ -295,9 +315,11 @@ class RaceDashboard:
         return edges
 
     def get_status(self) -> dict:
-        # Run file change detection on each status poll (lightweight check)
-        self._check_source_changes()
-
+        # Note: source-file change detection used to run here on every call.
+        # That side effect is now driven from the /api/status handler BEFORE
+        # the ETag cache check — if it stayed here, ETag-hit 304 responses
+        # would skip the whole get_status() call and source edits would
+        # never invalidate downstream nodes while the run was idle.
         conn = self._connect()
         if not conn:
             return {'run_info': {}, 'stages': [], 'summary': {}}
@@ -462,9 +484,14 @@ class RaceDashboard:
             failed = sum(s['jobs_failed'] for s in stages)
             invalidated = sum(1 for s in stages if s['status'] == 'INVALIDATED')
             ready = total - done - failed - running
+            # Activity indicator — client uses this to shrink polling interval
+            # while jobs are moving and expand it when the run is idle.
+            pending_total = sum(s.get('jobs_pending', 0) for s in stages)
+            run_activity = 'active' if (running > 0 or pending_total > 0) else 'idle'
             return {
                 'run_info': run_info,
                 'stages': stages,
+                'run_activity': run_activity,
                 'summary': {
                     'total': total, 'done': done, 'failed': failed,
                     'running': running, 'ready': max(0, ready),
@@ -1064,11 +1091,36 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         elif path == '/grid':
             self._serve_template('grid.html')
         elif path == '/api/status':
-            self._json_response(self.dashboard.get_status())
+            # Source-change detection MUST run before the ETag check so an
+            # edit to user_config.tcl invalidates the affected jobs (which
+            # bumps DB mtime, which changes the ETag). If we only ran it
+            # inside get_status(), an ETag hit would 304 and the
+            # invalidation never fires while the run is idle.
+            source_check_error = None
+            try:
+                self.dashboard._check_source_changes()
+            except Exception as e:
+                # A silently-eaten exception here defeats the whole point
+                # of the invalidation restore: 304 responses persist and
+                # source edits never propagate. Log at ERROR and expose
+                # the exception so the endpoint returns fresh (skip cache)
+                # AND the client sees a hint in the payload. Force
+                # `no_cache=True` so the ETag branch doesn't 304 on stale
+                # state that failed to be invalidated.
+                source_check_error = str(e)
+                logger.error(
+                    f"_check_source_changes raised — invalidation not "
+                    f"performed for this poll; forcing fresh response: {e}",
+                    exc_info=True)
+            self._json_response_cached(
+                self.dashboard.get_status,
+                no_cache=source_check_error is not None,
+                extra={'_source_check_error': source_check_error}
+                       if source_check_error else None)
         elif path == '/api/dag':
-            self._json_response(self.dashboard.get_dag())
+            self._json_response_cached(self.dashboard.get_dag)
         elif path == '/api/jobs':
-            self._json_response(self.dashboard.get_all_jobs())
+            self._json_response_cached(self.dashboard.get_all_jobs)
         elif path.startswith('/api/job/'):
             job_name = path[len('/api/job/'):]
             self._json_response(self.dashboard.get_job(job_name))
@@ -1300,8 +1352,26 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             self._json_response({'error': str(e)}, 500)
 
+    # Cap on request body size (bytes). Prevents Content-Length-based
+    # memory-exhaust DoS: prior code did `int(self.headers.get('Content-Length',0))`
+    # then `self.rfile.read(length)` unconditionally, so a header of
+    # 999999999 would allocate ~1GB per request. 1 MB is well above
+    # any legitimate dashboard mutation (add-node body ~500 bytes,
+    # save-node-config with 50 vars ~5 KB).
+    _MAX_BODY_BYTES = 1_000_000
+
     def _read_body(self) -> dict:
-        length = int(self.headers.get('Content-Length', 0))
+        raw = self.headers.get('Content-Length', '0')
+        try:
+            length = int(raw)
+        except (TypeError, ValueError):
+            length = 0
+        if length < 0 or length > self._MAX_BODY_BYTES:
+            # Refuse the read; leave the socket for the outer handler
+            # to close. Raise ValueError so do_POST's exception guard
+            # returns a 400 rather than a hung connection or 500.
+            raise ValueError(
+                f'request body too large or invalid Content-Length: {raw}')
         if length > 0:
             return json.loads(self.rfile.read(length))
         return {}
@@ -1349,6 +1419,11 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
         def run():
             engine = self._get_engine()
+            if engine is None:
+                logger.error(
+                    f"_action_run_to_subnode: engine init failed — "
+                    f"cannot run up to {subnode}")
+                return
             # Collect only the target subnode and its upstream deps within this stage
             target_jobs = set()
             target_jobs.add(subnode)
@@ -1376,6 +1451,9 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         from_stage = body.get('from_stage', '')
         # Use active running engine if available (so in-memory state is updated)
         engine = self._get_active_or_new_engine()
+        if engine is None:
+            return {'ok': False,
+                    'error': 'engine unavailable — check user_config.tcl and daemon logs'}
         if from_stage:
             engine.retrace(from_stage=from_stage)
             return {'ok': True, 'message': f'Retraced from {from_stage}'}
@@ -1386,6 +1464,9 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
     def _action_bypass(self, body):
         """Bypass stages or specific jobs. Updates active engine if one is running."""
         engine = self._get_active_or_new_engine()
+        if engine is None:
+            return {'ok': False,
+                    'error': 'engine unavailable — check user_config.tcl and daemon logs'}
         jobs = body.get('jobs', [])
         if jobs:
             if isinstance(jobs, str):
@@ -1407,6 +1488,11 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
         def run():
             engine = self._get_engine()
+            if engine is None:
+                logger.error(
+                    f"_action_force: engine init failed — cannot force "
+                    f"{', '.join(stages) if isinstance(stages, list) else stages}")
+                return
             with _engines_lock:
                 _active_engines.append(engine)
             try:
@@ -1421,16 +1507,35 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         return {'ok': True, 'message': f'Forcing: {", ".join(stages)}', 'async': True}
 
     def _action_interactive(self, body):
-        """Launch interactive EDA tool session for a node."""
+        """Launch interactive EDA tool session for a node.
+
+        Runs `cbflow run interactive --node <name>` in the run dir. STDOUT +
+        STDERR are captured to `INTERACTIVE/dashboard_launch.log` so the
+        dashboard user can inspect errors — the CLI's stdout is otherwise
+        invisible once we detach.
+        """
         node = body.get('node', '')
         if not node:
             return {'error': 'node required'}
         import subprocess
         run_dir = self.dashboard.run_dir
-        cmd = ['cbflow', 'run', 'interactive', '--load', node]
+        # `--node` is the current CLI arg (was `--load` in older versions).
+        cmd = ['cbflow', 'run', 'interactive', '--node', node]
+        log_dir = os.path.join(run_dir, 'INTERACTIVE')
+        os.makedirs(log_dir, exist_ok=True)
+        log_path = os.path.join(log_dir, 'dashboard_launch.log')
         try:
-            subprocess.Popen(cmd, cwd=run_dir)
-            return {'ok': True, 'message': f'Interactive session launching for {node}'}
+            with open(log_path, 'ab') as lf:
+                lf.write(f'\n--- {node} ---\n'.encode())
+                lf.flush()
+                subprocess.Popen(cmd, cwd=run_dir, stdout=lf, stderr=lf,
+                                 stdin=subprocess.DEVNULL, start_new_session=True)
+            return {'ok': True,
+                    'message': f'Interactive session launching for {node} '
+                               f'(log: INTERACTIVE/dashboard_launch.log)'}
+        except FileNotFoundError:
+            return {'error': "'cbflow' not in PATH on the dashboard server. "
+                             "Source the CBflow env or use absolute path."}
         except Exception as e:
             return {'error': f'Failed to launch: {e}'}
 
@@ -1533,6 +1638,9 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
     def _action_forcevalidate(self, body):
         """Force-validate stages or specific jobs. Updates active engine if one is running."""
         engine = self._get_active_or_new_engine()
+        if engine is None:
+            return {'ok': False,
+                    'error': 'engine unavailable — check user_config.tcl and daemon logs'}
         jobs = body.get('jobs', [])
         if jobs:
             if isinstance(jobs, str):
@@ -1743,30 +1851,55 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         self._seed_new_nodes_only()
         return {'ok': True, 'message': f'Branch "{name}" created from {from_stage}'}
 
+    # Escape user input for splicing into a Tcl `"..."` string literal.
+    # Inside `"..."`, `$var` performs variable substitution and `[cmd]`
+    # executes an embedded command AT SOURCE TIME — override_config
+    # files are later sourced by tclsh, so unescaped `[exec rm -rf ~]`
+    # runs as the user's shell. Escape `\`, `"`, `$`, `[`.
+    @staticmethod
+    def _tcl_quote(s):
+        if s is None:
+            return ''
+        return (str(s)
+                .replace('\\', '\\\\')
+                .replace('"',  '\\"')
+                .replace('$',  '\\$')
+                .replace('[',  '\\['))
+
+    # Validate a stage / node name — must match the same allowlist that
+    # node_manager.add_node uses. Prevents path traversal in the
+    # override_config.<stage>.tcl filename and shell metachar bleed-
+    # through into downstream Job.command interpolation.
+    @staticmethod
+    def _valid_stage_name(s):
+        return bool(s) and bool(re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', str(s)))
+
     def _action_update_node_config(self, body):
         """Update per-node config (LSF queue, memory, timeout, version)."""
         stage = body.get('stage', '')
-        if not stage:
-            return {'error': 'stage required'}
+        if not self._valid_stage_name(stage):
+            return {'ok': False, 'error': 'invalid stage name'}
 
         # Write overrides to setup/override_config.<node>.tcl (per-node, not per-type)
         override_file = os.path.join(self.dashboard.run_dir, 'setup',
                                       f'override_config.{stage}.tcl')
         lines = []
         flow_lower = self.dashboard.flow_type.lower()
+        _q = self._tcl_quote
+        _lsf_queue = _q(body.get("lsf_queue", "M"))
 
         if body.get('lsf_queue'):
-            lines.append(f'set lsf(flow_mapping,{flow_lower},{stage.rstrip("0123456789")}) "{body["lsf_queue"]}"')
+            lines.append(f'set lsf(flow_mapping,{flow_lower},{stage.rstrip("0123456789")}) "{_q(body["lsf_queue"])}"')
         if body.get('lsf_memory'):
-            lines.append(f'set lsf(queue_types,{body.get("lsf_queue","M")},memory) "{body["lsf_memory"]}"')
+            lines.append(f'set lsf(queue_types,{_lsf_queue},memory) "{_q(body["lsf_memory"])}"')
         if body.get('lsf_cpu'):
-            lines.append(f'set lsf(queue_types,{body.get("lsf_queue","M")},cpu) "{body["lsf_cpu"]}"')
+            lines.append(f'set lsf(queue_types,{_lsf_queue},cpu) "{_q(body["lsf_cpu"])}"')
         if body.get('timeout'):
-            lines.append(f'set {flow_lower}(runtime,timeout,{stage}) "{body["timeout"]}"')
+            lines.append(f'set {flow_lower}(runtime,timeout,{stage}) "{_q(body["timeout"])}"')
         if body.get('tool_version'):
-            lines.append(f'set {flow_lower}(tool,version) "{body["tool_version"]}"')
+            lines.append(f'set {flow_lower}(tool,version) "{_q(body["tool_version"])}"')
         if body.get('tool_module'):
-            lines.append(f'set flow(tool_module,{self._get_flow_tool()}) "{body["tool_module"]}"')
+            lines.append(f'set flow(tool_module,{self._get_flow_tool()}) "{_q(body["tool_module"])}"')
 
         if lines:
             os.makedirs(os.path.dirname(override_file), exist_ok=True)
@@ -1784,27 +1917,39 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         self._check_run_ownership()
         variables = body.get('variables', {})
         if not variables:
-            return {'error': 'No variables to save'}
+            return {'ok': False, 'error': 'No variables to save'}
 
         user_config = os.path.join(self.dashboard.run_dir, 'setup', 'user_config.tcl')
         if not os.path.exists(user_config):
-            return {'error': 'user_config.tcl not found'}
+            return {'ok': False, 'error': 'user_config.tcl not found'}
 
+        _q = self._tcl_quote
         with open(user_config) as f:
             lines = f.readlines()
 
-        # Update existing lines or append new ones
+        # Update existing lines or append new ones. Prior code used
+        # `if key in line and line.strip().startswith('set ')` — a
+        # substring match that false-positive'd against unrelated
+        # variables containing the key as a substring (e.g. saving
+        # `rtl` overwrote lines with `rtl_filelist`). Match on the
+        # exact `set <key>` prefix instead. Also tcl-quote values so
+        # embedded `"`/`$`/`[` don't inject.
         updated_keys = set()
         for i, line in enumerate(lines):
+            stripped = line.lstrip()
             for key, val in variables.items():
-                if key in line and line.strip().startswith('set '):
-                    lines[i] = f'set {key} "{val}"\n'
+                # Anchor on `set <key>` with a following whitespace / `(` /
+                # end. Prevents 'rtl' matching 'set rtl_filelist ...'.
+                if (stripped.startswith(f'set {key} ')
+                        or stripped.startswith(f'set {key}\t')
+                        or stripped.startswith(f'set {key}(')):
+                    lines[i] = f'set {key} "{_q(val)}"\n'
                     updated_keys.add(key)
 
         # Append any new variables not found in existing file
         for key, val in variables.items():
             if key not in updated_keys:
-                lines.append(f'set {key} "{val}"\n')
+                lines.append(f'set {key} "{_q(val)}"\n')
 
         with open(user_config, 'w') as f:
             f.writelines(lines)
@@ -1867,6 +2012,10 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
         def run():
             engine = self._get_engine()
+            if engine is None:
+                logger.error(
+                    f"_exec_engine: engine init failed — cannot execute {target}")
+                return
             with _engines_lock:
                 _active_engines.append(engine)
             try:
@@ -1903,9 +2052,22 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             self.send_error(404, f'Template not found: {name}')
 
     def _serve_static(self, name):
-        filepath = os.path.join(STATIC_DIR, name)
-        if os.path.exists(filepath):
-            with open(filepath, 'rb') as f:
+        # Path traversal guard: the request path is user-controlled
+        # (`GET /static/../race_dashboard.py`). Reject any name that
+        # doesn't normalize to a file INSIDE STATIC_DIR. `realpath` +
+        # `commonpath` catches `..`, absolute paths, symlink escape,
+        # and Windows separators.
+        candidate = os.path.realpath(os.path.join(STATIC_DIR, name))
+        static_root = os.path.realpath(STATIC_DIR)
+        try:
+            common = os.path.commonpath([candidate, static_root])
+        except ValueError:
+            common = ''
+        if common != static_root:
+            self.send_error(404)
+            return
+        if os.path.isfile(candidate):
+            with open(candidate, 'rb') as f:
                 content = f.read()
             ctype = 'text/css' if name.endswith('.css') else \
                     'application/javascript' if name.endswith('.js') else \
@@ -1922,6 +2084,102 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         self.send_response(status)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _db_etag(self) -> str:
+        """Return an ETag derived from the DB file's mtime (nanosecond precision).
+
+        Every race_engine status write updates the DB mtime; clients cache on
+        this etag and get 304 Not Modified until the next write, cutting most
+        polling overhead when the run is idle.
+        """
+        try:
+            st = os.stat(self.dashboard.db_path)
+            key = f'{st.st_mtime_ns}-{st.st_size}'
+        except OSError:
+            return ''
+        return hashlib.sha1(key.encode()).hexdigest()[:16]
+
+    def _json_response_cached(self, producer, status=200,
+                              no_cache=False, extra=None):
+        """JSON response with ETag / If-None-Match support.
+
+        `producer` MUST be a zero-arg callable that materializes the payload.
+        The ETag is snapshotted BEFORE calling `producer` so:
+          1. On a cache hit (client's If-None-Match matches), we skip the
+             expensive DB+SQL+file-stat work entirely — send 304 and return.
+          2. On a cache miss, the producer runs and its result is JSON-
+             encoded with the SAME etag we just checked, closing the TOCTOU
+             window where a race_engine DB write between "materialize data"
+             and "compute etag" could leave the client caching (stale-data,
+             new-etag) — which used to persist stale data indefinitely.
+
+        `no_cache=True` bypasses the 304 branch entirely — used when the
+        caller has already detected stale invariants (e.g. source-change
+        detection raised, so the DB may not have been invalidated yet).
+        `extra` is a dict merged into the response payload — used to carry
+        diagnostic keys (e.g. `_source_check_error`) back to the client.
+
+        Backwards-compat: if a non-callable is passed (legacy call site),
+        treat it as pre-materialized data and skip the producer branch.
+        """
+        etag = self._db_etag()
+        if etag and not no_cache:
+            client_etag = self.headers.get('If-None-Match', '').strip('"')
+            if client_etag and client_etag == etag:
+                self.send_response(304)
+                self.send_header('ETag', f'"{etag}"')
+                self.send_header('Cache-Control', 'no-cache')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                return
+        # Materialize the payload after we've committed to a cache miss.
+        # producer() has NO exception guard in the original design — if it
+        # raised (locked DB, bad user_config), the exception propagated
+        # past send_response with no headers sent, BaseHTTPRequestHandler
+        # emitted a bare 500 with no CORS header, and the dashboard JS
+        # dropped it as a network error and retried every poll — hammering
+        # whatever underlying resource was already broken. Catch here so
+        # the client gets a JSON body it can render as a toast and stops
+        # tight-looping.
+        try:
+            data = producer()
+        except Exception as e:
+            # DO NOT splice `str(e)` into the response — sqlite/FS
+            # exceptions embed absolute paths, DB names, and usernames
+            # (`.race_<run>_<user>_<hash>.db`), and the dashboard binds
+            # 0.0.0.0 (see race_dashboard.py:2349) so the 500 body is
+            # remotely reachable. Log the full exception server-side and
+            # return a generic message + a short correlation id the
+            # operator can grep out of the log.
+            corr = uuid.uuid4().hex[:8]
+            logger.exception(
+                f"_json_response_cached: producer raised (correlation_id={corr}): {e}")
+            self.send_response(500)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                'ok': False,
+                'error': 'internal server error — see dashboard log',
+                'correlation_id': corr,
+            }).encode())
+            return
+        if extra and isinstance(data, dict):
+            data = {**data, **extra}
+        body = json.dumps(data, default=str).encode()
+        self.send_response(status)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        if etag and not no_cache:
+            self.send_header('ETag', f'"{etag}"')
+            self.send_header('Cache-Control', 'no-cache')
+        elif no_cache:
+            # Explicitly tell the client not to cache — matches the
+            # semantics of the payload-embedded error hint.
+            self.send_header('Cache-Control', 'no-store')
         self.end_headers()
         self.wfile.write(body)
 
@@ -1955,22 +2213,44 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         run_dir = self.dashboard.run_dir
         flow_type = self.dashboard.flow_type
 
+        # Path-traversal guard: job_name comes from the URL. A crafted
+        # value like `../../../etc/passwd` would let the glob resolve
+        # outside the run directory. Reject anything with '/', backslash,
+        # null-byte, or the '..' segment; require the allowlist
+        # `^[A-Za-z0-9_.-]+$` matching real job/subnode names.
+        if (not job_name
+                or not re.match(r'^[A-Za-z0-9_.-]+$', job_name)
+                or '..' in job_name.split('/') + job_name.split(os.sep)):
+            self.send_response(400)
+            self.send_header('Content-Type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b'invalid job_name')
+            return
+
         # Resolve stage from job_name (timing1_setup → timing1)
         import glob as _glob
         log_path = None
+        work_root = os.path.realpath(os.path.join(run_dir, 'work', flow_type))
+
+        def _in_work_root(p):
+            try:
+                return os.path.commonpath([os.path.realpath(p), work_root]) == work_root
+            except ValueError:
+                return False
 
         # Primary: work/<FLOW>/<stage>/run/<job_name>.log
         for stage_dir in _glob.glob(os.path.join(run_dir, 'work', flow_type, '*')):
             candidate = os.path.join(stage_dir, 'run', f'{job_name}.log')
-            if os.path.exists(candidate):
+            if os.path.exists(candidate) and _in_work_root(candidate):
                 log_path = candidate
                 break
 
         # Fallback: search all .log files matching job_name
         if not log_path:
             for match in _glob.glob(os.path.join(run_dir, 'work', flow_type, '**', f'{job_name}.log'), recursive=True):
-                log_path = match
-                break
+                if _in_work_root(match):
+                    log_path = match
+                    break
 
         log_content = ''
         if log_path and os.path.exists(log_path):
@@ -2147,13 +2427,21 @@ def _get_run_port(run_dir: str) -> int:
     return port
 
 
-def start_dashboard(run_dir: str, port: int = 0, open_browser: bool = True):
+def start_dashboard(run_dir: str, port: int = 0, open_browser: bool = True,
+                    public: bool = False):
     """Start the RACE Dashboard web server.
 
     Args:
         port: Port number. 0 = auto-assign deterministic port from run_dir hash
               (stored in SQLite DB, cleaned up when DB is removed).
               Explicit port overrides the deterministic assignment.
+        public: If True, bind to 0.0.0.0 (reachable from LAN); otherwise
+                bind to 127.0.0.1 only. Prior default was 0.0.0.0
+                unconditionally — combined with the unauthenticated
+                mutation endpoints, that made `cbflow run gui` on a
+                coffee-shop laptop a network-reachable RCE vector.
+                Localhost-only is now the safe default; explicit
+                --public opts in.
     """
     dashboard = RaceDashboard(run_dir)
     DashboardHandler.dashboard = dashboard
@@ -2166,12 +2454,14 @@ def start_dashboard(run_dir: str, port: int = 0, open_browser: bool = True):
     watcher = threading.Thread(target=_file_watcher, args=(dashboard,), daemon=True)
     watcher.start()
 
+    bind_host = '0.0.0.0' if public else '127.0.0.1'
+
     try:
-        server = http.server.HTTPServer(('0.0.0.0', port), DashboardHandler)
+        server = http.server.HTTPServer((bind_host, port), DashboardHandler)
     except OSError:
         # Requested port busy — find next free one and update DB
         port = _find_free_port(port + 1, port + 200)
-        server = http.server.HTTPServer(('0.0.0.0', port), DashboardHandler)
+        server = http.server.HTTPServer((bind_host, port), DashboardHandler)
         # Update stored port in actual RACE DB
         try:
             _db = dashboard.db_path

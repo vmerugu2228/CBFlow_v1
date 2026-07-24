@@ -14,7 +14,7 @@ array set placement_checks {
         "script"                  "check_legality.tcl"
         "category"                "placement"
         "severity"                "critical"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "check_legality.rpt"
         "metric_pattern"          {Total\s+Illegal\s+Cells\s*:\s*([0-9]+)}
@@ -27,7 +27,7 @@ array set placement_checks {
         "script"                  "check_utilization.tcl"
         "category"                "placement"
         "severity"                "major"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_utilization.rpt"
         "metric_pattern"          {Cell\s+Density\s*:\s*([0-9]+\.[0-9]+)\s*%}
@@ -40,7 +40,7 @@ array set placement_checks {
         "script"                  "check_utilization.tcl"
         "category"                "placement"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_utilization.rpt"
         "metric_pattern"          {Max\s+Local\s+Density\s*:\s*([0-9]+\.[0-9]+)\s*%}
@@ -53,7 +53,7 @@ array set placement_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "placement"
         "severity"                "minor"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_design.rpt"
         "metric_pattern"          {Average\s+Cell\s+Displacement\s*:\s*([0-9]+\.[0-9]+)}
@@ -66,7 +66,7 @@ array set placement_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "placement"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "check_legality.rpt"
         "metric_pattern"          {Pin\s+Access\s+Violations\s*:\s*([0-9]+)}
@@ -79,7 +79,7 @@ array set placement_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "placement"
         "severity"                "major"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "FP_EXIT PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "check_legality.rpt"
         "metric_pattern"          {Macro\s+Spacing\s+Violations\s*:\s*([0-9]+)}
@@ -92,7 +92,7 @@ array set placement_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "placement"
         "severity"                "major"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "FP_EXIT PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "check_legality.rpt"
         "metric_pattern"          {Macro\s+Orientation\s+Violations\s*:\s*([0-9]+)}
@@ -105,7 +105,7 @@ array set placement_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "placement"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "FP_EXIT PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_design.rpt"
         "metric_pattern"          {Min\s+Macro\s+Channel\s+Width\s*:\s*([0-9]+\.[0-9]+)}
@@ -118,7 +118,7 @@ array set placement_checks {
         "script"                  "check_legality.tcl"
         "category"                "placement"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "check_legality.rpt"
         "metric_pattern"          {Halo\s+Violations\s*:\s*([0-9]+)}
@@ -131,7 +131,7 @@ array set placement_checks {
         "script"                  "check_legality.tcl"
         "category"                "placement"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "check_legality.rpt"
         "metric_pattern"          {Blockage\s+Overlap\s+Violations\s*:\s*([0-9]+)}
@@ -144,7 +144,7 @@ array set placement_checks {
         "script"                  "check_legality.tcl"
         "category"                "placement"
         "severity"                "minor"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "check_legality.rpt"
         "metric_pattern"          {Cell\s+Orientation\s+Violations\s*:\s*([0-9]+)}
@@ -157,7 +157,7 @@ array set placement_checks {
         "script"                  "check_legality.tcl"
         "category"                "placement"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "check_legality.rpt"
         "metric_pattern"          {Well\s+Tap\s+Violations\s*:\s*([0-9]+)}
@@ -170,7 +170,7 @@ array set placement_checks {
         "script"                  "check_legality.tcl"
         "category"                "placement"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "check_legality.rpt"
         "metric_pattern"          {Missing\s+Endcap\s+Cells\s*:\s*([0-9]+)}
@@ -183,7 +183,7 @@ array set placement_checks {
         "script"                  "check_utilization.tcl"
         "category"                "placement"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_utilization.rpt"
         "metric_pattern"          {Filler\s+Coverage\s*:\s*([0-9]+\.[0-9]+)\s*%}
@@ -196,7 +196,7 @@ array set placement_checks {
         "script"                  "check_legality.tcl"
         "category"                "placement"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "check_legality.rpt"
         "metric_pattern"          {Power\s+Domain\s+Boundary\s+Violations\s*:\s*([0-9]+)}
@@ -209,7 +209,7 @@ array set placement_checks {
         "script"                  "check_legality.tcl"
         "category"                "placement"
         "severity"                "major"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "FP_EXIT PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "check_legality.rpt"
         "metric_pattern"          {IO\s+Placement\s+Violations\s*:\s*([0-9]+)}
@@ -222,7 +222,7 @@ array set placement_checks {
         "script"                  "check_utilization.tcl"
         "category"                "placement"
         "severity"                "minor"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_utilization.rpt"
         "metric_pattern"          {Utilization\s+Std\s+Dev\s*:\s*([0-9]+\.[0-9]+)\s*%}
@@ -235,7 +235,7 @@ array set placement_checks {
         "script"                  "check_congestion.tcl"
         "category"                "placement"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_congestion.rpt"
         "metric_pattern"          {Max\s+Overflow\s*:\s*([0-9]+\.[0-9]+)\s*%}
@@ -248,7 +248,7 @@ array set placement_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "placement"
         "severity"                "minor"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Total\s+Wire\s+Length\s*:\s*([0-9]+)}
@@ -261,7 +261,7 @@ array set placement_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "placement"
         "severity"                "minor"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_design.rpt"
         "metric_pattern"          {Scan\s+Chain\s+Reorder\s+Distance\s*:\s*([0-9]+\.[0-9]+)}

@@ -130,7 +130,7 @@ def t1_7():
 def t1_8():
     r = subprocess.run(['tclsh', '-c', '''
 source PD/config/exit/v1.0.0/threshold_overrides.tcl
-set v [get_threshold ravendrive PLACE_EXIT setup_wns P0]
+set v [get_threshold bumblebee PLACE_EXIT setup_wns P0]
 if {$v != -150} { error "Expected -150, got $v" }
 '''], capture_output=True, text=True, cwd=CBFLOW_ROOT)
     assert r.returncode == 0, f"Threshold resolution: {r.stderr[:80]}"
@@ -221,7 +221,7 @@ def t3_2():
     info = dict(conn.execute("SELECT key, value FROM run_info").fetchall())
     conn.close()
     assert info.get('flow_type') == 'SYNTH_PNR', f"Wrong flow_type: {info.get('flow_type')}"
-    assert info.get('project') == 'ravendrive', f"Wrong project: {info.get('project')}"
+    assert info.get('project') == 'bumblebee', f"Wrong project: {info.get('project')}"
 
 @test("dag_structure has jobs")
 def t3_3():

@@ -141,7 +141,7 @@ flow_proc create_design_library {
     # -- Technology file (from tech array) -------------------------------------
     set tech_file ""
     set tech_lib ""
-    if {[info exists tech(tech_file)] && $tech(tech_file) ne ""} { set tech_file $tech(tech_file) }
+    if {[info exists tech($project(metal_stack),$tech(track),tech_file)] && $tech($project(metal_stack),$tech(track),tech_file) ne ""} { set tech_file $tech($project(metal_stack),$tech(track),tech_file) }
     if {[info exists tech(ndm,tech_lib)] && $tech(ndm,tech_lib) ne ""} { set tech_lib $tech(ndm,tech_lib) }
 
     # Parasitic tech library
@@ -368,8 +368,8 @@ flow_proc insert_physical_cells {
     global flow pnr tech
 
     # -- FC-RM: Tap cells (well tie) ------------------------------------------
-    if {[info exists tech(cells,well_tap)] && $tech(cells,well_tap) ne ""} {
-        set tap_cells [lindex $tech(cells,well_tap) 0]
+    if {[info exists tech($tech(track),well_tap)] && $tech($tech(track),well_tap) ne ""} {
+        set tap_cells [lindex $tech($tech(track),well_tap) 0]
         set tap_dist [expr {[info exists pnr(fp,tap_cell_distance)] ? $pnr(fp,tap_cell_distance) : 30}]
 
         handle_info "  Inserting tap cells: $tap_cells (every ${tap_dist}um)"
@@ -378,12 +378,12 @@ flow_proc insert_physical_cells {
             -pattern stagger
         handle_info "  Tap cells inserted: [sizeof_collection [get_cells -hier -filter ref_name==$tap_cells -quiet]]"
     } else {
-        handle_warning "  No tap cells defined in tech(cells,well_tap)"
+        handle_warning "  No tap cells defined in tech($tech(track),well_tap)"
     }
 
     # -- FC-RM: Boundary cells ------------------------------------------------
-    if {[info exists tech(cells,endcap)] && $tech(cells,endcap) ne ""} {
-        set endcap_cell $tech(cells,endcap)
+    if {[info exists tech($tech(track),endcap)] && $tech($tech(track),endcap) ne ""} {
+        set endcap_cell $tech($tech(track),endcap)
         handle_info "  Inserting boundary/endcap cells: $endcap_cell"
         set_boundary_cell_rules -left_boundary_cell $endcap_cell \
             -right_boundary_cell $endcap_cell

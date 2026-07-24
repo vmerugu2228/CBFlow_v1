@@ -76,8 +76,8 @@ flow_proc create_design_library {
     set tech_file ""
     if {[info exists tech(${_ms},tech_file)] && $tech(${_ms},tech_file) ne ""} {
         set tech_file $tech(${_ms},tech_file)
-    } elseif {[info exists tech(tech_file)] && $tech(tech_file) ne ""} {
-        set tech_file $tech(tech_file)
+    } elseif {[info exists tech($project(metal_stack),$tech(track),tech_file)] && $tech($project(metal_stack),$tech(track),tech_file) ne ""} {
+        set tech_file $tech($project(metal_stack),$tech(track),tech_file)
     }
 
     # ── Build create_lib command ──

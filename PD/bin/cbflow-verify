@@ -144,7 +144,7 @@ def build_cat2_tests() -> List[TestSpec]:
         ("flow stages --flow SYNTH_PNR", [cbflow, "flow", "stages", "--flow", "SYNTH_PNR"]),
         ("flow check", [cbflow, "flow", "check"]),
         ("flow project list", [cbflow, "flow", "project", "list"]),
-        ("flow project info ravendrive", [cbflow, "flow", "project", "info", "--name", "ravendrive"]),
+        ("flow project info bumblebee", [cbflow, "flow", "project", "info", "--name", "bumblebee"]),
         ("flow release list", [cbflow, "flow", "release", "list"]),
         ("flow release info v1.0.0", [cbflow, "flow", "release", "info", "--version", "v1.0.0"]),
         ("flow release components", [cbflow, "flow", "release", "components"]),
@@ -240,7 +240,7 @@ def build_cat3_tests(tmp_dir: str) -> List[TestSpec]:
 
     # Write user_config.tcl
     config_content = '''#!/usr/bin/env tclsh
-set project(name)        "ravendrive"
+set project(name)        "bumblebee"
 set project(phase)       "P0"
 set flow(type)           "SYNTH_PNR"
 set flow(design_name)    "cpu_core"

@@ -170,9 +170,9 @@ flow_proc configure_cts {
     if {$_mvt ne "" && [file exists $_mvt]} { source $_mvt }
 
     # FC-RM: antenna rules
-    if {[info exists tech(antenna_rule_file)] && [file exists $tech(antenna_rule_file)]} {
-        handle_info "Sourcing antenna rules: $tech(antenna_rule_file)"
-        source $tech(antenna_rule_file)
+    if {[info exists tech($project(metal_stack),antenna_rule_file)] && [file exists $tech($project(metal_stack),antenna_rule_file)]} {
+        handle_info "Sourcing antenna rules: $tech($project(metal_stack),antenna_rule_file)"
+        source $tech($project(metal_stack),antenna_rule_file)
     }
 
     # FC-RM: user CTS pre-script

@@ -25,7 +25,7 @@ PD/
       node_configs/
         <FLOW>_config.tcl                 Common: stages, deps, subnodes, node_types, MMMC, runtime
         <FLOW>_<tool>_config.tcl          Tool-specific: app settings, compile/place/cts/route options
-    project/<name>/v1.0.0/                Project configs (ravendrive, phoenix)
+    project/<name>/v1.0.0/                Project configs (bumblebee, phoenix)
     tech/<node>/v1.0.0/                   Technology configs (gf_22nm, tsmc_5nm, tsmc_7nm)
     exit/v1.0.0/                          Exit milestone checklist configs
   cmds/<FLOW>/<vendor>/<tool>/v1.0.0/     Stage command files (TCL) + subnode handlers
@@ -97,7 +97,7 @@ cbflow run retrace --from cts1    # Re-run from stage
 cbflow run add-node --node place2 --type place --dep place1
 cbflow run create-branch --branch timing_fix --from cts1
 cbflow run release --tag PLACE_EXIT
-cbflow run release-check --tag BTO --project ravendrive
+cbflow run release-check --tag BTO --project bumblebee
 cbflow run gui                    # Web dashboard
 ```
 

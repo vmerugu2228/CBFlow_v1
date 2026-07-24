@@ -12,8 +12,8 @@ set milestone_info(report_dir)  "work/CLP/clp1/reports"
 
 # ── Check packs ─────────────────────────────────────────────────────────────
 array set check_packs {
-    clp_flow    "P0"
-    power       "P1"
+    clp_flow    "0"
+    power       "1"
 }
 
 # ── Mandatory checks ─────────────────────────────────────────────────────────
@@ -22,28 +22,28 @@ array set mandatory_checks {
         "script"      "check_clp.tcl"
         "description" "All power verification checks passed"
         "criteria"    "grep power_verification_summary.rpt for All.*PASSED"
-        "min_phase"   "P0"
+        "min_phase_index"   "0"
         "report_file" "work/CLP/clp1/reports/power_verification_summary.rpt"
     }
     "clp_isolation_clean" {
         "script"      "check_clp.tcl"
         "description" "Isolation cell checks clean — no missing isolation"
         "criteria"    "isolation_violations == 0"
-        "min_phase"   "P0"
+        "min_phase_index"   "0"
         "report_file" "work/CLP/clp1/reports/isolation_check.rpt"
     }
     "clp_level_shifter_clean" {
         "script"      "check_clp.tcl"
         "description" "Level shifter checks clean — no missing level shifters"
         "criteria"    "level_shifter_violations == 0"
-        "min_phase"   "P0"
+        "min_phase_index"   "0"
         "report_file" "work/CLP/clp1/reports/level_shifter_check.rpt"
     }
     "clp_upf_clean" {
         "script"      "check_clp.tcl"
         "description" "UPF power intent read without errors"
         "criteria"    "upf_errors == 0"
-        "min_phase"   "P0"
+        "min_phase_index"   "0"
         "report_file" "work/CLP/clp1/reports/upf_check.rpt"
     }
 }
@@ -54,14 +54,14 @@ array set optional_checks {
         "script"      "check_file_exists.tcl"
         "description" "Retention register verification"
         "criteria"    "file exists"
-        "min_phase"   "P2"
+        "min_phase_index"   "2"
         "report_file" "work/CLP/clp1/reports/retention_verify.rpt"
     }
     "clp_power_state_complete" {
         "script"      "check_file_exists.tcl"
         "description" "All power states and transitions verified"
         "criteria"    "file exists"
-        "min_phase"   "P3"
+        "min_phase_index"   "3"
         "report_file" "work/CLP/clp1/reports/power_state_table.rpt"
     }
 }

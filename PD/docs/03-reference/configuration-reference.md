@@ -118,7 +118,7 @@ The `flow(dispatcher)` setting activates the RACE (Run Automation & Control Engi
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `flow(project_name)` | string | `"ravendrive"` | Project name (loads `<project_name>_config.tcl`) |
+| `flow(project_name)` | string | `"bumblebee"` | Project name (loads `<project_name>_config.tcl`) |
 | `flow(tech_node)` | string | `"gf_22nm"` | Technology node (loads `<tech_node>_config.tcl`) |
 | `flow(dispatcher)` | string | `"race"` | Dispatcher engine (RACE) |
 | `flow(type)` | string | `"SYNTH"` | Current active flow type |
@@ -186,7 +186,7 @@ The `flow(dispatcher)` setting activates the RACE (Run Automation & Control Engi
 ### Example
 
 ```tcl
-set flow(project_name)  "ravendrive"
+set flow(project_name)  "bumblebee"
 set flow(tech_node)     "gf_22nm"
 set flow(dispatcher)    "race"
 set flow(types)         {SYNTH FP PNR STA LEC EMIR PV ECO CLP POPT FCFP SYNTH_PNR}
@@ -480,8 +480,8 @@ Defines process corners, operating modes, RC corners, analysis views, predefined
 
 | Mode | Clock Freq | Constraint File |
 |------|-----------|----------------|
-| **func** | 1000 MHz | `ravendrive_func.sdc` |
-| **test** | 100 MHz | `ravendrive_test.sdc` |
+| **func** | 1000 MHz | `bumblebee_func.sdc` |
+| **test** | 100 MHz | `bumblebee_test.sdc` |
 
 ### RC Corners (3)
 
@@ -645,7 +645,7 @@ config/project/<project_name>/v1.0.0/<project_name>_config.tcl
 | Project | File |
 |---------|------|
 | **phoenix** | `config/project/phoenix/v1.0.0/phoenix_config.tcl` |
-| **ravendrive** | `config/project/ravendrive/v1.0.0/ravendrive_config.tcl` |
+| **bumblebee** | `config/project/bumblebee/v1.0.0/bumblebee_config.tcl` |
 
 ### Purpose
 
@@ -668,7 +668,7 @@ Project-level overrides customizing CBflow behavior for a specific project. Incl
 
 | Setting | Type | Description |
 |---------|------|-------------|
-| `project(release,path)` | string | Base release path (e.g., `/proj/ravendrive/releases`) |
+| `project(release,path)` | string | Base release path (e.g., `/proj/bumblebee/releases`) |
 | `project(release,phase)` | string | Current design phase (P0-P3) |
 | `project(release,block_name)` | string | Block being released |
 | `project(release,tag)` | string | Release tag version |
@@ -689,7 +689,7 @@ RACE DB path structure: `$project(race,db_path)/$project/$domain/$flow/$user_$ru
 
 Release path structure: `$release_path/$phase/$block_name/$release_tag`
 
-Example: `/proj/ravendrive/releases/P2/top_chip/v1.0.2`
+Example: `/proj/bumblebee/releases/P2/top_chip/v1.0.2`
 
 ---
 

@@ -15,7 +15,7 @@ array set lec_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "lec_flow"
         "severity"                "critical"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "LEC_SIGNOFF"
         "report_pattern"          "comparison_summary.rpt"
         "metric_pattern"          {Equivalence\s+Result\s*:\s*(SUCCEEDED|FAILED)}
@@ -28,7 +28,7 @@ array set lec_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "lec_flow"
         "severity"                "critical"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "LEC_SIGNOFF"
         "report_pattern"          "comparison_summary.rpt"
         "metric_pattern"          {Non-Equivalent\s+Points\s*:\s*(\d+)}
@@ -41,7 +41,7 @@ array set lec_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "lec_flow"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "LEC_SIGNOFF"
         "report_pattern"          "comparison_summary.rpt"
         "metric_pattern"          {Unmapped\s+Points\s*:\s*(\d+)}
@@ -54,7 +54,7 @@ array set lec_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "lec_flow"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "LEC_SIGNOFF"
         "report_pattern"          "comparison_summary.rpt"
         "metric_pattern"          {Aborted\s+Points\s*:\s*(\d+)}
@@ -67,7 +67,7 @@ array set lec_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "lec_flow"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "LEC_SIGNOFF"
         "report_pattern"          "setup_summary.rpt"
         "metric_pattern"          {Unresolved\s+Black\s+Boxes\s*:\s*(\d+)}
@@ -80,7 +80,7 @@ array set lec_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "lec_flow"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "LEC_SIGNOFF"
         "report_pattern"          "setup_summary.rpt"
         "metric_pattern"          {Setup\s+Warnings\s*:\s*(\d+)}
@@ -93,7 +93,7 @@ array set lec_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "lec_flow"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "LEC_SIGNOFF"
         "report_pattern"          "failing_points.rpt"
         "metric_pattern"          {Failing\s+Points\s+Report\s+Generated\s*:\s*(yes|no)}
@@ -106,7 +106,7 @@ array set lec_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "lec_flow"
         "severity"                "critical"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "LEC_SIGNOFF"
         "report_pattern"          "setup_summary.rpt"
         "metric_pattern"          {Golden\s+Read\s+Errors\s*:\s*(\d+)}
@@ -119,7 +119,7 @@ array set lec_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "lec_flow"
         "severity"                "critical"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "LEC_SIGNOFF"
         "report_pattern"          "setup_summary.rpt"
         "metric_pattern"          {Revised\s+Read\s+Errors\s*:\s*(\d+)}
@@ -132,7 +132,7 @@ array set lec_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "lec_flow"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "LEC_SIGNOFF"
         "report_pattern"          "equivalence_analysis.rpt"
         "metric_pattern"          {Datapath\s+Verification\s*:\s*(PASS|FAIL)}
@@ -145,7 +145,7 @@ array set lec_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "lec_flow"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "LEC_SIGNOFF"
         "report_pattern"          "equivalence_analysis.rpt"
         "metric_pattern"          {Multibit\s+Matching\s+Errors\s*:\s*(\d+)}
@@ -158,7 +158,7 @@ array set lec_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "lec_flow"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "LEC_SIGNOFF"
         "report_pattern"          "equivalence_analysis.rpt"
         "metric_pattern"          {Scan\s+Chain\s+Mismatches\s*:\s*(\d+)}
@@ -171,7 +171,7 @@ array set lec_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "lec_flow"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "LEC_SIGNOFF"
         "report_pattern"          "equivalence_analysis.rpt"
         "metric_pattern"          {Power\s+Domain\s+Mismatches\s*:\s*(\d+)}
@@ -184,7 +184,7 @@ array set lec_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "lec_flow"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "LEC_SIGNOFF"
         "report_pattern"          "setup_summary.rpt"
         "metric_pattern"          {SVF\s+Applied\s*:\s*(yes|no)}
@@ -197,7 +197,7 @@ array set lec_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "lec_flow"
         "severity"                "major"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "LEC_SIGNOFF"
         "report_pattern"          "comparison_summary.rpt"
         "metric_pattern"          {Summary\s+Report\s+Generated\s*:\s*(yes|no)}

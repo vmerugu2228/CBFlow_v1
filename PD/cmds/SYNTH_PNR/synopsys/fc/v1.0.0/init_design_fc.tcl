@@ -136,7 +136,7 @@ flow_proc create_design_library {
     }
 
     # ── Technology file (from tech array) ─────────────────────────────────────
-    set tech_file [expr {[info exists tech(tech_file)] ? $tech(tech_file) : ""}]
+    set tech_file [expr {[info exists tech($project(metal_stack),$tech(track),tech_file)] ? $tech($project(metal_stack),$tech(track),tech_file) : ""}]
     set tech_lib  [expr {[info exists tech(ndm,tech_lib)] ? $tech(ndm,tech_lib) : ""}]
 
     # Parasitic tech library
@@ -363,8 +363,8 @@ flow_proc insert_physical_cells {
     set _tap_var ""
     if {$_trk ne "" && [info exists tech(${_trk},well_tap)] && $tech(${_trk},well_tap) ne ""} {
         set _tap_var $tech(${_trk},well_tap)
-    } elseif {[info exists tech(cells,well_tap)] && $tech(cells,well_tap) ne ""} {
-        set _tap_var $tech(cells,well_tap)
+    } elseif {[info exists tech($tech(track),well_tap)] && $tech($tech(track),well_tap) ne ""} {
+        set _tap_var $tech($tech(track),well_tap)
     }
 
     if {$_tap_var ne ""} {
@@ -384,8 +384,8 @@ flow_proc insert_physical_cells {
     set _endcap_var ""
     if {$_trk ne "" && [info exists tech(${_trk},endcap)] && $tech(${_trk},endcap) ne ""} {
         set _endcap_var $tech(${_trk},endcap)
-    } elseif {[info exists tech(cells,endcap)] && $tech(cells,endcap) ne ""} {
-        set _endcap_var $tech(cells,endcap)
+    } elseif {[info exists tech($tech(track),endcap)] && $tech($tech(track),endcap) ne ""} {
+        set _endcap_var $tech($tech(track),endcap)
     }
 
     if {$_endcap_var ne ""} {
@@ -505,7 +505,7 @@ flow_proc setup_mcmm {
 
             # Read parasitic tech for this corner
             if {$_tlu ne ""} {
-                read_parasitic_tech -tlup $_tlu -layermap $tech(tluplus_map) -name $_corner_name
+                read_parasitic_tech -tlup $_tlu -layermap $tech($project(metal_stack),tluplus_map) -name $_corner_name
             }
 
             lappend _corners_created $_corner_name

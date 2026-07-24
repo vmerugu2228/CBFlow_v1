@@ -37,7 +37,7 @@ Edit `user_config.tcl` with your design-specific paths:
 
 ```tcl
 # ── Workspace-locked (do not modify) ─────────────────────────────
-set project(name)        "ravendrive"
+set project(name)        "bumblebee"
 set project(phase)       "P0"
 set project(technology)  "gf_22nm"
 set design(name)         "cpu_core"
@@ -831,10 +831,10 @@ Verify that ALL blocks in the project have released for a milestone:
 
 ```bash
 # Check all blocks for BTO readiness
-cbflow run release-check --tag BTO --project ravendrive --phase P2
+cbflow run release-check --tag BTO --project bumblebee --phase P2
 
 # Check specific block only
-cbflow run release-check --tag PLACE_EXIT --project ravendrive --block cpu_core
+cbflow run release-check --tag PLACE_EXIT --project bumblebee --block cpu_core
 ```
 
 The check command reads `project(block_list)` from the project config and scans the release directory for each block × flow combination. Output is a matrix:

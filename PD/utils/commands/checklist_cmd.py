@@ -23,9 +23,88 @@ from core.paths import get_cbflow_core_dir, get_flow_config_version
 
 logger = configure_logging('cbflow.checklist')
 
-# Phase ordering constant — phases are a fixed concept in the design flow
-PHASE_ORDER = {'P0': 0, 'P1': 1, 'P2': 2, 'P3': 3}
+# Phase-list cache (per run_dir). Phases are project-specific: each project
+# declares its own list via `project(phases)` (e.g. bumblebee=LC1..LC5, others
+# P0..P3). PHASE_ORDER is now derived at call time from the project's list.
+_PHASE_ORDER_CACHE: dict = {}
 
+
+def _phase_order(run_dir: str = None) -> dict:
+    """Return {phase_name: index} for the project associated with run_dir."""
+    key = run_dir or ''
+    if key in _PHASE_ORDER_CACHE:
+        return _PHASE_ORDER_CACHE[key]
+    try:
+        from tcl_config_parser import get_phases
+        phases = get_phases(run_dir=run_dir)
+    except Exception:
+        phases = []
+    if not phases:
+        phases = ['P0', 'P1', 'P2', 'P3']
+    order = {p.upper(): i for i, p in enumerate(phases)}
+    _PHASE_ORDER_CACHE[key] = order
+    return order
+
+
+#: sentinel for "phase not in the current project's list". Large enough
+#: to defer any comparison-based scheduling into the far future without
+#: risking int overflow in downstream arithmetic. int(1e6) instead of
+#: float('inf') so callers that pass the value into `str.zfill` / string
+#: formatting still work.
+_PHASE_INDEX_UNKNOWN = 10_000
+
+
+def _phase_index(phase_name: str, run_dir: str = None) -> int:
+    """Return 0-based index of `phase_name` in the project's phase list.
+
+    Accepts either a phase name (P0, LC2, ...) or a numeric index string ("2").
+
+    Unknown phase name → `_PHASE_INDEX_UNKNOWN` (a very large ordinal), NOT
+    0. Returning 0 for unknown phases made a check with `min_phase "LC5"`
+    look active from P0 in a P0..P3-only project — `cur < req` was False
+    when both sides were 0 — silently blocking early sign-offs with a
+    check that should have deferred. The sentinel keeps `cur < req` True
+    for any real current phase, so unknown-phase checks stay dormant
+    until the phase list is repaired or the check's min_phase is fixed.
+
+    None / empty → 0 (documented "always active" semantics — matches the
+    prior contract for the min_phase-omitted case).
+    """
+    if phase_name is None:
+        return 0
+    s = str(phase_name).strip()
+    if not s:
+        return 0
+    if s.isdigit():
+        return int(s)
+    order = _phase_order(run_dir)
+    if s.upper() not in order:
+        logger.warning(
+            f'_phase_index: phase {s!r} not in project phase list '
+            f'{list(order.keys())} — deferring check (sentinel index '
+            f'{_PHASE_INDEX_UNKNOWN}). Add {s!r} to project(phases) or '
+            f'fix the check\'s min_phase.')
+        return _PHASE_INDEX_UNKNOWN
+    return order[s.upper()]
+
+
+def _phase_from_index(idx: int, run_dir: str = None) -> str:
+    order = _phase_order(run_dir)
+    for name, i in order.items():
+        if i == idx:
+            return name
+    return f'phase[{idx}]'
+
+
+# Back-compat shim — some legacy callers still reference PHASE_ORDER as a
+# module-level dict. Populate with the current project's mapping when the
+# module is imported; per-run_dir accuracy still comes from _phase_index().
+PHASE_ORDER = _phase_order()
+
+
+
+from _tcl_utils import find_balanced_close as _tcl_find_balanced_close
+from _tcl_utils import tcl_quote as _tcl_quote
 
 
 def get_exit_config_dir() -> str:
@@ -146,10 +225,13 @@ def load_check_library(milestone_name: str, check_packs: dict) -> dict:
             if milestone_name not in applicable.split():
                 continue
 
-            # Effective min_phase = max(check's own min_phase, pack's min_phase)
-            check_phase = cfg.get('min_phase', 'P0')
-            effective_phase = max(check_phase, pack_min_phase)
-            cfg['min_phase'] = effective_phase
+            # Effective phase = max(check's own index, pack's index). Prefer
+            # min_phase_index (numeric); fall back to legacy min_phase string.
+            check_idx = _phase_index(
+                cfg.get('min_phase_index', cfg.get('min_phase', '0')))
+            pack_idx = _phase_index(pack_min_phase)
+            cfg['min_phase_index'] = str(max(check_idx, pack_idx))
+            cfg.pop('min_phase', None)
             cfg['source'] = f'{category}_checks'
             library_checks[name] = cfg
 
@@ -395,8 +477,16 @@ def format_checklist_html(config: dict, waivers: list, overrides: dict) -> str:
 def format_status_text(milestone: str, sd: dict) -> str:
     """Format milestone status as a terminal text report."""
     sep, thin = '='*72, '─'*68
-    icon_map = {'PASS': '[PASS]', 'FAIL': '[FAIL]', 'WAIVED': '[WAIV]', 'PENDING': '[ -- ]', 'SKIPPED': '[SKIP]'}
-    opt_map = {'PASS': '[PASS]', 'FAIL': '[WARN]', 'WAIVED': '[WAIV]', 'PENDING': '[ -- ]', 'SKIPPED': '[SKIP]'}
+    icon_map = {'PASS': '[PASS]', 'FAIL': '[FAIL]', 'WAIVED': '[WAIV]',
+                'PENDING': '[ -- ]', 'SKIPPED': '[SKIP]',
+                # CONFIG_ERROR = current-phase-drift / phase env corrupt.
+                # Sign-off gate BLOCKS on this — surface it distinctly
+                # so the operator can trace the cause instead of seeing
+                # the anonymous `[??]` fallback.
+                'CONFIG_ERROR': '[CFGE]'}
+    opt_map  = {'PASS': '[PASS]', 'FAIL': '[WARN]', 'WAIVED': '[WAIV]',
+                'PENDING': '[ -- ]', 'SKIPPED': '[SKIP]',
+                'CONFIG_ERROR': '[CFGE]'}
     L = ['', sep, f'  MILESTONE STATUS: {milestone}', sep,
          f'  Run Dir: {sd.get("run_dir","")}  |  {sd.get("timestamp","")}',
          f'  Completion: {sd.get("completion_pct",0):.1f}%  |  Verdict: {sd.get("verdict","UNKNOWN")}',
@@ -425,21 +515,75 @@ def format_status_text(milestone: str, sd: dict) -> str:
     return '\n'.join(L)
 
 
+def _expand_placeholders(path: str, run_dir: str = None) -> str:
+    """Expand `${design_name}`, `${DESIGN_NAME}`, `${flow_type}` in a path.
+
+    Every library-check and milestone config uses `${design_name}` in
+    report_pattern / mandatory_files paths. Prior to this fix the string
+    was passed to os.path.exists literally — so MTO / signoff checks
+    could NEVER locate their reports even when produced. Resolve the
+    values from the environment set by cbflow's run bootstrap.
+    """
+    if not path or '${' not in path:
+        return path
+    subs = {
+        'design_name': os.environ.get('CBFLOW_DESIGN_NAME', ''),
+        'DESIGN_NAME': os.environ.get('CBFLOW_DESIGN_NAME', ''),
+        'flow_type':   os.environ.get('CBFLOW_FLOW_TYPE',   ''),
+        'FLOW_TYPE':   os.environ.get('CBFLOW_FLOW_TYPE',   ''),
+        'run_dir':     run_dir or '',
+    }
+    for k, v in subs.items():
+        path = path.replace('${' + k + '}', v)
+    return path
+
+
 def _find_check_report(run_dir: str, check_name: str, check_config: dict = None) -> str:
     """Find a report file for a check in the run directory, or return None.
 
-    Priority: check_config['report_file'] > check_config['grep_file'] > convention fallback.
+    Resolution order (each with `${design_name}` etc. expanded):
+      1. Explicit `report_file` / `grep_file` (fixed absolute-ish path
+         inside run_dir) — used by mandatory / optional checks.
+      2. `report_pattern` (a filename basename) walked recursively under
+         `<run_dir>/work/` — used by 292 library checks that were
+         previously ignored entirely because the engine only read
+         `report_file`. First match wins.
+      3. Convention fallback: reports/<check_name>.rpt etc.
     """
-    # Use explicit report_file from check config
+    # Path 1: fixed path via report_file / grep_file
     if check_config:
         for field in ('report_file', 'grep_file'):
-            val = check_config.get(field, '')
+            val = _expand_placeholders(check_config.get(field, ''), run_dir)
             if val:
-                path = os.path.join(run_dir, val)
+                path = os.path.join(run_dir, val) if not os.path.isabs(val) else val
                 if os.path.exists(path):
                     return path
 
-    # Fallback: convention-based lookup
+    # Path 2: basename via report_pattern — walk under work/ (library checks)
+    if check_config:
+        pat = _expand_placeholders(check_config.get('report_pattern', ''), run_dir)
+        if pat:
+            work_root = os.path.join(run_dir, 'work')
+            # Support explicit path in report_pattern (e.g. "work/PV/drc1/reports/drc_results.rpt")
+            if os.sep in pat or '/' in pat:
+                path = os.path.join(run_dir, pat) if not os.path.isabs(pat) else pat
+                if os.path.exists(path):
+                    return path
+                # If explicit path doesn't exist, fall through to basename walk
+                pat = os.path.basename(pat)
+            if os.path.isdir(work_root):
+                # Bounded walk — first match wins, prefer shallower paths.
+                # os.walk gives DFS which is fine for a well-formed work/ tree.
+                matches = []
+                for root, _, files in os.walk(work_root):
+                    if pat in files:
+                        matches.append(os.path.join(root, pat))
+                if matches:
+                    # Prefer the shortest (shallowest) match — reports/ over logs/
+                    matches.sort(key=len)
+                    return matches[0]
+
+    # Path 3: convention fallback
     candidates = [
         os.path.join(run_dir, 'reports', f'{check_name}.rpt'),
         os.path.join(run_dir, 'reports', f'{check_name}_summary.rpt'),
@@ -449,6 +593,105 @@ def _find_check_report(run_dir: str, check_name: str, check_config: dict = None)
         if os.path.exists(path):
             return path
     return None
+
+
+_OPERATORS = {
+    '==': lambda a, b: a == b,
+    '!=': lambda a, b: a != b,
+    '<':  lambda a, b: a <  b,
+    '<=': lambda a, b: a <= b,
+    '>':  lambda a, b: a >  b,
+    '>=': lambda a, b: a >= b,
+}
+
+
+def _parse_metric_value(raw):
+    """Best-effort numeric or string coercion for metric comparison.
+
+    Numeric parsing tolerates common report-file suffixes (`ps`, `%`,
+    `mV`, `V`, comma thousand separators) which real checkers routinely
+    emit. Falls back to the trimmed original if none of that fits.
+    """
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    # Try direct numeric
+    for parser in (int, float):
+        try:
+            return parser(s.replace(',', ''))
+        except (ValueError, TypeError):
+            pass
+    # Strip common unit suffixes and retry
+    stripped = re.sub(r'\s*(ps|ns|us|ms|mV|V|%|MHz|GHz|W|mW)\s*$', '', s, flags=re.I).replace(',', '')
+    for parser in (int, float):
+        try:
+            return parser(stripped)
+        except (ValueError, TypeError):
+            pass
+    return s  # non-numeric string (e.g. 'PASS' vs 'PASS')
+
+
+def _evaluate_metric_pattern(report_path: str, check_config: dict) -> tuple:
+    """Extract a metric via regex and compare against threshold.
+
+    Returns (status, detail, metric_value) where status is
+    'PASS' / 'FAIL' / 'PENDING'. PENDING means the pattern didn't match
+    (not a failure — the check is genuinely unmeasurable). FAIL means
+    matched but comparison against threshold failed.
+
+    check_config fields honored:
+      metric_pattern       — Python regex; capture group 1 is the value
+      operator             — one of == != < <= > >= (default '==')
+      default_threshold    — threshold value (numeric or string)
+      threshold            — alias for default_threshold
+    """
+    pat = check_config.get('metric_pattern', '')
+    if not pat:
+        return None
+    try:
+        with open(report_path, 'r') as f:
+            content = f.read()
+    except Exception as e:
+        return ('FAIL', f'metric read error: {e}', None)
+    try:
+        m = re.search(pat, content)
+    except re.error as e:
+        return ('PENDING', f'metric regex invalid: {e}', None)
+    if not m:
+        return ('PENDING',
+                f'metric_pattern not found in {os.path.basename(report_path)}',
+                None)
+    if not m.groups():
+        # No capture group — treat any match as PASS
+        return ('PASS', f'metric_pattern matched (no capture group)', m.group(0))
+    raw_value = m.group(1)
+    value = _parse_metric_value(raw_value)
+    op = check_config.get('operator', '==').strip()
+    threshold_raw = check_config.get('default_threshold',
+                                     check_config.get('threshold', ''))
+    threshold = _parse_metric_value(threshold_raw)
+    if op not in _OPERATORS:
+        return ('PENDING', f'unknown operator {op!r}', raw_value)
+    # If both sides look numeric, compare as numbers; else fall back to
+    # string equality/inequality (numeric ops on strings are ambiguous
+    # and return PENDING).
+    if isinstance(value, (int, float)) and isinstance(threshold, (int, float)):
+        try:
+            ok = _OPERATORS[op](value, threshold)
+        except TypeError:
+            return ('PENDING', f'incomparable metric ({value!r} {op} {threshold!r})', raw_value)
+    else:
+        if op in ('==', '!='):
+            ok = _OPERATORS[op](str(value), str(threshold))
+        else:
+            return ('PENDING',
+                    f'non-numeric metric with numeric op ({value!r} {op} {threshold!r})',
+                    raw_value)
+    status = 'PASS' if ok else 'FAIL'
+    detail = f'{status} ({raw_value} {op} {threshold_raw})'
+    return (status, detail, raw_value)
 
 
 def _evaluate_report(report_path: str) -> str:
@@ -473,13 +716,64 @@ def _evaluate_checks(run_dir: str, checks: dict, waivered: set, phase: str = '')
     """
     results = []
     for name, config in checks.items():
-        # Phase filtering: skip checks not yet active at current phase
-        if phase and config.get('min_phase'):
-            cur = PHASE_ORDER.get(phase.upper(), 0)
-            req = PHASE_ORDER.get(config['min_phase'].upper(), 0)
-            if cur < req:
+        # Phase filtering: skip checks not yet active at current phase.
+        # New schema: min_phase_index is a 0-based ordinal into project(phases).
+        # Legacy schema: min_phase names a phase directly (P0..P3 / LCx / ...).
+        req_raw = config.get('min_phase_index', config.get('min_phase'))
+        if phase and req_raw is not None and str(req_raw).strip() != '':
+            # If the CURRENT phase itself is unknown to the project's phase
+            # list (config drift, renamed phase, unset env), we can't
+            # meaningfully compare against min_phase. Skip the check with an
+            # informative message rather than the previous behavior which
+            # returned _PHASE_INDEX_UNKNOWN for both sides, made them
+            # compare equal, and silently activated every unknown-phase
+            # check. That inverted the docstring's "defer" intent.
+            phase_order = _phase_order(run_dir)
+            phase_key = str(phase).strip().upper()
+            # Two distinct kinds of "can't compare against min_phase" —
+            # they need DIFFERENT verdicts in the sign-off gate downstream:
+            #  1. phase-name-unknown: `phase='LCX'` on a P0..P3 project.
+            #     The project(phases) list either drifted or the run's
+            #     phase env is corrupt. → CONFIG_ERROR (blocks sign-off).
+            #  2. numeric-out-of-range: `phase='99'` on a P0..P3 project.
+            #     Same category — a numeric ordinal past the last real
+            #     phase is meaningless. `_phase_index` short-circuits
+            #     `s.isdigit()` to `int(s)` without validating, so we
+            #     have to catch it here.
+            #  3. current phase valid, check's min_phase is unknown/late
+            #     → SKIPPED (defer; treated as pass in sign-off).
+            #  4. current phase valid, check's min_phase not yet reached
+            #     → SKIPPED (defer; treated as pass in sign-off).
+            phase_known = False
+            if phase_key:
+                if phase_key.isdigit():
+                    # Numeric ordinal — must fall within the project's phase list.
+                    idx = int(phase_key)
+                    phase_known = 0 <= idx < len(phase_order)
+                else:
+                    phase_known = phase_key in phase_order
+            if not phase_known:
+                results.append({
+                    'name': name, 'status': 'CONFIG_ERROR',
+                    'detail': (f'Current phase {phase!r} not in project '
+                               f'phase list {list(phase_order.keys())} '
+                               f'— cannot evaluate min_phase; fix '
+                               f'project(phases) or the run\'s phase env')})
+                continue
+            cur = _phase_index(phase, run_dir=run_dir)
+            req = _phase_index(req_raw, run_dir=run_dir)
+            if cur < req or req >= _PHASE_INDEX_UNKNOWN:
+                # req >= UNKNOWN: the check's min_phase is not in the project
+                # list either — defer explicitly with the raw name (rather
+                # than showing "phase[10000]" from _phase_from_index).
+                if req >= _PHASE_INDEX_UNKNOWN:
+                    req_label = str(req_raw)
+                else:
+                    req_label = (req_raw if not str(req_raw).isdigit()
+                                 else _phase_from_index(int(req_raw),
+                                                        run_dir=run_dir))
                 results.append({'name': name, 'status': 'SKIPPED',
-                                'detail': f'Requires phase {config["min_phase"]} (current: {phase})'})
+                                'detail': f'Requires phase {req_label} (current: {phase})'})
                 continue
 
         if name in waivered:
@@ -489,6 +783,17 @@ def _evaluate_checks(run_dir: str, checks: dict, waivered: set, phase: str = '')
         report = _find_check_report(run_dir, name, check_config=config)
 
         if report:
+            # Metric-pattern evaluation — extract numeric value via regex,
+            # compare against default_threshold with declared operator.
+            # This is the branch 292 library checks depend on; before
+            # this fix _evaluate_checks never consulted metric_pattern
+            # and the entire library-check subsystem was inert.
+            if config.get('metric_pattern'):
+                mp = _evaluate_metric_pattern(report, config)
+                if mp is not None:
+                    status, detail, _mv = mp
+                    results.append({'name': name, 'status': status, 'detail': detail})
+                    continue
             # Grep-based evaluation
             if config.get('grep_pattern'):
                 try:
@@ -813,13 +1118,23 @@ def cmd_signoff(args: argparse.Namespace) -> int:
                 'type': ctype, 'status': r['status'],
                 'description': src.get(r['name'], {}).get('description', ''),
             }
+            # SKIPPED (phase not yet reached / min_phase unknown but current
+            # phase valid) counts as pass — the check is legitimately deferred.
+            # CONFIG_ERROR (current phase itself unknown / out of range) does
+            # NOT count as pass — we cannot sign off a milestone when we
+            # don't even know what phase the run is in.
             if ctype == 'mandatory' and r['status'] not in ('PASS', 'WAIVED', 'SKIPPED'):
                 all_passed = False
 
     # Check mandatory files
-    files_snapshot = {fp: os.path.exists(os.path.join(run_dir, fp))
-                      for fp in config.get('mandatory_files', [])}
-    if not all(files_snapshot.values()):
+    # Expand ${design_name} etc. in mandatory-file paths — MTO/BTO configs
+    # use these placeholders and prior code checked them literally, so
+    # MTO could never pass mandatory-file validation even on a clean run.
+    files_snapshot = {}
+    for fp in config.get('mandatory_files', []):
+        resolved = _expand_placeholders(fp, run_dir)
+        files_snapshot[resolved] = os.path.exists(os.path.join(run_dir, resolved))
+    if files_snapshot and not all(files_snapshot.values()):
         all_passed = False
 
     # Determine verdict
@@ -839,10 +1154,17 @@ def cmd_signoff(args: argparse.Namespace) -> int:
                             'expiry_date': w.get('expiry_date','')} for w in waivers],
         'summary': {
             'total_mandatory': len(mand_snaps),
-            'passed': sum(1 for c in mand_snaps if c['status'] == 'PASS'),
-            'failed': sum(1 for c in mand_snaps if c['status'] == 'FAIL'),
-            'waived': sum(1 for c in mand_snaps if c['status'] == 'WAIVED'),
+            'passed':  sum(1 for c in mand_snaps if c['status'] == 'PASS'),
+            'failed':  sum(1 for c in mand_snaps if c['status'] == 'FAIL'),
+            'waived':  sum(1 for c in mand_snaps if c['status'] == 'WAIVED'),
             'pending': sum(1 for c in mand_snaps if c['status'] == 'PENDING'),
+            'skipped': sum(1 for c in mand_snaps if c['status'] == 'SKIPPED'),
+            # config_error counts CONFIG_ERROR verdicts (phase-drift /
+            # phase env corrupt). Included in the bucket totals so
+            # `passed+failed+waived+pending+skipped+config_error ==
+            # total_mandatory` — downstream tools that trust that
+            # invariant no longer silently miss checks.
+            'config_error': sum(1 for c in mand_snaps if c['status'] == 'CONFIG_ERROR'),
             'files_present': sum(files_snapshot.values()),
             'files_missing': sum(1 for v in files_snapshot.values() if not v),
         },
@@ -1081,15 +1403,48 @@ def cmd_add_check(args: argparse.Namespace) -> int:
     check_type = args.check_type  # mandatory or optional
     description = args.description or f"Check: {check_name}"
 
-    # Check if name already exists
-    if f'"{check_name}"' in content:
-        logger.error(f"Check '{check_name}' already exists in {milestone}. Remove it first or use a different name.")
-        return 1
+    # Every user-provided field below is spliced through the shared
+    # `_tcl_quote` (from _tcl_utils.tcl_quote) into a Tcl `"..."` string
+    # literal. Without escaping, an embedded `"` closes the string early
+    # and blows the parse of the whole config file. And — critically —
+    # inside a Tcl `"..."` string, `$foo` performs variable substitution
+    # and `[cmd]` executes an embedded command AT SOURCE TIME. That's a
+    # command-injection sink (add-check --description '[exec rm -rf /]'
+    # would run on the next `source` of the milestone config). The
+    # shared helper escapes `\`, `"`, `$`, and `[` — one source of truth
+    # for the escape rules across every consumer.
+
+    # Check if name already exists. Three subtleties:
+    #  1. Substring match `f'"{check_name}"' in content` false-positives
+    #     against any check whose VALUE happens to contain the token
+    #     (e.g. `"applicable_milestones" "BTO drc PV_SIGNOFF"` matches
+    #     a search for `"drc"`). The proper form is a regex bounded by
+    #     the key-position pattern: `(newline|;|start)<ws>*"<name>"<ws>*{`.
+    #  2. Names ADDED by this tool get `_tcl_quote`d on write, so an
+    #     escape-sensitive name like `foo$bar` is stored as `foo\$bar`
+    #     in the file. To detect duplicates, we search for the escaped
+    #     form.
+    #  3. Shipped configs (PV_SIGNOFF_config.tcl etc.) are hand-authored —
+    #     their names were never `_tcl_quote`d, so a name like `pv_$env`
+    #     sits on disk in RAW form. Search for BOTH the escaped form
+    #     (matches tool-added checks) and the raw form (matches shipped
+    #     configs). Either match blocks a duplicate.
+    _quoted_name = _tcl_quote(check_name)
+    _forms = {_quoted_name}
+    if check_name != _quoted_name:
+        _forms.add(check_name)
+    for _form in _forms:
+        _key_pattern = re.compile(
+            r'(^|[\n\r;])\s*"' + re.escape(_form) + r'"\s*\{',
+            re.MULTILINE)
+        if _key_pattern.search(content):
+            logger.error(f"Check '{check_name}' already exists in {milestone}. Remove it first or use a different name.")
+            return 1
 
     # ── Build the check entry ────────────────────────────────────────────
     if args.file_path:
         # File existence check — add to mandatory_files
-        file_path = args.file_path
+        file_path = _tcl_quote(args.file_path)
         # Find the `set mandatory_files {` opening and locate its MATCHING
         # close-brace via balanced-brace counting. A simple non-greedy
         # `(.*?)\}` would stop at the first `}` inside the list — which is
@@ -1127,42 +1482,60 @@ def cmd_add_check(args: argparse.Namespace) -> int:
             logger.info(f'Created mandatory_files with: "{file_path}"')
 
     else:
-        # Script or grep check
+        # Script or grep check. All values escaped for Tcl `"..."` context.
         script = args.script or ""
         criteria = args.criteria or ""
 
         # Build check fields
-        fields = f'        "description" "{description}"\n'
+        fields = f'        "description" "{_tcl_quote(description)}"\n'
         if script:
-            fields += f'        "script" "{script}"\n'
+            fields += f'        "script" "{_tcl_quote(script)}"\n'
         if criteria:
-            fields += f'        "criteria" "{criteria}"\n'
+            fields += f'        "criteria" "{_tcl_quote(criteria)}"\n'
 
         # Grep-based check — encode grep info in script/criteria
         if args.grep_file:
             grep_file = args.grep_file
             grep_pattern = args.grep_pattern or ""
             grep_pass_if = args.grep_pass_if or "found"  # "found" or "not_found"
-            fields += f'        "grep_file" "{grep_file}"\n'
-            fields += f'        "grep_pattern" "{grep_pattern}"\n'
-            fields += f'        "grep_pass_if" "{grep_pass_if}"\n'
+            fields += f'        "grep_file" "{_tcl_quote(grep_file)}"\n'
+            fields += f'        "grep_pattern" "{_tcl_quote(grep_pattern)}"\n'
+            fields += f'        "grep_pass_if" "{_tcl_quote(grep_pass_if)}"\n'
             if not script:
                 fields += f'        "script" "grep_check"\n'
             if not criteria:
-                fields += f'        "criteria" "grep {grep_pass_if}: {grep_pattern}"\n'
+                fields += f'        "criteria" "grep {_tcl_quote(grep_pass_if)}: {_tcl_quote(grep_pattern)}"\n'
 
-        check_entry = f'    "{check_name}" {{\n{fields}    }}\n'
+        check_entry = f'    "{_tcl_quote(check_name)}" {{\n{fields}    }}\n'
 
         # Find the right array block and append
         array_name = 'mandatory_checks' if check_type == 'mandatory' else 'optional_checks'
 
-        # Find the closing brace of the array
-        pattern = rf'(array\s+set\s+{array_name}\s+\{{)(.*?)(\}})'
-        m = re.search(pattern, content, re.DOTALL)
-        if m:
-            existing = m.group(2).rstrip()
-            new_block = f'{existing}\n{check_entry}'
-            content = content[:m.start()] + f'{m.group(1)}{new_block}{m.group(3)}' + content[m.end():]
+        # Find the array's OPENING brace, then walk forward counting braces
+        # until the balanced closing brace. A regex like `(.*?)(\}})` would
+        # match the FIRST `}` inside the first entry (same class of bug that
+        # was fixed for mandatory_files in commit 10b1922); every subsequent
+        # add-check would splice the new entry INSIDE the first check, then
+        # corrupt the TCL parse for the whole file. And a naive counter that
+        # ignores comments/strings will trip on legitimate Tcl like
+        #   "criteria" "closing brace: }"     ← quoted `}` shouldn't decrement
+        #   # trailing }                       ← comment `}` shouldn't decrement
+        # so we tokenize: skip `# ... \n` comments, skip content inside
+        # `"..."` and `{...}` string literals (with `\` escape handling).
+        open_pat = rf'array\s+set\s+{re.escape(array_name)}\s+\{{'
+        open_m = re.search(open_pat, content)
+        if open_m:
+            body_start = open_m.end()
+            body_end = _tcl_find_balanced_close(content, body_start,
+                                                open_depth=1)
+            if body_end < 0:
+                raise ValueError(
+                    f'unbalanced braces in {config_path}: '
+                    f'array set {array_name} block never closed')
+            existing = content[body_start:body_end].rstrip()
+            content = (content[:body_start]
+                       + f'{existing}\n{check_entry}'
+                       + content[body_end:])
         else:
             # Array doesn't exist — create it
             content += f'\narray set {array_name} {{\n{check_entry}}}\n'
@@ -1475,17 +1848,22 @@ def cmd_list_checks(args: argparse.Namespace) -> int:
             id_counters[prefix] += 1
             check_id = f'{prefix}-{id_counters[prefix]:03d}'
 
-            min_phase = fields.get('min_phase', 'P0')
-            # Show phase range: P0 → "P0-P3", P2 → "P2-P3"
-            phase_range = f'{min_phase}-P3' if min_phase != 'P3' else 'P3'
+            # min_phase_index (0-based ordinal) is preferred; min_phase name
+            # is kept as a legacy fallback for pre-migration configs.
+            req_raw = fields.get('min_phase_index', fields.get('min_phase', '0'))
+            req_idx = _phase_index(req_raw, run_dir=run_dir)
+            proj_phases = list(_phase_order(run_dir=run_dir).keys())
+            min_name = (req_raw if not str(req_raw).isdigit()
+                        else _phase_from_index(req_idx, run_dir=run_dir))
+            last_name = proj_phases[-1] if proj_phases else min_name
+            phase_range = f'{min_name}-{last_name}' if min_name != last_name else min_name
             script = fields.get('script', fields.get('report_pattern', fields.get('grep_pattern', '')))
             severity = fields.get('severity', '-')
 
-            # Phase filter: skip if check's min_phase > requested phase
+            # Phase filter: skip if check's required phase > current phase
             if phase:
-                cur = PHASE_ORDER.get(phase.upper(), 0)
-                req = PHASE_ORDER.get(min_phase.upper(), 0)
-                if cur < req:
+                cur = _phase_index(phase, run_dir=run_dir)
+                if cur < req_idx:
                     continue
 
             # Evaluate status if run_dir provided
@@ -1511,7 +1889,7 @@ def cmd_list_checks(args: argparse.Namespace) -> int:
                 'id': check_id, 'name': name, 'type': check_type,
                 'description': fields.get('description', ''),
                 'script': script[:30] if script else '-',
-                'phase': phase_range, 'min_phase': min_phase,
+                'phase': phase_range, 'min_phase': min_name,
                 'severity': severity, 'status': status,
             })
 

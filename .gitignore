@@ -32,3 +32,22 @@ Thumbs.db
 # MMMC auto-backups (mmmc-manager generate creates one per regeneration —
 # they pile up under config/project/<name>/v1.0.0/mmmc_config.tcl.bak_<ts>).
 PD/config/project/*/*/mmmc_config.tcl.bak_*
+
+# Release tarballs (produced by the delivery process, not source)
+CBflow_v*.tar.gz
+CBflow_20*.tar.gz
+
+# AI/SmartGenie caches — regeneratable via `cbflow smartgenie ingest --all`
+PD/ai/.central_knowledge_db/
+PD/ai/.knowledge_db/
+
+# Materialized test runs — regenerable via `cbflow test --keep`
+workarea/*/P0_run_*/
+workarea/*/LC1_run_*/
+workarea/*/P*_run_*/
+
+# Screenshots (dev-time captures, not framework)
+Screenshot*.png
+
+# RACE-engine per-run SQLite DBs (created by cbflow test / cbflow run)
+.race_area/

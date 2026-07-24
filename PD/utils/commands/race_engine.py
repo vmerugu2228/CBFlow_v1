@@ -39,6 +39,7 @@ import logging
 # optional(), and missing required keys error with the contributing source files
 # named.
 import cbflow_config as _cfg
+import config_validator as _cfg_validator
 logger = logging.getLogger('cbflow.engine')
 
 
@@ -119,6 +120,12 @@ class DagBuilder:
                          'flow(dispatcher)'):
             _cfg.require(cfg, required)
 
+        # Pre-flight validation of the flow(mandatory_vars,*) contract declared
+        # in flow_config.tcl. Runs before DAG assembly, before any work/
+        # directory is created — a broken cascade fails here with every missing
+        # key named at once (not one-by-one as require() would).
+        _cfg_validator.assert_mandatory_vars(cfg, self.flow_type)
+
         stages = _cfg.require_list(cfg, 'stages')
 
         stage_deps = {}
@@ -170,6 +177,7 @@ class DagBuilder:
             raise ValueError("Missing required config: tool,vendor and tool,name")
 
         resource_map = self._parse_resource_map(cfg, stages)
+        default_tier = self._default_tier(cfg)
 
         # Merge custom nodes from run-level runtime config
         custom_nodes, custom_deps = self._load_runtime_custom_nodes()
@@ -183,7 +191,25 @@ class DagBuilder:
                 else:
                     stages.append(name)
                 stage_deps[name] = dep.split() if dep else []
-                resource_map[name] = info.get('resource_tier', 'M')
+                # Tier resolution for custom nodes:
+                #   1. runtime_flow_config explicit resource_tier
+                #   2. base-stage flow_mapping (via node type — e.g. custom
+                #      "place2" inherits from PNR place tier)
+                #   3. site default_queue_type
+                # Prevents silent tier drift where a custom node gets 'M' even
+                # though its base stage is mapped to L/XL.
+                base_type = info.get('type', '')
+                base_stage_tier = None
+                if base_type:
+                    type_base = re.sub(r'\d+$', '', base_type)
+                    for existing_stage in stages:
+                        if existing_stage != name and existing_stage.rstrip('0123456789') == type_base:
+                            base_stage_tier = resource_map.get(existing_stage)
+                            if base_stage_tier:
+                                break
+                resource_map[name] = (info.get('resource_tier')
+                                      or base_stage_tier
+                                      or default_tier)
 
                 # Resolve subnodes: find base node type, inherit its subnodes
                 node_type = info.get('type', '')
@@ -213,6 +239,13 @@ class DagBuilder:
                         if existing != name and existing.rstrip('0123456789') == type_base:
                             base_subs = subnodes.get(existing)
                             break
+                    # `subs_str` was previously only assigned in the else
+                    # branch, so falling through the base_subs branch hit
+                    # a NameError on the `if subs_str:` below → engine
+                    # init crashed for every add-node call whose base
+                    # stage already had resolved subnodes. Initialize
+                    # here so both branches leave the flag well-defined.
+                    subs_str = ''
                     if base_subs:
                         subnodes[name] = list(base_subs)
                     else:
@@ -274,7 +307,9 @@ class DagBuilder:
                 # Extract the input type from stage name (rtl1 → rtl)
                 input_type = stage.rstrip('0123456789')
                 cmd = self._build_command(stage, input_type)
-                tier = resource_map.get(stage, 'S')
+                # Honor site default_queue_type; hardcoded 'S' would mask a
+                # site's chosen default (e.g. 'L' for compute-heavy shops).
+                tier = resource_map.get(stage, default_tier)
                 job = Job(stage, stage, input_type, cmd,
                           job_type='stage', resource_tier=tier)
                 for dep_stage in stage_dep_jobs:
@@ -289,7 +324,9 @@ class DagBuilder:
             for subnode in stage_subnodes:
                 job_name = f'{stage}_{subnode}'
                 cmd = self._build_command(stage, subnode)
-                tier = resource_map.get(stage, 'M')
+                # Same default_tier logic as leaf branch — do not hardcode 'M',
+                # honor lsf(default_queue_type) from the cascade.
+                tier = resource_map.get(stage, default_tier)
 
                 job = Job(job_name, stage, subnode, cmd,
                           job_type='subnode', resource_tier=tier)
@@ -407,23 +444,33 @@ class DagBuilder:
         custom_deps = {}
         cfg = getattr(self, '_resolved_cfg', None) or self._resolve_config()
 
+        # Recognized per-custom-node config keys. `resource_tier` was
+        # missing here — the tier cascade in _build_resource_map declares
+        # step 1 = "explicit runtime_flow_config resource_tier", but the
+        # loader never surfaced the key, so step 1 was dead code and any
+        # `cbflow run add-node --node place2 --resource-tier XL` silently
+        # fell through to base-stage inheritance or default_tier.
+        _NODE_KEYS = ('type', 'dependencies', 'branch_key', 'resource_tier')
+
         names = set()
         for key in cfg:
-            # stages,<name>,type | stages,<name>,dependencies | stages,<name>,branch_key
+            # stages,<name>,<attr>
             if key.startswith('stages,') and ',' in key[len('stages,'):]:
                 rest = key[len('stages,'):]
                 comma = rest.find(',')
-                if comma > 0 and rest[comma + 1:] in ('type', 'dependencies', 'branch_key'):
+                if comma > 0 and rest[comma + 1:] in _NODE_KEYS:
                     names.add(rest[:comma])
 
         for name in names:
             node_type = _cfg.optional(cfg, f'stages,{name},type') or ''
             dep       = _cfg.optional(cfg, f'stages,{name},dependencies') or ''
             branch    = _cfg.optional(cfg, f'stages,{name},branch_key') or ''
+            tier      = _cfg.optional(cfg, f'stages,{name},resource_tier') or ''
             custom_nodes[name] = {
                 'type': node_type,
                 'dependency': dep,
                 'branch_key': branch,
+                'resource_tier': tier,
             }
             custom_deps[name] = dep.split() if dep else []
 
@@ -457,6 +504,13 @@ class DagBuilder:
             if tier:
                 resource_map[stage] = tier
         return resource_map
+
+    def _default_tier(self, cfg: dict) -> str:
+        """Site-wide default LSF tier used when a stage has no explicit
+        flow_mapping. Resolves lsf(default_queue_type) from the cascade;
+        falls back to 'M' only if the site config itself has no default.
+        Centralized so subnode / leaf / custom-node seeding all agree."""
+        return _cfg.optional(cfg, 'lsf(default_queue_type)') or 'M'
 
     def _build_command(self, stage: str, subnode: str) -> str:
         """Build the tclsh handler invocation command.
@@ -546,15 +600,25 @@ class StatusDB:
             except (OSError, IOError):
                 pass
 
-        # Priority 2: Race area (from project config)
+        # Priority 2: Race area (from project config — mandatory per
+        # _resolve_db_path, so a missing db_base_path here means someone
+        # bypassed the resolver. Fall back to local DB only in that case;
+        # normal engine startup will always pass a validated path).
         if db_base_path:
             db_dir = os.path.join(db_base_path, project_name, domain, flow_type)
-            os.makedirs(db_dir, exist_ok=True)
+            try:
+                os.makedirs(db_dir, exist_ok=True)
+            except OSError as e:
+                raise RuntimeError(
+                    f"Cannot create race DB directory '{db_dir}': {e}. "
+                    f"Check that project(race,db_path)='{db_base_path}' is "
+                    f"writable by user '{os.environ.get('USER', '?')}'.")
             self.db_path = os.path.join(db_dir, db_filename)
             # Write pointer file in run_dir for other tools to find the DB
             self._write_pointer(pointer_path, self.db_path)
         else:
-            # Fallback: local DB (only if race area not configured)
+            # Legacy fallback (dashboard/tools that construct StatusDB
+            # directly without going through the engine's resolver).
             self.db_path = os.path.join(run_dir, f'.race_{db_filename}')
 
         # Backward compat: if old DB exists locally, use it (avoid losing state)
@@ -1228,6 +1292,44 @@ class RaceEngine:
         conn.commit()
         conn.close()
 
+    def _write_restricted_override_banner(self, lf, job):
+        """Prepend an edit-restricted-vars warning to a job log.
+
+        Scans setup/override_config.tcl (global) and
+        setup/override_config.<stage>.tcl (per-node) for variables marked as
+        protected in edit_restricted_config.tcl. If any are present, writes
+        a warning banner at the top of the job log so it shows up in the
+        run history and the dashboard's log viewer.
+        """
+        try:
+            import restricted_vars
+        except ImportError:
+            return
+        patterns = restricted_vars.load_patterns()
+        if not patterns:
+            return
+        candidates = [
+            os.path.join(self.run_dir, 'setup', 'override_config.tcl'),
+            os.path.join(self.run_dir, 'setup', f'override_config.{job.stage}.tcl'),
+        ]
+        found = []
+        for path in candidates:
+            for lineno, var_name, raw in restricted_vars.scan_file(path, patterns):
+                found.append((os.path.basename(path), lineno, var_name))
+        if not found:
+            return
+        lf.write('=' * 70 + '\n')
+        lf.write('  WARNING: edit-restricted variables present in override config\n')
+        lf.write('=' * 70 + '\n')
+        lf.write('  The following variables are normally controlled by the CAD\n')
+        lf.write('  team / project lead. Overrides here have taken effect for\n')
+        lf.write(f'  stage [{job.stage}] and may affect signoff-critical settings.\n')
+        lf.write('-' * 70 + '\n')
+        for fname, lineno, var_name in found:
+            lf.write(f'  {fname}:{lineno} — {var_name}\n')
+        lf.write('=' * 70 + '\n\n')
+        lf.flush()
+
     def _record_log_summary(self, job_name: str, stage: str, log_file: str):
         """Scan a log file for errors/warnings and store summary in DB."""
         if not self.db or not log_file or not os.path.exists(log_file):
@@ -1822,23 +1924,39 @@ class RaceEngine:
             pass  # Non-critical — don't block init
 
     def _resolve_db_path(self) -> str:
-        """Resolve DB base path from project_config.tcl.
+        """Resolve DB base path from project_config.tcl. MANDATORY.
 
-        Reads project(race,db_path) from project config.
-        Returns empty string if not configured (falls back to run_dir).
+        Reads project(race,db_path) from project config. Errors loudly if:
+          - the key isn't set  (nothing to fall back on — every project
+            needs a race area for cross-run tracking)
+          - the resolved directory doesn't exist AND can't be created
+            (writing to a bogus path silently corrupts the reproducibility
+            story; better to fail fast so the CAD team fixes the config)
 
         Convention: $db_path/$project/$domain/$flow/$user_$run.db
         Example:    /proj/phoenix/cbflow_db/phoenix/PD/SYNTH_PNR/vmerugu_run0.db
         """
-        db_path = ''
-
-        # Try project config
         project_name = self.env_vars.get('CBFLOW_PROJECT_NAME', '')
-        config_root = self.env_vars.get('CONFIG_ROOT',
-                      self.env_vars.get('FLOW_DIR', ''))
-        if project_name and config_root:
-            # Search project config for race,db_path
-            for ver_dir in Path(os.path.join(config_root, 'config', 'project',
+        # Prefer FLOW_DIR (the PD/ root) for building the config path.
+        # CONFIG_ROOT already includes the `config/` segment on some
+        # installs — joining `config/project/…` on top of it double-nests
+        # and the glob silently returns nothing. FLOW_DIR is the safe root.
+        flow_dir = self.env_vars.get('FLOW_DIR', '')
+        cfg_root = self.env_vars.get('CONFIG_ROOT', '')
+        # Normalize: whichever is set, resolve to the `config/` dir
+        if flow_dir:
+            base_config = os.path.join(flow_dir, 'config')
+        elif cfg_root:
+            # If CONFIG_ROOT already ends in /config, use as-is
+            base_config = cfg_root if os.path.basename(cfg_root.rstrip('/')) == 'config' \
+                          else os.path.join(cfg_root, 'config')
+        else:
+            base_config = ''
+
+        db_path = ''
+        cfg_hit = ''
+        if project_name and base_config:
+            for ver_dir in Path(os.path.join(base_config, 'project',
                                              project_name)).glob('v*/'):
                 for cfg_file in ver_dir.glob('*_config.tcl'):
                     try:
@@ -1848,6 +1966,7 @@ class RaceEngine:
                                              line.strip())
                                 if m:
                                     db_path = m.group(1)
+                                    cfg_hit = str(cfg_file)
                                     break
                     except (OSError, UnicodeDecodeError):
                         pass
@@ -1855,6 +1974,34 @@ class RaceEngine:
                         break
                 if db_path:
                     break
+
+        # ── Mandatory ─────────────────────────────────────────────────────
+        if not db_path:
+            raise RuntimeError(
+                f"project(race,db_path) is not set in the {project_name} "
+                f"project config. This is required — every run's DB must live "
+                f"in a shared race area for cross-run tracking. Add:\n"
+                f"    set project(race,db_path) \"/proj/{project_name}/race_db\"\n"
+                f"to PD/config/project/{project_name}/v1.0.0/{project_name}_config.tcl")
+
+        # ── Validate ──────────────────────────────────────────────────────
+        # Accept: (a) already a directory, or (b) parent exists and target
+        # can be created. Reject: parent doesn't exist / permission denied.
+        if not os.path.isdir(db_path):
+            parent = os.path.dirname(os.path.abspath(db_path))
+            if not os.path.isdir(parent):
+                raise RuntimeError(
+                    f"project(race,db_path) = '{db_path}' — parent directory "
+                    f"'{parent}' does not exist. Create the race area on this "
+                    f"host first, or update the path in {cfg_hit or project_name+'_config.tcl'}.")
+            try:
+                os.makedirs(db_path, exist_ok=True)
+                logger.info(f"Created race db area: {db_path}")
+            except OSError as e:
+                raise RuntimeError(
+                    f"project(race,db_path) = '{db_path}' — cannot create "
+                    f"directory: {e}. Check permissions or update the path in "
+                    f"{cfg_hit or project_name+'_config.tcl'}.")
 
         return db_path
 
@@ -1998,6 +2145,7 @@ class RaceEngine:
             log_file = os.path.join(log_dir, f'{job.name}.log')
 
             with open(log_file, 'w') as lf:
+                self._write_restricted_override_banner(lf, job)
                 proc = subprocess.Popen(
                     job.command, shell=True, env=run_env,
                     cwd=self.run_dir, start_new_session=True,

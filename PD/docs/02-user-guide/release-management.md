@@ -18,7 +18,7 @@ $project(release,path)/$phase/$block_name/$release_tag
 
 For example:
 ```
-/releases/ravendrive/P0/cpu_core/v1.0.2
+/releases/bumblebee/P0/cpu_core/v1.0.2
 ```
 
 ## Auto Mode (Quick Releases)

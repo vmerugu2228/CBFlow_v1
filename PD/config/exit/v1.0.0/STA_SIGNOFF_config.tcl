@@ -12,9 +12,9 @@ set milestone_info(report_dir)  "work/STA/timing1/reports"
 
 # ── Check packs ─────────────────────────────────────────────────────────────
 array set check_packs {
-    sta_flow     "P0"
-    timing       "P1"
-    si           "P2"
+    sta_flow     "0"
+    timing       "1"
+    si           "2"
 }
 
 # ── Mandatory checks ─────────────────────────────────────────────────────────
@@ -23,35 +23,35 @@ array set mandatory_checks {
         "script"      "check_timing.tcl"
         "description" "All MMMC timing scenarios pass"
         "criteria"    "grep mmmc_timing_summary.rpt for All.*PASS"
-        "min_phase"   "P0"
+        "min_phase_index"   "0"
         "report_file" "work/STA/timing1/reports/mmmc_timing_summary.rpt"
     }
     "sta_setup_clean" {
         "script"      "check_timing.tcl"
         "description" "Setup timing clean — WNS >= 0 across all corners"
         "criteria"    "setup_wns >= 0"
-        "min_phase"   "P0"
+        "min_phase_index"   "0"
         "report_file" "work/STA/timing1/reports/report_timing.max.rpt"
     }
     "sta_hold_clean" {
         "script"      "check_timing.tcl"
         "description" "Hold timing clean — WNS >= 0 across all corners"
         "criteria"    "hold_wns >= 0"
-        "min_phase"   "P1"
+        "min_phase_index"   "1"
         "report_file" "work/STA/timing1/reports/report_timing.min.rpt"
     }
     "sta_constraints_complete" {
         "script"      "check_constraints.tcl"
         "description" "All timing constraints fully defined"
         "criteria"    "check_timing.rpt shows no unconstrained paths"
-        "min_phase"   "P1"
+        "min_phase_index"   "1"
         "report_file" "work/STA/timing1/reports/check_timing.rpt"
     }
     "sta_qor_report" {
         "script"      "check_file_exists.tcl"
         "description" "STA QoR report generated"
         "criteria"    "report exists and parseable"
-        "min_phase"   "P0"
+        "min_phase_index"   "0"
         "report_file" "work/STA/merge_reports1/reports/report_qor.rpt"
     }
 }
@@ -62,21 +62,21 @@ array set optional_checks {
         "script"      "check_file_exists.tcl"
         "description" "STA power analysis report"
         "criteria"    "file exists"
-        "min_phase"   "P2"
+        "min_phase_index"   "2"
         "report_file" "work/STA/timing1/reports/report_power.rpt"
     }
     "sta_si_report" {
         "script"      "check_signal_integrity.tcl"
         "description" "Signal integrity crosstalk report"
         "criteria"    "file exists"
-        "min_phase"   "P2"
+        "min_phase_index"   "2"
         "report_file" "work/STA/timing1/reports/report_si.rpt"
     }
     "sta_sdf_generated" {
         "script"      "check_file_exists.tcl"
         "description" "SDF delay annotation file generated"
         "criteria"    "file exists"
-        "min_phase"   "P3"
+        "min_phase_index"   "3"
         "report_file" "work/STA/timing1/outputs/timing.sdf"
     }
 }

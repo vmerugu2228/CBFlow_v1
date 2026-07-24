@@ -97,7 +97,9 @@ def cmd_start(args):
     except RuntimeError as e:
         print(f'error: {e}', file=sys.stderr)
         return 1
-    print(f'dashboard daemon started on {lifecycle.url_for_index()}')
+    print(f'dashboard daemon started (background) on {lifecycle.url_for_index()}')
+    print(f'  pid: {lifecycle.status().get("pid", "?")}  — terminal is free; '
+          'stop with `cbflow dashboard stop`')
     if bind_addr == '0.0.0.0':
         print('  ⚠  bound to 0.0.0.0 — reachable from any host on the LAN. '
               'Restrict via firewall if needed.')
@@ -270,15 +272,31 @@ def _list_one():
 
 
 def cmd_prune(args):
-    """Bulk-deregister entries whose run_dir is gone OR are archived."""
+    """Bulk-deregister entries whose run_dir is gone, project is unknown, or archived."""
     _apply_discipline(args)
     runs = registry.list_all()
+    # Build the set of currently-known projects so entries referencing a
+    # renamed/removed project can be pruned. Falls back to empty on any
+    # filesystem error — better to skip stale-project pruning than to
+    # accidentally purge everything.
+    known_projects = set()
+    # SCRIPT_DIR = PD/utils/commands, so ../../config/project resolves the
+    # config dir without depending on core.paths (which isn't guaranteed to
+    # be importable in this CLI context — PD/utils isn't on sys.path here).
+    pdir = os.path.abspath(
+        os.path.join(SCRIPT_DIR, os.pardir, os.pardir, 'config', 'project'))
+    if os.path.isdir(pdir):
+        known_projects = {d for d in os.listdir(pdir)
+                          if os.path.isdir(os.path.join(pdir, d))}
     targets = []
     for r in runs:
         run_dir = r.get('run_dir', '')
         dir_exists = bool(run_dir) and os.path.isdir(run_dir)
+        proj = r.get('project', '')
         if not dir_exists:
             targets.append((r['run_id'], run_dir, 'deleted'))
+        elif known_projects and proj and proj not in known_projects:
+            targets.append((r['run_id'], run_dir, f'unknown project: {proj}'))
         elif args.include_archived and r.get('archived'):
             targets.append((r['run_id'], run_dir, 'archived'))
 
@@ -357,7 +375,7 @@ def _add_disc(p):
                    help='Discipline (PD or DFT). Defaults: register auto-detects '
                         'from the run\'s flow_type; other verbs default to PD.')
     p.add_argument('--project', default=None,
-                   help='Project scope (e.g. denali, ravendrive). When set, the '
+                   help='Project scope (e.g. denali, bumblebee). When set, the '
                         'daemon runs in per-project mode with its own state dir '
                         'and port — multiple projects coexist independently. '
                         'Unset (default): legacy single-daemon-per-discipline.')

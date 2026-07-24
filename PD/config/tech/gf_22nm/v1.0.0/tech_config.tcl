@@ -12,6 +12,28 @@ set tech(foundry)                "GlobalFoundries"
 set tech(tracks_available)       "9T 7.5T 8T"
 set tech(metal_stacks_available) "8M 9M 10M 11M"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Physical Verification Runsets — foundry-provided SVRF / IC Validator decks
+# Empty defaults; populate with foundry paths for site-wide use, or override
+# per-run via user_config's pv(input,rule_deck_*) or pv(<stage>,runset).
+#
+# Consumed by:
+#   Calibre (SVRF)  — pv(input,rule_deck_*) chain, no direct tech read
+#   ICV     (RSL)   — falls back to tech(rules,*) when pv() unset
+# ─────────────────────────────────────────────────────────────────────────────
+set tech(rules,drc)                               ""
+set tech(rules,lvs)                               ""
+set tech(rules,erc)                               ""
+set tech(rules,perc)                              ""
+set tech(rules,perc_ldl)                          ""
+set tech(rules,fill)                              ""
+set tech(rules,multi_patterning)                  ""
+set tech(rules,xor)                               ""
+set tech(rules,antenna)                           ""
+# SPICE model deck used by nettran (v2lvs / Verilog-to-SPICE) for hierarchical
+# LVS. Empty = fabricate empty subckts; populate for real LVS sign-off.
+set tech(spice,stdcell)                           ""
+
 # ── VT Variant Patterns ──
 set tech(vt_variants_available) {svt lvt ulvt hvt}
 set tech(vt_pattern,svt)  "*svt*"
@@ -41,7 +63,10 @@ set tech(11M,8T,lef_tech)                         "$project(lib_root)/Back_End/l
 set tech(8M,metal_count)                          8
 set tech(8M,metal_layers)                         {M1 M2 M3 M4 M5 M6 M7 M8}
 set tech(8M,metal_stack_full)                     "1P8M_2Mx_3Cx_1Jx_2Qx_LB"
-set tech(8M,tech_file)                            "$project(lib_root)/Back_End/tech/gf22naphlogl24uhf116a_8M_2Mx_3Cx_1Jx_2Qx_LB.tf"
+# 8M tech files — same .tf across tracks (foundry ships one per stack)
+set tech(8M,9T,tech_file)                    "$project(lib_root)/Back_End/tech/gf22naphlogl24uhf116a_8M_2Mx_3Cx_1Jx_2Qx_LB.tf"
+set tech(8M,7.5T,tech_file)                    "$project(lib_root)/Back_End/tech/gf22naphlogl24uhf116a_8M_2Mx_3Cx_1Jx_2Qx_LB.tf"
+set tech(8M,8T,tech_file)                    "$project(lib_root)/Back_End/tech/gf22naphlogl24uhf116a_8M_2Mx_3Cx_1Jx_2Qx_LB.tf"
 set tech(8M,min_routing_layer)                    "M2"
 set tech(8M,max_routing_layer)                    "M7"
 set tech(8M,clock_routing_layer_min)              "M3"
@@ -87,7 +112,10 @@ set tech(8M,stream_files_for_merge)               ""
 set tech(9M,metal_count)                          9
 set tech(9M,metal_layers)                         {M1 M2 M3 M4 M5 M6 M7 M8 M9}
 set tech(9M,metal_stack_full)                     "1P9M_2Mx_4Cx_1Jx_2Qx_LB"
-set tech(9M,tech_file)                            "$project(lib_root)/Back_End/tech/gf22naphlogl24uhf116a_9M_2Mx_4Cx_1Jx_2Qx_LB.tf"
+# 9M tech files — same .tf across tracks (foundry ships one per stack)
+set tech(9M,9T,tech_file)                    "$project(lib_root)/Back_End/tech/gf22naphlogl24uhf116a_9M_2Mx_4Cx_1Jx_2Qx_LB.tf"
+set tech(9M,7.5T,tech_file)                    "$project(lib_root)/Back_End/tech/gf22naphlogl24uhf116a_9M_2Mx_4Cx_1Jx_2Qx_LB.tf"
+set tech(9M,8T,tech_file)                    "$project(lib_root)/Back_End/tech/gf22naphlogl24uhf116a_9M_2Mx_4Cx_1Jx_2Qx_LB.tf"
 set tech(9M,min_routing_layer)                    "M2"
 set tech(9M,max_routing_layer)                    "M8"
 set tech(9M,clock_routing_layer_min)              "M3"
@@ -133,7 +161,10 @@ set tech(9M,stream_files_for_merge)               ""
 set tech(10M,metal_count)                         10
 set tech(10M,metal_layers)                        {M1 M2 M3 M4 M5 M6 M7 M8 M9 M10}
 set tech(10M,metal_stack_full)                    "1P10M_2Mx_5Cx_1Jx_2Qx_LB"
-set tech(10M,tech_file)                           "$project(lib_root)/Back_End/tech/gf22naphlogl24uhf116a_10M_2Mx_5Cx_1Jx_2Qx_LB.tf"
+# 10M tech files — same .tf across tracks (foundry ships one per stack)
+set tech(10M,9T,tech_file)                    "$project(lib_root)/Back_End/tech/gf22naphlogl24uhf116a_10M_2Mx_5Cx_1Jx_2Qx_LB.tf"
+set tech(10M,7.5T,tech_file)                    "$project(lib_root)/Back_End/tech/gf22naphlogl24uhf116a_10M_2Mx_5Cx_1Jx_2Qx_LB.tf"
+set tech(10M,8T,tech_file)                    "$project(lib_root)/Back_End/tech/gf22naphlogl24uhf116a_10M_2Mx_5Cx_1Jx_2Qx_LB.tf"
 set tech(10M,min_routing_layer)                   "M2"
 set tech(10M,max_routing_layer)                   "M9"
 set tech(10M,clock_routing_layer_min)             "M4"
@@ -179,7 +210,10 @@ set tech(10M,stream_files_for_merge)              ""
 set tech(11M,metal_count)                         11
 set tech(11M,metal_layers)                        {M1 M2 M3 M4 M5 M6 M7 M8 M9 M10 M11}
 set tech(11M,metal_stack_full)                    "1P11M_2Mx_6Cx_1Jx_2Qx_LB"
-set tech(11M,tech_file)                           "$project(lib_root)/Back_End/tech/gf22naphlogl24uhf116a_11M_2Mx_6Cx_1Jx_2Qx_LB.tf"
+# 11M tech files — same .tf across tracks (foundry ships one per stack)
+set tech(11M,9T,tech_file)                    "$project(lib_root)/Back_End/tech/gf22naphlogl24uhf116a_11M_2Mx_6Cx_1Jx_2Qx_LB.tf"
+set tech(11M,7.5T,tech_file)                    "$project(lib_root)/Back_End/tech/gf22naphlogl24uhf116a_11M_2Mx_6Cx_1Jx_2Qx_LB.tf"
+set tech(11M,8T,tech_file)                    "$project(lib_root)/Back_End/tech/gf22naphlogl24uhf116a_11M_2Mx_6Cx_1Jx_2Qx_LB.tf"
 set tech(11M,min_routing_layer)                   "M2"
 set tech(11M,max_routing_layer)                   "M10"
 set tech(11M,clock_routing_layer_min)             "M4"

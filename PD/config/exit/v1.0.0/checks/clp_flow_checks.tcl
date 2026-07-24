@@ -15,7 +15,7 @@ array set clp_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "critical"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "CLP_SIGNOFF"
         "report_pattern"          "isolation_check.rpt"
         "metric_pattern"          {Missing\s+Isolation\s+Cells\s*:\s*(\d+)}
@@ -28,7 +28,7 @@ array set clp_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "critical"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "CLP_SIGNOFF"
         "report_pattern"          "level_shifter_check.rpt"
         "metric_pattern"          {Missing\s+Level\s+Shifters\s*:\s*(\d+)}
@@ -41,7 +41,7 @@ array set clp_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "CLP_SIGNOFF"
         "report_pattern"          "retention_check.rpt"
         "metric_pattern"          {Retention\s+Path\s+Errors\s*:\s*(\d+)}
@@ -54,7 +54,7 @@ array set clp_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "critical"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "CLP_SIGNOFF"
         "report_pattern"          "power_domain_check.rpt"
         "metric_pattern"          {Power\s+Domain\s+Errors\s*:\s*(\d+)}
@@ -67,7 +67,7 @@ array set clp_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "CLP_SIGNOFF"
         "report_pattern"          "power_verification_summary.rpt"
         "metric_pattern"          {Always-On\s+Connection\s+Errors\s*:\s*(\d+)}
@@ -80,7 +80,7 @@ array set clp_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "CLP_SIGNOFF"
         "report_pattern"          "power_domain_check.rpt"
         "metric_pattern"          {Voltage\s+Area\s+Violations\s*:\s*(\d+)}
@@ -93,7 +93,7 @@ array set clp_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "CLP_SIGNOFF"
         "report_pattern"          "power_domain_check.rpt"
         "metric_pattern"          {Supply\s+Net\s+Errors\s*:\s*(\d+)}
@@ -106,7 +106,7 @@ array set clp_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "CLP_SIGNOFF"
         "report_pattern"          "isolation_check.rpt"
         "metric_pattern"          {Isolation\s+Enable\s+Timing\s+Errors\s*:\s*(\d+)}
@@ -119,7 +119,7 @@ array set clp_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "CLP_SIGNOFF"
         "report_pattern"          "level_shifter_check.rpt"
         "metric_pattern"          {Level\s+Shifter\s+Placement\s+Errors\s*:\s*(\d+)}
@@ -132,7 +132,7 @@ array set clp_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "CLP_SIGNOFF"
         "report_pattern"          "power_verification_summary.rpt"
         "metric_pattern"          {Power\s+Switch\s+Chain\s+Errors\s*:\s*(\d+)}
@@ -145,7 +145,7 @@ array set clp_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "CLP_SIGNOFF"
         "report_pattern"          "power_verification_summary.rpt"
         "metric_pattern"          {Corruption\s+Risks\s*:\s*(\d+)}
@@ -158,7 +158,7 @@ array set clp_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "major"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "CLP_SIGNOFF"
         "report_pattern"          "power_verification_summary.rpt"
         "metric_pattern"          {UPF\s+Syntax\s+Errors\s*:\s*(\d+)}
@@ -171,7 +171,7 @@ array set clp_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "critical"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "CLP_SIGNOFF"
         "report_pattern"          "power_verification_summary.rpt"
         "metric_pattern"          {UPF\s+Implementation\s+Mismatches\s*:\s*(\d+)}
@@ -184,7 +184,7 @@ array set clp_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "CLP_SIGNOFF"
         "report_pattern"          "power_domain_check.rpt"
         "metric_pattern"          {Multi-Driver\s+Violations\s*:\s*(\d+)}
@@ -197,7 +197,7 @@ array set clp_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "major"
-        "min_phase"               "P1"
+        "min_phase_index"               "1"
         "applicable_milestones"   "CLP_SIGNOFF"
         "report_pattern"          "power_domain_check.rpt"
         "metric_pattern"          {Hanging\s+Crossover\s+Signals\s*:\s*(\d+)}
@@ -210,7 +210,7 @@ array set clp_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "major"
-        "min_phase"               "P3"
+        "min_phase_index"               "3"
         "applicable_milestones"   "CLP_SIGNOFF"
         "report_pattern"          "power_verification_summary.rpt"
         "metric_pattern"          {Sleep\s+Wakeup\s+Sequence\s+Errors\s*:\s*(\d+)}
@@ -223,7 +223,7 @@ array set clp_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "major"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "CLP_SIGNOFF"
         "report_pattern"          "power_verification_summary.rpt"
         "metric_pattern"          {AO\s+Buffer\s+Chain\s+Errors\s*:\s*(\d+)}
@@ -236,7 +236,7 @@ array set clp_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "minor"
-        "min_phase"               "P2"
+        "min_phase_index"               "2"
         "applicable_milestones"   "CLP_SIGNOFF"
         "report_pattern"          "power_verification_summary.rpt"
         "metric_pattern"          {Power\s+State\s+Coverage\s*:\s*([0-9]+\.[0-9]+)\s*%}
@@ -249,7 +249,7 @@ array set clp_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "minor"
-        "min_phase"               "P3"
+        "min_phase_index"               "3"
         "applicable_milestones"   "CLP_SIGNOFF"
         "report_pattern"          "power_domain_check.rpt"
         "metric_pattern"          {ESD\s+Path\s+Errors\s*:\s*(\d+)}
@@ -262,7 +262,7 @@ array set clp_flow_checks {
         "script"                  "check_file_exists.tcl"
         "category"                "clp_flow"
         "severity"                "major"
-        "min_phase"               "P0"
+        "min_phase_index"               "0"
         "applicable_milestones"   "CLP_SIGNOFF"
         "report_pattern"          "power_verification_summary.rpt"
         "metric_pattern"          {Summary\s+Report\s+Generated\s*:\s*(yes|no)}

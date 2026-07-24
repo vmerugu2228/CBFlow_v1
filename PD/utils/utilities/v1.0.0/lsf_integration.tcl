@@ -273,10 +273,6 @@ proc ::lsf::integration::get_default_lsf_queue_for_context {context} {
     set flow_type [dict get $context flow_type]
     set stage_name [dict get $context stage_name]
 
-    # Check project-level LSF configuration
-    if {[info exists project(lsf,node_requirements,$flow_type,$stage_name,queue)]} {
-        return $project(lsf,node_requirements,$flow_type,$stage_name,queue)
-    }
 
     # Fallback based on flow type
     switch $flow_type {
@@ -421,10 +417,6 @@ proc ::lsf::integration::get_lsf_recommendation_for_node {context} {
     set flow_type [dict get $context flow_type]
     set stage_name [dict get $context stage_name]
 
-    # Check project configuration first
-    if {[info exists project(lsf,node_requirements,$flow_type,$stage_name,queue)]} {
-        return $project(lsf,node_requirements,$flow_type,$stage_name,queue)
-    }
 
     # Use optimizer if available
     if {[dict exists $context "design_characteristics"]} {

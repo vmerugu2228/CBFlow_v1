@@ -165,13 +165,13 @@ flow_proc insert_tap_cells {
 
     if {[info exists fcfp(floorplan,tap_cell_script)] && [file exists $fcfp(floorplan,tap_cell_script)]} {
         source $fcfp(floorplan,tap_cell_script)
-    } elseif {[info exists tech(cells,well_tap)] && $tech(cells,well_tap) ne ""} {
+    } elseif {[info exists tech($tech(track),well_tap)] && $tech($tech(track),well_tap) ne ""} {
         set tap_distance "30"
         if {[info exists tech(cells,well_tap_distance)]} {
             set tap_distance $tech(cells,well_tap_distance)
         }
-        create_tap_cells -lib_cell $tech(cells,well_tap) -distance $tap_distance
-        handle_info "Tap cells inserted: $tech(cells,well_tap) (distance=$tap_distance)"
+        create_tap_cells -lib_cell $tech($tech(track),well_tap) -distance $tap_distance
+        handle_info "Tap cells inserted: $tech($tech(track),well_tap) (distance=$tap_distance)"
     } else {
         handle_info "No tap cell configuration; skipping"
     }
