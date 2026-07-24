@@ -59,98 +59,28 @@ set project(metal_stack) "gf22naphlogl24uhf116a_11M_2Mx_6Cx_1Jx_2Qx_LB"
 
 Available stacks: 8M, 9M, 10M, 11M. Everything auto-resolves (routing layers, TLU+, PG straps) based on the selected stack.
 
-## 3c. Library Manager — populate .lib/.ndm and verify multi-VT setup
+## 3c. Library Manager
 
-Tech configs ship with LEF and RCX declarations but no `.lib` / `.ndm` file paths — those come from a per-tech `lib_config.tcl` you generate once by pointing at your vendor library root. The library manager scans your `.lib` files, groups them by (track × VT × corner), and emits the resolved paths.
+Generate `lib_config.tcl` once from your vendor library root, then check readiness before signoff. Multi-VT is native: `tech(vt_variants_available)` declares availability, `project(vt_flavors)` picks the enabled subset, `generate` emits both per-VT and combined-per-track arrays.
 
 ```bash
-# One-time: generate lib_config.tcl for your tech from a vendor library root.
-# This walks --lib-root, groups files by track (9T, 10T, ...) × VT (svt, lvt,
-# hvt, ulvt) × PVT corner, and writes the resolved paths so downstream tool
-# configs can index them with $tech(9T,svt,ndm), $tech(9T,lvt,ndm), etc.
-cbflow flow library-manager generate \
-  --tech gf_22nm \
-  --lib-root /proj/libs/gf_22nm
-
-# Optional filters:
-#   --tag P0                     Write to lib_config_P0.tcl (for phase-specific libs)
-#   --exclude "*ulvt*"           Drop a VT family before writing (never generated)
-#   --stdcell-path /libs/eco     Alternate stdcell directory (for ECO libraries)
+cbflow flow library-manager generate --tech gf_22nm --lib-root /proj/libs/gf_22nm
+cbflow flow library-manager status   --tech gf_22nm --project bumblebee   # exits 0/1
 ```
 
-Multi-VT designs are supported out of the box:
+See [02-user-guide/library-manager-user-guide.md](../02-user-guide/library-manager-user-guide.md) for every subcommand, VT filtering (`--exclude "*ulvt*"`), phase tags (`--tag P0`), and coverage matrix.
 
-- The tech config declares `tech(vt_variants_available) {svt lvt hvt ulvt}`.
-- Your project selects the active subset with `set project(vt_flavors) "svt lvt hvt"` in `<project>_config.tcl`. Any VT listed here will be loaded into tool link lines; any VT you leave out is skipped even if the library exists.
-- `library-manager generate` produces both **per-VT** arrays (`tech(9T,svt,ndm)`) and a **combined-per-track** array (`tech(9T,ndm)` — the union). Tool configs can pick either granularity — combined for signoff, VT-specific for a synthesis pass that must stay in one flavor.
+## 3d. MMMC Manager
 
-Verify readiness before a signoff run:
+Describes modes × PVTs × RC corners; expands into analysis views + scenario sets (`setup`/`hold`/`signoff`) that STA and MMMC-aware stages consume.
 
 ```bash
-# Signoff-readiness report — checks LEF/RCX coverage, VT enablement,
-# lib_config.tcl presence, and dont_use masks. Exits 0 when everything
-# needed for the project's enabled VTs is populated; exits 1 with a
-# NOT READY summary otherwise.
-cbflow flow library-manager status --tech gf_22nm --project bumblebee
-
-# What's actually declared per set (LEF, RCX, and — once generate has
-# run — per-track per-VT NDM/DB/LIB counts).
-cbflow flow library-manager list --tech-config <path>
-
-# On-disk validation: reads .lib file headers and cross-checks
-# corner/voltage/temp against filename convention.
-cbflow flow library-manager verify --path /proj/libs/gf_22nm --recursive
-
-# Coverage matrix (needs lib_config.tcl):
-cbflow flow library-manager coverage --tech gf_22nm
-```
-
-## 3d. MMMC Manager — define analysis views + scenario sets
-
-`mmmc_config.tcl` describes your **modes** (`func`, `test`, `scan`), **process corners** (ff/tt/ss) with their **PVT points** (voltage/temperature), and **RC corners** (rc_min / rc_typ / rc_max plus extensions like `rc_max_cworst`). The manager expands modes × PVT × RC into analysis views and groups those views into scenario sets (`setup`, `hold`, `signoff`, `all`) that STA and MMMC-aware stages consume.
-
-```bash
-# Inspect the current MMMC configuration (parsed + auto-generated views).
-cbflow flow mmmc-manager show --config PD/config/project/<name>/v1.0.0/mmmc_config.tcl
-
-# Six-check validation: PVT completeness, RC pairing, RC-corner existence,
-# constraint files, TCL executability, node scenario references.
-cbflow flow mmmc-manager validate --config <path>
-
-# List generated views and scenario sets.
-cbflow flow mmmc-manager list-views      --config <path>
-cbflow flow mmmc-manager list-scenarios  --set setup --config <path>
-cbflow flow mmmc-manager list-scenarios  --set hold  --config <path>
-
-# Emit a Cadence-style view_definition.tcl (create_library_set /
-# create_delay_corner / create_analysis_view / create_constraint_mode).
+cbflow flow mmmc-manager show     --config PD/config/project/<name>/v1.0.0/mmmc_config.tcl
+cbflow flow mmmc-manager validate --config <path>                          # 6 checks
 cbflow flow mmmc-manager generate-view-def --config <path> --output view_definition.tcl
 ```
 
-Edit modes / PVTs / RC corners without hand-editing TCL:
-
-```bash
-# Modes — SDC file per operating mode.
-cbflow flow mmmc-manager add-mode    --name scan --sdc '${design_name}_scan.sdc' --config <path>
-cbflow flow mmmc-manager remove-mode --name scan --config <path>
-
-# PVT points — one voltage/temperature pair added or removed per invocation.
-cbflow flow mmmc-manager add-pvt    --corner ss --voltage 0p85v --temperature 105c --config <path>
-cbflow flow mmmc-manager remove-pvt --corner ss --voltage 0p85v --temperature 105c --config <path>
-
-# RC corners — extend beyond rc_min/typ/max (e.g. rc_max_cworst for signoff SI).
-cbflow flow mmmc-manager add-rc --name rc_max_cworst \
-  --temperature 125 --cap_mult 1.15 --res_mult 1.20 \
-  --metal_mult 1.0 --via_mult 1.0 --config <path>
-
-# Per-node scenario overrides — pin a stage/subnode to a specific
-# setup/hold scenario list (e.g., CTS uses fewer corners than signoff).
-cbflow flow mmmc-manager set-node --node cts \
-  --setup "func_ss_0p80v_rcmax_125c" \
-  --hold  "func_ff_1p10v_rcmin_m40c" --config <path>
-```
-
-Every mutation re-runs the TCL parser and the six validation checks; if you land on an inconsistent state (missing SDC file for a new mode, RC pair points at a non-existent RC corner) the tool refuses to write and prints the specific check that failed.
+Every mutation (`add-mode`, `remove-mode`, `add-pvt`, `add-rc`, `set-node`) re-runs the six validation checks and refuses to write on inconsistency. See [02-user-guide/mmmc-manager-user-guide.md](../02-user-guide/mmmc-manager-user-guide.md) for the full mutation surface.
 
 ## 4. Create User Config
 

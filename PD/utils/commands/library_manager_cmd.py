@@ -609,20 +609,34 @@ class LibraryValidator:
             entry.setdefault(lib_key, []).append(path)
 
         # Per-track per-VT NDM/DB/LIB.
+        #
+        # R7-F12: was a hardcoded skip list of cell-type keys (19 names)
+        # that would fall through if a foundry ever added a new key not
+        # in the list. Since the regex requires trailing `,ndm|db|lib`,
+        # today's cell-type keys (`cell_height`, `clock_buffers`, etc.)
+        # never match anyway — the skip list was defensive-only. Replace
+        # with an ALLOWLIST against `tech(vt_variants_available)`: only
+        # names the tech explicitly declared as VT flavors are accepted.
+        # If a tech omits the declaration, fall back to the standard
+        # foundry VT names (`rvt svt lvt ulvt elvt slvt hvt`) rather
+        # than silently accepting any `\w+`.
+        _declared_vts_m = re.search(
+            r'set\s+tech\(vt_variants_available\)\s+(?:\{([^}]+)\}|"([^"]+)")',
+            content
+        )
+        if _declared_vts_m:
+            _allowed_vts = set(
+                (_declared_vts_m.group(1) or _declared_vts_m.group(2) or '').split()
+            )
+        else:
+            _allowed_vts = set(_VT_KEYWORDS)   # module-level fallback
         track_vt_re = re.compile(
             r'^\s*set\s+tech\(\s*([0-9.]+T)\s*,\s*(\w+)\s*,\s*(ndm|db|lib)\s*\)\s+"([^"]+)"',
             re.MULTILINE
         )
         for m in track_vt_re.finditer(content):
             trk, vt, kind = m.group(1), m.group(2), m.group(3)
-            # Skip cell-type keys (they aren't library files) — the
-            # regex above intentionally targets ndm/db/lib only, but
-            # `\w+` for VT overlaps with cell-type keys if they slip in.
-            if vt in ('cell_height', 'site', 'site_width', 'clock_buffers',
-                      'clock_inverters', 'decap', 'delay_cells', 'dont_use',
-                      'endcap', 'fillers', 'hold_buffers', 'icg_cells',
-                      'isolation', 'level_shifter', 'power_switch',
-                      'tie_cells', 'well_tap', 'lef_tech'):
+            if vt not in _allowed_vts:
                 continue
             path = m.group(4)
             set_name = f'physical_{trk}_{vt}'
@@ -802,22 +816,54 @@ class LibraryValidator:
         return data
 
     def validate_libraries(self, config: Dict) -> List[ValidationResult]:
-        """Validate that all referenced library files exist on disk."""
+        """Validate that all referenced library files exist on disk.
+
+        Iterates ALL file-list keys — historically only `_libraries` was
+        checked, but the track-schema fallback in load_tech_config also
+        emits `lef_files`, `tluplus_files`, `nxtgrd_files`, `qrc_files`
+        (and the coverage path can produce `ndm_libraries`). Missing
+        those in the validator meant `check` reported PASS with 0 refs
+        for every shipped tech config — a false-GREEN regression.
+
+        Also treats `$project(...)` / `$env(...)` template paths as
+        UNRESOLVED (a distinct status from missing-on-disk) so the
+        signal stays honest: a template path is not a real check — the
+        Tcl resolver must run first for it to become a checkable path.
+        The audit finding was that the previous code silently reported
+        template strings as "missing", conflating "wrong path" with
+        "config not yet resolved".
+        """
         results = []
 
+        _file_key_re = re.compile(r'.*(?:_libraries|_files)$')
         for set_name, set_data in sorted(config.items()):
-            lib_keys = [k for k in set_data if k.endswith('_libraries')]
+            lib_keys = [k for k in set_data if _file_key_re.match(k)]
             for lib_key in lib_keys:
-                lib_type = lib_key.replace('_libraries', '')
+                lib_type = (lib_key
+                            .replace('_libraries', '')
+                            .replace('_files', ''))
                 paths = set_data[lib_key]
-                if isinstance(paths, list):
-                    for p in paths:
+                if not isinstance(paths, list):
+                    continue
+                for p in paths:
+                    # `$project(lib_root)/foo.ndm`, `$env(VENDOR)/x.lib`
+                    # etc. can't be checked without sourcing the Tcl —
+                    # mark as UNRESOLVED (exists=False, lib_type prefixed
+                    # so cmd_check can bucket them separately).
+                    if '$' in p:
                         results.append(ValidationResult(
                             path=p,
-                            exists=os.path.isfile(p),
+                            exists=False,
                             lib_set=set_name,
-                            lib_type=lib_type,
+                            lib_type=f'{lib_type}[UNRESOLVED]',
                         ))
+                        continue
+                    results.append(ValidationResult(
+                        path=p,
+                        exists=os.path.isfile(p),
+                        lib_set=set_name,
+                        lib_type=lib_type,
+                    ))
 
         return results
 
@@ -914,8 +960,17 @@ def cmd_check(args: argparse.Namespace) -> int:
 
     results = validator.validate_libraries(config)
     total = len(results)
-    found = sum(1 for r in results if r.exists)
-    missing = total - found
+    # Bucket the three distinct outcomes explicitly. `[UNRESOLVED]` is a
+    # template-path (`$project(lib_root)/...`) that validate_libraries
+    # can't dereference without sourcing the Tcl — reporting it as
+    # "missing" would conflate config-not-yet-resolved with the actual
+    # wrong-path case, and the old code that reported nothing at all
+    # (total refs = 0, PASSED) turned a hard-fail into a false-GREEN
+    # for every shipped tech config. Keep the three buckets separate.
+    unresolved = [r for r in results if r.lib_type.endswith('[UNRESOLVED]')]
+    checked = [r for r in results if not r.lib_type.endswith('[UNRESOLVED]')]
+    found = sum(1 for r in checked if r.exists)
+    missing = len(checked) - found
 
     verbose = getattr(args, 'verbose', False)
 
@@ -926,27 +981,55 @@ def cmd_check(args: argparse.Namespace) -> int:
     logger.info(f"  Tech config:    {tech_config_path}")
     logger.info(f"  Library sets:   {len(config)}")
     logger.info(f"  Total refs:     {total}")
-    logger.info(f"  Found:          {found}")
-    logger.info(f"  Missing:        {missing}")
+    logger.info(f"  Checked:        {len(checked)}  (found={found} missing={missing})")
+    logger.info(f"  Unresolved:     {len(unresolved)}  (template paths — Tcl not sourced)")
     logger.info(f"{'─'*65}")
 
     if verbose:
         for r in results:
-            status = "[PASS]" if r.exists else "[FAIL]"
+            if r.lib_type.endswith('[UNRESOLVED]'):
+                status = "[SKIP]"
+            elif r.exists:
+                status = "[PASS]"
+            else:
+                status = "[FAIL]"
             logger.info(f"  {status}  [{r.lib_set}/{r.lib_type}]  {r.path}")
-    elif missing > 0:
-        logger.info("  Missing files:")
-        for r in results:
-            if not r.exists:
-                logger.info(f"    [FAIL]  [{r.lib_set}/{r.lib_type}]  {r.path}")
+    else:
+        if missing > 0:
+            logger.info("  Missing files:")
+            for r in checked:
+                if not r.exists:
+                    logger.info(f"    [FAIL]  [{r.lib_set}/{r.lib_type}]  {r.path}")
+        if unresolved:
+            logger.info(f"  Unresolved template paths (sample of {min(3, len(unresolved))}):")
+            for r in unresolved[:3]:
+                logger.info(f"    [SKIP]  [{r.lib_set}/{r.lib_type}]  {r.path}")
+            if len(unresolved) > 3:
+                logger.info(f"    ... {len(unresolved) - 3} more (re-run with --verbose)")
 
-    overall = "PASSED" if missing == 0 else "FAILED"
+    # Exit-code semantics:
+    #   0 = clean run: all checked refs present, unresolved is fine
+    #   1 = missing files on disk
+    #   2 = nothing was actually checked (all unresolved, or empty config)
+    #       — this is the case the old `check` used to flag with exit 1
+    #       + "No library_sets found". Keep the distinction so CI can
+    #       fail hard when the tech isn't ready to be checked at all,
+    #       instead of a green PASS masking an unresolved config.
+    if missing > 0:
+        overall = "FAILED"
+        exit_code = 1
+    elif len(checked) == 0:
+        overall = "NOT_VALIDATED — no resolvable paths (source the Tcl or run library-manager generate)"
+        exit_code = 2
+    else:
+        overall = "PASSED"
+        exit_code = 0
     logger.info(f"{'─'*65}")
     logger.info(f"  Overall: {overall}")
     logger.info(f"{'='*65}")
     logger.info("")
 
-    return 0 if missing == 0 else 1
+    return exit_code
 
 
 def cmd_list(args: argparse.Namespace) -> int:
@@ -2225,25 +2308,68 @@ def cmd_generate(args: argparse.Namespace) -> int:
     return 0
 
 
+# ─── Helpers shared across status / other Tcl-parsing commands ───────────
+_SAFE_NAME_RE = re.compile(r'^[A-Za-z0-9_.-]+$')
+
+
+def _sanitize_name_arg(name: str, kind: str) -> str:
+    """Reject `..`, slashes, shell metachars in a name that's about to be
+    joined into a filesystem path. Prevents `--tech ../../etc` path
+    traversal into the config tree (audit R7-F11)."""
+    if not name or not _SAFE_NAME_RE.match(name):
+        raise ValueError(f'invalid {kind} name {name!r} — must match [A-Za-z0-9_.-]+')
+    return name
+
+
+def _tcl_list_from(content: str, arr: str, key: str) -> List[str]:
+    """Extract a Tcl list from `set <arr>(<key>) {...}` OR `"..."` form.
+
+    Both forms are used in shipped configs — accept both silently
+    (audit R7-F7 flagged the project-side regex only accepting `"..."`,
+    which caused project(vt_flavors) written as `{svt lvt hvt}` to be
+    silently ignored).
+    """
+    m = re.search(
+        rf'set\s+{re.escape(arr)}\({re.escape(key)}\)\s+\{{([^}}]+)\}}',
+        content
+    )
+    if not m:
+        m = re.search(
+            rf'set\s+{re.escape(arr)}\({re.escape(key)}\)\s+"([^"]+)"',
+            content
+        )
+    return m.group(1).split() if m else []
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     """Signoff-readiness report for a tech's library configuration.
 
-    Answers: is my multi-VT setup complete? Reads tech_config.tcl and
-    (if present) lib_config.tcl and reports:
+    Reads tech_config.tcl (+ lib_config.tcl if present) and reports:
       - Available VT flavors (`tech(vt_variants_available)`)
-      - Project-enabled VTs (`project(vt_flavors)` — if a project is given)
+      - Project-enabled VTs (`project(vt_flavors)` — if --project given)
       - LEF-tech per (metal_stack, track)
       - RCX per (metal_stack, rc_corner) × {tluplus, nxtgrd, qrc}
       - Timing/NDM per (track, VT) — from lib_config.tcl if present
       - Dont_use masks per track
-      - Missing corners / VT / format combinations, flagged red
 
-    The user's own before-signoff sanity check: `cbflow flow
-    library-manager status --tech gf_22nm --project bumblebee` should
-    show every declared axis present or explicitly missing.
+    Multi-VT / multi-metal-stack aware: with --project, the verdict
+    only counts coverage for the metal stack the project actually uses
+    (`project(metal_stack)`) and only for the VTs the project has
+    enabled (`project(vt_flavors)`). Without --project, the full
+    declared axes are checked.
     """
-    tech_name = args.tech
+    # R7-F11: sanitize path args before joining into core_dir paths.
+    try:
+        tech_name = _sanitize_name_arg(args.tech, 'tech')
+    except ValueError as e:
+        logger.error(str(e))
+        return 1
     version = getattr(args, 'version', None) or 'v1.0.0'
+    try:
+        version = _sanitize_name_arg(version, 'version')
+    except ValueError as e:
+        logger.error(str(e))
+        return 1
     core_dir = get_cbflow_core_dir()
     tech_config = os.path.join(core_dir, 'config', 'tech', tech_name, version, 'tech_config.tcl')
     lib_config = os.path.join(core_dir, 'config', 'tech', tech_name, version, 'lib_config.tcl')
@@ -2255,126 +2381,202 @@ def cmd_status(args: argparse.Namespace) -> int:
     with open(tech_config) as f:
         tc = f.read()
 
-    def _tcl_scalar(key: str, text: str) -> str:
-        m = re.search(rf'set\s+tech\({re.escape(key)}\)\s+"?([^"\n]+)"?', text)
-        return m.group(1).strip() if m else ''
-
-    def _tcl_list(key: str, text: str) -> List[str]:
-        m = re.search(rf'set\s+tech\({re.escape(key)}\)\s+\{{([^}}]+)\}}', text)
-        if not m:
-            m = re.search(rf'set\s+tech\({re.escape(key)}\)\s+"([^"]+)"', text)
-        if not m:
-            return []
-        return m.group(1).split()
-
     # ── Section 1: VT availability + project enablement ──
-    available_vts = _tcl_list('vt_variants_available', tc)
+    available_vts = _tcl_list_from(tc, 'tech', 'vt_variants_available')
     vt_patterns = {}
     for m in re.finditer(r'set\s+tech\(vt_pattern,(\w+)\)\s+"([^"]+)"', tc):
         vt_patterns[m.group(1)] = m.group(2)
-    metal_stacks = _tcl_list('metal_stacks_available', tc)
-    tracks = _tcl_list('tracks_available', tc)
+    metal_stacks_all = _tcl_list_from(tc, 'tech', 'metal_stacks_available')
+    tracks_all = _tcl_list_from(tc, 'tech', 'tracks_available')
 
-    project_name = getattr(args, 'project', None) or os.environ.get('CBFLOW_PROJECT_NAME')
+    # R7-F8: build metal-stack regex dynamically from the declared
+    # tokens instead of hardcoding `[0-9]+M`. Techs using 1p8M, stack_a,
+    # etc. no longer silently vanish from LEF/RCX detection. Falls back
+    # to `[A-Za-z0-9]+M?` if nothing is declared so shipped `\d+M`
+    # configs still work even when the loop above missed the list.
+    if metal_stacks_all:
+        _ms_alt = '|'.join(re.escape(ms) for ms in metal_stacks_all)
+    else:
+        _ms_alt = r'[A-Za-z0-9]+M?'
+
+    project_name = None
+    try:
+        project_name = getattr(args, 'project', None) or os.environ.get('CBFLOW_PROJECT_NAME')
+        if project_name:
+            project_name = _sanitize_name_arg(project_name, 'project')
+    except ValueError as e:
+        logger.error(str(e))
+        return 1
+
     project_vts: List[str] = []
+    project_metal_stack = ''    # R7-F2: scope LEF/RCX verdict to this
+    project_tracks: List[str] = []
     if project_name:
         proj_config = os.path.join(core_dir, 'config', 'project', project_name, version, f'{project_name}_config.tcl')
         if os.path.exists(proj_config):
             with open(proj_config) as f:
                 pc = f.read()
-            m = re.search(r'set\s+project\(vt_flavors\)\s+"([^"]+)"', pc)
-            if m:
-                project_vts = m.group(1).split()
+            # Accept both `"..."` and `{...}` forms — audit R7-F7.
+            project_vts = _tcl_list_from(pc, 'project', 'vt_flavors')
+            _pm = re.search(r'set\s+project\(metal_stack\)\s+"?([A-Za-z0-9._-]+)"?', pc)
+            if _pm:
+                project_metal_stack = _pm.group(1).strip()
+            # Some projects declare a preferred track set.
+            project_tracks = _tcl_list_from(pc, 'project', 'tracks')
 
     # ── Section 2: LEF-tech coverage per (metal_stack, track) ──
     lef_present = set()
-    for m in re.finditer(r'set\s+tech\(([0-9]+M),([0-9.]+T),lef_tech\)', tc):
+    for m in re.finditer(rf'set\s+tech\(({_ms_alt}),([0-9.]+T),lef_tech\)', tc):
         lef_present.add((m.group(1), m.group(2)))
 
     # ── Section 3: RCX per (metal_stack, rc_corner, format) ──
-    rcx_present = {}   # (ms, rc) → {fmt: True}
-    for m in re.finditer(r'set\s+tech\(rcx,([0-9]+M),(rc_\w+),(tluplus|nxtgrd|qrc)\)', tc):
+    rcx_present = {}   # (ms, rc) → set of formats present
+    for m in re.finditer(rf'set\s+tech\(rcx,({_ms_alt}),(rc_\w+),(tluplus|nxtgrd|qrc)\)', tc):
         rcx_present.setdefault((m.group(1), m.group(2)), set()).add(m.group(3))
 
     # ── Section 4: Timing / NDM from lib_config.tcl (if generated) ──
     lib_config_present = os.path.exists(lib_config)
-    lib_by_track_vt: Dict[tuple, Dict[str, int]] = {}   # (track, vt) → {'ndm': n, 'db': n, 'lib': n}
+
+    # R7-F9: warn on stale sibling lib_config.tcl.
+    if lib_config_present:
+        try:
+            if os.path.getmtime(lib_config) < os.path.getmtime(tech_config):
+                logger.warning(
+                    f'lib_config.tcl is older than tech_config.tcl '
+                    f'({os.path.basename(lib_config)} mtime < '
+                    f'{os.path.basename(tech_config)}) — data may be stale. '
+                    f'Regenerate: cbflow flow library-manager generate --tech {tech_name}'
+                )
+        except OSError:
+            pass
+
+    lib_by_track_vt: Dict[tuple, Dict[str, int]] = {}
     if lib_config_present:
         with open(lib_config) as f:
             lc = f.read()
-        for m in re.finditer(
-            r'set\s+tech\(([0-9.]+T)\s*,\s*(\w+)\s*,\s*(ndm|db|lib)\)\s+\[list\s+(.+?)\]',
-            lc
-        ):
+        # R7-F4: accept BOTH `[list ...]` and `"..."` forms — the new
+        # track-schema parser writes the single-quoted-string form so
+        # both must be handled or status disagrees with itself.
+        _pat_list = re.compile(
+            r'set\s+tech\(([0-9.]+T)\s*,\s*(\w+)\s*,\s*(ndm|db|lib)\)\s+\[list\s+(.+?)\]'
+        )
+        _pat_str = re.compile(
+            r'set\s+tech\(([0-9.]+T)\s*,\s*(\w+)\s*,\s*(ndm|db|lib)\)\s+"([^"]+)"'
+        )
+        for m in _pat_list.finditer(lc):
             trk, vt, kind, raw = m.group(1), m.group(2), m.group(3), m.group(4)
             paths = re.findall(r'"([^"]+)"', raw)
-            if not paths:
-                continue
-            bucket = lib_by_track_vt.setdefault((trk, vt), {})
-            bucket[kind] = bucket.get(kind, 0) + len(paths)
+            if paths:
+                lib_by_track_vt.setdefault((trk, vt), {})[kind] = \
+                    lib_by_track_vt.setdefault((trk, vt), {}).get(kind, 0) + len(paths)
+        for m in _pat_str.finditer(lc):
+            trk, vt, kind = m.group(1), m.group(2), m.group(3)
+            lib_by_track_vt.setdefault((trk, vt), {})[kind] = \
+                lib_by_track_vt.setdefault((trk, vt), {}).get(kind, 0) + 1
 
     # ── Section 5: dont_use per track ──
     dont_use = {}
     for m in re.finditer(r'set\s+tech\(([0-9.]+T),dont_use\)\s+"([^"]+)"', tc):
         dont_use[m.group(1)] = m.group(2)
 
+    # ── Resolve effective axes (project-scoped when possible) ──
+    # R7-F2: filter LEF/RCX/Timing to the project's active metal stack
+    # + track subset. Without --project, use the declared full axes.
+    if project_metal_stack and project_metal_stack in metal_stacks_all:
+        effective_metal_stacks = [project_metal_stack]
+    else:
+        effective_metal_stacks = metal_stacks_all
+        if project_name and project_metal_stack:
+            logger.warning(
+                f'Project {project_name!r} sets metal_stack={project_metal_stack!r} '
+                f'which is not in tech(metal_stacks_available)={metal_stacks_all} '
+                f'— using full tech axes for verdict.'
+            )
+    effective_tracks = project_tracks if project_tracks else tracks_all
+    effective_vts = project_vts if project_vts else available_vts
+
     # ── Render ──
     logger.info('')
     logger.info(f'  Library Manager Status — tech={tech_name} version={version}')
     logger.info(f'  {"=" * 70}')
-    logger.info(f'  Source: {tech_config}')
+    logger.info(f'  Source:     {tech_config}')
     if lib_config_present:
         logger.info(f'  lib_config: {lib_config}')
     else:
         logger.info(f'  lib_config: NOT GENERATED (run `library-manager generate`)')
+    if project_name:
+        scope_ms = project_metal_stack or '(all declared)'
+        scope_vt = " ".join(project_vts) if project_vts else '(all available)'
+        logger.info(f'  Project:    {project_name}  '
+                    f'metal_stack={scope_ms}  vts={scope_vt}')
     logger.info('')
 
     # VT block
     logger.info('  VT flavors')
     logger.info(f'    Available in tech: {" ".join(available_vts) or "(none declared)"}')
-    if project_name:
-        if project_vts:
-            enabled_set = set(project_vts)
-            for vt in available_vts:
-                mark = 'ENABLED' if vt in enabled_set else '  off  '
-                pat = vt_patterns.get(vt, '?')
-                logger.info(f'      {mark}  {vt:<6} pattern={pat}')
-            missing_from_tech = [v for v in project_vts if v not in available_vts]
-            if missing_from_tech:
-                logger.warning(
-                    f'    Project enables VTs not in tech: {" ".join(missing_from_tech)}'
-                )
-        else:
-            logger.info(f'    Project {project_name!r} sets no `vt_flavors` — all available VTs are candidates')
+    if project_name and project_vts:
+        enabled_set = set(project_vts)
+        for vt in available_vts:
+            mark = 'ENABLED' if vt in enabled_set else '  off  '
+            pat = vt_patterns.get(vt, '?')
+            logger.info(f'      {mark}  {vt:<6} pattern={pat}')
+        missing_from_tech = [v for v in project_vts if v not in available_vts]
+        if missing_from_tech:
+            logger.warning(f'    Project enables VTs not in tech: {" ".join(missing_from_tech)}')
+    elif project_name:
+        logger.info(f'    Project {project_name!r} sets no `vt_flavors` — all available VTs are candidates')
     logger.info('')
 
     # Metal stack / track block
-    logger.info(f'  Metal stacks:  {" ".join(metal_stacks) or "(not declared)"}')
-    logger.info(f'  Tracks:        {" ".join(tracks) or "(not declared)"}')
+    logger.info(f'  Metal stacks:  {" ".join(metal_stacks_all) or "(not declared)"}')
+    logger.info(f'  Tracks:        {" ".join(tracks_all) or "(not declared)"}')
     logger.info('')
 
-    # LEF coverage
+    # Per-axis issue counters (R7-F14: consistent granularity + breakdown)
+    lef_missing = 0
+    rcx_missing = 0
+    timing_missing = 0
+
+    # LEF coverage — iterate effective axes so project scope narrows the report.
     logger.info('  LEF-tech coverage (metal_stack × track)')
-    if not metal_stacks or not tracks:
-        logger.info('    (metal_stacks_available / tracks_available not set — cannot check)')
+    if not effective_metal_stacks or not effective_tracks:
+        logger.info('    (metal_stacks / tracks not set — cannot check)')
     else:
-        for ms in metal_stacks:
+        for ms in effective_metal_stacks:
             row = []
-            for trk in tracks:
+            for trk in effective_tracks:
                 have = (ms, trk) in lef_present
+                if not have:
+                    lef_missing += 1
                 row.append(f'{trk}={"OK" if have else "MISSING"}')
             logger.info(f'    {ms:<5} {" ".join(row)}')
     logger.info('')
 
-    # RCX coverage
+    # RCX coverage — iterate DECLARED axes (from mmmc/tech) so
+    # entirely-missing (ms, rc) rows are also flagged (R7-F3).
+    # Discover the rc_corners the tech is expected to have from any
+    # rcx entry present + a default triad.
+    declared_rc_corners = sorted({rc for (_ms, rc) in rcx_present.keys()}
+                                 | {'rc_min', 'rc_typ', 'rc_max'})
+    all_formats = ('tluplus', 'nxtgrd', 'qrc')
     logger.info('  RCX coverage (metal_stack × rc_corner × format)')
-    if not rcx_present:
-        logger.info('    (no tech(rcx,...) entries)')
+    if not effective_metal_stacks:
+        logger.info('    (metal_stacks not set — cannot check)')
     else:
-        for (ms, rc), fmts in sorted(rcx_present.items()):
-            missing = {'tluplus', 'nxtgrd', 'qrc'} - fmts
-            marker = 'OK' if not missing else f'MISSING: {",".join(sorted(missing))}'
-            logger.info(f'    {ms:<5} {rc:<8} formats={",".join(sorted(fmts)):<25} {marker}')
+        for ms in effective_metal_stacks:
+            for rc in declared_rc_corners:
+                fmts = rcx_present.get((ms, rc), set())
+                missing_fmts = set(all_formats) - fmts
+                if not fmts:
+                    marker = 'MISSING: entire (metal_stack, rc_corner) row'
+                    rcx_missing += 1
+                elif missing_fmts:
+                    marker = f'MISSING: {",".join(sorted(missing_fmts))}'
+                    rcx_missing += len(missing_fmts)
+                else:
+                    marker = 'OK'
+                fmts_str = ",".join(sorted(fmts)) if fmts else '(none)'
+                logger.info(f'    {ms:<5} {rc:<10} formats={fmts_str:<25} {marker}')
     logger.info('')
 
     # Timing/NDM coverage (from lib_config.tcl)
@@ -2383,16 +2585,24 @@ def cmd_status(args: argparse.Namespace) -> int:
         logger.info('    lib_config.tcl not generated — no .lib/.ndm paths declared.')
         logger.info(f'    Generate: cbflow flow library-manager generate --tech {tech_name} \\')
         logger.info(f'                 --lib-root <path/to/vendor/libs>')
+        timing_missing = -1   # sentinel: reported as a single lib_config-absent issue
+    elif not effective_vts:
+        # R7-F6: empty vt_list would otherwise silently zero-issue.
+        logger.error('    ERROR: no VT flavors declared in tech OR project — '
+                     'cannot evaluate multi-VT coverage. Set '
+                     'tech(vt_variants_available) or project(vt_flavors).')
+        timing_missing = -2
     else:
-        vt_list = project_vts if project_vts else available_vts
-        for trk in tracks:
-            for vt in vt_list:
+        for trk in effective_tracks:
+            for vt in effective_vts:
                 counts = lib_by_track_vt.get((trk, vt), {})
                 if counts:
                     parts = ' '.join(f'{k}={v}' for k, v in sorted(counts.items()))
                     logger.info(f'    {trk:<5} {vt:<6} {parts}')
                 else:
-                    logger.warning(f'    {trk:<5} {vt:<6} MISSING — no ndm/db/lib entries')
+                    # R7-F13: per-row misses are info, not warning.
+                    logger.info(f'    {trk:<5} {vt:<6} MISSING — no ndm/db/lib entries')
+                    timing_missing += 1
     logger.info('')
 
     # Dont_use masks
@@ -2402,25 +2612,33 @@ def cmd_status(args: argparse.Namespace) -> int:
             logger.info(f'    {trk:<5} {mask}')
         logger.info('')
 
-    # Summary verdict
-    total_issues = 0
-    if metal_stacks and tracks:
-        total_issues += sum(1 for ms in metal_stacks for trk in tracks
-                            if (ms, trk) not in lef_present)
-    for (ms, rc), fmts in rcx_present.items():
-        total_issues += len({'tluplus', 'nxtgrd', 'qrc'} - fmts)
-    if not lib_config_present:
-        total_issues += 1
+    # ── Verdict (R7-F14: per-axis breakdown) ──
+    lib_config_issue = 1 if not lib_config_present else 0
+    vt_config_issue = 1 if timing_missing == -2 else 0
+    timing_effective = timing_missing if timing_missing >= 0 else 0
+    total_issues = lef_missing + rcx_missing + timing_effective + lib_config_issue + vt_config_issue
+
+    logger.info(f'  Per-axis coverage summary:')
+    logger.info(f'    LEF-tech:      {lef_missing} missing')
+    logger.info(f'    RCX:           {rcx_missing} missing')
+    if lib_config_issue:
+        logger.info(f'    Timing/NDM:    lib_config.tcl absent (1 issue)')
+    elif vt_config_issue:
+        logger.info(f'    Timing/NDM:    no VT flavors declared (1 issue)')
     else:
-        vt_list = project_vts if project_vts else available_vts
-        total_issues += sum(1 for trk in tracks for vt in vt_list
-                            if (trk, vt) not in lib_by_track_vt)
+        logger.info(f'    Timing/NDM:    {timing_effective} missing')
+    logger.info('')
 
     if total_issues == 0:
         logger.info('  READY — all declared axes populated. Multi-VT setup complete.')
         return 0
     else:
-        logger.warning(f'  NOT READY — {total_issues} issue(s) above. See MISSING markers.')
+        # R7-F13: warn only on the final verdict + one summary line.
+        logger.warning(
+            f'  NOT READY — {total_issues} issue(s): '
+            f'lef={lef_missing} rcx={rcx_missing} '
+            f'timing={"lib_config-missing" if lib_config_issue else ("vt-missing" if vt_config_issue else timing_effective)}'
+        )
         return 1
 
 
