@@ -70,9 +70,9 @@ project_init → project → team → tech → flow → node_common → node_too
 - `<FLOW>_<tool>_config.tcl` — tool-specific: app settings, compile/place/cts/route options, required_inputs
 
 ### Exit Checklist System
-- 11 milestones: FP_EXIT, PLACE_EXIT, CTS_EXIT, PRO_EXIT, BTO, MTO, STA_SIGNOFF, LEC_SIGNOFF, CLP_SIGNOFF, PV_SIGNOFF, EMIR_SIGNOFF
+- 6 milestones: FP_EXIT, PLACE_EXIT, CTS_EXIT, PRO_EXIT, BTO, MTO (Metal Tape Out)
 - 292 library checks across 14 categories (timing, placement, clock, power, routing, physical, SI, manufacturing + 6 flow-specific)
-- Phase-aware: P0 relaxed → P3 zero-tolerance (checks activate progressively)
+- Phase-aware: P0 → P3 progression reflects RTL maturity (checks activate progressively as the design stabilizes)
 - Check IDs: TMG-001, PLC-001, CLK-001, PWR-001, RTG-001, PHY-001, SI-001, MFG-001
 - Config: PD/config/exit/v1.0.0/ (milestone configs + checks/ library)
 - Scripts: PD/utils/validation/v1.0.0/checks/ (11 executable check scripts)

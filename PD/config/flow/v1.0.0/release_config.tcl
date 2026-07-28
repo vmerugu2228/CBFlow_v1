@@ -1365,7 +1365,7 @@ proc get_input_handshake {flow input_type} {
     set release_tags(CTS_EXIT) {description "CTS Exit"          phase_min P1 required_flows {SYNTH_PNR PNR SYNTH}}
     set release_tags(PRO_EXIT) {description "Post-Route Exit"   phase_min P1 required_flows {SYNTH_PNR PNR SYNTH STA LEC}}
     set release_tags(BTO) {description "Backend Tapeout"   phase_min P2 required_flows {SYNTH_PNR PNR SYNTH FP STA LEC CLP PV EMIR ECO}}
-    set release_tags(MTO) {description "Mask Tapeout"      phase_min P3 required_flows {SYNTH_PNR PNR SYNTH FP STA LEC CLP PV EMIR ECO POPT}}
+    set release_tags(MTO) {description "Metal Tapeout"      phase_min P3 required_flows {SYNTH_PNR PNR SYNTH FP STA LEC CLP PV EMIR ECO POPT}}
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║                 SECTION 7: PER-FLOW RELEASE DELIVERABLES                   ║

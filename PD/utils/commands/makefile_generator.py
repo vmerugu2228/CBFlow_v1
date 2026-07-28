@@ -402,7 +402,7 @@ class MakefileGenerator:
         mf.write('\t\techo "  CTS_EXIT     - CTS exit milestone"; \\\n')
         mf.write('\t\techo "  PRO_EXIT     - Post-route optimization exit milestone"; \\\n')
         mf.write('\t\techo "  BTO          - Backend tapeout milestone"; \\\n')
-        mf.write('\t\techo "  MTO          - Mask tapeout milestone"; \\\n')
+        mf.write('\t\techo "  MTO          - Metal tapeout milestone"; \\\n')
         mf.write('\t\techo ""; \\\n')
         mf.write('\t\techo "Examples:"; \\\n')
 

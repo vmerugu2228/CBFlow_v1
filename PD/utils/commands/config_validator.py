@@ -16,8 +16,6 @@ Callers:
     - cmd_validate_workspace runs this per run directory
 """
 
-from __future__ import annotations
-
 from typing import Dict, List, Tuple
 
 from cbflow_config import ConfigError

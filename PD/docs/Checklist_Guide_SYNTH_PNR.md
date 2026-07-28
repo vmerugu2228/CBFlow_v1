@@ -723,7 +723,7 @@ Checks are activated progressively as the design advances through phases. The ta
 | **P0** | Trial/Exploration | Initial bring-up, feasibility assessment | Relaxed -- large negative slack allowed, high congestion tolerated |
 | **P1** | Implementation | Convergence toward targets, iterative optimization | Moderate -- tighter timing, DRC acknowledged but non-zero allowed |
 | **P2** | Pre-Signoff | All metrics converging to zero, signoff tools engaged | Tight -- timing clean, DRC near-zero, SI analysis active |
-| **P3** | Signoff/Tapeout | Final verification, zero tolerance on all critical checks | Strict -- zero violations on all critical metrics, full delivery package |
+| **P3** | Signoff/Tapeout | Final verification against a mature RTL — full check activation | Strict -- zero violations on all critical metrics, full delivery package |
 
 ---
 
@@ -831,7 +831,7 @@ Thresholds that automatically relax at early phases and tighten toward signoff. 
 | BTO | hold_wns | 0 ps |
 | BTO | drc_violations | 0 |
 
-#### P3 -- Signoff/Tapeout (strict, zero tolerance)
+#### P3 -- Signoff/Tapeout (mature RTL — all checks active)
 
 | Milestone | Metric | P3 Threshold |
 |-----------|--------|-------------|

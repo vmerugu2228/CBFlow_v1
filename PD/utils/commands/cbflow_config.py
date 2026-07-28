@@ -26,11 +26,9 @@ Caching:
     are immutable for the duration of a run so they don't trigger invalidation.
 """
 
-from __future__ import annotations
-
 import os
 import subprocess
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 SCHEMA_VERSION = '3'
 
@@ -206,7 +204,7 @@ def _mtimes(run_dir: Optional[str], flow_type: Optional[str] = None) -> Tuple[fl
     manually restarted. Adding them here means a config edit is picked up on
     the next resolve call, not the next daemon restart.
     """
-    framework_mtimes: list[float] = []
+    framework_mtimes: List[float] = []
     fc = _framework_config_paths(flow_type)
     for p in fc:
         framework_mtimes.append(_mtime_or_zero(p))

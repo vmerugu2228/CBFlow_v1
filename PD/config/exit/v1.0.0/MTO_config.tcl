@@ -1,12 +1,12 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # MTO Milestone Configuration
-# Mask Tape Out — Final delivery package for mask shop
+# Metal Tape Out — Final delivery package for mask shop
 # Stage: signoff (SYNTH_PNR flow) — all BTO checks must pass first
 # ═══════════════════════════════════════════════════════════════════════════════
 
 set milestone_info(name)        "MTO"
 set milestone_info(stage)       "signoff"
-set milestone_info(description) "Mask Tape Out - Final delivery for mask generation"
+set milestone_info(description) "Metal Tape Out - Final delivery for mask generation"
 set milestone_info(stage_node)  "signoff1"
 set milestone_info(report_dir)  "work/SYNTH_PNR/signoff1/reports"
 

@@ -25,13 +25,12 @@ Usage:
     cbflow migrate --old <old.tcl> --new <new.tcl> [--dry-run]
 """
 
-from __future__ import annotations
-
 import argparse
 import re
 import shutil
 import sys
 from pathlib import Path
+from typing import Dict, List, Optional, Set, Tuple
 
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -79,7 +78,7 @@ def _normkey(k: str) -> str:
 # Parser — produces {full_key: raw_value_text}
 # ───────────────────────────────────────────────────────────────────────────
 
-def parse(text: str) -> dict[str, str]:
+def parse(text: str) -> Dict[str, str]:
     """Parse a TCL config text into a flat {full_key: raw_value} map.
 
     Keys are normalized to the access form a user types (e.g. `tech(rcx,ss)`)
@@ -89,7 +88,7 @@ def parse(text: str) -> dict[str, str]:
     Values keep their original literal form (quotes/braces preserved) so
     substitution can paste them back verbatim.
     """
-    out: dict[str, str] = {}
+    out: Dict[str, str] = {}
     current_array: str | None = None
 
     for line in text.splitlines():
@@ -123,16 +122,16 @@ def parse(text: str) -> dict[str, str]:
 # ───────────────────────────────────────────────────────────────────────────
 
 def migrate_text(old_text: str, new_text: str
-                 ) -> tuple[str, list[str], list[str], list[str]]:
+                 ) -> Tuple[str, List[str], List[str], List[str]]:
     """Produce the migrated NEW text plus three audit lists.
 
     Returns (migrated_text, migrated_keys, new_only_keys, dropped_keys).
     """
     old_map = parse(old_text)
-    seen_in_new: set[str] = set()
-    migrated: list[str] = []
-    new_only: list[str] = []
-    out_lines: list[str] = []
+    seen_in_new: Set[str] = set()
+    migrated: List[str] = []
+    new_only: List[str] = []
+    out_lines: List[str] = []
     current_array: str | None = None
 
     for line in new_text.splitlines():
@@ -195,7 +194,7 @@ def migrate_text(old_text: str, new_text: str
 # ───────────────────────────────────────────────────────────────────────────
 
 def _print_report(old_path: Path, new_path: Path,
-                  migrated: list[str], new_only: list[str], dropped: list[str],
+                  migrated: List[str], new_only: List[str], dropped: List[str],
                   wrote: bool) -> None:
     bar = '─' * 72
     print()
@@ -235,7 +234,7 @@ def _print_report(old_path: Path, new_path: Path,
     print()
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: Optional[List[str]] = None) -> int:
     p = argparse.ArgumentParser(
         prog='cbflow migrate',
         description='Carry user values from an OLD config file into a NEW one.',

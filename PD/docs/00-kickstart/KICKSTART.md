@@ -200,7 +200,7 @@ CBflow defines 11 exit milestones across the PD lifecycle with 292 library check
 | PV_SIGNOFF | Physical verification sign-off |
 | EMIR_SIGNOFF | EM/IR analysis sign-off |
 
-Milestones are **phase-aware**: P0 applies relaxed criteria, P3 enforces zero-tolerance on all checks.
+Milestones are **phase-aware**: the P0 → P3 progression reflects RTL maturity, with more checks activated as the design stabilizes.
 
 ## 10. Input Handshaking
 

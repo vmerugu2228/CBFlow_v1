@@ -139,7 +139,7 @@ def banner(model: str, server: str = None, username: str = None, workspace: str 
 def prompt_input() -> str:
     """Styled user input prompt."""
     try:
-        return input(f"  {bold(cyan('❯'))} ").strip()
+        return input(f"  {bold(green('smartgenie'))}{bold(cyan('>'))} ").strip()
     except (KeyboardInterrupt, EOFError):
         return ""
 

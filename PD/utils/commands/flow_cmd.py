@@ -46,12 +46,23 @@ def _build_flow_types_dict():
 _FLOW_TYPES_CACHE = None
 
 
+def _flow_types():
+    """Return the cached FLOW_TYPES dict, building it on first access.
+
+    Use this from any function in this module — PEP 562's __getattr__
+    fires only on external `module.NAME` access, not on bare `NAME`
+    lookups inside the module's own functions, so we need an explicit
+    accessor for in-module callers.
+    """
+    global _FLOW_TYPES_CACHE
+    if _FLOW_TYPES_CACHE is None:
+        _FLOW_TYPES_CACHE = _build_flow_types_dict()
+    return _FLOW_TYPES_CACHE
+
+
 def __getattr__(name):
     if name == 'FLOW_TYPES':
-        global _FLOW_TYPES_CACHE
-        if _FLOW_TYPES_CACHE is None:
-            _FLOW_TYPES_CACHE = _build_flow_types_dict()
-        return _FLOW_TYPES_CACHE
+        return _flow_types()
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -66,11 +77,11 @@ def cmd_types(args: argparse.Namespace) -> int:
     logger.info(f"  {'Flow':<8} {'Description':<42} {'Vendor':<10} {'Tool':<18} {'Shell':<12}")
     logger.info("  " + "─" * 86)
 
-    for flow_type, info in FLOW_TYPES.items():
+    for flow_type, info in _flow_types().items():
         logger.info(f"  {flow_type:<8} {info['description']:<42} {info['vendor']:<10} {info['tool']:<18} {info['shell']:<12}")
 
     logger.info("")
-    logger.info(f"  Total: {len(FLOW_TYPES)} flow types")
+    logger.info(f"  Total: {len(_flow_types())} flow types")
     logger.info("")
     return 0
 
@@ -79,12 +90,13 @@ def cmd_info(args: argparse.Namespace) -> int:
     """Show information about a specific flow type."""
     flow = args.flow.upper()
 
-    if flow not in FLOW_TYPES:
+    _ft = _flow_types()
+    if flow not in _ft:
         logger.error(f"Unknown flow type: {flow}")
-        logger.info(f"Valid flow types: {', '.join(FLOW_TYPES.keys())}")
+        logger.info(f"Valid flow types: {', '.join(_ft.keys())}")
         return 1
 
-    info = FLOW_TYPES[flow]
+    info = _flow_types()[flow]
 
     logger.info("")
     logger.info("═" * 60)
@@ -105,11 +117,12 @@ def cmd_stages(args: argparse.Namespace) -> int:
     """Show stages for a flow type."""
     flow = args.flow.upper()
 
-    if flow not in FLOW_TYPES:
+    _ft = _flow_types()
+    if flow not in _ft:
         logger.error(f"Unknown flow type: {flow}")
         return 1
 
-    info = FLOW_TYPES[flow]
+    info = _ft[flow]
     logger.info(f"Stages for {flow} ({info['description']}):")
     logger.info("")
     for i, node in enumerate(info['nodes'], 1):
@@ -570,7 +583,7 @@ def cmd_version(args: argparse.Namespace) -> int:
 
     logger.info(f"CBFlow v{VERSION}")
     logger.info(f"  Installation: {core_dir}")
-    logger.info(f"  Flow types:   {len(FLOW_TYPES)}")
+    logger.info(f"  Flow types:   {len(_flow_types())}")
 
     return 0
 

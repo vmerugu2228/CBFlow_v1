@@ -219,20 +219,29 @@ def make_handler(project):
 
 _STYLE = """
 <style>
+  /* SmartSoC brand palette — green primary, blue secondary, white bg,
+     Montserrat. Matches sales deck + brand guidelines. */
   :root {
-    --bg:         #f6f7fb;
+    --bg:         #ffffff;
     --panel:      #ffffff;
     --border:     #e5e7eb;
-    --text:       #1f2937;
+    --text:       #0f141b;
     --muted:      #6b7280;
-    --accent:     #4f46e5;
-    --header:     #f3f4f6;
-    --hover:      #f9fafb;
+    --accent:     #00D700;   /* SmartSoC green — primary */
+    --accent2:    #0000FF;   /* SmartSoC blue  — secondary */
+    --accent-ink: #007a00;   /* darker green for text-on-light */
+    --accent-bg:  #f3fff3;   /* green tint */
+    --accent2-bg: #ebebff;   /* blue tint */
+    --header:     #f7faf7;
+    --hover:      #f3fff3;
   }
   * { box-sizing: border-box; }
   html, body { margin:0; background:var(--bg); color:var(--text);
-               font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+               font-family: "Montserrat", -apple-system, "Segoe UI", Roboto,
+                            Helvetica, Arial, sans-serif;
                font-size: 13px; line-height: 1.35; }
+  /* Green underline brand marker under the header */
+  header.bar { border-top: 4px solid var(--accent); }
   a { color: var(--accent); text-decoration:none; }
   a:hover { text-decoration:underline; }
   code, .mono, .num { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
@@ -241,9 +250,17 @@ _STYLE = """
   header.bar { background: var(--panel); border-bottom: 1px solid var(--border);
                padding:8px 14px; display:flex; flex-wrap:wrap;
                align-items:center; gap:14px; }
-  header.bar .brand { font-weight:700; font-size:14px; color:var(--text); }
+  header.bar .brand { font-weight:800; font-size:14px; color:var(--text);
+                      letter-spacing:.01em; }
   header.bar .brand .lite { color: var(--muted); font-weight:500; margin-left:4px; }
-  header.bar .proj { color: var(--accent); font-weight:700; }
+  header.bar .brand::before {
+    content:""; display:inline-block; vertical-align:middle;
+    width:14px; height:14px; margin-right:8px; border-radius:3px;
+    background: linear-gradient(135deg, var(--accent) 0 55%,
+                                        var(--accent2) 55% 100%);
+  }
+  header.bar .proj { color: var(--accent-ink); font-weight:800;
+                     text-transform:uppercase; letter-spacing:.03em; }
   header.bar .kv { color: var(--muted); font-size:12px; }
   header.bar .kv b { color: var(--text); font-weight:600; margin-left:4px; }
   header.bar .byline { color: var(--muted); font-size:11px; margin-left:auto; }
@@ -343,21 +360,21 @@ _STYLE = """
   #td-list td.pos { color:#059669; }
   #td-list tr { cursor:pointer; }
   #td-list tr:hover td { background:var(--hover); }
-  #td-list tr.active td { background:#fce7f3; }   /* pink to match highlight */
+  #td-list tr.active td { background:var(--accent2-bg); }   /* brand blue tint */
   #td-list .tsub { font-family:ui-monospace,monospace; font-size:11px;
                    color:var(--muted); font-weight:normal; margin-top:2px;
                    text-overflow:ellipsis; overflow:hidden; max-width:180px; }
   #td-list .ttag { display:inline-block; padding:0 5px; margin-left:4px;
-                   font-size:10px; background:#eef2ff; color:#4338ca;
+                   font-size:10px; background:var(--accent-bg); color:var(--accent-ink);
                    border-radius:8px; font-weight:600; vertical-align:middle; }
   #td-list .scentag { display:inline-block; padding:0 5px; margin-left:4px;
                       font-size:10px; background:#fef3c7; color:#92400e;
                       border-radius:8px; font-weight:600; vertical-align:middle;
                       font-family:ui-monospace,monospace; cursor:help; }
   .pchip { display:inline-block; padding:1px 6px; margin:1px 2px 1px 0;
-           font-size:10px; background:#eef2ff; color:#4338ca;
+           font-size:10px; background:var(--accent-bg); color:var(--accent-ink);
            border-radius:8px; font-family:ui-monospace,monospace; }
-  .pchip b { color:#312e81; font-weight:600; margin-right:2px; }
+  .pchip b { color:var(--accent-ink); font-weight:700; margin-right:2px; }
   .segdot { display:inline-block; width:9px; height:9px; border-radius:2px;
             margin-right:4px; vertical-align:middle; }
   .td-selbtn { padding:3px 8px; background:#fff; color:var(--text);
@@ -1937,7 +1954,7 @@ def _render_index(project, info, blocks, published_rows):
         '</head><body>',
         # ── Top bar ────────────────────────────────────────────────────
         '<header class="bar">',
-        f'  <div class="brand">CBflow<span class="lite">-ProjectDashboard</span></div>',
+        f'  <div class="brand">CBflow<span class="lite">-ProjectDashboard</span><span class="lite" style="margin-left:8px;color:#0000FF;font-weight:700;">· SmartSoC</span></div>',
         f'  <div class="proj"><a href="/">{html.escape(project)}</a></div>',
         f'  <div class="kv">Phase <b>{html.escape(phase_now)}</b></div>',
         f'  <div class="kv">Tapeout <b>{html.escape(tapeout_str)}</b></div>',
@@ -2187,7 +2204,7 @@ def _render_detail(project, info, d):
         _SCRIPT_RELOAD_ON_FOCUS,
         '</head><body>',
         '<header class="bar">',
-        f'  <div class="brand">CBflow<span class="lite">-ProjectDashboard</span></div>',
+        f'  <div class="brand">CBflow<span class="lite">-ProjectDashboard</span><span class="lite" style="margin-left:8px;color:#0000FF;font-weight:700;">· SmartSoC</span></div>',
         f'  <div class="proj"><a href="/">{html.escape(project)}</a></div>',
         f'  <div class="kv">Block <b><a href="/block/{html.escape(d["block"])}">'
         f'{html.escape(d["block"])}</a></b></div>',
@@ -2423,7 +2440,7 @@ def _render_block(project, info, block_name, block_meta, block_pubs):
         '</head><body>',
         # ── Header bar ───────────────────────────────────────────────
         '<header class="bar">',
-        f'  <div class="brand">CBflow<span class="lite">-ProjectDashboard</span></div>',
+        f'  <div class="brand">CBflow<span class="lite">-ProjectDashboard</span><span class="lite" style="margin-left:8px;color:#0000FF;font-weight:700;">· SmartSoC</span></div>',
         f'  <div class="proj"><a href="/">{html.escape(project)}</a></div>',
         f'  <div class="kv">Block <b>{html.escape(block_name)}</b></div>',
         f'  <div class="kv">Level <b>{html.escape(dl_level)}</b></div>',

@@ -195,9 +195,12 @@ def execute_tool(name: str, args: dict) -> str:
                 cmd, shell=True, cwd=cwd,
                 capture_output=True, text=True, timeout=TIMEOUT_PER_COMMAND
             )
+            # Keep enough context for parseable listings (flow types, run
+             # status, KB search results). Tail-truncate a generous amount —
+             # a 1000-byte stderr cap silently dropped 8 of 17 flow-type rows.
             output = ""
-            if result.stdout: output += result.stdout[-3000:]
-            if result.stderr: output += "\n[STDERR]\n" + result.stderr[-1000:]
+            if result.stdout: output += result.stdout[-8000:]
+            if result.stderr: output += "\n[STDERR]\n" + result.stderr[-8000:]
             return output or f"(exit code: {result.returncode})"
         except subprocess.TimeoutExpired:
             return "ERROR: Command timed out"
@@ -552,20 +555,49 @@ def run_agent(prompt: str, interactive: bool = False):
                                 blocks = m.group(1).split()
                                 return f"Project '{proj}' has {len(blocks)} blocks:\n" + '\n'.join(f"  - {b}" for b in blocks)
 
-        # Flow types
+        # Flow types — parse `cbflow flow types` table rows. Each data row
+        # looks like: "[INFO]   NAME   Description...   vendor   tool   shell"
+        # The first UPPERCASE token after "[INFO]" is the flow name; skip
+        # header/separator rows and blank rows.
+        # Categorize: 12 core PD flows vs DFT / verification flows so the
+        # answer matches how CBflow is actually spoken about ("12 flows").
         if any(w in q for w in ['flow']) and any(w in q for w in ['available', 'list', 'what', 'which', 'show', 'all']):
             result = execute_tool("bash", {"command": f"{CBFLOW_BIN} flow types", "cwd": DEFAULT_WORKSPACE})
             if result and 'ERROR' not in result:
-                # Extract just the flow names
-                lines = [l.strip() for l in result.split('\n') if l.strip() and 'INFO' in l and not l.strip().startswith('=')]
-                flows = []
-                for l in lines:
-                    parts = l.split()
-                    for p in parts:
-                        if p.isupper() and len(p) >= 2 and p not in ('INFO', 'FLOW', 'TYPE'):
-                            flows.append(p)
-                if flows:
-                    return f"CBflow supports {len(flows)} flows:\n" + '\n'.join(f"  - {f}" for f in flows)
+                _HEADER_TOKENS = {
+                    'FLOW', 'TYPE', 'TYPES', 'VENDOR', 'TOOL', 'SHELL',
+                    'DESCRIPTION', 'AVAILABLE', 'TOTAL', 'INFO',
+                }
+                _NAME_RE = re.compile(r'^[A-Z][A-Z0-9_]+$')
+                _PD_FLOWS = {
+                    'SYNTH', 'PNR', 'SYNTH_PNR', 'FP', 'FCFP',
+                    'STA', 'LEC', 'CLP', 'PV', 'EMIR', 'POPT', 'ECO',
+                }
+                pd_flows, other_flows = [], []
+                seen = set()
+                for raw in result.split('\n'):
+                    ln = raw.strip()
+                    if not ln.startswith('[INFO]'):
+                        continue
+                    body = ln[len('[INFO]'):].strip()
+                    if not body:                     continue
+                    if body[0] in ('═', '─', '='):   continue     # separator
+                    first = body.split(None, 1)[0]
+                    if first in _HEADER_TOKENS:      continue     # column header
+                    if not _NAME_RE.match(first):    continue
+                    if first in seen:                continue
+                    seen.add(first)
+                    (pd_flows if first in _PD_FLOWS else other_flows).append(first)
+                if pd_flows or other_flows:
+                    out = []
+                    if pd_flows:
+                        out.append(f"CBflow supports {len(pd_flows)} PD flows:")
+                        out.extend(f"  - {f}" for f in pd_flows)
+                    if other_flows:
+                        out.append("")
+                        out.append(f"Plus {len(other_flows)} DFT / verification flows:")
+                        out.extend(f"  - {f}" for f in other_flows)
+                    return '\n'.join(out)
 
         # Stages for a flow
         if 'stage' in q and any(w in q for w in ['available', 'list', 'what', 'which', 'show']):
@@ -782,10 +814,39 @@ def run_agent(prompt: str, interactive: bool = False):
             for s in sources[:4]:
                 print(f"    {dim(s[:80])}")
 
-        # Ask LLM to synthesize — SHORT answer
+        # Ask LLM to synthesize — SHORT answer. Lead with the AUTHORITATIVE
+        # CBflow facts (from SYSTEM_PROMPT) so questions about flow/tag/
+        # project counts don't depend on whatever the KB search returned.
+        # Explicit anti-hallucination guards: never emit placeholder tokens
+        # like "[INFO]" or empty bullets; name every item concretely.
+        authoritative = (
+            "CBflow AUTHORITATIVE FACTS (use these as ground truth):\n"
+            "- Total supported flows: 12\n"
+            "- Flow names: SYNTH, PNR, SYNTH_PNR, FP, FCFP, STA, LEC, CLP, "
+            "PV, EMIR, POPT, ECO\n"
+            "- Tools: Synopsys (FC, PT, Formality, ICV, RedHawk) + "
+            "Cadence (Innovus, Genus, Tempus, Conformal, Voltus, Calibre)\n"
+            "- Release tags: FP_EXIT, PLACE_EXIT, CTS_EXIT, PRO_EXIT, "
+            "BTO, MTO, STA_SIGNOFF, LEC_SIGNOFF, CLP_SIGNOFF, "
+            "PV_SIGNOFF, EMIR_SIGNOFF (11 milestones)\n"
+            "- Projects shipped: bumblebee, phoenix, denali\n"
+        )
         synth_messages = [
-            {"role": "system", "content": "You are a VLSI/EDA expert. Answer the question using the provided knowledge. Be BRIEF — max 10 lines. Use bullet points. No lengthy explanations."},
-            {"role": "user", "content": f"Knowledge:\n{kb_result[:4000]}\n\nQuestion: {query}\n\nAnswer in max 10 lines:"}
+            {"role": "system", "content":
+             "You are a CBflow Physical Design expert. Answer concisely "
+             "and CONCRETELY. Rules: (1) never emit placeholder tokens "
+             "like '[INFO]', '[TODO]', '<name>', or empty bullets — every "
+             "bullet must name a real thing; (2) prefer the AUTHORITATIVE "
+             "FACTS over the KB excerpts if they conflict; (3) list every "
+             "item by its real name (e.g. 'SYNTH, PNR, STA, …' not "
+             "'flow1, flow2'); (4) max 12 lines total; (5) bullet points "
+             "start with '- ' and contain the actual answer text."},
+            {"role": "user", "content":
+             f"{authoritative}\n"
+             f"KB excerpts (supplementary — may be partial):\n{kb_result[:3500]}\n\n"
+             f"Question: {query}\n\n"
+             "Answer using the authoritative facts first, KB excerpts second. "
+             "Do NOT use '[INFO]' or any placeholder. Name every item."}
         ]
         spinner = Spinner("Thinking")
         spinner.start()
@@ -797,6 +858,14 @@ def run_agent(prompt: str, interactive: bool = False):
         # Strip any tool call attempts
         clean = re.sub(r'\{["\']tool["\'].*?\}', '', response, flags=re.DOTALL).strip()
         clean = re.sub(r'```json.*?```', '', clean, flags=re.DOTALL).strip()
+        # Post-filter: drop bullet lines that are placeholders (empty text,
+        # only "[INFO]" / "[TODO]" / "<...>" / "..."). These slip through
+        # when the model falls into a template pattern.
+        _placeholder = re.compile(
+            r'^\s*[-*]\s*(?:\[(?:info|todo|placeholder|tbd)\]|<[^>]*>|\.\.\.?|)\s*$',
+            re.IGNORECASE)
+        clean = '\n'.join(
+            ln for ln in clean.split('\n') if not _placeholder.match(ln))
         return clean if clean and len(clean) > 20 else None
 
     def _agent_turn(messages, turn_num):
