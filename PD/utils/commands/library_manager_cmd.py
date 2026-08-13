@@ -1573,14 +1573,50 @@ def cmd_generate(args: argparse.Namespace) -> int:
         print('  Exclude:       {}'.format(' '.join(excl)))
     print('  ────────────────────────────────────────────────────────────')
 
+    # ── Pre-flight: refuse to generate if any declared source path is missing ──
+    # Historically this printed a warning and (in interactive mode) let the user
+    # bypass — non-interactive mode silently continued. Both paths produced a
+    # lib_config with holes that only surfaced later during `library-manager check`.
+    # Now: fail-fast unless --allow-missing is explicitly set.
     if not _all_paths_ok:
-        print('')
-        print('  WARNING: Some paths do not exist.')
-        if _interactive:
-            proceed = input('  Continue anyway? [y/N]: ').strip().lower()
-            if proceed != 'y':
-                logger.info("Aborted by user")
-                return 1
+        _missing = []
+        if lib_root and not os.path.isdir(lib_root):
+            _missing.append(('lib_root', lib_root))
+        for _label, _attr in [('stdcell_path', 'stdcell_path'),
+                              ('memory_path',  'memory_path'),
+                              ('io_path',      'io_path'),
+                              ('ip_path',      'ip_path')]:
+            _paths = getattr(args, _attr, None) if hasattr(args, _attr) else None
+            if _paths:
+                for _p in _paths:
+                    if not os.path.isdir(_p):
+                        _missing.append((_label, _p))
+
+        if not getattr(args, 'allow_missing', False):
+            print('')
+            print('  ═══════════════════════════════════════════════════════════')
+            print('  ERROR: Pre-flight failed — {} source path(s) do not exist'.format(len(_missing)))
+            print('  ═══════════════════════════════════════════════════════════')
+            for _label, _p in _missing:
+                print('    [MISSING] {:<14s} {}'.format(_label + ':', _p))
+            print('')
+            print('  A lib_config generated with missing sources will silently')
+            print('  omit the corresponding NDM/LEF/LIB entries. Fix — pick one:')
+            print('    (a) Create the directories (or fix the paths above)')
+            print('    (b) Update project(lib_root) / project(<label>_path) in')
+            print('        the project config to point at real locations')
+            print('    (c) Re-run with --allow-missing if you MUST proceed with')
+            print('        a partial config (bootstrapping only)')
+            print('')
+            return 1
+        else:
+            print('')
+            print('  ═══════════════════════════════════════════════════════════')
+            print('  WARNING: --allow-missing set — proceeding with {} missing source(s):'.format(len(_missing)))
+            for _label, _p in _missing:
+                print('    [SKIP] {:<14s} {}'.format(_label + ':', _p))
+            print('  Generated lib_config will be INCOMPLETE.')
+            print('  ═══════════════════════════════════════════════════════════')
 
     if _interactive:
         confirm = input('  Proceed with scan? [Y/n]: ').strip().lower()
@@ -2810,6 +2846,10 @@ Examples:
                             help='Merge new libs into existing lib_config (keep entries not in current scan)')
     gen_parser.add_argument('--output', default=None,
                             help='Output file path (default: config/tech/<tech>/<version>/lib_config[_<tag>].tcl)')
+    gen_parser.add_argument('--allow-missing', action='store_true', default=False,
+                            help='Proceed even if declared source paths do not exist. '
+                                 'Default is fail-fast — use only when bootstrapping '
+                                 'a partial tech setup. Emits a WARNING banner.')
 
     # coverage command — show track × VT × corner matrix
     cov_parser = subparsers.add_parser(

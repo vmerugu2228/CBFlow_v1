@@ -1324,6 +1324,45 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
         if skip_pts:
             skipped_pvt[corner] = skip_pts
 
+    # ── Pre-flight: refuse to generate if any requested PVT combo is missing ──
+    # Historically we silently skipped combos with no matching lib_set_ref and
+    # wrote a partial mmmc_config. The user sees "generated" but downstream STA
+    # fails at the missing corner. Now: fail-fast unless --allow-missing is set.
+    if missing_refs and not getattr(args, 'allow_missing', False):
+        print('')
+        print('  ═══════════════════════════════════════════════════════════')
+        print('  ERROR: Pre-flight failed — {} requested PVT combo(s) have no'.format(len(missing_refs)))
+        print('         matching lib_set_ref in {}'.format(os.path.basename(lib_config_path)))
+        print('  ═══════════════════════════════════════════════════════════')
+        for _ref in sorted(missing_refs):
+            _key = 'tech({},lib,{},timing)'.format(track_for_check or '<track>', _ref)
+            print('    [MISSING] {}'.format(_key))
+        print('')
+        print('  Requested PVT matrix:')
+        for _c in corners_input:
+            print('    corner={} voltages={} temps={}'.format(_c, ' '.join(voltages_input), ' '.join(temps_input)))
+        print('')
+        print('  Fix — pick one:')
+        print('    (a) Add the missing lib_set_ref entries to the tech config')
+        print('        (or run: cbflow flow library-manager generate --tech <t>)')
+        print('    (b) Re-run this command with a narrower --corners / --voltages')
+        print('        / --temperatures list that only covers characterised PVT')
+        print('    (c) Re-run with --allow-missing if you MUST proceed with a')
+        print('        partial mmmc_config (bootstrapping only) — downstream STA')
+        print('        WILL fail at the missing corners')
+        print('')
+        return 1
+
+    if missing_refs:
+        # --allow-missing path: warn loudly, then continue with skipped_pvt
+        print('')
+        print('  ═══════════════════════════════════════════════════════════')
+        print('  WARNING: --allow-missing set — skipping {} PVT combo(s):'.format(len(missing_refs)))
+        for _ref in sorted(missing_refs):
+            print('    [SKIP] {}'.format(_ref))
+        print('  Generated mmmc_config will be INCOMPLETE.')
+        print('  ═══════════════════════════════════════════════════════════')
+
     process_corners = sorted(valid_pvt.keys())
 
     # VT filter
@@ -2064,6 +2103,9 @@ Examples:
                    help='lib_config tag (e.g., P0 reads lib_config_P0.tcl)')
     p.add_argument('--project', default=None,
                    help='Project name (e.g., denali). Output goes to config/project/<name>/v1.0.0/')
+    p.add_argument('--allow-missing', action='store_true', default=False,
+                   help='Proceed even if requested PVT combos have no matching lib_set_ref '
+                        'in lib_config. Default is fail-fast — use only when bootstrapping.')
 
     return top
 
