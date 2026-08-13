@@ -172,6 +172,61 @@ proc handler_dispatch {subnode_name run_dir flow_type node_name stage_name
 # no-op validate/finish stamps.
 #
 # `input_types` is the flow's list of input types. For real (non-test) runs,
+# ── Input-naming convention (enforced by handler_dispatch_inputs default) ──
+# CBflow convention: every input file staged into the run must be named after
+# the block, so downstream tools can find inputs at a stable pattern:
+#   <design_name>.v             — netlist (or <design_name>.<variant>.v e.g. .pt.v)
+#   <design_name>.<mode>.sdc    — SDC (mode from key: sdc_func_file → func)
+#   <design_name>.def           — DEF
+#   <design_name>.upf           — UPF
+# Library / SPEF / other multi-file subnodes are skipped (`_input_ext` = "").
+proc _input_ext {subnode} {
+    switch $subnode {
+        netlist  { return ".v"   }
+        sdc      { return ".sdc" }
+        def      { return ".def" }
+        upf      { return ".upf" }
+        default  { return ""     }
+    }
+}
+
+# Extract "mode" (SDC scenario) or "variant" (netlist flavor) from an input key.
+#   input,netlist                      → ""       (no mode/variant)
+#   input,netlist_pt                   → "pt"     (netlist variant)
+#   input,sdc_func_file                → "func"
+#   input,sdc_test                     → "test"
+#   input,sdc,func                     → "func"   (comma-nested)
+#   input,def_file / input,upf_file    → ""       (marker suffix, not a mode)
+proc _input_mode {key subnode} {
+    if {[regexp "^input,${subnode},(.+)\$" $key -> m]} { return $m }
+    if {[regexp "^input,${subnode}_(.+?)(_file)?\$" $key -> m]} {
+        if {$m eq "file"} { return "" }
+        return $m
+    }
+    return ""
+}
+
+proc _expected_input_name {design_name subnode key} {
+    set ext [_input_ext $subnode]
+    if {$ext eq ""} { return "" }         ;# no strict check for this subnode
+    set mode [_input_mode $key $subnode]
+    if {$mode ne ""} { return "${design_name}.${mode}${ext}" }
+    return "${design_name}${ext}"
+}
+
+# Human-readable file size ("2.4 MB", "451 KB", "1,024 bytes")
+proc _fmt_size {bytes} {
+    if {$bytes < 1024}         { return "$bytes bytes" }
+    if {$bytes < 1048576}      { return [format "%.1f KB" [expr {$bytes / 1024.0}]] }
+    if {$bytes < 1073741824}   { return [format "%.1f MB" [expr {$bytes / 1048576.0}]] }
+    return [format "%.2f GB" [expr {$bytes / 1073741824.0}]]
+}
+
+proc _fmt_mtime {path} {
+    if {![file exists $path]} { return "n/a" }
+    return [clock format [file mtime $path] -format "%Y-%m-%d %H:%M:%S"]
+}
+
 # resolve_flow_inputs from resolve_inputs.tcl runs in setup and materializes
 # the actual files — the *_info.tcl stamps are metadata for the dashboard.
 proc handler_dispatch_inputs {subnode_name run_dir flow_type node_name
@@ -221,22 +276,47 @@ proc handler_dispatch_inputs {subnode_name run_dir flow_type node_name
                 puts "       Expected: setup, validate, finish, or one of: $input_types"
                 exit 1
             }
+
+            set _t_start [clock seconds]
+            set _flow_lower [string tolower $flow_type]
+            set _sub_dir "$node_dir/$subnode_name"
+            file mkdir $_sub_dir
+
+            # ── Detail log: opened here, closed at every exit path ──────
+            # Structured record for humans/auditors. The one-line stdout
+            # messages are for RACE's job log; this file has the full trail.
+            set _dlog "$_sub_dir/${subnode_name}_detail.log"
+            set _dfh [open $_dlog "w"]
+            set _dbar "================================================================================"
+            puts $_dfh $_dbar
+            puts $_dfh "CBflow Input Staging — Detailed Log"
+            puts $_dfh $_dbar
+            puts $_dfh [format "  %-14s %s" "Flow:"       $flow_type]
+            puts $_dfh [format "  %-14s %s" "Stage:"      $stage_name]
+            puts $_dfh [format "  %-14s %s" "Node:"       $node_name]
+            puts $_dfh [format "  %-14s %s" "Subnode:"    $subnode_name]
+            set _design_name ""
+            if {[info exists ::flow(design_name)]} { set _design_name $::flow(design_name) }
+            puts $_dfh [format "  %-14s %s" "Design:"     [expr {$_design_name eq "" ? "(unset)" : $_design_name}]]
+            puts $_dfh [format "  %-14s %s" "Test mode:"  [expr {$test_mode ? "true" : "false"}]]
+            puts $_dfh [format "  %-14s %s" "Run dir:"    $run_dir]
+            puts $_dfh [format "  %-14s %s" "Node dir:"   $node_dir]
+            puts $_dfh [format "  %-14s %s" "Started:"    [handler_ts]]
+            puts $_dfh $_dbar
+            puts $_dfh ""
+
             puts "INFO: $flow_type $stage_name $subnode_name..."
 
-            # ── Stage every resolved source for this input subnode ──────
+            # ── PHASE 1: source discovery ───────────────────────────────
             # The subnode name (netlist/sdc/def/upf/library) maps to one or
             # more Tcl vars set by the user_config or resolve_flow_inputs:
             #   pnr(input,netlist)          — flat, direct
             #   pnr(input,sdc_func_file)    — flat, suffixed
             #   pnr(input,sdc,func)         — comma-nested
-            # We stage every matching source into work/<FLOW>/inputs/<subnode>/
-            # so the run has a visible, auditable copy AND downstream tools
-            # can find inputs at a stable local path. Fail loudly if a
-            # declared source is missing on a real run (test_mode creates
-            # stubs so downstream fake-outputs still work).
-            set _sub_dir "$node_dir/$subnode_name"
-            file mkdir $_sub_dir
-            set _flow_lower [string tolower $flow_type]
+            puts $_dfh "\[[handler_ts]\] PHASE 1 — SOURCE DISCOVERY"
+            puts $_dfh "  Scanning ::${_flow_lower}(...) for keys matching:"
+            puts $_dfh "    ^input,${subnode_name}(_.*)?\$"
+            puts $_dfh "    ^input,${subnode_name},.*\$"
             set _sources [list]                ;# {key1 path1 key2 path2 ...}
             if {[array exists ::$_flow_lower]} {
                 foreach _k [array names ::$_flow_lower] {
@@ -247,38 +327,148 @@ proc handler_dispatch_inputs {subnode_name run_dir flow_type node_name
                     }
                 }
             }
+            set _n_sources [expr {[llength $_sources] / 2}]
+            puts $_dfh "  Found $_n_sources source key(s):"
+            if {$_n_sources == 0} {
+                puts $_dfh "    (none — no user_config declared this input)"
+            } else {
+                foreach {_k _v} $_sources {
+                    puts $_dfh "    ${_flow_lower}($_k)"
+                    puts $_dfh "        = $_v"
+                }
+            }
+            puts $_dfh ""
 
+            # ── PHASE 2: naming convention check ─────────────────────────
+            # Enforce <design_name>[.<mode>].<ext> for netlist/sdc/def/upf.
+            # Wrong names fail-fast with copy-pasteable fix instructions.
+            puts $_dfh "\[[handler_ts]\] PHASE 2 — NAMING CONVENTION CHECK"
+            set _naming_fail [list]        ;# {key expected actual src ...}
+            set _ext [_input_ext $subnode_name]
+            if {$_ext eq ""} {
+                puts $_dfh "  Subnode '$subnode_name' has no naming rule — skipped."
+            } elseif {$_design_name eq ""} {
+                puts $_dfh "  WARN: flow(design_name) is unset — cannot enforce naming."
+            } else {
+                puts $_dfh "  Rule: <design_name>\[.<mode>\]${_ext}   (design_name = $_design_name)"
+                foreach {_k _v} $_sources {
+                    set _expected [_expected_input_name $_design_name $subnode_name $_k]
+                    set _actual   [file tail $_v]
+                    if {$_expected ne "" && $_actual ne $_expected} {
+                        lappend _naming_fail $_k $_expected $_actual $_v
+                        puts $_dfh "    \[FAIL\] ${_flow_lower}($_k)"
+                        puts $_dfh "           expected: $_expected"
+                        puts $_dfh "           actual:   $_actual"
+                    } else {
+                        puts $_dfh "    \[ OK \] ${_flow_lower}($_k): $_actual"
+                    }
+                }
+            }
+            puts $_dfh ""
+
+            if {[llength $_naming_fail] > 0} {
+                # Emit clear stdout errors so RACE surfaces them in its job log.
+                puts ""
+                puts "ERROR: Input file naming convention violation for $flow_type $subnode_name"
+                puts "       CBflow requires input files to be named after the block:"
+                puts "         <design_name>\[.<mode>\]${_ext}"
+                puts ""
+                set _n_nfail [expr {[llength $_naming_fail] / 4}]
+                puts "       $_n_nfail file(s) violated the rule:"
+                puts ""
+                foreach {_k _exp _act _src} $_naming_fail {
+                    puts "       ─ ${_flow_lower}($_k)"
+                    puts "           source:   $_src"
+                    puts "           expected: $_exp"
+                    puts "           got:      $_act"
+                    puts ""
+                    puts "         Fix — pick one:"
+                    puts "           (a) rename the source"
+                    puts "               mv $_src [file dirname $_src]/$_exp"
+                    puts "               then update user_config.tcl:"
+                    puts "                 set ${_flow_lower}($_k) \"[file dirname $_src]/$_exp\""
+                    puts "           (b) OR add a properly-named symlink"
+                    puts "               ln -s $_src [file dirname $_src]/$_exp"
+                    puts "               then update user_config.tcl to point at the symlink"
+                    puts ""
+                }
+                puts "       See detail log: $_dlog"
+
+                # Persist to detail log + info stamp
+                puts $_dfh "\[[handler_ts]\] PHASE 3 — STAGING (SKIPPED, naming failed)"
+                puts $_dfh ""
+                puts $_dfh $_dbar
+                puts $_dfh "RESULT: FAIL_NAMING"
+                puts $_dfh "  $_n_nfail file(s) violated the <design_name>\[.<mode>\]${_ext} rule."
+                puts $_dfh $_dbar
+                close $_dfh
+
+                set _info_file "$_sub_dir/${subnode_name}_info.tcl"
+                set _fh [open $_info_file "w"]
+                puts $_fh "set ${subnode_name}_info(timestamp) \"[handler_ts]\""
+                puts $_fh "set ${subnode_name}_info(status) \"FAIL_NAMING\""
+                puts $_fh "set ${subnode_name}_info(naming_violations) $_n_nfail"
+                foreach {_k _exp _act _src} $_naming_fail {
+                    puts $_fh "set ${subnode_name}_info(bad_name,$_k) \"$_act (expected $_exp)\""
+                }
+                close $_fh
+                puts "ERROR: $flow_type $stage_name $subnode_name FAILED — naming convention"
+                exit 1
+            }
+
+            # ── PHASE 3: staging (symlink or copy) ──────────────────────
+            puts $_dfh "\[[handler_ts]\] PHASE 3 — STAGING"
             set _staged [list]      ;# {key path key path ...} — real files
             set _stubbed [list]     ;# {key path key path ...} — test_mode stubs
             set _missing [list]     ;# {key path key path ...} — declared, not on disk
             foreach {_key _src} $_sources {
                 set _dst "$_sub_dir/[file tail $_src]"
+                puts $_dfh "  ${_flow_lower}($_key)"
+                puts $_dfh "      source:    $_src"
                 if {[file exists $_src]} {
+                    set _sz    [file size $_src]
+                    set _mt    [_fmt_mtime $_src]
+                    puts $_dfh "        exists:  yes"
+                    puts $_dfh "        size:    [_fmt_size $_sz]  ($_sz bytes)"
+                    puts $_dfh "        mtime:   $_mt"
                     # Prefer symlink — cheap, preserves provenance and
-                    # avoids duplicating large gates/spef/gds files.
-                    # Fall back to copy on filesystems that don't support
-                    # symlinks (rare NFS mounts, some Windows shares).
+                    # avoids duplicating large gates/spef/gds files. Fall
+                    # back to copy on FS that reject symlinks.
+                    set _method "symlink"
                     if {[catch {
                         file delete -force $_dst
                         file link -symbolic $_dst $_src
                     } _e]} {
                         file copy -force $_src $_dst
+                        set _method "copy"
                     }
                     lappend _staged $_key $_dst
-                    puts "INFO:   staged $_key -> [file tail $_src]"
+                    puts $_dfh "      dest:      $_dst"
+                    puts $_dfh "        method:  $_method"
+                    puts $_dfh "        result:  STAGED"
+                    puts "INFO:   staged $_key -> [file tail $_src] ($_method, [_fmt_size $_sz])"
                 } elseif {$test_mode} {
                     set _sh [open $_dst "w"]
                     puts $_sh "// TEST_MODE stub for ${_flow_lower}($_key)"
+                    puts $_sh "// Source declared but not present on disk:"
+                    puts $_sh "//   $_src"
                     close $_sh
                     lappend _stubbed $_key $_dst
+                    puts $_dfh "        exists:  NO (test_mode → stub fabricated)"
+                    puts $_dfh "      dest:      $_dst"
+                    puts $_dfh "        method:  stub"
+                    puts $_dfh "        result:  TEST_STUB"
                     puts "INFO:   \[TEST MODE\] stub $_key -> [file tail $_src]"
                 } else {
                     lappend _missing $_key $_src
+                    puts $_dfh "        exists:  NO"
+                    puts $_dfh "        result:  MISSING"
                     puts "ERROR:  missing input source for ${_flow_lower}($_key): $_src"
                 }
+                puts $_dfh ""
             }
 
-            # ── Write the info stamp (audit trail for dashboard) ────────
+            # ── Info stamp (dashboard audit trail) ──────────────────────
             set _info_file "$_sub_dir/${subnode_name}_info.tcl"
             set _fh [open $_info_file "w"]
             puts $_fh "set ${subnode_name}_info(timestamp) \"[handler_ts]\""
@@ -288,21 +478,36 @@ proc handler_dispatch_inputs {subnode_name run_dir flow_type node_name
             puts $_fh "set ${subnode_name}_info(staged_count)  $_n_staged"
             puts $_fh "set ${subnode_name}_info(stubbed_count) $_n_stubbed"
             puts $_fh "set ${subnode_name}_info(missing_count) $_n_missing"
+            puts $_fh "set ${subnode_name}_info(detail_log)    \"$_dlog\""
             foreach {_k _d} $_staged  { puts $_fh "set ${subnode_name}_info(staged,$_k) \"$_d\"" }
             foreach {_k _d} $_stubbed { puts $_fh "set ${subnode_name}_info(stubbed,$_k) \"$_d\"" }
             foreach {_k _s} $_missing { puts $_fh "set ${subnode_name}_info(missing,$_k) \"$_s\"" }
 
+            set _t_end [clock seconds]
+            set _elapsed [expr {$_t_end - $_t_start}]
+            puts $_dfh $_dbar
+
             if {$_n_missing > 0} {
                 puts $_fh "set ${subnode_name}_info(status) \"MISSING\""
                 close $_fh
+                puts $_dfh "RESULT: FAIL_MISSING"
+                puts $_dfh "  $_n_missing source(s) declared but not present on disk."
+                puts $_dfh "  Elapsed: ${_elapsed}s"
+                puts $_dfh $_dbar
+                close $_dfh
+                puts ""
                 puts "ERROR: $flow_type $stage_name $subnode_name FAILED — $_n_missing source(s) missing"
+                puts "       See detail log: $_dlog"
                 exit 1
             }
             if {$_n_staged == 0 && $_n_stubbed == 0} {
-                # No sources declared for this subnode — legitimate for
-                # some flows (e.g. PNR without UPF). Don't fail, but say so.
                 puts $_fh "set ${subnode_name}_info(status) \"NO_SOURCE\""
                 close $_fh
+                puts $_dfh "RESULT: NO_SOURCE"
+                puts $_dfh "  No sources declared for this subnode (legitimate for optional inputs)."
+                puts $_dfh "  Elapsed: ${_elapsed}s"
+                puts $_dfh $_dbar
+                close $_dfh
                 puts "INFO: $flow_type $stage_name $subnode_name — no sources declared, skipped"
                 return
             }
@@ -313,7 +518,15 @@ proc handler_dispatch_inputs {subnode_name run_dir flow_type node_name
             puts $_fh "set ${subnode_name}_info(status) \"$_status\""
             close $_fh
             set _total [expr {$_n_staged + $_n_stubbed}]
-            puts "INFO: $flow_type $stage_name $subnode_name completed ($_total file(s): $_n_staged staged, $_n_stubbed stubbed) → $_status"
+            puts $_dfh "RESULT: $_status"
+            puts $_dfh "  Staged:  $_n_staged real file(s)"
+            puts $_dfh "  Stubbed: $_n_stubbed placeholder(s)  (test_mode)"
+            puts $_dfh "  Missing: 0"
+            puts $_dfh "  Elapsed: ${_elapsed}s"
+            puts $_dfh $_dbar
+            close $_dfh
+            puts "INFO: $flow_type $stage_name $subnode_name completed → $_status ($_total file(s), ${_elapsed}s)"
+            puts "INFO: Detail log: $_dlog"
         }
     }
 }
