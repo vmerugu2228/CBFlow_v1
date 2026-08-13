@@ -222,16 +222,98 @@ proc handler_dispatch_inputs {subnode_name run_dir flow_type node_name
                 exit 1
             }
             puts "INFO: $flow_type $stage_name $subnode_name..."
-            if {$test_mode} {
-                puts "INFO: \[TEST MODE\] $subnode_name loading skipped"
+
+            # ── Stage every resolved source for this input subnode ──────
+            # The subnode name (netlist/sdc/def/upf/library) maps to one or
+            # more Tcl vars set by the user_config or resolve_flow_inputs:
+            #   pnr(input,netlist)          — flat, direct
+            #   pnr(input,sdc_func_file)    — flat, suffixed
+            #   pnr(input,sdc,func)         — comma-nested
+            # We stage every matching source into work/<FLOW>/inputs/<subnode>/
+            # so the run has a visible, auditable copy AND downstream tools
+            # can find inputs at a stable local path. Fail loudly if a
+            # declared source is missing on a real run (test_mode creates
+            # stubs so downstream fake-outputs still work).
+            set _sub_dir "$node_dir/$subnode_name"
+            file mkdir $_sub_dir
+            set _flow_lower [string tolower $flow_type]
+            set _sources [list]                ;# {key1 path1 key2 path2 ...}
+            if {[array exists ::$_flow_lower]} {
+                foreach _k [array names ::$_flow_lower] {
+                    if {[regexp "^input,${subnode_name}(_.*)?\$" $_k] ||
+                        [regexp "^input,${subnode_name}," $_k]} {
+                        set _val [set ::${_flow_lower}($_k)]
+                        if {$_val ne ""} { lappend _sources $_k $_val }
+                    }
+                }
             }
-            set _info_file "$node_dir/$subnode_name/${subnode_name}_info.tcl"
-            file mkdir [file dirname $_info_file]
+
+            set _staged [list]      ;# {key path key path ...} — real files
+            set _stubbed [list]     ;# {key path key path ...} — test_mode stubs
+            set _missing [list]     ;# {key path key path ...} — declared, not on disk
+            foreach {_key _src} $_sources {
+                set _dst "$_sub_dir/[file tail $_src]"
+                if {[file exists $_src]} {
+                    # Prefer symlink — cheap, preserves provenance and
+                    # avoids duplicating large gates/spef/gds files.
+                    # Fall back to copy on filesystems that don't support
+                    # symlinks (rare NFS mounts, some Windows shares).
+                    if {[catch {
+                        file delete -force $_dst
+                        file link -symbolic $_dst $_src
+                    } _e]} {
+                        file copy -force $_src $_dst
+                    }
+                    lappend _staged $_key $_dst
+                    puts "INFO:   staged $_key -> [file tail $_src]"
+                } elseif {$test_mode} {
+                    set _sh [open $_dst "w"]
+                    puts $_sh "// TEST_MODE stub for ${_flow_lower}($_key)"
+                    close $_sh
+                    lappend _stubbed $_key $_dst
+                    puts "INFO:   \[TEST MODE\] stub $_key -> [file tail $_src]"
+                } else {
+                    lappend _missing $_key $_src
+                    puts "ERROR:  missing input source for ${_flow_lower}($_key): $_src"
+                }
+            }
+
+            # ── Write the info stamp (audit trail for dashboard) ────────
+            set _info_file "$_sub_dir/${subnode_name}_info.tcl"
             set _fh [open $_info_file "w"]
             puts $_fh "set ${subnode_name}_info(timestamp) \"[handler_ts]\""
-            puts $_fh "set ${subnode_name}_info(status) \"loaded\""
+            set _n_staged  [expr {[llength $_staged]  / 2}]
+            set _n_stubbed [expr {[llength $_stubbed] / 2}]
+            set _n_missing [expr {[llength $_missing] / 2}]
+            puts $_fh "set ${subnode_name}_info(staged_count)  $_n_staged"
+            puts $_fh "set ${subnode_name}_info(stubbed_count) $_n_stubbed"
+            puts $_fh "set ${subnode_name}_info(missing_count) $_n_missing"
+            foreach {_k _d} $_staged  { puts $_fh "set ${subnode_name}_info(staged,$_k) \"$_d\"" }
+            foreach {_k _d} $_stubbed { puts $_fh "set ${subnode_name}_info(stubbed,$_k) \"$_d\"" }
+            foreach {_k _s} $_missing { puts $_fh "set ${subnode_name}_info(missing,$_k) \"$_s\"" }
+
+            if {$_n_missing > 0} {
+                puts $_fh "set ${subnode_name}_info(status) \"MISSING\""
+                close $_fh
+                puts "ERROR: $flow_type $stage_name $subnode_name FAILED — $_n_missing source(s) missing"
+                exit 1
+            }
+            if {$_n_staged == 0 && $_n_stubbed == 0} {
+                # No sources declared for this subnode — legitimate for
+                # some flows (e.g. PNR without UPF). Don't fail, but say so.
+                puts $_fh "set ${subnode_name}_info(status) \"NO_SOURCE\""
+                close $_fh
+                puts "INFO: $flow_type $stage_name $subnode_name — no sources declared, skipped"
+                return
+            }
+            # STAGED  = at least one real source found (regardless of test_mode)
+            # TEST_STUB = only stubs (all sources were missing but test_mode
+            #             is on, so we fabricated placeholders)
+            set _status [expr {$_n_staged > 0 ? {STAGED} : {TEST_STUB}}]
+            puts $_fh "set ${subnode_name}_info(status) \"$_status\""
             close $_fh
-            puts "INFO: $flow_type $stage_name $subnode_name completed"
+            set _total [expr {$_n_staged + $_n_stubbed}]
+            puts "INFO: $flow_type $stage_name $subnode_name completed ($_total file(s): $_n_staged staged, $_n_stubbed stubbed) → $_status"
         }
     }
 }
