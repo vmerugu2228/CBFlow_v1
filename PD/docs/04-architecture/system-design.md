@@ -324,7 +324,7 @@ Released versions are permanently read-only. When a version is created via `cbfl
 cmds/SYNTH/synopsys/fc/v1.0.0/
     .locked                          # Marker file -- version is permanently locked
     synthesis_fc.tcl                  # chmod 444
-    inputs_fc.tcl                    # chmod 444
+    inputs_subnode_handler.tcl        # chmod 444
     ...
 ```
 

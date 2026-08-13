@@ -98,11 +98,22 @@ set flow(types) {SYNTH FP PNR STA LEC EMIR PV ECO CLP POPT FCFP SYNTH_PNR MYFLOW
 ### Step 3: Create command files
 ```
 cmds/MYFLOW/synopsys/fc/v1.0.0/
-    inputs_fc.tcl
-    run_fc.tcl
+    inputs_subnode_handler.tcl        # thin — delegates to handler_dispatch_inputs
+    run_subnode_handler.tcl
+    run_fc.tcl                        # tool-specific stage script
+    export_data_subnode_handler.tcl
     export_data_fc.tcl
+    release_data_subnode_handler.tcl
     release_data_fc.tcl
 ```
+
+Input handling is centralized in `PD/utils/utilities/v1.0.0/handler_common.tcl`
+(`handler_dispatch_inputs`) and `resolve_inputs.tcl` (`resolve_flow_inputs`).
+Your `inputs_subnode_handler.tcl` is a 24-line shim that declares the
+`input_types` list and calls `handler_dispatch_inputs`. Do NOT reimplement
+per-tool input handling — the shared dispatcher already covers release-tag
+resolution, from_run manifests, symlink/copy staging, naming enforcement,
+and detail-log emission.
 
 Each command file follows the standard pattern:
 ```tcl
