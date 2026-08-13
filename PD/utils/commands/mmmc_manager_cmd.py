@@ -24,6 +24,64 @@ from core.paths import get_cbflow_core_dir, get_flow_config_version
 logger = configure_logging('cbflow.mmmc_manager')
 
 
+def _require_tech_config(tech_name: str, version: str = None) -> str:
+    """Hard-require config/tech/<tech>/<version>/tech_config.tcl exists.
+
+    tech_config.tcl declares tracks, VT flavors, metal stacks, and physical
+    cells — mmmc-manager derives corner assumptions from it. Callers used to
+    proceed silently when the file was missing and generate a partial
+    mmmc_config; downstream STA then hit missing tech data with no clue where.
+    Fail-fast instead with a fix guide.
+    """
+    core_dir = get_cbflow_core_dir()
+    ver = version or get_flow_config_version()
+    tech_dir = os.path.join(core_dir, 'config', 'tech', tech_name, ver)
+    tc = os.path.join(tech_dir, 'tech_config.tcl')
+    if os.path.exists(tc):
+        return tc
+
+    tech_base = os.path.join(core_dir, 'config', 'tech')
+    available = []
+    if os.path.isdir(tech_base):
+        for t in sorted(os.listdir(tech_base)):
+            _tp = os.path.join(tech_base, t)
+            if not os.path.isdir(_tp):
+                continue                        # skip .DS_Store et al.
+            for v in sorted(os.listdir(_tp)):
+                _vp = os.path.join(_tp, v)
+                if not os.path.isdir(_vp):
+                    continue
+                if os.path.exists(os.path.join(_vp, 'tech_config.tcl')):
+                    available.append('{}/{}'.format(t, v))
+
+    print('')
+    print('  ═══════════════════════════════════════════════════════════')
+    print('  ERROR: tech_config.tcl missing — cannot proceed')
+    print('  ═══════════════════════════════════════════════════════════')
+    print('    Requested: --tech {}  (version {})'.format(tech_name, ver))
+    print('    Expected:  {}'.format(tc))
+    print('')
+    if available:
+        print('    Available techs (already have tech_config.tcl):')
+        for a in available:
+            print('      - {}'.format(a))
+    else:
+        print('    No techs have a tech_config.tcl anywhere under:')
+        print('      {}'.format(tech_base))
+    print('')
+    print('    tech_config.tcl is the source of truth for tracks, VT flavors,')
+    print('    metal stacks and physical cells. Without it, mmmc-manager has')
+    print('    no way to know which lib_set_refs are legitimate.')
+    print('')
+    print('    Fix — pick one:')
+    print('      (a) Create {}'.format(tc))
+    print('          Start from an existing tech and edit for {}, then rerun.'.format(tech_name))
+    print('      (b) Use one of the available techs above via --tech <name>')
+    print('      (c) Check --version — this tool used version={}'.format(ver))
+    print('')
+    sys.exit(1)
+
+
 # ===============================================================================
 # Config Path Resolution
 # ===============================================================================
@@ -1206,6 +1264,9 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
                 logger.error("Invalid selection: {}".format(choice))
                 return 1
         print('  Selected: {}'.format(tech_name))
+
+    # Preflight — tech_config.tcl MUST exist for this tech/version.
+    _require_tech_config(tech_name, version)
 
     tech_dir = os.path.join(core_dir, 'config', 'tech', tech_name, version)
 
