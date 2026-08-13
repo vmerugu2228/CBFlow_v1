@@ -85,8 +85,6 @@ show_help() {
     cat << EOF
 Usage: cbflow <command> [subcommand] [options]
 
-Usage: cbflow <command> [subcommand] [options]
-
 Commands:
   workspace     Workspace management (run from any workarea)
   run           Flow execution (run from within a run directory)
@@ -98,7 +96,7 @@ Workspace Commands (run from workarea):
   cbflow workspace status                     Show workspace + run summary
   cbflow workspace status --run 1             Detailed status of run #1
   cbflow workspace status --run 2 --summary   Full report with timing/errors/metrics
-  cbflow workspace list-runs                  List all runs with progress
+  cbflow workspace list-runs                  List all runs in this workspace
   cbflow workspace validate                   Validate workspace configuration
   cbflow workspace clean --confirm            Delete all run directories
 
@@ -172,7 +170,7 @@ Per-Run Dashboard Daemon (one daemon per user; every registered run shares it):
   cbflow run dashboard logs --follow          Tail the daemon log
   cbflow run gui                              Register run + open in daemon
   cbflow run clean --confirm                  Also deregisters the run from daemon
-  (Legacy `cbflow dashboard ...` still works with a deprecation notice.)
+  (Legacy 'cbflow dashboard ...' still works with a deprecation notice.)
 
 Project-Level Tracking Dashboard — CBflow-ProjectDashboard:
   cbflow project-dashboard start --project <p>     Start (background; port 25000+hash%2500)
@@ -185,7 +183,7 @@ Project-Level Tracking Dashboard — CBflow-ProjectDashboard:
 
 SmartGenie AI Agent (100% private, runs locally):
   cbflow smartgenie                           Interactive AI agent (local LLM)
-  cbflow smartgenie "run all 6 flows"         One-shot command
+  cbflow smartgenie "run PNR to signoff"      One-shot command
   cbflow smartgenie setup                     Check Ollama + model + knowledge base
   cbflow smartgenie ingest --all              Build knowledge base from docs + code
   cbflow smartgenie search "hold violation"   Search knowledge base
@@ -208,7 +206,7 @@ SmartGenie Server (multi-user enterprise):
   export SMARTGENIE_SERVER=http://ip:8091     Set server permanently
 
 Flow Commands (run from CORE_DIR: $CBFLOW_CORE_DIR):
-  cbflow flow types                           List all 11 flow types
+  cbflow flow types                           List all supported flow types (12 PD + 5 DFT/verif)
   cbflow flow info --flow PNR                 Show PNR tool, stages, vendor
   cbflow flow stages --flow SYNTH             Show SYNTH stage list
   cbflow flow check                           Verify CBFlow installation
