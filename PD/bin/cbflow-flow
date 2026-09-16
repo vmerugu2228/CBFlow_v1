@@ -30,8 +30,9 @@ CBFlow - Flow Management (works from any directory)
 Usage: cbflow flow <subcommand> [options]
 
 Flow Information:
-  cbflow flow types                              List all supported flow types (12 PD + 5 DFT/verif)
-  cbflow flow info --flow PNR                    Show PNR stages, tool, vendor
+  cbflow flow types                              List all flow types, grouped by discipline
+  cbflow flow types --domain DFT                 Filter to one discipline (PD | DFT | DV)
+  cbflow flow info --flow PNR                    Show PNR stages, tool, vendor, discipline
   cbflow flow stages --flow SYNTH                Show SYNTH stage sequence
   cbflow flow nodes --flow PNR                   Show PNR nodes and subnodes
   cbflow flow check                              Verify CBFlow installation

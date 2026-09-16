@@ -216,7 +216,7 @@ foreach key {tool,vendor tool,name tool,version tool,args supported_tools defaul
 # ── flow(*) — runtime/dispatch booleans, defaults set in flow_config.tcl,
 # overridable in user_config.tcl. Every key here MUST be set somewhere in the
 # cascade — race_engine.py asserts via require(). ──
-foreach key {types use_lsf use_xterm test_mode dispatcher cbflow_version
+foreach key {types disciplines use_lsf use_xterm test_mode dispatcher cbflow_version
              mode merged,flows merged,fp_independent merged,pnr_depends_fp
              dashboard,default_port mmmc,enabled
              race,db_max_sessions phases exit_milestones run_types
@@ -229,6 +229,13 @@ foreach key {types use_lsf use_xterm test_mode dispatcher cbflow_version
 # ── flow(mandatory_vars,*) — pre-flight validation contract. Consumed by
 # config_validator.validate_mandatory_vars() to fail-fast before DAG build. ──
 foreach key [lsort [array names ::flow "mandatory_vars,*"]] {
+    puts "CBFLOW_CFG:flow($key)=[_flatten $::flow($key)]"
+}
+
+# ── flow(discipline,<FLOW>) — discipline map. Consumed by:
+#   - flow_cmd.py to group + filter by discipline
+#   - race_engine._build_command() for discipline-aware handler lookup ──
+foreach key [lsort [array names ::flow "discipline,*"]] {
     puts "CBFLOW_CFG:flow($key)=[_flatten $::flow($key)]"
 }
 

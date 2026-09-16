@@ -21,6 +21,43 @@ set config_dir [file dirname $script_path]
 set flow(type)      ""                                                    ;# Mandatory — set in user_config
 set flow(types)     {SYNTH FP PNR STA LEC EMIR PV ECO CLP POPT FCFP SYNTH_PNR DFT_INSERT SCAN_INSERT ATPG GLS_FUNC GLS_SCAN_MBIST}
 
+# ┌─ Discipline Map ────────────────────────────────────────────────────────────┐
+# Which top-level tree (PD / DFT / DV / …) owns each flow's cmds/ handlers,
+# node_configs, and setup templates. Used by:
+#   - `cbflow flow types` to group + filter by discipline
+#   - race_engine._build_command() to route handler lookups to the correct root
+#   - workspace_cmd / start_run to pick the right discipline for validation
+#
+# Every flow in flow(types) MUST have an entry here. Adding a new flow without
+# updating this map is caught by config_validator.py at preflight.
+#
+# Discipline names align with directory names at the repo root:
+#   PD  → $CBFLOW_CORE_DIR                 (physical design — this file's home)
+#   DFT → $CBFLOW_DFT_DIR                  (design-for-test)
+#   DV  → $CBFLOW_DV_DIR                   (RTL design verification, phase 5)
+set flow(disciplines) {PD DFT DV}
+
+# Physical Design flows — implementation, timing, verification, tapeout
+set flow(discipline,SYNTH)          "PD"
+set flow(discipline,FP)             "PD"
+set flow(discipline,FCFP)           "PD"
+set flow(discipline,PNR)            "PD"
+set flow(discipline,SYNTH_PNR)      "PD"
+set flow(discipline,STA)            "PD"
+set flow(discipline,LEC)            "PD"
+set flow(discipline,CLP)            "PD"
+set flow(discipline,PV)             "PD"
+set flow(discipline,EMIR)           "PD"
+set flow(discipline,POPT)           "PD"
+set flow(discipline,ECO)            "PD"
+
+# Design-For-Test flows — scan insertion, ATPG, gate-level sim
+set flow(discipline,DFT_INSERT)     "DFT"
+set flow(discipline,SCAN_INSERT)    "DFT"
+set flow(discipline,ATPG)           "DFT"
+set flow(discipline,GLS_FUNC)       "DFT"
+set flow(discipline,GLS_SCAN_MBIST) "DFT"
+
 # ┌─ Flow Runtime ──────────────────────────────────────────────────────────────┐
 set flow(run_name)      ""                                                ;# Mandatory — set in user_config
 set flow(design_name)   ""                                                ;# Mandatory — set in user_config

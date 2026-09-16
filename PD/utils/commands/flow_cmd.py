@@ -36,6 +36,7 @@ def _build_flow_types_dict():
             'tool': tool.get('name', ''),
             'shell': tool.get('name', ''),
             'nodes': info.get('stages', []),
+            'discipline': info.get('discipline', 'PD'),
         }
     return result
 
@@ -68,20 +69,52 @@ def __getattr__(name):
 
 
 def cmd_types(args: argparse.Namespace) -> int:
-    """List all flow types."""
-    logger.info("")
-    logger.info("═" * 90)
-    logger.info("  Available Flow Types")
-    logger.info("═" * 90)
-    logger.info("")
-    logger.info(f"  {'Flow':<8} {'Description':<42} {'Vendor':<10} {'Tool':<18} {'Shell':<12}")
-    logger.info("  " + "─" * 86)
+    """List all flow types, grouped by discipline.
 
-    for flow_type, info in _flow_types().items():
-        logger.info(f"  {flow_type:<8} {info['description']:<42} {info['vendor']:<10} {info['tool']:<18} {info['shell']:<12}")
+    --domain <PD|DFT|DV>  filter to one discipline
+    """
+    domain_filter = (getattr(args, 'domain', None) or '').upper() or None
+
+    ft = _flow_types()
+    if domain_filter:
+        ft = {k: v for k, v in ft.items()
+              if v.get('discipline', 'PD').upper() == domain_filter}
+        if not ft:
+            logger.error(f"No flows found for domain: {domain_filter}")
+            logger.info("Known domains: PD, DFT, DV")
+            return 1
+
+    # Group by discipline for a cleaner display
+    from collections import OrderedDict
+    grouped: 'OrderedDict[str, list]' = OrderedDict()
+    for flow_type, info in ft.items():
+        disc = info.get('discipline', 'PD')
+        grouped.setdefault(disc, []).append((flow_type, info))
 
     logger.info("")
-    logger.info(f"  Total: {len(_flow_types())} flow types")
+    logger.info("═" * 98)
+    title = "  Available Flow Types"
+    if domain_filter:
+        title += f"  (domain = {domain_filter})"
+    logger.info(title)
+    logger.info("═" * 98)
+
+    header = f"  {'Flow':<16} {'Description':<42} {'Vendor':<10} {'Tool':<14} {'Shell':<10}"
+    for disc, rows in grouped.items():
+        logger.info("")
+        logger.info(f"  ── {disc} " + "─" * (94 - len(disc)))
+        logger.info(header)
+        logger.info("  " + "─" * 94)
+        for flow_type, info in rows:
+            logger.info(f"  {flow_type:<16} {info['description']:<42} "
+                        f"{info['vendor']:<10} {info['tool']:<14} {info['shell']:<10}")
+
+    logger.info("")
+    if domain_filter:
+        logger.info(f"  Total: {len(ft)} flow types in domain {domain_filter}")
+    else:
+        breakdown = ", ".join(f"{d}={len(rows)}" for d, rows in grouped.items())
+        logger.info(f"  Total: {len(ft)} flow types  ({breakdown})")
     logger.info("")
     return 0
 
@@ -97,12 +130,14 @@ def cmd_info(args: argparse.Namespace) -> int:
         return 1
 
     info = _flow_types()[flow]
+    discipline = info.get('discipline', 'PD')
 
     logger.info("")
     logger.info("═" * 60)
-    logger.info(f"  Flow Type: {flow}")
+    logger.info(f"  Flow Type: {flow}  ·  discipline = {discipline}")
     logger.info("═" * 60)
     logger.info("")
+    logger.info(f"  Discipline:    {discipline}")
     logger.info(f"  Description:   {info['description']}")
     logger.info(f"  Vendor:        {info['vendor']}")
     logger.info(f"  Tool:          {info['tool']}")
@@ -123,7 +158,8 @@ def cmd_stages(args: argparse.Namespace) -> int:
         return 1
 
     info = _ft[flow]
-    logger.info(f"Stages for {flow} ({info['description']}):")
+    discipline = info.get('discipline', 'PD')
+    logger.info(f"Stages for {flow}  [{discipline}]  ({info['description']}):")
     logger.info("")
     for i, node in enumerate(info['nodes'], 1):
         logger.info(f"  {i}. {node}")
@@ -608,7 +644,9 @@ Examples:
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
 
     # types command
-    subparsers.add_parser('types', help='List all flow types')
+    types_parser = subparsers.add_parser('types', help='List all flow types (grouped by discipline)')
+    types_parser.add_argument('--domain', '-d', default=None,
+                              help='Filter to one discipline (PD | DFT | DV)')
 
     # info command
     info_parser = subparsers.add_parser('info', help='Show flow type info')

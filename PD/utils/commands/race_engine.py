@@ -516,9 +516,16 @@ class DagBuilder:
         """Build the tclsh handler invocation command.
         Tool info and node_types set by _resolve_config() in build().
 
-        Handler lookup tries `$FLOW_DIR/cmds/...` (PD) first, then any
-        sibling discipline tree exposed via `CBFLOW_DFT_DIR` (and future
-        `CBFLOW_<XYZ>_DIR` env vars). First hit wins.
+        Handler lookup is discipline-aware: the current flow's discipline
+        (from flow(discipline,<FLOW>) in flow_config.tcl) picks the right
+        root deterministically, instead of scanning every discipline and
+        taking first-hit. This prevents a name collision between two
+        disciplines' handlers from silently picking the wrong tree.
+
+        Fallback order (only if the discipline-specific root doesn't have
+        the handler, or the discipline map has no entry for this flow):
+          1. $FLOW_DIR (PD tree — historical default)
+          2. any other CBFLOW_<X>_DIR sibling tree
         """
         flow_dir = self.env_vars.get('FLOW_DIR', '')
 
@@ -533,19 +540,34 @@ class DagBuilder:
                                    tool_vendor, tool_name, tool_version,
                                    f'{handler_base}_subnode_handler.tcl')
 
-        # Try PD first (flow_dir) then any sibling discipline roots. Every
-        # env var of the form CBFLOW_<X>_DIR that's set to a real directory
-        # is a candidate — this includes CBFLOW_DFT_DIR, CBFLOW_DV_DIR, and
-        # any future discipline (analog, verif, etc.) without needing a code
-        # change here. CBFLOW_CORE_DIR / CBFLOW_ROOT / CBFLOW_GLOBAL_DIR are
-        # framework roots, not discipline roots, so they're excluded by name.
+        # Look up the discipline that owns this flow, and try its root FIRST.
+        # This is the deterministic case — DFT_INSERT should search DFT/, not
+        # any-tree-that-happens-to-have-a-matching-handler.
         _framework_roots = {
             'CBFLOW_CORE_DIR', 'CBFLOW_ROOT', 'CBFLOW_GLOBAL_DIR',
         }
-        roots = [flow_dir] if flow_dir else []
-        # Merge env_vars + os.environ so we see both run-cached and shell-set values
         _env_pool = dict(os.environ)
         _env_pool.update(self.env_vars or {})
+
+        preferred_root = ''
+        try:
+            from tcl_config_parser import get_flow_discipline
+            discipline = (get_flow_discipline(self.flow_type) or 'PD').upper()
+        except Exception:
+            discipline = 'PD'
+        if discipline == 'PD':
+            preferred_root = flow_dir
+        else:
+            preferred_root = _env_pool.get(f'CBFLOW_{discipline}_DIR', '')
+
+        roots = []
+        if preferred_root:
+            roots.append(preferred_root)
+        # Then PD (flow_dir) as fallback if it wasn't already preferred
+        if flow_dir and flow_dir not in roots:
+            roots.append(flow_dir)
+        # Then any other sibling discipline roots (safety net for
+        # cross-discipline handler reuse during migration).
         for name, val in _env_pool.items():
             if not (name.startswith('CBFLOW_') and name.endswith('_DIR')):
                 continue

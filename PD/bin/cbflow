@@ -216,7 +216,8 @@ SmartGenie Server (multi-user enterprise):
   export SMARTGENIE_SERVER=http://ip:8091     Set server permanently
 
 Flow Commands (run from CORE_DIR: $CBFLOW_CORE_DIR):
-  cbflow flow types                           List all supported flow types (12 PD + 5 DFT/verif)
+  cbflow flow types                           List all flow types, grouped by discipline
+  cbflow flow types --domain DFT              Show flows for a single discipline (PD | DFT | DV)
   cbflow flow info --flow PNR                 Show PNR tool, stages, vendor
   cbflow flow stages --flow SYNTH             Show SYNTH stage list
   cbflow flow check                           Verify CBFlow installation

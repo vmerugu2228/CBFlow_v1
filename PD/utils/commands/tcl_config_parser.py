@@ -100,6 +100,38 @@ def get_flow_descriptions() -> Dict[str, str]:
     return out
 
 
+def get_disciplines() -> List[str]:
+    """List of disciplines the framework knows about (from `flow(disciplines)`).
+
+    Order matches flow_config.tcl's declaration — PD first, then sibling
+    disciplines. Empty list if the discipline map isn't declared (pre-refactor
+    installs) — callers should treat that as 'PD-only' semantically.
+    """
+    cfg = _resolved('SYNTH', run_dir=None)
+    return _parse_tcl_list(_cfg.optional(cfg, 'flow(disciplines)') or '')
+
+
+def get_flow_discipline(flow_type: str) -> str:
+    """Return the discipline owning `flow_type` (e.g. 'PD', 'DFT', 'DV').
+
+    Returns '' if the map has no entry for this flow (pre-refactor install
+    where flow(discipline,*) isn't declared). Callers should default to 'PD'
+    in that case for back-compat.
+    """
+    cfg = _resolved('SYNTH', run_dir=None)
+    val = _cfg.optional(cfg, f'flow(discipline,{flow_type})')
+    return _parse_tcl_string(val) if val else ''
+
+
+def get_flows_by_discipline() -> Dict[str, List[str]]:
+    """Return {discipline: [flows]}. Undeclared flows fall under '_uncategorized'."""
+    out: Dict[str, List[str]] = {}
+    for flow in get_flow_types():
+        disc = get_flow_discipline(flow) or '_uncategorized'
+        out.setdefault(disc, []).append(flow)
+    return out
+
+
 def get_phases(run_dir: Optional[str] = None) -> List[str]:
     """Return the phase list for a project.
 
@@ -206,6 +238,7 @@ def get_flow_info(flow_type: str) -> Dict[str, Any]:
         'tool': get_tool_info(flow_type),
         'supported_tools': get_supported_tools(flow_type),
         'default_tool': get_default_tool(flow_type),
+        'discipline': get_flow_discipline(flow_type) or 'PD',
     }
 
 
