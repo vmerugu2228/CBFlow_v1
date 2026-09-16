@@ -1,0 +1,12 @@
+{
+  "scripts/methdologies/bump_placement": {
+    "available_versions": {
+      "v1.0.0": {
+        "description": "added bump methodology",
+        "creation_date": "2025-10-01T17:22:08.988256"
+      }
+    },
+    "current_version": "v1.0.0",
+    "creation_date": "2025-10-01T17:22:08.988251"
+  }
+}

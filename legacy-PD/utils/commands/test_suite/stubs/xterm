@@ -1,0 +1,5 @@
+#!/bin/bash
+# CBflow test-suite xterm stub. Captures invocation, exits 0 (no GUI).
+log="${CBFLOW_STUB_LOG:-/tmp/cbflow_xterm.log}"
+echo "xterm $*" >> "$log"
+exit 0

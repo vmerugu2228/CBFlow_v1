@@ -1,0 +1,194 @@
+"""File-backed registry of runs known to the dashboard daemon.
+
+One JSON file per run under ~/.cbflow/dashboard/runs/<run_id>.json.
+
+Schema:
+  { "run_id":        "<md5(canonical run_dir)[:12]>",
+    "run_dir":       "<absolute canonical path>",
+    "registered_at": "<iso8601>",
+    "last_seen_at":  "<iso8601>",
+    "owner_uid":     <int>,
+    "flow_type":     "<from .run.cbflow.env, cached for display only>",
+    "archived":      false }
+
+Atomic writes via tempfile + os.rename. No global lock — the per-file write
+pattern keeps register/list races benign (workers and the daemon never write
+to the same registry file concurrently in practice).
+"""
+
+import hashlib
+import json
+import os
+import tempfile
+from datetime import datetime
+from pathlib import Path
+
+import state_paths
+
+
+def run_id_for(run_dir):
+    """Canonicalize then hash. Same basis as race_dashboard._get_run_port."""
+    canonical = os.path.realpath(os.path.abspath(run_dir))
+    return hashlib.md5(canonical.encode()).hexdigest()[:12]
+
+
+def _path_for(run_id):
+    return os.path.join(state_paths.runs_dir(), f'{run_id}.json')
+
+
+def _read_env_field(run_dir, key):
+    env_file = os.path.join(run_dir, '.run.cbflow.env')
+    if not os.path.exists(env_file):
+        return ''
+    with open(env_file) as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith('export ') and '=' in line:
+                k, v = line[7:].split('=', 1)
+                if k == key:
+                    return v.strip('"').strip("'")
+    return ''
+
+
+def register(run_dir):
+    """Insert-or-update a run. Returns the registry record.
+
+    When the daemon is in per-project mode (state_paths.get_project() is
+    set), the run's CBFLOW_PROJECT_NAME must match — otherwise this raises
+    ValueError so the caller can tell the user which daemon to use."""
+    canonical = os.path.realpath(os.path.abspath(run_dir))
+    rid = run_id_for(canonical)
+    now = datetime.now().isoformat(timespec='seconds')
+
+    run_project = _read_env_field(canonical, 'CBFLOW_PROJECT_NAME')
+    daemon_project = state_paths.get_project()
+    if daemon_project and run_project and run_project != daemon_project:
+        raise ValueError(
+            f"run's project '{run_project}' doesn't match this daemon's "
+            f"scope '{daemon_project}'. Use the {run_project} daemon: "
+            f"cbflow dashboard register {run_dir} --project {run_project}")
+
+    existing = _load(rid) or {}
+    record = {
+        'run_id': rid,
+        'run_dir': canonical,
+        'registered_at': existing.get('registered_at', now),
+        'last_seen_at': now,
+        'owner_uid': existing.get('owner_uid', os.getuid()),
+        'flow_type': _read_env_field(canonical, 'CBFLOW_FLOW_TYPE') or existing.get('flow_type', ''),
+        'project': run_project or existing.get('project', ''),
+        'design': _read_env_field(canonical, 'CBFLOW_DESIGN_NAME') or existing.get('design', ''),
+        'phase': _read_env_field(canonical, 'CBFLOW_PROJECT_PHASE') or existing.get('phase', ''),
+        'tech': _read_env_field(canonical, 'TECH_NAME') or existing.get('tech', ''),
+        'archived': False,
+    }
+    _atomic_write(rid, record)
+    return record
+
+
+def deregister(run_id_or_dir):
+    """Remove a registry entry by run_id or run_dir. Returns True on delete."""
+    rid = run_id_or_dir
+    if os.sep in run_id_or_dir or '/' in run_id_or_dir:
+        rid = run_id_for(run_id_or_dir)
+    p = _path_for(rid)
+    if os.path.exists(p):
+        os.unlink(p)
+        return True
+    return False
+
+
+def get(run_id):
+    return _load(run_id)
+
+
+def list_all():
+    """Every registry record on disk (active + archived)."""
+    out = []
+    for f in sorted(Path(state_paths.runs_dir()).glob('*.json')):
+        rec = _load(f.stem)
+        if rec:
+            out.append(rec)
+    return out
+
+
+def list_active():
+    return [r for r in list_all() if not r.get('archived')]
+
+
+def mark_archived(run_id, archived=True):
+    rec = _load(run_id)
+    if not rec:
+        return False
+    rec['archived'] = bool(archived)
+    _atomic_write(run_id, rec)
+    return True
+
+
+def touch(run_id):
+    """Bump last_seen_at."""
+    rec = _load(run_id)
+    if not rec:
+        return False
+    rec['last_seen_at'] = datetime.now().isoformat(timespec='seconds')
+    _atomic_write(run_id, rec)
+    return True
+
+
+# ── internals ───────────────────────────────────────────────────────────────
+
+def _load(run_id):
+    p = _path_for(run_id)
+    if not os.path.exists(p):
+        return None
+    try:
+        with open(p) as f:
+            rec = json.load(f)
+    except (OSError, ValueError):
+        return None
+    # ── Self-heal: re-read env on every load when the run_dir exists. ──
+    # Cached values can go stale when a project is renamed (e.g. ravendrive
+    # → bumblebee) or the design/phase changes. We prefer authoritative env
+    # values over cached JSON. If the run_dir is missing, mark the record
+    # as archived+run_dir_exists=false so the dashboard can filter it out.
+    run_dir = rec.get('run_dir', '')
+    changed = False
+    if run_dir and os.path.isdir(run_dir):
+        rec['run_dir_exists'] = True
+        for key, env in (('project', 'CBFLOW_PROJECT_NAME'),
+                         ('design',  'CBFLOW_DESIGN_NAME'),
+                         ('phase',   'CBFLOW_PROJECT_PHASE'),
+                         ('tech',    'TECH_NAME'),
+                         ('flow_type', 'CBFLOW_FLOW_TYPE')):
+            v = _read_env_field(run_dir, env)
+            if v and rec.get(key) != v:
+                rec[key] = v
+                changed = True
+    else:
+        if rec.get('run_dir_exists') is not False:
+            rec['run_dir_exists'] = False
+            rec['archived'] = True
+            changed = True
+    if changed:
+        try:
+            _atomic_write(run_id, rec)
+        except OSError:
+            pass
+    return rec
+
+
+def _atomic_write(run_id, record):
+    p = _path_for(run_id)
+    d = os.path.dirname(p)
+    fd, tmp = tempfile.mkstemp(prefix=f'.{run_id}.', suffix='.json', dir=d)
+    try:
+        with os.fdopen(fd, 'w') as f:
+            json.dump(record, f, indent=2, sort_keys=True)
+        os.chmod(tmp, 0o600)
+        os.rename(tmp, p)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise

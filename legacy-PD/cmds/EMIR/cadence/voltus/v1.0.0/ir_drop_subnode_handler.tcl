@@ -1,0 +1,24 @@
+#!/usr/bin/env tclsh
+# ═══════════════════════════════════════════════════════════════════════════════
+# CBflow EMIR — ir_drop Subnode Handler
+# Subnodes: setup, run, validate, finish (delegated to handler_dispatch)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+source "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/handler_common.tcl"
+source "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/launch_utils.tcl"
+
+lassign [handler_parse_args $argv $argc] subnode_name run_dir node_name
+handler_load_configs $run_dir "EMIR"
+
+set ::flow_type "EMIR"
+set stage_name "ir_drop"
+if {$node_name eq ""} { set node_name "${stage_name}1" }
+
+set _tool_ver [expr {[info exists ::env(VOLTUS_VERSION)] ? $::env(VOLTUS_VERSION) : "v1.0.0"}]
+set cmd_file "$::env(FLOW_DIR)/cmds/EMIR/cadence/voltus/$_tool_ver/ir_drop_voltus.tcl"
+
+set test_mode [handler_is_test_mode]
+set _tool [expr {[info exists ::emir(tool,name)] ? $::emir(tool,name) : "voltus"}]
+
+handler_dispatch $subnode_name $run_dir $::flow_type $node_name $stage_name \
+                 $cmd_file $test_mode $_tool "voltus"

@@ -1,0 +1,332 @@
+#compdef cbflow
+# ══════════════════════════════════════════════════════════════════════════════
+# CBflow v2.0.0 — Zsh Shell Completions (RACE Engine)
+# Source: fpath=($CBFLOW_HOME/completions $fpath) && compinit
+# ══════════════════════════════════════════════════════════════════════════════
+
+_cbflow_flow_types() {
+    local -a flows
+    flows=(SYNTH FP PNR STA LEC EMIR PV ECO CLP POPT FCFP SYNTH_PNR)
+    compadd -a flows
+}
+
+_cbflow_stages() {
+    local -a stages
+    stages=(inputs1 init_design1 synthesis1 place1 cts1 cts_opt1 route1 pro1 signoff1 export_data1 release_data1)
+    compadd -a stages
+}
+
+_cbflow_milestones() {
+    local -a ms
+    ms=(FP_EXIT PLACE_EXIT CTS_EXIT PRO_EXIT BTO MTO)
+    compadd -a ms
+}
+
+_cbflow_phases() {
+    local -a ph
+    ph=(P0 P1 P2 P3)
+    compadd -a ph
+}
+
+_cbflow_templates() {
+    local -a tpl
+    tpl=(run-creation run-status run-summary checklist reminder release-update)
+    compadd -a tpl
+}
+
+_cbflow() {
+    local -a commands
+
+    if (( CURRENT == 2 )); then
+        commands=(
+            'workspace:Workspace management'
+            'run:Flow execution (RACE engine)'
+            'flow:Flow info and management'
+            'smartgenie:AI agent (local LLM)'
+            'bundle:Create customer delivery package'
+            '--version:Show version'
+            '--help:Show help'
+        )
+        _describe 'command' commands
+        return
+    fi
+
+    case "${words[2]}" in
+        workspace)
+            if (( CURRENT == 3 )); then
+                local -a ws_cmds
+                ws_cmds=(
+                    'template:Generate user_config template'
+                    'create:Create workspace and run directory'
+                    'status:Show workspace status'
+                    'list-runs:List all runs'
+                    'clean:Clean workspace'
+                    'validate:Validate workspace'
+                )
+                _describe 'workspace command' ws_cmds
+            else
+                case "${words[3]}" in
+                    template)
+                        case "${words[CURRENT-1]}" in
+                            --flow) _cbflow_flow_types ;;
+                            --output|-o) _files -g '*.tcl' ;;
+                            *) _describe 'option' '(--flow --output -o)' ;;
+                        esac ;;
+                    create)
+                        case "${words[CURRENT-1]}" in
+                            --config|-c) _files -g '*.tcl' ;;
+                            *) _describe 'option' '(--config -c --force)' ;;
+                        esac ;;
+                    clean) _describe 'option' '(--confirm)' ;;
+                esac
+            fi ;;
+
+        run)
+            if (( CURRENT == 3 )); then
+                local -a run_cmds
+                run_cmds=(
+                    'all:Run complete flow'
+                    'stage:Run specific stage'
+                    'status:Show run status'
+                    'retrace:Invalidate jobs for re-execution'
+                    'bypass:Skip stages (mark done without running)'
+                    'force:Force re-run specific stages'
+                    'forcevalidate:Mark stages as already completed'
+                    'interactive:Launch interactive EDA session'
+                    'clean:Clean run directory'
+                    'validate:Validate run'
+                    'logs:View run logs'
+                    'report:Detailed node report'
+                    'show-graph:Show RACE DAG'
+                    'list-nodes:List all nodes'
+                    'add-node:Add custom node'
+                    'delete-node:Delete custom node'
+                    'create-branch:Create flow branch'
+                    'list-branches:List branches'
+                    'delete-branch:Delete branch'
+                    'release:Milestone-gated release'
+                    'release-check:Check chip-level release readiness'
+                    'release-lock:Set production permissions'
+                    'release-info:Show release info'
+                    'targets:List available targets'
+                    'update:Update to release'
+                    'gen-makefile:Verify engine DAG'
+                    'email:Send email notifications'
+                    'autoppt:Generate run summary PPT/HTML'
+                    'checklist:Run exit milestone checklist'
+                    'db-manage:Manage RACE SQLite DB'
+                    'lsf-status:Show LSF job queue'
+                    'gui:Launch web dashboard'
+                    'help:Show help'
+                )
+                _describe 'run command' run_cmds
+            else
+                case "${words[3]}" in
+                    all)           _describe 'option' '(--validate --collect-metrics)' ;;
+                    stage)
+                        case "${words[CURRENT-1]}" in
+                            --name|-n) _cbflow_stages ;;
+                            *) _describe 'option' '(--name -n --validate)' ;;
+                        esac ;;
+                    status)        _describe 'option' '(--details -d --output -o)' ;;
+                    retrace)
+                        case "${words[CURRENT-1]}" in
+                            --from) _cbflow_stages ;;
+                            *) _describe 'option' '(--from --run)' ;;
+                        esac ;;
+                    bypass)
+                        case "${words[CURRENT-1]}" in
+                            --stages|-s) _cbflow_stages ;;
+                            *) _describe 'option' '(--stages -s)' ;;
+                        esac ;;
+                    force)
+                        case "${words[CURRENT-1]}" in
+                            --stages|-s) _cbflow_stages ;;
+                            *) _describe 'option' '(--stages -s)' ;;
+                        esac ;;
+                    forcevalidate)
+                        case "${words[CURRENT-1]}" in
+                            --node|-n|--from|--to) _cbflow_stages ;;
+                            *) _describe 'option' '(--node -n --from --to --stages -s)' ;;
+                        esac ;;
+                    email)
+                        case "${words[CURRENT-1]}" in
+                            --template|-t) _cbflow_templates ;;
+                            *) _describe 'option' '(--to --template -t --subject -s --message -m --due-date --milestone --attach --preview --html)' ;;
+                        esac ;;
+                    autoppt)
+                        case "${words[CURRENT-1]}" in
+                            --format|-f) _describe 'format' '(pptx html)' ;;
+                            *) _describe 'option' '(--format -f --output -o)' ;;
+                        esac ;;
+                    checklist)
+                        case "${words[CURRENT-1]}" in
+                            --milestone|-m) _cbflow_milestones ;;
+                            --phase|-p) _cbflow_phases ;;
+                            --format|-f) _describe 'format' '(text json html)' ;;
+                            *) _describe 'option' '(--milestone -m --phase -p --format -f --list --sign-off --approver --project)' ;;
+                        esac ;;
+                    interactive)
+                        case "${words[CURRENT-1]}" in
+                            --load|-l) _cbflow_stages ;;
+                            *) _describe 'option' '(--load -l)' ;;
+                        esac ;;
+                    show-graph)    _describe 'option' '(--detail -d)' ;;
+                    add-node)      _describe 'option' '(--node -n --type -t --dep -d)' ;;
+                    delete-node)   _describe 'option' '(--node -n)' ;;
+                    create-branch) _describe 'option' '(--branch -b --from)' ;;
+                    delete-branch) _describe 'option' '(--branch -b)' ;;
+                    validate)
+                        case "${words[CURRENT-1]}" in
+                            --type) _describe 'type' '(all config inputs exit)' ;;
+                            --stage) _cbflow_stages ;;
+                            *) _describe 'option' '(--type --stage)' ;;
+                        esac ;;
+                    logs)
+                        case "${words[CURRENT-1]}" in
+                            --level) _describe 'level' '(DEBUG INFO WARNING ERROR)' ;;
+                            *) _describe 'option' '(--list -l --tail --search -s --level --file -f)' ;;
+                        esac ;;
+                    report)        _describe 'option' '(--node -n --dump-setup --no-dump)' ;;
+                    update)        _describe 'option' '(--release -r --no-backup)' ;;
+                    lsf-status)    _describe 'option' '(--flow)' ;;
+                    clean)         _describe 'option' '(--confirm)' ;;
+                esac
+            fi ;;
+
+        flow)
+            if (( CURRENT == 3 )); then
+                local -a flow_cmds
+                flow_cmds=(
+                    'types:List flow types'
+                    'info:Flow information'
+                    'stages:List stages'
+                    'nodes:List nodes'
+                    'check:Check tool availability'
+                    'version:Version management'
+                    'release:Release management'
+                    'config:Configuration management'
+                    'checklist:Checklist management'
+                    'library-manager:Library discovery and lib_config generation'
+                    'mmmc-manager:MMMC config generation and management'
+                    'lsf-manager:LSF resource management'
+                    'plugin:Plugin management'
+                    'dashboard:Web dashboard'
+                    'project:Project management'
+                    'qor-report:QoR reporting'
+                    'trending:QoR trending'
+                )
+                _describe 'flow command' flow_cmds
+            else
+                case "${words[3]}" in
+                    version)
+                        if (( CURRENT == 4 )); then
+                            _describe 'version cmd' '(list copy set-current diff)'
+                        fi ;;
+                    checklist)
+                        if (( CURRENT == 4 )); then
+                            _describe 'checklist cmd' '(generate status sign-off list list-checks add-check remove-check waiver)'
+                        else
+                            case "${words[CURRENT-1]}" in
+                                --milestone)    _cbflow_milestones ;;
+                                --check-type)   _describe 'type' '(mandatory optional file)' ;;
+                                --grep-pass-if) _describe 'mode' '(found not_found)' ;;
+                                --format)       _describe 'format' '(text json html)' ;;
+                                --action)       _describe 'action' '(list add revoke)' ;;
+                                *) _describe 'option' '(--milestone --name --check-type --description --script --criteria --grep-file --grep-pattern --grep-pass-if --file-path --format --run-dir --project --phase --approver --action)' ;;
+                            esac
+                        fi ;;
+                    library-manager)
+                        if (( CURRENT == 4 )); then
+                            local -a lm_cmds
+                            lm_cmds=(
+                                'generate:Generate lib_config.tcl from library directories'
+                                'scan:Scan directory for .lib files'
+                                'create:Generate tech_config library_sets TCL block'
+                                'check:Validate library paths exist on disk'
+                                'list:List configured library sets'
+                                'verify:Verify .lib file headers match filenames'
+                                'coverage:Show track x VT x corner coverage matrix'
+                                'generate-mmmc:Generate MMMC analysis views'
+                            )
+                            _describe 'library-manager command' lm_cmds
+                        else
+                            case "${words[CURRENT-1]}" in
+                                --tech)          _describe 'tech' '(gf_22nm tsmc_5nm tsmc_7nm)' ;;
+                                --lib-root)      _path_files -/ ;;
+                                --stdcell-path)  _path_files -/ ;;
+                                --memory-path)   _path_files -/ ;;
+                                --io-path)       _path_files -/ ;;
+                                --output)        _files -g '*.tcl' ;;
+                                --format)        _describe 'format' '(text json)' ;;
+                                --path)          _path_files -/ ;;
+                                *) _describe 'option' '(--lib-root --tech --version --tracks --vts --stdcell-path --memory-path --io-path --exclude --tag --incremental --output --path --recursive --verbose --format --corner --voltage --temp)' ;;
+                            esac
+                        fi ;;
+                    mmmc-manager)
+                        if (( CURRENT == 4 )); then
+                            local -a mm_cmds
+                            mm_cmds=(
+                                'generate:Generate mmmc_config.tcl (interactive CLI)'
+                                'show:Display current MMMC config'
+                                'validate:Check config consistency'
+                                'add-mode:Add operating mode'
+                                'remove-mode:Remove operating mode'
+                                'add-pvt:Add PVT point to corner'
+                                'remove-pvt:Remove PVT point'
+                                'add-rc:Add RC corner definition'
+                                'set-node:Set node scenario assignments'
+                                'list-views:List all analysis views'
+                                'list-scenarios:List scenarios in a set'
+                                'generate-view-def:Generate Cadence view_definition.tcl'
+                            )
+                            _describe 'mmmc-manager command' mm_cmds
+                        else
+                            case "${words[CURRENT-1]}" in
+                                --tech)          _describe 'tech' '(gf_22nm tsmc_5nm tsmc_7nm)' ;;
+                                --corners)       _describe 'corners' '("ss tt ff")' ;;
+                                --corner)        _describe 'corner' '(ss tt ff sf fs)' ;;
+                                --set)           _describe 'set' '(setup hold signoff power all sta_setup sta_hold sta_signoff)' ;;
+                                --config)        _files -g '*.tcl' ;;
+                                --output)        _files -g '*.tcl' ;;
+                                --node)          _describe 'node' '(init_design floorplan powerplan placement cts cts_opt route post_route signoff synthesis)' ;;
+                                *) _describe 'option' '(--tech --corners --voltages --temperatures --vts --modes --sdc-pattern --track --lib-tag --config --name --sdc --corner --voltage --temperature --node --setup --hold --set --output)' ;;
+                            esac
+                        fi ;;
+                esac
+            fi ;;
+
+        smartgenie)
+            if (( CURRENT == 3 )); then
+                local -a sg_cmds
+                sg_cmds=(
+                    'serve:Start central server'
+                    'setup:Check Ollama + model + KB'
+                    'ingest:Ingest docs + code + EDA guides'
+                    'reingest:Re-ingest all + rebuild server DB'
+                    'search:Search knowledge base'
+                    'stats:Show knowledge base sizes'
+                    'learn:Record experience'
+                    'usage:User stats + maturity levels'
+                    'cloud:Use Claude API'
+                    'code:Launch Claude Code agent'
+                    '--help:Show SmartGenie help'
+                    '--hybrid:Use Claude API hybrid mode'
+                )
+                _describe 'smartgenie command' sg_cmds
+            else
+                case "${words[3]}" in
+                    serve)  _describe 'option' '(--port --host)' ;;
+                    ingest) _describe 'option' '(--all)' ;;
+                    learn)  _describe 'option' '(--category --content)' ;;
+                    search) ;; # free text
+                    --server) ;; # URL
+                esac
+            fi ;;
+
+        bundle)
+            _describe 'option' '(--output --version)' ;;
+    esac
+}
+
+_cbflow

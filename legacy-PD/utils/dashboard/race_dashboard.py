@@ -1,0 +1,2563 @@
+#!/usr/bin/env python3
+"""
+RACE Dashboard — Lightweight web GUI for CBflow flow visualization.
+Zero external dependencies — Python stdlib only (http.server + sqlite3).
+
+Usage:
+    cbflow run dashboard                  # Start at http://localhost:8080
+    cbflow run dashboard --port 9090      # Custom port
+    cbflow run dashboard --no-browser     # Don't auto-open browser
+
+Provides:
+    /           Dashboard overview (stage pipeline, progress, stats)
+    /dag        DAG dependency graph (SVG)
+    /grid       Job grid table (sortable, filterable)
+    /api/status JSON run status
+    /api/dag    JSON DAG structure
+    /api/job/X  JSON job details
+"""
+
+import hashlib
+import http.server
+import json
+import logging
+import os
+import re
+import sqlite3
+import sys
+import threading
+import uuid
+import webbrowser
+from datetime import datetime
+from pathlib import Path
+from urllib.parse import urlparse, parse_qs
+
+logger = logging.getLogger('cbflow.dashboard')
+
+DASHBOARD_DIR = os.path.dirname(os.path.abspath(__file__))
+TEMPLATES_DIR = os.path.join(DASHBOARD_DIR, 'templates')
+STATIC_DIR = os.path.join(DASHBOARD_DIR, 'static')
+COMMANDS_DIR = os.path.join(os.path.dirname(DASHBOARD_DIR), 'commands')
+
+# Ensure commands dir is importable
+if COMMANDS_DIR not in sys.path:
+    sys.path.insert(0, COMMANDS_DIR)
+
+# Thread-safe execution state
+_stop_event = threading.Event()
+_engines_lock = threading.Lock()
+_active_engines = []
+
+# Config key → input type map (canonical, shared between dashboard and engine)
+_INPUT_KEY_TO_TYPE = {
+    'rtl_filelist': 'rtl', 'rtl_file': 'rtl',
+    'sdc_func_file': 'sdc', 'sdc_file': 'sdc',
+    'upf_file': 'upf',
+    'netlist': 'netlist', 'netlist_golden': 'netlist_golden',
+    'netlist_revised': 'netlist_revised',
+    'def_file': 'def', 'gds_file': 'gds', 'spef_file': 'spef',
+    'constraints': 'constraints', 'power_spec': 'power_spec',
+}
+
+
+class RaceDashboard:
+    """Data provider — reads RACE SQLite DB + configs."""
+
+    def __init__(self, run_dir: str):
+        self.run_dir = run_dir
+        self._env_cache = None
+        self.db_path = self._find_db()
+        self.flow_type = ''
+        self._load_run_info()
+        # Auto-initialize engine if DB doesn't exist yet (fresh run)
+        if not os.path.exists(self.db_path):
+            self._init_engine_full()
+
+    # ── Environment & path helpers (single source of truth) ───────────────
+
+    def _load_env(self) -> dict:
+        """Load environment from .run.cbflow.env — cached after first call."""
+        if self._env_cache is not None:
+            return self._env_cache
+        env = {}
+        env_file = os.path.join(self.run_dir, '.run.cbflow.env')
+        if os.path.exists(env_file):
+            with open(env_file) as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith('export ') and '=' in line:
+                        kv = line[7:].split('=', 1)
+                        env[kv[0]] = kv[1].strip('"')
+        self._env_cache = env
+        return env
+
+    @property
+    def flow_dir(self) -> str:
+        """FLOW_DIR from cached env."""
+        return self._load_env().get('FLOW_DIR', '')
+
+    @property
+    def node_config_path(self) -> str:
+        """Path to flow's node_config.tcl file."""
+        ver = self._load_env().get('FLOW_CONFIG_VERSION', 'v1.0.0')
+        return os.path.join(self.flow_dir, 'config', 'flow', ver,
+                            'node_configs', f'{self.flow_type}_config.tcl')
+
+    # ── Engine creation (2 paths only) ────────────────────────────────────
+
+    def _init_engine_full(self):
+        """Initialize RACE engine on first GUI load to create the DB.
+        Full init with reset_stale=True — called ONLY at startup."""
+        try:
+            env = self._load_env()
+            flow_type = env.get('CBFLOW_FLOW_TYPE', '')
+            if not flow_type:
+                return
+            from race_engine import RaceEngine
+            engine = RaceEngine(self.run_dir, flow_type, env)
+            engine.initialize()  # Full init (reset_stale=True default)
+            self.db_path = self._find_db()
+            self.flow_type = flow_type
+        except Exception as e:
+            logger.error(f"Engine init failed: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _get_engine(self):
+        """Get a lightweight RACE engine (reset_stale=False).
+        Used by all API calls and action handlers — never resets active jobs.
+
+        Returns None if the resolved cascade fails post-cascade validation
+        (config_validator.assert_mandatory_vars raises ConfigError). Callers
+        must handle the None case — a broken user_config.tcl should surface
+        as a graceful 4xx from the API rather than a daemon-thread crash.
+        """
+        from race_engine import RaceEngine
+        try:
+            from cbflow_config import ConfigError
+        except ImportError:
+            ConfigError = None
+        try:
+            engine = RaceEngine(self.run_dir, self.flow_type, self._load_env())
+            engine.initialize(reset_stale=False)
+            return engine
+        except Exception as e:
+            # Catch broadly: ConfigError, missing tclsh, corrupt DB pointer,
+            # anything that would kill the caller. Log and let callers decide
+            # whether to surface as 4xx / 5xx / silent no-op.
+            logger.warning(f"_get_engine failed: {type(e).__name__}: {e}")
+            self._last_engine_error = str(e)
+            return None
+
+    # ── DB access ─────────────────────────────────────────────────────────
+
+    def _find_db(self) -> str:
+        """Find the RACE database for this run.
+
+        Resolution order:
+          1. .race_db_pointer file (points to race area DB)
+          2. Local .race_*.db files (legacy fallback)
+          3. Construct default path for new DB creation
+        """
+        import hashlib
+
+        # Priority 1: Pointer file → race area DB
+        pointer_path = os.path.join(self.run_dir, '.race_db_pointer')
+        if os.path.exists(pointer_path):
+            try:
+                with open(pointer_path) as f:
+                    stored_path = f.read().strip()
+                if stored_path and os.path.exists(stored_path):
+                    return stored_path
+            except (OSError, IOError):
+                pass
+
+        # Priority 2: Local DB files (legacy / no race area configured)
+        for f in Path(self.run_dir).glob('.race_*.db'):
+            return str(f)
+
+        # Priority 3: Construct default path for new DB
+        uid = hashlib.md5(os.path.abspath(self.run_dir).encode()).hexdigest()[:6]
+        env = self._load_env()
+        run_name = env.get('CBFLOW_RUN_NAME', '')
+        run_dir_name = os.path.basename(os.path.abspath(self.run_dir))
+        user = os.environ.get('USER', 'unknown')
+        return os.path.join(self.run_dir, f'.race_{run_dir_name}_{user}_{uid}.db')
+
+    def _load_run_info(self):
+        conn = self._connect()
+        if not conn:
+            return
+        try:
+            for key, val in conn.execute('SELECT key, value FROM run_info'):
+                if key == 'flow_type':
+                    self.flow_type = val
+        finally:
+            conn.close()
+
+    def _connect(self):
+        if not os.path.exists(self.db_path):
+            return None
+        return sqlite3.connect(self.db_path)
+
+    # ── File change detection (single implementation) ───────────────────────
+
+    def _check_source_changes(self):
+        """Check if source input files changed since last completion — invalidate affected nodes."""
+        try:
+            conn = self._connect()
+            if not conn:
+                return
+
+            # Skip check if any jobs are currently RUNNING (avoid race with execution)
+            running = conn.execute(
+                "SELECT COUNT(*) FROM jobs WHERE status = 'RUNNING' "
+                "AND id IN (SELECT MAX(id) FROM jobs GROUP BY job_name)").fetchone()
+            if running and running[0] > 0:
+                conn.close()
+                return
+
+            # Read source file paths from user_config using canonical key map
+            source_files = {}
+            user_config = os.path.join(self.run_dir, 'setup', 'user_config.tcl')
+            if os.path.exists(user_config):
+                with open(user_config) as f:
+                    for line in f:
+                        line = line.strip()
+                        m = re.match(r'set\s+\w+\(input,(\w+)\)\s+"([^"]*)"', line)
+                        if m and m.group(2):
+                            input_type = _INPUT_KEY_TO_TYPE.get(m.group(1))
+                            if input_type:
+                                source_files.setdefault(input_type, []).append(m.group(2))
+
+            if not source_files:
+                conn.close()
+                return
+
+            # For each input node, check if source files changed or deleted
+            import time as _time
+            now_ts = _time.time()
+            changed_stages = []
+            for input_type, files in source_files.items():
+                node_name = f'{input_type}1'
+                cur = conn.execute(
+                    "SELECT end_time, status FROM jobs WHERE job_name = ? "
+                    "AND status IN ('DONE','BYPASSED','FORCE_VALIDATED') "
+                    "ORDER BY id DESC LIMIT 1", (node_name,))
+                row = cur.fetchone()
+                if not row or not row[0]:
+                    continue
+
+                try:
+                    done_time = datetime.fromisoformat(row[0]).timestamp()
+                except (ValueError, TypeError):
+                    continue
+
+                # Skip recently force-validated jobs (within 30s) to avoid race condition
+                if row[1] == 'FORCE_VALIDATED' and (now_ts - done_time) < 30:
+                    continue
+
+                for src in files:
+                    try:
+                        if not os.path.exists(src):
+                            changed_stages.append(node_name)
+                            break
+                        elif os.path.getmtime(src) > done_time:
+                            changed_stages.append(node_name)
+                            break
+                    except OSError:
+                        pass
+
+            # Invalidate changed nodes + downstream
+            if changed_stages:
+                for node in changed_stages:
+                    conn.execute("UPDATE jobs SET status = 'INVALIDATED' WHERE job_name = ? AND status IN ('DONE','BYPASSED')", (node,))
+
+                # BFS downstream using dependency edges from node config
+                edges = self._get_dependency_edges()
+                changed_set = set(changed_stages)
+                queue = list(changed_set)
+                visited = set(changed_set)
+                while queue:
+                    cur_stage = queue.pop(0)
+                    for downstream in edges.get(cur_stage, []):
+                        if downstream not in visited:
+                            visited.add(downstream)
+                            queue.append(downstream)
+                            conn.execute(
+                                "UPDATE jobs SET status = 'INVALIDATED' "
+                                "WHERE stage = ? AND status IN ('DONE','BYPASSED')",
+                                (downstream,))
+
+                conn.commit()
+
+            conn.close()
+        except Exception as e:
+            logger.debug(f"Source change check error: {e}")
+
+    def _get_dependency_edges(self) -> dict:
+        """Parse dependency edges from node config. Returns {parent: [children]}."""
+        edges = {}
+        nc_path = self.node_config_path
+        # Also check runtime config for custom nodes
+        rt_path = os.path.join(self.run_dir, 'setup', 'runtime_flow_config.tcl')
+        for path in [nc_path, rt_path]:
+            if path and os.path.exists(path):
+                try:
+                    with open(path) as f:
+                        content = f.read()
+                    for m in re.finditer(r'dependencies,(\w+)\s+\{([^}]*)\}', content):
+                        stage = m.group(1)
+                        for dep in m.group(2).split():
+                            edges.setdefault(dep, []).append(stage)
+                except OSError:
+                    pass
+        return edges
+
+    def get_status(self) -> dict:
+        # Note: source-file change detection used to run here on every call.
+        # That side effect is now driven from the /api/status handler BEFORE
+        # the ETag cache check — if it stayed here, ETag-hit 304 responses
+        # would skip the whole get_status() call and source edits would
+        # never invalidate downstream nodes while the run was idle.
+        conn = self._connect()
+        if not conn:
+            return {'run_info': {}, 'stages': [], 'summary': {}}
+        try:
+            # Run info from DB
+            run_info = {}
+            for key, val in conn.execute('SELECT key, value FROM run_info'):
+                run_info[key] = val
+
+            # Enrich with env data (single read, cached)
+            env = self._load_env()
+            if env.get('CBFLOW_DESIGN_NAME'):
+                run_info['design_name'] = env['CBFLOW_DESIGN_NAME']
+            if env.get('CBFLOW_PROJECT_PHASE'):
+                run_info['phase'] = env['CBFLOW_PROJECT_PHASE']
+            if env.get('CBFLOW_RUN_NAME'):
+                run_info['run_name'] = env['CBFLOW_RUN_NAME']
+
+            # Get tech node info — use TECH_NAME from run env, not glob all tech dirs
+            if self.flow_dir:
+                import glob as _glob
+                tech_name = env.get('TECH_NAME', '')
+                tech_version = env.get('TECH_VERSION', 'v1.0.0')
+                if tech_name:
+                    # Use the specific tech config for this run
+                    tech_dirs = [os.path.join(self.flow_dir, 'config', 'tech', tech_name, tech_version, 'tech_config.tcl')]
+                else:
+                    # Fallback: glob (but this picks wrong tech)
+                    tech_dirs = _glob.glob(os.path.join(self.flow_dir, 'config', 'tech', '*', '*/tech_config.tcl'))
+                for tech_dir in tech_dirs:
+                    try:
+                        with open(tech_dir) as tf:
+                            for line in tf:
+                                if 'tech(node)' in line:
+                                    m = re.search(r'"([^"]+)"', line)
+                                    if m: run_info['tech_node'] = m.group(1)
+                                elif 'tech(foundry)' in line:
+                                    m = re.search(r'"([^"]+)"', line)
+                                    if m: run_info['foundry'] = m.group(1)
+                                elif 'tech(track,default)' in line and 'set ' in line:
+                                    m = re.search(r'"([^"]+)"', line)
+                                    if m and 'track_variant' not in run_info:
+                                        run_info['track_variant'] = m.group(1)
+                                elif 'tech(metal_stack_name)' in line:
+                                    m = re.search(r'"([^"]+)"', line)
+                                    if m: run_info['metal_stack'] = m.group(1)
+                        break  # Use first tech config found
+                    except Exception:
+                        pass
+
+                # Get tool info from node config
+                nc_path = self.node_config_path
+                if os.path.exists(nc_path):
+                    with open(nc_path) as nf:
+                        for line in nf:
+                            if 'tool,vendor' in line:
+                                m = re.search(r'"([^"]+)"', line)
+                                if m: run_info['tool_vendor'] = m.group(1)
+                            elif 'tool,name' in line:
+                                m = re.search(r'"([^"]+)"', line)
+                                if m: run_info['tool_name'] = m.group(1)
+
+                # Get tool module from flow config
+                ver = env.get('FLOW_CONFIG_VERSION', 'v1.0.0')
+                fc_path = os.path.join(self.flow_dir, 'config', 'flow', ver, 'flow_config.tcl')
+                tool_name = run_info.get('tool_name', '')
+                if tool_name and os.path.exists(fc_path):
+                    with open(fc_path) as ff:
+                        for line in ff:
+                            m = re.search(rf'flow\(tool_module,{re.escape(tool_name)}\)\s+"([^"]+)"', line)
+                            if m:
+                                run_info['tool_module'] = m.group(1)
+                                break
+
+            # Stage summary
+            stages = []
+            cur = conn.execute("""
+                SELECT j.stage,
+                    MAX(CASE WHEN j.job_type='stage' THEN j.status END) as stage_status,
+                    COUNT(CASE WHEN o2.job_type='subnode' THEN 1 END) as total,
+                    SUM(CASE WHEN o2.job_type='subnode' AND j.status IN ('DONE','BYPASSED','FORCE_VALIDATED') THEN 1 ELSE 0 END) as done,
+                    SUM(CASE WHEN o2.job_type='subnode' AND j.status='FAIL' THEN 1 ELSE 0 END) as failed,
+                    SUM(CASE WHEN o2.job_type='subnode' THEN j.runtime_sec ELSE 0 END) as runtime,
+                    MIN(CASE WHEN o2.job_type='subnode' THEN j.start_time END) as started,
+                    MAX(CASE WHEN o2.job_type='subnode' THEN j.end_time END) as ended,
+                    SUM(CASE WHEN o2.job_type='subnode' AND j.status='RUNNING' THEN 1 ELSE 0 END) as running,
+                    SUM(CASE WHEN o2.job_type='subnode' AND j.status='PENDING' THEN 1 ELSE 0 END) as pending,
+                    SUM(CASE WHEN o2.job_type='subnode' AND j.status='INVALIDATED' THEN 1 ELSE 0 END) as invalidated
+                FROM jobs j
+                INNER JOIN (SELECT job_name, MAX(id) as mid FROM jobs GROUP BY job_name) g
+                    ON j.job_name = g.job_name AND j.id = g.mid
+                INNER JOIN job_order o2 ON j.job_name = o2.job_name
+                WHERE j.stage IN (SELECT DISTINCT stage FROM job_order)
+                GROUP BY j.stage ORDER BY (SELECT MIN(seq) FROM job_order o WHERE o.stage = j.stage)
+            """)
+            for row in cur:
+                sentinel_status = row[1] or 'READY'
+                total = row[2] or 0
+                done = row[3] or 0
+                failed = row[4] or 0
+
+                # Compute progressive status from subnodes:
+                # - Any FAIL → FAIL
+                # - Any RUNNING → RUNNING
+                # - Any PENDING → PENDING
+                # - All DONE/BYPASSED/FORCE_VALIDATED → DONE (use sentinel)
+                # - Some DONE, rest READY → RUNNING (partial progress)
+                # - All READY → READY
+                # - All INVALIDATED → INVALIDATED
+                running_c = row[8] or 0
+                pending_c = row[9] or 0
+                invalidated_c = row[10] or 0
+
+                if total == 0:
+                    # Leaf node — use its own status directly
+                    status = sentinel_status
+                elif failed > 0:
+                    status = 'FAIL'
+                elif running_c > 0:
+                    status = 'RUNNING'
+                elif done == total and done > 0:
+                    status = sentinel_status  # preserve DONE/BYPASSED/FORCE_VALIDATED
+                elif done > 0 and pending_c > 0:
+                    status = 'RUNNING'
+                elif pending_c > 0:
+                    status = 'PENDING'
+                elif done > 0 and invalidated_c > 0:
+                    status = 'PENDING'  # partial progress + invalidated
+                elif invalidated_c > 0:
+                    status = 'INVALIDATED'
+                elif done > 0 and done < total:
+                    status = 'RUNNING'
+                else:
+                    status = sentinel_status
+
+                ready_count = max(0, total - done - failed - running_c - pending_c - invalidated_c)
+
+                stages.append({
+                    'name': row[0], 'status': status,
+                    'jobs_total': total, 'jobs_done': done, 'jobs_failed': failed,
+                    'jobs_running': running_c, 'jobs_pending': pending_c,
+                    'jobs_invalidated': invalidated_c, 'jobs_ready': ready_count,
+                    'runtime': round(row[5] or 0, 2),
+                    'started': row[6] or '', 'ended': row[7] or '',
+                })
+
+            # Count running jobs from DB
+            running = 0
+            try:
+                rc = conn.execute(
+                    "SELECT COUNT(*) FROM jobs "
+                    "WHERE id IN (SELECT MAX(id) FROM jobs GROUP BY job_name) "
+                    "AND stage IN (SELECT DISTINCT stage FROM job_order) "
+                    "AND status = 'RUNNING'").fetchone()
+                running = rc[0] if rc else 0
+            except Exception:
+                pass
+
+            # Summary
+            total = sum(s['jobs_total'] for s in stages)
+            done = sum(s['jobs_done'] for s in stages)
+            failed = sum(s['jobs_failed'] for s in stages)
+            invalidated = sum(1 for s in stages if s['status'] == 'INVALIDATED')
+            ready = total - done - failed - running
+            # Activity indicator — client uses this to shrink polling interval
+            # while jobs are moving and expand it when the run is idle.
+            pending_total = sum(s.get('jobs_pending', 0) for s in stages)
+            run_activity = 'active' if (running > 0 or pending_total > 0) else 'idle'
+            return {
+                'run_info': run_info,
+                'stages': stages,
+                'run_activity': run_activity,
+                'summary': {
+                    'total': total, 'done': done, 'failed': failed,
+                    'running': running, 'ready': max(0, ready),
+                    'invalidated': invalidated,
+                    'stages_total': len(stages),
+                    'stages_done': sum(1 for s in stages
+                                       if s['status'] in ('DONE', 'BYPASSED', 'FORCE_VALIDATED')),
+                }
+            }
+        finally:
+            conn.close()
+
+    def get_dag(self) -> dict:
+        conn = self._connect()
+        if not conn:
+            return {'nodes': [], 'edges': []}
+        try:
+            nodes = []
+            edges = []
+            cur = conn.execute("""
+                SELECT j.job_name, j.stage, j.subnode, j.job_type, j.status,
+                       j.runtime_sec, j.exit_code, j.error_msg, j.command
+                FROM jobs j
+                INNER JOIN (SELECT job_name, MAX(id) as max_id
+                            FROM jobs GROUP BY job_name) g
+                ON j.job_name = g.job_name AND j.id = g.max_id
+                INNER JOIN job_order o ON j.job_name = o.job_name
+                ORDER BY o.seq
+            """)
+            for row in cur:
+                nodes.append({
+                    'id': row[0], 'stage': row[1], 'subnode': row[2],
+                    'type': row[3], 'status': row[4] or 'READY',
+                    'runtime': round(row[5] or 0, 2),
+                    'exit_code': row[6], 'error': row[7] or '',
+                })
+            # Build stage order from job_order
+            stage_order = []
+            seen = set()
+            for row in conn.execute("SELECT stage FROM job_order WHERE job_type = 'stage' ORDER BY seq"):
+                if row[0] not in seen:
+                    stage_order.append(row[0])
+                    seen.add(row[0])
+
+            # Build edges from actual stage dependencies (from engine DAG)
+            # Read dependencies: each stage sentinel depends on prev stage sentinel
+            stage_deps = {}
+            try:
+                from tcl_config_parser import _load_node_config
+                nc = _load_node_config(self.flow_type, run_dir=self.run_dir)
+                if nc:
+                    for stage in stage_order:
+                        dep_key = f'dependencies,{stage}'
+                        raw = nc.get(dep_key, '')
+                        if raw:
+                            for d in raw.strip('{}').split():
+                                d = d.strip()
+                                if d and d in seen:
+                                    edges.append({'from': d, 'to': stage})
+                                    stage_deps.setdefault(stage, []).append(d)
+                # Custom node deps — resolver sources runtime_flow_config.tcl,
+                # so any cbflow-run-add-node deps surface as stages,<name>,dependencies
+                # entries in the same `nc` dict above.
+                for key, val in nc.items():
+                    if not key.startswith('stages,') or not key.endswith(',dependencies'):
+                        continue
+                    cname = key.split(',')[1]
+                    for cdep in val.split():
+                        if cname in seen and cdep in seen:
+                            edges.append({'from': cdep, 'to': cname})
+                            stage_deps.setdefault(cname, []).append(cdep)
+            except Exception:
+                # Fallback: chain consecutive stages
+                for i in range(1, len(stage_order)):
+                    edges.append({'from': stage_order[i-1], 'to': stage_order[i]})
+
+            # Add subnode-level edges from engine DAG (for parallel subnode layout)
+            try:
+                engine = self._get_engine()
+                for name, job in engine.jobs.items():
+                    if job.job_type == 'subnode' and job.deps:
+                        for dep in job.deps:
+                            # Only add intra-stage subnode deps (not cross-stage)
+                            dep_job = engine.jobs.get(dep)
+                            if dep_job and dep_job.stage == job.stage and dep_job.job_type == 'subnode':
+                                edges.append({'from': dep, 'to': name})
+            except Exception:
+                pass
+
+            # Identify base stages vs custom
+            base_stages = []
+            try:
+                from tcl_config_parser import get_flow_stages
+                base_stages = list(get_flow_stages(self.flow_type, run_dir=self.run_dir))
+            except Exception:
+                base_stages = list(stage_order)
+
+            # Parse branch info from runtime_flow_config.tcl
+            branch_info = {}  # {node_name: {branch_key, branch_name, tag}}
+            branch_meta = {}  # {branch_key: {name, tag}}
+            rtf = os.path.join(self.run_dir, 'setup', 'runtime_flow_config.tcl')
+            if os.path.exists(rtf):
+                try:
+                    with open(rtf) as f:
+                        rtc = f.read()
+                    import re as _re
+                    # Parse branch keys metadata
+                    for m in _re.finditer(r'branch_keys,(\S+),name\s+"([^"]*)"', rtc):
+                        bkey = m.group(1)
+                        branch_meta.setdefault(bkey, {})['name'] = m.group(2)
+                    for m in _re.finditer(r'branch_keys,(\S+),tag\s+"([^"]*)"', rtc):
+                        bkey = m.group(1)
+                        branch_meta.setdefault(bkey, {})['tag'] = m.group(2)
+                    # Parse node → branch_key mappings
+                    for m in _re.finditer(r'stages,(\w+),branch_key\s+(\S+)', rtc):
+                        node, bkey = m.group(1), m.group(2)
+                        meta = branch_meta.get(bkey, {})
+                        branch_info[node] = {
+                            'branch_key': bkey,
+                            'branch_name': meta.get('name', ''),
+                            'branch_tag': meta.get('tag', ''),
+                        }
+                except Exception:
+                    pass
+
+            return {'nodes': nodes, 'edges': edges, 'stage_order': stage_order,
+                    'stage_deps': stage_deps, 'base_stages': base_stages,
+                    'branch_info': branch_info}
+        finally:
+            conn.close()
+
+    def get_job(self, job_name: str) -> dict:
+        conn = self._connect()
+        if not conn:
+            return {}
+        try:
+            cur = conn.execute("""
+                SELECT job_name, stage, subnode, job_type, status, command,
+                       start_time, end_time, runtime_sec, exit_code,
+                       lsf_job_id, lsf_queue, resource_tier, pid,
+                       hostname, error_msg, retry_count
+                FROM jobs WHERE job_name = ? ORDER BY id DESC LIMIT 1
+            """, (job_name,))
+            row = cur.fetchone()
+            if not row:
+                return {}
+            result = {
+                'name': row[0], 'stage': row[1], 'subnode': row[2],
+                'type': row[3], 'status': row[4], 'command': row[5] or '',
+                'start_time': row[6] or '', 'end_time': row[7] or '',
+                'runtime': round(row[8] or 0, 2), 'exit_code': row[9],
+                'lsf_job_id': row[10] or '', 'lsf_queue': row[11] or '',
+                'resource_tier': row[12] or '', 'pid': row[13],
+                'hostname': row[14] or '', 'error_msg': row[15] or '',
+                'retry_count': row[16] or 0,
+            }
+            # Read log tail if available
+            log_path = os.path.join(self.run_dir, 'work', self.flow_type,
+                                     row[1], 'run', f'{row[1].rstrip("0123456789")}.log')
+            if os.path.exists(log_path):
+                try:
+                    with open(log_path) as f:
+                        lines = f.readlines()
+                    result['log_tail'] = [l.rstrip() for l in lines[-50:]]
+                except Exception:
+                    result['log_tail'] = []
+            else:
+                result['log_tail'] = []
+            return result
+        finally:
+            conn.close()
+
+    def get_node_config(self) -> dict:
+        """Get editable config per stage (LSF queue, memory, timeout, version)."""
+        configs = {}
+        # Read tool_launch_config for LSF mappings
+        flow_dir = self.flow_dir
+        flow_ver = self._load_env().get('FLOW_CONFIG_VERSION', 'v1.0.0')
+
+        # Read queue tiers from lsf_config.tcl (single source of truth)
+        # and stage mappings from tool_launch_config.tcl
+        queue_map = {}
+        queue_resources = {}
+
+        lsf_path = os.path.join(flow_dir, 'config', 'flow', flow_ver, 'lsf_config.tcl')
+        if os.path.exists(lsf_path):
+            with open(lsf_path) as f:
+                lsf_content = f.read()
+            # Match both formats: array set block (key "val") and set lsf(key) "val"
+            for m in re.finditer(r'queue_types,(\w+),(\w+)\s+"([^"]+)"', lsf_content):
+                queue_resources.setdefault(m.group(1), {})[m.group(2)] = m.group(3)
+
+        tlc_path = os.path.join(flow_dir, 'config', 'flow', flow_ver, 'tool_launch_config.tcl')
+        if os.path.exists(tlc_path):
+            with open(tlc_path) as f:
+                tlc = f.read()
+            for m in re.finditer(r'flow_mapping,(\w+),(\w+)\)\s+"(\w+)"', tlc):
+                queue_map[f'{m.group(1)}_{m.group(2)}'] = m.group(3)
+            for m in re.finditer(r'queue_types,(\w+),(\w+)\)\s+"([^"]+)"', tlc):
+                queue_resources.setdefault(m.group(1), {})[m.group(2)] = m.group(3)
+
+        # Read node_config for timeouts
+        conn = self._connect()
+        stage_order = []
+        if conn:
+            try:
+                cur = conn.execute("SELECT stage, MIN(seq) as s FROM job_order GROUP BY stage ORDER BY s")
+                stage_order = [r[0] for r in cur]
+            finally:
+                conn.close()
+
+        flow_lower = self.flow_type.lower()
+        for stage in stage_order:
+            stage_base = stage.rstrip('0123456789')
+            tier = queue_map.get(f'{flow_lower}_{stage_base}', 'M')
+            resources = queue_resources.get(tier, {})
+            configs[stage] = {
+                'lsf_queue': tier,
+                'lsf_memory': resources.get('memory', '16GB'),
+                'lsf_cpu': resources.get('cpu', '8'),
+                'lsf_runtime': resources.get('runtime_limit', '4:00'),
+                'timeout': '60',
+                'tool_version': flow_ver,
+            }
+
+            # Check for overrides (type-level then node-level, node wins)
+            for override_name in [stage_base, stage]:
+                override_file = os.path.join(self.run_dir, 'setup',
+                                              f'override_config.{override_name}.tcl')
+                if os.path.exists(override_file):
+                    with open(override_file) as f:
+                        for line in f:
+                            if 'memory' in line:
+                                m = re.search(r'"([^"]+)"', line)
+                                if m: configs[stage]['lsf_memory'] = m.group(1)
+                            if 'cpu' in line:
+                                m = re.search(r'"([^"]+)"', line)
+                                if m: configs[stage]['lsf_cpu'] = m.group(1)
+
+        # Read timeouts from node_config
+        nc_path = os.path.join(flow_dir, 'config', 'flow', flow_ver,
+                                'node_configs', f'{self.flow_type}_config.tcl')
+        if os.path.exists(nc_path):
+            with open(nc_path) as f:
+                nc = f.read()
+            for stage in stage_order:
+                m = re.search(rf'runtime,timeout,{stage}\s+(\d+)', nc)
+                if m:
+                    configs[stage]['timeout'] = m.group(1)
+
+        # Read tool module versions from flow_config (single source of truth)
+        tool_modules = {}
+        fc_path = os.path.join(flow_dir, 'config', 'flow', flow_ver, 'flow_config.tcl')
+        if os.path.exists(fc_path):
+            with open(fc_path) as f:
+                for line in f:
+                    m = re.search(r'flow\(tool_module,(\w+)\)\s+"([^"]+)"', line)
+                    if m:
+                        tool_modules[m.group(1)] = m.group(2)
+
+        # Get the tool name for this flow from node config
+        flow_tool = ''
+        if nc_path and os.path.exists(nc_path):
+            with open(nc_path) as f:
+                nc_content = f.read()
+            m = re.search(r'tool,name\s+"([^"]+)"', nc_content)
+            if m:
+                flow_tool = m.group(1)
+
+        # Set tool_module per stage
+        for stage in stage_order:
+            if flow_tool and flow_tool in tool_modules:
+                configs[stage]['tool_module'] = tool_modules[flow_tool]
+            # Check override
+            stage_base = stage.rstrip('0123456789')
+            override_file = os.path.join(self.run_dir, 'setup',
+                                          f'override_config.{stage_base}.tcl')
+            if os.path.exists(override_file):
+                with open(override_file) as f:
+                    for line in f:
+                        if 'tool_module' in line:
+                            m = re.search(r'"([^"]+)"', line)
+                            if m: configs[stage]['tool_module'] = m.group(1)
+
+        # Read available flow stages from node_config
+        available_stages = stage_order
+
+        return {
+            'stages': configs,
+            'queue_tiers': sorted(queue_resources.keys()),
+            'queue_resources': queue_resources,
+            'tool_modules': tool_modules,
+            'flow_tool': flow_tool,
+            'available_stages': available_stages,
+            'flow_type': self.flow_type,
+        }
+
+    def get_node_full_config(self, stage: str) -> dict:
+        """Get ALL config variables for a node from all config sources.
+        Parses 6 config files, filters by node name/type, groups by category."""
+        if not stage:
+            return {'error': 'stage required', 'categories': {}}
+
+        stage_base = re.sub(r'\d+(_\w+)?$', '', stage)
+        flow_lower = self.flow_type.lower()
+        flow_upper = self.flow_type.upper()
+        ver = self._load_env().get('FLOW_CONFIG_VERSION', 'v1.0.0')
+        config_dir = os.path.join(self.flow_dir, 'config', 'flow', ver)
+        categories = {}  # {category_name: [{key, value, source}]}
+
+        def _add(cat, key, value, source='config'):
+            categories.setdefault(cat, []).append({
+                'key': key, 'value': str(value).strip(), 'source': source})
+
+        def _parse_array_keys(filepath, match_fn):
+            """Parse TCL array set blocks, return matching key-value pairs."""
+            results = []
+            if not os.path.exists(filepath):
+                return results
+            with open(filepath) as f:
+                content = f.read()
+            for m in re.finditer(r'^\s+([\w,]+)\s+(?:\{([^}]*)\}|"([^"]*)"|([\w./\-]+))\s*$',
+                                 content, re.MULTILINE):
+                key = m.group(1)
+                value = m.group(2) or m.group(3) or m.group(4) or ''
+                if match_fn(key):
+                    results.append((key, value.strip()))
+            return results
+
+        def _parse_set_stmts(filepath, match_fn):
+            """Parse TCL set statements, return matching key-value pairs."""
+            results = []
+            if not os.path.exists(filepath):
+                return results
+            with open(filepath) as f:
+                for line in f:
+                    line = line.strip()
+                    m = re.match(r'set\s+(\S+)\s+"([^"]*)"', line)
+                    if m and match_fn(m.group(1)):
+                        results.append((m.group(1), m.group(2)))
+            return results
+
+        # ── 1. Node Config (SYNTH_PNR_config.tcl) ──
+        nc_path = self.node_config_path
+        for key, val in _parse_array_keys(nc_path,
+                lambda k: stage in k or stage_base in k):
+            _add('Node Config', key, val)
+
+        # ── 2. LSF & Resources (lsf_config.tcl + tool_launch_config.tcl) ──
+        lsf_path = os.path.join(config_dir, 'lsf_config.tcl')
+        tlc_path = os.path.join(config_dir, 'tool_launch_config.tcl')
+        # Find queue tier for this node
+        queue_tier = 'M'
+        for key, val in _parse_array_keys(lsf_path,
+                lambda k: flow_lower in k.lower() and stage_base in k.lower()):
+            queue_tier = val
+            _add('LSF & Resources', f'queue_tier ({stage_base})', val)
+        for key, val in _parse_array_keys(tlc_path,
+                lambda k: flow_lower in k.lower() and stage_base in k.lower()):
+            if val != queue_tier:
+                queue_tier = val
+            _add('LSF & Resources', f'queue_mapping ({stage_base})', val)
+        # Get queue tier details
+        for key, val in _parse_array_keys(lsf_path,
+                lambda k: k.startswith(f'queue_types,{queue_tier},')):
+            prop = key.split(',')[-1]
+            _add('LSF & Resources', f'{queue_tier}.{prop}', val)
+
+        # ── 3. Tool Config (<tool>_config.tcl) ──
+        # Find the tool config file from cmds/<flow>/<vendor>/<tool>/v1.0.0/<tool>_config.tcl
+        tool_vendor = ''
+        tool_name = ''
+        nc_path2 = self.node_config_path
+        if os.path.exists(nc_path2):
+            with open(nc_path2) as f:
+                for line in f:
+                    if 'tool,vendor' in line:
+                        m2 = re.search(r'"([^"]+)"', line)
+                        if m2: tool_vendor = m2.group(1)
+                    elif 'tool,name' in line:
+                        m2 = re.search(r'"([^"]+)"', line)
+                        if m2: tool_name = m2.group(1)
+
+        if tool_vendor and tool_name:
+            tool_config_dir = os.path.join(self.flow_dir, 'cmds', flow_upper,
+                                           tool_vendor, tool_name, ver)
+            tool_config_file = os.path.join(tool_config_dir, f'{tool_name}_config.tcl')
+            if os.path.exists(tool_config_file):
+                for key, val in _parse_array_keys(tool_config_file,
+                        lambda k: stage_base in k or k.startswith('common,')):
+                    _add('Tool Config', key, val, 'tool_config')
+            # Also check for fc_config.tcl (Synopsys FC naming)
+            elif os.path.exists(os.path.join(tool_config_dir, 'fc_config.tcl')):
+                for key, val in _parse_array_keys(
+                        os.path.join(tool_config_dir, 'fc_config.tcl'),
+                        lambda k: stage_base in k or k.startswith('common,')):
+                    _add('Tool Config', key, val, 'tool_config')
+
+        # ── 3b. Flow Settings (flow_config.tcl) ──
+        fc_path = os.path.join(config_dir, 'flow_config.tcl')
+        for key, val in _parse_set_stmts(fc_path,
+                lambda k: 'flow(use_lsf)' in k or 'flow(use_xterm)' in k or
+                           'flow(tool_module' in k or 'flow(tool_name' in k or
+                           'flow(tool_vendor' in k):
+            _add('Flow Settings', key, val)
+
+        # ── 4. Exit Criteria (release_config.tcl) ──
+        rc_path = os.path.join(config_dir, 'release_config.tcl')
+        stage_upper = stage_base.upper()
+        for key, val in _parse_array_keys(rc_path,
+                lambda k: flow_upper in k and stage_upper in k):
+            _add('Exit Criteria', key, val)
+
+        # ── 5. Apply overrides ──
+        overrides = {}
+        for pattern in [f'override_config.{stage_base}.tcl',
+                        f'override_config.{stage}.tcl']:
+            override_file = os.path.join(self.run_dir, 'setup', pattern)
+            if os.path.exists(override_file):
+                with open(override_file) as f:
+                    for line in f:
+                        line = line.strip()
+                        m = re.match(r'set\s+(\S+)\s+"([^"]*)"', line)
+                        if m:
+                            overrides[m.group(1)] = m.group(2)
+
+        # Mark overridden values
+        for cat_vars in categories.values():
+            for var in cat_vars:
+                for okey, oval in overrides.items():
+                    if var['key'] in okey or okey.endswith(var['key']):
+                        var['value'] = oval
+                        var['source'] = 'override'
+
+        # Add override-only variables
+        all_keys = {v['key'] for vs in categories.values() for v in vs}
+        for okey, oval in overrides.items():
+            if okey not in all_keys:
+                _add('Overrides', okey, oval, 'override')
+
+        return {
+            'stage': stage,
+            'stage_base': stage_base,
+            'flow_type': self.flow_type,
+            'categories': categories,
+        }
+
+    def get_mmmc_scenarios(self) -> dict:
+        """Read MMMC config — all scenarios, scenario sets, and per-node
+        assignments — via the cascade resolver (so user_config overrides take
+        effect)."""
+        env = self._load_env()
+        flow_type = env.get('FLOW_TYPE', env.get('CBFLOW_FLOW_TYPE', 'SYNTH_PNR'))
+
+        try:
+            # Resolve through cbflow_config so the schema check and cache apply.
+            import sys as _sys
+            cmds_dir = os.path.join(self.flow_dir, 'utils', 'commands')
+            if cmds_dir not in _sys.path:
+                _sys.path.insert(0, cmds_dir)
+            import cbflow_config as _cbc
+            cfg = _cbc.load_resolved_config(flow_type, self.run_dir, env=env)
+        except Exception as e:
+            return {'error': str(e), 'scenarios': [], 'nodes': {}, 'sets': {}}
+
+        # Build scenarios from resolved analysis_view_names
+        all_scenarios = []
+        view_names = (_cbc.optional(cfg, 'analysis_view_names') or '').split()
+        for name in view_names:
+            # Parse scenario name: <mode>_<corner>_<voltage>_<rc>_<temperature>
+            parts = name.split('_')
+            if len(parts) >= 5:
+                mode = parts[0]
+                corner = parts[1]
+                voltage = parts[2]
+                temp = parts[-1]
+                atype = 'setup' if corner == 'ss' else ('hold' if corner == 'ff' else 'setup_hold')
+                all_scenarios.append({
+                    'name': name, 'corner': corner, 'mode': mode,
+                    'voltage': voltage, 'temp': temp, 'type': atype,
+                })
+
+        # Build scenario sets from resolved config
+        sets = {}
+        for key, val in cfg.items():
+            if key.startswith('mmmc_scenario_set,'):
+                set_name = key.split(',', 1)[1]
+                sets[set_name] = {'scenarios': val.split(), 'description': set_name}
+
+        # Parse per-node assignments from mmmc_config (node → setup/hold)
+        nodes = {}
+        ver = env.get('FLOW_CONFIG_VERSION', 'v1.0.0')
+        mmmc_path = os.path.join(self.flow_dir, 'config', 'flow', ver, 'mmmc_config.tcl')
+        if os.path.exists(mmmc_path):
+            with open(mmmc_path) as f:
+                content = f.read()
+            for m in re.finditer(r'(\w+)\s*\{\s*setup\s*\{([^}]*)\}\s*hold\s*\{([^}]*)\}', content):
+                node = m.group(1)
+                if node in sets:
+                    continue
+                nodes[node] = {'setup': m.group(2).split(), 'hold': m.group(3).split()}
+
+        # Add flow_type and current dynamic subnodes from DB (for STA)
+        flow_type = env.get('FLOW_TYPE', env.get('CBFLOW_FLOW_TYPE', ''))
+        active_subnodes = {}
+        try:
+            import sqlite3 as _sql
+            for db_file in sorted(Path(self.run_dir).glob('.race_*.db')):
+                conn = _sql.connect(str(db_file))
+                for row in conn.execute("SELECT DISTINCT stage, subnode FROM jobs WHERE subnode NOT IN ('_sentinel','setup','run','validate','finish') AND stage LIKE '%timing%' OR stage LIKE '%extraction%'"):
+                    stage = row[0]
+                    if stage not in active_subnodes:
+                        active_subnodes[stage] = []
+                    active_subnodes[stage].append(row[1])
+                conn.close()
+                break
+        except Exception:
+            pass
+
+        return {
+            'scenarios': all_scenarios,
+            'sets': sets,
+            'nodes': nodes,
+            'flow_type': flow_type,
+            'active_subnodes': active_subnodes,
+        }
+
+    def get_input_vars(self, node_name: str) -> dict:
+        """Get input variables for a leaf input node from user_config.tcl."""
+        variables = {}
+        node_base = node_name.rstrip('0123456789')  # rtl1 → rtl, sdc1 → sdc
+        flow_lower = self.flow_type.lower()
+
+        user_config = os.path.join(self.run_dir, 'setup', 'user_config.tcl')
+        if os.path.exists(user_config):
+            with open(user_config) as f:
+                for line in f:
+                    line = line.strip()
+                    # Match patterns like: set synth_pnr(input,rtl_filelist) "path"
+                    # or set sta(input,netlist) "path"
+                    m = re.match(r'set\s+(\w+\([^)]*\))\s+"([^"]*)"', line)
+                    if m:
+                        key = m.group(1)
+                        val = m.group(2)
+                        # Check if this variable relates to this input node type
+                        key_lower = key.lower()
+                        if node_base in key_lower or f'input,{node_base}' in key_lower:
+                            variables[key] = val
+                        # Also match generic input variables (netlist, sdc, upf, etc.)
+                        elif f'input,{node_base}_' in key_lower or f',{node_base}' in key_lower:
+                            variables[key] = val
+
+        return {'node': node_name, 'type': node_base, 'variables': variables}
+
+    def get_all_jobs(self) -> list:
+        conn = self._connect()
+        if not conn:
+            return []
+        try:
+            jobs = []
+            cur = conn.execute("""
+                SELECT j.job_name, j.stage, j.subnode, j.job_type, j.status,
+                       j.runtime_sec, j.exit_code, j.hostname, j.lsf_job_id, j.error_msg
+                FROM jobs j
+                INNER JOIN (SELECT job_name, MAX(id) as max_id
+                            FROM jobs GROUP BY job_name) g
+                ON j.job_name = g.job_name AND j.id = g.max_id
+                INNER JOIN job_order o ON j.job_name = o.job_name
+                ORDER BY o.seq
+            """)
+            for row in cur:
+                jobs.append({
+                    'name': row[0], 'stage': row[1], 'subnode': row[2],
+                    'type': row[3], 'status': row[4] or 'READY',
+                    'runtime': round(row[5] or 0, 2), 'exit_code': row[6],
+                    'hostname': row[7] or '', 'lsf_job_id': row[8] or '',
+                    'error': row[9] or '',
+                })
+            return jobs
+        finally:
+            conn.close()
+
+
+class DashboardHandler(http.server.SimpleHTTPRequestHandler):
+    """HTTP request handler for RACE GUI."""
+
+    dashboard = None  # Set by server
+
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip('/')
+
+        if path == '' or path == '/':
+            self._serve_template('dashboard.html')
+        elif path == '/dag':
+            self._serve_template('dag.html')
+        elif path == '/grid':
+            self._serve_template('grid.html')
+        elif path == '/api/status':
+            # Source-change detection MUST run before the ETag check so an
+            # edit to user_config.tcl invalidates the affected jobs (which
+            # bumps DB mtime, which changes the ETag). If we only ran it
+            # inside get_status(), an ETag hit would 304 and the
+            # invalidation never fires while the run is idle.
+            source_check_error = None
+            try:
+                self.dashboard._check_source_changes()
+            except Exception as e:
+                # A silently-eaten exception here defeats the whole point
+                # of the invalidation restore: 304 responses persist and
+                # source edits never propagate. Log at ERROR and expose
+                # the exception so the endpoint returns fresh (skip cache)
+                # AND the client sees a hint in the payload. Force
+                # `no_cache=True` so the ETag branch doesn't 304 on stale
+                # state that failed to be invalidated.
+                source_check_error = str(e)
+                logger.error(
+                    f"_check_source_changes raised — invalidation not "
+                    f"performed for this poll; forcing fresh response: {e}",
+                    exc_info=True)
+            self._json_response_cached(
+                self.dashboard.get_status,
+                no_cache=source_check_error is not None,
+                extra={'_source_check_error': source_check_error}
+                       if source_check_error else None)
+        elif path == '/api/dag':
+            self._json_response_cached(self.dashboard.get_dag)
+        elif path == '/api/jobs':
+            self._json_response_cached(self.dashboard.get_all_jobs)
+        elif path.startswith('/api/job/'):
+            job_name = path[len('/api/job/'):]
+            self._json_response(self.dashboard.get_job(job_name))
+        elif path == '/api/node-config':
+            self._json_response(self.dashboard.get_node_config())
+        elif path.startswith('/api/node-full-config'):
+            stage = parse_qs(parsed.query).get('stage', [''])[0]
+            self._json_response(self.dashboard.get_node_full_config(stage))
+        elif path == '/api/mmmc-scenarios':
+            self._json_response(self.dashboard.get_mmmc_scenarios())
+        elif path.startswith('/api/input-vars/'):
+            node_name = path[len('/api/input-vars/'):]
+            self._json_response(self.dashboard.get_input_vars(node_name))
+        elif path.startswith('/api/log/'):
+            job_name = path[len('/api/log/'):]
+            self._serve_log(job_name)
+        elif path == '/api/design-info':
+            rows = self._query_db_table('design_info')
+            data = {r['key']: r['value'] for r in rows} if rows else {}
+            self._json_response(data)
+        elif path == '/api/checklist-results':
+            params = parse_qs(parsed.query)
+            filters = {}
+            if 'milestone' in params:
+                filters['milestone'] = params['milestone'][0]
+            self._json_response(self._query_db_table('checklist_results', filters))
+        elif path == '/api/release-info':
+            self._json_response(self._query_db_table('release_info'))
+        elif path == '/api/lsf-details':
+            params = parse_qs(parsed.query)
+            filters = {}
+            if 'job_name' in params:
+                filters['job_name'] = params['job_name'][0]
+            self._json_response(self._query_db_table('lsf_details', filters))
+        elif path == '/api/lsf-summary':
+            try:
+                conn = sqlite3.connect(self.dashboard.db_path)
+                row = conn.execute(
+                    'SELECT COALESCE(SUM(cost), 0) AS total_cost, '
+                    'COALESCE(MAX(peak_memory_mb), 0) AS peak_memory_mb, '
+                    'COALESCE(AVG(runtime_sec), 0) AS avg_runtime_sec, '
+                    'COUNT(*) AS total_jobs '
+                    'FROM lsf_details'
+                ).fetchone()
+                conn.close()
+                self._json_response({
+                    'total_cost': row[0],
+                    'peak_memory_mb': row[1],
+                    'avg_runtime_sec': round(row[2], 2),
+                    'total_jobs': row[3],
+                })
+            except Exception:
+                self._json_response({
+                    'total_cost': 0, 'peak_memory_mb': 0,
+                    'avg_runtime_sec': 0, 'total_jobs': 0,
+                })
+        elif path == '/api/metrics':
+            params = parse_qs(parsed.query)
+            filters = {}
+            if 'stage' in params:
+                filters['stage'] = params['stage'][0]
+            if 'category' in params:
+                filters['category'] = params['category'][0]
+            self._json_response(self._query_db_table('metrics_snapshot', filters))
+        elif path == '/api/logs':
+            try:
+                conn = sqlite3.connect(self.dashboard.db_path)
+                conn.row_factory = sqlite3.Row
+                rows = [dict(r) for r in conn.execute('SELECT * FROM run_logs').fetchall()]
+                conn.close()
+                # Add error/warning counts
+                error_count = sum(1 for r in rows if r.get('level', '').upper() in ('ERROR', 'FATAL'))
+                warning_count = sum(1 for r in rows if r.get('level', '').upper() in ('WARNING', 'WARN'))
+                self._json_response({
+                    'logs': rows,
+                    'error_count': error_count,
+                    'warning_count': warning_count,
+                })
+            except Exception:
+                self._json_response({'logs': [], 'error_count': 0, 'warning_count': 0})
+        elif path == '/api/config-history':
+            self._json_response(self._query_db_table('config_history'))
+        elif path == '/api/run-summary':
+            try:
+                conn = sqlite3.connect(self.dashboard.db_path)
+                conn.row_factory = sqlite3.Row
+                # Owner info from run_info
+                run_info = {}
+                try:
+                    for r in conn.execute('SELECT key, value FROM run_info'):
+                        run_info[r['key']] = r['value']
+                except Exception:
+                    pass
+                # Design info
+                design_info = {}
+                try:
+                    for r in conn.execute('SELECT key, value FROM design_info'):
+                        design_info[r['key']] = r['value']
+                except Exception:
+                    pass
+                # Stage counts from jobs
+                stage_counts = {'total': 0, 'done': 0, 'failed': 0, 'running': 0, 'pending': 0}
+                try:
+                    row = conn.execute(
+                        "SELECT COUNT(*) AS total, "
+                        "SUM(CASE WHEN status IN ('DONE','BYPASSED','FORCE_VALIDATED') THEN 1 ELSE 0 END) AS done, "
+                        "SUM(CASE WHEN status = 'FAIL' THEN 1 ELSE 0 END) AS failed, "
+                        "SUM(CASE WHEN status = 'RUNNING' THEN 1 ELSE 0 END) AS running, "
+                        "SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) AS pending "
+                        "FROM jobs WHERE id IN (SELECT MAX(id) FROM jobs GROUP BY job_name)"
+                    ).fetchone()
+                    if row:
+                        stage_counts = {
+                            'total': row['total'] or 0,
+                            'done': row['done'] or 0,
+                            'failed': row['failed'] or 0,
+                            'running': row['running'] or 0,
+                            'pending': row['pending'] or 0,
+                        }
+                except Exception:
+                    pass
+                # Total cost from lsf_details
+                total_cost = 0
+                try:
+                    cost_row = conn.execute('SELECT COALESCE(SUM(cost), 0) FROM lsf_details').fetchone()
+                    if cost_row:
+                        total_cost = cost_row[0]
+                except Exception:
+                    pass
+                conn.close()
+                self._json_response({
+                    'run_info': run_info,
+                    'design_info': design_info,
+                    'stage_counts': stage_counts,
+                    'total_cost': total_cost,
+                })
+            except Exception:
+                self._json_response({
+                    'run_info': {}, 'design_info': {},
+                    'stage_counts': {}, 'total_cost': 0,
+                })
+        elif path == '/api/ownership':
+            try:
+                conn = sqlite3.connect(self.dashboard.db_path)
+                owner = ''
+                owner_uid = ''
+                try:
+                    row = conn.execute("SELECT value FROM run_info WHERE key = 'owner'").fetchone()
+                    if row:
+                        owner = row[0]
+                    row = conn.execute("SELECT value FROM run_info WHERE key = 'owner_uid'").fetchone()
+                    if row:
+                        owner_uid = row[0]
+                except Exception:
+                    pass
+                conn.close()
+                is_owner = True
+                if owner_uid:
+                    try:
+                        is_owner = (os.getuid() == int(owner_uid))
+                    except (ValueError, TypeError):
+                        is_owner = False
+                self._json_response({
+                    'owner': owner,
+                    'owner_uid': owner_uid,
+                    'is_owner': is_owner,
+                })
+            except Exception:
+                self._json_response({
+                    'owner': '', 'owner_uid': '', 'is_owner': False,
+                })
+        elif path.startswith('/static/'):
+            self._serve_static(path[len('/static/'):])
+        else:
+            self.send_error(404)
+
+    def do_POST(self):
+        """Handle all GUI actions — node operations, config edits, execution."""
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip('/')
+        body = self._read_body()
+
+        try:
+            if path == '/api/action/run':
+                result = self._action_run(body)
+            elif path == '/api/action/run-stage':
+                result = self._action_run_stage(body)
+            elif path == '/api/action/run-to-subnode':
+                result = self._action_run_to_subnode(body)
+            elif path == '/api/action/retrace':
+                result = self._action_retrace(body)
+            elif path == '/api/action/bypass':
+                result = self._action_bypass(body)
+            elif path == '/api/action/force':
+                result = self._action_force(body)
+            elif path == '/api/action/forcevalidate':
+                result = self._action_forcevalidate(body)
+            elif path == '/api/action/interactive':
+                result = self._action_interactive(body)
+            elif path == '/api/action/save-mmmc':
+                result = self._action_save_mmmc(body)
+            elif path == '/api/action/stop':
+                result = self._action_stop(body)
+            elif path == '/api/action/force-stop':
+                result = self._action_force_stop(body)
+            elif path == '/api/action/add-node':
+                result = self._action_add_node(body)
+            elif path == '/api/action/delete-node':
+                result = self._action_delete_node(body)
+            elif path == '/api/action/save-node-config':
+                result = self._action_save_node_full_config(body)
+            elif path == '/api/action/delete-branch':
+                result = self._action_delete_branch(body)
+            elif path == '/api/action/rename-node':
+                result = self._action_rename_node(body)
+            elif path == '/api/action/create-branch':
+                result = self._action_create_branch(body)
+            elif path == '/api/node-config':
+                result = self._action_update_node_config(body)
+            elif path.startswith('/api/input-vars/'):
+                node_name = path[len('/api/input-vars/'):]
+                result = self._action_save_input_vars(node_name, body)
+            else:
+                self._json_response({'error': f'Unknown action: {path}'}, 404)
+                return
+            self._json_response(result)
+        except PermissionError as e:
+            self._json_response({'ok': False, 'error': str(e)}, 403)
+        except Exception as e:
+            self._json_response({'error': str(e)}, 500)
+
+    # Cap on request body size (bytes). Prevents Content-Length-based
+    # memory-exhaust DoS: prior code did `int(self.headers.get('Content-Length',0))`
+    # then `self.rfile.read(length)` unconditionally, so a header of
+    # 999999999 would allocate ~1GB per request. 1 MB is well above
+    # any legitimate dashboard mutation (add-node body ~500 bytes,
+    # save-node-config with 50 vars ~5 KB).
+    _MAX_BODY_BYTES = 1_000_000
+
+    def _read_body(self) -> dict:
+        raw = self.headers.get('Content-Length', '0')
+        try:
+            length = int(raw)
+        except (TypeError, ValueError):
+            length = 0
+        if length < 0 or length > self._MAX_BODY_BYTES:
+            # Refuse the read; leave the socket for the outer handler
+            # to close. Raise ValueError so do_POST's exception guard
+            # returns a 400 rather than a hung connection or 500.
+            raise ValueError(
+                f'request body too large or invalid Content-Length: {raw}')
+        if length > 0:
+            return json.loads(self.rfile.read(length))
+        return {}
+
+    # ── Ownership check for non-engine actions ────────────────────────────
+
+    def _check_run_ownership(self):
+        """Check if current user owns this run. Raises PermissionError if not."""
+        db_path = self.dashboard.db_path
+        if not db_path or not os.path.exists(db_path):
+            return
+        conn = sqlite3.connect(db_path)
+        row = conn.execute("SELECT value FROM run_info WHERE key = 'owner_uid'").fetchone()
+        conn.close()
+        if row:
+            owner_uid = int(row[0])
+            if os.getuid() != owner_uid:
+                conn2 = sqlite3.connect(db_path)
+                owner_row = conn2.execute("SELECT value FROM run_info WHERE key = 'owner'").fetchone()
+                conn2.close()
+                owner_name = owner_row[0] if owner_row else 'unknown'
+                raise PermissionError(
+                    f"Run owned by '{owner_name}' — only the owner can modify this run"
+                )
+
+    # ── Action Handlers ──────────────────────────────────────────────────
+
+    def _action_run(self, body):
+        """Run complete flow (cbflow run all)."""
+        return self._exec_engine('all')
+
+    def _action_run_stage(self, body):
+        """Run specific stage."""
+        stage = body.get('stage', '')
+        if not stage:
+            return {'error': 'stage required'}
+        return self._exec_engine(stage)
+
+    def _action_run_to_subnode(self, body):
+        """Run up to a specific subnode only (not the full stage)."""
+        stage = body.get('stage', '')
+        subnode = body.get('subnode', '')
+        if not stage or not subnode:
+            return {'error': 'stage and subnode required'}
+
+        def run():
+            engine = self._get_engine()
+            if engine is None:
+                logger.error(
+                    f"_action_run_to_subnode: engine init failed — "
+                    f"cannot run up to {subnode}")
+                return
+            # Collect only the target subnode and its upstream deps within this stage
+            target_jobs = set()
+            target_jobs.add(subnode)
+            # Walk deps upward
+            visited = set()
+            stack = [subnode]
+            while stack:
+                name = stack.pop()
+                if name in visited:
+                    continue
+                visited.add(name)
+                target_jobs.add(name)
+                job = engine.jobs.get(name)
+                if job:
+                    for dep in job.deps:
+                        stack.append(dep)
+            engine.execute_jobs(target_jobs)
+
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        return {'ok': True, 'message': f'Running up to {subnode}', 'async': True}
+
+    def _action_retrace(self, body):
+        """Retrace from stage or all. Updates active engine if one is running."""
+        from_stage = body.get('from_stage', '')
+        # Use active running engine if available (so in-memory state is updated)
+        engine = self._get_active_or_new_engine()
+        if engine is None:
+            return {'ok': False,
+                    'error': 'engine unavailable — check user_config.tcl and daemon logs'}
+        if from_stage:
+            engine.retrace(from_stage=from_stage)
+            return {'ok': True, 'message': f'Retraced from {from_stage}'}
+        else:
+            engine.retrace()
+            return {'ok': True, 'message': 'Full retrace complete'}
+
+    def _action_bypass(self, body):
+        """Bypass stages or specific jobs. Updates active engine if one is running."""
+        engine = self._get_active_or_new_engine()
+        if engine is None:
+            return {'ok': False,
+                    'error': 'engine unavailable — check user_config.tcl and daemon logs'}
+        jobs = body.get('jobs', [])
+        if jobs:
+            if isinstance(jobs, str):
+                jobs = [jobs]
+            engine.bypass_jobs(jobs)
+            return {'ok': True, 'message': f'Bypassed: {", ".join(jobs)}'}
+        stages = body.get('stages', [])
+        if isinstance(stages, str):
+            stages = [stages]
+        engine.bypass(stages)
+        return {'ok': True, 'message': f'Bypassed: {", ".join(stages)}'}
+
+    def _action_force(self, body):
+        """Force re-run stages (background thread)."""
+        _stop_event.clear()
+        stages = body.get('stages', [])
+        if isinstance(stages, str):
+            stages = [stages]
+
+        def run():
+            engine = self._get_engine()
+            if engine is None:
+                logger.error(
+                    f"_action_force: engine init failed — cannot force "
+                    f"{', '.join(stages) if isinstance(stages, list) else stages}")
+                return
+            with _engines_lock:
+                _active_engines.append(engine)
+            try:
+                engine.force(stages)
+            finally:
+                with _engines_lock:
+                    if engine in _active_engines:
+                        _active_engines.remove(engine)
+
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        return {'ok': True, 'message': f'Forcing: {", ".join(stages)}', 'async': True}
+
+    def _action_interactive(self, body):
+        """Launch interactive EDA tool session for a node.
+
+        Runs `cbflow run interactive --node <name>` in the run dir. STDOUT +
+        STDERR are captured to `INTERACTIVE/dashboard_launch.log` so the
+        dashboard user can inspect errors — the CLI's stdout is otherwise
+        invisible once we detach.
+        """
+        node = body.get('node', '')
+        if not node:
+            return {'error': 'node required'}
+        import subprocess
+        run_dir = self.dashboard.run_dir
+        # `--node` is the current CLI arg (was `--load` in older versions).
+        cmd = ['cbflow', 'run', 'interactive', '--node', node]
+        log_dir = os.path.join(run_dir, 'INTERACTIVE')
+        os.makedirs(log_dir, exist_ok=True)
+        log_path = os.path.join(log_dir, 'dashboard_launch.log')
+        try:
+            with open(log_path, 'ab') as lf:
+                lf.write(f'\n--- {node} ---\n'.encode())
+                lf.flush()
+                subprocess.Popen(cmd, cwd=run_dir, stdout=lf, stderr=lf,
+                                 stdin=subprocess.DEVNULL, start_new_session=True)
+            return {'ok': True,
+                    'message': f'Interactive session launching for {node} '
+                               f'(log: INTERACTIVE/dashboard_launch.log)'}
+        except FileNotFoundError:
+            return {'error': "'cbflow' not in PATH on the dashboard server. "
+                             "Source the CBflow env or use absolute path."}
+        except Exception as e:
+            return {'error': f'Failed to launch: {e}'}
+
+    def _action_save_mmmc(self, body):
+        """Save MMMC scenario overrides. Supports both PNR node mode and STA dynamic mode."""
+        self._check_run_ownership()
+        node = body.get('node', '')
+        setup = body.get('setup', [])
+        hold = body.get('hold', [])
+        is_dynamic = body.get('dynamic', False)
+        if not node:
+            return {'error': 'node required'}
+
+        if is_dynamic:
+            # STA dynamic mode — write per-node scenarios to override_config.<node>.tcl
+            flow_lower = self.dashboard.flow_type.lower()
+            override_path = os.path.join(self.dashboard.run_dir, 'setup',
+                                          f'override_config.{node}.tcl')
+            os.makedirs(os.path.dirname(override_path), exist_ok=True)
+
+            # Read existing override, strip old scenario lines for this node
+            lines = []
+            if os.path.exists(override_path):
+                with open(override_path) as f:
+                    for line in f:
+                        if f'{flow_lower}(mmmc,' in line and '_scenarios)' in line:
+                            continue
+                        lines.append(line)
+
+            setup_str = ' '.join(setup)
+            hold_str = ' '.join(hold)
+
+            with open(override_path, 'w') as f:
+                if lines:
+                    f.writelines(lines)
+                    if not lines[-1].endswith('\n'):
+                        f.write('\n')
+                else:
+                    f.write(f'# CBflow scenario override for {node}\n\n')
+                f.write(f'set {flow_lower}(mmmc,setup_scenarios) "{setup_str}"\n')
+                f.write(f'set {flow_lower}(mmmc,hold_scenarios) "{hold_str}"\n')
+
+            total = len(setup) + len(hold)
+            return {'ok': True, 'message': f'Scenarios for {node}: {total} ({len(setup)} setup, {len(hold)} hold)'}
+
+        else:
+            # PNR node mode — write to override_config.<node>.tcl
+            override_path = os.path.join(self.dashboard.run_dir, 'setup',
+                                          f'override_config.{node}.tcl')
+            os.makedirs(os.path.dirname(override_path), exist_ok=True)
+
+            existing_lines = []
+            if os.path.exists(override_path):
+                with open(override_path) as f:
+                    for line in f:
+                        if f'mmmc({node},' in line:
+                            continue
+                        existing_lines.append(line)
+
+            setup_str = ' '.join(setup)
+            hold_str = ' '.join(hold)
+
+            with open(override_path, 'w') as f:
+                if existing_lines:
+                    f.writelines(existing_lines)
+                    if not existing_lines[-1].endswith('\n'):
+                        f.write('\n')
+                else:
+                    f.write(f'# CBflow override config for {node}\n\n')
+                f.write(f'set mmmc({node},setup_scenarios) "{setup_str}"\n')
+                f.write(f'set mmmc({node},hold_scenarios) "{hold_str}"\n')
+
+            return {'ok': True, 'message': f'MMMC override saved for {node}: {len(setup)} setup, {len(hold)} hold'}
+
+    def _action_stop(self, body):
+        """Stop all running engine executions."""
+        _stop_event.set()
+        with _engines_lock:
+            engines = list(_active_engines)
+        stopped = 0
+        for engine in engines:
+            engine._interrupted = True
+            stopped += 1
+        return {'ok': True, 'message': f'Stop signal sent to {stopped} running engine(s)'}
+
+    def _action_force_stop(self, body):
+        """Force-stop a specific node/subnode job — kill (local) or bkill (LSF)."""
+        self._check_run_ownership()
+        node = body.get('node') or body.get('stage', '')
+        if not node:
+            return {'ok': False, 'error': 'node parameter required'}
+        with _engines_lock:
+            engines = list(_active_engines)
+        if not engines:
+            return {'ok': False, 'error': 'No active engine — nothing to stop'}
+        # Try on the most recent active engine
+        engine = engines[-1]
+        return engine.force_stop_job(node)
+
+    def _action_forcevalidate(self, body):
+        """Force-validate stages or specific jobs. Updates active engine if one is running."""
+        engine = self._get_active_or_new_engine()
+        if engine is None:
+            return {'ok': False,
+                    'error': 'engine unavailable — check user_config.tcl and daemon logs'}
+        jobs = body.get('jobs', [])
+        if jobs:
+            if isinstance(jobs, str):
+                jobs = [jobs]
+            engine.forcevalidate_jobs(jobs)
+            return {'ok': True, 'message': f'Force-validated: {", ".join(jobs)}'}
+        stages = body.get('stages', [])
+        if isinstance(stages, str):
+            stages = [stages]
+        engine.forcevalidate(stages)
+        return {'ok': True, 'message': f'Force-validated: {", ".join(stages)}'}
+
+    def _action_add_node(self, body):
+        """Add custom node. If auto_name=true, auto-generate next available name."""
+        self._check_run_ownership()
+        name = body.get('name', '')
+        node_type = body.get('type', '')
+        dep = body.get('dep', '')
+        auto_name = body.get('auto_name', False)
+
+        try:
+            from node_manager import NodeManager
+            mgr = NodeManager(self.dashboard.run_dir, self.dashboard.flow_type)
+
+            if auto_name and node_type and dep:
+                suffix = mgr._next_suffix(node_type)
+                name = f"{node_type}{suffix}"
+
+            if not name or not node_type or not dep:
+                return {'error': 'name, type, dep required'}
+
+            mgr.add_node(name, node_type, dep)
+        except Exception as e:
+            return {'error': f'Add node failed: {e}'}
+
+        self._seed_new_nodes_only()
+        return {'ok': True, 'message': f'Added node: {name} (dep={dep})'}
+
+    def _action_delete_node(self, body):
+        """Delete custom node."""
+        self._check_run_ownership()
+        name = body.get('name', '')
+        if not name:
+            return {'error': 'name required'}
+        try:
+            from node_manager import NodeManager
+            mgr = NodeManager(self.dashboard.run_dir, self.dashboard.flow_type)
+
+            # Check for dependents BEFORE attempting delete
+            dependents = mgr._find_dependents(name)
+            if dependents:
+                return {'error': 'Cannot delete "' + name + '" -- these nodes depend on it: ' + ', '.join(dependents) + '. Delete them first.'}
+
+            if not mgr.delete_node(name):
+                return {'error': 'Cannot delete "' + name + '" -- it may be a base stage or not found.'}
+
+            self._seed_new_nodes_only()
+            return {'ok': True, 'message': f'Deleted node: {name}'}
+        except Exception as e:
+            return {'error': f'Delete node failed: {e}'}
+
+    def _action_save_node_full_config(self, body):
+        """Save edited config variables to override_config file.
+        Scope: 'node' (this node), 'branch' (all branch nodes), 'type' (all nodes of this type)."""
+        self._check_run_ownership()
+        stage = body.get('stage', '')
+        stage_base = body.get('stage_base', '') or re.sub(r'\d+(_\w+)?$', '', stage)
+        branch_key = body.get('branch_key', '')
+        scope = body.get('scope', 'node')
+        variables = body.get('variables', {})
+        if not stage or not variables:
+            return {'error': 'stage and variables required'}
+
+        flow_lower = self.dashboard.flow_type.lower()
+        setup_dir = os.path.join(self.dashboard.run_dir, 'setup')
+        os.makedirs(setup_dir, exist_ok=True)
+
+        # Determine override filename based on scope
+        # Override cascade in generate_setup.tcl (lowest → highest priority):
+        #   override_config.tcl              (global)
+        #   override_config.<flow>.tcl       (flow-level)
+        #   override_config.<stage_base>.tcl (type-level, e.g., cts)
+        #   override_config.<branch_name>.tcl (branch-level — all nodes in branch)
+        #   override_config.<node>.tcl       (node-level, e.g., cts2)
+
+        if scope == 'branch' and branch_key:
+            # Resolve branch name from branch_key
+            branch_name = ''
+            rtf = os.path.join(setup_dir, 'runtime_flow_config.tcl')
+            if os.path.exists(rtf):
+                with open(rtf) as f:
+                    rtc = f.read()
+                m = re.search(rf'branch_keys,{re.escape(branch_key)},name\s+"([^"]*)"', rtc)
+                if m:
+                    branch_name = m.group(1)
+            if not branch_name:
+                branch_name = branch_key
+            fname = f'override_config.{branch_name}.tcl'
+        elif scope == 'type':
+            fname = f'override_config.{stage_base}.tcl'
+        else:
+            fname = f'override_config.{stage}.tcl'
+
+        # Build override content
+        lines = [f'# Override config for {fname} ({self.dashboard.flow_type})']
+        lines.append(f'# Scope: {scope} | Generated by CBflow Dashboard')
+        lines.append('')
+        for key, value in sorted(variables.items()):
+            if '(' in key:
+                lines.append(f'set {key} "{value}"')
+            else:
+                lines.append(f'set {flow_lower}({key}) "{value}"')
+        lines.append('')
+        content = '\n'.join(lines)
+
+        # Write single override file
+        with open(os.path.join(setup_dir, fname), 'w') as f:
+            f.write(content)
+        written = [fname]
+
+        unique_files = list(set(written))
+        return {'ok': True, 'message': f'Saved {len(variables)} variables to {", ".join(unique_files)} (scope: {scope})'}
+
+    def _action_delete_branch(self, body):
+        """Delete an entire branch by key. Blocks if external nodes depend on it."""
+        self._check_run_ownership()
+        branch_key = body.get('branch_key', '')
+        if not branch_key:
+            return {'error': 'branch_key required'}
+        try:
+            from node_manager import NodeManager
+            mgr = NodeManager(self.dashboard.run_dir, self.dashboard.flow_type)
+
+            branch_name = mgr.branches.get(branch_key, {}).get('name', branch_key)
+
+            # Check for external dependents BEFORE attempting delete
+            branch_nodes = set(n for n, info in mgr.custom_nodes.items()
+                               if info.get('branch_key') == branch_key)
+            ext_deps = []
+            for node in branch_nodes:
+                for name, info in mgr.custom_nodes.items():
+                    if name not in branch_nodes and info.get('dependencies') == node:
+                        ext_deps.append(f'"{name}" depends on "{node}"')
+
+            if ext_deps:
+                return {'error': 'Cannot delete branch "' + branch_name + '" -- other nodes depend on it: ' + '; '.join(ext_deps) + '. Delete the dependent nodes or branches first.'}
+
+            if not mgr.delete_branch_by_key(branch_key):
+                return {'error': 'Cannot delete branch "' + branch_name + '" -- branch not found or already deleted.'}
+
+            self._seed_new_nodes_only()
+            return {'ok': True, 'message': f'Branch "{branch_name}" deleted'}
+
+        except Exception as e:
+            return {'error': f'Delete branch failed: {e}'}
+
+    def _action_rename_node(self, body):
+        """Rename a custom node."""
+        old_name = body.get('old_name', '')
+        new_name = body.get('new_name', '')
+        if not old_name or not new_name:
+            return {'error': 'old_name and new_name required'}
+        try:
+            from node_manager import NodeManager
+            mgr = NodeManager(self.dashboard.run_dir, self.dashboard.flow_type)
+            if not mgr.rename_node(old_name, new_name):
+                return {'error': f'Rename failed — check logs'}
+
+            # Also rename in DB
+            db_path = self.dashboard.db_path
+            if os.path.exists(db_path):
+                import sqlite3
+                conn = sqlite3.connect(db_path)
+                # Update job_order
+                conn.execute("UPDATE job_order SET job_name=?, stage=? WHERE stage=? AND subnode='_sentinel'",
+                             (new_name, new_name, old_name))
+                conn.execute("UPDATE job_order SET stage=? WHERE stage=?", (new_name, old_name))
+                conn.execute("UPDATE job_order SET job_name=REPLACE(job_name, ?, ?) WHERE job_name LIKE ?",
+                             (old_name, new_name, f'{old_name}_%'))
+                # Update jobs table
+                conn.execute("UPDATE jobs SET stage=? WHERE stage=?", (new_name, old_name))
+                conn.execute("UPDATE jobs SET job_name=? WHERE job_name=?", (new_name, old_name))
+                conn.execute("UPDATE jobs SET job_name=REPLACE(job_name, ?, ?) WHERE job_name LIKE ?",
+                             (old_name, new_name, f'{old_name}_%'))
+                conn.commit()
+                conn.close()
+        except Exception as e:
+            return {'error': f'Rename failed: {e}'}
+
+        self._seed_new_nodes_only()
+        return {'ok': True, 'message': f'Renamed: {old_name} → {new_name}'}
+
+    def _action_create_branch(self, body):
+        """Create flow branch."""
+        self._check_run_ownership()
+        name = body.get('name', '')
+        from_stage = body.get('from_stage', '')
+        if not name or not from_stage:
+            return {'error': 'name and from_stage required'}
+        try:
+            from node_manager import NodeManager
+            mgr = NodeManager(self.dashboard.run_dir, self.dashboard.flow_type)
+            tag = body.get('tag', '')
+            mgr.create_branch(name, from_stage, tag=tag)
+        except Exception as e:
+            return {'error': f'Create branch failed: {e}'}
+
+        self._seed_new_nodes_only()
+        return {'ok': True, 'message': f'Branch "{name}" created from {from_stage}'}
+
+    # Escape user input for splicing into a Tcl `"..."` string literal.
+    # Inside `"..."`, `$var` performs variable substitution and `[cmd]`
+    # executes an embedded command AT SOURCE TIME — override_config
+    # files are later sourced by tclsh, so unescaped `[exec rm -rf ~]`
+    # runs as the user's shell. Escape `\`, `"`, `$`, `[`.
+    @staticmethod
+    def _tcl_quote(s):
+        if s is None:
+            return ''
+        return (str(s)
+                .replace('\\', '\\\\')
+                .replace('"',  '\\"')
+                .replace('$',  '\\$')
+                .replace('[',  '\\['))
+
+    # Validate a stage / node name — must match the same allowlist that
+    # node_manager.add_node uses. Prevents path traversal in the
+    # override_config.<stage>.tcl filename and shell metachar bleed-
+    # through into downstream Job.command interpolation.
+    @staticmethod
+    def _valid_stage_name(s):
+        return bool(s) and bool(re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', str(s)))
+
+    def _action_update_node_config(self, body):
+        """Update per-node config (LSF queue, memory, timeout, version)."""
+        stage = body.get('stage', '')
+        if not self._valid_stage_name(stage):
+            return {'ok': False, 'error': 'invalid stage name'}
+
+        # Write overrides to setup/override_config.<node>.tcl (per-node, not per-type)
+        override_file = os.path.join(self.dashboard.run_dir, 'setup',
+                                      f'override_config.{stage}.tcl')
+        lines = []
+        flow_lower = self.dashboard.flow_type.lower()
+        _q = self._tcl_quote
+        _lsf_queue = _q(body.get("lsf_queue", "M"))
+
+        if body.get('lsf_queue'):
+            lines.append(f'set lsf(flow_mapping,{flow_lower},{stage.rstrip("0123456789")}) "{_q(body["lsf_queue"])}"')
+        if body.get('lsf_memory'):
+            lines.append(f'set lsf(queue_types,{_lsf_queue},memory) "{_q(body["lsf_memory"])}"')
+        if body.get('lsf_cpu'):
+            lines.append(f'set lsf(queue_types,{_lsf_queue},cpu) "{_q(body["lsf_cpu"])}"')
+        if body.get('timeout'):
+            lines.append(f'set {flow_lower}(runtime,timeout,{stage}) "{_q(body["timeout"])}"')
+        if body.get('tool_version'):
+            lines.append(f'set {flow_lower}(tool,version) "{_q(body["tool_version"])}"')
+        if body.get('tool_module'):
+            lines.append(f'set flow(tool_module,{self._get_flow_tool()}) "{_q(body["tool_module"])}"')
+
+        if lines:
+            os.makedirs(os.path.dirname(override_file), exist_ok=True)
+            with open(override_file, 'w') as f:
+                f.write(f'# RACE GUI config override for {stage}\n')
+                f.write(f'# Updated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}\n')
+                for line in lines:
+                    f.write(line + '\n')
+
+        return {'ok': True, 'message': f'Config updated for {stage}',
+                'file': override_file, 'changes': lines}
+
+    def _action_save_input_vars(self, node_name, body):
+        """Save input variables to user_config.tcl."""
+        self._check_run_ownership()
+        variables = body.get('variables', {})
+        if not variables:
+            return {'ok': False, 'error': 'No variables to save'}
+
+        user_config = os.path.join(self.dashboard.run_dir, 'setup', 'user_config.tcl')
+        if not os.path.exists(user_config):
+            return {'ok': False, 'error': 'user_config.tcl not found'}
+
+        _q = self._tcl_quote
+        with open(user_config) as f:
+            lines = f.readlines()
+
+        # Update existing lines or append new ones. Prior code used
+        # `if key in line and line.strip().startswith('set ')` — a
+        # substring match that false-positive'd against unrelated
+        # variables containing the key as a substring (e.g. saving
+        # `rtl` overwrote lines with `rtl_filelist`). Match on the
+        # exact `set <key>` prefix instead. Also tcl-quote values so
+        # embedded `"`/`$`/`[` don't inject.
+        updated_keys = set()
+        for i, line in enumerate(lines):
+            stripped = line.lstrip()
+            for key, val in variables.items():
+                # Anchor on `set <key>` with a following whitespace / `(` /
+                # end. Prevents 'rtl' matching 'set rtl_filelist ...'.
+                if (stripped.startswith(f'set {key} ')
+                        or stripped.startswith(f'set {key}\t')
+                        or stripped.startswith(f'set {key}(')):
+                    lines[i] = f'set {key} "{_q(val)}"\n'
+                    updated_keys.add(key)
+
+        # Append any new variables not found in existing file
+        for key, val in variables.items():
+            if key not in updated_keys:
+                lines.append(f'set {key} "{_q(val)}"\n')
+
+        with open(user_config, 'w') as f:
+            f.writelines(lines)
+
+        return {'ok': True, 'message': f'Input variables saved for {node_name} ({len(variables)} vars)'}
+
+    def _seed_new_nodes_only(self):
+        """Add new nodes to DB without disturbing existing job states.
+        Only seeds missing jobs + updates job_order — no reset, no invalidation."""
+        try:
+            from race_engine import DagBuilder, StatusDB
+
+            env = self.dashboard._load_env()
+            builder = DagBuilder(self.dashboard.run_dir, self.dashboard.flow_type, env)
+            jobs, stages = builder.build()
+            if not jobs:
+                return
+
+            db_path = self.dashboard.db_path
+            if not os.path.exists(db_path):
+                return
+
+            db = StatusDB.__new__(StatusDB)
+            db.db_path = db_path
+            db.save_job_order(jobs)
+            db.seed_missing_jobs(jobs)
+        except Exception as e:
+            logger.debug(f"Seed new nodes error: {e}")
+
+    def _get_flow_tool(self):
+        """Get the tool name for this flow from node config."""
+        try:
+            nc_path = self.dashboard.node_config_path
+            if os.path.exists(nc_path):
+                with open(nc_path) as f:
+                    for line in f:
+                        m = re.search(r'tool,name\s+"([^"]+)"', line)
+                        if m:
+                            return m.group(1)
+        except Exception as e:
+            logger.debug(f"Get flow tool error: {e}")
+        return 'fc'
+
+    def _get_engine(self):
+        """Get RACE engine via dashboard's lightweight init."""
+        return self.dashboard._get_engine()
+
+    def _get_active_or_new_engine(self):
+        """Get the active running engine if one exists, otherwise create new.
+        This ensures retrace/bypass/forcevalidate during execution update the
+        SAME engine's in-memory state, not a throwaway copy."""
+        with _engines_lock:
+            if _active_engines:
+                return _active_engines[0]
+        return self._get_engine()
+
+    def _exec_engine(self, target):
+        """Execute a target via RACE engine in background thread."""
+        _stop_event.clear()
+
+        def run():
+            engine = self._get_engine()
+            if engine is None:
+                logger.error(
+                    f"_exec_engine: engine init failed — cannot execute {target}")
+                return
+            with _engines_lock:
+                _active_engines.append(engine)
+            try:
+                engine.execute(target)
+            finally:
+                with _engines_lock:
+                    if engine in _active_engines:
+                        _active_engines.remove(engine)
+
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        return {'ok': True, 'message': f'Executing: {target}', 'async': True}
+
+    def _serve_template(self, name):
+        filepath = os.path.join(TEMPLATES_DIR, name)
+        if os.path.exists(filepath):
+            with open(filepath, 'rb') as f:
+                content = f.read()
+            # Inject run info into template
+            run_info = self.dashboard.get_status().get('run_info', {})
+            content = content.replace(b'{{FLOW_TYPE}}', run_info.get('flow_type', '').encode())
+            content = content.replace(b'{{PROJECT}}', run_info.get('project', '').encode())
+            content = content.replace(b'{{RUN_DIR}}', self.dashboard.run_dir.encode())
+            content = content.replace(b'{{RESULT}}', run_info.get('result', '').encode())
+            # Discipline: derive from flow_type when not in a daemon context.
+            _DFT = {'DFT_INSERT', 'SCAN_INSERT', 'ATPG', 'GLS_FUNC', 'GLS_SCAN_MBIST'}
+            _disc = 'DFT' if run_info.get('flow_type') in _DFT else 'PD'
+            content = content.replace(b'{{DISCIPLINE}}', _disc.encode())
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.end_headers()
+            self.wfile.write(content)
+        else:
+            self.send_error(404, f'Template not found: {name}')
+
+    def _serve_static(self, name):
+        # Path traversal guard: the request path is user-controlled
+        # (`GET /static/../race_dashboard.py`). Reject any name that
+        # doesn't normalize to a file INSIDE STATIC_DIR. `realpath` +
+        # `commonpath` catches `..`, absolute paths, symlink escape,
+        # and Windows separators.
+        candidate = os.path.realpath(os.path.join(STATIC_DIR, name))
+        static_root = os.path.realpath(STATIC_DIR)
+        try:
+            common = os.path.commonpath([candidate, static_root])
+        except ValueError:
+            common = ''
+        if common != static_root:
+            self.send_error(404)
+            return
+        if os.path.isfile(candidate):
+            with open(candidate, 'rb') as f:
+                content = f.read()
+            ctype = 'text/css' if name.endswith('.css') else \
+                    'application/javascript' if name.endswith('.js') else \
+                    'text/plain'
+            self.send_response(200)
+            self.send_header('Content-Type', ctype)
+            self.end_headers()
+            self.wfile.write(content)
+        else:
+            self.send_error(404)
+
+    def _json_response(self, data, status=200):
+        body = json.dumps(data, default=str).encode()
+        self.send_response(status)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _db_etag(self) -> str:
+        """Return an ETag derived from the DB file's mtime (nanosecond precision).
+
+        Every race_engine status write updates the DB mtime; clients cache on
+        this etag and get 304 Not Modified until the next write, cutting most
+        polling overhead when the run is idle.
+        """
+        try:
+            st = os.stat(self.dashboard.db_path)
+            key = f'{st.st_mtime_ns}-{st.st_size}'
+        except OSError:
+            return ''
+        return hashlib.sha1(key.encode()).hexdigest()[:16]
+
+    def _json_response_cached(self, producer, status=200,
+                              no_cache=False, extra=None):
+        """JSON response with ETag / If-None-Match support.
+
+        `producer` MUST be a zero-arg callable that materializes the payload.
+        The ETag is snapshotted BEFORE calling `producer` so:
+          1. On a cache hit (client's If-None-Match matches), we skip the
+             expensive DB+SQL+file-stat work entirely — send 304 and return.
+          2. On a cache miss, the producer runs and its result is JSON-
+             encoded with the SAME etag we just checked, closing the TOCTOU
+             window where a race_engine DB write between "materialize data"
+             and "compute etag" could leave the client caching (stale-data,
+             new-etag) — which used to persist stale data indefinitely.
+
+        `no_cache=True` bypasses the 304 branch entirely — used when the
+        caller has already detected stale invariants (e.g. source-change
+        detection raised, so the DB may not have been invalidated yet).
+        `extra` is a dict merged into the response payload — used to carry
+        diagnostic keys (e.g. `_source_check_error`) back to the client.
+
+        Backwards-compat: if a non-callable is passed (legacy call site),
+        treat it as pre-materialized data and skip the producer branch.
+        """
+        etag = self._db_etag()
+        if etag and not no_cache:
+            client_etag = self.headers.get('If-None-Match', '').strip('"')
+            if client_etag and client_etag == etag:
+                self.send_response(304)
+                self.send_header('ETag', f'"{etag}"')
+                self.send_header('Cache-Control', 'no-cache')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                return
+        # Materialize the payload after we've committed to a cache miss.
+        # producer() has NO exception guard in the original design — if it
+        # raised (locked DB, bad user_config), the exception propagated
+        # past send_response with no headers sent, BaseHTTPRequestHandler
+        # emitted a bare 500 with no CORS header, and the dashboard JS
+        # dropped it as a network error and retried every poll — hammering
+        # whatever underlying resource was already broken. Catch here so
+        # the client gets a JSON body it can render as a toast and stops
+        # tight-looping.
+        try:
+            data = producer()
+        except Exception as e:
+            # DO NOT splice `str(e)` into the response — sqlite/FS
+            # exceptions embed absolute paths, DB names, and usernames
+            # (`.race_<run>_<user>_<hash>.db`), and the dashboard binds
+            # 0.0.0.0 (see race_dashboard.py:2349) so the 500 body is
+            # remotely reachable. Log the full exception server-side and
+            # return a generic message + a short correlation id the
+            # operator can grep out of the log.
+            corr = uuid.uuid4().hex[:8]
+            logger.exception(
+                f"_json_response_cached: producer raised (correlation_id={corr}): {e}")
+            self.send_response(500)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                'ok': False,
+                'error': 'internal server error — see dashboard log',
+                'correlation_id': corr,
+            }).encode())
+            return
+        if extra and isinstance(data, dict):
+            data = {**data, **extra}
+        body = json.dumps(data, default=str).encode()
+        self.send_response(status)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        if etag and not no_cache:
+            self.send_header('ETag', f'"{etag}"')
+            self.send_header('Cache-Control', 'no-cache')
+        elif no_cache:
+            # Explicitly tell the client not to cache — matches the
+            # semantics of the payload-embedded error hint.
+            self.send_header('Cache-Control', 'no-store')
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _query_db_table(self, table_name, filters=None):
+        """Query a DB table with optional column filters. Returns list of dicts.
+        Handles missing tables gracefully (returns empty list)."""
+        try:
+            conn = sqlite3.connect(self.dashboard.db_path)
+            conn.row_factory = sqlite3.Row
+            query = f'SELECT * FROM {table_name}'
+            params = []
+            if filters:
+                clauses = []
+                for col, val in filters.items():
+                    clauses.append(f'{col} = ?')
+                    params.append(val)
+                query += ' WHERE ' + ' AND '.join(clauses)
+            cur = conn.execute(query, params)
+            rows = [dict(r) for r in cur.fetchall()]
+            conn.close()
+            return rows
+        except sqlite3.OperationalError:
+            # Table doesn't exist or schema mismatch
+            return []
+        except Exception:
+            return []
+
+    def _serve_log(self, job_name):
+        """Serve log file for a stage or subnode.
+        Primary location: work/<FLOW>/<stage>/run/<job_name>.log"""
+        run_dir = self.dashboard.run_dir
+        flow_type = self.dashboard.flow_type
+
+        # Path-traversal guard: job_name comes from the URL. A crafted
+        # value like `../../../etc/passwd` would let the glob resolve
+        # outside the run directory. Reject anything with '/', backslash,
+        # null-byte, or the '..' segment; require the allowlist
+        # `^[A-Za-z0-9_.-]+$` matching real job/subnode names.
+        if (not job_name
+                or not re.match(r'^[A-Za-z0-9_.-]+$', job_name)
+                or '..' in job_name.split('/') + job_name.split(os.sep)):
+            self.send_response(400)
+            self.send_header('Content-Type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b'invalid job_name')
+            return
+
+        # Resolve stage from job_name (timing1_setup → timing1)
+        import glob as _glob
+        log_path = None
+        work_root = os.path.realpath(os.path.join(run_dir, 'work', flow_type))
+
+        def _in_work_root(p):
+            try:
+                return os.path.commonpath([os.path.realpath(p), work_root]) == work_root
+            except ValueError:
+                return False
+
+        # Primary: work/<FLOW>/<stage>/run/<job_name>.log
+        for stage_dir in _glob.glob(os.path.join(run_dir, 'work', flow_type, '*')):
+            candidate = os.path.join(stage_dir, 'run', f'{job_name}.log')
+            if os.path.exists(candidate) and _in_work_root(candidate):
+                log_path = candidate
+                break
+
+        # Fallback: search all .log files matching job_name
+        if not log_path:
+            for match in _glob.glob(os.path.join(run_dir, 'work', flow_type, '**', f'{job_name}.log'), recursive=True):
+                if _in_work_root(match):
+                    log_path = match
+                    break
+
+        log_content = ''
+        if log_path and os.path.exists(log_path):
+            with open(log_path, errors='replace') as f:
+                log_content = f.read()
+        else:
+            log_content = f"No log file found for: {job_name}\n\nExpected: work/{flow_type}/<stage>/run/{job_name}.log"
+
+        # Also get error_msg from DB for context
+        db_error = ''
+        try:
+            import sqlite3
+            for db_file in sorted(Path(run_dir).glob('.race_*.db')):
+                conn = sqlite3.connect(str(db_file))
+                row = conn.execute("SELECT error_msg FROM jobs WHERE job_name=? AND error_msg != '' ORDER BY rowid DESC LIMIT 1",
+                                   (job_name,)).fetchone()
+                if row:
+                    db_error = row[0]
+                conn.close()
+                break
+        except Exception:
+            pass
+
+        # Highlight errors in the log
+        import html as _html
+        log_html = _html.escape(log_content)
+        # Color ERROR/FATAL lines red
+        log_lines = []
+        for line in log_html.split('\n'):
+            if any(k in line.upper() for k in ('ERROR', 'FATAL', 'FAILED', 'ABORT')):
+                log_lines.append(f'<span style="color:#f44336;font-weight:bold">{line}</span>')
+            elif any(k in line.upper() for k in ('WARNING', 'WARN')):
+                log_lines.append(f'<span style="color:#ff9800">{line}</span>')
+            elif any(k in line.upper() for k in ('INFO:', 'PASS', 'COMPLETE', 'SUCCESS')):
+                log_lines.append(f'<span style="color:#4caf50">{line}</span>')
+            else:
+                log_lines.append(line)
+
+        error_section = ''
+        if db_error:
+            error_section = f'<div style="background:#2d1111;border:1px solid #f44336;padding:12px;margin-bottom:16px;border-radius:4px"><span style="color:#f44336;font-weight:bold">DB Error Record:</span>\n{_html.escape(db_error)}</div>'
+
+        body = f"""<!DOCTYPE html><html><head><title>Log: {job_name}</title>
+<style>
+body{{font-family:'Consolas','Monaco',monospace;font-size:12px;background:#1e1e1e;color:#d4d4d4;padding:16px;margin:0;line-height:1.4}}
+.hdr{{color:#569cd6;font-weight:bold;font-size:14px;margin-bottom:4px}}
+.path{{color:#9cdcfe;font-size:11px}}
+pre{{white-space:pre-wrap;word-wrap:break-word;margin:0}}
+</style></head>
+<body>
+<div class="hdr">Log: {job_name}</div>
+<div class="path">File: {log_path or 'not found'}</div>
+<hr style="border-color:#333;margin:8px 0">
+{error_section}
+<pre>{'<br>'.join(log_lines)}</pre>
+</body></html>"""
+
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html')
+        self.end_headers()
+        self.wfile.write(body.encode('utf-8', errors='replace'))
+
+    def log_message(self, fmt, *args):
+        pass  # Suppress access logs
+
+
+def _file_watcher(dashboard):
+    """Background thread that monitors source input files for changes every 1 second."""
+    import time
+    while True:
+        try:
+            dashboard._check_source_changes()
+        except Exception:
+            pass
+        time.sleep(1)
+
+
+def _is_port_free(port: int) -> bool:
+    """Check if a port is available to bind."""
+    import socket
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(('0.0.0.0', port))
+            return True
+    except OSError:
+        return False
+
+
+def _find_free_port(start: int = 8080, end: int = 8180) -> int:
+    """Find a free port in the given range."""
+    for port in range(start, end):
+        if _is_port_free(port):
+            return port
+    raise RuntimeError(f"No free port found in range {start}-{end}")
+
+
+def _get_run_port(run_dir: str) -> int:
+    """Get deterministic port for a run directory.
+
+    Port is derived from hash of the canonical run_dir path, mapped to range
+    10000-60000. This gives each run a stable port across restarts.
+    The port is stored in the SQLite DB (run_info table) so it is automatically
+    cleaned up when the DB is removed.
+
+    Resolution order:
+      1. Read from DB (if previously stored)
+      2. Compute from hash of run_dir
+      3. If computed port is busy, increment until free
+      4. Store final port in DB
+    """
+    import hashlib
+    canonical = os.path.realpath(os.path.abspath(run_dir))
+
+    # 1. Try to read from actual RACE DB (via pointer or glob)
+    db_path = None
+    pointer = os.path.join(run_dir, '.race_db_pointer')
+    if os.path.exists(pointer):
+        try:
+            with open(pointer) as f:
+                p = f.read().strip()
+            if p and os.path.exists(p):
+                db_path = p
+        except (OSError, IOError):
+            pass
+    if not db_path:
+        for f in Path(run_dir).glob('.race_*.db'):
+            db_path = str(f)
+            break
+
+    if db_path:
+        try:
+            conn = sqlite3.connect(db_path)
+            row = conn.execute(
+                "SELECT value FROM run_info WHERE key = 'dashboard_port'"
+            ).fetchone()
+            conn.close()
+            if row:
+                stored_port = int(row[0])
+                if _is_port_free(stored_port):
+                    return stored_port
+                # Port busy (another process) — fall through to recompute
+        except Exception:
+            pass
+
+    # 2. Compute deterministic port from hash
+    h = int(hashlib.md5(canonical.encode()).hexdigest(), 16)
+    base_port = 10000 + (h % 50000)
+
+    # 3. Find free port starting from base
+    port = base_port
+    for _ in range(200):
+        if _is_port_free(port):
+            break
+        port = 10000 + ((port - 10000 + 1) % 50000)
+    else:
+        raise RuntimeError(f"No free port found near {base_port}")
+
+    # 4. Store in DB (use actual RACE DB found above)
+    if db_path:
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS run_info (key TEXT PRIMARY KEY, value TEXT)"
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO run_info (key, value) VALUES ('dashboard_port', ?)",
+                (str(port),)
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+
+    return port
+
+
+def start_dashboard(run_dir: str, port: int = 0, open_browser: bool = True,
+                    public: bool = False):
+    """Start the RACE Dashboard web server.
+
+    Args:
+        port: Port number. 0 = auto-assign deterministic port from run_dir hash
+              (stored in SQLite DB, cleaned up when DB is removed).
+              Explicit port overrides the deterministic assignment.
+        public: If True, bind to 0.0.0.0 (reachable from LAN); otherwise
+                bind to 127.0.0.1 only. Prior default was 0.0.0.0
+                unconditionally — combined with the unauthenticated
+                mutation endpoints, that made `cbflow run gui` on a
+                coffee-shop laptop a network-reachable RCE vector.
+                Localhost-only is now the safe default; explicit
+                --public opts in.
+    """
+    dashboard = RaceDashboard(run_dir)
+    DashboardHandler.dashboard = dashboard
+
+    # Determine port: explicit > DB-stored > hash-derived
+    if port == 0:
+        port = _get_run_port(run_dir)
+
+    # Start file watcher thread for near-instant change detection
+    watcher = threading.Thread(target=_file_watcher, args=(dashboard,), daemon=True)
+    watcher.start()
+
+    bind_host = '0.0.0.0' if public else '127.0.0.1'
+
+    try:
+        server = http.server.HTTPServer((bind_host, port), DashboardHandler)
+    except OSError:
+        # Requested port busy — find next free one and update DB
+        port = _find_free_port(port + 1, port + 200)
+        server = http.server.HTTPServer((bind_host, port), DashboardHandler)
+        # Update stored port in actual RACE DB
+        try:
+            _db = dashboard.db_path
+            if _db and os.path.exists(_db):
+                conn = sqlite3.connect(_db)
+                conn.execute(
+                    "INSERT OR REPLACE INTO run_info (key, value) VALUES ('dashboard_port', ?)",
+                    (str(port),)
+                )
+                conn.commit()
+                conn.close()
+        except Exception:
+            pass
+
+    # Show both 127.0.0.1 and hostname URLs for remote access
+    import socket as _socket
+    _hostname = _socket.gethostname()
+    url = f'http://127.0.0.1:{port}'
+    url_remote = f'http://{_hostname}:{port}'
+
+    # Read project context from run env
+    _env = {}
+    _env_file = os.path.join(run_dir, '.run.cbflow.env')
+    if os.path.exists(_env_file):
+        with open(_env_file) as _ef:
+            for _line in _ef:
+                _line = _line.strip()
+                if _line.startswith('export ') and '=' in _line:
+                    _kv = _line[7:].split('=', 1)
+                    _env[_kv[0]] = _kv[1].strip('"\'')
+
+    _project = _env.get('CBFLOW_PROJECT_NAME', '')
+    _design = _env.get('CBFLOW_DESIGN_NAME', '')
+    _phase = _env.get('CBFLOW_PROJECT_PHASE', '')
+    _tech = _env.get('TECH_NAME', '')
+
+    print(f'\n  CBflow RACE Dashboard')
+    print(f'  Developed by SmartSoc Solutions Pvt Limited')
+    print(f'  {"=" * 55}')
+    if _project:
+        print(f'  Project:   {_project}' + (f' ({_tech})' if _tech else ''))
+    if _design:
+        print(f'  Design:    {_design}' + (f'  Phase: {_phase}' if _phase else ''))
+    print(f'  Flow:      {dashboard.flow_type}')
+    print(f'  Run:       {os.path.basename(run_dir)}')
+    # Detect SSH session
+    _is_ssh = bool(os.environ.get('SSH_CLIENT') or os.environ.get('SSH_TTY') or os.environ.get('SSH_CONNECTION'))
+
+    if _is_ssh:
+        # Extract client IP from SSH_CLIENT (format: "client_ip client_port server_port")
+        _ssh_client = os.environ.get('SSH_CLIENT', '').split()
+        _client_ip = _ssh_client[0] if _ssh_client else 'your_machine'
+        print(f'  URL:       {url_remote}')
+        print(f'  ')
+        print(f'  SSH detected — to access from your local browser:')
+        print(f'    ssh -L {port}:localhost:{port} $USER@{_hostname}')
+        print(f'    Then open: {url}')
+    else:
+        print(f'  URL:       {url}')
+    print(f'  DB:        {os.path.basename(dashboard.db_path)}')
+    print(f'  Port:      {port} (deterministic)')
+    print(f'  {"=" * 55}')
+    print(f'  Press Ctrl+C to stop\n')
+
+    if open_browser and not _is_ssh:
+        def _open_browser():
+            import subprocess as _sp
+            import shutil as _sh
+            opened = False
+            # Try browser-specific new-tab commands (works with running instance)
+            for browser, args in [
+                ('google-chrome',  [url]),
+                ('chromium-browser', [url]),
+                ('firefox',        ['-new-tab', url]),
+                ('xdg-open',       [url]),
+                ('open',           [url]),   # macOS
+            ]:
+                exe = _sh.which(browser)
+                if exe:
+                    try:
+                        _sp.Popen([exe] + args, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+                        opened = True
+                        break
+                    except Exception:
+                        continue
+            if not opened:
+                try:
+                    webbrowser.open_new_tab(url)
+                except Exception:
+                    pass
+            if not opened:
+                print(f'  Browser not opened. Access manually: {url}')
+        threading.Timer(1.5, _open_browser).start()
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print('\n  Dashboard stopped.')
+        server.shutdown()

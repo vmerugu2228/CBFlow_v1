@@ -1,0 +1,1 @@
+../../../../PNR/synopsys/fc/v1.0.0/export_data_subnode_handler.tcl

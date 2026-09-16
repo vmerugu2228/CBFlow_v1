@@ -1,0 +1,1 @@
+../../../../PNR/synopsys/fc/v1.0.0/pro_subnode_handler.tcl

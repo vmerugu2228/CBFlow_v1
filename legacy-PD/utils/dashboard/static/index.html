@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CBFlow Dashboard</title>
+    <link rel="stylesheet" href="/dashboard.css">
+</head>
+<body>
+    <header>
+        <h1>CBFlow Dashboard</h1>
+        <div id="status-bar">
+            <span id="status-indicator">Connecting...</span>
+            <span id="last-updated"></span>
+        </div>
+    </header>
+
+    <nav>
+        <button class="tab active" data-tab="overview">Overview</button>
+        <button class="tab" data-tab="projects">Projects</button>
+        <button class="tab" data-tab="runs">Runs</button>
+        <button class="tab" data-tab="releases">Releases</button>
+        <button class="tab" data-tab="metrics">Metrics</button>
+    </nav>
+
+    <main>
+        <section id="overview" class="tab-content active">
+            <div class="cards">
+                <div class="card">
+                    <h3>Projects</h3>
+                    <div id="project-count" class="big-number">-</div>
+                </div>
+                <div class="card">
+                    <h3>Releases</h3>
+                    <div id="release-count" class="big-number">-</div>
+                </div>
+                <div class="card">
+                    <h3>Runs</h3>
+                    <div id="run-count" class="big-number">-</div>
+                </div>
+                <div class="card">
+                    <h3>Core Dir</h3>
+                    <div id="core-dir" class="small-text">-</div>
+                </div>
+            </div>
+        </section>
+
+        <section id="projects" class="tab-content">
+            <h2>Projects</h2>
+            <div id="projects-table"></div>
+        </section>
+
+        <section id="runs" class="tab-content">
+            <h2>Recent Runs</h2>
+            <div id="runs-table"></div>
+        </section>
+
+        <section id="releases" class="tab-content">
+            <h2>Releases</h2>
+            <div id="releases-table"></div>
+        </section>
+
+        <section id="metrics" class="tab-content">
+            <h2>Metrics</h2>
+            <div id="metrics-content"></div>
+        </section>
+    </main>
+
+    <footer>
+        <p>CBFlow v2.0.0 - Physical Design Flow Management System</p>
+    </footer>
+
+    <script src="/dashboard.js"></script>
+</body>
+</html>

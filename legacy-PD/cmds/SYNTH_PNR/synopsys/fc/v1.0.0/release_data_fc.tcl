@@ -1,0 +1,1 @@
+../../../../PNR/synopsys/fc/v1.0.0/release_data_fc.tcl

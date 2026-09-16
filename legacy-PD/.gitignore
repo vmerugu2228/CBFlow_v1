@@ -1,0 +1,50 @@
+# OMNI FLOW Project .gitignore
+# Ignore generated, log, and local config files
+
+# IDE/editor files
+*.swp
+*.swo
+*.bak
+*.tmp
+*~
+.DS_Store
+.vscode/
+__pycache__/
+
+# TCL history
+.history
+
+# Python cache
+*.pyc
+*.pyo
+
+# Logs and reports
+logs/
+*.log
+*.rpt
+*.report
+*.out
+*.err
+
+# Work and results directories
+work/
+results/
+
+# Run directories (can be customized)
+run_*/
+P0_run_*/
+setup_PNR_*/
+
+# Releases (optional, comment if you want to track)
+releases/
+
+# Local environment/config
+.env*
+*.env
+
+# Generated files
+*.generated.*
+
+# Exclude user config templates but not actual user configs
+!user_config*.tcl
+.run.status

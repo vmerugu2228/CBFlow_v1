@@ -1,0 +1,2729 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CBflow RACE FlowTracer — {{FLOW_TYPE}}</title>
+<script src="/static/adaptive_poll.js"></script>
+<style>
+:root {
+  --bg: #e0e0e0; --surface: #ffffff; --surface2: #eeeeee;
+  --text: #1a1a1a; --text-dim: #555555; --border: #bdbdbd;
+  --tree-bg: #f5f5f0; --canvas-bg: #909090;
+  --green: #4caf50; --red: #f44336; --yellow: #ffeb3b;
+  --cyan: #00bcd4; --gray: #9e9e9e; --purple: #ab47bc;
+  --orange: #ff9800; --teal: #26a69a; --blue: #1976d2;
+  --sel: #bbdefb; --hover: #e3f2fd;
+  /* Status colors — single source for future dark mode support */
+  --st-done-fill: #4caf50;    --st-done-stroke: #1b5e20;
+  --st-running-fill: #ffeb3b; --st-running-stroke: #f57f17;
+  --st-pending-fill: #4fc3f7; --st-pending-stroke: #0277bd;
+  --st-fail-fill: #f44336;    --st-fail-stroke: #b71c1c;
+  --st-ready-fill: #ab47bc;   --st-ready-stroke: #4a148c;
+  --st-bypassed-fill: #bdbdbd;--st-bypassed-stroke: #616161;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+/* ── Toolbar ── */
+.toolbar { display:flex; align-items:center; height:36px; background:var(--surface); border-bottom:1px solid var(--border); padding:0 8px; gap:2px; flex-shrink:0; }
+.toolbar .sep { width:1px; height:20px; background:var(--border); margin:0 4px; }
+.tb-btn { background:none; border:1px solid transparent; padding:3px 8px; cursor:pointer; font-size:12px; color:var(--text); border-radius:3px; display:flex; align-items:center; gap:4px; white-space:nowrap; }
+.tb-btn:hover { background:var(--hover); border-color:var(--border); }
+.tb-btn.active { background:var(--sel); }
+.tb-btn svg { width:14px; height:14px; }
+.tb-title { font-weight:700; font-size:13px; color:var(--blue); margin-right:8px; white-space:nowrap; }
+.tb-spacer { flex:1; }
+.tb-status { font-size:11px; color:var(--text-dim); display:flex; align-items:center; gap:6px; }
+.tb-badge { padding:2px 8px; border-radius:3px; font-size:10px; font-weight:700; color:#fff; text-transform:uppercase; }
+
+/* ── Menu Dropdowns ── */
+.tb-menu { position:relative; }
+.tb-menu-content { display:none; position:absolute; top:100%; left:0; background:var(--surface); border:1px solid var(--border); min-width:180px; z-index:300; box-shadow:0 4px 12px rgba(0,0,0,0.15); border-radius:0 0 4px 4px; }
+.tb-menu:hover .tb-menu-content { display:block; }
+.tb-menu-content a { display:block; padding:6px 12px; font-size:12px; color:var(--text); text-decoration:none; cursor:pointer; }
+.tb-menu-content a:hover { background:var(--hover); }
+.tb-menu-content hr { border:none; border-top:1px solid var(--border); margin:2px 0; }
+
+/* ── Main Layout ── */
+.main-area { display:flex; flex:1; overflow:hidden; }
+
+/* ── Left Panel: Tree ── */
+.left-panel { width:220px; background:var(--tree-bg); border-right:1px solid var(--border); display:flex; flex-direction:column; flex-shrink:0; overflow:hidden; }
+.panel-header { padding:6px 10px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; color:var(--text-dim); background:var(--surface2); border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+.tree-scroll { flex:1; overflow-y:auto; padding:4px 0; }
+.tree-stage { cursor:pointer; user-select:none; }
+.tree-stage-row { display:flex; align-items:center; padding:3px 8px; gap:4px; font-size:12px; font-weight:600; }
+.tree-stage-row:hover { background:var(--hover); }
+.tree-stage-row.selected { background:var(--sel); }
+.tree-toggle { width:14px; font-size:10px; color:var(--text-dim); text-align:center; flex-shrink:0; }
+.tree-icon { width:12px; height:12px; border-radius:3px; flex-shrink:0; }
+.tree-label { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tree-status-text { font-size:10px; font-weight:400; color:var(--text-dim); }
+.tree-subnodes { display:none; }
+.tree-stage.expanded .tree-subnodes { display:block; }
+.tree-subnode { display:flex; align-items:center; padding:2px 8px 2px 28px; gap:4px; font-size:11px; cursor:pointer; }
+.tree-subnode:hover { background:var(--hover); }
+.tree-subnode.selected { background:var(--sel); }
+.tree-sub-icon { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.tree-sub-label { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tree-sub-time { font-size:10px; color:var(--text-dim); }
+
+/* ── Legend in left panel ── */
+.legend-panel { padding:8px 10px; border-bottom:1px solid var(--border); display:flex; flex-direction:column; gap:3px; }
+.legend-panel-item { display:flex; align-items:center; gap:6px; }
+.legend-panel-swatch { width:14px; height:10px; border-radius:2px; }
+.legend-panel-label { font-size:11px; }
+
+/* ── Center Panel: DAG Canvas ── */
+.center-panel { flex:1; background:var(--canvas-bg); position:relative; overflow:hidden; }
+.dag-canvas { width:100%; height:100%; }
+.dag-node { cursor:pointer; }
+.dag-node rect { stroke-width:2.5; }
+.dag-node:hover rect { filter:brightness(1.08); }
+.dag-node text { font-family:'Segoe UI',system-ui,sans-serif; pointer-events:none; }
+.dag-edge line { stroke-width:2; }
+.dag-edge path { stroke-width:2; fill:none; }
+.dag-edge polygon { }
+.dag-node.selected rect { stroke-width:4; filter:drop-shadow(0 0 8px rgba(0,0,0,0.5)); }
+
+/* ── Right Panel: Details ── */
+.right-panel { width:280px; background:var(--surface); border-left:1px solid var(--border); display:flex; flex-direction:column; flex-shrink:0; overflow:hidden; }
+.detail-scroll { flex:1; overflow-y:auto; padding:10px; }
+.detail-title { font-size:14px; font-weight:700; margin-bottom:8px; padding-bottom:6px; border-bottom:1px solid var(--border); }
+.detail-row { display:flex; justify-content:space-between; padding:3px 0; font-size:12px; border-bottom:1px solid #eee; }
+.detail-row label { color:var(--text-dim); font-weight:600; font-size:11px; text-transform:uppercase; }
+.detail-row span { text-align:right; font-family:'SF Mono','Fira Code',monospace; font-size:11px; }
+.detail-section { margin-top:10px; }
+.detail-section h4 { font-size:11px; text-transform:uppercase; color:var(--text-dim); margin-bottom:4px; letter-spacing:.5px; }
+.detail-badge { display:inline-block; padding:2px 8px; border-radius:3px; font-size:11px; font-weight:700; color:#fff; }
+.detail-error { background:#ffebee; border:1px solid var(--red); border-radius:4px; padding:6px 8px; font-size:11px; color:var(--red); margin-top:6px; word-break:break-all; }
+.detail-cmd { background:#f5f5f5; border:1px solid var(--border); border-radius:4px; padding:6px 8px; font-size:10px; font-family:monospace; margin-top:6px; max-height:80px; overflow:auto; word-break:break-all; }
+.detail-log { background:#263238; color:#e0e0e0; border-radius:4px; padding:8px; font-size:10px; font-family:monospace; margin-top:6px; max-height:200px; overflow:auto; white-space:pre; line-height:1.4; }
+.detail-subjobs { margin-top:8px; }
+.detail-subjobs table { width:100%; font-size:11px; border-collapse:collapse; }
+.detail-subjobs th { text-align:left; font-size:10px; color:var(--text-dim); text-transform:uppercase; padding:3px 4px; border-bottom:1px solid var(--border); }
+.detail-subjobs td { padding:3px 4px; border-bottom:1px solid #eee; cursor:pointer; }
+.detail-subjobs tr:hover { background:var(--hover); }
+.detail-empty { text-align:center; color:var(--text-dim); font-size:12px; padding:40px 10px; }
+
+/* ── Inline Edit Form ── */
+.inline-edit { margin-top:12px; padding-top:10px; border-top:2px solid var(--border); }
+.inline-edit h4 { font-size:11px; text-transform:uppercase; color:var(--text-dim); margin-bottom:6px; letter-spacing:.5px; }
+.ie-group { margin-bottom:8px; }
+.ie-group label { display:block; font-size:10px; color:var(--text-dim); margin-bottom:2px; text-transform:uppercase; font-weight:600; }
+.ie-group input, .ie-group select { width:100%; padding:4px 8px; border:1px solid var(--border); border-radius:3px; font-size:12px; background:#fff; }
+.ie-actions { display:flex; justify-content:flex-end; margin-top:8px; }
+
+/* ── Status Bar ── */
+.statusbar { display:flex; align-items:center; height:24px; background:var(--surface2); border-top:1px solid var(--border); padding:0 10px; font-size:11px; color:var(--text-dim); gap:16px; flex-shrink:0; }
+.sb-item { display:flex; align-items:center; gap:4px; }
+.sb-dot { width:8px; height:8px; border-radius:50%; }
+.sb-sep { width:1px; height:14px; background:var(--border); }
+
+/* ── Context Menu ── */
+.ctx-menu { display:none; position:fixed; background:var(--surface); border:1px solid var(--border); min-width:200px; z-index:400; box-shadow:0 4px 16px rgba(0,0,0,0.2); border-radius:4px; }
+.ctx-menu .ctx-hdr { padding:5px 10px; font-size:10px; font-weight:700; color:var(--blue); background:var(--surface2); border-bottom:1px solid var(--border); text-transform:uppercase; letter-spacing:.5px; border-radius:4px 4px 0 0; }
+.ctx-menu a { display:block; padding:5px 10px; font-size:12px; color:var(--text); text-decoration:none; cursor:pointer; }
+.ctx-menu a:hover { background:var(--hover); }
+.ctx-menu a:last-child { border-radius:0 0 4px 4px; }
+.ctx-menu hr { border:none; border-top:1px solid var(--border); margin:2px 0; }
+
+/* ── Modal ── */
+.modal-bg { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:500; justify-content:center; align-items:center; }
+.modal-box { background:var(--surface); border-radius:8px; width:90%; max-width:800px; box-shadow:0 8px 32px rgba(0,0,0,0.2); }
+.modal-hd { display:flex; justify-content:space-between; align-items:center; padding:10px 16px; border-bottom:1px solid var(--border); }
+.modal-hd h3 { font-size:14px; }
+.modal-hd button { background:none; border:none; font-size:18px; cursor:pointer; color:var(--text-dim); }
+.modal-bd { padding:16px; }
+.fm-group { margin-bottom:10px; }
+.fm-group label { display:block; font-size:11px; color:var(--text-dim); margin-bottom:3px; text-transform:uppercase; font-weight:600; }
+.fm-group input, .fm-group select { width:100%; padding:6px 10px; border:1px solid var(--border); border-radius:4px; font-size:13px; background:#fff; }
+.fm-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:14px; }
+.fm-btn { padding:6px 16px; border-radius:4px; font-size:12px; cursor:pointer; border:1px solid var(--border); background:var(--surface); }
+.fm-btn:hover { background:var(--surface2); }
+.fm-btn-primary { background:var(--blue); color:#fff; border-color:var(--blue); }
+.fm-btn-primary:hover { opacity:0.9; background:var(--blue); }
+
+/* ── Toast ── */
+.toast { position:fixed; bottom:16px; right:16px; background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:8px 16px; font-size:12px; z-index:600; box-shadow:0 2px 12px rgba(0,0,0,0.15); transform:translateY(60px); opacity:0; transition:all .3s; }
+.toast.show { transform:translateY(0); opacity:1; }
+.toast.error { border-color:var(--red); color:var(--red); }
+.toast.success { border-color:var(--green); color:var(--green); }
+
+/* ── Legend (toolbar) ── */
+.legend { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+.legend-item { display:flex; align-items:center; gap:3px; font-size:10px; color:var(--text-dim); white-space:nowrap; }
+.legend-swatch { width:10px; height:10px; border-radius:2px; }
+</style>
+</head>
+<body>
+
+<!-- ══ Toolbar ══ -->
+<div class="toolbar">
+  <span class="tb-title" style="font-family:monospace;font-size:11px;letter-spacing:1px;background:linear-gradient(90deg,#1565c0,#0d47a1);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-weight:900">CBflow</span>
+  <span id="tb-discipline" style="font-size:10px;font-weight:700;letter-spacing:.08em;padding:2px 8px;border-radius:999px;background:#1565c0;color:#fff;text-transform:uppercase;border:1px solid #0d47a1">{{DISCIPLINE}}</span>
+  <span class="tb-title" style="font-size:11px;color:#666;font-weight:400">RACE FlowTracer</span>
+  <div class="sep"></div>
+  <span id="tb-run-name" style="font-size:12px;font-weight:600;color:var(--text);margin-right:4px">{{RUN_DIR}}</span>
+  <div class="sep"></div>
+  <script>
+    (function() {
+      var el = document.getElementById('tb-discipline');
+      if (el && el.textContent.trim() === 'DFT') {
+        el.style.background = '#0d9488';
+        el.style.borderColor = '#0f766e';
+      }
+    })();
+  </script>
+
+  <!-- Flow menu -->
+  <div class="tb-menu">
+    <button class="tb-btn">Flow</button>
+    <div class="tb-menu-content">
+      <a onclick="apiAction('run',{})">&#9654; Run All</a>
+      <a onclick="promptAction('run-stage','Run Stage','Select stage to run','Run')">&#9654; Run Stage...</a>
+      <hr>
+      <a onclick="apiAction('retrace',{})">&#8635; Retrace All</a>
+      <a onclick="promptAction('retrace','Retrace From','Retrace from stage','Retrace')">&#8635; Retrace From...</a>
+      <hr>
+      <a onclick="promptAction('bypass','Bypass','Select stage to bypass','Bypass')">&#10140; Bypass...</a>
+      <a onclick="promptAction('force','Force Re-run','Select stage to force','Force')">&#8634; Force Re-run...</a>
+      <a onclick="promptAction('forcevalidate','Force Validate','Select stage to validate','Validate')">&#10004; Force Validate...</a>
+    </div>
+  </div>
+
+  <div class="tb-menu">
+    <button class="tb-btn">Edit</button>
+    <div class="tb-menu-content">
+      <a onclick="promptAddNode()">Add Node...</a>
+      <a onclick="promptAction('delete-node','Delete Node','Select node to delete','Delete')">Delete Node...</a>
+      <a onclick="promptCreateBranch()">Create Branch...</a>
+      <a onclick="promptDeleteBranch()">Delete Branch...</a>
+    </div>
+  </div>
+
+  <div class="tb-menu">
+    <button class="tb-btn">Config</button>
+    <div class="tb-menu-content">
+      <a onclick="promptEditStageConfig()">LSF / Resources...</a>
+      <a onclick="promptEditMMMC()">MMMC Scenarios...</a>
+      <a onclick="promptAction('interactive-select','Interactive Session','Select node to open interactively','Launch')">Interactive Session...</a>
+    </div>
+  </div>
+
+  <div class="sep"></div>
+
+  <!-- Zoom controls -->
+  <button class="tb-btn" onclick="dagZoom(1.2)" title="Zoom In">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="16" y1="16" x2="22" y2="22"/><line x1="8" y1="11" x2="14" y2="11"/><line x1="11" y1="8" x2="11" y2="14"/></svg>
+  </button>
+  <button class="tb-btn" onclick="dagZoom(0.8)" title="Zoom Out">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="16" y1="16" x2="22" y2="22"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+  </button>
+  <button class="tb-btn" onclick="dagFit()" title="Fit to Window">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/></svg>
+  </button>
+
+  <div class="sep"></div>
+
+  <!-- View toggles -->
+  <!-- Subnodes toggle removed — use right-click "View Subnodes" instead -->
+  <button class="tb-btn" id="btn-back" onclick="backToMain()" style="display:none;background:#e3f2fd;font-weight:700">&#8592; Back to Main Graph</button>
+  <button class="tb-btn" onclick="resetGraph()" title="Reset node positions to default layout">Reset Layout</button>
+  <button class="tb-btn" id="btn-stop" onclick="stopExecution()" title="Stop all running jobs" style="background:#ffcdd2;color:#b71c1c;font-weight:700">Stop</button>
+
+  <div class="tb-spacer"></div>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div class="legend-item"><div class="legend-swatch" style="background:#ab47bc"></div>Idle</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#4fc3f7"></div>Queued</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#ffeb3b"></div>Running</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#4caf50"></div>Finished</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#f44336"></div>Failed</div>
+  </div>
+
+  <div class="sep"></div>
+
+  <div class="tb-status">
+    <span id="tb-progress">0/0</span>
+    <span class="tb-badge" id="tb-result" style="background:var(--gray)">READY</span>
+  </div>
+</div>
+
+<!-- ══ Context Menu (main view - stage) ══ -->
+<div class="ctx-menu" id="ctx-menu">
+  <div class="ctx-hdr" id="ctx-hdr">Node</div>
+  <a onclick="ctxAction('run-stage')">&#9654; Run This Stage</a>
+  <a onclick="ctxAction('retrace-from')">&#8635; Retrace From Here</a>
+  <hr>
+  <a onclick="ctxAction('bypass')">&#10140; Bypass</a>
+  <a onclick="ctxAction('force')">&#8634; Force Re-run</a>
+  <a onclick="ctxAction('forcevalidate')">&#10004; Force Validate</a>
+  <hr>
+  <a onclick="ctxAction('edit')">&#9998; Edit Config (LSF/Version)</a>
+  <a onclick="ctxAction('duplicate')">&#10064; Duplicate Node</a>
+  <a onclick="ctxAction('subnodes')">&#9776; View Subnodes</a>
+  <a onclick="ctxAction('interactive')">&#9000; Open Interactive Session</a>
+</div>
+
+<!-- ══ Modals ══ -->
+<!-- Stage Select Modal -->
+<div class="modal-bg" id="action-modal">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-hd"><h3 id="action-title">Action</h3><button onclick="closeModal('action-modal')">&times;</button></div>
+    <div class="modal-bd">
+      <form onsubmit="submitAction(event)">
+        <input type="hidden" id="action-type">
+        <div class="fm-group"><label id="action-label">Stage</label><select id="action-stage"></select></div>
+        <div class="fm-actions"><button type="button" class="fm-btn" onclick="closeModal('action-modal')">Cancel</button><button type="submit" class="fm-btn fm-btn-primary" id="action-submit">Execute</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Add Node Modal -->
+<div class="modal-bg" id="addnode-modal">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-hd"><h3>Add Node</h3><button onclick="closeModal('addnode-modal')">&times;</button></div>
+    <div class="modal-bd">
+      <form onsubmit="submitAddNode(event)">
+        <div class="fm-group"><label>Node Name</label><input type="text" id="an-name" placeholder="e.g., place2" required></div>
+        <div class="fm-group"><label>Node Type</label><select id="an-type"></select></div>
+        <div class="fm-group"><label>Depends On</label><select id="an-dep"></select></div>
+        <div class="fm-actions"><button type="button" class="fm-btn" onclick="closeModal('addnode-modal')">Cancel</button><button type="submit" class="fm-btn fm-btn-primary">Add</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Create Branch Modal -->
+<div class="modal-bg" id="branch-modal">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-hd"><h3>Create Branch</h3><button onclick="closeModal('branch-modal')">&times;</button></div>
+    <div class="modal-bd">
+      <form onsubmit="submitBranch(event)">
+        <div class="fm-group"><label>Branch Name</label><input type="text" id="br-name" placeholder="e.g., eco_fix" required></div>
+        <div class="fm-group"><label>Branch From</label><select id="br-from"></select></div>
+        <div class="fm-group"><label>Tag (optional)</label><input type="text" id="br-tag" placeholder="e.g., timing_fix — appended to all node names"></div>
+        <div class="fm-actions"><button type="button" class="fm-btn" onclick="closeModal('branch-modal')">Cancel</button><button type="submit" class="fm-btn fm-btn-primary">Create</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Config Modal -->
+<div class="modal-bg" id="edit-modal">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-hd"><h3 id="edit-title">Edit Config</h3><button onclick="closeModal('edit-modal')">&times;</button></div>
+    <div class="modal-bd">
+      <form onsubmit="saveConfig(event)">
+        <input type="hidden" id="ed-stage">
+        <div class="fm-group"><label>LSF Queue Tier</label><select id="ed-queue"></select></div>
+        <div class="fm-group"><label>Memory</label><input type="text" id="ed-mem"></div>
+        <div class="fm-group"><label>CPU Cores</label><input type="text" id="ed-cpu"></div>
+        <div class="fm-group"><label>Timeout (min)</label><input type="text" id="ed-timeout"></div>
+        <div class="fm-group"><label>Tool Version</label><input type="text" id="ed-version"></div>
+        <div class="fm-group"><label>Tool Module</label><input type="text" id="ed-module" placeholder="e.g. synopsysFusionCompiler/2025.06-SP2"></div>
+        <div class="fm-actions"><button type="button" class="fm-btn" onclick="closeModal('edit-modal')">Cancel</button><button type="submit" class="fm-btn fm-btn-primary">Save</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Main 3-Panel Layout ══ -->
+<div class="main-area">
+
+  <!-- Left: Design Info (compact) -->
+  <div class="left-panel">
+    <div class="panel-header"><span>Design Info</span></div>
+    <div style="padding:10px 12px">
+      <table style="width:100%;font-size:12px;border-collapse:collapse">
+        <tr><td style="color:var(--text-dim);padding:3px 0;width:70px">Project</td><td style="font-weight:600" id="lp-project">{{PROJECT}}</td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Block</td><td style="font-weight:600" id="lp-design">-</td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Flow</td><td style="font-weight:600" id="lp-flow">{{FLOW_TYPE}}</td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Phase</td><td style="font-weight:600" id="lp-phase">-</td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Run</td><td style="font-weight:600" id="lp-run">-</td></tr>
+        <tr><td colspan="2" style="padding:4px 0"><hr style="border:none;border-top:1px solid var(--border);margin:0"></td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Tech</td><td style="font-weight:600"><span id="lp-foundry">-</span> <span id="lp-tech-node">-</span></td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Track</td><td style="font-weight:600" id="lp-track">-</td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Metal</td><td style="font-weight:600" id="lp-metal">-</td></tr>
+        <tr><td colspan="2" style="padding:4px 0"><hr style="border:none;border-top:1px solid var(--border);margin:0"></td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Tool</td><td style="font-weight:600"><span id="lp-vendor">-</span> / <span id="lp-tool">-</span></td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Module</td><td style="font-weight:600;font-size:10px;word-break:break-all" id="lp-module">-</td></tr>
+      </table>
+    </div>
+    <!-- Node Info (shown when any node is selected) -->
+    <div id="lp-node-info" style="display:none;border-top:1px solid var(--border);padding:10px 12px">
+      <div style="font-size:11px;font-weight:700;color:var(--text-dim);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Selected Node</div>
+      <table style="width:100%;font-size:12px;border-collapse:collapse">
+        <tr><td style="color:var(--text-dim);padding:3px 0;width:60px">Name</td>
+            <td><input id="ni-name" type="text" style="width:100%;padding:3px 4px;border:1px solid var(--border);border-radius:3px;font-size:12px;font-weight:600;background:var(--surface)" readonly></td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Type</td><td style="font-weight:600" id="ni-type">-</td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Status</td><td style="font-weight:600" id="ni-status">-</td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Branch</td><td style="font-weight:600" id="ni-branch">-</td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Tag</td><td style="font-weight:600" id="ni-tag">-</td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Depends</td><td style="font-size:11px" id="ni-deps">-</td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Jobs</td><td id="ni-jobs">-</td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Runtime</td><td id="ni-runtime">-</td></tr>
+      </table>
+      <div id="ni-rename-btn" style="display:none;margin-top:8px">
+        <button onclick="doNodeRename()" style="width:100%;padding:5px;border:1px solid var(--border);border-radius:4px;background:var(--surface);cursor:pointer;font-size:11px">Rename</button>
+      </div>
+    </div>
+    <!-- Input Variables (shown when leaf input node selected) -->
+    <div id="lp-input-vars" style="display:none;padding:10px 12px;border-top:1px solid var(--border);flex:1;overflow-y:auto">
+    </div>
+  </div>
+
+  <!-- Center: DAG Canvas -->
+  <div class="center-panel" id="dag-container">
+    <svg class="dag-canvas" id="dag-svg"></svg>
+  </div>
+
+  <!-- Right: Details -->
+  <div class="right-panel">
+    <div class="panel-header"><span>Properties</span></div>
+    <div class="detail-scroll" id="detail-panel">
+      <div class="detail-empty">Select a node to view details</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ══ Status Bar ══ -->
+<div class="statusbar">
+  <div class="sb-item" style="font-weight:700"><span id="lp-stages">0/0</span> stages</div>
+  <div class="sb-sep"></div>
+  <div class="sb-item"><div class="sb-dot" style="background:#4caf50"></div><span id="sb-done">0</span> Done</div>
+  <div class="sb-item"><div class="sb-dot" style="background:#f44336"></div><span id="sb-fail">0</span> Failed</div>
+  <div class="sb-item"><div class="sb-dot" style="background:#ffeb3b"></div><span id="sb-run">0</span> Running</div>
+  <div class="sb-item"><div class="sb-dot" style="background:#ab47bc"></div><span id="sb-ready">0</span> Ready</div>
+  <div class="sb-sep"></div>
+  <span id="sb-total">0 jobs</span>
+  <div class="sb-sep"></div>
+  <div id="lp-progress-bar" style="flex:1;max-width:400px;height:10px;border-radius:5px;overflow:hidden;align-self:center;display:flex;border:1px solid var(--border)">
+  </div>
+  <span id="lp-result" style="font-weight:700">-</span>
+  <div class="tb-spacer"></div>
+  <span id="sb-updated">--</span>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+// HTML-ESCAPE HELPERS — every user-controlled string that ends up in
+// an innerHTML assignment must go through these. Audit S9 found 13+
+// sinks (j.error_msg, j.command, j.log_tail, j.name, node names from
+// add-node) that were previously concatenated raw. All persist through
+// the DB or config, so a stored XSS in any of them fires for every
+// viewer of the dashboard.
+// ═══════════════════════════════════════════════════════════════════
+function escHtml(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+function escAttr(s) { return escHtml(s); }
+
+// ═══════════════════════════════════════════════════════════════════
+// STATE — namespaced to avoid global pollution
+// ═══════════════════════════════════════════════════════════════════
+var stagesData = [];
+var allJobs = [];
+var dagData = null;
+var selectedNode = null;
+var cachedConfig = null;
+
+// DAG transform
+var dagScale = 1;
+var dagTx = 0, dagTy = 0;
+var isPanning = false, panStartX = 0, panStartY = 0;
+
+// Drag state
+var isDragging = false, dragNode = null, dragStartX = 0, dragStartY = 0;
+var dragMoved = false;
+
+// Subnode view state
+var subnodeView = null;
+var nodePositions = {};
+
+// Build flags — control when layout recomputes vs color-only update
+var dagBuilt = false;
+var treeBuilt = false;
+var panZoomSetup = false;
+
+// ═══════════════════════════════════════════════════════════════════
+// STATUS COLORS — single source of truth
+// ═══════════════════════════════════════════════════════════════════
+var STATUS_STYLES = {
+  READY:            { stroke:'#4a148c', fill:'#ab47bc', text:'#fff' },
+  PENDING:          { stroke:'#0277bd', fill:'#4fc3f7', text:'#003' },
+  RUNNING:          { stroke:'#f57f17', fill:'#ffeb3b', text:'#333' },
+  DONE:             { stroke:'#1b5e20', fill:'#4caf50', text:'#fff' },
+  FAIL:             { stroke:'#b71c1c', fill:'#f44336', text:'#fff' },
+  INVALIDATED:      { stroke:'#4a148c', fill:'#ab47bc', text:'#fff' },
+  BYPASSED:         { stroke:'#616161', fill:'#bdbdbd', text:'#333' },
+  FORCE_VALIDATED:  { stroke:'#1b5e20', fill:'#4caf50', text:'#fff' }
+};
+var DEFAULT_STYLE = { stroke:'#757575', fill:'#e0e0e0', text:'#333' };
+
+function getStatusStyle(s) { return STATUS_STYLES[s] || DEFAULT_STYLE; }
+function sColor(s)     { return getStatusStyle(s).stroke; }
+function sColorFill(s) { return getStatusStyle(s).fill; }
+function sTextColor(s) { return getStatusStyle(s).text; }
+
+function statusLabel(s) {
+  var m = {DONE:'Finished',READY:'Idle',PENDING:'Queued',RUNNING:'Running',
+           FAIL:'Failed',INVALIDATED:'Invalidated',BYPASSED:'Bypassed',
+           FORCE_VALIDATED:'Validated'};
+  return m[s] || s;
+}
+
+function formatTime(s) {
+  if (!s || s < 0.01) return '-';
+  if (s < 60) return s.toFixed(1) + 's';
+  if (s < 3600) return (s/60).toFixed(1) + 'm';
+  return (s/3600).toFixed(1) + 'h';
+}
+
+// ── Shared form helpers (eliminate 3x duplication) ───────────────
+function populateQueueSelect(prefix, data, stage) {
+  var cfg = (data.stages || {})[stage] || {};
+  var qSel = document.getElementById(prefix + '-queue');
+  if (!qSel) return;
+  qSel.innerHTML = '';
+  var tiers = data.queue_tiers || [];
+  var qRes = data.queue_resources || {};
+  tiers.forEach(function(t) {
+    var r = qRes[t] || {};
+    var o = document.createElement('option');
+    o.value = t;
+    o.textContent = t + ' (' + (r.memory||'?') + ' / ' + (r.cpu||'?') + ' CPU)';
+    if (t === cfg.lsf_queue) o.selected = true;
+    qSel.appendChild(o);
+  });
+  qSel.onchange = function() {
+    var r = qRes[this.value] || {};
+    document.getElementById(prefix + '-mem').value = r.memory || '';
+    document.getElementById(prefix + '-cpu').value = r.cpu || '';
+  };
+  document.getElementById(prefix + '-mem').value = cfg.lsf_memory || '';
+  document.getElementById(prefix + '-cpu').value = cfg.lsf_cpu || '';
+  document.getElementById(prefix + '-timeout').value = cfg.timeout || '';
+  document.getElementById(prefix + '-version').value = cfg.tool_version || '';
+  document.getElementById(prefix + '-module').value = cfg.tool_module || '';
+}
+
+function saveConfigWithPrefix(prefix) {
+  var body = {
+    stage:       document.getElementById(prefix + '-stage').value,
+    lsf_queue:   document.getElementById(prefix + '-queue').value,
+    lsf_memory:  document.getElementById(prefix + '-mem').value,
+    lsf_cpu:     document.getElementById(prefix + '-cpu').value,
+    timeout:     document.getElementById(prefix + '-timeout').value,
+    tool_version:document.getElementById(prefix + '-version').value,
+    tool_module: document.getElementById(prefix + '-module').value
+  };
+  return fetch('/api/node-config', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  }).then(function(r){return r.json();});
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// DATA FETCH
+// ═══════════════════════════════════════════════════════════════════
+function refresh() {
+  Promise.all([
+    fetch('/api/status').then(function(r){return r.json();}),
+    fetch('/api/jobs').then(function(r){return r.json();}),
+    fetch('/api/dag').then(function(r){return r.json();})
+  ]).then(function(results) {
+    var statusData = results[0], jobs = results[1], dag = results[2];
+    stagesData = statusData.stages || [];
+    allJobs = jobs || [];
+    dagData = dag;
+    var info = statusData.run_info || {};
+    var sum = statusData.summary || {};
+
+    // Toolbar progress
+    document.getElementById('tb-progress').textContent = (sum.stages_done||0) + '/' + (sum.stages_total||0);
+    var res = info.result || 'READY';
+    var tbr = document.getElementById('tb-result');
+    tbr.textContent = res;
+    tbr.style.background = sColor(res === 'PASS' ? 'DONE' : res === 'FAIL' ? 'FAIL' : 'READY');
+
+    // Status bar
+    document.getElementById('sb-done').textContent = sum.done || 0;
+    document.getElementById('sb-fail').textContent = sum.failed || 0;
+    document.getElementById('sb-run').textContent = sum.running || 0;
+    document.getElementById('sb-ready').textContent = sum.ready || 0;
+    document.getElementById('sb-total').textContent = (sum.total || 0) + ' jobs';
+    document.getElementById('sb-updated').textContent = new Date().toLocaleTimeString();
+
+    // Left panel — project info
+    document.getElementById('lp-project').textContent = info.project || '-';
+    document.getElementById('lp-design').textContent = info.design_name || '-';
+    document.getElementById('lp-flow').textContent = info.flow_type || '-';
+    document.getElementById('lp-phase').textContent = info.phase || '-';
+    document.getElementById('lp-run').textContent = info.run_name || '-';
+    document.getElementById('tb-run-name').textContent = '{{RUN_DIR}}'.split('/').pop();
+
+    // Left panel — tech info
+    document.getElementById('lp-tech-node').textContent = info.tech_node || '-';
+    document.getElementById('lp-foundry').textContent = info.foundry || '-';
+    document.getElementById('lp-track').textContent = info.track_variant || '-';
+    document.getElementById('lp-metal').textContent = info.metal_stack || '-';
+
+    // Left panel — tool info
+    document.getElementById('lp-vendor').textContent = info.tool_vendor || '-';
+    document.getElementById('lp-tool').textContent = info.tool_name || '-';
+    document.getElementById('lp-module').textContent = info.tool_module || '-';
+
+    // Left panel — progress
+    document.getElementById('lp-stages').textContent = (sum.stages_done||0) + '/' + (sum.stages_total||0);
+    // lp-jobs removed — progress is in the bottom bar
+    var pct = sum.stages_total > 0 ? Math.round((sum.stages_done / sum.stages_total) * 100) : 0;
+    var resultEl = document.getElementById('lp-result');
+    resultEl.textContent = pct + '% complete';
+    resultEl.style.color = (sum.failed || 0) > 0 ? '#b71c1c' : pct === 100 ? '#1b5e20' : '#555';
+    // Progress bar — proportional colors matching stage statuses
+    var pb = document.getElementById('lp-progress-bar');
+    if (pb && stagesData.length > 0) {
+      var total = stagesData.length;
+      var counts = {done:0, running:0, pending:0, fail:0, invalidated:0, ready:0};
+      stagesData.forEach(function(s) {
+        if (s.status === 'DONE' || s.status === 'BYPASSED' || s.status === 'FORCE_VALIDATED') counts.done++;
+        else if (s.status === 'RUNNING') counts.running++;
+        else if (s.status === 'PENDING') counts.pending++;
+        else if (s.status === 'FAIL') counts.fail++;
+        else if (s.status === 'INVALIDATED') counts.invalidated++;
+        else counts.ready++;
+      });
+      var segs = '';
+      if (counts.done > 0) segs += '<div style="width:' + (counts.done/total*100) + '%;background:#4caf50;height:100%"></div>';
+      if (counts.running > 0) segs += '<div style="width:' + (counts.running/total*100) + '%;background:#ffeb3b;height:100%"></div>';
+      if (counts.pending > 0) segs += '<div style="width:' + (counts.pending/total*100) + '%;background:#4fc3f7;height:100%"></div>';
+      if (counts.fail > 0) segs += '<div style="width:' + (counts.fail/total*100) + '%;background:#f44336;height:100%"></div>';
+      if (counts.invalidated > 0) segs += '<div style="width:' + (counts.invalidated/total*100) + '%;background:#ab47bc;height:100%"></div>';
+      if (counts.ready > 0) segs += '<div style="width:' + (counts.ready/total*100) + '%;background:#ab47bc;height:100%"></div>';
+      pb.innerHTML = segs;
+    }
+
+    updateTree();
+    renderDAG();
+
+    // Refresh detail panel if node selected — but NOT while user is editing a form
+    var isEditing = document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'SELECT');
+    if (selectedNode && !isEditing) showDetail(selectedNode);
+  }).catch(function(e) { console.error('Refresh error:', e); });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// TREE VIEW
+// ═══════════════════════════════════════════════════════════════════
+function updateTree() {
+  var tree = document.getElementById('tree');
+  if (!tree) return; // Tree panel removed — skip
+
+  if (!treeBuilt) {
+    // Build tree from scratch
+    tree.innerHTML = '';
+    stagesData.forEach(function(s) {
+      var stageJobs = allJobs.filter(function(j){return j.stage === s.name && j.type === 'subnode';});
+      var div = document.createElement('div');
+      div.className = 'tree-stage';
+      div.id = 'tree-' + s.name;
+      div.innerHTML =
+        '<div class="tree-stage-row" data-stage="' + s.name + '">' +
+          '<span class="tree-toggle">' + (stageJobs.length > 0 ? '&#9656;' : '&nbsp;') + '</span>' +
+          '<div class="tree-icon" style="background:' + sColorFill(s.status) + ';border:1px solid ' + sColor(s.status) + '"></div>' +
+          '<span class="tree-label">' + s.name + '</span>' +
+          '<span class="tree-status-text">' + formatTime(s.runtime) + '</span>' +
+        '</div>' +
+        '<div class="tree-subnodes">' +
+          stageJobs.map(function(j) {
+            return '<div class="tree-subnode" data-job="' + j.name + '">' +
+              '<div class="tree-sub-icon" style="background:' + sColorFill(j.status) + ';border:1px solid ' + sColor(j.status) + '"></div>' +
+              '<span class="tree-sub-label">' + (j.subnode || j.name) + '</span>' +
+              '<span class="tree-sub-time">' + formatTime(j.runtime) + '</span>' +
+            '</div>';
+          }).join('') +
+        '</div>';
+      tree.appendChild(div);
+
+      // Expand/collapse + select
+      var row = div.querySelector('.tree-stage-row');
+      row.addEventListener('click', (function(stage, container) {
+        return function() {
+          container.classList.toggle('expanded');
+          var tog = container.querySelector('.tree-toggle');
+          tog.innerHTML = container.classList.contains('expanded') ? '&#9662;' : '&#9656;';
+          selectNode(stage.name);
+        };
+      })(s, div));
+
+      // Subnode clicks
+      div.querySelectorAll('.tree-subnode').forEach(function(sn) {
+        sn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          selectNode(sn.getAttribute('data-job'));
+        });
+      });
+
+      // Right-click context menu
+      row.addEventListener('contextmenu', (function(name) {
+        return function(e) { showCtxMenu(name, e); };
+      })(s.name));
+
+      // Subnode right-click
+      div.querySelectorAll('.tree-subnode').forEach(function(sn) {
+        sn.addEventListener('contextmenu', function(e) {
+          e.stopPropagation();
+          showCtxMenu(sn.getAttribute('data-job'), e);
+        });
+      });
+    });
+    treeBuilt = true;
+  } else {
+    // Update colors/text only — do NOT rebuild DOM
+    stagesData.forEach(function(s) {
+      var el = document.getElementById('tree-' + s.name);
+      if (!el) return;
+      var icon = el.querySelector('.tree-icon');
+      if (icon) { icon.style.background = sColorFill(s.status); icon.style.borderColor = sColor(s.status); }
+      var time = el.querySelector('.tree-status-text');
+      if (time) time.textContent = formatTime(s.runtime);
+
+      var stageJobs = allJobs.filter(function(j){return j.stage === s.name && j.type === 'subnode';});
+      var subEls = el.querySelectorAll('.tree-subnode');
+      subEls.forEach(function(sn, i) {
+        if (stageJobs[i]) {
+          var si = sn.querySelector('.tree-sub-icon');
+          if (si) { si.style.background = sColorFill(stageJobs[i].status); si.style.borderColor = sColor(stageJobs[i].status); }
+          var st = sn.querySelector('.tree-sub-time');
+          if (st) st.textContent = formatTime(stageJobs[i].runtime);
+        }
+      });
+    });
+  }
+}
+
+function selectNode(name) {
+  selectedNode = name;
+  // Highlight in tree
+  document.querySelectorAll('.tree-stage-row.selected, .tree-subnode.selected').forEach(function(el){el.classList.remove('selected');});
+  var treeRow = document.querySelector('[data-stage="' + name + '"]') || document.querySelector('[data-job="' + name + '"]');
+  if (treeRow) treeRow.classList.add('selected');
+
+  // Highlight in DAG
+  document.querySelectorAll('.dag-node.selected').forEach(function(el){el.classList.remove('selected');});
+  var dagEl = document.getElementById('dag-' + name);
+  if (dagEl) dagEl.classList.add('selected');
+
+  showDetail(name);
+  updateNodeInfoPanel(name);
+}
+
+function updateNodeInfoPanel(name) {
+  var panel = document.getElementById('lp-node-info');
+  if (!name) { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+
+  var s = stagesData.find(function(x){return x.name === name;}) || {};
+  var bi = (dagData && dagData.branch_info) ? dagData.branch_info[name] : null;
+  var baseSet = dagData ? new Set(dagData.base_stages) : new Set();
+  var isCustom = !baseSet.has(name);
+
+  // Name (editable for custom nodes)
+  var niName = document.getElementById('ni-name');
+  niName.value = name;
+  niName.readOnly = !isCustom;
+  niName.style.background = isCustom ? '#fff' : 'var(--surface2)';
+
+  // Type
+  var nodeType = name.replace(/\d+(_.*)?$/, '');
+  document.getElementById('ni-type').textContent = nodeType + (isCustom ? ' (custom)' : ' (base)');
+
+  // Status
+  var statusEl = document.getElementById('ni-status');
+  statusEl.textContent = s.status || 'READY';
+  statusEl.style.color = sColor(s.status || 'READY');
+
+  // Branch info
+  document.getElementById('ni-branch').textContent = bi ? (bi.branch_name || '-') : (isCustom ? '(no branch)' : '-');
+  document.getElementById('ni-tag').textContent = bi ? (bi.branch_tag || '-') : '-';
+
+  // Dependencies
+  var deps = [];
+  var edges = (dagData && dagData.edges) || [];
+  edges.forEach(function(e) { if (e.to === name) deps.push(e.from); });
+  document.getElementById('ni-deps').textContent = deps.join(', ') || '-';
+
+  // Jobs & runtime
+  document.getElementById('ni-jobs').textContent = s.jobs_total ? (s.jobs_done||0) + '/' + s.jobs_total + ' done' : 'leaf node';
+  document.getElementById('ni-runtime').textContent = formatTime(s.runtime || 0);
+
+  // Show rename button only for custom nodes
+  document.getElementById('ni-rename-btn').style.display = isCustom ? 'block' : 'none';
+}
+
+function doNodeRename() {
+  var niName = document.getElementById('ni-name');
+  var newName = niName.value.trim();
+  if (!newName || newName === selectedNode) return;
+  apiAction('rename-node', {old_name: selectedNode, new_name: newName});
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// DAG RENDERING (SVG) — Sugiyama-style hierarchical layout
+// ═══════════════════════════════════════════════════════════════════
+var NODE_W = 180, NODE_H = 48, GAP_X = 60, GAP_Y = 100;
+var SUB_W = 160, SUB_H = 40;
+
+// ── Build SVG node markup ──
+function svgNode(id, displayName, label2, x, y, w, h, status, rx) {
+  var tc = sTextColor(status);
+  var fill = sColorFill(status);
+  var stroke = sColor(status);
+  var r = rx || 4;
+  return '<g class="dag-node" id="dag-' + id + '" data-name="' + id + '" transform="translate(0,0)">' +
+    '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" rx="' + r + '" ry="' + r + '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="2.5"/>' +
+    '<text x="' + (x+w/2) + '" y="' + (y + h*0.4) + '" font-size="' + (h>40?13:11) + '" font-weight="700" fill="' + tc + '" text-anchor="middle" dominant-baseline="middle">' + displayName + '</text>' +
+    '<text x="' + (x+w/2) + '" y="' + (y + h*0.75) + '" font-size="' + (h>40?10:9) + '" fill="' + tc + '" text-anchor="middle" dominant-baseline="middle" opacity="0.85">' + label2 + '</text>' +
+    '</g>';
+}
+
+// Stage node with proportional color fill based on subnode status distribution
+function svgStageNode(id, displayName, label2, x, y, w, h, stageInfo, branchBorderColor, branchLabel) {
+  var total = stageInfo.jobs_total || 0;
+  var r = 4;
+  var borderColor = branchBorderColor || sColor(stageInfo.status);
+  var borderWidth = branchBorderColor ? '3' : '2.5';
+  var svg = '<g class="dag-node" id="dag-' + id + '" data-name="' + id + '" transform="translate(0,0)">';
+
+  if (total === 0) {
+    // Leaf node — single color
+    svg += '<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="'+r+'" ry="'+r+'" fill="'+sColorFill(stageInfo.status)+'" stroke="'+borderColor+'" stroke-width="'+borderWidth+'"/>';
+  } else {
+    var done = stageInfo.jobs_done || 0;
+    var failed = stageInfo.jobs_failed || 0;
+    var running = stageInfo.jobs_running || 0;
+    var pending = stageInfo.jobs_pending || 0;
+    var invalidated = stageInfo.jobs_invalidated || 0;
+    var ready = stageInfo.jobs_ready || 0;
+
+    // Build ordered segments: done, running, pending, fail, invalidated, ready
+    var segments = [];
+    if (done > 0) segments.push({count: done, fill: sColorFill('DONE')});
+    if (running > 0) segments.push({count: running, fill: sColorFill('RUNNING')});
+    if (pending > 0) segments.push({count: pending, fill: sColorFill('PENDING')});
+    if (failed > 0) segments.push({count: failed, fill: sColorFill('FAIL')});
+    if (invalidated > 0) segments.push({count: invalidated, fill: sColorFill('INVALIDATED')});
+    if (ready > 0) segments.push({count: ready, fill: sColorFill('READY')});
+    if (segments.length === 0) segments.push({count: 1, fill: sColorFill(stageInfo.status)});
+
+    // Clip path for rounded corners
+    var clipId = 'clip-' + id.replace(/[^a-zA-Z0-9]/g, '_');
+    svg += '<defs><clipPath id="'+clipId+'"><rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="'+r+'" ry="'+r+'"/></clipPath></defs>';
+
+    // Background fill (last segment color covers full area — no gaps)
+    var lastFill = segments[segments.length - 1].fill;
+    svg += '<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="'+r+'" ry="'+r+'" fill="'+lastFill+'" stroke="'+borderColor+'" stroke-width="'+borderWidth+'"/>';
+
+    // Overlay segments left-to-right (skip last since it's the background)
+    if (segments.length > 1) {
+      svg += '<g clip-path="url(#'+clipId+')">';
+      var cx = x;
+      for (var i = 0; i < segments.length - 1; i++) {
+        var segW = Math.round((segments[i].count / total) * w);
+        svg += '<rect x="'+cx+'" y="'+y+'" width="'+segW+'" height="'+h+'" fill="'+segments[i].fill+'"/>';
+        cx += segW;
+      }
+      svg += '</g>';
+    }
+
+    // Border on top
+    svg += '<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="'+r+'" ry="'+r+'" fill="none" stroke="'+borderColor+'" stroke-width="'+borderWidth+'"/>';
+  }
+
+  // Text — pick readable color based on dominant fill
+  var tc = '#333';
+  var doneRatio = (stageInfo.jobs_done || 0) / Math.max(total, 1);
+  if (doneRatio > 0.5) tc = sTextColor('DONE');
+  else if ((stageInfo.jobs_running || 0) > 0) tc = sTextColor('RUNNING');
+  else tc = sTextColor(stageInfo.status);
+
+  if (branchLabel) {
+    // 3-line layout: name, branch tag, status
+    svg += '<text x="'+(x+w/2)+'" y="'+(y+h*0.28)+'" font-size="13" font-weight="700" fill="'+tc+'" text-anchor="middle" dominant-baseline="middle">'+displayName+'</text>';
+    svg += '<text x="'+(x+w/2)+'" y="'+(y+h*0.52)+'" font-size="9" fill="'+(branchBorderColor||'#666')+'" text-anchor="middle" dominant-baseline="middle" font-style="italic">'+branchLabel+'</text>';
+    svg += '<text x="'+(x+w/2)+'" y="'+(y+h*0.78)+'" font-size="10" fill="'+tc+'" text-anchor="middle" dominant-baseline="middle" opacity="0.85">'+label2+'</text>';
+  } else {
+    // 2-line layout: name, status
+    svg += '<text x="'+(x+w/2)+'" y="'+(y+h*0.4)+'" font-size="13" font-weight="700" fill="'+tc+'" text-anchor="middle" dominant-baseline="middle">'+displayName+'</text>';
+    svg += '<text x="'+(x+w/2)+'" y="'+(y+h*0.75)+'" font-size="10" fill="'+tc+'" text-anchor="middle" dominant-baseline="middle" opacity="0.85">'+label2+'</text>';
+  }
+  svg += '</g>';
+  return svg;
+}
+
+// Branch edge colors — auto-assigned per branch column
+var BRANCH_COLORS = ['#1976d2','#e64a19','#7b1fa2','#00796b','#c2185b','#303f9f','#f57f17','#455a64','#d32f2f','#388e3c'];
+var MAIN_EDGE_COLOR = '#555';
+
+function svgEdgeLine(id, x1, y1, x2, y2, dashed, color) {
+  var c = color || MAIN_EDGE_COLOR;
+  return '<g class="dag-edge" id="' + id + '">' +
+    '<line x1="'+x1+'" y1="'+y1+'" x2="'+x2+'" y2="'+y2+'"' +
+    (dashed ? ' stroke-dasharray="4,3"' : '') +
+    ' stroke="'+c+'" stroke-width="1.5" marker-end="url(#arrow)"/></g>';
+}
+
+function svgEdgePath(id, x1, y1, x2, y2, color) {
+  var c = color || MAIN_EDGE_COLOR;
+  var midY = y1 + (y2 - y1) * 0.5;
+  var d = 'M ' + x1 + ' ' + y1 +
+          ' L ' + x1 + ' ' + midY +
+          ' L ' + x2 + ' ' + midY +
+          ' L ' + x2 + ' ' + y2;
+  return '<g class="dag-edge" id="' + id + '">' +
+    '<path d="' + d + '" fill="none" stroke="'+c+'" stroke-width="1.5" marker-end="url(#arrow)"/></g>';
+}
+
+// ── Sugiyama-style hierarchical layout algorithm ──
+function computeSugiyamaLayout(stageNames, edges, baseStagesSet) {
+  // Step 1: Build adjacency
+  var children = {}, parents = {};
+  stageNames.forEach(function(n) { children[n] = []; parents[n] = []; });
+  edges.forEach(function(e) {
+    if (children[e.from] && parents[e.to]) {
+      if (children[e.from].indexOf(e.to) === -1) children[e.from].push(e.to);
+      if (parents[e.to].indexOf(e.from) === -1) parents[e.to].push(e.from);
+    }
+  });
+
+  // Step 2: Compute depth using BFS from roots
+  // depth[node] = max(depth[parent] + 1) for all parents — longest path
+  var depth = {};
+  var roots = stageNames.filter(function(n) { return parents[n].length === 0; });
+  if (roots.length === 0 && stageNames.length > 0) roots = [stageNames[0]];
+
+  // Initialize all depths to -1
+  stageNames.forEach(function(n) { depth[n] = -1; });
+
+  // BFS — use iterative approach to find longest path (topological)
+  // First do topological sort
+  var inDeg = {};
+  stageNames.forEach(function(n) { inDeg[n] = parents[n].length; });
+  var queue = roots.slice();
+  queue.forEach(function(r) { depth[r] = 0; });
+
+  var topo = [];
+  while (queue.length > 0) {
+    var cur = queue.shift();
+    topo.push(cur);
+    children[cur].forEach(function(ch) {
+      var d = depth[cur] + 1;
+      if (d > depth[ch]) depth[ch] = d;
+      inDeg[ch]--;
+      if (inDeg[ch] <= 0) queue.push(ch);
+    });
+  }
+
+  // Handle any nodes not reached (cycles or disconnected)
+  stageNames.forEach(function(n) {
+    if (depth[n] === -1) {
+      depth[n] = 0;
+    }
+  });
+
+  // Step 3: Group stages by depth level
+  var levels = {};
+  var maxDepth = 0;
+  stageNames.forEach(function(n) {
+    var d = depth[n];
+    if (d > maxDepth) maxDepth = d;
+    if (!levels[d]) levels[d] = [];
+    levels[d].push(n);
+  });
+
+  // Step 4: Position nodes
+  // Main branch (base stages) stays in left column at x=MAIN_X
+  // Custom/branch nodes are placed to the right of their parent's X position
+  var positions = {};
+  var MAIN_X = 40;
+  var BRANCH_OFFSET = NODE_W + GAP_X; // horizontal offset for branches
+
+  // Pass 1: Place base stages — single column when one per depth, spread when multiple
+  for (var d = 0; d <= maxDepth; d++) {
+    var group = levels[d];
+    if (!group) continue;
+    var baseNodes = group.filter(function(n) { return baseStagesSet.has(n); });
+    if (baseNodes.length === 1) {
+      // Single base node at this depth — center on MAIN_X
+      positions[baseNodes[0]] = { x: MAIN_X, y: 30 + d * GAP_Y, w: NODE_W, h: NODE_H };
+    } else if (baseNodes.length > 1) {
+      // Multiple base nodes at same depth — spread horizontally, centered on MAIN_X
+      var totalW = baseNodes.length * NODE_W + (baseNodes.length - 1) * GAP_X;
+      var startX = MAIN_X + (NODE_W / 2) - (totalW / 2);
+      baseNodes.forEach(function(name, i) {
+        positions[name] = { x: startX + i * (NODE_W + GAP_X), y: 30 + d * GAP_Y, w: NODE_W, h: NODE_H };
+      });
+    }
+  }
+
+  // Pass 2: Place custom nodes in vertical columns (one column per branch)
+  // A branch column starts when a custom node's parent is a base stage.
+  // Subsequent chain nodes (custom parent is also custom) inherit the same X column.
+
+  // First, assign each custom node to a "column root" — the first custom ancestor
+  // whose parent is a base stage (or has no parent in custom nodes).
+  var columnX = {}; // columnRoot -> x position
+  var nodeColumn = {}; // customNode -> columnRoot
+
+  // Build branch_key map to identify which branch each node belongs to
+  // Nodes with different branch_keys should be in different columns
+  var nodeBranchKey = {}; // node -> branch_key (from dagData)
+  if (dagData && dagData.edges) {
+    // We don't have branch_key in dagData, so use dependency structure:
+    // A node starts a new column if its parent has MULTIPLE children (fork point)
+    var childCount = {};
+    stageNames.forEach(function(n) {
+      var pars = parents[n] || [];
+      pars.forEach(function(p) {
+        childCount[p] = (childCount[p] || 0) + 1;
+      });
+    });
+  }
+
+  // Use branch_key from backend to group nodes into stable columns.
+  // Nodes with the same branch_key stay in the same column — no shifting
+  // when new branches are added from existing branch nodes.
+  var branchInfo = (typeof dagData !== 'undefined' && dagData) ? (dagData.branch_info || {}) : {};
+
+  function getColumnRoot(name) {
+    if (nodeColumn[name] !== undefined) return nodeColumn[name];
+
+    // If node has a branch_key, use that as the column root
+    // (all nodes in same branch share one column)
+    var bi = branchInfo[name];
+    if (bi && bi.branch_key) {
+      // Find the first node in this branch to use as column root
+      var bkey = bi.branch_key;
+      // Check if another node in this branch already set a column root
+      for (var existing in nodeColumn) {
+        var ebi = branchInfo[existing];
+        if (ebi && ebi.branch_key === bkey) {
+          nodeColumn[name] = nodeColumn[existing];
+          return nodeColumn[name];
+        }
+      }
+      // First node in this branch — becomes the column root
+      nodeColumn[name] = name;
+      return name;
+    }
+
+    // Fallback for custom nodes without branch_key
+    var par = parents[name] && parents[name].length > 0 ? parents[name][0] : '';
+    if (!par || baseStagesSet.has(par)) {
+      nodeColumn[name] = name;
+      return name;
+    }
+    var root = getColumnRoot(par);
+    nodeColumn[name] = root;
+    return root;
+  }
+
+  // Identify all custom nodes and assign columns
+  var allCustom = stageNames.filter(function(n) { return !baseStagesSet.has(n); });
+  allCustom.forEach(function(n) { getColumnRoot(n); });
+
+  // Assign X positions to each column root (offset from its base parent)
+  // Group column roots by their base parent
+  var rootsByBaseParent = {};
+  allCustom.forEach(function(n) {
+    var root = nodeColumn[n];
+    if (root !== n) return; // only process roots
+    var par = parents[n] && parents[n].length > 0 ? parents[n][0] : '';
+    if (!rootsByBaseParent[par]) rootsByBaseParent[par] = [];
+    if (rootsByBaseParent[par].indexOf(root) === -1) rootsByBaseParent[par].push(root);
+  });
+
+  // Assign unique X to each column — globally track used X positions to prevent overlap
+  var usedColumnX = new Set();
+  // Collect all base stage X positions as used
+  for (var name in positions) {
+    usedColumnX.add(positions[name].x);
+  }
+
+  for (var basePar in rootsByBaseParent) {
+    var roots = rootsByBaseParent[basePar];
+    roots.forEach(function(root) {
+      // Find next available X that doesn't overlap with any existing column
+      var candidateX = MAIN_X + BRANCH_OFFSET;
+      while (usedColumnX.has(candidateX)) {
+        candidateX += BRANCH_OFFSET;
+      }
+      columnX[root] = candidateX;
+      usedColumnX.add(candidateX);
+    });
+  }
+
+  // Now place each custom node at its column's X, depth's Y
+  for (var d = 0; d <= maxDepth; d++) {
+    var group = levels[d];
+    if (!group) continue;
+    group.forEach(function(name) {
+      if (baseStagesSet.has(name)) return; // already placed
+      var col = nodeColumn[name];
+      var x = columnX[col] || (MAIN_X + BRANCH_OFFSET);
+      positions[name] = { x: x, y: 30 + d * GAP_Y, w: NODE_W, h: NODE_H };
+    });
+  }
+
+  // Pass 3: Any remaining unpositioned nodes
+  for (var d = 0; d <= maxDepth; d++) {
+    var group = levels[d];
+    if (!group) continue;
+    group.forEach(function(name) {
+      if (!positions[name]) {
+        positions[name] = { x: MAIN_X, y: 30 + d * GAP_Y, w: NODE_W, h: NODE_H };
+      }
+    });
+  }
+
+  return {positions: positions, nodeColumn: nodeColumn};
+}
+
+function renderDAG() {
+  if (subnodeView) { renderSubnodeView(); return; }
+
+  var svg = document.getElementById('dag-svg');
+  if (!dagBuilt && stagesData.length > 0) {
+    var stageNames = stagesData.map(function(s){return s.name;});
+    var edges = (dagData && dagData.edges) || [];
+    var baseStagesSet = new Set((dagData && dagData.base_stages) || []);
+
+    // Filter to stage-level edges only
+    var stageSet = new Set(stageNames);
+    var stageEdges = edges.filter(function(e) {
+      return stageSet.has(e.from) && stageSet.has(e.to);
+    });
+
+    // Check if we need to compute layout
+    var needsLayout = stageNames.some(function(n){return !nodePositions[n];}) || Object.keys(nodePositions).length === 0;
+
+    // Always compute node-to-column mapping for edge/border coloring
+    if (baseStagesSet.size === 0) {
+      stageNames.forEach(function(n) { baseStagesSet.add(n); });
+    }
+    var layoutResult = computeSugiyamaLayout(stageNames, stageEdges, baseStagesSet);
+    window._nodeColumn = layoutResult.nodeColumn || {};
+
+    if (needsLayout) {
+      var computed = layoutResult.positions;
+      // Merge computed into nodePositions (don't overwrite manually positioned nodes)
+      for (var key in computed) {
+        if (!nodePositions[key]) nodePositions[key] = computed[key];
+      }
+      // Ensure every stage has a position
+      stageNames.forEach(function(name) {
+        if (!nodePositions[name]) {
+          nodePositions[name] = { x: 40, y: 30, w: NODE_W, h: NODE_H };
+        }
+      });
+    }
+
+    // Build SVG content
+    var svgContent = '<defs>' +
+      '<marker id="arrow" markerWidth="6" markerHeight="6" refX="6" refY="3" orient="auto">' +
+      '<polygon points="0 0, 6 3, 0 6" fill="#555"/>' +
+      '</marker></defs>';
+    svgContent += '<g id="dag-group">';
+
+    // Assign colors to branch columns — persist across refreshes so colors don't change
+    if (!window._branchColorMap) window._branchColorMap = {};
+    var branchColorMap = window._branchColorMap;
+    var nc = window._nodeColumn || {};
+    var baseSet = new Set((dagData && dagData.base_stages) || []);
+    // Count existing assigned colors to pick next unused
+    var usedColorCount = Object.keys(branchColorMap).length;
+    if (Object.keys(nc).length > 0) {
+      stageNames.forEach(function(n) {
+        if (!baseSet.has(n) && nc[n]) {
+          var root = nc[n];
+          if (!branchColorMap[root]) {
+            branchColorMap[root] = BRANCH_COLORS[usedColorCount % BRANCH_COLORS.length];
+            usedColorCount++;
+          }
+        }
+      });
+    }
+
+    // Get edge color based on source/target nodes
+    function getEdgeColor(fromName, toName) {
+      if (baseSet.has(fromName) && baseSet.has(toName)) return MAIN_EDGE_COLOR;
+      if (!baseSet.has(toName) && nc[toName]) {
+        return branchColorMap[nc[toName]] || MAIN_EDGE_COLOR;
+      }
+      if (!baseSet.has(fromName) && nc[fromName]) {
+        return branchColorMap[nc[fromName]] || MAIN_EDGE_COLOR;
+      }
+      return MAIN_EDGE_COLOR;
+    }
+
+    // Draw edges first (behind nodes)
+    var edgeIdx = 0;
+    stageEdges.forEach(function(e) {
+      var fp = nodePositions[e.from], tp = nodePositions[e.to];
+      if (fp && tp) {
+        var x1 = fp.x + fp.w/2, y1 = fp.y + fp.h;
+        var x2 = tp.x + tp.w/2, y2 = tp.y;
+        var edgeColor = getEdgeColor(e.from, e.to);
+        if (Math.abs(x1 - x2) < 5) {
+          svgContent += svgEdgeLine('edge-' + edgeIdx, x1, y1, x2, y2, false, edgeColor);
+        } else {
+          svgContent += svgEdgePath('edge-' + edgeIdx, x1, y1, x2, y2, edgeColor);
+          // Add branch name label on fork edge (where branch starts)
+          var eBi = (dagData.branch_info || {})[e.to];
+          var eFromBi = (dagData.branch_info || {})[e.from];
+          var fromBranch = eFromBi ? eFromBi.branch_key : '';
+          var toBranch = eBi ? eBi.branch_key : '';
+          if (eBi && toBranch && toBranch !== fromBranch) {
+            var elbl = eBi.branch_name || eBi.branch_tag || '';
+            if (elbl) {
+              var midY = (y1 + y2) / 2;
+              var midX = (x1 + x2) / 2;
+              svgContent += '<text x="'+midX+'" y="'+(midY-6)+'" font-size="12" font-weight="600" fill="#fff" text-anchor="middle">'+elbl+'</text>';
+            }
+          }
+        }
+        edgeIdx++;
+      }
+    });
+
+    // Tool short name for node labels
+    var toolShortMap = {
+      'fc':'FC', 'pt':'PT', 'fm':'FM', 'icv':'ICV', 'redhawk':'RH',
+      'vc_lp':'VLP', 'genus':'GEN', 'innovus':'INV', 'tempus':'TMP',
+      'voltus':'VLT', 'calibre':'CAL', 'formality':'FM', 'conformal_lp':'CLP'
+    };
+    var info = (dagData && dagData.run_info) || {};
+    var toolName = '';
+    try { toolName = document.getElementById('lp-tool').textContent || ''; } catch(e){}
+    var toolShort = toolShortMap[toolName.toLowerCase()] || toolName.toUpperCase().substr(0,3);
+
+    // Draw stage nodes — with proportional color segments + branch border colors
+    var nc = window._nodeColumn || {};
+    stageNames.forEach(function(name) {
+      var s = stagesData.find(function(x){return x.name === name;}) || {status:'READY',runtime:0,jobs_total:0};
+      var p = nodePositions[name];
+      if (p) {
+        var isLeaf = (s.jobs_total || 0) === 0;
+        var displayName = isLeaf ? name : name + ' [' + toolShort + ']';
+        var lbl = statusLabel(s.status) + '  ' + formatTime(s.runtime);
+        if (s.jobs_total > 0) {
+          lbl = s.jobs_done + '/' + s.jobs_total + ' done  ' + formatTime(s.runtime);
+        }
+        // Branch nodes get colored borders matching their edge color
+        var nodeBorderColor = null;
+        if (!baseSet.has(name) && nc[name]) {
+          nodeBorderColor = branchColorMap[nc[name]] || null;
+        }
+        // Branch label from API
+        var brLabel = '';
+        var bi = dagData.branch_info || {};
+        if (bi[name]) {
+          brLabel = bi[name].branch_name || bi[name].branch_tag || '';
+        }
+        svgContent += svgStageNode(name, displayName, lbl, p.x, p.y, p.w, p.h, s, nodeBorderColor, brLabel);
+      }
+    });
+
+    svgContent += '</g>';
+    svg.innerHTML = svgContent;
+    attachDagEvents();
+    dagBuilt = true;
+    if (!panZoomSetup) { setupPanZoom(); panZoomSetup = true; }
+    // Only fit on first build — preserve user's zoom/pan on refreshes
+    if (!window._dagFirstBuildDone) {
+      dagFit();
+      window._dagFirstBuildDone = true;
+    } else {
+      // Restore saved transform after rebuild
+      applyDagTransform();
+    }
+
+  } else if (dagBuilt) {
+    // Rebuild SVG with fresh colors — preserve zoom/pan
+    dagBuilt = false;
+    renderDAG();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SUBNODE VIEW
+// ═══════════════════════════════════════════════════════════════════
+function enterSubnodeView(stage) {
+  subnodeView = stage;
+  dagBuilt = false;
+  document.getElementById('btn-back').style.display = '';
+  renderSubnodeView();
+}
+
+function backToMain() {
+  subnodeView = null;
+  dagBuilt = false;
+  document.getElementById('btn-back').style.display = 'none';
+  renderDAG();
+  setTimeout(dagFit, 50);
+}
+
+function renderSubnodeView() {
+  var svg = document.getElementById('dag-svg');
+  var stage = subnodeView;
+  var subs = allJobs.filter(function(j){return j.stage === stage && j.type === 'subnode';});
+  if (subs.length === 0) { backToMain(); return; }
+
+  // Build subnode dependency graph from dagData edges
+  var subNames = subs.map(function(j){return j.name;});
+  var subEdges = [];
+  var dagEdges = (dagData && dagData.edges) || [];
+  var subSet = new Set(subNames);
+  dagEdges.forEach(function(e) {
+    if (subSet.has(e.from) && subSet.has(e.to)) {
+      subEdges.push(e);
+    }
+  });
+
+  // Build parent/children maps
+  var sparents = {}, schildren = {};
+  subNames.forEach(function(n) { sparents[n] = []; schildren[n] = []; });
+  subEdges.forEach(function(e) {
+    if (schildren[e.from].indexOf(e.to) === -1) schildren[e.from].push(e.to);
+    if (sparents[e.to].indexOf(e.from) === -1) sparents[e.to].push(e.from);
+  });
+
+  // Compute depth (longest path BFS)
+  var sdepth = {};
+  var sroots = subNames.filter(function(n){return sparents[n].length === 0;});
+  if (sroots.length === 0 && subNames.length > 0) sroots = [subNames[0]];
+
+  subNames.forEach(function(n) { sdepth[n] = -1; });
+  var inDeg = {};
+  subNames.forEach(function(n) { inDeg[n] = sparents[n].length; });
+  var sq = sroots.slice();
+  sq.forEach(function(r) { sdepth[r] = 0; });
+
+  while (sq.length > 0) {
+    var cur = sq.shift();
+    (schildren[cur] || []).forEach(function(ch) {
+      var d = sdepth[cur] + 1;
+      if (d > sdepth[ch]) sdepth[ch] = d;
+      inDeg[ch]--;
+      if (inDeg[ch] <= 0) sq.push(ch);
+    });
+  }
+  subNames.forEach(function(n) { if (sdepth[n] === -1) sdepth[n] = 0; });
+
+  // Group by depth
+  var slevels = {};
+  subNames.forEach(function(n) {
+    var d = sdepth[n];
+    if (!slevels[d]) slevels[d] = [];
+    slevels[d].push(n);
+  });
+
+  // Assign positions — center-aligned per row
+  var startY = 50;
+  var sortedD = Object.keys(slevels).map(Number).sort(function(a,b){return a - b;});
+  var maxGroupW = 0;
+  sortedD.forEach(function(d) {
+    var gw = slevels[d].length * SUB_W + (slevels[d].length - 1) * GAP_X;
+    if (gw > maxGroupW) maxGroupW = gw;
+  });
+  var centerX = Math.max(maxGroupW / 2, 200);
+  sortedD.forEach(function(d) {
+    var group = slevels[d];
+    var totalW = group.length * SUB_W + (group.length - 1) * GAP_X;
+    var rowStartX = centerX - totalW / 2;
+    group.forEach(function(name, i) {
+      nodePositions['sub_'+name] = {
+        x: rowStartX + i * (SUB_W + GAP_X),
+        y: startY + d * (SUB_H + 30),
+        w: SUB_W, h: SUB_H
+      };
+    });
+  });
+
+  var svgContent = '<defs>' +
+    '<marker id="arrow" markerWidth="6" markerHeight="6" refX="6" refY="3" orient="auto">' +
+    '<polygon points="0 0, 6 3, 0 6" fill="#555"/>' +
+    '</marker></defs>';
+  svgContent += '<g id="dag-group">';
+
+  // Title
+  svgContent += '<text x="40" y="30" font-size="14" font-weight="700" fill="#333">Stage: ' + stage + ' -- Subnodes</text>';
+
+  // Draw edges
+  var sei = 0;
+  subEdges.forEach(function(e) {
+    var fp = nodePositions['sub_'+e.from], tp = nodePositions['sub_'+e.to];
+    if (fp && tp) {
+      var x1 = fp.x + fp.w/2, y1 = fp.y + fp.h;
+      var x2 = tp.x + tp.w/2, y2 = tp.y;
+      if (Math.abs(x1 - x2) < 5) {
+        svgContent += svgEdgeLine('sub-edge-'+sei, x1, y1, x2, y2, false);
+      } else {
+        svgContent += svgEdgePath('sub-edge-'+sei, x1, y1, x2, y2);
+      }
+      sei++;
+    }
+  });
+
+  // Draw subnode nodes
+  subs.forEach(function(j) {
+    var p = nodePositions['sub_'+j.name];
+    if (p) {
+      svgContent += svgNode(j.name, j.subnode || j.name, statusLabel(j.status) + '  ' + formatTime(j.runtime), p.x, p.y, p.w, p.h, j.status, 6);
+    }
+  });
+
+  svgContent += '</g>';
+  svg.innerHTML = svgContent;
+
+  // Attach events to subnode nodes
+  svg.querySelectorAll('.dag-node').forEach(function(node) {
+    var name = node.getAttribute('data-name');
+    node.addEventListener('click', function(e) { if (!dragMoved) selectNode(name); });
+    node.addEventListener('contextmenu', function(e) { showCtxMenu(name, e); });
+    node.addEventListener('dblclick', function(e) { e.stopPropagation(); showSubnodeDetail(name); });
+    setupNodeDrag(node);
+  });
+
+  if (!panZoomSetup) { setupPanZoom(); panZoomSetup = true; }
+  dagFit();
+}
+
+// ── Attach events to DAG nodes ──
+function attachDagEvents() {
+  var svg = document.getElementById('dag-svg');
+  svg.querySelectorAll('.dag-node').forEach(function(node) {
+    var name = node.getAttribute('data-name');
+    node.addEventListener('click', function(e) { if (!dragMoved) selectNode(name); });
+    node.addEventListener('contextmenu', function(e) { showCtxMenu(name, e); });
+    node.addEventListener('dblclick', function(e) {
+      e.stopPropagation();
+      var isStage = stagesData.some(function(s){return s.name === name;});
+      if (isStage) enterSubnodeView(name);
+    });
+    setupNodeDrag(node);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// DRAGGABLE NODES (Ctrl+drag)
+// ═══════════════════════════════════════════════════════════════════
+function setupNodeDrag(nodeEl) {
+  nodeEl.addEventListener('mousedown', function(e) {
+    if (e.button !== 0 || !e.ctrlKey) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var name = nodeEl.getAttribute('data-name');
+    isDragging = true;
+    dragNode = name;
+    dragMoved = false;
+    var svgEl = document.getElementById('dag-svg');
+    var pt = svgEl.createSVGPoint();
+    pt.x = e.clientX; pt.y = e.clientY;
+    var grp = document.getElementById('dag-group');
+    if (!grp) return;
+    var ctm = grp.getScreenCTM().inverse();
+    var svgPt = pt.matrixTransform(ctm);
+    var pos = nodePositions[name] || nodePositions['sub_'+name];
+    if (pos) { dragStartX = svgPt.x - pos.x; dragStartY = svgPt.y - pos.y; }
+    nodeEl.style.cursor = 'grabbing';
+  });
+}
+
+window.addEventListener('mousemove', function(e) {
+  if (!isDragging || !dragNode) return;
+  dragMoved = true;
+  var svgEl = document.getElementById('dag-svg');
+  var pt = svgEl.createSVGPoint();
+  pt.x = e.clientX; pt.y = e.clientY;
+  var grp = document.getElementById('dag-group');
+  if (!grp) return;
+  var ctm = grp.getScreenCTM();
+  if (!ctm) return;
+  ctm = ctm.inverse();
+  var svgPt = pt.matrixTransform(ctm);
+  var newX = svgPt.x - dragStartX;
+  var newY = svgPt.y - dragStartY;
+
+  // Update position in persistent store
+  var posKey = nodePositions[dragNode] ? dragNode : 'sub_'+dragNode;
+  var pos = nodePositions[posKey];
+  if (!pos) return;
+  pos.x = newX; pos.y = newY;
+
+  // Move the SVG node elements
+  var g = document.getElementById('dag-' + dragNode);
+  if (g) {
+    var rect = g.querySelector('rect');
+    var texts = g.querySelectorAll('text');
+    if (rect) { rect.setAttribute('x', pos.x); rect.setAttribute('y', pos.y); }
+    if (texts[0]) { texts[0].setAttribute('x', pos.x + pos.w/2); texts[0].setAttribute('y', pos.y + pos.h*0.4); }
+    if (texts[1]) { texts[1].setAttribute('x', pos.x + pos.w/2); texts[1].setAttribute('y', pos.y + pos.h*0.75); }
+  }
+
+  // Update connected edges
+  updateEdges();
+});
+
+window.addEventListener('mouseup', function() {
+  if (isDragging) {
+    var g = document.getElementById('dag-' + dragNode);
+    if (g) g.style.cursor = 'pointer';
+    isDragging = false;
+    dragNode = null;
+  }
+});
+
+function updateEdges() {
+  if (subnodeView) {
+    // Update subnode edges from actual edge data
+    var dagEdges = (dagData && dagData.edges) || [];
+    var subs = allJobs.filter(function(j){return j.stage === subnodeView && j.type === 'subnode';});
+    var subSet = new Set(subs.map(function(j){return j.name;}));
+    var subEdges = dagEdges.filter(function(e){return subSet.has(e.from) && subSet.has(e.to);});
+
+    subEdges.forEach(function(e, i) {
+      var edge = document.getElementById('sub-edge-' + i);
+      if (!edge) return;
+      var fp = nodePositions['sub_'+e.from];
+      var tp = nodePositions['sub_'+e.to];
+      if (!fp || !tp) return;
+      var x1 = fp.x + fp.w/2, y1 = fp.y + fp.h;
+      var x2 = tp.x + tp.w/2, y2 = tp.y;
+
+      var line = edge.querySelector('line');
+      var path = edge.querySelector('path');
+      if (line) {
+        line.setAttribute('x1', x1); line.setAttribute('y1', y1);
+        line.setAttribute('x2', x2); line.setAttribute('y2', y2);
+      }
+      if (path) {
+        var midY = (y1 + y2) / 2;
+        path.setAttribute('d', 'M ' + x1 + ' ' + y1 + ' C ' + x1 + ' ' + midY + ', ' + x2 + ' ' + midY + ', ' + x2 + ' ' + y2);
+      }
+    });
+  } else {
+    // Update main stage edges from dagData
+    var edges = (dagData && dagData.edges) || [];
+    var stageSet = new Set(stagesData.map(function(s){return s.name;}));
+    var stageEdges = edges.filter(function(e){return stageSet.has(e.from) && stageSet.has(e.to);});
+
+    stageEdges.forEach(function(e, i) {
+      var edge = document.getElementById('edge-' + i);
+      if (!edge) return;
+      var f = nodePositions[e.from], t = nodePositions[e.to];
+      if (!f || !t) return;
+      var x1 = f.x + f.w/2, y1 = f.y + f.h;
+      var x2 = t.x + t.w/2, y2 = t.y;
+
+      var line = edge.querySelector('line');
+      var path = edge.querySelector('path');
+      if (line) {
+        line.setAttribute('x1', x1); line.setAttribute('y1', y1);
+        line.setAttribute('x2', x2); line.setAttribute('y2', y2);
+      }
+      if (path) {
+        var midY = (y1 + y2) / 2;
+        path.setAttribute('d', 'M ' + x1 + ' ' + y1 + ' C ' + x1 + ' ' + midY + ', ' + x2 + ' ' + midY + ', ' + x2 + ' ' + y2);
+      }
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ZOOM / PAN / FIT
+// ═══════════════════════════════════════════════════════════════════
+function dagZoom(factor) {
+  var container = document.getElementById('dag-container');
+  var rect = container.getBoundingClientRect();
+  var cx = rect.width / 2, cy = rect.height / 2;
+  dagTx = cx - (cx - dagTx) * factor;
+  dagTy = cy - (cy - dagTy) * factor;
+  dagScale *= factor;
+  applyDagTransform();
+}
+
+function dagFit() {
+  var container = document.getElementById('dag-container');
+  var g = document.getElementById('dag-group');
+  if (!g) return;
+  var bbox = g.getBBox();
+  if (bbox.width === 0 || bbox.height === 0) return;
+  var cw = container.clientWidth, ch = container.clientHeight;
+  var padding = 40;
+  var sx = (cw - padding) / (bbox.width + 20);
+  var sy = (ch - padding) / (bbox.height + 20);
+  dagScale = Math.min(sx, sy, 1.5);
+  dagTx = (cw - bbox.width * dagScale) / 2 - bbox.x * dagScale;
+  dagTy = (ch - bbox.height * dagScale) / 2 - bbox.y * dagScale;
+  applyDagTransform();
+}
+
+function applyDagTransform() {
+  var g = document.getElementById('dag-group');
+  if (g) g.setAttribute('transform', 'translate(' + dagTx + ',' + dagTy + ') scale(' + dagScale + ')');
+}
+
+function setupPanZoom() {
+  var container = document.getElementById('dag-container');
+  var svg = document.getElementById('dag-svg');
+
+  svg.addEventListener('mousedown', function(e) {
+    // Only pan when clicking on empty canvas area (svg background)
+    if (e.target === svg || e.target.tagName === 'svg') {
+      isPanning = true;
+      panStartX = e.clientX - dagTx;
+      panStartY = e.clientY - dagTy;
+      svg.style.cursor = 'grabbing';
+    }
+  });
+
+  window.addEventListener('mousemove', function(e) {
+    if (!isPanning) return;
+    dagTx = e.clientX - panStartX;
+    dagTy = e.clientY - panStartY;
+    applyDagTransform();
+  });
+
+  window.addEventListener('mouseup', function() {
+    if (isPanning) {
+      isPanning = false;
+      document.getElementById('dag-svg').style.cursor = 'default';
+    }
+  });
+
+  svg.addEventListener('wheel', function(e) {
+    e.preventDefault();
+    var factor = e.deltaY < 0 ? 1.1 : 0.9;
+    var rect = container.getBoundingClientRect();
+    var mx = e.clientX - rect.left;
+    var my = e.clientY - rect.top;
+    // Zoom toward mouse position
+    dagTx = mx - (mx - dagTx) * factor;
+    dagTy = my - (my - dagTy) * factor;
+    dagScale *= factor;
+    applyDagTransform();
+  }, {passive: false});
+}
+
+function stopExecution() {
+  apiAction('stop', {});
+}
+
+function promptEditStageConfig() {
+  // Open stage select then edit config for chosen stage
+  loadConfig().then(function() {
+    fillStageSelect('action-stage');
+    document.getElementById('action-type').value = 'edit-config';
+    document.getElementById('action-title').textContent = 'Edit Stage Config';
+    document.getElementById('action-label').textContent = 'Select stage to configure (LSF, memory, timeout, version)';
+    document.getElementById('action-submit').textContent = 'Edit';
+    openModal('action-modal');
+  });
+}
+
+function promptEditMMMC() {
+  // Show MMMC config in a toast for now — full MMMC editor is future enhancement
+  showToast('MMMC editing: modify sta(mmmc,setup_scenarios) and sta(mmmc,hold_scenarios) in setup/user_config.tcl, then retrace timing1', 'success');
+}
+
+function resetGraph() {
+  nodePositions = {};
+  dagBuilt = false;
+  treeBuilt = false;
+  dagScale = 1;
+  dagTx = 0;
+  dagTy = 0;
+  window._dagFirstBuildDone = false;
+  window._branchColorMap = {};  // reset branch colors
+  renderDAG();
+  showToast('Layout reset', 'success');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// DETAIL PANEL (Right Panel)
+// ═══════════════════════════════════════════════════════════════════
+function showSubnodeDetail(name) {
+  // Fetch full job details and show in a modal overlay
+  fetch('/api/job/' + name).then(function(r){return r.json();}).then(function(j) {
+    if (!j || !j.name) { showToast('No details for ' + name, 'error'); return; }
+
+    var color = sColorFill(j.status);
+    var tc = sTextColor(j.status);
+    var html = '<div style="max-height:80vh;overflow-y:auto;padding:0">';
+
+    // Header
+    html += '<div style="background:'+color+';color:'+tc+';padding:12px 16px;border-radius:6px 6px 0 0">';
+    html += '<div style="font-size:16px;font-weight:700">' + j.name + '</div>';
+    html += '<div style="font-size:12px;opacity:0.9">' + statusLabel(j.status) + ' | ' + j.stage + ' / ' + (j.subnode||'-') + '</div>';
+    html += '</div>';
+
+    // Details grid
+    html += '<div style="padding:12px 16px">';
+    html += '<table style="width:100%;font-size:12px;border-collapse:collapse">';
+    var rows = [
+      ['Status', '<span style="background:'+color+';color:'+tc+';padding:2px 8px;border-radius:3px;font-weight:700;font-size:11px">' + statusLabel(j.status) + '</span>'],
+      ['Stage', j.stage],
+      ['Subnode', j.subnode || '-'],
+      ['Type', j.type || '-'],
+      ['Runtime', formatTime(j.runtime)],
+      ['Exit Code', j.exit_code != null ? j.exit_code : '-'],
+      ['Start', j.start_time || '-'],
+      ['End', j.end_time || '-'],
+      ['Hostname', j.hostname || '-'],
+      ['LSF Job ID', j.lsf_job_id || '-'],
+      ['LSF Queue', j.lsf_queue || '-'],
+      ['Resource Tier', j.resource_tier || '-'],
+      ['PID', j.pid || '-'],
+      ['Retries', j.retry_count || 0],
+    ];
+    rows.forEach(function(r) {
+      html += '<tr style="border-bottom:1px solid #eee"><td style="padding:4px 8px;color:#666;font-weight:600;width:120px">' + r[0] + '</td><td style="padding:4px 8px;font-family:monospace;font-size:11px">' + r[1] + '</td></tr>';
+    });
+    html += '</table>';
+
+    // Error
+    if (j.error_msg) {
+      html += '<div style="margin-top:10px"><div style="font-size:11px;font-weight:700;color:#c62828;text-transform:uppercase;margin-bottom:4px">Error</div>';
+      html += '<div style="background:#ffebee;border:1px solid #c62828;border-radius:4px;padding:8px;font-size:11px;color:#b71c1c;word-break:break-all">' + j.error_msg + '</div></div>';
+    }
+
+    // Command
+    if (j.command) {
+      html += '<div style="margin-top:10px"><div style="font-size:11px;font-weight:700;color:#333;text-transform:uppercase;margin-bottom:4px">Execution Command</div>';
+      html += '<div style="background:#f5f5f5;border:1px solid #ccc;border-radius:4px;padding:8px;font-size:10px;font-family:monospace;word-break:break-all;max-height:100px;overflow:auto">' + j.command + '</div></div>';
+    }
+
+    // Xterm/LSF launch info
+    html += '<div style="margin-top:10px"><div style="font-size:11px;font-weight:700;color:#333;text-transform:uppercase;margin-bottom:4px">Launch Details</div>';
+    html += '<div style="background:#f5f5f5;border:1px solid #ccc;border-radius:4px;padding:8px;font-size:10px;font-family:monospace">';
+    html += 'Host: ' + (j.hostname || 'local') + '<br>';
+    html += 'Queue: ' + (j.lsf_queue || '-') + ' | Tier: ' + (j.resource_tier || '-') + '<br>';
+    if (j.lsf_job_id) html += 'LSF Job: ' + j.lsf_job_id + '<br>';
+    if (j.pid) html += 'PID: ' + j.pid + '<br>';
+    html += 'Runtime: ' + formatTime(j.runtime) + ' | Exit: ' + (j.exit_code != null ? j.exit_code : '-');
+    html += '</div></div>';
+
+    // Log tail
+    if (j.log_tail && j.log_tail.length > 0) {
+      html += '<div style="margin-top:10px"><div style="font-size:11px;font-weight:700;color:#333;text-transform:uppercase;margin-bottom:4px">Log (last ' + j.log_tail.length + ' lines)</div>';
+      html += '<div style="background:#263238;color:#e0e0e0;border-radius:4px;padding:8px;font-size:10px;font-family:monospace;max-height:200px;overflow:auto;white-space:pre;line-height:1.4">';
+      html += j.log_tail.join('\n');
+      html += '</div></div>';
+    }
+
+    // Editable config section
+    html += '<div style="margin-top:12px;padding-top:10px;border-top:2px solid #ccc">';
+    html += '<div style="font-size:11px;font-weight:700;color:#1976d2;text-transform:uppercase;margin-bottom:8px">Edit Stage Config — ' + j.stage + '</div>';
+    html += '<form id="modal-edit-form" onsubmit="saveModalConfig(event)">';
+    html += '<input type="hidden" id="med-stage" value="' + j.stage + '">';
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">';
+    html += '<div class="ie-group"><label>LSF Queue</label><select id="med-queue" style="width:100%;padding:4px 8px;border:1px solid #ccc;border-radius:3px;font-size:12px"></select></div>';
+    html += '<div class="ie-group"><label>Memory</label><input type="text" id="med-mem" style="width:100%;padding:4px 8px;border:1px solid #ccc;border-radius:3px;font-size:12px"></div>';
+    html += '<div class="ie-group"><label>CPU Cores</label><input type="text" id="med-cpu" style="width:100%;padding:4px 8px;border:1px solid #ccc;border-radius:3px;font-size:12px"></div>';
+    html += '<div class="ie-group"><label>Timeout (min)</label><input type="text" id="med-timeout" style="width:100%;padding:4px 8px;border:1px solid #ccc;border-radius:3px;font-size:12px"></div>';
+    html += '<div class="ie-group"><label>Tool Version</label><input type="text" id="med-version" style="width:100%;padding:4px 8px;border:1px solid #ccc;border-radius:3px;font-size:12px"></div>';
+    html += '<div class="ie-group"><label>Tool Module</label><input type="text" id="med-module" style="width:100%;padding:4px 8px;border:1px solid #ccc;border-radius:3px;font-size:12px" placeholder="e.g. synopsysFusionCompiler/2025.06-SP2"></div>';
+    html += '</div>';
+    html += '<div style="text-align:right;margin-top:8px"><button type="submit" style="background:#1976d2;color:#fff;border:none;padding:6px 20px;border-radius:4px;font-size:12px;cursor:pointer">Save Config</button></div>';
+    html += '</form></div>';
+
+    html += '</div></div>';
+
+    // Show in modal
+    openModal('edit-modal');
+    document.getElementById('edit-title').textContent = j.name + ' — Job Details';
+    document.querySelector('#edit-modal .modal-bd').innerHTML = html;
+
+    // Populate editable fields from config API
+    loadConfig().then(function(data) {
+      populateQueueSelect('med', data, j.stage);
+    });
+  }).catch(function(e) {
+    showToast('Failed to load details: ' + e, 'error');
+  });
+}
+
+function showDetail(name) {
+  var panel = document.getElementById('detail-panel');
+
+  // Resolve stage name for edit form
+  var job = allJobs.find(function(j){return j.name === name;});
+  var editStage = job ? job.stage : name;
+
+  // Inline edit form HTML
+  var editFormHtml =
+    '<div class="inline-edit">' +
+    '<h4>Edit Config -- ' + editStage + '</h4>' +
+    '<form id="inline-edit-form" onsubmit="saveInlineConfig(event)">' +
+    '<input type="hidden" id="ied-stage" value="' + editStage + '">' +
+    '<div class="ie-group"><label>LSF Queue</label><select id="ied-queue"></select></div>' +
+    '<div class="ie-group"><label>Memory</label><input type="text" id="ied-mem"></div>' +
+    '<div class="ie-group"><label>CPU</label><input type="text" id="ied-cpu"></div>' +
+    '<div class="ie-group"><label>Timeout (min)</label><input type="text" id="ied-timeout"></div>' +
+    '<div class="ie-group"><label>Tool Version</label><input type="text" id="ied-version"></div>' +
+    '<div class="ie-group"><label>Tool Module</label><input type="text" id="ied-module" placeholder="e.g. synopsysFusionCompiler/2025.06-SP2"></div>' +
+    '<div class="ie-actions"><button type="submit" class="fm-btn fm-btn-primary" style="padding:4px 14px;font-size:11px">Save</button></div>' +
+    '</form></div>';
+
+  // Check if it's a stage
+  var stage = stagesData.find(function(s){return s.name === name;});
+  if (stage) {
+    var isLeafNode = (stage.jobs_total || 0) === 0;
+    var stageJobs = allJobs.filter(function(j){return j.stage === name && j.type === 'subnode';});
+
+    var html = '<div class="detail-title">' + name + '</div>' +
+      '<div class="detail-row"><label>Status</label><span class="detail-badge" style="background:' + sColorFill(stage.status) + ';color:' + sTextColor(stage.status) + '">' + statusLabel(stage.status) + '</span></div>' +
+      '<div class="detail-row"><label>Runtime</label><span>' + formatTime(stage.runtime) + '</span></div>' +
+      '<div class="detail-row"><label>Jobs</label><span>' + (stage.jobs_total || 0) + '</span></div>' +
+      '<div class="detail-row"><label>Done</label><span>' + (stage.jobs_done || 0) + '</span></div>' +
+      '<div class="detail-row"><label>Failed</label><span style="color:' + ((stage.jobs_failed||0) > 0 ? 'var(--red)' : 'inherit') + '">' + (stage.jobs_failed || 0) + '</span></div>' +
+      '<div class="detail-row"><label>Started</label><span>' + (stage.started ? stage.started.split('T').pop().substr(0,8) : '-') + '</span></div>' +
+      '<div class="detail-row"><label>Ended</label><span>' + (stage.ended ? stage.ended.split('T').pop().substr(0,8) : '-') + '</span></div>';
+
+    if (!isLeafNode && stageJobs.length > 0) {
+      html += '<div class="detail-section"><h4>Subnodes</h4>' +
+        '<div class="detail-subjobs"><table><thead><tr><th>Name</th><th>Status</th><th>Time</th></tr></thead><tbody>' +
+        stageJobs.map(function(j) {
+          // j.name / j.subnode originate from `cbflow run add-node --node <name>`
+          // + subnode-handler output. Both are attacker-controllable in a
+          // multi-user setup — escape for HTML text AND attribute context.
+          return '<tr data-job="' + escAttr(j.name) + '"><td>' + escHtml(j.subnode||j.name) + '</td>' +
+          '<td><span class="detail-badge" style="background:' + sColorFill(j.status) + ';color:' + sTextColor(j.status) + ';font-size:9px;padding:1px 6px">' + escHtml(statusLabel(j.status)) + '</span></td>' +
+          '<td>' + escHtml(formatTime(j.runtime)) + '</td></tr>';
+        }).join('') +
+        '</tbody></table></div></div>';
+    }
+
+    html += editFormHtml;
+    panel.innerHTML = html;
+
+    // Click subnode rows to select them
+    panel.querySelectorAll('[data-job]').forEach(function(tr) {
+      tr.addEventListener('click', function() { selectNode(tr.getAttribute('data-job')); });
+    });
+    populateInlineEditForm(editStage);
+
+    // If leaf input node, show input vars in left panel
+    if (isLeafNode) {
+      showInputVarsInLeftPanel(name);
+    } else {
+      clearInputVarsFromLeftPanel();
+    }
+    return;
+  }
+
+  // It's a subnode — fetch full details from /api/job/{name}
+  // Every j.* field originates from the SQLite jobs table or the log
+  // tail on disk — writable indirectly by anyone with add-node or
+  // subnode-handler access. Escape ALL of them for HTML text context.
+  fetch('/api/job/' + name).then(function(r){return r.json();}).then(function(j) {
+    var html =
+      '<div class="detail-title">' + escHtml(j.name) + '</div>' +
+      '<div class="detail-row"><label>Status</label><span class="detail-badge" style="background:' + sColorFill(j.status) + ';color:' + sTextColor(j.status) + '">' + escHtml(statusLabel(j.status)) + '</span></div>' +
+      '<div class="detail-row"><label>Stage</label><span>' + escHtml(j.stage) + '</span></div>' +
+      '<div class="detail-row"><label>Subnode</label><span>' + escHtml(j.subnode||'-') + '</span></div>' +
+      '<div class="detail-row"><label>Runtime</label><span>' + escHtml(formatTime(j.runtime)) + '</span></div>' +
+      '<div class="detail-row"><label>Exit Code</label><span>' + escHtml(j.exit_code != null ? j.exit_code : '-') + '</span></div>' +
+      '<div class="detail-row"><label>Host</label><span>' + escHtml(j.hostname||'-') + '</span></div>' +
+      '<div class="detail-row"><label>LSF Job</label><span>' + escHtml(j.lsf_job_id||'-') + '</span></div>' +
+      '<div class="detail-row"><label>Tier</label><span>' + escHtml(j.resource_tier||'-') + '</span></div>' +
+      '<div class="detail-row"><label>Start</label><span>' + escHtml(j.start_time ? j.start_time.split('T').pop().substr(0,8) : '-') + '</span></div>' +
+      '<div class="detail-row"><label>End</label><span>' + escHtml(j.end_time ? j.end_time.split('T').pop().substr(0,8) : '-') + '</span></div>';
+    if (j.error_msg) html += '<div class="detail-section"><h4>Error</h4><div class="detail-error">' + escHtml(j.error_msg) + '</div></div>';
+    if (j.command) html += '<div class="detail-section"><h4>Command</h4><div class="detail-cmd">' + escHtml(j.command) + '</div></div>';
+    if (j.log_tail && j.log_tail.length > 0) {
+      html += '<div class="detail-section"><h4>Log (tail)</h4><div class="detail-log">' + escHtml(j.log_tail.join('\n')) + '</div></div>';
+    }
+    html += editFormHtml;
+    panel.innerHTML = html;
+    populateInlineEditForm(editStage);
+  }).catch(function() {
+    var j2 = allJobs.find(function(x){return x.name === name;});
+    if (j2) {
+      panel.innerHTML =
+        '<div class="detail-title">' + escHtml(j2.name) + '</div>' +
+        '<div class="detail-row"><label>Status</label><span class="detail-badge" style="background:' + sColorFill(j2.status) + ';color:' + sTextColor(j2.status) + '">' + escHtml(statusLabel(j2.status)) + '</span></div>' +
+        '<div class="detail-row"><label>Stage</label><span>' + escHtml(j2.stage) + '</span></div>' +
+        '<div class="detail-row"><label>Runtime</label><span>' + escHtml(formatTime(j2.runtime)) + '</span></div>' +
+        editFormHtml;
+      populateInlineEditForm(editStage);
+    }
+  });
+}
+
+function showInputVarsInLeftPanel(nodeName) {
+  var container = document.getElementById('lp-input-vars');
+  if (!container) return;
+  container.style.display = 'block';
+  container.innerHTML = '<div style="font-size:11px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Input Variables — ' + nodeName + '</div>' +
+    '<form id="input-vars-form" onsubmit="saveInputVars(event)">' +
+    '<input type="hidden" id="iv-node" value="' + nodeName + '">' +
+    '<div id="iv-fields" style="font-size:11px">Loading...</div>' +
+    '<div style="margin-top:6px"><button type="submit" class="fm-btn fm-btn-primary" style="padding:3px 12px;font-size:10px">Save</button></div>' +
+    '</form>';
+  populateInputVars(nodeName);
+}
+
+function clearInputVarsFromLeftPanel() {
+  var container = document.getElementById('lp-input-vars');
+  if (container) { container.style.display = 'none'; container.innerHTML = ''; }
+}
+
+function populateInputVars(nodeName) {
+  // Fetch input variables for this leaf node from the API
+  fetch('/api/input-vars/' + nodeName).then(function(r){return r.json();}).then(function(data) {
+    var container = document.getElementById('iv-fields');
+    if (!container) return;
+    var vars = data.variables || {};
+    var html = '';
+    var keys = Object.keys(vars);
+    if (keys.length === 0) {
+      html = '<div style="color:var(--text-dim);font-size:11px;padding:4px 0">No input variables found for this node</div>';
+    } else {
+      keys.forEach(function(k) {
+        var displayKey = k.replace(/.*\(/, '').replace(')', '');
+        html += '<div class="ie-group">' +
+          '<label>' + displayKey + '</label>' +
+          '<input type="text" name="' + k + '" value="' + (vars[k] || '') + '" style="font-size:11px">' +
+          '</div>';
+      });
+    }
+    container.innerHTML = html;
+  }).catch(function(e) {
+    var container = document.getElementById('iv-fields');
+    if (container) container.innerHTML = '<div style="color:var(--red);font-size:11px">Failed to load: ' + e + '</div>';
+  });
+}
+
+function saveInputVars(e) {
+  e.preventDefault();
+  var node = document.getElementById('iv-node').value;
+  var form = document.getElementById('input-vars-form');
+  var inputs = form.querySelectorAll('input[name]');
+  var vars = {};
+  inputs.forEach(function(inp) {
+    vars[inp.name] = inp.value;
+  });
+  fetch('/api/input-vars/' + node, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({variables: vars})
+  }).then(function(r){return r.json();}).then(function(data) {
+    showToast(data.message || 'Input variables saved', 'success');
+  }).catch(function(e) {
+    showToast('Error: ' + e, 'error');
+  });
+}
+
+function populateInlineEditForm(stage) {
+  loadConfig().then(function(data) {
+    populateQueueSelect('ied', data, stage);
+  });
+}
+
+function saveModalConfig(e) {
+  e.preventDefault();
+  saveConfigWithPrefix('med')
+    .then(function(d){ showToast(d.message || 'Config saved', 'success'); })
+    .catch(function(e){ showToast('Error: ' + e, 'error'); });
+}
+
+function saveInlineConfig(e) {
+  e.preventDefault();
+  saveConfigWithPrefix('ied')
+    .then(function(d){ showToast(d.message || 'Saved', 'success'); })
+    .catch(function(e){ showToast('Error: ' + e, 'error'); });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CONTEXT MENU
+// ═══════════════════════════════════════════════════════════════════
+var ctxStage = '';
+function showCtxMenu(name, event) {
+  event.preventDefault();
+  event.stopPropagation();
+  ctxStage = name;
+  var menu = document.getElementById('ctx-menu');
+  document.getElementById('ctx-hdr').textContent = name;
+
+  // Update menu items based on whether this is a stage or subnode
+  var job = allJobs.find(function(j){return j.name === name;});
+  var isSubnode = job && job.type === 'subnode';
+
+  // Rebuild context menu content dynamically
+  var menuHtml = '<div class="ctx-hdr" id="ctx-hdr">' + name + '</div>';
+  if (isSubnode) {
+    menuHtml += '<a onclick="ctxAction(\'run-stage\')">&#9654; Run to This Subnode</a>';
+    menuHtml += '<a onclick="ctxAction(\'open-log\')">&#128196; Open Log</a>';
+    menuHtml += '<hr>';
+    menuHtml += '<a onclick="ctxAction(\'bypass\')">&#10140; Bypass</a>';
+    menuHtml += '<a onclick="ctxAction(\'forcevalidate\')">&#10004; Force Validate</a>';
+    menuHtml += '<hr>';
+    menuHtml += '<a onclick="ctxAction(\'edit\')">&#9998; Edit Config</a>';
+  } else {
+    menuHtml += '<a onclick="ctxAction(\'run-stage\')">&#9654; Run This Stage</a>';
+    menuHtml += '<a onclick="ctxAction(\'retrace-from\')">&#8635; Retrace From Here</a>';
+    menuHtml += '<a onclick="ctxAction(\'open-log\')">&#128196; Open Log</a>';
+    menuHtml += '<hr>';
+    menuHtml += '<a onclick="ctxAction(\'bypass\')">&#10140; Bypass</a>';
+    menuHtml += '<a onclick="ctxAction(\'force\')">&#8634; Force Re-run</a>';
+    menuHtml += '<a onclick="ctxAction(\'forcevalidate\')">&#10004; Force Validate</a>';
+    menuHtml += '<hr>';
+    menuHtml += '<a onclick="ctxAction(\'edit\')">&#9998; Edit Config (LSF/Version)</a>';
+    menuHtml += '<a onclick="ctxAction(\'duplicate\')">&#10064; Duplicate Node</a>';
+    menuHtml += '<a onclick="ctxAction(\'branch\')">&#9095; Create Branch From Here</a>';
+    var baseSet = dagData ? new Set(dagData.base_stages) : new Set();
+    if (!baseSet.has(name)) {
+      menuHtml += '<a onclick="ctxAction(\'rename\')">&#9998; Rename Node</a>';
+    }
+    // Only show View Subnodes and Interactive for tool nodes (not leaf input nodes)
+    var stageInfo = stagesData.find(function(s){return s.name === name;});
+    var isToolNode = stageInfo && stageInfo.jobs_total > 0;
+    if (isToolNode) {
+      menuHtml += '<a onclick="ctxAction(\'subnodes\')">&#9776; View Subnodes</a>';
+      menuHtml += '<a onclick="ctxAction(\'mmmc\')">&#9881; MMMC Scenarios</a>';
+      menuHtml += '<a onclick="ctxAction(\'interactive\')">&#9000; Interactive Session</a>';
+    }
+  }
+  menu.innerHTML = menuHtml;
+
+  menu.style.display = 'block';
+  // Position menu, keeping it within viewport
+  var x = event.clientX;
+  var y = event.clientY;
+  var mw = menu.offsetWidth || 200;
+  var mh = menu.offsetHeight || 200;
+  if (x + mw > window.innerWidth) x = window.innerWidth - mw - 4;
+  if (y + mh > window.innerHeight) y = window.innerHeight - mh - 4;
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+}
+
+document.addEventListener('click', function() {
+  document.getElementById('ctx-menu').style.display = 'none';
+});
+
+function ctxAction(action) {
+  var name = ctxStage;
+  var job = allJobs.find(function(j){return j.name === name;});
+  var isSubnode = job && job.type === 'subnode';
+  var stage = isSubnode ? job.stage : name;
+
+  if (action === 'run-stage') {
+    if (isSubnode) {
+      apiAction('run-to-subnode', {stage: stage, subnode: name});
+    } else {
+      apiAction('run-stage', {stage: stage});
+    }
+  }
+  else if (action === 'retrace-from') apiAction('retrace', {from_stage: stage});
+  else if (action === 'bypass') {
+    if (isSubnode) apiAction('bypass', {jobs: [name]});
+    else apiAction('bypass', {stages: [stage]});
+  }
+  else if (action === 'force') apiAction('force', {stages: [stage]});
+  else if (action === 'forcevalidate') {
+    if (isSubnode) apiAction('forcevalidate', {jobs: [name]});
+    else apiAction('forcevalidate', {stages: [stage]});
+  }
+  else if (action === 'open-log') {
+    // Open log file for this stage/subnode
+    var logName = isSubnode ? name : stage;
+    window.open('/api/log/' + logName, '_blank');
+  }
+  else if (action === 'edit') openNodeConfigEditor(stage);
+  else if (action === 'mmmc') openMMMCModal(stage);
+  else if (action === 'branch') {
+    // Quick inline form via modal — branch name + tag in one step
+    var html = '<div style="padding:8px">' +
+      '<p style="margin:0 0 12px;color:#555">Branch from <b>' + stage + '</b></p>' +
+      '<label style="font-size:12px;font-weight:600">Branch Name</label>' +
+      '<input id="qbr-name" type="text" value="' + stage + '_branch" style="width:100%;padding:6px;margin:4px 0 10px;border:1px solid #ccc;border-radius:4px">' +
+      '<label style="font-size:12px;font-weight:600">Node Tag <span style="color:#999;font-weight:400">(optional — appended to all node names)</span></label>' +
+      '<input id="qbr-tag" type="text" placeholder="e.g. timing_fix" style="width:100%;padding:6px;margin:4px 0 12px;border:1px solid #ccc;border-radius:4px">' +
+      '<div style="text-align:right"><button onclick="closeModal(\'edit-modal\')" style="padding:6px 14px;margin-right:8px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer">Cancel</button>' +
+      '<button onclick="var n=document.getElementById(\'qbr-name\').value,t=document.getElementById(\'qbr-tag\').value;closeModal(\'edit-modal\');if(n)apiAction(\'create-branch\',{name:n,from_stage:\'' + stage + '\',tag:(t||\'\').replace(/\\s+/g,\'_\')})" style="padding:6px 14px;border:none;border-radius:4px;background:#1976d2;color:#fff;cursor:pointer">Create</button></div></div>';
+    document.getElementById('edit-title').textContent = 'Create Branch';
+    document.querySelector('#edit-modal .modal-bd').innerHTML = html;
+    openModal('edit-modal');
+  }
+  else if (action === 'rename') {
+    var newName = prompt('Rename "' + stage + '" to:', stage);
+    if (newName && newName !== stage) {
+      apiAction('rename-node', {old_name: stage, new_name: newName});
+    }
+  }
+  else if (action === 'duplicate') {
+    // Get the node type (strip numeric suffix) and its dependency
+    var nodeType = stage.replace(/\d+$/, '');
+    // Find what this stage depends on from dagData
+    var dep = '';
+    var edges = (dagData && dagData.edges) || [];
+    var stageSet = new Set(stagesData.map(function(s){return s.name;}));
+    for (var i = 0; i < edges.length; i++) {
+      if (edges[i].to === stage && stageSet.has(edges[i].from)) {
+        dep = edges[i].from;
+        break;
+      }
+    }
+    // If no dep found (root node), use empty
+    if (!dep) dep = stage; // duplicate depends on same parent as source
+    apiAction('add-node', {name: '', type: nodeType, dep: dep, auto_name: true});
+  }
+  else if (action === 'subnodes') {
+    var isStage = stagesData.some(function(st){return st.name === stage;});
+    if (isStage) enterSubnodeView(stage);
+  }
+  else if (action === 'interactive') {
+    var si = stagesData.find(function(s){return s.name === stage;});
+    if (si && si.jobs_total === 0) {
+      showToast(stage + ' is an input data node — interactive session is only available for tool execution nodes', 'error');
+    } else {
+      apiAction('interactive', {node: stage});
+    }
+  }
+
+  document.getElementById('ctx-menu').style.display = 'none';
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// API ACTIONS
+// ═══════════════════════════════════════════════════════════════════
+function apiAction(action, body) {
+  fetch('/api/action/' + action, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  }).then(function(r){return r.json();}).then(function(data) {
+    if (data.error && (data.error.indexOf('depend') !== -1 || data.error.indexOf('Cannot') !== -1)) {
+      alert(data.error.replace(/; /g, '\n'));
+      return;
+    }
+    // ok:false means the action was refused (e.g. engine unavailable —
+    // user_config.tcl broken, daemon can't materialize the engine).
+    // Surface the error and DO NOT churn DAG/tree state or schedule
+    // refreshes — the invalidation would mask the real failure and can
+    // duplicate no-op requests if the user re-clicks. Matches
+    // grid.html / dag.html which already early-return on !res.ok.
+    if (data.ok === false) {
+      showToast(data.error || 'Action refused', 'error');
+      return;
+    }
+    showToast(data.message || data.error, data.error ? 'error' : 'success');
+    // Only rebuild on structural changes (add/delete node, branch)
+    var isStructural = ['add-node','delete-node','create-branch','delete-branch','rename-node'].indexOf(action) !== -1;
+    if (isStructural) {
+      nodePositions = {};
+      treeBuilt = false;
+      dagBuilt = false;
+    }
+    // Immediate refresh for sync actions, delayed for async (run/force)
+    if (data.async) {
+      setTimeout(refresh, 500);
+    } else {
+      dagBuilt = false; // force SVG rebuild to update proportional colors
+      refresh();
+    }
+    // Fit canvas after structural changes so new nodes are visible
+    if (isStructural) {
+      setTimeout(dagFit, 300);
+    }
+  }).catch(function(e){ showToast('Error: ' + e, 'error'); });
+}
+
+function showToast(msg, type) {
+  var t = document.createElement('div');
+  t.className = 'toast ' + (type || '');
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(function(){ t.classList.add('show'); }, 10);
+  setTimeout(function(){
+    t.classList.remove('show');
+    setTimeout(function(){ t.remove(); }, 300);
+  }, 4000);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MODALS & FORMS
+// ═══════════════════════════════════════════════════════════════════
+function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+document.querySelectorAll('.modal-bg').forEach(function(m) {
+  m.addEventListener('click', function(){ m.style.display = 'none'; });
+});
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.modal-bg').forEach(function(m){ m.style.display = 'none'; });
+    document.getElementById('ctx-menu').style.display = 'none';
+  }
+});
+
+function loadConfig() {
+  return fetch('/api/node-config').then(function(r){return r.json();}).then(function(d){ cachedConfig = d; return d; });
+}
+
+function fillStageSelect(id) {
+  var sel = document.getElementById(id);
+  sel.innerHTML = '';
+  if (cachedConfig && cachedConfig.available_stages) {
+    cachedConfig.available_stages.forEach(function(s) {
+      var o = document.createElement('option');
+      o.value = s; o.textContent = s;
+      sel.appendChild(o);
+    });
+  }
+}
+
+function promptAction(action, title, label, btnText) {
+  loadConfig().then(function() {
+    fillStageSelect('action-stage');
+    document.getElementById('action-type').value = action;
+    document.getElementById('action-title').textContent = title;
+    document.getElementById('action-label').textContent = label;
+    document.getElementById('action-submit').textContent = btnText;
+    openModal('action-modal');
+  });
+}
+
+function submitAction(e) {
+  e.preventDefault();
+  var action = document.getElementById('action-type').value;
+  var stage = document.getElementById('action-stage').value;
+  closeModal('action-modal');
+  if (action === 'run-stage') apiAction('run-stage', {stage: stage});
+  else if (action === 'retrace') apiAction('retrace', {from_stage: stage});
+  else if (action === 'bypass') apiAction('bypass', {stages: [stage]});
+  else if (action === 'force') apiAction('force', {stages: [stage]});
+  else if (action === 'forcevalidate') apiAction('forcevalidate', {stages: [stage]});
+  else if (action === 'delete-node') apiAction('delete-node', {name: stage});
+  else if (action === 'edit-config') openEditForm(stage);
+  else if (action === 'interactive-select') apiAction('interactive', {node: stage});
+}
+
+function promptAddNode() {
+  loadConfig().then(function() {
+    fillStageSelect('an-dep');
+    // Populate node type dropdown dynamically from available stages (strip numeric suffix)
+    var typeSel = document.getElementById('an-type');
+    typeSel.innerHTML = '';
+    var seen = {};
+    if (cachedConfig && cachedConfig.available_stages) {
+      cachedConfig.available_stages.forEach(function(s) {
+        var base = s.replace(/\d+$/, '');
+        if (!seen[base]) {
+          seen[base] = true;
+          var o = document.createElement('option');
+          o.value = base; o.textContent = base;
+          typeSel.appendChild(o);
+        }
+      });
+    }
+    document.getElementById('an-name').value = '';
+    openModal('addnode-modal');
+  });
+}
+
+function submitAddNode(e) {
+  e.preventDefault();
+  closeModal('addnode-modal');
+  apiAction('add-node', {
+    name: document.getElementById('an-name').value,
+    type: document.getElementById('an-type').value,
+    dep: document.getElementById('an-dep').value
+  });
+}
+
+function promptCreateBranch() {
+  loadConfig().then(function() {
+    fillStageSelect('br-from');
+    document.getElementById('br-name').value = '';
+    openModal('branch-modal');
+  });
+}
+
+function promptDeleteBranch() {
+  // Build list of branches from dagData.branch_info
+  var bi = (dagData && dagData.branch_info) || {};
+  var branches = {};  // {branch_key: {name, tag, nodes[]}}
+  for (var node in bi) {
+    var b = bi[node];
+    if (!b.branch_key) continue;
+    if (!branches[b.branch_key]) {
+      branches[b.branch_key] = {name: b.branch_name || b.branch_key, tag: b.branch_tag || '', nodes: []};
+    }
+    branches[b.branch_key].nodes.push(node);
+  }
+  var keys = Object.keys(branches);
+  if (keys.length === 0) {
+    showToast('No branches to delete', 'error');
+    return;
+  }
+  // Build modal with clickable branch list (hover highlights DAG nodes)
+  var html = '<div style="padding:8px">' +
+    '<p style="margin:0 0 10px;color:#555">Select a branch to delete. Hover to highlight its nodes on the DAG.</p>' +
+    '<input type="hidden" id="del-branch" value="">' +
+    '<div id="del-branch-list" style="max-height:220px;overflow-y:auto;border:1px solid #ccc;border-radius:4px;margin-bottom:8px">';
+  keys.forEach(function(k) {
+    var b = branches[k];
+    var label = b.name + (b.tag ? ' [' + b.tag + ']' : '');
+    html += '<div class="del-br-item" data-key="' + k + '" style="padding:8px 10px;cursor:pointer;border-bottom:1px solid #eee">' +
+      '<div style="font-weight:600;font-size:13px">' + label + '</div>' +
+      '<div style="font-size:11px;color:#888">' + b.nodes.length + ' nodes: ' + b.nodes.join(', ') + '</div></div>';
+  });
+  html += '</div>' +
+    '<div style="text-align:right">' +
+    '<button onclick="clearBranchHighlight();closeModal(\'edit-modal\')" style="padding:6px 14px;margin-right:8px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer">Cancel</button>' +
+    '<button id="del-branch-btn" onclick="doDeleteBranch()" style="padding:6px 14px;border:none;border-radius:4px;background:#ccc;color:#fff;cursor:not-allowed" disabled>Select a branch first</button>' +
+    '</div></div>';
+  document.getElementById('edit-title').textContent = 'Delete Branch';
+  document.querySelector('#edit-modal .modal-bd').innerHTML = html;
+
+  // Attach hover + click handlers to each branch item
+  document.querySelectorAll('.del-br-item').forEach(function(item) {
+    var k = item.getAttribute('data-key');
+    var b = branches[k];
+    // Hover: highlight nodes on DAG
+    item.addEventListener('mouseenter', function() {
+      b.nodes.forEach(function(n) {
+        var el = document.getElementById('dag-' + n);
+        if (el) { el.style.filter = 'brightness(1.5) drop-shadow(0 0 6px #f44336)'; el.style.opacity = '1'; }
+      });
+    });
+    item.addEventListener('mouseleave', function() {
+      b.nodes.forEach(function(n) {
+        var el = document.getElementById('dag-' + n);
+        if (el) { el.style.filter = ''; el.style.opacity = ''; }
+      });
+    });
+    // Click: select this branch
+    item.addEventListener('click', function() {
+      document.querySelectorAll('.del-br-item').forEach(function(x) { x.style.background = ''; });
+      item.style.background = '#ffebee';
+      document.getElementById('del-branch').value = k;
+      var btn = document.getElementById('del-branch-btn');
+      btn.textContent = 'Delete "' + b.name + '"';
+      btn.style.background = '#f44336'; btn.style.cursor = 'pointer'; btn.disabled = false;
+    });
+  });
+
+  openModal('edit-modal');
+  window._deleteBranchMap = branches;
+}
+
+function clearBranchHighlight() {
+  document.querySelectorAll('.dag-node').forEach(function(el) { el.style.filter = ''; el.style.opacity = ''; });
+}
+
+function doDeleteBranch() {
+  var key = document.getElementById('del-branch').value;
+  var b = window._deleteBranchMap[key];
+  if (!b) return;
+  closeModal('edit-modal');
+  clearBranchHighlight();
+  fetch('/api/action/delete-branch', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({branch_key: key})
+  }).then(function(r) {
+    if (!r.ok) throw new Error('Server error ' + r.status);
+    return r.json();
+  }).then(function(d) {
+    if (d.ok) {
+      showToast('Deleted branch: ' + b.name + ' (' + b.nodes.length + ' nodes)', 'success');
+      nodePositions = {}; treeBuilt = false; dagBuilt = false;
+      refresh();
+    } else {
+      // Show clean error with dependency details
+      var msg = d.error || 'Delete failed';
+      alert('Cannot delete branch "' + b.name + '"\n\n' + msg.replace(/; /g, '\n') + '\n\nDelete the dependent nodes or branches first.');
+    }
+  }).catch(function(e) {
+    alert('Cannot delete branch "' + b.name + '"\n\nServer error — check if other branches depend on this one.');
+  });
+}
+
+function submitBranch(e) {
+  e.preventDefault();
+  closeModal('branch-modal');
+  apiAction('create-branch', {
+    name: document.getElementById('br-name').value,
+    from_stage: document.getElementById('br-from').value,
+    tag: (document.getElementById('br-tag').value || '').replace(/\s+/g, '_')
+  });
+}
+
+function openMMMCModal(stage) {
+  var nodeBase = stage.replace(/\d+$/, '');
+  fetch('/api/mmmc-scenarios').then(function(r){return r.json();}).then(function(data) {
+    if (data.error) { showToast(data.error, 'error'); return; }
+
+    var allScenarios = data.scenarios || [];
+    var sets = data.sets || {};
+    var flowType = data.flow_type || '';
+    var activeSubs = data.active_subnodes || {};
+
+    // Detect STA dynamic scenario mode (timing/extraction nodes)
+    var isDynamic = (flowType === 'STA' && (nodeBase === 'timing' || nodeBase === 'extraction'));
+    var activeSet = new Set(activeSubs[stage] || []);
+
+    // For PNR mode, use node config assignments
+    var nodeCfg = data.nodes[nodeBase] || {setup:[], hold:[]};
+    var assignedSetup = new Set(nodeCfg.setup);
+    var assignedHold = new Set(nodeCfg.hold);
+
+    var html = '<div style="max-height:70vh;overflow-y:auto;padding:0">';
+    html += '<div style="padding:12px 16px;background:var(--surface2);border-bottom:1px solid var(--border)">';
+
+    if (isDynamic) {
+      html += '<div style="font-size:14px;font-weight:700">' + stage + ' — Dynamic Scenario Subnodes</div>';
+      html += '<div style="font-size:11px;color:var(--text-dim);margin-top:2px">Active: ' + activeSet.size + ' scenarios running as parallel subnodes</div>';
+    } else {
+      html += '<div style="font-size:14px;font-weight:700">' + stage + ' — MMMC Scenarios</div>';
+      html += '<div style="font-size:11px;color:var(--text-dim);margin-top:2px">Setup: ' + nodeCfg.setup.length + ' | Hold: ' + nodeCfg.hold.length + ' assigned</div>';
+    }
+    html += '</div>';
+
+    // Quick assign buttons
+    html += '<div style="padding:8px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center">';
+    html += '<span style="font-size:11px;font-weight:600;color:var(--text-dim)">Quick assign:</span>';
+    Object.keys(sets).forEach(function(sn) {
+      html += '<button onclick="mmmcApplySet(\'' + sn + '\')" style="padding:2px 8px;font-size:10px;border:1px solid var(--border);border-radius:3px;background:var(--surface);cursor:pointer">' + sn + '</button>';
+    });
+    html += '<button onclick="mmmcClearAll()" style="padding:2px 8px;font-size:10px;border:1px solid var(--red);border-radius:3px;background:#fff;color:var(--red);cursor:pointer">Clear All</button>';
+    html += '</div>';
+
+    // Filters
+    html += '<div style="padding:6px 16px;border-bottom:1px solid var(--border);display:flex;gap:6px;align-items:center">';
+    html += '<span style="font-size:10px;font-weight:600;color:var(--text-dim)">Filter:</span>';
+    html += '<select id="mmmc-filter-corner" onchange="mmmcFilter()" style="font-size:10px;padding:2px 6px;border:1px solid var(--border);border-radius:3px"><option value="">All Corners</option>';
+    var corners = new Set(); var modes = new Set();
+    allScenarios.forEach(function(s){ corners.add(s.corner); modes.add(s.mode); });
+    corners.forEach(function(c){ html += '<option value="'+c+'">'+c.toUpperCase()+'</option>'; });
+    html += '</select>';
+    html += '<select id="mmmc-filter-mode" onchange="mmmcFilter()" style="font-size:10px;padding:2px 6px;border:1px solid var(--border);border-radius:3px"><option value="">All Modes</option>';
+    modes.forEach(function(m){ html += '<option value="'+m+'">'+m+'</option>'; });
+    html += '</select>';
+    if (!isDynamic) {
+      html += '<select id="mmmc-filter-type" onchange="mmmcFilter()" style="font-size:10px;padding:2px 6px;border:1px solid var(--border);border-radius:3px"><option value="">All Types</option><option value="setup">Setup</option><option value="hold">Hold</option></select>';
+    }
+    html += '</div>';
+
+    // Scenario table
+    html += '<div style="padding:8px 16px"><table style="width:100%;font-size:11px;border-collapse:collapse">';
+    html += '<thead><tr style="background:var(--surface2)">';
+
+    if (isDynamic) {
+      html += '<th style="padding:4px 6px;text-align:center;width:40px">Run</th>';
+    } else {
+      html += '<th style="padding:4px 6px;text-align:left">Setup</th>';
+      html += '<th style="padding:4px 6px;text-align:left">Hold</th>';
+    }
+    html += '<th style="padding:4px 6px;text-align:left">Scenario</th>';
+    html += '<th style="padding:4px 6px;text-align:left">Corner</th>';
+    html += '<th style="padding:4px 6px;text-align:left">Mode</th>';
+    html += '<th style="padding:4px 6px;text-align:left">Voltage</th>';
+    html += '<th style="padding:4px 6px;text-align:left">Temp</th>';
+    html += '</tr></thead><tbody>';
+
+    allScenarios.forEach(function(s) {
+      html += '<tr class="mmmc-row" data-corner="'+s.corner+'" data-mode="'+s.mode+'" data-type="'+s.type+'" style="border-bottom:1px solid #eee">';
+      if (isDynamic) {
+        var checked = activeSet.has(s.name) ? ' checked' : '';
+        html += '<td style="padding:3px 6px;text-align:center"><input type="checkbox" class="mmmc-dynamic-cb" value="'+s.name+'"'+checked+'></td>';
+      } else {
+        var setupChecked = assignedSetup.has(s.name) ? ' checked' : '';
+        var holdChecked = assignedHold.has(s.name) ? ' checked' : '';
+        html += '<td style="padding:3px 6px;text-align:center"><input type="checkbox" class="mmmc-setup-cb" value="'+s.name+'"'+setupChecked+'></td>';
+        html += '<td style="padding:3px 6px;text-align:center"><input type="checkbox" class="mmmc-hold-cb" value="'+s.name+'"'+holdChecked+'></td>';
+      }
+      html += '<td style="padding:3px 6px;font-family:monospace;font-size:10px">'+s.name+'</td>';
+      html += '<td style="padding:3px 6px">'+s.corner.toUpperCase()+'</td>';
+      html += '<td style="padding:3px 6px">'+s.mode+'</td>';
+      html += '<td style="padding:3px 6px">'+s.voltage+'</td>';
+      html += '<td style="padding:3px 6px">'+s.temp+'</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+
+    // Action buttons
+    html += '<div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">';
+    if (isDynamic) {
+      html += '<span style="font-size:10px;color:var(--text-dim)">Selected scenarios will run as parallel subnodes</span>';
+      html += '<button onclick="saveAndRetraceDynamic(\'' + stage + '\')" class="fm-btn fm-btn-primary" style="padding:5px 16px;font-size:12px">Save Scenarios</button>';
+    } else {
+      html += '<label style="font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer">' +
+        '<input type="checkbox" id="mmmc-apply-all"> Apply to all ' + nodeBase + ' nodes</label>';
+      html += '<button onclick="saveMMMCScenarios(\'' + stage + '\',\'' + nodeBase + '\')" class="fm-btn fm-btn-primary" style="padding:5px 16px;font-size:12px">Save Scenarios</button>';
+    }
+    html += '</div></div>';
+
+    openModal('edit-modal');
+    document.getElementById('edit-title').textContent = isDynamic ? stage + ' — Dynamic Scenarios' : stage + ' — MMMC Scenarios';
+    document.querySelector('#edit-modal .modal-bd').innerHTML = html;
+    window._mmmcSets = sets;
+    window._mmmcIsDynamic = isDynamic;
+  }).catch(function(e) { showToast('Failed to load MMMC: ' + e, 'error'); });
+}
+
+function mmmcFilter() {
+  var corner = document.getElementById('mmmc-filter-corner').value;
+  var mode = document.getElementById('mmmc-filter-mode').value;
+  var type = document.getElementById('mmmc-filter-type').value;
+  document.querySelectorAll('.mmmc-row').forEach(function(row) {
+    var show = true;
+    if (corner && row.getAttribute('data-corner') !== corner) show = false;
+    if (mode && row.getAttribute('data-mode') !== mode) show = false;
+    if (type && row.getAttribute('data-type') !== type) show = false;
+    row.style.display = show ? '' : 'none';
+  });
+}
+
+function mmmcApplySet(setName) {
+  var setData = window._mmmcSets[setName];
+  if (!setData) return;
+  var scenarios = new Set(setData.scenarios);
+  if (window._mmmcIsDynamic) {
+    document.querySelectorAll('.mmmc-dynamic-cb').forEach(function(cb) {
+      if (scenarios.has(cb.value)) cb.checked = true;
+    });
+  } else {
+    document.querySelectorAll('.mmmc-setup-cb').forEach(function(cb) {
+      if (scenarios.has(cb.value)) cb.checked = true;
+    });
+    document.querySelectorAll('.mmmc-hold-cb').forEach(function(cb) {
+      if (scenarios.has(cb.value)) cb.checked = true;
+    });
+  }
+  showToast('Applied set: ' + setName + ' (' + setData.scenarios.length + ' scenarios)', 'success');
+}
+
+function mmmcClearAll() {
+  document.querySelectorAll('.mmmc-setup-cb, .mmmc-hold-cb, .mmmc-dynamic-cb').forEach(function(cb) { cb.checked = false; });
+  showToast('All scenarios cleared', 'success');
+}
+
+function saveAndRetraceDynamic(stage) {
+  var selected = [];
+  document.querySelectorAll('.mmmc-dynamic-cb:checked').forEach(function(cb) { selected.push(cb.value); });
+  if (selected.length === 0) { showToast('Select at least one scenario', 'error'); return; }
+
+  // Split into setup (ss corners) and hold (ff corners) for user_config
+  var setup = []; var hold = [];
+  selected.forEach(function(s) {
+    if (s.indexOf('_ss_') !== -1) setup.push(s);
+    else if (s.indexOf('_ff_') !== -1) hold.push(s);
+    else setup.push(s); // tt goes to setup
+  });
+
+  fetch('/api/action/save-mmmc', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({node: stage, setup: setup, hold: hold, dynamic: true})
+  }).then(function(r){return r.json();}).then(function(data) {
+    if (data.error) { showToast(data.error, 'error'); return; }
+    showToast('Saved ' + selected.length + ' scenarios for ' + stage + '. Retrace manually when ready.', 'success');
+    closeModal('edit-modal');
+    setTimeout(function(){ location.reload(); }, 1000);
+  }).catch(function(e) { showToast('Error: ' + e, 'error'); });
+}
+
+function saveMMMCScenarios(fullName, baseName) {
+  var setup = [];
+  var hold = [];
+  document.querySelectorAll('.mmmc-setup-cb:checked').forEach(function(cb) { setup.push(cb.value); });
+  document.querySelectorAll('.mmmc-hold-cb:checked').forEach(function(cb) { hold.push(cb.value); });
+
+  var applyAll = document.getElementById('mmmc-apply-all') && document.getElementById('mmmc-apply-all').checked;
+  var node = applyAll ? baseName : fullName;
+
+  fetch('/api/action/save-mmmc', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({node: node, setup: setup, hold: hold})
+  }).then(function(r){return r.json();}).then(function(data) {
+    showToast(data.message || 'MMMC scenarios saved', data.error ? 'error' : 'success');
+    closeModal('edit-modal');
+  }).catch(function(e) { showToast('Error: ' + e, 'error'); });
+}
+
+function openNodeConfigEditor(stage) {
+  document.getElementById('edit-title').textContent = 'Node Config \u2014 ' + stage;
+  document.querySelector('#edit-modal .modal-bd').innerHTML = '<div style="padding:12px;text-align:center;color:#888">Loading config...</div>';
+  openModal('edit-modal');
+
+  // Get node info for branch/type context
+  var bi = (dagData && dagData.branch_info) ? dagData.branch_info[stage] : null;
+  var stageBase = stage.replace(/\d+(_\w+)?$/, '');
+  var branchName = bi ? (bi.branch_name || '') : '';
+  var branchKey = bi ? (bi.branch_key || '') : '';
+
+  fetch('/api/node-full-config?stage=' + encodeURIComponent(stage))
+    .then(function(r){return r.json();})
+    .then(function(data) {
+      var cats = data.categories || {};
+      var totalVars = 0;
+      for (var c in cats) totalVars += cats[c].length;
+
+      var html = '<div style="padding:8px">';
+      // Search
+      html += '<input id="ncf-search" type="text" placeholder="Search variables..." oninput="filterNodeConfig()" style="width:100%;padding:8px;margin-bottom:8px;border:1px solid #ccc;border-radius:4px;font-size:13px">';
+      // Scope toggles
+      html += '<div style="display:flex;gap:12px;margin-bottom:10px;padding:6px 8px;background:#f5f5f5;border-radius:4px;font-size:12px">';
+      html += '<label style="font-weight:600;color:#555">Save to:</label>';
+      html += '<label style="cursor:pointer"><input type="radio" name="ncf-scope" value="node" checked> This node (' + stage + ')</label>';
+      if (branchKey) {
+        html += '<label style="cursor:pointer"><input type="radio" name="ncf-scope" value="branch"> Branch (' + branchName + ')</label>';
+      }
+      html += '<label style="cursor:pointer"><input type="radio" name="ncf-scope" value="type"> All ' + stageBase + ' nodes</label>';
+      html += '</div>';
+      html += '<div style="font-size:11px;color:#888;margin-bottom:6px">' + totalVars + ' variables across ' + Object.keys(cats).length + ' categories</div>';
+      // Categories with collapsible sections
+      html += '<div id="ncf-table" style="max-height:380px;overflow-y:auto">';
+      var catColors = {'Node Config':'#1976d2','Tool Config':'#00695c','LSF & Resources':'#e65100','Flow Settings':'#2e7d32','Exit Criteria':'#6a1b9a','Overrides':'#c62828'};
+      for (var catName in cats) {
+        var vars = cats[catName];
+        var cc = catColors[catName] || '#555';
+        html += '<div class="ncf-cat" style="margin-bottom:6px;border:1px solid #ddd;border-radius:4px;overflow:hidden">';
+        html += '<div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'block\':\'none\';this.querySelector(\'span\').textContent=this.nextElementSibling.style.display===\'none\'?\'\u25b6\':\'\u25bc\'" style="padding:6px 10px;background:#f5f5f5;cursor:pointer;font-size:12px;font-weight:700;color:' + cc + ';border-bottom:1px solid #ddd"><span>\u25bc</span> ' + catName + ' (' + vars.length + ')</div>';
+        html += '<div><table style="width:100%;font-size:12px;border-collapse:collapse">';
+        vars.forEach(function(v) {
+          var srcColor = v.source === 'override' ? '#e65100' : '#aaa';
+          var srcLabel = v.source === 'override' ? 'OVR' : 'BASE';
+          html += '<tr class="ncf-row" data-key="' + v.key + '" data-cat="' + catName + '" style="border-bottom:1px solid #f0f0f0">';
+          html += '<td style="padding:4px 8px;font-family:monospace;font-size:11px;word-break:break-all;width:45%" title="' + v.key + '">' + v.key + '</td>';
+          html += '<td style="padding:3px 6px;width:45%"><input class="ncf-val" data-key="' + v.key + '" data-orig="' + (v.value||'').replace(/"/g,'&quot;') + '" value="' + (v.value||'').replace(/"/g,'&quot;') + '" style="width:100%;padding:3px;border:1px solid #ddd;border-radius:3px;font-size:11px;font-family:monospace" oninput="this.style.background=this.value!==this.dataset.orig?\'#fff3e0\':\'\'"></td>';
+          html += '<td style="text-align:center;padding:4px;font-size:9px;color:' + srcColor + ';width:10%">' + srcLabel + '</td>';
+          html += '</tr>';
+        });
+        html += '</table></div></div>';
+      }
+      html += '</div>';
+      // Buttons
+      html += '<div style="margin-top:10px;text-align:right">';
+      html += '<button onclick="closeModal(\'edit-modal\')" style="padding:6px 14px;margin-right:8px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer">Cancel</button>';
+      html += '<button onclick="saveNodeFullConfig(\'' + stage + '\',\'' + stageBase + '\',\'' + branchKey + '\')" style="padding:6px 14px;border:none;border-radius:4px;background:#1976d2;color:#fff;cursor:pointer">Save Changes</button>';
+      html += '</div></div>';
+      document.querySelector('#edit-modal .modal-bd').innerHTML = html;
+    })
+    .catch(function(e) {
+      document.querySelector('#edit-modal .modal-bd').innerHTML = '<div style="padding:12px;color:red">Failed to load config: ' + e + '</div>';
+    });
+}
+
+function filterNodeConfig() {
+  var q = (document.getElementById('ncf-search').value || '').toLowerCase();
+  document.querySelectorAll('.ncf-row').forEach(function(row) {
+    var key = row.getAttribute('data-key').toLowerCase();
+    var val = row.querySelector('.ncf-val').value.toLowerCase();
+    row.style.display = (!q || key.indexOf(q) !== -1 || val.indexOf(q) !== -1) ? '' : 'none';
+  });
+}
+
+function saveNodeFullConfig(stage, stageBase, branchKey) {
+  // Collect only changed values
+  var changed = {};
+  document.querySelectorAll('.ncf-val').forEach(function(input) {
+    if (input.value !== input.dataset.orig) {
+      changed[input.dataset.key] = input.value;
+    }
+  });
+  if (Object.keys(changed).length === 0) {
+    showToast('No changes to save', 'error');
+    return;
+  }
+  // Get selected scope
+  var scope = 'node';
+  var checked = document.querySelector('input[name="ncf-scope"]:checked');
+  if (checked) scope = checked.value;
+
+  fetch('/api/action/save-node-config', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({stage: stage, stage_base: stageBase, branch_key: branchKey, scope: scope, variables: changed})
+  }).then(function(r){return r.json();}).then(function(d) {
+    if (d.ok) {
+      showToast(d.message, 'success');
+      closeModal('edit-modal');
+    } else {
+      showToast(d.error || 'Save failed', 'error');
+    }
+  }).catch(function(e) { showToast('Error: ' + e, 'error'); });
+}
+
+function openEditForm(stage) {
+  document.getElementById('ed-stage').value = stage;
+  document.getElementById('edit-title').textContent = 'Edit -- ' + stage;
+  loadConfig().then(function(data) {
+    populateQueueSelect('ed', data, stage);
+  });
+  openModal('edit-modal');
+}
+
+function saveConfig(e) {
+  e.preventDefault();
+  saveConfigWithPrefix('ed')
+    .then(function(d){ showToast(d.message || 'Saved', 'success'); closeModal('edit-modal'); })
+    .catch(function(e){ showToast('Error: ' + e, 'error'); });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════════
+refresh();
+// Adaptive polling: 2s when active (tighter than other pages because this is
+// the primary flow view), 10s when idle. Falls back to fixed 2s if the helper
+// failed to load.
+if (window.CBfAdaptive) {
+  window.__cbfAdaptiveInterval = { active: 2000, idle: 10000 };
+  window.CBfAdaptive.start(refresh);
+} else {
+  setInterval(refresh, 2000);
+}
+
+// ── Keyboard Shortcuts ──
+document.addEventListener('keydown', function(e) {
+  // Skip if user is typing in an input/select/textarea
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
+
+  var key = e.key.toLowerCase();
+
+  if (key === 'f') { dagFit(); showToast('Fit to window', 'success'); }
+  else if (key === 'r' && selectedNode) { apiAction('retrace', {from_stage: selectedNode}); }
+  else if (key === 'd' && selectedNode) { ctxStage = selectedNode; ctxAction('duplicate'); }
+  else if (key === 'b' && selectedNode) { ctxStage = selectedNode; ctxAction('branch'); }
+  else if (key === 'v' && selectedNode) { ctxStage = selectedNode; ctxAction('forcevalidate'); }
+  else if (key === 'y' && selectedNode) { ctxStage = selectedNode; ctxAction('bypass'); }
+  else if (key === 'e' && selectedNode) { ctxStage = selectedNode; ctxAction('edit'); }
+  else if (key === 'm' && selectedNode) { ctxStage = selectedNode; ctxAction('mmmc'); }
+  else if (key === 'escape') { closeModal('edit-modal'); closeModal('action-modal'); closeModal('addnode-modal'); closeModal('branch-modal'); }
+  else if (key === 's') { apiAction('stop', {}); }
+  else if (key === 'l') { resetGraph(); }
+  else if (key === '?') {
+    showToast('Keys: F=Fit R=Retrace D=Duplicate B=Branch V=Validate Y=Bypass E=Edit M=MMMC S=Stop L=Reset Esc=Close', 'success');
+  }
+});
+</script>
+</body>
+</html>
