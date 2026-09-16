@@ -19,67 +19,9 @@ from typing import Dict, List, Optional, Tuple
 from logging_config import configure_logging, get_logger
 
 import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from core.paths import get_cbflow_core_dir, get_flow_config_version
+from core.paths import get_cbflow_core_dir, get_flow_config_version, require_tech_config, preflight_tech_config_or_exit
 
 logger = configure_logging('cbflow.mmmc_manager')
-
-
-def _require_tech_config(tech_name: str, version: str = None) -> str:
-    """Hard-require config/tech/<tech>/<version>/tech_config.tcl exists.
-
-    tech_config.tcl declares tracks, VT flavors, metal stacks, and physical
-    cells — mmmc-manager derives corner assumptions from it. Callers used to
-    proceed silently when the file was missing and generate a partial
-    mmmc_config; downstream STA then hit missing tech data with no clue where.
-    Fail-fast instead with a fix guide.
-    """
-    core_dir = get_cbflow_core_dir()
-    ver = version or get_flow_config_version()
-    tech_dir = os.path.join(core_dir, 'config', 'tech', tech_name, ver)
-    tc = os.path.join(tech_dir, 'tech_config.tcl')
-    if os.path.exists(tc):
-        return tc
-
-    tech_base = os.path.join(core_dir, 'config', 'tech')
-    available = []
-    if os.path.isdir(tech_base):
-        for t in sorted(os.listdir(tech_base)):
-            _tp = os.path.join(tech_base, t)
-            if not os.path.isdir(_tp):
-                continue                        # skip .DS_Store et al.
-            for v in sorted(os.listdir(_tp)):
-                _vp = os.path.join(_tp, v)
-                if not os.path.isdir(_vp):
-                    continue
-                if os.path.exists(os.path.join(_vp, 'tech_config.tcl')):
-                    available.append('{}/{}'.format(t, v))
-
-    print('')
-    print('  ═══════════════════════════════════════════════════════════')
-    print('  ERROR: tech_config.tcl missing — cannot proceed')
-    print('  ═══════════════════════════════════════════════════════════')
-    print('    Requested: --tech {}  (version {})'.format(tech_name, ver))
-    print('    Expected:  {}'.format(tc))
-    print('')
-    if available:
-        print('    Available techs (already have tech_config.tcl):')
-        for a in available:
-            print('      - {}'.format(a))
-    else:
-        print('    No techs have a tech_config.tcl anywhere under:')
-        print('      {}'.format(tech_base))
-    print('')
-    print('    tech_config.tcl is the source of truth for tracks, VT flavors,')
-    print('    metal stacks and physical cells. Without it, mmmc-manager has')
-    print('    no way to know which lib_set_refs are legitimate.')
-    print('')
-    print('    Fix — pick one:')
-    print('      (a) Create {}'.format(tc))
-    print('          Start from an existing tech and edit for {}, then rerun.'.format(tech_name))
-    print('      (b) Use one of the available techs above via --tech <name>')
-    print('      (c) Check --version — this tool used version={}'.format(ver))
-    print('')
-    sys.exit(1)
 
 
 # ===============================================================================
@@ -1266,7 +1208,7 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
         print('  Selected: {}'.format(tech_name))
 
     # Preflight — tech_config.tcl MUST exist for this tech/version.
-    _require_tech_config(tech_name, version)
+    require_tech_config(tech_name, version)
 
     tech_dir = os.path.join(core_dir, 'config', 'tech', tech_name, version)
 
@@ -1389,7 +1331,9 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
     # Historically we silently skipped combos with no matching lib_set_ref and
     # wrote a partial mmmc_config. The user sees "generated" but downstream STA
     # fails at the missing corner. Now: fail-fast unless --allow-missing is set.
-    if missing_refs and not getattr(args, 'allow_missing', False):
+    _allow_missing = (getattr(args, 'allow_missing', False)
+                      or os.environ.get('CBFLOW_ALLOW_MISSING', '').lower() in ('1', 'true', 'yes'))
+    if missing_refs and not _allow_missing:
         print('')
         print('  ═══════════════════════════════════════════════════════════')
         print('  ERROR: Pre-flight failed — {} requested PVT combo(s) have no'.format(len(missing_refs)))
@@ -1408,9 +1352,10 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
         print('        (or run: cbflow flow library-manager generate --tech <t>)')
         print('    (b) Re-run this command with a narrower --corners / --voltages')
         print('        / --temperatures list that only covers characterised PVT')
-        print('    (c) Re-run with --allow-missing if you MUST proceed with a')
-        print('        partial mmmc_config (bootstrapping only) — downstream STA')
-        print('        WILL fail at the missing corners')
+        print('    (c) Re-run with --allow-missing (or export CBFLOW_ALLOW_MISSING=1')
+        print('        for CI/nightly wrappers) if you MUST proceed with a partial')
+        print('        mmmc_config (bootstrapping only) — downstream STA WILL fail')
+        print('        at the missing corners')
         print('')
         return 1
 
@@ -2203,6 +2148,11 @@ def main() -> int:
     if not handler:
         logger.error("Unknown command: %s", args.command)
         return 1
+
+    # ── Hard gate: every subcommand requires tech_config.tcl ───────────
+    # No exceptions. Adding a new subcommand cannot silently bypass this
+    # because it's here at the dispatcher, not inside individual handlers.
+    preflight_tech_config_or_exit(args, tool_name="mmmc-manager")
 
     try:
         return handler(args)

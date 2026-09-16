@@ -158,6 +158,91 @@ def require_tech_config(tech_name: str, version: str = None) -> str:
     sys.exit(1)
 
 
+def preflight_tech_config_or_exit(args, tool_name: str = "library-manager") -> str:
+    """Hard-gate: refuse to run if tech_config.tcl is not present.
+
+    Applied at the argparse dispatcher for library-manager and mmmc-manager
+    so EVERY subcommand — scan / check / list / status / coverage / generate
+    / verify / show / validate / add-mode / etc. — is protected. Adding a
+    new subcommand later cannot bypass this check.
+
+    Tech resolution order (first non-empty wins):
+        1. args.tech          (user typed --tech <name>)
+        2. args.tech_node     (some subcommands use --tech-node)
+        3. CBFLOW_TECH_NODE   (set by workspace create)
+        4. TECH_NAME          (legacy alias, exported by start_run.py)
+
+    Escape hatch: if the user passed --tech-config <path> AND that file
+    exists, the tech resolution is bypassed (they've explicitly named the
+    file to read). The file-exists check is done separately by the tool's
+    own arg validator.
+
+    On failure (no tech determinable, or tech_config.tcl missing) this
+    calls sys.exit(1) via require_tech_config().
+
+    Returns the resolved tech_config.tcl path on success.
+    """
+    # Escape hatch: explicit --tech-config wins over tech-name lookup.
+    tc_path = getattr(args, 'tech_config', None)
+    if tc_path:
+        if os.path.isfile(tc_path):
+            return tc_path
+        # File doesn't exist — fall through to require_tech_config which will
+        # produce a proper error banner listing available techs.
+
+    # Resolve tech name.
+    tech = (getattr(args, 'tech', None)
+            or getattr(args, 'tech_node', None)
+            or os.environ.get('CBFLOW_TECH_NODE', '')
+            or os.environ.get('TECH_NAME', ''))
+    if not tech:
+        print('')
+        print('  ═══════════════════════════════════════════════════════════')
+        print('  ERROR: cannot run `{}` without a tech context'.format(tool_name))
+        print('  ═══════════════════════════════════════════════════════════')
+        print('    Every subcommand of `{}` requires tech_config.tcl to be'.format(tool_name))
+        print('    present. Tell CBflow which tech to use — one of:')
+        print('')
+        print('      (a) pass --tech <name> on the command line')
+        print('      (b) export CBFLOW_TECH_NODE=<name> (workspace create')
+        print('          sets this automatically inside a run shell)')
+        print('      (c) pass --tech-config <path> to point at a specific file')
+        print('')
+        print('    Available techs (with tech_config.tcl):')
+        # Enumerate what IS available
+        grot = get_global_config_root()
+        tech_base = os.path.join(grot, 'tech') if grot else ''
+        if not (tech_base and os.path.isdir(tech_base)):
+            try:
+                tech_base = os.path.join(get_config_root(), 'tech')
+            except ValueError:
+                tech_base = ''
+        found_any = False
+        if tech_base and os.path.isdir(tech_base):
+            for t in sorted(os.listdir(tech_base)):
+                _tp = os.path.join(tech_base, t)
+                if not os.path.isdir(_tp):
+                    continue
+                for v in sorted(os.listdir(_tp)):
+                    _vp = os.path.join(_tp, v)
+                    if os.path.isdir(_vp) and os.path.exists(
+                            os.path.join(_vp, 'tech_config.tcl')):
+                        print('      - {}/{}'.format(t, v))
+                        found_any = True
+        if not found_any:
+            print('      (none — no tech_config.tcl anywhere under {})'.format(tech_base or '<config>/tech/'))
+        print('')
+        sys.exit(1)
+
+    # Sanitize obvious traversal patterns before joining path parts.
+    if '/' in tech or '..' in tech.split(os.sep):
+        print('ERROR: invalid tech name: {!r}'.format(tech))
+        sys.exit(1)
+
+    version = getattr(args, 'version', None)
+    return require_tech_config(tech, version)
+
+
 def get_node_config_path(flow_type: str, version: str = None) -> str:
     """Get path to a flow's node config.
 

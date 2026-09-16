@@ -27,71 +27,10 @@ from logging_config import configure_logging, get_logger
 
 import sys; sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from core.paths import get_cbflow_core_dir, get_flow_config_version
+from core.paths import get_cbflow_core_dir, get_flow_config_version, require_tech_config, preflight_tech_config_or_exit
 
 logger = configure_logging('cbflow.library_manager')
 
-
-
-def _require_tech_config(tech_name: str, version: str = None) -> str:
-    """Hard-require config/tech/<tech>/<version>/tech_config.tcl exists.
-
-    Every library-manager subcommand that takes --tech needs this file —
-    it declares tracks, VT flavors, metal stacks, and physical cells.
-    Callers used to proceed silently when it was missing and produce a
-    partial/wrong lib_config. Fail-fast instead with clear instructions.
-
-    Returns the absolute path on success; exits 1 with a fix guide otherwise.
-    """
-    core_dir = get_cbflow_core_dir()
-    ver = version or get_flow_config_version()
-    tech_dir = os.path.join(core_dir, 'config', 'tech', tech_name, ver)
-    tc = os.path.join(tech_dir, 'tech_config.tcl')
-    if os.path.exists(tc):
-        return tc
-
-    # Enumerate what IS available so the user knows their options
-    tech_base = os.path.join(core_dir, 'config', 'tech')
-    available = []
-    if os.path.isdir(tech_base):
-        for t in sorted(os.listdir(tech_base)):
-            _tp = os.path.join(tech_base, t)
-            if not os.path.isdir(_tp):
-                continue                        # skip .DS_Store et al.
-            for v in sorted(os.listdir(_tp)):
-                _vp = os.path.join(_tp, v)
-                if not os.path.isdir(_vp):
-                    continue
-                if os.path.exists(os.path.join(_vp, 'tech_config.tcl')):
-                    available.append('{}/{}'.format(t, v))
-
-    print('')
-    print('  ═══════════════════════════════════════════════════════════')
-    print('  ERROR: tech_config.tcl missing — cannot proceed')
-    print('  ═══════════════════════════════════════════════════════════')
-    print('    Requested: --tech {}  (version {})'.format(tech_name, ver))
-    print('    Expected:  {}'.format(tc))
-    print('')
-    if available:
-        print('    Available techs (already have tech_config.tcl):')
-        for a in available:
-            print('      - {}'.format(a))
-    else:
-        print('    No techs have a tech_config.tcl anywhere under:')
-        print('      {}'.format(tech_base))
-    print('')
-    print('    tech_config.tcl declares tracks, VT flavors, metal stacks, and')
-    print('    physical cells. Without it, the library-manager cannot know')
-    print('    what to scan for or what a "complete" library set looks like.')
-    print('')
-    print('    Fix — pick one:')
-    print('      (a) Create {}'.format(tc))
-    print('          Start from an existing tech (e.g. copy config/tech/gf_22nm/{}/tech_config.tcl'.format(ver))
-    print('          and edit for {}), then rerun the same command.'.format(tech_name))
-    print('      (b) Use one of the available techs above via --tech <name>')
-    print('      (c) Check --version — this tool used version={}'.format(ver))
-    print('')
-    sys.exit(1)
 
 
 def _resolve_lib_root_from_tech_config(tech_name=None) -> str:
@@ -999,9 +938,11 @@ def cmd_scan(args: argparse.Namespace) -> int:
 
 def cmd_check(args: argparse.Namespace) -> int:
     """Validate library configuration against actual files on disk."""
-    _tech = getattr(args, "tech", None) or os.environ.get("CBFLOW_TECH_NODE", "") or os.environ.get("TECH_NAME", "")
-    if _tech:
-        _require_tech_config(_tech, getattr(args, "version", None))
+    # Only preflight when --tech was passed explicitly. An env-var fallback here
+    # would fire preflight on TECH_NAME (set by start_run.py) even when the user
+    # passed --tech-config <path> pointing at a completely different tech.
+    if getattr(args, "tech", None) and not getattr(args, 'tech_config', None):
+        require_tech_config(args.tech, getattr(args, "version", None))
     # Determine tech_config path
     tech_config_path = getattr(args, 'tech_config', None)
     if not tech_config_path:
@@ -1098,9 +1039,9 @@ def cmd_check(args: argparse.Namespace) -> int:
 
 def cmd_list(args: argparse.Namespace) -> int:
     """List configured library sets with optional filtering."""
-    _tech = getattr(args, "tech", None) or os.environ.get("CBFLOW_TECH_NODE", "") or os.environ.get("TECH_NAME", "")
-    if _tech:
-        _require_tech_config(_tech, getattr(args, "version", None))
+    # Only preflight when --tech was passed explicitly (see cmd_check for why).
+    if getattr(args, "tech", None) and not getattr(args, 'tech_config', None):
+        require_tech_config(args.tech, getattr(args, "version", None))
     # Determine tech_config path
     tech_config_path = getattr(args, 'tech_config', None)
     if not tech_config_path:
@@ -1523,7 +1464,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
     # Preflight — tech_config.tcl MUST exist. Historically this scanned the
     # directory tree and produced a partial lib_config; downstream failed at
     # signoff. Fail-fast here instead with a fix guide.
-    _require_tech_config(tech_name, getattr(args, 'version', None))
+    require_tech_config(tech_name, getattr(args, 'version', None))
 
     # 2. Tag (mandatory)
     tag = args.tag if hasattr(args, 'tag') and args.tag else None
@@ -1664,7 +1605,12 @@ def cmd_generate(args: argparse.Namespace) -> int:
                     if not os.path.isdir(_p):
                         _missing.append((_label, _p))
 
-        if not getattr(args, 'allow_missing', False):
+        # CBFLOW_ALLOW_MISSING env var is the CI/non-interactive equivalent of
+        # --allow-missing — lets nightly wrappers opt in without needing to
+        # rewrite every job.
+        _allow_missing = (getattr(args, 'allow_missing', False)
+                          or os.environ.get('CBFLOW_ALLOW_MISSING', '').lower() in ('1', 'true', 'yes'))
+        if not _allow_missing:
             print('')
             print('  ═══════════════════════════════════════════════════════════')
             print('  ERROR: Pre-flight failed — {} source path(s) do not exist'.format(len(_missing)))
@@ -1677,14 +1623,15 @@ def cmd_generate(args: argparse.Namespace) -> int:
             print('    (a) Create the directories (or fix the paths above)')
             print('    (b) Update project(lib_root) / project(<label>_path) in')
             print('        the project config to point at real locations')
-            print('    (c) Re-run with --allow-missing if you MUST proceed with')
-            print('        a partial config (bootstrapping only)')
+            print('    (c) Re-run with --allow-missing (or export CBFLOW_ALLOW_MISSING=1')
+            print('        for CI/nightly wrappers) if you MUST proceed with a')
+            print('        partial config (bootstrapping only)')
             print('')
             return 1
         else:
             print('')
             print('  ═══════════════════════════════════════════════════════════')
-            print('  WARNING: --allow-missing set — proceeding with {} missing source(s):'.format(len(_missing)))
+            print('  WARNING: allow-missing set — proceeding with {} missing source(s):'.format(len(_missing)))
             for _label, _p in _missing:
                 print('    [SKIP] {:<14s} {}'.format(_label + ':', _p))
             print('  Generated lib_config will be INCOMPLETE.')
@@ -2450,8 +2397,6 @@ def _tcl_list_from(content: str, arr: str, key: str) -> List[str]:
 
 
 def cmd_status(args: argparse.Namespace) -> int:
-    if getattr(args, "tech", None):
-        _require_tech_config(args.tech, getattr(args, "version", None))
     """Signoff-readiness report for a tech's library configuration.
 
     Reads tech_config.tcl (+ lib_config.tcl if present) and reports:
@@ -2468,6 +2413,8 @@ def cmd_status(args: argparse.Namespace) -> int:
     enabled (`project(vt_flavors)`). Without --project, the full
     declared axes are checked.
     """
+    if getattr(args, "tech", None):
+        require_tech_config(args.tech, getattr(args, "version", None))
     # R7-F11: sanitize path args before joining into core_dir paths.
     try:
         tech_name = _sanitize_name_arg(args.tech, 'tech')
@@ -2755,7 +2702,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 def cmd_coverage(args: argparse.Namespace) -> int:
     """Show library coverage matrix: tracks × VTs × corners."""
     if getattr(args, "tech", None):
-        _require_tech_config(args.tech, getattr(args, "version", None))
+        require_tech_config(args.tech, getattr(args, "version", None))
     # Read lib_config.tcl and parse tech() variables
     tech_name = args.tech
     version = args.version or "v1.0.0"
@@ -3008,6 +2955,13 @@ def main() -> int:
         logger.error(f"Unknown command: {args.command}")
         logger.info(f"Available commands: {', '.join(commands.keys())}")
         return 1
+
+    # ── Hard gate: every subcommand requires tech_config.tcl ───────────
+    # No exceptions. Adding a new subcommand cannot silently bypass this
+    # because it's here at the dispatcher, not inside individual handlers.
+    # preflight_tech_config_or_exit() calls sys.exit(1) on failure with a
+    # fix guide listing available techs.
+    preflight_tech_config_or_exit(args, tool_name="library-manager")
 
     # Auto-resolve --path from tech_config if not provided
     if hasattr(args, 'path') and args.path is None and args.command in ('scan', 'verify', 'generate-mmmc'):
