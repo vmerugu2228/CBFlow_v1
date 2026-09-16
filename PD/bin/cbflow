@@ -14,12 +14,22 @@ CBFLOW_ROOT="$(dirname "$CBFLOW_CORE_DIR")"
 export CBFLOW_ROOT
 export CBFLOW_CORE_DIR
 
-# Discipline disciplines: PD lives at $CBFLOW_CORE_DIR; sibling DFT/ (if it
-# exists) hosts DFT cmd handlers and docs. The framework checks both roots
-# when resolving cmds/<FLOW>/... paths. Other disciplines can be added later
-# the same way.
+# Global config layer — shared across disciplines (PD, DFT, DV).
+# Introduced on the cbflow_global branch. Phase 1: symlink shim over PD/.
+# Later phases split the actual foundry/project/flow-registry content out
+# into real files under $CBFLOW_GLOBAL_DIR/config/.
+if [[ -d "$CBFLOW_ROOT/global" ]]; then
+    export CBFLOW_GLOBAL_DIR="$CBFLOW_ROOT/global"
+fi
+
+# Discipline roots: PD lives at $CBFLOW_CORE_DIR; sibling DFT/ and DV/ (when
+# they exist) host per-discipline cmd handlers, node_configs, and docs. The
+# framework checks each discipline root when resolving cmds/<FLOW>/… paths.
 if [[ -d "$CBFLOW_ROOT/DFT" ]]; then
     export CBFLOW_DFT_DIR="$CBFLOW_ROOT/DFT"
+fi
+if [[ -d "$CBFLOW_ROOT/DV" ]]; then
+    export CBFLOW_DV_DIR="$CBFLOW_ROOT/DV"
 fi
 
 # Source environment if available
