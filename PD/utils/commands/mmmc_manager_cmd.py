@@ -20,6 +20,7 @@ from logging_config import configure_logging, get_logger
 
 import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.paths import get_cbflow_core_dir, get_flow_config_version, require_tech_config, preflight_tech_config_or_exit
+from core.interactive import run_repl
 
 logger = configure_logging('cbflow.mmmc_manager')
 
@@ -2136,166 +2137,6 @@ DISPATCH = {
 }
 
 
-def _available_techs() -> list:
-    """List tech names that have a tech_config.tcl on disk (global first)."""
-    from core.paths import get_global_config_root, get_config_root
-    seen = set()
-    out = []
-    for root in (get_global_config_root(), ''):
-        if not root:
-            try:
-                root = os.path.join(get_config_root(), 'tech')
-            except Exception:
-                continue
-        else:
-            root = os.path.join(root, 'tech')
-        if not (root and os.path.isdir(root)):
-            continue
-        for t in sorted(os.listdir(root)):
-            if t in seen or not os.path.isdir(os.path.join(root, t)):
-                continue
-            # accept if any version dir has tech_config.tcl
-            for v in os.listdir(os.path.join(root, t)):
-                vp = os.path.join(root, t, v)
-                if os.path.isdir(vp) and os.path.isfile(
-                        os.path.join(vp, 'tech_config.tcl')):
-                    seen.add(t)
-                    out.append(t)
-                    break
-    return out
-
-
-def _run_handler(handler, args) -> int:
-    """Invoke a subcommand handler, catching the usual exceptions."""
-    try:
-        rc = handler(args)
-        return rc if isinstance(rc, int) else 0
-    except KeyboardInterrupt:
-        print("\nAborted.")
-        return 1
-    except PermissionError as e:
-        logger.error("Permission denied: %s", e)
-        return 1
-    except FileNotFoundError as e:
-        logger.error("File not found: %s", e)
-        return 1
-    except SystemExit as e:
-        # Sub-handler called sys.exit — propagate the code but stay in REPL
-        return int(e.code) if e.code else 0
-    except Exception as e:
-        logger.error("Error: %s: %s", type(e).__name__, e)
-        return 1
-
-
-def _interactive_repl(top_parser) -> int:
-    """Interactive REPL when mmmc-manager is invoked with no subcommand.
-
-    Prompts for the tech context up front (so preflight can pass), then
-    accepts free-form subcommand lines until the user types exit / quit /
-    Ctrl-D. Each line is re-parsed through the same argparse tree, so
-    every subcommand behaves identically to a direct invocation.
-    """
-    import shlex
-
-    print()
-    print('  ═══════════════════════════════════════════════════════════')
-    print('  mmmc-manager — interactive mode')
-    print('  ═══════════════════════════════════════════════════════════')
-    print('  Type `help` for commands, `exit` to leave.')
-    print()
-
-    # ── Tech context ─────────────────────────────────────────────────
-    tech = os.environ.get('CBFLOW_TECH_NODE', '') or os.environ.get('TECH_NAME', '')
-    avail = _available_techs()
-    if not tech:
-        if not avail:
-            print('  (no techs with tech_config.tcl found — nothing to preflight against)')
-            print('  Exiting.')
-            return 1
-        print('  Available techs: {}'.format(', '.join(avail)))
-        while not tech:
-            try:
-                answer = input('  Tech name (or exit): ').strip()
-            except (EOFError, KeyboardInterrupt):
-                print()
-                return 0
-            if answer.lower() in ('exit', 'quit', 'q'):
-                print('  bye.')
-                return 0
-            if answer not in avail:
-                print('  Unknown tech: {!r}. Choose one of: {}'.format(
-                      answer, ', '.join(avail)))
-                continue
-            tech = answer
-    os.environ['CBFLOW_TECH_NODE'] = tech
-
-    # Confirm tech_config.tcl exists (also warms the config resolver cache)
-    require_tech_config(tech)
-    print('  Tech context set: {}'.format(tech))
-    print()
-    print('  Commands: {}'.format(', '.join(sorted(DISPATCH.keys()))))
-    print('            help, exit')
-    print()
-
-    prompt = '  mmmc-manager [{}] > '.format(tech)
-    while True:
-        try:
-            line = input(prompt).strip()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            print('  bye.')
-            return 0
-
-        if not line:
-            continue
-        low = line.lower()
-        if low in ('exit', 'quit', 'q'):
-            print('  bye.')
-            return 0
-        if low in ('help', '?', 'h'):
-            print('  Commands:')
-            for name in sorted(DISPATCH.keys()):
-                print('    · {}'.format(name))
-            print('    · help    — this list')
-            print('    · exit    — leave the REPL')
-            print('  Every subcommand accepts the same flags as the non-interactive form.')
-            print('  Run `<command> --help` for details.')
-            continue
-        if low.startswith('tech '):
-            # Allow tech switching inside the REPL
-            new_tech = line.split(None, 1)[1].strip()
-            if new_tech not in _available_techs():
-                print('  Unknown tech: {!r}'.format(new_tech))
-                continue
-            tech = new_tech
-            os.environ['CBFLOW_TECH_NODE'] = tech
-            require_tech_config(tech)
-            prompt = '  mmmc-manager [{}] > '.format(tech)
-            print('  Tech context: {}'.format(tech))
-            continue
-
-        # Parse the line as if it were argv
-        try:
-            argv = shlex.split(line)
-        except ValueError as e:
-            print('  parse error: {}'.format(e))
-            continue
-
-        try:
-            sub_args = top_parser.parse_args(argv)
-        except SystemExit:
-            # argparse already printed the error; stay in the REPL
-            continue
-
-        handler = DISPATCH.get(sub_args.command)
-        if not handler:
-            print('  unknown command: {}'.format(sub_args.command))
-            print('  try `help` for the list.')
-            continue
-
-        _run_handler(handler, sub_args)
-
-
 def main() -> int:
     """Main entry point for mmmc-manager.
 
@@ -2306,9 +2147,9 @@ def main() -> int:
     top = create_parser()
     args = top.parse_args()
 
-    # No subcommand → interactive mode (per user request: prompt, don't die)
+    # No subcommand → interactive REPL (per user request: prompt, don't die)
     if not args.command:
-        return _interactive_repl(top)
+        return run_repl(top, DISPATCH, tool_name="mmmc-manager", logger=logger)
 
     handler = DISPATCH.get(args.command)
     if not handler:
@@ -2322,7 +2163,21 @@ def main() -> int:
     # for tech and calls require_tech_config directly.
     preflight_tech_config_or_exit(args, tool_name="mmmc-manager")
 
-    return _run_handler(handler, args)
+    try:
+        rc = handler(args)
+        return rc if isinstance(rc, int) else 0
+    except KeyboardInterrupt:
+        print("\nAborted.")
+        return 1
+    except PermissionError as e:
+        logger.error("Permission denied: %s", e)
+        return 1
+    except FileNotFoundError as e:
+        logger.error("File not found: %s", e)
+        return 1
+    except Exception as e:
+        logger.error("Error: %s: %s", type(e).__name__, e)
+        return 1
 
 
 if __name__ == '__main__':

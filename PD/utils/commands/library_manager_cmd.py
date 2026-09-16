@@ -28,6 +28,7 @@ from logging_config import configure_logging, get_logger
 import sys; sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.paths import get_cbflow_core_dir, get_flow_config_version, require_tech_config, preflight_tech_config_or_exit
+from core.interactive import run_repl
 
 logger = configure_logging('cbflow.library_manager')
 
@@ -2931,15 +2932,16 @@ def _validate_file_arg(args, attr):
 
 
 def main() -> int:
-    """Main entry point."""
+    """Main entry point.
+
+    With a subcommand: preflight tech_config, then dispatch.
+    Without a subcommand: drop into an interactive REPL that prompts for
+        tech and accepts subcommands until the user types exit.
+    """
     parser = create_parser()
     args = parser.parse_args()
 
-    if not args.command:
-        parser.print_help()
-        return 0
-
-    # Command dispatch
+    # Command dispatch table
     commands = {
         'scan': cmd_scan,
         'check': cmd_check,
@@ -2950,6 +2952,10 @@ def main() -> int:
         'coverage': cmd_coverage,
         'status': cmd_status,
     }
+
+    # No subcommand → interactive REPL (mirrors mmmc-manager behavior)
+    if not args.command:
+        return run_repl(parser, commands, tool_name="library-manager", logger=logger)
 
     if args.command not in commands:
         logger.error(f"Unknown command: {args.command}")
