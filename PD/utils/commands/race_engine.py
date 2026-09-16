@@ -533,12 +533,26 @@ class DagBuilder:
                                    tool_vendor, tool_name, tool_version,
                                    f'{handler_base}_subnode_handler.tcl')
 
-        # Try PD first (flow_dir) then any sibling discipline roots.
+        # Try PD first (flow_dir) then any sibling discipline roots. Every
+        # env var of the form CBFLOW_<X>_DIR that's set to a real directory
+        # is a candidate — this includes CBFLOW_DFT_DIR, CBFLOW_DV_DIR, and
+        # any future discipline (analog, verif, etc.) without needing a code
+        # change here. CBFLOW_CORE_DIR / CBFLOW_ROOT / CBFLOW_GLOBAL_DIR are
+        # framework roots, not discipline roots, so they're excluded by name.
+        _framework_roots = {
+            'CBFLOW_CORE_DIR', 'CBFLOW_ROOT', 'CBFLOW_GLOBAL_DIR',
+        }
         roots = [flow_dir] if flow_dir else []
-        for env_var in ('CBFLOW_DFT_DIR',):
-            extra = self.env_vars.get(env_var) or os.environ.get(env_var, '')
-            if extra and extra not in roots:
-                roots.append(extra)
+        # Merge env_vars + os.environ so we see both run-cached and shell-set values
+        _env_pool = dict(os.environ)
+        _env_pool.update(self.env_vars or {})
+        for name, val in _env_pool.items():
+            if not (name.startswith('CBFLOW_') and name.endswith('_DIR')):
+                continue
+            if name in _framework_roots:
+                continue
+            if val and val not in roots:
+                roots.append(val)
 
         handler = ''
         for root in roots:

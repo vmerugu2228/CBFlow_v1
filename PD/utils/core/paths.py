@@ -86,20 +86,37 @@ def get_tech_config_path(tech_name: str, version: str = None) -> str:
 
 
 def require_tech_config(tech_name: str, version: str = None) -> str:
-    """Hard-require <core>/config/tech/<tech>/<version>/tech_config.tcl exists.
+    """Hard-require a tech_config.tcl exists for this tech / version.
 
-    Print a fix guide and sys.exit(1) if missing. Returns the resolved path.
-    Shared by library-manager and mmmc-manager preflights so the two error
-    banners cannot drift.
+    Cascade (global first, PD legacy fallback):
+      1. <global>/config/tech/<tech>/<ver>/tech_config.tcl  (authoritative)
+      2. <core>/config/tech/<tech>/<ver>/tech_config.tcl     (pre-refactor)
+
+    Prints a fix guide + sys.exit(1) if neither is found. Returns the first
+    resolved path. Shared by library-manager and mmmc-manager preflights.
     """
     ver = version or get_flow_config_version()
+
+    # Try global first — this is the post-refactor authoritative location.
+    grot = get_global_config_root()
+    if grot:
+        gtc = os.path.join(grot, 'tech', tech_name, ver, 'tech_config.tcl')
+        if os.path.exists(gtc):
+            return gtc
+
+    # Fallback: legacy PD-only layout (pre-refactor workareas).
     core_dir = get_cbflow_core_dir()
     tech_dir = os.path.join(core_dir, 'config', 'tech', tech_name, ver)
     tc = os.path.join(tech_dir, 'tech_config.tcl')
     if os.path.exists(tc):
         return tc
 
-    tech_base = os.path.join(core_dir, 'config', 'tech')
+    # Neither found — enumerate what IS available and error out.
+    # Prefer the global tech base (post-refactor); fall back to PD's if empty.
+    tech_base = os.path.join(grot, 'tech') if grot else ''
+    if not (tech_base and os.path.isdir(tech_base)):
+        tech_base = os.path.join(core_dir, 'config', 'tech')
+
     available = []
     if os.path.isdir(tech_base):
         for t in sorted(os.listdir(tech_base)):

@@ -19,7 +19,7 @@
 # the emission schema changes — Python errors loudly on mismatch.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-set CBFLOW_CFG_SCHEMA_VERSION 3
+set CBFLOW_CFG_SCHEMA_VERSION 4
 
 if {$argc < 2} {
     puts stderr "Usage: config_resolver.tcl <flow_type> <run_dir|--no-run>"
@@ -57,6 +57,29 @@ if {[info exists ::env(CONFIG_ROOT)]} {
     exit 1
 }
 set flow_ver    [expr {[info exists ::env(FLOW_CONFIG_VERSION)] ? $::env(FLOW_CONFIG_VERSION) : "v1.0.0"}]
+
+# ── 1b. Global config root (cbflow_global refactor) ──
+# Global sources are sourced BEFORE flow_config so a future flow_registry.tcl
+# can pre-populate flow(types)/flow(discipline,*) before PD's flow_config
+# appends its mandatory_vars. During phase 1-2 the global paths resolve to
+# the same physical files as PD's (symlink shim), so double-source is safe
+# (Tcl `set` is idempotent).
+set global_root ""
+if {[info exists ::env(CBFLOW_GLOBAL_DIR)] && [file isdirectory "$::env(CBFLOW_GLOBAL_DIR)/config"]} {
+    set global_root "$::env(CBFLOW_GLOBAL_DIR)/config"
+} elseif {[info exists ::env(CBFLOW_ROOT)] && [file isdirectory "$::env(CBFLOW_ROOT)/global/config"]} {
+    set global_root "$::env(CBFLOW_ROOT)/global/config"
+}
+set _global_sources [list]
+if {$global_root ne ""} {
+    # Global flow_registry (phase 3 creates it; harmless if absent).
+    set _fr "$global_root/flow/$flow_ver/flow_registry.tcl"
+    if {[file exists $_fr]} {
+        source $_fr
+        lappend _global_sources "global_registry:$_fr"
+    }
+}
+
 set flow_config "$config_root/flow/$flow_ver/flow_config.tcl"
 
 if {![file exists $flow_config]} {
@@ -292,7 +315,10 @@ foreach _arr {flow_descriptions phase_descriptions run_type_descriptions
 }
 
 # ── Sourced-files manifest (diagnostic: which files contributed to this run) ──
-set _sources [list "flow_config:$flow_config"]
+set _sources [list]
+# Global-side entries (phase 3+; empty during phases 1-2 unless registry exists)
+foreach _gs $_global_sources { lappend _sources $_gs }
+lappend _sources "flow_config:$flow_config"
 if {!$_no_run} {
     if {[info exists _mmmc_cfg_path] && [file exists $_mmmc_cfg_path]} {
         lappend _sources "mmmc_config:$_mmmc_cfg_path"
@@ -305,5 +331,6 @@ if {!$_no_run} {
     }
 }
 puts "CBFLOW_CFG:_sources=[join $_sources { }]"
+puts "CBFLOW_CFG:_global_root=$global_root"
 
 puts "CBFLOW_CFG:_done=true"
