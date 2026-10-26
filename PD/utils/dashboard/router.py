@@ -337,10 +337,19 @@ def make_daemon_handler(pool):
             # doesn't need an API round-trip through the daemon-scope
             # rewriter. Project name comes from this run's run_info
             # (SmartGrid is per-project). Fallback: scan all projects.
+            # HTML-escape before substituting into the href="…" attribute
+            # — the URL is derived from the Host header and the portfile,
+            # both of which can carry attacker-controlled bytes. Without
+            # escape, a malicious Host header like
+            #   `evil"><script>alert(1)</script><a href="`
+            # breaks out of the attribute and runs JS in the dashboard
+            # origin. BYLINE substitution 5 lines below already escapes.
             _sg_url = _resolve_smartgrid_url(
                 self.headers.get('Host', '127.0.0.1'),
                 project=run_info.get('project') or None)
-            content = content.replace(b'{{SMARTGRID_URL}}', _sg_url.encode())
+            content = content.replace(
+                b'{{SMARTGRID_URL}}',
+                _html.escape(_sg_url, quote=True).encode())
             # Byline — framework credit + maintainer. Honors
             # project(dashboard,developed_by) if set, else the framework
             # default (SmartSoC CAD · Varun Reddy Merugu <...>). The

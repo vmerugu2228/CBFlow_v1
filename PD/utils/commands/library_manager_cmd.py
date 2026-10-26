@@ -4772,7 +4772,12 @@ def main() -> int:
 
     # No subcommand → interactive REPL (mirrors mmmc-manager behavior)
     if not args.command:
-        return run_repl(parser, commands, tool_name="library-manager", logger=logger)
+        # post_tech_hook: install tech(process_corners) whenever the REPL
+        # resolves (or switches) tech. Without this, generate/scan/etc.
+        # dispatched from inside the REPL use the default 5-corner set
+        # and miscategorize libs for techs declaring `fff` or similar.
+        return run_repl(parser, commands, tool_name="library-manager",
+                        logger=logger, post_tech_hook=_apply_tech_corners)
 
     if args.command not in commands:
         logger.error(f"Unknown command: {args.command}")

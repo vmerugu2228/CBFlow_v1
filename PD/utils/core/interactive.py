@@ -94,7 +94,17 @@ def run_repl(top_parser,
              dispatch: dict,
              tool_name: str,
              logger: logging.Logger = None,
-             extra_help_lines: list = None) -> int:
+             extra_help_lines: list = None,
+             post_tech_hook=None) -> int:
+    """
+    post_tech_hook: optional callable(tech_config_path) invoked after
+      the REPL resolves the current tech (startup) and after every
+      `tech <name>` switch mid-session. Library-manager uses this to
+      install tech(process_corners) via `_apply_tech_corners` — without
+      it, subcommands dispatched from inside the REPL silently fall
+      back to the compiled 5-corner default (ss/tt/ff/sf/fs), so a
+      tech that ships `fff` corners gets its libs miscategorized.
+    """
     """Interactive REPL for a subcommand-dispatching tool.
 
     Flow:
@@ -142,7 +152,12 @@ def run_repl(top_parser,
             tech = answer
     os.environ['CBFLOW_TECH_NODE'] = tech
 
-    require_tech_config(tech)
+    _tc_path = require_tech_config(tech)
+    if post_tech_hook is not None:
+        try:
+            post_tech_hook(_tc_path)
+        except Exception as _e:
+            log.debug("post_tech_hook failed: %s", _e)
     print('  Tech context set: {}'.format(tech))
     print()
     print('  Commands: {}'.format(', '.join(sorted(dispatch.keys()))))
@@ -184,7 +199,12 @@ def run_repl(top_parser,
                 continue
             tech = new_tech
             os.environ['CBFLOW_TECH_NODE'] = tech
-            require_tech_config(tech)
+            _tc_path = require_tech_config(tech)
+            if post_tech_hook is not None:
+                try:
+                    post_tech_hook(_tc_path)
+                except Exception as _e:
+                    log.debug("post_tech_hook failed: %s", _e)
             prompt = '  {} [{}] > '.format(tool_name, tech)
             print('  Tech context: {}'.format(tech))
             continue

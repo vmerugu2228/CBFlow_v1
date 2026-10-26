@@ -19,10 +19,28 @@ def atomic_write(target_path: str, content, encoding: str = 'utf-8') -> None:
     bootstrap configs, lib_configs, MANIFEST, release stamps, and
     runtime_flow_config truncated or empty. Content may be str (encoded
     with ``encoding``) or bytes (written binary).
+
+    Permission preservation: mkstemp creates the temp file with 0600
+    and ``os.replace`` adopts the temp's mode — meaning atomic_write
+    on a 0644 group-readable config would silently drop permissions
+    to owner-only, breaking shared NFS installs. We preserve the
+    target's existing mode when it already exists; for brand-new files
+    we apply the current umask (what truncate+write would have produced).
     """
     target_dir = os.path.dirname(target_path) or '.'
     base = os.path.basename(target_path)
     binary = isinstance(content, (bytes, bytearray))
+
+    # Capture the target's current mode so we can restore it after replace.
+    # Falling back to `0666 & ~umask` for a new file matches what plain
+    # open(..., 'w') would produce — identical semantics to the pre-fix
+    # non-atomic path for permission-sensitive callers.
+    try:
+        existing_mode = os.stat(target_path).st_mode & 0o7777
+    except OSError:
+        _umask = os.umask(0); os.umask(_umask)
+        existing_mode = 0o666 & ~_umask
+
     fd, tmp_path = tempfile.mkstemp(
         prefix=f'.{base}.',
         suffix='.cbflow_tmp',
@@ -40,6 +58,13 @@ def atomic_write(target_path: str, content, encoding: str = 'utf-8') -> None:
                 fh.write(content)
                 fh.flush()
                 os.fsync(fh.fileno())
+        # Restore the mode BEFORE replace so observers that stat the
+        # new inode immediately after the rename see the correct bits
+        # (not the 0600 mkstemp mode).
+        try:
+            os.chmod(tmp_path, existing_mode)
+        except OSError:
+            pass
         os.replace(tmp_path, target_path)
     except Exception:
         try:
@@ -194,10 +219,30 @@ def require_tech_config(tech_name: str, version: str = None) -> str:
         if os.path.exists(gtc):
             return gtc
 
-    # Not found — enumerate available techs from global and error out.
-    tech_base = os.path.join(grot, 'tech') if grot else ''
+    # Legacy PD-side fallback — the docstring/history promises a
+    # "global first, PD legacy fallback" cascade. For pre-cbflow_global
+    # workareas that don't export CBFLOW_GLOBAL_DIR and don't have a
+    # global/ dir, grot is '' and the fast-path above skips entirely.
+    # Check PD/config/tech/<name>/<ver>/tech_config.tcl before erroring.
     core_dir = get_cbflow_core_dir()
-    tc = os.path.join(grot or core_dir, 'tech', tech_name, ver, 'tech_config.tcl')
+    if core_dir:
+        ptc = os.path.join(core_dir, 'config', 'tech', tech_name, ver,
+                           'tech_config.tcl')
+        if os.path.exists(ptc):
+            return ptc
+
+    # Not found — enumerate available techs from global (and PD fallback)
+    # and error out. Prefer global's listing but include PD-side legacy
+    # entries so the error banner mentions what the user actually has.
+    tech_base = os.path.join(grot, 'tech') if grot else ''
+    if not (tech_base and os.path.isdir(tech_base)) and core_dir:
+        _pd_tech_base = os.path.join(core_dir, 'config', 'tech')
+        if os.path.isdir(_pd_tech_base):
+            tech_base = _pd_tech_base
+    # Build the printed-expected path from whichever root the user has.
+    tc = (os.path.join(grot, 'tech', tech_name, ver, 'tech_config.tcl')
+          if grot else os.path.join(core_dir, 'config', 'tech',
+                                    tech_name, ver, 'tech_config.tcl'))
 
     available = []
     if os.path.isdir(tech_base):

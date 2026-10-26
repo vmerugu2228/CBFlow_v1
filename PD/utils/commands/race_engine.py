@@ -72,8 +72,21 @@ def _sqlite_connect(db_path):
     except sqlite3.OperationalError as e:
         logger.warning(f"_sqlite_connect({db_path}): PRAGMA busy_timeout failed: {e}; "
                        f"connections may deadlock under contention")
+    # `PRAGMA journal_mode=WAL` silently no-ops on some network filesystems
+    # (NFS/Lustre/SMB) and legacy sqlite builds — it returns a row whose
+    # value is the UNCHANGED mode instead of raising OperationalError.
+    # Capture fetchone() and warn when the returned mode is not 'wal' so
+    # operators see the signal when the fix is inoperative on their mount.
     try:
-        conn.execute('PRAGMA journal_mode=WAL')
+        _row = conn.execute('PRAGMA journal_mode=WAL').fetchone()
+        _actual_mode = (_row[0] if _row else '').lower()
+        if _actual_mode != 'wal':
+            logger.warning(
+                f"_sqlite_connect({db_path}): PRAGMA journal_mode=WAL "
+                f"did not take effect — journal_mode is {_actual_mode!r}. "
+                f"Readers may block during writer transactions "
+                f"(common on NFS/Lustre mounts that reject WAL)."
+            )
     except sqlite3.OperationalError as e:
         logger.warning(f"_sqlite_connect({db_path}): PRAGMA journal_mode=WAL failed: {e}; "
                        f"readers may block during writer transactions")

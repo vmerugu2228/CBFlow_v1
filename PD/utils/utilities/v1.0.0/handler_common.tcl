@@ -12,12 +12,26 @@
 # of handler_is_test_mode on any PNR/STA/PV/etc. real handler crashed
 # with `invalid command name "is_true"`. Guard with `info commands` so
 # a caller that already sourced utils.tcl isn't double-sourced.
+#
+# Capture the catch error var so a broken utils.tcl (merge conflict,
+# bad perms, syntax error after a hand-edit) surfaces the real cause
+# on stderr instead of silently falling through to a misleading
+# `invalid command name "is_true"` 50 lines deeper.
 if {[info commands ::is_true] eq ""} {
+    set _cb_utils_src ""
     if {[info exists ::env(FLOW_DIR)] && [info exists ::env(UTILITIES_VERSION)]} {
-        catch { source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl" }
+        set _cb_utils_src "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
     } elseif {[info exists ::env(SCRIPTS_ROOT)] && [info exists ::env(UTILITIES_VERSION)]} {
-        catch { source "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/utils.tcl" }
+        set _cb_utils_src "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
     }
+    if {$_cb_utils_src ne ""} {
+        if {[catch { source $_cb_utils_src } _cb_src_err]} {
+            puts stderr "ERROR: handler_common.tcl could not source $_cb_utils_src: $_cb_src_err"
+            puts stderr "       Downstream calls to is_true / handle_* will crash. Fix utils.tcl or"
+            puts stderr "       re-check FLOW_DIR + UTILITIES_VERSION in your run env."
+        }
+    }
+    unset -nocomplain _cb_utils_src _cb_src_err
 }
 
 # ── Parse handler arguments ──────────────────────────────────────────────────
