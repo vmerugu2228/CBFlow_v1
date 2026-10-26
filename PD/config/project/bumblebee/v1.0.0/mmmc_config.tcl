@@ -1,10 +1,10 @@
 #!/usr/bin/env tclsh
 # =============================================================================
 # CBflow MMMC Configuration — Auto-Generated
-# Generated: 2026-06-04 20:24 | Tech: gf_28nm | Corners: 10
-# Source: lib_config_LIB02.tcl
-# Views: 20 | Modes: func test | Process: ff ss tt
-# Regenerate: cbflow flow mmmc-manager generate --tech gf_28nm
+# Generated: 2026-10-14 12:46 | Tech: gf_22nm | Corners: 5
+# Source: lib_config.tcl
+# Views: 10 | Modes: func test | Process: ff ss tt
+# Regenerate: cbflow flow mmmc-manager generate --tech gf_22nm
 # =============================================================================
 
 # Global MMMC configuration
@@ -43,9 +43,9 @@ array set operating_modes {
 # PVT POINTS (user-specified, validated against lib_config)
 # =============================================================================
 
-set mmmc(pvt,ff) {{1p10v 125c} {1p10v 25c} {1p10v m40c}}
-set mmmc(pvt,ss) {{0p80v 125c} {0p80v m40c} {0p90v 125c} {0p90v m40c}}
-set mmmc(pvt,tt) {{0p90v 125c} {0p90v 25c} {0p90v m40c}}
+set mmmc(pvt,ff) {{1p10v 125c} {1p10v m40c}}
+set mmmc(pvt,ss) {{0p80v 125c} {0p80v m40c}}
+set mmmc(pvt,tt) {{0p90v 25c}}
 
 # Corner -> RC corner pairing
 set mmmc(rc_pair,ff) "rcmin"

@@ -1,0 +1,129 @@
+#!/bin/bash
+# ═══════════════════════════════════════════════════════════════════════════════
+# CBflow-PD — Physical Design discipline launcher
+#
+# Hosts subcommands that are PD-specific (require PD's tech overlay,
+# lib_config, MMMC generation, or PD exit-milestone definitions):
+#
+#     cbflow-pd flow library-manager …    (tech_config → lib_config binding)
+#     cbflow-pd flow mmmc-manager …       (MMMC scenario generation)
+#     cbflow-pd flow checklist …          (FP_EXIT / PLACE_EXIT / … / BTO / MTO)
+#
+# Anything else (workspace, run, bundle, migrate, test, flow types, etc.)
+# falls through to the cross-domain launcher at global/bin/cbflow.
+#
+# Users can invoke this directly:
+#     PD/bin/cbflow-pd flow library-manager status --tech gf_22nm
+# Or indirectly — global/bin/cbflow-flow auto-dispatches PD-owned subcommands
+# here via the map in global/config/cli/discipline_commands.tcl:
+#     cbflow flow library-manager status --tech gf_22nm  (same effect)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+set -euo pipefail
+
+# Resolve CBFLOW_ROOT / CBFLOW_CORE_DIR / CBFLOW_GLOBAL_DIR / discipline dirs.
+_real="${BASH_SOURCE[0]}"
+while [ -L "$_real" ]; do
+    _dir="$(cd "$(dirname "$_real")" && pwd)"
+    _real="$(readlink "$_real")"
+    [[ "$_real" != /* ]] && _real="$_dir/$_real"
+done
+_HELPER="$CBFLOW_ROOT/global/bin/_cbflow_paths.sh"
+if [[ -z "${CBFLOW_ROOT:-}" || ! -f "$_HELPER" ]]; then
+    # Not yet resolved — locate the helper by walking up from the real script.
+    _HELPER="$(dirname "$(dirname "$(dirname "$_real")")")/global/bin/_cbflow_paths.sh"
+fi
+if [[ ! -f "$_HELPER" ]]; then
+    echo "ERROR: _cbflow_paths.sh not found (looked near $_real)" >&2
+    exit 1
+fi
+source "$_HELPER" "${BASH_SOURCE[0]}"
+unset _real _dir _HELPER
+
+CBFLOW_VERSION="2.0.0"
+COMMANDS_DIR="$CBFLOW_CORE_DIR/utils/commands"
+GLOBAL_CBFLOW="$CBFLOW_GLOBAL_DIR/bin/cbflow"
+
+# ── Owned subcommand map ─────────────────────────────────────────────────────
+# Source of truth: global/config/cli/discipline_commands.tcl. This shell
+# array mirrors the PD entries there — kept in sync manually because bash
+# can't parse Tcl. If they drift, `--list` will misreport.
+PD_FLOW_SUBCOMMANDS=(library-manager mmmc-manager checklist)
+
+_pd_owns_flow_subcmd() {
+    local needle="$1"
+    for cmd in "${PD_FLOW_SUBCOMMANDS[@]}"; do
+        [[ "$cmd" == "$needle" ]] && return 0
+    done
+    return 1
+}
+
+show_help() {
+    cat <<EOF
+
+  CBflow-PD — Physical Design discipline launcher   v${CBFLOW_VERSION}
+  ═══════════════════════════════════════════════════════════════════
+
+  This launcher owns PD-specific flow subcommands:
+
+    cbflow-pd flow library-manager …
+        Manage tech_config → lib_config binding for PD (tracks × VTs ×
+        corners). Reads global/config/tech/<tech>/tech_config.tcl and
+        writes PD/config/tech/<tech>/lib_config_<tag>.tcl.
+
+    cbflow-pd flow mmmc-manager …
+        Generate MMMC scenarios from PVT building blocks for PD STA and
+        PNR flows. Writes global/config/project/<p>/mmmc_*.tcl.
+
+    cbflow-pd flow checklist …
+        PD exit-milestone checklists: FP_EXIT, PLACE_EXIT, CTS_EXIT,
+        PRO_EXIT, BTO, MTO. 292 checks across 14 categories.
+
+  Every other subcommand transparently falls through to the cross-domain
+  launcher (\$CBFLOW_GLOBAL_DIR/bin/cbflow), so:
+    cbflow-pd workspace list-runs   ← works
+    cbflow-pd run all               ← works
+    cbflow-pd flow types            ← works
+    cbflow-pd --version             ← works
+
+  Utilities:
+    cbflow-pd --list                List PD-owned subcommands
+    cbflow-pd --help                This message
+EOF
+}
+
+# ── Utility flags ────────────────────────────────────────────────────────────
+case "${1:-}" in
+    --list)
+        # Emit one subcommand per line — consumed by cbflow-flow's
+        # auto-dispatch discovery, plus users.
+        for cmd in "${PD_FLOW_SUBCOMMANDS[@]}"; do echo "flow:$cmd"; done
+        exit 0
+        ;;
+    --help|-h)
+        show_help
+        exit 0
+        ;;
+esac
+
+# ── Main dispatch ────────────────────────────────────────────────────────────
+# We handle only `flow <owned-subcmd> …`. Everything else defers to the
+# global launcher, preserving the "single command surface" property.
+if [[ "${1:-}" == "flow" && $# -ge 2 ]] && _pd_owns_flow_subcmd "$2"; then
+    subcmd="$2"
+    shift 2
+    case "$subcmd" in
+        library-manager)
+            exec python3 "$COMMANDS_DIR/library_manager_cmd.py" "$@"
+            ;;
+        mmmc-manager)
+            exec python3 "$COMMANDS_DIR/mmmc_manager_cmd.py" "$@"
+            ;;
+        checklist)
+            exec python3 "$COMMANDS_DIR/checklist_cmd.py" "$@"
+            ;;
+    esac
+fi
+
+# Fallthrough — defer to global launcher.
+exec "$GLOBAL_CBFLOW" "$@"

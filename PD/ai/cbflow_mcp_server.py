@@ -20,6 +20,7 @@ Tools provided:
 import json
 import os
 import re
+import shlex
 import sqlite3
 import subprocess
 import sys
@@ -33,17 +34,105 @@ DEFAULT_WORKSPACE = os.path.join(os.path.dirname(CBFLOW_CORE), 'workarea_test')
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# SECURITY — containment helpers
+# ═══════════════════════════════════════════════════════════════════════════════
+# Pre-fix the MCP server was pre-auth RCE: shell=True on any command,
+# arbitrary file read/write with no base-dir containment, and
+# `conn.execute(query)` taking any SQL (not just SELECT). HTTP transport
+# bound 0.0.0.0 with no auth token. These helpers lock each attack
+# surface down.
+
+# Allow-list of containment roots. Any path must resolve inside one of
+# these (via realpath) or the tool rejects. CBFLOW_CORE is the install
+# tree; DEFAULT_WORKSPACE is the user's workarea root. Operators can
+# extend via CBFLOW_MCP_EXTRA_ROOTS=":" separated absolute paths.
+def _containment_roots() -> list:
+    roots = [os.path.realpath(CBFLOW_CORE), os.path.realpath(DEFAULT_WORKSPACE)]
+    extra = os.environ.get('CBFLOW_MCP_EXTRA_ROOTS', '')
+    for p in extra.split(os.pathsep):
+        if p and os.path.isdir(p):
+            roots.append(os.path.realpath(p))
+    return roots
+
+
+def _path_contained(path: str) -> tuple:
+    """Resolve path and check it lives inside a containment root.
+
+    Returns (abs_path, None) on success or (None, error_msg) on refusal.
+    Resolves symlinks via realpath so a symlink inside the root pointing
+    outside is caught.
+    """
+    try:
+        abs_path = path if os.path.isabs(path) else os.path.join(CBFLOW_CORE, path)
+        real = os.path.realpath(abs_path)
+    except OSError as e:
+        return None, f'path resolve failed: {e}'
+    roots = _containment_roots()
+    for root in roots:
+        if real == root or real.startswith(root + os.sep):
+            return real, None
+    return None, f'path outside allowed roots: {real}'
+
+
+# Only commands beginning with the cbflow launcher are allowed. The
+# command string is parsed with shlex (no shell=True) and must have
+# "cbflow" (or an absolute path to it) as argv[0]. Pre-fix: shell=True
+# on raw command meant any attacker-reachable MCP client could run
+# arbitrary shell.
+def _is_allowed_command(command: str) -> tuple:
+    """Return (argv, None) if allowed; (None, error_msg) otherwise."""
+    try:
+        argv = shlex.split(command)
+    except ValueError as e:
+        return None, f'command parse failed: {e}'
+    if not argv:
+        return None, 'empty command'
+    head = os.path.basename(argv[0])
+    # Only the cbflow family of launchers is allowed. Operators can
+    # extend via CBFLOW_MCP_EXTRA_BINS as a colon-sep list of basenames.
+    allowed = {'cbflow', 'cbflow-pd', 'cbflow-dft', 'cbflow-dv',
+               'cbflow-flow', 'cbflow-run', 'cbflow-bundle',
+               'cbflow-workspace', 'cbflow-migrate', 'cbflow-test',
+               'cbflow-project'}
+    for p in os.environ.get('CBFLOW_MCP_EXTRA_BINS', '').split(os.pathsep):
+        if p:
+            allowed.add(p)
+    if head not in allowed:
+        return None, (f'command not allowed (must start with one of: '
+                      f'{sorted(allowed)}); got {head!r}')
+    return argv, None
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # TOOL IMPLEMENTATIONS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def tool_run_command(command: str, cwd: str = None, timeout: int = 300) -> dict:
-    """Execute a cbflow CLI command."""
+    """Execute a cbflow CLI command.
+
+    Pre-fix: subprocess.run(command, shell=True) on attacker-controlled
+    command string was pre-auth RCE. Now parsed with shlex (no shell),
+    argv[0] must be a cbflow launcher, cwd must be in a containment
+    root, and timeout is capped at 1 hour.
+    """
     if not cwd:
         cwd = DEFAULT_WORKSPACE
+    real_cwd, err = _path_contained(cwd)
+    if err:
+        return {"error": f"cwd: {err}", "success": False}
+    argv, err = _is_allowed_command(command)
+    if err:
+        return {"error": err, "success": False}
+    # Cap timeout to 1 hour to limit DoS surface.
+    try:
+        timeout = max(1, min(int(timeout), 3600))
+    except (TypeError, ValueError):
+        timeout = 300
     try:
         result = subprocess.run(
-            command, shell=True, cwd=cwd,
-            capture_output=True, text=True, timeout=timeout
+            argv, shell=False, cwd=real_cwd,
+            capture_output=True, text=True, timeout=timeout,
+            encoding='utf-8', errors='replace',
         )
         return {
             "exit_code": result.returncode,
@@ -57,62 +146,124 @@ def tool_run_command(command: str, cwd: str = None, timeout: int = 300) -> dict:
         return {"error": str(e), "success": False}
 
 
+# Hard cap on bytes we'll return from tool_read_file to prevent OOM via
+# a malicious caller asking for 10M lines. 2 MiB is comfortable for
+# config files and reasonable log tails.
+_MAX_READ_BYTES = 2 * 1024 * 1024
+
 def tool_read_file(path: str, offset: int = 0, limit: int = 500) -> dict:
-    """Read a file with optional offset/limit."""
+    """Read a file with optional offset/limit.
+
+    Pre-fix accepted any absolute path (including /etc/passwd, SSH keys,
+    cloud creds). Now rejects anything outside the containment roots.
+    """
+    real, err = _path_contained(path)
+    if err:
+        return {"error": err}
     try:
-        abs_path = path if os.path.isabs(path) else os.path.join(CBFLOW_CORE, path)
-        with open(abs_path) as f:
-            lines = f.readlines()
+        # Cap total bytes read to avoid OOM on huge files.
+        with open(real, encoding='utf-8', errors='replace') as f:
+            buf = f.read(_MAX_READ_BYTES + 1)
+        truncated_by_size = len(buf) > _MAX_READ_BYTES
+        if truncated_by_size:
+            buf = buf[:_MAX_READ_BYTES]
+        lines = buf.splitlines(keepends=True)
         total = len(lines)
+        try:
+            offset = max(0, int(offset))
+            limit = max(0, min(int(limit), 10000))
+        except (TypeError, ValueError):
+            offset, limit = 0, 500
         selected = lines[offset:offset + limit]
         return {
-            "path": abs_path,
+            "path": real,
             "total_lines": total,
             "offset": offset,
             "lines_returned": len(selected),
+            "truncated_by_size": truncated_by_size,
             "content": ''.join(selected),
         }
-    except Exception as e:
+    except OSError as e:
         return {"error": str(e)}
 
 
 def tool_write_file(path: str, content: str = None, edits: list = None) -> dict:
-    """Write or edit a file. edits = [{"old": "...", "new": "..."}]"""
+    """Write or edit a file.
+
+    Pre-fix accepted any absolute path and could overwrite SSH keys /
+    bashrc / etc. Also non-atomic. Now: containment + atomic_write.
+    """
+    real, err = _path_contained(path)
+    if err:
+        return {"error": err}
     try:
-        abs_path = path if os.path.isabs(path) else os.path.join(CBFLOW_CORE, path)
+        # Lazy-import to avoid hard dependency when the MCP server
+        # runs standalone (e.g. for testing without the full tree).
+        try:
+            sys.path.insert(0, os.path.join(CBFLOW_CORE, 'utils', 'core'))
+            from paths import atomic_write
+        finally:
+            try:
+                sys.path.remove(os.path.join(CBFLOW_CORE, 'utils', 'core'))
+            except ValueError:
+                pass
         if content is not None:
-            with open(abs_path, 'w') as f:
-                f.write(content)
-            return {"written": abs_path, "size": len(content)}
+            atomic_write(real, content)
+            return {"written": real, "size": len(content)}
         elif edits:
-            with open(abs_path) as f:
+            with open(real, encoding='utf-8') as f:
                 text = f.read()
             for edit in edits:
                 text = text.replace(edit["old"], edit["new"])
-            with open(abs_path, 'w') as f:
-                f.write(text)
-            return {"edited": abs_path, "edits_applied": len(edits)}
+            atomic_write(real, text)
+            return {"edited": real, "edits_applied": len(edits)}
         else:
             return {"error": "Provide content or edits"}
-    except Exception as e:
+    except OSError as e:
         return {"error": str(e)}
 
 
+# Allow only SELECT / EXPLAIN / PRAGMA (reflection) in SQL queries;
+# refuse anything that could mutate the DB or ATTACH another file.
+_READONLY_SQL_RE = re.compile(r'^\s*(SELECT|WITH|EXPLAIN|PRAGMA)\b', re.IGNORECASE)
+
 def tool_query_race_db(run_dir: str, query: str) -> dict:
-    """Execute SQL query against a RACE SQLite database."""
+    """Execute a SELECT query against a RACE SQLite database.
+
+    Pre-fix: ran arbitrary SQL — ATTACH, DROP, UPDATE, DELETE all passed.
+    Also no run_dir containment, so cross-project reads worked. Now:
+    containment + statement-prefix allow-list + conn opened read-only
+    via URI; row cap at 10k; one statement only (sqlite3's `execute`
+    enforces that but the regex rejects compound inputs).
+    """
+    real_dir, err = _path_contained(run_dir)
+    if err:
+        return {"error": err}
+    if not _READONLY_SQL_RE.match(query or ''):
+        return {"error": "query must begin with SELECT, WITH, EXPLAIN, or PRAGMA"}
+    if ';' in query.rstrip(';'):
+        return {"error": "compound statements (;) not allowed"}
     try:
-        # Find the DB file
-        db_files = list(Path(run_dir).glob('.race_*.db'))
+        db_files = list(Path(real_dir).glob('.race_*.db'))
         if not db_files:
-            return {"error": f"No RACE DB found in {run_dir}"}
+            return {"error": f"No RACE DB found in {real_dir}"}
         db_path = str(db_files[0])
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        cur = conn.execute(query)
-        rows = [dict(r) for r in cur.fetchall()]
-        conn.close()
+        # Open read-only via URI so DML/DDL cannot mutate the DB even
+        # if the regex is bypassed by a cornercase.
+        uri = f'file:{db_path}?mode=ro'
+        conn = sqlite3.connect(uri, uri=True, timeout=10)
+        try:
+            conn.row_factory = sqlite3.Row
+            cur = conn.execute(query)
+            rows = []
+            for r in cur:
+                rows.append(dict(r))
+                if len(rows) >= 10000:
+                    break
+        finally:
+            conn.close()
         return {"db": db_path, "rows": rows, "count": len(rows)}
-    except Exception as e:
+    except (sqlite3.Error, OSError) as e:
         return {"error": str(e)}
 
 
@@ -474,25 +625,76 @@ def run_stdio():
 
 if __name__ == "__main__":
     if "--http" in sys.argv:
-        # HTTP mode for remote agents
+        # HTTP mode for remote agents.
+        # Pre-fix: unconditionally bound 0.0.0.0 with NO authentication —
+        # anyone on the LAN had pre-auth RCE via /api/cbflow_run_command.
+        # Now binds 127.0.0.1 by default; opt into LAN exposure explicitly
+        # with CBFLOW_MCP_PUBLIC=1 AND set CBFLOW_MCP_TOKEN=<secret> which
+        # the HTTP handler enforces via Authorization: Bearer header.
         import http.server
         port = 8090
         for i, arg in enumerate(sys.argv):
             if arg == "--port" and i + 1 < len(sys.argv):
                 port = int(sys.argv[i + 1])
-        print(f"CBflow MCP Server (HTTP) on port {port}")
+
+        bind = '127.0.0.1'
+        _public = os.environ.get('CBFLOW_MCP_PUBLIC', '').lower() in ('1','true','yes','on')
+        _token = os.environ.get('CBFLOW_MCP_TOKEN', '')
+        if _public:
+            if not _token:
+                print("ERROR: CBFLOW_MCP_PUBLIC=1 requires CBFLOW_MCP_TOKEN=<secret>.",
+                      file=sys.stderr)
+                sys.exit(2)
+            bind = '0.0.0.0'
+            print(f"WARNING: Binding 0.0.0.0 with Bearer-token auth. "
+                  f"Any reachable attacker with the token has full access.",
+                  file=sys.stderr)
+
+        print(f"CBflow MCP Server (HTTP) on {bind}:{port}")
+
+        _MAX_BODY = 1 * 1024 * 1024  # 1 MiB
 
         class Handler(http.server.BaseHTTPRequestHandler):
+            def _reject(self, code, msg):
+                body = json.dumps({'error': msg}).encode('utf-8')
+                self.send_response(code)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
             def do_POST(self):
-                length = int(self.headers.get('Content-Length', 0))
-                body = json.loads(self.rfile.read(length)) if length else {}
-                response = handle_request(body)
+                # Enforce Bearer token when running in --public mode.
+                if _token:
+                    auth = self.headers.get('Authorization', '')
+                    expected = f'Bearer {_token}'
+                    if auth != expected:
+                        return self._reject(401, 'unauthorized')
+                try:
+                    raw_len = self.headers.get('Content-Length')
+                    length = int(raw_len) if raw_len is not None else 0
+                except (TypeError, ValueError):
+                    return self._reject(400, 'invalid Content-Length')
+                if length < 0:
+                    return self._reject(400, 'negative Content-Length')
+                if length > _MAX_BODY:
+                    return self._reject(413, f'body too large (>{_MAX_BODY})')
+                try:
+                    body = json.loads(self.rfile.read(length).decode('utf-8')) if length else {}
+                except (ValueError, UnicodeDecodeError):
+                    return self._reject(400, 'invalid JSON body')
+                try:
+                    response = handle_request(body)
+                except Exception as e:
+                    return self._reject(500, f'handler error: {type(e).__name__}')
+                payload = json.dumps(response or {}).encode('utf-8')
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(payload)))
                 self.end_headers()
-                self.wfile.write(json.dumps(response or {}).encode())
+                self.wfile.write(payload)
             def log_message(self, *args): pass
 
-        http.server.HTTPServer(('0.0.0.0', port), Handler).serve_forever()
+        http.server.HTTPServer((bind, port), Handler).serve_forever()
     else:
         run_stdio()

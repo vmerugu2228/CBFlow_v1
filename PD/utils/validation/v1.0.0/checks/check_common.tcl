@@ -154,16 +154,29 @@ namespace eval ::CBFlow::Check {
         }
     }
 
-    # ── Test mode: generate dummy PASS result ─────────────────────────────
+    # ── Test mode: emit SKIP (NOT PASS) — a stub run has not verified anything.
+    # Historical bug: this proc wrote "PASS" + 0/0/>=0 metric values, and the
+    # 11 check scripts feeding BTO/MTO sign-off (timing, drc, legality,
+    # congestion, power, utilization, routing, SI, clock_quality,
+    # constraints, file_exists) each emitted dummy PASS when run with
+    # --test-mode. A `cbflow flow checklist sign-off --milestone BTO` on
+    # a test_mode run therefore approved tape-out with ZERO real checks
+    # executed. SKIP is the right status: it preserves the "ran at all"
+    # audit trail without claiming the check succeeded.
     proc test_mode_pass {result_dir check_name metric} {
-        return [write_check_result $result_dir $check_name "PASS" \
-            -metric $metric -value "0" -threshold "0" -operator ">=" \
-            -detail "Test mode — dummy PASS"]
+        return [write_check_result $result_dir $check_name "SKIP" \
+            -metric $metric -value "n/a" -threshold "n/a" -operator "n/a" \
+            -detail "Test mode — check not executed. Rerun with flow(test_mode)=false before sign-off."]
+    }
+
+    # Backwards-compat alias — same new semantics, clearer name.
+    proc test_mode_skip {result_dir check_name metric} {
+        return [test_mode_pass $result_dir $check_name $metric]
     }
 
     namespace export extract_metric extract_all_metrics compare_threshold \
                      read_report write_check_result parse_qor_report \
-                     grep_check test_mode_pass
+                     grep_check test_mode_pass test_mode_skip
 }
 
 namespace import ::CBFlow::Check::*

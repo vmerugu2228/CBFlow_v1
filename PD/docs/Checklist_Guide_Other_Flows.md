@@ -359,7 +359,7 @@ cbflow flow checklist generate --milestone PV_SIGNOFF
 |---|---|---|---|---|
 | `pv_drc_clean` | DRC clean -- zero violations | grep drc_summary.rpt for Total.*0 | P0 | `work/PV/drc1/reports/drc_summary.rpt` |
 | `pv_lvs_match` | LVS layout vs schematic match | grep lvs_summary.rpt for MATCH | P0 | `work/PV/lvs1/reports/lvs_summary.rpt` |
-| `pv_erc_clean` | ERC electrical rule check clean | erc_violations == 0 | P1 | `work/PV/erc1/reports/erc_summary.rpt` |
+| `pv_perc_ldl_clean` | PERC-LDL (layout-dependent leakage) check clean | ldl_violations == 0 | P1 | `work/PV/perc_ldl1/reports/perc_ldl_summary.rpt` |
 | `pv_verification_complete` | All PV verification stages completed | all verification reports exist | P0 | `work/PV/merge_data1/reports/pv_status.rpt` |
 
 **Optional Checks (3):**
@@ -367,7 +367,7 @@ cbflow flow checklist generate --milestone PV_SIGNOFF
 | Check Name | Description | Criteria | Phase | Report File |
 |---|---|---|---|---|
 | `pv_perc_clean` | PERC reliability check clean | file exists | P2 | `work/PV/perc1/reports/perc_results.rpt` |
-| `pv_fill_density` | Metal fill density within foundry limits | file exists | P2 | `work/PV/fill1/reports/fill_density.rpt` |
+| `pv_fill_density` | Metal fill density within foundry limits | file exists | P2 | `work/PV/fill_merge_gds1/reports/fill_density.rpt` |
 | `pv_xor_clean` | XOR check between revisions clean | file exists | P3 | `work/PV/xor1/reports/xor_summary.rpt` |
 
 **Mandatory Files:**
@@ -419,7 +419,7 @@ cbflow flow checklist generate --milestone PV_SIGNOFF
 |---|---|---|---|
 | drc_summary | `work/PV/drc1/reports/drc_summary.rpt` | `releases/PV_SIGNOFF/drc_summary.rpt` | verification |
 | lvs_summary | `work/PV/lvs1/reports/lvs_summary.rpt` | `releases/PV_SIGNOFF/lvs_summary.rpt` | verification |
-| erc_summary | `work/PV/erc1/reports/erc_summary.rpt` | `releases/PV_SIGNOFF/erc_summary.rpt` | verification |
+| perc_ldl_summary | `work/PV/perc_ldl1/reports/perc_ldl_summary.rpt` | `releases/PV_SIGNOFF/perc_ldl_summary.rpt` | verification |
 | pv_status | `work/PV/merge_data1/reports/pv_status.rpt` | `releases/PV_SIGNOFF/pv_status.rpt` | report |
 
 **PV_SIGNOFF total: 7 inline + 30 library (pv_flow) + 15 library (manufacturing) = 52 checks maximum** (manufacturing checks additive at P2+).

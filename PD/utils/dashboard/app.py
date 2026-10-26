@@ -9,10 +9,21 @@ Uses standard library only (no FastAPI/Flask dependency) for portability.
 import http.server
 import json
 import os
+import re as _re_mod
 import sys
 import threading
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
+
+# Keep in sync with workspace_cmd._RUN_DIR_RE and dashboard/router._RUN_DIR_RE.
+_PHASE_PREFIX_RE = r'(?:P\d+|LC\d+|LC_\d+|MTO|BTO|R\d+|FP|CTS|PRE|POST)'
+_FLOW_TOKEN_RE   = r'[A-Z][A-Z0-9_]*'
+_RUN_DIR_RE = _re_mod.compile(
+    r'^' + _PHASE_PREFIX_RE + r'_run_' + _FLOW_TOKEN_RE + r'(?:_|$)')
+
+
+def _is_run_dir_name(name: str) -> bool:
+    return bool(_RUN_DIR_RE.match(name))
 
 # Add commands dir to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'commands'))
@@ -31,8 +42,11 @@ class DataProvider:
         self.core_dir = Path(get_cbflow_core_dir())
 
     def get_projects(self) -> dict:
-        projects_file = self.core_dir / 'config' / 'master_projects.json'
-        if projects_file.exists():
+        # master_projects.json moved to global/ post-split. Use the shared
+        # resolver so both locations are checked.
+        from core.paths import get_master_projects_path
+        projects_file = get_master_projects_path()
+        if projects_file and os.path.exists(projects_file):
             with open(projects_file, 'r') as f:
                 return json.load(f)
         return {'projects': {}}
@@ -74,7 +88,7 @@ class DataProvider:
             if not search_path.exists():
                 continue
             for d in sorted(search_path.iterdir(), reverse=True):
-                if d.is_dir() and '_run_' in d.name:
+                if d.is_dir() and _is_run_dir_name(d.name):
                     run_info = self._parse_run_dir(d)
                     if run_info:
                         runs.append(run_info)
@@ -221,12 +235,25 @@ def _find_free_port(start: int = 8080, end: int = 8999) -> int:
     raise RuntimeError(f"No free port found in range {start}-{end}")
 
 
-def start_server(port: int = 0):
-    """Start the dashboard server. Port 0 = auto-select free port."""
+def start_server(port: int = 0, bind: str = '127.0.0.1'):
+    """Start the dashboard server. Port 0 = auto-select free port.
+
+    Pre-fix the legacy dashboard bound '0.0.0.0' unconditionally with
+    zero auth and exposed every run under ../workarea with no project
+    filter — any LAN peer enumerated all projects, release versions,
+    phases, and master_projects.json. Now binds 127.0.0.1 by default;
+    opt into LAN exposure explicitly with CBFLOW_DASHBOARD_PUBLIC=1
+    (prints a warning so operators notice they just made the dashboard
+    reachable off-host).
+    """
     if port == 0:
         port = _find_free_port()
-    server = http.server.HTTPServer(('0.0.0.0', port), DashboardHandler)
-    print(f"CBFlow Dashboard running at http://localhost:{port}")
+    if os.environ.get('CBFLOW_DASHBOARD_PUBLIC', '').lower() in ('1', 'true', 'yes', 'on'):
+        bind = '0.0.0.0'
+        print("WARNING: CBFLOW_DASHBOARD_PUBLIC=1 — binding 0.0.0.0 (dashboard "
+              "reachable from the network with NO authentication).")
+    server = http.server.HTTPServer((bind, port), DashboardHandler)
+    print(f"CBFlow Dashboard running at http://{bind if bind != '0.0.0.0' else 'localhost'}:{port}")
     print(f"Press Ctrl+C to stop")
     try:
         server.serve_forever()

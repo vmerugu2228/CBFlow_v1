@@ -133,9 +133,12 @@ def _parse_run_env(run_dir: str, data: dict):
         pass
 
     if not data['flow_type']:
-        m = re.match(r'P\d+_run_(\w+)_run\d+', data['run_name'])
-        if m:
-            data['flow_type'] = m.group(1)
+        # Pre-fix regex `P\d+_run_(\w+)_run\d+` only accepted P\d+ phases
+        # AND required a trailing `_run<N>` suffix (which the production
+        # naming convention no longer uses). Use shared helper that
+        # accepts every known phase form (P\d+, LC\d+, BTO, MTO, R\d+).
+        from core.paths import flow_type_from_run_dir_name
+        data['flow_type'] = flow_type_from_run_dir_name(data['run_name'])
 
     # Try to get tool version
     try:

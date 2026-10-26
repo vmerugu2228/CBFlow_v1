@@ -133,6 +133,9 @@ def make_daemon_handler(pool):
             if p == '/api/discover-runs':
                 self._serve_api_discover_runs()
                 return
+            if p == '/api/smartgrid-url':
+                self._serve_api_smartgrid_url()
+                return
             if p.startswith('/static/'):
                 # Shared static assets — borrow the parent's _serve_static.
                 # parent expects self.dashboard set (it only reads STATIC_DIR
@@ -185,9 +188,34 @@ def make_daemon_handler(pool):
 
         # ── Helpers for the new daemon-level endpoints ──────────────────────
 
+        # Hard cap on request body size to prevent memory-exhaustion /
+        # slowloris attacks via a huge or negative Content-Length. The
+        # parent race_dashboard _read_body caps at 1 MB; the daemon-only
+        # /api/register and /api/deregister used to bypass that cap and
+        # accept Content-Length: 9999999999 (10 GB alloc per request)
+        # or Content-Length: -1 (rfile.read(-1) blocks until EOF, one
+        # pinned thread + FD per malicious client).
+        _MAX_JSON_BODY = 1 * 1024 * 1024  # 1 MiB — more than any real register payload.
+
         def _read_json_body(self):
-            length = int(self.headers.get('Content-Length') or 0)
-            if not length:
+            raw_len = self.headers.get('Content-Length')
+            try:
+                length = int(raw_len) if raw_len is not None else 0
+            except (TypeError, ValueError):
+                self._write_json(
+                    {'ok': False, 'error': 'invalid Content-Length header'}, 400)
+                return None
+            if length < 0:
+                self._write_json(
+                    {'ok': False, 'error': 'negative Content-Length'}, 400)
+                return None
+            if length > self._MAX_JSON_BODY:
+                self._write_json(
+                    {'ok': False,
+                     'error': f'request body too large ({length} > {self._MAX_JSON_BODY})'},
+                    413)
+                return None
+            if length == 0:
                 return {}
             raw = self.rfile.read(length)
             try:
@@ -205,6 +233,8 @@ def make_daemon_handler(pool):
 
         def _serve_api_register(self):
             body = self._read_json_body()
+            if body is None:
+                return  # error already sent by _read_json_body
             run_dir = (body.get('run_dir') or '').strip()
             if not run_dir:
                 self._write_json({'ok': False, 'error': 'run_dir is required'}, 400)
@@ -226,6 +256,8 @@ def make_daemon_handler(pool):
 
         def _serve_api_deregister(self):
             body = self._read_json_body()
+            if body is None:
+                return  # error already sent by _read_json_body
             target = (body.get('run_id') or body.get('run_dir') or '').strip()
             if not target:
                 self._write_json({'ok': False, 'error': 'run_id or run_dir is required'}, 400)
@@ -243,6 +275,16 @@ def make_daemon_handler(pool):
             for r in runs:
                 r['registered'] = r['run_dir'] in registered
             self._write_json({'runs': runs})
+
+        def _serve_api_smartgrid_url(self):
+            """JSON endpoint — returns the SmartGrid URL (see
+            _resolve_smartgrid_url at module scope for resolution rules)."""
+            host = self.headers.get('Host', '127.0.0.1')
+            url, source = _resolve_smartgrid_url_with_source(host)
+            payload = {'url': url, 'source': source}
+            if source == 'fallback':
+                payload['hint'] = 'Start with: cbflow run project-dashboard start'
+            self._write_json(payload)
 
         def _serve_api_daemon_status(self):
             pid_text = ''
@@ -291,6 +333,25 @@ def make_daemon_handler(pool):
             content = content.replace(b'{{RUN_DIR}}', self.dashboard.run_dir.encode())
             content = content.replace(b'{{RESULT}}', run_info.get('result', '').encode())
             content = content.replace(b'{{DISCIPLINE}}', state_paths.get_discipline().encode())
+            # SmartGrid URL — resolve server-side so the per-run GUI
+            # doesn't need an API round-trip through the daemon-scope
+            # rewriter. Project name comes from this run's run_info
+            # (SmartGrid is per-project). Fallback: scan all projects.
+            _sg_url = _resolve_smartgrid_url(
+                self.headers.get('Host', '127.0.0.1'),
+                project=run_info.get('project') or None)
+            content = content.replace(b'{{SMARTGRID_URL}}', _sg_url.encode())
+            # Byline — framework credit + maintainer. Honors
+            # project(dashboard,developed_by) if set, else the framework
+            # default (SmartSoC CAD · Varun Reddy Merugu <...>). The
+            # _project_info_for() helper is cached per-process so this
+            # is one project_config.tcl read per daemon start, not per
+            # request.
+            _pinfo = _project_info_for(run_info.get('project') or '')
+            _byline = _pinfo.get('dashboard,developed_by') or _DEFAULT_BYLINE
+            # HTML-escape — the default byline contains <...> around the
+            # email, which otherwise renders as a (malformed) tag.
+            content = content.replace(b'{{BYLINE}}', _html.escape(_byline, quote=True).encode())
 
             # Now the daemon-scope rewrites.
             if self._daemon_run_id:
@@ -299,9 +360,20 @@ def make_daemon_handler(pool):
                 content = content.replace(b"'/api/", b"'" + prefix + b"/api/")
                 content = content.replace(b'"/api/', b'"' + prefix + b'/api/')
                 # Nav links inside dashboard.html / dag.html / grid.html.
+                # Opt-out marker: `data-hub-link` on an <a> keeps the href
+                # pointing at the daemon root (/) so cross-run navigation
+                # back to the all-runs hub works. Without this, the hub
+                # link would be rewritten into a self-link to the current
+                # run's root, defeating the purpose. The two-step dance
+                # replaces the sentinel first with a placeholder, runs the
+                # standard rewrites, then restores the hub href.
+                _HUB_SENTINEL = b'__CBFLOW_HUB_LINK__'
+                content = content.replace(b'data-hub-link href="/"', _HUB_SENTINEL)
+                content = content.replace(b'href="/" data-hub-link', _HUB_SENTINEL)
                 content = content.replace(b'href="/"', b'href="' + prefix + b'/"')
                 content = content.replace(b'href="/dag"', b'href="' + prefix + b'/dag"')
                 content = content.replace(b'href="/grid"', b'href="' + prefix + b'/grid"')
+                content = content.replace(_HUB_SENTINEL, b'href="/"')
 
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
@@ -358,33 +430,52 @@ def make_daemon_handler(pool):
 # ── Discovery: scan workareas from project configs ──────────────────────────
 
 _WORKAREA_RE = re.compile(r'set\s+project\(workarea_path\)\s+"([^"]+)"')
-_RUN_DIR_RE = re.compile(r'^P\d+_run_')
+# Accepts <PHASE>_run_<FLOW>_<NAME> dirs where PHASE is a known cadence
+# (P0/P1/… pre-tapeout, LC1/LC2/… long-cycle, MTO/BTO milestones, R\d+
+# custom). Previous `[A-Za-z0-9]+_run_` form let stray dirs like
+# old_run_notes, backup_run_sim through, polluting the dashboard with
+# phantom entries. Must stay in sync with workspace_cmd._RUN_DIR_RE.
+_PHASE_PREFIX_RE = r'(?:P\d+|LC\d+|LC_\d+|MTO|BTO|R\d+|FP|CTS|PRE|POST)'
+_FLOW_TOKEN_RE   = r'[A-Z][A-Z0-9_]*'
+_RUN_DIR_RE = re.compile(
+    r'^' + _PHASE_PREFIX_RE + r'_run_' + _FLOW_TOKEN_RE + r'(?:_|$)')
 
 
 def _project_workarea_paths(pd_dir):
-    """All workarea paths declared in PD/config/project/*/*/*_config.tcl."""
-    project_root = os.path.join(pd_dir, 'config', 'project')
+    """All workarea paths declared in <ROOT>/config/project/*/*/*_config.tcl.
+
+    Walks BOTH the global/ and PD/ project trees. workarea_path can live in
+    either overlay — we don't want the dashboard to miss projects that only
+    exist on one side.
+    """
     paths = set()
-    if not os.path.isdir(project_root):
-        return paths
-    for entry in os.listdir(project_root):
-        proj_dir = os.path.join(project_root, entry)
-        if not os.path.isdir(proj_dir):
-            continue
-        for root, _dirs, files in os.walk(proj_dir):
-            for f in files:
-                if not f.endswith('_config.tcl'):
-                    continue
-                cfg = os.path.join(root, f)
-                try:
-                    with open(cfg) as fh:
-                        for line in fh:
-                            m = _WORKAREA_RE.search(line)
-                            if m:
-                                paths.add((entry, m.group(1)))
-                                break
-                except OSError:
-                    continue
+    roots = []
+    g_root = os.path.join(os.path.dirname(pd_dir), 'global',
+                          'config', 'project')
+    if os.path.isdir(g_root):
+        roots.append(g_root)
+    pd_root = os.path.join(pd_dir, 'config', 'project')
+    if os.path.isdir(pd_root):
+        roots.append(pd_root)
+    for project_root in roots:
+        for entry in os.listdir(project_root):
+            proj_dir = os.path.join(project_root, entry)
+            if not os.path.isdir(proj_dir):
+                continue
+            for root, _dirs, files in os.walk(proj_dir):
+                for f in files:
+                    if not f.endswith('_config.tcl'):
+                        continue
+                    cfg = os.path.join(root, f)
+                    try:
+                        with open(cfg) as fh:
+                            for line in fh:
+                                m = _WORKAREA_RE.search(line)
+                                if m:
+                                    paths.add((entry, m.group(1)))
+                                    break
+                    except OSError:
+                        continue
     return paths
 
 
@@ -400,7 +491,11 @@ _PROJECT_KEYS_OF_INTEREST = (
     'dashboard,developed_by',
 )
 
-_DEFAULT_BYLINE = 'SmartSoc Solutions Pvt Limited'
+# Byline — framework default. Deliberately omits the email: the
+# dashboard HTML adds a mailto link right after this so the email
+# appears exactly once per render. Projects can override via
+# project(dashboard,developed_by) when they ship under a different brand.
+_DEFAULT_BYLINE = 'SmartSoC CAD · Varun Reddy Merugu'
 
 
 def _project_info_for(project_name):
@@ -414,24 +509,35 @@ def _project_info_for(project_name):
         return {k: '' for k in _PROJECT_KEYS_OF_INTEREST}
     if project_name in _PROJECT_INFO_CACHE:
         return _PROJECT_INFO_CACHE[project_name]
-    cfg = os.path.join(_PD_DIR, 'config', 'project', project_name, 'v1.0.0',
-                       f'{project_name}_config.tcl')
+    # Try global/ identity, PD/ overlay, and legacy monolithic forms —
+    # merge values across all that exist (overlay wins on key collision).
+    _candidates = [
+        os.path.join(os.path.dirname(_PD_DIR), 'global', 'config', 'project',
+                     project_name, 'v1.0.0', 'project_config.tcl'),
+        os.path.join(_PD_DIR, 'config', 'project', project_name, 'v1.0.0',
+                     'project_pd_config.tcl'),
+        os.path.join(_PD_DIR, 'config', 'project', project_name, 'v1.0.0',
+                     f'{project_name}_config.tcl'),
+    ]
     out = {k: '' for k in _PROJECT_KEYS_OF_INTEREST}
     interest = set(_PROJECT_KEYS_OF_INTEREST)
-    try:
-        with open(cfg) as fh:
-            for line in fh:
-                m = re.match(r'^\s*set\s+project\(([^)]+)\)\s+"([^"]*)"', line)
-                if not m:
-                    continue
-                key, val = m.group(1).strip(), m.group(2).strip()
-                if key in interest:
-                    out[key] = val
-                    interest.discard(key)
-                    if not interest:
-                        break
-    except OSError:
-        pass
+    for cfg in _candidates:
+        if not os.path.exists(cfg):
+            continue
+        try:
+            with open(cfg) as fh:
+                for line in fh:
+                    m = re.match(
+                        r'^\s*set\s+project\(([^)]+)\)\s+"([^"]*)"', line)
+                    if not m:
+                        continue
+                    key, val = m.group(1).strip(), m.group(2).strip()
+                    if key in interest:
+                        out[key] = val
+                        # last writer wins across the three cascade layers,
+                        # so DO NOT discard — let overlays override identity.
+        except OSError:
+            continue
     _PROJECT_INFO_CACHE[project_name] = out
     return out
 
@@ -1027,7 +1133,7 @@ def _render_index(runs, discipline='PD', project=''):
       {project_pill_html}
       <span class="engine-pill" title="Python-native DAG execution engine">RACE engine</span>
     </div>
-    <div class="byline">Developed by {_ssr_chip_initial.get('dashboard,developed_by') or _DEFAULT_BYLINE}</div>
+    <div class="byline">{_html.escape(_ssr_chip_initial.get('dashboard,developed_by') or _DEFAULT_BYLINE, quote=False)} &middot; <a href="mailto:varun@smartsocs.com" style="color:inherit;text-decoration:underline">varun@smartsocs.com</a></div>
     <div class="stats">
       <div class="stat">Active runs: <b id="stat-active">{len(active)}</b></div>
       <div class="stat">Tech: <b id="stat-tech">{_ssr_chip_initial.get('technology') or '—'}</b></div>
@@ -1094,6 +1200,16 @@ def _render_index(runs, discipline='PD', project=''):
         </select>
         <input type="search" id="filter" placeholder="Filter by path, status, node…">
         <button class="primary" id="refresh" title="Reload from registry">Refresh</button>
+        <!-- Bulk deregister — iterates every row with run_dir_exists=false
+             and calls /api/deregister in sequence. Deleted runs clutter
+             the hub; this clears them in one click. -->
+        <button class="danger" id="purge-deleted" title="Deregister every run whose run_dir was deleted from disk">Purge Deleted</button>
+        <!-- SmartGrid link — opens the project-dashboard (richer metrics
+             view: block × phase × milestone grid, QoR summaries, floorplan
+             density, DEF timing). Separate daemon, separate port. -->
+        <a id="smartgrid-link" href="#" target="_blank" rel="noopener"
+           style="padding:6px 12px;background:linear-gradient(135deg,#0ea5e9,#4f46e5);color:#fff;font-weight:700;text-decoration:none;border-radius:6px;font-size:13px"
+           title="Open SmartGrid — all-projects metrics / DEF timing / block closability grid">SmartGrid</a>
       </div>
     </div>
     <table class="runs">
@@ -1377,6 +1493,45 @@ def _render_index(runs, discipline='PD', project=''):
     }}
   }}
 
+  // Purge every run whose run_dir was deleted from disk. Pulls fresh
+  // state from /api/runs first (don't trust stale tbody rows), filters
+  // on run_dir_exists===false, confirms once with a count, then fires
+  // one /api/deregister per rid. Any individual failure is toasted but
+  // doesn't abort the batch — the next refresh will still include whatever
+  // the daemon decided to keep.
+  async function purgeDeleted() {{
+    try {{
+      const resp = await fetch('/api/runs').then(r => r.json());
+      const runs = Array.isArray(resp) ? resp : (resp.runs || []);
+      const deleted = runs.filter(r => r.run_dir_exists === false);
+      if (deleted.length === 0) {{
+        toast('No deleted runs to purge');
+        return;
+      }}
+      if (!confirm('Deregister ' + deleted.length + ' deleted run(s)? '
+                   + 'This removes them from the hub registry but does not touch any files.')) return;
+      let ok = 0, failed = 0;
+      for (const r of deleted) {{
+        try {{
+          const resp2 = await fetch('/api/deregister', {{
+            method: 'POST',
+            headers: {{ 'Content-Type': 'application/json' }},
+            body: JSON.stringify({{ run_id: r.run_id }}),
+          }}).then(r => r.json());
+          if (resp2.ok) ok++;
+          else failed++;
+        }} catch (e) {{
+          failed++;
+        }}
+      }}
+      toast('Purged ' + ok + ' / ' + (ok + failed) + (failed ? ' (' + failed + ' failed)' : ''),
+            failed > 0);
+      loadRuns();
+    }} catch (e) {{
+      toast('Network error: ' + e.message, true);
+    }}
+  }}
+
   async function registerDir(run_dir) {{
     try {{
       const r = await fetch('/api/register', {{
@@ -1554,6 +1709,24 @@ def _render_index(runs, discipline='PD', project=''):
   document.getElementById('design-filter').addEventListener('change', applyFilter);
   document.getElementById('flow-filter').addEventListener('change', applyFilter);
   document.getElementById('refresh').addEventListener('click', loadRuns);
+  document.getElementById('purge-deleted').addEventListener('click', purgeDeleted);
+
+  // SmartGrid link — resolve URL at page load. The project-dashboard
+  // runs on its own port; ask /api/smartgrid-url (served below) and
+  // fall back to a sensible default if the endpoint isn't available
+  // (older daemon).
+  (async function() {{
+    try {{
+      const r = await fetch('/api/smartgrid-url');
+      const j = await r.json();
+      if (j && j.url) {{
+        document.getElementById('smartgrid-link').href = j.url;
+      }}
+    }} catch (e) {{
+      // keep href="#" — the user still sees the button, hover tooltip
+      // explains what it does.
+    }}
+  }})();
 
   loadRuns();
   setInterval(loadRuns, 5000);            // poll every 5s for live updates
@@ -1561,6 +1734,69 @@ def _render_index(runs, discipline='PD', project=''):
 </script>
 </body></html>
 """
+
+
+def _resolve_smartgrid_url_with_source(host_header, project=None):
+    """Resolve the SmartGrid URL for a project + the resolver that fired.
+
+    SmartGrid state lives under `state_paths.portfile(project=<name>)`,
+    which resolves to `~/.cbflow/dashboard/<DISC>/projects/<NAME>/dashboard.port`
+    on disk — same tree as the main dashboard, with a `projects/<NAME>/`
+    scoping segment. Per-project because each project runs its own
+    SmartGrid daemon on its own port.
+
+    Precedence:
+      1. CBFLOW_SMARTGRID_URL env — operator override, trusted verbatim.
+      2. If project is known, read its portfile directly.
+      3. Otherwise scan every project under state_paths and return the
+         first with a readable portfile.
+      4. Fallback: port 25000 on the same host — gives the user a
+         clickable link with a 'daemon not running' message instead of a
+         dead href="#".
+
+    `host_header` is the request's `Host` header; the port is stripped so
+    the resolved URL binds to the client's hostname (works through SSH
+    tunnels + reverse proxies).
+    """
+    import os as _os
+    import glob as _glob
+    override = _os.environ.get('CBFLOW_SMARTGRID_URL', '').strip()
+    if override:
+        return (override, 'env')
+    host = (host_header or '127.0.0.1').split(':')[0]
+
+    def _port_from(portfile_path):
+        try:
+            with open(portfile_path) as _pf:
+                return _pf.read().strip()
+        except OSError:
+            return ''
+
+    # SmartGrid writes state to ~/.cbflow/project-dashboard/<project>/
+    # (sibling tree to the main dashboard's ~/.cbflow/dashboard/<DISC>/).
+    # Not state_paths.portfile() — that resolves to the main-dashboard
+    # tree. The SmartGrid daemon has its own state root per
+    # PD/utils/project_dashboard/daemon.py.
+    sg_root = _os.path.expanduser('~/.cbflow/project-dashboard')
+    if project:
+        port = _port_from(_os.path.join(sg_root, project, 'dashboard.port'))
+        if port:
+            return (f'http://{host}:{port}/', f'portfile:{project}')
+    # No project context — scan all projects for an alive daemon.
+    if _os.path.isdir(sg_root):
+        for proj_dir in sorted(_glob.glob(_os.path.join(sg_root, '*'))):
+            if not _os.path.isdir(proj_dir):
+                continue
+            port = _port_from(_os.path.join(proj_dir, 'dashboard.port'))
+            if port:
+                proj = _os.path.basename(proj_dir)
+                return (f'http://{host}:{port}/', f'portfile:{proj}')
+    return (f'http://{host}:25000/', 'fallback')
+
+
+def _resolve_smartgrid_url(host_header, project=None):
+    url, _ = _resolve_smartgrid_url_with_source(host_header, project=project)
+    return url
 
 
 def _html_attr(s):

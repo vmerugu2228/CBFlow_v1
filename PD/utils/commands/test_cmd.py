@@ -28,6 +28,7 @@ REPO_ROOT = os.path.dirname(PD_DIR)
 sys.path.insert(0, SCRIPT_DIR)
 
 from test_suite import e2e_checks, e2e_runner, fixtures, reporters, static_checks
+from test_suite import integration_checks
 from test_suite.results import Results
 
 DEFAULT_FLOWS = ['SYNTH', 'FP', 'PNR', 'STA', 'LEC', 'EMIR', 'PV',
@@ -68,11 +69,9 @@ def _resolve_projects(args):
     if not raw:
         return list(DEFAULT_PROJECTS)
     if raw.upper() == 'ALL':
-        proj_root = os.path.join(PD_DIR, 'config', 'project')
-        if not os.path.isdir(proj_root):
-            return list(DEFAULT_PROJECTS)
-        return sorted(d for d in os.listdir(proj_root)
-                      if os.path.isdir(os.path.join(proj_root, d)))
+        from core.paths import list_available_projects
+        found = list_available_projects()
+        return found if found else list(DEFAULT_PROJECTS)
     return [p.strip() for p in raw.split(',') if p.strip()]
 
 
@@ -251,6 +250,13 @@ Examples:
                             'leaf command and run it with safe args. '
                             'Catches broken --help text, missing args, '
                             'import errors in command modules.')
+    scope.add_argument('--integration', dest='integration',
+                       action='store_true',
+                       help='Integration: real library-manager + '
+                            'mmmc-manager workflows against sandbox tech. '
+                            'Catches the class of bug where discovery '
+                            'looks in stale paths (what cli-smoke misses '
+                            'because it only tests --help).')
     parser.add_argument('--destructive', action='store_true',
                         help='In --cli-smoke, also exercise destructive '
                              'leaves (run all, release, create-branch, '
@@ -303,8 +309,11 @@ Examples:
     results = Results()
 
     flows = _resolve_flows(args)
-    run_static   = not args.e2e and not args.dispatch_smoke and not args.cli_smoke
-    run_e2e      = not args.static and not args.dispatch_smoke and not args.cli_smoke
+    run_integration = bool(getattr(args, 'integration', False))
+    run_static   = (not args.e2e and not args.dispatch_smoke
+                    and not args.cli_smoke and not run_integration)
+    run_e2e      = (not args.static and not args.dispatch_smoke
+                    and not args.cli_smoke and not run_integration)
     run_dispatch = bool(args.dispatch_smoke)
     run_cli      = bool(args.cli_smoke)
 
@@ -344,6 +353,10 @@ Examples:
         cli_smoke.run(results, PD_DIR, args)
         for entry in results.entries[before:]:
             console.event(entry['status'], entry['test'], entry['detail'])
+
+    if run_integration:
+        before = len(results.entries)
+        integration_checks.run_all(results, console, PD_DIR)
 
     # Reports
     if args.report:

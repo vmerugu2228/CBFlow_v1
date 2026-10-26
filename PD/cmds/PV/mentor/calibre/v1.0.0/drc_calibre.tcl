@@ -95,8 +95,17 @@ flow_proc run_drc_checks {
     handle_info "  CMD: $calibre_cmd"
     handle_info "  Log: $::WORK_DIR/results/drc/drc.log"
 
-    if {[catch {exec {*}$calibre_cmd >& "$::WORK_DIR/results/drc/drc.log"} result]} {
-        handle_warning "Calibre DRC returned non-zero (may have violations): $result"
+    set _drc_log "$::WORK_DIR/results/drc/drc.log"
+    if {[catch {exec {*}$calibre_cmd >& $_drc_log} result]} {
+        # Classify: tool-stack crash (license, perms, OOM) → FATAL error;
+        # real DRC violations → non-fatal warning. Pre-fix every non-zero
+        # was a warning, so an expired license looked like real DRC
+        # output and tape-out gates signed off on silent tool crashes.
+        if {[classify_tool_exit_log $_drc_log] eq "FATAL"} {
+            handle_error "Calibre DRC crashed (license / perms / tool error) — see $_drc_log"
+        } else {
+            handle_warning "Calibre DRC returned non-zero (may have violations): $result"
+        }
     }
     handle_info "  DRC run completed"
 }

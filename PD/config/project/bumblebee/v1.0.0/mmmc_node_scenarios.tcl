@@ -6,11 +6,9 @@ array set mmmc {
         setup {
             func_ss_0p80v_rcmax_125c
             func_ss_0p80v_rcmax_m40c
-            func_ss_0p90v_rcmax_125c
         }
         hold {
             func_ff_1p10v_rcmin_125c
-            func_ff_1p10v_rcmin_25c
             func_ff_1p10v_rcmin_m40c
         }
     }
@@ -19,11 +17,9 @@ array set mmmc {
         setup {
             func_ss_0p80v_rcmax_125c
             func_ss_0p80v_rcmax_m40c
-            func_ss_0p90v_rcmax_125c
         }
         hold {
             func_ff_1p10v_rcmin_125c
-            func_ff_1p10v_rcmin_25c
             func_ff_1p10v_rcmin_m40c
         }
     }
@@ -32,19 +28,16 @@ array set mmmc {
         setup {
             func_ss_0p80v_rcmax_125c
             func_ss_0p80v_rcmax_m40c
-            func_ss_0p90v_rcmax_125c
-            func_ss_0p90v_rcmax_m40c
         }
         hold {
             func_ff_1p10v_rcmin_125c
-            func_ff_1p10v_rcmin_25c
             func_ff_1p10v_rcmin_m40c
         }
     }
 
     init_design {
-        setup {func_ss_0p80v_rcmax_125c}
-        hold {func_ff_1p10v_rcmin_125c}
+        setup {func_tt_0p90v_rctyp_25c}
+        hold {func_tt_0p90v_rctyp_25c}
     }
 
     place {
@@ -54,7 +47,7 @@ array set mmmc {
         }
         hold {
             func_ff_1p10v_rcmin_125c
-            func_ff_1p10v_rcmin_25c
+            func_ff_1p10v_rcmin_m40c
         }
     }
 
@@ -62,12 +55,9 @@ array set mmmc {
         setup {
             func_ss_0p80v_rcmax_125c
             func_ss_0p80v_rcmax_m40c
-            func_ss_0p90v_rcmax_125c
-            func_ss_0p90v_rcmax_m40c
         }
         hold {
             func_ff_1p10v_rcmin_125c
-            func_ff_1p10v_rcmin_25c
             func_ff_1p10v_rcmin_m40c
         }
     }
@@ -76,11 +66,9 @@ array set mmmc {
         setup {
             func_ss_0p80v_rcmax_125c
             func_ss_0p80v_rcmax_m40c
-            func_ss_0p90v_rcmax_125c
         }
         hold {
             func_ff_1p10v_rcmin_125c
-            func_ff_1p10v_rcmin_25c
             func_ff_1p10v_rcmin_m40c
         }
     }
@@ -89,12 +77,9 @@ array set mmmc {
         setup {
             func_ss_0p80v_rcmax_125c
             func_ss_0p80v_rcmax_m40c
-            func_ss_0p90v_rcmax_125c
-            func_ss_0p90v_rcmax_m40c
         }
         hold {
             func_ff_1p10v_rcmin_125c
-            func_ff_1p10v_rcmin_25c
             func_ff_1p10v_rcmin_m40c
         }
     }
@@ -103,11 +88,10 @@ array set mmmc {
         setup {
             func_ss_0p80v_rcmax_125c
             func_ss_0p80v_rcmax_m40c
-            func_ss_0p90v_rcmax_125c
         }
         hold {
             func_ff_1p10v_rcmin_125c
-            func_ff_1p10v_rcmin_25c
+            func_ff_1p10v_rcmin_m40c
         }
     }
 
@@ -115,12 +99,9 @@ array set mmmc {
         setup {
             func_ss_0p80v_rcmax_125c
             func_ss_0p80v_rcmax_m40c
-            func_ss_0p90v_rcmax_125c
-            func_ss_0p90v_rcmax_m40c
         }
         hold {
             func_ff_1p10v_rcmin_125c
-            func_ff_1p10v_rcmin_25c
             func_ff_1p10v_rcmin_m40c
         }
     }

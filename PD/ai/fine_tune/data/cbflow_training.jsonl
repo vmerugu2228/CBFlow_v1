@@ -59,8 +59,8 @@
 {"instruction": "What are the stages in SYNTH_PNR flow?", "output": "SYNTH_PNR has 13 stages: rtl1, sdc1, upf1, init_design1, synthesis1, place1, cts1, cts_opt1, route1, pro1, signoff1, export_data1, release_data1", "category": "flow"}
 {"instruction": "How many stages does SYNTH_PNR have?", "output": "SYNTH_PNR has 13 stages.", "category": "flow"}
 {"instruction": "What tool does SYNTH_PNR use?", "output": "SYNTH_PNR uses synopsys fc.", "category": "flow"}
-{"instruction": "What are the stages in PV flow?", "output": "PV has 11 stages: netlist1, def1, gds1, fill1, drc1, lvs1, perc1, erc1, xor1, merge_data1, release_data1", "category": "flow"}
-{"instruction": "How many stages does PV have?", "output": "PV has 11 stages.", "category": "flow"}
+{"instruction": "What are the stages in PV flow?", "output": "PV has 15 stages: netlist1, def1, gds1, nettran1, merge_gds1, fill_merge_gds1, decomp1, decomp_merge_gds1, drc1, lvs1, perc1, perc_ldl1, xor1, merge_data1, release_data1", "category": "flow"}
+{"instruction": "How many stages does PV have?", "output": "PV has 15 stages.", "category": "flow"}
 {"instruction": "What tool does PV use?", "output": "PV uses synopsys icv.", "category": "flow"}
 {"instruction": "What are the stages in EMIR flow?", "output": "EMIR has 7 stages: netlist1, def1, spef1, library1, power_analysis1, ir_drop1, thermal_analysis1", "category": "flow"}
 {"instruction": "How many stages does EMIR have?", "output": "EMIR has 7 stages.", "category": "flow"}

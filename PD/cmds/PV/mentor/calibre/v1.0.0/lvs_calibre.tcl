@@ -114,8 +114,13 @@ flow_proc run_lvs_comparison {
     handle_info "  CMD: $calibre_cmd"
     handle_info "  Log: $::WORK_DIR/results/lvs/lvs.log"
 
-    if {[catch {exec {*}$calibre_cmd >& "$::WORK_DIR/results/lvs/lvs.log"} result]} {
-        handle_warning "Calibre LVS returned non-zero (may have mismatches): $result"
+    set _lvs_log "$::WORK_DIR/results/lvs/lvs.log"
+    if {[catch {exec {*}$calibre_cmd >& $_lvs_log} result]} {
+        if {[classify_tool_exit_log $_lvs_log] eq "FATAL"} {
+            handle_error "Calibre LVS crashed (license / perms / tool error) — see $_lvs_log"
+        } else {
+            handle_warning "Calibre LVS returned non-zero (may have mismatches): $result"
+        }
     }
     handle_info "  LVS run completed"
 }

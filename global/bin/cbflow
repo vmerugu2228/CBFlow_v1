@@ -1,0 +1,582 @@
+#!/bin/bash
+# ═══════════════════════════════════════════════════════════════════════════════
+# CBFlow - Main CLI Dispatcher
+# Description: Physical Design Flow Management System
+# Usage: cbflow <command> [subcommand] [options]
+# ═══════════════════════════════════════════════════════════════════════════════
+
+set -euo pipefail
+
+# Resolve CBFLOW_ROOT / CBFLOW_GLOBAL_DIR / CBFLOW_CORE_DIR / CBFLOW_DFT_DIR /
+# CBFLOW_DV_DIR from this script's on-disk location. Handles symlinks and
+# both invocation homes (global/bin/ or <disc>/bin/).
+_SCRIPT_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Walk symlinks to find the real script (to locate _cbflow_paths.sh).
+_real="${BASH_SOURCE[0]}"
+while [ -L "$_real" ]; do
+    _dir="$(cd "$(dirname "$_real")" && pwd)"
+    _real="$(readlink "$_real")"
+    [[ "$_real" != /* ]] && _real="$_dir/$_real"
+done
+_HELPER="$(dirname "$_real")/_cbflow_paths.sh"
+# Discipline launchers under <disc>/bin/ source the helper from global/bin/.
+if [[ ! -f "$_HELPER" ]]; then
+    _cand="$(dirname "$(dirname "$(dirname "$_real")")")/global/bin/_cbflow_paths.sh"
+    [[ -f "$_cand" ]] && _HELPER="$_cand"
+fi
+if [[ ! -f "$_HELPER" ]]; then
+    echo "ERROR: _cbflow_paths.sh not found (looked near $_real)" >&2
+    exit 1
+fi
+# shellcheck source=./_cbflow_paths.sh
+source "$_HELPER" "${BASH_SOURCE[0]}"
+unset _SCRIPT_HOME _real _dir _HELPER _cand
+
+# Discipline roots: PD lives at $CBFLOW_CORE_DIR; sibling DFT/ and DV/ (when
+# they exist) host per-discipline cmd handlers, node_configs, and docs. The
+# framework checks each discipline root when resolving cmds/<FLOW>/… paths.
+if [[ -d "$CBFLOW_ROOT/DFT" ]]; then
+    export CBFLOW_DFT_DIR="$CBFLOW_ROOT/DFT"
+fi
+if [[ -d "$CBFLOW_ROOT/DV" ]]; then
+    export CBFLOW_DV_DIR="$CBFLOW_ROOT/DV"
+fi
+
+# Source environment if available
+[[ -f "$CBFLOW_CORE_DIR/config/cbflow.env" ]] && source "$CBFLOW_CORE_DIR/config/cbflow.env"
+
+# Version
+CBFLOW_VERSION="2.0.0"
+
+# Commands directory
+COMMANDS_DIR="$CBFLOW_CORE_DIR/utils/commands"
+
+# Print output
+print_info() {
+    echo "[INFO] $1"
+}
+
+print_error() {
+    echo "[ERROR] $1" >&2
+}
+
+print_success() {
+    echo "[SUCCESS] $1"
+}
+
+print_warning() {
+    echo "[WARNING] $1"
+}
+
+# Show help
+show_logo() {
+    echo ""
+    echo "  ╔═════════════════════════════════════════════════════╗"
+    echo "  ║  ██████╗██████╗ ███████╗██╗      ██████╗ ██╗    ██╗║"
+    echo "  ║ ██╔════╝██╔══██╗██╔════╝██║     ██╔═══██╗██║    ██║║"
+    echo "  ║ ██║     ██████╔╝█████╗  ██║     ██║   ██║██║ █╗ ██║║"
+    echo "  ║ ██║     ██╔══██╗██╔══╝  ██║     ██║   ██║██║███╗██║║"
+    echo "  ║ ╚██████╗██████╔╝██║     ███████╗╚██████╔╝╚███╔███╔╝║"
+    echo "  ║  ╚═════╝╚═════╝ ╚═╝     ╚══════╝ ╚═════╝  ╚══╝╚══╝║"
+    echo "  ║                                       Global       ║"
+    echo "  ║  Multi-Discipline Design Automation      v${CBFLOW_VERSION}    ║"
+    echo "  ╠═════════════════════════════════════════════════════╣"
+    echo "  ║  Developed by SmartSoc Solutions Pvt Limited        ║"
+
+    # Discipline roster — read directly from the global flow_registry so
+    # additions (e.g. dropping in a new AMS/ discipline) appear here without
+    # a launcher edit. Marks each as [enabled] when its top-level dir
+    # actually exists on disk, [scaffold] when the dir is missing (registered
+    # in global but no discipline root yet).
+    local _disciplines=""
+    if [[ -n "${CBFLOW_GLOBAL_DIR:-}" ]]; then
+        local _reg="$CBFLOW_GLOBAL_DIR/config/flow/v1.0.0/flow_registry.tcl"
+        if [[ -f "$_reg" ]]; then
+            _disciplines=$(grep -E '^\s*set\s+flow\(disciplines\)' "$_reg" 2>/dev/null \
+                | head -1 | sed -E 's/.*\{(.*)\}.*/\1/')
+        fi
+    fi
+    if [[ -n "$_disciplines" ]]; then
+        local _line=""
+        local _d=""
+        for _d in $_disciplines; do
+            if [[ -d "$CBFLOW_ROOT/$_d" ]]; then
+                _line="${_line} ${_d}[+]"
+            else
+                _line="${_line} ${_d}[-]"
+            fi
+        done
+        _line="${_line# }"
+        printf "  ║  Domains: %-41s║\n" "$_line"
+    fi
+
+    # Show project context if inside a run directory
+    local _proj="" _tech="" _flow="" _design="" _phase=""
+    if [[ -f ".run.cbflow.tcl" ]]; then
+        _proj=$(grep 'CBFLOW_PROJECT_NAME' .run.cbflow.tcl 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/')
+        _flow=$(grep 'CBFLOW_FLOW_TYPE' .run.cbflow.tcl 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/')
+        _design=$(grep 'CBFLOW_DESIGN_NAME' .run.cbflow.tcl 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/')
+        _phase=$(grep 'CBFLOW_PROJECT_PHASE' .run.cbflow.tcl 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/')
+        _tech=$(grep 'TECH_NAME' .run.cbflow.tcl 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/')
+    fi
+    if [[ -n "$_proj" ]]; then
+        echo "  ╠═════════════════════════════════════════════════════╣"
+        printf "  ║  Project:  %-20s Phase:  %-10s ║\n" "$_proj" "$_phase"
+        [[ -n "$_design" ]] && printf "  ║  Design:   %-20s Flow:   %-10s ║\n" "$_design" "$_flow"
+        [[ -n "$_tech" ]] && printf "  ║  Tech:     %-42s ║\n" "$_tech"
+        # Discipline of the current flow (routed from flow_registry)
+        if [[ -n "$_flow" && -n "${CBFLOW_GLOBAL_DIR:-}" ]]; then
+            local _reg="$CBFLOW_GLOBAL_DIR/config/flow/v1.0.0/flow_registry.tcl"
+            local _fd=$(grep -E "^\s*set\s+flow\(discipline,${_flow}\)" "$_reg" 2>/dev/null \
+                | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+            [[ -n "$_fd" ]] && printf "  ║  Domain:   %-42s ║\n" "$_fd"
+        fi
+    fi
+    echo "  ╚═════════════════════════════════════════════════════╝"
+    echo ""
+}
+
+show_help() {
+    show_logo
+    cat << EOF
+Usage: cbflow <command> [subcommand] [options]
+
+Commands:
+  workspace     Workspace management (run from any workarea)
+  run           Flow execution (run from within a run directory)
+  flow          Flow info & management (run from CORE_DIR only)
+
+Workspace Commands (run from workarea):
+  cbflow workspace template --flow SYNTH_PNR  Generate user_config.tcl template
+  cbflow workspace create --config user.tcl   Create a new run
+  cbflow workspace status                     Show workspace + run summary
+  cbflow workspace status --run 1             Detailed status of run #1
+  cbflow workspace status --run 2 --summary   Full report with timing/errors/metrics
+  cbflow workspace list-runs                  List all runs in this workspace
+  cbflow workspace validate                   Validate workspace configuration
+  cbflow workspace clean --confirm            Delete all run directories
+
+Run Commands (run from within a run directory):
+  cbflow run all                              Run complete flow
+  cbflow run all --validate                   Run with pre/post validation
+  cbflow run all --lsf --queue XL             Submit to LSF with queue override
+  cbflow run all --collect-metrics            Collect metrics after completion
+  cbflow run stage --name place               Run a single stage
+  cbflow run status                           Show stage completion
+  cbflow run status --details                 Show all subnodes per stage
+  cbflow run validate                         Validate config + inputs + outputs
+  cbflow run validate --type config           Validate configuration only
+  cbflow run validate --stage cts             Check stage outputs + exit criteria
+  cbflow run logs --list                      List all log files
+  cbflow run logs --tail 50 --level ERROR     Show last 50 error lines
+  cbflow run retrace --from cts               Rerun from CTS onwards
+  cbflow run show-graph --detail              Show dependency graph with subnodes
+  cbflow run add-node --node eco1 --type eco --dep signoff
+  cbflow run lsf-status                       Show LSF job queue status
+  cbflow run clean --confirm                  Delete work + logs
+  cbflow run release                          Milestone-gated release (from workspace)
+  cbflow run release --tag PLACE_EXIT         Release with specific tag
+  cbflow run release --dry-run                Validate only, no copy
+  cbflow run release-check --tag BTO --project bumblebee --phase P2
+                                              Check all blocks released for milestone
+  cbflow run release-lock                     Lock permissions (production: 444/555/755)
+  cbflow run release-lock --unlock            Unlock permissions (development: 777)
+
+Config Migration (carry user values forward when upgrading bundles):
+  cbflow migrate --old <old.tcl> --new <new.tcl>
+                                              Copy old values into new file,
+                                              one file at a time. Writes in
+                                              place; backup at <new>.bak.
+  cbflow migrate --old <old.tcl> --new <new.tcl> --dry-run
+                                              Show report only; do not write.
+
+Database Management (from run directory or workarea):
+  cbflow run db-manage                        Check session count vs limit
+  cbflow run db-manage --list                 List all DBs (owner, flow, result, size)
+  cbflow run db-manage --cleanup              Interactive delete (numbered list, owner only)
+  cbflow run db-manage --delete <run_name>    Delete specific run's DB (owner only)
+
+Bundle (create customer delivery package):
+  cbflow bundle                               Create tar.gz with 777 permissions
+  cbflow bundle --output /path/to/dir         Custom output directory
+  cbflow bundle --version v2.0.0_rc1          Custom version tag
+
+Test Suite (static config validation + end-to-end flow execution):
+  cbflow test                                 Run full suite (static + e2e, all flows)
+  cbflow test --static                        Static config-validation checks only
+  cbflow test --e2e                           End-to-end flow execution only
+  cbflow test --flow SYNTH_PNR                Test a single flow
+  cbflow test --flows SYNTH,PNR,STA           Test a subset
+  cbflow test --category 3                    Run one static category (1-8)
+  cbflow test --report results.json           JSON report
+  cbflow test --junit junit.xml               JUnit XML report
+  cbflow test --ci                            CI mode (junit + plain console)
+  cbflow test --list                          List categories and exit
+  cbflow test --keep                          Keep sandboxes (debug)
+
+Per-Run Dashboard Daemon (one daemon per user; every registered run shares it):
+  cbflow run dashboard start                  Start daemon (background; port 9000+uid%500)
+  cbflow run dashboard start --project <p>    Project-scoped daemon (port 20000+hash%2500)
+  cbflow run dashboard start --foreground     Run in foreground (debug)
+  cbflow run dashboard stop|restart|status    Lifecycle
+  cbflow run dashboard open [<run_dir>]       Open index or deep-link a run
+  cbflow run dashboard list                   List registered runs
+  cbflow run dashboard register <run_dir>     Register a run
+  cbflow run dashboard prune [-y]             Purge stale entries
+  cbflow run dashboard logs --follow          Tail the daemon log
+  cbflow run gui                              Register run + open in daemon
+  cbflow run clean --confirm                  Also deregisters the run from daemon
+  (Legacy 'cbflow dashboard ...' still works with a deprecation notice.)
+
+SmartGrid — Project-Level Metrics / DEF Timing / Closability Grid:
+  cbflow smartgrid start --project <p>             Start (background; port 25000+hash%2500)
+  cbflow smartgrid stop|restart|status --project <p>
+  cbflow smartgrid open --project <p>              Open browser to the project view
+  cbflow smartgrid list --project <p>              List published runs
+  cbflow smartgrid unpublish --project <p> --block <b> --phase <ph> --milestone <m>
+  cbflow run release --tag <TAG> --publish         Release + snapshot for management
+  cbflow run release --tag <TAG> --publish --override    Replace existing publish
+  (Legacy 'cbflow project-dashboard ...' still works with a deprecation notice.)
+
+SmartGenie AI Agent (100% private, runs locally):
+  cbflow smartgenie                           Interactive AI agent (local LLM)
+  cbflow smartgenie "run PNR to signoff"      One-shot command
+  cbflow smartgenie setup                     Check Ollama + model + knowledge base
+  cbflow smartgenie ingest --all              Build knowledge base from docs + code
+  cbflow smartgenie search "hold violation"   Search knowledge base
+  cbflow smartgenie stats                     Show knowledge base size
+  cbflow smartgenie learn --category fix --content "..."
+                                              Record experience for future use
+  cbflow smartgenie cloud "prompt"            Use Claude API (needs ANTHROPIC_API_KEY)
+
+SmartGenie Hybrid Mode (Claude teaches local LLM):
+  cbflow smartgenie --hybrid                  Use Claude API online, learn to local KB
+  cbflow smartgenie --hybrid "fix hold in cts" One-shot with Claude + learning
+  export ANTHROPIC_API_KEY=sk-ant-...         Required for hybrid mode
+  export SMARTGENIE_HYBRID=1                  Set hybrid permanently
+
+SmartGenie Server (multi-user enterprise):
+  cbflow smartgenie serve                     Start central server (on-prem)
+  cbflow smartgenie serve --port 8091         Custom port
+  cbflow smartgenie --server http://ip:8091 "prompt"
+                                              Connect to central server
+  export SMARTGENIE_SERVER=http://ip:8091     Set server permanently
+
+Flow Commands (run from CORE_DIR: $CBFLOW_CORE_DIR):
+  cbflow flow types                           List all flow types, grouped by discipline
+  cbflow flow types --domain DFT              Show flows for a single discipline (PD | DFT | DV)
+  cbflow flow info --flow PNR                 Show PNR tool, stages, vendor
+  cbflow flow stages --flow SYNTH             Show SYNTH stage list
+  cbflow flow check                           Verify CBFlow installation
+  cbflow flow project list                    List all projects
+  cbflow flow project info --name phoenix     Show project details
+  cbflow flow release list                    List all releases
+  cbflow flow release diff --v1 v1.0.0 --v2 v1.0.1
+                                              Compare two releases
+  cbflow flow release diff --v1 v1.0.0 --v2 v1.0.1 --format markdown
+                                              Compare in markdown format
+  cbflow flow plugin list                     List registered flow plugins
+  cbflow flow plugin scaffold --name MYFLOW --vendor acme --tool mytool
+                                              Create new flow template
+  cbflow flow metrics collect                 Collect run metrics to database
+  cbflow flow metrics report                  Show metrics summary
+  cbflow flow metrics report --flow PNR       Filter metrics by flow
+  cbflow flow dashboard start                 Launch web dashboard on port 8080
+
+Discipline-specific Launchers (own their subcommands, fall through to cbflow otherwise):
+  \$CBFLOW_ROOT/PD/bin/cbflow-pd    library-manager, mmmc-manager, checklist
+  \$CBFLOW_ROOT/DFT/bin/cbflow-dft  (extension point — no PD-specific commands yet)
+  \$CBFLOW_ROOT/DV/bin/cbflow-dv    (extension point — no DV-specific commands yet)
+
+  Typing \`cbflow flow library-manager …\` from anywhere auto-dispatches
+  to PD/bin/cbflow-pd. Users can also invoke the discipline launcher
+  directly; it defers everything else back to this shared cbflow.
+
+Options:
+  --version, -v                Show version information
+  --help, -h                   Show this help message
+  --completions bash|zsh       Output shell completion script
+
+Typical Workflow:
+  1. cd /path/to/workarea
+  2. cbflow workspace template --flow SYNTH_PNR > user_config.tcl
+  3. vi user_config.tcl                          (edit design inputs)
+  4. cbflow workspace create --config user_config.tcl
+  5. cd P0_run_SYNTH_PNR_run1
+  6. cbflow run all
+  7. cbflow run status --details
+  8. cbflow workspace status --run 1 --summary    (from workarea)
+
+Environment:
+  CBFLOW_ROOT        The umbrella install root — DO EXPORT to kick off flows.
+                     Every other CBFLOW_* var below is auto-derived from this.
+                     If exported, must contain: global/, PD/, and optionally
+                     DFT/ and DV/ as siblings.
+  CBFLOW_CORE_DIR    Auto: \$CBFLOW_ROOT/PD (physical design discipline)
+  CBFLOW_GLOBAL_DIR  Auto: \$CBFLOW_ROOT/global (cross-domain config layer —
+                     tech_config, project identity, mmmc, flow_registry).
+                     Sourced FIRST in the cascade; PD/DFT/DV overlay on top.
+  CBFLOW_DFT_DIR     Auto: \$CBFLOW_ROOT/DFT (design-for-test discipline)
+  CBFLOW_DV_DIR      Auto: \$CBFLOW_ROOT/DV  (RTL design verification)
+
+  Note: CBFLOW_ROOT is the anchor, not CBFLOW_GLOBAL_DIR.
+  global/ is a subordinate of the root, alongside every discipline directory.
+
+Installation Layout:
+  bin/                       Top-level launcher symlinks (post-Phase-5)
+  PD/bin/                    Original launcher home (still works — bin/ points here)
+  global/config/             Cross-discipline tech, project, flow_registry
+  PD/config/                 PD-specific tech/project overlays, flow node_configs
+  DFT/config/                DFT-specific configs + node_configs
+  DV/config/                 DV-specific configs + node_configs
+
+EOF
+}
+
+# Show version
+show_version() {
+    show_logo
+    echo "  Installation Root (CBFLOW_ROOT):  $CBFLOW_ROOT"
+    echo "  Global config     (CBFLOW_GLOBAL_DIR): ${CBFLOW_GLOBAL_DIR:-<not found>}"
+    echo "  PD  (CBFLOW_CORE_DIR):            $CBFLOW_CORE_DIR"
+    [[ -n "${CBFLOW_DFT_DIR:-}" ]] && echo "  DFT (CBFLOW_DFT_DIR):             $CBFLOW_DFT_DIR"
+    [[ -n "${CBFLOW_DV_DIR:-}"  ]] && echo "  DV  (CBFLOW_DV_DIR):              $CBFLOW_DV_DIR"
+    echo ""
+}
+
+# Main command dispatcher
+main() {
+    local cmd="${1:-help}"
+    shift || true
+
+    case "$cmd" in
+        # Workspace commands
+        workspace)
+            exec python3 "$COMMANDS_DIR/workspace_cmd.py" "$@"
+            ;;
+
+        # Run commands (within a run directory)
+        run)
+            # Intercept `cbflow run dashboard ...` — the per-run daemon lives
+            # under `run` because it serves per-run views. All other run
+            # subcommands go through run_cmd.py as usual.
+            if [ "${1:-}" = "dashboard" ]; then
+                shift
+                exec python3 "$COMMANDS_DIR/dashboard_daemon_cmd.py" "$@"
+            fi
+            exec python3 "$COMMANDS_DIR/run_cmd.py" "$@"
+            ;;
+
+        # Flow commands (info, project, version, release, config)
+        flow)
+            exec "$CBFLOW_GLOBAL_DIR/bin/cbflow-flow" "$@"
+            ;;
+
+        # Bundle for customer delivery
+        bundle)
+            exec "$CBFLOW_GLOBAL_DIR/bin/cbflow-bundle" "$@"
+            ;;
+
+        # Migrate user values from an old config file into a new one
+        migrate)
+            exec python3 "$COMMANDS_DIR/migrate_cmd.py" "$@"
+            ;;
+
+        # Test suite (static config validation + e2e flow execution)
+        test|test-suite)
+            exec python3 "$COMMANDS_DIR/test_cmd.py" "$@"
+            ;;
+
+        # Per-run dashboard daemon (moved under `run dashboard` — this shim
+        # keeps old scripts working during the transition; remove next release)
+        dashboard)
+            echo "note: 'cbflow dashboard' has moved to 'cbflow run dashboard'." >&2
+            exec python3 "$COMMANDS_DIR/dashboard_daemon_cmd.py" "$@"
+            ;;
+
+        # SmartGrid — project-level metrics / DEF timing / closability grid.
+        # `project-dashboard` kept as backward-compat alias (prints a note
+        # so existing scripts migrate on their next invocation).
+        smartgrid)
+            exec python3 "$COMMANDS_DIR/project_dashboard_cmd.py" "$@"
+            ;;
+        project-dashboard)
+            echo "note: 'cbflow project-dashboard' has been renamed to 'cbflow smartgrid'." >&2
+            exec python3 "$COMMANDS_DIR/project_dashboard_cmd.py" "$@"
+            ;;
+
+        # SmartGenie AI Agent
+        smartgenie)
+            local agent_script="$CBFLOW_CORE_DIR/ai/cbflow_local_agent.py"
+            local cloud_agent="$CBFLOW_CORE_DIR/ai/cbflow_agent.py"
+            local server_script="$CBFLOW_CORE_DIR/ai/cbflow_server.py"
+
+            # Check for --server and --mode flags anywhere in args
+            for arg in "$@"; do
+                if [[ "$arg" == --server=* ]]; then
+                    export SMARTGENIE_SERVER="${arg#--server=}"
+                elif [[ "$arg" == "--hybrid" || "$arg" == "--mode=hybrid" ]]; then
+                    export SMARTGENIE_HYBRID=1
+                fi
+            done
+
+            local subcmd="${1:-}"
+            shift 2>/dev/null || true
+
+            # Handle --server <url> as first positional
+            if [[ "$subcmd" == "--server" ]]; then
+                export SMARTGENIE_SERVER="$1"
+                shift 2>/dev/null || true
+                subcmd="${1:-}"
+                shift 2>/dev/null || true
+            fi
+
+            case "$subcmd" in
+                serve)
+                    exec python3 "$server_script" "$@"
+                    ;;
+                setup)
+                    exec python3 "$agent_script" setup
+                    ;;
+                ingest)
+                    exec python3 "$CBFLOW_CORE_DIR/ai/cbflow_knowledge.py" ingest "$@"
+                    ;;
+                reingest)
+                    # Re-ingest all + rebuild central DB
+                    echo "  Re-ingesting local knowledge base..."
+                    python3 "$CBFLOW_CORE_DIR/ai/cbflow_knowledge.py" ingest --all
+                    echo ""
+                    echo "  Rebuilding central server knowledge base..."
+                    rm -rf "$CBFLOW_CORE_DIR/ai/.central_knowledge_db"
+                    echo "  Done. Restart server to pick up new knowledge."
+                    ;;
+                search)
+                    exec python3 "$CBFLOW_CORE_DIR/ai/cbflow_knowledge.py" search "$@"
+                    ;;
+                stats)
+                    exec python3 "$CBFLOW_CORE_DIR/ai/cbflow_knowledge.py" stats
+                    ;;
+                learn)
+                    exec python3 "$CBFLOW_CORE_DIR/ai/cbflow_knowledge.py" learn "$@"
+                    ;;
+                usage)
+                    python3 -c "
+import sys; sys.path.insert(0, '$CBFLOW_CORE_DIR/ai')
+from usage_tracker import UsageTracker
+t = UsageTracker()
+print(t.format_stats_report())
+"
+                    ;;
+                cloud)
+                    exec python3 "$cloud_agent" "$@"
+                    ;;
+                code)
+                    # Launch Claude Code as agent in this project
+                    echo "  Launching Claude Code agent..."
+                    exec claude
+                    ;;
+                -h|--help|help)
+                    cat << SGEOF
+
+  SmartGenie — CBflow AI Agent (100% Private)
+  ════════════════════════════════════════════
+
+  Interactive & One-shot:
+    cbflow smartgenie                         Interactive mode (local LLM)
+    cbflow smartgenie "your prompt"           One-shot command
+    cbflow smartgenie --hybrid                Use Claude API + local learning
+    cbflow smartgenie --server URL "prompt"   Connect to central server
+    cbflow smartgenie code                    Launch Claude Code agent
+
+  Knowledge Base:
+    cbflow smartgenie ingest --all            Ingest docs + code + EDA guides
+    cbflow smartgenie reingest                Re-ingest all + rebuild server DB
+    cbflow smartgenie search "query"          Search knowledge base
+    cbflow smartgenie learn --category fix --content "..."
+    cbflow smartgenie stats                   Show knowledge base sizes
+
+  Server (Enterprise):
+    cbflow smartgenie serve                   Start central server
+    cbflow smartgenie serve --port 9090       Custom port
+
+  Monitoring:
+    cbflow smartgenie usage                   User stats + maturity levels
+    cbflow smartgenie setup                   Check Ollama + model + KB
+
+  Slash Commands (inside interactive):
+    /help     Show commands        /status   Workspace status
+    /flows    List flows           /search   Search KB
+    /stats    KB stats             /clear    Clear conversation
+    exit      End session
+
+  Environment Variables:
+    SMARTGENIE_SERVER    Central server URL (http://ip:8091)
+    SMARTGENIE_HYBRID    Set to 1 for Claude API hybrid mode
+    ANTHROPIC_API_KEY    Required for hybrid/cloud mode
+    CBFLOW_MODEL         Override LLM model (default: qwen2.5:14b)
+
+SGEOF
+                    ;;
+                *)
+                    # Default: local agent (Ollama, 100% private)
+                    if [[ -n "$subcmd" ]]; then
+                        exec python3 "$agent_script" "$subcmd $@"
+                    else
+                        exec python3 "$agent_script"
+                    fi
+                    ;;
+            esac
+            ;;
+
+        # Shell completions
+        --completions)
+            local shell_type="${1:-bash}"
+            local completions_dir="$CBFLOW_CORE_DIR/completions"
+            case "$shell_type" in
+                bash)
+                    if [[ -f "$completions_dir/cbflow.bash" ]]; then
+                        cat "$completions_dir/cbflow.bash"
+                    else
+                        print_error "Bash completion file not found: $completions_dir/cbflow.bash"
+                        exit 1
+                    fi
+                    ;;
+                zsh)
+                    if [[ -f "$completions_dir/_cbflow" ]]; then
+                        cat "$completions_dir/_cbflow"
+                    else
+                        print_error "Zsh completion file not found: $completions_dir/_cbflow"
+                        exit 1
+                    fi
+                    ;;
+                *)
+                    print_error "Unsupported shell: $shell_type (supported: bash, zsh)"
+                    exit 1
+                    ;;
+            esac
+            ;;
+
+        # Version/Help
+        --version|-v)
+            show_version
+            ;;
+        --help|-h|help)
+            show_help
+            ;;
+
+        # Unknown command
+        *)
+            print_error "Unknown command: $cmd"
+            echo ""
+            echo "Did you mean one of these?"
+            echo "  cbflow workspace $cmd $@"
+            echo "  cbflow run $cmd $@"
+            echo "  cbflow flow $cmd $@"
+            echo ""
+            show_help
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

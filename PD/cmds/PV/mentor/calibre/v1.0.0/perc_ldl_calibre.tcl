@@ -41,7 +41,7 @@ flow_proc configure_perc_ldl {
     # turn test mode OFF) made the variable EXIST, the guard skipped, and a
     # missing producer output silently propagated to a phantom PASS. Match
     # the convention used everywhere else in the tree.
-    set _tm [expr {[info exists ::flow(test_mode)] && $::flow(test_mode) eq "true"}]
+    set _tm [expr {[info exists ::flow(test_mode)] && [is_true $::flow(test_mode)]}]
     if {![file exists $::perc_ldl_gds] && !$_tm} {
         handle_error "perc_ldl input GDS missing: $::perc_ldl_gds — decomp_merge_gds1 must run first"
     }
@@ -149,10 +149,21 @@ flow_proc report_perc_ldl {
     puts $fp "Floating Gate Violations: $::perc_ldl_floating_gate"
     puts $fp "Latch-up Violations:      $::perc_ldl_latchup"
     close $fp
-    # Signoff artifact expected by mandatory_outputs
+    # Signoff artifact expected by mandatory_outputs. Pre-fix we only
+    # wrote under results/pv/perc_ldl/, but pv(mandatory_outputs,perc_ldl1)
+    # in PV_config.tcl declares results/perc_ldl/perc_ldl.rpt (without
+    # the 'pv/' segment). handler_validate's 4 candidate paths resolve
+    # against results/perc_ldl/, not results/pv/perc_ldl/, so every
+    # production perc_ldl1 stage failed validate even on tool success.
+    # Fix: mirror to the mandatory path.
     set mp [open "$::perc_ldl_out_dir/perc_ldl.rpt" w]
     puts $mp "PERC-LDL sign-off report — $::perc_ldl_status"
     close $mp
+    set _mandatory_dir "$::env(CBFLOW_RUN_DIR)/results/perc_ldl"
+    file mkdir $_mandatory_dir
+    if {[catch {file copy -force "$::perc_ldl_out_dir/perc_ldl.rpt" "$_mandatory_dir/perc_ldl.rpt"} _copy_err]} {
+        handle_warning "PERC-LDL mandatory-path mirror failed: $_copy_err — handler_validate will reject the perc_ldl1 stage"
+    }
     handle_info "Report written: $::REPORTS_DIR/perc_ldl_summary.rpt"
 }
 

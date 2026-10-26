@@ -56,15 +56,19 @@ proc generate_launch_wrapper {work_dir stage_name cmd_file tool_name {log_file "
         set launch_line "$tool_shell $script_flag $cmd_file $log_flag $log_file"
     }
 
-    # Write wrapper
+    # Write wrapper atomically. Pre-fix, open-w + series of puts was
+    # non-atomic: kill between the shebang puts and the final
+    # tool-invocation puts could leave a wrapper with a valid shebang
+    # but no `module load` and no tool-exec line. Subsequent bsub ran
+    # an empty wrapper, exited 0, handler saw rc=0, stage marked DONE
+    # against prior-run outputs. Silent-prod-success. S-tier.
     set wrapper_path "$work_dir/launch_${stage_name}.csh"
-    set wf [open $wrapper_path "w"]
-    puts $wf "#!$wrapper_shell"
-    puts $wf "# CBflow tool launch wrapper — $stage_name"
-    puts $wf "# Generated: [clock format [clock seconds]]"
-    if {$module_cmd ne ""} { puts $wf "$module_cmd" }
-    puts $wf "$launch_line"
-    close $wf
+    set wrapper_content "#!$wrapper_shell\n"
+    append wrapper_content "# CBflow tool launch wrapper — $stage_name\n"
+    append wrapper_content "# Generated: [clock format [clock seconds]]\n"
+    if {$module_cmd ne ""} { append wrapper_content "$module_cmd\n" }
+    append wrapper_content "$launch_line\n"
+    atomic_write $wrapper_path $wrapper_content
     catch { file attributes $wrapper_path -permissions rwxr-xr-x }
 
     return $wrapper_path
@@ -78,13 +82,13 @@ proc determine_launch_mode {} {
 
     if {[info exists ::env(CBFLOW_BSUB_CMD)] && $::env(CBFLOW_BSUB_CMD) ne ""} {
         set use_lsf true
-    } elseif {[info exists ::flow(use_lsf)] && $::flow(use_lsf) eq "true"} {
+    } elseif {[info exists ::flow(use_lsf)] && [is_true $::flow(use_lsf)]} {
         set use_lsf true
     } elseif {[info exists ::env(CBFLOW_USE_LSF)] && $::env(CBFLOW_USE_LSF) eq "1"} {
         set use_lsf true
     }
 
-    if {[info exists ::flow(use_xterm)] && $::flow(use_xterm) eq "true"} {
+    if {[info exists ::flow(use_xterm)] && [is_true $::flow(use_xterm)]} {
         set use_xterm true
     } elseif {[info exists ::env(CBFLOW_USE_XTERM)] && $::env(CBFLOW_USE_XTERM) eq "1"} {
         set use_xterm true
@@ -195,20 +199,80 @@ proc submit_job {wrapper flow_type stage_name node_name work_dir} {
             lappend bsub_cmd -e "$work_dir/lsf_${node_name}_%J.err"
         }
         if {$use_xterm} {
+            # LSF+xterm: $DISPLAY must propagate to the compute node. If
+            # the user runs via nohup/cron/ssh without -X, xterm will
+            # fail cryptically after bsub -Is dispatches. Round-1 only
+            # guarded the non-LSF xterm branch — now check both.
+            if {![info exists ::env(DISPLAY)] || $::env(DISPLAY) eq ""} {
+                puts "ERROR: flow(use_lsf)=true and flow(use_xterm)=true require \$DISPLAY."
+                puts "       Running via nohup/cron/ssh without X forwarding?"
+                puts "       Either set DISPLAY, run with -X, or set flow(use_xterm) false."
+                exit 1
+            }
             puts "INFO: Submitting via LSF (xterm): $bsub_cmd $xterm_cmd ..."
             if {[catch {exec {*}$bsub_cmd $xterm_cmd -geometry $xterm_geom -title "CBflow $flow_type $stage_name" -e $wrapper} result]} {
                 puts "ERROR: LSF submit failed: $result"; exit 1
             }
         } else {
-            puts "INFO: Submitting via LSF (batch): $bsub_cmd $wrapper"
-            if {[catch {exec {*}$bsub_cmd $wrapper} result]} {
-                puts "ERROR: LSF submit failed: $result"; exit 1
+            # Non-interactive LSF: `bsub <wrapper>` returns 0 as soon as
+            # the job is queued, NOT when it finishes. Pre-fix the
+            # handler printed "INFO: $stage_name run completed" right
+            # after this returned → RACE engine marked the subnode DONE
+            # while LSF still had the job PENDING; downstream stages
+            # launched against empty outputs (silent-prod-success).
+            # Fix: force synchronous mode via `-K`, so bsub blocks until
+            # the job finishes and the exit code of the job is bsub's
+            # exit code. Caller already captures and asserts rc.
+            set bsub_cmd_sync [linsert $bsub_cmd 1 "-K"]
+            puts "INFO: Submitting via LSF (batch, -K sync): $bsub_cmd_sync $wrapper"
+            if {[catch {exec {*}$bsub_cmd_sync $wrapper} result]} {
+                puts "ERROR: LSF submit/exec failed: $result"; exit 1
             }
         }
         puts $result
     } elseif {$use_xterm} {
-        puts "INFO: Launching in xterm: $xterm_cmd -geometry $xterm_geom -e $wrapper"
-        exec $xterm_cmd -geometry $xterm_geom -title "CBflow $flow_type $stage_name" -e $wrapper &
+        # Sanity: `exec xterm ... &` is fire-and-forget. If DISPLAY isn't
+        # set or the wrapper is missing, xterm will fail after the parent
+        # has already moved on — silent no-op, node marked DONE, empty
+        # outputs. Catch both upfront.
+        if {![info exists ::env(DISPLAY)] || $::env(DISPLAY) eq ""} {
+            puts "ERROR: flow(use_xterm)=true but \$DISPLAY is not set."
+            puts "       Either set DISPLAY (X server), disable xterm with"
+            puts "       flow(use_xterm) \"false\", or run in test_mode."
+            exit 1
+        }
+        if {![file executable $wrapper]} {
+            puts "ERROR: Launch wrapper is not executable: $wrapper"
+            exit 1
+        }
+        # xterm's exit code reflects whether xterm itself ran (closed
+        # window, X errors) — NOT the `-e <command>`'s exit code. Pre-
+        # fix an EDA tool that failed with non-zero rc inside xterm
+        # exited through xterm with status 0; handler marked stage DONE.
+        # Fix: wrap the wrapper in a tiny shell that captures the real
+        # rc into a file, then read the file after xterm exits. The
+        # outer `catch` on the exec still catches xterm-level failures.
+        set _rc_file "$work_dir/.launch_rc_${stage_name}"
+        catch { file delete -- $_rc_file }
+        set _rc_wrap "/bin/sh -c \"$wrapper; echo \\\$? > $_rc_file\""
+        puts "INFO: Launching in xterm: $xterm_cmd -geometry $xterm_geom -e <rc-capturing sh wrapper>"
+        if {[catch {exec $xterm_cmd -geometry $xterm_geom -title "CBflow $flow_type $stage_name" -e sh -c "$wrapper; echo \$? > $_rc_file"} result]} {
+            puts "ERROR: xterm launch failed: $result"; exit 1
+        }
+        # Read captured rc. Missing rc file → xterm never ran the
+        # wrapper (DISPLAY killed in-flight, user closed window before
+        # wrapper started) → treat as failure.
+        set _real_rc 1
+        if {[file exists $_rc_file]} {
+            set _rfh [open $_rc_file r]
+            set _real_rc [string trim [read $_rfh]]
+            close $_rfh
+            catch { file delete -- $_rc_file }
+        }
+        if {$_real_rc ne "0"} {
+            puts "ERROR: wrapper-inside-xterm exited rc=$_real_rc for $stage_name"
+            exit 1
+        }
     } else {
         puts "INFO: Executing locally: $wrapper"
         if {[catch {exec $wrapper} result]} {
@@ -245,24 +309,48 @@ proc handler_run {run_dir flow_type node_name stage_name cmd_file test_mode {too
 
         # Execute the generated command file through tclsh
         # flow_exec in utils.tcl detects test_mode and intercepts EDA commands
+        # Track whether the stub execution itself crashed so the dummy
+        # output pipeline below can REFUSE to write "PASS" markers over
+        # a failed stub run. Pre-fix the catch result was captured in
+        # `_output` but both branches just `puts $_output` and continued,
+        # letting a Tcl parse error in the generated command file produce
+        # "PASS (test_mode)" artifacts the release-check would then accept.
+        set _stub_exec_ok 1
         set _gen_file "$work_dir/${node_name}.${tool_name}.tcl"
         if {[file exists $_gen_file]} {
             puts "INFO: Executing: $_gen_file"
             if {[catch {exec tclsh $_gen_file 2>@1} _output]} {
-                # Catch exits (test_mode intercepts exit but tclsh may still return non-zero)
-                puts "$_output"
+                puts stderr "ERROR: test_mode exec of $_gen_file FAILED (tclsh returned non-zero)"
+                puts stderr "       $_output"
+                set _stub_exec_ok 0
             } else {
                 puts "$_output"
             }
         } elseif {[file exists $cmd_file]} {
             puts "INFO: Executing: $cmd_file"
             if {[catch {exec tclsh $cmd_file 2>@1} _output]} {
-                puts "$_output"
+                puts stderr "ERROR: test_mode exec of $cmd_file FAILED (tclsh returned non-zero)"
+                puts stderr "       $_output"
+                set _stub_exec_ok 0
             } else {
                 puts "$_output"
             }
         } else {
-            puts "WARNING: Command file not found: $cmd_file"
+            puts stderr "WARNING: Command file not found: $cmd_file"
+            set _stub_exec_ok 0
+        }
+        if {!$_stub_exec_ok} {
+            # Stub execution failed. Write a FAILURE marker instead of
+            # the usual stub artifacts so downstream (handler_validate,
+            # release-check) sees the failure. Then propagate rc.
+            set _fail_dir "$run_dir/work/$flow_type/$node_name/outputs"
+            catch { file mkdir $_fail_dir }
+            catch {
+                set _fh [open "$_fail_dir/.TEST_MODE_EXEC_FAILED" w]
+                puts $_fh "stub execution failed at [clock format [clock seconds]]"
+                close $_fh
+            }
+            exit 1
         }
         # Generate dummy output files for release testing
         set _design [expr {[info exists ::flow(design_name)] ? $::flow(design_name) : "design"}]
@@ -403,22 +491,36 @@ proc handler_run {run_dir flow_type node_name stage_name cmd_file test_mode {too
                 puts $_f "MMMC Cross-Corner Merge Reports Summary - $_ts"; close $_f
             }
             "release_data" {
-                # Release package contains a manifest, release notes, and a
-                # completion stamp. Mirrors what the real ::CBFlow::Release
-                # procs would produce.
+                # Test-mode release stub. CRITICAL: every artifact must
+                # self-identify as test_mode so release-check / tape-out
+                # gates can REFUSE to accept a stub release. Pre-fix we
+                # wrote "Status: PASS (test_mode)" which grepped as PASS;
+                # downstream `cbflow run release-check --tag BTO` returned
+                # green on stub-only releases, enabling tape-out sign-off
+                # against zero real data. We now write explicit TEST_MODE
+                # markers at every level AND drop a sentinel `.TEST_MODE`
+                # file release-check hard-rejects.
                 set _f [open "$_outputs_dir/release_manifest.txt" w]
                 puts $_f "# CBflow Release Manifest"
                 puts $_f "# Flow:    $flow_type"
                 puts $_f "# Design:  $_design"
                 puts $_f "# Date:    $_ts"
-                puts $_f "# Status:  COMPLETE (test_mode)"
+                puts $_f "# Status:  TEST_MODE_STUB — NOT A REAL RELEASE"
+                puts $_f "# WARNING: This directory was produced by a test_mode run."
+                puts $_f "#          No real tool output exists. Do NOT sign off."
                 close $_f
                 set _f [open "$_outputs_dir/release_notes.md" w]
-                puts $_f "# Release Notes ($_design, $flow_type)\n\nTest-mode release."; close $_f
+                puts $_f "# Release Notes ($_design, $flow_type)\n\nTEST_MODE_STUB — not a real release."; close $_f
                 set _f [open "$_outputs_dir/RELEASE_COMPLETE" w]
-                puts $_f "Release completed: $_ts"; close $_f
+                puts $_f "Release completed: $_ts (TEST_MODE_STUB)"; close $_f
                 set _f [open "$_reports_dir/release_validation.rpt" w]
-                puts $_f "Release Validation - $_ts\nStatus: PASS (test_mode)"; close $_f
+                puts $_f "Release Validation - $_ts\nStatus: TEST_MODE_STUB — NOT VERIFIED"; close $_f
+                # Sentinel file — release-check must refuse to accept any
+                # release whose directory contains this marker.
+                set _f [open "$_outputs_dir/.TEST_MODE_STUB" w]
+                puts $_f "flow(test_mode)=true during release_data"
+                puts $_f "timestamp: $_ts"
+                close $_f
             }
             "extraction" {
                 set _f [open "$_outputs_dir/${_design}.spef" w]

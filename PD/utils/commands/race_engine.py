@@ -43,6 +43,43 @@ import config_validator as _cfg_validator
 logger = logging.getLogger('cbflow.engine')
 
 
+def _sqlite_connect(db_path):
+    """Centralized sqlite3.connect with WAL + busy_timeout.
+
+    Pre-fix: 22+ call sites used `sqlite3.connect(path)` with default
+    settings. Default journal_mode=DELETE serializes readers against
+    the writer's reserved lock. Default busy_timeout=0 means any
+    concurrent writer immediately raises OperationalError('database is
+    locked'). Under the ThreadPoolExecutor fan-out plus dashboard
+    polling, this manifested as successful jobs being marked FAILED
+    (record_complete failed with OperationalError → bubbled up as
+    generic Exception → _execute_job returned 1 → wavefront aborted).
+
+    WAL mode: readers no longer block writers; multiple readers OK;
+    exactly one writer at a time but writers don't block readers.
+    busy_timeout=30s: wait up to 30s before raising. Covers the
+    bursty-write pattern during job completion sweeps.
+    """
+    conn = sqlite3.connect(db_path, timeout=30.0)
+    # Pre-fix: both PRAGMAs were wrapped in `try/except: pass`, so a
+    # transient OperationalError at connect time silently returned a
+    # connection WITHOUT the busy_timeout and WAL — defeating the
+    # entire fix. Now log at WARNING so the regression is visible, but
+    # still return the connection (callers can continue; next connect
+    # may succeed).
+    try:
+        conn.execute('PRAGMA busy_timeout=30000')
+    except sqlite3.OperationalError as e:
+        logger.warning(f"_sqlite_connect({db_path}): PRAGMA busy_timeout failed: {e}; "
+                       f"connections may deadlock under contention")
+    try:
+        conn.execute('PRAGMA journal_mode=WAL')
+    except sqlite3.OperationalError as e:
+        logger.warning(f"_sqlite_connect({db_path}): PRAGMA journal_mode=WAL failed: {e}; "
+                       f"readers may block during writer transactions")
+    return conn
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # DAG NODE
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -702,7 +739,7 @@ class StatusDB:
         return None
 
     def _init_db(self):
-        conn = sqlite3.connect(self.db_path)
+        conn = _sqlite_connect(self.db_path)
         conn.execute('''CREATE TABLE IF NOT EXISTS jobs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             job_name TEXT NOT NULL,
@@ -854,7 +891,7 @@ class StatusDB:
 
     def record_pending(self, jobs: list):
         """Mark multiple jobs as PENDING in DB (batch insert)."""
-        conn = sqlite3.connect(self.db_path)
+        conn = _sqlite_connect(self.db_path)
         now = datetime.now().isoformat()
         for job in jobs:
             conn.execute(
@@ -866,7 +903,7 @@ class StatusDB:
         conn.close()
 
     def record_start(self, job: Job):
-        conn = sqlite3.connect(self.db_path)
+        conn = _sqlite_connect(self.db_path)
         now = datetime.now().isoformat()
         # Try to update existing PENDING row first
         cur = conn.execute(
@@ -886,7 +923,7 @@ class StatusDB:
         job.status = Job.RUNNING
 
     def record_complete(self, job: Job, exit_code: int, error_msg: str = '', status_override: str = None):
-        conn = sqlite3.connect(self.db_path)
+        conn = _sqlite_connect(self.db_path)
         now = datetime.now().isoformat()
         status = status_override or (Job.DONE if exit_code == 0 else Job.FAIL)
 
@@ -918,16 +955,34 @@ class StatusDB:
         """Reset stale RUNNING jobs back to READY on init.
         Only resets RUNNING (truly stale from crashes). Does NOT touch PENDING —
         those are legitimately queued by an active execute_jobs() in another thread."""
-        conn = sqlite3.connect(self.db_path)
+        conn = _sqlite_connect(self.db_path)
         # Only reset RUNNING (stale from crash/interrupt) — never PENDING
         conn.execute("UPDATE jobs SET status = ? WHERE status = ?",
                      (Job.READY, Job.RUNNING))
         conn.commit()
         conn.close()
 
+    def _reset_pending_on_interrupt(self):
+        """Reset PENDING→READY — called ONLY from _handle_interrupt.
+
+        reset_stale_jobs() intentionally refuses to touch PENDING (it
+        can't tell which PENDING rows belong to a sibling engine still
+        alive). But when we KNOW the engine is exiting (SIGINT /
+        SIGTERM / SIGHUP), the active-engine assumption is false and
+        every PENDING row is in fact dead state. Without this reset,
+        the next `cbflow run all` sees PENDING rows, `is_ready()`
+        returns False forever, and the DAG deadlocks at the first
+        downstream.
+        """
+        conn = _sqlite_connect(self.db_path)
+        conn.execute("UPDATE jobs SET status = ? WHERE status = ?",
+                     (Job.READY, Job.PENDING))
+        conn.commit()
+        conn.close()
+
     def record_ready(self, jobs: list):
         """Reset PENDING jobs back to READY in DB (after upstream failure)."""
-        conn = sqlite3.connect(self.db_path)
+        conn = _sqlite_connect(self.db_path)
         for job in jobs:
             conn.execute('UPDATE jobs SET status = ? WHERE job_name = ? AND status = ?',
                          (Job.READY, job.name, Job.PENDING))
@@ -936,7 +991,7 @@ class StatusDB:
 
     def record_direct(self, job: Job, status: str):
         """Write a status directly to DB (for bypass/forcevalidate — no start/complete pair)."""
-        conn = sqlite3.connect(self.db_path)
+        conn = _sqlite_connect(self.db_path)
         now = datetime.now().isoformat()
         hostname = socket.gethostname()
         conn.execute(
@@ -951,7 +1006,7 @@ class StatusDB:
 
     def save_job_order(self, jobs: dict):
         """Save canonical DAG order to job_order table. Rebuilds every time."""
-        conn = sqlite3.connect(self.db_path)
+        conn = _sqlite_connect(self.db_path)
         conn.execute('DELETE FROM job_order')
         for seq, (name, job) in enumerate(jobs.items()):
             conn.execute(
@@ -963,7 +1018,7 @@ class StatusDB:
 
     def seed_missing_jobs(self, jobs: dict):
         """Insert READY rows for jobs not yet in DB (e.g., dynamically added nodes)."""
-        conn = sqlite3.connect(self.db_path)
+        conn = _sqlite_connect(self.db_path)
         existing = {row[0] for row in conn.execute('SELECT DISTINCT job_name FROM jobs')}
         now = datetime.now().isoformat()
         count = 0
@@ -982,7 +1037,7 @@ class StatusDB:
 
     def invalidate(self, job_names: list):
         """Set jobs to INVALIDATED — works on ANY current status."""
-        conn = sqlite3.connect(self.db_path)
+        conn = _sqlite_connect(self.db_path)
         for name in job_names:
             conn.execute('UPDATE jobs SET status = ? WHERE job_name = ? AND status != ?',
                          (Job.INVALIDATED, name, Job.INVALIDATED))
@@ -991,7 +1046,7 @@ class StatusDB:
 
     def get_completed(self) -> dict:
         """Get jobs whose LATEST entry is a completed state. Returns {name: status}."""
-        conn = sqlite3.connect(self.db_path)
+        conn = _sqlite_connect(self.db_path)
         cur = conn.execute(
             "SELECT job_name, status FROM jobs "
             "WHERE id IN (SELECT MAX(id) FROM jobs GROUP BY job_name) "
@@ -1001,28 +1056,28 @@ class StatusDB:
         return result
 
     def set_run_info(self, key: str, value: str):
-        conn = sqlite3.connect(self.db_path)
+        conn = _sqlite_connect(self.db_path)
         conn.execute('INSERT OR REPLACE INTO run_info (key, value) VALUES (?, ?)',
                      (key, value))
         conn.commit()
         conn.close()
 
     def get_run_info(self, key: str) -> str:
-        conn = sqlite3.connect(self.db_path)
+        conn = _sqlite_connect(self.db_path)
         cur = conn.execute('SELECT value FROM run_info WHERE key = ?', (key,))
         row = cur.fetchone()
         conn.close()
         return row[0] if row else ''
 
     def record_metric(self, stage: str, metric_name: str, metric_value: str):
-        conn = sqlite3.connect(self.db_path)
+        conn = _sqlite_connect(self.db_path)
         conn.execute('INSERT INTO stage_metrics (stage, metric_name, metric_value) VALUES (?, ?, ?)',
                      (stage, metric_name, metric_value))
         conn.commit()
         conn.close()
 
     def get_metrics(self, stage: str = None) -> list:
-        conn = sqlite3.connect(self.db_path)
+        conn = _sqlite_connect(self.db_path)
         if stage:
             cur = conn.execute('SELECT stage, metric_name, metric_value, captured_at '
                                'FROM stage_metrics WHERE stage = ? ORDER BY id', (stage,))
@@ -1035,28 +1090,28 @@ class StatusDB:
 
     def set_config(self, key: str, value: str):
         """Store a config key-value in run_config table."""
-        conn = sqlite3.connect(self.db_path)
+        conn = _sqlite_connect(self.db_path)
         conn.execute('INSERT OR REPLACE INTO run_config (key, value) VALUES (?, ?)', (key, value))
         conn.commit()
         conn.close()
 
     def get_config(self, key: str, default: str = '') -> str:
         """Read a config value from run_config table."""
-        conn = sqlite3.connect(self.db_path)
+        conn = _sqlite_connect(self.db_path)
         row = conn.execute('SELECT value FROM run_config WHERE key = ?', (key,)).fetchone()
         conn.close()
         return row[0] if row else default
 
     def get_all_config(self) -> dict:
         """Read all config values from run_config table."""
-        conn = sqlite3.connect(self.db_path)
+        conn = _sqlite_connect(self.db_path)
         result = {r[0]: r[1] for r in conn.execute('SELECT key, value FROM run_config')}
         conn.close()
         return result
 
     def save_dag_structure(self, jobs: dict):
         """Save full DAG structure to dag_structure table."""
-        conn = sqlite3.connect(self.db_path)
+        conn = _sqlite_connect(self.db_path)
         conn.execute('DELETE FROM dag_structure')
         for name, job in jobs.items():
             conn.execute(
@@ -1069,7 +1124,7 @@ class StatusDB:
 
     def get_full_status(self) -> dict:
         """Get complete run status from DB."""
-        conn = sqlite3.connect(self.db_path)
+        conn = _sqlite_connect(self.db_path)
 
         # Run info
         run_info = {}
@@ -1266,7 +1321,7 @@ class RaceEngine:
             'CBFLOW_PROJECT_PHASE': 'phase',
             'CBFLOW_FLOW_TYPE': 'flow_type',
         }
-        conn = sqlite3.connect(self.db.db_path)
+        conn = _sqlite_connect(self.db.db_path)
         for env_key, db_key in info_keys.items():
             val = self.env_vars.get(env_key, '')
             if val:
@@ -1300,7 +1355,7 @@ class RaceEngine:
                 if f.startswith('override_config.') and f.endswith('.tcl'):
                     config_files.append(os.path.join(setup_dir, f))
 
-        conn = sqlite3.connect(self.db.db_path)
+        conn = _sqlite_connect(self.db.db_path)
         user = os.environ.get('USER', 'unknown')
         for cfg_path in config_files:
             if not os.path.exists(cfg_path):
@@ -1384,7 +1439,7 @@ class RaceEngine:
                     if len(critical) >= 10:
                         break
             import json
-            conn = sqlite3.connect(self.db.db_path)
+            conn = _sqlite_connect(self.db.db_path)
             conn.execute(
                 "INSERT INTO run_logs (job_name, stage, log_file, log_size_bytes, "
                 "error_count, warning_count, critical_errors) "
@@ -1395,15 +1450,19 @@ class RaceEngine:
             )
             conn.commit()
             conn.close()
-        except Exception:
-            pass  # Non-critical — don't fail job because of log scanning
+        except (sqlite3.Error, OSError) as e:
+            # Pre-fix: bare `except Exception: pass` masked real DB errors
+            # (locked DB, schema mismatch, disk full) AND programming bugs
+            # (TypeError on malformed args). Narrow to I/O-ish exceptions
+            # and log at warning so operators see telemetry loss.
+            logger.warning(f"_record_log_summary({job_name}): skipped: {e}")
 
     def _record_lsf_details(self, job_name: str, job):
         """Record LSF resource details for a completed job."""
         if not self.db or not getattr(job, 'lsf_job_id', None):
             return
         try:
-            conn = sqlite3.connect(self.db.db_path)
+            conn = _sqlite_connect(self.db.db_path)
             conn.execute(
                 "INSERT INTO lsf_details (job_name, lsf_job_id, queue, resource_tier, "
                 "exec_host, start_time, end_time, exit_code) "
@@ -1418,8 +1477,9 @@ class RaceEngine:
             )
             conn.commit()
             conn.close()
-        except Exception:
-            pass
+        except (sqlite3.Error, OSError) as e:
+            # Narrow + log — see _record_log_summary rationale.
+            logger.warning(f"_record_lsf_details({job_name}): skipped: {e}")
 
     # ── Per-stage block-state cleanup (bypass-safe load_design) ─────────────
     # Each FC PnR stage's save_design writes
@@ -1603,10 +1663,27 @@ class RaceEngine:
 
     def execute_jobs(self, target_jobs: set) -> int:
         """Execute a set of jobs respecting dependencies."""
-        # Install signal handler for graceful interrupt (main thread only)
+        # Install signal handlers for graceful interrupt (main thread only).
+        # Pre-fix only SIGINT was handled — SIGTERM (LSF/k8s) and SIGHUP
+        # (ssh disconnect) orphaned children and leaked LSF jobs.
         import threading
+        import atexit as _atexit
         if threading.current_thread() is threading.main_thread():
             signal.signal(signal.SIGINT, self._handle_interrupt)
+            try:
+                signal.signal(signal.SIGTERM, self._handle_interrupt)
+            except (ValueError, OSError):
+                pass
+            try:
+                signal.signal(signal.SIGHUP, self._handle_interrupt)
+            except (ValueError, OSError, AttributeError):
+                # Windows has no SIGHUP; harmless skip.
+                pass
+            # atexit backstop for any unhandled exception path that bypasses
+            # the signal handlers (sys.exit, uncaught raise, OOM).
+            if not getattr(self, '_atexit_registered', False):
+                _atexit.register(self._kill_running_processes)
+                self._atexit_registered = True
 
         target_desc = ', '.join(sorted({self.jobs[n].stage for n in target_jobs if n in self.jobs}))
         self.db.set_run_info('target', target_desc)
@@ -1803,7 +1880,7 @@ class RaceEngine:
         Returns: {stage_name: [list of changed files]} or empty dict
         """
         changed = {}
-        conn = sqlite3.connect(self.db.db_path)
+        conn = _sqlite_connect(self.db.db_path)
 
         # ── 1. Source file change detection (input leaf nodes) ────────────
         # Read source file paths from user_config.tcl
@@ -2077,7 +2154,7 @@ class RaceEngine:
         try:
             db_status = self.db.get_completed()  # {name: status} for completed jobs
             # Also get invalidated/ready jobs
-            conn = sqlite3.connect(self.db.db_path)
+            conn = _sqlite_connect(self.db.db_path)
             cur = conn.execute(
                 "SELECT job_name, status FROM jobs "
                 "WHERE id IN (SELECT MAX(id) FROM jobs GROUP BY job_name)")
@@ -2114,7 +2191,12 @@ class RaceEngine:
                     job.status = Job.READY
 
         except Exception as e:
-            logger.debug(f"DB sync error (non-fatal): {e}")
+            # Elevate from debug to warning — a DB sync failure means
+            # external BYPASS/FORCE_VALIDATE/INVALIDATE commits from the
+            # dashboard are silently ignored and the engine runs with
+            # stale in-memory state. Operator needs to see this.
+            logger.warning(f"RACE: DB sync failed ({type(e).__name__}: {e}) — "
+                           f"external status commits may be ignored this tick")
 
     def _execute_job(self, job: Job) -> int:
         """Execute a single job. Returns exit code."""
@@ -2126,19 +2208,32 @@ class RaceEngine:
             return 0
 
         # ── Pre-execution check: required input files from upstream ──
-        # Only check on the first subnode (setup) of each stage
-        # Skip in test mode — no real EDA outputs are produced
-        is_test_mode = self.env_vars.get('CBFLOW_TEST_MODE', '') == 'true' or \
-                       os.environ.get('CBFLOW_TEST_MODE', '') == 'true'
+        # Only check on the first subnode (setup) of each stage.
+        # Skip in test mode — no real EDA outputs are produced.
+        def _truthy(v):
+            return str(v).strip().strip('"').lower() in ('true', '1', 'yes', 'on', 'y', 't')
+        is_test_mode = _truthy(self.env_vars.get('CBFLOW_TEST_MODE', '')) or \
+                       _truthy(os.environ.get('CBFLOW_TEST_MODE', ''))
         if not is_test_mode:
-            # Check user_config.tcl for flow(test_mode)
+            # Check user_config.tcl for `set flow(test_mode) "..."`. Pre-fix
+            # the test used `'test_mode' in line and '"true"' in line`, which
+            # matched comments like `# test_mode "true" was removed` →
+            # silently disabled input validation on real production runs.
+            # Now anchor on an actual `set flow(test_mode) <truthy>` line.
             uc = os.path.join(self.run_dir, 'setup', 'user_config.tcl')
             if os.path.exists(uc):
-                with open(uc) as f:
-                    for line in f:
-                        if 'test_mode' in line and '"true"' in line:
-                            is_test_mode = True
-                            break
+                import re as _re_tm
+                _tm_pat = _re_tm.compile(
+                    r'^[ \t]*set\s+flow\(test_mode\)\s+"?([a-zA-Z0-9]+)"?')
+                try:
+                    with open(uc, encoding='utf-8') as f:
+                        for line in f:
+                            m = _tm_pat.match(line)
+                            if m and _truthy(m.group(1)):
+                                is_test_mode = True
+                                break
+                except (OSError, UnicodeDecodeError):
+                    pass
         if not is_test_mode and job.subnode in ('setup', job.stage.rstrip('0123456789')):
             missing = self._validate_required_inputs(job)
             if missing:
@@ -2235,13 +2330,35 @@ class RaceEngine:
             return exit_code
 
         except subprocess.TimeoutExpired:
-            proc.kill()
+            # Pre-fix: proc.kill() only SIGKILLed the shell (Popen was
+            # created with shell=True + start_new_session=True). Tool
+            # grandchildren got reparented to init and kept running —
+            # licenses held forever. Use killpg to tear down the whole
+            # session, same as _kill_running_processes.
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            except (ProcessLookupError, PermissionError, OSError):
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
             self._running_processes.pop(job.name, None)
             error_msg = f"Job timed out after {self._get_timeout(job)}s. Stage: {job.stage}, Subnode: {job.subnode}"
             self.db.record_complete(job, 124, error_msg)
             logger.error(f"  [{job.stage}/{job.subnode}] TIMEOUT — {error_msg}")
             return 124
         except Exception as e:
+            # Pre-fix: exception path popped from registry without
+            # killing proc. If an error raised after Popen() succeeded,
+            # the subprocess leaked and we lost the handle to kill it.
+            if proc is not None and proc.poll() is None:
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                except (ProcessLookupError, PermissionError, OSError):
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
             self._running_processes.pop(job.name, None)
             error_msg = f"Execution error: {str(e)}\nCommand: {job.command}"
             self.db.record_complete(job, 1, error_msg)
@@ -2408,7 +2525,14 @@ class RaceEngine:
         return 0
 
     def _kill_running_processes(self):
-        """Kill all currently running job processes to release licenses."""
+        """Kill all currently running job processes to release licenses.
+
+        Pre-fix: only killed local Popen handles. When flow(use_lsf)=true,
+        that Popen was the local bsub wrapper — killing it did NOT cancel
+        the LSF job on the compute host. LSF jobs kept running after
+        user Ctrl-C, holding tool licenses. Now also bkill every job
+        that captured an lsf_job_id regardless of local-handle state.
+        """
         import signal as _sig
         procs = list(self._running_processes.items())
         for name, proc in procs:
@@ -2422,11 +2546,53 @@ class RaceEngine:
                     except Exception:
                         pass
         self._running_processes.clear()
+        # Also bkill any LSF-dispatched jobs (bsub may have returned
+        # already with -K, or the local proc may have been reaped
+        # before we got here).
+        try:
+            for name, job in getattr(self, 'jobs', {}).items():
+                lsf_id = getattr(job, 'lsf_job_id', None)
+                if lsf_id and job.status in ('RUNNING', 'PENDING'):
+                    try:
+                        subprocess.run(['bkill', str(lsf_id)],
+                                       capture_output=True, timeout=10)
+                        logger.info(f"  bkill {name} LSF={lsf_id}")
+                    except Exception as e:
+                        logger.warning(f"  bkill failed for {name} LSF={lsf_id}: {e}")
+        except AttributeError:
+            pass
 
     def _handle_interrupt(self, signum, frame):
-        logger.warning("\nInterrupt received — killing running jobs and stopping...")
+        """Shared handler for SIGINT / SIGTERM / SIGHUP.
+
+        Pre-fix only SIGINT was wired. LSF/k8s/`kill <pid>`/ssh-disconnect
+        send SIGTERM or SIGHUP, which Python handles with default action
+        (immediate exit) — _kill_running_processes was never called,
+        every child subprocess (start_new_session=True) was orphaned,
+        EDA licenses stayed held, LSF jobs kept running.
+
+        Also resets PENDING→READY in the DB on exit — the normal
+        reset_stale_jobs path intentionally doesn't touch PENDING
+        (assumes they belong to an active engine), so without this
+        reset the next invocation deadlocks on stuck-forever PENDING
+        rows.
+        """
+        sig_name = {signal.SIGINT: 'SIGINT',
+                    signal.SIGTERM: 'SIGTERM'}.get(signum, f'signal={signum}')
+        try:
+            if signum == signal.SIGHUP:
+                sig_name = 'SIGHUP'
+        except AttributeError:
+            pass
+        logger.warning(f"\n{sig_name} received — killing running jobs and stopping...")
         self._interrupted = True
         self._kill_running_processes()
+        try:
+            db = getattr(self, 'db', None)
+            if db and hasattr(db, '_reset_pending_on_interrupt'):
+                db._reset_pending_on_interrupt()
+        except Exception as e:
+            logger.warning(f"Failed to reset PENDING on interrupt: {e}")
 
     def _report_failures(self, failed: set):
         """Print failure summary."""

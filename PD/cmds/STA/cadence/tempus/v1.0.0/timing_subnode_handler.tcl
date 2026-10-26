@@ -24,7 +24,18 @@ set test_mode [handler_is_test_mode]
 switch $subnode_name {
     "setup" {
         puts "INFO: $stage_name setup..."
-        handler_setup $run_dir $::flow_type $node_name
+        # Capture both the explicit rc AND any Tcl error thrown by
+        # handler_setup (e.g., file mkdir on read-only workarea, missing
+        # perms). Pre-fix a thrown Tcl error propagated past `set`, bypassing
+        # the clean "setup FAILED" message with a raw backtrace in the log.
+        if {[catch {handler_setup $run_dir $::flow_type $node_name} _setup_rc]} {
+            puts stderr "ERROR: $stage_name setup threw: $_setup_rc"
+            exit 1
+        }
+        if {$_setup_rc != 0} {
+            puts stderr "ERROR: $stage_name setup FAILED (rc=$_setup_rc)"
+            exit $_setup_rc
+        }
         puts "INFO: $stage_name setup completed"
     }
     "validate" {
@@ -41,8 +52,15 @@ switch $subnode_name {
         # Resolve MMMC scenarios and run per-scenario timing
         puts "INFO: $stage_name dynamic — resolving MMMC scenarios..."
 
-        set mmmc_config_file "$::env(CONFIG_ROOT)/project/$::env(CBFLOW_PROJECT_NAME)/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
-        if {[file exists $mmmc_config_file]} { source $mmmc_config_file }
+        # mmmc_config.tcl in global/ (post-Phase-3); fall back to legacy CONFIG_ROOT.
+        set _mmmc_cands [list]
+        if {[info exists ::env(CBFLOW_GLOBAL_DIR)] && $::env(CBFLOW_GLOBAL_DIR) ne ""} {
+            lappend _mmmc_cands "$::env(CBFLOW_GLOBAL_DIR)/config/project/$::env(CBFLOW_PROJECT_NAME)/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
+        }
+        lappend _mmmc_cands "$::env(CONFIG_ROOT)/project/$::env(CBFLOW_PROJECT_NAME)/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
+        foreach mmmc_config_file $_mmmc_cands {
+            if {[file exists $mmmc_config_file]} { source $mmmc_config_file; break }
+        }
 
         set setup_scenarios {}
         set hold_scenarios {}
@@ -94,8 +112,16 @@ switch $subnode_name {
         set scenario $subnode_name
         puts "INFO: timing scenario: $scenario"
 
-        set _mmmc_cfg "$::env(CONFIG_ROOT)/project/$::env(CBFLOW_PROJECT_NAME)/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
-        if {[file exists $_mmmc_cfg]} { source $_mmmc_cfg }
+        # mmmc_config.tcl moved to global/ in Phase 3. Fall back to legacy
+        # CONFIG_ROOT path for pre-refactor bundles.
+        set _mmmc_candidates [list]
+        if {[info exists ::env(CBFLOW_GLOBAL_DIR)] && $::env(CBFLOW_GLOBAL_DIR) ne ""} {
+            lappend _mmmc_candidates "$::env(CBFLOW_GLOBAL_DIR)/config/project/$::env(CBFLOW_PROJECT_NAME)/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
+        }
+        lappend _mmmc_candidates "$::env(CONFIG_ROOT)/project/$::env(CBFLOW_PROJECT_NAME)/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
+        foreach _mmmc_cfg $_mmmc_candidates {
+            if {[file exists $_mmmc_cfg]} { source $_mmmc_cfg; break }
+        }
 
         if {![info exists analysis_views($scenario)]} {
             puts "ERROR: Scenario '$scenario' not found in analysis_views"
@@ -123,8 +149,21 @@ switch $subnode_name {
         set _sdc_dir "$run_dir/work/$::flow_type/sdc1/sdc"
         set _sdc_file "$_sdc_dir/$_sv(constraint_file)"
 
-        # Resolve view definition file
-        set _vd_file "$::env(FLOW_DIR)/config/project/$::env(CBFLOW_PROJECT_NAME)/$::env(FLOW_CONFIG_VERSION)/mmmc_view_definition.tcl"
+        # Resolve view definition file. Post cbflow_global split:
+        # mmmc_view_definition.tcl moved to global/. Fall back to the legacy
+        # PD-local location for pre-refactor bundles.
+        set _vd_file ""
+        set _vd_candidates [list]
+        if {[info exists ::env(CBFLOW_GLOBAL_DIR)] && $::env(CBFLOW_GLOBAL_DIR) ne ""} {
+            lappend _vd_candidates "$::env(CBFLOW_GLOBAL_DIR)/config/project/$::env(CBFLOW_PROJECT_NAME)/$::env(FLOW_CONFIG_VERSION)/mmmc_view_definition.tcl"
+        }
+        lappend _vd_candidates "$::env(FLOW_DIR)/config/project/$::env(CBFLOW_PROJECT_NAME)/$::env(FLOW_CONFIG_VERSION)/mmmc_view_definition.tcl"
+        foreach _c $_vd_candidates {
+            if {[file exists $_c]} { set _vd_file $_c; break }
+        }
+        if {$_vd_file eq ""} {
+            set _vd_file [lindex $_vd_candidates 0]
+        }
 
         # ── Generate per-corner Tempus command file ──
         set _cmd_file "$_run_dir/${scenario}.tempus.tcl"

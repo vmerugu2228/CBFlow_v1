@@ -1,0 +1,96 @@
+#!/bin/bash
+# ═══════════════════════════════════════════════════════════════════════════════
+# CBflow-DFT — Design-For-Test discipline launcher
+#
+# Hosts subcommands that are DFT-specific (scan-chain visualization, ATPG
+# pattern debugging, scan-shift analysis, etc.). Currently the DFT-owned
+# subcommand list is EMPTY — every DFT flow (DFT_INSERT / SCAN_INSERT /
+# ATPG / GLS_*) runs through the cross-domain `cbflow run …` path, so no
+# discipline-specific tooling has been carved out yet.
+#
+# This launcher exists as an extension point: to add a DFT-specific
+# subcommand
+#   1. Add it to global/config/cli/discipline_commands.tcl as DFT-owned.
+#   2. Add it to the DFT_FLOW_SUBCOMMANDS array below.
+#   3. Add the case + handler dispatch below.
+#   4. Drop the Python handler at DFT/utils/commands/<cmd>_cmd.py.
+#
+# Anything not owned by DFT falls through to the cross-domain launcher.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+set -euo pipefail
+
+# Resolve CBFLOW_ROOT / CBFLOW_GLOBAL_DIR / discipline dirs via shared helper.
+_real="${BASH_SOURCE[0]}"
+while [ -L "$_real" ]; do
+    _dir="$(cd "$(dirname "$_real")" && pwd)"
+    _real="$(readlink "$_real")"
+    [[ "$_real" != /* ]] && _real="$_dir/$_real"
+done
+_HELPER="$(dirname "$(dirname "$(dirname "$_real")")")/global/bin/_cbflow_paths.sh"
+if [[ ! -f "$_HELPER" ]]; then
+    echo "ERROR: _cbflow_paths.sh not found (looked near $_real)" >&2
+    exit 1
+fi
+source "$_HELPER" "${BASH_SOURCE[0]}"
+unset _real _dir _HELPER
+
+CBFLOW_VERSION="2.0.0"
+GLOBAL_CBFLOW="$CBFLOW_GLOBAL_DIR/bin/cbflow"
+
+# ── Owned subcommand map ─────────────────────────────────────────────────────
+# Empty for now — no DFT-specific tooling. Populate as commands ship.
+DFT_FLOW_SUBCOMMANDS=()
+
+_dft_owns_flow_subcmd() {
+    local needle="$1"
+    for cmd in "${DFT_FLOW_SUBCOMMANDS[@]:-}"; do
+        [[ "$cmd" == "$needle" ]] && return 0
+    done
+    return 1
+}
+
+show_help() {
+    cat <<EOF
+
+  CBflow-DFT — Design-For-Test discipline launcher   v${CBFLOW_VERSION}
+  ═══════════════════════════════════════════════════════════════════
+
+  This launcher owns DFT-specific subcommands. Currently: (none).
+  DFT flows themselves (DFT_INSERT, SCAN_INSERT, ATPG, GLS_FUNC,
+  GLS_SCAN_MBIST) run through the cross-domain \`cbflow run …\` path.
+
+  Any command not owned here falls through to \$CBFLOW_GLOBAL_DIR/bin/cbflow.
+    cbflow-dft workspace list-runs   ← works
+    cbflow-dft run all               ← works (routes via flow_registry)
+    cbflow-dft flow types --domain DFT   ← works
+
+  Utilities:
+    cbflow-dft --list                List DFT-owned subcommands (empty)
+    cbflow-dft --help                This message
+EOF
+}
+
+# ── Utility flags ────────────────────────────────────────────────────────────
+case "${1:-}" in
+    --list)
+        for cmd in "${DFT_FLOW_SUBCOMMANDS[@]:-}"; do
+            [[ -n "$cmd" ]] && echo "flow:$cmd"
+        done
+        exit 0
+        ;;
+    --help|-h)
+        show_help
+        exit 0
+        ;;
+esac
+
+# ── Main dispatch ────────────────────────────────────────────────────────────
+if [[ "${1:-}" == "flow" && $# -ge 2 ]] && _dft_owns_flow_subcmd "$2"; then
+    # Add case entries here as DFT-owned commands ship.
+    echo "[ERROR] DFT-owned subcommand '$2' declared but no handler registered." >&2
+    exit 1
+fi
+
+# Fallthrough — defer to global launcher.
+exec "$GLOBAL_CBFLOW" "$@"

@@ -172,16 +172,36 @@ def make_handler(project):
             base = detail.get('release_dir') or ''
             if not base or not rel:
                 return self._send(404, 'text/plain', 'no path')
-            path = os.path.normpath(os.path.join(base, rel))
-            if not path.startswith(os.path.normpath(base) + os.sep) and \
-               path != os.path.normpath(base):
+            # Resolve BOTH candidate and base through realpath, so a
+            # symlink inside release_dir pointing to e.g. /etc/hosts
+            # or another project's secrets no longer escapes the
+            # containment check. Pre-fix normpath did not resolve
+            # symlinks, letting a publisher drop
+            # `release_dir/leak -> /home/other_project/secret.png`
+            # and serve arbitrary host files via /image/<pid>/<idx>.
+            # Also enforce an extension allow-list — the pre-fix mime
+            # fallback 'application/octet-stream' + 1-hour Cache-Control
+            # compounded the symlink bypass into cacheable arbitrary-
+            # file read with intermediate-proxy caching.
+            candidate = os.path.join(base, rel)
+            try:
+                real_candidate = os.path.realpath(candidate)
+                real_base = os.path.realpath(base)
+            except OSError:
+                return self._send(404, 'text/plain', 'path resolve failed')
+            if not (real_candidate == real_base or
+                    real_candidate.startswith(real_base + os.sep)):
                 return self._send(403, 'text/plain', 'refused (outside release)')
+            path = real_candidate
             if not os.path.isfile(path):
                 return self._send(404, 'text/plain', 'file gone')
             ext = os.path.splitext(path)[1].lower()
-            mime = {'.png':'image/png', '.jpg':'image/jpeg', '.jpeg':'image/jpeg',
-                    '.svg':'image/svg+xml', '.gif':'image/gif',
-                    '.webp':'image/webp'}.get(ext, 'application/octet-stream')
+            _ALLOWED_MIME = {'.png':'image/png', '.jpg':'image/jpeg', '.jpeg':'image/jpeg',
+                             '.svg':'image/svg+xml', '.gif':'image/gif',
+                             '.webp':'image/webp'}
+            if ext not in _ALLOWED_MIME:
+                return self._send(415, 'text/plain', f'unsupported image extension: {ext}')
+            mime = _ALLOWED_MIME[ext]
             try:
                 with open(path, 'rb') as f:
                     data = f.read()
@@ -387,8 +407,8 @@ _STYLE = """
   .td-selbtn { display:inline-flex; align-items:center; gap:6px;
                justify-content:center; }
   .cbadge { display:inline-block; padding:1px 6px; font-size:10px;
-            font-family:ui-monospace,monospace; background:#eef2ff;
-            color:#4338ca; border-radius:8px; min-width:18px;
+            font-family:ui-monospace,monospace; background:var(--accent-bg);
+            color:var(--accent-ink); border-radius:8px; min-width:18px;
             text-align:center; }
   .td-modebtn { padding:3px 10px; background:#fff; color:var(--muted);
                 border:none; cursor:pointer; font-size:11px;
@@ -1939,7 +1959,17 @@ def _render_index(project, info, blocks, published_rows):
     tech = info.get('technology') or '—'
     metal = info.get('metal_stack') or '—'
     lib  = info.get('lib_config_tag') or '—'
-    developed_by = info.get('developed_by') or 'SmartSoc Solutions Pvt Limited'
+    developed_by = info.get('developed_by') or 'SmartSoC CAD · Varun Reddy Merugu'
+    # Normalize legacy / stale labels so a prior-publish with the old
+    # byline (persisted into tracker.db before this rename) renders as
+    # the canonical current credit. The user asked for a single
+    # consistent byline across every surface — hub, per-run, SmartGrid.
+    _STALE_BYLINES = {
+        'SmartSoC and MIPS', 'SmartSoc and MIPS',
+        'SmartSoc Solutions Pvt Limited', 'SmartSoC Solutions Pvt Limited',
+    }
+    if developed_by in _STALE_BYLINES:
+        developed_by = 'SmartSoC CAD · Varun Reddy Merugu'
 
     # Rows for the flat table — precomputed strings so the client-side JS just
     # filters/sorts existing DOM rather than reflowing.
@@ -1961,7 +1991,7 @@ def _render_index(project, info, blocks, published_rows):
         f'  <div class="kv">Tech <b>{html.escape(tech)}</b></div>',
         f'  <div class="kv">Metal <b>{html.escape(metal)}</b></div>',
         f'  <div class="kv">Lib <b>{html.escape(lib)}</b></div>',
-        f'  <div class="byline">Developed by {html.escape(developed_by)}</div>',
+        f'  <div class="byline">{html.escape(developed_by)} &middot; <a href="mailto:varun@smartsocs.com" style="color:inherit;text-decoration:underline">varun@smartsocs.com</a></div>',
         '</header>',
 
         # ── KPI strip — pure counts, no verdicts ──────────────────────
@@ -2160,7 +2190,17 @@ def _tapeout_info(iso):
 
 
 def _render_detail(project, info, d):
-    developed_by = info.get('developed_by') or 'SmartSoc Solutions Pvt Limited'
+    developed_by = info.get('developed_by') or 'SmartSoC CAD · Varun Reddy Merugu'
+    # Normalize legacy / stale labels so a prior-publish with the old
+    # byline (persisted into tracker.db before this rename) renders as
+    # the canonical current credit. The user asked for a single
+    # consistent byline across every surface — hub, per-run, SmartGrid.
+    _STALE_BYLINES = {
+        'SmartSoC and MIPS', 'SmartSoc and MIPS',
+        'SmartSoc Solutions Pvt Limited', 'SmartSoC Solutions Pvt Limited',
+    }
+    if developed_by in _STALE_BYLINES:
+        developed_by = 'SmartSoC CAD · Varun Reddy Merugu'
 
     # Bucket metrics into "timing" vs "other" using category + name heuristics.
     all_metrics = d.get('metrics') or []
@@ -2210,7 +2250,7 @@ def _render_detail(project, info, d):
         f'{html.escape(d["block"])}</a></b></div>',
         f'  <div class="kv">Phase <b>{html.escape(d["phase"])}</b></div>',
         f'  <div class="kv">Milestone <b>{html.escape(d["milestone"])}</b></div>',
-        f'  <div class="byline">Developed by {html.escape(developed_by)}</div>',
+        f'  <div class="byline">{html.escape(developed_by)} &middot; <a href="mailto:varun@smartsocs.com" style="color:inherit;text-decoration:underline">varun@smartsocs.com</a></div>',
         '</header>',
         '<div class="back"><a href="/">← back to project</a></div>',
         # ── Tab bar ───────────────────────────────────────────────────
@@ -2426,7 +2466,17 @@ def _render_block(project, info, block_name, block_meta, block_pubs):
     miles_used  = {r['milestone'] for r in block_pubs}
     releasers   = {r.get('released_by') or '—' for r in block_pubs}
 
-    developed_by = info.get('developed_by') or 'SmartSoc Solutions Pvt Limited'
+    developed_by = info.get('developed_by') or 'SmartSoC CAD · Varun Reddy Merugu'
+    # Normalize legacy / stale labels so a prior-publish with the old
+    # byline (persisted into tracker.db before this rename) renders as
+    # the canonical current credit. The user asked for a single
+    # consistent byline across every surface — hub, per-run, SmartGrid.
+    _STALE_BYLINES = {
+        'SmartSoC and MIPS', 'SmartSoc and MIPS',
+        'SmartSoc Solutions Pvt Limited', 'SmartSoC Solutions Pvt Limited',
+    }
+    if developed_by in _STALE_BYLINES:
+        developed_by = 'SmartSoC CAD · Varun Reddy Merugu'
     dl_level = block_meta.get('dl_level') or '—'
     parent   = block_meta.get('parent') or '—'
     desc     = block_meta.get('description') or ''
@@ -2445,7 +2495,7 @@ def _render_block(project, info, block_name, block_meta, block_pubs):
         f'  <div class="kv">Block <b>{html.escape(block_name)}</b></div>',
         f'  <div class="kv">Level <b>{html.escape(dl_level)}</b></div>',
         f'  <div class="kv">Parent <b>{html.escape(parent)}</b></div>',
-        f'  <div class="byline">Developed by {html.escape(developed_by)}</div>',
+        f'  <div class="byline">{html.escape(developed_by)} &middot; <a href="mailto:varun@smartsocs.com" style="color:inherit;text-decoration:underline">varun@smartsocs.com</a></div>',
         '</header>',
         '<div class="back">',
         '  <a href="/">← back to project</a>',

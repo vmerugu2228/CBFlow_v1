@@ -97,7 +97,7 @@ Available tools:
 - STA: 8 stages (netlist1→sdc1→spef1→library1→extraction1→timing1→reporting1→release_data1) — synopsys/pt
 - LEC: 5 stages (netlist_golden1→netlist_revised1→constraints1→compare1→release_data1) — synopsys/formality
 - CLP: 5 stages (netlist1→upf1→power_spec1→clp1→release_data1) — synopsys/vc_lp
-- PV: 11 stages (netlist1→def1→gds1→fill1→drc1→lvs1→erc1→perc1→xor1→merge_data1→release_data1) — synopsys/icv
+- PV: 15 stages (netlist1→def1→gds1→nettran1→merge_gds1→fill_merge_gds1→decomp1→decomp_merge_gds1→drc1→lvs1→perc1→perc_ldl1→xor1→merge_data1→release_data1) — synopsys/icv or mentor/calibre
 - EMIR: 7 stages — synopsys/redhawk
 - FP: 12 stages — synopsys/fc
 - FCFP: 17 stages — synopsys/fc
@@ -819,6 +819,9 @@ def run_agent(prompt: str, interactive: bool = False):
         # project counts don't depend on whatever the KB search returned.
         # Explicit anti-hallucination guards: never emit placeholder tokens
         # like "[INFO]" or empty bullets; name every item concretely.
+        # Release-tag list must match PD/config/exit/v1.0.0/*_config.tcl and
+        # release_config.tcl's release_tags array — do not add SIGNOFF variants
+        # unless the corresponding <TAG>_config.tcl file also ships.
         authoritative = (
             "CBflow AUTHORITATIVE FACTS (use these as ground truth):\n"
             "- Total supported flows: 12\n"
@@ -826,9 +829,10 @@ def run_agent(prompt: str, interactive: bool = False):
             "PV, EMIR, POPT, ECO\n"
             "- Tools: Synopsys (FC, PT, Formality, ICV, RedHawk) + "
             "Cadence (Innovus, Genus, Tempus, Conformal, Voltus, Calibre)\n"
-            "- Release tags: FP_EXIT, PLACE_EXIT, CTS_EXIT, PRO_EXIT, "
-            "BTO, MTO, STA_SIGNOFF, LEC_SIGNOFF, CLP_SIGNOFF, "
-            "PV_SIGNOFF, EMIR_SIGNOFF (11 milestones)\n"
+            "- Release tags (6 milestones): FP_EXIT, PLACE_EXIT, CTS_EXIT, "
+            "PRO_EXIT, BTO, MTO\n"
+            "- MTO expands to 'Metal Tapeout' (not 'Mask Tapeout' — older "
+            "docs used that name)\n"
             "- Projects shipped: bumblebee, phoenix, denali\n"
         )
         synth_messages = [
@@ -858,11 +862,12 @@ def run_agent(prompt: str, interactive: bool = False):
         # Strip any tool call attempts
         clean = re.sub(r'\{["\']tool["\'].*?\}', '', response, flags=re.DOTALL).strip()
         clean = re.sub(r'```json.*?```', '', clean, flags=re.DOTALL).strip()
-        # Post-filter: drop bullet lines that are placeholders (empty text,
-        # only "[INFO]" / "[TODO]" / "<...>" / "..."). These slip through
-        # when the model falls into a template pattern.
+        # Post-filter: drop bullet lines that are placeholders (empty text
+        # or "[INFO]" / "[TODO]" / "..."). Deliberately does NOT match bare
+        # "- <name>" — a lone metavariable is often a legitimate answer for
+        # a template question ("what's the filename pattern?" → "- <design>.v").
         _placeholder = re.compile(
-            r'^\s*[-*]\s*(?:\[(?:info|todo|placeholder|tbd)\]|<[^>]*>|\.\.\.?|)\s*$',
+            r'^\s*[-*]\s*(?:\[(?:info|todo|placeholder|tbd)\]|\.\.\.?|)\s*$',
             re.IGNORECASE)
         clean = '\n'.join(
             ln for ln in clean.split('\n') if not _placeholder.match(ln))

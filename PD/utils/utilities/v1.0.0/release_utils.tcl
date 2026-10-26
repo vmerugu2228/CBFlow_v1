@@ -45,7 +45,7 @@ proc init {args_flow_type args_design_name args_run_dir {args_phase "P0"}} {
     # Detect test_mode — relaxed validation, uses placeholder values for
     # mandatory release vars so the test suite can exercise the full release
     # path without requiring per-project release config.
-    set _test_mode [expr {[info exists flow(test_mode)] && $flow(test_mode) eq "true"}]
+    set _test_mode [expr {[info exists flow(test_mode)] && [is_true $flow(test_mode)]}]
 
     # ── Release tag (MANDATORY in real runs; placeholder in test_mode) ───────
     if {[info exists project(release,tag)] && $project(release,tag) ne ""} {
@@ -322,15 +322,20 @@ proc stamp_complete {} {
     variable release_dir release_tag release_phase flow_type release_files_copied release_errors
 
     set stamp_file "$release_dir/RELEASE_COMPLETE"
-    set fd [open $stamp_file "w"]
-    puts $fd "FLOW=$flow_type"
-    puts $fd "PHASE=$release_phase"
-    puts $fd "TAG=$release_tag"
-    puts $fd "FILES=[llength $release_files_copied]"
-    puts $fd "ERRORS=[llength $release_errors]"
-    puts $fd "STATUS=[expr {[llength $release_errors] == 0 ? {PASS} : {FAIL}}]"
-    puts $fd "TIMESTAMP=[clock format [clock seconds]]"
-    close $fd
+    # Atomic write: pre-fix, open-w + puts + close was non-atomic. Kill
+    # between first `puts` and the STATUS=PASS line left RELEASE_COMPLETE
+    # present but with no STATUS=PASS; validate_release_tag then flagged
+    # the release as !PASS forever (manual retry sees stamp exists and
+    # skips re-stamping — permanently poisoned release).
+    set stamp_content ""
+    append stamp_content "FLOW=$flow_type\n"
+    append stamp_content "PHASE=$release_phase\n"
+    append stamp_content "TAG=$release_tag\n"
+    append stamp_content "FILES=[llength $release_files_copied]\n"
+    append stamp_content "ERRORS=[llength $release_errors]\n"
+    append stamp_content "STATUS=[expr {[llength $release_errors] == 0 ? {PASS} : {FAIL}}]\n"
+    append stamp_content "TIMESTAMP=[clock format [clock seconds]]\n"
+    atomic_write $stamp_file $stamp_content
 
     if {[llength $release_errors] == 0} {
         handle_info "RELEASE COMPLETE: $flow_type ($release_phase) — [llength $release_files_copied] files, 0 errors"

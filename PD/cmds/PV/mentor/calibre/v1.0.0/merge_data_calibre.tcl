@@ -19,41 +19,61 @@ flow_proc merge_verification_results {
     handle_info "Merging all verification results..."
     set run_dir $::env(CBFLOW_RUN_DIR)
     file mkdir "$run_dir/results/phyv"
+    file mkdir "$run_dir/results/verification"
 
-    set summary_file "$run_dir/results/phyv/phyv_summary.rpt"
-    set fp [open $summary_file w]
-    puts $fp "═══════════════════════════════════════════════════════════════════════════════"
-    puts $fp "CBFlow PV - Physical Verification Summary"
-    puts $fp "═══════════════════════════════════════════════════════════════════════════════"
-    puts $fp "Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
-    if {[info exists project(top_module)]} { puts $fp "Design: $project(top_module)" }
-    if {[info exists project(name)]} { puts $fp "Project: $project(name)" }
-    if {[info exists tech(node)]} { puts $fp "Technology: $tech(node)" }
-    puts $fp "\nTool: Mentor Calibre\n"
+    # Pre-fix: scanned $run_dir/results/{drc,lvs,erc,perc}/<x>_results.rpt
+    # but each PV stage actually writes under $run_dir/work/PV/<node>1/results/<x>/.
+    # Every check was reported PENDING even on a fully successful real
+    # run. Also mandatory_outputs,merge_data1 declared
+    # results/verification/verification_summary.rpt, but this handler
+    # wrote results/phyv/phyv_summary.rpt — merge_data1 ALWAYS failed
+    # validate in production. Fix: scan the real per-node work dirs,
+    # and emit the summary at BOTH the legacy (phyv) and the declared
+    # (verification) paths.
+    set summary_body ""
+    append summary_body "═══════════════════════════════════════════════════════════════════════════════\n"
+    append summary_body "CBFlow PV - Physical Verification Summary\n"
+    append summary_body "═══════════════════════════════════════════════════════════════════════════════\n"
+    append summary_body "Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]\n"
+    if {[info exists project(top_module)]} { append summary_body "Design: $project(top_module)\n" }
+    if {[info exists project(name)]} { append summary_body "Project: $project(name)\n" }
+    if {[info exists tech(node)]} { append summary_body "Technology: $tech(node)\n" }
+    append summary_body "\nTool: Mentor Calibre\n\n"
 
-    # Check each verification stage
-    foreach {stage dir label} {
-        drc "results/drc/drc_results.rpt" "DRC (Design Rule Check)"
-        lvs "results/lvs/lvs_results.rpt" "LVS (Layout vs Schematic)"
-        erc "results/erc/erc_results.rpt" "ERC (Electrical Rule Check)"
-        perc "results/perc/perc_results.rpt" "PERC (Parasitic Extraction Rule Check)"
+    # Check each verification stage at its real work-dir location.
+    foreach {stage node_name file label} {
+        drc      drc1      drc.rpt       "DRC (Design Rule Check)"
+        lvs      lvs1      lvs.rpt       "LVS (Layout vs Schematic)"
+        erc      erc1      erc.rpt       "ERC (Electrical Rule Check)"
+        perc     perc1     perc.rpt      "PERC (Parasitic Extraction Rule Check)"
+        perc_ldl perc_ldl1 perc_ldl.rpt  "PERC-LDL (Leakage-Driven Layout)"
     } {
-        set full_path "$run_dir/$dir"
-        if {[file exists $full_path]} {
-            puts $fp "  $label: COMPLETED - $dir"
+        set work_candidate "$run_dir/work/PV/$node_name/results/$stage/$file"
+        set run_candidate  "$run_dir/results/$stage/$file"
+        set found ""
+        if {[file exists $work_candidate]} {
+            set found $work_candidate
+        } elseif {[file exists $run_candidate]} {
+            set found $run_candidate
+        }
+        if {$found ne ""} {
+            append summary_body "  $label: COMPLETED - $found\n"
         } else {
-            puts $fp "  $label: PENDING - $dir"
+            append summary_body "  $label: PENDING - $stage/$file not found\n"
         }
     }
 
-    puts $fp "\nDetailed Reports:"
+    append summary_body "\nDetailed Reports:\n"
     foreach rpt [glob -nocomplain "$run_dir/reports/phyv/*/*.rpt" "$run_dir/reports/phyv/*.rpt"] {
         set rel [string range $rpt [expr {[string length $run_dir] + 1}] end]
-        puts $fp "  $rel"
+        append summary_body "  $rel\n"
     }
-    close $fp
 
-    puts " Merged summary: $summary_file"
+    # Atomic writes so a crash doesn't leave the merge summary truncated.
+    atomic_write "$run_dir/results/phyv/phyv_summary.rpt" $summary_body
+    atomic_write "$run_dir/results/verification/verification_summary.rpt" $summary_body
+
+    puts " Merged summary: $run_dir/results/verification/verification_summary.rpt"
 }
 
 flow_proc merge_data_flow {

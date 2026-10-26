@@ -27,16 +27,30 @@ def _cbflow_bin(pd_dir):
 
 
 def _project_workarea_path(pd_dir, project_name):
-    """Read project(workarea_path) from PD/config/project/<name>/v1.0.0/<name>_config.tcl."""
-    cfg = os.path.join(pd_dir, 'config', 'project', project_name, 'v1.0.0', f'{project_name}_config.tcl')
-    if not os.path.exists(cfg):
-        return None
+    """Read project(workarea_path) from the project config cascade.
+
+    Post cbflow_global split: workarea_path is a PD-overlay key, living at
+    PD/config/project/<name>/v1.0.0/project_pd_config.tcl. Fall back to the
+    global identity file, then the pre-split legacy monolith, so this
+    helper survives partial migrations.
+    """
+    candidates = [
+        os.path.join(pd_dir, 'config', 'project', project_name, 'v1.0.0',
+                     'project_pd_config.tcl'),
+        os.path.join(os.path.dirname(pd_dir), 'global', 'config', 'project',
+                     project_name, 'v1.0.0', 'project_config.tcl'),
+        os.path.join(pd_dir, 'config', 'project', project_name, 'v1.0.0',
+                     f'{project_name}_config.tcl'),
+    ]
     pat = re.compile(r'set\s+project\(workarea_path\)\s+"([^"]*)"')
-    with open(cfg) as f:
-        for line in f:
-            m = pat.search(line)
-            if m:
-                return m.group(1)
+    for cfg in candidates:
+        if not os.path.exists(cfg):
+            continue
+        with open(cfg) as f:
+            for line in f:
+                m = pat.search(line)
+                if m:
+                    return m.group(1)
     return None
 
 

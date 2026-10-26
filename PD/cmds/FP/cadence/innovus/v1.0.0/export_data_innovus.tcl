@@ -57,7 +57,7 @@ if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::
 if {!$config_found} {
     # test_mode: tolerate missing generated config (the test harness creates
     # only dummy artifacts; production runs error loudly as before).
-    if {[info exists ::flow(test_mode)] && $::flow(test_mode) eq "true"} {
+    if {[info exists ::flow(test_mode)] && [is_true $::flow(test_mode)]} {
         handle_warning "Cannot find generated config file (test_mode — tolerated)"
     } else {
         handle_error "Cannot find generated config file. Run 'make export_data_setup' first."

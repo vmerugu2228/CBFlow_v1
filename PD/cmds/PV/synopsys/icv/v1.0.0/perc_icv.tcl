@@ -99,8 +99,14 @@ flow_proc run_perc {
 
     handle_info "ICV command: $icv_cmd"
 
+    # Execute PERC. Pre-fix handle_error on any non-zero exit prevented
+    # the report from being written on real PERC violations.
+    set _icv_log "$run_dir/logs/pv/perc_icv.log"
     if {[catch {eval exec $icv_cmd} result]} {
-        handle_error "ICV PERC execution failed: $result"
+        if {[file exists $_icv_log] && [classify_tool_exit_log $_icv_log] eq "FATAL"} {
+            handle_error "ICV PERC crashed (license / perms / tool error) — see $_icv_log"
+        }
+        handle_warning "ICV PERC returned non-zero (may have violations): $result"
         set ::perc_status "FAIL"
     } else {
         set ::perc_status "PASS"

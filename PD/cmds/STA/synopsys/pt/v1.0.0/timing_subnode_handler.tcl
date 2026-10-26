@@ -24,7 +24,18 @@ set test_mode [handler_is_test_mode]
 switch $subnode_name {
     "setup" {
         puts "INFO: $stage_name setup..."
-        handler_setup $run_dir $::flow_type $node_name
+        # Capture both the explicit rc AND any Tcl error thrown by
+        # handler_setup (e.g., file mkdir on read-only workarea, missing
+        # perms). Pre-fix a thrown Tcl error propagated past `set`, bypassing
+        # the clean "setup FAILED" message with a raw backtrace in the log.
+        if {[catch {handler_setup $run_dir $::flow_type $node_name} _setup_rc]} {
+            puts stderr "ERROR: $stage_name setup threw: $_setup_rc"
+            exit 1
+        }
+        if {$_setup_rc != 0} {
+            puts stderr "ERROR: $stage_name setup FAILED (rc=$_setup_rc)"
+            exit $_setup_rc
+        }
         puts "INFO: $stage_name setup completed"
     }
     "validate" {
@@ -43,8 +54,15 @@ switch $subnode_name {
         # per-scenario subnodes via _resolve_dynamic_subnodes(); this branch
         # covers direct CLI invocation ("cbflow run node --subnode dynamic").
         puts "INFO: $stage_name dynamic — resolving MMMC scenarios..."
-        set mmmc_cfg "$::env(CONFIG_ROOT)/project/$::env(CBFLOW_PROJECT_NAME)/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
-        if {[file exists $mmmc_cfg]} { uplevel #0 [list source $mmmc_cfg] }
+        # mmmc_config.tcl in global/ (post-Phase-3); legacy CONFIG_ROOT fallback.
+        set _mmmc_cands [list]
+        if {[info exists ::env(CBFLOW_GLOBAL_DIR)] && $::env(CBFLOW_GLOBAL_DIR) ne ""} {
+            lappend _mmmc_cands "$::env(CBFLOW_GLOBAL_DIR)/config/project/$::env(CBFLOW_PROJECT_NAME)/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
+        }
+        lappend _mmmc_cands "$::env(CONFIG_ROOT)/project/$::env(CBFLOW_PROJECT_NAME)/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
+        foreach mmmc_cfg $_mmmc_cands {
+            if {[file exists $mmmc_cfg]} { uplevel #0 [list source $mmmc_cfg]; break }
+        }
 
         set setup_scenarios {}
         set hold_scenarios {}
@@ -78,8 +96,15 @@ switch $subnode_name {
         set scenario $subnode_name
         puts "INFO: $stage_name scenario: $scenario"
 
-        set mmmc_cfg "$::env(CONFIG_ROOT)/project/$::env(CBFLOW_PROJECT_NAME)/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
-        if {[file exists $mmmc_cfg]} { uplevel #0 [list source $mmmc_cfg] }
+        # mmmc_config.tcl in global/ (post-Phase-3); legacy CONFIG_ROOT fallback.
+        set _mmmc_cands [list]
+        if {[info exists ::env(CBFLOW_GLOBAL_DIR)] && $::env(CBFLOW_GLOBAL_DIR) ne ""} {
+            lappend _mmmc_cands "$::env(CBFLOW_GLOBAL_DIR)/config/project/$::env(CBFLOW_PROJECT_NAME)/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
+        }
+        lappend _mmmc_cands "$::env(CONFIG_ROOT)/project/$::env(CBFLOW_PROJECT_NAME)/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
+        foreach mmmc_cfg $_mmmc_cands {
+            if {[file exists $mmmc_cfg]} { uplevel #0 [list source $mmmc_cfg]; break }
+        }
 
         # analysis_views is auto-generated from PVT building blocks in
         # mmmc_config.tcl. Test fixtures sometimes name scenarios that fall

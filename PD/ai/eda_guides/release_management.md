@@ -186,11 +186,11 @@ BTO is the milestone where an individual block (partition) within a hierarchical
 - Block power model.
 - All signoff reports.
 
-## MTO: Mask Tapeout
+## MTO: Metal Tapeout
 
 ### Description
 
-MTO is the final milestone: the design data is frozen, fully verified, and delivered to the foundry for mask fabrication. MTO is irreversible; any change after MTO requires a full mask respin.
+MTO is the final milestone: the design data is frozen, fully verified, and delivered to the foundry for mask fabrication. MTO is irreversible; any change after MTO requires a full mask respin. (Legacy documents referred to this as "Mask Tapeout" — the framework now consistently uses "Metal Tapeout".)
 
 ### Exit Criteria
 

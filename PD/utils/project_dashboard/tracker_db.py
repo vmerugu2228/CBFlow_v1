@@ -249,19 +249,15 @@ def publish(db_path, payload, project):
     milestone = payload['milestone']
     override = bool(payload.get('override'))
 
-    # Housekeeping upserts happen even on conflict so the UI stays fresh.
-    pi = payload.get('project_info') or {}
-    if pi:
-        upsert_project_info(db_path, project, pi)
-    bi = payload.get('block_info') or {}
-    if bi.get('block_name') or bi.get('name'):
-        upsert_block(
-            db_path, project,
-            bi.get('block_name') or bi.get('name'),
-            dl_level=bi.get('dl_level'),
-            parent=bi.get('parent'),
-            description=bi.get('description'))
-
+    # Pre-fix: housekeeping upserts (project_info, block) ran in
+    # separate auto-committed connections BEFORE the main txn. A
+    # ConflictError (already published, no --override) fired AFTER
+    # those commits, leaving project_info / block rows with mutated
+    # values from a publish that officially 'failed'. Repeat publishes
+    # without override could silently flip tapeout_date / developed_by.
+    # Fix: run the conflict check FIRST on its own connection; only
+    # proceed to housekeeping + main INSERT if the conflict check
+    # passes.
     conn = sqlite3.connect(db_path)
     conn.execute('PRAGMA foreign_keys = ON')
     try:
@@ -275,6 +271,30 @@ def publish(db_path, payload, project):
                 f'({project}, {block}, {phase}, {milestone}) is already '
                 f'published by {existing[1]} at {existing[2]}. '
                 f'Use --override to replace.')
+    except ConflictError:
+        conn.close()
+        raise
+
+    # Conflict check passed — now safe to update project_info / block.
+    pi = payload.get('project_info') or {}
+    if pi:
+        upsert_project_info(db_path, project, pi)
+    bi = payload.get('block_info') or {}
+    if bi.get('block_name') or bi.get('name'):
+        upsert_block(
+            db_path, project,
+            bi.get('block_name') or bi.get('name'),
+            dl_level=bi.get('dl_level'),
+            parent=bi.get('parent'),
+            description=bi.get('description'))
+
+    try:
+        # Re-fetch existing for the DELETE path below (same connection).
+        cur = conn.execute(
+            'SELECT id, published_by, published_at FROM published_runs '
+            'WHERE project=? AND block=? AND phase=? AND milestone=?',
+            (project, block, phase, milestone))
+        existing = cur.fetchone()
 
         if existing:
             # CASCADE deletes children of the old row.

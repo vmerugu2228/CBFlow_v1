@@ -72,7 +72,7 @@ def cmd_start(args):
     print(f'CBflow-ProjectDashboard started (background) on '
           f'{lifecycle.url_for_index(args.project)}')
     print(f'  pid: {st.get("pid", "?")}  — terminal is free; stop with '
-          f'`cbflow project-dashboard stop --project {args.project}`')
+          f'`cbflow smartgrid stop --project {args.project}`')
     if bind_addr == '0.0.0.0':
         print('  ⚠  bound to 0.0.0.0 — reachable from any host on the LAN.')
     return 0
@@ -124,7 +124,7 @@ def cmd_open(args):
     st = lifecycle.status(args.project)
     if st['state'] != 'running':
         print(f'error: no CBflow-ProjectDashboard is running for {args.project!r}. '
-              f'Start it first:\n  cbflow project-dashboard start '
+              f'Start it first:\n  cbflow smartgrid start '
               f'--project {args.project}', file=sys.stderr)
         return 1
     url = lifecycle.url_for_index(args.project)
@@ -205,7 +205,7 @@ def cmd_unpublish(args):
 # ── argparse ────────────────────────────────────────────────────────────────
 
 def _build_parser():
-    p = argparse.ArgumentParser(prog='cbflow project-dashboard',
+    p = argparse.ArgumentParser(prog='cbflow smartgrid',
                                 description='CBflow-ProjectDashboard CLI')
     sub = p.add_subparsers(dest='cmd', required=True)
 

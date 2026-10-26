@@ -1,1 +1,106 @@
-../../PD/config/master_projects.json
+{
+  "version": "2.0",
+  "schema_notes": {
+    "2.0": "Added enabled_flows_by_discipline (PD/DFT/DV). enabled_flows is kept as a computed union for legacy callers; new callers should read enabled_flows_by_discipline directly.",
+    "1.0": "Original — enabled_flows only.",
+    "scoping": "enabled_flows_by_discipline is PER-PROJECT SCOPING, not a catalog mirror — a project may legitimately disable DFT/DV flows it does not run. The framework catalog (flow_registry.tcl flow(types)) is the superset; a project's lists are subsets."
+  },
+  "projects": {
+    "india": {
+      "name": "india",
+      "description": "5nm technode complex chip",
+      "chip_lead": "Not specified",
+      "flow_owners": {
+        "frontend": "Raj Sh",
+        "backend": "Gangadhar CH",
+        "verification": "NA"
+      },
+      "technology": "gf_22nm",
+      "status": "active",
+      "created": "2026-04-02T17:56:43.832984",
+      "tags": [
+        "soc"
+      ],
+      "phases": [
+        "LC1",
+        "LC2",
+        "LC3",
+        "LC4",
+        "LC5"
+      ],
+      "project_start_date": "2026-04-01",
+      "tapeout_date": "2026-12-30",
+      "release_version": "v1.0.0",
+      "enabled_flows_by_discipline": {
+        "PD":  ["SYNTH", "FP", "PNR", "SYNTH_PNR", "STA", "LEC", "EMIR", "PV", "ECO", "CLP", "POPT", "FCFP"],
+        "DFT": [],
+        "DV":  []
+      },
+      "enabled_flows": [
+        "SYNTH",
+        "FP",
+        "PNR",
+        "SYNTH_PNR",
+        "STA",
+        "LEC",
+        "EMIR",
+        "PV",
+        "ECO",
+        "CLP",
+        "POPT",
+        "FCFP"
+      ],
+      "design_hierarchy": {}
+    },
+    "bumblebee": {
+      "name": "bumblebee",
+      "description": "Bumblebee SoC Project",
+      "chip_lead": "vmerugu",
+      "flow_owners": {
+        "frontend": "vmerugu",
+        "backend": "vmerugu",
+        "verification": "vmerugu"
+      },
+      "technology": "gf_22nm",
+      "status": "active",
+      "created": "2024-01-01T00:00:00",
+      "tags": [],
+      "phases": [
+        "LC1",
+        "LC2",
+        "LC3",
+        "LC4",
+        "LC5"
+      ],
+      "project_start_date": "2026-01-01",
+      "tapeout_date": "2026-12-07",
+      "release_version": "v1.0.0",
+      "enabled_flows_by_discipline": {
+        "PD":  ["SYNTH", "FP", "PNR", "SYNTH_PNR", "STA", "LEC", "EMIR", "PV", "ECO", "CLP", "POPT", "FCFP"],
+        "DFT": ["DFT_INSERT", "SCAN_INSERT", "ATPG"],
+        "DV":  ["LINT", "CDC", "SIM"]
+      },
+      "enabled_flows": [
+        "SYNTH",
+        "FP",
+        "PNR",
+        "SYNTH_PNR",
+        "STA",
+        "LEC",
+        "EMIR",
+        "PV",
+        "ECO",
+        "CLP",
+        "POPT",
+        "FCFP",
+        "DFT_INSERT",
+        "SCAN_INSERT",
+        "ATPG",
+        "LINT",
+        "CDC",
+        "SIM"
+      ],
+      "design_hierarchy": {}
+    }
+  }
+}

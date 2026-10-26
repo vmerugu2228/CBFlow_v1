@@ -111,9 +111,17 @@ flow_proc run_lvs {
 
     handle_info "ICV command: $icv_cmd"
 
-    # Execute LVS
+    # Execute LVS. Pre-fix: handle_error on any non-zero exit → stage
+    # exited before generate_lvs_report ran → mandatory_output lvs.rpt
+    # never written → real LVS mismatches hard-failed before producing
+    # the deliverable. classify FATAL (license/perms/crash) → error;
+    # real mismatches → warning so the report is still generated.
+    set _icv_log "$run_dir/logs/pv/lvs_icv.log"
     if {[catch {eval exec $icv_cmd} result]} {
-        handle_error "ICV LVS execution failed: $result"
+        if {[file exists $_icv_log] && [classify_tool_exit_log $_icv_log] eq "FATAL"} {
+            handle_error "ICV LVS crashed (license / perms / tool error) — see $_icv_log"
+        }
+        handle_warning "ICV LVS returned non-zero (may have mismatches): $result"
         set ::lvs_status "FAIL"
     } else {
         set ::lvs_status "PASS"

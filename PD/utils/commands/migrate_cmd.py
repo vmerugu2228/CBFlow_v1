@@ -89,7 +89,7 @@ def parse(text: str) -> Dict[str, str]:
     substitution can paste them back verbatim.
     """
     out: Dict[str, str] = {}
-    current_array: str | None = None
+    current_array: Optional[str] = None
 
     for line in text.splitlines():
         if current_array is not None:
@@ -132,7 +132,7 @@ def migrate_text(old_text: str, new_text: str
     migrated: List[str] = []
     new_only: List[str] = []
     out_lines: List[str] = []
-    current_array: str | None = None
+    current_array: Optional[str] = None
 
     for line in new_text.splitlines():
         if current_array is not None:

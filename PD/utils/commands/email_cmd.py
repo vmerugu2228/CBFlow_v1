@@ -97,11 +97,14 @@ def collect_run_info(run_dir: str) -> dict:
         'qor_summary': {},
     }
 
-    # Parse run name for flow type
+    # Parse run name for flow type via shared helper.
+    # Pre-fix regex only matched P\d+ phases with trailing `_run<N>`
+    # suffix — missed LC/BTO/MTO entirely.
     run_name = info['run_name']
-    m = re.match(r'P\d+_run_(\w+)_run\d+', run_name)
-    if m:
-        info['flow_type'] = m.group(1)
+    from core.paths import flow_type_from_run_dir_name
+    ft = flow_type_from_run_dir_name(run_name)
+    if ft:
+        info['flow_type'] = ft
 
     # Read .run.cbflow.tcl for design/project info
     env_file = os.path.join(run_dir, '.run.cbflow.tcl')

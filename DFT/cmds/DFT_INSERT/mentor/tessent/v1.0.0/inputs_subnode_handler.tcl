@@ -25,7 +25,7 @@ set stage_name  "inputs"
 if {$node_name eq ""} { set node_name $stage_name }
 
 set test_mode false
-if {[info exists flow(test_mode)] && $flow(test_mode) eq "true"} { set test_mode true }
+if {[info exists flow(test_mode)] && [is_true $flow(test_mode)]} { set test_mode true }
 
 # Resolve inputs from upstream run manifest or release tag
 if {[info exists ::env(SCRIPTS_ROOT)] && [info exists ::env(UTILITIES_VERSION)]} {

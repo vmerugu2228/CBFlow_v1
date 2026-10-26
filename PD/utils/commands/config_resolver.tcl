@@ -59,31 +59,62 @@ if {[info exists ::env(CONFIG_ROOT)]} {
 set flow_ver    [expr {[info exists ::env(FLOW_CONFIG_VERSION)] ? $::env(FLOW_CONFIG_VERSION) : "v1.0.0"}]
 
 # ── 1b. Global config root (cbflow_global refactor) ──
-# Global sources are sourced BEFORE flow_config so a future flow_registry.tcl
-# can pre-populate flow(types)/flow(discipline,*) before PD's flow_config
-# appends its mandatory_vars. During phase 1-2 the global paths resolve to
-# the same physical files as PD's (symlink shim), so double-source is safe
-# (Tcl `set` is idempotent).
+# Global sources are sourced BEFORE flow_config so flow_registry.tcl pre-
+# populates flow(types) / flow(discipline,*) / flow(disciplines) before
+# any discipline's flow_config appends its mandatory_vars.
 set global_root ""
 if {[info exists ::env(CBFLOW_GLOBAL_DIR)] && [file isdirectory "$::env(CBFLOW_GLOBAL_DIR)/config"]} {
     set global_root "$::env(CBFLOW_GLOBAL_DIR)/config"
 } elseif {[info exists ::env(CBFLOW_ROOT)] && [file isdirectory "$::env(CBFLOW_ROOT)/global/config"]} {
     set global_root "$::env(CBFLOW_ROOT)/global/config"
 }
+if {$global_root eq ""} {
+    puts stderr "ERROR: CBFLOW_GLOBAL_DIR / CBFLOW_ROOT/global not set — cannot resolve global config root"
+    exit 1
+}
 set _global_sources [list]
-if {$global_root ne ""} {
-    # Global flow_registry (phase 3 creates it; harmless if absent).
-    set _fr "$global_root/flow/$flow_ver/flow_registry.tcl"
-    if {[file exists $_fr]} {
-        source $_fr
-        lappend _global_sources "global_registry:$_fr"
-    }
+set _fr "$global_root/flow/$flow_ver/flow_registry.tcl"
+if {![file exists $_fr]} {
+    puts stderr "ERROR: global flow_registry.tcl missing: $_fr"
+    exit 1
+}
+source $_fr
+lappend _global_sources "global_registry:$_fr"
+
+# ── 2. flow_config.tcl — routed by discipline ────────────────────────────────
+# The global registry set flow(discipline,<flow>) → one of {PD, DFT, DV}. Route
+# the flow_config.tcl source to that discipline's tree so DFT / DV flows load
+# their own mandatory_vars + node_config, not PD's.
+#
+# The CBFLOW_<DISC>_DIR env var (exported by bin/cbflow when the discipline
+# directory exists) locates the discipline root. Falls back to a sibling of
+# CBFLOW_CORE_DIR to survive test contexts that don't fully invoke the
+# launcher.
+set _disc "PD"
+if {[info exists ::flow(discipline,$flow_type)]} {
+    set _disc $::flow(discipline,$flow_type)
+}
+set _disc_upper [string toupper $_disc]
+set _disc_dir ""
+set _disc_env_var "CBFLOW_${_disc_upper}_DIR"
+if {[info exists ::env($_disc_env_var)] && [file isdirectory $::env($_disc_env_var)]} {
+    set _disc_dir $::env($_disc_env_var)
+} elseif {[info exists ::env(CBFLOW_ROOT)] && [file isdirectory "$::env(CBFLOW_ROOT)/$_disc"]} {
+    set _disc_dir "$::env(CBFLOW_ROOT)/$_disc"
+} elseif {$_disc eq "PD"} {
+    # Backwards compat: pre-Phase-5 workareas only export CBFLOW_CORE_DIR.
+    set _disc_dir [file dirname $config_root]
+}
+if {$_disc_dir eq ""} {
+    puts stderr "ERROR: cannot resolve discipline root for '$_disc' (flow $flow_type)"
+    puts stderr "       set $_disc_env_var or CBFLOW_ROOT."
+    exit 1
 }
 
-set flow_config "$config_root/flow/$flow_ver/flow_config.tcl"
-
+set flow_config "$_disc_dir/config/flow/$flow_ver/flow_config.tcl"
 if {![file exists $flow_config]} {
     puts stderr "ERROR: flow_config.tcl not found: $flow_config"
+    puts stderr "       (discipline=$_disc for flow=$flow_type)"
     exit 1
 }
 # CBFLOW_FLOW_TYPE drives flow_config.tcl's node_config dispatch.
@@ -103,29 +134,75 @@ if {[file exists $_lsf_cfg]} { source $_lsf_cfg }
 # ── release_config.tcl (defines MILESTONE_STAGE_MAPPING for exit checklists) ──
 set _release_cfg "$config_root/flow/$flow_ver/release_config.tcl"
 if {[file exists $_release_cfg]} {
-    # release_config.tcl uses ::operating_modes — guard against eval errors when
-    # the resolver is invoked in --no-run mode and operating_modes hasn't been
-    # populated yet. The dynamic STA-mode block at the bottom of the file is
-    # gated on `[array exists operating_modes]` so it skips naturally.
-    catch { source $_release_cfg }
+    # release_config.tcl uses ::operating_modes — the dynamic STA-mode block
+    # at the bottom gates on `[array exists operating_modes]` so --no-run
+    # mode is handled naturally. Capture any REAL parse error (previously
+    # silently swallowed) and surface it to stderr so a syntax error in
+    # release_config.tcl doesn't turn into empty release(base_dir) +
+    # release_tag resolutions returning 0 all over the codebase.
+    if {[catch { source $_release_cfg } _rc_err]} {
+        puts stderr "WARNING: release_config.tcl parse error: $_rc_err"
+        puts stderr "         Release-tag input resolution will fall back to empty."
+    }
 }
 
-# ── 3. mmmc_config.tcl + mmmc_node_scenarios.tcl (full cascade only) ──
-# mmmc_config.tcl:         PVT building blocks + auto-gen views/scenarios
-# mmmc_node_scenarios.tcl: per-node (setup/hold) scenario assignments —
-#                         defines `array set mmmc { <node> { setup {...}
-#                         hold {...} } ... }`. Used to be embedded in each
-#                         project_config.tcl; now the standalone file is
-#                         authoritative so project_config stays lean.
+# ── 3a. project configs — global (identity) + PD overlay (workarea/release) ──
+# Sourced BEFORE tech because tech configs reference $project(lib_root) etc.
+# The identity half (global) provides project(technology|top_module|...);
+# the PD overlay provides project(lib_root|workarea_path|metal_stack|...).
+set _proj_srcs [list]
 if {!$_no_run} {
     set _proj_name [expr {[info exists ::env(CBFLOW_PROJECT_NAME)] ? $::env(CBFLOW_PROJECT_NAME) : ""}]
     set _proj_ver  [expr {[info exists ::env(FLOW_CONFIG_VERSION)] ? $::env(FLOW_CONFIG_VERSION) : "v1.0.0"}]
     if {$_proj_name ne ""} {
-        set _mmmc_cfg_path "$config_root/project/$_proj_name/$_proj_ver/mmmc_config.tcl"
+        if {$global_root ne ""} {
+            set _gp "$global_root/project/$_proj_name/$_proj_ver/project_config.tcl"
+            if {[file exists $_gp]} {
+                source $_gp
+                lappend _proj_srcs "global_project:$_gp"
+            }
+        }
+        set _pp "$config_root/project/$_proj_name/$_proj_ver/project_pd_config.tcl"
+        if {[file exists $_pp]} {
+            source $_pp
+            lappend _proj_srcs "pd_project:$_pp"
+        }
+    }
+}
+
+# ── 3b. tech configs — global (foundry) + PD overlay (metal/cells) ──
+# Sourced AFTER project so $project(lib_root) resolves inside tech(*,lef_tech)
+# / tech(rcx,*) path values. Both files additively populate tech(...).
+set _tech_srcs [list]
+if {!$_no_run} {
+    set _tech_node [expr {[info exists ::env(CBFLOW_TECH_NODE)] ? $::env(CBFLOW_TECH_NODE) :
+                           [expr {[info exists ::env(TECH_NAME)] ? $::env(TECH_NAME) : ""}]}]
+    set _tech_ver  [expr {[info exists ::env(TECH_CONFIG_VERSION)] ? $::env(TECH_CONFIG_VERSION) : "v1.0.0"}]
+    if {$_tech_node ne ""} {
+        # Post 2026-10-11: tech is a SINGLE file in global. The former
+        # PD-side tech_pd_config.tcl was merged into tech_config.tcl.
+        if {$global_root ne ""} {
+            set _gt "$global_root/tech/$_tech_node/$_tech_ver/tech_config.tcl"
+            if {[file exists $_gt]} {
+                source $_gt
+                lappend _tech_srcs "global_tech:$_gt"
+            }
+        }
+    }
+}
+
+# ── 3c. mmmc_config.tcl + mmmc_node_scenarios.tcl (from global) ──
+# mmmc_config.tcl:         PVT building blocks + auto-gen views/scenarios
+# mmmc_node_scenarios.tcl: per-node (setup/hold) scenario assignments.
+# Both moved to global/ in Phase 3 — they are project-scoped identity data,
+# not PD-specific.
+if {!$_no_run} {
+    if {$_proj_name ne "" && $global_root ne ""} {
+        set _mmmc_cfg_path "$global_root/project/$_proj_name/$_proj_ver/mmmc_config.tcl"
         if {[file exists $_mmmc_cfg_path]} {
             source $_mmmc_cfg_path
         }
-        set _mmmc_ns_path "$config_root/project/$_proj_name/$_proj_ver/mmmc_node_scenarios.tcl"
+        set _mmmc_ns_path "$global_root/project/$_proj_name/$_proj_ver/mmmc_node_scenarios.tcl"
         if {[file exists $_mmmc_ns_path]} {
             source $_mmmc_ns_path
         }
@@ -323,8 +400,12 @@ foreach _arr {flow_descriptions phase_descriptions run_type_descriptions
 
 # ── Sourced-files manifest (diagnostic: which files contributed to this run) ──
 set _sources [list]
-# Global-side entries (phase 3+; empty during phases 1-2 unless registry exists)
+# Global registry (flow_registry.tcl loaded before flow_config)
 foreach _gs $_global_sources { lappend _sources $_gs }
+# Global + PD tech overlays (Phase 3 split)
+foreach _ts $_tech_srcs { lappend _sources $_ts }
+# Global + PD project overlays (Phase 3 split)
+foreach _ps $_proj_srcs { lappend _sources $_ps }
 lappend _sources "flow_config:$flow_config"
 if {!$_no_run} {
     if {[info exists _mmmc_cfg_path] && [file exists $_mmmc_cfg_path]} {

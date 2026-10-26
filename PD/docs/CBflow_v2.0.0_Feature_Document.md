@@ -260,7 +260,7 @@ When a stage contains multiple subnodes with independent dependency structures, 
 
 **STA Timing Analysis.** The timing1 stage uses dynamic subnodes resolved from MMMC scenario definitions. Each scenario (corner/mode combination) is an independent analysis that can run simultaneously. A design with eight signoff scenarios achieves up to 8x speedup on this stage when sufficient compute resources are available.
 
-**Physical Verification.** The PV flow's verification stages -- DRC, LVS, ERC, PERC, and XOR -- all depend on the fill1 stage but are independent of each other. After metal fill completes, all five verification checks dispatch in parallel, with the merge_data1 stage waiting for all five to complete before consolidating results.
+**Physical Verification.** The PV flow's verification stages -- DRC, LVS, PERC, PERC_LDL, and XOR -- run against the merged fill GDS produced by fill_merge_gds1. After the merged-GDS pipeline (nettran1 → merge_gds1 → fill_merge_gds1 → decomp1 → decomp_merge_gds1) completes, the five verification checks dispatch in parallel; merge_data1 waits for all five before consolidating results.
 
 **Input Validation.** Input leaf stages (RTL, SDC, UPF, netlist, DEF, GDS, library, SPEF) have no inter-dependencies within a flow. All input stages execute in parallel at the start of every flow, minimizing input processing latency.
 
@@ -410,8 +410,8 @@ Comprehensive physical verification flow with parallel check execution.
 
 | Property              | Value                                          |
 |-----------------------|------------------------------------------------|
-| Stages                | 11 (netlist1, def1, gds1, fill1, drc1, lvs1, perc1, erc1, xor1, merge_data1, release_data1) |
-| Parallel Capability   | 3 input stages in parallel; 5 verification checks (DRC, LVS, PERC, ERC, XOR) execute in parallel after fill |
+| Stages                | 15 (netlist1, def1, gds1, nettran1, merge_gds1, fill_merge_gds1, decomp1, decomp_merge_gds1, drc1, lvs1, perc1, perc_ldl1, xor1, merge_data1, release_data1) |
+| Parallel Capability   | 3 input stages in parallel; 5 verification checks (DRC, LVS, PERC, PERC_LDL, XOR) execute in parallel after the merged-GDS pipeline |
 | Vendor Support        | Synopsys ICV, Mentor/Siemens Calibre, Cadence PVS |
 | Key Features          | ICV-RM V-2023.12 alignment, FEOL/BEOL metal fill, foundry runset integration, per-check CPU allocation, comprehensive rule deck support |
 

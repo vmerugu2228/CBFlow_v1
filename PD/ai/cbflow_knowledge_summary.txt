@@ -9,7 +9,7 @@
 - LEC: 5 stages (netlist_golden1, netlist_revised1, constraints1, compare1, release_data1) — synopsys/formality
 - PNR: 13 stages (netlist1, sdc1, def1, upf1, init_design1...) — synopsys/fc
 - POPT: 7 stages (netlist1, sdc1, upf1, merge_timing1, power_opt1...) — synopsys/pt
-- PV: 11 stages (netlist1, def1, gds1, fill1, drc1...) — synopsys/icv
+- PV: 15 stages (netlist1, def1, gds1, nettran1, merge_gds1, fill_merge_gds1, decomp1, decomp_merge_gds1, drc1, lvs1, perc1, perc_ldl1, xor1, merge_data1, release_data1) — synopsys/icv or mentor/calibre
 - STA: 8 stages (netlist1, sdc1, spef1, library1, extraction1...) — synopsys/pt
 - SYNTH_PNR: 13 stages (rtl1, sdc1, upf1, init_design1, synthesis1...) — synopsys/fc
 - SYNTH: 7 stages (rtl1, sdc1, upf1, init_design1, synthesis1...) — synopsys/fc

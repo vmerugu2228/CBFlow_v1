@@ -367,8 +367,23 @@ puts "===SETS_END==="
 # ===============================================================================
 
 def _backup_config(config_path: str) -> str:
-    """Create a backup of the config file. Returns backup path."""
-    backup = config_path + '.bak'
+    """Create a timestamped backup under a dedicated `backup/` sidecar
+    directory next to the file. Returns the backup path.
+
+    Old behavior wrote `<file>.bak` right next to the source, cluttering the
+    config directory with .bak files that shadowed the real config in
+    tab-complete and made version-control grep noisier. Every backup now
+    goes into `<config_dir>/backup/<basename>.YYYYMMDD-HHMMSS.bak`.
+    Naming keeps timestamps so multiple edits per day don't overwrite each
+    other. Multi-day retention is trivial to trim (`find ... -mtime +N`).
+    """
+    from datetime import datetime as _dt_local
+    cfg_dir = os.path.dirname(os.path.abspath(config_path))
+    backup_dir = os.path.join(cfg_dir, 'backup')
+    os.makedirs(backup_dir, exist_ok=True)
+    ts = _dt_local.now().strftime('%Y%m%d-%H%M%S')
+    backup = os.path.join(backup_dir,
+                          '{}.{}.bak'.format(os.path.basename(config_path), ts))
     shutil.copy2(config_path, backup)
     return backup
 
@@ -380,9 +395,16 @@ def _read_config(config_path: str) -> str:
 
 
 def _write_config(config_path: str, content: str):
-    """Write config file content."""
-    with open(config_path, 'w') as f:
-        f.write(content)
+    """Write config file content atomically.
+
+    Pre-fix: bare open-w + write was non-atomic. SIGKILL / power loss
+    between truncate and write-complete left mmmc_config.tcl truncated;
+    next `cbflow run all` sourced it and hit TCL parse error. No backup
+    on the mutation path (backups only exist for show/generate). atomic
+    rename ensures the target is either untouched or fully written.
+    """
+    from core.paths import atomic_write
+    atomic_write(config_path, content)
 
 
 # ===============================================================================
@@ -399,8 +421,17 @@ def cmd_show(args: argparse.Namespace) -> int:
 
     # Execute TCL to get auto-generated views and sets
     tcl_data = execute_tcl_config(config_path)
-    views = tcl_data['analysis_views'] if tcl_data else []
-    sets = tcl_data['scenario_sets'] if tcl_data else {}
+    if tcl_data is None:
+        # Pre-fix the fallback `[] / {}` silently masked tclsh-missing /
+        # timeout / tclsh-eval-crash as "0 views configured" — users
+        # thought their mmmc_config was broken when the tool stack was.
+        logger.error("Could not execute mmmc_config.tcl via tclsh — see "
+                     "ERROR line above for root cause. Views/scenarios "
+                     "cannot be shown.")
+        views, sets = [], {}
+    else:
+        views = tcl_data['analysis_views']
+        sets = tcl_data['scenario_sets']
 
     print()
     print("  MMMC Configuration")
@@ -1179,39 +1210,63 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
     print('=' * 60)
     print('')
 
-    # Tech name
-    tech_name = args.tech
-    if not tech_name:
-        tech_base = os.path.join(core_dir, 'config', 'tech')
-        available_techs = sorted(d for d in os.listdir(tech_base)
-                                if os.path.isdir(os.path.join(tech_base, d))) if os.path.isdir(tech_base) else []
-        if not available_techs:
-            logger.error("No technologies found in {}".format(tech_base))
+    # Tech name — --tech-config wins when provided; derive tech_name
+    # from its path convention so the user can run outside a flow dir
+    # with an arbitrary tech_config path.
+    _tc_override = getattr(args, 'tech_config', None)
+    if _tc_override:
+        if not os.path.isfile(_tc_override):
+            logger.error("--tech-config path does not exist: {}".format(_tc_override))
             return 1
-        print('  Available technologies:')
-        for i, t in enumerate(available_techs, 1):
-            print('    {}. {}'.format(i, t))
-        choice = input('  Select technology [1-{}]: '.format(len(available_techs))).strip()
-        try:
-            idx = int(choice) - 1
-            if 0 <= idx < len(available_techs):
-                tech_name = available_techs[idx]
-            else:
-                logger.error("Invalid selection")
+        from core.paths import tech_name_from_config_path
+        derived = tech_name_from_config_path(_tc_override)
+        tech_name = args.tech or derived
+        if not tech_name:
+            logger.error("Could not derive tech name from {}. Pass --tech explicitly.".format(_tc_override))
+            return 1
+        args.tech = tech_name
+        logger.info("Using explicit --tech-config: {}".format(_tc_override))
+    else:
+        tech_name = args.tech
+        if not tech_name:
+            from core.paths import list_available_techs, get_tech_search_roots
+            available_techs = list_available_techs(getattr(args, 'version', None))
+            if not available_techs:
+                searched = get_tech_search_roots() or ['<no global/, no PD config/tech>']
+                logger.error("No technologies found. Searched:")
+                for p in searched:
+                    logger.error("  {}".format(p))
                 return 1
-        except ValueError:
-            # Allow typing the name directly too
-            if choice in available_techs:
-                tech_name = choice
-            else:
-                logger.error("Invalid selection: {}".format(choice))
-                return 1
-        print('  Selected: {}'.format(tech_name))
+            print('  Available technologies:')
+            for i, t in enumerate(available_techs, 1):
+                print('    {}. {}'.format(i, t))
+            choice = input('  Select technology [1-{}]: '.format(len(available_techs))).strip()
+            try:
+                idx = int(choice) - 1
+                if 0 <= idx < len(available_techs):
+                    tech_name = available_techs[idx]
+                else:
+                    logger.error("Invalid selection")
+                    return 1
+            except ValueError:
+                # Allow typing the name directly too
+                if choice in available_techs:
+                    tech_name = choice
+                else:
+                    logger.error("Invalid selection: {}".format(choice))
+                    return 1
+            print('  Selected: {}'.format(tech_name))
 
-    # Preflight — tech_config.tcl MUST exist for this tech/version.
-    require_tech_config(tech_name, version)
+        # Preflight — tech_config.tcl MUST exist for this tech/version.
+        require_tech_config(tech_name, version)
 
-    tech_dir = os.path.join(core_dir, 'config', 'tech', tech_name, version)
+    # Tech dir is in global (post 2026-10-11). The `tech_dir` variable is
+    # used for logging + lib_config auto-select; both expect the actual
+    # on-disk location.
+    from core.paths import get_cbflow_global_dir
+    _gdir = get_cbflow_global_dir()
+    tech_dir = (os.path.join(_gdir, 'config', 'tech', tech_name, version)
+                if _gdir else '')
 
     # Corners
     corners_input = args.corners.split() if args.corners else None
@@ -1255,37 +1310,117 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
         len(corners_input), len(voltages_input), len(temps_input), total_requested))
 
     # ── 2. Resolve lib_config for validation ──
+    # --lib-config takes highest precedence: when the user passes a raw
+    # lib_config.tcl path, use it directly and skip the lib_tag_root →
+    # tag → lib_config.tcl cascade entirely. Lets mmmc-manager run
+    # outside a flow dir with an arbitrary lib_config path (same
+    # usability goal as library-manager's --tech-config).
+    #
+    # Otherwise: post 2026-10-10 lib_config lives inside a tag directory
+    # (<tech_dir>/<TAG>/lib_config.tcl). Fall back to the legacy flat form
+    # (<tech_dir>/lib_config_<TAG>.tcl) if the directory doesn't exist yet,
+    # so pre-migration tags keep working.
+    from library_manager_cmd import (_resolve_lib_config_path,
+                                     _list_available_tags)
     lib_tag = args.lib_tag if hasattr(args, 'lib_tag') and args.lib_tag else None
     lib_config_path = None
 
-    if lib_tag:
-        lib_config_path = os.path.join(tech_dir, 'lib_config_{}.tcl'.format(lib_tag))
-    else:
-        # No tag — find available tagged configs
-        available = sorted(f for f in os.listdir(tech_dir)
-                          if f.startswith('lib_config_') and f.endswith('.tcl'))
-        if len(available) == 1:
-            lib_config_path = os.path.join(tech_dir, available[0])
-            logger.info("Auto-selected: {} (only lib_config available)".format(available[0]))
-        elif len(available) > 1:
-            logger.error("Multiple lib_config tags available:")
-            for a in available:
-                tag = a.replace('lib_config_', '').replace('.tcl', '')
-                logger.error("  {} -> use --lib-tag {}".format(a, tag))
-            logger.error("Please specify --lib-tag to select one")
+    _lc_override = getattr(args, 'lib_config', None)
+    if _lc_override:
+        if not os.path.isfile(_lc_override):
+            logger.error("--lib-config path does not exist: {}".format(_lc_override))
             return 1
+        lib_config_path = os.path.realpath(_lc_override)
+        if not lib_tag:
+            # Derive a tag label from <lib_tag_root>/<TAG>/lib_config.tcl.
+            _parent = os.path.basename(os.path.dirname(lib_config_path))
+            lib_tag = _parent if _parent and _parent != 'tech' else 'EXPLICIT'
+            args.lib_tag = lib_tag
+        logger.info("Using explicit --lib-config: {}".format(lib_config_path))
+    elif lib_tag:
+        lib_config_path = _resolve_lib_config_path(tech_name, lib_tag, version)
+        if not lib_config_path:
+            # Distinguish the three failure modes so the error message
+            # points at the ACTUAL cause (user misdirection = bad UX):
+            #   (a) lib_tag_root was configured but rejected as in-tree
+            #   (b) lib_tag_root set + tag missing under it
+            #   (c) lib_tag_root unset + no legacy in-tree file either
+            from library_manager_cmd import (
+                _resolve_lib_tag_root as _rltr,
+                _lib_tag_root_was_configured as _rltr_was,
+            )
+            _root = _rltr(tech_name, version)
+            _was = _rltr_was(tech_name, version)
+            if _was and not _root:
+                logger.error("lib_config for tag '{}' not resolvable: "
+                             "lib_tag_root was configured but REJECTED "
+                             "(points inside the framework tree). See the "
+                             "earlier ERROR line for the specific source.".format(lib_tag))
+            elif _root:
+                logger.error("No lib_config found for tag '{}'".format(lib_tag))
+                logger.error("  Searched: {}/{}/lib_config.tcl".format(_root, lib_tag))
+            else:
+                logger.error("No lib_config found for tag '{}' in {}".format(
+                    lib_tag, tech_dir))
+            avail = _list_available_tags(tech_name, version)
+            if avail:
+                logger.error("  Available tags: {}".format(", ".join(avail)))
+            logger.info("  Run: cbflow flow library-manager generate --tech {} --tag {}".format(
+                tech_name, lib_tag))
+            return 1
+    else:
+        # No tag given — auto-select if exactly one is available.
+        avail = _list_available_tags(tech_name, version)
+        if len(avail) == 1:
+            lib_tag = avail[0]
+            lib_config_path = _resolve_lib_config_path(tech_name, lib_tag, version)
+            if not lib_config_path:
+                # Race: tag was listed but file is gone, OR lib_tag_root
+                # resolution disagrees with the listing (e.g. stale cache).
+                logger.error("Auto-selected tag '{}' but its lib_config.tcl "
+                             "could not be resolved.".format(lib_tag))
+                logger.info("  Run: cbflow flow library-manager generate "
+                            "--tech {} --tag {}".format(tech_name, lib_tag))
+                return 1
+            logger.info("Auto-selected tag: {} (only one available)".format(lib_tag))
+        elif len(avail) > 1:
+            # Interactive: prompt the user to pick one. Non-interactive
+            # (CI, pipes): keep the hard-error so scripts fail fast.
+            if sys.stdin.isatty():
+                print('')
+                print('  Multiple lib_config tags available for {}:'.format(tech_name))
+                for i, t in enumerate(avail, 1):
+                    print('    {}. {}'.format(i, t))
+                choice = input('  Select tag [1-{}]: '.format(len(avail))).strip()
+                picked = ''
+                try:
+                    idx = int(choice) - 1
+                    if 0 <= idx < len(avail):
+                        picked = avail[idx]
+                except ValueError:
+                    if choice in avail:
+                        picked = choice
+                if not picked:
+                    logger.error("Invalid selection; aborting.")
+                    return 1
+                lib_tag = picked
+                lib_config_path = _resolve_lib_config_path(
+                    tech_name, lib_tag, version)
+                if not lib_config_path:
+                    logger.error("Tag '{}' selected but its lib_config.tcl "
+                                 "could not be resolved.".format(lib_tag))
+                    return 1
+                logger.info("Selected tag: {}".format(lib_tag))
+            else:
+                logger.error("Multiple lib_config tags available:")
+                for t in avail:
+                    logger.error("  --lib-tag {}".format(t))
+                logger.error("Please specify --lib-tag to select one")
+                return 1
         else:
-            logger.error("No lib_config_<tag>.tcl found in {}".format(tech_dir))
+            logger.error("No lib_config found under {}".format(tech_dir))
             logger.info("  Run: cbflow flow library-manager generate --tech {} --tag <tag>".format(tech_name))
             return 1
-
-    if not os.path.exists(lib_config_path):
-        logger.error("lib_config not found: {}".format(lib_config_path))
-        available = sorted(f for f in os.listdir(tech_dir)
-                          if f.startswith('lib_config') and f.endswith('.tcl'))
-        if available:
-            logger.error("  Available: {}".format(', '.join(available)))
-        return 1
 
     with open(lib_config_path, 'r') as f:
         lib_content = f.read()
@@ -1432,9 +1567,37 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
     # ── 7. Node assignments (only from valid PVT) ──
     total_views = len(modes) * sum(len(pts) for pts in valid_pvt.values())
 
+    def _process_role(pvt_type):
+        """Classify a process-corner name by its logical role.
+
+        Historic PVT names are exactly two letters ('ss', 'tt', 'ff') but a
+        tech can ship extended families like 'fff' (very-fast-fast), 'sss'
+        (very-slow-slow), 'ttf', etc. Rather than hardcoding a 2-letter map
+        we classify by *suffix*: everything ending in 'ss' is slow-role
+        (worst setup, rcmax), 'ff' is fast-role (worst hold, rcmin), 'tt'
+        is typical.
+
+        Returns one of {'slow', 'fast', 'typical'}; 'typical' is the safe
+        default for names that don't end in any recognized suffix (custom
+        corners like 'fs', 'sf' — handled by the caller).
+        """
+        name = (pvt_type or '').lower()
+        if name.endswith('ss'):
+            return 'slow'
+        if name.endswith('ff'):
+            return 'fast'
+        if name.endswith('tt'):
+            return 'typical'
+        return 'typical'
+
+    # Role → RC corner. Historical mapping preserved: slow→rcmax, fast→rcmin,
+    # typical→rctyp. Applied to every process name via _process_role() so
+    # extended-family corners (fff / sss / ...) resolve correctly.
+    _ROLE_RC = {'slow': 'rcmax', 'fast': 'rcmin', 'typical': 'rctyp'}
+
     def pick_scenarios(pvt_type, count, mode='func'):
         pts = valid_pvt.get(pvt_type, [])
-        rc = {'ss': 'rcmax', 'tt': 'rctyp', 'ff': 'rcmin'}.get(pvt_type, 'rctyp')
+        rc = _ROLE_RC.get(_process_role(pvt_type), 'rctyp')
         return ['{}_{}_{}_{}_{}'.format(mode, pvt_type, v, rc, t) for v, t in pts[:count]]
 
     # ── Discover real node_types from project's active flows ──
@@ -1484,80 +1647,123 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
                               'route', 'pro', 'signoff', 'timing', 'extraction'}
         logger.info("Using default node_types (no project flows detected)")
 
-    # Node scenario assignments — only for active node_types
-    # Scenario count grows as design matures through the flow
-    _all_ss_setup = ['{}_ss_{}_rcmax_{}'.format('func', v, t) for v, t in valid_pvt.get('ss', [])]
-    _all_ff_hold  = ['{}_ff_{}_rcmin_{}'.format('func', v, t) for v, t in valid_pvt.get('ff', [])]
+    # Node scenario assignments — only for active node_types.
+    # Scenario count grows as design matures through the flow.
+    #
+    # Signoff/timing/extraction stages want ALL slow-role corners for setup
+    # and ALL fast-role corners for hold. Discover them dynamically instead
+    # of assuming the corner group is literally 'ss' / 'ff' — extended
+    # families (fff, sss, ...) contribute here too.
+    def _all_scenarios_for_role(role, rc_side, mode='func'):
+        out = []
+        for pvt_type, pts in valid_pvt.items():
+            if _process_role(pvt_type) != role:
+                continue
+            for v, t in pts:
+                out.append('{}_{}_{}_{}_{}'.format(mode, pvt_type, v, rc_side, t))
+        return out
 
-    # Complexity mapping: node_type -> (setup_count, hold_count)
+    _all_slow_setup = _all_scenarios_for_role('slow', 'rcmax')
+    _all_fast_hold  = _all_scenarios_for_role('fast', 'rcmin')
+
+    # Complexity mapping: node_type -> (setup_count, hold_count, anchor_role).
+    # anchor_role selects WHICH process family a stage's setup+hold pull from:
+    #   'typical' — init/floorplan-like stages that only look at nominal PVT
+    #   'slow'    — stages that need worst-case setup (setup uses slow-role,
+    #               hold uses fast-role)
+    #   'all'     — signoff, pull every slow-role for setup + every fast-role
+    #               for hold (represented as -1 counts)
     _complexity = {
         # Early (1 scenario)
-        'init_design': (1, 1, 'tt'), 'init_compile': (1, 1, 'tt'), 'import_design': (1, 1, 'tt'),
-        'commit_blocks': (1, 1, 'tt'),
+        'init_design': (1, 1, 'typical'), 'init_compile': (1, 1, 'typical'),
+        'import_design': (1, 1, 'typical'), 'commit_blocks': (1, 1, 'typical'),
         # Floorplan/power (1 scenario)
-        'floorplan': (1, 1, 'ss'), 'create_floorplan': (1, 1, 'ss'), 'powerplan': (1, 1, 'ss'),
-        'create_power': (1, 1, 'ss'), 'shaping': (1, 1, 'ss'), 'place_pins': (1, 1, 'ss'),
-        'timing_budget': (1, 1, 'ss'), 'top_compile': (1, 1, 'ss'),
+        'floorplan': (1, 1, 'slow'), 'create_floorplan': (1, 1, 'slow'),
+        'powerplan': (1, 1, 'slow'), 'create_power': (1, 1, 'slow'),
+        'shaping': (1, 1, 'slow'), 'place_pins': (1, 1, 'slow'),
+        'timing_budget': (1, 1, 'slow'), 'top_compile': (1, 1, 'slow'),
         # Placement (2 scenarios)
-        'place': (2, 2, 'ss'), 'placement': (2, 2, 'ss'), 'power_opt': (2, 2, 'ss'),
+        'place': (2, 2, 'slow'), 'placement': (2, 2, 'slow'), 'power_opt': (2, 2, 'slow'),
         # CTS/Route (3 scenarios)
-        'cts': (3, 3, 'ss'), 'cts_opt': (3, 3, 'ss'), 'route': (3, 3, 'ss'),
+        'cts': (3, 3, 'slow'), 'cts_opt': (3, 3, 'slow'), 'route': (3, 3, 'slow'),
         # Post-route optimization
-        'pro': (4, 3, 'ss'),
-        # Signoff (all corners)
-        'signoff': (-1, -1, 'ss'), 'timing': (-1, -1, 'ss'), 'extraction': (-1, -1, 'ss'),
+        'pro': (4, 3, 'slow'),
+        # Signoff (all corners) — use 'all' sentinel + -1 count
+        'signoff': (-1, -1, 'all'), 'timing': (-1, -1, 'all'), 'extraction': (-1, -1, 'all'),
         # Synthesis
-        'synthesis': (3, 2, 'ss'),
+        'synthesis': (3, 2, 'slow'),
         # Verification (1 scenario)
-        'clp': (1, 1, 'ss'), 'compare': (1, 1, 'ss'), 'eco': (1, 1, 'ss'),
-        'drc': (1, 1, 'ss'), 'lvs': (1, 1, 'ss'), 'fill': (1, 1, 'ss'),
-        'erc': (1, 1, 'ss'), 'perc': (1, 1, 'ss'), 'xor': (1, 1, 'ss'),
-        'ir_drop': (1, 1, 'ss'), 'power_analysis': (1, 1, 'ss'), 'thermal_analysis': (1, 1, 'ss'),
+        'clp': (1, 1, 'slow'), 'compare': (1, 1, 'slow'), 'eco': (1, 1, 'slow'),
+        'drc': (1, 1, 'slow'), 'lvs': (1, 1, 'slow'), 'fill': (1, 1, 'slow'),
+        'erc': (1, 1, 'slow'), 'perc': (1, 1, 'slow'), 'xor': (1, 1, 'slow'),
+        'ir_drop': (1, 1, 'slow'), 'power_analysis': (1, 1, 'slow'),
+        'thermal_analysis': (1, 1, 'slow'),
     }
+
+    def _first_pvt_for_role(role):
+        """Return the first pvt_type in valid_pvt that matches this role,
+        so `pick_scenarios(<pvt>, N)` can pull from it. Falls back to any
+        available pvt_type if the role has no members."""
+        for pvt_type in valid_pvt:
+            if _process_role(pvt_type) == role:
+                return pvt_type
+        return next(iter(valid_pvt), None)
 
     nodes = {}
     for nt in sorted(_active_node_types):
-        s_count, h_count, corner_type = _complexity.get(nt, (1, 1, 'ss'))
-        if s_count == -1:  # all corners
-            nodes[nt] = {'setup': _all_ss_setup, 'hold': _all_ff_hold}
-        elif corner_type == 'tt':
-            nodes[nt] = {'setup': pick_scenarios('tt', s_count) or pick_scenarios('ss', s_count),
-                         'hold':  pick_scenarios('tt', h_count) or pick_scenarios('ff', h_count)}
-        else:
-            nodes[nt] = {'setup': pick_scenarios('ss', s_count),
-                         'hold':  pick_scenarios('ff', h_count)}
+        s_count, h_count, anchor = _complexity.get(nt, (1, 1, 'slow'))
+        if anchor == 'all':
+            nodes[nt] = {'setup': _all_slow_setup, 'hold': _all_fast_hold}
+        elif anchor == 'typical':
+            typ = _first_pvt_for_role('typical')
+            slow = _first_pvt_for_role('slow')
+            fast = _first_pvt_for_role('fast')
+            nodes[nt] = {
+                'setup': (pick_scenarios(typ, s_count) if typ else [])
+                         or (pick_scenarios(slow, s_count) if slow else []),
+                'hold':  (pick_scenarios(typ, h_count) if typ else [])
+                         or (pick_scenarios(fast, h_count) if fast else []),
+            }
+        else:  # 'slow'
+            slow = _first_pvt_for_role('slow')
+            fast = _first_pvt_for_role('fast')
+            nodes[nt] = {
+                'setup': pick_scenarios(slow, s_count) if slow else [],
+                'hold':  pick_scenarios(fast, h_count) if fast else [],
+            }
 
-    # ── Write mmmc_config.tcl (per project) ──
+    # ── Write mmmc_config.tcl ──
+    # Default output location: the SAME directory as lib_config.tcl.
+    # When the user invokes with --lib-config /path/to/.../tag/lib_config.tcl,
+    # we write mmmc_config.tcl to /path/to/.../tag/ — co-located so a
+    # single tag directory ships both configs. If --project is passed
+    # (legacy per-project workflow) we honor it by also writing a copy
+    # under <project>/v1.0.0/mmmc_config.tcl.
     project_name = args.project if hasattr(args, 'project') and args.project else None
-    if not project_name:
-        # Try to auto-detect: list available projects
-        proj_base = os.path.join(core_dir, 'config', 'project')
-        available_projects = sorted(d for d in os.listdir(proj_base)
-                                   if os.path.isdir(os.path.join(proj_base, d))) if os.path.isdir(proj_base) else []
-        if sys.stdin.isatty() and available_projects:
-            print('  Available projects:')
-            for i, p in enumerate(available_projects, 1):
-                print('    {}. {}'.format(i, p))
-            choice = input('  Select project [1-{}]: '.format(len(available_projects))).strip()
-            try:
-                idx = int(choice) - 1
-                if 0 <= idx < len(available_projects):
-                    project_name = available_projects[idx]
-            except ValueError:
-                if choice in available_projects:
-                    project_name = choice
-        elif len(available_projects) == 1:
-            project_name = available_projects[0]
-        if not project_name:
-            logger.error("--project is required (e.g., --project denali)")
-            return 1
-        print('  Project: {}'.format(project_name))
+    # Primary output: alongside lib_config.
+    output_path = os.path.join(os.path.dirname(lib_config_path), 'mmmc_config.tcl')
+    logger.info("Primary mmmc output: {}".format(output_path))
 
-    proj_dir = os.path.join(core_dir, 'config', 'project', project_name, version)
-    if not os.path.isdir(proj_dir):
-        logger.error("Project directory not found: {}".format(proj_dir))
-        return 1
-    output_path = os.path.join(proj_dir, 'mmmc_config.tcl')
+    # Optional secondary: per-project mmmc_config.tcl (keeps legacy
+    # flow-cascade working for projects that still read from their
+    # project config dir).
+    proj_output_path = None
+    if project_name:
+        from core.paths import get_global_config_root
+        _grot = get_global_config_root()
+        proj_dir = None
+        for root in filter(None, [_grot and os.path.join(_grot, 'project'),
+                                   os.path.join(core_dir, 'config', 'project')]):
+            candidate = os.path.join(root, project_name, version)
+            if os.path.isdir(candidate):
+                proj_dir = candidate
+                break
+        if proj_dir is None:
+            logger.warning("Project '{}' dir not found; skipping per-project mirror".format(
+                project_name))
+        else:
+            proj_output_path = os.path.join(proj_dir, 'mmmc_config.tcl')
+            logger.info("Secondary mmmc output (per-project): {}".format(proj_output_path))
 
     lines = []
     w = lines.append
@@ -1747,19 +1953,33 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
             if confirm and confirm not in ('y', 'yes'):
                 print('  Aborted — no changes made.')
                 return 0
-        # Backup with timestamp
-        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-        backup_path = '{}.bak_{}'.format(output_path, ts)
-        shutil.copy2(output_path, backup_path)
+        # Route through shared helper so the backup lands in `backup/` under
+        # the config directory (not inline). See _backup_config().
+        backup_path = _backup_config(output_path)
         print('  Backup: {}'.format(backup_path))
 
-    with open(output_path, 'w') as fh:
-        fh.write(output_text)
+    # Atomic rewrite — pre-fix non-atomic open-w could truncate on kill.
+    from core.paths import atomic_write
+    try:
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    except OSError:
+        pass
+    atomic_write(output_path, output_text)
 
-    # Write node assignments template alongside mmmc_config
+    # If --project was given, mirror to the per-project location too so
+    # the flow cascade (which still reads project_config/mmmc_config.tcl)
+    # keeps working.
+    if proj_output_path:
+        try:
+            os.makedirs(os.path.dirname(proj_output_path), exist_ok=True)
+        except OSError:
+            pass
+        atomic_write(proj_output_path, output_text)
+        print('  Also wrote: {}'.format(proj_output_path))
+
+    # Write node assignments template alongside mmmc_config.
     node_template_path = os.path.join(os.path.dirname(output_path), 'mmmc_node_scenarios.tcl')
-    with open(node_template_path, 'w') as fh:
-        fh.write(node_assignment_text)
+    atomic_write(node_template_path, node_assignment_text)
 
     print('  Node scenario template: {}'.format(node_template_path))
     print('  Copy node assignments to project_config.tcl if not already present')
@@ -1920,10 +2140,9 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
             ' '.join(setup_views), ' '.join(hold_views)))
         vw('')
 
-        # Write the view definition file
+        # Write the view definition file (atomic — co-located with mmmc_config).
         vd_path = os.path.join(os.path.dirname(output_path), 'mmmc_view_definition.tcl')
-        with open(vd_path, 'w') as fh:
-            fh.write('\n'.join(vd_lines) + '\n')
+        atomic_write(vd_path, '\n'.join(vd_lines) + '\n')
         print('  View definition: {}'.format(vd_path))
 
     # ── Report ──
@@ -2091,7 +2310,16 @@ Examples:
     p = sub.add_parser('generate',
                        help='Generate mmmc_config.tcl — interactive CLI, validated against lib_config')
     p.add_argument('--tech', default=None,
-                   help='Technology name (e.g., gf_22nm). Prompted if omitted')
+                   help='Technology name (e.g., gf_22nm). Prompted if omitted. '
+                        'Optional when --tech-config is set.')
+    p.add_argument('--tech-config', default=None,
+                   help='Path to tech_config.tcl. Takes precedence over --tech/CBFLOW_TECH_NODE '
+                        '— use when running outside a flow dir with a raw path.')
+    p.add_argument('--lib-config', default=None,
+                   help='Path to lib_config.tcl. When set, this is the authoritative '
+                        'library config — bypasses --lib-tag / lib_tag_root resolution. '
+                        'Pair with --tech-config to run fully config-path-driven, no '
+                        'framework-tree lookup needed.')
     p.add_argument('--corners', default=None,
                    help='Process corners (e.g., "ss tt ff"). Prompted if omitted')
     p.add_argument('--voltages', default=None,

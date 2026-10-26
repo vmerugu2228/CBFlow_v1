@@ -30,14 +30,17 @@ _logger = logging.getLogger('cbflow.interactive')
 def list_available_techs() -> list:
     """Return tech names that have a tech_config.tcl on disk.
 
-    Global first (post-refactor authoritative location), then PD legacy
-    fallback for pre-refactor installs. De-duplicated by name — a tech
-    that lives in both places appears once.
+    Delegates to `core.paths.list_available_techs` so programmatic callers
+    and the REPL always see the same list. The previous divergent copy
+    silently differed on bare-dir tolerance — a tech scaffold with no
+    tech_config.tcl was visible to one and invisible to the other.
     """
-    seen = set()
-    out = []
+    from .paths import list_available_techs as _shared
+    out = _shared()
+    # REPL additionally requires a tech_config.tcl to actually source,
+    # so filter to those entries that have one in at least one root.
+    kept = []
     roots = []
-
     grot = get_global_config_root()
     if grot:
         roots.append(os.path.join(grot, 'tech'))
@@ -45,25 +48,20 @@ def list_available_techs() -> list:
         roots.append(os.path.join(get_config_root(), 'tech'))
     except Exception:
         pass
-
-    for root in roots:
-        if not (root and os.path.isdir(root)):
-            continue
-        for t in sorted(os.listdir(root)):
-            if t in seen:
-                continue
-            tp = os.path.join(root, t)
+    for name in out:
+        for root in roots:
+            tp = os.path.join(root, name)
             if not os.path.isdir(tp):
                 continue
-            # Include only if at least one version dir has tech_config.tcl
             for v in os.listdir(tp):
                 vp = os.path.join(tp, v)
                 if os.path.isdir(vp) and os.path.isfile(
                         os.path.join(vp, 'tech_config.tcl')):
-                    seen.add(t)
-                    out.append(t)
+                    kept.append(name)
                     break
-    return out
+            if kept and kept[-1] == name:
+                break
+    return kept
 
 
 def _run_handler(handler, args) -> int:

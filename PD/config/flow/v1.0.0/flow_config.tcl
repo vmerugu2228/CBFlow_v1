@@ -17,65 +17,47 @@ set config_dir [file dirname $script_path]
 # ║                        SECTION 1: FLOW SETTINGS                             ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
-# ┌─ Flow Types ────────────────────────────────────────────────────────────────┐
-set flow(type)      ""                                                    ;# Mandatory — set in user_config
-set flow(types)     {SYNTH FP PNR STA LEC EMIR PV ECO CLP POPT FCFP SYNTH_PNR DFT_INSERT SCAN_INSERT ATPG GLS_FUNC GLS_SCAN_MBIST}
-
-# ┌─ Discipline Map ────────────────────────────────────────────────────────────┐
-# Which top-level tree (PD / DFT / DV / …) owns each flow's cmds/ handlers,
-# node_configs, and setup templates. Used by:
-#   - `cbflow flow types` to group + filter by discipline
-#   - race_engine._build_command() to route handler lookups to the correct root
-#   - workspace_cmd / start_run to pick the right discipline for validation
+# ┌─ Flow Catalog + Discipline Map ─────────────────────────────────────────────┐
+# Sourced from the global flow_registry.tcl — cross-discipline catalog and
+# discipline mapping live in ONE place (global/config/flow/v1.0.0/) so DFT
+# and DV configs don't have to duplicate them.
 #
-# Every flow in flow(types) MUST have an entry here. Adding a new flow without
-# updating this map is caught by config_validator.py at preflight.
+# Sets: flow(types), flow(disciplines), flow(discipline,*), flow(discipline_dir,*).
+# Also sources descriptions_config.tcl (arrays flow_descriptions,
+# phase_descriptions, run_type_descriptions).
 #
-# Discipline names align with directory names at the repo root:
-#   PD  → $CBFLOW_CORE_DIR                 (physical design — this file's home)
-#   DFT → $CBFLOW_DFT_DIR                  (design-for-test)
-#   DV  → $CBFLOW_DV_DIR                   (RTL design verification, phase 5)
-set flow(disciplines) {PD DFT DV}
+# During Phase 1-2 the global path was a symlink to this dir; from Phase 3
+# forward it's a real file. Fail-hard if it's missing — the framework needs
+# the catalog before anything else runs.
+set flow(type) ""                                                         ;# Mandatory — set in user_config
+if {[info exists ::env(CBFLOW_GLOBAL_DIR)] && [file isdirectory "$::env(CBFLOW_GLOBAL_DIR)/config"]} {
+    set _global_root "$::env(CBFLOW_GLOBAL_DIR)/config"
+} elseif {[info exists ::env(CBFLOW_ROOT)] && [file isdirectory "$::env(CBFLOW_ROOT)/global/config"]} {
+    set _global_root "$::env(CBFLOW_ROOT)/global/config"
+} else {
+    set _global_root ""
+}
+set _flow_ver [expr {[info exists ::env(FLOW_CONFIG_VERSION)] ? $::env(FLOW_CONFIG_VERSION) : "v1.0.0"}]
+if {$_global_root ne ""} {
+    set _reg "$_global_root/flow/$_flow_ver/flow_registry.tcl"
+    if {[file exists $_reg]} {
+        source $_reg
+    } else {
+        puts stderr "ERROR: global flow_registry.tcl not found: $_reg"
+        exit 1
+    }
+} else {
+    puts stderr "ERROR: CBFLOW_GLOBAL_DIR / CBFLOW_ROOT/global not set — cannot locate flow_registry.tcl"
+    exit 1
+}
+unset -nocomplain _reg _global_root _flow_ver
 
-# Physical Design flows — implementation, timing, verification, tapeout
-set flow(discipline,SYNTH)          "PD"
-set flow(discipline,FP)             "PD"
-set flow(discipline,FCFP)           "PD"
-set flow(discipline,PNR)            "PD"
-set flow(discipline,SYNTH_PNR)      "PD"
-set flow(discipline,STA)            "PD"
-set flow(discipline,LEC)            "PD"
-set flow(discipline,CLP)            "PD"
-set flow(discipline,PV)             "PD"
-set flow(discipline,EMIR)           "PD"
-set flow(discipline,POPT)           "PD"
-set flow(discipline,ECO)            "PD"
-
-# Design-For-Test flows — scan insertion, ATPG, gate-level sim
-set flow(discipline,DFT_INSERT)     "DFT"
-set flow(discipline,SCAN_INSERT)    "DFT"
-set flow(discipline,ATPG)           "DFT"
-set flow(discipline,GLS_FUNC)       "DFT"
-set flow(discipline,GLS_SCAN_MBIST) "DFT"
-
-# ┌─ Flow Runtime ──────────────────────────────────────────────────────────────┐
-set flow(run_name)      ""                                                ;# Mandatory — set in user_config
-set flow(design_name)   ""                                                ;# Mandatory — set in user_config
-set flow(run_type)      ""                                                ;# Mandatory — "hier" or "flat"
-set flow(run_types)     {hier flat}
-set flow(test_mode)     "false"                                           ;# Bypass EDA tools, show commands only
-set flow(mandatory_vars,all) {flow(run_name) flow(type) flow(design_name)}
-
-# Per-flow mandatory keys. Validated pre-flight by config_validator.py after
-# the cascade resolves — a missing/empty key here fails `cbflow run` and
-# `cbflow workspace validate` before any work/ directory is created.
-# Keep this list to genuine cross-cutting invariants (tool selection). Stage-
-# specific inputs are validated by resolve_inputs / enhanced_validate_run.
-#
-# Naming convention: the resolver emits keys of the *current flow's* array
-# WITHOUT the array-name prefix (e.g. `default_tool=pt`, not `sta(default_tool)=pt`).
-# List them here in the emission form, i.e. bare `default_tool`, not
-# `sta(default_tool)`. Cross-flow keys (`flow(...)`) keep their prefix.
+# ┌─ PD-specific mandatory_vars ────────────────────────────────────────────────┐
+# Cross-domain flow runtime defaults (run_name, run_type, test_mode, dispatcher,
+# use_lsf, use_xterm, cbflow_version, mode, merged,*, race,*, mmmc,*,
+# exit_milestones, valid_status, status_file, FILE_VALIDATION_RULES) live in
+# the global flow_registry.tcl (sourced above). This file only appends what's
+# PD-specific: mandatory tool selection per PD flow.
 set flow(mandatory_vars,SYNTH)      {default_tool}
 set flow(mandatory_vars,PNR)        {default_tool}
 set flow(mandatory_vars,SYNTH_PNR)  {default_tool}
@@ -88,51 +70,6 @@ set flow(mandatory_vars,PV)         {default_tool}
 set flow(mandatory_vars,EMIR)       {default_tool}
 set flow(mandatory_vars,ECO)        {default_tool}
 set flow(mandatory_vars,POPT)       {default_tool}
-
-# ┌─ Dispatcher ────────────────────────────────────────────────────────────────┐
-set flow(dispatcher)    "race"                                            ;# "race" (RACE) or "make" (GNU Make)
-set flow(use_lsf)       false                                             ;# Enable LSF job submission (set true in user_config when bsub available)
-set flow(use_xterm)     true                                              ;# Launch EDA tools in xterm (set false for direct terminal execution)
-set flow(cbflow_version) "2.0.0"                                          ;# Framework version — single source of truth
-set flow(dashboard,default_port) 0                                        ;# 0 = auto-select free port (avoids multi-user conflicts)
-
-# ┌─ Flow Mode ─────────────────────────────────────────────────────────────────┐
-set flow(mode)                  "default"                                 ;# default | merged
-set flow(merged,flows)          "SYNTH_PNR"
-set flow(merged,fp_independent) true
-set flow(merged,pnr_depends_fp) true
-
-# ┌─ RACE Database ──────────────────────────────────────────────────────────────┐
-set flow(race,db_max_sessions)  10                                        ;# Warning at 80%, error at 100%
-
-# ┌─ MMMC ────────────────────────────────────────────────────────────────────┐
-set flow(mmmc,enabled)        true
-set flow(mmmc,enabled_stages) {place cts cts_opt route pro signoff}
-
-# ┌─ Phases & Milestones ────────────────────────────────────────────────────┐
-# Phases are project-specific — each project declares its own list via
-# `project(phases)` and current phase via `project(current_phase)`. The old
-# global `flow(phases)` has been removed. Exit milestones remain global.
-set flow(exit_milestones) {FP_EXIT PLACE_EXIT CTS_EXIT PRO_EXIT BTO MTO}
-
-# ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║                        SECTION 2: VALIDATION RULES                          ║
-# ╚══════════════════════════════════════════════════════════════════════════════╝
-
-array set FILE_VALIDATION_RULES {
-    RTL     {".v" ".vg" ".sv" ".svh"}
-    NETLIST {".v" ".vg" ".sv"}
-    SDC     {".sdc"}
-    DEF     {".def"}
-    SPEF    {".spef"}
-    LIB     {".lib"}
-    LEF     {".lef"}
-    GDS     {".gds" ".gdsii"}
-    SDF     {".sdf"}
-}
-
-set flow(valid_status) {NOTRUN RUNNING COMPLETE ERROR WARNING SKIPPED RETRACED}
-set flow(status_file)  ".run.status"
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║                        SECTION 3: FLOW TYPE RESOLUTION                      ║
@@ -163,13 +100,26 @@ set flow_config_file "$config_dir/node_configs/${current_flow_type}_config.tcl"
 if {[file exists $flow_config_file]} {
     source $flow_config_file
 } else {
-    puts "ERROR: Flow config not found: $flow_config_file"
-    puts "       Available: $_valid_flow_types"
-    exit 1
+    # Missing node_config is legitimate for cross-discipline flows registered
+    # in flow_registry.tcl but not yet implemented in PD (e.g. LINT/CDC/SIM
+    # under DV, or DFT flows during pre-Phase-5 migration). Emit a diagnostic
+    # and continue — the caller will see empty stages, which discovery
+    # commands (`cbflow flow types`) handle fine. An actual `cbflow run`
+    # against such a flow will fail later at DAG build with a clearer error.
+    puts stderr "WARN: node_config not found for flow=$current_flow_type — expected $flow_config_file"
+    set _disc "unknown"
+    if {[info exists flow(discipline,$current_flow_type)]} {
+        set _disc $flow(discipline,$current_flow_type)
+    }
+    puts stderr "      (discipline=$_disc — file will be added when discipline scaffolding lands)"
+    unset -nocomplain _disc
 }
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║                        SECTION 4: DESCRIPTIONS                              ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
-
-source "$config_dir/descriptions_config.tcl"
+#
+# flow_descriptions / phase_descriptions / run_type_descriptions were sourced
+# here from a local descriptions_config.tcl. That file moved to global/
+# alongside flow_registry.tcl in Phase 3 — the registry sources it at the top
+# of this file, so there is nothing to source here.

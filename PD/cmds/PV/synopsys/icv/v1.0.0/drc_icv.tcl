@@ -99,9 +99,20 @@ flow_proc run_drc {
 
     handle_info "ICV command: $icv_cmd"
 
-    # Execute DRC
+    # Execute DRC. Pre-fix: handle_error on ANY non-zero exit → exit 1 →
+    # generate_drc_report never ran → mandatory_output drc.rpt never
+    # written → every real-violations run (ICV exits non-zero on
+    # legitimate DRC violations, not just FATAL) hard-failed the stage
+    # before producing the deliverable. Fix: classify the exit via log
+    # content. FATAL (license, perms, tool crash) still errors; real
+    # violations downgrade to warning so generate_drc_report writes
+    # the report that handler_validate needs.
+    set _icv_log "$run_dir/logs/pv/drc_icv.log"
     if {[catch {eval exec $icv_cmd} result]} {
-        handle_error "ICV DRC execution failed: $result"
+        if {[file exists $_icv_log] && [classify_tool_exit_log $_icv_log] eq "FATAL"} {
+            handle_error "ICV DRC crashed (license / perms / tool error) — see $_icv_log"
+        }
+        handle_warning "ICV DRC returned non-zero (may have violations): $result"
         set ::drc_status "FAIL"
     } else {
         set ::drc_status "PASS"

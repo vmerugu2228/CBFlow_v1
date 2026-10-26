@@ -246,10 +246,11 @@ proc update_env_file {env_file new_version components core_dir} {
         lappend new_lines $new_line
     }
 
-    # Write updated content
-    set fp [open $env_file w]
-    puts -nonewline $fp [join $new_lines "\n"]
-    close $fp
+    # Write updated content atomically. Pre-fix: open-w truncate + puts
+    # was non-atomic — SIGKILL/OOM/power-loss between truncate and close
+    # left .run.cbflow.env 0 bytes, destroying the run bootstrap and
+    # making every subsequent `cbflow run` fail with no FLOW_DIR export.
+    atomic_write $env_file [join $new_lines "\n"]
 
     return true
 }
@@ -306,10 +307,13 @@ proc update_tcl_file {tcl_file new_version components core_dir} {
         lappend new_lines $new_line
     }
 
-    # Write updated content
-    set fp [open $tcl_file w]
-    puts -nonewline $fp [join $new_lines "\n"]
-    close $fp
+    # Write updated content atomically. Pre-fix: non-atomic rewrite of
+    # the TCL-side bootstrap left .run.cbflow.tcl partially written on
+    # kill; next handler source'd incomplete file, saw ::env(FLOW_DIR)
+    # but no ::env(UTILITIES_VERSION), silently skipped error_utils
+    # source, then crashed with cryptic 'invalid command name
+    # handle_error'.
+    atomic_write $tcl_file [join $new_lines "\n"]
 
     return true
 }

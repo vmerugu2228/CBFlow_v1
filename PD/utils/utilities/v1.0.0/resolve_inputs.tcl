@@ -77,16 +77,48 @@ namespace eval ::CBFlow::InputResolve {
         }
 
         # ── Priority 2: release_tag ──
+        # Two forms supported:
+        #   (a) Generic — one tag drives every input for this flow:
+        #         set sta(input,release_tag) "P0_BTO"
+        #   (b) Per-input — each input type can pull from its own tag:
+        #         set sta(input,netlist_release_tag) "P0_BTO"
+        #         set sta(input,sdc_release_tag)     "P1_STA"
+        #         set sta(input,def_release_tag)     "P0_BTO"
+        # The per-input form was the documented pattern in
+        # release_utils.tcl but resolve_flow_inputs only checked the
+        # generic form — leaving fixtures like uc_STA_release_tag.tcl
+        # with NO_SOURCE from the input handler. Both forms are handled
+        # here now.
+        set _total_from_tag 0
+
         if {[info exists ::${arr}(input,release_tag)]} {
             set tag [set ::${arr}(input,release_tag)]
             if {$tag ne ""} {
-                set count [resolve_from_tag $flow_type $arr $tag $run_dir resolved_vars]
-                if {$count > 0} {
-                    puts "INFO: Resolved $count inputs from release tag: $tag"
-                    _persist_resolved $resolved_file $resolved_vars
-                    return $count
-                }
+                set _total_from_tag [expr {$_total_from_tag +
+                    [resolve_from_tag $flow_type $arr $tag $run_dir resolved_vars]}]
             }
+        }
+
+        # Per-input: enumerate every ${arr}(input,<TYPE>_release_tag) key and
+        # resolve just that one input from the named tag. This lets a single
+        # flow mix-and-match tags across inputs.
+        foreach _k [array names ::$arr "input,*_release_tag"] {
+            regexp {input,(.+)_release_tag$} $_k -> _input_type
+            set _tag [set ::${arr}($_k)]
+            if {$_tag eq ""} continue
+            # If already resolved (either by (a) or an explicit user_config
+            # path), don't clobber.
+            if {[info exists ::${arr}(input,${_input_type})] && \
+                [set ::${arr}(input,${_input_type})] ne ""} continue
+            set _n [resolve_single_from_tag $flow_type $arr $_input_type \
+                                            $_tag $run_dir resolved_vars]
+            set _total_from_tag [expr {$_total_from_tag + $_n}]
+        }
+
+        if {$_total_from_tag > 0} {
+            puts "INFO: Resolved $_total_from_tag inputs from release_tag markers"
+            _persist_resolved $resolved_file $resolved_vars
+            return $_total_from_tag
         }
 
         # ── Priority 3: explicit paths already in user_config — no action ──
@@ -157,6 +189,75 @@ namespace eval ::CBFlow::InputResolve {
         return $count
     }
 
+    # Resolve exactly one input type from a release tag. Used when the
+    # user_config declares a per-input marker like
+    # `sta(input,netlist_release_tag) "P0_BTO"` — only netlist should be
+    # pulled from that tag, not every input.
+    proc resolve_single_from_tag {flow_type arr input_type tag run_dir {vars_var ""}} {
+        if {$vars_var ne ""} { upvar 1 $vars_var _out_vars }
+        variable handshake_map
+
+        # release_config.tcl is always needed for the `flow_input_handshake`
+        # array (per-flow → per-input handshake definitions). Source it
+        # unconditionally at global scope. project(release,path) — set by
+        # project_pd_config — takes precedence for the release base path;
+        # otherwise fall back to release(base_dir) which the sourced file
+        # populates from FLOW_DIR/test_releases.
+        set release_base ""
+        if {[info exists ::env(CONFIG_ROOT)] && [info exists ::env(FLOW_CONFIG_VERSION)]} {
+            set rc_path "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
+            if {[file exists $rc_path]} {
+                catch { uplevel #0 [list source $rc_path] }
+            }
+        }
+        if {[info exists ::project(release,path)] && $::project(release,path) ne ""} {
+            set release_base $::project(release,path)
+        } elseif {[info exists ::release(base_dir)] && $::release(base_dir) ne ""} {
+            set release_base $::release(base_dir)
+        }
+        if {$release_base eq ""} {
+            puts "WARNING: Cannot resolve release_tag for ${arr}(input,${input_type}) — release(base_dir) not set"
+            return 0
+        }
+
+        set design_name ""
+        if {[info exists ::flow(design_name)]} { set design_name $::flow(design_name) }
+
+        set flow_upper [string toupper $flow_type]
+        set hkey "${flow_upper},${input_type}"
+        if {![info exists ::flow_input_handshake($hkey)]} {
+            puts "WARNING: No handshake entry for $hkey — cannot resolve ${arr}(input,${input_type}) from tag $tag"
+            return 0
+        }
+        set hval $::flow_input_handshake($hkey)
+        set src_category [lindex $hval 1]
+        set src_pattern [lindex $hval 2]
+        set filename [string map [list \${design_name} $design_name] $src_pattern]
+        set fpath [file join $release_base $tag $src_category $filename]
+
+        if {[file exists $fpath]} {
+            set ::${arr}(input,${input_type}) $fpath
+            puts "INFO:   ${arr}(input,${input_type}) = $fpath (tag=$tag)"
+            if {$vars_var ne ""} {
+                lappend _out_vars "${arr}(input,${input_type})" $fpath
+            }
+            return 1
+        }
+        # For test_mode + non-existent files, still populate the key so
+        # the input handler stages a stub instead of reporting NO_SOURCE.
+        # Real-mode runs will fail loudly via `handler_missing` downstream.
+        if {[info exists ::flow(test_mode)] && [is_true $::flow(test_mode)]} {
+            set ::${arr}(input,${input_type}) $fpath
+            puts "INFO:   ${arr}(input,${input_type}) = $fpath (tag=$tag, test_mode)"
+            if {$vars_var ne ""} {
+                lappend _out_vars "${arr}(input,${input_type})" $fpath
+            }
+            return 1
+        }
+        puts "WARNING: Release file not found: $fpath"
+        return 0
+    }
+
     proc resolve_from_tag {flow_type arr tag run_dir {vars_var ""}} {
         # `vars_var`: optional caller-scope var name to receive the
         # resolved key/value pairs (parity with resolve_from_run). Prior
@@ -171,7 +272,10 @@ namespace eval ::CBFlow::InputResolve {
         if {[info exists ::env(CONFIG_ROOT)] && [info exists ::env(FLOW_CONFIG_VERSION)]} {
             set rc_path "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
             if {[file exists $rc_path]} {
-                catch { source $rc_path }
+                if {[catch { source $rc_path } _rc_err]} {
+                    puts stderr "WARNING: release_config.tcl parse error during input resolution: $_rc_err"
+                    puts stderr "         release_tag inputs will not resolve for this stage."
+                }
                 if {[info exists ::release(base_dir)]} { set release_base $::release(base_dir) }
             }
         }
@@ -230,11 +334,17 @@ namespace eval ::CBFlow::InputResolve {
             "$run_dir/work/$flow_type/$node_name/run" \
         ]
 
-        set mf [open $manifest_file "w"]
-        puts $mf "# Output Manifest — $flow_type $node_name"
-        puts $mf "# Generated: [clock format [clock seconds]]"
-        puts $mf "# Design: $design_name"
-        puts $mf ""
+        # Build manifest in memory, then atomic_write at the end.
+        # Pre-fix: open-w + 60-line foreach-of-globbing meant any
+        # intermediate throw (stale NFS mount, glob race on deletion)
+        # left output_manifest.tcl partial. Downstream flows source it
+        # via `sta(input,from_run)` and silently set zero SDCs → STA
+        # signs off against no timing constraints with WNS=inf.
+        set manifest_body ""
+        append manifest_body "# Output Manifest — $flow_type $node_name\n"
+        append manifest_body "# Generated: [clock format [clock seconds]]\n"
+        append manifest_body "# Design: $design_name\n"
+        append manifest_body "\n"
 
         set count 0
         array set found {}
@@ -268,7 +378,7 @@ namespace eval ::CBFlow::InputResolve {
                 # Direct match: <dir>/<design><suffix>
                 set f "$dir/${design_name}${suffix}"
                 if {[file exists $f]} {
-                    puts $mf "set manifest($key) \"$f\""
+                    append manifest_body "set manifest($key) \"$f\"\n"
                     set found($key) 1
                     incr count
                     break
@@ -277,7 +387,7 @@ namespace eval ::CBFlow::InputResolve {
                 foreach sub [glob -nocomplain -types d "$dir/*/"] {
                     set f2 "$sub${design_name}${suffix}"
                     if {[file exists $f2]} {
-                        puts $mf "set manifest($key) \"$f2\""
+                        append manifest_body "set manifest($key) \"$f2\"\n"
                         set found($key) 1
                         incr count
                         break
@@ -287,7 +397,7 @@ namespace eval ::CBFlow::InputResolve {
                 # Glob fallback for the suffix
                 set matches [glob -nocomplain "$dir/${design_name}*${suffix}" "$dir/*/${design_name}*${suffix}"]
                 if {[llength $matches] > 0} {
-                    puts $mf "set manifest($key) \"[lindex $matches 0]\""
+                    append manifest_body "set manifest($key) \"[lindex $matches 0]\"\n"
                     set found($key) 1
                     incr count
                     break
@@ -295,14 +405,14 @@ namespace eval ::CBFlow::InputResolve {
             }
         }
 
-        puts $mf ""
-        puts $mf "set manifest(flow) \"$flow_type\""
-        puts $mf "set manifest(node) \"$node_name\""
-        puts $mf "set manifest(design) \"$design_name\""
-        puts $mf "set manifest(run_dir) \"$run_dir\""
-        puts $mf "set manifest(timestamp) \"[clock format [clock seconds]]\""
-        puts $mf "set manifest(file_count) $count"
-        close $mf
+        append manifest_body "\n"
+        append manifest_body "set manifest(flow) \"$flow_type\"\n"
+        append manifest_body "set manifest(node) \"$node_name\"\n"
+        append manifest_body "set manifest(design) \"$design_name\"\n"
+        append manifest_body "set manifest(run_dir) \"$run_dir\"\n"
+        append manifest_body "set manifest(timestamp) \"[clock format [clock seconds]]\"\n"
+        append manifest_body "set manifest(file_count) $count\n"
+        atomic_write $manifest_file $manifest_body
 
         puts "INFO: Output manifest: $manifest_file ($count files)"
         return $count

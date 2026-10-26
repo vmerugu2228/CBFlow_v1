@@ -128,7 +128,8 @@ CBFLOW_LOGO = """
   ║  ╚═════╝╚═════╝ ╚═╝     ╚══════╝ ╚═════╝  ╚══╝╚══╝║
   ║  Physical Design Flow Management System  v2.0.0    ║
   ╠═════════════════════════════════════════════════════╣
-  ║  Developed by SmartSoc Solutions Pvt Limited        ║
+  ║  SmartSoC CAD                                       ║
+  ║  Author: Varun Reddy Merugu <varun@smartsocs.com>   ║
 """
 
 

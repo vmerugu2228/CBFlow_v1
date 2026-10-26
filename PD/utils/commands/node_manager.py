@@ -143,8 +143,9 @@ class NodeManager:
 
         if not self.custom_nodes and not self.branches:
             lines.append('# No custom nodes defined')
-            with open(config_file, 'w') as f:
-                f.write('\n'.join(lines) + '\n')
+            # Atomic write — see trailing block for rationale.
+            from core.paths import atomic_write
+            atomic_write(config_file, '\n'.join(lines) + '\n')
             return
 
         lines.append(f'array set {self.flow_lower} {{')
@@ -180,8 +181,14 @@ class NodeManager:
         lines.append('}')
         lines.append('')
 
-        with open(config_file, 'w') as f:
-            f.write('\n'.join(lines) + '\n')
+        # Atomic write: pre-fix, truncate-then-write on the run's
+        # authoritative branch/custom-node config was non-atomic. Kill
+        # during a long add-node / create-branch sequence (SIGKILL, OOM,
+        # Ctrl-C mid-write) left runtime_flow_config.tcl empty or
+        # partial — the entire branch history was lost on next cascade
+        # reload. No backup. S-tier.
+        from core.paths import atomic_write
+        atomic_write(config_file, '\n'.join(lines) + '\n')
 
     def _regenerate_makefile(self):
         """Verify engine DAG after node changes (Makefile no longer generated)."""

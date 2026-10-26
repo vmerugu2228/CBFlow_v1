@@ -7,11 +7,25 @@
 
 import argparse
 import os
+import re as _re_mod
 import sys
 import subprocess
 import logging
 from datetime import datetime
 from pathlib import Path
+
+# Shape of a CBflow run directory. Keep in sync with
+# workspace_cmd._RUN_DIR_RE, dashboard/router._RUN_DIR_RE, and
+# dashboard/app._RUN_DIR_RE. Previously bare `'_run_' in name` matched
+# stray dirs (old_run_notes, backup_run_sim) with destructive consequences.
+_PHASE_PREFIX_RE = r'(?:P\d+|LC\d+|LC_\d+|MTO|BTO|R\d+|FP|CTS|PRE|POST)'
+_FLOW_TOKEN_RE   = r'[A-Z][A-Z0-9_]*'
+_RUN_DIR_RE = _re_mod.compile(
+    r'^' + _PHASE_PREFIX_RE + r'_run_' + _FLOW_TOKEN_RE + r'(?:_|$)')
+
+
+def _is_run_dir_name(name: str) -> bool:
+    return bool(_RUN_DIR_RE.match(name))
 
 # Configure unified logging
 from logging_config import configure_logging, get_logger
@@ -30,7 +44,7 @@ def is_run_directory() -> bool:
     return (os.path.exists('.run.cbflow.env') or
             os.path.exists('.run.cbflow.tcl') or
             any(Path('.').glob('.race_*.db')) or
-            '_run_' in os.path.basename(os.getcwd()))
+            _is_run_dir_name(os.path.basename(os.getcwd())))
 
 
 def load_run_env() -> dict:
@@ -72,7 +86,7 @@ def get_flow_type() -> str:
 
     # Priority 2: from directory name (P0_run_PNR_run1 -> PNR, P0_run_SYNTH_FP_PNR_run1 -> SYNTH_FP_PNR)
     dirname = os.path.basename(os.getcwd())
-    if '_run_' in dirname:
+    if _is_run_dir_name(dirname):
         parts = dirname.split('_run_', 1)
         if len(parts) > 1:
             # The flow type is everything between _run_ and the last _runname
@@ -1549,11 +1563,33 @@ def cmd_delete_branch(args: argparse.Namespace) -> int:
     branch_name = getattr(args, 'branch', None)
     from_node = getattr(args, 'from_node', None)
 
-    if not branch_name and not from_node:
-        logger.error("  Error: Either --branch or --from is required")
-        return 1
-
     mgr = _get_node_manager()
+
+    if not branch_name and not from_node:
+        # Interactive: enumerate branches and prompt. Batch: hard-error.
+        if sys.stdin.isatty():
+            try:
+                branches = sorted(mgr.list_branches() or [])
+            except Exception:
+                branches = []
+            if branches:
+                print('  Available branches:')
+                for i, b in enumerate(branches, 1):
+                    print(f'    {i}. {b}')
+                choice = input(f'  Select branch to delete [1-{len(branches)}] or name: ').strip()
+                try:
+                    idx = int(choice) - 1
+                    if 0 <= idx < len(branches):
+                        branch_name = branches[idx]
+                except ValueError:
+                    if choice in branches:
+                        branch_name = choice
+            if not branch_name:
+                logger.error("  No branch selected.")
+                return 1
+        else:
+            logger.error("  Error: Either --branch or --from is required")
+            return 1
 
     if branch_name:
         success = mgr.delete_branch(branch_name)
@@ -1753,7 +1789,8 @@ def cmd_release(args: argparse.Namespace) -> int:
 
     # Must run from a workspace (not a run dir — we need to see all runs)
     workspace = os.getcwd()
-    runs = sorted([d for d in os.listdir(workspace) if os.path.isdir(d) and '_run_' in d])
+    runs = sorted([d for d in os.listdir(workspace)
+                   if os.path.isdir(d) and _is_run_dir_name(d)])
     if not runs:
         logger.error("No runs found in workspace. Run from a workarea directory.")
         return 1
@@ -1810,20 +1847,16 @@ def cmd_release(args: argparse.Namespace) -> int:
                     }
 
     # Load project config for active_tag and expiry
-    active_tag = ''
-    expiry_date = ''
-    release_path = ''
+    # Walk the project-config cascade (global identity + PD overlay +
+    # legacy monolith). Pre-fix only the legacy monolith was checked, so
+    # on migrated installs active_tag / expiry_date / release_path all
+    # stayed empty and `cbflow run release` silently failed with "no
+    # release tag set" even when the PD overlay had them.
+    from core.paths import read_project_cfg_key
     proj_ver = env_vars.get('PROJECT_VERSION', 'v1.0.0')
-    proj_config = os.path.join(flow_dir, 'config', 'project', project_name, proj_ver, f'{project_name}_config.tcl')
-    if os.path.exists(proj_config):
-        with open(proj_config) as f:
-            for line in f:
-                m = _re.match(r'set\s+project\(release,active_tag\)\s+"([^"]*)"', line.strip())
-                if m: active_tag = m.group(1)
-                m = _re.match(r'set\s+project\(release,expiry_date\)\s+"([^"]*)"', line.strip())
-                if m: expiry_date = m.group(1)
-                m = _re.match(r'set\s+project\(release,path\)\s+"([^"]*)"', line.strip())
-                if m: release_path = m.group(1)
+    active_tag  = read_project_cfg_key(project_name, 'release,active_tag',  proj_ver)
+    expiry_date = read_project_cfg_key(project_name, 'release,expiry_date', proj_ver)
+    release_path = read_project_cfg_key(project_name, 'release,path',       proj_ver)
 
     tag = tag_override or active_tag
     if not tag:
@@ -2208,18 +2241,12 @@ def cmd_release_check(args: argparse.Namespace) -> int:
     tag_info = release_tags[tag]
     release_tag_name = f"{phase}_{tag}"
 
-    # Load project config for release path and block_list
-    release_path = ''
-    block_list = []
+    # Load release path + block_list via the shared cascade helper.
+    from core.paths import read_project_cfg_key
     proj_ver = os.environ.get('PROJECT_VERSION', 'v1.0.0')
-    proj_config = os.path.join(flow_dir, 'config', 'project', project_name, proj_ver, f'{project_name}_config.tcl')
-    if os.path.exists(proj_config):
-        with open(proj_config) as f:
-            for line in f:
-                m = _re.match(r'set\s+project\(release,path\)\s+"([^"]*)"', line.strip())
-                if m: release_path = m.group(1)
-                m = _re.match(r'set\s+project\(block_list\)\s+"([^"]*)"', line.strip())
-                if m: block_list = m.group(1).split()
+    release_path = read_project_cfg_key(project_name, 'release,path', proj_ver)
+    _bl = read_project_cfg_key(project_name, 'block_list', proj_ver)
+    block_list = _bl.split() if _bl else []
 
     if not release_path:
         logger.error("project(release,path) not set in project config")
@@ -2262,15 +2289,27 @@ def cmd_release_check(args: argparse.Namespace) -> int:
     for block in blocks:
         row = f"  {block:<20} "
         block_ok = True
+        stub_detected = False
 
         for flow in required_flows:
             release_dir = os.path.join(release_path, project_name, block, release_tag_name, flow)
             rc_file = os.path.join(release_path, project_name, block, release_tag_name, 'RELEASE_COMPLETE')
 
             if os.path.isdir(release_dir) and len(os.listdir(release_dir)) > 0:
-                # Check file count
-                fcount = sum(1 for _, _, files in os.walk(release_dir) for f in files)
-                row += f'{"PASS("+str(fcount)+")":<14}'
+                # test_mode stub marker — refuse to count as PASS. The
+                # stub pipeline writes `.TEST_MODE_STUB` next to the
+                # artifacts; a release-check for BTO/MTO sign-off MUST
+                # NOT accept a stub as a real release.
+                stub_marker = os.path.join(release_dir, '.TEST_MODE_STUB')
+                outputs_stub = os.path.join(release_dir, 'outputs',
+                                            '.TEST_MODE_STUB')
+                if os.path.exists(stub_marker) or os.path.exists(outputs_stub):
+                    row += f'{"STUB":<14}'
+                    block_ok = False
+                    stub_detected = True
+                else:
+                    fcount = sum(1 for _, _, files in os.walk(release_dir) for f in files)
+                    row += f'{"PASS("+str(fcount)+")":<14}'
             else:
                 row += f'{"MISS":<14}'
                 block_ok = False
@@ -2278,10 +2317,24 @@ def cmd_release_check(args: argparse.Namespace) -> int:
         # Check overall RELEASE_COMPLETE
         rc_path_full = os.path.join(release_path, project_name, block, release_tag_name, 'RELEASE_COMPLETE')
         if block_ok and os.path.exists(rc_path_full):
-            row += '[COMPLETE]'
-            complete_blocks += 1
+            # Also check the summary RELEASE_COMPLETE text for a stub tag.
+            try:
+                with open(rc_path_full) as _f:
+                    _rc_body = _f.read()
+                if 'TEST_MODE_STUB' in _rc_body:
+                    row += '[STUB — NOT A REAL RELEASE]'
+                    all_pass = False
+                else:
+                    row += '[COMPLETE]'
+                    complete_blocks += 1
+            except OSError:
+                row += '[COMPLETE]'
+                complete_blocks += 1
         elif block_ok:
             row += '[NO STAMP]'
+        elif stub_detected:
+            row += '[STUB — NOT A REAL RELEASE]'
+            all_pass = False
         else:
             row += '[INCOMPLETE]'
             all_pass = False

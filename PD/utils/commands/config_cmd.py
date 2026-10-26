@@ -112,9 +112,10 @@ def cmd_status(args: argparse.Namespace) -> int:
             logger.info("")
             logger.info(f"Flow Versions: {', '.join(sorted(versions))}")
 
-    # Check master_projects.json
-    projects_file = os.path.join(config_dir, 'master_projects.json')
-    if os.path.exists(projects_file):
+    # Check master_projects.json — walks global/ first, PD/ as legacy fallback.
+    from core.paths import get_master_projects_path
+    projects_file = get_master_projects_path()
+    if projects_file and os.path.exists(projects_file):
         import json
         with open(projects_file, 'r') as f:
             projects = json.load(f)
@@ -123,6 +124,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         logger.info("")
         logger.info(f"Projects:       {project_count}")
         logger.info(f"Active Project: {active}")
+        logger.info(f"Source:         {projects_file}")
 
     return 0
 

@@ -210,7 +210,17 @@ class ProjectManager:
         return releases
 
     def get_available_technologies(self):
-        """Get list of available technologies from config/technology directory"""
+        """Get list of available technologies — walks global/config/tech
+        then PD/config/tech via the shared resolver so partial migrations
+        work. Pre-fix this was `config/technology` (typo) in PD/ only, so
+        the interactive project-create flow always saw an empty list."""
+        try:
+            import sys
+            sys.path.insert(0, str(self.core_dir / 'utils'))
+            from core.paths import list_available_techs
+            return list_available_techs()
+        except Exception:
+            pass
         technologies = []
         if self.technology_dir.exists():
             for tech_dir in sorted(self.technology_dir.iterdir()):
@@ -561,6 +571,9 @@ class ProjectManager:
         if selection == 'all':
             return flow_list
         elif selection == 'common':
+            # Default to the "common" subset — SYNTH + PNR + STA cover 90% of use.
+            common = [f for f in ('SYNTH', 'PNR', 'STA') if f in flow_list]
+            return common if common else flow_list
         else:
             selected = []
             try:
@@ -1442,7 +1455,17 @@ def main():
         script_dir = Path(__file__).parent.resolve()
         core_dir = script_dir.parent.parent.parent
 
-    config_file = core_dir / "config" / "master_projects.json"
+    # master_projects.json lives in global/ post-split. Prefer global, fall
+    # back to the legacy PD-side location for partially migrated trees.
+    _global_candidate = core_dir.parent / "global" / "config" / "master_projects.json"
+    _pd_candidate = core_dir / "config" / "master_projects.json"
+    if _global_candidate.exists():
+        config_file = _global_candidate
+    elif _pd_candidate.exists():
+        config_file = _pd_candidate
+    else:
+        # Create under global/ by default — matches current layout.
+        config_file = _global_candidate
 
     print("\n" + "=" * 80)
     print("  CBFlow Project Management CLI")

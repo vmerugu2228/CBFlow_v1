@@ -50,8 +50,24 @@ from core.paths import CBFLOW_VERSION as VERSION
 
 
 def get_projects_file() -> str:
-    """Get path to master_projects.json."""
-    return os.path.join(get_cbflow_core_dir(), 'config', 'master_projects.json')
+    """Get path to master_projects.json.
+
+    Post cbflow_global split: the project registry is cross-discipline
+    and lives in global/config/master_projects.json. Fall back to the
+    old PD/config/ location for partially-migrated trees.
+    """
+    core_dir = get_cbflow_core_dir()
+    global_candidate = os.path.join(os.path.dirname(core_dir), 'global',
+                                    'config', 'master_projects.json')
+    if os.path.exists(global_candidate):
+        return global_candidate
+    env_global = os.environ.get('CBFLOW_GLOBAL_DIR', '').strip()
+    if env_global:
+        env_candidate = os.path.join(env_global, 'config',
+                                     'master_projects.json')
+        if os.path.exists(env_candidate):
+            return env_candidate
+    return os.path.join(core_dir, 'config', 'master_projects.json')
 
 
 def load_projects() -> dict:
@@ -64,23 +80,41 @@ def load_projects() -> dict:
 
 
 def save_projects(data: dict) -> None:
-    """Save projects to master_projects.json."""
+    """Save projects to master_projects.json atomically.
+
+    Pre-fix: non-atomic rewrite of the project registry. SIGKILL / Ctrl-C
+    between truncate and json.dump completing left master_projects.json
+    empty — every subsequent cbflow command failed to parse the registry.
+    Install was effectively bricked until a backup was restored by hand.
+    atomic rename makes the file either untouched or fully written.
+    """
+    from core.paths import atomic_write
     projects_file = get_projects_file()
     os.makedirs(os.path.dirname(projects_file), exist_ok=True)
-    with open(projects_file, 'w') as f:
-        json.dump(data, f, indent=2)
+    atomic_write(projects_file, json.dumps(data, indent=2) + '\n')
 
 
 def get_available_technologies() -> list:
-    """Get list of available technologies from config/tech directory."""
+    """Get list of available technologies from global/config/tech.
+
+    Post tech-unification refactor: tech lives in global/, not PD/.
+    Fall back to the old PD/config/tech for partially-migrated trees.
+    """
     core_dir = get_cbflow_core_dir()
-    tech_dir = Path(core_dir) / "config" / "tech"
-    technologies = []
-    if tech_dir.exists():
-        for item in sorted(tech_dir.iterdir()):
-            if item.is_dir() and not item.name.startswith('.'):
-                technologies.append(item.name)
-    return technologies
+    candidates = [
+        Path(os.path.dirname(core_dir)) / "global" / "config" / "tech",
+        Path(core_dir) / "config" / "tech",
+    ]
+    env_global = os.environ.get('CBFLOW_GLOBAL_DIR', '').strip()
+    if env_global:
+        candidates.insert(0, Path(env_global) / "config" / "tech")
+    technologies = set()
+    for tech_dir in candidates:
+        if tech_dir.exists():
+            for item in sorted(tech_dir.iterdir()):
+                if item.is_dir() and not item.name.startswith('.'):
+                    technologies.add(item.name)
+    return sorted(technologies)
 
 
 def get_available_releases() -> list:

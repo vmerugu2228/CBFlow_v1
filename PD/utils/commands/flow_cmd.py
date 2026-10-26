@@ -196,12 +196,17 @@ def cmd_check(args: argparse.Namespace) -> int:
     logger.info("  1. Directory Structure")
     logger.info("  " + "─" * 57)
 
-    dirs_to_check = [
+    # Post 2026-10-11 refactor: tech lives in global/config/tech (not
+    # PD/config/tech). Check both locations so the health check still
+    # passes against the current layout.
+    pd_dirs = [
         'bin', 'cmds', 'config', 'config/flow', 'config/setup',
-        'config/project', 'config/tech', 'utils', 'docs',
+        'config/project', 'utils', 'docs',
     ]
+    global_dirs = ['config/tech', 'config/project', 'config/flow']
+    global_root = os.path.join(os.path.dirname(core_dir), 'global')
 
-    for d in dirs_to_check:
+    for d in pd_dirs:
         path = os.path.join(core_dir, d)
         total += 1
         if os.path.exists(path):
@@ -209,9 +214,18 @@ def cmd_check(args: argparse.Namespace) -> int:
         else:
             all_ok = False
             failed += 1
-            logger.error(f"  [FAIL] {d}/ — missing")
+            logger.error(f"  [FAIL] PD/{d}/ — missing")
+    for d in global_dirs:
+        path = os.path.join(global_root, d)
+        total += 1
+        if os.path.exists(path):
+            passed += 1
+        else:
+            all_ok = False
+            failed += 1
+            logger.error(f"  [FAIL] global/{d}/ — missing")
 
-    logger.info(f"  [PASS] {len(dirs_to_check)} directories checked")
+    logger.info(f"  [PASS] {len(pd_dirs) + len(global_dirs)} directories checked")
 
     # ── 2. Config Files ─────────────────────────────────────────────────
     logger.info("")
@@ -418,78 +432,119 @@ def cmd_check(args: argparse.Namespace) -> int:
         logger.info(f"  [PASS] All execution stages have handlers")
 
     # ── 5. Project Configs ──────────────────────────────────────────────
+    # Post-split (Phase 3): identity lives in global/config/project/<p>/v1.0.0/
+    # project_config.tcl; PD overlay in <core>/config/project/<p>/v1.0.0/
+    # project_pd_config.tcl. A project is considered installed when BOTH sides
+    # exist. The global side is the identity anchor — if it's missing, the
+    # project is unusable regardless of the PD overlay.
     logger.info("")
     logger.info("  5. Project Configs")
     logger.info("  " + "─" * 57)
 
-    proj_dir = os.path.join(core_dir, 'config', 'project')
-    if os.path.isdir(proj_dir):
-        projects = [d for d in os.listdir(proj_dir) if os.path.isdir(os.path.join(proj_dir, d))]
-        for proj in sorted(projects):
-            proj_cfg = os.path.join(proj_dir, proj, 'v1.0.0', f'{proj}_config.tcl')
-            total += 1
-            if os.path.exists(proj_cfg):
-                passed += 1
-                logger.info(f"  [PASS] {proj}")
-            else:
-                failed += 1
-                all_ok = False
-                logger.error(f"  [FAIL] {proj} — {proj}_config.tcl missing")
+    from core.paths import get_cbflow_global_dir as _get_gdir
+    _gdir = _get_gdir()
+    global_proj_dir = os.path.join(_gdir, 'config', 'project') if _gdir else None
+    pd_proj_dir = os.path.join(core_dir, 'config', 'project')
+
+    # Union of project names across global + PD sides (each may have its own).
+    proj_names = set()
+    for _d in (global_proj_dir, pd_proj_dir):
+        if _d and os.path.isdir(_d):
+            proj_names.update(
+                d for d in os.listdir(_d) if os.path.isdir(os.path.join(_d, d))
+            )
+    for proj in sorted(proj_names):
+        g_cfg = os.path.join(global_proj_dir, proj, 'v1.0.0', 'project_config.tcl') \
+                if global_proj_dir else ''
+        p_cfg = os.path.join(pd_proj_dir, proj, 'v1.0.0', 'project_pd_config.tcl')
+        total += 1
+        missing = []
+        if not (g_cfg and os.path.exists(g_cfg)):
+            missing.append('global project_config.tcl')
+        if not os.path.exists(p_cfg):
+            missing.append('PD project_pd_config.tcl')
+        if not missing:
+            passed += 1
+            logger.info(f"  [PASS] {proj}")
+        else:
+            failed += 1
+            all_ok = False
+            logger.error(f"  [FAIL] {proj} — missing: {', '.join(missing)}")
 
     # ── 6. Tech Configs ─────────────────────────────────────────────────
+    # Post 2026-10-11: tech is a SINGLE file in global/config/tech/<tech>/.
+    # PD/config/tech/ no longer exists. Lib tags live under
+    # global/config/tech/<tech>/<ver>/<TAG>/ (new tag-dir layout).
     logger.info("")
     logger.info("  6. Tech Configs")
     logger.info("  " + "─" * 57)
 
-    tech_dir = os.path.join(core_dir, 'config', 'tech')
-    if os.path.isdir(tech_dir):
-        techs = [d for d in os.listdir(tech_dir) if os.path.isdir(os.path.join(tech_dir, d))]
-        for tech in sorted(techs):
-            tech_cfg = os.path.join(tech_dir, tech, 'v1.0.0', 'tech_config.tcl')
-            total += 1
-            if os.path.exists(tech_cfg):
-                passed += 1
-                # Check for lib_config files
-                lib_cfgs = _glob.glob(os.path.join(tech_dir, tech, 'v1.0.0', 'lib_config_*.tcl'))
-                lib_tags = [os.path.basename(f).replace('lib_config_', '').replace('.tcl', '') for f in lib_cfgs]
-                tag_str = f" (lib tags: {', '.join(lib_tags)})" if lib_tags else " (no lib_config)"
-                logger.info(f"  [PASS] {tech}{tag_str}")
-            else:
-                failed += 1
-                all_ok = False
-                logger.error(f"  [FAIL] {tech} — tech_config.tcl missing")
+    global_tech_dir = os.path.join(_gdir, 'config', 'tech') if _gdir else None
+    tech_names = set()
+    if global_tech_dir and os.path.isdir(global_tech_dir):
+        tech_names.update(
+            d for d in os.listdir(global_tech_dir)
+            if os.path.isdir(os.path.join(global_tech_dir, d))
+        )
+    for tech in sorted(tech_names):
+        g_cfg = os.path.join(global_tech_dir, tech, 'v1.0.0', 'tech_config.tcl')
+        total += 1
+        if not os.path.exists(g_cfg):
+            failed += 1
+            all_ok = False
+            logger.error(f"  [FAIL] {tech} — missing: global tech_config.tcl")
+            continue
+        passed += 1
+        # Discover lib tags under <tech>/v1.0.0/<TAG>/lib_config.tcl.
+        tech_ver_dir = os.path.join(global_tech_dir, tech, 'v1.0.0')
+        lib_tags = []
+        for entry in sorted(os.listdir(tech_ver_dir)):
+            if os.path.isfile(os.path.join(tech_ver_dir, entry, 'lib_config.tcl')):
+                lib_tags.append(entry)
+        tag_str = (f" (lib tags: {', '.join(lib_tags)})"
+                   if lib_tags else " (no lib_config)")
+        logger.info(f"  [PASS] {tech}{tag_str}")
 
     # ── 7. Project Config Key Parity ────────────────────────────────────
     logger.info("")
     logger.info("  7. Project Config Key Parity")
     logger.info("  " + "─" * 57)
 
-    project_dir = os.path.join(core_dir, 'config', 'project')
     project_keys  = {}  # project_name -> set of project(...) keys
     project_lines = {}  # project_name -> { key: line_number }
     SET_KEY_LINE = _re.compile(r'^\s*set\s+(project\([^\)]+\))')
 
-    if os.path.isdir(project_dir):
-        for proj in sorted(os.listdir(project_dir)):
-            proj_v = os.path.join(project_dir, proj, 'v1.0.0')
-            if not os.path.isdir(proj_v):
+    # Post-split: each project's key set is the union of global project_config.tcl
+    # + PD project_pd_config.tcl. Both halves contribute to `project(...)` in the
+    # cascade — the parity check must see both.
+    def _collect_project_keys(proj: str) -> tuple:
+        seen_lines = {}
+        for _p in (
+            os.path.join(global_proj_dir, proj, 'v1.0.0', 'project_config.tcl')
+            if global_proj_dir else None,
+            os.path.join(pd_proj_dir, proj, 'v1.0.0', 'project_pd_config.tcl'),
+        ):
+            if not (_p and os.path.isfile(_p)):
                 continue
-            # Prefer <name>_config.tcl, fall back to project_config.tcl.
-            candidates = [
-                os.path.join(proj_v, f'{proj}_config.tcl'),
-                os.path.join(proj_v, 'project_config.tcl'),
-            ]
-            cfg_path = next((c for c in candidates if os.path.isfile(c)), None)
-            if not cfg_path:
-                continue
-            line_map = {}
-            with open(cfg_path) as fh:
+            with open(_p) as fh:
                 for i, line in enumerate(fh, start=1):
                     m = SET_KEY_LINE.match(line)
-                    if m and m.group(1) not in line_map:
-                        line_map[m.group(1)] = i
-            project_keys[proj]  = set(line_map.keys())
-            project_lines[proj] = line_map
+                    if m and m.group(1) not in seen_lines:
+                        seen_lines[m.group(1)] = (os.path.basename(_p), i)
+        return seen_lines
+
+    for proj in sorted(proj_names):
+        lines_by_key = _collect_project_keys(proj)
+        if not lines_by_key:
+            continue
+        project_keys[proj] = set(lines_by_key.keys())
+        # For parity display: keep just the line number, prefixed with a source
+        # tag ('G' = global, 'P' = pd) so drift within one half vs across halves
+        # is at-a-glance visible.
+        project_lines[proj] = {
+            k: f"{'G' if v[0].endswith('project_config.tcl') else 'P'}:{v[1]}"
+            for k, v in lines_by_key.items()
+        }
 
     if len(project_keys) < 2:
         logger.info(f"  [SKIP] need >= 2 projects to compare key parity "
@@ -561,15 +616,19 @@ def cmd_check(args: argparse.Namespace) -> int:
                 j += 1
             return out
 
-        # Union of exempt keys across all projects.
+        # Union of exempt keys across all projects. Post-split each project
+        # contributes two files (global identity + PD overlay); an exempt
+        # (multi-line/derived) key on either side should suppress line-parity
+        # checking for that key.
         exempt = set()
         for proj in proj_names:
-            proj_v = os.path.join(project_dir, proj, 'v1.0.0')
-            candidates = [os.path.join(proj_v, f'{proj}_config.tcl'),
-                          os.path.join(proj_v, 'project_config.tcl')]
-            cfg_path = next((c for c in candidates if os.path.isfile(c)), None)
-            if cfg_path:
-                exempt |= _exempt_keys(cfg_path)
+            for _p in (
+                os.path.join(global_proj_dir, proj, 'v1.0.0', 'project_config.tcl')
+                if global_proj_dir else None,
+                os.path.join(pd_proj_dir, proj, 'v1.0.0', 'project_pd_config.tcl'),
+            ):
+                if _p and os.path.isfile(_p):
+                    exempt |= _exempt_keys(_p)
 
         checkable = intersection - exempt
         misaligned = []

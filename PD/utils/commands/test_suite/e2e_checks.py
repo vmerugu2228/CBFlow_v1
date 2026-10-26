@@ -199,10 +199,24 @@ def _iter_logs(run_dir):
 # they're bundled into the inputs_<tool>.tcl pipeline (rtl, sdc, upf, def,
 # netlist, library — all the "data input" pseudo-stages).
 _INPUT_PSEUDO_STAGES = frozenset({
+    # PD inputs
     'rtl1', 'sdc1', 'upf1', 'def1', 'netlist1', 'library1',
     'spef1', 'gds1', 'lib1', 'constraints1',
     'netlist_golden1', 'netlist_revised1',
     'power_spec1',  # CLP input pseudo-stage
+    # DFT inputs
+    'scandef1',        # ATPG / SCAN_INSERT scan chain definition
+    'sdf1',            # ATPG / GLS_* SDF back-annotation input
+    'test_protocol1',  # DFT_INSERT / SCAN_INSERT test protocol input
+    'patterns1',       # GLS_* input pattern file
+    'tb1',             # GLS_* / SIM testbench input
+    'atpg_config1',    # ATPG config input
+    # DV inputs
+    'waivers1',        # LINT / CDC / RDC waiver rules
+    'reset_spec1',     # RDC reset scheme spec
+    'tests1',          # SIM regression test list
+    'cov_inputs1',     # COV_MERGE coverage DBs
+    'props1',          # FORMAL SVA / properties
 })
 
 # Stages that use the dynamic-subnode pattern (one subnode per MMMC scenario)

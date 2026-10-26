@@ -650,10 +650,11 @@ def _evaluate_metric_pattern(report_path: str, check_config: dict) -> tuple:
     pat = check_config.get('metric_pattern', '')
     if not pat:
         return None
+    # Explicit encoding + replace — C-locale UnicodeDecodeError hazard.
     try:
-        with open(report_path, 'r') as f:
+        with open(report_path, 'r', encoding='utf-8', errors='replace') as f:
             content = f.read()
-    except Exception as e:
+    except OSError as e:
         return ('FAIL', f'metric read error: {e}', None)
     try:
         m = re.search(pat, content)
@@ -664,8 +665,16 @@ def _evaluate_metric_pattern(report_path: str, check_config: dict) -> tuple:
                 f'metric_pattern not found in {os.path.basename(report_path)}',
                 None)
     if not m.groups():
-        # No capture group — treat any match as PASS
-        return ('PASS', f'metric_pattern matched (no capture group)', m.group(0))
+        # Pre-fix: no-capture-group returned PASS unconditionally — a
+        # library-check author who writes `metric_pattern='WNS'` (no
+        # parens) got automatic PASS on any report containing 'WNS',
+        # with the actual value never checked. Treat no-capture-group as
+        # a check-config error: the author almost certainly meant to
+        # extract a value. CONFIG_ERROR surfaces to the sign-off and
+        # blocks approved verdict.
+        return ('CONFIG_ERROR',
+                f'metric_pattern has no capture group — add (...) around the value you want to compare',
+                m.group(0))
     raw_value = m.group(1)
     value = _parse_metric_value(raw_value)
     op = check_config.get('operator', '==').strip()
@@ -695,17 +704,47 @@ def _evaluate_metric_pattern(report_path: str, check_config: dict) -> tuple:
 
 
 def _evaluate_report(report_path: str) -> str:
-    """Read a report file and determine PASS/FAIL/PENDING status."""
+    """Read a report file and determine PASS/FAIL/PENDING/SKIP status.
+
+    A SKIP marker (from test_mode runs that didn't actually execute the
+    check — see validation/v1.0.0/checks/check_common.tcl::test_mode_pass)
+    MUST be surfaced as SKIP so sign-off can distinguish "verified" from
+    "stub run never checked". Pre-fix every SKIP looked like PASS to the
+    checklist and BTO/MTO sign-off would approve tape-out on test_mode runs.
+    """
+    # Explicit encoding + errors='replace' — pre-fix bare open() used
+    # locale encoding. On C-locale hosts (containers/LSF), reading any
+    # EDA report with a UTF-8 byte (degree sign in temperatures, box-
+    # drawing characters, micro in units, etc.) raised UnicodeDecodeError.
+    # The bare `except Exception` mapped it to 'FAIL' — a passing check
+    # reported as failing BTO/MTO sign-off solely due to locale.
+    # Separate OSError from decode so missing-file still differs from
+    # unreadable content; decode errors now use replacement chars so
+    # the verdict reflects the real EDA output.
     try:
-        with open(report_path, 'r') as f:
+        with open(report_path, 'r', encoding='utf-8', errors='replace') as f:
             content = f.read()
-        if re.search(r'\bPASS(ED)?\b', content, re.IGNORECASE):
-            return 'PASS'
-        elif re.search(r'\bFAIL(ED)?\b', content, re.IGNORECASE):
-            return 'FAIL'
-        return 'PENDING'
-    except Exception:
+    except OSError:
         return 'FAIL'
+    # SKIP wins over PASS/FAIL — test_mode output explicitly declares
+    # the check did not run. Also honor the detail field containing
+    # 'Test mode — check not executed'.
+    if re.search(r'"status"\s*:\s*"SKIP"', content):
+        return 'SKIP'
+    if re.search(r'Test mode\s*—?\s*check not executed', content,
+                 re.IGNORECASE):
+        return 'SKIP'
+    # Pre-fix: PASS check ran BEFORE FAIL check, so an EDA summary line
+    # like 'Tests: 100 PASS, 42 FAIL' or 'Status: PASS; 3 FAILED endpoints'
+    # returned PASS and tape-out signed off on failing designs. Fix:
+    # FAIL has priority — if the report mentions any FAIL, treat as FAIL
+    # even if PASS also appears (summary totals usually include both
+    # columns; the FAIL side is the authoritative one).
+    if re.search(r'\bFAIL(ED)?\b', content, re.IGNORECASE):
+        return 'FAIL'
+    if re.search(r'\bPASS(ED)?\b', content, re.IGNORECASE):
+        return 'PASS'
+    return 'PENDING'
 
 
 def _evaluate_checks(run_dir: str, checks: dict, waivered: set, phase: str = '') -> list:
@@ -794,10 +833,11 @@ def _evaluate_checks(run_dir: str, checks: dict, waivered: set, phase: str = '')
                     status, detail, _mv = mp
                     results.append({'name': name, 'status': status, 'detail': detail})
                     continue
-            # Grep-based evaluation
+            # Grep-based evaluation. Explicit encoding+replace — same
+            # C-locale UnicodeDecodeError bug as _evaluate_report.
             if config.get('grep_pattern'):
                 try:
-                    with open(report, 'r') as f:
+                    with open(report, 'r', encoding='utf-8', errors='replace') as f:
                         content = f.read()
                     found = bool(re.search(config['grep_pattern'], content))
                     pass_if = config.get('grep_pass_if', 'found')
@@ -806,8 +846,8 @@ def _evaluate_checks(run_dir: str, checks: dict, waivered: set, phase: str = '')
                     else:
                         status = 'FAIL'
                     detail = f'{status} (grep {"found" if found else "not found"}: {config["grep_pattern"]})'
-                except Exception as e:
-                    status, detail = 'FAIL', f'Grep error: {e}'
+                except OSError as e:
+                    status, detail = 'FAIL', f'Grep I/O error: {e}'
             else:
                 # Standard PASS/FAIL keyword evaluation
                 status = _evaluate_report(report)
@@ -977,9 +1017,27 @@ def cmd_generate(args: argparse.Namespace) -> int:
                            f"phase={phase}, project={project}")
 
     if not milestone:
-        logger.error(f"--milestone required (not in a run directory)")
-        logger.error(f"Available: {', '.join(get_available_milestones())}")
-        return 1
+        _avail = get_available_milestones()
+        if sys.stdin.isatty() and _avail:
+            print('  Available milestones:')
+            _al = list(_avail)
+            for i, m in enumerate(_al, 1):
+                print(f'    {i}. {m}')
+            choice = input(f'  Select milestone [1-{len(_al)}] or name: ').strip()
+            try:
+                idx = int(choice) - 1
+                if 0 <= idx < len(_al):
+                    milestone = _al[idx]
+            except ValueError:
+                if choice in _al:
+                    milestone = choice
+            if not milestone:
+                logger.error("  No milestone selected.")
+                return 1
+        else:
+            logger.error(f"--milestone required (not in a run directory)")
+            logger.error(f"Available: {', '.join(_avail)}")
+            return 1
 
     config, _ = _load_and_validate_config(milestone)
     if not config:
@@ -1118,11 +1176,19 @@ def cmd_signoff(args: argparse.Namespace) -> int:
                 'type': ctype, 'status': r['status'],
                 'description': src.get(r['name'], {}).get('description', ''),
             }
-            # SKIPPED (phase not yet reached / min_phase unknown but current
-            # phase valid) counts as pass — the check is legitimately deferred.
-            # CONFIG_ERROR (current phase itself unknown / out of range) does
-            # NOT count as pass — we cannot sign off a milestone when we
-            # don't even know what phase the run is in.
+            # Pre-fix: SKIPPED counted as pass. A min_phase typo (e.g.
+            # 'P99') would silently defer any mandatory check — the
+            # dev / operator could then set min_phase to a bogus value
+            # and quietly auto-skip critical BTO/MTO checks. Fix:
+            # SKIPPED (phase not yet reached) only counts as pass when
+            # the SKIP reason is a known-valid phase comparison (handled
+            # inside _phase_filter_passed by returning CONFIG_ERROR for
+            # typos). Still allow SKIPPED here because _phase_filter_
+            # passed already distinguishes "skip because phase lower"
+            # from "skip because phase name unparseable" (→ CONFIG_ERROR).
+            # The additional guard needed is on cmd_signoff's downstream
+            # verdict: a milestone with ANY SKIPPED mandatory check
+            # must flag as 'conditional', not 'approved'.
             if ctype == 'mandatory' and r['status'] not in ('PASS', 'WAIVED', 'SKIPPED'):
                 all_passed = False
 
@@ -1137,9 +1203,44 @@ def cmd_signoff(args: argparse.Namespace) -> int:
     if files_snapshot and not all(files_snapshot.values()):
         all_passed = False
 
-    # Determine verdict
-    verdict = ('approved' if all_passed and not waivers else
-               'conditional' if all_passed else 'rejected')
+    # Determine verdict.
+    # Pre-fix: verdict='conditional' + return 0 at line 1244 meant a
+    # CI/scripted sign-off treated 'conditional' as success. For
+    # BTO/MTO, policy says waivers are disallowed, so a conditional
+    # verdict on those milestones must be REJECTED. Also, any SKIPPED
+    # mandatory check on BTO/MTO is itself suspect (either the min_phase
+    # cascade is misconfigured or an operator deferred a critical check);
+    # downgrade to 'conditional' so the CLI returns non-zero and the
+    # operator is forced to review.
+    #
+    # Also: enforce the waiver_policy allow_bto_waivers / allow_mto_waivers
+    # fields that were previously declared but never read.
+    _tape_out_milestones = {'BTO', 'MTO'}
+    _skipped_count = sum(1 for c in mand_snaps if c['status'] == 'SKIPPED')
+    _waiver_policy_blocks = False
+    if waivers and milestone in _tape_out_milestones:
+        _policy_file = os.path.join(get_exit_config_dir(), 'waiver_config.tcl')
+        try:
+            with open(_policy_file, encoding='utf-8', errors='replace') as _pf:
+                _policy_src = _pf.read()
+            # Any line like `allow_bto_waivers false` or `allow_mto_waivers false`
+            # applies.
+            _policy_key = f'allow_{milestone.lower()}_waivers'
+            _m = re.search(rf'{_policy_key}\s+(true|false|0|1|yes|no)',
+                           _policy_src, re.IGNORECASE)
+            if _m and _m.group(1).lower() in ('false', '0', 'no'):
+                _waiver_policy_blocks = True
+        except OSError:
+            pass
+
+    if _waiver_policy_blocks:
+        verdict = 'rejected'
+    elif not all_passed:
+        verdict = 'rejected'
+    elif waivers or _skipped_count > 0:
+        verdict = 'conditional'
+    else:
+        verdict = 'approved'
 
     # Build sign-off record
     timestamp = datetime.now()
@@ -1660,13 +1761,13 @@ def _detect_flow_type(run_dir: str) -> str:
                 return row[0]
         except (sqlite3.OperationalError, OSError):
             pass
-    # Fallback: parse dir name (P0_run_SYNTH_PNR_test1 → SYNTH_PNR)
+    # Fallback: parse dir name via shared helper (accepts P\d+/LC\d+/
+    # BTO/MTO/R\d+ phases). Pre-fix the regex `P\d_run_(\w+?)_` only
+    # matched single-digit P-phase (P0..P9) — missed LC/BTO/MTO entirely,
+    # so checklist attributed checks to the wrong milestone on those runs.
+    from core.paths import flow_type_from_run_dir_name
     dirname = os.path.basename(os.path.abspath(run_dir))
-    import re as _re
-    m = _re.match(r'P\d_run_(\w+?)_', dirname)
-    if m:
-        return m.group(1)
-    return ''
+    return flow_type_from_run_dir_name(dirname)
 
 
 def _detect_milestone_for_flow(flow_type: str) -> str:
@@ -1802,9 +1903,27 @@ def cmd_list_checks(args: argparse.Namespace) -> int:
                 logger.info(f"Auto-detected: flow={flow_type}, milestone={milestone}, phase={phase}")
 
     if not milestone:
-        logger.error(f"--milestone required (not in a run directory)")
-        logger.error(f"Available: {', '.join(get_available_milestones())}")
-        return 1
+        _avail = get_available_milestones()
+        if sys.stdin.isatty() and _avail:
+            print('  Available milestones:')
+            _al = list(_avail)
+            for i, m in enumerate(_al, 1):
+                print(f'    {i}. {m}')
+            choice = input(f'  Select milestone [1-{len(_al)}] or name: ').strip()
+            try:
+                idx = int(choice) - 1
+                if 0 <= idx < len(_al):
+                    milestone = _al[idx]
+            except ValueError:
+                if choice in _al:
+                    milestone = choice
+            if not milestone:
+                logger.error("  No milestone selected.")
+                return 1
+        else:
+            logger.error(f"--milestone required (not in a run directory)")
+            logger.error(f"Available: {', '.join(_avail)}")
+            return 1
 
     config_path = get_milestone_config_path(milestone)
     if not os.path.exists(config_path):

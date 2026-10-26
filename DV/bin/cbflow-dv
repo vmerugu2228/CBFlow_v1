@@ -1,0 +1,87 @@
+#!/bin/bash
+# ═══════════════════════════════════════════════════════════════════════════════
+# CBflow-DV — RTL Design Verification discipline launcher
+#
+# Hosts subcommands that are DV-specific (lint waiver management, coverage
+# database merging, formal proof debugging, UPF audit tooling, etc.).
+# Currently the DV-owned subcommand list is EMPTY — every DV flow (LINT /
+# CDC / RDC / SIM / COV_MERGE / FORMAL / UPF_CHECK) runs through the
+# cross-domain `cbflow run …` path, so no discipline-specific tooling has
+# been carved out yet.
+#
+# Extension point (same pattern as cbflow-pd / cbflow-dft):
+#   1. Add subcommand to global/config/cli/discipline_commands.tcl as DV-owned.
+#   2. Add it to the DV_FLOW_SUBCOMMANDS array below.
+#   3. Add the case + handler dispatch below.
+#   4. Drop the Python handler at DV/utils/commands/<cmd>_cmd.py.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+set -euo pipefail
+
+_real="${BASH_SOURCE[0]}"
+while [ -L "$_real" ]; do
+    _dir="$(cd "$(dirname "$_real")" && pwd)"
+    _real="$(readlink "$_real")"
+    [[ "$_real" != /* ]] && _real="$_dir/$_real"
+done
+_HELPER="$(dirname "$(dirname "$(dirname "$_real")")")/global/bin/_cbflow_paths.sh"
+if [[ ! -f "$_HELPER" ]]; then
+    echo "ERROR: _cbflow_paths.sh not found (looked near $_real)" >&2
+    exit 1
+fi
+source "$_HELPER" "${BASH_SOURCE[0]}"
+unset _real _dir _HELPER
+
+CBFLOW_VERSION="2.0.0"
+GLOBAL_CBFLOW="$CBFLOW_GLOBAL_DIR/bin/cbflow"
+
+DV_FLOW_SUBCOMMANDS=()
+
+_dv_owns_flow_subcmd() {
+    local needle="$1"
+    for cmd in "${DV_FLOW_SUBCOMMANDS[@]:-}"; do
+        [[ "$cmd" == "$needle" ]] && return 0
+    done
+    return 1
+}
+
+show_help() {
+    cat <<EOF
+
+  CBflow-DV — RTL Design Verification discipline launcher   v${CBFLOW_VERSION}
+  ═══════════════════════════════════════════════════════════════════
+
+  This launcher owns DV-specific subcommands. Currently: (none).
+  DV flows themselves (LINT, CDC, RDC, SIM, COV_MERGE, FORMAL,
+  UPF_CHECK) run through the cross-domain \`cbflow run …\` path.
+
+  Any command not owned here falls through to \$CBFLOW_GLOBAL_DIR/bin/cbflow.
+    cbflow-dv workspace list-runs         ← works
+    cbflow-dv run all                     ← works (routes via flow_registry)
+    cbflow-dv flow types --domain DV      ← works
+
+  Utilities:
+    cbflow-dv --list                      List DV-owned subcommands (empty)
+    cbflow-dv --help                      This message
+EOF
+}
+
+case "${1:-}" in
+    --list)
+        for cmd in "${DV_FLOW_SUBCOMMANDS[@]:-}"; do
+            [[ -n "$cmd" ]] && echo "flow:$cmd"
+        done
+        exit 0
+        ;;
+    --help|-h)
+        show_help
+        exit 0
+        ;;
+esac
+
+if [[ "${1:-}" == "flow" && $# -ge 2 ]] && _dv_owns_flow_subcmd "$2"; then
+    echo "[ERROR] DV-owned subcommand '$2' declared but no handler registered." >&2
+    exit 1
+fi
+
+exec "$GLOBAL_CBFLOW" "$@"

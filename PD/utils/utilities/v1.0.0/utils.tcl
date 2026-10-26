@@ -28,6 +28,61 @@ namespace eval ::CBFlow::Utilities {
     variable UTILS_VERSION "3.0.0"
     variable UTILS_DATE "2025-09-24"
 
+    # ── Boolean normalization ────────────────────────────────────────────
+    # Accept any common truthy spelling. Pre-fix every gate was `eq "true"`
+    # (case-sensitive, lowercase-only), so `"True"`, `"TRUE"`, `"1"`, `"yes"`,
+    # `"on"` all silently fell to the dangerous default — including the
+    # test_mode gate, use_lsf, use_xterm. This proc is the one source of
+    # truth; call it from every gate.
+    proc is_true {val} {
+        set v [string tolower [string trim $val]]
+        return [expr {$v in {true 1 yes on y t}}]
+    }
+
+    proc is_false {val} {
+        set v [string tolower [string trim $val]]
+        return [expr {$v in {false 0 no off n f ""}}]
+    }
+
+    namespace export is_true is_false
+
+    # ── Atomic file write ────────────────────────────────────────────────
+    # Write content to target via tempfile + rename. Guarantees target
+    # either stays untouched (on failure) or contains the complete new
+    # content. Pre-fix, `open path w; puts; close` was non-atomic — a
+    # SIGKILL / OOM / disk-full between truncate and close destroyed the
+    # bootstrap env/tcl files, release stamps, output manifests, launch
+    # wrappers, and tech lib_configs. Returns 1 on success, 0 on failure
+    # (prefers `-code error` for propagation; callers should wrap in
+    # `catch`).
+    proc atomic_write {target content} {
+        set tmp "${target}.cbflow_tmp.[pid]"
+        set fh ""
+        if {[catch {
+            set fh [open $tmp w]
+            puts -nonewline $fh $content
+            close $fh
+            set fh ""
+            file rename -force -- $tmp $target
+        } err]} {
+            if {$fh ne ""} { catch { close $fh } }
+            catch { file delete -- $tmp }
+            return -code error "atomic_write to '$target' failed: $err"
+        }
+        return 1
+    }
+
+    namespace export atomic_write
+}
+
+# Top-level alias so handler files can call ::atomic_write without a
+# namespace prefix.
+proc ::atomic_write {target content} {
+    ::CBFlow::Utilities::atomic_write $target $content
+}
+
+namespace eval ::CBFlow::Utilities {
+
     #===========================================================================
     # ENVIRONMENT VALIDATION PROCEDURES
     #===========================================================================
@@ -282,14 +337,25 @@ namespace eval ::CBFlow::Utilities {
 
         CBFLOW_SECTION "Loading Hierarchical Configuration"
 
-        # Construct configuration paths using FLOW_ROOT and versions
+        # Cascade order (post 2026-10-11 single-file tech):
+        #   1. global/config/project/<proj>/<ver>/project_config.tcl  (identity)
+        #   2. <core>/config/project/<proj>/<ver>/project_pd_config.tcl (PD overlay)
+        #   3. global/config/tech/<tech>/<ver>/tech_config.tcl        (SINGLE tech file)
+        #   4. global/config/flow/<ver>/flow_registry.tcl             (flow types)
+        #   5. <core>/config/flow/<ver>/flow_config.tcl               (PD flow config)
+        # Tech is now one file in global — identity + physical/metal/cells
+        # merged. Previously there was a PD-side tech_pd_config.tcl overlay;
+        # removed because tech data belongs to the PDK, not a discipline.
         set flow_root $::env(FLOW_ROOT)
+        set global_root ""
+        if {[info exists ::env(CBFLOW_GLOBAL_DIR)] && [file isdirectory "$::env(CBFLOW_GLOBAL_DIR)/config"]} {
+            set global_root "$::env(CBFLOW_GLOBAL_DIR)/config"
+        } elseif {[info exists ::env(CBFLOW_ROOT)] && [file isdirectory "$::env(CBFLOW_ROOT)/global/config"]} {
+            set global_root "$::env(CBFLOW_ROOT)/global/config"
+        }
         set config_files [list]
 
-        # Flow configuration
-        lappend config_files "$flow_root/config/flow/$::env(FLOW_CONFIG_VERSION)/flow_config.tcl"
-
-        # Project configuration (use default if not specified)
+        # Resolve project + tech names up front (needed for both global + PD paths).
         if {[info exists ::env(CBFLOW_PROJECT_NAME)] && $::env(CBFLOW_PROJECT_NAME) ne ""} {
             set project_name $::env(CBFLOW_PROJECT_NAME)
         } elseif {[info exists ::env(PROJECT_NAME)] && $::env(PROJECT_NAME) ne ""} {
@@ -298,9 +364,6 @@ namespace eval ::CBFlow::Utilities {
             puts "ERROR: CBFLOW_PROJECT_NAME not set — cannot load project config"
             return
         }
-        lappend config_files "$flow_root/config/project/$project_name/$::env(PROJECT_CONFIG_VERSION)/phoenix_config.tcl"
-
-        # Technology configuration (use default if not specified)
         if {[info exists ::env(CBFLOW_TECH_NODE)] && $::env(CBFLOW_TECH_NODE) ne ""} {
             set tech_node $::env(CBFLOW_TECH_NODE)
         } elseif {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne ""} {
@@ -309,7 +372,30 @@ namespace eval ::CBFlow::Utilities {
             puts "ERROR: TECH_NAME not set — cannot load tech config"
             return
         }
-        lappend config_files "$flow_root/config/tech/$tech_node/$::env(TECH_CONFIG_VERSION)/tech_config.tcl"
+        set tech_ver [expr {[info exists ::env(TECH_CONFIG_VERSION)] ? $::env(TECH_CONFIG_VERSION) : "v1.0.0"}]
+        set proj_ver [expr {[info exists ::env(PROJECT_CONFIG_VERSION)] ? $::env(PROJECT_CONFIG_VERSION) : "v1.0.0"}]
+        set flow_ver $::env(FLOW_CONFIG_VERSION)
+
+        # 1. Global project (identity + hierarchy)
+        if {$global_root ne ""} {
+            lappend config_files "$global_root/project/$project_name/$proj_ver/project_config.tcl"
+        }
+        # 2. PD project overlay (workarea + release + LSF + lib_root)
+        lappend config_files "$flow_root/config/project/$project_name/$proj_ver/project_pd_config.tcl"
+
+        # 3. Tech — single file in global (foundry identity + metal stacks +
+        #    physical cells). References $project(lib_root) so project must
+        #    be sourced first.
+        if {$global_root ne ""} {
+            lappend config_files "$global_root/tech/$tech_node/$tech_ver/tech_config.tcl"
+        }
+
+        # 5. Global flow registry (types + discipline map)
+        if {$global_root ne ""} {
+            lappend config_files "$global_root/flow/$flow_ver/flow_registry.tcl"
+        }
+        # 6. PD flow config
+        lappend config_files "$flow_root/config/flow/$flow_ver/flow_config.tcl"
 
         set loaded_count 0
         foreach config_file $config_files {
@@ -380,6 +466,8 @@ namespace eval :: {
     namespace import ::CBFlow::Utilities::show_progress
     namespace import ::CBFlow::Utilities::generate_large_ascii_char
     namespace import ::CBFlow::Utilities::generate_text_logo
+    namespace import ::CBFlow::Utilities::is_true
+    namespace import ::CBFlow::Utilities::is_false
 }
 
 # Declare global arrays for hierarchical variables (backward compatibility)
@@ -405,18 +493,25 @@ if {![info exists ::cbflow_utils_loaded]} {
             # on the FIRST undefined-var read after the handle_error gate.
             # Raise a Tcl error instead so the current flow_proc unwinds
             # cleanly; flow_exec catches it and lets the next proc run.
-            #
-            # NOTE (round-6 audit C11): This swallow means real handle_error
-            # calls don't propagate to RACE in test_mode → silent PASSes.
-            # The correct fix is NOT to change handle_error's semantics
-            # (that breaks legacy handlers that used handle_error deep
-            # inside procs to short-circuit a subroutine without exiting
-            # the whole stage). It's to make every `<stage>_flow` proc
-            # call `flow_fail_if_status ::<var>_status <report>` at its
-            # tail — Round 3 established that pattern in 12 PV files but
-            # 126 other command files still need it. Tracked as a
-            # coordinated sweep, not a semantic change here.
-            if {[info exists ::flow(test_mode)] && $::flow(test_mode) eq "true"} {
+            if {[info exists ::flow(test_mode)] && [is_true $::flow(test_mode)]} {
+                # Drop a sentinel so handler_validate (and release-check)
+                # can see that a real error was raised during a test_mode
+                # run. Pre-fix this swallow meant any real semantic failure
+                # (bad corner, bad library, missing input) silently
+                # produced a PASS stage. Now the stage is marked as
+                # TEST_MODE_ERRORED and downstream will refuse sign-off.
+                catch {
+                    set _err_dir ""
+                    if {[info exists ::env(CBFLOW_RUN_DIR)] && [info exists ::flow(type)] \
+                            && [info exists ::flow(design_name)]} {
+                        set _err_dir "$::env(CBFLOW_RUN_DIR)/work/$::flow(type)"
+                    }
+                    if {$_err_dir ne "" && [file isdirectory $_err_dir]} {
+                        set _f [open "$_err_dir/.TEST_MODE_HANDLE_ERROR" a]
+                        puts $_f "[clock format [clock seconds]]: $message"
+                        close $_f
+                    }
+                }
                 return -code error $message
             }
             exit $exit_code
@@ -475,7 +570,7 @@ proc flow_exec {name} {
         return
     }
 
-    set _test_mode [expr {[info exists ::flow(test_mode)] && $::flow(test_mode) eq "true"}]
+    set _test_mode [expr {[info exists ::flow(test_mode)] && [is_true $::flow(test_mode)]}]
 
     if {$_test_mode} {
         handle_info "── flow_proc: $name ──"
@@ -551,7 +646,7 @@ proc flow_exec_all {args} {
         return
     }
 
-    set _test_mode [expr {[info exists ::flow(test_mode)] && $::flow(test_mode) eq "true"}]
+    set _test_mode [expr {[info exists ::flow(test_mode)] && [is_true $::flow(test_mode)]}]
 
     if {$_test_mode} {
         handle_info "═══════════════════════════════════════════════════════"

@@ -1,0 +1,28 @@
+#!/bin/bash
+# ═══════════════════════════════════════════════════════════════════════════════
+# CBFlow - Workspace Commands
+# Description: Workspace initialization and management
+# Usage: cbflow workspace <subcommand> [options]
+# ═══════════════════════════════════════════════════════════════════════════════
+
+set -euo pipefail
+
+# Ensure CBFLOW_ROOT / CBFLOW_CORE_DIR / CBFLOW_GLOBAL_DIR are set via
+# shared resolver. When invoked via the main `cbflow` dispatcher, these
+# are already exported — the guard just handles standalone invocation.
+if [[ -z "${CBFLOW_CORE_DIR:-}" || -z "${CBFLOW_GLOBAL_DIR:-}" ]]; then
+    _real="${BASH_SOURCE[0]}"
+    while [ -L "$_real" ]; do
+        _dir="$(cd "$(dirname "$_real")" && pwd)"
+        _real="$(readlink "$_real")"
+        [[ "$_real" != /* ]] && _real="$_dir/$_real"
+    done
+    source "$(dirname "$_real")/_cbflow_paths.sh" "${BASH_SOURCE[0]}"
+    unset _real _dir
+fi
+
+# Source environment if available
+[[ -f "$CBFLOW_CORE_DIR/config/cbflow.env" ]] && source "$CBFLOW_CORE_DIR/config/cbflow.env"
+
+# Execute Python command handler
+exec python3 "$CBFLOW_CORE_DIR/utils/commands/workspace_cmd.py" "$@"

@@ -189,7 +189,16 @@ def _load_node_config(flow_type: str,
 def get_flow_stages(flow_type: str,
                     run_dir: Optional[str] = None) -> List[str]:
     cfg = _resolved(flow_type, run_dir=run_dir)
-    return _parse_tcl_list(_cfg.require(cfg, 'stages'))
+    # `stages` is emitted only when a node_config was sourced. Cross-
+    # discipline flows registered in flow_registry.tcl (e.g. LINT/CDC under
+    # DV) may not yet have their node_config on disk — for discovery
+    # commands (`cbflow flow types`) we want an empty list, not a hard
+    # error. An actual `cbflow run <flow>` still errors — race_engine
+    # validates via require() at DAG build time.
+    stages_raw = _cfg.optional(cfg, 'stages')
+    if not stages_raw:
+        return []
+    return _parse_tcl_list(stages_raw)
 
 
 def get_flow_stages_with_suffix(flow_type: str, suffix: str = "1") -> List[str]:

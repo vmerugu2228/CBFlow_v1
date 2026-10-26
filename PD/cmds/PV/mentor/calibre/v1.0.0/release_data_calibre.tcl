@@ -77,15 +77,50 @@ flow_proc prepare_release {
     handle_info "Preparing release directory..."
     set run_dir $::env(CBFLOW_RUN_DIR)
     set release_dir "$run_dir/results/release"
-    foreach dir {"reports" "drc" "lvs" "erc" "perc"} { file mkdir "$release_dir/$dir" }
+    foreach dir {"reports" "drc" "lvs" "erc" "perc" "perc_ldl"} { file mkdir "$release_dir/$dir" }
 
-    # Copy results
+    # Pre-fix: paths assumed each PV stage wrote under $run_dir/results/,
+    # but every PV handler writes under $run_dir/work/PV/<node>1/results/.
+    # Every [file exists] check returned false and the release directory
+    # ended up empty with only the manifest shell, yet the stage still
+    # returned success. Fix: check BOTH candidate locations (work dir
+    # first, which is the real output location per the handler fix for
+    # the mandatory_outputs mismatch, then the run_dir fallback for the
+    # mirror-copies the handlers now also write).
+    foreach {node file dest} {
+        drc1      drc.rpt       drc/drc.rpt
+        drc1      drc_results.rpt drc/drc_results.rpt
+        lvs1      lvs.rpt       lvs/lvs.rpt
+        lvs1      lvs_results.rpt lvs/lvs_results.rpt
+        erc1      erc.rpt       erc/erc.rpt
+        erc1      erc_results.rpt erc/erc_results.rpt
+        perc1     perc.rpt      perc/perc.rpt
+        perc1     perc_results.rpt perc/perc_results.rpt
+        perc_ldl1 perc_ldl.rpt  perc_ldl/perc_ldl.rpt
+    } {
+        # drc1 → work/PV/drc1/results/drc/drc.rpt
+        regsub {\d+$} $node "" _bare
+        set work_src "$run_dir/work/PV/$node/results/$_bare/$file"
+        set run_src  "$run_dir/results/$_bare/$file"
+        set found ""
+        if {[file exists $work_src]} { set found $work_src
+        } elseif {[file exists $run_src]} { set found $run_src }
+        if {$found ne ""} {
+            if {[catch {file copy -force $found "$release_dir/$dest"} _err]} {
+                handle_warning "release copy failed for $dest: $_err"
+            } else {
+                puts "  Copied: $found -> $dest"
+            }
+        } else {
+            puts "  Skipped (not produced): $dest"
+        }
+    }
+    # Verification summary — produced by merge_data1 at
+    # results/verification/verification_summary.rpt (new) and
+    # results/phyv/phyv_summary.rpt (legacy).
     foreach {src dest} {
-        "results/drc/drc_results.rpt" "drc/drc_results.rpt"
-        "results/lvs/lvs_results.rpt" "lvs/lvs_results.rpt"
-        "results/erc/erc_results.rpt" "erc/erc_results.rpt"
-        "results/perc/perc_results.rpt" "perc/perc_results.rpt"
-        "results/phyv/phyv_summary.rpt" "reports/phyv_summary.rpt"
+        results/verification/verification_summary.rpt reports/verification_summary.rpt
+        results/phyv/phyv_summary.rpt                 reports/phyv_summary.rpt
     } {
         if {[file exists "$run_dir/$src"]} {
             catch {file copy -force "$run_dir/$src" "$release_dir/$dest"}

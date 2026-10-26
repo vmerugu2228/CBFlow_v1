@@ -112,7 +112,11 @@ if {$total_power eq ""} {
     exit 1
 }
 
-set status "PASS"
+# Pre-fix: status defaulted to PASS and stayed PASS if --budget was
+# empty — a BTO/MTO sign-off that forgot the --budget flag would
+# approve a check against zero threshold. Default to PENDING; only
+# emit PASS/FAIL when a budget is actually supplied.
+set status "PENDING"
 set detail_str [join $detail_parts ", "]
 
 if {$budget ne ""} {
@@ -122,8 +126,8 @@ if {$budget ne ""} {
     append detail_str "; budget=${budget}mW ${cmp_word}"
     puts "INFO: Total Power = ${total_power} mW, Budget = ${budget} mW, Result = $status"
 } else {
-    puts "INFO: No budget specified — reporting values only (PASS)"
-    append detail_str "; no budget specified"
+    puts "WARNING: No --budget supplied — cannot verify; emitting PENDING"
+    append detail_str "; no --budget supplied — PENDING (configure the budget to enable PASS/FAIL)"
 }
 
 write_check_result $result_dir "check_power" $status \

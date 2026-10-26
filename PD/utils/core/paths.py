@@ -7,6 +7,46 @@ Every command module imports from here instead of re-implementing.
 
 import os
 import sys
+import tempfile
+
+
+def atomic_write(target_path: str, content, encoding: str = 'utf-8') -> None:
+    """Write ``content`` to ``target_path`` atomically via tempfile + rename.
+
+    Guarantees the target file is either untouched (on failure) or
+    contains the complete new content. Pre-fix, truncate-then-write was
+    non-atomic — SIGKILL/OOM/disk-full between truncate and close left
+    bootstrap configs, lib_configs, MANIFEST, release stamps, and
+    runtime_flow_config truncated or empty. Content may be str (encoded
+    with ``encoding``) or bytes (written binary).
+    """
+    target_dir = os.path.dirname(target_path) or '.'
+    base = os.path.basename(target_path)
+    binary = isinstance(content, (bytes, bytearray))
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f'.{base}.',
+        suffix='.cbflow_tmp',
+        dir=target_dir,
+    )
+    try:
+        mode = 'wb' if binary else 'w'
+        if binary:
+            with os.fdopen(fd, mode) as fh:
+                fh.write(content)
+                fh.flush()
+                os.fsync(fh.fileno())
+        else:
+            with os.fdopen(fd, mode, encoding=encoding) as fh:
+                fh.write(content)
+                fh.flush()
+                os.fsync(fh.fileno())
+        os.replace(tmp_path, target_path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 # ── Single source of truth for framework version ──
 CBFLOW_VERSION = "2.0.0"
@@ -85,37 +125,79 @@ def get_tech_config_path(tech_name: str, version: str = None) -> str:
     return path
 
 
+def tech_name_from_config_path(path: str) -> str:
+    """Derive the tech name from a tech_config.tcl path.
+
+    Convention: `.../tech/<name>/<version>/tech_config.tcl`. Returns the
+    `<name>` component so downstream code that still keys on a tech
+    identifier (output stamps, lib_set naming) works when the user
+    passes `--tech-config /path/to/tech_config.tcl` without `--tech`.
+    Returns '' when the path doesn't match the convention — callers
+    should fall back to a sensible default (e.g. the basename of
+    lib_root) in that case.
+    """
+    if not path:
+        return ''
+    abs_path = os.path.realpath(path)
+    parts = os.path.normpath(abs_path).split(os.sep)
+    # Walk upward looking for ".../tech/<name>/<version>/tech_config.tcl"
+    for i in range(len(parts) - 1, 1, -1):
+        if parts[i] == 'tech_config.tcl' and i >= 3 and parts[i - 3] == 'tech':
+            return parts[i - 2]
+    return ''
+
+
+def resolve_tech_config(args, version: str = None) -> tuple:
+    """Return (tech_name, tech_config_path) honoring --tech-config override.
+
+    Shared helper for library-manager / mmmc-manager so every subcommand
+    resolves the same way:
+      1. `args.tech_config` wins if set and the file exists — derive
+         tech_name from its path, fall back to args.tech when the
+         path doesn't match the convention.
+      2. Otherwise resolve by name via `require_tech_config()` which
+         does the standard global/PD cascade and exits on failure.
+    """
+    tc = getattr(args, 'tech_config', None)
+    if tc and os.path.isfile(tc):
+        name = tech_name_from_config_path(tc) or getattr(args, 'tech', '') or ''
+        return (name, os.path.realpath(tc))
+    name = (getattr(args, 'tech', None)
+            or getattr(args, 'tech_node', None)
+            or os.environ.get('CBFLOW_TECH_NODE', '')
+            or os.environ.get('TECH_NAME', ''))
+    if not name:
+        # Delegate to require_tech_config so the user sees the standard
+        # fix guide + available-techs list.
+        require_tech_config('', version)
+    return (name, require_tech_config(name, version))
+
+
 def require_tech_config(tech_name: str, version: str = None) -> str:
     """Hard-require a tech_config.tcl exists for this tech / version.
 
-    Cascade (global first, PD legacy fallback):
-      1. <global>/config/tech/<tech>/<ver>/tech_config.tcl  (authoritative)
-      2. <core>/config/tech/<tech>/<ver>/tech_config.tcl     (pre-refactor)
+    Post 2026-10-11: tech lives in a SINGLE file under global — identity
+    (VT, rules, SPICE, RCX) and physical (metal stacks, cells, body bias)
+    merged. PD/config/tech/ no longer exists; the former `tech_pd_config.tcl`
+    content was appended into `tech_config.tcl` to keep tech data in one
+    place regardless of discipline.
 
-    Prints a fix guide + sys.exit(1) if neither is found. Returns the first
-    resolved path. Shared by library-manager and mmmc-manager preflights.
+    Prints a fix guide + sys.exit(1) if the global tech_config is missing.
+    Returns the resolved path. Shared by library-manager and mmmc-manager
+    preflights.
     """
     ver = version or get_flow_config_version()
 
-    # Try global first — this is the post-refactor authoritative location.
     grot = get_global_config_root()
     if grot:
         gtc = os.path.join(grot, 'tech', tech_name, ver, 'tech_config.tcl')
         if os.path.exists(gtc):
             return gtc
 
-    # Fallback: legacy PD-only layout (pre-refactor workareas).
-    core_dir = get_cbflow_core_dir()
-    tech_dir = os.path.join(core_dir, 'config', 'tech', tech_name, ver)
-    tc = os.path.join(tech_dir, 'tech_config.tcl')
-    if os.path.exists(tc):
-        return tc
-
-    # Neither found — enumerate what IS available and error out.
-    # Prefer the global tech base (post-refactor); fall back to PD's if empty.
+    # Not found — enumerate available techs from global and error out.
     tech_base = os.path.join(grot, 'tech') if grot else ''
-    if not (tech_base and os.path.isdir(tech_base)):
-        tech_base = os.path.join(core_dir, 'config', 'tech')
+    core_dir = get_cbflow_core_dir()
+    tc = os.path.join(grot or core_dir, 'tech', tech_name, ver, 'tech_config.tcl')
 
     available = []
     if os.path.isdir(tech_base):
@@ -158,6 +240,161 @@ def require_tech_config(tech_name: str, version: str = None) -> str:
     sys.exit(1)
 
 
+def _list_available_tech_configs():
+    """Return [(tech_name, version, abs_tech_config_path), ...] for every
+    tech_config.tcl we can find in the install tree."""
+    grot = get_global_config_root()
+    tech_base = os.path.join(grot, 'tech') if grot else ''
+    if not (tech_base and os.path.isdir(tech_base)):
+        try:
+            tech_base = os.path.join(get_config_root(), 'tech')
+        except ValueError:
+            return []
+    out = []
+    if tech_base and os.path.isdir(tech_base):
+        for t in sorted(os.listdir(tech_base)):
+            tp = os.path.join(tech_base, t)
+            if not os.path.isdir(tp):
+                continue
+            for v in sorted(os.listdir(tp)):
+                vp = os.path.join(tp, v)
+                tc = os.path.join(vp, 'tech_config.tcl')
+                if os.path.isdir(vp) and os.path.exists(tc):
+                    out.append((t, v, tc))
+    return out
+
+
+def _diagnose_bad_tech_config_path(tc_path):
+    """Print a diagnostic that names the specific issue with the user's
+    --tech-config path and tells them what to do about it.
+
+    Important production rule: a user's REAL tech_config.tcl lives on
+    their filesystem (customer tech data, foundry PDK, custom overlay).
+    Framework-shipped examples (gf_22nm, tsmc_7nm) are reference-only
+    and almost certainly NOT what the user actually wants to point at.
+    So we never say "did you mean <framework-shipped-example>" — the
+    user would then point at reference data and resolve the wrong
+    tech_config. Framework examples are mentioned only when labeled
+    clearly as "example techs shipped with CBflow — reference only".
+
+    Detection rules (first match wins):
+      1. Literal placeholder (`/path/to/` or `<...>`) → user forgot to
+         substitute the example path. Explain what tech_config.tcl is.
+      2. Parent-of-parent exists on disk + is a sibling of other
+         versioned dirs → user picked the wrong version of a tech they
+         actually have on disk. Show the ACTUAL versions available at
+         that tech dir.
+      3. Parent directory exists but no tech_config.tcl in it → wrong
+         filename (common: user pointed at tech_pd_config.tcl, metal
+         stack file, etc.). Show what IS in that directory.
+      4. Fallback → describe what tech_config.tcl is and how to find
+         theirs.
+    """
+    print('')
+    print('  ══════════════════════════════════════════════════════════════')
+    print('  ERROR: --tech-config path does not exist')
+    print('  ══════════════════════════════════════════════════════════════')
+    print('    You supplied: {!r}'.format(tc_path))
+    print('')
+
+    available = _list_available_tech_configs()
+
+    # ── Rule 1 — unsubstituted placeholder ─────────────────────────────
+    if ('/path/to/' in tc_path or tc_path.startswith('/path/to')
+            or '<' in tc_path or '>' in tc_path):
+        print('    DIAGNOSIS: this is a template placeholder path, not a real')
+        print('               tech_config.tcl location.')
+        print('')
+        print('    FIX: replace it with the ABSOLUTE path to your foundry')
+        print('    tech_config.tcl on your filesystem. Common locations:')
+        print('      · <your-project>/config/tech/<node>/v1.0.0/tech_config.tcl')
+        print('      · <foundry-pdk-root>/<node>/cbflow/tech_config.tcl')
+        print('      · ask your CAD lead where your project ships tech_config.tcl')
+        print('')
+        print('    tech_config.tcl holds: foundry node identity, VT patterns,')
+        print('    SPICE deck, metal stacks, PG grids, standard-cell physical')
+        print('    data. If you do not have one yet, start from a reference')
+        print('    (see "example reference techs" below) and adapt its contents')
+        print('    for your project.')
+        print('')
+        if available:
+            print('    Example reference techs shipped with CBflow'
+                  ' (reference only — do NOT run production against these):')
+            for _t, _v, p in available:
+                print('      - {}'.format(p))
+            print('')
+        return
+
+    # ── Rule 2 — version-dir is missing but the tech-dir (grandparent)
+    # does exist on disk. SAFE to suggest the real version — it's the
+    # user's own filesystem. Must check parent is NOT a dir — otherwise
+    # we'd mislabel a wrong-filename case as a wrong-version case. ──
+    parent = os.path.dirname(tc_path)
+    grandparent = os.path.dirname(parent) if parent else ''
+    parent_missing = bool(parent) and not os.path.isdir(parent)
+    if (parent_missing and grandparent
+            and os.path.isdir(grandparent)):
+        actual_versions = sorted([
+            v for v in os.listdir(grandparent)
+            if os.path.isdir(os.path.join(grandparent, v))
+            and os.path.exists(os.path.join(grandparent, v, 'tech_config.tcl'))
+        ])
+        if actual_versions:
+            tech_label = os.path.basename(grandparent)
+            print('    DIAGNOSIS: the version you specified does not exist for '
+                  'tech {!r}.'.format(tech_label))
+            print('    (The tech directory does exist on your filesystem; '
+                  'only the version is wrong.)')
+            print('')
+            print('    AVAILABLE versions for this tech on your filesystem:')
+            for v in actual_versions:
+                print('      - {}'.format(os.path.join(grandparent, v,
+                                                       'tech_config.tcl')))
+            print('')
+            return
+
+    # ── Rule 3 — parent exists but tech_config.tcl isn't in it ────────
+    if parent and os.path.isdir(parent):
+        print('    DIAGNOSIS: the directory exists but does not contain a file')
+        print('               named `tech_config.tcl`.')
+        try:
+            entries = sorted(os.listdir(parent))
+            tcls = [e for e in entries if e.endswith('.tcl')]
+            if tcls:
+                print('')
+                print('    .tcl files found in that directory:')
+                for e in tcls[:12]:
+                    print('      - {}/{}'.format(parent, e))
+            else:
+                print('    No .tcl files found in that directory.')
+        except OSError:
+            pass
+        print('')
+        print('    FIX: tech_config.tcl must be named exactly that. '
+              'It is NOT:')
+        print('         tech_pd_config.tcl (that is a legacy PD overlay),')
+        print('         <node>_config.tcl, or a metal_stack/*.tcl file.')
+        print('')
+        return
+
+    # ── Fallback — describe what the file is + how to find it ─────────
+    print('    DIAGNOSIS: no file at that path.')
+    print('    Common causes: typo in the path, wrong case on a case-sensitive')
+    print('    filesystem, missing read permission, or the file was moved.')
+    print('')
+    print('    What to supply: the ABSOLUTE path to the tech_config.tcl that')
+    print('    describes your foundry process (node identity, VT patterns,')
+    print('    metal stacks, cells, RCX data). Ask your CAD lead for its')
+    print('    location on your project filesystem.')
+    print('')
+    if available:
+        print('    Example reference techs shipped with CBflow'
+              ' (reference only — do NOT run production against these):')
+        for _t, _v, p in available:
+            print('      - {}'.format(p))
+        print('')
+
+
 def preflight_tech_config_or_exit(args, tool_name: str = "library-manager") -> str:
     """Hard-gate: refuse to run if tech_config.tcl is not present.
 
@@ -187,8 +424,12 @@ def preflight_tech_config_or_exit(args, tool_name: str = "library-manager") -> s
     if tc_path:
         if os.path.isfile(tc_path):
             return tc_path
-        # File doesn't exist — fall through to require_tech_config which will
-        # produce a proper error banner listing available techs.
+        # File doesn't exist — actively diagnose what's wrong with the
+        # path the user supplied and show them exactly how to fix it.
+        # Pre-fix we silently fell through to the generic 'no tech
+        # context' banner, which never named the real issue.
+        _diagnose_bad_tech_config_path(tc_path)
+        sys.exit(1)
 
     # Resolve tech name.
     tech = (getattr(args, 'tech', None)
@@ -246,15 +487,99 @@ def preflight_tech_config_or_exit(args, tool_name: str = "library-manager") -> s
 def get_node_config_path(flow_type: str, version: str = None) -> str:
     """Get path to a flow's node config.
 
-    Returns: Absolute path to <FLOW>_config.tcl
-    Raises FileNotFoundError if not found.
+    Post-Phase-5: node_configs live under the discipline root, not PD's.
+    Resolution:
+      1. Read flow(discipline,<flow>) from the global flow_registry.
+      2. Locate the discipline root via CBFLOW_<disc>_DIR (or CBFLOW_ROOT/<disc>).
+      3. Return <disc_root>/config/flow/<ver>/node_configs/<FLOW>_config.tcl.
+
+    Raises FileNotFoundError if the resolved path does not exist.
     """
     ver = version or get_flow_config_version()
-    path = os.path.join(get_config_root(), 'flow', ver, 'node_configs',
+
+    # Determine discipline. Cheap approach: read the global registry directly
+    # rather than spawning tclsh — the registry is stable Tcl but the entries
+    # of interest ('flow(discipline,<FLOW>)') follow a simple `set` shape.
+    #
+    # Pre-fix a missing/unreadable registry silently defaulted to 'PD', so
+    # DFT and DV flows were misrouted on broken installs. _lookup_flow_discipline
+    # now RAISES FileNotFoundError when the registry is unreachable; empty
+    # string here means the flow is legitimately unregistered (invalid
+    # flow_type passed in). Only the unregistered case falls back to 'PD'.
+    try:
+        _disc = _lookup_flow_discipline(flow_type, ver)
+    except FileNotFoundError:
+        raise FileNotFoundError(
+            "flow_registry.tcl is required to resolve discipline for '{}'. "
+            "Set CBFLOW_GLOBAL_DIR to a valid install or run from a workarea.".format(
+                flow_type))
+    disc = _disc or 'PD'
+
+    # Discipline root
+    disc_dir = _resolve_discipline_dir(disc)
+    if not disc_dir:
+        raise FileNotFoundError(
+            f"Discipline root for '{disc}' (flow={flow_type}) not resolvable — "
+            f"set CBFLOW_{disc.upper()}_DIR or CBFLOW_ROOT."
+        )
+
+    path = os.path.join(disc_dir, 'config', 'flow', ver, 'node_configs',
                         '{}_config.tcl'.format(flow_type))
     if not os.path.isfile(path):
-        raise FileNotFoundError("Node config not found: {}".format(path))
+        raise FileNotFoundError(f"Node config not found: {path} "
+                                f"(discipline={disc}, flow={flow_type})")
     return path
+
+
+def _lookup_flow_discipline(flow_type: str, version: str) -> str:
+    """Regex-scan the global flow_registry.tcl for
+    `set flow(discipline,<flow_type>) "<disc>"`.
+
+    Returns '' ONLY when the flow is legitimately not registered. Raises
+    FileNotFoundError if the registry itself is missing / unreadable:
+    pre-fix every "registry missing" error collapsed to '' and callers
+    silently defaulted to 'PD', so DFT/DV flows were misrouted on broken
+    installs. Callers must handle the exception explicitly.
+    """
+    import re as _re_local
+    reg = get_flow_registry_path(version)
+    if not reg:
+        raise FileNotFoundError(
+            "flow_registry.tcl not found (version={}, CBFLOW_GLOBAL_DIR={})".format(
+                version, os.environ.get('CBFLOW_GLOBAL_DIR', '')))
+    try:
+        with open(reg, encoding='utf-8') as fh:
+            content = fh.read()
+    except (OSError, UnicodeDecodeError) as e:
+        raise FileNotFoundError(
+            "flow_registry.tcl unreadable at {}: {}".format(reg, e))
+    m = _re_local.search(
+        r'set\s+flow\(discipline,' + _re_local.escape(flow_type) + r'\)\s+"?([A-Za-z_]+)"?',
+        content)
+    return m.group(1) if m else ''
+
+
+def _resolve_discipline_dir(disc: str) -> str:
+    """Find the on-disk root for a discipline (PD/DFT/DV). Order:
+       1. CBFLOW_<disc>_DIR env var
+       2. CBFLOW_ROOT/<disc>
+       3. Sibling of CBFLOW_CORE_DIR (for PD, that's CBFLOW_CORE_DIR itself)."""
+    env_val = os.environ.get(f'CBFLOW_{disc.upper()}_DIR', '')
+    if env_val and os.path.isdir(env_val):
+        return env_val
+    root = os.environ.get('CBFLOW_ROOT', '')
+    if root:
+        candidate = os.path.join(root, disc)
+        if os.path.isdir(candidate):
+            return candidate
+    try:
+        core = get_cbflow_core_dir()
+    except ValueError:
+        return ''
+    if disc == 'PD':
+        return core
+    candidate = os.path.join(os.path.dirname(core), disc)
+    return candidate if os.path.isdir(candidate) else ''
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -303,54 +628,36 @@ def get_global_config_root() -> str:
 def get_tech_config_paths(tech_name: str, version: str = None) -> list:
     """Return the ordered list of tech_config files that should be sourced.
 
-    Cascade:
-      1. <global>/config/tech/<tech>/<ver>/tech_config.tcl  — foundry-supplied base
-      2. <core>/config/tech/<tech>/<ver>/tech_pd_config.tcl — PD physical overlay
+    Post-Phase-4 cascade (global authoritative):
+      1. <global>/config/tech/<tech>/<ver>/tech_config.tcl   (foundry base — required)
+      2. <core>/config/tech/<tech>/<ver>/tech_pd_config.tcl  (PD overlay — required)
 
     Only files that actually exist are returned. Callers `source` them in
     order; the second file appends physical/PG/cell keys onto the tech(...)
-    array populated by the first.
-
-    During phase 1-2 (symlink shim) the two paths may resolve to the same
-    file — that is expected and harmless (Tcl `set` is idempotent).
+    array populated by the first. If either is missing the return list is
+    partial; callers that need the full picture should check for both.
     """
+    # Post 2026-10-11: tech is a SINGLE file in global/config/tech/<tech>/<ver>/
+    # tech_config.tcl — identity + VT + rules + SPICE + RCX + metal stacks +
+    # physical cells + body bias all in one place. The pre-merge split had a
+    # `tech_pd_config.tcl` sibling under PD/, which contradicted the design
+    # principle that tech data lives in one place regardless of discipline.
     ver = version or get_flow_config_version()
     paths = []
-
     grot = get_global_config_root()
     if grot:
         gp = os.path.join(grot, 'tech', tech_name, ver, 'tech_config.tcl')
         if os.path.isfile(gp):
             paths.append(gp)
-
-    try:
-        crot = get_config_root()
-        # Global-first: skip the PD single-file version if we already have
-        # the global one (symlink-shim case). Look only for the PD overlay.
-        overlay = os.path.join(crot, 'tech', tech_name, ver, 'tech_pd_config.tcl')
-        if os.path.isfile(overlay):
-            paths.append(overlay)
-        elif not paths:
-            # Legacy fallback: no global, no overlay — try the pre-refactor
-            # single-file location so old workareas keep working.
-            legacy = os.path.join(crot, 'tech', tech_name, ver, 'tech_config.tcl')
-            if os.path.isfile(legacy):
-                paths.append(legacy)
-    except ValueError:
-        pass
-
     return paths
 
 
 def get_project_config_paths(project_name: str, version: str = None) -> list:
     """Return the ordered list of project_config files that should be sourced.
 
-    Cascade:
-      1. <global>/config/project/<name>/<ver>/project_config.tcl        — identity + hierarchy
-      2. <core>/config/project/<name>/<ver>/project_pd_config.tcl        — PD workarea/release/lsf overlay
-
-    Falls back to the legacy <core>/config/project/<name>/<ver>/<name>_config.tcl
-    if neither of the above exists (pre-refactor workareas).
+    Post-Phase-4 cascade (global authoritative):
+      1. <global>/config/project/<name>/<ver>/project_config.tcl    (identity — required)
+      2. <core>/config/project/<name>/<ver>/project_pd_config.tcl   (PD overlay — required)
     """
     ver = version or get_flow_config_version()
     paths = []
@@ -366,11 +673,6 @@ def get_project_config_paths(project_name: str, version: str = None) -> list:
         overlay = os.path.join(crot, 'project', project_name, ver, 'project_pd_config.tcl')
         if os.path.isfile(overlay):
             paths.append(overlay)
-        elif not paths:
-            legacy = os.path.join(crot, 'project', project_name, ver,
-                                  '{}_config.tcl'.format(project_name))
-            if os.path.isfile(legacy):
-                paths.append(legacy)
     except ValueError:
         pass
 
@@ -380,18 +682,136 @@ def get_project_config_paths(project_name: str, version: str = None) -> list:
 def get_master_projects_path() -> str:
     """Return the path to master_projects.json.
 
-    Global-first: <global>/config/master_projects.json.
-    Falls back to <core>/config/master_projects.json (pre-refactor location).
+    Post-Phase-4: global-only. <global>/config/master_projects.json is
+    authoritative. Returns '' if the global tree is not set up (should never
+    happen in a valid install — get_cbflow_global_dir() would have failed).
     """
     grot = get_global_config_root()
     if grot:
         p = os.path.join(grot, 'master_projects.json')
         if os.path.isfile(p):
             return p
+    # Legacy fallback — pre-split installs kept master_projects in PD/.
     try:
-        return os.path.join(get_config_root(), 'master_projects.json')
+        p = os.path.join(get_config_root(), 'master_projects.json')
+        if os.path.isfile(p):
+            return p
     except ValueError:
-        return ''
+        pass
+    return ''
+
+
+# ─── Discovery helpers (list-available-X across global + PD) ─────────
+#
+# Rationale: a cluster of callers (mmmc_manager, workspace_cmd, test_cmd,
+# config_cmd, dashboard router/app/race, project manager, library_manager)
+# each used to roll their own
+#     for d in os.listdir(os.path.join(get_cbflow_core_dir(), 'config/<X>')):
+# which breaks post-split because <X> moved to global/. Centralize the
+# discovery here so one fix covers them all.
+
+def get_tech_search_roots() -> list:
+    """Directories to scan for available technologies, highest-priority first.
+
+    Returns a list of absolute paths. Each entry is a `<ROOT>/config/tech`
+    directory. The caller walks each root and unions the child dir names.
+    """
+    roots = []
+    grot = get_global_config_root()
+    if grot:
+        p = os.path.join(grot, 'tech')
+        if os.path.isdir(p):
+            roots.append(p)
+    try:
+        p = os.path.join(get_config_root(), 'tech')
+        if os.path.isdir(p):
+            roots.append(p)
+    except ValueError:
+        pass
+    return roots
+
+
+def list_available_techs(version: str = None) -> list:
+    """List every technology directory discoverable across global/ and PD/.
+
+    A tech is "available" if any search root has <root>/<tech>/<ver>/
+    tech_config.tcl (preferred) OR just <root>/<tech>/ (looser — matches
+    pre-unification installs that may not have a tech_config.tcl at the
+    requested version yet).
+
+    Returns a sorted de-duplicated list of tech names.
+    """
+    ver = version or get_flow_config_version()
+    found = set()
+    for root in get_tech_search_roots():
+        try:
+            entries = os.listdir(root)
+        except OSError:
+            continue
+        for name in entries:
+            if name.startswith('.'):
+                continue
+            d = os.path.join(root, name)
+            if not os.path.isdir(d):
+                continue
+            # Prefer the config-present signal, but accept bare dirs too.
+            if os.path.isfile(os.path.join(d, ver, 'tech_config.tcl')) \
+                    or os.path.isdir(os.path.join(d, ver)) \
+                    or os.path.isdir(d):
+                found.add(name)
+    return sorted(found)
+
+
+def get_project_search_roots() -> list:
+    """Directories to scan for available projects, highest-priority first.
+
+    Returns a list of absolute paths, each a `<ROOT>/config/project` dir.
+    """
+    roots = []
+    grot = get_global_config_root()
+    if grot:
+        p = os.path.join(grot, 'project')
+        if os.path.isdir(p):
+            roots.append(p)
+    try:
+        p = os.path.join(get_config_root(), 'project')
+        if os.path.isdir(p):
+            roots.append(p)
+    except ValueError:
+        pass
+    return roots
+
+
+def list_available_projects(version: str = None) -> list:
+    """List every project directory discoverable across global/ and PD/.
+
+    A project is "available" if any search root has <root>/<proj>/<ver>/
+    project_config.tcl OR <root>/<proj>/<ver>/project_pd_config.tcl OR
+    just <root>/<proj>/ (bare dir for partial scaffolds).
+
+    Returns a sorted de-duplicated list of project names.
+    """
+    ver = version or get_flow_config_version()
+    found = set()
+    for root in get_project_search_roots():
+        try:
+            entries = os.listdir(root)
+        except OSError:
+            continue
+        for name in entries:
+            if name.startswith('.'):
+                continue
+            d = os.path.join(root, name)
+            if not os.path.isdir(d):
+                continue
+            # Prefer configured, accept bare.
+            if (os.path.isfile(os.path.join(d, ver, 'project_config.tcl'))
+                    or os.path.isfile(os.path.join(
+                        d, ver, 'project_pd_config.tcl'))
+                    or os.path.isdir(os.path.join(d, ver))
+                    or os.path.isdir(d)):
+                found.add(name)
+    return sorted(found)
 
 
 def get_flow_registry_path(version: str = None) -> str:
@@ -406,3 +826,125 @@ def get_flow_registry_path(version: str = None) -> str:
         return ''
     p = os.path.join(grot, 'flow', ver, 'flow_registry.tcl')
     return p if os.path.isfile(p) else ''
+
+
+# ─── Project-config cascade helpers (post-split) ─────────────────────
+#
+# Several Python modules (run_cmd, workspace_cmd, start_run, dashboard,
+# library_manager) each used to hand-roll a 3-candidate project-config
+# cascade [global/project_config.tcl, PD/project_pd_config.tcl, PD/legacy
+# monolith <name>_config.tcl]. All 3 copies drifted. These helpers are
+# the single source of truth.
+
+
+def get_project_cfg_candidates(project_name: str, version: str = None) -> list:
+    """Ordered list of project config paths to probe for a key.
+
+    Order:
+      1. global/config/project/<name>/<ver>/project_config.tcl (identity)
+      2. PD/config/project/<name>/<ver>/project_pd_config.tcl  (PD overlay)
+      3. PD/config/project/<name>/<ver>/<name>_config.tcl      (legacy monolith)
+
+    Last-match-wins is the correct cascade semantic (overlays override
+    identity). Entries that don't exist on disk are STILL returned —
+    callers typically iterate via existence check or `concat_contents()`.
+    """
+    ver = version or get_flow_config_version()
+    cand = []
+    grot = get_global_config_root()
+    if grot and project_name:
+        cand.append(os.path.join(grot, 'project', project_name, ver,
+                                 'project_config.tcl'))
+    try:
+        crot = get_config_root()
+        if project_name:
+            cand.append(os.path.join(crot, 'project', project_name, ver,
+                                     'project_pd_config.tcl'))
+            cand.append(os.path.join(crot, 'project', project_name, ver,
+                                     '{}_config.tcl'.format(project_name)))
+    except ValueError:
+        pass
+    return cand
+
+
+def read_project_cfg_key(project_name: str, key: str,
+                         version: str = None) -> str:
+    """Read `set project(<key>) "value"` from the project cascade.
+
+    Walks `get_project_cfg_candidates()` IN ORDER, picking LAST-match
+    (so PD overlay wins over global identity). Returns '' if the key
+    is unset in every file. Honors inline comments / commented-out
+    `# set project(key)` lines (skipped).
+
+    Pre-fix each caller had its own regex + its own candidate list —
+    some only read the legacy monolith (post-split: file doesn't exist),
+    some didn't skip comments, some stopped at the first match. All
+    those bugs collapse into this single helper.
+    """
+    import re as _re
+    pat = _re.compile(
+        r'^[ \t]*set\s+project\(' + _re.escape(key)
+        + r'\)\s+"([^"]*)"')
+    value = ''
+    for cfg in get_project_cfg_candidates(project_name, version):
+        if not os.path.isfile(cfg):
+            continue
+        try:
+            with open(cfg, encoding='utf-8') as fh:
+                for line in fh:
+                    m = pat.match(line)
+                    if m:
+                        value = m.group(1).strip()
+                        break  # first match within file
+        except (OSError, UnicodeDecodeError):
+            continue
+    return value
+
+
+# Extract flow_type from a run directory name. Accepts the same shapes
+# the shared RUN_DIR_RE deployed in workspace_cmd / run_cmd / dashboard
+# accepts (any known phase prefix: P\d+, LC\d+, MTO, BTO, R\d+, etc.).
+# Pre-fix, checklist_cmd / autoppt_cmd / email_cmd each used their own
+# `P\d_run_(\w+?)_` or `P\d+_run_(\w+)_run\d+` regex which rejected
+# LC/BTO/MTO phases AND required a `_run<N>` suffix that the production
+# naming convention no longer uses.
+def flow_type_from_run_dir_name(name: str) -> str:
+    """Extract <FLOW> from `<PHASE>_run_<FLOW>_<RUN_NAME>`. Returns '' if
+    the name doesn't match the shared run-dir shape."""
+    import re as _re
+    _re_fn = _re.compile(
+        r'^(?:P\d+|LC\d+|LC_\d+|MTO|BTO|R\d+|FP|CTS|PRE|POST)'
+        r'_run_([A-Z][A-Z0-9_]*?)(?:_\d+|_[a-z0-9]+)?$')
+    # Also accept the full `_<RUN_NAME>` suffix which can include anything.
+    m = _re.match(
+        r'^(?:P\d+|LC\d+|LC_\d+|MTO|BTO|R\d+|FP|CTS|PRE|POST)'
+        r'_run_([A-Z][A-Z0-9_]*)(?:_(.+))?$', name)
+    if not m:
+        return ''
+    # The FLOW token is greedy up to the first non-FLOW segment. Returns
+    # the whole uppercase run of FLOW tokens (e.g. SYNTH_PNR).
+    return m.group(1)
+
+
+def phase_from_run_dir_name(name: str) -> str:
+    """Extract <PHASE> from `<PHASE>_run_<FLOW>_<RUN_NAME>`. Returns ''."""
+    import re as _re
+    m = _re.match(
+        r'^(P\d+|LC\d+|LC_\d+|MTO|BTO|R\d+|FP|CTS|PRE|POST)_run_',
+        name)
+    return m.group(1) if m else ''
+
+
+# Public: single-source-of-truth run-dir predicate. Replaces 4 copies
+# that were spread across workspace_cmd / run_cmd / dashboard/app /
+# dashboard/router with "keep in sync" comments admitting the drift risk.
+def is_run_dir_name(name: str) -> bool:
+    """True if `name` matches `<PHASE>_run_<FLOW>_<RUN_NAME>` where PHASE
+    is a known cadence (P\\d+, LC\\d+, LC_\\d+, MTO, BTO, R\\d+, FP, CTS,
+    PRE, POST) and FLOW is an uppercase token. Rejects stray user dirs
+    like old_run_notes, backup_run_sim, pre_run_check."""
+    import re as _re
+    _re_rd = _re.compile(
+        r'^(?:P\d+|LC\d+|LC_\d+|MTO|BTO|R\d+|FP|CTS|PRE|POST)_run_'
+        r'[A-Z][A-Z0-9_]*(?:_|$)')
+    return bool(_re_rd.match(name))

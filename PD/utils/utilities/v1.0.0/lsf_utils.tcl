@@ -579,8 +579,18 @@ namespace eval ::CBFlow::LSF::Utils {
 
         CBFLOW_INFO "Launching xterm to monitor LSF job $job_id" "XTERM"
 
-        if {[catch {exec {*}$xterm_cmd &} xterm_error]} {
-            CBFLOW_WARNING "Failed to launch xterm for job monitoring: $xterm_error" "XTERM"
+        # Validate xterm + $DISPLAY before fire-and-forget. Pre-fix an
+        # `exec {*}$xterm_cmd &` with no $DISPLAY silently did nothing;
+        # user thought the monitor was running. Same bug class as the
+        # one submit_job (launch_utils.tcl) was fixed for.
+        if {![info exists ::env(DISPLAY)] || $::env(DISPLAY) eq ""} {
+            CBFLOW_WARNING "Skipping xterm monitor: \$DISPLAY not set" "XTERM"
+        } elseif {[auto_execok xterm] eq ""} {
+            CBFLOW_WARNING "Skipping xterm monitor: xterm not in PATH" "XTERM"
+        } else {
+            if {[catch {exec {*}$xterm_cmd &} xterm_error]} {
+                CBFLOW_WARNING "Failed to launch xterm for job monitoring: $xterm_error" "XTERM"
+            }
         }
 
         return $job_id

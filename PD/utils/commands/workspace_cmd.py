@@ -87,21 +87,28 @@ def load_release_manifest(version: str) -> dict:
 
 
 def get_available_projects() -> list:
-    """Get available projects from config/project directory."""
-    core_dir = get_cbflow_core_dir()
-    project_dir = Path(core_dir) / "config" / "project"
-    projects = []
-    if project_dir.exists():
-        for item in sorted(project_dir.iterdir()):
-            if item.is_dir() and not item.name.startswith('.') and item.name != 'workspace':
-                projects.append(item.name)
-    return projects
+    """Get available projects — walks global/ and PD/config/project."""
+    from core.paths import list_available_projects
+    return [p for p in list_available_projects() if p != 'workspace']
 
 
 def get_project_config(project: str, version: str = 'v1.0.0') -> dict:
-    """Load project configuration."""
+    """Load project configuration — walks global/ then PD/ overlay."""
+    from core.paths import get_cbflow_global_dir
     core_dir = get_cbflow_core_dir()
-    project_config_file = Path(core_dir) / "config" / "project" / project / version / f"{project}_config.tcl"
+    # Try global/config/project/<proj>/<ver>/project_config.tcl first,
+    # then PD/config/project/<proj>/<ver>/{project_pd_config,<proj>_config}.tcl.
+    candidates = []
+    gdir = get_cbflow_global_dir()
+    if gdir:
+        candidates.append(Path(gdir) / "config" / "project" / project / version /
+                          "project_config.tcl")
+    candidates.append(Path(core_dir) / "config" / "project" / project / version /
+                      "project_pd_config.tcl")
+    candidates.append(Path(core_dir) / "config" / "project" / project / version /
+                      f"{project}_config.tcl")
+    project_config_file = next((p for p in candidates if p.exists()),
+                               candidates[-1])
 
     config = {
         'name': project,
@@ -129,13 +136,49 @@ def get_project_config(project: str, version: str = 'v1.0.0') -> dict:
 
 def is_workspace_initialized() -> bool:
     """Check if current directory is a valid workspace.
-    A workspace is valid if it has any run directories (P*_run_*) or a .cbflow.env."""
+
+    A workspace is valid if it contains any run directory (named
+    <PHASE>_run_<FLOW>_<RUN_NAME>) or a .cbflow.env. Phase naming is
+    free-form — P0/P1/… for pre-tapeout cadence, LC1/LC2/… for the
+    long-cycle cadence used by some SoC teams — so we accept any
+    directory whose name matches the <PHASE>_run_<...> shape rather
+    than hardcoding a prefix letter.
+    """
     cwd = os.getcwd()
     if os.path.exists(os.path.join(cwd, '.cbflow.env')):
         return True
-    # Also accept if any run directories exist
-    return any(d.startswith('P') and '_run_' in d
-               for d in os.listdir(cwd) if os.path.isdir(os.path.join(cwd, d)))
+    for d in os.listdir(cwd):
+        full = os.path.join(cwd, d)
+        if not os.path.isdir(full):
+            continue
+        if _is_run_dir(d):
+            return True
+    return False
+
+
+# Match <PHASE>_run_<FLOW>_<RUN_NAME> where PHASE is one of the known
+# shape forms. Previous `[A-Za-z0-9]+_run_[A-Za-z0-9_]+` accepted stray
+# dirs like old_run_notes, pre_run_check, backup_run_sim because any
+# alnum prefix with any alnum/underscore suffix passed. The anchored
+# phase pattern below rejects those while still accepting production
+# conventions (P0..Pn, LC1..LCn, LC_1 style, MTO/BTO milestone, custom
+# site prefixes R\d+). Flow token after _run_ is required (uppercase)
+# so bare P0_run_ or P0_run_foo (lowercase flow) is also rejected.
+import re as _re_mod
+_PHASE_PREFIX_RE = r'(?:P\d+|LC\d+|LC_\d+|MTO|BTO|R\d+|FP|CTS|PRE|POST)'
+_FLOW_TOKEN_RE   = r'[A-Z][A-Z0-9_]*'
+_RUN_DIR_RE = _re_mod.compile(
+    r'^' + _PHASE_PREFIX_RE + r'_run_' + _FLOW_TOKEN_RE + r'(?:_|$)')
+
+
+def _is_run_dir(name: str) -> bool:
+    """Match <PHASE>_run_<FLOW>_<RUN_NAME> dirs. Phase prefix must be one
+    of the known cadences; flow token must be uppercase to reject lower-
+    case strays. Previous permissive form matched old_run_notes/,
+    backup_run_sim/ etc. — `cbflow workspace clean --confirm` would then
+    rm -rf non-CBflow user data.
+    """
+    return bool(_RUN_DIR_RE.match(name))
 
 
 def load_cbflow_env() -> dict:
@@ -337,24 +380,43 @@ def cmd_template(args: argparse.Namespace) -> int:
     output = getattr(args, 'output', None)
     project_name = getattr(args, 'project', None) or 'my_project'
 
-    if not flow_type:
-        logger.error("  Error: --flow is required")
-        logger.error("  Usage: cbflow workspace template --project bumblebee --flow SYNTH_PNR")
-        return 1
-
     from tcl_config_parser import get_flow_types
     valid_flows = get_flow_types()
+
+    if not flow_type:
+        # Interactive: enumerate and prompt. Batch: hard-error with usage.
+        if sys.stdin.isatty() and valid_flows:
+            print('  Available flow types:')
+            flows_sorted = sorted(valid_flows)
+            for i, f in enumerate(flows_sorted, 1):
+                print(f'    {i:2}. {f}')
+            choice = input(f'  Select flow [1-{len(flows_sorted)}] or name: ').strip()
+            try:
+                idx = int(choice) - 1
+                if 0 <= idx < len(flows_sorted):
+                    flow_type = flows_sorted[idx]
+            except ValueError:
+                if choice.upper() in valid_flows:
+                    flow_type = choice.upper()
+            if not flow_type:
+                logger.error("  Invalid selection.")
+                return 1
+        else:
+            logger.error("  Error: --flow is required")
+            logger.error("  Usage: cbflow workspace template --project bumblebee --flow SYNTH_PNR")
+            logger.error(f"  Available: {', '.join(sorted(valid_flows))}")
+            return 1
     if flow_type not in valid_flows:
         logger.error(f"  Unknown flow type: {flow_type}")
         logger.error(f"  Available: {', '.join(sorted(valid_flows))}")
         return 1
 
-    # Validate project exists (unless caller left it as the default sentinel)
+    # Validate project exists (unless caller left it as the default sentinel).
+    # Walk global/ then PD/ — projects may live in either overlay.
     if project_name != 'my_project':
-        proj_dir = os.path.join(get_cbflow_core_dir(), 'config', 'project', project_name)
-        if not os.path.isdir(proj_dir):
-            available = sorted(d for d in os.listdir(os.path.dirname(proj_dir))
-                               if os.path.isdir(os.path.join(os.path.dirname(proj_dir), d)))
+        from core.paths import list_available_projects
+        available = list_available_projects()
+        if project_name not in available:
             logger.error(f"  Unknown project: {project_name}")
             logger.error(f"  Available: {', '.join(available)}")
             return 1
@@ -434,23 +496,50 @@ def _build_env_from_user_config(config_file: str) -> dict:
     release_version = ''
 
     # Read from project config: project(cbflow_release)
-    # Find project config version directory (use 'current' symlink or latest)
+    # Post cbflow_global split: project(cbflow_release) is identity data,
+    # so it lives in global/config/project/<p>/<ver>/project_config.tcl.
+    # Fall back through the PD overlay + pre-split monolith so partial
+    # migrations keep working.
     proj_versions_dir = os.path.join(project_root, 'current')
     if not os.path.exists(proj_versions_dir):
         proj_versions_dir = os.path.join(project_root, 'v1.0.0')
-        # Try to find the latest version if v1.0.0 doesn't exist
         if not os.path.exists(proj_versions_dir) and os.path.isdir(project_root):
-            versions_list = sorted([d for d in os.listdir(project_root) if os.path.isdir(os.path.join(project_root, d))], reverse=True)
+            versions_list = sorted(
+                [d for d in os.listdir(project_root)
+                 if os.path.isdir(os.path.join(project_root, d))], reverse=True)
             if versions_list:
                 proj_versions_dir = os.path.join(project_root, versions_list[0])
-    proj_config_file = os.path.join(proj_versions_dir, f'{project_name}_config.tcl')
-    if os.path.exists(proj_config_file):
-        with open(proj_config_file, 'r') as f:
+    # Resolve `current` symlink → concrete version (e.g. 'v1.0.0') so the
+    # global-side lookup below doesn't compose a nonexistent
+    # global/.../<name>/current/ path.
+    ver_name = os.path.basename(os.path.realpath(proj_versions_dir))
+    from core.paths import get_cbflow_global_dir
+    gdir = get_cbflow_global_dir()
+    global_proj_cfg = (os.path.join(gdir, 'config', 'project', project_name,
+                                    ver_name, 'project_config.tcl')
+                       if gdir else '')
+    proj_candidates = [
+        global_proj_cfg,                                                      # split identity
+        os.path.join(proj_versions_dir, 'project_pd_config.tcl'),             # split PD overlay
+        os.path.join(proj_versions_dir, f'{project_name}_config.tcl'),        # pre-split monolith
+    ]
+    proj_config_file = ''
+    pat_rel = re.compile(r'set\s+project\(cbflow_release\)\s+"([^"]*)"')
+    for cand in proj_candidates:
+        if not cand or not os.path.exists(cand):
+            continue
+        with open(cand, 'r') as f:
             for line in f:
-                m = re.match(r'set\s+project\(cbflow_release\)\s+"([^"]*)"', line.strip())
+                m = pat_rel.match(line.strip())
                 if m:
                     release_version = m.group(1)
+                    proj_config_file = cand
                     break
+        if release_version:
+            break
+    if not proj_config_file and proj_candidates:
+        # For the error message below, name whichever file we *would* prefer.
+        proj_config_file = next((c for c in proj_candidates if c), '')
 
     # project(cbflow_release) is mandatory — no silent fallback
     if not release_version:
@@ -494,27 +583,51 @@ def _build_env_from_user_config(config_file: str) -> dict:
                 if m:
                     versions[m.group(1)] = m.group(2)
 
-    # Resolve technology from project config if not in user_config
+    # Resolve technology from project config if not in user_config.
+    # project(technology) is identity data → global project_config.tcl.
+    # Fall back through PD overlay + pre-split monolith.
     if not technology:
-        proj_config = os.path.join(proj_versions_dir, f'{project_name}_config.tcl')
-        if os.path.exists(proj_config):
-            with open(proj_config, 'r') as f:
+        tech_candidates = [
+            global_proj_cfg,
+            os.path.join(proj_versions_dir, 'project_pd_config.tcl'),
+            os.path.join(proj_versions_dir, f'{project_name}_config.tcl'),
+        ]
+        pat_tech = re.compile(r'set\s+project\(technology\)\s+"([^"]*)"')
+        for pc in tech_candidates:
+            if not pc or not os.path.exists(pc):
+                continue
+            with open(pc, 'r') as f:
                 for line in f:
-                    m = re.match(r'set\s+project\(technology\)\s+"([^"]*)"', line.strip())
+                    m = pat_tech.match(line.strip())
                     if m:
                         technology = m.group(1)
                         break
+            if technology:
+                break
 
     tech_parts = technology.split('_', 1) if technology else ['', '']
     tech_vendor = tech_parts[0] if tech_parts[0] else ''
     tech_node = tech_parts[1] if len(tech_parts) > 1 else ''
 
     # Build the complete env dict
+    from core.paths import get_cbflow_global_dir as _get_gdir_env
+    _gdir_env = _get_gdir_env()
+    _root_env = os.path.dirname(core_dir) if core_dir else ''
     env = {
         'FLOW_DIR': core_dir,
         'CONFIG_ROOT': config_root,
         'SCRIPTS_ROOT': scripts_root,
         'PROJECT_ROOT': project_root,
+        # cbflow_global cascade — resolvers inside the run need these.
+        'CBFLOW_ROOT': _root_env,
+        'CBFLOW_CORE_DIR': core_dir,
+        'CBFLOW_GLOBAL_DIR': _gdir_env,
+        'CBFLOW_DFT_DIR': (os.path.join(_root_env, 'DFT')
+                            if _root_env and os.path.isdir(os.path.join(_root_env, 'DFT'))
+                            else ''),
+        'CBFLOW_DV_DIR':  (os.path.join(_root_env, 'DV')
+                            if _root_env and os.path.isdir(os.path.join(_root_env, 'DV'))
+                            else ''),
         'PROJECT_NAME': project_name,
         'PROJECT_VERSION': versions.get('CBFLOW_RELEASE_VERSION', release_version),
         'CBFLOW_FLOW_TYPE': flow_type,
@@ -671,12 +784,11 @@ def _validate_mandatory_inputs(user_config: dict, flow_type: str) -> list:
     if not project_name:
         errors.append("project(name) is empty")
     else:
-        # Validate project exists in config
-        project_dir = os.path.join(core_dir, 'config', 'project', project_name)
-        if not os.path.isdir(project_dir):
-            available = [d for d in os.listdir(os.path.join(core_dir, 'config', 'project'))
-                        if os.path.isdir(os.path.join(core_dir, 'config', 'project', d))]
-            errors.append(f"project '{project_name}' not found in config/project/. Available: {', '.join(available)}")
+        # Validate project exists — walk global/ then PD/.
+        from core.paths import list_available_projects
+        available = list_available_projects()
+        if project_name not in available:
+            errors.append(f"project '{project_name}' not found in global/config/project/ or PD/config/project/. Available: {', '.join(available)}")
 
     # Validate flow type (from flow_config.tcl)
     config_flow = user_config.get('flow(type)', '')
@@ -704,20 +816,18 @@ def _validate_mandatory_inputs(user_config: dict, flow_type: str) -> list:
     if not design_name:
         errors.append("flow(design_name) is empty")
     elif project_name and not errors:
-        # Read block_list from project config
-        proj_version = 'v1.0.0'
-        proj_config_file = os.path.join(core_dir, 'config', 'project', project_name,
-                                        proj_version, f'{project_name}_config.tcl')
-        if os.path.exists(proj_config_file):
-            import re as _re
-            with open(proj_config_file, 'r') as f:
-                content = f.read()
-            m = _re.search(r'set\s+project\(block_list\)\s+"([^"]*)"', content)
-            if m:
-                valid_designs = m.group(1).split()
-                if design_name not in valid_designs:
-                    errors.append(f"design '{design_name}' not found in project '{project_name}'. "
-                                  f"Available designs: {', '.join(valid_designs)}")
+        # Read block_list from project config via shared cascade helper
+        # (global/project_config → PD/project_pd_config → legacy monolith).
+        # Pre-fix only the legacy monolith was checked, so block_list
+        # validation silently skipped on migrated installs and typos
+        # like `design_name "typo-name"` passed through to run-time.
+        from core.paths import read_project_cfg_key
+        _bl = read_project_cfg_key(project_name, 'block_list', 'v1.0.0')
+        if _bl:
+            valid_designs = _bl.split()
+            if design_name not in valid_designs:
+                errors.append(f"design '{design_name}' not found in project '{project_name}'. "
+                              f"Available designs: {', '.join(valid_designs)}")
 
     # Flow-specific mandatory inputs — driven entirely by node_config
     mandatory_from_config = _get_mandatory_inputs_from_config(core_dir, ft)
@@ -830,13 +940,43 @@ def cmd_create(args: argparse.Namespace) -> int:
     """Create a new run from user_config.tcl. No workspace init required."""
     config_file = getattr(args, 'config', None)
     if not config_file:
-        logger.error("")
-        logger.error("  Error: --config is required")
-        logger.error("")
-        logger.error("  Usage:")
-        logger.error("    cbflow workspace create --config user_config.tcl")
-        logger.error("")
-        return 1
+        # Interactive: scan cwd for *.tcl files that look like user_config
+        # candidates (contain project(name) and flow(type)) and prompt.
+        _candidates = []
+        if sys.stdin.isatty():
+            for f in sorted(os.listdir('.')):
+                if not f.endswith('.tcl') or not os.path.isfile(f):
+                    continue
+                try:
+                    with open(f) as fh:
+                        head = fh.read(2048)
+                    if 'project(name)' in head and 'flow(type)' in head:
+                        _candidates.append(f)
+                except OSError:
+                    continue
+        if sys.stdin.isatty() and _candidates:
+            print('  Candidate user_config.tcl files in this directory:')
+            for i, f in enumerate(_candidates, 1):
+                print(f'    {i}. {f}')
+            choice = input(f'  Select config [1-{len(_candidates)}] or path: ').strip()
+            try:
+                idx = int(choice) - 1
+                if 0 <= idx < len(_candidates):
+                    config_file = _candidates[idx]
+            except ValueError:
+                if choice and os.path.exists(choice):
+                    config_file = choice
+            if not config_file:
+                logger.error("  Invalid selection.")
+                return 1
+        else:
+            logger.error("")
+            logger.error("  Error: --config is required")
+            logger.error("")
+            logger.error("  Usage:")
+            logger.error("    cbflow workspace create --config user_config.tcl")
+            logger.error("")
+            return 1
 
     if not os.path.exists(config_file):
         logger.error(f"Error: Config file not found: {config_file}")
@@ -1137,7 +1277,7 @@ def _get_run_info(run_dir: str) -> dict:
 def cmd_list_runs(args: argparse.Namespace) -> int:
     """List all existing runs in workspace."""
     if not is_workspace_initialized():
-        logger.error(f"Workspace not initialized. Run 'cbflow workspace init' first.")
+        logger.error(f"Not inside a workspace. Change to a workarea directory first (one containing a .cbflow.env or any <PHASE>_run_<FLOW>_<name>/ dirs), or create a run with 'cbflow workspace create --config user_config.tcl'.")
         return 1
 
     logger.info("")
@@ -1146,7 +1286,7 @@ def cmd_list_runs(args: argparse.Namespace) -> int:
     logger.info(f"═══════════════════════════════════════════════════════════════")
     logger.info("")
 
-    runs = sorted([d for d in os.listdir('.') if os.path.isdir(d) and '_run_' in d])
+    runs = sorted([d for d in os.listdir('.') if os.path.isdir(d) and _is_run_dir(d)])
 
     if not runs:
         logger.info("No runs found in workspace")
@@ -1492,7 +1632,7 @@ def _generate_run_summary(run_dir: str, info: dict) -> str:
 def cmd_run_status(args: argparse.Namespace) -> int:
     """Show detailed status of a specific run."""
     if not is_workspace_initialized():
-        logger.error("Workspace not initialized. Run 'cbflow workspace init' first.")
+        logger.error("Not inside a workspace. Change to a workarea directory first (one containing a .cbflow.env or any <PHASE>_run_<FLOW>_<name>/ dirs), or create a run with 'cbflow workspace create --config user_config.tcl'.")
         return 1
 
     run_dir = args.run
@@ -1500,7 +1640,7 @@ def cmd_run_status(args: argparse.Namespace) -> int:
         logger.error(f"Run directory not found: {run_dir}")
         logger.info("")
         logger.info("Available runs:")
-        runs = [d for d in os.listdir('.') if os.path.isdir(d) and '_run_' in d]
+        runs = [d for d in os.listdir('.') if os.path.isdir(d) and _is_run_dir(d)]
         for r in runs[:10]:
             logger.info(f"  {r}")
         return 1
@@ -1628,10 +1768,10 @@ def cmd_run_status(args: argparse.Namespace) -> int:
 def cmd_clean(args: argparse.Namespace) -> int:
     """Clean all run directories."""
     if not is_workspace_initialized():
-        logger.error("Workspace not initialized. Run 'cbflow workspace init' first.")
+        logger.error("Not inside a workspace. Change to a workarea directory first (one containing a .cbflow.env or any <PHASE>_run_<FLOW>_<name>/ dirs), or create a run with 'cbflow workspace create --config user_config.tcl'.")
         return 1
 
-    runs = [d for d in os.listdir('.') if os.path.isdir(d) and '_run_' in d]
+    runs = [d for d in os.listdir('.') if os.path.isdir(d) and _is_run_dir(d)]
 
     if not runs:
         logger.info("No run directories found")
@@ -1663,7 +1803,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     # Resolve run selection (by number or name)
     if selected_run:
-        runs = sorted([d for d in os.listdir('.') if os.path.isdir(d) and '_run_' in d])
+        runs = sorted([d for d in os.listdir('.') if os.path.isdir(d) and _is_run_dir(d)])
         # Check if user passed a number
         if selected_run.isdigit():
             idx = int(selected_run)
@@ -1702,7 +1842,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         logger.info("")
 
         # List runs with numbered index
-        runs = sorted([d for d in os.listdir('.') if os.path.isdir(d) and '_run_' in d])
+        runs = sorted([d for d in os.listdir('.') if os.path.isdir(d) and _is_run_dir(d)])
 
         if runs:
             logger.info(f"  Runs ({len(runs)}):")
@@ -1726,8 +1866,8 @@ def cmd_status(args: argparse.Namespace) -> int:
     else:
         logger.info(f"  Workspace: Not initialized")
         logger.info("")
-        logger.info("  Initialize with:")
-        logger.info("    cbflow workspace init --project <name> --flow <type>")
+        logger.info("  Create your first run with:")
+        logger.info("    cbflow workspace create --config user_config.tcl")
 
     logger.info("")
     return 0
@@ -1736,7 +1876,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 def cmd_update(args: argparse.Namespace) -> int:
     """Update workspace to new release."""
     if not is_workspace_initialized():
-        logger.error("Workspace not initialized. Run 'cbflow workspace init' first.")
+        logger.error("Not inside a workspace. Change to a workarea directory first (one containing a .cbflow.env or any <PHASE>_run_<FLOW>_<name>/ dirs), or create a run with 'cbflow workspace create --config user_config.tcl'.")
         return 1
 
     new_release = getattr(args, 'release', None)

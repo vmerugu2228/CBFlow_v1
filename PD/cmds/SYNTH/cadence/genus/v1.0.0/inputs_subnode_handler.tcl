@@ -347,19 +347,32 @@ proc handle_sdc_subnode {run_dir} {
 
         source $release_config_file
 
-        # Load project configuration to get SDC modes
-        set project_config_file ""
-        if {[info exists ::FLOW_DIR]} {
-            set project_config_file "$::FLOW_DIR/config/phoenix_config.tcl"
-        } elseif {[file exists "$run_dir/../flow/config/phoenix_config.tcl"]} {
-            set project_config_file "$run_dir/../flow/config/phoenix_config.tcl"
-        } else {
-            handle_warning "Cannot locate phoenix_config.tcl - SDC multi-mode validation will be skipped"
+        # Load project configuration to get SDC modes.
+        # Post cbflow_global split: global project_config.tcl carries
+        # project(sdc_modes) — the PD overlay is workarea/release/LSF only,
+        # so we only need the global side here. Fall back to the PD overlay
+        # for pre-split installs (defensive).
+        set _proj [expr {[info exists ::env(CBFLOW_PROJECT_NAME)] ? $::env(CBFLOW_PROJECT_NAME) : \
+                          [expr {[info exists ::env(PROJECT_NAME)] ? $::env(PROJECT_NAME) : ""}]}]
+        set _ver  [expr {[info exists ::env(PROJECT_CONFIG_VERSION)] ? $::env(PROJECT_CONFIG_VERSION) : "v1.0.0"}]
+        set _candidates [list]
+        if {$_proj ne ""} {
+            if {[info exists ::env(CBFLOW_GLOBAL_DIR)] && $::env(CBFLOW_GLOBAL_DIR) ne ""} {
+                lappend _candidates "$::env(CBFLOW_GLOBAL_DIR)/config/project/$_proj/$_ver/project_config.tcl"
+            }
+            if {[info exists ::FLOW_DIR]} {
+                lappend _candidates "$::FLOW_DIR/config/project/$_proj/$_ver/project_pd_config.tcl"
+            }
         }
-
-        if {$project_config_file ne "" && [file exists $project_config_file]} {
+        set project_config_file ""
+        foreach _c $_candidates {
+            if {[file exists $_c]} { set project_config_file $_c; break }
+        }
+        if {$project_config_file eq ""} {
+            handle_warning "Cannot locate project config for '$_proj' - SDC multi-mode validation will be skipped"
+        } else {
             source $project_config_file
-            handle_info "Project configuration loaded for SDC mode validation"
+            handle_info "Project configuration loaded for SDC mode validation: $project_config_file"
         }
 
 

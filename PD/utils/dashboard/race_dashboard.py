@@ -38,10 +38,17 @@ DASHBOARD_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATES_DIR = os.path.join(DASHBOARD_DIR, 'templates')
 STATIC_DIR = os.path.join(DASHBOARD_DIR, 'static')
 COMMANDS_DIR = os.path.join(os.path.dirname(DASHBOARD_DIR), 'commands')
+# PD/utils/ — needed so `from core.paths import ...` resolves. Several
+# dashboard action handlers (save_mmmc, save_input_vars, create_branch
+# via node_manager, etc.) import core.paths.atomic_write; without this
+# the daemon fails at request time with `No module named 'core'`.
+UTILS_DIR = os.path.dirname(DASHBOARD_DIR)
 
-# Ensure commands dir is importable
+# Ensure commands + utils dirs are importable
 if COMMANDS_DIR not in sys.path:
     sys.path.insert(0, COMMANDS_DIR)
+if UTILS_DIR not in sys.path:
+    sys.path.insert(0, UTILS_DIR)
 
 # Thread-safe execution state
 _stop_event = threading.Event()
@@ -154,13 +161,18 @@ class RaceDashboard:
     def _find_db(self) -> str:
         """Find the RACE database for this run.
 
-        Resolution order:
-          1. .race_db_pointer file (points to race area DB)
-          2. Local .race_*.db files (legacy fallback)
-          3. Construct default path for new DB creation
-        """
-        import hashlib
+        Returns the existing DB path, or '' if no DB is reachable.
 
+        Critical pre-fix behavior: Priority 3 fabricated a NEW DB path when
+        existing ones were unreachable (NFS stale handle, perms race). The
+        dashboard would then open a fresh DB over the existing one on next
+        write, destroying all run history. The dashboard is READ-ONLY from
+        the engine's perspective; it must NEVER initialize a new DB on
+        behalf of a run — only `cbflow workspace create` does that via
+        _initialize_race_db in start_run.py. If we can't find an existing
+        DB here, surface it as 'no DB' so the caller shows a clear
+        'DB unreachable' banner instead of silently clobbering state.
+        """
         # Priority 1: Pointer file → race area DB
         pointer_path = os.path.join(self.run_dir, '.race_db_pointer')
         if os.path.exists(pointer_path):
@@ -169,20 +181,24 @@ class RaceDashboard:
                     stored_path = f.read().strip()
                 if stored_path and os.path.exists(stored_path):
                     return stored_path
-            except (OSError, IOError):
-                pass
+                elif stored_path:
+                    # Pointer exists but target is gone — surface as warning
+                    # instead of silently fabricating a replacement.
+                    logger.warning(
+                        "RACE pointer %s targets missing path: %s",
+                        pointer_path, stored_path)
+            except (OSError, IOError) as e:
+                logger.warning("RACE pointer unreadable at %s: %s",
+                               pointer_path, e)
 
         # Priority 2: Local DB files (legacy / no race area configured)
         for f in Path(self.run_dir).glob('.race_*.db'):
             return str(f)
 
-        # Priority 3: Construct default path for new DB
-        uid = hashlib.md5(os.path.abspath(self.run_dir).encode()).hexdigest()[:6]
-        env = self._load_env()
-        run_name = env.get('CBFLOW_RUN_NAME', '')
-        run_dir_name = os.path.basename(os.path.abspath(self.run_dir))
-        user = os.environ.get('USER', 'unknown')
-        return os.path.join(self.run_dir, f'.race_{run_dir_name}_{user}_{uid}.db')
+        # No DB reachable. Return empty string; _connect() handles '' as
+        # "no DB — show empty state in UI." Do NOT construct a new path
+        # here: dashboard is read-only; writing would clobber run history.
+        return ''
 
     def _load_run_info(self):
         conn = self._connect()
@@ -196,7 +212,7 @@ class RaceDashboard:
             conn.close()
 
     def _connect(self):
-        if not os.path.exists(self.db_path):
+        if not self.db_path or not os.path.exists(self.db_path):
             return None
         return sqlite3.connect(self.db_path)
 
@@ -293,7 +309,14 @@ class RaceDashboard:
 
             conn.close()
         except Exception as e:
-            logger.debug(f"Source change check error: {e}")
+            # Elevate from debug to warning — source-change tracking is
+            # how edited RTL triggers invalidation of downstream DONE
+            # nodes. A silent failure here means the dashboard shows a
+            # stage as DONE+valid when its RTL source has been edited.
+            logger.warning(
+                "RACE source-change check failed (%s: %s) — "
+                "source edits may not invalidate downstream stages this tick",
+                type(e).__name__, e)
 
     def _get_dependency_edges(self) -> dict:
         """Parse dependency edges from node config. Returns {parent: [children]}."""
@@ -338,17 +361,31 @@ class RaceDashboard:
             if env.get('CBFLOW_RUN_NAME'):
                 run_info['run_name'] = env['CBFLOW_RUN_NAME']
 
-            # Get tech node info — use TECH_NAME from run env, not glob all tech dirs
+            # Get tech node info — use TECH_NAME from run env, not glob all tech dirs.
+            # Tech lives in global/config/tech/ post-split; fall back to the
+            # legacy PD/config/tech/ location for pre-split installs.
             if self.flow_dir:
                 import glob as _glob
                 tech_name = env.get('TECH_NAME', '')
                 tech_version = env.get('TECH_VERSION', 'v1.0.0')
+                _tech_roots = [
+                    os.path.join(os.path.dirname(self.flow_dir), 'global',
+                                 'config', 'tech'),
+                    os.path.join(self.flow_dir, 'config', 'tech'),
+                ]
+                _tech_roots = [r for r in _tech_roots if os.path.isdir(r)]
+                tech_dirs = []
                 if tech_name:
-                    # Use the specific tech config for this run
-                    tech_dirs = [os.path.join(self.flow_dir, 'config', 'tech', tech_name, tech_version, 'tech_config.tcl')]
+                    for root in _tech_roots:
+                        candidate = os.path.join(
+                            root, tech_name, tech_version, 'tech_config.tcl')
+                        if os.path.isfile(candidate):
+                            tech_dirs.append(candidate)
+                            break
                 else:
-                    # Fallback: glob (but this picks wrong tech)
-                    tech_dirs = _glob.glob(os.path.join(self.flow_dir, 'config', 'tech', '*', '*/tech_config.tcl'))
+                    for root in _tech_roots:
+                        tech_dirs.extend(_glob.glob(
+                            os.path.join(root, '*', '*/tech_config.tcl')))
                 for tech_dir in tech_dirs:
                     try:
                         with open(tech_dir) as tf:
@@ -1513,10 +1550,18 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         STDERR are captured to `INTERACTIVE/dashboard_launch.log` so the
         dashboard user can inspect errors — the CLI's stdout is otherwise
         invisible once we detach.
+
+        Pre-fix: no _check_run_ownership — a page in the owner's
+        browser could trigger interactive subprocesses on another
+        user's run under the daemon user. Also node name was spliced
+        into argv without validation.
         """
+        self._check_run_ownership()
         node = body.get('node', '')
         if not node:
             return {'error': 'node required'}
+        if not self._valid_stage_name(node):
+            return {'error': 'invalid node name'}
         import subprocess
         run_dir = self.dashboard.run_dir
         # `--node` is the current CLI arg (was `--load` in older versions).
@@ -1540,7 +1585,14 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             return {'error': f'Failed to launch: {e}'}
 
     def _action_save_mmmc(self, body):
-        """Save MMMC scenario overrides. Supports both PNR node mode and STA dynamic mode."""
+        """Save MMMC scenario overrides. Supports both PNR node mode and STA dynamic mode.
+
+        Pre-fix: `node` was unvalidated → path traversal in the
+        override_config.<node>.tcl filename; setup/hold list entries
+        were joined with ' ' and spliced into a Tcl "..." without
+        escaping → embedded `[exec ...]`/`$var` executed when tclsh
+        sourced the override. RCE as the run owner on next engine run.
+        """
         self._check_run_ownership()
         node = body.get('node', '')
         setup = body.get('setup', [])
@@ -1548,6 +1600,20 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         is_dynamic = body.get('dynamic', False)
         if not node:
             return {'error': 'node required'}
+        # Must be a safe TCL identifier — same allowlist as add_node.
+        if not self._valid_stage_name(node):
+            return {'ok': False, 'error': 'invalid node name'}
+        if not isinstance(setup, list) or not isinstance(hold, list):
+            return {'ok': False, 'error': 'setup and hold must be lists'}
+        # Each scenario-name entry must also be a safe identifier (plus
+        # digits and hyphens that appear in real scenario names like
+        # "func_ss_0p76v_rcmax_150c").
+        _ident_re = re.compile(r'^[A-Za-z0-9_\-.]+$')
+        for lst_name, lst in (('setup', setup), ('hold', hold)):
+            for s in lst:
+                if not isinstance(s, str) or not _ident_re.match(s):
+                    return {'ok': False,
+                            'error': f'invalid scenario name in {lst_name}: {s!r}'}
 
         if is_dynamic:
             # STA dynamic mode — write per-node scenarios to override_config.<node>.tcl
@@ -1559,7 +1625,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             # Read existing override, strip old scenario lines for this node
             lines = []
             if os.path.exists(override_path):
-                with open(override_path) as f:
+                with open(override_path, encoding='utf-8') as f:
                     for line in f:
                         if f'{flow_lower}(mmmc,' in line and '_scenarios)' in line:
                             continue
@@ -1568,15 +1634,17 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             setup_str = ' '.join(setup)
             hold_str = ' '.join(hold)
 
-            with open(override_path, 'w') as f:
-                if lines:
-                    f.writelines(lines)
-                    if not lines[-1].endswith('\n'):
-                        f.write('\n')
-                else:
-                    f.write(f'# CBflow scenario override for {node}\n\n')
-                f.write(f'set {flow_lower}(mmmc,setup_scenarios) "{setup_str}"\n')
-                f.write(f'set {flow_lower}(mmmc,hold_scenarios) "{hold_str}"\n')
+            body_out = ''
+            if lines:
+                body_out += ''.join(lines)
+                if not lines[-1].endswith('\n'):
+                    body_out += '\n'
+            else:
+                body_out += f'# CBflow scenario override for {node}\n\n'
+            body_out += f'set {flow_lower}(mmmc,setup_scenarios) "{setup_str}"\n'
+            body_out += f'set {flow_lower}(mmmc,hold_scenarios) "{hold_str}"\n'
+            from core.paths import atomic_write
+            atomic_write(override_path, body_out)
 
             total = len(setup) + len(hold)
             return {'ok': True, 'message': f'Scenarios for {node}: {total} ({len(setup)} setup, {len(hold)} hold)'}
@@ -1589,7 +1657,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
             existing_lines = []
             if os.path.exists(override_path):
-                with open(override_path) as f:
+                with open(override_path, encoding='utf-8') as f:
                     for line in f:
                         if f'mmmc({node},' in line:
                             continue
@@ -1598,15 +1666,17 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             setup_str = ' '.join(setup)
             hold_str = ' '.join(hold)
 
-            with open(override_path, 'w') as f:
-                if existing_lines:
-                    f.writelines(existing_lines)
-                    if not existing_lines[-1].endswith('\n'):
-                        f.write('\n')
-                else:
-                    f.write(f'# CBflow override config for {node}\n\n')
-                f.write(f'set mmmc({node},setup_scenarios) "{setup_str}"\n')
-                f.write(f'set mmmc({node},hold_scenarios) "{hold_str}"\n')
+            body_out = ''
+            if existing_lines:
+                body_out += ''.join(existing_lines)
+                if not existing_lines[-1].endswith('\n'):
+                    body_out += '\n'
+            else:
+                body_out += f'# CBflow override config for {node}\n\n'
+            body_out += f'set mmmc({node},setup_scenarios) "{setup_str}"\n'
+            body_out += f'set mmmc({node},hold_scenarios) "{hold_str}"\n'
+            from core.paths import atomic_write
+            atomic_write(override_path, body_out)
 
             return {'ok': True, 'message': f'MMMC override saved for {node}: {len(setup)} setup, {len(hold)} hold'}
 
@@ -1704,7 +1774,15 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
     def _action_save_node_full_config(self, body):
         """Save edited config variables to override_config file.
-        Scope: 'node' (this node), 'branch' (all branch nodes), 'type' (all nodes of this type)."""
+        Scope: 'node' (this node), 'branch' (all branch nodes), 'type' (all nodes of this type).
+
+        Pre-fix: stage / stage_base / branch_name were used verbatim in
+        override_config.<name>.tcl filenames with no allowlist → path
+        traversal via '../../tmp/evil'. Variable keys and values were
+        spliced into `set <flow>(<key>) "<value>"` with NO escaping →
+        TCL injection on tclsh source (RCE). _tcl_quote existed in the
+        class but was not called on this path.
+        """
         self._check_run_ownership()
         stage = body.get('stage', '')
         stage_base = body.get('stage_base', '') or re.sub(r'\d+(_\w+)?$', '', stage)
@@ -1713,6 +1791,15 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         variables = body.get('variables', {})
         if not stage or not variables:
             return {'error': 'stage and variables required'}
+        # Lock down every segment that goes into the filename or TCL identifier.
+        if not self._valid_stage_name(stage):
+            return {'ok': False, 'error': 'invalid stage name'}
+        if stage_base and not self._valid_stage_name(stage_base):
+            return {'ok': False, 'error': 'invalid stage_base name'}
+        if branch_key and not re.match(r'^[A-Za-z0-9_\-.]+$', branch_key):
+            return {'ok': False, 'error': 'invalid branch_key'}
+        if scope not in ('node', 'branch', 'type'):
+            return {'ok': False, 'error': 'invalid scope'}
 
         flow_lower = self.dashboard.flow_type.lower()
         setup_dir = os.path.join(self.dashboard.run_dir, 'setup')
@@ -1738,27 +1825,36 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                     branch_name = m.group(1)
             if not branch_name:
                 branch_name = branch_key
+            # Branch name may legitimately contain hyphens/dots but
+            # still must not contain '/' or shell meta.
+            if not re.match(r'^[A-Za-z0-9_\-.]+$', branch_name):
+                return {'ok': False, 'error': 'invalid resolved branch name'}
             fname = f'override_config.{branch_name}.tcl'
         elif scope == 'type':
             fname = f'override_config.{stage_base}.tcl'
         else:
             fname = f'override_config.{stage}.tcl'
 
-        # Build override content
+        # Build override content. Each key must be a safe TCL array
+        # index path; each value is _tcl_quote'd for the "..." context.
+        _q = self._tcl_quote
+        _key_re = re.compile(r'^[A-Za-z0-9_\-.,]+(?:\([A-Za-z0-9_\-.,]*\))?$')
         lines = [f'# Override config for {fname} ({self.dashboard.flow_type})']
         lines.append(f'# Scope: {scope} | Generated by CBflow Dashboard')
         lines.append('')
         for key, value in sorted(variables.items()):
+            if not _key_re.match(str(key)):
+                return {'ok': False, 'error': f'invalid variable key: {key!r}'}
             if '(' in key:
-                lines.append(f'set {key} "{value}"')
+                lines.append(f'set {key} "{_q(value)}"')
             else:
-                lines.append(f'set {flow_lower}({key}) "{value}"')
+                lines.append(f'set {flow_lower}({key}) "{_q(value)}"')
         lines.append('')
         content = '\n'.join(lines)
 
-        # Write single override file
-        with open(os.path.join(setup_dir, fname), 'w') as f:
-            f.write(content)
+        # Atomic write.
+        from core.paths import atomic_write
+        atomic_write(os.path.join(setup_dir, fname), content)
         written = [fname]
 
         unique_files = list(set(written))
@@ -1798,11 +1894,23 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             return {'error': f'Delete branch failed: {e}'}
 
     def _action_rename_node(self, body):
-        """Rename a custom node."""
+        """Rename a custom node.
+
+        Pre-fix: this handler was the ONLY mutating action that
+        skipped _check_run_ownership — every peer handler (save-mmmc,
+        add-node, delete-node, save-node-config, delete-branch,
+        create-branch, save-input-vars) gated on it. The daemon
+        would issue sqlite3 UPDATEs on jobs/job_order as the daemon
+        user regardless of DB owner_uid, enabling cross-session
+        corruption via same-site POST.
+        """
+        self._check_run_ownership()
         old_name = body.get('old_name', '')
         new_name = body.get('new_name', '')
         if not old_name or not new_name:
             return {'error': 'old_name and new_name required'}
+        if not self._valid_stage_name(old_name) or not self._valid_stage_name(new_name):
+            return {'error': 'invalid node name'}
         try:
             from node_manager import NodeManager
             mgr = NodeManager(self.dashboard.run_dir, self.dashboard.flow_type)
@@ -1875,7 +1983,17 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         return bool(s) and bool(re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', str(s)))
 
     def _action_update_node_config(self, body):
-        """Update per-node config (LSF queue, memory, timeout, version)."""
+        """Update per-node config (LSF queue, memory, timeout, version).
+
+        Pre-fix: _tcl_quote-ed lsf_queue was spliced into a Tcl array
+        INDEX position (`lsf(queue_types,{lsf_queue},memory)`), not
+        into a "..." body. _tcl_quote only escapes `\`, `"`, `$`, `[`
+        — not `)`, `,`, `;`, newline — so a queue like 'M);exec id;#'
+        broke out of the index and injected code. Fix: lsf_queue
+        must match the strict queue-tier allowlist. Also missing
+        _check_run_ownership gate.
+        """
+        self._check_run_ownership()
         stage = body.get('stage', '')
         if not self._valid_stage_name(stage):
             return {'ok': False, 'error': 'invalid stage name'}
@@ -1886,16 +2004,33 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         lines = []
         flow_lower = self.dashboard.flow_type.lower()
         _q = self._tcl_quote
-        _lsf_queue = _q(body.get("lsf_queue", "M"))
+
+        # lsf_queue is used in a TCL array-INDEX position; _tcl_quote is
+        # insufficient there. Restrict to the known queue tiers.
+        _QUEUE_TIERS = {'XS', 'S', 'M', 'L', 'XL', 'ultra'}
+        _lsf_queue_raw = body.get("lsf_queue") or "M"
+        if _lsf_queue_raw not in _QUEUE_TIERS:
+            return {'ok': False,
+                    'error': f'invalid lsf_queue (must be one of {sorted(_QUEUE_TIERS)})'}
+
+        # Numeric-ish fields: enforce digit-only to avoid injection.
+        def _num_ok(v):
+            return bool(re.match(r'^[0-9]+$', str(v)))
 
         if body.get('lsf_queue'):
-            lines.append(f'set lsf(flow_mapping,{flow_lower},{stage.rstrip("0123456789")}) "{_q(body["lsf_queue"])}"')
+            lines.append(f'set lsf(flow_mapping,{flow_lower},{stage.rstrip("0123456789")}) "{_lsf_queue_raw}"')
         if body.get('lsf_memory'):
-            lines.append(f'set lsf(queue_types,{_lsf_queue},memory) "{_q(body["lsf_memory"])}"')
+            if not _num_ok(body['lsf_memory']):
+                return {'ok': False, 'error': 'lsf_memory must be an integer'}
+            lines.append(f'set lsf(queue_types,{_lsf_queue_raw},memory) "{body["lsf_memory"]}"')
         if body.get('lsf_cpu'):
-            lines.append(f'set lsf(queue_types,{_lsf_queue},cpu) "{_q(body["lsf_cpu"])}"')
+            if not _num_ok(body['lsf_cpu']):
+                return {'ok': False, 'error': 'lsf_cpu must be an integer'}
+            lines.append(f'set lsf(queue_types,{_lsf_queue_raw},cpu) "{body["lsf_cpu"]}"')
         if body.get('timeout'):
-            lines.append(f'set {flow_lower}(runtime,timeout,{stage}) "{_q(body["timeout"])}"')
+            if not _num_ok(body['timeout']):
+                return {'ok': False, 'error': 'timeout must be an integer'}
+            lines.append(f'set {flow_lower}(runtime,timeout,{stage}) "{body["timeout"]}"')
         if body.get('tool_version'):
             lines.append(f'set {flow_lower}(tool,version) "{_q(body["tool_version"])}"')
         if body.get('tool_module'):
@@ -1903,28 +2038,42 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
         if lines:
             os.makedirs(os.path.dirname(override_file), exist_ok=True)
-            with open(override_file, 'w') as f:
-                f.write(f'# RACE GUI config override for {stage}\n')
-                f.write(f'# Updated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}\n')
-                for line in lines:
-                    f.write(line + '\n')
+            content = (f'# RACE GUI config override for {stage}\n'
+                       f'# Updated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}\n'
+                       + '\n'.join(lines) + '\n')
+            from core.paths import atomic_write
+            atomic_write(override_file, content)
 
         return {'ok': True, 'message': f'Config updated for {stage}',
                 'file': override_file, 'changes': lines}
 
     def _action_save_input_vars(self, node_name, body):
-        """Save input variables to user_config.tcl."""
+        """Save input variables to user_config.tcl.
+
+        Pre-fix: user-controlled JSON KEYS were spliced into
+        `set {key} "{val}"` verbatim; a key like 'x\"; exec id; set \"y'
+        or 'x[cmd]' injected arbitrary TCL executed by every subsequent
+        resolver source. Only the value was _tcl_quote'd. Fix: keys
+        must match a safe identifier/array-index allowlist.
+        """
         self._check_run_ownership()
         variables = body.get('variables', {})
         if not variables:
             return {'ok': False, 'error': 'No variables to save'}
+
+        # Keys must be TCL variable names (optionally with an array
+        # index); reject anything that could break out of the token.
+        _key_re = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*(?:\([A-Za-z0-9_\-.,]*\))?$')
+        for k in variables.keys():
+            if not isinstance(k, str) or not _key_re.match(k):
+                return {'ok': False, 'error': f'invalid variable key: {k!r}'}
 
         user_config = os.path.join(self.dashboard.run_dir, 'setup', 'user_config.tcl')
         if not os.path.exists(user_config):
             return {'ok': False, 'error': 'user_config.tcl not found'}
 
         _q = self._tcl_quote
-        with open(user_config) as f:
+        with open(user_config, encoding='utf-8') as f:
             lines = f.readlines()
 
         # Update existing lines or append new ones. Prior code used
@@ -1951,8 +2100,10 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             if key not in updated_keys:
                 lines.append(f'set {key} "{_q(val)}"\n')
 
-        with open(user_config, 'w') as f:
-            f.writelines(lines)
+        # Atomic rewrite — pre-fix the non-atomic open-w on user_config
+        # could leave an in-flight run bootstrap destroyed on kill.
+        from core.paths import atomic_write
+        atomic_write(user_config, ''.join(lines))
 
         return {'ok': True, 'message': f'Input variables saved for {node_name} ({len(variables)} vars)'}
 
@@ -2499,7 +2650,7 @@ def start_dashboard(run_dir: str, port: int = 0, open_browser: bool = True,
     _tech = _env.get('TECH_NAME', '')
 
     print(f'\n  CBflow RACE Dashboard')
-    print(f'  Developed by SmartSoc Solutions Pvt Limited')
+    print(f'  SmartSoC CAD · Author: Varun Reddy Merugu <varun@smartsocs.com>')
     print(f'  {"=" * 55}')
     if _project:
         print(f'  Project:   {_project}' + (f' ({_tech})' if _tech else ''))

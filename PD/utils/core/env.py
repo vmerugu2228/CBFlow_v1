@@ -35,17 +35,30 @@ def load_run_env(run_dir: str = None) -> dict:
     # Try shell format
     env_file = os.path.join(run_dir, '.run.cbflow.env')
     if os.path.isfile(env_file):
-        with open(env_file, 'r') as f:
+        with open(env_file, 'r', encoding='utf-8') as f:
             for line in f:
                 line = line.strip()
                 if line.startswith('#') or '=' not in line:
                     continue
-                line = line.lstrip('export ')
+                # Pre-fix: `line.lstrip('export ')` strips ANY character
+                # in the set {'e','x','p','o','r','t',' '} (str.lstrip
+                # takes a character set, not a prefix). So a legitimate
+                # line like `report_dir=/x` had leading letters chewed
+                # off → key became '_dir'. Use prefix removal instead.
+                if line.startswith('export '):
+                    line = line[len('export '):]
                 key, _, val = line.partition('=')
                 env_vars[key.strip()] = val.strip().strip('"').strip("'")
         return env_vars
 
-    return env_vars
+    # Docstring promises FileNotFoundError when no run env file exists —
+    # pre-fix silently returned {} and callers downstream read random
+    # os.environ fallbacks. Honor the contract.
+    raise FileNotFoundError(
+        f"No run env file in {run_dir!r} "
+        f"(expected .run.cbflow.tcl or .run.cbflow.env). "
+        f"Not inside a CBflow run directory?"
+    )
 
 
 def require_env(key: str, env_vars: dict = None) -> str:

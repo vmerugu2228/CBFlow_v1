@@ -1,42 +1,138 @@
-# CBflow Physical Design Automation Framework
+# CBflow Multi-Discipline Design Automation Framework
 
 ## What is CBflow
-CBflow v2.0.0 is a Physical Design flow automation framework supporting 12 design flows with a Python-native RACE DAG execution engine, SQLite status tracking, web GUI dashboard, and per-scenario MMMC parallelism.
+CBflow v2.0.0 is a multi-discipline design automation framework. It coordinates 24 flows across three disciplines — Physical Design (PD, 12 flows), Design-For-Test (DFT, 5 flows), and RTL Design Verification (DV, 7 flows) — through a Python-native RACE DAG execution engine, SQLite status tracking, web GUI dashboard, and per-scenario MMMC parallelism.
 
 ## Supported Flows
-SYNTH, PNR, SYNTH_PNR, FP, FCFP, STA, LEC, CLP, PV, EMIR, POPT, ECO
+- **PD** — SYNTH, PNR, SYNTH_PNR, FP, FCFP, STA, LEC, CLP, PV, EMIR, POPT, ECO
+- **DFT** — DFT_INSERT, SCAN_INSERT, ATPG, GLS_FUNC, GLS_SCAN_MBIST
+- **DV**  — LINT, CDC, RDC, SIM, COV_MERGE, FORMAL, UPF_CHECK
 
-Each flow supports dual tools: Synopsys (FC, PT, Formality, ICV, RedHawk) + Cadence (Innovus, Genus, Tempus, Conformal, Voltus, Calibre)
+PD flows support dual tools (Synopsys: FC/PT/Formality/ICV/RedHawk + Cadence: Innovus/Genus/Tempus/Conformal/Voltus/Calibre). DFT + DV scaffolds ship with node_configs; discipline-specific tool handlers extend from there.
 
-## Project Structure
+## Repository Layout (post cbflow_global refactor)
+
+Umbrella root + one directory per discipline + one shared `global/` layer:
+
 ```
-PD/
-  bin/cbflow                              Main CLI entry point
-  config/
-    flow/v1.0.0/
-      flow_config.tcl                     Flow settings (110 lines — mandatory vars, dispatcher, milestones)
-      mmmc_config.tcl                     Auto-generated MMMC scenarios from PVT building blocks
-      release_config.tcl                  Release exits × phases, flow handshake, milestone criteria
-      lsf_config.tcl                      LSF queues (XS/S/M/L/XL/ultra) + per-flow stage→queue mapping
-      descriptions_config.tcl             Flow/phase/milestone descriptions (moved from flow_config)
-      dir_config.tcl                      Directory structures per flow
-      edit_restricted_config.tcl          Protected variables (tech identity, tool selection, milestones)
-      ml_config.tcl                       ML analytics config
-      node_configs/
-        <FLOW>_config.tcl                 Common: stages, deps, subnodes, node_types, MMMC, runtime
-        <FLOW>_<tool>_config.tcl          Tool-specific: app settings, compile/place/cts/route options
-    project/<name>/v1.0.0/                Project configs (bumblebee, phoenix)
-    tech/<node>/v1.0.0/                   Technology configs (gf_22nm, tsmc_5nm, tsmc_7nm)
-    exit/v1.0.0/                          Exit milestone checklist configs
-  cmds/<FLOW>/<vendor>/<tool>/v1.0.0/     Stage command files (TCL) + subnode handlers
-  utils/
-    commands/                             Python: race_engine, run_cmd, workspace_cmd, config_resolver
-    utilities/v1.0.0/                     TCL: utils.tcl, resolve_inputs.tcl, release_utils.tcl
-    dashboard/                            Web GUI (race_dashboard.py + templates)
-    validation/                           Validation scripts
-    generation/                           Config/setup file generators
-  ai/                                     SmartGenie AI agent
+CBflow_clone/                             $CBFLOW_ROOT
+├── bin/                                  Top-level launcher symlinks → global/bin/
+├── global/                               Cross-discipline layer — sourced by every run
+│   ├── bin/
+│   │   ├── cbflow                        Universal launcher
+│   │   ├── cbflow-flow                   Flow subcommand router (auto-dispatches to discipline)
+│   │   ├── _cbflow_paths.sh              Shared path resolver
+│   │   └── cbflow-{run,workspace,bundle,migrate,test,…}
+│   └── config/
+│       ├── master_projects.json          Project registry (schema 2.0: enabled_flows_by_discipline)
+│       ├── cli/discipline_commands.tcl   Subcommand → discipline map
+│       ├── flow/v1.0.0/
+│       │   ├── flow_registry.tcl         flow(types), flow(discipline,*), cross-domain runtime defaults
+│       │   └── descriptions_config.tcl
+│       ├── tech/<node>/v1.0.0/
+│       │   └── tech_config.tcl           Foundry data: identity + VT + rules + SPICE + RCX
+│       └── project/<name>/v1.0.0/
+│           ├── project_config.tcl        Identity + hierarchy + tapeout + dft/verif params
+│           ├── mmmc_config.tcl           MMMC PVT building blocks
+│           ├── mmmc_node_scenarios.tcl   Per-node setup/hold scenario assignments
+│           ├── mmmc_view_definition.tcl  Auto-generated MMMC library sets + views
+│           └── team_config.tcl
+├── PD/                                   $CBFLOW_CORE_DIR — Physical Design discipline
+│   ├── bin/
+│   │   ├── cbflow                        Compat symlink → global/bin/cbflow
+│   │   └── cbflow-pd                     PD-only launcher (library-manager, mmmc-manager, checklist)
+│   ├── config/
+│   │   ├── tech/<node>/v1.0.0/
+│   │   │   ├── tech_pd_config.tcl        PD overlay: metal stacks + PG + physical cells + body bias
+│   │   │   └── lib_config_<tag>.tcl      Generated by library-manager
+│   │   ├── project/<name>/v1.0.0/
+│   │   │   └── project_pd_config.tcl     PD overlay: workarea_path + release,* + lsf,* + lib_root
+│   │   ├── flow/v1.0.0/
+│   │   │   ├── flow_config.tcl           PD mandatory_vars + node_config dispatch
+│   │   │   ├── release_config.tcl        Release exits × phases, flow handshake, MILESTONE_STAGE_MAPPING
+│   │   │   ├── lsf_config.tcl            LSF queues (XS/S/M/L/XL/ultra)
+│   │   │   ├── dir_config.tcl            Directory structures per flow
+│   │   │   ├── tool_launch_config.tcl    Tool shell + module load
+│   │   │   ├── validation_config.tcl     Validation contracts
+│   │   │   ├── ml_config.tcl             ML analytics
+│   │   │   └── node_configs/
+│   │   │       ├── <FLOW>_config.tcl         Stages, deps, subnodes, node_types, MMMC, runtime
+│   │   │       └── <FLOW>_<tool>_config.tcl  Tool-specific app settings
+│   │   └── exit/v1.0.0/                  Exit milestone checklist configs
+│   ├── cmds/<FLOW>/<vendor>/<tool>/v1.0.0/  PD stage command files + subnode handlers
+│   └── utils/
+│       ├── commands/                     Python: race_engine, run_cmd, workspace_cmd, config_resolver
+│       ├── utilities/v1.0.0/             TCL: utils.tcl, resolve_inputs.tcl, release_utils.tcl, handler_common.tcl
+│       ├── core/                         paths.py, env.py, interactive.py
+│       ├── dashboard/                    Web GUI
+│       └── generation/                   Config/setup file generators
+├── DFT/                                  $CBFLOW_DFT_DIR
+│   ├── bin/cbflow-dft                    DFT launcher (skeleton — extension point)
+│   ├── config/flow/v1.0.0/
+│   │   ├── flow_config.tcl               DFT mandatory_vars + node_config dispatch
+│   │   └── node_configs/                 DFT_INSERT, SCAN_INSERT, ATPG, GLS_FUNC, GLS_SCAN_MBIST
+│   └── cmds/<FLOW>/<vendor>/<tool>/v1.0.0/  DFT tool handlers (Tessent, DFT Compiler, TestMax, VCS, Questa)
+└── DV/                                   $CBFLOW_DV_DIR
+    ├── bin/cbflow-dv                     DV launcher (skeleton — extension point)
+    ├── config/flow/v1.0.0/
+    │   ├── flow_config.tcl               DV mandatory_vars + node_config dispatch
+    │   └── node_configs/                 LINT, CDC, RDC, SIM, COV_MERGE, FORMAL, UPF_CHECK
+    └── cmds/<FLOW>/                      DV tool handlers (skeleton)
 ```
+
+## Kickoff — Environment Setup
+
+**Only `CBFLOW_ROOT` is user-facing.** Every other CBFLOW_* var is auto-derived.
+
+```
+CBFLOW_ROOT         Umbrella install root — the ONLY var you might export
+CBFLOW_CORE_DIR     Auto: $CBFLOW_ROOT/PD
+CBFLOW_GLOBAL_DIR   Auto: $CBFLOW_ROOT/global    (cross-domain config layer — sourced first)
+CBFLOW_DFT_DIR      Auto: $CBFLOW_ROOT/DFT       (exported only if directory exists)
+CBFLOW_DV_DIR       Auto: $CBFLOW_ROOT/DV        (exported only if directory exists)
+```
+
+`CBFLOW_ROOT` is the anchor, NOT `CBFLOW_GLOBAL_DIR`. `global/` is a subordinate of the root, alongside every discipline directory. `bin/cbflow --version` from anywhere shows the resolved chain.
+
+## Config Cascade (order)
+
+Every run resolves configs in this fixed order — project first because tech references `$project(lib_root)`:
+
+1. `global/config/project/<proj>/v1.0.0/project_config.tcl`    — identity + hierarchy
+2. `PD/config/project/<proj>/v1.0.0/project_pd_config.tcl`      — PD overlay: workarea, release, lsf, lib_root
+3. `global/config/tech/<tech>/v1.0.0/tech_config.tcl`           — foundry base
+4. `PD/config/tech/<tech>/v1.0.0/tech_pd_config.tcl`            — PD overlay: metal stacks, physical cells
+5. `global/config/flow/v1.0.0/flow_registry.tcl`                — flow(types), discipline map, runtime defaults
+6. `<discipline>/config/flow/v1.0.0/flow_config.tcl`            — routed by `flow(discipline,$flow_type)`
+7. Node config `<discipline>/config/flow/v1.0.0/node_configs/<FLOW>_config.tcl`
+8. `global/config/project/<proj>/v1.0.0/mmmc_config.tcl`        — MMMC PVT building blocks
+9. `<run>/setup/user_config.tcl`                                — user overrides (last writer wins)
+
+## Launcher Composition (per-discipline)
+
+- **`bin/cbflow` → `global/bin/cbflow`** — universal launcher for cross-domain subcommands (workspace, run, bundle, migrate, test, flow types/info/stages/check, flow project, flow release, flow metrics, flow dashboard).
+- **`PD/bin/cbflow-pd`** — PD-owned subcommands (`flow library-manager`, `flow mmmc-manager`, `flow checklist`). Auto-dispatched from `cbflow flow library-manager …` via `global/config/cli/discipline_commands.tcl`.
+- **`DFT/bin/cbflow-dft`, `DV/bin/cbflow-dv`** — skeleton launchers, extension points for future discipline-specific tooling. Non-owned commands fall through to `global/bin/cbflow`.
+
+Adding a new discipline-owned subcommand: (1) add to `discipline_commands.tcl`; (2) add to the discipline launcher's `<DISC>_FLOW_SUBCOMMANDS` array; (3) drop the Python handler at `<disc>/utils/commands/`.
+
+## Launch Mode + Silent-Test-Mode Defense
+
+Three booleans in `user_config.tcl` control how EDA tools run:
+
+```tcl
+set flow(test_mode) "false"    # real EDA (set "true" to skip tool execution)
+set flow(use_lsf)   "false"    # local exec (set "true" to submit via bsub)
+set flow(use_xterm) "true"     # xterm windows (set "false" for silent local exec)
+```
+
+Defaults live in `global/config/flow/v1.0.0/flow_registry.tcl:97-99`: `test_mode=false`, `use_lsf=false`, `use_xterm=true`. Env-var overrides (`CBFLOW_USE_LSF`, `CBFLOW_USE_XTERM`, `CBFLOW_BSUB_CMD`) still work; user_config wins when both are set.
+
+Three independent gates guard against a run silently completing "clean" when the tool never actually ran (missing bsub, missing xterm, `$DISPLAY` unset, license unavailable, tool exit-0 with warnings-only failure):
+
+1. **`start_run.py::_preflight_launch_bins`** — `workspace create` errors + cleans up partial run dir if `use_lsf=true`/bsub missing or `use_xterm=true`/xterm missing.
+2. **`launch_utils.tcl::submit_job` (xterm branch)** — validates `$DISPLAY` + wrapper executable, runs xterm synchronously (removed fire-and-forget `&`), catches non-zero exit.
+3. **`handler_common.tcl::handler_validate`** (production mode only) — enforces `<flow>(mandatory_outputs,<stage>)` exists+non-empty AND `outputs/` dir has ≥1 file. Test-mode short-circuits before these checks so the E2E suite is unaffected.
 
 ## Config Architecture
 

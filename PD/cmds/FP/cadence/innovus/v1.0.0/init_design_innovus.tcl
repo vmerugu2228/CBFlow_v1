@@ -150,7 +150,17 @@ flow_proc generate_globals {
     if {[info exists fp(input,mmmc_file)] && $fp(input,mmmc_file) ne ""} {
         set vd_file $fp(input,mmmc_file)
     } else {
-        set vd_file "$::env(FLOW_DIR)/config/project/$project(name)/$project(cbflow_release)/mmmc_view_definition.tcl"
+        # Walk global/ first, then PD/ overlay — mmmc_view_definition is
+        # generated under global/ by mmmc-manager.
+        set _vd_candidates [list]
+        if {[info exists ::env(CBFLOW_GLOBAL_DIR)] && $::env(CBFLOW_GLOBAL_DIR) ne ""} {
+            lappend _vd_candidates "$::env(CBFLOW_GLOBAL_DIR)/config/project/$project(name)/$project(cbflow_release)/mmmc_view_definition.tcl"
+        }
+        lappend _vd_candidates "$::env(FLOW_DIR)/config/project/$project(name)/$project(cbflow_release)/mmmc_view_definition.tcl"
+        set vd_file [lindex $_vd_candidates end]
+        foreach _c $_vd_candidates {
+            if {[file exists $_c]} { set vd_file $_c; break }
+        }
     }
     if {$vd_file ne "" && [file exists $vd_file]} {
         puts $gf "set init_mmmc_file {$vd_file}"

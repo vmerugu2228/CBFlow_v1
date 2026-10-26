@@ -231,8 +231,11 @@ def cat3_override_mechanism(results, pd_dir, flows):
         else:
             results.skipped(suite, category, f'Override hierarchy: project config ({proj}) not found')
 
+    # Post 2026-10-11: tech moved out of PD into global/config/tech/.
+    _repo_root = os.path.dirname(pd_dir)
+    _global_tech = os.path.join(_repo_root, 'global', 'config', 'tech')
     for tech in ['gf_22nm', 'tsmc_7nm', 'tsmc_5nm']:
-        if os.path.isdir(os.path.join(pd_dir, 'config', 'tech', tech)):
+        if os.path.isdir(os.path.join(_global_tech, tech)):
             results.passed(suite, category, f'Override hierarchy: tech config ({tech})')
         else:
             results.failed(suite, category, f'Override hierarchy: tech config ({tech}) missing')
@@ -283,15 +286,26 @@ def cat4_lsf_management(results, pd_dir, flows):
     else:
         results.failed(suite, category, 'lsf_config.tcl missing')
 
+    # Post-launcher-split: cross-domain runtime defaults (use_lsf, use_xterm,
+    # dispatcher, mode, mmmc, etc.) moved from PD's flow_config.tcl to the
+    # global flow_registry.tcl so DFT and DV inherit them. This check now
+    # accepts a definition in either location.
     flow_config = os.path.join(pd_dir, 'config', 'flow', 'v1.0.0', 'flow_config.tcl')
+    global_registry = os.path.join(
+        os.path.dirname(pd_dir), 'global', 'config', 'flow', 'v1.0.0',
+        'flow_registry.tcl')
+    fc_content = ''
     if os.path.exists(flow_config):
         with open(flow_config) as f:
-            fc = f.read()
-        for key in ['use_lsf', 'use_xterm']:
-            if f'flow({key})' in fc:
-                results.passed(suite, category, f'flow_config: flow({key}) defined')
-            else:
-                results.failed(suite, category, f'flow_config: flow({key}) missing')
+            fc_content += f.read()
+    if os.path.exists(global_registry):
+        with open(global_registry) as f:
+            fc_content += '\n' + f.read()
+    for key in ['use_lsf', 'use_xterm']:
+        if f'flow({key})' in fc_content:
+            results.passed(suite, category, f'flow_config: flow({key}) defined')
+        else:
+            results.failed(suite, category, f'flow_config: flow({key}) missing')
 
     for module in ['lsf_cmd.py', 'lsf_manager_cmd.py']:
         if os.path.exists(os.path.join(pd_dir, 'utils', 'commands', module)):
@@ -1688,9 +1702,17 @@ def cat14_read_write_parity(results, pd_dir, flows):
     conf_dir = os.path.join(pd_dir, 'config')
     utl_dir  = os.path.join(pd_dir, 'utils', 'utilities')
 
+    # Post cbflow_global split: identity keys (project(top_module|power,*|
+    # cbflow_release|...), tech(*,*,lef_tech), tech(*,tluplus_map)) live in
+    # global/config/ — <pd>/../global/config. Walk that tree too so the read/
+    # write parity check sees writers on both sides of the split.
+    global_conf_dir = os.path.join(os.path.dirname(pd_dir), 'global', 'config')
+
     # Collect writer shapes per namespace
     writers = {ns: set() for ns in _READ_NS}
-    for root in (conf_dir, utl_dir):
+    for root in (conf_dir, utl_dir, global_conf_dir):
+        if not os.path.isdir(root):
+            continue
         for dirpath, _, files in os.walk(root):
             for f in files:
                 if not f.endswith('.tcl'):

@@ -21,13 +21,14 @@ except ImportError:
     raise ImportError("dataclasses required — run: pip install dataclasses (Python 3.6 backport)")
 from typing import List, Dict, Optional, Tuple
 from collections import defaultdict
+from datetime import datetime  # for tag-dir README / MANIFEST timestamps
 
 # Configure unified logging
 from logging_config import configure_logging, get_logger
 
 import sys; sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from core.paths import get_cbflow_core_dir, get_flow_config_version, require_tech_config, preflight_tech_config_or_exit
+from core.paths import get_cbflow_core_dir, get_flow_config_version, require_tech_config, preflight_tech_config_or_exit, atomic_write
 from core.interactive import run_repl
 
 logger = configure_logging('cbflow.library_manager')
@@ -35,22 +36,26 @@ logger = configure_logging('cbflow.library_manager')
 
 
 def _resolve_lib_root_from_tech_config(tech_name=None) -> str:
-    """Read tech(lib_root) from tech_config.tcl. Returns path or empty string."""
-    core_dir = get_cbflow_core_dir()
+    """Read tech(lib_root) from tech_config.tcl. Returns path or empty string.
+    Tech lives in global/config/tech/ (single file per tech since 2026-10-11)."""
+    from core.paths import get_cbflow_global_dir
+    gdir = get_cbflow_global_dir()
+    if not gdir:
+        return ''
     version = get_flow_config_version()
-    # Try specific tech
+    tech_base = os.path.join(gdir, 'config', 'tech')
+    # Try specific tech first.
     if tech_name:
-        tc = os.path.join(core_dir, 'config', 'tech', tech_name, version, 'tech_config.tcl')
+        tc = os.path.join(tech_base, tech_name, version, 'tech_config.tcl')
         if os.path.exists(tc):
             with open(tc, 'r') as f:
                 m = re.search(r'set\s+tech\(lib_root\)\s+"([^"]+)"', f.read())
                 if m:
                     return m.group(1)
-    # Scan all tech configs
-    tech_dir = os.path.join(core_dir, 'config', 'tech')
-    if os.path.isdir(tech_dir):
-        for t in os.listdir(tech_dir):
-            tc = os.path.join(tech_dir, t, version, 'tech_config.tcl')
+    # Fall back to any tech that declares lib_root.
+    if os.path.isdir(tech_base):
+        for t in sorted(os.listdir(tech_base)):
+            tc = os.path.join(tech_base, t, version, 'tech_config.tcl')
             if os.path.exists(tc):
                 with open(tc, 'r') as f:
                     m = re.search(r'set\s+tech\(lib_root\)\s+"([^"]+)"', f.read())
@@ -121,16 +126,98 @@ class ValidationResult:
 # LibraryScanner
 # -------------------------------------------------------------------------------
 
+# Process-corner allowlist. Pre-fix: hardcoded to {ss,tt,ff,sf,fs} —
+# any tech using a 3-letter variant (e.g. foundry-specific `fff`
+# "fast-fast-fast" corner that GF 22FDX/sabarmati-soc ships for
+# aggressive overclocking signoff) was dropped by the regex OR
+# miscategorized when the regex matched the embedded `ff` substring
+# with the trailing `f` leaking into prefix. The default set stays
+# compact; techs that need more corners declare them via
+# tech(process_corners) in tech_config.tcl (space-separated TCL list).
+# _CORNERS_ENV is the module-level mutable override installed by
+# _apply_tech_corners() at CLI entry time once the tech has been
+# resolved — all three regexes rebuild from this list.
+_DEFAULT_PROCESS_CORNERS = ['ss', 'tt', 'ff', 'sf', 'fs']
+_CORNERS_ENV = list(_DEFAULT_PROCESS_CORNERS)
+
+
+def _corner_alternation(corners=None):
+    """Return a regex alternation like 'ss|tt|ff|fff' sorted long-first
+    so `fff` matches before `ff` and prevents the embedded-substring
+    miscategorization bug.
+    """
+    cs = list(corners if corners is not None else _CORNERS_ENV)
+    cs.sort(key=lambda s: (-len(s), s))
+    return '|'.join(re.escape(c) for c in cs)
+
+
+def _build_lib_patterns():
+    """Rebuild LIB_PATTERN / ALT_LIB_PATTERN / _CORNER_RE from _CORNERS_ENV.
+
+    Called whenever _apply_tech_corners() installs a new corner set.
+    """
+    global LIB_PATTERN, ALT_LIB_PATTERN, _CORNER_RE
+    alt = _corner_alternation()
+    LIB_PATTERN = re.compile(
+        r'^(?P<prefix>.+?)(?P<corner>' + alt + r')'
+        r'(?P<voltage>\d+p\d+v)(?P<temp>m?\d+c)'
+        r'_(?P<type>ccs|power|noise|leakage|nldm)\.lib$'
+    )
+    ALT_LIB_PATTERN = re.compile(
+        r'^(?P<prefix>.+?)_(?P<corner>' + alt + r')'
+        r'(?P<voltage>\d+p\d+v)(?P<temp>m?\d+c)'
+        r'_(?P<type>ccs|power|noise|leakage|nldm)\.lib$'
+    )
+    _CORNER_RE = re.compile(
+        r'(' + alt + r')'                       # process corner
+        r'(?:_[a-z]+)*?'                        # optional condition words
+        r'_?(\d+p\d+v)'                         # voltage
+        r'_?(m?\d+c)',                          # temperature
+        re.IGNORECASE
+    )
+
+
+def _apply_tech_corners(tech_config_path):
+    """Read tech(process_corners) from tech_config.tcl and swap the regex set.
+
+    Pre-fix: library-manager had 5 corners hardcoded. If a tech ships
+    .lib files with a corner not in that set (sabarmati-soc / GF 22FDX
+    `fff`), the regex either dropped the file silently or matched the
+    embedded `ff` substring and leaked the trailing `f` into prefix.
+    Techs now declare their process corners in tech_config.tcl:
+        set tech(process_corners) "ss tt ff fff sf fs"
+    Omitted → fallback to the default 5-corner set.
+    """
+    global _CORNERS_ENV
+    if not tech_config_path:
+        return
+    try:
+        with open(tech_config_path, 'r', encoding='utf-8', errors='replace') as fh:
+            src = fh.read()
+    except OSError:
+        return
+    m = re.search(
+        r'^\s*set\s+tech\(process_corners\)\s+(?:\{([^}]+)\}|"([^"]+)")',
+        src, re.MULTILINE)
+    if not m:
+        return
+    raw = (m.group(1) or m.group(2) or '').strip()
+    corners = [c for c in raw.split() if c]
+    if corners:
+        _CORNERS_ENV = corners
+        _build_lib_patterns()
+
+
 # Primary pattern: prefix immediately before corner (no underscore separator)
 LIB_PATTERN = re.compile(
-    r'^(?P<prefix>.+?)(?P<corner>ss|ff|tt|sf|fs)'
+    r'^(?P<prefix>.+?)(?P<corner>' + _corner_alternation(_DEFAULT_PROCESS_CORNERS) + r')'
     r'(?P<voltage>\d+p\d+v)(?P<temp>m?\d+c)'
     r'_(?P<type>ccs|power|noise|leakage|nldm)\.lib$'
 )
 
 # Alternate pattern: IO-style with underscore before corner
 ALT_LIB_PATTERN = re.compile(
-    r'^(?P<prefix>.+?)_(?P<corner>ss|ff|tt|sf|fs)'
+    r'^(?P<prefix>.+?)_(?P<corner>' + _corner_alternation(_DEFAULT_PROCESS_CORNERS) + r')'
     r'(?P<voltage>\d+p\d+v)(?P<temp>m?\d+c)'
     r'_(?P<type>ccs|power|noise|leakage|nldm)\.lib$'
 )
@@ -937,23 +1024,894 @@ def cmd_scan(args: argparse.Namespace) -> int:
     # cmd_create removed — replaced by cmd_generate which produces lib_config.tcl
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Tag-directory layout (introduced 2026-10-10)
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Each `--tag <TAG>` now materializes a self-contained directory next to the
+# tech overlay instead of a single flat `lib_config_<tag>.tcl` sibling:
+#
+#   PD/config/tech/<tech>/<ver>/<TAG>/
+#   ├── lib_config.tcl        ← rewritten with LOCAL symlink paths
+#   ├── README.md             ← PVT matrix + source lib_root + file counts
+#   ├── MANIFEST.tcl          ← symlink → vendor-target audit list
+#   ├── ndm/<track>/*.ndm     ← all VTs flat inside per-track dir
+#   ├── lib/<track>/*.lib     ← same shape
+#   ├── db/<track>/*.db
+#   ├── lef/<track>/*.lef
+#   ├── memory/{lib,db,lef,ndm,gds,cdl,verilog}/*
+#   ├── io/{lib,db,lef,ndm,gds,cdl,verilog}/*
+#   ├── analog/{lib,db,lef,ndm,gds,cdl,verilog}/*
+#   ├── ip/{lib,db,lef,ndm,gds,cdl,verilog}/*
+#   └── logs/generate.log     ← scan trace
+#
+# Benefits:
+#   · Tag dir is relocatable — `mv P0 P0_frozen` moves everything atomically.
+#   · README gives humans an at-a-glance view of what the tag contains.
+#   · Flow integration is one path: $project(lib_config_tag) → <TAG>/.
+#   · lib_config.tcl values use `$_lib_tag_dir/...` so the tag survives a
+#     move of the parent tech dir too (resolver anchors to its own location).
+#
+# Backwards compat: legacy flat `lib_config_<tag>.tcl` files are auto-migrated
+# on the next `generate` call for that tag. All readers (mmmc-manager,
+# cmd_status, cmd_coverage) consult the tag-dir first and fall back to the
+# flat file so pre-migration tags keep working.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _resolve_tech_dir(tech_name: str, version: str = None) -> str:
+    """Return the on-disk tech directory (where tech_config.tcl lives).
+    Post 2026-10-11 this is in global/config/tech/<tech>/<ver>/.
+    """
+    ver = version or 'v1.0.0'
+    from core.paths import get_cbflow_global_dir
+    gdir = get_cbflow_global_dir()
+    if not gdir:
+        return ''
+    return os.path.join(gdir, 'config', 'tech', tech_name, ver)
+
+
+class _CfgReadError(Exception):
+    """File existed but could not be read (perms, encoding, I/O). Caller
+    should treat this as FAIL-CLOSED — do NOT fall through to a lower-
+    priority source, because the user's config is unreachable, not unset.
+    """
+    pass
+
+
+def _read_tech_cfg_value(tech_name: str, version: str, key: str) -> str:
+    """Extract `set tech(<key>) "<value>"` from tech_config.tcl.
+
+    Returns the raw value string, or '' if the key / file / tech_dir is
+    legitimately absent (configuration state: "not set"). Raises
+    _CfgReadError if the file EXISTS but can't be read (OSError or
+    UnicodeDecodeError) — distinguishing "unset" from "unreadable" so
+    the resolver doesn't silently fail open on a perm/encoding glitch
+    (NFS hiccup, chmod 000, bad locale) and place lib tags inside
+    CBFLOW_ROOT because `_is_inside_framework` saw no roots to reject.
+    """
+    tech_dir = _resolve_tech_dir(tech_name, version)
+    if not tech_dir:
+        return ''
+    tc = os.path.join(tech_dir, 'tech_config.tcl')
+    if not os.path.isfile(tc):
+        return ''
+    try:
+        with open(tc, encoding='utf-8') as f:
+            m = re.search(
+                r'^\s*set\s+tech\(' + re.escape(key)
+                + r'\)\s+"([^"]*)"', f.read(), re.MULTILINE)
+            return m.group(1).strip() if m else ''
+    except (OSError, UnicodeDecodeError) as e:
+        raise _CfgReadError(
+            "cannot read tech_config.tcl for '{}' ({}: {})".format(
+                tech_name, type(e).__name__, e))
+
+
+def _read_project_cfg_value(project_name: str, version: str, key: str) -> str:
+    """Extract `set project(<key>) "<value>"` from project_pd_config.tcl.
+
+    Same tri-state semantics as _read_tech_cfg_value: '' for "key or file
+    legitimately absent", raises _CfgReadError if file exists but is
+    unreadable.
+    """
+    if not project_name:
+        return ''
+    try:
+        core = get_cbflow_core_dir()
+    except ValueError:
+        return ''
+    pc = os.path.join(core, 'config', 'project', project_name,
+                      version or 'v1.0.0', 'project_pd_config.tcl')
+    if not os.path.isfile(pc):
+        return ''
+    try:
+        with open(pc, encoding='utf-8') as f:
+            m = re.search(
+                r'^\s*set\s+project\(' + re.escape(key)
+                + r'\)\s+"([^"]*)"', f.read(), re.MULTILINE)
+            return m.group(1).strip() if m else ''
+    except (OSError, UnicodeDecodeError) as e:
+        raise _CfgReadError(
+            "cannot read project_pd_config.tcl for '{}' ({}: {})".format(
+                project_name, type(e).__name__, e))
+
+
+def _framework_roots() -> list:
+    """Absolute paths that `lib_tag_root` is forbidden from pointing inside.
+
+    Rejecting these keeps the git tree clean: no accidental commits of
+    generated tag directories, no silent self-nesting when a user sets
+    lib_tag_root to a path inside CBFLOW_ROOT.
+    """
+    roots = []
+    for env_var in ('CBFLOW_ROOT', 'CBFLOW_CORE_DIR', 'CBFLOW_GLOBAL_DIR',
+                    'CBFLOW_DFT_DIR', 'CBFLOW_DV_DIR'):
+        v = os.environ.get(env_var, '').strip()
+        if v:
+            try:
+                roots.append(os.path.realpath(v))
+            except OSError:
+                pass
+    try:
+        core_dir = get_cbflow_core_dir()
+        if core_dir:
+            roots.append(os.path.realpath(core_dir))
+            roots.append(os.path.realpath(os.path.dirname(core_dir)))
+    except Exception:
+        pass
+    return sorted(set(roots))
+
+
+def _is_inside_framework(path: str) -> bool:
+    """True if `path` resolves inside any CBflow framework root.
+    Used to reject lib_tag_root values that would nest tags in the git tree.
+    """
+    if not path:
+        return False
+    try:
+        real = os.path.realpath(path)
+    except OSError:
+        real = path
+    for root in _framework_roots():
+        if real == root or real.startswith(root + os.sep):
+            return True
+    return False
+
+
+def _resolve_lib_tag_root(tech_name: str, version: str = None,
+                          project_name: str = None,
+                          cli_override: str = None) -> str:
+    """Resolve where library tags for this tech should be stored.
+
+    Resolution order (first non-empty wins):
+      1. `cli_override`                      — --lib-tag-root CLI flag
+      2. $CBFLOW_LIB_TAG_ROOT                 — env var (CI / scratch)
+      3. project(lib_tag_root)                — per-project override
+      4. tech(lib_tag_root)                   — site-wide default per tech
+      5. ''                                   — unset; caller must error-out
+
+    Returns the absolute lib_tag_root path (no TAG segment, no version
+    segment — the TAG itself carries version semantics via its name).
+
+    Framework-tree fallback is deliberately NOT provided: externalizing
+    the library area is mandatory. If a candidate resolves to a path
+    inside the framework git tree (CBFLOW_ROOT / PD / global / DFT / DV),
+    this function LOGS A WARNING AND REJECTS it so the caller sees the
+    same empty-return behavior as an unset config and emits the fix
+    guide. We don't silently fall through to the next source — a value
+    was configured, it's just wrong.
+    """
+    # Returns (accepted_path, was_rejected). If was_rejected=True we
+    # TERMINATE here — don't fall through to the next source. The user
+    # misconfigured a specific source; silently preferring another one
+    # hides the misconfiguration (exactly the bug we're trying to kill).
+    _REJECTED = object()
+
+    def _accept(src_label: str, candidate: str):
+        candidate = os.path.abspath(candidate)
+        if _is_inside_framework(candidate):
+            logger.error(
+                "lib_tag_root from {} points inside the framework tree: {}".format(
+                    src_label, candidate))
+            logger.error(
+                "  Library tags MUST live outside CBFLOW_ROOT so flow updates don't "
+                "require regen. Rejecting (not falling through to lower-priority sources).")
+            return _REJECTED
+        return candidate
+
+    def _try(src_label, raw):
+        """Returns path, '', or raises SystemExit on in-tree rejection."""
+        if not raw:
+            return ''
+        r = _accept(src_label, raw)
+        if r is _REJECTED:
+            # Terminal reject: don't let a lower-priority source paper over
+            # the misconfigured one.
+            return _REJECTED
+        return r
+
+    for label, raw in (
+        ('--lib-tag-root', cli_override),
+        ('$CBFLOW_LIB_TAG_ROOT',
+         os.environ.get('CBFLOW_LIB_TAG_ROOT', '').strip()),
+    ):
+        r = _try(label, raw)
+        if r is _REJECTED:
+            return ''
+        if r:
+            return r
+
+    if not project_name:
+        project_name = os.environ.get('CBFLOW_PROJECT_NAME', '')
+    # If reading the project/tech config file fails (not "key absent"),
+    # fail CLOSED — don't silently fall through to the next source and
+    # accept a value from a lower-priority config while the user's
+    # higher-priority config is unreachable. Pre-fix an NFS hiccup here
+    # dropped the whole safety check and let lib tags land under CBFLOW_ROOT.
+    try:
+        v = _read_project_cfg_value(project_name, version, 'lib_tag_root')
+    except _CfgReadError as e:
+        logger.error("lib_tag_root cascade: project config read failed: {}".format(e))
+        return ''
+    r = _try("project({}, lib_tag_root)".format(project_name or '<unknown>'), v)
+    if r is _REJECTED:
+        return ''
+    if r:
+        return r
+
+    try:
+        v = _read_tech_cfg_value(tech_name, version, 'lib_tag_root')
+    except _CfgReadError as e:
+        logger.error("lib_tag_root cascade: tech config read failed: {}".format(e))
+        return ''
+    r = _try("tech({}, lib_tag_root)".format(tech_name), v)
+    if r is _REJECTED:
+        return ''
+    if r:
+        return r
+
+    return ''
+
+
+def _lib_tag_root_fix_guide(tech_name: str, version: str) -> List[str]:
+    """Return the multi-line error banner shown when lib_tag_root is unset.
+    Called from `cmd_generate`, `cmd_add`, and any other write path."""
+    tech_dir = _resolve_tech_dir(tech_name, version) or \
+               '$CBFLOW_GLOBAL_DIR/config/tech/{}/v1.0.0'.format(tech_name)
+    return [
+        "lib_tag_root is not configured for '{}'.".format(tech_name),
+        "",
+        "Library tags MUST live OUTSIDE the framework git tree so flow",
+        "updates don't force a regen. The framework ships NO default — you",
+        "must point at a real site path explicitly. Pick ONE:",
+        "",
+        "  1. Per-project (recommended for team-wide use):",
+        "     Edit $CBFLOW_CORE_DIR/config/project/<proj>/v1.0.0/project_pd_config.tcl:",
+        "       set project(lib_tag_root) \"/proj/<proj>/pdk/{}\"".format(tech_name),
+        "",
+        "  2. Per-run via env var (CI, scratch areas):",
+        "       export CBFLOW_LIB_TAG_ROOT=/scratch/<user>/pdk",
+        "",
+        "  3. Per-invocation via CLI flag:",
+        "       cbflow flow library-manager generate ... --lib-tag-root <path>",
+        "",
+        "  4. Site-wide via tech default — uncomment this line in",
+        "     {}/tech_config.tcl:".format(tech_dir),
+        "       set tech(lib_tag_root) \"/proj/pdk/libs/{}\"".format(tech_name),
+        "",
+        "In all cases the path MUST be outside CBFLOW_ROOT. Final tag",
+        "path = <lib_tag_root>/<TAG>/.",
+    ]
+
+
+def _resolve_lib_tag_dir(tech_name: str, tag: str, version: str = None,
+                         project_name: str = None,
+                         cli_override: str = None) -> str:
+    """Absolute path to the tag directory. '' if lib_tag_root is unset."""
+    root = _resolve_lib_tag_root(tech_name, version,
+                                 project_name=project_name,
+                                 cli_override=cli_override)
+    return os.path.join(root, tag) if root else ''
+
+
+def _lib_tag_root_was_configured(tech_name: str, version: str = None,
+                                 project_name: str = None,
+                                 cli_override: str = None) -> bool:
+    """True iff any lib_tag_root source has a non-empty raw value, even
+    if that value was later rejected by _accept (in-tree). Lets callers
+    distinguish 'unset (fall back to legacy)' from 'configured but
+    rejected (do NOT fall back; the user misconfigured something)'.
+    """
+    if cli_override:
+        return True
+    if os.environ.get('CBFLOW_LIB_TAG_ROOT', '').strip():
+        return True
+    if not project_name:
+        project_name = os.environ.get('CBFLOW_PROJECT_NAME', '')
+    # Treat read-failure as "configured" — the user has a config file we
+    # can't read; we must NOT fall through to legacy. Only an empty read
+    # (file genuinely absent / key absent) means "not configured here".
+    try:
+        if _read_project_cfg_value(project_name, version, 'lib_tag_root'):
+            return True
+    except _CfgReadError:
+        return True
+    try:
+        if _read_tech_cfg_value(tech_name, version, 'lib_tag_root'):
+            return True
+    except _CfgReadError:
+        return True
+    return False
+
+
+def _resolve_lib_config_path(tech_name: str, tag: str,
+                             version: str = None,
+                             project_name: str = None,
+                             cli_override: str = None) -> str:
+    """Return the lib_config.tcl path for a given tag, or '' if not found.
+
+    Three distinct states:
+      lib_tag_root SET + file exists   → return <root>/<TAG>/lib_config.tcl
+      lib_tag_root SET + file missing  → return '' TERMINALLY.
+      lib_tag_root REJECTED (in-tree)  → return '' TERMINALLY. The user
+          configured a bad source; we must NOT paper over it with an
+          in-tree legacy file (would reintroduce the externalization bug).
+      lib_tag_root UNSET               → fall through to in-tree legacy
+          (pre-externalization backcompat ramp):
+             (a) <tech_dir>/<TAG>/lib_config.tcl
+             (b) <tech_dir>/lib_config_<TAG>.tcl
+    """
+    root = _resolve_lib_tag_root(tech_name, version,
+                                 project_name=project_name,
+                                 cli_override=cli_override)
+    if root:
+        # Current layout: <lib_tag_root>/<tech_node>/<tag>/lib_config.tcl
+        # — groups every tag for a tech under one dir so lib_config.tcl
+        # and mmmc_config.tcl for the same (tech, tag) live together.
+        new = os.path.join(root, tech_name, tag, 'lib_config.tcl')
+        if os.path.isfile(new):
+            return new
+        # Legacy layout (pre-tech-grouping): <lib_tag_root>/<tag>/lib_config.tcl
+        legacy = os.path.join(root, tag, 'lib_config.tcl')
+        if os.path.isfile(legacy):
+            return legacy
+        return ''
+    # root is '': could be "nothing configured" OR "configured but rejected".
+    # Only fall back to legacy for the "nothing configured" case.
+    if _lib_tag_root_was_configured(tech_name, version,
+                                    project_name=project_name,
+                                    cli_override=cli_override):
+        return ''
+    tech_dir = _resolve_tech_dir(tech_name, version)
+    if tech_dir:
+        legacy_dir = os.path.join(tech_dir, tag, 'lib_config.tcl')
+        if os.path.isfile(legacy_dir):
+            return legacy_dir
+        legacy_flat = os.path.join(tech_dir, 'lib_config_{}.tcl'.format(tag))
+        if os.path.isfile(legacy_flat):
+            return legacy_flat
+    return ''
+
+
+def _list_available_tags(tech_name: str, version: str = None,
+                         project_name: str = None,
+                         cli_override: str = None) -> List[str]:
+    """Enumerate every tag with a lib_config available.
+
+    When lib_tag_root is set, only the external root is consulted — the
+    in-tree legacy locations are ignored so stale tags there don't show up
+    as valid selections. When lib_tag_root is unset, in-tree legacy is
+    the only source (pre-externalization backcompat).
+    """
+    tags = set()
+    root = _resolve_lib_tag_root(tech_name, version,
+                                 project_name=project_name,
+                                 cli_override=cli_override)
+    if root:
+        # Current layout: <root>/<tech_node>/<tag>/lib_config.tcl.
+        tech_scoped = os.path.join(root, tech_name)
+        if os.path.isdir(tech_scoped):
+            for entry in os.listdir(tech_scoped):
+                p = os.path.join(tech_scoped, entry)
+                if os.path.isdir(p) and os.path.isfile(
+                        os.path.join(p, 'lib_config.tcl')):
+                    tags.add(entry)
+        # Legacy layout: <root>/<tag>/lib_config.tcl (pre-tech-grouping).
+        if os.path.isdir(root):
+            for entry in os.listdir(root):
+                if entry == tech_name:
+                    continue  # already handled above
+                p = os.path.join(root, entry)
+                if os.path.isdir(p) and os.path.isfile(
+                        os.path.join(p, 'lib_config.tcl')):
+                    tags.add(entry)
+        return sorted(tags)
+    tech_dir = _resolve_tech_dir(tech_name, version)
+    if tech_dir and os.path.isdir(tech_dir):
+        for entry in os.listdir(tech_dir):
+            p = os.path.join(tech_dir, entry)
+            if os.path.isdir(p) and os.path.isfile(
+                    os.path.join(p, 'lib_config.tcl')):
+                tags.add(entry)
+                continue
+            if (os.path.isfile(p) and entry.startswith('lib_config_')
+                    and entry.endswith('.tcl')):
+                tags.add(entry[len('lib_config_'):-len('.tcl')])
+    return sorted(tags)
+
+
+def _collect_category(category: str, abs_paths: list) -> list:
+    """Group a flat path list by its (track|category, filename) coordinates.
+    Internal helper for _materialize_tag_dir. Returns a list of
+    (subdir_relative_to_tag, filename, abs_target) tuples for symlink creation.
+    """
+    out = []
+    for p in abs_paths:
+        if not p:
+            continue
+        out.append((category, os.path.basename(p), p))
+    return out
+
+
+def _safe_symlink(src_abs: str, dst_abs: str) -> str:
+    """Create a symlink dst_abs → src_abs, overwriting any prior link.
+    Returns 'symlink' on success, 'copy' if symlink creation isn't permitted
+    (NFS/noexec), or 'skip' if the source is missing (test-mode stub files).
+    """
+    if not src_abs:
+        return 'skip'
+    try:
+        if os.path.islink(dst_abs) or os.path.exists(dst_abs):
+            os.remove(dst_abs)
+    except OSError:
+        pass
+    try:
+        os.symlink(src_abs, dst_abs)
+        return 'symlink'
+    except OSError:
+        # FS doesn't support symlinks — fall back to a stub pointer file
+        # so the structure is still browsable but tools get a diagnostic.
+        try:
+            with open(dst_abs, 'w') as fh:
+                fh.write("# CBflow symlink stub — target FS rejected symlink()\n")
+                fh.write("# intended target: {}\n".format(src_abs))
+            return 'stub'
+        except OSError:
+            return 'skip'
+
+
+def _materialize_tag_dir(tag_dir: str,
+                          tech_name: str,
+                          tag: str,
+                          lib_root: str,
+                          all_tracks: list,
+                          all_vts: list,
+                          all_corners: list,
+                          ndm_libs: dict,
+                          db_libs: dict,
+                          lef_libs: dict,
+                          lib_nom_libs: dict,
+                          timing_libs: dict,
+                          # Shared (per-category) buckets. memory + io were
+                          # the original two; analog + ip added 2026-10-10
+                          # for IP deliverables and analog macros that
+                          # arrive after the initial tag was generated.
+                          ndm_memory: list = None, ndm_io: list = None,
+                          ndm_analog: list = None, ndm_ip: list = None,
+                          db_mem: list = None, db_io: list = None,
+                          db_analog: list = None, db_ip: list = None,
+                          lef_memory: list = None, lef_io: list = None,
+                          lef_analog: list = None, lef_ip: list = None,
+                          lib_nom_memory: list = None, lib_nom_io: list = None,
+                          lib_nom_analog: list = None, lib_nom_ip: list = None,
+                          timing_memory: dict = None, timing_io: dict = None,
+                          timing_analog: dict = None, timing_ip: dict = None,
+                          scan_log_lines: list = None,
+                          preserve_other_categories: bool = False) -> dict:
+    """Build tag directory contents. Returns dict mapping tech() key tuple
+    → list of local tag-relative paths.
+
+    When `preserve_other_categories` is True, categories NOT provided
+    (passed as None or empty) are left untouched on disk — enables
+    surgical `add` operations that extend one category without wiping
+    the rest. Default False retains the pre-2026-10-10 behavior where
+    `generate` rebuilds the whole tag.
+    """
+    # Normalize None → empty so loops are uniform.
+    ndm_memory = ndm_memory or []; ndm_io = ndm_io or []
+    ndm_analog = ndm_analog or []; ndm_ip = ndm_ip or []
+    db_mem = db_mem or []; db_io = db_io or []
+    db_analog = db_analog or []; db_ip = db_ip or []
+    lef_memory = lef_memory or []; lef_io = lef_io or []
+    lef_analog = lef_analog or []; lef_ip = lef_ip or []
+    lib_nom_memory = lib_nom_memory or []; lib_nom_io = lib_nom_io or []
+    lib_nom_analog = lib_nom_analog or []; lib_nom_ip = lib_nom_ip or []
+    timing_memory = timing_memory or {}; timing_io = timing_io or {}
+    timing_analog = timing_analog or {}; timing_ip = timing_ip or {}
+    """Build the tag directory: subdirs, symlinks, README, MANIFEST, log.
+
+    Returns a dict mapping each original tech() key tuple to the new LOCAL
+    path the caller should emit into lib_config.tcl. Keys that didn't map to
+    a file (empty source list) are skipped — the caller omits those lines.
+
+    Mapping produced:
+       (track, vt, 'ndm')          → "$_lib_tag_dir/ndm/<track>/<vt>_<basename>"
+       (track, vt, corner, 'lib')  → "$_lib_tag_dir/lib/<track>/<vt>_<corner>_<basename>"
+       ('memory'|'io'|'analog', 'lib'|'db'|'lef'|'ndm') → "$_lib_tag_dir/<cat>/<kind>/<basename>"
+       ('memory'|'io', corner, 'lib')  → "$_lib_tag_dir/<cat>/lib/<corner>_<basename>"
+
+    `scan_log_lines` is an optional list of pre-scan log entries to flush
+    into logs/generate.log.
+    """
+    os.makedirs(tag_dir, exist_ok=True)
+    # Fixed subdirs — created unconditionally so the layout is predictable
+    # even for a sparse tag. Empty subdirs are documented in the README.
+    #
+    # Layout: each library category (stdcell / memory / io / analog / ip)
+    # owns its own {ndm, lib, db, lef, gds, cdl, verilog} subtree. Pre-
+    # fix, gds / cdl / verilog were materialized as top-level dirs — but
+    # a GDS always belongs to a specific category (stdcell GDS vs memory
+    # GDS vs analog GDS), so the top-level versions were ambiguous
+    # scaffolding that nothing ever wrote into. Pulling them inside
+    # each category removes the ambiguity and keeps the layout
+    # consistent with how ndm/db/lef/lib are already organized.
+    #
+    # Only `logs/` stays at the top level — it's genuinely category-
+    # agnostic (per-tag generate/add run logs, not per-library artifacts).
+    _CATEGORIES = ('stdcell', 'memory', 'io', 'analog', 'ip')
+    _KINDS      = ('ndm', 'lib', 'db', 'lef', 'gds', 'cdl', 'verilog')
+    subdirs = ['{}/{}'.format(cat, kind)
+               for cat in _CATEGORIES for kind in _KINDS]
+    subdirs.append('logs')
+    for sub in subdirs:
+        os.makedirs(os.path.join(tag_dir, sub), exist_ok=True)
+
+    def _tag_rel(*parts):
+        """Build '$_lib_tag_dir/<rest>' — the resolver-local reference form."""
+        return "$_lib_tag_dir/" + "/".join(parts)
+
+    manifest = []     # list of (local_rel, vendor_abs) for MANIFEST.tcl
+    local_map = {}    # map[(key_tuple)] = list of local tag-rel paths
+
+    def _link_and_record(subdir_rel: str, fname: str, src_abs: str,
+                         key_tuple: tuple):
+        """Place one symlink in the tag dir, record in manifest + map.
+
+        Collisions on filename (two VTs ship 'stdcell.ndm' both named the
+        same) are resolved by prefixing with a de-duplicating counter.
+        """
+        host_dir = os.path.join(tag_dir, subdir_rel)
+        os.makedirs(host_dir, exist_ok=True)
+        candidate = fname
+        n = 1
+        while os.path.lexists(os.path.join(host_dir, candidate)):
+            # Resolve collision by checking if existing is the same target.
+            existing = os.path.join(host_dir, candidate)
+            try:
+                if (os.path.islink(existing) and
+                        os.path.realpath(existing) == os.path.realpath(src_abs)):
+                    # Same target → re-use link, no new entry
+                    break
+            except OSError:
+                pass
+            stem, ext = os.path.splitext(fname)
+            candidate = '{}_{}{}'.format(stem, n, ext)
+            n += 1
+        dst_abs = os.path.join(host_dir, candidate)
+        if not os.path.lexists(dst_abs):
+            method = _safe_symlink(src_abs, dst_abs)
+            manifest.append((subdir_rel + '/' + candidate, src_abs, method))
+        local_map.setdefault(key_tuple, []).append(
+            _tag_rel(subdir_rel, candidate))
+
+    def _tidy_name(fname: str, *tokens) -> str:
+        """Prefix `fname` with `<token>_<token>_...` only for tokens that
+        aren't already somewhere in the filename. Keeps the symlink name
+        readable without doubling encoding when the vendor file already
+        carries `_9T_svt_` etc.
+        """
+        base = fname
+        prefix_parts = []
+        low = base.lower()
+        for t in tokens:
+            if t and t.lower() not in low:
+                prefix_parts.append(t)
+        return ('_'.join(prefix_parts) + '_' + base) if prefix_parts else base
+
+    # ── Stdcell libraries — stdcell/<kind>/<track>/<file> ─────────────────
+    # Nested under stdcell/ parent so the top-level layout is uniform with
+    # memory/, io/, analog/, ip/ (each a single parent dir holding its
+    # kind sub-dirs).
+    for (trk, vt), paths in ndm_libs.items():
+        for p in paths:
+            _link_and_record('stdcell/ndm/{}'.format(trk),
+                             _tidy_name(os.path.basename(p), vt),
+                             p, (trk, vt, 'ndm'))
+    for (trk, vt), paths in db_libs.items():
+        for p in paths:
+            _link_and_record('stdcell/db/{}'.format(trk),
+                             _tidy_name(os.path.basename(p), vt),
+                             p, (trk, vt, 'db'))
+    for (trk, vt), paths in lef_libs.items():
+        for p in paths:
+            _link_and_record('stdcell/lef/{}'.format(trk),
+                             _tidy_name(os.path.basename(p), vt),
+                             p, (trk, vt, 'lef'))
+    for (trk, vt), paths in lib_nom_libs.items():
+        for p in paths:
+            _link_and_record('stdcell/lib/{}'.format(trk),
+                             _tidy_name(os.path.basename(p), vt, 'nom'),
+                             p, (trk, vt, 'lib_nom'))
+    for (trk, vt, corner), paths in timing_libs.items():
+        for p in paths:
+            _link_and_record('stdcell/lib/{}'.format(trk),
+                             _tidy_name(os.path.basename(p), vt, corner),
+                             p, (trk, vt, corner, 'lib_timing'))
+
+    # ── Memory ───────────────────────────────────────────────────────────
+    for p in ndm_memory:
+        _link_and_record('memory/ndm', os.path.basename(p), p, ('memory', 'ndm'))
+    for p in db_mem:
+        _link_and_record('memory/db', os.path.basename(p), p, ('memory', 'db'))
+    for p in lef_memory:
+        _link_and_record('memory/lef', os.path.basename(p), p, ('memory', 'lef'))
+    for p in lib_nom_memory:
+        _link_and_record('memory/lib',
+                         _tidy_name(os.path.basename(p), 'nom'),
+                         p, ('memory', 'lib_nom'))
+    for corner, paths in timing_memory.items():
+        for p in paths:
+            _link_and_record('memory/lib',
+                             _tidy_name(os.path.basename(p), corner),
+                             p, ('memory', corner, 'lib_timing'))
+
+    # ── IO ───────────────────────────────────────────────────────────────
+    for p in ndm_io:
+        _link_and_record('io/ndm', os.path.basename(p), p, ('io', 'ndm'))
+    for p in db_io:
+        _link_and_record('io/db', os.path.basename(p), p, ('io', 'db'))
+    for p in lef_io:
+        _link_and_record('io/lef', os.path.basename(p), p, ('io', 'lef'))
+    for p in lib_nom_io:
+        _link_and_record('io/lib',
+                         _tidy_name(os.path.basename(p), 'nom'),
+                         p, ('io', 'lib_nom'))
+    for corner, paths in timing_io.items():
+        for p in paths:
+            _link_and_record('io/lib',
+                             _tidy_name(os.path.basename(p), corner),
+                             p, ('io', corner, 'lib_timing'))
+
+    # ── Analog ───────────────────────────────────────────────────────────
+    for p in ndm_analog:
+        _link_and_record('analog/ndm', os.path.basename(p), p, ('analog', 'ndm'))
+    for p in db_analog:
+        _link_and_record('analog/db', os.path.basename(p), p, ('analog', 'db'))
+    for p in lef_analog:
+        _link_and_record('analog/lef', os.path.basename(p), p, ('analog', 'lef'))
+    for p in lib_nom_analog:
+        _link_and_record('analog/lib',
+                         _tidy_name(os.path.basename(p), 'nom'),
+                         p, ('analog', 'lib_nom'))
+    for corner, paths in timing_analog.items():
+        for p in paths:
+            _link_and_record('analog/lib',
+                             _tidy_name(os.path.basename(p), corner),
+                             p, ('analog', corner, 'lib_timing'))
+
+    # ── IP ───────────────────────────────────────────────────────────────
+    for p in ndm_ip:
+        _link_and_record('ip/ndm', os.path.basename(p), p, ('ip', 'ndm'))
+    for p in db_ip:
+        _link_and_record('ip/db', os.path.basename(p), p, ('ip', 'db'))
+    for p in lef_ip:
+        _link_and_record('ip/lef', os.path.basename(p), p, ('ip', 'lef'))
+    for p in lib_nom_ip:
+        _link_and_record('ip/lib',
+                         _tidy_name(os.path.basename(p), 'nom'),
+                         p, ('ip', 'lib_nom'))
+    for corner, paths in timing_ip.items():
+        for p in paths:
+            _link_and_record('ip/lib',
+                             _tidy_name(os.path.basename(p), corner),
+                             p, ('ip', corner, 'lib_timing'))
+
+    # ── MANIFEST.tcl — audit trail: local → vendor ───────────────────────
+    # When `preserve_other_categories` is set (incremental / add path),
+    # union with any existing MANIFEST entries so prior category records
+    # survive this scan. The current-scan tuples win on local_rel collisions.
+    manifest_path = os.path.join(tag_dir, 'MANIFEST.tcl')
+    final_manifest = list(manifest)
+    if preserve_other_categories and os.path.isfile(manifest_path):
+        try:
+            seen_locals = {m[0] for m in manifest}
+            # Parse existing: `set manifest({<local>}) {<vendor> <method>}`.
+            _mre = re.compile(
+                r'set\s+manifest\(\{([^}]+)\}\)\s+\{([^}]+)\s+(\w+)\}')
+            with open(manifest_path, 'r') as ef:
+                for ln in ef:
+                    m = _mre.search(ln)
+                    if not m:
+                        continue
+                    local_rel = m.group(1)
+                    if local_rel in seen_locals:
+                        continue
+                    final_manifest.append(
+                        (local_rel, m.group(2), m.group(3)))
+        except OSError:
+            pass
+
+    # Atomic rewrite — pre-fix, open-w truncate + loop-write destroyed
+    # the authoritative local→vendor audit trail if the process died
+    # mid-write (disk full, OOM, host crash). No tmp+rename, no backup.
+    _manifest_buf = []
+    _manifest_buf.append("#!/usr/bin/env tclsh\n")
+    _manifest_buf.append("# CBflow library-tag MANIFEST — audit trail for tag '{}'\n".format(tag))
+    _manifest_buf.append("# Tech: {}  Generated: {}\n".format(
+        tech_name, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+    _manifest_buf.append("# Format: set manifest(<local_rel>) {<vendor_abs> <link_method>}\n")
+    _manifest_buf.append("# link_method: symlink | stub | skip (source missing)\n\n")
+    for local_rel, vendor_abs, method in sorted(final_manifest):
+        _manifest_buf.append('set manifest({{{}}}) {{{} {}}}\n'.format(
+            local_rel, vendor_abs, method))
+    _manifest_buf.append("\nset manifest(_count) {}\n".format(len(final_manifest)))
+    _manifest_buf.append("set manifest(_methods) {{symlink stub skip}}\n")
+    atomic_write(manifest_path, "".join(_manifest_buf))
+
+    # Reassign `manifest` so the README generator below sees the merged list.
+    manifest = final_manifest
+
+    # ── README.md — human overview ───────────────────────────────────────
+    with open(os.path.join(tag_dir, 'README.md'), 'w') as fh:
+        fh.write("# Library tag: `{}`\n\n".format(tag))
+        fh.write("Technology: **{}**  \n".format(tech_name))
+        fh.write("Generated: **{}**  \n".format(
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        fh.write("Source lib_root: `{}`\n\n".format(lib_root))
+        fh.write("---\n\n")
+        fh.write("## Flow integration\n\n")
+        fh.write("Set `project(lib_config_tag)` to `{}` in user_config.tcl ".format(tag))
+        fh.write("(or `project_pd_config.tcl`). The resolver auto-picks\n")
+        fh.write("`global/config/tech/{}/v1.0.0/{}/lib_config.tcl`.\n\n".format(
+            tech_name, tag))
+        fh.write("## Coverage\n\n")
+        # In add-mode, this scan may be track-agnostic (analog/ip) — showing
+        # (none) would hide the stdcell coverage from the original generate.
+        # Union with the full MANIFEST state to show the TAG's accumulated
+        # coverage, not just the latest scan.
+        _tracks_shown = set(all_tracks)
+        _vts_shown = set(all_vts)
+        _corners_shown = set(all_corners)
+        if preserve_other_categories:
+            # Infer tracks + VTs + corners from local_rel paths in the merged
+            # manifest. e.g. 'stdcell/ndm/9T/stdcell_9T_svt.ndm' → track=9T.
+            # Pre-nest layout (one-release backcompat): 'ndm/9T/*' is also
+            # recognized so manifests written before the stdcell/ rename
+            # still read cleanly.
+            import re as _re_m
+            for local_rel, _v, _m in manifest:
+                parts = local_rel.split('/')
+                # New layout: stdcell/<kind>/<track>/<file>
+                if (len(parts) >= 4 and parts[0] == 'stdcell'
+                        and parts[1] in ('ndm', 'lib', 'db', 'lef')):
+                    _tracks_shown.add(parts[2])
+                # Legacy layout: <kind>/<track>/<file> (pre stdcell/ nest)
+                elif (len(parts) >= 3 and parts[0] in ('ndm', 'lib', 'db', 'lef')
+                        and parts[1] not in ('memory', 'io', 'analog', 'ip',
+                                              'stdcell')):
+                    _tracks_shown.add(parts[1])
+                # VT embedded in filename as _<vt>_ or <vt>_ prefix
+                _fn = parts[-1].lower()
+                for _vt in ('svt', 'lvt', 'hvt', 'ulvt', 'rvt'):
+                    if '_{}_'.format(_vt) in _fn or _fn.startswith(_vt + '_'):
+                        _vts_shown.add(_vt)
+                # Corner tokens: ss_<v>_<t>c / tt_<v>_<t>c / ff_<v>_<t>c
+                _m2 = _re_m.search(r'(ss|tt|ff|sss|fff)_(\d+p\d+v)_(m?\d+c)',
+                                    _fn)
+                if _m2:
+                    _corners_shown.add('_'.join(_m2.groups()))
+        _trk_s = " ".join(sorted(_tracks_shown)) if _tracks_shown else "(none)"
+        _vt_s = " ".join(sorted(_vts_shown)) if _vts_shown else "(none)"
+        _cnr_s = " ".join(sorted(_corners_shown)) if _corners_shown else "(none)"
+        fh.write("- **Tracks:** {}\n".format(_trk_s))
+        fh.write("- **VTs:**    {}\n".format(_vt_s))
+        fh.write("- **Corners:** {}\n\n".format(_cnr_s))
+        fh.write("## File counts per subdirectory\n\n")
+        counts = {}
+        for local_rel, _vendor, _m in manifest:
+            top = local_rel.split('/', 1)[0]
+            counts[top] = counts.get(top, 0) + 1
+        if counts:
+            fh.write("| subdir | files |\n|---|---:|\n")
+            for sub in sorted(counts):
+                fh.write("| `{}/` | {} |\n".format(sub, counts[sub]))
+            fh.write("\n")
+        else:
+            fh.write("_(no files linked — scan found nothing in `{}`)_\n\n".format(lib_root))
+        fh.write("## Layout\n\n```\n")
+        fh.write("{}/\n".format(tag))
+        fh.write("├── lib_config.tcl           # resolver-visible tech(...) keys, LOCAL paths\n")
+        fh.write("├── MANIFEST.tcl             # symlink → vendor audit\n")
+        fh.write("├── README.md                # this file\n")
+        fh.write("├── stdcell/\n")
+        fh.write("│   ├── ndm/<track>/         # stdcell NDM per track (all VTs flat)\n")
+        fh.write("│   ├── lib/<track>/         # Liberty .lib timing + nominal\n")
+        fh.write("│   ├── db/<track>/          # compiled .db for PT/FC\n")
+        fh.write("│   ├── lef/<track>/         # abstract LEF\n")
+        fh.write("│   ├── gds/                 # stdcell GDS\n")
+        fh.write("│   ├── cdl/                 # stdcell CDL / SPICE netlists\n")
+        fh.write("│   └── verilog/             # stdcell Verilog views\n")
+        fh.write("├── memory/{{lib,db,lef,ndm,gds,cdl,verilog}}/\n")
+        fh.write("├── io/{{lib,db,lef,ndm,gds,cdl,verilog}}/\n")
+        fh.write("├── analog/{{lib,db,lef,ndm,gds,cdl,verilog}}/\n")
+        fh.write("├── ip/{{lib,db,lef,ndm,gds,cdl,verilog}}/\n")
+        fh.write("└── logs/generate.log\n")
+        fh.write("```\n\n")
+        fh.write("## Regenerate\n\n")
+        fh.write("```\n")
+        fh.write("cbflow flow library-manager generate --tech {} --tag {}\n".format(
+            tech_name, tag))
+        fh.write("```\n\n")
+        fh.write("Regeneration rebuilds every symlink from the source `lib_root` ")
+        fh.write("and rewrites `lib_config.tcl`. Older symlinks pointing at files ")
+        fh.write("that disappeared from the vendor delivery are left in place with ")
+        fh.write("`stub` method so flow-time breakage is loud, not silent.\n")
+
+    # ── logs/generate.log ────────────────────────────────────────────────
+    log_path = os.path.join(tag_dir, 'logs', 'generate.log')
+    with open(log_path, 'w') as fh:
+        fh.write("CBflow library-manager generate — {}\n".format(
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        fh.write("tech: {}\ntag:  {}\nlib_root: {}\n".format(tech_name, tag, lib_root))
+        fh.write("─" * 70 + "\n")
+        if scan_log_lines:
+            for ln in scan_log_lines:
+                fh.write(ln + "\n")
+        fh.write("─" * 70 + "\n")
+        fh.write("MANIFEST entries: {}\n".format(len(manifest)))
+        n_sym = sum(1 for _, _, m in manifest if m == 'symlink')
+        n_stub = sum(1 for _, _, m in manifest if m == 'stub')
+        n_skip = sum(1 for _, _, m in manifest if m == 'skip')
+        fh.write("  symlink: {}  stub: {}  skip: {}\n".format(n_sym, n_stub, n_skip))
+
+    return local_map
+
+
+def _auto_migrate_flat_tag(tech_name: str, tag: str, version: str = None) -> bool:
+    """Convert a legacy flat `lib_config_<tag>.tcl` into the new tag-dir
+    layout. Called at the top of `cmd_generate` so re-running an older tag
+    migrates it transparently.
+
+    Strategy: this is a BEST-EFFORT shim. We don't re-scan — the vendor
+    source may have moved. Instead we leave the flat file in place with a
+    deprecation banner, create an empty tag dir, and let the caller
+    overwrite via the normal generate path. The flat file will be
+    deleted at the end of a successful generate.
+
+    Returns True if a legacy file was detected (not necessarily converted).
+    """
+    tech_dir = _resolve_tech_dir(tech_name, version)
+    if not tech_dir:
+        return False
+    flat = os.path.join(tech_dir, 'lib_config_{}.tcl'.format(tag))
+    return os.path.isfile(flat)
+
+
 def cmd_check(args: argparse.Namespace) -> int:
     """Validate library configuration against actual files on disk."""
-    # Only preflight when --tech was passed explicitly. An env-var fallback here
-    # would fire preflight on TECH_NAME (set by start_run.py) even when the user
-    # passed --tech-config <path> pointing at a completely different tech.
-    if getattr(args, "tech", None) and not getattr(args, 'tech_config', None):
-        require_tech_config(args.tech, getattr(args, "version", None))
-    # Determine tech_config path
+    # Determine tech_config path — --tech-config wins; otherwise resolve
+    # via the cascade helper (global first, PD legacy fallback).
     tech_config_path = getattr(args, 'tech_config', None)
     if not tech_config_path:
-        core_dir = get_cbflow_core_dir()
-        tech_node = os.environ.get('CBFLOW_TECH_NODE', '') or os.environ.get('TECH_NAME', '')
+        tech_node = (getattr(args, 'tech', None)
+                     or os.environ.get('CBFLOW_TECH_NODE', '')
+                     or os.environ.get('TECH_NAME', ''))
         if not tech_node:
             logger.warning("CBFLOW_TECH_NODE or TECH_NAME not set, library paths may be incomplete")
-        tech_config_path = os.path.join(
-            core_dir, 'config', 'tech', tech_node, 'v1.0.0', 'tech_config.tcl'
-        )
+        # require_tech_config returns the correct global-or-PD path; the
+        # dispatcher-level preflight already gated on file presence.
+        tech_config_path = require_tech_config(tech_node, getattr(args, "version", None))
 
     logger.info(f"Checking library config: {tech_config_path}")
 
@@ -1040,19 +1998,15 @@ def cmd_check(args: argparse.Namespace) -> int:
 
 def cmd_list(args: argparse.Namespace) -> int:
     """List configured library sets with optional filtering."""
-    # Only preflight when --tech was passed explicitly (see cmd_check for why).
-    if getattr(args, "tech", None) and not getattr(args, 'tech_config', None):
-        require_tech_config(args.tech, getattr(args, "version", None))
-    # Determine tech_config path
+    # Determine tech_config path — same cascade as cmd_check.
     tech_config_path = getattr(args, 'tech_config', None)
     if not tech_config_path:
-        core_dir = get_cbflow_core_dir()
-        tech_node = os.environ.get('CBFLOW_TECH_NODE', '') or os.environ.get('TECH_NAME', '')
+        tech_node = (getattr(args, 'tech', None)
+                     or os.environ.get('CBFLOW_TECH_NODE', '')
+                     or os.environ.get('TECH_NAME', ''))
         if not tech_node:
             logger.warning("CBFLOW_TECH_NODE or TECH_NAME not set, library paths may be incomplete")
-        tech_config_path = os.path.join(
-            core_dir, 'config', 'tech', tech_node, 'v1.0.0', 'tech_config.tcl'
-        )
+        tech_config_path = require_tech_config(tech_node, getattr(args, "version", None))
 
     validator = LibraryValidator()
     config = validator.load_tech_config(tech_config_path)
@@ -1257,10 +2211,14 @@ _TRACK_RE = re.compile(r'(\d+p?\d*t)', re.IGNORECASE)
 # Corner regex: handles both formats
 #   TSMC/GF22: tcbn22cllbwp9tsvtss0p76v150c (no separators, ss after cell name)
 #   GF28:      sc7mcz_base_rvt_c30_ss_nominal_max_0p90v_m40c (underscores, extra fields)
+# See _CORNERS_ENV / _apply_tech_corners / _build_lib_patterns above —
+# this is rebuilt from the tech-declared process_corners set when
+# library-manager starts. Default is {ss,tt,ff,sf,fs}; techs that ship
+# `fff` or other variants add them via tech(process_corners).
 _CORNER_RE = re.compile(
-    r'(ss|tt|ff|sf|fs)'                      # process corner
-    r'(?:_[a-z]+)*?'                         # optional condition words (nominal, max, etc.)
-    r'_?(\d+p\d+v)'                          # voltage: 0p76v, 0p90v, 1p10v
+    r'(' + _corner_alternation(_DEFAULT_PROCESS_CORNERS) + r')'  # process corner
+    r'(?:_[a-z]+)*?'                         # optional condition words
+    r'_?(\d+p\d+v)'                          # voltage
     r'_?(m?\d+c)',                            # temperature
     re.IGNORECASE
 )
@@ -1444,28 +2402,49 @@ def cmd_generate(args: argparse.Namespace) -> int:
         print('')
 
     # 1. Technology
-    tech_name = args.tech
-    if not tech_name:
-        if not _interactive:
-            logger.error("--tech is required in non-interactive mode")
+    # --tech-config takes precedence over --tech / env. When the user
+    # passes a raw tech_config.tcl path, derive tech_name from its
+    # location (`.../tech/<name>/<version>/tech_config.tcl`) so
+    # downstream code that still keys on tech_name (lib_set naming,
+    # output stamps) continues to work. Lets Madhavi run library-manager
+    # outside the flow dir with an arbitrary tech_config path.
+    _tc_override = getattr(args, 'tech_config', None)
+    if _tc_override:
+        from core.paths import tech_name_from_config_path
+        derived = tech_name_from_config_path(_tc_override)
+        if derived:
+            args.tech = args.tech or derived
+            tech_name = args.tech
+        elif args.tech:
+            tech_name = args.tech
+        else:
+            logger.error("Could not derive tech name from {}. Pass --tech explicitly.".format(_tc_override))
             return 1
-        core_dir = get_cbflow_core_dir()
-        tech_base = os.path.join(core_dir, 'config', 'tech')
-        available = sorted(d for d in os.listdir(tech_base)
-                          if os.path.isdir(os.path.join(tech_base, d))) if os.path.isdir(tech_base) else []
-        if not available:
-            logger.error("No technologies found in {}".format(tech_base))
-            return 1
-        tech_name = _prompt_choice('Select technology', available)
+        # tech_config_path is just the explicit override — no name-based lookup.
+    else:
+        tech_name = args.tech
         if not tech_name:
-            logger.error("Invalid selection"); return 1
-        print('  -> {}'.format(tech_name))
-    args.tech = tech_name
+            if not _interactive:
+                logger.error("--tech or --tech-config is required in non-interactive mode")
+                return 1
+            from core.paths import get_cbflow_global_dir
+            _gdir = get_cbflow_global_dir()
+            tech_base = os.path.join(_gdir, 'config', 'tech') if _gdir else ''
+            available = sorted(d for d in os.listdir(tech_base)
+                              if os.path.isdir(os.path.join(tech_base, d))) if tech_base and os.path.isdir(tech_base) else []
+            if not available:
+                logger.error("No technologies found in {}".format(tech_base))
+                return 1
+            tech_name = _prompt_choice('Select technology', available)
+            if not tech_name:
+                logger.error("Invalid selection"); return 1
+            print('  -> {}'.format(tech_name))
+        args.tech = tech_name
 
-    # Preflight — tech_config.tcl MUST exist. Historically this scanned the
-    # directory tree and produced a partial lib_config; downstream failed at
-    # signoff. Fail-fast here instead with a fix guide.
-    require_tech_config(tech_name, getattr(args, 'version', None))
+        # Preflight — tech_config.tcl MUST exist. Historically this scanned the
+        # directory tree and produced a partial lib_config; downstream failed at
+        # signoff. Fail-fast here instead with a fix guide.
+        require_tech_config(tech_name, getattr(args, 'version', None))
 
     # 2. Tag (mandatory)
     tag = args.tag if hasattr(args, 'tag') and args.tag else None
@@ -1474,33 +2453,28 @@ def cmd_generate(args: argparse.Namespace) -> int:
             logger.error("--tag is required (e.g., --tag P0, --tag timing_v1)")
             return 1
         print('')
-        # Show existing tags
-        core_dir = get_cbflow_core_dir()
+        # Show existing tags (new tag-dir layout + legacy flat files).
         version = args.version or "v1.0.0"
-        _tag_dir = os.path.join(core_dir, "config", "tech", tech_name, version)
-        _existing_tags = []
-        if os.path.isdir(_tag_dir):
-            for f in sorted(os.listdir(_tag_dir)):
-                if f.startswith('lib_config_') and f.endswith('.tcl'):
-                    _existing_tags.append(f.replace('lib_config_', '').replace('.tcl', ''))
+        _existing_tags = _list_available_tags(tech_name, version)
         if _existing_tags:
             print('  Existing lib_config tags: {}'.format(', '.join(_existing_tags)))
         tag = input('  Config tag (e.g., P0, timing_v1, signoff): ').strip()
         if not tag:
-            logger.error("Tag is required. Output will be: lib_config_<tag>.tcl")
+            logger.error("Tag is required. Output: <tech_dir>/<TAG>/lib_config.tcl")
             return 1
         args.tag = tag
-        # Check if tag already exists
-        _tag_file = os.path.join(_tag_dir, 'lib_config_{}.tcl'.format(tag))
-        if os.path.exists(_tag_file):
-            print('  WARNING: lib_config_{}.tcl already exists'.format(tag))
+        # Check if tag already exists (either form)
+        _existing_path = _resolve_lib_config_path(tech_name, tag, version)
+        if _existing_path:
+            print('  WARNING: tag "{}" already exists:'.format(tag))
+            print('    {}'.format(_existing_path))
             overwrite = input('  Overwrite? [y/N]: ').strip().lower()
             if overwrite != 'y':
                 logger.info("Aborted — choose a different tag")
                 return 1
-            print('  -> will overwrite lib_config_{}.tcl'.format(tag))
+            print('  -> will regenerate {}/'.format(tag))
         else:
-            print('  -> lib_config_{}.tcl (new)'.format(tag))
+            print('  -> {}/ (new tag directory)'.format(tag))
 
     # 3. Library root (stdcell base)
     lib_root = args.lib_root
@@ -1516,11 +2490,18 @@ def cmd_generate(args: argparse.Namespace) -> int:
         print('')
         lib_root = input('  Stdcell library root path: ').strip()
     if not lib_root:
-        logger.error("lib_root is required. Provide --lib-root or set project(lib_root) in project_config")
+        # Pre-fix message said "set project(lib_root)" but the resolver
+        # reads BOTH `tech(lib_root)` and `project(lib_root)` from
+        # tech_config.tcl / project_pd_config.tcl respectively. Point at
+        # the right one.
+        logger.error("lib_root is required. Provide one of:")
+        logger.error("  --lib-root <path>                              (CLI override)")
+        logger.error("  set tech(lib_root)    in tech_config.tcl       (site-wide default)")
+        logger.error("  set project(lib_root) in project_pd_config.tcl (per-project)")
         return 1
     if not os.path.isdir(lib_root):
         logger.error("lib_root directory not found: {}".format(lib_root))
-        logger.info("  Update project(lib_root) in project_config, or use --lib-root to override")
+        logger.info("  Fix via --lib-root, tech(lib_root), or project(lib_root) — see above")
         return 1
 
     lib_root = os.path.abspath(lib_root)
@@ -1665,8 +2646,8 @@ def cmd_generate(args: argparse.Namespace) -> int:
     _track_patterns = {}  # tech(track_pattern,<track>) patterns for non-standard naming
 
     if not tracks or not vt_list or not _track_patterns:
-        core_dir = get_cbflow_core_dir()
-        tc_path = os.path.join(core_dir, "config", "tech", tech_name, version, "tech_config.tcl")
+        # Tech is in global (single file, post 2026-10-11).
+        tc_path = require_tech_config(tech_name, version)
         if os.path.exists(tc_path):
             with open(tc_path, 'r') as _tcf:
                 _tc_content = _tcf.read()
@@ -1726,6 +2707,8 @@ def cmd_generate(args: argparse.Namespace) -> int:
     stdcell_dirs = []
     memory_dirs = []
     io_dirs = []
+    analog_dirs = []       # analog macros (PLL, ADC, DAC, LDO, ...)
+    ip_dirs = []           # digital/mixed-signal IP (hardened cores, PHYs, ...)
 
     def _scan_tree(root_path, target_category=None):
         """Recursively walk root_path, classify each directory by content.
@@ -1740,14 +2723,30 @@ def cmd_generate(args: argparse.Namespace) -> int:
                 ndm_dirs.append(root)
             if has_lef and root not in lef_dirs:
                 lef_dirs.append(root)
-            if has_lib and root not in stdcell_dirs and root not in memory_dirs and root not in io_dirs:
-                if target_category == 'memory':
-                    memory_dirs.append(root)
-                elif target_category == 'io':
-                    io_dirs.append(root)
-                elif target_category == 'stdcell':
-                    stdcell_dirs.append(root)
-                else:
+            # Explicit --<category>-path override: always claim the dir
+            # for the requested category — regardless of what filetypes
+            # live here. User telling us this is 'analog' / 'ip' is
+            # authoritative. Must run unconditionally so dirs with ONLY
+            # NDM/LEF (no .lib/.db) still get category-tagged for the
+            # file-level _category_for_path() lookup.
+            if target_category and (has_ndm or has_lef or has_lib):
+                for other in (stdcell_dirs, memory_dirs, io_dirs,
+                              analog_dirs, ip_dirs):
+                    if root in other:
+                        other.remove(root)
+                dest = {
+                    'memory': memory_dirs,
+                    'io':     io_dirs,
+                    'analog': analog_dirs,
+                    'ip':     ip_dirs,
+                    'stdcell': stdcell_dirs,
+                }.get(target_category)
+                if dest is not None and root not in dest:
+                    dest.append(root)
+            elif has_lib and not target_category:
+                if (root not in stdcell_dirs
+                        and root not in memory_dirs and root not in io_dirs
+                        and root not in analog_dirs and root not in ip_dirs):
                     # Auto-classify by directory name components
                     _dir_parts = root.lower().replace('\\', '/').split('/')
                     _basename = _dir_parts[-1] if _dir_parts else ''
@@ -1755,6 +2754,12 @@ def cmd_generate(args: argparse.Namespace) -> int:
                         memory_dirs.append(root)
                     elif any(p in ('io', 'iolib') or p.startswith('io_') for p in _dir_parts):
                         io_dirs.append(root)
+                    elif any(p in ('analog', 'ams') or p.startswith('analog_')
+                             or p.startswith('ana_') for p in _dir_parts):
+                        analog_dirs.append(root)
+                    elif any(p in ('ip', 'ips', 'hardip', 'softip')
+                             or p.startswith('ip_') for p in _dir_parts):
+                        ip_dirs.append(root)
                     else:
                         stdcell_dirs.append(root)
 
@@ -1785,12 +2790,21 @@ def cmd_generate(args: argparse.Namespace) -> int:
             logger.info("Scanning IO path: {}".format(ip))
             _scan_tree(ip, target_category='io')
 
-    # 5. IP/Analog paths (treat as stdcell for now — separate category TBD)
+    # 5. Analog paths (first-class category — tech(ndm,analog) etc.)
+    if hasattr(args, 'analog_path') and args.analog_path:
+        analog_dirs = []  # reset auto-detected
+        for ap in args.analog_path:
+            ap = os.path.abspath(ap)
+            logger.info("Scanning analog path: {}".format(ap))
+            _scan_tree(ap, target_category='analog')
+
+    # 6. IP paths (first-class category — tech(ndm,ip) etc.)
     if hasattr(args, 'ip_path') and args.ip_path:
+        ip_dirs = []  # reset auto-detected
         for ipp in args.ip_path:
             ipp = os.path.abspath(ipp)
             logger.info("Scanning IP path: {}".format(ipp))
-            _scan_tree(ipp, target_category='stdcell')
+            _scan_tree(ipp, target_category='ip')
 
     # ── Discovery ──────────────────────────────────────────────────────────
     # Data structures: {(track, vt): [path, ...]}
@@ -1801,15 +2815,27 @@ def cmd_generate(args: argparse.Namespace) -> int:
     timing_libs = defaultdict(list)   # (track,vt,corner) → [timing lib paths]
     power_libs = defaultdict(list)    # (track,vt,corner) → [power lib paths]
 
-    # Shared libs
-    ndm_memory = []
-    ndm_io = []
-    lef_memory = []
-    lef_io = []
-    lib_nom_memory = []
-    lib_nom_io = []
+    # Shared (non-track) libs — one bucket per category
+    ndm_memory = []; ndm_io = []; ndm_analog = []; ndm_ip = []
+    lef_memory = []; lef_io = []; lef_analog = []; lef_ip = []
+    db_memory  = []; db_io  = []; db_analog  = []; db_ip  = []
+    lib_nom_memory = []; lib_nom_io = []; lib_nom_analog = []; lib_nom_ip = []
     timing_memory = defaultdict(list)   # corner → [paths]
-    timing_io = defaultdict(list)       # corner → [paths]
+    timing_io     = defaultdict(list)
+    timing_analog = defaultdict(list)
+    timing_ip     = defaultdict(list)
+
+    # Fast lookup for dir-based classification. Takes a file path and
+    # returns 'memory' | 'io' | 'analog' | 'ip' | None (= stdcell / unknown).
+    def _category_for_path(fpath):
+        for cat, dirs in (('memory', memory_dirs),
+                          ('io',     io_dirs),
+                          ('analog', analog_dirs),
+                          ('ip',     ip_dirs)):
+            for d in dirs:
+                if fpath.startswith(d.rstrip('/') + '/') or fpath == d:
+                    return cat
+        return None
 
     discovered_tracks = set()
     discovered_vts = set()
@@ -1818,6 +2844,9 @@ def cmd_generate(args: argparse.Namespace) -> int:
     excluded_count = 0
 
     # ── Scan NDMs ──
+    # Classification priority: directory membership (explicit --memory-path,
+    # --analog-path, etc.) → filename substring → stdcell default. Dir-based
+    # wins because it's authoritative (user told us where things live).
     for ndm_dir in ndm_dirs:
         if not os.path.isdir(ndm_dir):
             continue
@@ -1827,12 +2856,25 @@ def cmd_generate(args: argparse.Namespace) -> int:
             fpath = os.path.join(ndm_dir, f)
             if _is_excluded(fpath):
                 excluded_count += 1; continue
+            # 1) Explicit --<category>-path membership wins.
+            _cat = _category_for_path(fpath)
+            if _cat == 'memory':  ndm_memory.append(fpath); continue
+            if _cat == 'io':      ndm_io.append(fpath);     continue
+            if _cat == 'analog':  ndm_analog.append(fpath); continue
+            if _cat == 'ip':      ndm_ip.append(fpath);     continue
+            # 2) Fallback filename substring for the lib_root auto-scan case.
             fl = f.lower()
             if 'memory' in fl or 'mem' in fl:
                 ndm_memory.append(fpath)
                 continue
             if '_io' in fl or 'io.' in fl:
                 ndm_io.append(fpath)
+                continue
+            if 'analog' in fl or '_ana_' in fl:
+                ndm_analog.append(fpath)
+                continue
+            if '_ip_' in fl or fl.startswith('ip_'):
+                ndm_ip.append(fpath)
                 continue
             vt, _ = _extract_vt(f, vt_list)
             trk = _extract_track(f, tracks, _track_patterns)
@@ -1862,11 +2904,24 @@ def cmd_generate(args: argparse.Namespace) -> int:
             fl = f.lower()
             if 'tech' in fl:
                 continue
+            # 1) Dir-based classification wins.
+            _cat = _category_for_path(fpath)
+            if _cat == 'memory':  lef_memory.append(fpath); continue
+            if _cat == 'io':      lef_io.append(fpath);     continue
+            if _cat == 'analog':  lef_analog.append(fpath); continue
+            if _cat == 'ip':      lef_ip.append(fpath);     continue
+            # 2) Fallback filename substring.
             if 'memory' in fl or 'mem' in fl:
                 lef_memory.append(fpath)
                 continue
             if '_io' in fl or 'io.' in fl:
                 lef_io.append(fpath)
+                continue
+            if 'analog' in fl or '_ana_' in fl:
+                lef_analog.append(fpath)
+                continue
+            if '_ip_' in fl or fl.startswith('ip_'):
+                lef_ip.append(fpath)
                 continue
             vt, _ = _extract_vt(f, vt_list)
             trk = _extract_track(f, tracks, _track_patterns)
@@ -1922,39 +2977,38 @@ def cmd_generate(args: argparse.Namespace) -> int:
                 elif vt and trk and not corner:
                     lib_nom_libs[(trk, vt)].append(fpath)
 
-    # ── Scan memory timing libs ──
-    for memory_dir in memory_dirs:
-        if not os.path.isdir(memory_dir):
-            continue
-        for f in sorted(os.listdir(memory_dir)):
-            if not _is_lib_file(f):
+    # ── Scan category-specific .lib/.db (memory, io, analog, ip) ──
+    # Each category has a single flat directory list (not keyed by track/VT)
+    # because these macros are typically delivered as unified units with
+    # corner suffixes encoding the PVT.
+    _cat_bucket = {
+        'memory': (timing_memory, lib_nom_memory, db_memory),
+        'io':     (timing_io,     lib_nom_io,     db_io),
+        'analog': (timing_analog, lib_nom_analog, db_analog),
+        'ip':     (timing_ip,     lib_nom_ip,     db_ip),
+    }
+    for cat, dirs_list in (('memory', memory_dirs), ('io', io_dirs),
+                           ('analog', analog_dirs), ('ip', ip_dirs)):
+        tdict, nom_list, db_list = _cat_bucket[cat]
+        for cat_dir in dirs_list:
+            if not os.path.isdir(cat_dir):
                 continue
-            fpath = os.path.join(memory_dir, f)
-            if _is_excluded(fpath):
-                excluded_count += 1; continue
-            base_name, _ = _strip_lib_extension(f)
-            corner = _extract_corner(base_name)
-            if corner:
-                timing_memory[corner].append(fpath)
-            else:
-                lib_nom_memory.append(fpath)
-
-    # ── Scan IO timing libs ──
-    for io_dir in io_dirs:
-        if not os.path.isdir(io_dir):
-            continue
-        for f in sorted(os.listdir(io_dir)):
-            if not _is_lib_file(f):
-                continue
-            fpath = os.path.join(io_dir, f)
-            if _is_excluded(fpath):
-                excluded_count += 1; continue
-            base_name, _ = _strip_lib_extension(f)
-            corner = _extract_corner(base_name)
-            if corner:
-                timing_io[corner].append(fpath)
-            else:
-                lib_nom_io.append(fpath)
+            for f in sorted(os.listdir(cat_dir)):
+                fpath = os.path.join(cat_dir, f)
+                if _is_excluded(fpath):
+                    excluded_count += 1; continue
+                if _is_db_file(f):
+                    db_list.append(fpath)
+                    continue
+                if not _is_lib_file(f):
+                    continue
+                base_name, _ = _strip_lib_extension(f)
+                corner = _extract_corner(base_name)
+                if corner:
+                    tdict[corner].append(fpath)
+                    discovered_corners.add(corner)
+                else:
+                    nom_list.append(fpath)
 
     # ── Sort discovered sets ──
     def _track_sort_key(t):
@@ -1982,11 +3036,21 @@ def cmd_generate(args: argparse.Namespace) -> int:
                 "tech(tracks_available) lists {} but no libraries were "
                 "found for {}.".format(sorted(declared), sorted(missing)))
         if not overlap and not extra:
-            logger.error(
-                "No tracks matched. tech(tracks_available)={} but nothing "
-                "on disk matches. Check --lib-root and file naming.".format(
-                    sorted(declared)))
-            return 1
+            # Tracks are mandatory for stdcell scans. For add-mode on a
+            # non-stdcell category (analog / ip / memory / io), tracks are
+            # legitimately absent — those blocks aren't track-keyed.
+            _add_cat = (getattr(args, 'category', None)
+                        if getattr(args, '_add_mode', False) else None)
+            if _add_cat and _add_cat != 'stdcell':
+                logger.info(
+                    "No tracks matched for --category={} (track-agnostic — "
+                    "scan continues).".format(_add_cat))
+            else:
+                logger.error(
+                    "No tracks matched. tech(tracks_available)={} but nothing "
+                    "on disk matches. Check --lib-root and file naming.".format(
+                        sorted(declared)))
+                return 1
         # Order: declared-and-found first (in tech_config order), then extras
         all_tracks = ([t for t in tracks if t in discovered_tracks]
                       + sorted(extra, key=_track_sort_key))
@@ -1994,9 +3058,16 @@ def cmd_generate(args: argparse.Namespace) -> int:
     all_corners = sorted(discovered_corners)
 
     if not all_tracks:
-        logger.error("No tracks discovered. Check --lib-root directory structure "
-                     "and confirm library filenames encode the track (e.g. '9T', '6T').")
-        return 1
+        # In add-mode we only need tracks if the user is adding stdcell libs.
+        # Memory/io/analog/ip libs are track-agnostic — a late-arriving
+        # analog IP shouldn't have to pretend it has a track.
+        _add_cat = getattr(args, 'category', None) if getattr(args, '_add_mode', False) else None
+        if _add_cat and _add_cat != 'stdcell':
+            logger.info("No tracks (category={} is track-agnostic — OK)".format(_add_cat))
+        else:
+            logger.error("No tracks discovered. Check --lib-root directory structure "
+                         "and confirm library filenames encode the track (e.g. '9T', '6T').")
+            return 1
 
     # ── Verify: read .lib headers and cross-check PVT against filenames ──
     pvt_mismatches = []
@@ -2257,93 +3328,605 @@ def cmd_generate(args: argparse.Namespace) -> int:
                     trk, corner, " ".join('"{}"'.format(p) for p in combined)))
     w("")
 
-    # ── Write output ──
-    output_text = "\n".join(lines) + "\n"
+    # ── Tag directory materialization (2026-10-10 layout) ──
+    #
+    # Preamble `lines` already contains the vendor-absolute `tech(...)`
+    # entries. From this point we discard them and re-emit using LOCAL
+    # paths rooted at `$_lib_tag_dir`, so the tag directory is relocatable
+    # and `lib_config.tcl` doesn't dangle when the vendor delivery is
+    # moved. The vendor-abs paths are recorded in MANIFEST.tcl for audit.
 
-    output_path = args.output
     tag = args.tag if hasattr(args, 'tag') and args.tag else None
+    output_path = getattr(args, 'output', None)
     if not tag and not output_path:
         logger.error("--tag is required (e.g., --tag P0, --tag timing_v1)")
-        logger.error("This sets the lib_config name: lib_config_<tag>.tcl")
+        logger.error("Output: <tech_dir>/<TAG>/lib_config.tcl")
         return 1
-    if not output_path:
-        core_dir = get_cbflow_core_dir()
-        fname = "lib_config_{}.tcl".format(tag)
-        output_path = os.path.join(core_dir, "config", "tech", tech_name, version, fname)
 
-    # ── Incremental: merge with existing lib_config ──
-    incremental = hasattr(args, 'incremental') and args.incremental
+    # --output <path> is a developer escape hatch: write a single flat
+    # file at that path with the old vendor-abs shape. Does NOT create a
+    # tag dir — reserved for debug / scripting.
+    if output_path and not tag:
+        output_text = "\n".join(lines) + "\n"
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        with open(output_path, 'w') as fh:
+            fh.write(output_text)
+        logger.info("Flat output written to: {}".format(output_path))
+        return 0
+
+    # Tech config dir (where tech_config.tcl lives — still in global).
+    tech_dir = _resolve_tech_dir(tech_name, version)
+    if not tech_dir:
+        logger.error("Cannot locate tech dir for {} (CBFLOW_GLOBAL_DIR not set?)".format(tech_name))
+        return 1
+
+    # Resolve the EXTERNAL lib_tag_root (post 2026-10-14 externalization).
+    # Lives OUTSIDE the framework tree so flow updates don't require
+    # regenerating libraries. Error-out if unset — user must explicitly
+    # declare the site-wide library location.
+    _lib_root = _resolve_lib_tag_root(
+        tech_name, version,
+        project_name=(getattr(args, 'project', None)
+                      or os.environ.get('CBFLOW_PROJECT_NAME', '')),
+        cli_override=getattr(args, 'lib_tag_root', None))
+    if not _lib_root:
+        logger.error("")
+        for ln in _lib_tag_root_fix_guide(tech_name, version):
+            logger.error("  " + ln)
+        logger.error("")
+        return 1
+    try:
+        os.makedirs(_lib_root, exist_ok=True)
+    except OSError as e:
+        logger.error("Cannot create lib_tag_root '{}': {}".format(_lib_root, e))
+        return 1
+    # Layout: <lib_tag_root>/<tech_node>/<tag>/. Groups every tag for a
+    # tech under one dir so lib_config.tcl and mmmc_config.tcl for the
+    # same (tech, tag) live together. Pre-fix wrote <root>/<tag>/
+    # which collided across techs sharing a lib_tag_root.
+    tech_scoped_root = os.path.join(_lib_root, tech_name)
+    try:
+        os.makedirs(tech_scoped_root, exist_ok=True)
+    except OSError as e:
+        logger.error("Cannot create tech-scoped tag root '{}': {}".format(tech_scoped_root, e))
+        return 1
+    tag_dir = os.path.join(tech_scoped_root, tag)
+    logger.info("Tag directory: {}".format(tag_dir))
+
+    # Auto-migrate legacy flat `lib_config_<tag>.tcl` — detect + log the
+    # takeover. The materialize step below rebuilds the tag dir cleanly
+    # from the current scan, so we don't try to parse the old file. The
+    # old file is deleted at the end once the new tag dir is complete.
+    legacy_flat = os.path.join(tech_dir, 'lib_config_{}.tcl'.format(tag))
+    migrated_from_flat = os.path.isfile(legacy_flat)
+    if migrated_from_flat:
+        logger.info("Legacy lib_config_{}.tcl detected — will migrate to {}/".format(
+            tag, tag))
+
+    # DB memory/io: scan for .db files in memory/io dirs — needed by the
+    # materializer below. This computation used to live in the inline
+    # emission block that's been replaced.
+    # db_memory/db_io now populated during the main category-scan loop;
+    # these local aliases kept for backward-compat variable names below.
+    db_mem = db_memory
+
+    # Build the on-disk structure (subdirs + symlinks + MANIFEST + README).
+    scan_log = [
+        "tracks:  {}".format(" ".join(all_tracks)),
+        "vts:     {}".format(" ".join(all_vts)),
+        "corners: {}".format(" ".join(all_corners)),
+        "NDM: stdcell={} memory={} io={} analog={} ip={}".format(
+            len(ndm_libs), len(ndm_memory), len(ndm_io),
+            len(ndm_analog), len(ndm_ip)),
+        "DB:  stdcell={} memory={} io={} analog={} ip={}".format(
+            len(db_libs), len(db_memory), len(db_io),
+            len(db_analog), len(db_ip)),
+        "LEF: stdcell={} memory={} io={} analog={} ip={}".format(
+            len(lef_libs), len(lef_memory), len(lef_io),
+            len(lef_analog), len(lef_ip)),
+        "timing_libs groups: {}  (track×vt×corner)".format(len(timing_libs)),
+    ]
+    local_map = _materialize_tag_dir(
+        tag_dir=tag_dir,
+        tech_name=tech_name,
+        tag=tag,
+        lib_root=lib_root,
+        all_tracks=all_tracks,
+        all_vts=all_vts,
+        all_corners=all_corners,
+        ndm_libs=ndm_libs,
+        db_libs=db_libs,
+        lef_libs=lef_libs,
+        lib_nom_libs=lib_nom_libs,
+        timing_libs=timing_libs,
+        ndm_memory=ndm_memory,       ndm_io=ndm_io,
+        ndm_analog=ndm_analog,       ndm_ip=ndm_ip,
+        db_mem=db_memory,            db_io=db_io,
+        db_analog=db_analog,         db_ip=db_ip,
+        lef_memory=lef_memory,       lef_io=lef_io,
+        lef_analog=lef_analog,       lef_ip=lef_ip,
+        lib_nom_memory=lib_nom_memory, lib_nom_io=lib_nom_io,
+        lib_nom_analog=lib_nom_analog, lib_nom_ip=lib_nom_ip,
+        timing_memory=timing_memory, timing_io=timing_io,
+        timing_analog=timing_analog, timing_ip=timing_ip,
+        scan_log_lines=scan_log,
+        preserve_other_categories=(getattr(args, 'incremental', False)
+                                   or getattr(args, '_add_mode', False)),
+    )
+
+    # ── Emit lib_config.tcl using LOCAL tag-relative paths ───────────────
+    # `$_lib_tag_dir` anchors to this file's own directory via
+    # `[file dirname [info script]]`, so the whole tag dir is movable.
+    new_lines = []
+    def nw(s):
+        new_lines.append(s)
+
+    nw("#!/usr/bin/env tclsh")
+    nw("# " + "=" * 77)
+    nw("# AUTO-GENERATED by: cbflow flow library-manager generate")
+    nw("# Tech: {}  |  Tag: {}  |  Generated: {}".format(
+        tech_name, tag, datetime.now().strftime("%Y-%m-%d %H:%M")))
+    nw("# Source lib_root: {}".format(lib_root))
+    nw("# Tracks: {}  |  VTs: {}  |  Corners: {}".format(
+        " ".join(all_tracks), " ".join(all_vts), len(all_corners)))
+    nw("# ")
+    nw("# Paths below are LOCAL to this file via $_lib_tag_dir. The actual")
+    nw("# vendor-source target of every symlink is recorded in MANIFEST.tcl.")
+    nw("# To relocate: `mv {} <new>` moves lib_config + every linked file".format(tag))
+    nw("# with it. To regenerate: cbflow flow library-manager generate ...")
+    nw("# " + "=" * 77)
+    nw("")
+    nw("# Anchor every path to this file's directory so the tag is portable.")
+    nw("set _lib_tag_dir [file dirname [file normalize [info script]]]")
+    nw("")
+
+    def _fmt_list(key_tuple):
+        """Lookup local paths for a key tuple; return formatted TCL list
+        or an empty string if the materializer had nothing to link."""
+        paths = local_map.get(key_tuple, [])
+        if not paths:
+            return ""
+        return " ".join('"{}"'.format(p) for p in paths)
+
+    # NDM per track per VT (local)
+    nw("# ── NDM per track per VT ──")
+    for trk in all_tracks:
+        for vt in all_vts:
+            v = _fmt_list((trk, vt, 'ndm'))
+            if v:
+                nw('set tech({},{},ndm) [list {}]'.format(trk, vt, v))
+    nw("")
+
+    nw("# ── NDM shared (memory / io / analog / ip) ──")
+    for cat in ('memory', 'io', 'analog', 'ip'):
+        nw('set tech(ndm,{}) [list {}]'.format(cat, _fmt_list((cat, 'ndm'))))
+    nw("")
+
+    nw("# ── NDM combined per track (all VTs + every shared category) ──")
+    for trk in all_tracks:
+        combined = []
+        for vt in all_vts:
+            combined.extend(local_map.get((trk, vt, 'ndm'), []))
+        for cat in ('memory', 'io', 'analog', 'ip'):
+            combined.extend(local_map.get((cat, 'ndm'), []))
+        nw('set tech({},ndm) [list {}]'.format(
+            trk, " ".join('"{}"'.format(p) for p in combined)))
+    nw("")
+
+    # DB
+    nw("# ── DB per track per VT ──")
+    for trk in all_tracks:
+        for vt in all_vts:
+            v = _fmt_list((trk, vt, 'db'))
+            if v:
+                nw('set tech({},{},db) [list {}]'.format(trk, vt, v))
+    nw("")
+    nw("# ── DB shared ──")
+    for cat in ('memory', 'io', 'analog', 'ip'):
+        nw('set tech(db,{}) [list {}]'.format(cat, _fmt_list((cat, 'db'))))
+    nw("")
+    nw("# ── DB combined per track ──")
+    for trk in all_tracks:
+        combined = []
+        for vt in all_vts:
+            combined.extend(local_map.get((trk, vt, 'db'), []))
+        for cat in ('memory', 'io', 'analog', 'ip'):
+            combined.extend(local_map.get((cat, 'db'), []))
+        nw('set tech({},db) [list {}]'.format(
+            trk, " ".join('"{}"'.format(p) for p in combined)))
+    nw("")
+
+    # lib_nom
+    nw("# ── lib_nom per track per VT ──")
+    for trk in all_tracks:
+        for vt in all_vts:
+            v = _fmt_list((trk, vt, 'lib_nom'))
+            if v:
+                nw('set tech({},{},lib_nom) [list {}]'.format(trk, vt, v))
+    nw("")
+    nw("# ── lib_nom shared ──")
+    for cat in ('memory', 'io', 'analog', 'ip'):
+        nw('set tech(lib_nom,{}) [list {}]'.format(
+            cat, _fmt_list((cat, 'lib_nom'))))
+    nw("")
+    nw("# ── lib_nom combined per track (all VTs + every shared category) ──")
+    # Fallback: when there's no explicit lib_nom per VT (vendors often ship
+    # only timing libs per corner), use the TT nominal corner timing lib
+    # (room temperature preferred) as the nominal library.
+    _nom_corner = None
+    for _c in all_corners:
+        if _c.startswith('tt') and '25c' in _c:
+            _nom_corner = _c; break
+    if not _nom_corner:
+        for _c in all_corners:
+            if _c.startswith('tt'):
+                _nom_corner = _c; break
+    for trk in all_tracks:
+        combined = []
+        for vt in all_vts:
+            explicit = local_map.get((trk, vt, 'lib_nom'), [])
+            if explicit:
+                combined.extend(explicit)
+            elif _nom_corner:
+                combined.extend(local_map.get(
+                    (trk, vt, _nom_corner, 'lib_timing'), []))
+        for cat in ('memory', 'io', 'analog', 'ip'):
+            cat_nom = local_map.get((cat, 'lib_nom'), [])
+            if cat_nom:
+                combined.extend(cat_nom)
+            elif _nom_corner:
+                combined.extend(local_map.get(
+                    (cat, _nom_corner, 'lib_timing'), []))
+        nw('set tech({},lib_nom) [list {}]'.format(
+            trk, " ".join('"{}"'.format(p) for p in combined)))
+    nw("")
+
+    # LEF
+    nw("# ── LEF per track per VT ──")
+    for trk in all_tracks:
+        for vt in all_vts:
+            v = _fmt_list((trk, vt, 'lef'))
+            if v:
+                nw('set tech({},{},lef) [list {}]'.format(trk, vt, v))
+    nw("")
+    nw("# ── LEF shared ──")
+    for cat in ('memory', 'io', 'analog', 'ip'):
+        nw('set tech(lef,{}) [list {}]'.format(cat, _fmt_list((cat, 'lef'))))
+    nw("")
+    nw("# ── LEF combined per track ──")
+    for trk in all_tracks:
+        combined = []
+        for vt in all_vts:
+            combined.extend(local_map.get((trk, vt, 'lef'), []))
+        for cat in ('memory', 'io', 'analog', 'ip'):
+            combined.extend(local_map.get((cat, 'lef'), []))
+        nw('set tech({},lef) [list {}]'.format(
+            trk, " ".join('"{}"'.format(p) for p in combined)))
+    nw("")
+
+    # Corners discovered
+    nw("# ── Corners discovered ──")
+    nw('set tech(corners) {{{}}}'.format(" ".join(all_corners)))
+    nw("")
+
+    # Timing libs per track per VT per corner
+    nw("# ── Timing libs per track per VT per corner ──")
+    for trk in all_tracks:
+        for corner in all_corners:
+            for vt in all_vts:
+                v = _fmt_list((trk, vt, corner, 'lib_timing'))
+                if v:
+                    nw('set tech({},{},lib,{},timing) [list {}]'.format(
+                        trk, vt, corner, v))
+    nw("")
+
+    nw("# ── Timing libs shared per corner (memory / io / analog / ip) ──")
+    for corner in all_corners:
+        for cat in ('memory', 'io', 'analog', 'ip'):
+            nw('set tech(lib,{},timing,{}) [list {}]'.format(
+                corner, cat, _fmt_list((cat, corner, 'lib_timing'))))
+    nw("")
+
+    nw("# ── Timing combined per track per corner ──")
+    for trk in all_tracks:
+        for corner in all_corners:
+            combined = []
+            for vt in all_vts:
+                combined.extend(local_map.get((trk, vt, corner, 'lib_timing'), []))
+            combined.extend(local_map.get(('memory', corner, 'lib_timing'), []))
+            combined.extend(local_map.get(('io', corner, 'lib_timing'), []))
+            if combined:
+                nw('set tech({},lib,{},timing) [list {}]'.format(
+                    trk, corner, " ".join('"{}"'.format(p) for p in combined)))
+    nw("")
+
+    output_text = "\n".join(new_lines) + "\n"
+    output_path = os.path.join(tag_dir, 'lib_config.tcl')
+
+    # ── Incremental merge (--incremental or `add` subcommand) ────────────
+    # Three-way merge rule per tech(KEY):
+    #   1. If new has non-empty value → new wins
+    #   2. If new has empty-list value AND old has non-empty value → keep old
+    #   3. If new absent → keep old
+    # Rule 2 is critical for `add --category ip`: that scan emits
+    # `tech(ndm,analog) [list ]` (because this scan found no analog), but
+    # the tag already has analog content from a prior `add --category
+    # analog`. Clobbering with an empty list would silently drop analog
+    # from the config.
+    incremental = getattr(args, 'incremental', False) or getattr(args, '_add_mode', False)
     if incremental and os.path.exists(output_path):
-        # Read existing entries, keep anything not overwritten by new scan
-        existing_keys = set()
-        new_keys = set()
-        for line in lines:
-            m = re.match(r'set tech\(([^)]+)\)', line)
-            if m:
-                new_keys.add(m.group(1))
-
-        existing_lines = []
-        with open(output_path, 'r') as ef:
-            for eline in ef:
-                m = re.match(r'set tech\(([^)]+)\)', eline.strip())
+        # Index new lines by key, detect empty-list emissions.
+        _empty_re = re.compile(r'set\s+tech\(([^)]+)\)\s+\[list\s*\]\s*$')
+        _nonempty_re = re.compile(r'set\s+tech\(([^)]+)\)')
+        new_nonempty_keys = set()
+        new_empty_keys = set()
+        new_lineno_by_key = {}  # key → index in new_lines (for replacement)
+        for i, line in enumerate(new_lines):
+            stripped = line.strip()
+            if _empty_re.match(stripped):
+                m = _empty_re.match(stripped)
+                new_empty_keys.add(m.group(1))
+                new_lineno_by_key[m.group(1)] = i
+            else:
+                m = _nonempty_re.match(stripped)
                 if m:
-                    key = m.group(1)
-                    if key not in new_keys:
-                        existing_lines.append(eline.rstrip())
-                        existing_keys.add(key)
+                    new_nonempty_keys.add(m.group(1))
+                    new_lineno_by_key[m.group(1)] = i
 
-        if existing_lines:
-            lines.append("")
-            lines.append("# ── Retained from previous lib_config (incremental merge) ──")
-            lines.extend(existing_lines)
-            output_text = "\n".join(lines) + "\n"
-            logger.info("Incremental: retained {} existing entries, added {} new".format(
-                len(existing_keys), len(new_keys)))
+        retained = []
+        with open(output_path, 'r') as ef:
+            for ln in ef:
+                stripped = ln.strip()
+                m = _nonempty_re.match(stripped)
+                if not m:
+                    continue
+                key = m.group(1)
+                # Non-empty old value for a key the new scan emitted empty →
+                # replace the empty new line in-place so the final order
+                # stays organized under the proper section header.
+                is_old_empty = bool(_empty_re.match(stripped))
+                if key in new_empty_keys and not is_old_empty:
+                    new_lines[new_lineno_by_key[key]] = ln.rstrip()
+                elif key not in new_nonempty_keys and key not in new_empty_keys:
+                    retained.append(ln.rstrip())
 
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    with open(output_path, 'w') as fh:
-        fh.write(output_text)
+        if retained:
+            new_lines.append("")
+            new_lines.append("# ── Retained from previous lib_config (incremental merge) ──")
+            new_lines.extend(retained)
+            logger.info("Incremental: retained {} entries + preserved non-empty values".format(
+                len(retained)))
+        output_text = "\n".join(new_lines) + "\n"
+
+    # Atomic rewrite — pre-fix, open-w truncate destroyed the entire
+    # tech lib_config.tcl + the retention-merge computation above if the
+    # process died mid-write. Subsequent flow runs crashed with
+    # 'tech(...) not set' and the retained custom entries were lost.
+    atomic_write(output_path, output_text)
+
+    # Final step: remove the legacy flat file so the directory is the
+    # single source of truth. Leaves a .migrated-to-dir marker in logs/
+    # so an audit can tell where it went.
+    if migrated_from_flat and os.path.isfile(legacy_flat):
+        try:
+            os.remove(legacy_flat)
+            with open(os.path.join(tag_dir, 'logs', 'migrated_from_flat.txt'),
+                      'w') as fh:
+                fh.write("Legacy lib_config_{}.tcl was removed on {}.\n".format(
+                    tag, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                fh.write("The tag directory '{}/' is now the single source of truth.\n".format(tag))
+        except OSError as e:
+            logger.warning("Could not remove legacy {}: {}".format(legacy_flat, e))
 
     # ── Discovery report ──
     total_stdcell_timing = len(timing_libs)
-    missing_memory = []
-    missing_io = []
-    for corner in all_corners:
-        if corner not in timing_memory:
-            missing_memory.append(corner)
-        if corner not in timing_io:
-            missing_io.append(corner)
+
+    # Effective lib_nom = EXPLICIT nominal libs if any, else the TT-corner
+    # fallback library-manager uses when generating lib_config.tcl. The
+    # discovery report must show the EFFECTIVE count — otherwise `lib_nom
+    # = 0` on a tree that has a TT corner misleads the user into thinking
+    # downstream flows will have nothing to use for nominal corner.
+    #
+    # The generated lib_config emits `tech(<track>,lib_nom)` from TT libs
+    # when no explicit nominal exists (see cmd_generate's lib_nom emit).
+    # Match that logic here.
+    def _effective_nom_count(explicit_dict, timing_dict, per_track_vt=True):
+        """Return effective lib_nom count for a category.
+          explicit_dict  — the lib_nom_* dict (keyed on (track,vt) or similar)
+          timing_dict    — the timing_* dict (keyed on (track,vt,corner))
+          per_track_vt   — True = count unique (track,vt) pairs,
+                           False = count TT-corner entries directly.
+        """
+        if explicit_dict:
+            return sum(len(v) for v in explicit_dict.values()) \
+                if hasattr(explicit_dict, 'values') else len(explicit_dict)
+        # Fallback: TT-corner libs for this category.
+        if hasattr(timing_dict, 'keys'):
+            if per_track_vt:
+                tt_track_vts = {(k[0], k[1]) for k in timing_dict.keys()
+                                if len(k) >= 3 and str(k[2]).lower().startswith('tt')}
+                return len(tt_track_vts)
+            else:
+                return sum(len(v) for k, v in timing_dict.items()
+                           if str(k).lower().startswith('tt'))
+        return 0
+
+    stdcell_nom_eff = _effective_nom_count(lib_nom_libs, timing_libs, True)
+    mem_nom_eff     = _effective_nom_count(lib_nom_memory, timing_memory, False)
+    io_nom_eff      = _effective_nom_count(lib_nom_io,     timing_io,     False)
+    analog_nom_eff  = _effective_nom_count(lib_nom_analog, timing_analog, False)
+    ip_nom_eff      = _effective_nom_count(lib_nom_ip,     timing_ip,     False)
+
+    # Per-category view counts — rows = categories, cols = view kinds.
+    # Each cell holds the number of libs/files discovered for that
+    # (category, kind) combination. Lets us flag:
+    #   · categories the user explicitly asked for that found nothing
+    #   · categories with partial coverage (has .lib but no .ndm — breaks PnR)
+    #   · timing-corner holes per category (not just memory/io)
+    _CAT_VIEW_COUNTS = {
+        'stdcell': {'ndm': len(ndm_libs), 'db': len(db_libs),
+                    'lef': len(lef_libs), 'lib_nom': stdcell_nom_eff,
+                    'timing': total_stdcell_timing},
+        'memory':  {'ndm': len(ndm_memory), 'db': len(db_memory),
+                    'lef': len(lef_memory), 'lib_nom': mem_nom_eff,
+                    'timing': sum(len(v) for v in timing_memory.values())},
+        'io':      {'ndm': len(ndm_io), 'db': len(db_io),
+                    'lef': len(lef_io), 'lib_nom': io_nom_eff,
+                    'timing': sum(len(v) for v in timing_io.values())},
+        'analog':  {'ndm': len(ndm_analog), 'db': len(db_analog),
+                    'lef': len(lef_analog), 'lib_nom': analog_nom_eff,
+                    'timing': sum(len(v) for v in timing_analog.values())},
+        'ip':      {'ndm': len(ndm_ip), 'db': len(db_ip),
+                    'lef': len(lef_ip), 'lib_nom': ip_nom_eff,
+                    'timing': sum(len(v) for v in timing_ip.values())},
+    }
+    # Track whether each category's lib_nom came from explicit files
+    # or TT fallback (for the footer legend).
+    _CAT_NOM_SOURCE = {
+        'stdcell': 'explicit' if lib_nom_libs    else 'TT-fallback',
+        'memory':  'explicit' if lib_nom_memory  else 'TT-fallback',
+        'io':      'explicit' if lib_nom_io      else 'TT-fallback',
+        'analog':  'explicit' if lib_nom_analog  else 'TT-fallback',
+        'ip':      'explicit' if lib_nom_ip      else 'TT-fallback',
+    }
+    _nom_fallback_used = any(src == 'TT-fallback'
+                             and _CAT_VIEW_COUNTS[cat]['lib_nom'] > 0
+                             for cat, src in _CAT_NOM_SOURCE.items())
+    # Whether the user explicitly asked for each category via CLI.
+    # Analog + IP are never implicitly populated — if the user DIDN'T ask
+    # and nothing was found, that's expected, not a warning.
+    _CAT_ASKED = {
+        'stdcell': True,  # always expected
+        'memory':  bool(getattr(args, 'memory_path', None) or True),
+        'io':      bool(getattr(args, 'io_path', None) or True),
+        'analog':  bool(getattr(args, 'analog_path', None)),
+        'ip':      bool(getattr(args, 'ip_path', None)),
+    }
+    # Timing-corner missing per category (expanded from the old
+    # memory+io-only check).
+    _per_cat_timing = {
+        'memory': timing_memory, 'io': timing_io,
+        'analog': timing_analog, 'ip': timing_ip,
+    }
+    _missing_corners_per_cat = {}
+    for cat, timing_dict in _per_cat_timing.items():
+        if _CAT_VIEW_COUNTS[cat]['timing'] == 0 and not _CAT_ASKED[cat]:
+            continue  # not requested, don't scold
+        _missing_corners_per_cat[cat] = [c for c in all_corners
+                                         if c not in timing_dict]
 
     print("")
     print("=" * 60)
     print("  Library Discovery Report — {}".format(tech_name))
     print("=" * 60)
     if excluded_count > 0:
-        print("  Excluded:  {} files (patterns: {})".format(excluded_count, ", ".join(exclude_patterns)))
+        print("  Excluded:  {} files (patterns: {})".format(
+            excluded_count, ", ".join(exclude_patterns)))
     print("  Tracks:    {}".format(" ".join(all_tracks)))
     print("  VTs:       {}".format(" ".join(all_vts)))
     print("  Corners:   {}".format(len(all_corners)))
-    print("  NDM:       {} stdcell + {} memory + {} io".format(
-        len(ndm_libs), len(ndm_memory), len(ndm_io)))
-    print("  DB:        {} stdcell".format(len(db_libs)))
-    print("  LEF:       {} stdcell + {} memory + {} io".format(
-        len(lef_libs), len(lef_memory), len(lef_io)))
-    print("  lib_nom:   {} stdcell".format(len(lib_nom_libs)))
-    print("  Timing:    {} stdcell sets".format(total_stdcell_timing))
     print("")
-    mem_ok = len(all_corners) - len(missing_memory)
-    io_ok = len(all_corners) - len(missing_io)
-    sym_mem = "ok" if not missing_memory else "MISSING"
-    sym_io = "ok" if not missing_io else "MISSING"
-    print("  Memory corners: {}/{} {}".format(mem_ok, len(all_corners), sym_mem))
-    if missing_memory:
-        for c in missing_memory:
-            print("    MISSING: memory corner {}".format(c))
-    print("  IO corners:     {}/{} {}".format(io_ok, len(all_corners), sym_io))
-    if missing_io:
-        for c in missing_io:
-            print("    MISSING: io corner {}".format(c))
+
+    # ── Per-category view coverage table ──────────────────────────────
+    # Per-category view counts. LEF here is the PER-CATEGORY cell/macro
+    # LEF (stdcell, memory, io, analog, ip) — one per cell or per
+    # (track, VT). Tech LEFs (the metal-stack definition files) are a
+    # separate class entirely: they're declared directly in
+    # tech_config.tcl as `tech(<stack>,<track>,lef_tech)` and surfaced
+    # by `cbflow flow library-manager status`. Do not conflate the two.
+    _nom_hdr = 'lib_nom*' if _nom_fallback_used else 'lib_nom'
+    print("  {:<9s} {:>5s} {:>5s} {:>5s} {:>8s} {:>8s}".format(
+        'Category', 'NDM', 'DB', 'LEF', _nom_hdr, 'timing'))
+    print("  " + "-" * 55)
+    for cat in ('stdcell', 'memory', 'io', 'analog', 'ip'):
+        counts = _CAT_VIEW_COUNTS[cat]
+        nom_cell = '{:>8d}'.format(counts['lib_nom'])
+        if (counts['lib_nom'] > 0
+                and _CAT_NOM_SOURCE[cat] == 'TT-fallback'):
+            nom_cell = '{:>7d}*'.format(counts['lib_nom'])
+        print("  {:<9s} {:>5d} {:>5d} {:>5d} {} {:>8d}".format(
+            cat, counts['ndm'], counts['db'], counts['lef'],
+            nom_cell, counts['timing']))
     print("")
+    print("  Note: LEF column counts cell/macro LEFs per category only. "
+          "Tech LEFs (metal-stack")
+    print("        files) are tracked separately via "
+          "`cbflow flow library-manager status`.")
+    if _nom_fallback_used:
+        print("    *   lib_nom auto-derived from the TT corner (no explicit "
+              "*_nom.lib found).")
+    print("")
+
+    # ── Per-category warnings ─────────────────────────────────────────
+    # A category with zero libs that was explicitly asked for is a hard
+    # warning. A category with partial coverage (has lib but no ndm,
+    # etc.) breaks downstream flows.
+    _warnings = []
+    for cat in ('stdcell', 'memory', 'io', 'analog', 'ip'):
+        counts = _CAT_VIEW_COUNTS[cat]
+        any_view = any(counts[v] for v in counts)
+        if not any_view:
+            if _CAT_ASKED[cat] and cat not in ('memory', 'io'):
+                # User asked for this (--analog-path/--ip-path) but got nothing.
+                _warnings.append(
+                    "{} category: 0 libs found — the --{}-path(s) you "
+                    "passed resolved to no .lib/.ndm/.lef files. Check the "
+                    "paths exist and contain libraries.".format(cat, cat))
+            continue
+        # Partial coverage check — flag kinds that are missing when at
+        # least one kind is populated. Caveats:
+        #   · lib_nom is NOT flagged when it was effectively populated
+        #     via the TT-corner fallback (shown in the table as `n*`).
+        #   · cellLEF (= 'lef' key) is flagged with a softer message
+        #     — ICC2 doesn't need it since the NDM bundles the abstract,
+        #     only Innovus / Calibre antenna do. Don't scare users off
+        #     an ICC2 flow with 'will fail on signoff'.
+        empty_kinds = []
+        for v in ('ndm', 'db', 'lef', 'lib_nom', 'timing'):
+            if counts[v] > 0:
+                continue
+            if v == 'lib_nom' and counts['lib_nom'] > 0:
+                continue  # already handled above (table shows TT fallback)
+            empty_kinds.append(v)
+        if empty_kinds:
+            # Separate cellLEF from the hard-missing set so the message
+            # is tool-aware.
+            hard_missing = [k for k in empty_kinds if k != 'lef']
+            lef_missing  = ('lef' in empty_kinds)
+            if hard_missing:
+                _warnings.append(
+                    "{} category: partial coverage — missing {}. "
+                    "Downstream flows that need these view(s) will fail "
+                    "on signoff.".format(cat, ", ".join(hard_missing)))
+            if lef_missing:
+                _warnings.append(
+                    "{} category: no cell LEFs found. "
+                    "Required for Innovus P&R + Calibre antenna. "
+                    "ICC2 / FusionCompiler flows are OK — the NDM "
+                    "bundles the LEF abstract.".format(cat))
+
+    # Per-category timing-corner coverage.
+    for cat, missing in _missing_corners_per_cat.items():
+        n_corners = len(all_corners)
+        if n_corners == 0:
+            continue
+        ok_count = n_corners - len(missing)
+        sym = "ok" if not missing else "MISSING"
+        print("  {:<9s} corners: {}/{} {}".format(cat, ok_count, n_corners, sym))
+        if missing and (_CAT_VIEW_COUNTS[cat]['timing'] > 0 or _CAT_ASKED[cat]):
+            for c in missing:
+                print("    MISSING: {} timing corner {}".format(cat, c))
+    print("")
+
+    if _warnings:
+        print("  " + "─" * 56)
+        print("  WARNINGS")
+        print("  " + "─" * 56)
+        for w in _warnings:
+            print("  ! " + w)
+        print("")
+
+
     # PVT verification results
     print("  PVT Verification (filename vs .lib header):")
     if pvt_verified == 0 and pvt_skipped > 0:
@@ -2414,8 +3997,18 @@ def cmd_status(args: argparse.Namespace) -> int:
     enabled (`project(vt_flavors)`). Without --project, the full
     declared axes are checked.
     """
-    if getattr(args, "tech", None):
-        require_tech_config(args.tech, getattr(args, "version", None))
+    # --tech-config overrides --tech. Derive the tech name from the
+    # path convention when the user passes an explicit tech_config
+    # path so cmd_status works outside the flow dir.
+    _tc_override = getattr(args, 'tech_config', None)
+    if _tc_override and not args.tech:
+        from core.paths import tech_name_from_config_path
+        _derived = tech_name_from_config_path(_tc_override)
+        if _derived:
+            args.tech = _derived
+    if not args.tech:
+        logger.error("--tech or --tech-config is required")
+        return 1
     # R7-F11: sanitize path args before joining into core_dir paths.
     try:
         tech_name = _sanitize_name_arg(args.tech, 'tech')
@@ -2428,16 +4021,31 @@ def cmd_status(args: argparse.Namespace) -> int:
     except ValueError as e:
         logger.error(str(e))
         return 1
+
+    # tech_config resolved via cascade helper (global first, PD fallback).
+    # Reads both global + PD-overlay contents so status can report across
+    # foundry data AND PD-specific metal/cell choices.
+    tech_config = require_tech_config(tech_name, version)
     core_dir = get_cbflow_core_dir()
-    tech_config = os.path.join(core_dir, 'config', 'tech', tech_name, version, 'tech_config.tcl')
-    lib_config = os.path.join(core_dir, 'config', 'tech', tech_name, version, 'lib_config.tcl')
+    # cmd_status reports on whichever tag is `project(lib_config_tag)` or the
+    # first one it finds. Post 2026-10-10 the lib_config lives inside
+    # <tech_dir>/<tag>/lib_config.tcl; fall back to legacy flat form.
+    _preferred_tag = (getattr(args, 'tag', None)
+                      or os.environ.get('CBFLOW_LIB_CONFIG_TAG', ''))
+    _avail_tags = _list_available_tags(tech_name, version)
+    _status_tag = _preferred_tag if _preferred_tag in _avail_tags else (
+        _avail_tags[0] if _avail_tags else '')
+    lib_config = (_resolve_lib_config_path(tech_name, _status_tag, version)
+                  if _status_tag else '')
 
-    if not os.path.exists(tech_config):
-        logger.error(f"tech_config.tcl not found: {tech_config}")
-        return 1
-
-    with open(tech_config) as f:
-        tc = f.read()
+    # Read the concatenation of global tech_config + PD tech_pd_config so
+    # legacy regex-parsers see the same key set the resolver would.
+    from core.paths import get_tech_config_paths
+    tc_parts = []
+    for _p in get_tech_config_paths(tech_name, version):
+        with open(_p) as f:
+            tc_parts.append(f.read())
+    tc = "\n".join(tc_parts)
 
     # ── Section 1: VT availability + project enablement ──
     available_vts = _tcl_list_from(tc, 'tech', 'vt_variants_available')
@@ -2470,10 +4078,27 @@ def cmd_status(args: argparse.Namespace) -> int:
     project_metal_stack = ''    # R7-F2: scope LEF/RCX verdict to this
     project_tracks: List[str] = []
     if project_name:
-        proj_config = os.path.join(core_dir, 'config', 'project', project_name, version, f'{project_name}_config.tcl')
-        if os.path.exists(proj_config):
-            with open(proj_config) as f:
-                pc = f.read()
+        # Walk global/ identity then PD/ overlay — concat contents so values
+        # from either side are picked up (overlay wins on key collision).
+        from core.paths import get_cbflow_global_dir
+        _candidates = []
+        _g = get_cbflow_global_dir()
+        if _g:
+            _candidates.append(os.path.join(
+                _g, 'config', 'project', project_name, version,
+                'project_config.tcl'))
+        _candidates.append(os.path.join(
+            core_dir, 'config', 'project', project_name, version,
+            'project_pd_config.tcl'))
+        _candidates.append(os.path.join(
+            core_dir, 'config', 'project', project_name, version,
+            f'{project_name}_config.tcl'))
+        pc = ''
+        for proj_config in _candidates:
+            if os.path.exists(proj_config):
+                with open(proj_config) as f:
+                    pc += f.read() + '\n'
+        if pc:
             # Accept both `"..."` and `{...}` forms — audit R7-F7.
             project_vts = _tcl_list_from(pc, 'project', 'vt_flavors')
             _pm = re.search(r'set\s+project\(metal_stack\)\s+"?([A-Za-z0-9._-]+)"?', pc)
@@ -2700,19 +4325,136 @@ def cmd_status(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_add(args: argparse.Namespace) -> int:
+    """Surgically add one category's libraries to an existing tag.
+
+    Flow:
+      1. Verify the tag directory exists (fail if it doesn't — users must
+         `generate` before `add`).
+      2. Resolve `project(lib_root)` for logging purposes.
+      3. Translate (--category <cat>, --path <dirs>) into the equivalent
+         `--<cat>-path <dirs>` flags on an args namespace.
+      4. Mark `_add_mode=True` so the materializer preserves other
+         categories AND the lib_config merger retains their keys.
+      5. Delegate to `cmd_generate`.
+
+    Why delegate instead of a fresh scanner? Zero divergence risk. Every
+    category's scan logic + materialize code lives in one place; `add`
+    is purely a UX wrapper that pre-fills the right flags.
+    """
+    # --tech-config override: derive tech_name from the path convention.
+    _tc_override = getattr(args, 'tech_config', None)
+    if _tc_override and not args.tech:
+        from core.paths import tech_name_from_config_path
+        _derived = tech_name_from_config_path(_tc_override)
+        if _derived:
+            args.tech = _derived
+    if not args.tech:
+        logger.error("--tech or --tech-config is required")
+        return 1
+    tech_name = args.tech
+    tag = args.tag
+    version = args.version or 'v1.0.0'
+    category = args.category
+
+    # Must exist — `add` is explicitly for extending, not creating.
+    existing = _resolve_lib_config_path(tech_name, tag, version)
+    if not existing:
+        # Show the ACTUAL resolved root — the resolver walks lib_tag_root
+        # first, then falls back to in-tree legacy only when unset.
+        # Pointing at $core_dir/config/tech here used to misdirect users
+        # to the pre-refactor PD-only path, which no longer exists.
+        _root = _resolve_lib_tag_root(tech_name, version) \
+                or _resolve_tech_dir(tech_name, version) \
+                or '<unresolved>'
+        # Report the current layout first — legacy only kicks in during
+        # read-fallback (see _resolve_lib_config_path).
+        _looked = os.path.join(_root, tech_name, tag, 'lib_config.tcl')
+        logger.error("No existing lib_config for tag '{}'.".format(tag))
+        logger.error("  Searched: {}".format(_looked))
+        logger.error("`add` extends an existing tag. To create a new tag:")
+        logger.error("  cbflow flow library-manager generate --tech {} --tag {} --lib-root <path>".format(
+            tech_name, tag))
+        return 1
+
+    # Reuse the generate pipeline. We force one category's path arg from
+    # --path/--category, leave the others unset so no spurious scans run.
+    args.stdcell_path = args.path if category == 'stdcell' else None
+    args.memory_path  = args.path if category == 'memory'  else None
+    args.io_path      = args.path if category == 'io'      else None
+    args.analog_path  = args.path if category == 'analog'  else None
+    args.ip_path      = args.path if category == 'ip'      else None
+
+    # `generate` requires --lib-root. For `add`, use the project's lib_root
+    # or the first --path as a stand-in — it's only used for logging now
+    # that each category has its own explicit path.
+    _lib_root = _resolve_lib_root_from_tech_config(tech_name)
+    if not _lib_root or not os.path.isdir(_lib_root):
+        _lib_root = args.path[0]
+    args.lib_root = _lib_root
+
+    # Signal to the generate pipeline: preserve categories we DIDN'T touch,
+    # merge instead of overwrite in both MANIFEST and lib_config.tcl.
+    args._add_mode = True
+    args.incremental = True  # legacy flag — safe idempotent union below
+
+    # Default no-opt args that `cmd_generate` reads.
+    if not hasattr(args, 'tracks') or args.tracks is None:
+        args.tracks = None
+    if not hasattr(args, 'vts') or args.vts is None:
+        args.vts = None
+    if not hasattr(args, 'exclude') or args.exclude is None:
+        args.exclude = []
+    args.output = None   # tag-dir mode
+
+    logger.info("ADD mode: category={} tag={} tech={}".format(category, tag, tech_name))
+    for p in args.path:
+        logger.info("  path: {}".format(p))
+    return cmd_generate(args)
+
+
 def cmd_coverage(args: argparse.Namespace) -> int:
     """Show library coverage matrix: tracks × VTs × corners."""
-    if getattr(args, "tech", None):
+    # --tech-config override: derive tech_name from the path convention.
+    _tc_override = getattr(args, 'tech_config', None)
+    if _tc_override and not args.tech:
+        from core.paths import tech_name_from_config_path
+        _derived = tech_name_from_config_path(_tc_override)
+        if _derived:
+            args.tech = _derived
+    if not args.tech:
+        logger.error("--tech or --tech-config is required")
+        return 1
+    if getattr(args, "tech", None) and not _tc_override:
         require_tech_config(args.tech, getattr(args, "version", None))
-    # Read lib_config.tcl and parse tech() variables
+    # Resolve lib_config via the tag-dir cascade (new) or legacy flat form.
     tech_name = args.tech
     version = args.version or "v1.0.0"
     core_dir = get_cbflow_core_dir()
-
-    lib_config = os.path.join(core_dir, "config", "tech", tech_name, version, "lib_config.tcl")
-    if not os.path.exists(lib_config):
-        logger.error("lib_config.tcl not found: {}".format(lib_config))
-        logger.info("  Run: cbflow flow library-manager generate --tech {} first".format(tech_name))
+    _preferred_tag = (getattr(args, 'tag', None)
+                      or os.environ.get('CBFLOW_LIB_CONFIG_TAG', ''))
+    _avail_tags = _list_available_tags(tech_name, version)
+    _cov_tag = _preferred_tag if _preferred_tag in _avail_tags else (
+        _avail_tags[0] if _avail_tags else '')
+    lib_config = (_resolve_lib_config_path(tech_name, _cov_tag, version)
+                  if _cov_tag else '')
+    if not lib_config or not os.path.exists(lib_config):
+        if not _avail_tags:
+            _root = _resolve_lib_tag_root(tech_name, version)
+            if _root:
+                logger.error("No lib_config tags found under {} "
+                             "(resolved lib_tag_root for {}).".format(
+                                 _root, tech_name))
+            else:
+                logger.error("No lib_config tags for {} — lib_tag_root is "
+                             "unset and no in-tree legacy tags exist.".format(
+                                 tech_name))
+                for ln in _lib_tag_root_fix_guide(tech_name, version):
+                    logger.info("  " + ln)
+        else:
+            logger.error("lib_config not found for tag '{}' — available: {}".format(
+                _preferred_tag or '(unspecified)', ", ".join(_avail_tags)))
+        logger.info("  Run: cbflow flow library-manager generate --tech {} --tag <TAG>".format(tech_name))
         return 1
 
     # Parse the file for tech() keys
@@ -2797,6 +4539,9 @@ Examples:
     scan_parser = subparsers.add_parser('scan', help='Scan directory for .lib files')
     scan_parser.add_argument('--path', default=None,
                              help='Directory to scan for .lib files')
+    scan_parser.add_argument('--tech-config', default=None,
+                             help='Path to tech_config.tcl. Takes precedence over --tech/CBFLOW_TECH_NODE — '
+                                  'use when running outside a flow dir and you have a raw path.')
     scan_parser.add_argument('--recursive', action='store_true', default=False,
                              help='Scan subdirectories recursively')
     scan_parser.add_argument('--format', choices=['text', 'json'], default='text',
@@ -2815,7 +4560,7 @@ Examples:
     list_parser.add_argument('--tech-config', default=None,
                              help='Path to tech_config.tcl (auto-detected if omitted)')
     list_parser.add_argument('--corner', default=None,
-                             help='Filter by corner (ss/tt/ff/sf/fs)')
+                             help='Filter by corner (default set: ss/tt/ff/sf/fs; techs may extend via tech(process_corners), e.g. adding `fff`)')
     list_parser.add_argument('--voltage', type=float, default=None,
                              help='Filter by voltage (e.g., 0.80)')
     list_parser.add_argument('--temp', type=int, default=None,
@@ -2826,6 +4571,8 @@ Examples:
         'verify', help='Verify library characterization by reading .lib file contents')
     verify_parser.add_argument('--path', default=None,
                                 help='Directory to scan for .lib files')
+    verify_parser.add_argument('--tech-config', default=None,
+                                help='Path to tech_config.tcl (bypasses --tech lookup).')
     verify_parser.add_argument('--recursive', action='store_true', default=False,
                                 help='Scan subdirectories recursively')
     verify_parser.add_argument('--verbose', action='store_true', default=False,
@@ -2838,6 +4585,8 @@ Examples:
         'generate-mmmc', help='Generate MMMC analysis views')
     mmmc_parser.add_argument('--path', default=None,
                              help='Directory to scan for .lib files')
+    mmmc_parser.add_argument('--tech-config', default=None,
+                             help='Path to tech_config.tcl (bypasses --tech lookup).')
     mmmc_parser.add_argument('--output', default=None,
                              help='Output file path (default: stdout)')
 
@@ -2848,6 +4597,10 @@ Examples:
                             help='Library root directory. Auto-read from tech(lib_root) in tech_config if omitted')
     gen_parser.add_argument('--tech', default=None,
                             help='Technology name (e.g., gf_22nm). Default: dirname of lib-root')
+    gen_parser.add_argument('--tech-config', default=None,
+                            help='Path to tech_config.tcl. When set, this is the authoritative '
+                                 'tech config — bypasses --tech/CBFLOW_TECH_NODE lookup. Lets '
+                                 'you run outside a flow dir with an arbitrary tech_config file.')
     gen_parser.add_argument('--version', default='v1.0.0',
                             help='Config version (default: v1.0.0)')
     gen_parser.add_argument('--tracks', default=None,
@@ -2860,42 +4613,98 @@ Examples:
                             help='Override memory lib directories (multiple allowed)')
     gen_parser.add_argument('--io-path', nargs='+', default=None,
                             help='Override IO lib directories (multiple allowed)')
+    gen_parser.add_argument('--analog-path', nargs='+', default=None,
+                            help='Analog macro lib directories (multiple allowed). '
+                                 'First-class category — materializes under '
+                                 '<TAG>/analog/{ndm,lib,db,lef}/')
     gen_parser.add_argument('--ip-path', nargs='+', default=None,
-                            help='IP/Analog lib directories (multiple allowed)')
+                            help='IP block lib directories (multiple allowed). '
+                                 'First-class category — materializes under '
+                                 '<TAG>/ip/{ndm,lib,db,lef}/')
     gen_parser.add_argument('--exclude', nargs='+', default=[],
                             help='Glob patterns to exclude (e.g., "*channel*" "*dummy*" "*eco*")')
     gen_parser.add_argument('--tag', default=None,
-                            help='Named tag for lib_config (e.g., P0, timing_closure). Output: lib_config_<tag>.tcl')
+                            help='Named tag for lib_config (e.g., P0, timing_closure). '
+                                 'Output: <lib_tag_root>/<TAG>/lib_config.tcl.')
     gen_parser.add_argument('--incremental', action='store_true', default=False,
                             help='Merge new libs into existing lib_config (keep entries not in current scan)')
+    gen_parser.add_argument('--lib-tag-root', default=None, dest='lib_tag_root',
+                            help='Override lib_tag_root for this run. Lib content '
+                                 'is written at <path>/<TAG>/. Precedence: this '
+                                 'flag > CBFLOW_LIB_TAG_ROOT > project(lib_tag_root) '
+                                 '> tech(lib_tag_root).')
     gen_parser.add_argument('--output', default=None,
-                            help='Output file path (default: config/tech/<tech>/<version>/lib_config[_<tag>].tcl)')
+                            help='Dev escape hatch — write a flat lib_config.tcl at '
+                                 'this path (bypasses the tag-dir materialization).')
     gen_parser.add_argument('--allow-missing', action='store_true', default=False,
                             help='Proceed even if declared source paths do not exist. '
                                  'Default is fail-fast — use only when bootstrapping '
                                  'a partial tech setup. Emits a WARNING banner.')
 
+    # add command — surgical: scan one category's path(s) and merge into
+    # an existing tag directory. Preserves everything else.
+    add_parser = subparsers.add_parser(
+        'add',
+        help='Add libraries for one category (analog/ip/memory/io/stdcell) '
+             'to an existing tag. Preserves other categories.')
+    add_parser.add_argument('--tech', default=None,
+                            help='Technology name (e.g., gf_22nm). Optional when --tech-config is set.')
+    add_parser.add_argument('--tech-config', default=None,
+                            help='Path to tech_config.tcl (bypasses --tech lookup).')
+    add_parser.add_argument('--tag', required=True,
+                            help='Existing lib_config tag to extend')
+    add_parser.add_argument('--category', required=True,
+                            choices=['analog', 'ip', 'memory', 'io', 'stdcell'],
+                            help='Which category the --path contents belong to')
+    add_parser.add_argument('--path', nargs='+', required=True,
+                            help='Directory (or multiple) containing the libraries')
+    add_parser.add_argument('--version', default='v1.0.0',
+                            help='Config version (default: v1.0.0)')
+    add_parser.add_argument('--tracks', default=None,
+                            help='Only for --category stdcell: '
+                                 '"9T 7.5T 8T". Auto-detected if omitted.')
+    add_parser.add_argument('--vts', default=None,
+                            help='Only for --category stdcell: "svt lvt hvt". '
+                                 'Auto-detected if omitted.')
+    add_parser.add_argument('--exclude', nargs='+', default=[],
+                            help='Glob patterns to exclude (optional)')
+    add_parser.add_argument('--allow-missing', action='store_true', default=False,
+                            help='Proceed if source paths missing (bootstrapping)')
+    add_parser.add_argument('--lib-tag-root', default=None, dest='lib_tag_root',
+                            help='Override lib_tag_root. Same precedence rules as '
+                                 '`generate` — flag > env > project > tech.')
+
     # coverage command — show track × VT × corner matrix
     cov_parser = subparsers.add_parser(
         'coverage', help='Show library coverage matrix')
-    cov_parser.add_argument('--tech', required=True,
-                            help='Technology name (e.g., gf_22nm)')
+    cov_parser.add_argument('--tech', default=None,
+                            help='Technology name (e.g., gf_22nm). Optional when --tech-config is set.')
+    cov_parser.add_argument('--tech-config', default=None,
+                            help='Path to tech_config.tcl (bypasses --tech lookup).')
     cov_parser.add_argument('--version', default='v1.0.0',
                             help='Config version (default: v1.0.0)')
+    cov_parser.add_argument('--tag', default=None,
+                            help='lib_config tag to read (default: first '
+                                 'available; env: CBFLOW_LIB_CONFIG_TAG)')
 
     # status command — signoff-readiness report (multi-VT aware)
     status_parser = subparsers.add_parser(
         'status',
         help='Signoff-readiness report — available VTs, enabled VTs, '
              'per-track/per-VT library counts, LEF/RCX coverage, dont_use masks')
-    status_parser.add_argument('--tech', required=True,
-                               help='Technology name (e.g., gf_22nm)')
+    status_parser.add_argument('--tech', default=None,
+                               help='Technology name (e.g., gf_22nm). Optional when --tech-config is set.')
+    status_parser.add_argument('--tech-config', default=None,
+                               help='Path to tech_config.tcl (bypasses --tech lookup).')
     status_parser.add_argument('--project', default=None,
                                help='Project name (auto-detects enabled VTs '
                                     'from project(vt_flavors); omit for '
                                     'tech-wide view)')
     status_parser.add_argument('--version', default='v1.0.0',
                                help='Config version (default: v1.0.0)')
+    status_parser.add_argument('--tag', default=None,
+                               help='lib_config tag to introspect (default: '
+                                    'first available; env: CBFLOW_LIB_CONFIG_TAG)')
 
     return parser
 
@@ -2905,18 +4714,25 @@ Examples:
 # -------------------------------------------------------------------------------
 
 def _validate_path_arg(args, attr='path'):
-    """Validate that a path argument exists and is a directory."""
+    """Validate that a path argument exists and is a directory.
+
+    `attr` may be a single path (nargs=None) or a list (nargs='+'). The
+    `add` subcommand uses nargs='+' for --path so each entry is validated
+    independently.
+    """
     path = getattr(args, attr, None)
     if path is None:
         return True  # Optional arg
-    if not os.path.exists(path):
-        logger.error(f"Path does not exist: {path}")
-        logger.info(f"  Please provide a valid directory path with --{attr.replace('_', '-')}")
-        return False
-    if not os.path.isdir(path):
-        logger.error(f"Path is not a directory: {path}")
-        logger.info(f"  Please provide a directory, not a file")
-        return False
+    paths = path if isinstance(path, list) else [path]
+    for p in paths:
+        if not os.path.exists(p):
+            logger.error(f"Path does not exist: {p}")
+            logger.info(f"  Please provide a valid directory path with --{attr.replace('_', '-')}")
+            return False
+        if not os.path.isdir(p):
+            logger.error(f"Path is not a directory: {p}")
+            logger.info(f"  Please provide a directory, not a file")
+            return False
     return True
 
 
@@ -2949,6 +4765,7 @@ def main() -> int:
         'verify': cmd_verify,
         'generate-mmmc': cmd_generate_mmmc,
         'generate': cmd_generate,
+        'add': cmd_add,
         'coverage': cmd_coverage,
         'status': cmd_status,
     }
@@ -2968,6 +4785,21 @@ def main() -> int:
     # preflight_tech_config_or_exit() calls sys.exit(1) on failure with a
     # fix guide listing available techs.
     preflight_tech_config_or_exit(args, tool_name="library-manager")
+
+    # ── Tech-declared process-corner set ────────────────────────────────
+    # Load tech(process_corners) if the tech ships one — otherwise keep
+    # the compiled-in default {ss,tt,ff,sf,fs}. Fixes the sabarmati-soc
+    # case where GF 22FDX's `fff` corner silently miscategorized as the
+    # embedded `ff` substring.
+    try:
+        _tech_node = getattr(args, 'tech_node', None) or os.environ.get('CBFLOW_TECH_NODE', '')
+        _tech_cfg = getattr(args, 'tech_config', None)
+        if not _tech_cfg and _tech_node:
+            _tech_cfg = require_tech_config(_tech_node, getattr(args, 'version', None))
+        if _tech_cfg:
+            _apply_tech_corners(_tech_cfg)
+    except Exception as _e:
+        logger.debug(f"process_corners load skipped: {_e}")
 
     # Auto-resolve --path from tech_config if not provided
     if hasattr(args, 'path') and args.path is None and args.command in ('scan', 'verify', 'generate-mmmc'):

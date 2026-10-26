@@ -19,7 +19,18 @@ set cmd_file  "$_dft_root/cmds/SCAN_INSERT/mentor/tessent/$_tool_ver/${stage_nam
 set test_mode [handler_is_test_mode]
 
 switch $subnode_name {
-    "setup"    { puts "INFO: $stage_name setup...";    handler_setup    $run_dir $::flow_type $node_name; puts "INFO: $stage_name setup completed" }
+    "setup"    {
+        puts "INFO: $stage_name setup..."
+        if {[catch {handler_setup $run_dir $::flow_type $node_name} _setup_rc]} {
+            puts stderr "ERROR: $stage_name setup threw: $_setup_rc"
+            exit 1
+        }
+        if {$_setup_rc != 0} {
+            puts stderr "ERROR: $stage_name setup FAILED (rc=$_setup_rc)"
+            exit $_setup_rc
+        }
+        puts "INFO: $stage_name setup completed"
+    }
     "run"      { puts "INFO: $stage_name run...";      handler_run      $run_dir $::flow_type $node_name $stage_name $cmd_file $test_mode "tessent" }
     "validate" { puts "INFO: $stage_name validate..."; handler_validate $run_dir $::flow_type $node_name $stage_name $test_mode; puts "INFO: $stage_name validate completed" }
     "finish"   { puts "INFO: $stage_name finish...";   handler_finish   $run_dir $::flow_type $node_name $stage_name; puts "INFO: $stage_name finish completed" }

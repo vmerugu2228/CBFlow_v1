@@ -172,20 +172,33 @@ proc ::CBFlow::Config::get_subnodes {flow_type stage} {
 
 proc ::CBFlow::Config::get_tool_vendor {flow_type} {
     if {![_ensure_node_config $flow_type]} {
+        puts stderr "WARNING: get_tool_vendor: node_config for $flow_type not loadable"
         return ""
     }
-    return [_get_flow_array_value $flow_type "tool,vendor"]
+    set v [_get_flow_array_value $flow_type "tool,vendor"]
+    if {$v eq ""} {
+        puts stderr "WARNING: get_tool_vendor($flow_type) empty — \
+                     check <FLOW>_config.tcl sets ${flow_type}(tool,vendor)"
+    }
+    return $v
 }
 
 proc ::CBFlow::Config::get_tool_name {flow_type} {
     if {![_ensure_node_config $flow_type]} {
+        puts stderr "WARNING: get_tool_name: node_config for $flow_type not loadable"
         return ""
     }
-    return [_get_flow_array_value $flow_type "tool,name"]
+    set v [_get_flow_array_value $flow_type "tool,name"]
+    if {$v eq ""} {
+        puts stderr "WARNING: get_tool_name($flow_type) empty — \
+                     check <FLOW>_config.tcl sets ${flow_type}(tool,name)"
+    }
+    return $v
 }
 
 proc ::CBFlow::Config::get_tool_version {flow_type} {
     if {![_ensure_node_config $flow_type]} {
+        puts stderr "WARNING: get_tool_version: node_config for $flow_type not loadable"
         return ""
     }
     return [_get_flow_array_value $flow_type "tool,version"]
@@ -211,6 +224,14 @@ proc ::CBFlow::Config::get_tool_path_with_version {flow_type {version_var ""}} {
     set vendor [get_tool_vendor $flow_type]
     set tool [get_tool_name $flow_type]
     if {$vendor eq "" || $tool eq ""} {
+        # Fallback to a MARKED-GENERIC path so any downstream Makefile /
+        # launch command that uses this will visibly point at "generic"
+        # rather than silently exec'ing the wrong binary. The warning
+        # above already surfaced the real cause.
+        puts stderr "ERROR: tool resolution failed for $flow_type — \
+                     using 'generic/tool/\$(TOOL_VERSION)' sentinel. \
+                     The flow will NOT invoke a real tool. Fix the \
+                     ${flow_type}(tool,vendor|name) config entries."
         return "generic/tool/\$(TOOL_VERSION)"
     }
     # Build a version variable name from tool name (e.g., INNOVUS_VERSION)
