@@ -1370,11 +1370,37 @@ def _resolve_lib_config_path(tech_name: str, tag: str,
         # — groups every tag for a tech under one dir so lib_config.tcl
         # and mmmc_config.tcl for the same (tech, tag) live together.
         new = os.path.join(root, tech_name, tag, 'lib_config.tcl')
-        if os.path.isfile(new):
-            return new
         # Legacy layout (pre-tech-grouping): <lib_tag_root>/<tag>/lib_config.tcl
         legacy = os.path.join(root, tag, 'lib_config.tcl')
-        if os.path.isfile(legacy):
+        _new_exists = os.path.isfile(new)
+        _legacy_exists = os.path.isfile(legacy)
+        if _new_exists and _legacy_exists:
+            # Divergence detected — both layouts have the same tag. The
+            # new layout wins (operators migrating from legacy expect
+            # the tech-grouped tree to be authoritative), but surface a
+            # loud warning so the user doesn't edit the stale file
+            # under the mistaken impression it's active. This matches
+            # the mtime-sensitive bug mmmc_manager would otherwise hit
+            # by validating against stale library data.
+            try:
+                _new_mtime = os.path.getmtime(new)
+                _legacy_mtime = os.path.getmtime(legacy)
+                _mtime_note = (
+                    f" (new mtime {int(_new_mtime)}, "
+                    f"legacy mtime {int(_legacy_mtime)})"
+                )
+            except OSError:
+                _mtime_note = ""
+            logger.warning(
+                "lib_config tag '%s' exists in BOTH layouts for tech '%s'%s. "
+                "Using the tech-grouped file at %s; the legacy file at %s "
+                "is being IGNORED. Delete the legacy file or re-run "
+                "generate to resolve the ambiguity.",
+                tag, tech_name, _mtime_note, new, legacy)
+            return new
+        if _new_exists:
+            return new
+        if _legacy_exists:
             return legacy
         return ''
     # root is '': could be "nothing configured" OR "configured but rejected".

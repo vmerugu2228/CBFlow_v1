@@ -50,6 +50,45 @@ if COMMANDS_DIR not in sys.path:
 if UTILS_DIR not in sys.path:
     sys.path.insert(0, UTILS_DIR)
 
+
+def _sqlite_connect(db_path):
+    """Dashboard-side mirror of race_engine._sqlite_connect — WAL +
+    30s busy_timeout. Keeps dashboard readers from racing engine
+    writers.
+
+    Pre-fix every dashboard sqlite3.connect() site used the stock
+    settings: timeout=5s default, no busy_timeout PRAGMA, no WAL. The
+    engine opens the DB in WAL + 30s busy_timeout; concurrent dashboard
+    polls (every 5s) raced with job-completion writes and threw
+    OperationalError('database is locked') — status endpoint 500s'd
+    on every contended run, and the pre-fix dashboard connection
+    also downgraded the on-disk journal_mode by connecting without
+    WAL in some code paths.
+
+    Mirrors the engine helper rather than importing it to avoid a
+    hard cross-package dep (dashboard package importing commands).
+    """
+    conn = sqlite3.connect(db_path, timeout=30.0)
+    try:
+        conn.execute('PRAGMA busy_timeout=30000')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        _row = conn.execute('PRAGMA journal_mode=WAL').fetchone()
+        _mode = (_row[0] if _row else '').lower()
+        if _mode != 'wal':
+            # On NFS/Lustre the WAL PRAGMA silently returns the
+            # unchanged mode; log once so operators see the signal.
+            import logging as _lg
+            _lg.getLogger('cbflow.dashboard').debug(
+                "_sqlite_connect(%s): journal_mode is %r, not 'wal' "
+                "— readers may block during writer transactions",
+                db_path, _mode)
+    except sqlite3.OperationalError:
+        pass
+    return conn
+
+
 # Thread-safe execution state
 _stop_event = threading.Event()
 _engines_lock = threading.Lock()
@@ -214,7 +253,7 @@ class RaceDashboard:
     def _connect(self):
         if not self.db_path or not os.path.exists(self.db_path):
             return None
-        return sqlite3.connect(self.db_path)
+        return _sqlite_connect(self.db_path)
 
     # ── File change detection (single implementation) ───────────────────────
 
@@ -1194,7 +1233,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             self._json_response(self._query_db_table('lsf_details', filters))
         elif path == '/api/lsf-summary':
             try:
-                conn = sqlite3.connect(self.dashboard.db_path)
+                conn = _sqlite_connect(self.dashboard.db_path)
                 row = conn.execute(
                     'SELECT COALESCE(SUM(cost), 0) AS total_cost, '
                     'COALESCE(MAX(peak_memory_mb), 0) AS peak_memory_mb, '
@@ -1224,7 +1263,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             self._json_response(self._query_db_table('metrics_snapshot', filters))
         elif path == '/api/logs':
             try:
-                conn = sqlite3.connect(self.dashboard.db_path)
+                conn = _sqlite_connect(self.dashboard.db_path)
                 conn.row_factory = sqlite3.Row
                 rows = [dict(r) for r in conn.execute('SELECT * FROM run_logs').fetchall()]
                 conn.close()
@@ -1242,7 +1281,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             self._json_response(self._query_db_table('config_history'))
         elif path == '/api/run-summary':
             try:
-                conn = sqlite3.connect(self.dashboard.db_path)
+                conn = _sqlite_connect(self.dashboard.db_path)
                 conn.row_factory = sqlite3.Row
                 # Owner info from run_info
                 run_info = {}
@@ -1301,7 +1340,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 })
         elif path == '/api/ownership':
             try:
-                conn = sqlite3.connect(self.dashboard.db_path)
+                conn = _sqlite_connect(self.dashboard.db_path)
                 owner = ''
                 owner_uid = ''
                 try:
@@ -1420,13 +1459,13 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         db_path = self.dashboard.db_path
         if not db_path or not os.path.exists(db_path):
             return
-        conn = sqlite3.connect(db_path)
+        conn = _sqlite_connect(db_path)
         row = conn.execute("SELECT value FROM run_info WHERE key = 'owner_uid'").fetchone()
         conn.close()
         if row:
             owner_uid = int(row[0])
             if os.getuid() != owner_uid:
-                conn2 = sqlite3.connect(db_path)
+                conn2 = _sqlite_connect(db_path)
                 owner_row = conn2.execute("SELECT value FROM run_info WHERE key = 'owner'").fetchone()
                 conn2.close()
                 owner_name = owner_row[0] if owner_row else 'unknown'
@@ -1921,7 +1960,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             db_path = self.dashboard.db_path
             if os.path.exists(db_path):
                 import sqlite3
-                conn = sqlite3.connect(db_path)
+                conn = _sqlite_connect(db_path)
                 # Update job_order
                 conn.execute("UPDATE job_order SET job_name=?, stage=? WHERE stage=? AND subnode='_sentinel'",
                              (new_name, new_name, old_name))
@@ -2087,11 +2126,19 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         for i, line in enumerate(lines):
             stripped = line.lstrip()
             for key, val in variables.items():
-                # Anchor on `set <key>` with a following whitespace / `(` /
-                # end. Prevents 'rtl' matching 'set rtl_filelist ...'.
+                # Match requires whitespace right after the key — this
+                # anchors to the full-name boundary.
+                #
+                # Pre-fix a third branch `stripped.startswith(f'set {key}(')`
+                # was clobbering array entries for scalar saves: saving
+                # scalar `fc` destroyed every `set fc(mode) "..."` and
+                # `set fc(tool,version) "..."` line in user_config.tcl
+                # (A-tier data-loss finding from the audit). Branch removed.
+                # When the user saves an array-index key like `fc(mode)`,
+                # the whitespace match naturally hits `set fc(mode) "..."`
+                # because the key already includes the `(mode)` suffix.
                 if (stripped.startswith(f'set {key} ')
-                        or stripped.startswith(f'set {key}\t')
-                        or stripped.startswith(f'set {key}(')):
+                        or stripped.startswith(f'set {key}\t')):
                     lines[i] = f'set {key} "{_q(val)}"\n'
                     updated_keys.add(key)
 
@@ -2338,7 +2385,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         """Query a DB table with optional column filters. Returns list of dicts.
         Handles missing tables gracefully (returns empty list)."""
         try:
-            conn = sqlite3.connect(self.dashboard.db_path)
+            conn = _sqlite_connect(self.dashboard.db_path)
             conn.row_factory = sqlite3.Row
             query = f'SELECT * FROM {table_name}'
             params = []
@@ -2415,7 +2462,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         try:
             import sqlite3
             for db_file in sorted(Path(run_dir).glob('.race_*.db')):
-                conn = sqlite3.connect(str(db_file))
+                conn = _sqlite_connect(str(db_file))
                 row = conn.execute("SELECT error_msg FROM jobs WHERE job_name=? AND error_msg != '' ORDER BY rowid DESC LIMIT 1",
                                    (job_name,)).fetchone()
                 if row:
@@ -2533,7 +2580,7 @@ def _get_run_port(run_dir: str) -> int:
 
     if db_path:
         try:
-            conn = sqlite3.connect(db_path)
+            conn = _sqlite_connect(db_path)
             row = conn.execute(
                 "SELECT value FROM run_info WHERE key = 'dashboard_port'"
             ).fetchone()
@@ -2562,7 +2609,7 @@ def _get_run_port(run_dir: str) -> int:
     # 4. Store in DB (use actual RACE DB found above)
     if db_path:
         try:
-            conn = sqlite3.connect(db_path)
+            conn = _sqlite_connect(db_path)
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS run_info (key TEXT PRIMARY KEY, value TEXT)"
             )
@@ -2617,7 +2664,7 @@ def start_dashboard(run_dir: str, port: int = 0, open_browser: bool = True,
         try:
             _db = dashboard.db_path
             if _db and os.path.exists(_db):
-                conn = sqlite3.connect(_db)
+                conn = _sqlite_connect(_db)
                 conn.execute(
                     "INSERT OR REPLACE INTO run_info (key, value) VALUES ('dashboard_port', ?)",
                     (str(port),)
