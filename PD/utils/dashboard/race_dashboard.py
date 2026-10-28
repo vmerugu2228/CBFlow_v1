@@ -51,42 +51,11 @@ if UTILS_DIR not in sys.path:
     sys.path.insert(0, UTILS_DIR)
 
 
-def _sqlite_connect(db_path):
-    """Dashboard-side mirror of race_engine._sqlite_connect — WAL +
-    30s busy_timeout. Keeps dashboard readers from racing engine
-    writers.
-
-    Pre-fix every dashboard sqlite3.connect() site used the stock
-    settings: timeout=5s default, no busy_timeout PRAGMA, no WAL. The
-    engine opens the DB in WAL + 30s busy_timeout; concurrent dashboard
-    polls (every 5s) raced with job-completion writes and threw
-    OperationalError('database is locked') — status endpoint 500s'd
-    on every contended run, and the pre-fix dashboard connection
-    also downgraded the on-disk journal_mode by connecting without
-    WAL in some code paths.
-
-    Mirrors the engine helper rather than importing it to avoid a
-    hard cross-package dep (dashboard package importing commands).
-    """
-    conn = sqlite3.connect(db_path, timeout=30.0)
-    try:
-        conn.execute('PRAGMA busy_timeout=30000')
-    except sqlite3.OperationalError:
-        pass
-    try:
-        _row = conn.execute('PRAGMA journal_mode=WAL').fetchone()
-        _mode = (_row[0] if _row else '').lower()
-        if _mode != 'wal':
-            # On NFS/Lustre the WAL PRAGMA silently returns the
-            # unchanged mode; log once so operators see the signal.
-            import logging as _lg
-            _lg.getLogger('cbflow.dashboard').debug(
-                "_sqlite_connect(%s): journal_mode is %r, not 'wal' "
-                "— readers may block during writer transactions",
-                db_path, _mode)
-    except sqlite3.OperationalError:
-        pass
-    return conn
+# _sqlite_connect lives in core/db.py — single source of truth, shared
+# with race_engine.py. Pre-fix each side carried its own 45-line
+# mirror that drifted (dashboard was DEBUG, engine was WARNING; both
+# are now WARNING with once-per-DB dedup).
+from core.db import sqlite_connect as _sqlite_connect
 
 
 # Thread-safe execution state
@@ -1477,10 +1446,12 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
     def _action_run(self, body):
         """Run complete flow (cbflow run all)."""
+        self._check_run_ownership()
         return self._exec_engine('all')
 
     def _action_run_stage(self, body):
         """Run specific stage."""
+        self._check_run_ownership()
         stage = body.get('stage', '')
         if not stage:
             return {'error': 'stage required'}
@@ -1488,6 +1459,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
     def _action_run_to_subnode(self, body):
         """Run up to a specific subnode only (not the full stage)."""
+        self._check_run_ownership()
         stage = body.get('stage', '')
         subnode = body.get('subnode', '')
         if not stage or not subnode:
@@ -1524,6 +1496,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
     def _action_retrace(self, body):
         """Retrace from stage or all. Updates active engine if one is running."""
+        self._check_run_ownership()
         from_stage = body.get('from_stage', '')
         # Use active running engine if available (so in-memory state is updated)
         engine = self._get_active_or_new_engine()
@@ -1539,6 +1512,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
     def _action_bypass(self, body):
         """Bypass stages or specific jobs. Updates active engine if one is running."""
+        self._check_run_ownership()
         engine = self._get_active_or_new_engine()
         if engine is None:
             return {'ok': False,
@@ -1557,6 +1531,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
     def _action_force(self, body):
         """Force re-run stages (background thread)."""
+        self._check_run_ownership()
         _stop_event.clear()
         stages = body.get('stages', [])
         if isinstance(stages, str):
@@ -1721,6 +1696,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
     def _action_stop(self, body):
         """Stop all running engine executions."""
+        self._check_run_ownership()
         _stop_event.set()
         with _engines_lock:
             engines = list(_active_engines)
@@ -1746,6 +1722,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
     def _action_forcevalidate(self, body):
         """Force-validate stages or specific jobs. Updates active engine if one is running."""
+        self._check_run_ownership()
         engine = self._get_active_or_new_engine()
         if engine is None:
             return {'ok': False,
@@ -2122,23 +2099,29 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         # `rtl` overwrote lines with `rtl_filelist`). Match on the
         # exact `set <key>` prefix instead. Also tcl-quote values so
         # embedded `"`/`$`/`[` don't inject.
+        #
+        # Pre-fix a third branch `stripped.startswith(f'set {key}(')`
+        # was clobbering array entries for scalar saves: saving scalar
+        # `fc` destroyed every `set fc(mode) "..."` line in user_config.tcl
+        # (A-tier data-loss finding from the audit). Branch removed.
+        # When the user saves an array-index key like `fc(mode)`, the
+        # whitespace-anchored match hits `set fc(mode) "..."` because
+        # the key already includes the `(mode)` suffix.
+        #
+        # Match via regex so hand-edited user_config.tcl with multi-
+        # space (`set   fc    "x"`) or tab-mixed (`set\tfc\t"x"`)
+        # formatting is still recognized — the pair of startswith
+        # calls only handled single-space and single-tab. re.escape
+        # covers the regex metachars in array-index keys like `fc(mode)`.
         updated_keys = set()
+        key_patterns = {
+            key: re.compile(rf'set\s+{re.escape(key)}(?=\s)')
+            for key in variables
+        }
         for i, line in enumerate(lines):
             stripped = line.lstrip()
             for key, val in variables.items():
-                # Match requires whitespace right after the key — this
-                # anchors to the full-name boundary.
-                #
-                # Pre-fix a third branch `stripped.startswith(f'set {key}(')`
-                # was clobbering array entries for scalar saves: saving
-                # scalar `fc` destroyed every `set fc(mode) "..."` and
-                # `set fc(tool,version) "..."` line in user_config.tcl
-                # (A-tier data-loss finding from the audit). Branch removed.
-                # When the user saves an array-index key like `fc(mode)`,
-                # the whitespace match naturally hits `set fc(mode) "..."`
-                # because the key already includes the `(mode)` suffix.
-                if (stripped.startswith(f'set {key} ')
-                        or stripped.startswith(f'set {key}\t')):
+                if key_patterns[key].match(stripped):
                     lines[i] = f'set {key} "{_q(val)}"\n'
                     updated_keys.add(key)
 

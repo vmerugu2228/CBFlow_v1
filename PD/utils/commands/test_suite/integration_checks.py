@@ -264,10 +264,20 @@ def check_lib_mmmc_full_workflow(pd_dir: str) -> tuple:
             tail = (out + err)[-400:]
             return ('FAIL', f'library-manager generate failed (rc={rc}): '
                             f'...{tail}')
-        lib_cfg = tag_root / 'INT_TEST' / 'lib_config.tcl'
-        if not lib_cfg.exists():
+        # Library-manager uses the per-tech nested layout:
+        #   <lib_tag_root>/<tech_node>/<tag>/lib_config.tcl
+        # (migrated from the pre-refactor flat <lib_tag_root>/<tag>/
+        # layout). Accept either form so the test survives both.
+        lib_cfg_nested = tag_root / 'gf_22nm' / 'INT_TEST' / 'lib_config.tcl'
+        lib_cfg_legacy = tag_root / 'INT_TEST' / 'lib_config.tcl'
+        if lib_cfg_nested.exists():
+            lib_cfg = lib_cfg_nested
+        elif lib_cfg_legacy.exists():
+            lib_cfg = lib_cfg_legacy
+        else:
             return ('FAIL', f'lib_config.tcl not written to '
-                            f'{lib_cfg}')
+                            f'{lib_cfg_nested} (nor legacy '
+                            f'{lib_cfg_legacy})')
         content = lib_cfg.read_text()
         # Must have at least one stdcell tech key.
         if 'tech(9T,svt' not in content:

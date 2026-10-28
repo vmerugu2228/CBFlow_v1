@@ -15,6 +15,22 @@ from typing import Dict, List, Optional
 import shutil
 import sys
 
+# atomic_write — rename-into-place write for release artifacts
+# (MANIFEST.json, CHANGELOG, flow_release_config.tcl). Pre-fix every
+# writer used plain `open('w')`, so a kill between truncate and close
+# left zero-byte or truncated artifacts that downstream release-check
+# or hierarchical consumers read as 'empty release' / JSONDecodeError.
+try:
+    from core.paths import atomic_write
+except ImportError:
+    # Development import — hierarchical_release_manager.py may be
+    # loaded from a context where PD/utils isn't on sys.path yet.
+    _utils_dir = os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))))
+    if _utils_dir not in sys.path:
+        sys.path.insert(0, _utils_dir)
+    from core.paths import atomic_write
+
 # Import color utilities
 from color_utils import (
     print_success, print_error, print_warning, print_info, print_header,
@@ -235,8 +251,9 @@ class HierarchicalReleaseManager:
             manifest_data["milestone"] = milestone
 
         try:
-            with open(manifest_file, 'w', encoding='utf-8') as f:
-                json.dump(manifest_data, f, indent=2, ensure_ascii=False)
+            atomic_write(
+                str(manifest_file),
+                json.dumps(manifest_data, indent=2, ensure_ascii=False) + '\n')
         except Exception as e:
             print(f"Error writing manifest: {e}")
 
@@ -262,8 +279,7 @@ class HierarchicalReleaseManager:
             content += f"- **{comp_name}**: {comp_version}\n"
 
         try:
-            with open(changelog_file, 'w', encoding='utf-8') as f:
-                f.write(content)
+            atomic_write(str(changelog_file), content)
         except Exception as e:
             print(f"Error writing changelog: {e}")
 
@@ -296,7 +312,14 @@ class HierarchicalReleaseManager:
                 script_versions[script_name] = comp_version
 
         try:
-            with open(config_file, 'w', encoding='utf-8') as f:
+            # Buffer the TCL content in memory and write atomically.
+            # Pre-fix the streaming open('w') + 10+ f.write() calls left
+            # a half-written config.tcl on any mid-write failure, which
+            # downstream flow_release init crashes on with a cryptic
+            # syntax error.
+            import io as _io
+            f = _io.StringIO()
+            if True:
                 f.write(f"""# Flow Release Configuration {release_version}
 # Defines all component versions for this flow release
 # All config scripts, projects, and technology versions included in this release
@@ -589,6 +612,7 @@ if {{[llength $compatibility_issues] > 0}} {{
     puts "   Projects: [llength [get_supported_projects]], Technologies: [llength [get_supported_technologies]]"
 }}
 """)
+            atomic_write(str(config_file), f.getvalue())
 
             print_success(f"Generated flow_release_config.tcl for {release_version}", Icons.GEAR)
 

@@ -100,6 +100,9 @@ flow_proc run_perc_ldl {
     handle_info "  Log: $::perc_ldl_log"
 
     if {[catch {exec {*}$calibre_cmd >& $::perc_ldl_log} _r]} {
+        if {[classify_tool_exit_log $::perc_ldl_log] eq "FATAL"} {
+            handle_error "Calibre PERC-LDL crashed (license / perms / tool error) — see $::perc_ldl_log"
+        }
         handle_warning "Calibre PERC-LDL returned non-zero (may have violations): $_r"
         set ::perc_ldl_status "FAIL"
     } else {

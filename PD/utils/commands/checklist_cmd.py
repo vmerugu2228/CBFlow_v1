@@ -1216,6 +1216,12 @@ def cmd_signoff(args: argparse.Namespace) -> int:
     # Also: enforce the waiver_policy allow_bto_waivers / allow_mto_waivers
     # fields that were previously declared but never read.
     _tape_out_milestones = {'BTO', 'MTO'}
+    # Pre-fix: `mand_snaps` was referenced here but only defined 28 lines
+    # below (line 1247), causing a hard NameError on every sign-off
+    # invocation and crashing cmd_signoff BEFORE the record was written.
+    # Compute mand_snaps once at the first use site so both the verdict
+    # branch and the summary dict share the same list.
+    mand_snaps = [c for c in checks_snapshot.values() if c['type'] == 'mandatory']
     _skipped_count = sum(1 for c in mand_snaps if c['status'] == 'SKIPPED')
     _waiver_policy_blocks = False
     if waivers and milestone in _tape_out_milestones:
@@ -1244,7 +1250,7 @@ def cmd_signoff(args: argparse.Namespace) -> int:
 
     # Build sign-off record
     timestamp = datetime.now()
-    mand_snaps = [c for c in checks_snapshot.values() if c['type'] == 'mandatory']
+    # mand_snaps already computed above (near line 1218) — don't recompute.
     signoff_record = {
         'milestone': milestone, 'approver': approver,
         'timestamp': timestamp.isoformat(), 'run_dir': run_dir,

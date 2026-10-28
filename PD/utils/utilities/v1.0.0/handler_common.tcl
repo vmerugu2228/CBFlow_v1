@@ -27,9 +27,23 @@ if {[info commands ::is_true] eq ""} {
     if {$_cb_utils_src ne ""} {
         if {[catch { source $_cb_utils_src } _cb_src_err]} {
             puts stderr "ERROR: handler_common.tcl could not source $_cb_utils_src: $_cb_src_err"
-            puts stderr "       Downstream calls to is_true / handle_* will crash. Fix utils.tcl or"
+            puts stderr "       Downstream calls to is_true / handle_* would crash. Fix utils.tcl or"
             puts stderr "       re-check FLOW_DIR + UTILITIES_VERSION in your run env."
+            # Fail fast so the actionable message is the LAST thing in
+            # the log. Pre-fix the handler fell through and crashed 50
+            # lines deeper with a misleading `invalid command name
+            # "is_true"`, burying the real root cause.
+            exit 1
         }
+    } else {
+        # Neither FLOW_DIR+UTILITIES_VERSION nor SCRIPTS_ROOT+UTILITIES_VERSION
+        # is set. Falling through would hit the same misleading
+        # `invalid command name "is_true"` crash the diagnostic above
+        # prevents — so emit the real cause here too.
+        puts stderr "ERROR: handler_common.tcl: neither FLOW_DIR+UTILITIES_VERSION nor"
+        puts stderr "       SCRIPTS_ROOT+UTILITIES_VERSION is set in env — cannot locate utils.tcl."
+        puts stderr "       Export CBFLOW_ROOT and source bin/_cbflow_paths.sh, or launch via bin/cbflow."
+        exit 1
     }
     unset -nocomplain _cb_utils_src _cb_src_err
 }
@@ -75,9 +89,35 @@ proc handler_load_configs {run_dir flow_type} {
         set _fc "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/flow_config.tcl"
         if {[file exists $_fc]} { uplevel #0 [list source $_fc] }
 
-        # Node config
-        set _nc "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/node_configs/${flow_type}_config.tcl"
-        if {[file exists $_nc]} { uplevel #0 [list source $_nc] }
+        # Node config — discipline-aware resolution.
+        # PD configs live under $CONFIG_ROOT = PD/config.
+        # DFT/DV configs live under their own discipline tree:
+        #   $CBFLOW_DFT_DIR/config/flow/<ver>/node_configs/<FLOW>_config.tcl
+        #   $CBFLOW_DV_DIR/config/flow/<ver>/node_configs/<FLOW>_config.tcl
+        # Pre-fix: the handler always looked under CONFIG_ROOT (PD) and
+        # silently fell through when the DFT/DV file wasn't there — every
+        # DFT/DV run was missing its node_config variables (stages, deps,
+        # mandatory_outputs, etc.), surfacing later as 'empty-stages'
+        # bugs. Try discipline-specific root first, then PD-root fallback
+        # for cross-discipline flows that may still live under PD.
+        set _fcv $::env(FLOW_CONFIG_VERSION)
+        set _node_cfg_candidates [list]
+        if {[info exists ::env(CBFLOW_DFT_DIR)] && $::env(CBFLOW_DFT_DIR) ne ""} {
+            lappend _node_cfg_candidates \
+                "$::env(CBFLOW_DFT_DIR)/config/flow/$_fcv/node_configs/${flow_type}_config.tcl"
+        }
+        if {[info exists ::env(CBFLOW_DV_DIR)] && $::env(CBFLOW_DV_DIR) ne ""} {
+            lappend _node_cfg_candidates \
+                "$::env(CBFLOW_DV_DIR)/config/flow/$_fcv/node_configs/${flow_type}_config.tcl"
+        }
+        lappend _node_cfg_candidates \
+            "$::env(CONFIG_ROOT)/flow/$_fcv/node_configs/${flow_type}_config.tcl"
+        foreach _nc $_node_cfg_candidates {
+            if {[file exists $_nc]} {
+                uplevel #0 [list source $_nc]
+                break
+            }
+        }
     }
 
     # Project config (global identity + PD overlay). handler_resolve_inputs
@@ -301,10 +341,60 @@ proc handler_validate {run_dir flow_type node_name stage_name test_mode} {
     set outputs_dir "$run_dir/work/$flow_type/$node_name/outputs"
 
     # ── Contract 1: mandatory_outputs listed in node_config ──────────────
-    set _mand_key "mandatory_outputs,$stage_name"
+    #
+    # Harden against the SYNTH_PNR-style misconfiguration where a flow
+    # declared execution stages but NO `<flow>(mandatory_outputs,…)` —
+    # Contract 1 silently skipped (info exists → false) and Contract 2
+    # fell back to "outputs/ non-empty", which a stub log file satisfied.
+    #
+    # Key resolution: configs use the NODE-NAME convention (synthesis1,
+    # timing1, place1 — with the numeric suffix). handler_dispatch
+    # passes both stage_name ("synthesis") and node_name ("synthesis1").
+    # Try node_name FIRST (the authoritative key per every shipped
+    # node_config), then fall back to stage_name for flows that may
+    # declare under the bare form.
+    #
+    # Severity: WARN on missing declaration, not exit 1. A hard-error
+    # would block every production run of every flow whose configs
+    # haven't been backfilled with mandatory_outputs yet — most SYNTH_PNR,
+    # FCFP, CLP, LEC, STA, EMIR, FP, PNR, PV, POPT, ECO stages. The
+    # warning still surfaces the config gap at run-visible level without
+    # breaking the pipeline. Once the shipped node_configs are backfilled
+    # across all 24 flows, promote the warn to a hard error.
+    set _mand_key "mandatory_outputs,$node_name"
+    set _is_declared [info exists ::${flow_lower}($_mand_key)]
+    if {!$_is_declared} {
+        # Fall back to stage_name (legacy / future bare-form configs).
+        set _mand_key_fallback "mandatory_outputs,$stage_name"
+        if {[info exists ::${flow_lower}($_mand_key_fallback)]} {
+            set _mand_key $_mand_key_fallback
+            set _is_declared 1
+        }
+    }
     set missing_mand [list]
-    if {[info exists ::${flow_lower}($_mand_key)]} {
+    set _is_inputs_stage [expr {$stage_name eq "inputs" || $stage_name eq "input"}]
+    set _is_reporting_stage 0
+    if {[info exists ::${flow_lower}(reporting_stages)]} {
+        set _reporting_list [set ::${flow_lower}(reporting_stages)]
+        if {[lsearch -exact $_reporting_list $stage_name] >= 0 ||
+            [lsearch -exact $_reporting_list $node_name] >= 0} {
+            set _is_reporting_stage 1
+        }
+    }
+    if {!$_is_declared && !$_is_inputs_stage && !$_is_reporting_stage} {
+        puts "WARN: $stage_name validation — mandatory_outputs NOT declared"
+        puts "      Expected: ${flow_lower}(mandatory_outputs,$node_name) {<gold-artifact-paths>}"
+        puts "      Add to the appropriate <FLOW>_config.tcl under:"
+        puts "        PD/config/flow/v1.0.0/node_configs/   (PD discipline)"
+        puts "        DFT/config/flow/v1.0.0/node_configs/  (DFT discipline)"
+        puts "        DV/config/flow/v1.0.0/node_configs/   (DV discipline)"
+        puts "      Falling back to Contract 2 (outputs/ non-empty) only."
+    }
+    if {$_is_declared} {
         set _mand_list [set ::${flow_lower}($_mand_key)]
+        # Empty list == explicit "no file-level enforcement for this
+        # stage" (e.g. STA timing1 writes reports/, not outputs/).
+        # Allowed by design.
         foreach _rel_path $_mand_list {
             # Path may be absolute, run-relative, or under outputs/.
             set _candidates [list \
@@ -329,7 +419,7 @@ proc handler_validate {run_dir flow_type node_name stage_name test_mode} {
         foreach _p $missing_mand {
             puts "  · $_p"
         }
-        puts "       (declared in ${flow_lower}(mandatory_outputs,$stage_name))"
+        puts "       (declared in ${flow_lower}($_mand_key))"
         puts "       Check the run subnode log for silent tool failure:"
         puts "         $run_dir/work/$flow_type/$node_name/run/${node_name}.log"
         exit 1

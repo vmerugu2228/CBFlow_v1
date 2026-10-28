@@ -101,6 +101,9 @@ flow_proc run_merge_gds {
     handle_info "  Log: $::merge_log"
 
     if {[catch {exec {*}$calibre_cmd >& $::merge_log} _r]} {
+        if {[classify_tool_exit_log $::merge_log] eq "FATAL"} {
+            handle_error "calibredrv layout filemerge crashed (license / perms / tool error) — see $::merge_log"
+        }
         handle_warning "calibredrv layout filemerge failed: $_r"
         set ::merge_gds_status "FAIL"
     } else {

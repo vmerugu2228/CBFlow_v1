@@ -101,6 +101,9 @@ flow_proc run_xor_check {
 
         handle_info "  CMD: $calibre_cmd"
         if {[catch {exec {*}$calibre_cmd >& "$::WORK_DIR/results/xor/xor.log"} result]} {
+            if {[classify_tool_exit_log "$::WORK_DIR/results/xor/xor.log"] eq "FATAL"} {
+                handle_error "Calibre XOR crashed (license / perms / tool error) — see $::WORK_DIR/results/xor/xor.log"
+            }
             handle_warning "Calibre XOR returned non-zero: $result"
         }
     } else {
@@ -115,6 +118,9 @@ flow_proc run_xor_check {
 
         handle_info "  CMD: $calibre_cmd"
         if {[catch {exec {*}$calibre_cmd >& "$::WORK_DIR/results/xor/xor.log"} result]} {
+            if {[classify_tool_exit_log "$::WORK_DIR/results/xor/xor.log"] eq "FATAL"} {
+                handle_error "calibrediff crashed (license / perms / tool error) — see $::WORK_DIR/results/xor/xor.log"
+            }
             handle_warning "calibrediff returned non-zero: $result"
         }
     }

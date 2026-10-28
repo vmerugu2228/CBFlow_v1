@@ -56,6 +56,12 @@ _cbflow_resolve_paths() {
     export CBFLOW_ROOT CBFLOW_GLOBAL_DIR CBFLOW_CORE_DIR
     [[ -n "${CBFLOW_DFT_DIR:-}" ]] && export CBFLOW_DFT_DIR
     [[ -n "${CBFLOW_DV_DIR:-}"  ]] && export CBFLOW_DV_DIR
+    # Explicit success — otherwise the function returns the exit status
+    # of the last conditional, which is 1 when the corresponding
+    # discipline directory doesn't exist. Under `set -euo pipefail` in
+    # the calling launcher, that would silently abort every cbflow
+    # command on installs without a DV/ (or DFT/) subdirectory.
+    return 0
 }
 
 _cbflow_resolve_paths "${1:-}"

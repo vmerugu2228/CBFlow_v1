@@ -80,6 +80,9 @@ flow_proc run_decomp {
                               -mp_colors $::decomp_colors $::decomp_runset]
         handle_info "  CMD: $calibre_cmd"
         if {[catch {exec {*}$calibre_cmd >& $::decomp_log} _r]} {
+            if {[classify_tool_exit_log $::decomp_log] eq "FATAL"} {
+                handle_error "Calibre -mp crashed (license / perms / tool error) — see $::decomp_log"
+            }
             handle_warning "Calibre -mp failed: $_r"
             set ::decomp_status "FAIL"
         } else {

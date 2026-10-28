@@ -332,7 +332,15 @@ def tool_get_run_status(run_dir: str) -> dict:
 def tool_parse_tcl(config_file: str) -> dict:
     """Parse a TCL config file into a JSON dict."""
     try:
-        abs_path = config_file if os.path.isabs(config_file) else os.path.join(CBFLOW_CORE, config_file)
+        # Containment check — matches tool_read_file/tool_write_file posture.
+        # Pre-fix: tool_parse_tcl accepted any absolute path, including
+        # /etc/shadow or ~/.ssh/id_rsa, and returned matching `set …`
+        # lines in the response, undermining the whole _containment_roots
+        # allowlist for the public MCP endpoint.
+        real, err = _path_contained(config_file)
+        if err:
+            return {"error": err}
+        abs_path = real
         with open(abs_path) as f:
             content = f.read()
         variables = {}
@@ -351,7 +359,14 @@ def tool_parse_tcl(config_file: str) -> dict:
 def tool_analyze_log(log_file: str, patterns: list = None) -> dict:
     """Parse a log file for errors, warnings, and key metrics."""
     try:
-        abs_path = log_file if os.path.isabs(log_file) else log_file
+        # Containment check — pre-fix a public MCP client could pass
+        # /etc/shadow or any system file and receive matching lines in
+        # the `errors` / `warnings` arrays, bypassing the containment
+        # allowlist that tool_read_file enforces.
+        real, err = _path_contained(log_file)
+        if err:
+            return {"error": err}
+        abs_path = real
         with open(abs_path) as f:
             lines = f.readlines()
         if patterns is None:

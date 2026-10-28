@@ -5,9 +5,21 @@ Single source of truth for all path calculations.
 Every command module imports from here instead of re-implementing.
 """
 
+import logging
 import os
+import stat as _stat
 import sys
 import tempfile
+
+_logger = logging.getLogger('cbflow.paths')
+
+# Default mode for new files written via atomic_write — group-readable
+# matches CBflow's shared-NFS convention. Previously derived from the
+# process umask via a non-threadsafe `os.umask(0); os.umask(saved)`
+# probe that in a ThreadingMixIn dashboard let concurrent threads see
+# umask=0 during the microsecond window and create world-writable
+# files. Explicit constant removes the race.
+_CBFLOW_DEFAULT_FILE_MODE = 0o644
 
 
 def atomic_write(target_path: str, content, encoding: str = 'utf-8') -> None:
@@ -23,55 +35,108 @@ def atomic_write(target_path: str, content, encoding: str = 'utf-8') -> None:
     Permission preservation: mkstemp creates the temp file with 0600
     and ``os.replace`` adopts the temp's mode — meaning atomic_write
     on a 0644 group-readable config would silently drop permissions
-    to owner-only, breaking shared NFS installs. We preserve the
-    target's existing mode when it already exists; for brand-new files
-    we apply the current umask (what truncate+write would have produced).
+    to owner-only, breaking shared NFS installs. We stat the target
+    (via ``os.lstat`` so we don't follow symlinks) and preserve its
+    mode on an existing regular file. Symlinked targets are refused:
+    atomic_write would replace the symlink itself with a regular file,
+    silently de-symlinking shared release configs. Brand-new files
+    get ``_CBFLOW_DEFAULT_FILE_MODE`` (0o644, group-readable).
+
+    Crash-safety: the file is fsynced AND the parent directory is
+    fsynced after replace — without the dir fsync, a hard power loss
+    between os.replace and the next natural writeback can lose the
+    rename on some filesystems.
     """
     target_dir = os.path.dirname(target_path) or '.'
     base = os.path.basename(target_path)
     binary = isinstance(content, (bytes, bytearray))
 
-    # Capture the target's current mode so we can restore it after replace.
-    # Falling back to `0666 & ~umask` for a new file matches what plain
-    # open(..., 'w') would produce — identical semantics to the pre-fix
-    # non-atomic path for permission-sensitive callers.
+    # Refuse to replace a symlink — os.replace would destroy the link.
+    # Use lstat so we don't follow it to the shared target. Pre-fix
+    # the stat call was wrapped in `except OSError` which treated ANY
+    # OSError (ENOENT, EACCES, EIO) as "new file, use default mode".
+    # Narrowing to FileNotFoundError only would regress PermissionError
+    # and transient NFS errors; keep the broad catch for everything
+    # except the deliberate symlink-refusal raise.
+    _symlink_refusal = None
     try:
-        existing_mode = os.stat(target_path).st_mode & 0o7777
+        st = os.lstat(target_path)
+        if _stat.S_ISLNK(st.st_mode):
+            # Build the OSError here but raise it AFTER exiting the
+            # try block, so the except below only matches real stat
+            # failures and not our deliberate symlink refusal.
+            _symlink_refusal = OSError(
+                f"atomic_write refuses to replace a symlink: {target_path} "
+                f"(os.replace would destroy the symlink; edit the target or "
+                f"remove the link first)")
+        existing_mode = st.st_mode & 0o7777
     except OSError:
-        _umask = os.umask(0); os.umask(_umask)
-        existing_mode = 0o666 & ~_umask
+        existing_mode = _CBFLOW_DEFAULT_FILE_MODE
+    if _symlink_refusal is not None:
+        raise _symlink_refusal
 
     fd, tmp_path = tempfile.mkstemp(
         prefix=f'.{base}.',
         suffix='.cbflow_tmp',
         dir=target_dir,
     )
+    # Wrap os.fdopen so a failing fdopen (invalid encoding/mode) doesn't
+    # leak the mkstemp fd — the outer `except` would unlink the tempfile
+    # but can't close an fd that was never bound to a file object.
     try:
-        mode = 'wb' if binary else 'w'
-        if binary:
-            with os.fdopen(fd, mode) as fh:
-                fh.write(content)
-                fh.flush()
-                os.fsync(fh.fileno())
-        else:
-            with os.fdopen(fd, mode, encoding=encoding) as fh:
-                fh.write(content)
-                fh.flush()
-                os.fsync(fh.fileno())
+        file_mode = 'wb' if binary else 'w'
+        try:
+            if binary:
+                fh = os.fdopen(fd, file_mode)
+            else:
+                fh = os.fdopen(fd, file_mode, encoding=encoding)
+        except Exception:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            raise
+        with fh:
+            fh.write(content)
+            fh.flush()
+            os.fsync(fh.fileno())
         # Restore the mode BEFORE replace so observers that stat the
         # new inode immediately after the rename see the correct bits
-        # (not the 0600 mkstemp mode).
+        # (not the 0600 mkstemp mode). On NFS/SMB where chmod is a
+        # no-op, log a WARNING so operators notice group-readable
+        # configs are silently going 0600 on next write.
         try:
             os.chmod(tmp_path, existing_mode)
-        except OSError:
-            pass
+        except OSError as _ce:
+            _logger.warning(
+                "atomic_write(%s): chmod to %o failed (%s) — file will land "
+                "with the tempfile's 0600 mode. Group readers may lose access.",
+                target_path, existing_mode, _ce)
         os.replace(tmp_path, target_path)
     except Exception:
+        # Cleanup only reaches here if the exception fired BEFORE
+        # os.replace — tmp_path is still a dangling tempfile. If
+        # replace succeeded, control fell out of this try block
+        # entirely, and any later failure is handled below without
+        # touching tmp_path (which no longer exists at that location).
         try:
             os.unlink(tmp_path)
         except OSError:
             pass
         raise
+    # Parent-dir fsync — makes the rename durable across a hard power
+    # loss. Separated from the main try so a KeyboardInterrupt / exotic
+    # non-OSError raised here cannot trigger a spurious tmp_path unlink
+    # on a successful write. Best-effort: wrap because non-POSIX
+    # platforms and some fuse mounts don't support O_DIRECTORY.
+    try:
+        dir_fd = os.open(target_dir, os.O_DIRECTORY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    except OSError:
+        pass
 
 # ── Single source of truth for framework version ──
 CBFLOW_VERSION = "2.0.0"

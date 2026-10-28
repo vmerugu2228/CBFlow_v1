@@ -79,11 +79,19 @@ flow_proc run_fill_merge_gds {
         set calibre_cmd [list calibre -drc -hier -64 -turbo $num_cpus $::fmg_runset]
         handle_info "  CMD: $calibre_cmd"
         if {[catch {exec {*}$calibre_cmd >& $::fmg_log} _r]} {
+            if {[classify_tool_exit_log $::fmg_log] eq "FATAL"} {
+                handle_error "Calibre fill verification crashed (license / perms / tool error) — see $::fmg_log"
+            }
             handle_warning "Calibre fill verification returned non-zero (may have DRC deltas): $_r"
+            # Tool crashed non-fatally — mark FAIL so downstream sees
+            # the real tool result instead of a sanitized PASS.
+            catch {catch {file copy -force $::fmg_input $::fmg_out}}
+            set ::fmg_status "FAIL"
+        } else {
+            # Copy merged GDS through unchanged (the runset validates only)
+            catch {catch {file copy -force $::fmg_input $::fmg_out}}
+            set ::fmg_status "PASS"
         }
-        # Copy merged GDS through unchanged (the runset validates only)
-        catch {catch {file copy -force $::fmg_input $::fmg_out}}
-        set ::fmg_status "PASS"
     } else {
         # No fill runset — just pass the merged GDS through so downstream
         # stages have a stable filename.

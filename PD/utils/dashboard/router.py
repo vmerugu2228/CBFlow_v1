@@ -11,6 +11,7 @@ Routes:
 import html as _html
 import http.server
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -23,7 +24,119 @@ import race_dashboard
 import registry
 import state_paths
 
+_logger = logging.getLogger('cbflow.dashboard.router')
+
 _PD_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+# ── HTML nav rewriter ───────────────────────────────────────────────────────
+#
+# Pre-fix the daemon-scope nav rewrite used `bytes.replace` with a
+# literal 4-way attribute-ordering match for the `data-hub-link`
+# sentinel + bare href="/" rewrites. An HTML autoformatter normalizing
+# attribute order, quoting, or whitespace silently defeats the
+# sentinel ladder — a latent regression any PR adding prettier to the
+# repo would trigger. HTMLParser handles every quoting/ordering/
+# whitespace variant for free.
+import html.parser as _html_parser
+
+
+class _NavRewriter(_html_parser.HTMLParser):
+    """Rewrite `<a href="/<path>">` under a daemon prefix.
+
+    - `href="/"` + attribute `data-hub-link` → keep absolute (hub nav).
+    - `href="/"` without `data-hub-link`     → prefix with daemon run.
+    - `href="/dag"`, `href="/grid"`, etc.    → prefix with daemon run.
+    - Any other href (relative, external, #frag) → untouched.
+
+    `convert_charrefs=False` keeps entities as-written so we don't
+    double-escape. Rebuilds tags verbatim except for the mutated
+    href attribute. Any attribute order, quote style, or whitespace
+    the parser accepts, we handle.
+    """
+
+    def __init__(self, prefix: str):
+        super().__init__(convert_charrefs=False)
+        self._prefix = prefix.rstrip('/')
+        self._out = []
+
+    def handle_starttag(self, tag, attrs):
+        self._out.append(self._render_tag(tag, attrs, close=False))
+
+    def handle_startendtag(self, tag, attrs):
+        self._out.append(self._render_tag(tag, attrs, close=True))
+
+    def handle_endtag(self, tag):
+        self._out.append(f'</{tag}>')
+
+    def handle_data(self, data):
+        self._out.append(data)
+
+    def handle_entityref(self, name):
+        self._out.append(f'&{name};')
+
+    def handle_charref(self, name):
+        self._out.append(f'&#{name};')
+
+    def handle_comment(self, data):
+        self._out.append(f'<!--{data}-->')
+
+    def handle_decl(self, decl):
+        self._out.append(f'<!{decl}>')
+
+    def handle_pi(self, data):
+        self._out.append(f'<?{data}>')
+
+    def _render_tag(self, tag, attrs, close):
+        has_hub_marker = any(k == 'data-hub-link' for k, _ in attrs)
+        rewritten = []
+        for key, val in attrs:
+            if (tag == 'a' and key == 'href' and val is not None
+                    and val.startswith('/')
+                    and not val.startswith('//')):
+                if val == '/' and has_hub_marker:
+                    pass  # keep absolute hub link
+                elif val == '/' or val == '/dag' or val == '/grid':
+                    val = f'{self._prefix}{val}'
+            if val is None:
+                rewritten.append(key)
+            else:
+                # Match HTMLParser's incoming decoding by html-escaping
+                # on output. quote=True also encodes `"` so the value
+                # survives inside the `"..."` attribute wrapper.
+                rewritten.append(f'{key}="{_html.escape(val, quote=True)}"')
+        if rewritten:
+            body = ' ' + ' '.join(rewritten)
+        else:
+            body = ''
+        tail = ' /' if close else ''
+        return f'<{tag}{body}{tail}>'
+
+    def result(self):
+        return ''.join(self._out)
+
+
+def _rewrite_nav_links(content: bytes, prefix: str) -> bytes:
+    """Rewrite nav hrefs in `content` under `prefix`.
+
+    `prefix` is the daemon run-prefix (e.g. `/run/<id>`). On parse
+    failure, returns content unchanged — the daemon-scope rewrites
+    are a convenience, not correctness-critical, so we never 500 a
+    page just because the HTML was unparseable.
+    """
+    try:
+        text = content.decode('utf-8')
+    except UnicodeDecodeError:
+        return content
+    rewriter = _NavRewriter(prefix)
+    try:
+        rewriter.feed(text)
+        rewriter.close()
+    except Exception:
+        _logger.warning("nav-link rewrite failed; serving unrewritten HTML",
+                        exc_info=True)
+        return content
+    return rewriter.result().encode('utf-8')
 
 
 # ── Pool ────────────────────────────────────────────────────────────────────
@@ -344,6 +457,10 @@ def make_daemon_handler(pool):
             #   `evil"><script>alert(1)</script><a href="`
             # breaks out of the attribute and runs JS in the dashboard
             # origin. BYLINE substitution 5 lines below already escapes.
+            # Scheme-safe URL (resolver enforces http/https allowlist on
+            # env override; non-env paths always emit http:// so are
+            # scheme-safe by construction). html.escape is still
+            # required for attribute-context quoting.
             _sg_url = _resolve_smartgrid_url(
                 self.headers.get('Host', '127.0.0.1'),
                 project=run_info.get('project') or None)
@@ -368,21 +485,15 @@ def make_daemon_handler(pool):
                 # fetch('/api/...') and friends — prefix any quoted absolute /api/ path.
                 content = content.replace(b"'/api/", b"'" + prefix + b"/api/")
                 content = content.replace(b'"/api/', b'"' + prefix + b'/api/')
-                # Nav links inside dashboard.html / dag.html / grid.html.
-                # Opt-out marker: `data-hub-link` on an <a> keeps the href
-                # pointing at the daemon root (/) so cross-run navigation
-                # back to the all-runs hub works. Without this, the hub
-                # link would be rewritten into a self-link to the current
-                # run's root, defeating the purpose. The two-step dance
-                # replaces the sentinel first with a placeholder, runs the
-                # standard rewrites, then restores the hub href.
-                _HUB_SENTINEL = b'__CBFLOW_HUB_LINK__'
-                content = content.replace(b'data-hub-link href="/"', _HUB_SENTINEL)
-                content = content.replace(b'href="/" data-hub-link', _HUB_SENTINEL)
-                content = content.replace(b'href="/"', b'href="' + prefix + b'/"')
-                content = content.replace(b'href="/dag"', b'href="' + prefix + b'/dag"')
-                content = content.replace(b'href="/grid"', b'href="' + prefix + b'/grid"')
-                content = content.replace(_HUB_SENTINEL, b'href="/"')
+                # Nav-link rewrite via a proper HTML parser (altitude
+                # fix). Pre-fix we did `bytes.replace` with a 4-way
+                # attribute-order ladder, which an HTML autoformatter
+                # (prettier/djlint/html-tidy) could silently defeat by
+                # single-quoting the attribute, adding whitespace, or
+                # inserting an intervening attribute. Using an HTML
+                # parser handles any attribute order, any quoting
+                # style, any whitespace, forever.
+                content = _rewrite_nav_links(content, prefix.decode())
 
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
@@ -1771,7 +1882,25 @@ def _resolve_smartgrid_url_with_source(host_header, project=None):
     import glob as _glob
     override = _os.environ.get('CBFLOW_SMARTGRID_URL', '').strip()
     if override:
-        return (override, 'env')
+        # Scheme allowlist — CBFLOW_SMARTGRID_URL lands directly in an
+        # anchor `href` (both the server-rendered template at
+        # make_daemon_handler and the JSON API consumed by JS at
+        # `smartgrid-link.href = j.url`). Without this check an
+        # `override='javascript:alert(document.cookie)'` would execute
+        # in the dashboard origin on click. urlparse() returns scheme=''
+        # for relative URLs — reject those too; the daemon's job is to
+        # emit an absolute http(s) URL. Validate ONCE here (altitude
+        # fix) so every downstream consumer gets a safe URL.
+        try:
+            _sch = urlparse(override).scheme.lower()
+        except (ValueError, AttributeError):
+            _sch = ''
+        if _sch in ('http', 'https'):
+            return (override, 'env')
+        _logger.warning(
+            "CBFLOW_SMARTGRID_URL=%r has unsafe/unsupported scheme %r — "
+            "ignoring override, falling back to portfile/fallback resolver",
+            override, _sch)
     host = (host_header or '127.0.0.1').split(':')[0]
 
     def _port_from(portfile_path):

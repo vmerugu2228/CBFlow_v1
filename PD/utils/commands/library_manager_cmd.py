@@ -189,6 +189,13 @@ def _apply_tech_corners(tech_config_path):
     Omitted → fallback to the default 5-corner set.
     """
     global _CORNERS_ENV
+    # Reset to defaults FIRST so a REPL `tech <name>` switch to a tech
+    # that omits process_corners does NOT inherit the previous tech's
+    # custom corner set — otherwise libs for the new tech are scanned
+    # with the stale fff-aware regex. Overlay the tech-specific set
+    # only after the match succeeds.
+    _CORNERS_ENV = list(_DEFAULT_PROCESS_CORNERS)
+    _build_lib_patterns()
     if not tech_config_path:
         return
     try:

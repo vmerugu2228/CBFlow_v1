@@ -97,6 +97,9 @@ flow_proc run_nettran {
     handle_info "  Log: $::nettran_log"
 
     if {[catch {exec {*}$cmd >& $::nettran_log} _r]} {
+        if {[classify_tool_exit_log $::nettran_log] eq "FATAL"} {
+            handle_error "v2lvs crashed (license / perms / tool error) — see $::nettran_log"
+        }
         handle_warning "v2lvs failed: $_r"
         set ::nettran_status "FAIL"
     } else {

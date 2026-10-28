@@ -98,7 +98,16 @@ flow_proc run_perc_checks {
     handle_info "  Log: $::WORK_DIR/results/perc/perc.log"
 
     if {[catch {exec {*}$calibre_cmd >& "$::WORK_DIR/results/perc/perc.log"} result]} {
-        handle_warning "Calibre PERC returned non-zero (may have violations): $result"
+        # Silent-pass defense — distinguish real violations from a tool
+        # crash (license-fail, segfault, OOM, bad runset). Pre-fix every
+        # non-zero exit was demoted to handle_warning + report-write,
+        # so a license drop looked identical to '0 violations' on BTO
+        # sign-off. See lvs_calibre.tcl:119 for the reference pattern.
+        if {[classify_tool_exit_log "$::WORK_DIR/results/perc/perc.log"] eq "FATAL"} {
+            handle_error "Calibre PERC crashed (license / perms / tool error) — see $::WORK_DIR/results/perc/perc.log"
+        } else {
+            handle_warning "Calibre PERC returned non-zero (may have violations): $result"
+        }
     }
     handle_info "  PERC run completed"
 }

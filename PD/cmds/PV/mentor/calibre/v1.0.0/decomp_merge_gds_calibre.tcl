@@ -90,6 +90,9 @@ flow_proc run_decomp_merge_gds {
     handle_info "  Log: $::dm_log"
 
     if {[catch {exec {*}$calibre_cmd >& $::dm_log} _r]} {
+        if {[classify_tool_exit_log $::dm_log] eq "FATAL"} {
+            handle_error "calibredrv layout filemerge (mp) crashed (license / perms / tool error) — see $::dm_log"
+        }
         handle_warning "calibredrv layout filemerge (mp) failed: $_r"
         set ::dm_status "FAIL"
     } else {

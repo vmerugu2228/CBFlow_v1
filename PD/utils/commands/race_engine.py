@@ -29,6 +29,7 @@ import socket
 import sqlite3
 import subprocess
 import signal
+import threading
 from pathlib import Path
 from datetime import datetime
 
@@ -43,54 +44,20 @@ import config_validator as _cfg_validator
 logger = logging.getLogger('cbflow.engine')
 
 
-def _sqlite_connect(db_path):
-    """Centralized sqlite3.connect with WAL + busy_timeout.
-
-    Pre-fix: 22+ call sites used `sqlite3.connect(path)` with default
-    settings. Default journal_mode=DELETE serializes readers against
-    the writer's reserved lock. Default busy_timeout=0 means any
-    concurrent writer immediately raises OperationalError('database is
-    locked'). Under the ThreadPoolExecutor fan-out plus dashboard
-    polling, this manifested as successful jobs being marked FAILED
-    (record_complete failed with OperationalError → bubbled up as
-    generic Exception → _execute_job returned 1 → wavefront aborted).
-
-    WAL mode: readers no longer block writers; multiple readers OK;
-    exactly one writer at a time but writers don't block readers.
-    busy_timeout=30s: wait up to 30s before raising. Covers the
-    bursty-write pattern during job completion sweeps.
-    """
-    conn = sqlite3.connect(db_path, timeout=30.0)
-    # Pre-fix: both PRAGMAs were wrapped in `try/except: pass`, so a
-    # transient OperationalError at connect time silently returned a
-    # connection WITHOUT the busy_timeout and WAL — defeating the
-    # entire fix. Now log at WARNING so the regression is visible, but
-    # still return the connection (callers can continue; next connect
-    # may succeed).
-    try:
-        conn.execute('PRAGMA busy_timeout=30000')
-    except sqlite3.OperationalError as e:
-        logger.warning(f"_sqlite_connect({db_path}): PRAGMA busy_timeout failed: {e}; "
-                       f"connections may deadlock under contention")
-    # `PRAGMA journal_mode=WAL` silently no-ops on some network filesystems
-    # (NFS/Lustre/SMB) and legacy sqlite builds — it returns a row whose
-    # value is the UNCHANGED mode instead of raising OperationalError.
-    # Capture fetchone() and warn when the returned mode is not 'wal' so
-    # operators see the signal when the fix is inoperative on their mount.
-    try:
-        _row = conn.execute('PRAGMA journal_mode=WAL').fetchone()
-        _actual_mode = (_row[0] if _row else '').lower()
-        if _actual_mode != 'wal':
-            logger.warning(
-                f"_sqlite_connect({db_path}): PRAGMA journal_mode=WAL "
-                f"did not take effect — journal_mode is {_actual_mode!r}. "
-                f"Readers may block during writer transactions "
-                f"(common on NFS/Lustre mounts that reject WAL)."
-            )
-    except sqlite3.OperationalError as e:
-        logger.warning(f"_sqlite_connect({db_path}): PRAGMA journal_mode=WAL failed: {e}; "
-                       f"readers may block during writer transactions")
-    return conn
+# _sqlite_connect lives in core/db.py — one implementation, imported
+# from both engine + dashboard. Pre-fix the two sides each carried a
+# 45-line mirror that drifted silently when either was tuned (log
+# level, PRAGMA set, retry policy). Keep the local name as a thin
+# alias so existing call sites don't need touching.
+try:
+    from core.db import sqlite_connect as _sqlite_connect
+except ImportError:
+    # Development import — PD/utils may not be on sys.path yet.
+    import os as _os_db, sys as _sys_db
+    _utils_dir_db = _os_db.path.dirname(_os_db.path.dirname(_os_db.path.abspath(__file__)))
+    if _utils_dir_db not in _sys_db.path:
+        _sys_db.path.insert(0, _utils_dir_db)
+    from core.db import sqlite_connect as _sqlite_connect
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1199,6 +1166,18 @@ class RaceEngine:
         self.db = None
         self._interrupted = False
         self._running_processes = {}  # job_name -> subprocess.Popen
+        # Job state mutations (status, exit_code, start/end_time) and
+        # the _running_processes dict are touched from THREE contexts:
+        #   1. the main wavefront loop in execute() / retrace()
+        #   2. ThreadPoolExecutor worker threads in _execute_job
+        #   3. the SIGINT/SIGTERM/SIGHUP signal handler, which iterates
+        #      self.jobs + self._running_processes to issue bkill/kill.
+        # Pre-fix these three contexts raced freely — a late signal
+        # handler reading job.status + job.lsf_job_id after the worker
+        # cleared them could bkill a stale LSF id (reused by another
+        # user's submission on the same cluster, documented edge case).
+        # RLock lets the same thread re-enter nested helpers.
+        self._state_lock = threading.RLock()
 
     def initialize(self, reset_stale=True) -> bool:
         """Build DAG and initialize status DB.
@@ -2294,12 +2273,18 @@ class RaceEngine:
                     job.command, shell=True, env=run_env,
                     cwd=self.run_dir, start_new_session=True,
                     stdout=lf, stderr=subprocess.STDOUT)
-                job.pid = proc.pid
-                self._running_processes[job.name] = proc
+                # Lock around registry insert — signal handler iterates
+                # self._running_processes to issue killpg. Without the
+                # lock, a signal firing exactly between Popen() and
+                # the dict-set could miss this process entirely.
+                with self._state_lock:
+                    job.pid = proc.pid
+                    self._running_processes[job.name] = proc
                 try:
                     proc.wait(timeout=self._get_timeout(job))
                 finally:
-                    self._running_processes.pop(job.name, None)
+                    with self._state_lock:
+                        self._running_processes.pop(job.name, None)
 
             exit_code = proc.returncode
             error_msg = ''
@@ -2355,7 +2340,8 @@ class RaceEngine:
                     proc.kill()
                 except Exception:
                     pass
-            self._running_processes.pop(job.name, None)
+            with self._state_lock:
+                self._running_processes.pop(job.name, None)
             error_msg = f"Job timed out after {self._get_timeout(job)}s. Stage: {job.stage}, Subnode: {job.subnode}"
             self.db.record_complete(job, 124, error_msg)
             logger.error(f"  [{job.stage}/{job.subnode}] TIMEOUT — {error_msg}")
@@ -2545,9 +2531,27 @@ class RaceEngine:
         the LSF job on the compute host. LSF jobs kept running after
         user Ctrl-C, holding tool licenses. Now also bkill every job
         that captured an lsf_job_id regardless of local-handle state.
+
+        Threading: snapshot the registry + job state inside the state
+        lock so a worker completing concurrently can't leave us with
+        an in-between view (e.g. lsf_job_id captured but process not
+        yet in _running_processes, or vice versa). bkill of a stale
+        LSF id after the real job completed is DANGEROUS on clusters
+        that reuse numeric ids — snapshot (name, lsf_id, status)
+        atomically, decide outside the lock, act under the frozen
+        values.
         """
         import signal as _sig
-        procs = list(self._running_processes.items())
+        with self._state_lock:
+            procs = list(self._running_processes.items())
+            self._running_processes.clear()
+            # Freeze (name, lsf_job_id, status) so a concurrent worker
+            # that completes between the snapshot and the bkill cannot
+            # cause us to kill a stale id.
+            lsf_snapshot = [
+                (name, getattr(job, 'lsf_job_id', None), job.status)
+                for name, job in getattr(self, 'jobs', {}).items()
+            ]
         for name, proc in procs:
             if proc.poll() is None:
                 try:
@@ -2558,22 +2562,18 @@ class RaceEngine:
                         proc.kill()
                     except Exception:
                         pass
-        self._running_processes.clear()
-        # Also bkill any LSF-dispatched jobs (bsub may have returned
-        # already with -K, or the local proc may have been reaped
-        # before we got here).
-        try:
-            for name, job in getattr(self, 'jobs', {}).items():
-                lsf_id = getattr(job, 'lsf_job_id', None)
-                if lsf_id and job.status in ('RUNNING', 'PENDING'):
-                    try:
-                        subprocess.run(['bkill', str(lsf_id)],
-                                       capture_output=True, timeout=10)
-                        logger.info(f"  bkill {name} LSF={lsf_id}")
-                    except Exception as e:
-                        logger.warning(f"  bkill failed for {name} LSF={lsf_id}: {e}")
-        except AttributeError:
-            pass
+        # Also bkill any LSF-dispatched jobs that were RUNNING/PENDING
+        # when we took the snapshot (bsub may have returned already
+        # with -K, or the local proc may have been reaped before we
+        # got here). Status read from the frozen snapshot.
+        for name, lsf_id, status in lsf_snapshot:
+            if lsf_id and status in ('RUNNING', 'PENDING'):
+                try:
+                    subprocess.run(['bkill', str(lsf_id)],
+                                   capture_output=True, timeout=10)
+                    logger.info(f"  bkill {name} LSF={lsf_id}")
+                except Exception as e:
+                    logger.warning(f"  bkill failed for {name} LSF={lsf_id}: {e}")
 
     def _handle_interrupt(self, signum, frame):
         """Shared handler for SIGINT / SIGTERM / SIGHUP.

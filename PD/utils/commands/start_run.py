@@ -137,6 +137,21 @@ def _validate_user_config(user_config: Dict[str, str], env: Dict[str, str]
         logger.error("  Error: flow(run_name) not set in user config")
         return False, '', '', '', ''
 
+    # Reject run_name values that would escape the workarea when
+    # composed as `<phase>_run_<flow>_<run_name>` and fed to
+    # shutil.rmtree(--force). A copy-pasted template with
+    # run_name="../../home/user/important" would otherwise wipe an
+    # unrelated directory. Keep the allowlist tight: ASCII identifier
+    # chars + dash/dot. Same posture applied to phase just below.
+    import re as _re_name
+    _NAME_RE = _re_name.compile(r'^[A-Za-z0-9_.-]+$')
+    if not _NAME_RE.match(run_name):
+        logger.error(
+            f"  Error: flow(run_name) {run_name!r} contains characters "
+            f"outside [A-Za-z0-9_.-]. Rename to a plain identifier "
+            f"(no slashes, no '..', no whitespace).")
+        return False, '', '', '', ''
+
     # Design name from user_config (primary source)
     design_name = user_config.get('flow(design_name)', '')
     if not design_name:
@@ -193,6 +208,14 @@ def _validate_user_config(user_config: Dict[str, str], env: Dict[str, str]
                     continue
     if not phase:
         phase = 'P0'
+
+    # Same path-traversal defense for phase — composed into the run
+    # directory name below.
+    if not _NAME_RE.match(phase):
+        logger.error(
+            f"  Error: phase {phase!r} contains characters outside "
+            f"[A-Za-z0-9_.-]. Fix project(current_phase) in project_config.tcl.")
+        return False, '', '', '', ''
 
     return True, flow_type, run_name, design_name, phase
 
@@ -743,6 +766,19 @@ def create_run(config_file: str, env_vars: Dict[str, str],
         if not force:
             logger.error(f"  Error: Run directory already exists: {run_dir_name}")
             logger.error(f"  Use --force to recreate")
+            return False, ''
+        # Belt-and-braces path-traversal guard — the primary defense is
+        # the allowlist on run_name/phase in _validate_user_config, but
+        # also verify the composed name has no path separators and
+        # resolves to a direct child of cwd before firing rmtree.
+        _target_abs = os.path.realpath(run_dir_name)
+        _cwd_abs = os.path.realpath(os.getcwd())
+        if (os.sep in run_dir_name
+                or '..' in run_dir_name.split(os.sep)
+                or os.path.dirname(_target_abs) != _cwd_abs):
+            logger.error(
+                f"  Error: refusing to rmtree {run_dir_name!r} — "
+                f"not a direct child of {_cwd_abs}. Fix flow(run_name) / phase.")
             return False, ''
         logger.info(f"  Removing existing: {run_dir_name}")
         shutil.rmtree(run_dir_name)

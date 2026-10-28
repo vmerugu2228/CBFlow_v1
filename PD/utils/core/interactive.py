@@ -96,15 +96,6 @@ def run_repl(top_parser,
              logger: logging.Logger = None,
              extra_help_lines: list = None,
              post_tech_hook=None) -> int:
-    """
-    post_tech_hook: optional callable(tech_config_path) invoked after
-      the REPL resolves the current tech (startup) and after every
-      `tech <name>` switch mid-session. Library-manager uses this to
-      install tech(process_corners) via `_apply_tech_corners` — without
-      it, subcommands dispatched from inside the REPL silently fall
-      back to the compiled 5-corner default (ss/tt/ff/sf/fs), so a
-      tech that ships `fff` corners gets its libs miscategorized.
-    """
     """Interactive REPL for a subcommand-dispatching tool.
 
     Flow:
@@ -117,8 +108,36 @@ def run_repl(top_parser,
 
     The REPL survives argparse errors (bad flag, --help, unknown command)
     and per-handler exceptions — the loop only breaks on explicit exit.
+
+    post_tech_hook: optional callable(tech_config_path) invoked after
+      the REPL resolves the current tech (startup) and after every
+      `tech <name>` switch mid-session. Library-manager uses this to
+      install tech(process_corners) via `_apply_tech_corners` — without
+      it, subcommands dispatched from inside the REPL silently fall
+      back to the compiled 5-corner default (ss/tt/ff/sf/fs), so a
+      tech that ships `fff` corners gets its libs miscategorized.
+      Hook exceptions are logged at WARNING (not DEBUG) so a silent
+      failure doesn't reintroduce the exact miscategorization bug the
+      hook was added to prevent. A non-callable hook is rejected at
+      entry — passing a non-callable is a programmer error, not a
+      runtime condition.
     """
     log = logger or _logger
+    if post_tech_hook is not None and not callable(post_tech_hook):
+        raise TypeError(
+            f"run_repl: post_tech_hook must be callable, got "
+            f"{type(post_tech_hook).__name__}")
+
+    def _invoke_post_tech_hook(tc_path):
+        if post_tech_hook is None:
+            return
+        try:
+            post_tech_hook(tc_path)
+        except Exception as _e:
+            log.warning(
+                "post_tech_hook failed for %r: %s — downstream subcommands "
+                "may miscategorize libs or fall back to default corners",
+                tc_path, _e)
 
     print()
     print('  ═══════════════════════════════════════════════════════════')
@@ -153,11 +172,7 @@ def run_repl(top_parser,
     os.environ['CBFLOW_TECH_NODE'] = tech
 
     _tc_path = require_tech_config(tech)
-    if post_tech_hook is not None:
-        try:
-            post_tech_hook(_tc_path)
-        except Exception as _e:
-            log.debug("post_tech_hook failed: %s", _e)
+    _invoke_post_tech_hook(_tc_path)
     print('  Tech context set: {}'.format(tech))
     print()
     print('  Commands: {}'.format(', '.join(sorted(dispatch.keys()))))
@@ -200,11 +215,7 @@ def run_repl(top_parser,
             tech = new_tech
             os.environ['CBFLOW_TECH_NODE'] = tech
             _tc_path = require_tech_config(tech)
-            if post_tech_hook is not None:
-                try:
-                    post_tech_hook(_tc_path)
-                except Exception as _e:
-                    log.debug("post_tech_hook failed: %s", _e)
+            _invoke_post_tech_hook(_tc_path)
             prompt = '  {} [{}] > '.format(tool_name, tech)
             print('  Tech context: {}'.format(tech))
             continue

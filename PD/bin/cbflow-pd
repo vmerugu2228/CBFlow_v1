@@ -28,7 +28,12 @@ while [ -L "$_real" ]; do
     _real="$(readlink "$_real")"
     [[ "$_real" != /* ]] && _real="$_dir/$_real"
 done
-_HELPER="$CBFLOW_ROOT/global/bin/_cbflow_paths.sh"
+# Use ${CBFLOW_ROOT:-} so `set -u` (nounset) doesn't abort when
+# cbflow-pd is run directly from a shell that hasn't exported
+# CBFLOW_ROOT yet. The walk-up fallback below handles that case; a
+# bare $CBFLOW_ROOT reference would trip 'unbound variable' before
+# reaching it.
+_HELPER="${CBFLOW_ROOT:-}/global/bin/_cbflow_paths.sh"
 if [[ -z "${CBFLOW_ROOT:-}" || ! -f "$_HELPER" ]]; then
     # Not yet resolved — locate the helper by walking up from the real script.
     _HELPER="$(dirname "$(dirname "$(dirname "$_real")")")/global/bin/_cbflow_paths.sh"

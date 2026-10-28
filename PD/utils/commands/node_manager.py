@@ -168,15 +168,37 @@ class NodeManager:
                 _t = str(_tier).replace('\\', '\\\\').replace('"', '\\"')
                 lines.append(f'    stages,{name},resource_tier "{_t}"')
 
-        # Write branches
+        # Write branches. ALL user-controlled values must be Tcl-quoted
+        # before splicing into the `"..."` string context, otherwise
+        # a branch name / tag / created_by containing `"`, `$`, `[`, `\`,
+        # or newline breaks out of the string and the sourced TCL
+        # executes arbitrary code (`[exec rm -rf $HOME]` etc.) at
+        # cascade-reload time. Pre-fix this was unescaped. Dashboard's
+        # _action_create_branch exposes name/tag to any authenticated
+        # browser session, so this was a direct injection vector.
+        def _tq(s):
+            return (str(s)
+                    .replace('\\', '\\\\')
+                    .replace('"',  '\\"')
+                    .replace('$',  '\\$')
+                    .replace('[',  '\\[')
+                    .replace('\n', '\\n')
+                    .replace('\r', '\\r'))
         for bkey, info in sorted(self.branches.items()):
-            lines.append(f'    branch_keys,{bkey},name "{info.get("name", bkey)}"')
+            # bkey is also user-reachable via the dashboard URL; validate
+            # with the same name regex applied to custom nodes above.
+            if not re.match(r'^[A-Za-z0-9_.-]+$', str(bkey)):
+                logger.warning(
+                    f"  Skipping branch with unsafe key {bkey!r} — "
+                    f"must match [A-Za-z0-9_.-]+")
+                continue
+            lines.append(f'    branch_keys,{bkey},name "{_tq(info.get("name", bkey))}"')
             if info.get('tag'):
-                lines.append(f'    branch_keys,{bkey},tag "{info["tag"]}"')
+                lines.append(f'    branch_keys,{bkey},tag "{_tq(info["tag"])}"')
             if info.get('created_date'):
-                lines.append(f'    branch_keys,{bkey},created_date "{info["created_date"]}"')
+                lines.append(f'    branch_keys,{bkey},created_date "{_tq(info["created_date"])}"')
             if info.get('created_by'):
-                lines.append(f'    branch_keys,{bkey},created_by "{info["created_by"]}"')
+                lines.append(f'    branch_keys,{bkey},created_by "{_tq(info["created_by"])}"')
 
         lines.append('}')
         lines.append('')
@@ -404,6 +426,25 @@ class NodeManager:
             True if the branch was successfully created, False otherwise.
         """
         import random
+
+        # Validate branch_name + tag at the API boundary — the writer
+        # at _save_runtime_config now escapes these, but reject the
+        # obvious attack surface here too so the dashboard shows a
+        # clear error instead of silently producing an escaped branch
+        # with weird characters. Allow spaces + punctuation that an
+        # engineer would reasonably type in a UI (e.g. "Timing fix v2").
+        _unsafe_re = re.compile(r'[`$"\\\n\r\x00]')
+        if _unsafe_re.search(branch_name):
+            logger.error(
+                f"  Error: Branch name {branch_name!r} contains unsafe "
+                f"characters (quote, backslash, dollar, backtick, newline). "
+                f"Pick a plain description — e.g. 'Timing fix v2'.")
+            return False
+        if tag and _unsafe_re.search(tag):
+            logger.error(
+                f"  Error: Branch tag {tag!r} contains unsafe characters. "
+                f"Tags must be plain identifiers (letters, digits, underscore).")
+            return False
 
         all_stages = list(self.base_stages) + list(self.custom_nodes.keys())
 
