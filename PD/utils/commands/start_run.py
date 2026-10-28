@@ -489,27 +489,46 @@ def _preflight_launch_bins(user_config: Dict[str, str],
                 content = fh.read()
         except (OSError, UnicodeDecodeError):
             return defaults
+        _TRUTHY_REG = {'true', '1', 'yes', 'on'}
+        _FALSY_REG  = {'false', '0', 'no', 'off'}
         for key in list(defaults.keys()):
             # grab bare value from `set flow(use_lsf) false` or `"false"`
             # or `{false}`. Anchor to start-of-line (MULTILINE) and
             # explicitly reject `#` so a commented example doesn't win.
+            # Accept `[a-zA-Z0-9]+` so numeric 0/1 and letter forms both
+            # match (matches is_true/is_false in utils.tcl).
             inner = key[len('flow('):-1]
             m = _re.search(
                 r'^[ \t]*set\s+flow\(' + _re.escape(inner) +
-                r'\)\s+[{"]?([a-zA-Z]+)[}"]?',
+                r'\)\s+[{"]?([a-zA-Z0-9]+)[}"]?',
                 content, _re.MULTILINE)
             if m:
                 v = m.group(1).lower()
-                if v in ('true', 'false'):
-                    defaults[key] = v
+                if v in _TRUTHY_REG:
+                    defaults[key] = 'true'
+                elif v in _FALSY_REG:
+                    defaults[key] = 'false'
         return defaults
 
     _defaults = _registry_defaults()
 
+    # Truthy / falsy value sets — must match utils.tcl is_true/is_false
+    # so the preflight sees the same boolean the runtime will. Pre-fix
+    # the preflight accepted only literal 'true'/'false'; a user_config
+    # with `set flow(use_xterm) "0"` was mapped to the registry default
+    # (true), causing workspace create to fail with "DISPLAY unset" on
+    # headless CI even though the runtime treats "0" as false.
+    _TRUTHY = {'true', '1', 'yes', 'on'}
+    _FALSY  = {'false', '0', 'no', 'off'}
+
     def _resolve(key):
-        v = user_config.get(key, '').strip('"').lower()
-        if v in ('true', 'false'):
-            return v
+        # Strip quotes AND Tcl braces so `{true}` / `"true"` / `true`
+        # all normalize. lower() for case-insensitive compare.
+        v = user_config.get(key, '').strip().strip('"').strip('{}').lower()
+        if v in _TRUTHY:
+            return 'true'
+        if v in _FALSY:
+            return 'false'
         return _defaults.get(key, 'false')
 
     # test_mode short-circuit — in test runs we don't need bsub/xterm/DISPLAY.

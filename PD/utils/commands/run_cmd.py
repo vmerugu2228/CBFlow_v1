@@ -2300,10 +2300,20 @@ def cmd_release_check(args: argparse.Namespace) -> int:
                 # stub pipeline writes `.TEST_MODE_STUB` next to the
                 # artifacts; a release-check for BTO/MTO sign-off MUST
                 # NOT accept a stub as a real release.
-                stub_marker = os.path.join(release_dir, '.TEST_MODE_STUB')
-                outputs_stub = os.path.join(release_dir, 'outputs',
-                                            '.TEST_MODE_STUB')
-                if os.path.exists(stub_marker) or os.path.exists(outputs_stub):
+                #
+                # Pre-fix: we only checked the two top-level locations
+                # (<flow>/.TEST_MODE_STUB and <flow>/outputs/.TEST_MODE_STUB).
+                # But `cbflow run release` copies node outputs into
+                # <flow>/data/ (or output-manifest-chosen subdirs), so
+                # the marker landed where this check never looked.
+                # Walk the whole release_dir subtree so a stub artifact
+                # ANYWHERE under <flow>/ is caught.
+                _stub_found = False
+                for _root, _dirs, _files in os.walk(release_dir):
+                    if '.TEST_MODE_STUB' in _files:
+                        _stub_found = True
+                        break
+                if _stub_found:
                     row += f'{"STUB":<14}'
                     block_ok = False
                     stub_detected = True

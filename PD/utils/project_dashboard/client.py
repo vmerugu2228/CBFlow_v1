@@ -262,28 +262,78 @@ def _read_run_snapshot(race_db_path, milestone):
 
 # ─── Config reads (project + block) ─────────────────────────────────────────
 
-def _project_config_path(project):
-    """Locate PD/config/project/<project>/v1.0.0/<project>_config.tcl."""
+def _project_config_paths(project):
+    """Return every project-config file to scan for `set project(...)` keys.
+
+    Pre-fix: this helper returned ONLY the pre-split monolith at
+    PD/config/project/<project>/v1.0.0/<project>_config.tcl — which the
+    cbflow_global refactor deleted. Every published SmartGrid snapshot
+    then showed empty tapeout_date / current_phase / technology /
+    metal_stack / phases because the file never existed.
+
+    Post-split layout (per CLAUDE.md config cascade):
+      1. global/config/project/<project>/<ver>/project_config.tcl
+         — identity + hierarchy + tapeout + dft/verif params
+      2. PD/config/project/<project>/<ver>/project_pd_config.tcl
+         — PD overlay (release, lsf, lib_root, metal_stack)
+
+    Scan both and merge; later files win on duplicate keys (matches the
+    actual cascade order used by the engine).
+    """
+    version = os.environ.get('FLOW_CONFIG_VERSION', 'v1.0.0')
+    paths = []
+    # Global project config
+    global_root = os.environ.get('CBFLOW_GLOBAL_DIR', '')
+    if global_root:
+        paths.append(os.path.join(global_root, 'config', 'project',
+                                   project, version, 'project_config.tcl'))
+    # PD overlay
     flow_dir = os.environ.get('FLOW_DIR')
     if not flow_dir:
         flow_dir = os.path.abspath(
             os.path.join(SCRIPT_DIR, os.pardir, os.pardir))
-    version = os.environ.get('FLOW_CONFIG_VERSION', 'v1.0.0')
-    return os.path.join(flow_dir, 'config', 'project', project, version,
-                        f'{project}_config.tcl')
+    paths.append(os.path.join(flow_dir, 'config', 'project', project,
+                               version, 'project_pd_config.tcl'))
+    # Legacy monolith — kept as a fallback for pre-split installs that
+    # haven't migrated yet. Scanned LAST so it never shadows the split
+    # files when both exist.
+    paths.append(os.path.join(flow_dir, 'config', 'project', project,
+                               version, f'{project}_config.tcl'))
+    return paths
+
+
+def _project_config_path(project):
+    """Back-compat shim — returns the first existing path, or the
+    legacy monolith path if none exist (callers only use this for
+    diagnostics)."""
+    for p in _project_config_paths(project):
+        if os.path.isfile(p):
+            return p
+    return _project_config_paths(project)[-1]
 
 
 def _read_project_info(project):
     """Extract the header-tile values we care about from the project config."""
-    path = _project_config_path(project)
+    paths = _project_config_paths(project)
     info = {}
-    if not os.path.isfile(path):
+    # Concatenate all existing config bodies — later files override
+    # earlier ones because _grab uses first-match-wins and we scan
+    # the concatenation in reverse-priority order (lowest first).
+    bodies = []
+    for p in paths:
+        if not os.path.isfile(p):
+            continue
+        try:
+            with open(p, encoding='utf-8', errors='replace') as f:
+                bodies.append(f.read())
+        except OSError:
+            continue
+    if not bodies:
         return info
-    try:
-        with open(path) as f:
-            text = f.read()
-    except OSError:
-        return info
+    # PD overlay should override global — scan PD-overlay body FIRST so
+    # the first-match-wins regex grabs its value when both declare the
+    # same key (matches the engine's cascade behavior).
+    text = '\n'.join(reversed(bodies))
     def _grab(key):
         m = re.search(r'^\s*set\s+project\(' + re.escape(key)
                       + r'\)\s+"([^"]*)"', text, re.MULTILINE)

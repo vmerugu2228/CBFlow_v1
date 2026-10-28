@@ -225,7 +225,16 @@ proc submit_job {wrapper flow_type stage_name node_name work_dir} {
             # exit code. Caller already captures and asserts rc.
             set bsub_cmd_sync [linsert $bsub_cmd 1 "-K"]
             puts "INFO: Submitting via LSF (batch, -K sync): $bsub_cmd_sync $wrapper"
-            if {[catch {exec {*}$bsub_cmd_sync $wrapper} result]} {
+            # bsub -K prints `<<Waiting for dispatch ...>>`, `<<Starting
+            # on ...>>` and `<<Job is finished>>` status lines to stderr.
+            # Tcl `exec` raises on ANY stderr output unless we redirect
+            # or use -ignorestderr — without this, every LSF batch stage
+            # was failing with 'ERROR: LSF submit/exec failed: <bsub
+            # status noise>' even when the job itself returned 0.
+            # Merge stderr into stdout via `2>@1` so the status lines
+            # land in the handler log and only the real exit code
+            # drives the catch result.
+            if {[catch {exec {*}$bsub_cmd_sync $wrapper 2>@1} result]} {
                 puts "ERROR: LSF submit/exec failed: $result"; exit 1
             }
         }
@@ -256,7 +265,14 @@ proc submit_job {wrapper flow_type stage_name node_name work_dir} {
         catch { file delete -- $_rc_file }
         set _rc_wrap "/bin/sh -c \"$wrapper; echo \\\$? > $_rc_file\""
         puts "INFO: Launching in xterm: $xterm_cmd -geometry $xterm_geom -e <rc-capturing sh wrapper>"
-        if {[catch {exec $xterm_cmd -geometry $xterm_geom -title "CBflow $flow_type $stage_name" -e sh -c "$wrapper; echo \$? > $_rc_file"} result]} {
+        # xterm commonly writes font / locale / charset conversion
+        # warnings to stderr (`Warning: Missing charsets in String to
+        # FontSet conversion`) even on successful launch. Tcl `exec`
+        # raises on ANY stderr output, so without `2>@1` xterm's
+        # harmless warnings surface as 'ERROR: xterm launch failed'.
+        # The real exit code of the EDA tool is captured via $_rc_file
+        # just below, so merging stderr into stdout is safe.
+        if {[catch {exec $xterm_cmd -geometry $xterm_geom -title "CBflow $flow_type $stage_name" -e sh -c "$wrapper; echo \$? > $_rc_file" 2>@1} result]} {
             puts "ERROR: xterm launch failed: $result"; exit 1
         }
         # Read captured rc. Missing rc file → xterm never ran the

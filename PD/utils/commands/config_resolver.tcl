@@ -281,6 +281,12 @@ _emit_array_glob $flow_array "node_types,*"
 _emit_array_glob $flow_array "stages,*,type"
 _emit_array_glob $flow_array "stages,*,dependencies"
 _emit_array_glob $flow_array "stages,*,branch_key"
+# `cbflow run add-node --resource-tier <T>` writes stages,<name>,resource_tier
+# via node_manager. Without this emission, the resolver silently drops the
+# tier → race_engine falls back to the base-stage default queue; next node
+# mutation rewrites runtime_flow_config.tcl without the tier line and the
+# user's setting is lost from disk.
+_emit_array_glob $flow_array "stages,*,resource_tier"
 
 # ── branch metadata (cbflow run create-branch) ──
 _emit_array_glob $flow_array "branch_keys,*"

@@ -1020,20 +1020,76 @@ def read_project_cfg_key(project_name: str, key: str,
 # naming convention no longer uses.
 def flow_type_from_run_dir_name(name: str) -> str:
     """Extract <FLOW> from `<PHASE>_run_<FLOW>_<RUN_NAME>`. Returns '' if
-    the name doesn't match the shared run-dir shape."""
+    the name doesn't match the shared run-dir shape.
+
+    Pre-fix: the greedy `[A-Z][A-Z0-9_]*` token absorbed uppercase
+    run_names into the FLOW token. `P0_run_PNR_BASELINE` returned
+    'PNR_BASELINE' (nonexistent flow); `P0_run_SYNTH_PNR_V2` returned
+    'SYNTH_PNR_V2'. Email/auto-PPT then reported a bogus flow;
+    checklist _detect_milestone_for_flow fell back to BTO silently.
+    Fix: enumerate against the known flow-types list from
+    global/config/flow/v1.0.0/flow_registry.tcl and pick the longest
+    prefix match, so `P0_run_SYNTH_PNR_V2` resolves 'SYNTH_PNR' and
+    'V2' is the run_name.
+    """
     import re as _re
-    _re_fn = _re.compile(
-        r'^(?:P\d+|LC\d+|LC_\d+|MTO|BTO|R\d+|FP|CTS|PRE|POST)'
-        r'_run_([A-Z][A-Z0-9_]*?)(?:_\d+|_[a-z0-9]+)?$')
-    # Also accept the full `_<RUN_NAME>` suffix which can include anything.
-    m = _re.match(
-        r'^(?:P\d+|LC\d+|LC_\d+|MTO|BTO|R\d+|FP|CTS|PRE|POST)'
-        r'_run_([A-Z][A-Z0-9_]*)(?:_(.+))?$', name)
+    _phase_rx = (r'(?:P\d+|LC\d+|LC_\d+|MTO|BTO|R\d+'
+                 r'|FP|CTS|PRE|POST)')
+    m = _re.match(r'^' + _phase_rx + r'_run_(.+)$', name)
     if not m:
         return ''
-    # The FLOW token is greedy up to the first non-FLOW segment. Returns
-    # the whole uppercase run of FLOW tokens (e.g. SYNTH_PNR).
-    return m.group(1)
+    tail = m.group(1)
+    # Try longest-match against known flow types. Loaded lazily so
+    # modules that don't need this (dashboard templates, etc.) don't
+    # pay the registry-read cost at import time.
+    try:
+        _flow_types = _known_flow_types()
+    except Exception:
+        _flow_types = []
+    # Longest first so SYNTH_PNR beats SYNTH when the tail starts with
+    # SYNTH_PNR_<anything>.
+    for ft in sorted(_flow_types, key=len, reverse=True):
+        if tail == ft:
+            return ft
+        if tail.startswith(ft + '_'):
+            return ft
+    # Fallback: no registry match — use the pre-fix greedy regex but
+    # cap the FLOW token at the FIRST underscore followed by an upper-
+    # case-run of ≤5 chars (prevents absorbing BASELINE/V2/P1 into
+    # the flow). Returns the uppercase prefix only when no known
+    # flow matches, so callers at least get a predictable result.
+    m2 = _re.match(r'^([A-Z][A-Z0-9]*(?:_[A-Z][A-Z0-9]*)*?)(?:_|$)', tail)
+    return m2.group(1) if m2 else ''
+
+
+_FLOW_TYPES_CACHE = None
+
+def _known_flow_types() -> list:
+    """Enumerate flow(types) from flow_registry.tcl. Cached per-process."""
+    global _FLOW_TYPES_CACHE
+    if _FLOW_TYPES_CACHE is not None:
+        return _FLOW_TYPES_CACHE
+    import re as _re
+    out = []
+    try:
+        grot = get_global_config_root()
+    except Exception:
+        grot = ''
+    if grot:
+        reg = os.path.join(grot, 'flow', 'v1.0.0', 'flow_registry.tcl')
+        if os.path.isfile(reg):
+            try:
+                with open(reg, encoding='utf-8', errors='replace') as fh:
+                    body = fh.read()
+                m = _re.search(
+                    r'set\s+flow\(types\)\s+\{([^}]+)\}',
+                    body)
+                if m:
+                    out = [t for t in m.group(1).split() if t]
+            except OSError:
+                pass
+    _FLOW_TYPES_CACHE = out
+    return out
 
 
 def phase_from_run_dir_name(name: str) -> str:

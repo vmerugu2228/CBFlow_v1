@@ -77,6 +77,10 @@ rsync -a --quiet \
     --exclude='.claude' \
     --exclude='PD/ai' \
     --exclude='PD/ai/' \
+    --exclude='legacy-PD' \
+    --exclude='legacy-PD/' \
+    --exclude='*/ai' \
+    --exclude='*/ai/' \
     --exclude='*.tar.gz' \
     --exclude='.race_*.db' \
     --exclude='.race_db_pointer' \

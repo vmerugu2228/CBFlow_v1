@@ -26,8 +26,27 @@ KEY_RW="${KEY_DIR}/cbflow_rw.gpg"
 TTL="${CBFLOW_GIT_KEY_TTL:-28800}"
 
 # Where the hook lives (installed into each git repo's .git/hooks/).
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HOOK_SRC="${SCRIPT_DIR}/../utils/git/prepare-commit-msg-host-trailer"
+# Pre-fix: HOOK_SRC was computed as `$SCRIPT_DIR/../utils/git/...`,
+# which worked when this script lived at PD/bin/ (../utils → PD/utils).
+# After the cbflow_global move the script lives at global/bin/, so
+# ../utils → global/utils (which doesn't hold the hook). Any
+# invocation via `bin/cbflow-git-unlock` or `global/bin/cbflow-git-unlock`
+# then hit the `return 0` silent-skip in install_repo_hook and never
+# installed the host-trailer prepare-commit-msg hook. Resolve the
+# symlink chain to find the real script, then source the shared paths
+# helper so CBFLOW_CORE_DIR = PD/ regardless of where this is invoked
+# from.
+_real_gu="${BASH_SOURCE[0]}"
+while [ -L "$_real_gu" ]; do
+    _dir_gu="$(cd "$(dirname "$_real_gu")" && pwd)"
+    _real_gu="$(readlink "$_real_gu")"
+    [[ "$_real_gu" != /* ]] && _real_gu="$_dir_gu/$_real_gu"
+done
+SCRIPT_DIR="$(cd "$(dirname "$_real_gu")" && pwd)"
+# Walk up to the repo root (global/bin → global → root).
+_ROOT_GU="$(dirname "$(dirname "$SCRIPT_DIR")")"
+HOOK_SRC="${_ROOT_GU}/PD/utils/git/prepare-commit-msg-host-trailer"
+unset _real_gu _dir_gu _ROOT_GU
 
 usage() {
     sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'

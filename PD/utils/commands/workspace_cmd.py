@@ -746,14 +746,23 @@ def _confirm_restricted_vars(config_file: str, args: argparse.Namespace) -> bool
     print(sep)
     print()
 
-    force = bool(getattr(args, 'force', False) or getattr(args, 'yes', False))
-    if force:
-        print("  --force set: proceeding without confirmation.")
+    # --accept-restricted (new) is the batch/CI-safe skip. --force is
+    # ALSO honored for backward compatibility, but --force additionally
+    # rmtrees any existing run dir — document the trade-off so operators
+    # pick the right flag.
+    accept = bool(getattr(args, 'accept_restricted', False)
+                  or getattr(args, 'force', False)
+                  or getattr(args, 'yes', False))
+    if accept:
+        if getattr(args, 'accept_restricted', False):
+            print("  --accept-restricted set: proceeding without confirmation.")
+        else:
+            print("  --force set: proceeding without confirmation.")
         print()
         return True
     if not sys.stdin.isatty():
-        logger.error("  Non-interactive stdin and no --force flag. Aborting.")
-        logger.error("  Re-run with --force to bypass this prompt.")
+        logger.error("  Non-interactive stdin and restricted-vars prompt pending.")
+        logger.error("  Re-run with --accept-restricted (safe) or --force (also recreates run).")
         return False
 
     try:
@@ -1986,7 +1995,18 @@ Generate a template with: cbflow workspace template --flow <FLOW>""")
     create_parser.add_argument('--config', '-c',
                               help='User configuration TCL file (e.g., user_config.tcl)')
     create_parser.add_argument('--force', '-f', action='store_true',
-                              help='Force recreate if run directory already exists')
+                              help='Force recreate if run directory already exists '
+                                   '(DESTRUCTIVE: rmtree the existing run)')
+    # Separate flag for restricted-vars confirmation so batch/CI jobs
+    # can accept the restricted-overrides prompt WITHOUT also enabling
+    # the --force rmtree of an existing run dir. Pre-fix: the prompt
+    # error message told users to re-run with --force, which conflated
+    # 'accept restricted overrides' with 'destroy the existing run'.
+    create_parser.add_argument('--accept-restricted', '--yes', dest='accept_restricted',
+                              action='store_true',
+                              help='Accept restricted-variable overrides in user_config '
+                                   'without the interactive prompt (safe for CI/batch; '
+                                   'does NOT recreate existing run — use --force for that)')
 
     # template command
     template_parser = subparsers.add_parser('template', help='Generate user_config.tcl template',
