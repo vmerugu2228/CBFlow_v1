@@ -1,0 +1,22 @@
+{
+  "release_tag": "P0_FP_EXIT",
+  "milestone": "FP_EXIT",
+  "description": "FP_EXIT milestone (after init_design)",
+  "phase": "P0",
+  "project": "denali",
+  "design": "tom",
+  "timestamp": "2026-06-05T12:03:32.373374",
+  "user": "vmerugu",
+  "total_files": 3,
+  "flows": {
+    "CLP": "P0_run_CLP_conformal_lp_test1",
+    "EMIR": "P0_run_EMIR_voltus_test1",
+    "FP": "P0_run_FP_fp_denali_test1",
+    "LEC": "P0_run_LEC_conformal_test1",
+    "PNR": "P0_run_PNR_innovus_test1",
+    "PV": "P0_run_PV_calibre_test1",
+    "STA": "P0_run_STA_tempus_test1",
+    "SYNTH": "P0_run_SYNTH_genus_test1"
+  },
+  "expiry_date": "2027-06-30"
+}

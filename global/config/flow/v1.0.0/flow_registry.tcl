@@ -21,7 +21,8 @@
 set flow(types) {
     SYNTH FP PNR STA LEC EMIR PV ECO CLP POPT FCFP SYNTH_PNR
     DFT_INSERT SCAN_INSERT ATPG GLS_FUNC GLS_SCAN_MBIST
-    LINT CDC RDC SIM COV_MERGE FORMAL UPF_CHECK
+    SPEC_RAMP PLANNING TB_SETUP M1_EXEC M2_EXEC M3_EXEC M4_EXEC
+    ECO_EXEC DV_SIGNOFF
 }
 
 # ── Discipline Roster ─────────────────────────────────────────────────────────
@@ -57,14 +58,20 @@ set flow(discipline,ATPG)           "DFT"
 set flow(discipline,GLS_FUNC)       "DFT"
 set flow(discipline,GLS_SCAN_MBIST) "DFT"
 
-# DV — RTL Design Verification (lint, CDC, sim, formal, UPF)
-set flow(discipline,LINT)           "DV"
-set flow(discipline,CDC)            "DV"
-set flow(discipline,RDC)            "DV"
-set flow(discipline,SIM)            "DV"
-set flow(discipline,COV_MERGE)      "DV"
-set flow(discipline,FORMAL)         "DV"
-set flow(discipline,UPF_CHECK)      "DV"
+# DV — Verification milestone / review flows (xlsx-defined, Oct 2026)
+# Prior tool-driven scaffolds (LINT/CDC/RDC/SIM/COV_MERGE/FORMAL/UPF_CHECK)
+# were removed in favor of the review-driven milestone pipeline — they will
+# be re-added as separate flows when real tool handlers (SpyGlass, VCS,
+# Questa, etc.) are implemented.
+set flow(discipline,SPEC_RAMP)      "DV"
+set flow(discipline,PLANNING)       "DV"
+set flow(discipline,TB_SETUP)       "DV"
+set flow(discipline,M1_EXEC)        "DV"
+set flow(discipline,M2_EXEC)        "DV"
+set flow(discipline,M3_EXEC)        "DV"
+set flow(discipline,M4_EXEC)        "DV"
+set flow(discipline,ECO_EXEC)       "DV"
+set flow(discipline,DV_SIGNOFF)     "DV"
 
 # ── Descriptions — sourced from adjacent descriptions_config.tcl ──────────────
 # Kept in a separate file for edit-cadence (descriptions change often; the

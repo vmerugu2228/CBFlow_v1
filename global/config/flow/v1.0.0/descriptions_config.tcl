@@ -19,6 +19,16 @@ array set flow_descriptions {
     POPT      "Power optimization and clock gating"
     FCFP      "Fullchip floorplanning"
     SYNTH_PNR "Unified synthesis to signoff (FC-RM aligned)"
+
+    SPEC_RAMP  "Specification ramp-up & requirement analysis"
+    PLANNING   "Verification plan & strategy definition"
+    TB_SETUP   "Testbench setup & sanity verification (M0)"
+    M1_EXEC    "Test plan execution — Milestone 1 (0.3v RTL)"
+    M2_EXEC    "Test plan execution — Milestone 2 (0.5v RTL & GLS/LP setup)"
+    M3_EXEC    "Test plan execution — Milestone 3 (0.8v RTL & GLS zero-delay)"
+    M4_EXEC    "Test plan execution — Milestone 4 (RTL freeze & GLS SDF)"
+    ECO_EXEC   "ECO verification & re-regression"
+    DV_SIGNOFF "Verification signoff & closure"
 }
 
 # ── Run Type Descriptions ──

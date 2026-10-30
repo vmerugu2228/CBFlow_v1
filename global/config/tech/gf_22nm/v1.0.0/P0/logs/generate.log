@@ -1,0 +1,15 @@
+CBflow library-manager generate — 2026-10-11 00:07:33
+tech: gf_22nm
+tag:  P0
+lib_root: /tmp/post_merge_mock
+──────────────────────────────────────────────────────────────────────
+tracks:  9T
+vts:     svt lvt
+corners: ss_0p80v_125c tt_0p90v_25c
+NDM: stdcell=2 memory=1 io=1 analog=0 ip=0
+DB:  stdcell=2 memory=1 io=0 analog=0 ip=0
+LEF: stdcell=2 memory=1 io=1 analog=0 ip=0
+timing_libs groups: 4  (track×vt×corner)
+──────────────────────────────────────────────────────────────────────
+MANIFEST entries: 16
+  symlink: 16  stub: 0  skip: 0

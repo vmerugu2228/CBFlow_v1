@@ -1,0 +1,15 @@
+{
+  "release_tag": "P0_BTO",
+  "milestone": "BTO",
+  "description": "BTO milestone (after signoff)",
+  "phase": "P0",
+  "project": "bumblebee",
+  "design": "cpu_core",
+  "timestamp": "2026-07-01T22:03:16.985188",
+  "user": "vmerugu",
+  "total_files": 3,
+  "flows": {
+    "SYNTH_PNR": "P0_run_SYNTH_PNR_fpcanvas"
+  },
+  "expiry_date": "2027-06-30"
+}

@@ -1,0 +1,22 @@
+{
+  "release_tag": "P0_BTO",
+  "milestone": "BTO",
+  "description": "BTO milestone (after signoff)",
+  "phase": "P0",
+  "project": "ravendrive",
+  "design": "cpu_core",
+  "timestamp": "2026-06-10T09:58:55.703970",
+  "user": "vmerugu",
+  "total_files": 29,
+  "flows": {
+    "CLP": "P0_run_CLP_test1",
+    "EMIR": "P0_run_EMIR_voltus_test1",
+    "LEC": "P0_run_LEC_test1",
+    "PNR": "P0_run_PNR_test1",
+    "PV": "P0_run_PV_PV_calibre_test1",
+    "STA": "P0_run_STA_test1",
+    "SYNTH_PNR": "P0_run_SYNTH_PNR_test1",
+    "SYNTH": "P0_run_SYNTH_test1"
+  },
+  "expiry_date": "2026-06-30"
+}
