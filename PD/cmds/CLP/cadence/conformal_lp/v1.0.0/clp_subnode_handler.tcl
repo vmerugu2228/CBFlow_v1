@@ -15,7 +15,7 @@ set stage_name "clp"
 if {$node_name eq ""} { set node_name "${stage_name}1" }
 
 set _tool_ver [expr {[info exists ::env(CONFORMAL_LP_VERSION)] ? $::env(CONFORMAL_LP_VERSION) : "v1.0.0"}]
-set cmd_file "$::env(FLOW_DIR)/cmds/CLP/cadence/conformal_lp/$_tool_ver/clp_conformal_lp.tcl"
+set cmd_file "$::env(FLOW_DIR)/PD/cmds/CLP/cadence/conformal_lp/$_tool_ver/clp_conformal_lp.tcl"
 
 set test_mode [handler_is_test_mode]
 set _tool [expr {[info exists ::clp(tool,name)] ? $::clp(tool,name) : "conformal_lp"}]

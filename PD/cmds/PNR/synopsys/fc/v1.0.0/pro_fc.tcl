@@ -7,7 +7,7 @@
 # ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
-source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 if {![info exists ::flow_type] || $::flow_type eq ""} { set ::flow_type $::env(CBFLOW_FLOW_TYPE) }
 set FLOW_TYPE $::flow_type
@@ -283,9 +283,9 @@ flow_proc redhawk_rail_analysis {
     }
     handle_info "RedHawk-SC enabled — staging globals for pro"
     redhawk_stage_globals pro
-    set _recipe "$::env(FLOW_DIR)/cmds/PNR/synopsys/fc/$::env(TOOL_VERSION)/redhawk_fc.tcl"
+    set _recipe "$::env(FLOW_DIR)/PD/cmds/PNR/synopsys/fc/$::env(TOOL_VERSION)/redhawk_fc.tcl"
     if {![file exists $_recipe]} {
-        set _recipe "$::env(FLOW_DIR)/cmds/PNR/synopsys/fc/v1.0.0/redhawk_fc.tcl"
+        set _recipe "$::env(FLOW_DIR)/PD/cmds/PNR/synopsys/fc/v1.0.0/redhawk_fc.tcl"
     }
     handle_info "Sourcing RedHawk recipe: $_recipe"
     source $_recipe
@@ -534,5 +534,5 @@ flow_proc generate_reports {
 }
 flow_exec_all
 
-# BUG FIX #7: Exit tool after stage completion
+# Exit tool after stage completion
 exit

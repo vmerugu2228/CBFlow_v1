@@ -22,13 +22,8 @@ from typing import List, Optional, Dict
 # Path Resolution
 # ═══════════════════════════════════════════════════════════════════════════════
 SCRIPT_DIR = Path(__file__).resolve().parent
-# Post-launcher-promotion: SCRIPT_DIR = <root>/global/bin/, so CBFLOW_ROOT
-# is two parents up and PD is a sibling of global/, not the launcher's
-# parent. Fall back to old layout if the parent isn't 'global'.
-if SCRIPT_DIR.parent.name == "global":
-    CBFLOW_ROOT = SCRIPT_DIR.parent.parent
-else:
-    CBFLOW_ROOT = SCRIPT_DIR.parent.parent  # legacy PD/bin/
+# Launcher lives under global/bin/; PD/ is a sibling of global/.
+CBFLOW_ROOT = SCRIPT_DIR.parent.parent
 CBFLOW_CORE = CBFLOW_ROOT / "PD"
 COMMANDS_DIR = CBFLOW_CORE / "utils" / "commands"
 WORKAREA = CBFLOW_ROOT / "workarea_test"

@@ -26,8 +26,8 @@ switch $subnode_name {
         puts "INFO: $stage_name setup..."
         # Capture both the explicit rc AND any Tcl error thrown by
         # handler_setup (e.g., file mkdir on read-only workarea, missing
-        # perms). Pre-fix a thrown Tcl error propagated past `set`, bypassing
-        # the clean "setup FAILED" message with a raw backtrace in the log.
+        # perms) — otherwise a thrown error propagates past `set`,
+        # bypassing the clean "setup FAILED" message.
         if {[catch {handler_setup $run_dir $::flow_type $node_name} _setup_rc]} {
             puts stderr "ERROR: $stage_name setup threw: $_setup_rc"
             exit 1
@@ -112,8 +112,8 @@ switch $subnode_name {
         set scenario $subnode_name
         puts "INFO: timing scenario: $scenario"
 
-        # mmmc_config.tcl moved to global/ in Phase 3. Fall back to legacy
-        # CONFIG_ROOT path for pre-refactor bundles.
+        # mmmc_config.tcl lives in global/; CONFIG_ROOT path is a
+        # fallback for legacy bundles.
         set _mmmc_candidates [list]
         if {[info exists ::env(CBFLOW_GLOBAL_DIR)] && $::env(CBFLOW_GLOBAL_DIR) ne ""} {
             lappend _mmmc_candidates "$::env(CBFLOW_GLOBAL_DIR)/config/project/$::env(CBFLOW_PROJECT_NAME)/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
@@ -149,15 +149,14 @@ switch $subnode_name {
         set _sdc_dir "$run_dir/work/$::flow_type/sdc1/sdc"
         set _sdc_file "$_sdc_dir/$_sv(constraint_file)"
 
-        # Resolve view definition file. Post cbflow_global split:
-        # mmmc_view_definition.tcl moved to global/. Fall back to the legacy
-        # PD-local location for pre-refactor bundles.
+        # Resolve view definition file. mmmc_view_definition.tcl lives
+        # in global/; PD-local location is a fallback for legacy bundles.
         set _vd_file ""
         set _vd_candidates [list]
         if {[info exists ::env(CBFLOW_GLOBAL_DIR)] && $::env(CBFLOW_GLOBAL_DIR) ne ""} {
             lappend _vd_candidates "$::env(CBFLOW_GLOBAL_DIR)/config/project/$::env(CBFLOW_PROJECT_NAME)/$::env(FLOW_CONFIG_VERSION)/mmmc_view_definition.tcl"
         }
-        lappend _vd_candidates "$::env(FLOW_DIR)/config/project/$::env(CBFLOW_PROJECT_NAME)/$::env(FLOW_CONFIG_VERSION)/mmmc_view_definition.tcl"
+        lappend _vd_candidates "$::env(FLOW_DIR)/PD/config/project/$::env(CBFLOW_PROJECT_NAME)/$::env(FLOW_CONFIG_VERSION)/mmmc_view_definition.tcl"
         foreach _c $_vd_candidates {
             if {[file exists $_c]} { set _vd_file $_c; break }
         }
@@ -181,7 +180,7 @@ switch $subnode_name {
         puts $_fh "# ── Config ──"
         puts $_fh "set run_dir \"$run_dir\""
         puts $_fh "source \"\$run_dir/.run.cbflow.tcl\""
-        puts $_fh "source \"\$::env(FLOW_DIR)/utils/utilities/\$::env(UTILITIES_VERSION)/utils.tcl\""
+        puts $_fh "source \"\$::env(FLOW_DIR)/global/utils/utilities/\$::env(UTILITIES_VERSION)/utils.tcl\""
         puts $_fh "source \"\$run_dir/work/STA/$node_name/run/config.tcl\""
         puts $_fh ""
 

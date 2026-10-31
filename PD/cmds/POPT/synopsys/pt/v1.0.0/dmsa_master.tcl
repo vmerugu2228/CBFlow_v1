@@ -143,7 +143,7 @@ proc dmsa_generate_worker {scenario_name worker_dir} {
     }
 
     # Write the worker script from the template
-    set template_file "$::env(FLOW_DIR)/cmds/POPT/synopsys/pt/v1.0.0/dmsa_worker.tcl"
+    set template_file "$::env(FLOW_DIR)/PD/cmds/POPT/synopsys/pt/v1.0.0/dmsa_worker.tcl"
     set out_file "$worker_dir/${scenario_name}_worker.tcl"
 
     if {[file exists $template_file]} {

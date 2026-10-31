@@ -15,7 +15,7 @@ set stage_name "lvs"
 if {$node_name eq ""} { set node_name "${stage_name}1" }
 
 set _tool_ver [expr {[info exists ::env(CALIBRE_VERSION)] ? $::env(CALIBRE_VERSION) : "v1.0.0"}]
-set cmd_file "$::env(FLOW_DIR)/cmds/PV/mentor/calibre/$_tool_ver/lvs_calibre.tcl"
+set cmd_file "$::env(FLOW_DIR)/PD/cmds/PV/mentor/calibre/$_tool_ver/lvs_calibre.tcl"
 
 set test_mode [handler_is_test_mode]
 set _tool [expr {[info exists ::pv(tool,name)] ? $::pv(tool,name) : "calibre"}]

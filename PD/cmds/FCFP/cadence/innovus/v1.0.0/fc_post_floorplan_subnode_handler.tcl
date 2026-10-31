@@ -15,7 +15,7 @@ set stage_name "fc_post_floorplan"
 if {$node_name eq ""} { set node_name "${stage_name}1" }
 
 set _tool_ver [expr {[info exists ::env(INNOVUS_VERSION)] ? $::env(INNOVUS_VERSION) : "v1.0.0"}]
-set cmd_file "$::env(FLOW_DIR)/cmds/FCFP/cadence/innovus/$_tool_ver/fc_post_floorplan_innovus.tcl"
+set cmd_file "$::env(FLOW_DIR)/PD/cmds/FCFP/cadence/innovus/$_tool_ver/fc_post_floorplan_innovus.tcl"
 
 set test_mode [handler_is_test_mode]
 set _tool [expr {[info exists ::fcfp(tool,name)] ? $::fcfp(tool,name) : "innovus"}]

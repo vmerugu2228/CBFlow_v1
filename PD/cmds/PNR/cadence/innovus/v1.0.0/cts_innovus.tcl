@@ -9,7 +9,7 @@
 # ── Bootstrap ─────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
-source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "PNR"
 set STAGE_NAME "cts"
@@ -71,7 +71,7 @@ flow_proc setup_ndr {
     global pnr
 
     # Source the Cadence NDR script
-    set ndr_script "$::env(FLOW_DIR)/cmds/$::FLOW_TYPE/cadence/innovus/v1.0.0/scripts/cts_ndr.tcl"
+    set ndr_script "$::env(FLOW_DIR)/PD/cmds/$::FLOW_TYPE/cadence/innovus/v1.0.0/scripts/cts_ndr.tcl"
 
     # Allow user override
     if {[info exists pnr(cts,ndr_script)] && $pnr(cts,ndr_script) ne ""} {

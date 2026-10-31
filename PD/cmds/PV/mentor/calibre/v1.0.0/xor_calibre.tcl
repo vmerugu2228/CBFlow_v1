@@ -7,7 +7,7 @@
 # ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
-source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "PV"
 set STAGE_NAME "xor"
@@ -44,9 +44,8 @@ flow_proc setup_xor_environment {
         handle_error "pv(input,gds) not set — cannot run XOR"
     }
 
-    # Post-fill / signoff layout (from decomp_merge_gds1 → fill_merge_gds1 chain
-    # after the 2026-07-10 refactor; fall back to the older single-stage path
-    # for tape-outs that predate the new PV DAG).
+    # Post-fill / signoff layout (from decomp_merge_gds1 → fill_merge_gds1
+    # chain; fall back to the older single-stage path for legacy tape-outs).
     set _run_dir $::env(CBFLOW_RUN_DIR)
     set ::_post_fill "$_run_dir/work/PV/decomp_merge_gds1/results/${::DESIGN_NAME}_signoff.gds"
     if {![file exists $::_post_fill]} {

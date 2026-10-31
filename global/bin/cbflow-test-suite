@@ -2,9 +2,8 @@
 """Back-compat shim. The real implementation lives in
 PD/utils/commands/test_cmd.py.
 
-For CI and historical reasons this script preserves the original behavior:
-static config-validation only (no e2e). New callers should use
-`cbflow test` directly.
+Preserves the original CI-facing behavior: static config-validation only
+(no e2e). New callers should use `cbflow test` directly.
 
 Passes through --flow, --category, --verbose verbatim.
 """
@@ -12,13 +11,11 @@ Passes through --flow, --category, --verbose verbatim.
 import os
 import sys
 
+# Launcher lives under global/bin/; PD is a sibling of global/.
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-# Post-launcher-promotion (global/bin/): PD is a sibling of global/, not
-# the parent of the launcher home.
 if os.path.basename(os.path.dirname(SCRIPT_DIR)) == 'global':
     PD_DIR = os.path.join(os.path.dirname(os.path.dirname(SCRIPT_DIR)), 'PD')
 else:
-    # Legacy PD/bin/ layout
     PD_DIR = os.path.dirname(SCRIPT_DIR)
 sys.path.insert(0, os.path.join(PD_DIR, 'utils', 'commands'))
 

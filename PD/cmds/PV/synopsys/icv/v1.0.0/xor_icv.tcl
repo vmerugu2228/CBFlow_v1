@@ -4,7 +4,7 @@
 # ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
-source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "PV"
 set STAGE_NAME "xor"
@@ -64,14 +64,12 @@ flow_proc run_xor_check {
     handle_info "  CMD: icv -dp $num_cpus -c $::DESIGN_NAME -xor -i <pre> -i2 <post>"
 
     # NOTE: the actual `icv -xor` invocation is not wired here yet — the
-    # ICV command line above is a comment for future implementation. We
-    # therefore cannot honestly report "0 (clean)". Previously the report
-    # hard-coded that clean status, which made pv_xor_clean pass at
-    # PV_SIGNOFF whether or not the check ever ran — a silent-PASS. Now
-    # emit N/A so metric-parsing consumers report metric-not-found
-    # instead of interpreting the missing tool as success. When ICV
-    # `-xor` is wired for real, parse actual output and replace the N/A
-    # with the numeric diff count.
+    # ICV command line above is a comment for future implementation.
+    # Emit N/A so metric-parsing consumers report metric-not-found
+    # (silent-PASS defense: hard-coding "0 (clean)" would make
+    # pv_xor_clean pass at PV_SIGNOFF without the check ever running).
+    # When ICV `-xor` is wired for real, parse actual output and
+    # replace the N/A with the numeric diff count.
     set _xor_diffs "N/A (icv -xor not yet wired)"
     if {$pre_fill eq "" || ![file exists $pre_fill]} {
         set _xor_diffs "N/A (pre-fill layout missing)"

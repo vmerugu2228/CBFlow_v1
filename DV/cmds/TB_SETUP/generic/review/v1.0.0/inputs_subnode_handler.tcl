@@ -10,8 +10,8 @@ lassign [handler_parse_args $argv $argc] subnode_name run_dir node_name
 handler_load_configs $run_dir "TB_SETUP"
 
 set ::flow_type "TB_SETUP"
-set stage_name "inputs"
-if {$node_name eq ""} { set node_name $stage_name }
+set stage_name "review_artifact"
+if {$node_name eq ""} { set node_name "${stage_name}1" }
 
 set test_mode [handler_is_test_mode]
 

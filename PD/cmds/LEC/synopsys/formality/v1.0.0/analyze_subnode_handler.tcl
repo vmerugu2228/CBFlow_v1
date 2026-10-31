@@ -15,7 +15,7 @@ set stage_name "analyze"
 if {$node_name eq ""} { set node_name "${stage_name}1" }
 
 set _tool_ver [expr {[info exists ::env(FM_VERSION)] ? $::env(FM_VERSION) : "v1.0.0"}]
-set cmd_file "$::env(FLOW_DIR)/cmds/LEC/synopsys/formality/$_tool_ver/analyze_formality.tcl"
+set cmd_file "$::env(FLOW_DIR)/PD/cmds/LEC/synopsys/formality/$_tool_ver/analyze_formality.tcl"
 
 set test_mode [handler_is_test_mode]
 set _tool [expr {[info exists ::lec(tool,name)] ? $::lec(tool,name) : "formality"}]

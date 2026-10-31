@@ -4,7 +4,7 @@
 # ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
-source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "FP"
 set STAGE_NAME "powerplan"
@@ -232,9 +232,9 @@ flow_proc insert_power_switches {
     }
     handle_info "Power-switch insertion enabled — staging globals for powerplan"
     lowpower_stage_globals powerplan
-    set _recipe "$::env(FLOW_DIR)/cmds/PNR/synopsys/fc/$::env(TOOL_VERSION)/lowpower_fc.tcl"
+    set _recipe "$::env(FLOW_DIR)/PD/cmds/PNR/synopsys/fc/$::env(TOOL_VERSION)/lowpower_fc.tcl"
     if {![file exists $_recipe]} {
-        set _recipe "$::env(FLOW_DIR)/cmds/PNR/synopsys/fc/v1.0.0/lowpower_fc.tcl"
+        set _recipe "$::env(FLOW_DIR)/PD/cmds/PNR/synopsys/fc/v1.0.0/lowpower_fc.tcl"
     }
     handle_info "Sourcing low-power recipe: $_recipe"
     source $_recipe

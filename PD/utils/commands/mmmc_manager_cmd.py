@@ -16,6 +16,23 @@ import sys
 import logging
 from typing import Dict, List, Optional, Tuple
 
+# Post cbflow_global utils-refactor: shared Python packages (core.paths,
+# core.interactive, logging_config, cbflow_config, …) live under
+# global/utils/, not PD/utils/. This PD-only command adds BOTH to sys.path
+# so an un-sparsed clone resolves them whether the invoker set env or not.
+import sys as _bootstrap_sys
+_this = os.path.dirname(os.path.abspath(__file__))
+_pd_utils = os.path.dirname(_this)
+_umbrella = os.path.dirname(os.path.dirname(_pd_utils))
+_global_utils = os.path.join(_umbrella, 'global', 'utils')
+_global_cmds = os.path.join(_global_utils, 'commands')
+if os.path.isdir(_global_cmds) and _global_cmds not in _bootstrap_sys.path:
+    _bootstrap_sys.path.insert(0, _global_cmds)
+if os.path.isdir(_global_utils) and _global_utils not in _bootstrap_sys.path:
+    _bootstrap_sys.path.insert(0, _global_utils)
+if _pd_utils not in _bootstrap_sys.path:
+    _bootstrap_sys.path.insert(0, _pd_utils)
+
 from logging_config import configure_logging, get_logger
 
 import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -397,11 +414,10 @@ def _read_config(config_path: str) -> str:
 def _write_config(config_path: str, content: str):
     """Write config file content atomically.
 
-    Pre-fix: bare open-w + write was non-atomic. SIGKILL / power loss
-    between truncate and write-complete left mmmc_config.tcl truncated;
-    next `cbflow run all` sourced it and hit TCL parse error. No backup
-    on the mutation path (backups only exist for show/generate). atomic
-    rename ensures the target is either untouched or fully written.
+    mmmc_config.tcl has no backup on the mutation path (backups only
+    exist for show/generate), so a truncated write would surface as a
+    TCL parse error on the next `cbflow run all`. atomic rename keeps
+    the target either untouched or fully written.
     """
     from core.paths import atomic_write
     atomic_write(config_path, content)
@@ -422,9 +438,9 @@ def cmd_show(args: argparse.Namespace) -> int:
     # Execute TCL to get auto-generated views and sets
     tcl_data = execute_tcl_config(config_path)
     if tcl_data is None:
-        # Pre-fix the fallback `[] / {}` silently masked tclsh-missing /
-        # timeout / tclsh-eval-crash as "0 views configured" — users
-        # thought their mmmc_config was broken when the tool stack was.
+        # Fail loudly rather than falling back to `[] / {}` — a silent
+        # "0 views configured" misdirects users to blame their
+        # mmmc_config when tclsh itself is missing / timing out / crashing.
         logger.error("Could not execute mmmc_config.tcl via tclsh — see "
                      "ERROR line above for root cause. Views/scenarios "
                      "cannot be shown.")

@@ -4,7 +4,7 @@
 # ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
-source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "SYNTH"
 set STAGE_NAME "mmmc_setup"
@@ -131,7 +131,7 @@ flow_proc generate_dynamic_makefiles {
         puts $fh "\$($stamp_var): \$(SYNTHMP_DIR)/extraction1.stamp"
         puts $fh "\t@echo \"Running timing for scenario: ${scenario}...\""
         puts $fh "\t@mkdir -p \$(SYNTHMP_DIR) \$(LOGS_DIR)"
-        puts $fh "\t@tclsh \"\$(FLOW_DIR)/cmds/SYNTH/synopsys/fc/\$(FC_VERSION)/timing_scenario_handler.tcl\" ${scenario} \"\$(PWD)\""
+        puts $fh "\t@tclsh \"\$(FLOW_DIR)/PD/cmds/SYNTH/synopsys/fc/\$(FC_VERSION)/timing_scenario_handler.tcl\" ${scenario} \"\$(PWD)\""
         puts $fh "\t@echo \"done timing scenario ${scenario} completed\""
         puts $fh "\t@touch \$@"
         puts $fh ""

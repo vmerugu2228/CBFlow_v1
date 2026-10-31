@@ -3,7 +3,7 @@
 # CBflow User Config Template — EMIR / RedHawk (Synopsys)
 # ═══════════════════════════════════════════════════════════════════════════════
 # Copy this file to your workarea and update paths before creating a run:
-#   cp $FLOW_DIR/config/templates/uc_EMIR_redhawk.tcl <workarea>/uc_EMIR.tcl
+#   cp $FLOW_DIR/PD/config/templates/uc_EMIR_redhawk.tcl <workarea>/uc_EMIR.tcl
 #   cbflow workspace create --config uc_EMIR.tcl
 # ═══════════════════════════════════════════════════════════════════════════════
 

@@ -3,7 +3,7 @@
 # CBflow User Config Template — LEC / Formality (Synopsys)
 # ═══════════════════════════════════════════════════════════════════════════════
 # Copy this file to your workarea and update paths before creating a run:
-#   cp $FLOW_DIR/config/templates/uc_LEC_formality.tcl <workarea>/uc_LEC.tcl
+#   cp $FLOW_DIR/PD/config/templates/uc_LEC_formality.tcl <workarea>/uc_LEC.tcl
 #   cbflow workspace create --config uc_LEC.tcl
 # ═══════════════════════════════════════════════════════════════════════════════
 

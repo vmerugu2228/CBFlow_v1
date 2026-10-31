@@ -48,8 +48,16 @@ fi
 # Version
 CBFLOW_VERSION="2.0.0"
 
-# Commands directory
-COMMANDS_DIR="$CBFLOW_CORE_DIR/utils/commands"
+# Commands directories
+# Shared Python commands (workspace, run, flow, project, release, version,
+# config, dashboard, test, migrate, cbflow_config, tcl_config_parser, logging,
+# config_validator, _tcl_utils, race_engine, start_run, test_suite) live
+# under global/utils/commands/ after the cbflow_global utils-refactor.
+# PD-owned handlers (dashboard_daemon, migrate, project_dashboard,
+# library/mmmc/checklist managers, qor_report, lsf, trending, metrics,
+# node_manager, dev, plugin, autoppt, email) stay under PD/utils/commands/.
+COMMANDS_DIR="$CBFLOW_GLOBAL_DIR/utils/commands"
+PD_COMMANDS_DIR="$CBFLOW_CORE_DIR/utils/commands"
 
 # Print output
 print_info() {
@@ -323,8 +331,8 @@ Environment:
   global/ is a subordinate of the root, alongside every discipline directory.
 
 Installation Layout:
-  bin/                       Top-level launcher symlinks (post-Phase-5)
-  PD/bin/                    Original launcher home (still works — bin/ points here)
+  bin/                       Top-level launcher symlinks
+  PD/bin/                    Discipline launcher home (symlinks → global/bin/)
   global/config/             Cross-discipline tech, project, flow_registry
   PD/config/                 PD-specific tech/project overlays, flow node_configs
   DFT/config/                DFT-specific configs + node_configs
@@ -362,7 +370,7 @@ main() {
             # subcommands go through run_cmd.py as usual.
             if [ "${1:-}" = "dashboard" ]; then
                 shift
-                exec python3 "$COMMANDS_DIR/dashboard_daemon_cmd.py" "$@"
+                exec python3 "$PD_COMMANDS_DIR/dashboard_daemon_cmd.py" "$@"
             fi
             exec python3 "$COMMANDS_DIR/run_cmd.py" "$@"
             ;;
@@ -377,32 +385,31 @@ main() {
             exec "$CBFLOW_GLOBAL_DIR/bin/cbflow-bundle" "$@"
             ;;
 
-        # Migrate user values from an old config file into a new one
+        # Migrate user values from an old config file into a new one (PD-owned)
         migrate)
-            exec python3 "$COMMANDS_DIR/migrate_cmd.py" "$@"
+            exec python3 "$PD_COMMANDS_DIR/migrate_cmd.py" "$@"
             ;;
 
-        # Test suite (static config validation + e2e flow execution)
+        # Test suite (PD-owned entry point — knows about PD/DFT/DV flows)
         test|test-suite)
-            exec python3 "$COMMANDS_DIR/test_cmd.py" "$@"
+            exec python3 "$PD_COMMANDS_DIR/test_cmd.py" "$@"
             ;;
 
-        # Per-run dashboard daemon (moved under `run dashboard` — this shim
-        # keeps old scripts working during the transition; remove next release)
+        # Per-run dashboard daemon — canonical home is `cbflow run dashboard`.
+        # This top-level alias prints a deprecation note and forwards.
         dashboard)
             echo "note: 'cbflow dashboard' has moved to 'cbflow run dashboard'." >&2
-            exec python3 "$COMMANDS_DIR/dashboard_daemon_cmd.py" "$@"
+            exec python3 "$PD_COMMANDS_DIR/dashboard_daemon_cmd.py" "$@"
             ;;
 
         # SmartGrid — project-level metrics / DEF timing / closability grid.
-        # `project-dashboard` kept as backward-compat alias (prints a note
-        # so existing scripts migrate on their next invocation).
+        # `project-dashboard` kept as backward-compat alias.
         smartgrid)
-            exec python3 "$COMMANDS_DIR/project_dashboard_cmd.py" "$@"
+            exec python3 "$PD_COMMANDS_DIR/project_dashboard_cmd.py" "$@"
             ;;
         project-dashboard)
             echo "note: 'cbflow project-dashboard' has been renamed to 'cbflow smartgrid'." >&2
-            exec python3 "$COMMANDS_DIR/project_dashboard_cmd.py" "$@"
+            exec python3 "$PD_COMMANDS_DIR/project_dashboard_cmd.py" "$@"
             ;;
 
         # SmartGenie AI Agent

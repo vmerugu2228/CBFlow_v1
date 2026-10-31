@@ -31,6 +31,23 @@ import re
 from datetime import datetime
 from typing import Dict, List, Optional
 
+# Post cbflow_global utils-refactor: shared Python packages (core.paths,
+# core.interactive, logging_config, cbflow_config, …) live under
+# global/utils/, not PD/utils/. This PD-only command adds BOTH to sys.path
+# so an un-sparsed clone resolves them whether the invoker set env or not.
+import sys as _bootstrap_sys
+_this = os.path.dirname(os.path.abspath(__file__))
+_pd_utils = os.path.dirname(_this)
+_umbrella = os.path.dirname(os.path.dirname(_pd_utils))
+_global_utils = os.path.join(_umbrella, 'global', 'utils')
+_global_cmds = os.path.join(_global_utils, 'commands')
+if os.path.isdir(_global_cmds) and _global_cmds not in _bootstrap_sys.path:
+    _bootstrap_sys.path.insert(0, _global_cmds)
+if os.path.isdir(_global_utils) and _global_utils not in _bootstrap_sys.path:
+    _bootstrap_sys.path.insert(0, _global_utils)
+if _pd_utils not in _bootstrap_sys.path:
+    _bootstrap_sys.path.insert(0, _pd_utils)
+
 from tcl_config_parser import (
     get_flow_stages, get_subnodes, get_tool_info,
     _load_node_config, _parse_tcl_list, _parse_tcl_string,
@@ -169,13 +186,12 @@ class NodeManager:
                 lines.append(f'    stages,{name},resource_tier "{_t}"')
 
         # Write branches. ALL user-controlled values must be Tcl-quoted
-        # before splicing into the `"..."` string context, otherwise
-        # a branch name / tag / created_by containing `"`, `$`, `[`, `\`,
+        # before splicing into the `"..."` string context, otherwise a
+        # branch name / tag / created_by containing `"`, `$`, `[`, `\`,
         # or newline breaks out of the string and the sourced TCL
         # executes arbitrary code (`[exec rm -rf $HOME]` etc.) at
-        # cascade-reload time. Pre-fix this was unescaped. Dashboard's
-        # _action_create_branch exposes name/tag to any authenticated
-        # browser session, so this was a direct injection vector.
+        # cascade-reload time. Dashboard's _action_create_branch exposes
+        # name/tag to any authenticated browser session.
         def _tq(s):
             return (str(s)
                     .replace('\\', '\\\\')
@@ -203,12 +219,9 @@ class NodeManager:
         lines.append('}')
         lines.append('')
 
-        # Atomic write: pre-fix, truncate-then-write on the run's
-        # authoritative branch/custom-node config was non-atomic. Kill
-        # during a long add-node / create-branch sequence (SIGKILL, OOM,
-        # Ctrl-C mid-write) left runtime_flow_config.tcl empty or
-        # partial — the entire branch history was lost on next cascade
-        # reload. No backup. S-tier.
+        # Atomic write — runtime_flow_config.tcl is the authoritative
+        # branch/custom-node config and has no backup. A kill mid-rewrite
+        # would wipe the entire branch history on next cascade reload.
         from core.paths import atomic_write
         atomic_write(config_file, '\n'.join(lines) + '\n')
 

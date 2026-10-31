@@ -15,7 +15,7 @@ set stage_name "merge_gds"
 if {$node_name eq ""} { set node_name "${stage_name}1" }
 
 set _tool_ver [expr {[info exists ::env(ICV_VERSION)] ? $::env(ICV_VERSION) : "v1.0.0"}]
-set cmd_file "$::env(FLOW_DIR)/cmds/PV/synopsys/icv/$_tool_ver/merge_gds_icv.tcl"
+set cmd_file "$::env(FLOW_DIR)/PD/cmds/PV/synopsys/icv/$_tool_ver/merge_gds_icv.tcl"
 
 set test_mode [handler_is_test_mode]
 set _tool [expr {[info exists ::pv(tool,name)] ? $::pv(tool,name) : "icv"}]

@@ -3,7 +3,7 @@
 # CBflow User Config Template — PNR / Fusion Compiler (Synopsys)
 # ═══════════════════════════════════════════════════════════════════════════════
 # Copy this file to your workarea and update paths before creating a run:
-#   cp $FLOW_DIR/config/templates/uc_PNR_fc.tcl <workarea>/uc_PNR.tcl
+#   cp $FLOW_DIR/PD/config/templates/uc_PNR_fc.tcl <workarea>/uc_PNR.tcl
 #   cbflow workspace create --config uc_PNR.tcl
 # ═══════════════════════════════════════════════════════════════════════════════
 

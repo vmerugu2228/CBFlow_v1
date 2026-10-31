@@ -3,7 +3,7 @@
 # CBflow User Config Template — LEC / Conformal (Cadence)
 # ═══════════════════════════════════════════════════════════════════════════════
 # Copy this file to your workarea and update paths before creating a run:
-#   cp $FLOW_DIR/config/templates/uc_LEC_conformal.tcl <workarea>/uc_LEC_conformal.tcl
+#   cp $FLOW_DIR/PD/config/templates/uc_LEC_conformal.tcl <workarea>/uc_LEC_conformal.tcl
 #   cbflow workspace create --config uc_LEC_conformal.tcl
 # ═══════════════════════════════════════════════════════════════════════════════
 

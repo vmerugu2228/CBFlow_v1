@@ -23,11 +23,25 @@ from typing import List, Dict, Optional, Tuple
 from collections import defaultdict
 from datetime import datetime  # for tag-dir README / MANIFEST timestamps
 
+# Post cbflow_global utils-refactor: shared Python packages (core.paths,
+# core.interactive, logging_config, cbflow_config, …) live under
+# global/utils/, not PD/utils/. Add BOTH locations to sys.path so this
+# PD-only command still resolves them without env setup.
+import sys as _bootstrap_sys
+_this = os.path.dirname(os.path.abspath(__file__))                 # PD/utils/commands
+_pd_utils = os.path.dirname(_this)                                 # PD/utils
+_umbrella = os.path.dirname(os.path.dirname(_pd_utils))            # <root>
+_global_utils = os.path.join(_umbrella, 'global', 'utils')         # <root>/global/utils
+_global_cmds = os.path.join(_global_utils, 'commands')             # for logging_config
+if os.path.isdir(_global_cmds) and _global_cmds not in _bootstrap_sys.path:
+    _bootstrap_sys.path.insert(0, _global_cmds)
+if os.path.isdir(_global_utils) and _global_utils not in _bootstrap_sys.path:
+    _bootstrap_sys.path.insert(0, _global_utils)
+if _pd_utils not in _bootstrap_sys.path:
+    _bootstrap_sys.path.insert(0, _pd_utils)
+
 # Configure unified logging
 from logging_config import configure_logging, get_logger
-
-import sys; sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.paths import get_cbflow_core_dir, get_flow_config_version, require_tech_config, preflight_tech_config_or_exit, atomic_write
 from core.interactive import run_repl
 
@@ -126,13 +140,8 @@ class ValidationResult:
 # LibraryScanner
 # -------------------------------------------------------------------------------
 
-# Process-corner allowlist. Pre-fix: hardcoded to {ss,tt,ff,sf,fs} —
-# any tech using a 3-letter variant (e.g. foundry-specific `fff`
-# "fast-fast-fast" corner that GF 22FDX/sabarmati-soc ships for
-# aggressive overclocking signoff) was dropped by the regex OR
-# miscategorized when the regex matched the embedded `ff` substring
-# with the trailing `f` leaking into prefix. The default set stays
-# compact; techs that need more corners declare them via
+# Process-corner allowlist. Default set stays compact; techs that need
+# more corners (e.g. GF 22FDX `fff`) declare them via
 # tech(process_corners) in tech_config.tcl (space-separated TCL list).
 # _CORNERS_ENV is the module-level mutable override installed by
 # _apply_tech_corners() at CLI entry time once the tech has been
@@ -180,13 +189,11 @@ def _build_lib_patterns():
 def _apply_tech_corners(tech_config_path):
     """Read tech(process_corners) from tech_config.tcl and swap the regex set.
 
-    Pre-fix: library-manager had 5 corners hardcoded. If a tech ships
-    .lib files with a corner not in that set (sabarmati-soc / GF 22FDX
-    `fff`), the regex either dropped the file silently or matched the
-    embedded `ff` substring and leaked the trailing `f` into prefix.
-    Techs now declare their process corners in tech_config.tcl:
+    Techs declare their process corners via:
         set tech(process_corners) "ss tt ff fff sf fs"
-    Omitted → fallback to the default 5-corner set.
+    Omitted → fallback to the default 5-corner set. Longest-first
+    sorting (in _corner_alternation) prevents a 3-letter corner like
+    `fff` from being miscategorized as the embedded `ff` substring.
     """
     global _CORNERS_ENV
     # Reset to defaults FIRST so a REPL `tech <name>` switch to a tech
@@ -705,13 +712,8 @@ class LibraryValidator:
 
         # Per-track per-VT NDM/DB/LIB.
         #
-        # R7-F12: was a hardcoded skip list of cell-type keys (19 names)
-        # that would fall through if a foundry ever added a new key not
-        # in the list. Since the regex requires trailing `,ndm|db|lib`,
-        # today's cell-type keys (`cell_height`, `clock_buffers`, etc.)
-        # never match anyway — the skip list was defensive-only. Replace
-        # with an ALLOWLIST against `tech(vt_variants_available)`: only
-        # names the tech explicitly declared as VT flavors are accepted.
+        # ALLOWLIST approach: only names the tech explicitly declared
+        # in `tech(vt_variants_available)` are accepted as VT flavors.
         # If a tech omits the declaration, fall back to the standard
         # foundry VT names (`rvt svt lvt ulvt elvt slvt hvt`) rather
         # than silently accepting any `\w+`.
@@ -921,12 +923,10 @@ class LibraryValidator:
         for every shipped tech config — a false-GREEN regression.
 
         Also treats `$project(...)` / `$env(...)` template paths as
-        UNRESOLVED (a distinct status from missing-on-disk) so the
-        signal stays honest: a template path is not a real check — the
-        Tcl resolver must run first for it to become a checkable path.
-        The audit finding was that the previous code silently reported
-        template strings as "missing", conflating "wrong path" with
-        "config not yet resolved".
+        UNRESOLVED (a distinct status from missing-on-disk): a template
+        path is not a real check — the Tcl resolver must run first for
+        it to become a checkable path. Conflating "wrong path" with
+        "config not yet resolved" produces false "missing" reports.
         """
         results = []
 
@@ -1254,8 +1254,8 @@ def _resolve_lib_tag_root(tech_name: str, version: str = None,
     # If reading the project/tech config file fails (not "key absent"),
     # fail CLOSED — don't silently fall through to the next source and
     # accept a value from a lower-priority config while the user's
-    # higher-priority config is unreachable. Pre-fix an NFS hiccup here
-    # dropped the whole safety check and let lib tags land under CBFLOW_ROOT.
+    # higher-priority config is unreachable (e.g. an NFS hiccup must
+    # not let lib tags land under CBFLOW_ROOT).
     try:
         v = _read_project_cfg_value(project_name, version, 'lib_tag_root')
     except _CfgReadError as e:
@@ -2523,10 +2523,9 @@ def cmd_generate(args: argparse.Namespace) -> int:
         print('')
         lib_root = input('  Stdcell library root path: ').strip()
     if not lib_root:
-        # Pre-fix message said "set project(lib_root)" but the resolver
-        # reads BOTH `tech(lib_root)` and `project(lib_root)` from
-        # tech_config.tcl / project_pd_config.tcl respectively. Point at
-        # the right one.
+        # The resolver reads BOTH `tech(lib_root)` and
+        # `project(lib_root)` from tech_config.tcl / project_pd_config.tcl
+        # respectively — surface both options in the error.
         logger.error("lib_root is required. Provide one of:")
         logger.error("  --lib-root <path>                              (CLI override)")
         logger.error("  set tech(lib_root)    in tech_config.tcl       (site-wide default)")
@@ -3415,8 +3414,8 @@ def cmd_generate(args: argparse.Namespace) -> int:
         return 1
     # Layout: <lib_tag_root>/<tech_node>/<tag>/. Groups every tag for a
     # tech under one dir so lib_config.tcl and mmmc_config.tcl for the
-    # same (tech, tag) live together. Pre-fix wrote <root>/<tag>/
-    # which collided across techs sharing a lib_tag_root.
+    # same (tech, tag) live together — a flat <root>/<tag>/ layout
+    # would collide across techs sharing a lib_tag_root.
     tech_scoped_root = os.path.join(_lib_root, tech_name)
     try:
         os.makedirs(tech_scoped_root, exist_ok=True)
@@ -3987,7 +3986,7 @@ _SAFE_NAME_RE = re.compile(r'^[A-Za-z0-9_.-]+$')
 def _sanitize_name_arg(name: str, kind: str) -> str:
     """Reject `..`, slashes, shell metachars in a name that's about to be
     joined into a filesystem path. Prevents `--tech ../../etc` path
-    traversal into the config tree (audit R7-F11)."""
+    traversal into the config tree."""
     if not name or not _SAFE_NAME_RE.match(name):
         raise ValueError(f'invalid {kind} name {name!r} — must match [A-Za-z0-9_.-]+')
     return name
@@ -3996,10 +3995,9 @@ def _sanitize_name_arg(name: str, kind: str) -> str:
 def _tcl_list_from(content: str, arr: str, key: str) -> List[str]:
     """Extract a Tcl list from `set <arr>(<key>) {...}` OR `"..."` form.
 
-    Both forms are used in shipped configs — accept both silently
-    (audit R7-F7 flagged the project-side regex only accepting `"..."`,
-    which caused project(vt_flavors) written as `{svt lvt hvt}` to be
-    silently ignored).
+    Both forms are used in shipped configs — accept both so a value
+    written as `{svt lvt hvt}` isn't silently ignored by a quote-only
+    regex.
     """
     m = re.search(
         rf'set\s+{re.escape(arr)}\({re.escape(key)}\)\s+\{{([^}}]+)\}}',
@@ -4042,7 +4040,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     if not args.tech:
         logger.error("--tech or --tech-config is required")
         return 1
-    # R7-F11: sanitize path args before joining into core_dir paths.
+    # Sanitize path args before joining into core_dir paths.
     try:
         tech_name = _sanitize_name_arg(args.tech, 'tech')
     except ValueError as e:
@@ -4088,11 +4086,10 @@ def cmd_status(args: argparse.Namespace) -> int:
     metal_stacks_all = _tcl_list_from(tc, 'tech', 'metal_stacks_available')
     tracks_all = _tcl_list_from(tc, 'tech', 'tracks_available')
 
-    # R7-F8: build metal-stack regex dynamically from the declared
-    # tokens instead of hardcoding `[0-9]+M`. Techs using 1p8M, stack_a,
-    # etc. no longer silently vanish from LEF/RCX detection. Falls back
-    # to `[A-Za-z0-9]+M?` if nothing is declared so shipped `\d+M`
-    # configs still work even when the loop above missed the list.
+    # Build metal-stack regex dynamically from the declared tokens
+    # (hardcoding `[0-9]+M` silently dropped techs using `1p8M`,
+    # `stack_a`, etc.). Falls back to `[A-Za-z0-9]+M?` so shipped
+    # `\d+M` configs still work if no list is declared.
     if metal_stacks_all:
         _ms_alt = '|'.join(re.escape(ms) for ms in metal_stacks_all)
     else:
@@ -4108,7 +4105,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         return 1
 
     project_vts: List[str] = []
-    project_metal_stack = ''    # R7-F2: scope LEF/RCX verdict to this
+    project_metal_stack = ''    # Scope LEF/RCX verdict to this
     project_tracks: List[str] = []
     if project_name:
         # Walk global/ identity then PD/ overlay — concat contents so values
@@ -4132,7 +4129,7 @@ def cmd_status(args: argparse.Namespace) -> int:
                 with open(proj_config) as f:
                     pc += f.read() + '\n'
         if pc:
-            # Accept both `"..."` and `{...}` forms — audit R7-F7.
+            # Accept both `"..."` and `{...}` forms.
             project_vts = _tcl_list_from(pc, 'project', 'vt_flavors')
             _pm = re.search(r'set\s+project\(metal_stack\)\s+"?([A-Za-z0-9._-]+)"?', pc)
             if _pm:
@@ -4153,7 +4150,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     # ── Section 4: Timing / NDM from lib_config.tcl (if generated) ──
     lib_config_present = os.path.exists(lib_config)
 
-    # R7-F9: warn on stale sibling lib_config.tcl.
+    # Warn on stale sibling lib_config.tcl.
     if lib_config_present:
         try:
             if os.path.getmtime(lib_config) < os.path.getmtime(tech_config):
@@ -4170,9 +4167,9 @@ def cmd_status(args: argparse.Namespace) -> int:
     if lib_config_present:
         with open(lib_config) as f:
             lc = f.read()
-        # R7-F4: accept BOTH `[list ...]` and `"..."` forms — the new
-        # track-schema parser writes the single-quoted-string form so
-        # both must be handled or status disagrees with itself.
+        # Accept BOTH `[list ...]` and `"..."` forms — the track-schema
+        # parser writes the single-quoted-string form so both must be
+        # handled or status disagrees with itself.
         _pat_list = re.compile(
             r'set\s+tech\(([0-9.]+T)\s*,\s*(\w+)\s*,\s*(ndm|db|lib)\)\s+\[list\s+(.+?)\]'
         )
@@ -4196,8 +4193,8 @@ def cmd_status(args: argparse.Namespace) -> int:
         dont_use[m.group(1)] = m.group(2)
 
     # ── Resolve effective axes (project-scoped when possible) ──
-    # R7-F2: filter LEF/RCX/Timing to the project's active metal stack
-    # + track subset. Without --project, use the declared full axes.
+    # Filter LEF/RCX/Timing to the project's active metal stack +
+    # track subset. Without --project, use the declared full axes.
     if project_metal_stack and project_metal_stack in metal_stacks_all:
         effective_metal_stacks = [project_metal_stack]
     else:
@@ -4248,7 +4245,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     logger.info(f'  Tracks:        {" ".join(tracks_all) or "(not declared)"}')
     logger.info('')
 
-    # Per-axis issue counters (R7-F14: consistent granularity + breakdown)
+    # Per-axis issue counters (consistent granularity + breakdown)
     lef_missing = 0
     rcx_missing = 0
     timing_missing = 0
@@ -4269,7 +4266,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     logger.info('')
 
     # RCX coverage — iterate DECLARED axes (from mmmc/tech) so
-    # entirely-missing (ms, rc) rows are also flagged (R7-F3).
+    # entirely-missing (ms, rc) rows are also flagged.
     # Discover the rc_corners the tech is expected to have from any
     # rcx entry present + a default triad.
     declared_rc_corners = sorted({rc for (_ms, rc) in rcx_present.keys()}
@@ -4303,7 +4300,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         logger.info(f'                 --lib-root <path/to/vendor/libs>')
         timing_missing = -1   # sentinel: reported as a single lib_config-absent issue
     elif not effective_vts:
-        # R7-F6: empty vt_list would otherwise silently zero-issue.
+        # Empty vt_list would otherwise silently zero-issue.
         logger.error('    ERROR: no VT flavors declared in tech OR project — '
                      'cannot evaluate multi-VT coverage. Set '
                      'tech(vt_variants_available) or project(vt_flavors).')
@@ -4316,7 +4313,7 @@ def cmd_status(args: argparse.Namespace) -> int:
                     parts = ' '.join(f'{k}={v}' for k, v in sorted(counts.items()))
                     logger.info(f'    {trk:<5} {vt:<6} {parts}')
                 else:
-                    # R7-F13: per-row misses are info, not warning.
+                    # Per-row misses are info, not warning.
                     logger.info(f'    {trk:<5} {vt:<6} MISSING — no ndm/db/lib entries')
                     timing_missing += 1
     logger.info('')
@@ -4328,7 +4325,7 @@ def cmd_status(args: argparse.Namespace) -> int:
             logger.info(f'    {trk:<5} {mask}')
         logger.info('')
 
-    # ── Verdict (R7-F14: per-axis breakdown) ──
+    # ── Verdict (per-axis breakdown) ──
     lib_config_issue = 1 if not lib_config_present else 0
     vt_config_issue = 1 if timing_missing == -2 else 0
     timing_effective = timing_missing if timing_missing >= 0 else 0
@@ -4349,7 +4346,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         logger.info('  READY — all declared axes populated. Multi-VT setup complete.')
         return 0
     else:
-        # R7-F13: warn only on the final verdict + one summary line.
+        # Warn only on the final verdict + one summary line.
         logger.warning(
             f'  NOT READY — {total_issues} issue(s): '
             f'lef={lef_missing} rcx={rcx_missing} '

@@ -17,6 +17,21 @@ Defaults (documented choices, change with flags):
 
 import argparse
 import os
+
+# Post cbflow_global utils-refactor: shared Python packages (core.*,
+# logging_config, cbflow_config, …) live under global/utils/, not PD/utils/.
+# Add both to sys.path so inner `from core.* import …` calls resolve even
+# when the invoker didn't preset env.
+import sys as _bootstrap_sys
+_this = os.path.dirname(os.path.abspath(__file__))
+_pd_utils = os.path.dirname(_this)
+_umbrella = os.path.dirname(os.path.dirname(_pd_utils))
+_global_utils = os.path.join(_umbrella, 'global', 'utils')
+if os.path.isdir(_global_utils) and _global_utils not in _bootstrap_sys.path:
+    _bootstrap_sys.path.insert(0, _global_utils)
+if _pd_utils not in _bootstrap_sys.path:
+    _bootstrap_sys.path.insert(0, _pd_utils)
+
 import re
 import sys
 import time
@@ -26,6 +41,13 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PD_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 REPO_ROOT = os.path.dirname(PD_DIR)
 sys.path.insert(0, SCRIPT_DIR)
+
+# Post cbflow_global utils-refactor: test_suite moved from
+# PD/utils/commands/test_suite/ to global/utils/commands/test_suite/.
+# Add global/utils/commands/ so `from test_suite import …` resolves.
+_global_cmds = os.path.join(REPO_ROOT, 'global', 'utils', 'commands')
+if os.path.isdir(_global_cmds) and _global_cmds not in sys.path:
+    sys.path.insert(0, _global_cmds)
 
 from test_suite import e2e_checks, e2e_runner, fixtures, reporters, static_checks
 from test_suite import integration_checks

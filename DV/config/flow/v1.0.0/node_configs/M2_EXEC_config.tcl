@@ -9,33 +9,33 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # Optional stages — included in the DAG but can be skipped via
-# user_config: set m2_exec(skip_stages) {lp_plan_signoff}
+# user_config: set m2_exec(skip_stages) {lp_plan_signoff1}
 # Linear deps: inputs → review_1 → review_2 → ... → release_data1
 array set m2_exec {
-    stages {inputs m2_test_review log_scoreboard_check waveform_check coverage_waivers gls_plan_signoff lp_plan_signoff bug_tracking export_db release_data1}
+    stages {review_artifact1 m2_test_review1 log_scoreboard_check1 waveform_check1 coverage_waivers1 gls_plan_signoff1 lp_plan_signoff1 bug_tracking1 export_db1 release_data1}
 
     merge_entry_stage     inputs
     merge_handoff_stage   release_data1
     merge_parallel_stages {}
 
-    optional_stages {lp_plan_signoff}
+    optional_stages {lp_plan_signoff1}
 
-    dependencies,m2_test_review                      {inputs}
-    dependencies,log_scoreboard_check                {m2_test_review}
-    dependencies,waveform_check                      {log_scoreboard_check}
-    dependencies,coverage_waivers                    {waveform_check}
-    dependencies,gls_plan_signoff                    {coverage_waivers}
-    dependencies,lp_plan_signoff                     {gls_plan_signoff}
-    dependencies,bug_tracking                        {lp_plan_signoff}
-    dependencies,export_db                           {bug_tracking}
-    dependencies,release_data1                       {export_db}
+    dependencies,m2_test_review1                     {review_artifact1}
+    dependencies,log_scoreboard_check1               {m2_test_review1}
+    dependencies,waveform_check1                     {log_scoreboard_check1}
+    dependencies,coverage_waivers1                   {waveform_check1}
+    dependencies,gls_plan_signoff1                   {coverage_waivers1}
+    dependencies,lp_plan_signoff1                    {gls_plan_signoff1}
+    dependencies,bug_tracking1                       {lp_plan_signoff1}
+    dependencies,export_db1                          {bug_tracking1}
+    dependencies,release_data1                       {export_db1}
 }
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║                        SUBNODES & WORK DIRS                                 ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 # Every non-inputs stage uses the standard 4-phase subnode pattern.
-set _m2_exec_exec_stages {m2_test_review log_scoreboard_check waveform_check coverage_waivers gls_plan_signoff lp_plan_signoff bug_tracking export_db release_data1}
+set _m2_exec_exec_stages {m2_test_review1 log_scoreboard_check1 waveform_check1 coverage_waivers1 gls_plan_signoff1 lp_plan_signoff1 bug_tracking1 export_db1 release_data1}
 foreach _s $_m2_exec_exec_stages {
     set m2_exec(subnodes,$_s) {setup run validate finish}
     set m2_exec(subnode_dependencies,${_s},setup)    {}
@@ -52,37 +52,37 @@ foreach _s $_m2_exec_exec_stages {
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 array set m2_exec {
-    stage_types,inputs        "inputs"
-    stage_types,m2_test_review                      "review"
-    stage_types,log_scoreboard_check                "review"
-    stage_types,waveform_check                      "review"
-    stage_types,coverage_waivers                    "review"
-    stage_types,gls_plan_signoff                    "review"
-    stage_types,lp_plan_signoff                     "review"
-    stage_types,bug_tracking                        "review"
-    stage_types,export_db                           "review"
+    stage_types,review_artifact1 "inputs"
+    stage_types,m2_test_review1                     "review"
+    stage_types,log_scoreboard_check1               "review"
+    stage_types,waveform_check1                     "review"
+    stage_types,coverage_waivers1                   "review"
+    stage_types,gls_plan_signoff1                   "review"
+    stage_types,lp_plan_signoff1                    "review"
+    stage_types,bug_tracking1                       "review"
+    stage_types,export_db1                          "review"
     stage_types,release_data1 "release"
 
-    node_types,inputs         "inputs"
-    node_types,m2_test_review                      "review"
-    node_types,log_scoreboard_check                "review"
-    node_types,waveform_check                      "review"
-    node_types,coverage_waivers                    "review"
-    node_types,gls_plan_signoff                    "review"
-    node_types,lp_plan_signoff                     "review"
-    node_types,bug_tracking                        "review"
-    node_types,export_db                           "review"
+    node_types,review_artifact1 "inputs"
+    node_types,m2_test_review1                     "review"
+    node_types,log_scoreboard_check1               "review"
+    node_types,waveform_check1                     "review"
+    node_types,coverage_waivers1                   "review"
+    node_types,gls_plan_signoff1                   "review"
+    node_types,lp_plan_signoff1                    "review"
+    node_types,bug_tracking1                       "review"
+    node_types,export_db1                          "review"
     node_types,release_data1  "release_data"
 
-    node_descriptions,inputs        "Review-artifact input collection"
-    node_descriptions,m2_test_review                      "M2 Test Review review gate (artifact-attach + signoff)"
-    node_descriptions,log_scoreboard_check                "Log Scoreboard Check review gate (artifact-attach + signoff)"
-    node_descriptions,waveform_check                      "Waveform Check review gate (artifact-attach + signoff)"
-    node_descriptions,coverage_waivers                    "Coverage Waivers review gate (artifact-attach + signoff)"
-    node_descriptions,gls_plan_signoff                    "Gls Plan Signoff review gate (artifact-attach + signoff)"
-    node_descriptions,lp_plan_signoff                     "Lp Plan Signoff review gate (artifact-attach + signoff)"
-    node_descriptions,bug_tracking                        "Bug Tracking review gate (artifact-attach + signoff)"
-    node_descriptions,export_db                           "Export Db review gate (artifact-attach + signoff)"
+    node_descriptions,review_artifact1 "Review-artifact input collection"
+    node_descriptions,m2_test_review1                     "M2 Test Review1 review gate (artifact-attach + signoff)"
+    node_descriptions,log_scoreboard_check1               "Log Scoreboard Check1 review gate (artifact-attach + signoff)"
+    node_descriptions,waveform_check1                     "Waveform Check1 review gate (artifact-attach + signoff)"
+    node_descriptions,coverage_waivers1                   "Coverage Waivers1 review gate (artifact-attach + signoff)"
+    node_descriptions,gls_plan_signoff1                   "Gls Plan Signoff1 review gate (artifact-attach + signoff)"
+    node_descriptions,lp_plan_signoff1                    "Lp Plan Signoff1 review gate (artifact-attach + signoff)"
+    node_descriptions,bug_tracking1                       "Bug Tracking1 review gate (artifact-attach + signoff)"
+    node_descriptions,export_db1                          "Export Db1 review gate (artifact-attach + signoff)"
     node_descriptions,release_data1 "Release the full review audit trail (signoffs + MANIFEST)"
 }
 
@@ -91,15 +91,15 @@ array set m2_exec {
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 array set m2_exec {
-    runtime,timeout,inputs        10
-    runtime,timeout,m2_test_review                      30
-    runtime,timeout,log_scoreboard_check                30
-    runtime,timeout,waveform_check                      30
-    runtime,timeout,coverage_waivers                    30
-    runtime,timeout,gls_plan_signoff                    30
-    runtime,timeout,lp_plan_signoff                     30
-    runtime,timeout,bug_tracking                        30
-    runtime,timeout,export_db                           30
+    runtime,timeout,review_artifact1 10
+    runtime,timeout,m2_test_review1                     30
+    runtime,timeout,log_scoreboard_check1               30
+    runtime,timeout,waveform_check1                     30
+    runtime,timeout,coverage_waivers1                   30
+    runtime,timeout,gls_plan_signoff1                   30
+    runtime,timeout,lp_plan_signoff1                    30
+    runtime,timeout,bug_tracking1                       30
+    runtime,timeout,export_db1                          30
     runtime,timeout,release_data1 10
 }
 
@@ -112,14 +112,14 @@ array set m2_exec {
 # the engineer attaches the review document / regression log / coverage
 # report through user_config: set m2_exec(input,review_artifact) <path>.
 array set m2_exec {
-    mandatory_outputs,m2_test_review                      {outputs/review_signoff.txt}
-    mandatory_outputs,log_scoreboard_check                {outputs/review_signoff.txt}
-    mandatory_outputs,waveform_check                      {outputs/review_signoff.txt}
-    mandatory_outputs,coverage_waivers                    {outputs/review_signoff.txt}
-    mandatory_outputs,gls_plan_signoff                    {outputs/review_signoff.txt}
-    mandatory_outputs,lp_plan_signoff                     {outputs/review_signoff.txt}
-    mandatory_outputs,bug_tracking                        {outputs/review_signoff.txt}
-    mandatory_outputs,export_db                           {outputs/review_signoff.txt}
+    mandatory_outputs,m2_test_review1                     {outputs/review_signoff.txt}
+    mandatory_outputs,log_scoreboard_check1               {outputs/review_signoff.txt}
+    mandatory_outputs,waveform_check1                     {outputs/review_signoff.txt}
+    mandatory_outputs,coverage_waivers1                   {outputs/review_signoff.txt}
+    mandatory_outputs,gls_plan_signoff1                   {outputs/review_signoff.txt}
+    mandatory_outputs,lp_plan_signoff1                    {outputs/review_signoff.txt}
+    mandatory_outputs,bug_tracking1                       {outputs/review_signoff.txt}
+    mandatory_outputs,export_db1                          {outputs/review_signoff.txt}
     mandatory_outputs,release_data1 {outputs/release_data/MANIFEST.json}
 
     input_types {review_artifact}
@@ -140,14 +140,14 @@ array set m2_exec {
     release_types,review_audit,description "Review signoffs + manifest for M2_EXEC"
     release_types,review_audit,files {
         "outputs/release_data/MANIFEST.json" "MANIFEST.json"
-        "work/m2_test_review1/outputs/review_signoff.txt" "review_signoffs/m2_test_review.txt"
-        "work/log_scoreboard_check1/outputs/review_signoff.txt" "review_signoffs/log_scoreboard_check.txt"
-        "work/waveform_check1/outputs/review_signoff.txt" "review_signoffs/waveform_check.txt"
-        "work/coverage_waivers1/outputs/review_signoff.txt" "review_signoffs/coverage_waivers.txt"
-        "work/gls_plan_signoff1/outputs/review_signoff.txt" "review_signoffs/gls_plan_signoff.txt"
-        "work/lp_plan_signoff1/outputs/review_signoff.txt" "review_signoffs/lp_plan_signoff.txt"
-        "work/bug_tracking1/outputs/review_signoff.txt" "review_signoffs/bug_tracking.txt"
-        "work/export_db1/outputs/review_signoff.txt" "review_signoffs/export_db.txt"
+        "work/m2_test_review11/outputs/review_signoff.txt" "review_signoffs/m2_test_review1.txt"
+        "work/log_scoreboard_check11/outputs/review_signoff.txt" "review_signoffs/log_scoreboard_check1.txt"
+        "work/waveform_check11/outputs/review_signoff.txt" "review_signoffs/waveform_check1.txt"
+        "work/coverage_waivers11/outputs/review_signoff.txt" "review_signoffs/coverage_waivers1.txt"
+        "work/gls_plan_signoff11/outputs/review_signoff.txt" "review_signoffs/gls_plan_signoff1.txt"
+        "work/lp_plan_signoff11/outputs/review_signoff.txt" "review_signoffs/lp_plan_signoff1.txt"
+        "work/bug_tracking11/outputs/review_signoff.txt" "review_signoffs/bug_tracking1.txt"
+        "work/export_db11/outputs/review_signoff.txt" "review_signoffs/export_db1.txt"
     }
 }
 

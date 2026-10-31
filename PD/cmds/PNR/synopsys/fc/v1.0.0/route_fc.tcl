@@ -7,7 +7,7 @@
 # ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
-source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 if {![info exists ::flow_type] || $::flow_type eq ""} { set ::flow_type $::env(CBFLOW_FLOW_TYPE) }
 set FLOW_TYPE $::flow_type
@@ -407,5 +407,5 @@ flow_proc generate_reports {
 }
 flow_exec_all
 
-# BUG FIX #7: Exit tool after stage completion
+# Exit tool after stage completion
 exit

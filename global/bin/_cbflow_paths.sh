@@ -6,15 +6,12 @@
 # launcher <disc>/bin/cbflow-<disc>. Sets:
 #   CBFLOW_ROOT        — repo root (parent of global/, PD/, DFT/, DV/)
 #   CBFLOW_GLOBAL_DIR  — <root>/global
-#   CBFLOW_CORE_DIR    — <root>/PD  (PD discipline root; kept for legacy)
+#   CBFLOW_CORE_DIR    — <root>/PD  (PD discipline root)
 #   CBFLOW_DFT_DIR     — <root>/DFT (only if directory exists)
 #   CBFLOW_DV_DIR      — <root>/DV  (only if directory exists)
 #
-# Works from either invocation home:
-#   · global/bin/cbflow-*             (main launcher stack)
-#   · <disc>/bin/cbflow-<disc>        (discipline-specific launcher)
-# and survives any symlink chain (bin/cbflow → global/bin/cbflow,
-# PD/bin/cbflow → global/bin/cbflow, etc.).
+# Works from either invocation home (global/bin/ or <disc>/bin/) and survives
+# any symlink chain.
 #
 # The caller must pass BASH_SOURCE of the invoking launcher as the first
 # argument so the resolver sees the outer script's path, not this file's.
@@ -46,7 +43,7 @@ _cbflow_resolve_paths() {
     fi
 
     # PD is the canonical "core" discipline — most cross-cutting Python code
-    # (race_engine, workspace_cmd, etc.) still lives under PD/utils/commands/.
+    # (race_engine, workspace_cmd, etc.) lives under PD/utils/commands/.
     CBFLOW_CORE_DIR="$CBFLOW_ROOT/PD"
 
     # Discipline roots — only exported when directory actually exists.

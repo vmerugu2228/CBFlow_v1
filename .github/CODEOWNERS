@@ -1,0 +1,28 @@
+# CBflow — code ownership routing
+#
+# PR reviews auto-request from the discipline that owns the touched path.
+# Edits to global/ require integrator sign-off (shared tooling blast radius).
+#
+# Patterns use GitHub's CODEOWNERS syntax. Rightmost pattern wins when
+# multiple patterns match — list specific patterns AFTER general ones.
+
+# Catch-all — integrators review anything that doesn't match a specific rule.
+*                     @cbflow-integrators
+
+# Shared infrastructure — integrator sign-off required.
+/global/              @cbflow-integrators
+/bin/                 @cbflow-integrators
+/.github/             @cbflow-integrators
+
+# Discipline-owned trees.
+/PD/                  @pd-team
+/DFT/                 @dft-team
+/DV/                  @dv-team
+
+# Shipped user-facing docs (edits need review from docs or discipline leads).
+/docs/                @cbflow-integrators @pd-team
+
+# Operator-facing scratch (not shipped — anyone can touch).
+/workarea/
+/inputs/
+/test_releases/

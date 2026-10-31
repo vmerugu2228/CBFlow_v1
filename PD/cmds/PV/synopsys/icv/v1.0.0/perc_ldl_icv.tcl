@@ -7,7 +7,7 @@
 
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$::env(CBFLOW_RUN_DIR)/.run.cbflow.tcl"
-source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "PV"
 set STAGE_NAME "perc_ldl"
@@ -45,13 +45,11 @@ flow_proc run_perc_ldl {
     file mkdir "$::REPORTS_DIR"
 
     # Match the Calibre variant: if no rule deck is available, SKIP the
-    # tool invocation. Without this the ICV variant used to run
-    # `icv -perc_ldl -c ""`, silently succeed on some builds, and mark
-    # status PASS — and report_perc_ldl would then emit `Violations: 0`
-    # for a check that never actually ran. report_perc_ldl already
-    # handles SKIPPED (emits `N/A (runset unavailable)`) so the metric
-    # regex fails and downstream sees "metric not found" instead of a
-    # silent PASS.
+    # tool invocation. Otherwise `icv -perc_ldl -c ""` silently succeeds
+    # on some builds and status PASS → `Violations: 0` for a check that
+    # never ran. report_perc_ldl handles SKIPPED (emits `N/A (runset
+    # unavailable)`) so the metric regex fails and downstream sees
+    # "metric not found" instead of a silent PASS.
     if {![info exists ::perc_ldl_rules] || $::perc_ldl_rules eq ""} {
         handle_warning "No PERC-LDL rule deck available — skipping run (report only)"
         set ::perc_ldl_status "SKIPPED"

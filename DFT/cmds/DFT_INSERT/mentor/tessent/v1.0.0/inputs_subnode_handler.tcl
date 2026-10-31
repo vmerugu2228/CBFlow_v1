@@ -13,10 +13,7 @@ if {[file exists "$run_dir/.run.cbflow.tcl"]} {
     puts "ERROR: .run.cbflow.tcl not found"; exit 1
 }
 source "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/error_utils.tcl"
-# Source utils.tcl so is_true/is_false/handle_error/handle_info are
-# available — pre-fix the handler called is_true without sourcing
-# utils.tcl, so any run with flow(test_mode) set crashed with
-# `invalid command name "is_true"` on line 24.
+# utils.tcl provides is_true/is_false/handle_error/handle_info used below.
 source "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set flow_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/flow_config.tcl"

@@ -4,7 +4,7 @@
 # ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
-source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "STA"
 set STAGE_NAME "timing"
@@ -22,12 +22,10 @@ flow_proc configure_timing {
     file mkdir "$::REPORTS_DIR"
 
     # Per-scenario context — set by the per-scenario command file generated
-    # by timing_subnode_handler.tcl. Prior code ignored these globals
-    # entirely, so every scenario ran an identical generic analysis (the
-    # per-scenario dispatch was architecturally a no-op — audit finding
-    # C16). Read the SDC that matches this scenario's operating mode and
-    # log the corner/PVT context so per-scenario reports below have
-    # correct provenance.
+    # by timing_subnode_handler.tcl. Read the SDC that matches this
+    # scenario's operating mode and log the corner/PVT context so
+    # per-scenario reports have correct provenance. If these globals
+    # are ignored, every scenario runs an identical generic analysis.
     if {[info exists ::SCENARIO]} {
         handle_info "Scenario:    $::SCENARIO"
         if {[info exists ::MODE]}        { handle_info "  Mode:      $::MODE" }

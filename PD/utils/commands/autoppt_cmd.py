@@ -14,6 +14,24 @@ Uses python-pptx if available; falls back to HTML slide deck.
 import argparse
 import json
 import os
+
+# Post cbflow_global utils-refactor: shared Python packages (core.*,
+# logging_config, cbflow_config, …) live under global/utils/, not PD/utils/.
+# Add both to sys.path so inner `from core.* import …` calls resolve even
+# when the invoker didn't preset env.
+import sys as _bootstrap_sys
+_this = os.path.dirname(os.path.abspath(__file__))
+_pd_utils = os.path.dirname(_this)
+_umbrella = os.path.dirname(os.path.dirname(_pd_utils))
+_global_utils = os.path.join(_umbrella, 'global', 'utils')
+_global_cmds = os.path.join(_global_utils, 'commands')
+if os.path.isdir(_global_cmds) and _global_cmds not in _bootstrap_sys.path:
+    _bootstrap_sys.path.insert(0, _global_cmds)
+if os.path.isdir(_global_utils) and _global_utils not in _bootstrap_sys.path:
+    _bootstrap_sys.path.insert(0, _global_utils)
+if _pd_utils not in _bootstrap_sys.path:
+    _bootstrap_sys.path.insert(0, _pd_utils)
+
 import re
 import sys
 from datetime import datetime
@@ -133,10 +151,8 @@ def _parse_run_env(run_dir: str, data: dict):
         pass
 
     if not data['flow_type']:
-        # Pre-fix regex `P\d+_run_(\w+)_run\d+` only accepted P\d+ phases
-        # AND required a trailing `_run<N>` suffix (which the production
-        # naming convention no longer uses). Use shared helper that
-        # accepts every known phase form (P\d+, LC\d+, BTO, MTO, R\d+).
+        # Use shared helper that accepts every known phase form
+        # (P\d+, LC\d+, BTO, MTO, R\d+).
         from core.paths import flow_type_from_run_dir_name
         data['flow_type'] = flow_type_from_run_dir_name(data['run_name'])
 

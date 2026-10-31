@@ -3,7 +3,7 @@
 # CBflow User Config Template — CLP / Conformal LP (Cadence)
 # ═══════════════════════════════════════════════════════════════════════════════
 # Copy this file to your workarea and update paths before creating a run:
-#   cp $FLOW_DIR/config/templates/uc_CLP_conformal_lp.tcl <workarea>/uc_CLP_conformal_lp.tcl
+#   cp $FLOW_DIR/PD/config/templates/uc_CLP_conformal_lp.tcl <workarea>/uc_CLP_conformal_lp.tcl
 #   cbflow workspace create --config uc_CLP_conformal_lp.tcl
 # ═══════════════════════════════════════════════════════════════════════════════
 

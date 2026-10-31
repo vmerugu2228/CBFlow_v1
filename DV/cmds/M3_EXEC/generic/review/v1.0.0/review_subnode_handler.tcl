@@ -21,9 +21,9 @@ if {$node_name eq ""} {
     exit 1
 }
 
-# The command file lives at a SHARED path — one script serves every DV
-# review flow × every review stage. The handler just points at it.
-set cmd_file "$::env(FLOW_DIR)/cmds/_shared/generic/review/v1.0.0/review_gate.tcl"
+# Shared command file — one script serves every DV review flow × every
+# review stage. The DV/ segment is hardcoded because the handler lives there.
+set cmd_file "$::env(FLOW_DIR)/DV/cmds/_shared/generic/review/v1.0.0/review_gate.tcl"
 
 set test_mode [handler_is_test_mode]
 handler_dispatch $subnode_name $run_dir $::flow_type $node_name $stage_name \

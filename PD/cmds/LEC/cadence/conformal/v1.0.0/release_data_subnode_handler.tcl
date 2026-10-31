@@ -15,7 +15,7 @@ set stage_name "release_data"
 if {$node_name eq ""} { set node_name "${stage_name}1" }
 
 set _tool_ver [expr {[info exists ::env(CONFORMAL_VERSION)] ? $::env(CONFORMAL_VERSION) : "v1.0.0"}]
-set cmd_file "$::env(FLOW_DIR)/cmds/LEC/cadence/conformal/$_tool_ver/release_data_conformal.tcl"
+set cmd_file "$::env(FLOW_DIR)/PD/cmds/LEC/cadence/conformal/$_tool_ver/release_data_conformal.tcl"
 
 set test_mode [handler_is_test_mode]
 set _tool [expr {[info exists ::lec(tool,name)] ? $::lec(tool,name) : "conformal"}]

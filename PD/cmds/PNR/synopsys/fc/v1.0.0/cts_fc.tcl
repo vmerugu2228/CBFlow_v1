@@ -12,7 +12,7 @@
 # ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
-source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 # Flow type — subnode handler sets ::flow_type; env is the standalone fallback.
 if {![info exists ::flow_type] || $::flow_type eq ""} {
@@ -247,9 +247,9 @@ flow_proc construct_mscts {
     set ::MSCTS_NET_DELAY                   [cfg_get cts,mpcts,net_delay                   ""]
     set ::TCL_USER_MESH_ANNOTATION_SCRIPT   [cfg_get cts,mpcts,user_mesh_annotation_script ""]
 
-    set _recipe "$::env(FLOW_DIR)/cmds/PNR/synopsys/fc/$::env(TOOL_VERSION)/mscts_fc.tcl"
+    set _recipe "$::env(FLOW_DIR)/PD/cmds/PNR/synopsys/fc/$::env(TOOL_VERSION)/mscts_fc.tcl"
     if {![file exists $_recipe]} {
-        set _recipe "$::env(FLOW_DIR)/cmds/PNR/synopsys/fc/v1.0.0/mscts_fc.tcl"
+        set _recipe "$::env(FLOW_DIR)/PD/cmds/PNR/synopsys/fc/v1.0.0/mscts_fc.tcl"
     }
     handle_info "Sourcing MSCTS recipe: $_recipe"
     source $_recipe

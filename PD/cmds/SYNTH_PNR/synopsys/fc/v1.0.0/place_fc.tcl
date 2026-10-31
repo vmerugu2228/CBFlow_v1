@@ -6,7 +6,7 @@
 # ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
-source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "SYNTH_PNR"
 set STAGE_NAME "place"
@@ -168,9 +168,9 @@ flow_proc insert_low_power_cells {
     }
     handle_info "Low-power insertion enabled — staging globals for place"
     lowpower_stage_globals place
-    set _recipe "$::env(FLOW_DIR)/cmds/PNR/synopsys/fc/$::env(TOOL_VERSION)/lowpower_fc.tcl"
+    set _recipe "$::env(FLOW_DIR)/PD/cmds/PNR/synopsys/fc/$::env(TOOL_VERSION)/lowpower_fc.tcl"
     if {![file exists $_recipe]} {
-        set _recipe "$::env(FLOW_DIR)/cmds/PNR/synopsys/fc/v1.0.0/lowpower_fc.tcl"
+        set _recipe "$::env(FLOW_DIR)/PD/cmds/PNR/synopsys/fc/v1.0.0/lowpower_fc.tcl"
     }
     handle_info "Sourcing low-power recipe: $_recipe"
     source $_recipe
@@ -471,5 +471,5 @@ flow_proc generate_reports {
 }
 flow_exec_all
 
-# BUG FIX #7: Exit tool after stage completion
+# Exit tool after stage completion
 exit

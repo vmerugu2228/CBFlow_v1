@@ -51,8 +51,7 @@ GLOBAL_CBFLOW="$CBFLOW_GLOBAL_DIR/bin/cbflow"
 
 # ── Owned subcommand map ─────────────────────────────────────────────────────
 # Source of truth: global/config/cli/discipline_commands.tcl. This shell
-# array mirrors the PD entries there — kept in sync manually because bash
-# can't parse Tcl. If they drift, `--list` will misreport.
+# array mirrors the PD entries there (bash can't parse Tcl). Keep in sync.
 PD_FLOW_SUBCOMMANDS=(library-manager mmmc-manager checklist)
 
 _pd_owns_flow_subcmd() {

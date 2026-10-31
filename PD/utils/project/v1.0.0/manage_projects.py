@@ -212,8 +212,7 @@ class ProjectManager:
     def get_available_technologies(self):
         """Get list of available technologies — walks global/config/tech
         then PD/config/tech via the shared resolver so partial migrations
-        work. Pre-fix this was `config/technology` (typo) in PD/ only, so
-        the interactive project-create flow always saw an empty list."""
+        work."""
         try:
             import sys
             sys.path.insert(0, str(self.core_dir / 'utils'))
@@ -1455,8 +1454,8 @@ def main():
         script_dir = Path(__file__).parent.resolve()
         core_dir = script_dir.parent.parent.parent
 
-    # master_projects.json lives in global/ post-split. Prefer global, fall
-    # back to the legacy PD-side location for partially migrated trees.
+    # master_projects.json lives in global/. Prefer global, fall back
+    # to the legacy PD-side location for partially migrated trees.
     _global_candidate = core_dir.parent / "global" / "config" / "master_projects.json"
     _pd_candidate = core_dir / "config" / "master_projects.json"
     if _global_candidate.exists():

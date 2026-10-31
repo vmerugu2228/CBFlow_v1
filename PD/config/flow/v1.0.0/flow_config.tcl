@@ -96,24 +96,44 @@ if {$current_flow_type eq ""} {
     exit 1
 }
 
-set flow_config_file "$config_dir/node_configs/${current_flow_type}_config.tcl"
-if {[file exists $flow_config_file]} {
-    source $flow_config_file
-} else {
-    # Missing node_config is legitimate for cross-discipline flows registered
-    # in flow_registry.tcl but not yet implemented in PD (e.g. LINT/CDC/SIM
-    # under DV, or DFT flows during pre-Phase-5 migration). Emit a diagnostic
-    # and continue — the caller will see empty stages, which discovery
-    # commands (`cbflow flow types`) handle fine. An actual `cbflow run`
-    # against such a flow will fail later at DAG build with a clearer error.
-    puts stderr "WARN: node_config not found for flow=$current_flow_type — expected $flow_config_file"
-    set _disc "unknown"
-    if {[info exists flow(discipline,$current_flow_type)]} {
-        set _disc $flow(discipline,$current_flow_type)
-    }
-    puts stderr "      (discipline=$_disc — file will be added when discipline scaffolding lands)"
-    unset -nocomplain _disc
+# Resolve node_config via the discipline tree that owns the flow, then
+# fall back to $config_dir for cross-discipline flows. Mirrors the same
+# resolution in handler_common.tcl.
+set _node_cfg_candidates [list]
+set _disc "unknown"
+if {[info exists flow(discipline,$current_flow_type)]} {
+    set _disc $flow(discipline,$current_flow_type)
 }
+if {$_disc eq "DFT" && [info exists ::env(CBFLOW_DFT_DIR)] && $::env(CBFLOW_DFT_DIR) ne ""} {
+    lappend _node_cfg_candidates \
+        "$::env(CBFLOW_DFT_DIR)/config/flow/v1.0.0/node_configs/${current_flow_type}_config.tcl"
+}
+if {$_disc eq "DV" && [info exists ::env(CBFLOW_DV_DIR)] && $::env(CBFLOW_DV_DIR) ne ""} {
+    lappend _node_cfg_candidates \
+        "$::env(CBFLOW_DV_DIR)/config/flow/v1.0.0/node_configs/${current_flow_type}_config.tcl"
+}
+# PD fallback — always last so discipline-specific wins for DFT/DV flows,
+# but still catches cross-discipline flows that live under PD.
+lappend _node_cfg_candidates "$config_dir/node_configs/${current_flow_type}_config.tcl"
+
+set flow_config_file ""
+foreach _nc $_node_cfg_candidates {
+    if {[file exists $_nc]} {
+        set flow_config_file $_nc
+        source $_nc
+        break
+    }
+}
+if {$flow_config_file eq ""} {
+    # Diagnostic shows every candidate searched so operators can pinpoint
+    # where the config should live.
+    puts stderr "WARN: node_config not found for flow=$current_flow_type (discipline=$_disc)"
+    foreach _nc $_node_cfg_candidates {
+        puts stderr "      checked: $_nc"
+    }
+    puts stderr "      (discovery commands tolerate this; `cbflow run` will fail at DAG build)"
+}
+unset -nocomplain _disc _node_cfg_candidates _nc flow_config_file
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║                        SECTION 4: DESCRIPTIONS                              ║

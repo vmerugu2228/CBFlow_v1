@@ -4,7 +4,7 @@
 # -- Bootstrap -----------------------------------------------------------------
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
-source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "STA"
 set STAGE_NAME "release_data"
@@ -16,9 +16,9 @@ setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 
 # Source release utilities for ::CBFlow::Release namespace
-set _ru "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
+set _ru "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
 if {[file exists $_ru]} { source $_ru }
-set release_utils "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
+set release_utils "$FLOW_DIR/global/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
 if {[file exists $release_utils]} { source $release_utils }
 
 # Source release_config for phase/milestone file expectations
@@ -26,7 +26,6 @@ set release_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/release
 if {[file exists $release_config]} { source $release_config }
 
 global sta project tech flow
-# Note: tempus_config.tcl merged into STA_tempus_config.tcl (node_configs)
 handle_info "Starting STA release_data with Cadence Tempus..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"

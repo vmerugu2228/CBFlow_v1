@@ -76,7 +76,7 @@ foreach req_var {UTILITIES_VERSION FLOW_CONFIG_VERSION} {
 }
 
 # Load utilities using release version
-set utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+set utils_path "$FLOW_DIR/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 if {[file exists $utils_path]} {
     source $utils_path
 } else {
@@ -85,7 +85,7 @@ if {[file exists $utils_path]} {
 }
 
 # Load flow configuration using release version
-set flow_config_path "$FLOW_DIR/config/flow/$::env(FLOW_CONFIG_VERSION)/flow_config.tcl"
+set flow_config_path "$FLOW_DIR/PD/config/flow/$::env(FLOW_CONFIG_VERSION)/flow_config.tcl"
 if {[file exists $flow_config_path]} {
     source $flow_config_path
 } else {
@@ -94,7 +94,7 @@ if {[file exists $flow_config_path]} {
 }
 
 # Load SYNTH node configuration (defines synth() array with stage/input variables)
-set synth_config_path "$FLOW_DIR/config/flow/$::env(FLOW_CONFIG_VERSION)/node_configs/SYNTH_config.tcl"
+set synth_config_path "$FLOW_DIR/PD/config/flow/$::env(FLOW_CONFIG_VERSION)/node_configs/SYNTH_config.tcl"
 if {[file exists $synth_config_path]} {
     source $synth_config_path
     puts "INFO: SYNTH node configuration loaded from: $synth_config_path"
@@ -171,7 +171,7 @@ handle_info "Processing RTL subnode..."
         } elseif {[info exists ::FLOW_DIR]} {
             # Use CONFIG_VERSION environment variable if available
             set config_version $::env(FLOW_CONFIG_VERSION)
-            set candidate_path "$::FLOW_DIR/config/flow/$config_version/release_config.tcl"
+            set candidate_path "$::FLOW_DIR/PD/config/flow/$config_version/release_config.tcl"
             if {[file exists $candidate_path]} {
                 set release_config_file $candidate_path
             }
@@ -183,7 +183,7 @@ handle_info "Processing RTL subnode..."
             if {[file exists $fallback_path]} {
                 set release_config_file $fallback_path
             } else {
-                handle_error "Cannot locate release_config.tcl. Tried: \$FLOW_CONFIG/release_config.tcl, \$FLOW_DIR/config/flow/$config_version/release_config.tcl"
+                handle_error "Cannot locate release_config.tcl. Tried: \$FLOW_CONFIG/release_config.tcl, \$FLOW_DIR/PD/config/flow/$config_version/release_config.tcl"
             }
         }
 
@@ -329,7 +329,7 @@ proc handle_sdc_subnode {run_dir} {
         } elseif {[info exists ::FLOW_DIR]} {
             # Use CONFIG_VERSION environment variable if available
             set config_version $::env(FLOW_CONFIG_VERSION)
-            set candidate_path "$::FLOW_DIR/config/flow/$config_version/release_config.tcl"
+            set candidate_path "$::FLOW_DIR/PD/config/flow/$config_version/release_config.tcl"
             if {[file exists $candidate_path]} {
                 set release_config_file $candidate_path
             }
@@ -341,17 +341,16 @@ proc handle_sdc_subnode {run_dir} {
             if {[file exists $fallback_path]} {
                 set release_config_file $fallback_path
             } else {
-                handle_error "Cannot locate release_config.tcl. Tried: \$FLOW_CONFIG/release_config.tcl, \$FLOW_DIR/config/flow/$config_version/release_config.tcl"
+                handle_error "Cannot locate release_config.tcl. Tried: \$FLOW_CONFIG/release_config.tcl, \$FLOW_DIR/PD/config/flow/$config_version/release_config.tcl"
             }
         }
 
         source $release_config_file
 
         # Load project configuration to get SDC modes.
-        # Post cbflow_global split: global project_config.tcl carries
-        # project(sdc_modes) — the PD overlay is workarea/release/LSF only,
-        # so we only need the global side here. Fall back to the PD overlay
-        # for pre-split installs (defensive).
+        # project(sdc_modes) lives in global/ project_config.tcl — the
+        # PD overlay is workarea/release/LSF only. PD-overlay fallback
+        # is defensive for legacy installs.
         set _proj [expr {[info exists ::env(CBFLOW_PROJECT_NAME)] ? $::env(CBFLOW_PROJECT_NAME) : \
                           [expr {[info exists ::env(PROJECT_NAME)] ? $::env(PROJECT_NAME) : ""}]}]
         set _ver  [expr {[info exists ::env(PROJECT_CONFIG_VERSION)] ? $::env(PROJECT_CONFIG_VERSION) : "v1.0.0"}]
@@ -361,7 +360,7 @@ proc handle_sdc_subnode {run_dir} {
                 lappend _candidates "$::env(CBFLOW_GLOBAL_DIR)/config/project/$_proj/$_ver/project_config.tcl"
             }
             if {[info exists ::FLOW_DIR]} {
-                lappend _candidates "$::FLOW_DIR/config/project/$_proj/$_ver/project_pd_config.tcl"
+                lappend _candidates "$::FLOW_DIR/PD/config/project/$_proj/$_ver/project_pd_config.tcl"
             }
         }
         set project_config_file ""
@@ -513,7 +512,7 @@ proc handle_upf_subnode {run_dir} {
         } elseif {[info exists ::FLOW_DIR]} {
             # Use CONFIG_VERSION environment variable if available
             set config_version $::env(FLOW_CONFIG_VERSION)
-            set candidate_path "$::FLOW_DIR/config/flow/$config_version/release_config.tcl"
+            set candidate_path "$::FLOW_DIR/PD/config/flow/$config_version/release_config.tcl"
             if {[file exists $candidate_path]} {
                 set release_config_file $candidate_path
             }
@@ -525,7 +524,7 @@ proc handle_upf_subnode {run_dir} {
             if {[file exists $fallback_path]} {
                 set release_config_file $fallback_path
             } else {
-                handle_error "Cannot locate release_config.tcl. Tried: \$FLOW_CONFIG/release_config.tcl, \$FLOW_DIR/config/flow/$config_version/release_config.tcl"
+                handle_error "Cannot locate release_config.tcl. Tried: \$FLOW_CONFIG/release_config.tcl, \$FLOW_DIR/PD/config/flow/$config_version/release_config.tcl"
             }
         }
 
@@ -647,7 +646,7 @@ proc handle_library_subnode {run_dir} {
     if {[info exists ::FLOW_DIR]} {
         # Use versioned config structure
         set config_version $::env(FLOW_CONFIG_VERSION)
-        set tech_config_file "$::FLOW_DIR/config/tech/tsmc_7nm/$config_version/tech_config.tcl"
+        set tech_config_file "$::FLOW_DIR/PD/config/tech/tsmc_7nm/$config_version/tech_config.tcl"
     } elseif {[file exists "$run_dir/../flow/config/tech/tsmc_7nm/v1.0.0/tech_config.tcl"]} {
         set tech_config_file "$run_dir/../flow/config/tech/tsmc_7nm/v1.0.0/tech_config.tcl"
     } else {
@@ -674,7 +673,7 @@ proc handle_library_subnode {run_dir} {
         } elseif {[info exists ::FLOW_DIR]} {
             # Use CONFIG_VERSION environment variable if available
             set config_version $::env(FLOW_CONFIG_VERSION)
-            set candidate_path "$::FLOW_DIR/config/flow/$config_version/release_config.tcl"
+            set candidate_path "$::FLOW_DIR/PD/config/flow/$config_version/release_config.tcl"
             if {[file exists $candidate_path]} {
                 set release_config_file $candidate_path
             }
@@ -686,7 +685,7 @@ proc handle_library_subnode {run_dir} {
             if {[file exists $fallback_path]} {
                 set release_config_file $fallback_path
             } else {
-                handle_error "Cannot locate release_config.tcl. Tried: \$FLOW_CONFIG/release_config.tcl, \$FLOW_DIR/config/flow/$config_version/release_config.tcl"
+                handle_error "Cannot locate release_config.tcl. Tried: \$FLOW_CONFIG/release_config.tcl, \$FLOW_DIR/PD/config/flow/$config_version/release_config.tcl"
             }
         }
 
@@ -852,7 +851,7 @@ switch $subnode_name {
             handle_error "GENERATION_VERSION not set. Ensure .run.cbflow.tcl is properly generated."
             return
         }
-        set generate_script "$::env(FLOW_DIR)/utils/generation/$::env(GENERATION_VERSION)/generate_setup.tcl"
+        set generate_script "$::env(FLOW_DIR)/global/utils/generation/$::env(GENERATION_VERSION)/generate_setup.tcl"
 
         if {![file exists $generate_script]} {
             handle_error "Generate setup script not found: $generate_script"

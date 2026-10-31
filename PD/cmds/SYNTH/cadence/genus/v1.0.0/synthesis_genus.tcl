@@ -5,7 +5,7 @@
 # -- Bootstrap -----------------------------------------------------------------
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
-source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "SYNTH"
 set STAGE_NAME "synthesis"
@@ -301,15 +301,14 @@ flow_proc setup_mmmc {
     handle_info "Setting up MMMC for Genus..."
     global synth project mmmc STAGE_NAME
 
-    # Walk global/ first (post-split authoritative location), then PD/.
-    # Pre-fix only PD/config/project was checked — mmmc_view_definition is
-    # generated under global/ by mmmc-manager, so Genus silently fell to
-    # single-corner analysis on migrated installs.
+    # Walk global/ first (authoritative — mmmc_view_definition is
+    # generated there by mmmc-manager), then PD/ fallback. Without
+    # the global/ lookup Genus silently falls to single-corner analysis.
     set _vd_candidates [list]
     if {[info exists ::env(CBFLOW_GLOBAL_DIR)] && $::env(CBFLOW_GLOBAL_DIR) ne ""} {
         lappend _vd_candidates "$::env(CBFLOW_GLOBAL_DIR)/config/project/$project(name)/$project(cbflow_release)/mmmc_view_definition.tcl"
     }
-    lappend _vd_candidates "$::env(FLOW_DIR)/config/project/$project(name)/$project(cbflow_release)/mmmc_view_definition.tcl"
+    lappend _vd_candidates "$::env(FLOW_DIR)/PD/config/project/$project(name)/$project(cbflow_release)/mmmc_view_definition.tcl"
     set _vd_file [lindex $_vd_candidates end]
     foreach _c $_vd_candidates {
         if {[file exists $_c]} { set _vd_file $_c; break }

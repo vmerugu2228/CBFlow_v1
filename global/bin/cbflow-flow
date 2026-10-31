@@ -27,7 +27,12 @@ fi
 # Source environment if available
 [[ -f "$CBFLOW_CORE_DIR/config/cbflow.env" ]] && source "$CBFLOW_CORE_DIR/config/cbflow.env"
 
-COMMANDS_DIR="$CBFLOW_CORE_DIR/utils/commands"
+# Shared commands live under global/utils/commands/ after the cbflow_global
+# utils-refactor. PD-owned commands (qor-report, lsf-manager, metrics,
+# trending, library-manager, mmmc-manager, checklist) stay under
+# $CBFLOW_CORE_DIR/utils/commands and are dispatched to PD_COMMANDS_DIR.
+COMMANDS_DIR="$CBFLOW_GLOBAL_DIR/utils/commands"
+PD_COMMANDS_DIR="$CBFLOW_CORE_DIR/utils/commands"
 
 # Show help for flow command
 show_flow_help() {
@@ -164,9 +169,9 @@ main() {
             exec python3 "$COMMANDS_DIR/release_cmd.py" "$@"
             ;;
 
-        # Development workflow
+        # Development workflow (PD-owned release/dev versioning)
         dev)
-            exec python3 "$COMMANDS_DIR/dev_cmd.py" "$@"
+            exec python3 "$PD_COMMANDS_DIR/dev_cmd.py" "$@"
             ;;
 
         # Config commands
@@ -174,33 +179,46 @@ main() {
             exec python3 "$COMMANDS_DIR/config_cmd.py" "$@"
             ;;
 
-        # Plugin commands
+        # Plugin commands (PD-owned flow plugin scaffolding)
         plugin)
-            exec python3 "$COMMANDS_DIR/plugin_cmd.py" "$@"
+            exec python3 "$PD_COMMANDS_DIR/plugin_cmd.py" "$@"
             ;;
 
-        # QoR Report commands
+        # QoR Report commands (PD-owned)
         qor-report)
-            exec python3 "$COMMANDS_DIR/qor_report_cmd.py" "$@"
+            exec python3 "$PD_COMMANDS_DIR/qor_report_cmd.py" "$@"
             ;;
 
-        # Trending commands
+        # Trending commands (PD-owned)
         trending)
-            exec python3 "$COMMANDS_DIR/trending_cmd.py" "$@"
+            exec python3 "$PD_COMMANDS_DIR/trending_cmd.py" "$@"
             ;;
 
-        # Metrics commands
+        # Metrics commands (PD-owned)
         metrics)
-            exec python3 "$COMMANDS_DIR/metrics_cmd.py" "$@"
+            exec python3 "$PD_COMMANDS_DIR/metrics_cmd.py" "$@"
             ;;
 
-        # Dashboard commands
+        # Dashboard — delegate to `cbflow run dashboard` which exposes the
+        # full verb set (start / stop / restart / status / open / logs /
+        # list / prune / register / deregister). One source of truth.
         dashboard)
-            exec python3 "$COMMANDS_DIR/dashboard_cmd.py" "$@"
+            exec "$CBFLOW_ROOT/bin/cbflow" run dashboard "$@"
             ;;
 
         lsf-manager)
-            exec python3 "$COMMANDS_DIR/lsf_manager_cmd.py" "$@"
+            # PD-owned (LSF integration is PD-flow-only today).
+            exec python3 "$PD_COMMANDS_DIR/lsf_manager_cmd.py" "$@"
+            ;;
+
+        # Email + autoppt — canonical location is `cbflow run <verb>` (both
+        # live under run_cmd.py because they operate on a run directory).
+        # Alias here for the natural `cbflow flow email ...` phrasing.
+        email)
+            exec "$CBFLOW_ROOT/bin/cbflow" run email "$@"
+            ;;
+        autoppt)
+            exec "$CBFLOW_ROOT/bin/cbflow" run autoppt "$@"
             ;;
 
         # Help
@@ -210,10 +228,9 @@ main() {
 
         *)
             # ── Auto-dispatch to discipline launcher ─────────────────────
-            # Post per-discipline-launcher split: library-manager,
-            # mmmc-manager, checklist (and any future discipline-owned
-            # subcommands) live in <disc>/bin/cbflow-<disc>. Look up the
-            # owning discipline in global/config/cli/discipline_commands.tcl.
+            # Discipline-owned subcommands (library-manager, mmmc-manager,
+            # checklist, and any future ones) live in <disc>/bin/cbflow-<disc>.
+            # Look up the owner in global/config/cli/discipline_commands.tcl.
             local reg="$CBFLOW_GLOBAL_DIR/config/cli/discipline_commands.tcl"
             local owner=""
             if [[ -f "$reg" ]]; then

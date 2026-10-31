@@ -7,7 +7,7 @@
 # ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
-source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "PV"
 set STAGE_NAME "drc"
@@ -98,9 +98,9 @@ flow_proc run_drc_checks {
     set _drc_log "$::WORK_DIR/results/drc/drc.log"
     if {[catch {exec {*}$calibre_cmd >& $_drc_log} result]} {
         # Classify: tool-stack crash (license, perms, OOM) → FATAL error;
-        # real DRC violations → non-fatal warning. Pre-fix every non-zero
-        # was a warning, so an expired license looked like real DRC
-        # output and tape-out gates signed off on silent tool crashes.
+        # real DRC violations → non-fatal warning. Without this, an
+        # expired license looks like real DRC output and tape-out gates
+        # sign off on silent tool crashes.
         if {[classify_tool_exit_log $_drc_log] eq "FATAL"} {
             handle_error "Calibre DRC crashed (license / perms / tool error) — see $_drc_log"
         } else {

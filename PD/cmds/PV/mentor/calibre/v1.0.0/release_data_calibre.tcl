@@ -4,7 +4,7 @@
 # ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
-source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "PV"
 set STAGE_NAME "release_data"
@@ -17,10 +17,10 @@ setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 
 # Source release utilities for ::CBFlow::Release namespace
-set _ru "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
+set _ru "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
 if {[file exists $_ru]} { source $_ru }
 # Source release utilities for ::CBFlow::Release namespace
-set _ru "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
+set _ru "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
 if {[file exists $_ru]} { source $_ru }
 # ==============================================================================
 flow_proc init_release {
@@ -79,14 +79,9 @@ flow_proc prepare_release {
     set release_dir "$run_dir/results/release"
     foreach dir {"reports" "drc" "lvs" "erc" "perc" "perc_ldl"} { file mkdir "$release_dir/$dir" }
 
-    # Pre-fix: paths assumed each PV stage wrote under $run_dir/results/,
-    # but every PV handler writes under $run_dir/work/PV/<node>1/results/.
-    # Every [file exists] check returned false and the release directory
-    # ended up empty with only the manifest shell, yet the stage still
-    # returned success. Fix: check BOTH candidate locations (work dir
-    # first, which is the real output location per the handler fix for
-    # the mandatory_outputs mismatch, then the run_dir fallback for the
-    # mirror-copies the handlers now also write).
+    # Check BOTH candidate locations: $run_dir/work/PV/<node>1/results/
+    # (real output location) first, then $run_dir/results/ fallback
+    # for the mirror-copies the handlers also write.
     foreach {node file dest} {
         drc1      drc.rpt       drc/drc.rpt
         drc1      drc_results.rpt drc/drc_results.rpt

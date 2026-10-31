@@ -3,7 +3,7 @@
 # CBflow User Config Template — PNR / Innovus (Cadence)
 # ═══════════════════════════════════════════════════════════════════════════════
 # Copy this file to your workarea and update paths before creating a run:
-#   cp $FLOW_DIR/config/templates/uc_PNR_innovus.tcl <workarea>/uc_PNR_innovus.tcl
+#   cp $FLOW_DIR/PD/config/templates/uc_PNR_innovus.tcl <workarea>/uc_PNR_innovus.tcl
 #   cbflow workspace create --config uc_PNR_innovus.tcl
 # ═══════════════════════════════════════════════════════════════════════════════
 

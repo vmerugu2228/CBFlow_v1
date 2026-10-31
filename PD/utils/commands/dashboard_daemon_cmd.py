@@ -18,12 +18,40 @@ Subcommands:
 
 import argparse
 import os
+
+# Post cbflow_global utils-refactor: shared Python packages (core.*,
+# logging_config, cbflow_config, …) live under global/utils/, not PD/utils/.
+# Add both to sys.path so inner `from core.* import …` calls resolve even
+# when the invoker didn't preset env.
+import sys as _bootstrap_sys
+_this = os.path.dirname(os.path.abspath(__file__))
+_pd_utils = os.path.dirname(_this)
+_umbrella = os.path.dirname(os.path.dirname(_pd_utils))
+_global_utils = os.path.join(_umbrella, 'global', 'utils')
+_global_cmds = os.path.join(_global_utils, 'commands')
+if os.path.isdir(_global_cmds) and _global_cmds not in _bootstrap_sys.path:
+    _bootstrap_sys.path.insert(0, _global_cmds)
+if os.path.isdir(_global_utils) and _global_utils not in _bootstrap_sys.path:
+    _bootstrap_sys.path.insert(0, _global_utils)
+if _pd_utils not in _bootstrap_sys.path:
+    _bootstrap_sys.path.insert(0, _pd_utils)
+
 import subprocess
 import sys
 import time
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DASHBOARD_DIR = os.path.join(os.path.dirname(SCRIPT_DIR), 'dashboard')
+# Post cbflow_global utils-refactor: dashboard/ moved from PD/utils/dashboard/
+# to global/utils/dashboard/. Resolve via get_cbflow_global_dir() with a
+# PD-side fallback so legacy installs keep working.
+try:
+    from core.paths import get_cbflow_global_dir as _get_gd
+    _gdir = _get_gd()
+    DASHBOARD_DIR = os.path.join(_gdir, 'utils', 'dashboard') if _gdir else ''
+except Exception:
+    DASHBOARD_DIR = ''
+if not DASHBOARD_DIR or not os.path.isdir(DASHBOARD_DIR):
+    DASHBOARD_DIR = os.path.join(os.path.dirname(SCRIPT_DIR), 'dashboard')
 for p in (DASHBOARD_DIR, SCRIPT_DIR):
     if p not in sys.path:
         sys.path.insert(0, p)

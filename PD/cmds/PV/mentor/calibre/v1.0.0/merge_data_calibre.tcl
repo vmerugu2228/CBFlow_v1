@@ -4,7 +4,7 @@
 # ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
-source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "PV"
 set STAGE_NAME "merge_data"
@@ -21,15 +21,10 @@ flow_proc merge_verification_results {
     file mkdir "$run_dir/results/phyv"
     file mkdir "$run_dir/results/verification"
 
-    # Pre-fix: scanned $run_dir/results/{drc,lvs,erc,perc}/<x>_results.rpt
-    # but each PV stage actually writes under $run_dir/work/PV/<node>1/results/<x>/.
-    # Every check was reported PENDING even on a fully successful real
-    # run. Also mandatory_outputs,merge_data1 declared
-    # results/verification/verification_summary.rpt, but this handler
-    # wrote results/phyv/phyv_summary.rpt — merge_data1 ALWAYS failed
-    # validate in production. Fix: scan the real per-node work dirs,
+    # Scan the real per-node work dirs ($run_dir/work/PV/<node>1/results/<x>/)
     # and emit the summary at BOTH the legacy (phyv) and the declared
-    # (verification) paths.
+    # (verification) paths — mandatory_outputs,merge_data1 declares
+    # results/verification/verification_summary.rpt.
     set summary_body ""
     append summary_body "═══════════════════════════════════════════════════════════════════════════════\n"
     append summary_body "CBFlow PV - Physical Verification Summary\n"

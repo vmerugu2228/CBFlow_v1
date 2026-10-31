@@ -15,6 +15,23 @@ import json
 from datetime import datetime, date, timedelta
 
 # Configure unified logging
+# Post cbflow_global utils-refactor: shared Python packages (core.paths,
+# core.interactive, logging_config, cbflow_config, …) live under
+# global/utils/, not PD/utils/. This PD-only command adds BOTH to sys.path
+# so an un-sparsed clone resolves them whether the invoker set env or not.
+import sys as _bootstrap_sys
+_this = os.path.dirname(os.path.abspath(__file__))
+_pd_utils = os.path.dirname(_this)
+_umbrella = os.path.dirname(os.path.dirname(_pd_utils))
+_global_utils = os.path.join(_umbrella, 'global', 'utils')
+_global_cmds = os.path.join(_global_utils, 'commands')
+if os.path.isdir(_global_cmds) and _global_cmds not in _bootstrap_sys.path:
+    _bootstrap_sys.path.insert(0, _global_cmds)
+if os.path.isdir(_global_utils) and _global_utils not in _bootstrap_sys.path:
+    _bootstrap_sys.path.insert(0, _global_utils)
+if _pd_utils not in _bootstrap_sys.path:
+    _bootstrap_sys.path.insert(0, _pd_utils)
+
 from logging_config import configure_logging, get_logger
 
 import sys; sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -665,13 +682,10 @@ def _evaluate_metric_pattern(report_path: str, check_config: dict) -> tuple:
                 f'metric_pattern not found in {os.path.basename(report_path)}',
                 None)
     if not m.groups():
-        # Pre-fix: no-capture-group returned PASS unconditionally — a
-        # library-check author who writes `metric_pattern='WNS'` (no
-        # parens) got automatic PASS on any report containing 'WNS',
-        # with the actual value never checked. Treat no-capture-group as
-        # a check-config error: the author almost certainly meant to
-        # extract a value. CONFIG_ERROR surfaces to the sign-off and
-        # blocks approved verdict.
+        # No capture group → check-config error (the author almost
+        # certainly meant to extract a value, not just confirm the
+        # token exists). CONFIG_ERROR surfaces to sign-off and blocks
+        # the approved verdict — never auto-PASS on a bare match.
         return ('CONFIG_ERROR',
                 f'metric_pattern has no capture group — add (...) around the value you want to compare',
                 m.group(0))
@@ -709,18 +723,14 @@ def _evaluate_report(report_path: str) -> str:
     A SKIP marker (from test_mode runs that didn't actually execute the
     check — see validation/v1.0.0/checks/check_common.tcl::test_mode_pass)
     MUST be surfaced as SKIP so sign-off can distinguish "verified" from
-    "stub run never checked". Pre-fix every SKIP looked like PASS to the
-    checklist and BTO/MTO sign-off would approve tape-out on test_mode runs.
+    "stub run never checked" and refuse BTO/MTO sign-off on test_mode
+    runs.
     """
-    # Explicit encoding + errors='replace' — pre-fix bare open() used
-    # locale encoding. On C-locale hosts (containers/LSF), reading any
-    # EDA report with a UTF-8 byte (degree sign in temperatures, box-
-    # drawing characters, micro in units, etc.) raised UnicodeDecodeError.
-    # The bare `except Exception` mapped it to 'FAIL' — a passing check
-    # reported as failing BTO/MTO sign-off solely due to locale.
-    # Separate OSError from decode so missing-file still differs from
-    # unreadable content; decode errors now use replacement chars so
-    # the verdict reflects the real EDA output.
+    # Explicit encoding + errors='replace' — EDA reports often contain
+    # non-ASCII bytes (degree sign, box-drawing chars, micro symbol).
+    # A bare open() uses locale encoding and raises UnicodeDecodeError
+    # on C-locale hosts (containers / LSF), which the enclosing except
+    # would misreport as FAIL purely due to locale.
     try:
         with open(report_path, 'r', encoding='utf-8', errors='replace') as f:
             content = f.read()
@@ -734,12 +744,10 @@ def _evaluate_report(report_path: str) -> str:
     if re.search(r'Test mode\s*—?\s*check not executed', content,
                  re.IGNORECASE):
         return 'SKIP'
-    # Pre-fix: PASS check ran BEFORE FAIL check, so an EDA summary line
-    # like 'Tests: 100 PASS, 42 FAIL' or 'Status: PASS; 3 FAILED endpoints'
-    # returned PASS and tape-out signed off on failing designs. Fix:
-    # FAIL has priority — if the report mentions any FAIL, treat as FAIL
-    # even if PASS also appears (summary totals usually include both
-    # columns; the FAIL side is the authoritative one).
+    # FAIL has priority over PASS — EDA summary lines commonly include
+    # both columns (`Tests: 100 PASS, 42 FAIL`, `Status: PASS; 3 FAILED
+    # endpoints`), and the FAIL side is the authoritative one. Checking
+    # PASS first would let tape-out sign off on failing designs.
     if re.search(r'\bFAIL(ED)?\b', content, re.IGNORECASE):
         return 'FAIL'
     if re.search(r'\bPASS(ED)?\b', content, re.IGNORECASE):
@@ -1176,19 +1184,12 @@ def cmd_signoff(args: argparse.Namespace) -> int:
                 'type': ctype, 'status': r['status'],
                 'description': src.get(r['name'], {}).get('description', ''),
             }
-            # Pre-fix: SKIPPED counted as pass. A min_phase typo (e.g.
-            # 'P99') would silently defer any mandatory check — the
-            # dev / operator could then set min_phase to a bogus value
-            # and quietly auto-skip critical BTO/MTO checks. Fix:
-            # SKIPPED (phase not yet reached) only counts as pass when
-            # the SKIP reason is a known-valid phase comparison (handled
-            # inside _phase_filter_passed by returning CONFIG_ERROR for
-            # typos). Still allow SKIPPED here because _phase_filter_
-            # passed already distinguishes "skip because phase lower"
-            # from "skip because phase name unparseable" (→ CONFIG_ERROR).
-            # The additional guard needed is on cmd_signoff's downstream
-            # verdict: a milestone with ANY SKIPPED mandatory check
-            # must flag as 'conditional', not 'approved'.
+            # SKIPPED (phase not yet reached) counts as pass here only
+            # because _phase_filter_passed already surfaces unparseable
+            # phase names as CONFIG_ERROR. The downstream verdict path
+            # in cmd_signoff downgrades any milestone with a SKIPPED
+            # mandatory check to 'conditional', so a min_phase typo
+            # can't auto-skip critical BTO/MTO checks silently.
             if ctype == 'mandatory' and r['status'] not in ('PASS', 'WAIVED', 'SKIPPED'):
                 all_passed = False
 
@@ -1204,21 +1205,14 @@ def cmd_signoff(args: argparse.Namespace) -> int:
         all_passed = False
 
     # Determine verdict.
-    # Pre-fix: verdict='conditional' + return 0 at line 1244 meant a
-    # CI/scripted sign-off treated 'conditional' as success. For
-    # BTO/MTO, policy says waivers are disallowed, so a conditional
-    # verdict on those milestones must be REJECTED. Also, any SKIPPED
-    # mandatory check on BTO/MTO is itself suspect (either the min_phase
-    # cascade is misconfigured or an operator deferred a critical check);
-    # downgrade to 'conditional' so the CLI returns non-zero and the
-    # operator is forced to review.
-    #
-    # Also: enforce the waiver_policy allow_bto_waivers / allow_mto_waivers
-    # fields that were previously declared but never read.
+    # For BTO/MTO, waivers are disallowed by policy, so a 'conditional'
+    # verdict must map to a non-zero CLI exit (CI treats conditional as
+    # success otherwise). Any SKIPPED mandatory check on BTO/MTO is
+    # suspect (misconfigured min_phase cascade or deferred critical
+    # check) and downgrades the milestone to 'conditional'.
+    # Also enforces the waiver_policy allow_bto_waivers / allow_mto_waivers
+    # fields.
     _tape_out_milestones = {'BTO', 'MTO'}
-    # Pre-fix: `mand_snaps` was referenced here but only defined 28 lines
-    # below (line 1247), causing a hard NameError on every sign-off
-    # invocation and crashing cmd_signoff BEFORE the record was written.
     # Compute mand_snaps once at the first use site so both the verdict
     # branch and the summary dict share the same list.
     mand_snaps = [c for c in checks_snapshot.values() if c['type'] == 'mandatory']
@@ -1768,9 +1762,7 @@ def _detect_flow_type(run_dir: str) -> str:
         except (sqlite3.OperationalError, OSError):
             pass
     # Fallback: parse dir name via shared helper (accepts P\d+/LC\d+/
-    # BTO/MTO/R\d+ phases). Pre-fix the regex `P\d_run_(\w+?)_` only
-    # matched single-digit P-phase (P0..P9) — missed LC/BTO/MTO entirely,
-    # so checklist attributed checks to the wrong milestone on those runs.
+    # BTO/MTO/R\d+ phases).
     from core.paths import flow_type_from_run_dir_name
     dirname = os.path.basename(os.path.abspath(run_dir))
     return flow_type_from_run_dir_name(dirname)

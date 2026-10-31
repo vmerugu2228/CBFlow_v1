@@ -12,7 +12,7 @@
 # user_config: set eco_exec(skip_stages) {}
 # Linear deps: inputs → review_1 → review_2 → ... → release_data1
 array set eco_exec {
-    stages {inputs eco_test_coding random_log_check waveform_check full_pass_zero_bugs gls_sdf_full_pass export_db release_data1}
+    stages {review_artifact1 eco_test_coding1 random_log_check1 waveform_check1 full_pass_zero_bugs1 gls_sdf_full_pass1 export_db1 release_data1}
 
     merge_entry_stage     inputs
     merge_handoff_stage   release_data1
@@ -20,20 +20,20 @@ array set eco_exec {
 
     optional_stages {}
 
-    dependencies,eco_test_coding                     {inputs}
-    dependencies,random_log_check                    {eco_test_coding}
-    dependencies,waveform_check                      {random_log_check}
-    dependencies,full_pass_zero_bugs                 {waveform_check}
-    dependencies,gls_sdf_full_pass                   {full_pass_zero_bugs}
-    dependencies,export_db                           {gls_sdf_full_pass}
-    dependencies,release_data1                       {export_db}
+    dependencies,eco_test_coding1                    {review_artifact1}
+    dependencies,random_log_check1                   {eco_test_coding1}
+    dependencies,waveform_check1                     {random_log_check1}
+    dependencies,full_pass_zero_bugs1                {waveform_check1}
+    dependencies,gls_sdf_full_pass1                  {full_pass_zero_bugs1}
+    dependencies,export_db1                          {gls_sdf_full_pass1}
+    dependencies,release_data1                       {export_db1}
 }
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║                        SUBNODES & WORK DIRS                                 ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 # Every non-inputs stage uses the standard 4-phase subnode pattern.
-set _eco_exec_exec_stages {eco_test_coding random_log_check waveform_check full_pass_zero_bugs gls_sdf_full_pass export_db release_data1}
+set _eco_exec_exec_stages {eco_test_coding1 random_log_check1 waveform_check1 full_pass_zero_bugs1 gls_sdf_full_pass1 export_db1 release_data1}
 foreach _s $_eco_exec_exec_stages {
     set eco_exec(subnodes,$_s) {setup run validate finish}
     set eco_exec(subnode_dependencies,${_s},setup)    {}
@@ -50,31 +50,31 @@ foreach _s $_eco_exec_exec_stages {
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 array set eco_exec {
-    stage_types,inputs        "inputs"
-    stage_types,eco_test_coding                     "review"
-    stage_types,random_log_check                    "review"
-    stage_types,waveform_check                      "review"
-    stage_types,full_pass_zero_bugs                 "review"
-    stage_types,gls_sdf_full_pass                   "review"
-    stage_types,export_db                           "review"
+    stage_types,review_artifact1 "inputs"
+    stage_types,eco_test_coding1                    "review"
+    stage_types,random_log_check1                   "review"
+    stage_types,waveform_check1                     "review"
+    stage_types,full_pass_zero_bugs1                "review"
+    stage_types,gls_sdf_full_pass1                  "review"
+    stage_types,export_db1                          "review"
     stage_types,release_data1 "release"
 
-    node_types,inputs         "inputs"
-    node_types,eco_test_coding                     "review"
-    node_types,random_log_check                    "review"
-    node_types,waveform_check                      "review"
-    node_types,full_pass_zero_bugs                 "review"
-    node_types,gls_sdf_full_pass                   "review"
-    node_types,export_db                           "review"
+    node_types,review_artifact1 "inputs"
+    node_types,eco_test_coding1                    "review"
+    node_types,random_log_check1                   "review"
+    node_types,waveform_check1                     "review"
+    node_types,full_pass_zero_bugs1                "review"
+    node_types,gls_sdf_full_pass1                  "review"
+    node_types,export_db1                          "review"
     node_types,release_data1  "release_data"
 
-    node_descriptions,inputs        "Review-artifact input collection"
-    node_descriptions,eco_test_coding                     "Eco Test Coding review gate (artifact-attach + signoff)"
-    node_descriptions,random_log_check                    "Random Log Check review gate (artifact-attach + signoff)"
-    node_descriptions,waveform_check                      "Waveform Check review gate (artifact-attach + signoff)"
-    node_descriptions,full_pass_zero_bugs                 "Full Pass Zero Bugs review gate (artifact-attach + signoff)"
-    node_descriptions,gls_sdf_full_pass                   "Gls Sdf Full Pass review gate (artifact-attach + signoff)"
-    node_descriptions,export_db                           "Export Db review gate (artifact-attach + signoff)"
+    node_descriptions,review_artifact1 "Review-artifact input collection"
+    node_descriptions,eco_test_coding1                    "Eco Test Coding1 review gate (artifact-attach + signoff)"
+    node_descriptions,random_log_check1                   "Random Log Check1 review gate (artifact-attach + signoff)"
+    node_descriptions,waveform_check1                     "Waveform Check1 review gate (artifact-attach + signoff)"
+    node_descriptions,full_pass_zero_bugs1                "Full Pass Zero Bugs1 review gate (artifact-attach + signoff)"
+    node_descriptions,gls_sdf_full_pass1                  "Gls Sdf Full Pass1 review gate (artifact-attach + signoff)"
+    node_descriptions,export_db1                          "Export Db1 review gate (artifact-attach + signoff)"
     node_descriptions,release_data1 "Release the full review audit trail (signoffs + MANIFEST)"
 }
 
@@ -83,13 +83,13 @@ array set eco_exec {
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 array set eco_exec {
-    runtime,timeout,inputs        10
-    runtime,timeout,eco_test_coding                     30
-    runtime,timeout,random_log_check                    30
-    runtime,timeout,waveform_check                      30
-    runtime,timeout,full_pass_zero_bugs                 30
-    runtime,timeout,gls_sdf_full_pass                   30
-    runtime,timeout,export_db                           30
+    runtime,timeout,review_artifact1 10
+    runtime,timeout,eco_test_coding1                    30
+    runtime,timeout,random_log_check1                   30
+    runtime,timeout,waveform_check1                     30
+    runtime,timeout,full_pass_zero_bugs1                30
+    runtime,timeout,gls_sdf_full_pass1                  30
+    runtime,timeout,export_db1                          30
     runtime,timeout,release_data1 10
 }
 
@@ -102,12 +102,12 @@ array set eco_exec {
 # the engineer attaches the review document / regression log / coverage
 # report through user_config: set eco_exec(input,review_artifact) <path>.
 array set eco_exec {
-    mandatory_outputs,eco_test_coding                     {outputs/review_signoff.txt}
-    mandatory_outputs,random_log_check                    {outputs/review_signoff.txt}
-    mandatory_outputs,waveform_check                      {outputs/review_signoff.txt}
-    mandatory_outputs,full_pass_zero_bugs                 {outputs/review_signoff.txt}
-    mandatory_outputs,gls_sdf_full_pass                   {outputs/review_signoff.txt}
-    mandatory_outputs,export_db                           {outputs/review_signoff.txt}
+    mandatory_outputs,eco_test_coding1                    {outputs/review_signoff.txt}
+    mandatory_outputs,random_log_check1                   {outputs/review_signoff.txt}
+    mandatory_outputs,waveform_check1                     {outputs/review_signoff.txt}
+    mandatory_outputs,full_pass_zero_bugs1                {outputs/review_signoff.txt}
+    mandatory_outputs,gls_sdf_full_pass1                  {outputs/review_signoff.txt}
+    mandatory_outputs,export_db1                          {outputs/review_signoff.txt}
     mandatory_outputs,release_data1 {outputs/release_data/MANIFEST.json}
 
     input_types {review_artifact}
@@ -128,12 +128,12 @@ array set eco_exec {
     release_types,review_audit,description "Review signoffs + manifest for ECO_EXEC"
     release_types,review_audit,files {
         "outputs/release_data/MANIFEST.json" "MANIFEST.json"
-        "work/eco_test_coding1/outputs/review_signoff.txt" "review_signoffs/eco_test_coding.txt"
-        "work/random_log_check1/outputs/review_signoff.txt" "review_signoffs/random_log_check.txt"
-        "work/waveform_check1/outputs/review_signoff.txt" "review_signoffs/waveform_check.txt"
-        "work/full_pass_zero_bugs1/outputs/review_signoff.txt" "review_signoffs/full_pass_zero_bugs.txt"
-        "work/gls_sdf_full_pass1/outputs/review_signoff.txt" "review_signoffs/gls_sdf_full_pass.txt"
-        "work/export_db1/outputs/review_signoff.txt" "review_signoffs/export_db.txt"
+        "work/eco_test_coding11/outputs/review_signoff.txt" "review_signoffs/eco_test_coding1.txt"
+        "work/random_log_check11/outputs/review_signoff.txt" "review_signoffs/random_log_check1.txt"
+        "work/waveform_check11/outputs/review_signoff.txt" "review_signoffs/waveform_check1.txt"
+        "work/full_pass_zero_bugs11/outputs/review_signoff.txt" "review_signoffs/full_pass_zero_bugs1.txt"
+        "work/gls_sdf_full_pass11/outputs/review_signoff.txt" "review_signoffs/gls_sdf_full_pass1.txt"
+        "work/export_db11/outputs/review_signoff.txt" "review_signoffs/export_db1.txt"
     }
 }
 

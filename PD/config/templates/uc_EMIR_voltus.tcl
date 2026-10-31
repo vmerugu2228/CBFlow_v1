@@ -3,7 +3,7 @@
 # CBflow User Config Template — EMIR / Voltus (Cadence)
 # ═══════════════════════════════════════════════════════════════════════════════
 # Copy this file to your workarea and update paths before creating a run:
-#   cp $FLOW_DIR/config/templates/uc_EMIR_voltus.tcl <workarea>/uc_EMIR_voltus.tcl
+#   cp $FLOW_DIR/PD/config/templates/uc_EMIR_voltus.tcl <workarea>/uc_EMIR_voltus.tcl
 #   cbflow workspace create --config uc_EMIR_voltus.tcl
 # ═══════════════════════════════════════════════════════════════════════════════
 

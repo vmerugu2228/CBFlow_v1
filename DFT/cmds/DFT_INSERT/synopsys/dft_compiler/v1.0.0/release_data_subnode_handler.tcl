@@ -13,7 +13,7 @@ set stage_name  "release_data"
 if {$node_name eq ""} { set node_name "${stage_name}1" }
 
 set _tool_ver [expr {[info exists ::env(TOOL_VERSION)] ? $::env(TOOL_VERSION) : "v1.0.0"}]
-set _dft_root [expr {[info exists ::env(CBFLOW_DFT_DIR)] ? $::env(CBFLOW_DFT_DIR) : "$::env(FLOW_DIR)/../DFT"}]
+set _dft_root [expr {[info exists ::env(CBFLOW_DFT_DIR)] ? $::env(CBFLOW_DFT_DIR) : "$::env(FLOW_DIR)/DFT"}]
 set cmd_file  "$_dft_root/cmds/DFT_INSERT/synopsys/dft_compiler/$_tool_ver/${stage_name}_dft_compiler.tcl"
 
 set test_mode [handler_is_test_mode]

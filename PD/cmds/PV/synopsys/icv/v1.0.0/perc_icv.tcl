@@ -4,7 +4,7 @@
 # ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
-source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "PV"
 set STAGE_NAME "perc"
@@ -99,8 +99,8 @@ flow_proc run_perc {
 
     handle_info "ICV command: $icv_cmd"
 
-    # Execute PERC. Pre-fix handle_error on any non-zero exit prevented
-    # the report from being written on real PERC violations.
+    # Classify FATAL vs real violations so the report is still written
+    # when PERC exits non-zero on genuine violations.
     set _icv_log "$run_dir/logs/pv/perc_icv.log"
     if {[catch {eval exec $icv_cmd} result]} {
         if {[file exists $_icv_log] && [classify_tool_exit_log $_icv_log] eq "FATAL"} {

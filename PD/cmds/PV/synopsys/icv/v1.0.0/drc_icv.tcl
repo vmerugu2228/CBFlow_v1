@@ -4,7 +4,7 @@
 # ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
-source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "PV"
 set STAGE_NAME "drc"
@@ -99,14 +99,10 @@ flow_proc run_drc {
 
     handle_info "ICV command: $icv_cmd"
 
-    # Execute DRC. Pre-fix: handle_error on ANY non-zero exit → exit 1 →
-    # generate_drc_report never ran → mandatory_output drc.rpt never
-    # written → every real-violations run (ICV exits non-zero on
-    # legitimate DRC violations, not just FATAL) hard-failed the stage
-    # before producing the deliverable. Fix: classify the exit via log
-    # content. FATAL (license, perms, tool crash) still errors; real
-    # violations downgrade to warning so generate_drc_report writes
-    # the report that handler_validate needs.
+    # ICV exits non-zero on legitimate DRC violations (not just FATAL).
+    # Classify via log: FATAL (license/perms/crash) errors; real
+    # violations downgrade to warning so generate_drc_report still
+    # writes the drc.rpt deliverable that handler_validate needs.
     set _icv_log "$run_dir/logs/pv/drc_icv.log"
     if {[catch {eval exec $icv_cmd} result]} {
         if {[file exists $_icv_log] && [classify_tool_exit_log $_icv_log] eq "FATAL"} {

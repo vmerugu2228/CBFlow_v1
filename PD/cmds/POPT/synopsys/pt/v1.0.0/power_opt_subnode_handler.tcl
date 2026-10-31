@@ -15,7 +15,7 @@ set stage_name "power_opt"
 if {$node_name eq ""} { set node_name "${stage_name}1" }
 
 set _tool_ver [expr {[info exists ::env(PT_VERSION)] ? $::env(PT_VERSION) : "v1.0.0"}]
-set cmd_file "$::env(FLOW_DIR)/cmds/POPT/synopsys/pt/$_tool_ver/power_opt_pt.tcl"
+set cmd_file "$::env(FLOW_DIR)/PD/cmds/POPT/synopsys/pt/$_tool_ver/power_opt_pt.tcl"
 
 set test_mode [handler_is_test_mode]
 set _tool [expr {[info exists ::popt(tool,name)] ? $::popt(tool,name) : "pt"}]

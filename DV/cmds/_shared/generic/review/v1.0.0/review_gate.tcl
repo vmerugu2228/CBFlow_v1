@@ -17,7 +17,8 @@
 
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
-source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+# Utilities live in the PD tree (shared across every discipline).
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 # FLOW_TYPE / STAGE_NAME / NODE_NAME are set by the subnode handler before
 # it dispatches here (via setup_dirs). If run standalone (debug), fall back
@@ -38,7 +39,7 @@ setup_dirs $run_dir $::FLOW_TYPE $::NODE_NAME
 
 # ── Validate attached artifact (if declared) ────────────────────────────────
 flow_proc validate_artifact {
-    global ::FLOW_TYPE ::STAGE_NAME
+    # ::FLOW_TYPE / ::STAGE_NAME are global; reference via $:: directly.
     set flow_lower [string tolower $::FLOW_TYPE]
     set art_key "review,$::STAGE_NAME,artifact"
     # Attempt both the typed array lookup and a direct var read — different
@@ -67,7 +68,7 @@ flow_proc validate_artifact {
 
 # ── Stamp review signoff ────────────────────────────────────────────────────
 flow_proc stamp_signoff {
-    global ::FLOW_TYPE ::STAGE_NAME
+    # ::FLOW_TYPE / ::STAGE_NAME are global; reference via $:: directly.
     set signoff "$::OUTPUTS_DIR/review_signoff.txt"
     file mkdir [file dirname $signoff]
     set fh [open $signoff "w"]

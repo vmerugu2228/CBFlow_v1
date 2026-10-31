@@ -3,7 +3,7 @@
 # CBflow User Config Template — SYNTH / Genus (Cadence)
 # ═══════════════════════════════════════════════════════════════════════════════
 # Copy this file to your workarea and update paths before creating a run:
-#   cp $FLOW_DIR/config/templates/uc_SYNTH_genus.tcl <workarea>/uc_SYNTH_genus.tcl
+#   cp $FLOW_DIR/PD/config/templates/uc_SYNTH_genus.tcl <workarea>/uc_SYNTH_genus.tcl
 #   cbflow workspace create --config uc_SYNTH_genus.tcl
 # ═══════════════════════════════════════════════════════════════════════════════
 

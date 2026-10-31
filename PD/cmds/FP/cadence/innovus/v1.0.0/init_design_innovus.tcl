@@ -14,7 +14,7 @@ set ::__cbflow_fp_init_design_loaded 1
 
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
-source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "FP"
 set STAGE_NAME "init_design"
@@ -156,7 +156,7 @@ flow_proc generate_globals {
         if {[info exists ::env(CBFLOW_GLOBAL_DIR)] && $::env(CBFLOW_GLOBAL_DIR) ne ""} {
             lappend _vd_candidates "$::env(CBFLOW_GLOBAL_DIR)/config/project/$project(name)/$project(cbflow_release)/mmmc_view_definition.tcl"
         }
-        lappend _vd_candidates "$::env(FLOW_DIR)/config/project/$project(name)/$project(cbflow_release)/mmmc_view_definition.tcl"
+        lappend _vd_candidates "$::env(FLOW_DIR)/PD/config/project/$project(name)/$project(cbflow_release)/mmmc_view_definition.tcl"
         set vd_file [lindex $_vd_candidates end]
         foreach _c $_vd_candidates {
             if {[file exists $_c]} { set vd_file $_c; break }

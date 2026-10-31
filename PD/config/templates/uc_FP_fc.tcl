@@ -3,7 +3,7 @@
 # CBflow User Config Template — FP / Fusion Compiler (Synopsys)
 # ═══════════════════════════════════════════════════════════════════════════════
 # Copy this file to your workarea and update paths before creating a run:
-#   cp $FLOW_DIR/config/templates/uc_FP_fc.tcl <workarea>/uc_FP.tcl
+#   cp $FLOW_DIR/PD/config/templates/uc_FP_fc.tcl <workarea>/uc_FP.tcl
 #   cbflow workspace create --config uc_FP.tcl
 # ═══════════════════════════════════════════════════════════════════════════════
 

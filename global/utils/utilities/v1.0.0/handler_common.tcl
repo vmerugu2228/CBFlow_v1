@@ -1,0 +1,1035 @@
+#!/usr/bin/env tclsh
+# ═══════════════════════════════════════════════════════════════════════════════
+# CBflow — Shared Handler Utilities
+# Common procedures used by ALL subnode handlers to eliminate duplication.
+# Source this at the top of every handler instead of copy-pasting 200 lines.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Source utils.tcl so is_true/is_false/handle_error/handle_info/atomic_write
+# are available in the top-level namespace. Pre-fix: handler_common used
+# `is_true` but did NOT source utils.tcl, and most subnode handlers only
+# sourced handler_common + launch_utils (not utils.tcl). First invocation
+# of handler_is_test_mode on any PNR/STA/PV/etc. real handler crashed
+# with `invalid command name "is_true"`. Guard with `info commands` so
+# a caller that already sourced utils.tcl isn't double-sourced.
+#
+# Capture the catch error var so a broken utils.tcl (merge conflict,
+# bad perms, syntax error after a hand-edit) surfaces the real cause
+# on stderr instead of silently falling through to a misleading
+# `invalid command name "is_true"` 50 lines deeper.
+if {[info commands ::is_true] eq ""} {
+    set _cb_utils_src ""
+    if {[info exists ::env(FLOW_DIR)] && [info exists ::env(UTILITIES_VERSION)]} {
+        set _cb_utils_src "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+    } elseif {[info exists ::env(SCRIPTS_ROOT)] && [info exists ::env(UTILITIES_VERSION)]} {
+        set _cb_utils_src "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+    }
+    if {$_cb_utils_src ne ""} {
+        if {[catch { source $_cb_utils_src } _cb_src_err]} {
+            puts stderr "ERROR: handler_common.tcl could not source $_cb_utils_src: $_cb_src_err"
+            puts stderr "       Downstream calls to is_true / handle_* would crash. Fix utils.tcl or"
+            puts stderr "       re-check FLOW_DIR + UTILITIES_VERSION in your run env."
+            # Fail fast so the actionable message is the LAST thing in
+            # the log. Pre-fix the handler fell through and crashed 50
+            # lines deeper with a misleading `invalid command name
+            # "is_true"`, burying the real root cause.
+            exit 1
+        }
+    } else {
+        # Neither FLOW_DIR+UTILITIES_VERSION nor SCRIPTS_ROOT+UTILITIES_VERSION
+        # is set. Falling through would hit the same misleading
+        # `invalid command name "is_true"` crash the diagnostic above
+        # prevents — so emit the real cause here too.
+        puts stderr "ERROR: handler_common.tcl: neither FLOW_DIR+UTILITIES_VERSION nor"
+        puts stderr "       SCRIPTS_ROOT+UTILITIES_VERSION is set in env — cannot locate utils.tcl."
+        puts stderr "       Export CBFLOW_ROOT and source bin/_cbflow_paths.sh, or launch via bin/cbflow."
+        exit 1
+    }
+    unset -nocomplain _cb_utils_src _cb_src_err
+}
+
+# ── Parse handler arguments ──────────────────────────────────────────────────
+# Returns: subnode_name, run_dir, node_name
+# Usage: lassign [handler_parse_args $argv $argc] subnode_name run_dir node_name
+proc handler_parse_args {argv argc} {
+    if {$argc < 1} {
+        puts "ERROR: Missing subnode argument"
+        puts "Usage: tclsh <handler>.tcl <subnode_name> \[run_dir\] \[node_name\]"
+        exit 1
+    }
+    set subnode_name [lindex $argv 0]
+    set run_dir [expr {$argc > 1 ? [lindex $argv 1] : [pwd]}]
+    set node_name [expr {$argc > 2 ? [lindex $argv 2] : ""}]
+    return [list $subnode_name $run_dir $node_name]
+}
+
+# ── Load standard configs for a handler ──────────────────────────────────────
+# Sources: .run.cbflow.tcl, error_utils, flow_config, node_config, user_config, tool_launch_config
+proc handler_load_configs {run_dir flow_type} {
+    # Source everything at global scope (uplevel #0) so variables are accessible
+    # Why: TCL 'source' inside a proc creates local variables. Config files
+    # set global arrays (flow, synth, pnr, etc.) that must be in global scope.
+
+    # Run environment (mandatory)
+    if {[file exists "$run_dir/.run.cbflow.tcl"]} {
+        uplevel #0 [list source "$run_dir/.run.cbflow.tcl"]
+    } else {
+        puts "ERROR: Cannot find .run.cbflow.tcl in $run_dir"
+        exit 1
+    }
+
+    # Error utilities
+    if {[info exists ::env(SCRIPTS_ROOT)] && [info exists ::env(UTILITIES_VERSION)]} {
+        set _eu "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/error_utils.tcl"
+        if {[file exists $_eu]} { uplevel #0 [list source $_eu] }
+    }
+
+    # Flow config
+    if {[info exists ::env(CONFIG_ROOT)] && [info exists ::env(FLOW_CONFIG_VERSION)]} {
+        set _fc "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/flow_config.tcl"
+        if {[file exists $_fc]} { uplevel #0 [list source $_fc] }
+
+        # Node config — discipline-aware resolution.
+        # PD configs live under $CONFIG_ROOT = PD/config.
+        # DFT/DV configs live under their own discipline tree:
+        #   $CBFLOW_DFT_DIR/config/flow/<ver>/node_configs/<FLOW>_config.tcl
+        #   $CBFLOW_DV_DIR/config/flow/<ver>/node_configs/<FLOW>_config.tcl
+        # Pre-fix: the handler always looked under CONFIG_ROOT (PD) and
+        # silently fell through when the DFT/DV file wasn't there — every
+        # DFT/DV run was missing its node_config variables (stages, deps,
+        # mandatory_outputs, etc.), surfacing later as 'empty-stages'
+        # bugs. Try discipline-specific root first, then PD-root fallback
+        # for cross-discipline flows that may still live under PD.
+        set _fcv $::env(FLOW_CONFIG_VERSION)
+        set _node_cfg_candidates [list]
+        if {[info exists ::env(CBFLOW_DFT_DIR)] && $::env(CBFLOW_DFT_DIR) ne ""} {
+            lappend _node_cfg_candidates \
+                "$::env(CBFLOW_DFT_DIR)/config/flow/$_fcv/node_configs/${flow_type}_config.tcl"
+        }
+        if {[info exists ::env(CBFLOW_DV_DIR)] && $::env(CBFLOW_DV_DIR) ne ""} {
+            lappend _node_cfg_candidates \
+                "$::env(CBFLOW_DV_DIR)/config/flow/$_fcv/node_configs/${flow_type}_config.tcl"
+        }
+        lappend _node_cfg_candidates \
+            "$::env(CONFIG_ROOT)/flow/$_fcv/node_configs/${flow_type}_config.tcl"
+        foreach _nc $_node_cfg_candidates {
+            if {[file exists $_nc]} {
+                uplevel #0 [list source $_nc]
+                break
+            }
+        }
+    }
+
+    # Project config (global identity + PD overlay). handler_resolve_inputs
+    # needs project(release,path) / project(release,phase) to expand
+    # per-input release_tag markers. Pre-Phase-3 this was picked up
+    # indirectly via the consolidated config generated by handler_setup, but
+    # the inputs subnodes run BEFORE that consolidated file exists, so we
+    # source the project configs directly here.
+    set _proj [expr {[info exists ::env(CBFLOW_PROJECT_NAME)] ? $::env(CBFLOW_PROJECT_NAME) : \
+                    [expr {[info exists ::env(PROJECT_NAME)] ? $::env(PROJECT_NAME) : ""}]}]
+    set _pver [expr {[info exists ::env(PROJECT_CONFIG_VERSION)] ? $::env(PROJECT_CONFIG_VERSION) : "v1.0.0"}]
+    if {$_proj ne ""} {
+        # Global identity — project(technology|top_module|power,*|design_hierarchy|...)
+        if {[info exists ::env(CBFLOW_GLOBAL_DIR)] && $::env(CBFLOW_GLOBAL_DIR) ne ""} {
+            set _gp "$::env(CBFLOW_GLOBAL_DIR)/config/project/$_proj/$_pver/project_config.tcl"
+            if {[file exists $_gp]} { uplevel #0 [list source $_gp] }
+        }
+        # PD overlay — project(release,*|workarea_path|metal_stack|lib_root|...)
+        if {[info exists ::env(CONFIG_ROOT)]} {
+            set _pp "$::env(CONFIG_ROOT)/project/$_proj/$_pver/project_pd_config.tcl"
+            if {[file exists $_pp]} { uplevel #0 [list source $_pp] }
+        }
+    }
+
+    # User config (overrides all)
+    if {[file exists "$run_dir/setup/user_config.tcl"]} {
+        uplevel #0 [list source "$run_dir/setup/user_config.tcl"]
+    }
+
+    # Tool launch config (module load, tool shell, bsub, xterm)
+    if {[info exists ::env(CONFIG_ROOT)] && [info exists ::env(FLOW_CONFIG_VERSION)]} {
+        set _lc "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/tool_launch_config.tcl"
+        if {[file exists $_lc]} { uplevel #0 [list source $_lc] }
+    }
+}
+
+# ── Classify tool exit — fatal vs. violation ─────────────────────────────────
+# Many EDA tools (Calibre, Formality, Conformal, Tempus) return non-zero
+# when they find real design violations (DRC, LVS mismatch, non-equivalence),
+# which is DIFFERENT from a tool crash (license expired, bad runset, OOM).
+# Pre-fix every PV / LEC / CLP handler demoted non-zero to a plain warning,
+# so an expired license looked identical to real DRC violations — tape-out
+# gates signed off on silent tool crashes. This helper grep-classifies the
+# log tail: if any fatal marker is present, return "FATAL" (caller should
+# handle_error + exit); otherwise return "VIOLATION" (caller may continue
+# but must surface the exit code downstream for the gate to catch).
+proc classify_tool_exit_log {log_path} {
+    if {![file exists $log_path]} { return "FATAL" }
+    if {[catch {
+        set _fh [open $log_path r]
+        set _content [read $_fh]
+        close $_fh
+    }]} { return "FATAL" }
+    # Fatal markers — tool stack problem, NOT a design violation.
+    foreach _marker {
+        "LICENSE" "License server" "cannot checkout"
+        "FATAL" "Fatal error" "fatal:"
+        "cannot open" "No such file" "Permission denied"
+        "Segmentation fault" "core dumped" "Aborted"
+        "Internal error" "INTERNAL ERROR"
+        "Out of memory" "memory exhausted"
+    } {
+        if {[string first $_marker $_content] >= 0} { return "FATAL" }
+    }
+    return "VIOLATION"
+}
+
+# ── Detect test mode ─────────────────────────────────────────────────────────
+proc handler_is_test_mode {} {
+    if {[info exists ::flow(test_mode)] && [is_true $::flow(test_mode)]} {
+        return true
+    }
+    return false
+}
+
+# ── Setup subnode: create directories + generate config ──────────────────────
+proc handler_setup {run_dir flow_type node_name} {
+    file mkdir "$run_dir/work/$flow_type/$node_name/run"
+    file mkdir "$run_dir/work/$flow_type/$node_name/setup"
+
+    # Generate config.tcl + setup.tcl via config cascade.
+    #
+    # Prior behavior wrapped this in a bare `catch { ... }` that discarded
+    # the generator's exit code AND stderr. If generate_setup.tcl crashed
+    # (missing lib_tag_root, bad project config, etc.) the handler would
+    # continue as if setup succeeded — downstream subnodes then ran against
+    # the half-written or missing config.tcl, producing the "run completes
+    # in seconds with empty log" symptom.
+    #
+    # Fix: capture both the exit status AND stderr; log them loudly; return
+    # a non-zero code so the caller can propagate failure. In production
+    # (test_mode=false) a config generation failure MUST abort the stage;
+    # in test_mode the stub pipeline is permissive enough to continue, but
+    # the error is still printed so it's not invisible.
+    # GENERATION_VERSION must be set by the launcher; a bare shell / cron /
+    # container without the env propagated will have it unset. Pre-fix we
+    # silently returned 0, reporting setup success without ever running
+    # the generator — the exact silent-pass symptom we're trying to kill.
+    if {![info exists ::env(GENERATION_VERSION)] || $::env(GENERATION_VERSION) eq ""} {
+        set _tm "false"
+        if {[info exists ::flow(test_mode)]} { set _tm $::flow(test_mode) }
+        puts stderr "ERROR: GENERATION_VERSION env var not set — cannot invoke generate_setup.tcl"
+        puts stderr "       The launcher should set this; a bare shell / cron / container may not."
+        puts stderr "       Export CBFLOW_ROOT and source bin/_cbflow_paths.sh, or launch via bin/cbflow."
+        if {[is_true $_tm]} {
+            puts stderr "       test_mode=true — continuing (stubs will be used)."
+            return 0
+        }
+        return 1
+    }
+    set _gen "$::env(FLOW_DIR)/global/utils/generation/$::env(GENERATION_VERSION)/generate_setup.tcl"
+    if {![file exists $_gen]} {
+        puts stderr "ERROR: generate_setup.tcl not found at $_gen"
+        return 1
+    }
+    if {1} {
+        set _gen_out ""
+        set _rc [catch {
+            set _gen_out [exec tclsh $_gen $flow_type $node_name \
+                              ${node_name}_default $run_dir 2>@1]
+        } _err]
+        # Always echo generator output so it lands in the subnode log.
+        if {$_gen_out ne ""} {
+            puts $_gen_out
+        }
+        if {$_rc != 0} {
+            puts stderr "ERROR: generate_setup.tcl failed for ${flow_type}/${node_name}"
+            if {$_err ne ""} { puts stderr "       $_err" }
+            # Verify the critical output landed. If config.tcl is missing,
+            # every downstream subnode will fail cryptically — fail now
+            # with the actual root cause visible. Honor test_mode: stub
+            # pipelines must stay permissive so e2e doesn't crack on an
+            # orthogonal setup gripe.
+            set _cfg "$run_dir/work/$flow_type/$node_name/run/config.tcl"
+            set _tm "false"
+            if {[info exists ::flow(test_mode)]} { set _tm $::flow(test_mode) }
+            if {![file exists $_cfg]} {
+                puts stderr "       config.tcl was NOT written: $_cfg"
+                puts stderr "       Downstream subnodes would run against a missing config."
+                if {[is_true $_tm]} {
+                    puts stderr "       test_mode=true — continuing (stubs will be used)."
+                    return 0
+                }
+                puts stderr "       Aborting ${flow_type}/${node_name} setup."
+                return 1
+            }
+            # Generator exited non-zero but DID write config.tcl — still
+            # a failure in production, acceptable in test_mode.
+            if {[is_true $_tm]} { return 0 }
+            return 1
+        }
+        # Even on exit 0, defend against a silent write failure
+        # (generator early-return, swallowed exception, perms race after
+        # mkdir). The downstream subnode would crash cryptically; fail
+        # here with the real reason visible. Honor test_mode so e2e stubs
+        # continue, matching the rc!=0 branch above.
+        set _cfg "$run_dir/work/$flow_type/$node_name/run/config.tcl"
+        if {![file exists $_cfg]} {
+            set _tm "false"
+            if {[info exists ::flow(test_mode)]} { set _tm $::flow(test_mode) }
+            puts stderr "ERROR: generate_setup.tcl returned 0 but config.tcl is missing"
+            puts stderr "       Path: $_cfg"
+            if {[is_true $_tm]} {
+                puts stderr "       test_mode=true — continuing (stubs will be used)."
+                return 0
+            }
+            puts stderr "       Aborting ${flow_type}/${node_name} setup."
+            return 1
+        }
+    }
+    return 0
+}
+
+# ── Finish subnode: create timestamp file ─────────────────────────────────────
+proc handler_finish {run_dir flow_type node_name stage_name} {
+    set finish_file "$run_dir/work/$flow_type/$node_name/run/${stage_name}_finish.timestamp"
+    file mkdir [file dirname $finish_file]
+    set fh [open $finish_file "w"]
+    puts $fh "Completed: [clock format [clock seconds]]"
+    close $fh
+}
+
+# ── Validate subnode: basic validation ────────────────────────────────────────
+proc handler_validate {run_dir flow_type node_name stage_name test_mode} {
+    if {$test_mode} {
+        # Emit a SKIPPED marker so downstream (checklist, release-check,
+        # dashboard, release manifest) can distinguish "verified" from
+        # "test_mode stub never ran a check". Pre-fix this proc returned
+        # with no record, so the caller logged "validation passed" and
+        # every DAG stage looked clean on a test_mode run — enabling
+        # BTO/MTO sign-off against stubs. Writing the marker file forces
+        # downstream readers to treat the subnode as un-validated.
+        puts "INFO: \[TEST MODE\] Validation SKIPPED — not verified"
+        set _skip_marker "$run_dir/work/$flow_type/$node_name/run/${stage_name}_validate_SKIPPED"
+        catch {
+            file mkdir [file dirname $_skip_marker]
+            set _fh [open $_skip_marker "w"]
+            puts $_fh "status: SKIPPED"
+            puts $_fh "reason: flow(test_mode)=true"
+            puts $_fh "timestamp: [clock format [clock seconds]]"
+            puts $_fh "stage: $stage_name"
+            puts $_fh "note: Rerun with flow(test_mode)=false before sign-off."
+            close $_fh
+        }
+        return
+    }
+
+    # Production mode — actually validate. Prior behavior was a silent
+    # no-op that printed "validation passed" without verifying anything,
+    # so a tool that returned exit 0 but produced no artifacts (license
+    # unavailable, warnings swallowed, config error the tool didn't
+    # escalate) would still mark the stage clean. Enforce two contracts:
+    #
+    #   1. Every path listed in <flow>(mandatory_outputs,<stage>) exists
+    #      and is non-empty.
+    #   2. The stage's outputs/ directory contains at least one file.
+    #
+    # Either check failing exits with a non-zero code so the DAG surfaces
+    # it as a real failure, not a phantom pass.
+    set flow_lower [string tolower $flow_type]
+    set outputs_dir "$run_dir/work/$flow_type/$node_name/outputs"
+
+    # ── Contract 1: mandatory_outputs listed in node_config ──────────────
+    #
+    # Harden against the SYNTH_PNR-style misconfiguration where a flow
+    # declared execution stages but NO `<flow>(mandatory_outputs,…)` —
+    # Contract 1 silently skipped (info exists → false) and Contract 2
+    # fell back to "outputs/ non-empty", which a stub log file satisfied.
+    #
+    # Key resolution: configs use the NODE-NAME convention (synthesis1,
+    # timing1, place1 — with the numeric suffix). handler_dispatch
+    # passes both stage_name ("synthesis") and node_name ("synthesis1").
+    # Try node_name FIRST (the authoritative key per every shipped
+    # node_config), then fall back to stage_name for flows that may
+    # declare under the bare form.
+    #
+    # Severity: WARN on missing declaration, not exit 1. A hard-error
+    # would block every production run of every flow whose configs
+    # haven't been backfilled with mandatory_outputs yet — most SYNTH_PNR,
+    # FCFP, CLP, LEC, STA, EMIR, FP, PNR, PV, POPT, ECO stages. The
+    # warning still surfaces the config gap at run-visible level without
+    # breaking the pipeline. Once the shipped node_configs are backfilled
+    # across all 24 flows, promote the warn to a hard error.
+    set _mand_key "mandatory_outputs,$node_name"
+    set _is_declared [info exists ::${flow_lower}($_mand_key)]
+    if {!$_is_declared} {
+        # Fall back to stage_name (legacy / future bare-form configs).
+        set _mand_key_fallback "mandatory_outputs,$stage_name"
+        if {[info exists ::${flow_lower}($_mand_key_fallback)]} {
+            set _mand_key $_mand_key_fallback
+            set _is_declared 1
+        }
+    }
+    set missing_mand [list]
+    set _is_inputs_stage [expr {$stage_name eq "inputs" || $stage_name eq "input"}]
+    set _is_reporting_stage 0
+    if {[info exists ::${flow_lower}(reporting_stages)]} {
+        set _reporting_list [set ::${flow_lower}(reporting_stages)]
+        if {[lsearch -exact $_reporting_list $stage_name] >= 0 ||
+            [lsearch -exact $_reporting_list $node_name] >= 0} {
+            set _is_reporting_stage 1
+        }
+    }
+    if {!$_is_declared && !$_is_inputs_stage && !$_is_reporting_stage} {
+        puts "WARN: $stage_name validation — mandatory_outputs NOT declared"
+        puts "      Expected: ${flow_lower}(mandatory_outputs,$node_name) {<gold-artifact-paths>}"
+        puts "      Add to the appropriate <FLOW>_config.tcl under:"
+        puts "        PD/config/flow/v1.0.0/node_configs/   (PD discipline)"
+        puts "        DFT/config/flow/v1.0.0/node_configs/  (DFT discipline)"
+        puts "        DV/config/flow/v1.0.0/node_configs/   (DV discipline)"
+        puts "      Falling back to Contract 2 (outputs/ non-empty) only."
+    }
+    if {$_is_declared} {
+        set _mand_list [set ::${flow_lower}($_mand_key)]
+        # Empty list == explicit "no file-level enforcement for this
+        # stage" (e.g. STA timing1 writes reports/, not outputs/).
+        # Allowed by design.
+        foreach _rel_path $_mand_list {
+            # Path may be absolute, run-relative, or under outputs/.
+            set _candidates [list \
+                $_rel_path \
+                "$run_dir/$_rel_path" \
+                "$outputs_dir/$_rel_path" \
+                "$run_dir/work/$flow_type/$node_name/$_rel_path"]
+            set _found ""
+            foreach _c $_candidates {
+                if {[file exists $_c] && [file size $_c] > 0} {
+                    set _found $_c; break
+                }
+            }
+            if {$_found eq ""} {
+                lappend missing_mand $_rel_path
+            }
+        }
+    }
+
+    if {[llength $missing_mand] > 0} {
+        puts "ERROR: $stage_name validation FAILED — mandatory outputs missing or empty:"
+        foreach _p $missing_mand {
+            puts "  · $_p"
+        }
+        puts "       (declared in ${flow_lower}($_mand_key))"
+        puts "       Check the run subnode log for silent tool failure:"
+        puts "         $run_dir/work/$flow_type/$node_name/run/${node_name}.log"
+        exit 1
+    }
+
+    # ── Contract 2: outputs/ dir has at least one file ───────────────────
+    # Only enforced for stages that have an outputs/ directory (execution
+    # stages). Release/reporting stages that write to reports/ instead of
+    # outputs/ are exempt when outputs/ doesn't exist.
+    if {[file isdirectory $outputs_dir]} {
+        set _n [llength [glob -nocomplain "$outputs_dir/*"]]
+        if {$_n == 0} {
+            puts "ERROR: $stage_name validation FAILED — outputs/ is empty"
+            puts "       $outputs_dir"
+            puts "       The run subnode completed but produced no artifacts."
+            puts "       Check for silent tool failure in:"
+            puts "         $run_dir/work/$flow_type/$node_name/run/${node_name}.log"
+            exit 1
+        }
+    }
+
+    puts "INFO: $stage_name validation passed ([llength $missing_mand] missing, outputs OK)"
+}
+
+# ── Timestamp helper (used by inputs handlers for *_info.tcl stamps) ─────────
+proc handler_ts {} {
+    if {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts]} {
+        return "epoch [clock seconds]"
+    }
+    return $_ts
+}
+
+# ── Standard 4-subnode dispatch (setup / run / validate / finish) ────────────
+# Collapses the identical switch block that ~117 subnode handlers open-code.
+# Each handler now supplies only its stage_name, resolved cmd_file, tool_name,
+# and (optionally) a tool_suffix that triggers a local symlink at
+#   $run_dir/work/$flow_type/$node_name/run/${node_name}.${tool_suffix}.tcl
+# during `setup` — used by PNR-style handlers so `run` reads a canonical local
+# path even when the source cmd file lives in $FLOW_DIR/cmds/.
+# For handlers with no symlink pattern, pass an empty tool_suffix.
+proc handler_dispatch {subnode_name run_dir flow_type node_name stage_name
+                      cmd_file test_mode tool_name {tool_suffix ""}} {
+    switch $subnode_name {
+        "setup" {
+            puts "INFO: $stage_name setup..."
+            # handler_setup returns 1 on config-generation failure (and
+            # honors test_mode internally). Also catch any THROWN Tcl
+            # error (file mkdir fail, perms race) so the downstream
+            # symlink + 'setup completed' message don't paper over a
+            # broken config.tcl, and the error path is visible as a
+            # clean message instead of a raw backtrace.
+            if {[catch {handler_setup $run_dir $flow_type $node_name} _setup_rc]} {
+                puts stderr "ERROR: $stage_name setup threw: $_setup_rc"
+                exit 1
+            }
+            if {$_setup_rc != 0} {
+                puts stderr "ERROR: $stage_name setup FAILED — aborting dispatch"
+                exit $_setup_rc
+            }
+            if {$tool_suffix ne "" && [file exists $cmd_file]} {
+                set _local "$run_dir/work/$flow_type/$node_name/run/${node_name}.${tool_suffix}.tcl"
+                catch {file delete $_local}
+                if {[catch {file link -symbolic $_local $cmd_file} _err]} {
+                    puts "WARN: symlink failed ($_err); falling back to copy"
+                    file copy -force $cmd_file $_local
+                } else {
+                    puts "INFO: Command file (symlink → $cmd_file): $_local"
+                }
+            }
+            puts "INFO: $stage_name setup completed"
+        }
+        "run" {
+            puts "INFO: $stage_name run..."
+            set _actual $cmd_file
+            if {$tool_suffix ne ""} {
+                set _local "$run_dir/work/$flow_type/$node_name/run/${node_name}.${tool_suffix}.tcl"
+                if {[file exists $_local]} { set _actual $_local }
+            }
+            handler_run $run_dir $flow_type $node_name $stage_name $_actual $test_mode $tool_name
+        }
+        "validate" {
+            puts "INFO: $stage_name validate..."
+            handler_validate $run_dir $flow_type $node_name $stage_name $test_mode
+            puts "INFO: $stage_name validate completed"
+        }
+        "finish" {
+            puts "INFO: $stage_name finish..."
+            handler_finish $run_dir $flow_type $node_name $stage_name
+            puts "INFO: $stage_name finish completed"
+        }
+        default {
+            puts "ERROR: Unknown subnode: '$subnode_name' (stage=$stage_name flow=$flow_type)"
+            puts "       Expected one of: setup, run, validate, finish"
+            exit 1
+        }
+    }
+}
+
+# ── Inputs dispatch (setup / <input_type> / validate / finish) ───────────────
+# The inputs stage has a different shape: each subnode corresponds to an input
+# TYPE (netlist, sdc, def, library, upf, spef, ...) rather than a lifecycle
+# phase. This proc handles the boilerplate that ~20 inputs handlers currently
+# re-implement identically — mkdir per input type, write a *_info.tcl stamp,
+# no-op validate/finish stamps.
+#
+# `input_types` is the flow's list of input types. For real (non-test) runs,
+# ── Input-naming convention (enforced by handler_dispatch_inputs default) ──
+# CBflow convention: every input file staged into the run must be named after
+# the block, so downstream tools can find inputs at a stable pattern:
+#   <design_name>.v             — netlist (or <design_name>.<variant>.v e.g. .pt.v)
+#   <design_name>.<mode>.sdc    — SDC (mode from key: sdc_func_file → func)
+#   <design_name>.def           — DEF
+#   <design_name>.upf           — UPF
+# Library / SPEF / other multi-file subnodes are skipped (`_input_ext` = "").
+proc _input_ext {subnode} {
+    switch $subnode {
+        netlist  { return ".v"   }
+        sdc      { return ".sdc" }
+        def      { return ".def" }
+        upf      { return ".upf" }
+        default  { return ""     }
+    }
+}
+
+# Extract "mode" (SDC scenario) or "variant" (netlist flavor) from an input key.
+#   input,netlist                      → ""       (no mode/variant)
+#   input,netlist_pt                   → "pt"     (netlist variant)
+#   input,netlist_pt_file              → "pt"     (variant + _file marker)
+#   input,sdc_func_file                → "func"
+#   input,sdc_test                     → "test"
+#   input,sdc,func                     → "func"   (comma-nested)
+#   input,def_file / input,upf_file    → ""       (marker suffix, not a mode)
+# Two-stage match — try the "_file" marker form first (greedy), then fall
+# back to the bare form. A single lazy-quantifier regex mis-groups
+# "input,netlist_pt_file" as m="pt_file" because ARE leftmost-longest.
+proc _input_mode {key subnode} {
+    if {[regexp "^input,${subnode},(.+)\$" $key -> m]} { return $m }
+    if {[regexp "^input,${subnode}_(.+)_file\$" $key -> m]} {
+        return $m
+    }
+    if {[regexp "^input,${subnode}_(.+)\$" $key -> m]} {
+        if {$m eq "file"} { return "" }
+        return $m
+    }
+    return ""
+}
+
+# Marker keys that DON'T carry a filesystem path — these are consumed by
+# resolve_flow_inputs upstream (release_tag / release_dir / from_run) and
+# must not be treated as source files by the input dispatcher.
+proc _is_marker_key {key} {
+    return [expr {[regexp {(_release_tag|_release_dir|_from_run)$} $key]}]
+}
+
+proc _expected_input_name {design_name subnode key} {
+    set ext [_input_ext $subnode]
+    if {$ext eq ""} { return "" }         ;# no strict check for this subnode
+    set mode [_input_mode $key $subnode]
+    if {$mode ne ""} { return "${design_name}.${mode}${ext}" }
+    return "${design_name}${ext}"
+}
+
+# Human-readable file size ("2.4 MB", "451 KB", "1,024 bytes")
+proc _fmt_size {bytes} {
+    if {$bytes < 1024}         { return "$bytes bytes" }
+    if {$bytes < 1048576}      { return [format "%.1f KB" [expr {$bytes / 1024.0}]] }
+    if {$bytes < 1073741824}   { return [format "%.1f MB" [expr {$bytes / 1048576.0}]] }
+    return [format "%.2f GB" [expr {$bytes / 1073741824.0}]]
+}
+
+proc _fmt_mtime {path} {
+    if {![file exists $path]} { return "n/a" }
+    return [clock format [file mtime $path] -format "%Y-%m-%d %H:%M:%S"]
+}
+
+# resolve_flow_inputs from resolve_inputs.tcl runs in setup and materializes
+# the actual files — the *_info.tcl stamps are metadata for the dashboard.
+proc handler_dispatch_inputs {subnode_name run_dir flow_type node_name
+                              input_types test_mode} {
+    set stage_name "inputs"
+    set node_dir "$run_dir/work/$flow_type/$node_name"
+
+    switch $subnode_name {
+        "setup" {
+            puts "INFO: $flow_type $stage_name setup..."
+            file mkdir $node_dir
+            foreach _itype $input_types {
+                file mkdir "$node_dir/$_itype"
+            }
+            # Generate config.tcl via config cascade. Error-propagation
+            # pattern matches handler_setup — pre-fix a bare
+            # `catch {exec tclsh $_gen ...}` silently swallowed generator
+            # failures, so the inputs stage printed "setup completed" and
+            # downstream subnodes ran against a missing config.tcl. Same
+            # root-cause bug class, same fix.
+            if {![info exists ::env(GENERATION_VERSION)] || $::env(GENERATION_VERSION) eq ""} {
+                set _tm "false"
+                if {[info exists ::flow(test_mode)]} { set _tm $::flow(test_mode) }
+                puts stderr "ERROR: GENERATION_VERSION not set for $flow_type inputs stage"
+                if {![is_true $_tm]} { exit 1 }
+            } else {
+                set _gen "$::env(FLOW_DIR)/global/utils/generation/$::env(GENERATION_VERSION)/generate_setup.tcl"
+                if {![file exists $_gen]} {
+                    puts stderr "ERROR: generate_setup.tcl not found at $_gen"
+                    set _tm "false"
+                    if {[info exists ::flow(test_mode)]} { set _tm $::flow(test_mode) }
+                    if {![is_true $_tm]} { exit 1 }
+                } else {
+                    set _gen_out ""
+                    set _rc [catch {
+                        set _gen_out [exec tclsh $_gen $flow_type $node_name \
+                                          ${node_name}_default $run_dir 2>@1]
+                    } _err]
+                    if {$_gen_out ne ""} { puts $_gen_out }
+                    if {$_rc != 0} {
+                        set _tm "false"
+                        if {[info exists ::flow(test_mode)]} { set _tm $::flow(test_mode) }
+                        puts stderr "ERROR: inputs generate_setup.tcl failed for ${flow_type}/${node_name}"
+                        if {$_err ne ""} { puts stderr "       $_err" }
+                        if {![is_true $_tm]} { exit 1 }
+                        puts stderr "       test_mode=true — continuing (stubs will be used)."
+                    }
+                }
+            }
+            puts "INFO: $flow_type $stage_name setup completed"
+        }
+        "validate" {
+            puts "INFO: $flow_type $stage_name validate..."
+            if {$test_mode} {
+                # Emit SKIPPED marker — stub pipeline hasn't verified anything.
+                puts "INFO: \[TEST MODE\] Input validation SKIPPED — not verified"
+                set _skip_marker "$node_dir/finish/${stage_name}_validate_SKIPPED"
+                catch {
+                    file mkdir [file dirname $_skip_marker]
+                    set _fh [open $_skip_marker "w"]
+                    puts $_fh "status: SKIPPED\nreason: flow(test_mode)=true\nstage: $stage_name"
+                    close $_fh
+                }
+            } else {
+                # Real validation: every input subdir must contain at least
+                # one real file (not a stub) OR the stage declared no
+                # mandatory inputs. Previously this branch just printed
+                # "validation passed" without checking anything.
+                set _missing [list]
+                foreach _itype $input_types {
+                    set _idir "$node_dir/$_itype"
+                    if {![file isdirectory $_idir]} {
+                        lappend _missing $_itype
+                        continue
+                    }
+                    set _files [glob -nocomplain -directory $_idir *]
+                    if {[llength $_files] == 0} {
+                        lappend _missing $_itype
+                    }
+                }
+                if {[llength $_missing] > 0} {
+                    puts stderr "ERROR: $flow_type inputs validation FAILED — empty input types: $_missing"
+                    exit 1
+                }
+                puts "INFO: $flow_type inputs validation passed ([llength $input_types] input types staged)"
+            }
+            puts "INFO: $flow_type $stage_name validate completed"
+        }
+        "finish" {
+            puts "INFO: $flow_type $stage_name finish..."
+            set _finish_file "$node_dir/finish/finish_info.tcl"
+            file mkdir [file dirname $_finish_file]
+            set _fh [open $_finish_file "w"]
+            puts $_fh "set finish_info(timestamp) \"[handler_ts]\""
+            close $_fh
+            puts "INFO: $flow_type $stage_name finish completed"
+        }
+        default {
+            if {[lsearch -exact $input_types $subnode_name] < 0} {
+                puts "ERROR: Unknown subnode: '$subnode_name' (flow=$flow_type stage=$stage_name)"
+                puts "       Expected: setup, validate, finish, or one of: $input_types"
+                exit 1
+            }
+
+            set _t_start [clock seconds]
+            set _flow_lower [string tolower $flow_type]
+            set _sub_dir "$node_dir/$subnode_name"
+            file mkdir $_sub_dir
+
+            # ── Detail log: opened here, closed at every exit path ──────
+            # Structured record for humans/auditors. The one-line stdout
+            # messages are for RACE's job log; this file has the full trail.
+            set _dlog "$_sub_dir/${subnode_name}_detail.log"
+            set _dfh [open $_dlog "w"]
+            set _dbar "================================================================================"
+            puts $_dfh $_dbar
+            puts $_dfh "CBflow Input Staging — Detailed Log"
+            puts $_dfh $_dbar
+            puts $_dfh [format "  %-14s %s" "Flow:"       $flow_type]
+            puts $_dfh [format "  %-14s %s" "Stage:"      $stage_name]
+            puts $_dfh [format "  %-14s %s" "Node:"       $node_name]
+            puts $_dfh [format "  %-14s %s" "Subnode:"    $subnode_name]
+            set _design_name ""
+            if {[info exists ::flow(design_name)]} { set _design_name $::flow(design_name) }
+            puts $_dfh [format "  %-14s %s" "Design:"     [expr {$_design_name eq "" ? "(unset)" : $_design_name}]]
+            puts $_dfh [format "  %-14s %s" "Test mode:"  [expr {$test_mode ? "true" : "false"}]]
+            puts $_dfh [format "  %-14s %s" "Run dir:"    $run_dir]
+            puts $_dfh [format "  %-14s %s" "Node dir:"   $node_dir]
+            puts $_dfh [format "  %-14s %s" "Started:"    [handler_ts]]
+            puts $_dfh $_dbar
+            puts $_dfh ""
+
+            puts "INFO: $flow_type $stage_name $subnode_name..."
+
+            # ── PHASE 1: source discovery ───────────────────────────────
+            # The subnode name (netlist/sdc/def/upf/library) maps to one or
+            # more Tcl vars set by the user_config or resolve_flow_inputs:
+            #   pnr(input,netlist)          — flat, direct
+            #   pnr(input,sdc_func_file)    — flat, suffixed
+            #   pnr(input,sdc,func)         — comma-nested
+            puts $_dfh "\[[handler_ts]\] PHASE 1 — SOURCE DISCOVERY"
+            puts $_dfh "  Scanning ::${_flow_lower}(...) for keys matching:"
+            puts $_dfh "    ^input,${subnode_name}(_.*)?\$"
+            puts $_dfh "    ^input,${subnode_name},.*\$"
+            puts $_dfh "  (skipping marker keys: *_release_tag, *_release_dir, *_from_run)"
+            set _sources [list]                ;# {key1 path1 key2 path2 ...}
+            set _skipped_markers [list]
+            if {[array exists ::$_flow_lower]} {
+                foreach _k [array names ::$_flow_lower] {
+                    if {[regexp "^input,${subnode_name}(_.*)?\$" $_k] ||
+                        [regexp "^input,${subnode_name}," $_k]} {
+                        # Marker keys (release_tag / release_dir / from_run)
+                        # are handshake hints for resolve_flow_inputs, not
+                        # filesystem paths — never treat as sources.
+                        if {[_is_marker_key $_k]} {
+                            lappend _skipped_markers $_k
+                            continue
+                        }
+                        set _val [set ::${_flow_lower}($_k)]
+                        if {$_val ne ""} { lappend _sources $_k $_val }
+                    }
+                }
+            }
+            if {[llength $_skipped_markers] > 0} {
+                puts $_dfh "  Skipped [llength $_skipped_markers] marker key(s) (handshake hints, not paths):"
+                foreach _mk $_skipped_markers {
+                    puts $_dfh "    ${_flow_lower}($_mk)"
+                }
+            }
+            set _n_sources [expr {[llength $_sources] / 2}]
+            puts $_dfh "  Found $_n_sources source key(s):"
+            if {$_n_sources == 0} {
+                puts $_dfh "    (none — no user_config declared this input)"
+            } else {
+                foreach {_k _v} $_sources {
+                    puts $_dfh "    ${_flow_lower}($_k)"
+                    puts $_dfh "        = $_v"
+                }
+            }
+            puts $_dfh ""
+
+            # ── PHASE 2: naming convention check ─────────────────────────
+            # CBflow convention: <design_name>[.<mode>].<ext>. For subnode=netlist,
+            # a variant tail is also accepted (<design>.<variant>.v — e.g.
+            # cpu_core.pt.v from the STA handshake) because resolve_flow_inputs
+            # produces those under a flat 'input,netlist' key.
+            #
+            # Enforcement mode is gated by flow(strict_input_naming):
+            #   unset / false  →  advisory WARN, run continues (default)
+            #   true           →  hard-fail with exit 1 (opt-in for new projects)
+            # The gate lets shipped templates with generic names (netlist.v,
+            # design.def) keep working while new projects can opt into strict
+            # naming.
+            set _strict 0
+            if {[info exists ::flow(strict_input_naming)]} {
+                set _sv [string tolower $::flow(strict_input_naming)]
+                if {$_sv eq "true" || $_sv eq "1" || $_sv eq "yes"} { set _strict 1 }
+            }
+            puts $_dfh "\[[handler_ts]\] PHASE 2 — NAMING CONVENTION CHECK ([expr {$_strict ? {STRICT} : {ADVISORY}}])"
+            set _naming_fail [list]        ;# {key expected actual src ...}
+            set _ext [_input_ext $subnode_name]
+            if {$_ext eq ""} {
+                puts $_dfh "  Subnode '$subnode_name' has no naming rule — skipped."
+            } elseif {$_design_name eq ""} {
+                puts $_dfh "  WARN: flow(design_name) is unset — cannot enforce naming."
+            } else {
+                puts $_dfh "  Rule: <design_name>\[.<mode>\]${_ext}   (design_name = $_design_name)"
+                if {$subnode_name eq "netlist"} {
+                    puts $_dfh "        (netlist also accepts <design_name>.<variant>${_ext} — e.g. .pt.v, .lvs.v)"
+                }
+                foreach {_k _v} $_sources {
+                    set _expected [_expected_input_name $_design_name $subnode_name $_k]
+                    set _actual   [file tail $_v]
+                    set _ok 0
+                    if {$_expected eq "" || $_actual eq $_expected} { set _ok 1 }
+                    # Netlist variant tail: accept <design>.<anything>.v for
+                    # the flat 'input,netlist' key so STA/PV/CLP handshake
+                    # outputs (cpu_core.pt.v, cpu_core.lvs.v) pass without
+                    # needing to encode every possible variant here.
+                    if {!$_ok && $subnode_name eq "netlist"
+                        && [string match "${_design_name}.*${_ext}" $_actual]} {
+                        set _ok 1
+                    }
+                    if {!$_ok} {
+                        lappend _naming_fail $_k $_expected $_actual $_v
+                        puts $_dfh "    \[[expr {$_strict ? {FAIL} : {WARN}}]\] ${_flow_lower}($_k)"
+                        puts $_dfh "           expected: $_expected"
+                        puts $_dfh "           actual:   $_actual"
+                    } else {
+                        puts $_dfh "    \[ OK \] ${_flow_lower}($_k): $_actual"
+                    }
+                }
+            }
+            puts $_dfh ""
+
+            if {[llength $_naming_fail] > 0 && !$_strict} {
+                # Advisory mode (default): warn to stdout, continue.
+                set _n_nfail [expr {[llength $_naming_fail] / 4}]
+                puts "WARN: $flow_type $subnode_name — $_n_nfail input(s) don't follow the <design_name>\[.<mode>\]${_ext} convention"
+                puts "      Set flow(strict_input_naming) true in user_config to hard-fail on this."
+                foreach {_k _exp _act _src} $_naming_fail {
+                    puts "      ${_flow_lower}($_k): got '$_act', expected '$_exp'"
+                }
+                puts $_dfh "  ($_n_nfail advisory warning(s) — flow(strict_input_naming) not set)"
+                # fall through to PHASE 3 staging
+            } elseif {[llength $_naming_fail] > 0} {
+                # Strict mode: hard-fail with fix guide.
+                # Emit clear stdout errors so RACE surfaces them in its job log.
+                puts ""
+                puts "ERROR: Input file naming convention violation for $flow_type $subnode_name"
+                puts "       CBflow requires input files to be named after the block:"
+                puts "         <design_name>\[.<mode>\]${_ext}"
+                puts ""
+                set _n_nfail [expr {[llength $_naming_fail] / 4}]
+                puts "       $_n_nfail file(s) violated the rule:"
+                puts ""
+                foreach {_k _exp _act _src} $_naming_fail {
+                    # Single-quote paths in shell hints so filenames with
+                    # spaces or metachars survive copy-paste. Any embedded
+                    # single-quote is escaped '\'' the standard shell way.
+                    set _src_q "'[string map {' '\\''} $_src]'"
+                    set _dst_q "'[string map {' '\\''} [file dirname $_src]/$_exp]'"
+                    puts "       ─ ${_flow_lower}($_k)"
+                    puts "           source:   $_src"
+                    puts "           expected: $_exp"
+                    puts "           got:      $_act"
+                    puts ""
+                    puts "         Fix — pick one:"
+                    puts "           (a) rename the source"
+                    puts "               mv $_src_q $_dst_q"
+                    puts "               then update user_config.tcl:"
+                    puts "                 set ${_flow_lower}($_k) $_dst_q"
+                    puts "           (b) OR add a properly-named symlink"
+                    puts "               ln -s $_src_q $_dst_q"
+                    puts "               then update user_config.tcl to point at the symlink"
+                    puts ""
+                }
+                puts "       See detail log: $_dlog"
+
+                # Persist to detail log + info stamp
+                puts $_dfh "\[[handler_ts]\] PHASE 3 — STAGING (SKIPPED, naming failed)"
+                puts $_dfh ""
+                puts $_dfh $_dbar
+                puts $_dfh "RESULT: FAIL_NAMING"
+                puts $_dfh "  $_n_nfail file(s) violated the <design_name>\[.<mode>\]${_ext} rule."
+                puts $_dfh $_dbar
+                close $_dfh
+
+                set _info_file "$_sub_dir/${subnode_name}_info.tcl"
+                set _fh [open $_info_file "w"]
+                puts $_fh "set ${subnode_name}_info(timestamp) \"[handler_ts]\""
+                puts $_fh "set ${subnode_name}_info(status) \"FAIL_NAMING\""
+                puts $_fh "set ${subnode_name}_info(naming_violations) $_n_nfail"
+                foreach {_k _exp _act _src} $_naming_fail {
+                    puts $_fh "set ${subnode_name}_info(bad_name,$_k) \"$_act (expected $_exp)\""
+                }
+                close $_fh
+                puts "ERROR: $flow_type $stage_name $subnode_name FAILED — naming convention"
+                exit 1
+            }
+
+            # ── PHASE 3: staging (symlink or copy) ──────────────────────
+            puts $_dfh "\[[handler_ts]\] PHASE 3 — STAGING"
+            set _staged [list]      ;# {key path key path ...} — real files
+            set _stubbed [list]     ;# {key path key path ...} — test_mode stubs
+            set _missing [list]     ;# {key path key path ...} — declared, not on disk
+            foreach {_key _src} $_sources {
+                set _dst "$_sub_dir/[file tail $_src]"
+                puts $_dfh "  ${_flow_lower}($_key)"
+                puts $_dfh "      source:    $_src"
+                if {[file exists $_src]} {
+                    set _sz    [file size $_src]
+                    set _mt    [_fmt_mtime $_src]
+                    puts $_dfh "        exists:  yes"
+                    puts $_dfh "        size:    [_fmt_size $_sz]  ($_sz bytes)"
+                    puts $_dfh "        mtime:   $_mt"
+                    # Prefer symlink — cheap, preserves provenance and
+                    # avoids duplicating large gates/spef/gds files. Fall
+                    # back to copy on FS that reject symlinks.
+                    set _method "symlink"
+                    if {[catch {
+                        file delete -force $_dst
+                        file link -symbolic $_dst $_src
+                    } _e]} {
+                        file copy -force $_src $_dst
+                        set _method "copy"
+                    }
+                    lappend _staged $_key $_dst
+                    puts $_dfh "      dest:      $_dst"
+                    puts $_dfh "        method:  $_method"
+                    puts $_dfh "        result:  STAGED"
+                    puts "INFO:   staged $_key -> [file tail $_src] ($_method, [_fmt_size $_sz])"
+                } elseif {$test_mode} {
+                    # Delete any prior stale symlink at $_dst before opening —
+                    # on Linux/macOS, `open "w"` on a symlink writes THROUGH
+                    # the link and can clobber an unrelated file (the target
+                    # of a symlink left by a previous run).
+                    file delete -force $_dst
+                    set _sh [open $_dst "w"]
+                    puts $_sh "// TEST_MODE stub for ${_flow_lower}($_key)"
+                    puts $_sh "// Source declared but not present on disk:"
+                    puts $_sh "//   $_src"
+                    close $_sh
+                    lappend _stubbed $_key $_dst
+                    puts $_dfh "        exists:  NO (test_mode → stub fabricated)"
+                    puts $_dfh "      dest:      $_dst"
+                    puts $_dfh "        method:  stub"
+                    puts $_dfh "        result:  TEST_STUB"
+                    puts "INFO:   \[TEST MODE\] stub $_key -> [file tail $_src]"
+                } else {
+                    lappend _missing $_key $_src
+                    puts $_dfh "        exists:  NO"
+                    puts $_dfh "        result:  MISSING"
+                    puts "ERROR:  missing input source for ${_flow_lower}($_key): $_src"
+                }
+                puts $_dfh ""
+            }
+
+            # ── Info stamp (dashboard audit trail) ──────────────────────
+            set _info_file "$_sub_dir/${subnode_name}_info.tcl"
+            set _fh [open $_info_file "w"]
+            puts $_fh "set ${subnode_name}_info(timestamp) \"[handler_ts]\""
+            set _n_staged  [expr {[llength $_staged]  / 2}]
+            set _n_stubbed [expr {[llength $_stubbed] / 2}]
+            set _n_missing [expr {[llength $_missing] / 2}]
+            puts $_fh "set ${subnode_name}_info(staged_count)  $_n_staged"
+            puts $_fh "set ${subnode_name}_info(stubbed_count) $_n_stubbed"
+            puts $_fh "set ${subnode_name}_info(missing_count) $_n_missing"
+            puts $_fh "set ${subnode_name}_info(detail_log)    \"$_dlog\""
+            foreach {_k _d} $_staged  { puts $_fh "set ${subnode_name}_info(staged,$_k) \"$_d\"" }
+            foreach {_k _d} $_stubbed { puts $_fh "set ${subnode_name}_info(stubbed,$_k) \"$_d\"" }
+            foreach {_k _s} $_missing { puts $_fh "set ${subnode_name}_info(missing,$_k) \"$_s\"" }
+
+            set _t_end [clock seconds]
+            set _elapsed [expr {$_t_end - $_t_start}]
+            puts $_dfh $_dbar
+
+            if {$_n_missing > 0} {
+                puts $_fh "set ${subnode_name}_info(status) \"MISSING\""
+                close $_fh
+                puts $_dfh "RESULT: FAIL_MISSING"
+                puts $_dfh "  $_n_missing source(s) declared but not present on disk."
+                puts $_dfh "  Elapsed: ${_elapsed}s"
+                puts $_dfh $_dbar
+                close $_dfh
+                puts ""
+                puts "ERROR: $flow_type $stage_name $subnode_name FAILED — $_n_missing source(s) missing"
+                puts "       See detail log: $_dlog"
+                exit 1
+            }
+            if {$_n_staged == 0 && $_n_stubbed == 0} {
+                puts $_fh "set ${subnode_name}_info(status) \"NO_SOURCE\""
+                close $_fh
+                puts $_dfh "RESULT: NO_SOURCE"
+                puts $_dfh "  No sources declared for this subnode (legitimate for optional inputs)."
+                puts $_dfh "  Elapsed: ${_elapsed}s"
+                puts $_dfh $_dbar
+                close $_dfh
+                # Emit the `completed` sentinel so RACE's job-log parser and
+                # dashboard mark the subnode as finished (rather than stuck).
+                puts "INFO: $flow_type $stage_name $subnode_name completed → NO_SOURCE (0 file(s), ${_elapsed}s, optional input)"
+                puts "INFO: Detail log: $_dlog"
+                return
+            }
+            # STAGED  = at least one real source found (regardless of test_mode)
+            # TEST_STUB = only stubs (all sources were missing but test_mode
+            #             is on, so we fabricated placeholders)
+            set _status [expr {$_n_staged > 0 ? {STAGED} : {TEST_STUB}}]
+            puts $_fh "set ${subnode_name}_info(status) \"$_status\""
+            close $_fh
+            set _total [expr {$_n_staged + $_n_stubbed}]
+            puts $_dfh "RESULT: $_status"
+            puts $_dfh "  Staged:  $_n_staged real file(s)"
+            puts $_dfh "  Stubbed: $_n_stubbed placeholder(s)  (test_mode)"
+            puts $_dfh "  Missing: 0"
+            puts $_dfh "  Elapsed: ${_elapsed}s"
+            puts $_dfh $_dbar
+            close $_dfh
+            puts "INFO: $flow_type $stage_name $subnode_name completed → $_status ($_total file(s), ${_elapsed}s)"
+            puts "INFO: Detail log: $_dlog"
+        }
+    }
+}
+
+# ── Resolve upstream inputs (from_run / release_tag / direct paths) ──────────
+# Sources resolve_inputs.tcl and invokes resolve_flow_inputs. Safe to call
+# multiple times: the underlying proc checks for a persisted resolved_inputs.tcl
+# and skips re-resolution if present.
+proc handler_resolve_inputs {flow_type run_dir} {
+    if {![info exists ::env(SCRIPTS_ROOT)] || ![info exists ::env(UTILITIES_VERSION)]} {
+        return
+    }
+    set _lib "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/resolve_inputs.tcl"
+    if {[file exists $_lib]} {
+        uplevel #0 [list source $_lib]
+        uplevel #0 [list ::CBFlow::InputResolve::resolve_flow_inputs $flow_type $run_dir]
+    }
+}

@@ -7,7 +7,7 @@
 # ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
-source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "SYNTH_PNR"
 set STAGE_NAME "init_design"
@@ -36,10 +36,10 @@ flow_proc create_design_library {
     set run_dir $::env(CBFLOW_RUN_DIR)
     file mkdir "$run_dir/work/SYNTH_PNR/init_design1/run"
 
-    # BUG FIX #6 (init): Use .nlib extension (not _lib) — FC uses .nlib format
+    # FC uses the .nlib format
     set lib_name "${::design_name}.nlib"
 
-    # BUG FIX #4: Remove .nlib safely — handle .nfs lock files from NFS
+    # Remove .nlib safely — handle .nfs lock files from NFS
     if {[file exists $lib_name]} {
         handle_info "Removing existing library: $lib_name"
         # Kill any .nfs lock files first (NFS stale handles)
@@ -155,7 +155,7 @@ flow_proc create_design_library {
     if {$parasitic_tech_lib ne ""} {
         lappend create_lib_cmd -use_parasitic_tech_lib $parasitic_tech_lib
     }
-    # BUG FIX #1 (init): Avoid double {{braces}} — expand list properly
+    # Expand list properly — avoid double {{braces}}
     if {[llength $ref_libs] > 0} {
         lappend create_lib_cmd -ref_libs
         foreach _rl $ref_libs { lappend create_lib_cmd $_rl }
@@ -186,7 +186,7 @@ flow_proc read_design {
     # FC-RM: set_svf for formality
     set_svf $::OUTPUTS_DIR/init_design.svf
 
-    # BUG FIX #2 (init): RTL read aligned with FC-RM — use read_verilog/read_sverilog per RM
+    # FC-RM: use read_verilog/read_sverilog per the RM
     set rtl_filelist "$::RTL_DIR/${::design_name}.f"
     set rtl_format [expr {$synth_pnr(input,rtl_format) ne "" ? $synth_pnr(input,rtl_format) : "sverilog"}]
 
@@ -290,7 +290,7 @@ flow_proc load_floorplan {
         }
     }
 
-    # BUG FIX #9 (init): Create site rows if not present after floorplan load
+    # Create site rows if not present after floorplan load
     set _trk $tech(track)
     if {[sizeof_collection [get_site_rows -quiet]] == 0} {
         handle_info "No site rows found — creating default site rows..."
@@ -864,8 +864,7 @@ flow_proc generate_reports {
             -label init_design -output $run_dir/qor_data
     }
 
-    # BUG FIX #3: run_end does NOT exist in FC — removed
-    # Use report_msg -summary instead
+    # run_end does NOT exist in FC — use report_msg -summary instead
     redirect -file $::REPORTS_DIR/report_msg_summary.rpt { report_msg -summary }
 
     handle_info "Init design reports generated in: $::REPORTS_DIR"
@@ -876,7 +875,7 @@ flow_proc generate_reports {
 # ==============================================================================
 flow_exec_all
 
-# BUG FIX #7: Exit tool after stage completion (or on error)
-# Without this, fc_shell hangs waiting for input after flow completes
+# Exit tool after stage completion — without this, fc_shell hangs
+# waiting for input after flow completes.
 handle_info "Init design completed — exiting fc_shell"
 exit

@@ -7,7 +7,7 @@
 # ── Bootstrap ────────────────────────────────────────────────────────────────
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
-source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "PV"
 set STAGE_NAME "perc"
@@ -99,10 +99,9 @@ flow_proc run_perc_checks {
 
     if {[catch {exec {*}$calibre_cmd >& "$::WORK_DIR/results/perc/perc.log"} result]} {
         # Silent-pass defense — distinguish real violations from a tool
-        # crash (license-fail, segfault, OOM, bad runset). Pre-fix every
-        # non-zero exit was demoted to handle_warning + report-write,
-        # so a license drop looked identical to '0 violations' on BTO
-        # sign-off. See lvs_calibre.tcl:119 for the reference pattern.
+        # crash (license-fail, segfault, OOM, bad runset). Without this
+        # a license drop looks identical to '0 violations' on BTO sign-off.
+        # See lvs_calibre.tcl for the reference pattern.
         if {[classify_tool_exit_log "$::WORK_DIR/results/perc/perc.log"] eq "FATAL"} {
             handle_error "Calibre PERC crashed (license / perms / tool error) — see $::WORK_DIR/results/perc/perc.log"
         } else {
@@ -157,10 +156,6 @@ flow_proc generate_perc_report {
     # Mirror to BOTH filenames the downstream pipeline expects:
     #   results/perc/perc_results.rpt — merge_data_calibre.tcl + release_data_calibre.tcl
     #   results/perc/perc.rpt         — pv(mandatory_outputs,perc1) in PV_config.tcl
-    # Pre-fix handler_validate iterated 4 candidate paths for perc.rpt
-    # and none matched (only perc_results.rpt was ever written). Every
-    # production perc1 stage then exited 1 at validate even on real
-    # tool success. Fix: write both; downstream consumers unchanged.
     set _legacy_rpt "$::WORK_DIR/results/perc/perc_results.rpt"
     set _mandatory_rpt "$::WORK_DIR/results/perc/perc.rpt"
     file mkdir [file dirname $_legacy_rpt]

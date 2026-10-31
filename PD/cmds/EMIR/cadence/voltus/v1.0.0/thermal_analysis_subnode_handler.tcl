@@ -15,7 +15,7 @@ set stage_name "thermal_analysis"
 if {$node_name eq ""} { set node_name "${stage_name}1" }
 
 set _tool_ver [expr {[info exists ::env(VOLTUS_VERSION)] ? $::env(VOLTUS_VERSION) : "v1.0.0"}]
-set cmd_file "$::env(FLOW_DIR)/cmds/EMIR/cadence/voltus/$_tool_ver/thermal_analysis_voltus.tcl"
+set cmd_file "$::env(FLOW_DIR)/PD/cmds/EMIR/cadence/voltus/$_tool_ver/thermal_analysis_voltus.tcl"
 
 set test_mode [handler_is_test_mode]
 set _tool [expr {[info exists ::emir(tool,name)] ? $::emir(tool,name) : "voltus"}]

@@ -4,7 +4,7 @@
 # -- Bootstrap -----------------------------------------------------------------
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
-source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "CLP"
 set STAGE_NAME "release_data"
@@ -16,9 +16,9 @@ setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 
 # Source release utilities for ::CBFlow::Release namespace
-set _ru "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
+set _ru "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
 if {[file exists $_ru]} { source $_ru }
-set release_utils "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
+set release_utils "$FLOW_DIR/global/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
 if {[file exists $release_utils]} { source $release_utils }
 
 # Source release_config for phase/milestone file expectations
@@ -34,7 +34,6 @@ file mkdir $OUTPUTS_DIR
 # Declare global arrays
 global clp project tech flow
 
-# Note: conformal_lp_config.tcl merged into CLP_conformal_lp_config.tcl (node_configs)
 handle_info "Starting CLP release data stage..."
 
 # Initialize flow namespace

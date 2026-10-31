@@ -58,11 +58,7 @@ set flow(discipline,ATPG)           "DFT"
 set flow(discipline,GLS_FUNC)       "DFT"
 set flow(discipline,GLS_SCAN_MBIST) "DFT"
 
-# DV — Verification milestone / review flows (xlsx-defined, Oct 2026)
-# Prior tool-driven scaffolds (LINT/CDC/RDC/SIM/COV_MERGE/FORMAL/UPF_CHECK)
-# were removed in favor of the review-driven milestone pipeline — they will
-# be re-added as separate flows when real tool handlers (SpyGlass, VCS,
-# Questa, etc.) are implemented.
+# DV — Verification milestone / review flows
 set flow(discipline,SPEC_RAMP)      "DV"
 set flow(discipline,PLANNING)       "DV"
 set flow(discipline,TB_SETUP)       "DV"
@@ -86,10 +82,9 @@ unset -nocomplain _desc_path
 
 # ══════════════════════════════════════════════════════════════════════════════
 #                    CROSS-DOMAIN RUNTIME DEFAULTS
-# Every discipline (PD, DFT, DV) inherits these. They used to live in PD's
-# flow_config.tcl, but that meant DFT/DV runs failed pre-flight because their
-# flow_config.tcl (sourced INSTEAD of PD's, not on top of it) didn't set them.
-# Moved here in the per-discipline-launcher split.
+# Every discipline (PD, DFT, DV) inherits these. Each discipline's
+# flow_config.tcl is sourced INSTEAD of (not on top of) another discipline's,
+# so cross-cutting defaults MUST live here to reach all three.
 # ══════════════════════════════════════════════════════════════════════════════
 
 # ── Cross-domain mandatory keys ─────────────────────────────────────────────

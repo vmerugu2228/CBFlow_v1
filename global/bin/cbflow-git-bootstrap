@@ -1,0 +1,81 @@
+#!/bin/bash
+# ═══════════════════════════════════════════════════════════════════════════════
+# cbflow-git-bootstrap — configure sparse-checkout for a discipline branch
+#
+# Usage:
+#     cbflow-git-bootstrap pd      # PD lead's working checkout
+#     cbflow-git-bootstrap dft     # DFT lead's working checkout
+#     cbflow-git-bootstrap dv      # DV lead's working checkout
+#     cbflow-git-bootstrap all     # integrator: full tree
+#
+# A discipline-isolated checkout materializes only that discipline's cmds +
+# configs, plus the shared global/ layer (utils, config, bin) that every
+# flow needs at runtime. Other disciplines' files stay unchecked out —
+# invisible to grep, invisible to IDEs, un-committable by accident.
+#
+# Run once per clone, after `git checkout <discipline-branch>`.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+set -euo pipefail
+
+usage() {
+    sed -n '2,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    exit "${1:-0}"
+}
+
+if [[ $# -ne 1 ]]; then
+    echo "error: expected exactly one argument (pd | dft | dv | all)" >&2
+    usage 2
+fi
+
+disc="$1"
+
+# Must be inside a git repo.
+if ! git rev-parse --git-dir >/dev/null 2>&1; then
+    echo "error: not inside a git repository" >&2
+    exit 1
+fi
+
+# Patterns per discipline. Everyone gets: global/ (shared utils + launchers +
+# cross-domain config), bin/ (top-level symlinks), inputs/ + workarea/ + docs/
+# (operator-facing). Only the owner's discipline dir is included.
+case "$disc" in
+    pd|PD)
+        patterns=(/PD/ /global/ /bin/ /inputs/ /workarea/ /docs/)
+        ;;
+    dft|DFT)
+        patterns=(/DFT/ /global/ /bin/ /inputs/ /workarea/ /docs/)
+        ;;
+    dv|DV)
+        patterns=(/DV/ /global/ /bin/ /inputs/ /workarea/ /docs/)
+        ;;
+    all|ALL|integrator)
+        # Integrator view — disable sparse-checkout entirely.
+        git sparse-checkout disable
+        echo "cbflow-git-bootstrap: sparse-checkout disabled (full tree)"
+        exit 0
+        ;;
+    -h|--help|help)
+        usage 0
+        ;;
+    *)
+        echo "error: unknown discipline '$disc' (expected pd|dft|dv|all)" >&2
+        usage 2
+        ;;
+esac
+
+# cone mode supports leaf-dir patterns, is fast, and plays well with modern git.
+git sparse-checkout init --cone
+git sparse-checkout set "${patterns[@]}"
+
+echo "cbflow-git-bootstrap: sparse-checkout configured for discipline '$disc'"
+echo "  materialized paths:"
+for p in "${patterns[@]}"; do
+    echo "    $p"
+done
+echo ""
+echo "verify what's on disk now:"
+echo "  ls -la"
+echo ""
+echo "to switch disciplines later: cbflow-git-bootstrap <other>"
+echo "to see everything again:     cbflow-git-bootstrap all"

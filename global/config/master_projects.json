@@ -2,8 +2,8 @@
   "version": "2.0",
   "schema_notes": {
     "2.0": "Added enabled_flows_by_discipline (PD/DFT/DV). enabled_flows is kept as a computed union for legacy callers; new callers should read enabled_flows_by_discipline directly.",
-    "1.0": "Original — enabled_flows only.",
-    "scoping": "enabled_flows_by_discipline is PER-PROJECT SCOPING, not a catalog mirror — a project may legitimately disable DFT/DV flows it does not run. The framework catalog (flow_registry.tcl flow(types)) is the superset; a project's lists are subsets."
+    "1.0": "Original \u2014 enabled_flows only.",
+    "scoping": "enabled_flows_by_discipline is PER-PROJECT SCOPING, not a catalog mirror \u2014 a project may legitimately disable DFT/DV flows it does not run. The framework catalog (flow_registry.tcl flow(types)) is the superset; a project's lists are subsets."
   },
   "projects": {
     "india": {
@@ -32,9 +32,22 @@
       "tapeout_date": "2026-12-30",
       "release_version": "v1.0.0",
       "enabled_flows_by_discipline": {
-        "PD":  ["SYNTH", "FP", "PNR", "SYNTH_PNR", "STA", "LEC", "EMIR", "PV", "ECO", "CLP", "POPT", "FCFP"],
+        "PD": [
+          "SYNTH",
+          "FP",
+          "PNR",
+          "SYNTH_PNR",
+          "STA",
+          "LEC",
+          "EMIR",
+          "PV",
+          "ECO",
+          "CLP",
+          "POPT",
+          "FCFP"
+        ],
         "DFT": [],
-        "DV":  []
+        "DV": []
       },
       "enabled_flows": [
         "SYNTH",
@@ -76,9 +89,30 @@
       "tapeout_date": "2026-12-07",
       "release_version": "v1.0.0",
       "enabled_flows_by_discipline": {
-        "PD":  ["SYNTH", "FP", "PNR", "SYNTH_PNR", "STA", "LEC", "EMIR", "PV", "ECO", "CLP", "POPT", "FCFP"],
-        "DFT": ["DFT_INSERT", "SCAN_INSERT", "ATPG"],
-        "DV":  ["LINT", "CDC", "SIM"]
+        "PD": [
+          "SYNTH",
+          "FP",
+          "PNR",
+          "SYNTH_PNR",
+          "STA",
+          "LEC",
+          "EMIR",
+          "PV",
+          "ECO",
+          "CLP",
+          "POPT",
+          "FCFP"
+        ],
+        "DFT": [
+          "DFT_INSERT",
+          "SCAN_INSERT",
+          "ATPG"
+        ],
+        "DV": [
+          "LINT",
+          "CDC",
+          "SIM"
+        ]
       },
       "enabled_flows": [
         "SYNTH",

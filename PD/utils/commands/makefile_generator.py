@@ -21,6 +21,23 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
+# Post cbflow_global utils-refactor: shared Python packages (core.paths,
+# core.interactive, logging_config, cbflow_config, …) live under
+# global/utils/, not PD/utils/. This PD-only command adds BOTH to sys.path
+# so an un-sparsed clone resolves them whether the invoker set env or not.
+import sys as _bootstrap_sys
+_this = os.path.dirname(os.path.abspath(__file__))
+_pd_utils = os.path.dirname(_this)
+_umbrella = os.path.dirname(os.path.dirname(_pd_utils))
+_global_utils = os.path.join(_umbrella, 'global', 'utils')
+_global_cmds = os.path.join(_global_utils, 'commands')
+if os.path.isdir(_global_cmds) and _global_cmds not in _bootstrap_sys.path:
+    _bootstrap_sys.path.insert(0, _global_cmds)
+if os.path.isdir(_global_utils) and _global_utils not in _bootstrap_sys.path:
+    _bootstrap_sys.path.insert(0, _global_utils)
+if _pd_utils not in _bootstrap_sys.path:
+    _bootstrap_sys.path.insert(0, _pd_utils)
+
 from tcl_config_parser import (
     get_flow_stages, get_subnodes, get_tool_info,
     _load_node_config, _parse_tcl_list, _parse_tcl_string,
@@ -356,16 +373,16 @@ class MakefileGenerator:
         mf.write('\t@echo "==============================================================================="\n')
         mf.write('\t@echo "MMMC Scenarios for Type: $(TYPE)"\n')
         mf.write('\t@echo "==============================================================================="\n')
-        mf.write('\t@tclsh "$(FLOW_DIR)/utils/show_mmmc_scenarios.tcl" "$(TYPE)"\n')
+        mf.write('\t@tclsh "$(FLOW_DIR)/PD/utils/show_mmmc_scenarios.tcl" "$(TYPE)"\n')
         mf.write("\n")
 
         mf.write("# MMMC node scenarios (show hardcoded node assignments)\n")
         mf.write(".PHONY: mmmc_nodes\n")
         mf.write("mmmc_nodes:\n")
         mf.write('\t@if [ -n "$(NODE)" ]; then \\\n')
-        mf.write('\t\ttclsh "$(FLOW_DIR)/utils/show_mmmc_nodes.tcl" "$(NODE)"; \\\n')
+        mf.write('\t\ttclsh "$(FLOW_DIR)/PD/utils/show_mmmc_nodes.tcl" "$(NODE)"; \\\n')
         mf.write('\telse \\\n')
-        mf.write('\t\ttclsh "$(FLOW_DIR)/utils/show_mmmc_nodes.tcl"; \\\n')
+        mf.write('\t\ttclsh "$(FLOW_DIR)/PD/utils/show_mmmc_nodes.tcl"; \\\n')
         mf.write('\tfi\n')
         mf.write("\n")
 
@@ -417,7 +434,7 @@ class MakefileGenerator:
         mf.write('\tfi\n')
         mf.write('\t@echo "Creating release: $(TAG) (type: $(TYPE))"\n')
         mf.write('\t@# Build command with optional parameters\n')
-        mf.write('\t@CMD="tclsh \\"$(FLOW_DIR)/utils/release_data.tcl\\"'
+        mf.write('\t@CMD="tclsh \\"$(FLOW_DIR)/PD/utils/release_data.tcl\\"'
                  ' \\"$(TAG)\\" \\"$(TYPE)\\""; \\\n')
         mf.write('\tif [ -n "$(NOTES)" ]; then CMD="$$CMD -notes \\"$(NOTES)\\""; fi; \\\n')
         mf.write('\tif [ -n "$(NODE)" ]; then CMD="$$CMD -node_name \\"$(NODE)\\""; fi; \\\n')
@@ -494,7 +511,7 @@ class MakefileGenerator:
         mf.write('\t\techo "  make add_node NODE=synthesis2 TYPE=synthesis DEP=synthesis1"; \\\n')
         mf.write('\t\texit 1; \\\n')
         mf.write('\tfi\n')
-        mf.write('\t@tclsh "$(FLOW_DIR)/utils/node_management/$(NODE_MANAGEMENT_VERSION)/'
+        mf.write('\t@tclsh "$(FLOW_DIR)/global/utils/node_management/$(NODE_MANAGEMENT_VERSION)/'
                  'manage_node.tcl" -add -node "$(NODE)" -node_type "$(TYPE)"'
                  ' $$([ -n "$(DEP)" ] && echo "-dep $(DEP)")\n')
         mf.write("\n")
@@ -509,7 +526,7 @@ class MakefileGenerator:
         mf.write('\t\techo "Example: make delete_node NODE=floorplan2"; \\\n')
         mf.write('\t\texit 1; \\\n')
         mf.write('\tfi\n')
-        mf.write('\t@tclsh "$(FLOW_DIR)/utils/node_management/$(NODE_MANAGEMENT_VERSION)/'
+        mf.write('\t@tclsh "$(FLOW_DIR)/global/utils/node_management/$(NODE_MANAGEMENT_VERSION)/'
                  'manage_node.tcl" -delete -node "$(NODE)"\n')
         mf.write("\n")
 
@@ -517,7 +534,7 @@ class MakefileGenerator:
         mf.write("# List all available nodes in the flow\n")
         mf.write(".PHONY: list_nodes\n")
         mf.write("list_nodes:\n")
-        mf.write('\t@tclsh "$(FLOW_DIR)/utils/node_management/$(NODE_MANAGEMENT_VERSION)/'
+        mf.write('\t@tclsh "$(FLOW_DIR)/global/utils/node_management/$(NODE_MANAGEMENT_VERSION)/'
                  'manage_node.tcl" list\n')
         mf.write("\n")
 
@@ -525,7 +542,7 @@ class MakefileGenerator:
         mf.write("# Show flow graph\n")
         mf.write(".PHONY: show_graph\n")
         mf.write("show_graph:\n")
-        mf.write('\t@tclsh "$(FLOW_DIR)/utils/node_management/$(NODE_MANAGEMENT_VERSION)/'
+        mf.write('\t@tclsh "$(FLOW_DIR)/global/utils/node_management/$(NODE_MANAGEMENT_VERSION)/'
                  'manage_node.tcl" graph\n')
         mf.write("\n")
 
@@ -533,7 +550,7 @@ class MakefileGenerator:
         mf.write("# Validate node configuration\n")
         mf.write(".PHONY: validate_nodes\n")
         mf.write("validate_nodes:\n")
-        mf.write('\t@tclsh "$(FLOW_DIR)/utils/node_management/$(NODE_MANAGEMENT_VERSION)/'
+        mf.write('\t@tclsh "$(FLOW_DIR)/global/utils/node_management/$(NODE_MANAGEMENT_VERSION)/'
                  'manage_node.tcl" validate\n')
         mf.write("\n")
 
@@ -565,7 +582,7 @@ class MakefileGenerator:
         mf.write("# Show detailed run status\n")
         mf.write(".PHONY: run_status\n")
         mf.write("run_status:\n")
-        mf.write('\t@tclsh "$(FLOW_DIR)/utils/utilities/$(UTILITIES_VERSION)/'
+        mf.write('\t@tclsh "$(FLOW_DIR)/global/utils/utilities/$(UTILITIES_VERSION)/'
                  'run_status.tcl" "$(PWD)"\n')
         mf.write("\n")
 
@@ -591,7 +608,7 @@ class MakefileGenerator:
         mf.write('\t\techo "  make create_branch BRANCH=fix_timing FROM=inputs"; \\\n')
         mf.write('\t\texit 1; \\\n')
         mf.write('\tfi\n')
-        mf.write('\t@tclsh "$(FLOW_DIR)/utils/node_management/$(NODE_MANAGEMENT_VERSION)/'
+        mf.write('\t@tclsh "$(FLOW_DIR)/global/utils/node_management/$(NODE_MANAGEMENT_VERSION)/'
                  'manage_node.tcl" -create_branch -node "$(FROM)" -branch_name "$(BRANCH)"\n')
         mf.write("\n")
 
@@ -605,7 +622,7 @@ class MakefileGenerator:
         mf.write('\t\techo "Example: make delete_branch NODE=synthesis_branch1"; \\\n')
         mf.write('\t\texit 1; \\\n')
         mf.write('\tfi\n')
-        mf.write('\t@tclsh "$(FLOW_DIR)/utils/node_management/$(NODE_MANAGEMENT_VERSION)/'
+        mf.write('\t@tclsh "$(FLOW_DIR)/global/utils/node_management/$(NODE_MANAGEMENT_VERSION)/'
                  'manage_node.tcl" -delete_branch -node "$(NODE)"\n')
         mf.write("\n")
 
@@ -613,7 +630,7 @@ class MakefileGenerator:
         mf.write("# List all available branches\n")
         mf.write(".PHONY: list_branches\n")
         mf.write("list_branches:\n")
-        mf.write('\t@tclsh "$(FLOW_DIR)/utils/node_management/$(NODE_MANAGEMENT_VERSION)/'
+        mf.write('\t@tclsh "$(FLOW_DIR)/global/utils/node_management/$(NODE_MANAGEMENT_VERSION)/'
                  'manage_node.tcl" -list_branches\n')
         mf.write("\n")
 
@@ -682,10 +699,10 @@ class MakefileGenerator:
         mf.write('\tfi; \\\n')
         mf.write('\techo ""; \\\n')
         mf.write('\tif [ -n "$(RELEASE)" ]; then \\\n')
-        mf.write('\t\tCMD="tclsh \\"$(FLOW_DIR)/utils/utilities/$(UTILITIES_VERSION)/'
+        mf.write('\t\tCMD="tclsh \\"$(FLOW_DIR)/global/utils/utilities/$(UTILITIES_VERSION)/'
                  'run_update.tcl\\" \\"$(PWD)\\" -release \\"$(RELEASE)\\" -backup"; \\\n')
         mf.write('\telse \\\n')
-        mf.write('\t\tCMD="tclsh \\"$(FLOW_DIR)/utils/utilities/$(UTILITIES_VERSION)/'
+        mf.write('\t\tCMD="tclsh \\"$(FLOW_DIR)/global/utils/utilities/$(UTILITIES_VERSION)/'
                  'run_update.tcl\\" \\"$(PWD)\\"'
                  ' -workspace \\"$(WORKSPACE_DIR)\\" -backup"; \\\n')
         mf.write('\tfi; \\\n')
@@ -846,7 +863,7 @@ class MakefileGenerator:
         mf.write("generate_makefile:\n")
         mf.write(f'\t@echo "Regenerating Makefile for {self.flow_type} flow..."\n')
         mf.write('\t@echo "Using generation script:'
-                 ' $(FLOW_DIR)/utils/generation/$(GENERATION_VERSION)/gen_run_makefile.tcl"\n')
+                 ' $(FLOW_DIR)/global/utils/generation/$(GENERATION_VERSION)/gen_run_makefile.tcl"\n')
         mf.write('\t@if [ -f ".run.cbflow.tcl" ] || [ -f ".config.tcl" ]'
                  ' || [ -f "user_config_fp_test.tcl" ]; then \\\n')
         mf.write('\t\tif [ -f ".run.cbflow.tcl" ]; then \\\n')
@@ -856,7 +873,7 @@ class MakefileGenerator:
         mf.write('\t\telse \\\n')
         mf.write('\t\t\techo "Found user config file: user_config_fp_test.tcl"; \\\n')
         mf.write('\t\tfi; \\\n')
-        mf.write('\t\ttclsh "$(FLOW_DIR)/utils/generation/$(GENERATION_VERSION)/'
+        mf.write('\t\ttclsh "$(FLOW_DIR)/global/utils/generation/$(GENERATION_VERSION)/'
                  'gen_run_makefile.tcl"; \\\n')
         mf.write('\t\techo "done Makefile regenerated successfully"; \\\n')
         mf.write('\telse \\\n')
@@ -905,7 +922,7 @@ class MakefileGenerator:
         mf.write(".PHONY: timing\n")
         mf.write("timing:\n")
         mf.write('\t@echo "Running timing analysis..."\n')
-        mf.write(f'\t@tclsh "$(FLOW_DIR)/cmds/PNR/{self.vendor}/{self.tool_name}/'
+        mf.write(f'\t@tclsh "$(FLOW_DIR)/PD/cmds/PNR/{self.vendor}/{self.tool_name}/'
                  f'{tool_ver_ref}/timing_analysis.tcl"\n')
         mf.write("\n")
 
@@ -913,7 +930,7 @@ class MakefileGenerator:
         mf.write(".PHONY: power\n")
         mf.write("power:\n")
         mf.write('\t@echo "Running power analysis..."\n')
-        mf.write(f'\t@tclsh "$(FLOW_DIR)/cmds/PNR/{self.vendor}/{self.tool_name}/'
+        mf.write(f'\t@tclsh "$(FLOW_DIR)/PD/cmds/PNR/{self.vendor}/{self.tool_name}/'
                  f'{tool_ver_ref}/power_analysis.tcl"\n')
         mf.write("\n")
 
@@ -921,7 +938,7 @@ class MakefileGenerator:
         mf.write(".PHONY: drc\n")
         mf.write("drc:\n")
         mf.write('\t@echo "Running DRC check..."\n')
-        mf.write(f'\t@tclsh "$(FLOW_DIR)/cmds/PNR/{self.vendor}/{self.tool_name}/'
+        mf.write(f'\t@tclsh "$(FLOW_DIR)/PD/cmds/PNR/{self.vendor}/{self.tool_name}/'
                  f'{tool_ver_ref}/drc_check.tcl"\n')
         mf.write("\n")
 
@@ -931,7 +948,7 @@ class MakefileGenerator:
         mf.write(".PHONY: check_rtl\n")
         mf.write("check_rtl:\n")
         mf.write('\t@echo "Running RTL quality check..."\n')
-        mf.write(f'\t@tclsh "$(FLOW_DIR)/cmds/SYNTH/{self.vendor}/{self.tool_name}/'
+        mf.write(f'\t@tclsh "$(FLOW_DIR)/PD/cmds/SYNTH/{self.vendor}/{self.tool_name}/'
                  f'{tool_ver_ref}/check_rtl.tcl"\n')
         mf.write("\n")
 
@@ -939,7 +956,7 @@ class MakefileGenerator:
         mf.write(".PHONY: qor\n")
         mf.write("qor:\n")
         mf.write('\t@echo "Generating QoR summary..."\n')
-        mf.write(f'\t@tclsh "$(FLOW_DIR)/cmds/SYNTH/{self.vendor}/{self.tool_name}/'
+        mf.write(f'\t@tclsh "$(FLOW_DIR)/PD/cmds/SYNTH/{self.vendor}/{self.tool_name}/'
                  f'{tool_ver_ref}/qor_summary.tcl"\n')
         mf.write("\n")
 

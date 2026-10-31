@@ -7,7 +7,7 @@
 
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$::env(CBFLOW_RUN_DIR)/.run.cbflow.tcl"
-source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "PV"
 set STAGE_NAME "perc_ldl"
@@ -152,13 +152,10 @@ flow_proc report_perc_ldl {
     puts $fp "Floating Gate Violations: $::perc_ldl_floating_gate"
     puts $fp "Latch-up Violations:      $::perc_ldl_latchup"
     close $fp
-    # Signoff artifact expected by mandatory_outputs. Pre-fix we only
-    # wrote under results/pv/perc_ldl/, but pv(mandatory_outputs,perc_ldl1)
-    # in PV_config.tcl declares results/perc_ldl/perc_ldl.rpt (without
-    # the 'pv/' segment). handler_validate's 4 candidate paths resolve
-    # against results/perc_ldl/, not results/pv/perc_ldl/, so every
-    # production perc_ldl1 stage failed validate even on tool success.
-    # Fix: mirror to the mandatory path.
+    # Mirror to the mandatory path. pv(mandatory_outputs,perc_ldl1)
+    # declares results/perc_ldl/perc_ldl.rpt (no 'pv/' segment), so
+    # handler_validate resolves against results/perc_ldl/, not
+    # results/pv/perc_ldl/.
     set mp [open "$::perc_ldl_out_dir/perc_ldl.rpt" w]
     puts $mp "PERC-LDL sign-off report — $::perc_ldl_status"
     close $mp

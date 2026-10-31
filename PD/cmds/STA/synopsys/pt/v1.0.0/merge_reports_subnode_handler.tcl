@@ -15,7 +15,7 @@ set stage_name "merge_reports"
 if {$node_name eq ""} { set node_name "${stage_name}1" }
 
 set _tool_ver [expr {[info exists ::env(PT_VERSION)] ? $::env(PT_VERSION) : "v1.0.0"}]
-set cmd_file "$::env(FLOW_DIR)/cmds/STA/synopsys/pt/$_tool_ver/merge_reports_pt.tcl"
+set cmd_file "$::env(FLOW_DIR)/PD/cmds/STA/synopsys/pt/$_tool_ver/merge_reports_pt.tcl"
 
 set test_mode [handler_is_test_mode]
 set _tool [expr {[info exists ::sta(tool,name)] ? $::sta(tool,name) : "pt"}]

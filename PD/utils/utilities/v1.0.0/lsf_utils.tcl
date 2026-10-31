@@ -579,10 +579,9 @@ namespace eval ::CBFlow::LSF::Utils {
 
         CBFLOW_INFO "Launching xterm to monitor LSF job $job_id" "XTERM"
 
-        # Validate xterm + $DISPLAY before fire-and-forget. Pre-fix an
-        # `exec {*}$xterm_cmd &` with no $DISPLAY silently did nothing;
-        # user thought the monitor was running. Same bug class as the
-        # one submit_job (launch_utils.tcl) was fixed for.
+        # Validate xterm + $DISPLAY before fire-and-forget — a bare
+        # `exec {*}$xterm_cmd &` with no $DISPLAY silently does nothing
+        # and leaves the user believing the monitor is running.
         if {![info exists ::env(DISPLAY)] || $::env(DISPLAY) eq ""} {
             CBFLOW_WARNING "Skipping xterm monitor: \$DISPLAY not set" "XTERM"
         } elseif {[auto_execok xterm] eq ""} {

@@ -76,7 +76,7 @@ foreach req_var {UTILITIES_VERSION FLOW_CONFIG_VERSION PROJECT_VERSION} {
 }
 
 # Load error handling utilities using release version
-set error_utils_path "$FLOW_DIR/utils/utilities/$::env(UTILITIES_VERSION)/error_utils.tcl"
+set error_utils_path "$FLOW_DIR/global/utils/utilities/$::env(UTILITIES_VERSION)/error_utils.tcl"
 
 if {[file exists $error_utils_path]} {
     source $error_utils_path
@@ -88,7 +88,7 @@ if {[file exists $error_utils_path]} {
 }
 
 # Load only PNR configuration using release version
-set pnr_config_path "$FLOW_DIR/config/flow/$::env(FLOW_CONFIG_VERSION)/node_configs/pnr_config.tcl"
+set pnr_config_path "$FLOW_DIR/PD/config/flow/$::env(FLOW_CONFIG_VERSION)/node_configs/pnr_config.tcl"
 
 if {[file exists $pnr_config_path]} {
     source $pnr_config_path

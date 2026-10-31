@@ -15,15 +15,10 @@ from pathlib import Path
 # ═══════════════════════════════════════════════════════════════════════════════
 # Resolve CBFLOW paths
 # ═══════════════════════════════════════════════════════════════════════════════
-# Post-launcher-promotion (global/bin/): SCRIPT_DIR is <root>/global/bin/,
-# so CBFLOW_CORE lives at a sibling ../../PD/, not at parent (../).
+# Launcher lives under global/bin/; PD/ is a sibling of global/, so
+# CBFLOW_ROOT is two parents up from this script.
 SCRIPT_DIR = Path(__file__).resolve().parent
-_parent_name = SCRIPT_DIR.parent.name
-if _parent_name == "global":
-    CBFLOW_ROOT = SCRIPT_DIR.parent.parent
-else:
-    # Legacy PD/bin/ layout (before launcher promotion)
-    CBFLOW_ROOT = SCRIPT_DIR.parent.parent
+CBFLOW_ROOT = SCRIPT_DIR.parent.parent
 CBFLOW_CORE = CBFLOW_ROOT / "PD"                   # PD/ (PD discipline root)
 COMMANDS_DIR = CBFLOW_CORE / "utils" / "commands"
 
