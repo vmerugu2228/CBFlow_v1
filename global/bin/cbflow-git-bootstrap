@@ -39,15 +39,17 @@ fi
 # Patterns per discipline. Everyone gets: global/ (shared utils + launchers +
 # cross-domain config), bin/ (top-level symlinks), inputs/ + workarea/ + docs/
 # (operator-facing). Only the owner's discipline dir is included.
+# Cone mode takes bare directory names (no leading slash) — a slash triggers
+# "specify directories rather than patterns".
 case "$disc" in
     pd|PD)
-        patterns=(/PD/ /global/ /bin/ /inputs/ /workarea/ /docs/)
+        patterns=(PD global bin inputs workarea docs)
         ;;
     dft|DFT)
-        patterns=(/DFT/ /global/ /bin/ /inputs/ /workarea/ /docs/)
+        patterns=(DFT global bin inputs workarea docs)
         ;;
     dv|DV)
-        patterns=(/DV/ /global/ /bin/ /inputs/ /workarea/ /docs/)
+        patterns=(DV global bin inputs workarea docs)
         ;;
     all|ALL|integrator)
         # Integrator view — disable sparse-checkout entirely.
