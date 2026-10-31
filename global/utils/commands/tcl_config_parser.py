@@ -132,6 +132,29 @@ def get_flows_by_discipline() -> Dict[str, List[str]]:
     return out
 
 
+def is_discipline_available(discipline: str) -> bool:
+    """True if the discipline directory is present in this checkout.
+
+    Sparse-checkout profiles (cbflow-git-bootstrap) materialize only the
+    owner's discipline + global/. _cbflow_paths.sh exports CBFLOW_<DISC>_DIR
+    only if the directory exists, so a missing env var signals absence.
+    PD is always available — cbflow refuses to run without it.
+    """
+    disc = discipline.upper()
+    if disc == 'PD':
+        return True
+    import os
+    return bool(os.environ.get(f'CBFLOW_{disc}_DIR'))
+
+
+def get_available_flow_types() -> List[str]:
+    """Flows the current checkout can actually resolve. In a full-tree
+    install this equals get_flow_types(); in a sparse PD-only clone it
+    drops DFT/DV flows whose discipline directory isn't on disk."""
+    return [ft for ft in get_flow_types()
+            if is_discipline_available(get_flow_discipline(ft) or 'PD')]
+
+
 def get_phases(run_dir: Optional[str] = None) -> List[str]:
     """Return the phase list for a project.
 
@@ -252,7 +275,9 @@ def get_flow_info(flow_type: str) -> Dict[str, Any]:
 
 
 def get_all_flow_info() -> Dict[str, Dict[str, Any]]:
-    return {ft: get_flow_info(ft) for ft in get_flow_types()}
+    """Enumerate flows the current checkout can resolve. Skips flows whose
+    discipline directory isn't present (sparse-checkout clones)."""
+    return {ft: get_flow_info(ft) for ft in get_available_flow_types()}
 
 
 def get_subnodes(flow_type: str, stage: str,

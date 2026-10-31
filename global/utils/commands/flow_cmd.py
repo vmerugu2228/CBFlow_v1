@@ -76,6 +76,17 @@ def cmd_types(args: argparse.Namespace) -> int:
     domain_filter = (getattr(args, 'domain', None) or '').upper() or None
 
     ft = _flow_types()
+
+    from tcl_config_parser import (
+        get_disciplines, is_discipline_available, get_flows_by_discipline,
+    )
+    absent = [d for d in get_disciplines()
+              if not is_discipline_available(d)]
+    if absent:
+        hidden = sum(len(flows) for d, flows in get_flows_by_discipline().items()
+                     if d in absent)
+        logger.info(f"[INFO] sparse checkout: hiding {hidden} flow(s) "
+                    f"from absent discipline(s): {', '.join(absent)}")
     if domain_filter:
         ft = {k: v for k, v in ft.items()
               if v.get('discipline', 'PD').upper() == domain_filter}
