@@ -51,3 +51,7 @@ Screenshot*.png
 
 # RACE-engine per-run SQLite DBs (created by cbflow test / cbflow run)
 .race_area/
+
+# Scratch release bundle tarballs — never commit (exceed GitHub 100MB)
+bundles/*.tar.gz
+bundles/*.tgz
