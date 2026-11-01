@@ -47,10 +47,11 @@ def make_handler(project):
                 self._send(500, 'text/plain', f'internal error: {e}')
 
         def _route(self):
-            from urllib.parse import unquote
+            from urllib.parse import unquote, parse_qs
             path = self.path.split('?', 1)[0]
+            query = parse_qs(self.path.split('?', 1)[1]) if '?' in self.path else {}
             if path == '/' or path == '/index.html':
-                return self._page_index()
+                return self._page_tier1(query)
             if path == '/api/published':
                 return self._api_published()
             if path == '/api/project':
@@ -175,15 +176,31 @@ def make_handler(project):
                                      block_meta or {}, block_pubs)
             self._send(200, 'text/html; charset=utf-8', html_out)
 
-        # ── Tier 2+ page handlers (PR1 skeleton — PR2/PR3 land real UI) ──
+        # ── Tier 1 — all-projects grid (NEW landing page) ─────────────
+
+        def _page_tier1(self, query):
+            """Render the Tier 1 all-projects grid.
+
+            `query` is parse_qs output. `?status=active|archived|all`
+            controls which cards are shown; default 'active'.
+            """
+            scope = (query.get('status') or ['active'])[0].lower()
+            if scope not in ('active', 'archived', 'all'):
+                scope = 'active'
+            html_out = _render_tier1(project, scope)
+            self._send(200, 'text/html; charset=utf-8', html_out)
+
+        # ── Tier 2 — project landing (discipline + schedule + resource) ──
 
         def _page_tier2(self, tgt_project):
-            """Project landing (own-project). PR2 renders discipline cards
-            + schedule + resource. PR1 stub returns 200 with the chrome."""
-            html_out = _render_tier_stub(
-                tgt_project, 'Tier 2 — Project landing (coming in PR2)',
-                hint='This page will show discipline cards, schedule, and '
-                     'resource usage for the selected project.')
+            """Project landing (own-project). Renders discipline cards +
+            schedule card + resource card, with the published-runs table
+            below for drill-in context."""
+            db = state_paths.tracker_db(tgt_project)
+            info = tracker_db.get_project_info(db, tgt_project)
+            blocks = tracker_db.list_blocks(db, tgt_project)
+            pubs = tracker_db.list_published(db, tgt_project)
+            html_out = _render_tier2(tgt_project, info, blocks, pubs)
             self._send(200, 'text/html; charset=utf-8', html_out)
 
         def _page_tier2_offline(self, tgt_project):
@@ -259,10 +276,31 @@ def make_handler(project):
                                'status': 'skeleton — PR3'})
 
         def _api_resources(self, tgt_project):
-            """Tier 2 Resource card feed — PR2 aggregates lsf_details from
-            recent runs' RACE DBs. PR1 stub."""
-            return self._json({'project': tgt_project, 'resources': {},
-                               'status': 'skeleton — PR2'})
+            """Tier 2 Resource card feed — aggregates lsf_details from
+            recent published runs' RACE DBs. Capped to last 20 runs and
+            serves whatever each race.db yields; missing/unreadable
+            race.dbs are skipped silently."""
+            if tgt_project != project:
+                return self._json({'error': f'project {tgt_project!r} not '
+                                            'served by this daemon'})
+            db = state_paths.tracker_db(tgt_project)
+            pubs = tracker_db.list_published(db, tgt_project)
+            # Latest publishes first (approx — list_published orders by
+            # block/phase/milestone; we pull up to 20 unique race_db_paths).
+            seen = set()
+            race_dbs = []
+            for row in sorted(pubs, key=lambda r: r.get('published_at') or '',
+                              reverse=True):
+                rd = row.get('race_db_path') or ''
+                if rd and rd not in seen and os.path.isfile(rd):
+                    seen.add(rd)
+                    race_dbs.append(rd)
+                if len(race_dbs) >= 20:
+                    break
+            agg = _aggregate_resources(race_dbs)
+            agg['project'] = tgt_project
+            agg['run_count'] = len(race_dbs)
+            return self._json(agg)
 
         def _api_project(self):
             db = state_paths.tracker_db(project)
@@ -422,6 +460,113 @@ _STYLE = """
   header.bar .kv { color: var(--muted); font-size:12px; }
   header.bar .kv b { color: var(--text); font-weight:600; margin-left:4px; }
   header.bar .byline { color: var(--muted); font-size:11px; margin-left:auto; }
+
+  /* ───── Tier 1 — all-projects grid ───── */
+  body.tier1 { background: #fafbfc; }
+  .tier1-ctrl { padding:18px 20px 10px; display:flex; align-items:center;
+                justify-content:space-between; gap:16px; flex-wrap:wrap;
+                background: var(--panel); border-bottom:1px solid var(--border); }
+  .tier1-h1 { margin:0; font-size:18px; font-weight:800; letter-spacing:.01em;
+              color: var(--text); }
+  .scope-pills { display:flex; gap:6px; }
+  .scope-pill { display:inline-flex; align-items:center; gap:6px;
+                padding:7px 14px; font-size:12px; font-weight:700;
+                letter-spacing:.03em; border:1px solid var(--border);
+                border-radius:3px; color: var(--muted); background: var(--panel);
+                text-decoration:none; }
+  .scope-pill:hover { color: var(--accent-ink); border-color: var(--accent-ink);
+                      text-decoration:none; }
+  .scope-pill.on   { color:#fff; background: var(--accent-ink);
+                     border-color: var(--accent-ink); }
+  .scope-pill .n   { background: rgba(0,0,0,.1); padding:1px 7px;
+                     border-radius:10px; font-variant-numeric: tabular-nums;
+                     font-size:11px; }
+  .scope-pill.on .n{ background: rgba(255,255,255,.25); }
+
+  .proj-cards { display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+                gap:14px; padding:16px 20px; }
+  .proj-card { display:block; background: var(--panel); border:1px solid var(--border);
+               border-left:4px solid var(--accent); border-radius:6px;
+               padding:16px 18px; color: var(--text); text-decoration:none;
+               transition: box-shadow .15s, transform .15s; }
+  .proj-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,.08);
+                     text-decoration:none; }
+  .proj-card[data-status="archived"] { border-left-color: #9ca3af; opacity:.78; }
+  .proj-card[data-status="paused"]   { border-left-color: #d97706; }
+  .proj-head { display:flex; align-items:center; justify-content:space-between;
+               gap:10px; margin-bottom:4px; }
+  .proj-name { font-size:17px; font-weight:800; color: var(--text);
+               letter-spacing:-.01em; }
+  .proj-desc { color: var(--muted); font-size:12px; min-height:18px;
+               margin-bottom:10px; }
+  .proj-meta { font-size:11px; margin-top:4px; color: var(--muted); }
+  .proj-meta-key { color: var(--muted); }
+  .proj-meta-val { color: var(--text); font-weight:600; }
+  .proj-meta-dot { color: var(--border); margin:0 6px; }
+  .proj-discs { margin-top:10px; display:flex; gap:4px; flex-wrap:wrap; }
+  .disc-chip { font-size:10px; font-weight:800; letter-spacing:.05em;
+               padding:2px 7px; border-radius:3px; color:#fff; }
+  .disc-chip.disc-pd  { background:#1565c0; }
+  .disc-chip.disc-dft { background:#0d9488; }
+  .disc-chip.disc-dv  { background:#be185d; }
+  .proj-verdicts { margin-top:10px; display:flex; align-items:center;
+                   gap:4px; font-size:12px; }
+  .proj-verdicts .vdot { font-size:14px; line-height:1; }
+  .proj-verdicts .vn   { color: var(--text); font-weight:700;
+                         margin-right:8px; font-variant-numeric: tabular-nums; }
+  .vdot.vp { color:#059669; }     /* PASS */
+  .vdot.vc { color:#b45309; }     /* CONDITIONAL */
+  .vdot.vb { color:#b91c1c; }     /* BLOCKED */
+  .vdot.vu { color:#6b7280; }     /* UNKNOWN */
+  .proj-foot { margin-top:10px; padding-top:8px; border-top:1px solid var(--border);
+               font-size:11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .status-pill { display:inline-block; padding:3px 10px; border-radius:3px;
+                 font-size:10px; font-weight:800; letter-spacing:.05em; }
+  .status-pill.pill-active   { background: var(--accent-bg); color: var(--accent-ink); }
+  .status-pill.pill-archived { background:#f3f4f6; color:#4b5563; }
+  .status-pill.pill-paused   { background:#fff3e0; color:#92400e; }
+
+  /* ───── Tier 2 — project landing (cards grid above KPI strip) ───── */
+  .tier2-cards { padding:14px 20px 0; display:flex; flex-direction:column;
+                 gap:12px; background: var(--panel); }
+  .sched-card, .resource-card { background: var(--panel); border:1px solid var(--border);
+                                border-radius:6px; padding:14px 16px; }
+  .card-h { display:flex; align-items:baseline; justify-content:space-between;
+            gap:12px; margin-bottom:10px; }
+  .card-title { font-size:13px; font-weight:800; letter-spacing:.03em;
+                color: var(--text); text-transform:uppercase; }
+  .card-sub { font-size:11px; color: var(--muted); }
+  .sched-timeline { display:grid; grid-template-columns: repeat(6, 1fr);
+                    gap:6px; margin-top:4px; }
+  .sched-pip { padding:10px 8px; border-radius:4px; text-align:center;
+               border:1px solid var(--border); background: var(--panel); }
+  .sched-pip-name { font-size:10px; font-weight:800; letter-spacing:.05em;
+                    color: var(--text); }
+  .sched-pip-date { font-size:11px; color: var(--muted); margin-top:3px;
+                    font-variant-numeric: tabular-nums; }
+  .sched-pip.sched-past   { background: var(--accent-bg); border-color: var(--accent-ink); }
+  .sched-pip.sched-past   .sched-pip-name { color: var(--accent-ink); }
+  .sched-pip.sched-future { background:#f8fafc; }
+  .sched-note { margin-top:10px; padding:8px 10px; font-size:11px;
+                color: var(--muted); background:#fffbeb; border-left:3px solid #d97706;
+                border-radius:3px; }
+  .resource-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+                   gap:12px; margin-top:4px; }
+  .resource-stat { padding:10px 12px; background: var(--header);
+                   border-radius:4px; }
+  .resource-stat-val { font-size:20px; font-weight:800;
+                       color: var(--text); font-variant-numeric: tabular-nums; }
+  .resource-stat-lbl { font-size:10px; color: var(--muted); text-transform:uppercase;
+                       letter-spacing:.04em; margin-top:2px; }
+  .resource-note { margin-top:8px; font-size:11px; color: var(--muted); }
+  .muted { color: var(--muted); }
+
+  @media print {
+    .scope-pills, .filter-pills, .filters { display:none; }
+    body { background:#fff; }
+    .proj-card { break-inside: avoid; }
+  }
 
   /* Discipline cards — one per enabled discipline (PD / DFT / DV).
      Cards sit above the KPI strip and link to each discipline's running
@@ -2245,6 +2390,448 @@ def _render_discipline_cards(project):
         out.append('  </div>')
     out.append('</section>')
     return '\n'.join(out)
+
+
+# ─── Tier 1 — all-projects grid ──────────────────────────────────────────────
+#
+# The daemon is per-project, but Tier 1 shows every project from
+# master_projects.json. For each project card we probe the sibling daemon
+# (via state_paths.sibling_daemon_url) + the sibling tracker.db (read-only
+# summary SELECT) to populate verdict counts + freshness. A short-TTL cache
+# keeps hot-reloads from fanning out N × SQLite connects.
+
+import time as _time
+import threading as _threading
+import sqlite3 as _sqlite3
+
+_SIBLING_SUMMARY_CACHE = {}  # project -> (snapshot_dict, mtime, ts)
+_SIBLING_SUMMARY_LOCK = _threading.Lock()
+_SIBLING_SUMMARY_TTL = 5.0  # seconds
+
+
+def _sibling_project_summary(project_name):
+    """Return a dict of {run_count, pass, cond, blocked, unknown,
+    latest_published_at} for `project_name`'s sibling tracker.db.
+    Returns an empty dict when the DB doesn't exist. Caches 5s to avoid
+    fan-out when the Tier 1 page is reloaded in a hot loop."""
+    with _SIBLING_SUMMARY_LOCK:
+        cached = _SIBLING_SUMMARY_CACHE.get(project_name)
+    db_path = state_paths.sibling_tracker_db(project_name)
+    if not db_path:
+        return {}
+    try:
+        mtime = os.path.getmtime(db_path)
+    except OSError:
+        return {}
+    now = _time.monotonic()
+    if cached:
+        snap, cached_mtime, cached_ts = cached
+        if cached_mtime == mtime and (now - cached_ts) < _SIBLING_SUMMARY_TTL:
+            return snap
+    try:
+        conn = _sqlite3.connect(f'file:{db_path}?mode=ro', uri=True)
+    except _sqlite3.Error:
+        return {}
+    try:
+        try:
+            row = conn.execute("""
+                SELECT COUNT(*) AS total,
+                       SUM(verdict='PASS')        AS n_pass,
+                       SUM(verdict='CONDITIONAL') AS n_cond,
+                       SUM(verdict='BLOCKED')     AS n_blocked,
+                       SUM(verdict='UNKNOWN' OR verdict IS NULL) AS n_unknown,
+                       MAX(published_at)          AS latest
+                FROM published_runs WHERE project=?
+            """, (project_name,)).fetchone()
+        except _sqlite3.OperationalError:
+            return {}
+    finally:
+        conn.close()
+    snap = {
+        'run_count': int(row[0] or 0),
+        'pass':      int(row[1] or 0),
+        'cond':      int(row[2] or 0),
+        'blocked':   int(row[3] or 0),
+        'unknown':   int(row[4] or 0),
+        'latest':    row[5] or '',
+    }
+    with _SIBLING_SUMMARY_LOCK:
+        _SIBLING_SUMMARY_CACHE[project_name] = (snap, mtime, now)
+    return snap
+
+
+def _render_tier1(self_project, scope):
+    """All-projects landing. `self_project` is the daemon's own project
+    (used for the header link); `scope` is 'active' / 'archived' / 'all'."""
+    try:
+        import sys as _sys, os as _os
+        _utils = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+        _cmds = _os.path.join(_utils, 'commands')
+        for _p in (_utils, _cmds):
+            if _p not in _sys.path:
+                _sys.path.insert(0, _p)
+        from tcl_config_parser import (
+            _load_master_projects, get_project_disciplines,
+        )
+        data = _load_master_projects()
+    except Exception as e:
+        return _render_tier_stub(
+            self_project,
+            'Tier 1 — could not load master_projects.json',
+            hint=str(e), variant='offline')
+    all_projects = list((data.get('projects') or {}).values())
+
+    def _status_of(entry):
+        return (entry.get('status') or 'active').lower()
+
+    counts = {'active': 0, 'archived': 0, 'all': len(all_projects)}
+    for p in all_projects:
+        s = _status_of(p)
+        if s == 'active':   counts['active'] += 1
+        if s == 'archived': counts['archived'] += 1
+
+    if scope == 'all':
+        visible = all_projects
+    else:
+        visible = [p for p in all_projects if _status_of(p) == scope]
+
+    # Sort — active-first, then by nearest tapeout_date ascending
+    def _sort_key(p):
+        s = _status_of(p)
+        order = {'active': 0, 'paused': 1, 'archived': 2}.get(s, 3)
+        return (order, p.get('tapeout_date') or '9999-99-99', p.get('name'))
+    visible.sort(key=_sort_key)
+
+    cards_html = []
+    for entry in visible:
+        pname = entry.get('name') or ''
+        status = _status_of(entry)
+        tech = entry.get('technology') or '—'
+        tapeout = entry.get('tapeout_date') or ''
+        tapeout_str, tapeout_weeks = _tapeout_info_safe(tapeout)
+        chip_lead = entry.get('chip_lead') or '—'
+        description = entry.get('description') or ''
+        try:
+            discs = get_project_disciplines(pname)
+        except Exception:
+            discs = []
+        summary = _sibling_project_summary(pname)
+        pass_n = summary.get('pass', 0)
+        cond_n = summary.get('cond', 0)
+        block_n = summary.get('blocked', 0)
+        unk_n = summary.get('unknown', 0)
+        total_n = summary.get('run_count', 0)
+        latest = summary.get('latest', '')
+        daemon_url = state_paths.sibling_daemon_url(pname) if pname != self_project else '/'
+        # Status pill styling
+        pill_cls = {
+            'active':   'pill-active',
+            'archived': 'pill-archived',
+            'paused':   'pill-paused',
+        }.get(status, 'pill-active')
+        card_disc_badges = ''.join(
+            f'<span class="disc-chip disc-{d.lower()}">{html.escape(d)}</span>'
+            for d in discs)
+        verdict_mini = (
+            '<span class="vdot vp" title="PASS">●</span>'
+            f'<span class="vn">{pass_n}</span>'
+            '<span class="vdot vc" title="CONDITIONAL">●</span>'
+            f'<span class="vn">{cond_n}</span>'
+            '<span class="vdot vb" title="BLOCKED">●</span>'
+            f'<span class="vn">{block_n}</span>'
+            '<span class="vdot vu" title="UNKNOWN">●</span>'
+            f'<span class="vn">{unk_n}</span>'
+        ) if total_n > 0 else '<span class="muted">No publishes yet</span>'
+        href = f'/project/{html.escape(pname, quote=True)}'
+        card_html = (
+            f'<a class="proj-card" href="{href}" data-status="{status}">'
+            f'  <div class="proj-head">'
+            f'    <div class="proj-name">{html.escape(pname)}</div>'
+            f'    <span class="status-pill {pill_cls}">{html.escape(status.upper())}</span>'
+            f'  </div>'
+            f'  <div class="proj-desc">{html.escape(description)}</div>'
+            f'  <div class="proj-meta">'
+            f'    <span class="proj-meta-key">Lead</span> '
+            f'    <span class="proj-meta-val">{html.escape(chip_lead)}</span>'
+            f'    <span class="proj-meta-dot">·</span>'
+            f'    <span class="proj-meta-key">Tech</span> '
+            f'    <span class="proj-meta-val">{html.escape(tech)}</span>'
+            f'  </div>'
+            f'  <div class="proj-meta">'
+            f'    <span class="proj-meta-key">Tapeout</span> '
+            f'    <span class="proj-meta-val">{html.escape(tapeout_str)}</span>'
+            f'    <span class="proj-meta-dot">·</span>'
+            f'    <span class="proj-meta-val">{html.escape(str(tapeout_weeks))} wks</span>'
+            f'  </div>'
+            f'  <div class="proj-discs">{card_disc_badges}</div>'
+            f'  <div class="proj-verdicts">{verdict_mini}</div>'
+            f'  <div class="proj-foot">'
+            f'    <span class="proj-latest">Latest: {html.escape(latest[:19] or "—")}</span>'
+            f'  </div>'
+            f'</a>'
+        )
+        cards_html.append(card_html)
+
+    # Toggle UI
+    toggle_html = (
+        '<nav class="scope-pills" aria-label="Project scope">'
+        f'  <a href="?status=active"   class="scope-pill {"on" if scope=="active"   else ""}">Active <span class="n">{counts["active"]}</span></a>'
+        f'  <a href="?status=archived" class="scope-pill {"on" if scope=="archived" else ""}">Archived <span class="n">{counts["archived"]}</span></a>'
+        f'  <a href="?status=all"      class="scope-pill {"on" if scope=="all"      else ""}">All <span class="n">{counts["all"]}</span></a>'
+        '</nav>'
+    )
+
+    body_class = 'tier1'
+    heading = {
+        'active':   'Active projects',
+        'archived': 'Archived projects',
+        'all':      'All projects',
+    }.get(scope, 'Projects')
+
+    empty_html = ''
+    if not visible:
+        empty_html = (
+            '<div class="empty">'
+            f'No {html.escape(scope)} projects to show. '
+            'Toggle the pills above to switch scope.'
+            '</div>')
+
+    developed_by = 'SmartSoC CAD · Varun Reddy Merugu'
+
+    return ''.join([
+        '<!DOCTYPE html><html><head>',
+        '<meta charset="utf-8">',
+        f'<title>CBflow-SmartGrid — {html.escape(heading)}</title>',
+        _STYLE,
+        _SCRIPT_RELOAD_ON_FOCUS,
+        '</head><body class="', body_class, '">',
+        '<header class="bar">',
+        f'  <div class="brand">CBflow<span class="lite">-SmartGrid</span>'
+        f'       <span class="lite" style="margin-left:8px;color:#0000FF;'
+        f'             font-weight:700;">· SmartSoC</span></div>',
+        '  <div class="proj"><a href="/">All projects</a></div>',
+        f'  <div class="byline">{html.escape(developed_by)} &middot; '
+        f'<a href="mailto:varun@smartsocs.com" '
+        f'style="color:inherit;text-decoration:underline">varun@smartsocs.com'
+        f'</a></div>',
+        '</header>',
+        '<section class="tier1-ctrl">',
+        f'  <h1 class="tier1-h1">{html.escape(heading)}</h1>',
+        toggle_html,
+        '</section>',
+        empty_html,
+        '<section class="proj-cards">', *cards_html, '</section>',
+        '</body></html>',
+    ])
+
+
+def _tapeout_info_safe(iso):
+    """Best-effort tapeout countdown. Returns (display_str, weeks_int)."""
+    if not iso:
+        return ('no date', 0)
+    try:
+        from datetime import date
+        t = date.fromisoformat(iso)
+        delta = (t - date.today()).days
+        weeks = max(0, (delta + 6) // 7)
+        return (iso, weeks)
+    except Exception:
+        return (iso, 0)
+
+
+# ─── Tier 2 — project landing (discipline + schedule + resource) ─────────────
+
+
+def _render_schedule_card(project, info):
+    """Schedule card for Tier 2.
+
+    Reads milestone_targets from master_projects.json (preferred) or
+    falls back to even-spacing across project_start_date → tapeout_date.
+    Marks fallback dates as 'estimated' so customers don't mistake them
+    for committed targets.
+    """
+    try:
+        import sys as _sys, os as _os
+        _utils = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+        _cmds = _os.path.join(_utils, 'commands')
+        for _p in (_utils, _cmds):
+            if _p not in _sys.path:
+                _sys.path.insert(0, _p)
+        from tcl_config_parser import _load_master_projects
+        data = _load_master_projects()
+        entry = (data.get('projects') or {}).get(project, {})
+    except Exception:
+        entry = {}
+    tapeout_iso = entry.get('tapeout_date') or info.get('tapeout_date') or ''
+    start_iso = entry.get('project_start_date') or ''
+    tapeout_str, tapeout_weeks = _tapeout_info_safe(tapeout_iso)
+    targets = entry.get('milestone_targets') or {}
+    estimated = False
+    if not targets and start_iso and tapeout_iso:
+        try:
+            from datetime import date, timedelta
+            s = date.fromisoformat(start_iso)
+            t = date.fromisoformat(tapeout_iso)
+            step = (t - s).days / (len(_MILESTONES) + 1)
+            targets = {m: (s + timedelta(days=round(step * (i + 1)))).isoformat()
+                       for i, m in enumerate(_MILESTONES)}
+            estimated = True
+        except Exception:
+            targets = {}
+
+    from datetime import date as _d
+    today = _d.today().isoformat()
+    pips = []
+    for m in _MILESTONES:
+        tgt = targets.get(m) or ''
+        state = 'future'
+        if tgt and tgt < today:
+            state = 'past'
+        pips.append(
+            f'<div class="sched-pip sched-{state}">'
+            f'  <div class="sched-pip-name">{html.escape(m)}</div>'
+            f'  <div class="sched-pip-date">{html.escape(tgt[:10] or "—")}</div>'
+            '</div>')
+    note = ''
+    if estimated:
+        note = (
+            '<div class="sched-note">Target dates estimated from '
+            '<code>project_start_date</code> + <code>tapeout_date</code> '
+            '(even-spacing). Add <code>milestone_targets</code> to '
+            '<code>master_projects.json</code> for authoritative dates.</div>')
+    return (
+        '<section class="sched-card">'
+        '  <div class="card-h"><div class="card-title">Schedule</div>'
+        f'  <div class="card-sub">Tapeout {html.escape(tapeout_str)} · '
+        f'{html.escape(str(tapeout_weeks))} weeks</div></div>'
+        '  <div class="sched-timeline">'
+        f'    {"".join(pips)}'
+        '  </div>'
+        f'  {note}'
+        '</section>')
+
+
+def _render_resource_card(project):
+    """Resource card for Tier 2.
+
+    Renders a placeholder structure that the inline JS fills from
+    /api/resources?project=<name> on first paint — the aggregation
+    walks each recent RACE DB file, which may be slow (~10-50ms per
+    DB). Loading async keeps first paint fast.
+    """
+    return (
+        '<section class="resource-card">'
+        '  <div class="card-h"><div class="card-title">Resources</div>'
+        '  <div class="card-sub">LSF usage · last 20 published runs</div></div>'
+        '  <div class="resource-grid" id="resource-grid">'
+        '    <div class="resource-stat">'
+        '      <div class="resource-stat-val" id="rs-jobs">…</div>'
+        '      <div class="resource-stat-lbl">Jobs tracked</div>'
+        '    </div>'
+        '    <div class="resource-stat">'
+        '      <div class="resource-stat-val" id="rs-cost">…</div>'
+        '      <div class="resource-stat-lbl">Est. cost (USD)</div>'
+        '    </div>'
+        '    <div class="resource-stat">'
+        '      <div class="resource-stat-val" id="rs-cpu">…</div>'
+        '      <div class="resource-stat-lbl">CPU hours</div>'
+        '    </div>'
+        '    <div class="resource-stat">'
+        '      <div class="resource-stat-val" id="rs-queues">…</div>'
+        '      <div class="resource-stat-lbl">Queue tiers used</div>'
+        '    </div>'
+        '  </div>'
+        '  <div class="resource-note" id="rs-note">Loading…</div>'
+        '  <script>'
+        '    (function() {'
+        f'      var proj = {json.dumps(project)};'
+        '      fetch("/api/resources?project=" + encodeURIComponent(proj))'
+        '        .then(function(r){return r.json()})'
+        '        .then(function(j){'
+        '          document.getElementById("rs-jobs").textContent  = j.jobs ?? "0";'
+        '          document.getElementById("rs-cost").textContent  = j.cost_est ? "$" + j.cost_est.toFixed(0) : "—";'
+        '          document.getElementById("rs-cpu").textContent   = j.cpu_hours ? j.cpu_hours.toFixed(1) : "0";'
+        '          document.getElementById("rs-queues").textContent = (j.queue_tiers || []).join(" · ") || "—";'
+        '          document.getElementById("rs-note").textContent = '
+        '            "Last " + (j.run_count || 0) + " runs tracked";'
+        '        })'
+        '        .catch(function(e){'
+        '          document.getElementById("rs-note").textContent = "Resource data unavailable";'
+        '        });'
+        '    })();'
+        '  </script>'
+        '</section>')
+
+
+def _aggregate_resources(race_db_paths):
+    """SUM lsf_details across a list of RACE DB files, read-only, best-effort.
+
+    Returns {jobs, cost_est, cpu_hours, queue_tiers}. Skips any DB that
+    doesn't open or doesn't have the table. Used by _api_resources.
+    """
+    import sqlite3 as _sq3
+    total_jobs = 0
+    total_cost = 0.0
+    total_cpu_sec = 0.0
+    queue_tiers = set()
+    for db_path in race_db_paths:
+        try:
+            conn = _sq3.connect(f'file:{db_path}?mode=ro', uri=True)
+        except _sq3.Error:
+            continue
+        try:
+            try:
+                rows = conn.execute(
+                    "SELECT COUNT(*), "
+                    "       SUM(COALESCE(cost_estimate, 0)), "
+                    "       SUM(COALESCE(actual_cpu_time_sec, 0)) "
+                    "FROM lsf_details").fetchone()
+                if rows:
+                    total_jobs += int(rows[0] or 0)
+                    total_cost += float(rows[1] or 0.0)
+                    total_cpu_sec += float(rows[2] or 0.0)
+                for r in conn.execute(
+                        "SELECT DISTINCT resource_tier FROM lsf_details "
+                        "WHERE resource_tier IS NOT NULL AND resource_tier != ''"):
+                    queue_tiers.add(r[0])
+            except _sq3.OperationalError:
+                pass
+        finally:
+            conn.close()
+    return {
+        'jobs':         total_jobs,
+        'cost_est':     round(total_cost, 2),
+        'cpu_hours':    round(total_cpu_sec / 3600.0, 2),
+        'queue_tiers':  sorted(queue_tiers),
+    }
+
+
+def _render_tier2(project, info, blocks, published_rows):
+    """Project landing — Discipline + Schedule + Resource cards, with the
+    existing published-runs grid below for drill-in context.
+
+    Returns a full HTML page. Reuses the existing _render_index chrome +
+    "Runs" table from the old index page; prepends the three cards.
+    """
+    disc_cards = _render_discipline_cards(project)
+    sched_card = _render_schedule_card(project, info or {})
+    res_card = _render_resource_card(project)
+    # Delegate the published-runs table + KPI strip to the existing
+    # _render_index — we just inject the three new cards before the KPI
+    # strip. The chunk-stitching keeps the renderer monolithic without
+    # duplicating 300 lines of table/filter rendering.
+    inner = _render_index(project, info, blocks, published_rows)
+    # Replace the title + inject the project cards after </header>.
+    inner = inner.replace(
+        '</header>',
+        '</header>'
+        + '<section class="tier2-cards">'
+        + disc_cards + sched_card + res_card
+        + '</section>', 1)
+    inner = inner.replace(
+        f'<title>CBflow-ProjectDashboard — {html.escape(project)}</title>',
+        f'<title>CBflow-SmartGrid — {html.escape(project)}</title>', 1)
+    return inner
 
 
 def _render_index(project, info, blocks, published_rows):
