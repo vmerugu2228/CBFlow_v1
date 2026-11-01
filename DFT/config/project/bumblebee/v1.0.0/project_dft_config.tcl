@@ -25,6 +25,16 @@ set project(root_dir) $ROOT_DIR
 
 set project(workarea_path) "/Users/vmerugu/projects/CBflow_clone/workarea"
 
+# Library root + tech selection — DFT (ATPG, SCAN_INSERT, GLS_SCAN_MBIST)
+# needs library views for scan chain analysis + pattern simulation.
+# tech_config.tcl references $project(lib_root) at source-time, so this
+# MUST be set before the tech cascade runs. Keep in sync with the PD +
+# DV overlays so the full-tree clone sees consistent values.
+set project(lib_root) "/tmp/test_libs/gf_22nm"
+set project(track_variant) "9T"
+set project(metal_stack) "11M"
+set project(lib_config_tag) "LIB01"
+
 set project(race,db_path) "/Users/vmerugu/projects/CBflow_clone/.race_area"
 
 set project(release,path) "/Users/vmerugu/projects/CBflow_clone/test_releases"

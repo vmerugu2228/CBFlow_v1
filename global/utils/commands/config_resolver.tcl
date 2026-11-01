@@ -154,10 +154,14 @@ if {[file exists $_release_cfg]} {
     }
 }
 
-# ── 3a. project configs — global (identity) + PD overlay (workarea/release) ──
+# ── 3a. project configs — global (identity) + per-discipline overlays ──
 # Sourced BEFORE tech because tech configs reference $project(lib_root) etc.
 # The identity half (global) provides project(technology|top_module|...);
-# the PD overlay provides project(lib_root|workarea_path|metal_stack|...).
+# each discipline overlay provides project(lib_root|workarea_path|...)
+# — the discipline overlay files are symmetric siblings. In a full-tree
+# clone all three attach (PD last → wins on conflicts); in a sparse clone
+# (DFT or DV only), only the owner's overlay is on disk and is the
+# authoritative source for cross-discipline keys like workarea_path.
 set _proj_srcs [list]
 if {!$_no_run} {
     set _proj_name [expr {[info exists ::env(CBFLOW_PROJECT_NAME)] ? $::env(CBFLOW_PROJECT_NAME) : ""}]
@@ -170,10 +174,22 @@ if {!$_no_run} {
                 lappend _proj_srcs "global_project:$_gp"
             }
         }
-        set _pp "$config_root/project/$_proj_name/$_proj_ver/project_pd_config.tcl"
-        if {[file exists $_pp]} {
-            source $_pp
-            lappend _proj_srcs "pd_project:$_pp"
+        # Walk every discipline root for its project overlay. _cbflow_paths.sh
+        # exports CBFLOW_<DISC>_DIR only when the directory exists, so each
+        # overlay only attaches when its tree is on disk.
+        foreach {_env_var _overlay_name} {
+                CBFLOW_DFT_DIR  project_dft_config.tcl
+                CBFLOW_DV_DIR   project_dv_config.tcl
+                CBFLOW_CORE_DIR project_pd_config.tcl
+        } {
+            if {![info exists ::env($_env_var)]} { continue }
+            set _root $::env($_env_var)
+            if {![file isdirectory $_root]} { continue }
+            set _ovl "$_root/config/project/$_proj_name/$_proj_ver/$_overlay_name"
+            if {[file exists $_ovl]} {
+                source $_ovl
+                lappend _proj_srcs "disc_project:$_ovl"
+            }
         }
     }
 }

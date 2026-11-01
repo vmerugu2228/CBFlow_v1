@@ -52,7 +52,20 @@ class DataProvider:
         return {'projects': {}}
 
     def get_releases(self) -> list:
-        releases_dir = self.core_dir / 'releases'
+        # Releases moved to <global>/releases/ on 2026-11-01. Prefer the
+        # global location; fall back to the legacy PD/releases/ when the
+        # dashboard is pointed at an older install.
+        import sys as _sys, os as _os
+        _cmds = _os.path.join(_os.path.dirname(_os.path.dirname(
+            _os.path.abspath(__file__))), 'commands')
+        if _cmds not in _sys.path:
+            _sys.path.insert(0, _cmds)
+        try:
+            from core.paths import get_cbflow_releases_dir
+            _found = get_cbflow_releases_dir()
+            releases_dir = Path(_found) if _found else (self.core_dir / 'releases')
+        except Exception:
+            releases_dir = self.core_dir / 'releases'
         releases = []
         if releases_dir.exists():
             for d in sorted(releases_dir.iterdir(), reverse=True):

@@ -715,6 +715,32 @@ def get_cbflow_global_dir() -> str:
     return ''
 
 
+def get_cbflow_releases_dir() -> str:
+    """Resolve the CBflow releases directory (<global>/releases).
+
+    Releases pin cross-discipline toolchain versions (RACE engine,
+    handler framework, utilities) — the artifact is PD/DFT/DV-agnostic,
+    so it lives under global/ since 2026-11-01. A legacy PD/releases/
+    directory is still honored for back-compat with older installs that
+    haven't been migrated.
+
+    Returns '' if neither location exists.
+    """
+    gdir = get_cbflow_global_dir()
+    if gdir:
+        cand = os.path.join(gdir, 'releases')
+        if os.path.isdir(cand):
+            return cand
+    try:
+        core = get_cbflow_core_dir()
+        cand = os.path.join(core, 'releases')
+        if os.path.isdir(cand):
+            return cand
+    except ValueError:
+        pass
+    return ''
+
+
 def get_global_config_root() -> str:
     """Get the global config root (<global>/config) or '' if global not set up."""
     gdir = get_cbflow_global_dir()

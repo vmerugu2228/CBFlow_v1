@@ -559,6 +559,13 @@ def _build_env_from_user_config(config_file: str) -> dict:
         # For the error message below, name whichever file we *would* prefer.
         proj_config_file = next((c for c in proj_candidates if c), '')
 
+    # Releases moved from PD/releases → global/releases on 2026-11-01
+    # (cross-discipline toolchain pin). get_cbflow_releases_dir() prefers
+    # the global location; falls back to the legacy PD/releases/ for
+    # back-compat with older installs.
+    from core.paths import get_cbflow_releases_dir
+    releases_dir = get_cbflow_releases_dir()
+
     # project(cbflow_release) is mandatory — no silent fallback
     if not release_version:
         logger.error("")
@@ -568,9 +575,7 @@ def _build_env_from_user_config(config_file: str) -> dict:
         logger.error("  Add to your project config:")
         logger.error(f'    set project(cbflow_release) "v1.0.0"')
         logger.error("")
-        # List available releases
-        releases_dir = os.path.join(core_dir, 'releases')
-        if os.path.isdir(releases_dir):
+        if releases_dir and os.path.isdir(releases_dir):
             avail = sorted([d for d in os.listdir(releases_dir)
                            if d.startswith('v') and os.path.isdir(os.path.join(releases_dir, d))])
             if avail:
@@ -579,11 +584,19 @@ def _build_env_from_user_config(config_file: str) -> dict:
         return None
 
     # Validate release exists
-    release_dir = os.path.join(core_dir, 'releases', release_version)
+    if not releases_dir:
+        from core.paths import get_cbflow_global_dir as _get_gdir
+        _gdir = _get_gdir() or '<global/ not set up>'
+        logger.error("")
+        logger.error("  No releases/ directory found. Expected at:")
+        logger.error(f"    {_gdir}/releases/  (preferred)")
+        logger.error(f"    {core_dir}/releases/                 (legacy)")
+        logger.error("")
+        return None
+    release_dir = os.path.join(releases_dir, release_version)
     if not os.path.isdir(release_dir):
         logger.error("")
         logger.error(f"  Release '{release_version}' not found at: {release_dir}")
-        releases_dir = os.path.join(core_dir, 'releases')
         avail = sorted([d for d in os.listdir(releases_dir)
                        if d.startswith('v') and os.path.isdir(os.path.join(releases_dir, d))])
         if avail:
@@ -593,7 +606,7 @@ def _build_env_from_user_config(config_file: str) -> dict:
 
     # Load component versions from release
     versions = {}
-    release_file = os.path.join(core_dir, 'releases', release_version, 'release_versions.tcl')
+    release_file = os.path.join(releases_dir, release_version, 'release_versions.tcl')
     if os.path.exists(release_file):
         with open(release_file, 'r') as f:
             for line in f:

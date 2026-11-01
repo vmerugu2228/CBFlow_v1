@@ -31,9 +31,23 @@ logger = configure_logging('cbflow.release')
 
 
 def get_releases_dir() -> Path:
-    """Get the releases directory (top-level, global scope)."""
-    core_dir = get_cbflow_core_dir()
-    releases_dir = Path(core_dir) / 'releases'
+    """Get the releases directory (top-level, global scope).
+
+    Releases moved to <global>/releases/ on 2026-11-01 — toolchain
+    pinning is cross-discipline, so it belongs with the shared layer.
+    Legacy <core>/releases/ is still honored for back-compat with
+    pre-migration installs.
+    """
+    from core.paths import get_cbflow_releases_dir, get_cbflow_global_dir
+    found = get_cbflow_releases_dir()
+    if found:
+        return Path(found)
+    # Nothing on disk yet — create under global if available, else fall
+    # back to core/ so the first-ever write (bootstrap on a new install)
+    # still succeeds.
+    gdir = get_cbflow_global_dir()
+    base = gdir if gdir else get_cbflow_core_dir()
+    releases_dir = Path(base) / 'releases'
     releases_dir.mkdir(parents=True, exist_ok=True)
     return releases_dir
 

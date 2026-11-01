@@ -198,7 +198,22 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
 
             if {[info exists ::env(FLOW_DIR)]} {
                 set flow_dir $::env(FLOW_DIR)
-                set node_config_path "$flow_dir/config/flow/$::env(FLOW_CONFIG_VERSION)/node_configs/$config_file"
+                # Route to the discipline that owns this flow — in a sparse
+                # clone the other disciplines' trees aren't on disk.
+                set _disc_root $flow_dir
+                if {[info exists ::flow(discipline,$flow_type)]} {
+                    set _disc_up [string toupper $::flow(discipline,$flow_type)]
+                    set _disc_env "CBFLOW_${_disc_up}_DIR"
+                    if {[info exists ::env($_disc_env)] && [file isdirectory $::env($_disc_env)]} {
+                        set _disc_root $::env($_disc_env)
+                    } else {
+                        set _disc_root "$flow_dir/$::flow(discipline,$flow_type)"
+                    }
+                } else {
+                    # Legacy flat layout — flow_dir IS the PD root
+                    set _disc_root $flow_dir
+                }
+                set node_config_path "$_disc_root/config/flow/$::env(FLOW_CONFIG_VERSION)/node_configs/$config_file"
 
                 if {[file exists $node_config_path]} {
                     if {[catch {
@@ -590,9 +605,22 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
             }
         }
 
-        # 5. Flow Configuration
-        lappend config_files [list "flow_config" "$config_root/flow/$flow_config_ver/flow_config.tcl"]
-        lappend config_files [list "node_config_${flow_type}" "$config_root/flow/$flow_config_ver/node_configs/${flow_type}_config.tcl"]
+        # 5. Flow Configuration — discipline-routed
+        # flow_config.tcl and node_configs/<FLOW>_config.tcl live under
+        # <discipline>/config/flow/ (PD, DFT, DV each own their own).
+        # config_root points at PD by default; in a sparse DFT/DV clone PD
+        # isn't on disk, so route to the discipline that actually owns
+        # this flow_type.
+        set _disc_cfg_root $config_root
+        if {[info exists ::flow(discipline,$flow_type)]} {
+            set _disc_up [string toupper $::flow(discipline,$flow_type)]
+            set _disc_env "CBFLOW_${_disc_up}_DIR"
+            if {[info exists ::env($_disc_env)] && [file isdirectory $::env($_disc_env)]} {
+                set _disc_cfg_root "$::env($_disc_env)/config"
+            }
+        }
+        lappend config_files [list "flow_config" "$_disc_cfg_root/flow/$flow_config_ver/flow_config.tcl"]
+        lappend config_files [list "node_config_${flow_type}" "$_disc_cfg_root/flow/$flow_config_ver/node_configs/${flow_type}_config.tcl"]
 
         # 6. MMMC Configuration (per project — moved to global in Phase 3)
         if {$project_name ne ""} {

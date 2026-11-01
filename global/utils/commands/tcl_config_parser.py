@@ -81,16 +81,45 @@ def _resolved(flow_type: str, run_dir: Optional[str] = None) -> Dict[str, str]:
 # ─── Flow-level accessors (read from `flow_config.tcl` + descriptions) ────
 
 
+def _baseline_flow() -> str:
+    """Pick a flow whose discipline is present on this checkout, for use
+    as the resolver vehicle when reading cross-domain keys (flow_registry,
+    project, tech — all of which live in global/).
+
+    SYNTH is preferred because every PD install ships it. In a DFT or DV
+    sparse-checkout clone where PD/ isn't on disk, SYNTH's flow_config.tcl
+    can't be sourced; fall back to the first flow of whichever discipline
+    IS available. Only the flow(*) + project(*) + tech(*) keys are read —
+    the choice of baseline doesn't affect the result as long as its
+    config files are resolvable.
+    """
+    import os
+    preferences = [
+        ('CBFLOW_CORE_DIR', 'SYNTH'),       # PD
+        ('CBFLOW_DFT_DIR',  'DFT_INSERT'),  # DFT
+        ('CBFLOW_DV_DIR',   'SPEC_RAMP'),   # DV
+    ]
+    for env_var, flow in preferences:
+        root = os.environ.get(env_var, '').strip()
+        # CBFLOW_CORE_DIR is set unconditionally by _cbflow_paths.sh (even
+        # if PD/ isn't on disk), so verify the directory actually exists.
+        # Otherwise a DV-only clone picks SYNTH and the resolver blows up
+        # on the missing PD/config/flow/flow_config.tcl.
+        if root and os.path.isdir(root):
+            return flow
+    return 'SYNTH'
+
+
 def get_flow_types() -> List[str]:
     """Every flow type the framework knows about (from `flow(types)`)."""
-    # SYNTH is the canonical baseline flow — every install ships it. Using it
-    # as the resolver vehicle is arbitrary; only flow(*) keys matter here.
-    cfg = _resolved('SYNTH', run_dir=None)
+    # Baseline is any flow whose discipline is on disk — only flow(*) keys
+    # matter here, not the specific flow's node_config.
+    cfg = _resolved(_baseline_flow(), run_dir=None)
     return _parse_tcl_list(_cfg.optional(cfg, 'flow(types)') or '')
 
 
 def get_flow_descriptions() -> Dict[str, str]:
-    cfg = _resolved('SYNTH', run_dir=None)
+    cfg = _resolved(_baseline_flow(), run_dir=None)
     out: Dict[str, str] = {}
     prefix = 'flow_descriptions('
     for key, val in cfg.items():
@@ -107,7 +136,7 @@ def get_disciplines() -> List[str]:
     disciplines. Empty list if the discipline map isn't declared (pre-refactor
     installs) — callers should treat that as 'PD-only' semantically.
     """
-    cfg = _resolved('SYNTH', run_dir=None)
+    cfg = _resolved(_baseline_flow(), run_dir=None)
     return _parse_tcl_list(_cfg.optional(cfg, 'flow(disciplines)') or '')
 
 
@@ -118,7 +147,7 @@ def get_flow_discipline(flow_type: str) -> str:
     where flow(discipline,*) isn't declared). Callers should default to 'PD'
     in that case for back-compat.
     """
-    cfg = _resolved('SYNTH', run_dir=None)
+    cfg = _resolved(_baseline_flow(), run_dir=None)
     val = _cfg.optional(cfg, f'flow(discipline,{flow_type})')
     return _parse_tcl_string(val) if val else ''
 
@@ -138,13 +167,16 @@ def is_discipline_available(discipline: str) -> bool:
     Sparse-checkout profiles (cbflow-git-bootstrap) materialize only the
     owner's discipline + global/. _cbflow_paths.sh exports CBFLOW_<DISC>_DIR
     only if the directory exists, so a missing env var signals absence.
-    PD is always available — cbflow refuses to run without it.
+    Even PD can be absent in a DV-only or DFT-only sparse clone — don't
+    assume it.
     """
-    disc = discipline.upper()
-    if disc == 'PD':
-        return True
     import os
-    return bool(os.environ.get(f'CBFLOW_{disc}_DIR'))
+    disc = discipline.upper()
+    env_var = 'CBFLOW_CORE_DIR' if disc == 'PD' else f'CBFLOW_{disc}_DIR'
+    root = os.environ.get(env_var, '').strip()
+    if not root:
+        return False
+    return os.path.isdir(root)
 
 
 def get_available_flow_types() -> List[str]:
@@ -164,7 +196,7 @@ def get_phases(run_dir: Optional[str] = None) -> List[str]:
     its own — that fallback keeps older configs working during migration
     and should be removed once every project sets project(phases).
     """
-    cfg = _resolved('SYNTH', run_dir=run_dir)
+    cfg = _resolved(_baseline_flow(), run_dir=run_dir)
     return _parse_tcl_list(
         _cfg.optional(cfg, 'project(phases)') or
         _cfg.optional(cfg, 'flow(phases)') or ''
@@ -172,7 +204,7 @@ def get_phases(run_dir: Optional[str] = None) -> List[str]:
 
 
 def get_phase_descriptions() -> Dict[str, str]:
-    cfg = _resolved('SYNTH', run_dir=None)
+    cfg = _resolved(_baseline_flow(), run_dir=None)
     out: Dict[str, str] = {}
     prefix = 'phase_descriptions('
     for key, val in cfg.items():
@@ -182,12 +214,12 @@ def get_phase_descriptions() -> Dict[str, str]:
 
 
 def get_exit_milestones() -> List[str]:
-    cfg = _resolved('SYNTH', run_dir=None)
+    cfg = _resolved(_baseline_flow(), run_dir=None)
     return _parse_tcl_list(_cfg.optional(cfg, 'flow(exit_milestones)') or '')
 
 
 def get_milestone_stage_mapping() -> Dict[str, str]:
-    cfg = _resolved('SYNTH', run_dir=None)
+    cfg = _resolved(_baseline_flow(), run_dir=None)
     out: Dict[str, str] = {}
     prefix = 'MILESTONE_STAGE_MAPPING('
     for key, val in cfg.items():

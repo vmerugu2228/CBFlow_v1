@@ -2054,34 +2054,40 @@ class RaceEngine:
         Example:    /proj/phoenix/cbflow_db/phoenix/PD/SYNTH_PNR/vmerugu_run0.db
         """
         project_name = self.env_vars.get('CBFLOW_PROJECT_NAME', '')
-        # Post cbflow_global utils-refactor: FLOW_DIR = umbrella root (sibling
-        # of PD/, DFT/, DV/). Project configs still live under PD/config/
-        # (PD-overlay) and global/config/ (identity+hierarchy). Prefer
-        # CBFLOW_CORE_DIR (the PD root) for building the config path; fall
-        # back to CONFIG_ROOT, then FLOW_DIR/PD for safety.
-        core_dir = self.env_vars.get('CBFLOW_CORE_DIR', '')
+        # project(race,db_path) can live in ANY discipline's project overlay —
+        # PD's project_pd_config.tcl, DV's project_dv_config.tcl, DFT's
+        # project_dft_config.tcl, or the shared global/config/project/.../
+        # project_config.tcl. In a sparse-checkout clone only the owner's
+        # overlay is on disk, so walk every discipline root the env knows
+        # about and stop at the first hit.
+        config_roots = []
+        for env_var in ('CBFLOW_CORE_DIR', 'CBFLOW_DFT_DIR', 'CBFLOW_DV_DIR'):
+            root = self.env_vars.get(env_var, '')
+            if root and os.path.isdir(root):
+                config_roots.append(os.path.join(root, 'config'))
+        # Also check global/config/project — identity file sometimes carries
+        # the DB path when the project predates per-discipline overlays.
+        global_dir = self.env_vars.get('CBFLOW_GLOBAL_DIR', '')
+        if global_dir and os.path.isdir(global_dir):
+            config_roots.append(os.path.join(global_dir, 'config'))
+
+        # Legacy fallbacks for installs that haven't been migrated.
         cfg_root = self.env_vars.get('CONFIG_ROOT', '')
         flow_dir = self.env_vars.get('FLOW_DIR', '')
-        if core_dir:
-            base_config = os.path.join(core_dir, 'config')
-        elif cfg_root:
-            # If CONFIG_ROOT already ends in /config, use as-is
-            base_config = cfg_root if os.path.basename(cfg_root.rstrip('/')) == 'config' \
-                          else os.path.join(cfg_root, 'config')
-        elif flow_dir:
-            # FLOW_DIR = umbrella root under cbflow_global — PD-overlay config
-            # lives under PD/config/.
-            _pd_cand = os.path.join(flow_dir, 'PD', 'config')
-            if os.path.isdir(_pd_cand):
-                base_config = _pd_cand
-            else:
-                base_config = os.path.join(flow_dir, 'config')
-        else:
-            base_config = ''
+        if not config_roots:
+            if cfg_root:
+                config_roots.append(cfg_root if os.path.basename(cfg_root.rstrip('/')) == 'config'
+                                    else os.path.join(cfg_root, 'config'))
+            elif flow_dir:
+                _pd_cand = os.path.join(flow_dir, 'PD', 'config')
+                config_roots.append(_pd_cand if os.path.isdir(_pd_cand)
+                                    else os.path.join(flow_dir, 'config'))
 
         db_path = ''
         cfg_hit = ''
-        if project_name and base_config:
+        for base_config in config_roots:
+            if not project_name or not base_config:
+                continue
             for ver_dir in Path(os.path.join(base_config, 'project',
                                              project_name)).glob('v*/'):
                 for cfg_file in ver_dir.glob('*_config.tcl'):
@@ -2100,6 +2106,8 @@ class RaceEngine:
                         break
                 if db_path:
                     break
+            if db_path:
+                break
 
         # ── Mandatory ─────────────────────────────────────────────────────
         if not db_path:

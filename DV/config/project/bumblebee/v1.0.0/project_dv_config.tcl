@@ -28,6 +28,21 @@ set project(root_dir) $ROOT_DIR
 # overlay isn't on disk, so this is the authoritative setting.
 set project(workarea_path) "/Users/vmerugu/projects/CBflow_clone/workarea"
 
+# Library root — DV flows need this too for GLS simulation (SDF
+# annotation, Verilog libs). tech_config.tcl references
+# $project(lib_root) at source-time, so this MUST be set before the
+# tech cascade runs even if the current DV flow is spec/lint-only.
+# Keep in sync with the PD overlay's lib_root.
+set project(lib_root) "/tmp/test_libs/gf_22nm"
+
+# Technology selection — DV reads tech(ndm) library sets for GLS
+# testbench setup. These values must match the PD overlay so a
+# full-tree clone sees the same effective config regardless of which
+# overlay sourced them last.
+set project(track_variant) "9T"
+set project(metal_stack) "11M"
+set project(lib_config_tag) "LIB01"
+
 # RACE DB — DV runs write status/metrics here too. Keep in sync with the
 # PD overlay so a dashboard pointed at this area sees both disciplines'
 # databases.

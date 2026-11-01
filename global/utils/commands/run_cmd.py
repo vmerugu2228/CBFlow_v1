@@ -1659,8 +1659,13 @@ def cmd_update(args: argparse.Namespace) -> int:
         logger.info(f"  Already at target release. No changes needed.")
         return 0
 
-    # Load target release manifest
-    releases_dir = os.path.join(flow_dir, 'releases', target_release)
+    # Load target release manifest. Releases moved to global/releases/
+    # on 2026-11-01 — prefer the global location, fall back to legacy
+    # <core>/releases/ for pre-migration installs.
+    from core.paths import get_cbflow_releases_dir
+    _r = get_cbflow_releases_dir()
+    releases_dir = os.path.join(_r, target_release) if _r \
+                   else os.path.join(flow_dir, 'releases', target_release)
     manifest_file = os.path.join(releases_dir, 'MANIFEST.json')
     if not os.path.exists(manifest_file):
         logger.error(f"  Error: Release '{target_release}' not found")
