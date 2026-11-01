@@ -187,6 +187,92 @@ def get_available_flow_types() -> List[str]:
             if is_discipline_available(get_flow_discipline(ft) or 'PD')]
 
 
+# ─── Per-project discipline helpers (reads master_projects.json) ──────────
+#
+# Projects declare which disciplines they use via
+# `enabled_flows_by_discipline` in global/config/master_projects.json. These
+# helpers surface that declaration to Python callers (cbflow-git-bootstrap,
+# project dashboard discipline cards, workspace create gate).
+
+_CANONICAL_DISCIPLINES = ('PD', 'DFT', 'DV')
+
+
+def _load_master_projects() -> Dict[str, Any]:
+    """Load global/config/master_projects.json. Returns the top-level dict.
+
+    Raises FileNotFoundError if the file isn't present on disk — expected
+    only in broken installs.
+    """
+    import json as _json
+    from core.paths import get_master_projects_path
+    p = get_master_projects_path()
+    if not p:
+        raise FileNotFoundError(
+            "master_projects.json not found — install is incomplete")
+    with open(p, encoding='utf-8') as f:
+        return _json.load(f)
+
+
+def _project_entry(project: str) -> Dict[str, Any]:
+    """Return the per-project dict for `project` from master_projects.json.
+
+    Raises KeyError when the project isn't declared — the operator-facing
+    error path for `cbflow-git-bootstrap --project <unknown>` etc.
+    """
+    data = _load_master_projects()
+    projects = data.get('projects') or {}
+    if project not in projects:
+        known = sorted(projects.keys())
+        raise KeyError(
+            f"project '{project}' not declared in master_projects.json "
+            f"(known: {', '.join(known) if known else '<none>'})")
+    return projects[project]
+
+
+def get_project_disciplines(project: str) -> List[str]:
+    """Return disciplines this project uses, in canonical PD/DFT/DV order.
+
+    A discipline is "in use" when its flow list under
+    `enabled_flows_by_discipline` is non-empty. Projects that pre-date the
+    schema v2.0 split (only `enabled_flows` present) are treated as PD-only.
+    """
+    entry = _project_entry(project)
+    by_disc = entry.get('enabled_flows_by_discipline') or {}
+    if not by_disc:
+        return ['PD'] if entry.get('enabled_flows') else []
+    out = []
+    for d in _CANONICAL_DISCIPLINES:
+        if by_disc.get(d):
+            out.append(d)
+    return out
+
+
+def get_project_enabled_flows(project: str, discipline: str) -> List[str]:
+    """Return the flow list this project enables for the given discipline."""
+    disc = discipline.upper()
+    if disc not in _CANONICAL_DISCIPLINES:
+        raise ValueError(
+            f"unknown discipline '{discipline}' "
+            f"(expected one of {', '.join(_CANONICAL_DISCIPLINES)})")
+    entry = _project_entry(project)
+    by_disc = entry.get('enabled_flows_by_discipline') or {}
+    flows = by_disc.get(disc) or []
+    # Schema v1 projects stored a flat enabled_flows only — assume PD if
+    # the schema v2 map is absent.
+    if not by_disc and disc == 'PD':
+        flows = entry.get('enabled_flows') or []
+    return list(flows)
+
+
+def is_discipline_enabled_for_project(project: str, discipline: str) -> bool:
+    """True when `discipline` is enabled for `project`.
+
+    Operator-facing gate for `cbflow-git-bootstrap --project <name> <disc>`
+    and the project dashboard's discipline-card rendering.
+    """
+    return bool(get_project_enabled_flows(project, discipline))
+
+
 def get_phases(run_dir: Optional[str] = None) -> List[str]:
     """Return the phase list for a project.
 
