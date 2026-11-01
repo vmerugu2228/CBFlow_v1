@@ -35,7 +35,7 @@ flow_proc init_release {
         lappend missing_vars "design_name (pv(common,design_name) or flow(design_name))"
     }
     if {![info exists project(release,tag)] || $project(release,tag) eq ""} {
-        lappend missing_vars "project(release,tag) in project_config.tcl"
+        lappend missing_vars "project(release,tag) in the project config"
     }
     if {![info exists ::env(FLOW_DIR)] || $::env(FLOW_DIR) eq ""} {
         lappend missing_vars "FLOW_DIR"

@@ -1116,7 +1116,9 @@ def _read_tech_cfg_value(tech_name: str, version: str, key: str) -> str:
 
 
 def _read_project_cfg_value(project_name: str, version: str, key: str) -> str:
-    """Extract `set project(<key>) "<value>"` from project_pd_config.tcl.
+    """Extract `set project(<key>) "<value>"` from the project's PD overlay.
+
+    Post 2026-11-01 rename: file is `<project>_pd_config.tcl`.
 
     Same tri-state semantics as _read_tech_cfg_value: '' for "key or file
     legitimately absent", raises _CfgReadError if file exists but is
@@ -1128,8 +1130,10 @@ def _read_project_cfg_value(project_name: str, version: str, key: str) -> str:
         core = get_cbflow_core_dir()
     except ValueError:
         return ''
+    from core.paths import project_discipline_config_basename
+    _basename = project_discipline_config_basename(project_name, 'pd')
     pc = os.path.join(core, 'config', 'project', project_name,
-                      version or 'v1.0.0', 'project_pd_config.tcl')
+                      version or 'v1.0.0', _basename)
     if not os.path.isfile(pc):
         return ''
     try:
@@ -1140,8 +1144,8 @@ def _read_project_cfg_value(project_name: str, version: str, key: str) -> str:
             return m.group(1).strip() if m else ''
     except (OSError, UnicodeDecodeError) as e:
         raise _CfgReadError(
-            "cannot read project_pd_config.tcl for '{}' ({}: {})".format(
-                project_name, type(e).__name__, e))
+            "cannot read {} for '{}' ({}: {})".format(
+                _basename, project_name, type(e).__name__, e))
 
 
 def _framework_roots() -> list:
@@ -1294,7 +1298,7 @@ def _lib_tag_root_fix_guide(tech_name: str, version: str) -> List[str]:
         "must point at a real site path explicitly. Pick ONE:",
         "",
         "  1. Per-project (recommended for team-wide use):",
-        "     Edit $CBFLOW_CORE_DIR/config/project/<proj>/v1.0.0/project_pd_config.tcl:",
+        "     Edit $CBFLOW_CORE_DIR/config/project/<proj>/v1.0.0/<project>_pd_config.tcl:",
         "       set project(lib_tag_root) \"/proj/<proj>/pdk/{}\"".format(tech_name),
         "",
         "  2. Per-run via env var (CI, scratch areas):",
@@ -1805,7 +1809,7 @@ def _materialize_tag_dir(tag_dir: str,
         fh.write("---\n\n")
         fh.write("## Flow integration\n\n")
         fh.write("Set `project(lib_config_tag)` to `{}` in user_config.tcl ".format(tag))
-        fh.write("(or `project_pd_config.tcl`). The resolver auto-picks\n")
+        fh.write("(or `<project>_pd_config.tcl`). The resolver auto-picks\n")
         fh.write("`global/config/tech/{}/v1.0.0/{}/lib_config.tcl`.\n\n".format(
             tech_name, tag))
         fh.write("## Coverage\n\n")
@@ -2524,12 +2528,12 @@ def cmd_generate(args: argparse.Namespace) -> int:
         lib_root = input('  Stdcell library root path: ').strip()
     if not lib_root:
         # The resolver reads BOTH `tech(lib_root)` and
-        # `project(lib_root)` from tech_config.tcl / project_pd_config.tcl
+        # `project(lib_root)` from tech_config.tcl / <project>_pd_config.tcl
         # respectively — surface both options in the error.
         logger.error("lib_root is required. Provide one of:")
         logger.error("  --lib-root <path>                              (CLI override)")
         logger.error("  set tech(lib_root)    in tech_config.tcl       (site-wide default)")
-        logger.error("  set project(lib_root) in project_pd_config.tcl (per-project)")
+        logger.error("  set project(lib_root) in <project>_pd_config.tcl (per-project)")
         return 1
     if not os.path.isdir(lib_root):
         logger.error("lib_root directory not found: {}".format(lib_root))
@@ -4110,16 +4114,21 @@ def cmd_status(args: argparse.Namespace) -> int:
     if project_name:
         # Walk global/ identity then PD/ overlay — concat contents so values
         # from either side are picked up (overlay wins on key collision).
-        from core.paths import get_cbflow_global_dir
+        # Post 2026-11-01 rename: files are <project>_config.tcl (global)
+        # and <project>_pd_config.tcl (PD overlay).
+        from core.paths import (
+            get_cbflow_global_dir, project_config_basename,
+            project_discipline_config_basename,
+        )
         _candidates = []
         _g = get_cbflow_global_dir()
         if _g:
             _candidates.append(os.path.join(
                 _g, 'config', 'project', project_name, version,
-                'project_config.tcl'))
+                project_config_basename(project_name)))
         _candidates.append(os.path.join(
             core_dir, 'config', 'project', project_name, version,
-            'project_pd_config.tcl'))
+            project_discipline_config_basename(project_name, 'pd')))
         _candidates.append(os.path.join(
             core_dir, 'config', 'project', project_name, version,
             f'{project_name}_config.tcl'))

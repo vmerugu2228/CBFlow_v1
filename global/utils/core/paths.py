@@ -843,14 +843,36 @@ def get_tech_config_paths(tech_name: str, version: str = None) -> list:
     return paths
 
 
+def project_config_basename(project_name: str) -> str:
+    """Return the global project identity file basename for `project_name`.
+
+    Convention post 2026-11-01: `<project>_config.tcl` (e.g.
+    `bumblebee_config.tcl`). This matches the pre-refactor legacy archive
+    at `legacy-PD/config/project/<proj>/v1.0.0/<proj>_config.tcl` and the
+    operator's mental model — the config file carries the project name.
+    """
+    return f'{project_name}_config.tcl'
+
+
+def project_discipline_config_basename(project_name: str, discipline: str) -> str:
+    """Return the per-discipline project overlay basename for `project_name`.
+
+    Convention post 2026-11-01: `<project>_<disc>_config.tcl` (e.g.
+    `bumblebee_pd_config.tcl`, `bumblebee_dv_config.tcl`). Discipline is
+    lower-cased in the filename. Keeps parity with the global identity
+    file (same `<project>_` prefix).
+    """
+    return f'{project_name}_{discipline.lower()}_config.tcl'
+
+
 def get_project_config_paths(project_name: str, version: str = None) -> list:
     """Return the ordered list of project_config files that should be sourced.
 
     Post-sparse-checkout cascade:
-      1. <global>/config/project/<name>/<ver>/project_config.tcl       (identity — required)
-      2. <PD>/config/project/<name>/<ver>/project_pd_config.tcl        (PD overlay — if PD/ on disk)
-      3. <DFT>/config/project/<name>/<ver>/project_dft_config.tcl      (DFT overlay — if DFT/ on disk)
-      4. <DV>/config/project/<name>/<ver>/project_dv_config.tcl        (DV overlay — if DV/ on disk)
+      1. <global>/config/project/<name>/<ver>/<project>_config.tcl       (identity — required)
+      2. <PD>/config/project/<name>/<ver>/<project>_pd_config.tcl        (PD overlay — if PD/ on disk)
+      3. <DFT>/config/project/<name>/<ver>/<project>_dft_config.tcl      (DFT overlay — if DFT/ on disk)
+      4. <DV>/config/project/<name>/<ver>/<project>_dv_config.tcl        (DV overlay — if DV/ on disk)
 
     All overlays set keys on the same `project(...)` Tcl array. Keys that
     appear in multiple overlays (workarea_path, race,db_path, release,path)
@@ -861,10 +883,11 @@ def get_project_config_paths(project_name: str, version: str = None) -> list:
     """
     ver = version or get_flow_config_version()
     paths = []
+    _global_basename = project_config_basename(project_name)
 
     grot = get_global_config_root()
     if grot:
-        gp = os.path.join(grot, 'project', project_name, ver, 'project_config.tcl')
+        gp = os.path.join(grot, 'project', project_name, ver, _global_basename)
         if os.path.isfile(gp):
             paths.append(gp)
 
@@ -873,9 +896,9 @@ def get_project_config_paths(project_name: str, version: str = None) -> list:
     # clone (e.g. only DV/ materialized), only the owner's overlay is on
     # disk and that's the authoritative source for workarea/release keys.
     _overlays = (
-        ('CBFLOW_CORE_DIR', 'project_pd_config.tcl'),
-        ('CBFLOW_DFT_DIR',  'project_dft_config.tcl'),
-        ('CBFLOW_DV_DIR',   'project_dv_config.tcl'),
+        ('CBFLOW_CORE_DIR', project_discipline_config_basename(project_name, 'pd')),
+        ('CBFLOW_DFT_DIR',  project_discipline_config_basename(project_name, 'dft')),
+        ('CBFLOW_DV_DIR',   project_discipline_config_basename(project_name, 'dv')),
     )
     for env_var, filename in _overlays:
         root = os.environ.get(env_var, '').strip()
@@ -995,8 +1018,8 @@ def list_available_projects(version: str = None) -> list:
     """List every project directory discoverable across global/ and PD/.
 
     A project is "available" if any search root has <root>/<proj>/<ver>/
-    project_config.tcl OR <root>/<proj>/<ver>/project_pd_config.tcl OR
-    just <root>/<proj>/ (bare dir for partial scaffolds).
+    <project>_config.tcl OR <root>/<proj>/<ver>/<project>_pd_config.tcl
+    OR just <root>/<proj>/ (bare dir for partial scaffolds).
 
     Returns a sorted de-duplicated list of project names.
     """
@@ -1014,9 +1037,10 @@ def list_available_projects(version: str = None) -> list:
             if not os.path.isdir(d):
                 continue
             # Prefer configured, accept bare.
-            if (os.path.isfile(os.path.join(d, ver, 'project_config.tcl'))
-                    or os.path.isfile(os.path.join(
-                        d, ver, 'project_pd_config.tcl'))
+            _id = project_config_basename(name)
+            _pd = project_discipline_config_basename(name, 'pd')
+            if (os.path.isfile(os.path.join(d, ver, _id))
+                    or os.path.isfile(os.path.join(d, ver, _pd))
                     or os.path.isdir(os.path.join(d, ver))
                     or os.path.isdir(d)):
                 found.add(name)

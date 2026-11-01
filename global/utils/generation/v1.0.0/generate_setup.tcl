@@ -404,10 +404,11 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
             set _global_root "$::env(CBFLOW_ROOT)/global/config"
         }
 
-        # 1. Project Configuration (identity + hierarchy — global)
+        # 1. Project Configuration (identity + hierarchy — global). File is
+        # <project>_config.tcl post 2026-11-01 rename.
         if {$project_name ne ""} {
             if {$_global_root ne ""} {
-                lappend config_files [list "project_config"      "$_global_root/project/$project_name/$project_version/project_config.tcl"]
+                lappend config_files [list "project_config"      "$_global_root/project/$project_name/$project_version/${project_name}_config.tcl"]
                 lappend config_files [list "team_config"         "$_global_root/project/$project_name/$project_version/team_config.tcl"]
             }
             # 1b. Per-discipline project overlays. In a full-tree clone all
@@ -415,14 +416,16 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
             # disk. Keys are additive on project(...) — workarea_path /
             # lib_root / release,path must be set to the same value in every
             # discipline's overlay. config_resolver.tcl mirrors this walk.
-            foreach {_disc_env _overlay} {
-                    CBFLOW_DFT_DIR  project_dft_config.tcl
-                    CBFLOW_DV_DIR   project_dv_config.tcl
-                    CBFLOW_CORE_DIR project_pd_config.tcl
+            # Basename is <project>_<disc>_config.tcl post 2026-11-01 rename.
+            foreach {_disc_env _disc_short} {
+                    CBFLOW_DFT_DIR  dft
+                    CBFLOW_DV_DIR   dv
+                    CBFLOW_CORE_DIR pd
             } {
                 if {![info exists ::env($_disc_env)]} { continue }
                 set _root $::env($_disc_env)
                 if {![file isdirectory $_root]} { continue }
+                set _overlay "${project_name}_${_disc_short}_config.tcl"
                 lappend config_files [list "project_${_overlay}" \
                     "$_root/config/project/$project_name/$project_version/$_overlay"]
             }
@@ -459,23 +462,21 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
             # file, polluting project() with wrong values.
             set _proj_cfgs [list]
             if {$_global_root ne ""} {
-                lappend _proj_cfgs "$_global_root/project/$project_name/$project_version/project_config.tcl"
+                lappend _proj_cfgs "$_global_root/project/$project_name/$project_version/${project_name}_config.tcl"
             }
             # Walk every discipline root for its project overlay — any
             # overlay with lib_tag_root / lib_config_tag can seed the
             # cascade. In a sparse clone, only the owner's overlay exists.
-            foreach {_disc_env _overlay} {
-                    CBFLOW_CORE_DIR project_pd_config.tcl
-                    CBFLOW_DFT_DIR  project_dft_config.tcl
-                    CBFLOW_DV_DIR   project_dv_config.tcl
+            # Basename is <project>_<disc>_config.tcl post 2026-11-01 rename.
+            foreach {_disc_env _disc_short} {
+                    CBFLOW_CORE_DIR pd
+                    CBFLOW_DFT_DIR  dft
+                    CBFLOW_DV_DIR   dv
             } {
                 if {![info exists ::env($_disc_env)]} { continue }
                 set _root $::env($_disc_env)
                 if {![file isdirectory $_root]} { continue }
-                lappend _proj_cfgs "$_root/config/project/$project_name/$project_version/$_overlay"
-            }
-            if {$config_root ne ""} {
-                lappend _proj_cfgs "$config_root/project/$project_name/$project_version/${project_name}_config.tcl"
+                lappend _proj_cfgs "$_root/config/project/$project_name/$project_version/${project_name}_${_disc_short}_config.tcl"
             }
             foreach _proj_cfg $_proj_cfgs {
                 if {$_proj_cfg ne "" && [file exists $_proj_cfg]} {

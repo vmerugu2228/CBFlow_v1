@@ -168,7 +168,8 @@ if {!$_no_run} {
     set _proj_ver  [expr {[info exists ::env(FLOW_CONFIG_VERSION)] ? $::env(FLOW_CONFIG_VERSION) : "v1.0.0"}]
     if {$_proj_name ne ""} {
         if {$global_root ne ""} {
-            set _gp "$global_root/project/$_proj_name/$_proj_ver/project_config.tcl"
+            # Post 2026-11-01 rename: identity file is <project>_config.tcl.
+            set _gp "$global_root/project/$_proj_name/$_proj_ver/${_proj_name}_config.tcl"
             if {[file exists $_gp]} {
                 source $_gp
                 lappend _proj_srcs "global_project:$_gp"
@@ -176,15 +177,17 @@ if {!$_no_run} {
         }
         # Walk every discipline root for its project overlay. _cbflow_paths.sh
         # exports CBFLOW_<DISC>_DIR only when the directory exists, so each
-        # overlay only attaches when its tree is on disk.
-        foreach {_env_var _overlay_name} {
-                CBFLOW_DFT_DIR  project_dft_config.tcl
-                CBFLOW_DV_DIR   project_dv_config.tcl
-                CBFLOW_CORE_DIR project_pd_config.tcl
+        # overlay only attaches when its tree is on disk. Basename is
+        # <project>_<disc>_config.tcl.
+        foreach {_env_var _disc_short} {
+                CBFLOW_DFT_DIR  dft
+                CBFLOW_DV_DIR   dv
+                CBFLOW_CORE_DIR pd
         } {
             if {![info exists ::env($_env_var)]} { continue }
             set _root $::env($_env_var)
             if {![file isdirectory $_root]} { continue }
+            set _overlay_name "${_proj_name}_${_disc_short}_config.tcl"
             set _ovl "$_root/config/project/$_proj_name/$_proj_ver/$_overlay_name"
             if {[file exists $_ovl]} {
                 source $_ovl

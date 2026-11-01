@@ -494,19 +494,18 @@ proc load_configuration {} {
     }
     
     # Load project configuration if not already loaded.
-    # Post cbflow_global split: identity in global project_config.tcl, PD
-    # overlay in <core>/config/project/<proj>/v1.0.0/project_pd_config.tcl.
-    # release_base_dir is a PD-side key (project(release,*)), so we need
-    # both halves sourced.
+    # Post 2026-11-01 rename: files are <project>_config.tcl (identity) +
+    # <project>_pd_config.tcl (PD overlay). release_base_dir is a PD-side
+    # key (project(release,*)), so we need both halves sourced.
     if {![info exists project(name)]} {
         set _proj [expr {[info exists ::env(CBFLOW_PROJECT_NAME)] ? $::env(CBFLOW_PROJECT_NAME) : ""}]
         set _ver  [expr {[info exists ::env(PROJECT_CONFIG_VERSION)] ? $::env(PROJECT_CONFIG_VERSION) : "v1.0.0"}]
         if {$_proj ne ""} {
             if {[info exists ::env(CBFLOW_GLOBAL_DIR)] && $::env(CBFLOW_GLOBAL_DIR) ne ""} {
-                set _gp "$::env(CBFLOW_GLOBAL_DIR)/config/project/$_proj/$_ver/project_config.tcl"
+                set _gp "$::env(CBFLOW_GLOBAL_DIR)/config/project/$_proj/$_ver/${_proj}_config.tcl"
                 if {[file exists $_gp]} { source $_gp; log_info "Loaded global project config: $_gp" }
             }
-            set _pp "$flow_dir/config/project/$_proj/$_ver/project_pd_config.tcl"
+            set _pp "$flow_dir/config/project/$_proj/$_ver/${_proj}_pd_config.tcl"
             if {[file exists $_pp]} { source $_pp; log_info "Loaded PD project overlay: $_pp" }
         }
     }

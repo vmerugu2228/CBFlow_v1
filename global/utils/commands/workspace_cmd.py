@@ -547,13 +547,21 @@ def _build_env_from_user_config(config_file: str) -> dict:
     ver_name = os.path.basename(os.path.realpath(proj_versions_dir))
     from core.paths import get_cbflow_global_dir
     gdir = get_cbflow_global_dir()
+    # Post 2026-11-01 rename: files are <project>_config.tcl +
+    # <project>_<disc>_config.tcl. Centralized via project_config_basename
+    # + project_discipline_config_basename in core.paths.
+    from core.paths import (
+        project_config_basename, project_discipline_config_basename,
+    )
+    _global_basename = project_config_basename(project_name)
+    _pd_basename = project_discipline_config_basename(project_name, 'pd')
     global_proj_cfg = (os.path.join(gdir, 'config', 'project', project_name,
-                                    ver_name, 'project_config.tcl')
+                                    ver_name, _global_basename)
                        if gdir else '')
     proj_candidates = [
-        global_proj_cfg,                                                      # split identity
-        os.path.join(proj_versions_dir, 'project_pd_config.tcl'),             # split PD overlay
-        os.path.join(proj_versions_dir, f'{project_name}_config.tcl'),        # pre-split monolith
+        global_proj_cfg,                                                      # global identity
+        os.path.join(proj_versions_dir, _pd_basename),                        # PD overlay
+        os.path.join(proj_versions_dir, f'{project_name}_config.tcl'),        # pre-split monolith (same name as new global)
     ]
     proj_config_file = ''
     pat_rel = re.compile(r'set\s+project\(cbflow_release\)\s+"([^"]*)"')

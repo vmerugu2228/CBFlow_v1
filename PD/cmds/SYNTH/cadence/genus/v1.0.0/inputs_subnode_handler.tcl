@@ -348,19 +348,20 @@ proc handle_sdc_subnode {run_dir} {
         source $release_config_file
 
         # Load project configuration to get SDC modes.
-        # project(sdc_modes) lives in global/ project_config.tcl — the
-        # PD overlay is workarea/release/LSF only. PD-overlay fallback
-        # is defensive for legacy installs.
+        # project(sdc_modes) lives in global/ <project>_config.tcl — the
+        # PD overlay (<project>_pd_config.tcl) is workarea/release/LSF
+        # only. PD-overlay fallback is defensive for legacy installs.
+        # Post 2026-11-01 rename: both files carry the project name.
         set _proj [expr {[info exists ::env(CBFLOW_PROJECT_NAME)] ? $::env(CBFLOW_PROJECT_NAME) : \
                           [expr {[info exists ::env(PROJECT_NAME)] ? $::env(PROJECT_NAME) : ""}]}]
         set _ver  [expr {[info exists ::env(PROJECT_CONFIG_VERSION)] ? $::env(PROJECT_CONFIG_VERSION) : "v1.0.0"}]
         set _candidates [list]
         if {$_proj ne ""} {
             if {[info exists ::env(CBFLOW_GLOBAL_DIR)] && $::env(CBFLOW_GLOBAL_DIR) ne ""} {
-                lappend _candidates "$::env(CBFLOW_GLOBAL_DIR)/config/project/$_proj/$_ver/project_config.tcl"
+                lappend _candidates "$::env(CBFLOW_GLOBAL_DIR)/config/project/$_proj/$_ver/${_proj}_config.tcl"
             }
             if {[info exists ::FLOW_DIR]} {
-                lappend _candidates "$::FLOW_DIR/PD/config/project/$_proj/$_ver/project_pd_config.tcl"
+                lappend _candidates "$::FLOW_DIR/PD/config/project/$_proj/$_ver/${_proj}_pd_config.tcl"
             }
         }
         set project_config_file ""
