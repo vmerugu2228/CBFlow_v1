@@ -115,6 +115,15 @@ flow_proc run_lvs_comparison {
     handle_info "  Log: $::WORK_DIR/results/lvs/lvs.log"
 
     set _lvs_log "$::WORK_DIR/results/lvs/lvs.log"
+    # test_mode guard: Tcl's `exec` is a builtin, so test_mode's unknown-based
+    # EDA interceptor doesn't catch it. Without this, test_mode tries to exec
+    # a real calibre binary (not on PATH) → non-zero exit → stage fails.
+    set _tm [expr {[info exists ::flow(test_mode)] && [is_true $::flow(test_mode)]}]
+    if {$_tm} {
+    handle_info "  TEST_CMD: (calibre exec skipped in test_mode)"
+    return
+    }
+
     if {[catch {exec {*}$calibre_cmd >& $_lvs_log} result]} {
         if {[classify_tool_exit_log $_lvs_log] eq "FATAL"} {
             handle_error "Calibre LVS crashed (license / perms / tool error) — see $_lvs_log"

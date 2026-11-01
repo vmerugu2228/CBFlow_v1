@@ -97,6 +97,15 @@ flow_proc run_perc_checks {
     handle_info "  CMD: $calibre_cmd"
     handle_info "  Log: $::WORK_DIR/results/perc/perc.log"
 
+    # test_mode guard: Tcl's `exec` is a builtin, so test_mode's unknown-based
+    # EDA interceptor doesn't catch it. Without this, test_mode tries to exec
+    # a real calibre binary (not on PATH) → non-zero exit → stage fails.
+    set _tm [expr {[info exists ::flow(test_mode)] && [is_true $::flow(test_mode)]}]
+    if {$_tm} {
+    handle_info "  TEST_CMD: (calibre exec skipped in test_mode)"
+    return
+    }
+
     if {[catch {exec {*}$calibre_cmd >& "$::WORK_DIR/results/perc/perc.log"} result]} {
         # Silent-pass defense — distinguish real violations from a tool
         # crash (license-fail, segfault, OOM, bad runset). Without this

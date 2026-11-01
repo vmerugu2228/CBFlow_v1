@@ -99,6 +99,15 @@ flow_proc run_xor_check {
         set calibre_cmd "calibre -drc -hier -64 -turbo $num_cpus $xor_runset"
 
         handle_info "  CMD: $calibre_cmd"
+        # test_mode guard: Tcl's `exec` is a builtin, so test_mode's unknown-based
+        # EDA interceptor doesn't catch it. Without this, test_mode tries to exec
+        # a real calibre binary (not on PATH) → non-zero exit → stage fails.
+        set _tm [expr {[info exists ::flow(test_mode)] && [is_true $::flow(test_mode)]}]
+        if {$_tm} {
+        handle_info "  TEST_CMD: (calibre exec skipped in test_mode)"
+        return
+        }
+
         if {[catch {exec {*}$calibre_cmd >& "$::WORK_DIR/results/xor/xor.log"} result]} {
             if {[classify_tool_exit_log "$::WORK_DIR/results/xor/xor.log"] eq "FATAL"} {
                 handle_error "Calibre XOR crashed (license / perms / tool error) — see $::WORK_DIR/results/xor/xor.log"

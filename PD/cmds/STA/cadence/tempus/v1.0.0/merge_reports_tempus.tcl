@@ -14,14 +14,17 @@ source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
-# Source active scenarios
+# Source active scenarios. Match the Synopsys PT path: `aggregate_results`
+# below is already defensive against unset `mmmc_active_scenarios`, so a
+# missing file is a WARNING, not a hard exit. STA flows that haven't run a
+# mmmc_setup prelude (test mode, STA-only run from a release) still produce
+# dummy artifacts cleanly instead of crashing merge_reports.
 set scenarios_file "$run_dir/work/STA/mmmc_setup/run/active_scenarios.tcl"
 if {[file exists $scenarios_file]} {
     source $scenarios_file
 } else {
-    puts stderr "ERROR: Active scenarios file not found: $scenarios_file"
-    puts stderr "ERROR: Run mmmc_setup stage first"
-    exit 1
+    puts "INFO: active_scenarios.tcl not found ($scenarios_file) — proceeding"
+    puts "      with no MMMC scenarios (aggregate_results will no-op cleanly)."
 }
 
 # Source MMMC configuration for analysis_views

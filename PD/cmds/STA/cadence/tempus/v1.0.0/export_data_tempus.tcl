@@ -19,9 +19,8 @@ set scenarios_file "$run_dir/work/STA/mmmc_setup/run/active_scenarios.tcl"
 if {[file exists $scenarios_file]} {
     source $scenarios_file
 } else {
-    puts stderr "ERROR: Active scenarios file not found: $scenarios_file"
-    puts stderr "ERROR: Run mmmc_setup stage first"
-    exit 1
+    puts "INFO: active_scenarios.tcl not found ($scenarios_file) — proceeding"
+    puts "      with no MMMC scenarios (downstream flow_procs no-op cleanly)."
 }
 
 flow_proc setup_export_dirs {

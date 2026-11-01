@@ -79,6 +79,15 @@ flow_proc run_decomp {
         set calibre_cmd [list calibre -mp -hier -64 -turbo $num_cpus \
                               -mp_colors $::decomp_colors $::decomp_runset]
         handle_info "  CMD: $calibre_cmd"
+        # test_mode guard: Tcl's `exec` is a builtin, so test_mode's unknown-based
+        # EDA interceptor doesn't catch it. Without this, test_mode tries to exec
+        # a real calibre binary (not on PATH) → non-zero exit → stage fails.
+        set _tm [expr {[info exists ::flow(test_mode)] && [is_true $::flow(test_mode)]}]
+        if {$_tm} {
+        handle_info "  TEST_CMD: (calibre exec skipped in test_mode)"
+        return
+        }
+
         if {[catch {exec {*}$calibre_cmd >& $::decomp_log} _r]} {
             if {[classify_tool_exit_log $::decomp_log] eq "FATAL"} {
                 handle_error "Calibre -mp crashed (license / perms / tool error) — see $::decomp_log"

@@ -96,6 +96,15 @@ flow_proc run_drc_checks {
     handle_info "  Log: $::WORK_DIR/results/drc/drc.log"
 
     set _drc_log "$::WORK_DIR/results/drc/drc.log"
+    # test_mode guard: Tcl's `exec` is a builtin, so test_mode's unknown-based
+    # EDA interceptor doesn't catch it. Without this, test_mode tries to exec
+    # a real calibre binary (not on PATH) → non-zero exit → stage fails.
+    set _tm [expr {[info exists ::flow(test_mode)] && [is_true $::flow(test_mode)]}]
+    if {$_tm} {
+    handle_info "  TEST_CMD: (calibre exec skipped in test_mode)"
+    return
+    }
+
     if {[catch {exec {*}$calibre_cmd >& $_drc_log} result]} {
         # Classify: tool-stack crash (license, perms, OOM) → FATAL error;
         # real DRC violations → non-fatal warning. Without this, an
@@ -130,6 +139,15 @@ flow_proc run_antenna_check {
 
     set calibre_cmd "calibre -drc -hier -64 -turbo $num_cpus $antenna_runset"
     handle_info "  CMD: $calibre_cmd"
+
+    # test_mode guard: Tcl's `exec` is a builtin, so test_mode's unknown-based
+    # EDA interceptor doesn't catch it. Without this, test_mode tries to exec
+    # a real calibre binary (not on PATH) → non-zero exit → stage fails.
+    set _tm [expr {[info exists ::flow(test_mode)] && [is_true $::flow(test_mode)]}]
+    if {$_tm} {
+    handle_info "  TEST_CMD: (calibre exec skipped in test_mode)"
+    return
+    }
 
     if {[catch {exec {*}$calibre_cmd >& "$::WORK_DIR/results/drc/antenna.log"} result]} {
         handle_warning "Antenna DRC returned non-zero: $result"

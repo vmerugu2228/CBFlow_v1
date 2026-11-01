@@ -36,7 +36,10 @@ if _pd_utils not in _bootstrap_sys.path:
 from logging_config import configure_logging, get_logger
 
 import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from core.paths import get_cbflow_core_dir, get_flow_config_version, require_tech_config, preflight_tech_config_or_exit
+from core.paths import (
+    get_cbflow_core_dir, get_flow_config_version, require_tech_config,
+    preflight_tech_config_or_exit, get_global_config_root,
+)
 from core.interactive import run_repl
 
 logger = configure_logging('cbflow.mmmc_manager')
@@ -46,15 +49,37 @@ logger = configure_logging('cbflow.mmmc_manager')
 # Config Path Resolution
 # ===============================================================================
 
-def get_mmmc_config_path() -> str:
-    """Resolve mmmc_config.tcl path from environment."""
-    core_dir = os.environ.get('CBFLOW_CORE_DIR', '')
-    if not core_dir:
-        # Fall back to relative from this script
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        core_dir = os.path.dirname(os.path.dirname(script_dir))
+def get_mmmc_config_path(project_name: Optional[str] = None) -> str:
+    """Resolve mmmc_config.tcl path.
+
+    Post-cbflow_global refactor, mmmc_config.tcl is per-project and lives at
+    `<global>/config/project/<project>/<ver>/mmmc_config.tcl`. The caller may
+    pass project_name explicitly; otherwise we read CBFLOW_PROJECT_NAME from
+    the environment (set by `workspace create` inside a run shell). If still
+    unresolved and exactly one project exists under global/config/project/,
+    we use that — any ambiguity errors out.
+    """
     version = get_flow_config_version()
-    return os.path.join(core_dir, 'config', 'flow', version, 'mmmc_config.tcl')
+    grot = get_global_config_root()
+    if not grot:
+        raise RuntimeError("cannot resolve global config root")
+
+    proj = project_name or os.environ.get('CBFLOW_PROJECT_NAME', '').strip()
+    if not proj:
+        projects_root = os.path.join(grot, 'project')
+        if os.path.isdir(projects_root):
+            projects = [d for d in os.listdir(projects_root)
+                        if os.path.isdir(os.path.join(projects_root, d))
+                        and not d.startswith('.')]
+            if len(projects) == 1:
+                proj = projects[0]
+
+    if not proj:
+        raise RuntimeError(
+            "cannot resolve project for mmmc-manager — pass --project <name>, "
+            "export CBFLOW_PROJECT_NAME, or run from inside a workspace shell"
+        )
+    return os.path.join(grot, 'project', proj, version, 'mmmc_config.tcl')
 
 
 # ===============================================================================
@@ -429,7 +454,7 @@ def _write_config(config_path: str, content: str):
 
 def cmd_show(args: argparse.Namespace) -> int:
     """Parse and display current config in readable table format."""
-    config_path = args.config or get_mmmc_config_path()
+    config_path = args.config or get_mmmc_config_path(getattr(args, "project", None))
 
     parser = MmmcConfigParser(config_path)
     if not parser.parse():
@@ -523,7 +548,7 @@ def cmd_show(args: argparse.Namespace) -> int:
 
 def cmd_validate(args: argparse.Namespace) -> int:
     """Check consistency of mmmc_config.tcl."""
-    config_path = args.config or get_mmmc_config_path()
+    config_path = args.config or get_mmmc_config_path(getattr(args, "project", None))
 
     parser = MmmcConfigParser(config_path)
     if not parser.parse():
@@ -634,7 +659,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
 
 def cmd_add_mode(args: argparse.Namespace) -> int:
     """Add an operating mode to mmmc_config.tcl in-place."""
-    config_path = args.config or get_mmmc_config_path()
+    config_path = args.config or get_mmmc_config_path(getattr(args, "project", None))
 
     parser = MmmcConfigParser(config_path)
     if not parser.parse():
@@ -675,7 +700,7 @@ def cmd_add_mode(args: argparse.Namespace) -> int:
 
 def cmd_remove_mode(args: argparse.Namespace) -> int:
     """Remove an operating mode from mmmc_config.tcl in-place."""
-    config_path = args.config or get_mmmc_config_path()
+    config_path = args.config or get_mmmc_config_path(getattr(args, "project", None))
 
     parser = MmmcConfigParser(config_path)
     if not parser.parse():
@@ -710,7 +735,7 @@ def cmd_remove_mode(args: argparse.Namespace) -> int:
 
 def cmd_add_pvt(args: argparse.Namespace) -> int:
     """Add a PVT point to a corner in mmmc_config.tcl in-place."""
-    config_path = args.config or get_mmmc_config_path()
+    config_path = args.config or get_mmmc_config_path(getattr(args, "project", None))
 
     parser = MmmcConfigParser(config_path)
     if not parser.parse():
@@ -762,7 +787,7 @@ def cmd_add_pvt(args: argparse.Namespace) -> int:
 
 def cmd_remove_pvt(args: argparse.Namespace) -> int:
     """Remove a PVT point from a corner in mmmc_config.tcl in-place."""
-    config_path = args.config or get_mmmc_config_path()
+    config_path = args.config or get_mmmc_config_path(getattr(args, "project", None))
 
     parser = MmmcConfigParser(config_path)
     if not parser.parse():
@@ -822,7 +847,7 @@ def cmd_remove_pvt(args: argparse.Namespace) -> int:
 
 def cmd_add_rc(args: argparse.Namespace) -> int:
     """Add an RC corner definition to mmmc_config.tcl in-place."""
-    config_path = args.config or get_mmmc_config_path()
+    config_path = args.config or get_mmmc_config_path(getattr(args, "project", None))
 
     parser = MmmcConfigParser(config_path)
     if not parser.parse():
@@ -870,7 +895,7 @@ def cmd_add_rc(args: argparse.Namespace) -> int:
 
 def cmd_set_node(args: argparse.Namespace) -> int:
     """Set node scenario assignments in mmmc_config.tcl in-place."""
-    config_path = args.config or get_mmmc_config_path()
+    config_path = args.config or get_mmmc_config_path(getattr(args, "project", None))
 
     parser = MmmcConfigParser(config_path)
     if not parser.parse():
@@ -977,7 +1002,7 @@ def cmd_set_node(args: argparse.Namespace) -> int:
 
 def cmd_list_views(args: argparse.Namespace) -> int:
     """Execute TCL config and list all generated analysis views."""
-    config_path = args.config or get_mmmc_config_path()
+    config_path = args.config or get_mmmc_config_path(getattr(args, "project", None))
 
     if not os.path.isfile(config_path):
         logger.error("Config file not found: %s", config_path)
@@ -1003,7 +1028,7 @@ def cmd_list_views(args: argparse.Namespace) -> int:
 
 def cmd_list_scenarios(args: argparse.Namespace) -> int:
     """List scenarios in a given scenario set."""
-    config_path = args.config or get_mmmc_config_path()
+    config_path = args.config or get_mmmc_config_path(getattr(args, "project", None))
 
     if not os.path.isfile(config_path):
         logger.error("Config file not found: %s", config_path)
@@ -1037,7 +1062,7 @@ def cmd_list_scenarios(args: argparse.Namespace) -> int:
 
 def cmd_generate_view_def(args: argparse.Namespace) -> int:
     """Generate Cadence view_definition.tcl from the MMMC config."""
-    config_path = args.config or get_mmmc_config_path()
+    config_path = args.config or get_mmmc_config_path(getattr(args, "project", None))
 
     parser = MmmcConfigParser(config_path)
     if not parser.parse():
@@ -2357,6 +2382,15 @@ Examples:
     p.add_argument('--allow-missing', action='store_true', default=False,
                    help='Proceed even if requested PVT combos have no matching lib_set_ref '
                         'in lib_config. Default is fail-fast — use only when bootstrapping.')
+
+    # Make --project a universal flag — accepted before OR after the subcommand.
+    # argparse keeps subparser args scoped to their parser, so the top-level
+    # --project isn't visible to a subparser; mirror it onto every subparser
+    # that doesn't already define it (just `generate` has its own).
+    for name, p in sub.choices.items():
+        if not any(a.option_strings == ['--project'] for a in p._actions):
+            p.add_argument('--project', default=None,
+                           help='Project name (resolves mmmc_config.tcl path)')
 
     return top
 

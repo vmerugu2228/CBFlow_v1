@@ -96,6 +96,18 @@ flow_proc run_nettran {
     handle_info "  CMD: $cmd"
     handle_info "  Log: $::nettran_log"
 
+    # Tcl's `exec` is a builtin, so test_mode's `unknown`-based EDA interceptor
+    # doesn't catch it. Without this guard, test_mode runs try to exec a real
+    # v2lvs (not on PATH) → non-zero exit → status=FAIL → stage fails.
+    set _tm [expr {[info exists ::flow(test_mode)] && [is_true $::flow(test_mode)]}]
+    if {$_tm} {
+        handle_info "  TEST_CMD: [join $cmd { }] (test_mode — not executed)"
+        catch { file mkdir [file dirname $::nettran_out] }
+        catch { close [open $::nettran_out w] }
+        set ::nettran_status "PASS"
+        return
+    }
+
     if {[catch {exec {*}$cmd >& $::nettran_log} _r]} {
         if {[classify_tool_exit_log $::nettran_log] eq "FATAL"} {
             handle_error "v2lvs crashed (license / perms / tool error) — see $::nettran_log"

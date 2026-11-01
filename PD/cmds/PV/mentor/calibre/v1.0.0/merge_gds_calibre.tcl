@@ -100,6 +100,19 @@ flow_proc run_merge_gds {
     handle_info "  CMD: $calibre_cmd"
     handle_info "  Log: $::merge_log"
 
+    # Tcl's `exec` is a builtin, so test_mode's `unknown`-based EDA interceptor
+    # doesn't catch it. Without this check, test_mode runs try to exec a real
+    # calibredrv (not on PATH) → non-zero exit → status=FAIL → stage fails.
+    set _tm [expr {[info exists ::flow(test_mode)] && [is_true $::flow(test_mode)]}]
+    if {$_tm} {
+        handle_info "  TEST_CMD: [join $calibre_cmd { }] (test_mode — not executed)"
+        # Produce the output file so downstream stages see a stable path.
+        catch { file mkdir [file dirname $::merge_out] }
+        catch { close [open $::merge_out w] }
+        set ::merge_gds_status "PASS"
+        return
+    }
+
     if {[catch {exec {*}$calibre_cmd >& $::merge_log} _r]} {
         if {[classify_tool_exit_log $::merge_log] eq "FATAL"} {
             handle_error "calibredrv layout filemerge crashed (license / perms / tool error) — see $::merge_log"
