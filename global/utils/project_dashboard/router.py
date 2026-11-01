@@ -126,8 +126,27 @@ def make_handler(project):
                     return self._send(404, 'text/plain', 'not found')
                 return self._page_published(pid)
             if path.startswith('/block/'):
-                name = path[len('/block/'):].rstrip('/')
-                return self._page_block(unquote(name))
+                # Legacy block URL — redirect to the new tiered form.
+                # Resolve the discipline from the latest publish for that
+                # block; default 'pd' if no publish exists yet.
+                name = unquote(path[len('/block/'):].rstrip('/'))
+                try:
+                    db = state_paths.tracker_db(project)
+                    pubs = tracker_db.list_published(db, project)
+                    rows = [r for r in pubs if r['block'] == name]
+                    rows.sort(key=lambda r: r.get('published_at') or '',
+                              reverse=True)
+                    disc = ((rows[0].get('discipline') if rows else '') or 'PD').lower()
+                except Exception:
+                    disc = 'pd'
+                location = f'/project/{project}/{disc}/block/{name}'
+                query = self.path.split('?', 1)[1] if '?' in self.path else ''
+                if query:
+                    location += '?' + query
+                self.send_response(302)
+                self.send_header('Location', location)
+                self.end_headers()
+                return
             if path.startswith('/image/'):
                 # /image/<published_run_id>/<index_into_image_files>
                 rest = path[len('/image/'):].rstrip('/').split('/')
@@ -215,24 +234,65 @@ def make_handler(project):
             self._send(200, 'text/html; charset=utf-8', html_out)
 
         def _page_tier3(self, tgt_project, disc):
-            """Discipline summary. PR3 renders verdict rollup + metrics +
-            per-block table. PR1 stub."""
-            html_out = _render_tier_stub(
-                tgt_project,
-                f'Tier 3 — {disc.upper()} discipline summary (coming in PR3)',
-                hint='This page will show the discipline-level status: '
-                     'verdict rollup, top-6 metrics with trends, and the '
-                     'per-block mini-table.')
+            """Discipline summary — verdict rollup + top-6 metrics +
+            per-block table. Reads from this daemon's tracker.db
+            filtered by (project, discipline).
+            """
+            db = state_paths.tracker_db(tgt_project)
+            info = tracker_db.get_project_info(db, tgt_project)
+            pubs = tracker_db.list_published(db, tgt_project)
+            # Filter by discipline — NULL/missing counts as PD (safe
+            # default for legacy rows).
+            disc_up = disc.upper()
+            def _row_disc(row):
+                return (row.get('discipline') or 'PD').upper()
+            filtered = [r for r in pubs if _row_disc(r) == disc_up]
+            # Parse ?verdict=…&phase=… for deep-link filters.
+            from urllib.parse import parse_qs
+            q = parse_qs(self.path.split('?', 1)[1]) if '?' in self.path else {}
+            v_filter = (q.get('verdict') or [''])[0].upper() or None
+            ph_filter = (q.get('phase') or [''])[0] or None
+            html_out = _render_tier3(tgt_project, info, disc_up, filtered,
+                                     v_filter=v_filter, ph_filter=ph_filter,
+                                     all_pubs_for_disc=filtered)
             self._send(200, 'text/html; charset=utf-8', html_out)
 
         def _page_tier4(self, tgt_project, disc, block_name):
-            """Block drill-in (PR3 wires it to the existing _page_block
-            renderer; PR1 stub)."""
-            html_out = _render_tier_stub(
-                tgt_project,
-                f'Tier 4 — {disc.upper()} / block {block_name} (coming in PR3)',
-                hint='This page will reuse the existing block drill-in with '
-                     'a discipline filter + deep-link query params.')
+            """Block drill-in — reuses the existing _render_block renderer
+            but filtered to this (discipline, block). URL query filters
+            `?phase=X&milestone=Y` further narrow the view.
+            """
+            from urllib.parse import parse_qs
+            db = state_paths.tracker_db(tgt_project)
+            info = tracker_db.get_project_info(db, tgt_project)
+            all_blocks = tracker_db.list_blocks(db, tgt_project)
+            all_pubs = tracker_db.list_published(db, tgt_project)
+            disc_up = disc.upper()
+            def _row_disc(row):
+                return (row.get('discipline') or 'PD').upper()
+            block_meta = next(
+                (b for b in all_blocks if b['block_name'] == block_name), None)
+            block_pubs = [r for r in all_pubs
+                          if r['block'] == block_name and _row_disc(r) == disc_up]
+            # Apply ?phase=/?milestone= filters.
+            q = parse_qs(self.path.split('?', 1)[1]) if '?' in self.path else {}
+            ph = (q.get('phase') or [''])[0]
+            ms = (q.get('milestone') or [''])[0]
+            if ph:
+                block_pubs = [r for r in block_pubs if r.get('phase') == ph]
+            if ms:
+                block_pubs = [r for r in block_pubs if r.get('milestone') == ms]
+            if not block_meta and not block_pubs:
+                return self._send(404, 'text/plain',
+                                  f'block {block_name} not found for '
+                                  f'{disc_up}')
+            html_out = _render_block(tgt_project, info, block_name,
+                                     block_meta or {}, block_pubs)
+            # Rewrite title to the smartgrid brand (block renderer uses the
+            # old ProjectDashboard title suffix).
+            html_out = html_out.replace(
+                '— CBflow-ProjectDashboard</title>',
+                f'— CBflow-SmartGrid · {html.escape(disc_up)}</title>', 1)
             self._send(200, 'text/html; charset=utf-8', html_out)
 
         # ── JSON APIs (for JS reload) ────────────────────────────────────────
@@ -270,10 +330,39 @@ def make_handler(project):
             return self._api_project()
 
         def _api_discipline(self, tgt_project, disc):
-            """Tier 3 feed — PR3 fills with rollup + per-block + metrics.
-            PR1 stub returns the project+discipline echo."""
-            return self._json({'project': tgt_project, 'discipline': disc,
-                               'status': 'skeleton — PR3'})
+            """Tier 3 feed — verdict rollup + per-block + top metrics
+            for (tgt_project, discipline).
+            """
+            if tgt_project != project:
+                return self._json({'error': f'project {tgt_project!r} not '
+                                            'served by this daemon'})
+            db = state_paths.tracker_db(tgt_project)
+            pubs = tracker_db.list_published(db, tgt_project)
+            disc_up = disc.upper()
+            def _row_disc(r):
+                return (r.get('discipline') or 'PD').upper()
+            filtered = [r for r in pubs if _row_disc(r) == disc_up]
+            verdicts = {'PASS': 0, 'CONDITIONAL': 0, 'BLOCKED': 0, 'UNKNOWN': 0}
+            for r in filtered:
+                v = (r.get('verdict') or 'UNKNOWN').upper()
+                if v not in verdicts:
+                    v = 'UNKNOWN'
+                verdicts[v] += 1
+            blocks = {}
+            for r in filtered:
+                b = r.get('block')
+                if not b:
+                    continue
+                prev = blocks.get(b)
+                if prev is None or (r.get('published_at') or '') > (prev.get('published_at') or ''):
+                    blocks[b] = r
+            return self._json({
+                'project':    tgt_project,
+                'discipline': disc_up,
+                'total':      len(filtered),
+                'verdicts':   verdicts,
+                'blocks':     list(blocks.values()),
+            })
 
         def _api_resources(self, tgt_project):
             """Tier 2 Resource card feed — aggregates lsf_details from
@@ -562,10 +651,74 @@ _STYLE = """
   .resource-note { margin-top:8px; font-size:11px; color: var(--muted); }
   .muted { color: var(--muted); }
 
+  /* ───── Tier 3 — discipline summary ───── */
+  .crumbs { display:flex; align-items:center; gap:6px; font-size:12px;
+            color: var(--muted); }
+  .crumbs a { color: var(--muted); }
+  .crumbs a:hover { color: var(--accent-ink); }
+  .crumbs span { color: var(--border); }
+  .tier3-top { padding:18px 20px; background: var(--panel);
+               border-bottom:1px solid var(--border); }
+  .tier3-head { display:flex; align-items:center; justify-content:space-between;
+                margin-bottom:12px; gap:16px; flex-wrap:wrap; }
+  .tier3-h1 { margin:0; font-size:20px; font-weight:800; letter-spacing:.01em; }
+  .verdict-bar-wrap { background: var(--panel); border:1px solid var(--border);
+                      border-radius:4px; padding:10px 14px; }
+  .verdict-bar { display:block; border-radius:3px; overflow:hidden;
+                 height:36px; max-width:100%; }
+  .verdict-legend { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  .verdict-chip { display:inline-flex; align-items:center; gap:5px;
+                  padding:4px 10px; font-size:11px; border:1px solid var(--border);
+                  border-radius:3px; color: var(--text); text-decoration:none; }
+  .verdict-chip:hover { border-color: var(--chip-color); text-decoration:none; }
+  .verdict-chip.on { background: var(--chip-color); color:#fff; border-color: var(--chip-color); }
+  .verdict-chip.on .vdot { color:#fff !important; }
+  .verdict-chip .vdot { font-size:13px; line-height:1; }
+  .verdict-chip .vk { font-weight:700; letter-spacing:.03em; }
+  .verdict-chip .vn { font-weight:800; margin-left:4px; font-variant-numeric: tabular-nums; }
+  .section-h { padding:14px 20px 8px; font-size:12px; font-weight:800;
+               letter-spacing:.05em; text-transform:uppercase; color: var(--text); }
+  .section-h-sub { color: var(--muted); font-weight:500; text-transform:none;
+                   letter-spacing:0; margin-left:8px; font-size:11px; }
+  .tier3-metrics { background: var(--panel); border-bottom:1px solid var(--border);
+                   padding-bottom:12px; }
+  .metrics-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+                  gap:10px; padding:0 20px; }
+  .metric-tile { padding:12px 14px; background: var(--header);
+                 border:1px solid var(--border); border-radius:4px; }
+  .metric-tile.metric-empty { background: var(--panel); border-style:dashed; }
+  .metric-name { font-size:10px; font-weight:800; letter-spacing:.05em;
+                 text-transform:uppercase; color: var(--muted); }
+  .metric-val { font-size:22px; font-weight:800; color: var(--text);
+                font-variant-numeric: tabular-nums; margin-top:3px; }
+  .metric-unit { font-size:12px; font-weight:600; color: var(--muted);
+                 margin-left:4px; }
+  .metric-lbl { font-size:11px; color: var(--muted); margin-top:4px; }
+  .tier3-blocks { background: var(--panel); }
+  .phase-chips { display:flex; gap:5px; padding:0 20px 10px; flex-wrap:wrap; }
+  .phase-chip { padding:3px 10px; font-size:11px; border:1px solid var(--border);
+                border-radius:3px; color: var(--muted); background: var(--panel);
+                text-decoration:none; font-weight:600; letter-spacing:.03em; }
+  .phase-chip:hover { color: var(--accent-ink); border-color: var(--accent-ink);
+                      text-decoration:none; }
+  .phase-chip.on { color:#fff; background: var(--accent-ink);
+                   border-color: var(--accent-ink); }
+  .tier3-tbl { width:100%; margin:0 20px 16px; max-width:calc(100% - 40px); }
+  .verdict-badge { display:inline-block; padding:2px 8px; border-radius:3px;
+                   font-size:11px; font-weight:800; letter-spacing:.03em;
+                   color:#fff; }
+  .v-pass        { background:#059669; }
+  .v-conditional { background:#b45309; }
+  .v-blocked     { background:#b91c1c; }
+  .v-unknown     { background:#6b7280; }
+  .empty-row { padding:20px; text-align:center; color: var(--muted); }
+
   @media print {
-    .scope-pills, .filter-pills, .filters { display:none; }
+    .scope-pills, .filter-pills, .filters, .phase-chips, .verdict-legend {
+      display:none;
+    }
     body { background:#fff; }
-    .proj-card { break-inside: avoid; }
+    .proj-card, .metric-tile, .sched-pip { break-inside: avoid; }
   }
 
   /* Discipline cards — one per enabled discipline (PD / DFT / DV).
@@ -2832,6 +2985,277 @@ def _render_tier2(project, info, blocks, published_rows):
         f'<title>CBflow-ProjectDashboard — {html.escape(project)}</title>',
         f'<title>CBflow-SmartGrid — {html.escape(project)}</title>', 1)
     return inner
+
+
+def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
+                   ph_filter=None, all_pubs_for_disc=None):
+    """Discipline summary — verdict rollup, top-6 metrics, per-block table.
+
+    `filtered_pubs` is already filtered to (project, discipline). v_filter
+    / ph_filter further restrict the per-block table rows but NOT the
+    verdict rollup pie chart — the chart always shows the full discipline
+    picture so customers see the honest state of their discipline.
+    all_pubs_for_disc = full (unfiltered-by-url) list for the rollup chart.
+    """
+    disc_up = discipline.upper()
+    disc_class = disc_up.lower()
+    accent = {'PD': '#1565c0', 'DFT': '#0d9488', 'DV': '#be185d'}.get(disc_up, '#1565c0')
+
+    # ── Rollup — ALWAYS counts across the whole discipline, not the
+    # view filter. Chart is informational, not operational.
+    verdict_source = all_pubs_for_disc if all_pubs_for_disc is not None else filtered_pubs
+    verdicts = {'PASS': 0, 'CONDITIONAL': 0, 'BLOCKED': 0, 'UNKNOWN': 0}
+    for r in verdict_source:
+        v = (r.get('verdict') or 'UNKNOWN').upper()
+        if v not in verdicts: v = 'UNKNOWN'
+        verdicts[v] += 1
+    total = sum(verdicts.values())
+
+    # Horizontal stacked bar — inline SVG; a donut would need JS lib.
+    bar = []
+    bar_x = 0
+    bar_w = 760
+    bar_h = 36
+    colors = {'PASS': '#059669', 'CONDITIONAL': '#b45309',
+              'BLOCKED': '#b91c1c', 'UNKNOWN': '#6b7280'}
+    if total == 0:
+        bar.append(
+            f'<rect x="0" y="0" width="{bar_w}" height="{bar_h}" '
+            f'fill="#f3f4f6"/>'
+            f'<text x="{bar_w/2}" y="{bar_h/2 + 4}" text-anchor="middle" '
+            f'font-size="13" fill="#6b7280">No publishes for {disc_up} yet</text>')
+    else:
+        for k in ('PASS', 'CONDITIONAL', 'BLOCKED', 'UNKNOWN'):
+            n = verdicts[k]
+            if n == 0: continue
+            w = bar_w * n / total
+            bar.append(
+                f'<rect x="{bar_x}" y="0" width="{w}" height="{bar_h}" '
+                f'fill="{colors[k]}">'
+                f'<title>{k}: {n}</title></rect>')
+            if w > 44:  # Only label chunks wide enough to be readable
+                bar.append(
+                    f'<text x="{bar_x + w/2}" y="{bar_h/2 + 5}" '
+                    f'text-anchor="middle" font-size="13" font-weight="700" '
+                    f'fill="#fff">{n}</text>')
+            bar_x += w
+
+    verdict_legend = []
+    for k in ('PASS', 'CONDITIONAL', 'BLOCKED', 'UNKNOWN'):
+        href_in = (f'?verdict={k}' if (not v_filter) or v_filter != k else '?')
+        on_cls = 'on' if v_filter == k else ''
+        verdict_legend.append(
+            f'<a class="verdict-chip {on_cls}" href="{href_in}" '
+            f'style="--chip-color:{colors[k]}">'
+            f'  <span class="vdot" style="color:{colors[k]}">●</span> '
+            f'  <span class="vk">{k}</span> '
+            f'  <span class="vn">{verdicts[k]}</span>'
+            f'</a>')
+
+    # ── Per-block table — latest publish per block for this discipline.
+    rows_for_table = list(filtered_pubs)
+    if v_filter:
+        rows_for_table = [r for r in rows_for_table
+                          if (r.get('verdict') or 'UNKNOWN').upper() == v_filter]
+    if ph_filter:
+        rows_for_table = [r for r in rows_for_table
+                          if r.get('phase') == ph_filter]
+    blocks = {}
+    for r in rows_for_table:
+        b = r.get('block')
+        if not b: continue
+        prev = blocks.get(b)
+        if prev is None or (r.get('published_at') or '') > (prev.get('published_at') or ''):
+            blocks[b] = r
+    sorted_blocks = sorted(blocks.values(), key=lambda r: r.get('block') or '')
+
+    block_rows_html = []
+    for r in sorted_blocks:
+        b = r.get('block') or ''
+        ms = r.get('milestone') or ''
+        ph = r.get('phase') or ''
+        v = (r.get('verdict') or 'UNKNOWN').upper()
+        clos = r.get('closability_pct')
+        clos_str = f'{clos:.0f}%' if isinstance(clos, (int, float)) else '—'
+        pub_at = (r.get('published_at') or '')[:19] or '—'
+        row_url = f'/project/{project}/{disc_class}/block/{b}'
+        block_rows_html.append(
+            f'<tr onclick="location.href=\'{html.escape(row_url, quote=True)}\'" '
+            f'style="cursor:pointer">'
+            f'  <td class="mono">{html.escape(b)}</td>'
+            f'  <td>{html.escape(ms)}</td>'
+            f'  <td>{html.escape(ph)}</td>'
+            f'  <td><span class="verdict-badge v-{v.lower()}">'
+            f'{html.escape(v)}</span></td>'
+            f'  <td class="num">{clos_str}</td>'
+            f'  <td class="num mono">{html.escape(pub_at)}</td>'
+            f'</tr>')
+    if not block_rows_html:
+        block_rows_html.append(
+            '<tr><td colspan="6" class="empty-row">'
+            'No matching publishes. Try clearing the filters.'
+            '</td></tr>')
+
+    # ── Top metrics — latest value per name across the view-filtered rows.
+    # The curated name list differs by discipline.
+    curated = {
+        'PD':  ['WNS', 'TNS', 'total_power', 'utilization',
+                'drc_count', 'lvs_errors'],
+        'DFT': ['test_count', 'coverage_pct', 'scan_chains',
+                'pattern_count'],
+        'DV':  ['coverage_pct', 'bins_hit', 'bins_total',
+                'uvm_errors'],
+    }.get(disc_up, [])
+    # Collect metrics by querying get_published for each row in the view.
+    # Expensive if N blocks are large — mitigation: limit to 60 published runs.
+    try:
+        import sys as _sys, os as _os
+        _utils = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+        if _utils not in _sys.path:
+            _sys.path.insert(0, _utils)
+    except Exception:
+        pass
+    metric_latest = {}  # name -> (value, unit, scenario, corner, block, published_at)
+    try:
+        import tracker_db as _tdb
+        db_path = state_paths.tracker_db(project)
+    except Exception:
+        db_path = None
+    if db_path and curated:
+        for r in sorted_blocks[:60]:
+            try:
+                detail = _tdb.get_published(db_path, r.get('id'))
+            except Exception:
+                detail = None
+            if not detail: continue
+            for m in detail.get('metrics') or []:
+                name = m.get('name') or ''
+                if name not in curated: continue
+                prev = metric_latest.get(name)
+                ts = r.get('published_at') or ''
+                if prev is None or ts > prev[-1]:
+                    metric_latest[name] = (
+                        m.get('value'), m.get('unit') or '',
+                        m.get('scenario') or '', m.get('corner') or '',
+                        r.get('block') or '',
+                        ts,
+                    )
+    metrics_cards = []
+    for name in curated:
+        tup = metric_latest.get(name)
+        if tup is None:
+            metrics_cards.append(
+                f'<div class="metric-tile metric-empty">'
+                f'  <div class="metric-name">{html.escape(name)}</div>'
+                f'  <div class="metric-val muted">—</div>'
+                f'  <div class="metric-lbl muted">no publishes yet</div>'
+                f'</div>')
+            continue
+        val, unit, scen, corner, block, ts = tup
+        metrics_cards.append(
+            f'<div class="metric-tile">'
+            f'  <div class="metric-name">{html.escape(name)}</div>'
+            f'  <div class="metric-val">{html.escape(str(val or "—"))}'
+            f'  <span class="metric-unit">{html.escape(unit)}</span></div>'
+            f'  <div class="metric-lbl">{html.escape(block)} · '
+            f'{html.escape((ts or "")[:10])}</div>'
+            f'</div>')
+
+    # Phase filter chips (deep-linkable)
+    phases = sorted({r.get('phase') for r in verdict_source if r.get('phase')})
+    phase_chips = []
+    phase_chips.append(
+        f'<a class="phase-chip {"" if ph_filter else "on"}" href="?">all</a>')
+    for p in phases:
+        on = 'on' if ph_filter == p else ''
+        href = f'?phase={html.escape(p, quote=True)}'
+        if v_filter:
+            href += f'&verdict={html.escape(v_filter, quote=True)}'
+        phase_chips.append(
+            f'<a class="phase-chip {on}" href="{href}">{html.escape(p)}</a>')
+
+    # Per-user daemon CTA (if running)
+    try:
+        import sys as _sys, os as _os
+        _dash = _os.path.join(_os.path.dirname(_os.path.dirname(
+            _os.path.abspath(__file__))), 'dashboard')
+        if _dash not in _sys.path:
+            _sys.path.insert(0, _dash)
+        import importlib.util as _ilu
+        _spec_path = _os.path.join(_dash, 'state_paths.py')
+        _spec = _ilu.spec_from_file_location(
+            '_cbflow_dashboard_state_paths_tier3', _spec_path)
+        _mod = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_mod)
+        daemon_url = _mod.daemon_url_for(project, disc_up) or ''
+    except Exception:
+        daemon_url = ''
+    cta_html = ''
+    if daemon_url:
+        cta_html = (
+            f'<a class="disc-open" href="{html.escape(daemon_url, quote=True)}" '
+            f'target="_blank" rel="noopener" '
+            f'style="background:{accent}">Open {disc_up} per-user Dashboard →</a>')
+    developed_by = 'SmartSoC CAD · Varun Reddy Merugu'
+
+    return ''.join([
+        '<!DOCTYPE html><html><head>',
+        '<meta charset="utf-8">',
+        f'<title>CBflow-SmartGrid — {html.escape(project)} · {html.escape(disc_up)}</title>',
+        _STYLE,
+        _SCRIPT_RELOAD_ON_FOCUS,
+        '</head><body>',
+        '<header class="bar">',
+        '  <div class="brand">CBflow<span class="lite">-SmartGrid</span>'
+        '       <span class="lite" style="margin-left:8px;color:#0000FF;'
+        '             font-weight:700;">· SmartSoC</span></div>',
+        f'  <nav class="crumbs">'
+        f'    <a href="/">Projects</a>'
+        f'    <span>›</span>'
+        f'    <a href="/project/{html.escape(project, quote=True)}">{html.escape(project)}</a>'
+        f'    <span>›</span>'
+        f'    <strong style="color:{accent}">{html.escape(disc_up)}</strong>'
+        f'  </nav>',
+        f'  <div class="byline">{html.escape(developed_by)}</div>',
+        '</header>',
+        '<section class="tier3-top">',
+        f'  <div class="tier3-head">',
+        f'    <h1 class="tier3-h1" style="color:{accent}">{html.escape(disc_up)} discipline summary</h1>',
+        f'    {cta_html}',
+        f'  </div>',
+        f'  <div class="verdict-bar-wrap">',
+        f'    <svg class="verdict-bar" width="100%" viewBox="0 0 {bar_w} {bar_h}" '
+        f'         preserveAspectRatio="none" aria-label="Verdict rollup">',
+        f'      {"".join(bar)}',
+        f'    </svg>',
+        f'    <div class="verdict-legend">{"".join(verdict_legend)}</div>',
+        f'  </div>',
+        '</section>',
+        '<section class="tier3-metrics">',
+        '  <div class="section-h">Top metrics</div>',
+        '  <div class="metrics-grid">', *metrics_cards, '</div>',
+        '</section>',
+        '<section class="tier3-blocks">',
+        '  <div class="section-h">Blocks '
+        f'<span class="section-h-sub">latest publish per block · {len(sorted_blocks)} shown</span>'
+        '  </div>',
+        '  <div class="phase-chips">', *phase_chips, '</div>',
+        '  <div style="overflow-x:auto">',
+        '  <table class="d tier3-tbl">',
+        '    <thead><tr>'
+        '      <th>Block</th>'
+        '      <th>Latest milestone</th>'
+        '      <th>Phase</th>'
+        '      <th>Verdict</th>'
+        '      <th class="num">Closability</th>'
+        '      <th class="num">Published</th>'
+        '    </tr></thead>',
+        '    <tbody>', *block_rows_html, '</tbody>',
+        '  </table>',
+        '  </div>',
+        '</section>',
+        '</body></html>',
+    ])
 
 
 def _render_index(project, info, blocks, published_rows):
