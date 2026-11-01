@@ -770,9 +770,18 @@ def get_tech_config_paths(tech_name: str, version: str = None) -> list:
 def get_project_config_paths(project_name: str, version: str = None) -> list:
     """Return the ordered list of project_config files that should be sourced.
 
-    Post-Phase-4 cascade (global authoritative):
-      1. <global>/config/project/<name>/<ver>/project_config.tcl    (identity — required)
-      2. <core>/config/project/<name>/<ver>/project_pd_config.tcl   (PD overlay — required)
+    Post-sparse-checkout cascade:
+      1. <global>/config/project/<name>/<ver>/project_config.tcl       (identity — required)
+      2. <PD>/config/project/<name>/<ver>/project_pd_config.tcl        (PD overlay — if PD/ on disk)
+      3. <DFT>/config/project/<name>/<ver>/project_dft_config.tcl      (DFT overlay — if DFT/ on disk)
+      4. <DV>/config/project/<name>/<ver>/project_dv_config.tcl        (DV overlay — if DV/ on disk)
+
+    All overlays set keys on the same `project(...)` Tcl array. Keys that
+    appear in multiple overlays (workarea_path, race,db_path, release,path)
+    MUST hold the same value in every discipline's overlay — a DFT run and
+    a PD run on the same project write to the same workarea and DB. The
+    overlays exist so each discipline's sparse-checkout clone can resolve
+    those keys without needing another discipline's tree on disk.
     """
     ver = version or get_flow_config_version()
     paths = []
@@ -783,13 +792,22 @@ def get_project_config_paths(project_name: str, version: str = None) -> list:
         if os.path.isfile(gp):
             paths.append(gp)
 
-    try:
-        crot = get_config_root()
-        overlay = os.path.join(crot, 'project', project_name, ver, 'project_pd_config.tcl')
+    # Walk each discipline's root (PD + DFT + DV) and include its project
+    # overlay if present. In a full-tree clone all three attach; in a sparse
+    # clone (e.g. only DV/ materialized), only the owner's overlay is on
+    # disk and that's the authoritative source for workarea/release keys.
+    _overlays = (
+        ('CBFLOW_CORE_DIR', 'project_pd_config.tcl'),
+        ('CBFLOW_DFT_DIR',  'project_dft_config.tcl'),
+        ('CBFLOW_DV_DIR',   'project_dv_config.tcl'),
+    )
+    for env_var, filename in _overlays:
+        root = os.environ.get(env_var, '').strip()
+        if not root:
+            continue
+        overlay = os.path.join(root, 'config', 'project', project_name, ver, filename)
         if os.path.isfile(overlay):
             paths.append(overlay)
-    except ValueError:
-        pass
 
     return paths
 
