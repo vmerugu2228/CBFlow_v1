@@ -2960,31 +2960,56 @@ def _aggregate_resources(race_db_paths):
 
 
 def _render_tier2(project, info, blocks, published_rows):
-    """Project landing — Discipline + Schedule + Resource cards, with the
-    existing published-runs grid below for drill-in context.
+    """Project landing — three cards and nothing else: Discipline navigation,
+    Schedule, Resources. The published-runs table lives at Tier 3/Tier 4;
+    this tier is the clean project-level pivot the customer sees first.
 
-    Returns a full HTML page. Reuses the existing _render_index chrome +
-    "Runs" table from the old index page; prepends the three cards.
+    `blocks` / `published_rows` are accepted for interface parity with the
+    other tier renderers but intentionally unused — Tier 2 doesn't expose
+    them. Tier 3's per-block table is where blocks surface.
     """
     disc_cards = _render_discipline_cards(project)
     sched_card = _render_schedule_card(project, info or {})
     res_card = _render_resource_card(project)
-    # Delegate the published-runs table + KPI strip to the existing
-    # _render_index — we just inject the three new cards before the KPI
-    # strip. The chunk-stitching keeps the renderer monolithic without
-    # duplicating 300 lines of table/filter rendering.
-    inner = _render_index(project, info, blocks, published_rows)
-    # Replace the title + inject the project cards after </header>.
-    inner = inner.replace(
+    developed_by = 'SmartSoC CAD · Varun Reddy Merugu'
+    # Light project header strip so the operator sees the project context
+    # (name + tech + tapeout) without needing the KPI tiles from Tier 3.
+    tapeout = (info or {}).get('tapeout_date') or ''
+    tapeout_str, tapeout_weeks = _tapeout_info_safe(tapeout)
+    tech = (info or {}).get('technology') or '—'
+    phase_now = (info or {}).get('current_phase') or '—'
+
+    return ''.join([
+        '<!DOCTYPE html><html><head>',
+        '<meta charset="utf-8">',
+        f'<title>CBflow-SmartGrid — {html.escape(project)}</title>',
+        _STYLE,
+        _SCRIPT_RELOAD_ON_FOCUS,
+        '</head><body>',
+        '<header class="bar">',
+        '  <div class="brand">CBflow<span class="lite">-SmartGrid</span>'
+        '       <span class="lite" style="margin-left:8px;color:#0000FF;'
+        '             font-weight:700;">· SmartSoC</span></div>',
+        f'  <nav class="crumbs">'
+        f'    <a href="/">Projects</a>'
+        f'    <span>›</span>'
+        f'    <strong>{html.escape(project)}</strong>'
+        f'  </nav>',
+        f'  <div class="kv">Phase <b>{html.escape(phase_now)}</b></div>',
+        f'  <div class="kv">Tapeout <b>{html.escape(tapeout_str)}</b></div>',
+        f'  <div class="kv">Tech <b>{html.escape(tech)}</b></div>',
+        f'  <div class="byline">{html.escape(developed_by)} &middot; '
+        f'<a href="mailto:varun@smartsocs.com" '
+        f'style="color:inherit;text-decoration:underline">varun@smartsocs.com'
+        f'</a></div>',
         '</header>',
-        '</header>'
-        + '<section class="tier2-cards">'
-        + disc_cards + sched_card + res_card
-        + '</section>', 1)
-    inner = inner.replace(
-        f'<title>CBflow-ProjectDashboard — {html.escape(project)}</title>',
-        f'<title>CBflow-SmartGrid — {html.escape(project)}</title>', 1)
-    return inner
+        '<section class="tier2-cards">',
+        disc_cards,
+        sched_card,
+        res_card,
+        '</section>',
+        '</body></html>',
+    ])
 
 
 def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
