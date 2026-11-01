@@ -86,6 +86,12 @@ def make_handler(project):
                 # Our own project — dispatch by sub-path.
                 if len(segs) == 1:
                     return self._page_tier2(tgt_project)  # /project/<self>
+                # /project/<self>/team — team detail (not a discipline route)
+                if len(segs) == 2 and segs[1] == 'team':
+                    return self._page_team(tgt_project)
+                # /project/<self>/schedule — schedule detail (stub for now)
+                if len(segs) == 2 and segs[1] == 'schedule':
+                    return self._page_schedule(tgt_project)
                 disc = segs[1].lower()
                 if len(segs) == 2:
                     return self._page_tier3(tgt_project, disc)  # /project/<self>/<disc>
@@ -231,6 +237,25 @@ def make_handler(project):
                 f"Daemon for '{tgt_project}' is not running",
                 hint=f"Start it with: cbflow smartgrid start --project {tgt_project}",
                 variant='offline')
+            self._send(200, 'text/html; charset=utf-8', html_out)
+
+        def _page_team(self, tgt_project):
+            """Full team details page — opens from the Team tile on Tier 2.
+            Shows chip-lead, role-by-role owners, and (future) contact info.
+            """
+            db = state_paths.tracker_db(tgt_project)
+            info = tracker_db.get_project_info(db, tgt_project)
+            html_out = _render_team_detail(tgt_project, info)
+            self._send(200, 'text/html; charset=utf-8', html_out)
+
+        def _page_schedule(self, tgt_project):
+            """Full schedule page — opens from the Schedule tile on Tier 2.
+            Reuses the milestone-timeline + target-dates view that used to
+            live on the Tier 2 card before the square-tile redesign.
+            """
+            db = state_paths.tracker_db(tgt_project)
+            info = tracker_db.get_project_info(db, tgt_project)
+            html_out = _render_schedule_detail(tgt_project, info)
             self._send(200, 'text/html; charset=utf-8', html_out)
 
         def _page_tier3(self, tgt_project, disc):
@@ -616,39 +641,119 @@ _STYLE = """
   .status-pill.pill-archived { background:#f3f4f6; color:#4b5563; }
   .status-pill.pill-paused   { background:#fff3e0; color:#92400e; }
 
-  /* ───── Tier 2 — project landing (cards grid above KPI strip) ───── */
-  .tier2-cards { padding:14px 20px 0; display:flex; flex-direction:column;
-                 gap:12px; background: var(--panel); }
-  .sched-card, .resource-card { background: var(--panel); border:1px solid var(--border);
-                                border-radius:6px; padding:14px 16px; }
-  .card-h { display:flex; align-items:baseline; justify-content:space-between;
-            gap:12px; margin-bottom:10px; }
-  .card-title { font-size:13px; font-weight:800; letter-spacing:.03em;
-                color: var(--text); text-transform:uppercase; }
-  .card-sub { font-size:11px; color: var(--muted); }
+  /* ───── Tier 2 — unified square-tile grid ─────
+     One grid, all tiles share the same square-ish shape so the page
+     reads as a flat set of equal-weight navigation entry points.
+     Tiles grow to ~260px wide × 220px tall; collapse to 1-column at
+     narrow viewports. Click opens the tile's drill target. */
+  .sg-tile-grid { display:grid; gap:16px; padding:24px 20px;
+                  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+                  background: #f6f7f9; min-height: calc(100vh - 50px); }
+  .sg-tile { display:flex; flex-direction:column; justify-content:space-between;
+             aspect-ratio: 1 / 0.86;
+             min-height: 210px;
+             background: var(--panel); color: var(--text);
+             border:1px solid var(--border); border-radius:8px;
+             padding:16px 18px; text-decoration:none;
+             box-shadow: 0 1px 3px rgba(0,0,0,.04);
+             transition: transform .15s, box-shadow .15s, border-color .15s;
+             position:relative; overflow:hidden; }
+  .sg-tile::before {
+    content:""; position:absolute; left:0; top:0; bottom:0; width:4px;
+    background: var(--tile-accent, var(--accent));
+  }
+  .sg-tile:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(0,0,0,.08);
+    border-color: var(--tile-accent, var(--accent));
+    text-decoration:none;
+  }
+  .sg-tile-head { display:flex; align-items:center; gap:8px;
+                  margin-bottom:8px; }
+  .sg-tile-badge { display:inline-flex; align-items:center;
+                   justify-content:center; width:40px; height:40px;
+                   border-radius:8px; font-weight:800; font-size:14px;
+                   letter-spacing:.03em; color:#fff;
+                   background: var(--tile-accent, var(--accent-ink)); }
+  .sg-tile-title { font-weight:800; font-size:15px; letter-spacing:-.01em;
+                   color: var(--text); }
+  .sg-tile-badge-aux {
+    margin-left:auto; font-size:10px; font-weight:800;
+    text-transform:uppercase; letter-spacing:.05em; padding:3px 8px;
+    background:#fff3e0; color:#92400e; border-radius:3px;
+  }
+  .tile-badge-live { margin-left:auto; font-size:11px; font-weight:700;
+                     color:#059669; letter-spacing:.03em; }
+  .tile-badge-off  { margin-left:auto; font-size:11px; font-weight:700;
+                     color: var(--muted); letter-spacing:.03em; }
+  .sg-tile-body { flex:1; display:flex; flex-direction:column;
+                  justify-content:center; align-items:center; text-align:center;
+                  padding:4px 0; }
+  .sg-tile-metric { font-size:46px; font-weight:800; line-height:1;
+                    color: var(--text); font-variant-numeric: tabular-nums;
+                    letter-spacing:-.03em; }
+  .sg-tile-metric-lbl { font-size:11px; color: var(--muted);
+                        text-transform:uppercase; letter-spacing:.04em;
+                        margin-top:6px; font-weight:600; }
+  .sg-tile-sub { margin-top:10px; font-size:11px; color: var(--muted); }
+  .sg-tile-sub b { color: var(--text); font-weight:700; }
+  .sg-tile-foot { font-size:11px; font-weight:700; color: var(--tile-accent, var(--accent-ink));
+                  letter-spacing:.02em; margin-top:8px;
+                  padding-top:8px; border-top:1px solid var(--border);
+                  text-align:right; }
+
+  /* Discipline tile accents (match per-user daemon brand colors) */
+  .sg-tile-disc.disc-pd  { --tile-accent: #1565c0; }
+  .sg-tile-disc.disc-dft { --tile-accent: #0d9488; }
+  .sg-tile-disc.disc-dv  { --tile-accent: #be185d; }
+  .sg-tile-sched { --tile-accent: #d97706; }
+  .sg-tile-sched .sg-tile-badge { background: #d97706; font-size:20px; }
+  .sg-tile-team  { --tile-accent: #7c3aed; }
+  .sg-tile-team  .sg-tile-badge { background: #7c3aed; font-size:20px; }
+
+  /* ───── Detail pages (Team / Schedule drill-ins) ───── */
+  .detail-top { padding:24px 24px 10px; background: var(--panel);
+                border-bottom:1px solid var(--border); }
+  .detail-h1 { margin:0 0 4px; font-size:22px; font-weight:800;
+               letter-spacing:-.01em; color: var(--text); }
+  .detail-sub { color: var(--muted); font-size:13px; }
+  .detail-section { background: var(--panel); padding-bottom:16px; }
+  .role-cards { display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap:12px; padding:0 24px 20px; }
+  .role-card { padding:14px 16px; background: var(--header);
+               border:1px solid var(--border); border-radius:6px; }
+  .role-card.role-lead { border-left: 3px solid #7c3aed;
+                         background: #faf5ff; }
+  .role-key { font-size:10px; font-weight:800; letter-spacing:.05em;
+              color: var(--muted); text-transform:uppercase; }
+  .role-val { font-size:16px; font-weight:700; color: var(--text);
+              margin-top:4px; }
+  .team-tbl { width:100%; }
+  .team-cell-name { display:flex; align-items:center; gap:10px; padding:10px 12px; }
+  .team-avatar { display:inline-flex; align-items:center;
+                 justify-content:center; width:28px; height:28px;
+                 border-radius:50%; background:#7c3aed; color:#fff;
+                 font-weight:800; font-size:11px; letter-spacing:.03em; }
+  .team-name { font-weight:600; }
+  .team-cell-roles { color: var(--muted); font-size:12px; }
+  .team-cell-contact { color: var(--muted); font-size:11px;
+                       font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+
+  /* Keep sched-timeline styles for the /schedule detail page */
   .sched-timeline { display:grid; grid-template-columns: repeat(6, 1fr);
-                    gap:6px; margin-top:4px; }
-  .sched-pip { padding:10px 8px; border-radius:4px; text-align:center;
+                    gap:8px; margin:4px 0 10px; }
+  .sched-pip { padding:14px 10px; border-radius:4px; text-align:center;
                border:1px solid var(--border); background: var(--panel); }
-  .sched-pip-name { font-size:10px; font-weight:800; letter-spacing:.05em;
+  .sched-pip-name { font-size:11px; font-weight:800; letter-spacing:.05em;
                     color: var(--text); }
-  .sched-pip-date { font-size:11px; color: var(--muted); margin-top:3px;
+  .sched-pip-date { font-size:12px; color: var(--muted); margin-top:4px;
                     font-variant-numeric: tabular-nums; }
   .sched-pip.sched-past   { background: var(--accent-bg); border-color: var(--accent-ink); }
   .sched-pip.sched-past   .sched-pip-name { color: var(--accent-ink); }
   .sched-pip.sched-future { background:#f8fafc; }
-  .sched-note { margin-top:10px; padding:8px 10px; font-size:11px;
-                color: var(--muted); background:#fffbeb; border-left:3px solid #d97706;
+  .sched-note { padding:10px 12px; font-size:11px; color: var(--muted);
+                background:#fffbeb; border-left:3px solid #d97706;
                 border-radius:3px; }
-  .resource-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-                   gap:12px; margin-top:4px; }
-  .resource-stat { padding:10px 12px; background: var(--header);
-                   border-radius:4px; }
-  .resource-stat-val { font-size:20px; font-weight:800;
-                       color: var(--text); font-variant-numeric: tabular-nums; }
-  .resource-stat-lbl { font-size:10px; color: var(--muted); text-transform:uppercase;
-                       letter-spacing:.04em; margin-top:2px; }
-  .resource-note { margin-top:8px; font-size:11px; color: var(--muted); }
   .muted { color: var(--muted); }
 
   /* ───── Tier 3 — discipline summary ───── */
@@ -2516,7 +2621,10 @@ def _render_discipline_cards(project):
         def daemon_url_for(project, discipline):  # noqa: ARG001
             return ''
 
-    out = ['<section class="disc-cards">']
+    # Return bare card <a> elements; Tier 2 drops them into a unified grid
+    # alongside Schedule + Resource cards so every tile shares the same
+    # square shape. The cards are clickable — hit the Tier 3 route.
+    out = []
     for disc in disciplines:
         try:
             flow_count = len(get_project_enabled_flows(project, disc))
@@ -2524,24 +2632,26 @@ def _render_discipline_cards(project):
             flow_count = 0
         url = daemon_url_for(project, disc)
         css = disc.lower()
-        out.append(f'  <div class="disc-card {css}">')
-        out.append('    <div class="disc-h">')
-        out.append(f'      <div class="disc-badge">{html.escape(disc)}</div>')
-        out.append('      <div>')
-        out.append(f'        <div class="disc-name">{html.escape(disc)} Dashboard</div>')
+        tier3_href = f'/project/{html.escape(project, quote=True)}/{css}'
+        daemon_badge = (
+            '<span class="tile-badge-live" title="per-user daemon live">● live</span>'
+            if url else
+            '<span class="tile-badge-off" title="per-user daemon offline">○ offline</span>')
         _plural = 'flow' if flow_count == 1 else 'flows'
-        out.append(f'        <div class="disc-meta">{flow_count} {_plural} enabled for {html.escape(project)}</div>')
-        out.append('      </div>')
-        out.append('    </div>')
-        if url:
-            out.append(f'    <a class="disc-open" href="{html.escape(url, quote=True)}" '
-                       f'target="_blank" rel="noopener">Open {html.escape(disc)} Dashboard →</a>')
-        else:
-            out.append('    <div class="disc-hint">daemon offline — start with: '
-                       f'<code>cbflow run gui --project {html.escape(project)}</code> '
-                       f'from a {html.escape(disc)} run</div>')
-        out.append('  </div>')
-    out.append('</section>')
+        out.append(
+            f'<a class="sg-tile sg-tile-disc disc-{css}" href="{tier3_href}">'
+            f'  <div class="sg-tile-head">'
+            f'    <span class="sg-tile-badge disc-badge">{html.escape(disc)}</span>'
+            f'    {daemon_badge}'
+            f'  </div>'
+            f'  <div class="sg-tile-body">'
+            f'    <div class="sg-tile-metric">{flow_count}</div>'
+            f'    <div class="sg-tile-metric-lbl">{_plural} enabled</div>'
+            f'  </div>'
+            f'  <div class="sg-tile-foot">'
+            f'    Open {html.escape(disc)} summary →'
+            f'  </div>'
+            f'</a>')
     return '\n'.join(out)
 
 
@@ -2796,12 +2906,16 @@ def _tapeout_info_safe(iso):
 
 
 def _render_schedule_card(project, info):
-    """Schedule card for Tier 2.
+    """Schedule tile for Tier 2 — compact summary, same square shape as
+    the discipline + team tiles. Clicking drills into the full schedule
+    view at /project/<name>/schedule (PR landing in a follow-up — stub
+    for now returns 404; the tile is navigable but the detail page is
+    not yet implemented).
 
-    Reads milestone_targets from master_projects.json (preferred) or
-    falls back to even-spacing across project_start_date → tapeout_date.
-    Marks fallback dates as 'estimated' so customers don't mistake them
-    for committed targets.
+    Shows:
+      - Weeks to tapeout (big number)
+      - 'N of M milestones past target' (passed / total milestone pips)
+      - 'estimated' pill when milestone_targets isn't declared
     """
     try:
         import sys as _sys, os as _os
@@ -2815,6 +2929,260 @@ def _render_schedule_card(project, info):
         entry = (data.get('projects') or {}).get(project, {})
     except Exception:
         entry = {}
+    tapeout_iso = entry.get('tapeout_date') or info.get('tapeout_date') or ''
+    start_iso = entry.get('project_start_date') or ''
+    _, tapeout_weeks = _tapeout_info_safe(tapeout_iso)
+    targets = entry.get('milestone_targets') or {}
+    estimated = False
+    if not targets and start_iso and tapeout_iso:
+        try:
+            from datetime import date, timedelta
+            s = date.fromisoformat(start_iso)
+            t = date.fromisoformat(tapeout_iso)
+            step = (t - s).days / (len(_MILESTONES) + 1)
+            targets = {m: (s + timedelta(days=round(step * (i + 1)))).isoformat()
+                       for i, m in enumerate(_MILESTONES)}
+            estimated = True
+        except Exception:
+            targets = {}
+
+    from datetime import date as _d
+    today = _d.today().isoformat()
+    pips_past = sum(1 for m in _MILESTONES
+                    if (targets.get(m) or '') and (targets.get(m) or '') < today)
+    pips_total = len(_MILESTONES)
+    est_pill = ('<span class="sg-tile-badge-aux" title="dates derived from '
+                'project_start_date + tapeout_date, not committed">est.</span>'
+                if estimated else '')
+    href = f'/project/{html.escape(project, quote=True)}/schedule'
+    return (
+        f'<a class="sg-tile sg-tile-sched" href="{href}">'
+        f'  <div class="sg-tile-head">'
+        f'    <span class="sg-tile-badge sched-badge">⌛</span>'
+        f'    <span class="sg-tile-title">Schedule</span>'
+        f'    {est_pill}'
+        f'  </div>'
+        f'  <div class="sg-tile-body">'
+        f'    <div class="sg-tile-metric">{tapeout_weeks}</div>'
+        f'    <div class="sg-tile-metric-lbl">weeks to tapeout</div>'
+        f'    <div class="sg-tile-sub">'
+        f'      {pips_past} of {pips_total} milestones past target'
+        f'    </div>'
+        f'  </div>'
+        f'  <div class="sg-tile-foot">'
+        f'    Open full schedule →'
+        f'  </div>'
+        f'</a>')
+
+
+def _render_team_card(project):
+    """Team tile for Tier 2 — square-shaped summary that drills into a
+    full team detail page at /project/<name>/team.
+
+    Shows: chip lead, headcount across declared roles. Full roster +
+    role-by-role contact details live on the detail page.
+    """
+    try:
+        import sys as _sys, os as _os
+        _utils = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+        _cmds = _os.path.join(_utils, 'commands')
+        for _p in (_utils, _cmds):
+            if _p not in _sys.path:
+                _sys.path.insert(0, _p)
+        from tcl_config_parser import _load_master_projects
+        data = _load_master_projects()
+        entry = (data.get('projects') or {}).get(project, {})
+    except Exception:
+        entry = {}
+    chip_lead = entry.get('chip_lead') or '—'
+    flow_owners = entry.get('flow_owners') or {}
+    # Count unique owners across all declared roles (chip_lead + flow_owners
+    # values). Dedup so a single-person team doesn't show inflated headcount.
+    members = set()
+    if chip_lead and chip_lead != '—' and chip_lead != 'Not specified':
+        members.add(chip_lead)
+    for name in flow_owners.values():
+        if name and name not in ('NA', 'Not specified', ''):
+            members.add(name)
+    headcount = len(members)
+    href = f'/project/{html.escape(project, quote=True)}/team'
+    chip_lead_short = chip_lead if chip_lead != 'Not specified' else '—'
+    return (
+        f'<a class="sg-tile sg-tile-team" href="{href}">'
+        f'  <div class="sg-tile-head">'
+        f'    <span class="sg-tile-badge team-badge">👥</span>'
+        f'    <span class="sg-tile-title">Team</span>'
+        f'  </div>'
+        f'  <div class="sg-tile-body">'
+        f'    <div class="sg-tile-metric">{headcount}</div>'
+        f'    <div class="sg-tile-metric-lbl">members</div>'
+        f'    <div class="sg-tile-sub">Lead: <b>{html.escape(chip_lead_short)}</b></div>'
+        f'  </div>'
+        f'  <div class="sg-tile-foot">'
+        f'    Open team details →'
+        f'  </div>'
+        f'</a>')
+
+
+# Keep _render_resource_card as a thin back-compat alias so any
+# external caller that references it doesn't break. Internally all
+# references in this module now use _render_team_card.
+_render_resource_card = _render_team_card
+
+
+def _load_project_entry(project):
+    """Read a project's entry from master_projects.json, or {} on error.
+    Shared between schedule + team detail renderers.
+    """
+    try:
+        import sys as _sys, os as _os
+        _utils = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+        _cmds = _os.path.join(_utils, 'commands')
+        for _p in (_utils, _cmds):
+            if _p not in _sys.path:
+                _sys.path.insert(0, _p)
+        from tcl_config_parser import _load_master_projects
+        data = _load_master_projects()
+        return (data.get('projects') or {}).get(project, {})
+    except Exception:
+        return {}
+
+
+def _render_detail_chrome(project, section_name):
+    """Shared header + breadcrumb for /team and /schedule detail pages."""
+    developed_by = 'SmartSoC CAD · Varun Reddy Merugu'
+    return ''.join([
+        '<header class="bar">',
+        '  <div class="brand">CBflow<span class="lite">-SmartGrid</span>'
+        '       <span class="lite" style="margin-left:8px;color:#0000FF;'
+        '             font-weight:700;">· SmartSoC</span></div>',
+        f'  <nav class="crumbs">'
+        f'    <a href="/">Projects</a>'
+        f'    <span>›</span>'
+        f'    <a href="/project/{html.escape(project, quote=True)}">{html.escape(project)}</a>'
+        f'    <span>›</span>'
+        f'    <strong>{html.escape(section_name)}</strong>'
+        f'  </nav>',
+        f'  <div class="byline">{html.escape(developed_by)} &middot; '
+        f'<a href="mailto:varun@smartsocs.com" '
+        f'style="color:inherit;text-decoration:underline">varun@smartsocs.com'
+        f'</a></div>',
+        '</header>',
+    ])
+
+
+def _render_team_detail(project, info):
+    """Full team detail page — opens from the Team tile on Tier 2.
+
+    Lists chip-lead + flow owners by role (frontend, backend, verification,
+    etc.). Dedups to show unique members at the top with their roles beside
+    their names.
+    """
+    entry = _load_project_entry(project)
+    chip_lead = entry.get('chip_lead') or 'Not specified'
+    flow_owners = entry.get('flow_owners') or {}
+
+    # Role → list of role labels per member (so a single-person team shows
+    # "frontend + backend + verification" next to their name)
+    member_roles = {}
+    def _add(name, role_label):
+        if not name: return
+        if name in ('NA', 'Not specified', ''): return
+        member_roles.setdefault(name, []).append(role_label)
+
+    if chip_lead and chip_lead not in ('Not specified',):
+        _add(chip_lead, 'Chip Lead')
+    role_label_map = {
+        'frontend': 'Frontend',
+        'backend':  'Backend',
+        'verification': 'Verification',
+    }
+    for role_key, name in flow_owners.items():
+        label = role_label_map.get(role_key, role_key.title())
+        _add(name, label)
+
+    # Member rows
+    member_rows = []
+    for name in sorted(member_roles.keys()):
+        roles = ', '.join(member_roles[name])
+        initials = ''.join(w[0].upper() for w in name.split()[:2] if w) or '?'
+        member_rows.append(
+            f'<tr>'
+            f'  <td class="team-cell-name">'
+            f'    <span class="team-avatar">{html.escape(initials)}</span>'
+            f'    <span class="team-name">{html.escape(name)}</span>'
+            f'  </td>'
+            f'  <td class="team-cell-roles">{html.escape(roles)}</td>'
+            f'  <td class="team-cell-contact">—</td>'
+            f'</tr>')
+
+    role_cards = []
+    for role_key in ('frontend', 'backend', 'verification'):
+        label = role_label_map.get(role_key, role_key.title())
+        name = flow_owners.get(role_key) or 'Not assigned'
+        if name in ('NA', ''):
+            name = 'Not assigned'
+        role_cards.append(
+            f'<div class="role-card">'
+            f'  <div class="role-key">{html.escape(label)}</div>'
+            f'  <div class="role-val">{html.escape(name)}</div>'
+            f'</div>')
+
+    chip_lead_display = chip_lead if chip_lead != 'Not specified' else 'Not assigned'
+    description = entry.get('description') or ''
+
+    return ''.join([
+        '<!DOCTYPE html><html><head>',
+        '<meta charset="utf-8">',
+        f'<title>Team · {html.escape(project)} — CBflow-SmartGrid</title>',
+        _STYLE,
+        _SCRIPT_RELOAD_ON_FOCUS,
+        '</head><body>',
+        _render_detail_chrome(project, 'Team'),
+        '<section class="detail-top">',
+        f'  <h1 class="detail-h1">Team · {html.escape(project)}</h1>',
+        f'  <div class="detail-sub">{html.escape(description)}</div>' if description else '',
+        '</section>',
+        '<section class="detail-section">',
+        '  <div class="section-h">Leadership</div>',
+        '  <div class="role-cards">',
+        f'    <div class="role-card role-lead">'
+        f'      <div class="role-key">Chip Lead</div>'
+        f'      <div class="role-val">{html.escape(chip_lead_display)}</div>'
+        f'    </div>',
+        *role_cards,
+        '  </div>',
+        '</section>',
+        '<section class="detail-section">',
+        '  <div class="section-h">Roster '
+        f'<span class="section-h-sub">{len(member_rows)} '
+        f'unique member{"s" if len(member_rows) != 1 else ""} across all roles</span>'
+        '  </div>',
+        '  <div style="padding:0 20px 20px">',
+        '  <table class="d team-tbl">',
+        '    <thead><tr>'
+        '      <th>Member</th>'
+        '      <th>Roles</th>'
+        '      <th>Contact</th>'
+        '    </tr></thead>',
+        '    <tbody>',
+        *(member_rows or [
+            '<tr><td colspan="3" class="empty-row">No team members '
+            'declared in master_projects.json for this project.</td></tr>']),
+        '    </tbody>',
+        '  </table>',
+        '  </div>',
+        '</section>',
+        '</body></html>',
+    ])
+
+
+def _render_schedule_detail(project, info):
+    """Full schedule page — opens from the Schedule tile on Tier 2.
+    Shows the milestone timeline with target dates, estimated-pill when
+    derived, tapeout countdown, and project start/end markers.
+    """
+    entry = _load_project_entry(project)
     tapeout_iso = entry.get('tapeout_date') or info.get('tapeout_date') or ''
     start_iso = entry.get('project_start_date') or ''
     tapeout_str, tapeout_weeks = _tapeout_info_safe(tapeout_iso)
@@ -2845,75 +3213,39 @@ def _render_schedule_card(project, info):
             f'  <div class="sched-pip-name">{html.escape(m)}</div>'
             f'  <div class="sched-pip-date">{html.escape(tgt[:10] or "—")}</div>'
             '</div>')
-    note = ''
+
+    est_note = ''
     if estimated:
-        note = (
-            '<div class="sched-note">Target dates estimated from '
-            '<code>project_start_date</code> + <code>tapeout_date</code> '
-            '(even-spacing). Add <code>milestone_targets</code> to '
-            '<code>master_projects.json</code> for authoritative dates.</div>')
-    return (
-        '<section class="sched-card">'
-        '  <div class="card-h"><div class="card-title">Schedule</div>'
-        f'  <div class="card-sub">Tapeout {html.escape(tapeout_str)} · '
-        f'{html.escape(str(tapeout_weeks))} weeks</div></div>'
-        '  <div class="sched-timeline">'
-        f'    {"".join(pips)}'
-        '  </div>'
-        f'  {note}'
-        '</section>')
+        est_note = (
+            '<div class="sched-note">Target dates derived by even-spacing '
+            'between <code>project_start_date</code> and '
+            '<code>tapeout_date</code>. For committed targets, add a '
+            '<code>milestone_targets</code> block to '
+            '<code>master_projects.json</code>.</div>')
 
-
-def _render_resource_card(project):
-    """Resource card for Tier 2.
-
-    Renders a placeholder structure that the inline JS fills from
-    /api/resources?project=<name> on first paint — the aggregation
-    walks each recent RACE DB file, which may be slow (~10-50ms per
-    DB). Loading async keeps first paint fast.
-    """
-    return (
-        '<section class="resource-card">'
-        '  <div class="card-h"><div class="card-title">Resources</div>'
-        '  <div class="card-sub">LSF usage · last 20 published runs</div></div>'
-        '  <div class="resource-grid" id="resource-grid">'
-        '    <div class="resource-stat">'
-        '      <div class="resource-stat-val" id="rs-jobs">…</div>'
-        '      <div class="resource-stat-lbl">Jobs tracked</div>'
-        '    </div>'
-        '    <div class="resource-stat">'
-        '      <div class="resource-stat-val" id="rs-cost">…</div>'
-        '      <div class="resource-stat-lbl">Est. cost (USD)</div>'
-        '    </div>'
-        '    <div class="resource-stat">'
-        '      <div class="resource-stat-val" id="rs-cpu">…</div>'
-        '      <div class="resource-stat-lbl">CPU hours</div>'
-        '    </div>'
-        '    <div class="resource-stat">'
-        '      <div class="resource-stat-val" id="rs-queues">…</div>'
-        '      <div class="resource-stat-lbl">Queue tiers used</div>'
-        '    </div>'
-        '  </div>'
-        '  <div class="resource-note" id="rs-note">Loading…</div>'
-        '  <script>'
-        '    (function() {'
-        f'      var proj = {json.dumps(project)};'
-        '      fetch("/api/resources?project=" + encodeURIComponent(proj))'
-        '        .then(function(r){return r.json()})'
-        '        .then(function(j){'
-        '          document.getElementById("rs-jobs").textContent  = j.jobs ?? "0";'
-        '          document.getElementById("rs-cost").textContent  = j.cost_est ? "$" + j.cost_est.toFixed(0) : "—";'
-        '          document.getElementById("rs-cpu").textContent   = j.cpu_hours ? j.cpu_hours.toFixed(1) : "0";'
-        '          document.getElementById("rs-queues").textContent = (j.queue_tiers || []).join(" · ") || "—";'
-        '          document.getElementById("rs-note").textContent = '
-        '            "Last " + (j.run_count || 0) + " runs tracked";'
-        '        })'
-        '        .catch(function(e){'
-        '          document.getElementById("rs-note").textContent = "Resource data unavailable";'
-        '        });'
-        '    })();'
-        '  </script>'
-        '</section>')
+    return ''.join([
+        '<!DOCTYPE html><html><head>',
+        '<meta charset="utf-8">',
+        f'<title>Schedule · {html.escape(project)} — CBflow-SmartGrid</title>',
+        _STYLE,
+        _SCRIPT_RELOAD_ON_FOCUS,
+        '</head><body>',
+        _render_detail_chrome(project, 'Schedule'),
+        '<section class="detail-top">',
+        f'  <h1 class="detail-h1">Schedule · {html.escape(project)}</h1>',
+        f'  <div class="detail-sub">Tapeout {html.escape(tapeout_str)} · '
+        f'{html.escape(str(tapeout_weeks))} weeks remaining · '
+        f'started {html.escape(start_iso or "—")}</div>',
+        '</section>',
+        '<section class="detail-section">',
+        '  <div class="section-h">Milestone timeline</div>',
+        '  <div class="sched-timeline" style="padding:0 20px 10px">',
+        *pips,
+        '  </div>',
+        f'  <div style="padding:0 20px 20px">{est_note}</div>',
+        '</section>',
+        '</body></html>',
+    ])
 
 
 def _aggregate_resources(race_db_paths):
@@ -2970,7 +3302,7 @@ def _render_tier2(project, info, blocks, published_rows):
     """
     disc_cards = _render_discipline_cards(project)
     sched_card = _render_schedule_card(project, info or {})
-    res_card = _render_resource_card(project)
+    team_card = _render_team_card(project)
     developed_by = 'SmartSoC CAD · Varun Reddy Merugu'
     # Light project header strip so the operator sees the project context
     # (name + tech + tapeout) without needing the KPI tiles from Tier 3.
@@ -3003,10 +3335,10 @@ def _render_tier2(project, info, blocks, published_rows):
         f'style="color:inherit;text-decoration:underline">varun@smartsocs.com'
         f'</a></div>',
         '</header>',
-        '<section class="tier2-cards">',
+        '<section class="sg-tile-grid">',
         disc_cards,
         sched_card,
-        res_card,
+        team_card,
         '</section>',
         '</body></html>',
     ])
