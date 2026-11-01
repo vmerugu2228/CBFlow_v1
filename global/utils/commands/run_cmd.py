@@ -3576,6 +3576,11 @@ def cmd_gui(args):
 def _cmd_gui_daemon(no_browser, public=False, bind_addr=None):
     """Register the current run with the per-user dashboard daemon.
 
+    One daemon per discipline (PD, DFT, DV) — the current run's flow type
+    determines which daemon this call targets. A DV run won't accidentally
+    register with the PD daemon, so each discipline's dashboard shows only
+    its own runs.
+
     `public` / `bind_addr` are forwarded to ensure_daemon if the daemon
     isn't already running. If the daemon is already up with a different
     bind, the user must `cbflow dashboard restart --public` (or stop and
@@ -3588,8 +3593,35 @@ def _cmd_gui_daemon(no_browser, public=False, bind_addr=None):
         sys.path.insert(0, dashboard_dir)
     import lifecycle  # noqa: E402
 
+    # Resolve the current run's discipline so each discipline gets its
+    # own daemon. The launcher doesn't source .run.cbflow.env, so
+    # CBFLOW_FLOW_TYPE isn't in os.environ — read the file directly from
+    # the run dir. Default to PD if the flow doesn't declare a discipline
+    # — matches the dashboard's own fallback.
+    discipline = None
+    flow_type = os.environ.get('CBFLOW_FLOW_TYPE', '').strip().upper()
+    if not flow_type:
+        env_file = os.path.join(os.getcwd(), '.run.cbflow.env')
+        if os.path.exists(env_file):
+            try:
+                with open(env_file) as _f:
+                    for _line in _f:
+                        _line = _line.strip()
+                        if _line.startswith('export CBFLOW_FLOW_TYPE='):
+                            flow_type = _line.split('=', 1)[1].strip().strip('"').upper()
+                            break
+            except OSError:
+                pass
+    if flow_type:
+        try:
+            from tcl_config_parser import get_flow_discipline
+            discipline = (get_flow_discipline(flow_type) or 'PD').upper()
+        except Exception:
+            discipline = 'PD'
+
     try:
-        lifecycle.ensure_daemon(public=public, bind_addr=bind_addr)
+        lifecycle.ensure_daemon(public=public, bind_addr=bind_addr,
+                                discipline=discipline)
         reply = lifecycle.send_register(os.getcwd())
     except (RuntimeError, OSError) as e:
         logger.error(f'dashboard daemon error: {e}')

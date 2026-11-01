@@ -889,11 +889,21 @@ def _render_index(runs, discipline='PD', project=''):
     disc = (discipline or 'PD').upper()
     disc_label = disc
     project = (project or '').strip()
-    disc_pill_bg = '#0d9488' if disc == 'DFT' else '#1565c0'
-    disc_pill_border = '#0f766e' if disc == 'DFT' else '#0d47a1'
-    disc_banner_grad = ('linear-gradient(135deg, #0d9488 0%, #0ea5e9 55%, #6366f1 100%)'
-                        if disc == 'DFT'
-                        else 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #0ea5e9 100%)')
+    # Per-discipline branding: distinct accent colors + banner gradients so
+    # a glance at the chrome tells you which discipline's dashboard you're on.
+    if disc == 'DFT':
+        disc_pill_bg, disc_pill_border = '#0d9488', '#0f766e'
+        disc_banner_grad = 'linear-gradient(135deg, #0d9488 0%, #0ea5e9 55%, #6366f1 100%)'
+    elif disc == 'DV':
+        disc_pill_bg, disc_pill_border = '#be185d', '#9f1239'
+        disc_banner_grad = 'linear-gradient(135deg, #be185d 0%, #a21caf 55%, #6366f1 100%)'
+    else:  # PD
+        disc_pill_bg, disc_pill_border = '#1565c0', '#0d47a1'
+        disc_banner_grad = 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #0ea5e9 100%)'
+
+    # Each daemon is scoped to one discipline (its state root enforces this,
+    # and cmd_gui routes runs by flow_type → discipline). So the title is
+    # always for a single discipline — the daemon's own.
     if project:
         title_prefix = f'CBflow {disc} · {project} Dashboard'
     else:

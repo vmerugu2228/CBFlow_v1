@@ -1262,7 +1262,15 @@ function renderDAG() {
     var info = (dagData && dagData.run_info) || {};
     var toolName = '';
     try { toolName = document.getElementById('lp-tool').textContent || ''; } catch(e){}
-    var toolShort = toolShortMap[toolName.toLowerCase()] || toolName.toUpperCase().substr(0,3);
+    // Suppress the "[<tool>]" suffix when the tool field is just the "-"
+    // placeholder (meaning info.tool_name was empty — common for DV flows
+    // and any run before the resolver has populated the panel). Showing
+    // "name [-]" on every node is noise, not information.
+    toolName = toolName.trim();
+    var toolShort = '';
+    if (toolName && toolName !== '-') {
+      toolShort = toolShortMap[toolName.toLowerCase()] || toolName.toUpperCase().substr(0,3);
+    }
 
     // Draw stage nodes — with proportional color segments + branch border colors
     var nc = window._nodeColumn || {};
@@ -1271,7 +1279,7 @@ function renderDAG() {
       var p = nodePositions[name];
       if (p) {
         var isLeaf = (s.jobs_total || 0) === 0;
-        var displayName = isLeaf ? name : name + ' [' + toolShort + ']';
+        var displayName = (isLeaf || !toolShort) ? name : name + ' [' + toolShort + ']';
         var lbl = statusLabel(s.status) + '  ' + formatTime(s.runtime);
         if (s.jobs_total > 0) {
           lbl = s.jobs_done + '/' + s.jobs_total + ' done  ' + formatTime(s.runtime);

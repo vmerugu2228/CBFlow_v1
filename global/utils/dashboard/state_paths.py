@@ -1,10 +1,11 @@
 """Single source of truth for the per-user dashboard daemon's state paths.
 
-State is scoped by discipline ("PD" or "DFT") so the two engineering teams can
-run independent daemons under the same user account:
+State is scoped by discipline ("PD", "DFT", or "DV") so each engineering team
+can run independent daemons under the same user account:
 
   ~/.cbflow/dashboard/PD/      — PD daemon: pidfile, port, runs/, control.sock
   ~/.cbflow/dashboard/DFT/     — DFT daemon: same shape, separate listener
+  ~/.cbflow/dashboard/DV/      — DV daemon: same shape, separate listener
 
 All paths are mode 0700 (owner-only) so other users on a shared host can't peek
 at the run registry.
@@ -20,7 +21,7 @@ import os
 import re
 import shutil
 
-_VALID = ('PD', 'DFT')
+_VALID = ('PD', 'DFT', 'DV')
 _current = None
 _current_project = None
 _PROJECT_RE = re.compile(r'^[A-Za-z0-9_\-]+$')

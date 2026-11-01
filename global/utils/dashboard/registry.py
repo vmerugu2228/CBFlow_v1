@@ -103,12 +103,39 @@ def get(run_id):
 
 
 def list_all():
-    """Every registry record on disk (active + archived)."""
+    """Every registry record on disk (active + archived).
+
+    Pre-fix the state root for `PD/runs/` was the single destination for
+    EVERY discipline's `cbflow run gui` call (cmd_gui didn't thread the
+    flow's discipline through). Leftover records from that era can
+    belong to DFT/DV runs. Filter them out here so each daemon's index
+    only lists runs that actually belong to its own discipline.
+    """
+    daemon_disc = (state_paths.get_discipline() or 'PD').upper()
+    try:
+        import sys, os as _os
+        _cmds = _os.path.join(_os.path.dirname(_os.path.dirname(
+            _os.path.abspath(__file__))), 'commands')
+        if _cmds not in sys.path:
+            sys.path.insert(0, _cmds)
+        from tcl_config_parser import get_flow_discipline
+    except Exception:
+        get_flow_discipline = None
+
     out = []
     for f in sorted(Path(state_paths.runs_dir()).glob('*.json')):
         rec = _load(f.stem)
-        if rec:
-            out.append(rec)
+        if not rec:
+            continue
+        ft = (rec.get('flow_type') or '').strip().upper()
+        if ft and get_flow_discipline is not None:
+            try:
+                rec_disc = (get_flow_discipline(ft) or 'PD').upper()
+            except Exception:
+                rec_disc = 'PD'
+            if rec_disc != daemon_disc:
+                continue
+        out.append(rec)
     return out
 
 
