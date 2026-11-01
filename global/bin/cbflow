@@ -390,9 +390,11 @@ main() {
             exec python3 "$PD_COMMANDS_DIR/migrate_cmd.py" "$@"
             ;;
 
-        # Test suite (PD-owned entry point — knows about PD/DFT/DV flows)
+        # Test suite — cross-discipline entry point (knows PD + DFT + DV flows),
+        # so it lives under $CBFLOW_GLOBAL_DIR/utils/commands/ and is reachable
+        # from a sparse-checkout clone that doesn't have the PD tree on disk.
         test|test-suite)
-            exec python3 "$PD_COMMANDS_DIR/test_cmd.py" "$@"
+            exec python3 "$COMMANDS_DIR/test_cmd.py" "$@"
             ;;
 
         # Per-run dashboard daemon — canonical home is `cbflow run dashboard`.

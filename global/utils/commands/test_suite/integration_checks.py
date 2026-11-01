@@ -355,6 +355,18 @@ CHECKS = [
 def run_all(results, console, pd_dir: str) -> None:
     """Entry point from test_cmd._run_integration()."""
     console.section('INTEGRATION: real workflow checks (lib + mmmc)')
+    # Every integration check shells out to PD/bin/cbflow (library-manager,
+    # mmmc-manager, etc. are PD-owned sub-launchers). In a DFT/DV sparse
+    # clone that binary isn't on disk — skip the suite cleanly instead of
+    # emitting a FileNotFoundError per check.
+    if not os.path.isfile(_cbflow_bin(pd_dir)):
+        console.event('SKIP', 'pd_absent',
+                      f'PD/bin/cbflow not present at {pd_dir} — '
+                      f'integration suite is PD-rooted; skipping')
+        results.skipped('integration', 'checks', 'pd_absent',
+                        'PD tree not in checkout — '
+                        'integration suite skipped')
+        return
     for name, fn in CHECKS:
         try:
             status, detail = fn(pd_dir)

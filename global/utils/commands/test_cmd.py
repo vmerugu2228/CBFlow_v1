@@ -38,8 +38,16 @@ import time
 from pathlib import Path
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-PD_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))
-REPO_ROOT = os.path.dirname(PD_DIR)
+# Post-refactor layout: this file lives at <REPO>/global/utils/commands/test_cmd.py
+#   SCRIPT_DIR → global/utils/commands
+#   dirname²  → global/utils
+#   dirname³  → global
+#   dirname⁴  → <REPO> (umbrella root — CBFLOW_ROOT)
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(SCRIPT_DIR)))
+# PD_DIR anchors every static check — PD/config/flow, PD/cmds, PD/utils, …
+# In a sparse-checkout DFT/DV clone, this directory may not exist; the
+# static runner now skips cleanly when that's the case (see static_checks.run).
+PD_DIR = os.environ.get('CBFLOW_CORE_DIR') or os.path.join(REPO_ROOT, 'PD')
 sys.path.insert(0, SCRIPT_DIR)
 
 # Post cbflow_global utils-refactor: test_suite moved from
@@ -61,11 +69,48 @@ DEFAULT_TIMEOUT = 300
 # ── Flow selection ──────────────────────────────────────────────────────────
 
 def _resolve_flows(args):
+    """Resolve the flow list for this test run, dropping flows whose
+    discipline directory isn't on disk.
+
+    Sparse-checkout clones (cbflow-git-bootstrap pd/dft/dv) deliberately
+    don't have the other disciplines' trees. A test suite that insists
+    on resolving every flow would fail noisily — the handlers, node
+    configs, and lsf configs are gone by design. Filter against
+    is_discipline_available() so each clone only tests what it has.
+    """
     if args.flow:
-        return [args.flow.upper()]
-    if args.flows:
-        return [f.strip().upper() for f in args.flows.split(',') if f.strip()]
-    return list(DEFAULT_FLOWS)
+        requested = [args.flow.upper()]
+    elif args.flows:
+        requested = [f.strip().upper() for f in args.flows.split(',') if f.strip()]
+    else:
+        requested = list(DEFAULT_FLOWS)
+
+    try:
+        from tcl_config_parser import is_discipline_available, get_flow_discipline
+    except ImportError:
+        return requested
+
+    filtered, skipped = [], []
+    for ft in requested:
+        try:
+            disc = (get_flow_discipline(ft) or 'PD').upper()
+        except Exception:
+            disc = 'PD'
+        if is_discipline_available(disc):
+            filtered.append(ft)
+        else:
+            skipped.append((ft, disc))
+
+    # Only announce when the user asked for the default set; an explicit
+    # --flow / --flows gets the exact list they asked for, plus a clean
+    # discipline-missing error later if that's what's going on.
+    if skipped and not (args.flow or args.flows):
+        import sys as _sys
+        absent = sorted({d for _, d in skipped})
+        print(f'[INFO] sparse checkout: skipping {len(skipped)} flow(s) '
+              f'from absent discipline(s): {", ".join(absent)}',
+              file=_sys.stderr)
+    return filtered or requested
 
 
 def _resolve_categories(args):
@@ -345,16 +390,28 @@ Examples:
     )
 
     if run_static:
-        cats = _resolve_categories(args)
-        for cat_num in sorted(cats or static_checks.CATEGORIES.keys()):
-            cat_name, func = static_checks.CATEGORIES.get(cat_num, (None, None))
-            if not func:
-                continue
-            before = len(results.entries)
-            console.section(f'STATIC {cat_num}: {cat_name}')
-            func(results, PD_DIR, flows)
-            for entry in results.entries[before:]:
-                console.event(entry['status'], entry['test'], entry['detail'])
+        # Static checks target PD/config/flow and friends. In a DFT or DV
+        # sparse-checkout clone, PD/ is intentionally absent — walking the
+        # 16 PD-rooted categories would emit ~44 FAILs that reflect nothing
+        # broken, just an absent discipline. Skip the whole run cleanly.
+        pd_present = os.path.isdir(os.path.join(PD_DIR, 'config', 'flow'))
+        if not pd_present:
+            results.skipped('static', 'pd_absent',
+                            'PD tree not in checkout — static checks are '
+                            'PD-rooted; skipping all 16 categories')
+            console.event('SKIP', 'static/pd_absent',
+                          'PD tree not in checkout — skipping all 16 categories')
+        else:
+            cats = _resolve_categories(args)
+            for cat_num in sorted(cats or static_checks.CATEGORIES.keys()):
+                cat_name, func = static_checks.CATEGORIES.get(cat_num, (None, None))
+                if not func:
+                    continue
+                before = len(results.entries)
+                console.section(f'STATIC {cat_num}: {cat_name}')
+                func(results, PD_DIR, flows)
+                for entry in results.entries[before:]:
+                    console.event(entry['status'], entry['test'], entry['detail'])
 
     if run_e2e:
         _run_e2e(results, console, flows, args)

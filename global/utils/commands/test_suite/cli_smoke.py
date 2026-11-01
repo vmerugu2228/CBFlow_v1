@@ -396,6 +396,15 @@ def run(results, pd_dir: str, args=None):
     suite = 'cli'
     cbflow = _cbflow_bin(pd_dir)
 
+    # In a DFT/DV sparse-checkout clone, PD/bin/cbflow isn't present. The
+    # cli-smoke suite walks `cbflow --help` across every leaf command via
+    # that binary; without it the walker finds nothing. Skip cleanly.
+    if not os.path.isfile(cbflow):
+        results.skipped(suite, 'pd_absent',
+                        f'PD/bin/cbflow not present at {pd_dir} — '
+                        f'cli-smoke is PD-rooted; skipping')
+        return
+
     # Phase 1: discover the command tree.
     leaves = discover(cbflow)
     if not leaves:

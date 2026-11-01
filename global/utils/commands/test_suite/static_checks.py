@@ -1999,7 +1999,26 @@ CATEGORIES = {
 
 
 def run(results, pd_dir, flows, categories=None):
-    """Run static categories. categories=None runs all."""
+    """Run static categories. categories=None runs all.
+
+    When the PD tree is absent (sparse-checkout DFT or DV clone),
+    categories 1-16 all target PD/config paths that aren't on disk —
+    walking them yields a flood of FAILs that don't reflect anything
+    broken, just an absent discipline. Skip the whole run in that
+    case; _resolve_flows() already filtered the flow list, so the
+    caller sees a clean suite with explicit SKIP markers.
+    """
+    pd_present = (
+        pd_dir
+        and os.path.isdir(pd_dir)
+        and os.path.isdir(os.path.join(pd_dir, 'config', 'flow'))
+    )
+    if not pd_present:
+        results.skipped('static', 'pd_absent',
+                        'PD tree not present in this checkout — '
+                        'static checks are PD-rooted; skipping all 16 categories')
+        return
+
     selected = sorted(categories or CATEGORIES.keys())
     for cat_num in selected:
         if cat_num not in CATEGORIES:
