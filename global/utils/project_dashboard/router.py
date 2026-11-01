@@ -285,6 +285,43 @@ _STYLE = """
   header.bar .kv b { color: var(--text); font-weight:600; margin-left:4px; }
   header.bar .byline { color: var(--muted); font-size:11px; margin-left:auto; }
 
+  /* Discipline cards — one per enabled discipline (PD / DFT / DV).
+     Cards sit above the KPI strip and link to each discipline's running
+     daemon URL (or render an inline hint when the daemon is offline).
+     Disciplines the project doesn't declare are omitted entirely. */
+  .disc-cards { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+                gap:12px; padding:14px; background: var(--header);
+                border-bottom:1px solid var(--border); }
+  .disc-card { background: var(--panel); border:1px solid var(--border);
+               border-radius:6px; padding:14px 16px; display:flex;
+               flex-direction:column; gap:8px; position:relative;
+               border-left:4px solid var(--disc-accent, var(--accent)); }
+  .disc-card.pd  { --disc-accent:#1565c0; }
+  .disc-card.dft { --disc-accent:#0d9488; }
+  .disc-card.dv  { --disc-accent:#be185d; }
+  .disc-card .disc-h { display:flex; align-items:center; gap:10px; }
+  .disc-card .disc-badge { width:36px; height:36px; border-radius:6px;
+                           background: var(--disc-accent); color:#fff;
+                           display:flex; align-items:center;
+                           justify-content:center; font-weight:800;
+                           font-size:13px; letter-spacing:.03em; }
+  .disc-card .disc-name { font-weight:800; font-size:15px;
+                          color: var(--disc-accent); letter-spacing:.02em; }
+  .disc-card .disc-meta { color: var(--muted); font-size:11px;
+                          font-variant-numeric: tabular-nums; }
+  .disc-card .disc-open { display:inline-block; margin-top:2px;
+                          padding:7px 14px; background: var(--disc-accent);
+                          color:#fff !important; border-radius:4px;
+                          font-weight:700; font-size:12px;
+                          text-align:center; text-decoration:none;
+                          letter-spacing:.02em; }
+  .disc-card .disc-open:hover { opacity:.9; text-decoration:none; }
+  .disc-card .disc-hint { color: var(--muted); font-size:11px;
+                          background: var(--header); padding:7px 10px;
+                          border-radius:3px; border:1px dashed var(--border);
+                          font-family: ui-monospace, "SF Mono", Menlo,
+                                       Consolas, monospace; }
+
   /* KPI strip */
   .kpi { display:flex; gap:0; background: var(--panel);
          border-bottom:1px solid var(--border); }
@@ -1926,6 +1963,104 @@ _FLOORPLAN_PANE = """
 """
 
 
+def _render_discipline_cards(project):
+    """Render discipline-cards HTML for the project landing page.
+
+    Reads disciplines the project enables from master_projects.json (via
+    tcl_config_parser.get_project_disciplines). Disciplines the project
+    doesn't declare are omitted entirely — no empty cards, no greyed
+    boxes. Each enabled discipline gets a card that either links to a
+    running project-scoped daemon or shows the operator how to start one.
+
+    Returns '' when the project isn't in master_projects.json (which
+    happens for ad-hoc / testing projects) — the smartgrid still works,
+    cards just aren't shown.
+    """
+    import sys as _sys, os as _os
+    _utils = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    _cmds = _os.path.join(_utils, 'commands')
+    # tcl_config_parser imports core.paths — both _utils (for core/) and
+    # _cmds (for tcl_config_parser.py) must be on sys.path. The daemon
+    # already adds _cmds in its own init, but _utils (parent of core/) may
+    # be missing.
+    for _p in (_utils, _cmds):
+        if _p not in _sys.path:
+            _sys.path.insert(0, _p)
+    try:
+        from tcl_config_parser import (
+            get_project_disciplines, get_project_enabled_flows,
+        )
+    except Exception as _e:
+        _sys.stderr.write(
+            f"discipline-cards: cannot import tcl_config_parser: "
+            f"{type(_e).__name__}: {_e}\n")
+        return ''
+    try:
+        disciplines = get_project_disciplines(project)
+    except Exception as _e:
+        _sys.stderr.write(
+            f"discipline-cards: get_project_disciplines({project!r}) failed: "
+            f"{type(_e).__name__}: {_e}\n")
+        return ''
+    if not disciplines:
+        _sys.stderr.write(
+            f"discipline-cards: {project!r} has no enabled disciplines\n")
+        return ''
+
+    # daemon_url_for lives in global/utils/dashboard/state_paths.py, but the
+    # daemon already imported project_dashboard's state_paths module into
+    # sys.modules under that bare name. Load the dashboard sibling via
+    # importlib under a disambiguated name so neither module shadows the
+    # other.
+    daemon_url_for = None
+    try:
+        import importlib.util as _ilu
+        _spec_path = _os.path.join(
+            _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
+            'dashboard', 'state_paths.py')
+        if _os.path.isfile(_spec_path):
+            _spec = _ilu.spec_from_file_location(
+                '_cbflow_dashboard_state_paths', _spec_path)
+            _mod = _ilu.module_from_spec(_spec)
+            _spec.loader.exec_module(_mod)
+            daemon_url_for = getattr(_mod, 'daemon_url_for', None)
+    except Exception as _e:
+        _sys.stderr.write(
+            f"discipline-cards: could not load daemon_url_for: "
+            f"{type(_e).__name__}: {_e}\n")
+    if daemon_url_for is None:
+        def daemon_url_for(project, discipline):  # noqa: ARG001
+            return ''
+
+    out = ['<section class="disc-cards">']
+    for disc in disciplines:
+        try:
+            flow_count = len(get_project_enabled_flows(project, disc))
+        except Exception:
+            flow_count = 0
+        url = daemon_url_for(project, disc)
+        css = disc.lower()
+        out.append(f'  <div class="disc-card {css}">')
+        out.append('    <div class="disc-h">')
+        out.append(f'      <div class="disc-badge">{html.escape(disc)}</div>')
+        out.append('      <div>')
+        out.append(f'        <div class="disc-name">{html.escape(disc)} Dashboard</div>')
+        _plural = 'flow' if flow_count == 1 else 'flows'
+        out.append(f'        <div class="disc-meta">{flow_count} {_plural} enabled for {html.escape(project)}</div>')
+        out.append('      </div>')
+        out.append('    </div>')
+        if url:
+            out.append(f'    <a class="disc-open" href="{html.escape(url, quote=True)}" '
+                       f'target="_blank" rel="noopener">Open {html.escape(disc)} Dashboard →</a>')
+        else:
+            out.append('    <div class="disc-hint">daemon offline — start with: '
+                       f'<code>cbflow run gui --project {html.escape(project)}</code> '
+                       f'from a {html.escape(disc)} run</div>')
+        out.append('  </div>')
+    out.append('</section>')
+    return '\n'.join(out)
+
+
 def _render_index(project, info, blocks, published_rows):
     """Dense metrics-dashboard landing page.
 
@@ -1993,6 +2128,9 @@ def _render_index(project, info, blocks, published_rows):
         f'  <div class="kv">Lib <b>{html.escape(lib)}</b></div>',
         f'  <div class="byline">{html.escape(developed_by)} &middot; <a href="mailto:varun@smartsocs.com" style="color:inherit;text-decoration:underline">varun@smartsocs.com</a></div>',
         '</header>',
+
+        # ── Discipline cards — PD / DFT / DV navigation ───────────────
+        _render_discipline_cards(project),
 
         # ── KPI strip — pure counts, no verdicts ──────────────────────
         '<section class="kpi">',

@@ -41,7 +41,12 @@ import sys
 import time
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-PACKAGE_DIR = os.path.join(os.path.dirname(SCRIPT_DIR), 'project_dashboard')
+# Post cbflow_global utils-refactor, project_dashboard moved from
+# PD/utils/project_dashboard/ to global/utils/project_dashboard/.
+# Prefer the global location; fall back to legacy for pre-migration installs.
+_PD_PACKAGE_LEGACY = os.path.join(os.path.dirname(SCRIPT_DIR), 'project_dashboard')
+_PD_PACKAGE_GLOBAL = os.path.join(_global_utils, 'project_dashboard')
+PACKAGE_DIR = _PD_PACKAGE_GLOBAL if os.path.isdir(_PD_PACKAGE_GLOBAL) else _PD_PACKAGE_LEGACY
 for p in (PACKAGE_DIR, SCRIPT_DIR):
     if p not in sys.path:
         sys.path.insert(0, p)

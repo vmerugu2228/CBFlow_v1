@@ -180,6 +180,74 @@ def last_open_file(discipline=None, project=None):
     return os.path.join(root(discipline, project), 'last_open.json')
 
 
+def daemon_url_for(project, discipline):
+    """Return the running daemon's URL for `(discipline, project)` or '' if
+    no daemon is up for this discipline.
+
+    Lookup order:
+      1. Project-scoped daemon at ~/.cbflow/dashboard/<DISC>/projects/<proj>/
+         — spawned via `cbflow run gui --project <proj>` (when supported)
+         or `cbflow dashboard start --discipline <disc> --project <proj>`.
+         This is the preferred target per operator decision.
+      2. Unscoped (per-user) daemon at ~/.cbflow/dashboard/<DISC>/
+         — spawned by `cbflow run gui`. Serves all registered runs for
+         that discipline across every project. Acceptable fallback when
+         a project-scoped daemon hasn't been started yet.
+
+    Returns '' when neither is up — the caller renders an inline hint
+    telling the operator how to start one.
+    """
+    disc = (discipline or 'PD').upper()
+    proj = (project or '').strip()
+    if disc not in _VALID:
+        return ''
+
+    base = _root_base()
+    scoped_candidates = []
+    if proj:
+        scoped_candidates.append(os.path.join(base, disc, 'projects', proj))
+    scoped_candidates.append(os.path.join(base, disc))
+
+    for scoped_root in scoped_candidates:
+        portf = os.path.join(scoped_root, 'dashboard.port')
+        pidf = os.path.join(scoped_root, 'dashboard.pid')
+        if not (os.path.isfile(portf) and os.path.isfile(pidf)):
+            continue
+        try:
+            with open(portf) as f:
+                port = f.read().strip()
+            with open(pidf) as f:
+                pid = int(f.read().strip())
+            if not port or not pid:
+                continue
+            # Liveness check: pidfile stale after a reboot or crash.
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                continue
+        except (OSError, ValueError):
+            continue
+
+        bind = '127.0.0.1'
+        bind_file = os.path.join(scoped_root, 'dashboard.bind_addr')
+        if os.path.isfile(bind_file):
+            try:
+                with open(bind_file) as f:
+                    recorded = f.read().strip()
+                if recorded and recorded not in ('127.0.0.1', '0.0.0.0'):
+                    bind = recorded
+                elif recorded == '0.0.0.0':
+                    # Public bind — rewrite to the hostname so remote
+                    # browsers can reach it. The URL in the smartgrid is
+                    # usually consumed over a shared network.
+                    import socket
+                    bind = socket.gethostname()
+            except OSError:
+                pass
+        return f'http://{bind}:{port}/'
+    return ''
+
+
 def validate_socket_path(discipline=None):
     """AF_UNIX has a ~104-char path cap on macOS, 108 on Linux. Error loudly
     if our path overflows so the user sees a clear message instead of a cryptic
