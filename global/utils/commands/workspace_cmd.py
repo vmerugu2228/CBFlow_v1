@@ -482,7 +482,6 @@ def _build_env_from_user_config(config_file: str) -> dict:
     """
     from start_run import _parse_user_config
 
-    core_dir = get_cbflow_core_dir()
     user_config = _parse_user_config(config_file)
 
     # Extract from user_config
@@ -498,7 +497,22 @@ def _build_env_from_user_config(config_file: str) -> dict:
         logger.error("  Error: flow(type) not set in user_config.tcl")
         return {}
 
-    # Auto-detect all paths from FLOW_DIR
+    # Resolve the discipline that owns this flow — in a sparse DFT/DV
+    # clone PD/ isn't on disk, so core_dir has to come from the owning
+    # discipline's root, not the hardcoded PD one.
+    from core.paths import get_cbflow_discipline_root
+    try:
+        from tcl_config_parser import get_flow_discipline
+        _flow_disc = (get_flow_discipline(flow_type) or 'PD').upper()
+    except Exception:
+        _flow_disc = 'PD'
+    try:
+        core_dir = get_cbflow_discipline_root(_flow_disc)
+    except ValueError as e:
+        logger.error(f"  Error: {e}")
+        return {}
+
+    # Auto-detect all paths from the discipline root
     config_root = os.path.join(core_dir, 'config')
     # SCRIPTS_ROOT points at the SHARED utils tree (global/utils/) because
     # every DFT/DV/PD handler sources utilities (handler_common, launch_utils,
@@ -656,7 +670,13 @@ def _build_env_from_user_config(config_file: str) -> dict:
         'PROJECT_ROOT': project_root,
         # cbflow_global cascade — resolvers inside the run need these.
         'CBFLOW_ROOT': _root_env,
-        'CBFLOW_CORE_DIR': core_dir,
+        # Only export CBFLOW_CORE_DIR when PD/ actually exists. In a sparse
+        # DFT/DV clone the directory isn't on disk; writing a dead path
+        # into .run.cbflow.env causes get_cbflow_core_dir() to raise, and
+        # the previous silent fallback to <repo>/global corrupted
+        # downstream node_config lookups in generate_setup.tcl.
+        'CBFLOW_CORE_DIR': (core_dir if core_dir and os.path.isdir(core_dir)
+                            else ''),
         'CBFLOW_GLOBAL_DIR': _gdir_env,
         'CBFLOW_DFT_DIR': (os.path.join(_root_env, 'DFT')
                             if _root_env and os.path.isdir(os.path.join(_root_env, 'DFT'))
@@ -822,7 +842,23 @@ def _validate_mandatory_inputs(user_config: dict, flow_type: str) -> list:
     errors = []
     ft = flow_type.upper()
 
-    core_dir = get_cbflow_core_dir()
+    # Resolve core_dir from the OWNING discipline, not hardcoded PD. In a
+    # sparse DFT/DV clone PD/ isn't on disk; get_cbflow_core_dir() now
+    # raises on missing PD/ instead of silently falling back to global/.
+    from core.paths import get_cbflow_discipline_root
+    try:
+        from tcl_config_parser import get_flow_discipline
+        _flow_disc = (get_flow_discipline(ft) or 'PD').upper()
+    except Exception:
+        _flow_disc = 'PD'
+    try:
+        core_dir = get_cbflow_discipline_root(_flow_disc)
+    except ValueError:
+        # Owning discipline isn't on disk — skip the mandatory-inputs check
+        # that depends on node_configs. Return early with no errors; the
+        # workspace resolver will fail later with a clearer message if
+        # anything is actually missing.
+        return errors
 
     # Common mandatory fields for all flows
     project_name = user_config.get('project(name)', '')

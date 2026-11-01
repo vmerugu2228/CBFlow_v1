@@ -142,25 +142,75 @@ def get_cbflow_core_dir() -> str:
     """Resolve the CBflow core directory (PD/).
 
     Resolution order:
-    1. CBFLOW_CORE_DIR environment variable (explicit, highest priority)
-    2. Calculated from this file's location (PD/utils/core/paths.py → PD/)
+    1. CBFLOW_CORE_DIR environment variable — must exist on disk.
+    2. Sibling of this file: paths.py now lives under global/utils/core/
+       so we walk up and look for a PD/ next to global/.
 
-    Raises ValueError if resolution fails — never returns empty string.
+    Raises ValueError if PD/ is unavailable — never silently falls back to
+    global/. In a sparse DFT/DV clone PD/ is intentionally absent; callers
+    that work for every discipline should use get_cbflow_discipline_root()
+    or get_cbflow_global_dir() instead.
     """
     env_val = os.environ.get('CBFLOW_CORE_DIR', '')
+    if env_val:
+        if os.path.isdir(env_val):
+            return env_val
+        # Pre-fix behavior: silently fell through to calculating from file
+        # location, returning <repo>/global in a sparse DFT/DV clone. That
+        # corrupted downstream path lookups (generate_setup.tcl searched
+        # <repo>/global/config/flow/.../node_configs for DV configs). Loud
+        # failure here forces the caller to decide what they actually want.
+        raise ValueError(
+            f"CBFLOW_CORE_DIR points at '{env_val}' which doesn't exist. "
+            f"In a sparse DFT/DV clone PD/ isn't on disk — unset "
+            f"CBFLOW_CORE_DIR or call get_cbflow_discipline_root() / "
+            f"get_cbflow_global_dir() depending on what you actually need."
+        )
+
+    # No env hint: walk from this file (global/utils/core/paths.py) up to
+    # the umbrella root, then look for PD/ next to global/.
+    this_dir = os.path.dirname(os.path.abspath(__file__))
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(this_dir)))
+    pd_candidate = os.path.join(repo_root, 'PD')
+    if os.path.isdir(pd_candidate) and os.path.isdir(os.path.join(pd_candidate, 'config')):
+        return pd_candidate
+
+    raise ValueError(
+        "Cannot resolve CBFLOW_CORE_DIR — PD/ not on disk at "
+        f"'{pd_candidate}'. In a sparse DFT/DV clone this is expected; "
+        "switch to get_cbflow_discipline_root(<disc>) or "
+        "get_cbflow_global_dir() for discipline-agnostic callers."
+    )
+
+
+def get_cbflow_discipline_root(discipline: str) -> str:
+    """Resolve a discipline's root directory (<repo>/PD, <repo>/DFT, <repo>/DV).
+
+    Resolution order:
+    1. CBFLOW_<DISC>_DIR environment variable (set by _cbflow_paths.sh only
+       when that discipline's directory exists on disk).
+    2. Sibling of this file (<repo>/<DISC>) if that dir exists.
+
+    Raises ValueError when the discipline directory isn't present — a sparse
+    checkout profile that materializes only one discipline will intentionally
+    hit this for the two other disciplines.
+    """
+    disc = discipline.upper()
+    env_var = 'CBFLOW_CORE_DIR' if disc == 'PD' else f'CBFLOW_{disc}_DIR'
+    env_val = os.environ.get(env_var, '').strip()
     if env_val and os.path.isdir(env_val):
         return env_val
 
-    # Calculate from file location: PD/utils/core/paths.py → PD/
     this_dir = os.path.dirname(os.path.abspath(__file__))
-    core_dir = os.path.dirname(os.path.dirname(this_dir))
-
-    if os.path.isdir(core_dir) and os.path.isdir(os.path.join(core_dir, 'config')):
-        return core_dir
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(this_dir)))
+    candidate = os.path.join(repo_root, disc)
+    if os.path.isdir(candidate):
+        return candidate
 
     raise ValueError(
-        "Cannot resolve CBFLOW_CORE_DIR. "
-        "Set the CBFLOW_CORE_DIR environment variable or run from a valid CBflow installation."
+        f"Discipline root for '{disc}' not available on this checkout. "
+        f"Expected at '{candidate}' or via {env_var}. In a sparse clone "
+        f"only the owner's discipline is materialized."
     )
 
 
