@@ -1,6 +1,7 @@
 {
-  "version": "2.0",
+  "version": "2.1",
   "schema_notes": {
+    "2.1": "Added milestone_targets (per-milestone target dates). Consumed by the SmartGrid Tier 2 Schedule card. Values are nominal \u2014 if a project doesn't publish this field, the smartgrid falls back to even-spacing between project_start_date and tapeout_date and marks the derived dates 'estimated'.",
     "2.0": "Added enabled_flows_by_discipline (PD/DFT/DV). enabled_flows is kept as a computed union for legacy callers; new callers should read enabled_flows_by_discipline directly.",
     "1.0": "Original \u2014 enabled_flows only.",
     "scoping": "enabled_flows_by_discipline is PER-PROJECT SCOPING, not a catalog mirror \u2014 a project may legitimately disable DFT/DV flows it does not run. The framework catalog (flow_registry.tcl flow(types)) is the superset; a project's lists are subsets."
@@ -31,6 +32,14 @@
       "project_start_date": "2026-04-01",
       "tapeout_date": "2026-12-30",
       "release_version": "v1.0.0",
+      "milestone_targets": {
+        "FP_EXIT": "2026-05-10",
+        "PLACE_EXIT": "2026-06-18",
+        "CTS_EXIT": "2026-07-27",
+        "PRO_EXIT": "2026-09-04",
+        "BTO": "2026-10-13",
+        "MTO": "2026-11-21"
+      },
       "enabled_flows_by_discipline": {
         "PD": [
           "SYNTH",
@@ -88,6 +97,14 @@
       "project_start_date": "2026-01-01",
       "tapeout_date": "2026-12-07",
       "release_version": "v1.0.0",
+      "milestone_targets": {
+        "FP_EXIT": "2026-02-19",
+        "PLACE_EXIT": "2026-04-08",
+        "CTS_EXIT": "2026-05-27",
+        "PRO_EXIT": "2026-07-14",
+        "BTO": "2026-09-01",
+        "MTO": "2026-10-19"
+      },
       "enabled_flows_by_discipline": {
         "PD": [
           "SYNTH",
@@ -159,6 +176,14 @@
       "project_start_date": "2026-01-01",
       "tapeout_date": "2026-12-07",
       "release_version": "v1.0.0",
+      "milestone_targets": {
+        "FP_EXIT": "2026-02-19",
+        "PLACE_EXIT": "2026-04-08",
+        "CTS_EXIT": "2026-05-27",
+        "PRO_EXIT": "2026-07-14",
+        "BTO": "2026-09-01",
+        "MTO": "2026-10-19"
+      },
       "enabled_flows_by_discipline": {
         "PD": [
           "SYNTH",
@@ -215,6 +240,14 @@
       "project_start_date": "2026-01-01",
       "tapeout_date": "2026-12-07",
       "release_version": "v1.0.0",
+      "milestone_targets": {
+        "FP_EXIT": "2026-02-19",
+        "PLACE_EXIT": "2026-04-08",
+        "CTS_EXIT": "2026-05-27",
+        "PRO_EXIT": "2026-07-14",
+        "BTO": "2026-09-01",
+        "MTO": "2026-10-19"
+      },
       "enabled_flows_by_discipline": {
         "PD": [
           "SYNTH",

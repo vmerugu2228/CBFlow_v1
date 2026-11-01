@@ -150,6 +150,11 @@ def init_db(db_path):
         migrations = [
             ('run_floorplan', 'density_json', 'TEXT'),
             ('run_floorplan', 'total_cells',  'INTEGER'),
+            # v3 (2026-11-02): discipline tag on published runs. Tier 3 of
+            # the smartgrid redesign filters the per-discipline summary by
+            # this column. NULL on legacy rows — query layer treats NULL
+            # as 'PD' (safe default; current projects are PD-dominant).
+            ('published_runs', 'discipline', 'TEXT'),
         ]
         for table, col, ctype in migrations:
             try:
@@ -307,8 +312,8 @@ def publish(db_path, payload, project):
                 release_tag, release_dir,
                 released_by, released_at,
                 published_by, published_at,
-                verdict, closability_pct)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                verdict, closability_pct, discipline)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             project, block, phase, milestone,
             payload.get('run_id'), payload.get('run_dir'),
@@ -318,6 +323,11 @@ def publish(db_path, payload, project):
             payload['published_by'], _now(),
             payload.get('verdict', 'UNKNOWN'),
             payload.get('closability_pct'),
+            # discipline tag — publisher resolves from flow_type via
+            # tcl_config_parser.get_flow_discipline before calling here.
+            # Legacy publishers that don't set it store NULL; readers
+            # treat NULL as 'PD'.
+            (payload.get('discipline') or '').upper() or None,
         ))
         pid = cur.lastrowid
 

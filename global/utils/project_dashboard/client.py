@@ -71,6 +71,14 @@ def build_payload(project, block, phase, milestone, release_dir, workspace,
     payload['verdict'] = verdict
     payload['closability_pct'] = closability
 
+    # Discipline tag (v3 schema addition, 2026-11-02). Resolved from the
+    # primary run's flow_type via tcl_config_parser.get_flow_discipline so
+    # Tier 3 of the smartgrid can filter published rows per discipline.
+    # Legacy publishers that don't ship this leave the column NULL — the
+    # reader treats NULL as 'PD'.
+    payload['discipline'] = _resolve_discipline(runs, milestone,
+                                                milestone_stage_map)
+
     files = []
     for kind, name in (('MANIFEST', 'MANIFEST.json'),
                        ('RELEASE_COMPLETE', 'RELEASE_COMPLETE'),
@@ -181,6 +189,42 @@ def _resolve_race_db(run_dir):
 def _run_id_for(run_dir):
     canonical = os.path.realpath(os.path.abspath(run_dir))
     return hashlib.md5(canonical.encode()).hexdigest()[:12]
+
+
+def _resolve_discipline(runs, milestone, milestone_stage_map):
+    """Resolve the discipline that owns this publish's primary flow.
+
+    The milestone selects a flow via milestone_stage_map (e.g. BTO →
+    export_data1 → SYNTH_PNR). We pick the first flow in `runs` whose
+    discipline tcl_config_parser knows about; the mapping is authoritative
+    in global/config/flow/v1.0.0/flow_registry.tcl.
+
+    Fallback to 'PD' when no match — current CBflow publishes have been
+    PD-only historically, and the Tier 3 reader also treats NULL/missing
+    as PD. Never raises.
+    """
+    if not runs:
+        return 'PD'
+    try:
+        import sys as _sys, os as _os
+        _cmds = _os.path.join(_os.path.dirname(_os.path.dirname(
+            _os.path.abspath(__file__))), 'commands')
+        if _cmds not in _sys.path:
+            _sys.path.insert(0, _cmds)
+        from tcl_config_parser import get_flow_discipline
+    except Exception:
+        return 'PD'
+    # Prefer the flow that owns milestone_stage_map's required_stage, if
+    # it's one of our runs. Otherwise take the first flow with a declared
+    # discipline — order is dict-insertion for Python ≥3.7.
+    for flow in runs.keys():
+        try:
+            disc = (get_flow_discipline(flow) or '').upper()
+        except Exception:
+            disc = ''
+        if disc:
+            return disc
+    return 'PD'
 
 
 # ─── RACE DB reads ──────────────────────────────────────────────────────────

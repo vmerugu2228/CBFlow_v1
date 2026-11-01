@@ -47,6 +47,7 @@ def make_handler(project):
                 self._send(500, 'text/plain', f'internal error: {e}')
 
         def _route(self):
+            from urllib.parse import unquote
             path = self.path.split('?', 1)[0]
             if path == '/' or path == '/index.html':
                 return self._page_index()
@@ -54,6 +55,57 @@ def make_handler(project):
                 return self._api_published()
             if path == '/api/project':
                 return self._api_project()
+            # ── Tier 2+ routes (PR1 skeleton — stubs; UI lands in PR2/PR3) ──
+            # /project/<name>                       Tier 2
+            # /project/<name>/<disc>                Tier 3
+            # /project/<name>/<disc>/block/<b>      Tier 4
+            if path.startswith('/project/'):
+                segs = [s for s in path[len('/project/'):].split('/') if s]
+                segs = [unquote(s) for s in segs]
+                if not segs:
+                    return self._send(404, 'text/plain', 'not found')
+                tgt_project = segs[0]
+                # Cross-project navigation: redirect to the sibling daemon
+                # if the request isn't for our own project.
+                if tgt_project != project:
+                    url = state_paths.sibling_daemon_url(tgt_project)
+                    if url:
+                        # Preserve sub-path so e.g. /project/other/pd lands on
+                        # /project/other/pd on the sibling.
+                        suffix = '/'.join(segs[1:])
+                        suffix = f'/project/{tgt_project}' + (f'/{suffix}' if suffix else '')
+                        query = self.path.split('?', 1)[1] if '?' in self.path else ''
+                        location = url.rstrip('/') + suffix + (f'?{query}' if query else '')
+                        self.send_response(302)
+                        self.send_header('Location', location)
+                        self.end_headers()
+                        return
+                    # Sibling daemon not running — serve a local stub.
+                    return self._page_tier2_offline(tgt_project)
+                # Our own project — dispatch by sub-path.
+                if len(segs) == 1:
+                    return self._page_tier2(tgt_project)  # /project/<self>
+                disc = segs[1].lower()
+                if len(segs) == 2:
+                    return self._page_tier3(tgt_project, disc)  # /project/<self>/<disc>
+                if len(segs) == 4 and segs[2] == 'block':
+                    return self._page_tier4(tgt_project, disc, segs[3])
+                return self._send(404, 'text/plain', 'not found')
+            if path == '/api/projects':
+                return self._api_projects()
+            if path.startswith('/api/project/'):
+                segs = [s for s in path[len('/api/project/'):].split('/') if s]
+                if len(segs) == 1:
+                    return self._api_project_detail(unquote(segs[0]))
+                if len(segs) == 2:
+                    return self._api_discipline(unquote(segs[0]),
+                                                unquote(segs[1]).lower())
+                return self._send(404, 'text/plain', 'not found')
+            if path == '/api/resources':
+                from urllib.parse import parse_qs
+                q = parse_qs(self.path.split('?', 1)[1] if '?' in self.path else '')
+                tgt = (q.get('project') or [project])[0]
+                return self._api_resources(tgt)
             if path.startswith('/api/floorplan/'):
                 try:
                     pid = int(path[len('/api/floorplan/'):].rstrip('/'))
@@ -74,7 +126,6 @@ def make_handler(project):
                 return self._page_published(pid)
             if path.startswith('/block/'):
                 name = path[len('/block/'):].rstrip('/')
-                from urllib.parse import unquote
                 return self._page_block(unquote(name))
             if path.startswith('/image/'):
                 # /image/<published_run_id>/<index_into_image_files>
@@ -124,7 +175,94 @@ def make_handler(project):
                                      block_meta or {}, block_pubs)
             self._send(200, 'text/html; charset=utf-8', html_out)
 
+        # ── Tier 2+ page handlers (PR1 skeleton — PR2/PR3 land real UI) ──
+
+        def _page_tier2(self, tgt_project):
+            """Project landing (own-project). PR2 renders discipline cards
+            + schedule + resource. PR1 stub returns 200 with the chrome."""
+            html_out = _render_tier_stub(
+                tgt_project, 'Tier 2 — Project landing (coming in PR2)',
+                hint='This page will show discipline cards, schedule, and '
+                     'resource usage for the selected project.')
+            self._send(200, 'text/html; charset=utf-8', html_out)
+
+        def _page_tier2_offline(self, tgt_project):
+            """Sibling-daemon offline fallback. Served from our own daemon
+            when the user clicks another project card but that project's
+            smartgrid isn't running."""
+            html_out = _render_tier_stub(
+                tgt_project,
+                f"Daemon for '{tgt_project}' is not running",
+                hint=f"Start it with: cbflow smartgrid start --project {tgt_project}",
+                variant='offline')
+            self._send(200, 'text/html; charset=utf-8', html_out)
+
+        def _page_tier3(self, tgt_project, disc):
+            """Discipline summary. PR3 renders verdict rollup + metrics +
+            per-block table. PR1 stub."""
+            html_out = _render_tier_stub(
+                tgt_project,
+                f'Tier 3 — {disc.upper()} discipline summary (coming in PR3)',
+                hint='This page will show the discipline-level status: '
+                     'verdict rollup, top-6 metrics with trends, and the '
+                     'per-block mini-table.')
+            self._send(200, 'text/html; charset=utf-8', html_out)
+
+        def _page_tier4(self, tgt_project, disc, block_name):
+            """Block drill-in (PR3 wires it to the existing _page_block
+            renderer; PR1 stub)."""
+            html_out = _render_tier_stub(
+                tgt_project,
+                f'Tier 4 — {disc.upper()} / block {block_name} (coming in PR3)',
+                hint='This page will reuse the existing block drill-in with '
+                     'a discipline filter + deep-link query params.')
+            self._send(200, 'text/html; charset=utf-8', html_out)
+
         # ── JSON APIs (for JS reload) ────────────────────────────────────────
+
+        def _api_projects(self):
+            """Tier 1 feed — all projects from master_projects.json. PR2
+            adds sibling tracker.db summary rows."""
+            try:
+                import sys as _sys, os as _os
+                _utils = _os.path.dirname(_os.path.dirname(
+                    _os.path.abspath(__file__)))
+                _cmds = _os.path.join(_utils, 'commands')
+                # tcl_config_parser imports core.paths — both _utils (for
+                # core/) and _cmds (for tcl_config_parser.py) must be on
+                # sys.path.
+                for _p in (_utils, _cmds):
+                    if _p not in _sys.path:
+                        _sys.path.insert(0, _p)
+                from tcl_config_parser import _load_master_projects
+                data = _load_master_projects()
+            except Exception as e:
+                return self._json({'error': str(e), 'projects': []})
+            return self._json({'projects': list(
+                (data.get('projects') or {}).values())})
+
+        def _api_project_detail(self, tgt_project):
+            """Alias of /api/project but accepts the project in the URL
+            path (used by Tier 2 async fetches)."""
+            if tgt_project != project:
+                # Sibling daemons own their own project data. We don't
+                # cross-read tracker.db here — the caller should hit the
+                # sibling daemon directly.
+                return self._json({'error': f'project {tgt_project!r} not '
+                                            'served by this daemon'})
+            return self._api_project()
+
+        def _api_discipline(self, tgt_project, disc):
+            """Tier 3 feed — PR3 fills with rollup + per-block + metrics.
+            PR1 stub returns the project+discipline echo."""
+            return self._json({'project': tgt_project, 'discipline': disc,
+                               'status': 'skeleton — PR3'})
+
+        def _api_resources(self, tgt_project):
+            """Tier 2 Resource card feed — PR2 aggregates lsf_details from
+            recent runs' RACE DBs. PR1 stub."""
+            return self._json({'project': tgt_project, 'resources': {},
+                               'status': 'skeleton — PR2'})
 
         def _api_project(self):
             db = state_paths.tracker_db(project)
@@ -1961,6 +2099,54 @@ _FLOORPLAN_PANE = """
     }
   </script>
 """
+
+
+def _render_tier_stub(project, title, hint='', variant='stub'):
+    """Minimal 'coming soon' page used by PR1 route stubs.
+
+    PR2/PR3 replace each _page_tier{2,3,4} with a real renderer. This
+    helper keeps the chrome consistent so customers never see a bare
+    text/plain stub during the rollout window.
+    """
+    variant_badge = {
+        'stub':    '<span class="pill pill-info">PR1 skeleton</span>',
+        'offline': '<span class="pill pill-warn">Daemon offline</span>',
+    }.get(variant, '')
+    return ''.join([
+        '<!DOCTYPE html><html><head>',
+        '<meta charset="utf-8">',
+        f'<title>CBflow-SmartGrid — {html.escape(project)}</title>',
+        _STYLE,
+        '<style>',
+        '  .pill{display:inline-block;padding:2px 8px;border-radius:3px;'
+        '        font-size:11px;font-weight:700;letter-spacing:.03em;'
+        '        text-transform:uppercase;vertical-align:middle;'
+        '        margin-left:8px}',
+        '  .pill-info{background:#ebebff;color:#1a1a9a}',
+        '  .pill-warn{background:#fff3e0;color:#9a4500}',
+        '  .stub-wrap{padding:36px 24px;max-width:760px;margin:0 auto}',
+        '  .stub-wrap h1{font-size:22px;color:var(--text);margin:0 0 14px}',
+        '  .stub-wrap p{color:var(--muted);line-height:1.5}',
+        '  .stub-wrap .cta{margin-top:20px;padding:12px 16px;'
+        '                 background:var(--accent-bg);'
+        '                 border-left:3px solid var(--accent-ink);'
+        '                 border-radius:3px;font-family:ui-monospace,'
+        '                 "SF Mono",Menlo,Consolas,monospace;font-size:12px}',
+        '</style>',
+        '</head><body>',
+        '<header class="bar">',
+        '  <div class="brand">CBflow<span class="lite">-SmartGrid</span>'
+        '       <span class="lite" style="margin-left:8px;color:#0000FF;'
+        '             font-weight:700;">· SmartSoC</span></div>',
+        f'  <div class="proj"><a href="/">{html.escape(project)}</a></div>',
+        '</header>',
+        '<div class="stub-wrap">',
+        f'  <h1>{html.escape(title)}{variant_badge}</h1>',
+        f'  <p>{html.escape(hint)}</p>' if hint else '',
+        f'  <div class="cta">{html.escape(hint)}</div>' if variant == 'offline' else '',
+        '</div>',
+        '</body></html>',
+    ])
 
 
 def _render_discipline_cards(project):

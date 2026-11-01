@@ -112,3 +112,73 @@ def validate_socket_path(project=None):
             f'AF_UNIX socket path too long ({len(path)} bytes): {path}\n'
             f'  Override $HOME or move ~/.cbflow to a shorter path.')
     return path
+
+
+def sibling_daemon_url(project):
+    """Return the smartgrid daemon's URL for `project`, or '' if not running.
+
+    Used by the Tier 1 all-projects grid in router._render_tier1_projects
+    and by the cross-project 302 redirect in _route. Looks only at the
+    filesystem under `~/.cbflow/project-dashboard/<project>/` — does NOT
+    call root() (which creates the dir as a side effect; we must stay
+    read-only for projects we don't own).
+
+    Liveness: the recorded pid must still exist. A stale portfile from
+    a crashed daemon returns ''.
+
+    Mirrors global/utils/dashboard/state_paths.py::daemon_url_for.
+    """
+    proj = (project or '').strip()
+    if not proj or not _PROJECT_RE.match(proj):
+        return ''
+
+    base_dir = os.path.join(_root_base(), proj)
+    portf = os.path.join(base_dir, 'dashboard.port')
+    pidf = os.path.join(base_dir, 'dashboard.pid')
+    if not (os.path.isfile(portf) and os.path.isfile(pidf)):
+        return ''
+    try:
+        with open(portf) as f:
+            port = f.read().strip()
+        with open(pidf) as f:
+            pid = int(f.read().strip())
+        if not port or not pid:
+            return ''
+        # Liveness check — stale portfile from a crashed daemon returns ''.
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return ''
+    except (OSError, ValueError):
+        return ''
+
+    bind = '127.0.0.1'
+    bind_file = os.path.join(base_dir, 'dashboard.bind_addr')
+    if os.path.isfile(bind_file):
+        try:
+            with open(bind_file) as f:
+                recorded = f.read().strip()
+            if recorded and recorded not in ('127.0.0.1', '0.0.0.0'):
+                bind = recorded
+            elif recorded == '0.0.0.0':
+                # Public bind — rewrite to the hostname so remote browsers
+                # can reach the URL.
+                import socket
+                bind = socket.gethostname()
+        except OSError:
+            pass
+    return f'http://{bind}:{port}/'
+
+
+def sibling_tracker_db(project):
+    """Return the on-disk tracker.db path for `project` without creating
+    anything. Returns '' if the file doesn't exist.
+
+    Used by Tier 1 to read sibling projects' published-run counts without
+    side-effecting their state directories.
+    """
+    proj = (project or '').strip()
+    if not proj or not _PROJECT_RE.match(proj):
+        return ''
+    p = os.path.join(_root_base(), proj, 'tracker.db')
+    return p if os.path.isfile(p) else ''
