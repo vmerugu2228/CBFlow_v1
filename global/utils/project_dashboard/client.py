@@ -194,14 +194,19 @@ def _run_id_for(run_dir):
 def _resolve_discipline(runs, milestone, milestone_stage_map):
     """Resolve the discipline that owns this publish's primary flow.
 
-    The milestone selects a flow via milestone_stage_map (e.g. BTO →
-    export_data1 → SYNTH_PNR). We pick the first flow in `runs` whose
-    discipline tcl_config_parser knows about; the mapping is authoritative
-    in global/config/flow/v1.0.0/flow_registry.tcl.
+    Picking order:
+      1. If milestone_stage_map maps milestone → required_stage, find the
+         flow in `runs` whose node_configs contain required_stage. If
+         that flow has a declared discipline, use it. This is the
+         authoritative map — a BTO publish from a workspace with both
+         SYNTH_PNR and SIM runs should tag as PD (SYNTH_PNR's discipline)
+         because BTO's required_stage comes from SYNTH_PNR.
+      2. Otherwise take the first flow in `runs` with a declared
+         discipline (insertion-order iteration — flows typically appear
+         in workspace-config order, which the user controls).
+      3. Fallback to 'PD' when nothing matches.
 
-    Fallback to 'PD' when no match — current CBflow publishes have been
-    PD-only historically, and the Tier 3 reader also treats NULL/missing
-    as PD. Never raises.
+    Never raises.
     """
     if not runs:
         return 'PD'
@@ -214,9 +219,24 @@ def _resolve_discipline(runs, milestone, milestone_stage_map):
         from tcl_config_parser import get_flow_discipline
     except Exception:
         return 'PD'
-    # Prefer the flow that owns milestone_stage_map's required_stage, if
-    # it's one of our runs. Otherwise take the first flow with a declared
-    # discipline — order is dict-insertion for Python ≥3.7.
+
+    # Step 1: milestone → required_stage → owning flow.
+    required_stage = (milestone_stage_map or {}).get(milestone, '')
+    if required_stage:
+        for flow in runs.keys():
+            try:
+                stages = _flow_stages(flow)
+            except Exception:
+                stages = ()
+            if required_stage in stages:
+                try:
+                    disc = (get_flow_discipline(flow) or '').upper()
+                except Exception:
+                    disc = ''
+                if disc:
+                    return disc
+
+    # Step 2: first flow in runs with a declared discipline.
     for flow in runs.keys():
         try:
             disc = (get_flow_discipline(flow) or '').upper()
@@ -225,6 +245,30 @@ def _resolve_discipline(runs, milestone, milestone_stage_map):
         if disc:
             return disc
     return 'PD'
+
+
+def _flow_stages(flow_type):
+    """Return the stages a flow owns, read from its node_config via the
+    standard resolver. Cached per-flow because every publish touches it
+    and resolver spawning tclsh is slow (~100ms).
+    """
+    cache = getattr(_flow_stages, '_cache', None)
+    if cache is None:
+        cache = _flow_stages._cache = {}
+    if flow_type in cache:
+        return cache[flow_type]
+    try:
+        import sys as _sys, os as _os
+        _cmds = _os.path.join(_os.path.dirname(_os.path.dirname(
+            _os.path.abspath(__file__))), 'commands')
+        if _cmds not in _sys.path:
+            _sys.path.insert(0, _cmds)
+        from tcl_config_parser import get_flow_stages
+        stages = tuple(get_flow_stages(flow_type) or ())
+    except Exception:
+        stages = ()
+    cache[flow_type] = stages
+    return stages
 
 
 # ─── RACE DB reads ──────────────────────────────────────────────────────────

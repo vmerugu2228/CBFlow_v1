@@ -47,7 +47,7 @@ def make_handler(project):
                 self._send(500, 'text/plain', f'internal error: {e}')
 
         def _route(self):
-            from urllib.parse import unquote, parse_qs
+            from urllib.parse import unquote, parse_qs, quote
             path = self.path.split('?', 1)[0]
             query = parse_qs(self.path.split('?', 1)[1]) if '?' in self.path else {}
             if path == '/' or path == '/index.html':
@@ -56,32 +56,57 @@ def make_handler(project):
                 return self._api_published()
             if path == '/api/project':
                 return self._api_project()
-            # ── Tier 2+ routes (PR1 skeleton — stubs; UI lands in PR2/PR3) ──
+            # ── Tier 2+ routes ──
             # /project/<name>                       Tier 2
             # /project/<name>/<disc>                Tier 3
             # /project/<name>/<disc>/block/<b>      Tier 4
             if path.startswith('/project/'):
                 segs = [s for s in path[len('/project/'):].split('/') if s]
                 segs = [unquote(s) for s in segs]
+                # CRLF guard: a URL like /project/foo%0d%0aX:%20y decodes to
+                # ['foo\r\nX: y'] after unquote. If any segment contains \r
+                # or \n, reject before the segment reaches a Location
+                # header or inline-HTML attribute.
+                if any(('\r' in s or '\n' in s or '\x00' in s) for s in segs):
+                    return self._send(400, 'text/plain', 'bad request')
                 if not segs:
                     return self._send(404, 'text/plain', 'not found')
                 tgt_project = segs[0]
+                # Reject project names that fail the strict pattern — same
+                # [A-Za-z0-9_-]+ used by state_paths. Prevents directory
+                # traversal in path/segment construction + silent 'offline'
+                # pages for nonexistent-but-legal-looking names.
+                import re as _re
+                if not _re.match(r'^[A-Za-z0-9_\-]+$', tgt_project):
+                    return self._send(404, 'text/plain', 'not found')
                 # Cross-project navigation: redirect to the sibling daemon
                 # if the request isn't for our own project.
                 if tgt_project != project:
                     url = state_paths.sibling_daemon_url(tgt_project)
                     if url:
-                        # Preserve sub-path so e.g. /project/other/pd lands on
-                        # /project/other/pd on the sibling.
-                        suffix = '/'.join(segs[1:])
-                        suffix = f'/project/{tgt_project}' + (f'/{suffix}' if suffix else '')
+                        # URL-encode each segment so spaces/#/? survive and
+                        # Location is spec-compliant.
+                        suffix_segs = [quote(s, safe='') for s in segs[1:]]
+                        suffix = '/' + '/'.join(suffix_segs) if suffix_segs else ''
+                        location = (url.rstrip('/')
+                                    + f'/project/{quote(tgt_project, safe="")}'
+                                    + suffix)
                         query = self.path.split('?', 1)[1] if '?' in self.path else ''
-                        location = url.rstrip('/') + suffix + (f'?{query}' if query else '')
+                        if query:
+                            location += '?' + query
                         self.send_response(302)
                         self.send_header('Location', location)
                         self.end_headers()
                         return
-                    # Sibling daemon not running — serve a local stub.
+                    # Sibling daemon not running — before showing an
+                    # "offline" page, confirm the project actually exists
+                    # in the registry. 404 for nonexistent projects so
+                    # operators don't try `cbflow smartgrid start --project
+                    # bogus` on an invalid name.
+                    if not _project_declared(tgt_project):
+                        return self._send(404, 'text/plain',
+                                          f'project {tgt_project!r} not declared '
+                                          'in master_projects.json')
                     return self._page_tier2_offline(tgt_project)
                 # Our own project — dispatch by sub-path.
                 if len(segs) == 1:
@@ -93,6 +118,9 @@ def make_handler(project):
                 if len(segs) == 2 and segs[1] == 'schedule':
                     return self._page_schedule(tgt_project)
                 disc = segs[1].lower()
+                # Disc segment also constrained — defense-in-depth.
+                if not _re.match(r'^[a-z0-9_]+$', disc):
+                    return self._send(404, 'text/plain', 'not found')
                 if len(segs) == 2:
                     return self._page_tier3(tgt_project, disc)  # /project/<self>/<disc>
                 if len(segs) == 4 and segs[2] == 'block':
@@ -108,11 +136,15 @@ def make_handler(project):
                     return self._api_discipline(unquote(segs[0]),
                                                 unquote(segs[1]).lower())
                 return self._send(404, 'text/plain', 'not found')
+            # /api/resources was the pre-redesign Resource card's data
+            # feed. The resource surface was replaced by the Team tile in
+            # the Tier 2 redesign and no JS fetches this endpoint anymore.
+            # Keep the route returning 410 Gone (not 404) so monitoring
+            # scrapers get a clear "intentionally removed" signal.
             if path == '/api/resources':
-                from urllib.parse import parse_qs
-                q = parse_qs(self.path.split('?', 1)[1] if '?' in self.path else '')
-                tgt = (q.get('project') or [project])[0]
-                return self._api_resources(tgt)
+                return self._send(410, 'application/json',
+                                  '{"error": "removed — Resource card '
+                                  'retired in SmartGrid redesign"}')
             if path.startswith('/api/floorplan/'):
                 try:
                     pid = int(path[len('/api/floorplan/'):].rstrip('/'))
@@ -133,21 +165,37 @@ def make_handler(project):
                 return self._page_published(pid)
             if path.startswith('/block/'):
                 # Legacy block URL — redirect to the new tiered form.
-                # Resolve the discipline from the latest publish for that
-                # block; default 'pd' if no publish exists yet.
+                # Resolve the discipline from the block's publish history:
+                # prefer PD (because the legacy /block/ URL was PD-only in
+                # practice), then fall through to the newest publish's
+                # discipline for genuinely DFT/DV-only blocks.
                 name = unquote(path[len('/block/'):].rstrip('/'))
+                if '\r' in name or '\n' in name or '\x00' in name:
+                    return self._send(400, 'text/plain', 'bad request')
                 try:
                     db = state_paths.tracker_db(project)
                     pubs = tracker_db.list_published(db, project)
                     rows = [r for r in pubs if r['block'] == name]
                     rows.sort(key=lambda r: r.get('published_at') or '',
                               reverse=True)
-                    disc = ((rows[0].get('discipline') if rows else '') or 'PD').lower()
+                    # First preference: PD rows (legacy /block/ callers
+                    # overwhelmingly meant PD). A single DV cov-merge
+                    # publish should NOT shadow a block's full PD history.
+                    pd_rows = [r for r in rows
+                               if ((r.get('discipline') or 'PD').upper() == 'PD')]
+                    chosen = pd_rows[0] if pd_rows else (rows[0] if rows else None)
+                    disc = ((chosen.get('discipline') if chosen else '')
+                            or 'PD').lower()
                 except Exception:
                     disc = 'pd'
-                location = f'/project/{project}/{disc}/block/{name}'
+                location = (f'/project/{quote(project, safe="")}/'
+                            f'{quote(disc, safe="")}/block/'
+                            f'{quote(name, safe="")}')
                 query = self.path.split('?', 1)[1] if '?' in self.path else ''
                 if query:
+                    # Query stays as-is (it's already url-encoded on the wire)
+                    # but strip any CRLF to be safe.
+                    query = query.replace('\r', '').replace('\n', '')
                     location += '?' + query
                 self.send_response(302)
                 self.send_header('Location', location)
@@ -297,8 +345,11 @@ def make_handler(project):
                 return (row.get('discipline') or 'PD').upper()
             block_meta = next(
                 (b for b in all_blocks if b['block_name'] == block_name), None)
-            block_pubs = [r for r in all_pubs
-                          if r['block'] == block_name and _row_disc(r) == disc_up]
+            # ALL publishes for the block (any discipline) — used to
+            # resolve "exists in another discipline" fallback below.
+            block_pubs_any = [r for r in all_pubs if r['block'] == block_name]
+            block_pubs = [r for r in block_pubs_any
+                          if _row_disc(r) == disc_up]
             # Apply ?phase=/?milestone= filters.
             q = parse_qs(self.path.split('?', 1)[1]) if '?' in self.path else {}
             ph = (q.get('phase') or [''])[0]
@@ -307,10 +358,37 @@ def make_handler(project):
                 block_pubs = [r for r in block_pubs if r.get('phase') == ph]
             if ms:
                 block_pubs = [r for r in block_pubs if r.get('milestone') == ms]
-            if not block_meta and not block_pubs:
-                return self._send(404, 'text/plain',
-                                  f'block {block_name} not found for '
-                                  f'{disc_up}')
+            # Block completely unknown → chrome-wrapped 404 (not bare text).
+            if not block_meta and not block_pubs_any:
+                return self._send(
+                    404, 'text/html; charset=utf-8',
+                    _render_tier_stub(
+                        tgt_project,
+                        f"Block '{block_name}' not found",
+                        hint='The block has no publishes in any discipline '
+                             'for this project. Check the spelling, or go '
+                             'back to the project landing.',
+                        variant='stub'))
+            # Block exists but no publishes under THIS discipline — tell
+            # the user where to find it instead of rendering an empty page.
+            if not block_pubs and block_pubs_any:
+                other_discs = sorted({_row_disc(r) for r in block_pubs_any})
+                links = ' / '.join(
+                    f'<a href="/project/{html.escape(tgt_project, quote=True)}/'
+                    f'{html.escape(d.lower(), quote=True)}/block/'
+                    f'{html.escape(block_name, quote=True)}">{html.escape(d)}</a>'
+                    for d in other_discs)
+                hint = (f'This block has publishes under: {links}. '
+                        f'The {disc_up} view is empty.')
+                return self._send(
+                    404, 'text/html; charset=utf-8',
+                    _render_tier_stub(
+                        tgt_project,
+                        f"Block '{block_name}' has no {disc_up} publishes yet",
+                        hint='', variant='stub').replace(
+                            '</h1>',
+                            f'</h1><p style="padding:0 24px;color:var(--muted);'
+                            f'font-size:13px">{hint}</p>', 1))
             html_out = _render_block(tgt_project, info, block_name,
                                      block_meta or {}, block_pubs)
             # Rewrite title to the smartgrid brand (block renderer uses the
@@ -2672,6 +2750,40 @@ _SIBLING_SUMMARY_LOCK = _threading.Lock()
 _SIBLING_SUMMARY_TTL = 5.0  # seconds
 
 
+def _sqlite_ro_connect(db_path):
+    """Open `db_path` read-only. url-encodes the path so any `?` or `#`
+    character in it doesn't split the URI (SQLite's URI parser treats
+    `?` as the start of the query string, silently opening the wrong
+    file). Returns a sqlite3.Connection or raises sqlite3.Error.
+    """
+    from urllib.parse import quote
+    # `/` kept literal — otherwise the URI parser treats the encoded
+    # slash as part of the filename, which is wrong on POSIX.
+    uri = f'file:{quote(db_path, safe="/")}?mode=ro'
+    return _sqlite3.connect(uri, uri=True)
+
+
+def _project_declared(name):
+    """True if `name` is listed in master_projects.json. Used by the
+    cross-project redirect path to 404 nonexistent projects before
+    serving a 'daemon offline' page that misleads the operator.
+    """
+    try:
+        import sys as _sys, os as _os
+        _utils = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+        _cmds = _os.path.join(_utils, 'commands')
+        for _p in (_utils, _cmds):
+            if _p not in _sys.path:
+                _sys.path.insert(0, _p)
+        from tcl_config_parser import _load_master_projects
+        data = _load_master_projects()
+    except Exception:
+        # Can't load registry → fail open (allow redirect-stub) so a
+        # broken config doesn't take down navigation entirely.
+        return True
+    return name in (data.get('projects') or {})
+
+
 def _sibling_project_summary(project_name):
     """Return a dict of {run_count, pass, cond, blocked, unknown,
     latest_published_at} for `project_name`'s sibling tracker.db.
@@ -2692,18 +2804,24 @@ def _sibling_project_summary(project_name):
         if cached_mtime == mtime and (now - cached_ts) < _SIBLING_SUMMARY_TTL:
             return snap
     try:
-        conn = _sqlite3.connect(f'file:{db_path}?mode=ro', uri=True)
+        conn = _sqlite_ro_connect(db_path)
     except _sqlite3.Error:
         return {}
     try:
         try:
+            # UPPER() the stored verdict before comparing — writers in
+            # client.py canonicalize to uppercase today, but legacy /
+            # external publishers may ship title/lowercase. Keep Tier 1
+            # buckets consistent with the Python-side uppercasing done in
+            # Tier 3 (see `(v or 'UNKNOWN').upper()` below).
             row = conn.execute("""
                 SELECT COUNT(*) AS total,
-                       SUM(verdict='PASS')        AS n_pass,
-                       SUM(verdict='CONDITIONAL') AS n_cond,
-                       SUM(verdict='BLOCKED')     AS n_blocked,
-                       SUM(verdict='UNKNOWN' OR verdict IS NULL) AS n_unknown,
-                       MAX(published_at)          AS latest
+                       SUM(UPPER(verdict)='PASS')        AS n_pass,
+                       SUM(UPPER(verdict)='CONDITIONAL') AS n_cond,
+                       SUM(UPPER(verdict)='BLOCKED')     AS n_blocked,
+                       SUM(UPPER(verdict) NOT IN ('PASS','CONDITIONAL','BLOCKED')
+                           OR verdict IS NULL)           AS n_unknown,
+                       MAX(published_at)                 AS latest
                 FROM published_runs WHERE project=?
             """, (project_name,)).fetchone()
         except _sqlite3.OperationalError:
@@ -2762,7 +2880,12 @@ def _render_tier1(self_project, scope):
     def _sort_key(p):
         s = _status_of(p)
         order = {'active': 0, 'paused': 1, 'archived': 2}.get(s, 3)
-        return (order, p.get('tapeout_date') or '9999-99-99', p.get('name'))
+        # Coerce None → '' so a malformed master_projects.json entry
+        # (missing 'name') doesn't crash sorted() when it ties with a
+        # named entry on (order, tapeout_date).
+        return (order,
+                p.get('tapeout_date') or '9999-99-99',
+                p.get('name') or '')
     visible.sort(key=_sort_key)
 
     cards_html = []
@@ -3261,7 +3384,8 @@ def _aggregate_resources(race_db_paths):
     queue_tiers = set()
     for db_path in race_db_paths:
         try:
-            conn = _sq3.connect(f'file:{db_path}?mode=ro', uri=True)
+            # URL-encode the path so `?`/`#` in it doesn't split the URI.
+            conn = _sqlite_ro_connect(db_path)
         except _sq3.Error:
             continue
         try:
@@ -3427,22 +3551,36 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
     sorted_blocks = sorted(blocks.values(), key=lambda r: r.get('block') or '')
 
     block_rows_html = []
+    from urllib.parse import quote as _q
+    _VERDICT_CSS = {'PASS', 'CONDITIONAL', 'BLOCKED', 'UNKNOWN'}
     for r in sorted_blocks:
         b = r.get('block') or ''
         ms = r.get('milestone') or ''
         ph = r.get('phase') or ''
         v = (r.get('verdict') or 'UNKNOWN').upper()
+        # If the stored verdict isn't a known class, the badge CSS
+        # `.v-<lower>` won't match and the badge renders unstyled.
+        # Fall back to the UNKNOWN badge for anything we don't recognize.
+        v_class = v.lower() if v in _VERDICT_CSS else 'unknown'
         clos = r.get('closability_pct')
         clos_str = f'{clos:.0f}%' if isinstance(clos, (int, float)) else '—'
         pub_at = (r.get('published_at') or '')[:19] or '—'
-        row_url = f'/project/{project}/{disc_class}/block/{b}'
+        # Each path segment is url-encoded so `?`, `#`, `/`, spaces, and
+        # other block-name characters don't corrupt the destination.
+        row_url = (f'/project/{_q(project, safe="")}/'
+                   f'{_q(disc_class, safe="")}/block/{_q(b, safe="")}')
+        # data-href + a delegated click listener avoids both:
+        #   (a) inline-JS attribute double-decode of &#x27; → ' which
+        #       breaks a block name like "cpu'core" when onclick parses
+        #       the string literal, and
+        #   (b) CSP-nonce-free inline-JS entirely.
         block_rows_html.append(
-            f'<tr onclick="location.href=\'{html.escape(row_url, quote=True)}\'" '
+            f'<tr class="row-click" data-href="{html.escape(row_url, quote=True)}" '
             f'style="cursor:pointer">'
             f'  <td class="mono">{html.escape(b)}</td>'
             f'  <td>{html.escape(ms)}</td>'
             f'  <td>{html.escape(ph)}</td>'
-            f'  <td><span class="verdict-badge v-{v.lower()}">'
+            f'  <td><span class="verdict-badge v-{v_class}">'
             f'{html.escape(v)}</span></td>'
             f'  <td class="num">{clos_str}</td>'
             f'  <td class="num mono">{html.escape(pub_at)}</td>'
@@ -3480,23 +3618,60 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
         db_path = None
     if db_path and curated:
         for r in sorted_blocks[:60]:
+            # If id is missing (shouldn't happen — SELECT * returns id,
+            # but be defensive) skip rather than call get_published(None).
+            pub_id = r.get('id')
+            if pub_id is None:
+                continue
             try:
-                detail = _tdb.get_published(db_path, r.get('id'))
+                detail = _tdb.get_published(db_path, pub_id)
             except Exception:
                 detail = None
-            if not detail: continue
+            if not detail:
+                continue
             for m in detail.get('metrics') or []:
                 name = m.get('name') or ''
-                if name not in curated: continue
-                prev = metric_latest.get(name)
+                if name not in curated:
+                    continue
                 ts = r.get('published_at') or ''
-                if prev is None or ts > prev[-1]:
-                    metric_latest[name] = (
-                        m.get('value'), m.get('unit') or '',
-                        m.get('scenario') or '', m.get('corner') or '',
-                        r.get('block') or '',
-                        ts,
-                    )
+                prev = metric_latest.get(name)
+                # Tiebreak rule when multiple metrics share name AND
+                # published_at (same publish, multiple scenario/corner
+                # rows): pick the one with the WORST value for 'lower
+                # is bad' metrics (WNS/TNS) or the one with the HIGHEST
+                # for 'higher is bad' metrics (drc_count, lvs_errors).
+                # Falls back to lexicographic on scenario+corner so
+                # the choice is deterministic across page loads.
+                lower_is_bad = name in ('WNS', 'TNS')
+                higher_is_bad = name in ('drc_count', 'lvs_errors', 'uvm_errors')
+                def _worse_than(new_tup, old_tup):
+                    """True if `new_tup` represents a worse QoR point."""
+                    nv, _, ns, nc, _, nt = new_tup
+                    ov, _, os_, oc, _, ot = old_tup
+                    if nt > ot:
+                        return True
+                    if nt < ot:
+                        return False
+                    # Equal timestamps — tie by metric severity.
+                    try:
+                        nvf, ovf = float(nv), float(ov)
+                        if lower_is_bad:
+                            return nvf < ovf  # new is more negative = worse
+                        if higher_is_bad:
+                            return nvf > ovf
+                    except (TypeError, ValueError):
+                        pass
+                    # Non-numeric or unknown severity direction — sort
+                    # key is lexicographic (scenario, corner) desc so
+                    # tiebreak is deterministic.
+                    return (ns, nc) > (os_, oc)
+                candidate = (
+                    m.get('value'), m.get('unit') or '',
+                    m.get('scenario') or '', m.get('corner') or '',
+                    r.get('block') or '', ts,
+                )
+                if prev is None or _worse_than(candidate, prev):
+                    metric_latest[name] = candidate
     metrics_cards = []
     for name in curated:
         tup = metric_latest.get(name)
@@ -3509,13 +3684,25 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
                 f'</div>')
             continue
         val, unit, scen, corner, block, ts = tup
+        # Falsy-zero guard: `val or '—'` would collapse a legitimate
+        # 0 (0 DRC errors, 0ns WNS margin, 0 LVS errors) to the em-dash
+        # and visually indistinguishable from "no data". A clean DRC
+        # sign-off would read as "DRC not run" to a customer. Only
+        # None / '' are the actual empty-value signals.
+        val_str = '—' if val is None or val == '' else str(val)
+        # Surface scenario+corner when present so WNS/TNS without
+        # context isn't actionable for the PD lead.
+        scen_corner = ' · '.join(x for x in (scen, corner) if x)
+        meta_line = (f'{html.escape(block)} · {html.escape(scen_corner)} · '
+                     f'{html.escape((ts or "")[:10])}'
+                     if scen_corner else
+                     f'{html.escape(block)} · {html.escape((ts or "")[:10])}')
         metrics_cards.append(
             f'<div class="metric-tile">'
             f'  <div class="metric-name">{html.escape(name)}</div>'
-            f'  <div class="metric-val">{html.escape(str(val or "—"))}'
+            f'  <div class="metric-val">{html.escape(val_str)}'
             f'  <span class="metric-unit">{html.escape(unit)}</span></div>'
-            f'  <div class="metric-lbl">{html.escape(block)} · '
-            f'{html.escape((ts or "")[:10])}</div>'
+            f'  <div class="metric-lbl">{meta_line}</div>'
             f'</div>')
 
     # Phase filter chips (deep-linkable)
@@ -3611,6 +3798,14 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
         '  </table>',
         '  </div>',
         '</section>',
+        # Delegated row-click: reads data-href attribute (safe — no HTML
+        # entity decode of inline-JS string literal), navigates to it.
+        '<script>'
+        'document.addEventListener("click", function(ev){'
+        '  var tr = ev.target.closest(".row-click");'
+        '  if (tr && tr.dataset.href) { location.href = tr.dataset.href; }'
+        '});'
+        '</script>',
         '</body></html>',
     ])
 
@@ -3936,15 +4131,21 @@ def _render_detail(project, info, d):
         _SCRIPT_RELOAD_ON_FOCUS,
         '</head><body>',
         '<header class="bar">',
-        f'  <div class="brand">CBflow<span class="lite">-ProjectDashboard</span><span class="lite" style="margin-left:8px;color:#0000FF;font-weight:700;">· SmartSoC</span></div>',
-        f'  <div class="proj"><a href="/">{html.escape(project)}</a></div>',
-        f'  <div class="kv">Block <b><a href="/block/{html.escape(d["block"])}">'
+        f'  <div class="brand">CBflow<span class="lite">-SmartGrid</span><span class="lite" style="margin-left:8px;color:#0000FF;font-weight:700;">· SmartSoC</span></div>',
+        # Project link now points at the Tier 2 project landing, not the
+        # Tier 1 all-projects grid at '/'.
+        f'  <div class="proj"><a href="/project/{html.escape(project, quote=True)}">{html.escape(project)}</a></div>',
+        # Block link uses the tiered form so clicking it doesn't bounce
+        # through the legacy /block/<n> 302. Discipline resolves from the
+        # row's own discipline column (populated post-v3 migration); fall
+        # back to 'pd' for legacy rows.
+        f'  <div class="kv">Block <b><a href="/project/{html.escape(project, quote=True)}/{html.escape((d.get("discipline") or "pd").lower(), quote=True)}/block/{html.escape(d["block"], quote=True)}">'
         f'{html.escape(d["block"])}</a></b></div>',
         f'  <div class="kv">Phase <b>{html.escape(d["phase"])}</b></div>',
         f'  <div class="kv">Milestone <b>{html.escape(d["milestone"])}</b></div>',
         f'  <div class="byline">{html.escape(developed_by)} &middot; <a href="mailto:varun@smartsocs.com" style="color:inherit;text-decoration:underline">varun@smartsocs.com</a></div>',
         '</header>',
-        '<div class="back"><a href="/">← back to project</a></div>',
+        f'<div class="back"><a href="/project/{html.escape(project, quote=True)}">← back to project</a></div>',
         # ── Tab bar ───────────────────────────────────────────────────
         '<nav class="tabs" id="tabs">',
         '  <a data-tab="overview"  href="#overview">Overview</a>',
@@ -4182,15 +4383,19 @@ def _render_block(project, info, block_name, block_meta, block_pubs):
         '</head><body>',
         # ── Header bar ───────────────────────────────────────────────
         '<header class="bar">',
-        f'  <div class="brand">CBflow<span class="lite">-ProjectDashboard</span><span class="lite" style="margin-left:8px;color:#0000FF;font-weight:700;">· SmartSoC</span></div>',
-        f'  <div class="proj"><a href="/">{html.escape(project)}</a></div>',
+        f'  <div class="brand">CBflow<span class="lite">-SmartGrid</span><span class="lite" style="margin-left:8px;color:#0000FF;font-weight:700;">· SmartSoC</span></div>',
+        # Project link + back-link both point at the Tier 2 project
+        # landing (post-SmartGrid-redesign). Pre-redesign they pointed at
+        # '/' which was the single-project landing; '/' is now the
+        # cross-project Tier 1 grid.
+        f'  <div class="proj"><a href="/project/{html.escape(project, quote=True)}">{html.escape(project)}</a></div>',
         f'  <div class="kv">Block <b>{html.escape(block_name)}</b></div>',
         f'  <div class="kv">Level <b>{html.escape(dl_level)}</b></div>',
         f'  <div class="kv">Parent <b>{html.escape(parent)}</b></div>',
         f'  <div class="byline">{html.escape(developed_by)} &middot; <a href="mailto:varun@smartsocs.com" style="color:inherit;text-decoration:underline">varun@smartsocs.com</a></div>',
         '</header>',
         '<div class="back">',
-        '  <a href="/">← back to project</a>',
+        f'  <a href="/project/{html.escape(project, quote=True)}">← back to project</a>',
         '</div>',
     ]
 

@@ -141,12 +141,22 @@ def send_list(project):
 
 
 def url_for_index(project):
+    """Return the project's landing URL (`/project/<name>`).
+
+    Pre 2026-11-02 the daemon's `/` route was the project landing. The
+    SmartGrid 4-tier redesign repurposed `/` as the all-projects grid
+    (Tier 1), so `cbflow smartgrid open --project <p>` landing on `/`
+    now drops the operator on the global index. Return the Tier 2 URL
+    so `open --project <p>` consistently takes the operator to the
+    project they asked for.
+    """
+    from urllib.parse import quote
     st = status(project)
     port = st.get('port') or _daemon.deterministic_port(project)
     bind_addr = st.get('bind_addr') or '127.0.0.1'
     host = ('127.0.0.1' if bind_addr in ('127.0.0.1', 'localhost', '::1')
             else socket.gethostname())
-    return f'http://{host}:{port}/'
+    return f'http://{host}:{port}/project/{quote(project)}'
 
 
 def _tail_log(project, n=20):
