@@ -111,8 +111,18 @@ def tc1_3():
 def tc1_4():
     run_dir = os.path.join(CBFLOW_ROOT, 'workarea_test', 'P0_run_SYNTH_PNR_test1')
     stages = os.listdir(os.path.join(run_dir, 'work', 'SYNTH_PNR'))
-    expected = ['init_design1', 'synthesis1', 'place1', 'cts1', 'cts_opt1',
-                'route1', 'pro1', 'signoff1', 'export_data1', 'release_data1']
+    # Load the canonical stage list from the flow's node_config instead
+    # of hardcoding — adding or renaming a stage auto-updates this test.
+    import sys as _sys
+    _utils_cmd = os.path.join(CBFLOW_ROOT, 'global', 'utils', 'commands')
+    if _utils_cmd not in _sys.path:
+        _sys.path.insert(0, _utils_cmd)
+    try:
+        from tcl_config_parser import get_flow_stages
+        expected = get_flow_stages('SYNTH_PNR')
+    except Exception:
+        expected = ['init_design1', 'synthesis1', 'place1', 'cts1', 'cts_opt1',
+                    'route1', 'pro1', 'signoff1', 'export_data1', 'release_data1']
     for s in expected:
         assert s in stages, f"Missing stage: {s}"
 

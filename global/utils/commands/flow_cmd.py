@@ -30,13 +30,18 @@ def _build_flow_types_dict():
     result = {}
     for flow_type, info in get_all_flow_info().items():
         tool = info.get('tool', {})
+        # Discipline defaults to empty string, not 'PD'. The old default
+        # silently mislabeled DFT/DV flows as PD in any environment where
+        # the resolver's flow(discipline,*) map wasn't populated — which
+        # was easy to hit from a bare import of flow_cmd. Callers that
+        # need a hard answer should route through get_flow_discipline().
         result[flow_type] = {
             'description': info.get('description', flow_type),
             'vendor': tool.get('vendor', ''),
             'tool': tool.get('name', ''),
             'shell': tool.get('name', ''),
             'nodes': info.get('stages', []),
-            'discipline': info.get('discipline', 'PD'),
+            'discipline': info.get('discipline', ''),
         }
     return result
 

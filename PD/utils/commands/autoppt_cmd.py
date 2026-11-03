@@ -167,7 +167,16 @@ def _parse_run_env(run_dir: str, data: dict):
 
 def _collect_stage_qor(run_dir: str, data: dict):
     """Parse report_qor.rpt from each stage's reports directory."""
-    flow_type = data.get('flow_type', 'SYNTH_PNR')
+    flow_type = data.get('flow_type', '')
+    if not flow_type:
+        # Prior behavior silently defaulted to 'SYNTH_PNR' — on DFT or DV
+        # runs this walked work/SYNTH_PNR/ which doesn't exist, dropped
+        # every stage's QoR with no error. Fail loud so missing metadata
+        # is caught at ingest time.
+        raise ValueError(
+            "autoppt: _collect_stage_qor got no flow_type in input data. "
+            "The caller must populate data['flow_type'] from the run's "
+            ".run.cbflow.env or RACE DB.")
     work_dir = Path(run_dir) / 'work' / flow_type
 
     for node_name, display_name in STAGE_MAP.items():
@@ -316,7 +325,9 @@ def _parse_utilization_file(filepath: Path, qor: dict):
 
 def _collect_clock_data(run_dir: str, data: dict):
     """Parse clock_qor report for CTS slide table."""
-    flow_type = data.get('flow_type', 'SYNTH_PNR')
+    flow_type = data.get('flow_type', '')
+    if not flow_type:
+        return  # Caller passed no flow_type — nothing to collect; let _collect_stage_qor raise the loud error.
     # Try cts1 first, then cts_opt1
     for node in ['cts1', 'cts_opt1']:
         rpt = Path(run_dir) / 'work' / flow_type / node / 'reports' / 'report_clock_qor.rpt'
@@ -352,7 +363,9 @@ def _collect_stage_runtimes(run_dir: str, data: dict):
 
 def _find_images(run_dir: str, data: dict):
     """Find GUI snapshot images for each stage."""
-    flow_type = data.get('flow_type', 'SYNTH_PNR')
+    flow_type = data.get('flow_type', '')
+    if not flow_type:
+        return  # Caller passed no flow_type — nothing to find.
     work_dir = Path(run_dir) / 'work' / flow_type
 
     image_patterns = {

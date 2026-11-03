@@ -336,6 +336,55 @@ if {[info exists ::project]} {
     }
 }
 
+# ── tech(*) — foundry data (metal_stacks, rcx corners, tluplus/qrc paths,
+# physical cells, VT libs). Sourced from tech_config.tcl at line 214.
+# Prior to 2026-11-03 it was invisible to Python the same way project(*)
+# was. Python callers that need to know e.g. `tech(metal_stacks_available)`
+# or `tech(rcx,rc_max,tluplus)` can now read it from the resolved cfg.
+if {[info exists ::tech]} {
+    foreach key [lsort [array names ::tech]] {
+        puts "CBFLOW_CFG:tech($key)=[_flatten $::tech($key)]"
+    }
+}
+
+# ── release(*) + sibling arrays set by release_config.tcl ──
+# release_config.tcl sets more than release(base_dir):
+#   release_paths(*)          — logical name → relative path
+#   release_tags(*)            — tag name → milestone key
+#   release_deliverables(*)    — artifact category → file list
+#   release_exit_files(*)      — per-milestone per-phase file lists
+#   phase_criteria(*)          — phase-advance gates
+#   milestone_flow_map(*)      — milestone → owning flow
+#   flow_input_handshake(*)    — flow-to-flow input handshake metadata
+# Previously only MILESTONE_STAGE_MAPPING(*) was emitted (via the
+# descriptions loop at line 434). Every release-related array is now
+# visible so release/dashboard/checklist code can read them directly
+# instead of regex-parsing release_config.tcl on disk.
+foreach _rel_arr {release release_paths release_tags release_deliverables
+                  release_exit_files phase_criteria milestone_flow_map
+                  flow_input_handshake} {
+    if {[array exists ::$_rel_arr]} {
+        upvar #0 ::$_rel_arr _ra
+        foreach key [lsort [array names _ra]] {
+            puts "CBFLOW_CFG:${_rel_arr}($key)=[_flatten $_ra($key)]"
+        }
+    }
+}
+
+# ── validation(*) + ml(*) — only emitted when actually sourced. These
+# two configs aren't on the resolver's own cascade (handlers source
+# them directly as needed), but surface the arrays if a user_config or
+# runtime_flow_config happens to pre-populate them. Future-proof against
+# a layer that moves them into the cascade.
+foreach _opt_arr {validation ml tool_launch} {
+    if {[array exists ::$_opt_arr]} {
+        upvar #0 ::$_opt_arr _oa
+        foreach key [lsort [array names _oa]] {
+            puts "CBFLOW_CFG:${_opt_arr}($key)=[_flatten $_oa($key)]"
+        }
+    }
+}
+
 # ── flow(*) — runtime/dispatch booleans, defaults set in flow_config.tcl,
 # overridable in user_config.tcl. Every key here MUST be set somewhere in the
 # cascade — race_engine.py asserts via require(). ──

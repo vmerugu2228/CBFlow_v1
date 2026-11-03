@@ -159,10 +159,29 @@ def _check_run(flow, run_dir):
 def t2_1():
     run_dir = os.path.join(WORKAREA, 'P0_run_SYNTH_PNR_test1')
     _check_run('SYNTH_PNR', run_dir)
-    # Check all expected stages
+    # Check expected stages — pulled from the flow's node_config at runtime
+    # so renaming / adding a stage auto-updates this test instead of relying
+    # on a hardcoded list that silently drifts out of date.
+    import sys as _sys
+    _utils_cmd = os.path.join(CBFLOW_ROOT, 'global', 'utils', 'commands')
+    if _utils_cmd not in _sys.path:
+        _sys.path.insert(0, _utils_cmd)
+    try:
+        from tcl_config_parser import get_flow_stages
+        expected = get_flow_stages('SYNTH_PNR')
+    except Exception:
+        # Fallback — if resolver is broken, keep the canonical list so
+        # the test's own diagnostic survives.
+        expected = ['init_design1', 'synthesis1', 'place1', 'cts1', 'cts_opt1',
+                    'route1', 'pro1', 'signoff1', 'export_data1']
     work = os.path.join(run_dir, 'work', 'SYNTH_PNR')
-    for stage in ['init_design1', 'synthesis1', 'place1', 'cts1', 'cts_opt1',
-                   'route1', 'pro1', 'signoff1', 'export_data1']:
+    # Only check EXECUTION stages (skip input stages like rtl1/sdc1/upf1 and
+    # release_data1 which don't produce a work/<stage>/ dir).
+    _skip = {'rtl1', 'sdc1', 'upf1', 'netlist1', 'scandef1', 'sdf1', 'lib1',
+             'spec1', 'release_data1'}
+    for stage in expected:
+        if stage in _skip:
+            continue
         assert os.path.isdir(os.path.join(work, stage)), f"Missing stage: {stage}"
 
 @test("STA test run exists")

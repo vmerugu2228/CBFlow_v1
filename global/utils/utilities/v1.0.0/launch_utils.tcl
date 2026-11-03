@@ -166,7 +166,16 @@ proc submit_job {wrapper flow_type stage_name node_name work_dir} {
                 puts "ERROR: lsf(bsub,command) not set in lsf_config.tcl"; exit 1
             }
             set bsub $lsf(bsub,command)
-            set queue [expr {[info exists lsf(bsub,queue)] ? $lsf(bsub,queue) : "normal"}]
+            # Queue must come from lsf_config.tcl. The old `"normal"`
+            # fallback silently sent jobs to a queue that may not exist or
+            # may be underpowered for the stage — the job runs, outputs
+            # looks "done", but on wrong hardware.
+            if {![info exists lsf(bsub,queue)] || $lsf(bsub,queue) eq ""} {
+                puts "ERROR: lsf(bsub,queue) not set in lsf_config.tcl"; exit 1
+            }
+            set queue $lsf(bsub,queue)
+            # Project + affinity are legitimately optional (not every site has
+            # per-project LSF accounting or NUMA affinity rules).
             set project [expr {[info exists lsf(bsub,project)] ? $lsf(bsub,project) : ""}]
             set affinity [expr {[info exists lsf(bsub,affinity)] ? $lsf(bsub,affinity) : ""}]
             # Build bsub cmd as a Tcl LIST, not a whitespace-joined string.
@@ -368,8 +377,16 @@ proc handler_run {run_dir flow_type node_name stage_name cmd_file test_mode {too
             }
             exit 1
         }
-        # Generate dummy output files for release testing
-        set _design [expr {[info exists ::flow(design_name)] ? $::flow(design_name) : "design"}]
+        # Generate dummy output files for release testing. design_name is
+        # mandatory — the old `"design"` fallback silently produced
+        # `design.v` stubs which would then fail release-check against
+        # the actual `${block}.v` expectation (and release-check accepted
+        # the stub, masking the misconfiguration).
+        if {![info exists ::flow(design_name)] || $::flow(design_name) eq ""} {
+            puts "ERROR: flow(design_name) not set — required for test-mode stub generation"
+            exit 1
+        }
+        set _design $::flow(design_name)
         set _outputs_dir "$run_dir/work/$flow_type/$node_name/outputs"
         set _reports_dir "$run_dir/work/$flow_type/$node_name/reports"
         file mkdir $_outputs_dir

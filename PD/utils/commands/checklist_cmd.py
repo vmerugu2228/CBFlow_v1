@@ -1285,7 +1285,21 @@ def cmd_signoff(args: argparse.Namespace) -> int:
     # check) and downgrades the milestone to 'conditional'.
     # Also enforces the waiver_policy allow_bto_waivers / allow_mto_waivers
     # fields.
+    # Tape-out milestone list — defaults to {BTO, MTO} for PD but can be
+    # extended per discipline when DFT or DV add their own tape-out
+    # equivalents (e.g. ATPG_POSTPD_EXIT could be gated the same way).
+    # Reading from `project(tape_out_milestones)` lets each project opt
+    # extra milestones into the "no silent waiver" policy.
     _tape_out_milestones = {'BTO', 'MTO'}
+    try:
+        from tcl_config_parser import _resolved as _cfg_resolved
+        from cbflow_config import optional as _cfg_opt
+        _ex = _cfg_opt(_cfg_resolved('SYNTH_PNR', run_dir=None),
+                       'project(tape_out_milestones)')
+        if _ex:
+            _tape_out_milestones = set(_ex.strip().split()) or _tape_out_milestones
+    except Exception:
+        pass
     # Compute mand_snaps once at the first use site so both the verdict
     # branch and the summary dict share the same list.
     mand_snaps = [c for c in checks_snapshot.values() if c['type'] == 'mandatory']

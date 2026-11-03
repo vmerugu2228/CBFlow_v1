@@ -1505,9 +1505,16 @@ def cmd_add_node(args: argparse.Namespace) -> int:
         logger.error(f"  The new node needs a dependency to connect it in the flow.")
         logger.error(f"  Current {flow_type} stages: {' -> '.join(valid_stages)}")
         logger.error("")
-        logger.error(f"  Example:")
-        last = valid_stages[-1] if valid_stages else 'signoff1'
-        logger.error(f"    cbflow run add-node --type {node_type} --dep {last}")
+        if valid_stages:
+            last = valid_stages[-1]
+            logger.error(f"  Example:")
+            logger.error(f"    cbflow run add-node --type {node_type} --dep {last}")
+        else:
+            # No stages loaded — the config cascade failed. Don't suggest
+            # a fake stage name (prior `'signoff1'` fallback would mislead
+            # the user into typing an invalid --dep on DFT/DV runs).
+            logger.error(f"  (Could not enumerate stages for {flow_type} — "
+                         f"check flow_config.tcl and node_configs/.)")
         logger.error("")
         return 1
 
@@ -2218,7 +2225,22 @@ def cmd_release_check(args: argparse.Namespace) -> int:
 
     tag = args.tag
     project_name = args.project
-    phase = getattr(args, 'phase', 'P0') or 'P0'
+    # Phase must come from --phase or from the project's phase list — the
+    # earlier 'P0' default silently misread projects using LC1-LC5 etc.
+    phase = getattr(args, 'phase', '') or ''
+    if not phase:
+        try:
+            from tcl_config_parser import get_phases
+            _phases = get_phases()
+            if _phases:
+                phase = _phases[0]
+        except Exception:
+            pass
+    if not phase:
+        logger.error('--phase required for release-check: project(phases) is not resolvable '
+                     'and no --phase was passed. Pass --phase <X> or declare project(phases) '
+                     'in the project config.')
+        return 1
     block_filter = getattr(args, 'block', None)
 
     # Find flow_dir from environment or workspace
@@ -3620,8 +3642,20 @@ def _cmd_gui_daemon(no_browser, public=False, bind_addr=None):
     if flow_type:
         try:
             from tcl_config_parser import get_flow_discipline
-            discipline = (get_flow_discipline(flow_type) or 'PD').upper()
-        except Exception:
+            _disc_raw = get_flow_discipline(flow_type)
+            if _disc_raw:
+                discipline = _disc_raw.upper()
+            else:
+                logger.warning(
+                    f'run_cmd: flow {flow_type!r} has no discipline tag in '
+                    f'flow_registry.tcl — dashboard registration falling '
+                    f'back to PD. Add `set flow(discipline,{flow_type}) '
+                    f'"<DISC>"` to global/config/flow/v1.0.0/flow_registry.tcl.')
+                discipline = 'PD'
+        except Exception as _e:
+            logger.warning(
+                f'run_cmd: get_flow_discipline({flow_type!r}) raised {_e!r} '
+                f'— dashboard registration falling back to PD.')
             discipline = 'PD'
 
     try:

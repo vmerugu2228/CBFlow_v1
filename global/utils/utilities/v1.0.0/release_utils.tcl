@@ -147,13 +147,15 @@ proc copy_glob {src_pattern dest_subdir} {
 proc validate_mandatory_files {} {
     variable release_dir release_phase flow_type run_dir release_errors
 
-    # Defensive defaults — if init() wasn't called or namespace var binding
-    # didn't propagate, fall back so we don't crash on `$release_phase`.
+    # Required state: init() must have run and populated these namespace
+    # vars. The old `release_phase "P0"` + `flow_type "UNKNOWN"` fallbacks
+    # silently misread any project with a non-P0 phase scheme and shunted
+    # unknown-flow releases into the wrong tree. Fail loud instead.
     if {![info exists release_phase] || $release_phase eq ""} {
-        set release_phase "P0"
+        error "release_utils::validate_mandatory_files: release_phase not set — call ::CBFlow::Release::init first (release_phase should come from project(release,phase) in the project config)"
     }
     if {![info exists flow_type] || $flow_type eq ""} {
-        set flow_type "UNKNOWN"
+        error "release_utils::validate_mandatory_files: flow_type not set — call ::CBFlow::Release::init first"
     }
     if {![info exists release_dir]} { set release_dir "" }
     if {![info exists run_dir]} { set run_dir "" }

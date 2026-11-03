@@ -577,8 +577,24 @@ class DagBuilder:
         preferred_root = ''
         try:
             from tcl_config_parser import get_flow_discipline
-            discipline = (get_flow_discipline(self.flow_type) or 'PD').upper()
-        except Exception:
+            _disc_raw = get_flow_discipline(self.flow_type)
+            if _disc_raw:
+                discipline = _disc_raw.upper()
+            else:
+                # Fallback to PD — but log so the operator sees the
+                # miss. Every flow in flow_registry.tcl has a declared
+                # discipline post 2026-11-03, so this path only fires
+                # for flows that weren't properly registered.
+                logger.warning(
+                    f'race_engine: flow {self.flow_type!r} has no discipline '
+                    f'in flow_registry.tcl — handler lookup falling back to PD. '
+                    f'Add `set flow(discipline,{self.flow_type}) "<DISC>"` to '
+                    f'global/config/flow/v1.0.0/flow_registry.tcl.')
+                discipline = 'PD'
+        except Exception as _e:
+            logger.warning(
+                f'race_engine: get_flow_discipline({self.flow_type!r}) '
+                f'raised {_e!r} — handler lookup falling back to PD.')
             discipline = 'PD'
         if discipline == 'PD':
             preferred_root = flow_dir

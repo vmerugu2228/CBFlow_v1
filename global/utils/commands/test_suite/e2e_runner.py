@@ -85,12 +85,18 @@ def prepare_sandbox(flow, repo_root, pd_dir, workarea_test, vendor=None,
 
     project_name = fixtures.parse_user_config_field(rewritten, 'project(name)') or ''
     design_name = fixtures.parse_user_config_field(rewritten, 'flow(design_name)') or ''
-    phase = fixtures.parse_user_config_field(rewritten, 'project(phase)') or 'P0'
+    # Phase comes from the fixture — fixtures that omit it fail loud rather
+    # than silently defaulting to 'P0' (which would silently misread a
+    # project using LC1-LC5 or any non-P0 scheme).
+    phase = fixtures.parse_user_config_field(rewritten, 'project(phase)') or ''
     flow_type = fixtures.parse_user_config_field(rewritten, 'flow(type)') or flow
 
     if not project_name or not design_name:
         sandbox.cleanup(keep=False)
         return None, f'fixture missing project(name)/flow(design_name): {fixture}', None
+    if not phase:
+        sandbox.cleanup(keep=False)
+        return None, f'fixture missing project(phase): {fixture}', None
 
     workarea_path = _project_workarea_path(pd_dir, project_name)
     if not workarea_path:

@@ -50,7 +50,22 @@ _cbflow_resolve_paths() {
     [[ -d "$CBFLOW_ROOT/DFT" ]] && CBFLOW_DFT_DIR="$CBFLOW_ROOT/DFT"
     [[ -d "$CBFLOW_ROOT/DV"  ]] && CBFLOW_DV_DIR="$CBFLOW_ROOT/DV"
 
+    # Config schema versions. Every config tree in the repo is on v1.0.0.
+    # Previously each individual caller (Python + TCL) had its own default
+    # fallback, meaning any typo'd env override silently loaded v1.0.0
+    # anyway. Set them centrally so individual sites can read env strictly
+    # and fail if the targeted version dir is missing.
+    #
+    # When a repo adds a v1.1.0 or v2.0.0 schema, bump these to point at
+    # the new tree. Multi-version repos should override these via the
+    # calling script or a local shell wrapper, not via silent defaults.
+    : "${FLOW_CONFIG_VERSION:=v1.0.0}"
+    : "${UTILITIES_VERSION:=v1.0.0}"
+    : "${TECH_CONFIG_VERSION:=v1.0.0}"
+    : "${PROJECT_CONFIG_VERSION:=v1.0.0}"
+
     export CBFLOW_ROOT CBFLOW_GLOBAL_DIR CBFLOW_CORE_DIR
+    export FLOW_CONFIG_VERSION UTILITIES_VERSION TECH_CONFIG_VERSION PROJECT_CONFIG_VERSION
     [[ -n "${CBFLOW_DFT_DIR:-}" ]] && export CBFLOW_DFT_DIR
     [[ -n "${CBFLOW_DV_DIR:-}"  ]] && export CBFLOW_DV_DIR
     # Explicit success — otherwise the function returns the exit status
