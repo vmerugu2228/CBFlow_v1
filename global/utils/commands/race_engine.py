@@ -76,6 +76,11 @@ class Job:
     INVALIDATED = 'INVALIDATED'
     BYPASSED = 'BYPASSED'
     FORCE_VALIDATED = 'FORCE_VALIDATED'
+    # BYPASSED_BY_DECISION: a stage was NOT selected by its decision-node
+    # ancestor's outcome. Distinct from user-triggered BYPASSED so retrace
+    # can treat the two differently (user bypass stays; decision bypass
+    # re-evaluates when the decision ancestor is retraced).
+    BYPASSED_BY_DECISION = 'BYPASSED_BY_DECISION'
 
     def __init__(self, name: str, stage: str, subnode: str, command: str,
                  job_type: str = 'subnode', resource_tier: str = 'S'):
@@ -93,14 +98,22 @@ class Job:
         self.lsf_job_id = None
         self.pid = None
 
-    COMPLETED_STATES = frozenset(('DONE', 'BYPASSED', 'FORCE_VALIDATED'))
+    COMPLETED_STATES = frozenset((
+        'DONE', 'BYPASSED', 'FORCE_VALIDATED', 'BYPASSED_BY_DECISION',
+    ))
 
     @property
     def is_completed(self):
         return self.status in Job.COMPLETED_STATES
 
     def is_ready(self, completed_jobs: set) -> bool:
-        """True if all dependencies are satisfied."""
+        """True if all dependencies are satisfied.
+
+        Any status in COMPLETED_STATES counts as satisfied for downstream
+        readiness — including BYPASSED_BY_DECISION — so a chain downstream
+        of a decision's non-taken branch unblocks naturally without
+        rewriting the DAG at runtime.
+        """
         if self.status not in (Job.READY, Job.INVALIDATED):
             return False
         return all(dep in completed_jobs for dep in self.deps)
@@ -159,10 +172,43 @@ class DagBuilder:
 
         # Store node_types and tool_info from resolved config
         self._node_types = {}
+        self._stage_types = {}
         for stage in stages:
             nt = cfg.get(f'node_types,{stage}', '')
             if nt:
                 self._node_types[stage] = nt
+            st = cfg.get(f'stage_types,{stage}', '')
+            if st:
+                self._stage_types[stage] = st
+
+        # ── Decision stages ──────────────────────────────────────────────────
+        # A stage with `stage_types,<s> == "decision"` declares an outcome set
+        # and a per-outcome next-stage list. At DAG build time the next-stage
+        # edges are STILL present in `dependencies,*` — they must be, because
+        # the DAG is static. The runtime hook (_resolve_decision in the
+        # executor) decides WHICH downstream chain stays active and marks the
+        # others BYPASSED_BY_DECISION.
+        self._decision_outcomes = {}   # stage → [outcome keys]
+        self._decision_next = {}       # stage → {outcome: [next_stages]}
+        self._decision_source = {}     # stage → 'file' | 'exit_code' | 'metric'
+        self._decision_default = {}    # stage → fallback outcome if source missing
+        for stage in stages:
+            if self._stage_types.get(stage) != 'decision':
+                continue
+            outcomes_raw = cfg.get(f'decision_outcomes,{stage}', '').strip()
+            if not outcomes_raw:
+                raise _cfg.ConfigError(
+                    f'decision_outcomes,{stage}', cfg)
+            outcomes = outcomes_raw.split()
+            self._decision_outcomes[stage] = outcomes
+            next_map = {}
+            for oc in outcomes:
+                next_map[oc] = cfg.get(f'decision_next,{stage},{oc}', '').split()
+            self._decision_next[stage] = next_map
+            self._decision_source[stage] = cfg.get(
+                f'decision_source,{stage}', 'file')
+            self._decision_default[stage] = cfg.get(
+                f'decision_default,{stage}', outcomes[0] if outcomes else '')
 
         self._tool_info = {
             'vendor': cfg.get('tool,vendor', ''),
@@ -738,7 +784,8 @@ class StatusDB:
             job_type TEXT DEFAULT 'subnode',
             status TEXT DEFAULT 'READY' CHECK (status IN (
                 'READY','PENDING','RUNNING','DONE','FAIL',
-                'INVALIDATED','BYPASSED','FORCE_VALIDATED','SKIPPED')),
+                'INVALIDATED','BYPASSED','FORCE_VALIDATED','SKIPPED',
+                'BYPASSED_BY_DECISION')),
             command TEXT,
             start_time TEXT,
             end_time TEXT,
@@ -834,6 +881,16 @@ class StatusDB:
                 'active','revoked','superseded')),
             files_json TEXT,
             signoff_json TEXT
+        )''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS decision_outcomes (
+            stage       TEXT NOT NULL,
+            outcome     TEXT NOT NULL,
+            source      TEXT,
+            decided_at  TEXT DEFAULT (datetime('now')),
+            decided_by  TEXT,
+            evidence    TEXT,
+            run_seq     INTEGER NOT NULL DEFAULT 1,
+            PRIMARY KEY (stage, run_seq)
         )''')
         conn.execute('''CREATE TABLE IF NOT EXISTS lsf_details (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1119,6 +1176,41 @@ class StatusDB:
         finally:
             self._close_safely(conn)
 
+    def record_decision_outcome(self, stage: str, outcome: str,
+                                source: str = 'file', decided_by: str = 'engine',
+                                evidence: str = ''):
+        """Append a decision-outcome audit row.
+
+        run_seq auto-increments per retrace of the stage so history is
+        preserved (retrace() can roll back to an earlier outcome by
+        inspecting the full table).
+        """
+        conn = _sqlite_connect(self.db_path)
+        try:
+            # Compute the next run_seq for this stage
+            row = conn.execute(
+                'SELECT COALESCE(MAX(run_seq), 0) + 1 FROM decision_outcomes WHERE stage = ?',
+                (stage,)).fetchone()
+            next_seq = row[0] if row else 1
+            conn.execute(
+                'INSERT INTO decision_outcomes (stage, outcome, source, decided_by, evidence, run_seq) '
+                'VALUES (?, ?, ?, ?, ?, ?)',
+                (stage, outcome, source, decided_by, evidence, next_seq))
+            conn.commit()
+        finally:
+            self._close_safely(conn)
+
+    def get_decision_outcome(self, stage: str) -> str:
+        """Return the latest outcome for a decision stage, or '' if none."""
+        conn = _sqlite_connect(self.db_path)
+        try:
+            row = conn.execute(
+                'SELECT outcome FROM decision_outcomes WHERE stage = ? '
+                'ORDER BY run_seq DESC LIMIT 1', (stage,)).fetchone()
+            return row[0] if row else ''
+        finally:
+            self._close_safely(conn)
+
     def get_metrics(self, stage: str = None) -> list:
         conn = _sqlite_connect(self.db_path)
         if stage:
@@ -1264,6 +1356,15 @@ class RaceEngine:
 
         # Store resolved config for runtime lookups (e.g., _get_timeout)
         self._resolved_config = getattr(builder, '_resolved_cfg', {})
+
+        # Decision-stage metadata (empty dicts for flows without any decision
+        # stages). The runtime hook `_resolve_decision` reads these to pick
+        # the winning downstream chain after a decision stage completes.
+        self._stage_types      = getattr(builder, '_stage_types', {})
+        self._decision_outcomes = getattr(builder, '_decision_outcomes', {})
+        self._decision_next    = getattr(builder, '_decision_next', {})
+        self._decision_source  = getattr(builder, '_decision_source', {})
+        self._decision_default = getattr(builder, '_decision_default', {})
 
         # Initialize status DB
         # Path: $project(race,db_path)/$project_name/$domain/$flow_type/$user_$run_name.db
@@ -1837,6 +1938,10 @@ class RaceEngine:
                     rc = self._execute_job(job)
                     if rc == 0:
                         completed.add(job.name)
+                        # Decision hook: if this is the last subnode of a
+                        # decision stage, read the outcome and bypass the
+                        # non-selected branches before the next ready-sweep.
+                        self._maybe_resolve_decision(job, completed, target_jobs)
                     else:
                         failed.add(job.name)
                         logger.error(f"FAILED: {job.name} (exit={rc})")
@@ -1861,6 +1966,7 @@ class RaceEngine:
                             results[job.name] = rc
                             if rc == 0:
                                 completed.add(job.name)
+                                self._maybe_resolve_decision(job, completed, target_jobs)
                             else:
                                 failed.add(job.name)
                                 logger.error(f"FAILED: {job.name} (exit={rc})")
@@ -2324,6 +2430,12 @@ class RaceEngine:
                     completed.add(name)
                     logger.info(f"  [{job.stage}/{job.subnode}] externally bypassed")
 
+                # Decision-driven bypass: DB says BYPASSED_BY_DECISION
+                elif db_st == Job.BYPASSED_BY_DECISION and job.status != Job.BYPASSED_BY_DECISION:
+                    job.status = Job.BYPASSED_BY_DECISION
+                    completed.add(name)
+                    logger.info(f"  [{job.stage}/{job.subnode}] bypassed by decision")
+
                 # External force-validate: DB says FORCE_VALIDATED
                 elif db_st == Job.FORCE_VALIDATED and job.status != Job.FORCE_VALIDATED:
                     job.status = Job.FORCE_VALIDATED
@@ -2341,6 +2453,101 @@ class RaceEngine:
             # stale in-memory state. Operator needs to see this.
             logger.warning(f"RACE: DB sync failed ({type(e).__name__}: {e}) — "
                            f"external status commits may be ignored this tick")
+
+    # ─── Decision-stage resolution ──────────────────────────────────────────
+
+    def _maybe_resolve_decision(self, job: Job, completed: set, target_jobs: set):
+        """Fire when a decision stage's LAST subnode (sentinel or finish) completes.
+
+        Reads the chosen outcome via the configured source (file / exit_code /
+        metric), writes the audit row, and marks every job in a NON-selected
+        downstream branch as BYPASSED_BY_DECISION so the next ready-sweep
+        unblocks the chosen chain naturally.
+        """
+        stage = job.stage
+        if stage not in self._decision_outcomes:
+            return
+        # Only fire once per decision stage — on the sentinel (if present)
+        # or on the terminal subnode of the stage (`finish`).
+        if job.job_type == 'stage' and job.subnode == '_sentinel':
+            pass  # sentinel fires last — ideal hook
+        elif job.subnode == 'finish':
+            # Decision stage without a sentinel — fire on finish instead
+            if stage in self.jobs and self.jobs[stage].job_type == 'stage':
+                return  # sentinel will fire; wait for it
+        else:
+            return
+
+        outcome = self._read_decision_outcome(stage)
+        logger.info(f"  [decision] {stage} → outcome='{outcome}'")
+
+        # Record audit row (run_seq increments on retrace — see retrace()).
+        try:
+            self.db.record_decision_outcome(stage, outcome,
+                                            self._decision_source.get(stage, 'file'),
+                                            'engine')
+        except Exception as _e:
+            logger.warning(f"  [decision] audit write failed for {stage}: {_e}")
+
+        # Bypass the non-selected branches. The config author declares the
+        # EXACT set of stages that fire per outcome via `decision_next` —
+        # the engine honors that list verbatim (no transitive walk). Stages
+        # downstream of a bypassed stage keep running IF they have another
+        # satisfied dep (BYPASSED_BY_DECISION counts as satisfied). This
+        # lets a stage like release_data1 execute in BOTH outcomes even
+        # when its direct dep (signoff1) is bypassed in the pre-PD path.
+        taken      = set(self._decision_next[stage].get(outcome, []))
+        all_edges  = set()
+        for oc, nxt in self._decision_next[stage].items():
+            all_edges.update(nxt)
+        bypass_set = all_edges - taken
+
+        # Translate stage-level bypass into job-level status writes.
+        bypassed_jobs = []
+        for name, j in self.jobs.items():
+            if j.stage in bypass_set and name not in completed and name in target_jobs:
+                j.status = Job.BYPASSED_BY_DECISION
+                bypassed_jobs.append(j)
+        for j in bypassed_jobs:
+            self.db.record_direct(j, Job.BYPASSED_BY_DECISION)
+            completed.add(j.name)
+        if bypassed_jobs:
+            logger.info(f"  [decision] bypassed {len(bypassed_jobs)} jobs "
+                        f"in {len(bypass_set)} non-selected stages")
+
+    def _read_decision_outcome(self, stage: str) -> str:
+        """Resolve the outcome key for a decision stage.
+
+        Supports:
+          · source=file: read work/<flow>/<stage>/outputs/decision_outcome.txt
+          · source=exit_code: inspect self.jobs[<stage>_finish].exit_code and
+            map via decision_exit_map,<stage>,<rc> (fallback only; file wins)
+          · source=metric: deferred to a follow-up; currently falls back to default
+        Falls back to decision_default on any error.
+        """
+        src = self._decision_source.get(stage, 'file')
+        default_outcome = self._decision_default.get(stage, '')
+        valid = set(self._decision_outcomes.get(stage, []))
+        if src == 'file':
+            path = os.path.join(self.run_dir, 'work', self.flow_type, stage,
+                                'outputs', 'decision_outcome.txt')
+            try:
+                with open(path, encoding='utf-8') as f:
+                    out = f.read().strip()
+                if out in valid:
+                    return out
+                logger.warning(f"  [decision] {stage}: outcome '{out}' not in "
+                               f"declared outcomes {sorted(valid)} — using default")
+            except OSError as _e:
+                logger.warning(f"  [decision] {stage}: cannot read outcome file "
+                               f"({_e}); using default")
+        elif src == 'exit_code':
+            logger.debug(f"  [decision] {stage}: exit_code source not yet wired; "
+                         f"using default")
+        else:
+            logger.debug(f"  [decision] {stage}: source={src!r} not implemented; "
+                         f"using default")
+        return default_outcome
 
     def _execute_job(self, job: Job) -> int:
         """Execute a single job. Returns exit code."""
