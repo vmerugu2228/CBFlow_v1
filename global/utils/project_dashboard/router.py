@@ -611,7 +611,15 @@ def make_handler(project):
         # ── Helpers ──────────────────────────────────────────────────────────
 
         def _json(self, obj):
-            body = json.dumps(obj, default=str).encode()
+            # Explicit datetime handler so timestamps serialize as ISO 8601
+            # strings instead of `str(datetime)` form (which clients would
+            # have to parse separately). Fallback to str() for anything
+            # else that isn't JSON-native (sqlite3.Row objects etc.).
+            def _enc(o):
+                if hasattr(o, 'isoformat'):
+                    return o.isoformat()
+                return str(o)
+            body = json.dumps(obj, default=_enc).encode()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Content-Length', str(len(body)))
