@@ -91,7 +91,9 @@ flow_proc prepare_release {
         "results/popt/pc_post_merge_summary.rpt"   "reports/pc_post_merge_summary.rpt"
     } {
         if {[file exists "$run_dir/$src"]} {
-            catch {file copy -force "$run_dir/$src" "$rd/$dst"}
+            if {[catch {file copy -force "$run_dir/$src" "$rd/$dst"} _cp_err]} {
+                handle_warning "release copy failed ("$run_dir/$src" "$rd/$dst"): $_cp_err"
+            }
             handle_info "Released: [file tail $dst]"
         }
     }
@@ -99,14 +101,18 @@ flow_proc prepare_release {
     # Copy detailed reports
     foreach subdir {"power" "merge_timing" "post_merge"} {
         foreach rpt [glob -nocomplain "$::REPORTS_DIR/"] {
-            catch {file copy -force $rpt "$rd/reports/popt/$subdir/[file tail $rpt]"}
+            if {[catch {file copy -force $rpt "$rd/reports/popt/$subdir/[file tail $rpt]"} _cp_err]} {
+                handle_warning "release copy failed ($rpt "$rd/reports/popt/$subdir/[file tail $rpt]"): $_cp_err"
+            }
         }
     }
 
     # Export optimized netlist
     set opt_netlist "$run_dir/results/popt/pc_optimized.v"
     if {[file exists $opt_netlist]} {
-        catch {file copy -force $opt_netlist "$rd/netlist/"}
+        if {[catch {file copy -force $opt_netlist "$rd/netlist/"} _cp_err]} {
+            handle_warning "release copy failed ($opt_netlist "$rd/netlist/"): $_cp_err"
+        }
     }
 
     # Save design database

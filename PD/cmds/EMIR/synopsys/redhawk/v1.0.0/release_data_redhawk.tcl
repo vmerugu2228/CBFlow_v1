@@ -90,7 +90,9 @@ flow_proc prepare_release {
     set power_src "$run_dir/work/EMIR/power_analysis1/reports"
     if {[file isdirectory $power_src]} {
         foreach rpt [glob -nocomplain "$power_src/*.rpt"] {
-            catch {file copy -force $rpt "$release_dir/reports/power/[file tail $rpt]"}
+            if {[catch {file copy -force $rpt "$release_dir/reports/power/[file tail $rpt]"} _cp_err]} {
+                handle_warning "release copy failed ($rpt "$release_dir/reports/power/[file tail $rpt]"): $_cp_err"
+            }
             handle_info "  Released power report: [file tail $rpt]"
         }
     }
@@ -98,28 +100,36 @@ flow_proc prepare_release {
     # Copy power summary
     set power_summary "$run_dir/results/emir/power_summary.rpt"
     if {[file exists $power_summary]} {
-        catch {file copy -force $power_summary "$release_dir/reports/power/power_summary.rpt"}
+        if {[catch {file copy -force $power_summary "$release_dir/reports/power/power_summary.rpt"} _cp_err]} {
+            handle_warning "release copy failed ($power_summary "$release_dir/reports/power/power_summary.rpt"): $_cp_err"
+        }
     }
 
     # ── IR drop reports ──────────────────────────────────────────────────────
     set ir_src "$run_dir/work/EMIR/ir_drop1/reports"
     if {[file isdirectory $ir_src]} {
         foreach rpt [glob -nocomplain "$ir_src/*.rpt"] {
-            catch {file copy -force $rpt "$release_dir/reports/ir_drop/[file tail $rpt]"}
+            if {[catch {file copy -force $rpt "$release_dir/reports/ir_drop/[file tail $rpt]"} _cp_err]} {
+                handle_warning "release copy failed ($rpt "$release_dir/reports/ir_drop/[file tail $rpt]"): $_cp_err"
+            }
             handle_info "  Released IR drop report: [file tail $rpt]"
         }
     }
 
     # Copy IR drop maps
     foreach map [glob -nocomplain "$run_dir/results/emir/ir_drop_map*"] {
-        catch {file copy -force $map "$release_dir/data/[file tail $map]"}
+        if {[catch {file copy -force $map "$release_dir/data/[file tail $map]"} _cp_err]} {
+            handle_warning "release copy failed ($map "$release_dir/data/[file tail $map]"): $_cp_err"
+        }
         handle_info "  Released IR drop map: [file tail $map]"
     }
 
     # ── EM reports ───────────────────────────────────────────────────────────
     set em_summary "$run_dir/work/EMIR/ir_drop1/reports/em_summary.rpt"
     if {[file exists $em_summary]} {
-        catch {file copy -force $em_summary "$release_dir/reports/em/em_summary.rpt"}
+        if {[catch {file copy -force $em_summary "$release_dir/reports/em/em_summary.rpt"} _cp_err]} {
+            handle_warning "release copy failed ($em_summary "$release_dir/reports/em/em_summary.rpt"): $_cp_err"
+        }
         handle_info "  Released EM summary"
     }
 
@@ -127,14 +137,18 @@ flow_proc prepare_release {
     set thermal_src "$run_dir/work/EMIR/thermal_analysis1/reports"
     if {[file isdirectory $thermal_src]} {
         foreach rpt [glob -nocomplain "$thermal_src/*.rpt"] {
-            catch {file copy -force $rpt "$release_dir/reports/thermal/[file tail $rpt]"}
+            if {[catch {file copy -force $rpt "$release_dir/reports/thermal/[file tail $rpt]"} _cp_err]} {
+                handle_warning "release copy failed ($rpt "$release_dir/reports/thermal/[file tail $rpt]"): $_cp_err"
+            }
             handle_info "  Released thermal report: [file tail $rpt]"
         }
     }
 
     # Copy thermal maps
     foreach map [glob -nocomplain "$run_dir/results/emir/thermal_map*"] {
-        catch {file copy -force $map "$release_dir/data/[file tail $map]"}
+        if {[catch {file copy -force $map "$release_dir/data/[file tail $map]"} _cp_err]} {
+            handle_warning "release copy failed ($map "$release_dir/data/[file tail $map]"): $_cp_err"
+        }
     }
 
     handle_info "EMIR release preparation completed"

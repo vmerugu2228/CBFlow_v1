@@ -120,7 +120,9 @@ flow_proc prepare_release {
 
     # Copy design database
     foreach db [glob -nocomplain "$run_dir/results/fp/db/*"] {
-        catch {file copy -force $db "$release_dir/db/[file tail $db]"}
+        if {[catch {file copy -force $db "$release_dir/db/[file tail $db]"} _cp_err]} {
+            handle_warning "release copy failed ($db "$release_dir/db/[file tail $db]"): $_cp_err"
+        }
         handle_info "  Released DB: [file tail $db]"
     }
 

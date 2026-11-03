@@ -87,7 +87,9 @@ flow_proc prepare_release {
     # Copy verification summary report
     set src_summary "$run_dir/results/clp/power_verification.rpt"
     if {[file exists $src_summary]} {
-        catch {file copy -force $src_summary "$rd/reports/clp_verification.rpt"}
+        if {[catch {file copy -force $src_summary "$rd/reports/clp_verification.rpt"} _cp_err]} {
+            handle_warning "release copy failed ($src_summary "$rd/reports/clp_verification.rpt"): $_cp_err"
+        }
         handle_info "Released: clp_verification.rpt"
     } else {
         handle_warning "Power verification summary not found for release"
@@ -96,13 +98,17 @@ flow_proc prepare_release {
     # Copy detailed reports
     foreach rpt [glob -nocomplain "$run_dir/results/clp/reports/*.rpt"] {
         set fname [file tail $rpt]
-        catch {file copy -force $rpt "$rd/reports/clp/$fname"}
+        if {[catch {file copy -force $rpt "$rd/reports/clp/$fname"} _cp_err]} {
+            handle_warning "release copy failed ($rpt "$rd/reports/clp/$fname"): $_cp_err"
+        }
     }
 
     # Copy session database
     set src_db "$run_dir/results/db/clp_verification.db"
     if {[file exists $src_db]} {
-        catch {file copy -force $src_db "$rd/db/clp_verification.db"}
+        if {[catch {file copy -force $src_db "$rd/db/clp_verification.db"} _cp_err]} {
+            handle_warning "release copy failed ($src_db "$rd/db/clp_verification.db"): $_cp_err"
+        }
         handle_info "Released: clp_verification.db"
     }
 

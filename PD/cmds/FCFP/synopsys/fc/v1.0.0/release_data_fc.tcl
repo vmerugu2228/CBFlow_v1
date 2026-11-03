@@ -87,28 +87,38 @@ flow_proc prepare_release {
 
     # Release DEF files
     foreach def [glob -nocomplain "$run_dir/results/fcfp/def/*.def"] {
-        catch {file copy -force $def "$rd/def/[file tail $def]"}
+        if {[catch {file copy -force $def "$rd/def/[file tail $def]"} _cp_err]} {
+            handle_warning "release copy failed ($def "$rd/def/[file tail $def]"): $_cp_err"
+        }
         handle_info "Released: [file tail $def]"
     }
 
     # Release partition DEFs
     foreach def [glob -nocomplain "$run_dir/results/fcfp/def/partitions/*.def"] {
-        catch {file copy -force $def "$rd/def/partitions/[file tail $def]"}
+        if {[catch {file copy -force $def "$rd/def/partitions/[file tail $def]"} _cp_err]} {
+            handle_warning "release copy failed ($def "$rd/def/partitions/[file tail $def]"): $_cp_err"
+        }
     }
 
     # Release netlist
     if {[file exists "$run_dir/results/fcfp/fcfp_floorplan.v"]} {
-        catch {file copy -force "$run_dir/results/fcfp/fcfp_floorplan.v" "$rd/netlist/"}
+        if {[catch {file copy -force "$run_dir/results/fcfp/fcfp_floorplan.v" "$rd/netlist/"} _cp_err]} {
+            handle_warning "release copy failed ("$run_dir/results/fcfp/fcfp_floorplan.v" "$rd/netlist/"): $_cp_err"
+        }
     }
 
     # Release SDC
     if {[file exists "$run_dir/results/fcfp/fcfp_floorplan.sdc"]} {
-        catch {file copy -force "$run_dir/results/fcfp/fcfp_floorplan.sdc" "$rd/sdc/"}
+        if {[catch {file copy -force "$run_dir/results/fcfp/fcfp_floorplan.sdc" "$rd/sdc/"} _cp_err]} {
+            handle_warning "release copy failed ("$run_dir/results/fcfp/fcfp_floorplan.sdc" "$rd/sdc/"): $_cp_err"
+        }
     }
 
     # Release timing budgets
     foreach sdc [glob -nocomplain "$run_dir/results/fcfp/timing_budgets/*/*.sdc" "$run_dir/results/fcfp/timing_budgets/*.sdc"] {
-        catch {file copy -force $sdc "$rd/budgets/[file tail $sdc]"}
+        if {[catch {file copy -force $sdc "$rd/budgets/[file tail $sdc]"} _cp_err]} {
+            handle_warning "release copy failed ($sdc "$rd/budgets/[file tail $sdc]"): $_cp_err"
+        }
     }
 
     # Release reports
@@ -117,7 +127,9 @@ flow_proc prepare_release {
         if {[file isdirectory $src]} {
             file mkdir "$rd/reports/fcfp/$subdir"
             foreach rpt [glob -nocomplain "$src/*.rpt"] {
-                catch {file copy -force $rpt "$rd/reports/fcfp/$subdir/[file tail $rpt]"}
+                if {[catch {file copy -force $rpt "$rd/reports/fcfp/$subdir/[file tail $rpt]"} _cp_err]} {
+                    handle_warning "release copy failed ($rpt "$rd/reports/fcfp/$subdir/[file tail $rpt]"): $_cp_err"
+                }
             }
         }
     }
