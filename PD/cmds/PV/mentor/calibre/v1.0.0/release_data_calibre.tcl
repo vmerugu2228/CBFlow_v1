@@ -115,8 +115,11 @@ flow_proc prepare_release {
         results/phyv/phyv_summary.rpt                 reports/phyv_summary.rpt
     } {
         if {[file exists "$run_dir/$src"]} {
-            catch {file copy -force "$run_dir/$src" "$release_dir/$dest"}
-            puts "  Copied: $src"
+            if {[catch {file copy -force "$run_dir/$src" "$release_dir/$dest"} _cp_err]} {
+                handle_warning "release copy failed for $src → $dest: $_cp_err"
+            } else {
+                puts "  Copied: $src"
+            }
         }
     }
     puts " Release artifacts prepared"

@@ -123,7 +123,15 @@ def send_control(project, msg, timeout=30.0):
                 break
             data += chunk
         line = data.split(b'\n', 1)[0]
-        return json.loads(line.decode('utf-8'))
+        # Guard json.loads — a corrupted daemon reply (truncated line,
+        # non-UTF-8 payload, protocol drift) must surface as a structured
+        # error dict rather than crashing every publish/unpublish caller.
+        try:
+            return json.loads(line.decode('utf-8'))
+        except (ValueError, UnicodeDecodeError) as _parse_err:
+            return {'ok': False,
+                    'error': f'malformed daemon reply: {_parse_err}',
+                    'raw': line[:200]}
     finally:
         try:
             s.close()

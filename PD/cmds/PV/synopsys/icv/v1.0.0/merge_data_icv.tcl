@@ -165,7 +165,9 @@ flow_proc generate_pv_summary {
 
     set rpt_copy "$run_dir/reports/pv/pv_merged_summary.rpt"
     file mkdir [file dirname $rpt_copy]
-    catch {file copy -force $summary $rpt_copy}
+    if {[catch {file copy -force $summary $rpt_copy} _cp_err]} {
+        handle_warning "PV summary mirror to reports/pv failed: $_cp_err"
+    }
 
     handle_info "PV summary: $summary"
     handle_info "PV overall status: $overall"

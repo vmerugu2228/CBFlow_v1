@@ -101,9 +101,15 @@ flow_proc run_decomp {
     } else {
         # No MP deck — pass through the input as a mock colored layout so
         # downstream stages still have valid artifacts (test_mode friendly).
+        # Pre-fix was `catch {catch {file copy …}}` — nested catches with
+        # no result var let copy failures mark status PASS with no output.
         handle_info "No MP runset available — passthrough (no coloring applied)"
-        catch {catch {file copy -force $::decomp_input $::decomp_out}}
-        set ::decomp_status "PASS"
+        if {[catch {file copy -force $::decomp_input $::decomp_out} _cp_err]} {
+            handle_warning "Decomp passthrough: input copy failed: $_cp_err"
+            set ::decomp_status "FAIL"
+        } else {
+            set ::decomp_status "PASS"
+        }
     }
 }
 

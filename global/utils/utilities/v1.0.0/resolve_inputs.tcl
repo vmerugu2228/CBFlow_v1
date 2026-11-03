@@ -211,7 +211,10 @@ namespace eval ::CBFlow::InputResolve {
         if {[info exists ::env(CONFIG_ROOT)] && [info exists ::env(FLOW_CONFIG_VERSION)]} {
             set rc_path "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
             if {[file exists $rc_path]} {
-                catch { uplevel #0 [list source $rc_path] }
+                if {[catch { uplevel #0 [list source $rc_path] } _src_err]} {
+                    puts stderr "WARNING: release_config.tcl parse error at $rc_path: $_src_err"
+                    puts stderr "         release_tag inputs will not resolve for this stage."
+                }
             }
         }
         if {[info exists ::project(release,path)] && $::project(release,path) ne ""} {
