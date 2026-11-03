@@ -5,11 +5,18 @@ Single source of truth for `sqlite3.connect` with WAL + busy_timeout.
 race_engine.py and race_dashboard.py both import from here to keep
 PRAGMA / retry policy identical and avoid "readers block writers"
 contention bugs.
+
+Also centralizes RACE DB discovery (`find_race_db_from_run_dir`) so
+race_dashboard, project_dashboard/router, and run_cmd all resolve the
+same way — pre-fix each carried its own copy of the pointer+glob logic.
 """
 
+import glob
 import logging
+import os
 import sqlite3
 import threading
+from typing import Optional
 
 _logger = logging.getLogger('cbflow.db')
 
@@ -80,3 +87,42 @@ def sqlite_connect(db_path: str) -> sqlite3.Connection:
             "This warning will not repeat for this DB.",
             db_path, e)
     return conn
+
+
+# ─── RACE DB discovery ──────────────────────────────────────────────────────
+
+RACE_DB_POINTER_FILE = '.race_db_pointer'
+
+
+def find_race_db_from_run_dir(run_dir: str) -> Optional[str]:
+    """Locate the RACE DB for a run directory.
+
+    Resolution order:
+      1. `.race_db_pointer` file in `run_dir` — points at the authoritative
+         DB in the race area (`project(race,db_path)`).
+      2. Legacy per-run `.race_*.db` files in `run_dir` — pre-pointer runs.
+      3. None if neither exists.
+
+    Centralized in `core.db` so race_engine / race_dashboard / project
+    dashboard / run_cmd all resolve identically. Each previously carried
+    its own copy of this logic and drifted (one swallowed OSError, one
+    didn't; one checked exists before using, one didn't).
+    """
+    if not run_dir:
+        return None
+
+    pointer_path = os.path.join(run_dir, RACE_DB_POINTER_FILE)
+    if os.path.exists(pointer_path):
+        try:
+            with open(pointer_path) as f:
+                stored = f.read().strip()
+            if stored and os.path.exists(stored):
+                return stored
+        except (OSError, IOError):
+            pass
+
+    matches = glob.glob(os.path.join(run_dir, '.race_*.db'))
+    if matches:
+        return matches[0]
+
+    return None

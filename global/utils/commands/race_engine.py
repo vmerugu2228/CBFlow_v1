@@ -32,6 +32,7 @@ import signal
 import threading
 from pathlib import Path
 from datetime import datetime
+from typing import Optional
 
 import logging
 
@@ -302,19 +303,19 @@ class DagBuilder:
         # Auto-generate parallel deps for dynamic subnodes (MMMC scenarios)
         # Pattern: setup has no deps, each scenario depends on setup,
         #          validate depends on all scenarios, finish depends on validate
+        _STANDARD_SUBS = {'setup', 'run', 'validate', 'finish'}
         for stage in stages:
             stage_subs = subnodes.get(stage, [])
-            if len(stage_subs) > 4 and 'setup' in stage_subs and 'validate' in stage_subs:
+            scenarios = [s for s in stage_subs if s not in _STANDARD_SUBS]
+            if scenarios and 'setup' in stage_subs and 'validate' in stage_subs:
                 # Check if this stage already has subnode_deps defined
                 has_deps = any(f'{stage}_{sn}' in sub_deps for sn in stage_subs)
                 if not has_deps:
-                    scenarios = [s for s in stage_subs if s not in ('setup', 'validate', 'finish')]
-                    if scenarios:
-                        sub_deps[f'{stage}_setup'] = []
-                        for sc in scenarios:
-                            sub_deps[f'{stage}_{sc}'] = [f'{stage}_setup']
-                        sub_deps[f'{stage}_validate'] = [f'{stage}_{sc}' for sc in scenarios]
-                        sub_deps[f'{stage}_finish'] = [f'{stage}_validate']
+                    sub_deps[f'{stage}_setup'] = []
+                    for sc in scenarios:
+                        sub_deps[f'{stage}_{sc}'] = [f'{stage}_setup']
+                    sub_deps[f'{stage}_validate'] = [f'{stage}_{sc}' for sc in scenarios]
+                    sub_deps[f'{stage}_finish'] = [f'{stage}_validate']
 
         jobs = {}
         stage_order = stages
@@ -423,7 +424,8 @@ class DagBuilder:
                     m = re.match(rf'set\s+{flow_array}\(mmmc,\w+_scenarios\)\s+"([^"]+)"', line.strip())
                     if m:
                         for s in m.group(1).split():
-                            if s not in scenarios:
+                            s = s.strip()
+                            if s and s not in scenarios:
                                 scenarios.append(s)
 
         # Priority 2: Generic scenarios in user_config — sta(mmmc,setup_scenarios)
@@ -435,7 +437,8 @@ class DagBuilder:
                         m = re.match(rf'set\s+{flow_array}\(mmmc,\w+_scenarios\)\s+"([^"]+)"', line.strip())
                         if m:
                             for s in m.group(1).split():
-                                if s not in scenarios:
+                                s = s.strip()
+                                if s and s not in scenarios:
                                     scenarios.append(s)
 
         # Priority 3: scenario set from node config
@@ -715,32 +718,15 @@ class StatusDB:
             pass  # Non-critical — tools can still find DB via race area scan
 
     @staticmethod
-    def find_db_from_run_dir(run_dir: str) -> str:
+    def find_db_from_run_dir(run_dir: str) -> Optional[str]:
         """Find the RACE database for a run directory.
 
-        Resolution order:
-          1. .race_db_pointer file in run_dir (points to race area)
-          2. Local .race_*.db files in run_dir (legacy fallback)
-          3. None
+        Thin alias for `core.db.find_race_db_from_run_dir` — keep the
+        StatusDB method for backward-compat with existing callers while
+        the resolution lives in exactly one place.
         """
-        # Check pointer file
-        pointer_path = os.path.join(run_dir, StatusDB.DB_POINTER_FILE)
-        if os.path.exists(pointer_path):
-            try:
-                with open(pointer_path) as f:
-                    stored_path = f.read().strip()
-                if stored_path and os.path.exists(stored_path):
-                    return stored_path
-            except (OSError, IOError):
-                pass
-
-        # Fallback: local DB files
-        import glob as _glob
-        matches = _glob.glob(os.path.join(run_dir, '.race_*.db'))
-        if matches:
-            return matches[0]
-
-        return None
+        from core.db import find_race_db_from_run_dir
+        return find_race_db_from_run_dir(run_dir)
 
     def _init_db(self):
         conn = _sqlite_connect(self.db_path)
@@ -1336,7 +1322,12 @@ class RaceEngine:
             return
         owner_uid = self.db.get_run_info('owner_uid')
         if owner_uid:
-            if os.getuid() != int(owner_uid):
+            try:
+                owner_uid_int = int(str(owner_uid).strip())
+            except (ValueError, TypeError):
+                logger.warning(f"Run owner_uid={owner_uid!r} is not an integer — skipping ownership check")
+                return
+            if os.getuid() != owner_uid_int:
                 owner_name = self.db.get_run_info('owner') or 'unknown'
                 raise PermissionError(
                     f"Run owned by '{owner_name}' — only the owner can modify this run"

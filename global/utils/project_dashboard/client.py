@@ -149,17 +149,28 @@ def publish(project, payload):
 
 def _select_primary_run(workspace, runs, milestone, milestone_stage_map):
     """Pick the workspace run whose flow_type generated the milestone's
-    required_stage. Return (absolute_run_dir, race_db_path)."""
+    required_stage. Return (absolute_run_dir, race_db_path).
+
+    Discipline-agnostic: ask `tcl_config_parser.get_flow_stages(flow)` which
+    flows contain `required_stage` instead of hardcoding the PD order
+    (SYNTH_PNR / PNR / FP / FCFP / STA / SYNTH). Falls back to any run
+    with a RACE DB when no flow claims the stage.
+    """
     if not runs:
         return '', ''
     required = milestone_stage_map.get(milestone, '')
-    # Prefer flows that plausibly contain the required stage.
-    ordering = ['SYNTH_PNR', 'PNR', 'FP', 'FCFP', 'STA', 'SYNTH']
+
+    # Score 0: flows whose get_flow_stages() contains required_stage.
+    # Score 1: everything else (preserves original fallback shape).
     def _score(flow):
-        try:
-            return (0, ordering.index(flow))
-        except ValueError:
-            return (1, len(ordering))
+        if required:
+            try:
+                stages = _flow_stages(flow)
+            except Exception:
+                stages = ()
+            if required in stages:
+                return (0, flow)
+        return (1, flow)
     for flow in sorted(runs.keys(), key=_score):
         run_dir = os.path.join(workspace, runs[flow])
         db = _resolve_race_db(run_dir)
@@ -286,7 +297,15 @@ def _read_run_snapshot(race_db_path, milestone):
         return metrics, checklist, verdict, closability
 
     try:
-        conn = sqlite3.connect(race_db_path)
+        # Read-only tap into the per-run RACE DB. Use the shared helper so
+        # busy_timeout / PRAGMA set matches the daemon writer — otherwise
+        # a long client scan can collide with concurrent engine writes
+        # and surface SQLITE_BUSY instead of waiting.
+        _utils_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if _utils_dir not in sys.path:
+            sys.path.insert(0, _utils_dir)
+        from core.db import sqlite_connect as _sqlite_connect
+        conn = _sqlite_connect(race_db_path)
         conn.row_factory = sqlite3.Row
         # stage_metrics
         try:

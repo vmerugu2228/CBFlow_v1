@@ -197,27 +197,32 @@ class RaceDashboard:
         DB here, surface it as 'no DB' so the caller shows a clear
         'DB unreachable' banner instead of silently clobbering state.
         """
-        # Priority 1: Pointer file → race area DB
+        # Delegate to the centralized resolver — one implementation of the
+        # pointer-then-local-glob rule across race_engine, run_cmd, and here.
+        try:
+            from core.db import find_race_db_from_run_dir
+        except ImportError:
+            _utils_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if _utils_dir not in sys.path:
+                sys.path.insert(0, _utils_dir)
+            from core.db import find_race_db_from_run_dir
+        resolved = find_race_db_from_run_dir(self.run_dir)
+        if resolved:
+            return resolved
+        # Surface a stale pointer to the operator — the central resolver
+        # silently falls through to the legacy glob which may hit a
+        # different (older) DB, hiding the drift.
         pointer_path = os.path.join(self.run_dir, '.race_db_pointer')
         if os.path.exists(pointer_path):
             try:
-                with open(pointer_path) as f:
-                    stored_path = f.read().strip()
-                if stored_path and os.path.exists(stored_path):
-                    return stored_path
-                elif stored_path:
-                    # Pointer exists but target is gone — surface as warning
-                    # instead of silently fabricating a replacement.
+                stored = Path(pointer_path).read_text().strip()
+                if stored and not os.path.exists(stored):
                     logger.warning(
                         "RACE pointer %s targets missing path: %s",
-                        pointer_path, stored_path)
+                        pointer_path, stored)
             except (OSError, IOError) as e:
                 logger.warning("RACE pointer unreadable at %s: %s",
                                pointer_path, e)
-
-        # Priority 2: Local DB files (legacy / no race area configured)
-        for f in Path(self.run_dir).glob('.race_*.db'):
-            return str(f)
 
         # No DB reachable. Return empty string; _connect() handles '' as
         # "no DB — show empty state in UI." Do NOT construct a new path
@@ -1005,7 +1010,14 @@ class RaceDashboard:
         assignments — via the cascade resolver (so user_config overrides take
         effect)."""
         env = self._load_env()
-        flow_type = env.get('FLOW_TYPE', env.get('CBFLOW_FLOW_TYPE', 'SYNTH_PNR'))
+        # Prefer the engine-side flow_type (persisted on run init). Only fall
+        # back to env lookup if no flow_type is attached — defaulting to
+        # SYNTH_PNR here silently masks DFT/DV runs with PD config.
+        flow_type = (getattr(self, 'flow_type', '') or
+                     env.get('FLOW_TYPE') or env.get('CBFLOW_FLOW_TYPE') or '')
+        if not flow_type:
+            return {'error': 'flow_type not resolvable from engine state or env',
+                    'scenarios': [], 'nodes': {}, 'sets': {}}
 
         try:
             # Resolve through cbflow_config so the schema check and cache apply.
@@ -2605,20 +2617,14 @@ def _get_run_port(run_dir: str) -> int:
     canonical = os.path.realpath(os.path.abspath(run_dir))
 
     # 1. Try to read from actual RACE DB (via pointer or glob)
-    db_path = None
-    pointer = os.path.join(run_dir, '.race_db_pointer')
-    if os.path.exists(pointer):
-        try:
-            with open(pointer) as f:
-                p = f.read().strip()
-            if p and os.path.exists(p):
-                db_path = p
-        except (OSError, IOError):
-            pass
-    if not db_path:
-        for f in Path(run_dir).glob('.race_*.db'):
-            db_path = str(f)
-            break
+    try:
+        from core.db import find_race_db_from_run_dir as _find_db
+    except ImportError:
+        _utils_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if _utils_dir not in sys.path:
+            sys.path.insert(0, _utils_dir)
+        from core.db import find_race_db_from_run_dir as _find_db
+    db_path = _find_db(run_dir)
 
     if db_path:
         try:

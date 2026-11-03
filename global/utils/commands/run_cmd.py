@@ -3798,22 +3798,19 @@ def cmd_db_manage(args):
     else:
         # Fallback: search local workarea
         workarea = os.path.dirname(os.getcwd()) if is_run_directory() else os.getcwd()
+        try:
+            from core.db import find_race_db_from_run_dir
+        except ImportError:
+            _utils_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if _utils_dir not in sys.path:
+                sys.path.insert(0, _utils_dir)
+            from core.db import find_race_db_from_run_dir
         for run_dir in Path(workarea).iterdir():
             if not run_dir.is_dir():
                 continue
-            # Check pointer file first
-            pointer = run_dir / '.race_db_pointer'
-            if pointer.exists():
-                try:
-                    db_path = pointer.read_text().strip()
-                    if db_path and os.path.exists(db_path):
-                        _scan_db(Path(db_path), str(run_dir.name))
-                        continue
-                except (OSError, IOError):
-                    pass
-            # Local .race_*.db files
-            for db_file in run_dir.glob('.race_*.db'):
-                _scan_db(db_file, str(run_dir.name))
+            db_path = find_race_db_from_run_dir(str(run_dir))
+            if db_path:
+                _scan_db(Path(db_path), str(run_dir.name))
 
     # Sort by modification time (newest first)
     dbs.sort(key=lambda d: d['mtime'], reverse=True)
