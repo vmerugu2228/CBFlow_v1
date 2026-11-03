@@ -279,32 +279,6 @@ def tech_name_from_config_path(path: str) -> str:
     return ''
 
 
-def resolve_tech_config(args, version: str = None) -> tuple:
-    """Return (tech_name, tech_config_path) honoring --tech-config override.
-
-    Shared helper for library-manager / mmmc-manager so every subcommand
-    resolves the same way:
-      1. `args.tech_config` wins if set and the file exists — derive
-         tech_name from its path, fall back to args.tech when the
-         path doesn't match the convention.
-      2. Otherwise resolve by name via `require_tech_config()` which
-         does the standard global/PD cascade and exits on failure.
-    """
-    tc = getattr(args, 'tech_config', None)
-    if tc and os.path.isfile(tc):
-        name = tech_name_from_config_path(tc) or getattr(args, 'tech', '') or ''
-        return (name, os.path.realpath(tc))
-    name = (getattr(args, 'tech', None)
-            or getattr(args, 'tech_node', None)
-            or os.environ.get('CBFLOW_TECH_NODE', '')
-            or os.environ.get('TECH_NAME', ''))
-    if not name:
-        # Delegate to require_tech_config so the user sees the standard
-        # fix guide + available-techs list.
-        require_tech_config('', version)
-    return (name, require_tech_config(name, version))
-
-
 def require_tech_config(tech_name: str, version: str = None) -> str:
     """Hard-require a tech_config.tcl exists for this tech / version.
 
@@ -800,22 +774,6 @@ def get_global_config_root() -> str:
     return root if os.path.isdir(root) else ''
 
 
-def get_shared_utils_dir() -> str:
-    """Return $CBFLOW_GLOBAL_DIR/utils — the shared Python/TCL tree.
-
-    Post cbflow_global utils-refactor home for race_engine, run_cmd,
-    tcl_config_parser, utilities/handler_common.tcl, utilities/launch_utils.tcl,
-    and everything else that is NOT PD-discipline-specific. Returns '' when
-    the global/ layer is not materialized in this checkout (sparse-checkout
-    on a discipline branch); callers fall back to CBFLOW_CORE_DIR/utils.
-    """
-    gdir = get_cbflow_global_dir()
-    if not gdir:
-        return ''
-    root = os.path.join(gdir, 'utils')
-    return root if os.path.isdir(root) else ''
-
-
 def get_tech_config_paths(tech_name: str, version: str = None) -> list:
     """Return the ordered list of tech_config files that should be sourced.
 
@@ -863,52 +821,6 @@ def project_discipline_config_basename(project_name: str, discipline: str) -> st
     file (same `<project>_` prefix).
     """
     return f'{project_name}_{discipline.lower()}_config.tcl'
-
-
-def get_project_config_paths(project_name: str, version: str = None) -> list:
-    """Return the ordered list of project_config files that should be sourced.
-
-    Post-sparse-checkout cascade:
-      1. <global>/config/project/<name>/<ver>/<project>_config.tcl       (identity — required)
-      2. <PD>/config/project/<name>/<ver>/<project>_pd_config.tcl        (PD overlay — if PD/ on disk)
-      3. <DFT>/config/project/<name>/<ver>/<project>_dft_config.tcl      (DFT overlay — if DFT/ on disk)
-      4. <DV>/config/project/<name>/<ver>/<project>_dv_config.tcl        (DV overlay — if DV/ on disk)
-
-    All overlays set keys on the same `project(...)` Tcl array. Keys that
-    appear in multiple overlays (workarea_path, race,db_path, release,path)
-    MUST hold the same value in every discipline's overlay — a DFT run and
-    a PD run on the same project write to the same workarea and DB. The
-    overlays exist so each discipline's sparse-checkout clone can resolve
-    those keys without needing another discipline's tree on disk.
-    """
-    ver = version or get_flow_config_version()
-    paths = []
-    _global_basename = project_config_basename(project_name)
-
-    grot = get_global_config_root()
-    if grot:
-        gp = os.path.join(grot, 'project', project_name, ver, _global_basename)
-        if os.path.isfile(gp):
-            paths.append(gp)
-
-    # Walk each discipline's root (PD + DFT + DV) and include its project
-    # overlay if present. In a full-tree clone all three attach; in a sparse
-    # clone (e.g. only DV/ materialized), only the owner's overlay is on
-    # disk and that's the authoritative source for workarea/release keys.
-    _overlays = (
-        ('CBFLOW_CORE_DIR', project_discipline_config_basename(project_name, 'pd')),
-        ('CBFLOW_DFT_DIR',  project_discipline_config_basename(project_name, 'dft')),
-        ('CBFLOW_DV_DIR',   project_discipline_config_basename(project_name, 'dv')),
-    )
-    for env_var, filename in _overlays:
-        root = os.environ.get(env_var, '').strip()
-        if not root:
-            continue
-        overlay = os.path.join(root, 'config', 'project', project_name, ver, filename)
-        if os.path.isfile(overlay):
-            paths.append(overlay)
-
-    return paths
 
 
 def get_master_projects_path() -> str:
@@ -1199,15 +1111,6 @@ def _known_flow_types() -> list:
                 pass
     _FLOW_TYPES_CACHE = out
     return out
-
-
-def phase_from_run_dir_name(name: str) -> str:
-    """Extract <PHASE> from `<PHASE>_run_<FLOW>_<RUN_NAME>`. Returns ''."""
-    import re as _re
-    m = _re.match(
-        r'^(P\d+|LC\d+|LC_\d+|MTO|BTO|R\d+|FP|CTS|PRE|POST)_run_',
-        name)
-    return m.group(1) if m else ''
 
 
 # Public: single-source-of-truth run-dir predicate. Replaces 4 copies

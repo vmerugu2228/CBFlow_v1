@@ -268,7 +268,6 @@ namespace eval ::CBFlow::InputResolve {
         # signature had 4 args but resolve_flow_inputs called it with 5
         # → 'wrong # args' crash on every release-tag-based resolution.
         if {$vars_var ne ""} { upvar 1 $vars_var _out_vars }
-        set resolved_vars [list]
         variable handshake_map
 
         # Load release_config for base_dir and flow_input_handshake
