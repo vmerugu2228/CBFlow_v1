@@ -80,6 +80,10 @@ CREATE INDEX IF NOT EXISTS idx_pub_runs_block_at
     ON published_runs(project, block, published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_pub_runs_discipline
     ON published_runs(project, discipline);
+-- list_published() orders by (block, phase, milestone) for Tier 3 cell layout.
+-- Without a matching index SQLite falls back to filesort on 10k+ publish rows.
+CREATE INDEX IF NOT EXISTS idx_pub_runs_order
+    ON published_runs(project, block, phase, milestone);
 
 CREATE TABLE IF NOT EXISTS run_metrics (
     published_run_id INTEGER NOT NULL,
@@ -580,6 +584,10 @@ def get_timing(db_path, published_run_id):
         if not row:
             return None
         payload = json.loads(row['groups_json'] or '{"clock_groups":[]}')
+        # `json.loads('null')` returns None — a historical row with the
+        # literal JSON `null` would crash the dict-set below. Guard here.
+        if not isinstance(payload, dict):
+            payload = {'clock_groups': []}
         payload['units']   = row['units'] or 1000
         payload['n_groups'] = row['n_groups'] or 0
         payload['n_paths']  = row['n_paths']  or 0
