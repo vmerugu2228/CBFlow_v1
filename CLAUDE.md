@@ -1,14 +1,15 @@
 # CBflow Multi-Discipline Design Automation Framework
 
 ## What is CBflow
-CBflow v2.0.0 is a multi-discipline design automation framework. It coordinates 28 flows across three disciplines — Physical Design (PD, 12 flows), Design-For-Test (DFT, 7 flows after the 2026-11-03 pass split), and RTL Design Verification (DV, 9 flows) — through a Python-native RACE DAG execution engine, SQLite status tracking, web GUI dashboard, and per-scenario MMMC parallelism.
+CBflow v2.0.0 is a multi-discipline design automation framework. It coordinates 32 flows across four disciplines — Physical Design (PD, 12 flows), Design-For-Test (DFT, 7 flows after the 2026-11-03 pass split), RTL Design Verification (DV, 9 flows), and RTL design-side quality (RTL, 4 flows) — through a Python-native RACE DAG execution engine, SQLite status tracking, web GUI dashboard, and per-scenario MMMC parallelism.
 
 ## Supported Flows
-- **PD** — SYNTH, PNR, SYNTH_PNR, FP, FCFP, STA, LEC, CLP, PV, EMIR, POPT, ECO
+- **PD**  — SYNTH, PNR, SYNTH_PNR, FP, FCFP, STA, LEC, CLP, PV, EMIR, POPT, ECO
 - **DFT** — DFT_INSERT_PASS1 (Core: MBIST+BSCAN), DFT_INSERT_PASS2 (Top: TDR/DFT-Signals/SRI), DFT_INSERT_PASS3 (EDT+OCC), SCAN_INSERT, ATPG, GLS_FUNC, GLS_SCAN_MBIST
 - **DV**  — SPEC_RAMP, PLANNING, TB_SETUP, M1_EXEC, M2_EXEC, M3_EXEC, M4_EXEC, ECO_EXEC, DV_SIGNOFF
+- **RTL** — RTL_LINT (Spyglass / Jaspergold HAL), RTL_CDC (Spyglass CDC / Jaspergold CDC), RTL_RDC (Spyglass RDC / Jaspergold RDC), UPF_CHECK (VC-LP / Conformal LP)
 
-PD flows support dual tools (Synopsys: FC/PT/Formality/ICV/RedHawk + Cadence: Innovus/Genus/Tempus/Conformal/Voltus/Calibre). DFT + DV scaffolds ship with node_configs; discipline-specific tool handlers extend from there.
+PD flows support dual tools (Synopsys: FC/PT/Formality/ICV/RedHawk + Cadence: Innovus/Genus/Tempus/Conformal/Voltus/Calibre). DFT + DV scaffolds ship with node_configs; discipline-specific tool handlers extend from there. RTL ships with real Spyglass command emission for RTL_LINT; CDC/RDC/UPF_CHECK Synopsys handlers are scaffolded.
 
 ## Repository Layout (post cbflow_global refactor)
 
@@ -72,12 +73,18 @@ CBflow_clone/                             $CBFLOW_ROOT
 │   │   ├── flow_config.tcl               DFT mandatory_vars + node_config dispatch
 │   │   └── node_configs/                 DFT_INSERT, SCAN_INSERT, ATPG, GLS_FUNC, GLS_SCAN_MBIST
 │   └── cmds/<FLOW>/<vendor>/<tool>/v1.0.0/  DFT tool handlers (Tessent, DFT Compiler, TestMax, VCS, Questa)
-└── DV/                                   $CBFLOW_DV_DIR
-    ├── bin/cbflow-dv                     DV launcher (skeleton — extension point)
+├── DV/                                   $CBFLOW_DV_DIR
+│   ├── bin/cbflow-dv                     DV launcher (skeleton — extension point)
+│   ├── config/flow/v1.0.0/
+│   │   ├── flow_config.tcl               DV mandatory_vars + node_config dispatch
+│   │   └── node_configs/                 SPEC_RAMP, PLANNING, TB_SETUP, M1-M4_EXEC, ECO_EXEC, DV_SIGNOFF
+│   └── cmds/<FLOW>/                      DV tool handlers (skeleton)
+└── RTL/                                  $CBFLOW_RTL_DIR
+    ├── bin/cbflow-rtl                    RTL launcher (skeleton — extension point)
     ├── config/flow/v1.0.0/
-    │   ├── flow_config.tcl               DV mandatory_vars + node_config dispatch
-    │   └── node_configs/                 LINT, CDC, RDC, SIM, COV_MERGE, FORMAL, UPF_CHECK
-    └── cmds/<FLOW>/                      DV tool handlers (skeleton)
+    │   ├── flow_config.tcl               RTL mandatory_vars + node_config dispatch
+    │   └── node_configs/                 RTL_LINT, RTL_CDC, RTL_RDC, UPF_CHECK (+ per-tool overlays)
+    └── cmds/<FLOW>/<vendor>/<tool>/v1.0.0/  RTL handlers (Spyglass, Jaspergold, VC-LP, Conformal LP)
 ```
 
 ## Kickoff — Environment Setup
@@ -90,6 +97,7 @@ CBFLOW_CORE_DIR     Auto: $CBFLOW_ROOT/PD
 CBFLOW_GLOBAL_DIR   Auto: $CBFLOW_ROOT/global    (cross-domain config layer — sourced first)
 CBFLOW_DFT_DIR      Auto: $CBFLOW_ROOT/DFT       (exported only if directory exists)
 CBFLOW_DV_DIR       Auto: $CBFLOW_ROOT/DV        (exported only if directory exists)
+CBFLOW_RTL_DIR      Auto: $CBFLOW_ROOT/RTL       (exported only if directory exists)
 ```
 
 `CBFLOW_ROOT` is the anchor, NOT `CBFLOW_GLOBAL_DIR`. `global/` is a subordinate of the root, alongside every discipline directory. `bin/cbflow --version` from anywhere shows the resolved chain.
@@ -187,17 +195,18 @@ project_init → project → team → tech → flow → node_common → node_too
 - `<FLOW>_<tool>_config.tcl` — tool-specific: app settings, compile/place/cts/route options, required_inputs
 
 ### Exit Checklist System
-- **21 milestones across 3 disciplines** (post 2026-11-03 refactor):
+- **21 milestones across 3 disciplines** (post 2026-11-03 refactor; RTL discipline added 2026-11-03 but ships without exit milestones yet — owner team adds them when sign-off cadence is defined):
   - **PD (6)**: FP_EXIT, PLACE_EXIT, CTS_EXIT, PRO_EXIT, BTO, MTO
   - **DFT (6)**: CORE_DFT_EXIT (Pass1 MBIST+BSCAN), TOP_DFT_EXIT (Pass2 TDR/SRI), EDT_OCC_EXIT (Pass3), SCAN_INSERT_EXIT, ATPG_PREPD_EXIT, ATPG_POSTPD_EXIT
   - **DV (9)**: SPEC_RAMP_EXIT, PLANNING_EXIT, TB_SETUP_EXIT, M1_EXIT, M2_EXIT, M3_EXIT, M4_EXIT, ECO_EXEC_EXIT, DV_SIGNOFF_EXIT
-- Each milestone config declares `set milestone_info(discipline) "PD"|"DFT"|"DV"`; the CLI's `--discipline <X>` flag filters by owner.
-- 182 PD library checks across 9 categories (timing, placement, clock, power, routing, physical, SI, manufacturing, eco_flow). DFT/DV milestones use mandatory_files + per-flow metric checks.
+  - **RTL (0)**: planned — LINT_SIGNOFF, CDC_SIGNOFF, RDC_SIGNOFF, UPF_SIGNOFF per flow; configs land when owner team formalizes sign-off criteria
+- Each milestone config declares `set milestone_info(discipline) "PD"|"DFT"|"DV"|"RTL"`; the CLI's `--discipline <X>` flag filters by owner.
+- 182 PD library checks across 9 categories (timing, placement, clock, power, routing, physical, SI, manufacturing, eco_flow). DFT/DV milestones use mandatory_files + per-flow metric checks. RTL flows use violations_final.csv as the structured check carrier.
 - **Phase-aware**: phases are **project-defined** via `set project(phases) {...}` in `global/config/project/<proj>/v1.0.0/<proj>_config.tcl`. Bumblebee uses LC1-LC5; other projects use P0-P3 or any custom scheme. Checks activate progressively as the project's declared phases advance.
 - Check IDs: TMG-001, PLC-001, CLK-001, PWR-001, RTG-001, PHY-001, SI-001, MFG-001
 - **Config: `global/config/exit/v1.0.0/`** (centrally declared; moved from PD/config/exit/ on 2026-11-03 because exit milestones are discipline-owned but centrally declared)
 - Scripts: PD/utils/validation/v1.0.0/checks/ (11 executable check scripts)
-- CLI: `cbflow flow checklist {list, list-checks, generate, status, sign-off, add-check, remove-check, waiver} [--discipline PD|DFT|DV]`
+- CLI: `cbflow flow checklist {list, list-checks, generate, status, sign-off, add-check, remove-check, waiver} [--discipline PD|DFT|DV|RTL]`
 - Auto-detects milestone/phase/project from run directory
 
 ## CBflow Commands
