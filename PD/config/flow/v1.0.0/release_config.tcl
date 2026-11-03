@@ -24,6 +24,16 @@ if {[info exists ::env(FLOW_DIR)]} {
 
 set release(base_dir) [file join $project_root_resolved "test_releases"]
 
+# Source canonical release-folder schema. Declares `canonical_folders`,
+# `canonical_file_type(<ext>) <folder>`, and `discipline_folders(<DISC>)`
+# — used by the static-check cat7 enforcement + available to any node_config
+# that wants to look up "where should this .v file land?"
+if {[info exists ::env(CBFLOW_GLOBAL_DIR)]} {
+    set _canonical_schema "$::env(CBFLOW_GLOBAL_DIR)/config/flow/v1.0.0/canonical_release_schema.tcl"
+    if {[file exists $_canonical_schema]} { source $_canonical_schema }
+    unset -nocomplain _canonical_schema
+}
+
 # ┌─ Release Defaults ──────────────────────────────────────────────────────────┐
 set flow(release_base_dir)    "releases"
 set flow(release_default_tag) "latest"
@@ -1334,6 +1344,26 @@ proc check_release_readiness {run_dir flow milestone phase} {
     set flow_input_handshake(POPT,netlist) {SYNTH_PNR netlist  "${design_name}.pt.v"}
     set flow_input_handshake(POPT,spef) {SYNTH_PNR spef    "${design_name}.spef"}
     set flow_input_handshake(POPT,sdc) {SYNTH_PNR sdc     "${design_name}.sdc"}
+
+    # ── Cross-discipline handoff entries ─────────────────────────────────────
+    # RTL → PD: clean RTL signed off by RTL_LINT feeds the synthesis step.
+    # Downstream user_config enables via `set synth(input,rtl_release_tag) "<TAG>"`.
+    set flow_input_handshake(SYNTH,rtl_from_lint)      {RTL_LINT         netlist "${design_name}.v"}
+
+    # RTL → PD: UPF validated by UPF_CHECK feeds PNR + CLP power intent.
+    # Enabled by `set pnr(input,upf_release_tag) "<TAG>"` or `set clp(…)`.
+    set flow_input_handshake(PNR,upf_from_check)       {UPF_CHECK        upf     "${design_name}.upf"}
+    set flow_input_handshake(CLP,upf_from_check)       {UPF_CHECK        upf     "${design_name}.upf"}
+
+    # DFT → PD: DFT-inserted netlist from Pass3 (EDT+OCC). Register BOTH
+    # downstream endpoints per plan A/B — the project's user_config picks
+    # which path to activate via `_release_tag` key, so both consumers can
+    # resolve from the same DFT release tag without choosing globally.
+    set flow_input_handshake(SYNTH,dft_netlist)        {DFT_INSERT_PASS3 netlist "${design_name}.edt_occ.v"}
+    set flow_input_handshake(PNR,dft_netlist)          {DFT_INSERT_PASS3 netlist "${design_name}.edt_occ.v"}
+
+    # PD → DV: GLS reference netlist for DV_SIGNOFF.
+    set flow_input_handshake(DV_SIGNOFF,netlist)       {SYNTH_PNR        netlist "${design_name}.v"}
 
 # Auto-generate STA per-mode SDC handshake entries from operating_modes
 if {[array exists operating_modes]} {

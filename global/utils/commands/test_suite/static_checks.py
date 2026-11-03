@@ -1989,6 +1989,126 @@ def cat16_lsf_tier_completeness(results, pd_dir, flows):
                            f'tier "{tier}" fully defined ({", ".join(required_attrs)})')
 
 
+def cat17_release_folder_canonicality(results, pd_dir, flows):
+    """Enforce canonical artifact-folder mapping on `release_types,*,files` blocks.
+
+    Reads `global/config/flow/v1.0.0/canonical_release_schema.tcl` to learn:
+      · canonical_folders       — the universal set every discipline may use
+      · canonical_file_type(ext) → folder (an artifact of this extension MUST
+                                   stage into this folder, if it's a known
+                                   artifact type).
+      · discipline_folders(DISC) — additive discipline-only folders.
+
+    For each node_config `release_types,<key>,files { "src_pattern" "dest_pattern" }`
+    block, walk every (src, dest) pair. Reject when `dest` folder is a
+    canonical folder for a DIFFERENT extension — e.g. `rtl/foo.v` fails
+    because `.v` → `netlist/`. Discipline folders + non-canonical names
+    (anything NOT in `canonical_file_type`) are accepted.
+    """
+    suite = 'static'
+    category = 'cat17_release_folder_canonicality'
+
+    # ── Load canonical schema ────────────────────────────────────────────────
+    # The umbrella roots: global/ is above pd_dir (which is PD/).
+    global_dir = os.path.dirname(pd_dir) + '/global'
+    schema_path = os.path.join(global_dir, 'config', 'flow', 'v1.0.0',
+                               'canonical_release_schema.tcl')
+    if not os.path.exists(schema_path):
+        results.failed(suite, category,
+                       f'canonical_release_schema.tcl missing at {schema_path}')
+        return
+
+    try:
+        with open(schema_path, encoding='utf-8') as f:
+            schema_text = f.read()
+    except (OSError, UnicodeDecodeError) as e:
+        results.failed(suite, category, f'cannot read schema: {e}')
+        return
+
+    # Extension → canonical folder
+    ext_to_folder = {}
+    for m in re.finditer(r'set\s+canonical_file_type\((\w+)\)\s+(\w+)', schema_text):
+        ext_to_folder[m.group(1).lower()] = m.group(2)
+
+    # All canonical folders (universal)
+    canonical_universal = set()
+    m_univ = re.search(r'set\s+canonical_folders\s*\{([^}]+)\}', schema_text, re.DOTALL)
+    if m_univ:
+        canonical_universal = {t for t in m_univ.group(1).split() if t}
+
+    # Discipline-specific folders
+    disc_extras = {}
+    for m in re.finditer(r'set\s+discipline_folders\((\w+)\)\s*\{([^}]*)\}', schema_text):
+        disc_extras[m.group(1)] = {t for t in m.group(2).split() if t}
+
+    if not ext_to_folder or not canonical_universal:
+        results.failed(suite, category,
+                       'canonical_file_type / canonical_folders not parseable from schema')
+        return
+
+    # ── Walk every discipline's node_configs ─────────────────────────────────
+    cbflow_root = os.path.dirname(pd_dir)
+    disciplines = {}
+    for disc in ('PD', 'DFT', 'DV', 'RTL'):
+        d_dir = os.path.join(cbflow_root, disc, 'config', 'flow', 'v1.0.0',
+                             'node_configs')
+        if os.path.isdir(d_dir):
+            disciplines[disc] = d_dir
+
+    violation_count = 0
+    for disc, d_dir in disciplines.items():
+        allowed = canonical_universal | disc_extras.get(disc, set())
+        for name in sorted(os.listdir(d_dir)):
+            if not name.endswith('_config.tcl'):
+                continue
+            fpath = os.path.join(d_dir, name)
+            try:
+                if os.path.getsize(fpath) > 2 * 1024 * 1024:
+                    continue
+                with open(fpath, encoding='utf-8') as f:
+                    text = f.read()
+            except (OSError, UnicodeDecodeError):
+                continue
+
+            # Find every release_types,*,files { … } block. Non-greedy brace
+            # match — simple heuristic that works for the shipped shape.
+            for mblk in re.finditer(
+                r'release_types,[A-Za-z0-9_]+,files\s*\{([^}]*)\}',
+                text, re.DOTALL
+            ):
+                block = mblk.group(1)
+                # Each (src, dest) pair is `"src" "dest"` on a line.
+                for mpair in re.finditer(
+                    r'"([^"]+)"\s+"([^"]+)"', block
+                ):
+                    dest = mpair.group(2)
+                    # Split "folder/filename" — only check if there's a folder prefix
+                    if '/' not in dest:
+                        continue
+                    folder = dest.split('/', 1)[0]
+                    # Determine extension from the dest filename
+                    _ext = os.path.splitext(dest)[1].lstrip('.').lower()
+                    required_folder = ext_to_folder.get(_ext)
+                    if required_folder is None:
+                        # Non-canonical artifact type → always accepted
+                        continue
+                    if folder == required_folder:
+                        continue
+                    # Folder in the universal/discipline set is still a
+                    # violation if the extension demands a specific folder.
+                    violation_count += 1
+                    results.failed(
+                        suite, category,
+                        f'{disc}/{name}: {mpair.group(1)!r} → {dest!r} — '
+                        f'.{_ext} must stage into {required_folder}/, got {folder}/'
+                    )
+
+    if violation_count == 0:
+        results.passed(suite, category,
+                       f'all release_types,*,files destinations canonical '
+                       f'({sum(1 for _ in disciplines)} disciplines scanned)')
+
+
 # ── Registry ────────────────────────────────────────────────────────────────
 
 CATEGORIES = {
@@ -2008,6 +2128,7 @@ CATEGORIES = {
    14: ('Command-File Reads vs Config Writes', cat14_read_write_parity),
    15: ('LSF Per-Node Assignment', cat15_lsf_per_node_assignment),
    16: ('LSF Tier Definition Completeness', cat16_lsf_tier_completeness),
+   17: ('Release Folder Canonicality', cat17_release_folder_canonicality),
 }
 
 
