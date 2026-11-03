@@ -1484,7 +1484,10 @@ def cmd_add_node(args: argparse.Namespace) -> int:
             logger.error(f"    - {s}")
         logger.error("")
         logger.error(f"  Example:")
-        logger.error(f"    cbflow run add-node --type {base_types[0]} --dep {valid_stages[-1]}")
+        # Guard the example — if base_types is empty (every stage is purely
+        # numeric, no base type), skip the example rather than IndexError.
+        if base_types and valid_stages:
+            logger.error(f"    cbflow run add-node --type {base_types[0]} --dep {valid_stages[-1]}")
         logger.error("")
         return 1
 
@@ -1687,7 +1690,7 @@ def cmd_update(args: argparse.Namespace) -> int:
         logger.error(f"  Error: Release '{target_release}' not found")
         return 1
 
-    with open(manifest_file, 'r') as f:
+    with open(manifest_file, 'r', encoding='utf-8') as f:
         manifest = json.load(f)
 
     # Backup current env files
@@ -2062,11 +2065,11 @@ def cmd_release(args: argparse.Namespace) -> int:
         'flows': {flow: run for flow, run in found_runs.items()},
         'expiry_date': expiry_date,
     }
-    with open(os.path.join(release_dir, 'MANIFEST.json'), 'w') as f:
+    with open(os.path.join(release_dir, 'MANIFEST.json'), 'w', encoding='utf-8') as f:
         json.dump(manifest, f, indent=2)
 
     # Generate RELEASE_COMPLETE
-    with open(os.path.join(release_dir, 'RELEASE_COMPLETE'), 'w') as f:
+    with open(os.path.join(release_dir, 'RELEASE_COMPLETE'), 'w', encoding='utf-8') as f:
         f.write(f"TAG={release_tag_name}\n")
         f.write(f"MILESTONE={tag}\n")
         f.write(f"PHASE={phase}\n")
@@ -3362,7 +3365,11 @@ Examples:
   cbflow run release-check --tag BTO --project bumblebee --block cpu_core""")
     rc_parser.add_argument('--tag', '-t', required=True, help='Release tag to check')
     rc_parser.add_argument('--project', '-p', required=True, help='Project name')
-    rc_parser.add_argument('--phase', default='P0', help='Design phase (default: P0)')
+    # No default: --phase must be explicit. Pre-fix the P0 default silently
+    # mis-tagged release-check runs on non-P0 projects (bumblebee uses LC1-LC5).
+    rc_parser.add_argument('--phase',
+                           help='Design phase (required; use project(current_phase) '
+                                'from project_config.tcl if unsure)')
     rc_parser.add_argument('--block', '-b', help='Check specific block only (default: all blocks)')
 
     # targets command

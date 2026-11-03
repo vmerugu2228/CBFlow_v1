@@ -892,69 +892,85 @@ class StatusDB:
         conn.commit()
         conn.close()
 
+    @staticmethod
+    def _close_safely(conn):
+        """Best-effort close. Swallows OSError/sqlite3.Error — the caller
+        already finished its logical work; a failed close shouldn't
+        propagate as a user-visible exception. Logged at DEBUG for diag."""
+        try:
+            conn.close()
+        except (OSError, sqlite3.Error) as _close_err:
+            logger.debug(f'StatusDB close failed: {_close_err}')
+
     def record_pending(self, jobs: list):
         """Mark multiple jobs as PENDING in DB (batch insert)."""
         conn = _sqlite_connect(self.db_path)
-        now = datetime.now().isoformat()
-        for job in jobs:
-            conn.execute(
-                'INSERT INTO jobs (job_name, stage, subnode, job_type, status, command, '
-                'start_time, resource_tier) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                (job.name, job.stage, job.subnode, job.job_type, Job.PENDING,
-                 job.command, now, job.resource_tier))
-        conn.commit()
-        conn.close()
+        try:
+            now = datetime.now().isoformat()
+            for job in jobs:
+                conn.execute(
+                    'INSERT INTO jobs (job_name, stage, subnode, job_type, status, command, '
+                    'start_time, resource_tier) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                    (job.name, job.stage, job.subnode, job.job_type, Job.PENDING,
+                     job.command, now, job.resource_tier))
+            conn.commit()
+        finally:
+            conn.close()
 
     def record_start(self, job: Job):
         conn = _sqlite_connect(self.db_path)
-        now = datetime.now().isoformat()
-        # Try to update existing PENDING row first
-        cur = conn.execute(
-            'UPDATE jobs SET status = ?, start_time = ? '
-            'WHERE job_name = ? AND status = ?',
-            (Job.RUNNING, now, job.name, Job.PENDING))
-        if cur.rowcount == 0:
-            # No PENDING row — insert fresh
-            conn.execute(
-                'INSERT INTO jobs (job_name, stage, subnode, job_type, status, command, '
-                'start_time, resource_tier) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                (job.name, job.stage, job.subnode, job.job_type, Job.RUNNING,
-                 job.command, now, job.resource_tier))
-        conn.commit()
-        conn.close()
+        try:
+            now = datetime.now().isoformat()
+            # Try to update existing PENDING row first
+            cur = conn.execute(
+                'UPDATE jobs SET status = ?, start_time = ? '
+                'WHERE job_name = ? AND status = ?',
+                (Job.RUNNING, now, job.name, Job.PENDING))
+            if cur.rowcount == 0:
+                # No PENDING row — insert fresh
+                conn.execute(
+                    'INSERT INTO jobs (job_name, stage, subnode, job_type, status, command, '
+                    'start_time, resource_tier) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                    (job.name, job.stage, job.subnode, job.job_type, Job.RUNNING,
+                     job.command, now, job.resource_tier))
+            conn.commit()
+        finally:
+            conn.close()
         job.start_time = now
         job.status = Job.RUNNING
 
     def record_complete(self, job: Job, exit_code: int, error_msg: str = '', status_override: str = None):
         conn = _sqlite_connect(self.db_path)
-        now = datetime.now().isoformat()
-        status = status_override or (Job.DONE if exit_code == 0 else Job.FAIL)
+        try:
+            now = datetime.now().isoformat()
+            status = status_override or (Job.DONE if exit_code == 0 else Job.FAIL)
 
-        # Compute runtime
-        runtime_sec = 0
-        if job.start_time:
-            try:
-                t0 = datetime.fromisoformat(job.start_time)
-                t1 = datetime.fromisoformat(now)
-                runtime_sec = (t1 - t0).total_seconds()
-            except (ValueError, TypeError) as _parse_err:
-                # Timestamp format drift (future-format timestamp from an
-                # older/newer schema). Keep runtime_sec=0 so the row still
-                # records, but log the drift so operators notice.
-                logger.warning(
-                    f'record_complete({job.name}): could not compute runtime '
-                    f'from start={job.start_time!r} end={now!r}: {_parse_err}')
+            # Compute runtime
+            runtime_sec = 0
+            if job.start_time:
+                try:
+                    t0 = datetime.fromisoformat(job.start_time)
+                    t1 = datetime.fromisoformat(now)
+                    runtime_sec = (t1 - t0).total_seconds()
+                except (ValueError, TypeError) as _parse_err:
+                    # Timestamp format drift (future-format timestamp from an
+                    # older/newer schema). Keep runtime_sec=0 so the row still
+                    # records, but log the drift so operators notice.
+                    logger.warning(
+                        f'record_complete({job.name}): could not compute runtime '
+                        f'from start={job.start_time!r} end={now!r}: {_parse_err}')
 
-        hostname = socket.gethostname()
+            hostname = socket.gethostname()
 
-        conn.execute(
-            'UPDATE jobs SET status = ?, end_time = ?, runtime_sec = ?, exit_code = ?, '
-            'lsf_job_id = ?, pid = ?, hostname = ?, error_msg = ? '
-            'WHERE job_name = ? AND status = ?',
-            (status, now, runtime_sec, exit_code, job.lsf_job_id, job.pid,
-             hostname, error_msg, job.name, Job.RUNNING))
-        conn.commit()
-        conn.close()
+            conn.execute(
+                'UPDATE jobs SET status = ?, end_time = ?, runtime_sec = ?, exit_code = ?, '
+                'lsf_job_id = ?, pid = ?, hostname = ?, error_msg = ? '
+                'WHERE job_name = ? AND status = ?',
+                (status, now, runtime_sec, exit_code, job.lsf_job_id, job.pid,
+                 hostname, error_msg, job.name, Job.RUNNING))
+            conn.commit()
+        finally:
+            conn.close()
         job.end_time = now
         job.exit_code = exit_code
         job.status = status
@@ -964,11 +980,12 @@ class StatusDB:
         Only resets RUNNING (truly stale from crashes). Does NOT touch PENDING —
         those are legitimately queued by an active execute_jobs() in another thread."""
         conn = _sqlite_connect(self.db_path)
-        # Only reset RUNNING (stale from crash/interrupt) — never PENDING
-        conn.execute("UPDATE jobs SET status = ? WHERE status = ?",
-                     (Job.READY, Job.RUNNING))
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute("UPDATE jobs SET status = ? WHERE status = ?",
+                         (Job.READY, Job.RUNNING))
+            conn.commit()
+        finally:
+            self._close_safely(conn)
 
     def _reset_pending_on_interrupt(self):
         """Reset PENDING→READY — called ONLY from _handle_interrupt.
@@ -983,74 +1000,86 @@ class StatusDB:
         downstream.
         """
         conn = _sqlite_connect(self.db_path)
-        conn.execute("UPDATE jobs SET status = ? WHERE status = ?",
-                     (Job.READY, Job.PENDING))
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute("UPDATE jobs SET status = ? WHERE status = ?",
+                         (Job.READY, Job.PENDING))
+            conn.commit()
+        finally:
+            self._close_safely(conn)
 
     def record_ready(self, jobs: list):
         """Reset PENDING jobs back to READY in DB (after upstream failure)."""
         conn = _sqlite_connect(self.db_path)
-        for job in jobs:
-            conn.execute('UPDATE jobs SET status = ? WHERE job_name = ? AND status = ?',
-                         (Job.READY, job.name, Job.PENDING))
-        conn.commit()
-        conn.close()
+        try:
+            for job in jobs:
+                conn.execute('UPDATE jobs SET status = ? WHERE job_name = ? AND status = ?',
+                             (Job.READY, job.name, Job.PENDING))
+            conn.commit()
+        finally:
+            self._close_safely(conn)
 
     def record_direct(self, job: Job, status: str):
         """Write a status directly to DB (for bypass/forcevalidate — no start/complete pair)."""
         conn = _sqlite_connect(self.db_path)
-        now = datetime.now().isoformat()
-        hostname = socket.gethostname()
-        conn.execute(
-            'INSERT INTO jobs (job_name, stage, subnode, job_type, status, command, '
-            'start_time, end_time, runtime_sec, exit_code, hostname) '
-            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            (job.name, job.stage, job.subnode, job.job_type, status,
-             job.command, now, now, 0, 0, hostname))
-        conn.commit()
-        conn.close()
+        try:
+            now = datetime.now().isoformat()
+            hostname = socket.gethostname()
+            conn.execute(
+                'INSERT INTO jobs (job_name, stage, subnode, job_type, status, command, '
+                'start_time, end_time, runtime_sec, exit_code, hostname) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (job.name, job.stage, job.subnode, job.job_type, status,
+                 job.command, now, now, 0, 0, hostname))
+            conn.commit()
+        finally:
+            self._close_safely(conn)
         job.status = status
 
     def save_job_order(self, jobs: dict):
         """Save canonical DAG order to job_order table. Rebuilds every time."""
         conn = _sqlite_connect(self.db_path)
-        conn.execute('DELETE FROM job_order')
-        for seq, (name, job) in enumerate(jobs.items()):
-            conn.execute(
-                'INSERT OR REPLACE INTO job_order (seq, job_name, stage, subnode, job_type) '
-                'VALUES (?, ?, ?, ?, ?)',
-                (seq, job.name, job.stage, job.subnode, job.job_type))
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute('DELETE FROM job_order')
+            for seq, (name, job) in enumerate(jobs.items()):
+                conn.execute(
+                    'INSERT OR REPLACE INTO job_order (seq, job_name, stage, subnode, job_type) '
+                    'VALUES (?, ?, ?, ?, ?)',
+                    (seq, job.name, job.stage, job.subnode, job.job_type))
+            conn.commit()
+        finally:
+            self._close_safely(conn)
 
     def seed_missing_jobs(self, jobs: dict):
         """Insert READY rows for jobs not yet in DB (e.g., dynamically added nodes)."""
         conn = _sqlite_connect(self.db_path)
-        existing = {row[0] for row in conn.execute('SELECT DISTINCT job_name FROM jobs')}
-        now = datetime.now().isoformat()
-        count = 0
-        for name, job in jobs.items():
-            if name not in existing:
-                conn.execute(
-                    'INSERT INTO jobs (job_name, stage, subnode, job_type, status, command, '
-                    'resource_tier, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                    (job.name, job.stage, job.subnode, job.job_type, Job.READY,
-                     job.command, job.resource_tier, now))
-                count += 1
-        if count > 0:
-            conn.commit()
-        conn.close()
+        try:
+            existing = {row[0] for row in conn.execute('SELECT DISTINCT job_name FROM jobs')}
+            now = datetime.now().isoformat()
+            count = 0
+            for name, job in jobs.items():
+                if name not in existing:
+                    conn.execute(
+                        'INSERT INTO jobs (job_name, stage, subnode, job_type, status, command, '
+                        'resource_tier, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                        (job.name, job.stage, job.subnode, job.job_type, Job.READY,
+                         job.command, job.resource_tier, now))
+                    count += 1
+            if count > 0:
+                conn.commit()
+        finally:
+            self._close_safely(conn)
         return count
 
     def invalidate(self, job_names: list):
         """Set jobs to INVALIDATED — works on ANY current status."""
         conn = _sqlite_connect(self.db_path)
-        for name in job_names:
-            conn.execute('UPDATE jobs SET status = ? WHERE job_name = ? AND status != ?',
-                         (Job.INVALIDATED, name, Job.INVALIDATED))
-        conn.commit()
-        conn.close()
+        try:
+            for name in job_names:
+                conn.execute('UPDATE jobs SET status = ? WHERE job_name = ? AND status != ?',
+                             (Job.INVALIDATED, name, Job.INVALIDATED))
+            conn.commit()
+        finally:
+            self._close_safely(conn)
 
     def get_completed(self) -> dict:
         """Get jobs whose LATEST entry is a completed state. Returns {name: status}."""
@@ -1065,24 +1094,30 @@ class StatusDB:
 
     def set_run_info(self, key: str, value: str):
         conn = _sqlite_connect(self.db_path)
-        conn.execute('INSERT OR REPLACE INTO run_info (key, value) VALUES (?, ?)',
-                     (key, value))
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute('INSERT OR REPLACE INTO run_info (key, value) VALUES (?, ?)',
+                         (key, value))
+            conn.commit()
+        finally:
+            self._close_safely(conn)
 
     def get_run_info(self, key: str) -> str:
         conn = _sqlite_connect(self.db_path)
-        cur = conn.execute('SELECT value FROM run_info WHERE key = ?', (key,))
-        row = cur.fetchone()
-        conn.close()
+        try:
+            cur = conn.execute('SELECT value FROM run_info WHERE key = ?', (key,))
+            row = cur.fetchone()
+        finally:
+            self._close_safely(conn)
         return row[0] if row else ''
 
     def record_metric(self, stage: str, metric_name: str, metric_value: str):
         conn = _sqlite_connect(self.db_path)
-        conn.execute('INSERT INTO stage_metrics (stage, metric_name, metric_value) VALUES (?, ?, ?)',
-                     (stage, metric_name, metric_value))
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute('INSERT INTO stage_metrics (stage, metric_name, metric_value) VALUES (?, ?, ?)',
+                         (stage, metric_name, metric_value))
+            conn.commit()
+        finally:
+            self._close_safely(conn)
 
     def get_metrics(self, stage: str = None) -> list:
         conn = _sqlite_connect(self.db_path)
@@ -1099,9 +1134,11 @@ class StatusDB:
     def set_config(self, key: str, value: str):
         """Store a config key-value in run_config table."""
         conn = _sqlite_connect(self.db_path)
-        conn.execute('INSERT OR REPLACE INTO run_config (key, value) VALUES (?, ?)', (key, value))
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute('INSERT OR REPLACE INTO run_config (key, value) VALUES (?, ?)', (key, value))
+            conn.commit()
+        finally:
+            self._close_safely(conn)
 
     def get_config(self, key: str, default: str = '') -> str:
         """Read a config value from run_config table."""
@@ -1120,15 +1157,17 @@ class StatusDB:
     def save_dag_structure(self, jobs: dict):
         """Save full DAG structure to dag_structure table."""
         conn = _sqlite_connect(self.db_path)
-        conn.execute('DELETE FROM dag_structure')
-        for name, job in jobs.items():
-            conn.execute(
-                'INSERT INTO dag_structure (job_name, stage, subnode, job_type, deps, node_type) '
-                'VALUES (?, ?, ?, ?, ?, ?)',
-                (name, job.stage, job.subnode, job.job_type,
-                 json.dumps(job.deps), job.stage.rstrip('0123456789_')))
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute('DELETE FROM dag_structure')
+            for name, job in jobs.items():
+                conn.execute(
+                    'INSERT INTO dag_structure (job_name, stage, subnode, job_type, deps, node_type) '
+                    'VALUES (?, ?, ?, ?, ?, ?)',
+                    (name, job.stage, job.subnode, job.job_type,
+                     json.dumps(job.deps), job.stage.rstrip('0123456789_')))
+            conn.commit()
+        finally:
+            self._close_safely(conn)
 
     def get_full_status(self) -> dict:
         """Get complete run status from DB."""
@@ -1231,13 +1270,35 @@ class RaceEngine:
         # Resolved from project_config.tcl or env vars
         db_base = self._resolve_db_path()
         project_name = self.env_vars.get('CBFLOW_PROJECT_NAME', '')
+        if not project_name:
+            # Empty project_name would compose a DB path with a `//` segment
+            # (`$db_base//<disc>/<flow>/`) which SQLite accepts but makes
+            # subsequent per-project cleanup + metrics lookup unreliable.
+            # Warn loudly so the operator fixes project(name) in config.
+            logger.warning(
+                "CBFLOW_PROJECT_NAME not set in run env — StatusDB path "
+                "will use an empty project segment. Set project(name) in "
+                "project_config.tcl or export CBFLOW_PROJECT_NAME.")
         run_name = self.env_vars.get('CBFLOW_RUN_NAME', os.path.basename(self.run_dir))
         user = os.environ.get('USER', 'unknown')
+
+        # Resolve discipline from flow_type via flow_registry so DFT/DV
+        # runs land under the right domain subdirectory instead of PD/.
+        # Pre-fix every discipline wrote to .../PD/<flow>/... which
+        # collided on flow_type-reuse across disciplines.
+        discipline = 'PD'
+        try:
+            from tcl_config_parser import get_flow_discipline
+            _d = (get_flow_discipline(self.flow_type) or '').upper()
+            if _d:
+                discipline = _d
+        except Exception as _disc_err:
+            logger.debug(f'discipline resolve failed for {self.flow_type}: {_disc_err}; defaulting to PD')
 
         self.db = StatusDB(
             self.run_dir,
             project_name=project_name,
-            domain='PD',
+            domain=discipline,
             flow_type=self.flow_type,
             run_name=run_name,
             user=user,
@@ -2198,7 +2259,8 @@ class RaceEngine:
             try:
                 from tcl_config_parser import get_flow_discipline as _gfd
                 _disc = (_gfd(self.flow_type) or 'PD').upper()
-            except Exception:
+            except Exception as _disc_err:
+                logger.debug(f'discipline lookup failed for {self.flow_type}: {_disc_err}; defaulting to PD')
                 _disc = 'PD'
             if _disc == 'PD':
                 flow_dir = self.env_vars.get('CBFLOW_CORE_DIR', '')
@@ -2429,8 +2491,8 @@ class RaceEngine:
             except (ProcessLookupError, PermissionError, OSError):
                 try:
                     proc.kill()
-                except Exception:
-                    pass
+                except (ProcessLookupError, OSError) as _kill_err:
+                    logger.debug(f'proc.kill failed for {job.name}: {_kill_err}')
             with self._state_lock:
                 self._running_processes.pop(job.name, None)
             error_msg = f"Job timed out after {self._get_timeout(job)}s. Stage: {job.stage}, Subnode: {job.subnode}"
@@ -2491,8 +2553,14 @@ class RaceEngine:
             if not job:
                 continue
 
-            # Try active Popen process first (local execution)
-            proc = self._running_processes.get(name)
+            # Snapshot Popen handle under the lock so a worker thread
+            # completing concurrently can't flip _running_processes
+            # between our .get() and our kill. Pre-fix the get/pop
+            # happened outside the lock on different sides of the kill
+            # block — a race could leak a kill against a recycled PID
+            # or lose the kill entirely if the worker popped first.
+            with self._state_lock:
+                proc = self._running_processes.get(name)
             if proc and proc.poll() is None:
                 if use_lsf and job.lsf_job_id:
                     # LSF mode — use bkill
@@ -2667,8 +2735,8 @@ class RaceEngine:
                 except (ProcessLookupError, PermissionError, OSError):
                     try:
                         proc.kill()
-                    except Exception:
-                        pass
+                    except (ProcessLookupError, OSError) as _kill_err:
+                        logger.debug(f'proc.kill fallback failed for {name}: {_kill_err}')
         # Also bkill any LSF-dispatched jobs that were RUNNING/PENDING
         # when we took the snapshot (bsub may have returned already
         # with -K, or the local proc may have been reaped before we

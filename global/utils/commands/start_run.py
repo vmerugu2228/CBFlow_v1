@@ -207,6 +207,16 @@ def _validate_user_config(user_config: Dict[str, str], env: Dict[str, str]
                 except (OSError, UnicodeDecodeError):
                     continue
     if not phase:
+        # Fallthrough case: no user_config phase, no project(current_phase),
+        # no readable project config. Degraded setup — the run WILL be
+        # created but tagged 'P0' which may collide with real P0 runs on
+        # non-P0 projects (bumblebee=LC1-LC5). Emit a loud warning so
+        # operators see the misconfiguration instead of silent mis-tagging.
+        logger.warning(
+            "project(current_phase) could not be resolved from user_config, "
+            "project config, or env — defaulting phase to 'P0'. If this run "
+            "belongs to a non-P0 project, set project(current_phase) in "
+            "project_config.tcl or project(phase) in user_config.tcl.")
         phase = 'P0'
 
     # Same path-traversal defense for phase — composed into the run
@@ -655,8 +665,8 @@ def _write_preflight_fail_log(run_dir: str, user_config: Dict[str, str],
     try:
         with open(external, 'w', encoding='utf-8') as f:
             f.write(body)
-    except Exception:
-        pass
+    except OSError as _ext_err:
+        logger.debug(f'external log write failed ({external}): {_ext_err}')
 
     # Internal log — best-effort, same content.
     try:
@@ -665,8 +675,8 @@ def _write_preflight_fail_log(run_dir: str, user_config: Dict[str, str],
         with open(os.path.join(logs_dir, 'workspace_create.log'),
                   'w', encoding='utf-8') as f:
             f.write(body)
-    except Exception:
-        pass
+    except OSError as _int_err:
+        logger.debug(f'internal log write failed: {_int_err}')
 
     return external
 
