@@ -534,11 +534,17 @@ class NodeManager:
                     'branch_key': branch_key,
                 }
         else:
-            # Create branch nodes for remaining stages
-            stages_to_branch = self.base_stages[from_idx:]
+            # Create branch nodes for stages AFTER the fork point.
+            # The fork-point stage itself (from_stage) stays shared with the
+            # main trunk — the branch is a sibling path, not a duplicate
+            # starting with a clone of from_stage. Prior to this fix the
+            # slice was `[from_idx:]` which produced an extra sibling of
+            # from_stage at the top of every branch, cluttering the DAG.
+            # Matches the custom-node path logic below (line 505:
+            # `self.base_stages[base_idx + 1:]`).
+            stages_to_branch = self.base_stages[from_idx + 1:]
 
-            first_node = True
-            prev_dep = ''
+            prev_dep = from_stage
             for stage in stages_to_branch:
                 base_name = re.sub(r'\d+$', '', stage)
                 suffix = self._next_suffix(base_name)
@@ -547,24 +553,12 @@ class NodeManager:
                 while new_name in self.base_stages or new_name in self.custom_nodes:
                     suffix += 1
                     new_name = f"{base_name}{suffix}{tag_suffix}"
-
-                if first_node:
-                    # First branch node inherits same dependencies as original stage
-                    orig_deps = self._get_stage_dependencies(from_stage) or ''
-                    self.custom_nodes[new_name] = {
-                        'type': base_name,
-                        'dependencies': orig_deps,
-                        'branch_key': branch_key,
-                        'branch_name': branch_name,
-                    }
-                    first_node = False
-                else:
-                    self.custom_nodes[new_name] = {
-                        'type': base_name,
-                        'dependencies': prev_dep,
-                        'branch_key': branch_key,
-                        'branch_name': branch_name,
-                    }
+                self.custom_nodes[new_name] = {
+                    'type': base_name,
+                    'dependencies': prev_dep,
+                    'branch_key': branch_key,
+                    'branch_name': branch_name,
+                }
                 prev_dep = new_name
 
         # Store branch metadata
