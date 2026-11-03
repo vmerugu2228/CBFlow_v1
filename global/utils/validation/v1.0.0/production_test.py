@@ -218,30 +218,27 @@ def t2_2():
 @test("LEC test run exists")
 def t2_3():
     _cands = sorted(glob.glob(os.path.join(WORKAREA, '*_run_LEC_*')))
-    run_dir = _cands[0] if _cands else os.path.join(WORKAREA, 'P0_run_LEC_test1')
-    if os.path.isdir(run_dir):
-        _check_run('LEC', run_dir)
+    if _cands:
+        _check_run('LEC', _cands[0])
 
 @test("CLP test run exists")
 def t2_4():
     _cands = sorted(glob.glob(os.path.join(WORKAREA, '*_run_CLP_*')))
-    run_dir = _cands[0] if _cands else os.path.join(WORKAREA, 'P0_run_CLP_test1')
-    if os.path.isdir(run_dir):
-        _check_run('CLP', run_dir)
+    if _cands:
+        _check_run('CLP', _cands[0])
 
 @test("PNR test run exists")
 def t2_5():
     _cands = sorted(glob.glob(os.path.join(WORKAREA, '*_run_PNR_*')))
-    run_dir = _cands[0] if _cands else os.path.join(WORKAREA, 'P0_run_PNR_test1')
-    if os.path.isdir(run_dir):
-        _check_run('PNR', run_dir)
+    if _cands:
+        _check_run('PNR', _cands[0])
 
 @test("SYNTH test run exists")
 def t2_6():
-    _cands = sorted(glob.glob(os.path.join(WORKAREA, '*_run_SYNTH_cbflowtest*')))
-    run_dir = _cands[0] if _cands else os.path.join(WORKAREA, 'P0_run_SYNTH_test1')
-    if os.path.isdir(run_dir):
-        _check_run('SYNTH', run_dir)
+    _cands = sorted(glob.glob(os.path.join(WORKAREA, '*_run_SYNTH_cbflowtest*'))
+                    or glob.glob(os.path.join(WORKAREA, '*_run_SYNTH_*')))
+    if _cands:
+        _check_run('SYNTH', _cands[0])
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -480,7 +477,13 @@ def t6_1():
 @test("Check scripts work against sample reports")
 def t6_2():
     scripts_dir = os.path.join(PD_DIR, 'utils', 'validation', 'v1.0.0', 'checks')
-    reports_dir = os.path.join(WORKAREA, 'P0_run_SYNTH_PNR_test1', 'work', 'SYNTH_PNR', 'pro1', 'reports')
+    # Discover any SYNTH_PNR run — phase prefix differs per project
+    # (bumblebee uses LC1-LC5, others P0-P3). Fall through if none exists;
+    # test will skip because reports_dir won't resolve to any script's
+    # expected report.
+    _runs = sorted(glob.glob(os.path.join(WORKAREA, '*_run_SYNTH_PNR_*')))
+    _run = _runs[0] if _runs else os.path.join(WORKAREA, 'P0_run_SYNTH_PNR_test1')
+    reports_dir = os.path.join(_run, 'work', 'SYNTH_PNR', 'pro1', 'reports')
     results_dir = tempfile.mkdtemp()
     checks = [
         ('check_legality.tcl', 'check_legality.rpt', []),
