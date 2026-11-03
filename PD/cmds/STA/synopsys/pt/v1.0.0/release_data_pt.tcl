@@ -19,9 +19,6 @@ setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 # Source release utilities for ::CBFlow::Release namespace
 set _ru "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
 if {[file exists $_ru]} { source $_ru }
-# Source release utilities for ::CBFlow::Release namespace
-set _ru "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
-if {[file exists $_ru]} { source $_ru }
 
 # Defensive defaults — downstream procs read $::release_dir and
 # $mmmc_active_scenarios. If setup_release_dirs aborts (e.g. CBFlow

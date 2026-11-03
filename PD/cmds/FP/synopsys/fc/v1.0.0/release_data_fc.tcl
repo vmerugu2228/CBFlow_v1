@@ -24,9 +24,6 @@ setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 # Source release utilities for ::CBFlow::Release namespace
 set _ru "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
 if {[file exists $_ru]} { source $_ru }
-# Source release utilities for ::CBFlow::Release namespace
-set _ru "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
-if {[file exists $_ru]} { source $_ru }
 # ==============================================================================
 # flow_proc: prepare_release
 # Description: Prepare release directory and copy all FP deliverables

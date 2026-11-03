@@ -29,9 +29,6 @@ upvar #0 [string tolower $::flow_type] cfg
 # Source release utilities for ::CBFlow::Release namespace
 set _ru "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
 if {[file exists $_ru]} { source $_ru }
-# Source release utilities for ::CBFlow::Release namespace
-set _ru "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
-if {[file exists $_ru]} { source $_ru }
 # ==============================================================================
 # flow_proc: prepare_release
 # Description: Prepare release directory structure and copy deliverables
