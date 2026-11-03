@@ -56,7 +56,15 @@ flow_proc aggregate_results {
         handle_info "No MMMC scenarios active — nothing to aggregate"
         return
     }
+    if {![info exists analysis_views]} {
+        handle_warning "analysis_views not set — mmmc_config.tcl was not sourced; aborting aggregate"
+        return
+    }
     foreach scenario $mmmc_active_scenarios {
+        if {![info exists analysis_views($scenario)]} {
+            handle_warning "  scenario '$scenario' has no analysis_views entry — skipping"
+            continue
+        }
         array set view_info $analysis_views($scenario)
 
         # Parse setup report
@@ -113,7 +121,7 @@ flow_proc aggregate_results {
     puts $fh "# ═══════════════════════════════════════════════════════════════════════════════"
     puts $fh "# CBFlow MMMC Timing Summary - Tempus (Cross-Corner)"
     puts $fh "# Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
-    puts $fh "# Scenario Set: $::mmmc_active_scenario_set"
+    puts $fh "# Scenario Set: [expr {[info exists ::mmmc_active_scenario_set] ? $::mmmc_active_scenario_set : {(unknown)}}]"
     puts $fh "# Total Scenarios: [llength $mmmc_active_scenarios]"
     puts $fh "# ═══════════════════════════════════════════════════════════════════════════════"
     puts $fh ""
