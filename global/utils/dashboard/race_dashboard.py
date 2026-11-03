@@ -38,17 +38,33 @@ DASHBOARD_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATES_DIR = os.path.join(DASHBOARD_DIR, 'templates')
 STATIC_DIR = os.path.join(DASHBOARD_DIR, 'static')
 COMMANDS_DIR = os.path.join(os.path.dirname(DASHBOARD_DIR), 'commands')
-# PD/utils/ — needed so `from core.paths import ...` resolves. Several
-# dashboard action handlers (save_mmmc, save_input_vars, create_branch
-# via node_manager, etc.) import core.paths.atomic_write; without this
-# the daemon fails at request time with `No module named 'core'`.
+# global/utils/ — needed so `from core.paths import ...` resolves.
 UTILS_DIR = os.path.dirname(DASHBOARD_DIR)
+
+# PD-side utils — node_manager, graph_renderer, log_viewer, lsf tools,
+# makefile_generator live here, not under global/. Dashboard action
+# handlers (create_branch, add_node, retrace via node_manager; graph
+# rendering) do bare `from node_manager import NodeManager` and will
+# fail with `No module named 'node_manager'` unless PD/utils/commands
+# is on sys.path. For DFT/DV runs this is especially important —
+# their own utils/commands dir is thin, and node_manager is PD-only.
+PD_COMMANDS_DIR = ''
+_cbflow_core = os.environ.get('CBFLOW_CORE_DIR') or ''
+if _cbflow_core:
+    PD_COMMANDS_DIR = os.path.join(_cbflow_core, 'utils', 'commands')
+if not PD_COMMANDS_DIR or not os.path.isdir(PD_COMMANDS_DIR):
+    # Fallback: derive from this file's path. global/utils/dashboard →
+    # repo root is three dirs up; PD is a sibling of global.
+    _repo_root = os.path.dirname(os.path.dirname(os.path.dirname(DASHBOARD_DIR)))
+    PD_COMMANDS_DIR = os.path.join(_repo_root, 'PD', 'utils', 'commands')
 
 # Ensure commands + utils dirs are importable
 if COMMANDS_DIR not in sys.path:
     sys.path.insert(0, COMMANDS_DIR)
 if UTILS_DIR not in sys.path:
     sys.path.insert(0, UTILS_DIR)
+if PD_COMMANDS_DIR and os.path.isdir(PD_COMMANDS_DIR) and PD_COMMANDS_DIR not in sys.path:
+    sys.path.insert(0, PD_COMMANDS_DIR)
 
 
 # _sqlite_connect lives in core/db.py — single source of truth, shared
