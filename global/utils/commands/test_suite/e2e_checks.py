@@ -247,11 +247,15 @@ def _stage_dirs(run_dir, skip_pseudo=True, skip_dynamic=True):
     if not os.path.isdir(work):
         return []
     out = []
-    for flow in os.listdir(work):
+    # sorted(os.listdir(...)) — filesystem iteration order is undefined
+    # (inode order on ext4, alphabetical on APFS/macOS, random on some
+    # NFS mounts). Tests that iterate stages in listdir order were
+    # flaky across OSes. Sorted iteration gives deterministic behavior.
+    for flow in sorted(os.listdir(work)):
         flow_dir = os.path.join(work, flow)
         if not os.path.isdir(flow_dir):
             continue
-        for stage in os.listdir(flow_dir):
+        for stage in sorted(os.listdir(flow_dir)):
             sd = os.path.join(flow_dir, stage)
             if not os.path.isdir(sd):
                 continue

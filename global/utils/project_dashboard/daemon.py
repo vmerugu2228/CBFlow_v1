@@ -136,13 +136,32 @@ def existing_daemon_status(project):
 
 
 def cleanup_stale_state(project):
+    """Remove any prior pidfile/portfile/start_ts/bind_addr files.
+
+    Called at every daemon start to recover from an unclean previous
+    shutdown (SIGKILL, OOM, host reboot). Pre-fix the removals were
+    silent — forensic post-mortem of a daemon crash had no record of
+    what state was cleared. Each removal now logs at INFO so operators
+    can tell whether a startup actually inherited stale state or booted
+    cold.
+    """
+    removed = []
     for f in (state_paths.pidfile(project), state_paths.portfile(project),
               state_paths.start_ts_file(project),
               state_paths.bind_addr_file(project)):
         try:
             os.unlink(f)
-        except OSError:
-            pass
+            removed.append(os.path.basename(f))
+        except FileNotFoundError:
+            pass  # Nothing to clean — normal on cold start.
+        except OSError as _e:
+            logger.warning(
+                f'cleanup_stale_state({project!r}): could not remove '
+                f'{f}: {_e}')
+    if removed:
+        logger.info(
+            f'cleanup_stale_state({project!r}): removed stale '
+            f'{", ".join(removed)} from previous unclean shutdown.')
 
 
 class _ThreadingHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):

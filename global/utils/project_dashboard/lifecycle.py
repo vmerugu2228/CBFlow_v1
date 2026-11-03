@@ -55,27 +55,33 @@ def ensure_daemon(project, port=0, wait_s=4.0, bind_addr=None):
            '--bind-addr', bind_addr]
     env = dict(os.environ)
     env['CBFLOW_PROJECT_DASHBOARD_PROJECT'] = project
-    proc = subprocess.Popen(
-        cmd, stdin=subprocess.DEVNULL, stdout=log_fd, stderr=log_fd,
-        start_new_session=True, close_fds=True, env=env)
+    # Wrap the entire wait loop in try/finally so log_fd is closed on
+    # every exit path. Pre-fix: an exception in proc.poll() / status() /
+    # os.path.exists() during the wait loop would skip the close() calls
+    # (they only lived on the three explicit success/fail branches),
+    # leaking the file descriptor each time.
+    try:
+        proc = subprocess.Popen(
+            cmd, stdin=subprocess.DEVNULL, stdout=log_fd, stderr=log_fd,
+            start_new_session=True, close_fds=True, env=env)
 
-    deadline = time.time() + wait_s
-    sock_path = state_paths.control_sock(project)
-    while time.time() < deadline:
-        time.sleep(0.1)
-        if proc.poll() is not None:
-            log_fd.close()
-            raise RuntimeError(
-                f'project-dashboard daemon exited immediately (rc={proc.returncode}). '
-                f'Recent log:\n{_tail_log(project, 20)}')
-        st = status(project)
-        if st['state'] == 'running' and os.path.exists(sock_path):
-            log_fd.close()
-            return st['port']
-    log_fd.close()
-    raise RuntimeError(
-        f'project-dashboard daemon did not start within {wait_s}s. '
-        f'Recent log:\n{_tail_log(project, 20)}')
+        deadline = time.time() + wait_s
+        sock_path = state_paths.control_sock(project)
+        while time.time() < deadline:
+            time.sleep(0.1)
+            if proc.poll() is not None:
+                raise RuntimeError(
+                    f'project-dashboard daemon exited immediately '
+                    f'(rc={proc.returncode}). Recent log:\n'
+                    f'{_tail_log(project, 20)}')
+            st = status(project)
+            if st['state'] == 'running' and os.path.exists(sock_path):
+                return st['port']
+        raise RuntimeError(
+            f'project-dashboard daemon did not start within {wait_s}s. '
+            f'Recent log:\n{_tail_log(project, 20)}')
+    finally:
+        log_fd.close()
 
 
 def stop(project, wait_s=5.0):

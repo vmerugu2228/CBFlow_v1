@@ -1343,21 +1343,26 @@ class RaceEngine:
             'CBFLOW_FLOW_TYPE': 'flow_type',
         }
         conn = _sqlite_connect(self.db.db_path)
-        for env_key, db_key in info_keys.items():
-            val = self.env_vars.get(env_key, '')
-            if val:
-                conn.execute(
-                    "INSERT OR REPLACE INTO design_info (key, value, updated_at) "
-                    "VALUES (?, ?, datetime('now'))", (db_key, val)
-                )
-        # Store run_name and flow_type for quick access
-        conn.execute(
-            "INSERT OR REPLACE INTO design_info (key, value, updated_at) "
-            "VALUES ('run_name', ?, datetime('now'))",
-            (self.env_vars.get('CBFLOW_RUN_NAME', ''),)
-        )
-        conn.commit()
-        conn.close()
+        try:
+            for env_key, db_key in info_keys.items():
+                val = self.env_vars.get(env_key, '')
+                if val:
+                    conn.execute(
+                        "INSERT OR REPLACE INTO design_info (key, value, updated_at) "
+                        "VALUES (?, ?, datetime('now'))", (db_key, val)
+                    )
+            # Store run_name and flow_type for quick access
+            conn.execute(
+                "INSERT OR REPLACE INTO design_info (key, value, updated_at) "
+                "VALUES ('run_name', ?, datetime('now'))",
+                (self.env_vars.get('CBFLOW_RUN_NAME', ''),)
+            )
+            conn.commit()
+        finally:
+            # Guarantee close() on exception — pre-fix a sqlite3.Error
+            # between execute and close would leak the connection; in a
+            # long-running engine this accumulates until SQLITE_LIMIT.
+            conn.close()
 
     def _track_config_changes(self):
         """Track config file changes via content hashing."""
@@ -1377,32 +1382,37 @@ class RaceEngine:
                     config_files.append(os.path.join(setup_dir, f))
 
         conn = _sqlite_connect(self.db.db_path)
-        user = os.environ.get('USER', 'unknown')
-        for cfg_path in config_files:
-            if not os.path.exists(cfg_path):
-                continue
-            with open(cfg_path, 'rb') as f:
-                content_hash = hashlib.md5(f.read()).hexdigest()
-            fname = os.path.basename(cfg_path)
-            # Check if hash changed
-            row = conn.execute(
-                "SELECT content_hash FROM config_history "
-                "WHERE config_file = ? ORDER BY id DESC LIMIT 1", (fname,)
-            ).fetchone()
-            if not row:
-                conn.execute(
-                    "INSERT INTO config_history (config_file, change_type, changed_by, content_hash, summary) "
-                    "VALUES (?, 'created', ?, ?, 'Initial config')",
-                    (fname, user, content_hash)
-                )
-            elif row[0] != content_hash:
-                conn.execute(
-                    "INSERT INTO config_history (config_file, change_type, changed_by, content_hash, summary) "
-                    "VALUES (?, 'modified', ?, ?, 'Config updated')",
-                    (fname, user, content_hash)
-                )
-        conn.commit()
-        conn.close()
+        try:
+            user = os.environ.get('USER', 'unknown')
+            for cfg_path in config_files:
+                if not os.path.exists(cfg_path):
+                    continue
+                with open(cfg_path, 'rb') as f:
+                    content_hash = hashlib.md5(f.read()).hexdigest()
+                fname = os.path.basename(cfg_path)
+                # Check if hash changed
+                row = conn.execute(
+                    "SELECT content_hash FROM config_history "
+                    "WHERE config_file = ? ORDER BY id DESC LIMIT 1", (fname,)
+                ).fetchone()
+                if not row:
+                    conn.execute(
+                        "INSERT INTO config_history (config_file, change_type, changed_by, content_hash, summary) "
+                        "VALUES (?, 'created', ?, ?, 'Initial config')",
+                        (fname, user, content_hash)
+                    )
+                elif row[0] != content_hash:
+                    conn.execute(
+                        "INSERT INTO config_history (config_file, change_type, changed_by, content_hash, summary) "
+                        "VALUES (?, 'modified', ?, ?, 'Config updated')",
+                        (fname, user, content_hash)
+                    )
+            conn.commit()
+        finally:
+            # Guarantee close on any exception path (file read error,
+            # md5 computation, DB write failure) — pre-fix the conn was
+            # only closed on the success path.
+            conn.close()
 
     def _write_restricted_override_banner(self, lf, job):
         """Prepend an edit-restricted-vars warning to a job log.
