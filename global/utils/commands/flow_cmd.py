@@ -307,9 +307,10 @@ def cmd_check(args: argparse.Namespace) -> int:
 
             # Check cmd_file reference
             try:
-                with open(fpath) as fh:
+                with open(fpath, encoding='utf-8') as fh:
                     content = fh.read()
-            except Exception:
+            except (OSError, UnicodeDecodeError) as _read_err:
+                logger.debug(f'handler read skipped ({fpath}): {_read_err}')
                 continue
 
             m = _re.search(r'set cmd_file .*\$_tool_ver/([^"]+)"', content)

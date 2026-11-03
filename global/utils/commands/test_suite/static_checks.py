@@ -881,7 +881,13 @@ def cat9_dead_code_audit(results, pd_dir, flows):
                 # Compare STAGE_NAME in target cmd file vs handler's stage_name.
                 if handler_stage:
                     try:
-                        target_text = open(resolved, errors='replace').read()
+                        # 2 MB cap on TCL files — real handlers are a few KB; a
+                        # giant blob is almost certainly not a handler and
+                        # reading it would stall the static suite.
+                        if os.path.getsize(resolved) > 2 * 1024 * 1024:
+                            continue
+                        with open(resolved, errors='replace', encoding='utf-8') as _tf:
+                            target_text = _tf.read()
                     except OSError:
                         continue
                     tm = _CMD_STAGE_NAME_RE.search(target_text)
@@ -1759,7 +1765,11 @@ def cat14_read_write_parity(results, pd_dir, flows):
                 if not f.endswith('.tcl'):
                     continue
                 try:
-                    text = open(os.path.join(dirpath, f)).read()
+                    _tpath = os.path.join(dirpath, f)
+                    if os.path.getsize(_tpath) > 2 * 1024 * 1024:
+                        continue  # skip giant files — see sibling check above
+                    with open(_tpath, encoding='utf-8') as _tf:
+                        text = _tf.read()
                 except (OSError, UnicodeDecodeError):
                     continue
                 for m in _WRITE_RE.finditer(text):
