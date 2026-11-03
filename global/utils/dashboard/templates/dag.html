@@ -88,7 +88,8 @@
 function statusColor(s) {
   return {READY:'#c8a600',PENDING:'#00838f',RUNNING:'#2e7d32',DONE:'#00838f',
           FAIL:'#b71c1c',INVALIDATED:'#7b1fa2',
-          BYPASSED:'#e65100',FORCE_VALIDATED:'#00695c'}[s] || '#757575';
+          BYPASSED:'#e65100',FORCE_VALIDATED:'#00695c',
+          BYPASSED_BY_DECISION:'#9e9e9e'}[s] || '#757575';
 }
 function formatTime(s) { return s < 60 ? s.toFixed(1)+'s' : (s/60).toFixed(1)+'m'; }
 
@@ -275,8 +276,22 @@ function renderDAG(data) {
     const rt = n.runtime ? ' (' + formatTime(n.runtime) + ')' : '';
     const sAttr = escAttr(stage);
     const sText = escText(stage.replace(/1$/,''));
+    // Decision stages render as rhombus/diamond. The shape field is set
+    // server-side when stage_type == 'decision' (see get_dag payload).
+    let shapeSvg;
+    if (n.shape === 'diamond') {
+      const cx = x + stageW / 2;
+      const cy = y + stageH / 2;
+      const points = cx + ',' + y + ' ' +
+                     (x + stageW) + ',' + cy + ' ' +
+                     cx + ',' + (y + stageH) + ' ' +
+                     x + ',' + cy;
+      shapeSvg = '<polygon points="' + points + '" fill="' + color + '" opacity="0.92" stroke="#444" stroke-width="1.5"/>';
+    } else {
+      shapeSvg = '<rect x="' + x + '" y="' + y + '" width="' + stageW + '" height="' + stageH + '" rx="8" fill="' + color + '" opacity="0.92"/>';
+    }
     html += '<g class="dag-node" onclick="showJob(\'' + sAttr + '\')" oncontextmenu="showCtxMenu(event,\'' + sAttr + '\')">' +
-      '<rect x="' + x + '" y="' + y + '" width="' + stageW + '" height="' + stageH + '" rx="8" fill="' + color + '" opacity="0.92"/>' +
+      shapeSvg +
       '<text class="dag-label" x="' + (x + stageW/2) + '" y="' + (y + 22) + '">' + sText + '</text>' +
       '<text class="dag-label" x="' + (x + stageW/2) + '" y="' + (y + 40) + '" style="font-size:10px;opacity:0.85">' + escText((n.status||'')) + escText(rt) + '</text>' +
       '</g>';

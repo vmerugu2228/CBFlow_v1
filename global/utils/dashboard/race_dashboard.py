@@ -587,13 +587,53 @@ class RaceDashboard:
                 INNER JOIN job_order o ON j.job_name = o.job_name
                 ORDER BY o.seq
             """)
+            # Load stage_type per stage from node_config (resolver cache).
+            # Needed to tag decision stages so the frontend can render a
+            # rhombus instead of a rect.
+            stage_type_map = {}
+            decision_edges_map = {}  # stage → {outcome: [downstream_stage]}
+            decision_outcome_map = {}  # stage → chosen outcome (from DB)
+            try:
+                from tcl_config_parser import _load_node_config
+                _nc_for_stype = _load_node_config(self.flow_type, run_dir=self.run_dir)
+                if _nc_for_stype:
+                    for _k, _v in _nc_for_stype.items():
+                        if _k.startswith('stage_types,'):
+                            stage_type_map[_k.split(',', 1)[1]] = _v
+                    # Harvest decision_next entries → edge-outcome labels.
+                    for _k, _v in _nc_for_stype.items():
+                        if _k.startswith('decision_next,'):
+                            _, _dstage, _dout = _k.split(',', 2)
+                            for _nxt in _v.split():
+                                decision_edges_map.setdefault(_dstage, {}) \
+                                                   .setdefault(_dout, []) \
+                                                   .append(_nxt)
+            except Exception:
+                pass
+            # Latest outcome from decision_outcomes table (per stage).
+            try:
+                for _row in conn.execute(
+                    "SELECT stage, outcome FROM decision_outcomes do1 "
+                    "WHERE run_seq = (SELECT MAX(run_seq) FROM decision_outcomes do2 "
+                    "WHERE do2.stage = do1.stage)"):
+                    decision_outcome_map[_row[0]] = _row[1]
+            except Exception:
+                pass
+
             for row in cur:
-                nodes.append({
-                    'id': row[0], 'stage': row[1], 'subnode': row[2],
+                _stage = row[1]
+                node = {
+                    'id': row[0], 'stage': _stage, 'subnode': row[2],
                     'type': row[3], 'status': row[4] or 'READY',
                     'runtime': round(row[5] or 0, 2),
                     'exit_code': row[6], 'error': row[7] or '',
-                })
+                    'stage_type': stage_type_map.get(_stage, 'execution'),
+                }
+                if stage_type_map.get(_stage) == 'decision':
+                    node['shape'] = 'diamond'
+                    node['decision_edges'] = decision_edges_map.get(_stage, {})
+                    node['decision_taken'] = decision_outcome_map.get(_stage)
+                nodes.append(node)
             # Build stage order from job_order
             stage_order = []
             seen = set()
