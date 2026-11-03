@@ -16,7 +16,7 @@ raises ConflictError.
 import json
 import os
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class ConflictError(Exception):
@@ -228,7 +228,11 @@ def init_db(db_path):
 # ─── Writers ────────────────────────────────────────────────────────────────
 
 def _now():
-    return datetime.now().isoformat(timespec='seconds')
+    # UTC + timespec=seconds. Pre-fix was local-time naive, which
+    # produced ambiguous timestamps when the daemon ran on a host in
+    # one tz and the viewer ran in another. UTC in the DB, format for
+    # display at render time.
+    return datetime.now(timezone.utc).isoformat(timespec='seconds')
 
 
 def _upsert_project_info_in_txn(conn, project, info):

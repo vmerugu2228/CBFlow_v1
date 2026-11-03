@@ -30,7 +30,14 @@ import tracker_db
 logger = logging.getLogger('cbflow.project_dashboard.router')
 
 
+# PD exit-milestone sequence — used by the timeline widget (pip layout +
+# left-of/right-of calculations). This is PD-specific by nature:
+# the DFT (6) and DV (9) milestone sets have their own cadence and are
+# rendered via `_render_discipline_cards` on the project landing page,
+# not the timeline. Keep the PD tuple small-and-stable; a future DFT/DV
+# timeline would ship its own ordered tuple(s).
 _MILESTONES = ('FP_EXIT', 'PLACE_EXIT', 'CTS_EXIT', 'PRO_EXIT', 'BTO', 'MTO')
+_MILESTONES_PD = _MILESTONES  # explicit alias for callers choosing a discipline
 
 
 def make_handler(project):

@@ -71,12 +71,25 @@ def _pid_alive(pid):
 
 
 def _process_start_time(pid):
-    """Stable identity string for the process, used to detect PID recycling."""
+    """Stable identity string for the process, used to detect PID recycling.
+
+    `/proc/<pid>/stat` format: `pid (comm) state ppid ... starttime(22) ...`
+    where `comm` can itself contain spaces + parens — hence `rsplit(')',1)`.
+    If the file is truncated / non-standard (BSD jail, cgroup v2 edge case),
+    the split can yield <2 pieces or <20 post-paren fields; return None
+    instead of IndexError-crashing the daemon.
+    """
     try:
         if os.path.exists(f'/proc/{pid}/stat'):
             with open(f'/proc/{pid}/stat') as f:
-                fields = f.read().rsplit(')', 1)[1].split()
-            return fields[19]
+                raw = f.read()
+            parts = raw.rsplit(')', 1)
+            if len(parts) == 2:
+                fields = parts[1].split()
+                # Field 22 of /proc stat (0-indexed 19 after dropping pid+comm
+                # from the pre-paren prefix) is `starttime` in clock ticks.
+                if len(fields) > 19:
+                    return fields[19]
         out = subprocess.run(['ps', '-o', 'lstart=', '-p', str(pid)],
                              capture_output=True, text=True, timeout=2)
         if out.returncode == 0 and out.stdout.strip():

@@ -1422,6 +1422,9 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             self._json_response(result)
         except PermissionError as e:
             self._json_response({'ok': False, 'error': str(e)}, 403)
+        except ValueError as e:
+            # Client-side problem (bad JSON, oversized body) → 400.
+            self._json_response({'ok': False, 'error': str(e)}, 400)
         except Exception as e:
             self._json_response({'error': str(e)}, 500)
 
@@ -1446,7 +1449,13 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             raise ValueError(
                 f'request body too large or invalid Content-Length: {raw}')
         if length > 0:
-            return json.loads(self.rfile.read(length))
+            raw_body = self.rfile.read(length)
+            try:
+                return json.loads(raw_body)
+            except (ValueError, UnicodeDecodeError) as e:
+                # Return 400 via ValueError (do_POST's except Exception→500 was
+                # hiding client bugs as server errors; downgrade to 400 here).
+                raise ValueError(f'malformed JSON body: {e}')
         return {}
 
     # ── Ownership check for non-engine actions ────────────────────────────
