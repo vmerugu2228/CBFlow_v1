@@ -1112,17 +1112,3 @@ def _known_flow_types() -> list:
     _FLOW_TYPES_CACHE = out
     return out
 
-
-# Public: single-source-of-truth run-dir predicate. Replaces 4 copies
-# that were spread across workspace_cmd / run_cmd / dashboard/app /
-# dashboard/router with "keep in sync" comments admitting the drift risk.
-def is_run_dir_name(name: str) -> bool:
-    """True if `name` matches `<PHASE>_run_<FLOW>_<RUN_NAME>` where PHASE
-    is a known cadence (P\\d+, LC\\d+, LC_\\d+, MTO, BTO, R\\d+, FP, CTS,
-    PRE, POST) and FLOW is an uppercase token. Rejects stray user dirs
-    like old_run_notes, backup_run_sim, pre_run_check."""
-    import re as _re
-    _re_rd = _re.compile(
-        r'^(?:P\d+|LC\d+|LC_\d+|MTO|BTO|R\d+|FP|CTS|PRE|POST)_run_'
-        r'[A-Z][A-Z0-9_]*(?:_|$)')
-    return bool(_re_rd.match(name))
