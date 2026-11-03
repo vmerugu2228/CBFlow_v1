@@ -748,9 +748,11 @@ class StatusDB:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             job_name TEXT NOT NULL,
             stage TEXT NOT NULL,
-            subnode TEXT,
+            subnode TEXT NOT NULL DEFAULT '',
             job_type TEXT DEFAULT 'subnode',
-            status TEXT DEFAULT 'READY',
+            status TEXT DEFAULT 'READY' CHECK (status IN (
+                'READY','PENDING','RUNNING','DONE','FAIL',
+                'INVALIDATED','BYPASSED','FORCE_VALIDATED','SKIPPED')),
             command TEXT,
             start_time TEXT,
             end_time TEXT,
@@ -768,6 +770,13 @@ class StatusDB:
             retry_count INTEGER DEFAULT 0,
             created_at TEXT DEFAULT (datetime('now'))
         )''')
+        # Hot-path indexes. get_completed() does `SELECT MAX(id) FROM jobs
+        # GROUP BY job_name` for status recovery; without a (job_name, id)
+        # index this is O(n log n) at scale (10k+ job history rows).
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_jobs_name_id '
+                     'ON jobs(job_name, id DESC)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_jobs_status '
+                     'ON jobs(status)')
         conn.execute('''CREATE TABLE IF NOT EXISTS run_info (
             key TEXT PRIMARY KEY,
             value TEXT
@@ -811,28 +820,32 @@ class StatusDB:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             milestone TEXT NOT NULL,
             check_name TEXT NOT NULL,
-            check_type TEXT,
+            check_type TEXT CHECK (check_type IS NULL OR check_type IN (
+                'mandatory','optional','library','file')),
             category TEXT,
-            severity TEXT,
-            status TEXT,
+            severity TEXT CHECK (severity IS NULL OR severity IN (
+                'critical','major','minor','-')),
+            status TEXT CHECK (status IS NULL OR status IN (
+                'PASS','FAIL','WAIVED','SKIPPED','PENDING','CONFIG_ERROR')),
             metric_value TEXT,
             threshold TEXT,
             detail TEXT,
             report_file TEXT,
-            phase TEXT,
+            phase TEXT NOT NULL DEFAULT '',
             evaluated_at TEXT DEFAULT (datetime('now')),
             evaluated_by TEXT
         )''')
         conn.execute('''CREATE TABLE IF NOT EXISTS release_info (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             release_tag TEXT NOT NULL,
-            milestone TEXT,
-            phase TEXT,
+            milestone TEXT NOT NULL DEFAULT '',
+            phase TEXT NOT NULL DEFAULT '',
             release_dir TEXT,
             released_by TEXT,
             released_at TEXT DEFAULT (datetime('now')),
             description TEXT,
-            status TEXT DEFAULT 'active',
+            status TEXT DEFAULT 'active' CHECK (status IN (
+                'active','revoked','superseded')),
             files_json TEXT,
             signoff_json TEXT
         )''')
@@ -1777,8 +1790,15 @@ class RaceEngine:
                         logger.error(f"FAILED: {job.name} (exit={rc})")
                         break
             else:
-                # Multiple independent jobs ready — run in parallel
-                logger.info(f"  Launching {len(ready)} jobs in parallel: {', '.join(j.name for j in ready)}")
+                # Multiple independent jobs ready — run in parallel. Cap
+                # the per-launch names list to the first 10 so a 1000-job
+                # fan-out doesn't produce a multi-kilobyte log line (full
+                # list is in the DB; this is just the summary signal).
+                _names = [j.name for j in ready]
+                _preview = ', '.join(_names[:10])
+                if len(_names) > 10:
+                    _preview += f', … (+{len(_names) - 10} more)'
+                logger.info(f"  Launching {len(ready)} jobs in parallel: {_preview}")
                 results = {}
                 with concurrent.futures.ThreadPoolExecutor(max_workers=len(ready)) as pool:
                     futures = {pool.submit(self._execute_job, job): job for job in ready}

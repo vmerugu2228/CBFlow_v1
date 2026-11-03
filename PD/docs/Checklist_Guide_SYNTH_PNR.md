@@ -338,7 +338,7 @@ cbflow flow checklist waiver --action revoke --waiver-id W002 \
 
 ### 4.4 Waiver Policy
 
-The waiver system enforces the following policies (defined in `PD/config/exit/v1.0.0/waiver_config.tcl`):
+The waiver system enforces the following policies (defined in `global/config/exit/v1.0.0/waiver_config.tcl`):
 
 | Policy | Value | Description |
 |--------|-------|-------------|
@@ -852,7 +852,7 @@ Thresholds that automatically relax at early phases and tighten toward signoff. 
 
 ### 8.4 Project-Level Overrides
 
-Override thresholds for a specific project. Place in `PD/config/exit/v1.0.0/threshold_overrides.tcl`.
+Override thresholds for a specific project. Place in `global/config/exit/v1.0.0/threshold_overrides.tcl`.
 
 **Example: bumblebee (22nm, relaxed early milestones)**
 
@@ -920,7 +920,7 @@ array set phase_override {
 **Step 1:** Edit (or create) the threshold overrides file:
 
 ```
-PD/config/exit/v1.0.0/threshold_overrides.tcl
+global/config/exit/v1.0.0/threshold_overrides.tcl
 ```
 
 **Step 2:** Add entries using the appropriate array format:
@@ -955,21 +955,21 @@ cbflow flow checklist generate --milestone PLACE_EXIT --phase P1 --project bumbl
 
 | File | Purpose |
 |------|---------|
-| `PD/config/exit/v1.0.0/FP_EXIT_config.tcl` | FP_EXIT milestone: checks, deliverables, mandatory files |
-| `PD/config/exit/v1.0.0/PLACE_EXIT_config.tcl` | PLACE_EXIT milestone configuration |
-| `PD/config/exit/v1.0.0/CTS_EXIT_config.tcl` | CTS_EXIT milestone configuration |
-| `PD/config/exit/v1.0.0/PRO_EXIT_config.tcl` | PRO_EXIT milestone configuration |
-| `PD/config/exit/v1.0.0/BTO_config.tcl` | BTO milestone configuration |
-| `PD/config/exit/v1.0.0/MTO_config.tcl` | MTO milestone configuration |
-| `PD/config/exit/v1.0.0/checks/timing_checks.tcl` | 30 timing library checks |
-| `PD/config/exit/v1.0.0/checks/placement_checks.tcl` | 20 placement library checks |
-| `PD/config/exit/v1.0.0/checks/clock_checks.tcl` | 25 clock library checks |
-| `PD/config/exit/v1.0.0/checks/power_checks.tcl` | 20 power/UPF library checks |
-| `PD/config/exit/v1.0.0/checks/routing_checks.tcl` | 25 routing library checks |
-| `PD/config/exit/v1.0.0/checks/physical_checks.tcl` | 20 physical design library checks |
-| `PD/config/exit/v1.0.0/checks/si_checks.tcl` | 15 signal integrity library checks |
-| `PD/config/exit/v1.0.0/checks/manufacturing_checks.tcl` | 15 manufacturing/DFM library checks |
-| `PD/config/exit/v1.0.0/threshold_overrides.tcl` | Default, phase, and project threshold overrides |
-| `PD/config/exit/v1.0.0/waiver_config.tcl` | Waiver policy, database, and procedures |
-| `PD/config/exit/v1.0.0/remediation_config.tcl` | Fix suggestions for common check failures |
+| `global/config/exit/v1.0.0/FP_EXIT_config.tcl` | FP_EXIT milestone: checks, deliverables, mandatory files |
+| `global/config/exit/v1.0.0/PLACE_EXIT_config.tcl` | PLACE_EXIT milestone configuration |
+| `global/config/exit/v1.0.0/CTS_EXIT_config.tcl` | CTS_EXIT milestone configuration |
+| `global/config/exit/v1.0.0/PRO_EXIT_config.tcl` | PRO_EXIT milestone configuration |
+| `global/config/exit/v1.0.0/BTO_config.tcl` | BTO milestone configuration |
+| `global/config/exit/v1.0.0/MTO_config.tcl` | MTO milestone configuration |
+| `global/config/exit/v1.0.0/checks/timing_checks.tcl` | 30 timing library checks |
+| `global/config/exit/v1.0.0/checks/placement_checks.tcl` | 20 placement library checks |
+| `global/config/exit/v1.0.0/checks/clock_checks.tcl` | 25 clock library checks |
+| `global/config/exit/v1.0.0/checks/power_checks.tcl` | 20 power/UPF library checks |
+| `global/config/exit/v1.0.0/checks/routing_checks.tcl` | 25 routing library checks |
+| `global/config/exit/v1.0.0/checks/physical_checks.tcl` | 20 physical design library checks |
+| `global/config/exit/v1.0.0/checks/si_checks.tcl` | 15 signal integrity library checks |
+| `global/config/exit/v1.0.0/checks/manufacturing_checks.tcl` | 15 manufacturing/DFM library checks |
+| `global/config/exit/v1.0.0/threshold_overrides.tcl` | Default, phase, and project threshold overrides |
+| `global/config/exit/v1.0.0/waiver_config.tcl` | Waiver policy, database, and procedures |
+| `global/config/exit/v1.0.0/remediation_config.tcl` | Fix suggestions for common check failures |
 | `PD/config/flow/v1.0.0/release_config.tcl` | Release exit files, phase criteria, cross-flow mapping |

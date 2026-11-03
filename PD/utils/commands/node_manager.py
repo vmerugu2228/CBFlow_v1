@@ -310,7 +310,10 @@ class NodeManager:
         self._regenerate_makefile()
 
         tier_suffix = f", tier={resource_tier}" if resource_tier else ""
-        logger.info(f"  [DONE] Added node '{name}' (type={node_type}, after={dependency}{tier_suffix})")
+        _actor = os.environ.get('USER') or os.environ.get('LOGNAME') or 'unknown'
+        logger.info(
+            f"  [DONE] [AUDIT] add_node '{name}' (type={node_type}, "
+            f"after={dependency}{tier_suffix}) by {_actor}")
         return True
 
     def delete_node(self, name: str) -> bool:
@@ -358,7 +361,8 @@ class NodeManager:
         self._save_runtime_config()
         self._regenerate_makefile()
 
-        logger.info(f"  [DONE] Deleted node '{name}'")
+        _actor = os.environ.get('USER') or os.environ.get('LOGNAME') or 'unknown'
+        logger.info(f"  [DONE] [AUDIT] delete_node '{name}' by {_actor}")
         return True
 
     def rename_node(self, old_name: str, new_name: str) -> bool:
@@ -389,7 +393,8 @@ class NodeManager:
 
         self._save_runtime_config()
         self._regenerate_makefile()
-        logger.info(f"  [DONE] Renamed '{old_name}' → '{new_name}'")
+        _actor = os.environ.get('USER') or os.environ.get('LOGNAME') or 'unknown'
+        logger.info(f"  [DONE] [AUDIT] rename_node '{old_name}' → '{new_name}' by {_actor}")
         return True
 
     def get_all_nodes(self) -> dict:
@@ -576,7 +581,8 @@ class NodeManager:
             n for n, info in self.custom_nodes.items()
             if info.get('branch_key') == branch_key
         ]
-        logger.info(f"  [DONE] Branch '{branch_name}' created with {len(branch_nodes)} nodes")
+        _actor = os.environ.get('USER') or os.environ.get('LOGNAME') or 'unknown'
+        logger.info(f"  [DONE] [AUDIT] create_branch '{branch_name}' from '{from_stage}' with {len(branch_nodes)} nodes by {_actor}")
         for n in branch_nodes:
             logger.info(f"    - {n}")
         return True
@@ -625,7 +631,8 @@ class NodeManager:
         if not branch_nodes:
             del self.branches[branch_key]
             self._save_runtime_config()
-            logger.info(f"  [DONE] Branch '{branch_name}' deleted (no nodes)")
+            _actor = os.environ.get('USER') or os.environ.get('LOGNAME') or 'unknown'
+            logger.info(f"  [DONE] [AUDIT] delete_branch '{branch_name}' (no nodes) by {_actor}")
             return True
 
         # Check for external dependents — nodes OUTSIDE this branch that depend on nodes IN this branch
@@ -652,7 +659,8 @@ class NodeManager:
         self._save_runtime_config()
         self._regenerate_makefile()
 
-        logger.info(f"  [DONE] Branch '{branch_name}' deleted ({len(branch_nodes)} nodes removed)")
+        _actor = os.environ.get('USER') or os.environ.get('LOGNAME') or 'unknown'
+        logger.info(f"  [DONE] [AUDIT] delete_branch '{branch_name}' ({len(branch_nodes)} nodes removed) by {_actor}")
         return True
 
     def list_branches(self) -> list:

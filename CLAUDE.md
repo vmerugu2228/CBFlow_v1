@@ -94,6 +94,27 @@ CBFLOW_DV_DIR       Auto: $CBFLOW_ROOT/DV        (exported only if directory exi
 
 `CBFLOW_ROOT` is the anchor, NOT `CBFLOW_GLOBAL_DIR`. `global/` is a subordinate of the root, alongside every discipline directory. `bin/cbflow --version` from anywhere shows the resolved chain.
 
+### Optional env-var overrides
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `FLOW_CONFIG_VERSION` | config-schema version dir (`<disc>/config/flow/<ver>/…`) | `v1.0.0` (set by launcher) |
+| `UTILITIES_VERSION` | utilities dir (`<disc>/utils/utilities/<ver>/…`) | `v1.0.0` (set by launcher) |
+| `TECH_CONFIG_VERSION` | tech config dir | `v1.0.0` (set by launcher) |
+| `PROJECT_CONFIG_VERSION` | project config dir | `v1.0.0` (set by launcher) |
+| `CBFLOW_PROJECT_NAME` | active project for cascade resolve | from `project(name)` in config |
+| `CBFLOW_FLOW_TYPE` | active flow for cascade resolve | from `flow(type)` in config |
+| `CBFLOW_RUN_DIR` | run directory for a specific run | PWD when inside a run_dir |
+| `CBFLOW_USE_LSF` | force-enable LSF submission | `flow(use_lsf)` from config |
+| `CBFLOW_USE_XTERM` | force-enable xterm wrappers | `flow(use_xterm)` from config |
+| `CBFLOW_BSUB_CMD` | override bsub binary / wrapper | `lsf(bsub,command)` from config |
+| `CBFLOW_COLLECT_METRICS` | opt-in metrics collection at end of run | off |
+| `CBFLOW_LSF_AUTO_CLEANUP` | automatic LSF resource cleanup on exit | off |
+| `CBFLOW_LSF_MONITOR_AUTO` | auto-start LSF monitor thread | off |
+| `CBFLOW_LSF_MONITOR_INTERVAL` | LSF monitor poll interval (seconds) | 60 |
+| `CBFLOW_TOOL_VENDOR` / `_TOOL_NAME` / `_TOOL_VERSION` | override tool bindings for the current stage | from node_config |
+| Tool-version overrides (`TESSENT_VERSION`, `TEMPUS_VERSION`, `VOLTUS_VERSION`, `REDHAWK_VERSION`, `CONFORMAL_LP_VERSION`, `VC_LP_VERSION`, etc.) | override module-version per tool | `v1.0.0` or site-default |
+
 ## Config Cascade (order)
 
 Every run resolves configs in this fixed order — project first because tech references `$project(lib_root)`:

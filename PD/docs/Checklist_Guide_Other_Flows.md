@@ -710,12 +710,12 @@ Note: Additional check packs (e.g., `timing` at P1, `si` at P2, `power` at P1, `
 ### Config File Locations
 
 ```
-Exit configs:           PD/config/exit/v1.0.0/{STA,LEC,CLP,PV,EMIR}_SIGNOFF_config.tcl
-Flow check libraries:   PD/config/exit/v1.0.0/checks/{sta,lec,clp,pv,emir,eco}_flow_checks.tcl
-Shared check libraries: PD/config/exit/v1.0.0/checks/{timing,placement,clock,power,routing,physical,si,manufacturing}_checks.tcl
-SYNTH_PNR milestones:   PD/config/exit/v1.0.0/{FP_EXIT,PLACE_EXIT,CTS_EXIT,PRO_EXIT,BTO,MTO}_config.tcl
+Exit configs:           global/config/exit/v1.0.0/{STA,LEC,CLP,PV,EMIR}_SIGNOFF_config.tcl
+Flow check libraries:   global/config/exit/v1.0.0/checks/{sta,lec,clp,pv,emir,eco}_flow_checks.tcl
+Shared check libraries: global/config/exit/v1.0.0/checks/{timing,placement,clock,power,routing,physical,si,manufacturing}_checks.tcl
+SYNTH_PNR milestones:   global/config/exit/v1.0.0/{FP_EXIT,PLACE_EXIT,CTS_EXIT,PRO_EXIT,BTO,MTO}_config.tcl
 Release config:         PD/config/flow/v1.0.0/release_config.tcl
-Threshold overrides:    PD/config/exit/v1.0.0/threshold_overrides.tcl
-Waiver config:          PD/config/exit/v1.0.0/waiver_config.tcl
-Remediation config:     PD/config/exit/v1.0.0/remediation_config.tcl
+Threshold overrides:    global/config/exit/v1.0.0/threshold_overrides.tcl
+Waiver config:          global/config/exit/v1.0.0/waiver_config.tcl
+Remediation config:     global/config/exit/v1.0.0/remediation_config.tcl
 ```

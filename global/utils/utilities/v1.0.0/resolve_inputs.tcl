@@ -167,13 +167,17 @@ namespace eval ::CBFlow::InputResolve {
 
         set count 0
         set flow_upper [string toupper $flow_type]
-        foreach {hkey mkey} [array get handshake_map] {
-            set parts [split $hkey ","]
+        # Loop variables renamed with `_` prefix to avoid shadowing: in TCL
+        # foreach loop vars persist after the loop, so a later proc call that
+        # uses `hkey` as a local would see the loop's last-iter value if
+        # `hkey` was never reset. Prefix convention signals "scoped-to-loop".
+        foreach {_hkey _mkey} [array get handshake_map] {
+            set parts [split $_hkey ","]
             if {[lindex $parts 0] ne $flow_upper} continue
             set hinput [lindex $parts 1]
 
-            if {[info exists manifest($mkey)] && $manifest($mkey) ne ""} {
-                set fpath $manifest($mkey)
+            if {[info exists manifest($_mkey)] && $manifest($_mkey) ne ""} {
+                set fpath $manifest($_mkey)
                 if {[file exists $fpath]} {
                     if {![info exists ::${arr}(input,${hinput})] || [set ::${arr}(input,${hinput})] eq ""} {
                         set ::${arr}(input,${hinput}) $fpath
@@ -290,13 +294,13 @@ namespace eval ::CBFlow::InputResolve {
         set count 0
         set flow_upper [string toupper $flow_type]
         if {[array exists ::flow_input_handshake]} {
-            foreach {hkey hval} [array get ::flow_input_handshake] {
-                set parts [split $hkey ","]
+            foreach {_hkey _hval} [array get ::flow_input_handshake] {
+                set parts [split $_hkey ","]
                 if {[lindex $parts 0] ne $flow_upper} continue
                 set hinput [lindex $parts 1]
 
-                set src_category [lindex $hval 1]
-                set src_pattern [lindex $hval 2]
+                set src_category [lindex $_hval 1]
+                set src_pattern [lindex $_hval 2]
                 set filename [string map [list \${design_name} $design_name] $src_pattern]
                 set fpath [file join $release_base $tag $src_category $filename]
 

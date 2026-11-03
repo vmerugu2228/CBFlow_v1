@@ -157,10 +157,24 @@ def make_handler(project):
                 return self._send(410, 'application/json',
                                   '{"error": "removed — Resource card '
                                   'retired in SmartGrid redesign"}')
-            if path.startswith('/api/floorplan/'):
+            # Published-run id bound. SQLite stores row IDs as INTEGER
+            # (effectively int64) but client-supplied values up to 2^63-1
+            # would spam query planner / integer formatting. 1e9 is a
+            # comfortable ceiling for any real publish history.
+            _PID_MAX = 1_000_000_000
+
+            def _parse_pid(seg):
                 try:
-                    pid = int(path[len('/api/floorplan/'):].rstrip('/'))
+                    _p = int(seg)
                 except ValueError:
+                    return None
+                if _p < 1 or _p > _PID_MAX:
+                    return None
+                return _p
+
+            if path.startswith('/api/floorplan/'):
+                pid = _parse_pid(path[len('/api/floorplan/'):].rstrip('/'))
+                if pid is None:
                     return self._send(404, 'text/plain', 'not found')
                 return self._api_floorplan(pid)
             if path.startswith('/api/timing/'):
