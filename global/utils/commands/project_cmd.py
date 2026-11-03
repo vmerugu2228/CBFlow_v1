@@ -30,18 +30,24 @@ from core.paths import get_cbflow_core_dir
 # tests) shouldn't require CBFLOW_CORE_DIR/FLOW_DIR/CONFIG_ROOT env vars.
 _AVAILABLE_FLOWS_CACHE = None
 _PROJECT_PHASES_CACHE = None
+# Lock around check-then-set so two concurrent `module.AVAILABLE_FLOWS`
+# accesses don't both run _get_flow_desc() + overwrite each other.
+import threading as _threading
+_PROJECT_CACHE_LOCK = _threading.Lock()
 
 
 def __getattr__(name):
     global _AVAILABLE_FLOWS_CACHE, _PROJECT_PHASES_CACHE
     if name == 'AVAILABLE_FLOWS':
-        if _AVAILABLE_FLOWS_CACHE is None:
-            _AVAILABLE_FLOWS_CACHE = _get_flow_desc()
-        return _AVAILABLE_FLOWS_CACHE
+        with _PROJECT_CACHE_LOCK:
+            if _AVAILABLE_FLOWS_CACHE is None:
+                _AVAILABLE_FLOWS_CACHE = _get_flow_desc()
+            return _AVAILABLE_FLOWS_CACHE
     if name == 'PROJECT_PHASES':
-        if _PROJECT_PHASES_CACHE is None:
-            _PROJECT_PHASES_CACHE = _get_phase_desc()
-        return _PROJECT_PHASES_CACHE
+        with _PROJECT_CACHE_LOCK:
+            if _PROJECT_PHASES_CACHE is None:
+                _PROJECT_PHASES_CACHE = _get_phase_desc()
+            return _PROJECT_PHASES_CACHE
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 # Version

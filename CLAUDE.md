@@ -1,12 +1,12 @@
 # CBflow Multi-Discipline Design Automation Framework
 
 ## What is CBflow
-CBflow v2.0.0 is a multi-discipline design automation framework. It coordinates 24 flows across three disciplines — Physical Design (PD, 12 flows), Design-For-Test (DFT, 5 flows), and RTL Design Verification (DV, 7 flows) — through a Python-native RACE DAG execution engine, SQLite status tracking, web GUI dashboard, and per-scenario MMMC parallelism.
+CBflow v2.0.0 is a multi-discipline design automation framework. It coordinates 28 flows across three disciplines — Physical Design (PD, 12 flows), Design-For-Test (DFT, 7 flows after the 2026-11-03 pass split), and RTL Design Verification (DV, 9 flows) — through a Python-native RACE DAG execution engine, SQLite status tracking, web GUI dashboard, and per-scenario MMMC parallelism.
 
 ## Supported Flows
 - **PD** — SYNTH, PNR, SYNTH_PNR, FP, FCFP, STA, LEC, CLP, PV, EMIR, POPT, ECO
-- **DFT** — DFT_INSERT, SCAN_INSERT, ATPG, GLS_FUNC, GLS_SCAN_MBIST
-- **DV**  — LINT, CDC, RDC, SIM, COV_MERGE, FORMAL, UPF_CHECK
+- **DFT** — DFT_INSERT_PASS1 (Core: MBIST+BSCAN), DFT_INSERT_PASS2 (Top: TDR/DFT-Signals/SRI), DFT_INSERT_PASS3 (EDT+OCC), SCAN_INSERT, ATPG, GLS_FUNC, GLS_SCAN_MBIST
+- **DV**  — SPEC_RAMP, PLANNING, TB_SETUP, M1_EXEC, M2_EXEC, M3_EXEC, M4_EXEC, ECO_EXEC, DV_SIGNOFF
 
 PD flows support dual tools (Synopsys: FC/PT/Formality/ICV/RedHawk + Cadence: Innovus/Genus/Tempus/Conformal/Voltus/Calibre). DFT + DV scaffolds ship with node_configs; discipline-specific tool handlers extend from there.
 
@@ -166,13 +166,17 @@ project_init → project → team → tech → flow → node_common → node_too
 - `<FLOW>_<tool>_config.tcl` — tool-specific: app settings, compile/place/cts/route options, required_inputs
 
 ### Exit Checklist System
-- 6 milestones: FP_EXIT, PLACE_EXIT, CTS_EXIT, PRO_EXIT, BTO, MTO (Metal Tape Out)
-- 292 library checks across 14 categories (timing, placement, clock, power, routing, physical, SI, manufacturing + 6 flow-specific)
-- Phase-aware: P0 → P3 progression reflects RTL maturity (checks activate progressively as the design stabilizes)
+- **21 milestones across 3 disciplines** (post 2026-11-03 refactor):
+  - **PD (6)**: FP_EXIT, PLACE_EXIT, CTS_EXIT, PRO_EXIT, BTO, MTO
+  - **DFT (6)**: CORE_DFT_EXIT (Pass1 MBIST+BSCAN), TOP_DFT_EXIT (Pass2 TDR/SRI), EDT_OCC_EXIT (Pass3), SCAN_INSERT_EXIT, ATPG_PREPD_EXIT, ATPG_POSTPD_EXIT
+  - **DV (9)**: SPEC_RAMP_EXIT, PLANNING_EXIT, TB_SETUP_EXIT, M1_EXIT, M2_EXIT, M3_EXIT, M4_EXIT, ECO_EXEC_EXIT, DV_SIGNOFF_EXIT
+- Each milestone config declares `set milestone_info(discipline) "PD"|"DFT"|"DV"`; the CLI's `--discipline <X>` flag filters by owner.
+- 182 PD library checks across 9 categories (timing, placement, clock, power, routing, physical, SI, manufacturing, eco_flow). DFT/DV milestones use mandatory_files + per-flow metric checks.
+- **Phase-aware**: phases are **project-defined** via `set project(phases) {...}` in `global/config/project/<proj>/v1.0.0/<proj>_config.tcl`. Bumblebee uses LC1-LC5; other projects use P0-P3 or any custom scheme. Checks activate progressively as the project's declared phases advance.
 - Check IDs: TMG-001, PLC-001, CLK-001, PWR-001, RTG-001, PHY-001, SI-001, MFG-001
-- Config: PD/config/exit/v1.0.0/ (milestone configs + checks/ library)
+- **Config: `global/config/exit/v1.0.0/`** (centrally declared; moved from PD/config/exit/ on 2026-11-03 because exit milestones are discipline-owned but centrally declared)
 - Scripts: PD/utils/validation/v1.0.0/checks/ (11 executable check scripts)
-- CLI: cbflow flow checklist {list, list-checks, generate, status, sign-off, add-check, remove-check, waiver}
+- CLI: `cbflow flow checklist {list, list-checks, generate, status, sign-off, add-check, remove-check, waiver} [--discipline PD|DFT|DV]`
 - Auto-detects milestone/phase/project from run directory
 
 ## CBflow Commands

@@ -50,6 +50,10 @@ def _build_flow_types_dict():
 # IDE, tests) shouldn't require CBFLOW_CORE_DIR/FLOW_DIR/CONFIG_ROOT env
 # vars, only real command execution under cbflow's launcher should.
 _FLOW_TYPES_CACHE = None
+# Lock around the check-then-set so two threads don't both run
+# _build_flow_types_dict() (which spawns tclsh) and overwrite each other.
+import threading as _threading
+_FLOW_TYPES_LOCK = _threading.Lock()
 
 
 def _flow_types():
@@ -61,9 +65,10 @@ def _flow_types():
     accessor for in-module callers.
     """
     global _FLOW_TYPES_CACHE
-    if _FLOW_TYPES_CACHE is None:
-        _FLOW_TYPES_CACHE = _build_flow_types_dict()
-    return _FLOW_TYPES_CACHE
+    with _FLOW_TYPES_LOCK:
+        if _FLOW_TYPES_CACHE is None:
+            _FLOW_TYPES_CACHE = _build_flow_types_dict()
+        return _FLOW_TYPES_CACHE
 
 
 def __getattr__(name):

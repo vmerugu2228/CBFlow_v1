@@ -28,12 +28,19 @@ Caching:
 
 import os
 import subprocess
+import threading
 from typing import Dict, List, Optional, Tuple
 
 SCHEMA_VERSION = '4'
 
 # (flow_type, abs_run_dir_or_NORUN) → (dict, (user_mtime, runtime_mtime))
 _cache: Dict[Tuple[str, str], Tuple[Dict[str, str], Tuple[float, ...]]] = {}
+# Lock around the module-level cache. Dashboard polls run the resolver from
+# multiple HTTP threads simultaneously; without a lock two threads can both
+# miss, both run tclsh, and race to write the result — the loser's dict is
+# the one that wins the final write and may be corrupted (dict assignment
+# is thread-safe but check-then-set is not).
+_cache_lock = threading.Lock()
 
 
 # ── Public API ─────────────────────────────────────────────────────────────
@@ -69,14 +76,22 @@ def load_resolved_config(flow_type: str, run_dir: Optional[str] = None,
 
     cache_key = (flow_type, _cache_path(run_dir))
     mtimes = _mtimes(run_dir, flow_type)
-    if cache_key in _cache:
-        cached_cfg, cached_mtimes = _cache[cache_key]
-        if cached_mtimes == mtimes:
-            return cached_cfg
+    with _cache_lock:
+        if cache_key in _cache:
+            cached_cfg, cached_mtimes = _cache[cache_key]
+            if cached_mtimes == mtimes:
+                return cached_cfg
 
+    # Resolver spawn (expensive — hits tclsh) runs OUTSIDE the lock so
+    # concurrent misses for DIFFERENT keys don't serialize on a single
+    # resolver. The trade-off is that two threads can both miss the same
+    # key and both run tclsh — the second one re-populates the cache with
+    # its (identical) result. Acceptable: resolver output is deterministic
+    # given the same inputs.
     cfg = _run_resolver(flow_type, run_dir, env)
     _validate_schema(cfg, flow_type, run_dir)
-    _cache[cache_key] = (cfg, mtimes)
+    with _cache_lock:
+        _cache[cache_key] = (cfg, mtimes)
     return cfg
 
 
@@ -113,7 +128,8 @@ def optional(cfg: Dict[str, str], key: str) -> Optional[str]:
 def clear_cache() -> None:
     """Drop every cache entry. Tests and the dashboard's `Save user_config`
     path call this when they know the cascade has been mutated mid-process."""
-    _cache.clear()
+    with _cache_lock:
+        _cache.clear()
 
 
 def preview_user_config(path: str) -> Dict[str, str]:

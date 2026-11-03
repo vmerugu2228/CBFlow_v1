@@ -363,3 +363,15 @@ set lsf(bsub,affinity)      "affinity\[core(1):cpubind=socket:membind=localonly\
 # XTerm settings (xterm enable/disable controlled by flow(use_xterm) in flow_config)
 set lsf(xterm,command)       "xterm"
 set lsf(xterm,geometry)      "200x50"
+
+# ── LSF integration keys read by lsf_utils.tcl::get_lsf_config ─────────────
+# These are consumed with hardcoded defaults (see PD/utils/utilities/v1.0.0/
+# lsf_utils.tcl around lines 250, 460, 461, 493) — declaring them here lets
+# a site override via its own lsf_config.tcl without editing lsf_utils.tcl.
+# Previously these were read-only-with-hardcoded-default; the site had no
+# way to change them without a code patch.
+set lsf(lsf_integration,queue_prefix)        "cbflow_"
+set lsf(dynamic_queues,enabled)              "false"
+set lsf(dynamic_queues,cleanup_idle_time)    3600
+set lsf(cost_optimization,cost_per_cpu_hour) 0.50
+set lsf(cost_optimization,cost_per_gb_hour)  0.10

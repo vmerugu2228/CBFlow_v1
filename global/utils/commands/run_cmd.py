@@ -980,6 +980,11 @@ def cmd_report(args: argparse.Namespace) -> int:
     version = (node_config.get('tool,version', '').strip('"')
                or env_vars.get('CBFLOW_TOOL_VERSION', '')
                or os.environ.get('CBFLOW_TOOL_VERSION', ''))
+    # core_dir must be resolved BEFORE the auto-resolve block below reads
+    # it. The old order (resolve-use at 984, assign at 996) would raise
+    # NameError when (not vendor) + (tool is truthy) short-circuited into
+    # evaluating an undefined local core_dir.
+    core_dir = os.environ.get('FLOW_DIR', '') or env_vars.get('FLOW_DIR', '')
     # Auto-resolve vendor from tool-specific config: <FLOW>_<tool>_config.tcl
     if not vendor and tool and core_dir:
         flow_type = env_vars.get('CBFLOW_FLOW_TYPE', '') or os.environ.get('CBFLOW_FLOW_TYPE', '')
@@ -993,7 +998,6 @@ def cmd_report(args: argparse.Namespace) -> int:
                     if _m:
                         vendor = _m.group(1)
                         break
-    core_dir = os.environ.get('FLOW_DIR', '') or env_vars.get('FLOW_DIR', '')
 
     dump_setup = getattr(args, 'dump_setup', True)
     filter_node = getattr(args, 'node', None)

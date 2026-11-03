@@ -64,10 +64,22 @@ CREATE TABLE IF NOT EXISTS published_runs (
     released_at      TEXT,
     published_by     TEXT NOT NULL,
     published_at     TEXT DEFAULT (datetime('now')),
-    verdict          TEXT,               -- PASS / CONDITIONAL / BLOCKED / UNKNOWN
-    closability_pct  REAL,
+    verdict          TEXT CHECK (verdict IS NULL OR verdict IN
+                                 ('PASS','CONDITIONAL','BLOCKED','UNKNOWN')),
+    closability_pct  REAL CHECK (closability_pct IS NULL OR
+                                 (closability_pct >= 0 AND closability_pct <= 100)),
+    discipline       TEXT DEFAULT 'PD',
     UNIQUE (project, block, phase, milestone)
 );
+
+-- Hot-path query: WHERE project=? ORDER BY published_at DESC (Tier 3 block
+-- summary). Composite covering index saves an O(n) scan at scale (10k+ rows).
+CREATE INDEX IF NOT EXISTS idx_pub_runs_project_at
+    ON published_runs(project, published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pub_runs_block_at
+    ON published_runs(project, block, published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pub_runs_discipline
+    ON published_runs(project, discipline);
 
 CREATE TABLE IF NOT EXISTS run_metrics (
     published_run_id INTEGER NOT NULL,
@@ -87,11 +99,14 @@ CREATE TABLE IF NOT EXISTS run_checklist (
     milestone        TEXT,
     category         TEXT,
     check_name       TEXT,
-    check_type       TEXT,               -- mandatory / optional / library
-    status           TEXT,               -- PASS / FAIL / WAIVED / SKIPPED / PENDING
+    check_type       TEXT CHECK (check_type IS NULL OR check_type IN
+                                 ('mandatory','optional','library','file')),
+    status           TEXT CHECK (status IS NULL OR status IN
+                                 ('PASS','FAIL','WAIVED','SKIPPED','PENDING','CONFIG_ERROR')),
     metric_value     TEXT,
     threshold        TEXT,
-    severity         TEXT,
+    severity         TEXT CHECK (severity IS NULL OR severity IN
+                                 ('critical','major','minor','-')),
     detail           TEXT,
     FOREIGN KEY (published_run_id) REFERENCES published_runs(id) ON DELETE CASCADE
 );
@@ -132,6 +147,20 @@ CREATE TABLE IF NOT EXISTS run_floorplan (
 """
 
 
+def _connect(db_path):
+    """Open a connection with FK enforcement + sane isolation level.
+
+    `PRAGMA foreign_keys` is PER-CONNECTION in SQLite — setting it at init
+    doesn't persist. Every writer (publish/unpublish/upsert) must set it
+    again or ON DELETE CASCADE is silently ignored and orphan rows
+    accumulate. Factored into a helper so every call site gets consistent
+    behavior with no silent regressions when a new site is added.
+    """
+    conn = sqlite3.connect(db_path)
+    conn.execute('PRAGMA foreign_keys = ON')
+    return conn
+
+
 def init_db(db_path):
     """Create the DB and apply the schema. Idempotent + forward-compatible.
 
@@ -143,27 +172,49 @@ def init_db(db_path):
     d = os.path.dirname(db_path)
     if d:
         os.makedirs(d, mode=0o700, exist_ok=True)
-    conn = sqlite3.connect(db_path)
+    conn = _connect(db_path)
     try:
+        # Enable FK cascade enforcement at init — SQLite defaults FK OFF, so
+        # DELETE on published_runs would otherwise leave orphan rows in
+        # run_metrics / run_checklist / run_files / run_timing / run_floorplan
+        # despite the schema declaring ON DELETE CASCADE.
+        conn.execute('PRAGMA foreign_keys = ON')
+        # WAL journaling — concurrent readers (dashboard polling) don't
+        # block the writer (publish). Reduces lock contention in the
+        # race_engine ↔ dashboard dual-process scenario.
+        conn.execute('PRAGMA journal_mode = WAL')
         conn.executescript(_SCHEMA)
         # Forward-compat: add columns introduced after v1.0.0.
+        # DEFAULT clause populates legacy rows at ALTER time; readers no
+        # longer need defensive `.get(k) or 'PD'` fallbacks.
         migrations = [
-            ('run_floorplan', 'density_json', 'TEXT'),
-            ('run_floorplan', 'total_cells',  'INTEGER'),
-            # v3 (2026-11-02): discipline tag on published runs. Tier 3 of
-            # the smartgrid redesign filters the per-discipline summary by
-            # this column. NULL on legacy rows — query layer treats NULL
-            # as 'PD' (safe default; current projects are PD-dominant).
-            ('published_runs', 'discipline', 'TEXT'),
+            ('run_floorplan', 'density_json', 'TEXT',    "'{}'"),
+            ('run_floorplan', 'total_cells',  'INTEGER', '0'),
+            # v3 (2026-11-02): discipline tag on published runs. Tier 3
+            # filters by this. Legacy rows default to 'PD' (current
+            # projects are PD-dominant).
+            ('published_runs', 'discipline', 'TEXT',    "'PD'"),
         ]
-        for table, col, ctype in migrations:
-            try:
+        # Entire migration loop wrapped in a single txn so partial-success
+        # on a mid-list ALTER failure rolls back cleanly instead of
+        # leaving one column added + one skipped.
+        conn.execute('BEGIN IMMEDIATE')
+        try:
+            for table, col, ctype, default in migrations:
                 cols = {r[1] for r in conn.execute(
                     f'PRAGMA table_info({table})')}
                 if col not in cols:
-                    conn.execute(f'ALTER TABLE {table} ADD COLUMN {col} {ctype}')
-            except sqlite3.OperationalError:
-                pass
+                    conn.execute(
+                        f'ALTER TABLE {table} ADD COLUMN {col} {ctype} '
+                        f'DEFAULT {default}')
+            conn.execute('COMMIT')
+        except sqlite3.OperationalError as _err:
+            conn.execute('ROLLBACK')
+            # Surface the real error rather than swallowing it — a mid-
+            # migration failure means the DB is in a known-OK state (txn
+            # rolled back) but the operator needs to know.
+            raise RuntimeError(
+                f'tracker_db migration failed, rolled back: {_err}') from _err
         conn.commit()
         os.chmod(db_path, 0o600)
     finally:
@@ -181,7 +232,7 @@ def upsert_project_info(db_path, project, info):
 
     `info` is a plain dict — missing keys are fine.
     """
-    conn = sqlite3.connect(db_path)
+    conn = _connect(db_path)
     try:
         conn.execute("""
             INSERT INTO project_info(project, tapeout_date, current_phase,
@@ -212,7 +263,7 @@ def upsert_project_info(db_path, project, info):
 
 def upsert_block(db_path, project, block_name, dl_level=None, parent=None,
                  description=None):
-    conn = sqlite3.connect(db_path)
+    conn = _connect(db_path)
     try:
         conn.execute("""
             INSERT INTO blocks(project, block_name, dl_level, parent, description)
@@ -263,7 +314,7 @@ def publish(db_path, payload, project):
     # Fix: run the conflict check FIRST on its own connection; only
     # proceed to housekeeping + main INSERT if the conflict check
     # passes.
-    conn = sqlite3.connect(db_path)
+    conn = _connect(db_path)
     conn.execute('PRAGMA foreign_keys = ON')
     try:
         cur = conn.execute(
@@ -397,7 +448,7 @@ def publish(db_path, payload, project):
 
 def unpublish(db_path, project, block, phase, milestone):
     """Remove a single cell (cascades child tables). Returns count removed."""
-    conn = sqlite3.connect(db_path)
+    conn = _connect(db_path)
     conn.execute('PRAGMA foreign_keys = ON')
     try:
         cur = conn.execute(
@@ -413,7 +464,7 @@ def unpublish(db_path, project, block, phase, milestone):
 # ─── Readers ────────────────────────────────────────────────────────────────
 
 def get_project_info(db_path, project):
-    conn = sqlite3.connect(db_path)
+    conn = _connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         row = conn.execute('SELECT * FROM project_info WHERE project=?',
@@ -424,7 +475,7 @@ def get_project_info(db_path, project):
 
 
 def list_blocks(db_path, project):
-    conn = sqlite3.connect(db_path)
+    conn = _connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         rows = conn.execute(
@@ -437,7 +488,7 @@ def list_blocks(db_path, project):
 
 def list_published(db_path, project):
     """Every published cell — no children, use `get_published(id)` for detail."""
-    conn = sqlite3.connect(db_path)
+    conn = _connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         rows = conn.execute("""
@@ -452,7 +503,7 @@ def list_published(db_path, project):
 
 def get_published(db_path, published_run_id):
     """Full detail: row + metrics + checklist + files."""
-    conn = sqlite3.connect(db_path)
+    conn = _connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         row = conn.execute('SELECT * FROM published_runs WHERE id=?',
@@ -486,7 +537,7 @@ def get_published(db_path, published_run_id):
 
 def get_timing(db_path, published_run_id):
     """Return {clock_groups: [...], units, n_groups, n_paths} or None."""
-    conn = sqlite3.connect(db_path)
+    conn = _connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         row = conn.execute(
@@ -530,7 +581,7 @@ def set_timing(db_path, published_run_id, timing):
         return
     groups = timing['clock_groups']
     n_paths = sum(len(g.get('paths') or []) for g in groups)
-    conn = sqlite3.connect(db_path)
+    conn = _connect(db_path)
     try:
         conn.execute(
             'DELETE FROM run_timing WHERE published_run_id=?',
@@ -551,7 +602,7 @@ def get_floorplan(db_path, published_run_id):
 
     Returns None if no floorplan was captured for this row.
     """
-    conn = sqlite3.connect(db_path)
+    conn = _connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         row = conn.execute(

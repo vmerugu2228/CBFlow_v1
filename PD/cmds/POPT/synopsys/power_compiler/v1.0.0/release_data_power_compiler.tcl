@@ -189,9 +189,13 @@ flow_proc generate_release_output {
         puts $fp "======================================================="
         puts $fp "Flow:    POPT (Power Optimization)"
         puts $fp "Tool:    Synopsys Power Compiler"
-        if {[info exists ::project(DESIGN_NAME)]} {
-            puts $fp "Design:  $::project(DESIGN_NAME)"
-        }
+        # design_name resolved at line 53 above:
+        #   popt(common,design_name) || flow(design_name) || "popt"
+        # Pre 2026-11-03 this read $::project(DESIGN_NAME) (uppercase +
+        # project-scope) — no config sets that key, so the Design: line
+        # was silently omitted from every POPT release manifest. Use the
+        # already-resolved local instead.
+        puts $fp "Design:  $design_name"
         puts $fp ""
         puts $fp "Deliverables:"
         foreach f [glob -nocomplain "$rd/reports/*.rpt" "$rd/reports/popt/*/*.rpt" "$rd/netlist/*" "$rd/db/*"] {

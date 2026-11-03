@@ -2415,12 +2415,21 @@ class RaceEngine:
                 except (ProcessLookupError, PermissionError, OSError):
                     try:
                         proc.kill()
-                    except Exception:
-                        pass
-            self._running_processes.pop(job.name, None)
+                    except OSError as _kill_err:
+                        logger.warning(
+                            f"proc.kill() for {job.name} raised {_kill_err!r} "
+                            f"— process already gone or killpg succeeded first.")
+            # Mutating _running_processes requires _state_lock — the signal
+            # handler iterates the dict concurrently to issue bkill/killpg.
+            # The old `pop` without the lock could race with the handler
+            # mid-iteration and raise RuntimeError (dict mutated during iter)
+            # or send a kill to a stale PID that was recycled.
+            with self._state_lock:
+                self._running_processes.pop(job.name, None)
             error_msg = f"Execution error: {str(e)}\nCommand: {job.command}"
             self.db.record_complete(job, 1, error_msg)
-            logger.error(f"  [{job.stage}/{job.subnode}] ERROR: {e}")
+            logger.error(f"  [{job.stage}/{job.subnode}] ERROR: {e}",
+                         exc_info=True)
             return 1
 
     def force_stop_job(self, job_name: str) -> dict:
@@ -2471,8 +2480,13 @@ class RaceEngine:
                         proc.kill()
                     killed.append(f'{name} (kill pid={proc.pid})')
 
-                self._running_processes.pop(name, None)
-                job.status = Job.READY
+                # Hold _state_lock across the pop + status flip so the
+                # main DAG tick doesn't observe status=READY before
+                # _running_processes clears it (and vice versa for the
+                # signal handler).
+                with self._state_lock:
+                    self._running_processes.pop(name, None)
+                    job.status = Job.READY
                 if self.db:
                     self.db.record_complete(job, 137, 'Force-stopped by user')
 
