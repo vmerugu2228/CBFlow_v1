@@ -244,11 +244,20 @@ proc ::CBFlow::Config::get_tool_path_with_version {flow_type {version_var ""}} {
 # ┌─ Phases and Milestones ───────────────────────────────────────────────────┐
 
 proc ::CBFlow::Config::get_phases {} {
+    # Phases are project-defined — each project sets project(phases) in
+    # its <proj>_config.tcl (bumblebee: LC1-LC5, denali: its own list).
+    # Prefer project(phases); fall through to flow(phases) only for the
+    # legacy global declaration. Error out loudly if neither is set — pre
+    # 2026-11-03 we returned a hard-coded `{P0 P1 P2 P3}` which silently
+    # misread any project using a different naming scheme.
     _ensure_flow_config
-    if {[info exists ::flow(phases)]} {
+    if {[info exists ::project(phases)] && [llength $::project(phases)] > 0} {
+        return $::project(phases)
+    }
+    if {[info exists ::flow(phases)] && [llength $::flow(phases)] > 0} {
         return $::flow(phases)
     }
-    return {P0 P1 P2 P3}
+    error "project(phases) not declared — add `set project(phases) {...}` to the project config at global/config/project/<proj>/v1.0.0/<proj>_config.tcl"
 }
 
 proc ::CBFlow::Config::get_phase_description {phase} {

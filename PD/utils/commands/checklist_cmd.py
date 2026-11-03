@@ -47,7 +47,16 @@ _PHASE_ORDER_CACHE: dict = {}
 
 
 def _phase_order(run_dir: str = None) -> dict:
-    """Return {phase_name: index} for the project associated with run_dir."""
+    """Return {phase_name: index} for the project associated with run_dir.
+
+    Pre 2026-11-03 this fell back to a hard-coded `['P0','P1','P2','P3']`
+    when `get_phases()` returned empty, which silently misled projects
+    using other phase names (bumblebee uses LC1-LC5) into treating every
+    phase as unknown. The fallback is gone — phases must come from
+    `project(phases)` in the project config. Callers invoking this
+    without a run_dir may get an empty dict (indicating no project
+    context); _phase_index guards against that explicitly.
+    """
     key = run_dir or ''
     if key in _PHASE_ORDER_CACHE:
         return _PHASE_ORDER_CACHE[key]
@@ -56,8 +65,6 @@ def _phase_order(run_dir: str = None) -> dict:
         phases = get_phases(run_dir=run_dir)
     except Exception:
         phases = []
-    if not phases:
-        phases = ['P0', 'P1', 'P2', 'P3']
     order = {p.upper(): i for i, p in enumerate(phases)}
     _PHASE_ORDER_CACHE[key] = order
     return order
@@ -95,6 +102,17 @@ def _phase_index(phase_name: str, run_dir: str = None) -> int:
     if s.isdigit():
         return int(s)
     order = _phase_order(run_dir)
+    if not order:
+        # No phase list resolved — project config is incomplete. Fail
+        # loud; prior behavior silently fell back to P0-P3 and misled
+        # projects using LC1-LC5 (bumblebee) or other naming schemes.
+        raise RuntimeError(
+            f"_phase_index: project(phases) is empty or unresolved. "
+            f"Phases are project-defined and must be declared in "
+            f"global/config/project/<proj>/v1.0.0/<proj>_config.tcl "
+            f"as `set project(phases) {{P0 P1 P2 P3}}` (or LC1-LC5, "
+            f"or whatever your project uses). Called with "
+            f"phase_name={phase_name!r} run_dir={run_dir!r}.")
     if s.upper() not in order:
         logger.warning(
             f'_phase_index: phase {s!r} not in project phase list '
@@ -1929,7 +1947,10 @@ def _detect_phase(run_dir: str) -> str:
 
     Resolution order:
       1. SQLite DB: run_config 'env.CBFLOW_PROJECT_PHASE'
-      2. Run dir name prefix: P0_run_..., P1_run_..., P2_run_..., P3_run_...
+      2. Run dir name prefix matching the project's declared phase list
+         (bumblebee uses LC1-LC5; other projects declare their own in
+         project(phases)). Pre 2026-11-03 this iterated a hard-coded
+         ('P0','P1','P2','P3') tuple, silently misreading LC1_run_* dirs.
       3. Empty string (no phase filtering)
     """
     # Try DB first
@@ -1946,10 +1967,11 @@ def _detect_phase(run_dir: str) -> str:
         except (sqlite3.OperationalError, OSError):
             pass
 
-    # Try run dir name prefix
+    # Try run dir name prefix against the project's phase list.
     dirname = os.path.basename(os.path.abspath(run_dir))
-    for p in ('P0', 'P1', 'P2', 'P3'):
-        if dirname.startswith(f'{p}_'):
+    order = _phase_order(run_dir)
+    for p in order.keys():
+        if dirname.upper().startswith(f'{p}_'):
             return p
 
     return ''
@@ -2270,14 +2292,19 @@ def _format_summary(milestone: str, info: dict, checks: list, phase: str, cfg: d
         f = sum(1 for c in cc if c['status'] == 'FAIL')
         L.append(f'  {cat:<12} {len(cc):>6}  {p:>6} {f:>6}')
 
-    # By phase
+    # By phase. The project's phase list drives the display order so
+    # bumblebee's LC1-LC5 (or any custom scheme) renders in sequence.
     phases = {}
     for c in checks:
         phases.setdefault(c['phase'], []).append(c)
     L.append(f'\n  BY PHASE:')
     L.append(f'  {"Phase":<12} {"Count":>6}')
     L.append(f'  {thin}')
-    for p in ['P0', 'P1', 'P2', 'P3']:
+    proj_phases = list(_phase_order().keys())
+    # Phases present in results but NOT in project(phases) still render,
+    # appended after the ordered list — surfaces drift ("ran against P1
+    # but project declares LC1-LC5") instead of silently hiding rows.
+    for p in proj_phases + [x for x in phases if x and x.upper() not in {q.upper() for q in proj_phases}]:
         if p in phases:
             L.append(f'  {p:<12} {len(phases[p]):>6}')
 

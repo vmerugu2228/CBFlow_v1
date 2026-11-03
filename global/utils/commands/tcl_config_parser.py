@@ -437,19 +437,22 @@ def get_dft_master_config(project: str, block: str = '') -> Dict[str, Any]:
 
 
 def get_phases(run_dir: Optional[str] = None) -> List[str]:
-    """Return the phase list for a project.
+    """Return the phase list for the active project.
 
-    Phases are project-specific — each project sets `project(phases)`
-    (e.g. bumblebee uses LC1-LC5, another might use P0-P3). Falls back to
-    the legacy global `flow(phases)` only if the project didn't declare
-    its own — that fallback keeps older configs working during migration
-    and should be removed once every project sets project(phases).
+    Phases are project-defined — each project MUST set `project(phases)`
+    in its `<proj>_config.tcl` (e.g. bumblebee uses LC1-LC5, denali uses
+    its own list). Returns an empty list when `project(phases)` isn't
+    declared; callers (checklist, release, dashboard phase chips) should
+    treat empty as a config error and refuse to proceed rather than
+    silently fall back.
+
+    Pre 2026-11-03 this fell back to `flow(phases)` (which no project
+    actually sets) and then to a hardcoded P0-P3 in callers like
+    checklist_cmd._phase_order. Both fallbacks silently misled projects
+    using non-P0 naming schemes.
     """
     cfg = _resolved(_baseline_flow(), run_dir=run_dir)
-    return _parse_tcl_list(
-        _cfg.optional(cfg, 'project(phases)') or
-        _cfg.optional(cfg, 'flow(phases)') or ''
-    )
+    return _parse_tcl_list(_cfg.optional(cfg, 'project(phases)') or '')
 
 
 def get_phase_descriptions() -> Dict[str, str]:

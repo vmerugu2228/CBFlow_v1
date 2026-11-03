@@ -323,6 +323,19 @@ foreach key {tool,vendor tool,name tool,version tool,args supported_tools defaul
     _emit_array_key $flow_array $key
 }
 
+# ── project(*) — identity (name, phases, technology, top_module, …) +
+# discipline overlay keys (workarea_path, lib_root, release,*, dft,* …).
+# Pre 2026-11-03 the resolver sourced the project configs but never
+# serialized `project(*)` back to Python, so helpers like get_phases()
+# couldn't see project(phases) even when it was correctly set in the
+# project config. The project cascade is already sourced upstream (lines
+# 165-198); here we just emit every key for Python callers.
+if {[info exists ::project]} {
+    foreach key [lsort [array names ::project]] {
+        puts "CBFLOW_CFG:project($key)=[_flatten $::project($key)]"
+    }
+}
+
 # ── flow(*) — runtime/dispatch booleans, defaults set in flow_config.tcl,
 # overridable in user_config.tcl. Every key here MUST be set somewhere in the
 # cascade — race_engine.py asserts via require(). ──
