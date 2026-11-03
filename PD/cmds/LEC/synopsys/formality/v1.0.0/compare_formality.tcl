@@ -101,7 +101,13 @@ flow_proc read_reference_design {
         handle_info "Running: $set_top_cmd"
         eval $set_top_cmd
     } elseif {[info exists lec(input,ref_ndm)] && $lec(input,ref_ndm) ne ""} {
-        # Reference is an NDM block
+        # Reference is an NDM block. Guard ref_ndm_block separately — a run
+        # that sets ref_ndm but not ref_ndm_block would crash with
+        # "no such variable lec(input,ref_ndm_block)" instead of a clean
+        # config-missing error.
+        if {![info exists lec(input,ref_ndm_block)] || $lec(input,ref_ndm_block) eq ""} {
+            handle_error "lec(input,ref_ndm) set but lec(input,ref_ndm_block) is missing — specify the NDM block name"
+        }
         set read_ndm_cmd "read_ndm -r $lec(input,ref_ndm) -block ${design_name}/$lec(input,ref_ndm_block)"
         handle_info "Running: $read_ndm_cmd"
         eval $read_ndm_cmd
@@ -126,6 +132,11 @@ flow_proc read_implementation_design {
         handle_info "Reading revised netlist: $lec(input,netlist_revised)"
         read_verilog -i $lec(input,netlist_revised)
     } elseif {[info exists lec(input,imp_ndm)] && $lec(input,imp_ndm) ne ""} {
+        # Same guard as the reference-NDM branch above — missing block name
+        # would crash eval instead of surfacing the config miss.
+        if {![info exists lec(input,imp_ndm_block)] || $lec(input,imp_ndm_block) eq ""} {
+            handle_error "lec(input,imp_ndm) set but lec(input,imp_ndm_block) is missing — specify the NDM block name"
+        }
         set read_ndm_cmd "read_ndm -i $lec(input,imp_ndm) -block ${design_name}/$lec(input,imp_ndm_block)"
         handle_info "Running: $read_ndm_cmd"
         eval $read_ndm_cmd

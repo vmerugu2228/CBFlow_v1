@@ -29,6 +29,15 @@ flow_proc export_timing_reports {
     set run_dir $::env(CBFLOW_RUN_DIR)
     set dest_dir "$run_dir/results/sta/timing_reports"
 
+    # Guard — mmmc_active_scenarios is set by mmmc_config.tcl which is
+    # sourced via the standard bootstrap. If this handler is invoked
+    # standalone (e.g. tclsh for debugging) without the full source
+    # chain, the foreach below would crash with "no such variable".
+    if {![info exists mmmc_active_scenarios] || [llength $mmmc_active_scenarios] == 0} {
+        handle_warning "mmmc_active_scenarios not set — nothing to export (check mmmc_config.tcl sourced via bootstrap)"
+        return
+    }
+
     # Copy per-scenario setup reports
     foreach scenario $mmmc_active_scenarios {
         set setup_rpt "$run_dir/reports/sta/setup_timing_${scenario}.rpt"

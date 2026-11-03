@@ -93,20 +93,35 @@ flow_proc run_fill_merge_gds {
             }
             handle_warning "Calibre fill verification returned non-zero (may have DRC deltas): $_r"
             # Tool crashed non-fatally — mark FAIL so downstream sees
-            # the real tool result instead of a sanitized PASS.
-            catch {catch {file copy -force $::fmg_input $::fmg_out}}
+            # the real tool result instead of a sanitized PASS. Still try
+            # to stage the input GDS so downstream has a filename, but
+            # surface a FAIL on copy failure instead of masking it.
+            if {[catch {file copy -force $::fmg_input $::fmg_out} _cp_err]} {
+                handle_warning "Fill-merge stage: input GDS copy failed: $_cp_err"
+            }
             set ::fmg_status "FAIL"
         } else {
-            # Copy merged GDS through unchanged (the runset validates only)
-            catch {catch {file copy -force $::fmg_input $::fmg_out}}
-            set ::fmg_status "PASS"
+            # Copy merged GDS through unchanged (the runset validates only).
+            # Pre-fix was `catch {catch {file copy …}}` — nested catches
+            # with no result var, so a copy failure silently kept
+            # fmg_status=PASS with no output file.
+            if {[catch {file copy -force $::fmg_input $::fmg_out} _cp_err]} {
+                handle_warning "Fill-merge stage: validated-GDS copy failed: $_cp_err"
+                set ::fmg_status "FAIL"
+            } else {
+                set ::fmg_status "PASS"
+            }
         }
     } else {
         # No fill runset — just pass the merged GDS through so downstream
         # stages have a stable filename.
         handle_info "No fill runset available — copy-only passthrough"
-        catch {file copy -force $::fmg_input $::fmg_out}
-        set ::fmg_status "PASS"
+        if {[catch {file copy -force $::fmg_input $::fmg_out} _cp_err]} {
+            handle_warning "Fill-merge passthrough: input GDS copy failed: $_cp_err"
+            set ::fmg_status "FAIL"
+        } else {
+            set ::fmg_status "PASS"
+        }
     }
     handle_info "Fill merge validation completed"
 }

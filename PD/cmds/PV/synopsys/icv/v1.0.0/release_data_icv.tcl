@@ -19,9 +19,6 @@ setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 # Source release utilities for ::CBFlow::Release namespace
 set _ru "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
 if {[file exists $_ru]} { source $_ru }
-# Source release utilities for ::CBFlow::Release namespace
-set _ru "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
-if {[file exists $_ru]} { source $_ru }
 # ==============================================================================
 flow_proc init_release {
     handle_info "Initializing release..."
@@ -87,41 +84,59 @@ flow_proc prepare_release {
         file mkdir "$release_dir/$sub_dir"
     }
 
+    # Helper: copy one file into the staging dir, logging the failure
+    # path. Pre-fix every `catch {file copy …}` silently swallowed
+    # errors — perms miss, disk full, or stale NFS handle would leave
+    # the release dir incomplete with no error surfaced to the user.
+    proc _stage_file {src dest kind count_ref} {
+        upvar 1 $count_ref _n
+        if {[catch {file copy -force $src $dest} _copy_err]} {
+            handle_warning "${kind} stage: file copy failed for $src → $dest: $_copy_err"
+            return 0
+        }
+        incr _n
+        return 1
+    }
+
     # Copy DRC results
     set drc_files [glob -nocomplain "$run_dir/results/drc/*" "$run_dir/reports/pv/drc/*"]
+    set drc_ok 0
     foreach f $drc_files {
         if {[file isfile $f]} {
-            catch {file copy -force $f "$release_dir/drc/[file tail $f]"}
+            _stage_file $f "$release_dir/drc/[file tail $f]" DRC drc_ok
         }
     }
-    handle_info "DRC results staged: [llength $drc_files] file(s)"
+    handle_info "DRC results staged: $drc_ok / [llength $drc_files] file(s)"
 
     # Copy LVS results
     set lvs_files [glob -nocomplain "$run_dir/results/lvs/*" "$run_dir/reports/pv/lvs/*"]
+    set lvs_ok 0
     foreach f $lvs_files {
         if {[file isfile $f]} {
-            catch {file copy -force $f "$release_dir/lvs/[file tail $f]"}
+            _stage_file $f "$release_dir/lvs/[file tail $f]" LVS lvs_ok
         }
     }
-    handle_info "LVS results staged: [llength $lvs_files] file(s)"
+    handle_info "LVS results staged: $lvs_ok / [llength $lvs_files] file(s)"
 
     # Copy ERC results
     set erc_files [glob -nocomplain "$run_dir/results/erc/*" "$run_dir/reports/pv/erc/*"]
+    set erc_ok 0
     foreach f $erc_files {
         if {[file isfile $f]} {
-            catch {file copy -force $f "$release_dir/erc/[file tail $f]"}
+            _stage_file $f "$release_dir/erc/[file tail $f]" ERC erc_ok
         }
     }
-    handle_info "ERC results staged: [llength $erc_files] file(s)"
+    handle_info "ERC results staged: $erc_ok / [llength $erc_files] file(s)"
 
     # Copy PERC results
     set perc_files [glob -nocomplain "$run_dir/results/perc/*" "$run_dir/reports/pv/perc/*"]
+    set perc_ok 0
     foreach f $perc_files {
         if {[file isfile $f]} {
-            catch {file copy -force $f "$release_dir/perc/[file tail $f]"}
+            _stage_file $f "$release_dir/perc/[file tail $f]" PERC perc_ok
         }
     }
-    handle_info "PERC results staged: [llength $perc_files] file(s)"
+    handle_info "PERC results staged: $perc_ok / [llength $perc_files] file(s)"
 
     # Copy merged summary
     if {[file exists "$run_dir/reports/pv/pv_merged_summary.rpt"]} {
