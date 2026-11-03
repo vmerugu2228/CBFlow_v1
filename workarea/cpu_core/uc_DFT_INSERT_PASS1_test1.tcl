@@ -1,0 +1,13 @@
+set project(name) bumblebee
+set project(phase) LC1
+set flow(type) DFT_INSERT_PASS1
+set flow(design_name) processor_core
+set flow(run_name) test1
+set flow(test_mode) true
+
+set dft_insert_pass1(input,rtl)         /Users/vmerugu/projects/CBflow_clone/inputs/rtl.list
+set dft_insert_pass1(input,dft_spec)    /Users/vmerugu/projects/CBflow_clone/inputs/dft_spec.tcl
+set dft_insert_pass1(input,memory_libs) /tmp/test_libs/gf_22nm/memories/SYNC_1RW_8Kx16.tcd_memory
+set dft_insert_pass1(input,tcelllib)    /tmp/test_libs/gf_22nm/standard_cells/tessent/adk.tcelllib
+
+set dft_insert_pass1(tool,name) tessent

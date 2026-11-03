@@ -1,0 +1,4 @@
+BSCAN configuration — processor_core
+Enabled: auto
+Cell template: BC_1
+Bypass register: true

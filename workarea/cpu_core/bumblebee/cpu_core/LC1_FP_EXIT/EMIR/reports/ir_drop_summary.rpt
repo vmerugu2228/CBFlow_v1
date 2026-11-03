@@ -1,0 +1,24 @@
+================================================================
+CBFlow EMIR IR Drop Analysis Summary - Voltus
+================================================================
+Generated: epoch 1793516125
+Tool: Cadence Voltus
+Design: cpu_core
+
+Configuration:
+
+Static IR Reports:
+  VDD IR drop:        ir_drop/ir_drop_vdd.rpt
+  VSS IR drop:        ir_drop/ir_drop_vss.rpt
+  Worst instances:    ir_drop/worst_ir_instances.rpt
+  By instance:        ir_drop/ir_drop_by_instance.rpt
+  Voltage:            ir_drop/voltage_vdd.rpt
+  Current density:    ir_drop/current_density_vdd.rpt
+  PG integrity:       ir_drop/pg_integrity.rpt
+
+EM Reports:
+  Violations:         em/em_violations.rpt
+  Detail:             em/em_detail.rpt
+  Power nets:         em/em_power_nets.rpt
+  Signal nets:        em/em_signal_nets.rpt
+  Summary:            em/em_summary.rpt

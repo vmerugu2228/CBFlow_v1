@@ -1,0 +1,22 @@
+================================================================
+CBFlow EMIR Thermal Analysis Summary - Voltus
+================================================================
+Generated: epoch 1793516129
+Tool: Cadence Voltus
+Design: cpu_core
+
+Configuration:
+  Max temperature limit:  125C
+
+Note: Voltus integrates thermal into power analysis.
+      Temperature-dependent leakage and IR drop are computed
+      using the configured junction/ambient temperatures.
+      Power density serves as proxy for thermal hotspot detection.
+
+Reports Generated:
+  Thermal power:      thermal/thermal_power.rpt
+  Thermal leakage:    thermal/thermal_leakage.rpt
+  Thermal IR drop:    thermal/thermal_ir_drop.rpt
+  IR at temperature:  thermal/ir_drop_at_temp.rpt
+  Thermal results:    thermal/thermal_results.rpt
+  Power density:      thermal/power_density.rpt

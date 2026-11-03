@@ -1,0 +1,20 @@
+================================================================
+CBFlow EMIR Power Analysis Summary - Voltus
+================================================================
+Generated: epoch 1793516122
+Tool: Cadence Voltus
+Design: cpu_core
+
+Configuration:
+  Analysis mode:    
+
+Reports Generated:
+  Power summary:     power/power_summary.rpt
+  Hierarchy:         power/power_hierarchy.rpt
+  Leakage:           power/power_leakage.rpt
+  Internal:          power/power_internal.rpt
+  Switching:         power/power_switching.rpt
+  Per-instance:      power/power_per_instance.rpt
+  PG check:          power/pg_check.rpt
+  IR drop (quick):   power/ir_drop_quick.rpt
+  Final:             power/power_final.rpt

@@ -283,7 +283,7 @@ def tc5_4():
 def tc5_5():
     result = subprocess.run(
         ['tclsh', '-c', '''
-source PD/config/exit/v1.0.0/threshold_overrides.tcl
+source global/config/exit/v1.0.0/threshold_overrides.tcl
 set v [get_threshold bumblebee PLACE_EXIT setup_wns P0]
 if {$v != -150} { error "Expected -150, got $v" }
 set v2 [get_threshold unknown BTO drc_violations P3]

@@ -546,7 +546,10 @@ def cat7_log_parsing(results, pd_dir, flows):
     else:
         results.failed(suite, category, 'utils.tcl missing')
 
-    exit_dir = os.path.join(pd_dir, 'config', 'exit', 'v1.0.0')
+    # Exit configs moved from PD/config/exit → global/config/exit on
+    # 2026-11-03 (discipline-owned milestones, centrally declared).
+    global_dir = os.path.join(os.path.dirname(pd_dir), 'global')
+    exit_dir = os.path.join(global_dir, 'config', 'exit', 'v1.0.0')
     if os.path.isdir(exit_dir):
         milestones = [f.replace('_config.tcl', '') for f in os.listdir(exit_dir)
                       if f.endswith('_config.tcl') and f not in (

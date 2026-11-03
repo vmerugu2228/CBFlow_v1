@@ -1,0 +1,3 @@
+thermal_analysis Summary - Sun Nov 01 12:25:29 IST 2026
+Max IR drop: 12.3 mV
+Status: PASS

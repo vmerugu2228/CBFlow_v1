@@ -129,7 +129,7 @@ def t1_7():
 @test("threshold_overrides.tcl resolves correctly")
 def t1_8():
     r = subprocess.run(['tclsh', '-c', '''
-source PD/config/exit/v1.0.0/threshold_overrides.tcl
+source global/config/exit/v1.0.0/threshold_overrides.tcl
 set v [get_threshold bumblebee PLACE_EXIT setup_wns P0]
 if {$v != -150} { error "Expected -150, got $v" }
 '''], capture_output=True, text=True, cwd=CBFLOW_ROOT)

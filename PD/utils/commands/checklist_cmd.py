@@ -124,11 +124,31 @@ from _tcl_utils import find_balanced_close as _tcl_find_balanced_close
 from _tcl_utils import tcl_quote as _tcl_quote
 
 
-def get_exit_config_dir() -> str:
-    """Get exit criteria config directory."""
+def _resolve_global_dir() -> str:
+    """Resolve CBFLOW_GLOBAL_DIR, falling back to deriving from core_dir."""
+    g = os.environ.get('CBFLOW_GLOBAL_DIR') or ''
+    if g and os.path.isdir(g):
+        return g
+    # Fallback: global/ is a sibling of PD/ (CBFLOW_CORE_DIR). The checklist
+    # was PD-only pre 2026-11-03 so this fallback never fired until the
+    # exit-config layer moved under global/.
     core_dir = get_cbflow_core_dir()
+    repo_root = os.path.dirname(core_dir)
+    return os.path.join(repo_root, 'global')
+
+
+def get_exit_config_dir() -> str:
+    """Get exit criteria config directory.
+
+    Post 2026-11-03 the exit-config layer lives at `global/config/exit/`
+    (not under PD/) — exit milestones are discipline-owned but centrally
+    declared, so every discipline reads from the same global tree. The
+    `milestone_info(discipline)` field inside each config declares which
+    discipline owns the milestone.
+    """
+    global_dir = _resolve_global_dir()
     version = get_flow_config_version()
-    return os.path.join(core_dir, 'config', 'exit', version)
+    return os.path.join(global_dir, 'config', 'exit', version)
 
 
 def get_milestone_config_path(milestone: str) -> str:
@@ -136,14 +156,46 @@ def get_milestone_config_path(milestone: str) -> str:
     return os.path.join(get_exit_config_dir(), f'{milestone}_config.tcl')
 
 
-def get_available_milestones() -> list:
-    """Scan the exit config directory for available milestone configs."""
+def get_milestone_discipline(milestone: str) -> str:
+    """Return the discipline owning `milestone` ('PD' / 'DFT' / 'DV').
+
+    Reads `set milestone_info(discipline) "..."` from the milestone's
+    config file. Returns '' when the field is absent (treat as unassigned
+    — list / list-checks will show the milestone under every discipline
+    filter in that case, to avoid silently hiding it).
+    """
+    path = get_milestone_config_path(milestone)
+    if not os.path.exists(path):
+        return ''
+    try:
+        with open(path) as f:
+            content = f.read()
+    except OSError:
+        return ''
+    m = re.search(r'set\s+milestone_info\(discipline\)\s+"([^"]*)"', content)
+    return m.group(1).upper() if m else ''
+
+
+def get_available_milestones(discipline: str = '') -> list:
+    """Scan the exit config directory for milestone configs.
+
+    When `discipline` is set (one of 'PD', 'DFT', 'DV'), only milestones
+    whose `milestone_info(discipline)` matches (case-insensitive) are
+    returned. Untagged milestones (missing discipline field) are included
+    in every filtered list — this avoids silently hiding a milestone
+    whose discipline tag was forgotten.
+    """
     config_dir = get_exit_config_dir()
     if not os.path.isdir(config_dir):
         return []
     skip = ('waiver_config.tcl', 'threshold_overrides.tcl', 'remediation_config.tcl')
-    return sorted(f.replace('_config.tcl', '') for f in os.listdir(config_dir)
-                  if f.endswith('_config.tcl') and f not in skip)
+    all_ms = sorted(f.replace('_config.tcl', '') for f in os.listdir(config_dir)
+                    if f.endswith('_config.tcl') and f not in skip)
+    if not discipline:
+        return all_ms
+    disc = discipline.upper()
+    return [m for m in all_ms
+            if get_milestone_discipline(m) in ('', disc)]
 
 
 def parse_milestone_info(content: str) -> dict:
@@ -1152,6 +1204,9 @@ def cmd_signoff(args: argparse.Namespace) -> int:
     milestone, run_dir, approver = args.milestone, args.run_dir, args.approver
     phase = getattr(args, 'phase', '') or ''
 
+    if _verify_discipline_matches(args, milestone) != 0:
+        return 1
+
     # Auto-detect phase from run if not provided
     if not phase:
         phase = _detect_phase(run_dir)
@@ -1304,20 +1359,28 @@ def cmd_signoff(args: argparse.Namespace) -> int:
 
 def cmd_list(args: argparse.Namespace) -> int:
     """List all available milestones with their check counts and descriptions."""
-    milestones = get_available_milestones()
+    disc_filter = (getattr(args, 'discipline', '') or '').upper()
+    milestones = get_available_milestones(discipline=disc_filter)
     if not milestones:
-        logger.error(f"No milestone configs found at {get_exit_config_dir()}")
+        if disc_filter:
+            logger.error(f"No {disc_filter} milestones defined under {get_exit_config_dir()}")
+        else:
+            logger.error(f"No milestone configs found at {get_exit_config_dir()}")
         return 1
 
-    logger.info(f'\n{"="*80}\n  AVAILABLE EXIT MILESTONES\n{"="*80}')
+    hdr = f'  AVAILABLE EXIT MILESTONES'
+    if disc_filter:
+        hdr += f'  —  discipline={disc_filter}'
+    logger.info(f'\n{"="*80}\n{hdr}\n{"="*80}')
     logger.info(f'  Config directory: {get_exit_config_dir()}')
-    logger.info(f'  {"Milestone":<16} {"Stage":<14} {"Mand":>5} {"Opt":>5} {"Lib":>5}  Description')
-    logger.info(f'  {"─"*16} {"─"*14} {"─"*5} {"─"*5} {"─"*5}  {"─"*30}')
+    logger.info(f'  {"Milestone":<18} {"Disc":<5} {"Stage":<14} {"Mand":>5} {"Opt":>5} {"Lib":>5}  Description')
+    logger.info(f'  {"─"*18} {"─"*5} {"─"*14} {"─"*5} {"─"*5} {"─"*5}  {"─"*30}')
 
     for ms_name in milestones:
         cfg = parse_milestone_config(get_milestone_config_path(ms_name))
         info = cfg.get('milestone_info', {})
-        logger.info(f'  {ms_name:<16} {info.get("stage",""):<14} '
+        disc = (info.get('discipline', '') or '').upper() or '-'
+        logger.info(f'  {ms_name:<18} {disc:<5} {info.get("stage",""):<14} '
                     f'{len(cfg.get("mandatory_checks",{})):>5} '
                     f'{len(cfg.get("optional_checks",{})):>5} '
                     f'{len(cfg.get("library_checks",{})):>5}  '
@@ -1389,9 +1452,23 @@ def _waiver_add(args: argparse.Namespace) -> int:
     config, _ = _load_and_validate_config(milestone)
     if not config:
         return 1
-    all_checks = set(config.get('mandatory_checks', {}).keys()) | set(config.get('optional_checks', {}).keys())
+
+    if _verify_discipline_matches(args, milestone) != 0:
+        return 1
+
+    # Include library_checks — pre-fix the validator only knew about
+    # mandatory + optional, so library checks like `setup_wns` (critical
+    # at BTO) were silently un-waivable despite being evaluated at
+    # sign-off.
+    all_checks = (
+        set(config.get('mandatory_checks', {}).keys())
+        | set(config.get('optional_checks', {}).keys())
+        | set(config.get('library_checks', {}).keys())
+    )
     if check not in all_checks:
-        logger.error(f"Check '{check}' not in {milestone}. Available: {', '.join(sorted(all_checks))}")
+        logger.error(f"Check '{check}' not in {milestone}. "
+                     f"Available (mandatory + optional + library): "
+                     f"{', '.join(sorted(all_checks))}")
         return 1
 
     # Generate next waiver ID
@@ -1463,6 +1540,30 @@ def _waiver_revoke(args: argparse.Namespace) -> int:
 # CHECK MANAGEMENT — add, remove, list checks in milestone configs
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def _verify_discipline_matches(args: argparse.Namespace, milestone: str) -> int:
+    """Return 0 when --discipline is omitted or matches the milestone's
+    `milestone_info(discipline)`; non-zero (and logs error) otherwise.
+
+    Lets operators guard against typos — e.g. passing --discipline DFT
+    on a PD milestone fails fast instead of silently editing the wrong
+    config.
+    """
+    want = (getattr(args, 'discipline', '') or '').upper()
+    if not want:
+        return 0
+    actual = get_milestone_discipline(milestone)
+    if not actual:
+        logger.warning(f"Milestone '{milestone}' has no discipline tag — "
+                       f"accepting --discipline={want} but recommend tagging the config.")
+        return 0
+    if actual != want:
+        logger.error(f"--discipline={want} does not match milestone '{milestone}' "
+                     f"which is owned by {actual}. Drop --discipline to proceed, "
+                     f"or verify the milestone name.")
+        return 1
+    return 0
+
+
 def cmd_add_check(args: argparse.Namespace) -> int:
     """Add a check to a milestone config file.
 
@@ -1495,6 +1596,9 @@ def cmd_add_check(args: argparse.Namespace) -> int:
     if not os.path.exists(config_path):
         logger.error(f"Milestone config not found: {config_path}")
         logger.error(f"Available milestones: {', '.join(get_available_milestones())}")
+        return 1
+
+    if _verify_discipline_matches(args, milestone) != 0:
         return 1
 
     with open(config_path, 'r') as f:
@@ -1677,6 +1781,9 @@ def cmd_remove_check(args: argparse.Namespace) -> int:
         logger.error(f"Milestone config not found: {config_path}")
         return 1
 
+    if _verify_discipline_matches(args, milestone) != 0:
+        return 1
+
     with open(config_path, 'r') as f:
         content = f.read()
 
@@ -1686,39 +1793,55 @@ def cmd_remove_check(args: argparse.Namespace) -> int:
         logger.error(f"Check '{check_name}' not found in {milestone}")
         return 1
 
-    # Remove from mandatory_checks or optional_checks
-    # Pattern: "check_name" { ... }  (with brace-depth counting)
+    # Remove from mandatory_checks or optional_checks.
+    #
+    # Previous implementation used a non-greedy regex for the array body:
+    #   r'(array set <name> \{)(.*?)(\})'
+    # which stopped at the FIRST `}` inside the body — typically the close
+    # of the first check entry — truncating the search space. For a target
+    # entry past that first `}`, the search would miss, fall through to a
+    # file-path strip that removed only the quoted name and left the body
+    # dict dangling, producing malformed TCL like:
+    #    "prev_check" { ... } { "description" ... }
+    # Fix: use brace-depth counting to find the array's actual closing `}`.
     removed = False
     for array_name in ('mandatory_checks', 'optional_checks'):
-        pattern = rf'(array\s+set\s+{array_name}\s+\{{)(.*?)(\}})'
-        m = re.search(pattern, content, re.DOTALL)
-        if not m:
+        open_m = re.search(rf'array\s+set\s+{array_name}\s+\{{', content)
+        if not open_m:
             continue
-        block = m.group(2)
-        # Find and remove the check entry
+        body_start = open_m.end()
+        body_end = _tcl_find_balanced_close(content, body_start, open_depth=1)
+        if body_end < 0:
+            continue  # malformed existing config — leave for a human
+        block = content[body_start:body_end]
+
         entry_pat = rf'\s*"{re.escape(check_name)}"\s*\{{'
         em = re.search(entry_pat, block)
         if not em:
             continue
-        # Count braces to find end of entry
+        # Count braces to find end of this entry
         pos = em.end()
         depth = 1
         while pos < len(block) and depth > 0:
             if block[pos] == '{': depth += 1
             elif block[pos] == '}': depth -= 1
             pos += 1
-        # Remove the entry
         new_block = block[:em.start()] + block[pos:]
-        content = content[:m.start()] + f'{m.group(1)}{new_block}{m.group(3)}' + content[m.end():]
+        content = content[:body_start] + new_block + content[body_end:]
         removed = True
         logger.info(f'Removed "{check_name}" from {array_name} in {milestone}')
         break
 
-    # Also remove from mandatory_files if it's a file check
-    file_pat = rf'\s*"{re.escape(check_name)}"'
-    if re.search(file_pat, content):
-        content = re.sub(file_pat + r'\n?', '', content)
-        removed = True
+    # If not found in an array, try mandatory_files (file-exists checks are
+    # stored as plain string entries, not key→body dicts). Guard against
+    # false-positive on substrings by matching the quoted token bounded by
+    # its surrounding whitespace / newline + path context.
+    if not removed:
+        file_pat = rf'(?m)^\s*"{re.escape(check_name)}"\s*\\?\n?'
+        if re.search(file_pat, content):
+            content = re.sub(file_pat, '', content)
+            removed = True
+            logger.info(f'Removed "{check_name}" from mandatory_files in {milestone}')
 
     if not removed:
         logger.error(f"Could not remove '{check_name}' from {milestone}")
@@ -2191,9 +2314,15 @@ Examples:
         """)
     sub = parser.add_subparsers(dest='command', help='Checklist commands')
 
+    # Exit milestones are discipline-owned but centrally declared in
+    # global/config/exit/v1.0.0/. The --discipline flag filters by owner
+    # ('PD' / 'DFT' / 'DV'); omit it to see every discipline.
+    _DISC_CHOICES = ['PD', 'DFT', 'DV']
+
     # generate
     g = sub.add_parser('generate', help='Generate a formatted checklist for a milestone')
     g.add_argument('--milestone', default='', help='Exit milestone name (auto-detected from run dir if omitted)')
+    g.add_argument('--discipline', choices=_DISC_CHOICES, default='', help='Filter candidate milestones by owning discipline')
     g.add_argument('--project', default='', help='Project name for threshold overrides')
     g.add_argument('--phase', default='', help='Design phase (e.g., P0, P1, P2)')
     g.add_argument('--format', choices=['text', 'json', 'html'], default='text', help='Output format')
@@ -2202,6 +2331,7 @@ Examples:
     s = sub.add_parser('status', help='Check milestone status against a run directory')
     s.add_argument('--milestone', required=True, help='Exit milestone name')
     s.add_argument('--run-dir', required=True, dest='run_dir', help='Run directory path')
+    s.add_argument('--discipline', choices=_DISC_CHOICES, default='', help='Discipline of the target milestone (for cross-checks)')
     s.add_argument('--project', default='', help='Project name')
     s.add_argument('--phase', default='', help='Design phase')
 
@@ -2210,10 +2340,12 @@ Examples:
     so.add_argument('--milestone', required=True, help='Exit milestone name')
     so.add_argument('--run-dir', required=True, dest='run_dir', help='Run directory path')
     so.add_argument('--approver', required=True, help='Approver name')
+    so.add_argument('--discipline', choices=_DISC_CHOICES, default='', help='Discipline of the signed-off milestone (recorded in audit log)')
     so.add_argument('--phase', default='', help='Design phase (P0/P1/P2/P3)')
 
     # list milestones
-    sub.add_parser('list', help='List all available milestones')
+    lm = sub.add_parser('list', help='List all available milestones')
+    lm.add_argument('--discipline', choices=_DISC_CHOICES, default='', help='Only list milestones owned by this discipline')
 
     # list-checks
     lc = sub.add_parser('list-checks', help='List all checks in a milestone',
@@ -2227,6 +2359,7 @@ Examples:
   cbflow flow checklist list-checks --milestone BTO --output checks_BTO.txt
 """)
     lc.add_argument('--milestone', default='', help='Milestone name (auto-detected from run dir if omitted)')
+    lc.add_argument('--discipline', choices=_DISC_CHOICES, default='', help='Scope auto-detection to this discipline')
     lc.add_argument('--phase', default='', help='Filter checks active at this phase (P0/P1/P2/P3)')
     lc.add_argument('--run-dir', dest='run_dir', default='', help='Run directory to evaluate PASS/FAIL status')
     lc.add_argument('--output', '-o', default='', help='Write output to file (no ANSI colors)')
@@ -2257,6 +2390,7 @@ Examples:
     --type file --file-path r"outputs/${design_name}.gds"
 """)
     ac.add_argument('--milestone', required=True, help='Target milestone')
+    ac.add_argument('--discipline', choices=_DISC_CHOICES, default='', help='Discipline of the target milestone (defensive — add-check fails if milestone discipline differs)')
     ac.add_argument('--name', required=True, help='Check name (unique identifier)')
     ac.add_argument('--type', dest='check_type', required=True,
                     choices=['mandatory', 'optional', 'file'],
@@ -2273,11 +2407,13 @@ Examples:
     # remove-check
     rc = sub.add_parser('remove-check', help='Remove a check from a milestone')
     rc.add_argument('--milestone', required=True, help='Target milestone')
+    rc.add_argument('--discipline', choices=_DISC_CHOICES, default='', help='Discipline of the target milestone (defensive)')
     rc.add_argument('--name', required=True, help='Check name to remove')
 
     # waiver
     w = sub.add_parser('waiver', help='Manage waivers (list, add, revoke)')
     w.add_argument('--action', required=True, choices=['list', 'add', 'revoke'], help='Waiver action')
+    w.add_argument('--discipline', choices=_DISC_CHOICES, default='', help='Filter waivers (list) or scope target milestone (add) by discipline')
     w.add_argument('--milestone', help='Milestone to filter or target')
     w.add_argument('--check', help='Check name (for add/revoke)')
     w.add_argument('--reason', help='Justification (for add)')

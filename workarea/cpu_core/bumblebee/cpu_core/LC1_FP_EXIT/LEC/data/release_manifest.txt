@@ -1,0 +1,7 @@
+# CBflow Release Manifest
+# Flow:    LEC
+# Design:  cpu_core
+# Date:    Sun Nov 01 12:23:47 IST 2026
+# Status:  TEST_MODE_STUB — NOT A REAL RELEASE
+# WARNING: This directory was produced by a test_mode run.
+#          No real tool output exists. Do NOT sign off.

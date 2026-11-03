@@ -1,0 +1,15 @@
+===============================================================================
+CBFlow CLP - VC LP Power Verification Summary
+===============================================================================
+Generated: epoch 1793516008
+Design: bumblebee_top
+Project: bumblebee
+
+Stages Verified:
+  check_lp -stage upf    (UPF syntax/semantic)
+  check_lp -stage design (design implementation)
+  check_lp -stage pg     (power grid connectivity)
+
+Detailed Reports:
+  /Users/vmerugu/projects/CBflow_clone/workarea/cpu_core/LC1_run_CLP_test1/work/CLP/clp1/reports/bumblebee_top.vc_lp_report_violations.rpt
+  /Users/vmerugu/projects/CBflow_clone/workarea/cpu_core/LC1_run_CLP_test1/work/CLP/clp1/reports/bumblebee_top.vc_lp_report_violations.verbose.rpt

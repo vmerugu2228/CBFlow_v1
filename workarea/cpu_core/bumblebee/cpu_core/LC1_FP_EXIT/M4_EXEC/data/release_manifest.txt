@@ -1,0 +1,7 @@
+# CBflow Release Manifest
+# Flow:    M4_EXEC
+# Design:  cpu_core
+# Date:    Fri Oct 30 23:51:35 IST 2026
+# Status:  TEST_MODE_STUB — NOT A REAL RELEASE
+# WARNING: This directory was produced by a test_mode run.
+#          No real tool output exists. Do NOT sign off.

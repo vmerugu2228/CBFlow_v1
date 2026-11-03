@@ -1,0 +1,7 @@
+# CBflow Release Manifest
+# Flow:    DFT_INSERT_PASS1
+# Design:  processor_core
+# Date:    Tue Nov 03 11:02:23 IST 2026
+# Status:  TEST_MODE_STUB — NOT A REAL RELEASE
+# WARNING: This directory was produced by a test_mode run.
+#          No real tool output exists. Do NOT sign off.

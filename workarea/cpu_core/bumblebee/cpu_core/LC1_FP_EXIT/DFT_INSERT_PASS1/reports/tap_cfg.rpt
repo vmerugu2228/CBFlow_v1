@@ -1,0 +1,6 @@
+TAP configuration — processor_core
+Pins: TCK=TCK TMS=TMS
+      TDI=TDI TDO=TDO
+      TRST=TRST_N
+IR width: 8
+Instructions: IDCODE BYPASS EXTEST SAMPLE PRELOAD HIGHZ

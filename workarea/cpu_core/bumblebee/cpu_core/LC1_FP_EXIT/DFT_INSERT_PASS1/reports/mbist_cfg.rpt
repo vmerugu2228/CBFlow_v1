@@ -1,0 +1,6 @@
+MBIST configuration — processor_core
+Skipped: 0
+Controller type: smart_serial
+Clock domain:    tessent_clk
+Test modes:      prod_test diag_test
+Memory modules:  
