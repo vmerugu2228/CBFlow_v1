@@ -63,8 +63,9 @@ import state_paths
 
 
 # DFT discipline is identified by the run's flow_type. Keep in sync with
-# PD/config/flow/v1.0.0/flow_config.tcl's flow(types) DFT entries.
-_DFT_FLOWS = {'DFT_INSERT', 'SCAN_INSERT', 'ATPG', 'GLS_FUNC', 'GLS_SCAN_MBIST'}
+# global/config/flow/v1.0.0/flow_registry.tcl's flow(discipline,*) DFT entries.
+_DFT_FLOWS = {'DFT_INSERT_PASS1', 'DFT_INSERT_PASS2', 'DFT_INSERT_PASS3',
+              'SCAN_INSERT', 'ATPG', 'GLS_FUNC', 'GLS_SCAN_MBIST'}
 
 
 def _discipline_for_run_dir(run_dir):

@@ -3592,12 +3592,16 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
             '</td></tr>')
 
     # ── Top metrics — latest value per name across the view-filtered rows.
-    # The curated name list differs by discipline.
+    # The curated name list differs by discipline. DFT entries follow the
+    # Pass1 Tessent handlers' emit_metric calls + owner spreadsheet metric
+    # vocabulary (fault_coverage_pct, pattern_count, mbist_controller_count,
+    # drc_violation_count, test_points_inserted, atpg_eff_pct).
     curated = {
         'PD':  ['WNS', 'TNS', 'total_power', 'utilization',
                 'drc_count', 'lvs_errors'],
-        'DFT': ['test_count', 'coverage_pct', 'scan_chains',
-                'pattern_count'],
+        'DFT': ['fault_coverage_pct', 'test_coverage_pct', 'atpg_eff_pct',
+                'pattern_count', 'mbist_controller_count',
+                'drc_violation_count'],
         'DV':  ['coverage_pct', 'bins_hit', 'bins_total',
                 'uvm_errors'],
     }.get(disc_up, [])
@@ -3642,8 +3646,21 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
                 # for 'higher is bad' metrics (drc_count, lvs_errors).
                 # Falls back to lexicographic on scenario+corner so
                 # the choice is deterministic across page loads.
-                lower_is_bad = name in ('WNS', 'TNS')
-                higher_is_bad = name in ('drc_count', 'lvs_errors', 'uvm_errors')
+                lower_is_bad = name in (
+                    'WNS', 'TNS',
+                )
+                higher_is_bad = name in (
+                    'drc_count', 'lvs_errors', 'uvm_errors',
+                    'drc_violation_count',
+                )
+                # higher_is_good metrics are percent-like scores where a
+                # bigger number is better; the "worst" tiebreak is the
+                # SMALLEST value (lowest coverage = worst QoR).
+                higher_is_good = name in (
+                    'fault_coverage_pct', 'test_coverage_pct',
+                    'atpg_eff_pct', 'coverage_pct',
+                    'mbist_controller_count',
+                )
                 def _worse_than(new_tup, old_tup):
                     """True if `new_tup` represents a worse QoR point."""
                     nv, _, ns, nc, _, nt = new_tup
@@ -3659,6 +3676,8 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
                             return nvf < ovf  # new is more negative = worse
                         if higher_is_bad:
                             return nvf > ovf
+                        if higher_is_good:
+                            return nvf < ovf  # lower score = worse
                     except (TypeError, ValueError):
                         pass
                     # Non-numeric or unknown severity direction — sort

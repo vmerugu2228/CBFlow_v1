@@ -4,10 +4,25 @@
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 #
 # Scan-inserted netlist + scandef + SDF → ATPG patterns (STIL/WGL) + coverage.
-# Knob: dft(mode) "zd" (zero-delay) | "sdf" (timing-aware).
+#
+# Knobs:
+#   atpg(mode)      "zd" (zero-delay) | "sdf" (timing-aware)
+#   atpg(pd_phase)  "pre" (Pre-PD ATPG, default) | "post" (Post-PD ATPG)
+#
+# pd_phase semantics (per owner spreadsheet):
+#   "pre"  : Pre-PD ATPG — stages {init_atpg1 → export_patterns1 → release_data1}
+#   "post" : Post-PD ATPG — adds {zd_sim1 → timing_sim1 → signoff1} before release
+#
+# The full stage list is declared below; the handlers for zd_sim1/timing_sim1/
+# signoff1 check atpg(pd_phase) at setup and short-circuit to SKIPPED when "pre".
+# This keeps the DAG schema stable (same stages shown by `cbflow flow stages`
+# in both phases) and defers the conditional-execution logic to the handler.
 
 array set atpg {
-    stages {netlist1 scandef1 sdf1 lib1 init_atpg1 pattern_gen1 fault_sim1 coverage_report1 export_patterns1 release_data1}
+    stages {netlist1 scandef1 sdf1 lib1
+            init_atpg1 pattern_gen1 fault_sim1 coverage_report1 export_patterns1
+            zd_sim1 timing_sim1 signoff1
+            release_data1}
 
     dependencies,netlist1           {}
     dependencies,scandef1           {}
@@ -18,10 +33,21 @@ array set atpg {
     dependencies,fault_sim1         {pattern_gen1}
     dependencies,coverage_report1   {fault_sim1}
     dependencies,export_patterns1   {coverage_report1}
-    dependencies,release_data1      {export_patterns1}
+    dependencies,zd_sim1            {export_patterns1}
+    dependencies,timing_sim1        {zd_sim1}
+    dependencies,signoff1           {timing_sim1}
+    dependencies,release_data1      {signoff1}
+
+    conditional_stages,pd_phase,post {zd_sim1 timing_sim1 signoff1}
 }
 
-set _atpg_exec_stages {init_atpg1 pattern_gen1 fault_sim1 coverage_report1 export_patterns1 release_data1}
+# Stages that only execute when pd_phase=post. In pd_phase=pre they
+# short-circuit to SKIPPED at setup and emit empty mandatory_outputs.
+# (declared via atpg(conditional_stages,pd_phase,post) above)
+
+set _atpg_exec_stages {init_atpg1 pattern_gen1 fault_sim1 coverage_report1 export_patterns1
+                       zd_sim1 timing_sim1 signoff1
+                       release_data1}
 foreach _s $_atpg_exec_stages {
     set atpg(subnodes,$_s) {setup run validate finish}
     set atpg(subnode_dependencies,${_s},setup)    {}
@@ -43,6 +69,9 @@ array set atpg {
     stage_types,fault_sim1          "execution"
     stage_types,coverage_report1    "execution"
     stage_types,export_patterns1    "execution"
+    stage_types,zd_sim1             "execution"
+    stage_types,timing_sim1         "execution"
+    stage_types,signoff1            "execution"
     stage_types,release_data1       "release_data"
 
     node_types,netlist1            "inputs"
@@ -54,6 +83,9 @@ array set atpg {
     node_types,fault_sim1          "fault_sim"
     node_types,coverage_report1    "coverage_report"
     node_types,export_patterns1    "export_patterns"
+    node_types,zd_sim1             "zd_pattern_sim"
+    node_types,timing_sim1         "timing_pattern_sim"
+    node_types,signoff1            "pattern_signoff"
     node_types,release_data1       "release_data"
 
     node_descriptions,netlist1            "Scan-inserted netlist input"
@@ -65,10 +97,14 @@ array set atpg {
     node_descriptions,fault_sim1          "Fault simulation and coverage measurement"
     node_descriptions,coverage_report1    "Generate coverage reports"
     node_descriptions,export_patterns1    "Export patterns (STIL/WGL/VCD)"
+    node_descriptions,zd_sim1             "Zero-delay pattern simulation (Post-PD only)"
+    node_descriptions,timing_sim1         "Timing-aware pattern simulation (Post-PD only)"
+    node_descriptions,signoff1            "Pattern sign-off + delivery repo creation (Post-PD only)"
     node_descriptions,release_data1       "Release ATPG deliverables"
 
     mmmc,enabled            false
     mode                    "zd"
+    pd_phase                "pre"
 
     runtime,timeout,netlist1            10
     runtime,timeout,scandef1            10
@@ -79,6 +115,9 @@ array set atpg {
     runtime,timeout,fault_sim1          90
     runtime,timeout,coverage_report1    20
     runtime,timeout,export_patterns1    15
+    runtime,timeout,zd_sim1             60
+    runtime,timeout,timing_sim1         90
+    runtime,timeout,signoff1            30
     runtime,timeout,release_data1       10
 
     mandatory_user_inputs {

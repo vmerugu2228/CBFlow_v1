@@ -20,7 +20,8 @@
 # ── Flow Types (union of every discipline) ────────────────────────────────────
 set flow(types) {
     SYNTH FP PNR STA LEC EMIR PV ECO CLP POPT FCFP SYNTH_PNR
-    DFT_INSERT SCAN_INSERT ATPG GLS_FUNC GLS_SCAN_MBIST
+    DFT_INSERT_PASS1 DFT_INSERT_PASS2 DFT_INSERT_PASS3
+    SCAN_INSERT ATPG GLS_FUNC GLS_SCAN_MBIST
     SPEC_RAMP PLANNING TB_SETUP M1_EXEC M2_EXEC M3_EXEC M4_EXEC
     ECO_EXEC DV_SIGNOFF
 }
@@ -52,11 +53,18 @@ set flow(discipline,POPT)           "PD"
 set flow(discipline,ECO)            "PD"
 
 # DFT — Design-For-Test (scan, ATPG, GLS)
-set flow(discipline,DFT_INSERT)     "DFT"
-set flow(discipline,SCAN_INSERT)    "DFT"
-set flow(discipline,ATPG)           "DFT"
-set flow(discipline,GLS_FUNC)       "DFT"
-set flow(discipline,GLS_SCAN_MBIST) "DFT"
+# DFT_INSERT is split into three sequential passes (per owner spreadsheet
+# DFT_FLOW_Dependencies_Input_Output.xlsx): Pass1=Core (MBIST+BSCAN),
+# Pass2=Top (TDR/DFT-Signals/SRI), Pass3=EDT+OCC. Each pass is releasable
+# and surfaces independently in the dashboard so per-pass owners can
+# track their own work.
+set flow(discipline,DFT_INSERT_PASS1) "DFT"
+set flow(discipline,DFT_INSERT_PASS2) "DFT"
+set flow(discipline,DFT_INSERT_PASS3) "DFT"
+set flow(discipline,SCAN_INSERT)      "DFT"
+set flow(discipline,ATPG)             "DFT"
+set flow(discipline,GLS_FUNC)         "DFT"
+set flow(discipline,GLS_SCAN_MBIST)   "DFT"
 
 # DV — Verification milestone / review flows
 set flow(discipline,SPEC_RAMP)      "DV"

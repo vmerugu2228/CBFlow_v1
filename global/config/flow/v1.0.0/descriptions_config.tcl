@@ -20,6 +20,14 @@ array set flow_descriptions {
     FCFP      "Fullchip floorplanning"
     SYNTH_PNR "Unified synthesis to signoff (FC-RM aligned)"
 
+    DFT_INSERT_PASS1 "Core DFT insertion — MBIST + BSCAN at block level (Pass 1)"
+    DFT_INSERT_PASS2 "Top-level DFT insertion — TDR + DFT Signals + SRI (Pass 2)"
+    DFT_INSERT_PASS3 "EDT + OCC insertion — compression + at-speed clocking (Pass 3)"
+    SCAN_INSERT      "Scan chain stitching and mode definition"
+    ATPG             "ATPG pattern generation (pd_phase=pre|post controls signoff)"
+    GLS_FUNC         "Gate-level simulation — functional"
+    GLS_SCAN_MBIST   "Gate-level simulation — scan + MBIST"
+
     SPEC_RAMP  "Specification ramp-up & requirement analysis"
     PLANNING   "Verification plan & strategy definition"
     TB_SETUP   "Testbench setup & sanity verification (M0)"

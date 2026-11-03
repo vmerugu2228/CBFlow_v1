@@ -1,0 +1,204 @@
+{
+  "version": "v1.0.0",
+  "description": "CBflow v1.0.0 \u2014 initial production release",
+  "milestone": "",
+  "created": "2026-05-13T20:22:19.987377",
+  "author": "vmerugu",
+  "components": {
+    "config.flow": {
+      "version": "v1.0.0",
+      "path": "config/flow",
+      "link": "components/config_flow"
+    },
+    "config.tech.tsmc_5nm": {
+      "version": "v1.0.0",
+      "path": "config/tech/tsmc_5nm",
+      "link": "components/config_tech_tsmc_5nm"
+    },
+    "config.tech.gf_22nm": {
+      "version": "v1.0.0",
+      "path": "config/tech/gf_22nm",
+      "link": "components/config_tech_gf_22nm"
+    },
+    "config.tech.tsmc_7nm": {
+      "version": "v1.0.0",
+      "path": "config/tech/tsmc_7nm",
+      "link": "components/config_tech_tsmc_7nm"
+    },
+    "config.project.ravendrive": {
+      "version": "v1.0.0",
+      "path": "config/project/ravendrive",
+      "link": "components/config_project_ravendrive"
+    },
+    "config.project.phoenix": {
+      "version": "v1.0.0",
+      "path": "config/project/phoenix",
+      "link": "components/config_project_phoenix"
+    },
+    "config.setup.ravendrive": {
+      "version": "v1.0.0",
+      "path": "config/setup/ravendrive",
+      "link": "components/config_setup_ravendrive"
+    },
+    "config.setup.phoenix": {
+      "version": "v1.0.0",
+      "path": "config/setup/phoenix",
+      "link": "components/config_setup_phoenix"
+    },
+    "config.setup.common": {
+      "version": "v1.0.0",
+      "path": "config/setup/common",
+      "link": "components/config_setup_common"
+    },
+    "config.exit": {
+      "version": "v1.0.0",
+      "path": "config/exit",
+      "link": "components/config_exit"
+    },
+    "utils.utilities": {
+      "version": "v1.0.0",
+      "path": "utils/utilities",
+      "link": "components/utils_utilities"
+    },
+    "utils.version": {
+      "version": "v1.0.0",
+      "path": "utils/version",
+      "link": "components/utils_version"
+    },
+    "utils.generation": {
+      "version": "v1.0.0",
+      "path": "utils/generation",
+      "link": "components/utils_generation"
+    },
+    "utils.validation": {
+      "version": "v1.0.0",
+      "path": "utils/validation",
+      "link": "components/utils_validation"
+    },
+    "utils.node_management": {
+      "version": "v1.0.0",
+      "path": "utils/node_management",
+      "link": "components/utils_node_management"
+    },
+    "utils.makefile_commands": {
+      "version": "v1.0.0",
+      "path": "utils/makefile_commands",
+      "link": "components/utils_makefile_commands"
+    },
+    "utils.project": {
+      "version": "v1.0.0",
+      "path": "utils/project",
+      "link": "components/utils_project"
+    },
+    "cmds.PV.synopsys.icv": {
+      "version": "v1.0.0",
+      "path": "cmds/PV/synopsys/icv",
+      "link": "components/cmds_PV_synopsys_icv"
+    },
+    "cmds.PV.mentor.calibre": {
+      "version": "v1.0.0",
+      "path": "cmds/PV/mentor/calibre",
+      "link": "components/cmds_PV_mentor_calibre"
+    },
+    "cmds.POPT.synopsys.pt": {
+      "version": "v1.0.0",
+      "path": "cmds/POPT/synopsys/pt",
+      "link": "components/cmds_POPT_synopsys_pt"
+    },
+    "cmds.POPT.synopsys.power_compiler": {
+      "version": "v1.0.0",
+      "path": "cmds/POPT/synopsys/power_compiler",
+      "link": "components/cmds_POPT_synopsys_power_compiler"
+    },
+    "cmds.LEC.synopsys.formality": {
+      "version": "v1.0.0",
+      "path": "cmds/LEC/synopsys/formality",
+      "link": "components/cmds_LEC_synopsys_formality"
+    },
+    "cmds.FCFP.synopsys.fc": {
+      "version": "v1.0.0",
+      "path": "cmds/FCFP/synopsys/fc",
+      "link": "components/cmds_FCFP_synopsys_fc"
+    },
+    "cmds.FCFP.cadence.innovus": {
+      "version": "v1.0.0",
+      "path": "cmds/FCFP/cadence/innovus",
+      "link": "components/cmds_FCFP_cadence_innovus"
+    },
+    "cmds.FP.synopsys.fc": {
+      "version": "v1.0.0",
+      "path": "cmds/FP/synopsys/fc",
+      "link": "components/cmds_FP_synopsys_fc"
+    },
+    "cmds.FP.cadence.innovus": {
+      "version": "v1.0.0",
+      "path": "cmds/FP/cadence/innovus",
+      "link": "components/cmds_FP_cadence_innovus"
+    },
+    "cmds.PNR.synopsys.fc": {
+      "version": "v1.0.0",
+      "path": "cmds/PNR/synopsys/fc",
+      "link": "components/cmds_PNR_synopsys_fc"
+    },
+    "cmds.PNR.cadence.innovus": {
+      "version": "v1.0.0",
+      "path": "cmds/PNR/cadence/innovus",
+      "link": "components/cmds_PNR_cadence_innovus"
+    },
+    "cmds.ECO.synopsys.fc": {
+      "version": "v1.0.0",
+      "path": "cmds/ECO/synopsys/fc",
+      "link": "components/cmds_ECO_synopsys_fc"
+    },
+    "cmds.ECO.synopsys.icc2": {
+      "version": "v1.0.0",
+      "path": "cmds/ECO/synopsys/icc2",
+      "link": "components/cmds_ECO_synopsys_icc2"
+    },
+    "cmds.SYNTH.synopsys.fc": {
+      "version": "v1.0.0",
+      "path": "cmds/SYNTH/synopsys/fc",
+      "link": "components/cmds_SYNTH_synopsys_fc"
+    },
+    "cmds.SYNTH.cadence.genus": {
+      "version": "v1.0.0",
+      "path": "cmds/SYNTH/cadence/genus",
+      "link": "components/cmds_SYNTH_cadence_genus"
+    },
+    "cmds.SYNTH_PNR.synopsys.fc": {
+      "version": "v1.0.0",
+      "path": "cmds/SYNTH_PNR/synopsys/fc",
+      "link": "components/cmds_SYNTH_PNR_synopsys_fc"
+    },
+    "cmds.EMIR.synopsys.redhawk": {
+      "version": "v1.0.0",
+      "path": "cmds/EMIR/synopsys/redhawk",
+      "link": "components/cmds_EMIR_synopsys_redhawk"
+    },
+    "cmds.EMIR.cadence.voltus": {
+      "version": "v1.0.0",
+      "path": "cmds/EMIR/cadence/voltus",
+      "link": "components/cmds_EMIR_cadence_voltus"
+    },
+    "cmds.CLP.synopsys.vc_lp": {
+      "version": "v1.0.0",
+      "path": "cmds/CLP/synopsys/vc_lp",
+      "link": "components/cmds_CLP_synopsys_vc_lp"
+    },
+    "cmds.CLP.cadence.conformal_lp": {
+      "version": "v1.0.0",
+      "path": "cmds/CLP/cadence/conformal_lp",
+      "link": "components/cmds_CLP_cadence_conformal_lp"
+    },
+    "cmds.STA.synopsys.pt": {
+      "version": "v1.0.0",
+      "path": "cmds/STA/synopsys/pt",
+      "link": "components/cmds_STA_synopsys_pt"
+    },
+    "cmds.STA.cadence.tempus": {
+      "version": "v1.0.0",
+      "path": "cmds/STA/cadence/tempus",
+      "link": "components/cmds_STA_cadence_tempus"
+    }
+  }
+}
