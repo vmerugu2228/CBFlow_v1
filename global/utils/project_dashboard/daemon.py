@@ -17,6 +17,7 @@ import errno
 import hashlib
 import http.server
 import json
+import logging
 import os
 import socket
 import socketserver
@@ -25,6 +26,18 @@ import sys
 import threading
 import time
 from datetime import datetime
+
+logger = logging.getLogger('cbflow.project_dashboard.daemon')
+# When run as a standalone daemon the parent process won't have configured
+# a handler, so attach a basic one so startup/shutdown/control-socket
+# errors land somewhere operators can read them. The log file lives next
+# to the pidfile — tail-friendly for `cbflow smartgrid status`.
+if not logger.handlers:
+    _h = logging.StreamHandler(sys.stderr)
+    _h.setFormatter(logging.Formatter(
+        '%(asctime)s [%(levelname)s] %(name)s: %(message)s'))
+    logger.addHandler(_h)
+    logger.setLevel(logging.INFO)
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 COMMANDS_DIR = os.path.join(os.path.dirname(SCRIPT_DIR), 'commands')
@@ -181,29 +194,49 @@ class _Server:
                 threading.Thread(target=self._handle_control,
                                  args=(conn,), daemon=True).start()
             except Exception as e:
-                print(f'control: {e!r}', flush=True)
+                logger.error(f'control socket handler error: {e!r}',
+                             exc_info=True)
         try:
             srv.close()
             os.unlink(sock_path)
         except OSError:
             pass
 
+    # Control-socket payload cap. Pre-fix was 256 MiB — large enough that
+    # a malicious caller on the AF_UNIX socket could exhaust the daemon
+    # heap by sending 256 MiB of garbage. 32 MiB accommodates the largest
+    # legitimate publish (5M-cell density + 200k-cell interactive layer +
+    # macros, serialized JSON) but blocks any single payload over 32 MiB
+    # with a clean error instead of OOM-killing the process.
+    _CONTROL_MAX_BYTES = 32 * 1024 * 1024
+
     def _handle_control(self, conn):
         try:
             conn.settimeout(120.0)  # publish payload can be big + take a moment
             data = b''
-            # Cap generous — a 5M-cell density grid + 200k-cell interactive
-            # layer + macros can be tens of megabytes serialized. Anything
-            # runaway would still hit this cap before killing memory.
-            while b'\n' not in data and len(data) < 256 * 1024 * 1024:
+            while b'\n' not in data and len(data) < self._CONTROL_MAX_BYTES:
                 chunk = conn.recv(1 << 20)   # 1 MiB reads to move fast
                 if not chunk:
                     break
                 data += chunk
+            if b'\n' not in data and len(data) >= self._CONTROL_MAX_BYTES:
+                # Payload too big — bail with a clean error so the client
+                # knows the limit was hit, and log server-side so
+                # operators see repeated misses (potential abuse signal).
+                logger.warning(
+                    f'control socket payload exceeded {self._CONTROL_MAX_BYTES} '
+                    f'bytes without newline terminator from client; '
+                    f'rejecting and closing connection.')
+                conn.sendall(json.dumps({
+                    'ok': False,
+                    'error': f'payload too large (cap {self._CONTROL_MAX_BYTES} bytes); '
+                             f'split your request'}).encode() + b'\n')
+                return
             line = data.split(b'\n', 1)[0]
             try:
                 msg = json.loads(line.decode('utf-8'))
             except (ValueError, UnicodeDecodeError) as e:
+                logger.warning(f'control socket: bad JSON: {e}')
                 conn.sendall(json.dumps({'ok': False,
                                          'error': f'bad request: {e}'}).encode()
                              + b'\n')
@@ -283,12 +316,28 @@ def claim_state(project, port, bind_addr='127.0.0.1'):
     with os.fdopen(fd, 'w') as f:
         f.write(str(os.getpid()))
     ts = _process_start_time(os.getpid()) or datetime.now().isoformat()
-    with open(state_paths.start_ts_file(project), 'w') as f:
-        f.write(ts)
-    with open(state_paths.portfile(project), 'w') as f:
-        f.write(str(port))
-    with open(state_paths.bind_addr_file(project), 'w') as f:
-        f.write(bind_addr)
+
+    # Atomic file writes for the three "state" files (start_ts, portfile,
+    # bind_addr_file). Pre-fix was `open(path, 'w')` which truncates
+    # instantly — a reader that happens to read between truncate and
+    # write sees an empty file + mis-interprets daemon state. os.replace
+    # swaps atomically, and sets perms via os.chmod on the temp file
+    # BEFORE the rename so the destination never exists with wider
+    # perms than 0o600 (the old code's `open + ... + chmod` window
+    # was briefly world-readable at 0o644).
+    def _atomic_write(path, content):
+        tmp = f'{path}.tmp'
+        fd2 = os.open(tmp,
+                      os.O_CREAT | os.O_TRUNC | os.O_WRONLY, 0o600)
+        with os.fdopen(fd2, 'w') as _f:
+            _f.write(content)
+        os.replace(tmp, path)
+
+    _atomic_write(state_paths.start_ts_file(project), ts)
+    _atomic_write(state_paths.portfile(project), str(port))
+    _atomic_write(state_paths.bind_addr_file(project), bind_addr)
+    # pidfile already created with 0o600 via O_EXCL above; keep for
+    # back-compat with any post-facto chmod sweeps.
     for p in (pidfile, state_paths.start_ts_file(project),
               state_paths.portfile(project),
               state_paths.bind_addr_file(project)):
@@ -315,9 +364,9 @@ def serve_foreground(project, port, bind_addr='127.0.0.1'):
         raise
     srv = _Server(project, port, bind_addr)
     try:
-        print(f'CBflow-ProjectDashboard listening on '
-              f'http://{bind_addr}:{port}/  (project={project}, pid={os.getpid()})',
-              flush=True)
+        logger.info(
+            f'CBflow-ProjectDashboard listening on '
+            f'http://{bind_addr}:{port}/  (project={project}, pid={os.getpid()})')
         srv.serve()
     finally:
         release_state(project)

@@ -15,6 +15,7 @@ Routes:
 import http.server
 import html
 import json
+import logging
 import os
 import sys
 from datetime import date, datetime
@@ -26,6 +27,8 @@ if SCRIPT_DIR not in sys.path:
 import state_paths
 import tracker_db
 
+logger = logging.getLogger('cbflow.project_dashboard.router')
+
 
 _MILESTONES = ('FP_EXIT', 'PLACE_EXIT', 'CTS_EXIT', 'PRO_EXIT', 'BTO', 'MTO')
 
@@ -36,14 +39,23 @@ def make_handler(project):
         server_version = 'CBflow-ProjectDashboard/1.0'
 
         def log_message(self, fmt, *args):
-            # Route request logs to daemon.log via stdout (Popen redirect).
-            print(f'[{self.log_date_time_string()}] '
-                  f'{self.address_string()} - {fmt % args}', flush=True)
+            # Route request logs via the structured logger so operators can
+            # control verbosity (DEBUG for per-request, INFO for errors
+            # only) and so entries carry timestamp + level. Pre-fix this
+            # was a bare `print()` which bypassed both.
+            logger.debug(f'{self.address_string()} - {fmt % args}')
 
         def do_GET(self):
             try:
                 self._route()
             except Exception as e:
+                # Log server-side BEFORE sending the 500 — pre-fix the
+                # client got the exception message inline but the daemon
+                # log had no record. Operators couldn't correlate
+                # dashboard reports with any trace.
+                logger.error(
+                    f'HTTP 500 on {self.path!r}: {type(e).__name__}: {e}',
+                    exc_info=True)
                 self._send(500, 'text/plain', f'internal error: {e}')
 
         def _route(self):
@@ -2658,20 +2670,20 @@ def _render_discipline_cards(project):
             get_project_disciplines, get_project_enabled_flows,
         )
     except Exception as _e:
-        _sys.stderr.write(
-            f"discipline-cards: cannot import tcl_config_parser: "
-            f"{type(_e).__name__}: {_e}\n")
+        logger.warning(
+            f'discipline-cards: cannot import tcl_config_parser: '
+            f'{type(_e).__name__}: {_e}')
         return ''
     try:
         disciplines = get_project_disciplines(project)
     except Exception as _e:
-        _sys.stderr.write(
-            f"discipline-cards: get_project_disciplines({project!r}) failed: "
-            f"{type(_e).__name__}: {_e}\n")
+        logger.warning(
+            f'discipline-cards: get_project_disciplines({project!r}) failed: '
+            f'{type(_e).__name__}: {_e}')
         return ''
     if not disciplines:
-        _sys.stderr.write(
-            f"discipline-cards: {project!r} has no enabled disciplines\n")
+        logger.info(
+            f'discipline-cards: {project!r} has no enabled disciplines')
         return ''
 
     # daemon_url_for lives in global/utils/dashboard/state_paths.py, but the
@@ -2692,9 +2704,9 @@ def _render_discipline_cards(project):
             _spec.loader.exec_module(_mod)
             daemon_url_for = getattr(_mod, 'daemon_url_for', None)
     except Exception as _e:
-        _sys.stderr.write(
-            f"discipline-cards: could not load daemon_url_for: "
-            f"{type(_e).__name__}: {_e}\n")
+        logger.warning(
+            f'discipline-cards: could not load daemon_url_for: '
+            f'{type(_e).__name__}: {_e}')
     if daemon_url_for is None:
         def daemon_url_for(project, discipline):  # noqa: ARG001
             return ''

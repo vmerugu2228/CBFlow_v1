@@ -417,7 +417,12 @@ def cmd_all(args: argparse.Namespace) -> int:
             collector.collect_run_metrics(os.getcwd())
             collector.db.close()
         except Exception as e:
-            logger.debug(f"Metrics collection skipped: {e}")
+            # Was logged at DEBUG, which hid metric collection failures
+            # (full-disk, DB lock) from operators. Promote to WARNING so
+            # the message is visible in normal runs without changing log
+            # verbosity. Metrics are non-blocking (run already finished)
+            # so we don't propagate.
+            logger.warning(f"Metrics collection skipped: {e}", exc_info=True)
 
     return result
 

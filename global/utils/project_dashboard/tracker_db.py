@@ -227,52 +227,68 @@ def _now():
     return datetime.now().isoformat(timespec='seconds')
 
 
+def _upsert_project_info_in_txn(conn, project, info):
+    """Run the project_info upsert on an existing (open) connection, without
+    committing. Caller is responsible for commit/rollback. Lets publish()
+    bundle housekeeping into its main txn so a failed INSERT doesn't leave
+    the project_info row mutated from a "half-successful" publish."""
+    conn.execute("""
+        INSERT INTO project_info(project, tapeout_date, current_phase,
+            phases_json, developed_by, technology, metal_stack,
+            lib_config_tag, cbflow_release, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(project) DO UPDATE SET
+          tapeout_date=excluded.tapeout_date,
+          current_phase=excluded.current_phase,
+          phases_json=excluded.phases_json,
+          developed_by=excluded.developed_by,
+          technology=excluded.technology,
+          metal_stack=excluded.metal_stack,
+          lib_config_tag=excluded.lib_config_tag,
+          cbflow_release=excluded.cbflow_release,
+          updated_at=excluded.updated_at
+    """, (
+        project, info.get('tapeout_date'), info.get('current_phase'),
+        json.dumps(info.get('phases') or []),
+        info.get('developed_by'), info.get('technology'),
+        info.get('metal_stack'), info.get('lib_config_tag'),
+        info.get('cbflow_release'), _now(),
+    ))
+
+
 def upsert_project_info(db_path, project, info):
     """Store or update the project-metadata row (tapeout, phases, byline...).
 
-    `info` is a plain dict — missing keys are fine.
+    `info` is a plain dict — missing keys are fine. Standalone callers get
+    their own txn; publish() uses the _in_txn variant to bundle this into
+    its atomic write.
     """
     conn = _connect(db_path)
     try:
-        conn.execute("""
-            INSERT INTO project_info(project, tapeout_date, current_phase,
-                phases_json, developed_by, technology, metal_stack,
-                lib_config_tag, cbflow_release, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(project) DO UPDATE SET
-              tapeout_date=excluded.tapeout_date,
-              current_phase=excluded.current_phase,
-              phases_json=excluded.phases_json,
-              developed_by=excluded.developed_by,
-              technology=excluded.technology,
-              metal_stack=excluded.metal_stack,
-              lib_config_tag=excluded.lib_config_tag,
-              cbflow_release=excluded.cbflow_release,
-              updated_at=excluded.updated_at
-        """, (
-            project, info.get('tapeout_date'), info.get('current_phase'),
-            json.dumps(info.get('phases') or []),
-            info.get('developed_by'), info.get('technology'),
-            info.get('metal_stack'), info.get('lib_config_tag'),
-            info.get('cbflow_release'), _now(),
-        ))
+        _upsert_project_info_in_txn(conn, project, info)
         conn.commit()
     finally:
         conn.close()
+
+
+def _upsert_block_in_txn(conn, project, block_name, dl_level=None, parent=None,
+                         description=None):
+    conn.execute("""
+        INSERT INTO blocks(project, block_name, dl_level, parent, description)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(project, block_name) DO UPDATE SET
+          dl_level=excluded.dl_level,
+          parent=excluded.parent,
+          description=excluded.description
+    """, (project, block_name, dl_level, parent, description))
 
 
 def upsert_block(db_path, project, block_name, dl_level=None, parent=None,
                  description=None):
     conn = _connect(db_path)
     try:
-        conn.execute("""
-            INSERT INTO blocks(project, block_name, dl_level, parent, description)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(project, block_name) DO UPDATE SET
-              dl_level=excluded.dl_level,
-              parent=excluded.parent,
-              description=excluded.description
-        """, (project, block_name, dl_level, parent, description))
+        _upsert_block_in_txn(conn, project, block_name, dl_level, parent,
+                             description)
         conn.commit()
     finally:
         conn.close()
@@ -331,20 +347,28 @@ def publish(db_path, payload, project):
         conn.close()
         raise
 
-    # Conflict check passed — now safe to update project_info / block.
+    # Conflict check passed — now bundle project_info + block upserts
+    # + the main published_runs INSERT (and all cascading child inserts)
+    # into a single BEGIN IMMEDIATE transaction. The old code ran
+    # upsert_project_info + upsert_block on separate connections BEFORE
+    # the main txn; if the INSERT raised (OperationalError, disk full,
+    # process kill), project_info / block rows were left mutated from a
+    # publish that officially 'failed'.
     pi = payload.get('project_info') or {}
-    if pi:
-        upsert_project_info(db_path, project, pi)
     bi = payload.get('block_info') or {}
-    if bi.get('block_name') or bi.get('name'):
-        upsert_block(
-            db_path, project,
-            bi.get('block_name') or bi.get('name'),
-            dl_level=bi.get('dl_level'),
-            parent=bi.get('parent'),
-            description=bi.get('description'))
+    block_display_name = bi.get('block_name') or bi.get('name')
 
     try:
+        conn.execute('BEGIN IMMEDIATE')
+        if pi:
+            _upsert_project_info_in_txn(conn, project, pi)
+        if block_display_name:
+            _upsert_block_in_txn(
+                conn, project, block_display_name,
+                dl_level=bi.get('dl_level'),
+                parent=bi.get('parent'),
+                description=bi.get('description'))
+
         # Re-fetch existing for the DELETE path below (same connection).
         cur = conn.execute(
             'SELECT id, published_by, published_at FROM published_runs '
@@ -442,6 +466,16 @@ def publish(db_path, payload, project):
 
         conn.commit()
         return pid
+    except Exception:
+        # Explicit rollback — the finally close() will also roll back any
+        # in-flight txn, but calling it here makes the intent obvious to
+        # future readers and avoids a window where another coroutine
+        # could pick up a partially-committed state via WAL.
+        try:
+            conn.rollback()
+        except sqlite3.Error:
+            pass
+        raise
     finally:
         conn.close()
 
@@ -611,11 +645,18 @@ def get_floorplan(db_path, published_run_id):
         if not row:
             return None
         # Older rows may not have density_json / total_cells columns filled.
+        # Pre-fix: `except (IndexError, KeyError): pass` masked the distinction
+        # between "column doesn't exist in this row" (legacy pre-migration DB)
+        # and "value is NULL" (legitimate absence). Keyword-access of
+        # sqlite3.Row raises IndexError on unknown columns, so this
+        # intentionally stays silent — the C2 schema hardening backfilled
+        # DEFAULT values at ALTER time, so new DBs never hit this path.
         density_raw = None
         total_cells = None
         try:
             density_raw = row['density_json']
         except (IndexError, KeyError):
+            # Legacy DB without the column — read_floorplan quietly degrades.
             pass
         try:
             total_cells = row['total_cells']

@@ -938,8 +938,13 @@ class StatusDB:
                 t0 = datetime.fromisoformat(job.start_time)
                 t1 = datetime.fromisoformat(now)
                 runtime_sec = (t1 - t0).total_seconds()
-            except Exception:
-                pass
+            except (ValueError, TypeError) as _parse_err:
+                # Timestamp format drift (future-format timestamp from an
+                # older/newer schema). Keep runtime_sec=0 so the row still
+                # records, but log the drift so operators notice.
+                logger.warning(
+                    f'record_complete({job.name}): could not compute runtime '
+                    f'from start={job.start_time!r} end={now!r}: {_parse_err}')
 
         hostname = socket.gethostname()
 
@@ -2053,8 +2058,13 @@ class RaceEngine:
             elif count >= warn_threshold:
                 logger.warning(f"RACE DB sessions at {count}/{max_sessions} (80% threshold). "
                               f"Consider: cbflow manage list --path <race_area>")
-        except Exception:
-            pass  # Non-critical — don't block init
+        except (OSError, sqlite3.Error) as _e:
+            # Non-critical — session count check is a courtesy; don't
+            # block init on a filesystem glitch or DB enumeration miss.
+            # Log at debug so the resolver can tell operators why the
+            # courtesy check didn't fire when they ask.
+            logger.debug(
+                f'session count check skipped: {type(_e).__name__}: {_e}')
 
     def _resolve_db_path(self) -> str:
         """Resolve DB base path from project_config.tcl. MANDATORY.
@@ -2365,7 +2375,8 @@ class RaceEngine:
                         error_msg = f"ERRORS:\n{error_summary}\n\nLog tail:\n{tail}"
                     else:
                         error_msg = f"Process exited with code {exit_code} (no ERROR lines found)\n\nLog tail:\n{tail}"
-                except Exception:
+                except OSError as _log_err:
+                    logger.debug(f'log tail read failed for {log_file}: {_log_err}')
                     error_msg = f"Process exited with code {exit_code}. Log: {log_file}"
 
             self.db.record_complete(job, exit_code, error_msg)
@@ -2592,8 +2603,10 @@ class RaceEngine:
                 t0 = datetime.fromisoformat(job.start_time)
                 t1 = datetime.fromisoformat(job.end_time)
                 return (t1 - t0).total_seconds()
-            except Exception:
-                pass
+            except (ValueError, TypeError) as _e:
+                logger.debug(
+                    f'runtime_from_times: unparseable start/end '
+                    f'(start={start!r} end={end!r}): {_e}')
         return 0
 
     def _kill_running_processes(self):

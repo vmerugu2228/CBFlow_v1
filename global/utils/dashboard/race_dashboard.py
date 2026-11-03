@@ -2380,28 +2380,71 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    # Whitelist for _query_db_table — the ONLY tables this endpoint may
+    # read. Pre-fix the table name was spliced via f-string into SELECT,
+    # trusting the caller to pass a sane value. Every current call site
+    # passes one of these literals, but a future refactor that passes a
+    # URL path segment or query-string field would turn this into SQL
+    # injection via `SELECT * FROM users; DROP TABLE users;--`. Allow-
+    # listing is the correct guard.
+    _QUERY_DB_ALLOWED_TABLES = frozenset((
+        'design_info', 'checklist_results', 'release_info', 'lsf_details',
+        'metrics_snapshot', 'config_history',
+    ))
+    # Column-name allow-list for filter keys — same rationale (prevent
+    # `col=; DROP TABLE X; --` crafted via URL params). Permissive regex
+    # since the schema has camelCase + snake_case columns.
+    _QUERY_DB_COL_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+    # Cap on result rows to prevent OOM when a client polls an endpoint
+    # whose table has 1M+ rows — the full set is JSON-encoded in memory
+    # before send, so an unbounded SELECT can exhaust the daemon heap.
+    _QUERY_DB_ROW_LIMIT = 10_000
+
     def _query_db_table(self, table_name, filters=None):
         """Query a DB table with optional column filters. Returns list of dicts.
-        Handles missing tables gracefully (returns empty list)."""
+        Handles missing tables gracefully (returns empty list).
+
+        Table name + filter columns are allow-listed; filter values go
+        through parameter binding. See _QUERY_DB_ALLOWED_TABLES.
+        """
+        if table_name not in self._QUERY_DB_ALLOWED_TABLES:
+            logger.warning(
+                f'_query_db_table rejected non-allowlisted table '
+                f'{table_name!r} — add to _QUERY_DB_ALLOWED_TABLES '
+                f'if this is a new legitimate call site.')
+            return []
         try:
             conn = _sqlite_connect(self.dashboard.db_path)
             conn.row_factory = sqlite3.Row
+            # Table name validated above → safe to interpolate.
             query = f'SELECT * FROM {table_name}'
             params = []
             if filters:
                 clauses = []
                 for col, val in filters.items():
+                    if not self._QUERY_DB_COL_RE.match(str(col)):
+                        logger.warning(
+                            f'_query_db_table rejected malformed filter '
+                            f'column {col!r} on table {table_name!r}.')
+                        continue
                     clauses.append(f'{col} = ?')
                     params.append(val)
-                query += ' WHERE ' + ' AND '.join(clauses)
+                if clauses:
+                    query += ' WHERE ' + ' AND '.join(clauses)
+            query += f' LIMIT {self._QUERY_DB_ROW_LIMIT}'
             cur = conn.execute(query, params)
             rows = [dict(r) for r in cur.fetchall()]
             conn.close()
             return rows
-        except sqlite3.OperationalError:
-            # Table doesn't exist or schema mismatch
+        except sqlite3.OperationalError as _e:
+            logger.warning(
+                f'_query_db_table({table_name!r}): operational error — '
+                f'table may be missing or schema may have drifted: {_e}')
             return []
-        except Exception:
+        except Exception as _e:
+            logger.error(
+                f'_query_db_table({table_name!r}) unexpected error: {_e}',
+                exc_info=True)
             return []
 
     def _serve_log(self, job_name):
