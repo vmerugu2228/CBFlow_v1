@@ -1,0 +1,96 @@
+#!/bin/bash
+# ═══════════════════════════════════════════════════════════════════════════════
+# CBflow-RTL — Register-Transfer-Level discipline launcher
+#
+# Hosts subcommands that are RTL-design-side-specific (lint waiver management,
+# CDC path exploration, UPF intent viewer, etc.). Currently the RTL-owned
+# subcommand list is EMPTY — every RTL flow (RTL_LINT / RTL_CDC / RTL_RDC /
+# UPF_CHECK) runs through the cross-domain `cbflow run …` path, so no
+# discipline-specific tooling has been carved out yet.
+#
+# This launcher exists as an extension point: to add an RTL-specific
+# subcommand
+#   1. Add it to global/config/cli/discipline_commands.tcl as RTL-owned.
+#   2. Add it to the RTL_FLOW_SUBCOMMANDS array below.
+#   3. Add the case + handler dispatch below.
+#   4. Drop the Python handler at RTL/utils/commands/<cmd>_cmd.py.
+#
+# Anything not owned by RTL falls through to the cross-domain launcher.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+set -euo pipefail
+
+# Resolve CBFLOW_ROOT / CBFLOW_GLOBAL_DIR / discipline dirs via shared helper.
+_real="${BASH_SOURCE[0]}"
+while [ -L "$_real" ]; do
+    _dir="$(cd "$(dirname "$_real")" && pwd)"
+    _real="$(readlink "$_real")"
+    [[ "$_real" != /* ]] && _real="$_dir/$_real"
+done
+_HELPER="$(dirname "$(dirname "$(dirname "$_real")")")/global/bin/_cbflow_paths.sh"
+if [[ ! -f "$_HELPER" ]]; then
+    echo "ERROR: _cbflow_paths.sh not found (looked near $_real)" >&2
+    exit 1
+fi
+source "$_HELPER" "${BASH_SOURCE[0]}"
+unset _real _dir _HELPER
+
+CBFLOW_VERSION="2.0.0"
+GLOBAL_CBFLOW="$CBFLOW_GLOBAL_DIR/bin/cbflow"
+
+# ── Owned subcommand map ─────────────────────────────────────────────────────
+# Empty for now — no RTL-specific tooling. Populate as commands ship.
+RTL_FLOW_SUBCOMMANDS=()
+
+_rtl_owns_flow_subcmd() {
+    local needle="$1"
+    for cmd in "${RTL_FLOW_SUBCOMMANDS[@]:-}"; do
+        [[ "$cmd" == "$needle" ]] && return 0
+    done
+    return 1
+}
+
+show_help() {
+    cat <<EOF
+
+  CBflow-RTL — Register-Transfer-Level discipline launcher   v${CBFLOW_VERSION}
+  ═══════════════════════════════════════════════════════════════════
+
+  This launcher owns RTL-specific subcommands. Currently: (none).
+  RTL flows themselves (RTL_LINT, RTL_CDC, RTL_RDC, UPF_CHECK) run
+  through the cross-domain \`cbflow run …\` path.
+
+  Any command not owned here falls through to \$CBFLOW_GLOBAL_DIR/bin/cbflow.
+    cbflow-rtl workspace list-runs    ← works
+    cbflow-rtl run all                ← works (routes via flow_registry)
+    cbflow-rtl flow types --domain RTL   ← works
+
+  Utilities:
+    cbflow-rtl --list                 List RTL-owned subcommands (empty)
+    cbflow-rtl --help                 This message
+EOF
+}
+
+# ── Utility flags ────────────────────────────────────────────────────────────
+case "${1:-}" in
+    --list)
+        for cmd in "${RTL_FLOW_SUBCOMMANDS[@]:-}"; do
+            [[ -n "$cmd" ]] && echo "flow:$cmd"
+        done
+        exit 0
+        ;;
+    --help|-h)
+        show_help
+        exit 0
+        ;;
+esac
+
+# ── Main dispatch ────────────────────────────────────────────────────────────
+if [[ "${1:-}" == "flow" && $# -ge 2 ]] && _rtl_owns_flow_subcmd "$2"; then
+    # Add case entries here as RTL-owned commands ship.
+    echo "[ERROR] RTL-owned subcommand '$2' declared but no handler registered." >&2
+    exit 1
+fi
+
+# Fallthrough — defer to global launcher.
+exec "$GLOBAL_CBFLOW" "$@"

@@ -24,18 +24,20 @@ set flow(types) {
     SCAN_INSERT ATPG GLS_FUNC GLS_SCAN_MBIST
     SPEC_RAMP PLANNING TB_SETUP M1_EXEC M2_EXEC M3_EXEC M4_EXEC
     ECO_EXEC DV_SIGNOFF
+    RTL_LINT RTL_CDC RTL_RDC UPF_CHECK
 }
 
 # ── Discipline Roster ─────────────────────────────────────────────────────────
 # Names match the top-level directory: $CBFLOW_ROOT/<name>. Each discipline
 # owns its cmds/, node_configs/, tool_launch_config, etc. The launcher exports
 # CBFLOW_<UPPER>_DIR for each when the directory exists.
-set flow(disciplines) {PD DFT DV}
+set flow(disciplines) {PD DFT DV RTL}
 
 # Directory-name for each discipline (used by paths.get_node_config_path()).
 set flow(discipline_dir,PD)  "PD"
 set flow(discipline_dir,DFT) "DFT"
 set flow(discipline_dir,DV)  "DV"
+set flow(discipline_dir,RTL) "RTL"
 
 # ── Per-Flow → Discipline Map ─────────────────────────────────────────────────
 # PD — Physical Design (implementation → tapeout)
@@ -76,6 +78,16 @@ set flow(discipline,M3_EXEC)        "DV"
 set flow(discipline,M4_EXEC)        "DV"
 set flow(discipline,ECO_EXEC)       "DV"
 set flow(discipline,DV_SIGNOFF)     "DV"
+
+# RTL — Register-Transfer-Level design-side quality flows
+# Static checks on the RTL before synthesis/implementation: lint rules,
+# clock-domain crossings, reset-domain crossings, UPF intent. Complements
+# DV (dynamic verification) and PD (implementation) with pre-impl gates
+# that can block tapeout if left unresolved.
+set flow(discipline,RTL_LINT)       "RTL"
+set flow(discipline,RTL_CDC)        "RTL"
+set flow(discipline,RTL_RDC)        "RTL"
+set flow(discipline,UPF_CHECK)      "RTL"
 
 # ── Descriptions — sourced from adjacent descriptions_config.tcl ──────────────
 # Kept in a separate file for edit-cadence (descriptions change often; the

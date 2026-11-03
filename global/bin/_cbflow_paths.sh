@@ -4,11 +4,12 @@
 #
 # Sourced by every cbflow-* launcher in global/bin/ and every discipline
 # launcher <disc>/bin/cbflow-<disc>. Sets:
-#   CBFLOW_ROOT        — repo root (parent of global/, PD/, DFT/, DV/)
+#   CBFLOW_ROOT        — repo root (parent of global/, PD/, DFT/, DV/, RTL/)
 #   CBFLOW_GLOBAL_DIR  — <root>/global
 #   CBFLOW_CORE_DIR    — <root>/PD  (PD discipline root)
 #   CBFLOW_DFT_DIR     — <root>/DFT (only if directory exists)
 #   CBFLOW_DV_DIR      — <root>/DV  (only if directory exists)
+#   CBFLOW_RTL_DIR     — <root>/RTL (only if directory exists)
 #
 # Works from either invocation home (global/bin/ or <disc>/bin/) and survives
 # any symlink chain.
@@ -49,6 +50,7 @@ _cbflow_resolve_paths() {
     # Discipline roots — only exported when directory actually exists.
     [[ -d "$CBFLOW_ROOT/DFT" ]] && CBFLOW_DFT_DIR="$CBFLOW_ROOT/DFT"
     [[ -d "$CBFLOW_ROOT/DV"  ]] && CBFLOW_DV_DIR="$CBFLOW_ROOT/DV"
+    [[ -d "$CBFLOW_ROOT/RTL" ]] && CBFLOW_RTL_DIR="$CBFLOW_ROOT/RTL"
 
     # Config schema versions. Every config tree in the repo is on v1.0.0.
     # Previously each individual caller (Python + TCL) had its own default
@@ -68,11 +70,12 @@ _cbflow_resolve_paths() {
     export FLOW_CONFIG_VERSION UTILITIES_VERSION TECH_CONFIG_VERSION PROJECT_CONFIG_VERSION
     [[ -n "${CBFLOW_DFT_DIR:-}" ]] && export CBFLOW_DFT_DIR
     [[ -n "${CBFLOW_DV_DIR:-}"  ]] && export CBFLOW_DV_DIR
+    [[ -n "${CBFLOW_RTL_DIR:-}" ]] && export CBFLOW_RTL_DIR
     # Explicit success — otherwise the function returns the exit status
     # of the last conditional, which is 1 when the corresponding
     # discipline directory doesn't exist. Under `set -euo pipefail` in
     # the calling launcher, that would silently abort every cbflow
-    # command on installs without a DV/ (or DFT/) subdirectory.
+    # command on installs without a DV/ (or DFT/) / RTL/ subdirectory.
     return 0
 }
 
