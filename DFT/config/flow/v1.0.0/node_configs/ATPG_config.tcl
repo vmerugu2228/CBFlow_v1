@@ -41,9 +41,26 @@ array set atpg {
     conditional_stages,pd_phase,post {zd_sim1 timing_sim1 signoff1}
 }
 
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║    DECISION STAGE — pd_phase (pre vs post-PD ATPG)                          ║
+# ║  init_atpg1 is the first-class decision node for the pd_phase choice.      ║
+# ║  Its handler writes work/ATPG/init_atpg1/outputs/decision_outcome.txt     ║
+# ║  with "pre" or "post" (read from $atpg(pd_phase) default or user_config). ║
+# ║  Engine then bypasses zd_sim1/timing_sim1/signoff1 in the "pre" outcome    ║
+# ║  as BYPASSED_BY_DECISION. release_data1 proceeds either way (bypassed     ║
+# ║  stages count as completed for downstream readiness).                     ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+array set atpg {
+    decision_outcomes,init_atpg1         {pre post}
+    decision_next,init_atpg1,pre         {}
+    decision_next,init_atpg1,post        {zd_sim1 timing_sim1 signoff1}
+    decision_source,init_atpg1           "file"
+    decision_default,init_atpg1          "pre"
+}
+
 # Stages that only execute when pd_phase=post. In pd_phase=pre they
-# short-circuit to SKIPPED at setup and emit empty mandatory_outputs.
-# (declared via atpg(conditional_stages,pd_phase,post) above)
+# short-circuit to BYPASSED_BY_DECISION via the decision engine.
 
 set _atpg_exec_stages {init_atpg1 pattern_gen1 fault_sim1 coverage_report1 export_patterns1
                        zd_sim1 timing_sim1 signoff1
@@ -64,7 +81,7 @@ array set atpg {
     stage_types,scandef1            "inputs"
     stage_types,sdf1                "inputs"
     stage_types,lib1                "inputs"
-    stage_types,init_atpg1          "execution"
+    stage_types,init_atpg1          "decision"
     stage_types,pattern_gen1        "execution"
     stage_types,fault_sim1          "execution"
     stage_types,coverage_report1    "execution"
