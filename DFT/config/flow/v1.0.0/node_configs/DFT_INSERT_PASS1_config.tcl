@@ -247,7 +247,7 @@ array set dft_insert_pass1 {
     release_types,dft_pass1,description "DFT Pass1 — Core DFT (MBIST + BSCAN) deliverables"
     release_types,dft_pass1,files {
         "outputs/${design_name}_rtl1.dft_inserted_design"                              "dft_inserted_design/${design_name}_rtl1.dft_inserted_design"
-        "outputs/modified_rtl_files/${design_name}.v"                                  "rtl/${design_name}.v"
+        "outputs/modified_rtl_files/${design_name}.v"                                  "netlist/${design_name}.v"
         "outputs/${design_name}.icl"                                                   "icl/${design_name}.icl"
         "outputs/${design_name}.pdl"                                                   "pdl/${design_name}.pdl"
         "outputs/${design_name}.sdc"                                                   "sdc/${design_name}.sdc"

@@ -208,7 +208,7 @@ array set dft_insert_pass3 {
 array set dft_insert_pass3 {
     release_types,dft_pass3,description "DFT Pass3 — EDT + OCC deliverables"
     release_types,dft_pass3,files {
-        "outputs/${design_name}.edt_occ.v"            "rtl/${design_name}.edt_occ.v"
+        "outputs/${design_name}.edt_occ.v"            "netlist/${design_name}.edt_occ.v"
         "outputs/${design_name}.edt_occ.sdc"          "sdc/${design_name}.edt_occ.sdc"
         "outputs/${design_name}.edt_occ.pdl"          "pdl/${design_name}.edt_occ.pdl"
         "outputs/${design_name}.edt_occ.tcd"          "tcd/${design_name}.edt_occ.tcd"

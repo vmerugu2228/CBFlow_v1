@@ -165,6 +165,7 @@ array set rtl_lint {
         "reports/rtl_lint/violations_final.csv"   "reports/violations_final.csv"
         "reports/rtl_lint/violations_final.html"  "reports/violations_final.html"
         "reports/rtl_lint/waivers_applied.rpt"    "reports/waivers_applied.rpt"
+        "outputs/clean_rtl/${design_name}.v"      "netlist/${design_name}.v"
     }
 
     reporting_stages {report1 release_data1}

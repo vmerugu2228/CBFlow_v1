@@ -170,7 +170,7 @@ array set dft_insert_pass2 {
 array set dft_insert_pass2 {
     release_types,dft_pass2,description "DFT Pass2 — Top DFT (TDR + DFT Signals + SRI) deliverables"
     release_types,dft_pass2,files {
-        "outputs/${design_name}.top.dft.v"           "rtl/${design_name}.top.dft.v"
+        "outputs/${design_name}.top.dft.v"           "netlist/${design_name}.top.dft.v"
         "outputs/${design_name}.top.icl"             "icl/${design_name}.top.icl"
         "outputs/${design_name}.top.pdl"             "pdl/${design_name}.top.pdl"
         "outputs/${design_name}.top.sdc"             "sdc/${design_name}.top.sdc"

@@ -180,6 +180,7 @@ array set upf_check {
         "reports/upf_check/power_domains.rpt"    "reports/power_domains.rpt"
         "reports/upf_check/power_states.rpt"     "reports/power_states.rpt"
         "reports/upf_check/waivers_applied.rpt"  "reports/waivers_applied.rpt"
+        "outputs/validated/${design_name}.upf"   "upf/${design_name}.upf"
     }
 
     reporting_stages {upf_report1 signoff1 release_data1}
