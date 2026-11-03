@@ -111,7 +111,18 @@ if {$argc < 1} {
 }
 
 set subnode_name [lindex $argv 0]
-set run_dir [expr {$argc > 1 ? [lindex $argv 1] : $::env(CBFLOW_RUN_DIR)}]
+# run_dir resolution: CLI arg wins, then CBFLOW_RUN_DIR, else error. Pre-fix
+# the ternary accessed $::env(CBFLOW_RUN_DIR) unconditionally — a tclsh
+# invocation without the env var crashed with "can't read env(CBFLOW_RUN_DIR)"
+# instead of a clean usage message.
+if {$argc > 1} {
+    set run_dir [lindex $argv 1]
+} elseif {[info exists ::env(CBFLOW_RUN_DIR)] && $::env(CBFLOW_RUN_DIR) ne ""} {
+    set run_dir $::env(CBFLOW_RUN_DIR)
+} else {
+    puts stderr "ERROR: run_dir not provided as argv and CBFLOW_RUN_DIR not set in env"
+    exit 1
+}
 set node_name [expr {$argc > 2 ? [lindex $argv 2] : ""}]
 
 # Validate subnode name against PNR configuration

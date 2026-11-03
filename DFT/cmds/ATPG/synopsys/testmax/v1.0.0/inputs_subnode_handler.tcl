@@ -35,7 +35,11 @@ set _ts [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}}
 # Generic handler — creates work/<flow>/<node_name>/<subnode>/ and writes an _info.tcl stub
 proc _gen_input_subnode {flow node_name sub} {
     upvar 1 _ts _ts test_mode test_mode
-    set wd "$::env(CBFLOW_RUN_DIR)/work/$flow/$node_name/$sub"
+    # Reach into the top-level run_dir (set at line 7 with [pwd] fallback)
+    # instead of $::env(CBFLOW_RUN_DIR) directly — avoids a crash when the
+    # env var is unset (handler invoked outside a race-engine run).
+    global run_dir
+    set wd "$run_dir/work/$flow/$node_name/$sub"
     file mkdir $wd
     set fh [open "$wd/${sub}_info.tcl" "w"]
     puts $fh "set ${sub}_info(timestamp) \"$_ts\""
