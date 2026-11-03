@@ -226,6 +226,50 @@ proc validate_mandatory_files {} {
     return 1
 }
 
+# ── Collect upstream `_release_tag` keys for sign-off traceability ──────────
+proc _collect_upstream_tags {} {
+    # Walk the user_config / resolved_config arrays for any key of the form
+    # `<flow>(input,<name>_release_tag)` — those are the tags THIS run was
+    # built against. Dedupe and return as a flat list for MANIFEST emission.
+    set tags [list]
+    foreach _arr [info globals] {
+        if {![array exists ::$_arr]} continue
+        foreach _k [array names ::$_arr] {
+            if {[regexp {input,[a-zA-Z0-9_]+_release_tag$} $_k]} {
+                set _v [set ::${_arr}($_k)]
+                if {$_v ne "" && [lsearch -exact $tags $_v] < 0} {
+                    lappend tags $_v
+                }
+            }
+        }
+    }
+    return $tags
+}
+
+# ── Count sign-off violations from the standard RTL/UPF CSV format ──────────
+proc _count_violations {run_dir flow_type} {
+    # Looks for reports/<flow_lower>/violations_final.csv (RTL/UPF-check
+    # shape) and counts rows with fatal/error/warn severities. Returns a
+    # 3-tuple dict. Discipline-free: returns zero when CSV absent.
+    set counts [dict create fatal 0 error 0 warn 0]
+    set flow_lower [string tolower $flow_type]
+    set csv "$run_dir/reports/${flow_lower}/violations_final.csv"
+    if {![file exists $csv]} { return $counts }
+    if {[catch {open $csv r} _fp]} { return $counts }
+    while {[gets $_fp _line] >= 0} {
+        set lower [string tolower $_line]
+        if {[string match "*,fatal,*" $lower] || [string match "fatal,*" $lower]} {
+            dict incr counts fatal
+        } elseif {[string match "*,error,*" $lower] || [string match "error,*" $lower]} {
+            dict incr counts error
+        } elseif {[string match "*,warn,*" $lower] || [string match "warning,*" $lower]} {
+            dict incr counts warn
+        }
+    }
+    close $_fp
+    return $counts
+}
+
 # ── Generate Release Manifest ───────────────────────────────────────────────
 proc generate_manifest {} {
     variable release_dir release_tag release_phase flow_type design_name run_dir
@@ -233,6 +277,15 @@ proc generate_manifest {} {
 
     set manifest_file "$release_dir/MANIFEST.json"
     set fd [open $manifest_file "w"]
+
+    # Sign-off provenance — upstream tags consumed by this run, source SHA
+    # (optional, from env), and violation counts from the standard
+    # violations_final.csv shape. Downstream consumers read this to chain
+    # releases ("Pass3 built against RTL_SIGNOFF_v2 which had 0 fatal, 0 error").
+    set _upstream_tags [_collect_upstream_tags]
+    set _source_sha ""
+    if {[info exists ::env(GIT_SHA)]} { set _source_sha $::env(GIT_SHA) }
+    set _viol [_count_violations $run_dir $flow_type]
 
     puts $fd "\{"
     puts $fd "  \"flow\": \"$flow_type\","
@@ -242,6 +295,22 @@ proc generate_manifest {} {
     puts $fd "  \"timestamp\": \"[clock format [clock seconds] -format {%Y-%m-%dT%H:%M:%S}]\","
     puts $fd "  \"user\": \"$::env(USER)\","
     puts $fd "  \"run_dir\": \"$run_dir\","
+    puts $fd "  \"signoff_status\": \{"
+    # upstream_tags JSON array
+    set _tags_json ""
+    set _n [llength $_upstream_tags]
+    for {set _i 0} {$_i < $_n} {incr _i} {
+        append _tags_json "\"[lindex $_upstream_tags $_i]\""
+        if {$_i + 1 < $_n} { append _tags_json ", " }
+    }
+    puts $fd "    \"upstream_tags\": \[$_tags_json\],"
+    puts $fd "    \"source_sha\": \"$_source_sha\","
+    puts $fd "    \"violation_counts\": \{"
+    puts $fd "      \"fatal\": [dict get $_viol fatal],"
+    puts $fd "      \"error\": [dict get $_viol error],"
+    puts $fd "      \"warn\":  [dict get $_viol warn]"
+    puts $fd "    \}"
+    puts $fd "  \},"
     puts $fd "  \"files\": \["
 
     set count 0
