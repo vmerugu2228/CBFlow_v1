@@ -1310,40 +1310,108 @@ proc check_release_readiness {run_dir flow milestone phase} {
     set flow_input_handshake(SYNTH,sdc) {INPUTS   sdc      "${design_name}.sdc"}
     set flow_input_handshake(SYNTH,upf_file) {INPUTS   upf      "${design_name}.upf"}
 
-    set flow_input_handshake(PNR,netlist) {SYNTH    netlist   "${design_name}.v"}
-    set flow_input_handshake(PNR,sdc) {SYNTH    sdc       "${design_name}.sdc"}
-    set flow_input_handshake(PNR,upf_file) {SYNTH    upf       "${design_name}.upf"}
-    set flow_input_handshake(PNR,def_file) {FP       def       "${design_name}.def"}
-    set flow_input_handshake(PNR,fp_tcl) {FP       data      "floorplan.tcl"}
+    set flow_input_handshake(PNR,netlist)             {SYNTH netlist "${design_name}.v"}
+    set flow_input_handshake(PNR,sdc)                 {SYNTH sdc     "${design_name}.sdc"}
+    set flow_input_handshake(PNR,upf_file)            {SYNTH upf     "${design_name}.upf"}
+    set flow_input_handshake(PNR,def_file)            {FP    def     "${design_name}.def"}
+    set flow_input_handshake(PNR,fp_tcl)              {FP    data    "floorplan.tcl"}
+    # Explicit upstream variants (PNR can be restarted from a prior PNR
+    # release tag, or re-enter mid-impl from a SYNTH_PNR tag).
+    set flow_input_handshake(PNR,netlist_from_synth)  {SYNTH     netlist "${design_name}.v"}
+    set flow_input_handshake(PNR,def_from_fp)         {FP        def     "${design_name}.def"}
+    set flow_input_handshake(PNR,def_from_fcfp)       {FCFP      def     "${design_name}.def"}
+    set flow_input_handshake(PNR,netlist_from_pnr)    {PNR       netlist "${design_name}.v"}
+    set flow_input_handshake(PNR,def_from_pnr)        {PNR       def     "${design_name}.def"}
+    set flow_input_handshake(PNR,netlist_from_synth_pnr) {SYNTH_PNR netlist "${design_name}.v"}
+    set flow_input_handshake(PNR,def_from_synth_pnr)     {SYNTH_PNR def     "${design_name}.def"}
 
-    set flow_input_handshake(FP,netlist) {SYNTH    netlist   "${design_name}.v"}
-    set flow_input_handshake(FP,sdc) {SYNTH    sdc       "${design_name}.sdc"}
-    set flow_input_handshake(FP,upf_file) {SYNTH    upf       "${design_name}.upf"}
+    set flow_input_handshake(FP,netlist)              {SYNTH netlist "${design_name}.v"}
+    set flow_input_handshake(FP,sdc)                  {SYNTH sdc     "${design_name}.sdc"}
+    set flow_input_handshake(FP,upf_file)             {SYNTH upf     "${design_name}.upf"}
+    set flow_input_handshake(FP,netlist_from_synth)   {SYNTH netlist "${design_name}.v"}
+    set flow_input_handshake(FP,sdc_from_synth)       {SYNTH sdc     "${design_name}.sdc"}
+    set flow_input_handshake(FP,upf_from_synth)       {SYNTH upf     "${design_name}.upf"}
 
-    set flow_input_handshake(STA,netlist) {SYNTH_PNR netlist  "${design_name}.pt.v"}
-    set flow_input_handshake(STA,def_file) {SYNTH_PNR def     "${design_name}.def"}
+    # FCFP — same shape as FP, independent entry so project user_configs
+    # that run FCFP instead of FP can still consume a SYNTH release tag.
+    set flow_input_handshake(FCFP,netlist)            {SYNTH netlist "${design_name}.v"}
+    set flow_input_handshake(FCFP,sdc)                {SYNTH sdc     "${design_name}.sdc"}
+    set flow_input_handshake(FCFP,upf_file)           {SYNTH upf     "${design_name}.upf"}
+    set flow_input_handshake(FCFP,netlist_from_synth) {SYNTH netlist "${design_name}.v"}
+    set flow_input_handshake(FCFP,sdc_from_synth)     {SYNTH sdc     "${design_name}.sdc"}
+    set flow_input_handshake(FCFP,upf_from_synth)     {SYNTH upf     "${design_name}.upf"}
 
-    set flow_input_handshake(PV,gds) {SYNTH_PNR gds     "${design_name}.gds"}
-    set flow_input_handshake(PV,netlist) {SYNTH_PNR netlist  "${design_name}.lvs.v"}
-    set flow_input_handshake(PV,def_file) {SYNTH_PNR def     "${design_name}.def"}
+    # ── Downstream of impl (STA / PV / LEC / CLP / EMIR / ECO / POPT) ────────
+    # Each downstream input is wired to BOTH upstream sources (PNR and
+    # SYNTH_PNR) with explicit suffixes so the project's user_config picks
+    # which release tag feeds this run. PNR + SYNTH_PNR stage identical
+    # artifact names per the config change in PNR_config.tcl /
+    # SYNTH_PNR_config.tcl (both now emit
+    # `netlist/${design_name}.{v,pt.v,lvs.v}`, `def/${design_name}.def`,
+    # `gds/${design_name}.gds`, `spef/${design_name}.spef`).
+    #
+    # Historical plain-keyed entries kept as aliases of the _from_synth_pnr
+    # variants so existing user_configs that used `sta(input,netlist_release_tag)`
+    # continue to resolve against the SYNTH_PNR tag.
+    set flow_input_handshake(STA,netlist)                 {SYNTH_PNR netlist  "${design_name}.pt.v"}
+    set flow_input_handshake(STA,def_file)                {SYNTH_PNR def      "${design_name}.def"}
+    set flow_input_handshake(STA,spef)                    {SYNTH_PNR spef     "${design_name}.spef"}
+    set flow_input_handshake(STA,netlist_from_pnr)        {PNR       netlist  "${design_name}.pt.v"}
+    set flow_input_handshake(STA,def_from_pnr)            {PNR       def      "${design_name}.def"}
+    set flow_input_handshake(STA,spef_from_pnr)           {PNR       spef     "${design_name}.spef"}
+    set flow_input_handshake(STA,netlist_from_synth_pnr)  {SYNTH_PNR netlist  "${design_name}.pt.v"}
+    set flow_input_handshake(STA,def_from_synth_pnr)      {SYNTH_PNR def      "${design_name}.def"}
+    set flow_input_handshake(STA,spef_from_synth_pnr)     {SYNTH_PNR spef     "${design_name}.spef"}
 
-    set flow_input_handshake(LEC,netlist_golden) {SYNTH    netlist   "${design_name}.v"}
-    set flow_input_handshake(LEC,netlist_revised) {SYNTH_PNR netlist  "${design_name}.v"}
+    set flow_input_handshake(PV,gds)                      {SYNTH_PNR gds      "${design_name}.gds"}
+    set flow_input_handshake(PV,netlist)                  {SYNTH_PNR netlist  "${design_name}.lvs.v"}
+    set flow_input_handshake(PV,def_file)                 {SYNTH_PNR def      "${design_name}.def"}
+    set flow_input_handshake(PV,gds_from_pnr)             {PNR       gds      "${design_name}.gds"}
+    set flow_input_handshake(PV,netlist_from_pnr)         {PNR       netlist  "${design_name}.lvs.v"}
+    set flow_input_handshake(PV,def_from_pnr)             {PNR       def      "${design_name}.def"}
+    set flow_input_handshake(PV,gds_from_synth_pnr)       {SYNTH_PNR gds      "${design_name}.gds"}
+    set flow_input_handshake(PV,netlist_from_synth_pnr)   {SYNTH_PNR netlist  "${design_name}.lvs.v"}
+    set flow_input_handshake(PV,def_from_synth_pnr)       {SYNTH_PNR def      "${design_name}.def"}
 
-    set flow_input_handshake(CLP,netlist) {SYNTH_PNR netlist  "${design_name}.v"}
-    set flow_input_handshake(CLP,upf_file) {SYNTH_PNR upf     "${design_name}.upf"}
+    set flow_input_handshake(LEC,netlist_golden)          {SYNTH     netlist  "${design_name}.v"}
+    set flow_input_handshake(LEC,netlist_revised)         {SYNTH_PNR netlist  "${design_name}.v"}
+    set flow_input_handshake(LEC,netlist_revised_from_pnr)       {PNR       netlist "${design_name}.v"}
+    set flow_input_handshake(LEC,netlist_revised_from_synth_pnr) {SYNTH_PNR netlist "${design_name}.v"}
 
-    set flow_input_handshake(EMIR,def_file) {SYNTH_PNR def     "${design_name}.def"}
-    set flow_input_handshake(EMIR,netlist) {SYNTH_PNR netlist  "${design_name}.v"}
-    set flow_input_handshake(EMIR,spef) {SYNTH_PNR spef    "${design_name}.spef"}
-    set flow_input_handshake(EMIR,gds) {SYNTH_PNR gds     "${design_name}.gds"}
+    set flow_input_handshake(CLP,netlist)                 {SYNTH_PNR netlist  "${design_name}.v"}
+    set flow_input_handshake(CLP,upf_file)                {SYNTH_PNR upf      "${design_name}.upf"}
+    set flow_input_handshake(CLP,netlist_from_pnr)        {PNR       netlist  "${design_name}.v"}
+    set flow_input_handshake(CLP,upf_from_pnr)            {PNR       upf      "${design_name}.upf"}
+    set flow_input_handshake(CLP,netlist_from_synth_pnr)  {SYNTH_PNR netlist  "${design_name}.v"}
+    set flow_input_handshake(CLP,upf_from_synth_pnr)      {SYNTH_PNR upf      "${design_name}.upf"}
 
-    set flow_input_handshake(ECO,netlist) {SYNTH_PNR netlist  "${design_name}.v"}
-    set flow_input_handshake(ECO,def_file) {SYNTH_PNR def     "${design_name}.def"}
+    set flow_input_handshake(EMIR,def_file)               {SYNTH_PNR def      "${design_name}.def"}
+    set flow_input_handshake(EMIR,netlist)                {SYNTH_PNR netlist  "${design_name}.v"}
+    set flow_input_handshake(EMIR,spef)                   {SYNTH_PNR spef     "${design_name}.spef"}
+    set flow_input_handshake(EMIR,gds)                    {SYNTH_PNR gds      "${design_name}.gds"}
+    set flow_input_handshake(EMIR,def_from_pnr)           {PNR       def      "${design_name}.def"}
+    set flow_input_handshake(EMIR,netlist_from_pnr)       {PNR       netlist  "${design_name}.v"}
+    set flow_input_handshake(EMIR,spef_from_pnr)          {PNR       spef     "${design_name}.spef"}
+    set flow_input_handshake(EMIR,gds_from_pnr)           {PNR       gds      "${design_name}.gds"}
+    set flow_input_handshake(EMIR,def_from_synth_pnr)     {SYNTH_PNR def      "${design_name}.def"}
+    set flow_input_handshake(EMIR,netlist_from_synth_pnr) {SYNTH_PNR netlist  "${design_name}.v"}
+    set flow_input_handshake(EMIR,spef_from_synth_pnr)    {SYNTH_PNR spef     "${design_name}.spef"}
+    set flow_input_handshake(EMIR,gds_from_synth_pnr)     {SYNTH_PNR gds      "${design_name}.gds"}
 
-    set flow_input_handshake(POPT,netlist) {SYNTH_PNR netlist  "${design_name}.pt.v"}
-    set flow_input_handshake(POPT,spef) {SYNTH_PNR spef    "${design_name}.spef"}
-    set flow_input_handshake(POPT,sdc) {SYNTH_PNR sdc     "${design_name}.sdc"}
+    set flow_input_handshake(ECO,netlist)                 {SYNTH_PNR netlist  "${design_name}.v"}
+    set flow_input_handshake(ECO,def_file)                {SYNTH_PNR def      "${design_name}.def"}
+    set flow_input_handshake(ECO,netlist_from_pnr)        {PNR       netlist  "${design_name}.v"}
+    set flow_input_handshake(ECO,def_from_pnr)            {PNR       def      "${design_name}.def"}
+    set flow_input_handshake(ECO,netlist_from_synth_pnr)  {SYNTH_PNR netlist  "${design_name}.v"}
+    set flow_input_handshake(ECO,def_from_synth_pnr)      {SYNTH_PNR def      "${design_name}.def"}
+
+    set flow_input_handshake(POPT,netlist)                {SYNTH_PNR netlist  "${design_name}.pt.v"}
+    set flow_input_handshake(POPT,spef)                   {SYNTH_PNR spef     "${design_name}.spef"}
+    set flow_input_handshake(POPT,sdc)                    {SYNTH_PNR sdc      "${design_name}.sdc"}
+    set flow_input_handshake(POPT,netlist_from_pnr)       {PNR       netlist  "${design_name}.pt.v"}
+    set flow_input_handshake(POPT,spef_from_pnr)          {PNR       spef     "${design_name}.spef"}
+    set flow_input_handshake(POPT,netlist_from_synth_pnr) {SYNTH_PNR netlist  "${design_name}.pt.v"}
+    set flow_input_handshake(POPT,spef_from_synth_pnr)    {SYNTH_PNR spef     "${design_name}.spef"}
 
     # ── Cross-discipline handoff entries ─────────────────────────────────────
     # RTL → PD: clean RTL signed off by RTL_LINT feeds the synthesis step.

@@ -180,11 +180,13 @@ array set pnr {
 
     release_types,signoff1,description "PNR signoff deliverables for tapeout"
     release_types,signoff1,files {
-        "results/gds/final.gds" "gds/final_layout.gds"
-        "results/netlist/final.v" "netlist/final_netlist.v"
-        "results/def/final.def" "def/final_design.def"
-        "results/spef/final.spef" "spef/final_parasitic.spef"
-        "results/timing/final_timing.rpt" "reports/final_timing.rpt"
+        "results/gds/final.gds"           "gds/${design_name}.gds"
+        "results/netlist/final.v"         "netlist/${design_name}.v"
+        "results/netlist/final.pt.v"      "netlist/${design_name}.pt.v"
+        "results/netlist/final.lvs.v"     "netlist/${design_name}.lvs.v"
+        "results/def/final.def"           "def/${design_name}.def"
+        "results/spef/final.spef"         "spef/${design_name}.spef"
+        "results/timing/final_timing.rpt" "reports/${design_name}_final_timing.rpt"
     }
 }
 
