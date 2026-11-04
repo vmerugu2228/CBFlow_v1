@@ -228,14 +228,23 @@ proc validate_mandatory_files {} {
 
 # ── Collect upstream `_release_tag` keys for sign-off traceability ──────────
 proc _collect_upstream_tags {} {
-    # Walk the user_config / resolved_config arrays for any key of the form
+    # Walk the known flow arrays for keys of the form
     # `<flow>(input,<name>_release_tag)` — those are the tags THIS run was
-    # built against. Dedupe and return as a flat list for MANIFEST emission.
+    # built against. Scoped to real flow arrays (synth, pnr, …, rtl_lint,
+    # upf_check, …) rather than every global so a stray debug array like
+    # `test_fixtures(input,foo_release_tag)` can't pollute the provenance.
+    set _known_flows [list \
+        synth pnr synth_pnr fp fcfp sta lec clp pv emir popt eco \
+        dft_insert_pass1 dft_insert_pass2 dft_insert_pass3 \
+        scan_insert atpg gls_func gls_scan_mbist \
+        spec_ramp planning tb_setup m1_exec m2_exec m3_exec m4_exec \
+        eco_exec dv_signoff \
+        rtl_lint rtl_cdc rtl_rdc upf_check]
     set tags [list]
-    foreach _arr [info globals] {
+    foreach _arr $_known_flows {
         if {![array exists ::$_arr]} continue
         foreach _k [array names ::$_arr] {
-            if {[regexp {input,[a-zA-Z0-9_]+_release_tag$} $_k]} {
+            if {[regexp {^input,[a-zA-Z0-9_]+_release_tag$} $_k]} {
                 set _v [set ::${_arr}($_k)]
                 if {$_v ne "" && [lsearch -exact $tags $_v] < 0} {
                     lappend tags $_v
@@ -246,17 +255,33 @@ proc _collect_upstream_tags {} {
     return $tags
 }
 
+# ── JSON string escape ──────────────────────────────────────────────────────
+proc _json_escape {s} {
+    # Escape the two characters that break JSON string literals. Order
+    # matters: backslash FIRST so the subsequent `\"` injection isn't
+    # itself backslash-escaped. Covers `v1\path` (Windows-like tags) and
+    # `v"beta"` (someone's stray-quote tag).
+    set s [string map {\\ \\\\ \" \\\"} $s]
+    return $s
+}
+
 # ── Count sign-off violations from the standard RTL/UPF CSV format ──────────
 proc _count_violations {run_dir flow_type} {
     # Looks for reports/<flow_lower>/violations_final.csv (RTL/UPF-check
     # shape) and counts rows with fatal/error/warn severities. Returns a
     # 3-tuple dict. Discipline-free: returns zero when CSV absent.
+    # Skips the first line (header row) — pre-fix a header like
+    # "severity,fatal,count" lowercased + string-matched "*,fatal,*"
+    # and inflated the fatal count by 1 before counting any real row.
     set counts [dict create fatal 0 error 0 warn 0]
     set flow_lower [string tolower $flow_type]
     set csv "$run_dir/reports/${flow_lower}/violations_final.csv"
     if {![file exists $csv]} { return $counts }
     if {[catch {open $csv r} _fp]} { return $counts }
+    set _line_num 0
     while {[gets $_fp _line] >= 0} {
+        incr _line_num
+        if {$_line_num == 1} continue   ;# skip header
         set lower [string tolower $_line]
         if {[string match "*,fatal,*" $lower] || [string match "fatal,*" $lower]} {
             dict incr counts fatal
@@ -287,24 +312,28 @@ proc generate_manifest {} {
     if {[info exists ::env(GIT_SHA)]} { set _source_sha $::env(GIT_SHA) }
     set _viol [_count_violations $run_dir $flow_type]
 
+    # Every string field below runs through _json_escape so a tag or
+    # path containing a backslash / double-quote can't produce malformed
+    # JSON. `run_dir` especially — users set workarea paths with spaces +
+    # special chars which pass through here.
     puts $fd "\{"
-    puts $fd "  \"flow\": \"$flow_type\","
-    puts $fd "  \"design\": \"$design_name\","
-    puts $fd "  \"release_tag\": \"$release_tag\","
-    puts $fd "  \"release_phase\": \"$release_phase\","
+    puts $fd "  \"flow\": \"[_json_escape $flow_type]\","
+    puts $fd "  \"design\": \"[_json_escape $design_name]\","
+    puts $fd "  \"release_tag\": \"[_json_escape $release_tag]\","
+    puts $fd "  \"release_phase\": \"[_json_escape $release_phase]\","
     puts $fd "  \"timestamp\": \"[clock format [clock seconds] -format {%Y-%m-%dT%H:%M:%S}]\","
-    puts $fd "  \"user\": \"$::env(USER)\","
-    puts $fd "  \"run_dir\": \"$run_dir\","
+    puts $fd "  \"user\": \"[_json_escape $::env(USER)]\","
+    puts $fd "  \"run_dir\": \"[_json_escape $run_dir]\","
     puts $fd "  \"signoff_status\": \{"
     # upstream_tags JSON array
     set _tags_json ""
     set _n [llength $_upstream_tags]
     for {set _i 0} {$_i < $_n} {incr _i} {
-        append _tags_json "\"[lindex $_upstream_tags $_i]\""
+        append _tags_json "\"[_json_escape [lindex $_upstream_tags $_i]]\""
         if {$_i + 1 < $_n} { append _tags_json ", " }
     }
     puts $fd "    \"upstream_tags\": \[$_tags_json\],"
-    puts $fd "    \"source_sha\": \"$_source_sha\","
+    puts $fd "    \"source_sha\": \"[_json_escape $_source_sha]\","
     puts $fd "    \"violation_counts\": \{"
     puts $fd "      \"fatal\": [dict get $_viol fatal],"
     puts $fd "      \"error\": [dict get $_viol error],"
@@ -318,7 +347,7 @@ proc generate_manifest {} {
         incr count
         set rel_path [string range $f [expr {[string length $release_dir] + 1}] end]
         set comma [expr {$count < [llength $release_files_copied] ? "," : ""}]
-        puts $fd "    \"$rel_path\"$comma"
+        puts $fd "    \"[_json_escape $rel_path]\"$comma"
     }
     puts $fd "  \],"
     puts $fd "  \"total_files\": $count,"

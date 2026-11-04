@@ -261,7 +261,19 @@ namespace eval ::CBFlow::InputResolve {
             }
             return 1
         }
+        # Cross-discipline handshakes (e.g. SYNTH,rtl_from_lint) may point
+        # at an upstream output the upstream flow hasn't staged yet —
+        # e.g. RTL_LINT ships a `netlist/<d>.v` staging entry but the
+        # Spyglass handler doesn't currently emit `outputs/clean_rtl/<d>.v`,
+        # so the netlist/ dir in that release is empty. Surface the
+        # specific upstream flow + category so the operator knows WHICH
+        # upstream to backfill instead of a bare missing-path message.
         puts "WARNING: Release file not found: $fpath"
+        puts "         → upstream flow '[lindex $hval 0]' did not stage "
+        puts "           '[lindex $hval 2]' in category '[lindex $hval 1]/' "
+        puts "           for tag '$tag'. Confirm the upstream flow's release_types"
+        puts "           block emits this artifact, or set ${arr}(input,${input_type})"
+        puts "           directly in user_config."
         return 0
     }
 

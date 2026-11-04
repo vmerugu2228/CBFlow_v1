@@ -2009,8 +2009,10 @@ def cat17_release_folder_canonicality(results, pd_dir, flows):
     category = 'cat17_release_folder_canonicality'
 
     # ── Load canonical schema ────────────────────────────────────────────────
-    # The umbrella roots: global/ is above pd_dir (which is PD/).
-    global_dir = os.path.dirname(pd_dir) + '/global'
+    # The umbrella roots: global/ is above pd_dir (which is PD/). Use
+    # os.path.join (not string concat) so a trailing slash on pd_dir
+    # doesn't produce "//global" that fails on symlink / NFS mounts.
+    global_dir = os.path.join(os.path.dirname(pd_dir.rstrip('/')), 'global')
     schema_path = os.path.join(global_dir, 'config', 'flow', 'v1.0.0',
                                'canonical_release_schema.tcl')
     if not os.path.exists(schema_path):
@@ -2025,10 +2027,21 @@ def cat17_release_folder_canonicality(results, pd_dir, flows):
         results.failed(suite, category, f'cannot read schema: {e}')
         return
 
-    # Extension → canonical folder
+    # Extension → canonical folder. Supports BOTH TCL syntaxes:
+    #   set canonical_file_type(v) netlist          (current)
+    #   array set canonical_file_type { v netlist } (future refactor)
+    # — so a maintainer moving to the array-set form doesn't silently
+    # disable the whole check.
     ext_to_folder = {}
     for m in re.finditer(r'set\s+canonical_file_type\((\w+)\)\s+(\w+)', schema_text):
         ext_to_folder[m.group(1).lower()] = m.group(2)
+    for m_arr in re.finditer(
+        r'array\s+set\s+canonical_file_type\s*\{([^}]+)\}',
+        schema_text, re.DOTALL
+    ):
+        _toks = m_arr.group(1).split()
+        for i in range(0, len(_toks) - 1, 2):
+            ext_to_folder[_toks[i].lower()] = _toks[i + 1]
 
     # All canonical folders (universal)
     canonical_universal = set()
