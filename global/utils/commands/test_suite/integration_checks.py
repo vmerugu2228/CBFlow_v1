@@ -340,6 +340,62 @@ def check_handler_setup_propagates_generator_failure(pd_dir: str) -> tuple:
 # RUNNER
 # ─────────────────────────────────────────────────────────────────────
 
+def check_decision_outcome_resolution(pd_dir: str) -> tuple:
+    """Exercise the decision-node resolver end-to-end.
+
+    Writes a decision_outcome.txt in a tmp run_dir, then calls the engine's
+    `_read_decision_outcome` with a mock-configured engine instance. Verifies:
+      1. Valid outcome in file → returned verbatim.
+      2. Missing file → falls back to decision_default.
+      3. Outcome not in declared set → falls back to decision_default.
+    """
+    import sys
+    import tempfile
+    _utils = os.path.join(pd_dir, '..', 'global', 'utils', 'commands')
+    _utils = os.path.abspath(_utils)
+    if _utils not in sys.path:
+        sys.path.insert(0, _utils)
+    try:
+        from race_engine import RaceEngine
+    except Exception as e:
+        return 'FAIL', f'race_engine import failed: {e}'
+
+    with tempfile.TemporaryDirectory(prefix='cbflow_decision_test_') as td:
+        # Build the minimal engine state the resolver needs.
+        # Avoid full initialize() — we only test the file-read helper.
+        eng = RaceEngine.__new__(RaceEngine)
+        eng.run_dir   = td
+        eng.flow_type = 'ATPG'
+        eng._decision_source  = {'init_atpg1': 'file'}
+        eng._decision_default = {'init_atpg1': 'pre'}
+        eng._decision_outcomes = {'init_atpg1': ['pre', 'post']}
+
+        # Case 1: happy path — valid outcome in file.
+        outdir = os.path.join(td, 'work', 'ATPG', 'init_atpg1', 'outputs')
+        os.makedirs(outdir, exist_ok=True)
+        _f = os.path.join(outdir, 'decision_outcome.txt')
+        with open(_f, 'w', encoding='utf-8') as fh:
+            fh.write('post')
+        got = eng._read_decision_outcome('init_atpg1')
+        if got != 'post':
+            return 'FAIL', f'happy path: expected "post", got {got!r}'
+
+        # Case 2: missing file → falls back to default
+        os.remove(_f)
+        got = eng._read_decision_outcome('init_atpg1')
+        if got != 'pre':
+            return 'FAIL', f'missing file: expected default "pre", got {got!r}'
+
+        # Case 3: outcome not in declared set → falls back
+        with open(_f, 'w', encoding='utf-8') as fh:
+            fh.write('maybe')
+        got = eng._read_decision_outcome('init_atpg1')
+        if got != 'pre':
+            return 'FAIL', f'invalid outcome: expected default "pre", got {got!r}'
+
+    return 'PASS', 'decision resolver handles valid/missing/invalid outcomes'
+
+
 CHECKS = [
     ('discovery.list_available_techs',       check_list_available_techs_covers_global),
     ('discovery.list_available_projects',    check_list_available_projects_covers_global),
@@ -349,6 +405,7 @@ CHECKS = [
     ('lib.tagroot_rejects_in_tree',          check_lib_manager_rejects_in_tree_tagroot),
     ('workflow.lib_mmmc_end_to_end',         check_lib_mmmc_full_workflow),
     ('handler.setup_propagates_errors',      check_handler_setup_propagates_generator_failure),
+    ('decision.outcome_resolution',          check_decision_outcome_resolution),
 ]
 
 
