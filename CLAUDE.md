@@ -286,12 +286,48 @@ DB naming: .race_<run_dir_name>_<user>_<hash>.db
 DB location: project(race,db_path) race area, .race_db_pointer in run_dir
 
 ## Flow-to-Flow Handoff
-Three mechanisms:
-1. **Direct paths**: `sta(input,netlist) "/path/to/netlist.v"`
-2. **from_run**: `sta(input,from_run) "/path/to/SYNTH_PNR_run"` — reads output_manifest.tcl
-3. **release_tag**: `sta(input,netlist_release_tag) "P0_BTO"` — reads from release directory
 
-SDC per mode (dynamic from operating_modes): `sta(input,sdc,func)`, `sta(input,sdc,test)`
+Downstream flows (STA, LEC, CLP, PV, EMIR, PNR, …) consume upstream artifacts
+through three user-facing patterns. **Priority: explicit path > per-input tag > generic tag.**
+
+**Pattern A — one knob, auto-resolves every required input:**
+```tcl
+set sta(input,release_tag) "P1_PNR_v1"
+```
+The resolver walks every `STA,*` handshake entry and populates each input
+from `$release_base/P1_PNR_v1/<category>/<file>`. No need to enumerate
+netlist / def / spef / sdc individually.
+
+**Pattern B — per-input tag selection (mix across tags):**
+```tcl
+set sta(input,release_tag)     "P1_PNR_v1"   ;# baseline for most inputs
+set sta(input,sdc_release_tag) "P1_STA_v2"   ;# SDC only from a different tag
+```
+Per-input keys fire BEFORE generic, so the specialization wins.
+
+**Pattern C — explicit path override (wins over any tag):**
+```tcl
+set sta(input,release_tag) "P1_PNR_v1"
+set sta(input,netlist)     "/my/custom/foo.v"
+```
+Explicit paths always win — resolver's skip-if-set guard protects them.
+
+**Also supported — `from_run` (read a sibling run's output_manifest.tcl):**
+```tcl
+set sta(input,from_run) "/path/to/SYNTH_PNR_run"
+```
+
+**Legacy direct paths** (set every input individually) also work and
+override any tag-based resolution.
+
+**Handshake map** at `PD/config/flow/v1.0.0/release_config.tcl` section 6
+declares the `(downstream_flow, input) → (source_flow, category, filename)`
+tuple. `source_flow = ANY` means any upstream that stages the canonical
+filename works (STA/PV/LEC/CLP/EMIR can read from either PNR or SYNTH_PNR
+tags). Specific source_flow names (RTL_LINT, UPF_CHECK, DFT_INSERT_PASS3)
+appear where the artifact is semantically unique to one upstream.
+
+**SDC per mode** (dynamic from operating_modes): `sta(input,sdc,func)`, `sta(input,sdc,test)`
 
 ## STA Dynamic Scenarios
 - Each scenario runs as parallel subnode: `timing1_func_ss_0p76v_rcmax_150c`

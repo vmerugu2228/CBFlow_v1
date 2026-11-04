@@ -91,28 +91,41 @@ namespace eval ::CBFlow::InputResolve {
         # here now.
         set _total_from_tag 0
 
+        # ── Priority ordering (highest to lowest) ────────────────────────────
+        #   1. Explicit path override — user wrote `set <flow>(input,X) /path`
+        #      in user_config BEFORE this proc ran. Both resolvers below have
+        #      a skip-if-set guard so they never clobber explicit paths.
+        #   2. Per-input release_tag — `<flow>(input,<X>_release_tag) "TAG"`.
+        #   3. Generic release_tag   — `<flow>(input,release_tag) "TAG"`.
+        #
+        # Per-input runs BEFORE generic so a user who sets both — generic as
+        # the baseline + per-input to override one particular input — gets
+        # the expected result (the per-input specialization wins). Each
+        # tag-resolver skips inputs that already have a value, so generic
+        # only fills what per-input didn't touch.
+
+        # Per-input first.
+        foreach _k [array names ::$arr "input,*_release_tag"] {
+            # Skip the generic key — it's handled below.
+            if {$_k eq "input,release_tag"} continue
+            regexp {input,(.+)_release_tag$} $_k -> _input_type
+            set _tag [set ::${arr}($_k)]
+            if {$_tag eq ""} continue
+            # If already resolved (explicit user_config path), don't clobber.
+            if {[info exists ::${arr}(input,${_input_type})] && \
+                [set ::${arr}(input,${_input_type})] ne ""} continue
+            set _n [resolve_single_from_tag $flow_type $arr $_input_type \
+                                            $_tag $run_dir resolved_vars]
+            set _total_from_tag [expr {$_total_from_tag + $_n}]
+        }
+
+        # Then generic — fills everything the per-input pass didn't resolve.
         if {[info exists ::${arr}(input,release_tag)]} {
             set tag [set ::${arr}(input,release_tag)]
             if {$tag ne ""} {
                 set _total_from_tag [expr {$_total_from_tag +
                     [resolve_from_tag $flow_type $arr $tag $run_dir resolved_vars]}]
             }
-        }
-
-        # Per-input: enumerate every ${arr}(input,<TYPE>_release_tag) key and
-        # resolve just that one input from the named tag. This lets a single
-        # flow mix-and-match tags across inputs.
-        foreach _k [array names ::$arr "input,*_release_tag"] {
-            regexp {input,(.+)_release_tag$} $_k -> _input_type
-            set _tag [set ::${arr}($_k)]
-            if {$_tag eq ""} continue
-            # If already resolved (either by (a) or an explicit user_config
-            # path), don't clobber.
-            if {[info exists ::${arr}(input,${_input_type})] && \
-                [set ::${arr}(input,${_input_type})] ne ""} continue
-            set _n [resolve_single_from_tag $flow_type $arr $_input_type \
-                                            $_tag $run_dir resolved_vars]
-            set _total_from_tag [expr {$_total_from_tag + $_n}]
         }
 
         if {$_total_from_tag > 0} {
@@ -261,19 +274,25 @@ namespace eval ::CBFlow::InputResolve {
             }
             return 1
         }
-        # Cross-discipline handshakes (e.g. SYNTH,rtl_from_lint) may point
-        # at an upstream output the upstream flow hasn't staged yet —
-        # e.g. RTL_LINT ships a `netlist/<d>.v` staging entry but the
-        # Spyglass handler doesn't currently emit `outputs/clean_rtl/<d>.v`,
-        # so the netlist/ dir in that release is empty. Surface the
-        # specific upstream flow + category so the operator knows WHICH
-        # upstream to backfill instead of a bare missing-path message.
+        # Warning path — differentiate source_flow=ANY (artifact can come
+        # from several upstreams, so naming one is misleading) vs. a
+        # specific upstream (RTL_LINT, UPF_CHECK, DFT_INSERT_PASS3 — these
+        # ARE the unique producers and the error message names them).
+        set _src_flow [lindex $hval 0]
         puts "WARNING: Release file not found: $fpath"
-        puts "         → upstream flow '[lindex $hval 0]' did not stage "
-        puts "           '[lindex $hval 2]' in category '[lindex $hval 1]/' "
-        puts "           for tag '$tag'. Confirm the upstream flow's release_types"
-        puts "           block emits this artifact, or set ${arr}(input,${input_type})"
-        puts "           directly in user_config."
+        if {$_src_flow eq "ANY"} {
+            puts "         → no upstream flow has staged "
+            puts "           '[lindex $hval 2]' in category '[lindex $hval 1]/' "
+            puts "           for tag '$tag'. Confirm the upstream release produced"
+            puts "           this artifact, or set ${arr}(input,${input_type})"
+            puts "           directly in user_config."
+        } else {
+            puts "         → upstream flow '$_src_flow' did not stage "
+            puts "           '[lindex $hval 2]' in category '[lindex $hval 1]/' "
+            puts "           for tag '$tag'. Confirm the upstream flow's release_types"
+            puts "           block emits this artifact, or set ${arr}(input,${input_type})"
+            puts "           directly in user_config."
+        }
         return 0
     }
 
@@ -285,12 +304,19 @@ namespace eval ::CBFlow::InputResolve {
         if {$vars_var ne ""} { upvar 1 $vars_var _out_vars }
         variable handshake_map
 
-        # Load release_config for base_dir and flow_input_handshake
+        # Load release_config for base_dir and flow_input_handshake.
+        # Source via `uplevel #0` so release_config.tcl's top-level
+        # statements (e.g. `dict for {tag _} …` at line ~49) run in the
+        # GLOBAL scope, not THIS proc's local scope. Without uplevel,
+        # that `dict for` iteration clobbered this proc's `tag` parameter
+        # with the last-iterated release_paths key, redirecting every
+        # release-tag resolution to the wrong path. Mirrors the sibling
+        # proc resolve_single_from_tag which already uses uplevel #0.
         set release_base ""
         if {[info exists ::env(CONFIG_ROOT)] && [info exists ::env(FLOW_CONFIG_VERSION)]} {
             set rc_path "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
             if {[file exists $rc_path]} {
-                if {[catch { source $rc_path } _rc_err]} {
+                if {[catch { uplevel #0 [list source $rc_path] } _rc_err]} {
                     puts stderr "WARNING: release_config.tcl parse error during input resolution: $_rc_err"
                     puts stderr "         release_tag inputs will not resolve for this stage."
                 }

@@ -95,7 +95,12 @@ def pick_fixture(workarea_test, flow, vendor=None, project=None):
 # so the e2e runner can iterate all input modes for full-matrix coverage.
 
 _FROM_RUN_RE = re.compile(r'^\s*set\s+\w+\(input,from_run\)', re.M)
-_RELEASE_TAG_RE = re.compile(r'^\s*set\s+\w+\(input,\w+_release_tag\)', re.M)
+# Match both the generic `input,release_tag` form and the per-input
+# `input,<name>_release_tag` form. The `(?:\w+_)?` makes the input-name
+# prefix optional so `set sta(input,release_tag) "TAG"` is also recognised
+# as a release_tag fixture (previously classified as 'direct' by mistake,
+# which broke the e2e runner's input-mode coverage).
+_RELEASE_TAG_RE = re.compile(r'^\s*set\s+\w+\(input,(?:\w+_)?release_tag\)', re.M)
 
 
 def classify_fixture_mode(path):
