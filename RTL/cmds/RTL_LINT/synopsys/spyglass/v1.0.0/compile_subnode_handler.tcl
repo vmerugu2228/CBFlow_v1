@@ -1,0 +1,38 @@
+#!/usr/bin/env tclsh
+# CBflow RTL_LINT — compile Subnode Handler (Synopsys Spyglass)
+# Subnodes: setup, run, validate, finish
+
+source "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/handler_common.tcl"
+source "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/launch_utils.tcl"
+
+lassign [handler_parse_args $argv $argc] subnode_name run_dir node_name
+handler_load_configs $run_dir "RTL_LINT"
+
+set ::flow_type "RTL_LINT"
+set stage_name  "compile"
+if {$node_name eq ""} { set node_name "compile1" }
+
+set _tool_ver [expr {[info exists ::env(SPYGLASS_VERSION)] ? $::env(SPYGLASS_VERSION) : "v1.0.0"}]
+set _rtl_root [expr {[info exists ::env(CBFLOW_RTL_DIR)] ? $::env(CBFLOW_RTL_DIR) : "$::env(FLOW_DIR)/RTL"}]
+set cmd_file  "$_rtl_root/cmds/RTL_LINT/synopsys/spyglass/$_tool_ver/${stage_name}_spyglass.tcl"
+
+set test_mode [handler_is_test_mode]
+
+switch $subnode_name {
+    "setup"    {
+        puts "INFO: $stage_name setup..."
+        if {[catch {handler_setup $run_dir $::flow_type $node_name} _setup_rc]} {
+            puts stderr "ERROR: $stage_name setup threw: $_setup_rc"
+            exit 1
+        }
+        if {$_setup_rc != 0} {
+            puts stderr "ERROR: $stage_name setup FAILED (rc=$_setup_rc)"
+            exit $_setup_rc
+        }
+        puts "INFO: $stage_name setup completed"
+    }
+    "run"      { puts "INFO: $stage_name run...";      handler_run      $run_dir $::flow_type $node_name $stage_name $cmd_file $test_mode "spyglass" }
+    "validate" { puts "INFO: $stage_name validate..."; handler_validate $run_dir $::flow_type $node_name $stage_name $test_mode; puts "INFO: $stage_name validate completed" }
+    "finish"   { puts "INFO: $stage_name finish...";   handler_finish   $run_dir $::flow_type $node_name $stage_name; puts "INFO: $stage_name finish completed" }
+    default    { puts "ERROR: Unknown subnode: $subnode_name"; exit 1 }
+}

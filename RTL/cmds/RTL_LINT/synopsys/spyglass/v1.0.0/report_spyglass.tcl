@@ -46,4 +46,6 @@ flow_proc report_run {
     emit_report_script
 }
 
-report_run
+flow_proc report_flow { flow_exec report_run }
+if {[info exists argv0] && $argv0 eq [info script]} { flow_exec report_flow } else { puts "RTL_LINT report procedures loaded" }
+exit

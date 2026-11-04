@@ -62,4 +62,6 @@ flow_proc release_run {
     stage_release_files
 }
 
-release_run
+flow_proc release_data_flow { flow_exec release_run }
+if {[info exists argv0] && $argv0 eq [info script]} { flow_exec release_data_flow } else { puts "RTL_LINT release_data procedures loaded" }
+exit

@@ -57,4 +57,6 @@ flow_proc lint_run {
     emit_lint_script
 }
 
-lint_run
+flow_proc lint_flow { flow_exec lint_run }
+if {[info exists argv0] && $argv0 eq [info script]} { flow_exec lint_flow } else { puts "RTL_LINT lint procedures loaded" }
+exit

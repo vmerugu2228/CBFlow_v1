@@ -56,4 +56,6 @@ flow_proc init_run {
     init_spyglass_project
 }
 
-init_run
+flow_proc init_flow { flow_exec init_run }
+if {[info exists argv0] && $argv0 eq [info script]} { flow_exec init_flow } else { puts "RTL_LINT init procedures loaded" }
+exit

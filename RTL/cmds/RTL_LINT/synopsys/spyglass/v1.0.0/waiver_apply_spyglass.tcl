@@ -53,4 +53,6 @@ flow_proc waiver_apply_run {
     emit_waiver_script
 }
 
-waiver_apply_run
+flow_proc waiver_apply_flow { flow_exec waiver_apply_run }
+if {[info exists argv0] && $argv0 eq [info script]} { flow_exec waiver_apply_flow } else { puts "RTL_LINT waiver_apply procedures loaded" }
+exit

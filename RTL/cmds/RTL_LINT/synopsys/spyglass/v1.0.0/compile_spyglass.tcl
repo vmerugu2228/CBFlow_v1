@@ -67,4 +67,6 @@ flow_proc compile_run {
     emit_compile_script
 }
 
-compile_run
+flow_proc compile_flow { flow_exec compile_run }
+if {[info exists argv0] && $argv0 eq [info script]} { flow_exec compile_flow } else { puts "RTL_LINT compile procedures loaded" }
+exit
