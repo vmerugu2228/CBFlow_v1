@@ -776,6 +776,31 @@ class StatusDB:
 
     def _init_db(self):
         conn = _sqlite_connect(self.db_path)
+        # ── Migrate existing `jobs.status` CHECK constraint ─────────────────
+        # SQLite's `CREATE TABLE IF NOT EXISTS` is a no-op when the table
+        # already exists — so an upgrade of an existing DB keeps the OLD
+        # constraint. If the stored CREATE TABLE statement lacks the newly
+        # added status value, rebuild the table. This runs on every init
+        # but is a 0-cost check when the constraint is already current.
+        try:
+            _row = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='jobs'"
+            ).fetchone()
+            if _row and _row[0] and 'BYPASSED_BY_DECISION' not in _row[0]:
+                logger.info("RACE: migrating jobs.status CHECK constraint "
+                            "to include BYPASSED_BY_DECISION")
+                conn.executescript("""
+                    BEGIN;
+                    ALTER TABLE jobs RENAME TO jobs_old_pre_decision;
+                """)
+                # Fall through to the normal CREATE below (new constraint),
+                # then copy the rows across and drop the old table.
+                _needs_migrate = True
+            else:
+                _needs_migrate = False
+        except sqlite3.Error as _mig_err:
+            logger.warning(f"RACE: CHECK-constraint migration probe failed: {_mig_err}")
+            _needs_migrate = False
         conn.execute('''CREATE TABLE IF NOT EXISTS jobs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             job_name TEXT NOT NULL,
@@ -803,6 +828,31 @@ class StatusDB:
             retry_count INTEGER DEFAULT 0,
             created_at TEXT DEFAULT (datetime('now'))
         )''')
+        # Complete the CHECK-constraint migration started above: copy rows
+        # from the renamed old table into the fresh one (which has the
+        # new constraint), drop the old table.
+        if _needs_migrate:
+            try:
+                # Column list must match CREATE above. Use `*` is tempting
+                # but can break if column order drifted — list explicitly.
+                conn.execute("""
+                    INSERT INTO jobs
+                        (id, job_name, stage, subnode, job_type, status, command,
+                         start_time, end_time, runtime_sec, exit_code, lsf_job_id,
+                         lsf_queue, resource_tier, pid, hostname, cpu_used,
+                         mem_peak_mb, log_file, error_msg, retry_count, created_at)
+                    SELECT id, job_name, stage, subnode, job_type, status, command,
+                           start_time, end_time, runtime_sec, exit_code, lsf_job_id,
+                           lsf_queue, resource_tier, pid, hostname, cpu_used,
+                           mem_peak_mb, log_file, error_msg, retry_count, created_at
+                    FROM jobs_old_pre_decision
+                """)
+                conn.execute("DROP TABLE jobs_old_pre_decision")
+                conn.commit()
+                logger.info("RACE: jobs.status CHECK-constraint migration complete")
+            except sqlite3.Error as _mig_err:
+                conn.rollback()
+                logger.error(f"RACE: migration copy failed — rolled back: {_mig_err}")
         # Hot-path indexes. get_completed() does `SELECT MAX(id) FROM jobs
         # GROUP BY job_name` for status recovery; without a (job_name, id)
         # index this is O(n log n) at scale (10k+ job history rows).
@@ -2463,9 +2513,35 @@ class RaceEngine:
         metric), writes the audit row, and marks every job in a NON-selected
         downstream branch as BYPASSED_BY_DECISION so the next ready-sweep
         unblocks the chosen chain naturally.
+
+        Must hold `self._state_lock` across the whole body: two parallel
+        subnodes of the SAME decision stage completing simultaneously could
+        otherwise both pass the "fire once" guard, double-write the audit
+        row, and race on the `self.jobs[*].status` bypass writes. Lock
+        acquisition is cheap (uncontended in the single-decision case) and
+        serializes only during decision resolution.
         """
+        with self._state_lock:
+            self._resolve_decision_locked(job, completed, target_jobs)
+
+    def _resolve_decision_locked(self, job: Job, completed: set, target_jobs: set):
+        """Body of _maybe_resolve_decision — must be called with _state_lock held."""
         stage = job.stage
         if stage not in self._decision_outcomes:
+            return
+        # Idempotence guard, scoped per-stage: if ANY of the downstream
+        # stages listed in decision_next (for any outcome) is already
+        # BYPASSED_BY_DECISION, this stage's resolution already fired —
+        # don't double-record. Narrower than "any bypass anywhere" so
+        # multiple decision stages in one flow resolve independently.
+        downstream_stages = set()
+        for nxt in self._decision_next.get(stage, {}).values():
+            downstream_stages.update(nxt)
+        _already_resolved = any(
+            j.stage in downstream_stages and j.status == Job.BYPASSED_BY_DECISION
+            for j in self.jobs.values()
+        )
+        if _already_resolved:
             return
         # Only fire once per decision stage — on the sentinel (if present)
         # or on the terminal subnode of the stage (`finish`).
