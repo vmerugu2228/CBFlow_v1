@@ -899,25 +899,8 @@ class StatusDB:
             value TEXT,
             updated_at TEXT DEFAULT (datetime('now'))
         )''')
-        conn.execute('''CREATE TABLE IF NOT EXISTS checklist_results (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            milestone TEXT NOT NULL,
-            check_name TEXT NOT NULL,
-            check_type TEXT CHECK (check_type IS NULL OR check_type IN (
-                'mandatory','optional','library','file')),
-            category TEXT,
-            severity TEXT CHECK (severity IS NULL OR severity IN (
-                'critical','major','minor','-')),
-            status TEXT CHECK (status IS NULL OR status IN (
-                'PASS','FAIL','WAIVED','SKIPPED','PENDING','CONFIG_ERROR')),
-            metric_value TEXT,
-            threshold TEXT,
-            detail TEXT,
-            report_file TEXT,
-            phase TEXT NOT NULL DEFAULT '',
-            evaluated_at TEXT DEFAULT (datetime('now')),
-            evaluated_by TEXT
-        )''')
+        from core.db import ensure_checklist_results_schema
+        ensure_checklist_results_schema(conn)
         conn.execute('''CREATE TABLE IF NOT EXISTS release_info (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             release_tag TEXT NOT NULL,

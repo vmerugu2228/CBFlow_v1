@@ -106,7 +106,7 @@ CREATE TABLE IF NOT EXISTS run_checklist (
     check_type       TEXT CHECK (check_type IS NULL OR check_type IN
                                  ('mandatory','optional','library','file')),
     status           TEXT CHECK (status IS NULL OR status IN
-                                 ('PASS','FAIL','WAIVED','SKIPPED','PENDING','CONFIG_ERROR')),
+                                 ('PASS','FAIL','WAIVED','SKIPPED','PENDING','NA','CONFIG_ERROR')),
     metric_value     TEXT,
     threshold        TEXT,
     severity         TEXT CHECK (severity IS NULL OR severity IN
@@ -187,6 +187,17 @@ def init_db(db_path):
         # block the writer (publish). Reduces lock contention in the
         # race_engine ↔ dashboard dual-process scenario.
         conn.execute('PRAGMA journal_mode = WAL')
+        # run_checklist status CHECK gained 'NA' (check not run): an older
+        # table keeps its old CHECK under CREATE IF NOT EXISTS — rebuild it
+        # (rows kept) before the schema script runs.
+        _rc = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' "
+                           "AND name='run_checklist'").fetchone()
+        if _rc and _rc[0] and "'NA'" not in _rc[0]:
+            conn.execute("ALTER TABLE run_checklist RENAME TO run_checklist_pre_na")
+            conn.executescript(_SCHEMA)
+            conn.execute("INSERT INTO run_checklist SELECT * FROM run_checklist_pre_na")
+            conn.execute("DROP TABLE run_checklist_pre_na")
+            conn.commit()
         conn.executescript(_SCHEMA)
         # Forward-compat: add columns introduced after v1.0.0.
         # DEFAULT clause populates legacy rows at ALTER time; readers no

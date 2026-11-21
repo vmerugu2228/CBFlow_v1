@@ -2287,6 +2287,30 @@ def cmd_release(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_milestone_checklist(workspace: str, runs: dict, milestone: str) -> None:
+    """`cbflow flow checklist status --milestone <M> --run-dir <run>` for each
+    published run (subprocess: a BLOCKED verdict exits 1 — that is data, not
+    a publish failure). Writes checklist_results into the run's RACE DB."""
+    cbflow = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__))))), 'bin', 'cbflow')
+    if not os.path.exists(cbflow):
+        cbflow = 'cbflow'
+    for flow, run in (runs or {}).items():
+        run_dir = run if os.path.isabs(run) else os.path.join(workspace, run)
+        if not os.path.isdir(run_dir):
+            continue
+        logger.info(f"  Checklist {milestone} on {os.path.basename(run_dir)} ({flow})...")
+        try:
+            proc = subprocess.run([cbflow, 'flow', 'checklist', 'status',
+                                   '--milestone', milestone, '--run-dir', run_dir],
+                                  capture_output=True, text=True, timeout=600)
+            verdict = next((l.split(':', 1)[1].strip() for l in proc.stdout.splitlines()
+                            if l.strip().lower().startswith('verdict')), '')
+            logger.info(f"    checklist done{(' — ' + verdict) if verdict else ''}")
+        except Exception as e:
+            logger.warning(f"    checklist could not run: {e}")
+
+
 def _publish_to_project_dashboard(project, block, phase, milestone, release_dir,
                                    workspace, runs, milestone_stage_map, override,
                                    strict=True):
@@ -2329,6 +2353,11 @@ def _publish_to_project_dashboard(project, block, phase, milestone, release_dir,
             logger.info(f"  To publish: `cbflow smartgrid start --project {project}`, "
                         f"then re-run this release — or re-run it with --publish.")
             return 1
+
+    # Every published release carries the milestone's complete checklist:
+    # evaluate it on each published run now (status from the run's data,
+    # NA where a check has no data) so SmartGrid snapshots checklist_results.
+    _run_milestone_checklist(workspace, runs, milestone)
 
     published_by = os.environ.get('USER', 'unknown')
     logger.info("  ─────────────────────────────────────────────────────────")

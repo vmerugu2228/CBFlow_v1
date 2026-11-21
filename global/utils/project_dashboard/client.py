@@ -367,8 +367,11 @@ def _read_run_snapshot(race_db_path, milestone):
     if mandatory:
         passed = sum(1 for c in mandatory if c.get('status') in ('PASS', 'SKIPPED'))
         waived = sum(1 for c in mandatory if c.get('status') == 'WAIVED')
+        # A mandatory check that FAILed, was not run (NA — no data) or has
+        # no clear verdict (PENDING) blocks the milestone — same rule as
+        # `cbflow flow checklist status`; each check keeps its own status.
         blocked = sum(1 for c in mandatory
-                      if c.get('status') in ('FAIL', 'PENDING', None))
+                      if c.get('status') in ('FAIL', 'NA', 'PENDING', None))
         closability = round(100.0 * passed / len(mandatory), 1)
         if blocked > 0:
             verdict = 'BLOCKED'

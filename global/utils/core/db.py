@@ -133,3 +133,45 @@ def find_race_db_from_run_dir(run_dir: str) -> Optional[str]:
         return matches[0]
 
     return None
+
+
+# ── checklist_results schema (RACE run DB) ──────────────────────────────────
+# Single definition used by the RACE engine and the checklist writer. Status
+# NA = check not run (no data for it in the run).
+CHECKLIST_STATUSES = ('PASS', 'FAIL', 'WAIVED', 'SKIPPED', 'PENDING', 'NA', 'CONFIG_ERROR')
+_CHECKLIST_DDL = """CREATE TABLE IF NOT EXISTS {name} (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    milestone TEXT NOT NULL,
+    check_name TEXT NOT NULL,
+    check_type TEXT CHECK (check_type IS NULL OR check_type IN (
+        'mandatory','optional','library','file')),
+    category TEXT,
+    severity TEXT CHECK (severity IS NULL OR severity IN (
+        'critical','major','minor','-')),
+    status TEXT CHECK (status IS NULL OR status IN ({statuses})),
+    metric_value TEXT,
+    threshold TEXT,
+    detail TEXT,
+    report_file TEXT,
+    phase TEXT NOT NULL DEFAULT '',
+    evaluated_at TEXT DEFAULT (datetime('now')),
+    evaluated_by TEXT
+)"""
+
+
+def ensure_checklist_results_schema(conn):
+    """Create checklist_results, or rebuild an existing one whose status
+    CHECK predates NA (SQLite cannot alter a CHECK in place). Rows kept."""
+    statuses = ','.join("'%s'" % s for s in CHECKLIST_STATUSES)
+    row = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' "
+                       "AND name='checklist_results'").fetchone()
+    if row and row[0] and "'NA'" not in row[0]:
+        conn.execute(_CHECKLIST_DDL.format(name='checklist_results_new', statuses=statuses))
+        cols = ('milestone, check_name, check_type, category, severity, status, metric_value, '
+                'threshold, detail, report_file, phase, evaluated_at, evaluated_by')
+        conn.execute(f"INSERT INTO checklist_results_new ({cols}) SELECT {cols} FROM checklist_results")
+        conn.execute("DROP TABLE checklist_results")
+        conn.execute("ALTER TABLE checklist_results_new RENAME TO checklist_results")
+        conn.commit()
+    else:
+        conn.execute(_CHECKLIST_DDL.format(name='checklist_results', statuses=statuses))

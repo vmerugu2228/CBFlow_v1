@@ -565,14 +565,14 @@ def format_status_text(milestone: str, sd: dict) -> str:
     """Format milestone status as a terminal text report."""
     sep, thin = '='*72, '─'*68
     icon_map = {'PASS': '[PASS]', 'FAIL': '[FAIL]', 'WAIVED': '[WAIV]',
-                'PENDING': '[ -- ]', 'SKIPPED': '[SKIP]',
+                'PENDING': '[ -- ]', 'NA': '[ NA ]', 'SKIPPED': '[SKIP]',
                 # CONFIG_ERROR = current-phase-drift / phase env corrupt.
                 # Sign-off gate BLOCKS on this — surface it distinctly
                 # so the operator can trace the cause instead of seeing
                 # the anonymous `[??]` fallback.
                 'CONFIG_ERROR': '[CFGE]'}
     opt_map  = {'PASS': '[PASS]', 'FAIL': '[WARN]', 'WAIVED': '[WAIV]',
-                'PENDING': '[ -- ]', 'SKIPPED': '[SKIP]',
+                'PENDING': '[ -- ]', 'NA': '[ NA ]', 'SKIPPED': '[SKIP]',
                 'CONFIG_ERROR': '[CFGE]'}
     L = ['', sep, f'  MILESTONE STATUS: {milestone}', sep,
          f'  Run Dir: {sd.get("run_dir","")}  |  {sd.get("timestamp","")}',
@@ -933,7 +933,10 @@ def _evaluate_checks(run_dir: str, checks: dict, waivered: set, phase: str = '')
                           else f'No clear verdict: {os.path.basename(report)}')
             results.append({'name': name, 'status': status, 'detail': detail})
         else:
-            results.append({'name': name, 'status': 'PENDING', 'detail': 'No report found'})
+            # No report for this check in the run: the check was not run —
+            # NA (data not available), distinct from PENDING (report found,
+            # no clear verdict).
+            results.append({'name': name, 'status': 'NA', 'detail': 'No report found (not run)'})
     return results
 
 
@@ -993,22 +996,12 @@ def _write_checklist_to_db(run_dir: str, milestone: str, phase: str,
         conn = sqlite3.connect(db_path)
         cur = conn.cursor()
 
-        cur.execute('''CREATE TABLE IF NOT EXISTS checklist_results (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            milestone TEXT NOT NULL,
-            check_name TEXT NOT NULL,
-            check_type TEXT,
-            category TEXT,
-            severity TEXT,
-            status TEXT,
-            metric_value TEXT,
-            threshold TEXT,
-            detail TEXT,
-            report_file TEXT,
-            phase TEXT,
-            evaluated_at TEXT DEFAULT (datetime('now')),
-            evaluated_by TEXT
-        )''')
+        try:
+            from core.db import ensure_checklist_results_schema
+        except ImportError:
+            sys.path.insert(0, os.path.join(os.environ.get('CBFLOW_GLOBAL_DIR', ''), 'utils'))
+            from core.db import ensure_checklist_results_schema
+        ensure_checklist_results_schema(conn)
 
         rows = []
         for check_type, results, cfg_dict in [
@@ -1020,7 +1013,8 @@ def _write_checklist_to_db(run_dir: str, milestone: str, phase: str,
                 name = r['name']
                 cfg = cfg_dict.get(name, {})
                 category = cfg.get('category', cfg.get('source', ''))
-                severity = cfg.get('severity', '')
+                # '' is not an allowed severity (CHECK) — store NULL
+                severity = cfg.get('severity', '') or None
                 report_file = cfg.get('report_file', cfg.get('grep_file', ''))
                 threshold = cfg.get('criteria', '')
                 rows.append((
@@ -1038,6 +1032,10 @@ def _write_checklist_to_db(run_dir: str, milestone: str, phase: str,
                     evaluated_by,
                 ))
 
+        # The latest evaluation of a milestone/phase replaces the previous one
+        # (SmartGrid snapshots exactly one checklist per published run).
+        cur.execute('DELETE FROM checklist_results WHERE milestone=? AND phase=?',
+                    (milestone, phase or ''))
         cur.executemany(
             '''INSERT INTO checklist_results
                (milestone, check_name, check_type, category, severity,
