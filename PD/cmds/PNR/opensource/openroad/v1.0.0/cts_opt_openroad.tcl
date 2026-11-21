@@ -10,7 +10,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PNR"
 set STAGE_NAME "cts_opt"
-set NODE_NAME "cts_opt1"
+set NODE_NAME [expr {[info exists ::env(CBFLOW_NODE_NAME)] && $::env(CBFLOW_NODE_NAME) ne "" ? $::env(CBFLOW_NODE_NAME) : "cts_opt1"}]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -24,7 +24,7 @@ if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "au
 set ::flow::exec_mode "auto"
 
 flow_proc load {
-    oss_load_stage cts1
+    oss_load_stage [oss_upstream_node]
     set_propagated_clock [all_clocks]
     estimate_parasitics -placement
 }

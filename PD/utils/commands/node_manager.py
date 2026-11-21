@@ -506,11 +506,14 @@ class NodeManager:
                     break
 
             if base_idx is not None:
-                # Create branch nodes for all stages AFTER the matching base stage
-                stages_to_branch = self.base_stages[base_idx + 1:]
-                prev_dep = from_stage
+                # The branch re-runs the selected node: a clone of it (same
+                # type, same upstream as the selected node), then clones of
+                # every downstream stage.
+                clone_deps = self._existing_deps(custom_info.get('dependencies', ''))
+                stages_to_branch = [from_stage] + self.base_stages[base_idx + 1:]
+                prev_dep = clone_deps
                 for stage in stages_to_branch:
-                    sbase = re.sub(r'\d+$', '', stage)
+                    sbase = base_type if stage == from_stage else re.sub(r'\d+$', '', stage)
                     suffix = self._next_suffix(sbase)
                     tag_suffix = f"_{tag}" if tag else ""
                     new_name = f"{sbase}{suffix}{tag_suffix}"
@@ -539,17 +542,15 @@ class NodeManager:
                     'branch_key': branch_key,
                 }
         else:
-            # Create branch nodes for stages AFTER the fork point.
-            # The fork-point stage itself (from_stage) stays shared with the
-            # main trunk — the branch is a sibling path, not a duplicate
-            # starting with a clone of from_stage. Prior to this fix the
-            # slice was `[from_idx:]` which produced an extra sibling of
-            # from_stage at the top of every branch, cluttering the DAG.
-            # Matches the custom-node path logic below (line 505:
-            # `self.base_stages[base_idx + 1:]`).
-            stages_to_branch = self.base_stages[from_idx + 1:]
+            # A branch FROM a stage re-runs that stage: the branch starts
+            # with a clone of from_stage fed by from_stage's own upstream,
+            # followed by clones of every downstream stage. (Branching from
+            # route1 creates route2 <- cts_opt1, pro2 <- route2, ...; the
+            # earlier `[from_idx + 1:]` slice forked AFTER the selected node,
+            # so "branch from route" started at pro.)
+            stages_to_branch = self.base_stages[from_idx:]
 
-            prev_dep = from_stage
+            prev_dep = self._existing_deps(self._get_stage_dependencies(self.base_stages[from_idx]))
             for stage in stages_to_branch:
                 base_name = re.sub(r'\d+$', '', stage)
                 suffix = self._next_suffix(base_name)
@@ -689,6 +690,12 @@ class NodeManager:
     # ─────────────────────────────────────────────────────────────────────────
     # Graph Helpers
     # ─────────────────────────────────────────────────────────────────────────
+
+    def _existing_deps(self, deps: str) -> str:
+        """Keep only dependencies that are nodes of this run (a tool overlay
+        may drop base stages, e.g. the open-source PNR has no def1)."""
+        nodes = set(self.base_stages) | set(self.custom_nodes.keys())
+        return ' '.join(d for d in str(deps).split() if d in nodes)
 
     def _get_stage_dependencies(self, stage: str) -> str:
         """

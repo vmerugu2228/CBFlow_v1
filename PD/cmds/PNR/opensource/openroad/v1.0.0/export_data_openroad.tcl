@@ -11,7 +11,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PNR"
 set STAGE_NAME "export_data"
-set NODE_NAME "export_data1"
+set NODE_NAME [expr {[info exists ::env(CBFLOW_NODE_NAME)] && $::env(CBFLOW_NODE_NAME) ne "" ? $::env(CBFLOW_NODE_NAME) : "export_data1"}]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -26,7 +26,7 @@ set ::flow::exec_mode "auto"
 
 flow_proc stream_out {
     global design_name blocks flow
-    set _def [oss_node_output signoff1 final.def]
+    set _def [oss_node_output [oss_chain_node signoff] final.def]
     set _lefs [list [oss_ms "[oss_track],lef_tech"]]
     foreach _l [oss_trk lef] { lappend _lefs $_l }
     set _gds [list [oss_trk gds_stdcell]]

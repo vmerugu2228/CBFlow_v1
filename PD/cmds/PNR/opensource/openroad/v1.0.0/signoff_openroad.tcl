@@ -12,7 +12,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PNR"
 set STAGE_NAME "signoff"
-set NODE_NAME "signoff1"
+set NODE_NAME [expr {[info exists ::env(CBFLOW_NODE_NAME)] && $::env(CBFLOW_NODE_NAME) ne "" ? $::env(CBFLOW_NODE_NAME) : "signoff1"}]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -26,10 +26,10 @@ if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "au
 set ::flow::exec_mode "auto"
 
 flow_proc load {
-    oss_load_stage pro1
+    oss_load_stage [oss_upstream_node]
     set_propagated_clock [all_clocks]
     foreach _v [oss_node_views $::NODE_NAME] {
-        read_spef -corner $_v [oss_node_output pro1 final_[oss_view_attr $_v rc_corner].spef]
+        read_spef -corner $_v [oss_node_output [oss_upstream_node] final_[oss_view_attr $_v rc_corner].spef]
     }
 }
 

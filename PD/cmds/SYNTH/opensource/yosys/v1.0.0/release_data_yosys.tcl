@@ -11,7 +11,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "SYNTH"
 set STAGE_NAME "release_data"
-set NODE_NAME "release_data1"
+set NODE_NAME [expr {[info exists ::env(CBFLOW_NODE_NAME)] && $::env(CBFLOW_NODE_NAME) ne "" ? $::env(CBFLOW_NODE_NAME) : "release_data1"}]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -28,12 +28,12 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/releas
 
 flow_proc publish {
     global design_name
-    set _dir [::CBFlow::Release::init $::FLOW_TYPE $design_name $::run_dir [oss_get project release,phase]]
-    set _ex "$::run_dir/work/$::FLOW_TYPE/export_data1/outputs"
+    set _dir [::CBFlow::Release::init $::FLOW_TYPE $design_name $::DIRS(run) [oss_get project release,phase]]
+    set _ex "$::run_dir/work/$::FLOW_TYPE/[oss_chain_node export_data]/outputs"
     ::CBFlow::Release::copy_file "$_ex/final.v"   netlist ${design_name}.v
     ::CBFlow::Release::copy_file "$_ex/final.sdc" sdc     ${design_name}.sdc
     ::CBFlow::Release::copy_file "$_ex/final.upf" upf     ${design_name}.upf
-    ::CBFlow::Release::copy_glob "$::run_dir/work/$::FLOW_TYPE/synthesis1/reports/*.rpt" reports
+    ::CBFlow::Release::copy_glob "$::run_dir/work/$::FLOW_TYPE/[oss_chain_node synthesis]/reports/*.rpt" reports
     ::CBFlow::Release::generate_manifest
     ::CBFlow::Release::stamp_complete
     set _fh [open [oss_stage_out release.manifest] w]

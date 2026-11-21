@@ -11,7 +11,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PV"
 set STAGE_NAME "release_data"
-set NODE_NAME "release_data1"
+set NODE_NAME [expr {[info exists ::env(CBFLOW_NODE_NAME)] && $::env(CBFLOW_NODE_NAME) ne "" ? $::env(CBFLOW_NODE_NAME) : "release_data1"}]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -27,7 +27,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/releas
 
 flow_proc publish {
     global design_name
-    set _dir [::CBFlow::Release::init $::FLOW_TYPE $design_name $::run_dir [oss_get project release,phase]]
+    set _dir [::CBFlow::Release::init $::FLOW_TYPE $design_name $::DIRS(run) [oss_get project release,phase]]
     foreach _f {drc1/outputs/drc.rpt lvs1/outputs/lvs.rpt merge_data1/outputs/verification_summary.rpt} {
         ::CBFlow::Release::copy_file "$::run_dir/work/PV/$_f" reports/pv [file tail $_f]
     }

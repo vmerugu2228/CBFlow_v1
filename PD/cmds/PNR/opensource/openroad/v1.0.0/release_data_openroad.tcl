@@ -12,7 +12,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PNR"
 set STAGE_NAME "release_data"
-set NODE_NAME "release_data1"
+set NODE_NAME [expr {[info exists ::env(CBFLOW_NODE_NAME)] && $::env(CBFLOW_NODE_NAME) ne "" ? $::env(CBFLOW_NODE_NAME) : "release_data1"}]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -29,10 +29,10 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/releas
 
 flow_proc publish {
     global design_name project
-    set _dir [::CBFlow::Release::init $::FLOW_TYPE $design_name $::run_dir [oss_get project release,phase]]
-    set _so "$::run_dir/work/$::FLOW_TYPE/signoff1/outputs"
-    set _pr "$::run_dir/work/$::FLOW_TYPE/pro1/outputs"
-    ::CBFlow::Release::copy_file [oss_node_output export_data1 final.gds] gds     ${design_name}.gds
+    set _dir [::CBFlow::Release::init $::FLOW_TYPE $design_name $::DIRS(run) [oss_get project release,phase]]
+    set _so "$::run_dir/work/$::FLOW_TYPE/[oss_chain_node signoff]/outputs"
+    set _pr "$::run_dir/work/$::FLOW_TYPE/[oss_chain_node pro]/outputs"
+    ::CBFlow::Release::copy_file [oss_node_output [oss_chain_node export_data] final.gds] gds     ${design_name}.gds
     ::CBFlow::Release::copy_file "$_so/final.lef"                       lef     ${design_name}.lef
     ::CBFlow::Release::copy_file "$_so/final.v"                         netlist ${design_name}.v
     ::CBFlow::Release::copy_file "$_so/final.lvs.v"                     netlist ${design_name}.lvs.v
@@ -48,7 +48,7 @@ flow_proc publish {
         regsub {^final_} [file tail $_spef] "${design_name}_" _name
         ::CBFlow::Release::copy_file $_spef spef $_name
     }
-    foreach _n {init_design1 place1 cts1 cts_opt1 route1 pro1 signoff1} {
+    foreach _n [lmap _t {init_design place cts cts_opt route pro signoff} {oss_chain_node $_t}] {
         ::CBFlow::Release::copy_glob "$::run_dir/work/$::FLOW_TYPE/$_n/reports/*.rpt" reports
         ::CBFlow::Release::copy_glob "$::run_dir/work/$::FLOW_TYPE/$_n/reports/*_qor.tcl" reports
     }

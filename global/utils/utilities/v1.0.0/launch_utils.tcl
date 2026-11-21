@@ -107,6 +107,11 @@ proc generate_launch_wrapper {work_dir stage_name cmd_file tool_name {log_file "
     append wrapper_content "# CBflow tool launch wrapper — $stage_name\n"
     append wrapper_content "# Generated: [clock format [clock seconds]]\n"
     if {$module_cmd ne ""} { append wrapper_content "$module_cmd\n" }
+    # The node this wrapper runs (work/<FLOW>/<node>/run/): command files
+    # shared by every node of a stage type (place1, branch place2, …) read
+    # it instead of assuming <stage>1.
+    append wrapper_content "setenv CBFLOW_NODE_NAME \"[file tail [file dirname $work_dir]]\"\n"
+    append wrapper_content "setenv CBFLOW_STAGE_NAME \"$stage_name\"\n"
     append wrapper_content $oss_env
     append wrapper_content "$launch_line\n"
     atomic_write $wrapper_path $wrapper_content

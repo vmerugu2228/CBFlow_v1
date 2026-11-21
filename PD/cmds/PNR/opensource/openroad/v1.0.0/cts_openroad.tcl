@@ -10,7 +10,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PNR"
 set STAGE_NAME "cts"
-set NODE_NAME "cts1"
+set NODE_NAME [expr {[info exists ::env(CBFLOW_NODE_NAME)] && $::env(CBFLOW_NODE_NAME) ne "" ? $::env(CBFLOW_NODE_NAME) : "cts1"}]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -23,7 +23,7 @@ set blocks      [hier_children $design_name]
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
 
-flow_proc load { oss_load_stage place1 }
+flow_proc load { oss_load_stage [oss_upstream_node] }
 
 flow_proc clock_tree {
     clock_tree_synthesis -root_buf [oss_trk clock_root_buffer] -buf_list [oss_trk clock_buffers] \

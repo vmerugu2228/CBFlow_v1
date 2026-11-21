@@ -11,7 +11,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "SYNTH"
 set STAGE_NAME "export_data"
-set NODE_NAME "export_data1"
+set NODE_NAME [expr {[info exists ::env(CBFLOW_NODE_NAME)] && $::env(CBFLOW_NODE_NAME) ne "" ? $::env(CBFLOW_NODE_NAME) : "export_data1"}]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -26,10 +26,10 @@ set ::flow::exec_mode "auto"
 
 flow_proc export {
     global design_name
-    file copy -force [oss_node_output synthesis1 synthesis.v] [oss_stage_out final.v]
+    file copy -force [oss_node_output [oss_chain_node synthesis] synthesis.v] [oss_stage_out final.v]
     # One mode per design for the open-source flow (see PNR/STA).
     set _modes {}
-    foreach _v [oss_node_views synthesis1] {
+    foreach _v [oss_node_views [oss_chain_node synthesis]] {
         set _m [oss_view_attr $_v mode]
         if {$_m ni $_modes} { lappend _modes $_m }
     }
