@@ -522,10 +522,55 @@ def build_net_index(def_path):
                 net, buf = m.group(1), [st[st.index(m.group(1)) + len(m.group(1)):]]
             elif net is not None:
                 buf.append(st)
+    # DEF without NETS (placement / floorplan DEF): take connectivity from
+    # the release's gate-level netlist (<release>/netlist/<design>.v).
+    if not net_conns:
+        nl = _release_netlist_for(def_path)
+        if nl:
+            inst_pins, net_conns = _netlist_connectivity(nl)
     idx = {'inst_pins': inst_pins, 'net_conns': net_conns, 'comps': comps}
     _net_index_cache.clear()          # keep one DEF index in memory at a time
     _net_index_cache[key] = idx
     return idx
+
+
+def _release_netlist_for(def_path):
+    """<release>/netlist/<design>.v next to <release>/def/<design>.def."""
+    rel = os.path.dirname(os.path.dirname(os.path.abspath(def_path)))
+    design = os.path.splitext(os.path.basename(def_path))[0]
+    for cand in (os.path.join(rel, 'netlist', design + '.v'),
+                 os.path.join(rel, 'netlist', design + '.lvs.v')):
+        if os.path.isfile(cand):
+            return cand
+    return ''
+
+
+_V_INST_RE = re.compile(r'^\s*([A-Za-z_][\w$]*)\s+(\\\S+|[A-Za-z_][\w$\[\]]*)\s*\((.*)\)\s*$', re.S)
+_V_PORT_RE = re.compile(r'\.(\w+)\s*\(\s*([^()]*?)\s*\)')
+_V_SKIP = {'module', 'endmodule', 'input', 'output', 'inout', 'wire', 'reg', 'assign', 'supply0', 'supply1'}
+
+
+def _netlist_connectivity(path):
+    """(inst_pins, net_conns) from a flat structural Verilog netlist:
+    `cell inst (.PIN(net), ...);` statements (escaped names kept as written,
+    minus the leading backslash, to match DEF component names)."""
+    inst_pins, net_conns = {}, {}
+    with open(path, errors='replace') as f:
+        text = f.read()
+    text = re.sub(r'//[^\n]*', '', text)
+    text = re.sub(r'/\*.*?\*/', '', text, flags=re.S)
+    for stmt in text.split(';'):
+        m = _V_INST_RE.match(stmt)
+        if not m or m.group(1) in _V_SKIP:
+            continue
+        inst = m.group(2).lstrip('\\').strip()
+        for pin, net in _V_PORT_RE.findall(m.group(3)):
+            net = net.strip().lstrip('\\').strip()
+            if not net or net.startswith("1'b") or net.startswith('{'):
+                continue
+            inst_pins.setdefault(inst, []).append((pin, net))
+            net_conns.setdefault(net, []).append((inst, pin))
+    return inst_pins, net_conns
 
 
 def cell_connectivity(def_path, inst, max_peers=200):

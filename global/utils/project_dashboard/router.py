@@ -1249,7 +1249,7 @@ _FLOORPLAN_PANE = """
       </label>
       <span id="fp-count" style="color:var(--muted);font-family:monospace"></span>
       <span style="color:var(--muted);flex-basis:100%">
-        wheel = zoom · drag = pan · click a cell = select (pins shown) · connectivity = fly-lines to connected cells · type in the box to highlight
+        wheel = zoom · drag = pan · click a cell = select (pins shown) · connectivity = fly-lines to connected cells · type in the box to highlight · press <b>?</b> for keyboard shortcuts
       </span>
     </div>
     <div id="fp-body" style="display:flex;gap:8px;align-items:stretch;
@@ -1383,6 +1383,21 @@ _FLOORPLAN_PANE = """
         <canvas id="fp-canvas"
                 style="width:100%;height:70vh;display:block;
                        cursor:grab;user-select:none"></canvas>
+        <div id="fp-keys" style="display:none;position:absolute;left:50%;top:50%;
+             transform:translate(-50%,-50%);background:rgba(15,23,42,0.95);color:#e2e8f0;
+             font:12px Menlo,monospace;padding:12px 16px;border-radius:6px;
+             border:1px solid #475569;z-index:6;line-height:1.7">
+          <b>Floorplan shortcuts</b><br>
+          f &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;fit full design<br>
+          Shift+F &nbsp;&nbsp;fullscreen on / off<br>
+          z · Ctrl+Z · + &nbsp;zoom in (at mouse)<br>
+          Shift+Z · Ctrl+Shift+Z · - &nbsp;zoom out<br>
+          s &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;zoom to selected cell<br>
+          c &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;connectivity on / off<br>
+          ← ↑ → ↓ &nbsp;pan (Shift = larger step)<br>
+          Esc &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;clear selection<br>
+          ? &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;this help
+        </div>
         <div id="fp-conn-info" style="display:none;position:absolute;top:8px;right:8px;
              max-width:340px;max-height:60%;overflow:auto;background:rgba(15,23,42,0.92);
              color:#e2e8f0;font:11px Menlo,monospace;padding:8px 10px;border-radius:4px;
@@ -2080,6 +2095,8 @@ _FLOORPLAN_PANE = """
       function fetchConn(c) {
         state.connData = null;
         if (!c || !state.showConn) { renderConnInfo(); return; }
+        connInfo.style.display = 'block';
+        connInfo.textContent = 'loading connectivity for ' + c.name + ' …';
         fetch('/api/floorplan/{PID}/cell/' + encodeURIComponent(c.name))
           .then(r => r.ok ? r.json() : Promise.reject(r.status))
           .then(j => { if (state.selected === c) { state.connData = j; renderConnInfo(); scheduleRender(); } })
@@ -2091,6 +2108,7 @@ _FLOORPLAN_PANE = """
         if (!state.showConn || !c || !d) { connInfo.style.display = 'none'; return; }
         const esc = t => String(t).replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
         let h = '<b>' + esc(c.name) + '</b> <span style="color:#94a3b8">' + esc(c.macro) + '</span><br>';
+        if (!d.pins.length) h += '<span style="color:#94a3b8">no connections found for this instance in the released DEF</span>';
         for (const e of d.pins) {
           const dir = pinDir(c, e.pin) || '?';
           const col = PIN_COLOR[dir] || '#94a3b8';
@@ -2488,28 +2506,31 @@ _FLOORPLAN_PANE = """
             ctx.arc(px + pw / 2, py + ph / 2, 10, 0, 2 * Math.PI);
             ctx.stroke();
           }
-          // Pins (LEF geometry, orientation-aware) once the cell is readable.
+          // Pins: location marker + name for every signal pin, always visible
+          // (orientation-aware pin location from the LEF; supplies omitted).
           const m = macros[c.macro];
-          if (m && m.pins && pw > 12) {
-            ctx.font = '10px Menlo, monospace';
-            for (const name of Object.keys(m.pins)) {
+          if (m && m.pins) {
+            const sig = Object.keys(m.pins).filter(n => pinDir(c, n) !== 'SUPPLY');
+            ctx.font = 'bold 11px Menlo, monospace';
+            ctx.textBaseline = 'middle';
+            sig.forEach((name) => {
               const dir = pinDir(c, name);
-              const col = PIN_COLOR[dir] || 'rgba(100,116,139,0.8)';
-              ctx.fillStyle = col + (dir === 'SUPPLY' ? '' : 'cc');
-              ctx.strokeStyle = col;
+              const col = PIN_COLOR[dir] || '#a855f7';
+              const [cx, cy] = toPx(...pinCenterWorld(c, name));
+              // marker at the pin location — moves with the cell at any zoom
+              ctx.fillStyle = col;
+              ctx.strokeStyle = '#0f172a';
               ctx.lineWidth = 1;
-              for (const r of pinRectsWorld(c, name)) {
-                const [rx, ry] = toPx(r[0], r[3]);
-                const rw = state.scale * (r[2] - r[0]), rh = state.scale * (r[3] - r[1]);
-                if (dir === 'SUPPLY') { ctx.strokeRect(rx, ry, rw, rh); }
-                else { ctx.fillRect(rx, ry, Math.max(rw, 1), Math.max(rh, 1)); }
-              }
-              if (dir !== 'SUPPLY' && pw > 50) {
-                const [cx, cy] = toPx(...pinCenterWorld(c, name));
-                ctx.fillStyle = '#0f172a';
-                ctx.fillText(name, cx + 3, cy - 3);
-              }
-            }
+              ctx.beginPath(); ctx.arc(cx, cy, 4, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
+              // name right beside its marker
+              const lx = cx + 6, ly = cy;
+              const tw = ctx.measureText(name).width;
+              ctx.fillStyle = 'rgba(255,255,255,0.85)';
+              ctx.fillRect(lx - 2, ly - 7, tw + 4, 14);
+              ctx.fillStyle = col;
+              ctx.fillText(name, lx, ly);
+            });
+            ctx.textBaseline = 'alphabetic';
           }
           // Connectivity fly-lines: pin → each connected cell's pin.
           if (state.showConn && state.connData) {
@@ -2731,6 +2752,71 @@ _FLOORPLAN_PANE = """
         state.panX = -s * (cx - dieCx);
         state.panY =  s * (cy - dieCy);
         scheduleRender();
+      });
+
+      // ── Keyboard shortcuts (layout-tool style) ─────────────────────
+      // Frame a world-space box in the canvas with a margin.
+      function frameBox(x1, y1, x2, y2, mgn) {
+        const bw = Math.max(x2 - x1, rowStep * 4), bh = Math.max(y2 - y1, rowStep * 4);
+        const s = Math.min((state.cssW - 2*pad) / (bw * (1 + 2*mgn)),
+                           (state.cssH - 2*pad) / (bh * (1 + 2*mgn)));
+        state.scale = s;
+        state._userZoom = true;
+        const cx = (x1 + x2) / 2, cy = (y1 + y2) / 2;
+        state.panX = -s * (cx - (b.x1 + b.x2) / 2);
+        state.panY =  s * (cy - (b.y1 + b.y2) / 2);
+        scheduleRender();
+      }
+      let mousePx = null;                         // last mouse position over the canvas
+      canvas.addEventListener('mousemove', e => {
+        const r = canvas.getBoundingClientRect();
+        mousePx = [(e.clientX - r.left) * state.cssW / r.width, (e.clientY - r.top) * state.cssH / r.height];
+      });
+      canvas.addEventListener('mouseleave', () => { mousePx = null; });
+      const keysBox = document.getElementById('fp-keys');
+      document.addEventListener('keydown', ev => {
+        const t = ev.target;
+        if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+        const _tdModal = document.getElementById('td-modal');
+        if (_tdModal && _tdModal.style.display === 'flex') return;   // path-detail modal owns keys
+        const k = ev.key, mod = ev.ctrlKey || ev.metaKey;
+        const at = mousePx || [state.cssW / 2, state.cssH / 2];
+        const step = (ev.shiftKey ? 0.4 : 0.1);
+        let handled = true;
+        if ((k === 'z' || k === 'Z') && mod) {
+          zoomAt(at[0], at[1], ev.shiftKey ? 1/1.4 : 1.4);
+        } else if (k === 'z' && !mod) {
+          zoomAt(at[0], at[1], 1.4);
+        } else if (k === 'Z' && !mod) {
+          zoomAt(at[0], at[1], 1/1.4);
+        } else if ((k === '+' || k === '=') && !mod) {
+          zoomAt(at[0], at[1], 1.4);
+        } else if ((k === '-' || k === '_') && !mod) {
+          zoomAt(at[0], at[1], 1/1.4);
+        } else if (k === 'f' && !mod) {
+          document.getElementById('fp-fit').onclick();
+        } else if (k === 'F' && !mod) {
+          if (document.fullscreenElement) document.exitFullscreen();
+          else if (wrap.requestFullscreen) wrap.requestFullscreen();
+        } else if (k === 's' && !mod) {
+          if (state.selected) {
+            const c = state.selected;
+            frameBox(c.x, c.y, c.x + cellWidth(c), c.y + cellHeight(c), 2.0);
+          }
+        } else if (k === 'c' && !mod) {
+          connBox.checked = !connBox.checked;
+          connBox.dispatchEvent(new Event('change'));
+        } else if (k === 'Escape') {
+          if (keysBox.style.display === 'block') keysBox.style.display = 'none';
+          else { state.selected = null; state.connData = null; renderConnInfo(); scheduleRender(); }
+        } else if (k === '?') {
+          keysBox.style.display = keysBox.style.display === 'block' ? 'none' : 'block';
+        } else if (k === 'ArrowLeft')  { state.panX += state.cssW * step; scheduleRender(); }
+        else if (k === 'ArrowRight')   { state.panX -= state.cssW * step; scheduleRender(); }
+        else if (k === 'ArrowUp')      { state.panY += state.cssH * step; scheduleRender(); }
+        else if (k === 'ArrowDown')    { state.panY -= state.cssH * step; scheduleRender(); }
+        else { handled = false; }
+        if (handled) ev.preventDefault();
       });
 
       // ── Click-to-select — viewport-culled + effective-size gate so we
