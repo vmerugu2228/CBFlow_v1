@@ -118,14 +118,17 @@ def get_flow_type() -> str:
 
 
 def get_flow_stages(flow_type: str, run_dir=None) -> list:
-    """Ordered stages for a flow type. `run_dir=None` reads the project
-    baseline; pass a run dir to honor user_config overrides.
+    """Ordered stages for a flow type. `run_dir=None` uses the current run
+    dir when invoked from one (so user_config selections — e.g. a tool
+    overlay with its own stage list — apply), else the project baseline.
     """
     from tcl_config_parser import is_merged_flow, get_merged_flow_stage_names
     from tcl_config_parser import get_flow_stages as _get_stages
 
     if is_merged_flow(flow_type):
         return get_merged_flow_stage_names(flow_type)
+    if run_dir is None and os.path.exists('.run.cbflow.tcl'):
+        run_dir = os.getcwd()
     return _get_stages(flow_type, run_dir=run_dir)
 
 
