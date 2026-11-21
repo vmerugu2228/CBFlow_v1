@@ -289,6 +289,36 @@ def _find_def(release_dir):
     return hits[0] if hits else ''
 
 
+def _lefs_in_tcl_text(text):
+    """Quoted .lef paths in `set x "..."` and `set x [list "..." ...]`."""
+    out = []
+    for m in re.finditer(r'set\s+[^\s]+\s+"([^"]+\.lef)"', text, re.I):
+        out.append(m.group(1))
+    for m in re.finditer(r'set\s+[^\s]+\s+\[list\s+(.+?)\]', text, re.S):
+        for lm in re.finditer(r'"([^"]+\.lef)"', m.group(1), re.I):
+            out.append(lm.group(1))
+    return out
+
+
+def _lefs_from_tag_file(path, _depth=0):
+    """LEFs declared by a library tag file (lib_config.tcl / blocks_config.tcl),
+    with $_lib_tag_dir expanded to the file's directory; follows the tag's
+    own `source "$_lib_tag_dir/blocks_config.tcl"` hook."""
+    if _depth > 2 or not os.path.isfile(path):
+        return []
+    tag_dir = os.path.dirname(os.path.abspath(path))
+    try:
+        with open(path, errors='replace') as f:
+            text = f.read().replace('$_lib_tag_dir', tag_dir).replace('${_lib_tag_dir}', tag_dir)
+    except OSError:
+        return []
+    out = [p for p in _lefs_in_tcl_text(text) if os.path.isfile(p)]
+    for sm in re.finditer(r'source\s+"([^"]+\.tcl)"', text):
+        if sm.group(1) != path:
+            out.extend(_lefs_from_tag_file(sm.group(1), _depth + 1))
+    return out
+
+
 def _collect_lefs_from_config(config_path):
     """Grep a resolved config.tcl for LEF file paths.
 
@@ -304,13 +334,11 @@ def _collect_lefs_from_config(config_path):
             text = f.read()
     except OSError:
         return lefs
-    # `set ... "/absolute/path.lef"`
-    for m in re.finditer(r'set\s+[^\s]+\s+"([^"]+\.lef)"', text, re.I):
-        lefs.append(m.group(1))
-    # `set ... [list "..." "..."]` — grab every quoted .lef inside a list
-    for m in re.finditer(r'set\s+[^\s]+\s+\[list\s+(.+?)\]', text, re.S):
-        for lm in re.finditer(r'"([^"]+\.lef)"', m.group(1), re.I):
-            lefs.append(lm.group(1))
+    lefs.extend(_lefs_in_tcl_text(text))
+    # Library-manager tags are `source`d, not inlined: follow
+    # lib_config.tcl / blocks_config.tcl and expand $_lib_tag_dir.
+    for sm in re.finditer(r'source\s+"([^"]*(?:lib_config|blocks_config)\.tcl)"', text):
+        lefs.extend(_lefs_from_tag_file(sm.group(1)))
     seen, ordered = set(), []
     for p in lefs:
         if p in seen:
@@ -360,6 +388,12 @@ def extract_from_release(release_dir, run_dir):
     if run_dir:
         cfg_path = _find_resolved_config(run_dir)
         lefs = _collect_lefs_from_config(cfg_path)
+    # The release's own LEFs (e.g. the block's abstract) come last so they
+    # describe its macros when the config misses them.
+    if release_dir:
+        for p in sorted(glob.glob(os.path.join(release_dir, 'lef', '*.lef'))):
+            if p not in lefs:
+                lefs.append(p)
     payload['lef_paths'] = lefs
     macros_all = parse_lef_dir(lefs) if lefs else {}
     macro_h_um = {k: v.get('h') for k, v in macros_all.items() if v.get('h')}
