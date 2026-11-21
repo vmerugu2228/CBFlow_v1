@@ -2598,8 +2598,51 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             except ValueError:
                 return False
 
-        # Primary: work/<FLOW>/<stage>/run/<job_name>.log
-        for stage_dir in _glob.glob(os.path.join(run_dir, 'work', flow_type, '*')):
+        # Run log first — the tool's own log, which is what "Open Log" means:
+        #   <stage> / <stage>_run    → work/<FLOW>/<stage>/run/<stage>.log
+        #   <stage>_<dyn>            → work/<FLOW>/<stage>/<dyn>/run/<dyn>.log
+        #                              (dynamic subnode: STA scenario / RC corner)
+        #   <stage> with no own log  → index of its dynamic subnodes' run logs
+        work_dir = os.path.join(run_dir, 'work', flow_type)
+        _stage = job_name[:-4] if job_name.endswith('_run') else job_name
+        candidate = os.path.join(work_dir, _stage, 'run', f'{_stage}.log')
+        if os.path.isfile(candidate) and _in_work_root(candidate):
+            log_path = candidate
+        if not log_path:
+            for stage_dir in sorted(_glob.glob(os.path.join(work_dir, '*'))):
+                _sn = os.path.basename(stage_dir)
+                if not job_name.startswith(_sn + '_'):
+                    continue
+                _dyn = job_name[len(_sn) + 1:]
+                candidate = os.path.join(stage_dir, _dyn, 'run', f'{_dyn}.log')
+                if os.path.isfile(candidate) and _in_work_root(candidate):
+                    log_path = candidate
+                    break
+        if not log_path and os.path.isdir(os.path.join(work_dir, job_name)):
+            _dyn_logs = [p for p in sorted(_glob.glob(
+                             os.path.join(work_dir, job_name, '*', 'run', '*.log')))
+                         if os.path.basename(os.path.dirname(os.path.dirname(p)))
+                            == os.path.basename(p)[:-4] and _in_work_root(p)]
+            if _dyn_logs:
+                import html as _html
+                items = ''.join(
+                    '<li><a href="/api/log/{0}_{1}">{1}</a></li>'.format(
+                        _html.escape(job_name), _html.escape(os.path.basename(p)[:-4]))
+                    for p in _dyn_logs)
+                body = ('<!DOCTYPE html><html><head><title>Logs: {0}</title><style>'
+                        'body{{font-family:Consolas,Monaco,monospace;font-size:13px;'
+                        'background:#1e1e1e;color:#d4d4d4;padding:16px}}'
+                        'a{{color:#9cdcfe}}</style></head><body>'
+                        '<div style="color:#569cd6;font-weight:bold">{0} — run logs</div>'
+                        '<ul>{1}</ul></body></html>').format(_html.escape(job_name), items)
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/html; charset=utf-8')
+                self.end_headers()
+                self.wfile.write(body.encode())
+                return
+
+        # Job log: work/<FLOW>/<stage>/run/<job_name>.log
+        for stage_dir in ([] if log_path else _glob.glob(os.path.join(run_dir, 'work', flow_type, '*'))):
             candidate = os.path.join(stage_dir, 'run', f'{job_name}.log')
             if os.path.exists(candidate) and _in_work_root(candidate):
                 log_path = candidate
