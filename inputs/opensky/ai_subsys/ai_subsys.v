@@ -65,7 +65,8 @@ module ai_subsys #(parameter N = 16, parameter W = 8, parameter ACC_W = 24) (
     end
 
     // mac_array (DL3) — switchable domain PD_MAC (supply VPWR_MAC)
-    mac_array #(.N(N), .W(W), .ACC_W(ACC_W)) u_mac_array (
+    // hard macro (hardened at N=16 W=8 ACC_W=24): no parameter override
+    mac_array u_mac_array (
         .clk     (clk),
         .rst_n   (rst_n),
         .en      (en_p),

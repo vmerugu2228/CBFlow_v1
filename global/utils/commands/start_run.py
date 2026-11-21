@@ -711,6 +711,18 @@ def _initialize_race_db(run_dir: str, flow_type: str, env: Dict[str, str]) -> Tu
         run_name = env.get('CBFLOW_RUN_NAME', os.path.basename(run_dir))
         user = os.environ.get('USER', 'unknown')
 
+        # A fresh run dir has no pointer, so StatusDB derives the DB name from
+        # the run dir path. A DB left by an earlier run at the same path (run
+        # dir deleted, DB still in the race area) would be adopted with all its
+        # job states — the engine then skips stages that never ran here.
+        # Archive it instead (renamed, not deleted).
+        stale = os.path.join(db_base, project_name, 'PD', flow_type,
+                             StatusDB.db_filename(run_dir, user))
+        if os.path.exists(stale):
+            archived = f"{stale}.stale-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+            os.rename(stale, archived)
+            logger.warning(f"  RACE DB from an earlier run at this path archived: {archived}")
+
         # StatusDB.__init__ creates the sqlite file + pointer file + schema.
         # Exceptions here mean project(race,db_path) is unreachable, the
         # dir isn't writable, or sqlite refuses — all reasons to fail loud

@@ -709,9 +709,7 @@ class StatusDB:
         # Generate deterministic 6-char UID from run_dir absolute path
         uid = hashlib.md5(os.path.abspath(run_dir).encode()).hexdigest()[:6]
         user = user or os.environ.get('USER', 'unknown')
-        # Full run directory basename for human-readable DB identification
-        run_dir_name = os.path.basename(os.path.abspath(run_dir))
-        db_filename = f'{run_dir_name}_{user}_{uid}.db'
+        db_filename = self.db_filename(run_dir, user)
 
         # Priority 1: Check existing pointer file (for reconnect/resume)
         pointer_path = os.path.join(run_dir, self.DB_POINTER_FILE)
@@ -753,6 +751,17 @@ class StatusDB:
             self.db_path = old_path
 
         self._init_db()
+
+    @staticmethod
+    def db_filename(run_dir: str, user: str = '') -> str:
+        """Race-area DB file name for a run dir: <run_dir_name>_<user>_<uid>.db
+        (uid = 6-char md5 of the absolute run dir path — deterministic, so a
+        run re-created at the same path maps to the same name)."""
+        import hashlib
+        user = user or os.environ.get('USER', 'unknown')
+        _abs = os.path.abspath(run_dir)
+        uid = hashlib.md5(_abs.encode()).hexdigest()[:6]
+        return f'{os.path.basename(_abs)}_{user}_{uid}.db'
 
     @staticmethod
     def _write_pointer(pointer_path: str, db_path: str):
