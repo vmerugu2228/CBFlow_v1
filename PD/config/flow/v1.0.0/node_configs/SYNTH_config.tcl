@@ -194,7 +194,7 @@ array set synth {
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 array set synth {
-    supported_tools {fc genus}
+    supported_tools {fc genus yosys}
     default_tool    "fc"
 }
 

@@ -5,6 +5,10 @@
 # Source this at the top of every handler instead of copy-pasting 200 lines.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# Directory of this file, captured at source time ([info script] inside a
+# proc returns the CALLER's script, not this one).
+set ::_cbflow_handler_common_dir [file dirname [file normalize [info script]]]
+
 # Source utils.tcl so is_true/is_false/handle_error/handle_info/atomic_write
 # are available in the top-level namespace. Pre-fix: handler_common used
 # `is_true` but did NOT source utils.tcl, and most subnode handlers only
@@ -131,20 +135,39 @@ proc handler_load_configs {run_dir flow_type} {
     set _pver [expr {[info exists ::env(PROJECT_CONFIG_VERSION)] ? $::env(PROJECT_CONFIG_VERSION) : "v1.0.0"}]
     if {$_proj ne ""} {
         # Global identity — project(technology|top_module|power,*|design_hierarchy|...)
+        # Projects name these <proj>_config.tcl / <proj>_pd_config.tcl; the
+        # generic project_config.tcl / project_pd_config.tcl names are accepted too.
         if {[info exists ::env(CBFLOW_GLOBAL_DIR)] && $::env(CBFLOW_GLOBAL_DIR) ne ""} {
-            set _gp "$::env(CBFLOW_GLOBAL_DIR)/config/project/$_proj/$_pver/project_config.tcl"
-            if {[file exists $_gp]} { uplevel #0 [list source $_gp] }
+            foreach _gp [list "$::env(CBFLOW_GLOBAL_DIR)/config/project/$_proj/$_pver/${_proj}_config.tcl" \
+                              "$::env(CBFLOW_GLOBAL_DIR)/config/project/$_proj/$_pver/project_config.tcl"] {
+                if {[file exists $_gp]} { uplevel #0 [list source $_gp]; break }
+            }
         }
         # PD overlay — project(release,*|workarea_path|metal_stack|lib_root|...)
         if {[info exists ::env(CONFIG_ROOT)]} {
-            set _pp "$::env(CONFIG_ROOT)/project/$_proj/$_pver/project_pd_config.tcl"
-            if {[file exists $_pp]} { uplevel #0 [list source $_pp] }
+            foreach _pp [list "$::env(CONFIG_ROOT)/project/$_proj/$_pver/${_proj}_pd_config.tcl" \
+                              "$::env(CONFIG_ROOT)/project/$_proj/$_pver/project_pd_config.tcl"] {
+                if {[file exists $_pp]} { uplevel #0 [list source $_pp]; break }
+            }
+        }
+        # Tech config (after the project: it reads project(lib_root)) — the
+        # launch wrapper needs tech(pdk_root|pdk) for containerised tools.
+        if {[info exists ::project(technology)] && [info exists ::env(CBFLOW_GLOBAL_DIR)]} {
+            set _tver [expr {[info exists ::env(TECH_CONFIG_VERSION)] ? $::env(TECH_CONFIG_VERSION) : "v1.0.0"}]
+            set _tc "$::env(CBFLOW_GLOBAL_DIR)/config/tech/$::project(technology)/$_tver/tech_config.tcl"
+            if {[file exists $_tc]} { uplevel #0 [list source $_tc] }
         }
     }
 
     # User config (overrides all)
     if {[file exists "$run_dir/setup/user_config.tcl"]} {
         uplevel #0 [list source "$run_dir/setup/user_config.tcl"]
+    }
+    # A tool chosen in user_config gets its own overlay (the node config
+    # loaded the default tool's) — see tool_overlay.tcl.
+    if {[info exists _nc] && [file exists $_nc]} {
+        uplevel #0 [list source [file join $::_cbflow_handler_common_dir tool_overlay.tcl]]
+        cbflow_reload_tool_overlay $flow_type [file dirname $_nc] "$run_dir/setup/user_config.tcl"
     }
 
     # Tool launch config (module load, tool shell, bsub, xterm)
@@ -567,11 +590,12 @@ proc _input_mode {key subnode} {
     return ""
 }
 
-# Marker keys that DON'T carry a filesystem path — these are consumed by
-# resolve_flow_inputs upstream (release_tag / release_dir / from_run) and
-# must not be treated as source files by the input dispatcher.
+# Marker keys that DON'T carry a filesystem path — handshake hints consumed
+# by resolve_flow_inputs upstream (release_tag / release_dir / from_run) and
+# input attributes such as synth_pnr(input,rtl_format) "verilog" — must not
+# be treated as source files by the input dispatcher.
 proc _is_marker_key {key} {
-    return [expr {[regexp {(_release_tag|_release_dir|_from_run)$} $key]}]
+    return [expr {[regexp {(_release_tag|_release_dir|_from_run|_format)$} $key]}]
 }
 
 proc _expected_input_name {design_name subnode key} {

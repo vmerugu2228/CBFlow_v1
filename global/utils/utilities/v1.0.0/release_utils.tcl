@@ -33,7 +33,7 @@ variable release_errors {}
 #   project(release,block_name) — block name (or derived from design_name)
 #   CBFLOW_RELEASE_TAG          — release tag (or CBFLOW_RELEASE_VERSION env)
 proc init {args_flow_type args_design_name args_run_dir {args_phase "P0"}} {
-    variable release_dir release_tag release_phase flow_type design_name run_dir
+    variable release_dir; variable release_tag; variable release_phase; variable flow_type; variable design_name; variable run_dir
 
     set flow_type $args_flow_type
     set design_name $args_design_name
@@ -111,13 +111,18 @@ proc init {args_flow_type args_design_name args_run_dir {args_phase "P0"}} {
 
 # ── Copy File to Release ────────────────────────────────────────────────────
 proc copy_file {src_path dest_subdir dest_name} {
-    variable release_dir release_files_copied release_errors
+    variable release_dir; variable release_files_copied; variable release_errors
 
     set src [_resolve_path $src_path]
     set dest "$release_dir/$dest_subdir/$dest_name"
 
     if {[file exists $src]} {
+        # A release holds real files: dereference staged-input symlinks.
+        while {[file type $src] eq "link"} {
+            set src [file normalize [file join [file dirname $src] [file readlink $src]]]
+        }
         file mkdir [file dirname $dest]
+        file delete -force $dest
         file copy -force $src $dest
         lappend release_files_copied $dest
         return 1
@@ -130,12 +135,16 @@ proc copy_file {src_path dest_subdir dest_name} {
 
 # ── Copy Glob Pattern ───────────────────────────────────────────────────────
 proc copy_glob {src_pattern dest_subdir} {
-    variable release_dir release_files_copied
+    variable release_dir; variable release_files_copied
 
     set count 0
     foreach src [glob -nocomplain $src_pattern] {
         set dest "$release_dir/$dest_subdir/[file tail $src]"
+        while {[file type $src] eq "link"} {
+            set src [file normalize [file join [file dirname $src] [file readlink $src]]]
+        }
         file mkdir [file dirname $dest]
+        file delete -force $dest
         file copy -force $src $dest
         lappend release_files_copied $dest
         incr count
@@ -145,7 +154,7 @@ proc copy_glob {src_pattern dest_subdir} {
 
 # ── Validate Mandatory Files ────────────────────────────────────────────────
 proc validate_mandatory_files {} {
-    variable release_dir release_phase flow_type run_dir release_errors
+    variable release_dir; variable release_phase; variable flow_type; variable run_dir; variable release_errors
 
     # Required state: init() must have run and populated these namespace
     # vars. The old `release_phase "P0"` + `flow_type "UNKNOWN"` fallbacks
@@ -297,8 +306,8 @@ proc _count_violations {run_dir flow_type} {
 
 # ── Generate Release Manifest ───────────────────────────────────────────────
 proc generate_manifest {} {
-    variable release_dir release_tag release_phase flow_type design_name run_dir
-    variable release_files_copied release_errors
+    variable release_dir; variable release_tag; variable release_phase; variable flow_type; variable design_name; variable run_dir
+    variable release_files_copied; variable release_errors
 
     set manifest_file "$release_dir/MANIFEST.json"
     set fd [open $manifest_file "w"]
@@ -361,8 +370,8 @@ proc generate_manifest {} {
 
 # ── Generate Release Notes ──────────────────────────────────────────────────
 proc generate_release_notes {{notes ""}} {
-    variable release_dir release_tag release_phase flow_type design_name run_dir
-    variable release_files_copied release_errors
+    variable release_dir; variable release_tag; variable release_phase; variable flow_type; variable design_name; variable run_dir
+    variable release_files_copied; variable release_errors
 
     set notes_file "$release_dir/RELEASE_NOTES.md"
     set fd [open $notes_file "w"]
@@ -419,7 +428,7 @@ proc generate_release_notes {{notes ""}} {
 
 # ── Create Release Complete Stamp ───────────────────────────────────────────
 proc stamp_complete {} {
-    variable release_dir release_tag release_phase flow_type release_files_copied release_errors
+    variable release_dir; variable release_tag; variable release_phase; variable flow_type; variable release_files_copied; variable release_errors
 
     set stamp_file "$release_dir/RELEASE_COMPLETE"
     # Atomic write: pre-fix, open-w + puts + close was non-atomic. Kill
@@ -446,7 +455,7 @@ proc stamp_complete {} {
 
 # ── Summary Report ──────────────────────────────────────────────────────────
 proc summary {} {
-    variable release_dir release_tag release_phase flow_type release_files_copied release_errors
+    variable release_dir; variable release_tag; variable release_phase; variable flow_type; variable release_files_copied; variable release_errors
 
     handle_info "═══════════════════════════════════════════════════════════"
     handle_info " Release Summary: $flow_type"

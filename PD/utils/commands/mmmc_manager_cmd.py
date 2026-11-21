@@ -82,6 +82,19 @@ def get_mmmc_config_path(project_name: Optional[str] = None) -> str:
     return os.path.join(grot, 'project', proj, version, 'mmmc_config.tcl')
 
 
+def get_mmmc_node_scenarios_path(project_name: Optional[str] = None) -> str:
+    """Resolve mmmc_node_scenarios.tcl path for a project.
+
+    Node-level scenario assignments (the `array set mmmc { cts {...} place
+    {...} ... }` block) live in a sibling file to mmmc_config.tcl so the
+    auto-generated view/scenario-set config doesn't get mixed with
+    engineer-managed per-node mappings. set-node mutates THIS file —
+    passing --config here is still honored for ad-hoc paths.
+    """
+    base = get_mmmc_config_path(project_name)
+    return os.path.join(os.path.dirname(base), 'mmmc_node_scenarios.tcl')
+
+
 # ===============================================================================
 # TCL Config Parser
 # ===============================================================================
@@ -92,7 +105,6 @@ class MmmcConfigParser:
     Handles the exact formats used in the config:
       - set mmmc(process_corners) {ss tt ff}          (simple list)
       - set mmmc(pvt,ss) {{0p76v 150c} {0p76v 25c}}   (PVT points)
-      - set mmmc(rc_pair,ss) "rcmax"                   (RC pairing)
       - array set operating_modes { ... }              (modes with SDC)
       - array set rc_corners { ... }                   (RC corner defs)
       - array set mmmc { ... }                         (node mappings)
@@ -106,7 +118,6 @@ class MmmcConfigParser:
         # Parsed data
         self.process_corners: List[str] = []
         self.pvt_points: Dict[str, List[Tuple[str, str]]] = {}
-        self.rc_pairs: Dict[str, str] = {}
         self.operating_modes: Dict[str, Dict[str, str]] = {}
         self.rc_corners: Dict[str, Dict[str, str]] = {}
         self.node_mappings: Dict[str, Dict[str, List[str]]] = {}
@@ -132,7 +143,6 @@ class MmmcConfigParser:
         self._parse_voltage_temperature()
         self._parse_process_corners()
         self._parse_pvt_points()
-        self._parse_rc_pairs()
         self._parse_operating_modes()
         self._parse_rc_corners()
         self._parse_node_mappings()
@@ -180,15 +190,6 @@ class MmmcConfigParser:
             for pm in re.finditer(r'\{(\S+)\s+(\S+)\}', body):
                 points.append((pm.group(1), pm.group(2)))
             self.pvt_points[corner] = points
-
-    def _parse_rc_pairs(self):
-        """Parse: set mmmc(rc_pair,ss) "rcmax" """
-        for m in re.finditer(
-            r'set\s+mmmc\(rc_pair,(\w+)\)\s+"(\w+)"', self.raw_content
-        ):
-            self.rc_pairs[m.group(1)] = m.group(2)
-
-    # -- Array parsers ----------------------------------------------------------
 
     def _extract_array_body(self, array_name: str) -> Optional[str]:
         """Extract the body of an 'array set <name> { ... }' block."""
@@ -341,7 +342,13 @@ class MmmcConfigParser:
 def execute_tcl_config(config_path: str) -> Optional[Dict]:
     """Execute mmmc_config.tcl via tclsh and capture auto-generated data.
 
-    Returns dict with keys: analysis_views (list), scenario_sets (dict of lists).
+    Returns dict with keys:
+      analysis_views (list of names), scenario_sets (dict of lists),
+      view_data (dict name -> {corner, mode, voltage, temperature,
+                               lib_set_ref, rc_corner}).
+    view_data is the authoritative per-view metadata — consumers must
+    read fields from it instead of splitting the view name on `_`
+    (rc-corner names such as `rc_max` contain underscores).
     Returns None on failure.
     """
     tcl_script = f'''
@@ -353,6 +360,21 @@ foreach v [lsort [array names analysis_views]] {{
     puts $v
 }}
 puts "===VIEWS_END==="
+
+# Dump per-view fields (one line per view, tab-separated)
+puts "===VIEWDATA_START==="
+foreach v [lsort [array names analysis_views]] {{
+    set _row [list $v]
+    foreach _f {{corner mode voltage temperature lib_set_ref rc_corner}} {{
+        if {{[dict exists $analysis_views($v) $_f]}} {{
+            lappend _row [dict get $analysis_views($v) $_f]
+        }} else {{
+            lappend _row ""
+        }}
+    }}
+    puts [join $_row "\t"]
+}}
+puts "===VIEWDATA_END==="
 
 # Dump scenario sets
 puts "===SETS_START==="
@@ -380,7 +402,7 @@ puts "===SETS_END==="
         return None
 
     stdout = result.stdout
-    data = {'analysis_views': [], 'scenario_sets': {}}
+    data = {'analysis_views': [], 'scenario_sets': {}, 'view_data': {}}
 
     # Parse views
     m = re.search(r'===VIEWS_START===\n(.*?)===VIEWS_END===', stdout, re.DOTALL)
@@ -388,6 +410,18 @@ puts "===SETS_END==="
         data['analysis_views'] = [
             line.strip() for line in m.group(1).splitlines() if line.strip()
         ]
+
+    # Parse per-view fields
+    m = re.search(r'===VIEWDATA_START===\n(.*?)===VIEWDATA_END===', stdout, re.DOTALL)
+    if m:
+        _fields = ('corner', 'mode', 'voltage', 'temperature',
+                   'lib_set_ref', 'rc_corner')
+        for line in m.group(1).splitlines():
+            if not line.strip():
+                continue
+            cols = line.split('\t')
+            cols += [''] * (len(_fields) + 1 - len(cols))
+            data['view_data'][cols[0]] = dict(zip(_fields, cols[1:]))
 
     # Parse scenario sets
     m = re.search(r'===SETS_START===\n(.*?)===SETS_END===', stdout, re.DOTALL)
@@ -448,6 +482,205 @@ def _write_config(config_path: str, content: str):
     atomic_write(config_path, content)
 
 
+def _find_top_level_entry(content: str, body_start: int, name: str):
+    """Return (start, end) of the `<name> { ... }` entry that sits at the top
+    level of a braced TCL array body beginning at `body_start` (just after
+    the opening `{`), or None. Comments and nested entries are skipped, and
+    the name must match a whole token.
+    """
+    i, n, depth = body_start, len(content), 1
+    while i < n and depth > 0:
+        c = content[i]
+        if depth == 1 and c == '#':
+            # Skip the comment for name matching, but keep counting its
+            # braces: Tcl's brace matching inside a braced word does.
+            while i < n and content[i] != '\n':
+                if content[i] == '{':
+                    depth += 1
+                elif content[i] == '}':
+                    depth -= 1
+                i += 1
+            continue
+        if c == '{':
+            depth += 1
+            i += 1
+            continue
+        if c == '}':
+            depth -= 1
+            i += 1
+            continue
+        if depth == 1 and not c.isspace():
+            j = i
+            while j < n and not content[j].isspace() and content[j] not in '{}':
+                j += 1
+            token = content[i:j]
+            k = j
+            while k < n and content[k].isspace():
+                k += 1
+            if token == name and k < n and content[k] == '{':
+                d, m = 1, k + 1
+                while m < n and d > 0:
+                    if content[m] == '{':
+                        d += 1
+                    elif content[m] == '}':
+                        d -= 1
+                    m += 1
+                return i, m
+            i = j
+            continue
+        i += 1
+    return None
+
+
+def _stale_references(valid_views, scenario_sets=None, node_mappings=None):
+    """Return [(source, name)] for every scenario-set member and node
+    assignment that is not a generated analysis view. `source` is
+    ('set', <set name>) or ('node', <node>, <setup|hold>). The single
+    implementation behind validate, set-node, generate, generate-view-def
+    and the post-mutation warning.
+    """
+    valid = set(valid_views)
+    stale = []
+    for sname in sorted(scenario_sets or {}):
+        stale += [(('set', sname), v)
+                  for v in scenario_sets[sname] if v not in valid]
+    for node, mapping in (node_mappings or {}).items():
+        for atype in ('setup', 'hold'):
+            stale += [(('node', node, atype), v)
+                      for v in mapping.get(atype, []) if v not in valid]
+    return stale
+
+
+def _stale_label(source) -> str:
+    if source[0] == 'set':
+        return f"scenario set '{source[1]}'"
+    return f"node '{source[1]}' {source[2]}"
+
+
+def _load_node_mappings(config_path: str, parser: 'MmmcConfigParser'):
+    """Return (node_mappings, source_path) for the config at `config_path`.
+
+    Node-scenario assignments (`array set mmmc { cts {...} ... }`) live in
+    the sibling `mmmc_node_scenarios.tcl` — the file `set-node` writes and
+    the config resolver sources. A legacy config that still carries the
+    block inline is honored too. Returns ({}, '') when neither exists.
+    """
+    if parser.node_mappings:
+        return parser.node_mappings, config_path
+    sibling = os.path.join(os.path.dirname(os.path.abspath(config_path)),
+                           'mmmc_node_scenarios.tcl')
+    if os.path.isfile(sibling) and \
+            os.path.abspath(sibling) != os.path.abspath(config_path):
+        ns = MmmcConfigParser(sibling)
+        if ns.parse():
+            return ns.node_mappings, sibling
+    return {}, ''
+
+
+def _prune_removed_views(config_path: str) -> None:
+    """After remove-pvt / remove-mode: drop every scenario-set member and
+    node assignment that no longer names a generated view, then report
+    what was removed. Nothing but the removed PVT/mode could still want
+    those views, and a stale name makes STA schedule a subnode for a view
+    that no longer exists.
+
+    Only the literal `set mmmc_scenario_sets(<name>) { ... }` blocks of
+    mmmc_config.tcl and the sibling mmmc_node_scenarios.tcl are edited;
+    derived sets (`[concat ...]`, `[lsort ...]`) follow automatically.
+    """
+    tcl_data = execute_tcl_config(config_path)
+    if tcl_data is None:
+        return
+    valid = set(tcl_data['analysis_views'])
+
+    def _prune_body(body: str, removed: list) -> str:
+        def _drop(m):
+            tok = m.group(0)
+            if tok in valid:
+                return tok
+            removed.append(tok)
+            return ''
+        # View names are bare tokens (letters, digits, `_`, `.`, `-`).
+        out = re.sub(r'(?<![\w.\-])[A-Za-z]\w*(?:[.\-]\w+)*(?![\w.\-])', _drop, body)
+        # Drop lines left empty by the removal.
+        return re.sub(r'\n[ \t]+(?=\n)', '', out)
+
+    report = []
+
+    # 1. Literal scenario sets in mmmc_config.tcl
+    content = _read_config(config_path)
+    pieces, pos = [], 0
+    for m in re.finditer(r'set\s+mmmc_scenario_sets\((\w+)\)\s*\{', content):
+        body_start = m.end()
+        d, k = 1, body_start
+        while k < len(content) and d > 0:
+            if content[k] == '{':
+                d += 1
+            elif content[k] == '}':
+                d -= 1
+            k += 1
+        body = content[body_start:k - 1]
+        removed = []
+        new_body = _prune_body(body, removed)
+        pieces.append(content[pos:body_start] + new_body)
+        pos = k - 1
+        report += [f"scenario set '{m.group(1)}': {v}" for v in removed]
+    new_content = ''.join(pieces) + content[pos:]
+    if new_content != content:
+        _write_config(config_path, new_content)
+
+    # 2. Node assignments in the sibling mmmc_node_scenarios.tcl
+    ns_path = os.path.join(os.path.dirname(os.path.abspath(config_path)),
+                           'mmmc_node_scenarios.tcl')
+    if os.path.isfile(ns_path):
+        ns_content = _read_config(ns_path)
+        parser = MmmcConfigParser(ns_path)
+        if parser.parse():
+            stale = {name for _src, name in _stale_references(
+                valid, node_mappings=parser.node_mappings)}
+            if stale:
+                for src, name in _stale_references(
+                        valid, node_mappings=parser.node_mappings):
+                    report.append(f"{_stale_label(src)}: {name}")
+                pruned = ns_content
+                for name in sorted(stale, key=len, reverse=True):
+                    pruned = re.sub(r'(?<![\w.\-])' + re.escape(name) +
+                                    r'(?![\w.\-])', '', pruned)
+                pruned = re.sub(r'\n[ \t]+(?=\n)', '', pruned)
+                _backup_config(ns_path)
+                _write_config(ns_path, pruned)
+
+    if report:
+        logger.info("Removed %d reference(s) to views that are no longer generated:",
+                    len(report))
+        for line in report:
+            logger.info("    %s", line)
+    _warn_stale_references(config_path)
+
+
+def _warn_stale_references(config_path: str) -> None:
+    """After a mutation that removes views (remove-pvt / remove-mode), warn
+    about scenario-set and node-scenario entries that no longer name a
+    generated view. Scenario sets are engineer-declared literal lists, so
+    nothing rewrites them automatically — the engineer decides what
+    replaces a removed view.
+    """
+    tcl_data = execute_tcl_config(config_path)
+    if tcl_data is None:
+        return
+    node_mappings = {}
+    parser = MmmcConfigParser(config_path)
+    if parser.parse():
+        node_mappings, _src = _load_node_mappings(config_path, parser)
+    stale = [f"{_stale_label(src)}: {name}" for src, name in _stale_references(
+        tcl_data['analysis_views'], tcl_data['scenario_sets'], node_mappings)]
+    if stale:
+        logger.warning("%d reference(s) now name views that are no longer "
+                       "generated — update them by hand:", len(stale))
+        for line in stale:
+            logger.warning("    %s", line)
+
+
 # ===============================================================================
 # Command: show
 # ===============================================================================
@@ -497,13 +730,6 @@ def cmd_show(args: argparse.Namespace) -> int:
         print(f"    {corner}: {pts_str}")
     print()
 
-    # RC pairing
-    print("  RC Pairing:")
-    for corner in parser.process_corners:
-        rc = parser.rc_pairs.get(corner, '?')
-        print(f"    {corner} \u2192 {rc}")
-    print()
-
     # RC corners
     print("  RC Corners:")
     for name, info in sorted(parser.rc_corners.items()):
@@ -516,7 +742,8 @@ def cmd_show(args: argparse.Namespace) -> int:
     # Analysis views
     num_modes = len(parser.operating_modes)
     num_pvt = sum(len(pts) for pts in parser.pvt_points.values())
-    print(f"  Analysis Views: {len(views)} ({num_modes} modes x {num_pvt} PVT combos)")
+    print(f"  Analysis Views: {len(views)} ({num_modes} modes x {num_pvt} PVT combos "
+          f"x {len(parser.rc_corners)} RC corners)")
 
     # Scenario sets
     if sets:
@@ -530,10 +757,11 @@ def cmd_show(args: argparse.Namespace) -> int:
                 print(f"    {sname + ':':<12} {len(sets[sname])} views")
     print()
 
-    # Node mappings
-    if parser.node_mappings:
-        print("  Node Scenario Assignments:")
-        for node, mapping in parser.node_mappings.items():
+    # Node mappings (sibling mmmc_node_scenarios.tcl)
+    node_mappings, node_src = _load_node_mappings(config_path, parser)
+    if node_mappings:
+        print(f"  Node Scenario Assignments:  ({os.path.basename(node_src)})")
+        for node, mapping in node_mappings.items():
             s_count = len(mapping.get('setup', []))
             h_count = len(mapping.get('hold', []))
             print(f"    {node + ':':<15} {s_count} setup, {h_count} hold")
@@ -574,32 +802,25 @@ def cmd_validate(args: argparse.Namespace) -> int:
             n = len(parser.pvt_points[corner])
             print(f"      PASS  {corner}: {n} PVT points")
 
-    # Check 2: Every corner has an RC pair mapping
-    print("  [2] RC pair mapping for each process corner")
-    for corner in parser.process_corners:
-        if corner not in parser.rc_pairs:
-            msg = f"No RC pair mapping for corner '{corner}'"
-            errors.append(msg)
-            print(f"      FAIL  {msg}")
-        else:
-            print(f"      PASS  {corner} -> {parser.rc_pairs[corner]}")
-
-    # Check 3: Every RC pair references a defined RC corner
-    # The rc_pair values (e.g. "rcmax") map to rc_corners keys (e.g. "rc_max")
-    # by inserting an underscore: rcmax -> rc_max, rctyp -> rc_typ, rcmin -> rc_min
-    print("  [3] RC pairs reference defined RC corners")
+    # Check 2: RC corners are defined (views are a Cartesian over them)
     defined_rc = set(parser.rc_corners.keys())
-    for corner, rc_name in parser.rc_pairs.items():
-        # Normalize: rcmax -> rc_max, rctyp -> rc_typ, etc.
-        rc_key = rc_name
-        if rc_name not in defined_rc:
-            rc_key = rc_name.replace('rc', 'rc_', 1)
-        if rc_key not in defined_rc:
-            msg = f"RC pair '{rc_name}' (for corner '{corner}') not in rc_corners"
+    print("  [2] RC corners defined")
+    if not defined_rc:
+        msg = "No rc_corners defined — no analysis views can be generated"
+        errors.append(msg)
+        print(f"      FAIL  {msg}")
+    else:
+        print(f"      PASS  {' '.join(sorted(defined_rc))}")
+
+    # Check 3: every RC corner carries a temperature (view definitions need it)
+    print("  [3] RC corners have a temperature")
+    for rc_name in sorted(defined_rc):
+        if not parser.rc_corners[rc_name].get('temperature'):
+            msg = f"RC corner '{rc_name}' has no temperature"
             errors.append(msg)
             print(f"      FAIL  {msg}")
         else:
-            print(f"      PASS  {rc_name} -> {rc_key} exists in rc_corners")
+            print(f"      PASS  {rc_name}: {parser.rc_corners[rc_name]['temperature']}")
 
     # Check 4: Every mode has a constraint_file
     print("  [4] Operating modes have constraint files")
@@ -623,23 +844,51 @@ def cmd_validate(args: argparse.Namespace) -> int:
         n_sets = len(tcl_data['scenario_sets'])
         print(f"      PASS  {n_views} views, {n_sets} scenario sets generated")
 
-    # Check 6: Node mapping scenarios reference valid views
+    # Check 6: Node mapping scenarios reference valid views. Assignments
+    # are read from the sibling mmmc_node_scenarios.tcl (what set-node
+    # writes and the resolver sources), not from mmmc_config.tcl.
     if tcl_data:
         print("  [6] Node scenarios reference valid analysis views")
         valid_views = set(tcl_data['analysis_views'])
-        for node, mapping in parser.node_mappings.items():
-            for atype in ('setup', 'hold'):
-                for scen in mapping.get(atype, []):
-                    if scen not in valid_views:
-                        msg = f"Node '{node}' {atype}: '{scen}' not a valid view"
-                        errors.append(msg)
-                        print(f"      FAIL  {msg}")
-            s_ok = all(s in valid_views for s in mapping.get('setup', []))
-            h_ok = all(s in valid_views for s in mapping.get('hold', []))
-            if s_ok and h_ok:
+        node_mappings, node_src = _load_node_mappings(config_path, parser)
+        if not node_mappings:
+            msg = ("no node scenario assignments found (expected "
+                   "mmmc_node_scenarios.tcl next to the config)")
+            warnings.append(msg)
+            print(f"      WARN  {msg}")
+        else:
+            print(f"      Source: {node_src}")
+        _node_stale = _stale_references(valid_views, node_mappings=node_mappings)
+        _bad_nodes = {src[1] for src, _n in _node_stale}
+        for src, name in _node_stale:
+            msg = f"Node '{src[1]}' {src[2]}: '{name}' not a valid view"
+            errors.append(msg)
+            print(f"      FAIL  {msg}")
+        for node, mapping in node_mappings.items():
+            if node not in _bad_nodes:
                 s_n = len(mapping.get('setup', []))
                 h_n = len(mapping.get('hold', []))
                 print(f"      PASS  {node}: {s_n} setup + {h_n} hold OK")
+
+        # Check 7: scenario sets are engineer-declared literal lists, so
+        # they can go stale when PVT points / modes / RC corners change.
+        print("  [7] Scenario sets reference valid analysis views")
+        _set_stale = _stale_references(valid_views, tcl_data['scenario_sets'])
+        _bad_sets = {src[1] for src, _n in _set_stale}
+        for src, name in _set_stale:
+            msg = f"Scenario set '{src[1]}': '{name}' not a valid view"
+            errors.append(msg)
+            print(f"      FAIL  {msg}")
+        for sname in sorted(tcl_data['scenario_sets']):
+            if sname in _bad_sets:
+                continue
+            members = tcl_data['scenario_sets'][sname]
+            if not members:
+                msg = f"Scenario set '{sname}' is empty"
+                warnings.append(msg)
+                print(f"      WARN  {msg}")
+            else:
+                print(f"      PASS  {sname}: {len(members)} views")
 
     # Summary
     print()
@@ -726,6 +975,7 @@ def cmd_remove_mode(args: argparse.Namespace) -> int:
     _write_config(config_path, content)
     logger.info("Removed operating mode '%s'", name)
     logger.info("Note: auto-generated views will update on next TCL execution")
+    _prune_removed_views(config_path)
     return 0
 
 
@@ -838,6 +1088,7 @@ def cmd_remove_pvt(args: argparse.Namespace) -> int:
     _write_config(config_path, content)
     logger.info("Removed PVT point {%s %s} from corner '%s'",
                 voltage, temperature, corner)
+    _prune_removed_views(config_path)
     return 0
 
 
@@ -894,8 +1145,13 @@ def cmd_add_rc(args: argparse.Namespace) -> int:
 # ===============================================================================
 
 def cmd_set_node(args: argparse.Namespace) -> int:
-    """Set node scenario assignments in mmmc_config.tcl in-place."""
-    config_path = args.config or get_mmmc_config_path(getattr(args, "project", None))
+    """Set node scenario assignments in mmmc_node_scenarios.tcl in-place.
+
+    Node-scenario assignments live in a sibling file to mmmc_config.tcl
+    (see `get_mmmc_node_scenarios_path`). An explicit --config still wins
+    so users can retarget a one-off file.
+    """
+    config_path = args.config or get_mmmc_node_scenarios_path(getattr(args, "project", None))
 
     parser = MmmcConfigParser(config_path)
     if not parser.parse():
@@ -908,6 +1164,29 @@ def cmd_set_node(args: argparse.Namespace) -> int:
     if setup_scenarios is None and hold_scenarios is None:
         logger.error("At least one of --setup or --hold is required")
         return 1
+
+    # Reject names that are not generated analysis views. Views come from
+    # the mmmc_config.tcl sitting next to the node-scenarios file.
+    _views_cfg = os.path.join(os.path.dirname(os.path.abspath(config_path)),
+                              'mmmc_config.tcl')
+    if os.path.isfile(_views_cfg):
+        _tcl = execute_tcl_config(_views_cfg)
+        if _tcl is None:
+            logger.error("Cannot validate scenario names: %s failed to execute",
+                         _views_cfg)
+            return 1
+        _bad = [name for _src, name in _stale_references(
+            _tcl['analysis_views'],
+            node_mappings={node: {'setup': setup_scenarios or [],
+                                  'hold': hold_scenarios or []}})]
+        if _bad:
+            logger.error("Not generated analysis views in %s: %s",
+                         _views_cfg, ' '.join(_bad))
+            logger.error("  List valid names with: cbflow flow mmmc-manager list-views")
+            return 1
+    else:
+        logger.warning("No mmmc_config.tcl next to %s — scenario names were "
+                       "NOT validated against analysis views", config_path)
 
     content = _read_config(config_path)
     _backup_config(config_path)
@@ -945,34 +1224,16 @@ def cmd_set_node(args: argparse.Namespace) -> int:
             logger.error("Could not find 'array set mmmc' in config")
             return 1
 
-        # Find the specific node entry within the mmmc array
-        # We need to match from the node name to its closing brace, accounting
-        # for nested braces.
-        start_search = array_match.end()
-        node_pat = re.compile(
-            rf'(\n\s*#[^\n]*\n)?\s*{re.escape(node)}\s*\{{',
-        )
-        node_match = node_pat.search(content, start_search)
-        if not node_match:
+        # Locate the node entry at the TOP LEVEL of the array body. A regex
+        # search for `<node> {` would also match a node whose name merely
+        # ends in <node> (`timing` inside `merge_timing`) and splice the new
+        # block into the wrong entry, corrupting a file every run sources.
+        span = _find_top_level_entry(content, array_match.end(), node)
+        if span is None:
             logger.error("Could not find node '%s' in mmmc array", node)
             return 1
-
-        # Find the matching closing brace for this node
-        brace_start = content.index('{', node_match.start() +
-                                    (len(node_match.group(1)) if node_match.group(1) else 0))
-        pos = brace_start + 1
-        depth = 1
-        while pos < len(content) and depth > 0:
-            if content[pos] == '{':
-                depth += 1
-            elif content[pos] == '}':
-                depth -= 1
-            pos += 1
-
-        # Preserve any preceding comment line
-        prefix = node_match.group(1) if node_match.group(1) else '\n'
-        content = (content[:node_match.start()] + prefix +
-                   new_node_block + content[pos:])
+        ent_start, ent_end = span
+        content = content[:ent_start] + new_node_block.lstrip() + content[ent_end:]
     else:
         # Insert new node before the closing brace of the mmmc array
         pattern = re.compile(
@@ -988,7 +1249,20 @@ def cmd_set_node(args: argparse.Namespace) -> int:
                    '\n' + new_node_block + '\n' +
                    content[match.start(2):])
 
+    previous = _read_config(config_path)
     _write_config(config_path, content)
+
+    # The resolver sources this file for every run of the project: refuse
+    # to leave it in a state that no longer parses or lost a node.
+    check = MmmcConfigParser(config_path)
+    expected = (set(parser.node_mappings) | {node})
+    if not check.parse() or set(check.node_mappings) != expected or \
+            check.node_mappings.get(node, {}).get('setup', []) != list(setup_scenarios) or \
+            check.node_mappings.get(node, {}).get('hold', []) != list(hold_scenarios):
+        _write_config(config_path, previous)
+        logger.error("set-node produced an inconsistent %s — change rolled back",
+                     config_path)
+        return 1
 
     s_n = len(setup_scenarios)
     h_n = len(hold_scenarios)
@@ -1077,31 +1351,41 @@ def cmd_generate_view_def(args: argparse.Namespace) -> int:
         logger.error("No analysis views generated from config")
         return 1
 
+    if getattr(args, 'style', 'standalone') == 'flow':
+        return _generate_flow_view_def(args, config_path, parser, tcl_data)
+
     lines = []
     lines.append('# Cadence MMMC View Definition File')
     lines.append('# Auto-generated by CBflow mmmc-manager from mmmc_config.tcl')
     lines.append('')
 
     # -- Library Sets --
-    # Derive unique lib_set references from view naming convention:
-    # <mode>_<corner>_<voltage>_<rc>_<temp> -> lib_set = <corner>_<voltage>_<temp>
+    # Per-view fields come from the executed config (view_data), never
+    # from splitting the view name: rc-corner names like `rc_max` contain
+    # underscores, so a positional split mis-assigns rc and temperature.
     lib_sets = set()
     view_info = {}
+    view_data = tcl_data.get('view_data', {})
     for v in views:
-        parts = v.split('_')
-        # Expected: mode_corner_voltage_rc_temp (minimum 5 parts)
-        if len(parts) >= 5:
-            mode = parts[0]
-            corner = parts[1]
-            voltage = parts[2]
-            rc = parts[3]
-            temp = parts[4]
-            lib_ref = f"{corner}_{voltage}_{temp}"
-            lib_sets.add(lib_ref)
-            view_info[v] = {
-                'mode': mode, 'corner': corner, 'voltage': voltage,
-                'rc': rc, 'temp': temp, 'lib_ref': lib_ref
-            }
+        d = view_data.get(v)
+        if not d or not d.get('lib_set_ref') or not d.get('rc_corner') \
+                or not d.get('mode'):
+            logger.error(
+                "analysis view '%s' is missing mode / lib_set_ref / rc_corner "
+                "in %s — cannot generate a view definition", v, config_path)
+            return 1
+        rc = d['rc_corner']
+        if rc not in parser.rc_corners:
+            logger.error(
+                "analysis view '%s' references rc_corner '%s' which is not "
+                "declared in rc_corners %s", v, rc, sorted(parser.rc_corners))
+            return 1
+        lib_sets.add(d['lib_set_ref'])
+        view_info[v] = {
+            'mode': d['mode'], 'corner': d['corner'],
+            'voltage': d['voltage'], 'rc': rc,
+            'temp': d['temperature'], 'lib_ref': d['lib_set_ref'],
+        }
 
     lines.append('# ' + '-' * 70)
     lines.append('# Library Sets')
@@ -1162,11 +1446,7 @@ def cmd_generate_view_def(args: argparse.Namespace) -> int:
             continue
         dc_name = f"{v}_dc"
         lib_ref = info['lib_ref']
-        rc = info['rc']
-        # Map rc shorthand to rc_corners key: rcmax -> rc_max, rctyp -> rc_typ
-        rc_key = rc
-        if rc in ('rcmax', 'rctyp', 'rcmin'):
-            rc_key = rc.replace('rc', 'rc_')
+        rc_key = info['rc']   # validated against rc_corners above
         lines.append(f'create_delay_corner -name {dc_name} \\')
         lines.append(f'    -library_set {lib_ref} \\')
         lines.append(f'    -rc_corner {rc_key}')
@@ -1193,8 +1473,22 @@ def cmd_generate_view_def(args: argparse.Namespace) -> int:
     lines.append('# Active Analysis Views')
     lines.append('# ' + '-' * 70)
     lines.append('')
-    setup_views = [v for v in views if '_ss_' in v]
-    hold_views = [v for v in views if '_ff_' in v]
+    # Setup/hold activation comes from the engineer-declared scenario sets,
+    # not from a corner-name pattern (ss→setup / ff→hold is project policy).
+    _sets = tcl_data.get('scenario_sets', {})
+    _stale = _stale_references(
+        views, {k: _sets.get(k, []) for k in ('setup', 'hold')})
+    for _src, _name in _stale:
+        logger.error("%s names a view that is not generated: %s",
+                     _stale_label(_src), _name)
+    if _stale:
+        return 1
+    setup_views = list(_sets.get('setup', []))
+    hold_views = list(_sets.get('hold', []))
+    if not setup_views and not hold_views:
+        logger.warning(
+            "mmmc_scenario_sets(setup) and (hold) are both empty — no "
+            "set_analysis_view line emitted")
     if setup_views or hold_views:
         # One line — no trailing-backslash continuation. Empty {} for either
         # side is still legal: Innovus reads it as "deactivate all of that kind",
@@ -1227,6 +1521,213 @@ def cmd_generate_view_def(args: argparse.Namespace) -> int:
 # ===============================================================================
 # Argument Parser
 # ===============================================================================
+
+def _generate_flow_view_def(args, config_path, parser, tcl_data) -> int:
+    """`generate-view-def --style flow`: (re)write the flow-consumed
+    mmmc_view_definition.tcl from an existing mmmc_config.tcl."""
+    view_data = tcl_data.get('view_data', {})
+    sets = tcl_data.get('scenario_sets', {})
+    known = set(tcl_data['analysis_views'])
+
+    _stale = _stale_references(
+        known, {k: sets.get(k, []) for k in ('setup', 'hold', 'signoff')})
+    for src, name in _stale:
+        logger.error("%s names a view that is not generated: %s",
+                     _stale_label(src), name)
+    if _stale:
+        return 1
+    setup_views = list(sets.get('setup', []))
+    hold_views = list(sets.get('hold', []))
+    selected = sorted(set(setup_views) | set(hold_views)
+                      | set(sets.get('signoff', [])))
+    if not selected:
+        logger.error("mmmc_scenario_sets setup / hold / signoff are all empty in "
+                     "%s — nothing to define", config_path)
+        return 1
+
+    view_fields = {}
+    for v in selected:
+        d = view_data.get(v, {})
+        if not (d.get('mode') and d.get('lib_set_ref') and d.get('rc_corner')):
+            logger.error("analysis view '%s' is missing mode / lib_set_ref / "
+                         "rc_corner in %s", v, config_path)
+            return 1
+        rc = d['rc_corner']
+        if rc not in parser.rc_corners:
+            logger.error("analysis view '%s': rc_corner '%s' is not declared in "
+                         "rc_corners", v, rc)
+            return 1
+        view_fields[v] = {
+            'mode': d['mode'], 'corner': d['corner'], 'voltage': d['voltage'],
+            'temp': d['temperature'], 'rc': rc, 'lib_set_ref': d['lib_set_ref'],
+        }
+
+    cfg_dir = os.path.dirname(os.path.abspath(config_path))
+    # <...>/project/<name>/<ver>/mmmc_config.tcl -> <name>
+    project_name = getattr(args, 'project', None) or \
+        os.path.basename(os.path.dirname(cfg_dir))
+    tech_name = getattr(args, 'tech', None) or os.environ.get('CBFLOW_TECH_NODE', '')
+    content = _render_flow_view_definition(
+        tech_name, project_name, selected, view_fields, parser.rc_corners,
+        setup_views, hold_views)
+
+    output_path = getattr(args, 'output', None)
+    if not output_path:
+        print(content, end='')
+        return 0
+    if os.path.exists(output_path):
+        logger.info("Backup: %s", _backup_config(output_path))
+    from core.paths import atomic_write
+    out_dir = os.path.dirname(os.path.abspath(output_path))
+    os.makedirs(out_dir, exist_ok=True)
+    atomic_write(output_path, content)
+    logger.info("Flow view definition written to: %s", output_path)
+    logger.info("  Analysis views: %d  (setup %d / hold %d active)",
+                len(selected), len(setup_views), len(hold_views))
+    return 0
+
+
+def _render_flow_view_definition(tech_name, project_name, selected,
+                                 view_fields, rc_corners, setup_views,
+                                 hold_views) -> str:
+    """Render the Cadence mmmc_view_definition.tcl consumed by the flows
+    (Innovus / Tempus / Genus `read_mmmc`).
+
+    selected     — view names to define (the engineer's sign-off set)
+    view_fields  — name -> {mode, corner, voltage, temp, rc, lib_set_ref};
+                   fields are passed in, never parsed out of the view name
+    rc_corners   — rc_corners dict from mmmc_config (rc key -> properties)
+    setup_views / hold_views — engineer-declared mmmc_scenario_sets, used
+                   for the initial set_analysis_view (no corner inference)
+    """
+    from datetime import datetime
+    vd_lines = []
+    vw = vd_lines.append
+    vw('#!/usr/bin/env tclsh')
+    vw('# ' + '=' * 77)
+    vw('# Cadence MMMC View Definition — Auto-Generated')
+    vw('# Generated: {} | Tech: {} | Project: {}'.format(
+        datetime.now().strftime('%Y-%m-%d %H:%M'), tech_name, project_name))
+    vw('# Scenarios: {} (mmmc_scenario_sets: setup + hold + signoff)'.format(len(selected)))
+    vw('# Sourced via: read_mmmc -file <this_file>')
+    vw('# DO NOT EDIT — regenerate with: cbflow flow mmmc-manager generate-view-def --style flow')
+    vw('# ' + '=' * 77)
+    vw('')
+    # EDA tools (Innovus / Tempus / Genus) source this file from inside their
+    # internal `read_mmmc` procedure. Bare `$tech(...)` refs would resolve
+    # against THAT proc's local scope and error with "can't read tech: no
+    # such variable". The fully-qualified `$::tech(...)` always resolves
+    # to the global. Same reasoning for project / operating_modes below.
+    vw('# Variables are referenced via the global namespace ($::) so the')
+    vw('# file works when sourced from inside read_mmmc (a Tcl proc).')
+    vw('')
+
+    parts = {sc: view_fields[sc] for sc in selected}
+    lib_sets = sorted({sp['lib_set_ref'] for sp in parts.values()})
+    modes = sorted({sp['mode'] for sp in parts.values()})
+
+    def _temp_value(t):
+        # View temperature token -> number for create_rc_corner -T
+        # ("125c" -> 125, "m40c" -> -40).
+        t = str(t).strip().lower().rstrip('c')
+        return '-' + t[1:] if t.startswith(('m', 'n')) else t
+
+    def _rc(sp):
+        # One Cadence RC corner per (rc_corner, view temperature): wire RC
+        # must scale at the view's own temperature, not one fixed -T per
+        # rc_corners key (a 125C hold view would otherwise time rc_min at
+        # -40C).
+        return '{}_{}'.format(sp['rc'], sp['temp'])
+
+    def _dc(sp):
+        # One delay corner per unique (lib_set, rc corner @ temperature).
+        return '{}_{}_{}_{}_dc'.format(sp['corner'], sp['voltage'], sp['rc'], sp['temp'])
+
+    # 1. Library Sets
+    vw('# ' + '-' * 77)
+    vw('# Library Sets')
+    vw('# ' + '-' * 77)
+    vw('')
+    for lib_ref in lib_sets:
+        vw('create_library_set -name {}_ls \\'.format(lib_ref))
+        vw('    -timing $::tech($::project(track_variant),lib,{},timing)'.format(lib_ref))
+        vw('')
+
+    # 2. RC Corners — <rc_corner>_<temp>, QRC tech from the rc_corners key
+    vw('# ' + '-' * 77)
+    vw('# RC Corners (one per rc_corner x view temperature)')
+    vw('# ' + '-' * 77)
+    vw('')
+    for rc_name, temp in sorted({(sp['rc'], sp['temp']) for sp in parts.values()}):
+        vw('create_rc_corner -name {}_{} \\'.format(rc_name, temp))
+        vw('    -qrc_tech $::tech(rcx,{},qrc) \\'.format(rc_name))
+        vw('    -T {}'.format(_temp_value(temp)))
+        vw('')
+
+    # 3. Delay Corners
+    vw('# ' + '-' * 77)
+    vw('# Delay Corners')
+    vw('# ' + '-' * 77)
+    vw('')
+    written = set()
+    for sc in selected:
+        sp = parts[sc]
+        dc_name = _dc(sp)
+        if dc_name in written:
+            continue
+        written.add(dc_name)
+        vw('create_delay_corner -name {} \\'.format(dc_name))
+        vw('    -library_set {}_ls \\'.format(sp['lib_set_ref']))
+        vw('    -rc_corner {}'.format(_rc(sp)))
+        vw('')
+
+    # 4. Constraint Modes — SDC resolved at runtime from operating_modes
+    vw('# ' + '-' * 77)
+    vw('# Constraint Modes')
+    vw('# ' + '-' * 77)
+    vw('')
+    vw('# SDC files resolved at runtime from operating_modes array')
+    vw('# create_constraint_mode REQUIRES -sdc_files — error loudly if missing.')
+    for mode in modes:
+        vw('if {![info exists ::operating_modes(%s,constraint_file)] || $::operating_modes(%s,constraint_file) eq ""} {'
+           % (mode, mode))
+        vw('    error "MMMC: operating_modes(%s,constraint_file) not set — '
+           'create_constraint_mode requires -sdc_files (mode=%s)"' % (mode, mode))
+        vw('}')
+        # Emit the create_constraint_mode on a single line so a future hand-
+        # edit that drops the -sdc_files argument can't leave a dangling '\'.
+        vw('create_constraint_mode -name %s_cm -sdc_files [list [subst $::operating_modes(%s,constraint_file)]]'
+           % (mode, mode))
+        vw('')
+
+    # 5. Analysis Views
+    vw('# ' + '-' * 77)
+    vw('# Analysis Views')
+    vw('# ' + '-' * 77)
+    vw('')
+    for sc in selected:
+        sp = parts[sc]
+        vw('create_analysis_view -name {} \\'.format(sc))
+        vw('    -constraint_mode {}_cm \\'.format(sp['mode']))
+        vw('    -delay_corner {}'.format(_dc(sp)))
+        vw('')
+
+    # 6. Initial activation — straight from the engineer-declared sets.
+    # Command files then activate their node-specific subset.
+    _sel = set(selected)
+    vw('# ' + '-' * 77)
+    vw('# Activate Views (mmmc_scenario_sets setup / hold)')
+    vw('# Command files will: set_analysis_view -setup {} -hold {} (deactivate all)')
+    vw('# then activate only their node-specific scenarios')
+    vw('# ' + '-' * 77)
+    vw('')
+    # One line — no chance of a stray trailing '\' if either side is empty.
+    vw('set_analysis_view -setup [list {}] -hold [list {}]'.format(
+        ' '.join(v for v in setup_views if v in _sel),
+        ' '.join(v for v in hold_views if v in _sel)))
+    vw('')
+    return '\n'.join(vd_lines) + '\n'
+
 
 # ===============================================================================
 # Generate mmmc_config.tcl — user-driven PVT matrix, validated against lib_config
@@ -1568,6 +2069,55 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
     t_nom = 25 if 25 in t_ints else (t_ints[len(t_ints) // 2] if t_ints else 25)
     t_cold = t_ints[0] if t_ints else -40
 
+    # ── Output locations (resolved first: the config being replaced is the
+    #    source for modes, RC corners and scenario sets) ──
+    # Default output location: the SAME directory as lib_config.tcl.
+    # When the user invokes with --lib-config /path/to/.../tag/lib_config.tcl,
+    # we write mmmc_config.tcl to /path/to/.../tag/ — co-located so a
+    # single tag directory ships both configs. If --project is passed
+    # (legacy per-project workflow) we honor it by also writing a copy
+    # under <project>/v1.0.0/mmmc_config.tcl.
+    project_name = args.project if hasattr(args, 'project') and args.project else None
+    # Primary output: alongside lib_config.
+    output_path = os.path.join(os.path.dirname(lib_config_path), 'mmmc_config.tcl')
+    logger.info("Primary mmmc output: {}".format(output_path))
+
+    # Optional secondary: per-project mmmc_config.tcl (keeps legacy
+    # flow-cascade working for projects that still read from their
+    # project config dir).
+    proj_output_path = None
+    if project_name:
+        from core.paths import get_global_config_root
+        _grot = get_global_config_root()
+        proj_dir = None
+        for root in filter(None, [_grot and os.path.join(_grot, 'project'),
+                                   os.path.join(core_dir, 'config', 'project')]):
+            candidate = os.path.join(root, project_name, version)
+            if os.path.isdir(candidate):
+                proj_dir = candidate
+                break
+        if proj_dir is None:
+            logger.warning("Project '{}' dir not found; skipping per-project mirror".format(
+                project_name))
+        else:
+            proj_output_path = os.path.join(proj_dir, 'mmmc_config.tcl')
+            logger.info("Secondary mmmc output (per-project): {}".format(proj_output_path))
+
+    # The existing config this run replaces — project copy wins, since
+    # that is the one the flow cascade sources.
+    prior_cfg_path = next((c for c in (proj_output_path, output_path)
+                           if c and os.path.exists(c)), None)
+    prior_cfg = None
+    if prior_cfg_path:
+        prior_cfg = MmmcConfigParser(prior_cfg_path)
+        if not prior_cfg.parse():
+            logger.error("Existing {} could not be parsed — refusing to "
+                         "regenerate over it".format(prior_cfg_path))
+            return 1
+    # Node scenarios + view definition belong next to the config the flows
+    # read: the project dir when --project is given, else beside lib_config.
+    aux_dir = os.path.dirname(proj_output_path or output_path)
+
     # ── 5. Operating modes ──
     modes = {}
     sdc_pattern = args.sdc_pattern if hasattr(args, 'sdc_pattern') and args.sdc_pattern else '${design_name}_{mode}.sdc'
@@ -1575,27 +2125,29 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
         for mode_name in args.modes.split():
             modes[mode_name] = sdc_pattern.replace('{mode}', mode_name)
     else:
-        existing_config = os.path.join(core_dir, 'config', 'flow', version, 'mmmc_config.tcl')
-        if os.path.exists(existing_config):
-            try:
-                p = MmmcConfigParser(existing_config)
-                for m, props in p.operating_modes.items():
-                    modes[m] = props.get('constraint_file', sdc_pattern.replace('{mode}', m))
-            except Exception:
-                pass
+        if prior_cfg:
+            for m, props in prior_cfg.operating_modes.items():
+                modes[m] = props.get('constraint_file') or sdc_pattern.replace('{mode}', m)
         if not modes:
             modes = {'func': '${design_name}_func.sdc', 'test': '${design_name}_test.sdc'}
 
-    # ── 6. RC corners from existing or defaults ──
-    rc_corners_data = {}
-    existing_config = os.path.join(core_dir, 'config', 'flow', version, 'mmmc_config.tcl')
-    if os.path.exists(existing_config):
-        try:
-            p = MmmcConfigParser(existing_config)
-            rc_corners_data = p.rc_corners
-        except Exception:
-            pass
+    # ── 6. RC corners: carried over from the config being replaced, so
+    #    project-specific names (wcrcmin, wcrcworst, …) survive a regenerate.
+    #    Only a first-time generate seeds the rc_max / rc_typ / rc_min triad.
+    rc_corners_data = dict(prior_cfg.rc_corners) if prior_cfg else {}
+    # Validate BEFORE anything is written: a carried-over RC corner without
+    # a temperature fails `validate`, so refuse to regenerate around it.
+    _bad_rc = [n for n, props in rc_corners_data.items()
+               if not (props or {}).get('temperature')]
+    if _bad_rc:
+        logger.error("rc_corners in {} have no temperature: {} — fix them "
+                     "first; nothing was written".format(
+                         prior_cfg_path, ' '.join(sorted(_bad_rc))))
+        return 1
     if not rc_corners_data:
+        logger.warning("No existing mmmc_config.tcl to take rc_corners from — "
+                       "seeding rc_max / rc_typ / rc_min; edit them (or use "
+                       "mmmc-manager add-rc) to match the tech's RC corners")
         rc_corners_data = {
             'rc_max': {'temperature': '125', 'metal_multiplier': '1.15', 'via_multiplier': '1.25',
                        'cap_multiplier': '1.10', 'res_multiplier': '1.15'},
@@ -1606,40 +2158,22 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
         }
 
     # ── 7. Node assignments (only from valid PVT) ──
-    total_views = len(modes) * sum(len(pts) for pts in valid_pvt.values())
-
-    def _process_role(pvt_type):
-        """Classify a process-corner name by its logical role.
-
-        Historic PVT names are exactly two letters ('ss', 'tt', 'ff') but a
-        tech can ship extended families like 'fff' (very-fast-fast), 'sss'
-        (very-slow-slow), 'ttf', etc. Rather than hardcoding a 2-letter map
-        we classify by *suffix*: everything ending in 'ss' is slow-role
-        (worst setup, rcmax), 'ff' is fast-role (worst hold, rcmin), 'tt'
-        is typical.
-
-        Returns one of {'slow', 'fast', 'typical'}; 'typical' is the safe
-        default for names that don't end in any recognized suffix (custom
-        corners like 'fs', 'sf' — handled by the caller).
-        """
-        name = (pvt_type or '').lower()
-        if name.endswith('ss'):
-            return 'slow'
-        if name.endswith('ff'):
-            return 'fast'
-        if name.endswith('tt'):
-            return 'typical'
-        return 'typical'
-
-    # Role → RC corner. Historical mapping preserved: slow→rcmax, fast→rcmin,
-    # typical→rctyp. Applied to every process name via _process_role() so
-    # extended-family corners (fff / sss / ...) resolve correctly.
-    _ROLE_RC = {'slow': 'rcmax', 'fast': 'rcmin', 'typical': 'rctyp'}
-
-    def pick_scenarios(pvt_type, count, mode='func'):
-        pts = valid_pvt.get(pvt_type, [])
-        rc = _ROLE_RC.get(_process_role(pvt_type), 'rctyp')
-        return ['{}_{}_{}_{}_{}'.format(mode, pvt_type, v, rc, t) for v, t in pts[:count]]
+    # Analysis views are a full Cartesian: mode x corner x pvt x rc_corner.
+    # The generator never decides which view serves setup / hold / power,
+    # and never pairs a process corner with an RC corner — that is project
+    # policy, declared by engineers in mmmc_scenario_sets and
+    # mmmc_node_scenarios.tcl.
+    view_fields = {}   # view name -> {mode, corner, voltage, temp, rc, lib_set_ref}
+    for _mode in sorted(modes.keys()):
+        for _corner in process_corners:
+            for _v, _t in valid_pvt.get(_corner, []):
+                for _rc in sorted(rc_corners_data.keys()):
+                    view_fields['{}_{}_{}_{}_{}'.format(_mode, _corner, _v, _rc, _t)] = {
+                        'mode': _mode, 'corner': _corner, 'voltage': _v,
+                        'temp': _t, 'rc': _rc,
+                        'lib_set_ref': '{}_{}_{}'.format(_corner, _v, _t),
+                    }
+    total_views = len(view_fields)
 
     # ── Discover real node_types from project's active flows ──
     # Read project(default_tools) to find active flows, then read their node_configs
@@ -1687,124 +2221,6 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
         _active_node_types = {'init_design', 'synthesis', 'place', 'cts', 'cts_opt',
                               'route', 'pro', 'signoff', 'timing', 'extraction'}
         logger.info("Using default node_types (no project flows detected)")
-
-    # Node scenario assignments — only for active node_types.
-    # Scenario count grows as design matures through the flow.
-    #
-    # Signoff/timing/extraction stages want ALL slow-role corners for setup
-    # and ALL fast-role corners for hold. Discover them dynamically instead
-    # of assuming the corner group is literally 'ss' / 'ff' — extended
-    # families (fff, sss, ...) contribute here too.
-    def _all_scenarios_for_role(role, rc_side, mode='func'):
-        out = []
-        for pvt_type, pts in valid_pvt.items():
-            if _process_role(pvt_type) != role:
-                continue
-            for v, t in pts:
-                out.append('{}_{}_{}_{}_{}'.format(mode, pvt_type, v, rc_side, t))
-        return out
-
-    _all_slow_setup = _all_scenarios_for_role('slow', 'rcmax')
-    _all_fast_hold  = _all_scenarios_for_role('fast', 'rcmin')
-
-    # Complexity mapping: node_type -> (setup_count, hold_count, anchor_role).
-    # anchor_role selects WHICH process family a stage's setup+hold pull from:
-    #   'typical' — init/floorplan-like stages that only look at nominal PVT
-    #   'slow'    — stages that need worst-case setup (setup uses slow-role,
-    #               hold uses fast-role)
-    #   'all'     — signoff, pull every slow-role for setup + every fast-role
-    #               for hold (represented as -1 counts)
-    _complexity = {
-        # Early (1 scenario)
-        'init_design': (1, 1, 'typical'), 'init_compile': (1, 1, 'typical'),
-        'import_design': (1, 1, 'typical'), 'commit_blocks': (1, 1, 'typical'),
-        # Floorplan/power (1 scenario)
-        'floorplan': (1, 1, 'slow'), 'create_floorplan': (1, 1, 'slow'),
-        'powerplan': (1, 1, 'slow'), 'create_power': (1, 1, 'slow'),
-        'shaping': (1, 1, 'slow'), 'place_pins': (1, 1, 'slow'),
-        'timing_budget': (1, 1, 'slow'), 'top_compile': (1, 1, 'slow'),
-        # Placement (2 scenarios)
-        'place': (2, 2, 'slow'), 'placement': (2, 2, 'slow'), 'power_opt': (2, 2, 'slow'),
-        # CTS/Route (3 scenarios)
-        'cts': (3, 3, 'slow'), 'cts_opt': (3, 3, 'slow'), 'route': (3, 3, 'slow'),
-        # Post-route optimization
-        'pro': (4, 3, 'slow'),
-        # Signoff (all corners) — use 'all' sentinel + -1 count
-        'signoff': (-1, -1, 'all'), 'timing': (-1, -1, 'all'), 'extraction': (-1, -1, 'all'),
-        # Synthesis
-        'synthesis': (3, 2, 'slow'),
-        # Verification (1 scenario)
-        'clp': (1, 1, 'slow'), 'compare': (1, 1, 'slow'), 'eco': (1, 1, 'slow'),
-        'drc': (1, 1, 'slow'), 'lvs': (1, 1, 'slow'), 'fill': (1, 1, 'slow'),
-        'erc': (1, 1, 'slow'), 'perc': (1, 1, 'slow'), 'xor': (1, 1, 'slow'),
-        'ir_drop': (1, 1, 'slow'), 'power_analysis': (1, 1, 'slow'),
-        'thermal_analysis': (1, 1, 'slow'),
-    }
-
-    def _first_pvt_for_role(role):
-        """Return the first pvt_type in valid_pvt that matches this role,
-        so `pick_scenarios(<pvt>, N)` can pull from it. Falls back to any
-        available pvt_type if the role has no members."""
-        for pvt_type in valid_pvt:
-            if _process_role(pvt_type) == role:
-                return pvt_type
-        return next(iter(valid_pvt), None)
-
-    nodes = {}
-    for nt in sorted(_active_node_types):
-        s_count, h_count, anchor = _complexity.get(nt, (1, 1, 'slow'))
-        if anchor == 'all':
-            nodes[nt] = {'setup': _all_slow_setup, 'hold': _all_fast_hold}
-        elif anchor == 'typical':
-            typ = _first_pvt_for_role('typical')
-            slow = _first_pvt_for_role('slow')
-            fast = _first_pvt_for_role('fast')
-            nodes[nt] = {
-                'setup': (pick_scenarios(typ, s_count) if typ else [])
-                         or (pick_scenarios(slow, s_count) if slow else []),
-                'hold':  (pick_scenarios(typ, h_count) if typ else [])
-                         or (pick_scenarios(fast, h_count) if fast else []),
-            }
-        else:  # 'slow'
-            slow = _first_pvt_for_role('slow')
-            fast = _first_pvt_for_role('fast')
-            nodes[nt] = {
-                'setup': pick_scenarios(slow, s_count) if slow else [],
-                'hold':  pick_scenarios(fast, h_count) if fast else [],
-            }
-
-    # ── Write mmmc_config.tcl ──
-    # Default output location: the SAME directory as lib_config.tcl.
-    # When the user invokes with --lib-config /path/to/.../tag/lib_config.tcl,
-    # we write mmmc_config.tcl to /path/to/.../tag/ — co-located so a
-    # single tag directory ships both configs. If --project is passed
-    # (legacy per-project workflow) we honor it by also writing a copy
-    # under <project>/v1.0.0/mmmc_config.tcl.
-    project_name = args.project if hasattr(args, 'project') and args.project else None
-    # Primary output: alongside lib_config.
-    output_path = os.path.join(os.path.dirname(lib_config_path), 'mmmc_config.tcl')
-    logger.info("Primary mmmc output: {}".format(output_path))
-
-    # Optional secondary: per-project mmmc_config.tcl (keeps legacy
-    # flow-cascade working for projects that still read from their
-    # project config dir).
-    proj_output_path = None
-    if project_name:
-        from core.paths import get_global_config_root
-        _grot = get_global_config_root()
-        proj_dir = None
-        for root in filter(None, [_grot and os.path.join(_grot, 'project'),
-                                   os.path.join(core_dir, 'config', 'project')]):
-            candidate = os.path.join(root, project_name, version)
-            if os.path.isdir(candidate):
-                proj_dir = candidate
-                break
-        if proj_dir is None:
-            logger.warning("Project '{}' dir not found; skipping per-project mirror".format(
-                project_name))
-        else:
-            proj_output_path = os.path.join(proj_dir, 'mmmc_config.tcl')
-            logger.info("Secondary mmmc output (per-project): {}".format(proj_output_path))
 
     lines = []
     w = lines.append
@@ -1873,66 +2289,8 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
         w('set mmmc(pvt,{}) {{{}}}'.format(pvt_type, pvt_str))
     w('')
 
-    # RC pairing
-    w('# Corner -> RC corner pairing')
-    for pvt_type in process_corners:
-        rc = {'ss': 'rcmax', 'tt': 'rctyp', 'ff': 'rcmin'}.get(pvt_type, 'rctyp')
-        w('set mmmc(rc_pair,{}) "{}"'.format(pvt_type, rc))
-    w('')
-
-    # Analysis view generation (TCL code — same as before)
-    w('# ' + '=' * 77)
-    w('# AUTO-GENERATE ANALYSIS VIEWS & SCENARIO SETS')
-    w('# ' + '=' * 77)
-    w('')
-    w('array set analysis_views {}')
-    w('foreach _mode [array names operating_modes] {')
-    w('    set _sdc [dict get $operating_modes($_mode) constraint_file]')
-    w('    foreach _corner $mmmc(process_corners) {')
-    w('        set _rc $mmmc(rc_pair,$_corner)')
-    w('        switch $_corner {')
-    w('            ss { set _atype "setup" }')
-    w('            tt { set _atype "setup_hold" }')
-    w('            ff { set _atype "hold" }')
-    w('        }')
-    w('        foreach _pvt $mmmc(pvt,$_corner) {')
-    w('            set _v [lindex $_pvt 0]')
-    w('            set _t [lindex $_pvt 1]')
-    w('            set _name "${_mode}_${_corner}_${_v}_${_rc}_${_t}"')
-    w('            set _lib_ref "${_corner}_${_v}_${_t}"')
-    w('            set analysis_views($_name) [list \\')
-    w('                corner $_corner mode $_mode voltage $_v temperature $_t \\')
-    w('                analysis_type $_atype constraint_file $_sdc \\')
-    w('                lib_set_ref $_lib_ref rc_corner $_rc \\')
-    w('            ]')
-    w('        }')
-    w('    }')
-    w('}')
-    w('')
-
-    # Scenario sets
-    w('# ── Scenario sets ──')
-    w('set _all [lsort [array names analysis_views]]')
-    w('')
-    w('array set mmmc_scenario_sets {}')
-    w('set mmmc_scenario_sets(setup)       [lsearch -all -inline $_all "*_ss_*"]')
-    w('set mmmc_scenario_sets(hold)        [lsearch -all -inline $_all "*_ff_*"]')
-    w('set mmmc_scenario_sets(power)       [concat \\')
-    w('    [lsearch -all -inline $_all "*_tt_*_rctyp_*"] \\')
-    w('    [lsearch -all -inline $_all "*_ss_*_rctyp_*"] \\')
-    w(']')
-    w('set mmmc_scenario_sets(signoff)     [concat \\')
-    w('    $mmmc_scenario_sets(setup) \\')
-    w('    $mmmc_scenario_sets(hold) \\')
-    w('    [lsearch -all -inline $_all "func_tt_*_rctyp_*"] \\')
-    w(']')
-    w('set mmmc_scenario_sets(all)         $_all')
-    w('set mmmc_scenario_sets(sta_setup)   $mmmc_scenario_sets(setup)')
-    w('set mmmc_scenario_sets(sta_hold)    $mmmc_scenario_sets(hold)')
-    w('set mmmc_scenario_sets(sta_signoff) $mmmc_scenario_sets(signoff)')
-    w('')
-
-    # RC corners
+    # RC corners — declared BEFORE view generation: the Cartesian loop
+    # iterates [array names rc_corners].
     w('# ' + '=' * 77)
     w('# RC CORNERS')
     w('# ' + '=' * 77)
@@ -1950,35 +2308,114 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
     w('set rc_corner_list [lsort [array names rc_corners]]')
     w('')
 
-    # Node assignments — NOT in mmmc_config (project-level, goes in project_config.tcl)
+    # Analysis views — full Cartesian, no role → RC mapping
+    w('# ' + '=' * 77)
+    w('# ANALYSIS VIEWS — FULL CARTESIAN: mode x corner x pvt x rc_corner')
+    w('# The framework imposes no setup/hold role and no corner -> RC pairing.')
+    w('# Engineers pick the views for each purpose in mmmc_scenario_sets below.')
+    w('# View name: ${mode}_${corner}_${voltage}_${rc_corner}_${temp}')
+    w('# ' + '=' * 77)
+    w('')
+    w('array set analysis_views {}')
+    w('foreach _mode [array names operating_modes] {')
+    w('    set _sdc [dict get $operating_modes($_mode) constraint_file]')
+    w('    foreach _corner $mmmc(process_corners) {')
+    w('        if {![info exists mmmc(pvt,$_corner)]} continue')
+    w('        foreach _pvt $mmmc(pvt,$_corner) {')
+    w('            set _v [lindex $_pvt 0]')
+    w('            set _t [lindex $_pvt 1]')
+    w('            foreach _rc_name [array names rc_corners] {')
+    w('                set _name "${_mode}_${_corner}_${_v}_${_rc_name}_${_t}"')
+    w('                set _lib_ref "${_corner}_${_v}_${_t}"')
+    w('                set analysis_views($_name) [list \\')
+    w('                    corner $_corner mode $_mode voltage $_v temperature $_t \\')
+    w('                    constraint_file $_sdc \\')
+    w('                    lib_set_ref $_lib_ref rc_corner $_rc_name]')
+    w('            }')
+    w('        }')
+    w('    }')
+    w('}')
+    w('')
+
+    # Scenario sets — engineer-declared. Carry forward whatever the config
+    # being replaced already declares (dropping names that are no longer
+    # generated views); a first-time generate emits empty lists to fill in.
+    _DERIVED_SETS = ('all', 'sta_setup', 'sta_hold', 'sta_signoff')
+    prior_sets = {}
+    if prior_cfg_path:
+        _prior = execute_tcl_config(prior_cfg_path)
+        if _prior is None:
+            logger.warning("Could not read scenario sets from existing {} — "
+                           "they will NOT be carried forward".format(prior_cfg_path))
+        else:
+            prior_sets = _prior['scenario_sets']
+    dropped_set_members = {}
+    kept_sets = {}
+    _carry = {k: v for k, v in prior_sets.items() if k not in _DERIVED_SETS}
+    for _src, _name in _stale_references(view_fields, _carry):
+        dropped_set_members.setdefault(_src[1], []).append(_name)
+    for _sname, _members in _carry.items():
+        kept_sets[_sname] = [v for v in _members if v in view_fields]
+    for _base in ('setup', 'hold', 'power'):
+        kept_sets.setdefault(_base, [])
+
+    def _emit_set(name, members):
+        if not members:
+            w('set mmmc_scenario_sets({}) {{}}'.format(name))
+            return
+        w('set mmmc_scenario_sets({}) {{'.format(name))
+        for _m in members:
+            w('    {}'.format(_m))
+        w('}')
+
+    w('# ── Scenario sets — EXPLICIT, engineer-declared ──')
+    w('# Each set lists analysis-view names (keys of analysis_views above).')
+    w('#   setup / hold : drive setup/hold roles in FC, DMSA and Cadence views')
+    w('#   power        : views for power analysis')
+    w('#   signoff      : full sign-off set (STA fans out over this by default)')
+    w('#   all          : every generated view (auto)')
+    w('# List names with: cbflow flow mmmc-manager list-views')
+    w('# Check for stale names after changing PVT/modes/RC corners with:')
+    w('#   cbflow flow mmmc-manager validate')
+    w('array set mmmc_scenario_sets {}')
+    for _base in ('setup', 'hold', 'power'):
+        _emit_set(_base, kept_sets[_base])
+    _so = kept_sets.get('signoff')
+    if _so and _so != kept_sets['setup'] + kept_sets['hold']:
+        _emit_set('signoff', _so)
+    else:
+        w('set mmmc_scenario_sets(signoff) [concat \\')
+        w('    $mmmc_scenario_sets(setup) $mmmc_scenario_sets(hold)]')
+    for _sname in sorted(kept_sets):
+        if _sname not in ('setup', 'hold', 'power', 'signoff'):
+            _emit_set(_sname, kept_sets[_sname])
+    w('set mmmc_scenario_sets(all)         [lsort [array names analysis_views]]')
+    w('set mmmc_scenario_sets(sta_setup)   $mmmc_scenario_sets(setup)')
+    w('set mmmc_scenario_sets(sta_hold)    $mmmc_scenario_sets(hold)')
+    w('set mmmc_scenario_sets(sta_signoff) $mmmc_scenario_sets(signoff)')
+    w('')
+
+    # Node assignments live in the sibling mmmc_node_scenarios.tcl
     w('# ' + '=' * 77)
     w('# NODE-SPECIFIC SCENARIO ASSIGNMENTS')
-    w('# Defined in project_config.tcl (project-level decision, not auto-generated)')
+    w('# Declared in mmmc_node_scenarios.tcl next to this file (engineer-managed;')
+    w('# edit with: cbflow flow mmmc-manager set-node)')
     w('# ' + '=' * 77)
     w('')
 
-    # Build node assignment block for project_config
+    # Node-scenario template: one entry per timing-driven node type, with
+    # EMPTY setup/hold lists. Which views a node times is project policy.
     node_lines = []
     nw = node_lines.append
     nw('# ── MMMC Node Scenario Assignments ──')
-    nw('# Generated by: cbflow flow mmmc-manager generate --tech {}'.format(tech_name))
-    nw('# Add/modify these in project_config.tcl')
+    nw('# Template from: cbflow flow mmmc-manager generate --tech {}'.format(tech_name))
+    nw('# Fill each node with analysis-view names (see: mmmc-manager list-views),')
+    nw('# by hand or with: cbflow flow mmmc-manager set-node --node <n> --setup "..." --hold "..."')
     nw('array set mmmc {')
-    # Write all node_types that have scenario assignments
-    for node_name in sorted(nodes.keys()):
-        if node_name not in nodes:
-            continue
-        nd = nodes[node_name]
+    for node_name in sorted(_active_node_types):
         nw('    {} {{'.format(node_name))
-        for atype in ['setup', 'hold']:
-            scenarios = nd.get(atype, [])
-            if len(scenarios) <= 1:
-                nw('        {} {{{}}}'.format(atype, scenarios[0] if scenarios else ''))
-            else:
-                nw('        {} {{'.format(atype))
-                for s in scenarios:
-                    nw('            {}'.format(s))
-                nw('        }')
+        nw('        setup {}')
+        nw('        hold  {}')
         nw('    }')
         nw('')
     nw('}')
@@ -2018,173 +2455,40 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
         atomic_write(proj_output_path, output_text)
         print('  Also wrote: {}'.format(proj_output_path))
 
-    # Write node assignments template alongside mmmc_config.
-    node_template_path = os.path.join(os.path.dirname(output_path), 'mmmc_node_scenarios.tcl')
-    atomic_write(node_template_path, node_assignment_text)
-
-    print('  Node scenario template: {}'.format(node_template_path))
-    print('  Copy node assignments to project_config.tcl if not already present')
+    # Node assignments are engineer-managed: write the empty template only
+    # when no file exists yet. An existing file is kept, and names in it
+    # that are no longer generated views are reported.
+    node_template_path = os.path.join(aux_dir, 'mmmc_node_scenarios.tcl')
+    stale_node_names = []
+    if os.path.exists(node_template_path):
+        _ns = MmmcConfigParser(node_template_path)
+        if _ns.parse():
+            stale_node_names = [
+                '{}: {}'.format(_stale_label(_src), _n)
+                for _src, _n in _stale_references(
+                    view_fields, node_mappings=_ns.node_mappings)]
+        print('  Node scenarios kept (engineer-managed): {}'.format(node_template_path))
+    else:
+        atomic_write(node_template_path, node_assignment_text)
+        print('  Node scenario template (empty — fill in): {}'.format(node_template_path))
 
     # ── Generate Cadence MMMC View Definition File ──
-    # Uses signoff scenarios as the superset — individual nodes activate their subset
-    signoff_scenarios = sorted(set(
-        (nodes.get('signoff', {}).get('setup', [])) +
-        (nodes.get('signoff', {}).get('hold', []))
-    ))
-
-    if signoff_scenarios:
-        vd_lines = []
-        vw = vd_lines.append
-        vw('#!/usr/bin/env tclsh')
-        vw('# ' + '=' * 77)
-        vw('# Cadence MMMC View Definition — Auto-Generated')
-        vw('# Generated: {} | Tech: {} | Project: {}'.format(
-            datetime.now().strftime('%Y-%m-%d %H:%M'), tech_name, project_name))
-        vw('# Scenarios: {} (from signoff node)'.format(len(signoff_scenarios)))
-        vw('# Sourced via: read_mmmc -file <this_file>')
-        vw('# DO NOT EDIT — regenerate with: cbflow flow mmmc-manager generate')
-        vw('# ' + '=' * 77)
-        vw('')
-        # EDA tools (Innovus / Tempus / Genus) source this file from inside their
-        # internal `read_mmmc` procedure. Bare `$tech(...)` refs would resolve
-        # against THAT proc's local scope and error with "can't read tech: no
-        # such variable". The fully-qualified `$::tech(...)` always resolves
-        # to the global. Same reasoning for project / operating_modes below.
-        vw('# Variables are referenced via the global namespace ($::) so the')
-        vw('# file works when sourced from inside read_mmmc (a Tcl proc).')
-        vw('')
-
-        # Parse scenario names: <mode>_<corner>_<voltage>_<rc>_<temp>
-        # e.g., func_ss_0p80v_rcmax_125c
-        unique_lib_sets = {}    # lib_set_ref → (corner, voltage, temp)
-        unique_rc_corners = {}  # rc_name → temp
-        unique_modes = set()
-        scenario_parts = {}     # scenario_name → {mode, corner, voltage, rc, temp, lib_set_ref}
-
-        for sc in signoff_scenarios:
-            parts = sc.split('_')
-            if len(parts) < 5:
-                continue
-            mode = parts[0]
-            corner = parts[1]
-            voltage = parts[2]
-            rc = parts[3]
-            temp = parts[4]
-
-            lib_ref = '{}_{}_{}'.format(corner, voltage, temp)
-            unique_lib_sets[lib_ref] = (corner, voltage, temp)
-            unique_modes.add(mode)
-
-            if rc not in unique_rc_corners:
-                unique_rc_corners[rc] = True
-
-            scenario_parts[sc] = {
-                'mode': mode, 'corner': corner, 'voltage': voltage,
-                'rc': rc, 'temp': temp, 'lib_set_ref': lib_ref
-            }
-
-        # 1. Library Sets
-        vw('# ' + '-' * 77)
-        vw('# Library Sets')
-        vw('# ' + '-' * 77)
-        vw('')
-        for lib_ref in sorted(unique_lib_sets.keys()):
-            vw('create_library_set -name {}_ls \\'.format(lib_ref))
-            vw('    -timing $::tech($::project(track_variant),lib,{},timing)'.format(lib_ref))
-            vw('')
-
-        # 2. RC Corners
-        vw('# ' + '-' * 77)
-        vw('# RC Corners')
-        vw('# ' + '-' * 77)
-        vw('')
-        for rc_name in sorted(unique_rc_corners.keys()):
-            # Map rcmax/rcmin/rctyp to full rc corner key and get temp from rc_corners_data
-            rc_qrc_key = rc_name.replace('rcmax', 'rc_max').replace('rcmin', 'rc_min').replace('rctyp', 'rc_typ')
-            rc_full = rc_name.replace('rcmax', 'rc_max').replace('rcmin', 'rc_min').replace('rctyp', 'rc_typ')
-            # `dict.get(key, default)` returns default only when the key is
-            # ABSENT — an empty string would slip through. Coerce to '25'.
-            rc_temp = rc_corners_data.get(rc_full, {}).get('temperature') or '25'
-            vw('create_rc_corner -name {} \\'.format(rc_name))
-            vw('    -qrc_tech $::tech(rcx,{},qrc) \\'.format(rc_qrc_key))
-            vw('    -T {}'.format(rc_temp))
-            vw('')
-
-        # 3. Delay Corners (one per scenario — lib_set + rc_corner)
-        vw('# ' + '-' * 77)
-        vw('# Delay Corners')
-        vw('# ' + '-' * 77)
-        vw('')
-        written_delay_corners = set()
-        for sc in signoff_scenarios:
-            sp = scenario_parts.get(sc)
-            if not sp:
-                continue
-            # Delay corner per unique (lib_set + rc_corner) — includes temp for uniqueness
-            dc_name = '{}_{}_{}_{}_dc'.format(sp['corner'], sp['voltage'], sp['rc'], sp['temp'])
-            if dc_name in written_delay_corners:
-                continue
-            written_delay_corners.add(dc_name)
-            vw('create_delay_corner -name {} \\'.format(dc_name))
-            vw('    -library_set {}_ls \\'.format(sp['lib_set_ref']))
-            vw('    -rc_corner {}'.format(sp['rc']))
-            vw('')
-
-        # 4. Constraint Modes — SDC resolved at runtime from operating_modes
-        vw('# ' + '-' * 77)
-        vw('# Constraint Modes')
-        vw('# ' + '-' * 77)
-        vw('')
-        vw('# SDC files resolved at runtime from operating_modes array')
-        vw('# create_constraint_mode REQUIRES -sdc_files — error loudly if missing.')
-        for mode in sorted(unique_modes):
-            vw('if {![info exists ::operating_modes(%s,constraint_file)] || $::operating_modes(%s,constraint_file) eq ""} {'
-               % (mode, mode))
-            vw('    error "MMMC: operating_modes(%s,constraint_file) not set — '
-               'create_constraint_mode requires -sdc_files (mode=%s)"' % (mode, mode))
-            vw('}')
-            # Emit the create_constraint_mode on a single line so a future hand-
-            # edit that drops the -sdc_files argument can't leave a dangling '\'.
-            vw('create_constraint_mode -name %s_cm -sdc_files [list [subst $::operating_modes(%s,constraint_file)]]'
-               % (mode, mode))
-            vw('')
-
-        # 5. Analysis Views
-        vw('# ' + '-' * 77)
-        vw('# Analysis Views')
-        vw('# ' + '-' * 77)
-        vw('')
-        for sc in signoff_scenarios:
-            sp = scenario_parts.get(sc)
-            if not sp:
-                continue
-            dc_name = '{}_{}_{}_{}_dc'.format(sp['corner'], sp['voltage'], sp['rc'], sp['temp'])
-            vw('create_analysis_view -name {} \\'.format(sc))
-            vw('    -constraint_mode {}_cm \\'.format(sp['mode']))
-            vw('    -delay_corner {}'.format(dc_name))
-            vw('')
-
-        # 6. Set all views active (default state after read_mmmc)
-        # Command files will deactivate all, then activate node-specific subset
-        setup_views = [sc for sc in signoff_scenarios
-                       if scenario_parts.get(sc, {}).get('corner') in ('ss', 'tt')]
-        hold_views = [sc for sc in signoff_scenarios
-                      if scenario_parts.get(sc, {}).get('corner') in ('ff', 'tt')]
-        vw('# ' + '-' * 77)
-        vw('# Activate All Signoff Views')
-        vw('# Command files will: set_analysis_view -setup {} -hold {} (deactivate all)')
-        vw('# then activate only their node-specific scenarios')
-        vw('# ' + '-' * 77)
-        vw('')
-        # One line — no chance of a stray trailing '\' if either side is empty.
-        vw('set_analysis_view -setup [list {}] -hold [list {}]'.format(
-            ' '.join(setup_views), ' '.join(hold_views)))
-        vw('')
-
-        # Write the view definition file (atomic — co-located with mmmc_config).
-        vd_path = os.path.join(os.path.dirname(output_path), 'mmmc_view_definition.tcl')
-        atomic_write(vd_path, '\n'.join(vd_lines) + '\n')
+    # Defines the engineer's sign-off set; nodes activate their own subset.
+    # With no scenario sets declared yet there is nothing to select, so the
+    # file is not written — run `mmmc-manager generate-view-def --style flow`
+    # once the sets are filled in.
+    _vd_setup = kept_sets['setup']
+    _vd_hold = kept_sets['hold']
+    _vd_selected = sorted(set(_vd_setup) | set(_vd_hold)
+                          | set(kept_sets.get('signoff') or []))
+    vd_path = os.path.join(aux_dir, 'mmmc_view_definition.tcl')
+    if _vd_selected:
+        atomic_write(vd_path, _render_flow_view_definition(
+            tech_name, project_name, _vd_selected, view_fields,
+            rc_corners_data, _vd_setup, _vd_hold))
         print('  View definition: {}'.format(vd_path))
+    else:
+        print('  View definition NOT written — mmmc_scenario_sets are empty.')
 
     # ── Report ──
     print('')
@@ -2224,9 +2528,26 @@ def cmd_generate_mmmc_config(args: argparse.Namespace) -> int:
     for pc in process_corners:
         print('      {}: {} PVT points'.format(pc, len(valid_pvt.get(pc, []))))
     print('    Modes: {}'.format(' '.join(sorted(modes.keys()))))
-    print('    Analysis views: {}'.format(total_views))
+    print('    Analysis views: {} (modes x PVT points x {} RC corners)'.format(
+        total_views, len(rc_corners_data)))
     if vt_filter:
         print('    VT filter: {}'.format(' '.join(vt_filter)))
+    print('')
+    print('  Scenario sets (engineer-declared, carried forward where still valid):')
+    for _sname in ('setup', 'hold', 'power'):
+        print('    {:<8} {} views'.format(_sname + ':', len(kept_sets[_sname])))
+    for _sname, _gone in sorted(dropped_set_members.items()):
+        logger.warning("scenario set '{}': dropped {} name(s) that are no longer "
+                       "generated views: {}".format(_sname, len(_gone), ' '.join(_gone)))
+    if not kept_sets['setup'] and not kept_sets['hold']:
+        logger.warning("mmmc_scenario_sets(setup) and (hold) are EMPTY in the "
+                       "generated config — list the views for each in {} before "
+                       "running flows (names: mmmc-manager list-views)".format(output_path))
+    if stale_node_names:
+        logger.warning("{} node-scenario name(s) in {} are not generated views — "
+                       "fix with mmmc-manager set-node: {}".format(
+                           len(stale_node_names), node_template_path,
+                           '; '.join(stale_node_names)))
     print('')
     print('  Output: {}'.format(output_path))
     print('=' * 60)
@@ -2346,6 +2667,12 @@ Examples:
                    help='Output file path (default: stdout)')
     p.add_argument('--config', default=None,
                    help='Path to mmmc_config.tcl')
+    p.add_argument('--style', choices=['standalone', 'flow'], default='standalone',
+                   help='standalone (default): self-contained file, every view, '
+                        'library paths via ::lib_dir. flow: the '
+                        'mmmc_view_definition.tcl the Cadence flows read — '
+                        'views from mmmc_scenario_sets setup+hold+signoff, '
+                        'libraries/QRC via $::tech(...).')
 
     # -- generate --
     p = sub.add_parser('generate',
@@ -2391,6 +2718,15 @@ Examples:
         if not any(a.option_strings == ['--project'] for a in p._actions):
             p.add_argument('--project', default=None,
                            help='Project name (resolves mmmc_config.tcl path)')
+
+    # Make --tech a universal flag on every subparser so the preflight's
+    # "pass --tech <name>" error message is actually actionable (previously
+    # only `generate` accepted --tech; show/validate/list-* etc. forced
+    # the user to export CBFLOW_TECH_NODE or pass --tech-config).
+    for name, p in sub.choices.items():
+        if not any(a.option_strings == ['--tech'] for a in p._actions):
+            p.add_argument('--tech', default=None,
+                           help='Technology name (resolves tech_config.tcl path)')
 
     return top
 

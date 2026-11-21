@@ -242,8 +242,9 @@ SmartGrid — Project-Level Metrics / DEF Timing / Closability Grid:
   cbflow smartgrid open --project <p>              Open browser to the project view
   cbflow smartgrid list --project <p>              List published runs
   cbflow smartgrid unpublish --project <p> --block <b> --phase <ph> --milestone <m>
-  cbflow run release --tag <TAG> --publish         Release + snapshot for management
-  cbflow run release --tag <TAG> --publish --override    Replace existing publish
+  cbflow run release --tag <TAG>                   Release; publishes to SmartGrid if its daemon is running
+  cbflow run release --tag <TAG> --override        Replace an existing published entry
+  cbflow run release --tag <TAG> --no-publish      Release locally, skip SmartGrid
   (Legacy 'cbflow project-dashboard ...' still works with a deprecation notice.)
 
 SmartGenie AI Agent (100% private, runs locally):

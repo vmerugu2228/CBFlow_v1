@@ -12,7 +12,7 @@ Subcommands:
   open
   logs    [--follow]
   list
-  publish   (used internally by `cbflow run release --publish`)
+  publish   (used internally by `cbflow run release`; --no-publish opts out)
   unpublish --block B --phase P --milestone M
 """
 

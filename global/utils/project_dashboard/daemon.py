@@ -5,7 +5,8 @@ of published runs across (block × phase × exit-milestone). Data is written
 via the AF_UNIX control socket only — no automatic polling, no filesystem
 watch. The publish flow is the sole ingress:
 
-    cbflow run release --tag <TAG> --publish [--override]
+    cbflow run release --tag <TAG> [--override]          # publishes if the daemon is running; --publish starts it
+    cbflow run release --tag <TAG> --no-publish          # opt out
 
 Run modes:
   python3 daemon.py serve --project <p> [--port N]        (foreground)

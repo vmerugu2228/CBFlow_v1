@@ -240,6 +240,16 @@ if {!$_no_run} {
     if {[file exists $user_config]} {
         source $user_config
     }
+    # A tool chosen in user_config (<flow>(tool,name)) gets its own overlay
+    # (<FLOW>_<tool>_config.tcl) — the node config loaded the default one.
+    source [file join [file dirname [file dirname [file normalize [info script]]]] \
+        utilities [expr {[info exists ::env(UTILITIES_VERSION)] ? $::env(UTILITIES_VERSION) : "v1.0.0"}] \
+        tool_overlay.tcl]
+    if {[catch {cbflow_reload_tool_overlay $flow_type \
+            [file join [file dirname $flow_config] node_configs] $user_config} _tov_err]} {
+        puts stderr "ERROR: $_tov_err"
+        exit 1
+    }
 
     # ── 5. runtime_flow_config.tcl — `cbflow run add-node` custom node defs ──
     # Currently regex-scanned inside race_engine.py:189/462/469. Sourcing it
@@ -464,6 +474,24 @@ if {[info exists rc_corner_list]} {
     puts "CBFLOW_CFG:rc_corner_list=[_flatten $rc_corner_list]"
 }
 
+# ── MMMC node scenario assignments (mmmc_node_scenarios.tcl) ──
+# `array set mmmc { <node> { setup {...} hold {...} } }`. The mmmc array also
+# holds PVT building blocks (mmmc(pvt,ss), …); only entries whose value is a
+# dict with setup/hold keys are node assignments.
+if {[array exists ::mmmc]} {
+    foreach _n [lsort [array names ::mmmc]] {
+        if {[string match "*,*" $_n]} continue
+        set _mna $::mmmc($_n)
+        if {[catch {dict size $_mna}]} continue
+        if {![dict exists $_mna setup] && ![dict exists $_mna hold]} continue
+        foreach _role {setup hold} {
+            set _l [expr {[dict exists $_mna $_role] ? [dict get $_mna $_role] : {}}]
+            puts "CBFLOW_CFG:mmmc_node,$_n,$_role=[_flatten $_l]"
+        }
+    }
+    unset -nocomplain _mna _n _role _l
+}
+
 # ── MMMC scenario sets (auto-generated from mmmc_config) ──
 if {[array exists mmmc_scenario_sets]} {
     foreach key [array names mmmc_scenario_sets] {
@@ -474,6 +502,20 @@ if {[array exists mmmc_scenario_sets]} {
 # ── Analysis views (for dynamic timing scenarios) ──
 if {[array exists analysis_views]} {
     puts "CBFLOW_CFG:analysis_view_names=[lsort [array names analysis_views]]"
+    # Per-view fields, so consumers never parse them out of the view name
+    # (rc-corner names such as rc_max contain underscores).
+    # Value order: corner mode voltage temperature rc_corner
+    foreach _vn [lsort [array names analysis_views]] {
+        set _vf {}
+        foreach _f {corner mode voltage temperature rc_corner} {
+            if {[dict exists $analysis_views($_vn) $_f]} {
+                lappend _vf [dict get $analysis_views($_vn) $_f]
+            } else {
+                lappend _vf "-"
+            }
+        }
+        puts "CBFLOW_CFG:analysis_view,$_vn=[_flatten $_vf]"
+    }
 }
 
 # ── Descriptions & milestone mapping (sourced via descriptions_config.tcl /

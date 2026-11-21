@@ -17,6 +17,7 @@ from logging_config import configure_logging, get_logger
 import sys; sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.paths import get_cbflow_core_dir
+from core.paths import project_config_basename, project_discipline_config_basename
 
 logger = configure_logging('cbflow.flow')
 
@@ -191,6 +192,29 @@ def cmd_stages(args: argparse.Namespace) -> int:
 def cmd_nodes(args: argparse.Namespace) -> int:
     """Show nodes for a flow type."""
     return cmd_stages(args)
+
+
+
+def _tool_vendor_from_overlay(node_cfg_dir, flow_name, tool):
+    """Vendor directory for <flow>/<tool>: read `tool,vendor "<v>"` from the
+    tool's own overlay (<FLOW>_<tool>_config.tcl) — the authoritative source,
+    so a new vendor (e.g. opensource) needs no map entry here. Falls back to
+    a name map only when the overlay doesn't declare it."""
+    import re as _re
+    overlay = os.path.join(str(node_cfg_dir), f'{flow_name}_{tool}_config.tcl')
+    try:
+        with open(overlay) as f:
+            m = _re.search(r'tool,vendor\s+"(\w+)"', f.read())
+        if m:
+            return m.group(1)
+    except OSError:
+        pass
+    fallback = {
+        'genus': 'cadence', 'innovus': 'cadence', 'tempus': 'cadence',
+        'conformal': 'cadence', 'conformal_lp': 'cadence', 'voltus': 'cadence',
+        'calibre': 'mentor',
+    }
+    return fallback.get(tool, 'synopsys')
 
 
 def cmd_check(args: argparse.Namespace) -> int:
@@ -396,15 +420,7 @@ def cmd_check(args: argparse.Namespace) -> int:
             # For each tool, check handler exists for each execution stage
             for tool in tools:
                 # Determine vendor from tool
-                vendor_map = {
-                    'fc': 'synopsys', 'pt': 'synopsys', 'formality': 'synopsys',
-                    'vc_lp': 'synopsys', 'icv': 'synopsys', 'redhawk': 'synopsys',
-                    'power_compiler': 'synopsys', 'icc2': 'synopsys',
-                    'genus': 'cadence', 'innovus': 'cadence', 'tempus': 'cadence',
-                    'conformal': 'cadence', 'conformal_lp': 'cadence', 'voltus': 'cadence',
-                    'calibre': 'mentor',
-                }
-                vendor = vendor_map.get(tool, 'synopsys')
+                vendor = _tool_vendor_from_overlay(node_cfg_dir, flow_name, tool)
                 handler_dir = os.path.join(cmds_dir, flow_name, vendor, tool, 'v1.0.0')
 
                 if not os.path.isdir(handler_dir):
@@ -476,15 +492,18 @@ def cmd_check(args: argparse.Namespace) -> int:
                 d for d in os.listdir(_d) if os.path.isdir(os.path.join(_d, d))
             )
     for proj in sorted(proj_names):
-        g_cfg = os.path.join(global_proj_dir, proj, 'v1.0.0', 'project_config.tcl') \
+        # Post 2026-11-01 naming: <proj>_config.tcl / <proj>_pd_config.tcl.
+        g_name = project_config_basename(proj)
+        p_name = project_discipline_config_basename(proj, 'pd')
+        g_cfg = os.path.join(global_proj_dir, proj, 'v1.0.0', g_name) \
                 if global_proj_dir else ''
-        p_cfg = os.path.join(pd_proj_dir, proj, 'v1.0.0', 'project_pd_config.tcl')
+        p_cfg = os.path.join(pd_proj_dir, proj, 'v1.0.0', p_name)
         total += 1
         missing = []
         if not (g_cfg and os.path.exists(g_cfg)):
-            missing.append('global project_config.tcl')
+            missing.append(f'global {g_name}')
         if not os.path.exists(p_cfg):
-            missing.append('PD project_pd_config.tcl')
+            missing.append(f'PD {p_name}')
         if not missing:
             passed += 1
             logger.info(f"  [PASS] {proj}")
@@ -542,9 +561,11 @@ def cmd_check(args: argparse.Namespace) -> int:
     def _collect_project_keys(proj: str) -> tuple:
         seen_lines = {}
         for _p in (
-            os.path.join(global_proj_dir, proj, 'v1.0.0', 'project_config.tcl')
+            os.path.join(global_proj_dir, proj, 'v1.0.0',
+                         project_config_basename(proj))
             if global_proj_dir else None,
-            os.path.join(pd_proj_dir, proj, 'v1.0.0', 'project_pd_config.tcl'),
+            os.path.join(pd_proj_dir, proj, 'v1.0.0',
+                         project_discipline_config_basename(proj, 'pd')),
         ):
             if not (_p and os.path.isfile(_p)):
                 continue

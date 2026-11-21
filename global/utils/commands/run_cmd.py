@@ -151,8 +151,9 @@ def _get_completed_from_db() -> set:
         from status_provider import StatusProvider
         provider = StatusProvider(os.getcwd())
         all_status = provider.get_all_status()
+        from core.db import COMPLETED_STATES
         return {s for s, v in all_status.items()
-                if v.get('status') in ('DONE', 'BYPASSED', 'FORCE_VALIDATED')}
+                if v.get('status') in COMPLETED_STATES}
     except Exception:
         return set()
 
@@ -362,6 +363,84 @@ def run_target(target: str, env_vars: dict = None) -> int:
 # Run Commands
 # ─────────────────────────────────────────────────────────────────────────────────
 
+def _dashboard_autoregister(run_dir: str, flow_type: str) -> None:
+    """Show this run in its discipline dashboard (if that daemon is running).
+
+    Runs in a short subprocess: the run dashboard and SmartGrid packages both
+    ship modules named lifecycle / daemon / state_paths, so importing one
+    here would shadow the other later in this process (release publish)."""
+    utils_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    code = ("import sys; sys.path[:0] = [%r, %r, %r]; import lifecycle; "
+            "r = lifecycle.autoregister(%r, %r); print('ok' if r and r.get('ok') else '')"
+            % (os.path.join(utils_dir, 'dashboard'), os.path.join(utils_dir, 'commands'),
+               utils_dir, run_dir, flow_type))
+    try:
+        out = subprocess.run([sys.executable, '-c', code], capture_output=True,
+                             text=True, timeout=10).stdout.strip()
+        if out == 'ok':
+            logger.info(f"  Dashboard: run registered ({flow_type})")
+    except Exception:
+        pass
+
+
+def _flow_release_manifest(run_dir: str):
+    """{release_dir, milestone, ...} from a run whose own release_data stage
+    released it (work/<FLOW>/release_data1/outputs/release.manifest), else {}."""
+    env_file = os.path.join(run_dir, '.run.cbflow.env')
+    flow_type = ''
+    if os.path.exists(env_file):
+        with open(env_file) as fh:
+            for line in fh:
+                if line.startswith('export CBFLOW_FLOW_TYPE='):
+                    flow_type = line.split('=', 1)[1].strip().strip('"')
+    manifest = os.path.join(run_dir, 'work', flow_type, 'release_data1', 'outputs', 'release.manifest')
+    info = {}
+    if flow_type and os.path.isfile(manifest):
+        with open(manifest) as fh:
+            for line in fh:
+                parts = line.strip().split(None, 1)
+                if len(parts) == 2:
+                    info[parts[0]] = parts[1]
+        info['flow_type'] = flow_type
+    return info
+
+
+def _publish_flow_release(run_dir: str, milestone: str, strict: bool, override: bool) -> int:
+    """Publish the release a flow's own release_data stage wrote (no
+    repackaging) into the SmartGrid cell (project, block, phase, milestone).
+    Used by `cbflow run release --from-run <run> --publish` and the run GUI's
+    Release form (publish checkbox)."""
+    info = _flow_release_manifest(run_dir)
+    release_dir = info.get('release_dir', '')
+    if not release_dir or not os.path.isdir(release_dir):
+        logger.error(f"  {run_dir}: no flow release found (release_data stage not complete?)")
+        return 1
+    env_vars = {}
+    with open(os.path.join(run_dir, '.run.cbflow.env')) as fh:
+        for line in fh:
+            line = line.strip()
+            if line.startswith('export ') and '=' in line:
+                k, v = line[7:].split('=', 1)
+                env_vars[k] = v.strip('"')
+    project_name = env_vars.get('CBFLOW_PROJECT_NAME', env_vars.get('PROJECT_NAME', ''))
+    design_name = env_vars.get('CBFLOW_DESIGN_NAME', '')
+    phase = env_vars.get('CBFLOW_PROJECT_PHASE', '')
+    flow_dir = env_vars.get('FLOW_DIR', '')
+    milestone_stage_map = {}
+    rc_path = os.path.join(flow_dir, 'PD', 'config', 'flow',
+                           env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0'), 'release_config.tcl')
+    if os.path.exists(rc_path):
+        with open(rc_path) as f:
+            for m in _re_mod.finditer(r'set\s+MILESTONE_STAGE_MAPPING\((\w+)\)\s+"([^"]+)"', f.read()):
+                milestone_stage_map[m.group(1)] = m.group(2)
+    return _publish_to_project_dashboard(
+        project=project_name, block=design_name, phase=phase,
+        milestone=milestone, release_dir=release_dir,
+        workspace=os.path.dirname(os.path.abspath(run_dir)),
+        runs={info['flow_type']: os.path.basename(os.path.abspath(run_dir))},
+        milestone_stage_map=milestone_stage_map, override=override, strict=strict)
+
+
 def cmd_all(args: argparse.Namespace) -> int:
     """Run complete flow (all stages)."""
     if not is_run_directory():
@@ -370,6 +449,7 @@ def cmd_all(args: argparse.Namespace) -> int:
         return 1
 
     flow_type = get_flow_type()
+    _dashboard_autoregister(os.getcwd(), flow_type)
     validate = getattr(args, 'validate', False)
     use_lsf = getattr(args, 'lsf', False)
     lsf_queue = getattr(args, 'queue', None)
@@ -437,6 +517,7 @@ def cmd_stage(args: argparse.Namespace) -> int:
     stage = args.stage
     subnode = getattr(args, 'subnode', None)
     flow_type = get_flow_type()
+    _dashboard_autoregister(os.getcwd(), flow_type)
     valid_stages = get_all_stages(flow_type)
     validate = getattr(args, 'validate', False)
     use_lsf = getattr(args, 'lsf', False)
@@ -1322,6 +1403,50 @@ def cmd_list_nodes(args: argparse.Namespace) -> int:
     logger.info(f"  {'═'*55}")
     logger.info("")
 
+    # Discover dynamic fan-out subnodes from the engine DB. Flows like STA
+    # expand a stage declared `subnodes {dynamic}` (timing1, extraction1)
+    # into per-scenario / per-RC-corner subnodes at runtime; those exist
+    # only as job rows. Static wrappers (setup/run/validate/finish) are
+    # also job_type='subnode', so only stages configured as dynamic are
+    # expanded here, and the engine's setup/validate/finish bookends are
+    # dropped. Parentage comes from the DB `stage` column, never from a
+    # job_name prefix (`timing1_fix_*` is not a child of `timing1`).
+    from tcl_config_parser import get_subnodes
+    _DYN_BOOKENDS = ('setup', 'validate', 'finish')
+
+    def _is_dynamic(cfg_key):
+        try:
+            return get_subnodes(flow_type, cfg_key) == ['dynamic']
+        except Exception:
+            return False
+
+    # node name -> config key that decides whether it is dynamic. Custom
+    # and branch nodes inherit from their node type (timing2 -> timing).
+    _dyn_candidates = {s: s for s in stages}
+    for _name, _info in custom_nodes.items():
+        _dyn_candidates[_name] = _info.get('type', '') or _name
+
+    dyn_subnodes = {}        # node -> list of (subnode_job_name, done)
+    try:
+        from status_provider import get_status_provider
+        _sp = get_status_provider(os.getcwd())
+        if _sp.db_exists():
+            _by_stage = {}
+            for _job, _row in _sp.get_all_subnodes().items():
+                _by_stage.setdefault(_row.get('stage', ''), []).append(
+                    (_job, _row))
+            for _node, _cfg_key in _dyn_candidates.items():
+                if _node not in _by_stage or not _is_dynamic(_cfg_key):
+                    continue
+                _fan = sorted(
+                    (_job, _row.get('status') in _sp.COMPLETED_STATES)
+                    for _job, _row in _by_stage[_node]
+                    if _row.get('subnode') not in _DYN_BOOKENDS)
+                if _fan:
+                    dyn_subnodes[_node] = _fan
+    except Exception as _e:
+        logger.debug(f"dynamic-subnode discovery skipped: {_e}")
+
     # Base flow - show as a chain
     logger.info(f"  Base Flow:")
     logger.info(f"  {'─'*55}")
@@ -1330,7 +1455,23 @@ def cmd_list_nodes(args: argparse.Namespace) -> int:
         done = stage in completed or f"{stage}1" in completed
         icon = "[DONE]" if done else "[    ]"
         arrow = "  -> " if i < len(stages) - 1 else ""
-        logger.info(f"  {icon} {i+1:>2}. {stage:<25}{arrow}")
+        suffix = ""
+        if stage in dyn_subnodes:
+            n = len(dyn_subnodes[stage])
+            d = sum(1 for _, sub_done in dyn_subnodes[stage] if sub_done)
+            suffix = f"  [{d}/{n} dynamic subnodes]"
+        logger.info(f"  {icon} {i+1:>2}. {stage:<25}{arrow}{suffix}")
+
+    # Dynamic subnodes — one block per fanned-out stage.
+    if dyn_subnodes:
+        logger.info("")
+        logger.info(f"  Dynamic Subnodes (per-scenario / per-RC-corner fan-out):")
+        logger.info(f"  {'─'*55}")
+        for stage, subs in dyn_subnodes.items():
+            logger.info(f"  {stage}:")
+            for sub_name, done in subs:
+                icon = "[DONE]" if done else "[    ]"
+                logger.info(f"    {icon} {sub_name}")
 
     # Custom nodes
     if custom_nodes:
@@ -1349,7 +1490,13 @@ def cmd_list_nodes(args: argparse.Namespace) -> int:
     total = len(stages) + len(custom_nodes)
     done_count = sum(1 for s in stages if s in completed or f"{s}1" in completed)
     done_count += sum(1 for n in custom_nodes if n in completed)
-    logger.info(f"  Total: {total} nodes ({done_count} completed)")
+    dyn_total = sum(len(v) for v in dyn_subnodes.values())
+    dyn_done = sum(sum(1 for _, d in v if d) for v in dyn_subnodes.values())
+    if dyn_total:
+        logger.info(f"  Total: {total} nodes ({done_count} completed) "
+                    f"+ {dyn_total} dynamic subnodes ({dyn_done} completed)")
+    else:
+        logger.info(f"  Total: {total} nodes ({done_count} completed)")
     logger.info("")
     return 0
 
@@ -1825,6 +1972,26 @@ def cmd_release(args: argparse.Namespace) -> int:
     dry_run = getattr(args, 'dry_run', False)
     tag_override = getattr(args, 'tag', None)
 
+    # A run that released itself (open-source flows: release_data stage)
+    # is not repackaged — the release is on disk; only publish on request.
+    from_run = getattr(args, 'from_run', None)
+    if from_run:
+        run_dir = os.path.abspath(from_run)
+        info = _flow_release_manifest(run_dir)
+        if not info.get('release_dir'):
+            logger.error(f"--from-run {from_run}: run has no release from its release_data stage")
+            return 1
+        milestone = tag_override or info.get('milestone', '')
+        logger.info(f"  Release (from run): {info['release_dir']}")
+        if not getattr(args, 'publish', None):
+            logger.info("  Not published to SmartGrid (publish not requested — use --publish).")
+            return 0
+        if not milestone:
+            logger.error("  --publish needs a milestone: pass --tag <MILESTONE> (e.g. BTO)")
+            return 1
+        return _publish_flow_release(run_dir, milestone, strict=True,
+                                     override=getattr(args, 'override', False))
+
     # Must run from a workspace (not a run dir — we need to see all runs)
     workspace = os.getcwd()
     runs = sorted([d for d in os.listdir(workspace)
@@ -2092,26 +2259,49 @@ def cmd_release(args: argparse.Namespace) -> int:
     logger.info(f"  MANIFEST:    {release_dir}/MANIFEST.json")
     logger.info("")
 
-    # ── Optional: snapshot to CBflow-ProjectDashboard ──
-    if getattr(args, 'publish', False):
+    # ── Snapshot to CBflow-ProjectDashboard ──
+    # args.publish is tri-state:
+    #   None  — flag not given: publish best-effort. Only an ALREADY RUNNING
+    #           SmartGrid daemon is used (a release never spawns one), and
+    #           any publish problem is a note, not a failed release — the
+    #           release is already on disk with STATUS=PASS.
+    #   True  — explicit --publish: start the daemon if needed; a publish
+    #           failure fails the command.
+    #   False — --no-publish, or a programmatic Namespace that never
+    #           declared the attribute: skip.
+    # Publishing is opt-in: only an explicit --publish (or the GUI Release
+    # form's publish checkbox) snapshots the release into SmartGrid, so runs
+    # nobody chose to report never reach the grid.
+    publish = getattr(args, 'publish', False)
+    if publish:
+        strict = True
         rc = _publish_to_project_dashboard(
             project=project_name, block=design_name, phase=phase,
             milestone=tag, release_dir=release_dir,
             workspace=workspace, runs=found_runs,
             milestone_stage_map=milestone_stage_map,
-            override=getattr(args, 'override', False))
-        if rc != 0:
+            override=getattr(args, 'override', False),
+            strict=strict)
+        if rc != 0 and strict:
             return rc
     return 0
 
 
 def _publish_to_project_dashboard(project, block, phase, milestone, release_dir,
-                                   workspace, runs, milestone_stage_map, override):
+                                   workspace, runs, milestone_stage_map, override,
+                                   strict=True):
     """Snapshot the just-completed release into the project dashboard.
 
-    Failure to publish does not roll back the release itself — we log and
-    return non-zero so the shell exit reflects the miss.
+    strict=True  (explicit --publish): start the SmartGrid daemon if it is
+                 not running; any failure is logged as an error.
+    strict=False (default best-effort publish): never start a daemon — if
+                 none is running the publish is skipped — and problems are
+                 logged as warnings.
+    A failed publish never rolls back the release itself. Returns 0 when
+    published, non-zero otherwise (the caller decides whether that fails
+    the command).
     """
+    _problem = logger.error if strict else logger.warning
     import sys as _sys
     pd_pkg = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                           'project_dashboard')
@@ -2121,8 +2311,24 @@ def _publish_to_project_dashboard(project, block, phase, milestone, release_dir,
         import client as _pd_client
         import tracker_db as _pd_tracker
     except ImportError as e:
-        logger.error(f"  Publish failed: could not import project_dashboard ({e})")
+        _problem(f"  Publish failed: could not import project_dashboard ({e})")
         return 1
+
+    # Best-effort mode never starts a daemon, so check for one BEFORE
+    # building the payload (RACE DB reads, hashing, DEF/LEF parsing).
+    if not strict:
+        try:
+            import lifecycle as _pd_lifecycle
+            _running = _pd_lifecycle.is_running(project)
+        except Exception as e:
+            logger.warning(f"  Publish skipped: cannot query SmartGrid daemon ({e})")
+            return 1
+        if not _running:
+            logger.info(f"  Not published: no SmartGrid daemon is running for "
+                        f"project {project} (the release itself is complete).")
+            logger.info(f"  To publish: `cbflow smartgrid start --project {project}`, "
+                        f"then re-run this release — or re-run it with --publish.")
+            return 1
 
     published_by = os.environ.get('USER', 'unknown')
     logger.info("  ─────────────────────────────────────────────────────────")
@@ -2134,17 +2340,27 @@ def _publish_to_project_dashboard(project, block, phase, milestone, release_dir,
             release_dir=release_dir, workspace=workspace,
             runs=runs, milestone_stage_map=milestone_stage_map,
             published_by=published_by, override=override)
-        reply = _pd_client.publish(project, payload)
+        reply = _pd_client.publish(project, payload, start_daemon=strict)
     except Exception as e:
-        logger.error(f"  Publish failed: {e}")
+        _problem(f"  Publish failed: {e}")
         return 1
 
     if not reply.get('ok'):
-        if reply.get('conflict'):
-            logger.error(f"  Publish conflict: {reply.get('error')}")
-            logger.error("  Re-run with --override to replace the existing entry.")
+        if reply.get('no_daemon'):
+            logger.info(f"  Not published: no SmartGrid daemon is running for "
+                        f"project {project} (the release itself is complete).")
+            logger.info(f"  To publish: `cbflow smartgrid start --project {project}`, "
+                        f"then re-run this release — or re-run it with --publish.")
+        elif reply.get('conflict'):
+            if strict:
+                logger.error(f"  Publish conflict: {reply.get('error')}")
+                logger.error("  Re-run with --override to replace the existing entry.")
+            else:
+                logger.info(f"  Not re-published: this (project, block, phase, "
+                            f"milestone) cell is already on SmartGrid.")
+                logger.info("  Re-run the release with --override to replace it.")
         else:
-            logger.error(f"  Publish failed: {reply.get('error')}")
+            _problem(f"  Publish failed: {reply.get('error')}")
         return 1
     logger.info(f"  Published: {reply.get('url', '(no url)')}")
     return 0
@@ -3332,16 +3548,34 @@ Release is milestone-gated: all required flows for the active tag must have comp
 Tags are predefined in release_config.tcl. The active tag is set by leads in project config.
 
 Examples:
-  cbflow run release                    Release using active tag from project config
+  cbflow run release                    Release using active tag (publishes if SmartGrid is running)
   cbflow run release --tag BTO          Override with explicit tag
+  cbflow run release --no-publish       Release locally, skip SmartGrid publish
   cbflow run release --dry-run          Validate only, don't copy files""")
     release_parser.add_argument('--tag', '-t', help='Release tag override (default: project active_tag)')
     release_parser.add_argument('--dry-run', action='store_true', help='Validate only, no file copy')
-    release_parser.add_argument('--publish', action='store_true',
+    # Publish is DEFAULT-ON — the release is the moment project-level
+    # stakeholders need visibility. default=None (not True) so cmd_release
+    # can tell "flag not given" (best-effort publish, never fails the
+    # release) from an explicit --publish (publish failure is an error).
+    # Tri-state publish (None = flag not given). Two store_const options on
+    # one dest, not the boolean-optional argparse action: that needs Python 3.9+
+    # and this parser is built for every `cbflow run` invocation.
+    release_parser.add_argument('--publish', dest='publish', action='store_const',
+                                const=True, default=None,
                                 help='After release, snapshot metrics+checklist into '
-                                     'the CBflow-ProjectDashboard for management view')
+                                     'SmartGrid (the project dashboard). Opt-in: without '
+                                     '--publish nothing is published. Starts the SmartGrid '
+                                     'daemon if needed and fails on a publish error.')
+    release_parser.add_argument('--from-run', dest='from_run', default=None,
+                                help='Run directory that released itself (open-source '
+                                     'flows: release_data stage) — no repackaging; with '
+                                     '--publish, publish that release to the --tag milestone.')
+    release_parser.add_argument('--no-publish', dest='publish', action='store_const',
+                                const=False,
+                                help='Skip the SmartGrid publish.')
     release_parser.add_argument('--override', action='store_true',
-                                help='With --publish: replace an existing published entry '
+                                help='On publish: replace an existing published entry '
                                      'for this (project, block, phase, milestone) cell')
 
     # release-lock command (permissions)

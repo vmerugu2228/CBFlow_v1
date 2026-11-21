@@ -941,6 +941,57 @@ proc load_mmmc_config {} {
     return false
 }
 
+# Scenarios a node is assigned in mmmc_node_scenarios.tcl
+# (`array set mmmc { <node> { setup {...} hold {...} } }`).
+#   which: setup | hold | all (setup ∪ hold, order kept, no duplicates)
+# Returns {} when the node has no assignment.
+proc get_node_scenarios {node {which "all"}} {
+    global mmmc
+    if {$node eq "" || ![info exists mmmc($node)]} { return {} }
+    set _a $mmmc($node)
+    if {[catch {dict size $_a}]} { return {} }
+    set _setup [expr {[dict exists $_a setup] ? [dict get $_a setup] : {}}]
+    set _hold  [expr {[dict exists $_a hold]  ? [dict get $_a hold]  : {}}]
+    switch -- $which {
+        setup   { return $_setup }
+        hold    { return $_hold }
+        default {
+            set _out {}
+            foreach _s [concat $_setup $_hold] {
+                if {[lsearch -exact $_out $_s] < 0} { lappend _out $_s }
+            }
+            return $_out
+        }
+    }
+}
+
+# Setup/hold role of an analysis view, as a 2-element list {is_setup is_hold}.
+# With a node that has an assignment in mmmc_node_scenarios.tcl, the role is
+# membership in THAT node's setup/hold lists (a node may time a view the
+# global sets don't classify — e.g. a tt view for init_design). Otherwise the
+# role is membership in the engineer-declared mmmc_scenario_sets(setup) and
+# mmmc_scenario_sets(hold). The framework never infers it from the process
+# corner or the view name. A view in neither gets {false false}.
+proc mmmc_scenario_role {scenario {node ""}} {
+    global mmmc_scenario_sets mmmc
+    if {$node ne "" && [info exists mmmc($node)]} {
+        set _s [get_node_scenarios $node setup]
+        set _h [get_node_scenarios $node hold]
+    } else {
+        foreach _role {setup hold} {
+            if {![info exists mmmc_scenario_sets($_role)]} {
+                handle_error "mmmc_scenario_sets($_role) is not defined — declare the $_role views in mmmc_config.tcl"
+                return [list false false]
+            }
+        }
+        set _s $mmmc_scenario_sets(setup)
+        set _h $mmmc_scenario_sets(hold)
+    }
+    set is_setup [expr {[lsearch -exact $_s $scenario] >= 0}]
+    set is_hold  [expr {[lsearch -exact $_h $scenario] >= 0}]
+    return [list [expr {$is_setup ? "true" : "false"}] [expr {$is_hold ? "true" : "false"}]]
+}
+
 # ── Runtime Directory Setup ────────────────────────────────────────────────────
 # Called by command files: setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 # Sets DIRS() array + backward-compat vars (WORK_DIR, REPORTS_DIR, etc.)

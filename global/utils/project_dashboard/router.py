@@ -1427,16 +1427,17 @@ _FLOORPLAN_PANE = """
         .catch(err => { status.textContent = 'floorplan unavailable (' + err + ')'; });
     })();
 
-    // Compact scenario tag — take the corner+voltage+temp middle chunk
-    // and drop the mode prefix + rc suffix so it fits in the path row.
-    // "func_ss_0p76v_rcmax_125c" → "ss/0p76v/125c". Full name in tooltip.
+    // Compact scenario tag — corner/voltage/temp, dropping the mode prefix
+    // and the rc corner so it fits in the path row.
+    // "func_ss_0p76v_rc_max_125c" → "ss/0p76v/125c". Full name in tooltip.
     function _scenAbbrev(name) {
       if (!name) return '';
       const parts = name.split('_');
-      // Heuristic: first token = mode, second = corner, third = voltage,
-      // fourth = rc, fifth = temperature. Missing pieces are ignored.
+      // <mode>_<corner>_<voltage>_<rc corner…>_<temperature>. The rc corner
+      // may itself contain underscores (rc_max), so temperature is taken
+      // from the END, not from a fixed position.
       if (parts.length >= 5) {
-        return `${parts[1]}/${parts[2]}/${parts[4]}`;
+        return `${parts[1]}/${parts[2]}/${parts[parts.length - 1]}`;
       }
       return name.length > 14 ? name.slice(0, 12) + '…' : name;
     }
@@ -3959,7 +3960,7 @@ def _render_index(project, info, blocks, published_rows):
         parts.append(
             '<div class="empty">'
             'No published runs yet.  Publish a release from a workspace with '
-            '<code>cbflow run release --tag &lt;TAG&gt; --publish</code>'
+            '<code>cbflow run release --tag &lt;TAG&gt;</code>'
             '</div>')
         parts.append('</body></html>')
         return ''.join(parts)

@@ -45,60 +45,9 @@ array set operating_modes {
 set mmmc(pvt,ff) {{1p10v 125c} {1p10v 25c} {1p10v m40c}}
 set mmmc(pvt,ss) {{0p80v 125c} {0p80v m40c} {0p90v 125c} {0p90v m40c}}
 
-# Corner -> RC corner pairing
-set mmmc(rc_pair,ff) "rcmin"
-set mmmc(rc_pair,ss) "rcmax"
-
 # =============================================================================
-# AUTO-GENERATE ANALYSIS VIEWS & SCENARIO SETS
-# =============================================================================
-
-array set analysis_views {}
-foreach _mode [array names operating_modes] {
-    set _sdc [dict get $operating_modes($_mode) constraint_file]
-    foreach _corner $mmmc(process_corners) {
-        set _rc $mmmc(rc_pair,$_corner)
-        switch $_corner {
-            ss { set _atype "setup" }
-            tt { set _atype "setup_hold" }
-            ff { set _atype "hold" }
-        }
-        foreach _pvt $mmmc(pvt,$_corner) {
-            set _v [lindex $_pvt 0]
-            set _t [lindex $_pvt 1]
-            set _name "${_mode}_${_corner}_${_v}_${_rc}_${_t}"
-            set _lib_ref "${_corner}_${_v}_${_t}"
-            set analysis_views($_name) [list \
-                corner $_corner mode $_mode voltage $_v temperature $_t \
-                analysis_type $_atype constraint_file $_sdc \
-                lib_set_ref $_lib_ref rc_corner $_rc \
-            ]
-        }
-    }
-}
-
-# ── Scenario sets ──
-set _all [lsort [array names analysis_views]]
-
-array set mmmc_scenario_sets {}
-set mmmc_scenario_sets(setup)       [lsearch -all -inline $_all "*_ss_*"]
-set mmmc_scenario_sets(hold)        [lsearch -all -inline $_all "*_ff_*"]
-set mmmc_scenario_sets(power)       [concat \
-    [lsearch -all -inline $_all "*_tt_*_rctyp_*"] \
-    [lsearch -all -inline $_all "*_ss_*_rctyp_*"] \
-]
-set mmmc_scenario_sets(signoff)     [concat \
-    $mmmc_scenario_sets(setup) \
-    $mmmc_scenario_sets(hold) \
-    [lsearch -all -inline $_all "func_tt_*_rctyp_*"] \
-]
-set mmmc_scenario_sets(all)         $_all
-set mmmc_scenario_sets(sta_setup)   $mmmc_scenario_sets(setup)
-set mmmc_scenario_sets(sta_hold)    $mmmc_scenario_sets(hold)
-set mmmc_scenario_sets(sta_signoff) $mmmc_scenario_sets(signoff)
-
-# =============================================================================
-# RC CORNERS
+# RC CORNERS — declared BEFORE analysis-view generation so the full
+# Cartesian loop can iterate [array names rc_corners].
 # =============================================================================
 
 array set rc_corners {
@@ -126,6 +75,56 @@ array set rc_corners {
 }
 
 set rc_corner_list [lsort [array names rc_corners]]
+
+# =============================================================================
+# AUTO-GENERATE ANALYSIS VIEWS & SCENARIO SETS — FULL CARTESIAN
+# mode × corner × pvt × rc_corner. Engineers pick the subset via
+# scenario_sets below (no framework role→rc mapping).
+# =============================================================================
+
+array set analysis_views {}
+foreach _mode [array names operating_modes] {
+    set _sdc [dict get $operating_modes($_mode) constraint_file]
+    foreach _corner $mmmc(process_corners) {
+        if {![info exists mmmc(pvt,$_corner)]} continue
+        foreach _pvt $mmmc(pvt,$_corner) {
+            set _v [lindex $_pvt 0]
+            set _t [lindex $_pvt 1]
+            foreach _rc_name [array names rc_corners] {
+                set _name "${_mode}_${_corner}_${_v}_${_rc_name}_${_t}"
+                set _lib_ref "${_corner}_${_v}_${_t}"
+                set analysis_views($_name) [list \
+                    corner $_corner mode $_mode voltage $_v temperature $_t \
+                    constraint_file $_sdc \
+                    lib_set_ref $_lib_ref rc_corner $_rc_name]
+            }
+        }
+    }
+}
+
+# ── Scenario sets — explicit, engineer-declared ─────────────────────────────
+array set mmmc_scenario_sets {}
+set mmmc_scenario_sets(setup) {
+    func_ss_0p80v_rc_max_125c
+    func_ss_0p80v_rc_max_m40c
+    func_ss_0p90v_rc_max_125c
+    func_ss_0p90v_rc_max_m40c
+}
+set mmmc_scenario_sets(hold) {
+    func_ff_1p10v_rc_min_125c
+    func_ff_1p10v_rc_min_25c
+    func_ff_1p10v_rc_min_m40c
+}
+set mmmc_scenario_sets(power) {
+    func_ss_0p80v_rc_typ_125c
+    func_ss_0p80v_rc_typ_m40c
+}
+set mmmc_scenario_sets(signoff) [concat \
+    $mmmc_scenario_sets(setup) $mmmc_scenario_sets(hold)]
+set mmmc_scenario_sets(all)         [lsort [array names analysis_views]]
+set mmmc_scenario_sets(sta_setup)   $mmmc_scenario_sets(setup)
+set mmmc_scenario_sets(sta_hold)    $mmmc_scenario_sets(hold)
+set mmmc_scenario_sets(sta_signoff) $mmmc_scenario_sets(signoff)
 
 # =============================================================================
 # NODE-SPECIFIC SCENARIO ASSIGNMENTS

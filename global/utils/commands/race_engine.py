@@ -98,9 +98,9 @@ class Job:
         self.lsf_job_id = None
         self.pid = None
 
-    COMPLETED_STATES = frozenset((
-        'DONE', 'BYPASSED', 'FORCE_VALIDATED', 'BYPASSED_BY_DECISION',
-    ))
+    # Shared definition — core.db.COMPLETED_STATES (also used by the
+    # status / list-nodes displays).
+    from core.db import COMPLETED_STATES
 
     @property
     def is_completed(self):

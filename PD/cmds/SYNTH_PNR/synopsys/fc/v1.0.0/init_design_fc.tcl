@@ -452,7 +452,7 @@ flow_proc setup_design_checks {
 # ==============================================================================
 flow_proc setup_mcmm {
     handle_info "Setting up UPF + MCMM scenarios..."
-    global synth_pnr tech
+    global synth_pnr tech project
 
     set run_dir $::env(CBFLOW_RUN_DIR)
 
@@ -478,13 +478,41 @@ flow_proc setup_mcmm {
         handle_info "  Mode: $_mode (SDC: $_sdc)"
     }
 
-    # ── Step 3: Create corners (from analysis_views — timing libs + parasitics)
-    global analysis_views
+    # ── Step 3: Which views become FC scenarios ──────────────────────────────
+    # Views are a full Cartesian (mode x corner x pvt x rc_corner); creating
+    # all of them would make every stage carry dozens of active scenarios
+    # with no timing role. Create only the views someone gave a role:
+    # mmmc_scenario_sets(setup) ∪ (hold) ∪ this node's assignment.
+    global analysis_views mmmc_scenario_sets
+    set _node_scenarios [get_node_scenarios $::STAGE_NAME "all"]
+    set _wanted {}
+    foreach _s [concat \
+            [expr {[info exists mmmc_scenario_sets(setup)] ? $mmmc_scenario_sets(setup) : {}}] \
+            [expr {[info exists mmmc_scenario_sets(hold)]  ? $mmmc_scenario_sets(hold)  : {}}] \
+            $_node_scenarios] {
+        if {[lsearch -exact $_wanted $_s] >= 0} continue
+        if {![info exists analysis_views($_s)]} {
+            handle_warning "MCMM: '$_s' is not a generated analysis view — skipped"
+            continue
+        }
+        lappend _wanted $_s
+    }
+    if {[llength $_wanted] == 0} {
+        handle_error "MCMM: no scenarios to create — mmmc_scenario_sets setup/hold and the $::STAGE_NAME node assignment are all empty"
+        return
+    }
+
+    # ── Step 3b: Create corners (timing libs + parasitics) ───────────────────
+    # One FC corner per (lib set, rc corner): the rc_max / rc_min / rc_typ
+    # views of one PVT point need separate corners — a name without
+    # rc_corner would give them a single corner carrying whichever view's
+    # TLU+ happened to be visited first.
     set _trk [expr {[info exists tech(track)] ? $tech(track) : ""}]
     set _corners_created {}
-    foreach scenario [array names analysis_views] {
+    foreach scenario $_wanted {
+        array unset _v
         array set _v $analysis_views($scenario)
-        set _corner_name "${_v(corner)}_${_v(lib_set_ref)}"
+        set _corner_name "${_v(lib_set_ref)}_${_v(rc_corner)}"
         if {$_corner_name ni $_corners_created} {
             # Timing libs from tech_config — skip corner if not defined for this track.
             set _lib_key "${_trk},lib,${_v(lib_set_ref)},timing"
@@ -506,6 +534,8 @@ flow_proc setup_mcmm {
             # Read parasitic tech for this corner
             if {$_tlu ne ""} {
                 read_parasitic_tech -tlup $_tlu -layermap $tech($project(metal_stack),tluplus_map) -name $_corner_name
+            } else {
+                handle_warning "Corner ${_corner_name}: no tech(rcx,${_rc},tluplus) — created without parasitic tech"
             }
 
             lappend _corners_created $_corner_name
@@ -514,27 +544,38 @@ flow_proc setup_mcmm {
         array unset _v
     }
 
-    # ── Step 4: Create scenarios (mode x corner from analysis_views) ─────────
-    foreach scenario [array names analysis_views] {
+    # ── Step 4: Create scenarios (mode x corner) ─────────────────────────────
+    # Role: this node's setup/hold assignment when it has one, else the
+    # engineer-declared mmmc_scenario_sets(setup)/(hold).
+    set _n_timed 0
+    set _created {}
+    foreach scenario $_wanted {
+        array unset _v
         array set _v $analysis_views($scenario)
-        set _corner_name "${_v(corner)}_${_v(lib_set_ref)}"
-        create_scenario -name $scenario -mode $_v(mode) -corner $_corner_name
-        # Set scenario setup/hold based on analysis_type
-        switch $_v(analysis_type) {
-            "setup"      { set_scenario_status $scenario -setup true -hold false }
-            "hold"       { set_scenario_status $scenario -setup false -hold true }
-            "setup_hold" { set_scenario_status $scenario -setup true -hold true }
+        set _corner_name "${_v(lib_set_ref)}_${_v(rc_corner)}"
+        if {$_corner_name ni $_corners_created} {
+            handle_warning "Skipping scenario $scenario: corner $_corner_name was not created"
+            continue
         }
+        create_scenario -name $scenario -mode $_v(mode) -corner $_corner_name
+        lassign [mmmc_scenario_role $scenario $::STAGE_NAME] _is_setup _is_hold
+        set_scenario_status $scenario -setup $_is_setup -hold $_is_hold
+        if {$_is_setup || $_is_hold} { incr _n_timed }
+        lappend _created $scenario
         array unset _v
     }
-    handle_info "MCMM: [llength $_corners_created] corners, [array size analysis_views] scenarios"
+    handle_info "MCMM: [llength $_corners_created] corners, [llength $_created] scenarios ($_n_timed with a setup/hold role)"
 
-    # Activate scenarios for this stage from mmmc node assignments
-    set _node_scenarios [get_node_scenarios $::STAGE_NAME "all"]
-    if {[llength $_node_scenarios] > 0} {
+    # Activate only this stage's assigned scenarios (all created ones when
+    # the node has no assignment).
+    set _active {}
+    foreach _s $_node_scenarios {
+        if {[lsearch -exact $_created $_s] >= 0} { lappend _active $_s }
+    }
+    if {[llength $_active] > 0} {
         set_scenario_status -active false [get_scenarios -filter active]
-        set_scenario_status -active true $_node_scenarios
-        handle_info "Active scenarios for $::STAGE_NAME: $_node_scenarios"
+        set_scenario_status -active true $_active
+        handle_info "Active scenarios for $::STAGE_NAME: $_active"
     }
 
     # FC-RM: Design constraints (dont_touch, clock_gating, etc.)

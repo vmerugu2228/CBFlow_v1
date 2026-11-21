@@ -195,7 +195,7 @@ array set pnr {
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 array set pnr {
-    supported_tools {fc innovus}
+    supported_tools {fc innovus openroad}
     default_tool    "fc"
 }
 

@@ -281,6 +281,50 @@
         "FCFP"
       ],
       "design_hierarchy": {}
+    },
+    "opensky": {
+      "name": "opensky",
+      "description": "Open-source RTL-to-GDS proof on SkyWater SKY130 (Yosys / OpenROAD / OpenSTA / Magic / Netgen / KLayout)",
+      "chip_lead": "vmerugu",
+      "flow_owners": {
+        "frontend": "vmerugu",
+        "backend": "vmerugu",
+        "verification": "NA"
+      },
+      "technology": "skywater_130nm",
+      "status": "active",
+      "created": "2026-11-21T00:00:00",
+      "tags": [
+        "opensource",
+        "sky130"
+      ],
+      "phases": [
+        "P0",
+        "P1",
+        "P2",
+        "P3"
+      ],
+      "project_start_date": "2026-11-21",
+      "tapeout_date": "2027-03-31",
+      "release_version": "v1.0.0",
+      "milestone_targets": {},
+      "enabled_flows_by_discipline": {
+        "PD": [
+          "SYNTH",
+          "PNR",
+          "STA",
+          "PV"
+        ],
+        "DFT": [],
+        "DV": []
+      },
+      "enabled_flows": [
+        "SYNTH",
+        "PNR",
+        "STA",
+        "PV"
+      ],
+      "design_hierarchy": {}
     }
   }
 }

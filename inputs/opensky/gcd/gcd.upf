@@ -1,0 +1,24 @@
+# =============================================================================
+# gcd (DL3) — block-level power intent (IEEE 1801-2.1)
+# The whole block is one switchable domain: its primary supply VPWR is the
+# switched rail delivered by the parent (VPWR_GCD in the parent's scope).
+# =============================================================================
+upf_version 2.1
+set_scope .
+
+create_power_domain PD_GCD -include_scope
+
+create_supply_port VPWR -direction in
+create_supply_port VGND -direction in
+create_supply_net  VPWR
+create_supply_net  VGND
+connect_supply_net VPWR -ports VPWR
+connect_supply_net VGND -ports VGND
+set_domain_supply_net PD_GCD -primary_power_net VPWR -primary_ground_net VGND
+
+add_port_state VPWR -state {ON 1.80} -state {OFF off}
+add_port_state VGND -state {GND 0.00}
+
+create_pst pst_gcd -supplies {VPWR VGND}
+add_pst_state RUN -pst pst_gcd -state {ON  GND}
+add_pst_state OFF -pst pst_gcd -state {OFF GND}

@@ -4,79 +4,106 @@
 array set mmmc {
     cts {
         setup {
-            func_ss_0p72v_rcmax_125c
-            func_ss_0p80v_rcmax_m40c
+            func_ss_0p80v_rc_max_125c
+            func_ss_0p80v_rc_max_m40c
         }
-        hold {func_ff_0p88v_rcmin_m40c}
+        hold {
+            func_ff_1p10v_rc_min_125c
+            func_ff_1p10v_rc_min_m40c
+        }
     }
 
     cts_opt {
         setup {
-            func_ss_0p72v_rcmax_125c
-            func_ss_0p80v_rcmax_m40c
+            func_ss_0p80v_rc_max_125c
+            func_ss_0p80v_rc_max_m40c
         }
-        hold {func_ff_0p88v_rcmin_m40c}
+        hold {
+            func_ff_1p10v_rc_min_125c
+            func_ff_1p10v_rc_min_m40c
+        }
     }
 
     extraction {
         setup {
-            func_ss_0p72v_rcmax_125c
-            func_ss_0p80v_rcmax_m40c
+            func_ss_0p80v_rc_max_125c
+            func_ss_0p80v_rc_max_m40c
         }
-        hold {func_ff_0p88v_rcmin_m40c}
+        hold {
+            func_ff_1p10v_rc_min_125c
+            func_ff_1p10v_rc_min_m40c
+        }
     }
 
     init_design {
-        setup {func_tt_0p80v_rctyp_25c}
-        hold {func_tt_0p80v_rctyp_25c}
+        setup {func_tt_0p90v_rc_typ_25c}
+        hold {func_tt_0p90v_rc_typ_25c}
     }
 
     place {
         setup {
-            func_ss_0p72v_rcmax_125c
-            func_ss_0p80v_rcmax_m40c
+            func_ss_0p80v_rc_max_125c
+            func_ss_0p80v_rc_max_m40c
         }
-        hold {func_ff_0p88v_rcmin_m40c}
+        hold {
+            func_ff_1p10v_rc_min_125c
+            func_ff_1p10v_rc_min_m40c
+        }
     }
 
     pro {
         setup {
-            func_ss_0p72v_rcmax_125c
-            func_ss_0p80v_rcmax_m40c
+            func_ss_0p80v_rc_max_125c
+            func_ss_0p80v_rc_max_m40c
         }
-        hold {func_ff_0p88v_rcmin_m40c}
+        hold {
+            func_ff_1p10v_rc_min_125c
+            func_ff_1p10v_rc_min_m40c
+        }
     }
 
     route {
         setup {
-            func_ss_0p72v_rcmax_125c
-            func_ss_0p80v_rcmax_m40c
+            func_ss_0p80v_rc_max_125c
+            func_ss_0p80v_rc_max_m40c
         }
-        hold {func_ff_0p88v_rcmin_m40c}
+        hold {
+            func_ff_1p10v_rc_min_125c
+            func_ff_1p10v_rc_min_m40c
+        }
     }
 
     signoff {
         setup {
-            func_ss_0p72v_rcmax_125c
-            func_ss_0p80v_rcmax_m40c
+            func_ss_0p80v_rc_max_125c
+            func_ss_0p80v_rc_max_m40c
         }
-        hold {func_ff_0p88v_rcmin_m40c}
+        hold {
+            func_ff_1p10v_rc_min_125c
+            func_ff_1p10v_rc_min_m40c
+        }
     }
 
     synthesis {
         setup {
-            func_ss_0p72v_rcmax_125c
-            func_ss_0p80v_rcmax_m40c
+            func_ss_0p80v_rc_max_125c
+            func_ss_0p80v_rc_max_m40c
         }
-        hold {func_ff_0p88v_rcmin_m40c}
+        hold {
+            func_ff_1p10v_rc_min_125c
+            func_ff_1p10v_rc_min_m40c
+        }
     }
 
     timing {
         setup {
-            func_ss_0p72v_rcmax_125c
-            func_ss_0p80v_rcmax_m40c
+            func_ss_0p80v_rc_max_125c
+            func_ss_0p80v_rc_max_m40c
         }
-        hold {func_ff_0p88v_rcmin_m40c}
+        hold {
+            func_ff_1p10v_rc_min_125c
+            func_ff_1p10v_rc_min_m40c
+        }
     }
 
 }

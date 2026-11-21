@@ -55,20 +55,17 @@ class StatusProvider:
         self.db_path = db_path or self._find_db(run_dir)
 
     def _find_db(self, run_dir: str) -> str:
-        """Find the engine DB file for this run directory."""
+        """Find the engine DB for this run directory via the shared
+        resolver (`core.db.find_race_db_from_run_dir`: `.race_db_pointer`,
+        then a legacy `.race_*.db` in the run dir). When none exists yet,
+        return the legacy expected path so db_exists() reports absence.
+        """
+        from core.db import find_race_db_from_run_dir
+        found = find_race_db_from_run_dir(run_dir)
+        if found:
+            return found
         uid = hashlib.md5(os.path.abspath(run_dir).encode()).hexdigest()[:6]
-
-        # Check local DB with UID
-        local = os.path.join(run_dir, f'{self.DB_PREFIX}{uid}.db')
-        if os.path.exists(local):
-            return local
-
-        # Check any .race_*.db in run_dir
-        for f in Path(run_dir).glob(f'{self.DB_PREFIX}*.db'):
-            return str(f)
-
-        # Return expected path (may not exist yet — engine will create it)
-        return local
+        return os.path.join(run_dir, f'{self.DB_PREFIX}{uid}.db')
 
     def _connect(self):
         if not os.path.exists(self.db_path):
@@ -138,7 +135,7 @@ class StatusProvider:
         try:
             cur = conn.execute(
                 "SELECT job_name FROM jobs "
-                "WHERE job_type = 'stage' AND status IN ('DONE','BYPASSED','FORCE_VALIDATED') "
+                "WHERE job_type = 'stage' AND status IN ('DONE','BYPASSED','FORCE_VALIDATED','BYPASSED_BY_DECISION') "
                 "AND id IN (SELECT MAX(id) FROM jobs GROUP BY job_name) "
                 "ORDER BY id")
             return [row[0] for row in cur]
@@ -151,6 +148,54 @@ class StatusProvider:
 
     def db_exists(self) -> bool:
         return os.path.exists(self.db_path)
+
+    # Shared definition (also used by race_engine scheduling).
+    from core.db import COMPLETED_STATES
+
+    def get_all_subnodes(self) -> dict:
+        """Return {job_name: {stage, subnode, status, timestamp, runtime}}
+        for every subnode in the CURRENT DAG.
+
+        The subnode set comes from `dag_structure` (rewritten on every DAG
+        build), with status from the latest `jobs` row. Reading `jobs`
+        alone would also return subnodes of scenarios that are no longer
+        part of the run — e.g. after a scenario rename or an
+        override_config change — and they would be listed forever as not
+        done. A subnode with no job row yet is READY.
+
+        `stage` and `subnode` are DB columns, so callers attribute a
+        subnode to its parent without guessing from the job_name prefix
+        (`timing1_fix_*` is NOT a child of `timing1`). Note the engine
+        writes job_type='subnode' for static wrappers
+        (setup/run/validate/finish) as well as per-scenario fan-out.
+        """
+        conn = self._connect()
+        if not conn:
+            return {}
+        try:
+            result = {}
+            cur = conn.execute(
+                "SELECT d.job_name, d.stage, d.subnode, j.status, "
+                "       j.end_time, j.start_time, j.runtime_sec "
+                "FROM dag_structure d "
+                "LEFT JOIN jobs j ON j.id = ("
+                "    SELECT MAX(id) FROM jobs WHERE job_name = d.job_name) "
+                "WHERE d.job_type = 'subnode' "
+                "ORDER BY d.rowid")
+            for name, stage, subnode, status, end, start, runtime in cur:
+                result[name] = {
+                    'stage': stage,
+                    'subnode': subnode,
+                    'status': status or StageStatus.READY,
+                    'timestamp': end or start or '',
+                    'runtime': runtime or 0,
+                }
+            return result
+        except sqlite3.OperationalError:
+            # DB predates dag_structure — no current-DAG source to read.
+            return {}
+        finally:
+            conn.close()
 
 
 def get_status_provider(run_dir: str = None) -> StatusProvider:

@@ -190,6 +190,8 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
       <a onclick="promptAction('bypass','Bypass','Select stage to bypass','Bypass')">&#10140; Bypass...</a>
       <a onclick="promptAction('force','Force Re-run','Select stage to force','Force')">&#8634; Force Re-run...</a>
       <a onclick="promptAction('forcevalidate','Force Validate','Select stage to validate','Validate')">&#10004; Force Validate...</a>
+      <hr>
+      <a onclick="promptRelease()">&#128230; Release...</a>
     </div>
   </div>
 
@@ -2160,6 +2162,39 @@ function ctxAction(action) {
   }
 
   document.getElementById('ctx-menu').style.display = 'none';
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// RELEASE FORM — publish to SmartGrid only when explicitly checked
+// ═══════════════════════════════════════════════════════════════════
+function promptRelease() {
+  var old = document.getElementById('release-modal');
+  if (old) old.remove();
+  var m = document.createElement('div');
+  m.id = 'release-modal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:9999';
+  m.innerHTML =
+    '<div style="background:var(--bg,#fff);color:var(--text,#222);padding:18px 20px;border-radius:8px;min-width:340px;box-shadow:0 8px 30px rgba(0,0,0,.25);font-size:13px">' +
+    '<div style="font-weight:700;margin-bottom:10px">Release</div>' +
+    '<label style="display:block;margin-bottom:8px">Milestone / tag<br>' +
+    '<input id="rel-tag" value="BTO" style="width:100%;padding:5px;margin-top:3px"></label>' +
+    '<label style="display:block;margin-bottom:6px"><input type="checkbox" id="rel-publish"> Publish to SmartGrid</label>' +
+    '<div style="font-size:11px;color:#777;margin:0 0 8px 22px">Off by default — only checked releases reach the project grid.</div>' +
+    '<label style="display:block;margin-bottom:12px"><input type="checkbox" id="rel-override"> Replace an existing SmartGrid entry</label>' +
+    '<div style="text-align:right"><button id="rel-cancel">Cancel</button> <button id="rel-ok" style="font-weight:700">Release</button></div>' +
+    '</div>';
+  document.body.appendChild(m);
+  document.getElementById('rel-cancel').onclick = function(){ m.remove(); };
+  document.getElementById('rel-ok').onclick = function(){
+    var body = {
+      tag: document.getElementById('rel-tag').value.trim(),
+      publish: document.getElementById('rel-publish').checked,
+      override: document.getElementById('rel-override').checked
+    };
+    m.remove();
+    showToast('Releasing ' + body.tag + (body.publish ? ' (publish to SmartGrid)' : '') + '...', 'success');
+    apiAction('release', body);
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════

@@ -986,9 +986,11 @@ def get_project_cfg_candidates(project_name: str, version: str = None) -> list:
     """Ordered list of project config paths to probe for a key.
 
     Order:
-      1. global/config/project/<name>/<ver>/project_config.tcl (identity)
-      2. PD/config/project/<name>/<ver>/project_pd_config.tcl  (PD overlay)
-      3. PD/config/project/<name>/<ver>/<name>_config.tcl      (legacy monolith)
+      1. global/config/project/<name>/<ver>/project_config.tcl (identity, generic name)
+      2. global/config/project/<name>/<ver>/<name>_config.tcl  (identity, current name)
+      3. PD/config/project/<name>/<ver>/project_pd_config.tcl  (PD overlay, generic name)
+      4. PD/config/project/<name>/<ver>/<name>_pd_config.tcl   (PD overlay, current name)
+      5. PD/config/project/<name>/<ver>/<name>_config.tcl      (legacy monolith)
 
     Last-match-wins is the correct cascade semantic (overlays override
     identity). Entries that don't exist on disk are STILL returned —
@@ -1000,11 +1002,15 @@ def get_project_cfg_candidates(project_name: str, version: str = None) -> list:
     if grot and project_name:
         cand.append(os.path.join(grot, 'project', project_name, ver,
                                  'project_config.tcl'))
+        cand.append(os.path.join(grot, 'project', project_name, ver,
+                                 project_config_basename(project_name)))
     try:
         crot = get_config_root()
         if project_name:
             cand.append(os.path.join(crot, 'project', project_name, ver,
                                      'project_pd_config.tcl'))
+            cand.append(os.path.join(crot, 'project', project_name, ver,
+                                     project_discipline_config_basename(project_name, 'PD')))
             cand.append(os.path.join(crot, 'project', project_name, ver,
                                      '{}_config.tcl'.format(project_name)))
     except ValueError:

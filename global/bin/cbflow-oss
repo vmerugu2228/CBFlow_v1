@@ -1,0 +1,164 @@
+#!/usr/bin/env bash
+# =============================================================================
+# cbflow-oss — run one open-source EDA tool inside the CBflow tool container
+#
+# Usage:
+#   cbflow-oss <tool> <cmd_file> <log_file>   run a tool on a script
+#   cbflow-oss exec -- <argv...>              run an arbitrary command line
+#   cbflow-oss check                          list tools + versions in the image
+#   cbflow-oss gui openroad <stage.odb>       OpenROAD GUI on a saved stage database
+#   cbflow-oss gui klayout <file.gds|.def>    KLayout GUI on a GDS / DEF
+#
+# <tool>: yosys | openroad | sta | magic | netgen | klayout | tclsh
+#
+# The container sees the same paths as the host: CBFLOW_ROOT, the current
+# directory, CBFLOW_RUN_DIR, the PDK root and every CBFLOW_OSS_MOUNTS entry are
+# bind-mounted at identical locations, and the CBflow environment
+# (CBFLOW_*, FLOW_DIR, *_VERSION, PDK*) is passed through. Command files
+# therefore resolve their paths exactly as they would on the host.
+#
+# The tool's own exit status is returned (pipefail inside the container —
+# no `| tee` on the host side to mask a failure).
+#
+# Environment:
+#   CBFLOW_OSS_IMAGE     container image   (default: pinned digest below)
+#   CBFLOW_OSS_PDK_ROOT  host PDK root     (default: $HOME/eda/pdks)
+#   CBFLOW_OSS_MOUNTS    extra host paths to mount, ':'-separated
+#   CBFLOW_OSS_MAGICRC   magic rc file     (default: <pdk>/sky130A/libs.tech/magic/sky130A.magicrc)
+#   CBFLOW_OSS_ENGINE    container CLI     (default: docker)
+# =============================================================================
+set -euo pipefail
+
+DEFAULT_IMAGE="hpretl/iic-osic-tools@sha256:306585de35d198e70ea58950f77147c86f56c698726a19afea9f1c83009557be"
+IMAGE="${CBFLOW_OSS_IMAGE:-$DEFAULT_IMAGE}"
+ENGINE="${CBFLOW_OSS_ENGINE:-docker}"
+PDK_ROOT_HOST="${CBFLOW_OSS_PDK_ROOT:-$HOME/eda/pdks}"
+
+die() { echo "cbflow-oss: ERROR: $*" >&2; exit 2; }
+
+[ $# -ge 1 ] || die "usage: cbflow-oss <tool> <cmd_file> <log_file> | exec -- <argv...> | check"
+command -v "$ENGINE" >/dev/null 2>&1 || die "'$ENGINE' not found — install Docker Desktop (or set CBFLOW_OSS_ENGINE)"
+
+# Resolve CBFLOW_ROOT from this script's location (global/bin/ → root).
+_self="$0"
+while [ -L "$_self" ]; do
+    _link="$(readlink "$_self")"
+    case "$_link" in /*) _self="$_link" ;; *) _self="$(dirname "$_self")/$_link" ;; esac
+done
+CBFLOW_ROOT="${CBFLOW_ROOT:-$(cd "$(dirname "$_self")/../.." && pwd)}"
+export CBFLOW_ROOT
+
+# ── Mounts: identical host/container paths, de-duplicated, existing only ──
+MOUNTS=()
+_add_mount() {
+    local p="$1"
+    [ -n "$p" ] || return 0
+    [ -e "$p" ] || return 0
+    p="$(cd "$p" 2>/dev/null && pwd -P || echo "$p")"
+    local m
+    for m in "${MOUNTS[@]:-}"; do
+        [ -n "$m" ] || continue
+        case "$p/" in "$m"/*) return 0 ;; esac      # already covered
+    done
+    MOUNTS+=("$p")
+}
+_add_mount "$CBFLOW_ROOT"
+_add_mount "$PDK_ROOT_HOST"
+_add_mount "${CBFLOW_RUN_DIR:-}"
+_add_mount "$PWD"
+IFS=':' read -r -a _extra <<< "${CBFLOW_OSS_MOUNTS:-}"
+for _e in "${_extra[@]:-}"; do _add_mount "$_e"; done
+
+# Built at run time so mounts added for the cmd/log directories are included.
+build_docker_args() {
+    DOCKER_ARGS=(run --rm -i -u "$(id -u):$(id -g)" -w "$(pwd -P)" -e HOME=/tmp
+                 --entrypoint /bin/bash)
+    local m name
+    for m in "${MOUNTS[@]}"; do DOCKER_ARGS+=(-v "$m:$m"); done
+    while IFS='=' read -r name _; do
+        case "$name" in
+            CBFLOW_*|FLOW_DIR|*_VERSION|TECH_NAME|DISPLAY|USER|LOGNAME|GIT_SHA) DOCKER_ARGS+=(-e "$name") ;;
+        esac
+    done < <(env)
+    DOCKER_ARGS+=(-e "PDK_ROOT=$PDK_ROOT_HOST" -e "PDK=${PDK:-sky130A}")
+}
+
+TOOL_PATH='export PATH=/foss/tools/bin:/foss/tools/klayout:/foss/tools/sak:$PATH; export LD_LIBRARY_PATH=/foss/tools/klayout:/foss/tools/iverilog/lib:${LD_LIBRARY_PATH:-};'
+
+run_in_container() {   # $1 = bash command string
+    build_docker_args
+    exec "$ENGINE" "${DOCKER_ARGS[@]}" "$IMAGE" -c "set -o pipefail; $TOOL_PATH $1"
+}
+
+q() { printf '%q' "$1"; }
+
+# X11 for GUIs: the container reaches the host's X server (XQuartz on macOS)
+# at host.docker.internal:0; the host must allow local clients (xhost).
+gui_display() {
+    local xhost_bin
+    xhost_bin="$(command -v xhost || echo /opt/X11/bin/xhost)"
+    if [ "$(uname)" = "Darwin" ]; then
+        [ -x "$xhost_bin" ] || die "xhost not found — install XQuartz (brew install --cask xquartz)"
+        "$xhost_bin" +localhost >/dev/null 2>&1 || die "cannot reach XQuartz — start it and enable Settings > Security > 'Allow connections from network clients'"
+        export DISPLAY="host.docker.internal:0"
+    else
+        [ -n "${DISPLAY:-}" ] || die "DISPLAY is not set"
+        "$xhost_bin" +local: >/dev/null 2>&1 || true
+        _add_mount /tmp/.X11-unix
+    fi
+}
+
+case "$1" in
+    gui)
+        shift
+        [ $# -ge 2 ] || die "usage: cbflow-oss gui openroad <stage.odb> | gui klayout <file.gds|.def>"
+        viewer="$1"; target="$(cd "$(dirname "$2")" && pwd -P)/$(basename "$2")"
+        [ -f "$target" ] || die "file not found: $target"
+        _add_mount "$(dirname "$target")"
+        gui_display
+        case "$viewer" in
+            openroad)
+                gs="$(dirname "$target")/.cbflow_gui_$$.tcl"
+                printf 'read_db %s\n' "$(q "$target")" > "$gs"
+                run_in_container "openroad -gui -no_init $(q "$gs"); rm -f $(q "$gs")" ;;
+            klayout)
+                lyt="${CBFLOW_OSS_PDK_ROOT:-$HOME/eda/pdks}/${PDK:-sky130A}/libs.tech/klayout/tech/${PDK:-sky130A}.lyt"
+                run_in_container "klayout -nn $(q "$lyt") $(q "$target")" ;;
+            *) die "gui viewer must be openroad or klayout" ;;
+        esac
+        ;;
+    check)
+        run_in_container 'for t in yosys openroad sta magic netgen klayout tclsh; do printf "%-9s %s\n" "$t" "$(command -v $t || echo MISSING)"; done; yosys -V | head -1; openroad -version | tail -1; klayout -b -v'
+        ;;
+    exec)
+        shift
+        [ "${1:-}" = "--" ] && shift
+        [ $# -ge 1 ] || die "exec needs a command line"
+        cmd=""
+        for a in "$@"; do cmd="$cmd $(q "$a")"; done
+        run_in_container "$cmd"
+        ;;
+    *)
+        [ $# -ge 3 ] || die "usage: cbflow-oss <tool> <cmd_file> <log_file>"
+        tool="$1"; cmd_file="$2"; log_file="$3"; shift 3
+        [ -f "$cmd_file" ] || die "command file not found: $cmd_file"
+        mkdir -p "$(dirname "$log_file")"
+        _add_mount "$(dirname "$cmd_file")"
+        _add_mount "$(dirname "$log_file")"
+        cf="$(q "$cmd_file")"; lf="$(q "$log_file")"
+        extra=""
+        for a in "$@"; do extra="$extra $(q "$a")"; done
+        magicrc="${CBFLOW_OSS_MAGICRC:-$PDK_ROOT_HOST/${PDK:-sky130A}/libs.tech/magic/${PDK:-sky130A}.magicrc}"
+        case "$tool" in
+            yosys)    line="yosys -c $cf $extra" ;;
+            openroad) line="openroad -exit -no_init -no_splash $extra $cf" ;;
+            sta)      line="sta -exit -no_init -no_splash $extra $cf" ;;
+            magic)    line="magic -dnull -noconsole -rcfile $(q "$magicrc") $extra $cf" ;;
+            netgen)   line="netgen -batch source $cf $extra" ;;
+            klayout)  line="klayout -b -r $cf $extra" ;;
+            tclsh)    line="tclsh $cf $extra" ;;
+            *)        die "unknown tool '$tool' (yosys|openroad|sta|magic|netgen|klayout|tclsh)" ;;
+        esac
+        run_in_container "$line 2>&1 | tee $lf"
+        ;;
+esac

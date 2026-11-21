@@ -23,8 +23,8 @@ set flow(test_mode)            "false"                ;# Set "true" for dry run 
 # ── MMMC Scenarios (optional) ────────────────────────────────────────────────
 # Uncomment to override auto-generated MMMC scenarios:
 # set sta(mmmc,scenario_set)      "custom"                                  ;# Use custom scenario selection
-# set sta(mmmc,setup_scenarios)   "func_ss_0p76v_rcmax_150c"               ;# Setup analysis scenarios
-# set sta(mmmc,hold_scenarios)    "func_ff_0p84v_rcmin_m40c"               ;# Hold analysis scenarios
+# set sta(mmmc,setup_scenarios)   "func_ss_0p76v_rc_max_150c"               ;# Setup analysis scenarios
+# set sta(mmmc,hold_scenarios)    "func_ff_0p84v_rc_min_m40c"               ;# Hold analysis scenarios
 
 # ── Execution ──
 set flow(use_lsf)       "false"              ;# Set "true" to submit via LSF (bsub)

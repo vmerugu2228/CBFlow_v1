@@ -744,7 +744,8 @@ def _build_env_from_user_config(config_file: str) -> dict:
     return env
 
 
-def _get_mandatory_inputs_from_config(core_dir: str, flow_type: str) -> list:
+def _get_mandatory_inputs_from_config(core_dir: str, flow_type: str,
+                                      tool_name: str = '') -> list:
     """Read mandatory_user_inputs from <FLOW>_config.tcl if defined.
 
     Users can add this to any flow config to control which user_config variables are required:
@@ -760,19 +761,23 @@ def _get_mandatory_inputs_from_config(core_dir: str, flow_type: str) -> list:
     """
     import re as _re
     flow_config_ver = get_flow_config_version()
-    config_file = os.path.join(core_dir, 'config', 'flow', flow_config_ver,
-                               'node_configs', f'{flow_type}_config.tcl')
-    if not os.path.exists(config_file):
-        return []
-
-    with open(config_file, 'r') as f:
-        content = f.read()
-
-    # Match: mandatory_user_inputs { var1 var2 var3 }
-    m = _re.search(r'mandatory_user_inputs\s*\{([^}]*)\}', content)
-    if m:
-        raw = m.group(1).strip()
-        return [v.strip() for v in raw.split() if v.strip()]
+    node_dir = os.path.join(core_dir, 'config', 'flow', flow_config_ver, 'node_configs')
+    # The selected tool's overlay (<FLOW>_<tool>_config.tcl) may redefine the
+    # list — e.g. the open-source PNR builds its own floorplan, so no DEF.
+    candidates = []
+    if tool_name:
+        candidates.append(os.path.join(node_dir, f'{flow_type}_{tool_name}_config.tcl'))
+    candidates.append(os.path.join(node_dir, f'{flow_type}_config.tcl'))
+    for config_file in candidates:
+        if not os.path.exists(config_file):
+            continue
+        with open(config_file, 'r') as f:
+            content = f.read()
+        # Match: mandatory_user_inputs { var1 var2 var3 }
+        m = _re.search(r'mandatory_user_inputs\s*\{([^}]*)\}', content)
+        if m:
+            raw = m.group(1).strip()
+            return [v.strip() for v in raw.split() if v.strip()]
     return []
 
 
@@ -919,7 +924,9 @@ def _validate_mandatory_inputs(user_config: dict, flow_type: str) -> list:
                               f"Available designs: {', '.join(valid_designs)}")
 
     # Flow-specific mandatory inputs — driven entirely by node_config
-    mandatory_from_config = _get_mandatory_inputs_from_config(core_dir, ft)
+    _arr = ft.lower()
+    mandatory_from_config = _get_mandatory_inputs_from_config(
+        core_dir, ft, user_config.get(f'{_arr}(tool,name)', ''))
 
     if mandatory_from_config:
         # Check if handshake mechanism is active (from_run or release_tag)
@@ -982,11 +989,17 @@ def _validate_mandatory_inputs(user_config: dict, flow_type: str) -> list:
             phase = user_config.get('project(phase)', '')
             tag = list(release_tags.values())[0]
 
-            # Resolve release base dir
-            release_base = os.path.join(core_dir, '..', 'test_releases')
-            release_base = os.path.normpath(release_base)
-
-            release_dir = os.path.join(release_base, project_name, design_name, f"{phase}_{tag}")
+            # Resolve the release dir. Release::init writes
+            # <release,path>/<phase>/<design>/<tag>; older tags use the flat
+            # <base>/<tag> or <base>/<project>/<design>/<phase>_<tag>.
+            from core.paths import read_project_cfg_key
+            release_base = read_project_cfg_key(project_name, 'release,path', 'v1.0.0') or \
+                os.path.normpath(os.path.join(core_dir, '..', 'test_releases'))
+            rel_phase = phase or read_project_cfg_key(project_name, 'release,phase', 'v1.0.0')
+            _cands = [os.path.join(release_base, rel_phase, design_name, tag),
+                      os.path.join(release_base, tag),
+                      os.path.join(release_base, project_name, design_name, f"{phase}_{tag}")]
+            release_dir = next((c for c in _cands if os.path.isdir(c)), _cands[0])
 
             logger.info(f"  Handshake: release_tag → {tag}")
             if not os.path.isdir(release_dir):
@@ -1001,13 +1014,13 @@ def _validate_mandatory_inputs(user_config: dict, flow_type: str) -> list:
                 else:
                     # Check for common required subdirectories/files
                     found = []
-                    for subdir in ('SYNTH_PNR', 'PNR', 'SYNTH'):
-                        flow_dir = os.path.join(release_dir, subdir)
+                    for subdir in ('', 'SYNTH_PNR', 'PNR', 'SYNTH'):
+                        flow_dir = os.path.join(release_dir, subdir) if subdir else release_dir
                         if os.path.isdir(flow_dir):
                             for cat in ('netlist', 'sdc', 'def'):
                                 cat_dir = os.path.join(flow_dir, cat)
                                 if os.path.isdir(cat_dir) and os.listdir(cat_dir):
-                                    found.append(f"{subdir}/{cat}")
+                                    found.append(f"{subdir}/{cat}" if subdir else cat)
                     if found:
                         logger.info(f"    Available: {', '.join(found)}")
                     else:
@@ -1194,6 +1207,18 @@ def cmd_create(args: argparse.Namespace) -> int:
 
         print(f"  \033[32m{'=' * 60}\033[0m")
         print(f"  \033[32;1mRun Created Successfully\033[0m")
+        # Show the new run in its discipline dashboard (if that daemon runs);
+        # isolated subprocess — see run_cmd._dashboard_autoregister.
+        try:
+            import subprocess as _sp, sys as _sys
+            _u = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            _code = ("import sys; sys.path[:0] = [%r, %r, %r]; import lifecycle; "
+                     "lifecycle.autoregister(%r, %r)"
+                     % (os.path.join(_u, 'dashboard'), os.path.join(_u, 'commands'), _u,
+                        run_dir, flow_type))
+            _sp.run([_sys.executable, '-c', _code], capture_output=True, timeout=10)
+        except Exception:
+            pass
         print(f"  \033[32m{'=' * 60}\033[0m")
         print()
         print(f"  Run Directory:  \033[1m{run_dir}\033[0m")

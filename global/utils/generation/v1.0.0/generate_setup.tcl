@@ -155,6 +155,25 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
 
     # ┌─ Utility Functions ───────────────────────────────────────────────────────┐
 
+    # Tool → vendor directory under cmds/<FLOW>/<vendor>/<tool>/ and
+    # setup/<FLOW>/<vendor>/<tool>/. Single map used by every lookup in
+    # this file ($CBFLOW_TOOL_VENDOR, when set, still wins at call sites).
+    proc vendor_for_tool {tool_name} {
+        set _map {
+            fc synopsys pt synopsys fm synopsys formality synopsys
+            icv synopsys redhawk synopsys vc_lp synopsys power_compiler synopsys
+            dft_compiler synopsys testmax synopsys vcs synopsys spyglass synopsys
+            innovus cadence genus cadence tempus cadence voltus cadence
+            joules cadence conformal cadence conformal_lp cadence jaspergold cadence
+            calibre mentor tessent mentor questa mentor
+            yosys opensource openroad opensource opensta opensource sta opensource
+            magic opensource netgen opensource klayout opensource
+            oss_tclsh opensource
+        }
+        if {[dict exists $_map $tool_name]} { return [dict get $_map $tool_name] }
+        return "synopsys"
+    }
+
     proc get_tool_name {run_dir} {
         # Try multiple methods to extract tool name
         set tool_name ""
@@ -299,12 +318,7 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
             set vendor $::env(CBFLOW_TOOL_VENDOR)
         } else {
             # Auto-detect vendor from tool name
-            set vendor "synopsys"
-            if {[string match "*genus*" $tool_name] || [string match "*innovus*" $tool_name] ||
-                [string match "*tempus*" $tool_name] || [string match "*voltus*" $tool_name] ||
-                [string match "*conformal*" $tool_name]} {
-                set vendor "cadence"
-            }
+            set vendor [vendor_for_tool $tool_name]
         }
 
         set tool_version [expr {[info exists ::env(TOOL_VERSION)] ? $::env(TOOL_VERSION) : "v1.0.0"}]
@@ -379,12 +393,7 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
         if {[info exists ::env(CBFLOW_TOOL_VENDOR)]} {
             set vendor $::env(CBFLOW_TOOL_VENDOR)
         } else {
-            set vendor "synopsys"
-            if {[string match "*genus*" $tool_name] || [string match "*innovus*" $tool_name] ||
-                [string match "*tempus*" $tool_name] || [string match "*voltus*" $tool_name] ||
-                [string match "*conformal*" $tool_name]} {
-                set vendor "cadence"
-            }
+            set vendor [vendor_for_tool $tool_name]
         }
         set tool_version [expr {[info exists ::env(TOOL_VERSION)] ? $::env(TOOL_VERSION) : "v1.0.0"}]
 
@@ -564,10 +573,16 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
                 puts "WARNING: Set project(lib_config_tag) in project_pd_config.tcl (e.g., \"P0\", \"timing_v1\")"
             } else {
                 set _lc ""
-                # Primary: external lib_tag_root/<TAG>/lib_config.tcl.
+                # Primary: external lib_tag_root — same order as the Python
+                # resolver (_resolve_lib_config_path): the library-manager
+                # layout <root>/<tech>/<TAG>/ first, then the pre-tech-
+                # grouping layout <root>/<TAG>/.
                 if {$_lib_tag_root ne ""} {
-                    set _candidate "$_lib_tag_root/$_lib_tag/lib_config.tcl"
-                    if {[file exists $_candidate]} { set _lc $_candidate }
+                    foreach _candidate [list \
+                            "$_lib_tag_root/$tech_name/$_lib_tag/lib_config.tcl" \
+                            "$_lib_tag_root/$_lib_tag/lib_config.tcl"] {
+                        if {[file exists $_candidate]} { set _lc $_candidate; break }
+                    }
                 }
                 # Legacy fallback — ONLY when lib_tag_root is unset.
                 # If lib_tag_root is set (even to a missing path on disk),
@@ -614,7 +629,8 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
                         puts "       framework tree and was REJECTED (see earlier ERROR above)."
                         puts "       Fix the misconfigured source and re-run."
                     } elseif {$_lib_tag_root ne ""} {
-                        puts "       Searched: $_lib_tag_root/$_lib_tag/lib_config.tcl"
+                        puts "       Searched: $_lib_tag_root/$tech_name/$_lib_tag/lib_config.tcl"
+                        puts "                 $_lib_tag_root/$_lib_tag/lib_config.tcl"
                         puts "       (lib_tag_root is set, so in-tree legacy is NOT consulted.)"
                     } else {
                         puts "       lib_tag_root is unset. In-tree legacy locations also tried."
@@ -657,6 +673,12 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
             foreach _mmmc_config $_mmmc_candidates {
                 if {[file exists $_mmmc_config]} {
                     lappend config_files [list "mmmc_config" "$_mmmc_config"]
+                    # Per-node setup/hold scenario assignments live next to
+                    # mmmc_config.tcl (same file the config resolver sources).
+                    set _mmmc_ns "[file dirname $_mmmc_config]/mmmc_node_scenarios.tcl"
+                    if {[file exists $_mmmc_ns]} {
+                        lappend config_files [list "mmmc_node_scenarios" "$_mmmc_ns"]
+                    }
                     break
                 }
             }
@@ -998,26 +1020,7 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
         # wrong for synopsys tools (fc, pt, genus -> cadence, fm -> synopsys, etc.).
         # Build a tool→vendor map covering all tools the framework supports.
         set tool_name [get_tool_name $run_dir]
-        # Tool→vendor map (kept in sync with cmds/<FLOW>/<vendor>/<tool>/ layout).
-        array set _tool_vendor {
-            fc            synopsys
-            pt            synopsys
-            fm            synopsys
-            formality     synopsys
-            icv           synopsys
-            redhawk       synopsys
-            vc_lp         synopsys
-            power_compiler synopsys
-            innovus       cadence
-            genus         cadence
-            tempus        cadence
-            voltus        cadence
-            joules        cadence
-            conformal     cadence
-            conformal_lp  cadence
-            calibre       mentor
-        }
-        set tool_vendor [expr {[info exists _tool_vendor($tool_name)] ? $_tool_vendor($tool_name) : "synopsys"}]
+        set tool_vendor [vendor_for_tool $tool_name]
         lappend lines "# Load tool-specific command file with all flow_proc hooks applied"
         lappend lines "set tool_name \"$tool_name\""
         lappend lines "set tool_vendor \"$tool_vendor\""
@@ -1124,6 +1127,15 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
             }
         }
 
+        # Node-config dir + user_config, for the tool-overlay reload below.
+        set _overlay_node_dir ""
+        set _overlay_user_cfg ""
+        foreach config_entry $main_configs {
+            lassign $config_entry label file_path
+            if {[string match "node_config_*" $label]} { set _overlay_node_dir [file dirname $file_path] }
+            if {$label eq "user_config"} { set _overlay_user_cfg $file_path }
+        }
+
         # 1. SOURCE main configuration files (efficient)
         lappend lines "# ═══════════════════════════════════════════════════════════════════════════════"
         lappend lines "# MAIN CONFIGURATION FILES (SOURCED)"
@@ -1143,6 +1155,17 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
             lappend lines "} else {"
             lappend lines "    puts \"WARNING: $label not found: $versioned_path\""
             lappend lines "}"
+            lappend lines ""
+        }
+
+        # Tool-overlay reload: a tool chosen in user_config gets its own
+        # <FLOW>_<tool>_config.tcl (the node config loaded the default one).
+        if {$_overlay_node_dir ne ""} {
+            set _ov_node_dir [convert_to_versioned_path $_overlay_node_dir $flow_dir $run_dir]
+            set _ov_user_cfg [convert_to_versioned_path $_overlay_user_cfg $flow_dir $run_dir]
+            lappend lines "# Tool-overlay reload for a user_config-selected tool"
+            lappend lines "source \"\$::env(FLOW_DIR)/global/utils/utilities/\$::env(UTILITIES_VERSION)/tool_overlay.tcl\""
+            lappend lines "cbflow_reload_tool_overlay $flow_type \"$_ov_node_dir\" \"$_ov_user_cfg\""
             lappend lines ""
         }
 
@@ -1237,13 +1260,13 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
         lappend lines "        }"
         lappend lines "    }"
         lappend lines ""
-        lappend lines "    # RC parasitic flat aliases"
-        lappend lines "    foreach _corner {rc_max rc_typ rc_min rc_max_cworst} {"
-        lappend lines "        foreach _fmt {tluplus nxtgrd qrc} {"
-        lappend lines "            if {\[info exists tech(rcx,\$_ms,\$_corner,\$_fmt)\]} {"
-        lappend lines "                set tech(rcx,\$_corner,\$_fmt) \$tech(rcx,\$_ms,\$_corner,\$_fmt)"
-        lappend lines "            }"
-        lappend lines "        }"
+        lappend lines "    # RC parasitic flat aliases: tech(rcx,<corner>,<fmt>) for EVERY"
+        lappend lines "    # tech(rcx,<active stack>,<corner>,<fmt>) the tech declares — any"
+        lappend lines "    # corner name (rc_max, wcrcworst, …) and any format (tluplus, qrc,"
+        lappend lines "    # nxtgrd, openrcx, …). No fixed corner list."
+        lappend lines "    foreach _rcx_key \[array names tech \"rcx,\$_ms,*,*\"\] {"
+        lappend lines "        lassign \[split \$_rcx_key ,\] _ _ _corner _fmt"
+        lappend lines "        set tech(rcx,\$_corner,\$_fmt) \$tech(\$_rcx_key)"
         lappend lines "    }"
         lappend lines "}"
         lappend lines ""

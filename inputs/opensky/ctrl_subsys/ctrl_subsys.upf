@@ -1,0 +1,46 @@
+# =============================================================================
+# ctrl_subsys (DL2) — power intent (IEEE 1801-2.1)
+#   PD_CTRL   always-on, primary VPWR/VGND (this block's logic + isolation cells)
+#   PD_GCD   u_gcd (gcd, DL3 hard macro), switched supply VPWR_GCD
+# Isolation: every PD_GCD output is clamped to 0 in the always-on parent by the
+# pre-placed lpflow_inputiso0p cells u_iso_gcd/g_iso[*].u_iso, enabled by gcd_iso.
+# Feedthrough rail: VPWR_MAC crosses this block on its met5 straps (chip rail
+# cycle project(power,rail_nets)); nothing inside connects to it.
+# =============================================================================
+upf_version 2.1
+set_scope .
+
+create_power_domain PD_CTRL -include_scope
+load_upf [file join [file dirname [info script]] ../gcd/gcd.upf] -scope u_gcd
+create_power_domain PD_GCD -elements {u_gcd}
+
+create_supply_port VPWR      -direction in
+create_supply_port VPWR_GCD -direction in
+create_supply_port VGND      -direction in
+create_supply_port VPWR_MAC -direction inout    ;# feedthrough rail
+create_supply_net  VPWR
+create_supply_net  VPWR_GCD
+create_supply_net  VGND
+create_supply_net  VPWR_MAC
+connect_supply_net VPWR      -ports {VPWR}
+connect_supply_net VPWR_GCD -ports {VPWR_GCD u_gcd/VPWR}
+connect_supply_net VPWR_MAC -ports {VPWR_MAC}
+connect_supply_net VGND      -ports {VGND u_gcd/VGND}
+
+set_domain_supply_net PD_CTRL -primary_power_net VPWR      -primary_ground_net VGND
+set_domain_supply_net PD_GCD -primary_power_net VPWR_GCD -primary_ground_net VGND
+
+set_isolation iso_GCD -domain PD_GCD -applies_to outputs \
+    -isolation_power_net VPWR -isolation_ground_net VGND \
+    -clamp_value 0 -isolation_signal gcd_iso -isolation_sense high \
+    -location parent
+use_interface_cell iso_GCD_cells -domain PD_GCD -strategy iso_GCD \
+    -lib_cells {sky130_fd_sc_hd__lpflow_inputiso0p_1}
+
+add_port_state VPWR      -state {ON 1.80}
+add_port_state VPWR_GCD -state {ON 1.80} -state {OFF off}
+add_port_state VGND      -state {GND 0.00}
+
+create_pst pst_ctrl_subsys -supplies {VPWR VPWR_GCD VGND}
+add_pst_state RUN        -pst pst_ctrl_subsys -state {ON ON  GND}
+add_pst_state GCD_OFF    -pst pst_ctrl_subsys -state {ON OFF GND}

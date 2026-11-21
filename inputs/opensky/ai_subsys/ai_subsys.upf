@@ -1,0 +1,46 @@
+# =============================================================================
+# ai_subsys (DL2) — power intent (IEEE 1801-2.1)
+#   PD_AI   always-on, primary VPWR/VGND (this block's logic + isolation cells)
+#   PD_MAC   u_mac_array (mac_array, DL3 hard macro), switched supply VPWR_MAC
+# Isolation: every PD_MAC output is clamped to 0 in the always-on parent by the
+# pre-placed lpflow_inputiso0p cells u_iso_mac/g_iso[*].u_iso, enabled by mac_iso.
+# Feedthrough rail: VPWR_GCD crosses this block on its met5 straps (chip rail
+# cycle project(power,rail_nets)); nothing inside connects to it.
+# =============================================================================
+upf_version 2.1
+set_scope .
+
+create_power_domain PD_AI -include_scope
+load_upf [file join [file dirname [info script]] ../mac_array/mac_array.upf] -scope u_mac_array
+create_power_domain PD_MAC -elements {u_mac_array}
+
+create_supply_port VPWR      -direction in
+create_supply_port VPWR_MAC -direction in
+create_supply_port VGND      -direction in
+create_supply_port VPWR_GCD -direction inout    ;# feedthrough rail
+create_supply_net  VPWR
+create_supply_net  VPWR_MAC
+create_supply_net  VGND
+create_supply_net  VPWR_GCD
+connect_supply_net VPWR      -ports {VPWR}
+connect_supply_net VPWR_MAC -ports {VPWR_MAC u_mac_array/VPWR}
+connect_supply_net VPWR_GCD -ports {VPWR_GCD}
+connect_supply_net VGND      -ports {VGND u_mac_array/VGND}
+
+set_domain_supply_net PD_AI -primary_power_net VPWR      -primary_ground_net VGND
+set_domain_supply_net PD_MAC -primary_power_net VPWR_MAC -primary_ground_net VGND
+
+set_isolation iso_MAC -domain PD_MAC -applies_to outputs \
+    -isolation_power_net VPWR -isolation_ground_net VGND \
+    -clamp_value 0 -isolation_signal mac_iso -isolation_sense high \
+    -location parent
+use_interface_cell iso_MAC_cells -domain PD_MAC -strategy iso_MAC \
+    -lib_cells {sky130_fd_sc_hd__lpflow_inputiso0p_1}
+
+add_port_state VPWR      -state {ON 1.80}
+add_port_state VPWR_MAC -state {ON 1.80} -state {OFF off}
+add_port_state VGND      -state {GND 0.00}
+
+create_pst pst_ai_subsys -supplies {VPWR VPWR_MAC VGND}
+add_pst_state RUN        -pst pst_ai_subsys -state {ON ON  GND}
+add_pst_state MAC_OFF    -pst pst_ai_subsys -state {ON OFF GND}

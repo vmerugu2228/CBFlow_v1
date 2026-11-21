@@ -93,6 +93,13 @@ def sqlite_connect(db_path: str) -> sqlite3.Connection:
 
 RACE_DB_POINTER_FILE = '.race_db_pointer'
 
+# Job statuses that satisfy downstream dependencies. The single definition:
+# race_engine (scheduling), status_provider and run_cmd (status / list-nodes
+# displays) all read this, so "done" means the same thing everywhere.
+COMPLETED_STATES = frozenset((
+    'DONE', 'BYPASSED', 'FORCE_VALIDATED', 'BYPASSED_BY_DECISION',
+))
+
 
 def find_race_db_from_run_dir(run_dir: str) -> Optional[str]:
     """Locate the RACE DB for a run directory.

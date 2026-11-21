@@ -1070,22 +1070,33 @@ class RaceDashboard:
         except Exception as e:
             return {'error': str(e), 'scenarios': [], 'nodes': {}, 'sets': {}}
 
-        # Build scenarios from resolved analysis_view_names
+        # Scenario sets first — a view's setup/hold type is whatever the
+        # engineer declared in mmmc_scenario_sets, never inferred from the
+        # process corner.
+        _set_members = {
+            k.split(',', 1)[1]: set(v.split())
+            for k, v in cfg.items() if k.startswith('mmmc_scenario_set,')}
+        _setup = _set_members.get('setup', set())
+        _hold = _set_members.get('hold', set())
+
+        # Build scenarios from the resolver's per-view fields
+        # (`analysis_view,<name>` = corner mode voltage temperature rc_corner).
+        # Fields are not parsed out of the name: rc corners such as rc_max
+        # contain underscores.
         all_scenarios = []
         view_names = (_cbc.optional(cfg, 'analysis_view_names') or '').split()
         for name in view_names:
-            # Parse scenario name: <mode>_<corner>_<voltage>_<rc>_<temperature>
-            parts = name.split('_')
-            if len(parts) >= 5:
-                mode = parts[0]
-                corner = parts[1]
-                voltage = parts[2]
-                temp = parts[-1]
-                atype = 'setup' if corner == 'ss' else ('hold' if corner == 'ff' else 'setup_hold')
-                all_scenarios.append({
-                    'name': name, 'corner': corner, 'mode': mode,
-                    'voltage': voltage, 'temp': temp, 'type': atype,
-                })
+            fields = (cfg.get(f'analysis_view,{name}') or '').split()
+            if len(fields) != 5:
+                continue
+            corner, mode, voltage, temp, rc = fields
+            in_s, in_h = name in _setup, name in _hold
+            atype = ('setup_hold' if in_s and in_h else
+                     'setup' if in_s else 'hold' if in_h else '')
+            all_scenarios.append({
+                'name': name, 'corner': corner, 'mode': mode,
+                'voltage': voltage, 'temp': temp, 'rc': rc, 'type': atype,
+            })
 
         # Build scenario sets from resolved config
         sets = {}
@@ -1094,33 +1105,38 @@ class RaceDashboard:
                 set_name = key.split(',', 1)[1]
                 sets[set_name] = {'scenarios': val.split(), 'description': set_name}
 
-        # Parse per-node assignments from mmmc_config (node → setup/hold)
+        # Per-node setup/hold assignments, exported by the resolver from
+        # global/config/project/<p>/<v>/mmmc_node_scenarios.tcl
+        # (`mmmc_node,<node>,<setup|hold>` keys).
         nodes = {}
-        ver = env.get('FLOW_CONFIG_VERSION', 'v1.0.0')
-        mmmc_path = os.path.join(self.flow_dir, 'config', 'flow', ver, 'mmmc_config.tcl')
-        if os.path.exists(mmmc_path):
-            with open(mmmc_path) as f:
-                content = f.read()
-            for m in re.finditer(r'(\w+)\s*\{\s*setup\s*\{([^}]*)\}\s*hold\s*\{([^}]*)\}', content):
-                node = m.group(1)
-                if node in sets:
-                    continue
-                nodes[node] = {'setup': m.group(2).split(), 'hold': m.group(3).split()}
+        for key, val in cfg.items():
+            if not key.startswith('mmmc_node,'):
+                continue
+            _parts = key.split(',')
+            if len(_parts) != 3 or _parts[2] not in ('setup', 'hold'):
+                continue
+            nodes.setdefault(_parts[1], {'setup': [], 'hold': []})[_parts[2]] = val.split()
 
         # Add flow_type and current dynamic subnodes from DB (for STA)
         flow_type = env.get('FLOW_TYPE', env.get('CBFLOW_FLOW_TYPE', ''))
         active_subnodes = {}
         try:
             import sqlite3 as _sql
-            for db_file in sorted(Path(self.run_dir).glob('.race_*.db')):
-                conn = _sql.connect(str(db_file))
-                for row in conn.execute("SELECT DISTINCT stage, subnode FROM jobs WHERE subnode NOT IN ('_sentinel','setup','run','validate','finish') AND stage LIKE '%timing%' OR stage LIKE '%extraction%'"):
-                    stage = row[0]
-                    if stage not in active_subnodes:
-                        active_subnodes[stage] = []
-                    active_subnodes[stage].append(row[1])
-                conn.close()
-                break
+            from core.db import find_race_db_from_run_dir
+            db_file = find_race_db_from_run_dir(self.run_dir)
+            if db_file:
+                conn = _sql.connect(db_file)
+                try:
+                    # Dynamic fan-out of timing / extraction stages only;
+                    # the parentheses keep the static-subnode filter applied
+                    # to BOTH stage families.
+                    for row in conn.execute(
+                            "SELECT DISTINCT stage, subnode FROM jobs "
+                            "WHERE subnode NOT IN ('_sentinel','setup','run','validate','finish') "
+                            "AND (stage LIKE '%timing%' OR stage LIKE '%extraction%')"):
+                        active_subnodes.setdefault(row[0], []).append(row[1])
+                finally:
+                    conn.close()
         except Exception:
             pass
 
@@ -1431,6 +1447,8 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 result = self._action_force(body)
             elif path == '/api/action/forcevalidate':
                 result = self._action_forcevalidate(body)
+            elif path == '/api/action/release':
+                result = self._action_release(body)
             elif path == '/api/action/interactive':
                 result = self._action_interactive(body)
             elif path == '/api/action/save-mmmc':
@@ -1633,6 +1651,47 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         t = threading.Thread(target=run, daemon=True)
         t.start()
         return {'ok': True, 'message': f'Forcing: {", ".join(stages)}', 'async': True}
+
+    def _action_release(self, body):
+        """Release form: `cbflow run release --tag <tag>` from the workspace.
+
+        publish (bool, default False) is the ONLY way a GUI release reaches
+        SmartGrid: unchecked -> --no-publish. A run whose own release_data
+        stage already released (open-source flows) is not repackaged
+        (--from-run): the form only publishes it to the <tag> milestone.
+        """
+        self._check_run_ownership()
+        import re as _re
+        import subprocess
+        tag = str(body.get('tag', '')).strip()
+        if not tag or not _re.match(r'^[A-Za-z0-9_\-]+$', tag):
+            return {'ok': False, 'error': 'release tag required (letters, digits, _ -)'}
+        publish = bool(body.get('publish', False))
+        override = bool(body.get('override', False))
+        run_dir = self.dashboard.run_dir
+        workspace = os.path.dirname(os.path.abspath(run_dir))
+        flow_type = self.dashboard.flow_type or ''
+        manifest = os.path.join(run_dir, 'work', flow_type, 'release_data1', 'outputs', 'release.manifest')
+        cbflow = os.path.join(os.environ.get('CBFLOW_ROOT', os.environ.get('FLOW_DIR', '')), 'bin', 'cbflow')
+        if not os.path.exists(cbflow):
+            cbflow = 'cbflow'
+        cmd = [cbflow, 'run', 'release', '--tag', tag,
+               '--publish' if publish else '--no-publish']
+        if os.path.isfile(manifest):
+            cmd += ['--from-run', run_dir]
+        if override:
+            cmd.append('--override')
+        try:
+            proc = subprocess.run(cmd, cwd=workspace, capture_output=True, text=True, timeout=900)
+        except subprocess.TimeoutExpired:
+            return {'ok': False, 'error': 'release timed out (900 s)'}
+        # last meaningful lines, without the CLI banner (box-drawing chars)
+        tail = [l for l in (proc.stdout + proc.stderr).splitlines()
+                if l.strip() and not any(c in l for c in '\u2550\u2551\u2554\u2557\u255a\u255d\u2560\u2563\u2500')][-6:]
+        if proc.returncode != 0:
+            return {'ok': False, 'error': 'release failed: ' + ' | '.join(tail)}
+        msg = f"Released {tag}" + (" and published to SmartGrid" if publish else " (not published)")
+        return {'ok': True, 'message': msg, 'log': tail}
 
     def _action_interactive(self, body):
         """Launch interactive EDA tool session for a node.

@@ -20,9 +20,10 @@ if {[info commands create_scenario] ne ""} {
 }
 
 # ── Setup DMSA scenarios from MMMC config ──────────────────────────────────
-# Reads scenarios from popt(dmsa,scenarios) or falls back to analysis_views.
+# Reads scenarios from popt(dmsa,scenarios), a named scenario set, or the
+# union of mmmc_scenario_sets(setup) and (hold).
 # For each scenario:
-#   - create_scenario with setup/hold classification
+#   - create_scenario with setup/hold classification (from mmmc_scenario_sets)
 #   - generate a per-scenario worker script via dmsa_generate_worker
 #
 # In single-scenario mode: logs a warning and returns without action.
@@ -33,15 +34,23 @@ proc dmsa_setup_scenarios {} {
     set worker_dir "$run_dir/work/POPT/dmsa_workers"
     file mkdir $worker_dir
 
-    # Resolve scenario list: explicit config > scenario set > all analysis_views
+    # Resolve scenario list: explicit config > named scenario set > every
+    # view the engineer gave a setup or hold role. Analysis views are a
+    # full Cartesian (mode x corner x pvt x rc_corner), so "all views" is
+    # never the default — most of them have no timing role.
+    set _explicit false
     if {[info exists popt(dmsa,scenarios)]} {
         set scenarios $popt(dmsa,scenarios)
+        set _explicit true
     } elseif {[info exists popt(dmsa,scenario_set)] && [info exists mmmc_scenario_sets($popt(dmsa,scenario_set))]} {
         set scenarios $mmmc_scenario_sets($popt(dmsa,scenario_set))
-    } elseif {[array exists analysis_views]} {
-        set scenarios [lsort [array names analysis_views]]
+    } elseif {[info exists mmmc_scenario_sets(setup)] && [info exists mmmc_scenario_sets(hold)]} {
+        set scenarios [lsort -unique [concat $mmmc_scenario_sets(setup) $mmmc_scenario_sets(hold)]]
     } else {
-        handle_warning "DMSA: No scenarios resolved — running single-scenario"
+        set scenarios {}
+    }
+    if {[llength $scenarios] == 0} {
+        handle_warning "DMSA: No scenarios resolved (mmmc_scenario_sets setup/hold empty) — running single-scenario"
         return
     }
 
@@ -61,20 +70,20 @@ proc dmsa_setup_scenarios {} {
         }
         array set view $analysis_views($scenario_name)
 
-        # Determine setup/hold classification from analysis_type
-        set is_setup false
-        set is_hold  false
-        if {[info exists view(analysis_type)]} {
-            switch $view(analysis_type) {
-                "setup"      { set is_setup true }
-                "hold"       { set is_hold true }
-                "setup_hold" { set is_setup true; set is_hold true }
+        # Setup/hold classification comes from the engineer-declared
+        # mmmc_scenario_sets(setup)/(hold) — never inferred from the
+        # corner or the scenario name. A view with neither role cannot be
+        # timed: naming one in popt(dmsa,scenarios) is a config error; one
+        # that merely rides along in a named set (e.g. the power views in
+        # `signoff`) is skipped.
+        lassign [mmmc_scenario_role $scenario_name] is_setup is_hold
+        if {!$is_setup && !$is_hold} {
+            array unset view
+            if {$_explicit} {
+                handle_error "DMSA: popt(dmsa,scenarios) names '$scenario_name', which is in neither mmmc_scenario_sets(setup) nor mmmc_scenario_sets(hold) — add it to one of them in mmmc_config.tcl"
             }
-        } else {
-            # Default: classify from corner name
-            if {[string match "*ss*" $scenario_name]} { set is_setup true }
-            if {[string match "*ff*" $scenario_name]} { set is_hold true }
-            if {!$is_setup && !$is_hold} { set is_setup true; set is_hold true }
+            handle_warning "DMSA: '$scenario_name' has no setup/hold role in mmmc_scenario_sets — skipping"
+            continue
         }
 
         # PT DMSA: create_scenario

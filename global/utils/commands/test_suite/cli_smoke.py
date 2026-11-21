@@ -344,6 +344,7 @@ def _run_one(cbflow_bin: str, path: tuple, args: list, cwd: str,
         'health check failed',
         'not_validated',
         'no lib_config tags',
+        'library data not present',
     )
     hay = (msg + '\n' + full_out).lower()
     if any(p in hay for p in expected_patterns):

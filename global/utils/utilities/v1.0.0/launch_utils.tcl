@@ -9,6 +9,14 @@
 # Why: Cadence and Synopsys use different CLI flags. This is the single
 # source of truth — handlers never hardcode tool flags.
 proc _get_tool_flags {tool_name} {
+    # Config wins: `set lsf(tool_flags,<tool>) {<script_flag> <log_flag>}`
+    # (tool_launch_config.tcl). Lets a tool be added without editing this
+    # switch — e.g. the open-source tools, whose launcher (cbflow-oss)
+    # takes `<cmd_file> <log_file>` positionally and so sets {"" ""}.
+    global lsf
+    if {[info exists lsf(tool_flags,$tool_name)]} {
+        return $lsf(tool_flags,$tool_name)
+    }
     switch -glob $tool_name {
         "genus"       { return [list "-f" "-log"] }
         "innovus"     { return [list "-files" "-log"] }
@@ -53,7 +61,39 @@ proc generate_launch_wrapper {work_dir stage_name cmd_file tool_name {log_file "
         # Calibre: uses shell redirect for logging
         set launch_line "$tool_shell $cmd_file $log_flag $log_file"
     } else {
-        set launch_line "$tool_shell $script_flag $cmd_file $log_flag $log_file"
+        # Empty flags (lsf(tool_flags,<tool>) {"" ""}) collapse to
+        # "<tool_shell> <cmd_file> <log_file>".
+        set launch_line [join [concat $tool_shell \
+            [expr {$script_flag ne "" ? [list $script_flag] : {}}] [list $cmd_file] \
+            [expr {$log_flag ne "" ? [list $log_flag] : {}}] [list $log_file]] " "]
+    }
+
+    # Open-source tools run in a container via cbflow-oss: tell it which
+    # image to use and which host paths (PDK, lib tags, workarea) must be
+    # visible inside it at identical locations.
+    set oss_env ""
+    if {[string match "*cbflow-oss*" $tool_shell]} {
+        global project tech
+        set _mounts {}
+        foreach _p [list \
+                [expr {[info exists project(workarea_path)] ? $project(workarea_path) : ""}] \
+                [expr {[info exists project(lib_tag_root)] ? $project(lib_tag_root) : ""}] \
+                [expr {[info exists ::env(CBFLOW_LIB_TAG_ROOT)] ? $::env(CBFLOW_LIB_TAG_ROOT) : ""}] \
+                [expr {[info exists project(lib_root)] ? $project(lib_root) : ""}]] {
+            if {$_p ne "" && [lsearch -exact $_mounts $_p] < 0} { lappend _mounts $_p }
+        }
+        if {[llength $_mounts]} {
+            append oss_env "setenv CBFLOW_OSS_MOUNTS \"[join $_mounts :]\"\n"
+        }
+        if {[info exists tech(pdk_root)] && $tech(pdk_root) ne ""} {
+            append oss_env "setenv CBFLOW_OSS_PDK_ROOT \"$tech(pdk_root)\"\n"
+        }
+        if {[info exists tech(pdk)] && $tech(pdk) ne ""} {
+            append oss_env "setenv PDK \"$tech(pdk)\"\n"
+        }
+        if {[info exists lsf(oss,image)] && $lsf(oss,image) ne ""} {
+            append oss_env "setenv CBFLOW_OSS_IMAGE \"$lsf(oss,image)\"\n"
+        }
     }
 
     # Write wrapper atomically. Pre-fix, open-w + series of puts was
@@ -67,6 +107,7 @@ proc generate_launch_wrapper {work_dir stage_name cmd_file tool_name {log_file "
     append wrapper_content "# CBflow tool launch wrapper — $stage_name\n"
     append wrapper_content "# Generated: [clock format [clock seconds]]\n"
     if {$module_cmd ne ""} { append wrapper_content "$module_cmd\n" }
+    append wrapper_content $oss_env
     append wrapper_content "$launch_line\n"
     atomic_write $wrapper_path $wrapper_content
     catch { file attributes $wrapper_path -permissions rwxr-xr-x }
@@ -103,6 +144,12 @@ proc submit_job {wrapper flow_type stage_name node_name work_dir} {
     global lsf
 
     lassign [determine_launch_mode] use_lsf use_xterm
+
+    # Window title: <run>::<stage> — the run directory name (unique across
+    # flows, e.g. P0_run_PNR_oss_r1) and the node (place1, place2 for branches).
+    set _run_name [expr {[info exists ::env(CBFLOW_RUN_DIR)] && $::env(CBFLOW_RUN_DIR) ne ""
+                         ? [file tail $::env(CBFLOW_RUN_DIR)] : $flow_type}]
+    set xterm_title "${_run_name}::${node_name}"
 
     # Resolve xterm settings only if needed
     set xterm_cmd "xterm"
@@ -219,7 +266,7 @@ proc submit_job {wrapper flow_type stage_name node_name work_dir} {
                 exit 1
             }
             puts "INFO: Submitting via LSF (xterm): $bsub_cmd $xterm_cmd ..."
-            if {[catch {exec {*}$bsub_cmd $xterm_cmd -geometry $xterm_geom -title "CBflow $flow_type $stage_name" -e $wrapper} result]} {
+            if {[catch {exec {*}$bsub_cmd $xterm_cmd -geometry $xterm_geom -title $xterm_title -e $wrapper} result]} {
                 puts "ERROR: LSF submit failed: $result"; exit 1
             }
         } else {
@@ -273,7 +320,7 @@ proc submit_job {wrapper flow_type stage_name node_name work_dir} {
         set _rc_file "$work_dir/.launch_rc_${stage_name}"
         catch { file delete -- $_rc_file }
         set _rc_wrap "/bin/sh -c \"$wrapper; echo \\\$? > $_rc_file\""
-        puts "INFO: Launching in xterm: $xterm_cmd -geometry $xterm_geom -e <rc-capturing sh wrapper>"
+        puts "INFO: Launching in xterm '$xterm_title': $xterm_cmd -geometry $xterm_geom -e <rc-capturing sh wrapper>"
         # xterm commonly writes font / locale / charset conversion
         # warnings to stderr (`Warning: Missing charsets in String to
         # FontSet conversion`) even on successful launch. Tcl `exec`
@@ -281,7 +328,7 @@ proc submit_job {wrapper flow_type stage_name node_name work_dir} {
         # harmless warnings surface as 'ERROR: xterm launch failed'.
         # The real exit code of the EDA tool is captured via $_rc_file
         # just below, so merging stderr into stdout is safe.
-        if {[catch {exec $xterm_cmd -geometry $xterm_geom -title "CBflow $flow_type $stage_name" -e sh -c "$wrapper; echo \$? > $_rc_file" 2>@1} result]} {
+        if {[catch {exec $xterm_cmd -geometry $xterm_geom -title $xterm_title -e sh -c "$wrapper; echo \$? > $_rc_file" 2>@1} result]} {
             puts "ERROR: xterm launch failed: $result"; exit 1
         }
         # Read captured rc. Missing rc file → xterm never ran the

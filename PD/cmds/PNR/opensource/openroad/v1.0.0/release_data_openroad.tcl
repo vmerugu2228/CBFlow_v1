@@ -1,0 +1,71 @@
+#!/usr/bin/env tclsh
+# ═══════════════════════════════════════════════════════════════════════════════
+# CBflow PNR — release_data (opensource / tclsh)
+# Publish the block to <release,path>/<phase>/<design>/<tag>/: the views a
+# parent block consumes (lef, gds, netlist, lib per lib set) + DEF/SPEF/SDC/CDL/db
+# and signoff reports.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+set run_dir $::env(CBFLOW_RUN_DIR)
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+
+set FLOW_TYPE "PNR"
+set STAGE_NAME "release_data"
+set NODE_NAME "release_data1"
+
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/oss_utils.tcl"
+
+set design_name [oss_get flow design_name]
+set blocks      [hier_children $design_name]
+
+if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
+set ::flow::exec_mode "auto"
+
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
+
+flow_proc publish {
+    global design_name project
+    set _dir [::CBFlow::Release::init $::FLOW_TYPE $design_name $::run_dir [oss_get project release,phase]]
+    set _so "$::run_dir/work/$::FLOW_TYPE/signoff1/outputs"
+    set _pr "$::run_dir/work/$::FLOW_TYPE/pro1/outputs"
+    ::CBFlow::Release::copy_file [oss_node_output export_data1 final.gds] gds     ${design_name}.gds
+    ::CBFlow::Release::copy_file "$_so/final.lef"                       lef     ${design_name}.lef
+    ::CBFlow::Release::copy_file "$_so/final.v"                         netlist ${design_name}.v
+    ::CBFlow::Release::copy_file "$_so/final.lvs.v"                     netlist ${design_name}.lvs.v
+    ::CBFlow::Release::copy_file "$_so/final.cdl"                       netlist ${design_name}.cdl
+    ::CBFlow::Release::copy_file "$_so/final.def"                       def     ${design_name}.def
+    ::CBFlow::Release::copy_file "$_so/final.sdc"                       sdc     ${design_name}.sdc
+    ::CBFlow::Release::copy_file "$_so/final.odb"                       db      ${design_name}.odb
+    foreach _lib [glob -nocomplain "$_so/final__*.lib"] {
+        regsub {^final__} [file tail $_lib] "${design_name}__" _name
+        ::CBFlow::Release::copy_file $_lib lib $_name
+    }
+    foreach _spef [glob -nocomplain "$_pr/final_*.spef"] {
+        regsub {^final_} [file tail $_spef] "${design_name}_" _name
+        ::CBFlow::Release::copy_file $_spef spef $_name
+    }
+    foreach _n {init_design1 place1 cts1 cts_opt1 route1 pro1 signoff1} {
+        ::CBFlow::Release::copy_glob "$::run_dir/work/$::FLOW_TYPE/$_n/reports/*.rpt" reports
+        ::CBFlow::Release::copy_glob "$::run_dir/work/$::FLOW_TYPE/$_n/reports/*_qor.tcl" reports
+    }
+    ::CBFlow::Release::generate_manifest
+    ::CBFlow::Release::stamp_complete
+    set _fh [open [oss_stage_out release.manifest] w]
+    puts $_fh "release_dir $_dir"
+    puts $_fh "design $design_name"
+    puts $_fh "level [hier_level $design_name]"
+    # Exit milestone this release fills in SmartGrid (published by
+    # `cbflow run all` on the host after the run passes).
+    if {[info exists ::pnr(smartgrid,milestone)] && $::pnr(smartgrid,milestone) ne ""} {
+        puts $_fh "milestone $::pnr(smartgrid,milestone)"
+    }
+    close $_fh
+    handle_info "Released $design_name -> $_dir"
+}
+
+flow_exec_all
+exit

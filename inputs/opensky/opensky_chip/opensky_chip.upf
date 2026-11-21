@@ -1,0 +1,42 @@
+# =============================================================================
+# opensky_chip (DL1) — full-chip power intent (IEEE 1801-2.1)
+#   PD_TOP   always-on: chip glue, ctrl_subsys + ai_subsys logic   VPWR
+#   PD_GCD   u_ctrl_subsys/u_gcd       (gcd, DL3)                  VPWR_GCD
+#   PD_MAC   u_ai_subsys/u_mac_array   (mac_array, DL3)            VPWR_MAC
+# VPWR_GCD / VPWR_MAC are chip supply pins switched off-chip on request of
+# gcd_pwr_en / mac_pwr_en (ctrl_subsys PWR_CTRL). Isolation lives in each DL2
+# (iso_GCD, iso_MAC) — loaded with the subsystem UPF below. Each DL2 also
+# carries the other's switched rail as a feedthrough (met5 rail cycle).
+# =============================================================================
+upf_version 2.1
+set_scope .
+
+create_power_domain PD_TOP -include_scope
+load_upf [file join [file dirname [info script]] ../ctrl_subsys/ctrl_subsys.upf] -scope u_ctrl_subsys
+load_upf [file join [file dirname [info script]] ../ai_subsys/ai_subsys.upf]     -scope u_ai_subsys
+
+create_supply_port VPWR     -direction in
+create_supply_port VPWR_GCD -direction in
+create_supply_port VPWR_MAC -direction in
+create_supply_port VGND     -direction in
+create_supply_net  VPWR
+create_supply_net  VPWR_GCD
+create_supply_net  VPWR_MAC
+create_supply_net  VGND
+connect_supply_net VPWR     -ports {VPWR u_ctrl_subsys/VPWR u_ai_subsys/VPWR}
+connect_supply_net VPWR_GCD -ports {VPWR_GCD u_ctrl_subsys/VPWR_GCD u_ai_subsys/VPWR_GCD}
+connect_supply_net VPWR_MAC -ports {VPWR_MAC u_ai_subsys/VPWR_MAC u_ctrl_subsys/VPWR_MAC}
+connect_supply_net VGND     -ports {VGND u_ctrl_subsys/VGND u_ai_subsys/VGND}
+
+set_domain_supply_net PD_TOP -primary_power_net VPWR -primary_ground_net VGND
+
+add_port_state VPWR     -state {ON 1.80}
+add_port_state VPWR_GCD -state {ON 1.80} -state {OFF off}
+add_port_state VPWR_MAC -state {ON 1.80} -state {OFF off}
+add_port_state VGND     -state {GND 0.00}
+
+create_pst pst_chip -supplies {VPWR VPWR_GCD VPWR_MAC VGND}
+add_pst_state ALL_ON   -pst pst_chip -state {ON ON  ON  GND}
+add_pst_state GCD_OFF  -pst pst_chip -state {ON OFF ON  GND}
+add_pst_state MAC_OFF  -pst pst_chip -state {ON ON  OFF GND}
+add_pst_state BOTH_OFF -pst pst_chip -state {ON OFF OFF GND}

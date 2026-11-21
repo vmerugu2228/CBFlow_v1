@@ -20,7 +20,22 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 CBFLOW_ROOT = SCRIPT_DIR.parent.parent
 CBFLOW_CORE = CBFLOW_ROOT / "PD"                   # PD/ (PD discipline root)
+CBFLOW_GLOBAL = CBFLOW_ROOT / "global"             # cross-discipline layer
 COMMANDS_DIR = CBFLOW_CORE / "utils" / "commands"
+# Post cbflow_global refactor the shared Python commands, Tcl utilities,
+# generators, tech configs and releases live under global/; PD keeps its
+# discipline-owned tools (library/mmmc managers, checklist, …). Every
+# lookup below checks the global location first, then PD.
+GLOBAL_COMMANDS_DIR = CBFLOW_GLOBAL / "utils" / "commands"
+COMMAND_DIRS = [GLOBAL_COMMANDS_DIR, COMMANDS_DIR]
+
+
+def _find_command(filename):
+    """Path of a Python command module in global/ or PD/, or None."""
+    for d in COMMAND_DIRS:
+        if (d / filename).exists():
+            return d / filename
+    return None
 
 VERBOSE = "--verbose" in sys.argv or "-v" in sys.argv
 
@@ -209,8 +224,8 @@ def check_python_modules():
 
     found = 0
     for filename, desc in expected:
-        p = COMMANDS_DIR / filename
-        if p.exists():
+        p = _find_command(filename)
+        if p is not None:
             found += 1
             if VERBOSE:
                 ok(f"{filename:<30s} {desc}")
@@ -221,11 +236,15 @@ def check_python_modules():
         ok(f"{found}/{len(expected)} Python command modules present")
         if found < len(expected):
             for filename, desc in expected:
-                if not (COMMANDS_DIR / filename).exists():
+                if _find_command(filename) is None:
                     fail(f"  Missing: {filename} — {desc}")
 
-    # Check cross-module imports work — tests ALL command modules
-    sys.path.insert(0, str(COMMANDS_DIR))
+    # Check cross-module imports work — tests ALL command modules.
+    # Same search path the launchers set: global commands + global utils
+    # (core.*), then PD commands.
+    for _d in (COMMANDS_DIR, CBFLOW_GLOBAL / "utils", GLOBAL_COMMANDS_DIR):
+        if str(_d) not in sys.path:
+            sys.path.insert(0, str(_d))
     critical_imports = [
         ("logging_config", "Logging config"),
         ("tcl_config_parser", "Config parser"),
@@ -277,9 +296,9 @@ def check_python_modules():
 # 5. TCL Utilities
 # ═══════════════════════════════════════════════════════════════════════════════
 def check_tcl_utilities():
-    section("5. TCL Utilities (utils/utilities/v1.0.0/)")
+    section("5. TCL Utilities (global/utils/utilities/v1.0.0/)")
 
-    tcl_dir = CBFLOW_CORE / "utils" / "utilities" / "v1.0.0"
+    tcl_dir = CBFLOW_GLOBAL / "utils" / "utilities" / "v1.0.0"
     expected = [
         "utils.tcl", "error_utils.tcl", "config_loader.tcl",
         "directory_utils.tcl", "display_utils.tcl", "flow_init.tcl",
@@ -288,14 +307,14 @@ def check_tcl_utilities():
         if (tcl_dir / f).exists():
             ok(f) if VERBOSE else None
         else:
-            fail(f"{f} — not found in utils/utilities/v1.0.0/")
+            fail(f"{f} — not found in global/utils/utilities/v1.0.0/")
 
     if not VERBOSE:
         found = sum(1 for f in expected if (tcl_dir / f).exists())
         ok(f"{found}/{len(expected)} core TCL utilities present")
 
     # Generation scripts
-    gen_dir = CBFLOW_CORE / "utils" / "generation" / "v1.0.0"
+    gen_dir = CBFLOW_GLOBAL / "utils" / "generation" / "v1.0.0"
     for f in ["generate_setup.tcl", "generate_config.tcl", "generate_inputs.tcl"]:
         if (gen_dir / f).exists():
             ok(f"generation/{f}") if VERBOSE else None
@@ -341,18 +360,18 @@ def check_configs():
     if not VERBOSE:
         ok(f"{found_nodes}/{len(expected_nodes)} node configs present")
 
-    # Tech configs
-    tech_dir = config_root / "tech"
+    # Tech configs (one merged tech_config.tcl per node under global/)
+    tech_dir = CBFLOW_GLOBAL / "config" / "tech"
     if tech_dir.exists():
         tech_nodes = [d.name for d in tech_dir.iterdir() if d.is_dir()]
         for tn in tech_nodes:
             tc = tech_dir / tn / "v1.0.0" / "tech_config.tcl"
             if tc.exists():
-                ok(f"tech/{tn}/v1.0.0/tech_config.tcl")
+                ok(f"global/config/tech/{tn}/v1.0.0/tech_config.tcl")
             else:
-                warn(f"tech/{tn}/v1.0.0/tech_config.tcl — not found")
+                warn(f"global/config/tech/{tn}/v1.0.0/tech_config.tcl — not found")
     else:
-        fail("config/tech/ directory not found")
+        fail("global/config/tech/ directory not found")
 
     # Project configs
     proj_dir = config_root / "project"
@@ -362,22 +381,22 @@ def check_configs():
     else:
         fail("config/project/ directory not found")
 
-    # Releases
-    rel_dir = CBFLOW_CORE / "releases"
+    # Releases (global/releases/<ver>/MANIFEST.json)
+    rel_dir = CBFLOW_GLOBAL / "releases"
     if rel_dir.exists():
         releases = sorted([d.name for d in rel_dir.iterdir()
                           if d.is_dir() and d.name.startswith("v")])
         ok(f"Releases: {', '.join(releases)}")
         # Check manifest
         for r in releases:
-            mf = rel_dir / r / "manifest.json"
+            mf = rel_dir / r / "MANIFEST.json"
             if mf.exists():
                 if VERBOSE:
-                    ok(f"releases/{r}/manifest.json")
+                    ok(f"global/releases/{r}/MANIFEST.json")
             else:
-                warn(f"releases/{r}/manifest.json — missing")
+                warn(f"global/releases/{r}/MANIFEST.json — missing")
     else:
-        fail("releases/ directory not found")
+        fail("global/releases/ directory not found")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -456,14 +475,19 @@ def check_handlers():
     node_cfg_dir = CBFLOW_CORE / "config" / "flow" / "v1.0.0" / "node_configs"
     coverage_missing = []
     if node_cfg_dir.exists():
-        vendor_map = {
-            'fc': 'synopsys', 'pt': 'synopsys', 'formality': 'synopsys',
-            'vc_lp': 'synopsys', 'icv': 'synopsys', 'redhawk': 'synopsys',
-            'power_compiler': 'synopsys', 'icc2': 'synopsys',
-            'genus': 'cadence', 'innovus': 'cadence', 'tempus': 'cadence',
-            'conformal': 'cadence', 'conformal_lp': 'cadence', 'voltus': 'cadence',
-            'calibre': 'mentor',
-        }
+        def _vendor_for(flow_name, tool):
+            # Authoritative: `tool,vendor "<v>"` in the tool's own overlay,
+            # so a new vendor (e.g. opensource) needs no map entry.
+            ov = node_cfg_dir / f'{flow_name}_{tool}_config.tcl'
+            try:
+                vm = _re.search(r'tool,vendor\s+"(\w+)"', ov.read_text())
+                if vm:
+                    return vm.group(1)
+            except OSError:
+                pass
+            return {'genus': 'cadence', 'innovus': 'cadence', 'tempus': 'cadence',
+                    'conformal': 'cadence', 'conformal_lp': 'cadence',
+                    'voltus': 'cadence', 'calibre': 'mentor'}.get(tool, 'synopsys')
         for cfg_file in sorted(node_cfg_dir.iterdir()):
             if not cfg_file.name.endswith('_config.tcl') or cfg_file.name.count('_') > 1:
                 continue
@@ -484,7 +508,7 @@ def check_handlers():
                 if st_m:
                     tools = st_m.group(1).split()
             for tool in tools:
-                vendor = vendor_map.get(tool, 'synopsys')
+                vendor = _vendor_for(flow_name, tool)
                 handler_dir = cmds_dir / flow_name / vendor / tool / 'v1.0.0'
                 if not handler_dir.is_dir():
                     continue

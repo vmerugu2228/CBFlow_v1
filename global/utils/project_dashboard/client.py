@@ -1,6 +1,8 @@
 """Snapshot builder + client for CBflow-ProjectDashboard.
 
-Called by `cbflow run release --publish`. Builds the snapshot payload from
+Called by `cbflow run release` (best-effort by default: publishes only if
+the daemon is already running; `--publish` starts it, `--no-publish`
+skips). Builds the snapshot payload from
 the just-completed release (workspace runs + on-disk release dir + each
 run's RACE DB), then sends it to the project-dashboard daemon over its
 control socket.
@@ -136,12 +138,22 @@ def _load_timing_snapshot(release_dir):
     return None
 
 
-def publish(project, payload):
-    """Send the built payload to the daemon (starts it if not running).
+def publish(project, payload, start_daemon=True):
+    """Send the built payload to the daemon.
+
+    start_daemon=True starts the daemon if it is not running. With
+    start_daemon=False nothing is spawned: if no daemon is running the
+    reply is {'ok': False, 'no_daemon': True, ...} — used by the default
+    (best-effort) release publish so a release on a batch / CI host does
+    not leave a web daemon behind.
 
     Returns the JSON reply dict.
     """
-    lifecycle.ensure_daemon(project)
+    if start_daemon:
+        lifecycle.ensure_daemon(project)
+    elif not lifecycle.is_running(project):
+        return {'ok': False, 'no_daemon': True,
+                'error': f'SmartGrid daemon is not running for project {project}'}
     return lifecycle.send_publish(project, payload)
 
 

@@ -185,6 +185,28 @@ def send_register(run_dir):
                          'run_dir': os.path.realpath(os.path.abspath(run_dir))})
 
 
+def autoregister(run_dir, flow_type=None):
+    """Best-effort: register a run with its discipline's dashboard daemon so
+    it shows up without `cbflow run gui`. Only when that daemon is already
+    running — never starts one — and never raises. Returns the reply or None.
+
+    Called from `workspace create` and `cbflow run all|stage`."""
+    try:
+        discipline = 'PD'
+        if flow_type:
+            try:
+                from tcl_config_parser import get_flow_discipline
+                discipline = (get_flow_discipline(flow_type) or 'PD').upper()
+            except Exception:
+                discipline = 'PD'
+        state_paths.set_discipline(discipline)
+        if not is_running():
+            return None
+        return send_register(run_dir)
+    except Exception:
+        return None
+
+
 def send_deregister(run_or_id):
     if os.sep in run_or_id:
         return send_control({'op': 'deregister', 'run_dir': run_or_id})

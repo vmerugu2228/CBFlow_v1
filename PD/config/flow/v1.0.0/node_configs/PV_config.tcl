@@ -193,7 +193,7 @@ array set pv {
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 array set pv {
-    supported_tools {icv calibre}
+    supported_tools {icv calibre magic}
     default_tool    "icv"
 }
 

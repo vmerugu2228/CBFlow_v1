@@ -1,10 +1,10 @@
 #!/usr/bin/env tclsh
 # =============================================================================
 # Cadence MMMC View Definition — Auto-Generated
-# Generated: 2026-10-22 08:14 | Tech: gf_22nm | Project: bumblebee
-# Scenarios: 3 (from signoff node)
+# Generated: 2026-11-21 21:36 | Tech: gf_28nm | Project: bumblebee
+# Scenarios: 17 (mmmc_scenario_sets: setup + hold + signoff)
 # Sourced via: read_mmmc -file <this_file>
-# DO NOT EDIT — regenerate with: cbflow flow mmmc-manager generate
+# DO NOT EDIT — regenerate with: cbflow flow mmmc-manager generate-view-def --style flow
 # =============================================================================
 
 # Variables are referenced via the global namespace ($::) so the
@@ -14,42 +14,115 @@
 # Library Sets
 # -----------------------------------------------------------------------------
 
-create_library_set -name ff_0p88v_m40c_ls \
-    -timing $::tech($::project(track_variant),lib,ff_0p88v_m40c,timing)
+create_library_set -name ff_1p10v_125c_ls \
+    -timing $::tech($::project(track_variant),lib,ff_1p10v_125c,timing)
 
-create_library_set -name ss_0p72v_125c_ls \
-    -timing $::tech($::project(track_variant),lib,ss_0p72v_125c,timing)
+create_library_set -name ff_1p10v_25c_ls \
+    -timing $::tech($::project(track_variant),lib,ff_1p10v_25c,timing)
+
+create_library_set -name ff_1p10v_m40c_ls \
+    -timing $::tech($::project(track_variant),lib,ff_1p10v_m40c,timing)
+
+create_library_set -name ss_0p80v_125c_ls \
+    -timing $::tech($::project(track_variant),lib,ss_0p80v_125c,timing)
 
 create_library_set -name ss_0p80v_m40c_ls \
     -timing $::tech($::project(track_variant),lib,ss_0p80v_m40c,timing)
 
+create_library_set -name ss_0p90v_125c_ls \
+    -timing $::tech($::project(track_variant),lib,ss_0p90v_125c,timing)
+
+create_library_set -name ss_0p90v_m40c_ls \
+    -timing $::tech($::project(track_variant),lib,ss_0p90v_m40c,timing)
+
+create_library_set -name tt_0p90v_125c_ls \
+    -timing $::tech($::project(track_variant),lib,tt_0p90v_125c,timing)
+
+create_library_set -name tt_0p90v_25c_ls \
+    -timing $::tech($::project(track_variant),lib,tt_0p90v_25c,timing)
+
+create_library_set -name tt_0p90v_m40c_ls \
+    -timing $::tech($::project(track_variant),lib,tt_0p90v_m40c,timing)
+
 # -----------------------------------------------------------------------------
-# RC Corners
+# RC Corners (one per rc_corner x view temperature)
 # -----------------------------------------------------------------------------
 
-create_rc_corner -name rcmax \
+create_rc_corner -name rc_max_125c \
     -qrc_tech $::tech(rcx,rc_max,qrc) \
     -T 125
 
-create_rc_corner -name rcmin \
+create_rc_corner -name rc_max_m40c \
+    -qrc_tech $::tech(rcx,rc_max,qrc) \
+    -T -40
+
+create_rc_corner -name rc_min_125c \
     -qrc_tech $::tech(rcx,rc_min,qrc) \
+    -T 125
+
+create_rc_corner -name rc_min_25c \
+    -qrc_tech $::tech(rcx,rc_min,qrc) \
+    -T 25
+
+create_rc_corner -name rc_min_m40c \
+    -qrc_tech $::tech(rcx,rc_min,qrc) \
+    -T -40
+
+create_rc_corner -name rc_typ_125c \
+    -qrc_tech $::tech(rcx,rc_typ,qrc) \
+    -T 125
+
+create_rc_corner -name rc_typ_25c \
+    -qrc_tech $::tech(rcx,rc_typ,qrc) \
+    -T 25
+
+create_rc_corner -name rc_typ_m40c \
+    -qrc_tech $::tech(rcx,rc_typ,qrc) \
     -T -40
 
 # -----------------------------------------------------------------------------
 # Delay Corners
 # -----------------------------------------------------------------------------
 
-create_delay_corner -name ff_0p88v_rcmin_m40c_dc \
-    -library_set ff_0p88v_m40c_ls \
-    -rc_corner rcmin
+create_delay_corner -name ff_1p10v_rc_min_125c_dc \
+    -library_set ff_1p10v_125c_ls \
+    -rc_corner rc_min_125c
 
-create_delay_corner -name ss_0p72v_rcmax_125c_dc \
-    -library_set ss_0p72v_125c_ls \
-    -rc_corner rcmax
+create_delay_corner -name ff_1p10v_rc_min_25c_dc \
+    -library_set ff_1p10v_25c_ls \
+    -rc_corner rc_min_25c
 
-create_delay_corner -name ss_0p80v_rcmax_m40c_dc \
+create_delay_corner -name ff_1p10v_rc_min_m40c_dc \
+    -library_set ff_1p10v_m40c_ls \
+    -rc_corner rc_min_m40c
+
+create_delay_corner -name ss_0p80v_rc_max_125c_dc \
+    -library_set ss_0p80v_125c_ls \
+    -rc_corner rc_max_125c
+
+create_delay_corner -name ss_0p80v_rc_max_m40c_dc \
     -library_set ss_0p80v_m40c_ls \
-    -rc_corner rcmax
+    -rc_corner rc_max_m40c
+
+create_delay_corner -name ss_0p90v_rc_max_125c_dc \
+    -library_set ss_0p90v_125c_ls \
+    -rc_corner rc_max_125c
+
+create_delay_corner -name ss_0p90v_rc_max_m40c_dc \
+    -library_set ss_0p90v_m40c_ls \
+    -rc_corner rc_max_m40c
+
+create_delay_corner -name tt_0p90v_rc_typ_125c_dc \
+    -library_set tt_0p90v_125c_ls \
+    -rc_corner rc_typ_125c
+
+create_delay_corner -name tt_0p90v_rc_typ_25c_dc \
+    -library_set tt_0p90v_25c_ls \
+    -rc_corner rc_typ_25c
+
+create_delay_corner -name tt_0p90v_rc_typ_m40c_dc \
+    -library_set tt_0p90v_m40c_ls \
+    -rc_corner rc_typ_m40c
 
 # -----------------------------------------------------------------------------
 # Constraint Modes
@@ -62,27 +135,88 @@ if {![info exists ::operating_modes(func,constraint_file)] || $::operating_modes
 }
 create_constraint_mode -name func_cm -sdc_files [list [subst $::operating_modes(func,constraint_file)]]
 
+if {![info exists ::operating_modes(test,constraint_file)] || $::operating_modes(test,constraint_file) eq ""} {
+    error "MMMC: operating_modes(test,constraint_file) not set — create_constraint_mode requires -sdc_files (mode=test)"
+}
+create_constraint_mode -name test_cm -sdc_files [list [subst $::operating_modes(test,constraint_file)]]
+
 # -----------------------------------------------------------------------------
 # Analysis Views
 # -----------------------------------------------------------------------------
 
-create_analysis_view -name func_ff_0p88v_rcmin_m40c \
+create_analysis_view -name func_ff_1p10v_rc_min_125c \
     -constraint_mode func_cm \
-    -delay_corner ff_0p88v_rcmin_m40c_dc
+    -delay_corner ff_1p10v_rc_min_125c_dc
 
-create_analysis_view -name func_ss_0p72v_rcmax_125c \
+create_analysis_view -name func_ff_1p10v_rc_min_25c \
     -constraint_mode func_cm \
-    -delay_corner ss_0p72v_rcmax_125c_dc
+    -delay_corner ff_1p10v_rc_min_25c_dc
 
-create_analysis_view -name func_ss_0p80v_rcmax_m40c \
+create_analysis_view -name func_ff_1p10v_rc_min_m40c \
     -constraint_mode func_cm \
-    -delay_corner ss_0p80v_rcmax_m40c_dc
+    -delay_corner ff_1p10v_rc_min_m40c_dc
+
+create_analysis_view -name func_ss_0p80v_rc_max_125c \
+    -constraint_mode func_cm \
+    -delay_corner ss_0p80v_rc_max_125c_dc
+
+create_analysis_view -name func_ss_0p80v_rc_max_m40c \
+    -constraint_mode func_cm \
+    -delay_corner ss_0p80v_rc_max_m40c_dc
+
+create_analysis_view -name func_ss_0p90v_rc_max_125c \
+    -constraint_mode func_cm \
+    -delay_corner ss_0p90v_rc_max_125c_dc
+
+create_analysis_view -name func_ss_0p90v_rc_max_m40c \
+    -constraint_mode func_cm \
+    -delay_corner ss_0p90v_rc_max_m40c_dc
+
+create_analysis_view -name func_tt_0p90v_rc_typ_125c \
+    -constraint_mode func_cm \
+    -delay_corner tt_0p90v_rc_typ_125c_dc
+
+create_analysis_view -name func_tt_0p90v_rc_typ_25c \
+    -constraint_mode func_cm \
+    -delay_corner tt_0p90v_rc_typ_25c_dc
+
+create_analysis_view -name func_tt_0p90v_rc_typ_m40c \
+    -constraint_mode func_cm \
+    -delay_corner tt_0p90v_rc_typ_m40c_dc
+
+create_analysis_view -name test_ff_1p10v_rc_min_125c \
+    -constraint_mode test_cm \
+    -delay_corner ff_1p10v_rc_min_125c_dc
+
+create_analysis_view -name test_ff_1p10v_rc_min_25c \
+    -constraint_mode test_cm \
+    -delay_corner ff_1p10v_rc_min_25c_dc
+
+create_analysis_view -name test_ff_1p10v_rc_min_m40c \
+    -constraint_mode test_cm \
+    -delay_corner ff_1p10v_rc_min_m40c_dc
+
+create_analysis_view -name test_ss_0p80v_rc_max_125c \
+    -constraint_mode test_cm \
+    -delay_corner ss_0p80v_rc_max_125c_dc
+
+create_analysis_view -name test_ss_0p80v_rc_max_m40c \
+    -constraint_mode test_cm \
+    -delay_corner ss_0p80v_rc_max_m40c_dc
+
+create_analysis_view -name test_ss_0p90v_rc_max_125c \
+    -constraint_mode test_cm \
+    -delay_corner ss_0p90v_rc_max_125c_dc
+
+create_analysis_view -name test_ss_0p90v_rc_max_m40c \
+    -constraint_mode test_cm \
+    -delay_corner ss_0p90v_rc_max_m40c_dc
 
 # -----------------------------------------------------------------------------
-# Activate All Signoff Views
+# Activate Views (mmmc_scenario_sets setup / hold)
 # Command files will: set_analysis_view -setup {} -hold {} (deactivate all)
 # then activate only their node-specific scenarios
 # -----------------------------------------------------------------------------
 
-set_analysis_view -setup [list func_ss_0p72v_rcmax_125c func_ss_0p80v_rcmax_m40c] -hold [list func_ff_0p88v_rcmin_m40c]
+set_analysis_view -setup [list func_ss_0p80v_rc_max_125c func_ss_0p80v_rc_max_m40c func_ss_0p90v_rc_max_125c func_ss_0p90v_rc_max_m40c test_ss_0p80v_rc_max_125c test_ss_0p80v_rc_max_m40c test_ss_0p90v_rc_max_125c test_ss_0p90v_rc_max_m40c] -hold [list func_ff_1p10v_rc_min_125c func_ff_1p10v_rc_min_25c func_ff_1p10v_rc_min_m40c test_ff_1p10v_rc_min_125c test_ff_1p10v_rc_min_25c test_ff_1p10v_rc_min_m40c]
 

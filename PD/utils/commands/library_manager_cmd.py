@@ -7,7 +7,9 @@
 # ===============================================================================
 
 import argparse
+import glob
 import os
+import shutil
 import sys
 import re
 import json
@@ -96,9 +98,14 @@ class LibraryFile:
 
     @property
     def set_key(self) -> str:
-        """Library set key: corner_voltageV_tempC."""
-        v_str = f"{self.voltage:.2f}".replace('.', '')
-        return f"{self.corner}_{v_str}v_{self.temperature}c"
+        """Library set key in CBflow's canonical lib-set form — the same
+        `<corner>_<v>p<vv>v_<t>c` (`m` for negative temperatures) that
+        `generate` writes into tags and MMMC views reference as
+        lib_set_ref: ss_0p80v_125c, ss_1p76v_m40c."""
+        v_str = f"{self.voltage:.2f}".replace('.', 'p')
+        t = self.temperature
+        t_str = f"m{-t}" if t < 0 else str(t)
+        return f"{self.corner}_{v_str}v_{t_str}c"
 
     @property
     def voltage_str(self) -> str:
@@ -186,6 +193,48 @@ def _build_lib_patterns():
     )
 
 
+# Tech-declared corner regex (tech(lib_corner_regex)). Some PDKs name libs
+# in an order/format the built-in patterns can't parse — sky130:
+# `sky130_fd_sc_hd__ss_n40C_1v60.lib` (process, temperature, voltage;
+# `n40C`, `1v60`). A tech declares one regex with named groups
+# `corner`, `voltage`, `temp`; matches are normalised to CBflow's lib-set
+# form `<corner>_<v>p<vv>v_<t>c` (ss_1p60v_m40c). None → built-in patterns.
+_TECH_CORNER_RE = None
+
+
+def _norm_voltage_token(raw: str) -> str:
+    """'1v80' / '1.80' / '1p80' / '1p80v' -> '1p80v'."""
+    v = raw.strip().lower().rstrip('v')
+    v = re.sub(r'[v.]', 'p', v)
+    if 'p' not in v:
+        v += 'p0'
+    return v + 'v'
+
+
+def _norm_temp_token(raw: str) -> str:
+    """'025C' -> '25c', 'n40C' / '-40' / 'm40c' -> 'm40c'."""
+    t = raw.strip().lower().rstrip('c')
+    neg = t[:1] in ('n', 'm', '-')
+    if neg:
+        t = t[1:]
+    t = str(int(t)) if t.isdigit() else t
+    return ('m' if neg else '') + t + 'c'
+
+
+def _tech_corner_match(filename: str):
+    """(corner, norm_voltage, norm_temp) from tech(lib_corner_regex), or None."""
+    if _TECH_CORNER_RE is None:
+        return None
+    m = _TECH_CORNER_RE.search(filename)
+    if not m:
+        return None
+    try:
+        return (m.group('corner').lower(), _norm_voltage_token(m.group('voltage')),
+                _norm_temp_token(m.group('temp')))
+    except (IndexError, ValueError):
+        return None
+
+
 def _apply_tech_corners(tech_config_path):
     """Read tech(process_corners) from tech_config.tcl and swap the regex set.
 
@@ -195,13 +244,14 @@ def _apply_tech_corners(tech_config_path):
     sorting (in _corner_alternation) prevents a 3-letter corner like
     `fff` from being miscategorized as the embedded `ff` substring.
     """
-    global _CORNERS_ENV
+    global _CORNERS_ENV, _TECH_CORNER_RE
     # Reset to defaults FIRST so a REPL `tech <name>` switch to a tech
     # that omits process_corners does NOT inherit the previous tech's
     # custom corner set — otherwise libs for the new tech are scanned
     # with the stale fff-aware regex. Overlay the tech-specific set
     # only after the match succeeds.
     _CORNERS_ENV = list(_DEFAULT_PROCESS_CORNERS)
+    _TECH_CORNER_RE = None
     _build_lib_patterns()
     if not tech_config_path:
         return
@@ -210,6 +260,20 @@ def _apply_tech_corners(tech_config_path):
             src = fh.read()
     except OSError:
         return
+    # tech(lib_corner_regex) — braced (`{...}`) so regex metacharacters
+    # need no Tcl escaping.
+    rm = re.search(r'^\s*set\s+tech\(lib_corner_regex\)\s+\{([^\n]*)\}\s*$',
+                   src, re.MULTILINE)
+    if rm:
+        try:
+            _rx = re.compile(rm.group(1).strip(), re.IGNORECASE)
+            if {'corner', 'voltage', 'temp'} <= set(_rx.groupindex):
+                _TECH_CORNER_RE = _rx
+            else:
+                logger.warning("tech(lib_corner_regex) needs named groups "
+                               "corner, voltage, temp — ignored")
+        except re.error as e:
+            logger.warning(f"tech(lib_corner_regex) is not a valid regex ({e}) — ignored")
     m = re.search(
         r'^\s*set\s+tech\(process_corners\)\s+(?:\{([^}]+)\}|"([^"]+)")',
         src, re.MULTILINE)
@@ -444,6 +508,21 @@ class LibraryScanner:
         """Parse a .lib filename into a LibraryFile dataclass."""
         filename = lib_path.name
 
+        tm = _tech_corner_match(filename)
+        if tm and re.search(r'\.lib(\.gz)?$', filename, re.IGNORECASE):
+            corner, vtok, ttok = tm
+            prefix = filename[:_TECH_CORNER_RE.search(filename).start()]
+            return LibraryFile(
+                path=str(lib_path.resolve()),
+                filename=filename,
+                prefix=prefix,
+                corner=corner,
+                voltage=_parse_voltage(vtok),
+                temperature=_parse_temperature(ttok),
+                lib_type='nldm',
+                category=_classify_category(prefix),
+            )
+
         for pattern in (LIB_PATTERN, ALT_LIB_PATTERN):
             m = pattern.match(filename)
             if m:
@@ -541,41 +620,34 @@ class LibraryScanner:
         return '\n'.join(lines) + '\n'
 
     def generate_mmmc_views(self, sets: Dict[str, List[LibraryFile]]) -> str:
-        """Generate MMMC analysis_views TCL block from library sets."""
-        analysis_type_map = {
-            'ss': 'setup',
-            'sf': 'setup',
-            'ff': 'hold',
-            'fs': 'hold',
-            'tt': 'setup_hold',
-        }
+        """Generate an MMMC analysis_views TCL stub from library sets.
 
-        rc_corner_map = {
-            'ss': 'rc_max',
-            'sf': 'rc_max',
-            'ff': 'rc_min',
-            'fs': 'rc_min',
-            'tt': 'rc_typical',
-        }
-
-        lines = ['array set analysis_views {']
+        One entry per (corner, voltage, temp) library set. Which RC corner
+        a view uses is project policy, so `rc_corner` is emitted as the
+        placeholder value `<FILL_IN>` and the view key carries no RC
+        component — the engineer fills the value in (or generates the full
+        mode x corner x pvt x rc_corner set with `cbflow flow mmmc-manager
+        generate`). Guidance goes in a comment ABOVE the `array set`:
+        inside its braced body a `#`/`;#` is data, not a comment.
+        """
+        lines = [
+            '# rc_corner is a placeholder: replace every <FILL_IN> with an RC',
+            '# corner name declared in rc_corners (e.g. rc_max / rc_min / rc_typ,',
+            '# or a project-specific name).',
+            'array set analysis_views {',
+        ]
 
         for set_key, libs in sorted(sets.items()):
             ref = libs[0]
-            analysis_type = analysis_type_map.get(ref.corner, 'setup')
-            rc_corner = rc_corner_map.get(ref.corner, 'rc_typical')
-
-            v_str = ref.voltage_str.replace('.', 'p')
-            view_name = f"{ref.voltage_str}_func_{ref.corner}_{rc_corner.replace('rc_', 'rc')}_{ref.temp_str}c"
+            view_name = f"{ref.voltage_str}_func_{ref.corner}_{ref.temp_str}c"
 
             lines.append(f'    "{view_name}" {{')
             lines.append(f'        corner          "{ref.corner}"')
             lines.append(f'        mode            "functional"')
             lines.append(f'        voltage         {ref.voltage_str}')
             lines.append(f'        temperature     {ref.temp_str}')
-            lines.append(f'        analysis_type   "{analysis_type}"')
             lines.append(f'        lib_set_ref     "{set_key}"')
-            lines.append(f'        rc_corner       "{rc_corner}"')
+            lines.append(f'        rc_corner       "<FILL_IN>"')
             lines.append('    }')
 
         lines.append('}')
@@ -585,6 +657,30 @@ class LibraryScanner:
 # -------------------------------------------------------------------------------
 # LibraryValidator
 # -------------------------------------------------------------------------------
+
+def _track_alt(content: str) -> str:
+    """Regex alternation for track names. Uses the tech's declared
+    tech(tracks_available) when present (so `hd`, `hs`, `7p5t`, any custom
+    name works), else the commercial `<n>T` / `<n.n>T` form."""
+    m = re.search(r'set\s+tech\(tracks_available\)\s+(?:"([^"]+)"|\{([^}]+)\})', content or '')
+    if m:
+        tracks = (m.group(1) or m.group(2) or '').split()
+        if tracks:
+            return '|'.join(re.escape(t) for t in sorted(tracks, key=len, reverse=True))
+    return r'[0-9.]+T'
+
+
+def _rcx_formats(content: str) -> tuple:
+    """RC-extraction formats a tech must provide per (metal stack, RC
+    corner): tech(rcx_formats) when declared (open flow: openrcx / tlef),
+    else the commercial trio."""
+    m = re.search(r'set\s+tech\(rcx_formats\)\s+(?:"([^"]+)"|\{([^}]+)\})', content or '')
+    if m:
+        fmts = tuple((m.group(1) or m.group(2) or '').split())
+        if fmts:
+            return fmts
+    return ('tluplus', 'nxtgrd', 'qrc')
+
 
 class LibraryValidator:
     """Validates library configuration from tech_config.tcl files."""
@@ -621,15 +717,20 @@ class LibraryValidator:
         if sets:
             return sets
 
-        # Fall back to sibling lib_config.tcl (current generate output).
-        sibling = os.path.join(os.path.dirname(path), 'lib_config.tcl')
-        if os.path.exists(sibling):
-            logger.info(
-                f"No library_sets array in tech_config; using sibling "
-                f"{os.path.basename(sibling)} (per-key schema)"
-            )
-            with open(sibling, 'r') as f:
-                return self._parse_lib_config_per_key(f.read())
+        # Library tag (current generate output): <lib_tag_root>/<tech>/<TAG>/
+        # lib_config.tcl, tag from $CBFLOW_LIB_CONFIG_TAG or the project's
+        # project(lib_config_tag), else the first tag found. Legacy fallback:
+        # a lib_config.tcl next to tech_config.tcl.
+        lib_cfg = self._find_lib_config(path)
+        if lib_cfg:
+            logger.info(f"No library_sets array in tech_config; using {lib_cfg}")
+            with open(lib_cfg, 'r') as f:
+                sets = self._parse_lib_config_per_key(
+                    f.read(), lib_tag_dir=os.path.dirname(lib_cfg))
+            # Also show what the tech declares directly (LEF-tech, RCX).
+            for k, v in self._parse_tech_track_schema(content, path).items():
+                sets.setdefault(k, v)
+            return sets
 
         # Fall back to the track-schema (shipped tech configs). This
         # never finds .lib/.ndm — those need library-manager generate —
@@ -646,6 +747,38 @@ class LibraryValidator:
             return track_sets
 
         return sets
+
+    def _find_lib_config(self, tech_config_path: str) -> str:
+        """Path of the lib_config.tcl that belongs to this tech config, or ''."""
+        sibling = os.path.join(os.path.dirname(tech_config_path), 'lib_config.tcl')
+        if os.path.exists(sibling):
+            return sibling
+        try:
+            from core.paths import tech_name_from_config_path
+            tech_name = tech_name_from_config_path(tech_config_path)
+        except Exception:
+            tech_name = ''
+        if not tech_name:
+            return ''
+        version = os.path.basename(os.path.dirname(tech_config_path)) or 'v1.0.0'
+        tag = os.environ.get('CBFLOW_LIB_CONFIG_TAG', '').strip()
+        project = os.environ.get('CBFLOW_PROJECT_NAME', '').strip()
+        if not tag and project:
+            try:
+                tag = _read_project_cfg_value(project, version, 'lib_config_tag')
+            except Exception:
+                tag = ''
+        try:
+            if not tag:
+                tags = _list_available_tags(tech_name, version)
+                tag = tags[0] if tags else ''
+            if tag:
+                p = _resolve_lib_config_path(tech_name, tag, version)
+                if p and os.path.exists(p):
+                    return p
+        except Exception as e:
+            logger.debug(f"lib tag lookup failed: {e}")
+        return ''
 
     def _parse_tech_track_schema(self, content: str, tech_config_path: str) -> Dict:
         """Synthesize library_sets from track-schema declarations that
@@ -667,8 +800,9 @@ class LibraryValidator:
         sets: Dict[str, Dict] = {}
 
         # LEF-tech per (metal_stack, track).
+        _trk = _track_alt(content)
         lef_re = re.compile(
-            r'^\s*set\s+tech\(\s*([0-9]+M)\s*,\s*([0-9.]+T)\s*,\s*lef_tech\s*\)\s+"([^"]+)"',
+            r'^\s*set\s+tech\(\s*([0-9]+M)\s*,\s*(' + _trk + r')\s*,\s*lef_tech\s*\)\s+"([^"]+)"',
             re.MULTILINE
         )
         for m in lef_re.finditer(content):
@@ -682,7 +816,7 @@ class LibraryValidator:
 
         # RCX per (metal_stack, rc_corner, format).
         rcx_re = re.compile(
-            r'^\s*set\s+tech\(\s*rcx\s*,\s*([0-9]+M)\s*,\s*(rc_\w+)\s*,\s*(tluplus|nxtgrd|qrc)\s*\)'
+            r'^\s*set\s+tech\(\s*rcx\s*,\s*([0-9]+M)\s*,\s*(\w+)\s*,\s*(\w+)\s*\)'
             r'\s+"([^"]+)"',
             re.MULTILINE
         )
@@ -697,7 +831,7 @@ class LibraryValidator:
 
         # Per-track NDM/DB/LIB (legacy shape without VT).
         track_only_re = re.compile(
-            r'^\s*set\s+tech\(\s*([0-9.]+T)\s*,\s*(ndm|db|lib)\s*\)\s+"([^"]+)"',
+            r'^\s*set\s+tech\(\s*(' + _trk + r')\s*,\s*(ndm|db|lib)\s*\)\s+"([^"]+)"',
             re.MULTILINE
         )
         for m in track_only_re.finditer(content):
@@ -728,7 +862,7 @@ class LibraryValidator:
         else:
             _allowed_vts = set(_VT_KEYWORDS)   # module-level fallback
         track_vt_re = re.compile(
-            r'^\s*set\s+tech\(\s*([0-9.]+T)\s*,\s*(\w+)\s*,\s*(ndm|db|lib)\s*\)\s+"([^"]+)"',
+            r'^\s*set\s+tech\(\s*(' + _trk + r')\s*,\s*(\w+)\s*,\s*(ndm|db|lib)\s*\)\s+"([^"]+)"',
             re.MULTILINE
         )
         for m in track_vt_re.finditer(content):
@@ -815,7 +949,7 @@ class LibraryValidator:
         t = t.rstrip('c')
         return f'-{t[1:]}' if t.startswith('m') else t
 
-    def _parse_lib_config_per_key(self, content: str) -> Dict:
+    def _parse_lib_config_per_key(self, content: str, lib_tag_dir: str = '') -> Dict:
         """Synthesize a library_sets-shape dict from the per-key schema.
 
         Recognized lines in lib_config.tcl:
@@ -829,7 +963,47 @@ class LibraryValidator:
         sets: Dict[str, Dict] = {}
 
         def _split_paths(raw: str) -> List[str]:
-            return re.findall(r'"([^"]+)"', raw)
+            paths = re.findall(r'"([^"]+)"', raw)
+            if lib_tag_dir:
+                # Tag lib_configs anchor paths on $_lib_tag_dir (the tag dir).
+                paths = [p.replace('$_lib_tag_dir', lib_tag_dir) for p in paths]
+            return paths
+
+        # Current generate schema (tag dirs):
+        #   set tech(<trk>,lib,<corner>_<v>_<t>,timing)   [list ...]
+        #   set tech(<trk>,<vt>,lef|lib_nom|db|ndm)        [list ...]
+        #   set tech(lef|lib_nom|db|ndm,<category>)        [list ...]
+        timing_re = re.compile(
+            r'^\s*set\s+tech\(\s*([\w.]+)\s*,\s*lib\s*,\s*(\w+?)_(\d+p\d+v)_(m?\d+c)\s*,\s*timing\s*\)'
+            r'\s+\[list\s+(.+?)\]\s*$', re.MULTILINE)
+        for m in timing_re.finditer(content):
+            trk, corner, volt, temp = m.group(1), m.group(2), m.group(3), m.group(4)
+            paths = _split_paths(m.group(5))
+            if not paths:
+                continue
+            entry = sets.setdefault(f'{corner}_{volt}_{temp}', {
+                'corner': corner,
+                'voltage': self._voltage_str(volt),
+                'temperature': self._temp_str(temp),
+                'track': trk,
+            })
+            entry.setdefault('timing_libraries', []).extend(paths)
+        phys_re = re.compile(
+            r'^\s*set\s+tech\(\s*([\w.]+)\s*,\s*(\w+)\s*,\s*(lef|lib_nom|db|ndm)\s*\)'
+            r'\s+\[list\s+(.+?)\]\s*$', re.MULTILINE)
+        for m in phys_re.finditer(content):
+            trk, vt, kind = m.group(1), m.group(2), m.group(3)
+            if trk in ('lef', 'lib_nom', 'db', 'ndm', 'lib'):
+                continue
+            paths = _split_paths(m.group(4))
+            if not paths:
+                continue
+            entry = sets.setdefault(f'physical_{trk}_{vt}', {
+                'corner': 'physical', 'voltage': '-', 'temperature': '-',
+                'track': trk,
+            })
+            key = {'lef': 'lef_files', 'ndm': 'ndm_libraries'}.get(kind, 'timing_libraries')
+            entry.setdefault(key, []).extend(paths)
 
         # PVT entries: <corner>,<voltage>,<temp>,<kind>
         pvt_re = re.compile(
@@ -2016,7 +2190,13 @@ def cmd_check(args: argparse.Namespace) -> int:
     #       + "No library_sets found". Keep the distinction so CI can
     #       fail hard when the tech isn't ready to be checked at all,
     #       instead of a green PASS masking an unresolved config.
-    if missing > 0:
+    if missing > 0 and missing == len(checked):
+        # Not one referenced file exists: the tag's vendor data is absent
+        # (dev tree / unmounted library area), not a partially broken tag.
+        overall = ("FAILED — library data not present: 0/{} referenced files "
+                   "exist (mount the library area or regenerate the tag)".format(len(checked)))
+        exit_code = 1
+    elif missing > 0:
         overall = "FAILED"
         exit_code = 1
     elif len(checked) == 0:
@@ -2089,10 +2269,15 @@ def cmd_list(args: argparse.Namespace) -> int:
             # LEF-tech / RCX file lists that the shipped tech configs
             # declare directly.
             lib_counts = []
-            for key in ('timing_libraries', 'power_libraries',
-                        'noise_libraries', 'leakage_libraries',
-                        'ndm_libraries', 'lef_files',
-                        'tluplus_files', 'nxtgrd_files', 'qrc_files'):
+            # Known kinds first, then any other `<kind>_files` (e.g. the
+            # open flow's openrcx / tlef RC decks) in name order.
+            _known = ('timing_libraries', 'power_libraries',
+                      'noise_libraries', 'leakage_libraries',
+                      'ndm_libraries', 'lef_files',
+                      'tluplus_files', 'nxtgrd_files', 'qrc_files')
+            _extra = sorted(k for k in set_data
+                            if k.endswith('_files') and k not in _known)
+            for key in _known + tuple(_extra):
                 paths = set_data.get(key, [])
                 count = len(paths) if isinstance(paths, list) else 0
                 if count > 0:
@@ -2366,6 +2551,9 @@ def _extract_track(filename, tracks_available=None, track_patterns=None):
 
 def _extract_corner(filename):
     """Extract corner key from filename (e.g., 'ss_0p76v_150c')."""
+    tm = _tech_corner_match(filename)
+    if tm:
+        return "{}_{}_{}".format(*tm)
     m = _CORNER_RE.search(filename.lower())
     if m:
         pvt = m.group(1)
@@ -2664,7 +2852,20 @@ def cmd_generate(args: argparse.Namespace) -> int:
 
     # Exclude patterns (glob wildcards)
     import fnmatch
-    exclude_patterns = args.exclude if hasattr(args, 'exclude') and args.exclude else []
+    exclude_patterns = list(args.exclude) if hasattr(args, 'exclude') and args.exclude else []
+    # Tech-declared exclusions (tech(lib_exclude) {glob …}): PDK packaging
+    # quirks that would otherwise duplicate a corner — e.g. sky130 ships
+    # every .lib next to a .lib.gz plus *_ccsnoise variants.
+    try:
+        with open(require_tech_config(tech_name, version)) as _tce:
+            _xm = re.search(r'^\s*set\s+tech\(lib_exclude\)\s+(?:\{([^}]*)\}|"([^"]*)")',
+                            _tce.read(), re.MULTILINE)
+        if _xm:
+            for _pat in (_xm.group(1) or _xm.group(2) or '').split():
+                if _pat not in exclude_patterns:
+                    exclude_patterns.append(_pat)
+    except (OSError, SystemExit):
+        pass
     def _is_excluded(filepath):
         """Match exclude patterns against full absolute path and filename."""
         fp_lower = filepath.lower()
@@ -2692,10 +2893,11 @@ def cmd_generate(args: argparse.Namespace) -> int:
                 if m:
                     tracks = m.group(1).split()
                     logger.info("Auto-detected tracks from tech_config: {}".format(" ".join(tracks)))
-            # Read track patterns: tech(track_pattern,7T) "*sc7*"
+            # Read track patterns: tech(track_pattern,7T) "*sc7*" — or braced,
+            # {*sky130_fd_sc_hd[._]*}, which a glob with [..] must use in Tcl.
             _track_patterns = {}
-            for tp_m in re.finditer(r'set\s+tech\(track_pattern,(\S+)\)\s+"([^"]+)"', _tc_content):
-                _track_patterns[tp_m.group(1)] = tp_m.group(2)
+            for tp_m in re.finditer(r'set\s+tech\(track_pattern,(\S+)\)\s+(?:"([^"]+)"|\{([^}]+)\})', _tc_content):
+                _track_patterns[tp_m.group(1)] = tp_m.group(2) or tp_m.group(3)
             if _track_patterns:
                 logger.info("Track patterns: {}".format(
                     ", ".join("{}={}".format(k, v) for k, v in _track_patterns.items())))
@@ -3675,6 +3877,8 @@ def cmd_generate(args: argparse.Namespace) -> int:
                 nw('set tech({},lib,{},timing) [list {}]'.format(
                     trk, corner, " ".join('"{}"'.format(p) for p in combined)))
     nw("")
+    for _l in _BLOCKS_HOOK_LINES:
+        nw(_l)
 
     output_text = "\n".join(new_lines) + "\n"
     output_path = os.path.join(tag_dir, 'lib_config.tcl')
@@ -4015,6 +4219,28 @@ def _tcl_list_from(content: str, arr: str, key: str) -> List[str]:
     return m.group(1).split() if m else []
 
 
+def _project_mmmc_rc_corners(project_name: str, version: str) -> List[str]:
+    """RC-corner names declared in a project's mmmc_config.tcl
+    (`array set rc_corners { <name> {...} ... }`), or [] when the project
+    has no mmmc_config. These are the corners view generation and
+    extraction will request, so `status --project` checks RCX for each.
+    """
+    from core.paths import get_cbflow_global_dir
+    gdir = get_cbflow_global_dir()
+    if not gdir or not project_name:
+        return []
+    path = os.path.join(gdir, 'config', 'project', project_name, version,
+                        'mmmc_config.tcl')
+    if not os.path.isfile(path):
+        return []
+    # Lazy import: mmmc_manager_cmd imports from this module at load time.
+    from mmmc_manager_cmd import MmmcConfigParser
+    parser = MmmcConfigParser(path)
+    if not parser.parse():
+        return []
+    return sorted(parser.rc_corners.keys())
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     """Signoff-readiness report for a tech's library configuration.
 
@@ -4148,12 +4374,16 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     # ── Section 2: LEF-tech coverage per (metal_stack, track) ──
     lef_present = set()
-    for m in re.finditer(rf'set\s+tech\(({_ms_alt}),([0-9.]+T),lef_tech\)', tc):
+    _trk_alt = _track_alt(tc)
+    for m in re.finditer(rf'set\s+tech\(({_ms_alt}),({_trk_alt}),lef_tech\)', tc):
         lef_present.add((m.group(1), m.group(2)))
 
     # ── Section 3: RCX per (metal_stack, rc_corner, format) ──
+    # rc_corner is any identifier — techs use rc_min/rc_typ/rc_max OR
+    # project-specific names like wcrcmin/wcrcworst/nomrc. Don't restrict
+    # to `rc_*` or custom-named corners get silently skipped.
     rcx_present = {}   # (ms, rc) → set of formats present
-    for m in re.finditer(rf'set\s+tech\(rcx,({_ms_alt}),(rc_\w+),(tluplus|nxtgrd|qrc)\)', tc):
+    for m in re.finditer(rf'set\s+tech\(rcx,({_ms_alt}),(\w+),(\w+)\)', tc):
         rcx_present.setdefault((m.group(1), m.group(2)), set()).add(m.group(3))
 
     # ── Section 4: Timing / NDM from lib_config.tcl (if generated) ──
@@ -4180,10 +4410,10 @@ def cmd_status(args: argparse.Namespace) -> int:
         # parser writes the single-quoted-string form so both must be
         # handled or status disagrees with itself.
         _pat_list = re.compile(
-            r'set\s+tech\(([0-9.]+T)\s*,\s*(\w+)\s*,\s*(ndm|db|lib)\)\s+\[list\s+(.+?)\]'
+            r'set\s+tech\(([\w.]+)\s*,\s*(\w+)\s*,\s*(ndm|db|lib_nom|lib)\)\s+\[list\s+(.+?)\]'
         )
         _pat_str = re.compile(
-            r'set\s+tech\(([0-9.]+T)\s*,\s*(\w+)\s*,\s*(ndm|db|lib)\)\s+"([^"]+)"'
+            r'set\s+tech\(([\w.]+)\s*,\s*(\w+)\s*,\s*(ndm|db|lib_nom|lib)\)\s+"([^"]+)"'
         )
         for m in _pat_list.finditer(lc):
             trk, vt, kind, raw = m.group(1), m.group(2), m.group(3), m.group(4)
@@ -4196,9 +4426,25 @@ def cmd_status(args: argparse.Namespace) -> int:
             lib_by_track_vt.setdefault((trk, vt), {})[kind] = \
                 lib_by_track_vt.setdefault((trk, vt), {}).get(kind, 0) + 1
 
+    # Per-track timing corners (tech(<trk>,lib,<corner>,timing)) and the
+    # track-level combined lib_nom. Timing libs are keyed per track and
+    # corner, not per VT — single-VT libraries (e.g. sky130_fd_sc_hd) only
+    # ever appear here.
+    timing_corners_by_track: Dict[str, set] = {}
+    lib_nom_by_track: Dict[str, int] = {}
+    if lib_config_present:
+        for m in re.finditer(
+                r'set\s+tech\(([\w.]+)\s*,\s*lib\s*,\s*(\w+)\s*,\s*timing\)\s+\[list\s+(.+?)\]', lc):
+            if re.findall(r'"([^"]+)"', m.group(3)):
+                timing_corners_by_track.setdefault(m.group(1), set()).add(m.group(2))
+        for m in re.finditer(r'set\s+tech\(([\w.]+)\s*,\s*lib_nom\)\s+\[list\s+(.+?)\]', lc):
+            n = len(re.findall(r'"([^"]+)"', m.group(2)))
+            if n:
+                lib_nom_by_track[m.group(1)] = n
+
     # ── Section 5: dont_use per track ──
     dont_use = {}
-    for m in re.finditer(r'set\s+tech\(([0-9.]+T),dont_use\)\s+"([^"]+)"', tc):
+    for m in re.finditer(rf'set\s+tech\(({_trk_alt}),dont_use\)\s+"([^"]+)"', tc):
         dont_use[m.group(1)] = m.group(2)
 
     # ── Resolve effective axes (project-scoped when possible) ──
@@ -4274,16 +4520,40 @@ def cmd_status(args: argparse.Namespace) -> int:
             logger.info(f'    {ms:<5} {" ".join(row)}')
     logger.info('')
 
-    # RCX coverage — iterate DECLARED axes (from mmmc/tech) so
-    # entirely-missing (ms, rc) rows are also flagged.
-    # Discover the rc_corners the tech is expected to have from any
-    # rcx entry present + a default triad.
+    # RCX coverage — iterate the EXPECTED rc corners so a corner with no
+    # tech(rcx,…) entry at all is flagged, not silently absent. Expected =
+    #   · tech(rc_corners_available), when the tech declares its corner set
+    #     (catches a corner missing from EVERY metal stack), plus
+    #   · with --project: every key of that project's mmmc `rc_corners`
+    #     (what view generation and extraction will ask for), plus
+    #   · every corner seen in any tech(rcx,…) entry (a corner present for
+    #     one stack but not another is flagged on the stack lacking it).
+    # No hardcoded rc_min/rc_typ/rc_max triad — techs are free to use
+    # custom names (wcrcmin, wcrcworst, nomrc, …).
+    tech_rc_corners = _tcl_list_from(tc, 'tech', 'rc_corners_available')
+    mmmc_rc_corners = (_project_mmmc_rc_corners(project_name, version)
+                       if project_name else [])
     declared_rc_corners = sorted({rc for (_ms, rc) in rcx_present.keys()}
-                                 | {'rc_min', 'rc_typ', 'rc_max'})
-    all_formats = ('tluplus', 'nxtgrd', 'qrc')
+                                 | set(tech_rc_corners) | set(mmmc_rc_corners))
+    all_formats = _rcx_formats(tc)
     logger.info('  RCX coverage (metal_stack × rc_corner × format)')
+    if tech_rc_corners:
+        logger.info(f'    expected from tech(rc_corners_available): '
+                    f'{" ".join(tech_rc_corners)}')
+    if mmmc_rc_corners:
+        logger.info(f'    expected from {project_name} mmmc rc_corners: '
+                    f'{" ".join(mmmc_rc_corners)}')
+    if not tech_rc_corners and not mmmc_rc_corners:
+        logger.info('    note: no declared corner set (tech(rc_corners_available) '
+                    'or --project) — a corner missing from every metal stack '
+                    'cannot be detected')
     if not effective_metal_stacks:
         logger.info('    (metal_stacks not set — cannot check)')
+    elif not declared_rc_corners:
+        # Nothing to iterate would otherwise read as "0 missing".
+        logger.info('    MISSING: no tech(rcx,<metal_stack>,<rc_corner>,<format>) '
+                    'entries declared at all')
+        rcx_missing += 1
     else:
         for ms in effective_metal_stacks:
             for rc in declared_rc_corners:
@@ -4317,7 +4587,11 @@ def cmd_status(args: argparse.Namespace) -> int:
     else:
         for trk in effective_tracks:
             for vt in effective_vts:
-                counts = lib_by_track_vt.get((trk, vt), {})
+                counts = dict(lib_by_track_vt.get((trk, vt), {}))
+                if trk in timing_corners_by_track:
+                    counts['timing_corners'] = len(timing_corners_by_track[trk])
+                if trk in lib_nom_by_track and 'lib_nom' not in counts:
+                    counts['lib_nom'] = lib_nom_by_track[trk]
                 if counts:
                     parts = ' '.join(f'{k}={v}' for k, v in sorted(counts.items()))
                     logger.info(f'    {trk:<5} {vt:<6} {parts}')
@@ -4362,6 +4636,132 @@ def cmd_status(args: argparse.Namespace) -> int:
             f'timing={"lib_config-missing" if lib_config_issue else ("vt-missing" if vt_config_issue else timing_effective)}'
         )
         return 1
+
+
+# ── Hierarchical blocks (`add --category block`) ─────────────────────────────
+# A released child block (DL3 → used by DL2, DL2 → used by DL1) is linked into
+# the tag under block/<name>/ and described in blocks_config.tcl, which every
+# lib_config.tcl sources. blocks_config.tcl is regenerated from the block/
+# tree on each add, so the tag directory is the single source of truth.
+_BLOCKS_HOOK_LINES = (
+    "# ── Hierarchical blocks (library-manager add --category block) ──",
+    'if {[file exists "$_lib_tag_dir/blocks_config.tcl"]} { source "$_lib_tag_dir/blocks_config.tcl" }',
+)
+_BLOCK_VIEWS = (            # (key, release subdir, filename pattern, required)
+    ('lef',     'lef',     '{b}.lef',     True),
+    ('gds',     'gds',     '{b}.gds',     True),
+    ('netlist', 'netlist', '{b}.v',       True),
+    ('lvs_netlist', 'netlist', '{b}.lvs.v', False),
+    ('cdl',     'netlist', '{b}.cdl',     False),
+    ('def',     'def',     '{b}.def',     False),
+    ('sdc',     'sdc',     '{b}.sdc',     False),
+)
+
+
+def _block_from_release(path: str):
+    """(name, {view: abs path}, {lib_set: abs path}, errors) for one release
+    dir laid out as <release,path>/<phase>/<block>/<tag>/."""
+    path = os.path.abspath(path)
+    errors = []
+    name = os.path.basename(os.path.dirname(path.rstrip('/')))
+    if not os.path.isfile(os.path.join(path, 'lef', name + '.lef')):
+        lefs = sorted(glob.glob(os.path.join(path, 'lef', '*.lef')))
+        if len(lefs) == 1:
+            name = os.path.splitext(os.path.basename(lefs[0]))[0]
+    views = {}
+    for key, sub, pat, required in _BLOCK_VIEWS:
+        f = os.path.join(path, sub, pat.format(b=name))
+        if os.path.isfile(f):
+            views[key] = f
+        elif required:
+            errors.append('missing {} view: {}'.format(key, f))
+    libs = {}
+    for f in sorted(glob.glob(os.path.join(path, 'lib', name + '__*.lib'))):
+        libs[os.path.basename(f)[len(name) + 2:-len('.lib')]] = f
+    if not libs:
+        errors.append('no timing models lib/{}__<lib_set>.lib in {}'.format(name, path))
+    stamp = os.path.join(path, 'RELEASE_COMPLETE')
+    if not os.path.isfile(stamp):
+        errors.append('release not stamped complete (no {})'.format(stamp))
+    elif 'STATUS=PASS' not in open(stamp).read():
+        errors.append('release stamp is not STATUS=PASS: {}'.format(stamp))
+    return name, views, libs, errors
+
+
+def _write_blocks_config(tag_dir: str) -> list:
+    """Regenerate <tag>/blocks_config.tcl from <tag>/block/*; returns names."""
+    root = os.path.join(tag_dir, 'block')
+    names = sorted(d for d in os.listdir(root)
+                   if os.path.isdir(os.path.join(root, d))) if os.path.isdir(root) else []
+    out = ["#!/usr/bin/env tclsh",
+           "# Hierarchical blocks in this tag — GENERATED by",
+           "# `cbflow flow library-manager add --category block`. Do not edit;",
+           "# re-run add with the block's new release to update it.",
+           "# Paths are local to the tag via $_lib_tag_dir (set by lib_config.tcl).",
+           "",
+           "set tech(blocks) [list {}]".format(" ".join(names))]
+    for b in names:
+        bdir = os.path.join(root, b)
+        out.append("")
+        src = os.path.join(bdir, 'SOURCE')
+        if os.path.isfile(src):
+            out.append('set tech(block,{},release) "{}"'.format(b, open(src).read().strip()))
+        for key, sub, pat, _req in _BLOCK_VIEWS:
+            if os.path.lexists(os.path.join(bdir, sub, pat.format(b=b))):
+                out.append('set tech(block,{},{}) "$_lib_tag_dir/block/{}/{}/{}"'.format(
+                    b, key, b, sub, pat.format(b=b)))
+        lib_sets = []
+        for f in sorted(glob.glob(os.path.join(bdir, 'lib', b + '__*.lib'))):
+            ls = os.path.basename(f)[len(b) + 2:-len('.lib')]
+            lib_sets.append(ls)
+            out.append('set tech(block,{},lib,{}) "$_lib_tag_dir/block/{}/lib/{}"'.format(
+                b, ls, b, os.path.basename(f)))
+        out.append('set tech(block,{},lib_sets) [list {}]'.format(b, " ".join(lib_sets)))
+    with open(os.path.join(tag_dir, 'blocks_config.tcl'), 'w') as fh:
+        fh.write("\n".join(out) + "\n")
+    return names
+
+
+def _ensure_blocks_hook(lib_config_path: str) -> None:
+    """Tags generated before block support: append the source hook once."""
+    text = open(lib_config_path).read()
+    if 'blocks_config.tcl' in text:
+        return
+    with open(lib_config_path, 'a') as fh:
+        fh.write("\n" + "\n".join(_BLOCKS_HOOK_LINES) + "\n")
+
+
+def _cmd_add_blocks(args: argparse.Namespace, lib_config_path: str) -> int:
+    tag_dir = os.path.dirname(lib_config_path)
+    failed = False
+    for path in args.path:
+        if not os.path.isdir(path):
+            logger.error("Release dir not found: {}".format(path))
+            failed = True
+            continue
+        name, views, libs, errors = _block_from_release(path)
+        if errors:
+            logger.error("Block release {} rejected:".format(path))
+            for e in errors:
+                logger.error("  - {}".format(e))
+            failed = True
+            continue
+        bdir = os.path.join(tag_dir, 'block', name)
+        if os.path.isdir(bdir):
+            shutil.rmtree(bdir)          # replace: the new release wins
+        for key, f in list(views.items()) + [('lib', p) for p in libs.values()]:
+            sub = next((s for k, s, _p, _r in _BLOCK_VIEWS if k == key), 'lib')
+            os.makedirs(os.path.join(bdir, sub), exist_ok=True)
+            os.symlink(f, os.path.join(bdir, sub, os.path.basename(f)))
+        with open(os.path.join(bdir, 'SOURCE'), 'w') as fh:
+            fh.write(os.path.abspath(path) + "\n")
+        logger.info("  block {:<14} lib sets: {}  ← {}".format(
+            name, " ".join(sorted(libs)), os.path.abspath(path)))
+    names = _write_blocks_config(tag_dir)
+    _ensure_blocks_hook(lib_config_path)
+    logger.info("Tag {} blocks: {}".format(os.path.basename(tag_dir), " ".join(names) or "(none)"))
+    logger.info("  {}".format(os.path.join(tag_dir, 'blocks_config.tcl')))
+    return 1 if failed else 0
 
 
 def cmd_add(args: argparse.Namespace) -> int:
@@ -4415,6 +4815,9 @@ def cmd_add(args: argparse.Namespace) -> int:
         logger.error("  cbflow flow library-manager generate --tech {} --tag {} --lib-root <path>".format(
             tech_name, tag))
         return 1
+
+    if category == 'block':
+        return _cmd_add_blocks(args, existing)
 
     # Reuse the generate pipeline. We force one category's path arg from
     # --path/--category, leave the others unset so no spurious scans run.
@@ -4578,6 +4981,8 @@ Examples:
     scan_parser = subparsers.add_parser('scan', help='Scan directory for .lib files')
     scan_parser.add_argument('--path', default=None,
                              help='Directory to scan for .lib files')
+    scan_parser.add_argument('--tech', default=None,
+                             help='Technology name (e.g., gf_22nm). Resolves to global/config/tech/<name>/v1.0.0/tech_config.tcl.')
     scan_parser.add_argument('--tech-config', default=None,
                              help='Path to tech_config.tcl. Takes precedence over --tech/CBFLOW_TECH_NODE — '
                                   'use when running outside a flow dir and you have a raw path.')
@@ -4589,6 +4994,8 @@ Examples:
     # check command
     check_parser = subparsers.add_parser(
         'check', help='Validate library config against disk')
+    check_parser.add_argument('--tech', default=None,
+                              help='Technology name (e.g., gf_22nm).')
     check_parser.add_argument('--tech-config', default=None,
                               help='Path to tech_config.tcl (auto-detected if omitted)')
     check_parser.add_argument('--verbose', action='store_true', default=False,
@@ -4596,6 +5003,8 @@ Examples:
 
     # list command
     list_parser = subparsers.add_parser('list', help='List configured library sets')
+    list_parser.add_argument('--tech', default=None,
+                             help='Technology name (e.g., gf_22nm).')
     list_parser.add_argument('--tech-config', default=None,
                              help='Path to tech_config.tcl (auto-detected if omitted)')
     list_parser.add_argument('--corner', default=None,
@@ -4610,6 +5019,8 @@ Examples:
         'verify', help='Verify library characterization by reading .lib file contents')
     verify_parser.add_argument('--path', default=None,
                                 help='Directory to scan for .lib files')
+    verify_parser.add_argument('--tech', default=None,
+                                help='Technology name (e.g., gf_22nm).')
     verify_parser.add_argument('--tech-config', default=None,
                                 help='Path to tech_config.tcl (bypasses --tech lookup).')
     verify_parser.add_argument('--recursive', action='store_true', default=False,
@@ -4624,6 +5035,8 @@ Examples:
         'generate-mmmc', help='Generate MMMC analysis views')
     mmmc_parser.add_argument('--path', default=None,
                              help='Directory to scan for .lib files')
+    mmmc_parser.add_argument('--tech', default=None,
+                             help='Technology name (e.g., gf_22nm).')
     mmmc_parser.add_argument('--tech-config', default=None,
                              help='Path to tech_config.tcl (bypasses --tech lookup).')
     mmmc_parser.add_argument('--output', default=None,
@@ -4693,10 +5106,13 @@ Examples:
     add_parser.add_argument('--tag', required=True,
                             help='Existing lib_config tag to extend')
     add_parser.add_argument('--category', required=True,
-                            choices=['analog', 'ip', 'memory', 'io', 'stdcell'],
-                            help='Which category the --path contents belong to')
+                            choices=['analog', 'ip', 'memory', 'io', 'stdcell', 'block'],
+                            help='Which category the --path contents belong to. '
+                                 'block = a released hierarchical block (DL3/DL2): '
+                                 '--path <release,path>/<phase>/<block>/<tag>')
     add_parser.add_argument('--path', nargs='+', required=True,
-                            help='Directory (or multiple) containing the libraries')
+                            help='Directory (or multiple) containing the libraries '
+                                 '(for --category block: release dirs)')
     add_parser.add_argument('--version', default='v1.0.0',
                             help='Config version (default: v1.0.0)')
     add_parser.add_argument('--tracks', default=None,
@@ -4836,7 +5252,9 @@ def main() -> int:
     # case where GF 22FDX's `fff` corner silently miscategorized as the
     # embedded `ff` substring.
     try:
-        _tech_node = getattr(args, 'tech_node', None) or os.environ.get('CBFLOW_TECH_NODE', '')
+        _tech_node = (getattr(args, 'tech', None)
+                      or getattr(args, 'tech_node', None)
+                      or os.environ.get('CBFLOW_TECH_NODE', ''))
         _tech_cfg = getattr(args, 'tech_config', None)
         if not _tech_cfg and _tech_node:
             _tech_cfg = require_tech_config(_tech_node, getattr(args, 'version', None))
@@ -4847,7 +5265,9 @@ def main() -> int:
 
     # Auto-resolve --path from tech_config if not provided
     if hasattr(args, 'path') and args.path is None and args.command in ('scan', 'verify', 'generate-mmmc'):
-        tech_name = args.tech_node if hasattr(args, 'tech_node') and args.tech_node else None
+        tech_name = (getattr(args, 'tech', None)
+                     or getattr(args, 'tech_node', None)
+                     or os.environ.get('CBFLOW_TECH_NODE', ''))
         resolved = _resolve_lib_root_from_tech_config(tech_name)
         if resolved:
             args.path = resolved
