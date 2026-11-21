@@ -163,7 +163,7 @@ array set fp {
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 array set fp {
-    supported_tools {fc innovus}
+    supported_tools {fc innovus openroad}
     default_tool    "fc"
 }
 

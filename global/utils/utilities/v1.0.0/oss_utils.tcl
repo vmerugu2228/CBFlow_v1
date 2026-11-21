@@ -406,6 +406,120 @@ proc oss_load_stage {prev_node} {
     oss_set_wire_rc
 }
 
+# ── Floorplan steps (FP flow; PNR init_design when no FP DEF is given) ───────
+# Knobs come from the running flow's array (fp(oss,…) / pnr(oss,…)).
+proc oss_fp_opt {key} {
+    upvar #0 [oss_flow_arr] _a
+    return [expr {[info exists _a($key)] ? $_a($key) : ""}]
+}
+
+# Netlist + SDC: the synthesized netlist linked against LEF / liberty views.
+proc oss_fp_load_netlist {design blocks} {
+    set_thread_count [oss_get [oss_flow_arr] oss,threads]
+    oss_read_lefs $blocks
+    oss_read_corners $::NODE_NAME $blocks
+    read_verilog [lindex [glob -nocomplain "$::NETLIST_DIR/${design}.v" "$::NETLIST_DIR/*.v"] 0]
+    link_design $design
+    read_sdc [oss_sdc_file]
+    set_dont_use [oss_trk dont_use_pnr]
+}
+
+# Die / core (oss,fp,die_area wins over utilization sizing), rows, tracks.
+proc oss_fp_floorplan {} {
+    set _arr  [oss_flow_arr]
+    set _site [oss_trk site]
+    set _die  [oss_fp_opt oss,fp,die_area]
+    if {$_die ne ""} {
+        set _m [oss_get $_arr oss,fp,core_margin]
+        lassign $_die _x0 _y0 _x1 _y1
+        initialize_floorplan -site $_site -die_area $_die \
+            -core_area [list [expr {$_x0 + $_m}] [expr {$_y0 + $_m}] [expr {$_x1 - $_m}] [expr {$_y1 - $_m}]]
+    } else {
+        initialize_floorplan -site $_site \
+            -utilization  [oss_get $_arr oss,fp,core_utilization] \
+            -aspect_ratio [oss_get $_arr oss,fp,aspect_ratio] \
+            -core_space   [oss_get $_arr oss,fp,core_margin]
+    }
+    oss_make_tracks
+}
+
+# Child hard blocks: explicit oss,macro,placement {inst x y orient ...} or
+# rtl_macro_placer; DL2 children snapped to the rail pitch. Writes
+# place_macros.rpt.
+proc oss_fp_place_macros {blocks} {
+    if {[llength $blocks] == 0} return
+    set _halo [oss_get [oss_flow_arr] oss,macro,halo]
+    set _pl   [oss_fp_opt oss,macro,placement]
+    if {$_pl ne ""} {
+        foreach {_inst _x _y _o} $_pl {
+            place_macro -macro_name $_inst -location [list $_x $_y] -orientation $_o
+        }
+    } else {
+        rtl_macro_placer -halo_width $_halo -halo_height $_halo
+    }
+    # Children that export horizontal-strap pins (DL2) must sit on the rail
+    # cycle pitch so their straps abut ours with the same net order.
+    set _pitch [oss_rail_pitch]
+    set _dbu [[ord::get_db_tech] getDbUnitsPerMicron]
+    foreach _b $blocks {
+        if {[llength [hier_children $_b]] == 0} continue
+        foreach _inst [oss_block_insts $_b] {
+            set _i [[ord::get_db_block] findInst $_inst]
+            set _x [expr {[lindex [$_i getLocation] 0] / double($_dbu)}]
+            set _y [expr {[lindex [$_i getLocation] 1] / double($_dbu)}]
+            set _ys [expr {round($_y / $_pitch) * $_pitch}]
+            if {abs($_ys - $_y) > 1e-6} {
+                handle_info "  $_inst y $_y -> $_ys (rail pitch $_pitch)"
+                place_macro -macro_name $_inst -location [list $_x $_ys] -orientation [$_i getOrient]
+            }
+        }
+    }
+    set _fh [open "$::REPORTS_DIR/place_macros.rpt" w]
+    foreach _b $blocks {
+        foreach _inst [oss_block_insts $_b] {
+            set _i [[ord::get_db_block] findInst $_inst]
+            set _bb [$_i getBBox]
+            puts $_fh [format "%-20s %-14s origin (%.3f, %.3f) %s  bbox (%.3f %.3f %.3f %.3f)" $_inst $_b \
+                [expr {[lindex [$_i getLocation] 0] / double($_dbu)}] [expr {[lindex [$_i getLocation] 1] / double($_dbu)}] \
+                [$_i getOrient] [expr {[$_bb xMin] / double($_dbu)}] [expr {[$_bb yMin] / double($_dbu)}] \
+                [expr {[$_bb xMax] / double($_dbu)}] [expr {[$_bb yMax] / double($_dbu)}]]
+        }
+    }
+    close $_fh
+}
+
+# IO pins + well taps / endcaps. Writes io_placement.rpt.
+proc oss_fp_pins_taps {} {
+    set _arr [oss_flow_arr]
+    place_pins -hor_layers [oss_get $_arr oss,pins,hor_layer] \
+               -ver_layers [oss_get $_arr oss,pins,ver_layer]
+    set _halo [oss_get $_arr oss,macro,halo]
+    tapcell -distance [oss_trk well_tap_distance] \
+            -tapcell_master [oss_trk well_tap] -endcap_master [oss_trk endcap] \
+            -halo_width_x $_halo -halo_width_y $_halo
+    set _dbu [[ord::get_db_tech] getDbUnitsPerMicron]
+    set _fh [open "$::REPORTS_DIR/io_placement.rpt" w]
+    foreach _bt [[ord::get_db_block] getBTerms] {
+        foreach _p [$_bt getBPins] {
+            set _boxes [$_p getBoxes]
+            if {[llength $_boxes] == 0} continue
+            set _bb [$_p getBBox]
+            set _l [[[lindex $_boxes 0] getTechLayer] getName]
+            puts $_fh [format "%-32s %-6s %-5s (%.3f, %.3f)" [$_bt getName] [$_bt getIoType] $_l \
+                [expr {[$_bb xMin] / double($_dbu)}] [expr {[$_bb yMin] / double($_dbu)}]]
+        }
+    }
+    close $_fh
+}
+
+# Power intent (UPF supplies / global connections) + hierarchical power grid.
+proc oss_fp_power {design blocks} {
+    oss_apply_upf $design
+    set _p [oss_pdn $design $blocks]
+    handle_info "PDN: [dict get $_p position] pins=[dict get $_p pins] rails=[dict get $_p rails]"
+    oss_check_power
+}
+
 # ── Node graph (branches) ────────────────────────────────────────────────────
 # Command files are shared by every node of a stage type: main-trunk place1
 # and branch nodes (place2, route2_fix, …) created with add-node /

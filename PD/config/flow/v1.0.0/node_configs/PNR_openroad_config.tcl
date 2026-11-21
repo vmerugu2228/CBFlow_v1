@@ -2,7 +2,8 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # PNR — Open-source tool configuration (OpenROAD + KLayout)
 # Sourced from PNR_config.tcl when pnr(tool,name) = openroad.
-# Input: the SYNTH release (netlist + SDC + UPF) — pnr(input,release_tag).
+# Inputs: the SYNTH release (netlist + SDC + UPF) — pnr(input,release_tag) —
+# and the FP release (floorplan DEF) — pnr(input,def_file_release_tag).
 # Command files: PD/cmds/PNR/opensource/openroad/v1.0.0/
 # Tools run inside the CBflow tool container (global/bin/cbflow-oss).
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -14,24 +15,25 @@ array set pnr {
     tool,args     ""
 }
 
-# ┌─ Stage list: the floorplan is built here, so no DEF input ─────────────────┐
+# ┌─ Stage list: floorplan DEF from the FP flow; libraries from the lib tag ──┐
 array set pnr {
-    stages {netlist1 sdc1 upf1 init_design1 place1 cts1 cts_opt1 route1 pro1 signoff1 export_data1 release_data1}
-    dependencies,init_design1 {netlist1 sdc1 upf1}
+    stages {netlist1 sdc1 def1 upf1 init_design1 place1 cts1 cts_opt1 route1 pro1 signoff1 export_data1 release_data1}
+    dependencies,init_design1 {netlist1 sdc1 def1 upf1}
 
     mandatory_user_inputs {
         pnr(input,netlist)
         pnr(input,sdc_func_file)
+        pnr(input,def_file)
         pnr(input,upf_file)
     }
     mandatory_input_groups {
         netlist_inputs {pnr(input,netlist)}
         sdc_inputs {pnr(input,sdc_release_tag) pnr(input,sdc_release_dir) pnr(input,sdc_func_file)}
+        def_inputs {pnr(input,def_file)}
         upf_inputs {pnr(input,upf_file)}
     }
 }
-unset -nocomplain pnr(dependencies,def1) pnr(node_types,def1) pnr(stage_types,def1) \
-    pnr(runtime,timeout,def1) pnr(subnode_input_types,def1,def) pnr(critical_files,place1)
+unset -nocomplain pnr(critical_files,place1)
 
 # ┌─ Tool binary per stage (lsf(tool_shell,<tool>) → cbflow-oss) ──────────────┐
 array set pnr {
@@ -46,19 +48,8 @@ array set pnr {
     oss,tool,release_data "oss_tclsh"
 }
 
-# ┌─ Floorplan / placement (OpenROAD) ─────────────────────────────────────────┐
-# oss,fp,die_area {x0 y0 x1 y1} (µm) overrides utilization-based sizing — use
-# it for blocks that integrate hard macros.
-# oss,macro,placement {inst x y orient ...} overrides rtl_macro_placer.
+# ┌─ Placement (OpenROAD) — floorplan knobs live in FP_openroad_config.tcl ───┐
 array set pnr {
-    oss,fp,die_area          ""
-    oss,fp,core_utilization  45
-    oss,fp,aspect_ratio      1.0
-    oss,fp,core_margin       10
-    oss,pins,hor_layer       "met3"
-    oss,pins,ver_layer       "met2"
-    oss,macro,halo           10
-    oss,macro,placement      ""
     oss,place,density        0.55
 }
 
@@ -106,7 +97,7 @@ array set pnr {
 }
 
 # ┌─ Inputs consumed per stage ─────────────────────────────────────────────────┐
-set pnr(required_inputs,init_design1)  "work/PNR/netlist1/netlist work/PNR/sdc1/sdc work/PNR/upf1/upf"
+set pnr(required_inputs,init_design1)  "work/PNR/def1/def work/PNR/sdc1/sdc work/PNR/upf1/upf"
 set pnr(required_inputs,place1)        "work/PNR/init_design1/outputs/init_design.odb"
 set pnr(required_inputs,cts1)          "work/PNR/place1/outputs/place.odb"
 set pnr(required_inputs,cts_opt1)      "work/PNR/cts1/outputs/cts.odb"

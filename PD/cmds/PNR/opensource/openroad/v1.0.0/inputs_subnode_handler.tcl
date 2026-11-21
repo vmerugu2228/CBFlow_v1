@@ -20,5 +20,5 @@ set test_mode [handler_is_test_mode]
 # Safe to call every subnode invocation — resolve_flow_inputs is idempotent.
 handler_resolve_inputs $::flow_type $run_dir
 
-set input_types {netlist sdc upf}
+set input_types {netlist sdc def upf}
 handler_dispatch_inputs $subnode_name $run_dir $::flow_type $node_name $input_types $test_mode

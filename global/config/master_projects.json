@@ -311,6 +311,7 @@
       "enabled_flows_by_discipline": {
         "PD": [
           "SYNTH",
+          "FP",
           "PNR",
           "STA",
           "PV"

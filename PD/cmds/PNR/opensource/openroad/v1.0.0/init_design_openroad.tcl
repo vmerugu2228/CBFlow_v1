@@ -1,8 +1,10 @@
 #!/usr/bin/env tclsh
 # ═══════════════════════════════════════════════════════════════════════════════
 # CBflow PNR — init_design (opensource / openroad)
-# Load the SYNTH-released netlist + SDC, floorplan (+ hard-macro placement for
-# child blocks), tracks, IO pins, well taps, power intent (UPF), power grid.
+# Load the FP-released floorplan (DEF: die, rows, tracks, placed hard macros,
+# IO pins, well taps, power grid) + the SYNTH SDC, re-apply the power intent
+# (UPF supplies / global connections). The floorplan itself is built by the
+# FP flow (PD/cmds/FP/opensource/openroad/).
 # ═══════════════════════════════════════════════════════════════════════════════
 
 set run_dir $::env(CBFLOW_RUN_DIR)
@@ -24,94 +26,22 @@ set blocks      [hier_children $design_name]
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
 
-flow_proc load_netlist {
+flow_proc load_floorplan {
     global design_name blocks
     set_thread_count [oss_get pnr oss,threads]
     oss_read_lefs $blocks
     oss_read_corners $::NODE_NAME $blocks
-    read_verilog [lindex [glob -nocomplain "$::NETLIST_DIR/${design_name}.v" "$::NETLIST_DIR/*.v"] 0]
-    link_design $design_name
+    set _def [lindex [glob -nocomplain "$::DEF_DIR/${design_name}.def" "$::DEF_DIR/*.def"] 0]
+    if {$_def eq ""} { error "no floorplan DEF staged in $::DEF_DIR (pnr(input,def_file_release_tag) <phase>_FP_v<n>)" }
+    handle_info "Floorplan: $_def"
+    read_def $_def
     read_sdc [oss_sdc_file]
     set_dont_use [oss_trk dont_use_pnr]
 }
 
-flow_proc floorplan {
-    global pnr
-    set _site [oss_trk site]
-    set _die  $pnr(oss,fp,die_area)
-    if {$_die ne ""} {
-        set _m [oss_get pnr oss,fp,core_margin]
-        lassign $_die _x0 _y0 _x1 _y1
-        initialize_floorplan -site $_site -die_area $_die \
-            -core_area [list [expr {$_x0 + $_m}] [expr {$_y0 + $_m}] [expr {$_x1 - $_m}] [expr {$_y1 - $_m}]]
-    } else {
-        initialize_floorplan -site $_site \
-            -utilization  [oss_get pnr oss,fp,core_utilization] \
-            -aspect_ratio [oss_get pnr oss,fp,aspect_ratio] \
-            -core_space   [oss_get pnr oss,fp,core_margin]
-    }
-    oss_make_tracks
-}
-
-flow_proc place_macros {
-    global blocks pnr
-    if {[llength $blocks] > 0} {
-        set _halo [oss_get pnr oss,macro,halo]
-        # Explicit placement wins: pnr(oss,macro,placement) {inst x y orient ...}
-        if {$pnr(oss,macro,placement) ne ""} {
-            foreach {_inst _x _y _o} $pnr(oss,macro,placement) {
-                place_macro -macro_name $_inst -location [list $_x $_y] -orientation $_o
-            }
-        } else {
-            rtl_macro_placer -halo_width $_halo -halo_height $_halo
-        }
-        # Children that export horizontal-strap pins (DL2) must sit on the rail
-        # cycle pitch so their straps abut ours with the same net order.
-        set _pitch [oss_rail_pitch]
-        set _dbu [[ord::get_db_tech] getDbUnitsPerMicron]
-        foreach _b $blocks {
-            if {[llength [hier_children $_b]] == 0} continue
-            foreach _inst [oss_block_insts $_b] {
-                set _i [[ord::get_db_block] findInst $_inst]
-                set _x [expr {[lindex [$_i getLocation] 0] / double($_dbu)}]
-                set _y [expr {[lindex [$_i getLocation] 1] / double($_dbu)}]
-                set _ys [expr {round($_y / $_pitch) * $_pitch}]
-                if {abs($_ys - $_y) > 1e-6} {
-                    handle_info "  $_inst y $_y -> $_ys (rail pitch $_pitch)"
-                    place_macro -macro_name $_inst -location [list $_x $_ys] -orientation [$_i getOrient]
-                }
-            }
-        }
-        set _fh [open "$::REPORTS_DIR/place_macros.rpt" w]
-        foreach _b $blocks {
-            foreach _inst [oss_block_insts $_b] {
-                set _i [[ord::get_db_block] findInst $_inst]
-                set _bb [$_i getBBox]
-                puts $_fh [format "%-20s %-14s origin (%.3f, %.3f) %s  bbox (%.3f %.3f %.3f %.3f)" $_inst $_b \
-                    [expr {[lindex [$_i getLocation] 0] / double($_dbu)}] [expr {[lindex [$_i getLocation] 1] / double($_dbu)}] \
-                    [$_i getOrient] [expr {[$_bb xMin] / double($_dbu)}] [expr {[$_bb yMin] / double($_dbu)}] \
-                    [expr {[$_bb xMax] / double($_dbu)}] [expr {[$_bb yMax] / double($_dbu)}]]
-            }
-        }
-        close $_fh
-    }
-}
-
-flow_proc pins_and_taps {
-    global pnr blocks
-    place_pins -hor_layers [oss_get pnr oss,pins,hor_layer] \
-               -ver_layers [oss_get pnr oss,pins,ver_layer]
-    set _halo [oss_get pnr oss,macro,halo]
-    tapcell -distance [oss_trk well_tap_distance] \
-            -tapcell_master [oss_trk well_tap] -endcap_master [oss_trk endcap] \
-            -halo_width_x $_halo -halo_width_y $_halo
-}
-
-flow_proc power_grid {
-    global design_name blocks
+flow_proc power_intent {
+    global design_name
     oss_apply_upf $design_name
-    set _p [oss_pdn $design_name $blocks]
-    handle_info "PDN: [dict get $_p position] pins=[dict get $_p pins] rails=[dict get $_p rails]"
     oss_check_power
 }
 

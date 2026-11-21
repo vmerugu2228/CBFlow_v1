@@ -37,6 +37,7 @@ set project(lsf,default_queue) "M"
 ;# Open-source tool stack (vendor "opensource")
 set project(default_tools) {
     SYNTH     "yosys"
+    FP        "openroad"
     PNR       "openroad"
     STA       "opensta"
     PV        "magic"

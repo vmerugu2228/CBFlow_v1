@@ -18,11 +18,6 @@ set pnr(tool,name)             "openroad"             ;# selects PNR_openroad_co
 
 # Netlist + SDC + UPF from the SYNTH release (Pattern A — one knob)
 set pnr(input,release_tag)     "P0_SYNTH_v1"
+set pnr(input,def_file_release_tag) "P0_FP_v1"   ;# floorplan DEF from the FP release
 
 set project(release,tag)       "P0_PNR_v1"
-
-# Blocks that integrate hard macros: floorplan (um) and optional fixed spots
-
-# ai_subsys (DL2): mac_array (DL3) hard macro from library tag OSS0
-set pnr(oss,fp,die_area)      {0 0 2000 1880}
-set pnr(oss,macro,placement)  {u_mac_array 40 40 R0}
