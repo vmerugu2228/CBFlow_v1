@@ -115,7 +115,7 @@ array set lec {
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 array set lec {
-    supported_tools {formality conformal}
+    supported_tools {formality conformal yosys}
     default_tool    "formality"
 }
 
