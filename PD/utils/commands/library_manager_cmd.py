@@ -4796,14 +4796,24 @@ def cmd_add(args: argparse.Namespace) -> int:
     version = args.version or 'v1.0.0'
     category = args.category
 
+    # Same lib_tag_root cascade as `generate`: --lib-tag-root > env >
+    # project(lib_tag_root) (--project / CBFLOW_PROJECT_NAME) > tech.
+    _project = (getattr(args, 'project', None)
+                or os.environ.get('CBFLOW_PROJECT_NAME', ''))
+    _override = getattr(args, 'lib_tag_root', None)
+
     # Must exist — `add` is explicitly for extending, not creating.
-    existing = _resolve_lib_config_path(tech_name, tag, version)
+    existing = _resolve_lib_config_path(tech_name, tag, version,
+                                        project_name=_project,
+                                        cli_override=_override)
     if not existing:
         # Show the ACTUAL resolved root — the resolver walks lib_tag_root
         # first, then falls back to in-tree legacy only when unset.
         # Pointing at $core_dir/config/tech here used to misdirect users
         # to the pre-refactor PD-only path, which no longer exists.
-        _root = _resolve_lib_tag_root(tech_name, version) \
+        _root = _resolve_lib_tag_root(tech_name, version,
+                                      project_name=_project,
+                                      cli_override=_override) \
                 or _resolve_tech_dir(tech_name, version) \
                 or '<unresolved>'
         # Report the current layout first — legacy only kicks in during
@@ -4811,6 +4821,9 @@ def cmd_add(args: argparse.Namespace) -> int:
         _looked = os.path.join(_root, tech_name, tag, 'lib_config.tcl')
         logger.error("No existing lib_config for tag '{}'.".format(tag))
         logger.error("  Searched: {}".format(_looked))
+        if not _project and not _override:
+            logger.error("  If the tag lives under a project's lib_tag_root, pass "
+                         "--project <name> (or --lib-tag-root <dir>).")
         logger.error("`add` extends an existing tag. To create a new tag:")
         logger.error("  cbflow flow library-manager generate --tech {} --tag {} --lib-root <path>".format(
             tech_name, tag))
@@ -5128,6 +5141,9 @@ Examples:
     add_parser.add_argument('--lib-tag-root', default=None, dest='lib_tag_root',
                             help='Override lib_tag_root. Same precedence rules as '
                                  '`generate` — flag > env > project > tech.')
+    add_parser.add_argument('--project', default=None,
+                            help='Project whose project(lib_tag_root) locates the '
+                                 'tag (default: $CBFLOW_PROJECT_NAME)')
 
     # coverage command — show track × VT × corner matrix
     cov_parser = subparsers.add_parser(
