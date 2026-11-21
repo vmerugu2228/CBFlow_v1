@@ -65,7 +65,7 @@ switch $subnode_name {
         } else {
             set _wrapper [generate_launch_wrapper "$_dir/run" $scenario $_ctx \
                               $::sta(oss,tool,timing) "$_dir/run/${scenario}.log"]
-            submit_job $_wrapper $::flow_type $scenario $node_name "$_dir/run"
+            submit_job $_wrapper $::flow_type $scenario $scenario "$_dir/run"
             if {![file exists "$_dir/reports/qor.tcl"]} {
                 puts "ERROR: timing $scenario produced no QoR ($_dir/reports/qor.tcl)"; exit 1
             }

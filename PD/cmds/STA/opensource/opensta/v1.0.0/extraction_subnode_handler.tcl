@@ -46,7 +46,7 @@ switch $subnode_name {
         } else {
             set _wrapper [generate_launch_wrapper "$_dir/run" $_rc $_ctx \
                               $::sta(oss,tool,extraction) "$_dir/run/${_rc}.log"]
-            submit_job $_wrapper $::flow_type $_rc $node_name "$_dir/run"
+            submit_job $_wrapper $::flow_type $_rc $_rc "$_dir/run"
             if {![file exists $_spef] || [file size $_spef] == 0} {
                 puts "ERROR: extraction $_rc produced no SPEF ($_spef)"; exit 1
             }
