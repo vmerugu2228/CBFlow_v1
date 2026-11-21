@@ -2314,6 +2314,40 @@ def _run_milestone_checklist(workspace: str, runs: dict, milestone: str) -> None
             logger.warning(f"    checklist could not run: {e}")
 
 
+def _milestone_order() -> list:
+    """MILESTONE_ORDER from PD release_config.tcl ([] when not declared)."""
+    rc_path = os.path.join(get_cbflow_core_dir(), 'config', 'flow',
+                           get_flow_config_version(), 'release_config.tcl')
+    try:
+        with open(rc_path) as f:
+            m = _re_mod.search(r'^\s*set\s+MILESTONE_ORDER\s+\{([^}]*)\}', f.read(), _re_mod.M)
+    except OSError:
+        return []
+    return m.group(1).split() if m else []
+
+
+def _missing_earlier_milestones(project, block, phase, milestone, pd_pkg) -> list:
+    """Milestones ordered before `milestone` that are not yet published for
+    (project, block, phase). Milestones outside MILESTONE_ORDER are ungated."""
+    order = _milestone_order()
+    if milestone not in order:
+        return []
+    import importlib.util as _ilu
+    import tracker_db as _pd_tracker
+    # project_dashboard/state_paths.py by path: dashboard/ has a module of the
+    # same name, so a plain import can resolve to the wrong one.
+    spec = _ilu.spec_from_file_location('_pd_state_paths',
+                                        os.path.join(pd_pkg, 'state_paths.py'))
+    sp = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(sp)
+    db_path = sp.tracker_db(project)
+    published = set()
+    if os.path.exists(db_path):
+        published = {r['milestone'] for r in _pd_tracker.list_published(db_path, project)
+                     if r['block'] == block and r['phase'] == phase}
+    return [m for m in order[:order.index(milestone)] if m not in published]
+
+
 def _publish_to_project_dashboard(project, block, phase, milestone, release_dir,
                                    workspace, runs, milestone_stage_map, override,
                                    strict=True):
@@ -2356,6 +2390,16 @@ def _publish_to_project_dashboard(project, block, phase, milestone, release_dir,
             logger.info(f"  To publish: `cbflow smartgrid start --project {project}`, "
                         f"then re-run this release — or re-run it with --publish.")
             return 1
+
+    # Exits publish in MILESTONE_ORDER (release_config.tcl): every earlier
+    # milestone must already be on SmartGrid for this block/phase.
+    missing = _missing_earlier_milestones(project, block, phase, milestone, pd_pkg)
+    if missing:
+        logger.error(f"  Not published: {milestone} cannot release before "
+                     f"{', '.join(missing)} for {block} / {phase}.")
+        logger.error(f"  Release in order: {' -> '.join(_milestone_order())} "
+                     f"(next: {missing[0]}).")
+        return 1
 
     # Every published release carries the milestone's complete checklist:
     # evaluate it on each published run now (status from the run's data,

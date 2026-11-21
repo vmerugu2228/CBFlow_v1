@@ -110,6 +110,11 @@ proc get_available_release_tags {category} {
     set MILESTONE_STAGE_MAPPING(BTO) "signoff"
     set MILESTONE_STAGE_MAPPING(MTO) "signoff"
 
+# ┌─ Milestone order ───────────────────────────────────────────────────────────┐
+# Exits release in this order per (project, block, phase): a milestone is
+# published only after every earlier one is on SmartGrid for that block/phase.
+set MILESTONE_ORDER {FP_EXIT PLACE_EXIT CTS_EXIT PRO_EXIT BTO MTO}
+
 # ── SYNTH_PNR Flow ────────────────────────────────────────────────────────────
 # ── PNR Flow ─────────────────────────────────────────────────────────────────
 # ── FP Flow ──────────────────────────────────────────────────────────────────
