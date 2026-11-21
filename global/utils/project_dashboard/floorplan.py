@@ -215,10 +215,21 @@ _LEF_SIZE_RE = re.compile(
 _LEF_END_MACRO_RE = re.compile(r'^\s*END\s+(\S+)\s*$', re.I)
 
 
-def parse_lef_macros(path):
-    """Return {macro_name: {'w': width_um, 'h': height_um}}.
+_LEF_PIN_RE = re.compile(r'^\s*PIN\s+(\S+)', re.I)
+_LEF_DIR_RE = re.compile(r'^\s*DIRECTION\s+(\w+)', re.I)
+_LEF_USE_RE = re.compile(r'^\s*USE\s+(\w+)', re.I)
+_LEF_LAYER_RE = re.compile(r'^\s*LAYER\s+(\S+)', re.I)
+_LEF_RECT_RE = re.compile(
+    r'^\s*RECT\s+(?:MASK\s+\d+\s+)?(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s*;', re.I)
+_MAX_PIN_RECTS = 12
 
-    Only reads MACRO ... SIZE lines. Skips PINS, OBS, geometry, PROPERTY.
+
+def parse_lef_macros(path):
+    """Return {macro: {'w', 'h', 'pins': {pin: {'dir', 'use', 'rects'}}}}.
+
+    Reads MACRO SIZE and each PIN's DIRECTION / USE and PORT rectangles
+    (µm, macro-local, at most _MAX_PIN_RECTS per pin — enough to draw pins
+    inside a cell). Skips OBS, PROPERTY and everything else.
     """
     out = {}
     if not path or not os.path.isfile(path):
@@ -226,25 +237,60 @@ def parse_lef_macros(path):
     try:
         with open(path, errors='replace') as f:
             current_macro = None
+            pin = None
+            layer = ''
             for line in f:
                 mm = _LEF_MACRO_RE.match(line)
                 if mm:
                     current_macro = mm.group(1)
+                    out.setdefault(current_macro, {'w': 0.0, 'h': 0.0, 'pins': {}})
+                    pin = None
                     continue
-                if current_macro:
-                    sm = _LEF_SIZE_RE.match(line)
-                    if sm:
-                        out[current_macro] = {
-                            'w': float(sm.group(1)),
-                            'h': float(sm.group(2)),
-                        }
+                if not current_macro:
+                    continue
+                em = _LEF_END_MACRO_RE.match(line)
+                if em:
+                    if pin is not None and em.group(1) == pin:
+                        pin = None
                         continue
-                    em = _LEF_END_MACRO_RE.match(line)
-                    if em and em.group(1) == current_macro:
+                    if em.group(1) == current_macro:
                         current_macro = None
+                        pin = None
+                        continue
+                sm = _LEF_SIZE_RE.match(line)
+                if sm:
+                    out[current_macro]['w'] = float(sm.group(1))
+                    out[current_macro]['h'] = float(sm.group(2))
+                    continue
+                pm = _LEF_PIN_RE.match(line)
+                if pm:
+                    pin = pm.group(1)
+                    out[current_macro]['pins'][pin] = {'dir': '', 'use': '', 'rects': []}
+                    continue
+                if line.strip().upper().startswith('OBS'):
+                    pin = None
+                    continue
+                if pin is None:
+                    continue
+                rec = out[current_macro]['pins'][pin]
+                dm = _LEF_DIR_RE.match(line)
+                if dm:
+                    rec['dir'] = dm.group(1).upper()
+                    continue
+                um = _LEF_USE_RE.match(line)
+                if um:
+                    rec['use'] = um.group(1).upper()
+                    continue
+                lm = _LEF_LAYER_RE.match(line)
+                if lm:
+                    layer = lm.group(1)
+                    continue
+                rm = _LEF_RECT_RE.match(line)
+                if rm and len(rec['rects']) < _MAX_PIN_RECTS:
+                    rec['rects'].append([round(float(v), 4) for v in rm.groups()] + [layer])
     except OSError:
         return out
-    return out
+    return {k: v for k, v in out.items() if v['w'] and v['h']}
 
 
 def parse_lef_dir(lef_paths):
@@ -412,3 +458,91 @@ def extract_from_release(release_dir, run_dir):
         macros_all = {k: v for k, v in macros_all.items() if k in cell_macros}
     payload['macros'] = macros_all
     return payload
+
+
+# ─── DEF NETS — per-instance connectivity (on demand) ───────────────────────
+# The floorplan payload stays geometry-only; connectivity for one clicked
+# instance is served from an index built once per DEF (cached by path+mtime).
+_NET_START_RE = re.compile(r'^\s*-\s+(\S+)')
+_CONN_RE = re.compile(r'\(\s*(\S+)\s+(\S+)\s*\)')
+_net_index_cache = {}
+
+
+def build_net_index(def_path):
+    """{'inst_pins': {inst: [(pin, net)]}, 'net_conns': {net: [(inst, pin)]}}
+    from the DEF NETS section (SPECIALNETS — power — skipped). Top-level
+    ports appear as inst 'PIN'."""
+    key = (def_path, os.path.getmtime(def_path) if os.path.isfile(def_path) else 0)
+    if key in _net_index_cache:
+        return _net_index_cache[key]
+    inst_pins, net_conns, comps = {}, {}, {}
+    in_nets = False
+    in_comps = False
+    net, buf = None, []
+    comp_re = re.compile(r'^\s*-\s+(\S+)\s+(\S+).*?\+\s+(?:PLACED|FIXED|COVER)\s+\(\s*(-?\d+)\s+(-?\d+)\s*\)\s+(\w+)')
+    comp_buf = ''
+
+    def _flush():
+        if net is None:
+            return
+        text = ' '.join(buf)
+        # connections come before the first '+' (routing / properties follow)
+        head = text.split(' + ', 1)[0]
+        conns = [(i, p) for i, p in _CONN_RE.findall(head)]
+        net_conns[net] = conns
+        for i, p in conns:
+            inst_pins.setdefault(i, []).append((p, net))
+
+    with open(def_path, errors='replace') as f:
+        for line in f:
+            st = line.strip()
+            if in_comps:
+                if st.startswith('END COMPONENTS'):
+                    in_comps = False
+                    continue
+                comp_buf += ' ' + st
+                if st.endswith(';'):
+                    cm = comp_re.match(comp_buf.strip())
+                    if cm:
+                        comps[cm.group(1)] = (cm.group(2), int(cm.group(3)), int(cm.group(4)), cm.group(5))
+                    comp_buf = ''
+                continue
+            if not in_nets:
+                if st.startswith('COMPONENTS '):
+                    in_comps = True
+                elif st.startswith('NETS '):
+                    in_nets = True
+                continue
+            if st.startswith('END NETS'):
+                _flush()
+                break
+            m = _NET_START_RE.match(line)
+            if m:
+                _flush()
+                net, buf = m.group(1), [st[st.index(m.group(1)) + len(m.group(1)):]]
+            elif net is not None:
+                buf.append(st)
+    idx = {'inst_pins': inst_pins, 'net_conns': net_conns, 'comps': comps}
+    _net_index_cache.clear()          # keep one DEF index in memory at a time
+    _net_index_cache[key] = idx
+    return idx
+
+
+def cell_connectivity(def_path, inst, max_peers=200):
+    """Pins of `inst` with their nets and the other (inst, pin) on each net.
+    Nets larger than `max_peers` (clocks, resets) return the first peers and
+    the full fanout count."""
+    idx = build_net_index(def_path)
+    comps = idx['comps']
+    out = []
+    for pin, net in idx['inst_pins'].get(inst, []):
+        conns = [c for c in idx['net_conns'].get(net, []) if c != (inst, pin)]
+        peers = []
+        for i, p in conns[:max_peers]:
+            rec = {'inst': i, 'pin': p}
+            if i in comps:
+                m, x, y, o = comps[i]
+                rec.update({'macro': m, 'x': x, 'y': y, 'orient': o})
+            peers.append(rec)
+        out.append({'pin': pin, 'net': net, 'fanout': len(conns), 'peers': peers})
+    return out

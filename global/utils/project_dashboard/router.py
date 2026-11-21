@@ -26,6 +26,7 @@ if SCRIPT_DIR not in sys.path:
 
 import state_paths
 import tracker_db
+import floorplan
 
 logger = logging.getLogger('cbflow.project_dashboard.router')
 
@@ -179,6 +180,13 @@ def make_handler(project):
                     return None
                 return _p
 
+            if path.startswith('/api/floorplan/') and '/cell/' in path:
+                _rest = path[len('/api/floorplan/'):]
+                _pid_s, _inst = _rest.split('/cell/', 1)
+                pid = _parse_pid(_pid_s)
+                if pid is None:
+                    return self._send(404, 'text/plain', 'not found')
+                return self._api_cell_connectivity(pid, unquote(_inst))
             if path.startswith('/api/floorplan/'):
                 pid = _parse_pid(path[len('/api/floorplan/'):].rstrip('/'))
                 if pid is None:
@@ -546,6 +554,22 @@ def make_handler(project):
             if not fp:
                 return self._send(404, 'text/plain', 'no floorplan captured')
             self._json(fp)
+
+        def _api_cell_connectivity(self, pid, inst):
+            """Pins / nets / connected cells of one instance, from the
+            released DEF behind this published row (index cached per DEF)."""
+            if not inst or len(inst) > 1024 or any(ch in inst for ch in '\n\r\x00'):
+                return self._send(400, 'text/plain', 'bad instance name')
+            db = state_paths.tracker_db(project)
+            fp = tracker_db.get_floorplan(db, pid)
+            def_path = (fp or {}).get('def_path', '')
+            if not def_path or not os.path.isfile(def_path):
+                return self._send(404, 'text/plain', 'released DEF not available')
+            try:
+                pins = floorplan.cell_connectivity(def_path, inst)
+            except Exception as e:
+                return self._send(500, 'text/plain', f'connectivity failed: {e}')
+            self._json({'inst': inst, 'pins': pins})
 
         def _api_timing(self, pid):
             db = state_paths.tracker_db(project)
@@ -1218,9 +1242,14 @@ _FLOORPLAN_PANE = """
                                     border:1px solid var(--border);border-radius:3px;cursor:pointer">
         zoom to matches
       </button>
+      <label style="display:flex;align-items:center;gap:4px;color:var(--text);
+                    padding:3px 8px;border:1px solid var(--border);border-radius:3px;
+                    background:#fff;cursor:pointer;user-select:none">
+        <input type="checkbox" id="fp-conn" style="margin:0"> connectivity
+      </label>
       <span id="fp-count" style="color:var(--muted);font-family:monospace"></span>
       <span style="color:var(--muted);flex-basis:100%">
-        wheel = zoom · drag = pan · click a cell = show instance · type in the box to highlight
+        wheel = zoom · drag = pan · click a cell = select (pins shown) · connectivity = fly-lines to connected cells · type in the box to highlight
       </span>
     </div>
     <div id="fp-body" style="display:flex;gap:8px;align-items:stretch;
@@ -1354,6 +1383,10 @@ _FLOORPLAN_PANE = """
         <canvas id="fp-canvas"
                 style="width:100%;height:70vh;display:block;
                        cursor:grab;user-select:none"></canvas>
+        <div id="fp-conn-info" style="display:none;position:absolute;top:8px;right:8px;
+             max-width:340px;max-height:60%;overflow:auto;background:rgba(15,23,42,0.92);
+             color:#e2e8f0;font:11px Menlo,monospace;padding:8px 10px;border-radius:4px;
+             border:1px solid #475569;z-index:5"></div>
         <div id="fp-tip" style="display:none;position:absolute;pointer-events:none;
                                 background:#fff;border:1px solid var(--border);
                                 border-radius:3px;padding:6px 10px;font-size:12px;
@@ -2005,7 +2038,95 @@ _FLOORPLAN_PANE = """
         matches: [],                // list of cells matching the query
         activePath: null,           // focus path — drawn on top with full detail
         activePaths: [],            // bulk selection — thin lines, no arrows
+        showConn: false,            // connectivity switch
+        connData: null,             // {inst, pins:[{pin,net,fanout,peers}]} of state.selected
       };
+      const connBox  = document.getElementById('fp-conn');
+      const connInfo = document.getElementById('fp-conn-info');
+      const PIN_COLOR = {INPUT: '#3b82f6', OUTPUT: '#ef4444', INOUT: '#a855f7'};
+
+      // Macro-local (µm) → world DBU for a placed cell, honoring orientation
+      // (sky130 rows alternate N / FS; S and FN for flipped placements).
+      function orientXY(c, lx, ly) {
+        const W = cellWidth(c), H = cellHeight(c);
+        switch (c.orient) {
+          case 'S':  return [c.x + W - lx, c.y + H - ly];
+          case 'FN': return [c.x + W - lx, c.y + ly];
+          case 'FS': return [c.x + lx,     c.y + H - ly];
+          default:   return [c.x + lx,     c.y + ly];
+        }
+      }
+      function pinRectsWorld(c, pinName) {
+        const m = macros[c.macro];
+        const pin = m && m.pins ? m.pins[pinName] : null;
+        if (!pin) return [];
+        return pin.rects.map(r => {
+          const [ax, ay] = orientXY(c, r[0] * units, r[1] * units);
+          const [bx, by] = orientXY(c, r[2] * units, r[3] * units);
+          return [Math.min(ax, bx), Math.min(ay, by), Math.max(ax, bx), Math.max(ay, by)];
+        });
+      }
+      function pinCenterWorld(c, pinName) {
+        const rs = pinRectsWorld(c, pinName);
+        if (!rs.length) return [c.x + cellWidth(c) / 2, c.y + cellHeight(c) / 2];
+        const r = rs[0];
+        return [(r[0] + r[2]) / 2, (r[1] + r[3]) / 2];
+      }
+      function pinDir(c, pinName) {
+        const m = macros[c.macro];
+        const pin = m && m.pins ? m.pins[pinName] : null;
+        return pin ? (pin.use === 'POWER' || pin.use === 'GROUND' ? 'SUPPLY' : pin.dir) : '';
+      }
+      function fetchConn(c) {
+        state.connData = null;
+        if (!c || !state.showConn) { renderConnInfo(); return; }
+        fetch('/api/floorplan/{PID}/cell/' + encodeURIComponent(c.name))
+          .then(r => r.ok ? r.json() : Promise.reject(r.status))
+          .then(j => { if (state.selected === c) { state.connData = j; renderConnInfo(); scheduleRender(); } })
+          .catch(err => { connInfo.style.display = 'block';
+                          connInfo.textContent = 'connectivity unavailable (' + err + ')'; });
+      }
+      function renderConnInfo() {
+        const d = state.connData, c = state.selected;
+        if (!state.showConn || !c || !d) { connInfo.style.display = 'none'; return; }
+        const esc = t => String(t).replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+        let h = '<b>' + esc(c.name) + '</b> <span style="color:#94a3b8">' + esc(c.macro) + '</span><br>';
+        for (const e of d.pins) {
+          const dir = pinDir(c, e.pin) || '?';
+          const col = PIN_COLOR[dir] || '#94a3b8';
+          h += '<div style="margin-top:4px"><span style="color:' + col + '">' + esc(e.pin) + '</span> ' +
+               '<span style="color:#64748b">' + esc(dir.toLowerCase()) + '</span> → ' + esc(e.net) +
+               ' <span style="color:#94a3b8">(' + e.fanout + ')</span>';
+          for (const p of e.peers.slice(0, 8)) {
+            h += '<div data-inst="' + esc(p.inst) + '" style="padding-left:10px;cursor:pointer;color:#cbd5e1">' +
+                 esc(p.inst) + '/' + esc(p.pin) + (p.macro ? ' <span style="color:#64748b">' + esc(p.macro) + '</span>' : '') + '</div>';
+          }
+          if (e.peers.length > 8 || e.fanout > e.peers.length) {
+            h += '<div style="padding-left:10px;color:#64748b">… ' + (e.fanout - Math.min(8, e.peers.length)) + ' more</div>';
+          }
+          h += '</div>';
+        }
+        connInfo.innerHTML = h;
+        connInfo.style.display = 'block';
+      }
+      // Click a peer in the panel → select that cell.
+      connInfo.addEventListener('click', ev => {
+        const t = ev.target.closest('[data-inst]');
+        if (!t) return;
+        const name = t.getAttribute('data-inst');
+        let found = cells.find(cc => cc.name === name);
+        if (!found && state.connData) {
+          for (const e of state.connData.pins) for (const p of e.peers)
+            if (p.inst === name && p.x !== undefined) found = {name: p.inst, macro: p.macro, x: p.x, y: p.y, orient: p.orient};
+        }
+        if (found) { state.selected = found; fetchConn(found); scheduleRender(); }
+      });
+      connBox.addEventListener('change', () => {
+        state.showConn = connBox.checked;
+        if (state.showConn && state.selected) fetchConn(state.selected);
+        else { state.connData = null; renderConnInfo(); }
+        scheduleRender();
+      });
       function fitScale() {
         return Math.min((state.cssW - 2*pad) / dW,
                         (state.cssH - 2*pad) / dH);
@@ -2350,6 +2471,69 @@ _FLOORPLAN_PANE = """
           ctx.fillText(bn.text, 12, y + 14);
         });
 
+        // ── Selected cell: highlight, pins, connectivity fly-lines ──────
+        if (state.selected) {
+          const c = state.selected;
+          const w = cellWidth(c), h = cellHeight(c);
+          const [px, py] = toPx(c.x, c.y + h);
+          const pw = state.scale * w, ph = state.scale * h;
+          ctx.save();
+          ctx.fillStyle = 'rgba(250,204,21,0.45)';
+          ctx.strokeStyle = '#f59e0b';
+          ctx.lineWidth = 2.5;
+          ctx.fillRect(px, py, Math.max(pw, 2), Math.max(ph, 2));
+          ctx.strokeRect(px, py, Math.max(pw, 2), Math.max(ph, 2));
+          if (pw < 8 || ph < 8) {                  // too small to see: locator ring
+            ctx.beginPath();
+            ctx.arc(px + pw / 2, py + ph / 2, 10, 0, 2 * Math.PI);
+            ctx.stroke();
+          }
+          // Pins (LEF geometry, orientation-aware) once the cell is readable.
+          const m = macros[c.macro];
+          if (m && m.pins && pw > 12) {
+            ctx.font = '10px Menlo, monospace';
+            for (const name of Object.keys(m.pins)) {
+              const dir = pinDir(c, name);
+              const col = PIN_COLOR[dir] || 'rgba(100,116,139,0.8)';
+              ctx.fillStyle = col + (dir === 'SUPPLY' ? '' : 'cc');
+              ctx.strokeStyle = col;
+              ctx.lineWidth = 1;
+              for (const r of pinRectsWorld(c, name)) {
+                const [rx, ry] = toPx(r[0], r[3]);
+                const rw = state.scale * (r[2] - r[0]), rh = state.scale * (r[3] - r[1]);
+                if (dir === 'SUPPLY') { ctx.strokeRect(rx, ry, rw, rh); }
+                else { ctx.fillRect(rx, ry, Math.max(rw, 1), Math.max(rh, 1)); }
+              }
+              if (dir !== 'SUPPLY' && pw > 50) {
+                const [cx, cy] = toPx(...pinCenterWorld(c, name));
+                ctx.fillStyle = '#0f172a';
+                ctx.fillText(name, cx + 3, cy - 3);
+              }
+            }
+          }
+          // Connectivity fly-lines: pin → each connected cell's pin.
+          if (state.showConn && state.connData) {
+            for (const e of state.connData.pins) {
+              const dir = pinDir(c, e.pin);
+              const col = PIN_COLOR[dir] || '#a855f7';
+              const [sx, sy] = toPx(...pinCenterWorld(c, e.pin));
+              ctx.strokeStyle = col;
+              ctx.fillStyle = col;
+              ctx.lineWidth = 1.2;
+              for (const p of e.peers) {
+                if (p.x === undefined || !p.macro) continue;
+                const pc = {name: p.inst, macro: p.macro, x: p.x, y: p.y, orient: p.orient};
+                const [tx, ty] = toPx(...pinCenterWorld(pc, p.pin));
+                ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(tx, ty); ctx.stroke();
+                const [qx, qy] = toPx(pc.x, pc.y + cellHeight(pc));
+                ctx.strokeRect(qx, qy, Math.max(state.scale * cellWidth(pc), 3), Math.max(state.scale * cellHeight(pc), 3));
+                ctx.beginPath(); ctx.arc(tx, ty, 2.5, 0, 2 * Math.PI); ctx.fill();
+              }
+            }
+          }
+          ctx.restore();
+        }
+
         // Selection label — elide hierarchical instance name so it never
         // pushes the coordinates off-screen.
         if (state.selected) {
@@ -2568,6 +2752,7 @@ _FLOORPLAN_PANE = """
           }
         }
         state.selected = found;
+        fetchConn(found);
         scheduleRender();
       });
 
