@@ -40,7 +40,7 @@ flow_proc global_detailed_route {
     if {[lsearch -exact $_layers $_cmin] > [lsearch -exact $_layers $_cmax]} { set _cmin $_cmax }
     set_routing_layers -signal ${_min}-${_max} -clock ${_cmin}-${_cmax}
     global_route -allow_congestion -congestion_report_file "$::REPORTS_DIR/route_congestion.rpt"
-    detailed_route -output_drc "$::REPORTS_DIR/route_drc.rpt" -verbose 0
+    detailed_route -output_drc "$::REPORTS_DIR/route_drc.rpt" -verbose 1
     write_db [oss_stage_out route.odb]
 }
 

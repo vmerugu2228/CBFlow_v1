@@ -35,6 +35,17 @@ flow_proc publish {
     ::CBFlow::Release::copy_file [oss_node_output [oss_chain_node export_data] final.gds] gds     ${design_name}.gds
     ::CBFlow::Release::copy_file "$_so/final.lef"                       lef     ${design_name}.lef
     ::CBFlow::Release::copy_file "$_so/final.v"                         netlist ${design_name}.v
+    # STA handshake names: <d>.pt.v and the per-mode SDC (operating_modes)
+    ::CBFlow::Release::copy_file "$_so/final.v"                         netlist ${design_name}.pt.v
+    if {[array exists ::operating_modes]} {
+        foreach _mode [array names ::operating_modes] {
+            set _cf [string map [list {${design_name}} $design_name] \
+                         [dict get $::operating_modes($_mode) constraint_file]]
+            if {$_cf ne "${design_name}.sdc"} {
+                ::CBFlow::Release::copy_file "$_so/final.sdc" sdc $_cf
+            }
+        }
+    }
     ::CBFlow::Release::copy_file "$_so/final.lvs.v"                     netlist ${design_name}.lvs.v
     ::CBFlow::Release::copy_file "$_so/final.cdl"                       netlist ${design_name}.cdl
     ::CBFlow::Release::copy_file "$_so/final.def"                       def     ${design_name}.def

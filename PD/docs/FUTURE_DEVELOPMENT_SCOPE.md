@@ -2,7 +2,7 @@
 
 Status: proposed · Owner: CBflow core (vmerugu) · Created: 2026-11-21
 
-Five workstreams that close the loop between CBflow runs and SmartGrid (the
+Six workstreams that close the loop between CBflow runs and SmartGrid (the
 project dashboard, `global/utils/project_dashboard/`) and make every project
 phase a systematic, tag-chained execution. Each lists today's baseline, the
 gaps, the work items, and the acceptance criteria that mark it done.
@@ -244,6 +244,58 @@ flows (Formality / Conformal LEC, Conformal LP / VC-LP).
 
 ---
 
+## 6. Checklist-driven outputs — every flow produces what its exits check
+
+**Goal.** Each exit checklist evaluates real data. For every check the
+milestones reference, the producing flow writes the report / metric the check
+reads, under the path and format the check expects — for the open-source
+flows as well as the commercial ones.
+
+**Baseline today**
+- Publishing runs the milestone checklist and records every check (status
+  from the run's data, NA when its report is missing) — item 1.
+- The checks reference report paths and formats of the FC/Innovus flows
+  (e.g. BTO `work/SYNTH_PNR/signoff1/reports/report_timing.max.rpt`,
+  `report_qor.rpt`); the open-source PNR writes its own reports
+  (`signoff_setup.rpt`, `*_qor.tcl`, …), so those checks read NA.
+- 182 PD library checks across timing / placement / clock / power /
+  routing / physical / SI / manufacturing categories.
+
+**Work items**
+1. Output audit: for every milestone × check, list the expected report /
+   metric (path pattern, `metric_pattern`, `grep_pattern`) and whether each
+   flow + tool produces it; publish the gap matrix in SmartGrid.
+2. Generate the missing outputs in each flow's stages, in the checks'
+   expected names and formats, e.g.:
+   - timing: setup / hold reports per scenario, WNS / TNS / violating-path
+     counts, timing summary;
+   - QoR summary per stage (area, cell count, utilization, buffers / inverters,
+     WNS / TNS, DRV counts, power);
+   - dont_use compliance: instances of `tech(<trk>,dont_use[_pnr])` cells
+     (must be 0) and of excluded VT classes;
+   - clock: clock-cell area and count, clock buffer/inverter usage, skew,
+     insertion delay, clock-net DRVs;
+   - placement: utilization, density hot spots, legality, macro spacing /
+     orientation, IO legality;
+   - power: total / leakage / dynamic, PG connectivity, IR / EM where run;
+   - routing / physical: completion, opens / shorts, DRC count, antenna,
+     congestion (H / V), metal density;
+   - SI / manufacturing where the tool supports it.
+3. Where a check's path is flow-specific (`work/SYNTH_PNR/...`), resolve it
+   from the milestone's stage node and the run's actual flow, so a check
+   reads the PNR (or SYNTH_PNR) run that produced the stage.
+4. Each new report is listed in the stage's `mandatory_outputs` where the
+   milestone makes it mandatory, so a stage that skips it fails validation.
+
+**Acceptance**
+- On opensky, BTO / PRO_EXIT / CTS_EXIT / PLACE_EXIT / FP_EXIT checks
+  evaluate to PASS / FAIL / WAIVED from data; NA only for checks whose tool
+  capability does not exist in the open-source stack (listed explicitly).
+- The gap matrix shows every check → producing stage → report for PNR,
+  SYNTH_PNR (FC) and the open-source flows.
+
+---
+
 ## Sequencing
 
 | Order | Workstream | Depends on |
@@ -256,6 +308,7 @@ flows (Formality / Conformal LEC, Conformal LP / VC-LP).
 | 6 | RTL release + phase/flow tag convention (4.1, 4.2) | 2.2 lineage |
 | 7 | Phase orchestrator, ledger, gate (4.3–4.5) | 1.2, 2.1, 4.1, 4.2 |
 | 8 | Open-source LEC (EQY) + CLP-lite (5.1–5.3) | 4.1 (RTL release) for RTL ↔ SYNTH |
+| 9 | Checklist-driven outputs: audit + missing reports (6.1–6.4) | 1.2 (checklist at publish) |
 
 The opensky open-source hierarchy (gcd, mac_array → ctrl_subsys, ai_subsys
 → opensky_chip) is the reference dataset for every acceptance test above.

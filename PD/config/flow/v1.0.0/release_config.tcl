@@ -1349,6 +1349,9 @@ proc check_release_readiness {run_dir flow milestone phase} {
     set flow_input_handshake(STA,netlist)        {ANY netlist "${design_name}.pt.v"}
     set flow_input_handshake(STA,def_file)       {ANY def     "${design_name}.def"}
     set flow_input_handshake(STA,spef)           {ANY spef    "${design_name}.spef"}
+    # Mode-independent SDC (the per-mode STA,sdc,<mode> entries below need
+    # operating_modes, which the input stage does not load).
+    set flow_input_handshake(STA,sdc)            {ANY sdc     "${design_name}.sdc"}
 
     set flow_input_handshake(PV,gds)             {ANY gds     "${design_name}.gds"}
     set flow_input_handshake(PV,netlist)         {ANY netlist "${design_name}.lvs.v"}

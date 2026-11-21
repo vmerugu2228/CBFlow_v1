@@ -177,7 +177,7 @@ foreach _s $_sta_exec_stages {
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 # array set sta { … } expanded to per-key `set` statements so `#` comments work natively (Tcl treats `#` as data inside `array set` literals).
-    set sta(supported_tools) {pt tempus}
+    set sta(supported_tools) {pt tempus opensta}
     set sta(default_tool) "pt"
 
 # Source tool-specific configuration
