@@ -3191,6 +3191,9 @@ _FLOORPLAN_PANE = """
         if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
         const _tdModal = document.getElementById('td-modal');
         if (_tdModal && _tdModal.style.display === 'flex') return;   // path-detail modal owns keys
+        // Floorplan keys only while the pointer is over the canvas (or it is
+        // fullscreen) — otherwise arrows / space keep scrolling the page.
+        if (!mousePx && document.fullscreenElement !== wrap) return;
         const k = ev.key, mod = ev.ctrlKey || ev.metaKey;
         const at = mousePx || [state.cssW / 2, state.cssH / 2];
         const step = (ev.shiftKey ? 0.4 : 0.1);
