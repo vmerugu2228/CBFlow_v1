@@ -93,6 +93,11 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
 .dag-edge path { stroke-width:2; fill:none; }
 .dag-edge polygon { }
 .dag-node.selected rect { stroke-width:4; filter:drop-shadow(0 0 8px rgba(0,0,0,0.5)); }
+.dag-node.multi rect { stroke:#1565c0 !important; stroke-width:4; stroke-dasharray:7 3; }
+#sel-box { position:fixed; border:1.5px dashed #1565c0; background:rgba(21,101,192,0.10); pointer-events:none; z-index:250; display:none; }
+.sel-actions { display:none; align-items:center; gap:4px; margin-left:10px; padding-left:10px; border-left:1px solid var(--border); }
+.sel-actions.on { display:inline-flex; }
+.sel-count { font-size:10.5px; font-weight:700; color:#1565c0; }
 
 /* ── Right Panel: Details ── */
 .right-panel { width:280px; background:var(--surface); border-left:1px solid var(--border); display:flex; flex-direction:column; flex-shrink:0; overflow:hidden; }
@@ -316,6 +321,16 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
     <button class="act-btn"          onclick="promptRelease()" title="Release...">&#128230;<span>Release</span></button>
     <button class="act-btn act-stop" onclick="stopExecution()" title="Stop all running jobs">&#9632;<span>Stop</span></button>
   </span>
+  <!-- Multi-selection (Shift+click / Shift+drag on the graph) -->
+  <span class="sel-actions" id="sel-actions">
+    <span class="sel-count" id="sel-count">0 selected</span>
+    <button class="act-btn" onclick="multiAction('run-stage')" title="Run each selected stage">&#9654;<span>Run</span></button>
+    <button class="act-btn" onclick="multiAction('bypass')" title="Bypass selected">&#10140;<span>Bypass</span></button>
+    <button class="act-btn" onclick="multiAction('force')" title="Force re-run selected">&#8634;<span>Force</span></button>
+    <button class="act-btn" onclick="multiAction('forcevalidate')" title="Force validate selected">&#10004;<span>Validate</span></button>
+    <button class="act-btn" onclick="clearMultiSel()" title="Clear selection (Esc)">&#10005;<span>Clear</span></button>
+  </span>
+  <div id="sel-box"></div>
 </div>
 
 <!-- ══ Context Menu (main view - stage) ══ -->
@@ -779,6 +794,70 @@ function updateTree() {
         }
       });
     });
+  }
+}
+
+// ── Multi-selection: Shift+click toggles a node, Shift+drag boxes nodes ──
+var multiSel = new Set();
+var selBox = null;
+function nodeClick(name, e) {
+  if (e && e.shiftKey) { toggleMultiSel(name); return; }
+  clearMultiSel();
+  selectNode(name);
+}
+function toggleMultiSel(name) {
+  if (multiSel.size === 0 && selectedNode && selectedNode !== name) multiSel.add(selectedNode);
+  if (multiSel.has(name)) multiSel.delete(name); else multiSel.add(name);
+  paintMultiSel();
+}
+function clearMultiSel() { multiSel.clear(); paintMultiSel(); }
+function paintMultiSel() {
+  document.querySelectorAll('.dag-node.multi').forEach(function(el){ el.classList.remove('multi'); });
+  multiSel.forEach(function(n) { var el = document.getElementById('dag-' + n); if (el) el.classList.add('multi'); });
+  var bar = document.getElementById('sel-actions');
+  if (bar) bar.classList.toggle('on', multiSel.size > 0);
+  var c = document.getElementById('sel-count');
+  if (c) c.textContent = multiSel.size + ' selected';
+}
+function drawSelBox() {
+  var b = document.getElementById('sel-box');
+  if (!b || !selBox) return;
+  b.style.left = Math.min(selBox.x0, selBox.x1) + 'px';
+  b.style.top = Math.min(selBox.y0, selBox.y1) + 'px';
+  b.style.width = Math.abs(selBox.x1 - selBox.x0) + 'px';
+  b.style.height = Math.abs(selBox.y1 - selBox.y0) + 'px';
+  b.style.display = 'block';
+}
+function finishSelBox() {
+  var x0 = Math.min(selBox.x0, selBox.x1), x1 = Math.max(selBox.x0, selBox.x1);
+  var y0 = Math.min(selBox.y0, selBox.y1), y1 = Math.max(selBox.y0, selBox.y1);
+  selBox = null;
+  document.getElementById('sel-box').style.display = 'none';
+  if (x1 - x0 < 3 && y1 - y0 < 3) return;
+  document.querySelectorAll('.dag-node').forEach(function(el) {
+    var r = el.getBoundingClientRect();
+    var name = el.getAttribute('data-name');
+    if (name && r.right >= x0 && r.left <= x1 && r.bottom >= y0 && r.top <= y1) multiSel.add(name);
+  });
+  paintMultiSel();
+}
+function multiAction(action) {
+  var names = Array.from(multiSel);
+  if (!names.length) return;
+  var jobs = names.filter(function(n){ var j = allJobs.find(function(x){return x.name === n;}); return j && j.type === 'subnode'; });
+  var stages = names.filter(function(n){ return jobs.indexOf(n) < 0; });
+  if (action === 'run-stage') {
+    // One request per stage, in order (the engine queues them)
+    names.reduce(function(p, n) {
+      return p.then(function(){ return apiAction('run-stage', {stage: n}); });
+    }, Promise.resolve());
+  } else if (action === 'force') {
+    apiAction('force', {stages: stages});
+  } else {
+    var body = {};
+    if (stages.length) body.stages = stages;
+    if (jobs.length) body.jobs = jobs;
+    apiAction(action, body);
   }
 }
 
@@ -1474,7 +1553,7 @@ function renderSubnodeView() {
   // Attach events to subnode nodes
   svg.querySelectorAll('.dag-node').forEach(function(node) {
     var name = node.getAttribute('data-name');
-    node.addEventListener('click', function(e) { if (!dragMoved) selectNode(name); });
+    node.addEventListener('click', function(e) { if (!dragMoved) nodeClick(name, e); });
     node.addEventListener('contextmenu', function(e) { showCtxMenu(name, e); });
     node.addEventListener('dblclick', function(e) { e.stopPropagation(); showSubnodeDetail(name); });
     setupNodeDrag(node);
@@ -1489,7 +1568,7 @@ function attachDagEvents() {
   var svg = document.getElementById('dag-svg');
   svg.querySelectorAll('.dag-node').forEach(function(node) {
     var name = node.getAttribute('data-name');
-    node.addEventListener('click', function(e) { if (!dragMoved) selectNode(name); });
+    node.addEventListener('click', function(e) { if (!dragMoved) nodeClick(name, e); });
     node.addEventListener('contextmenu', function(e) { showCtxMenu(name, e); });
     node.addEventListener('dblclick', function(e) {
       e.stopPropagation();
@@ -1664,6 +1743,13 @@ function setupPanZoom() {
   var svg = document.getElementById('dag-svg');
 
   svg.addEventListener('mousedown', function(e) {
+    // Shift+drag on empty canvas: rubber-band selection (no pan)
+    if (e.button === 0 && e.shiftKey && (e.target === svg || e.target.tagName === 'svg')) {
+      e.preventDefault();
+      selBox = {x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY};
+      drawSelBox();
+      return;
+    }
     // Only pan when clicking on empty canvas area (svg background)
     if (e.target === svg || e.target.tagName === 'svg') {
       isPanning = true;
@@ -1674,6 +1760,7 @@ function setupPanZoom() {
   });
 
   window.addEventListener('mousemove', function(e) {
+    if (selBox) { selBox.x1 = e.clientX; selBox.y1 = e.clientY; drawSelBox(); return; }
     if (!isPanning) return;
     dagTx = e.clientX - panStartX;
     dagTy = e.clientY - panStartY;
@@ -1681,6 +1768,7 @@ function setupPanZoom() {
   });
 
   window.addEventListener('mouseup', function() {
+    if (selBox) { finishSelBox(); return; }
     if (isPanning) {
       isPanning = false;
       document.getElementById('dag-svg').style.cursor = 'default';
@@ -2048,7 +2136,17 @@ function showCtxMenu(name, event) {
 
   // Rebuild context menu content dynamically
   var menuHtml = '<div class="ctx-hdr" id="ctx-hdr">' + name + '</div>';
-  if (isSubnode) {
+  if (multiSel.size > 1 && multiSel.has(name)) {
+    // Right-click inside a multi-selection: act on every selected node
+    menuHtml = '<div class="ctx-hdr" id="ctx-hdr">' + multiSel.size + ' nodes selected</div>';
+    menuHtml += '<a onclick="multiAction(\'run-stage\')">&#9654; Run Selected</a>';
+    menuHtml += '<hr>';
+    menuHtml += '<a onclick="multiAction(\'bypass\')">&#10140; Bypass Selected</a>';
+    menuHtml += '<a onclick="multiAction(\'force\')">&#8634; Force Re-run Selected</a>';
+    menuHtml += '<a onclick="multiAction(\'forcevalidate\')">&#10004; Force Validate Selected</a>';
+    menuHtml += '<hr>';
+    menuHtml += '<a onclick="clearMultiSel()">&#10005; Clear Selection</a>';
+  } else if (isSubnode) {
     menuHtml += '<a onclick="ctxAction(\'run-stage\')">&#9654; Run to This Subnode</a>';
     menuHtml += '<a onclick="ctxAction(\'open-log\')">&#128196; Open Log</a>';
     menuHtml += '<hr>';
@@ -2238,7 +2336,7 @@ function _openReleaseModal(rx) {
 // API ACTIONS
 // ═══════════════════════════════════════════════════════════════════
 function apiAction(action, body) {
-  fetch('/api/action/' + action, {
+  return fetch('/api/action/' + action, {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify(body)
   }).then(function(r){return r.json();}).then(function(data) {
@@ -2862,7 +2960,7 @@ document.addEventListener('keydown', function(e) {
   else if (key === 'y' && selectedNode) { ctxStage = selectedNode; ctxAction('bypass'); }
   else if (key === 'e' && selectedNode) { ctxStage = selectedNode; ctxAction('edit'); }
   else if (key === 'm' && selectedNode) { ctxStage = selectedNode; ctxAction('mmmc'); }
-  else if (key === 'escape') { closeModal('edit-modal'); closeModal('action-modal'); closeModal('addnode-modal'); closeModal('branch-modal'); }
+  else if (key === 'escape') { clearMultiSel(); closeModal('edit-modal'); closeModal('action-modal'); closeModal('addnode-modal'); closeModal('branch-modal'); }
   else if (key === 's') { apiAction('stop', {}); }
   else if (key === 'l') { resetGraph(); }
   else if (key === '?') {
