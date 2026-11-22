@@ -44,11 +44,11 @@ flow_proc merge {
     puts $_fh [format "%-40s %12s %12s %12s %12s" scenario setup_wns setup_tns hold_wns hold_tns]
     foreach _r $_rows {
         lassign $_r _s _wsn _tsn _whn _thn
-        puts $_fh [format "%-40s %12.4f %12.4f %12.4f %12.4f" $_s $_wsn $_tsn $_whn $_thn]
+        puts $_fh [format "%-40s %12s %12s %12s %12s" $_s [cbflow_fmt_slack $_wsn] [cbflow_fmt_slack $_tsn] [cbflow_fmt_slack $_whn] [cbflow_fmt_slack $_thn]]
         if {$_wsn < $_ws} { set _ws $_wsn }
         if {$_whn < $_wh} { set _wh $_whn }
     }
-    puts $_fh "\nworst setup WNS: $_ws    worst hold WNS: $_wh    scenarios: [llength $_rows]"
+    puts $_fh "\nworst setup WNS: [cbflow_fmt_slack $_ws]    worst hold WNS: [cbflow_fmt_slack $_wh]    scenarios: [llength $_rows]"
     close $_fh
     set _fh [open [oss_stage_out sta_summary.tcl] w]
     puts $_fh "set sta_summary(wns_setup) $_ws\nset sta_summary(wns_hold) $_wh\nset sta_summary(scenarios) [llength $_rows]"

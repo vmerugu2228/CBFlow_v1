@@ -1187,6 +1187,13 @@ proc cbflow_resolve_head_block {default upstream_stages} {
 # config / environment it reads is missing.
 
 # Node being run — exported by the engine / launch wrapper.
+# Slack (WNS / TNS) for reports: flow(report,slack_digits) decimals;
+# non-numeric values pass through unchanged.
+proc cbflow_fmt_slack {value} {
+    if {![string is double -strict $value]} { return $value }
+    return [format "%.[cbflow_require flow report,slack_digits]f" $value]
+}
+
 proc cbflow_node_name {} {
     if {![info exists ::env(CBFLOW_NODE_NAME)] || $::env(CBFLOW_NODE_NAME) eq ""} {
         error "CBFLOW_NODE_NAME is not set — command files are launched by the RACE engine, which exports the node name"

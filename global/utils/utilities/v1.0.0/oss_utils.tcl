@@ -749,7 +749,7 @@ proc oss_checklist_metrics {tag} {
                      "Hold WNS" {sta::worst_slack -min} "Hold TNS" {sta::total_negative_slack -min}} {
         # |slack| ~1e30+ = no constrained path: not measurable, leave it out
         if {![catch {eval $_c} _v] && [string is double -strict $_v] && abs($_v) < 1e20} {
-            lappend L "$_k : $_v"
+            lappend L "$_k : [cbflow_fmt_slack $_v]"
         }
     }
     # Design-rule (electrical) violations

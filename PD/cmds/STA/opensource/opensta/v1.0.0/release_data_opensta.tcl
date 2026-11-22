@@ -46,8 +46,8 @@ flow_proc publish {
         array unset qor
         source $_q
         lappend _L "# scenario: $qor(scenario)" \
-            "Setup WNS : $qor(wns_setup)" "Setup TNS : $qor(tns_setup)" \
-            "Hold WNS : $qor(wns_hold)" "Hold TNS : $qor(tns_hold)" \
+            "Setup WNS : [cbflow_fmt_slack $qor(wns_setup)]" "Setup TNS : [cbflow_fmt_slack $qor(tns_setup)]" \
+            "Hold WNS : [cbflow_fmt_slack $qor(wns_hold)]" "Hold TNS : [cbflow_fmt_slack $qor(tns_hold)]" \
             "Tran violations : $qor(max_tran_violations)" \
             "Cap violations : $qor(max_cap_violations)" \
             "Fanout violations : $qor(max_fanout_violations)" \
@@ -73,8 +73,8 @@ flow_proc publish {
     source "$_m/sta_summary.tcl"
     set _ok [expr {$sta_summary(wns_setup) >= [oss_get sta signoff,min_setup_wns]
                    && $sta_summary(wns_hold) >= [oss_get sta signoff,min_hold_wns]}]
-    lappend _L "Scenarios : $sta_summary(scenarios)" "Worst setup WNS : $sta_summary(wns_setup)" \
-               "Worst hold WNS : $sta_summary(wns_hold)" \
+    lappend _L "Scenarios : $sta_summary(scenarios)" "Worst setup WNS : [cbflow_fmt_slack $sta_summary(wns_setup)]" \
+               "Worst hold WNS : [cbflow_fmt_slack $sta_summary(wns_hold)]" \
                "# category: signoff" "Status : [expr {$_ok ? "PASS" : "FAIL"}]"
     set _fh [open "$_dir/metrics.rpt" w]; puts $_fh [join $_L \n]; close $_fh
     ::CBFlow::Release::generate_manifest

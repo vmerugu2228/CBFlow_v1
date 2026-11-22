@@ -335,3 +335,9 @@ set flow(color,RTL_RDC)          "#475569"
 set flow(color,UPF_CHECK)        "#475569"
 # Badge colour for a run whose flow_type is missing or not in flow(types).
 set flow(dashboard,unknown_flow_color) "#475569"
+
+# ── Report number format ──────────────────────────────────────────────────────
+# Digits after the decimal point for slack (WNS / TNS) in every report the
+# flows write and every page SmartGrid renders (cbflow_fmt_slack /
+# dash_config.fmt_slack).
+set flow(report,slack_digits) 3

@@ -120,6 +120,21 @@ def expected_flows(project):
 
 # ─── Flow registry ──────────────────────────────────────────────────────────
 
+_SLACK_RE = re.compile(r'\b(WNS|TNS)\b|slack', re.I)
+
+
+def fmt_slack(name, value):
+    """WNS / TNS (any metric whose name says so) with flow(report,slack_digits)
+    decimals; other metrics and non-numeric values unchanged."""
+    if value is None or not _SLACK_RE.search(name or ''):
+        return value
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return value
+    return f'{f:.{int(registry.require_flow_value("report,slack_digits"))}f}'
+
+
 def smartgrid(key):
     """flow(smartgrid,<key>) — required."""
     return registry.require_flow_value(f'smartgrid,{key}')

@@ -4982,7 +4982,7 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
         # and visually indistinguishable from "no data". A clean DRC
         # sign-off would read as "DRC not run" to a customer. Only
         # None / '' are the actual empty-value signals.
-        val_str = '—' if val is None or val == '' else str(val)
+        val_str = '—' if val is None or val == '' else str(dash_config.fmt_slack(name, val))
         # Surface scenario+corner when present so WNS/TNS without
         # context isn't actionable for the PD lead.
         scen_corner = ' · '.join(x for x in (scen, corner) if x)
@@ -5529,7 +5529,7 @@ def _render_detail(project, info, d):
                 f'{html.escape(c.get("description") or c.get("check_name") or "")}</td>'
                 f'<td>{html.escape(cat)}</td>'
                 f'<td class="mono">{html.escape(_requirement(c.get("threshold")))}</td>'
-                f'<td class="mono">{html.escape(str(c.get("metric_value") or "—"))}</td>'
+                f'<td class="mono">{html.escape(str(dash_config.fmt_slack((c.get("check_name") or "") + " " + (c.get("description") or ""), c.get("metric_value")) or "—"))}</td>'
                 f'<td><span class="tt-status st-{_CHECK_STATUS_CLS.get(st, "future")}">'
                 f'{html.escape(st)}</span></td></tr>')
         parts.append('</tbody></table></div>')
@@ -5605,7 +5605,7 @@ def _scenario_table(rows):
             scens.append(s)
         if n not in cols:
             cols.append(n)
-        val[(s, n)] = str(m.get('value') if m.get('value') is not None else '')
+        val[(s, n)] = str(dash_config.fmt_slack(n, m.get('value')) if m.get('value') is not None else '')
     def cell(s, n):
         v = val.get((s, n), '')
         bad = False
@@ -5613,8 +5613,6 @@ def _scenario_table(rows):
             f = float(v)
             bad = (f < 0 if ('WNS' in n or 'TNS' in n) else
                    f > 0 if 'violation' in n.lower() else False)
-            if 'WNS' in n or 'TNS' in n:
-                v = f'{f:.4f}'
         except ValueError:
             pass
         style = ' style="color:#b91c1c;font-weight:700"' if bad else ''
@@ -5639,7 +5637,7 @@ def _metrics_table(rows):
         out.append(
             f'<tr><td>{html.escape(m.get("category") or "")}</td>'
             f'<td>{html.escape(m.get("name") or "")}</td>'
-            f'<td class="num">{html.escape(str(m.get("value") or ""))}</td>'
+            f'<td class="num">{html.escape(str(dash_config.fmt_slack(m.get("name"), m.get("value")) or ""))}</td>'
             f'<td>{html.escape(m.get("unit") or "")}</td>'
             f'<td>{html.escape(m.get("scenario") or "")}</td>'
             f'<td>{html.escape(m.get("corner") or "")}</td></tr>')
