@@ -321,6 +321,41 @@ proc handler_finish {run_dir flow_type node_name stage_name} {
     set fh [open $finish_file "w"]
     puts $fh "Completed: [clock format [clock seconds]]"
     close $fh
+    handler_publish_release $run_dir $flow_type $node_name
+}
+
+# Release node finished: publish its release to SmartGrid when the node's
+# config asks for it — project(release,publish) true (set per node from the
+# run GUI's release form into setup/override_config.<node>.tcl);
+# project(release,publish_override) true replaces an existing entry.
+proc handler_publish_release {run_dir flow_type node_name} {
+    upvar #0 [string tolower $flow_type] _fa
+    if {![info exists _fa(node_types,$node_name)] || $_fa(node_types,$node_name) ne "release_data"} return
+    # The node's override (written by the release form) is merged into its
+    # config.tcl at setup; finish reads it directly.
+    set _ovr "$run_dir/setup/override_config.$node_name.tcl"
+    if {[file exists $_ovr]} { uplevel #0 [list source $_ovr] }
+    if {![info exists ::project(release,publish)] || ![is_true $::project(release,publish)]} return
+    if {[handler_is_test_mode]} {
+        puts "INFO: \[TEST MODE\] project(release,publish) set — not publishing stub outputs"
+        return
+    }
+    set _cmd [list "$::env(CBFLOW_ROOT)/bin/cbflow" run release --from-run $run_dir --publish]
+    if {[info exists ::project(release,publish_override)] && [is_true $::project(release,publish_override)]} {
+        lappend _cmd --override
+    }
+    puts "INFO: publishing $node_name release to SmartGrid: [join [lrange $_cmd 1 end] { }]"
+    set _cwd [pwd]
+    cd [file dirname [file normalize $run_dir]]
+    set _rc [catch {exec {*}$_cmd 2>@1} _out]
+    cd $_cwd
+    foreach _l [split $_out \n] {
+        if {[regexp {Published:|Not published|ERROR|conflict} $_l]} { puts $_l }
+    }
+    if {$_rc} {
+        puts "ERROR: SmartGrid publish failed for $node_name (project(release,publish) is true)"
+        exit 1
+    }
 }
 
 # ── Validate subnode: basic validation ────────────────────────────────────────

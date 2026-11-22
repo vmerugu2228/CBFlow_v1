@@ -1228,6 +1228,17 @@ class RaceDashboard:
                         return m.group(1)
         return ''
 
+    @staticmethod
+    def _override_flags(path: str) -> dict:
+        out = {'publish': False, 'publish_override': False}
+        if os.path.isfile(path):
+            with open(path, encoding='utf-8') as f:
+                for line in f:
+                    m = re.match(r'\s*set\s+project\(release,(publish|publish_override)\)\s+(\S+)', line)
+                    if m:
+                        out[m.group(1)] = m.group(2).strip('"').lower() in ('1', 'true', 'yes', 'on')
+        return out
+
     def get_release_node_info(self, node: str) -> dict:
         """Release form for a release node: the tag it released under (its
         release.manifest), the tag override set from the form, and the exits
@@ -1251,6 +1262,8 @@ class RaceDashboard:
                 'released_tag': os.path.basename(info.get('release_dir', '')),
                 'release_dir': info.get('release_dir', ''),
                 'override_tag': self._override_tag(os.path.join(
+                    self.run_dir, 'setup', f'override_config.{node}.tcl')),
+                **self._override_flags(os.path.join(
                     self.run_dir, 'setup', f'override_config.{node}.tcl')),
                 'exits': rx.get('exits', []), 'active_tag': rx.get('active_tag', ''),
                 'project': rx.get('project', ''), 'phase': rx.get('phase', '')}
@@ -1817,11 +1830,12 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         return {'ok': True, 'message': msg, 'log': tail}
 
     def _action_release_node(self, body):
-        """Release-node form: set project(release,tag) for the node (its
-        override_config.<node>.tcl; empty = default exit name), re-run the
-        node, then optionally publish the release to SmartGrid."""
+        """Release-node form Save: writes the node's release settings to
+        setup/override_config.<node>.tcl — project(release,tag) (empty = the
+        default exit name), project(release,publish) and
+        project(release,publish_override). Nothing runs: the user re-runs the
+        release node, which releases under the tag and publishes when asked."""
         self._check_run_ownership()
-        import subprocess
         node = str(body.get('node', '')).strip()
         tag = str(body.get('tag', '')).strip()
         publish = bool(body.get('publish', False))
@@ -1835,45 +1849,22 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 return {'ok': False, 'error': f'{node} is not a release node'}
         except Exception as e:
             return {'ok': False, 'error': f'node config not resolvable: {e}'}
-        run_dir = self.dashboard.run_dir
-        ovr = os.path.join(run_dir, 'setup', f'override_config.{node}.tcl')
+        ovr = os.path.join(self.dashboard.run_dir, 'setup', f'override_config.{node}.tcl')
         lines = []
         if os.path.isfile(ovr):
             with open(ovr, encoding='utf-8') as f:
-                lines = [l for l in f if not re.match(r'\s*set\s+project\(release,tag\)', l)]
+                lines = [l for l in f if not re.match(r'\s*set\s+project\(release,(tag|publish|publish_override)\)', l)]
+        if not lines:
+            lines = [f'# CBflow override config for {node} (run GUI release form)\n\n']
         if tag:
-            if not lines:
-                lines = [f'# CBflow override config for {node}\n\n']
             lines.append(f'set project(release,tag) "{tag}"\n')
+        lines.append(f'set project(release,publish) {"true" if publish else "false"}\n')
+        lines.append(f'set project(release,publish_override) {"true" if override else "false"}\n')
         from core.paths import atomic_write
         atomic_write(ovr, ''.join(lines))
-        cbflow = os.path.join(os.environ.get('CBFLOW_ROOT', os.environ.get('FLOW_DIR', '')), 'bin', 'cbflow')
-        if not os.path.exists(cbflow):
-            cbflow = 'cbflow'
-
-        def _run(cmd, cwd):
-            p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=1800)
-            tail = [l for l in (p.stdout + p.stderr).splitlines()
-                    if l.strip() and not any(c in l for c in '\u2550\u2551\u2554\u2557\u255a\u255d\u2560\u2563\u2500')][-6:]
-            return p.returncode, tail
-        try:
-            rc, tail = _run([cbflow, 'run', 'retrace', '--from', node], run_dir)
-            if rc == 0:
-                rc, tail = _run([cbflow, 'run', 'all'], run_dir)
-            if rc != 0 or not any('result=PASS' in l for l in tail):
-                return {'ok': False, 'error': f'{node} re-run failed: ' + ' | '.join(tail)}
-            msg = f"{node} released as {tag or 'the default exit tag'}"
-            if publish:
-                cmd = [cbflow, 'run', 'release', '--from-run', run_dir, '--publish']
-                if override:
-                    cmd.append('--override')
-                rc, tail = _run(cmd, os.path.dirname(os.path.abspath(run_dir)))
-                if rc != 0:
-                    return {'ok': False, 'error': msg + ', publish failed: ' + ' | '.join(tail)}
-                msg += ' and published to SmartGrid'
-        except subprocess.TimeoutExpired:
-            return {'ok': False, 'error': 'release timed out (1800 s)'}
-        return {'ok': True, 'message': msg, 'log': tail}
+        return {'ok': True, 'message': f'Saved {os.path.relpath(ovr, self.dashboard.run_dir)} — '
+                                       f're-run {node} to release'
+                                       + (' and publish' if publish else '')}
 
     def _action_interactive(self, body):
         """Launch interactive EDA tool session for a node.

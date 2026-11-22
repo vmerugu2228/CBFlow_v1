@@ -465,8 +465,8 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
       </table>
       <label style="display:flex;align-items:center;gap:6px;font-size:12px;margin-top:6px;cursor:pointer"><input type="checkbox" id="rl-publish"> Publish to SmartGrid</label>
       <label style="display:flex;align-items:center;gap:6px;font-size:12px;margin-top:4px;cursor:pointer"><input type="checkbox" id="rl-override"> Replace existing entry</label>
-      <button id="rl-go" onclick="doReleaseNode()" style="width:100%;margin-top:8px;padding:6px;border:1px solid #2e7d32;border-radius:4px;background:#e8f5e9;color:#1b5e20;font-weight:700;cursor:pointer;font-size:12px">&#128230; Release</button>
-      <div id="rl-note" style="font-size:10.5px;color:var(--text-dim);margin-top:5px">Re-runs this node with the tag (empty = exit name), then publishes if checked.</div>
+      <button id="rl-go" onclick="doReleaseNode()" style="width:100%;margin-top:8px;padding:6px;border:1px solid var(--border);border-radius:4px;background:var(--surface);font-weight:700;cursor:pointer;font-size:12px">Save</button>
+      <div id="rl-note" style="font-size:10.5px;color:var(--text-dim);margin-top:5px">Saves to setup/override_config.&lt;node&gt;.tcl — re-run this node to release (empty tag = exit name).</div>
     </div>
     <!-- Input Variables (shown when leaf input node selected) -->
     <div id="lp-input-vars" style="display:none;padding:10px 12px;border-top:1px solid var(--border);flex:1;overflow-y:auto">
@@ -953,8 +953,8 @@ function loadReleaseForm(name) {
     inp.value = d.override_tag || '';
     inp.placeholder = 'default: ' + (d.released_tag || d.active_tag || 'exit name');
     document.getElementById('rl-exits').innerHTML = (d.exits || []).map(function(e){ return '<option value="' + e + '">'; }).join('');
-    document.getElementById('rl-publish').checked = false;
-    document.getElementById('rl-override').checked = false;
+    document.getElementById('rl-publish').checked = !!d.publish;
+    document.getElementById('rl-override').checked = !!d.publish_override;
     panel.style.display = 'block';
   }).catch(function(){});
 }
@@ -965,11 +965,11 @@ function doReleaseNode() {
   var tag = document.getElementById('rl-tag').value.trim();
   if (tag && !/^[A-Za-z0-9_\-]+$/.test(tag)) { showToast('Tag: letters, digits, _ - only', 'error'); return; }
   var btn = document.getElementById('rl-go');
-  btn.disabled = true; btn.textContent = 'Releasing...';
+  btn.disabled = true; btn.textContent = 'Saving...';
   apiAction('release-node', {node: node, tag: tag,
     publish: document.getElementById('rl-publish').checked,
     override: document.getElementById('rl-override').checked}).then(function() {
-    btn.disabled = false; btn.innerHTML = '&#128230; Release';
+    btn.disabled = false; btn.textContent = 'Save';
     loadReleaseForm(node);
   });
 }
