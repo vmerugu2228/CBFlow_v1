@@ -525,6 +525,7 @@ def make_daemon_handler(pool):
             for r in runs:
                 run_dir = r.get('run_dir') or ''
                 r['run_dir_exists'] = bool(run_dir) and os.path.isdir(run_dir)
+                r['created_at'] = _run_created_at(run_dir) if r['run_dir_exists'] else ''
                 if r['run_dir_exists']:
                     st = _current_status_for_run(run_dir)
                 else:
@@ -817,6 +818,27 @@ def _find_run_db(run_dir):
     return None
 
 
+def _run_created_at(run_dir):
+    """run_info.created_at from the run's RACE DB (written by workspace
+    create), '' when the DB has none."""
+    db_path = _find_run_db(run_dir)
+    if not db_path:
+        return ''
+    try:
+        conn = sqlite3.connect(f'file:{db_path}?mode=ro', uri=True, timeout=0.5)
+        try:
+            row = conn.execute("SELECT value FROM run_info WHERE key='created_at'").fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return ''
+    return (row[0] if row else '') or ''
+
+
+def _age_label(days):
+    return 'today' if days < 1 else f'{int(days)} day{"s" if int(days) != 1 else ""}'
+
+
 def _current_status_for_run(run_dir):
     """Return {'node', 'status', 'start_time', 'runtime_sec'} for the run's
     most relevant job.
@@ -1004,6 +1026,7 @@ def _render_index(runs, discipline='PD', project=''):
             _r['current_status']  = _st['status']
             _r['current_start']   = _st['start_time']
             _r['current_runtime'] = _st['runtime_sec']
+            _r['created_at']      = _run_created_at(_run_dir)
             _info = _project_info_for(_r.get('project') or '')
             _r['tapeout_date']    = _info['tapeout_date']
             _r['project_info']    = _info
@@ -1013,12 +1036,13 @@ def _render_index(runs, discipline='PD', project=''):
             _r.setdefault('current_status', 'NONE')
             _r.setdefault('current_start', '')
             _r.setdefault('current_runtime', None)
+            _r.setdefault('created_at', '')
             _r.setdefault('tapeout_date', '')
             _r.setdefault('project_info', {k: '' for k in _PROJECT_KEYS_OF_INTEREST})
             _r['run_dir_exists']  = False
 
     rows_html = _render_run_rows(runs) or (
-        '<tr><td colspan="7" class="empty">'
+        '<tr><td colspan="8" class="empty">'
         'No runs registered. Add one above to get started.'
         '</td></tr>'
     )
@@ -1177,6 +1201,12 @@ def _render_index(runs, discipline='PD', project=''):
   table.runs tbody tr.archived td:first-child {{ opacity: .7; }}
 
   td.empty {{ text-align: center; color: var(--muted); padding: 32px !important; }}
+  table.runs thead th.sortable {{ cursor: pointer; user-select: none; white-space: nowrap; }}
+  table.runs thead th.sortable:hover {{ color: var(--text, #111); }}
+  table.runs thead th.sortable::after {{ content: ' ↕'; opacity: .35; }}
+  table.runs thead th.sort-asc::after  {{ content: ' ▲'; opacity: .9; }}
+  table.runs thead th.sort-desc::after {{ content: ' ▼'; opacity: .9; }}
+  td.age-cell {{ white-space: nowrap; color: var(--muted); }}
 
   a.runlink {{ color: var(--accent); text-decoration: none; font-weight: 600;
                font-size: 13.5px; letter-spacing: -0.01em; }}
@@ -1366,7 +1396,10 @@ def _render_index(runs, discipline='PD', project=''):
     </div>
     <table class="runs">
       <thead>
-        <tr><th>Run</th><th>Block</th><th>Flow</th><th>Current Status</th><th>Total runtime</th><th>Run directory</th>
+        <tr><th class="sortable" data-sort="run">Run</th><th class="sortable" data-sort="block">Block</th>
+            <th class="sortable" data-sort="flow">Flow</th><th class="sortable" data-sort="status">Current Status</th>
+            <th class="sortable" data-sort="runtime">Total runtime</th><th class="sortable" data-sort="age">Age</th>
+            <th class="sortable" data-sort="dir">Run directory</th>
             <th></th></tr>
       </thead>
       <tbody id="runs-tbody">
@@ -1503,6 +1536,19 @@ def _render_index(runs, discipline='PD', project=''):
     return `${{s}}s`;
   }}
 
+  function ageDays(r) {{
+    const t0 = r.created_at ? Date.parse(r.created_at) : NaN;
+    return Number.isNaN(t0) ? null : (Date.now() - t0) / 86400000;
+  }}
+
+  function ageCellHtml(r) {{
+    const d = ageDays(r);
+    if (d === null) return '<span class="muted">—</span>';
+    const n = Math.floor(d);
+    const label = n < 1 ? 'today' : `${{n}} day${{n === 1 ? '' : 's'}}`;
+    return `<span title="created ${{r.created_at.slice(0, 19).replace('T', ' ')}}">${{label}}</span>`;
+  }}
+
   function runtimeCellHtml(r) {{
     // Total run time: live (now - run start) while RUNNING, else the stored
     // whole-run wall clock; em-dash otherwise.
@@ -1572,6 +1618,7 @@ def _render_index(runs, discipline='PD', project=''):
       <td>${{flowBadge(r.flow_type || '?')}}</td>
       <td class="status-cell">${{statusChip(r.current_node, r.current_status)}}</td>
       <td class="rt-cell">${{runtimeCellHtml(r)}}</td>
+      <td class="age-cell">${{ageCellHtml(r)}}</td>
       <td class="dir">${{r.run_dir || ''}}</td>
       <td><button class="danger" onclick="deregisterRun('${{r.run_id}}')">Deregister</button></td>
     </tr>`;
@@ -1610,14 +1657,58 @@ def _render_index(runs, discipline='PD', project=''):
     setTimeout(() => el.classList.remove('show'), 2400);
   }}
 
+  // Column sort: click a header to sort, click again to reverse. Default
+  // (no column picked): running runs first, otherwise registry order.
+  let lastRuns = [];
+  let sortCol = null, sortDir = 1;
+  const SORT_KEYS = {{
+    run:     r => runNameOf(r).toLowerCase(),
+    block:   r => (r.design || '').toLowerCase(),
+    flow:    r => r.flow_type || '',
+    status:  r => r.current_status || '',
+    runtime: r => (r.current_status === 'RUNNING' && r.current_start)
+                    ? (Date.now() - Date.parse(r.current_start)) / 1000
+                    : (r.current_runtime != null && r.current_runtime !== '' ? Number(r.current_runtime) : null),
+    age:     r => ageDays(r),
+    dir:     r => r.run_dir || '',
+  }};
+  function sortRuns(runs) {{
+    if (!sortCol) {{
+      runs.sort((a, b) => (b.current_status === 'RUNNING') - (a.current_status === 'RUNNING'));
+      return;
+    }}
+    const key = SORT_KEYS[sortCol];
+    runs.sort((a, b) => {{
+      const x = key(a), y = key(b);
+      if (x === y) return 0;
+      if (x === null || x === undefined) return 1;      // blanks always last
+      if (y === null || y === undefined) return -1;
+      return (x < y ? -1 : 1) * sortDir;
+    }});
+  }}
+  document.querySelectorAll('table.runs th.sortable').forEach(th => {{
+    th.addEventListener('click', () => {{
+      const col = th.dataset.sort;
+      sortDir = (sortCol === col) ? -sortDir : 1;
+      sortCol = col;
+      document.querySelectorAll('table.runs th.sortable').forEach(h =>
+        h.classList.remove('sort-asc', 'sort-desc'));
+      th.classList.add(sortDir === 1 ? 'sort-asc' : 'sort-desc');
+      if (!lastRuns.length) return;
+      sortRuns(lastRuns);
+      document.getElementById('runs-tbody').innerHTML = lastRuns.map(renderRow).join('');
+      applyFilter();
+    }});
+  }});
+
   async function loadRuns() {{
     try {{
       const runs = await fetch('/api/runs').then(r => r.json());
-      // Running runs first; otherwise registry order (stable sort)
-      runs.sort((a, b) => (b.current_status === 'RUNNING') - (a.current_status === 'RUNNING'));
+      lastRuns = runs;
+      sortRuns(runs);
       const tbody = document.getElementById('runs-tbody');
       if (!runs.length) {{
-        tbody.innerHTML = '<tr><td colspan="7" class="empty">No runs registered. Add one above to get started.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="empty">No runs registered. Add one above to get started.</td></tr>';
       }} else {{
         tbody.innerHTML = runs.map(renderRow).join('');
       }}
@@ -2058,6 +2149,15 @@ def _render_run_rows(runs):
             runtime_html = f'<span class="rt">{_fmt_duration(_rt)}</span>'
         else:
             runtime_html = '<span class="rt muted">—</span>'
+        age_html = '<span class="muted">—</span>'
+        if r.get('created_at'):
+            from datetime import datetime as _dt
+            try:
+                _days = (_dt.now() - _dt.fromisoformat(r['created_at'])).total_seconds() / 86400
+                age_html = (f'<span title="created {_html_attr(r["created_at"][:19].replace("T", " "))}">'
+                            f'{_age_label(_days)}</span>')
+            except ValueError:
+                pass
         proj = _html_attr(r.get('project') or '')
         design = _html_attr(r.get('design') or '')
         current_start_html = _html_attr(r.get('current_start') or '')
@@ -2075,6 +2175,7 @@ def _render_run_rows(runs):
             f'<td><span class="flow-badge" style="background:{color}">{flow_html}</span></td>'
             f'<td class="status-cell">{chip_html} {node_html}</td>'
             f'<td class="rt-cell">{runtime_html}</td>'
+            f'<td class="age-cell">{age_html}</td>'
             f'<td class="dir">{run_dir_html}</td>'
             f'<td><button class="danger" '
             f'onclick="deregisterRun({_html_js_string(rid)})">Deregister</button></td>'
