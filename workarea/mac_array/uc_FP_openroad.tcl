@@ -34,3 +34,6 @@ set fp(oss,fp,core_utilization) 10
 # Used as a macro in ai_subsys (placed at the parent's bottom-left, logic above
 # it): all signal pins on the top edge, facing the parent's logic.
 set fp(oss,pins,region)         top:*
+
+# Bring-up: no power grid (signal routing first) — see project(pdn,enable)
+set project(pdn,enable)         false

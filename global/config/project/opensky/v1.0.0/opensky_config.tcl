@@ -12,6 +12,11 @@ set project(name)            "opensky"
 set project(phases)          {P0 P1 P2 P3}
 set project(current_phase)   "P0"
 
+# ── Power grid — FP builds the PDN when enabled. false (per block / run in its
+# user_config) keeps supplies as logical nets only, no grid shapes, power
+# checks skipped — signal-routing bring-up.
+set project(pdn,enable)              true
+
 # ── DFT (scan) — SYNTH inserts scan chains when enabled (OpenROAD DFT in the
 # open-source flow). A block / run turns it off with project(dft,enable) false
 # in its user_config or override_config.tcl.

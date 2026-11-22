@@ -55,11 +55,14 @@ block() {
     local b=$1
     mk_uc "$b" uc_SYNTH_yosys.tcl "uc_SYNTH_yosys_${PHASE}.tcl" \
         "s/^set project(release,tag) .*/set project(release,tag)       \"$SYN_TAG\"/"
-    run_flow "$b" SYNTH "uc_SYNTH_yosys_${PHASE}.tcl" || return 1
+    # FROM=FP / FROM=PNR: reuse the existing releases of the earlier flows
+    if [ -z "$FROM" ]; then run_flow "$b" SYNTH "uc_SYNTH_yosys_${PHASE}.tcl" || return 1; fi
     mk_uc "$b" uc_FP_openroad.tcl "uc_FP_openroad_${PHASE}.tcl" '/^set project(release,tag)/d' \
         "s/^set fp(input,release_tag) .*/set fp(input,release_tag)      \"$SYN_TAG\"/"
-    run_flow "$b" FP "uc_FP_openroad_${PHASE}.tcl" || return 1
-    publish "$b" "${PHASE}_run_FP_${b}_${RUN}"
+    if [ "$FROM" != PNR ]; then
+        run_flow "$b" FP "uc_FP_openroad_${PHASE}.tcl" || return 1
+        publish "$b" "${PHASE}_run_FP_${b}_${RUN}"
+    fi
     mk_uc "$b" uc_PNR_openroad.tcl "uc_PNR_openroad_${PHASE}.tcl" '/^set project(release,tag)/d' \
         "s/^set pnr(input,release_tag) .*/set pnr(input,release_tag)     \"$SYN_TAG\"/" \
         's|^set pnr(input,def_file_release_tag) .*|set pnr(input,def_file_release_tag) "FP_EXIT"|'
@@ -69,7 +72,7 @@ block() {
 }
 
 : > "$LOG"
-say "start: $PHASE DL3 blocks ($RUN)"
+say "start: $PHASE DL3 blocks ($RUN${FROM:+, from $FROM})"
 # blocks from the command line (default: every DL3 block)
 for b in ${@:-gcd mac_array}; do ( block "$b" || say "$b: chain stopped" ) & done
 wait

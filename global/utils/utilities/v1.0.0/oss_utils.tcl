@@ -364,9 +364,16 @@ proc oss_block_insts {block} {
     return $_out
 }
 
+# project(pdn,enable): false builds no power grid (supply nets stay logical
+# only) — for bring-up of signal routing; power checks are skipped.
+proc oss_pdn_enabled {} {
+    return [is_true [oss_get project pdn,enable]]
+}
+
 # Per-net check that every supply is one connected network.
 proc oss_check_power {} {
     global oss_upf
+    if {![oss_pdn_enabled]} { handle_info "PDN off (project(pdn,enable)) — power grid check skipped"; return }
     set _bad {}
     foreach _n [lsort -unique [concat $oss_upf(nets) [oss_get project power,rail_nets]]] {
         set _net [[ord::get_db_block] findNet $_n]
@@ -659,6 +666,10 @@ proc oss_fp_io_report {} {
 # Power intent (UPF supplies / global connections) + hierarchical power grid.
 proc oss_fp_power {design blocks} {
     oss_apply_upf $design
+    if {![oss_pdn_enabled]} {
+        handle_info "PDN off (project(pdn,enable)) — supplies connected logically, no power grid"
+        return
+    }
     set _p [oss_pdn $design $blocks]
     handle_info "PDN: [dict get $_p position] pins=[dict get $_p pins] rails=[dict get $_p rails]"
     oss_check_power
