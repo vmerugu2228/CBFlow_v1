@@ -51,6 +51,22 @@ unset _oss_tool _cbflow_oss
 # Container image (pinned by digest; IIC-OSIC-TOOLS, arm64 + amd64).
 set lsf(oss,image) "hpretl/iic-osic-tools@sha256:306585de35d198e70ea58950f77147c86f56c698726a19afea9f1c83009557be"
 
+# ┌─ Tool Short Names (dashboard DAG node labels "<node> [FC]") ─────────────┐
+# Tools without an entry are labelled with their full name.
+set lsf(tool_short,fc)           "FC"
+set lsf(tool_short,pt)           "PT"
+set lsf(tool_short,fm)           "FM"
+set lsf(tool_short,formality)    "FM"
+set lsf(tool_short,icv)          "ICV"
+set lsf(tool_short,redhawk)      "RH"
+set lsf(tool_short,vc_lp)        "VLP"
+set lsf(tool_short,genus)        "GEN"
+set lsf(tool_short,innovus)      "INV"
+set lsf(tool_short,tempus)       "TMP"
+set lsf(tool_short,voltus)       "VLT"
+set lsf(tool_short,calibre)      "CAL"
+set lsf(tool_short,conformal_lp) "CLP"
+
 # ┌─ Wrapper Shell ──────────────────────────────────────────────────────────┐
 set lsf(tool_wrapper_shell)     "/bin/csh -f"
 

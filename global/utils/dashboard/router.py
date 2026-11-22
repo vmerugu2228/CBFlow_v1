@@ -23,10 +23,11 @@ from urllib.parse import urlparse
 import race_dashboard
 import registry
 import state_paths
+import dash_config
+from core import registry as cfg_registry
 
 _logger = logging.getLogger('cbflow.dashboard.router')
 
-_PD_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 # ── HTML nav rewriter ───────────────────────────────────────────────────────
@@ -384,7 +385,7 @@ def make_daemon_handler(pool):
 
         def _serve_api_discover_runs(self):
             registered = {r['run_dir'] for r in registry.list_all()}
-            runs = _discover_runs(_PD_DIR)
+            runs = _discover_runs()
             for r in runs:
                 r['registered'] = r['run_dir'] in registered
             self._write_json({'runs': runs})
@@ -446,6 +447,8 @@ def make_daemon_handler(pool):
             content = content.replace(b'{{RUN_DIR}}', self.dashboard.run_dir.encode())
             content = content.replace(b'{{RESULT}}', run_info.get('result', '').encode())
             content = content.replace(b'{{DISCIPLINE}}', state_paths.get_discipline().encode())
+            content = content.replace(b'{{CBF_CONFIG}}',
+                                      dash_config.page_config_json(state_paths.get_discipline()))
             # SmartGrid URL — resolve server-side so the per-run GUI
             # doesn't need an API round-trip through the daemon-scope
             # rewriter. Project name comes from this run's run_info
@@ -550,7 +553,6 @@ def make_daemon_handler(pool):
 
 # ── Discovery: scan workareas from project configs ──────────────────────────
 
-_WORKAREA_RE = re.compile(r'set\s+project\(workarea_path\)\s+"([^"]+)"')
 # Accepts <PHASE>_run_<FLOW>_<NAME> dirs where PHASE is a known cadence
 # (P0/P1/… pre-tapeout, LC1/LC2/… long-cycle, MTO/BTO milestones, R\d+
 # custom). Previous `[A-Za-z0-9]+_run_` form let stray dirs like
@@ -564,42 +566,10 @@ _RUN_DIR_RE = re.compile(
     r'^' + _PHASE_PREFIX_RE + r'_run_' + _FLOW_TOKEN_RE + r'(?:_|$)')
 
 
-def _project_workarea_paths(pd_dir):
-    """All workarea paths declared in <ROOT>/config/project/*/*/*_config.tcl.
-
-    Walks BOTH the global/ and PD/ project trees. workarea_path can live in
-    either overlay — we don't want the dashboard to miss projects that only
-    exist on one side.
-    """
-    paths = set()
-    roots = []
-    g_root = os.path.join(os.path.dirname(pd_dir), 'global',
-                          'config', 'project')
-    if os.path.isdir(g_root):
-        roots.append(g_root)
-    pd_root = os.path.join(pd_dir, 'config', 'project')
-    if os.path.isdir(pd_root):
-        roots.append(pd_root)
-    for project_root in roots:
-        for entry in os.listdir(project_root):
-            proj_dir = os.path.join(project_root, entry)
-            if not os.path.isdir(proj_dir):
-                continue
-            for root, _dirs, files in os.walk(proj_dir):
-                for f in files:
-                    if not f.endswith('_config.tcl'):
-                        continue
-                    cfg = os.path.join(root, f)
-                    try:
-                        with open(cfg) as fh:
-                            for line in fh:
-                                m = _WORKAREA_RE.search(line)
-                                if m:
-                                    paths.add((entry, m.group(1)))
-                                    break
-                    except OSError:
-                        continue
-    return paths
+def _project_workarea_paths():
+    """{(project, project(workarea_path))} across every project config
+    (global identity + discipline overlays, via core.registry)."""
+    return dash_config.workarea_paths()
 
 
 _PROJECT_INFO_CACHE = {}  # {project_name: {technology, metal_stack, lib_config_tag, cbflow_release, tapeout_date}}
@@ -622,8 +592,8 @@ _DEFAULT_BYLINE = 'SmartSoC CAD · Varun Reddy Merugu'
 
 
 def _project_info_for(project_name):
-    """Read selected project(...) values from PD/config/project/<name>/v1.0.0/
-    <name>_config.tcl in a single pass. Returns a dict with keys
+    """Read selected project(...) values from the project's config files
+    (core.registry.project_value). Returns a dict with keys
     matching _PROJECT_KEYS_OF_INTEREST (missing values come back '').
 
     Cached per-process — project_config rarely changes during a daemon's
@@ -632,35 +602,15 @@ def _project_info_for(project_name):
         return {k: '' for k in _PROJECT_KEYS_OF_INTEREST}
     if project_name in _PROJECT_INFO_CACHE:
         return _PROJECT_INFO_CACHE[project_name]
-    # Try global/ identity, PD/ overlay, and legacy monolithic forms —
-    # merge values across all that exist (overlay wins on key collision).
-    _candidates = [
-        os.path.join(os.path.dirname(_PD_DIR), 'global', 'config', 'project',
-                     project_name, 'v1.0.0', 'project_config.tcl'),
-        os.path.join(_PD_DIR, 'config', 'project', project_name, 'v1.0.0',
-                     'project_pd_config.tcl'),
-        os.path.join(_PD_DIR, 'config', 'project', project_name, 'v1.0.0',
-                     f'{project_name}_config.tcl'),
-    ]
+    # core.registry.project_value walks the global identity config and every
+    # discipline overlay (last writer wins). A project without config yields
+    # empty values — callers treat that as "unresolvable project".
     out = {k: '' for k in _PROJECT_KEYS_OF_INTEREST}
-    interest = set(_PROJECT_KEYS_OF_INTEREST)
-    for cfg in _candidates:
-        if not os.path.exists(cfg):
-            continue
-        try:
-            with open(cfg) as fh:
-                for line in fh:
-                    m = re.match(
-                        r'^\s*set\s+project\(([^)]+)\)\s+"([^"]*)"', line)
-                    if not m:
-                        continue
-                    key, val = m.group(1).strip(), m.group(2).strip()
-                    if key in interest:
-                        out[key] = val
-                        # last writer wins across the three cascade layers,
-                        # so DO NOT discard — let overlays override identity.
-        except OSError:
-            continue
+    try:
+        for k in _PROJECT_KEYS_OF_INTEREST:
+            out[k] = (cfg_registry.project_value(project_name, k) or '').strip()
+    except cfg_registry.RegistryError as e:
+        _logger.warning('project info for %s not resolvable: %s', project_name, e)
     _PROJECT_INFO_CACHE[project_name] = out
     return out
 
@@ -694,7 +644,7 @@ def _flow_type_for(run_dir):
     return _read_env_field(run_dir, 'CBFLOW_FLOW_TYPE')
 
 
-def _discover_runs(pd_dir):
+def _discover_runs():
     """Return a list of run directories under any project's workarea_path.
 
     Each entry: {project, design, name, run_dir, flow_type}.
@@ -710,7 +660,7 @@ def _discover_runs(pd_dir):
     """
     out = []
     seen = set()
-    for _iter_project, wa in _project_workarea_paths(pd_dir):
+    for _iter_project, wa in _project_workarea_paths():
         if not os.path.isdir(wa):
             continue
         for design in sorted(os.listdir(wa)):
@@ -749,12 +699,9 @@ class _NullDashboard:
     flow_type = ''
 
 
-_FLOW_COLORS = {
-    'SYNTH':     '#7c3aed', 'SYNTH_PNR': '#6366f1', 'PNR':       '#0ea5e9',
-    'FP':        '#06b6d4', 'FCFP':      '#0891b2', 'STA':       '#10b981',
-    'LEC':       '#f59e0b', 'CLP':       '#f97316', 'PV':        '#ef4444',
-    'EMIR':      '#dc2626', 'POPT':      '#8b5cf6', 'ECO':       '#64748b',
-}
+def _flow_colors():
+    """{FLOW: badge colour} from flow(color,<FLOW>) in flow_registry.tcl."""
+    return dash_config.flow_colors()
 
 # Status → (background, text) colors for the Current Status chip on the
 # daemon index page. Single source consumed both server-side (cell render)
@@ -918,7 +865,7 @@ def _current_status_for_run(run_dir):
             'start_time': run_start or start or '', 'runtime_sec': _total(status)}
 
 
-def _render_index(runs, discipline='PD', project=''):
+def _render_index(runs, discipline=None, project=''):
     """Index page for the per-user dashboard daemon.
 
     Stdlib-only (no JS framework). Vanilla CSS + a small client script that
@@ -928,20 +875,15 @@ def _render_index(runs, discipline='PD', project=''):
     visible runs to that project, shows the project name in the header pill,
     and changes the page title.
     """
-    disc = (discipline or 'PD').upper()
+    disc = (discipline or state_paths.get_discipline()).upper()
     disc_label = disc
     project = (project or '').strip()
-    # Per-discipline branding: distinct accent colors + banner gradients so
-    # a glance at the chrome tells you which discipline's dashboard you're on.
-    if disc == 'DFT':
-        disc_pill_bg, disc_pill_border = '#0d9488', '#0f766e'
-        disc_banner_grad = 'linear-gradient(135deg, #0d9488 0%, #0ea5e9 55%, #6366f1 100%)'
-    elif disc == 'DV':
-        disc_pill_bg, disc_pill_border = '#be185d', '#9f1239'
-        disc_banner_grad = 'linear-gradient(135deg, #be185d 0%, #a21caf 55%, #6366f1 100%)'
-    else:  # PD
-        disc_pill_bg, disc_pill_border = '#1565c0', '#0d47a1'
-        disc_banner_grad = 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #0ea5e9 100%)'
+    # Per-discipline branding (flow(discipline_color*,<DISC>) /
+    # flow(discipline_banner,<DISC>)) so a glance at the chrome tells you
+    # which discipline's dashboard you're on.
+    _brand = dash_config.discipline_branding(disc)
+    disc_pill_bg, disc_pill_border = _brand['color'], _brand['border']
+    disc_banner_grad = _brand['banner']
 
     # Each daemon is scoped to one discipline (its state root enforces this,
     # and cmd_gui routes runs by flow_type → discipline). So the title is
@@ -1417,11 +1359,12 @@ def _render_index(runs, discipline='PD', project=''):
 <div id="toast" class="toast"></div>
 
 <script>
-  const FLOW_COLORS = {json.dumps(_FLOW_COLORS)};
+  const FLOW_COLORS = {json.dumps(_flow_colors())};
+  const UNKNOWN_FLOW_COLOR = {json.dumps(dash_config.unknown_flow_color())};
   const STATUS_COLORS = {json.dumps(_STATUS_COLORS)};
 
   function flowBadge(flow) {{
-    const color = FLOW_COLORS[flow] || '#475569';
+    const color = FLOW_COLORS[flow] || UNKNOWN_FLOW_COLOR;
     const txt = flow || '?';
     return `<span class="flow-badge" style="background:${{color}}">${{txt}}</span>`;
   }}
@@ -1975,7 +1918,7 @@ def _render_index(runs, discipline='PD', project=''):
   }})();
 
   loadRuns();
-  setInterval(loadRuns, 5000);            // poll every 5s for live updates
+  setInterval(loadRuns, {dash_config.poll_config()['fixed']});  // flow(dashboard,poll_ms)
   setInterval(tickRunningRuntimes, 1000); // refresh RUNNING runtimes every 1s
 </script>
 </body></html>
@@ -2099,10 +2042,12 @@ def _render_run_rows(runs):
         return ''
 
     out = []
+    _colors = _flow_colors()
+    _unknown_color = dash_config.unknown_flow_color()
     # Running runs first; otherwise registry order (stable sort)
     for r in sorted(runs, key=lambda r: r.get('current_status') != 'RUNNING'):
         flow = r.get('flow_type') or '?'
-        color = _FLOW_COLORS.get(flow, '#475569')
+        color = _colors.get(flow) or _unknown_color
         cls = 'archived' if r.get('archived') else ''
         rid = r['run_id']
         run_dir = r.get('run_dir', '')

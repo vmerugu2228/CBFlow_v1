@@ -40,45 +40,35 @@ import race_dashboard
 import registry
 import router
 import state_paths
+import dash_config
 
 
 # ── Port selection ──────────────────────────────────────────────────────────
 
-_DISC_BAND_BASE = {'PD': 9000, 'DFT': 9300, 'DV': 9600}
-_DISC_BAND_WIDTH = 300  # per-discipline, keeps all 3 bands clear of
-                        # app.py (8080-8180) and race_dashboard.py (10000-19999)
-
-_DISC_PROJECT_BASE = {'PD': 20000, 'DFT': 21000, 'DV': 22000}
-_DISC_PROJECT_WIDTH = 1000
-
-
 def deterministic_port(discipline=None, project=None):
-    """Per-user deterministic port. Two scoping modes:
+    """Per-user deterministic port. Two scoping modes, both banded per
+    discipline in flow_registry.tcl:
 
       Discipline-only (unscoped — one daemon per discipline per user):
-        PD:  9000 + (uid %% 300)       →  9000..9299
-        DFT: 9300 + (uid %% 300)       →  9300..9599
-        DV:  9600 + (uid %% 300)       →  9600..9899
+        flow(dashboard,port_base,<DISC>) + (uid % flow(dashboard,port_width))
 
       Per-project (separate daemon per project for the same user):
-        PD:  20000 + hash16(uid, name) %% 1000   →  20000..20999
-        DFT: 21000 + hash16(uid, name) %% 1000   →  21000..21999
-        DV:  22000 + hash16(uid, name) %% 1000   →  22000..22999
+        flow(dashboard,project_port_base,<DISC>)
+            + hash16(uid, name) % flow(dashboard,project_port_width)
 
-    All three disciplines get their own band — no overlap — so a user can
-    run PD, DFT, and DV daemons simultaneously without collision. Stays
-    clear of app.py (8080-8180) and race_dashboard.py per-run ports
-    (10000-19999)."""
+    Every discipline has its own band so a user can run all daemons at once
+    without collision; the bands are kept clear of app.py
+    (flow(dashboard,app_port_*)) and per-run ports (flow(dashboard,run_port_*))."""
     import hashlib
     d = state_paths._disc(discipline)
     p = state_paths._proj(project)
     if not p:
-        base = _DISC_BAND_BASE.get(d, _DISC_BAND_BASE['PD'])
-        return base + (os.getuid() % _DISC_BAND_WIDTH)
-    base = _DISC_PROJECT_BASE.get(d, _DISC_PROJECT_BASE['PD'])
+        base, width = dash_config.daemon_port_band(d)
+        return base + (os.getuid() % width)
+    base, width = dash_config.project_port_band(d)
     key = f'{os.getuid()}:{p}'.encode()
     h = int(hashlib.md5(key).hexdigest()[:6], 16)
-    return base + (h % _DISC_PROJECT_WIDTH)
+    return base + (h % width)
 
 
 # ── PID liveness + identity ─────────────────────────────────────────────────
@@ -475,8 +465,9 @@ def main(argv=None):
     serve_p = sub.add_parser('serve', help='Run the daemon in foreground')
     serve_p.add_argument('--port', type=int, default=0,
                          help='Port (default: per-discipline deterministic)')
-    serve_p.add_argument('--discipline', choices=('PD', 'DFT', 'DV'), default=None,
-                         help='Discipline this daemon serves (default: $CBFLOW_DASHBOARD_DISCIPLINE or PD)')
+    serve_p.add_argument('--discipline', choices=dash_config.disciplines(), default=None,
+                         help='Discipline this daemon serves (default: $CBFLOW_DASHBOARD_DISCIPLINE '
+                              'or flow(dashboard,default_discipline))')
     serve_p.add_argument(
         '--project', default=None,
         help='Project scope (e.g. denali). When set, this daemon serves '

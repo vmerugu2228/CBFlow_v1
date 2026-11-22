@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CBflow RACE FlowTracer — {{FLOW_TYPE}}</title>
+<script>window.__cbf = {{CBF_CONFIG}};  // dashboard config: poll cadence, done states, discipline colours (flow_registry.tcl)</script>
 <script src="/static/adaptive_poll.js"></script>
 <style>
 :root {
@@ -169,10 +170,11 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
   <div class="sep"></div>
   <script>
     (function() {
+      // flow(discipline_color*,<DISC>) from flow_registry.tcl
       var el = document.getElementById('tb-discipline');
-      if (el && el.textContent.trim() === 'DFT') {
-        el.style.background = '#0d9488';
-        el.style.borderColor = '#0f766e';
+      if (el) {
+        el.style.background = window.__cbf.disc_color;
+        el.style.borderColor = window.__cbf.disc_border;
       }
     })();
   </script>
@@ -630,6 +632,7 @@ function refresh() {
     // Left panel — tool info
     document.getElementById('lp-vendor').textContent = info.tool_vendor || '-';
     document.getElementById('lp-tool').textContent = info.tool_name || '-';
+    window._toolShort = info.tool_short || '';   // lsf(tool_short,<tool>)
     document.getElementById('lp-module').textContent = info.tool_module || '-';
 
     // Left panel — progress
@@ -645,7 +648,7 @@ function refresh() {
       var total = stagesData.length;
       var counts = {done:0, running:0, pending:0, fail:0, invalidated:0, ready:0};
       stagesData.forEach(function(s) {
-        if (s.status === 'DONE' || s.status === 'BYPASSED' || s.status === 'FORCE_VALIDATED') counts.done++;
+        if (window.__cbf.completed_states.indexOf(s.status) !== -1) counts.done++;
         else if (s.status === 'RUNNING') counts.running++;
         else if (s.status === 'PENDING') counts.pending++;
         else if (s.status === 'FAIL') counts.fail++;
@@ -1255,12 +1258,9 @@ function renderDAG() {
       }
     });
 
-    // Tool short name for node labels
-    var toolShortMap = {
-      'fc':'FC', 'pt':'PT', 'fm':'FM', 'icv':'ICV', 'redhawk':'RH',
-      'vc_lp':'VLP', 'genus':'GEN', 'innovus':'INV', 'tempus':'TMP',
-      'voltus':'VLT', 'calibre':'CAL', 'formality':'FM', 'conformal_lp':'CLP'
-    };
+    // Tool short name for node labels — lsf(tool_short,<tool>) from
+    // tool_launch_config.tcl (served as run_info.tool_short); a tool
+    // without one is labelled with its full name.
     var info = (dagData && dagData.run_info) || {};
     var toolName = '';
     try { toolName = document.getElementById('lp-tool').textContent || ''; } catch(e){}
@@ -1271,7 +1271,7 @@ function renderDAG() {
     toolName = toolName.trim();
     var toolShort = '';
     if (toolName && toolName !== '-') {
-      toolShort = toolShortMap[toolName.toLowerCase()] || toolName.toUpperCase().substr(0,3);
+      toolShort = window._toolShort || toolName;
     }
 
     // Draw stage nodes — with proportional color segments + branch border colors
@@ -2168,16 +2168,33 @@ function ctxAction(action) {
 // RELEASE FORM — publish to SmartGrid only when explicitly checked
 // ═══════════════════════════════════════════════════════════════════
 function promptRelease() {
+  // Allowed exits = project(phase_exits) for this run's project + phase;
+  // project(release,active_tag) is preselected when the phase has it.
+  fetch('/api/release-exits').then(function(r){return r.json();}).then(function(rx) {
+    if (rx.error) { showToast('Release: ' + rx.error, 'error'); return; }
+    if (!rx.exits || !rx.exits.length) {
+      showToast('Release: no exits declared for ' + rx.project + ' phase ' + rx.phase, 'error');
+      return;
+    }
+    _openReleaseModal(rx);
+  }).catch(function(e) { showToast('Release: cannot load exits: ' + e, 'error'); });
+}
+
+function _openReleaseModal(rx) {
   var old = document.getElementById('release-modal');
   if (old) old.remove();
+  var opts = (rx.active_tag ? '' : '<option value="" selected disabled>— select exit —</option>') +
+    rx.exits.map(function(e) {
+      return '<option value="' + e + '"' + (e === rx.active_tag ? ' selected' : '') + '>' + e + '</option>';
+    }).join('');
   var m = document.createElement('div');
   m.id = 'release-modal';
   m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:9999';
   m.innerHTML =
     '<div style="background:var(--bg,#fff);color:var(--text,#222);padding:18px 20px;border-radius:8px;min-width:340px;box-shadow:0 8px 30px rgba(0,0,0,.25);font-size:13px">' +
     '<div style="font-weight:700;margin-bottom:10px">Release</div>' +
-    '<label style="display:block;margin-bottom:8px">Milestone / tag<br>' +
-    '<input id="rel-tag" value="BTO" style="width:100%;padding:5px;margin-top:3px"></label>' +
+    '<label style="display:block;margin-bottom:8px">Milestone / tag (' + rx.project + ' ' + rx.phase + ')<br>' +
+    '<select id="rel-tag" style="width:100%;padding:5px;margin-top:3px">' + opts + '</select></label>' +
     '<label style="display:block;margin-bottom:6px"><input type="checkbox" id="rel-publish"> Publish to SmartGrid</label>' +
     '<div style="font-size:11px;color:#777;margin:0 0 8px 22px">Off by default — only checked releases reach the project grid.</div>' +
     '<label style="display:block;margin-bottom:12px"><input type="checkbox" id="rel-override"> Replace an existing SmartGrid entry</label>' +
@@ -2186,8 +2203,10 @@ function promptRelease() {
   document.body.appendChild(m);
   document.getElementById('rel-cancel').onclick = function(){ m.remove(); };
   document.getElementById('rel-ok').onclick = function(){
+    var tag = document.getElementById('rel-tag').value;
+    if (!tag) { showToast('Select an exit to release', 'error'); return; }
     var body = {
-      tag: document.getElementById('rel-tag').value.trim(),
+      tag: tag,
       publish: document.getElementById('rel-publish').checked,
       override: document.getElementById('rel-override').checked
     };
@@ -2472,8 +2491,9 @@ function openMMMCModal(stage) {
     var flowType = data.flow_type || '';
     var activeSubs = data.active_subnodes || {};
 
-    // Detect STA dynamic scenario mode (timing/extraction nodes)
-    var isDynamic = (flowType === 'STA' && (nodeBase === 'timing' || nodeBase === 'extraction'));
+    // Dynamic scenario mode: <flow>(subnodes,<stage>) {dynamic} in the node
+    // config (plus custom nodes of a dynamic type) — served as dynamic_stages.
+    var isDynamic = (data.dynamic_stages || []).indexOf(stage) !== -1;
     var activeSet = new Set(activeSubs[stage] || []);
 
     // For PNR mode, use node config assignments
@@ -2572,6 +2592,9 @@ function openMMMCModal(stage) {
     document.querySelector('#edit-modal .modal-bd').innerHTML = html;
     window._mmmcSets = sets;
     window._mmmcIsDynamic = isDynamic;
+    // name → 'setup' | 'hold' | 'setup_hold' | '' from mmmc_scenario_sets
+    window._mmmcScenarioType = {};
+    allScenarios.forEach(function(s) { window._mmmcScenarioType[s.name] = s.type; });
   }).catch(function(e) { showToast('Failed to load MMMC: ' + e, 'error'); });
 }
 
@@ -2617,13 +2640,20 @@ function saveAndRetraceDynamic(stage) {
   document.querySelectorAll('.mmmc-dynamic-cb:checked').forEach(function(cb) { selected.push(cb.value); });
   if (selected.length === 0) { showToast('Select at least one scenario', 'error'); return; }
 
-  // Split into setup (ss corners) and hold (ff corners) for user_config
-  var setup = []; var hold = [];
+  // Split into setup / hold by mmmc_scenario_sets(setup|hold) membership
+  // (scenario.type from /api/mmmc-scenarios) — never by corner name.
+  var setup = []; var hold = []; var untyped = [];
+  var types = window._mmmcScenarioType || {};
   selected.forEach(function(s) {
-    if (s.indexOf('_ss_') !== -1) setup.push(s);
-    else if (s.indexOf('_ff_') !== -1) hold.push(s);
-    else setup.push(s); // tt goes to setup
+    var t = types[s] || '';
+    if (t === 'setup' || t === 'setup_hold') setup.push(s);
+    if (t === 'hold' || t === 'setup_hold') hold.push(s);
+    if (!t) untyped.push(s);
   });
+  if (untyped.length) {
+    showToast('Not in mmmc_scenario_sets(setup) or (hold): ' + untyped.join(', '), 'error');
+    return;
+  }
 
   fetch('/api/action/save-mmmc', {
     method: 'POST',
@@ -2779,14 +2809,14 @@ function saveConfig(e) {
 // INIT
 // ═══════════════════════════════════════════════════════════════════
 refresh();
-// Adaptive polling: 2s when active (tighter than other pages because this is
-// the primary flow view), 10s when idle. Falls back to fixed 2s if the helper
-// failed to load.
+// Adaptive polling: tighter active cadence than other pages because this is
+// the primary flow view — flow(dashboard,poll_active_ms,run_view). Falls back
+// to that fixed interval if the helper failed to load.
 if (window.CBfAdaptive) {
-  window.__cbfAdaptiveInterval = { active: 2000, idle: 10000 };
+  window.__cbfAdaptiveInterval = { active: window.__cbf.poll.runViewActive };
   window.CBfAdaptive.start(refresh);
 } else {
-  setInterval(refresh, 2000);
+  setInterval(refresh, window.__cbf.poll.runViewActive);
 }
 
 // ── Keyboard Shortcuts ──

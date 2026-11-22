@@ -192,14 +192,11 @@ def autoregister(run_dir, flow_type=None):
 
     Called from `workspace create` and `cbflow run all|stage`."""
     try:
-        discipline = 'PD'
+        # flow(discipline,<FLOW>) — an unregistered flow raises and, this
+        # being best-effort, nothing is registered.
         if flow_type:
-            try:
-                from tcl_config_parser import get_flow_discipline
-                discipline = (get_flow_discipline(flow_type) or 'PD').upper()
-            except Exception:
-                discipline = 'PD'
-        state_paths.set_discipline(discipline)
+            import dash_config
+            state_paths.set_discipline(dash_config.flow_discipline(flow_type))
         if not is_running():
             return None
         return send_register(run_dir)

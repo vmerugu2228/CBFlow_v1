@@ -231,3 +231,100 @@ array set FILE_VALIDATION_RULES {
 
 set flow(valid_status) {NOTRUN RUNNING COMPLETE ERROR WARNING SKIPPED RETRACED}
 set flow(status_file)  ".run.status"
+
+# ══════════════════════════════════════════════════════════════════════════════
+#                    RUN DASHBOARD (global/utils/dashboard)
+# Read by dashboard/dash_config.py through core.registry, which parses this file
+# (it is not sourced) — keep every entry a plain one-line `set`, with comments
+# on their own lines. Values below are the ones the dashboard used to hardcode.
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Discipline used by `cbflow dashboard …` commands that name none.
+set flow(dashboard,default_discipline) "PD"
+
+# Per-user discipline daemon: port = port_base,<DISC> + (uid % port_width).
+set flow(dashboard,port_base,PD)  9000
+set flow(dashboard,port_base,DFT) 9300
+set flow(dashboard,port_base,DV)  9600
+set flow(dashboard,port_base,RTL) 9900
+set flow(dashboard,port_width)    300
+
+# Per-project daemon: port = project_port_base,<DISC> + (hash(uid,project) % width).
+set flow(dashboard,project_port_base,PD)  20000
+set flow(dashboard,project_port_base,DFT) 21000
+set flow(dashboard,project_port_base,DV)  22000
+set flow(dashboard,project_port_base,RTL) 23000
+set flow(dashboard,project_port_width)    1000
+
+# Per-run foreground dashboard (`cbflow run gui` without the daemon):
+# port = run_port_min + (hash(run_dir) % span). Kept clear of the daemon
+# bands above (9000-10199, 20000-23999) and SmartGrid (25000-27499).
+set flow(dashboard,run_port_min) 30000
+set flow(dashboard,run_port_max) 59999
+
+# Project/run browser (dashboard/app.py, `cbflow flow dashboard start`).
+set flow(dashboard,app_port_min) 8080
+set flow(dashboard,app_port_max) 8999
+
+# Browser polling cadence in milliseconds.
+#   poll_ms                  fixed interval (daemon index page; fallback when
+#                            the adaptive helper is unavailable)
+#   poll_active_ms / idle_ms adaptive cadence while a run is active / idle
+#   poll_error_ms            back-off after a failed poll
+#   poll_active_ms,run_view  active cadence of the main flow view
+set flow(dashboard,poll_ms)                 5000
+set flow(dashboard,poll_active_ms)          3000
+set flow(dashboard,poll_idle_ms)            10000
+set flow(dashboard,poll_error_ms)           15000
+set flow(dashboard,poll_active_ms,run_view) 2000
+
+# Discipline branding: pill background / pill border / index banner gradient.
+# RTL mirrors PD until the RTL team picks its own palette.
+set flow(discipline_color,PD)         "#1565c0"
+set flow(discipline_color_border,PD)  "#0d47a1"
+set flow(discipline_banner,PD)        "linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #0ea5e9 100%)"
+set flow(discipline_color,DFT)        "#0d9488"
+set flow(discipline_color_border,DFT) "#0f766e"
+set flow(discipline_banner,DFT)       "linear-gradient(135deg, #0d9488 0%, #0ea5e9 55%, #6366f1 100%)"
+set flow(discipline_color,DV)         "#be185d"
+set flow(discipline_color_border,DV)  "#9f1239"
+set flow(discipline_banner,DV)        "linear-gradient(135deg, #be185d 0%, #a21caf 55%, #6366f1 100%)"
+set flow(discipline_color,RTL)        "#1565c0"
+set flow(discipline_color_border,RTL) "#0d47a1"
+set flow(discipline_banner,RTL)       "linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #0ea5e9 100%)"
+
+# Flow badge colour per flow (every entry of flow(types)).
+set flow(color,SYNTH)            "#7c3aed"
+set flow(color,SYNTH_PNR)        "#6366f1"
+set flow(color,PNR)              "#0ea5e9"
+set flow(color,FP)               "#06b6d4"
+set flow(color,FCFP)             "#0891b2"
+set flow(color,STA)              "#10b981"
+set flow(color,LEC)              "#f59e0b"
+set flow(color,CLP)              "#f97316"
+set flow(color,PV)               "#ef4444"
+set flow(color,EMIR)             "#dc2626"
+set flow(color,POPT)             "#8b5cf6"
+set flow(color,ECO)              "#64748b"
+set flow(color,DFT_INSERT_PASS1) "#475569"
+set flow(color,DFT_INSERT_PASS2) "#475569"
+set flow(color,DFT_INSERT_PASS3) "#475569"
+set flow(color,SCAN_INSERT)      "#475569"
+set flow(color,ATPG)             "#475569"
+set flow(color,GLS_FUNC)         "#475569"
+set flow(color,GLS_SCAN_MBIST)   "#475569"
+set flow(color,SPEC_RAMP)        "#475569"
+set flow(color,PLANNING)         "#475569"
+set flow(color,TB_SETUP)         "#475569"
+set flow(color,M1_EXEC)          "#475569"
+set flow(color,M2_EXEC)          "#475569"
+set flow(color,M3_EXEC)          "#475569"
+set flow(color,M4_EXEC)          "#475569"
+set flow(color,ECO_EXEC)         "#475569"
+set flow(color,DV_SIGNOFF)       "#475569"
+set flow(color,RTL_LINT)         "#475569"
+set flow(color,RTL_CDC)          "#475569"
+set flow(color,RTL_RDC)          "#475569"
+set flow(color,UPF_CHECK)        "#475569"
+# Badge colour for a run whose flow_type is missing or not in flow(types).
+set flow(dashboard,unknown_flow_color) "#475569"

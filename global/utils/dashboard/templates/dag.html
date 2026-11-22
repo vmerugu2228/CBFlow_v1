@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RACE DAG — {{FLOW_TYPE}}</title>
 <link rel="stylesheet" href="/static/style.css">
+<script>window.__cbf = {{CBF_CONFIG}};  // dashboard config: poll cadence, done states, discipline colours (flow_registry.tcl)</script>
 <script src="/static/adaptive_poll.js"></script>
 </head>
 <body>
@@ -19,10 +20,11 @@
 </nav>
 <script>
   (function() {
+    // flow(discipline_color*,<DISC>) from flow_registry.tcl
     var el = document.getElementById('nav-disc');
-    if (el && el.textContent.trim() === 'DFT') {
-      el.style.background = '#0d9488';
-      el.style.borderColor = '#0f766e';
+    if (el) {
+      el.style.background = window.__cbf.disc_color;
+      el.style.borderColor = window.__cbf.disc_border;
     }
   })();
 </script>
@@ -377,7 +379,7 @@ if (window.CBfAdaptive) {
   window.CBfAdaptive.start(_dagRefresh);
 } else {
   _dagRefresh();
-  setInterval(_dagRefresh, 5000);
+  setInterval(_dagRefresh, window.__cbf.poll.fixed);
 }
 </script>
 </body>

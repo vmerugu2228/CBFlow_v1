@@ -27,14 +27,16 @@ _RUN_DIR_RE = _re_mod.compile(
 def _is_run_dir_name(name: str) -> bool:
     return bool(_RUN_DIR_RE.match(name))
 
-# Add commands dir to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'commands'))
+# Add commands + utils dirs to path for imports
+_UTILS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(_UTILS_DIR, 'commands'))
+if _UTILS_DIR not in sys.path:
+    sys.path.insert(0, _UTILS_DIR)
 
-
-def get_cbflow_core_dir() -> str:
-    if 'CBFLOW_CORE_DIR' in os.environ:
-        return os.environ['CBFLOW_CORE_DIR']
-    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import dash_config                                   # noqa: E402
+from core.db import COMPLETED_STATES                 # noqa: E402
+# PD root: $CBFLOW_CORE_DIR, else the PD/ sibling of global/ (raises if absent).
+from core.paths import get_cbflow_core_dir           # noqa: E402
 
 
 class DataProvider:
@@ -92,11 +94,8 @@ class DataProvider:
     def get_runs(self, search_dirs: list = None) -> list:
         runs = []
         if not search_dirs:
-            # Look in common workarea locations
-            search_dirs = [
-                self.core_dir.parent / 'workarea',
-                self.core_dir.parent / 'workarea_test',
-            ]
+            # Every project's project(workarea_path)
+            search_dirs = sorted({wa for _p, wa in dash_config.workarea_paths()})
 
         for search_dir in search_dirs:
             search_path = Path(search_dir)
@@ -130,12 +129,14 @@ class DataProvider:
         # Parse completed stages from RACE DB
         try:
             import sys
-            sys.path.insert(0, str(run_dir.parent.parent / 'PD' / 'utils' / 'commands'))
+            _pd_cmds = str(self.core_dir / 'utils' / 'commands')
+            if _pd_cmds not in sys.path:
+                sys.path.insert(0, _pd_cmds)
             from status_provider import StatusProvider
             provider = StatusProvider(str(run_dir))
             all_status = provider.get_all_status()
             completed = [s for s, v in all_status.items()
-                         if v.get('status') in ('DONE', 'BYPASSED', 'FORCE_VALIDATED')]
+                         if v.get('status') in COMPLETED_STATES]
             info['completed_stages'] = completed
             info['stage_count'] = len(completed)
         except Exception:
@@ -236,10 +237,11 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         pass  # Suppress default logging
 
 
-def _find_free_port(start: int = 8080, end: int = 8999) -> int:
-    """Find a free port in the given range."""
+def _find_free_port() -> int:
+    """First free port in flow(dashboard,app_port_min..app_port_max)."""
     import socket
-    for p in range(start, end):
+    start, end = dash_config.app_port_range()
+    for p in range(start, end + 1):
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.bind(('', p))

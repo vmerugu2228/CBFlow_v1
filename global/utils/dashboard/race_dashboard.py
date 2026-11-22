@@ -48,23 +48,25 @@ UTILS_DIR = os.path.dirname(DASHBOARD_DIR)
 # fail with `No module named 'node_manager'` unless PD/utils/commands
 # is on sys.path. For DFT/DV runs this is especially important —
 # their own utils/commands dir is thin, and node_manager is PD-only.
-PD_COMMANDS_DIR = ''
-_cbflow_core = os.environ.get('CBFLOW_CORE_DIR') or ''
-if _cbflow_core:
-    PD_COMMANDS_DIR = os.path.join(_cbflow_core, 'utils', 'commands')
-if not PD_COMMANDS_DIR or not os.path.isdir(PD_COMMANDS_DIR):
-    # Fallback: derive from this file's path. global/utils/dashboard →
-    # repo root is three dirs up; PD is a sibling of global.
-    _repo_root = os.path.dirname(os.path.dirname(os.path.dirname(DASHBOARD_DIR)))
-    PD_COMMANDS_DIR = os.path.join(_repo_root, 'PD', 'utils', 'commands')
-
 # Ensure commands + utils dirs are importable
 if COMMANDS_DIR not in sys.path:
     sys.path.insert(0, COMMANDS_DIR)
 if UTILS_DIR not in sys.path:
     sys.path.insert(0, UTILS_DIR)
-if PD_COMMANDS_DIR and os.path.isdir(PD_COMMANDS_DIR) and PD_COMMANDS_DIR not in sys.path:
+
+# PD root from the shared resolver ($CBFLOW_CORE_DIR, else the PD/ sibling of
+# global/); it raises when PD/ is absent — e.g. a DFT/DV-only sparse clone.
+from core.paths import get_cbflow_core_dir as _get_cbflow_core_dir
+PD_COMMANDS_DIR = os.path.join(_get_cbflow_core_dir(), 'utils', 'commands')
+if os.path.isdir(PD_COMMANDS_DIR) and PD_COMMANDS_DIR not in sys.path:
     sys.path.insert(0, PD_COMMANDS_DIR)
+
+import dash_config
+from core import registry as cfg_registry
+from core.db import COMPLETED_STATES
+
+# SQL `IN (...)` list of the job statuses that count as done.
+_DONE_SQL = ','.join(f"'{s}'" for s in sorted(COMPLETED_STATES))
 
 
 # _sqlite_connect lives in core/db.py — single source of truth, shared
@@ -127,12 +129,50 @@ class RaceDashboard:
         """FLOW_DIR from cached env."""
         return self._load_env().get('FLOW_DIR', '')
 
+    def _run_version(self, run_key: str, launcher_var: str) -> str:
+        """Config version this run was created with (`run_key` in
+        .run.cbflow.env); a run env without it uses the launcher's
+        `launcher_var`, which core.registry requires to be set."""
+        v = self._load_env().get(run_key, '').strip()
+        return v or cfg_registry.config_version(launcher_var)
+
+    @property
+    def flow_config_version(self) -> str:
+        return self._run_version('FLOW_CONFIG_VERSION', 'FLOW_CONFIG_VERSION')
+
     @property
     def node_config_path(self) -> str:
         """Path to flow's node_config.tcl file."""
-        ver = self._load_env().get('FLOW_CONFIG_VERSION', 'v1.0.0')
-        return os.path.join(self.flow_dir, 'config', 'flow', ver,
+        return os.path.join(self.flow_dir, 'config', 'flow', self.flow_config_version,
                             'node_configs', f'{self.flow_type}_config.tcl')
+
+    def resolved_config(self) -> dict:
+        """Full cascade (incl. lsf(*), subnodes,*, runtime,timeout,*) for this
+        run via the TCL resolver; cached by cbflow_config on file mtimes."""
+        import cbflow_config as _cbc
+        return _cbc.load_resolved_config(self.flow_type, self.run_dir, env=self._load_env())
+
+    @staticmethod
+    def lsf_tiers(cfg: dict) -> dict:
+        """{tier: {prop: value}} from lsf(queue_types,<tier>,<prop>)."""
+        tiers = {}
+        for k, v in cfg.items():
+            if k.startswith('lsf(queue_types,') and k.endswith(')'):
+                parts = k[len('lsf(queue_types,'):-1].split(',')
+                if len(parts) == 2:
+                    tiers.setdefault(parts[0], {})[parts[1]] = v
+        if not tiers:
+            raise cfg_registry.RegistryError(
+                'no lsf(queue_types,<tier>,*) entries in the resolved config (lsf_config.tcl)')
+        return tiers
+
+    def stage_tier(self, cfg: dict, stage: str) -> str:
+        """lsf(flow_mapping,<flow>,<stage_base>) — the key race_engine uses —
+        else the site lsf(default_queue_type)."""
+        import cbflow_config as _cbc
+        stage_base = stage.rstrip('0123456789')
+        return (_cbc.optional(cfg, f'lsf(flow_mapping,{self.flow_type.lower()},{stage_base})')
+                or _cbc.require(cfg, 'lsf(default_queue_type)'))
 
     # ── Engine creation (2 paths only) ────────────────────────────────────
 
@@ -287,7 +327,7 @@ class RaceDashboard:
                 node_name = f'{input_type}1'
                 cur = conn.execute(
                     "SELECT end_time, status FROM jobs WHERE job_name = ? "
-                    "AND status IN ('DONE','BYPASSED','FORCE_VALIDATED') "
+                    f"AND status IN ({_DONE_SQL}) "
                     "ORDER BY id DESC LIMIT 1", (node_name,))
                 row = cur.fetchone()
                 if not row or not row[0]:
@@ -390,31 +430,19 @@ class RaceDashboard:
             if env.get('CBFLOW_RUN_NAME'):
                 run_info['run_name'] = env['CBFLOW_RUN_NAME']
 
-            # Get tech node info — use TECH_NAME from run env, not glob all tech dirs.
-            # Tech lives in global/config/tech/ post-split; fall back to the
-            # legacy PD/config/tech/ location for pre-split installs.
+            # Tech node info — the run's own tech (TECH_NAME / TECH_VERSION
+            # in .run.cbflow.env) from global/config/tech/ only.
             if self.flow_dir:
-                import glob as _glob
                 tech_name = env.get('TECH_NAME', '')
-                tech_version = env.get('TECH_VERSION', 'v1.0.0')
-                _tech_roots = [
-                    os.path.join(os.path.dirname(self.flow_dir), 'global',
-                                 'config', 'tech'),
-                    os.path.join(self.flow_dir, 'config', 'tech'),
-                ]
-                _tech_roots = [r for r in _tech_roots if os.path.isdir(r)]
                 tech_dirs = []
                 if tech_name:
-                    for root in _tech_roots:
-                        candidate = os.path.join(
-                            root, tech_name, tech_version, 'tech_config.tcl')
-                        if os.path.isfile(candidate):
-                            tech_dirs.append(candidate)
-                            break
-                else:
-                    for root in _tech_roots:
-                        tech_dirs.extend(_glob.glob(
-                            os.path.join(root, '*', '*/tech_config.tcl')))
+                    tech_version = self._run_version('TECH_VERSION', 'TECH_CONFIG_VERSION')
+                    candidate = os.path.join(cfg_registry.root(), 'global', 'config', 'tech',
+                                             tech_name, tech_version, 'tech_config.tcl')
+                    if os.path.isfile(candidate):
+                        tech_dirs.append(candidate)
+                    else:
+                        logger.warning(f'tech config not found for run tech {tech_name}: {candidate}')
                 for tech_dir in tech_dirs:
                     try:
                         with open(tech_dir) as tf:
@@ -449,9 +477,18 @@ class RaceDashboard:
                                 if m: run_info['tool_name'] = m.group(1)
 
                 # Get tool module from flow config
-                ver = env.get('FLOW_CONFIG_VERSION', 'v1.0.0')
-                fc_path = os.path.join(self.flow_dir, 'config', 'flow', ver, 'flow_config.tcl')
+                fc_path = os.path.join(self.flow_dir, 'config', 'flow',
+                                       self.flow_config_version, 'flow_config.tcl')
                 tool_name = run_info.get('tool_name', '')
+                # DAG label short name — lsf(tool_short,<tool>) in
+                # tool_launch_config.tcl; a tool without one is labelled
+                # with its full name by the page.
+                if tool_name:
+                    try:
+                        run_info['tool_short'] = (self.resolved_config()
+                                                  .get(f'lsf(tool_short,{tool_name})') or '')
+                    except Exception as e:
+                        logger.warning(f'tool short name not resolved for {tool_name}: {e}')
                 if tool_name and os.path.exists(fc_path):
                     with open(fc_path) as ff:
                         for line in ff:
@@ -466,7 +503,7 @@ class RaceDashboard:
                 SELECT j.stage,
                     MAX(CASE WHEN j.job_type='stage' THEN j.status END) as stage_status,
                     COUNT(CASE WHEN o2.job_type='subnode' THEN 1 END) as total,
-                    SUM(CASE WHEN o2.job_type='subnode' AND j.status IN ('DONE','BYPASSED','FORCE_VALIDATED') THEN 1 ELSE 0 END) as done,
+                    SUM(CASE WHEN o2.job_type='subnode' AND j.status IN (""" + _DONE_SQL + """) THEN 1 ELSE 0 END) as done,
                     SUM(CASE WHEN o2.job_type='subnode' AND j.status='FAIL' THEN 1 ELSE 0 END) as failed,
                     SUM(CASE WHEN o2.job_type='subnode' THEN j.runtime_sec ELSE 0 END) as runtime,
                     MIN(CASE WHEN o2.job_type='subnode' THEN j.start_time END) as started,
@@ -564,7 +601,7 @@ class RaceDashboard:
                     'invalidated': invalidated,
                     'stages_total': len(stages),
                     'stages_done': sum(1 for s in stages
-                                       if s['status'] in ('DONE', 'BYPASSED', 'FORCE_VALIDATED')),
+                                       if s['status'] in COMPLETED_STATES),
                 }
             }
         finally:
@@ -622,12 +659,14 @@ class RaceDashboard:
 
             for row in cur:
                 _stage = row[1]
+                # stage_types,<stage> from the node config; '' when the
+                # config declares none (the page treats it as a plain node).
                 node = {
                     'id': row[0], 'stage': _stage, 'subnode': row[2],
                     'type': row[3], 'status': row[4] or 'READY',
                     'runtime': round(row[5] or 0, 2),
                     'exit_code': row[6], 'error': row[7] or '',
-                    'stage_type': stage_type_map.get(_stage, 'execution'),
+                    'stage_type': stage_type_map.get(_stage, ''),
                 }
                 if stage_type_map.get(_stage) == 'decision':
                     node['shape'] = 'diamond'
@@ -771,35 +810,25 @@ class RaceDashboard:
             conn.close()
 
     def get_node_config(self) -> dict:
-        """Get editable config per stage (LSF queue, memory, timeout, version)."""
+        """Get editable config per stage (LSF queue, memory, timeout, version).
+
+        Everything comes from the resolved cascade: lsf(flow_mapping,*) /
+        lsf(default_queue_type) / lsf(queue_types,*) (tool_launch_config +
+        lsf_config) and runtime,timeout,<stage> (node config). A tier missing
+        memory/cpu/runtime_limit is a config error; a stage without a
+        timeout reports it in `timeout_error` instead of inventing one."""
+        import cbflow_config as _cbc
         configs = {}
-        # Read tool_launch_config for LSF mappings
         flow_dir = self.flow_dir
-        flow_ver = self._load_env().get('FLOW_CONFIG_VERSION', 'v1.0.0')
+        flow_ver = self.flow_config_version
+        try:
+            cfg = self.resolved_config()
+            queue_resources = self.lsf_tiers(cfg)
+        except Exception as e:
+            return {'error': f'LSF config not resolvable: {e}', 'stages': {},
+                    'queue_tiers': [], 'queue_resources': {}, 'flow_type': self.flow_type}
 
-        # Read queue tiers from lsf_config.tcl (single source of truth)
-        # and stage mappings from tool_launch_config.tcl
-        queue_map = {}
-        queue_resources = {}
-
-        lsf_path = os.path.join(flow_dir, 'config', 'flow', flow_ver, 'lsf_config.tcl')
-        if os.path.exists(lsf_path):
-            with open(lsf_path) as f:
-                lsf_content = f.read()
-            # Match both formats: array set block (key "val") and set lsf(key) "val"
-            for m in re.finditer(r'queue_types,(\w+),(\w+)\s+"([^"]+)"', lsf_content):
-                queue_resources.setdefault(m.group(1), {})[m.group(2)] = m.group(3)
-
-        tlc_path = os.path.join(flow_dir, 'config', 'flow', flow_ver, 'tool_launch_config.tcl')
-        if os.path.exists(tlc_path):
-            with open(tlc_path) as f:
-                tlc = f.read()
-            for m in re.finditer(r'flow_mapping,(\w+),(\w+)\)\s+"(\w+)"', tlc):
-                queue_map[f'{m.group(1)}_{m.group(2)}'] = m.group(3)
-            for m in re.finditer(r'queue_types,(\w+),(\w+)\)\s+"([^"]+)"', tlc):
-                queue_resources.setdefault(m.group(1), {})[m.group(2)] = m.group(3)
-
-        # Read node_config for timeouts
+        # Stage order from the DB
         conn = self._connect()
         stage_order = []
         if conn:
@@ -809,44 +838,51 @@ class RaceDashboard:
             finally:
                 conn.close()
 
-        flow_lower = self.flow_type.lower()
-        for stage in stage_order:
-            stage_base = stage.rstrip('0123456789')
-            tier = queue_map.get(f'{flow_lower}_{stage_base}', 'M')
-            resources = queue_resources.get(tier, {})
-            configs[stage] = {
-                'lsf_queue': tier,
-                'lsf_memory': resources.get('memory', '16GB'),
-                'lsf_cpu': resources.get('cpu', '8'),
-                'lsf_runtime': resources.get('runtime_limit', '4:00'),
-                'timeout': '60',
-                'tool_version': flow_ver,
-            }
-
-            # Check for overrides (type-level then node-level, node wins)
-            for override_name in [stage_base, stage]:
-                override_file = os.path.join(self.run_dir, 'setup',
-                                              f'override_config.{override_name}.tcl')
-                if os.path.exists(override_file):
-                    with open(override_file) as f:
-                        for line in f:
-                            if 'memory' in line:
-                                m = re.search(r'"([^"]+)"', line)
-                                if m: configs[stage]['lsf_memory'] = m.group(1)
-                            if 'cpu' in line:
-                                m = re.search(r'"([^"]+)"', line)
-                                if m: configs[stage]['lsf_cpu'] = m.group(1)
-
-        # Read timeouts from node_config
-        nc_path = os.path.join(flow_dir, 'config', 'flow', flow_ver,
-                                'node_configs', f'{self.flow_type}_config.tcl')
-        if os.path.exists(nc_path):
-            with open(nc_path) as f:
-                nc = f.read()
+        try:
             for stage in stage_order:
-                m = re.search(rf'runtime,timeout,{stage}\s+(\d+)', nc)
-                if m:
-                    configs[stage]['timeout'] = m.group(1)
+                stage_base = stage.rstrip('0123456789')
+                tier = self.stage_tier(cfg, stage)
+                if tier not in queue_resources:
+                    raise cfg_registry.RegistryError(
+                        f'stage {stage} maps to LSF tier {tier!r}, which has no '
+                        f'lsf(queue_types,{tier},*) definition')
+                resources = queue_resources[tier]
+                for prop in ('memory', 'cpu', 'runtime_limit'):
+                    if not resources.get(prop):
+                        raise cfg_registry.RegistryError(
+                            f'lsf(queue_types,{tier},{prop}) is not set (lsf_config.tcl)')
+                timeout = _cbc.optional(cfg, f'runtime,timeout,{stage}')
+                configs[stage] = {
+                    'lsf_queue': tier,
+                    'lsf_memory': resources['memory'],
+                    'lsf_cpu': resources['cpu'],
+                    'lsf_runtime': resources['runtime_limit'],
+                    'timeout': timeout or '',
+                    'tool_version': flow_ver,
+                }
+                if not timeout:
+                    configs[stage]['timeout_error'] = (
+                        f'runtime,timeout,{stage} is not set in the node config')
+
+                # Check for overrides (type-level then node-level, node wins)
+                for override_name in [stage_base, stage]:
+                    override_file = os.path.join(self.run_dir, 'setup',
+                                                  f'override_config.{override_name}.tcl')
+                    if os.path.exists(override_file):
+                        with open(override_file) as f:
+                            for line in f:
+                                if 'memory' in line:
+                                    m = re.search(r'"([^"]+)"', line)
+                                    if m: configs[stage]['lsf_memory'] = m.group(1)
+                                if 'cpu' in line:
+                                    m = re.search(r'"([^"]+)"', line)
+                                    if m: configs[stage]['lsf_cpu'] = m.group(1)
+        except Exception as e:
+            return {'error': str(e), 'stages': configs,
+                    'queue_tiers': sorted(queue_resources), 'queue_resources': queue_resources,
+                    'flow_type': self.flow_type}
+
+        nc_path = self.node_config_path
 
         # Read tool module versions from flow_config (single source of truth)
         tool_modules = {}
@@ -904,7 +940,7 @@ class RaceDashboard:
         stage_base = re.sub(r'\d+(_\w+)?$', '', stage)
         flow_lower = self.flow_type.lower()
         flow_upper = self.flow_type.upper()
-        ver = self._load_env().get('FLOW_CONFIG_VERSION', 'v1.0.0')
+        ver = self.flow_config_version
         config_dir = os.path.join(self.flow_dir, 'config', 'flow', ver)
         categories = {}  # {category_name: [{key, value, source}]}
 
@@ -946,25 +982,16 @@ class RaceDashboard:
                 lambda k: stage in k or stage_base in k):
             _add('Node Config', key, val)
 
-        # ── 2. LSF & Resources (lsf_config.tcl + tool_launch_config.tcl) ──
-        lsf_path = os.path.join(config_dir, 'lsf_config.tcl')
-        tlc_path = os.path.join(config_dir, 'tool_launch_config.tcl')
-        # Find queue tier for this node
-        queue_tier = 'M'
-        for key, val in _parse_array_keys(lsf_path,
-                lambda k: flow_lower in k.lower() and stage_base in k.lower()):
-            queue_tier = val
-            _add('LSF & Resources', f'queue_tier ({stage_base})', val)
-        for key, val in _parse_array_keys(tlc_path,
-                lambda k: flow_lower in k.lower() and stage_base in k.lower()):
-            if val != queue_tier:
-                queue_tier = val
-            _add('LSF & Resources', f'queue_mapping ({stage_base})', val)
-        # Get queue tier details
-        for key, val in _parse_array_keys(lsf_path,
-                lambda k: k.startswith(f'queue_types,{queue_tier},')):
-            prop = key.split(',')[-1]
-            _add('LSF & Resources', f'{queue_tier}.{prop}', val)
+        # ── 2. LSF & Resources (resolved lsf(*) from lsf_config.tcl +
+        #       tool_launch_config.tcl — same keys race_engine uses) ──
+        try:
+            _cfg = self.resolved_config()
+            queue_tier = self.stage_tier(_cfg, stage)
+            _add('LSF & Resources', f'queue_tier ({stage_base})', queue_tier)
+            for prop, val in sorted(self.lsf_tiers(_cfg).get(queue_tier, {}).items()):
+                _add('LSF & Resources', f'{queue_tier}.{prop}', val)
+        except Exception as e:
+            _add('LSF & Resources', 'error', str(e))
 
         # ── 3. Tool Config (<tool>_config.tcl) ──
         # Find the tool config file from cmds/<flow>/<vendor>/<tool>/v1.0.0/<tool>_config.tcl
@@ -1117,36 +1144,73 @@ class RaceDashboard:
                 continue
             nodes.setdefault(_parts[1], {'setup': [], 'hold': []})[_parts[2]] = val.split()
 
-        # Add flow_type and current dynamic subnodes from DB (for STA)
-        flow_type = env.get('FLOW_TYPE', env.get('CBFLOW_FLOW_TYPE', ''))
+        # Dynamic (per-scenario fan-out) stages come from the node config:
+        # `<flow>(subnodes,<stage>) {dynamic}`, plus custom nodes whose
+        # `stages,<name>,type` is the node_types of a dynamic base stage —
+        # the same rule race_engine applies when building the DAG.
+        dynamic_stages = set()
+        for key, val in cfg.items():
+            parts = key.split(',')
+            if len(parts) == 2 and parts[0] == 'subnodes' and val.strip() == 'dynamic':
+                dynamic_stages.add(parts[1])
+        dynamic_types = {cfg.get(f'node_types,{s}') for s in dynamic_stages} - {None, ''}
+        for key, val in cfg.items():
+            parts = key.split(',')
+            if (len(parts) == 3 and parts[0] == 'stages' and parts[2] == 'type'
+                    and val.strip() in dynamic_types):
+                dynamic_stages.add(parts[1])
+
+        # Current dynamic subnodes from the DB
         active_subnodes = {}
-        try:
-            import sqlite3 as _sql
-            from core.db import find_race_db_from_run_dir
-            db_file = find_race_db_from_run_dir(self.run_dir)
-            if db_file:
-                conn = _sql.connect(db_file)
-                try:
-                    # Dynamic fan-out of timing / extraction stages only;
-                    # the parentheses keep the static-subnode filter applied
-                    # to BOTH stage families.
-                    for row in conn.execute(
-                            "SELECT DISTINCT stage, subnode FROM jobs "
-                            "WHERE subnode NOT IN ('_sentinel','setup','run','validate','finish') "
-                            "AND (stage LIKE '%timing%' OR stage LIKE '%extraction%')"):
-                        active_subnodes.setdefault(row[0], []).append(row[1])
-                finally:
-                    conn.close()
-        except Exception:
-            pass
+        if dynamic_stages:
+            try:
+                import sqlite3 as _sql
+                from core.db import find_race_db_from_run_dir
+                db_file = find_race_db_from_run_dir(self.run_dir)
+                if db_file:
+                    conn = _sql.connect(db_file)
+                    try:
+                        marks = ','.join('?' * len(dynamic_stages))
+                        for row in conn.execute(
+                                "SELECT DISTINCT stage, subnode FROM jobs "
+                                f"WHERE job_type = 'subnode' AND stage IN ({marks})",
+                                sorted(dynamic_stages)):
+                            active_subnodes.setdefault(row[0], []).append(row[1])
+                    finally:
+                        conn.close()
+            except Exception:
+                pass
 
         return {
             'scenarios': all_scenarios,
             'sets': sets,
             'nodes': nodes,
             'flow_type': flow_type,
+            'dynamic_stages': sorted(dynamic_stages),
             'active_subnodes': active_subnodes,
         }
+
+    def get_release_exits(self) -> dict:
+        """Exits the release form may offer for this run: project(phase_exits)
+        for the run's project + phase (core.release_exits, ordered by
+        MILESTONE_ORDER). `active_tag` is project(release,active_tag) — the
+        tag `cbflow run release` uses without --tag — and is only returned
+        when this phase has that exit."""
+        from core import release_exits
+        env = self._load_env()
+        project = env.get('CBFLOW_PROJECT_NAME', '')
+        phase = env.get('CBFLOW_PROJECT_PHASE', '')
+        if not project or not phase:
+            return {'error': 'CBFLOW_PROJECT_NAME / CBFLOW_PROJECT_PHASE missing from '
+                             '.run.cbflow.env', 'exits': [], 'active_tag': ''}
+        try:
+            exits = release_exits.exits_for_phase(project, phase)
+            active = cfg_registry.project_value(project, 'release,active_tag') or ''
+        except Exception as e:
+            return {'error': str(e), 'exits': [], 'active_tag': '',
+                    'project': project, 'phase': phase}
+        return {'exits': exits, 'active_tag': active if active in exits else '',
+                'project': project, 'phase': phase}
 
     def get_input_vars(self, node_name: str) -> dict:
         """Get input variables for a leaf input node from user_config.tcl."""
@@ -1260,6 +1324,8 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             self._json_response(self.dashboard.get_node_full_config(stage))
         elif path == '/api/mmmc-scenarios':
             self._json_response(self.dashboard.get_mmmc_scenarios())
+        elif path == '/api/release-exits':
+            self._json_response(self.dashboard.get_release_exits())
         elif path.startswith('/api/input-vars/'):
             node_name = path[len('/api/input-vars/'):]
             self._json_response(self.dashboard.get_input_vars(node_name))
@@ -1355,7 +1421,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 try:
                     row = conn.execute(
                         "SELECT COUNT(*) AS total, "
-                        "SUM(CASE WHEN status IN ('DONE','BYPASSED','FORCE_VALIDATED') THEN 1 ELSE 0 END) AS done, "
+                        f"SUM(CASE WHEN status IN ({_DONE_SQL}) THEN 1 ELSE 0 END) AS done, "
                         "SUM(CASE WHEN status = 'FAIL' THEN 1 ELSE 0 END) AS failed, "
                         "SUM(CASE WHEN status = 'RUNNING' THEN 1 ELSE 0 END) AS running, "
                         "SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) AS pending "
@@ -1671,13 +1737,22 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         run_dir = self.dashboard.run_dir
         workspace = os.path.dirname(os.path.abspath(run_dir))
         flow_type = self.dashboard.flow_type or ''
-        manifest = os.path.join(run_dir, 'work', flow_type, 'release_data1', 'outputs', 'release.manifest')
+        # The run's own release stage(s): stage_types,<stage> == release_data
+        # in the node config — not a literal node name.
+        try:
+            _cfg = self.dashboard.resolved_config()
+            release_stages = [s for s in _cfg.get('stages', '').split()
+                              if _cfg.get(f'stage_types,{s}') == 'release_data']
+        except Exception as e:
+            return {'ok': False, 'error': f'node config not resolvable: {e}'}
+        manifests = [os.path.join(run_dir, 'work', flow_type, s, 'outputs', 'release.manifest')
+                     for s in release_stages]
         cbflow = os.path.join(os.environ.get('CBFLOW_ROOT', os.environ.get('FLOW_DIR', '')), 'bin', 'cbflow')
         if not os.path.exists(cbflow):
             cbflow = 'cbflow'
         cmd = [cbflow, 'run', 'release', '--tag', tag,
                '--publish' if publish else '--no-publish']
-        if os.path.isfile(manifest):
+        if any(os.path.isfile(m) for m in manifests):
             cmd += ['--from-run', run_dir]
         if override:
             cmd.append('--override')
@@ -2139,7 +2214,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
         Pre-fix: _tcl_quote-ed lsf_queue was spliced into a Tcl array
         INDEX position (`lsf(queue_types,{lsf_queue},memory)`), not
-        into a "..." body. _tcl_quote only escapes `\`, `"`, `$`, `[`
+        into a "..." body. _tcl_quote only escapes `\\`, `"`, `$`, `[`
         — not `)`, `,`, `;`, newline — so a queue like 'M);exec id;#'
         broke out of the index and injected code. Fix: lsf_queue
         must match the strict queue-tier allowlist. Also missing
@@ -2158,9 +2233,11 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
         _q = self._tcl_quote
 
         # lsf_queue is used in a TCL array-INDEX position; _tcl_quote is
-        # insufficient there. Restrict to the known queue tiers.
-        _QUEUE_TIERS = {'XS', 'S', 'M', 'L', 'XL', 'ultra'}
-        _lsf_queue_raw = body.get("lsf_queue") or "M"
+        # insufficient there. Restrict to the tiers lsf_config.tcl defines
+        # (lsf(queue_types,<tier>,*)); no tier given → the stage's own tier.
+        _cfg = self.dashboard.resolved_config()
+        _QUEUE_TIERS = set(self.dashboard.lsf_tiers(_cfg))
+        _lsf_queue_raw = body.get("lsf_queue") or self.dashboard.stage_tier(_cfg, stage)
         if _lsf_queue_raw not in _QUEUE_TIERS:
             return {'ok': False,
                     'error': f'invalid lsf_queue (must be one of {sorted(_QUEUE_TIERS)})'}
@@ -2357,10 +2434,11 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             content = content.replace(b'{{PROJECT}}', run_info.get('project', '').encode())
             content = content.replace(b'{{RUN_DIR}}', self.dashboard.run_dir.encode())
             content = content.replace(b'{{RESULT}}', run_info.get('result', '').encode())
-            # Discipline: derive from flow_type when not in a daemon context.
-            _DFT = {'DFT_INSERT', 'SCAN_INSERT', 'ATPG', 'GLS_FUNC', 'GLS_SCAN_MBIST'}
-            _disc = 'DFT' if run_info.get('flow_type') in _DFT else 'PD'
+            # Discipline: flow(discipline,<FLOW>) from the flow registry.
+            _disc = dash_config.flow_discipline(self.dashboard.flow_type
+                                                or run_info.get('flow_type', ''))
             content = content.replace(b'{{DISCIPLINE}}', _disc.encode())
+            content = content.replace(b'{{CBF_CONFIG}}', dash_config.page_config_json(_disc))
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
             self.end_headers()
@@ -2742,19 +2820,26 @@ def _is_port_free(port: int) -> bool:
         return False
 
 
-def _find_free_port(start: int = 8080, end: int = 8180) -> int:
-    """Find a free port in the given range."""
-    for port in range(start, end):
+def _next_free_run_port(start: int, tries: int = 200) -> int:
+    """First free port at or after `start`, wrapping inside the per-run band
+    flow(dashboard,run_port_min..run_port_max)."""
+    lo, hi = dash_config.run_port_range()
+    span = hi - lo + 1
+    port = lo + ((start - lo) % span)
+    for _ in range(min(tries, span)):
         if _is_port_free(port):
             return port
-    raise RuntimeError(f"No free port found in range {start}-{end}")
+        port = lo + ((port - lo + 1) % span)
+    raise RuntimeError(f"No free port found near {start} in {lo}-{hi} "
+                       f"(flow(dashboard,run_port_min/max))")
 
 
 def _get_run_port(run_dir: str) -> int:
     """Get deterministic port for a run directory.
 
-    Port is derived from hash of the canonical run_dir path, mapped to range
-    10000-60000. This gives each run a stable port across restarts.
+    Port is derived from hash of the canonical run_dir path, mapped into
+    flow(dashboard,run_port_min..run_port_max) (flow_registry.tcl). This
+    gives each run a stable port across restarts.
     The port is stored in the SQLite DB (run_info table) so it is automatically
     cleaned up when the DB is removed.
 
@@ -2786,7 +2871,8 @@ def _get_run_port(run_dir: str) -> int:
             conn.close()
             if row:
                 stored_port = int(row[0])
-                if _is_port_free(stored_port):
+                lo, hi = dash_config.run_port_range()
+                if lo <= stored_port <= hi and _is_port_free(stored_port):
                     return stored_port
                 # Port busy (another process) — fall through to recompute
         except Exception:
@@ -2794,16 +2880,11 @@ def _get_run_port(run_dir: str) -> int:
 
     # 2. Compute deterministic port from hash
     h = int(hashlib.md5(canonical.encode()).hexdigest(), 16)
-    base_port = 10000 + (h % 50000)
+    lo, hi = dash_config.run_port_range()
+    base_port = lo + (h % (hi - lo + 1))
 
     # 3. Find free port starting from base
-    port = base_port
-    for _ in range(200):
-        if _is_port_free(port):
-            break
-        port = 10000 + ((port - 10000 + 1) % 50000)
-    else:
-        raise RuntimeError(f"No free port found near {base_port}")
+    port = _next_free_run_port(base_port)
 
     # 4. Store in DB (use actual RACE DB found above)
     if db_path:
@@ -2857,7 +2938,7 @@ def start_dashboard(run_dir: str, port: int = 0, open_browser: bool = True,
         server = http.server.HTTPServer((bind_host, port), DashboardHandler)
     except OSError:
         # Requested port busy — find next free one and update DB
-        port = _find_free_port(port + 1, port + 200)
+        port = _next_free_run_port(port + 1)
         server = http.server.HTTPServer((bind_host, port), DashboardHandler)
         # Update stored port in actual RACE DB
         try:

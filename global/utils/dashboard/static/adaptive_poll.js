@@ -1,13 +1,13 @@
 // Adaptive polling helper.
 //
 // Each dashboard page has a primary "refresh" function it wants to call on an
-// interval. This helper replaces `setInterval(fn, 5000)` with a self-tuning
+// interval. This helper replaces a fixed `setInterval` with a self-tuning
 // loop that speeds up when the run is active and slows down when it's idle.
 //
-// Cadence today (change here, not in every template):
-//   • active runs  → 3s
-//   • idle runs    → 10s
-//   • after error  → 15s (temporary back-off)
+// Cadence comes from flow_registry.tcl, served by the page as window.__cbf.poll:
+//   • active runs  → flow(dashboard,poll_active_ms)
+//   • idle runs    → flow(dashboard,poll_idle_ms)
+//   • after error  → flow(dashboard,poll_error_ms) (temporary back-off)
 //
 // Activity is derived from `/api/status`, which every dashboard endpoint
 // returns cheaply via ETag (304 = no state change since last poll).
@@ -22,7 +22,11 @@
 (function () {
   'use strict';
 
-  const DEFAULTS = { active: 3000, idle: 10000, errorBackoff: 15000 };
+  function _defaults() {
+    const p = (window.__cbf || {}).poll;
+    if (!p) throw new Error('window.__cbf.poll missing — page was not served by the CBflow dashboard');
+    return { active: p.active, idle: p.idle, errorBackoff: p.errorBackoff };
+  }
 
   let _activity = '';
   let _lastEtag = '';
@@ -45,7 +49,7 @@
   }
 
   function _pickDelay(hadError) {
-    const cfg = Object.assign({}, DEFAULTS, window.__cbfAdaptiveInterval || {});
+    const cfg = Object.assign({}, _defaults(), window.__cbfAdaptiveInterval || {});
     if (hadError) return cfg.errorBackoff;
     return _activity === 'idle' ? cfg.idle : cfg.active;
   }

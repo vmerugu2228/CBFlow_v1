@@ -1,7 +1,8 @@
 """Single source of truth for the per-user dashboard daemon's state paths.
 
-State is scoped by discipline ("PD", "DFT", or "DV") so each engineering team
-can run independent daemons under the same user account:
+State is scoped by discipline (any name in flow(disciplines) — PD, DFT, DV,
+RTL) so each engineering team can run independent daemons under the same
+user account:
 
   ~/.cbflow/dashboard/PD/      — PD daemon: pidfile, port, runs/, control.sock
   ~/.cbflow/dashboard/DFT/     — DFT daemon: same shape, separate listener
@@ -14,14 +15,27 @@ Discipline resolution order (lowest wins):
   1. explicit `discipline=` arg
   2. `state_paths.set_discipline()` (process-level)
   3. `CBFLOW_DASHBOARD_DISCIPLINE` env var
-  4. "PD" (back-compat default)
+  4. flow(dashboard,default_discipline) in flow_registry.tcl
 """
 
 import os
 import re
 import shutil
+import sys
 
-_VALID = ('PD', 'DFT', 'DV')
+# SmartGrid loads this file by path (importlib) without the dashboard dir on
+# sys.path — make the sibling config module importable either way.
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+import dash_config  # noqa: E402
+
+
+def _valid():
+    """Disciplines from flow(disciplines) — no built-in list."""
+    return dash_config.disciplines()
+
+
 _current = None
 _current_project = None
 _PROJECT_RE = re.compile(r'^[A-Za-z0-9_\-]+$')
@@ -35,8 +49,8 @@ def set_discipline(d):
         _current = None
         return
     d = str(d).upper()
-    if d not in _VALID:
-        raise ValueError(f'unknown discipline: {d!r} (valid: {_VALID})')
+    if d not in _valid():
+        raise ValueError(f'unknown discipline: {d!r} (valid: {_valid()})')
     _current = d
 
 
@@ -44,17 +58,20 @@ def get_discipline():
     if _current:
         return _current
     env = os.environ.get('CBFLOW_DASHBOARD_DISCIPLINE', '').upper()
-    if env in _VALID:
+    if env:
+        if env not in _valid():
+            raise ValueError(f'CBFLOW_DASHBOARD_DISCIPLINE={env!r} is not a discipline '
+                             f'(valid: {_valid()})')
         return env
-    return 'PD'
+    return dash_config.default_discipline()
 
 
 def _disc(d):
     if d is None:
         return get_discipline()
     d = str(d).upper()
-    if d not in _VALID:
-        raise ValueError(f'unknown discipline: {d!r} (valid: {_VALID})')
+    if d not in _valid():
+        raise ValueError(f'unknown discipline: {d!r} (valid: {_valid()})')
     return d
 
 
@@ -197,10 +214,10 @@ def daemon_url_for(project, discipline):
     Returns '' when neither is up — the caller renders an inline hint
     telling the operator how to start one.
     """
-    disc = (discipline or 'PD').upper()
+    disc = (discipline or get_discipline()).upper()
     proj = (project or '').strip()
-    if disc not in _VALID:
-        return ''
+    if disc not in _valid():
+        return ''   # not a discipline in flow(disciplines) → no daemon
 
     base = _root_base()
     scoped_candidates = []

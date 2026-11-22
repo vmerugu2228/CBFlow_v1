@@ -111,16 +111,8 @@ def list_all():
     belong to DFT/DV runs. Filter them out here so each daemon's index
     only lists runs that actually belong to its own discipline.
     """
-    daemon_disc = (state_paths.get_discipline() or 'PD').upper()
-    try:
-        import sys, os as _os
-        _cmds = _os.path.join(_os.path.dirname(_os.path.dirname(
-            _os.path.abspath(__file__))), 'commands')
-        if _cmds not in sys.path:
-            sys.path.insert(0, _cmds)
-        from tcl_config_parser import get_flow_discipline
-    except Exception:
-        get_flow_discipline = None
+    import dash_config
+    daemon_disc = state_paths.get_discipline()
 
     out = []
     for f in sorted(Path(state_paths.runs_dir()).glob('*.json')):
@@ -128,11 +120,14 @@ def list_all():
         if not rec:
             continue
         ft = (rec.get('flow_type') or '').strip().upper()
-        if ft and get_flow_discipline is not None:
+        if ft:
+            # flow(discipline,<FLOW>); a flow missing from the registry
+            # belongs to no daemon.
             try:
-                rec_disc = (get_flow_discipline(ft) or 'PD').upper()
-            except Exception:
-                rec_disc = 'PD'
+                rec_disc = dash_config.flow_discipline(ft)
+            except dash_config.RegistryError as e:
+                print(f'[registry] skipping {f.stem}: {e}', flush=True)
+                continue
             if rec_disc != daemon_disc:
                 continue
         out.append(rec)
