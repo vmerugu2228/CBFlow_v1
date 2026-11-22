@@ -61,7 +61,7 @@ PD_COMMANDS_DIR = os.path.join(_get_cbflow_core_dir(), 'utils', 'commands')
 if os.path.isdir(PD_COMMANDS_DIR) and PD_COMMANDS_DIR not in sys.path:
     sys.path.insert(0, PD_COMMANDS_DIR)
 
-import dash_config
+import run_dash_config
 from core import registry as cfg_registry
 from core.db import COMPLETED_STATES
 
@@ -2435,10 +2435,10 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             content = content.replace(b'{{RUN_DIR}}', self.dashboard.run_dir.encode())
             content = content.replace(b'{{RESULT}}', run_info.get('result', '').encode())
             # Discipline: flow(discipline,<FLOW>) from the flow registry.
-            _disc = dash_config.flow_discipline(self.dashboard.flow_type
+            _disc = run_dash_config.flow_discipline(self.dashboard.flow_type
                                                 or run_info.get('flow_type', ''))
             content = content.replace(b'{{DISCIPLINE}}', _disc.encode())
-            content = content.replace(b'{{CBF_CONFIG}}', dash_config.page_config_json(_disc))
+            content = content.replace(b'{{CBF_CONFIG}}', run_dash_config.page_config_json(_disc))
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
             self.end_headers()
@@ -2823,7 +2823,7 @@ def _is_port_free(port: int) -> bool:
 def _next_free_run_port(start: int, tries: int = 200) -> int:
     """First free port at or after `start`, wrapping inside the per-run band
     flow(dashboard,run_port_min..run_port_max)."""
-    lo, hi = dash_config.run_port_range()
+    lo, hi = run_dash_config.run_port_range()
     span = hi - lo + 1
     port = lo + ((start - lo) % span)
     for _ in range(min(tries, span)):
@@ -2871,7 +2871,7 @@ def _get_run_port(run_dir: str) -> int:
             conn.close()
             if row:
                 stored_port = int(row[0])
-                lo, hi = dash_config.run_port_range()
+                lo, hi = run_dash_config.run_port_range()
                 if lo <= stored_port <= hi and _is_port_free(stored_port):
                     return stored_port
                 # Port busy (another process) — fall through to recompute
@@ -2880,7 +2880,7 @@ def _get_run_port(run_dir: str) -> int:
 
     # 2. Compute deterministic port from hash
     h = int(hashlib.md5(canonical.encode()).hexdigest(), 16)
-    lo, hi = dash_config.run_port_range()
+    lo, hi = run_dash_config.run_port_range()
     base_port = lo + (h % (hi - lo + 1))
 
     # 3. Find free port starting from base

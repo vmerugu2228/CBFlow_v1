@@ -195,8 +195,8 @@ def autoregister(run_dir, flow_type=None):
         # flow(discipline,<FLOW>) — an unregistered flow raises and, this
         # being best-effort, nothing is registered.
         if flow_type:
-            import dash_config
-            state_paths.set_discipline(dash_config.flow_discipline(flow_type))
+            import run_dash_config
+            state_paths.set_discipline(run_dash_config.flow_discipline(flow_type))
         if not is_running():
             return None
         return send_register(run_dir)

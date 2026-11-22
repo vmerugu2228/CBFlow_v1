@@ -23,7 +23,7 @@ from urllib.parse import urlparse
 import race_dashboard
 import registry
 import state_paths
-import dash_config
+import run_dash_config
 from core import registry as cfg_registry
 
 _logger = logging.getLogger('cbflow.dashboard.router')
@@ -448,7 +448,7 @@ def make_daemon_handler(pool):
             content = content.replace(b'{{RESULT}}', run_info.get('result', '').encode())
             content = content.replace(b'{{DISCIPLINE}}', state_paths.get_discipline().encode())
             content = content.replace(b'{{CBF_CONFIG}}',
-                                      dash_config.page_config_json(state_paths.get_discipline()))
+                                      run_dash_config.page_config_json(state_paths.get_discipline()))
             # SmartGrid URL — resolve server-side so the per-run GUI
             # doesn't need an API round-trip through the daemon-scope
             # rewriter. Project name comes from this run's run_info
@@ -569,7 +569,7 @@ _RUN_DIR_RE = re.compile(
 def _project_workarea_paths():
     """{(project, project(workarea_path))} across every project config
     (global identity + discipline overlays, via core.registry)."""
-    return dash_config.workarea_paths()
+    return run_dash_config.workarea_paths()
 
 
 _PROJECT_INFO_CACHE = {}  # {project_name: {technology, metal_stack, lib_config_tag, cbflow_release, tapeout_date}}
@@ -701,7 +701,7 @@ class _NullDashboard:
 
 def _flow_colors():
     """{FLOW: badge colour} from flow(color,<FLOW>) in flow_registry.tcl."""
-    return dash_config.flow_colors()
+    return run_dash_config.flow_colors()
 
 # Status → (background, text) colors for the Current Status chip on the
 # daemon index page. Single source consumed both server-side (cell render)
@@ -881,7 +881,7 @@ def _render_index(runs, discipline=None, project=''):
     # Per-discipline branding (flow(discipline_color*,<DISC>) /
     # flow(discipline_banner,<DISC>)) so a glance at the chrome tells you
     # which discipline's dashboard you're on.
-    _brand = dash_config.discipline_branding(disc)
+    _brand = run_dash_config.discipline_branding(disc)
     disc_pill_bg, disc_pill_border = _brand['color'], _brand['border']
     disc_banner_grad = _brand['banner']
 
@@ -1360,7 +1360,7 @@ def _render_index(runs, discipline=None, project=''):
 
 <script>
   const FLOW_COLORS = {json.dumps(_flow_colors())};
-  const UNKNOWN_FLOW_COLOR = {json.dumps(dash_config.unknown_flow_color())};
+  const UNKNOWN_FLOW_COLOR = {json.dumps(run_dash_config.unknown_flow_color())};
   const STATUS_COLORS = {json.dumps(_STATUS_COLORS)};
 
   function flowBadge(flow) {{
@@ -1918,7 +1918,7 @@ def _render_index(runs, discipline=None, project=''):
   }})();
 
   loadRuns();
-  setInterval(loadRuns, {dash_config.poll_config()['fixed']});  // flow(dashboard,poll_ms)
+  setInterval(loadRuns, {run_dash_config.poll_config()['fixed']});  // flow(dashboard,poll_ms)
   setInterval(tickRunningRuntimes, 1000); // refresh RUNNING runtimes every 1s
 </script>
 </body></html>
@@ -2043,7 +2043,7 @@ def _render_run_rows(runs):
 
     out = []
     _colors = _flow_colors()
-    _unknown_color = dash_config.unknown_flow_color()
+    _unknown_color = run_dash_config.unknown_flow_color()
     # Running runs first; otherwise registry order (stable sort)
     for r in sorted(runs, key=lambda r: r.get('current_status') != 'RUNNING'):
         flow = r.get('flow_type') or '?'

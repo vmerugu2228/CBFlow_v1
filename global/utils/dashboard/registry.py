@@ -111,7 +111,7 @@ def list_all():
     belong to DFT/DV runs. Filter them out here so each daemon's index
     only lists runs that actually belong to its own discipline.
     """
-    import dash_config
+    import run_dash_config
     daemon_disc = state_paths.get_discipline()
 
     out = []
@@ -124,8 +124,8 @@ def list_all():
             # flow(discipline,<FLOW>); a flow missing from the registry
             # belongs to no daemon.
             try:
-                rec_disc = dash_config.flow_discipline(ft)
-            except dash_config.RegistryError as e:
+                rec_disc = run_dash_config.flow_discipline(ft)
+            except run_dash_config.RegistryError as e:
                 print(f'[registry] skipping {f.stem}: {e}', flush=True)
                 continue
             if rec_disc != daemon_disc:

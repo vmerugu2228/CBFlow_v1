@@ -33,7 +33,7 @@ sys.path.insert(0, os.path.join(_UTILS_DIR, 'commands'))
 if _UTILS_DIR not in sys.path:
     sys.path.insert(0, _UTILS_DIR)
 
-import dash_config                                   # noqa: E402
+import run_dash_config                                   # noqa: E402
 from core.db import COMPLETED_STATES                 # noqa: E402
 # PD root: $CBFLOW_CORE_DIR, else the PD/ sibling of global/ (raises if absent).
 from core.paths import get_cbflow_core_dir           # noqa: E402
@@ -95,7 +95,7 @@ class DataProvider:
         runs = []
         if not search_dirs:
             # Every project's project(workarea_path)
-            search_dirs = sorted({wa for _p, wa in dash_config.workarea_paths()})
+            search_dirs = sorted({wa for _p, wa in run_dash_config.workarea_paths()})
 
         for search_dir in search_dirs:
             search_path = Path(search_dir)
@@ -240,7 +240,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 def _find_free_port() -> int:
     """First free port in flow(dashboard,app_port_min..app_port_max)."""
     import socket
-    start, end = dash_config.app_port_range()
+    start, end = run_dash_config.app_port_range()
     for p in range(start, end + 1):
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

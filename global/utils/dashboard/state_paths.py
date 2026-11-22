@@ -28,12 +28,12 @@ import sys
 _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
-import dash_config  # noqa: E402
+import run_dash_config  # noqa: E402
 
 
 def _valid():
     """Disciplines from flow(disciplines) — no built-in list."""
-    return dash_config.disciplines()
+    return run_dash_config.disciplines()
 
 
 _current = None
@@ -63,7 +63,7 @@ def get_discipline():
             raise ValueError(f'CBFLOW_DASHBOARD_DISCIPLINE={env!r} is not a discipline '
                              f'(valid: {_valid()})')
         return env
-    return dash_config.default_discipline()
+    return run_dash_config.default_discipline()
 
 
 def _disc(d):

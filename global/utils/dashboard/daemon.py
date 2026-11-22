@@ -40,7 +40,7 @@ import race_dashboard
 import registry
 import router
 import state_paths
-import dash_config
+import run_dash_config
 
 
 # ── Port selection ──────────────────────────────────────────────────────────
@@ -63,9 +63,9 @@ def deterministic_port(discipline=None, project=None):
     d = state_paths._disc(discipline)
     p = state_paths._proj(project)
     if not p:
-        base, width = dash_config.daemon_port_band(d)
+        base, width = run_dash_config.daemon_port_band(d)
         return base + (os.getuid() % width)
-    base, width = dash_config.project_port_band(d)
+    base, width = run_dash_config.project_port_band(d)
     key = f'{os.getuid()}:{p}'.encode()
     h = int(hashlib.md5(key).hexdigest()[:6], 16)
     return base + (h % width)
@@ -465,7 +465,7 @@ def main(argv=None):
     serve_p = sub.add_parser('serve', help='Run the daemon in foreground')
     serve_p.add_argument('--port', type=int, default=0,
                          help='Port (default: per-discipline deterministic)')
-    serve_p.add_argument('--discipline', choices=dash_config.disciplines(), default=None,
+    serve_p.add_argument('--discipline', choices=run_dash_config.disciplines(), default=None,
                          help='Discipline this daemon serves (default: $CBFLOW_DASHBOARD_DISCIPLINE '
                               'or flow(dashboard,default_discipline))')
     serve_p.add_argument(
