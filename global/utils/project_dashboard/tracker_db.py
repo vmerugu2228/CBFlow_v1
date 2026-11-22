@@ -162,7 +162,10 @@ def _connect(db_path):
     accumulate. Factored into a helper so every call site gets consistent
     behavior with no silent regressions when a new site is added.
     """
-    conn = sqlite3.connect(db_path)
+    # Publishes write large snapshots (floorplan cells, checklist, timing);
+    # a concurrent publish waits for the lock instead of failing at 5 s.
+    conn = sqlite3.connect(db_path, timeout=60)
+    conn.execute('PRAGMA busy_timeout = 60000')
     conn.execute('PRAGMA foreign_keys = ON')
     return conn
 
@@ -465,9 +468,15 @@ def publish(db_path, payload, project):
         # on the cells layer surviving the downsample.
         timing = payload.get('timing') or {}
         if timing.get('clock_groups'):
-            # Reuse writer for consistency (no ON CONFLICT since we just
-            # inserted the row above, so DELETE is a cheap no-op).
-            set_timing(db_path, pid, timing)
+            # Same connection/transaction — a separate connection
+            # (set_timing) would wait on this transaction's own lock.
+            groups = timing['clock_groups']
+            conn.execute(
+                'INSERT INTO run_timing(published_run_id, units, n_groups, '
+                'n_paths, groups_json) VALUES (?, ?, ?, ?, ?)',
+                (pid, timing.get('units') or 1000, len(groups),
+                 sum(len(g.get('paths') or []) for g in groups),
+                 json.dumps({'clock_groups': groups})))
 
         # Floorplan snapshot (DEF + LEF macro dims). Stored as JSON blobs
         # because canvas-side rendering doesn't need relational queries.
