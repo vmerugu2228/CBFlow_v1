@@ -3,7 +3,9 @@
 # and LEC (Yosys) in parallel, each consuming the PNR exit release and
 # releasing under the exit name: <phase>/<block>/<FLOW>/<exit> (tag from
 # <flow>(release,exit_from)). CLP has no open-source tool.
-#   usage: run_signoff.sh <block> [pnr_exit_tag]   (default PRO_EXIT)
+#   usage: run_signoff.sh <block> [exit_tag]   (default PRO_EXIT)
+# exit_tag FP_EXIT: PV only on the FP release (floorplan GDS — no signal
+# routing, so the verdict is DRC only: pv(signoff,lvs_required) false).
 cd "$(dirname "$0")"
 WA=$PWD
 C=$WA/../bin/cbflow
@@ -24,7 +26,7 @@ flock_publish() {
 
 # mk <FLOW> <template uc in gcd/> — per-block uc: design, run name, tags
 mk() {
-    local f=$1 src=$2 dst="$WA/$B/uc_${1}_signoff_${PHASE}.tcl"
+    local f=$1 src=$2 dst="$WA/$B/uc_${1}_signoff_${PHASE}_${EXIT}.tcl"
     sed -e "s/^set flow(design_name) .*/set flow(design_name)          \"$B\"/" \
         -e "s/^set flow(run_name) .*/set flow(run_name)             \"$RUN\"/" \
         -e "s/^set sta(input,release_tag) *\"[^\"]*\"/set sta(input,release_tag)     \"$EXIT\"/" \
@@ -33,14 +35,18 @@ mk() {
         -e "s/^set lec(input,netlist_revised_release_tag) .*/set lec(input,netlist_revised_release_tag) \"$EXIT\"/" \
         -e '/^set project(release,tag)/d' \
         "$WA/gcd/$src" > "$dst"
+    if [ "$EXIT" = FP_EXIT ]; then
+        sed -i '' "s/^set flow(run_name) .*/set flow(run_name)             \"${RUN}_fp\"/" "$dst"
+        echo "set pv(signoff,lvs_required)   false" >> "$dst"
+    fi
     echo "set project(phase)             \"$PHASE\"" >> "$dst"
     echo "set project(release,phase)     \"$PHASE\"" >> "$dst"
     echo "$dst"
 }
 
 run() {
-    local f=$1 uc=$2 rd="${PHASE}_run_${1}_${B}_${RUN}"
-    local fl; fl=$(echo "$f" | tr 'A-Z' 'a-z')
+    local f=$1 uc=$2 rd="${PHASE}_run_${1}_${B}_${RUN}$([ "$EXIT" = FP_EXIT ] && echo _fp)"
+    local fl; fl=$(echo "$f" | tr 'A-Z' 'a-z')$([ "$EXIT" = FP_EXIT ] && echo _fp)
     say "$B $f: start ($PHASE, input $EXIT)"
     (cd "$WA/$B" && rm -rf "$rd" && $C workspace create --config "$uc") > "$WA/$B/${fl}_signoff_create.log" 2>&1
     (cd "$WA/$B/$rd" && $C run all) > "$WA/$B/${fl}_signoff.log" 2>&1
@@ -57,8 +63,12 @@ run() {
     fi
 }
 
-run STA "$(mk STA uc_STA_opensta.tcl)" &
-run PV  "$(mk PV  uc_PV_magic.tcl)" &
-run LEC "$(mk LEC uc_LEC_yosys.tcl)" &
+if [ "$EXIT" = FP_EXIT ]; then
+    run PV "$(mk PV uc_PV_magic.tcl)" &
+else
+    run STA "$(mk STA uc_STA_opensta.tcl)" &
+    run PV  "$(mk PV  uc_PV_magic.tcl)" &
+    run LEC "$(mk LEC uc_LEC_yosys.tcl)" &
+fi
 wait
 say "$B signoff done"

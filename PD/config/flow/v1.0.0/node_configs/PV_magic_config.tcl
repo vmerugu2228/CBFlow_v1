@@ -61,10 +61,12 @@ set pv(mandatory_outputs,merge_data1)   {verification_summary.rpt}
 set pv(mandatory_outputs,release_data1) {release.manifest}
 
 # ┌─ Signoff verdict (release metrics.rpt Status; SmartGrid Signoff tab) ──────┐
-# PASS when DRC errors <= max_drc and the LVS result matches lvs_pass (regex).
+# PASS when DRC errors <= max_drc and the LVS result matches lvs_pass (regex);
+# lvs_required false (PV on a floorplan release) = DRC only, LVS reported.
 array set pv {
     signoff,max_drc     0
     signoff,lvs_pass    {^Circuits match uniquely}
+    signoff,lvs_required true
 }
 
 # ┌─ Release tag ───────────────────────────────────────────────────────────────┐

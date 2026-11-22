@@ -54,6 +54,9 @@ flow_proc publish {
     ::CBFlow::Release::copy_file "$_ex/final.def" {*}[release_handshake PNR def_file]
     ::CBFlow::Release::copy_file "$_ex/final.odb" db      ${design_name}.odb
     ::CBFlow::Release::copy_file "$_ex/final.v"   netlist ${design_name}.v
+    # PV at floorplan: GDS + power-aware LVS netlist under the PV handshake names
+    ::CBFlow::Release::copy_file "$_ex/final.gds"   {*}[release_handshake PV gds]
+    ::CBFlow::Release::copy_file "$_ex/final.lvs.v" {*}[release_handshake PV netlist]
     ::CBFlow::Release::copy_file "$_ex/final.sdc" sdc     ${design_name}.sdc
     if {[file exists "$_ex/final.upf"]} {
         ::CBFlow::Release::copy_file "$_ex/final.upf" upf ${design_name}.upf

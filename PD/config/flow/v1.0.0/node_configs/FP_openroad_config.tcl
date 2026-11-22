@@ -116,3 +116,11 @@ set fp(mandatory_outputs,floorplan1)    {floorplan.odb floorplan.def}
 set fp(mandatory_outputs,powerplan1)    {powerplan.odb powerplan.def}
 set fp(mandatory_outputs,export_data1)  {final.def final.odb final.v final.sdc}
 set fp(mandatory_outputs,release_data1) {release.manifest}
+
+# ┌─ Export for PV at floorplan ────────────────────────────────────────────────┐
+# export_data streams the floorplan DEF to GDS (oss_def2gds) and writes a
+# power-aware LVS netlist; the FP release carries both for PV (FP_EXIT).
+# min_area_layers: {layer datatype area_um2 ...} repair, {} = off (no routing).
+set fp(oss,export,klayout_batch)   {klayout -zz -r}
+set fp(oss,export,min_area_layers) {}
+

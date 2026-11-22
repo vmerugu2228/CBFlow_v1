@@ -39,6 +39,14 @@ flow_proc export {
     write_def     [oss_stage_out final.def]
     write_db      [oss_stage_out final.odb]
     write_verilog [oss_stage_out final.v]
+    # PV inputs at floorplan: power-aware LVS netlist (no physical-only cells)
+    # and the floorplan streamed to GDS
+    write_verilog -include_pwr_gnd -remove_cells [concat [oss_trk fillers] [oss_trk well_tap]] \
+        [oss_stage_out final.lvs.v]
+    # min_area_layers may be {} (repair off) — oss_get rejects empty values
+    if {![info exists ::fp(oss,export,min_area_layers)]} { error "fp(oss,export,min_area_layers) is not set" }
+    oss_def2gds [oss_stage_out final.def] [oss_stage_out final.gds] \
+        $::fp(oss,export,min_area_layers) [oss_get fp oss,export,klayout_batch]
     file copy -force [oss_sdc_file] [oss_stage_out final.sdc]
     # UPF: required when fp(mandatory_outputs,<this node>) lists final.upf.
     set _upf "$::UPF_DIR/${design_name}.upf"

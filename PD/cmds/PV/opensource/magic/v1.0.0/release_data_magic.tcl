@@ -40,8 +40,10 @@ flow_proc publish {
     set _drc ""; set _lvs ""
     regexp -line {^drc_errors\s+(\d+)} $_t -> _drc
     regexp -line {^result\s+(.+)$} $_t -> _lvs
-    set _ok [expr {$_drc ne "" && $_drc <= [oss_get pv signoff,max_drc]
-                   && [regexp -- [oss_get pv signoff,lvs_pass] $_lvs]}]
+    # pv(signoff,lvs_required) false (e.g. PV on a floorplan release — no
+    # signal routing yet): the verdict is DRC only; LVS is still reported.
+    set _lvs_ok [expr {![is_true [oss_get pv signoff,lvs_required]] || [regexp -- [oss_get pv signoff,lvs_pass] $_lvs]}]
+    set _ok [expr {$_drc ne "" && $_drc <= [oss_get pv signoff,max_drc] && $_lvs_ok}]
     set _L [list "# category: drc" "DRC errors : $_drc" "# category: lvs" "LVS result : $_lvs" \
                  "# category: signoff" "Status : [expr {$_ok ? "PASS" : "FAIL"}]"]
     set _fh [open "$_dir/metrics.rpt" w]; puts $_fh [join $_L \n]; close $_fh

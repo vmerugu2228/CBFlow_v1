@@ -676,6 +676,72 @@ proc oss_group_timing {views prefix} {
     return $_out
 }
 
+# DEF -> GDS with KLayout (inside the tool container): the design's DEF over
+# the tech + track LEFs, every macro filled from its GDS (std cells, child
+# blocks). min_area {layer datatype area_um2 ...}: grow undersized polygons
+# to the layer AREA rule ({} = off). Errors when a cell has no GDS geometry.
+proc oss_def2gds {def out min_area klayout_cmd} {
+    global blocks
+    set _design [oss_get flow design_name]
+    set _lefs [list [oss_ms "[oss_track],lef_tech"]]
+    foreach _l [oss_trk lef] { lappend _lefs $_l }
+    set _gds [list [oss_trk gds_stdcell]]
+    foreach _b $blocks {
+        set _v [hier_block_views $_b]
+        lappend _lefs [dict get $_v lef]
+        lappend _gds  [dict get $_v gds]
+    }
+    set _py "$::WORK_DIR/def2gds.py"
+    set _fh [open $_py w]
+    puts $_fh "import pya, sys, math"
+    puts $_fh "opts = pya.LoadLayoutOptions()"
+    puts $_fh "cfg = opts.lefdef_config"
+    puts $_fh "cfg.map_file = '[oss_get tech klayout,def_layer_map]'"
+    puts $_fh "cfg.lef_files = \[[join [lmap _l $_lefs {format "'%s'" $_l}] {, }]\]"
+    puts $_fh "cfg.macro_resolution_mode = 2"      ;# macros only from their GDS
+    puts $_fh "cfg.read_lef_with_def = False"
+    puts $_fh "ly = pya.Layout()"
+    puts $_fh "ly.read('$def', opts)"
+    foreach _g $_gds { puts $_fh "ly.read('$_g')" }
+    puts $_fh "top = ly.cell('$_design')"
+    puts $_fh "out = pya.Layout(); out.dbu = ly.dbu"
+    puts $_fh "out.create_cell('$_design').copy_tree(top)"
+    puts $_fh "empty = sorted(c.name for c in out.each_cell() if c.is_empty() and c.name != '$_design')"
+    puts $_fh "if empty:"
+    puts $_fh "    print('ERROR: cells without GDS geometry: ' + ' '.join(empty)); sys.exit(1)"
+    puts $_fh "fixes = \[\]"
+    if {[llength $min_area]} {
+        puts $_fh "dbu = out.dbu; grid = int(round([oss_get tech manufacturing_grid] / dbu))"
+    }
+    foreach {_gl _gd _amin} $min_area {
+        puts $_fh "li = out.layer($_gl, $_gd); amin = int(round($_amin / (dbu * dbu)))"
+        puts $_fh "for p in pya.Region(out.top_cell().begin_shapes_rec(li)).merged().each():"
+        puts $_fh "    if p.area() >= amin: continue"
+        puts $_fh "    b = p.bbox(); w, h = b.width(), b.height()"
+        puts $_fh "    if w >= h:"
+        puts $_fh "        need = int(math.ceil((amin / h - w) / 2.0 / grid)) * grid + grid"
+        puts $_fh "        nb = pya.Box(b.left - need, b.bottom, b.right + need, b.top)"
+        puts $_fh "    else:"
+        puts $_fh "        need = int(math.ceil((amin / w - h) / 2.0 / grid)) * grid + grid"
+        puts $_fh "        nb = pya.Box(b.left, b.bottom - need, b.right, b.top + need)"
+        puts $_fh "    out.top_cell().shapes(li).insert(nb)"
+        puts $_fh "    fixes.append('$_gl/$_gd %.4f um2 at (%.3f,%.3f) -> %.4f um2' % (p.area()*dbu*dbu, b.left*dbu, b.bottom*dbu, nb.area()*dbu*dbu))"
+    }
+    puts $_fh "open('$::REPORTS_DIR/export_min_area_fixes.rpt', 'w').write('min-area patches (GDS only, not in DEF): %d\\n' % len(fixes) + '\\n'.join(fixes) + '\\n')"
+    puts $_fh "out.write('$out')"
+    puts $_fh "print('GDS written: $out cells=%d' % out.cells())"
+    close $_fh
+    if {[is_true $::flow(test_mode)]} {
+        puts "  TEST_CMD: $klayout_cmd $_py"
+        return
+    }
+    set _log "$::REPORTS_DIR/export_klayout.log"
+    if {[catch {exec {*}$klayout_cmd $_py >& $_log} _err]} {
+        error "KLayout DEF->GDS failed (see $_log): $_err"
+    }
+    handle_info [exec tail -1 $_log]
+}
+
 proc oss_write_qor {tag} {
     set _f "$::REPORTS_DIR/${tag}_qor.tcl"
     set _fh [open $_f w]
