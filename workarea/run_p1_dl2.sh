@@ -47,7 +47,7 @@ run_flow() {    # run_flow <block> <FLOW> <uc>  — non-zero on failure
 publish() {   # one publish at a time (lock shared with the P0 build)
     local b=$1 rd=$2 lock="$WA/.publish.lock"
     while ! mkdir "$lock" 2>/dev/null; do sleep 2; done
-    (cd "$WA/$b" && $C run release --from-run "$rd" --publish 2>&1) \
+    (cd "$WA/$b" && $C run release --from-run "$rd" --publish ${PUBLISH_OVERRIDE:+--override} 2>&1) \
         | grep -E "Published:|Not published|ERROR" | sed "s|^|$b $rd: |" | tee -a "$LOG"
     rmdir "$lock"
 }
