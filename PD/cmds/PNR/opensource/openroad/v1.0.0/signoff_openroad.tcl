@@ -46,6 +46,29 @@ flow_proc timing {
     foreach _v [oss_node_views $::NODE_NAME] {
         oss_report "$::REPORTS_DIR/signoff_power_${_v}.rpt" report_power $_copt $_v
     }
+    oss_power_metrics [oss_node_views $::NODE_NAME]
+}
+
+# Append "# category: power" to this node's checklist metrics (published as
+# the release metrics.rpt): total/internal/switching/leakage per view in mW
+# from the report_power "Total" row, plus the worst view's total.
+proc oss_power_metrics {views} {
+    set _rpt "$::REPORTS_DIR/[file tail [oss_get pnr checklist,report]]"
+    if {![file exists $_rpt]} { error "checklist metrics not written: $_rpt" }
+    set L [list "# category: power"]
+    set _worst ""; set _worst_v ""
+    foreach _v $views {
+        set _fh [open "$::REPORTS_DIR/signoff_power_${_v}.rpt"]; set _t [read $_fh]; close $_fh
+        if {![regexp -line {^Total\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)} $_t -> _int _sw _lk _tot]} {
+            error "no Total row in signoff_power_${_v}.rpt"
+        }
+        foreach {_k _w} [list Total $_tot Internal $_int Switching $_sw Leakage $_lk] {
+            lappend L "$_k power mW $_v : [format %.4g [expr {$_w * 1e3}]]"
+        }
+        if {$_worst eq "" || $_tot > $_worst} { set _worst $_tot; set _worst_v $_v }
+    }
+    lappend L "Total power mW : [format %.4g [expr {$_worst * 1e3}]]" "Worst power view : $_worst_v"
+    set _fh [open $_rpt a]; puts $_fh [join $L \n]; close $_fh
 }
 
 flow_proc deliverables {
