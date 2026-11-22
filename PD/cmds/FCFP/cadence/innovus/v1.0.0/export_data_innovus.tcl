@@ -15,19 +15,19 @@ set utils_path "$FLOW_DIR/global/utils/utilities/$::env(UTILITIES_VERSION)/utils
 if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
 namespace import ::CBFlow::Utilities::print_header
 
-set config_file "$run_dir/work/FCFP/export_data/run/config.tcl"
-if {[file exists $config_file]} { source $config_file }
-global fcfp project tech flow
+set FLOW_TYPE "FCFP"
+set STAGE_NAME "export_data"
+set NODE_NAME [cbflow_node_name]
 
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source $_tc }
-}
+# Generated per-node config (project + tech + flow + node + user cascade).
+set config_file "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+if {![file exists $config_file]} { puts stderr "ERROR: node config not found: $config_file (run the $NODE_NAME setup subnode)"; exit 1 }
+source $config_file
+global fcfp project tech flow
 # Source user_config for overrides
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source "$run_dir/setup/user_config.tcl" }
 
-set WORK_DIR "$run_dir/work/FCFP/export_data"
+set WORK_DIR [cbflow_node_dir $NODE_NAME]
 set REPORTS_DIR "$WORK_DIR/reports"
 set OUTPUTS_DIR "$run_dir/outputs"
 file mkdir $REPORTS_DIR
@@ -48,12 +48,8 @@ flow_proc export_def {
 
     file mkdir "$run_dir/results/fcfp/def"
 
-    # Determine DEF filename
-    if {[info exists project(top_module)]} {
-        set def_name $project(top_module)
-    } else {
-        set def_name "fc_floorplan"
-    }
+    # DEF filename = project(top_module) (no fallback)
+    set def_name [cbflow_require project top_module]
 
     set def_file "$run_dir/results/fcfp/def/${def_name}.def"
 
@@ -85,12 +81,8 @@ flow_proc export_design {
 
     file mkdir "$run_dir/results/fcfp/db"
 
-    # Determine design name
-    if {[info exists project(top_module)]} {
-        set design_name $project(top_module)
-    } else {
-        set design_name "fc_floorplan"
-    }
+    # Design name = project(top_module) (no fallback)
+    set design_name [cbflow_require project top_module]
 
     # Save Innovus design database
     set db_path "$run_dir/results/fcfp/db/${design_name}.enc"
@@ -127,9 +119,10 @@ flow_proc export_reports {
 
     file mkdir "$run_dir/results/fcfp/reports"
 
-    # Copy all floorplan-related reports
-    foreach rpt_dir {"floorplan" "powerplan" "post_floorplan"} {
-        set src_dir "$run_dir/reports/fcfp/$rpt_dir"
+    # Copy all floorplan-related reports — from the producing nodes'
+    # work/FCFP/<node>/reports (node graph: FCFP node_types)
+    foreach {rpt_dir node_type} {floorplan fc_floorplan powerplan fc_powerplan post_floorplan fc_post_floorplan} {
+        set src_dir "[cbflow_node_dir [cbflow_dep_node $node_type]]/reports"
         set dest_dir "$run_dir/results/fcfp/reports/$rpt_dir"
         if {[file isdirectory $src_dir]} {
             file mkdir $dest_dir
@@ -202,7 +195,7 @@ flow_proc validate {
 
     # Run enhanced validation if available
     set validation_flow_dir [expr {[info exists FLOW_DIR] ? $FLOW_DIR : $::env(FLOW_DIR)}]
-    set enhanced_validation_script "$validation_flow_dir/utils/validation/v1.0.0/enhanced_validate_run.tcl"
+    set enhanced_validation_script "$validation_flow_dir/utils/validation/[cbflow_version VALIDATION_VERSION]/enhanced_validate_run.tcl"
     if {[file exists $enhanced_validation_script]} {
         if {[catch {exec tclsh $enhanced_validation_script FCFP export_data $run_dir $validation_flow_dir} result]} {
             handle_warning "Validation completed with warnings: $result"

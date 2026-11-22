@@ -8,7 +8,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PNR"
 set STAGE_NAME "cts_opt"
-set NODE_NAME "cts_opt1"
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -22,7 +22,17 @@ setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 flow_proc load_design {
     global run_dir flow
 
-    set _db [cbflow_resolve_head_block "$run_dir/work/$::FLOW_TYPE/cts1/outputs/cts.enc.dat" {cts place init_design}]
+    # Upstream checkpoint from the node graph (pnr(dependencies,*)): walk the
+    # chain most-recent first; the nearest stage that recorded a block wins,
+    # else the direct upstream node's <type>.enc.dat.
+    set _up [cbflow_upstream_node]
+    set _chain {}
+    for {set _n $_up} {$_n ne "" && $_n ni $_chain && [cbflow_node_type $_n] ne "inputs"} {set _n [lindex [cbflow_node_deps $_n] 0]} {
+        lappend _chain $_n
+    }
+    set _stages {}
+    foreach _n $_chain { lappend _stages [cbflow_node_type $_n] }
+    set _db [cbflow_resolve_head_block "[cbflow_node_dir $_up]/outputs/[cbflow_node_type $_up].enc.dat" $_stages]
     if {![file exists $_db]} {
         handle_warning "cts database not found: $_db"
         return
@@ -73,8 +83,8 @@ flow_proc optimize_clock_tree {
     apply_vt_dont_use
     # Advanced CTS optimization
     global pnr
-    set optimization_effort [expr {[info exists pnr(cts_opt,effort)] ? $pnr(cts_opt,effort) : "high"}]
-    set fix_hold_violations [expr {[info exists pnr(cts_opt,fix_hold)] ? $pnr(cts_opt,fix_hold) : true}]
+    set optimization_effort [cbflow_require pnr cts_opt,effort]
+    set fix_hold_violations [cbflow_require pnr cts_opt,fix_hold]
     
     handle_info "CTS optimization parameters:"
     handle_info "  Optimization effort: $optimization_effort"
@@ -94,7 +104,7 @@ flow_proc balance_clock_tree {
     
     # Clock tree balancing
     global pnr
-    set balance_effort [expr {[info exists pnr(cts_opt,balance_effort)] ? $pnr(cts_opt,balance_effort) : "medium"}]
+    set balance_effort [cbflow_require pnr cts_opt,balance_effort]
     
     handle_info "Clock tree balancing effort: $balance_effort"
     
@@ -109,7 +119,7 @@ flow_proc refine_clock_tree {
     
     # Clock tree refinement
     global pnr
-    set refine_iterations [expr {[info exists pnr(cts_opt,refine_iterations)] ? $pnr(cts_opt,refine_iterations) : 3}]
+    set refine_iterations [cbflow_require pnr cts_opt,refine_iterations]
     
     handle_info "Clock tree refinement iterations: $refine_iterations"
     
@@ -163,8 +173,8 @@ flow_proc cts_opt_complete {
     # Save checkpoint
     set _outputs "$::WORK_DIR/outputs"
     file mkdir $_outputs
-    saveDesign "$_outputs/cts_opt.enc"
-    cbflow_record_block_state $::STAGE_NAME "$_outputs/cts_opt.enc.dat" $::NODE_NAME
+    saveDesign "$_outputs/${::STAGE_NAME}.enc"
+    cbflow_record_block_state $::STAGE_NAME "$_outputs/${::STAGE_NAME}.enc.dat" $::NODE_NAME
 
     # Final CTS optimization verification
     catch { verifyConnectivity -report "$::REPORTS_DIR/verify_connectivity.rpt" }

@@ -13,7 +13,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "FP"
 set STAGE_NAME "floorplan"
-set NODE_NAME "floorplan1"
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -28,9 +28,11 @@ handle_info "Starting CBflow FP floorplan for Innovus"
 flow_proc load_design {
     global run_dir flow
 
-    set _db "$run_dir/work/FP/init_design1/outputs/init_design.enc.dat"
+    # Upstream init_design node from the node graph (FP_config dependencies).
+    set _src [cbflow_dep_node init_design]
+    set _db "[cbflow_node_dir $_src]/outputs/init_design.enc.dat"
     if {![file exists $_db]} {
-        handle_warning "init_design database not found: $_db"
+        handle_error "init_design database not found: $_db (node $_src)"
         return
     }
     handle_info "Restoring design: $_db"
@@ -131,7 +133,7 @@ flow_proc add_endcaps_welltaps {
 
     # Endcaps
     if {[info exists tech(${_trk},endcap)] && $tech(${_trk},endcap) ne ""} {
-        set _ecprefix [expr {[info exists fp(endcap,prefix)] && $fp(endcap,prefix) ne "" ? $fp(endcap,prefix) : "ENDCAP"}]
+        set _ecprefix [cbflow_require fp endcap,prefix]
         handle_info "  Endcap: $tech(${_trk},endcap) prefix=$_ecprefix"
         setEndCap -prefix $_ecprefix -cell $tech(${_trk},endcap)
         addEndCap
@@ -145,7 +147,7 @@ flow_proc add_endcaps_welltaps {
             handle_error "fp(welltap,interval) not set — required for well tap insertion"
             return
         }
-        set _wtprefix [expr {[info exists fp(welltap,prefix)] && $fp(welltap,prefix) ne "" ? $fp(welltap,prefix) : "WELLTAP"}]
+        set _wtprefix [cbflow_require fp welltap,prefix]
         handle_info "  Well tap: $tech(${_trk},well_tap) every $fp(welltap,interval)um prefix=$_wtprefix"
         addWellTap -cell $tech(${_trk},well_tap) -cellInterval $fp(welltap,interval) -prefix $_wtprefix
     } else {

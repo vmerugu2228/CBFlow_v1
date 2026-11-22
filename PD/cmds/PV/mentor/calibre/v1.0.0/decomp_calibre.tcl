@@ -11,24 +11,29 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PV"
 set STAGE_NAME "decomp"
-set NODE_NAME "${STAGE_NAME}1"
+set NODE_NAME [cbflow_node_name]
 
 source "$::env(CBFLOW_RUN_DIR)/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$::env(CBFLOW_RUN_DIR)/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $::env(CBFLOW_RUN_DIR) $FLOW_TYPE $NODE_NAME
 
-set DESIGN_NAME [expr {[info exists pv(common,design_name)] ? $pv(common,design_name) :
-                       [expr {[info exists flow(design_name)] ? $flow(design_name) : "design"}]}]
+if {[info exists pv(common,design_name)] && $pv(common,design_name) ne ""} {
+    set DESIGN_NAME $pv(common,design_name)
+} elseif {[info exists flow(design_name)] && $flow(design_name) ne ""} {
+    set DESIGN_NAME $flow(design_name)
+} else {
+    handle_error "Design name not set — set pv(common,design_name) or flow(design_name) in user_config"
+}
 set ::DESIGN_NAME $DESIGN_NAME
 
 flow_proc configure_decomp {
     global pv tech project
     handle_info "Configuring mask decomposition (Calibre -mp)..."
 
-    # Input from producer stage fill_merge_gds1 (per-stage $WORK_DIR/results).
-    set ::decomp_input "$::env(CBFLOW_RUN_DIR)/work/PV/fill_merge_gds1/results/${::DESIGN_NAME}_fill_verified.gds"
-    if {![file exists $::decomp_input] && [info exists pv(input,gds)]} {
-        set ::decomp_input $pv(input,gds)
+    # Input from the upstream fill_merge_gds node (per-stage $WORK_DIR/results).
+    set ::decomp_input "[cbflow_node_dir [cbflow_dep_node fill_merge_gds]]/results/${::DESIGN_NAME}_fill_verified.gds"
+    if {![file exists $::decomp_input]} {
+        handle_error "decomp input GDS missing: $::decomp_input — the upstream fill_merge_gds node must run first"
     }
 
     # Multi-patterning SVRF runset — declares MP_LAYERS, MP_COLORS,
@@ -42,7 +47,7 @@ flow_proc configure_decomp {
         set ::decomp_runset ""
     }
 
-    set ::decomp_colors [expr {[info exists pv(decomp,colors)] ? $pv(decomp,colors) : 2}]
+    set ::decomp_colors [cbflow_require pv decomp,colors]
 
     if {[info exists pv(common,top_cell)]} {
         set ::decomp_top $pv(common,top_cell)
@@ -65,6 +70,7 @@ flow_proc configure_decomp {
 }
 
 flow_proc run_decomp {
+    global pv
     set ::decomp_status "PASS"
     handle_info "Running mask decomposition with Calibre..."
     set run_dir $::env(CBFLOW_RUN_DIR)
@@ -75,7 +81,7 @@ flow_proc run_decomp {
     if {$::decomp_runset ne "" && [file exists $::decomp_runset]} {
         # Calibre nmDRC-H Multi-Patterning invocation (2024.x):
         #   calibre -mp -hier -64 -turbo N -mp_colors <n> <runset>
-        set num_cpus [expr {[info exists pv(decomp,num_cpus)] ? $pv(decomp,num_cpus) : 8}]
+        set num_cpus [cbflow_require pv decomp,num_cpus]
         set calibre_cmd [list calibre -mp -hier -64 -turbo $num_cpus \
                               -mp_colors $::decomp_colors $::decomp_runset]
         handle_info "  CMD: $calibre_cmd"

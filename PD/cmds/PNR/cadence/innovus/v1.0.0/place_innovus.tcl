@@ -8,7 +8,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PNR"
 set STAGE_NAME "place"
-set NODE_NAME "place1"
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -22,7 +22,17 @@ setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 flow_proc load_design {
     global run_dir flow
 
-    set _db [cbflow_resolve_head_block "$run_dir/work/$::FLOW_TYPE/init_design1/outputs/init_design.enc.dat" {init_design}]
+    # Upstream checkpoint from the node graph (pnr(dependencies,*)): walk the
+    # chain most-recent first; the nearest stage that recorded a block wins,
+    # else the direct upstream node's <type>.enc.dat.
+    set _up [cbflow_upstream_node]
+    set _chain {}
+    for {set _n $_up} {$_n ne "" && $_n ni $_chain && [cbflow_node_type $_n] ne "inputs"} {set _n [lindex [cbflow_node_deps $_n] 0]} {
+        lappend _chain $_n
+    }
+    set _stages {}
+    foreach _n $_chain { lappend _stages [cbflow_node_type $_n] }
+    set _db [cbflow_resolve_head_block "[cbflow_node_dir $_up]/outputs/[cbflow_node_type $_up].enc.dat" $_stages]
     if {![file exists $_db]} {
         handle_warning "init_design database not found: $_db"
         return
@@ -84,8 +94,8 @@ flow_proc setup_placement {
     global pnr
     set place_effort  $pnr(place,effort)
     set place_density $pnr(place,density)
-    set place_congestion_effort [expr {[info exists pnr(place,congestion_effort)] ? $pnr(place,congestion_effort) : "auto"}]
-    set place_timing_driven     [expr {[info exists pnr(place,timing_driven)]     ? $pnr(place,timing_driven)     : "true"}]
+    set place_congestion_effort [cbflow_require pnr place,congestion_effort]
+    set place_timing_driven     [cbflow_require pnr place,timing_driven]
 
     handle_info "Placement parameters:"
     handle_info "  Effort: $place_effort"
@@ -144,7 +154,7 @@ flow_proc analyze_placement {
 
     # Timing, area, congestion, and density reports
     catch { timeDesign -preCTS -outDir "$::REPORTS_DIR" -prefix preCTS }
-    catch { report_timing -max_paths 50 > "$::REPORTS_DIR/report_timing.preCTS.rpt" }
+    catch { report_timing -max_paths [cbflow_require pnr report,max_paths,$::STAGE_NAME] > "$::REPORTS_DIR/report_timing.preCTS.rpt" }
     catch { report_area > "$::REPORTS_DIR/report_area.rpt" }
     catch { reportCongestion -overflow > "$::REPORTS_DIR/report_congestion.rpt" }
     catch { reportDensityMap > "$::REPORTS_DIR/report_cell_density.rpt" }
@@ -173,14 +183,14 @@ flow_proc validate_pnr_placement_results {
     }
 
     # Enhanced validation script path
-    set enhanced_validation_script "$validation_flow_dir/utils/validation/v1.0.0/enhanced_validate_run.tcl"
+    set enhanced_validation_script "$validation_flow_dir/utils/validation/[cbflow_version VALIDATION_VERSION]/enhanced_validate_run.tcl"
 
     if {![file exists $enhanced_validation_script]} {
         handle_warning "Enhanced validation script not found: $enhanced_validation_script"
         handle_info "Falling back to basic validation if available..."
 
         # Try basic validation
-        set basic_validation_script "$validation_flow_dir/utils/validation/v1.0.0/validate_run.tcl"
+        set basic_validation_script "$validation_flow_dir/utils/validation/[cbflow_version VALIDATION_VERSION]/validate_run.tcl"
         if {[file exists $basic_validation_script]} {
             handle_info "Running basic validation for PNR placement..."
             if {[catch {exec tclsh $basic_validation_script PNR placement $current_dir $validation_flow_dir} validation_result]} {
@@ -227,8 +237,8 @@ flow_proc placement_complete {
     # Save checkpoint
     set _outputs "$::WORK_DIR/outputs"
     file mkdir $_outputs
-    saveDesign "$_outputs/placement.enc"
-    cbflow_record_block_state $::STAGE_NAME "$_outputs/placement.enc.dat" $::NODE_NAME
+    saveDesign "$_outputs/${::STAGE_NAME}.enc"
+    cbflow_record_block_state $::STAGE_NAME "$_outputs/${::STAGE_NAME}.enc.dat" $::NODE_NAME
 
     # Final placement verification
     catch { verifyConnectivity -report "$::REPORTS_DIR/verify_connectivity.rpt" }

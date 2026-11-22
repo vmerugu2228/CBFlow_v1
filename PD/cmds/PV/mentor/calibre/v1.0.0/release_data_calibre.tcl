@@ -8,7 +8,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PV"
 set STAGE_NAME "release_data"
-set NODE_NAME "${STAGE_NAME}1"
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -16,23 +16,25 @@ setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 
 
-# Source release utilities for ::CBFlow::Release namespace
+# Source release utilities for ::CBFlow::Release namespace (mandatory — the
+# release layout is defined only there).
 set _ru "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
-if {[file exists $_ru]} { source $_ru }
+if {![file exists $_ru]} { handle_error "release_utils.tcl not found: $_ru" }
+source $_ru
 # ==============================================================================
 flow_proc init_release {
     handle_info "Initializing release..."
-    global phyv project flow
+    global pv project flow
 
     set run_dir $::env(CBFLOW_RUN_DIR)
 
     # ── Validate mandatory variables ─────────────────────────────────────────
+    # (project(release,tag) is resolved by ::CBFlow::Release::init — it
+    # defaults to the flow's exit name when unset.)
     set missing_vars {}
-    if {![info exists phyv(design_name)] && ![info exists flow(design_name)]} {
-        lappend missing_vars "design_name (phyv(design_name) or flow(design_name))"
-    }
-    if {![info exists project(release,tag)] || $project(release,tag) eq ""} {
-        lappend missing_vars "project(release,tag) in the project config"
+    if {!([info exists pv(common,design_name)] && $pv(common,design_name) ne "") &&
+        !([info exists flow(design_name)] && $flow(design_name) ne "")} {
+        lappend missing_vars "design_name (pv(common,design_name) or flow(design_name))"
     }
     if {![info exists ::env(FLOW_DIR)] || $::env(FLOW_DIR) eq ""} {
         lappend missing_vars "FLOW_DIR"
@@ -42,28 +44,19 @@ flow_proc init_release {
     }
 
     if {[llength $missing_vars] > 0} {
-        handle_warning "Missing mandatory variables for release:"
-        foreach v $missing_vars { handle_warning "  - $v" }
-        handle_warning "Release may be incomplete"
+        handle_error "Missing mandatory variables for release: [join $missing_vars {, }]"
     }
 
-    set design_name [expr {[info exists phyv(design_name)] ? $phyv(design_name) : [expr {[info exists flow(design_name)] ? $flow(design_name) : "pv"}]}]
+    set design_name [expr {[info exists pv(common,design_name)] && $pv(common,design_name) ne "" ? $pv(common,design_name) : $flow(design_name)}]
 
     # ── Determine release phase ──────────────────────────────────────────────
     set release_phase ""   ;# from project(release,phase) below — no built-in phase
     if {[info exists project(release_phase)]} { set release_phase $project(release_phase) }
-    if {[info exists phyv(release_phase)]} { set release_phase $phyv(release_phase) }
+    if {[info exists pv(release_phase)]} { set release_phase $pv(release_phase) }
     if {[info exists project(release,phase)] && $project(release,phase) ne ""} { set release_phase $project(release,phase) }
 
     # ── Initialize release using utilities ───────────────────────────────────
-    if {[namespace exists ::CBFlow::Release]} {
-        ::CBFlow::Release::init "PV" $design_name $run_dir $release_phase
-    } else {
-        set ::release_dir "$run_dir/release/PV"
-        foreach subdir {reports data drc lvs erc perc} {
-            file mkdir "$::release_dir/$subdir"
-        }
-    }
+    ::CBFlow::Release::init "PV" $design_name $run_dir $release_phase
 
     handle_info "Release phase: $release_phase"
     set _release_tag [expr {[info exists project(release,tag)] ? $project(release,tag) : "(unset)"}]
@@ -73,27 +66,25 @@ flow_proc init_release {
 flow_proc prepare_release {
     handle_info "Preparing release directory..."
     set run_dir $::env(CBFLOW_RUN_DIR)
-    set release_dir "$run_dir/results/release"
-    foreach dir {"reports" "drc" "lvs" "erc" "perc" "perc_ldl"} { file mkdir "$release_dir/$dir" }
+    set release_dir $::CBFlow::Release::release_dir
+    foreach dir {"reports" "drc" "lvs" "perc" "perc_ldl"} { file mkdir "$release_dir/$dir" }
 
-    # Check BOTH candidate locations: $run_dir/work/PV/<node>1/results/
-    # (real output location) first, then $run_dir/results/ fallback
-    # for the mirror-copies the handlers also write.
-    foreach {node file dest} {
-        drc1      drc.rpt       drc/drc.rpt
-        drc1      drc_results.rpt drc/drc_results.rpt
-        lvs1      lvs.rpt       lvs/lvs.rpt
-        lvs1      lvs_results.rpt lvs/lvs_results.rpt
-        erc1      erc.rpt       erc/erc.rpt
-        erc1      erc_results.rpt erc/erc_results.rpt
-        perc1     perc.rpt      perc/perc.rpt
-        perc1     perc_results.rpt perc/perc_results.rpt
-        perc_ldl1 perc_ldl.rpt  perc_ldl/perc_ldl.rpt
+    # Check BOTH candidate locations: work/PV/<node>/results/<type>/
+    # (real output location) first, then $run_dir/results/<type>/ for the
+    # mirror-copies the handlers also write. Nodes are resolved from the DAG
+    # (upstream node of each stage type; erc was removed from the PV DAG).
+    foreach {_type file dest} {
+        drc       drc.rpt          drc/drc.rpt
+        drc       drc_results.rpt  drc/drc_results.rpt
+        lvs       lvs.rpt          lvs/lvs.rpt
+        lvs       lvs_results.rpt  lvs/lvs_results.rpt
+        perc      perc.rpt         perc/perc.rpt
+        perc      perc_results.rpt perc/perc_results.rpt
+        perc_ldl  perc_ldl.rpt     perc_ldl/perc_ldl.rpt
     } {
-        # drc1 → work/PV/drc1/results/drc/drc.rpt
-        regsub {\d+$} $node "" _bare
-        set work_src "$run_dir/work/PV/$node/results/$_bare/$file"
-        set run_src  "$run_dir/results/$_bare/$file"
+        set node [cbflow_dep_node $_type]
+        set work_src "[cbflow_node_dir $node]/results/$_type/$file"
+        set run_src  "$run_dir/results/$_type/$file"
         set found ""
         if {[file exists $work_src]} { set found $work_src
         } elseif {[file exists $run_src]} { set found $run_src }
@@ -107,7 +98,7 @@ flow_proc prepare_release {
             puts "  Skipped (not produced): $dest"
         }
     }
-    # Verification summary — produced by merge_data1 at
+    # Verification summary — produced by the merge_data node at
     # results/verification/verification_summary.rpt (new) and
     # results/phyv/phyv_summary.rpt (legacy).
     foreach {src dest} {
@@ -132,13 +123,9 @@ flow_proc prepare_release {
 flow_proc validate_release {
     handle_info "Validating release completeness..."
 
-    if {[namespace exists ::CBFlow::Release]} {
-        set valid [::CBFlow::Release::validate_mandatory_files]
-        if {!$valid} {
-            handle_warning "Some mandatory files are missing — check release phase requirements"
-        }
-    } else {
-        handle_info "Release utilities not loaded — skipping validation"
+    set valid [::CBFlow::Release::validate_mandatory_files]
+    if {!$valid} {
+        handle_warning "Some mandatory files are missing — check release phase requirements"
     }
 
     handle_info "Release validation completed"
@@ -150,40 +137,15 @@ flow_proc validate_release {
 # ==============================================================================
 flow_proc generate_release_output {
     handle_info "Generating release output..."
-    global phyv project tech
+    global project
 
     set notes ""
     if {[info exists project(release_notes)]} { set notes $project(release_notes) }
 
-    if {[namespace exists ::CBFlow::Release]} {
-        ::CBFlow::Release::generate_manifest
-        ::CBFlow::Release::generate_release_notes $notes
-        ::CBFlow::Release::stamp_complete
-        ::CBFlow::Release::summary
-    } else {
-        # Legacy manifest
-        set run_dir $::env(CBFLOW_RUN_DIR)
-        set release_dir "$run_dir/results/release"
-        set manifest "$release_dir/MANIFEST.txt"
-        set fp [open $manifest w]
-        puts $fp "==============================================================================="
-        puts $fp "CBFlow PV - Release Manifest"
-        puts $fp "==============================================================================="
-        puts $fp "Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
-        puts $fp "Flow: PV (Physical Verification)"
-        puts $fp "Tool: Mentor Calibre"
-        if {[info exists project(top_module)]} { puts $fp "Design: $project(top_module)" }
-        if {[info exists tech(node)]} { puts $fp "Technology: $tech(node)" }
-        puts $fp "\nRelease Contents:"
-        foreach f [glob -nocomplain "$release_dir/*/*" "$release_dir/*"] {
-            if {[file isfile $f]} {
-                set rel [string range $f [expr {[string length $release_dir] + 1}] end]
-                puts $fp "  $rel ([file size $f] bytes)"
-            }
-        }
-        close $fp
-        puts " Manifest: $manifest"
-    }
+    ::CBFlow::Release::generate_manifest
+    ::CBFlow::Release::generate_release_notes $notes
+    ::CBFlow::Release::stamp_complete
+    ::CBFlow::Release::summary
 
     handle_info "Release output generated"
 }

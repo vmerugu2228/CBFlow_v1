@@ -8,11 +8,21 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "CLP"
 set STAGE_NAME "clp"
-set NODE_NAME "clp1"
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
+
+# Staged-input directory of <itype>: work/CLP/<node>/<itype>, where <node> is
+# the input node declared by clp(subnode_input_types,<node>,<itype>).
+proc _clp_input_dir {itype} {
+    set _keys [array names ::clp "subnode_input_types,*,$itype"]
+    if {[llength $_keys] != 1} {
+        handle_error "clp(subnode_input_types,<node>,$itype) must be declared exactly once in CLP_config.tcl (found: $_keys)"
+    }
+    return "$::env(CBFLOW_RUN_DIR)/work/$::FLOW_TYPE/[lindex [split [lindex $_keys 0] ,] 1]/$itype"
+}
 
 # ┌─────────────────────────────────────────────────────────────────────────────┐
 # │                       SETUP LIBRARIES                                      │
@@ -53,7 +63,7 @@ flow_proc read_design {
     handle_info "Reading design for low power verification..."
 
     set run_dir $::env(CBFLOW_RUN_DIR)
-    set netlist_dir "$run_dir/work/CLP/inputs/netlist"
+    set netlist_dir [_clp_input_dir netlist]
     set netlist_files [glob -nocomplain "$netlist_dir/*.v" "$netlist_dir/*.sv" "$netlist_dir/*.vg"]
 
     if {[llength $netlist_files] > 0} {
@@ -84,7 +94,7 @@ flow_proc read_power_intent {
     handle_info "Reading power intent (UPF/CPF)..."
 
     set run_dir $::env(CBFLOW_RUN_DIR)
-    set upf_dir "$run_dir/work/CLP/inputs/upf"
+    set upf_dir [_clp_input_dir upf]
 
     # Read UPF files
     set upf_files [glob -nocomplain "$upf_dir/*.upf"]
@@ -122,7 +132,7 @@ flow_proc read_power_specification {
     handle_info "Reading power specification..."
 
     set run_dir $::env(CBFLOW_RUN_DIR)
-    set power_dir "$run_dir/work/CLP/inputs/power_spec"
+    set power_dir [_clp_input_dir power_spec]
     set power_files [glob -nocomplain "$power_dir/*"]
 
     if {[llength $power_files] > 0} {
@@ -247,7 +257,7 @@ flow_proc validate_clp_results {
     }
 
     # Check mandatory outputs
-    set power_rpt "$current_dir/results/clp/power_verification.rpt"
+    set power_rpt "$::OUTPUTS_DIR/power_verification.rpt"
     if {[file exists $power_rpt]} {
         handle_info "Power verification report verified: $power_rpt"
     } else {
@@ -255,7 +265,7 @@ flow_proc validate_clp_results {
     }
 
     # Try enhanced validation
-    set enhanced_validation_script "$validation_flow_dir/utils/validation/v1.0.0/enhanced_validate_run.tcl"
+    set enhanced_validation_script "$validation_flow_dir/utils/validation/[cbflow_version VALIDATION_VERSION]/enhanced_validate_run.tcl"
     if {[file exists $enhanced_validation_script]} {
         if {[catch {exec tclsh $enhanced_validation_script CLP clp $current_dir $validation_flow_dir} validation_result]} {
             handle_warning "Validation completed with warnings: $validation_result"
@@ -287,7 +297,7 @@ flow_proc clp_flow {
     handle_info "═══════════════════════════════════════════════════════════════════════════════"
     handle_info " CLP Verification Complete!"
     handle_info "═══════════════════════════════════════════════════════════════════════════════"
-    puts "Power verification report: results/clp/power_verification.rpt"
+    puts "Power verification report: $::OUTPUTS_DIR/power_verification.rpt"
     puts "Check reports in: reports/clp/"
     handle_info "CLP verification completed successfully"
 }

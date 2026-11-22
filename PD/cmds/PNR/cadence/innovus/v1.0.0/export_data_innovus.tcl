@@ -8,7 +8,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PNR"
 set STAGE_NAME "export_data"
-set NODE_NAME "export_data1"
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -22,7 +22,17 @@ setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 flow_proc load_design {
     global run_dir flow
 
-    set _db [cbflow_resolve_head_block "$run_dir/work/$::FLOW_TYPE/signoff1/outputs/signoff.enc.dat" {signoff pro route cts_opt cts place init_design}]
+    # Upstream checkpoint from the node graph (pnr(dependencies,*)): walk the
+    # chain most-recent first; the nearest stage that recorded a block wins,
+    # else the direct upstream node's <type>.enc.dat.
+    set _up [cbflow_upstream_node]
+    set _chain {}
+    for {set _n $_up} {$_n ne "" && $_n ni $_chain && [cbflow_node_type $_n] ne "inputs"} {set _n [lindex [cbflow_node_deps $_n] 0]} {
+        lappend _chain $_n
+    }
+    set _stages {}
+    foreach _n $_chain { lappend _stages [cbflow_node_type $_n] }
+    set _db [cbflow_resolve_head_block "[cbflow_node_dir $_up]/outputs/[cbflow_node_type $_up].enc.dat" $_stages]
     if {![file exists $_db]} {
         handle_warning "signoff database not found: $_db"
         return
@@ -128,10 +138,10 @@ flow_proc export_layout_data {
     set export_base "results/export"
 
     # Get export parameters
-    set gds_enable [expr {[info exists pnr(export,gds)] ? $pnr(export,gds) : "true"}]
-    set def_enable [expr {[info exists pnr(export,def)] ? $pnr(export,def) : "true"}]
-    set oasis_enable [expr {[info exists pnr(export,oasis)] ? $pnr(export,oasis) : "false"}]
-    set abstract_enable [expr {[info exists pnr(export,abstract)] ? $pnr(export,abstract) : "true"}]
+    set gds_enable [cbflow_require pnr export,gds]
+    set def_enable [cbflow_require pnr export,def]
+    set oasis_enable [cbflow_require pnr export,oasis]
+    set abstract_enable [cbflow_require pnr export,abstract]
     
     handle_info "Layout export parameters:"
     handle_info "  GDS export: $gds_enable"
@@ -208,9 +218,9 @@ flow_proc export_netlist_data {
     set export_base "results/export"
     
     # Get netlist export parameters
-    set verilog_enable [expr {[info exists pnr(export,verilog)] ? $pnr(export,verilog) : "true"}]
-    set spice_enable [expr {[info exists pnr(export,spice)] ? $pnr(export,spice) : "false"}]
-    set lef_enable [expr {[info exists pnr(export,lef)] ? $pnr(export,lef) : "true"}]
+    set verilog_enable [cbflow_require pnr export,verilog]
+    set spice_enable [cbflow_require pnr export,spice]
+    set lef_enable [cbflow_require pnr export,lef]
     
     handle_info "Netlist export parameters:"
     handle_info "  Verilog export: $verilog_enable"
@@ -284,9 +294,9 @@ flow_proc export_timing_data {
     set export_base "results/export"
     
     # Get timing export parameters
-    set sdc_enable [expr {[info exists pnr(export,sdc)] ? $pnr(export,sdc) : "true"}]
-    set spef_enable [expr {[info exists pnr(export,spef)] ? $pnr(export,spef) : "true"}]
-    set sdf_enable [expr {[info exists pnr(export,sdf)] ? $pnr(export,sdf) : "false"}]
+    set sdc_enable [cbflow_require pnr export,sdc]
+    set spef_enable [cbflow_require pnr export,spef]
+    set sdf_enable [cbflow_require pnr export,sdf]
     set mmmc_enable [expr {[info exists mmmc(enable)] ? $mmmc(enable) : "false"}]
     
     handle_info "Timing export parameters:"
@@ -382,9 +392,9 @@ flow_proc export_power_data {
     set export_base "results/export"
     
     # Get power export parameters
-    set upf_enable [expr {[info exists pnr(export,upf)] ? $pnr(export,upf) : "true"}]
-    set power_reports [expr {[info exists pnr(export,power_reports)] ? $pnr(export,power_reports) : "true"}]
-    set rail_analysis [expr {[info exists pnr(export,rail_analysis)] ? $pnr(export,rail_analysis) : "true"}]
+    set upf_enable [cbflow_require pnr export,upf]
+    set power_reports [cbflow_require pnr export,power_reports]
+    set rail_analysis [cbflow_require pnr export,rail_analysis]
     
     handle_info "Power export parameters:"
     handle_info "  UPF export: $upf_enable"
@@ -450,9 +460,9 @@ flow_proc export_physical_data {
     set export_base "results/export"
     
     # Get physical export parameters
-    set floorplan_enable [expr {[info exists pnr(export,floorplan)] ? $pnr(export,floorplan) : "true"}]
-    set placement_enable [expr {[info exists pnr(export,placement)] ? $pnr(export,placement) : "true"}]
-    set routing_enable [expr {[info exists pnr(export,routing)] ? $pnr(export,routing) : "true"}]
+    set floorplan_enable [cbflow_require pnr export,floorplan]
+    set placement_enable [cbflow_require pnr export,placement]
+    set routing_enable [cbflow_require pnr export,routing]
     
     handle_info "Physical export parameters:"
     handle_info "  Floorplan data: $floorplan_enable"
@@ -491,8 +501,8 @@ flow_proc export_physical_data {
         set place_tcl "$export_base/physical/placement/placement_constraints.tcl"
         write_placement_constraints $place_tcl
         
-        # Copy placement reports from place1 node
-        set _place_reports "$run_dir/work/PNR/place1/reports"
+        # Copy placement reports from the upstream place node
+        set _place_reports "[cbflow_node_dir [cbflow_dep_node place]]/reports"
         if {[file exists $_place_reports]} {
             catch { file copy $_place_reports "$export_base/physical/placement/reports" }
         }
@@ -512,8 +522,8 @@ flow_proc export_physical_data {
         set route_guides "$export_base/physical/routing/routing_guides.guide"
         write_route_guides $route_guides
         
-        # Copy routing reports from route1 node
-        set _route_reports "$run_dir/work/PNR/route1/reports"
+        # Copy routing reports from the upstream route node
+        set _route_reports "[cbflow_node_dir [cbflow_dep_node route]]/reports"
         if {[file exists $_route_reports]} {
             catch { file copy $_route_reports "$export_base/physical/routing/reports" }
         }
@@ -530,9 +540,9 @@ flow_proc export_verification_data {
     set export_base "results/export"
     
     # Get verification export parameters
-    set drc_enable [expr {[info exists pnr(export,drc)] ? $pnr(export,drc) : "true"}]
-    set lvs_enable [expr {[info exists pnr(export,lvs)] ? $pnr(export,lvs) : "true"}]
-    set antenna_enable [expr {[info exists pnr(export,antenna)] ? $pnr(export,antenna) : "true"}]
+    set drc_enable [cbflow_require pnr export,drc]
+    set lvs_enable [cbflow_require pnr export,lvs]
+    set antenna_enable [cbflow_require pnr export,antenna]
     
     handle_info "Verification export parameters:"
     handle_info "  DRC data: $drc_enable"
@@ -543,8 +553,8 @@ flow_proc export_verification_data {
     if {$drc_enable eq "true"} {
         handle_info "Exporting DRC verification data..."
         
-        # Copy DRC reports from signoff1 node
-        set _signoff_reports "$run_dir/work/PNR/signoff1/reports"
+        # Copy DRC reports from the upstream signoff node
+        set _signoff_reports "[cbflow_node_dir [cbflow_dep_node signoff]]/reports"
         if {[file exists $_signoff_reports]} {
             catch { file copy $_signoff_reports "$export_base/verification/drc/reports" }
         }
@@ -646,7 +656,7 @@ flow_proc generate_export_scripts {
     puts $fd ""
     puts $fd "# Timing analysis"
     puts $fd "update_timing"
-    puts $fd "report_timing -max_paths 10"
+    puts $fd "report_timing -max_paths [cbflow_require pnr report,max_paths,$::STAGE_NAME]"
     puts $fd ""
     puts $fd "# Power analysis"
     puts $fd "report_power"
@@ -926,7 +936,7 @@ flow_proc export_lef_abstract {
         handle_info "LEF abstract export disabled (pnr(export,lef_abstract) != true) — skipping"
         return
     }
-    set top_module [expr {[info exists project(top_module)] ? $project(top_module) : "design"}]
+    set top_module [cbflow_require project top_module]
     set _lef "$::OUTPUTS_DIR/${top_module}.abstract.lef"
     handle_info "write_lef_abstract $_lef"
     catch { write_lef_abstract $_lef } _err
@@ -942,8 +952,8 @@ flow_proc export_data_complete {
     # Save checkpoint
     set _outputs "$::WORK_DIR/outputs"
     file mkdir $_outputs
-    saveDesign "$_outputs/export_data.enc"
-    cbflow_record_block_state $::STAGE_NAME "$_outputs/export_data.enc.dat" $::NODE_NAME
+    saveDesign "$_outputs/${::STAGE_NAME}.enc"
+    cbflow_record_block_state $::STAGE_NAME "$_outputs/${::STAGE_NAME}.enc.dat" $::NODE_NAME
 
     # Generate final export summary
     file mkdir "$::REPORTS_DIR"
@@ -964,11 +974,11 @@ flow_proc export_data_complete {
     
     # Report what was exported
     puts $fd "=== EXPORTED DATA ==="
-    set gds_enable [expr {[info exists pnr(export,gds)] ? $pnr(export,gds) : "true"}]
-    set def_enable [expr {[info exists pnr(export,def)] ? $pnr(export,def) : "true"}]
-    set verilog_enable [expr {[info exists pnr(export,verilog)] ? $pnr(export,verilog) : "true"}]
-    set sdc_enable [expr {[info exists pnr(export,sdc)] ? $pnr(export,sdc) : "true"}]
-    set spef_enable [expr {[info exists pnr(export,spef)] ? $pnr(export,spef) : "true"}]
+    set gds_enable [cbflow_require pnr export,gds]
+    set def_enable [cbflow_require pnr export,def]
+    set verilog_enable [cbflow_require pnr export,verilog]
+    set sdc_enable [cbflow_require pnr export,sdc]
+    set spef_enable [cbflow_require pnr export,spef]
     
     puts $fd "Layout Data:"
     puts $fd "  GDS: $gds_enable"

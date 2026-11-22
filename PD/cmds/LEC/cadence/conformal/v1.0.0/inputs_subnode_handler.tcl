@@ -12,7 +12,7 @@ handler_load_configs $run_dir "LEC"
 
 set ::flow_type "LEC"
 set stage_name "inputs"
-if {$node_name eq ""} { set node_name $stage_name }
+if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
 set test_mode [handler_is_test_mode]
 

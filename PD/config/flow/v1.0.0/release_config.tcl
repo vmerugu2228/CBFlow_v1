@@ -1485,4 +1485,71 @@ proc get_input_handshake {flow input_type} {
     set release_deliverables(PV,reports) {drc_summary.rpt lvs_summary.rpt perc_results.rpt perc_ldl_summary.rpt}
     set release_deliverables(EMIR,reports) {power_summary.rpt ir_drop_summary.rpt}
 
+# ── Cadence STA / LEC report contracts (fork C) ──────────────────────────────
+# Report file names the Tempus / Conformal release_data stages copy into the
+# release. Previously literal lists inside release_data_tempus.tcl and
+# release_data_conformal.tcl; values below are those literals unchanged.
+#   STA,summaries          — cross-scenario summaries in reports/sta/
+#   STA,scenario_reports   — per-scenario report patterns (%s = scenario)
+#   LEC,compare_reports    — compare-node reports copied to the release
+#   LEC,status_markers     — PASS/FAIL marker files from the compare node
+#   LEC,mandatory          — files that must be present for a valid release
+    set release_deliverables(STA,summaries)        {mmmc_setup_summary.rpt mmmc_hold_summary.rpt mmmc_timing_summary.rpt}
+    set release_deliverables(STA,scenario_reports) {setup_timing_%s.rpt hold_timing_%s.rpt}
+    set release_deliverables(LEC,compare_reports)  {comparison_summary.rpt equivalence_analysis.rpt failing_points.rpt status.rpt}
+    set release_deliverables(LEC,status_markers)   {PASSED FAILED}
+    set release_deliverables(LEC,mandatory)        {comparison_summary.rpt}
+#   CLP,required           — files release_data_conformal_lp.tcl requires in
+#                            the release dir (was a literal list; the
+#                            db/clp_verification.db entry was dropped — no
+#                            CLP stage writes it)
+    set release_deliverables(CLP,required)         {reports/clp_verification.rpt}
+#   SYNTH,genus_files      — {src dest_subdir dest_name}; src is relative to
+#                            $OUTPUTS_DIR, %s = design name. Producers:
+#                            synthesis_genus.tcl (<design>.v/.sdc) and
+#                            export_data_genus.tcl (db/synth.db). Replaces the
+#                            literal results/... + chip_top.v tree in
+#                            release_data_genus.tcl; categories match the
+#                            SYNTH entries of flow_input_handshake.
+#   SYNTH,genus_required   — release-relative files checked after the copy
+    set release_deliverables(SYNTH,genus_files) {
+        {db/synth.db db      synth.db}
+        {%s.v        netlist %s.v}
+        {%s.sdc      sdc     %s.sdc}
+    }
+    set release_deliverables(SYNTH,genus_required) {db/synth.db netlist/%s.v}
+
+# ── Cadence Innovus PNR release contract (fork A) ────────────────────────────
+# What release_data_innovus.tcl copies into the release. Sources are the
+# files export_data_innovus.tcl / signoff_innovus.tcl actually write (the old
+# script read results/pnr/<cat>/ and reports/pnr/ paths no stage produced,
+# and a literal SPEF corner list {max min nom}).
+#   %t = project(top_module) (export file stem), %d = release design name
+#   PNR,innovus_files           — {category  run-dir-relative source  release name}
+#   PNR,innovus_globs           — {category  run-dir-relative glob}; the per-
+#                                 MMMC-scenario SPEFs export_timing_data writes
+#                                 (one per active scenario / RC corner)
+#   PNR,innovus_signoff_reports — {release subdir  report} from the upstream
+#                                 signoff node's reports/ dir
+    set release_deliverables(PNR,innovus_files) {
+        gds     results/export/layout/gds/%t.gds            %d.gds
+        netlist results/export/netlist/verilog/%t_final.v   %d.v
+        def     results/export/layout/def/%t_full.def       %d.def
+        sdc     results/export/timing/sdc/%t_final.sdc      %d.sdc
+        spef    results/export/timing/spef/%t_full.spef     %d.spef
+        upf     results/export/power/upf/%t_final.upf       %d.upf
+    }
+    set release_deliverables(PNR,innovus_globs) {
+        spef    results/export/timing/mmmc/*.spef
+    }
+    set release_deliverables(PNR,innovus_signoff_reports) {
+        reports/timing  report_timing.signoff.max.rpt
+        reports/timing  report_timing.signoff.min.rpt
+        reports/power   report_power.signoff.rpt
+        reports/drc     signoff_drc.rpt
+        reports/drc     verify_drc.rpt
+        reports/drc     signoff_lvs.rpt
+        reports/qor     qor_summary.rpt
+    }
+
 puts "INFO: Release configuration loaded — [array size release_exit_files] exit files, [array size release_tags] tags, [array size release_deliverables] deliverables"

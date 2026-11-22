@@ -8,26 +8,28 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "FP"
 set STAGE_NAME "release_data"
-set NODE_NAME "release_data1"
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 
-# Source release utilities for ::CBFlow::Release namespace
-set _ru "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
-if {[file exists $_ru]} { source $_ru }
-# Source release utilities
-set release_utils "$FLOW_DIR/global/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
+# Release writer (::CBFlow::Release — the only release layout). Mandatory.
+set release_utils "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
+if {![file exists $release_utils]} {
+    handle_error "release_utils.tcl not found: $release_utils"
+}
+source $release_utils
 
-if {[file exists $release_utils]} { source $release_utils }
-
-# Source release_config for phase/milestone file expectations
+# Source release_config for phase/milestone file expectations (mandatory)
 set release_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
-if {[file exists $release_config]} { source $release_config }
+if {![file exists $release_config]} {
+    handle_error "release_config.tcl not found: $release_config"
+}
+source $release_config
 
-set WORK_DIR "$run_dir/work/FP/release_data"
+set WORK_DIR [cbflow_node_dir $NODE_NAME]
 set REPORTS_DIR "$WORK_DIR/reports"
 set OUTPUTS_DIR "$run_dir/outputs"
 file mkdir $REPORTS_DIR
@@ -49,11 +51,13 @@ flow_proc init_release {
 
     # ── Validate mandatory variables ─────────────────────────────────────────
     set missing_vars {}
-    if {![info exists fp(common,design_name)] && ![info exists flow(design_name)]} {
+    set design_name ""
+    if {[info exists fp(common,design_name)] && $fp(common,design_name) ne ""} {
+        set design_name $fp(common,design_name)
+    } elseif {[info exists flow(design_name)] && $flow(design_name) ne ""} {
+        set design_name $flow(design_name)
+    } else {
         lappend missing_vars "design_name (fp(common,design_name) or flow(design_name))"
-    }
-    if {![info exists project(release,tag)] || $project(release,tag) eq ""} {
-        lappend missing_vars "project(release,tag) in the project config"
     }
     if {![info exists ::env(FLOW_DIR)] || $::env(FLOW_DIR) eq ""} {
         lappend missing_vars "FLOW_DIR"
@@ -63,82 +67,66 @@ flow_proc init_release {
     }
 
     if {[llength $missing_vars] > 0} {
-        handle_warning "Missing mandatory variables for release:"
-        foreach v $missing_vars { handle_warning "  - $v" }
-        handle_warning "Release may be incomplete"
+        handle_error "Missing mandatory variables for release: [join $missing_vars {, }]"
+        return
     }
-
-    set design_name [expr {[info exists fp(common,design_name)] ? $fp(common,design_name) : [expr {[info exists flow(design_name)] ? $flow(design_name) : "fp"}]}]
 
     # ── Determine release phase ──────────────────────────────────────────────
     set release_phase ""   ;# from project(release,phase) below — no built-in phase
     if {[info exists project(release_phase)]} { set release_phase $project(release_phase) }
-    if {[info exists fp(common,release_phase)]} { set release_phase $fp(common,release_phase) }
+    if {[info exists fp(common,release_phase)] && $fp(common,release_phase) ne ""} { set release_phase $fp(common,release_phase) }
     if {[info exists project(release,phase)] && $project(release,phase) ne ""} { set release_phase $project(release,phase) }
 
-    # ── Initialize release using utilities ───────────────────────────────────
-    if {[namespace exists ::CBFlow::Release]} {
-        ::CBFlow::Release::init "FP" $design_name $run_dir $release_phase
-    } else {
-        set ::release_dir "$run_dir/release/FP"
-        foreach subdir {reports data def db} {
-            file mkdir "$::release_dir/$subdir"
-        }
-    }
+    # ── Initialize release (<path>/<phase>/<block>/FP/<tag>) ─────────────────
+    set ::release_dir [::CBFlow::Release::init $::FLOW_TYPE $design_name $run_dir $release_phase]
 
-    handle_info "Release phase: $release_phase"
-    set _release_tag [expr {[info exists project(release,tag)] ? $project(release,tag) : "(unset)"}]
-    handle_info "Release tag: $_release_tag"
+    handle_info "Release phase: $::CBFlow::Release::release_phase"
+    handle_info "Release tag: $::CBFlow::Release::release_tag"
 }
 
 # ==============================================================================
 # flow_proc: prepare_release
-# Copy FP deliverables to release directory
+# Copy FP deliverables (as written by the export_data / floorplan / powerplan
+# nodes) into the release directory
 # ==============================================================================
 flow_proc prepare_release {
     global fp project tech flow
     handle_info "Preparing FP release deliverables..."
     set run_dir $::env(CBFLOW_RUN_DIR)
 
-    # Create release directory structure
-    set release_dir "$run_dir/results/release"
-    foreach d {"def" "db" "reports" "reports/floorplan" "reports/powerplan" "reports/timing"} {
-        file mkdir "$release_dir/$d"
-    }
+    # export_data_innovus.tcl writes results/{def,netlist}/<top>_fp.* and
+    # results/<top>_fp.enc[.dat] (top = project(top_module)).
+    set dname [cbflow_require project top_module]
 
-    # Determine design name
-    set dname [expr {[info exists fp(common,design_name)] ? $fp(common,design_name) : "fp"}]
-
-    # Copy DEF
-    set def_src "$run_dir/results/fp/def/${dname}.def"
-    if {[file exists $def_src]} {
-        file copy -force $def_src "$release_dir/def/${dname}.def"
-        handle_info "  Released DEF: ${dname}.def"
+    # DEF
+    if {![::CBFlow::Release::copy_file "results/def/${dname}_fp.def" def "${dname}_fp.def"]} {
+        handle_warning "DEF not found: $run_dir/results/def/${dname}_fp.def"
     } else {
-        handle_warning "DEF not found: $def_src"
+        handle_info "  Released DEF: ${dname}_fp.def"
     }
 
-    # Copy design database
-    foreach db [glob -nocomplain "$run_dir/results/fp/db/*"] {
-        if {[catch {file copy -force $db "$release_dir/db/[file tail $db]"} _cp_err]} {
-            handle_warning "release copy failed ($db "$release_dir/db/[file tail $db]"): $_cp_err"
-        }
-        handle_info "  Released DB: [file tail $db]"
+    # Design database (.enc + .enc.dat)
+    set _n [::CBFlow::Release::copy_glob "$run_dir/results/${dname}_fp.enc*" db]
+    handle_info "  Released DB: $_n item(s)"
+
+    # Netlist
+    if {[::CBFlow::Release::copy_file "results/netlist/${dname}_fp.v" netlist "${dname}_fp.v"]} {
+        handle_info "  Released netlist: ${dname}_fp.v"
     }
 
-    # Copy reports
-    foreach rpt_dir {"floorplan" "powerplan" "post_floorplan"} {
-        set src "$run_dir/results/fp/reports/$rpt_dir"
-        if {[file isdirectory $src]} {
-            foreach rpt [glob -nocomplain "$src/*.rpt"] {
-                set rpt_name [file tail $rpt]
-                if {[string match "*timing*" $rpt_name] || [string match "*clock*" $rpt_name]} {
-                    file copy -force $rpt "$release_dir/reports/timing/$rpt_name"
-                } elseif {[string match "*pg*" $rpt_name] || [string match "*power*" $rpt_name]} {
-                    file copy -force $rpt "$release_dir/reports/powerplan/$rpt_name"
-                } else {
-                    file copy -force $rpt "$release_dir/reports/floorplan/$rpt_name"
-                }
+    # Reports — from the producing nodes on this node's upstream graph
+    foreach _type {floorplan powerplan export_data} {
+        set _node [cbflow_dep_node $_type]
+        set src "[cbflow_node_dir $_node]/reports"
+        if {![file isdirectory $src]} { continue }
+        foreach rpt [glob -nocomplain "$src/*.rpt"] {
+            set rpt_name [file tail $rpt]
+            if {[string match "*timing*" $rpt_name] || [string match "*clock*" $rpt_name]} {
+                ::CBFlow::Release::copy_file $rpt reports/timing $rpt_name
+            } elseif {[string match "*pg*" $rpt_name] || [string match "*power*" $rpt_name]} {
+                ::CBFlow::Release::copy_file $rpt reports/powerplan $rpt_name
+            } else {
+                ::CBFlow::Release::copy_file $rpt reports/floorplan $rpt_name
             }
         }
     }
@@ -153,13 +141,9 @@ flow_proc prepare_release {
 flow_proc validate_release {
     handle_info "Validating release completeness..."
 
-    if {[namespace exists ::CBFlow::Release]} {
-        set valid [::CBFlow::Release::validate_mandatory_files]
-        if {!$valid} {
-            handle_warning "Some mandatory files are missing — check release phase requirements"
-        }
-    } else {
-        handle_info "Release utilities not loaded — skipping validation"
+    set valid [::CBFlow::Release::validate_mandatory_files]
+    if {!$valid} {
+        handle_warning "Some mandatory files are missing — check release phase requirements"
     }
 
     handle_info "Release validation completed"
@@ -176,14 +160,10 @@ flow_proc generate_release_output {
     set notes ""
     if {[info exists project(release_notes)]} { set notes $project(release_notes) }
 
-    if {[namespace exists ::CBFlow::Release]} {
-        ::CBFlow::Release::generate_manifest
-        ::CBFlow::Release::generate_release_notes $notes
-        ::CBFlow::Release::stamp_complete
-        ::CBFlow::Release::summary
-    } else {
-        handle_info "Release utilities not loaded — skipping output generation"
-    }
+    ::CBFlow::Release::generate_manifest
+    ::CBFlow::Release::generate_release_notes $notes
+    ::CBFlow::Release::stamp_complete
+    ::CBFlow::Release::summary
 
     handle_info "Release output generated"
 }

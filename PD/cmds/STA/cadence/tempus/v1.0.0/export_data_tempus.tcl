@@ -8,7 +8,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "STA"
 set STAGE_NAME "export_data"
-set NODE_NAME "export_data1"
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -85,7 +85,7 @@ flow_proc export_spef_files {
 flow_proc export_constraint_files {
     handle_info "Exporting constraint files..."
     set run_dir $::env(CBFLOW_RUN_DIR)
-    set src_dir "$run_dir/work/STA/inputs/sdc"
+    set src_dir "$run_dir/work/STA/[cbflow_require sta input_node,sdc]/sdc"
     set dest_dir "$run_dir/results/sta/constraints"
 
     if {[file isdirectory $src_dir]} {

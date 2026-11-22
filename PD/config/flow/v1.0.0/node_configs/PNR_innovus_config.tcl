@@ -72,6 +72,9 @@ array set pnr {
 set pnr(required_inputs,init_design1)  "work/PNR/netlist1/netlist work/PNR/sdc1/sdc work/PNR/def1/def work/PNR/upf1/upf"
 set pnr(required_inputs,place1)        "work/PNR/init_design1/outputs/init_design.enc.dat"
 set pnr(required_inputs,cts1)          "work/PNR/place1/outputs/place.enc.dat"
+# (every Innovus stage saves work/PNR/<node>/outputs/<stage>.enc.dat — the
+#  place/pro writers used to save placement.enc / post_route.enc, which never
+#  matched these entries)
 set pnr(required_inputs,cts_opt1)      "work/PNR/cts1/outputs/cts.enc.dat"
 set pnr(required_inputs,route1)        "work/PNR/cts_opt1/outputs/cts_opt.enc.dat"
 set pnr(required_inputs,pro1)          "work/PNR/route1/outputs/route.enc.dat"
@@ -79,10 +82,9 @@ set pnr(required_inputs,signoff1)      "work/PNR/pro1/outputs/pro.enc.dat"
 set pnr(required_inputs,export_data1)  "work/PNR/signoff1/outputs/signoff.enc.dat"
 
 # ── Innovus-RM App Variables ──────────────────────────────────────────────
-# --- ANALYSIS (1 vars) ---
-array set pnr {
-    analysis,max_paths                                   ""
-}
+# --- ANALYSIS ---
+# analysis,max_paths is set above (100); the "" re-declaration that used to
+# sit here shadowed it.
 
 # --- COMMON (7 vars) ---
 array set pnr {
@@ -95,45 +97,46 @@ array set pnr {
     common,release_phase                                 ""
 }
 
-# --- CTS (6 vars) ---
+# --- CTS (cts,buffer_cells / inverter_cells / target_skew are set above) ---
 array set pnr {
-    cts,buffer_cells                                     ""
-    cts,inverter_cells                                   ""
     cts,max_cap                                          ""
     cts,max_trans                                        ""
     cts,opt_effort                                       ""
-    cts,target_skew                                      ""
 }
 
 # --- CTS_OPT (4 vars) ---
+# Values were literal fallbacks in cts_opt_innovus.tcl (read via cbflow_require).
 array set pnr {
-    cts_opt,balance_effort                               ""
-    cts_opt,effort                                       ""
-    cts_opt,fix_hold                                     ""
-    cts_opt,refine_iterations                            ""
+    cts_opt,balance_effort                               "medium"
+    cts_opt,effort                                       "high"
+    cts_opt,fix_hold                                     true
+    cts_opt,refine_iterations                            3
 }
 
 # --- EXPORT (19 vars) ---
+# export_data_innovus.tcl enables (compared with eq "true"; read via
+# cbflow_require). Values were the script's literal fallbacks — the ""
+# declarations that used to sit here silently disabled every export.
 array set pnr {
-    export,abstract                                      ""
-    export,antenna                                       ""
-    export,def                                           ""
-    export,drc                                           ""
-    export,floorplan                                     ""
-    export,gds                                           ""
-    export,lef                                           ""
-    export,lvs                                           ""
-    export,oasis                                         ""
-    export,placement                                     ""
-    export,power_reports                                 ""
-    export,rail_analysis                                 ""
-    export,routing                                       ""
-    export,sdc                                           ""
-    export,sdf                                           ""
-    export,spef                                          ""
-    export,spice                                         ""
-    export,upf                                           ""
-    export,verilog                                       ""
+    export,abstract                                      "true"
+    export,antenna                                       "true"
+    export,def                                           "true"
+    export,drc                                           "true"
+    export,floorplan                                     "true"
+    export,gds                                           "true"
+    export,lef                                           "true"
+    export,lvs                                           "true"
+    export,oasis                                         "false"
+    export,placement                                     "true"
+    export,power_reports                                 "true"
+    export,rail_analysis                                 "true"
+    export,routing                                       "true"
+    export,sdc                                           "true"
+    export,sdf                                           "false"
+    export,spef                                          "true"
+    export,spice                                         "false"
+    export,upf                                           "true"
+    export,verilog                                       "true"
 }
 
 # --- EXTRACT (3 vars) ---
@@ -171,13 +174,12 @@ array set pnr {
     output,gds                                           ""
 }
 
-# --- PLACE (5 vars) ---
+# --- PLACE (place,effort / place,timing_driven are set above; the ""
+#     duplicates that used to sit here shadowed them) ---
 array set pnr {
-    place,congestion_effort                              ""
+    place,congestion_effort                              "auto"
     place,density                                        ""
-    place,effort                                         ""
     place,opt_effort                                     ""
-    place,timing_driven                                  ""
 }
 
 # --- POWERPLAN (13 vars) ---
@@ -203,17 +205,15 @@ array set pnr {
     route,fix_antenna                                    ""
     route,layers                                         ""
     route,post_opt_effort                                ""
-    route,si_aware                                       ""
-    route,timing_driven                                  ""
     route,via_opt                                        ""
 }
+# (route,si_aware / route,timing_driven are set above; "" duplicates removed)
 
 # --- SIGNOFF ---
 array set pnr {
     signoff,extract_effort                               ""
     signoff,filler_cells                                 ""
     signoff,filler_prefix                                ""
-    signoff,metal_fill                                   ""
     signoff,metal_fill_density                           ""
     signoff,metal_fill_layers                            ""
     signoff,antenna_fix                                  ""
@@ -242,4 +242,18 @@ array set pnr {
     route,fix_antenna                                    ""
     route,post_opt_effort                                ""
     opt,insert_metal_fill                                ""
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Report limits — previously literals in the Innovus PNR cmd files
+# (report_timing -max_paths N per stage; verify_drc -limit N in signoff).
+# report,max_paths,<stage> is read as [cbflow_require pnr report,max_paths,$::STAGE_NAME].
+# ──────────────────────────────────────────────────────────────────────────────
+array set pnr {
+    report,max_paths,place                               50
+    report,max_paths,route                               50
+    report,max_paths,pro                                 100
+    report,max_paths,signoff                             100
+    report,max_paths,export_data                         10
+    signoff,drc_limit                                    10000
 }

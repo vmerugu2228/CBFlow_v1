@@ -12,7 +12,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "FP"
 set STAGE_NAME "powerplan"
-set NODE_NAME "powerplan1"
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -27,9 +27,11 @@ handle_info "Starting CBflow FP powerplan stage for Innovus"
 flow_proc load_design {
     global run_dir flow
 
-    set _db "$run_dir/work/FP/floorplan1/outputs/floorplan.enc.dat"
+    # Upstream floorplan node from the node graph (FP_config dependencies).
+    set _src [cbflow_dep_node floorplan]
+    set _db "[cbflow_node_dir $_src]/outputs/floorplan.enc.dat"
     if {![file exists $_db]} {
-        handle_warning "Floorplan database not found: $_db"
+        handle_error "Floorplan database not found: $_db (node $_src)"
         return
     }
     handle_info "Restoring design: $_db"
@@ -65,15 +67,46 @@ flow_proc activate_node_scenarios {
 # Mandatory config variables — error if not set
 # ==============================================================================
 
-foreach _req {fp(power,vdd_net) fp(power,vss_net) fp(power,vdd_pin) fp(power,vss_pin)} {
-    if {![info exists $_req] || [set $_req] eq ""} {
-        handle_error "$_req is not set. Define in user_config or FP tool config."
-        return -code error "$_req is not set. Define in user_config or FP tool config."
+# PG nets/pins: fp(power,<key>) overrides; otherwise the project's PG
+# definition project(power,<key>) (single source of truth). Error if neither.
+foreach _k {vdd_net vss_net vdd_pin vss_pin} {
+    if {![info exists fp(power,$_k)] || $fp(power,$_k) eq ""} {
+        set fp(power,$_k) [cbflow_require project power,$_k]
     }
 }
 
 set PG_VDD $fp(power,vdd_net)
 set PG_VSS $fp(power,vss_net)
+
+# ==============================================================================
+# flow_proc: resolve_pg_layers
+# Description: Metal-stack PG layers (tech data for project(metal_stack)) —
+#   used when the fp(power,*layer*) overrides are empty. Errors when neither.
+# ==============================================================================
+flow_proc resolve_pg_layers {
+    global fp tech project
+
+    set _ms [cbflow_require project metal_stack]
+    foreach {_k _tk} {ring_layer_h pg_ring_layer_h ring_layer_v pg_ring_layer_v} {
+        if {![info exists fp(power,$_k)] || $fp(power,$_k) eq ""} {
+            set fp(power,$_k) [cbflow_require tech "$_ms,$_tk"]
+        }
+    }
+    # sroute range: bottom metal of the stack up to the highest PG ring layer.
+    set _ml [cbflow_require tech "$_ms,metal_layers"]
+    if {![info exists fp(power,sroute_bottom_layer)] || $fp(power,sroute_bottom_layer) eq ""} {
+        set fp(power,sroute_bottom_layer) [lindex $_ml 0]
+    }
+    if {![info exists fp(power,sroute_top_layer)] || $fp(power,sroute_top_layer) eq ""} {
+        set _i [expr {max([lsearch -exact $_ml $fp(power,ring_layer_h)], [lsearch -exact $_ml $fp(power,ring_layer_v)])}]
+        if {$_i < 0} {
+            handle_error "PG ring layers $fp(power,ring_layer_h)/$fp(power,ring_layer_v) not in tech($_ms,metal_layers) — set fp(power,sroute_top_layer)"
+            return
+        }
+        set fp(power,sroute_top_layer) [lindex $_ml $_i]
+    }
+    handle_info "PG layers: ring H=$fp(power,ring_layer_h) V=$fp(power,ring_layer_v), sroute $fp(power,sroute_bottom_layer)..$fp(power,sroute_top_layer)"
+}
 
 # ==============================================================================
 # flow_proc: connect_global_nets
@@ -99,7 +132,7 @@ flow_proc connect_global_nets {
     }
 
     # Additional power domains (multi-voltage)
-    if {[info exists fp(power,additional_nets)]} {
+    if {[info exists fp(power,additional_nets)] && $fp(power,additional_nets) ne ""} {
         foreach {net pin} $fp(power,additional_nets) {
             handle_info "  Additional: $net -> $pin"
             globalNetConnect $net -type pgpin -pin $pin -inst * -override
@@ -118,25 +151,16 @@ flow_proc create_power_rings {
 
     handle_info "Creating power rings..."
 
-    # Ring layers — from tech config (metal stack provides these)
-    if {![info exists fp(power,ring_layer_h)] || ![info exists fp(power,ring_layer_v)]} {
-        handle_error "fp(power,ring_layer_h) and fp(power,ring_layer_v) must be set"
-        handle_error "Typically top two thick metals, e.g., M10 (H) and M9 (V)"
-        return
-    }
-
+    # Ring layers — resolved at load time (fp override, else tech metal stack)
     set layer_h $fp(power,ring_layer_h)
     set layer_v $fp(power,ring_layer_v)
 
-    # Ring dimensions — must be defined in config
-    if {![info exists fp(power,ring_width)]} {
-        handle_error "fp(power,ring_width) must be set"
-        return
-    }
-
-    set ring_width   $fp(power,ring_width)
-    set ring_spacing [expr {[info exists fp(power,ring_spacing)] ? $fp(power,ring_spacing) : $ring_width}]
-    set ring_offset  [expr {[info exists fp(power,ring_offset)]  ? $fp(power,ring_offset)  : $ring_spacing}]
+    # Ring geometry — FP_innovus_config power,ring_* (no derived defaults)
+    set ring_width   [cbflow_require fp power,ring_width]
+    set ring_spacing [cbflow_require fp power,ring_spacing]
+    set ring_offset  [cbflow_require fp power,ring_offset]
+    set ring_jog     [cbflow_require fp power,ring_jog_distance]
+    set ring_thresh  [cbflow_require fp power,ring_threshold]
 
     handle_info "  Layers: H=$layer_h V=$layer_v"
     handle_info "  Width=${ring_width}um Spacing=${ring_spacing}um Offset=${ring_offset}um"
@@ -150,14 +174,14 @@ flow_proc create_power_rings {
         -spacing $ring_spacing \
         -offset $ring_offset \
         -follow core \
-        -jog_distance 0.5 \
-        -threshold 0.5
+        -jog_distance $ring_jog \
+        -threshold $ring_thresh
 
     # Macro rings
     if {[info exists fp(power,macro_rings)] && $fp(power,macro_rings) eq "true"} {
-        set mr_width   [expr {[info exists fp(power,macro_ring_width)]   ? $fp(power,macro_ring_width)   : [expr {$ring_width * 0.5}]}]
-        set mr_spacing [expr {[info exists fp(power,macro_ring_spacing)] ? $fp(power,macro_ring_spacing) : [expr {$mr_width * 0.5}]}]
-        set mr_offset  [expr {[info exists fp(power,macro_ring_offset)]  ? $fp(power,macro_ring_offset)  : $mr_spacing}]
+        set mr_width   [cbflow_require fp power,macro_ring_width]
+        set mr_spacing [cbflow_require fp power,macro_ring_spacing]
+        set mr_offset  [cbflow_require fp power,macro_ring_offset]
 
         handle_info "  Macro rings: width=${mr_width}um spacing=${mr_spacing}um"
 
@@ -185,7 +209,7 @@ flow_proc create_power_straps {
 
     handle_info "Creating power straps..."
 
-    if {![info exists fp(power,straps)]} {
+    if {![info exists fp(power,straps)] || $fp(power,straps) eq ""} {
         handle_error "fp(power,straps) not defined — no power mesh will be created"
         handle_error "Define in user_config, e.g.:"
         handle_error "  set fp(power,straps) {"
@@ -279,8 +303,9 @@ flow_proc add_pg_vias {
 
     # Via stacking at ring/strap intersections
     if {[info exists fp(power,add_vias)] && $fp(power,add_vias) eq "true"} {
-        set bottom_layer [expr {[info exists fp(power,via_bottom_layer)] ? $fp(power,via_bottom_layer) : $fp(power,sroute_bottom_layer)}]
-        set top_layer    [expr {[info exists fp(power,via_top_layer)]    ? $fp(power,via_top_layer)    : $fp(power,sroute_top_layer)}]
+        # Via range: fp(power,via_*_layer) override, else the sroute range.
+        set bottom_layer [expr {[info exists fp(power,via_bottom_layer)] && $fp(power,via_bottom_layer) ne "" ? $fp(power,via_bottom_layer) : $fp(power,sroute_bottom_layer)}]
+        set top_layer    [expr {[info exists fp(power,via_top_layer)]    && $fp(power,via_top_layer)    ne "" ? $fp(power,via_top_layer)    : $fp(power,sroute_top_layer)}]
 
         addVia \
             -nets [list $PG_VDD $PG_VSS] \
@@ -330,7 +355,7 @@ flow_proc verify_power {
     if {[info exists fp(power,analyze_ir)] && $fp(power,analyze_ir) eq "true"} {
         handle_info "  Running early IR drop analysis..."
         if {[catch {
-            if {![info exists fp(power,ir_drop_limit)]} {
+            if {![info exists fp(power,ir_drop_limit)] || $fp(power,ir_drop_limit) eq ""} {
                 handle_error "fp(power,ir_drop_limit) not set — required when fp(power,analyze_ir) is true"
                 return
             }

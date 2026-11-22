@@ -15,19 +15,19 @@ set utils_path "$FLOW_DIR/global/utils/utilities/$::env(UTILITIES_VERSION)/utils
 if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
 namespace import ::CBFlow::Utilities::print_header
 
-set config_file "$run_dir/work/FCFP/fc_powerplan/run/config.tcl"
-if {[file exists $config_file]} { source $config_file }
-global fcfp project tech flow
+set FLOW_TYPE "FCFP"
+set STAGE_NAME "fc_powerplan"
+set NODE_NAME [cbflow_node_name]
 
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source $_tc }
-}
+# Generated per-node config (project + tech + flow + node + user cascade).
+set config_file "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+if {![file exists $config_file]} { puts stderr "ERROR: node config not found: $config_file (run the $NODE_NAME setup subnode)"; exit 1 }
+source $config_file
+global fcfp project tech flow
 # Source user_config for overrides
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source "$run_dir/setup/user_config.tcl" }
 
-set WORK_DIR "$run_dir/work/FCFP/fc_powerplan"
+set WORK_DIR [cbflow_node_dir $NODE_NAME]
 set REPORTS_DIR "$WORK_DIR/reports"
 set OUTPUTS_DIR "$run_dir/outputs"
 file mkdir $REPORTS_DIR
@@ -41,56 +41,55 @@ set ::flow::exec_mode "auto"
 # │                     CREATE POWER RINGS                                     │
 # └─────────────────────────────────────────────────────────────────────────────┘
 
+flow_proc resolve_power_config {
+    global fcfp project tech flow
+    handle_info "Resolving power-plan configuration..."
+
+    # PG nets: fcfp(power,vdd_net/vss_net) override, else the project's PG
+    # definition project(power,vdd_net/vss_net). Error if neither.
+    set ::PG(vdd) [expr {[info exists fcfp(power,vdd_net)] && $fcfp(power,vdd_net) ne "" ? $fcfp(power,vdd_net) : [cbflow_require project power,vdd_net]}]
+    set ::PG(vss) [expr {[info exists fcfp(power,vss_net)] && $fcfp(power,vss_net) ne "" ? $fcfp(power,vss_net) : [cbflow_require project power,vss_net]}]
+
+    # Layers: fcfp(power,*_layer_h/v) override, else the PG ring layers of the
+    # project's metal stack — tech(<project(metal_stack)>,pg_ring_layer_h/v).
+    set _ms [cbflow_require project metal_stack]
+    foreach {_k _tk} {ring_layer_h pg_ring_layer_h ring_layer_v pg_ring_layer_v
+                      strap_layer_h pg_ring_layer_h strap_layer_v pg_ring_layer_v} {
+        set ::PG($_k) [expr {[info exists fcfp(power,$_k)] && $fcfp(power,$_k) ne "" ? $fcfp(power,$_k) : [cbflow_require tech "$_ms,$_tk"]}]
+    }
+    # sroute layer range: bottom metal of the stack up to the highest ring layer.
+    set _ml [cbflow_require tech "$_ms,metal_layers"]
+    set _i [expr {max([lsearch -exact $_ml $::PG(ring_layer_h)], [lsearch -exact $_ml $::PG(ring_layer_v)])}]
+    if {$_i < 0} {
+        handle_error "PG ring layers $::PG(ring_layer_h)/$::PG(ring_layer_v) are not in tech($_ms,metal_layers)"
+        return
+    }
+    set ::PG(sroute_range) [list [lindex $_ml 0] [lindex $_ml $_i]]
+
+    # Ring / strap geometry — FCFP_innovus_config power,* (no built-in values)
+    foreach _k {ring_width ring_spacing ring_offset strap_width strap_spacing strap_pitch} {
+        set ::PG($_k) [cbflow_require fcfp power,$_k]
+    }
+
+    puts "VDD net: $::PG(vdd), VSS net: $::PG(vss)"
+    puts "Ring layers: $::PG(ring_layer_h) (H), $::PG(ring_layer_v) (V); straps $::PG(strap_layer_h)/$::PG(strap_layer_v); sroute $::PG(sroute_range)"
+}
+
 flow_proc create_power_rings {
     global fcfp project tech flow
     handle_info "Creating power rings..."
 
     file mkdir "$::REPORTS_DIR"
 
-    # Get power net names from config
-    if {[info exists fcfp(power,vdd_net)]} {
-        set vdd_net $fcfp(power,vdd_net)
-    } else {
-        set vdd_net "VDD"
-    }
-    if {[info exists fcfp(power,vss_net)]} {
-        set vss_net $fcfp(power,vss_net)
-    } else {
-        set vss_net "VSS"
-    }
+    set vdd_net      $::PG(vdd)
+    set vss_net      $::PG(vss)
+    set ring_width   $::PG(ring_width)
+    set ring_spacing $::PG(ring_spacing)
+    set ring_offset  $::PG(ring_offset)
+    set ring_layer_h $::PG(ring_layer_h)
+    set ring_layer_v $::PG(ring_layer_v)
 
-    # Get ring parameters from config
-    if {[info exists fcfp(power,ring_width)]} {
-        set ring_width $fcfp(power,ring_width)
-    } else {
-        set ring_width 2.0
-    }
-    if {[info exists fcfp(power,ring_spacing)]} {
-        set ring_spacing $fcfp(power,ring_spacing)
-    } else {
-        set ring_spacing 1.0
-    }
-    if {[info exists fcfp(power,ring_offset)]} {
-        set ring_offset $fcfp(power,ring_offset)
-    } else {
-        set ring_offset 2.0
-    }
-
-    # Get ring layers from config
-    if {[info exists fcfp(power,ring_layer_h)]} {
-        set ring_layer_h $fcfp(power,ring_layer_h)
-    } else {
-        set ring_layer_h "metal5"
-    }
-    if {[info exists fcfp(power,ring_layer_v)]} {
-        set ring_layer_v $fcfp(power,ring_layer_v)
-    } else {
-        set ring_layer_v "metal6"
-    }
-
-    puts "VDD net: $vdd_net, VSS net: $vss_net"
     puts "Ring width: $ring_width, spacing: $ring_spacing"
-    puts "Ring layers: $ring_layer_h (H), $ring_layer_v (V)"
 
     # Create core power rings
     addRing -nets [list $vdd_net $vss_net] \
@@ -104,11 +103,7 @@ flow_proc create_power_rings {
     # Create block rings around macros if configured
     if {[info exists fcfp(power,create_block_rings)] && $fcfp(power,create_block_rings) eq "true"} {
         puts "   Creating block power rings..."
-        if {[info exists fcfp(power,block_ring_width)]} {
-            set block_ring_width $fcfp(power,block_ring_width)
-        } else {
-            set block_ring_width 1.0
-        }
+        set block_ring_width [cbflow_require fcfp power,block_ring_width]
         addRing -nets [list $vdd_net $vss_net] \
             -type block_rings \
             -around each_block \
@@ -129,34 +124,14 @@ flow_proc create_power_straps {
     global fcfp project tech flow
     handle_info "Creating power straps..."
 
-    # Get power net names
-    if {[info exists fcfp(power,vdd_net)]} { set vdd_net $fcfp(power,vdd_net) } else { set vdd_net "VDD" }
-    if {[info exists fcfp(power,vss_net)]} { set vss_net $fcfp(power,vss_net) } else { set vss_net "VSS" }
-
-    # Get strap parameters from config
-    if {[info exists fcfp(power,strap_width)]} {
-        set strap_width $fcfp(power,strap_width)
-    } else {
-        set strap_width 1.0
-    }
-    if {[info exists fcfp(power,strap_spacing)]} {
-        set strap_spacing $fcfp(power,strap_spacing)
-    } else {
-        set strap_spacing 1.0
-    }
-    if {[info exists fcfp(power,strap_pitch)]} {
-        set strap_pitch $fcfp(power,strap_pitch)
-    } else {
-        set strap_pitch 20.0
-    }
+    set vdd_net       $::PG(vdd)
+    set vss_net       $::PG(vss)
+    set strap_width   $::PG(strap_width)
+    set strap_spacing $::PG(strap_spacing)
+    set strap_pitch   $::PG(strap_pitch)
 
     # Horizontal straps
-    if {[info exists fcfp(power,strap_layer_h)]} {
-        set strap_layer_h $fcfp(power,strap_layer_h)
-    } else {
-        set strap_layer_h "metal5"
-    }
-
+    set strap_layer_h $::PG(strap_layer_h)
     puts "Adding horizontal power straps on $strap_layer_h..."
     addStripe -nets [list $vdd_net $vss_net] \
         -layer $strap_layer_h \
@@ -166,12 +141,7 @@ flow_proc create_power_straps {
         -set_to_set_distance $strap_pitch
 
     # Vertical straps
-    if {[info exists fcfp(power,strap_layer_v)]} {
-        set strap_layer_v $fcfp(power,strap_layer_v)
-    } else {
-        set strap_layer_v "metal6"
-    }
-
+    set strap_layer_v $::PG(strap_layer_v)
     puts "Adding vertical power straps on $strap_layer_v..."
     addStripe -nets [list $vdd_net $vss_net] \
         -layer $strap_layer_v \
@@ -181,14 +151,15 @@ flow_proc create_power_straps {
         -set_to_set_distance $strap_pitch
 
     # Additional fine-pitch straps on lower layers if configured
-    if {[info exists fcfp(power,fine_strap_layer)] && [info exists fcfp(power,fine_strap_width)]} {
+    if {[info exists fcfp(power,fine_strap_layer)] && $fcfp(power,fine_strap_layer) ne "" && \
+        [info exists fcfp(power,fine_strap_width)] && $fcfp(power,fine_strap_width) ne ""} {
         puts "Adding fine-pitch straps on $fcfp(power,fine_strap_layer)..."
         addStripe -nets [list $vdd_net $vss_net] \
             -layer $fcfp(power,fine_strap_layer) \
             -direction vertical \
             -width $fcfp(power,fine_strap_width) \
             -spacing $strap_spacing \
-            -set_to_set_distance $fcfp(power,fine_strap_pitch)
+            -set_to_set_distance [cbflow_require fcfp power,fine_strap_pitch]
     }
 
     puts " Power straps created"
@@ -202,9 +173,8 @@ flow_proc connect_power {
     global fcfp project tech flow
     handle_info "Connecting power/ground nets..."
 
-    # Get power net names
-    if {[info exists fcfp(power,vdd_net)]} { set vdd_net $fcfp(power,vdd_net) } else { set vdd_net "VDD" }
-    if {[info exists fcfp(power,vss_net)]} { set vss_net $fcfp(power,vss_net) } else { set vss_net "VSS" }
+    set vdd_net $::PG(vdd)
+    set vss_net $::PG(vss)
 
     # Connect VDD
     globalNetConnect $vdd_net -type pgpin -pin $vdd_net -inst * -override
@@ -215,18 +185,18 @@ flow_proc connect_power {
     puts "   Connected $vss_net to all instances"
 
     # Connect tie-high/tie-low cells if configured
-    if {[info exists fcfp(power,tie_high_net)]} {
+    if {[info exists fcfp(power,tie_high_net)] && $fcfp(power,tie_high_net) ne ""} {
         globalNetConnect $fcfp(power,tie_high_net) -type tiehi -inst * -override
         puts "   Connected tie-high: $fcfp(power,tie_high_net)"
     }
-    if {[info exists fcfp(power,tie_low_net)]} {
+    if {[info exists fcfp(power,tie_low_net)] && $fcfp(power,tie_low_net) ne ""} {
         globalNetConnect $fcfp(power,tie_low_net) -type tielo -inst * -override
         puts "   Connected tie-low: $fcfp(power,tie_low_net)"
     }
 
     # Special route for power connections
     sroute -connect {blockPin padPin padRing corePin floatingStripe} \
-        -layerChangeRange {metal1 metal6} \
+        -layerChangeRange $::PG(sroute_range) \
         -blockPinTarget {nearestTarget} \
         -corePinTarget {firstAfterRowEnd} \
         -allowJogging 1 \
@@ -286,13 +256,13 @@ flow_proc generate_report {
     if {[info exists project(top_module)]} { puts $fp "Design: $project(top_module)" }
     puts $fp ""
     puts $fp "Power Nets:"
-    if {[info exists fcfp(power,vdd_net)]} { puts $fp "  VDD: $fcfp(power,vdd_net)" }
-    if {[info exists fcfp(power,vss_net)]} { puts $fp "  VSS: $fcfp(power,vss_net)" }
+    puts $fp "  VDD: $::PG(vdd)"
+    puts $fp "  VSS: $::PG(vss)"
     puts $fp ""
     puts $fp "Configuration:"
-    if {[info exists fcfp(power,ring_width)]} { puts $fp "  Ring width: $fcfp(power,ring_width)" }
-    if {[info exists fcfp(power,strap_width)]} { puts $fp "  Strap width: $fcfp(power,strap_width)" }
-    if {[info exists fcfp(power,strap_pitch)]} { puts $fp "  Strap pitch: $fcfp(power,strap_pitch)" }
+    puts $fp "  Ring width: $::PG(ring_width)"
+    puts $fp "  Strap width: $::PG(strap_width)"
+    puts $fp "  Strap pitch: $::PG(strap_pitch)"
     puts $fp ""
     puts $fp "Reports:"
     puts $fp "  Power grid:    reports/fcfp/powerplan/power_grid_summary.rpt"
@@ -314,6 +284,7 @@ handle_info "══════════════════════�
 
 flow_proc fc_powerplan_flow {
     handle_info "Executing FCFP fc_powerplan flow..."
+    flow_exec resolve_power_config
     flow_exec create_power_rings
     flow_exec create_power_straps
     flow_exec connect_power

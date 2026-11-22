@@ -8,7 +8,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PNR"
 set STAGE_NAME "signoff"
-set NODE_NAME "signoff1"
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -22,7 +22,17 @@ setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 flow_proc load_design {
     global run_dir flow
 
-    set _db [cbflow_resolve_head_block "$run_dir/work/$::FLOW_TYPE/pro1/outputs/post_route.enc.dat" {pro route cts_opt cts place init_design}]
+    # Upstream checkpoint from the node graph (pnr(dependencies,*)): walk the
+    # chain most-recent first; the nearest stage that recorded a block wins,
+    # else the direct upstream node's <type>.enc.dat.
+    set _up [cbflow_upstream_node]
+    set _chain {}
+    for {set _n $_up} {$_n ne "" && $_n ni $_chain && [cbflow_node_type $_n] ne "inputs"} {set _n [lindex [cbflow_node_deps $_n] 0]} {
+        lappend _chain $_n
+    }
+    set _stages {}
+    foreach _n $_chain { lappend _stages [cbflow_node_type $_n] }
+    set _db [cbflow_resolve_head_block "[cbflow_node_dir $_up]/outputs/[cbflow_node_type $_up].enc.dat" $_stages]
     if {![file exists $_db]} {
         handle_warning "pro database not found: $_db"
         return
@@ -83,7 +93,7 @@ flow_proc run_signoff_drc {
 
     # Signoff DRC check
     catch { verifyDRC -report "$::REPORTS_DIR/signoff_drc.rpt" }
-    catch { verify_drc -limit 10000 -report "$::REPORTS_DIR/verify_drc.rpt" }
+    catch { verify_drc -limit [cbflow_require pnr signoff,drc_limit] -report "$::REPORTS_DIR/verify_drc.rpt" }
 
     handle_info "Signoff DRC completed"
 }
@@ -118,8 +128,8 @@ flow_proc run_signoff_timing {
     catch { timeDesign -signoff -outDir "$::REPORTS_DIR" -prefix signoff }
 
     # Signoff timing reports
-    catch { report_timing -max_paths 100 > "$::REPORTS_DIR/report_timing.signoff.max.rpt" }
-    catch { report_timing -delay_type min -max_paths 100 > "$::REPORTS_DIR/report_timing.signoff.min.rpt" }
+    catch { report_timing -max_paths [cbflow_require pnr report,max_paths,$::STAGE_NAME] > "$::REPORTS_DIR/report_timing.signoff.max.rpt" }
+    catch { report_timing -delay_type min -max_paths [cbflow_require pnr report,max_paths,$::STAGE_NAME] > "$::REPORTS_DIR/report_timing.signoff.min.rpt" }
 
     # MMMC per-scenario signoff timing reports
     if {[info procs get_effective_scenarios] ne "" && [catch {get_effective_scenarios "signoff" "setup"} setup_scenarios] == 0 && [llength $setup_scenarios] > 0} {
@@ -128,8 +138,8 @@ flow_proc run_signoff_timing {
 
         foreach scenario $all_signoff_scenarios {
             handle_info "  Signoff timing for scenario: $scenario"
-            catch { report_timing -delay_type max -scenarios $scenario -max_paths 100 > "$::REPORTS_DIR/report_timing.signoff.setup.${scenario}.rpt" }
-            catch { report_timing -delay_type min -scenarios $scenario -max_paths 100 > "$::REPORTS_DIR/report_timing.signoff.hold.${scenario}.rpt" }
+            catch { report_timing -delay_type max -scenarios $scenario -max_paths [cbflow_require pnr report,max_paths,$::STAGE_NAME] > "$::REPORTS_DIR/report_timing.signoff.setup.${scenario}.rpt" }
+            catch { report_timing -delay_type min -scenarios $scenario -max_paths [cbflow_require pnr report,max_paths,$::STAGE_NAME] > "$::REPORTS_DIR/report_timing.signoff.hold.${scenario}.rpt" }
             catch { report_constraint -all_violators -scenarios $scenario > "$::REPORTS_DIR/report_constraint.signoff.${scenario}.rpt" }
         }
 
@@ -243,8 +253,8 @@ flow_proc signoff_complete {
     # Save final checkpoint
     set _outputs "$::WORK_DIR/outputs"
     file mkdir $_outputs
-    saveDesign "$_outputs/signoff.enc"
-    cbflow_record_block_state $::STAGE_NAME "$_outputs/signoff.enc.dat" $::NODE_NAME
+    saveDesign "$_outputs/${::STAGE_NAME}.enc"
+    cbflow_record_block_state $::STAGE_NAME "$_outputs/${::STAGE_NAME}.enc.dat" $::NODE_NAME
 
     # Generate design manifest
     file mkdir "$::REPORTS_DIR"

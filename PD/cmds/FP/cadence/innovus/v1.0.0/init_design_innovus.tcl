@@ -18,7 +18,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "FP"
 set STAGE_NAME "init_design"
-set NODE_NAME "init_design1"
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 # Don't re-source setup.tcl if it's already in the source chain
@@ -101,7 +101,7 @@ flow_proc generate_globals {
         handle_warning "  Define `tech(${_trk},lef)` as a list of cell LEFs in your tech/lib_config_<tag>.tcl"
         # Per-Vt fallback: try aggregating tech(<trk>,<vt>,lef) entries.
         set _aggregated [list]
-        foreach _vt {rvt lvt ulvt hvt slvt elvt} {
+        foreach _vt [cbflow_require tech vt_variants_available] {
             if {[info exists tech(${_trk},${_vt},lef)]} {
                 foreach lef $tech(${_trk},${_vt},lef) {
                     if {$lef ne ""} { lappend _aggregated $lef }
@@ -150,17 +150,13 @@ flow_proc generate_globals {
     if {[info exists fp(input,mmmc_file)] && $fp(input,mmmc_file) ne ""} {
         set vd_file $fp(input,mmmc_file)
     } else {
-        # Walk global/ first, then PD/ overlay — mmmc_view_definition is
-        # generated under global/ by mmmc-manager.
-        set _vd_candidates [list]
-        if {[info exists ::env(CBFLOW_GLOBAL_DIR)] && $::env(CBFLOW_GLOBAL_DIR) ne ""} {
-            lappend _vd_candidates "$::env(CBFLOW_GLOBAL_DIR)/config/project/$project(name)/$project(cbflow_release)/mmmc_view_definition.tcl"
+        # mmmc_view_definition is generated under global/ by mmmc-manager
+        # (the legacy PD/config/project overlay location is retired).
+        if {![info exists ::env(CBFLOW_GLOBAL_DIR)] || $::env(CBFLOW_GLOBAL_DIR) eq ""} {
+            handle_error "CBFLOW_GLOBAL_DIR is not set — needed to locate mmmc_view_definition.tcl"
+            return
         }
-        lappend _vd_candidates "$::env(FLOW_DIR)/PD/config/project/$project(name)/$project(cbflow_release)/mmmc_view_definition.tcl"
-        set vd_file [lindex $_vd_candidates end]
-        foreach _c $_vd_candidates {
-            if {[file exists $_c]} { set vd_file $_c; break }
-        }
+        set vd_file "$::env(CBFLOW_GLOBAL_DIR)/config/project/$project(name)/$project(cbflow_release)/mmmc_view_definition.tcl"
     }
     if {$vd_file ne "" && [file exists $vd_file]} {
         puts $gf "set init_mmmc_file {$vd_file}"
@@ -204,16 +200,9 @@ flow_proc run_init_design {
     set design_name $flow(design_name)
     set globals_file "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/${design_name}.globals"
 
-    # Back-compat: tolerate the older generic name if it exists from a previous run.
     if {![file exists $globals_file]} {
-        set _legacy "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/design.globals"
-        if {[file exists $_legacy]} {
-            handle_warning "Found legacy 'design.globals' (expected '${design_name}.globals') — using it"
-            set globals_file $_legacy
-        } else {
-            handle_error "${design_name}.globals not found — run generate_globals first"
-            return
-        }
+        handle_error "${design_name}.globals not found — run generate_globals first"
+        return
     }
 
     handle_info "Sourcing [file tail $globals_file]..."
@@ -274,7 +263,8 @@ flow_proc setup_power_intent {
             commit_power_intent
             handle_info "Power intent committed"
         } else {
-            handle_warning "UPF not found: $fp(input,upf_file)"
+            handle_error "UPF not found: $fp(input,upf_file)"
+            return
         }
     } else {
         handle_info "No UPF — single power domain"

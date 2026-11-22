@@ -11,7 +11,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PV"
 set STAGE_NAME "drc"
-set NODE_NAME "${STAGE_NAME}1"
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -19,8 +19,13 @@ setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 
 # ── Design name (resolve from pv(...) or flow(...)) ──────────────────────
-set DESIGN_NAME [expr {[info exists pv(common,design_name)] ? $pv(common,design_name) :
-                       [expr {[info exists flow(design_name)] ? $flow(design_name) : "design"}]}]
+if {[info exists pv(common,design_name)] && $pv(common,design_name) ne ""} {
+    set DESIGN_NAME $pv(common,design_name)
+} elseif {[info exists flow(design_name)] && $flow(design_name) ne ""} {
+    set DESIGN_NAME $flow(design_name)
+} else {
+    handle_error "Design name not set — set pv(common,design_name) or flow(design_name) in user_config"
+}
 set ::DESIGN_NAME $DESIGN_NAME
 # ═══════════════════════════════════════════════════════════════════════════════
 # Setup Calibre DRC environment variables for SVRF runset
@@ -77,7 +82,7 @@ flow_proc run_drc_checks {
     }
 
     # Build command
-    set num_cpus [expr {[info exists pv(drc,num_cpus)] ? $pv(drc,num_cpus) : 8}]
+    set num_cpus [cbflow_require pv drc,num_cpus]
     set turbo [expr {[info exists pv(drc,turbo_mode)] && $pv(drc,turbo_mode) eq "true"}]
 
     set calibre_cmd "calibre -drc -hier -64"
@@ -135,7 +140,7 @@ flow_proc run_antenna_check {
     }
 
     handle_info "Running Calibre Antenna DRC..."
-    set num_cpus [expr {[info exists pv(drc,num_cpus)] ? $pv(drc,num_cpus) : 8}]
+    set num_cpus [cbflow_require pv drc,num_cpus]
 
     set calibre_cmd "calibre -drc -hier -64 -turbo $num_cpus $antenna_runset"
     handle_info "  CMD: $calibre_cmd"

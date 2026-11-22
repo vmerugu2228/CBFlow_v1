@@ -13,7 +13,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PNR"
 set STAGE_NAME "cts"
-set NODE_NAME "cts1"
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -28,7 +28,17 @@ handle_info "Starting CBflow PNR CTS for Innovus"
 flow_proc load_design {
     global run_dir flow
 
-    set _db [cbflow_resolve_head_block "$run_dir/work/$::FLOW_TYPE/place1/outputs/placement.enc.dat" {place init_design}]
+    # Upstream checkpoint from the node graph (pnr(dependencies,*)): walk the
+    # chain most-recent first; the nearest stage that recorded a block wins,
+    # else the direct upstream node's <type>.enc.dat.
+    set _up [cbflow_upstream_node]
+    set _chain {}
+    for {set _n $_up} {$_n ne "" && $_n ni $_chain && [cbflow_node_type $_n] ne "inputs"} {set _n [lindex [cbflow_node_deps $_n] 0]} {
+        lappend _chain $_n
+    }
+    set _stages {}
+    foreach _n $_chain { lappend _stages [cbflow_node_type $_n] }
+    set _db [cbflow_resolve_head_block "[cbflow_node_dir $_up]/outputs/[cbflow_node_type $_up].enc.dat" $_stages]
     if {![file exists $_db]} {
         handle_warning "place database not found: $_db"
         return
@@ -71,7 +81,8 @@ flow_proc setup_ndr {
     global pnr
 
     # Source the Cadence NDR script
-    set ndr_script "$::env(FLOW_DIR)/PD/cmds/$::FLOW_TYPE/cadence/innovus/v1.0.0/scripts/cts_ndr.tcl"
+    set _tool_ver [expr {[info exists ::env(INNOVUS_VERSION)] && $::env(INNOVUS_VERSION) ne "" ? $::env(INNOVUS_VERSION) : [cbflow_require pnr tool,version]}]
+    set ndr_script "$::env(FLOW_DIR)/PD/cmds/$::FLOW_TYPE/cadence/innovus/$_tool_ver/scripts/cts_ndr.tcl"
 
     # Allow user override
     if {[info exists pnr(cts,ndr_script)] && $pnr(cts,ndr_script) ne ""} {
@@ -166,8 +177,8 @@ flow_proc generate_reports {
 flow_proc save_design {
     set _outputs "$::WORK_DIR/outputs"
     file mkdir $_outputs
-    saveDesign "$_outputs/cts.enc"
-    cbflow_record_block_state $::STAGE_NAME "$_outputs/cts.enc.dat" $::NODE_NAME
+    saveDesign "$_outputs/${::STAGE_NAME}.enc"
+    cbflow_record_block_state $::STAGE_NAME "$_outputs/${::STAGE_NAME}.enc.dat" $::NODE_NAME
     handle_info "Design saved: $_outputs/cts.enc"
 }
 

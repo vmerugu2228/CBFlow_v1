@@ -8,7 +8,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "STA"
 set STAGE_NAME "extraction"
-set NODE_NAME "extraction1"
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -17,7 +17,7 @@ setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 handle_info "Starting STA extraction stage with Cadence Tempus..."
 
 # ── CPU threading (Tempus RAK) ───────────────────────────────────────────────
-set _cpu [expr {[info exists sta(tool,cpu_count)] && $sta(tool,cpu_count) ne "" ? $sta(tool,cpu_count) : 8}]
+set _cpu [cbflow_require sta tool,cpu_count]
 set_multi_cpu_usage -localCpu $_cpu
 handle_info "CPUs: $_cpu"
 
@@ -31,17 +31,20 @@ if {[info exists sta(timing,si_aware)] && $sta(timing,si_aware) eq "true"} {
 # │                       MMMC CONFIGURATION                                   │
 # └─────────────────────────────────────────────────────────────────────────────┘
 
-# Source MMMC multi-corner configuration for extraction
-set mmmc_config_file "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
-if {[file exists $mmmc_config_file]} {
-    source $mmmc_config_file
-    handle_info "MMMC configuration loaded: $mmmc_config_file"
-    global analysis_views
-    if {[info exists analysis_views]} {
-        handle_info "  MMMC scenarios available: [llength [array names analysis_views]]"
-    }
-} else {
-    handle_warning "MMMC config not found: $mmmc_config_file -- single-corner extraction"
+# Source MMMC multi-corner configuration for extraction — project-level
+# mmmc_config.tcl (global/config/project/<proj>/<PROJECT_CONFIG_VERSION>/).
+if {![info exists ::env(CBFLOW_GLOBAL_DIR)] || $::env(CBFLOW_GLOBAL_DIR) eq ""} {
+    handle_error "CBFLOW_GLOBAL_DIR is not set — cannot locate the project mmmc_config.tcl"
+}
+set mmmc_config_file "$::env(CBFLOW_GLOBAL_DIR)/config/project/$::env(CBFLOW_PROJECT_NAME)/[cbflow_version PROJECT_CONFIG_VERSION]/mmmc_config.tcl"
+if {![file exists $mmmc_config_file]} {
+    handle_error "Project MMMC config not found: $mmmc_config_file"
+}
+source $mmmc_config_file
+handle_info "MMMC configuration loaded: $mmmc_config_file"
+global analysis_views
+if {[info exists analysis_views]} {
+    handle_info "  MMMC scenarios available: [llength [array names analysis_views]]"
 }
 
 # Source active scenarios if available
@@ -61,7 +64,7 @@ if {![namespace exists ::flow]} {
 }
 set ::flow::exec_mode "auto"
 
-set WORK_DIR "$run_dir/work/STA/extraction"
+set WORK_DIR "$run_dir/work/$FLOW_TYPE/$NODE_NAME"
 set REPORTS_DIR "$WORK_DIR/reports"
 set OUTPUTS_DIR "$run_dir/outputs"
 file mkdir $REPORTS_DIR
@@ -123,7 +126,7 @@ flow_proc read_design {
     handle_info "Reading design for extraction..."
 
     set run_dir $::env(CBFLOW_RUN_DIR)
-    set netlist_dir "$run_dir/work/STA/inputs/netlist"
+    set netlist_dir "$run_dir/work/STA/[cbflow_require sta input_node,netlist]/netlist"
     set netlist_files [glob -nocomplain "$netlist_dir/*.v" "$netlist_dir/*.sv" "$netlist_dir/*.vg"]
 
     if {[llength $netlist_files] > 0} {
@@ -153,7 +156,7 @@ flow_proc read_constraints {
     handle_info "Reading SDC constraints..."
 
     set run_dir $::env(CBFLOW_RUN_DIR)
-    set sdc_files [glob -nocomplain "$run_dir/work/STA/inputs/sdc/*.sdc"]
+    set sdc_files [glob -nocomplain "$run_dir/work/STA/[cbflow_require sta input_node,sdc]/sdc/*.sdc"]
 
     if {[llength $sdc_files] > 0} {
         foreach sdc $sdc_files {
@@ -220,7 +223,7 @@ flow_proc validate_extraction_results {
     }
 
     set validation_flow_dir [expr {[info exists FLOW_DIR] ? $FLOW_DIR : $::env(FLOW_DIR)}]
-    set enhanced_validation_script "$validation_flow_dir/utils/validation/v1.0.0/enhanced_validate_run.tcl"
+    set enhanced_validation_script "$validation_flow_dir/utils/validation/[cbflow_version VALIDATION_VERSION]/enhanced_validate_run.tcl"
     if {[file exists $enhanced_validation_script]} {
         if {[catch {exec tclsh $enhanced_validation_script STA extraction $current_dir $validation_flow_dir} result]} {
             handle_warning "Validation completed with warnings: $result"

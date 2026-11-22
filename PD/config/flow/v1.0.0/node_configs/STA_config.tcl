@@ -114,6 +114,12 @@ foreach _s $_sta_exec_stages {
     set sta(mandatory_outputs,timing1) {}
     set sta(mandatory_outputs,merge_reports1) {reports/sta/mmmc_timing_summary.rpt}
 
+    # Input nodes that stage each input type (work/STA/<node>/<type>/) — read
+    # by the Tempus timing handler / extraction / export scripts (were literal
+    # "sdc1" and "work/STA/inputs/<type>" paths in the cmd files).
+    set sta(input_node,sdc)     "sdc1"
+    set sta(input_node,netlist) "netlist1"
+
     set sta(mandatory_input_groups) {
         set sta(netlist_inputs) {sta(input,netlist)}
         set sta(def_inputs) {sta(input,def_file)}

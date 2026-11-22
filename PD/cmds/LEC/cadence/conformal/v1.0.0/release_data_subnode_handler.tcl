@@ -12,13 +12,13 @@ handler_load_configs $run_dir "LEC"
 
 set ::flow_type "LEC"
 set stage_name "release_data"
-if {$node_name eq ""} { set node_name "${stage_name}1" }
+if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [expr {[info exists ::env(CONFORMAL_VERSION)] ? $::env(CONFORMAL_VERSION) : "v1.0.0"}]
+set _tool_ver [expr {[info exists ::env(CONFORMAL_VERSION)] && $::env(CONFORMAL_VERSION) ne "" ? $::env(CONFORMAL_VERSION) : [cbflow_require lec tool,version]}]
 set cmd_file "$::env(FLOW_DIR)/PD/cmds/LEC/cadence/conformal/$_tool_ver/release_data_conformal.tcl"
 
 set test_mode [handler_is_test_mode]
-set _tool [expr {[info exists ::lec(tool,name)] ? $::lec(tool,name) : "conformal"}]
+set _tool [cbflow_require lec tool,name]
 
 handler_dispatch $subnode_name $run_dir $::flow_type $node_name $stage_name \
                  $cmd_file $test_mode $_tool "conformal"

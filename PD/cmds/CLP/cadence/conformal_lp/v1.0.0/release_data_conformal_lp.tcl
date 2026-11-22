@@ -8,24 +8,25 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "CLP"
 set STAGE_NAME "release_data"
-set NODE_NAME "release_data1"
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 
-# Source release utilities for ::CBFlow::Release namespace
+# Source release utilities for ::CBFlow::Release namespace (mandatory — the
+# release layout is defined only there).
 set _ru "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
-if {[file exists $_ru]} { source $_ru }
-set release_utils "$FLOW_DIR/global/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
-if {[file exists $release_utils]} { source $release_utils }
+if {![file exists $_ru]} { handle_error "release_utils.tcl not found: $_ru" }
+source $_ru
 
-# Source release_config for phase/milestone file expectations
-set release_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
-if {[file exists $release_config]} { source $release_config }
+# Source release_config for phase/milestone file expectations + report contracts
+set release_config "$::env(CONFIG_ROOT)/flow/[cbflow_version FLOW_CONFIG_VERSION]/release_config.tcl"
+if {![file exists $release_config]} { handle_error "release_config.tcl not found: $release_config" }
+source $release_config
 
-set WORK_DIR "$run_dir/work/CLP/release_data1"
+set WORK_DIR "$run_dir/work/$FLOW_TYPE/$NODE_NAME"
 set REPORTS_DIR "$WORK_DIR/reports"
 set OUTPUTS_DIR "$run_dir/outputs"
 file mkdir $REPORTS_DIR
@@ -58,13 +59,15 @@ flow_proc init_release {
 
     set run_dir $::env(CBFLOW_RUN_DIR)
 
-    # ── Validate mandatory variables ─────────────────────────────────────────
+    # ── Validate mandatory variables (hard error — no partial releases) ──────
     set missing_vars {}
-    if {![info exists clp(common,design_name)] && ![info exists flow(design_name)]} {
+    set design_name ""
+    if {[info exists clp(common,design_name)] && $clp(common,design_name) ne ""} {
+        set design_name $clp(common,design_name)
+    } elseif {[info exists flow(design_name)] && $flow(design_name) ne ""} {
+        set design_name $flow(design_name)
+    } else {
         lappend missing_vars "design_name (clp(common,design_name) or flow(design_name))"
-    }
-    if {![info exists project(release,tag)] || $project(release,tag) eq ""} {
-        lappend missing_vars "project(release,tag) in the project config"
     }
     if {![info exists ::env(FLOW_DIR)] || $::env(FLOW_DIR) eq ""} {
         lappend missing_vars "FLOW_DIR"
@@ -72,14 +75,9 @@ flow_proc init_release {
     if {![info exists ::env(CONFIG_ROOT)] || $::env(CONFIG_ROOT) eq ""} {
         lappend missing_vars "CONFIG_ROOT"
     }
-
     if {[llength $missing_vars] > 0} {
-        handle_warning "Missing mandatory variables for release:"
-        foreach v $missing_vars { handle_warning "  - $v" }
-        handle_warning "Release may be incomplete"
+        handle_error "Missing mandatory variables for release: [join $missing_vars {, }]"
     }
-
-    set design_name [expr {[info exists clp(common,design_name)] ? $clp(common,design_name) : [expr {[info exists flow(design_name)] ? $flow(design_name) : "clp"}]}]
 
     # ── Determine release phase ──────────────────────────────────────────────
     set release_phase ""   ;# from project(release,phase) below — no built-in phase
@@ -87,19 +85,11 @@ flow_proc init_release {
     if {[info exists clp(common,release_phase)]} { set release_phase $clp(common,release_phase) }
     if {[info exists project(release,phase)] && $project(release,phase) ne ""} { set release_phase $project(release,phase) }
 
-    # ── Initialize release using utilities ───────────────────────────────────
-    if {[namespace exists ::CBFlow::Release]} {
-        ::CBFlow::Release::init "CLP" $design_name $run_dir $release_phase
-    } else {
-        set ::release_dir "$run_dir/release/CLP"
-        foreach subdir {reports data db logs} {
-            file mkdir "$::release_dir/$subdir"
-        }
-    }
+    # ── Initialize release (single layout: <path>/<phase>/<block>/<FLOW>/<tag>) ─
+    set ::release_dir [::CBFlow::Release::init "CLP" $design_name $run_dir $release_phase]
 
-    handle_info "Release phase: $release_phase"
-    set _release_tag [expr {[info exists project(release,tag)] ? $project(release,tag) : "(unset)"}]
-    handle_info "Release tag: $_release_tag"
+    handle_info "Release phase: $::CBFlow::Release::release_phase"
+    handle_info "Release tag: $::CBFlow::Release::release_tag"
 }
 
 # ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -109,13 +99,11 @@ flow_proc init_release {
 flow_proc prepare_release_directory {
     handle_info "Preparing release directory..."
 
-    set run_dir $::env(CBFLOW_RUN_DIR)
-    set release_dir "$run_dir/results/release"
+    set release_dir $::release_dir
 
     # Create release directory structure
     foreach dir {
         "reports"
-        "db"
         "logs"
     } {
         file mkdir "$release_dir/$dir"
@@ -133,25 +121,18 @@ flow_proc copy_release_artifacts {
     handle_info "Copying release artifacts..."
 
     set run_dir $::env(CBFLOW_RUN_DIR)
-    set release_dir "$run_dir/results/release"
 
-    # Copy power verification report
-    set power_rpt "$run_dir/results/clp/power_verification.rpt"
+    # Power verification summary — written by the clp stage to $OUTPUTS_DIR.
+    set power_rpt "$::DIRS(outputs)/power_verification.rpt"
     if {[file exists $power_rpt]} {
-        file copy -force $power_rpt "$release_dir/reports/clp_verification.rpt"
+        ::CBFlow::Release::copy_file $power_rpt reports clp_verification.rpt
         puts "  Copied: power_verification.rpt -> reports/clp_verification.rpt"
     }
 
-    # Copy database
-    set db_file "$run_dir/results/db/clp_verification.db"
-    if {[file exists $db_file]} {
-        file copy -force $db_file "$release_dir/db/clp_verification.db"
-        puts "  Copied: clp_verification.db -> db/clp_verification.db"
-    }
-
-    # Copy individual check reports
-    foreach rpt [glob -nocomplain "$run_dir/work/CLP/clp1/reports/*.rpt"] {
-        if {[catch {file copy -force $rpt "$release_dir/reports/[file tail $rpt]"}]} {
+    # Copy individual check reports of the upstream clp node
+    set clp_rpt_dir "[cbflow_node_dir [cbflow_chain_node clp]]/reports"
+    foreach rpt [glob -nocomplain "$clp_rpt_dir/*.rpt"] {
+        if {[catch {::CBFlow::Release::copy_file $rpt reports [file tail $rpt]}]} {
             handle_warning "Could not copy: [file tail $rpt]"
         } else {
             puts "  Copied: [file tail $rpt]"
@@ -169,23 +150,17 @@ flow_proc verify_release_integrity {
     global clp
     handle_info "Verifying release integrity..."
 
-    set run_dir $::env(CBFLOW_RUN_DIR)
-    set release_dir "$run_dir/results/release"
+    set release_dir $::release_dir
     set all_ok true
 
     # Validate using release_config mandatory file lists
-    if {[namespace exists ::CBFlow::Release]} {
-        set valid [::CBFlow::Release::validate_mandatory_files]
-        if {!$valid} {
-            handle_warning "Some mandatory files are missing — check release phase requirements"
-        }
+    set valid [::CBFlow::Release::validate_mandatory_files]
+    if {!$valid} {
+        handle_warning "Some mandatory files are missing — check release phase requirements"
     }
 
-    # Check required release files
-    set required_files {
-        "reports/clp_verification.rpt"
-        "db/clp_verification.db"
-    }
+    # Check required release files (release_deliverables(CLP,required))
+    set required_files [cbflow_require release_deliverables CLP,required]
 
     foreach rf $required_files {
         set full_path "$release_dir/$rf"
@@ -215,36 +190,10 @@ flow_proc generate_release_output {
     set notes ""
     if {[info exists project(release_notes)]} { set notes $project(release_notes) }
 
-    if {[namespace exists ::CBFlow::Release]} {
-        ::CBFlow::Release::generate_manifest
-        ::CBFlow::Release::generate_release_notes $notes
-        ::CBFlow::Release::stamp_complete
-        ::CBFlow::Release::summary
-    } else {
-        # Legacy manifest
-        set run_dir $::env(CBFLOW_RUN_DIR)
-        set release_dir "$run_dir/results/release"
-        set manifest_file "$release_dir/MANIFEST.txt"
-
-        set fp [open $manifest_file w]
-        puts $fp "==============================================================================="
-        puts $fp "CBFlow CLP - Release Manifest"
-        puts $fp "==============================================================================="
-        puts $fp "Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
-        puts $fp "Flow: CLP (Conformal Low Power)"
-        puts $fp "Tool: Cadence Conformal LP"
-        if {[info exists project(top_module)]} { puts $fp "Design: $project(top_module)" }
-        if {[info exists project(name)]} { puts $fp "Project: $project(name)" }
-        if {[info exists tech(node)]} { puts $fp "Technology: $tech(node)" }
-        puts $fp ""
-        puts $fp "Release Contents:"
-        foreach f [glob -nocomplain "$release_dir/reports/*" "$release_dir/db/*" "$release_dir/logs/*"] {
-            set rel_path [string range $f [expr {[string length $release_dir] + 1}] end]
-            puts $fp "  $rel_path ([file size $f] bytes)"
-        }
-        close $fp
-        puts " Release manifest: $manifest_file"
-    }
+    ::CBFlow::Release::generate_manifest
+    ::CBFlow::Release::generate_release_notes $notes
+    ::CBFlow::Release::stamp_complete
+    ::CBFlow::Release::summary
 
     handle_info "Release output generated"
 }

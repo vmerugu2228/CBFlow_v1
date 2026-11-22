@@ -8,7 +8,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PNR"
 set STAGE_NAME "init_design"
-set NODE_NAME "init_design1"
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -94,7 +94,7 @@ flow_proc setup_libraries {
              \    (a) lib_config_<TAG>.tcl was NOT sourced — regenerate the run\n\
              \        cd <run_dir>; cbflow run validate --type config\n\
              \    (b) project(track_variant)='$_trk' has no entry in\n\
-             \        config/tech/$_tech/v1.0.0/lib_config_${_lib_tag}.tcl\n\
+             \        config/tech/$_tech/[cbflow_version TECH_CONFIG_VERSION]/lib_config_${_lib_tag}.tcl\n\
              \        (run: cbflow flow library-manager coverage --tech $_tech)\n\
              \    (c) project(lib_config_tag) not set in project_config"
         return
@@ -166,24 +166,15 @@ flow_proc read_design {
     handle_info "Reading design netlist..."
     global pnr project flow
 
-    set design_name [expr {[info exists pnr(common,design_name)] ? $pnr(common,design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists pnr(common,design_name)] && $pnr(common,design_name) ne "" ? $pnr(common,design_name) : [cbflow_require flow design_name]}]
     # PNR top is the design being implemented, not the SoC umbrella module.
     set top_module $design_name
 
     # Read gate-level netlist from synthesis output
-    set netlist_file ""
-    if {[info exists pnr(input,netlist)] && $pnr(input,netlist) ne ""} {
-        set netlist_file $pnr(input,netlist)
-    } elseif {[info exists pnr(common,input_netlist)] && $pnr(common,input_netlist) ne ""} {
-        set netlist_file $pnr(common,input_netlist)
-    } else {
-        set netlist_file "$::NETLIST_DIR/${design_name}.v"
-        if {![file exists $netlist_file]} {
-            set netlist_file "$::NETLIST_DIR/${design_name}.vg"
-        }
-    }
+    # Handshake key only (release tag / from_run / explicit path all land here).
+    set netlist_file [cbflow_require pnr input,netlist]
 
-    if {$netlist_file ne "" && [file exists $netlist_file]} {
+    if {[file exists $netlist_file]} {
         handle_info "Reading netlist: $netlist_file"
         read_verilog $netlist_file
     } else {
@@ -206,30 +197,25 @@ flow_proc load_constraints {
     handle_info "Loading timing constraints..."
     global pnr flow
 
-    set design_name [expr {[info exists pnr(common,design_name)] ? $pnr(common,design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists pnr(common,design_name)] && $pnr(common,design_name) ne "" ? $pnr(common,design_name) : [cbflow_require flow design_name]}]
 
-    # SDC constraints
-    set sdc_file ""
+    # SDC: handshake key pnr(input,sdc), else the copy of pnr(input,sdc_func_file)
+    # staged by the sdc inputs node.
     if {[info exists pnr(input,sdc)] && $pnr(input,sdc) ne ""} {
         set sdc_file $pnr(input,sdc)
-    } elseif {[info exists pnr(input,sdc_file)] && $pnr(input,sdc_file) ne ""} {
-        set sdc_file $pnr(input,sdc_file)
+    } elseif {[info exists pnr(input,sdc_func_file)] && $pnr(input,sdc_func_file) ne ""} {
+        set sdc_file "$::SDC_DIR/[file tail $pnr(input,sdc_func_file)]"
     } else {
-        set sdc_file "$::SDC_DIR/${design_name}.sdc"
-        if {![file exists $sdc_file]} {
-            # Try constraints directory
-            set sdc_files [glob -nocomplain "$::SDC_DIR/*.sdc"]
-            if {[llength $sdc_files] > 0} {
-                set sdc_file [lindex $sdc_files 0]
-            }
-        }
+        handle_error "No SDC configured -- set pnr(input,sdc) (or pnr(input,sdc_release_tag)) or pnr(input,sdc_func_file)"
+        return -code error "Missing SDC"
     }
 
-    if {$sdc_file ne "" && [file exists $sdc_file]} {
+    if {[file exists $sdc_file]} {
         handle_info "Reading SDC: $sdc_file"
         read_sdc $sdc_file
     } else {
-        handle_warning "No SDC file found -- PNR will run without timing constraints"
+        handle_error "SDC file not found: $sdc_file"
+        return -code error "Missing SDC"
     }
 
     # Additional SDC files
@@ -385,11 +371,12 @@ flow_proc run_init_design {
     handle_info "Running Innovus init_design..."
     global pnr project tech flow
 
-    set design_name [expr {[info exists pnr(common,design_name)] ? $pnr(common,design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists pnr(common,design_name)] && $pnr(common,design_name) ne "" ? $pnr(common,design_name) : [cbflow_require flow design_name]}]
 
     # Set power/ground nets
-    set pwr_net [expr {[info exists pnr(common,power_net)] ? $pnr(common,power_net) : "VDD"}]
-    set gnd_net [expr {[info exists pnr(common,ground_net)] ? $pnr(common,ground_net) : "VSS"}]
+    # pnr(common,power_net|ground_net) override; project(power,vdd_net|vss_net) is the source.
+    set pwr_net [expr {[info exists pnr(common,power_net)] && $pnr(common,power_net) ne "" ? $pnr(common,power_net) : [cbflow_require project power,vdd_net]}]
+    set gnd_net [expr {[info exists pnr(common,ground_net)] && $pnr(common,ground_net) ne "" ? $pnr(common,ground_net) : [cbflow_require project power,vss_net]}]
     set init_pwr_net $pwr_net
     set init_gnd_net $gnd_net
 
@@ -546,16 +533,16 @@ flow_proc save_design {
     global pnr flow
 
     set run_dir $::env(CBFLOW_RUN_DIR)
-    set design_name [expr {[info exists pnr(common,design_name)] ? $pnr(common,design_name) : $flow(design_name)}]
+    set design_name [expr {[info exists pnr(common,design_name)] && $pnr(common,design_name) ne "" ? $pnr(common,design_name) : [cbflow_require flow design_name]}]
 
     file mkdir "$run_dir/outputs"
 
     # Save Innovus design database
     set _outputs "$::WORK_DIR/outputs"
     file mkdir $_outputs
-    saveDesign "$_outputs/init_design.enc"
-    cbflow_record_block_state $::STAGE_NAME "$_outputs/init_design.enc.dat" $::NODE_NAME
-    handle_info "Design saved: $_outputs/init_design.enc"
+    saveDesign "$_outputs/${::STAGE_NAME}.enc"
+    cbflow_record_block_state $::STAGE_NAME "$_outputs/${::STAGE_NAME}.enc.dat" $::NODE_NAME
+    handle_info "Design saved: $_outputs/${::STAGE_NAME}.enc"
 
     # Write DEF for downstream consumption
     catch {
@@ -576,7 +563,7 @@ flow_proc generate_reports {
 
     file mkdir "$::REPORTS_DIR"
 
-    set max_paths [expr {[info exists pnr(analysis,max_paths)] ? $pnr(analysis,max_paths) : 100}]
+    set max_paths [cbflow_require pnr analysis,max_paths]
 
     # Design summary
     catch { report_design -outfile "$::REPORTS_DIR/design_summary.rpt" }

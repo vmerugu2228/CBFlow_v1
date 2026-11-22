@@ -11,7 +11,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PV"
 set STAGE_NAME "xor"
-set NODE_NAME "${STAGE_NAME}1"
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -19,8 +19,13 @@ setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 
 # ── Design name (resolve from pv(...) or flow(...)) ──────────────────────
-set DESIGN_NAME [expr {[info exists pv(common,design_name)] ? $pv(common,design_name) :
-                       [expr {[info exists flow(design_name)] ? $flow(design_name) : "design"}]}]
+if {[info exists pv(common,design_name)] && $pv(common,design_name) ne ""} {
+    set DESIGN_NAME $pv(common,design_name)
+} elseif {[info exists flow(design_name)] && $flow(design_name) ne ""} {
+    set DESIGN_NAME $flow(design_name)
+} else {
+    handle_error "Design name not set — set pv(common,design_name) or flow(design_name) in user_config"
+}
 set ::DESIGN_NAME $DESIGN_NAME
 # ═══════════════════════════════════════════════════════════════════════════════
 # Setup XOR environment
@@ -44,13 +49,8 @@ flow_proc setup_xor_environment {
         handle_error "pv(input,gds) not set — cannot run XOR"
     }
 
-    # Post-fill / signoff layout (from decomp_merge_gds1 → fill_merge_gds1
-    # chain; fall back to the older single-stage path for legacy tape-outs).
-    set _run_dir $::env(CBFLOW_RUN_DIR)
-    set ::_post_fill "$_run_dir/work/PV/decomp_merge_gds1/results/${::DESIGN_NAME}_signoff.gds"
-    if {![file exists $::_post_fill]} {
-        set ::_post_fill "$_run_dir/work/PV/fill_merge_gds1/results/${::DESIGN_NAME}_fill_verified.gds"
-    }
+    # Post-fill / signoff layout from the upstream decomp_merge_gds node.
+    set ::_post_fill "[cbflow_node_dir [cbflow_dep_node decomp_merge_gds]]/results/${::DESIGN_NAME}_signoff.gds"
     if {[file exists $::_post_fill]} {
         handle_info "  Post-fill layout: $::_post_fill"
     } else {
@@ -95,7 +95,7 @@ flow_proc run_xor_check {
         }
         set ::env(RESULTS_DB) "$::WORK_DIR/results/xor"
 
-        set num_cpus [expr {[info exists pv(xor,num_cpus)] ? $pv(xor,num_cpus) : 4}]
+        set num_cpus [cbflow_require pv xor,num_cpus]
         set calibre_cmd "calibre -drc -hier -64 -turbo $num_cpus $xor_runset"
 
         handle_info "  CMD: $calibre_cmd"

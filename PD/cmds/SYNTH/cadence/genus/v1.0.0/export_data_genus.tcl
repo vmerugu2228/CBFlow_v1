@@ -8,7 +8,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "SYNTH"
 set STAGE_NAME "export_data"
-set NODE_NAME "export_data1"
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -118,7 +118,7 @@ flow_proc export_data_reports {
     puts "INFO: Exported area report: $::REPORTS_DIR/export_area.rpt"
 
     # Export timing summary
-    report_timing -max_paths 100 -file "$::REPORTS_DIR/export_timing.rpt"
+    report_timing -max_paths [cbflow_require synth analysis,max_paths] -file "$::REPORTS_DIR/export_timing.rpt"
     puts "INFO: Exported timing report: $::REPORTS_DIR/export_timing.rpt"
 
     # Export power analysis

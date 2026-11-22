@@ -8,7 +8,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "ECO"
 set STAGE_NAME "export_db"
-set NODE_NAME "${STAGE_NAME}1"
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -120,10 +120,10 @@ flow_proc validate_exports {
     if {[info exists ::project(top_module)]} { puts $fp "Design: $::project(top_module)" }
     puts $fp ""
     puts $fp "Exported Files:"
-    puts $fp "  Netlist: results/eco/eco_netlist.v"
-    puts $fp "  DEF:     results/eco/eco_modified.def"
-    puts $fp "  GDS:     results/eco/eco_modified.gds"
-    puts $fp "  DB:      results/db/eco.innovus.dat"
+    puts $fp "  Netlist: $::OUTPUTS_DIR/eco_netlist.v"
+    puts $fp "  DEF:     $::OUTPUTS_DIR/eco_modified.def"
+    puts $fp "  GDS:     $::OUTPUTS_DIR/eco_modified.gds"
+    puts $fp "  DB:      $::OUTPUTS_DIR/db/eco.innovus.dat"
     puts $fp ""
     if {[llength $errors] > 0} {
         puts $fp "EXPORT STATUS: FAIL"

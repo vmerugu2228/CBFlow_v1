@@ -12,13 +12,13 @@ handler_load_configs $run_dir "PNR"
 
 set ::flow_type "PNR"
 set stage_name "cts"
-if {$node_name eq ""} { set node_name "${stage_name}1" }
+if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [expr {[info exists ::env(INNOVUS_VERSION)] ? $::env(INNOVUS_VERSION) : "v1.0.0"}]
+set _tool_ver [expr {[info exists ::env(INNOVUS_VERSION)] && $::env(INNOVUS_VERSION) ne "" ? $::env(INNOVUS_VERSION) : [cbflow_require pnr tool,version]}]
 set cmd_file "$::env(FLOW_DIR)/PD/cmds/PNR/cadence/innovus/$_tool_ver/cts_innovus.tcl"
 
 set test_mode [handler_is_test_mode]
-set _tool [expr {[info exists ::pnr(tool,name)] ? $::pnr(tool,name) : "innovus"}]
+set _tool [cbflow_require pnr tool,name]
 
 handler_dispatch $subnode_name $run_dir $::flow_type $node_name $stage_name \
                  $cmd_file $test_mode $_tool "innovus"

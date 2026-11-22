@@ -8,7 +8,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "STA"
 set STAGE_NAME "merge_reports"
-set NODE_NAME "merge_reports1"
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -27,15 +27,22 @@ if {[file exists $scenarios_file]} {
     puts "      with no MMMC scenarios (aggregate_results will no-op cleanly)."
 }
 
-# Source MMMC configuration for analysis_views
-set mmmc_config_file "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
-if {[file exists $mmmc_config_file]} { source $mmmc_config_file }
+# Source MMMC configuration for analysis_views — project-level mmmc_config.tcl
+# in global/config/project/<proj>/<PROJECT_CONFIG_VERSION>/ (single source).
+if {![info exists ::env(CBFLOW_GLOBAL_DIR)] || $::env(CBFLOW_GLOBAL_DIR) eq ""} {
+    handle_error "CBFLOW_GLOBAL_DIR is not set — cannot locate the project mmmc_config.tcl"
+}
+set mmmc_config_file "$::env(CBFLOW_GLOBAL_DIR)/config/project/$::env(CBFLOW_PROJECT_NAME)/[cbflow_version PROJECT_CONFIG_VERSION]/mmmc_config.tcl"
+if {![file exists $mmmc_config_file]} {
+    handle_error "Project MMMC config not found: $mmmc_config_file"
+}
+source $mmmc_config_file
 
 flow_proc setup_reporting_dirs {
     handle_info "Setting up reporting directories..."
     set run_dir $::env(CBFLOW_RUN_DIR)
-    # Path must match the active STA stage node name (merge_reports1).
-    foreach dir {"work/STA/merge_reports1/run" "reports/sta" "logs/merge_reports"} {
+    # Path must match the active STA stage node name.
+    foreach dir [list "work/$::FLOW_TYPE/$::NODE_NAME/run" "reports/sta" "logs/$::STAGE_NAME"] {
         file mkdir "$run_dir/$dir"
     }
     puts " Reporting directories created"
@@ -80,7 +87,10 @@ flow_proc aggregate_results {
             } elseif {[regexp {slack\s+\(MET\)\s+([-\d.]+)} $content -> slack_val]} {
                 set setup_wns $slack_val
             }
-            set setup_tns 0.0
+            # TNS only when the report states it — never a fabricated 0.0.
+            if {[regexp -nocase {\mTNS\M\s*[:=]?\s*([-\d.]+)} $content -> tns_val]} {
+                set setup_tns $tns_val
+            }
         }
 
         # Parse hold report
@@ -96,7 +106,10 @@ flow_proc aggregate_results {
             } elseif {[regexp {slack\s+\(MET\)\s+([-\d.]+)} $content -> slack_val]} {
                 set hold_wns $slack_val
             }
-            set hold_tns 0.0
+            # TNS only when the report states it — never a fabricated 0.0.
+            if {[regexp -nocase {\mTNS\M\s*[:=]?\s*([-\d.]+)} $content -> tns_val]} {
+                set hold_tns $tns_val
+            }
         }
 
         lappend summary_data [list $scenario $view_info(corner) $view_info(mode) \

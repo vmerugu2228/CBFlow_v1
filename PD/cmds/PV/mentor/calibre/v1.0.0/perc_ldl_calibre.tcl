@@ -11,21 +11,26 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PV"
 set STAGE_NAME "perc_ldl"
-set NODE_NAME "${STAGE_NAME}1"
+set NODE_NAME [cbflow_node_name]
 
 source "$::env(CBFLOW_RUN_DIR)/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$::env(CBFLOW_RUN_DIR)/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $::env(CBFLOW_RUN_DIR) $FLOW_TYPE $NODE_NAME
 
-set DESIGN_NAME [expr {[info exists pv(common,design_name)] ? $pv(common,design_name) :
-                       [expr {[info exists flow(design_name)] ? $flow(design_name) : "design"}]}]
+if {[info exists pv(common,design_name)] && $pv(common,design_name) ne ""} {
+    set DESIGN_NAME $pv(common,design_name)
+} elseif {[info exists flow(design_name)] && $flow(design_name) ne ""} {
+    set DESIGN_NAME $flow(design_name)
+} else {
+    handle_error "Design name not set — set pv(common,design_name) or flow(design_name) in user_config"
+}
 set ::DESIGN_NAME $DESIGN_NAME
 
 flow_proc configure_perc_ldl {
     global pv tech project
     handle_info "Configuring PERC-LDL run..."
 
-    # Post-signoff GDS from producer stage decomp_merge_gds1 (per-stage
+    # Post-signoff GDS from the upstream decomp_merge_gds node (per-stage
     # $WORK_DIR/results). The legacy shared $CBFLOW_RUN_DIR/results/pv/
     # path is no longer written to after the fill1/erc1 → new-DAG rework.
     #
@@ -34,7 +39,8 @@ flow_proc configure_perc_ldl {
     # result for a check that must verify the POST-fill electrical
     # topology. Fail loudly if the producer output is missing so the real
     # upstream problem surfaces instead of a phantom PASS at sign-off.
-    set ::perc_ldl_gds "$::env(CBFLOW_RUN_DIR)/work/PV/decomp_merge_gds1/results/${::DESIGN_NAME}_signoff.gds"
+    set _dm_node [cbflow_dep_node decomp_merge_gds]
+    set ::perc_ldl_gds "[cbflow_node_dir $_dm_node]/results/${::DESIGN_NAME}_signoff.gds"
     # Guard fires only in REAL runs (test_mode not set OR explicitly disabled).
     # The prior formulation `![info exists ::flow(test_mode)]` was inverted —
     # a user setting `set flow(test_mode) "false"` (a documented pattern to
@@ -43,7 +49,7 @@ flow_proc configure_perc_ldl {
     # the convention used everywhere else in the tree.
     set _tm [expr {[info exists ::flow(test_mode)] && [is_true $::flow(test_mode)]}]
     if {![file exists $::perc_ldl_gds] && !$_tm} {
-        handle_error "perc_ldl input GDS missing: $::perc_ldl_gds — decomp_merge_gds1 must run first"
+        handle_error "perc_ldl input GDS missing: $::perc_ldl_gds — $_dm_node must run first"
     }
 
     # LDL-specific SVRF runset. Resolution (matches DRC's convention):
@@ -93,7 +99,7 @@ flow_proc run_perc_ldl {
     # Calibre PERC-LDL invocation (2024.x):
     #   calibre -perc -ldl -hier -64 -turbo N <runset>
     # -ldl enables the latch-up/leakage-driven-layout topology check pass.
-    set num_cpus [expr {[info exists pv(perc_ldl,num_cpus)] ? $pv(perc_ldl,num_cpus) : 8}]
+    set num_cpus [cbflow_require pv perc_ldl,num_cpus]
     set calibre_cmd [list calibre -perc -ldl -hier -64 -turbo $num_cpus $::perc_ldl_runset]
 
     handle_info "  CMD: $calibre_cmd"

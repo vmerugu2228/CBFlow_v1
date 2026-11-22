@@ -8,7 +8,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "EMIR"
 set STAGE_NAME "power_analysis"
-set NODE_NAME "power_analysis1"
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -18,7 +18,7 @@ handle_info "Starting EMIR power_analysis stage with Voltus..."
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
 
-set WORK_DIR "$run_dir/work/EMIR/power_analysis1"
+set WORK_DIR [cbflow_node_dir $NODE_NAME]
 set REPORTS_DIR "$WORK_DIR/reports"
 set OUTPUTS_DIR "$run_dir/outputs"
 file mkdir $REPORTS_DIR
@@ -35,11 +35,8 @@ flow_proc setup_power_analysis {
     file mkdir "$::REPORTS_DIR/power"
     file mkdir "$::OUTPUTS_DIR/emir/power"
 
-    # Determine analysis method from config: static | dynamic | dynamic_vectorless
-    set method "static"
-    if {[info exists emir(power,analysis_mode)] && $emir(power,analysis_mode) ne ""} {
-        set method $emir(power,analysis_mode)
-    }
+    # Analysis method from config: static | vectorless | dynamic | dynamic_vectorless
+    set method [cbflow_require emir power,analysis_mode]
 
     # Determine analysis view if configured
     set view_opt ""
@@ -83,15 +80,10 @@ flow_proc setup_power_analysis {
                 handle_warning "Activity file not found: $emir(input,power_activity_file)"
             }
         } else {
-            # Use default switching activity from config
-            set input_activity "0.2"
-            set period "2.0"
-            if {[info exists emir(power,default_toggle_rate)] && $emir(power,default_toggle_rate) ne ""} {
-                set input_activity $emir(power,default_toggle_rate)
-            }
-            if {[info exists emir(power,default_static_probability)] && $emir(power,default_static_probability) ne ""} {
-                set period $emir(power,default_static_probability)
-            }
+            # Default switching activity from config (-period is the clock
+            # period, not the static probability).
+            set input_activity [cbflow_require emir power,default_toggle_rate]
+            set period [cbflow_require emir power,default_activity_period]
 
             handle_info "  set_default_switching_activity -input_activity $input_activity -period $period"
             set_default_switching_activity -input_activity $input_activity -period $period
@@ -191,8 +183,8 @@ flow_proc run_pg_analysis {
     handle_info "Running power grid analysis for power data..."
 
     # Get power/ground net names
-    set vdd_net [expr {[info exists emir(power,vdd_net)] && $emir(power,vdd_net) ne "" ? $emir(power,vdd_net) : "VDD"}]
-    set vss_net [expr {[info exists emir(power,vss_net)] && $emir(power,vss_net) ne "" ? $emir(power,vss_net) : "VSS"}]
+    set vdd_net [expr {[info exists emir(power,vdd_net)] && $emir(power,vdd_net) ne "" ? $emir(power,vdd_net) : [cbflow_require project power,vdd_net]}]
+    set vss_net [expr {[info exists emir(power,vss_net)] && $emir(power,vss_net) ne "" ? $emir(power,vss_net) : [cbflow_require project power,vss_net]}]
 
     # Analyze power grids
     handle_info "  analyze_power_grid -net $vdd_net"
@@ -216,7 +208,7 @@ flow_proc generate_reports {
     global emir flow
     handle_info "Generating power analysis reports..."
 
-    set vdd_net [expr {[info exists emir(power,vdd_net)] && $emir(power,vdd_net) ne "" ? $emir(power,vdd_net) : "VDD"}]
+    set vdd_net [expr {[info exists emir(power,vdd_net)] && $emir(power,vdd_net) ne "" ? $emir(power,vdd_net) : [cbflow_require project power,vdd_net]}]
 
     # IR drop from power analysis (quick check)
     set ir_rpt "$::REPORTS_DIR/power/ir_drop_quick.rpt"

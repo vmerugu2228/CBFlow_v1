@@ -11,14 +11,19 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PV"
 set STAGE_NAME "nettran"
-set NODE_NAME "${STAGE_NAME}1"
+set NODE_NAME [cbflow_node_name]
 
 source "$::env(CBFLOW_RUN_DIR)/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$::env(CBFLOW_RUN_DIR)/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $::env(CBFLOW_RUN_DIR) $FLOW_TYPE $NODE_NAME
 
-set DESIGN_NAME [expr {[info exists pv(common,design_name)] ? $pv(common,design_name) :
-                       [expr {[info exists flow(design_name)] ? $flow(design_name) : "design"}]}]
+if {[info exists pv(common,design_name)] && $pv(common,design_name) ne ""} {
+    set DESIGN_NAME $pv(common,design_name)
+} elseif {[info exists flow(design_name)] && $flow(design_name) ne ""} {
+    set DESIGN_NAME $flow(design_name)
+} else {
+    handle_error "Design name not set — set pv(common,design_name) or flow(design_name) in user_config"
+}
 set ::DESIGN_NAME $DESIGN_NAME
 
 flow_proc configure_nettran {
@@ -44,9 +49,10 @@ flow_proc configure_nettran {
         lappend ::nettran_source_decks $pv(input,spice_stdcell)
     }
 
-    # Explicit power/ground nets (default VDD/VSS unless overridden by design).
-    set ::nettran_power  [expr {[info exists pv(nettran,power)]  ? $pv(nettran,power)  : "VDD"}]
-    set ::nettran_ground [expr {[info exists pv(nettran,ground)] ? $pv(nettran,ground) : "VSS"}]
+    # Explicit power/ground nets: pv(nettran,power|ground) override, else the
+    # project PG nets project(power,vdd_net|vss_net).
+    set ::nettran_power  [expr {[info exists pv(nettran,power)]  && $pv(nettran,power)  ne "" ? $pv(nettran,power)  : [cbflow_require project power,vdd_net]}]
+    set ::nettran_ground [expr {[info exists pv(nettran,ground)] && $pv(nettran,ground) ne "" ? $pv(nettran,ground) : [cbflow_require project power,vss_net]}]
 
     # Top cell to match against the Verilog top module.
     if {[info exists pv(common,top_cell)]} {

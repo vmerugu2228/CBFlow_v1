@@ -15,11 +15,26 @@ handler_load_configs $run_dir "STA"
 
 set ::flow_type "STA"
 set stage_name "timing"
-if {$node_name eq ""} { set node_name "${stage_name}1" }
+if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [expr {[info exists ::env(TEMPUS_VERSION)] ? $::env(TEMPUS_VERSION) : "v1.0.0"}]
+set _tool_ver [expr {[info exists ::env(TEMPUS_VERSION)] && $::env(TEMPUS_VERSION) ne "" ? $::env(TEMPUS_VERSION) : [cbflow_require sta tool,version]}]
 
 set test_mode [handler_is_test_mode]
+
+# Project MMMC config: global/config/project/<proj>/<PROJECT_CONFIG_VERSION>/<file>.
+# Single location — no legacy CONFIG_ROOT / PD-local fallback.
+proc _sta_project_mmmc_file {fname} {
+    if {![info exists ::env(CBFLOW_GLOBAL_DIR)] || $::env(CBFLOW_GLOBAL_DIR) eq ""} {
+        puts stderr "ERROR: CBFLOW_GLOBAL_DIR is not set — cannot locate project $fname"
+        exit 1
+    }
+    set _f "$::env(CBFLOW_GLOBAL_DIR)/config/project/$::env(CBFLOW_PROJECT_NAME)/[cbflow_version PROJECT_CONFIG_VERSION]/$fname"
+    if {![file exists $_f]} {
+        puts stderr "ERROR: project MMMC file not found: $_f"
+        exit 1
+    }
+    return $_f
+}
 
 switch $subnode_name {
     "setup" {
@@ -52,15 +67,7 @@ switch $subnode_name {
         # Resolve MMMC scenarios and run per-scenario timing
         puts "INFO: $stage_name dynamic — resolving MMMC scenarios..."
 
-        # mmmc_config.tcl in global/ (post-Phase-3); fall back to legacy CONFIG_ROOT.
-        set _mmmc_cands [list]
-        if {[info exists ::env(CBFLOW_GLOBAL_DIR)] && $::env(CBFLOW_GLOBAL_DIR) ne ""} {
-            lappend _mmmc_cands "$::env(CBFLOW_GLOBAL_DIR)/config/project/$::env(CBFLOW_PROJECT_NAME)/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
-        }
-        lappend _mmmc_cands "$::env(CONFIG_ROOT)/project/$::env(CBFLOW_PROJECT_NAME)/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
-        foreach mmmc_config_file $_mmmc_cands {
-            if {[file exists $mmmc_config_file]} { source $mmmc_config_file; break }
-        }
+        source [_sta_project_mmmc_file mmmc_config.tcl]
 
         set setup_scenarios {}
         set hold_scenarios {}
@@ -68,7 +75,7 @@ switch $subnode_name {
         if {[info exists ::sta(mmmc,setup_scenarios)] && $::sta(mmmc,setup_scenarios) ne ""} {
             set setup_scenarios $::sta(mmmc,setup_scenarios)
         } elseif {[info exists mmmc_scenario_sets] && [array exists mmmc_scenario_sets]} {
-            set sset [expr {[info exists ::sta(mmmc,scenario_set)] ? $::sta(mmmc,scenario_set) : "sta_signoff"}]
+            set sset [cbflow_require sta mmmc,scenario_set]
             if {$sset ne "custom" && [info exists mmmc_scenario_sets($sset)]} {
                 array set _ss $mmmc_scenario_sets($sset)
                 if {[info exists _ss(scenarios)]} { set setup_scenarios $_ss(scenarios) }
@@ -112,16 +119,7 @@ switch $subnode_name {
         set scenario $subnode_name
         puts "INFO: timing scenario: $scenario"
 
-        # mmmc_config.tcl lives in global/; CONFIG_ROOT path is a
-        # fallback for legacy bundles.
-        set _mmmc_candidates [list]
-        if {[info exists ::env(CBFLOW_GLOBAL_DIR)] && $::env(CBFLOW_GLOBAL_DIR) ne ""} {
-            lappend _mmmc_candidates "$::env(CBFLOW_GLOBAL_DIR)/config/project/$::env(CBFLOW_PROJECT_NAME)/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
-        }
-        lappend _mmmc_candidates "$::env(CONFIG_ROOT)/project/$::env(CBFLOW_PROJECT_NAME)/$::env(FLOW_CONFIG_VERSION)/mmmc_config.tcl"
-        foreach _mmmc_cfg $_mmmc_candidates {
-            if {[file exists $_mmmc_cfg]} { source $_mmmc_cfg; break }
-        }
+        source [_sta_project_mmmc_file mmmc_config.tcl]
 
         if {![info exists analysis_views($scenario)]} {
             puts "ERROR: Scenario '$scenario' not found in analysis_views"
@@ -146,23 +144,8 @@ switch $subnode_name {
         }
 
         # Resolve SDC file
-        set _sdc_dir "$run_dir/work/$::flow_type/sdc1/sdc"
+        set _sdc_dir "$run_dir/work/$::flow_type/[cbflow_require sta input_node,sdc]/sdc"
         set _sdc_file "$_sdc_dir/$_sv(constraint_file)"
-
-        # Resolve view definition file. mmmc_view_definition.tcl lives
-        # in global/; PD-local location is a fallback for legacy bundles.
-        set _vd_file ""
-        set _vd_candidates [list]
-        if {[info exists ::env(CBFLOW_GLOBAL_DIR)] && $::env(CBFLOW_GLOBAL_DIR) ne ""} {
-            lappend _vd_candidates "$::env(CBFLOW_GLOBAL_DIR)/config/project/$::env(CBFLOW_PROJECT_NAME)/$::env(FLOW_CONFIG_VERSION)/mmmc_view_definition.tcl"
-        }
-        lappend _vd_candidates "$::env(FLOW_DIR)/PD/config/project/$::env(CBFLOW_PROJECT_NAME)/$::env(FLOW_CONFIG_VERSION)/mmmc_view_definition.tcl"
-        foreach _c $_vd_candidates {
-            if {[file exists $_c]} { set _vd_file $_c; break }
-        }
-        if {$_vd_file eq ""} {
-            set _vd_file [lindex $_vd_candidates 0]
-        }
 
         # ── Generate per-corner Tempus command file ──
         set _cmd_file "$_run_dir/${scenario}.tempus.tcl"
@@ -405,7 +388,7 @@ switch $subnode_name {
             puts $rpt "Setup WNS: 0.000ns  Hold WNS: 0.000ns"
             close $rpt
         } else {
-            set _tool [expr {[info exists ::sta(tool,name)] ? $::sta(tool,name) : "tempus"}]
+            set _tool [cbflow_require sta tool,name]
             handler_run $run_dir $::flow_type $node_name $scenario $_cmd_file false $_tool
         }
         puts "INFO: timing scenario $scenario done"

@@ -18,7 +18,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "ECO"
 set STAGE_NAME "eco"
-set NODE_NAME "${STAGE_NAME}1"
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -113,17 +113,13 @@ flow_proc eco_reroute {
 # ==============================================================================
 flow_proc add_fillers {
     handle_info "Adding fillers..."
-    global eco tech
+    global eco tech project
 
+    # Filler cells: tech(<track_variant>,fillers); prefix: ECO_innovus_config.
+    set _track [cbflow_require project track_variant]
     set _cmd "addFiller"
-    if {[info exists tech(filler_cells)] && $tech(filler_cells) ne ""} {
-        append _cmd " -cell $tech(filler_cells)"
-    }
-    if {[info exists eco(eco,filler_cell_prefix)]} {
-        append _cmd " -prefix $eco(eco,filler_cell_prefix)"
-    } else {
-        append _cmd " -prefix FILL"
-    }
+    append _cmd " -cell \{[cbflow_require tech $_track,fillers]\}"
+    append _cmd " -prefix [cbflow_require eco eco,filler_cell_prefix]"
     handle_info "Running: $_cmd"
     eval $_cmd
     handle_info "Fillers added"
@@ -137,7 +133,11 @@ flow_proc save_design {
     handle_info "Saving ECO design..."
     global eco flow
 
-    set design_name [expr {[info exists eco(common,design_name)] ? $eco(common,design_name) : $flow(design_name)}]
+    if {[info exists eco(common,design_name)] && $eco(common,design_name) ne ""} {
+        set design_name $eco(common,design_name)
+    } else {
+        set design_name [cbflow_require flow design_name]
+    }
 
     set _db "$::OUTPUTS_DIR/db/${design_name}_eco.innovus.dat"
     file mkdir [file dirname $_db]

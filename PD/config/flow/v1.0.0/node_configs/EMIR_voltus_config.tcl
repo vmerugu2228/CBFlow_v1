@@ -13,8 +13,26 @@ array set emir {
 }
 
 # ┌─ EMIR App Settings (moved from common EMIR_config.tcl) ────────────────────┐
+# power,analysis_mode: static | vectorless | dynamic | dynamic_vectorless —
+# required by power_analysis_voltus.tcl. "static" is the value the script used
+# before (the "vectorless" set here was overridden by an empty RM-block entry,
+# which made the script fall back to its built-in "static"; that duplicate
+# entry is removed below).
 array set emir {
-    power,analysis_mode        "vectorless"
+    power,analysis_mode        "static"
+}
+
+# ┌─ Voltus Default Switching Activity / IR Report Settings ──────────────────┐
+# Previously hard-coded in power_analysis_voltus.tcl / ir_drop_voltus.tcl.
+# power,default_toggle_rate      -> set_default_switching_activity -input_activity
+# power,default_activity_period  -> set_default_switching_activity -period
+#                                   (the script used to read this from the
+#                                   unrelated power,default_static_probability key)
+# ir_drop,max_violations         -> report_power_rail -worst_instances
+array set emir {
+    power,default_toggle_rate      "0.2"
+    power,default_activity_period  "2.0"
+    ir_drop,max_violations         100
 }
 
 # ┌─ Voltus Power Analysis Settings ──────────────────────────────────────────┐
@@ -53,7 +71,6 @@ array set emir {
 
 array set emir {
     ir_drop,analysis_mode                                ""
-    ir_drop,max_violations                               ""
     ir_drop,mesh_density                                 ""
     ir_drop,pad_location_file                            ""
     ir_drop,run_dynamic                                  ""
@@ -61,9 +78,7 @@ array set emir {
 }
 
 array set emir {
-    power,analysis_mode                                  ""
     power,default_static_probability                     ""
-    power,default_toggle_rate                            ""
     power,map_resolution                                 ""
     power,multi_voltage                                  ""
     power,per_layer_map                                  ""

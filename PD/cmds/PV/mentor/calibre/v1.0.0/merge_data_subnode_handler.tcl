@@ -12,13 +12,13 @@ handler_load_configs $run_dir "PV"
 
 set ::flow_type "PV"
 set stage_name "merge_data"
-if {$node_name eq ""} { set node_name "${stage_name}1" }
+if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [expr {[info exists ::env(CALIBRE_VERSION)] ? $::env(CALIBRE_VERSION) : "v1.0.0"}]
+set _tool_ver [expr {[info exists ::env(CALIBRE_VERSION)] && $::env(CALIBRE_VERSION) ne "" ? $::env(CALIBRE_VERSION) : [cbflow_require pv tool,version]}]
 set cmd_file "$::env(FLOW_DIR)/PD/cmds/PV/mentor/calibre/$_tool_ver/merge_data_calibre.tcl"
 
 set test_mode [handler_is_test_mode]
-set _tool [expr {[info exists ::pv(tool,name)] ? $::pv(tool,name) : "calibre"}]
+set _tool [cbflow_require pv tool,name]
 
 handler_dispatch $subnode_name $run_dir $::flow_type $node_name $stage_name \
                  $cmd_file $test_mode $_tool

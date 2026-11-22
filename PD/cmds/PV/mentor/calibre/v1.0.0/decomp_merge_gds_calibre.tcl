@@ -12,14 +12,19 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PV"
 set STAGE_NAME "decomp_merge_gds"
-set NODE_NAME "${STAGE_NAME}1"
+set NODE_NAME [cbflow_node_name]
 
 source "$::env(CBFLOW_RUN_DIR)/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$::env(CBFLOW_RUN_DIR)/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $::env(CBFLOW_RUN_DIR) $FLOW_TYPE $NODE_NAME
 
-set DESIGN_NAME [expr {[info exists pv(common,design_name)] ? $pv(common,design_name) :
-                       [expr {[info exists flow(design_name)] ? $flow(design_name) : "design"}]}]
+if {[info exists pv(common,design_name)] && $pv(common,design_name) ne ""} {
+    set DESIGN_NAME $pv(common,design_name)
+} elseif {[info exists flow(design_name)] && $flow(design_name) ne ""} {
+    set DESIGN_NAME $flow(design_name)
+} else {
+    handle_error "Design name not set — set pv(common,design_name) or flow(design_name) in user_config"
+}
 set ::DESIGN_NAME $DESIGN_NAME
 
 flow_proc configure_decomp_merge_gds {
@@ -27,11 +32,12 @@ flow_proc configure_decomp_merge_gds {
     handle_info "Configuring decomposed GDS merge (calibredrv -mp)..."
 
     # Two upstream artifacts feed this stage: the fill-verified base GDS and
-    # the colored GDS from decomp1. Both parents guaranteed by the DAG.
-    # Inputs from producer stages fill_merge_gds1 and decomp1 (per-stage
+    # the colored GDS from the decomp node. Both parents guaranteed by the DAG.
+    # Inputs from the upstream fill_merge_gds and decomp nodes (per-stage
     # $WORK_DIR/results). Legacy shared results/pv/ path no longer written to.
-    set ::dm_fill_input   "$::env(CBFLOW_RUN_DIR)/work/PV/fill_merge_gds1/results/${::DESIGN_NAME}_fill_verified.gds"
-    set ::dm_decomp_input "$::env(CBFLOW_RUN_DIR)/work/PV/decomp1/results/${::DESIGN_NAME}_colored.gds"
+    set ::dm_fill_input   "[cbflow_node_dir [cbflow_dep_node fill_merge_gds]]/results/${::DESIGN_NAME}_fill_verified.gds"
+    set ::dm_decomp_input "[cbflow_node_dir [cbflow_dep_node decomp]]/results/${::DESIGN_NAME}_colored.gds"
+    set ::dm_outform      [cbflow_require pv decomp_merge_gds,outform]
 
     if {[info exists pv(common,top_cell)]} {
         set ::dm_top $pv(common,top_cell)
@@ -72,13 +78,13 @@ flow_proc run_decomp_merge_gds {
 
     # calibredrv layout filemerge with MP color propagation:
     #   calibredrv -64 -a "layout filemerge -in fill.gds -in colored.gds
-    #                     -out signoff.gds -outform OASIS -mode combine
+    #                     -out signoff.gds -outform <pv(decomp_merge_gds,outform)> -mode combine
     #                     -topcell TOP -mp_runset <deck>"
     set drv_args [list "layout filemerge" \
                        "-in" $::dm_fill_input \
                        "-in" $::dm_decomp_input \
                        "-out" $::dm_out \
-                       "-outform" "OASIS" \
+                       "-outform" $::dm_outform \
                        "-topcell" $::dm_top \
                        "-mode" "combine"]
     if {$::dm_runset ne "" && [file exists $::dm_runset]} {

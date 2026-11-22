@@ -13,7 +13,7 @@ handler_load_configs $run_dir "STA"
 
 set ::flow_type "STA"
 set stage_name "extraction"
-if {$node_name eq ""} { set node_name "${stage_name}1" }
+if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
 set test_mode [handler_is_test_mode]
 

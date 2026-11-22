@@ -11,15 +11,20 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PV"
 set STAGE_NAME "merge_gds"
-set NODE_NAME "${STAGE_NAME}1"
+set NODE_NAME [cbflow_node_name]
 
 source "$::env(CBFLOW_RUN_DIR)/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$::env(CBFLOW_RUN_DIR)/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $::env(CBFLOW_RUN_DIR) $FLOW_TYPE $NODE_NAME
 
 # ── Design name (project fallback) ──
-set DESIGN_NAME [expr {[info exists pv(common,design_name)] ? $pv(common,design_name) :
-                       [expr {[info exists flow(design_name)] ? $flow(design_name) : "design"}]}]
+if {[info exists pv(common,design_name)] && $pv(common,design_name) ne ""} {
+    set DESIGN_NAME $pv(common,design_name)
+} elseif {[info exists flow(design_name)] && $flow(design_name) ne ""} {
+    set DESIGN_NAME $flow(design_name)
+} else {
+    handle_error "Design name not set — set pv(common,design_name) or flow(design_name) in user_config"
+}
 set ::DESIGN_NAME $DESIGN_NAME
 
 flow_proc configure_merge_gds {
@@ -58,6 +63,7 @@ flow_proc configure_merge_gds {
     }
 
     set ::merge_out "$::WORK_DIR/results/${::DESIGN_NAME}_merged.gds"
+    set ::merge_outform [cbflow_require pv merge_gds,outform]
     set ::merge_log "$::env(CBFLOW_RUN_DIR)/logs/pv/merge_gds_calibre.log"
 
     handle_info "GDS merge configuration:"
@@ -84,7 +90,7 @@ flow_proc run_merge_gds {
                           "-in" $::merge_base_gds \
                           "-in" $::merge_fill_gds \
                           "-out" $::merge_out \
-                          "-outform" "OASIS" \
+                          "-outform" $::merge_outform \
                           "-topcell" $::merge_top \
                           "-mode" "combine"]
         set calibre_cmd [list calibredrv -64 -a [join $drv_cmd " "]]

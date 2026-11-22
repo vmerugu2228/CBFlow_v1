@@ -12,13 +12,13 @@ handler_load_configs $run_dir "FCFP"
 
 set ::flow_type "FCFP"
 set stage_name "fc_post_floorplan"
-if {$node_name eq ""} { set node_name "${stage_name}1" }
+if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [expr {[info exists ::env(INNOVUS_VERSION)] ? $::env(INNOVUS_VERSION) : "v1.0.0"}]
+set _tool_ver [expr {[info exists ::env(INNOVUS_VERSION)] && $::env(INNOVUS_VERSION) ne "" ? $::env(INNOVUS_VERSION) : [cbflow_require fcfp tool,version]}]
 set cmd_file "$::env(FLOW_DIR)/PD/cmds/FCFP/cadence/innovus/$_tool_ver/fc_post_floorplan_innovus.tcl"
 
 set test_mode [handler_is_test_mode]
-set _tool [expr {[info exists ::fcfp(tool,name)] ? $::fcfp(tool,name) : "innovus"}]
+set _tool [cbflow_require fcfp tool,name]
 
 handler_dispatch $subnode_name $run_dir $::flow_type $node_name $stage_name \
                  $cmd_file $test_mode $_tool "innovus"

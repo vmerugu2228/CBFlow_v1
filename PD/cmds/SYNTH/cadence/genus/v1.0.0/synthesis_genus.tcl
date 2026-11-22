@@ -9,7 +9,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "SYNTH"
 set STAGE_NAME "synthesis"
-set NODE_NAME "synthesis1"
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -58,15 +58,13 @@ flow_proc setup_genus_options {
     global synth tech project
 
     # ── Effort ──
-    if {[info exists synth(compile,effort)] && $synth(compile,effort) ne ""} {
-        set_db syn_global_effort $synth(compile,effort)
-        handle_info "Global effort: $synth(compile,effort)"
-    }
+    set _effort [cbflow_require synth compile,effort]
+    set_db syn_global_effort $_effort
+    handle_info "Global effort: $_effort"
 
     # ── Physical-aware synthesis ──
     set _ms $project(metal_stack)
     if {[info exists tech(rcx,${_ms},rc_typ,qrc)] && $tech(rcx,${_ms},rc_typ,qrc) ne ""} {
-        set _effort [expr {[info exists synth(compile,effort)] ? $synth(compile,effort) : "medium"}]
         set_db / .phys_syn_effort $_effort
         handle_info "Physical-aware synthesis enabled"
     }
@@ -450,7 +448,7 @@ flow_proc syn_opt_step {
     }
 
     # syn_opt mode: -logical (default) or -spatial
-    set _opt_mode [expr {[info exists synth(compile,syn_opt_mode)] && $synth(compile,syn_opt_mode) ne "" ? $synth(compile,syn_opt_mode) : "logical"}]
+    set _opt_mode [cbflow_require synth compile,syn_opt_mode]
     if {$_opt_mode eq "spatial"} {
         handle_info "syn_opt -spatial"
         syn_opt -spatial
@@ -472,10 +470,7 @@ flow_proc generate_reports {
 
     file mkdir "$::REPORTS_DIR"
 
-    set _max_paths 100
-    if {[info exists synth(analysis,max_paths)] && $synth(analysis,max_paths) ne ""} {
-        set _max_paths $synth(analysis,max_paths)
-    }
+    set _max_paths [cbflow_require synth analysis,max_paths]
 
     catch { report_timing -max_paths $_max_paths > $::REPORTS_DIR/report_timing.rpt }
     catch { report_timing -summary > $::REPORTS_DIR/report_timing_summary.rpt }

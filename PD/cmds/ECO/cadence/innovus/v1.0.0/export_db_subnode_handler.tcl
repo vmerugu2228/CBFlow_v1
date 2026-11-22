@@ -12,13 +12,13 @@ handler_load_configs $run_dir "ECO"
 
 set ::flow_type "ECO"
 set stage_name "export_db"
-if {$node_name eq ""} { set node_name "${stage_name}1" }
+if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [expr {[info exists ::env(INNOVUS_VERSION)] ? $::env(INNOVUS_VERSION) : "v1.0.0"}]
+set _tool_ver [expr {[info exists ::env(INNOVUS_VERSION)] && $::env(INNOVUS_VERSION) ne "" ? $::env(INNOVUS_VERSION) : [cbflow_require eco tool,version]}]
 set cmd_file "$::env(FLOW_DIR)/PD/cmds/ECO/cadence/innovus/$_tool_ver/export_db_innovus.tcl"
 
 set test_mode [handler_is_test_mode]
-set _tool [expr {[info exists ::eco(tool,name)] ? $::eco(tool,name) : "innovus"}]
+set _tool [cbflow_require eco tool,name]
 
 handler_dispatch $subnode_name $run_dir $::flow_type $node_name $stage_name \
                  $cmd_file $test_mode $_tool

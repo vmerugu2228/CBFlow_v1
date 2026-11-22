@@ -15,19 +15,19 @@ set utils_path "$FLOW_DIR/global/utils/utilities/$::env(UTILITIES_VERSION)/utils
 if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
 namespace import ::CBFlow::Utilities::print_header
 
-set config_file "$run_dir/work/FCFP/fc_floorplan/run/config.tcl"
-if {[file exists $config_file]} { source $config_file }
-global fcfp project tech flow
+set FLOW_TYPE "FCFP"
+set STAGE_NAME "fc_floorplan"
+set NODE_NAME [cbflow_node_name]
 
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source $_tc }
-}
+# Generated per-node config (project + tech + flow + node + user cascade).
+set config_file "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+if {![file exists $config_file]} { puts stderr "ERROR: node config not found: $config_file (run the $NODE_NAME setup subnode)"; exit 1 }
+source $config_file
+global fcfp project tech flow
 # Source user_config for overrides
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source "$run_dir/setup/user_config.tcl" }
 
-set WORK_DIR "$run_dir/work/FCFP/fc_floorplan"
+set WORK_DIR [cbflow_node_dir $NODE_NAME]
 set REPORTS_DIR "$WORK_DIR/reports"
 set OUTPUTS_DIR "$run_dir/outputs"
 file mkdir $REPORTS_DIR
@@ -48,50 +48,40 @@ flow_proc initialize_floorplan {
     file mkdir "results/fcfp"
     file mkdir "$::REPORTS_DIR"
 
-    # Get floorplan parameters from config
-    if {[info exists fcfp(floorplan,site_name)]} {
+    # Site: fcfp(floorplan,site_name) override, else the tech site of the
+    # project's track variant — tech(<project(track_variant)>,site).
+    if {[info exists fcfp(floorplan,site_name)] && $fcfp(floorplan,site_name) ne ""} {
         set site_name $fcfp(floorplan,site_name)
     } else {
-        set site_name "core"
+        set site_name [cbflow_require tech "[cbflow_require project track_variant],site"]
     }
 
+    # Core margins (left bottom right top) — FCFP_innovus_config
+    set margins [list [cbflow_require fcfp floorplan,core_margin_left] \
+                      [cbflow_require fcfp floorplan,core_margin_bottom] \
+                      [cbflow_require fcfp floorplan,core_margin_right] \
+                      [cbflow_require fcfp floorplan,core_margin_top]]
+
     # Initialize floorplan using site
-    if {[info exists fcfp(floorplan,die_width)] && [info exists fcfp(floorplan,die_height)]} {
+    if {[info exists fcfp(floorplan,die_width)] && $fcfp(floorplan,die_width) ne "" && \
+        [info exists fcfp(floorplan,die_height)] && $fcfp(floorplan,die_height) ne ""} {
         # Fixed die size mode
         puts "Floorplan mode: fixed die size"
         puts "Die size: $fcfp(floorplan,die_width) x $fcfp(floorplan,die_height)"
 
-        if {[info exists fcfp(floorplan,core_margin_left)]} {
-            floorPlan -site $site_name \
-                -d $fcfp(floorplan,die_width) $fcfp(floorplan,die_height) \
-                $fcfp(floorplan,core_margin_left) \
-                $fcfp(floorplan,core_margin_bottom) \
-                $fcfp(floorplan,core_margin_right) \
-                $fcfp(floorplan,core_margin_top)
-        } else {
-            floorPlan -site $site_name \
-                -d $fcfp(floorplan,die_width) $fcfp(floorplan,die_height) \
-                10 10 10 10
-        }
-    } elseif {[info exists fcfp(floorplan,utilization)]} {
-        # Utilization-based mode
-        puts "Floorplan mode: utilization-based"
-        puts "Target utilization: $fcfp(floorplan,utilization)"
-
-        if {[info exists fcfp(floorplan,aspect_ratio)]} {
-            set aspect $fcfp(floorplan,aspect_ratio)
-        } else {
-            set aspect 1.0
-        }
-
         floorPlan -site $site_name \
-            -r $aspect $fcfp(floorplan,utilization) \
-            10 10 10 10
+            -d $fcfp(floorplan,die_width) $fcfp(floorplan,die_height) \
+            {*}$margins
     } else {
-        # Default
-        puts "Floorplan mode: default utilization 0.7"
+        # Utilization-based mode (fcfp(floorplan,utilization/aspect_ratio))
+        set util   [cbflow_require fcfp floorplan,utilization]
+        set aspect [cbflow_require fcfp floorplan,aspect_ratio]
+        puts "Floorplan mode: utilization-based"
+        puts "Target utilization: $util"
+
         floorPlan -site $site_name \
-            -r 1.0 0.7 10 10 10 10
+            -r $aspect $util \
+            {*}$margins
     }
 
     puts " Floorplan initialized"
@@ -112,17 +102,19 @@ flow_proc place_partitions {
         }
     }
 
-    # Apply partition constraints from config
-    if {[info exists fcfp(floorplan,partition_constraints_file)]} {
+    # Apply partition constraints from config (set but missing → error)
+    if {[info exists fcfp(floorplan,partition_constraints_file)] && $fcfp(floorplan,partition_constraints_file) ne ""} {
         set constraint_file $fcfp(floorplan,partition_constraints_file)
-        if {[file exists $constraint_file]} {
-            puts "   Sourcing partition constraints: $constraint_file"
-            source $constraint_file
+        if {![file exists $constraint_file]} {
+            handle_error "fcfp(floorplan,partition_constraints_file) not found: $constraint_file"
+            return
         }
+        puts "   Sourcing partition constraints: $constraint_file"
+        source $constraint_file
     }
 
     # Set partition pin assignment mode
-    if {[info exists fcfp(floorplan,partition_pin_mode)]} {
+    if {[info exists fcfp(floorplan,partition_pin_mode)] && $fcfp(floorplan,partition_pin_mode) ne ""} {
         set_partition_pin_mode -mode $fcfp(floorplan,partition_pin_mode)
         puts "   Partition pin mode: $fcfp(floorplan,partition_pin_mode)"
     }
@@ -139,22 +131,19 @@ flow_proc place_macros {
     handle_info "Placing hard macros..."
 
     # Apply macro placement constraints
-    if {[info exists fcfp(floorplan,macro_placement_file)]} {
+    if {[info exists fcfp(floorplan,macro_placement_file)] && $fcfp(floorplan,macro_placement_file) ne ""} {
         set macro_file $fcfp(floorplan,macro_placement_file)
-        if {[file exists $macro_file]} {
-            puts "   Loading macro placement: $macro_file"
-            source $macro_file
+        if {![file exists $macro_file]} {
+            handle_error "fcfp(floorplan,macro_placement_file) not found: $macro_file"
+            return
         }
+        puts "   Loading macro placement: $macro_file"
+        source $macro_file
     } else {
         # Auto-place macros using Innovus macro placer
         puts "   Running automatic macro placement..."
-        if {[info exists fcfp(floorplan,macro_halo_x)]} {
-            set halo_x $fcfp(floorplan,macro_halo_x)
-            set halo_y $fcfp(floorplan,macro_halo_y)
-        } else {
-            set halo_x 5.0
-            set halo_y 5.0
-        }
+        set halo_x [cbflow_require fcfp floorplan,macro_halo_x]
+        set halo_y [cbflow_require fcfp floorplan,macro_halo_y]
 
         # Add halos around macros
         addHaloToBlock $halo_x $halo_y $halo_x $halo_y -allBlock
@@ -167,11 +156,7 @@ flow_proc place_macros {
     # Create blockages around macros
     if {[info exists fcfp(floorplan,create_macro_blockage)] && $fcfp(floorplan,create_macro_blockage) eq "true"} {
         puts "   Creating placement blockages around macros..."
-        if {[info exists fcfp(floorplan,blockage_margin)]} {
-            set margin $fcfp(floorplan,blockage_margin)
-        } else {
-            set margin 2.0
-        }
+        set margin [cbflow_require fcfp floorplan,blockage_margin]
         createPlaceBlockage -type hard -name macro_blockage -inst [dbGet top.insts.name *macro*]
     }
 
@@ -187,37 +172,27 @@ flow_proc assign_io {
     handle_info "Assigning IO placement..."
 
     # Load IO constraint file if available
-    if {[info exists fcfp(floorplan,io_constraint_file)]} {
+    if {[info exists fcfp(floorplan,io_constraint_file)] && $fcfp(floorplan,io_constraint_file) ne ""} {
         set io_file $fcfp(floorplan,io_constraint_file)
-        if {[file exists $io_file]} {
-            puts "   Loading IO constraints: $io_file"
-            loadIoFile $io_file
+        if {![file exists $io_file]} {
+            handle_error "fcfp(floorplan,io_constraint_file) not found: $io_file"
+            return
         }
+        puts "   Loading IO constraints: $io_file"
+        loadIoFile $io_file
     } else {
-        # Auto-assign IOs
+        # Auto-assign IOs — pin layer/geometry from FCFP_innovus_config
         puts "   Running automatic IO assignment..."
-
-        # Set IO filler cells
-        if {[info exists fcfp(floorplan,io_filler_cells)]} {
-            set io_fillers $fcfp(floorplan,io_filler_cells)
-        } else {
-            set io_fillers {}
+        set pin_layer [cbflow_require fcfp floorplan,io_pin_layer]
+        set pin_w     [cbflow_require fcfp floorplan,io_pin_width]
+        set pin_d     [cbflow_require fcfp floorplan,io_pin_depth]
+        foreach _side {Top Bottom Left Right} {
+            editPin -pinWidth $pin_w -pinDepth $pin_d -fixOverlap 1 -layer $pin_layer -spreadType center -side $_side
         }
-
-        # Place IO pins
-        if {[info exists fcfp(floorplan,io_pin_layer)]} {
-            set pin_layer $fcfp(floorplan,io_pin_layer)
-        } else {
-            set pin_layer "metal4"
-        }
-        editPin -pinWidth 0.1 -pinDepth 0.5 -fixOverlap 1 -layer $pin_layer -spreadType center -side Top
-        editPin -pinWidth 0.1 -pinDepth 0.5 -fixOverlap 1 -layer $pin_layer -spreadType center -side Bottom
-        editPin -pinWidth 0.1 -pinDepth 0.5 -fixOverlap 1 -layer $pin_layer -spreadType center -side Left
-        editPin -pinWidth 0.1 -pinDepth 0.5 -fixOverlap 1 -layer $pin_layer -spreadType center -side Right
     }
 
     # Add IO filler cells
-    if {[info exists fcfp(floorplan,io_filler_cells)]} {
+    if {[info exists fcfp(floorplan,io_filler_cells)] && $fcfp(floorplan,io_filler_cells) ne ""} {
         puts "   Adding IO filler cells..."
         place_io_fill -cells $fcfp(floorplan,io_filler_cells)
     }

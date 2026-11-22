@@ -15,19 +15,19 @@ set utils_path "$FLOW_DIR/global/utils/utilities/$::env(UTILITIES_VERSION)/utils
 if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
 namespace import ::CBFlow::Utilities::print_header
 
-set config_file "$run_dir/work/FCFP/fc_post_floorplan/run/config.tcl"
-if {[file exists $config_file]} { source $config_file }
-global fcfp project tech flow
+set FLOW_TYPE "FCFP"
+set STAGE_NAME "fc_post_floorplan"
+set NODE_NAME [cbflow_node_name]
 
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source $_tc }
-}
+# Generated per-node config (project + tech + flow + node + user cascade).
+set config_file "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+if {![file exists $config_file]} { puts stderr "ERROR: node config not found: $config_file (run the $NODE_NAME setup subnode)"; exit 1 }
+source $config_file
+global fcfp project tech flow
 # Source user_config for overrides
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source "$run_dir/setup/user_config.tcl" }
 
-set WORK_DIR "$run_dir/work/FCFP/fc_post_floorplan"
+set WORK_DIR [cbflow_node_dir $NODE_NAME]
 set REPORTS_DIR "$WORK_DIR/reports"
 set OUTPUTS_DIR "$run_dir/outputs"
 file mkdir $REPORTS_DIR
@@ -80,11 +80,7 @@ flow_proc run_congestion {
 
     # Run trial route for congestion estimation
     puts "Running trial route..."
-    if {[info exists fcfp(post_floorplan,trial_route_effort)]} {
-        set effort $fcfp(post_floorplan,trial_route_effort)
-    } else {
-        set effort "medium"
-    }
+    set effort [cbflow_require fcfp post_floorplan,trial_route_effort]
 
     routeDesign -globalDetail -viaOpt
     # Alternative: route_trial for quick congestion check
@@ -101,7 +97,7 @@ flow_proc run_congestion {
     handle_info "  Congestion hotspot map: $cong_map_rpt"
 
     # Check congestion threshold from config
-    if {[info exists fcfp(post_floorplan,congestion_threshold)]} {
+    if {[info exists fcfp(post_floorplan,congestion_threshold)] && $fcfp(post_floorplan,congestion_threshold) ne ""} {
         puts "   Congestion threshold: $fcfp(post_floorplan,congestion_threshold)%"
     }
 
@@ -122,11 +118,7 @@ flow_proc run_timing {
     handle_info "  Pre-place timing: $::REPORTS_DIR/timing/"
 
     # Generate detailed timing report
-    if {[info exists fcfp(post_floorplan,max_timing_paths)]} {
-        set max_paths $fcfp(post_floorplan,max_timing_paths)
-    } else {
-        set max_paths 50
-    }
+    set max_paths [cbflow_require fcfp post_floorplan,max_timing_paths]
 
     report_timing -max_paths $max_paths \
         -late > "$::REPORTS_DIR/timing_setup.rpt"

@@ -12,27 +12,31 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PV"
 set STAGE_NAME "fill_merge_gds"
-set NODE_NAME "${STAGE_NAME}1"
+set NODE_NAME [cbflow_node_name]
 
 source "$::env(CBFLOW_RUN_DIR)/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$::env(CBFLOW_RUN_DIR)/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $::env(CBFLOW_RUN_DIR) $FLOW_TYPE $NODE_NAME
 
-set DESIGN_NAME [expr {[info exists pv(common,design_name)] ? $pv(common,design_name) :
-                       [expr {[info exists flow(design_name)] ? $flow(design_name) : "design"}]}]
+if {[info exists pv(common,design_name)] && $pv(common,design_name) ne ""} {
+    set DESIGN_NAME $pv(common,design_name)
+} elseif {[info exists flow(design_name)] && $flow(design_name) ne ""} {
+    set DESIGN_NAME $flow(design_name)
+} else {
+    handle_error "Design name not set — set pv(common,design_name) or flow(design_name) in user_config"
+}
 set ::DESIGN_NAME $DESIGN_NAME
 
 flow_proc configure_fill_merge_gds {
     global pv tech project
     handle_info "Configuring post-merge fill validation..."
 
-    # Merged GDS from the upstream producer stage merge_gds1 (per-stage
+    # Merged GDS from the upstream merge_gds node (per-stage
     # $WORK_DIR/results). The legacy shared $CBFLOW_RUN_DIR/results/pv/
     # path is no longer written to.
-    set ::fmg_input "$::env(CBFLOW_RUN_DIR)/work/PV/merge_gds1/results/${::DESIGN_NAME}_merged.gds"
-    if {![file exists $::fmg_input] && [info exists pv(input,gds)]} {
-        # Fallback so test_mode + hand-invoked runs still work.
-        set ::fmg_input $pv(input,gds)
+    set ::fmg_input "[cbflow_node_dir [cbflow_dep_node merge_gds]]/results/${::DESIGN_NAME}_merged.gds"
+    if {![file exists $::fmg_input]} {
+        handle_error "fill_merge_gds input GDS missing: $::fmg_input — the upstream merge_gds node must run first"
     }
 
     # SVRF fill-verification runset (matches DRC's convention):
@@ -65,6 +69,7 @@ flow_proc configure_fill_merge_gds {
 }
 
 flow_proc run_fill_merge_gds {
+    global pv
     set ::fmg_status "PASS"
     handle_info "Running post-merge fill validation with Calibre..."
     set run_dir $::env(CBFLOW_RUN_DIR)
@@ -75,7 +80,7 @@ flow_proc run_fill_merge_gds {
     if {$::fmg_runset ne "" && [file exists $::fmg_runset]} {
         # Full fill DRC/verify pass:
         #   calibre -drc -hier -64 -turbo N -select_check "FILL_*" <runset>
-        set num_cpus [expr {[info exists pv(fill_merge_gds,num_cpus)] ? $pv(fill_merge_gds,num_cpus) : 8}]
+        set num_cpus [cbflow_require pv fill_merge_gds,num_cpus]
         set calibre_cmd [list calibre -drc -hier -64 -turbo $num_cpus $::fmg_runset]
         handle_info "  CMD: $calibre_cmd"
         # test_mode guard: Tcl's `exec` is a builtin, so test_mode's unknown-based

@@ -127,10 +127,6 @@ array set fcfp {
     floorplan,place_pins        true
 
     power,net_names             "VDD VSS"
-    power,ring_width            "3.0"
-    power,ring_spacing          "1.0"
-    power,strap_width           "1.0"
-    power,strap_pitch           "20.0"
     power,mesh_layers           "M8 M9 M10"
 
     place_pins,legalize         true
@@ -201,9 +197,10 @@ set fcfp(required_inputs,export_data1)      "work/FCFP/timing_budget1/run/timing
 # --- COMMON (3 vars) ---
 array set fcfp {
     common,design_name                                   ""
-    common,release_dir                                   ""
     common,release_phase                                 ""
 }
+# (common,release_dir removed: the release directory comes only from
+#  ::CBFlow::Release::init — <release,path>/<phase>/<block>/FCFP/<tag>.)
 
 # --- EXPORT (3 vars) ---
 array set fcfp {
@@ -214,54 +211,73 @@ array set fcfp {
 
 # --- FLOORPLAN (20 vars) ---
 array set fcfp {
-    floorplan,aspect_ratio                               ""
-    floorplan,blockage_margin                            ""
-    floorplan,core_margin_bottom                         ""
-    floorplan,core_margin_left                           ""
-    floorplan,core_margin_right                          ""
-    floorplan,core_margin_top                            ""
+    floorplan,aspect_ratio                               "1.0"
+    floorplan,blockage_margin                            "2.0"
+    floorplan,core_margin_bottom                         "10"
+    floorplan,core_margin_left                           "10"
+    floorplan,core_margin_right                          "10"
+    floorplan,core_margin_top                            "10"
     floorplan,create_macro_blockage                      ""
     floorplan,die_height                                 ""
     floorplan,die_width                                  ""
     floorplan,io_constraint_file                         ""
     floorplan,io_filler_cells                            ""
-    floorplan,io_pin_layer                               ""
-    floorplan,macro_halo_x                               ""
-    floorplan,macro_halo_y                               ""
+    floorplan,io_pin_layer                               "metal4"
+    floorplan,macro_halo_x                               "5.0"
+    floorplan,macro_halo_y                               "5.0"
     floorplan,macro_placement_file                       ""
     floorplan,partition_constraints_file                 ""
     floorplan,partition_list                             ""
     floorplan,partition_pin_mode                         ""
     floorplan,site_name                                  ""
-    floorplan,utilization                                ""
+    floorplan,utilization                                "0.7"
 }
 
 # --- POST_FLOORPLAN (3 vars) ---
 array set fcfp {
     post_floorplan,congestion_threshold                  ""
-    post_floorplan,max_timing_paths                      ""
-    post_floorplan,trial_route_effort                    ""
+    post_floorplan,max_timing_paths                      "50"
+    post_floorplan,trial_route_effort                    "medium"
 }
 
 # --- POWER (19 vars) ---
 array set fcfp {
-    power,block_ring_width                               ""
+    power,block_ring_width                               "1.0"
     power,create_block_rings                             ""
     power,fine_strap_layer                               ""
     power,fine_strap_pitch                               ""
     power,fine_strap_width                               ""
     power,ring_layer_h                                   ""
     power,ring_layer_v                                   ""
-    power,ring_offset                                    ""
-    power,ring_spacing                                   ""
-    power,ring_width                                     ""
+    power,ring_offset                                    "2.0"
+    power,ring_spacing                                   "1.0"
+    power,ring_width                                     "3.0"
     power,strap_layer_h                                  ""
     power,strap_layer_v                                  ""
-    power,strap_pitch                                    ""
-    power,strap_spacing                                  ""
-    power,strap_width                                    ""
+    power,strap_pitch                                    "20.0"
+    power,strap_spacing                                  "1.0"
+    power,strap_width                                    "1.0"
     power,tie_high_net                                   ""
     power,tie_low_net                                    ""
     power,vdd_net                                        ""
     power,vss_net                                        ""
+}
+
+# ┌─ Hardcode-fix 2026-11-22: values formerly literal in the FCFP Innovus cmds ┐
+# floorplan,core_margin_*/aspect_ratio/utilization (10/1.0/0.7),
+# macro_halo_x/y (5.0), blockage_margin (2.0), io_pin_layer (metal4),
+# post_floorplan,max_timing_paths (50)/trial_route_effort (medium),
+# power,ring_offset (2.0)/strap_spacing (1.0)/block_ring_width (1.0) were
+# script fallbacks; power,ring_width/ring_spacing/strap_width/strap_pitch
+# (3.0/1.0/1.0/20.0) were declared twice (the "" block silently won).
+# io_pin_layer must match the tech LEF layer names of the active stack.
+# Empty override keys resolve from the single source of truth:
+#   floorplan,site_name      -> tech(<project(track_variant)>,site)
+#   power,vdd_net/vss_net    -> project(power,vdd_net/vss_net)
+#   power,ring_layer_h/v     -> tech(<project(metal_stack)>,pg_ring_layer_h/v)
+#   power,strap_layer_h/v    -> tech(<project(metal_stack)>,pg_ring_layer_h/v)
+#   sroute layer range       -> first layer of tech(<ms>,metal_layers) .. top ring layer
+array set fcfp {
+    floorplan,io_pin_width                               "0.1"
+    floorplan,io_pin_depth                               "0.5"
 }

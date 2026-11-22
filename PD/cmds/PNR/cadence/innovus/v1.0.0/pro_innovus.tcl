@@ -8,7 +8,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PNR"
 set STAGE_NAME "pro"
-set NODE_NAME "pro1"
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -22,7 +22,17 @@ setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 flow_proc load_design {
     global run_dir flow
 
-    set _db [cbflow_resolve_head_block "$run_dir/work/$::FLOW_TYPE/route1/outputs/route.enc.dat" {route cts_opt cts place init_design}]
+    # Upstream checkpoint from the node graph (pnr(dependencies,*)): walk the
+    # chain most-recent first; the nearest stage that recorded a block wins,
+    # else the direct upstream node's <type>.enc.dat.
+    set _up [cbflow_upstream_node]
+    set _chain {}
+    for {set _n $_up} {$_n ne "" && $_n ni $_chain && [cbflow_node_type $_n] ne "inputs"} {set _n [lindex [cbflow_node_deps $_n] 0]} {
+        lappend _chain $_n
+    }
+    set _stages {}
+    foreach _n $_chain { lappend _stages [cbflow_node_type $_n] }
+    set _db [cbflow_resolve_head_block "[cbflow_node_dir $_up]/outputs/[cbflow_node_type $_up].enc.dat" $_stages]
     if {![file exists $_db]} {
         handle_warning "route database not found: $_db"
         return
@@ -176,8 +186,8 @@ flow_proc final_timing_analysis {
 
     # Post-route timing analysis
     catch { timeDesign -postRoute -outDir "$::REPORTS_DIR" -prefix postRoute }
-    catch { report_timing -max_paths 100 > "$::REPORTS_DIR/report_timing.setup.rpt" }
-    catch { report_timing -delay_type min -max_paths 100 > "$::REPORTS_DIR/report_timing.hold.rpt" }
+    catch { report_timing -max_paths [cbflow_require pnr report,max_paths,$::STAGE_NAME] > "$::REPORTS_DIR/report_timing.setup.rpt" }
+    catch { report_timing -delay_type min -max_paths [cbflow_require pnr report,max_paths,$::STAGE_NAME] > "$::REPORTS_DIR/report_timing.hold.rpt" }
     catch { report_constraint -all_violators > "$::REPORTS_DIR/report_constraint.violations.rpt" }
 
     handle_info "Final timing analysis completed"
@@ -208,8 +218,8 @@ flow_proc post_route_complete {
     # Save final checkpoint
     set _outputs "$::WORK_DIR/outputs"
     file mkdir $_outputs
-    saveDesign "$_outputs/post_route.enc"
-    cbflow_record_block_state $::STAGE_NAME "$_outputs/post_route.enc.dat" $::NODE_NAME
+    saveDesign "$_outputs/${::STAGE_NAME}.enc"
+    cbflow_record_block_state $::STAGE_NAME "$_outputs/${::STAGE_NAME}.enc.dat" $::NODE_NAME
 
     # Generate final database
     global project

@@ -17,10 +17,9 @@ array set fp {
     endcap,prefix               "ENDCAP"
     welltap,interval            ""
     welltap,prefix              "WELLTAP"
-
-    power,ring_width            "2.0"
-    power,ring_spacing          "1.0"
 }
+# (power,ring_width / power,ring_spacing live in the POWER block below — a
+#  second definition here was silently overwritten by that block.)
 
 # ┌─ Innovus Init Design Control ──────────────────────────────────────────────┐
 # ┌─ Innovus Compile/Import Control ───────────────────────────────────────────┐
@@ -38,24 +37,41 @@ array set fp {
     power,add_vias                                       ""
     power,analyze_ir                                     ""
     power,ir_drop_limit                                  ""
-    power,macro_ring_offset                              ""
-    power,macro_ring_spacing                             ""
-    power,macro_ring_width                               ""
+    power,macro_ring_offset                              "0.5"
+    power,macro_ring_spacing                             "0.5"
+    power,macro_ring_width                               "1.0"
     power,macro_rings                                    ""
     power,ring_layer_h                                   ""
     power,ring_layer_v                                   ""
-    power,ring_offset                                    ""
-    power,ring_spacing                                   ""
-    power,ring_width                                     ""
+    power,ring_offset                                    "1.0"
+    power,ring_spacing                                   "1.0"
+    power,ring_width                                     "2.0"
     power,sroute_bottom_layer                            ""
     power,sroute_top_layer                               ""
     power,straps                                         ""
     power,tie_high_pin                                   ""
     power,tie_low_pin                                    ""
-    power,vdd_net                                        "VDD"
-    power,vdd_pin                                        "VDD"
+    power,vdd_net                                        ""
+    power,vdd_pin                                        ""
     power,via_bottom_layer                               ""
     power,via_top_layer                                  ""
-    power,vss_net                                        "VSS"
-    power,vss_pin                                        "VSS"
+    power,vss_net                                        ""
+    power,vss_pin                                        ""
+}
+
+# ┌─ Power-plan geometry / layer resolution (hardcode-fix 2026-11-22) ────────┐
+# Values below were literals / derived defaults in powerplan_innovus.tcl.
+#   power,ring_jog_distance / ring_threshold — addRing -jog_distance/-threshold
+#   power,ring_offset       — was "= ring_spacing" when unset
+#   power,macro_ring_*      — was width = ring_width*0.5, spacing = width*0.5,
+#                             offset = spacing (derived from ring_width 2.0)
+# Empty override keys resolve from the single source of truth:
+#   power,vdd_net/vss_net/vdd_pin/vss_pin -> project(power,<key>)
+#   power,ring_layer_h/v   -> tech(<project(metal_stack)>,pg_ring_layer_h/v)
+#   power,sroute_bottom_layer -> first layer of tech(<ms>,metal_layers)
+#   power,sroute_top_layer -> highest PG ring layer in tech(<ms>,metal_layers)
+#   power,via_*_layer      -> the sroute range
+array set fp {
+    power,ring_jog_distance                              "0.5"
+    power,ring_threshold                                 "0.5"
 }

@@ -55,8 +55,10 @@ set synth(required_inputs,export_data1)  "work/SYNTH/synthesis1/outputs/synthesi
 
 # ── Genus-RM App Variables ──────────────────────────────────────────────
 # --- ANALYSIS (1 vars) ---
+# analysis,max_paths: report_timing -max_paths in synthesis_genus.tcl
+# generate_reports and export_data_genus.tcl (was a literal 100 in both).
 array set synth {
-    analysis,max_paths                                   ""
+    analysis,max_paths                                   100
 }
 
 # --- AREA (1 vars) ---
@@ -80,10 +82,11 @@ array set synth {
     common,timing_mode                                   ""
 }
 
-# --- COMPILE (3 vars) ---
+# --- COMPILE (2 vars) ---
+# compile,effort is set once above ("high"); the empty duplicate that used to
+# sit here silently overrode it.
 array set synth {
     compile,dynamic_power_effort                         ""
-    compile,effort                                       ""
     compile,leakage_power_effort                         ""
 }
 
@@ -100,20 +103,19 @@ array set synth {
     effort,timing                                        ""
 }
 
-# --- OPTIMIZATION (3 vars) ---
+# --- OPTIMIZATION (2 vars) ---
+# optimization,boundary is set once above ("false"); empty duplicate removed.
 array set synth {
-    optimization,boundary                                ""
     optimization,hold_fix                                ""
     optimization,multi_vt                                ""
 }
 
-# --- OUTPUT (5 vars) ---
+# --- OUTPUT (2 vars) ---
+# output,save_constraints / save_sdf / save_verilog are set once above in the
+# Output Format Controls block; the empty duplicates here overrode them.
 array set synth {
-    output,save_constraints                              ""
     output,save_ddc                                      ""
-    output,save_sdf                                      ""
     output,save_svf                                      ""
-    output,save_verilog                                  ""
 }
 
 # --- POWER (1 vars) ---

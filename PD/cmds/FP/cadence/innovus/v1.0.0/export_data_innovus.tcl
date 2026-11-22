@@ -8,7 +8,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "FP"
 set STAGE_NAME "export_data"
-set NODE_NAME "export_data1"
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -33,37 +33,12 @@ if {[info procs flow_proc] eq ""} {
         handle_info "Flow procedure '$name' defined"
     }
 }
-# Source generated configuration file (from setup stage)
-set flow_type "FP"
-set config_files [list \
-    "config.tcl" \
-    "work/$flow_type/export_data/run/config.tcl" \
-    "../work/$flow_type/export_data/run/config.tcl" \
-]
-set config_found 0
-foreach config_file $config_files {
-    if {[file exists $config_file]} {
-        handle_info "Sourcing configuration: $config_file"
-        if {[catch {source $config_file} error]} {
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-}
-            handle_warning "Minor error in config file $config_file: $error"
-            handle_info "Continuing with available configuration..."
-        }
-        set config_found 1
-        break
-    }
-}
-if {!$config_found} {
-    # test_mode: tolerate missing generated config (the test harness creates
-    # only dummy artifacts; production runs error loudly as before).
-    if {[info exists ::flow(test_mode)] && [is_true $::flow(test_mode)]} {
-        handle_warning "Cannot find generated config file (test_mode — tolerated)"
-    } else {
-        handle_error "Cannot find generated config file. Run 'make export_data_setup' first."
-        return -code error "Cannot find generated config file. Run 'make export_data_setup' first."
-    }
-}
+# Generated configuration: sourced by the bootstrap above from
+# work/$FLOW_TYPE/$NODE_NAME/run/config.tcl (the old search list probed a
+# non-existent work/FP/export_data/ dir and tolerated errors silently).
+
+# Design name for every exported file — project(top_module), no fallback.
+set EXPORT_TOP [cbflow_require project top_module]
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # FLOW_PROC HOOKS - Export DB Process
@@ -80,7 +55,7 @@ flow_proc export_def {
     }
 
     # Get top module name
-    set top_module [expr {[info exists project(top_module)] ? $project(top_module) : "design"}]
+    set top_module $::EXPORT_TOP
 
     # DEF export path
     set def_file "${results_dir}/def/${top_module}_fp.def"
@@ -112,7 +87,7 @@ flow_proc export_design {
     }
 
     # Get top module name
-    set top_module [expr {[info exists project(top_module)] ? $project(top_module) : "design"}]
+    set top_module $::EXPORT_TOP
 
     # Save primary design database
     set enc_file "${results_dir}/${top_module}_fp.enc"
@@ -198,7 +173,7 @@ flow_proc validate_exports {
     handle_info "Validating exported files..."
 
     set results_dir "results"
-    set top_module [expr {[info exists project(top_module)] ? $project(top_module) : "design"}]
+    set top_module $::EXPORT_TOP
     set validation_errors 0
 
     # Check required output files

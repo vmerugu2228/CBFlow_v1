@@ -17,27 +17,29 @@ set utils_path "$FLOW_DIR/global/utils/utilities/$::env(UTILITIES_VERSION)/utils
 if {[file exists $utils_path]} { source $utils_path } else { puts stderr "ERROR: Utils not found"; exit 1 }
 namespace import ::CBFlow::Utilities::print_header
 
-set config_file "$run_dir/work/FCFP/release_data/run/config.tcl"
-if {[file exists $config_file]} { source $config_file }
-global fcfp project tech flow
+set FLOW_TYPE "FCFP"
+set STAGE_NAME "release_data"
+set NODE_NAME [cbflow_node_name]
 
-# Source tech_config
-if {[info exists ::env(TECH_NAME)] && $::env(TECH_NAME) ne "" && [info exists ::env(TECH_VERSION)]} {
-    set _tc "$::env(CONFIG_ROOT)/tech/$::env(TECH_NAME)/$::env(TECH_VERSION)/tech_config.tcl"
-    if {[file exists $_tc]} { source $_tc }
-}
+# Generated per-node config (project + tech + flow + node + user cascade).
+set config_file "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+if {![file exists $config_file]} { puts stderr "ERROR: node config not found: $config_file (run the $NODE_NAME setup subnode)"; exit 1 }
+source $config_file
+global fcfp project tech flow
 # Source user_config for overrides
 if {[file exists "$run_dir/setup/user_config.tcl"]} { source "$run_dir/setup/user_config.tcl" }
 
-# Source release utilities
+# Release writer (::CBFlow::Release — the only release layout). Mandatory.
 set release_utils "$FLOW_DIR/global/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
-if {[file exists $release_utils]} { source $release_utils }
+if {![file exists $release_utils]} { puts stderr "ERROR: release_utils.tcl not found: $release_utils"; exit 1 }
+source $release_utils
 
-# Source release_config for phase/milestone file expectations
+# Source release_config for phase/milestone file expectations (mandatory)
 set release_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
-if {[file exists $release_config]} { source $release_config }
+if {![file exists $release_config]} { puts stderr "ERROR: release_config.tcl not found: $release_config"; exit 1 }
+source $release_config
 
-set WORK_DIR "$run_dir/work/FCFP/release_data"
+set WORK_DIR [cbflow_node_dir $NODE_NAME]
 set REPORTS_DIR "$WORK_DIR/reports"
 set OUTPUTS_DIR "$run_dir/outputs"
 file mkdir $REPORTS_DIR
@@ -59,11 +61,13 @@ flow_proc init_release {
 
     # ── Validate mandatory variables ─────────────────────────────────────────
     set missing_vars {}
-    if {![info exists fcfp(common,design_name)] && ![info exists flow(design_name)]} {
+    set design_name ""
+    if {[info exists fcfp(common,design_name)] && $fcfp(common,design_name) ne ""} {
+        set design_name $fcfp(common,design_name)
+    } elseif {[info exists flow(design_name)] && $flow(design_name) ne ""} {
+        set design_name $flow(design_name)
+    } else {
         lappend missing_vars "design_name (fcfp(common,design_name) or flow(design_name))"
-    }
-    if {![info exists project(release,tag)] || $project(release,tag) eq ""} {
-        lappend missing_vars "project(release,tag) in the project config"
     }
     if {![info exists ::env(FLOW_DIR)] || $::env(FLOW_DIR) eq ""} {
         lappend missing_vars "FLOW_DIR"
@@ -73,96 +77,54 @@ flow_proc init_release {
     }
 
     if {[llength $missing_vars] > 0} {
-        handle_warning "Missing mandatory variables for release:"
-        foreach v $missing_vars { handle_warning "  - $v" }
-        handle_warning "Release may be incomplete"
+        handle_error "Missing mandatory variables for release: [join $missing_vars {, }]"
+        return
     }
-
-    set design_name [expr {[info exists fcfp(common,design_name)] ? $fcfp(common,design_name) : [expr {[info exists flow(design_name)] ? $flow(design_name) : "fcfp"}]}]
 
     # ── Determine release phase ──────────────────────────────────────────────
     set release_phase ""   ;# from project(release,phase) below — no built-in phase
     if {[info exists project(release_phase)]} { set release_phase $project(release_phase) }
-    if {[info exists fcfp(common,release_phase)]} { set release_phase $fcfp(common,release_phase) }
+    if {[info exists fcfp(common,release_phase)] && $fcfp(common,release_phase) ne ""} { set release_phase $fcfp(common,release_phase) }
     if {[info exists project(release,phase)] && $project(release,phase) ne ""} { set release_phase $project(release,phase) }
 
-    # ── Initialize release using utilities ───────────────────────────────────
-    if {[namespace exists ::CBFlow::Release]} {
-        ::CBFlow::Release::init "FCFP" $design_name $run_dir $release_phase
-    } else {
-        set ::release_dir "$run_dir/release/FCFP"
-        foreach subdir {reports data def db netlist sdc} {
-            file mkdir "$::release_dir/$subdir"
-        }
-    }
+    # ── Initialize release (<path>/<phase>/<block>/FCFP/<tag>) ───────────────
+    set ::release_dir [::CBFlow::Release::init $::FLOW_TYPE $design_name $run_dir $release_phase]
 
-    handle_info "Release phase: $release_phase"
-    set _release_tag [expr {[info exists project(release,tag)] ? $project(release,tag) : "(unset)"}]
-    handle_info "Release tag: $_release_tag"
+    handle_info "Release phase: $::CBFlow::Release::release_phase"
+    handle_info "Release tag: $::CBFlow::Release::release_tag"
 }
 
 # ==============================================================================
 # flow_proc: prepare_release
-# Copy FCFP deliverables to release directory
+# Copy FCFP deliverables (export_data results/fcfp/*) to the release directory
 # ==============================================================================
 flow_proc prepare_release {
     global fcfp project tech flow
     handle_info "Preparing FCFP release deliverables..."
     set run_dir $::env(CBFLOW_RUN_DIR)
 
-    # Determine release directory
-    if {[info exists fcfp(common,release_dir)]} {
-        set release_base $fcfp(common,release_dir)
-    } else {
-        set release_base "$run_dir/release/fcfp"
-    }
-
-    # Create release directory structure
-    foreach d {"def" "db" "netlist" "sdc" "reports" "reports/floorplan" "reports/powerplan" "reports/post_floorplan"} {
-        file mkdir "$release_base/$d"
-    }
-
     # Copy DEF files
-    foreach def [glob -nocomplain "$run_dir/results/fcfp/def/*.def"] {
-        file copy -force $def "$release_base/def/[file tail $def]"
-        handle_info "  Released DEF: [file tail $def]"
-    }
+    set _n [::CBFlow::Release::copy_glob "$run_dir/results/fcfp/def/*.def" def]
+    handle_info "  Released DEF: $_n file(s)"
 
     # Copy design database
-    foreach db [glob -nocomplain "$run_dir/results/fcfp/db/*"] {
-        if {[catch {file copy -force $db "$release_base/db/[file tail $db]"} _cp_err]} {
-            handle_warning "release copy failed ($db "$release_base/db/[file tail $db]"): $_cp_err"
-        }
-        handle_info "  Released DB: [file tail $db]"
-    }
+    set _n [::CBFlow::Release::copy_glob "$run_dir/results/fcfp/db/*" db]
+    handle_info "  Released DB: $_n item(s)"
 
     # Copy netlist
-    foreach netlist [glob -nocomplain "$run_dir/results/fcfp/netlist/*.v"] {
-        file copy -force $netlist "$release_base/netlist/[file tail $netlist]"
-        handle_info "  Released netlist: [file tail $netlist]"
-    }
+    set _n [::CBFlow::Release::copy_glob "$run_dir/results/fcfp/netlist/*.v" netlist]
+    handle_info "  Released netlist: $_n file(s)"
 
     # Copy SDC
-    foreach sdc [glob -nocomplain "$run_dir/results/fcfp/sdc/*.sdc"] {
-        file copy -force $sdc "$release_base/sdc/[file tail $sdc]"
-        handle_info "  Released SDC: [file tail $sdc]"
-    }
+    set _n [::CBFlow::Release::copy_glob "$run_dir/results/fcfp/sdc/*.sdc" sdc]
+    handle_info "  Released SDC: $_n file(s)"
 
-    # Copy reports
+    # Copy reports (collected by export_data under results/fcfp/reports/)
     foreach rpt_dir {"floorplan" "powerplan" "post_floorplan"} {
-        set src "$run_dir/results/fcfp/reports/$rpt_dir"
-        set dest "$release_base/reports/$rpt_dir"
-        if {[file isdirectory $src]} {
-            foreach rpt [glob -nocomplain "$src/*.rpt"] {
-                file copy -force $rpt "$dest/[file tail $rpt]"
-            }
-        }
+        ::CBFlow::Release::copy_glob "$run_dir/results/fcfp/reports/$rpt_dir/*.rpt" "reports/$rpt_dir"
     }
 
-    # Store release path for validation
-    set ::release_dir $release_base
-
-    handle_info "  Release directory: $release_base"
+    handle_info "  Release directory: $::release_dir"
     puts " Release preparation completed"
 }
 
@@ -178,11 +140,9 @@ flow_proc validate_release {
     set release_base $::release_dir
 
     # Validate using release_config mandatory file lists
-    if {[namespace exists ::CBFlow::Release]} {
-        set valid [::CBFlow::Release::validate_mandatory_files]
-        if {!$valid} {
-            handle_warning "Some mandatory files are missing — check release phase requirements"
-        }
+    set valid [::CBFlow::Release::validate_mandatory_files]
+    if {!$valid} {
+        handle_warning "Some mandatory files are missing — check release phase requirements"
     }
 
     # Validate DEF files
@@ -225,14 +185,10 @@ flow_proc generate_release_output {
     set notes ""
     if {[info exists project(release_notes)]} { set notes $project(release_notes) }
 
-    if {[namespace exists ::CBFlow::Release]} {
-        ::CBFlow::Release::generate_manifest
-        ::CBFlow::Release::generate_release_notes $notes
-        ::CBFlow::Release::stamp_complete
-        ::CBFlow::Release::summary
-    } else {
-        handle_info "Release utilities not loaded — skipping output generation"
-    }
+    ::CBFlow::Release::generate_manifest
+    ::CBFlow::Release::generate_release_notes $notes
+    ::CBFlow::Release::stamp_complete
+    ::CBFlow::Release::summary
 
     handle_info "Release output generated"
 }

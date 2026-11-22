@@ -10,7 +10,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "LEC"
 set STAGE_NAME "compare"
-set NODE_NAME "compare1"
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -118,10 +118,11 @@ flow_proc generate_reports {
         puts $fh "LEC PASSED — $_human"
         close $fh
     } else {
-        handle_error "LEC Result: FAILED — designs are NOT equivalent"
+        # Write the marker before handle_error (which exits the tool).
         set fh [open "$rpt_dir/FAILED" "w"]
         puts $fh "LEC FAILED — $_human"
         close $fh
+        handle_error "LEC Result: FAILED — designs are NOT equivalent"
     }
 
     handle_info "Reports generated in $rpt_dir"

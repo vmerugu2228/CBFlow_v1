@@ -8,23 +8,23 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PV"
 set STAGE_NAME "merge_data"
-set NODE_NAME "${STAGE_NAME}1"
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
 setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 
 flow_proc merge_verification_results {
-    global phyv project tech flow
+    global pv project tech flow
     handle_info "Merging all verification results..."
     set run_dir $::env(CBFLOW_RUN_DIR)
     file mkdir "$run_dir/results/phyv"
     file mkdir "$run_dir/results/verification"
 
-    # Scan the real per-node work dirs ($run_dir/work/PV/<node>1/results/<x>/)
-    # and emit the summary at BOTH the legacy (phyv) and the declared
-    # (verification) paths — mandatory_outputs,merge_data1 declares
-    # results/verification/verification_summary.rpt.
+    # Scan the real per-node work dirs (work/PV/<node>/results/<type>/, node
+    # resolved from the DAG) and emit the summary at BOTH the legacy (phyv)
+    # and the declared (verification) paths — mandatory_outputs,<merge_data
+    # node> declares results/verification/verification_summary.rpt.
     set summary_body ""
     append summary_body "═══════════════════════════════════════════════════════════════════════════════\n"
     append summary_body "CBFlow PV - Physical Verification Summary\n"
@@ -35,15 +35,16 @@ flow_proc merge_verification_results {
     if {[info exists tech(node)]} { append summary_body "Technology: $tech(node)\n" }
     append summary_body "\nTool: Mentor Calibre\n\n"
 
-    # Check each verification stage at its real work-dir location.
-    foreach {stage node_name file label} {
-        drc      drc1      drc.rpt       "DRC (Design Rule Check)"
-        lvs      lvs1      lvs.rpt       "LVS (Layout vs Schematic)"
-        erc      erc1      erc.rpt       "ERC (Electrical Rule Check)"
-        perc     perc1     perc.rpt      "PERC (Parasitic Extraction Rule Check)"
-        perc_ldl perc_ldl1 perc_ldl.rpt  "PERC-LDL (Leakage-Driven Layout)"
+    # Check each verification stage at its real work-dir location
+    # (erc was removed from the PV DAG; perc is the electrical gate).
+    foreach {stage file label} {
+        drc      drc.rpt       "DRC (Design Rule Check)"
+        lvs      lvs.rpt       "LVS (Layout vs Schematic)"
+        perc     perc.rpt      "PERC (Parasitic Extraction Rule Check)"
+        perc_ldl perc_ldl.rpt  "PERC-LDL (Leakage-Driven Layout)"
     } {
-        set work_candidate "$run_dir/work/PV/$node_name/results/$stage/$file"
+        set node_name [cbflow_dep_node $stage]
+        set work_candidate "[cbflow_node_dir $node_name]/results/$stage/$file"
         set run_candidate  "$run_dir/results/$stage/$file"
         set found ""
         if {[file exists $work_candidate]} {

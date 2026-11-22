@@ -45,8 +45,24 @@ array set pv {
     fill,runset            ""
     fill,beol_runset       ""
     fill,feol_runset       ""
-    fill,num_cpus          8
     fill,metal_stack       ""
+}
+
+# ┌─ Calibre Fill-Merge / Decomposition / Layout-Merge Settings ──────────────┐
+# Read by fill_merge_gds_calibre.tcl / decomp_calibre.tcl / merge_gds_calibre.tcl
+# / decomp_merge_gds_calibre.tcl (previously hard-coded in those scripts).
+# fill_merge_gds,num_cpus replaces the old fill,num_cpus (the fill1 stage was
+# removed; the script reads the fill_merge_gds key).
+# *,outform is the calibredrv `layout filemerge -outform` value. The stage
+# outputs keep their .gds file names (contract shared with the ICV scripts and
+# the test-mode stubs) — set "GDSII" to make the content match the name.
+array set pv {
+    fill_merge_gds,num_cpus   8
+    decomp,num_cpus           8
+    decomp,colors             2
+    perc_ldl,num_cpus         8
+    merge_gds,outform         "OASIS"
+    decomp_merge_gds,outform  "OASIS"
 }
 
 # ┌─ Calibre PERC Settings ───────────────────────────────────────────────────┐

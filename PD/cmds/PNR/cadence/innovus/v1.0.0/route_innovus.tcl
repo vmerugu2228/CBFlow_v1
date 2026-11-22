@@ -8,7 +8,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PNR"
 set STAGE_NAME "route"
-set NODE_NAME "route1"
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -22,7 +22,17 @@ setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
 flow_proc load_design {
     global run_dir flow
 
-    set _db [cbflow_resolve_head_block "$run_dir/work/$::FLOW_TYPE/cts_opt1/outputs/cts_opt.enc.dat" {cts_opt cts place init_design}]
+    # Upstream checkpoint from the node graph (pnr(dependencies,*)): walk the
+    # chain most-recent first; the nearest stage that recorded a block wins,
+    # else the direct upstream node's <type>.enc.dat.
+    set _up [cbflow_upstream_node]
+    set _chain {}
+    for {set _n $_up} {$_n ne "" && $_n ni $_chain && [cbflow_node_type $_n] ne "inputs"} {set _n [lindex [cbflow_node_deps $_n] 0]} {
+        lappend _chain $_n
+    }
+    set _stages {}
+    foreach _n $_chain { lappend _stages [cbflow_node_type $_n] }
+    set _db [cbflow_resolve_head_block "[cbflow_node_dir $_up]/outputs/[cbflow_node_type $_up].enc.dat" $_stages]
     if {![file exists $_db]} {
         handle_warning "cts_opt database not found: $_db"
         return
@@ -86,7 +96,7 @@ flow_proc setup_routing {
     set route_layers   $pnr(route,layers)
     set via_opt        $pnr(route,via_opt)
     set si_aware       $pnr(route,si_aware)
-    set timing_driven  [expr {[info exists pnr(route,timing_driven)]  ? $pnr(route,timing_driven)  : "true"}]
+    set timing_driven  [cbflow_require pnr route,timing_driven]
 
     handle_info "Routing parameters:"
     handle_info "  Effort: $route_effort"
@@ -164,7 +174,7 @@ flow_proc analyze_routing {
     catch { report_route > "$::REPORTS_DIR/report_route.rpt" }
     catch { verify_drc -report "$::REPORTS_DIR/verify_drc.rpt" }
     catch { checkRoute -outfile "$::REPORTS_DIR/check_route.rpt" }
-    catch { report_timing -max_paths 50 > "$::REPORTS_DIR/report_timing.postRoute.rpt" }
+    catch { report_timing -max_paths [cbflow_require pnr report,max_paths,$::STAGE_NAME] > "$::REPORTS_DIR/report_timing.postRoute.rpt" }
     catch { reportCongestion -overflow > "$::REPORTS_DIR/report_congestion.rpt" }
 
     handle_info "Routing analysis completed"
@@ -190,14 +200,14 @@ flow_proc validate_pnr_route_results {
     }
 
     # Enhanced validation script path
-    set enhanced_validation_script "$validation_flow_dir/utils/validation/v1.0.0/enhanced_validate_run.tcl"
+    set enhanced_validation_script "$validation_flow_dir/utils/validation/[cbflow_version VALIDATION_VERSION]/enhanced_validate_run.tcl"
 
     if {![file exists $enhanced_validation_script]} {
         handle_warning "Enhanced validation script not found: $enhanced_validation_script"
         handle_info "Falling back to basic validation if available..."
 
         # Try basic validation
-        set basic_validation_script "$validation_flow_dir/utils/validation/v1.0.0/validate_run.tcl"
+        set basic_validation_script "$validation_flow_dir/utils/validation/[cbflow_version VALIDATION_VERSION]/validate_run.tcl"
         if {[file exists $basic_validation_script]} {
             handle_info "Running basic validation for PNR route..."
             if {[catch {exec tclsh $basic_validation_script PNR route $current_dir $validation_flow_dir} validation_result]} {
@@ -244,8 +254,8 @@ flow_proc route_complete {
     # Save checkpoint
     set _outputs "$::WORK_DIR/outputs"
     file mkdir $_outputs
-    saveDesign "$_outputs/route.enc"
-    cbflow_record_block_state $::STAGE_NAME "$_outputs/route.enc.dat" $::NODE_NAME
+    saveDesign "$_outputs/${::STAGE_NAME}.enc"
+    cbflow_record_block_state $::STAGE_NAME "$_outputs/${::STAGE_NAME}.enc.dat" $::NODE_NAME
 
     # Final route verification
     catch { verifyConnectivity -report "$::REPORTS_DIR/verify_connectivity.rpt" }

@@ -154,7 +154,7 @@ if {[file exists "$run_dir/consolidated_config.tcl"]} {
 set ::flow_type "PNR"
 set flow_type $::flow_type
 set stage_name "inputs"
-if {$node_name eq ""} { set node_name $stage_name }
+if {$node_name eq ""} { set node_name [cbflow_node_name] }
 file mkdir "$run_dir/work/$flow_type/$node_name/$subnode_name"
 
 # ═══════════════════════════════════════════════════════════════════════════════
