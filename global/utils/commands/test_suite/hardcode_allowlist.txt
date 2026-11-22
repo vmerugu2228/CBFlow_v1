@@ -1,0 +1,14 @@
+# Allowlist for the "hardcode" static category (hardcode_scan.py).
+#
+# Format:  <rule> <repo-relative-path>:<line|*|@func>   # reason
+#   @func = any line inside that Python def / Tcl proc / shell function
+#   rule  = one of: node-name node-path version-default discipline-list
+#           exit-literal phase-literal release-layout design-default
+#           pd-net-layer   (or * for any rule)
+#
+# Only genuinely central definitions belong here. Do NOT allowlist a
+# violation to make the check green — fix the code to read config instead.
+
+version-default global/bin/_cbflow_paths.sh:*   # the single central launcher default for *_VERSION env vars
+release-layout global/utils/core/registry.py:@release_dir          # THE central release-layout helper (Python)
+release-layout global/utils/utilities/v1.0.0/utils.tcl:@cbflow_release_dir   # THE central release-layout helper (Tcl)

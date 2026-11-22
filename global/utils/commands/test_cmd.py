@@ -114,9 +114,19 @@ def _resolve_flows(args):
 
 
 def _resolve_categories(args):
+    if getattr(args, 'hardcode', False):
+        return [static_checks.CATEGORY_ALIASES['hardcode']]
     if args.category is None:
         return None
-    return [int(args.category)]
+    raw = str(args.category).strip()
+    if raw.isdigit():
+        return [int(raw)]
+    num = static_checks.CATEGORY_ALIASES.get(raw.lower())
+    if num is None:
+        raise SystemExit(f'cbflow test: unknown --category {raw!r} '
+                         f'(use 1-{max(static_checks.CATEGORIES)} or one of: '
+                         f'{", ".join(sorted(static_checks.CATEGORY_ALIASES))})')
+    return [num]
 
 
 # Default projects that the e2e suite exercises. bumblebee's fixtures use
@@ -146,8 +156,14 @@ def _resolve_projects(args):
 
 def _do_list():
     print('Static categories (--static or default suite):')
+    aliases = {v: k for k, v in static_checks.CATEGORY_ALIASES.items()}
     for n, (name, _) in sorted(static_checks.CATEGORIES.items()):
-        print(f'  {n}. {name}')
+        extra = ''
+        if n in aliases:
+            extra += f'  [--category {aliases[n]}]'
+        if n in static_checks.OPT_IN_CATEGORIES:
+            extra += '  (opt-in: not in default --static)'
+        print(f'  {n}. {name}{extra}')
     print()
     print('E2E checks (run per flow when --e2e or default suite):')
     for name, _, _ in e2e_checks.CHECKS:
@@ -294,6 +310,7 @@ Examples:
   cbflow test --flow SYNTH_PNR         # one flow
   cbflow test --flows SYNTH,PNR,STA    # subset
   cbflow test --category 3             # one static category
+  cbflow test --category hardcode      # no-hardcode code audit (same as --hardcode)
   cbflow test --vendor synopsys        # prefer synopsys variant fixture
   cbflow test --timeout 600            # per-flow timeout
   cbflow test --keep                   # never clean up sandboxes
@@ -324,6 +341,12 @@ Examples:
                             'Catches the class of bug where discovery '
                             'looks in stale paths (what cli-smoke misses '
                             'because it only tests --help).')
+    scope.add_argument('--hardcode', action='store_true',
+                       help='No-hardcode audit only (static category '
+                            '"hardcode"): scans code for node names, '
+                            'versions, disciplines, exits, phases, release '
+                            'layout, design/net/layer literals that belong '
+                            'in config. Opt-in; not part of default --static.')
     parser.add_argument('--destructive', action='store_true',
                         help='In --cli-smoke, also exercise destructive '
                              'leaves (run all, release, create-branch, '
@@ -331,7 +354,9 @@ Examples:
 
     parser.add_argument('--flow', help='Test a single flow')
     parser.add_argument('--flows', help='Comma-separated list of flows')
-    parser.add_argument('--category', type=int, help='Run one static category (1-8)')
+    parser.add_argument('--category',
+                        help='Run one static category: a number (see --list) '
+                             'or a name alias (hardcode)')
     parser.add_argument('--vendor', help='Prefer fixtures matching this vendor (e.g. synopsys, cadence)')
     parser.add_argument(
         '--projects',
@@ -377,6 +402,8 @@ Examples:
 
     flows = _resolve_flows(args)
     run_integration = bool(getattr(args, 'integration', False))
+    if args.hardcode:
+        args.static = True
     run_static   = (not args.e2e and not args.dispatch_smoke
                     and not args.cli_smoke and not run_integration)
     run_e2e      = (not args.static and not args.dispatch_smoke
@@ -403,7 +430,7 @@ Examples:
                           'PD tree not in checkout — skipping all 16 categories')
         else:
             cats = _resolve_categories(args)
-            for cat_num in sorted(cats or static_checks.CATEGORIES.keys()):
+            for cat_num in sorted(cats or static_checks.default_categories()):
                 cat_name, func = static_checks.CATEGORIES.get(cat_num, (None, None))
                 if not func:
                     continue

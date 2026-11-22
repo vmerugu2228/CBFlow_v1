@@ -2122,6 +2122,42 @@ def cat17_release_folder_canonicality(results, pd_dir, flows):
                        f'({sum(1 for _ in disciplines)} disciplines scanned)')
 
 
+# ── Category 18: No-Hardcode Audit (code, not config) ──────────────────────
+
+def cat18_hardcode_audit(results, pd_dir, flows):
+    """Scan code for definitions that belong in config and silent literal
+    fallbacks (test_suite/hardcode_scan.py). One PASS/FAIL per rule; the
+    allowlist is test_suite/hardcode_allowlist.txt. Full listing:
+        python3 global/utils/commands/test_suite/hardcode_scan.py [--rule R]
+    """
+    from test_suite import hardcode_scan as hs
+    suite = 'static'
+    category = 'cat18_hardcode_audit'
+    repo = os.path.dirname(os.path.abspath(pd_dir))
+    try:
+        allow = hs.load_allowlist()
+    except ValueError as exc:
+        results.failed(suite, category, 'hardcode_allowlist.txt parse', str(exc))
+        return
+    findings = hs.scan(repo)
+    viol, allowed, unused = hs.split_allowed(findings, allow)
+    for rule, items in hs.group_by_rule(viol).items():
+        name = f'hardcode/{rule}'
+        if not items:
+            results.passed(suite, category, name, hs.RULES[rule])
+            continue
+        shown = '\n      '.join(f.fmt() for f in items[:5])
+        more = f'\n      ... {len(items) - 5} more' if len(items) > 5 else ''
+        results.failed(
+            suite, category, name,
+            f'{len(items)} finding(s) — {hs.RULES[rule]}\n      {shown}{more}\n'
+            f'      full list: python3 global/utils/commands/test_suite/'
+            f'hardcode_scan.py --rule {rule}')
+    for rule, fpath, ln, reason, no in unused:
+        results.skipped(suite, category, f'hardcode/allowlist line {no}',
+                        f'stale entry (matches nothing): {rule} {fpath}:{ln}')
+
+
 # ── Registry ────────────────────────────────────────────────────────────────
 
 CATEGORIES = {
@@ -2142,7 +2178,22 @@ CATEGORIES = {
    15: ('LSF Per-Node Assignment', cat15_lsf_per_node_assignment),
    16: ('LSF Tier Definition Completeness', cat16_lsf_tier_completeness),
    17: ('Release Folder Canonicality', cat17_release_folder_canonicality),
+   18: ('No-Hardcode Audit (code)', cat18_hardcode_audit),
 }
+
+# Named aliases accepted by `cbflow test --category <name>`.
+CATEGORY_ALIASES = {'hardcode': 18}
+
+# Categories that run only when selected explicitly (--category hardcode /
+# --hardcode) and are left out of the default --static set. The hardcode
+# audit stays opt-in until the in-flight no-hardcode fixes land; flip it
+# into the default run by emptying this set.
+OPT_IN_CATEGORIES = {18}
+
+
+def default_categories():
+    """Category numbers a plain --static run executes."""
+    return sorted(n for n in CATEGORIES if n not in OPT_IN_CATEGORIES)
 
 
 def run(results, pd_dir, flows, categories=None):
@@ -2166,7 +2217,7 @@ def run(results, pd_dir, flows, categories=None):
                         'static checks are PD-rooted; skipping all 16 categories')
         return
 
-    selected = sorted(categories or CATEGORIES.keys())
+    selected = sorted(categories or default_categories())
     for cat_num in selected:
         if cat_num not in CATEGORIES:
             continue
