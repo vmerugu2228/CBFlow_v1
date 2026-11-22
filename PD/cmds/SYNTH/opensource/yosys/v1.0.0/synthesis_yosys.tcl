@@ -84,21 +84,6 @@ flow_proc read_design {
     yosys tee -o "$::REPORTS_DIR/synthesis_hierarchy.rpt" ls
 }
 
-# Vt flavours: project(vt_flavors) must be a subset of the tech's
-# tech(vt_variants_available); cells of the other Vts become dont_use.
-proc synth_vt_dont_use {} {
-    set _avail [oss_get tech vt_variants_available]
-    set _use   [oss_get project vt_flavors]
-    foreach _v $_use {
-        if {$_v ni $_avail} { error "project(vt_flavors): '$_v' not in tech(vt_variants_available) {$_avail}" }
-    }
-    set _out {}
-    foreach _v $_avail {
-        if {$_v ni $_use} { lappend _out [oss_get tech vt_pattern,$_v] }
-    }
-    return $_out
-}
-
 # Synthesis + technology mapping (netlist written by write_design)
 flow_proc synthesize {
     global design_name synth
@@ -112,7 +97,7 @@ flow_proc synthesize {
     yosys opt_clean -purge
     synth_clock_gating
     set _dont_use {}
-    foreach _c [concat [oss_trk dont_use] [synth_vt_dont_use]] { lappend _dont_use -dont_use $_c }
+    foreach _c [concat [oss_trk dont_use] [oss_vt_dont_use]] { lappend _dont_use -dont_use $_c }
     set _lib_args {}
     foreach _l $_libs { lappend _lib_args -liberty $_l }
     yosys dfflibmap {*}$_lib_args {*}$_dont_use

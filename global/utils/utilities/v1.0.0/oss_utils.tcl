@@ -370,6 +370,27 @@ proc oss_pdn_enabled {} {
     return [is_true [oss_get project pdn,enable]]
 }
 
+# Vt flavours: project(vt_flavors) must be a subset of the tech's
+# tech(vt_variants_available); cells of the other Vts become dont_use.
+proc oss_vt_dont_use {} {
+    set _avail [oss_get tech vt_variants_available]
+    set _use   [oss_get project vt_flavors]
+    foreach _v $_use {
+        if {$_v ni $_avail} { error "project(vt_flavors): '$_v' not in tech(vt_variants_available) {$_avail}" }
+    }
+    set _out {}
+    foreach _v $_avail {
+        if {$_v ni $_use} { lappend _out [oss_get tech vt_pattern,$_v] }
+    }
+    return $_out
+}
+
+# PNR dont_use: tech(<track>,dont_use_pnr) + cells of Vts outside
+# project(vt_flavors).
+proc oss_pnr_dont_use {} {
+    return [concat [oss_trk dont_use_pnr] [oss_vt_dont_use]]
+}
+
 # Per-net check that every supply is one connected network.
 proc oss_check_power {} {
     global oss_upf
@@ -435,7 +456,7 @@ proc oss_load_stage {prev_node} {
     read_db [oss_prev_odb $prev_node]
     read_sdc [oss_sdc_file]
     oss_drv_limits
-    set_dont_use [oss_trk dont_use_pnr]
+    set_dont_use [oss_pnr_dont_use]
     oss_set_wire_rc
 }
 
@@ -454,7 +475,7 @@ proc oss_fp_load_netlist {design blocks} {
     read_verilog [lindex [glob -nocomplain "$::NETLIST_DIR/${design}.v" "$::NETLIST_DIR/*.v"] 0]
     link_design $design
     read_sdc [oss_sdc_file]
-    set_dont_use [oss_trk dont_use_pnr]
+    set_dont_use [oss_pnr_dont_use]
 }
 
 # Die / core (oss,fp,die_area wins over utilization sizing), rows, tracks.

@@ -38,7 +38,7 @@ flow_proc load_design {
     read_def $_def
     read_sdc [oss_sdc_file]
     oss_drv_limits                   ;# pnr(oss,drv,max_fanout) from overrides
-    set_dont_use [oss_trk dont_use_pnr]
+    set_dont_use [oss_pnr_dont_use]
 }
 
 # Power intent (UPF supplies / global connections) + connectivity check
