@@ -1,5 +1,5 @@
 #!/bin/bash
-# opensky fresh build at 10% standard-cell utilization, bottom-up, in parallel:
+# opensky fresh build, bottom-up, in parallel (sizing from each block's uc files):
 #   gcd ─────────┐                         (DL3, parallel)
 #   mac_array ───┼─┐
 #   ctrl_subsys ◄┘ │  starts when gcd is released      (DL2, parallel)
@@ -16,12 +16,11 @@ REL=$WA/../test_releases/P0
 
 say() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG"; }
 
-# mk_uc <block> <src uc> <dst uc> [sed expr]...  — run name, drop die_area
-# and release tag (FP/PNR default to the exit name), then extra edits
+# mk_uc <block> <src uc> <dst uc> [sed expr]...  — run name + extra edits;
+# utilization / die size / density come from the block's uc files
 mk_uc() {
     local b=$1 src=$2 dst=$3; shift 3
-    local args=(-e "s/^set flow(run_name) .*/set flow(run_name)             \"$RUN\"/"
-                -e '/^set fp(oss,fp,die_area)/d')
+    local args=(-e "s/^set flow(run_name) .*/set flow(run_name)             \"$RUN\"/")
     for e in "$@"; do args+=(-e "$e"); done
     sed "${args[@]}" "$WA/$b/$src" > "$WA/$b/$dst"
 }
@@ -78,14 +77,12 @@ lef_size() { awk '/^ *SIZE/ {print $2, $4; exit}' "$REL/$1/$(cat "$WA/.$1.done")
 for b in gcd mac_array ctrl_subsys ai_subsys opensky_chip; do
     sed -i '' "s/^set flow(run_name) .*/set flow(run_name)             \"$RUN\"/" "$WA/$b/uc_SYNTH_yosys.tcl"
 done
-say "start: 10% std-cell utilization, parallel bottom-up"
+say "start: parallel bottom-up (sizing from uc files)"
 
 run_block gcd &
 run_block mac_array &
-( wait_for gcd && run_block ctrl_subsys \
-    's|^set fp(oss,macro,placement) .*|set fp(oss,macro,placement)     {u_gcd 20 20 R0}|' ) &
-( wait_for mac_array && run_block ai_subsys \
-    's|^set fp(oss,macro,placement) .*|set fp(oss,macro,placement)     {u_mac_array 20 20 R0}|' ) &
+( wait_for gcd && run_block ctrl_subsys ) &
+( wait_for mac_array && run_block ai_subsys ) &
 (
     wait_for ctrl_subsys && wait_for ai_subsys || exit 1
     read AW AH <<< "$(lef_size ai_subsys)"

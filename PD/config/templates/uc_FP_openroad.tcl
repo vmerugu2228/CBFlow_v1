@@ -26,3 +26,10 @@ set fp(input,release_tag)      "<phase>_SYNTH_v1"
 # Blocks that integrate hard macros: floorplan (um) and optional fixed spots
 #   set fp(oss,fp,die_area)        {0 0 2400 2400}
 #   set fp(oss,macro,placement)    {u_child 100 100 R0}
+
+# Floorplan sizing — per block (defaults in FP_openroad_config.tcl):
+#   core_utilization = standard-cell utilization %; with child macros the core
+#   is macro area + std-cell area / util. die_area fixes the size instead.
+# set fp(oss,fp,core_utilization) 10
+# set fp(oss,fp,die_area)         {0 0 <x1> <y1>}
+# set fp(oss,macro,placement)     {<inst> <x> <y> R0}

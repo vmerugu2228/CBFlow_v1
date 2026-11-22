@@ -23,5 +23,10 @@ set fp(input,release_tag)      "P0_SYNTH_v1"
 set project(release,tag)       "P0_FP_v1"
 
 # Floorplan (um) and fixed hard-macro spots
-set fp(oss,fp,die_area)         {0 0 300 300}
-set fp(oss,macro,placement)     {u_gcd 150 120 R0}
+# set fp(oss,fp,die_area)      {x0 y0 x1 y1}   ;# fixed size instead of utilization
+set fp(oss,macro,placement)     {u_gcd 20 20 R0}
+
+# ── Floorplan sizing (per block; overrides FP_openroad_config.tcl) ──────────
+# core_utilization = standard-cell utilization %; with child macros the core is
+# macro area + std-cell area / util. Set fp(oss,fp,die_area) to fix the size.
+set fp(oss,fp,core_utilization) 10

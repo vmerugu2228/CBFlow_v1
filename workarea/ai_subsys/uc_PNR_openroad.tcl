@@ -21,3 +21,6 @@ set pnr(input,release_tag)     "P0_SYNTH_v1"
 set pnr(input,def_file_release_tag) "P0_FP_v1"   ;# floorplan DEF from the FP release
 
 set project(release,tag)       "P0_PNR_v1"
+
+# ── Placement density (per block; overrides PNR_openroad_config.tcl) ────────
+set pnr(oss,place,density)      0.20

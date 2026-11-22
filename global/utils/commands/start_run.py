@@ -160,7 +160,7 @@ def _validate_user_config(user_config: Dict[str, str], env: Dict[str, str]
     # Phase resolution — three-tier fallback:
     #   1. user config: project(phase) or flow(phase) (explicit override)
     #   2. project config: project(current_phase) (single source of truth)
-    #   3. hard default 'P0' — only if project config can't be read
+    #   (unresolved -> error; phases are project-defined, no default)
     # Templates deliberately drop project(phase) so the project-level
     # current_phase is authoritative. Reading it here honors bumblebee's
     # non-P0 phase scheme (LC1/LC2/...) instead of silently mis-tagging runs.
@@ -178,12 +178,13 @@ def _validate_user_config(user_config: Dict[str, str], env: Dict[str, str]
             # "..."` below the real one doesn't silently override it).
             _candidates = []
             if global_root:
-                _candidates.append(os.path.join(global_root, 'config', 'project',
-                                                project_name, proj_ver,
-                                                'project_config.tcl'))
+                for _n in ('project_config.tcl', f'{project_name}_config.tcl'):
+                    _candidates.append(os.path.join(global_root, 'config', 'project',
+                                                    project_name, proj_ver, _n))
             if config_root:
-                _candidates.append(os.path.join(config_root, 'project', project_name,
-                                                proj_ver, 'project_pd_config.tcl'))
+                for _n in ('project_pd_config.tcl', f'{project_name}_pd_config.tcl'):
+                    _candidates.append(os.path.join(config_root, 'project', project_name,
+                                                    proj_ver, _n))
                 _candidates.append(os.path.join(config_root, 'project', project_name,
                                                 proj_ver, f'{project_name}_config.tcl'))
             import re as _re

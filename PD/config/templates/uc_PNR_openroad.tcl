@@ -26,3 +26,5 @@ set pnr(input,def_file_release_tag) "FP_EXIT"
 # latest earlier exit the phase has in project(phase_exits)); override only if needed:
 # set project(release,tag)     "<custom_tag>"
 
+# Placement density — per block (default in PNR_openroad_config.tcl):
+# set pnr(oss,place,density)      0.20

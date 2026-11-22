@@ -7,7 +7,7 @@
 set project(name)              "opensky"
 set flow(type)                 "SYNTH"
 set flow(design_name)          "opensky_chip"        ;# must be in project(design_hierarchy)
-set flow(run_name)             "oss_r1"
+set flow(run_name)             "oss_u10"
 set flow(run_type)             "hier"
 set flow(test_mode)            "false"
 set flow(use_lsf)              "false"
