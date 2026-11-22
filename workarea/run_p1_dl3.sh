@@ -8,7 +8,7 @@
 cd "$(dirname "$0")"
 WA=$PWD
 C=$WA/../bin/cbflow
-export PHASE=P1 RUN=p1_b1 PNR_MAX_FANOUT=${PNR_MAX_FANOUT:-10}
+export PHASE=P1 RUN=p1_b1
 LOG=$WA/build_p1.log
 SYN_TAG="${PHASE}_SYNTH_v1"
 
@@ -30,10 +30,10 @@ run_flow() {    # run_flow <block> <FLOW> <uc>  — non-zero on failure
     local fl; fl=$(echo "$f" | tr 'A-Z' 'a-z')
     say "$b $f: start"
     (cd "$WA/$b" && rm -rf "$rd" && $C workspace create --config "$uc") > "$WA/$b/${fl}_${PHASE}_create.log" 2>&1
-    # PNR design-rule limit through the run's overrides (setup/override_config.tcl)
-    if [ "$f" = PNR ] && [ -n "$PNR_MAX_FANOUT" ] && [ -d "$WA/$b/$rd/setup" ]; then
-        printf 'set pnr(oss,drv,max_fanout) %s   ;# design max-fanout constraint\n' \
-            "$PNR_MAX_FANOUT" >> "$WA/$b/$rd/setup/override_config.tcl"
+    # PNR run overrides (fanout limit, per-stage corners): overrides/pnr_<PHASE>.tcl
+    # appended to the run's setup/override_config.tcl
+    if [ "$f" = PNR ] && [ -f "$WA/overrides/pnr_${PHASE}.tcl" ] && [ -d "$WA/$b/$rd/setup" ]; then
+        cat "$WA/overrides/pnr_${PHASE}.tcl" >> "$WA/$b/$rd/setup/override_config.tcl"
     fi
     (cd "$WA/$b/$rd" && $C run all) > "$WA/$b/${fl}_${PHASE}.log" 2>&1
     if grep -q "result=PASS" "$WA/$b/${fl}_${PHASE}.log"; then
