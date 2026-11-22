@@ -1181,6 +1181,128 @@ proc cbflow_resolve_head_block {default upstream_stages} {
     return $default
 }
 
+# ═══ Config-backed shared helpers (no hardcoded names / no fallbacks) ════════
+# Every command file and handler uses these instead of literal node names,
+# release layouts, discipline lists or version defaults. Each errors when the
+# config / environment it reads is missing.
+
+# Node being run — exported by the engine / launch wrapper.
+proc cbflow_node_name {} {
+    if {![info exists ::env(CBFLOW_NODE_NAME)] || $::env(CBFLOW_NODE_NAME) eq ""} {
+        error "CBFLOW_NODE_NAME is not set — command files are launched by the RACE engine, which exports the node name"
+    }
+    return $::env(CBFLOW_NODE_NAME)
+}
+
+# Flow array name of the current flow (synth, pnr, sta …).
+proc cbflow_flow_arr {} { return [string tolower $::FLOW_TYPE] }
+
+proc cbflow_load_runtime_nodes {} {
+    set _rt "$::run_dir/setup/runtime_flow_config.tcl"
+    if {[file exists $_rt] && ![info exists ::cbflow_runtime_loaded]} {
+        uplevel #0 [list source $_rt]
+        set ::cbflow_runtime_loaded 1
+    }
+}
+
+# Upstream nodes of <node>: runtime (add-node / branch) first, then the node
+# config's <flow>(dependencies,<node>).
+proc cbflow_node_deps {node} {
+    cbflow_load_runtime_nodes
+    upvar #0 [cbflow_flow_arr] _a
+    if {[info exists _a(stages,$node,dependencies)]} { return $_a(stages,$node,dependencies) }
+    if {[info exists _a(dependencies,$node)]}        { return $_a(dependencies,$node) }
+    return {}
+}
+
+# Stage type of <node> from the node config; error when undeclared.
+proc cbflow_node_type {node} {
+    cbflow_load_runtime_nodes
+    upvar #0 [cbflow_flow_arr] _a
+    if {[info exists _a(stages,$node,type)]} { return $_a(stages,$node,type) }
+    if {[info exists _a(node_types,$node)]}  { return $_a(node_types,$node) }
+    error "node $node has no type: set [cbflow_flow_arr](node_types,$node) in the node config"
+}
+
+# The current node's (first) upstream node.
+proc cbflow_upstream_node {} {
+    set _d [lindex [cbflow_node_deps $::NODE_NAME] 0]
+    if {$_d eq ""} { error "node $::NODE_NAME has no upstream dependency ([cbflow_flow_arr](dependencies,$::NODE_NAME))" }
+    return $_d
+}
+
+# Nearest node of stage type <type> on the current node's upstream chain
+# (self included) — e.g. the release stage finding its signoff node.
+proc cbflow_chain_node {type} {
+    set _n $::NODE_NAME
+    set _seen {}
+    while {$_n ne "" && $_n ni $_seen} {
+        if {[cbflow_node_type $_n] eq $type} { return $_n }
+        lappend _seen $_n
+        set _n [lindex [cbflow_node_deps $_n] 0]
+    }
+    error "no '$type' node upstream of $::NODE_NAME"
+}
+
+# Upstream node (any depth, any branch of the DAG) of stage type <type>.
+proc cbflow_dep_node {type} {
+    set _todo [cbflow_node_deps $::NODE_NAME]
+    set _seen {}
+    while {[llength $_todo]} {
+        set _n [lindex $_todo 0]; set _todo [lrange $_todo 1 end]
+        if {$_n in $_seen} continue
+        lappend _seen $_n
+        if {[cbflow_node_type $_n] eq $type} { return $_n }
+        lappend _todo {*}[cbflow_node_deps $_n]
+    }
+    error "no '$type' node among the dependencies of $::NODE_NAME"
+}
+
+# work/<FLOW>/<node> of another node.
+proc cbflow_node_dir {node} { return "$::run_dir/work/$::FLOW_TYPE/$node" }
+
+# Release directory — the single definition of the layout:
+#   <release,path>/<phase>/<block>/<FLOW>/<tag>
+proc cbflow_release_dir {base phase block flow tag} {
+    foreach {_n _v} [list base $base phase $phase block $block flow $flow tag $tag] {
+        if {$_v eq ""} { error "cbflow_release_dir: $_n is empty" }
+    }
+    return [file join $base $phase $block $flow $tag]
+}
+
+# Disciplines and flow→discipline (global flow_registry.tcl).
+proc cbflow_disciplines {} {
+    if {![info exists ::flow(disciplines)]} { error "flow(disciplines) is not set (global flow_registry.tcl)" }
+    return $::flow(disciplines)
+}
+proc cbflow_flow_discipline {flow_type} {
+    if {![info exists ::flow(discipline,$flow_type)]} {
+        error "flow(discipline,$flow_type) is not set (global flow_registry.tcl)"
+    }
+    return $::flow(discipline,$flow_type)
+}
+# $CBFLOW_ROOT/<discipline_dir> of a discipline.
+proc cbflow_discipline_root {disc} {
+    if {![info exists ::flow(discipline_dir,$disc)]} { error "flow(discipline_dir,$disc) is not set" }
+    if {![info exists ::env(CBFLOW_ROOT)]} { error "CBFLOW_ROOT is not set" }
+    return [file join $::env(CBFLOW_ROOT) $::flow(discipline_dir,$disc)]
+}
+
+# Required version env var (FLOW_CONFIG_VERSION, PROJECT_CONFIG_VERSION,
+# TECH_CONFIG_VERSION, UTILITIES_VERSION, <TOOL>_VERSION …) — set by the
+# launcher / node config; no built-in default.
+proc cbflow_version {var} {
+    if {![info exists ::env($var)] || $::env($var) eq ""} { error "$var is not set" }
+    return $::env($var)
+}
+
+# Required config value: <arr>(<key>) must exist and be non-empty.
+proc cbflow_require {arr key} {
+    upvar #0 $arr _a
+    if {![info exists _a($key)] || $_a($key) eq ""} { error "${arr}($key) is not set in config" }
+    return $_a($key)
+}
+
 proc setup_dirs {run_dir flow_type node_name} {
     global DIRS
     set DIRS(run)         $run_dir

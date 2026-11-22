@@ -588,56 +588,13 @@ proc oss_fp_power {design blocks} {
 # create-branch. The node being run comes from the launch wrapper
 # (CBFLOW_NODE_NAME); its upstream from setup/runtime_flow_config.tcl for
 # branch nodes, else the flow's dependencies,<node>.
-proc oss_node_name {stage} {
-    if {[info exists ::env(CBFLOW_NODE_NAME)] && $::env(CBFLOW_NODE_NAME) ne ""} {
-        return $::env(CBFLOW_NODE_NAME)
-    }
-    return "${stage}1"
-}
-
-proc oss_load_runtime_nodes {} {
-    set _rt "$::DIRS(run)/setup/runtime_flow_config.tcl"
-    if {[file exists $_rt] && ![info exists ::oss_runtime_loaded]} {
-        uplevel #0 [list source $_rt]
-        set ::oss_runtime_loaded 1
-    }
-}
-
-proc oss_node_deps {node} {
-    oss_load_runtime_nodes
-    upvar #0 [oss_flow_arr] _a
-    if {[info exists _a(stages,$node,dependencies)]} { return $_a(stages,$node,dependencies) }
-    if {[info exists _a(dependencies,$node)]}        { return $_a(dependencies,$node) }
-    return {}
-}
-
-proc oss_node_type {node} {
-    oss_load_runtime_nodes
-    upvar #0 [oss_flow_arr] _a
-    if {[info exists _a(stages,$node,type)]}     { return $_a(stages,$node,type) }
-    if {[info exists _a(node_types,$node)]}      { return $_a(node_types,$node) }
-    return [string trimright $node 0123456789]
-}
-
-# The current node's (first) upstream node.
-proc oss_upstream_node {} {
-    set _d [lindex [oss_node_deps $::NODE_NAME] 0]
-    if {$_d eq ""} { error "node $::NODE_NAME has no upstream dependency" }
-    return $_d
-}
-
-# Nearest node of stage type <type> on the current node's upstream chain
-# (the release stage finding its own signoff / pro / export nodes).
-proc oss_chain_node {type} {
-    set _n $::NODE_NAME
-    for {set _i 0} {$_i < 64} {incr _i} {
-        if {[oss_node_type $_n] eq $type} { return $_n }
-        set _d [lindex [oss_node_deps $_n] 0]
-        if {$_d eq ""} break
-        set _n $_d
-    }
-    error "no $type node upstream of $::NODE_NAME"
-}
+# Thin aliases of the shared cbflow_* node-graph helpers (utils.tcl).
+proc oss_node_name {stage} { return [cbflow_node_name] }
+proc oss_load_runtime_nodes {} { cbflow_load_runtime_nodes }
+proc oss_node_deps {node} { return [cbflow_node_deps $node] }
+proc oss_node_type {node} { return [cbflow_node_type $node] }
+proc oss_upstream_node {} { return [cbflow_upstream_node] }
+proc oss_chain_node {type} { return [cbflow_chain_node $type] }
 
 # Stage artefacts use design-independent names so node configs can declare
 # mandatory_outputs as data: every stage writes outputs/<stage>.<ext>, the
