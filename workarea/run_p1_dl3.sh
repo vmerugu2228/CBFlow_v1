@@ -1,5 +1,5 @@
 #!/bin/bash
-# opensky P1 for the DL3 blocks (gcd, mac_array), in parallel:
+# opensky DL3 blocks (gcd, mac_array) for one phase (PHASE, default P1), in parallel:
 #   SYNTH (P1_SYNTH_v1) -> FP (FP_EXIT) -> PNR (PRO_EXIT) -> publish FP_EXIT +
 #   PRO_EXIT -> signoff (STA / PV / LEC, releasing <FLOW>/PRO_EXIT, published).
 # project(phase) "P1" per run (project(current_phase) stays P0 while the P0
@@ -8,8 +8,12 @@
 cd "$(dirname "$0")"
 WA=$PWD
 C=$WA/../bin/cbflow
-export PHASE=P1 RUN=p1_b1
-LOG=$WA/build_p1.log
+# PHASE / RUN / LIB_TAG from the environment (P1, p1_b1, the project's tag).
+# RTL: inputs/opensky/<block>/<PHASE>/<block>.f when the phase has its own RTL.
+export PHASE=${PHASE:-P1}
+_ph=$(echo "$PHASE" | tr 'A-Z' 'a-z')
+export RUN=${RUN:-${_ph}_b1} LIB_TAG=${LIB_TAG:-}
+LOG=$WA/build_${_ph}.log
 SYN_TAG="${PHASE}_SYNTH_v1"
 
 say() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG"; }
@@ -23,6 +27,10 @@ mk_uc() {
     sed "${args[@]}" "$WA/$b/$src" > "$WA/$b/$dst"
     echo "set project(phase)             \"$PHASE\"" >> "$WA/$b/$dst"
     echo "set project(release,phase)     \"$PHASE\"" >> "$WA/$b/$dst"
+    if [ -n "$LIB_TAG" ]; then
+        sed -i '' '/^set project(lib_config_tag)/d' "$WA/$b/$dst"
+        echo "set project(lib_config_tag)    \"$LIB_TAG\"" >> "$WA/$b/$dst"
+    fi
 }
 
 run_flow() {    # run_flow <block> <FLOW> <uc>  — non-zero on failure
@@ -53,8 +61,10 @@ publish() {   # one publish at a time (lock shared with the P0 build)
 
 block() {
     local b=$1
+    local rtl="$WA/../inputs/opensky/$b/$PHASE/$b.f" rtl_e=""
+    [ -f "$rtl" ] && rtl_e="s|^set synth(input,rtl_filelist) .*|set synth(input,rtl_filelist)  \"$(cd "$(dirname "$rtl")" && pwd)/$b.f\"|"
     mk_uc "$b" uc_SYNTH_yosys.tcl "uc_SYNTH_yosys_${PHASE}.tcl" \
-        "s/^set project(release,tag) .*/set project(release,tag)       \"$SYN_TAG\"/"
+        "s/^set project(release,tag) .*/set project(release,tag)       \"$SYN_TAG\"/" ${rtl_e:+"$rtl_e"}
     # FROM=FP / FROM=PNR: reuse the existing releases of the earlier flows
     if [ -z "$FROM" ]; then run_flow "$b" SYNTH "uc_SYNTH_yosys_${PHASE}.tcl" || return 1; fi
     mk_uc "$b" uc_FP_openroad.tcl "uc_FP_openroad_${PHASE}.tcl" '/^set project(release,tag)/d' \

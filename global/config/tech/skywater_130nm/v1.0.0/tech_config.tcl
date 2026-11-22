@@ -119,6 +119,32 @@ set tech(hd,dont_use_pnr)    "sky130_fd_sc_hd__lpflow_* sky130_fd_sc_hd__probe*"
 set tech(hd,endcap)          "sky130_fd_sc_hd__decap_3"
 set tech(hd,fillers)         "sky130_fd_sc_hd__fill_1 sky130_fd_sc_hd__fill_2 sky130_fd_sc_hd__fill_4 sky130_fd_sc_hd__fill_8"
 set tech(hd,hold_buffers)    "sky130_fd_sc_hd__dlygate4sd3_1 sky130_fd_sc_hd__buf_1 sky130_fd_sc_hd__buf_2"
+# ── Memory macros (library tag category memory) ──────────────────────────
+# Timing lib per standard-cell lib set: <lib set> -> the memory corner key of
+# the tag (tech(lib,<corner>,timing,memory)). Every lib set a design times
+# must be listed. The sky130 SRAM macros ship one corner (TT 1.8 V 25 C):
+# STA times them there at every scenario (PVT mismatch flagged in STA).
+set tech(memory,power_pins)  "vccd1"
+set tech(memory,ground_pins) "vssd1"
+set tech(memory,lib_set_map) {
+    ff_1p56v_m40c  tt_1p8v_25c
+    ff_1p65v_100c  tt_1p8v_25c
+    ff_1p65v_m40c  tt_1p8v_25c
+    ff_1p76v_m40c  tt_1p8v_25c
+    ff_1p95v_100c  tt_1p8v_25c
+    ff_1p95v_m40c  tt_1p8v_25c
+    ss_1p28v_m40c  tt_1p8v_25c
+    ss_1p35v_m40c  tt_1p8v_25c
+    ss_1p40v_100c  tt_1p8v_25c
+    ss_1p40v_m40c  tt_1p8v_25c
+    ss_1p44v_m40c  tt_1p8v_25c
+    ss_1p60v_100c  tt_1p8v_25c
+    ss_1p60v_m40c  tt_1p8v_25c
+    ss_1p76v_m40c  tt_1p8v_25c
+    tt_1p80v_100c  tt_1p8v_25c
+    tt_1p80v_25c   tt_1p8v_25c
+}
+
 set tech(hd,icg_cells)       "sky130_fd_sc_hd__dlclkp_1 sky130_fd_sc_hd__dlclkp_2 sky130_fd_sc_hd__dlclkp_4"
 # Clock-gating cell synthesis inserts: <cell>/<enable>/<clock>/<gated clock>
 # [/<test enable>] — the scan ICG when DFT is on (test enable -> scan enable)

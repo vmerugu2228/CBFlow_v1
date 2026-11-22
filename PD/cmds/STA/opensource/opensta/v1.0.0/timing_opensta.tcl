@@ -31,6 +31,10 @@ set ::flow::exec_mode "auto"
 flow_proc load_design {
     global design_name blocks
     foreach _l [oss_lib_set_files $::LIB_SET] { read_liberty $_l }
+    foreach _l [oss_memory_libs $::LIB_SET] { read_liberty $_l }
+    if {[oss_has_memories]} {
+        handle_warning "memory macros timed at [dict get [oss_get tech memory,lib_set_map] $::LIB_SET] (scenario lib set $::LIB_SET; tech(memory,lib_set_map)) — PVT mismatch"
+    }
     foreach _b $blocks { read_liberty [hier_block_lib [hier_block_views $_b] $_b $::LIB_SET] }
     set _nl [lindex [glob -nocomplain "$::NETLIST_DIR/${design_name}.pt.v" "$::NETLIST_DIR/${design_name}.v"] 0]
     if {$_nl eq ""} { error "netlist not staged in $::NETLIST_DIR (expected ${design_name}.pt.v or ${design_name}.v)" }

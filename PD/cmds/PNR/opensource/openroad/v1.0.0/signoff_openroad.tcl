@@ -96,7 +96,7 @@ flow_proc save_design {
         [oss_stage_out final.lvs.v]
     write_abstract_lef -bloat_occupied_layers [oss_stage_out final.lef]
     # CDL masters: standard cells + every child block's released CDL.
-    set _cdl [list [oss_trk cdl_stdcell]]
+    set _cdl [list [oss_trk cdl_stdcell] {*}[oss_memory_files cdl]]
     foreach _b $blocks { lappend _cdl [oss_get tech block,$_b,cdl] }
     write_cdl -masters $_cdl [oss_stage_out final.cdl]
     file copy -force [oss_sdc_file] [oss_stage_out final.sdc]

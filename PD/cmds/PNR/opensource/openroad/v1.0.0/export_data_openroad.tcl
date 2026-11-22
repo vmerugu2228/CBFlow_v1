@@ -32,6 +32,8 @@ flow_proc load_design {
     set ::export_lefs [list [oss_ms "[oss_track],lef_tech"]]
     foreach _l [oss_trk lef] { lappend ::export_lefs $_l }
     set ::export_gds [list [oss_trk gds_stdcell]]
+    lappend ::export_lefs {*}[oss_memory_files lef]
+    lappend ::export_gds  {*}[oss_memory_files gds]
     foreach _b $blocks {
         set _v [hier_block_views $_b]
         lappend ::export_lefs [dict get $_v lef]

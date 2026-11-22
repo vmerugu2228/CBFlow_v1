@@ -60,6 +60,8 @@ flow_proc load_design {
         foreach _b $blocks {
             yosys read_liberty -lib [oss_get tech block,$_b,lib,$_ls]
         }
+        # memory macros: blackboxes (interface from their timing lib)
+        foreach _l [oss_memory_libs $_ls] { yosys read_liberty -lib $_l }
         yosys read_verilog -lib $_stub
         yosys read_verilog $_nl
         yosys hierarchy -top $design_name

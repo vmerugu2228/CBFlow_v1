@@ -59,6 +59,8 @@ flow_proc read_design {
     handle_info "Mapping library set: $_lib_set"
     # Cell library as blackboxes: RTL may instantiate library cells directly.
     foreach _l $::oss_libs { yosys read_liberty -lib $_l }
+    # Memory macros (library tag): blackboxes from their timing lib
+    foreach _l [oss_memory_libs $_lib_set] { yosys read_liberty -lib $_l }
     # Staged by the rtl input node under the name of synth(input,rtl_filelist).
     set _fl "$::RTL_DIR/[file tail [cbflow_require synth input,rtl_filelist]]"
     if {![file exists $_fl]} { error "RTL filelist not staged: $_fl (synth(input,rtl_filelist))" }
@@ -191,6 +193,8 @@ flow_proc dft_insert {
     puts $_fh "read_lef [oss_ms "[oss_track],lef_tech"]"
     foreach _l [oss_trk lef] { puts $_fh "read_lef $_l" }
     foreach _l $::oss_libs { puts $_fh "read_liberty $_l" }
+    foreach _l [oss_memory_files lef] { puts $_fh "read_lef $_l" }
+    foreach _l [oss_memory_libs $_lib_set] { puts $_fh "read_liberty $_l" }
     foreach _b $blocks {
         set _v [hier_block_views $_b]
         puts $_fh "read_lef [dict get $_v lef]"

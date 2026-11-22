@@ -69,6 +69,45 @@ proc oss_lib_set_files {lib_set} {
     return $::tech($_k)
 }
 
+# ── Memory macros (library tag category memory) ─────────────────────────────
+# A tag without memories has an empty tech(lef,memory); its gds / cdl keys may
+# then be absent (tags generated before views were bundled).
+proc oss_has_memories {} {
+    return [expr {[info exists ::tech(lef,memory)] && [llength $::tech(lef,memory)] > 0}]
+}
+# tech(<kind>,memory): lef / gds / cdl / verilog files of the memory macros
+proc oss_memory_files {kind} {
+    if {![oss_has_memories]} { return {} }
+    if {![info exists ::tech($kind,memory)] || [llength $::tech($kind,memory)] == 0} {
+        error "tech($kind,memory) empty but the library tag has memory LEFs — re-run library-manager add --category memory"
+    }
+    return $::tech($kind,memory)
+}
+# Memory timing libs for a standard-cell lib set (tech(memory,lib_set_map))
+proc oss_memory_libs {lib_set} {
+    if {![oss_has_memories]} { return {} }
+    set _map [oss_get tech memory,lib_set_map]
+    if {![dict exists $_map $lib_set]} {
+        error "tech(memory,lib_set_map) has no entry for lib set '$lib_set'"
+    }
+    set _c [dict get $_map $lib_set]
+    if {![info exists ::tech(lib,$_c,timing,memory)] || [llength $::tech(lib,$_c,timing,memory)] == 0} {
+        error "tech(lib,$_c,timing,memory) empty (tech(memory,lib_set_map): $lib_set -> $_c)"
+    }
+    return $::tech(lib,$_c,timing,memory)
+}
+# Memory macro instances of the loaded design (hard blocks that are not
+# hierarchy children)
+proc oss_memory_insts {blocks} {
+    set _child {}
+    foreach _b $blocks { lappend _child {*}[oss_block_insts $_b] }
+    set _out {}
+    foreach _i [[ord::get_db_block] getInsts] {
+        if {[[$_i getMaster] isBlock] && [$_i getName] ni $_child} { lappend _out [$_i getName] }
+    }
+    return $_out
+}
+
 # Lib sets used by a node (unique, in view order).
 proc oss_node_lib_sets {node} {
     set _out {}
@@ -83,6 +122,7 @@ proc oss_node_lib_sets {node} {
 proc oss_read_lefs {{blocks {}}} {
     read_lef [oss_ms "[oss_track],lef_tech"]
     foreach _l [oss_trk lef] { read_lef $_l }
+    foreach _l [oss_memory_files lef] { read_lef $_l }
     foreach _b $blocks { read_lef [dict get [hier_block_views $_b] lef] }
 }
 
@@ -94,6 +134,7 @@ proc oss_read_corners {node {blocks {}}} {
     foreach _v $_views {
         set _ls [oss_view_attr $_v lib_set_ref]
         foreach _lib [oss_lib_set_files $_ls] { read_liberty -corner $_v $_lib }
+        foreach _lib [oss_memory_libs $_ls] { read_liberty -corner $_v $_lib }
         foreach _b $blocks {
             read_liberty -corner $_v [hier_block_lib [hier_block_views $_b] $_b $_ls]
         }
@@ -159,6 +200,11 @@ proc oss_pdn {design blocks} {
     lassign [oss_ms pdn_strap_h] _lh _wh _ph _oh
     set _leaf   [expr {[llength $blocks] == 0}]
     set _pos [expr {$_parent ne "" ? ($_leaf ? "leaf" : "middle") : ($_leaf ? "standalone" : "top")}]
+    # A leaf with memory macros: their power pins sit on the vertical-strap
+    # layer inside the macro, so the leaf draws its own horizontal straps
+    # (primary supplies) over them and exports those to the parent instead.
+    set _mems [oss_memory_insts $blocks]
+    if {$_pos eq "leaf" && [llength $_mems] > 0} { set _pos leaf_mem }
 
     set _hnets [list $_vdd $_vss]
     set _hpitch $_ph
@@ -183,7 +229,7 @@ proc oss_pdn {design blocks} {
         set_voltage_domain -power $_vdd -ground $_vss
     }
 
-    set _pins [dict get {leaf {v} middle {h} top {h} standalone {h}} $_pos]
+    set _pins [dict get {leaf {v} leaf_mem {h} middle {h} top {h} standalone {h}} $_pos]
     set _pins [string map [list v $_lv h $_lh] $_pins]
     if {$_pins ne ""} {
         define_pdn_grid -name stdcell -pins $_pins
@@ -195,7 +241,7 @@ proc oss_pdn {design blocks} {
     add_pdn_stripe -layer $_lv -width $_wv -pitch $_pv -offset $_ov -nets [list $_vdd $_vss] {*}$_vext
     add_pdn_connect -layers [list $_rail $_lv]
     if {$_pos ne "leaf"} {
-        set _hext [expr {$_pos eq "middle" ? "-extend_to_boundary" : ""}]
+        set _hext [expr {$_pos in {middle leaf_mem} ? "-extend_to_boundary" : ""}]
         add_pdn_stripe -layer $_lh -width $_wh -pitch $_hpitch -offset $_oh -nets $_hnets {*}$_hext
         add_pdn_connect -layers [list $_lv $_lh]
     }
@@ -210,6 +256,12 @@ proc oss_pdn {design blocks} {
             add_pdn_connect -grid "macro_$_inst" -layers [list $_lv $_lh]
         }
     }
+    # Memory macros: via-only grid from the horizontal straps onto their pins
+    foreach _inst $_mems {
+        define_pdn_grid -macro -instances $_inst -name "mem_$_inst" -halo [list $_halo $_halo $_halo $_halo]
+        add_pdn_connect -grid "mem_$_inst" -layers [list $_lv $_lh]
+    }
+    if {[llength $_mems] > 0} { handle_info "PDN: [llength $_mems] memory macro(s) hooked from $_lh" }
     pdngen
     # A feedthrough rail nothing in this block connects to gets no shapes from
     # pdngen; drop it (and its shapeless terminal) instead of exporting an
@@ -808,6 +860,8 @@ proc oss_def2gds {def out min_area klayout_cmd} {
     set _lefs [list [oss_ms "[oss_track],lef_tech"]]
     foreach _l [oss_trk lef] { lappend _lefs $_l }
     set _gds [list [oss_trk gds_stdcell]]
+    lappend _lefs {*}[oss_memory_files lef]
+    lappend _gds  {*}[oss_memory_files gds]
     foreach _b $blocks {
         set _v [hier_block_views $_b]
         lappend _lefs [dict get $_v lef]
@@ -1305,6 +1359,10 @@ proc oss_apply_upf {design} {
     }
     foreach _p [oss_trk power_pins]  { add_global_connection -net $_vdd -pin_pattern "^${_p}\$" -power }
     foreach _p [oss_trk ground_pins] { add_global_connection -net $_vss -pin_pattern "^${_p}\$" -ground }
+    if {[oss_has_memories]} {
+        foreach _p [oss_get tech memory,power_pins]  { add_global_connection -net $_vdd -pin_pattern "^${_p}\$" -power }
+        foreach _p [oss_get tech memory,ground_pins] { add_global_connection -net $_vss -pin_pattern "^${_p}\$" -ground }
+    }
     global_connect
 
     set _fh [open "$::REPORTS_DIR/upf_subset.rpt" w]

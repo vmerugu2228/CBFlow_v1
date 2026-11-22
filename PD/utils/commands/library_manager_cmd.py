@@ -3389,6 +3389,16 @@ def cmd_generate(args: argparse.Namespace) -> int:
                       + sorted(extra, key=_track_sort_key))
     all_vts = [v for v in vt_list if v in discovered_vts]
     all_corners = sorted(discovered_corners)
+    # tech(corners) lists the standard-cell corners. Adding a memory / io /
+    # analog / ip category must keep the tag's list, not replace it with the
+    # added library's own corners.
+    _existing_cfg = getattr(args, '_existing_lib_config', None)
+    if (getattr(args, '_add_mode', False) and getattr(args, 'category', None) != 'stdcell'
+            and _existing_cfg and os.path.isfile(_existing_cfg)):
+        with open(_existing_cfg) as _ef:
+            _m = re.search(r'^set tech\(corners\) \{([^}]*)\}', _ef.read(), re.M)
+        if _m:
+            all_corners = _m.group(1).split()
 
     if not all_tracks:
         # In add-mode we only need tracks if the user is adding stdcell libs.
@@ -3646,7 +3656,8 @@ def cmd_generate(args: argparse.Namespace) -> int:
 
     # ── Timing libs shared per corner ──
     w("# ── Timing libs shared per corner (memory + IO) ──")
-    for corner in all_corners:
+    # every stdcell corner plus each corner a shared library ships on its own
+    for corner in sorted(set(all_corners) | set(timing_memory) | set(timing_io)):
         mem_paths = timing_memory.get(corner, [])
         io_paths = timing_io.get(corner, [])
         w('set tech(lib,{},timing,memory) [list {}]'.format(
@@ -3975,7 +3986,11 @@ def cmd_generate(args: argparse.Namespace) -> int:
     nw("")
 
     nw("# ── Timing libs shared per corner (memory / io / analog / ip) ──")
-    for corner in all_corners:
+    # every stdcell corner plus each corner a shared library ships on its own
+    _shared_corners = set(all_corners) | {k[1] for k in local_map
+                                          if len(k) == 3 and k[2] == 'lib_timing'
+                                          and k[0] in ('memory', 'io', 'analog', 'ip')}
+    for corner in sorted(_shared_corners):
         for cat in ('memory', 'io', 'analog', 'ip'):
             nw('set tech(lib,{},timing,{}) [list {}]'.format(
                 corner, cat, _fmt_list((cat, corner, 'lib_timing'))))
@@ -5026,6 +5041,7 @@ def cmd_add(args: argparse.Namespace) -> int:
     # Signal to the generate pipeline: preserve categories we DIDN'T touch,
     # merge instead of overwrite in both MANIFEST and lib_config.tcl.
     args._add_mode = True
+    args._existing_lib_config = existing
     args.incremental = True  # legacy flag — safe idempotent union below
 
     # Default no-opt args that `cmd_generate` reads.

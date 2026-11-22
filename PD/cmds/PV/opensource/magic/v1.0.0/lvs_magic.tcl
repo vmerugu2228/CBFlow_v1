@@ -37,6 +37,10 @@ flow_proc extract {
     global design_name
     set _script "$::WORK_DIR/lvs_extract.tcl"
     set _fh [open $_script w]
+    # Memory macros extract as abstract cells (pins only, from their LEF;
+    # noduplicates keeps the GDS from replacing them) — black boxes in Netgen
+    foreach _l [oss_memory_files lef] { puts $_fh "lef read $_l" }
+    if {[oss_has_memories]} { puts $_fh "gds noduplicates true" }
     puts $_fh "gds read $::lvs_gds"
     puts $_fh "load $design_name"
     puts $_fh "select top cell"
