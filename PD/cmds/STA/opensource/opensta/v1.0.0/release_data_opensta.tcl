@@ -27,6 +27,9 @@ set ::flow::exec_mode "auto"
 
 source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
 
+# 3-decimal number (non-numeric, e.g. N/A, unchanged)
+proc sta_fmt3 {v} { expr {[string is double -strict $v] ? [format %.3f $v] : $v} }
+
 flow_proc publish {
     global design_name
     set _dir [::CBFlow::Release::init $::FLOW_TYPE $design_name $::DIRS(run) [oss_get project release,phase]]
@@ -51,6 +54,8 @@ flow_proc publish {
             "Tran violations : $qor(max_tran_violations)" \
             "Cap violations : $qor(max_cap_violations)" \
             "Fanout violations : $qor(max_fanout_violations)" \
+            "Tran slack ns : [sta_fmt3 $qor(tran_slack)]" "Cap slack pF : [sta_fmt3 $qor(cap_slack)]" \
+            "Fanout slack : [sta_fmt3 $qor(fanout_slack)]" \
             "Noise : N/A"
         if {$_power} {
             lappend _L "Lkg power mW : [format %.4g [expr {$qor(power_leakage) * 1e3}]]" \

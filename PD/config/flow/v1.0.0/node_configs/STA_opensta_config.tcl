@@ -48,6 +48,12 @@ array set sta {
 # oss,report,group_path_count: paths per group in setup.rpt / hold.rpt.
 # oss,allow_no_spef: true = a scenario whose RC corner has no SPEF is timed
 # with wire-load estimates (warning); false = the scenario fails.
+# oss,drv,max_fanout: fanout limit set on the design before the DRV checks
+# (tran / cap limits come from the libraries); 10 = the sky130 OpenLane default.
+# oss,dont_use,tech_key: tech(<track>,<key>) list no instance may use
+# (dont_use_pnr: the post-route list — the synthesis list bans the clock
+# cells CTS adds). oss,dont_touch,instances: instance patterns that must still
+# exist (isolation clamps, spare / tie cells, macros); set per block in the uc.
 # oss,report_power: report_power per scenario (reports/power.rpt), merged into
 # outputs/sta_power.rpt (mW) and the release metrics.rpt '# category: power'.
 array set sta {
@@ -57,6 +63,9 @@ array set sta {
     oss,report,group_path_count 10
     oss,allow_no_spef           false
     oss,report_power            true
+    oss,drv,max_fanout          10
+    oss,dont_use,tech_key       dont_use_pnr
+    oss,dont_touch,instances    {}
 }
 
 # ┌─ Mandatory outputs (relative to work/STA/<node>/outputs/) ──────────────────┐
@@ -99,4 +108,6 @@ array set sta {
     checklist,metric,sta_max_fanout        {^Fanout violations\s*:\s*(\d+)}
     checklist,metric,sta_noise             {^Noise\s*:\s*(-?[0-9.]+)}
     checklist,metric,sta_total_power       {^Total power mW\s*:\s*([0-9.eE+-]+)}
+    checklist,metric,sta_dont_use          {^Dont use cells\s*:\s*(\d+)}
+    checklist,metric,sta_dont_touch        {^Dont touch missing\s*:\s*(\d+)}
 }

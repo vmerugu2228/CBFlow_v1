@@ -51,7 +51,37 @@ flow_proc report {
     set _n [oss_get sta oss,report,group_path_count]
     report_checks -path_delay max -group_path_count $_n -format full_clock_expanded > "$::SCEN_REPORTS/setup.rpt"
     report_checks -path_delay min -group_path_count $_n -format full_clock_expanded > "$::SCEN_REPORTS/hold.rpt"
-    report_check_types -max_slew -max_capacitance -max_fanout -violators > "$::SCEN_REPORTS/drv.rpt"
+    # Electrical rules: tran / cap limits from the libraries, fanout limit
+    # from sta(oss,drv,max_fanout). drv.rpt = worst pin per check (limit,
+    # value, slack) then every violator.
+    set_max_fanout [oss_get sta oss,drv,max_fanout] [current_design]
+    report_check_types -max_slew -max_capacitance -max_fanout > "$::SCEN_REPORTS/drv.rpt"
+    report_check_types -max_slew -max_capacitance -max_fanout -violators >> "$::SCEN_REPORTS/drv.rpt"
+    # Netlist rules: don't-use cells (tech(<track>,<sta(oss,dont_use,tech_key)>))
+    # and don't-touch instances (sta(oss,dont_touch,instances) patterns that
+    # must still match) -> dont_use.rpt / dont_touch.rpt
+    set _du [oss_trk [oss_get sta oss,dont_use,tech_key]]
+    set _du_hits {}
+    foreach _c [get_cells -hierarchical *] {
+        set _ref [get_property $_c ref_name]
+        foreach _p $_du { if {[string match $_p $_ref]} { lappend _du_hits [list [get_full_name $_c] $_ref]; break } }
+    }
+    set _fh [open "$::SCEN_REPORTS/dont_use.rpt" w]
+    puts $_fh "Don't-use cells (tech([oss_track],[oss_get sta oss,dont_use,tech_key])): $_du"
+    puts $_fh "Instances using a don't-use cell: [llength $_du_hits]"
+    foreach _h $_du_hits { puts $_fh [format "  %-50s %s" {*}$_h] }
+    close $_fh
+    set _dt [expr {[info exists ::sta(oss,dont_touch,instances)] ? $::sta(oss,dont_touch,instances) : [oss_get sta oss,dont_touch,instances]}]
+    set _dt_missing {}; set _dt_n 0
+    set _fh [open "$::SCEN_REPORTS/dont_touch.rpt" w]
+    puts $_fh "Don't-touch instance patterns (sta(oss,dont_touch,instances)): [expr {[llength $_dt] ? $_dt : {none}}]"
+    foreach _p $_dt {
+        set _m [get_cells -hierarchical -quiet $_p]
+        if {![llength $_m]} { lappend _dt_missing $_p; puts $_fh "  MISSING  $_p"; continue }
+        foreach _c $_m { incr _dt_n; puts $_fh [format "  OK       %-50s %s" [get_full_name $_c] [get_property $_c ref_name]] }
+    }
+    puts $_fh "Patterns missing: [llength $_dt_missing]   Instances kept: $_dt_n"
+    close $_fh
     set _fh [open "$::SCEN_REPORTS/[oss_get sta oss,scenario_qor_file]" w]
     puts $_fh "set qor(scenario) \"$::SCENARIO\""
     puts $_fh "set qor(wns_setup) [sta::worst_slack -max]"
@@ -61,6 +91,15 @@ flow_proc report {
     puts $_fh "set qor(max_tran_violations) [sta::max_slew_violation_count]"
     puts $_fh "set qor(max_cap_violations) [sta::max_capacitance_violation_count]"
     puts $_fh "set qor(max_fanout_violations) [sta::max_fanout_violation_count]"
+    puts $_fh "set qor(dont_use_cells) [llength $_du_hits]"
+    puts $_fh "set qor(dont_touch_missing) [llength $_dt_missing]"
+    puts $_fh "set qor(dont_touch_instances) $_dt_n"
+    # Worst margin per check (limit - value; negative = violation)
+    foreach {_k _c} {tran_slack max_slew_check_slack cap_slack max_capacitance_check_slack
+                     fanout_slack max_fanout_check_slack} {
+        if {[catch {sta::$_c} _v] || ![string is double -strict $_v] || abs($_v) > 1e20} { set _v "N/A" }
+        puts $_fh "set qor($_k) \"$_v\""
+    }
     # Power (sta(oss,report_power)): report_power on this scenario's corner;
     # the Total row (internal switching leakage total, W) goes into the QoR.
     if {[is_true [oss_get sta oss,report_power]]} {

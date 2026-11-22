@@ -71,7 +71,7 @@ array set mandatory_checks {
     }
     "sta_max_tran" {
         "id"                "STA_0007"
-        "description"       "Max transition violations (all scenarios)"
+        "description"       "Max transition violations (worst scenario)"
         "criteria"          "no max transition violations"
         "operator"          "=="
         "default_threshold" "0"
@@ -79,8 +79,24 @@ array set mandatory_checks {
     }
     "sta_max_cap" {
         "id"                "STA_0008"
-        "description"       "Max capacitance violations (all scenarios)"
+        "description"       "Max capacitance violations (worst scenario)"
         "criteria"          "no max capacitance violations"
+        "operator"          "=="
+        "default_threshold" "0"
+        "min_phase_index"   "0"
+    }
+    "sta_dont_use" {
+        "id"                "STA_0012"
+        "description"       "Instances of don't-use cells in the netlist"
+        "criteria"          "no don't-use cell instantiated"
+        "operator"          "=="
+        "default_threshold" "0"
+        "min_phase_index"   "0"
+    }
+    "sta_dont_touch" {
+        "id"                "STA_0013"
+        "description"       "Don't-touch instance patterns missing from the netlist"
+        "criteria"          "every don't-touch instance kept"
         "operator"          "=="
         "default_threshold" "0"
         "min_phase_index"   "0"
@@ -90,7 +106,7 @@ array set mandatory_checks {
 array set optional_checks {
     "sta_max_fanout" {
         "id"                "STA_0009"
-        "description"       "Max fanout violations (all scenarios)"
+        "description"       "Max fanout violations (worst scenario)"
         "criteria"          "no max fanout violations"
         "operator"          "=="
         "default_threshold" "0"

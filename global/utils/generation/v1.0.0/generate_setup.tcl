@@ -724,11 +724,15 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
         if {$_branch_name ne ""} {
             lappend override_patterns [list "override_config_branch_${_branch_name}" "$run_dir/setup/override_config.${_branch_name}.tcl"]
         }
+        # Per-node override: override_config.<node>.tcl (node_type here IS the
+        # node, e.g. timing1 — node_name is its variant label timing1_default),
+        # as written by the run GUI (scenarios, release form) and add-node.
+        lappend override_patterns [list "override_config_node_${node_type}" "$run_dir/setup/override_config.${node_type}.tcl"]
         lappend override_patterns [list "override_config_node_${node_name}" "$run_dir/setup/override_config.${node_name}.tcl"]
 
         foreach override_entry $override_patterns {
             lassign $override_entry label file_path
-            if {[file exists $file_path]} {
+            if {[file exists $file_path] && [lsearch -exact -index 1 $config_files $file_path] < 0} {
                 lappend config_files $override_entry
             }
         }
