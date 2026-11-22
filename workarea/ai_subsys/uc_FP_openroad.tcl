@@ -24,13 +24,16 @@ set project(release,tag)       "P0_FP_v1"
 
 # Floorplan (um) and fixed hard-macro spots
 # set fp(oss,fp,die_area)      {x0 y0 x1 y1}   ;# fixed size instead of utilization
-# Floorplan: mac_array (3602.26 um square, pins on its top edge) flush in the
-# bottom-left core corner; a 500 um logic band across the full width above it;
-# IO pins on the top edge — no narrow channels around the macro.
-#   die x1 = 10.12 margin + 3602.26 macro + 10.12 margin: the macro fills the
-#   core width — no strip of rows beside it; y1 = 10.88 + 3602.26 + 500 + 10.88
+# Floorplan: mac_array abutting the core bottom edge (the lowest a macro may sit;
+# the 10.88 um margin below holds no rows) at the left core edge,
+# filling the core width; hard placement blockages left / right / bottom of it
+# (fp(oss,macro,blockage_sides)) so standard cells sit only in the logic band
+# above it; IO pins on the top edge. Die (set by chain_ai_p1.sh from the
+# released mac_array abstract):
+#   x1 = 10.12 margin + W + 10.12 margin;  y1 = 10.88 + H + 500 logic band + 10.88
 set fp(oss,fp,die_area)         {0 0 3622.5 4124}
 set fp(oss,macro,placement)     {u_mac_array 10.12 10.88 R0}
+set fp(oss,macro,blockage_sides) {left right bottom}
 set fp(oss,pins,region)         top:*
 
 # ── Floorplan sizing (per block; overrides FP_openroad_config.tcl) ──────────

@@ -549,6 +549,52 @@ proc oss_fp_place_macros {blocks} {
             }
         }
     }
+    oss_fp_macro_blockages
+}
+
+# <flow>(oss,macro,blockage_sides) {left right bottom}: hard placement
+# blockages from each child macro out to the core edge on those sides (side
+# strips run from the core bottom to the macro top + halo), so standard cells
+# sit only where the floorplan leaves room — e.g. above a macro in the bottom
+# corner. Written to the DEF (BLOCKAGES), so PNR placement honours them.
+proc oss_fp_macro_blockages {} {
+    set _arr [oss_flow_arr]
+    if {![info exists ::${_arr}(oss,macro,blockage_sides)]} { error "${_arr}(oss,macro,blockage_sides) is not set" }
+    set _sides [set ::${_arr}(oss,macro,blockage_sides)]
+    if {[llength $_sides] == 0} return
+    foreach _s $_sides {
+        if {$_s ni {left right bottom top}} { error "${_arr}(oss,macro,blockage_sides): unknown side '$_s' (left right bottom top)" }
+    }
+    set _blk  [ord::get_db_block]
+    set _dbu  [[ord::get_db_tech] getDbUnitsPerMicron]
+    set _halo [expr {round([oss_get $_arr oss,macro,halo] * $_dbu)}]
+    set _c    [$_blk getCoreArea]
+    lassign [list [$_c xMin] [$_c yMin] [$_c xMax] [$_c yMax]] _cx0 _cy0 _cx1 _cy1
+    foreach _i [$_blk getInsts] {
+        if {![[$_i getMaster] isBlock]} continue
+        set _b [$_i getBBox]
+        lassign [list [$_b xMin] [$_b yMin] [$_b xMax] [$_b yMax]] _x0 _y0 _x1 _y1
+        set _rects {}
+        foreach _s $_sides {
+            switch $_s {
+                left   { lappend _rects $_s $_cx0 $_cy0 $_x0 [expr {$_y1 + $_halo}] }
+                right  { lappend _rects $_s $_x1 $_cy0 $_cx1 [expr {$_y1 + $_halo}] }
+                bottom { lappend _rects $_s $_x0 $_cy0 $_x1 $_y0 }
+                top    { lappend _rects $_s $_x0 $_y1 $_x1 $_cy1 }
+            }
+        }
+        foreach {_s _a _bb _cc _d} $_rects {
+            set _a [expr {max($_a, $_cx0)}]; set _bb [expr {max($_bb, $_cy0)}]
+            set _cc [expr {min($_cc, $_cx1)}]; set _d [expr {min($_d, $_cy1)}]
+            if {$_cc <= $_a || $_d <= $_bb} {
+                handle_info "  [$_i getName] $_s: no room between macro and core edge — no blockage"
+                continue
+            }
+            odb::dbBlockage_create $_blk $_a $_bb $_cc $_d
+            handle_info [format "  placement blockage [$_i getName] %-6s (%.2f %.2f %.2f %.2f)" $_s \
+                [expr {$_a / double($_dbu)}] [expr {$_bb / double($_dbu)}] [expr {$_cc / double($_dbu)}] [expr {$_d / double($_dbu)}]]
+        }
+    }
 }
 
 # place_macros.rpt: every child hard-block instance with its origin,

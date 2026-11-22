@@ -54,6 +54,8 @@ array set fp {
 # it for blocks that integrate hard macros.
 # core_utilization = standard-cell utilization % (macro blocks add macro area on
 # top). Default here; set per block in user_config: fp(oss,fp,core_utilization).
+# oss,macro,blockage_sides {left right bottom top}: hard placement blockages
+# from each child macro out to the core edge on those sides; {} = none.
 # oss,pins,region: edge region for all signal IO pins (set_io_pin_constraint
 # -region, e.g. top:*) — a block used as a macro keeps its pins on the side
 # facing the parent's logic; "" = all edges.
@@ -70,6 +72,7 @@ array set fp {
     oss,pins,hor_layer       "met3"
     oss,pins,ver_layer       "met2"
     oss,macro,halo           10
+    oss,macro,blockage_sides {}
     oss,macro,placement      ""
     oss,fail_on_violations   false
 }
