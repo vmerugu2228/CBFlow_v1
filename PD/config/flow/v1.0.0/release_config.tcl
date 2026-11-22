@@ -1484,6 +1484,37 @@ proc get_input_handshake {flow input_type} {
     set release_deliverables(CLP,reports) {power_verification_summary.rpt}
     set release_deliverables(PV,reports) {drc_summary.rpt lvs_summary.rpt perc_results.rpt perc_ldl_summary.rpt}
     set release_deliverables(EMIR,reports) {power_summary.rpt ir_drop_summary.rpt}
+    # FP / FCFP / ECO / POPT are release_tags required_flows. `cbflow run release`
+    # previously classified their files with a hardcoded extension map in
+    # run_cmd.py — the same map, declared here:
+    set release_deliverables(FP,netlist) {.v}
+    set release_deliverables(FP,gds) {.gds .oasis}
+    set release_deliverables(FP,def) {.def}
+    set release_deliverables(FP,spef) {.spef}
+    set release_deliverables(FP,sdc) {.sdc}
+    set release_deliverables(FP,upf) {.upf}
+    set release_deliverables(FP,reports) {.rpt}
+    set release_deliverables(FCFP,netlist) {.v}
+    set release_deliverables(FCFP,gds) {.gds .oasis}
+    set release_deliverables(FCFP,def) {.def}
+    set release_deliverables(FCFP,spef) {.spef}
+    set release_deliverables(FCFP,sdc) {.sdc}
+    set release_deliverables(FCFP,upf) {.upf}
+    set release_deliverables(FCFP,reports) {.rpt}
+    set release_deliverables(ECO,netlist) {.v}
+    set release_deliverables(ECO,gds) {.gds .oasis}
+    set release_deliverables(ECO,def) {.def}
+    set release_deliverables(ECO,spef) {.spef}
+    set release_deliverables(ECO,sdc) {.sdc}
+    set release_deliverables(ECO,upf) {.upf}
+    set release_deliverables(ECO,reports) {.rpt}
+    set release_deliverables(POPT,netlist) {.v}
+    set release_deliverables(POPT,gds) {.gds .oasis}
+    set release_deliverables(POPT,def) {.def}
+    set release_deliverables(POPT,spef) {.spef}
+    set release_deliverables(POPT,sdc) {.sdc}
+    set release_deliverables(POPT,upf) {.upf}
+    set release_deliverables(POPT,reports) {.rpt}
 
 # ── Cadence STA / LEC report contracts (fork C) ──────────────────────────────
 # Report file names the Tempus / Conformal release_data stages copy into the

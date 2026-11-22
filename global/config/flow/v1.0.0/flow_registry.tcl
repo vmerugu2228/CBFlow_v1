@@ -199,6 +199,8 @@ if {![info exists flow(merged,pnr_depends_fp)]} { set flow(merged,pnr_depends_fp
 
 # ── RACE Database ───────────────────────────────────────────────────────────
 if {![info exists flow(race,db_max_sessions)]}  { set flow(race,db_max_sessions)  10 }
+# `cbflow run db-manage status` warns at db_max_sessions × db_warn_ratio.
+if {![info exists flow(race,db_warn_ratio)]}    { set flow(race,db_warn_ratio)    0.8 }
 
 # ── MMMC ────────────────────────────────────────────────────────────────────
 # MMMC is a PD concept (STA/PNR scenarios), but the global default lives here

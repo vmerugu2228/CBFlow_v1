@@ -23,6 +23,11 @@
     set validation(validation_timeout) 300
     set validation(enable_enhanced_patterns) 1
 
+# ┌─ Log Error Markers ───────────────────────────────────────────────────────┐
+# Substrings that mark a log line as an error in `cbflow run report`
+# (per-node "Errors Found" section). Read by global/utils/commands/run_cmd.py.
+    set validation(log_error_patterns) {ERROR FATAL}
+
 # ┌─ Tool-Specific Critical Error IDs ────────────────────────────────────────┐
 # These error IDs trigger immediate xterm display regardless of waiver patterns
 

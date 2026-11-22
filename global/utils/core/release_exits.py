@@ -76,6 +76,27 @@ def release_tags():
     return out
 
 
+def milestone_stage_mapping():
+    """{exit: stage} from MILESTONE_STAGE_MAPPING(*) in release_config.tcl."""
+    out = {m.group(1): m.group(2) for m in re.finditer(
+        r'^\s*set\s+MILESTONE_STAGE_MAPPING\((\w+)\)\s+"([^"]+)"',
+        _release_config_text(), re.M)}
+    if not out:
+        raise PhaseExitsError('MILESTONE_STAGE_MAPPING(*) is not set in release_config.tcl')
+    return out
+
+
+def release_deliverables(flow):
+    """{category: [suffix/name patterns]} from release_deliverables(<flow>,*)
+    in release_config.tcl. Raises when the flow declares none."""
+    out = {m.group(1): m.group(2).split() for m in re.finditer(
+        r'^\s*set\s+release_deliverables\(' + re.escape(flow) + r',(\w+)\)\s+\{([^}]*)\}',
+        _release_config_text(), re.M)}
+    if not out:
+        raise PhaseExitsError(f'release_deliverables({flow},*) is not set in release_config.tcl')
+    return out
+
+
 def _project_config_paths(project):
     """Global project config + every discipline overlay (core.registry)."""
     try:

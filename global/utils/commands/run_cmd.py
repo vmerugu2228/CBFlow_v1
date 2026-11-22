@@ -34,8 +34,9 @@ def _is_run_dir_name(name: str) -> bool:
 from logging_config import configure_logging, get_logger
 
 import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from core.paths import get_cbflow_core_dir, get_flow_config_version, CBFLOW_VERSION as VERSION
+from core.paths import get_cbflow_core_dir, CBFLOW_VERSION as VERSION
 from core import release_exits
+from core import registry
 
 # PD-only commands (metrics, graph_renderer, node_manager, log_viewer, lsf,
 # email, autoppt, checklist, library/mmmc/qor managers) stayed under
@@ -52,6 +53,105 @@ except Exception:
     pass
 
 logger = configure_logging('cbflow.run')
+
+
+def _tcl_values(files, keys) -> dict:
+    """Source `files` in a tclsh and return {key: value} for each of `keys`
+    (Tcl variable names such as `project(block_list)`) that the files set.
+    Values are returned verbatim (multi-line safe). Raises RuntimeError when
+    tclsh fails — a config that does not source is an error, not a default."""
+    _files = ' '.join('{' + f + '}' for f in files)
+    _keys = ' '.join('{' + k + '}' for k in keys)
+    script = (f'foreach _cbf_f [list {_files}] {{ source $_cbf_f }}\n'
+              f'foreach _cbf_k [list {_keys}] {{\n'
+              f'    if {{[info exists $_cbf_k]}} {{\n'
+              f'        puts "@@CBFLOW_KEY@@$_cbf_k"; puts [set $_cbf_k]; puts "@@CBFLOW_END@@"\n'
+              f'    }}\n'
+              f'}}\n')
+    try:
+        proc = subprocess.run(['tclsh'], input=script, capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise RuntimeError(f'tclsh failed sourcing {" ".join(files)}: {e}')
+    if proc.returncode != 0:
+        raise RuntimeError(f'tclsh failed sourcing {" ".join(files)}: {proc.stderr.strip()}')
+    out, key, buf = {}, None, []
+    for line in proc.stdout.splitlines():
+        if line.startswith('@@CBFLOW_KEY@@'):
+            key, buf = line[len('@@CBFLOW_KEY@@'):], []
+        elif line == '@@CBFLOW_END@@' and key is not None:
+            out[key] = '\n'.join(buf)
+            key = None
+        elif key is not None:
+            buf.append(line)
+    return out
+
+
+def _pd_flow_config_file(name: str) -> str:
+    """<CBFLOW_CORE_DIR>/config/flow/<FLOW_CONFIG_VERSION>/<name> — the PD
+    flow-config files the resolver sources (tool_launch/lsf/release/validation)."""
+    path = os.path.join(get_cbflow_core_dir(), 'config', 'flow',
+                        registry.config_version('FLOW_CONFIG_VERSION'), name)
+    if not os.path.isfile(path):
+        raise registry.RegistryError(f'{name} not found: {path}')
+    return path
+
+
+def _node_dir(flow_type: str, node: str, run_dir: str = '') -> str:
+    """work/<FLOW>/<node> — mirrors utils.tcl cbflow_node_dir."""
+    return os.path.join(run_dir, 'work', flow_type, node) if run_dir else \
+        os.path.join('work', flow_type, node)
+
+
+def _log_error_patterns() -> list:
+    """validation(log_error_patterns) from validation_config.tcl — substrings
+    that mark a log line as an error in `cbflow run report`."""
+    path = _pd_flow_config_file('validation_config.tcl')
+    with open(path, encoding='utf-8', errors='replace') as f:
+        m = _re_mod.search(r'^\s*set\s+validation\(log_error_patterns\)\s+\{([^}]*)\}',
+                           f.read(), _re_mod.M)
+    if not m or not m.group(1).split():
+        raise registry.RegistryError(f'validation(log_error_patterns) is not set in {path}')
+    return m.group(1).split()
+
+
+def _lsf_tiers() -> list:
+    """LSF resource tiers: lsf(available_queues) in lsf_config.tcl."""
+    path = _pd_flow_config_file('lsf_config.tcl')
+    with open(path, encoding='utf-8', errors='replace') as f:
+        m = _re_mod.search(r'^\s*set\s+lsf\(available_queues\)\s+(?:"([^"]*)"|\{([^}]*)\})',
+                           f.read(), _re_mod.M)
+    tiers = (m.group(1) if m and m.group(1) is not None else (m.group(2) if m else '')).split()
+    if not tiers:
+        raise registry.RegistryError(f'lsf(available_queues) is not set in {path}')
+    return tiers
+
+
+def _tool_vendor_from_overlay(flow_type: str, tool: str) -> str:
+    """tool,vendor from <disc>/config/flow/<ver>/node_configs/<FLOW>_<tool>_config.tcl,
+    or '' when the overlay does not exist / declare it."""
+    tool_cfg = os.path.join(registry.discipline_dir(registry.flow_discipline(flow_type)),
+                            'config', 'flow', registry.config_version('FLOW_CONFIG_VERSION'),
+                            'node_configs', f'{flow_type}_{tool}_config.tcl')
+    if os.path.isfile(tool_cfg):
+        with open(tool_cfg, 'r') as _tcf:
+            for _line in _tcf:
+                _m = _re_mod.search(r'tool,vendor["\s]+["\s]*([^"}\s]+)', _line)
+                if _m:
+                    return _m.group(1)
+    return ''
+
+
+def _flow_node_of_type(flow_type: str, node_type: str, run_dir: str) -> str:
+    """The node of `flow_type` whose node_types,<node> is `node_type` (from
+    the resolved node config of `run_dir`). Raises when there is none."""
+    import cbflow_config as _cc
+    cfg = _cc.load_resolved_config(flow_type, run_dir=run_dir)
+    stages = (_cc.optional(cfg, 'stages') or '').split()
+    hits = [s for s in stages if (cfg.get(f'node_types,{s}', '') or '').strip('"') == node_type]
+    if not hits:
+        raise registry.RegistryError(
+            f'{flow_type}: no node with node_types,<node> "{node_type}" in its node config')
+    return hits[-1]
 
 
 
@@ -400,9 +500,16 @@ def _flow_release_manifest(run_dir: str):
             for line in fh:
                 if line.startswith('export CBFLOW_FLOW_TYPE='):
                     flow_type = line.split('=', 1)[1].strip().strip('"')
-    manifest = os.path.join(run_dir, 'work', flow_type, 'release_data1', 'outputs', 'release.manifest')
     info = {}
-    if flow_type and os.path.isfile(manifest):
+    if not flow_type:
+        return info
+    try:
+        release_node = _flow_node_of_type(flow_type, 'release_data', run_dir)
+    except registry.RegistryError:
+        return info            # flow has no release_data stage → no flow release
+    manifest = os.path.join(_node_dir(flow_type, release_node, run_dir),
+                            'outputs', 'release.manifest')
+    if os.path.isfile(manifest):
         with open(manifest) as fh:
             for line in fh:
                 parts = line.strip().split(None, 1)
@@ -467,14 +574,11 @@ def _publish_flow_release(run_dir: str, milestone: str, strict: bool, override: 
     project_name = env_vars.get('CBFLOW_PROJECT_NAME', env_vars.get('PROJECT_NAME', ''))
     design_name = env_vars.get('CBFLOW_DESIGN_NAME', '')
     phase = env_vars.get('CBFLOW_PROJECT_PHASE', '')
-    flow_dir = env_vars.get('FLOW_DIR', '')
-    milestone_stage_map = {}
-    rc_path = os.path.join(flow_dir, 'PD', 'config', 'flow',
-                           env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0'), 'release_config.tcl')
-    if os.path.exists(rc_path):
-        with open(rc_path) as f:
-            for m in _re_mod.finditer(r'set\s+MILESTONE_STAGE_MAPPING\((\w+)\)\s+"([^"]+)"', f.read()):
-                milestone_stage_map[m.group(1)] = m.group(2)
+    try:
+        milestone_stage_map = release_exits.milestone_stage_mapping()
+    except release_exits.PhaseExitsError as e:
+        logger.error(f"  {e}")
+        return 1
     return _publish_to_project_dashboard(
         project=project_name, block=design_name, phase=phase,
         milestone=milestone, release_dir=release_dir,
@@ -1109,24 +1213,16 @@ def cmd_report(args: argparse.Namespace) -> int:
     version = (node_config.get('tool,version', '').strip('"')
                or env_vars.get('CBFLOW_TOOL_VERSION', '')
                or os.environ.get('CBFLOW_TOOL_VERSION', ''))
-    # core_dir must be resolved BEFORE the auto-resolve block below reads
-    # it. The old order (resolve-use at 984, assign at 996) would raise
-    # NameError when (not vendor) + (tool is truthy) short-circuited into
-    # evaluating an undefined local core_dir.
-    core_dir = os.environ.get('FLOW_DIR', '') or env_vars.get('FLOW_DIR', '')
-    # Auto-resolve vendor from tool-specific config: <FLOW>_<tool>_config.tcl
-    if not vendor and tool and core_dir:
-        flow_type = env_vars.get('CBFLOW_FLOW_TYPE', '') or os.environ.get('CBFLOW_FLOW_TYPE', '')
-        cfg_ver = env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0')
-        tool_cfg = os.path.join(core_dir, 'config', 'flow', cfg_ver,
-                                'node_configs', '{}_{}_config.tcl'.format(flow_type, tool))
-        if os.path.isfile(tool_cfg):
-            with open(tool_cfg, 'r') as _tcf:
-                for _line in _tcf:
-                    _m = _re.search(r'tool,vendor["\s]+["\s]*([^"}\s]+)', _line)
-                    if _m:
-                        vendor = _m.group(1)
-                        break
+    # Command files live under the flow's discipline root (flow_registry.tcl).
+    try:
+        core_dir = registry.discipline_dir(registry.flow_discipline(flow_type))
+        # Auto-resolve vendor from tool-specific config: <FLOW>_<tool>_config.tcl
+        if not vendor and tool:
+            vendor = _tool_vendor_from_overlay(flow_type, tool)
+        log_error_patterns = _log_error_patterns()
+    except registry.RegistryError as e:
+        logger.error(str(e))
+        return 1
 
     dump_setup = getattr(args, 'dump_setup', True)
     filter_node = getattr(args, 'node', None)
@@ -1170,19 +1266,10 @@ def cmd_report(args: argparse.Namespace) -> int:
             logger.info(f'      {icon} {sn:<20} {ts}')
 
         # --- Setup files ---
-        # Check multiple paths where setup files may exist (node name first, then base name)
-        setup_paths = [
-            os.path.join('work', flow_type, stage, 'run', 'setup.tcl'),
-            os.path.join('work', flow_type, cmd_base, 'run', 'setup.tcl'),
-            os.path.join('work', flow_type, stage, 'setup', 'setup.tcl'),
-            os.path.join('work', flow_type, cmd_base, 'setup', 'setup.tcl'),
-        ]
-        config_paths = [
-            os.path.join('work', flow_type, stage, 'run', 'config.tcl'),
-            os.path.join('work', flow_type, cmd_base, 'run', 'config.tcl'),
-            os.path.join('work', flow_type, stage, 'setup', 'config.tcl'),
-            os.path.join('work', flow_type, cmd_base, 'setup', 'config.tcl'),
-        ]
+        # Node files live in work/<FLOW>/<node>/run/ (cbflow_node_dir layout).
+        node_dir = _node_dir(flow_type, stage)
+        setup_paths = [os.path.join(node_dir, 'run', 'setup.tcl')]
+        config_paths = [os.path.join(node_dir, 'run', 'config.tcl')]
 
         logger.info(f'')
         logger.info(f'    Setup Files:')
@@ -1290,9 +1377,7 @@ def cmd_report(args: argparse.Namespace) -> int:
                 logger.info(f'      {icon} {out}{extra}')
 
         # --- Work directory contents ---
-        work_dir = os.path.join('work', flow_type, stage)
-        if not os.path.exists(work_dir):
-            work_dir = os.path.join('work', flow_type, cmd_base)
+        work_dir = node_dir
         if os.path.exists(work_dir):
             logger.info(f'')
             logger.info(f'    Work Directory: {work_dir}')
@@ -1317,7 +1402,7 @@ def cmd_report(args: argparse.Namespace) -> int:
                     try:
                         with open(log_path, 'r') as f:
                             for line_num, line in enumerate(f, 1):
-                                if 'ERROR' in line or 'FATAL' in line:
+                                if any(p in line for p in log_error_patterns):
                                     stage_errors.append(f'{lf}:{line_num}: {line.strip()[:100]}')
                     except Exception:
                         pass
@@ -1334,12 +1419,10 @@ def cmd_report(args: argparse.Namespace) -> int:
             logger.info(f'    Errors: None')
 
         # --- Finish timestamp ---
-        finish_info_paths = [
-            os.path.join('work', flow_type, stage, 'run', 'finish.timestamp'),
-            os.path.join('work', flow_type, stage, 'finish', 'finish_info.tcl'),
-            os.path.join('work', flow_type, cmd_base, 'run', 'finish.timestamp'),
-            os.path.join('work', flow_type, cmd_base, 'finish', 'finish_info.tcl'),
-        ]
+        # handler_common.tcl writes finish/finish_info.tcl and
+        # run/<stage>_finish.timestamp under the node dir.
+        finish_info_paths = ([os.path.join(node_dir, 'finish', 'finish_info.tcl')]
+                             + sorted(glob.glob(os.path.join(node_dir, 'run', '*_finish.timestamp'))))
         for ts_file in finish_info_paths:
             if os.path.exists(ts_file):
                 with open(ts_file, 'r') as f:
@@ -1494,8 +1577,7 @@ def cmd_list_nodes(args: argparse.Namespace) -> int:
     logger.info(f"  Base Flow:")
     logger.info(f"  {'─'*55}")
     for i, stage in enumerate(stages):
-        stage_key = stage if stage in completed else f"{stage}1"
-        done = stage in completed or f"{stage}1" in completed
+        done = stage in completed          # stages are node names (config)
         icon = "[DONE]" if done else "[    ]"
         arrow = "  -> " if i < len(stages) - 1 else ""
         suffix = ""
@@ -1531,7 +1613,7 @@ def cmd_list_nodes(args: argparse.Namespace) -> int:
 
     logger.info("")
     total = len(stages) + len(custom_nodes)
-    done_count = sum(1 for s in stages if s in completed or f"{s}1" in completed)
+    done_count = sum(1 for s in stages if s in completed)
     done_count += sum(1 for n in custom_nodes if n in completed)
     dyn_total = sum(len(v) for v in dyn_subnodes.values())
     dyn_done = sum(sum(1 for _, d in v if d) for v in dyn_subnodes.values())
@@ -2064,55 +2146,27 @@ def cmd_release(args: argparse.Namespace) -> int:
                         env_vars[k] = v.strip('"')
             break
 
-    flow_dir = env_vars.get('FLOW_DIR', '')
     project_name = env_vars.get('CBFLOW_PROJECT_NAME', env_vars.get('PROJECT_NAME', ''))
     design_name = env_vars.get('CBFLOW_DESIGN_NAME', '')
     phase = env_vars.get('CBFLOW_PROJECT_PHASE', '')
 
-    # Load release_config for predefined tags
-    release_tags = {}
-    release_deliverables = {}
-    ver = env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0')
-    rc_path = os.path.join(flow_dir, 'config', 'flow', ver, 'release_config.tcl')
-    milestone_stage_map = {}
-    if os.path.exists(rc_path):
-        with open(rc_path) as f:
-            content = f.read()
-        # Parse MILESTONE_STAGE_MAPPING — supports both the current per-key
-        # `set MILESTONE_STAGE_MAPPING(FP_EXIT) "init_design"` format and the
-        # legacy `array set MILESTONE_STAGE_MAPPING { FP_EXIT "init_design" }`.
-        for m in _re.finditer(
-            r'set\s+MILESTONE_STAGE_MAPPING\((\w+)\)\s+"([^"]+)"', content):
-            milestone_stage_map[m.group(1)] = m.group(2)
-            release_tags[m.group(1)] = {
-                'description': f'{m.group(1)} milestone (after {m.group(2)})',
-                'required_stage': m.group(2),
-            }
-        # Legacy fallback if nothing matched above
-        if not milestone_stage_map:
-            idx = content.find('array set MILESTONE_STAGE_MAPPING')
-            if idx >= 0:
-                block = content[idx:content.find('}', idx)]
-                for m in _re.finditer(r'(\w+)\s+"(\w+)"', block):
-                    if m.group(1) == 'MILESTONE_STAGE_MAPPING':
-                        continue
-                    milestone_stage_map[m.group(1)] = m.group(2)
-                    release_tags[m.group(1)] = {
-                        'description': f'{m.group(1)} milestone (after {m.group(2)})',
-                        'required_stage': m.group(2),
-                    }
+    # Predefined tags, milestone→stage map: release_config.tcl
+    # (release_tags(*), MILESTONE_STAGE_MAPPING(*)) via core.release_exits.
+    try:
+        release_tags = release_exits.release_tags()
+        milestone_stage_map = release_exits.milestone_stage_mapping()
+    except release_exits.PhaseExitsError as e:
+        logger.error(str(e))
+        return 1
 
-    # Load project config for active_tag and expiry
-    # Walk the project-config cascade (global identity + PD overlay +
-    # legacy monolith). Pre-fix only the legacy monolith was checked, so
-    # on migrated installs active_tag / expiry_date / release_path all
-    # stayed empty and `cbflow run release` silently failed with "no
-    # release tag set" even when the PD overlay had them.
-    from core.paths import read_project_cfg_key
-    proj_ver = env_vars.get('PROJECT_VERSION', 'v1.0.0')
-    active_tag  = read_project_cfg_key(project_name, 'release,active_tag',  proj_ver)
-    expiry_date = read_project_cfg_key(project_name, 'release,expiry_date', proj_ver)
-    release_path = read_project_cfg_key(project_name, 'release,path',       proj_ver)
+    # Release settings: project(release,*) across the project config cascade.
+    try:
+        active_tag  = registry.project_value(project_name, 'release,active_tag') or ''
+        expiry_date = registry.project_value(project_name, 'release,expiry_date') or ''
+        release_path = registry.require_project_value(project_name, 'release,path')
+    except registry.RegistryError as e:
+        logger.error(str(e))
+        return 1
 
     tag = tag_override or active_tag
     if not tag:
@@ -2142,11 +2196,12 @@ def cmd_release(args: argparse.Namespace) -> int:
     if expiry_date:
         try:
             exp = datetime.strptime(expiry_date, '%Y-%m-%d')
-            if datetime.now() > exp:
-                logger.error(f"Release tag '{tag}' expired on {expiry_date}")
-                return 1
         except ValueError:
-            pass
+            logger.error(f"project(release,expiry_date) '{expiry_date}' is not a YYYY-MM-DD date")
+            return 1
+        if datetime.now() > exp:
+            logger.error(f"Release tag '{tag}' expired on {expiry_date}")
+            return 1
 
     # Release tag name = the exit name (default); --name overrides it.
     release_tag_name = getattr(args, 'name', None) or tag
@@ -2162,12 +2217,15 @@ def cmd_release(args: argparse.Namespace) -> int:
     logger.info(f"  Release to:  {release_path}")
     if expiry_date:
         logger.info(f"  Expiry:      {expiry_date}")
-    required_stage = tag_info.get('required_stage', '')
+    required_stage = milestone_stage_map.get(tag, '')
     logger.info(f"  Required stage: {required_stage}")
+    logger.info(f"  Required flows: {' '.join(tag_info['required_flows'])}")
     logger.info(f"  ─────────────────────────────────────────────────────────")
     logger.info("")
 
-    # Gate check: find all completed runs in workspace
+    # Gate check: the tag's required flows (release_tags(<tag>) required_flows)
+    # that have a run in this workspace — only those are packaged.
+    required_flows = tag_info['required_flows']
     found_runs = {}
     for run in runs:
         env_file = os.path.join(workspace, run, '.run.cbflow.env')
@@ -2176,7 +2234,7 @@ def cmd_release(args: argparse.Namespace) -> int:
                 for line in f:
                     if 'CBFLOW_FLOW_TYPE' in line:
                         m = _re.search(r'"([^"]+)"', line)
-                        if m:
+                        if m and m.group(1) in required_flows:
                             found_runs[m.group(1)] = run
     logger.info(f"  Found runs: {len(found_runs)}")
     for flow, run_name in sorted(found_runs.items()):
@@ -2184,7 +2242,15 @@ def cmd_release(args: argparse.Namespace) -> int:
     logger.info("")
 
     if not found_runs:
-        logger.error("  No completed runs found in workspace")
+        logger.error(f"  No runs of the {tag} required flows ({' '.join(required_flows)}) "
+                     f"found in workspace")
+        return 1
+
+    # What each flow releases: release_deliverables(<FLOW>,<category>) suffixes.
+    try:
+        deliverables = {f: release_exits.release_deliverables(f) for f in found_runs}
+    except release_exits.PhaseExitsError as e:
+        logger.error(str(e))
         return 1
 
     if dry_run:
@@ -2193,19 +2259,35 @@ def cmd_release(args: argparse.Namespace) -> int:
 
     # Create release directory
     # Same layout as the flows' release_data: <release,path>/<phase>/<block>/<FLOW>/<tag>
+    try:
+        flow_dirs = {f: registry.release_dir(release_path, phase, design_name, f, release_tag_name)
+                     for f in found_runs}
+    except registry.RegistryError as e:
+        logger.error(str(e))
+        return 1
     block_dir = os.path.join(release_path, phase, design_name)
-    flow_dirs = {f: os.path.join(block_dir, f, release_tag_name) for f in found_runs}
     release_dir = next(iter(flow_dirs.values()))          # primary flow's release
     for _d in flow_dirs.values():
         os.makedirs(_d, exist_ok=True)
     logger.info(f"  Release directories: {block_dir}/<FLOW>/{release_tag_name}")
     logger.info("")
 
+    def _category(fname, flow_deliv):
+        """Category whose release_deliverables suffix matches fname (longest
+        suffix wins), or None when fname is not a deliverable of the flow."""
+        best, best_len = None, 0
+        for cat, sufs in flow_deliv.items():
+            for suf in sufs:
+                if fname.endswith(suf) and len(suf) > best_len:
+                    best, best_len = cat, len(suf)
+        return best
+
     # Copy deliverables from each flow
     total_files = 0
     for flow, run_dir_name in found_runs.items():
         run_path = os.path.join(workspace, run_dir_name)
         flow_release_dir = flow_dirs[flow]
+        flow_deliv = deliverables[flow]
         flow_files = 0
 
         # Scan for output manifest first
@@ -2215,6 +2297,7 @@ def cmd_release(args: argparse.Namespace) -> int:
                 if fname == 'output_manifest.tcl':
                     manifests.append(os.path.join(root, fname))
 
+        sources = []
         if manifests:
             # Use manifest to find files (supports both 'set manifest(key) "val"' and 'array set manifest { key "val" }')
             manifest_path = sorted(manifests)[-1]
@@ -2226,26 +2309,11 @@ def cmd_release(args: argparse.Namespace) -> int:
                     if not m:
                         m = _re.match(r'(\w+)\s+"([^"]+)"', line.strip())
                     if m and m.group(1) not in ('flow', 'node', 'design', 'run_dir', 'timestamp', 'file_count'):
-                        src = m.group(2)
-                        key = m.group(1)
-                        # Determine subdirectory from key
-                        if 'netlist' in key:
-                            subdir = 'netlist'
-                        elif key in ('gds', 'def', 'lef', 'sdc', 'upf', 'spef'):
-                            subdir = key
-                        elif 'report' in key:
-                            subdir = 'reports'
-                        else:
-                            subdir = 'data'
-                        dest_dir = os.path.join(flow_release_dir, subdir)
-                        os.makedirs(dest_dir, exist_ok=True)
-                        if os.path.exists(src):
-                            shutil.copy2(src, dest_dir)
-                            flow_files += 1
+                        if os.path.exists(m.group(2)):
+                            sources.append(m.group(2))
         else:
-            # Fallback: scan all outputs/ and reports/ directories (top-level + per-node)
+            # No manifest: scan all outputs/ and reports/ directories (top-level + per-node)
             scan_dirs = [os.path.join(run_path, 'outputs'), os.path.join(run_path, 'results')]
-            # Also scan per-node outputs/reports under work/
             work_path = os.path.join(run_path, 'work')
             if os.path.isdir(work_path):
                 for _flow_dir in os.listdir(work_path):
@@ -2257,29 +2325,17 @@ def cmd_release(args: argparse.Namespace) -> int:
                                 if os.path.isdir(_sd):
                                     scan_dirs.append(_sd)
             for scan_dir in scan_dirs:
-                if os.path.isdir(scan_dir):
-                    for root, dirs, files in os.walk(scan_dir):
-                        for fname in files:
-                            src = os.path.join(root, fname)
-                            subdir = 'data'
-                            if fname.endswith('.v'):
-                                subdir = 'netlist'
-                            elif fname.endswith(('.gds', '.oasis')):
-                                subdir = 'gds'
-                            elif fname.endswith('.def'):
-                                subdir = 'def'
-                            elif fname.endswith('.spef'):
-                                subdir = 'spef'
-                            elif fname.endswith('.sdc'):
-                                subdir = 'sdc'
-                            elif fname.endswith('.upf'):
-                                subdir = 'upf'
-                            elif fname.endswith('.rpt'):
-                                subdir = 'reports'
-                            dest_dir = os.path.join(flow_release_dir, subdir)
-                            os.makedirs(dest_dir, exist_ok=True)
-                            shutil.copy2(src, dest_dir)
-                            flow_files += 1
+                for root, dirs, files in os.walk(scan_dir):
+                    sources += [os.path.join(root, fname) for fname in files]
+
+        for src in sources:
+            subdir = _category(os.path.basename(src), flow_deliv)
+            if subdir is None:
+                continue                  # not a release_deliverables file of this flow
+            dest_dir = os.path.join(flow_release_dir, subdir)
+            os.makedirs(dest_dir, exist_ok=True)
+            shutil.copy2(src, dest_dir)
+            flow_files += 1
 
         total_files += flow_files
         logger.info(f"  {flow:<12} → {flow_files} files released")
@@ -2603,42 +2659,14 @@ def cmd_release_check(args: argparse.Namespace) -> int:
 
     tag = args.tag
     project_name = args.project
-    # Phase must come from --phase or from the project's phase list — the
-    # earlier 'P0' default silently misread projects using LC1-LC5 etc.
-    phase = getattr(args, 'phase', '') or ''
+    # Phase must come from --phase or CBFLOW_PROJECT_PHASE (set inside a run
+    # shell) — picking the project's first phase silently checked the wrong one.
+    phase = getattr(args, 'phase', '') or os.environ.get('CBFLOW_PROJECT_PHASE', '')
     if not phase:
-        try:
-            from tcl_config_parser import get_phases
-            _phases = get_phases()
-            if _phases:
-                phase = _phases[0]
-        except Exception:
-            pass
-    if not phase:
-        logger.error('--phase required for release-check: project(phases) is not resolvable '
-                     'and no --phase was passed. Pass --phase <X> or declare project(phases) '
-                     'in the project config.')
+        logger.error('--phase required for release-check (or run from a run shell where '
+                     'CBFLOW_PROJECT_PHASE is set).')
         return 1
     block_filter = getattr(args, 'block', None)
-
-    # Find flow_dir from environment or workspace
-    flow_dir = os.environ.get('FLOW_DIR', '')
-    if not flow_dir:
-        # Try to find from any run in current dir
-        for d in os.listdir('.'):
-            env_f = os.path.join(d, '.run.cbflow.env')
-            if os.path.isfile(env_f):
-                with open(env_f) as f:
-                    for line in f:
-                        if 'FLOW_DIR' in line:
-                            m = _re.search(r'"([^"]*)"', line)
-                            if m: flow_dir = m.group(1)
-                break
-    if not flow_dir:
-        logger.error("Cannot determine FLOW_DIR. Set env or run from workspace.")
-        return 1
-
-    ver = get_flow_config_version()
 
     # Load release_tags from release_config
     release_tags = release_exits.release_tags()
@@ -2650,25 +2678,19 @@ def cmd_release_check(args: argparse.Namespace) -> int:
     tag_info = release_tags[tag]
     release_tag_name = getattr(args, 'name', None) or tag
 
-    # Load release path + block_list via the shared cascade helper.
-    from core.paths import read_project_cfg_key
-    proj_ver = os.environ.get('PROJECT_VERSION', 'v1.0.0')
-    release_path = read_project_cfg_key(project_name, 'release,path', proj_ver)
-    _bl = read_project_cfg_key(project_name, 'block_list', proj_ver)
-    block_list = _bl.split() if _bl else []
-
-    if not release_path:
-        logger.error("project(release,path) not set in project config")
+    # Release path + block list from the project config cascade. block_list
+    # is derived in Tcl (from design_hierarchy), so it is evaluated, not regexed.
+    try:
+        release_path = registry.require_project_value(project_name, 'release,path')
+        _bl = _tcl_values(registry.project_config_paths(project_name),
+                          ['project(block_list)']).get('project(block_list)', '')
+    except (registry.RegistryError, RuntimeError) as e:
+        logger.error(str(e))
         return 1
-
+    block_list = _bl.split()
     if not block_list:
-        # Fallback: scan release dir for existing blocks
-        tag_dir = os.path.join(release_path, phase)
-        if os.path.isdir(tag_dir):
-            block_list = [d for d in os.listdir(tag_dir) if os.path.isdir(os.path.join(tag_dir, d))]
-        if not block_list:
-            logger.error("No blocks found. Set project(block_list) in project config.")
-            return 1
+        logger.error(f"project(block_list) is not set for {project_name} in the project config.")
+        return 1
 
     blocks = [block_filter] if block_filter else block_list
     required_flows = tag_info['required_flows']
@@ -2701,7 +2723,7 @@ def cmd_release_check(args: argparse.Namespace) -> int:
         stub_detected = False
 
         for flow in required_flows:
-            release_dir = os.path.join(release_path, phase, block, flow, release_tag_name)
+            release_dir = registry.release_dir(release_path, phase, block, flow, release_tag_name)
             rc_file = os.path.join(release_dir, 'RELEASE_COMPLETE')
 
             if os.path.isdir(release_dir) and len(os.listdir(release_dir)) > 0:
@@ -2797,34 +2819,15 @@ def cmd_targets(args: argparse.Namespace) -> int:
     return 0
 
 
-def _load_tool_shell_map(env_vars: dict) -> dict:
-    """Load tool→shell mapping from tool_launch_config.tcl.
-
-    Accepts both the current `set lsf(tool_shell,<name>) "..."` schema and
-    the legacy `set tool_shell(<name>) "..."` form so older installs keep
-    working during upgrades.
-    """
-    import re
-    flow_dir = env_vars.get('FLOW_DIR', os.environ.get('FLOW_DIR', ''))
-    if not flow_dir:
-        # Derive from module location: PD/utils/commands/run_cmd.py → PD/
-        flow_dir = os.path.abspath(
-            os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                         os.pardir, os.pardir))
-    version = env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0')
-    config_path = os.path.join(flow_dir, 'config', 'flow', version, 'tool_launch_config.tcl')
-    shell_map = {}
-    if not os.path.exists(config_path):
-        return shell_map
-    lsf_re = re.compile(r'^set\s+lsf\(tool_shell,(\w+)\)\s+"([^"]+)"')
-    old_re = re.compile(r'^set\s+tool_shell\((\w+)\)\s+"([^"]+)"')
-    with open(config_path) as f:
-        for line in f:
-            line = line.strip()
-            m = lsf_re.match(line) or old_re.match(line)
-            if m:
-                shell_map[m.group(1)] = m.group(2)
-    return shell_map
+def _per_tool_key(resolved: dict, prefix: str, tool_name: str) -> str:
+    """Value of `<prefix>,<tool>` or, when the tool has no entry,
+    `<prefix>,default` from the resolved config (both declared in
+    tool_launch_config.tcl). Raises when neither is declared."""
+    for key in (f'{prefix},{tool_name})', f'{prefix},default)'):
+        if key in resolved:
+            return resolved[key]
+    raise registry.RegistryError(f'{prefix},{tool_name}) / {prefix},default) not set '
+                                 f'(PD/config/flow/<ver>/tool_launch_config.tcl)')
 
 
 def cmd_interactive(args: argparse.Namespace) -> int:
@@ -2862,25 +2865,20 @@ def cmd_interactive(args: argparse.Namespace) -> int:
                 m = _re2.search(rf'{flow_lower}\(tool,vendor\)\s+"([^"]+)"', _line)
                 if m: vendor = m.group(1)
 
-    # Priority 2: project default_tools
+    # Priority 2: project(default_tools) — {<FLOW> "<tool>" ...} pairs
     if not tool_name:
         proj_name = env_vars.get('CBFLOW_PROJECT_NAME', '')
         if proj_name:
-            flow_dir_val = env_vars.get('FLOW_DIR', '')
-            cfg_ver = env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0')
-            proj_cfg = os.path.join(flow_dir_val, 'config', 'project', proj_name, cfg_ver,
-                                    '{}_config.tcl'.format(proj_name))
-            if os.path.exists(proj_cfg):
-                import re as _re3
-                with open(proj_cfg) as _pc:
-                    content = _pc.read()
-                m = _re3.search(r'default_tools\)\s*\{([^}]+)\}', content)
-                if m:
-                    pairs = m.group(1).split()
-                    for i in range(0, len(pairs) - 1, 2):
-                        if pairs[i] == flow_type:
-                            tool_name = pairs[i + 1].strip('"')
-                            break
+            try:
+                _dt = registry.project_value(proj_name, 'default_tools') or ''
+            except registry.RegistryError as e:
+                logger.error(f"  {e}")
+                return 1
+            pairs = _dt.split()
+            for i in range(0, len(pairs) - 1, 2):
+                if pairs[i] == flow_type:
+                    tool_name = pairs[i + 1].strip('"')
+                    break
 
     # Priority 3: node config default
     if not tool_name:
@@ -2894,43 +2892,39 @@ def cmd_interactive(args: argparse.Namespace) -> int:
 
     # Auto-resolve vendor from tool-specific node config if missing
     if tool_name and not vendor:
-        flow_dir_val = env_vars.get('FLOW_DIR', '')
-        cfg_ver = env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0')
-        import re as _re4
-        tool_cfg = os.path.join(flow_dir_val, 'config', 'flow', cfg_ver,
-                                'node_configs', '{}_{}_config.tcl'.format(flow_type, tool_name))
-        if os.path.exists(tool_cfg):
-            with open(tool_cfg) as _tcf:
-                for _line in _tcf:
-                    m = _re4.search(r'tool,vendor["\s]+["\s]*([^"}\s]+)', _line)
-                    if m:
-                        vendor = m.group(1)
-                        break
+        try:
+            vendor = _tool_vendor_from_overlay(flow_type, tool_name)
+        except registry.RegistryError as e:
+            logger.error(f"  {e}")
+            return 1
 
     if not vendor or not tool_name:
         logger.error("Tool vendor/name not configured. Check user_config or project default_tools.")
         return 1
 
-    # Resolve tool shell from tool_launch_config.tcl (single source of truth)
-    tool_shell_map = _load_tool_shell_map(env_vars)
-    if not tool_shell_map:
-        logger.warning("Could not load tool_launch_config.tcl; using tool_name as shell command")
-    tool_shell = tool_shell_map.get(tool_name, tool_name)
-
-    # Module load — read from flow_config (single source of truth)
-    import re as _re
-    module_cmd = ''
-    flow_dir = env_vars.get('FLOW_DIR', os.environ.get('FLOW_DIR', ''))
-    fc_path = os.path.join(flow_dir, 'config', 'flow',
-                           env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0'),
-                           'flow_config.tcl')
-    if os.path.exists(fc_path):
-        with open(fc_path) as f:
-            for line in f:
-                m = _re.search(rf'flow\(tool_module,{_re.escape(tool_name)}\)\s+"([^"]+)"', line)
-                if m:
-                    module_cmd = f'module load {m.group(1)}'
-                    break
+    # Launch settings: tool_launch_config.tcl + lsf_config.tcl (+ user_config
+    # overrides) through the resolver — no raw .tcl reads, no defaults here.
+    import cbflow_config as _cbflow_cfg
+    resolved = _cbflow_cfg.load_resolved_config(flow_type, run_dir, env=env_vars)
+    try:
+        tool_shell = _cbflow_cfg.require(resolved, f'lsf(tool_shell,{tool_name})')
+        use_lsf = (_cbflow_cfg.require(resolved, 'flow(use_lsf)') == 'true')
+        lsf_queue = _cbflow_cfg.require(resolved, 'lsf(interactive,queue)')
+        lsf_runtime = _cbflow_cfg.require(resolved, 'lsf(interactive,runtime_limit)')
+        _mem = _cbflow_cfg.require(resolved, 'lsf(interactive,memory)')
+        xterm_cmd = _cbflow_cfg.require(resolved, 'lsf(xterm,command)')
+        xterm_geom = _cbflow_cfg.require(resolved, 'lsf(xterm,geometry)')
+        load_flags = _per_tool_key(resolved, 'lsf(interactive,load_flags', tool_name)
+        empty_flags = _per_tool_key(resolved, 'lsf(interactive,empty_flags', tool_name)
+    except (_cbflow_cfg.ConfigError, registry.RegistryError) as e:
+        logger.error(f"  {e}")
+        return 1
+    lsf_memory = (str(int(_mem[:-2]) * 1000) if _mem.upper().endswith('GB') else _mem)
+    # Module load — lsf(module,<tool>) in lsf_config.tcl (full command). Tools
+    # without an entry run from PATH (e.g. the open-source container tools).
+    module_cmd = _cbflow_cfg.optional(resolved, f'lsf(module,{tool_name})') or ''
+    # GUI binary that replaces the tool shell for an empty session (icv -vue …).
+    gui_shell = _cbflow_cfg.optional(resolved, f'lsf(tool_gui_shell,{tool_name})') or ''
 
     # Create INTERACTIVE directory
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -2970,7 +2964,20 @@ def cmd_interactive(args: argparse.Namespace) -> int:
         if scenario:
             logger.info(f"  Resolved subnode: {load_node} → stage={parent_stage}, scenario={scenario}")
 
-        work_dir = os.path.join(run_dir, 'work', flow_type, parent_stage)
+        work_dir = _node_dir(flow_type, parent_stage, run_dir)
+
+        # Per-tool restore script: lsf(interactive,restore,<tool>) (or ,default)
+        # in tool_launch_config.tcl, read verbatim (multi-line Tcl).
+        _rk = [f'lsf(interactive,restore,{tool_name})', 'lsf(interactive,restore,default)']
+        try:
+            _rv = _tcl_values([_pd_flow_config_file('tool_launch_config.tcl')], _rk)
+        except (RuntimeError, registry.RegistryError) as e:
+            logger.error(f"  {e}")
+            return 1
+        restore_tcl = _rv.get(_rk[0], _rv.get(_rk[1]))
+        if restore_tcl is None:
+            logger.error(f"  {_rk[0]} / {_rk[1]} not set (tool_launch_config.tcl)")
+            return 1
 
         with open(load_tcl_path, 'w') as tf:
             tf.write(f"# CBflow Interactive — Load {load_node}\n")
@@ -2991,175 +2998,23 @@ def cmd_interactive(args: argparse.Namespace) -> int:
                 tf.write(f'source "{config_tcl}"\n')
             if os.path.exists(setup_tcl):
                 tf.write(f'source "{setup_tcl}"\n')
-            tf.write(f'source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"\n\n')
+            tf.write(f'source "$::env(CBFLOW_GLOBAL_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"\n\n')
 
-            if tool_name == 'fc':
-                # Fusion Compiler — open NDM library
-                nlib_path = os.path.join(work_dir, f'{load_node}.nlib')
-                nlib_alt = os.path.join(run_dir, 'work', flow_type, load_node, f'{load_node}.nlib')
-                tf.write(f"# Open design library\n")
-                tf.write(f'set nlib_path "{nlib_path}"\n')
-                tf.write(f'set nlib_alt  "{nlib_alt}"\n')
-                tf.write(f'if {{[file exists $nlib_path]}} {{\n')
-                tf.write(f'    open_lib $nlib_path\n')
-                tf.write(f'    puts "INFO: Loaded design library: $nlib_path"\n')
-                tf.write(f'}} elseif {{[file exists $nlib_alt]}} {{\n')
-                tf.write(f'    open_lib $nlib_alt\n')
-                tf.write(f'    puts "INFO: Loaded design library: $nlib_alt"\n')
-                tf.write(f'}} else {{\n')
-                tf.write(f'    puts "WARNING: No .nlib found for {load_node}"\n')
-                tf.write(f'    puts "  Searched: $nlib_path"\n')
-                tf.write(f'    puts "  Searched: $nlib_alt"\n')
-                tf.write(f'    puts "  Starting empty session"\n')
-                tf.write(f'}}\n\n')
-                tf.write(f'puts ""\n')
-                tf.write(f'puts "═══════════════════════════════════════════════════"\n')
-                tf.write(f'puts "  CBflow Interactive — {load_node} loaded"\n')
-                tf.write(f'puts "  Run directory: {run_dir}"\n')
-                tf.write(f'puts "  Session: INTERACTIVE/{session_name}"\n')
-                tf.write(f'puts "═══════════════════════════════════════════════════"\n')
-
-            elif tool_name == 'pt':
-                # PrimeTime — restore session.
-                # Session files live under work/<FLOW>/<parent_stage>/run/. For
-                # a per-scenario subnode (e.g. timing1_func_ss_0p80v_rcmax_125c)
-                # the exact session is <load_node>.session and the scenario
-                # context TCL (<scenario>_context.tcl) sets PVT/SDC/SPEF globals
-                # before restore so the environment matches the batch run.
-                ss_dir = os.path.join(work_dir, 'run')
-                tf.write(f"# Restore PrimeTime session\n")
-                tf.write(f'set session_dir "{ss_dir}"\n')
-                if scenario:
-                    ctx_file = os.path.join(ss_dir, f'{scenario}_context.tcl')
-                    tf.write(f"# Scenario context — sets ::CORNER, ::MODE, ::VOLTAGE, ::TEMPERATURE,\n")
-                    tf.write(f"# ::RC_CORNER, ::LIB_SET, ::SDC_FILE, ::SPEF_FILE for {scenario}\n")
-                    tf.write(f'set ctx_file "{ctx_file}"\n')
-                    tf.write(f'if {{[file exists $ctx_file]}} {{\n')
-                    tf.write(f'    source $ctx_file\n')
-                    tf.write(f'    puts "INFO: Loaded scenario context: $ctx_file"\n')
-                    tf.write(f'}} else {{\n')
-                    tf.write(f'    puts "WARNING: Scenario context not found: $ctx_file"\n')
-                    tf.write(f'}}\n')
-                    exact_session = os.path.join(ss_dir, f'{load_node}.session')
-                    tf.write(f'set exact_session "{exact_session}"\n')
-                    tf.write(f'if {{[file exists $exact_session]}} {{\n')
-                    tf.write(f'    restore_session $exact_session\n')
-                    tf.write(f'    puts "INFO: Restored scenario session: $exact_session"\n')
-                    tf.write(f'}} else {{\n')
-                    tf.write(f'    puts "WARNING: No session for scenario {scenario}"\n')
-                    tf.write(f'    puts "  Expected: $exact_session"\n')
-                    tf.write(f'    puts "  Starting empty session — context globals are still set"\n')
-                    tf.write(f'}}\n\n')
-                else:
-                    tf.write(f'set session_files [glob -nocomplain "$session_dir/*.session"]\n')
-                    tf.write(f'if {{[llength $session_files] > 0}} {{\n')
-                    tf.write(f'    puts "INFO: Available sessions in {parent_stage}:"\n')
-                    tf.write(f'    foreach _s $session_files {{ puts "    [file tail $_s]" }}\n')
-                    tf.write(f'    set ss [lindex $session_files 0]\n')
-                    tf.write(f'    restore_session $ss\n')
-                    tf.write(f'    puts "INFO: Restored session: $ss"\n')
-                    tf.write(f'    puts "INFO: To load a specific scenario, re-run with:"\n')
-                    tf.write(f'    puts "      cbflow run interactive --node {parent_stage}_<scenario>"\n')
-                    tf.write(f'}} else {{\n')
-                    tf.write(f'    set db_files [glob -nocomplain "$session_dir/*.db"]\n')
-                    tf.write(f'    if {{[llength $db_files] > 0}} {{\n')
-                    tf.write(f'        read_db [lindex $db_files end]\n')
-                    tf.write(f'        puts "INFO: Loaded timing DB"\n')
-                    tf.write(f'    }} else {{\n')
-                    tf.write(f'        puts "WARNING: No saved session found for {load_node}"\n')
-                    tf.write(f'        puts "  Starting empty session — use read_verilog, read_sdc, etc."\n')
-                    tf.write(f'    }}\n')
-                    tf.write(f'}}\n\n')
-                tf.write(f'puts ""\n')
-                tf.write(f'puts "═══════════════════════════════════════════════════"\n')
-                tf.write(f'puts "  CBflow Interactive — {load_node} (PrimeTime)"\n')
-                if scenario:
-                    tf.write(f'puts "  Stage: {parent_stage}  Scenario: {scenario}"\n')
-                tf.write(f'puts "  Run directory: {run_dir}"\n')
-                tf.write(f'puts "═══════════════════════════════════════════════════"\n')
-
-            elif tool_name == 'innovus':
-                # Innovus — restore design from outputs/
-                enc_dat = os.path.join(work_dir, 'outputs', f'{node_base}.enc.dat')
-                design_name = env_vars.get('CBFLOW_DESIGN_NAME', '')
-                tf.write(f"# Restore Innovus design\n")
-                tf.write(f'set _db "{enc_dat}"\n')
-                tf.write(f'if {{[file exists $_db]}} {{\n')
-                _nt = ' -noTiming' if notiming else ''
-                tf.write(f'    restoreDesign{_nt} $_db {design_name}\n')
-                tf.write(f'    puts "INFO: Restored design: $_db ({design_name}){"  [noTiming]" if notiming else ""}"\n')
-                tf.write(f'}} else {{\n')
-                tf.write(f'    puts "WARNING: No .enc.dat found: $_db"\n')
-                tf.write(f'    puts "  Run the flow first or check outputs/ directory"\n')
-                tf.write(f'}}\n')
-                tf.write(f'\nputs ""\n')
-                tf.write(f'puts "═══════════════════════════════════════════════════"\n')
-                tf.write(f'puts "  CBflow Interactive — {load_node} ({tool_name})"\n')
-                tf.write(f'puts "  Design: {design_name}"\n')
-                tf.write(f'puts "  Run directory: {run_dir}"\n')
-                tf.write(f'puts "  Session: INTERACTIVE/{session_name}"\n')
-                tf.write(f'puts "═══════════════════════════════════════════════════"\n')
-
-            elif tool_name == 'tempus':
-                # Tempus — per-scenario session support (same pattern as PT).
-                ss_dir = os.path.join(work_dir, 'run')
-                tf.write(f"# Restore Tempus session\n")
-                tf.write(f'set session_dir "{ss_dir}"\n')
-                if scenario:
-                    ctx_file = os.path.join(ss_dir, f'{scenario}_context.tcl')
-                    tf.write(f'set ctx_file "{ctx_file}"\n')
-                    tf.write(f'if {{[file exists $ctx_file]}} {{\n')
-                    tf.write(f'    source $ctx_file\n')
-                    tf.write(f'    puts "INFO: Loaded scenario context: $ctx_file"\n')
-                    tf.write(f'}}\n')
-                    exact_db = os.path.join(ss_dir, f'{load_node}.db')
-                    tf.write(f'set exact_db "{exact_db}"\n')
-                    tf.write(f'if {{[file exists $exact_db]}} {{\n')
-                    tf.write(f'    read_db $exact_db\n')
-                    tf.write(f'    puts "INFO: Loaded scenario DB: $exact_db"\n')
-                    tf.write(f'}} else {{\n')
-                    tf.write(f'    puts "WARNING: No DB for scenario {scenario}"\n')
-                    tf.write(f'    puts "  Expected: $exact_db"\n')
-                    tf.write(f'}}\n')
-                else:
-                    tf.write(f'set db_files [glob -nocomplain "$session_dir/*.db"]\n')
-                    tf.write(f'if {{[llength $db_files] > 0}} {{\n')
-                    tf.write(f'    read_db [lindex $db_files end]\n')
-                    tf.write(f'    puts "INFO: Loaded timing DB"\n')
-                    tf.write(f'}} else {{\n')
-                    tf.write(f'    puts "WARNING: No saved session found for {load_node}"\n')
-                    tf.write(f'}}\n')
-
-            else:
-                tf.write(f'puts "INFO: Interactive session for {load_node} ({tool_name})"\n')
-                tf.write(f'puts "  Work dir: {work_dir}"\n')
+            # Session context consumed by the restore script
+            tf.write("# Session context (used by lsf(interactive,restore,<tool>))\n")
+            for _var, _val in (('cbflow_flow_type', flow_type), ('cbflow_tool', tool_name),
+                               ('cbflow_run_dir', run_dir), ('cbflow_load_node', load_node),
+                               ('cbflow_parent_stage', parent_stage),
+                               ('cbflow_scenario', scenario or ''),
+                               ('cbflow_node_base', node_base), ('cbflow_work_dir', work_dir),
+                               ('cbflow_session_name', session_name),
+                               ('cbflow_design_name', env_vars.get('CBFLOW_DESIGN_NAME', '')),
+                               ('cbflow_notiming', '1' if notiming else '0')):
+                tf.write(f'set {_var} "{_val}"\n')
+            tf.write("\n")
+            tf.write(restore_tcl.strip('\n') + "\n")
 
         logger.info(f"  Load TCL:  {load_tcl_path}")
-
-    # ── Read LSF and xterm settings from flow_config ─────────────────────
-    import re as _re
-    use_lsf = False
-    xterm_cmd = 'xterm'
-    xterm_geom = '200x50'
-    lsf_queue = 'normal'
-    lsf_memory = '16000'
-    lsf_runtime = '6:00'
-
-    # All four files (flow_config, user_config, lsf_config, tool_launch_config)
-    # contribute keys to the resolver — no raw .tcl reads here anymore. The
-    # cascade order is enforced by the resolver, so user_config's override of
-    # flow(use_lsf) takes effect automatically.
-    import cbflow_config as _cbflow_cfg
-    resolved = _cbflow_cfg.load_resolved_config(flow_type, run_dir, env=env_vars)
-    use_lsf = (_cbflow_cfg.optional(resolved, 'flow(use_lsf)') == 'true')
-    lsf_queue = _cbflow_cfg.optional(resolved, 'lsf(interactive,queue)') or lsf_queue
-    lsf_runtime = _cbflow_cfg.optional(resolved, 'lsf(interactive,runtime_limit)') or lsf_runtime
-    _mem = _cbflow_cfg.optional(resolved, 'lsf(interactive,memory)')
-    if _mem:
-        lsf_memory = (str(int(_mem[:-2]) * 1000)
-                      if _mem.upper().endswith('GB') else _mem)
-    xterm_cmd = _cbflow_cfg.optional(resolved, 'lsf(xterm,command)') or xterm_cmd
-    xterm_geom = _cbflow_cfg.optional(resolved, 'lsf(xterm,geometry)') or xterm_geom
 
     # ── Generate wrapper script ──────────────────────────────────────────
     wrapper_path = os.path.join(interactive_dir, 'launch_interactive.sh')
@@ -3173,32 +3028,13 @@ def cmd_interactive(args: argparse.Namespace) -> int:
             wf.write(f"{module_cmd}\n")
         wf.write(f"source {run_dir}/.run.cbflow.env\n\n")
 
-        # Build tool invocation with load TCL script
+        # Build tool invocation: lsf(interactive,load_flags|empty_flags,<tool>)
         if load_tcl_path:
-            if tool_name == 'fc':
-                wf.write(f'{tool_shell} -gui -f "{load_tcl_path}"\n')
-            elif tool_name in ('pt', 'tempus'):
-                wf.write(f'{tool_shell} -f "{load_tcl_path}"\n')
-            elif tool_name == 'innovus':
-                wf.write(f'{tool_shell} -init "{load_tcl_path}"\n')
-            elif tool_name == 'genus':
-                wf.write(f'{tool_shell} -f "{load_tcl_path}"\n')
-            elif tool_name == 'fm':
-                wf.write(f'{tool_shell} -gui -f "{load_tcl_path}"\n')
-            else:
-                wf.write(f'{tool_shell} -f "{load_tcl_path}"\n')
+            wf.write(' '.join(p for p in (tool_shell, load_flags, f'"{load_tcl_path}"') if p) + "\n")
+        elif gui_shell:
+            wf.write(f"{gui_shell}\n")
         else:
-            # No node to load — just open empty tool
-            if tool_name == 'fc':
-                wf.write(f"{tool_shell} -gui\n")
-            elif tool_name == 'icv':
-                wf.write(f"icv -vue\n")
-            elif tool_name == 'calibre':
-                wf.write(f"calibredrv\n")
-            elif tool_name == 'fm':
-                wf.write(f"{tool_shell} -gui\n")
-            else:
-                wf.write(f"{tool_shell}\n")
+            wf.write(' '.join(p for p in (tool_shell, empty_flags) if p) + "\n")
     os.chmod(wrapper_path, 0o755)
 
     # ── Print summary ────────────────────────────────────────────────────
@@ -3223,9 +3059,18 @@ def cmd_interactive(args: argparse.Namespace) -> int:
         title += f" [{load_node}]"
 
     if use_lsf:
-        # Submit via LSF with interactive xterm
-        bsub_cmd = [
-            'bsub', '-Is', '-q', lsf_queue,
+        # Submit via LSF with interactive xterm. bsub binary: $CBFLOW_BSUB_CMD
+        # (same override launch_utils.tcl honours), else lsf(bsub,command).
+        import shlex as _shlex
+        _bsub = os.environ.get('CBFLOW_BSUB_CMD', '').strip()
+        if not _bsub:
+            try:
+                _bsub = _cbflow_cfg.require(resolved, 'lsf(bsub,command)')
+            except _cbflow_cfg.ConfigError as e:
+                logger.error(f"  {e}")
+                return 1
+        bsub_cmd = _shlex.split(_bsub) + [
+            '-Is', '-q', lsf_queue,
             '-W', lsf_runtime, '-R',
             f'rusage[mem={lsf_memory}]',
             xterm_cmd, '-geometry', xterm_geom,
@@ -3610,7 +3455,7 @@ Examples:
     add_node_parser.add_argument('--dep', '-d',
                                 help='Dependency node - the new node runs after this one')
     add_node_parser.add_argument('--resource-tier', '-r', default='',
-                                choices=['', 'XS', 'S', 'M', 'L', 'XL', 'ultra'],
+                                choices=[''] + _lsf_tiers(),
                                 help=('Override LSF resource tier for this node '
                                       '(XS/S/M/L/XL/ultra). Omit to inherit from '
                                       'the base stage or lsf(default_queue_type). '
@@ -4023,8 +3868,7 @@ def _cmd_gui_daemon(no_browser, public=False, bind_addr=None):
     # Resolve the current run's discipline so each discipline gets its
     # own daemon. The launcher doesn't source .run.cbflow.env, so
     # CBFLOW_FLOW_TYPE isn't in os.environ — read the file directly from
-    # the run dir. Default to PD if the flow doesn't declare a discipline
-    # — matches the dashboard's own fallback.
+    # the run dir. A flow without flow(discipline,<FLOW>) is an error.
     discipline = None
     flow_type = os.environ.get('CBFLOW_FLOW_TYPE', '').strip().upper()
     if not flow_type:
@@ -4040,23 +3884,12 @@ def _cmd_gui_daemon(no_browser, public=False, bind_addr=None):
             except OSError:
                 pass
     if flow_type:
+        # flow(discipline,<FLOW>) in flow_registry.tcl — required, no PD default.
         try:
-            from tcl_config_parser import get_flow_discipline
-            _disc_raw = get_flow_discipline(flow_type)
-            if _disc_raw:
-                discipline = _disc_raw.upper()
-            else:
-                logger.warning(
-                    f'run_cmd: flow {flow_type!r} has no discipline tag in '
-                    f'flow_registry.tcl — dashboard registration falling '
-                    f'back to PD. Add `set flow(discipline,{flow_type}) '
-                    f'"<DISC>"` to global/config/flow/v1.0.0/flow_registry.tcl.')
-                discipline = 'PD'
-        except Exception as _e:
-            logger.warning(
-                f'run_cmd: get_flow_discipline({flow_type!r}) raised {_e!r} '
-                f'— dashboard registration falling back to PD.')
-            discipline = 'PD'
+            discipline = registry.flow_discipline(flow_type).upper()
+        except registry.RegistryError as _e:
+            logger.error(f'run_cmd: {_e} — cannot pick the dashboard daemon for this run.')
+            return 1
 
     try:
         lifecycle.ensure_daemon(public=public, bind_addr=bind_addr,
@@ -4097,24 +3930,19 @@ def cmd_db_manage(args):
     import hashlib
     import re as _re
 
-    flow_dir = os.environ.get('FLOW_DIR', '')
-    if not flow_dir:
-        env_file = os.path.join(os.getcwd(), '.run.cbflow.env')
-        if os.path.exists(env_file):
-            with open(env_file) as f:
-                for line in f:
-                    if 'FLOW_DIR=' in line:
-                        flow_dir = line.split('=', 1)[1].strip().strip('"')
-
-    # Read limits from flow_config
-    max_sessions = 10
-    fc_path = os.path.join(flow_dir, 'config', 'flow', 'v1.0.0', 'flow_config.tcl')
-    if os.path.exists(fc_path):
-        with open(fc_path) as f:
-            for line in f:
-                m = _re.search(r'flow\(race,db_max_sessions\)\s+(\d+)', line)
-                if m: max_sessions = int(m.group(1))
-    warn_threshold = int(max_sessions * 0.8)
+    # Session limits: flow(race,db_max_sessions) / flow(race,db_warn_ratio)
+    # in global/config/flow/<ver>/flow_registry.tcl.
+    _lim_keys = ['flow(race,db_max_sessions)', 'flow(race,db_warn_ratio)']
+    try:
+        _lim = _tcl_values([registry.flow_registry_path()], _lim_keys)
+        for _k in _lim_keys:
+            if not _lim.get(_k, '').strip():
+                raise registry.RegistryError(f'{_k} is not set in flow_registry.tcl')
+        max_sessions = int(_lim[_lim_keys[0]])
+        warn_threshold = int(max_sessions * float(_lim[_lim_keys[1]]))
+    except (registry.RegistryError, RuntimeError, ValueError) as e:
+        logger.error(f"db-manage: {e}")
+        return 1
 
     # Find all RACE DBs — search race area first, then local workarea fallback
     user = os.environ.get('USER', 'unknown')
@@ -4164,23 +3992,16 @@ def cmd_db_manage(args):
         except Exception:
             pass
 
-    # Search race area (primary location)
+    # Search race area (primary location): project(race,db_path)
     race_area = ''
-    project_name = os.environ.get('CBFLOW_PROJECT_NAME', '')
-    config_root = os.environ.get('CONFIG_ROOT', flow_dir)
-    if project_name and config_root:
-        for cfg_file in Path(os.path.join(config_root, 'config', 'project', project_name)).rglob('*_config.tcl'):
-            try:
-                with open(cfg_file) as f:
-                    for line in f:
-                        m = _re.match(r'set\s+project\(race,db_path\)\s+"([^"]+)"', line.strip())
-                        if m:
-                            race_area = m.group(1)
-                            break
-            except (OSError, UnicodeDecodeError):
-                pass
-            if race_area:
-                break
+    project_name = (os.environ.get('CBFLOW_PROJECT_NAME', '')
+                    or load_run_env().get('CBFLOW_PROJECT_NAME', ''))
+    if project_name:
+        try:
+            race_area = registry.project_value(project_name, 'race,db_path') or ''
+        except registry.RegistryError as e:
+            logger.error(f"db-manage: {e}")
+            return 1
 
     if race_area and os.path.isdir(race_area):
         # Scan all .db files in race area for this user
@@ -4350,7 +4171,8 @@ def _cmd_email_dispatch(args):
 
 def _cmd_autoppt_dispatch(args):
     """Dispatch to autoppt command."""
-    # Check project(autoppt,enabled) — default false
+    # Enabled by: user_config override, project(autoppt,enabled) in the
+    # project config, or CBFLOW_AUTOPPT_ENABLED=true.
     _enabled = False
     _uc = os.path.join(os.getcwd(), 'setup', 'user_config.tcl')
     if os.path.exists(_uc):
@@ -4360,8 +4182,15 @@ def _cmd_autoppt_dispatch(args):
                     _enabled = True
                     break
     if not _enabled:
-        # Also check project_config via env
-        env_vars = load_run_env() if 'load_run_env' in dir() else {}
+        _proj = (os.environ.get('CBFLOW_PROJECT_NAME', '')
+                 or load_run_env().get('CBFLOW_PROJECT_NAME', ''))
+        if _proj:
+            try:
+                _enabled = (registry.project_value(_proj, 'autoppt,enabled') or '').lower() == 'true'
+            except registry.RegistryError as e:
+                print(f"ERROR: {e}")
+                return 1
+    if not _enabled:
         _enabled = os.environ.get('CBFLOW_AUTOPPT_ENABLED', 'false').lower() == 'true'
 
     if not _enabled:
