@@ -6,6 +6,7 @@
 
 set milestone_info(name)        "CORE_DFT_EXIT"
 set milestone_info(discipline)  "DFT"
+set milestone_info(flow_type)   "DFT_INSERT_PASS1"
 set milestone_info(stage)       "insert"
 set milestone_info(description) "Core DFT Exit — Pass1 MBIST + BSCAN insertion complete"
 set milestone_info(stage_node)  "insert1"
@@ -18,6 +19,7 @@ array set check_packs {}
 # ── Mandatory checks ─────────────────────────────────────────────────────────
 array set mandatory_checks {
     "core_dft_inserted_rtl" {
+        "id"          "DFT_INSERT_PASS1_0001"
         "script"            "check_file_exists.tcl"
         "description"       "Pass1 DFT-inserted RTL exists"
         "criteria"          "file exists"
@@ -25,6 +27,7 @@ array set mandatory_checks {
         "report_file"       "outputs/${design_name}.dft.v"
     }
     "core_dft_insertion_report" {
+        "id"          "DFT_INSERT_PASS1_0002"
         "script"            "check_file_exists.tcl"
         "description"       "DFT insertion report present"
         "criteria"          "file exists"
@@ -32,6 +35,7 @@ array set mandatory_checks {
         "report_file"       "reports/dft_insert_pass1/insertion.rpt"
     }
     "core_dft_drc_clean" {
+        "id"          "DFT_INSERT_PASS1_0003"
         "script"            "check_file_exists.tcl"
         "description"       "Post-TPI DRC report present (zero new violations enforced in-handler)"
         "criteria"          "file exists"
@@ -39,6 +43,7 @@ array set mandatory_checks {
         "report_file"       "reports/dft_insert_pass1/drc_post.rpt"
     }
     "core_dft_mbist_controller" {
+        "id"          "DFT_INSERT_PASS1_0004"
         "script"            "check_file_exists.tcl"
         "description"       "MBIST controller Verilog present"
         "criteria"          "file exists"
@@ -46,6 +51,7 @@ array set mandatory_checks {
         "report_file"       "outputs/${design_name}_rtl1_tessent_mbist_c1_controller.v"
     }
     "core_dft_tap_icl" {
+        "id"          "DFT_INSERT_PASS1_0005"
         "script"            "check_file_exists.tcl"
         "description"       "TAP ICL spec present"
         "criteria"          "file exists"
@@ -53,6 +59,7 @@ array set mandatory_checks {
         "report_file"       "outputs/${design_name}.tap.icl"
     }
     "core_dft_memory_bist_patterns" {
+        "id"          "DFT_INSERT_PASS1_0006"
         "script"            "check_file_exists.tcl"
         "description"       "MemoryBist_P1 pattern files present (v + pdl)"
         "criteria"          "file exists"
@@ -64,6 +71,7 @@ array set mandatory_checks {
 # ── Optional checks ──────────────────────────────────────────────────────────
 array set optional_checks {
     "core_dft_bscan_present" {
+        "id"          "DFT_INSERT_PASS1_0007"
         "script"            "check_file_exists.tcl"
         "description"       "BSCAN interface present (optional — top blocks only)"
         "criteria"          "file exists"
@@ -71,6 +79,7 @@ array set optional_checks {
         "report_file"       "outputs/${design_name}_rtl1_tessent_bscan_interface_m1.v"
     }
     "core_dft_mbist_controller_count" {
+        "id"          "DFT_INSERT_PASS1_0008"
         "script"            "check_metric.tcl"
         "description"       "MBIST controller count metric emitted"
         "criteria"          "mbist_controller_count >= 1"

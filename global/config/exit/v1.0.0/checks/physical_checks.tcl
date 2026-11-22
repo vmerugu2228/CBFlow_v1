@@ -9,6 +9,7 @@
 array set physical_checks {
 
     "unconnected_cells" {
+        "id"          "PHYSICAL_0001"
         "description"             "Cells with unconnected pins — no dangling connections"
         "script"                  "check_legality.tcl"
         "category"                "physical"
@@ -22,6 +23,7 @@ array set physical_checks {
     }
 
     "floating_pins" {
+        "id"          "PHYSICAL_0002"
         "description"             "Floating input pins — no undriven inputs"
         "script"                  "check_legality.tcl"
         "category"                "physical"
@@ -35,6 +37,7 @@ array set physical_checks {
     }
 
     "open_nets" {
+        "id"          "PHYSICAL_0003"
         "description"             "Physically open signal nets — no broken connections"
         "script"                  "check_routing.tcl"
         "category"                "physical"
@@ -48,6 +51,7 @@ array set physical_checks {
     }
 
     "missing_vias_power" {
+        "id"          "PHYSICAL_0004"
         "description"             "Missing vias in power mesh — all junctions connected"
         "script"                  "check_routing.tcl"
         "category"                "physical"
@@ -61,6 +65,7 @@ array set physical_checks {
     }
 
     "power_strap_coverage" {
+        "id"          "PHYSICAL_0005"
         "description"             "VDD/VSS strap coverage per layer meets requirement"
         "script"                  "check_utilization.tcl"
         "category"                "physical"
@@ -74,6 +79,7 @@ array set physical_checks {
     }
 
     "power_strap_width" {
+        "id"          "PHYSICAL_0006"
         "description"             "Power strap width compliance with design rules"
         "script"                  "check_drc.tcl"
         "category"                "physical"
@@ -87,6 +93,7 @@ array set physical_checks {
     }
 
     "power_mesh_ir_drop" {
+        "id"          "PHYSICAL_0007"
         "description"             "IR drop at worst case within voltage margin"
         "script"                  "check_power.tcl"
         "category"                "physical"
@@ -100,6 +107,7 @@ array set physical_checks {
     }
 
     "em_violations" {
+        "id"          "PHYSICAL_0008"
         "description"             "Electromigration current density violations"
         "script"                  "check_power.tcl"
         "category"                "physical"
@@ -113,6 +121,7 @@ array set physical_checks {
     }
 
     "well_tap_coverage" {
+        "id"          "PHYSICAL_0009"
         "description"             "N-well/P-well tap coverage ratio meets latch-up rules"
         "script"                  "check_utilization.tcl"
         "category"                "physical"
@@ -126,6 +135,7 @@ array set physical_checks {
     }
 
     "endcap_completeness" {
+        "id"          "PHYSICAL_0010"
         "description"             "Row-end endcap cells present at all row boundaries"
         "script"                  "check_legality.tcl"
         "category"                "physical"
@@ -139,6 +149,7 @@ array set physical_checks {
     }
 
     "filler_completeness" {
+        "id"          "PHYSICAL_0011"
         "description"             "Filler cell coverage — no gaps in cell rows"
         "script"                  "check_legality.tcl"
         "category"                "physical"
@@ -152,6 +163,7 @@ array set physical_checks {
     }
 
     "decap_placement" {
+        "id"          "PHYSICAL_0012"
         "description"             "Decap cell distribution for power integrity"
         "script"                  "check_utilization.tcl"
         "category"                "physical"
@@ -165,6 +177,7 @@ array set physical_checks {
     }
 
     "boundary_cell_check" {
+        "id"          "PHYSICAL_0013"
         "description"             "Voltage area boundary cells properly placed"
         "script"                  "check_legality.tcl"
         "category"                "physical"
@@ -178,6 +191,7 @@ array set physical_checks {
     }
 
     "pin_density_check" {
+        "id"          "PHYSICAL_0014"
         "description"             "Pin density within routability threshold"
         "script"                  "check_file_exists.tcl"
         "category"                "physical"
@@ -191,6 +205,7 @@ array set physical_checks {
     }
 
     "io_ring_continuity" {
+        "id"          "PHYSICAL_0015"
         "description"             "IO power ring continuity — no breaks in ring"
         "script"                  "check_routing.tcl"
         "category"                "physical"
@@ -204,6 +219,7 @@ array set physical_checks {
     }
 
     "pg_connection_check" {
+        "id"          "PHYSICAL_0016"
         "description"             "All standard cells PG connected — no floating power/ground"
         "script"                  "check_routing.tcl"
         "category"                "physical"
@@ -217,6 +233,7 @@ array set physical_checks {
     }
 
     "spare_cell_placement" {
+        "id"          "PHYSICAL_0017"
         "description"             "Spare cell distribution across design area"
         "script"                  "check_utilization.tcl"
         "category"                "physical"
@@ -230,6 +247,7 @@ array set physical_checks {
     }
 
     "tie_cell_connection" {
+        "id"          "PHYSICAL_0018"
         "description"             "Tie-high/tie-low cell completeness — no direct VDD/VSS ties"
         "script"                  "check_legality.tcl"
         "category"                "physical"
@@ -243,6 +261,7 @@ array set physical_checks {
     }
 
     "blockage_coverage" {
+        "id"          "PHYSICAL_0019"
         "description"             "Hard/soft blockage proper coverage in floorplan"
         "script"                  "check_file_exists.tcl"
         "category"                "physical"
@@ -256,6 +275,7 @@ array set physical_checks {
     }
 
     "cell_padding_check" {
+        "id"          "PHYSICAL_0020"
         "description"             "Cell-to-cell spacing padding meets requirements"
         "script"                  "check_file_exists.tcl"
         "category"                "physical"

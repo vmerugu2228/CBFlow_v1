@@ -6,6 +6,7 @@
 
 set milestone_info(name)        "PRO_EXIT"
 set milestone_info(discipline) "PD"
+set milestone_info(flow_type)   "PNR"
 set milestone_info(stage)       "pro"
 set milestone_info(description) "Post Route Optimization Exit - Design ready for Physical Verification"
 set milestone_info(stage_node)  "pro1"
@@ -25,20 +26,27 @@ array set check_packs {
 # ── Mandatory checks ─────────────────────────────────────────────────────────
 array set mandatory_checks {
     "pro_routing" {
+        "id"          "PNR_0022"
         "script"      "check_routing.tcl"
         "description" "Routing 100% complete — zero opens/shorts"
         "criteria"    "routing_completion == 100% && opens == 0 && shorts == 0"
+        "operator"    "=="
+        "default_threshold" "0"
         "min_phase_index"   "0"
         "report_file" "work/SYNTH_PNR/pro1/reports/check_routes"
     }
     "pro_setup_timing" {
+        "id"          "PNR_0023"
         "script"      "check_timing.tcl"
         "description" "Post-route setup timing meets threshold"
         "criteria"    "setup_wns >= threshold"
+        "operator"    ">="
+        "default_threshold" "0"
         "min_phase_index"   "0"
         "report_file" "work/SYNTH_PNR/pro1/reports/report_timing.max.rpt"
     }
     "pro_qor" {
+        "id"          "PNR_0024"
         "script"      "check_timing.tcl"
         "description" "Post-route QoR summary"
         "criteria"    "report exists and parseable"
@@ -46,13 +54,17 @@ array set mandatory_checks {
         "report_file" "work/SYNTH_PNR/pro1/reports/report_qor.rpt"
     }
     "pro_hold_timing" {
+        "id"          "PNR_0025"
         "script"      "check_timing.tcl"
         "description" "Post-route hold timing meets threshold"
         "criteria"    "hold_wns >= threshold"
+        "operator"    ">="
+        "default_threshold" "0"
         "min_phase_index"   "1"
         "report_file" "work/SYNTH_PNR/pro1/reports/report_timing.min.rpt"
     }
     "pro_power" {
+        "id"          "PNR_0026"
         "script"      "check_power.tcl"
         "description" "Post-route power within budget"
         "criteria"    "total_power <= power_budget"
@@ -64,6 +76,7 @@ array set mandatory_checks {
 # ── Optional checks ──────────────────────────────────────────────────────────
 array set optional_checks {
     "pro_congestion" {
+        "id"          "PNR_0027"
         "script"      "check_congestion.tcl"
         "description" "Post-route congestion"
         "criteria"    "congestion <= threshold"
@@ -71,6 +84,7 @@ array set optional_checks {
         "report_file" "work/SYNTH_PNR/pro1/reports/report_congestion.rpt"
     }
     "pro_signal_integrity" {
+        "id"          "PNR_0028"
         "script"      "check_signal_integrity.tcl"
         "description" "Signal integrity — crosstalk violations"
         "criteria"    "si_violations == 0"
@@ -78,6 +92,7 @@ array set optional_checks {
         "report_file" "work/SYNTH_PNR/pro1/reports/report_si.rpt"
     }
     "pro_qor_summary" {
+        "id"          "PNR_0029"
         "script"      "check_file_exists.tcl"
         "description" "QoR summary condensed report"
         "criteria"    "file exists"
@@ -85,6 +100,7 @@ array set optional_checks {
         "report_file" "work/SYNTH_PNR/pro1/reports/report_qor_summary.rpt"
     }
     "pro_vt_group" {
+        "id"          "PNR_0030"
         "script"      "check_file_exists.tcl"
         "description" "Threshold voltage group distribution"
         "criteria"    "file exists"
@@ -92,6 +108,7 @@ array set optional_checks {
         "report_file" "work/SYNTH_PNR/pro1/reports/report_threshold_voltage_group.rpt"
     }
     "pro_legality" {
+        "id"          "PNR_0031"
         "script"      "check_legality.tcl"
         "description" "Final cell legality check"
         "criteria"    "illegal_cells == 0"
@@ -99,6 +116,7 @@ array set optional_checks {
         "report_file" "work/SYNTH_PNR/pro1/reports/check_legality.rpt"
     }
     "pro_constraint_check" {
+        "id"          "PNR_0032"
         "script"      "check_constraints.tcl"
         "description" "Max cap/tran/fanout constraint compliance"
         "criteria"    "constraint violations == 0"
@@ -106,6 +124,7 @@ array set optional_checks {
         "report_file" "work/SYNTH_PNR/pro1/reports/check_timing.rpt"
     }
     "pro_signoff_drc" {
+        "id"          "PNR_0033"
         "script"      "check_drc.tcl"
         "description" "In-design signoff DRC"
         "criteria"    "drc_violations == 0"
@@ -113,6 +132,7 @@ array set optional_checks {
         "report_file" "work/SYNTH_PNR/pro1/reports/signoff_check_drc.rpt"
     }
     "pro_routes_final" {
+        "id"          "PNR_0034"
         "script"      "check_routing.tcl"
         "description" "Final route check — zero violations"
         "criteria"    "route_violations == 0"

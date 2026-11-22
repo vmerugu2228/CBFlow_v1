@@ -257,8 +257,37 @@ def parse_tcl_array_block(content: str, array_name: str) -> dict:
                 d -= 1
             p += 1
         body = block[em.end():p - 1]
-        result[name] = dict(re.findall(r'"([^"]+)"\s+"([^"]*)"', body))
+        result[name] = _parse_tcl_kv(body)
     return result
+
+
+def _parse_tcl_kv(body: str) -> dict:
+    r""""key" value pairs of a check body. A value is a Tcl list element:
+    "quoted" (backslash substitution applies: "\\s" is the regex \s) or
+    {braced} (literal, nested braces allowed — e.g. regex \d{3})."""
+    out, i, n = {}, 0, len(body)
+    while True:
+        m = re.compile(r'"([^"]+)"\s+').search(body, i)
+        if not m:
+            return out
+        key, i = m.group(1), m.end()
+        if i < n and body[i] == '"':
+            j, buf = i + 1, []
+            while j < n and body[j] != '"':
+                if body[j] == '\\' and j + 1 < n:
+                    buf.append(body[j + 1]); j += 2
+                else:
+                    buf.append(body[j]); j += 1
+            out[key] = ''.join(buf); i = j + 1
+        elif i < n and body[i] == '{':
+            j, d = i + 1, 1
+            while j < n and d:
+                if body[j] == '\\':
+                    j += 2; continue
+                d += {'{': 1, '}': -1}.get(body[j], 0); j += 1
+            out[key] = body[i + 1:j - 1]; i = j
+        else:
+            i = m.end()
 
 
 def parse_mandatory_files(content: str) -> list:
@@ -744,7 +773,7 @@ def _evaluate_metric_pattern(report_path: str, check_config: dict) -> tuple:
     except OSError as e:
         return ('FAIL', f'metric read error: {e}', None)
     try:
-        m = re.search(pat, content)
+        m = re.search(pat, content, re.MULTILINE)
     except re.error as e:
         return ('PENDING', f'metric regex invalid: {e}', None)
     if not m:
@@ -765,6 +794,15 @@ def _evaluate_metric_pattern(report_path: str, check_config: dict) -> tuple:
     threshold_raw = check_config.get('default_threshold',
                                      check_config.get('threshold', ''))
     threshold = _parse_metric_value(threshold_raw)
+    if op == 'between':
+        # threshold "lo,hi" — inclusive range
+        try:
+            lo, hi = (float(x) for x in str(threshold_raw).split(','))
+            ok = isinstance(value, (int, float)) and lo <= value <= hi
+        except ValueError:
+            return ('CONFIG_ERROR', f'between needs "lo,hi" threshold, got {threshold_raw!r}', raw_value)
+        status = 'PASS' if ok else 'FAIL'
+        return (status, f'{status} ({raw_value} in [{threshold_raw}])', raw_value)
     if op not in _OPERATORS:
         return ('PENDING', f'unknown operator {op!r}', raw_value)
     # If both sides look numeric, compare as numbers; else fall back to
@@ -909,7 +947,8 @@ def _evaluate_checks(run_dir: str, checks: dict, waivered: set, phase: str = '')
                 mp = _evaluate_metric_pattern(report, config)
                 if mp is not None:
                     status, detail, _mv = mp
-                    results.append({'name': name, 'status': status, 'detail': detail})
+                    results.append({'name': name, 'status': status, 'detail': detail,
+                                    'value': '' if _mv is None else str(_mv)})
                     continue
             # Grep-based evaluation. Explicit encoding+replace — same
             # C-locale UnicodeDecodeError bug as _evaluate_report.
@@ -917,21 +956,23 @@ def _evaluate_checks(run_dir: str, checks: dict, waivered: set, phase: str = '')
                 try:
                     with open(report, 'r', encoding='utf-8', errors='replace') as f:
                         content = f.read()
-                    found = bool(re.search(config['grep_pattern'], content))
+                    found = bool(re.search(config['grep_pattern'], content, re.MULTILINE))
                     pass_if = config.get('grep_pass_if', 'found')
                     if (pass_if == 'found' and found) or (pass_if == 'not_found' and not found):
                         status = 'PASS'
                     else:
                         status = 'FAIL'
                     detail = f'{status} (grep {"found" if found else "not found"}: {config["grep_pattern"]})'
+                    value = 'found' if found else 'not found'
                 except OSError as e:
-                    status, detail = 'FAIL', f'Grep I/O error: {e}'
+                    status, detail, value = 'FAIL', f'Grep I/O error: {e}', ''
             else:
+                value = ''
                 # Standard PASS/FAIL keyword evaluation
                 status = _evaluate_report(report)
                 detail = (f'{status} (from {os.path.basename(report)})' if status != 'PENDING'
                           else f'No clear verdict: {os.path.basename(report)}')
-            results.append({'name': name, 'status': status, 'detail': detail})
+            results.append({'name': name, 'status': status, 'detail': detail, 'value': value})
         else:
             # No report for this check in the run: the check was not run —
             # NA (data not available), distinct from PENDING (report found,
@@ -1017,6 +1058,8 @@ def _write_checklist_to_db(run_dir: str, milestone: str, phase: str,
                 severity = cfg.get('severity', '') or None
                 report_file = cfg.get('report_file', cfg.get('grep_file', ''))
                 threshold = cfg.get('criteria', '')
+                if cfg.get('operator') and cfg.get('default_threshold', '') != '':
+                    threshold = f"{cfg['operator']} {cfg['default_threshold']}"
                 rows.append((
                     milestone,
                     name,
@@ -1024,12 +1067,14 @@ def _write_checklist_to_db(run_dir: str, milestone: str, phase: str,
                     category,
                     severity,
                     r.get('status', 'PENDING'),
-                    '',           # metric_value — not evaluated here
+                    r.get('value', ''),
                     threshold,
                     r.get('detail', ''),
                     report_file,
                     phase,
                     evaluated_by,
+                    cfg.get('id', ''),
+                    cfg.get('description', ''),
                 ))
 
         # The latest evaluation of a milestone/phase replaces the previous one
@@ -1040,8 +1085,8 @@ def _write_checklist_to_db(run_dir: str, milestone: str, phase: str,
             '''INSERT INTO checklist_results
                (milestone, check_name, check_type, category, severity,
                 status, metric_value, threshold, detail, report_file,
-                phase, evaluated_by)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                phase, evaluated_by, check_id, description)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
             rows,
         )
 
@@ -1065,7 +1110,92 @@ def _load_and_validate_config(milestone: str, run_dir: str = None):
     if not config:
         logger.error(f"Failed to parse milestone config: {config_path}")
         return None, None
+    if run_dir:
+        config = _apply_tool_checklist_map(
+            config, milestone, _tool_checklist_map(run_dir, _detect_flow_type(run_dir)))
     return config, config_path
+
+
+# ── Tool-provided check data ────────────────────────────────────────────────
+# Check definitions (global/config/exit/) are tool-neutral: name, operator,
+# threshold. Where the data lives depends on the tool the run selected, so the
+# tool's node-config overlay declares it as data in its flow array:
+#   <flow>(checklist,exit_node,<MILESTONE>)   node holding that exit's reports
+#   <flow>(checklist,report)                  default report (may use ${exit_node})
+#   <flow>(checklist,report,<check>)          per-check report
+#   <flow>(checklist,metric,<check>)          regex, group 1 = the value
+#   <flow>(checklist,grep,<check>)            regex that must be found
+#   <flow>(checklist,mandatory_files,<MILESTONE>)  files the exit requires
+# The map is read from the run's own node config (selected tool overlay +
+# user config), so nothing here names a tool.
+_TOOL_MAP_TCL = r"""
+set run_dir [lindex $argv 0]; set cfg [lindex $argv 1]; set arr [lindex $argv 2]
+set ::env(CBFLOW_RUN_DIR) $run_dir
+foreach p {handle_info handle_warning handle_error handle_debug} { proc $p {args} {} }
+source [file join $run_dir .run.cbflow.tcl]
+if {[catch {source $cfg} e]} { puts stderr "checklist map: $e" }
+upvar #0 $arr a
+if {[array exists a]} {
+    foreach k [lsort [array names a checklist,*]] {
+        puts "[string range $k 10 end]\t[string map {\n { } \t { }} $a($k)]"
+    }
+}
+"""
+
+
+def _tool_checklist_map(run_dir: str, flow_type: str) -> dict:
+    """{key: value} of <flow>(checklist,*) from the run's resolved node config."""
+    if not flow_type:
+        return {}
+    import glob as _glob
+    import subprocess
+    cfgs = sorted(_glob.glob(os.path.join(run_dir, 'work', flow_type, '*', 'run', 'config.tcl')))
+    if not cfgs or not os.path.exists(os.path.join(run_dir, '.run.cbflow.tcl')):
+        return {}
+    try:
+        out = subprocess.run(['tclsh', '/dev/stdin', run_dir, cfgs[0], flow_type.lower()],
+                             input=_TOOL_MAP_TCL, capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        logger.warning(f"checklist: cannot read tool checklist map ({e})")
+        return {}
+    tmap = {}
+    for line in out.stdout.splitlines():
+        if '\t' in line:
+            k, v = line.split('\t', 1)
+            tmap[k] = v
+    return tmap
+
+
+def _apply_tool_checklist_map(config: dict, milestone: str, tmap: dict) -> dict:
+    """Point each check the tool covers at the tool's report + pattern;
+    checks it does not cover keep their definition (NA when absent)."""
+    if not tmap:
+        return config
+    node = tmap.get(f'exit_node,{milestone}', '')
+
+    def sub(v):
+        return v.replace('${exit_node}', node)
+    default_report = sub(tmap.get('report', ''))
+    for kind in ('mandatory_checks', 'optional_checks', 'library_checks'):
+        for name, c in (config.get(kind) or {}).items():
+            if f'metric,{name}' in tmap:
+                c['metric_pattern'] = tmap[f'metric,{name}']
+                c.pop('grep_pattern', None)
+            elif f'grep,{name}' in tmap:
+                c['grep_pattern'] = tmap[f'grep,{name}']
+                c['grep_pass_if'] = tmap.get(f'grep_pass_if,{name}', 'found')
+                c.pop('metric_pattern', None)
+            else:
+                continue
+            rpt = sub(tmap.get(f'report,{name}', default_report))
+            if rpt:
+                c['report_file'] = rpt
+                c.pop('report_pattern', None)
+                c.pop('grep_file', None)
+    mf = tmap.get(f'mandatory_files,{milestone}')
+    if mf is not None:
+        config['mandatory_files'] = [sub(x) for x in mf.split()]
+    return config
 
 
 def cmd_generate(args: argparse.Namespace) -> int:

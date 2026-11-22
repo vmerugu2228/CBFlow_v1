@@ -89,6 +89,47 @@ array set pnr {
     smartgrid,milestone "BTO"
 }
 
+# ┌─ Exit checklist data (this tool) ─────────────────────────────────────────┐
+# Read by `cbflow flow checklist` and at SmartGrid publish: which node holds
+# each exit's reports and how to read each check's value from
+# reports/checklist_metrics.rpt (written by oss_checklist_metrics). Check
+# names, operators and thresholds stay in global/config/exit/.
+array set pnr {
+    checklist,exit_node,FP_EXIT      init_design1
+    checklist,exit_node,PLACE_EXIT   place1
+    checklist,exit_node,CTS_EXIT     cts_opt1
+    checklist,exit_node,PRO_EXIT     pro1
+    checklist,exit_node,BTO          signoff1
+    checklist,exit_node,MTO          signoff1
+    checklist,report               "work/PNR/${exit_node}/reports/checklist_metrics.rpt"
+    checklist,mandatory_files,PRO_EXIT "work/PNR/${exit_node}/outputs/pro.odb work/PNR/${exit_node}/reports/checklist_metrics.rpt"
+    checklist,grep,fp_qor                        {^Setup WNS\s*:}
+    checklist,metric,fp_utilization              {^Utilization\s*:\s*([0-9.]+)}
+    checklist,grep,fp_design_summary             {^Design\s*:}
+    checklist,metric,fp_timing_estimate          {^Setup WNS\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)}
+    checklist,metric,macro_spacing               {^Macro spacing violations\s*:\s*(\d+)}
+    checklist,metric,macro_orientation           {^Macro orientation violations\s*:\s*(\d+)}
+    checklist,metric,io_placement_legality       {^IO placement violations\s*:\s*(\d+)}
+    checklist,grep,pro_qor                       {^Setup WNS\s*:}
+    checklist,metric,pro_setup_timing            {^Setup WNS\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)}
+    checklist,metric,pro_hold_timing             {^Hold WNS\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)}
+    checklist,metric,pro_routing                 {^Routing opens\+shorts\s*:\s*(\d+)}
+    checklist,metric,setup_wns                   {^Setup WNS\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)}
+    checklist,metric,setup_tns                   {^Setup TNS\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)}
+    checklist,metric,hold_wns                    {^Hold WNS\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)}
+    checklist,metric,hold_tns                    {^Hold TNS\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)}
+    checklist,metric,illegal_cells               {^Illegal cells\s*:\s*(\d+)}
+    checklist,metric,cell_density                {^Utilization\s*:\s*([0-9.]+)}
+    checklist,metric,clock_skew                  {^Clock skew ps\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)}
+    checklist,metric,clock_insertion_delay       {^Clock insertion delay ps\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)}
+    checklist,metric,routing_completion          {^Routing completion\s*:\s*([0-9.]+)}
+    checklist,metric,opens                       {^Open nets\s*:\s*(\d+)}
+    checklist,metric,shorts                      {^Shorts\s*:\s*(\d+)}
+    checklist,metric,drc_violations              {^DRC violations\s*:\s*(\d+)}
+    checklist,metric,congestion_h                {^Horizontal overflow\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)}
+    checklist,metric,congestion_v                {^Vertical overflow\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)}
+}
+
 # ┌─ Runtime (minutes) — large blocks route longer than the FC defaults ───────┐
 array set pnr {
     runtime,timeout,place1     240

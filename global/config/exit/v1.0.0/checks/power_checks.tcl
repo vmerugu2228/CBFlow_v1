@@ -5,6 +5,7 @@
 
 array set power_checks {
     "missing_isolation" {
+        "id"          "POWER_0001"
         "description"             "Missing isolation cells at power domain crossings"
         "script"                  "check_file_exists.tcl"
         "category"                "power"
@@ -17,6 +18,7 @@ array set power_checks {
         "default_threshold"       "0"
     }
     "missing_level_shifters" {
+        "id"          "POWER_0002"
         "description"             "Missing level shifter cells at voltage domain crossings"
         "script"                  "check_file_exists.tcl"
         "category"                "power"
@@ -29,6 +31,7 @@ array set power_checks {
         "default_threshold"       "0"
     }
     "power_switch_distance" {
+        "id"          "POWER_0003"
         "description"             "Maximum distance from power switch to controlled logic"
         "script"                  "check_file_exists.tcl"
         "category"                "power"
@@ -41,6 +44,7 @@ array set power_checks {
         "default_threshold"       "50.0"
     }
     "always_on_violations" {
+        "id"          "POWER_0004"
         "description"             "Always-on path violations in power-gated domains"
         "script"                  "check_file_exists.tcl"
         "category"                "power"
@@ -53,6 +57,7 @@ array set power_checks {
         "default_threshold"       "0"
     }
     "retention_check" {
+        "id"          "POWER_0005"
         "description"             "Retention register save and restore path verification"
         "script"                  "check_file_exists.tcl"
         "category"                "power"
@@ -65,6 +70,7 @@ array set power_checks {
         "default_threshold"       "0"
     }
     "upf_implementation_match" {
+        "id"          "POWER_0006"
         "description"             "Mismatch count between UPF intent and implementation"
         "script"                  "check_file_exists.tcl"
         "category"                "power"
@@ -77,6 +83,7 @@ array set power_checks {
         "default_threshold"       "0"
     }
     "power_domain_crossing" {
+        "id"          "POWER_0007"
         "description"             "Unprotected signals crossing power domain boundaries"
         "script"                  "check_file_exists.tcl"
         "category"                "power"
@@ -89,6 +96,7 @@ array set power_checks {
         "default_threshold"       "0"
     }
     "supply_net_connectivity" {
+        "id"          "POWER_0008"
         "description"             "VDD and VSS supply net connectivity integrity"
         "script"                  "check_file_exists.tcl"
         "category"                "power"
@@ -101,6 +109,7 @@ array set power_checks {
         "default_threshold"       "0"
     }
     "power_switch_chain" {
+        "id"          "POWER_0009"
         "description"             "Power switch daisy-chain connectivity and ordering integrity"
         "script"                  "check_file_exists.tcl"
         "category"                "power"
@@ -113,6 +122,7 @@ array set power_checks {
         "default_threshold"       "0"
     }
     "isolation_enable_timing" {
+        "id"          "POWER_0010"
         "description"             "Isolation cell enable signal timing verification"
         "script"                  "check_timing.tcl"
         "category"                "power"
@@ -125,6 +135,7 @@ array set power_checks {
         "default_threshold"       "0"
     }
     "level_shifter_placement" {
+        "id"          "POWER_0011"
         "description"             "Level shifter placement location compliance"
         "script"                  "check_legality.tcl"
         "category"                "power"
@@ -137,6 +148,7 @@ array set power_checks {
         "default_threshold"       "0"
     }
     "power_state_coverage" {
+        "id"          "POWER_0012"
         "description"             "Percentage of defined power states exercised in verification"
         "script"                  "check_file_exists.tcl"
         "category"                "power"
@@ -149,6 +161,7 @@ array set power_checks {
         "default_threshold"       "100.0"
     }
     "corruption_analysis" {
+        "id"          "POWER_0013"
         "description"             "State corruption risk analysis during power transitions"
         "script"                  "check_file_exists.tcl"
         "category"                "power"
@@ -161,6 +174,7 @@ array set power_checks {
         "default_threshold"       "0"
     }
     "sleep_wakeup_sequence" {
+        "id"          "POWER_0014"
         "description"             "Sleep and wakeup power sequence verification"
         "script"                  "check_file_exists.tcl"
         "category"                "power"
@@ -173,6 +187,7 @@ array set power_checks {
         "default_threshold"       "0"
     }
     "power_intent_lint" {
+        "id"          "POWER_0015"
         "description"             "UPF power intent lint and syntax check violations"
         "script"                  "check_file_exists.tcl"
         "category"                "power"
@@ -185,6 +200,7 @@ array set power_checks {
         "default_threshold"       "0"
     }
     "voltage_area_overlap" {
+        "id"          "POWER_0016"
         "description"             "Overlapping voltage area boundary violations"
         "script"                  "check_legality.tcl"
         "category"                "power"
@@ -197,6 +213,7 @@ array set power_checks {
         "default_threshold"       "0"
     }
     "ao_buffer_usage" {
+        "id"          "POWER_0017"
         "description"             "Always-on buffer insertion and usage verification"
         "script"                  "check_file_exists.tcl"
         "category"                "power"
@@ -209,6 +226,7 @@ array set power_checks {
         "default_threshold"       "0"
     }
     "power_domain_boundary_cells" {
+        "id"          "POWER_0018"
         "description"             "Completeness of boundary cells at power domain edges"
         "script"                  "check_legality.tcl"
         "category"                "power"
@@ -221,6 +239,7 @@ array set power_checks {
         "default_threshold"       "0"
     }
     "esd_path_check" {
+        "id"          "POWER_0019"
         "description"             "ESD discharge path integrity through power domains"
         "script"                  "check_file_exists.tcl"
         "category"                "power"
@@ -233,6 +252,7 @@ array set power_checks {
         "default_threshold"       "0"
     }
     "power_gating_leakage" {
+        "id"          "POWER_0020"
         "description"             "Residual leakage current in power-gated domains"
         "script"                  "check_power.tcl"
         "category"                "power"

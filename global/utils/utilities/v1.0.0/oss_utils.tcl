@@ -662,6 +662,138 @@ proc oss_write_qor {tag} {
     oss_report "$::REPORTS_DIR/${tag}_hold.rpt" report_checks -path_delay min -group_path_count 5
     oss_report "$::REPORTS_DIR/${tag}_area.rpt" report_design_area
     puts "QOR $tag: wns_setup=[sta::worst_slack -max] wns_hold=[sta::worst_slack -min] instances=[llength [[ord::get_db_block] getInsts]]"
+    oss_checklist_safe $tag
+}
+
+# Checklist data is reporting, never a reason to fail a stage.
+proc oss_checklist_safe {tag} {
+    if {[catch {oss_checklist_metrics $tag} _e]} {
+        handle_warning "checklist metrics ($tag) not written: $_e"
+    }
+}
+
+# Exit-checklist data for this node: reports/checklist_metrics.rpt, one
+# "Key : value" line per metric. The tool's checklist map (FP/PNR
+# _openroad_config.tcl  <flow>(checklist,*)) points each exit check at a line.
+# Metrics this stage cannot measure are left out (the check reads NA).
+#   tag: fp | init_design | place | cts | cts_opt | route | pro | signoff
+proc oss_checklist_metrics {tag} {
+    set _blk [ord::get_db_block]
+    set _dbu [[ord::get_db_tech] getDbUnitsPerMicron]
+    set L [list "Design : [$_blk getName]" "Stage : $tag" \
+               "Instances : [llength [$_blk getInsts]]"]
+
+    # Area / utilization (report_design_area)
+    set _tmp "$::REPORTS_DIR/.checklist_area.tmp"
+    if {![catch {oss_report $_tmp report_design_area}]} {
+        set _fh [open $_tmp]; set _t [read $_fh]; close $_fh; file delete $_tmp
+        if {[regexp {Design area\s+([\d.]+)\s+\S*\^2\s+([\d.]+)% utilization} $_t -> _a _u]} {
+            lappend L "Design area um2 : $_a" "Utilization : $_u"
+        }
+    }
+
+    # Timing (library time units)
+    foreach {_k _c} {"Setup WNS" {sta::worst_slack -max} "Setup TNS" {sta::total_negative_slack -max}
+                     "Hold WNS" {sta::worst_slack -min} "Hold TNS" {sta::total_negative_slack -min}} {
+        # |slack| ~1e30+ = no constrained path: not measurable, leave it out
+        if {![catch {eval $_c} _v] && [string is double -strict $_v] && abs($_v) < 1e20} {
+            lappend L "$_k : $_v"
+        }
+    }
+
+    # Hard macros: overlaps, orientation, placement status
+    set _boxes {}; set _orient 0; set _unpl 0
+    foreach _i [$_blk getInsts] {
+        if {![[$_i getMaster] isBlock]} continue
+        if {[$_i getPlacementStatus] in {NONE UNPLACED}} { incr _unpl; continue }
+        if {[$_i getOrient] ni {R0 R180 MX MY}} { incr _orient }
+        set _b [$_i getBBox]
+        lappend _boxes [list [$_b xMin] [$_b yMin] [$_b xMax] [$_b yMax]]
+    }
+    set _ovl 0
+    for {set i 0} {$i < [llength $_boxes]} {incr i} {
+        lassign [lindex $_boxes $i] ax0 ay0 ax1 ay1
+        for {set j [expr {$i + 1}]} {$j < [llength $_boxes]} {incr j} {
+            lassign [lindex $_boxes $j] bx0 by0 bx1 by1
+            if {$ax0 < $bx1 && $bx0 < $ax1 && $ay0 < $by1 && $by0 < $ay1} { incr _ovl }
+        }
+    }
+    lappend L "Hard macros : [expr {[llength $_boxes] + $_unpl}]" \
+              "Macro spacing violations : [expr {$_ovl + $_unpl}]" \
+              "Macro orientation violations : $_orient"
+
+    # IO pins without a placed pin shape
+    set _io 0
+    foreach _bt [$_blk getBTerms] {
+        set _placed 0
+        foreach _bp [$_bt getBPins] {
+            if {[$_bp getPlacementStatus] ni {NONE UNPLACED}} { set _placed 1 }
+        }
+        if {!$_placed} { incr _io }
+    }
+    lappend L "IO pins : [llength [$_blk getBTerms]]" "IO placement violations : $_io"
+
+    # Placement legality (placed stages)
+    if {$tag ni {fp init_design}} {
+        set _tmp "$::REPORTS_DIR/.checklist_dpl.tmp"
+        set _rc [catch {oss_report $_tmp check_placement -verbose}]
+        set _n 0
+        if {[file exists $_tmp]} {
+            set _fh [open $_tmp]; set _t [read $_fh]; close $_fh; file delete $_tmp
+            foreach {_ _c} [regexp -all -inline {(\d+)\s+[A-Za-z ]*violations?} $_t] { incr _n $_c }
+        }
+        if {!$_rc} { lappend L "Illegal cells : 0" } elseif {$_n > 0} { lappend L "Illegal cells : $_n" }
+    }
+
+    # Clock tree (post-CTS): skew and latency from report_clock_skew (ps)
+    if {$tag in {cts cts_opt route pro signoff}} {
+        set _tmp "$::REPORTS_DIR/clock_skew.rpt"
+        if {![catch {oss_report $_tmp report_clock_skew -setup}]} {
+            set _fh [open $_tmp]; set _t [read $_fh]; close $_fh
+            set _lat ""; set _skew ""
+            foreach _ln [split $_t \n] {
+                set _nums [regexp -all -inline -- {-?\d+\.\d+} $_ln]
+                if {[llength $_nums] == 3} { lassign $_nums _lat _ _skew }
+            }
+            if {$_skew ne ""} {
+                lappend L "Clock skew ps : [format %.1f [expr {$_skew * 1000}]]" \
+                          "Clock insertion delay ps : [format %.1f [expr {$_lat * 1000}]]"
+            }
+        }
+    }
+
+    # Routing (routed stages): unrouted signal nets, detailed-route DRC,
+    # global-route overflow from the route node's reports
+    if {$tag in {route pro signoff}} {
+        set _sig 0; set _open 0
+        foreach _n [$_blk getNets] {
+            if {[$_n getSigType] in {POWER GROUND}} continue
+            if {[llength [$_n getITerms]] + [llength [$_n getBTerms]] < 2} continue
+            incr _sig
+            if {[$_n getWire] eq "NULL"} { incr _open }
+        }
+        set _pct [expr {$_sig ? 100.0 * ($_sig - $_open) / $_sig : 100.0}]
+        lappend L "Routable nets : $_sig" "Open nets : $_open" \
+                  "Routing completion : [format %.2f $_pct]"
+        set _rdir [expr {$tag eq "route" ? $::REPORTS_DIR
+                         : "$::run_dir/work/$::FLOW_TYPE/[oss_chain_node route]/reports"}]
+        if {[file exists "$_rdir/route_drc.rpt"]} {
+            set _fh [open "$_rdir/route_drc.rpt"]; set _t [read $_fh]; close $_fh
+            lappend L "DRC violations : [regexp -all -nocase {violation type} $_t]" \
+                      "Shorts : [regexp -all -nocase {violation type:\s*short} $_t]"
+            lappend L "Routing opens+shorts : [expr {$_open + [regexp -all -nocase {violation type:\s*short} $_t]}]"
+        }
+        if {[file exists "$_rdir/route_grt.rpt"]} {
+            set _fh [open "$_rdir/route_grt.rpt"]; set _t [read $_fh]; close $_fh
+            if {[regexp -line {^Total\s.*?(\d+)\s*/\s*(\d+)\s*/\s*(\d+)\s*$} $_t -> _h _v _tot]} {
+                lappend L "Horizontal overflow : $_h" "Vertical overflow : $_v" "Total overflow : $_tot"
+            }
+        }
+    }
+
+    set _fh [open "$::REPORTS_DIR/checklist_metrics.rpt" w]
+    puts $_fh [join $L \n]
+    close $_fh
 }
 
 # ── Hierarchy ───────────────────────────────────────────────────────────────

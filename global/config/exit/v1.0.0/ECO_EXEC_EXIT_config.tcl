@@ -24,6 +24,7 @@ array set check_packs {}
 # ── Mandatory checks ─────────────────────────────────────────────────────────
 array set mandatory_checks {
     "eco_review_signoff" {
+        "id"          "ECO_EXEC_0001"
         "script"            "check_file_exists.tcl"
         "description"       "ECO regression review signoff present"
         "criteria"          "file exists"

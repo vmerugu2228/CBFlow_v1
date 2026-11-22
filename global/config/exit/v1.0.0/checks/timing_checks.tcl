@@ -10,6 +10,7 @@
 array set timing_checks {
 
     "setup_wns" {
+        "id"          "TIMING_0001"
         "description"             "Worst negative slack (setup) must meet threshold"
         "script"                  "check_timing.tcl"
         "category"                "timing"
@@ -23,6 +24,7 @@ array set timing_checks {
     }
 
     "setup_tns" {
+        "id"          "TIMING_0002"
         "description"             "Total negative slack (setup) must meet threshold"
         "script"                  "check_timing.tcl"
         "category"                "timing"
@@ -36,6 +38,7 @@ array set timing_checks {
     }
 
     "hold_wns" {
+        "id"          "TIMING_0003"
         "description"             "Worst negative slack (hold) must meet threshold"
         "script"                  "check_timing.tcl"
         "category"                "timing"
@@ -49,6 +52,7 @@ array set timing_checks {
     }
 
     "hold_tns" {
+        "id"          "TIMING_0004"
         "description"             "Total negative slack (hold) must meet threshold"
         "script"                  "check_timing.tcl"
         "category"                "timing"
@@ -62,6 +66,7 @@ array set timing_checks {
     }
 
     "setup_nvp" {
+        "id"          "TIMING_0005"
         "description"             "Number of violating paths (setup) within limit"
         "script"                  "check_timing.tcl"
         "category"                "timing"
@@ -75,6 +80,7 @@ array set timing_checks {
     }
 
     "hold_nvp" {
+        "id"          "TIMING_0006"
         "description"             "Number of violating paths (hold) within limit"
         "script"                  "check_timing.tcl"
         "category"                "timing"
@@ -88,6 +94,7 @@ array set timing_checks {
     }
 
     "max_cap_violations" {
+        "id"          "TIMING_0007"
         "description"             "Max capacitance violations count within limit"
         "script"                  "check_constraints.tcl"
         "category"                "timing"
@@ -101,6 +108,7 @@ array set timing_checks {
     }
 
     "max_tran_violations" {
+        "id"          "TIMING_0008"
         "description"             "Max transition violations count within limit"
         "script"                  "check_constraints.tcl"
         "category"                "timing"
@@ -114,6 +122,7 @@ array set timing_checks {
     }
 
     "max_fanout_violations" {
+        "id"          "TIMING_0009"
         "description"             "Max fanout violations count within limit"
         "script"                  "check_constraints.tcl"
         "category"                "timing"
@@ -127,6 +136,7 @@ array set timing_checks {
     }
 
     "net_length_violations" {
+        "id"          "TIMING_0010"
         "description"             "Nets exceeding max length threshold"
         "script"                  "check_constraints.tcl"
         "category"                "timing"
@@ -140,6 +150,7 @@ array set timing_checks {
     }
 
     "setup_wns_per_group" {
+        "id"          "TIMING_0011"
         "description"             "Worst WNS per timing path group must meet threshold"
         "script"                  "check_timing.tcl"
         "category"                "timing"
@@ -153,6 +164,7 @@ array set timing_checks {
     }
 
     "hold_wns_per_group" {
+        "id"          "TIMING_0012"
         "description"             "Worst hold WNS per timing path group must meet threshold"
         "script"                  "check_timing.tcl"
         "category"                "timing"
@@ -166,6 +178,7 @@ array set timing_checks {
     }
 
     "recovery_violations" {
+        "id"          "TIMING_0013"
         "description"             "Recovery timing violations count within limit"
         "script"                  "check_constraints.tcl"
         "category"                "timing"
@@ -179,6 +192,7 @@ array set timing_checks {
     }
 
     "removal_violations" {
+        "id"          "TIMING_0014"
         "description"             "Removal timing violations count within limit"
         "script"                  "check_constraints.tcl"
         "category"                "timing"
@@ -192,6 +206,7 @@ array set timing_checks {
     }
 
     "pulse_width_violations" {
+        "id"          "TIMING_0015"
         "description"             "Min pulse width violations count within limit"
         "script"                  "check_constraints.tcl"
         "category"                "timing"
@@ -205,6 +220,7 @@ array set timing_checks {
     }
 
     "clock_gating_check" {
+        "id"          "TIMING_0016"
         "description"             "Clock gating timing violations count within limit"
         "script"                  "check_constraints.tcl"
         "category"                "timing"
@@ -218,6 +234,7 @@ array set timing_checks {
     }
 
     "multicycle_path_check" {
+        "id"          "TIMING_0017"
         "description"             "Multicycle path constraint coverage percentage"
         "script"                  "check_file_exists.tcl"
         "category"                "timing"
@@ -231,6 +248,7 @@ array set timing_checks {
     }
 
     "false_path_coverage" {
+        "id"          "TIMING_0018"
         "description"             "False path constraint validation count"
         "script"                  "check_file_exists.tcl"
         "category"                "timing"
@@ -244,6 +262,7 @@ array set timing_checks {
     }
 
     "case_analysis_coverage" {
+        "id"          "TIMING_0019"
         "description"             "Case analysis constraint count validated"
         "script"                  "check_file_exists.tcl"
         "category"                "timing"
@@ -257,6 +276,7 @@ array set timing_checks {
     }
 
     "timing_exception_coverage" {
+        "id"          "TIMING_0020"
         "description"             "Timing exception coverage ratio must meet threshold"
         "script"                  "check_file_exists.tcl"
         "category"                "timing"
@@ -270,6 +290,7 @@ array set timing_checks {
     }
 
     "setup_slack_histogram" {
+        "id"          "TIMING_0021"
         "description"             "Setup slack distribution — paths with slack below threshold"
         "script"                  "check_timing.tcl"
         "category"                "timing"
@@ -283,6 +304,7 @@ array set timing_checks {
     }
 
     "hold_slack_histogram" {
+        "id"          "TIMING_0022"
         "description"             "Hold slack distribution — paths with slack below threshold"
         "script"                  "check_timing.tcl"
         "category"                "timing"
@@ -296,6 +318,7 @@ array set timing_checks {
     }
 
     "cross_corner_wns" {
+        "id"          "TIMING_0023"
         "description"             "Worst WNS across all MMMC corners must meet threshold"
         "script"                  "check_timing.tcl"
         "category"                "timing"
@@ -309,6 +332,7 @@ array set timing_checks {
     }
 
     "cross_corner_tns" {
+        "id"          "TIMING_0024"
         "description"             "Worst TNS across all MMMC corners must meet threshold"
         "script"                  "check_timing.tcl"
         "category"                "timing"
@@ -322,6 +346,7 @@ array set timing_checks {
     }
 
     "interface_timing" {
+        "id"          "TIMING_0025"
         "description"             "I/O timing constraint compliance — interface WNS"
         "script"                  "check_timing.tcl"
         "category"                "timing"
@@ -335,6 +360,7 @@ array set timing_checks {
     }
 
     "reg2reg_wns" {
+        "id"          "TIMING_0026"
         "description"             "Register-to-register worst setup slack"
         "script"                  "check_timing.tcl"
         "category"                "timing"
@@ -348,6 +374,7 @@ array set timing_checks {
     }
 
     "io2reg_wns" {
+        "id"          "TIMING_0027"
         "description"             "IO-to-register worst setup slack"
         "script"                  "check_timing.tcl"
         "category"                "timing"
@@ -361,6 +388,7 @@ array set timing_checks {
     }
 
     "reg2io_wns" {
+        "id"          "TIMING_0028"
         "description"             "Register-to-IO worst setup slack"
         "script"                  "check_timing.tcl"
         "category"                "timing"
@@ -374,6 +402,7 @@ array set timing_checks {
     }
 
     "memory_timing" {
+        "id"          "TIMING_0029"
         "description"             "Memory interface timing slack must meet threshold"
         "script"                  "check_timing.tcl"
         "category"                "timing"
@@ -387,6 +416,7 @@ array set timing_checks {
     }
 
     "signoff_vs_implementation" {
+        "id"          "TIMING_0030"
         "description"             "Signoff/implementation WNS correlation delta within limit"
         "script"                  "check_timing.tcl"
         "category"                "timing"

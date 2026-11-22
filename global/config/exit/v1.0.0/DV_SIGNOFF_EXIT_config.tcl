@@ -24,6 +24,7 @@ array set check_packs {}
 # ── Mandatory checks ─────────────────────────────────────────────────────────
 array set mandatory_checks {
     "dv_closure_signoff" {
+        "id"          "DV_SIGNOFF_0001"
         "script"            "check_file_exists.tcl"
         "description"       "DV closure signoff present"
         "criteria"          "file exists"
@@ -31,6 +32,7 @@ array set mandatory_checks {
         "report_file"       "outputs/review_signoff.txt"
     }
     "release_manifest_present" {
+        "id"          "DV_SIGNOFF_0002"
         "script"            "check_file_exists.tcl"
         "description"       "DV release manifest present"
         "criteria"          "file exists"

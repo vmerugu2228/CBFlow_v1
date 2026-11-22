@@ -6,6 +6,7 @@
 
 set milestone_info(name)        "ATPG_POSTPD_EXIT"
 set milestone_info(discipline)  "DFT"
+set milestone_info(flow_type)   "ATPG"
 set milestone_info(stage)       "signoff"
 set milestone_info(description) "ATPG Post-PD Exit — ZD + timing sim done, patterns signed off, delivery repo built"
 set milestone_info(stage_node)  "signoff1"
@@ -16,6 +17,7 @@ array set check_packs {}
 
 array set mandatory_checks {
     "atpg_post_patterns" {
+        "id"          "ATPG_0001"
         "script"            "check_file_exists.tcl"
         "description"       "Post-PD ATPG patterns (STIL) present"
         "criteria"          "file exists"
@@ -23,6 +25,7 @@ array set mandatory_checks {
         "report_file"       "outputs/${design_name}.atpg.postpd.stil"
     }
     "atpg_zd_sim_log" {
+        "id"          "ATPG_0002"
         "script"            "check_file_exists.tcl"
         "description"       "Zero-delay pattern simulation log present"
         "criteria"          "file exists"
@@ -30,6 +33,7 @@ array set mandatory_checks {
         "report_file"       "reports/atpg/zd_sim.log"
     }
     "atpg_timing_sim_log" {
+        "id"          "ATPG_0003"
         "script"            "check_file_exists.tcl"
         "description"       "Timing (SDF) pattern simulation log present"
         "criteria"          "file exists"
@@ -37,6 +41,7 @@ array set mandatory_checks {
         "report_file"       "reports/atpg/timing_sim.log"
     }
     "atpg_signoff_report" {
+        "id"          "ATPG_0004"
         "script"            "check_file_exists.tcl"
         "description"       "Pattern sign-off report present"
         "criteria"          "file exists"
@@ -44,6 +49,7 @@ array set mandatory_checks {
         "report_file"       "reports/atpg/signoff.rpt"
     }
     "atpg_delivery_manifest" {
+        "id"          "ATPG_0005"
         "script"            "check_file_exists.tcl"
         "description"       "Delivery repo manifest present"
         "criteria"          "file exists"
@@ -54,6 +60,7 @@ array set mandatory_checks {
 
 array set optional_checks {
     "atpg_post_fault_coverage_pct" {
+        "id"          "ATPG_0006"
         "script"            "check_metric.tcl"
         "description"       "Post-PD fault coverage >= 99%"
         "criteria"          "fault_coverage_pct >= 99"
@@ -63,6 +70,7 @@ array set optional_checks {
         "default_threshold" "99"
     }
     "atpg_timing_sim_pass" {
+        "id"          "ATPG_0007"
         "script"            "check_grep.tcl"
         "description"       "Timing simulation shows zero mismatches"
         "criteria"          "mismatches == 0"

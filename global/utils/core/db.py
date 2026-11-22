@@ -155,7 +155,9 @@ _CHECKLIST_DDL = """CREATE TABLE IF NOT EXISTS {name} (
     report_file TEXT,
     phase TEXT NOT NULL DEFAULT '',
     evaluated_at TEXT DEFAULT (datetime('now')),
-    evaluated_by TEXT
+    evaluated_by TEXT,
+    check_id TEXT,
+    description TEXT
 )"""
 
 
@@ -175,3 +177,9 @@ def ensure_checklist_results_schema(conn):
         conn.commit()
     else:
         conn.execute(_CHECKLIST_DDL.format(name='checklist_results', statuses=statuses))
+    # check_id / description added later: add to an older table in place
+    have = {r[1] for r in conn.execute("PRAGMA table_info(checklist_results)")}
+    for col in ('check_id', 'description'):
+        if col not in have:
+            conn.execute(f"ALTER TABLE checklist_results ADD COLUMN {col} TEXT")
+    conn.commit()

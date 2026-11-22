@@ -5,6 +5,7 @@
 
 array set si_checks {
     "crosstalk_delay" {
+        "id"          "SI_0001"
         "description"             "Crosstalk-induced delay violations"
         "script"                  "check_signal_integrity.tcl"
         "category"                "signal_integrity"
@@ -17,6 +18,7 @@ array set si_checks {
         "default_threshold"       "0"
     }
     "crosstalk_noise" {
+        "id"          "SI_0002"
         "description"             "Crosstalk noise violations (DC)"
         "script"                  "check_signal_integrity.tcl"
         "category"                "signal_integrity"
@@ -29,6 +31,7 @@ array set si_checks {
         "default_threshold"       "0"
     }
     "glitch_violations" {
+        "id"          "SI_0003"
         "description"             "Glitch propagation violations"
         "script"                  "check_signal_integrity.tcl"
         "category"                "signal_integrity"
@@ -41,6 +44,7 @@ array set si_checks {
         "default_threshold"       "0"
     }
     "coupling_cap_ratio" {
+        "id"          "SI_0004"
         "description"             "Max coupling cap to total cap ratio"
         "script"                  "check_signal_integrity.tcl"
         "category"                "signal_integrity"
@@ -53,6 +57,7 @@ array set si_checks {
         "default_threshold"       "0.35"
     }
     "aggressor_count" {
+        "id"          "SI_0005"
         "description"             "Nets with excessive aggressors"
         "script"                  "check_signal_integrity.tcl"
         "category"                "signal_integrity"
@@ -65,6 +70,7 @@ array set si_checks {
         "default_threshold"       "0"
     }
     "victim_slack_degradation" {
+        "id"          "SI_0006"
         "description"             "Timing degradation from SI effects"
         "script"                  "check_signal_integrity.tcl"
         "category"                "signal_integrity"
@@ -77,6 +83,7 @@ array set si_checks {
         "default_threshold"       "0.050"
     }
     "si_hold_violations" {
+        "id"          "SI_0007"
         "description"             "SI-induced hold timing violations"
         "script"                  "check_signal_integrity.tcl"
         "category"                "signal_integrity"
@@ -89,6 +96,7 @@ array set si_checks {
         "default_threshold"       "0"
     }
     "si_setup_violations" {
+        "id"          "SI_0008"
         "description"             "SI-induced setup timing violations"
         "script"                  "check_signal_integrity.tcl"
         "category"                "signal_integrity"
@@ -101,6 +109,7 @@ array set si_checks {
         "default_threshold"       "0"
     }
     "noise_margin" {
+        "id"          "SI_0009"
         "description"             "Worst noise margin remaining"
         "script"                  "check_signal_integrity.tcl"
         "category"                "signal_integrity"
@@ -113,6 +122,7 @@ array set si_checks {
         "default_threshold"       "0.10"
     }
     "shielding_effectiveness" {
+        "id"          "SI_0010"
         "description"             "Shield net effectiveness percentage"
         "script"                  "check_utilization.tcl"
         "category"                "signal_integrity"
@@ -125,6 +135,7 @@ array set si_checks {
         "default_threshold"       "90.0"
     }
     "si_aware_timing_delta" {
+        "id"          "SI_0011"
         "description"             "SI vs non-SI timing delta"
         "script"                  "check_timing.tcl"
         "category"                "signal_integrity"
@@ -137,6 +148,7 @@ array set si_checks {
         "default_threshold"       "0.100"
     }
     "bus_crosstalk" {
+        "id"          "SI_0012"
         "description"             "Bus self-coupling analysis violations"
         "script"                  "check_signal_integrity.tcl"
         "category"                "signal_integrity"
@@ -149,6 +161,7 @@ array set si_checks {
         "default_threshold"       "0"
     }
     "clock_si_impact" {
+        "id"          "SI_0013"
         "description"             "SI impact on clock network"
         "script"                  "check_signal_integrity.tcl"
         "category"                "signal_integrity"
@@ -161,6 +174,7 @@ array set si_checks {
         "default_threshold"       "0"
     }
     "power_rail_noise" {
+        "id"          "SI_0014"
         "description"             "Power rail noise coupling violations"
         "script"                  "check_signal_integrity.tcl"
         "category"                "signal_integrity"
@@ -173,6 +187,7 @@ array set si_checks {
         "default_threshold"       "0"
     }
     "simultaneous_switching" {
+        "id"          "SI_0015"
         "description"             "SSO/SSN simultaneous switching analysis"
         "script"                  "check_signal_integrity.tcl"
         "category"                "signal_integrity"

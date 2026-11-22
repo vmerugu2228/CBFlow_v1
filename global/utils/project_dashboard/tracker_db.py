@@ -112,6 +112,8 @@ CREATE TABLE IF NOT EXISTS run_checklist (
     severity         TEXT CHECK (severity IS NULL OR severity IN
                                  ('critical','major','minor','-')),
     detail           TEXT,
+    check_id         TEXT,
+    description      TEXT,
     FOREIGN KEY (published_run_id) REFERENCES published_runs(id) ON DELETE CASCADE
 );
 
@@ -195,9 +197,16 @@ def init_db(db_path):
         if _rc and _rc[0] and "'NA'" not in _rc[0]:
             conn.execute("ALTER TABLE run_checklist RENAME TO run_checklist_pre_na")
             conn.executescript(_SCHEMA)
-            conn.execute("INSERT INTO run_checklist SELECT * FROM run_checklist_pre_na")
+            _cols = ('published_run_id, milestone, category, check_name, check_type, '
+                     'status, metric_value, threshold, severity, detail')
+            conn.execute(f"INSERT INTO run_checklist ({_cols}) SELECT {_cols} FROM run_checklist_pre_na")
             conn.execute("DROP TABLE run_checklist_pre_na")
             conn.commit()
+        # check_id / description added later: add to an older table in place
+        _have = {r[1] for r in conn.execute("PRAGMA table_info(run_checklist)")}
+        for _col in ('check_id', 'description'):
+            if _have and _col not in _have:
+                conn.execute(f"ALTER TABLE run_checklist ADD COLUMN {_col} TEXT")
         conn.executescript(_SCHEMA)
         # Forward-compat: add columns introduced after v1.0.0.
         # DEFAULT clause populates legacy rows at ALTER time; readers no
@@ -437,12 +446,13 @@ def publish(db_path, payload, project):
             conn.execute("""
                 INSERT INTO run_checklist(published_run_id, milestone, category,
                     check_name, check_type, status, metric_value, threshold,
-                    severity, detail)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    severity, detail, check_id, description)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (pid, c.get('milestone'), c.get('category'), c.get('check_name'),
                   c.get('check_type'), c.get('status'),
                   _to_str(c.get('metric_value')), _to_str(c.get('threshold')),
-                  c.get('severity'), c.get('detail')))
+                  c.get('severity'), c.get('detail'),
+                  c.get('check_id'), c.get('description')))
 
         for f in payload.get('files') or []:
             conn.execute("""

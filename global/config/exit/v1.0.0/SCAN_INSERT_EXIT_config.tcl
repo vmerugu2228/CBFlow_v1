@@ -6,6 +6,7 @@
 
 set milestone_info(name)        "SCAN_INSERT_EXIT"
 set milestone_info(discipline)  "DFT"
+set milestone_info(flow_type)   "SCAN_INSERT"
 set milestone_info(stage)       "scan_stitch"
 set milestone_info(description) "Scan Insertion Exit — scan chains stitched, modes defined, verified"
 set milestone_info(stage_node)  "scan_stitch1"
@@ -16,6 +17,7 @@ array set check_packs {}
 
 array set mandatory_checks {
     "scan_stitched_netlist" {
+        "id"          "SCAN_INSERT_0001"
         "script"            "check_file_exists.tcl"
         "description"       "Scan-stitched netlist exists"
         "criteria"          "file exists"
@@ -23,6 +25,7 @@ array set mandatory_checks {
         "report_file"       "outputs/${design_name}.scan.v"
     }
     "scan_def" {
+        "id"          "SCAN_INSERT_0002"
         "script"            "check_file_exists.tcl"
         "description"       "Scan DEF (scandef) present"
         "criteria"          "file exists"
@@ -30,6 +33,7 @@ array set mandatory_checks {
         "report_file"       "outputs/${design_name}.scandef"
     }
     "scan_check_report" {
+        "id"          "SCAN_INSERT_0003"
         "script"            "check_file_exists.tcl"
         "description"       "Scan chain check report present"
         "criteria"          "file exists"
@@ -40,6 +44,7 @@ array set mandatory_checks {
 
 array set optional_checks {
     "scan_coverage_pct" {
+        "id"          "SCAN_INSERT_0004"
         "script"            "check_metric.tcl"
         "description"       "Scan chain coverage >= 95%"
         "criteria"          "scan_coverage_pct >= 95"

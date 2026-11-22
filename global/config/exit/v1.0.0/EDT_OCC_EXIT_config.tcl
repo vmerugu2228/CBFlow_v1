@@ -6,6 +6,7 @@
 
 set milestone_info(name)        "EDT_OCC_EXIT"
 set milestone_info(discipline)  "DFT"
+set milestone_info(flow_type)   "DFT_INSERT_PASS3"
 set milestone_info(stage)       "insert"
 set milestone_info(description) "EDT & OCC Exit — Pass3 compression + at-speed clocking complete"
 set milestone_info(stage_node)  "insert1"
@@ -16,6 +17,7 @@ array set check_packs {}
 
 array set mandatory_checks {
     "edt_occ_inserted_rtl" {
+        "id"          "DFT_INSERT_PASS3_0001"
         "script"            "check_file_exists.tcl"
         "description"       "Pass3 EDT+OCC inserted RTL exists"
         "criteria"          "file exists"
@@ -23,6 +25,7 @@ array set mandatory_checks {
         "report_file"       "outputs/${design_name}.edt_occ.v"
     }
     "edt_occ_insertion_report" {
+        "id"          "DFT_INSERT_PASS3_0002"
         "script"            "check_file_exists.tcl"
         "description"       "Pass3 insertion report present"
         "criteria"          "file exists"
@@ -30,6 +33,7 @@ array set mandatory_checks {
         "report_file"       "reports/dft_insert_pass3/insertion.rpt"
     }
     "edt_spec" {
+        "id"          "DFT_INSERT_PASS3_0003"
         "script"            "check_file_exists.tcl"
         "description"       "EDT spec present"
         "criteria"          "file exists"
@@ -37,6 +41,7 @@ array set mandatory_checks {
         "report_file"       "outputs/${design_name}.edt_spec"
     }
     "occ_spec" {
+        "id"          "DFT_INSERT_PASS3_0004"
         "script"            "check_file_exists.tcl"
         "description"       "OCC spec present"
         "criteria"          "file exists"
@@ -44,6 +49,7 @@ array set mandatory_checks {
         "report_file"       "outputs/${design_name}.occ_spec"
     }
     "edt_occ_drc_clean" {
+        "id"          "DFT_INSERT_PASS3_0005"
         "script"            "check_file_exists.tcl"
         "description"       "Post-opt DRC report present (zero new violations enforced in-handler)"
         "criteria"          "file exists"
@@ -51,6 +57,7 @@ array set mandatory_checks {
         "report_file"       "reports/dft_insert_pass3/drc_post.rpt"
     }
     "edt_patterns" {
+        "id"          "DFT_INSERT_PASS3_0006"
         "script"            "check_file_exists.tcl"
         "description"       "EDT compressed patterns generated"
         "criteria"          "file exists"
@@ -61,6 +68,7 @@ array set mandatory_checks {
 
 array set optional_checks {
     "edt_compression_ratio" {
+        "id"          "DFT_INSERT_PASS3_0007"
         "script"            "check_metric.tcl"
         "description"       "EDT compression ratio achieves target"
         "criteria"          "edt_compression_ratio >= 80"

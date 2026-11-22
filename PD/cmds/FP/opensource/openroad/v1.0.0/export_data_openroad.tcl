@@ -30,6 +30,7 @@ proc fp_load {} {
     set_thread_count [oss_get fp oss,threads]
     oss_read_corners [oss_chain_node init_design] $blocks
     read_db [oss_prev_odb [oss_upstream_node]]
+    read_sdc [oss_sdc_file]          ;# timing estimate for the FP_EXIT checklist
 }
 
 flow_proc export {
@@ -42,6 +43,7 @@ flow_proc export {
     set _upf [lindex [glob -nocomplain "$::UPF_DIR/${design_name}.upf" "$::UPF_DIR/*.upf"] 0]
     if {$_upf ne ""} { file copy -force $_upf [oss_stage_out final.upf] }
     oss_report "$::REPORTS_DIR/design_area.rpt" report_design_area
+    oss_checklist_safe fp
 }
 
 flow_exec_all

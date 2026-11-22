@@ -11,6 +11,7 @@
 array set eco_flow_checks {
 
     "eco_implementation" {
+        "id"          "ECO_FLOW_0001"
         "description"             "ECO changes implemented successfully"
         "script"                  "check_file_exists.tcl"
         "category"                "eco"
@@ -24,6 +25,7 @@ array set eco_flow_checks {
     }
 
     "eco_netlist_generated" {
+        "id"          "ECO_FLOW_0002"
         "description"             "Post-ECO netlist generated successfully"
         "script"                  "check_file_exists.tcl"
         "category"                "eco"
@@ -37,6 +39,7 @@ array set eco_flow_checks {
     }
 
     "eco_timing_impact" {
+        "id"          "ECO_FLOW_0003"
         "description"             "ECO timing impact must be within acceptable range"
         "script"                  "check_timing.tcl"
         "category"                "eco_timing"
@@ -50,6 +53,7 @@ array set eco_flow_checks {
     }
 
     "eco_hold_impact" {
+        "id"          "ECO_FLOW_0004"
         "description"             "ECO hold timing impact must be within acceptable range"
         "script"                  "check_timing.tcl"
         "category"                "eco_timing"
@@ -63,6 +67,7 @@ array set eco_flow_checks {
     }
 
     "eco_drc_clean" {
+        "id"          "ECO_FLOW_0005"
         "description"             "Post-ECO DRC must be clean"
         "script"                  "check_drc.tcl"
         "category"                "eco_physical"
@@ -76,6 +81,7 @@ array set eco_flow_checks {
     }
 
     "eco_connectivity" {
+        "id"          "ECO_FLOW_0006"
         "description"             "Post-ECO connectivity must be verified"
         "script"                  "check_legality.tcl"
         "category"                "eco_physical"
@@ -89,6 +95,7 @@ array set eco_flow_checks {
     }
 
     "eco_legality" {
+        "id"          "ECO_FLOW_0007"
         "description"             "Post-ECO cell placement must be legal"
         "script"                  "check_legality.tcl"
         "category"                "eco_physical"
@@ -102,6 +109,7 @@ array set eco_flow_checks {
     }
 
     "eco_lec_verify" {
+        "id"          "ECO_FLOW_0008"
         "description"             "Post-ECO LEC verification recommended"
         "script"                  "check_file_exists.tcl"
         "category"                "eco"
@@ -115,6 +123,7 @@ array set eco_flow_checks {
     }
 
     "eco_spare_cell_usage" {
+        "id"          "ECO_FLOW_0009"
         "description"             "Spare cells used vs available within acceptable ratio"
         "script"                  "check_utilization.tcl"
         "category"                "eco"
@@ -128,6 +137,7 @@ array set eco_flow_checks {
     }
 
     "eco_routing_complete" {
+        "id"          "ECO_FLOW_0010"
         "description"             "ECO routing must be completed"
         "script"                  "check_routing.tcl"
         "category"                "eco_physical"
@@ -141,6 +151,7 @@ array set eco_flow_checks {
     }
 
     "eco_changes_report" {
+        "id"          "ECO_FLOW_0011"
         "description"             "ECO changes report generated"
         "script"                  "check_file_exists.tcl"
         "category"                "eco"
@@ -154,6 +165,7 @@ array set eco_flow_checks {
     }
 
     "eco_summary_report" {
+        "id"          "ECO_FLOW_0012"
         "description"             "Complete ECO summary report generated"
         "script"                  "check_file_exists.tcl"
         "category"                "eco"

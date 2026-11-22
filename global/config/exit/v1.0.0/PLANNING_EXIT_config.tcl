@@ -24,6 +24,7 @@ array set check_packs {}
 # ── Mandatory checks ─────────────────────────────────────────────────────────
 array set mandatory_checks {
     "testplan_review_signoff" {
+        "id"          "PLANNING_0001"
         "script"            "check_file_exists.tcl"
         "description"       "Testplan review signoff present"
         "criteria"          "file exists"
@@ -31,6 +32,7 @@ array set mandatory_checks {
         "report_file"       "outputs/review_signoff.txt"
     }
     "feature_matrix_locked" {
+        "id"          "PLANNING_0002"
         "script"            "check_file_exists.tcl"
         "description"       "Feature matrix lock review present"
         "criteria"          "file exists"

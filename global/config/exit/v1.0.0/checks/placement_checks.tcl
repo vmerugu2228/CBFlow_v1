@@ -10,6 +10,7 @@
 array set placement_checks {
 
     "illegal_cells" {
+        "id"          "PLACEMENT_0001"
         "description"             "Zero illegal cell placement violations required"
         "script"                  "check_legality.tcl"
         "category"                "placement"
@@ -23,6 +24,7 @@ array set placement_checks {
     }
 
     "cell_density" {
+        "id"          "PLACEMENT_0002"
         "description"             "Overall cell density percentage within target range"
         "script"                  "check_utilization.tcl"
         "category"                "placement"
@@ -36,6 +38,7 @@ array set placement_checks {
     }
 
     "brickwall_density" {
+        "id"          "PLACEMENT_0003"
         "description"             "Local density hotspots must not exceed 90%"
         "script"                  "check_utilization.tcl"
         "category"                "placement"
@@ -49,6 +52,7 @@ array set placement_checks {
     }
 
     "displacement_quality" {
+        "id"          "PLACEMENT_0004"
         "description"             "Cell displacement from optimal placement position"
         "script"                  "check_file_exists.tcl"
         "category"                "placement"
@@ -62,6 +66,7 @@ array set placement_checks {
     }
 
     "pin_accessibility" {
+        "id"          "PLACEMENT_0005"
         "description"             "Pin access violations for routing must be zero"
         "script"                  "check_file_exists.tcl"
         "category"                "placement"
@@ -75,6 +80,7 @@ array set placement_checks {
     }
 
     "macro_spacing" {
+        "id"          "PLACEMENT_0006"
         "description"             "Macro-to-macro minimum spacing compliance"
         "script"                  "check_file_exists.tcl"
         "category"                "placement"
@@ -88,6 +94,7 @@ array set placement_checks {
     }
 
     "macro_orientation" {
+        "id"          "PLACEMENT_0007"
         "description"             "Macro orientation legality — all macros correctly oriented"
         "script"                  "check_file_exists.tcl"
         "category"                "placement"
@@ -101,6 +108,7 @@ array set placement_checks {
     }
 
     "macro_channel_width" {
+        "id"          "PLACEMENT_0008"
         "description"             "Routing channel width between macros meets minimum"
         "script"                  "check_file_exists.tcl"
         "category"                "placement"
@@ -114,6 +122,7 @@ array set placement_checks {
     }
 
     "halo_violations" {
+        "id"          "PLACEMENT_0009"
         "description"             "Halo/keepout region violations count"
         "script"                  "check_legality.tcl"
         "category"                "placement"
@@ -127,6 +136,7 @@ array set placement_checks {
     }
 
     "blockage_overlap" {
+        "id"          "PLACEMENT_0010"
         "description"             "Cell-in-blockage placement violations"
         "script"                  "check_legality.tcl"
         "category"                "placement"
@@ -140,6 +150,7 @@ array set placement_checks {
     }
 
     "cell_orientation" {
+        "id"          "PLACEMENT_0011"
         "description"             "Standard cell orientation violations"
         "script"                  "check_legality.tcl"
         "category"                "placement"
@@ -153,6 +164,7 @@ array set placement_checks {
     }
 
     "well_tap_spacing" {
+        "id"          "PLACEMENT_0012"
         "description"             "Well tap proximity compliance — max spacing within limit"
         "script"                  "check_legality.tcl"
         "category"                "placement"
@@ -166,6 +178,7 @@ array set placement_checks {
     }
 
     "endcap_placement" {
+        "id"          "PLACEMENT_0013"
         "description"             "Endcap cell placement completeness"
         "script"                  "check_legality.tcl"
         "category"                "placement"
@@ -179,6 +192,7 @@ array set placement_checks {
     }
 
     "filler_coverage" {
+        "id"          "PLACEMENT_0014"
         "description"             "Filler cell coverage ratio percentage"
         "script"                  "check_utilization.tcl"
         "category"                "placement"
@@ -192,6 +206,7 @@ array set placement_checks {
     }
 
     "power_domain_boundary" {
+        "id"          "PLACEMENT_0015"
         "description"             "Power domain boundary cell placement violations"
         "script"                  "check_legality.tcl"
         "category"                "placement"
@@ -205,6 +220,7 @@ array set placement_checks {
     }
 
     "io_placement_legality" {
+        "id"          "PLACEMENT_0016"
         "description"             "IO pad placement legality violations"
         "script"                  "check_legality.tcl"
         "category"                "placement"
@@ -218,6 +234,7 @@ array set placement_checks {
     }
 
     "utilization_uniformity" {
+        "id"          "PLACEMENT_0017"
         "description"             "Utilization variance across placement regions"
         "script"                  "check_utilization.tcl"
         "category"                "placement"
@@ -231,6 +248,7 @@ array set placement_checks {
     }
 
     "congestion_hotspot" {
+        "id"          "PLACEMENT_0018"
         "description"             "Local congestion hotspot overflow percentage"
         "script"                  "check_congestion.tcl"
         "category"                "placement"
@@ -244,6 +262,7 @@ array set placement_checks {
     }
 
     "placement_wirelength" {
+        "id"          "PLACEMENT_0019"
         "description"             "Total estimated wirelength within budget"
         "script"                  "check_file_exists.tcl"
         "category"                "placement"
@@ -257,6 +276,7 @@ array set placement_checks {
     }
 
     "scan_chain_reorder" {
+        "id"          "PLACEMENT_0020"
         "description"             "Scan chain physical order quality — reorder distance"
         "script"                  "check_file_exists.tcl"
         "category"                "placement"

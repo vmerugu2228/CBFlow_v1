@@ -24,6 +24,7 @@ array set check_packs {}
 # ── Mandatory checks ─────────────────────────────────────────────────────────
 array set mandatory_checks {
     "spec_baseline_signoff" {
+        "id"          "SPEC_RAMP_0001"
         "script"            "check_file_exists.tcl"
         "description"       "Spec baseline review signoff present"
         "criteria"          "file exists"

@@ -39,7 +39,9 @@ flow_proc global_detailed_route {
     if {[lsearch -exact $_layers $_cmax] > [lsearch -exact $_layers $_max]} { set _cmax $_max }
     if {[lsearch -exact $_layers $_cmin] > [lsearch -exact $_layers $_cmax]} { set _cmin $_cmax }
     set_routing_layers -signal ${_min}-${_max} -clock ${_cmin}-${_cmax}
-    global_route -allow_congestion -congestion_report_file "$::REPORTS_DIR/route_congestion.rpt"
+    # -verbose prints the final congestion table (overflow per layer + total)
+    oss_report "$::REPORTS_DIR/route_grt.rpt" global_route -allow_congestion -verbose \
+        -congestion_report_file "$::REPORTS_DIR/route_congestion.rpt"
     detailed_route -output_drc "$::REPORTS_DIR/route_drc.rpt" -verbose 1
     write_db [oss_stage_out route.odb]
 }
@@ -59,6 +61,7 @@ flow_proc check_drc {
         if {[is_true [oss_get pnr oss,fail_on_violations]]} { error $_msg }
         handle_warning "$_msg — reported, flow continues"
     }
+    oss_checklist_safe route
 }
 
 flow_exec_all

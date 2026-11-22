@@ -24,6 +24,7 @@ array set check_packs {}
 # ── Mandatory checks ─────────────────────────────────────────────────────────
 array set mandatory_checks {
     "tb_sanity_signoff" {
+        "id"          "TB_SETUP_0001"
         "script"            "check_file_exists.tcl"
         "description"       "Testbench sanity signoff present"
         "criteria"          "file exists"

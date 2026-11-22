@@ -352,7 +352,7 @@ def _read_run_snapshot(race_db_path, milestone):
         try:
             for r in conn.execute(
                 'SELECT milestone, check_name, check_type, category, status, '
-                'metric_value, threshold, severity, detail '
+                'metric_value, threshold, severity, detail, check_id, description '
                 'FROM checklist_results WHERE milestone=?',
                 (milestone,)):
                 checklist.append(dict(r))

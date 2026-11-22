@@ -5,6 +5,7 @@
 
 array set manufacturing_checks {
     "metal_density_m1" {
+        "id"          "MANUFACTURING_0001"
         "description"             "Metal 1 density within foundry limits"
         "script"                  "check_utilization.tcl"
         "category"                "manufacturing"
@@ -17,6 +18,7 @@ array set manufacturing_checks {
         "default_threshold"       "20.0"
     }
     "metal_density_m2" {
+        "id"          "MANUFACTURING_0002"
         "description"             "Metal 2 density within foundry limits"
         "script"                  "check_utilization.tcl"
         "category"                "manufacturing"
@@ -29,6 +31,7 @@ array set manufacturing_checks {
         "default_threshold"       "20.0"
     }
     "metal_density_upper" {
+        "id"          "MANUFACTURING_0003"
         "description"             "Upper metal density compliance"
         "script"                  "check_utilization.tcl"
         "category"                "manufacturing"
@@ -41,6 +44,7 @@ array set manufacturing_checks {
         "default_threshold"       "0"
     }
     "metal_density_uniformity" {
+        "id"          "MANUFACTURING_0004"
         "description"             "Density window uniformity within limits"
         "script"                  "check_utilization.tcl"
         "category"                "manufacturing"
@@ -53,6 +57,7 @@ array set manufacturing_checks {
         "default_threshold"       "0"
     }
     "via_density_check" {
+        "id"          "MANUFACTURING_0005"
         "description"             "Via density per layer within limits"
         "script"                  "check_file_exists.tcl"
         "category"                "manufacturing"
@@ -65,6 +70,7 @@ array set manufacturing_checks {
         "default_threshold"       "0"
     }
     "critical_area_analysis" {
+        "id"          "MANUFACTURING_0006"
         "description"             "Random defect critical area analysis"
         "script"                  "check_file_exists.tcl"
         "category"                "manufacturing"
@@ -77,6 +83,7 @@ array set manufacturing_checks {
         "default_threshold"       "1.0"
     }
     "antenna_per_layer" {
+        "id"          "MANUFACTURING_0007"
         "description"             "Per-layer antenna ratio check"
         "script"                  "check_drc.tcl"
         "category"                "manufacturing"
@@ -89,6 +96,7 @@ array set manufacturing_checks {
         "default_threshold"       "0"
     }
     "double_patterning" {
+        "id"          "MANUFACTURING_0008"
         "description"             "Double patterning compliance (advanced nodes)"
         "script"                  "check_drc.tcl"
         "category"                "manufacturing"
@@ -101,6 +109,7 @@ array set manufacturing_checks {
         "default_threshold"       "0"
     }
     "minimum_density_fill" {
+        "id"          "MANUFACTURING_0009"
         "description"             "Post-fill minimum density check"
         "script"                  "check_utilization.tcl"
         "category"                "manufacturing"
@@ -113,6 +122,7 @@ array set manufacturing_checks {
         "default_threshold"       "0"
     }
     "filler_metal_check" {
+        "id"          "MANUFACTURING_0010"
         "description"             "Dummy metal fill coverage"
         "script"                  "check_utilization.tcl"
         "category"                "manufacturing"
@@ -125,6 +135,7 @@ array set manufacturing_checks {
         "default_threshold"       "80.0"
     }
     "opc_friendly_check" {
+        "id"          "MANUFACTURING_0011"
         "description"             "OPC-friendly routing patterns"
         "script"                  "check_file_exists.tcl"
         "category"                "manufacturing"
@@ -137,6 +148,7 @@ array set manufacturing_checks {
         "default_threshold"       "0"
     }
     "lithography_hotspot" {
+        "id"          "MANUFACTURING_0012"
         "description"             "Lithography hotspot detection"
         "script"                  "check_file_exists.tcl"
         "category"                "manufacturing"
@@ -149,6 +161,7 @@ array set manufacturing_checks {
         "default_threshold"       "0"
     }
     "etch_proximity" {
+        "id"          "MANUFACTURING_0013"
         "description"             "Etch proximity effect violations"
         "script"                  "check_file_exists.tcl"
         "category"                "manufacturing"
@@ -161,6 +174,7 @@ array set manufacturing_checks {
         "default_threshold"       "0"
     }
     "cmp_uniformity" {
+        "id"          "MANUFACTURING_0014"
         "description"             "CMP planarity and uniformity analysis"
         "script"                  "check_file_exists.tcl"
         "category"                "manufacturing"
@@ -173,6 +187,7 @@ array set manufacturing_checks {
         "default_threshold"       "0"
     }
     "esd_protection" {
+        "id"          "MANUFACTURING_0015"
         "description"             "ESD structure completeness check"
         "script"                  "check_file_exists.tcl"
         "category"                "manufacturing"

@@ -24,6 +24,7 @@ array set check_packs {}
 # ── Mandatory checks ─────────────────────────────────────────────────────────
 array set mandatory_checks {
     "m1_review_signoff" {
+        "id"          "M1_EXEC_0001"
         "script"            "check_file_exists.tcl"
         "description"       "M1 execution review signoff present"
         "criteria"          "file exists"
@@ -31,6 +32,7 @@ array set mandatory_checks {
         "report_file"       "outputs/review_signoff.txt"
     }
     "m1_regression_gatekeeper" {
+        "id"          "M1_EXEC_0002"
         "script"            "check_file_exists.tcl"
         "description"       "M1 regression gatekeeper report"
         "criteria"          "file exists"

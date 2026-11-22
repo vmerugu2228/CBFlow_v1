@@ -6,6 +6,7 @@
 
 set milestone_info(name)        "BTO"
 set milestone_info(discipline) "PD"
+set milestone_info(flow_type)   "PNR"
 set milestone_info(stage)       "signoff"
 set milestone_info(description) "Backend Tape Out - Design ready for mask generation"
 set milestone_info(stage_node)  "signoff1"
@@ -26,6 +27,7 @@ array set check_packs {
 # ── Mandatory checks ─────────────────────────────────────────────────────────
 array set mandatory_checks {
     "bto_setup_timing" {
+        "id"          "PNR_0035"
         "script"      "check_timing.tcl"
         "description" "Signoff setup timing — WNS >= 0 at P2+"
         "criteria"    "setup_wns >= threshold"
@@ -33,6 +35,7 @@ array set mandatory_checks {
         "report_file" "work/SYNTH_PNR/signoff1/reports/report_timing.max.rpt"
     }
     "bto_qor" {
+        "id"          "PNR_0036"
         "script"      "check_timing.tcl"
         "description" "Signoff QoR summary"
         "criteria"    "report exists and parseable"
@@ -40,6 +43,7 @@ array set mandatory_checks {
         "report_file" "work/SYNTH_PNR/signoff1/reports/report_qor.rpt"
     }
     "bto_routing" {
+        "id"          "PNR_0037"
         "script"      "check_routing.tcl"
         "description" "Final route check — zero opens/shorts"
         "criteria"    "opens == 0 && shorts == 0"
@@ -47,6 +51,7 @@ array set mandatory_checks {
         "report_file" "work/SYNTH_PNR/signoff1/reports/check_routes.final"
     }
     "bto_hold_timing" {
+        "id"          "PNR_0038"
         "script"      "check_timing.tcl"
         "description" "Signoff hold timing — WNS >= 0 at P2+"
         "criteria"    "hold_wns >= threshold"
@@ -54,6 +59,7 @@ array set mandatory_checks {
         "report_file" "work/SYNTH_PNR/signoff1/reports/report_timing.min.rpt"
     }
     "bto_signoff_drc" {
+        "id"          "PNR_0039"
         "script"      "check_drc.tcl"
         "description" "Signoff DRC — zero violations"
         "criteria"    "drc_violations == 0"
@@ -61,6 +67,7 @@ array set mandatory_checks {
         "report_file" "work/SYNTH_PNR/signoff1/reports/signoff_check_drc.rpt"
     }
     "bto_power" {
+        "id"          "PNR_0040"
         "script"      "check_power.tcl"
         "description" "Signoff power analysis"
         "criteria"    "total_power <= budget"
@@ -68,6 +75,7 @@ array set mandatory_checks {
         "report_file" "work/SYNTH_PNR/signoff1/reports/report_power.rpt"
     }
     "bto_si" {
+        "id"          "PNR_0041"
         "script"      "check_signal_integrity.tcl"
         "description" "Signal integrity — crosstalk clean"
         "criteria"    "si_violations == 0"
@@ -75,6 +83,7 @@ array set mandatory_checks {
         "report_file" "work/SYNTH_PNR/signoff1/reports/report_si.rpt"
     }
     "bto_legality" {
+        "id"          "PNR_0042"
         "script"      "check_legality.tcl"
         "description" "Final cell legality"
         "criteria"    "illegal_cells == 0"
@@ -82,6 +91,7 @@ array set mandatory_checks {
         "report_file" "work/SYNTH_PNR/signoff1/reports/check_legality.rpt"
     }
     "bto_constraint_check" {
+        "id"          "PNR_0043"
         "script"      "check_constraints.tcl"
         "description" "All constraint checks pass"
         "criteria"    "constraint violations == 0"
@@ -93,6 +103,7 @@ array set mandatory_checks {
 # ── Optional checks ──────────────────────────────────────────────────────────
 array set optional_checks {
     "bto_qor_summary" {
+        "id"          "PNR_0044"
         "script"      "check_file_exists.tcl"
         "description" "QoR summary condensed"
         "criteria"    "file exists"
@@ -100,6 +111,7 @@ array set optional_checks {
         "report_file" "work/SYNTH_PNR/signoff1/reports/report_qor_summary.rpt"
     }
     "bto_vt_group" {
+        "id"          "PNR_0045"
         "script"      "check_file_exists.tcl"
         "description" "Threshold voltage group distribution"
         "criteria"    "file exists"
@@ -107,6 +119,7 @@ array set optional_checks {
         "report_file" "work/SYNTH_PNR/signoff1/reports/report_threshold_voltage_group.rpt"
     }
     "bto_utilization" {
+        "id"          "PNR_0046"
         "script"      "check_utilization.tcl"
         "description" "Final area utilization"
         "criteria"    "utilization within range"

@@ -75,6 +75,24 @@ array set fp {
     smartgrid,milestone "FP_EXIT"
 }
 
+# ┌─ Exit checklist data (this tool) ─────────────────────────────────────────┐
+# Read by `cbflow flow checklist` and at SmartGrid publish: which node holds
+# each exit's reports and how to read each check's value from
+# reports/checklist_metrics.rpt (written by oss_checklist_metrics). Check
+# names, operators and thresholds stay in global/config/exit/.
+array set fp {
+    checklist,exit_node,FP_EXIT      export_data1
+    checklist,report               "work/FP/${exit_node}/reports/checklist_metrics.rpt"
+    checklist,mandatory_files,FP_EXIT "work/FP/${exit_node}/outputs/final.def work/FP/${exit_node}/reports/checklist_metrics.rpt"
+    checklist,grep,fp_qor                        {^Setup WNS\s*:}
+    checklist,metric,fp_utilization              {^Utilization\s*:\s*([0-9.]+)}
+    checklist,grep,fp_design_summary             {^Design\s*:}
+    checklist,metric,fp_timing_estimate          {^Setup WNS\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)}
+    checklist,metric,macro_spacing               {^Macro spacing violations\s*:\s*(\d+)}
+    checklist,metric,macro_orientation           {^Macro orientation violations\s*:\s*(\d+)}
+    checklist,metric,io_placement_legality       {^IO placement violations\s*:\s*(\d+)}
+}
+
 # ┌─ Inputs consumed per stage ─────────────────────────────────────────────────┐
 set fp(required_inputs,init_design1)  "work/FP/netlist1/netlist work/FP/sdc1/sdc work/FP/upf1/upf"
 set fp(required_inputs,floorplan1)    "work/FP/init_design1/outputs/init_design.odb"

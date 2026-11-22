@@ -47,6 +47,7 @@ flow_proc power_intent {
 
 flow_proc save {
     write_db [oss_stage_out init_design.odb]
+    oss_checklist_safe init_design
 }
 
 flow_exec_all

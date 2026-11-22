@@ -24,6 +24,7 @@ array set check_packs {}
 # ── Mandatory checks ─────────────────────────────────────────────────────────
 array set mandatory_checks {
     "m2_review_signoff" {
+        "id"          "M2_EXEC_0001"
         "script"            "check_file_exists.tcl"
         "description"       "M2 execution review signoff present"
         "criteria"          "file exists"

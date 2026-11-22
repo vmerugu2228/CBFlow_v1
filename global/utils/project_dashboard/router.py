@@ -1393,6 +1393,12 @@ _STYLE = """
   table.d td.num { text-align:center; }
   .verdict-badge { border-radius:10px; font-weight:800; letter-spacing:.04em; }
   .rpt { margin:0 24px; border-radius:8px; }
+  .blk-filters { display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+                 margin:0 24px 10px; font-size:12px; color: var(--muted); }
+  .blk-filters select { font: inherit; padding:4px 8px; border:1px solid var(--border);
+                        border-radius:6px; background: var(--panel); margin-left:4px; }
+  .blk-filters .bf-lbl { margin-left:6px; }
+  .blk-filters .bf-count { margin-left:auto; }
   .about-box { margin:0 24px; padding:12px 16px; background: var(--panel);
                border:1px solid var(--border); border-radius:8px; font-size:13px;
                box-shadow: 0 1px 3px rgba(0,0,0,.05); }
@@ -4632,6 +4638,54 @@ def _render_tier2(project, info, blocks, published_rows):
     ])
 
 
+def _block_filter_bar(hier, order):
+    """Blocks-table filters: hierarchy level, block, and parent chips (a
+    parent shows itself + all its descendants). Levels / parents come from
+    project(design_hierarchy)."""
+    levels = sorted({(hier.get(b) or {}).get('level') for b in order} - {None, ''})
+    parents = [b for b in order if any((hier.get(c) or {}).get('parent') == b for c in hier)]
+    opt = lambda v, t: f'<option value="{html.escape(v, quote=True)}">{html.escape(t)}</option>'
+    return ('<div class="blk-filters">'
+            '<label>Hierarchy <select id="bf-level">' + opt('', 'All levels')
+            + ''.join(opt(l, l) for l in levels) + '</select></label>'
+            '<label>Block <select id="bf-block">' + opt('', 'All blocks')
+            + ''.join(opt(b, b) for b in order) + '</select></label>'
+            '<span class="bf-lbl">Parent</span>'
+            '<button type="button" class="phase-chip on" data-parent="">all</button>'
+            + ''.join(f'<button type="button" class="phase-chip" data-parent="{html.escape(p, quote=True)}">'
+                      f'{html.escape(p)}</button>' for p in parents)
+            + '<span class="bf-count" id="bf-count"></span></div>')
+
+
+_BLOCK_FILTER_JS = """<script>
+(function () {
+  var lv = document.getElementById('bf-level'), bk = document.getElementById('bf-block');
+  if (!lv) return;
+  var parent = '';
+  function apply() {
+    var n = 0;
+    document.querySelectorAll('tr.blk-row').forEach(function (tr) {
+      var d = tr.dataset, anc = (d.anc || '').split(' ');
+      var ok = (!lv.value || d.level === lv.value) && (!bk.value || d.block === bk.value)
+               && (!parent || d.block === parent || anc.indexOf(parent) >= 0);
+      tr.style.display = ok ? '' : 'none'; if (ok) n++;
+    });
+    document.getElementById('bf-count').textContent = n + ' shown';
+  }
+  lv.onchange = apply; bk.onchange = apply;
+  document.querySelectorAll('.blk-filters [data-parent]').forEach(function (b) {
+    b.onclick = function () {
+      parent = b.dataset.parent;
+      document.querySelectorAll('.blk-filters [data-parent]').forEach(function (x) {
+        x.classList.toggle('on', x === b); });
+      apply();
+    };
+  });
+  apply();
+})();
+</script>"""
+
+
 def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
                    ph_filter=None, all_pubs_for_disc=None):
     """Discipline summary — verdict rollup, top-6 metrics, per-block table.
@@ -4717,8 +4771,36 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
     block_rows_html = []
     from urllib.parse import quote as _q
     _VERDICT_CSS = {'PASS', 'CONDITIONAL', 'BLOCKED', 'UNKNOWN'}
-    for r in sorted_blocks:
-        b = r.get('block') or ''
+    # Hierarchy (project(design_hierarchy)): every block in tree order, with
+    # level / parent / ancestors for the filter bar; unpublished blocks show —.
+    _rel = releases.release_stats(project, []) or {}
+    _hier = _rel.get('hierarchy') or {}
+    _order = [b for b, _ in _rel.get('tree_order') or []]
+    _order += sorted(b for b in blocks if b not in _hier)
+
+    def _ancestors(b):
+        out, p = [], (_hier.get(b) or {}).get('parent') or ''
+        while p and p in _hier and p not in out:
+            out.append(p); p = (_hier.get(p) or {}).get('parent') or ''
+        return out
+    _depth = {b: d for b, d in _rel.get('tree_order') or []}
+    for b in _order:
+        r = blocks.get(b)
+        lvl = (_hier.get(b) or {}).get('level') or ''
+        par = (_hier.get(b) or {}).get('parent') or ''
+        attrs = (f'data-block="{html.escape(b, quote=True)}" data-level="{html.escape(lvl, quote=True)}" '
+                 f'data-anc="{html.escape(" ".join(_ancestors(b)), quote=True)}"')
+        pad = 14 + 14 * _depth.get(b, 0)
+        tree = f'{"└ " if _depth.get(b, 0) else ""}{html.escape(b)}'
+        if r is None:
+            block_rows_html.append(
+                f'<tr class="blk-row" {attrs}>'
+                f'<td class="mono" style="padding-left:{pad}px">{tree}</td>'
+                f'<td><span class="lvl-pill">{html.escape(lvl)}</span></td>'
+                f'<td>{html.escape(par or "—")}</td>'
+                '<td class="muted">—</td><td class="muted">—</td><td class="muted">not published</td>'
+                '<td class="muted">—</td><td class="muted">—</td></tr>')
+            continue
         ms = r.get('milestone') or ''
         ph = r.get('phase') or ''
         v = (r.get('verdict') or 'UNKNOWN').upper()
@@ -4739,9 +4821,11 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
         #       the string literal, and
         #   (b) CSP-nonce-free inline-JS entirely.
         block_rows_html.append(
-            f'<tr class="row-click" data-href="{html.escape(row_url, quote=True)}" '
+            f'<tr class="row-click blk-row" {attrs} data-href="{html.escape(row_url, quote=True)}" '
             f'style="cursor:pointer">'
-            f'  <td class="mono">{html.escape(b)}</td>'
+            f'  <td class="mono" style="padding-left:{pad}px">{tree}</td>'
+            f'  <td><span class="lvl-pill">{html.escape(lvl)}</span></td>'
+            f'  <td>{html.escape(par or "—")}</td>'
             f'  <td>{html.escape(ms)}</td>'
             f'  <td>{html.escape(ph)}</td>'
             f'  <td><span class="verdict-badge v-{v_class}">'
@@ -4751,7 +4835,7 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
             f'</tr>')
     if not block_rows_html:
         block_rows_html.append(
-            '<tr><td colspan="6" class="empty-row">'
+            '<tr><td colspan="8" class="empty-row">'
             'No matching publishes. Try clearing the filters.'
             '</td></tr>')
 
@@ -4967,10 +5051,11 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
         f'<span class="section-h-sub">latest publish per block · {len(sorted_blocks)} shown</span>'
         '  </div>',
         '  <div class="phase-chips">', *phase_chips, '</div>',
+        _block_filter_bar(_hier, _order),
         '  <div style="overflow-x:auto">',
         '  <table class="d tier3-tbl">',
         '    <thead><tr>'
-        '      <th>Block</th>'
+        '      <th>Block</th><th>Level</th><th>Parent</th>'
         '      <th>Latest milestone</th>'
         '      <th>Phase</th>'
         '      <th>Verdict</th>'
@@ -4981,6 +5066,7 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
         '  </table>',
         '  </div>',
         '</section>',
+        _BLOCK_FILTER_JS,
         # Delegated row-click: reads data-href attribute (safe — no HTML
         # entity decode of inline-JS string literal), navigates to it.
         '<script>'
@@ -5408,19 +5494,22 @@ def _render_detail(project, info, d):
         parts.append('<div class="empty">No checklist rows captured.</div>')
     else:
         parts.append('<div style="overflow-x:auto"><table class="d"><thead><tr>'
-                     '<th>Check</th><th>Type</th><th>Category</th><th>Status</th>'
-                     '<th>Value</th><th>Threshold</th><th>Detail</th></tr></thead><tbody>')
+                     '<th>Check ID</th><th>Check description</th><th>Category</th>'
+                     '<th>Value</th><th>Status</th></tr></thead><tbody>')
         for c in checklist:
             st = (c.get('status') or '—').upper()
+            # Category: library checks carry one; milestone checks show their type
+            cat = c.get('category') or c.get('check_type') or ''
+            if cat.endswith('_checks'):
+                cat = cat[:-7]
             parts.append(
-                f'<tr><td>{html.escape(c.get("check_name") or "")}</td>'
-                f'<td>{html.escape(c.get("check_type") or "")}</td>'
-                f'<td>{html.escape(c.get("category") or "")}</td>'
+                f'<tr><td class="mono">{html.escape(c.get("check_id") or c.get("check_name") or "")}</td>'
+                f'<td style="text-align:left;white-space:normal">'
+                f'{html.escape(c.get("description") or c.get("check_name") or "")}</td>'
+                f'<td>{html.escape(cat)}</td>'
+                f'<td class="mono">{html.escape(str(c.get("metric_value") or "—"))}</td>'
                 f'<td><span class="tt-status st-{_CHECK_STATUS_CLS.get(st, "future")}">'
-                f'{html.escape(st)}</span></td>'
-                f'<td class="mono">{html.escape(str(c.get("metric_value") or ""))}</td>'
-                f'<td class="mono">{html.escape(str(c.get("threshold") or ""))}</td>'
-                f'<td>{html.escape((c.get("detail") or "")[:200])}</td></tr>')
+                f'{html.escape(st)}</span></td></tr>')
         parts.append('</tbody></table></div>')
     if signoff_metrics:
         parts.append(f'<div class="sec-h">Sign-off metrics '

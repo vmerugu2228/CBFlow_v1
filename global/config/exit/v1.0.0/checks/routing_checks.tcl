@@ -9,6 +9,7 @@
 array set routing_checks {
 
     "routing_completion" {
+        "id"          "ROUTING_0001"
         "description"             "Routing 100% complete — all nets fully routed"
         "script"                  "check_routing.tcl"
         "category"                "routing"
@@ -22,6 +23,7 @@ array set routing_checks {
     }
 
     "opens" {
+        "id"          "ROUTING_0002"
         "description"             "Zero open nets — no incomplete routing"
         "script"                  "check_routing.tcl"
         "category"                "routing"
@@ -35,6 +37,7 @@ array set routing_checks {
     }
 
     "shorts" {
+        "id"          "ROUTING_0003"
         "description"             "Zero short violations — no shorted nets"
         "script"                  "check_routing.tcl"
         "category"                "routing"
@@ -48,6 +51,7 @@ array set routing_checks {
     }
 
     "drc_total" {
+        "id"          "ROUTING_0004"
         "description"             "Total DRC violations within threshold"
         "script"                  "check_drc.tcl"
         "category"                "routing"
@@ -61,6 +65,7 @@ array set routing_checks {
     }
 
     "drc_spacing" {
+        "id"          "ROUTING_0005"
         "description"             "Metal spacing violations within threshold"
         "script"                  "check_drc.tcl"
         "category"                "routing"
@@ -74,6 +79,7 @@ array set routing_checks {
     }
 
     "drc_width" {
+        "id"          "ROUTING_0006"
         "description"             "Minimum width violations within threshold"
         "script"                  "check_drc.tcl"
         "category"                "routing"
@@ -87,6 +93,7 @@ array set routing_checks {
     }
 
     "drc_via" {
+        "id"          "ROUTING_0007"
         "description"             "Via enclosure violations within threshold"
         "script"                  "check_drc.tcl"
         "category"                "routing"
@@ -100,6 +107,7 @@ array set routing_checks {
     }
 
     "drc_area" {
+        "id"          "ROUTING_0008"
         "description"             "Minimum area violations within threshold"
         "script"                  "check_drc.tcl"
         "category"                "routing"
@@ -113,6 +121,7 @@ array set routing_checks {
     }
 
     "congestion_h" {
+        "id"          "ROUTING_0009"
         "description"             "Horizontal routing congestion overflow percentage"
         "script"                  "check_congestion.tcl"
         "category"                "routing"
@@ -126,6 +135,7 @@ array set routing_checks {
     }
 
     "congestion_v" {
+        "id"          "ROUTING_0010"
         "description"             "Vertical routing congestion overflow percentage"
         "script"                  "check_congestion.tcl"
         "category"                "routing"
@@ -139,6 +149,7 @@ array set routing_checks {
     }
 
     "antenna_violations" {
+        "id"          "ROUTING_0011"
         "description"             "Antenna rule violations count"
         "script"                  "check_drc.tcl"
         "category"                "routing"
@@ -152,6 +163,7 @@ array set routing_checks {
     }
 
     "antenna_ratio" {
+        "id"          "ROUTING_0012"
         "description"             "Worst antenna ratio within allowed limit"
         "script"                  "check_drc.tcl"
         "category"                "routing"
@@ -165,6 +177,7 @@ array set routing_checks {
     }
 
     "net_length_threshold" {
+        "id"          "ROUTING_0013"
         "description"             "Number of nets exceeding maximum length threshold"
         "script"                  "check_constraints.tcl"
         "category"                "routing"
@@ -178,6 +191,7 @@ array set routing_checks {
     }
 
     "detour_routing" {
+        "id"          "ROUTING_0014"
         "description"             "Routing detour percentage — ratio of actual to ideal length"
         "script"                  "check_file_exists.tcl"
         "category"                "routing"
@@ -191,6 +205,7 @@ array set routing_checks {
     }
 
     "via_count_optimization" {
+        "id"          "ROUTING_0015"
         "description"             "Via count per net optimization — excess via percentage"
         "script"                  "check_file_exists.tcl"
         "category"                "routing"
@@ -204,6 +219,7 @@ array set routing_checks {
     }
 
     "ndr_compliance" {
+        "id"          "ROUTING_0016"
         "description"             "Non-default rule compliance — all NDR nets meet rules"
         "script"                  "check_drc.tcl"
         "category"                "routing"
@@ -217,6 +233,7 @@ array set routing_checks {
     }
 
     "shielding_coverage" {
+        "id"          "ROUTING_0017"
         "description"             "Critical net shielding coverage percentage"
         "script"                  "check_file_exists.tcl"
         "category"                "routing"
@@ -230,6 +247,7 @@ array set routing_checks {
     }
 
     "metal_density_min" {
+        "id"          "ROUTING_0018"
         "description"             "Minimum metal density per layer meets foundry requirement"
         "script"                  "check_utilization.tcl"
         "category"                "routing"
@@ -243,6 +261,7 @@ array set routing_checks {
     }
 
     "metal_density_max" {
+        "id"          "ROUTING_0019"
         "description"             "Maximum metal density per layer within foundry limit"
         "script"                  "check_utilization.tcl"
         "category"                "routing"
@@ -256,6 +275,7 @@ array set routing_checks {
     }
 
     "via_density" {
+        "id"          "ROUTING_0020"
         "description"             "Via density uniformity across design"
         "script"                  "check_file_exists.tcl"
         "category"                "routing"
@@ -269,6 +289,7 @@ array set routing_checks {
     }
 
     "power_shorts" {
+        "id"          "ROUTING_0021"
         "description"             "Power-to-signal short violations — zero allowed"
         "script"                  "check_routing.tcl"
         "category"                "routing"
@@ -282,6 +303,7 @@ array set routing_checks {
     }
 
     "power_opens" {
+        "id"          "ROUTING_0022"
         "description"             "Power mesh open connections — zero allowed"
         "script"                  "check_routing.tcl"
         "category"                "routing"
@@ -295,6 +317,7 @@ array set routing_checks {
     }
 
     "critical_net_routing" {
+        "id"          "ROUTING_0023"
         "description"             "Critical net routing quality — DRC-clean critical nets"
         "script"                  "check_file_exists.tcl"
         "category"                "routing"
@@ -308,6 +331,7 @@ array set routing_checks {
     }
 
     "clock_route_drc" {
+        "id"          "ROUTING_0024"
         "description"             "Clock routing specific DRC violations"
         "script"                  "check_drc.tcl"
         "category"                "routing"
@@ -321,6 +345,7 @@ array set routing_checks {
     }
 
     "multi_cut_via_ratio" {
+        "id"          "ROUTING_0025"
         "description"             "Multi-cut via usage ratio for reliability"
         "script"                  "check_file_exists.tcl"
         "category"                "routing"

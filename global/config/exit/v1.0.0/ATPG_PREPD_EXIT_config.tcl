@@ -6,6 +6,7 @@
 
 set milestone_info(name)        "ATPG_PREPD_EXIT"
 set milestone_info(discipline)  "DFT"
+set milestone_info(flow_type)   "ATPG"
 set milestone_info(stage)       "coverage_report"
 set milestone_info(description) "ATPG Pre-PD Exit — patterns generated, fault sim done, coverage reported"
 set milestone_info(stage_node)  "coverage_report1"
@@ -16,6 +17,7 @@ array set check_packs {}
 
 array set mandatory_checks {
     "atpg_patterns_generated" {
+        "id"          "ATPG_0008"
         "script"            "check_file_exists.tcl"
         "description"       "ATPG stuck-at + transition patterns present"
         "criteria"          "file exists"
@@ -23,6 +25,7 @@ array set mandatory_checks {
         "report_file"       "outputs/${design_name}.atpg.stil"
     }
     "atpg_coverage_report" {
+        "id"          "ATPG_0009"
         "script"            "check_file_exists.tcl"
         "description"       "Fault coverage report present"
         "criteria"          "file exists"
@@ -30,6 +33,7 @@ array set mandatory_checks {
         "report_file"       "reports/atpg/coverage.rpt"
     }
     "atpg_fault_sim_log" {
+        "id"          "ATPG_0010"
         "script"            "check_file_exists.tcl"
         "description"       "Fault simulation log present"
         "criteria"          "file exists"
@@ -40,6 +44,7 @@ array set mandatory_checks {
 
 array set optional_checks {
     "atpg_fault_coverage_pct" {
+        "id"          "ATPG_0011"
         "script"            "check_metric.tcl"
         "description"       "Stuck-at fault coverage >= 99%"
         "criteria"          "fault_coverage_pct >= 99"
@@ -49,6 +54,7 @@ array set optional_checks {
         "default_threshold" "99"
     }
     "atpg_test_coverage_pct" {
+        "id"          "ATPG_0012"
         "script"            "check_metric.tcl"
         "description"       "Test coverage (ATE) >= 95%"
         "criteria"          "test_coverage_pct >= 95"

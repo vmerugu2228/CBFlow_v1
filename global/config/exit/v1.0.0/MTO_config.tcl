@@ -6,6 +6,7 @@
 
 set milestone_info(name)        "MTO"
 set milestone_info(discipline) "PD"
+set milestone_info(flow_type)   "PNR"
 set milestone_info(stage)       "signoff"
 set milestone_info(description) "Metal Tape Out - Final delivery for mask generation"
 set milestone_info(stage_node)  "signoff1"
@@ -28,6 +29,7 @@ array set check_packs {
 # All BTO quality checks (timing, DRC, routing, etc.) are prerequisites.
 array set mandatory_checks {
     "mto_gds_complete" {
+        "id"          "PNR_0047"
         "script"      "check_file_exists.tcl"
         "description" "Final GDS layout exists"
         "criteria"    "file exists and non-empty"
@@ -35,6 +37,7 @@ array set mandatory_checks {
         "report_file" "outputs/${design_name}.gds"
     }
     "mto_netlist_complete" {
+        "id"          "PNR_0048"
         "script"      "check_file_exists.tcl"
         "description" "Final Verilog netlist exists"
         "criteria"    "file exists and non-empty"
@@ -42,6 +45,7 @@ array set mandatory_checks {
         "report_file" "outputs/${design_name}.v"
     }
     "mto_def_complete" {
+        "id"          "PNR_0049"
         "script"      "check_file_exists.tcl"
         "description" "Final DEF exists"
         "criteria"    "file exists and non-empty"
@@ -49,6 +53,7 @@ array set mandatory_checks {
         "report_file" "outputs/${design_name}.def"
     }
     "mto_lef_complete" {
+        "id"          "PNR_0050"
         "script"      "check_file_exists.tcl"
         "description" "Final LEF abstract exists"
         "criteria"    "file exists and non-empty"
@@ -56,6 +61,7 @@ array set mandatory_checks {
         "report_file" "outputs/${design_name}.lef"
     }
     "mto_upf_complete" {
+        "id"          "PNR_0051"
         "script"      "check_file_exists.tcl"
         "description" "UPF power intent exists"
         "criteria"    "file exists"
@@ -63,6 +69,7 @@ array set mandatory_checks {
         "report_file" "outputs/${design_name}.upf"
     }
     "mto_pt_netlist" {
+        "id"          "PNR_0052"
         "script"      "check_file_exists.tcl"
         "description" "PT-format netlist for STA"
         "criteria"    "file exists"
@@ -70,6 +77,7 @@ array set mandatory_checks {
         "report_file" "outputs/${design_name}.pt.v"
     }
     "mto_fm_netlist" {
+        "id"          "PNR_0053"
         "script"      "check_file_exists.tcl"
         "description" "Formality netlist for LEC"
         "criteria"    "file exists"
@@ -77,6 +85,7 @@ array set mandatory_checks {
         "report_file" "outputs/${design_name}.fm.v"
     }
     "mto_lvs_netlist" {
+        "id"          "PNR_0054"
         "script"      "check_file_exists.tcl"
         "description" "LVS netlist for physical verification"
         "criteria"    "file exists"
@@ -84,6 +93,7 @@ array set mandatory_checks {
         "report_file" "outputs/${design_name}.lvs.v"
     }
     "mto_vclp_netlist" {
+        "id"          "PNR_0055"
         "script"      "check_file_exists.tcl"
         "description" "VC-LP netlist for power verification"
         "criteria"    "file exists"
@@ -91,6 +101,7 @@ array set mandatory_checks {
         "report_file" "outputs/${design_name}.vc_lp.v"
     }
     "mto_dc_netlist" {
+        "id"          "PNR_0056"
         "script"      "check_file_exists.tcl"
         "description" "DC netlist"
         "criteria"    "file exists"
@@ -102,6 +113,7 @@ array set mandatory_checks {
 # ── Optional checks ──────────────────────────────────────────────────────────
 array set optional_checks {
     "mto_floorplan" {
+        "id"          "PNR_0057"
         "script"      "check_file_exists.tcl"
         "description" "Floorplan file for downstream blocks"
         "criteria"    "file exists"
@@ -109,6 +121,7 @@ array set optional_checks {
         "report_file" "outputs/${design_name}_floorplan"
     }
     "mto_wscript" {
+        "id"          "PNR_0058"
         "script"      "check_file_exists.tcl"
         "description" "Wavescope script"
         "criteria"    "file exists"
@@ -116,6 +129,7 @@ array set optional_checks {
         "report_file" "outputs/${design_name}_wscript"
     }
     "mto_wscript_pt" {
+        "id"          "PNR_0059"
         "script"      "check_file_exists.tcl"
         "description" "Wavescope script for PT"
         "criteria"    "file exists"
@@ -123,6 +137,7 @@ array set optional_checks {
         "report_file" "outputs/${design_name}_wscript_for_pt"
     }
     "mto_routing_constraints" {
+        "id"          "PNR_0060"
         "script"      "check_file_exists.tcl"
         "description" "Routing constraints for downstream"
         "criteria"    "file exists"
@@ -130,6 +145,7 @@ array set optional_checks {
         "report_file" "outputs/${design_name}_routing_constraints"
     }
     "mto_design_db_nlib" {
+        "id"          "PNR_0061"
         "script"      "check_file_exists.tcl"
         "description" "FC design database (.nlib)"
         "criteria"    "file exists"
@@ -137,6 +153,7 @@ array set optional_checks {
         "report_file" "outputs/${design_name}.nlib"
     }
     "mto_design_db_enc" {
+        "id"          "PNR_0062"
         "script"      "check_file_exists.tcl"
         "description" "Innovus design database (.enc)"
         "criteria"    "file exists"

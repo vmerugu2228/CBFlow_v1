@@ -6,6 +6,7 @@
 
 set milestone_info(name)        "CTS_EXIT"
 set milestone_info(discipline) "PD"
+set milestone_info(flow_type)   "PNR"
 set milestone_info(stage)       "cts_opt"
 set milestone_info(description) "Clock Tree Synthesis Exit - Design ready for Routing"
 set milestone_info(stage_node)  "cts_opt1"
@@ -23,6 +24,7 @@ array set check_packs {
 # ── Mandatory checks ─────────────────────────────────────────────────────────
 array set mandatory_checks {
     "cts_clock_qor" {
+        "id"          "PNR_0012"
         "script"      "check_clock_quality.tcl"
         "description" "Clock tree quality — skew, insertion delay"
         "criteria"    "clock_skew <= threshold"
@@ -30,6 +32,7 @@ array set mandatory_checks {
         "report_file" "work/SYNTH_PNR/cts1/reports/report_clock_qor.rpt"
     }
     "cts_opt_qor" {
+        "id"          "PNR_0013"
         "script"      "check_timing.tcl"
         "description" "Post-CTS optimization QoR"
         "criteria"    "report exists and parseable"
@@ -37,6 +40,7 @@ array set mandatory_checks {
         "report_file" "work/SYNTH_PNR/cts_opt1/reports/report_qor.rpt"
     }
     "cts_setup_timing" {
+        "id"          "PNR_0014"
         "script"      "check_timing.tcl"
         "description" "Post-CTS setup timing"
         "criteria"    "setup_wns >= threshold"
@@ -44,6 +48,7 @@ array set mandatory_checks {
         "report_file" "work/SYNTH_PNR/cts_opt1/reports/report_timing.max.rpt"
     }
     "cts_clock_timing" {
+        "id"          "PNR_0015"
         "script"      "check_clock_quality.tcl"
         "description" "Clock timing — setup slack on clock paths"
         "criteria"    "clock setup timing clean"
@@ -51,6 +56,7 @@ array set mandatory_checks {
         "report_file" "work/SYNTH_PNR/cts1/reports/report_clock_timing.setup.rpt"
     }
     "cts_hold_timing" {
+        "id"          "PNR_0016"
         "script"      "check_timing.tcl"
         "description" "Post-CTS hold timing"
         "criteria"    "hold_wns >= threshold"
@@ -62,6 +68,7 @@ array set mandatory_checks {
 # ── Optional checks ──────────────────────────────────────────────────────────
 array set optional_checks {
     "cts_power" {
+        "id"          "PNR_0017"
         "script"      "check_power.tcl"
         "description" "Clock power consumption"
         "criteria"    "clock_power <= budget"
@@ -69,6 +76,7 @@ array set optional_checks {
         "report_file" "work/SYNTH_PNR/cts_opt1/reports/report_power.rpt"
     }
     "cts_congestion" {
+        "id"          "PNR_0018"
         "script"      "check_congestion.tcl"
         "description" "Congestion impact from clock tree"
         "criteria"    "congestion <= threshold"
@@ -76,6 +84,7 @@ array set optional_checks {
         "report_file" "work/SYNTH_PNR/cts_opt1/reports/report_congestion.rpt"
     }
     "cts_vt_group" {
+        "id"          "PNR_0019"
         "script"      "check_file_exists.tcl"
         "description" "Threshold voltage group distribution"
         "criteria"    "file exists"
@@ -83,6 +92,7 @@ array set optional_checks {
         "report_file" "work/SYNTH_PNR/cts_opt1/reports/report_threshold_voltage_group.rpt"
     }
     "cts_legality" {
+        "id"          "PNR_0020"
         "script"      "check_legality.tcl"
         "description" "Post-CTS cell legality"
         "criteria"    "illegal_cells == 0"
@@ -90,6 +100,7 @@ array set optional_checks {
         "report_file" "work/SYNTH_PNR/cts_opt1/reports/check_legality.rpt"
     }
     "cts_constraint_check" {
+        "id"          "PNR_0021"
         "script"      "check_constraints.tcl"
         "description" "Constraint completeness after CTS"
         "criteria"    "constraint violations == 0"
