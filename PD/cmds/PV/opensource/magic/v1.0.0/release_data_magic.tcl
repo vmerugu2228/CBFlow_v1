@@ -27,7 +27,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/releas
 
 flow_proc publish {
     global design_name
-    set _dir [::CBFlow::Release::init $::FLOW_TYPE $design_name $::DIRS(run) [oss_get project release,phase]]
+    set _dir [::CBFlow::Release::init $::FLOW_TYPE $design_name $::DIRS(run) [cbflow_run_phase]]
     set _drcn [cbflow_dep_node drc]
     set _lvsn [cbflow_dep_node lvs]
     set _mrgn [cbflow_chain_node merge_data]

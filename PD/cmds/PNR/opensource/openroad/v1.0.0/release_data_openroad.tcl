@@ -48,7 +48,7 @@ proc release_handshake {flow input} {
 
 flow_proc publish {
     global design_name project
-    set _dir [::CBFlow::Release::init $::FLOW_TYPE $design_name $::DIRS(run) [oss_get project release,phase]]
+    set _dir [::CBFlow::Release::init $::FLOW_TYPE $design_name $::DIRS(run) [cbflow_run_phase]]
     set _so "[cbflow_node_dir [oss_chain_node signoff]]/outputs"
     set _pr "[cbflow_node_dir [oss_chain_node pro]]/outputs"
     ::CBFlow::Release::copy_file [oss_node_output [oss_chain_node export_data] final.gds] gds     ${design_name}.gds
@@ -87,7 +87,7 @@ flow_proc publish {
     # SmartGrid data of the exit this release fills: the exit node's metrics
     # and timing snapshot (node from pnr(checklist,exit_node,<exit>)) and the
     # routed-layout image.
-    set _ms [::CBFlow::Release::default_exit_tag $::FLOW_TYPE [oss_get project release,phase]]
+    set _ms [::CBFlow::Release::default_exit_tag $::FLOW_TYPE [cbflow_run_phase]]
     set _xn [oss_get pnr checklist,exit_node,$_ms]
     # metrics.rpt: the exit node's design-level metrics (its per-corner
     # '# scenario:' sections left out), then one '# stage: <node>' block per
@@ -129,7 +129,7 @@ flow_proc publish {
     # `cbflow run all` on the host after the run passes).
     # The phase's exit for this flow (project(phase_exits)), e.g. PNR in P0
     # -> PRO_EXIT; also the default release tag.
-    puts $_fh "milestone [::CBFlow::Release::default_exit_tag $::FLOW_TYPE [oss_get project release,phase]]"
+    puts $_fh "milestone [::CBFlow::Release::default_exit_tag $::FLOW_TYPE [cbflow_run_phase]]"
     close $_fh
     handle_info "Released $design_name -> $_dir"
 }

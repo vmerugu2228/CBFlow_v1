@@ -50,10 +50,9 @@ flow_proc init_release {
     set design_name [expr {[info exists emir(common,design_name)] ? $emir(common,design_name) : [expr {[info exists flow(design_name)] ? $flow(design_name) : "emir"}]}]
 
     # ── Determine release phase ──────────────────────────────────────────────
-    set release_phase ""   ;# from project(release,phase) below — no built-in phase
+    set release_phase [cbflow_run_phase]   ;# the run's phase
     if {[info exists project(release_phase)]} { set release_phase $project(release_phase) }
     if {[info exists emir(common,release_phase)]} { set release_phase $emir(common,release_phase) }
-    if {[info exists project(release,phase)] && $project(release,phase) ne ""} { set release_phase $project(release,phase) }
 
     # ── Initialize release using utilities ───────────────────────────────────
     if {[namespace exists ::CBFlow::Release]} {

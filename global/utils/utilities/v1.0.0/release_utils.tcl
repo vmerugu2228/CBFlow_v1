@@ -30,7 +30,7 @@ variable release_exit ""          ;# exit name when the tag defaulted to it
 #
 # Required:
 #   project(release,path)       — from project_config.tcl (e.g. /proj/phoenix/releases)
-#   project(release,phase)      — P0/P1/P2/P3 (or CBFLOW_RELEASE_PHASE env)
+#   release phase               — the run's phase (cbflow_run_phase)
 #   project(release,block_name) — block name (or derived from design_name)
 #   CBFLOW_RELEASE_TAG          — release tag (or CBFLOW_RELEASE_VERSION env)
 # ── Default release tag = the flow's exit for the phase ────────────────────
@@ -105,23 +105,13 @@ proc init {args_flow_type args_design_name args_run_dir args_phase} {
         set release_tag "test_release_tag"
         ::handle_info "test_mode: using placeholder release_tag=$release_tag"
     } else {
-        set _ph [expr {[info exists project(release,phase)] ? $project(release,phase) : $args_phase}]
-        set release_exit [default_exit_tag $flow_type $_ph]
+        set release_exit [default_exit_tag $flow_type [::cbflow_run_phase]]
         set release_tag $release_exit
         ::handle_info "release tag = exit name: $release_tag (project(release,tag) not set)"
     }
 
-    # ── Release phase (MANDATORY in real runs; defaults to args_phase in test) ─
-    if {[info exists project(release,phase)] && $project(release,phase) ne ""} {
-        set release_phase $project(release,phase)
-    } elseif {$_test_mode} {
-        # already set from args_phase above
-    } else {
-        error "ERROR: project(release,phase) must be set in project_config.tcl for release"
-    }
-    if {$release_phase eq ""} {
-        error "ERROR: release phase is empty — set project(release,phase) in the project config"
-    }
+    # ── Release phase: always the run's phase (CBFLOW_PROJECT_PHASE) ─────────
+    set release_phase [::cbflow_run_phase]
 
     # ── Block name (MANDATORY — from project_config or design_name) ──────────
     set block_name ""
@@ -226,7 +216,7 @@ proc validate_mandatory_files {} {
     # silently misread any project with a non-P0 phase scheme and shunted
     # unknown-flow releases into the wrong tree. Fail loud instead.
     if {![info exists release_phase] || $release_phase eq ""} {
-        error "release_utils::validate_mandatory_files: release_phase not set — call ::CBFlow::Release::init first (release_phase should come from project(release,phase) in the project config)"
+        error "release_utils::validate_mandatory_files: release_phase not set — call ::CBFlow::Release::init first (release_phase is the run's phase, cbflow_run_phase)"
     }
     if {![info exists flow_type] || $flow_type eq ""} {
         error "release_utils::validate_mandatory_files: flow_type not set — call ::CBFlow::Release::init first"
@@ -594,12 +584,12 @@ proc resolve {flow_array_name input_type upstream_flow subdir filename} {
         if {![info exists project(release,path)] || $project(release,path) eq ""} {
             error "ERROR: project(release,path) not set in project_config.tcl. Required to resolve release_tag '$tag'"
         }
-        if {![info exists project(release,phase)] || $project(release,phase) eq ""} {
-            error "ERROR: project(release,phase) not set in project_config.tcl. Required to resolve release_tag '$tag'"
+        if {[catch {::cbflow_run_phase}]} {
+            error "ERROR: the run's phase (CBFLOW_PROJECT_PHASE) is not set. Required to resolve release_tag '$tag'"
         }
 
         set release_base $project(release,path)
-        set phase $project(release,phase)
+        set phase [::cbflow_run_phase]
 
         # Block name: user_config per-input override > project_config > design_name
         set block ""
@@ -658,10 +648,10 @@ proc validate_release_tag {tag} {
     global project
 
     if {![info exists project(release,path)] || $project(release,path) eq ""} { return 0 }
-    if {![info exists project(release,phase)] || $project(release,phase) eq ""} { return 0 }
+    if {[catch {::cbflow_run_phase}]} { return 0 }
     if {![info exists project(release,block_name)] || $project(release,block_name) eq ""} { return 0 }
 
-    set release_dir "$project(release,path)/$project(release,phase)/$project(release,block_name)/$tag"
+    set release_dir "$project(release,path)/[::cbflow_run_phase]/$project(release,block_name)/$tag"
     set stamp "$release_dir/RELEASE_COMPLETE"
 
     if {[file exists $stamp]} {
@@ -686,10 +676,10 @@ proc list_release_files {tag {subdir ""}} {
     global project
 
     if {![info exists project(release,path)]} { return {} }
-    if {![info exists project(release,phase)]} { return {} }
+    if {[catch {::cbflow_run_phase}]} { return {} }
     if {![info exists project(release,block_name)]} { return {} }
 
-    set search_dir "$project(release,path)/$project(release,phase)/$project(release,block_name)/$tag"
+    set search_dir "$project(release,path)/[::cbflow_run_phase]/$project(release,block_name)/$tag"
     if {$subdir ne ""} { set search_dir "$search_dir/$subdir" }
 
     if {![file isdirectory $search_dir]} { return {} }

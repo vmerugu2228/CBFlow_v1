@@ -407,6 +407,18 @@ proc oss_sdc_file {} {
 }
 
 # Reload a stage's starting point: previous database + timing views + SDC.
+# Design-rule limits from overrides: <flow>(oss,drv,max_fanout), when set
+# (e.g. setup/override_config.PNR.tcl), becomes a design max-fanout
+# constraint — repair_design buffers to it and the stage metrics count
+# against it. Unset = no fanout constraint (the SDC / library limits only).
+proc oss_drv_limits {} {
+    set _k "[oss_flow_arr](oss,drv,max_fanout)"
+    if {[info exists ::$_k] && [set ::$_k] ne ""} {
+        set_max_fanout [set ::$_k] [current_design]
+        handle_info "max fanout [set ::$_k] ($_k)"
+    }
+}
+
 proc oss_load_stage {prev_node} {
     global design_name blocks
     set_thread_count [oss_get [oss_flow_arr] oss,threads]
@@ -415,6 +427,7 @@ proc oss_load_stage {prev_node} {
     oss_read_corners $::NODE_NAME $blocks
     read_db [oss_prev_odb $prev_node]
     read_sdc [oss_sdc_file]
+    oss_drv_limits
     set_dont_use [oss_trk dont_use_pnr]
     oss_set_wire_rc
 }

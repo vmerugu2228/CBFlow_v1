@@ -24,7 +24,7 @@ set ::flow::exec_mode "auto"
 
 flow_proc publish {
     global design_name
-    set _dir [::CBFlow::Release::init $::FLOW_TYPE $design_name $::DIRS(run) [oss_get project release,phase]]
+    set _dir [::CBFlow::Release::init $::FLOW_TYPE $design_name $::DIRS(run) [cbflow_run_phase]]
     set _c [oss_chain_node compare]
     set _rpt lec.rpt
     ::CBFlow::Release::copy_file "[cbflow_node_dir $_c]/outputs/$_rpt" reports/lec $_rpt

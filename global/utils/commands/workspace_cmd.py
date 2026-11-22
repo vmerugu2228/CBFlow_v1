@@ -793,7 +793,10 @@ def _validate_mandatory_inputs(user_config: dict, flow_type: str) -> list:
             # ── Validate release_tag: release directory + required files ──
             project_name = user_config.get('project(name)', '')
             design_name = user_config.get('flow(design_name)', '')
-            phase = user_config.get('project(phase)', '')
+            # the run's phase: project(phase) in user_config, else project(current_phase)
+            from core import registry
+            phase = user_config.get('project(phase)', '') or \
+                (registry.project_value(project_name, 'current_phase') or '')
             tag = list(release_tags.values())[0]
 
             # Resolve the release dir: <release,path>/<phase>/<design>/<FLOW>/<tag>
@@ -802,7 +805,10 @@ def _validate_mandatory_inputs(user_config: dict, flow_type: str) -> list:
             from core import registry
             try:
                 release_base = registry.require_project_value(project_name, 'release,path')
-                rel_phase = phase or registry.require_project_value(project_name, 'release,phase')
+                # the run's phase (project(phase) / project(current_phase))
+                rel_phase = phase
+                if not rel_phase:
+                    raise registry.RegistryError('run phase unresolved (project(phase) / project(current_phase))')
             except registry.RegistryError as e:
                 errors.append(str(e))
                 return errors

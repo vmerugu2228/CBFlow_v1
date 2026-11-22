@@ -48,7 +48,7 @@ proc release_handshake {flow input} {
 
 flow_proc publish {
     global design_name
-    set _dir [::CBFlow::Release::init $::FLOW_TYPE $design_name $::DIRS(run) [oss_get project release,phase]]
+    set _dir [::CBFlow::Release::init $::FLOW_TYPE $design_name $::DIRS(run) [cbflow_run_phase]]
     set _ex "[cbflow_node_dir [oss_chain_node export_data]]/outputs"
     # Floorplan DEF under the name PNR reads (handshake PNR,def_file)
     ::CBFlow::Release::copy_file "$_ex/final.def" {*}[release_handshake PNR def_file]
@@ -66,7 +66,7 @@ flow_proc publish {
     }
     # SmartGrid metrics of the exit: fp(checklist,report) of the exit node
     # (fp(checklist,exit_node,<exit>))
-    set _ms [::CBFlow::Release::default_exit_tag $::FLOW_TYPE [oss_get project release,phase]]
+    set _ms [::CBFlow::Release::default_exit_tag $::FLOW_TYPE [cbflow_run_phase]]
     set _xn [oss_get fp checklist,exit_node,$_ms]
     ::CBFlow::Release::copy_file "$::run_dir/[string map [list {${exit_node}} $_xn] [oss_get fp checklist,report]]" . metrics.rpt
     ::CBFlow::Release::generate_manifest
@@ -77,7 +77,7 @@ flow_proc publish {
     puts $_fh "level [hier_level $design_name]"
     # The phase's exit for this flow (project(phase_exits)), e.g. PNR in P0
     # -> PRO_EXIT; also the default release tag.
-    puts $_fh "milestone [::CBFlow::Release::default_exit_tag $::FLOW_TYPE [oss_get project release,phase]]"
+    puts $_fh "milestone [::CBFlow::Release::default_exit_tag $::FLOW_TYPE [cbflow_run_phase]]"
     close $_fh
     handle_info "Released floorplan $design_name -> $_dir"
 }

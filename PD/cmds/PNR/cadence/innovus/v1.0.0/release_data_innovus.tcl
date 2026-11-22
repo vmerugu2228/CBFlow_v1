@@ -43,9 +43,6 @@ flow_proc init_release {
         !([info exists flow(design_name)] && $flow(design_name) ne "")} {
         lappend missing_vars "design_name (pnr(common,design_name) or flow(design_name))"
     }
-    if {![info exists project(release,phase)] || $project(release,phase) eq ""} {
-        lappend missing_vars "project(release,phase) in the project config"
-    }
     if {![info exists ::env(FLOW_DIR)] || $::env(FLOW_DIR) eq ""} {
         lappend missing_vars "FLOW_DIR"
     }
@@ -58,7 +55,7 @@ flow_proc init_release {
     }
 
     set design_name [expr {[info exists pnr(common,design_name)] && $pnr(common,design_name) ne "" ? $pnr(common,design_name) : $flow(design_name)}]
-    set release_phase $project(release,phase)
+    set release_phase [cbflow_run_phase]   ;# the run's phase
 
     ::CBFlow::Release::init "PNR" $design_name $run_dir $release_phase
 

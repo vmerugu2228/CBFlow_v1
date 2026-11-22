@@ -59,7 +59,7 @@ namespace eval ::CBFlow::InputResolve {
     # handshake's source flow; ANY = the flow dir whose release holds rel_file.
     # Older layouts (<base>/<phase>/<design>/<tag>, <base>/<tag>) still resolve.
     proc _release_tag_dir {release_base tag design_name {src_flow ""} {rel_file ""}} {
-        set _ph [expr {[info exists ::project(release,phase)] ? $::project(release,phase) : ""}]
+        set _ph [cbflow_run_phase]
         if {$design_name ne "" && $_ph ne ""} {
             set _blk [file join $release_base $_ph $design_name]
             if {$src_flow ne "" && $src_flow ne "ANY"} {

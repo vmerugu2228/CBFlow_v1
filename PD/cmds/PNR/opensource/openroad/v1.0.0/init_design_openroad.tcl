@@ -36,6 +36,7 @@ flow_proc load_floorplan {
     handle_info "Floorplan: $_def"
     read_def $_def
     read_sdc [oss_sdc_file]
+    oss_drv_limits                   ;# pnr(oss,drv,max_fanout) from overrides
     set_dont_use [oss_trk dont_use_pnr]
 }
 

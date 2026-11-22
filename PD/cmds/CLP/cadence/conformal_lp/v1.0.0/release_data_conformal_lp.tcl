@@ -80,10 +80,9 @@ flow_proc init_release {
     }
 
     # ── Determine release phase ──────────────────────────────────────────────
-    set release_phase ""   ;# from project(release,phase) below — no built-in phase
+    set release_phase [cbflow_run_phase]   ;# the run's phase
     if {[info exists project(release_phase)]} { set release_phase $project(release_phase) }
     if {[info exists clp(common,release_phase)]} { set release_phase $clp(common,release_phase) }
-    if {[info exists project(release,phase)] && $project(release,phase) ne ""} { set release_phase $project(release,phase) }
 
     # ── Initialize release (single layout: <path>/<phase>/<block>/<FLOW>/<tag>) ─
     set ::release_dir [::CBFlow::Release::init "CLP" $design_name $run_dir $release_phase]

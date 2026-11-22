@@ -7,7 +7,7 @@
 cd "$(dirname "$0")"
 WA=$PWD
 C=$WA/../bin/cbflow
-export PHASE=P1 RUN=p1_b1 LIB_TAG=OSS1
+export PHASE=P1 RUN=p1_b1 PNR_MAX_FANOUT=${PNR_MAX_FANOUT:-10} LIB_TAG=OSS1
 LOG=$WA/build_p1_dl2.log
 SYN_TAG="${PHASE}_SYNTH_v1"
 
@@ -31,6 +31,11 @@ run_flow() {    # run_flow <block> <FLOW> <uc>  — non-zero on failure
     local fl; fl=$(echo "$f" | tr 'A-Z' 'a-z')
     say "$b $f: start"
     (cd "$WA/$b" && rm -rf "$rd" && $C workspace create --config "$uc") > "$WA/$b/${fl}_${PHASE}_create.log" 2>&1
+    # PNR design-rule limit through the run's overrides (override_config.PNR.tcl)
+    if [ "$f" = PNR ] && [ -n "$PNR_MAX_FANOUT" ] && [ -d "$WA/$b/$rd/setup" ]; then
+        printf '# CBflow override config for PNR (all nodes)\nset pnr(oss,drv,max_fanout) %s\n' \
+            "$PNR_MAX_FANOUT" > "$WA/$b/$rd/setup/override_config.PNR.tcl"
+    fi
     (cd "$WA/$b/$rd" && $C run all) > "$WA/$b/${fl}_${PHASE}.log" 2>&1
     if grep -q "result=PASS" "$WA/$b/${fl}_${PHASE}.log"; then
         say "$b $f: PASS"

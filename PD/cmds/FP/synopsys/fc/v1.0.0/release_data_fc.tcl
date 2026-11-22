@@ -65,10 +65,9 @@ flow_proc prepare_release {
     }
 
     # ── Determine release phase ──────────────────────────────────────────────
-    set release_phase ""   ;# from project(release,phase) below — no built-in phase
+    set release_phase [cbflow_run_phase]   ;# the run's phase
     if {[info exists project(release_phase)]} { set release_phase $project(release_phase) }
     if {[info exists fp(common,release_phase)]} { set release_phase $fp(common,release_phase) }
-    if {[info exists project(release,phase)] && $project(release,phase) ne ""} { set release_phase $project(release,phase) }
 
     # ── Initialize release using utilities ───────────────────────────────────
     if {[namespace exists ::CBFlow::Release]} {

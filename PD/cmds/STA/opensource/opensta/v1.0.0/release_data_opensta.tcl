@@ -32,7 +32,7 @@ proc sta_fmt3 {v} { if {[string is double -strict $v]} { return [format %.3f $v]
 
 flow_proc publish {
     global design_name
-    set _dir [::CBFlow::Release::init $::FLOW_TYPE $design_name $::DIRS(run) [oss_get project release,phase]]
+    set _dir [::CBFlow::Release::init $::FLOW_TYPE $design_name $::DIRS(run) [cbflow_run_phase]]
     set _m "[cbflow_node_dir [oss_chain_node merge_reports]]/outputs"
     ::CBFlow::Release::copy_file "$_m/sta_summary.rpt" reports/sta sta_summary.rpt
     set _tnode [oss_chain_node timing]

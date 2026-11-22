@@ -60,10 +60,9 @@ flow_proc setup_release_dirs {
     set design_name [expr {[info exists sta(common,design_name)] ? $sta(common,design_name) : [expr {[info exists flow(design_name)] ? $flow(design_name) : "sta"}]}]
 
     # ── Determine release phase ──────────────────────────────────────────────
-    set release_phase ""   ;# from project(release,phase) below — no built-in phase
+    set release_phase [cbflow_run_phase]   ;# the run's phase
     if {[info exists project(release_phase)]} { set release_phase $project(release_phase) }
     if {[info exists sta(common,release_phase)]} { set release_phase $sta(common,release_phase) }
-    if {[info exists project(release,phase)] && $project(release,phase) ne ""} { set release_phase $project(release,phase) }
 
     # ── Initialize release using utilities ───────────────────────────────────
     if {[namespace exists ::CBFlow::Release]} {

@@ -1194,6 +1194,16 @@ proc cbflow_fmt_slack {value} {
     return [format "%.[cbflow_require flow report,slack_digits]f" $value]
 }
 
+# The run's phase (P0 / P1 / ...): CBFLOW_PROJECT_PHASE from the run env
+# (workspace create: project(phase) in user_config, else
+# project(current_phase)). Releases and release-tag inputs use it.
+proc cbflow_run_phase {} {
+    if {![info exists ::env(CBFLOW_PROJECT_PHASE)] || $::env(CBFLOW_PROJECT_PHASE) eq ""} {
+        error "CBFLOW_PROJECT_PHASE is not set (run env .run.cbflow.tcl) — cannot place the release"
+    }
+    return $::env(CBFLOW_PROJECT_PHASE)
+}
+
 proc cbflow_node_name {} {
     if {![info exists ::env(CBFLOW_NODE_NAME)] || $::env(CBFLOW_NODE_NAME) eq ""} {
         error "CBFLOW_NODE_NAME is not set — command files are launched by the RACE engine, which exports the node name"
