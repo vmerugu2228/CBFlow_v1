@@ -28,6 +28,7 @@ import state_paths
 import tracker_db
 import floorplan
 import releases
+import schedule_config
 
 logger = logging.getLogger('cbflow.project_dashboard.router')
 
@@ -66,6 +67,39 @@ def make_handler(project):
                     f'HTTP 500 on {self.path!r}: {type(e).__name__}: {e}',
                     exc_info=True)
                 self._send(500, 'text/plain', f'internal error: {e}')
+
+        def do_POST(self):
+            try:
+                self._route_post()
+            except Exception as e:
+                logger.error(f'HTTP 500 on POST {self.path!r}: {type(e).__name__}: {e}',
+                             exc_info=True)
+                self._send(500, 'application/json',
+                           json.dumps({'ok': False, 'errors': [f'internal error: {e}']}))
+
+        def _route_post(self):
+            """Only POST: /api/project/<self>/schedule — save schedule edits.
+            Accepted from loopback clients, same-origin, JSON body only."""
+            path = self.path.split('?', 1)[0]
+            if path != f'/api/project/{project}/schedule':
+                return self._send(404, 'text/plain', 'not found')
+            if self.client_address[0] not in ('127.0.0.1', '::1'):
+                return self._send(403, 'text/plain', 'schedule edits are local-only')
+            origin = self.headers.get('Origin')
+            if origin and origin.split('://', 1)[-1] != self.headers.get('Host', ''):
+                return self._send(403, 'text/plain', 'cross-origin request refused')
+            if not (self.headers.get('Content-Type') or '').startswith('application/json'):
+                return self._send(415, 'text/plain', 'expected application/json')
+            n = int(self.headers.get('Content-Length') or 0)
+            if n <= 0 or n > 256 * 1024:
+                return self._send(400, 'text/plain', 'bad body size')
+            try:
+                values = (json.loads(self.rfile.read(n)) or {}).get('values') or {}
+            except ValueError:
+                return self._send(400, 'text/plain', 'bad json')
+            ok, errors = _save_schedule(project, values)
+            self._send(200 if ok else 400, 'application/json',
+                       json.dumps({'ok': ok, 'errors': errors}))
 
         def _route(self):
             from urllib.parse import unquote, parse_qs, quote
@@ -943,6 +977,30 @@ _STYLE = """
   .ph-body { padding:4px 18px 20px; }
   .ph-body .tt-box + .tt-cap { margin-top:24px; }
   .sched-wrap .sched-note { margin-top:24px; }
+  .sched-bar { display:flex; align-items:center; gap:18px; flex-wrap:wrap;
+               padding:12px 16px; margin-bottom:20px; border:1px solid var(--border);
+               border-radius:8px; background: var(--panel); }
+  .sched-src { flex:1; min-width:280px; color: var(--muted); font-size:12px; }
+  .sched-anchor { font-weight:600; font-variant-numeric: tabular-nums; }
+  .sched-btns { display:flex; gap:8px; }
+  .btn { font: inherit; font-size:12px; font-weight:700; padding:6px 14px;
+         border-radius:6px; border:1px solid var(--border); background: var(--panel);
+         color: var(--text); cursor:pointer; }
+  .btn:hover { border-color: var(--accent); }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color:#fff; }
+  #sch-save, #sch-cancel { display:none; }
+  body.editing #sch-save, body.editing #sch-cancel { display:inline-block; }
+  body.editing #sch-edit { display:none; }
+  input.ed-num { width:56px; }
+  input.ed { display:none; font: inherit; font-size:12px; padding:3px 6px;
+             border:1px solid var(--border); border-radius:4px; }
+  body.editing input.ed { display:inline-block; }
+  body.editing td .v, body.editing .sched-anchor .v { display:none; }
+  body.editing table.tt tr.tt-next td { background: inherit !important; }
+  .sched-err { color:#b91c1c; font-size:12px; margin:-10px 0 16px; }
+  .sched-err div { padding:2px 0; }
+  .sched-warn { color:#92400e; background:#fffbeb; border-left:3px solid #d97706;
+                font-size:12px; padding:6px 10px; margin:-8px 0 12px; border-radius:3px; }
 
   /* Release status (/releases detail page + Tier 2 tile) */
   .pbar { position:relative; height:6px; border-radius:3px; background:#eef0f4;
@@ -952,36 +1010,14 @@ _STYLE = """
   .sg-tile-rel { --tile-accent: #0d9488; }
   .sg-tile-rel .sg-tile-badge { background:#0d9488; font-size:16px; }
   .sg-tile-rel .pbar { width:120px; margin:8px auto 0; }
-  .rel-phase { margin:0 20px 18px; border:1px solid var(--border);
-               border-radius:6px; background: var(--panel); }
-  .rel-phase-h { display:flex; align-items:center; gap:14px; flex-wrap:wrap;
-                 padding:10px 14px; border-bottom:1px solid var(--border);
-                 background: var(--header); border-radius:6px 6px 0 0; }
-  .rel-phase-h .ph { font-weight:800; font-size:15px; }
-  .rel-phase-h .cur { font-size:10px; font-weight:800; letter-spacing:.05em;
-                      padding:2px 7px; border-radius:3px; background: var(--accent);
-                      color:#fff; text-transform:uppercase; }
-  .rel-kpi { font-size:12px; color: var(--muted); }
-  .rel-kpi b { color: var(--text); font-size:14px; margin-left:4px;
-               font-variant-numeric: tabular-nums; }
-  .rel-phase-empty { padding:10px 14px; color: var(--muted); font-size:12px; }
-  .rel-levels { display:flex; gap:12px; flex-wrap:wrap; padding:12px 14px 4px; }
-  .rel-level { border:1px solid var(--border); border-radius:6px;
-               padding:8px 12px; min-width:150px; }
-  .rel-level .lv { font-size:10px; font-weight:800; letter-spacing:.05em;
-                   color: var(--muted); }
-  .rel-level .lvv { font-size:13px; margin:2px 0 6px; }
-  table.rel { border-collapse:collapse; font-size:12px; margin:8px 14px 14px; }
-  table.rel th, table.rel td { padding:6px 10px; border-bottom:1px solid var(--border);
-                               text-align:center; white-space:nowrap; }
-  table.rel th { background: var(--header); font-size:11px; font-weight:700;
-                 color: var(--muted); letter-spacing:.03em; }
-  table.rel td.blk, table.rel th.blk { text-align:left; }
-  table.rel td.num { font-variant-numeric: tabular-nums; }
-  .lvl-tag { font-size:9px; font-weight:800; letter-spacing:.05em;
-             color: var(--muted); margin-left:6px; }
-  .rc { display:inline-block; min-width:40px; padding:2px 6px; border-radius:3px;
-        font-size:11px; font-weight:700; }
+  .pbar-w { width:140px; }
+  .rel-empty { padding:16px 0 4px; color: var(--muted); }
+  .rel-split { display:grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+               gap:24px; }
+  table.tt.tt-narrow { min-width:0; }
+  table.tt th.c, table.tt td.c { text-align:center; }
+  .rc { display:inline-block; min-width:44px; padding:3px 8px; border-radius:10px;
+        font-size:11px; font-weight:800; text-align:center; }
   .rc.ok   { background:#ecfdf5; color:#047857; }
   .rc.warn { background:#fff7ed; color:#b45309; }
   .rc.none { color:#cbd5e1; font-weight:400; }
@@ -3595,69 +3631,122 @@ def _render_releases_card(project, stats):
 
 
 def _render_releases_detail(project, stats):
-    """Per-phase release status: blocks released, completeness, per-level
-    rollup, and the block x flow matrix in hierarchy order."""
+    """Per-phase release status, styled like the schedule page: phase
+    overview, then per phase a level rollup and the block x flow matrix in
+    hierarchy order."""
+    def pbar(pct, color):
+        return (f'<div class="pbar pbar-w"><span style="width:{pct}%;'
+                f'background:{color}"></span></div>')
+
     body = []
     if not stats:
-        body.append('<div class="rel-phase-empty" style="padding:20px">'
-                    'No release area: set <code>project(release,path)</code> and '
-                    '<code>project(design_hierarchy)</code> in the project config.'
-                    '</div>')
+        body.append('<div class="sched-note">No release area: set '
+                    '<code>project(release,path)</code> and '
+                    '<code>project(design_hierarchy)</code> in the project config.</div>')
     else:
         flows = stats['expected_flows']
         hier = stats['hierarchy']
-        for ph in stats['phases']:
+        depth = {b: d for b, d in stats['tree_order']}
+        levels = [lv['level'] for lv in (stats['phases'][0]['by_level']
+                                         if stats['phases'] else [])]
+        # ── Phase overview
+        ov = []
+        for i, ph in enumerate(stats['phases']):
+            color, tint = _PHASE_COLORS[i % len(_PHASE_COLORS)]
             is_cur = ph['phase'] == stats['current_phase']
-            head = (f'<div class="rel-phase-h"><span class="ph">{html.escape(ph["phase"])}</span>'
-                    + ('<span class="cur">current</span>' if is_cur else '')
-                    + f'<span class="rel-kpi">Blocks released<b>{ph["released_blocks"]}/{ph["total_blocks"]}</b></span>'
-                    f'<span class="rel-kpi">Completeness<b>{ph["pct"]}%</b></span>'
-                    f'<span class="rel-kpi">Tags<b>{ph["tags"]}</b></span>'
-                    f'<div class="pbar" style="width:160px"><span style="width:{ph["pct"]}%"></span></div>'
-                    '</div>')
+            st, lbl = (('next', 'Current') if is_cur else
+                       (('past', 'Released') if ph['tags'] else ('future', 'Not started')))
+            lv_cells = ''.join(f'<td class="num">{lv["pct"]}%</td>' for lv in ph['by_level'])
+            ov.append(
+                f'<tr style="--ph:{color};--ph-bg:{tint}">'
+                f'<td><span class="ph-chip">{html.escape(ph["phase"])}</span></td>'
+                f'<td><span class="tt-status st-{st}">{lbl}</span></td>'
+                f'<td class="num">{ph["released_blocks"]}/{ph["total_blocks"]}</td>'
+                f'<td class="num"><b>{ph["pct"]}%</b></td>'
+                f'<td>{pbar(ph["pct"], color)}</td>'
+                f'{lv_cells}<td class="num">{ph["tags"]}</td></tr>')
+        lv_ths = ''.join(f'<th>{html.escape(lv)}</th>' for lv in levels)
+        body.append(
+            '<div class="tt-cap tt-cap-lg">Phase overview</div>'
+            '<div class="tt-box"><table class="tt"><thead><tr>'
+            '<th>Phase</th><th>Status</th><th>Blocks released</th>'
+            f'<th>Completeness</th><th>Progress</th>{lv_ths}<th>Tags</th>'
+            '</tr></thead><tbody>' + ''.join(ov) + '</tbody></table></div>')
+        # ── Per phase cards
+        for i, ph in enumerate(stats['phases']):
+            color, tint = _PHASE_COLORS[i % len(_PHASE_COLORS)]
+            is_cur = ph['phase'] == stats['current_phase']
+            head = (f'<div class="ph-head"><span class="ph-chip">{html.escape(ph["phase"])}</span>'
+                    f'<span class="ph-dates">{ph["released_blocks"]}/{ph["total_blocks"]} blocks · '
+                    f'{ph["pct"]}% complete · {ph["tags"]} tags</span>'
+                    + ('<span class="ph-now">current</span>' if is_cur else '') + '</div>')
             if not ph['tags']:
-                body.append(f'<div class="rel-phase">{head}'
-                            '<div class="rel-phase-empty">No releases in this phase yet.</div></div>')
+                body.append(
+                    f'<div class="ph-card" style="--ph:{color};--ph-bg:{tint}">{head}'
+                    '<div class="ph-body"><div class="rel-empty">No releases in this '
+                    'phase yet.</div></div></div>')
                 continue
-            levels = ''.join(
-                f'<div class="rel-level"><div class="lv">{html.escape(lv["level"])}</div>'
-                f'<div class="lvv">{lv["released"]}/{lv["blocks"]} blocks · <b>{lv["pct"]}%</b></div>'
-                f'<div class="pbar"><span style="width:{lv["pct"]}%"></span></div></div>'
+            lv_rows = ''.join(
+                f'<tr><td><span class="lvl-pill">{html.escape(lv["level"])}</span></td>'
+                f'<td class="num">{lv["blocks"]}</td><td class="num">{lv["released"]}</td>'
+                f'<td class="num"><b>{lv["pct"]}%</b></td><td>{pbar(lv["pct"], color)}</td></tr>'
                 for lv in ph['by_level'])
-            ths = ''.join(f'<th>{html.escape(f)}</th>' for f in flows)
+            fc_rows = ''.join(
+                f'<tr><td class="tt-ms">{html.escape(fc["flow"])}</td>'
+                f'<td class="num">{fc["released"]}/{ph["total_blocks"]}</td>'
+                f'<td>{pbar(round(100.0 * fc["released"] / ph["total_blocks"]) if ph["total_blocks"] else 0, color)}</td></tr>'
+                for fc in ph['flow_coverage'])
+            rollup = (
+                '<div class="rel-split">'
+                '<div><div class="tt-cap">By hierarchy level</div>'
+                '<div class="tt-box"><table class="tt tt-narrow"><thead><tr>'
+                '<th>Level</th><th>Blocks</th><th>Released</th><th>Complete</th>'
+                '<th>Progress</th></tr></thead><tbody>' + lv_rows + '</tbody></table></div></div>'
+                '<div><div class="tt-cap">By flow</div>'
+                '<div class="tt-box"><table class="tt tt-narrow"><thead><tr>'
+                '<th>Flow</th><th>Blocks</th><th>Progress</th></tr></thead><tbody>'
+                + fc_rows + '</tbody></table></div></div></div>')
+            ths = ''.join(f'<th class="c">{html.escape(f)}</th>' for f in flows)
             trs = []
-            for blk, depth in stats['tree_order']:
+            for blk, _ in stats['tree_order']:
                 b = ph['blocks'][blk]
                 cells = []
                 for f in flows:
                     r = b['flows'].get(f)
                     if not r:
-                        cells.append('<td><span class="rc none">—</span></td>')
+                        cells.append('<td class="c"><span class="rc none">—</span></td>')
                         continue
                     ver = r['tag'].rsplit('_', 1)[-1]
                     tip = html.escape(f"{r['tag']} · {r['timestamp']} · {r['versions']} version(s)"
                                       + ('' if r['complete'] else ' · no RELEASE_COMPLETE'),
                                       quote=True)
-                    cls = 'ok' if r['complete'] else 'warn'
-                    mark = '' if r['complete'] else ' ⚠'
-                    cells.append(f'<td><span class="rc {cls}" title="{tip}">'
+                    cls, mark = ('ok', '') if r['complete'] else ('warn', ' ⚠')
+                    cells.append(f'<td class="c"><span class="rc {cls}" title="{tip}">'
                                  f'{html.escape(ver)}{mark}</span></td>')
                 extra = ', '.join(f"{x} {b['flows'][x]['tag'].rsplit('_', 1)[-1]}"
                                   for x in b['extra']) or '—'
-                pad = 14 * depth
+                d = depth.get(blk, 0)
                 trs.append(
-                    f'<tr><td class="blk" style="padding-left:{10 + pad}px">'
-                    f'{"└ " if depth else ""}<b>{html.escape(blk)}</b>'
-                    f'<span class="lvl-tag">{html.escape(hier[blk]["level"])}</span></td>'
+                    f'<tr class="{"tt-anchor" if d == 0 else ""}">'
+                    f'<td class="tt-ms" style="padding-left:{14 + 14 * d}px">'
+                    f'{"└ " if d else ""}{html.escape(blk)}</td>'
+                    f'<td><span class="lvl-pill">{html.escape(hier[blk]["level"])}</span></td>'
                     + ''.join(cells)
                     + f'<td class="muted">{html.escape(extra)}</td>'
-                    f'<td class="num">{b["pct"]}%</td>'
+                    f'<td class="num"><b>{b["pct"]}%</b></td>'
+                    f'<td>{pbar(b["subtree_pct"], color)}</td>'
                     f'<td class="num">{b["subtree_pct"]}%</td></tr>')
+            matrix = (
+                '<div class="tt-cap">Block × flow <span class="muted">— latest release per '
+                'flow; ⚠ = release without RELEASE_COMPLETE</span></div>'
+                '<div class="tt-box"><table class="tt"><thead><tr>'
+                f'<th>Block</th><th>Level</th>{ths}<th>Other</th><th>Block</th>'
+                '<th>Subtree progress</th><th>Subtree</th></tr></thead><tbody>'
+                + ''.join(trs) + '</tbody></table></div>')
             body.append(
-                f'<div class="rel-phase">{head}<div class="rel-levels">{levels}</div>'
-                '<table class="rel"><thead><tr><th class="blk">Block</th>'
-                f'{ths}<th>Other</th><th>Block</th><th>Subtree</th></tr></thead>'
-                f'<tbody>{"".join(trs)}</tbody></table></div>')
+                f'<div class="ph-card{" ph-cur" if is_cur else ""}" '
+                f'style="--ph:{color};--ph-bg:{tint}">{head}'
+                f'<div class="ph-body">{rollup}{matrix}</div></div>')
     rel_path = (stats or {}).get('release_path') or ''
     flows_s = ', '.join((stats or {}).get('expected_flows') or []) or '—'
     return ''.join([
@@ -3670,13 +3759,14 @@ def _render_releases_detail(project, stats):
         _render_detail_chrome(project, 'Releases'),
         '<section class="detail-top">',
         f'  <h1 class="detail-h1">Releases · {html.escape(project)}</h1>',
-        f'  <div class="detail-sub">Expected per block each phase: {html.escape(flows_s)} · '
-        f'release area <code>{html.escape(rel_path)}</code> · completeness = released '
-        '(block, flow) pairs ÷ expected; Subtree includes the block and all its children.</div>',
+        f'  <div class="detail-sub">Expected per block each phase: <b>{html.escape(flows_s)}</b> · '
+        f'release area <code>{html.escape(rel_path)}</code></div>',
+        '  <div class="detail-sub" style="margin-top:4px">Completeness = released '
+        '(block, flow) pairs ÷ expected; Subtree = the block and all its children.</div>',
         '</section>',
-        '<section class="detail-section" style="padding-top:16px">',
+        '<div class="sched-wrap">',
         *body,
-        '</section>',
+        '</div>',
         '</body></html>',
     ])
 
@@ -3840,89 +3930,55 @@ _PHASE_COLORS = (('#4f46e5', '#eef2ff'), ('#0d9488', '#f0fdfa'),
 
 
 def _phase_schedule(project, entry, info):
-    """Phase x exit schedule.
-
-    Phases come from project(phases) (or master_projects.json `phases`).
-    Each phase gets an equal slice of project_start_date → tapeout_date and
-    its exits (FP_EXIT … MTO) are evenly spaced inside it, MTO closing the
-    phase; the last phase's MTO is the tapeout. Explicit dates win:
-    master_projects.json `phase_targets` {phase: {exit: date}}; legacy flat
-    `milestone_targets` {exit: date} applies to the last phase.
-    Returns {start, tapeout, estimated, phases: [{phase, start, end,
-    exits: {exit: date}, est: {exit: bool}, color, tint}]} (dates are
-    datetime.date or None).
-    """
-    from datetime import date as _d, timedelta
-
-    def _p(iso):
-        try:
-            return _d.fromisoformat((iso or '')[:10])
-        except ValueError:
-            return None
-    start = _p(entry.get('project_start_date'))
-    tapeout = _p(entry.get('tapeout_date') or (info or {}).get('tapeout_date'))
+    """Phase x exit schedule from schedule_config.tcl (the source of the
+    schedule page). Without that file the dates are derived
+    (schedule_config.derive) from master_projects.json
+    project_start_date / tapeout_date and flagged estimated; saving from
+    the page writes them to schedule_config.tcl.
+    Returns {start, tapeout, estimated, source, path, data, exits,
+    phases: [{phase, start, end, exits, est, color, tint}], stats}."""
     stats = releases.release_stats(project, [])
-    phases = [] if not stats else [p['phase'] for p in stats['phases']]
-    phases = phases or list(entry.get('phases') or []) or ['P0']
-    explicit = dict(entry.get('phase_targets') or {})
-    if entry.get('milestone_targets') and phases[-1] not in explicit:
-        explicit[phases[-1]] = entry['milestone_targets']
-    n = len(phases)
-    span = (tapeout - start).days if start and tapeout and tapeout > start else 0
-    out, estimated = [], False
-    for i, ph in enumerate(phases):
-        p_start = start + timedelta(days=round(span * i / n)) if span else None
-        p_end = start + timedelta(days=round(span * (i + 1) / n)) if span else None
-        exits, est = {}, {}
-        for j, m in enumerate(_MILESTONES):
-            d = _p((explicit.get(ph) or {}).get(m))
-            if d:
-                exits[m], est[m] = d, False
-            elif span:
-                exits[m] = p_start + timedelta(
-                    days=round((p_end - p_start).days * (j + 1) / len(_MILESTONES)))
-                est[m] = True
-                estimated = True
-            else:
-                exits[m], est[m] = None, False
-        dates = [d for d in exits.values() if d]
+    hier = (stats or {}).get('hierarchy') or {}
+    cfg = schedule_config.load(project)
+    if cfg:
+        data, source = cfg, 'config'
+    else:
+        source = 'derived'
+        s0 = schedule_config.parse_date(entry.get('project_start_date'))
+        t0 = schedule_config.parse_date(entry.get('tapeout_date')
+                                        or (info or {}).get('tapeout_date'))
+        phases = ([p['phase'] for p in stats['phases']] if stats else []) \
+            or list(entry.get('phases') or []) or ['P0']
+        data = (schedule_config.derive(s0, t0, phases, _MILESTONES)
+                if s0 and t0 and t0 > s0 else
+                {'phases': phases, 'exits': list(_MILESTONES)})
+    exits = list(data.get('exits') or _MILESTONES)
+    out = []
+    for i, ph in enumerate(data.get('phases') or []):
+        ex = {m: schedule_config.parse_date(data.get(f'{ph},{m}')) for m in exits}
+        dates = [d for d in ex.values() if d]
         color, tint = _PHASE_COLORS[i % len(_PHASE_COLORS)]
-        out.append({'phase': ph, 'start': p_start or (min(dates) if dates else None),
-                    'end': exits.get('MTO') or p_end, 'exits': exits, 'est': est,
+        prev_end = out[-1]['end'] if out else schedule_config.parse_date(data.get('start_date'))
+        out.append({'phase': ph, 'start': prev_end or (min(dates) if dates else None),
+                    'end': ex.get(exits[-1]) if exits else None, 'exits': ex,
+                    'est': {m: source == 'derived' for m in exits},
                     'color': color, 'tint': tint})
-    return {'start': start, 'tapeout': tapeout, 'estimated': estimated,
+    return {'start': schedule_config.parse_date(data.get('start_date')),
+            'tapeout': schedule_config.parse_date(data.get('tapeout_date')),
+            'estimated': source == 'derived', 'source': source,
+            'path': schedule_config.path(project), 'data': data, 'exits': exits,
             'phases': out, 'stats': stats}
 
 
-def _block_dates(ph, hier, depths, overrides):
-    """Bottom-up block dates inside one phase: the top block keeps the
-    phase exit dates; a block k levels down is due at
-    phase_start + (exit - phase_start) * (1 - k/(levels+1)).
-    overrides = `milestone_targets_by_block` {block: {phase: {exit: date}}}."""
-    from datetime import date as _d, timedelta
-    levels = (max(depths.values()) + 1) if depths else 1
-    out = {}
-    for b, k in depths.items():
-        frac = 1.0 - k / (levels + 1.0)
-        row = {}
-        for m in _MILESTONES:
-            ov = (((overrides or {}).get(b) or {}).get(ph['phase']) or {}).get(m)
-            if ov:
-                try:
-                    row[m] = (_d.fromisoformat(ov[:10]), False)
-                    continue
-                except ValueError:
-                    pass
-            t = ph['exits'].get(m)
-            if t is None:
-                row[m] = (None, False)
-            elif k == 0 or ph['start'] is None:
-                row[m] = (t, ph['est'].get(m, False))
-            else:
-                row[m] = (ph['start'] + timedelta(days=round((t - ph['start']).days * frac)),
-                          True)
-        out[b] = row
-    return out
+def _block_dates(ph, hier, depths, data, exits):
+    """Auto-populated block dates for one phase: each hierarchy level
+    releases schedule(block_lead_days) before its parent — the top block
+    is due on the phase exit."""
+    lead = schedule_config.lead_days(data)
+    return {b: {m: (schedule_config.block_date(ph['exits'].get(m), k, lead),
+                    ph['est'].get(m, False))
+                for m in exits}
+            for b, k in depths.items()}
 
 
 def _hier_depths(hier):
@@ -3961,6 +4017,14 @@ def _render_phase_schedule(project, entry, info, published_rows):
     from datetime import date as _d
     today = _d.today()
     sched = _phase_schedule(project, entry, info)
+    exits = sched['exits']
+
+    def ed(key, d):
+        """Date cell content: value (view) + date input (edit mode)."""
+        v = d.isoformat() if d else ''
+        return (f'<span class="v">{html.escape(v or "—")}</span>'
+                f'<input class="ed" type="date" data-key="{html.escape(key, quote=True)}" '
+                f'value="{html.escape(v, quote=True)}">')
     stats = sched['stats'] or {}
     hier = stats.get('hierarchy') or {}
     depths = _hier_depths(hier)
@@ -3988,7 +4052,7 @@ def _render_phase_schedule(project, entry, info, published_rows):
         else:
             st, lbl = 'future', 'Upcoming'
         n_pub_mto = len(pub.get((ph['phase'], 'MTO'), ()))
-        exits_pub = sum(1 for m in _MILESTONES if pub.get((ph['phase'], m)))
+        exits_pub = sum(1 for m in exits if pub.get((ph['phase'], m)))
         ov.append(
             f'<tr style="--ph:{ph["color"]};--ph-bg:{ph["tint"]}">'
             f'<td><span class="ph-chip">{html.escape(ph["phase"])}</span></td>'
@@ -3996,7 +4060,7 @@ def _render_phase_schedule(project, entry, info, published_rows):
             f'<td class="num">{html.escape(s1.isoformat() if s1 else "—")}</td>'
             f'<td class="num">{(s1 - s0).days if s0 and s1 else "—"}</td>'
             f'<td><span class="tt-status st-{st}">{lbl}</span></td>'
-            f'<td class="num">{exits_pub}/{len(_MILESTONES)}</td>'
+            f'<td class="num">{exits_pub}/{len(exits)}</td>'
             f'<td class="num">{n_pub_mto}/{n_blocks}</td>'
             f'<td>{_bar(sched, s0, s1, ph["color"])}</td></tr>')
     overview = (
@@ -4012,7 +4076,7 @@ def _render_phase_schedule(project, entry, info, published_rows):
     cards = []
     for ph in sched['phases']:
         rows, prev = [], ph['start']
-        for i, m in enumerate(_MILESTONES):
+        for i, m in enumerate(exits):
             d = ph['exits'][m]
             st, lbl = _status(d, today, nxt == (ph['phase'], m))
             left = '—' if d is None else (f'{(d - today).days}' if d >= today
@@ -4021,7 +4085,7 @@ def _render_phase_schedule(project, entry, info, published_rows):
             rows.append(
                 f'<tr class="{"tt-next" if st == "next" else ""}">'
                 f'<td class="num">{i + 1}</td><td class="tt-ms">{html.escape(m)}</td>'
-                f'<td class="num">{html.escape(d.isoformat() if d else "—")}{est_mark(ph["est"][m])}</td>'
+                f'<td class="num">{ed(ph["phase"] + "," + m, d)}{est_mark(ph["est"][m])}</td>'
                 f'<td>{html.escape(d.strftime("%a") if d else "")}</td>'
                 f'<td class="num">{(d - prev).days if d and prev else "—"}</td>'
                 f'<td class="num">{html.escape(left)}</td>'
@@ -4037,13 +4101,12 @@ def _render_phase_schedule(project, entry, info, published_rows):
             '</tr></thead><tbody>' + ''.join(rows) + '</tbody></table></div>')
         blk_tbl = ''
         if hier:
-            bd = _block_dates(ph, hier, depths,
-                              entry.get('milestone_targets_by_block') or {})
-            ths = ''.join(f'<th>{html.escape(m)}</th>' for m in _MILESTONES)
+            bd = _block_dates(ph, hier, depths, sched['data'], exits)
+            ths = ''.join(f'<th>{html.escape(m)}</th>' for m in exits)
             brs = []
             for b in order:
                 cells = []
-                for m in _MILESTONES:
+                for m in exits:
                     d, e = bd[b][m]
                     if b in pub.get((ph['phase'], m), ()):
                         badge = ' <span class="tt-status st-past">Done</span>'
@@ -4062,8 +4125,8 @@ def _render_phase_schedule(project, entry, info, published_rows):
                     f'<td><span class="lvl-pill">{html.escape(hier[b].get("level") or "")}</span></td>'
                     f'<td class="muted">{html.escape(role)}</td>' + ''.join(cells) + '</tr>')
             blk_tbl = (
-                '<div class="tt-cap">Block schedule <span class="muted">— leaf blocks '
-                'deliver first; each parent integrates after its children</span></div>'
+                f'<div class="tt-cap">Block schedule <span class="muted">— auto: each level '
+                f'releases {schedule_config.lead_days(sched["data"])} days before its parent</span></div>'
                 '<div class="tt-box"><table class="tt"><thead><tr>'
                 f'<th>Block</th><th>Level</th><th>Delivery</th>{ths}'
                 '</tr></thead><tbody>' + ''.join(brs) + '</tbody></table></div>')
@@ -4077,18 +4140,96 @@ def _render_phase_schedule(project, entry, info, published_rows):
             f'{html.escape(s1.isoformat() if s1 else "—")}</span>'
             + ('<span class="ph-now">current</span>' if cur else '') +
             f'</div><div class="ph-body">{exits_tbl}{blk_tbl}</div></div>')
-    note = ''
-    if sched['estimated']:
-        note = ('<div class="sched-note">* derived dates: phases split project start → '
-                'tapeout evenly, exits spaced evenly inside each phase (MTO closes the '
-                'phase); a block <i>k</i> levels below the top is due at phase start + '
-                '(exit − phase start) × (1 − <i>k</i>/(levels+1)). Commit real dates in '
-                '<code>master_projects.json</code>: <code>phase_targets</code> '
-                '{phase: {exit: date}} and <code>milestone_targets_by_block</code> '
-                '{block: {phase: {exit: date}}}.</div>')
-    return ('<div class="sched-wrap">'
+    rel = os.path.relpath(sched['path'], schedule_config._ROOT)
+    if sched['source'] == 'config':
+        src = (f'Source: <code>{html.escape(rel)}</code>')
+    else:
+        src = (f'<b>Not configured</b> — dates below (<sup class="est">*</sup>) are derived '
+               f'from project start → tapeout. Edit and Save to create '
+               f'<code>{html.escape(rel)}</code>.')
+    s0, t0 = sched['start'], sched['tapeout']
+    toolbar = (
+        '<div class="sched-bar">'
+        f'<div class="sched-src">{src}</div>'
+        '<div class="sched-anchor">Start '
+        f'{ed("start_date", s0)} · Tapeout {ed("tapeout_date", t0)} · Block lead '
+        f'<span class="v">{schedule_config.lead_days(sched["data"])}</span>'
+        f'<input class="ed ed-num" type="number" min="0" max="60" data-key="block_lead_days" '
+        f'value="{schedule_config.lead_days(sched["data"])}"> days</div>'
+        '<div class="sched-btns">'
+        '<button type="button" class="btn" id="sch-edit">Edit schedule</button>'
+        '<button type="button" class="btn btn-primary" id="sch-save">Save</button>'
+        '<button type="button" class="btn" id="sch-cancel">Cancel</button>'
+        '</div></div>'
+        '<div class="sched-err" id="sch-err"></div>'
+        + ''.join(f'<div class="sched-warn">⚠ {html.escape(w)}</div>'
+                  for w in schedule_config.warnings(sched['data'], hier)))
+    return ('<div class="sched-wrap">' + toolbar +
             '<div class="tt-cap tt-cap-lg">Phase overview</div>' + overview
-            + ''.join(cards) + note + '</div>'), sched
+            + ''.join(cards) + '</div>'), sched
+
+
+def _schedule_edit_script(project):
+    """Edit mode: toggle date inputs, POST every value to
+    /api/project/<p>/schedule, show validation errors or reload."""
+    url = f'/api/project/{html.escape(project, quote=True)}/schedule'
+    return ("""<script>
+document.addEventListener('DOMContentLoaded', function () {
+  var b = document.body, err = document.getElementById('sch-err');
+  function q(id) { return document.getElementById(id); }
+  q('sch-edit').onclick = function () { b.classList.add('editing'); };
+  q('sch-cancel').onclick = function () { location.reload(); };
+  q('sch-save').onclick = function () {
+    var vals = {};
+    document.querySelectorAll('input.ed').forEach(function (i) {
+      if (i.value) vals[i.dataset.key] = i.value; });
+    err.textContent = ''; q('sch-save').disabled = true;
+    fetch('""" + url + """', {method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({values: vals})})
+    .then(function (r) { return r.json(); })
+    .then(function (j) {
+      q('sch-save').disabled = false;
+      if (j.ok) { location.reload(); return; }
+      err.innerHTML = (j.errors || ['save failed']).map(function (e) {
+        var d = document.createElement('div'); d.textContent = e; return d.outerHTML;
+      }).join('');
+    }).catch(function (e) { q('sch-save').disabled = false; err.textContent = String(e); });
+  };
+});
+</script>""")
+
+
+def _save_schedule(project, values):
+    """Merge posted {key: YYYY-MM-DD} into the schedule (config, or the
+    derived seed when no config exists yet), validate, write
+    schedule_config.tcl. Returns (ok, errors)."""
+    db = state_paths.tracker_db(project)
+    info = tracker_db.get_project_info(db, project) or {}
+    sched = _phase_schedule(project, _load_project_entry(project), info)
+    hier = (sched['stats'] or {}).get('hierarchy') or {}
+    data = dict(sched['data'])
+    phases, exits = data.get('phases') or [], data.get('exits') or []
+    errors = []
+    if not isinstance(values, dict):
+        return False, ['values must be an object']
+    for k, v in values.items():
+        if not (isinstance(k, str) and isinstance(v, str)):
+            errors.append(f'bad entry {k!r}')
+        elif not schedule_config.allowed_key(k, phases, exits):
+            errors.append(f'unknown schedule key {k!r}')
+        elif k == 'block_lead_days':
+            data[k] = v.strip()
+        elif schedule_config.parse_date(v) is None:
+            errors.append(f'{k}: {v!r} is not a YYYY-MM-DD date')
+        else:
+            data[k] = v[:10]
+    errors += schedule_config.validate(data, hier)
+    if errors:
+        return False, errors
+    import getpass
+    schedule_config.save(project, data, user=getpass.getuser())
+    return True, []
 
 
 def _render_schedule_detail(project, info, published_rows=None):
@@ -4108,6 +4249,7 @@ def _render_schedule_detail(project, info, published_rows=None):
         _SCRIPT_RELOAD_ON_FOCUS,
         '</head><body>',
         _render_detail_chrome(project, 'Schedule'),
+        _schedule_edit_script(project),
         '<section class="detail-top">',
         f'  <h1 class="detail-h1">Schedule · {html.escape(project)}</h1>',
         f'  <div class="detail-sub">Tapeout {html.escape(tapeout_str)} · '
