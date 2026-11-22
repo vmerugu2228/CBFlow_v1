@@ -503,6 +503,16 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
             if {[info exists project(lib_config_tag)] && $project(lib_config_tag) ne ""} {
                 set _lib_tag $project(lib_config_tag)
             }
+            # The run's user_config wins (cascade: user_config is the last
+            # writer) — e.g. a P1 run on a newer block-library tag while the
+            # project default still names the P0 tag.
+            set _ucf "$run_dir/setup/user_config.tcl"
+            if {[file exists $_ucf]} {
+                set _fh [open $_ucf]; set _uc [read $_fh]; close $_fh
+                foreach {_ _t} [regexp -all -inline -line {^\s*set\s+project\(lib_config_tag\)\s+"?([^"\s]+)"?} $_uc] {
+                    set _lib_tag $_t
+                }
+            }
 
             # Resolve lib_tag_root: env > project(lib_tag_root) > tech(lib_tag_root).
             # Any candidate that resolves inside the framework tree is

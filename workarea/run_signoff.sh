@@ -41,6 +41,8 @@ mk() {
     fi
     echo "set project(phase)             \"$PHASE\"" >> "$dst"
     echo "set project(release,phase)     \"$PHASE\"" >> "$dst"
+    # children (block library) from LIB_TAG when given; else project(lib_config_tag)
+    [ -n "$LIB_TAG" ] && echo "set project(lib_config_tag)    \"$LIB_TAG\"" >> "$dst"
     echo "$dst"
 }
 
