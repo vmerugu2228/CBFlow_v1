@@ -53,6 +53,10 @@ flow_proc publish {
     foreach {_src _in} {final.v netlist final.sdc sdc final.upf upf_file} {
         ::CBFlow::Release::copy_file "$_ex/$_src" {*}[release_handshake PNR $_in]
     }
+    # DFT scan-shift SDC (scan mode) beside the functional one
+    if {[file exists "$_ex/final.scan.sdc"]} {
+        ::CBFlow::Release::copy_file "$_ex/final.scan.sdc" sdc ${design_name}.scan.sdc
+    }
     ::CBFlow::Release::copy_glob "[cbflow_node_dir [oss_chain_node synthesis]]/reports/*.rpt" reports
     ::CBFlow::Release::generate_manifest
     ::CBFlow::Release::stamp_complete

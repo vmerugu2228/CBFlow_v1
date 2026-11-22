@@ -11,6 +11,14 @@
 set project(name)            "opensky"
 set project(phases)          {P0 P1 P2 P3}
 set project(current_phase)   "P0"
+
+# ── DFT (scan) — SYNTH inserts scan chains when enabled (OpenROAD DFT in the
+# open-source flow). A block / run turns it off with project(dft,enable) false
+# in its user_config or override_config.tcl.
+set project(dft,enable)              true
+set project(dft,max_chain_length)    100       ;# scan flops per chain
+set project(dft,clock_mixing)        no_mix    ;# no_mix | clock_mix
+set project(dft,scan_enable_pattern) scan_enable_*   ;# ports DFT adds (SDC case analysis)
 # Exits each phase delivers (order from MILESTONE_ORDER in PD release_config.tcl).
 # Drives the schedule, the SmartGrid publish order and the default release tag
 # (release tag = exit name unless project(release,tag) is set).

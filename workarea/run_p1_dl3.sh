@@ -65,12 +65,12 @@ block() {
         's|^set pnr(input,def_file_release_tag) .*|set pnr(input,def_file_release_tag) "FP_EXIT"|'
     run_flow "$b" PNR "uc_PNR_openroad_${PHASE}.tcl" || return 1
     publish "$b" "${PHASE}_run_PNR_${b}_${RUN}"
-    "$WA/run_signoff.sh" "$b" PRO_EXIT
+    "$WA/run_signoff.sh" "$b" PRO_EXIT &           # signoff in the background
 }
 
 : > "$LOG"
 say "start: $PHASE DL3 blocks ($RUN)"
-block gcd || say "gcd: chain stopped" &
-block mac_array || say "mac_array: chain stopped" &
+# blocks from the command line (default: every DL3 block)
+for b in ${@:-gcd mac_array}; do ( block "$b" || say "$b: chain stopped" ) & done
 wait
 say "$PHASE DL3 done"

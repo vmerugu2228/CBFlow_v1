@@ -34,6 +34,7 @@ array set synth {
 array set synth {
     oss,synth,flatten       true
     oss,synth,abc_delay_ps  0
+    oss,dft,openroad_cmd    {openroad -exit -no_init}
     runtime,timeout,synthesis1 120
 }
 

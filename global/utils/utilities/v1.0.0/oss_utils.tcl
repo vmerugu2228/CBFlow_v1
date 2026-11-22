@@ -566,6 +566,18 @@ proc oss_fp_place_macros {blocks} {
 # IO pins + well taps / endcaps. Writes io_placement.rpt.
 proc oss_fp_pins_taps {} {
     set _arr [oss_flow_arr]
+    # <flow>(oss,pins,region): edge region for every signal pin (e.g. top:*
+    # — a macro's pins facing its parent's logic); "" = all edges
+    if {![info exists ::${_arr}(oss,pins,region)]} { error "${_arr}(oss,pins,region) is not set" }
+    set _rg [set ::${_arr}(oss,pins,region)]
+    if {$_rg ne ""} {
+        set _names {}
+        foreach _bt [[ord::get_db_block] getBTerms] {
+            if {[$_bt getSigType] ni {POWER GROUND}} { lappend _names [$_bt getName] }
+        }
+        set_io_pin_constraint -pin_names $_names -region $_rg
+        handle_info "IO pins: [llength $_names] signal pins on $_rg"
+    }
     place_pins -hor_layers [oss_get $_arr oss,pins,hor_layer] \
                -ver_layers [oss_get $_arr oss,pins,ver_layer]
     set _halo [oss_get $_arr oss,macro,halo]

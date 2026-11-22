@@ -38,6 +38,13 @@ flow_proc export {
     if {$_sdc eq ""} { error "SDC not staged in $::SDC_DIR (expected ${design_name}.[lindex $_modes 0].sdc or ${design_name}.sdc)" }
     set _upf "$::UPF_DIR/${design_name}.upf"
     if {![file exists $_upf]} { error "UPF not staged: $_upf" }
+    # DFT: the synthesis node wrote the functional SDC (scan enable held 0)
+    # and the scan-shift SDC next to the scan netlist
+    set _sn "[cbflow_node_dir [oss_chain_node synthesis]]/outputs"
+    if {[is_true [oss_get project dft,enable]]} {
+        set _sdc "$_sn/synthesis.func.sdc"
+        file copy -force "$_sn/synthesis.scan.sdc" [oss_stage_out final.scan.sdc]
+    }
     foreach {_src _dst} [list $_sdc final.sdc $_upf final.upf] {
         # staged inputs are symlinks — copy the content
         while {[file type $_src] eq "link"} { set _src [file normalize [file join [file dirname $_src] [file readlink $_src]]] }
