@@ -64,6 +64,25 @@ flow_proc merge {
         }
         close $_fh
     }
+    # Checklist report (STA_SIGNOFF checks): worst / total over all
+    # scenarios, one "Key : value" line per check (STA_opensta_config map).
+    set _ts 0.0; set _th 0.0; set _tran 0; set _cap 0; set _fan 0; set _fail 0; set _pw ""
+    foreach _q [lsort [glob -nocomplain "[cbflow_node_dir $_tnode]/*/reports/[oss_get sta oss,scenario_qor_file]"]] {
+        array unset qor
+        source $_q
+        if {$qor(tns_setup) < $_ts} { set _ts $qor(tns_setup) }
+        if {$qor(tns_hold) < $_th} { set _th $qor(tns_hold) }
+        incr _tran $qor(max_tran_violations); incr _cap $qor(max_cap_violations); incr _fan $qor(max_fanout_violations)
+        if {$qor(wns_setup) < [oss_get sta signoff,min_setup_wns] || $qor(wns_hold) < [oss_get sta signoff,min_hold_wns]} { incr _fail }
+        if {[info exists qor(power_total)] && ($_pw eq "" || $qor(power_total) > $_pw)} { set _pw $qor(power_total) }
+    }
+    set _C [list "Scenarios timed : [llength $_rows]" "Failing scenarios : $_fail" \
+                 "Worst setup WNS : [cbflow_fmt_slack $_ws]" "Worst setup TNS : [cbflow_fmt_slack $_ts]" \
+                 "Worst hold WNS : [cbflow_fmt_slack $_wh]" "Worst hold TNS : [cbflow_fmt_slack $_th]" \
+                 "Tran violations : $_tran" "Cap violations : $_cap" "Fanout violations : $_fan" \
+                 "Noise : N/A"]
+    if {$_pw ne ""} { lappend _C "Total power mW : [format %.4g [expr {$_pw * 1e3}]]" }
+    set _fh [open [oss_stage_out sta_checklist.rpt] w]; puts $_fh [join $_C \n]; close $_fh
     handle_info "STA: worst setup WNS $_ws, worst hold WNS $_wh over [llength $_rows] scenarios"
 }
 

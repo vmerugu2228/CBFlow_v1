@@ -2531,8 +2531,20 @@ def _publish_to_project_dashboard(project, block, phase, milestone, release_dir,
     # Every published release carries the milestone's complete checklist:
     # evaluate it on each published run now (status from the run's data,
     # NA where a check has no data) so SmartGrid snapshots checklist_results.
-    # A signoff run (attach_to) carries its own verdict instead.
-    if not attach_to:
+    # A signoff run (attach_to) is checked against its flow's own checklist,
+    # <FLOW>_SIGNOFF (global/config/exit/<ver>/<FLOW>_SIGNOFF_config.tcl),
+    # when the flow declares one; its verdict stays the release Status.
+    checklist_milestone = milestone
+    if attach_to:
+        checklist_milestone = f'{flow}_SIGNOFF'
+        _exit_cfg = os.path.join(registry.root(), 'global', 'config', 'exit',
+                                 registry.config_version('FLOW_CONFIG_VERSION'),
+                                 f'{checklist_milestone}_config.tcl')
+        if os.path.isfile(_exit_cfg):
+            _run_milestone_checklist(workspace, runs, checklist_milestone)
+        else:
+            checklist_milestone = ''
+    else:
         _run_milestone_checklist(workspace, runs, milestone)
 
     published_by = os.environ.get('USER', 'unknown')
@@ -2545,7 +2557,7 @@ def _publish_to_project_dashboard(project, block, phase, milestone, release_dir,
             release_dir=release_dir, workspace=workspace,
             runs=runs, milestone_stage_map=milestone_stage_map,
             published_by=published_by, override=override,
-            flow=flow, attach_to=attach_to)
+            flow=flow, attach_to=attach_to, checklist_milestone=checklist_milestone)
         reply = _pd_client.publish(project, payload, start_daemon=strict)
     except Exception as e:
         _problem(f"  Publish failed: {e}")

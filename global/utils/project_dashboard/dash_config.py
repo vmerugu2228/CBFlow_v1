@@ -120,11 +120,11 @@ def expected_flows(project):
 
 # ─── Flow registry ──────────────────────────────────────────────────────────
 
-_SLACK_RE = re.compile(r'\b(WNS|TNS)\b|slack', re.I)
+_SLACK_RE = re.compile(r'(\b|_)(WNS|TNS)\b', re.I)
 
 
 def fmt_slack(name, value):
-    """WNS / TNS (any metric whose name says so) with flow(report,slack_digits)
+    """WNS / TNS (a metric / check whose name or description names WNS or TNS) with flow(report,slack_digits)
     decimals; other metrics and non-numeric values unchanged."""
     if value is None or not _SLACK_RE.search(name or ''):
         return value

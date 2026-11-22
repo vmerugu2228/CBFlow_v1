@@ -42,6 +42,16 @@ switch $subnode_name {
         if {[catch {handler_setup $run_dir $::flow_type $node_name} _rc] || $_rc != 0} {
             puts stderr "ERROR: $stage_name setup failed: $_rc"; exit 1
         }
+        # A node pass starts clean: drop scenario dirs of the previous pass
+        # (a dir holding run/<scenario>.tcl), so merge_reports / release see
+        # exactly the scenarios this pass runs — added or removed in the GUI.
+        foreach _d [glob -nocomplain -type d "$run_dir/work/$::flow_type/$node_name/*"] {
+            set _sc [file tail $_d]
+            if {[file exists "$_d/run/${_sc}.tcl"]} {
+                file delete -force $_d
+                puts "INFO: cleared previous-pass scenario $_sc"
+            }
+        }
     }
     "validate" { handler_validate $run_dir $::flow_type $node_name $stage_name $test_mode }
     "finish"   { handler_finish   $run_dir $::flow_type $node_name $stage_name }

@@ -28,7 +28,7 @@ import dash_config
 
 def build_payload(project, block, phase, milestone, release_dir, workspace,
                   runs, milestone_stage_map, published_by, override=False,
-                  flow='', attach_to=''):
+                  flow='', attach_to='', checklist_milestone=None):
     """Assemble the publish payload from workspace runs + on-disk release.
 
     Args:
@@ -44,7 +44,9 @@ def build_payload(project, block, phase, milestone, release_dir, workspace,
       override          bool — allow replacing existing cell
       flow              flow whose release this is (cell identity)
       attach_to         signoff run (STA / PV / LEC …): the exit it verified;
-                        verdict from its metrics.rpt Status, no exit checklist
+                        verdict from its metrics.rpt Status
+      checklist_milestone  checklist to snapshot (default: milestone; a
+                        signoff run's <FLOW>_SIGNOFF; '' = none)
     """
     payload = {
         'op': 'publish',
@@ -77,13 +79,14 @@ def build_payload(project, block, phase, milestone, release_dir, workspace,
     payload['project_info'] = _read_project_info(project)
     payload['block_info'] = _read_block_info(project, block)
 
+    _ckm = milestone if checklist_milestone is None else checklist_milestone
     metrics, checklist, verdict, closability = _read_run_snapshot(
-        race_db_path, milestone)
+        race_db_path, _ckm)
     payload['metrics'] = metrics
     payload['checklist'] = checklist
     payload['verdict'] = verdict
     payload['closability_pct'] = closability
-    if attach_to:
+    if attach_to and not _ckm:
         payload['checklist'], payload['closability_pct'] = [], None
 
     # Discipline tag: the discipline owning the cell's flow

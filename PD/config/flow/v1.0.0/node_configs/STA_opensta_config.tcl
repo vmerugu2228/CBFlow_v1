@@ -64,7 +64,7 @@ array set sta {
 # outputs/ (the dynamic handlers fail any corner / scenario that produces none).
 set sta(mandatory_outputs,extraction1)    {}
 set sta(mandatory_outputs,timing1)        {}
-set sta(mandatory_outputs,merge_reports1) {sta_summary.rpt sta_summary.tcl}
+set sta(mandatory_outputs,merge_reports1) {sta_summary.rpt sta_summary.tcl sta_checklist.rpt}
 set sta(mandatory_outputs,release_data1)  {release.manifest}
 
 # ┌─ Signoff verdict (release metrics.rpt Status; SmartGrid Signoff tab) ──────┐
@@ -79,4 +79,24 @@ array set sta {
 # release lands at <phase>/<block>/STA/<exit> beside the PNR release.
 array set sta {
     release,exit_from   "input,release_tag"
+}
+
+# ┌─ Checklist (STA_SIGNOFF — global/config/exit/v1.0.0/STA_SIGNOFF_config.tcl)
+# Each check reads one "Key : value" line of merge_reports' sta_checklist.rpt
+# (worst / total over every timed scenario).
+array set sta {
+    checklist,exit_node,STA_SIGNOFF        merge_reports1
+    checklist,report                       "work/STA/${exit_node}/outputs/sta_checklist.rpt"
+    checklist,mandatory_files,STA_SIGNOFF  "work/STA/${exit_node}/outputs/sta_summary.rpt work/STA/${exit_node}/outputs/sta_checklist.rpt"
+    checklist,metric,sta_scenarios         {^Scenarios timed\s*:\s*(\d+)}
+    checklist,metric,sta_failing_scenarios {^Failing scenarios\s*:\s*(\d+)}
+    checklist,metric,sta_setup_wns         {^Worst setup WNS\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)}
+    checklist,metric,sta_setup_tns         {^Worst setup TNS\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)}
+    checklist,metric,sta_hold_wns          {^Worst hold WNS\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)}
+    checklist,metric,sta_hold_tns          {^Worst hold TNS\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)}
+    checklist,metric,sta_max_tran          {^Tran violations\s*:\s*(\d+)}
+    checklist,metric,sta_max_cap           {^Cap violations\s*:\s*(\d+)}
+    checklist,metric,sta_max_fanout        {^Fanout violations\s*:\s*(\d+)}
+    checklist,metric,sta_noise             {^Noise\s*:\s*(-?[0-9.]+)}
+    checklist,metric,sta_total_power       {^Total power mW\s*:\s*([0-9.eE+-]+)}
 }
