@@ -56,8 +56,9 @@ def _project_workarea_path(pd_dir, project_name):
 
 def _resolve_run_dir(workarea_path, design_name, phase, flow_type, run_name):
     """Mirror start_run.create_run naming convention."""
+    from start_run import compose_run_dir_name
     return os.path.join(os.path.abspath(workarea_path), design_name,
-                        f'{phase}_run_{flow_type}_{run_name}')
+                        compose_run_dir_name(phase, flow_type, design_name, run_name))
 
 
 def prepare_sandbox(flow, repo_root, pd_dir, workarea_test, vendor=None,

@@ -753,6 +753,18 @@ def _initialize_race_db(run_dir: str, flow_type: str, env: Dict[str, str]) -> Tu
         return False, f"race DB init failed: {type(e).__name__}: {e}"
 
 
+def compose_run_dir_name(phase: str, flow_type: str, block: str, run_name: str) -> str:
+    """<phase>_run_<FLOW>_<block>_<run_name> — the block (flow(design_name))
+    keeps same-named runs of different blocks apart in the dashboard. The
+    block is omitted when unset, not a plain name, or already leading the
+    run_name; `<phase>_run_<FLOW>_` stays the run-dir shape tools match on."""
+    import re as _re_blk
+    if (block and _re_blk.match(r'^[A-Za-z0-9_.-]+$', block)
+            and run_name != block and not run_name.startswith(block + '_')):
+        run_name = f"{block}_{run_name}"
+    return f"{phase}_run_{flow_type}_{run_name}"
+
+
 # ── Main Entry Point ─────────────────────────────────────────────────────────
 
 def create_run(config_file: str, env_vars: Dict[str, str],
@@ -809,7 +821,9 @@ def create_run(config_file: str, env_vars: Dict[str, str],
             return False, ''
 
     # Step 5: Build run directory name
-    run_dir_name = f"{phase}_run_{flow_type}_{run_name}"
+    run_dir_name = compose_run_dir_name(phase, flow_type,
+                                        user_config.get('flow(design_name)', ''),
+                                        run_name)
 
     # Step 6: Handle existing directory
     if os.path.exists(run_dir_name):

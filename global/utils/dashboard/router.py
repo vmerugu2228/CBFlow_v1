@@ -998,7 +998,7 @@ def _render_index(runs, discipline='PD', project=''):
             _r['run_dir_exists']  = False
 
     rows_html = _render_run_rows(runs) or (
-        '<tr><td colspan="6" class="empty">'
+        '<tr><td colspan="7" class="empty">'
         'No runs registered. Add one above to get started.'
         '</td></tr>'
     )
@@ -1241,6 +1241,8 @@ def _render_index(runs, discipline='PD', project=''):
   .dir {{ font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 12px;
           color: var(--muted); word-break: break-all; }}
 
+  .block-cell {{ font-weight: 600; white-space: nowrap; }}
+
   .ts {{ font-size: 12px; color: var(--muted); white-space: nowrap; }}
 
   .toast {{ position: fixed; right: 20px; bottom: 20px; background: var(--text);
@@ -1344,7 +1346,7 @@ def _render_index(runs, discipline='PD', project=''):
     </div>
     <table class="runs">
       <thead>
-        <tr><th>Run</th><th>Flow</th><th>Current Status</th><th>Runtime</th><th>Run directory</th>
+        <tr><th>Run</th><th>Block</th><th>Flow</th><th>Current Status</th><th>Runtime</th><th>Run directory</th>
             <th></th></tr>
       </thead>
       <tbody id="runs-tbody">
@@ -1546,6 +1548,7 @@ def _render_index(runs, discipline='PD', project=''):
       <td>
         <a class="runlink" href="${{linkHref}}">${{name}}</a>${{deletedPill}}
       </td>
+      <td class="block-cell">${{r.design || '—'}}</td>
       <td>${{flowBadge(r.flow_type || '?')}}</td>
       <td class="status-cell">${{statusChip(r.current_node, r.current_status)}}</td>
       <td class="rt-cell">${{runtimeCellHtml(r)}}</td>
@@ -1592,7 +1595,7 @@ def _render_index(runs, discipline='PD', project=''):
       const runs = await fetch('/api/runs').then(r => r.json());
       const tbody = document.getElementById('runs-tbody');
       if (!runs.length) {{
-        tbody.innerHTML = '<tr><td colspan="6" class="empty">No runs registered. Add one above to get started.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="empty">No runs registered. Add one above to get started.</td></tr>';
       }} else {{
         tbody.innerHTML = runs.map(renderRow).join('');
       }}
@@ -2045,6 +2048,7 @@ def _render_run_rows(runs):
             f'data-runtime="{runtime_attr_html}" '
             f'data-search="{search_html}">'
             f'<td><a class="runlink" href="/run/{rid_html}/">{name_html}</a></td>'
+            f'<td class="block-cell">{design or "—"}</td>'
             f'<td><span class="flow-badge" style="background:{color}">{flow_html}</span></td>'
             f'<td class="status-cell">{chip_html} {node_html}</td>'
             f'<td class="rt-cell">{runtime_html}</td>'
