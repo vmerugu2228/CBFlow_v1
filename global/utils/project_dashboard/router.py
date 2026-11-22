@@ -5741,7 +5741,9 @@ def _render_detail(project, info, d):
     return ''.join(parts)
 
 
-_GROUP_COL_RE = re.compile(r'^(Setup|Hold) (\S+) (WNS|TNS)$')
+_GROUP_COL_RE = re.compile(r'^(Setup|Hold) (\S+) (WNS|TNS|NVP)$')
+_TRIPLE_RE = re.compile(r'^(.*?)(WNS|TNS|NVP)$')
+_TRIPLE = ('WNS', 'TNS', 'NVP')
 
 
 def _metric_cell(name, v):
@@ -5752,81 +5754,125 @@ def _metric_cell(name, v):
     try:
         f = float(v)
         bad = (f < 0 if ('WNS' in name or 'TNS' in name or 'slack' in name.lower()) else
-               f > 0 if 'violation' in name.lower() else False)
+               f > 0 if ('violation' in name.lower() or name.endswith('NVP')) else False)
     except ValueError:
         pass
     style = ' style="color:#b91c1c;font-weight:700"' if bad else ''
     return f'<td class="num mono"{style}>{html.escape(v) if v else "—"}</td>'
 
 
+def _triple_cell(names, get):
+    """One "WNS / TNS / NVP" cell from up to three metrics (names in
+    WNS, TNS, NVP order; missing parts shown as —); red when WNS < 0 or
+    NVP > 0."""
+    parts, bad = [], False
+    for n in names:
+        v = get(n) if n else None
+        v = '' if v is None else str(dash_config.fmt_slack(n, v))
+        try:
+            f = float(v)
+            bad = bad or (f < 0 if not n.endswith('NVP') else f > 0)
+        except ValueError:
+            pass
+        parts.append(v or '—')
+    style = ' style="color:#b91c1c;font-weight:700"' if bad else ''
+    text = parts[0] if len(set(parts)) == 1 and parts[0] in ('N/A', '—') else ' / '.join(parts)
+    return f'<td class="num mono"{style}>{html.escape(text)}</td>'
+
+
+def _columns(names):
+    """Plain metric names -> [(label, [names])]: "<prefix>WNS/TNS/NVP" sets
+    collapse into one column "<prefix>WNS / TNS / NVP" (first-seen order)."""
+    out, seen = [], {}
+    for n in names:
+        m = _TRIPLE_RE.match(n)
+        if m and m.group(1).strip():
+            pre = m.group(1)
+            if pre not in seen:
+                seen[pre] = len(out)
+                out.append((f'{pre}WNS / TNS / NVP', [None, None, None]))
+            out[seen[pre]][1][_TRIPLE.index(m.group(2))] = n
+        else:
+            out.append((n, [n]))
+    return out
+
+
+def _render_cols(cols, get):
+    return ''.join(_triple_cell(ns, get) if len(ns) == 3 else _metric_cell(ns[0], get(ns[0]))
+                   for _, ns in cols)
+
+
 def _scenario_table(rows, with_stage=False):
     """One row per scenario (corner) — or per (stage, corner) — one column
-    per metric. "<Setup|Hold> <group> <WNS|TNS>" columns get a three-row
-    header (check / path group / WNS-TNS); other metrics span it."""
-    keys, plain, grouped, val = [], [], [], {}
+    per metric. "<Setup|Hold> <group> <WNS|TNS|NVP>" metrics become one
+    "WNS / TNS / NVP" cell per check x path group under a check / group
+    header; other WNS/TNS/NVP sets collapse the same way."""
+    keys, plain, val = [], [], {}
+    checks, groups = [], {}
     for m in rows:
         k = (m.get('stage') or '', m['scenario']) if with_stage else ('', m['scenario'])
         n = m.get('name') or ''
         if k not in keys:
             keys.append(k)
         g = _GROUP_COL_RE.match(n)
-        if g and n not in grouped:
-            grouped.append(n)
-        elif not g and n not in plain:
+        if g:
+            c, grp, _ = g.groups()
+            if c not in checks:
+                checks.append(c)
+            groups.setdefault(c, [])
+            if grp not in groups[c]:
+                groups[c].append(grp)
+        elif n not in plain:
             plain.append(n)
         val[(k, n)] = m.get('value')
-    # grouped columns ordered check -> group -> WNS/TNS (first-seen order)
-    checks, groups = [], {}
-    for n in grouped:
-        c, g, _ = _GROUP_COL_RE.match(n).groups()
-        if c not in checks:
-            checks.append(c)
-        groups.setdefault(c, [])
-        if g not in groups[c]:
-            groups[c].append(g)
-    gcols = [f'{c} {g} {w}' for c in checks for g in groups[c] for w in ('WNS', 'TNS')]
-    nrow = 3 if gcols else 1
+    cols = _columns(plain)
+    nrow = 3 if checks else 1
     lead = (['Stage'] if with_stage else []) + ['Corner' if with_stage else 'Scenario']
     h1 = ''.join(f'<th rowspan="{nrow}" style="text-align:left">{x}</th>' for x in lead)
-    h1 += ''.join(f'<th colspan="{2 * len(groups[c])}" style="text-align:center;border-left:2px solid #c7d2fe">{c}</th>'
+    h1 += ''.join(f'<th colspan="{len(groups[c])}" style="text-align:center;border-left:2px solid #c7d2fe">{c}</th>'
                   for c in checks)
-    h1 += ''.join(f'<th rowspan="{nrow}">{html.escape(c)}</th>' for c in plain)
-    h2 = ''.join(f'<th colspan="2" style="text-align:center">{html.escape(g)}</th>'
+    h1 += ''.join(f'<th rowspan="{nrow}">{html.escape(lbl)}</th>' for lbl, _ in cols)
+    h2 = ''.join(f'<th style="text-align:center">{html.escape(g)}</th>' for c in checks for g in groups[c])
+    h3 = ''.join('<th style="text-align:center;font-weight:500">WNS / TNS / NVP</th>'
                  for c in checks for g in groups[c])
-    h3 = ''.join('<th>WNS</th><th>TNS</th>' for c in checks for g in groups[c])
     out = ['<div style="overflow-x:auto"><table class="d"><thead>', f'<tr>{h1}</tr>']
-    if gcols:
+    if checks:
         out += [f'<tr>{h2}</tr>', f'<tr>{h3}</tr>']
     out.append('</thead><tbody>')
     for k in keys:
+        get = lambda n, k=k: val.get((k, n))
         cells = ''
         if with_stage:
             cells += f'<td class="mono" style="text-align:left;font-weight:700">{html.escape(k[0])}</td>'
         cells += f'<td class="mono" style="text-align:left">{html.escape(k[1])}</td>'
-        cells += ''.join(_metric_cell(n, val.get((k, n))) for n in gcols + plain)
+        cells += ''.join(_triple_cell([f'{c} {g} {w}' for w in _TRIPLE], get)
+                         for c in checks for g in groups[c])
+        cells += _render_cols(cols, get)
         out.append(f'<tr>{cells}</tr>')
     out.append('</tbody></table></div>')
     return ''.join(out)
 
 
 def _stage_table(rows):
-    """One row per stage, one column per metric (first-seen order)."""
-    stages, cols, val = [], [], {}
+    """One row per stage, one column per metric (first-seen order; WNS /
+    TNS / NVP sets in one cell)."""
+    stages, names, val = [], [], {}
     for m in rows:
         st, n = m['stage'], m.get('name') or ''
         if n in ('Design', 'Stage'):          # identifiers, not metrics
             continue
         if st not in stages:
             stages.append(st)
-        if n not in cols:
-            cols.append(n)
+        if n not in names:
+            names.append(n)
         val[(st, n)] = m.get('value')
+    cols = _columns(names)
     out = ['<div style="overflow-x:auto"><table class="d"><thead><tr><th style="text-align:left">Stage</th>']
-    out += [f'<th>{html.escape(c)}</th>' for c in cols]
+    out += [f'<th>{html.escape(lbl)}</th>' for lbl, _ in cols]
     out.append('</tr></thead><tbody>')
     for st in stages:
         out.append(f'<tr><td class="mono" style="text-align:left;font-weight:700">{html.escape(st)}</td>'
-                   + ''.join(_metric_cell(c, val.get((st, c))) for c in cols) + '</tr>')
+                   + _render_cols(cols, lambda n, st=st: val.get((st, n))) + '</tr>')
     out.append('</tbody></table></div>')
     return ''.join(out)
 

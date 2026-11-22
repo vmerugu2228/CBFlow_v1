@@ -67,7 +67,7 @@ flow_proc merge {
     # Checklist report (STA_SIGNOFF checks): worst over all
     # scenarios, one "Key : value" line per check (STA_opensta_config map).
     set _ts 0.0; set _th 0.0; set _tran 0; set _cap 0; set _fan 0; set _fail 0; set _pw ""
-    set _du 0; set _dtm 0; set _dtn 0
+    set _du 0; set _dtm 0; set _dtn 0; set _nvs 0; set _nvh 0
     foreach _q [lsort [glob -nocomplain "[cbflow_node_dir $_tnode]/*/reports/[oss_get sta oss,scenario_qor_file]"]] {
         array unset qor
         source $_q
@@ -79,6 +79,8 @@ flow_proc merge {
         if {$qor(max_fanout_violations) > $_fan} { set _fan $qor(max_fanout_violations) }
         if {$qor(wns_setup) < [oss_get sta signoff,min_setup_wns] || $qor(wns_hold) < [oss_get sta signoff,min_hold_wns]} { incr _fail }
         if {[info exists qor(power_total)] && ($_pw eq "" || $qor(power_total) > $_pw)} { set _pw $qor(power_total) }
+        if {[info exists qor(nvp_setup)] && $qor(nvp_setup) > $_nvs} { set _nvs $qor(nvp_setup) }
+        if {[info exists qor(nvp_hold)] && $qor(nvp_hold) > $_nvh} { set _nvh $qor(nvp_hold) }
         # netlist checks: same netlist in every scenario — worst seen
         if {$qor(dont_use_cells) > $_du} { set _du $qor(dont_use_cells) }
         if {$qor(dont_touch_missing) > $_dtm} { set _dtm $qor(dont_touch_missing) }
@@ -86,7 +88,9 @@ flow_proc merge {
     }
     set _C [list "Scenarios timed : [llength $_rows]" "Failing scenarios : $_fail" \
                  "Worst setup WNS : [cbflow_fmt_slack $_ws]" "Worst setup TNS : [cbflow_fmt_slack $_ts]" \
+                 "Worst setup NVP : $_nvs" \
                  "Worst hold WNS : [cbflow_fmt_slack $_wh]" "Worst hold TNS : [cbflow_fmt_slack $_th]" \
+                 "Worst hold NVP : $_nvh" \
                  "Tran violations : $_tran" "Cap violations : $_cap" "Fanout violations : $_fan" \
                  "Noise : N/A" "Dont use cells : $_du" "Dont touch missing : $_dtm" \
                  "Dont touch instances : $_dtn"]

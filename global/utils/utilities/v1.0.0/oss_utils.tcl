@@ -640,6 +640,14 @@ proc oss_report {file args} {
 # <prefix>_<setup|hold>_<group>[_<view>].rpt (<flow>(oss,path_groups,
 # report_paths) paths) and return "# scenario:"-ready lines
 # "<Setup|Hold> <group> <WNS|TNS> : value" per view as {view lines ...}.
+# Number of violating paths (endpoints with negative slack), max = setup,
+# min = hold; args e.g. -corner <view>. (sta::endpoint_violation_count
+# crashes this OpenROAD build.)
+proc oss_nvp {min_max args} {
+    return [llength [find_timing_paths -path_delay $min_max -slack_max 0 \
+                         -group_path_count 1000000 -endpoint_path_count 1 {*}$args]]
+}
+
 proc oss_group_timing {views prefix} {
     set _arr [oss_flow_arr]
     set _groups [oss_get $_arr oss,path_groups]
@@ -657,15 +665,15 @@ proc oss_group_timing {views prefix} {
             foreach {_g _ft} $_groups {
                 set _ends [find_timing_paths -path_group $_g -path_delay $_mm {*}$_cor \
                                -group_path_count 1000000 -endpoint_path_count 1 -sort_by_slack]
-                set _w ""; set _t 0.0
+                set _w ""; set _t 0.0; set _nv 0
                 foreach _pe $_ends {
                     set _sl [get_property $_pe slack]
                     if {$_w eq "" || $_sl < $_w} { set _w $_sl }
-                    if {$_sl < 0} { set _t [expr {$_t + $_sl}] }
+                    if {$_sl < 0} { set _t [expr {$_t + $_sl}]; incr _nv }
                 }
                 # (not an expr ternary: expr would turn "15.310" back into 15.31)
-                if {$_w eq ""} { set _ws N/A; set _ts N/A } else { set _ws [cbflow_fmt_slack $_w]; set _ts [cbflow_fmt_slack $_t] }
-                lappend _L "$_chk $_g WNS : $_ws" "$_chk $_g TNS : $_ts"
+                if {$_w eq ""} { set _ws N/A; set _ts N/A; set _nv N/A } else { set _ws [cbflow_fmt_slack $_w]; set _ts [cbflow_fmt_slack $_t] }
+                lappend _L "$_chk $_g WNS : $_ws" "$_chk $_g TNS : $_ts" "$_chk $_g NVP : $_nv"
                 set _rpt "${prefix}_[string tolower $_chk]_${_g}[expr {$_v eq "" ? "" : "_$_v"}].rpt"
                 oss_report $_rpt report_checks -path_group $_g -path_delay $_mm {*}$_cor \
                     -group_path_count $_np -format full_clock_expanded
@@ -858,6 +866,11 @@ proc oss_checklist_metrics {tag} {
         # |slack| ~1e30+ = no constrained path: not measurable, leave it out
         if {![catch {eval $_c} _v] && [string is double -strict $_v] && abs($_v) < 1e20} {
             lappend L "$_k : [cbflow_fmt_slack $_v]"
+        }
+    }
+    if {$tag ni {fp init_design}} {
+        foreach {_k _mm} {"Setup NVP" max "Hold NVP" min} {
+            if {![catch {oss_nvp $_mm} _v]} { lappend L "$_k : $_v" }
         }
     }
     # Design-rule (electrical) violations

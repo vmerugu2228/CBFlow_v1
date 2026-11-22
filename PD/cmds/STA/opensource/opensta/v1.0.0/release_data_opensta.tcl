@@ -50,7 +50,9 @@ flow_proc publish {
         source $_q
         lappend _L "# scenario: $qor(scenario)" \
             "Setup WNS : [cbflow_fmt_slack $qor(wns_setup)]" "Setup TNS : [cbflow_fmt_slack $qor(tns_setup)]" \
+            "Setup NVP : [expr {[info exists qor(nvp_setup)] ? $qor(nvp_setup) : {N/A}}]" \
             "Hold WNS : [cbflow_fmt_slack $qor(wns_hold)]" "Hold TNS : [cbflow_fmt_slack $qor(tns_hold)]" \
+            "Hold NVP : [expr {[info exists qor(nvp_hold)] ? $qor(nvp_hold) : {N/A}}]" \
             "Tran violations : $qor(max_tran_violations)" \
             "Cap violations : $qor(max_cap_violations)" \
             "Fanout violations : $qor(max_fanout_violations)" \
