@@ -891,31 +891,58 @@ _STYLE = """
   .team-cell-contact { color: var(--muted); font-size:11px;
                        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
 
-  /* Schedule timetable (/schedule detail page) */
-  .tt-wrap { padding:0 20px 10px; overflow-x:auto; }
-  table.tt { border-collapse:collapse; font-size:13px; min-width:760px;
-             background: var(--panel); border:1px solid var(--border); }
-  table.tt th, table.tt td { padding:8px 12px; border-bottom:1px solid var(--border);
+  /* Schedule (/schedule detail page) — phase overview + phase cards */
+  .sched-wrap { padding:20px 24px 32px; }
+  .tt-cap { font-size:12px; font-weight:800; letter-spacing:.04em;
+            text-transform:uppercase; color: var(--text); margin:18px 0 8px; }
+  .tt-cap .muted { text-transform:none; letter-spacing:0; font-weight:500; }
+  .tt-cap-lg { font-size:13px; margin-top:0; }
+  .tt-box { border:1px solid var(--border); border-radius:8px; overflow-x:auto;
+            background: var(--panel); box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+  table.tt { border-collapse:collapse; font-size:13px; width:100%; min-width:760px; }
+  table.tt th, table.tt td { padding:9px 14px; border-bottom:1px solid #eef0f4;
                              text-align:left; white-space:nowrap; }
-  table.tt th { background: var(--header); font-size:11px; font-weight:700;
-                color: var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+  table.tt tbody tr:last-child td { border-bottom:none; }
+  table.tt th { background: var(--ph-bg, #eef2ff); color: var(--ph, #4338ca);
+                font-size:11px; font-weight:800; text-transform:uppercase;
+                letter-spacing:.05em; border-bottom:2px solid var(--ph, #c7d2fe); }
+  table.tt tbody tr:nth-child(even) td { background:#fafbfd; }
+  table.tt tbody tr:hover td { background: var(--ph-bg, #f5f7ff); }
   table.tt td.num { text-align:right; font-variant-numeric: tabular-nums; }
-  table.tt tr.tt-anchor td { background: var(--header); font-weight:600; }
-  table.tt tr.tt-next td { background: var(--accent-bg); }
+  table.tt tr.tt-anchor td { background: var(--ph-bg, #f9fafb) !important; font-weight:700; }
+  table.tt tr.tt-next td { background:#fef9c3 !important; }
   .tt-ms { font-weight:700; letter-spacing:.02em; }
+  .est { color: var(--muted); margin-left:1px; }
   .tt-status { font-size:10px; font-weight:800; letter-spacing:.05em;
-               padding:2px 7px; border-radius:3px; text-transform:uppercase; }
-  .tt-status.st-past   { background:#f3f4f6; color:#4b5563; }
-  .tt-status.st-next   { background: var(--accent); color:#fff; }
-  .tt-status.st-future { background:#f8fafc; color: var(--muted);
-                         border:1px solid var(--border); }
-  .tt-status.st-late   { background:#fef2f2; color:#b91c1c; }
+               padding:2px 8px; border-radius:10px; text-transform:uppercase; }
+  .tt-status.st-past   { background:#dcfce7; color:#166534; }
+  .tt-status.st-next   { background:#facc15; color:#713f12; }
+  .tt-status.st-future { background:#f1f5f9; color:#64748b; }
+  .tt-status.st-late   { background:#fee2e2; color:#b91c1c; }
   .tt-track { position:relative; width:220px; height:8px; border-radius:4px;
               background:#eef0f4; }
-  .tt-track .seg { position:absolute; top:0; bottom:0; border-radius:4px;
-                   background: var(--accent); opacity:.75; }
+  .tt-track .seg { position:absolute; top:0; bottom:0; border-radius:4px; opacity:.85; }
   .tt-track .now { position:absolute; top:-3px; bottom:-3px; width:2px;
                    background:#dc2626; }
+  .ph-chip { display:inline-block; min-width:34px; text-align:center;
+             padding:3px 10px; border-radius:6px; font-weight:800; font-size:12px;
+             color:#fff; background: var(--ph); }
+  .lvl-pill { font-size:10px; font-weight:800; letter-spacing:.05em;
+              padding:2px 7px; border-radius:4px; background:#f1f5f9; color:#475569; }
+  .ph-card { margin-top:28px; border:1px solid var(--border); border-radius:10px;
+             border-top:4px solid var(--ph); background: var(--panel);
+             box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+  .ph-card.ph-cur { box-shadow: 0 0 0 2px var(--ph-bg), 0 4px 14px rgba(0,0,0,.07); }
+  .ph-head { display:flex; align-items:center; gap:12px; padding:12px 18px;
+             background: var(--ph-bg); border-radius:6px 6px 0 0;
+             border-bottom:1px solid var(--border); }
+  .ph-dates { font-weight:600; font-variant-numeric: tabular-nums; }
+  .ph-now { font-size:10px; font-weight:800; letter-spacing:.05em;
+            text-transform:uppercase; padding:2px 8px; border-radius:10px;
+            background: var(--ph); color:#fff; }
+  .ph-body { padding:4px 18px 20px; }
+  .ph-body .tt-box + .tt-cap { margin-top:24px; }
+  .sched-wrap .sched-note { margin-top:24px; }
 
   /* Release status (/releases detail page + Tier 2 tile) */
   .pbar { position:relative; height:6px; border-radius:3px; background:#eef0f4;
@@ -3430,27 +3457,18 @@ def _render_schedule_card(project, info):
     except Exception:
         entry = {}
     tapeout_iso = entry.get('tapeout_date') or info.get('tapeout_date') or ''
-    start_iso = entry.get('project_start_date') or ''
     _, tapeout_weeks = _tapeout_info_safe(tapeout_iso)
-    targets = entry.get('milestone_targets') or {}
-    estimated = False
-    if not targets and start_iso and tapeout_iso:
-        try:
-            from datetime import date, timedelta
-            s = date.fromisoformat(start_iso)
-            t = date.fromisoformat(tapeout_iso)
-            step = (t - s).days / (len(_MILESTONES) + 1)
-            targets = {m: (s + timedelta(days=round(step * (i + 1)))).isoformat()
-                       for i, m in enumerate(_MILESTONES)}
-            estimated = True
-        except Exception:
-            targets = {}
-
     from datetime import date as _d
-    today = _d.today().isoformat()
-    pips_past = sum(1 for m in _MILESTONES
-                    if (targets.get(m) or '') and (targets.get(m) or '') < today)
-    pips_total = len(_MILESTONES)
+    today = _d.today()
+    try:
+        sched = _phase_schedule(project, entry, info)
+    except Exception:
+        sched = {'phases': [], 'estimated': False}
+    estimated = sched['estimated']
+    upcoming = sorted((d, ph['phase'], m) for ph in sched['phases']
+                      for m, d in ph['exits'].items() if d and d >= today)
+    next_txt = (f'Next: <b>{html.escape(upcoming[0][1])} {html.escape(upcoming[0][2])}</b> '
+                f'{upcoming[0][0].strftime("%b %d")}' if upcoming else 'No upcoming exits')
     est_pill = ('<span class="sg-tile-badge-aux" title="dates derived from '
                 'project_start_date + tapeout_date, not committed">est.</span>'
                 if estimated else '')
@@ -3465,9 +3483,7 @@ def _render_schedule_card(project, info):
         f'  <div class="sg-tile-body">'
         f'    <div class="sg-tile-metric">{tapeout_weeks}</div>'
         f'    <div class="sg-tile-metric-lbl">weeks to tapeout</div>'
-        f'    <div class="sg-tile-sub">'
-        f'      {pips_past} of {pips_total} milestones past target'
-        f'    </div>'
+        f'    <div class="sg-tile-sub">{next_txt}</div>'
         f'  </div>'
         f'  <div class="sg-tile-foot">'
         f'    Open full schedule →'
@@ -3818,219 +3834,272 @@ def _render_team_detail(project, info):
     ])
 
 
-def _render_schedule_timetable(project, start_iso, tapeout_iso, targets,
-                               published_rows):
-    """Timetable rows: project start, each PD exit milestone, tapeout.
-    Columns: target date, window from the previous row, days left, status,
-    blocks published to SmartGrid for that milestone, and a position bar
-    on the start → tapeout span."""
-    from datetime import date as _d
-    today = _d.today()
+_PHASE_COLORS = (('#4f46e5', '#eef2ff'), ('#0d9488', '#f0fdfa'),
+                 ('#d97706', '#fffbeb'), ('#e11d48', '#fff1f2'),
+                 ('#0284c7', '#f0f9ff'), ('#7c3aed', '#f5f3ff'))
 
-    def _parse(iso):
+
+def _phase_schedule(project, entry, info):
+    """Phase x exit schedule.
+
+    Phases come from project(phases) (or master_projects.json `phases`).
+    Each phase gets an equal slice of project_start_date → tapeout_date and
+    its exits (FP_EXIT … MTO) are evenly spaced inside it, MTO closing the
+    phase; the last phase's MTO is the tapeout. Explicit dates win:
+    master_projects.json `phase_targets` {phase: {exit: date}}; legacy flat
+    `milestone_targets` {exit: date} applies to the last phase.
+    Returns {start, tapeout, estimated, phases: [{phase, start, end,
+    exits: {exit: date}, est: {exit: bool}, color, tint}]} (dates are
+    datetime.date or None).
+    """
+    from datetime import date as _d, timedelta
+
+    def _p(iso):
         try:
             return _d.fromisoformat((iso or '')[:10])
         except ValueError:
             return None
-    start, tapeout = _parse(start_iso), _parse(tapeout_iso)
-    span = (tapeout - start).days if start and tapeout and tapeout > start else 0
-
-    published = {}
-    for r in published_rows:
-        published.setdefault((r.get('milestone') or '').upper(), set()).add(r.get('block'))
+    start = _p(entry.get('project_start_date'))
+    tapeout = _p(entry.get('tapeout_date') or (info or {}).get('tapeout_date'))
     stats = releases.release_stats(project, [])
-    n_blocks = len((stats or {}).get('hierarchy') or {})
-
-    rows = [('Project start', start, True, None)]
-    rows += [(m, _parse(targets.get(m)), False, m) for m in _MILESTONES]
-    rows.append(('Tapeout', tapeout, True, None))
-    next_idx = next((i for i, r in enumerate(rows) if r[1] and r[1] >= today), None)
-
-    def _bar(prev, cur):
-        if not span or not cur:
-            return '<span class="muted">—</span>'
-        lo = max(0, (prev - start).days) if prev else 0
-        hi = (cur - start).days
-        left, width = 100.0 * lo / span, max(1.0, 100.0 * (hi - lo) / span)
-        now = min(100.0, max(0.0, 100.0 * (today - start).days / span))
-        return (f'<div class="tt-track"><span class="seg" style="left:{left:.1f}%;'
-                f'width:{width:.1f}%"></span><span class="now" style="left:{now:.1f}%"'
-                f' title="today"></span></div>')
-
-    trs, prev = [], None
-    for i, (name, dt, anchor, ms) in enumerate(rows):
-        if dt is None:
-            status, left_s, window = 'future', '—', '—'
-        else:
-            delta = (dt - today).days
-            status = 'past' if delta < 0 else ('next' if i == next_idx else 'future')
-            left_s = f'{delta}' if delta >= 0 else f'{-delta} ago'
-            window = f'{(dt - prev).days}' if prev else '—'
-        label = {'past': 'Done', 'next': 'Next', 'future': 'Upcoming'}[status]
-        if ms:
-            n_pub = len(published.get(ms, ()))
-            pub = f'{n_pub}/{n_blocks}' if n_blocks else str(n_pub)
-        else:
-            pub = ''
-        cls = ' '.join(c for c in ('tt-anchor' if anchor else '',
-                                    'tt-next' if status == 'next' else '') if c)
-        trs.append(
-            f'<tr class="{cls}">'
-            f'<td class="num">{i}</td>'
-            f'<td class="tt-ms">{html.escape(name)}</td>'
-            f'<td class="num">{html.escape(dt.isoformat() if dt else "—")}</td>'
-            f'<td>{html.escape(dt.strftime("%a") if dt else "")}</td>'
-            f'<td class="num">{html.escape(window)}</td>'
-            f'<td class="num">{html.escape(left_s)}</td>'
-            f'<td><span class="tt-status st-{status}">{label}</span></td>'
-            f'<td class="num">{html.escape(pub)}</td>'
-            f'<td>{_bar(prev, dt)}</td>'
-            '</tr>')
-        if dt:
-            prev = dt
-    return ('<div class="tt-wrap"><table class="tt"><thead><tr>'
-            '<th>#</th><th>Milestone</th><th>Target date</th><th>Day</th>'
-            '<th>Window (days)</th><th>Days left</th><th>Status</th>'
-            '<th>Blocks published</th><th>Timeline</th>'
-            '</tr></thead><tbody>' + ''.join(trs) + '</tbody></table></div>')
+    phases = [] if not stats else [p['phase'] for p in stats['phases']]
+    phases = phases or list(entry.get('phases') or []) or ['P0']
+    explicit = dict(entry.get('phase_targets') or {})
+    if entry.get('milestone_targets') and phases[-1] not in explicit:
+        explicit[phases[-1]] = entry['milestone_targets']
+    n = len(phases)
+    span = (tapeout - start).days if start and tapeout and tapeout > start else 0
+    out, estimated = [], False
+    for i, ph in enumerate(phases):
+        p_start = start + timedelta(days=round(span * i / n)) if span else None
+        p_end = start + timedelta(days=round(span * (i + 1) / n)) if span else None
+        exits, est = {}, {}
+        for j, m in enumerate(_MILESTONES):
+            d = _p((explicit.get(ph) or {}).get(m))
+            if d:
+                exits[m], est[m] = d, False
+            elif span:
+                exits[m] = p_start + timedelta(
+                    days=round((p_end - p_start).days * (j + 1) / len(_MILESTONES)))
+                est[m] = True
+                estimated = True
+            else:
+                exits[m], est[m] = None, False
+        dates = [d for d in exits.values() if d]
+        color, tint = _PHASE_COLORS[i % len(_PHASE_COLORS)]
+        out.append({'phase': ph, 'start': p_start or (min(dates) if dates else None),
+                    'end': exits.get('MTO') or p_end, 'exits': exits, 'est': est,
+                    'color': color, 'tint': tint})
+    return {'start': start, 'tapeout': tapeout, 'estimated': estimated,
+            'phases': out, 'stats': stats}
 
 
-def _block_schedule(start_iso, targets, hier, overrides):
-    """Per-block milestone dates, bottom-up.
-
-    The top block (depth 0) takes the project milestone targets. A block k
-    levels below the top is due at  start + (target - start) * (1 - k/(L+1))
-    for every milestone (L = number of levels), so each child delivers every
-    milestone before its parent and the leaves finish first.
-    `overrides` = master_projects.json `milestone_targets_by_block`
-    ({block: {milestone: date}}) — explicit dates win.
-    Returns {block: {milestone: (date_iso, estimated)}}.
-    """
+def _block_dates(ph, hier, depths, overrides):
+    """Bottom-up block dates inside one phase: the top block keeps the
+    phase exit dates; a block k levels down is due at
+    phase_start + (exit - phase_start) * (1 - k/(levels+1)).
+    overrides = `milestone_targets_by_block` {block: {phase: {exit: date}}}."""
     from datetime import date as _d, timedelta
-    try:
-        start = _d.fromisoformat(start_iso[:10])
-    except (TypeError, ValueError):
-        start = None
-
-    def depth(b, seen=()):
-        p = hier.get(b, {}).get('parent') or ''
-        return 0 if (not p or p not in hier or p in seen) else 1 + depth(p, seen + (b,))
-    depths = {b: depth(b) for b in hier}
     levels = (max(depths.values()) + 1) if depths else 1
     out = {}
     for b, k in depths.items():
         frac = 1.0 - k / (levels + 1.0)
         row = {}
         for m in _MILESTONES:
-            ov = ((overrides or {}).get(b) or {}).get(m)
+            ov = (((overrides or {}).get(b) or {}).get(ph['phase']) or {}).get(m)
             if ov:
-                row[m] = (ov[:10], False)
-                continue
-            tgt = targets.get(m) or ''
-            try:
-                t = _d.fromisoformat(tgt[:10])
-            except ValueError:
-                row[m] = ('', True)
-                continue
-            if start is None or k == 0:
-                row[m] = (t.isoformat(), False)
+                try:
+                    row[m] = (_d.fromisoformat(ov[:10]), False)
+                    continue
+                except ValueError:
+                    pass
+            t = ph['exits'].get(m)
+            if t is None:
+                row[m] = (None, False)
+            elif k == 0 or ph['start'] is None:
+                row[m] = (t, ph['est'].get(m, False))
             else:
-                row[m] = ((start + timedelta(days=round((t - start).days * frac))).isoformat(),
+                row[m] = (ph['start'] + timedelta(days=round((t - ph['start']).days * frac)),
                           True)
         out[b] = row
-    return out, depths
+    return out
 
 
-def _render_block_schedule(project, entry, start_iso, targets, published_rows):
-    """Block x milestone timetable, deepest level first (delivery order).
-    A cell is Done when that (block, milestone) is published to SmartGrid,
-    Late when its date has passed without a publish."""
+def _hier_depths(hier):
+    def depth(b, seen=()):
+        p = hier.get(b, {}).get('parent') or ''
+        return 0 if (not p or p not in hier or p in seen) else 1 + depth(p, seen + (b,))
+    return {b: depth(b) for b in hier}
+
+
+def _bar(sched, lo, hi, color):
+    """Position bar on the project start → tapeout span, today marker."""
     from datetime import date as _d
-    stats = releases.release_stats(project, [])
-    hier = (stats or {}).get('hierarchy') or {}
-    if not hier:
-        return ('<div class="tt-wrap muted">No <code>project(design_hierarchy)</code> '
-                'declared — block schedule unavailable.</div>')
-    sched, depths = _block_schedule(start_iso, targets, hier,
-                                    entry.get('milestone_targets_by_block') or {})
-    published = {(r.get('block'), (r.get('milestone') or '').upper())
-                 for r in published_rows}
-    today = _d.today().isoformat()
-    tree_pos = {b: i for i, (b, _) in enumerate(stats['tree_order'])}
+    s, t = sched['start'], sched['tapeout']
+    if not (s and t and hi) or t <= s:
+        return '<span class="muted">—</span>'
+    span = (t - s).days
+    a = max(0, (lo - s).days) if lo else 0
+    b = (hi - s).days
+    now = min(100.0, max(0.0, 100.0 * (_d.today() - s).days / span))
+    return (f'<div class="tt-track"><span class="seg" style="left:{100.0*a/span:.1f}%;'
+            f'width:{max(1.0, 100.0*(b-a)/span):.1f}%;background:{color}"></span>'
+            f'<span class="now" style="left:{now:.1f}%" title="today"></span></div>')
+
+
+def _status(d, today, is_next):
+    if d is None:
+        return 'future', 'Upcoming'
+    if d < today:
+        return 'past', 'Done'
+    return ('next', 'Next') if is_next else ('future', 'Upcoming')
+
+
+def _render_phase_schedule(project, entry, info, published_rows):
+    """Schedule body: phase overview, then per phase its exit timetable and
+    bottom-up block schedule."""
+    from datetime import date as _d
+    today = _d.today()
+    sched = _phase_schedule(project, entry, info)
+    stats = sched['stats'] or {}
+    hier = stats.get('hierarchy') or {}
+    depths = _hier_depths(hier)
+    n_blocks = len(hier)
+    pub = {}
+    for r in published_rows:
+        pub.setdefault(((r.get('phase') or ''), (r.get('milestone') or '').upper()),
+                       set()).add(r.get('block'))
+    # The next exit across the whole project gets the "Next" pill
+    upcoming = sorted((d, ph['phase'], m) for ph in sched['phases']
+                      for m, d in ph['exits'].items() if d and d >= today)
+    nxt = upcoming[0][1:] if upcoming else None
+
+    def est_mark(e):
+        return '<sup class="est">*</sup>' if e else ''
+
+    # ── Phase overview
+    ov = []
+    for ph in sched['phases']:
+        s0, s1 = ph['start'], ph['end']
+        if s1 and s1 < today:
+            st, lbl = 'past', 'Done'
+        elif s0 and s0 <= today:
+            st, lbl = 'next', 'Active'
+        else:
+            st, lbl = 'future', 'Upcoming'
+        n_pub_mto = len(pub.get((ph['phase'], 'MTO'), ()))
+        exits_pub = sum(1 for m in _MILESTONES if pub.get((ph['phase'], m)))
+        ov.append(
+            f'<tr style="--ph:{ph["color"]};--ph-bg:{ph["tint"]}">'
+            f'<td><span class="ph-chip">{html.escape(ph["phase"])}</span></td>'
+            f'<td class="num">{html.escape(s0.isoformat() if s0 else "—")}</td>'
+            f'<td class="num">{html.escape(s1.isoformat() if s1 else "—")}</td>'
+            f'<td class="num">{(s1 - s0).days if s0 and s1 else "—"}</td>'
+            f'<td><span class="tt-status st-{st}">{lbl}</span></td>'
+            f'<td class="num">{exits_pub}/{len(_MILESTONES)}</td>'
+            f'<td class="num">{n_pub_mto}/{n_blocks}</td>'
+            f'<td>{_bar(sched, s0, s1, ph["color"])}</td></tr>')
+    overview = (
+        '<div class="tt-box"><table class="tt"><thead><tr>'
+        '<th>Phase</th><th>Start</th><th>Phase exit (MTO)</th><th>Days</th>'
+        '<th>Status</th><th>Exits published</th><th>Blocks at MTO</th>'
+        '<th>Timeline</th></tr></thead><tbody>' + ''.join(ov) +
+        '</tbody></table></div>')
+
+    # ── Per phase
+    tree_pos = {b: i for i, (b, _) in enumerate(stats.get('tree_order') or [])}
     order = sorted(tree_pos, key=lambda b: (-depths[b], tree_pos[b]))
-    ths = ''.join(f'<th>{html.escape(m)}</th>' for m in _MILESTONES)
-    trs, any_est = [], False
-    for b in order:
-        spec = hier[b]
-        cells = []
-        for m in _MILESTONES:
-            dt, est = sched[b][m]
-            any_est = any_est or est
-            if (b, m) in published:
-                st, lbl = 'past', 'Done'
-            elif dt and dt < today:
-                st, lbl = 'late', 'Late'
-            else:
-                st, lbl = 'future', ''
-            badge = (f' <span class="tt-status st-{st}">{lbl}</span>' if lbl else '')
-            cells.append(f'<td class="num">{html.escape(dt or "—")}'
-                         f'{"<sup class=muted>*</sup>" if est else ""}{badge}</td>')
-        role = ('= project schedule' if depths[b] == 0
-                else f'delivers to {spec.get("parent") or "—"}')
-        trs.append(
-            f'<tr class="{"tt-anchor" if depths[b] == 0 else ""}">'
-            f'<td class="tt-ms" style="padding-left:{12 + 14 * depths[b]}px">{html.escape(b)}</td>'
-            f'<td>{html.escape(spec.get("level") or "")}</td>'
-            f'<td class="muted">{html.escape(role)}</td>'
-            + ''.join(cells) + '</tr>')
-    note = ('<div class="sched-note" style="margin-top:8px">* derived: a block '
-            '<i>k</i> levels below the top is due at start + (project target − start) × '
-            '(1 − <i>k</i>/(levels+1)). Set committed dates per block in '
-            '<code>master_projects.json</code> → <code>milestone_targets_by_block</code>.'
-            '</div>') if any_est else ''
-    return ('<div class="tt-wrap"><table class="tt"><thead><tr>'
-            f'<th>Block</th><th>Level</th><th>Delivery</th>{ths}'
-            '</tr></thead><tbody>' + ''.join(trs) + '</tbody></table>'
-            + note + '</div>')
+    cards = []
+    for ph in sched['phases']:
+        rows, prev = [], ph['start']
+        for i, m in enumerate(_MILESTONES):
+            d = ph['exits'][m]
+            st, lbl = _status(d, today, nxt == (ph['phase'], m))
+            left = '—' if d is None else (f'{(d - today).days}' if d >= today
+                                         else f'{(today - d).days} ago')
+            n_pub = len(pub.get((ph['phase'], m), ()))
+            rows.append(
+                f'<tr class="{"tt-next" if st == "next" else ""}">'
+                f'<td class="num">{i + 1}</td><td class="tt-ms">{html.escape(m)}</td>'
+                f'<td class="num">{html.escape(d.isoformat() if d else "—")}{est_mark(ph["est"][m])}</td>'
+                f'<td>{html.escape(d.strftime("%a") if d else "")}</td>'
+                f'<td class="num">{(d - prev).days if d and prev else "—"}</td>'
+                f'<td class="num">{html.escape(left)}</td>'
+                f'<td><span class="tt-status st-{st}">{lbl}</span></td>'
+                f'<td class="num">{n_pub}/{n_blocks}</td>'
+                f'<td>{_bar(sched, prev, d, ph["color"])}</td></tr>')
+            prev = d or prev
+        exits_tbl = (
+            '<div class="tt-cap">Exit timetable</div>'
+            '<div class="tt-box"><table class="tt"><thead><tr>'
+            '<th>#</th><th>Exit</th><th>Target</th><th>Day</th><th>Window (days)</th>'
+            '<th>Days left</th><th>Status</th><th>Blocks published</th><th>Timeline</th>'
+            '</tr></thead><tbody>' + ''.join(rows) + '</tbody></table></div>')
+        blk_tbl = ''
+        if hier:
+            bd = _block_dates(ph, hier, depths,
+                              entry.get('milestone_targets_by_block') or {})
+            ths = ''.join(f'<th>{html.escape(m)}</th>' for m in _MILESTONES)
+            brs = []
+            for b in order:
+                cells = []
+                for m in _MILESTONES:
+                    d, e = bd[b][m]
+                    if b in pub.get((ph['phase'], m), ()):
+                        badge = ' <span class="tt-status st-past">Done</span>'
+                    elif d and d < today:
+                        badge = ' <span class="tt-status st-late">Late</span>'
+                    else:
+                        badge = ''
+                    cells.append(f'<td class="num">{html.escape(d.isoformat() if d else "—")}'
+                                 f'{est_mark(e)}{badge}</td>')
+                role = ('= phase schedule' if depths[b] == 0
+                        else f'delivers to {hier[b].get("parent") or "—"}')
+                brs.append(
+                    f'<tr class="{"tt-anchor" if depths[b] == 0 else ""}">'
+                    f'<td class="tt-ms" style="padding-left:{12 + 14 * depths[b]}px">'
+                    f'{"└ " if depths[b] else ""}{html.escape(b)}</td>'
+                    f'<td><span class="lvl-pill">{html.escape(hier[b].get("level") or "")}</span></td>'
+                    f'<td class="muted">{html.escape(role)}</td>' + ''.join(cells) + '</tr>')
+            blk_tbl = (
+                '<div class="tt-cap">Block schedule <span class="muted">— leaf blocks '
+                'deliver first; each parent integrates after its children</span></div>'
+                '<div class="tt-box"><table class="tt"><thead><tr>'
+                f'<th>Block</th><th>Level</th><th>Delivery</th>{ths}'
+                '</tr></thead><tbody>' + ''.join(brs) + '</tbody></table></div>')
+        s0, s1 = ph['start'], ph['end']
+        cur = (s0 and s1 and s0 <= today <= s1)
+        cards.append(
+            f'<div class="ph-card{" ph-cur" if cur else ""}" '
+            f'style="--ph:{ph["color"]};--ph-bg:{ph["tint"]}">'
+            f'<div class="ph-head"><span class="ph-chip">{html.escape(ph["phase"])}</span>'
+            f'<span class="ph-dates">{html.escape(s0.isoformat() if s0 else "—")} → '
+            f'{html.escape(s1.isoformat() if s1 else "—")}</span>'
+            + ('<span class="ph-now">current</span>' if cur else '') +
+            f'</div><div class="ph-body">{exits_tbl}{blk_tbl}</div></div>')
+    note = ''
+    if sched['estimated']:
+        note = ('<div class="sched-note">* derived dates: phases split project start → '
+                'tapeout evenly, exits spaced evenly inside each phase (MTO closes the '
+                'phase); a block <i>k</i> levels below the top is due at phase start + '
+                '(exit − phase start) × (1 − <i>k</i>/(levels+1)). Commit real dates in '
+                '<code>master_projects.json</code>: <code>phase_targets</code> '
+                '{phase: {exit: date}} and <code>milestone_targets_by_block</code> '
+                '{block: {phase: {exit: date}}}.</div>')
+    return ('<div class="sched-wrap">'
+            '<div class="tt-cap tt-cap-lg">Phase overview</div>' + overview
+            + ''.join(cards) + note + '</div>'), sched
 
 
 def _render_schedule_detail(project, info, published_rows=None):
     """Full schedule page — opens from the Schedule tile on Tier 2.
-    Shows the milestone timeline with target dates, estimated-pill when
-    derived, tapeout countdown, and project start/end markers.
-    """
+    Phase overview, then per phase its exit timetable and bottom-up block
+    schedule."""
     entry = _load_project_entry(project)
-    tapeout_iso = entry.get('tapeout_date') or info.get('tapeout_date') or ''
+    tapeout_iso = entry.get('tapeout_date') or (info or {}).get('tapeout_date') or ''
     start_iso = entry.get('project_start_date') or ''
     tapeout_str, tapeout_weeks = _tapeout_info_safe(tapeout_iso)
-    targets = entry.get('milestone_targets') or {}
-    estimated = False
-    if not targets and start_iso and tapeout_iso:
-        try:
-            from datetime import date, timedelta
-            s = date.fromisoformat(start_iso)
-            t = date.fromisoformat(tapeout_iso)
-            step = (t - s).days / (len(_MILESTONES) + 1)
-            targets = {m: (s + timedelta(days=round(step * (i + 1)))).isoformat()
-                       for i, m in enumerate(_MILESTONES)}
-            estimated = True
-        except Exception:
-            targets = {}
-
-    timetable = _render_schedule_timetable(project, start_iso, tapeout_iso,
-                                           targets, published_rows or [])
-    block_tt = _render_block_schedule(project, entry, start_iso, targets,
-                                      published_rows or [])
-
-    est_note = ''
-    if estimated:
-        est_note = (
-            '<div class="sched-note">Target dates derived by even-spacing '
-            'between <code>project_start_date</code> and '
-            '<code>tapeout_date</code>. For committed targets, add a '
-            '<code>milestone_targets</code> block to '
-            '<code>master_projects.json</code>.</div>')
-
+    body, _ = _render_phase_schedule(project, entry, info or {}, published_rows or [])
     return ''.join([
         '<!DOCTYPE html><html><head>',
         '<meta charset="utf-8">',
@@ -4045,15 +4114,7 @@ def _render_schedule_detail(project, info, published_rows=None):
         f'{html.escape(str(tapeout_weeks))} weeks remaining · '
         f'started {html.escape(start_iso or "—")}</div>',
         '</section>',
-        '<section class="detail-section">',
-        '  <div class="section-h">Milestone timetable</div>',
-        timetable,
-        '  <div class="section-h">Block schedule <span class="section-h-sub">'
-        'bottom-up: leaf blocks deliver first, each parent integrates after its '
-        'children; the top block aligns with the project schedule</span></div>',
-        block_tt,
-        f'  <div style="padding:0 20px 20px">{est_note}</div>',
-        '</section>',
+        body,
         '</body></html>',
     ])
 
