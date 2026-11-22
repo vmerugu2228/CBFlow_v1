@@ -766,6 +766,11 @@ _STYLE = """
   header.bar { background: var(--panel); border-bottom: 1px solid var(--border);
                padding:8px 14px; display:flex; flex-wrap:wrap;
                align-items:center; gap:14px; }
+  .refresh-ctr { font-size:11px; font-weight:700; color: var(--muted);
+                 font-variant-numeric: tabular-nums; padding:2px 8px;
+                 border:1px solid var(--border); border-radius:10px; cursor:pointer;
+                 min-width:62px; text-align:center; }
+  .refresh-ctr:hover { color: var(--accent-ink); border-color: var(--accent); }
   header.bar .brand { font-weight:800; font-size:14px; color:var(--text);
                       letter-spacing:.01em; }
   header.bar .brand .lite { color: var(--muted); font-weight:500; margin-left:4px; }
@@ -1415,9 +1420,33 @@ _STYLE = """
 
 _SCRIPT_RELOAD_ON_FOCUS = """
 <script>
-  // Reload only when the tab regains focus — snapshots only change via
-  // publish, so polling wastes cycles.
-  window.addEventListener('focus', () => { location.reload(); });
+  // Auto-refresh every 5 minutes with an m:ss countdown at the left of the
+  // header bar (every SmartGrid page). Paused while the schedule is being
+  // edited so unsaved changes are not lost.
+  (function () {
+    var PERIOD = 300, left = PERIOD;
+    function fmt(s) { return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2); }
+    function mount() {
+      var bar = document.querySelector('header.bar');
+      if (!bar || document.getElementById('sg-refresh')) return;
+      var el = document.createElement('span');
+      el.id = 'sg-refresh'; el.className = 'refresh-ctr';
+      el.title = 'Auto-refresh every 5 minutes — click to refresh now';
+      el.onclick = function () { location.reload(); };
+      bar.insertBefore(el, bar.firstChild);
+      tick();
+    }
+    function tick() {
+      var el = document.getElementById('sg-refresh');
+      var editing = document.body.classList.contains('editing');
+      if (el) el.textContent = editing ? '⟳ paused' : '⟳ ' + fmt(left);
+      if (editing) return;
+      if (left <= 0) { location.reload(); return; }
+      left -= 1;
+    }
+    document.addEventListener('DOMContentLoaded', mount);
+    setInterval(tick, 1000);
+  })();
 </script>
 """
 
@@ -3140,6 +3169,7 @@ def _render_tier_stub(project, title, hint='', variant='stub'):
         '<meta charset="utf-8">',
         f'<title>CBflow-SmartGrid — {html.escape(project)}</title>',
         _STYLE,
+        _SCRIPT_RELOAD_ON_FOCUS,
         '<style>',
         '  .pill{display:inline-block;padding:2px 8px;border-radius:3px;'
         '        font-size:11px;font-weight:700;letter-spacing:.03em;'
