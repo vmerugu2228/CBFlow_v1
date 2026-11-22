@@ -40,6 +40,12 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
 
 /* ── Menu Dropdowns ── */
 .tb-menu { position:relative; }
+.act-bar { display:inline-flex; gap:4px; margin-left:12px; align-items:center; }
+.act-btn { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; font-size:11px; line-height:16px; border:1px solid var(--border); border-radius:4px; background:var(--surface); color:var(--text); cursor:pointer; }
+.act-btn span { font-size:10.5px; font-weight:600; }
+.act-btn:hover { background:var(--hover); }
+.act-go { border-color:#2e7d32; color:#2e7d32; }
+.act-stop { border-color:#c62828; color:#c62828; background:#ffebee; }
 .tb-menu-content { display:none; position:absolute; top:100%; left:0; background:var(--surface); border:1px solid var(--border); min-width:180px; z-index:300; box-shadow:0 4px 12px rgba(0,0,0,0.15); border-radius:0 0 4px 4px; }
 .tb-menu:hover .tb-menu-content { display:block; }
 .tb-menu-content a { display:block; padding:6px 12px; font-size:12px; color:var(--text); text-decoration:none; cursor:pointer; }
@@ -298,6 +304,18 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
   <span style="font-weight:600;color:#555">{{BYLINE}}</span>
   <span style="color:#999">·</span>
   <a href="mailto:varun@smartsocs.com" style="color:#1565c0;text-decoration:none">varun@smartsocs.com</a>
+  <!-- Always-visible action icons (same actions as the Flow menu) -->
+  <span class="act-bar">
+    <button class="act-btn act-go"   onclick="apiAction('run',{})" title="Run All">&#9654;<span>Run</span></button>
+    <button class="act-btn"          onclick="promptAction('run-stage','Run Stage','Select stage to run','Run')" title="Run Stage...">&#9654;&#124;<span>Stage</span></button>
+    <button class="act-btn"          onclick="apiAction('retrace',{})" title="Retrace All">&#8635;<span>Retrace</span></button>
+    <button class="act-btn"          onclick="promptAction('retrace','Retrace From','Retrace from stage','Retrace')" title="Retrace From...">&#8635;&#8230;<span>From</span></button>
+    <button class="act-btn"          onclick="promptAction('bypass','Bypass','Select stage to bypass','Bypass')" title="Bypass...">&#10140;<span>Bypass</span></button>
+    <button class="act-btn"          onclick="promptAction('force','Force Re-run','Select stage to force','Force')" title="Force Re-run...">&#8634;<span>Force</span></button>
+    <button class="act-btn"          onclick="promptAction('forcevalidate','Force Validate','Select stage to validate','Validate')" title="Force Validate...">&#10004;<span>Validate</span></button>
+    <button class="act-btn"          onclick="promptRelease()" title="Release...">&#128230;<span>Release</span></button>
+    <button class="act-btn act-stop" onclick="stopExecution()" title="Stop all running jobs">&#9632;<span>Stop</span></button>
+  </span>
 </div>
 
 <!-- ══ Context Menu (main view - stage) ══ -->
