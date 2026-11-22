@@ -453,6 +453,21 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
         <button onclick="doNodeRename()" style="width:100%;padding:5px;border:1px solid var(--border);border-radius:4px;background:var(--surface);cursor:pointer;font-size:11px">Rename</button>
       </div>
     </div>
+    <!-- Release form (shown when a release node is selected) -->
+    <div id="lp-release" style="display:none;border-top:1px solid var(--border);padding:10px 12px">
+      <div style="font-size:11px;font-weight:700;color:var(--text-dim);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Release</div>
+      <table style="width:100%;font-size:12px;border-collapse:collapse">
+        <tr><td style="color:var(--text-dim);padding:3px 0;width:60px">Released</td><td class="mono" id="rl-released" style="font-weight:600">-</td></tr>
+        <tr><td style="color:var(--text-dim);padding:3px 0">Tag</td>
+            <td><input id="rl-tag" list="rl-exits" type="text" placeholder="default: exit name"
+                 style="width:100%;padding:3px 4px;border:1px solid var(--border);border-radius:3px;font-size:12px;font-weight:600;background:#fff">
+                <datalist id="rl-exits"></datalist></td></tr>
+      </table>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;margin-top:6px;cursor:pointer"><input type="checkbox" id="rl-publish"> Publish to SmartGrid</label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;margin-top:4px;cursor:pointer"><input type="checkbox" id="rl-override"> Replace existing entry</label>
+      <button id="rl-go" onclick="doReleaseNode()" style="width:100%;margin-top:8px;padding:6px;border:1px solid #2e7d32;border-radius:4px;background:#e8f5e9;color:#1b5e20;font-weight:700;cursor:pointer;font-size:12px">&#128230; Release</button>
+      <div id="rl-note" style="font-size:10.5px;color:var(--text-dim);margin-top:5px">Re-runs this node with the tag (empty = exit name), then publishes if checked.</div>
+    </div>
     <!-- Input Variables (shown when leaf input node selected) -->
     <div id="lp-input-vars" style="display:none;padding:10px 12px;border-top:1px solid var(--border);flex:1;overflow-y:auto">
     </div>
@@ -837,7 +852,10 @@ function finishSelBox() {
   document.querySelectorAll('.dag-node').forEach(function(el) {
     var r = el.getBoundingClientRect();
     var name = el.getAttribute('data-name');
-    if (name && r.right >= x0 && r.left <= x1 && r.bottom >= y0 && r.top <= y1) multiSel.add(name);
+    // A node is boxed when its centre is inside the box (touching is not
+    // enough — boxing one node of a vertical chain must not catch the next)
+    var cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    if (name && cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1) multiSel.add(name);
   });
   paintMultiSel();
 }
@@ -918,6 +936,42 @@ function updateNodeInfoPanel(name) {
 
   // Show rename button only for custom nodes
   document.getElementById('ni-rename-btn').style.display = isCustom ? 'block' : 'none';
+  loadReleaseForm(name);
+}
+
+// Release form for a release node (release.manifest tag, editable tag,
+// publish option) — /api/release-node decides whether the node is one.
+function loadReleaseForm(name) {
+  var panel = document.getElementById('lp-release');
+  panel.style.display = 'none';
+  fetch('/api/release-node?node=' + encodeURIComponent(name)).then(function(r){ return r.json(); }).then(function(d) {
+    if (!d.is_release || selectedNode !== name) return;
+    panel.dataset.node = name;
+    document.getElementById('rl-released').textContent = d.released_tag || 'not released yet';
+    document.getElementById('rl-released').title = d.release_dir || '';
+    var inp = document.getElementById('rl-tag');
+    inp.value = d.override_tag || '';
+    inp.placeholder = 'default: ' + (d.released_tag || d.active_tag || 'exit name');
+    document.getElementById('rl-exits').innerHTML = (d.exits || []).map(function(e){ return '<option value="' + e + '">'; }).join('');
+    document.getElementById('rl-publish').checked = false;
+    document.getElementById('rl-override').checked = false;
+    panel.style.display = 'block';
+  }).catch(function(){});
+}
+
+function doReleaseNode() {
+  var panel = document.getElementById('lp-release');
+  var node = panel.dataset.node;
+  var tag = document.getElementById('rl-tag').value.trim();
+  if (tag && !/^[A-Za-z0-9_\-]+$/.test(tag)) { showToast('Tag: letters, digits, _ - only', 'error'); return; }
+  var btn = document.getElementById('rl-go');
+  btn.disabled = true; btn.textContent = 'Releasing...';
+  apiAction('release-node', {node: node, tag: tag,
+    publish: document.getElementById('rl-publish').checked,
+    override: document.getElementById('rl-override').checked}).then(function() {
+    btn.disabled = false; btn.innerHTML = '&#128230; Release';
+    loadReleaseForm(node);
+  });
 }
 
 function doNodeRename() {
