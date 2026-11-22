@@ -167,7 +167,7 @@ def url_for_index(project):
     from urllib.parse import quote
     st = status(project)
     port = st.get('port') or _daemon.deterministic_port(project)
-    bind_addr = st.get('bind_addr') or '127.0.0.1'
+    bind_addr = st.get('bind_addr') or _daemon.resolve_bind_addr(None)
     host = ('127.0.0.1' if bind_addr in ('127.0.0.1', 'localhost', '::1')
             else socket.gethostname())
     return f'http://{host}:{port}/project/{quote(project)}'

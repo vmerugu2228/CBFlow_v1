@@ -18,6 +18,8 @@ import glob
 import os
 import re
 
+import dash_config
+
 
 # ─── DEF ────────────────────────────────────────────────────────────────────
 
@@ -308,31 +310,14 @@ def parse_lef_dir(lef_paths):
 
 # ─── Extraction from a release ──────────────────────────────────────────────
 
-# The resolved node config.tcl lists per-stack per-track tech LEF and per-track
-# cell LEF lists. We look for these known key patterns.
-_LEF_KEYS_IN_RESOLVED = (
-    'tech(*,*,lef_tech)',
-    'tech(*,lef)',
-    'pnr(input,lef_files)',
-    'synth_pnr(input,lef_files)',
-    'fp(input,lef_files)',
-)
-
-
-def _find_def(release_dir):
-    """Prefer signoff → PNR → SYNTH_PNR → FP → any *.def."""
-    for flow in ('PNR', 'SYNTH_PNR', 'FP', 'SYNTH'):
-        for cand in (
-            os.path.join(release_dir, flow, 'def'),
-            os.path.join(release_dir, flow),
-        ):
-            if os.path.isdir(cand):
-                defs = sorted(glob.glob(os.path.join(cand, '*.def')))
-                if defs:
-                    return defs[0]
-    hits = sorted(glob.glob(os.path.join(release_dir, '**', '*.def'),
-                            recursive=True))
-    return hits[0] if hits else ''
+def _find_def(release_dir, block):
+    """The released DEF: <release_dir>/<category>/<filename> from the
+    release handshake map (flow_input_handshake(*,def_file) in
+    release_config.tcl, ${design_name} = block). '' when not released."""
+    category, pattern = dash_config.handshake_location('def_file')
+    name = pattern.replace('${design_name}', block).replace('$design_name', block)
+    p = os.path.join(release_dir, category, name)
+    return p if os.path.isfile(p) else ''
 
 
 def _lefs_in_tcl_text(text):
@@ -394,25 +379,38 @@ def _collect_lefs_from_config(config_path):
     return ordered
 
 
+def _nodes_of_type(flow, node_type):
+    """Nodes of `node_type` in the flow's node config (node_types,<node>)."""
+    reg = dash_config.registry
+    path = os.path.join(reg.discipline_dir(reg.flow_discipline(flow)), 'config', 'flow',
+                        reg.config_version('FLOW_CONFIG_VERSION'), 'node_configs',
+                        f'{flow}_config.tcl')
+    try:
+        with open(path, errors='replace') as f:
+            text = f.read()
+    except OSError:
+        return []
+    return re.findall(r'node_types,(\S+)\s+"?' + re.escape(node_type) + r'"?\s*$', text, re.M)
+
+
 def _find_resolved_config(run_dir):
-    """Find any node's resolved config.tcl for the LEF path sweep. Prefer
-    PNR/SYNTH_PNR init_design since those load the widest LEF set."""
-    for candidate in (
-        'work/PNR/init_design1/run/config.tcl',
-        'work/SYNTH_PNR/init_design1/run/config.tcl',
-        'work/FP/init_design1/run/config.tcl',
-        'work/FCFP/init_design1/run/config.tcl',
-    ):
-        p = os.path.join(run_dir, candidate)
-        if os.path.isfile(p):
-            return p
-    # Fallback: any config.tcl under work/
-    hits = sorted(glob.glob(os.path.join(run_dir, 'work', '**', 'config.tcl'),
-                            recursive=True))
-    return hits[0] if hits else ''
+    """Resolved config.tcl of the run's node of type
+    flow(dashboard,lef_node_type) (init_design — loads the widest LEF set),
+    for each flow the run has under work/, in flow(types) order. '' when the
+    run has no such node."""
+    node_type = dash_config.lef_node_type()
+    work = os.path.join(run_dir, 'work')
+    for flow in dash_config.registry.flow_types():
+        if not os.path.isdir(os.path.join(work, flow)):
+            continue
+        for node in _nodes_of_type(flow, node_type):
+            p = os.path.join(work, flow, node, 'run', 'config.tcl')
+            if os.path.isfile(p):
+                return p
+    return ''
 
 
-def extract_from_release(release_dir, run_dir):
+def extract_from_release(release_dir, run_dir, block):
     """Build the floorplan payload for the publish snapshot.
 
     Returns a dict with 4 keys — safe to embed under payload['floorplan']:
@@ -437,7 +435,8 @@ def extract_from_release(release_dir, run_dir):
     # The release's own LEFs (e.g. the block's abstract) come last so they
     # describe its macros when the config misses them.
     if release_dir:
-        for p in sorted(glob.glob(os.path.join(release_dir, 'lef', '*.lef'))):
+        lef_dir = os.path.join(release_dir, dash_config.release_name('dir,lef'))
+        for p in sorted(glob.glob(os.path.join(lef_dir, '*.lef'))):
             if p not in lefs:
                 lefs.append(p)
     payload['lef_paths'] = lefs
@@ -446,7 +445,7 @@ def extract_from_release(release_dir, run_dir):
 
     # 2. DEF — parse_def receives the macro heights so it never drops a
     #    macro during the stdcell downsample.
-    def_path = _find_def(release_dir) if release_dir else ''
+    def_path = _find_def(release_dir, block) if release_dir else ''
     payload['def_path'] = def_path
     if def_path:
         payload['def'] = parse_def(def_path, macro_heights_um=macro_h_um)

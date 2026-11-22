@@ -1,6 +1,7 @@
 """State paths for CBflow-ProjectDashboard.
 
-State layout under `~/.cbflow/project-dashboard/<project>/`:
+State layout under `<flow(smartgrid,state_dir)>/<project>/` (flow_registry.tcl,
+e.g. ~/.cbflow/project-dashboard):
 
   dashboard.pid           Owner PID (O_EXCL create for lifecycle atomicity)
   dashboard.port          HTTP port the daemon bound to
@@ -18,6 +19,12 @@ deterministic hash.
 
 import os
 import re
+import sys
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+import dash_config                                  # noqa: E402
 
 _PROJECT_RE = re.compile(r'^[A-Za-z0-9_\-]+$')
 _current_project = None
@@ -58,7 +65,8 @@ def _proj(p):
 
 
 def _root_base():
-    return os.path.join(os.path.expanduser('~'), '.cbflow', 'project-dashboard')
+    """flow(smartgrid,state_dir), ~ expanded."""
+    return os.path.expanduser(dash_config.smartgrid('state_dir'))
 
 
 def root(project=None):
@@ -119,7 +127,7 @@ def sibling_daemon_url(project):
 
     Used by the Tier 1 all-projects grid in router._render_tier1_projects
     and by the cross-project 302 redirect in _route. Looks only at the
-    filesystem under `~/.cbflow/project-dashboard/<project>/` — does NOT
+    filesystem under `<state_dir>/<project>/` — does NOT
     call root() (which creates the dir as a side effect; we must stay
     read-only for projects we don't own).
 
@@ -152,21 +160,20 @@ def sibling_daemon_url(project):
     except (OSError, ValueError):
         return ''
 
-    bind = '127.0.0.1'
+    bind = ''
     bind_file = os.path.join(base_dir, 'dashboard.bind_addr')
     if os.path.isfile(bind_file):
         try:
             with open(bind_file) as f:
-                recorded = f.read().strip()
-            if recorded and recorded not in ('127.0.0.1', '0.0.0.0'):
-                bind = recorded
-            elif recorded == '0.0.0.0':
-                # Public bind — rewrite to the hostname so remote browsers
-                # can reach the URL.
-                import socket
-                bind = socket.gethostname()
+                bind = f.read().strip()
         except OSError:
             pass
+    bind = bind or dash_config.smartgrid('bind_addr')
+    if bind == '0.0.0.0':
+        # Public bind — rewrite to the hostname so remote browsers can
+        # reach the URL.
+        import socket
+        bind = socket.gethostname()
     return f'http://{bind}:{port}/'
 
 

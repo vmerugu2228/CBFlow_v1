@@ -57,14 +57,113 @@ def flow_registry_path() -> str:
                         config_version('FLOW_CONFIG_VERSION'), 'flow_registry.tcl')
 
 
+def _tcl_word(rest: str) -> str:
+    """The Tcl word at the start of `rest`: "quoted", {braced} (nested braces
+    and multiple lines allowed; outer braces stripped) or a bare word."""
+    if rest.startswith('"'):
+        end = rest.find('"', 1)
+        return rest[1:end] if end > 0 else rest[1:]
+    if rest.startswith('{'):
+        depth = 0
+        for i, ch in enumerate(rest):
+            depth += {'{': 1, '}': -1}.get(ch, 0)
+            if depth == 0:
+                return rest[1:i]
+        return rest[1:]
+    return rest.split(None, 1)[0] if rest.strip() else ''
+
+
+def _array_values(text: str, array: str, key_re: str):
+    """[(key, value)] for every `set <array>(<key>) <word>` whose key matches
+    key_re, in file order."""
+    out = []
+    for m in re.finditer(r'^\s*set\s+' + re.escape(array) + r'\((' + key_re + r')\)[ \t]+',
+                         text, re.M):
+        out.append((m.group(1), _tcl_word(text[m.end():])))
+    return out
+
+
+def tcl_list(value: str) -> list:
+    """Split a Tcl list string into its elements ({a b} and "a b" kept whole)."""
+    out, i, s = [], 0, value or ''
+    while i < len(s):
+        if s[i].isspace():
+            i += 1
+            continue
+        if s[i] in '{"':
+            word = _tcl_word(s[i:])
+            out.append(word)
+            if s[i] == '"':
+                i += len(word) + 2
+            else:
+                depth, j = 0, i
+                while j < len(s):
+                    depth += {'{': 1, '}': -1}.get(s[j], 0)
+                    j += 1
+                    if depth == 0:
+                        break
+                i = j
+            continue
+        j = i
+        while j < len(s) and not s[j].isspace():
+            j += 1
+        out.append(s[i:j])
+        i = j
+    return out
+
+
 def _registry_value(key: str):
     """Value of `set flow(<key>) …` in flow_registry.tcl, or None."""
-    text = _read(flow_registry_path())
-    m = re.search(r'^\s*set\s+flow\(' + re.escape(key) + r'\)\s+(?:"([^"]*)"|\{([^}]*)\}|(\S+))',
-                  text, re.M)
-    if not m:
-        return None
-    return next(g for g in m.groups() if g is not None)
+    hits = _array_values(_read(flow_registry_path()), 'flow', re.escape(key))
+    return hits[0][1] if hits else None
+
+
+def flow_value(key: str):
+    """Value of `set flow(<key>) …` in flow_registry.tcl, or None."""
+    return _registry_value(key)
+
+
+def require_flow_value(key: str) -> str:
+    v = _registry_value(key)
+    if v is None or v == '':
+        raise RegistryError(f'flow({key}) is not set in flow_registry.tcl')
+    return v
+
+
+def flow_values(prefix: str) -> dict:
+    """{suffix: value} for every `set flow(<prefix><suffix>) …` in
+    flow_registry.tcl (declaration order)."""
+    return {k[len(prefix):]: v for k, v in
+            _array_values(_read(flow_registry_path()), 'flow', re.escape(prefix) + r'[^)]+')}
+
+
+def release_config_path() -> str:
+    """The release config (exit order, handshake map, release layout keys)."""
+    return os.path.join(discipline_dir('PD'), 'config', 'flow',
+                        config_version('FLOW_CONFIG_VERSION'), 'release_config.tcl')
+
+
+def release_value(key: str):
+    """Value of `set release(<key>) …` in release_config.tcl, or None."""
+    hits = _array_values(_read(release_config_path()), 'release', re.escape(key))
+    return hits[0][1] if hits else None
+
+
+def require_release_value(key: str) -> str:
+    v = release_value(key)
+    if v is None or v == '':
+        raise RegistryError(f'release({key}) is not set in release_config.tcl')
+    return v
+
+
+def handshake_entries(input_type: str) -> dict:
+    """{downstream_flow: [source_flow, category, filename]} for every
+    flow_input_handshake(<FLOW>,<input_type>) in release_config.tcl."""
+    out = {}
+    for k, v in _array_values(_read(release_config_path()), 'flow_input_handshake',
+                              r'[A-Z0-9_]+,' + re.escape(input_type)):
+        out[k.split(',', 1)[0]] = tcl_list(v)
+    return out
 
 
 def flow_disciplines() -> list:
@@ -134,20 +233,8 @@ def project_value(project: str, key: str):
     Braced values may span lines."""
     val = None
     for p in project_config_paths(project):
-        text = _read(p)
-        for m in re.finditer(r'^\s*set\s+project\(' + re.escape(key) + r'\)\s+', text, re.M):
-            rest = text[m.end():]
-            if rest.startswith('"'):
-                val = rest[1:rest.index('"', 1)]
-            elif rest.startswith('{'):
-                depth, i = 0, 0
-                for i, ch in enumerate(rest):
-                    depth += {'{': 1, '}': -1}.get(ch, 0)
-                    if depth == 0:
-                        break
-                val = rest[1:i]
-            else:
-                val = rest.split(None, 1)[0] if rest.strip() else ''
+        for _, v in _array_values(_read(p), 'project', re.escape(key)):
+            val = v
     return val
 
 

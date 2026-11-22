@@ -16,8 +16,8 @@ PhaseExitsError — there is no fallback.
 import os
 import re
 
-_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                     os.pardir, os.pardir, os.pardir))
+from core import registry
+
 _TAG_RE = re.compile(r'set\s+release_tags\((\w+)\)\s+\{(.*)\}\s*$', re.M)
 
 
@@ -41,11 +41,11 @@ def _read_cached(path):
 
 
 def _release_config_text():
-    ver = os.environ.get('FLOW_CONFIG_VERSION', 'v1.0.0')
-    core = os.environ.get('CBFLOW_CORE_DIR') or os.path.join(_ROOT, 'PD')
-    path = os.path.join(core, 'config', 'flow', ver, 'release_config.tcl')
     try:
+        path = registry.release_config_path()
         return _read_cached(path)
+    except registry.RegistryError as e:
+        raise PhaseExitsError(str(e))
     except OSError as e:
         raise PhaseExitsError(f'cannot read {path}: {e}')
 
@@ -77,14 +77,11 @@ def release_tags():
 
 
 def _project_config_paths(project):
-    ver = os.environ.get('PROJECT_CONFIG_VERSION', 'v1.0.0')
-    paths = []
-    for disc in ('global', 'PD'):
-        d = os.path.join(_ROOT, disc, 'config', 'project', project, ver)
-        if os.path.isdir(d):
-            paths += [os.path.join(d, n) for n in sorted(os.listdir(d))
-                      if n.endswith('.tcl') and not n.startswith(('mmmc_', 'schedule_'))]
-    return paths
+    """Global project config + every discipline overlay (core.registry)."""
+    try:
+        return registry.project_config_paths(project)
+    except registry.RegistryError as e:
+        raise PhaseExitsError(str(e))
 
 
 def phase_exits(project):

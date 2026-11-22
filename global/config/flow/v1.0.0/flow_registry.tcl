@@ -134,6 +134,66 @@ if {![info exists flow(use_xterm)]}             { set flow(use_xterm)     true }
 if {![info exists flow(cbflow_version)]}        { set flow(cbflow_version) "2.0.0" }
 if {![info exists flow(dashboard,default_port)]} { set flow(dashboard,default_port) 0 }
 
+# ── SmartGrid (project dashboard) ───────────────────────────────────────────
+# Read by global/utils/project_dashboard/ via core.registry (plain `set`, one
+# key per line — no fallbacks in code: a missing key is an error or an
+# explicit "not configured" note on the page).
+#
+# Daemon: per-user × per-project port = port_base + hash(uid:project) % port_span
+# (stays clear of the run-dashboard bands 9000-9999 / 20000-24999); default
+# bind address (--bind-addr overrides it); per-user state dir (~ expanded).
+set flow(smartgrid,port_base)  25000
+set flow(smartgrid,port_span)  2500
+set flow(smartgrid,bind_addr)  "127.0.0.1"
+set flow(smartgrid,state_dir)  "~/.cbflow/project-dashboard"
+#
+# Discipline accent colours (chips, tiles, discipline-summary heading).
+set flow(discipline_color,PD)   "#1565c0"
+set flow(discipline_color,DFT)  "#0d9488"
+set flow(discipline_color,DV)   "#be185d"
+set flow(discipline_color,RTL)  "#1565c0"
+#
+# Discipline summary "Top metrics" tiles — metric names as published
+# (metrics.rpt / RACE metrics_snapshot), in display order.
+set flow(dashboard,top_metrics,PD)  {{Setup WNS} {Setup TNS} {Hold WNS} Utilization {DRC violations} {Clock skew ps}}
+set flow(dashboard,top_metrics,DFT) {fault_coverage_pct test_coverage_pct atpg_eff_pct pattern_count mbist_controller_count drc_violation_count}
+set flow(dashboard,top_metrics,DV)  {coverage_pct bins_hit bins_total uvm_errors}
+#
+# Metric polarity — which value is the worse QoR point when one publish has
+# several rows of the same metric (scenarios / corners). higher_better: the
+# smaller value is worse; lower_better: the larger value is worse. Metrics
+# without a polarity tie-break on (scenario, corner).
+set flow(metric,WNS,polarity)                    "higher_better"
+set flow(metric,TNS,polarity)                    "higher_better"
+set flow(metric,fault_coverage_pct,polarity)     "higher_better"
+set flow(metric,test_coverage_pct,polarity)      "higher_better"
+set flow(metric,atpg_eff_pct,polarity)           "higher_better"
+set flow(metric,coverage_pct,polarity)           "higher_better"
+set flow(metric,mbist_controller_count,polarity) "higher_better"
+set flow(metric,drc_count,polarity)              "lower_better"
+set flow(metric,lvs_errors,polarity)             "lower_better"
+set flow(metric,uvm_errors,polarity)             "lower_better"
+set flow(metric,drc_violation_count,polarity)    "lower_better"
+#
+# Published-run detail page: metric category → tab (routing / timing /
+# signoff; anything unmapped lands under "Other metrics"). A category that
+# contains a timing-tab category name also goes to timing, as does a metric
+# whose upper-cased name contains one of timing_name_tokens.
+set flow(dashboard,category_tab,routing)    "routing"
+set flow(dashboard,category_tab,congestion) "routing"
+set flow(dashboard,category_tab,timing)     "timing"
+set flow(dashboard,category_tab,power)      "signoff"
+set flow(dashboard,category_tab,em)         "signoff"
+set flow(dashboard,category_tab,ir)         "signoff"
+set flow(dashboard,category_tab,signoff)    "signoff"
+set flow(dashboard,category_tab,drc)        "signoff"
+set flow(dashboard,category_tab,lvs)        "signoff"
+set flow(dashboard,timing_name_tokens)      {WNS TNS HOLD SETUP SLACK FMAX FREQ}
+#
+# Floorplan snapshot: LEF paths are swept from the resolved config.tcl of the
+# run's node of this node type (node_configs node_types,<node>).
+set flow(dashboard,lef_node_type)           "init_design"
+
 # ── Flow Mode ───────────────────────────────────────────────────────────────
 if {![info exists flow(mode)]}                  { set flow(mode)                  "default" }
 if {![info exists flow(merged,flows)]}          { set flow(merged,flows)          "SYNTH_PNR" }

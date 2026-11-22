@@ -43,6 +43,11 @@ set project(custom,config_files) "phoenix_extra.tcl"
 # DB structure: $db_path/$project_name/$domain/$flow_type/$user_$run_name.db
 set project(race,db_path) "/Users/vmerugu/projects/CBflow_clone/.race_area/phoenix"
 
+# SmartGrid header: brand suffix, byline and contact link (unset = not shown)
+set project(dashboard,org)           "SmartSoC"
+set project(dashboard,developed_by)  "SmartSoC CAD · Varun Reddy Merugu"
+set project(dashboard,contact_email) "varun@smartsocs.com"
+
 # Release Path Configuration
 # Release path structure: $release_path/$phase/$block_name/$release_tag
 set project(release,path) "/proj/phoenix/releases"

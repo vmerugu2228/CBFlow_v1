@@ -44,6 +44,23 @@ set flow(release_base_dir)    "releases"
 set flow(release_default_tag) "latest"
 set flow(release_structure)   {netlist sdc def gds reports scripts}
 
+# ┌─ Release layout: markers + well-known files inside <block>/<FLOW>/<tag>/ ──┐
+# Read by SmartGrid (global/utils/project_dashboard) via core.registry.
+#   marker,manifest       release manifest (flow, user, timestamp)
+#   marker,complete       written last — a tag dir without it is unfinished
+#   file,changelog        optional changelog captured with the publish
+#   file,metrics          "Key : value" metrics report ("# category: <c>" headers)
+#   file,timing_snapshot  pre-built timing snapshot JSON (first match wins)
+#   dir,images            routing / congestion images (IMAGE_<TAG> files)
+#   dir,lef               the block's own LEFs (abstract) for the floorplan view
+set release(marker,manifest)       "MANIFEST.json"
+set release(marker,complete)       "RELEASE_COMPLETE"
+set release(file,changelog)        "CHANGELOG.md"
+set release(file,metrics)          "metrics.rpt"
+set release(file,timing_snapshot)  {timing_snapshot.json timing/snapshot.json}
+set release(dir,images)            "images"
+set release(dir,lef)               "lef"
+
 # array set release_paths { … } expanded to per-key `set` statements so `#` comments work natively (Tcl treats `#` as data inside `array set` literals).
     set release_paths(rtl) { "2024Q4_v2.0" "" "2024Q3_v1.8" "" "2024Q2_v1.5" "" }
     set release_paths(constraints) { "2024Q4_v2.0" "" "2024Q3_v1.8" "" "2024Q2_v1.5" "" }

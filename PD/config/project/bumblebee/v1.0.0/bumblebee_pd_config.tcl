@@ -43,11 +43,11 @@ set project(custom,config_files) "bumblebee_extra.tcl"
 # DB structure: $db_path/$project_name/$domain/$flow_type/$user_$run_name.db
 set project(race,db_path) "/Users/vmerugu/projects/CBflow_clone/.race_area"
 
-# Dashboard byline. The framework default is now
-#   "SmartSoC CAD · Varun Reddy Merugu <varun@smartsocs.com>"
-# Override here only when a specific project ships under a different
-# credit (co-developed, external customer brand, etc.).
-set project(dashboard,developed_by) "SmartSoC CAD · Varun Reddy Merugu"
+# SmartGrid header: brand suffix, byline and contact link. There is no
+# framework default — a key left unset renders nothing.
+set project(dashboard,org)           "SmartSoC"
+set project(dashboard,developed_by)  "SmartSoC CAD · Varun Reddy Merugu"
+set project(dashboard,contact_email) "varun@smartsocs.com"
 
 # Release Path Configuration
 # Release path structure: $release_path/$phase/$block_name/$release_tag

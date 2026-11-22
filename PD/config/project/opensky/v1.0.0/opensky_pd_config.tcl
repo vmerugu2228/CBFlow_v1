@@ -24,6 +24,11 @@ set project(lib_config_tag) "OSS0"
 
 set project(race,db_path) "/Users/vmerugu/projects/CBflow_clone/.race_area/opensky"
 
+;# SmartGrid header: brand suffix, byline and contact link (unset = not shown)
+set project(dashboard,org)           "SmartSoC"
+set project(dashboard,developed_by)  "SmartSoC CAD · Varun Reddy Merugu"
+set project(dashboard,contact_email) "varun@smartsocs.com"
+
 ;# Release paths
 set project(release,path)        "/Users/vmerugu/projects/CBflow_clone/test_releases"
 set project(release,phase)       "P0"

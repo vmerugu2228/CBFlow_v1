@@ -18,15 +18,16 @@ import re
 import shutil
 from datetime import date, datetime, timedelta
 
-_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                     os.pardir, os.pardir, os.pardir))
+import dash_config
+
+registry = dash_config.registry
 _SET_RE = re.compile(r'^\s*set\s+schedule\(([^)]+)\)\s+(?:"([^"]*)"|\{([^}]*)\}|(\S+))',
                      re.MULTILINE)
 
 
 def path(project):
-    version = os.environ.get('PROJECT_CONFIG_VERSION', 'v1.0.0')
-    return os.path.join(_ROOT, 'global', 'config', 'project', project, version,
+    return os.path.join(registry.root(), 'global', 'config', 'project', project,
+                        registry.config_version('PROJECT_CONFIG_VERSION'),
                         'schedule_config.tcl')
 
 
@@ -107,6 +108,17 @@ def validate(data, phase_exits):
         if prev:
             prev_last = prev[1]
     return errs
+
+
+def tapeout_mismatch(project, data):
+    """Warning text when schedule(tapeout_date) differs from the project's
+    tapeout (project(tapeout_date), the single source for tapeout), else ''."""
+    sched_t = (data or {}).get('tapeout_date') or ''
+    proj_t = dash_config.project_value(project, 'tapeout_date') or ''
+    if sched_t and sched_t != proj_t:
+        return (f'schedule(tapeout_date) {sched_t} differs from project(tapeout_date) '
+                f'{proj_t or "(not set)"} — the project config is the tapeout of record')
+    return ''
 
 
 def warnings(data, hier, phase_exits):

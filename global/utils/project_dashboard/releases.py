@@ -3,15 +3,15 @@
 Reads the project's release area on disk — the same layout
 `release_utils.tcl` writes:
 
-    <project(release,path)>/<phase>/<block>/<tag>/MANIFEST.json
-                                              /RELEASE_COMPLETE
+    <project(release,path)>/<phase>/<block>/<FLOW>/<tag>/<release(marker,manifest)>
+                                                     /<release(marker,complete)>
 
 and rolls it up per phase against the project's design hierarchy and its
-enabled PD flows:
+enabled flows (every discipline):
 
   * blocks released   — hierarchy blocks with >=1 complete release
   * completeness      — released (block, flow) pairs / expected pairs,
-                        expected = every hierarchy block x every enabled PD flow
+                        expected = every hierarchy block x every enabled flow
   * per level         — the same, split by DL1 / DL2 / DL3
   * per subtree       — a block plus all its descendants (bottom-up readiness)
 
@@ -23,75 +23,22 @@ import json
 import os
 import re
 
-_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                     os.pardir, os.pardir, os.pardir))
+import dash_config
+
 _TAG_RE = re.compile(r'^(?P<phase>[A-Za-z0-9]+)_(?P<flow>[A-Z][A-Z0-9_]*?)_v(?P<ver>\d+)$')
 
 
-def _project_config_text(project):
-    """Global project config first, PD overlay after (later wins)."""
-    version = os.environ.get('PROJECT_CONFIG_VERSION', 'v1.0.0')
-    bodies = []
-    for disc_dir in ('global', 'PD'):
-        d = os.path.join(_ROOT, disc_dir, 'config', 'project', project, version)
-        if not os.path.isdir(d):
-            continue
-        for name in sorted(os.listdir(d)):
-            if name.endswith('.tcl') and not name.startswith('mmmc_'):
-                try:
-                    with open(os.path.join(d, name), encoding='utf-8',
-                              errors='replace') as f:
-                        bodies.append(f.read())
-                except OSError:
-                    pass
-    return bodies
-
-
-def _grab(bodies, key):
-    val = None
-    for text in bodies:
-        m = re.search(r'^\s*set\s+project\(' + re.escape(key)
-                      + r'\)\s+(?:"([^"]*)"|\{([^}]*)\})', text, re.MULTILINE)
-        if m:
-            val = m.group(1) if m.group(1) is not None else m.group(2)
-    return val
-
-
-def _parse_hierarchy(bodies):
-    """project(design_hierarchy) → {block: {level, parent, children}} in
-    declaration order."""
-    for text in reversed(bodies):
-        m = re.search(r'^\s*set\s+project\(design_hierarchy\)\s+\{(.*?)^\}',
-                      text, re.MULTILINE | re.DOTALL)
-        if not m:
-            continue
-        body, out, i = m.group(1), {}, 0
-        while True:
-            mb = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)\s*\{').search(body, i)
-            if not mb:
-                break
-            depth, j = 1, mb.end()
-            while j < len(body) and depth:
-                depth += {'{': 1, '}': -1}.get(body[j], 0)
-                j += 1
-            entry = body[mb.end():j - 1]
-            spec = {}
-            for k in ('level', 'parent'):
-                mk = re.search(r'\b' + k + r'\s+"([^"]*)"', entry)
-                spec[k] = mk.group(1) if mk else ''
-            mc = re.search(r'\bchildren\s+\{([^}]*)\}', entry)
-            spec['children'] = mc.group(1).split() if mc else []
-            out[mb.group(1)] = spec
-            i = j
-        return out
-    return {}
+def _parse_hierarchy(project):
+    """project(design_hierarchy) → {block: {level, parent, children,
+    description}} in declaration order."""
+    return dash_config.hierarchy(project)
 
 
 def _read_manifest(tag_dir, tag):
     """flow + timestamp from MANIFEST.json; tolerate a malformed file by
     regex-scanning it, then by parsing the tag name."""
     flow = ts = ''
-    path = os.path.join(tag_dir, 'MANIFEST.json')
+    path = os.path.join(tag_dir, dash_config.release_name('marker,manifest'))
     text = ''
     try:
         with open(path, encoding='utf-8', errors='replace') as f:
@@ -119,11 +66,12 @@ def _read_manifest(tag_dir, tag):
 def _tag_dirs(bdir):
     """(tag_dir, tag, flow_hint) under a block: <block>/<FLOW>/<tag> (current
     layout — the FLOW dir names the flow) and legacy <block>/<tag> dirs."""
+    manifest = dash_config.release_name('marker,manifest')
     for name in sorted(os.listdir(bdir)):
         d = os.path.join(bdir, name)
         if not os.path.isdir(d) or os.path.islink(d):
             continue                                # links: old paths of moved releases
-        if os.path.isfile(os.path.join(d, 'MANIFEST.json')) or _TAG_RE.match(name):
+        if os.path.isfile(os.path.join(d, manifest)) or _TAG_RE.match(name):
             yield d, name, ''                       # legacy <block>/<tag>
             continue
         for tag in sorted(os.listdir(d)):
@@ -139,14 +87,15 @@ def _scan_block(phase_dir, block):
     flows = {}
     if not os.path.isdir(bdir):
         return flows
+    complete_marker = dash_config.release_name('marker,complete')
     for tdir, tag, flow_hint in _tag_dirs(bdir):
-        # A tag dir without MANIFEST.json is an unfinished release: shown,
-        # never counted complete (RELEASE_COMPLETE is written after it).
+        # A tag dir without the manifest is an unfinished release: shown,
+        # never counted complete (the complete marker is written after it).
         flow, ts = _read_manifest(tdir, tag)
         flow = flow_hint or flow
         if not flow:
             continue
-        complete = os.path.isfile(os.path.join(tdir, 'RELEASE_COMPLETE'))
+        complete = os.path.isfile(os.path.join(tdir, complete_marker))
         cur = flows.get(flow)
         versions = (cur['versions'] if cur else 0) + 1
         better = (cur is None or (complete, ts) > (cur['complete'], cur['timestamp']))
@@ -162,14 +111,14 @@ def _pct(done, total):
 
 def release_stats(project, expected_flows):
     """Per-phase release rollup. Returns {} when the project declares no
-    release path or hierarchy."""
-    bodies = _project_config_text(project)
-    rel_path = _grab(bodies, 'release,path') or ''
-    phases = (_grab(bodies, 'phases') or '').split()
-    current = _grab(bodies, 'current_phase') or _grab(bodies, 'release,phase') or ''
-    hier = _parse_hierarchy(bodies)
+    release path or hierarchy (the pages say which keys to set). The current
+    phase is project(current_phase) — required."""
+    rel_path = dash_config.project_value(project, 'release,path') or ''
+    hier = _parse_hierarchy(project)
     if not rel_path or not hier:
         return {}
+    phases = dash_config.registry.tcl_list(dash_config.project_value(project, 'phases') or '')
+    current = dash_config.require_project_value(project, 'current_phase')
     expected = [f.upper() for f in expected_flows]
     levels = sorted({s['level'] for s in hier.values() if s['level']})
 

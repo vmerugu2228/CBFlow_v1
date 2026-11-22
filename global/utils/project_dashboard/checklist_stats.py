@@ -15,7 +15,51 @@ project(design_hierarchy):
 import os
 import sqlite3
 
+# ─── Shared checklist / verdict vocabulary ──────────────────────────────────
+# The one definition used by the publisher (client.py), the tracker schema
+# (tracker_db.py) and every SmartGrid page (router.py).
+
+# Publish verdicts (tracker.db published_runs.verdict CHECK constraint).
+VERDICTS = ('PASS', 'CONDITIONAL', 'BLOCKED', 'UNKNOWN')
+# Check statuses counted on the checklist pages.
 STATUSES = ('PASS', 'FAIL', 'WAIVED', 'NA', 'SKIPPED')
+# Raw statuses folded into a counted one.
+STATUS_ALIASES = {'CONFIG_ERROR': 'FAIL', 'PENDING': 'NA'}
+# Mandatory-check statuses that pass / that block the milestone (same rule
+# as `cbflow flow checklist status`; None = never evaluated).
+MANDATORY_PASSING = ('PASS', 'SKIPPED')
+MANDATORY_BLOCKING = ('FAIL', 'NA', 'PENDING', None)
+# Pill style (tt-status st-*) per verdict / check status; others: 'future'.
+VERDICT_CLS = {'PASS': 'past', 'CONDITIONAL': 'next', 'BLOCKED': 'late'}
+STATUS_CLS = {'PASS': 'past', 'FAIL': 'late', 'ERROR': 'late',
+              'WAIVED': 'next', 'CONDITIONAL': 'next'}
+
+
+def normalize_status(st):
+    st = (st or 'NA').upper()
+    return STATUS_ALIASES.get(st, st)
+
+
+def verdict_of(checklist):
+    """(verdict, closability_pct) of a milestone checklist: BLOCKED if a
+    mandatory check is blocking or a critical library check FAILed,
+    CONDITIONAL if a mandatory check is WAIVED, PASS otherwise; UNKNOWN /
+    None without mandatory checks."""
+    mandatory = [c for c in checklist if c.get('check_type') == 'mandatory']
+    if not mandatory:
+        return 'UNKNOWN', None
+    passed = sum(1 for c in mandatory if c.get('status') in MANDATORY_PASSING)
+    waived = sum(1 for c in mandatory if c.get('status') == 'WAIVED')
+    blocked = sum(1 for c in mandatory if c.get('status') in MANDATORY_BLOCKING)
+    blocked += sum(1 for c in checklist
+                   if c.get('check_type') == 'library' and c.get('status') == 'FAIL'
+                   and c.get('severity') == 'critical')
+    closability = round(100.0 * passed / len(mandatory), 1)
+    if blocked:
+        return 'BLOCKED', closability
+    if waived:
+        return 'CONDITIONAL', closability
+    return 'PASS', closability
 
 
 def _counts(conn, run_id):
@@ -24,11 +68,7 @@ def _counts(conn, run_id):
     for st, ctype, name in conn.execute(
             'SELECT status, check_type, check_name FROM run_checklist '
             'WHERE published_run_id=?', (run_id,)):
-        st = (st or 'NA').upper()
-        if st == 'CONFIG_ERROR':
-            st = 'FAIL'
-        elif st == 'PENDING':
-            st = 'NA'
+        st = normalize_status(st)
         if st in out:
             out[st] += 1
         if ctype == 'mandatory' and st in ('FAIL', 'NA'):

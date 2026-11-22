@@ -18,7 +18,14 @@ re-publish without `override=True` raises ConflictError.
 import json
 import os
 import sqlite3
+import sys
 from datetime import datetime, timezone
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+from checklist_stats import VERDICTS                    # noqa: E402
+_VERDICT_SQL = ','.join(f"'{v}'" for v in VERDICTS)
 
 
 class ConflictError(Exception):
@@ -27,7 +34,7 @@ class ConflictError(Exception):
 
 # ─── Schema ─────────────────────────────────────────────────────────────────
 
-_SCHEMA = """
+_SCHEMA = f"""
 CREATE TABLE IF NOT EXISTS project_info (
     project        TEXT PRIMARY KEY,
     tapeout_date   TEXT,
@@ -67,10 +74,10 @@ CREATE TABLE IF NOT EXISTS published_runs (
     published_by     TEXT NOT NULL,
     published_at     TEXT DEFAULT (datetime('now')),
     verdict          TEXT CHECK (verdict IS NULL OR verdict IN
-                                 ('PASS','CONDITIONAL','BLOCKED','UNKNOWN')),
+                                 ({_VERDICT_SQL})),
     closability_pct  REAL CHECK (closability_pct IS NULL OR
                                  (closability_pct >= 0 AND closability_pct <= 100)),
-    discipline       TEXT DEFAULT 'PD',
+    discipline       TEXT,               -- flow(discipline,<flow>), set at publish
     flow             TEXT NOT NULL DEFAULT '',
     attach_to        TEXT,               -- signoff run: the exit it verified
     UNIQUE (project, block, phase, milestone, flow)
@@ -136,7 +143,7 @@ CREATE TABLE IF NOT EXISTS run_timing (
     units            INTEGER,       -- DBUs per micron (mirrors floorplan)
     n_groups         INTEGER,       -- number of clock groups captured
     n_paths          INTEGER,       -- total paths across all groups
-    groups_json      TEXT,          -- {"clock_groups":[{"name","paths":[...]}]}
+    groups_json      TEXT,          -- {{"clock_groups":[{{"name","paths":[...]}}]}}
     FOREIGN KEY (published_run_id) REFERENCES published_runs(id) ON DELETE CASCADE
 );
 
@@ -144,10 +151,10 @@ CREATE TABLE IF NOT EXISTS run_floorplan (
     published_run_id INTEGER PRIMARY KEY,
     def_path         TEXT,               -- source DEF (informational)
     units            INTEGER,            -- DEF UNITS DISTANCE MICRONS (DBUs/um)
-    boundary_json    TEXT,               -- {"x1":..,"y1":..,"x2":..,"y2":..}
-    rows_json        TEXT,               -- [{name,site,x,y,orient,count_x,count_y,step_x,step_y}, ...]
-    cells_json       TEXT,               -- [{name,macro,x,y,orient}, ...]  (may be downsampled)
-    macros_json      TEXT,               -- {macro_name: {w,h}}
+    boundary_json    TEXT,               -- {{"x1":..,"y1":..,"x2":..,"y2":..}}
+    rows_json        TEXT,               -- [{{name,site,x,y,orient,count_x,count_y,step_x,step_y}}, ...]
+    cells_json       TEXT,               -- [{{name,macro,x,y,orient}}, ...]  (may be downsampled)
+    macros_json      TEXT,               -- {{macro_name: {{w,h}}}}
     lef_paths_json   TEXT,               -- [<lef file paths>, ...]
     downsampled      INTEGER,            -- 1 if cells list was capped
     density_json     TEXT,               -- density heatmap over ALL cells (pre-downsample)
@@ -217,15 +224,14 @@ def init_db(db_path):
         _migrate_flow_identity(conn)
         conn.executescript(_SCHEMA)
         # Forward-compat: add columns introduced after v1.0.0.
-        # DEFAULT clause populates legacy rows at ALTER time; readers no
-        # longer need defensive `.get(k) or 'PD'` fallbacks.
+        # DEFAULT clause populates legacy rows at ALTER time (None = no
+        # default; such columns are backfilled from config below).
         migrations = [
             ('run_floorplan', 'density_json', 'TEXT',    "'{}'"),
             ('run_floorplan', 'total_cells',  'INTEGER', '0'),
             # v3 (2026-11-02): discipline tag on published runs. Tier 3
-            # filters by this. Legacy rows default to 'PD' (current
-            # projects are PD-dominant).
-            ('published_runs', 'discipline', 'TEXT',    "'PD'"),
+            # filters by this; legacy rows are tagged from their flow.
+            ('published_runs', 'discipline', 'TEXT',    None),
         ]
         # Entire migration loop wrapped in a single txn so partial-success
         # on a mid-list ALTER failure rolls back cleanly instead of
@@ -237,8 +243,9 @@ def init_db(db_path):
                     f'PRAGMA table_info({table})')}
                 if col not in cols:
                     conn.execute(
-                        f'ALTER TABLE {table} ADD COLUMN {col} {ctype} '
-                        f'DEFAULT {default}')
+                        f'ALTER TABLE {table} ADD COLUMN {col} {ctype}'
+                        + (f' DEFAULT {default}' if default is not None else ''))
+            _backfill_discipline(conn)
             conn.execute('COMMIT')
         except sqlite3.OperationalError as _err:
             conn.execute('ROLLBACK')
@@ -251,6 +258,26 @@ def init_db(db_path):
         os.chmod(db_path, 0o600)
     finally:
         conn.close()
+
+
+def _backfill_discipline(conn):
+    """Tag rows without a discipline from their flow (flow(discipline,<FLOW>)
+    in flow_registry.tcl). A flow the registry does not map stays untagged —
+    the row is then listed under no discipline rather than guessed."""
+    flows = [r[0] for r in conn.execute(
+        "SELECT DISTINCT flow FROM published_runs "
+        "WHERE discipline IS NULL AND flow != ''")]
+    if not flows:
+        return
+    import dash_config
+    dash_config.registry.flow_disciplines()        # registry itself must load
+    for flow in flows:
+        try:
+            disc = dash_config.registry.flow_discipline(flow)
+        except dash_config.RegistryError:
+            continue
+        conn.execute('UPDATE published_runs SET discipline=? '
+                     'WHERE discipline IS NULL AND flow=?', (disc, flow))
 
 
 def _migrate_flow_identity(conn):
@@ -387,7 +414,7 @@ def publish(db_path, payload, project):
                                                   threshold, severity, detail}
       files                              list of {kind, rel_path, sha256}
     """
-    for k in ('block', 'phase', 'milestone', 'flow', 'published_by'):
+    for k in ('block', 'phase', 'milestone', 'flow', 'discipline', 'published_by'):
         if not payload.get(k):
             raise ValueError(f'publish payload missing required field: {k}')
     block = payload['block']
@@ -473,11 +500,9 @@ def publish(db_path, payload, project):
             payload['published_by'], _now(),
             payload.get('verdict', 'UNKNOWN'),
             payload.get('closability_pct'),
-            # discipline tag — publisher resolves from flow_type via
-            # tcl_config_parser.get_flow_discipline before calling here.
-            # Legacy publishers that don't set it store NULL; readers
-            # treat NULL as 'PD'.
-            (payload.get('discipline') or '').upper() or None,
+            # discipline tag — the publisher resolves it from the flow
+            # (flow(discipline,<FLOW>)); required, checked above.
+            payload['discipline'].upper(),
             flow, payload.get('attach_to') or None,
         ))
         pid = cur.lastrowid

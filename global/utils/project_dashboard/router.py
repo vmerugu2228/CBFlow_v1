@@ -42,11 +42,49 @@ _UTILS_DIR = os.path.dirname(SCRIPT_DIR)
 if _UTILS_DIR not in sys.path:
     sys.path.insert(0, _UTILS_DIR)
 from core import release_exits
+import dash_config
 
 
-# Checklist status -> pill style (tt-status st-*)
-_CHECK_STATUS_CLS = {'PASS': 'past', 'FAIL': 'late', 'ERROR': 'late',
-                     'WAIVED': 'next', 'CONDITIONAL': 'next'}
+# Checklist status / verdict -> pill style (tt-status st-*): shared vocabulary
+_CHECK_STATUS_CLS = checklist_stats.STATUS_CLS
+_VERDICTS = checklist_stats.VERDICTS
+
+
+def _row_discipline(row):
+    """Discipline a published row was tagged with at publish ('' if none)."""
+    return (row.get('discipline') or '').upper()
+
+
+def _brand_html(project, product='SmartGrid'):
+    """Header brand: CBflow-<product>, plus '· <project(dashboard,org)>' when
+    the project sets it."""
+    org = dash_config.header(project)['org']
+    suffix = (f'<span class="lite" style="margin-left:8px;color:#0000FF;'
+              f'font-weight:700;">· {html.escape(org)}</span>' if org else '')
+    return f'  <div class="brand">CBflow<span class="lite">-{html.escape(product)}</span>{suffix}</div>'
+
+
+def _byline_html(project, contact=True):
+    """Header byline from project(dashboard,developed_by) and
+    project(dashboard,contact_email); nothing when neither is set."""
+    h = dash_config.header(project)
+    parts = [html.escape(h['developed_by'])] if h['developed_by'] else []
+    if contact and h['contact_email']:
+        e = html.escape(h['contact_email'], quote=True)
+        parts.append(f'<a href="mailto:{e}" style="color:inherit;'
+                     f'text-decoration:underline">{e}</a>')
+    return f'  <div class="byline">{" &middot; ".join(parts)}</div>' if parts else ''
+
+
+def _project_header(project):
+    """Live header values from the project config: phase, tapeout, tech
+    (None when unset — callers render 'not configured')."""
+    return dash_config.project_info(project)
+
+
+def _style():
+    """Shared page CSS + discipline colours (flow(discipline_color,*))."""
+    return _STYLE + dash_config.discipline_css()
 
 
 def _requirement(thr):
@@ -273,29 +311,20 @@ def make_handler(project):
                 return self._page_published(pid)
             if path.startswith('/block/'):
                 # Legacy block URL — redirect to the new tiered form.
-                # Resolve the discipline from the block's publish history:
-                # prefer PD (because the legacy /block/ URL was PD-only in
-                # practice), then fall through to the newest publish's
-                # discipline for genuinely DFT/DV-only blocks.
+                # Discipline from the block's publish history: the first
+                # discipline in flow(disciplines) order that has a publish
+                # (a single DV publish must not shadow a block's PD history).
                 name = unquote(path[len('/block/'):].rstrip('/'))
                 if '\r' in name or '\n' in name or '\x00' in name:
                     return self._send(400, 'text/plain', 'bad request')
-                try:
-                    db = state_paths.tracker_db(project)
-                    pubs = tracker_db.list_published(db, project)
-                    rows = [r for r in pubs if r['block'] == name]
-                    rows.sort(key=lambda r: r.get('published_at') or '',
-                              reverse=True)
-                    # First preference: PD rows (legacy /block/ callers
-                    # overwhelmingly meant PD). A single DV cov-merge
-                    # publish should NOT shadow a block's full PD history.
-                    pd_rows = [r for r in rows
-                               if ((r.get('discipline') or 'PD').upper() == 'PD')]
-                    chosen = pd_rows[0] if pd_rows else (rows[0] if rows else None)
-                    disc = ((chosen.get('discipline') if chosen else '')
-                            or 'PD').lower()
-                except Exception:
-                    disc = 'pd'
+                db = state_paths.tracker_db(project)
+                pubs = tracker_db.list_published(db, project)
+                have = {_row_discipline(r) for r in pubs if r['block'] == name}
+                disc = next((d for d in dash_config.registry.flow_disciplines()
+                             if d in have), '').lower()
+                if not disc:
+                    return self._send(404, 'text/plain',
+                                      f'block {name!r} has no publishes')
                 location = (f'/project/{quote(project, safe="")}/'
                             f'{quote(disc, safe="")}/block/'
                             f'{quote(name, safe="")}')
@@ -435,11 +464,9 @@ def make_handler(project):
             db = state_paths.tracker_db(tgt_project)
             info = tracker_db.get_project_info(db, tgt_project)
             pubs = tracker_db.list_published(db, tgt_project)
-            # Filter by discipline — NULL/missing counts as PD (safe
-            # default for legacy rows).
+            # Filter by the discipline each row was tagged with at publish.
             disc_up = disc.upper()
-            def _row_disc(row):
-                return (row.get('discipline') or 'PD').upper()
+            _row_disc = _row_discipline
             filtered = [r for r in pubs if _row_disc(r) == disc_up]
             # Parse ?verdict=…&phase=… for deep-link filters.
             from urllib.parse import parse_qs
@@ -462,8 +489,7 @@ def make_handler(project):
             all_blocks = tracker_db.list_blocks(db, tgt_project)
             all_pubs = tracker_db.list_published(db, tgt_project, signoff=True)
             disc_up = disc.upper()
-            def _row_disc(row):
-                return (row.get('discipline') or 'PD').upper()
+            _row_disc = _row_discipline
             block_meta = next(
                 (b for b in all_blocks if b['block_name'] == block_name), None)
             # ALL publishes for the block (any discipline) — used to
@@ -563,10 +589,8 @@ def make_handler(project):
             db = state_paths.tracker_db(tgt_project)
             pubs = tracker_db.list_published(db, tgt_project)
             disc_up = disc.upper()
-            def _row_disc(r):
-                return (r.get('discipline') or 'PD').upper()
-            filtered = [r for r in pubs if _row_disc(r) == disc_up]
-            verdicts = {'PASS': 0, 'CONDITIONAL': 0, 'BLOCKED': 0, 'UNKNOWN': 0}
+            filtered = [r for r in pubs if _row_discipline(r) == disc_up]
+            verdicts = {v: 0 for v in _VERDICTS}
             for r in filtered:
                 v = (r.get('verdict') or 'UNKNOWN').upper()
                 if v not in verdicts:
@@ -847,9 +871,6 @@ _STYLE = """
   .proj-discs { margin-top:10px; display:flex; gap:4px; flex-wrap:wrap; }
   .disc-chip { font-size:10px; font-weight:800; letter-spacing:.05em;
                padding:2px 7px; border-radius:3px; color:#fff; }
-  .disc-chip.disc-pd  { background:#1565c0; }
-  .disc-chip.disc-dft { background:#0d9488; }
-  .disc-chip.disc-dv  { background:#be185d; }
   .proj-verdicts { margin-top:10px; display:flex; align-items:center;
                    gap:4px; font-size:12px; }
   .proj-verdicts .vdot { font-size:14px; line-height:1; }
@@ -929,9 +950,6 @@ _STYLE = """
                   text-align:right; }
 
   /* Discipline tile accents (match per-user daemon brand colors) */
-  .sg-tile-disc.disc-pd  { --tile-accent: #1565c0; }
-  .sg-tile-disc.disc-dft { --tile-accent: #0d9488; }
-  .sg-tile-disc.disc-dv  { --tile-accent: #be185d; }
   .sg-tile-sched { --tile-accent: #d97706; }
   .sg-tile-sched .sg-tile-badge { background: #d97706; font-size:16px; }
   .sg-tile-team  { --tile-accent: #7c3aed; }
@@ -1157,9 +1175,6 @@ _STYLE = """
                border-radius:6px; padding:14px 16px; display:flex;
                flex-direction:column; gap:8px; position:relative;
                border-left:4px solid var(--disc-accent, var(--accent)); }
-  .disc-card.pd  { --disc-accent:#1565c0; }
-  .disc-card.dft { --disc-accent:#0d9488; }
-  .disc-card.dv  { --disc-accent:#be185d; }
   .disc-card .disc-h { display:flex; align-items:center; gap:10px; }
   .disc-card .disc-badge { width:36px; height:36px; border-radius:6px;
                            background: var(--disc-accent); color:#fff;
@@ -3184,7 +3199,7 @@ def _render_tier_stub(project, title, hint='', variant='stub'):
         '<!DOCTYPE html><html><head>',
         '<meta charset="utf-8">',
         f'<title>CBflow-SmartGrid — {html.escape(project)}</title>',
-        _STYLE,
+        _style(),
         _SCRIPT_RELOAD_ON_FOCUS,
         '<style>',
         '  .pill{display:inline-block;padding:2px 8px;border-radius:3px;'
@@ -3204,9 +3219,7 @@ def _render_tier_stub(project, title, hint='', variant='stub'):
         '</style>',
         '</head><body>',
         '<header class="bar">',
-        '  <div class="brand">CBflow<span class="lite">-SmartGrid</span>'
-        '       <span class="lite" style="margin-left:8px;color:#0000FF;'
-        '             font-weight:700;">· SmartSoC</span></div>',
+        _brand_html(project, 'SmartGrid'),
         f'  <div class="proj"><a href="/">{html.escape(project)}</a></div>',
         '</header>',
         '<div class="stub-wrap">',
@@ -3464,16 +3477,20 @@ def _render_tier1(self_project, scope):
     else:
         visible = [p for p in all_projects if _status_of(p) == scope]
 
-    # Sort — active-first, then by nearest tapeout_date ascending
+    # Tapeout per project: project(tapeout_date) from the project config
+    # (the single source; '' when the project has no config / date).
+    tapeouts = {p.get('name') or '': dash_config.project_value(p.get('name') or '', 'tapeout_date') or ''
+                for p in all_projects}
+
+    # Sort — active-first, then by nearest tapeout ascending (undated last)
     def _sort_key(p):
         s = _status_of(p)
         order = {'active': 0, 'paused': 1, 'archived': 2}.get(s, 3)
         # Coerce None → '' so a malformed master_projects.json entry
         # (missing 'name') doesn't crash sorted() when it ties with a
-        # named entry on (order, tapeout_date).
-        return (order,
-                p.get('tapeout_date') or '9999-99-99',
-                p.get('name') or '')
+        # named entry on (order, tapeout).
+        t = tapeouts.get(p.get('name') or '', '')
+        return (order, not t, t, p.get('name') or '')
     visible.sort(key=_sort_key)
 
     cards_html = []
@@ -3481,7 +3498,7 @@ def _render_tier1(self_project, scope):
         pname = entry.get('name') or ''
         status = _status_of(entry)
         tech = entry.get('technology') or '—'
-        tapeout = entry.get('tapeout_date') or ''
+        tapeout = tapeouts.get(pname, '')
         tapeout_str, tapeout_weeks = _tapeout_info_safe(tapeout)
         chip_lead = entry.get('chip_lead') or '—'
         description = entry.get('description') or ''
@@ -3570,24 +3587,18 @@ def _render_tier1(self_project, scope):
             'Toggle the pills above to switch scope.'
             '</div>')
 
-    developed_by = 'SmartSoC CAD · Varun Reddy Merugu'
 
     return ''.join([
         '<!DOCTYPE html><html><head>',
         '<meta charset="utf-8">',
         f'<title>CBflow-SmartGrid — {html.escape(heading)}</title>',
-        _STYLE,
+        _style(),
         _SCRIPT_RELOAD_ON_FOCUS,
         '</head><body class="', body_class, '">',
         '<header class="bar">',
-        f'  <div class="brand">CBflow<span class="lite">-SmartGrid</span>'
-        f'       <span class="lite" style="margin-left:8px;color:#0000FF;'
-        f'             font-weight:700;">· SmartSoC</span></div>',
+        _brand_html(self_project, 'SmartGrid'),
         '  <div class="proj"><a href="/">All projects</a></div>',
-        f'  <div class="byline">{html.escape(developed_by)} &middot; '
-        f'<a href="mailto:varun@smartsocs.com" '
-        f'style="color:inherit;text-decoration:underline">varun@smartsocs.com'
-        f'</a></div>',
+        _byline_html(self_project),
         '</header>',
         '<section class="tier1-ctrl">',
         f'  <h1 class="tier1-h1">{html.escape(heading)}</h1>',
@@ -3600,9 +3611,9 @@ def _render_tier1(self_project, scope):
 
 
 def _tapeout_info_safe(iso):
-    """Best-effort tapeout countdown. Returns (display_str, weeks_int)."""
+    """Best-effort tapeout countdown. Returns (display_str, weeks)."""
     if not iso:
-        return ('no date', 0)
+        return ('project(tapeout_date) not set', '—')
     try:
         from datetime import date
         t = date.fromisoformat(iso)
@@ -3617,13 +3628,13 @@ def _tapeout_info_safe(iso):
 
 
 def _render_schedule_card(project, info):
-    """Schedule tile for Tier 2: weeks to tapeout and the next exit, from
-    schedule_config.tcl + project(phase_exits). Shows 'not set' when the
-    schedule is not configured."""
+    """Schedule tile for Tier 2: weeks to tapeout (project(tapeout_date)) and
+    the next exit (schedule_config.tcl + project(phase_exits)). Shows 'not
+    set' when the schedule is not configured."""
     from datetime import date as _d
     today = _d.today()
     sched = _phase_schedule(project)
-    t0 = sched['tapeout']
+    t0 = schedule_config.parse_date(dash_config.project_value(project, 'tapeout_date'))
     weeks = (max(0, (t0 - today).days) // 7) if t0 else '—'
     upcoming = sorted((d, ph['phase'], m) for ph in sched['phases']
                       for m, d in ph['exits'].items() if d and d >= today)
@@ -3701,25 +3712,16 @@ def _render_team_card(project):
         f'</a>')
 
 
-def _expected_pd_flows(project):
-    """Enabled PD flows for the project (master_projects.json) — the
-    flows every hierarchy block is expected to release each phase."""
-    try:
-        import sys as _sys, os as _os
-        _utils = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
-        _cmds = _os.path.join(_utils, 'commands')
-        for _p in (_utils, _cmds):
-            if _p not in _sys.path:
-                _sys.path.insert(0, _p)
-        from tcl_config_parser import get_project_enabled_flows
-        return get_project_enabled_flows(project, 'PD')
-    except Exception:
-        return []
+def _expected_flows(project):
+    """Every flow the project enables, all disciplines (master_projects.json
+    enabled_flows_by_discipline) — the flows every hierarchy block is
+    expected to release each phase."""
+    return dash_config.expected_flows(project)
 
 
 def _release_stats_safe(project):
     try:
-        return releases.release_stats(project, _expected_pd_flows(project))
+        return releases.release_stats(project, _expected_flows(project))
     except Exception:
         logger.exception('release stats failed for %s', project)
         return {}
@@ -3878,7 +3880,7 @@ def _render_releases_detail(project, stats):
         '<!DOCTYPE html><html><head>',
         '<meta charset="utf-8">',
         f'<title>Releases · {html.escape(project)} — CBflow-SmartGrid</title>',
-        _STYLE,
+        _style(),
         _SCRIPT_RELOAD_ON_FOCUS,
         '</head><body>',
         _render_detail_chrome(project, 'Releases'),
@@ -4024,7 +4026,7 @@ def _render_checklist_detail(project, published_rows):
                     if not c:
                         cells.append('<td><span class="rc none">—</span></td>')
                         continue
-                    vcls = {'PASS': 'past', 'CONDITIONAL': 'next', 'BLOCKED': 'late'}.get(c['verdict'], 'future')
+                    vcls = checklist_stats.VERDICT_CLS.get(c['verdict'], 'future')
                     cells.append(
                         f'<td><a href="/published/{c["id"]}" style="text-decoration:none">'
                         f'<span class="tt-status st-{vcls}">{html.escape(c["verdict"])}</span>'
@@ -4071,7 +4073,7 @@ def _render_checklist_detail(project, published_rows):
         '<!DOCTYPE html><html><head>',
         '<meta charset="utf-8">',
         f'<title>Checklist · {html.escape(project)} — CBflow-SmartGrid</title>',
-        _STYLE,
+        _style(),
         _SCRIPT_RELOAD_ON_FOCUS,
         '</head><body>',
         _render_detail_chrome(project, 'Checklist'),
@@ -4114,12 +4116,9 @@ def _load_project_entry(project):
 
 def _render_detail_chrome(project, section_name):
     """Shared header + breadcrumb for /team and /schedule detail pages."""
-    developed_by = 'SmartSoC CAD · Varun Reddy Merugu'
     return ''.join([
         '<header class="bar">',
-        '  <div class="brand">CBflow<span class="lite">-SmartGrid</span>'
-        '       <span class="lite" style="margin-left:8px;color:#0000FF;'
-        '             font-weight:700;">· SmartSoC</span></div>',
+        _brand_html(project, 'SmartGrid'),
         f'  <nav class="crumbs">'
         f'    <a href="/">Projects</a>'
         f'    <span>›</span>'
@@ -4127,10 +4126,7 @@ def _render_detail_chrome(project, section_name):
         f'    <span>›</span>'
         f'    <strong>{html.escape(section_name)}</strong>'
         f'  </nav>',
-        f'  <div class="byline">{html.escape(developed_by)} &middot; '
-        f'<a href="mailto:varun@smartsocs.com" '
-        f'style="color:inherit;text-decoration:underline">varun@smartsocs.com'
-        f'</a></div>',
+        _byline_html(project),
         '</header>',
     ])
 
@@ -4199,7 +4195,7 @@ def _render_team_detail(project, info):
         '<!DOCTYPE html><html><head>',
         '<meta charset="utf-8">',
         f'<title>Team · {html.escape(project)} — CBflow-SmartGrid</title>',
-        _STYLE,
+        _style(),
         _SCRIPT_RELOAD_ON_FOCUS,
         '</head><body>',
         _render_detail_chrome(project, 'Team'),
@@ -4450,7 +4446,7 @@ def _render_phase_schedule(project, published_rows):
             + ('<span class="ph-now">current</span>' if cur else '') +
             f'</div><div class="ph-body">{exits_tbl}{blk_tbl}</div></div>')
 
-    rel = os.path.relpath(sched['path'], schedule_config._ROOT)
+    rel = os.path.relpath(sched['path'], dash_config.registry.root())
     if sched['source'] == 'config':
         src = f'Source: <code>{html.escape(rel)}</code> · exits per phase: <code>project(phase_exits)</code>'
     else:
@@ -4476,7 +4472,9 @@ def _render_phase_schedule(project, published_rows):
         '<div class="sched-err" id="sch-err">'
         + ''.join(f'<div>{html.escape(e)}</div>' for e in sched['errors']) + '</div>'
         + ''.join(f'<div class="sched-warn">⚠ {html.escape(w)}</div>'
-                  for w in schedule_config.warnings(sched['data'], hier, sched['phase_exits'])))
+                  for w in [schedule_config.tapeout_mismatch(project, sched['data'])]
+                  + schedule_config.warnings(sched['data'], hier, sched['phase_exits'])
+                  if w))
     phase_js = json.dumps([[ph, ex] for ph, ex in sched['phase_exits'].items()])
     return ('<div class="sched-wrap">' + toolbar
             + f'<script>window.SCHED_PHASES = {phase_js};</script>'
@@ -4565,13 +4563,16 @@ def _save_schedule(project, values):
 def _render_schedule_detail(project, info, published_rows=None):
     """Full schedule page — opens from the Schedule tile on Tier 2."""
     body, sched = _render_phase_schedule(project, published_rows or [])
-    t0, s0 = sched['tapeout'], sched['start']
+    # Tapeout of record: project(tapeout_date); the schedule's own
+    # schedule(tapeout_date) bounds its timeline (mismatch warned above).
+    t0 = schedule_config.parse_date(dash_config.project_value(project, 'tapeout_date'))
+    s0 = sched['start']
     weeks = (max(0, (t0 - date.today()).days) // 7) if t0 else '—'
     return ''.join([
         '<!DOCTYPE html><html><head>',
         '<meta charset="utf-8">',
         f'<title>Schedule · {html.escape(project)} — CBflow-SmartGrid</title>',
-        _STYLE,
+        _style(),
         _SCRIPT_RELOAD_ON_FOCUS,
         '</head><body>',
         _render_detail_chrome(project, 'Schedule'),
@@ -4644,25 +4645,22 @@ def _render_tier2(project, info, blocks, published_rows):
     team_card = _render_team_card(project)
     rel_card = _render_releases_card(project, _release_stats_safe(project))
     chk_card = _render_checklist_card(project, published_rows or [])
-    developed_by = 'SmartSoC CAD · Varun Reddy Merugu'
     # Light project header strip so the operator sees the project context
-    # (name + tech + tapeout) without needing the KPI tiles from Tier 3.
-    tapeout = (info or {}).get('tapeout_date') or ''
-    tapeout_str, tapeout_weeks = _tapeout_info_safe(tapeout)
-    tech = (info or {}).get('technology') or '—'
-    phase_now = (info or {}).get('current_phase') or '—'
+    # (name + tech + tapeout) — live from the project config.
+    hdr = _project_header(project)
+    tapeout_str, tapeout_weeks = _tapeout_info_safe(hdr.get('tapeout_date') or '')
+    tech = hdr.get('technology') or 'project(technology) not set'
+    phase_now = hdr.get('current_phase') or 'project(current_phase) not set'
 
     return ''.join([
         '<!DOCTYPE html><html><head>',
         '<meta charset="utf-8">',
         f'<title>CBflow-SmartGrid — {html.escape(project)}</title>',
-        _STYLE,
+        _style(),
         _SCRIPT_RELOAD_ON_FOCUS,
         '</head><body>',
         '<header class="bar">',
-        '  <div class="brand">CBflow<span class="lite">-SmartGrid</span>'
-        '       <span class="lite" style="margin-left:8px;color:#0000FF;'
-        '             font-weight:700;">· SmartSoC</span></div>',
+        _brand_html(project, 'SmartGrid'),
         f'  <nav class="crumbs">'
         f'    <a href="/">Projects</a>'
         f'    <span>›</span>'
@@ -4671,10 +4669,7 @@ def _render_tier2(project, info, blocks, published_rows):
         f'  <div class="kv">Phase <b>{html.escape(phase_now)}</b></div>',
         f'  <div class="kv">Tapeout <b>{html.escape(tapeout_str)}</b></div>',
         f'  <div class="kv">Tech <b>{html.escape(tech)}</b></div>',
-        f'  <div class="byline">{html.escape(developed_by)} &middot; '
-        f'<a href="mailto:varun@smartsocs.com" '
-        f'style="color:inherit;text-decoration:underline">varun@smartsocs.com'
-        f'</a></div>',
+        _byline_html(project),
         '</header>',
         '<section class="sg-tile-grid">',
         disc_cards,
@@ -4747,7 +4742,9 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
     """
     disc_up = discipline.upper()
     disc_class = disc_up.lower()
-    accent = {'PD': '#1565c0', 'DFT': '#0d9488', 'DV': '#be185d'}.get(disc_up, '#1565c0')
+    accent = dash_config.discipline_colors().get(disc_up)
+    if accent is None:
+        raise dash_config.RegistryError(f'{disc_up} is not in flow(disciplines)')
 
     # ── Rollup — ALWAYS counts across the whole discipline, not the
     # view filter. Chart is informational, not operational.
@@ -4759,7 +4756,7 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
         if b and (b not in _latest or (r.get('published_at') or '') > (_latest[b].get('published_at') or '')):
             _latest[b] = r
     verdict_source = list(_latest.values())
-    verdicts = {'PASS': 0, 'CONDITIONAL': 0, 'BLOCKED': 0, 'UNKNOWN': 0}
+    verdicts = {v: 0 for v in _VERDICTS}
     for r in verdict_source:
         v = (r.get('verdict') or 'UNKNOWN').upper()
         if v not in verdicts: v = 'UNKNOWN'
@@ -4780,7 +4777,7 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
             f'<text x="{bar_w/2}" y="{bar_h/2 + 4}" text-anchor="middle" '
             f'font-size="13" fill="#6b7280">No publishes for {disc_up} yet</text>')
     else:
-        for k in ('PASS', 'CONDITIONAL', 'BLOCKED', 'UNKNOWN'):
+        for k in _VERDICTS:
             n = verdicts[k]
             if n == 0: continue
             w = bar_w * n / total
@@ -4796,7 +4793,7 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
             bar_x += w
 
     verdict_legend = []
-    for k in ('PASS', 'CONDITIONAL', 'BLOCKED', 'UNKNOWN'):
+    for k in _VERDICTS:
         href_in = (f'?verdict={k}' if (not v_filter) or v_filter != k else '?')
         on_cls = 'on' if v_filter == k else ''
         verdict_legend.append(
@@ -4826,7 +4823,7 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
 
     block_rows_html = []
     from urllib.parse import quote as _q
-    _VERDICT_CSS = {'PASS', 'CONDITIONAL', 'BLOCKED', 'UNKNOWN'}
+    _VERDICT_CSS = set(_VERDICTS)
     # Hierarchy (project(design_hierarchy)): every block in tree order, with
     # level / parent / ancestors for the filter bar; unpublished blocks show —.
     _rel = releases.release_stats(project, []) or {}
@@ -4896,20 +4893,9 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
             '</td></tr>')
 
     # ── Top metrics — latest value per name across the view-filtered rows.
-    # The curated name list differs by discipline. DFT entries follow the
-    # Pass1 Tessent handlers' emit_metric calls + owner spreadsheet metric
-    # vocabulary (fault_coverage_pct, pattern_count, mbist_controller_count,
-    # drc_violation_count, test_points_inserted, atpg_eff_pct).
-    curated = {
-        # names as published in metrics.rpt (oss_checklist_metrics / signoff)
-        'PD':  ['Setup WNS', 'Setup TNS', 'Hold WNS', 'Utilization',
-                'DRC violations', 'Clock skew ps'],
-        'DFT': ['fault_coverage_pct', 'test_coverage_pct', 'atpg_eff_pct',
-                'pattern_count', 'mbist_controller_count',
-                'drc_violation_count'],
-        'DV':  ['coverage_pct', 'bins_hit', 'bins_total',
-                'uvm_errors'],
-    }.get(disc_up, [])
+    # The name list per discipline is flow(dashboard,top_metrics,<DISC>).
+    curated = dash_config.top_metrics(disc_up)
+    polarity = dash_config.metric_polarities()
     # Collect metrics by querying get_published for each row in the view.
     # Expensive if N blocks are large — mitigation: limit to 60 published runs.
     try:
@@ -4944,28 +4930,13 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
                     continue
                 ts = r.get('published_at') or ''
                 prev = metric_latest.get(name)
-                # Tiebreak rule when multiple metrics share name AND
-                # published_at (same publish, multiple scenario/corner
-                # rows): pick the one with the WORST value for 'lower
-                # is bad' metrics (WNS/TNS) or the one with the HIGHEST
-                # for 'higher is bad' metrics (drc_count, lvs_errors).
-                # Falls back to lexicographic on scenario+corner so
-                # the choice is deterministic across page loads.
-                lower_is_bad = name in (
-                    'WNS', 'TNS',
-                )
-                higher_is_bad = name in (
-                    'drc_count', 'lvs_errors', 'uvm_errors',
-                    'drc_violation_count',
-                )
-                # higher_is_good metrics are percent-like scores where a
-                # bigger number is better; the "worst" tiebreak is the
-                # SMALLEST value (lowest coverage = worst QoR).
-                higher_is_good = name in (
-                    'fault_coverage_pct', 'test_coverage_pct',
-                    'atpg_eff_pct', 'coverage_pct',
-                    'mbist_controller_count',
-                )
+                # Tiebreak when several rows share name AND published_at
+                # (same publish, multiple scenario/corner rows): keep the
+                # worst QoR point per flow(metric,<name>,polarity) —
+                # higher_better: smaller is worse; lower_better: larger is
+                # worse. No polarity: lexicographic (scenario, corner) so the
+                # choice is deterministic across page loads.
+                pol = polarity.get(name)
                 def _worse_than(new_tup, old_tup):
                     """True if `new_tup` represents a worse QoR point."""
                     nv, _, ns, nc, _, nt = new_tup
@@ -4977,12 +4948,10 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
                     # Equal timestamps — tie by metric severity.
                     try:
                         nvf, ovf = float(nv), float(ov)
-                        if lower_is_bad:
-                            return nvf < ovf  # new is more negative = worse
-                        if higher_is_bad:
+                        if pol == 'higher_better':
+                            return nvf < ovf
+                        if pol == 'lower_better':
                             return nvf > ovf
-                        if higher_is_good:
-                            return nvf < ovf  # lower score = worse
                     except (TypeError, ValueError):
                         pass
                     # Non-numeric or unknown severity direction — sort
@@ -5064,19 +5033,16 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
             f'<a class="disc-open" href="{html.escape(daemon_url, quote=True)}" '
             f'target="_blank" rel="noopener" '
             f'style="background:{accent}">Open {disc_up} per-user Dashboard →</a>')
-    developed_by = 'SmartSoC CAD · Varun Reddy Merugu'
 
     return ''.join([
         '<!DOCTYPE html><html><head>',
         '<meta charset="utf-8">',
         f'<title>CBflow-SmartGrid — {html.escape(project)} · {html.escape(disc_up)}</title>',
-        _STYLE,
+        _style(),
         _SCRIPT_RELOAD_ON_FOCUS,
         '</head><body>',
         '<header class="bar">',
-        '  <div class="brand">CBflow<span class="lite">-SmartGrid</span>'
-        '       <span class="lite" style="margin-left:8px;color:#0000FF;'
-        '             font-weight:700;">· SmartSoC</span></div>',
+        _brand_html(project, 'SmartGrid'),
         f'  <nav class="crumbs">'
         f'    <a href="/">Projects</a>'
         f'    <span>›</span>'
@@ -5084,7 +5050,7 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
         f'    <span>›</span>'
         f'    <strong style="color:{accent}">{html.escape(disc_up)}</strong>'
         f'  </nav>',
-        f'  <div class="byline">{html.escape(developed_by)}</div>',
+        _byline_html(project, contact=False),
         '</header>',
         '<section class="tier3-top">',
         f'  <div class="tier3-head">',
@@ -5163,24 +5129,13 @@ def _render_index(project, info, blocks, published_rows):
         if r['milestone'] in ms_counts:
             ms_counts[r['milestone']] += 1
 
-    tapeout_iso = info.get('tapeout_date') or ''
+    hdr = _project_header(project)          # live project config
+    tapeout_iso = hdr.get('tapeout_date') or ''
     tapeout_str, tapeout_weeks = _tapeout_info(tapeout_iso)
-    phase_now = info.get('current_phase') or '—'
-    tech = info.get('technology') or '—'
-    metal = info.get('metal_stack') or '—'
-    lib  = info.get('lib_config_tag') or '—'
-    developed_by = info.get('developed_by') or 'SmartSoC CAD · Varun Reddy Merugu'
-    # Normalize legacy / stale labels so a prior-publish with the old
-    # byline (persisted into tracker.db before this rename) renders as
-    # the canonical current credit. The user asked for a single
-    # consistent byline across every surface — hub, per-run, SmartGrid.
-    _STALE_BYLINES = {
-        'SmartSoC and MIPS', 'SmartSoc and MIPS',
-        'SmartSoc Solutions Pvt Limited', 'SmartSoC Solutions Pvt Limited',
-    }
-    if developed_by in _STALE_BYLINES:
-        developed_by = 'SmartSoC CAD · Varun Reddy Merugu'
-
+    phase_now = hdr.get('current_phase') or '—'
+    tech = hdr.get('technology') or '—'
+    metal = hdr.get('metal_stack') or '—'
+    lib  = hdr.get('lib_config_tag') or '—'
     # Rows for the flat table — precomputed strings so the client-side JS just
     # filters/sorts existing DOM rather than reflowing.
     ms_col_idx = {m: i for i, m in enumerate(_milestones())}
@@ -5189,19 +5144,19 @@ def _render_index(project, info, blocks, published_rows):
         '<!DOCTYPE html><html><head>',
         '<meta charset="utf-8">',
         f'<title>CBflow-ProjectDashboard — {html.escape(project)}</title>',
-        _STYLE,
+        _style(),
         _SCRIPT_RELOAD_ON_FOCUS,
         '</head><body>',
         # ── Top bar ────────────────────────────────────────────────────
         '<header class="bar">',
-        f'  <div class="brand">CBflow<span class="lite">-ProjectDashboard</span><span class="lite" style="margin-left:8px;color:#0000FF;font-weight:700;">· SmartSoC</span></div>',
+        _brand_html(project, 'ProjectDashboard'),
         f'  <div class="proj"><a href="/">{html.escape(project)}</a></div>',
         f'  <div class="kv">Phase <b>{html.escape(phase_now)}</b></div>',
         f'  <div class="kv">Tapeout <b>{html.escape(tapeout_str)}</b></div>',
         f'  <div class="kv">Tech <b>{html.escape(tech)}</b></div>',
         f'  <div class="kv">Metal <b>{html.escape(metal)}</b></div>',
         f'  <div class="kv">Lib <b>{html.escape(lib)}</b></div>',
-        f'  <div class="byline">{html.escape(developed_by)} &middot; <a href="mailto:varun@smartsocs.com" style="color:inherit;text-decoration:underline">varun@smartsocs.com</a></div>',
+        _byline_html(project),
         '</header>',
 
         # ── Discipline cards — PD / DFT / DV navigation ───────────────
@@ -5403,30 +5358,23 @@ def _tapeout_info(iso):
 
 
 def _render_detail(project, info, d):
-    developed_by = info.get('developed_by') or 'SmartSoC CAD · Varun Reddy Merugu'
-    # Normalize legacy / stale labels so a prior-publish with the old
-    # byline (persisted into tracker.db before this rename) renders as
-    # the canonical current credit. The user asked for a single
-    # consistent byline across every surface — hub, per-run, SmartGrid.
-    _STALE_BYLINES = {
-        'SmartSoC and MIPS', 'SmartSoc and MIPS',
-        'SmartSoc Solutions Pvt Limited', 'SmartSoC Solutions Pvt Limited',
-    }
-    if developed_by in _STALE_BYLINES:
-        developed_by = 'SmartSoC CAD · Varun Reddy Merugu'
-
-    # Bucket metrics into "timing" vs "other" using category + name heuristics.
+    # Bucket metrics into tabs: flow(dashboard,category_tab,<category>) plus
+    # flow(dashboard,timing_name_tokens) for timing metric names.
     all_metrics = d.get('metrics') or []
-    timing_names = ('WNS', 'TNS', 'HOLD', 'SETUP', 'SLACK', 'FMAX', 'FREQ')
+    cat_tab = dash_config.category_tabs()
+    timing_cats = [c for c, t in cat_tab.items() if t == 'timing']
+    timing_names = dash_config.timing_name_tokens()
     timing_metrics, signoff_metrics, other_metrics, routing_metrics = [], [], [], []
     for m in all_metrics:
         cat = (m.get('category') or '').lower()
         nm  = (m.get('name') or '').upper()
-        if cat in ('routing', 'congestion'):
+        tab = cat_tab.get(cat)
+        if tab == 'routing':
             routing_metrics.append(m)
-        elif 'timing' in cat or any(t in nm for t in timing_names):
+        elif (tab == 'timing' or any(t in cat for t in timing_cats)
+              or any(t in nm for t in timing_names)):
             timing_metrics.append(m)
-        elif cat in ('power', 'em', 'ir', 'signoff', 'drc', 'lvs'):
+        elif tab == 'signoff':
             signoff_metrics.append(m)
         else:
             other_metrics.append(m)
@@ -5456,26 +5404,27 @@ def _render_detail(project, info, d):
         '<meta charset="utf-8">',
         f'<title>{html.escape(d["block"])} · {html.escape(d["phase"])} · '
         f'{html.escape(d["milestone"])} · {html.escape(d.get("flow") or "")}</title>',
-        _STYLE,
+        _style(),
         _SCRIPT_RELOAD_ON_FOCUS,
         '</head><body>',
         '<header class="bar">',
-        f'  <div class="brand">CBflow<span class="lite">-SmartGrid</span><span class="lite" style="margin-left:8px;color:#0000FF;font-weight:700;">· SmartSoC</span></div>',
+        _brand_html(project, 'SmartGrid'),
         # Project link now points at the Tier 2 project landing, not the
         # Tier 1 all-projects grid at '/'.
         f'  <div class="proj"><a href="/project/{html.escape(project, quote=True)}">{html.escape(project)}</a></div>',
-        # Block link uses the tiered form so clicking it doesn't bounce
-        # through the legacy /block/<n> 302. Discipline resolves from the
-        # row's own discipline column (populated post-v3 migration); fall
-        # back to 'pd' for legacy rows.
-        f'  <div class="kv">Block <b><a href="/project/{html.escape(project, quote=True)}/{html.escape((d.get("discipline") or "pd").lower(), quote=True)}/block/{html.escape(d["block"], quote=True)}">'
+        # Block link uses the tiered form (the row's own discipline); an
+        # untagged row goes through /block/<n>, which resolves the
+        # discipline from the block's publish history.
+        '  <div class="kv">Block <b><a href="' + html.escape(
+            f'/project/{project}/{_row_discipline(d).lower()}/block/{d["block"]}'
+            if _row_discipline(d) else f'/block/{d["block"]}', quote=True) + '">'
         f'{html.escape(d["block"])}</a></b></div>',
         f'  <div class="kv">Phase <b>{html.escape(d["phase"])}</b></div>',
         f'  <div class="kv">Milestone <b>{html.escape(d["milestone"])}</b></div>',
         f'  <div class="kv">Flow <b>{html.escape(d.get("flow") or "—")}</b>'
         + (f' <span class="muted">verifies {html.escape(d["attach_to"])}</span>' if d.get('attach_to') else '')
         + '</div>',
-        f'  <div class="byline">{html.escape(developed_by)} &middot; <a href="mailto:varun@smartsocs.com" style="color:inherit;text-decoration:underline">varun@smartsocs.com</a></div>',
+        _byline_html(project),
         '</header>',
         f'<div class="back"><a href="/project/{html.escape(project, quote=True)}">← back to project</a></div>',
         # ── Tab bar ───────────────────────────────────────────────────
@@ -5701,17 +5650,6 @@ def _render_block(project, info, block_name, block_meta, block_pubs):
     miles_used  = {r['milestone'] for r in block_pubs}
     releasers   = {r.get('released_by') or '—' for r in block_pubs}
 
-    developed_by = info.get('developed_by') or 'SmartSoC CAD · Varun Reddy Merugu'
-    # Normalize legacy / stale labels so a prior-publish with the old
-    # byline (persisted into tracker.db before this rename) renders as
-    # the canonical current credit. The user asked for a single
-    # consistent byline across every surface — hub, per-run, SmartGrid.
-    _STALE_BYLINES = {
-        'SmartSoC and MIPS', 'SmartSoc and MIPS',
-        'SmartSoc Solutions Pvt Limited', 'SmartSoC Solutions Pvt Limited',
-    }
-    if developed_by in _STALE_BYLINES:
-        developed_by = 'SmartSoC CAD · Varun Reddy Merugu'
     dl_level = block_meta.get('dl_level') or '—'
     parent   = block_meta.get('parent') or '—'
     desc     = block_meta.get('description') or ''
@@ -5720,12 +5658,12 @@ def _render_block(project, info, block_name, block_meta, block_pubs):
         '<!DOCTYPE html><html><head>',
         '<meta charset="utf-8">',
         f'<title>{html.escape(block_name)} — CBflow-ProjectDashboard</title>',
-        _STYLE,
+        _style(),
         _SCRIPT_RELOAD_ON_FOCUS,
         '</head><body>',
         # ── Header bar ───────────────────────────────────────────────
         '<header class="bar">',
-        f'  <div class="brand">CBflow<span class="lite">-SmartGrid</span><span class="lite" style="margin-left:8px;color:#0000FF;font-weight:700;">· SmartSoC</span></div>',
+        _brand_html(project, 'SmartGrid'),
         # Project link + back-link both point at the Tier 2 project
         # landing (post-SmartGrid-redesign). Pre-redesign they pointed at
         # '/' which was the single-project landing; '/' is now the
@@ -5734,7 +5672,7 @@ def _render_block(project, info, block_name, block_meta, block_pubs):
         f'  <div class="kv">Block <b>{html.escape(block_name)}</b></div>',
         f'  <div class="kv">Level <b>{html.escape(dl_level)}</b></div>',
         f'  <div class="kv">Parent <b>{html.escape(parent)}</b></div>',
-        f'  <div class="byline">{html.escape(developed_by)} &middot; <a href="mailto:varun@smartsocs.com" style="color:inherit;text-decoration:underline">varun@smartsocs.com</a></div>',
+        _byline_html(project),
         '</header>',
         '<div class="back">',
         f'  <a href="/project/{html.escape(project, quote=True)}">← back to project</a>',

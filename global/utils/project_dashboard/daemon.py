@@ -46,6 +46,7 @@ for p in (SCRIPT_DIR, COMMANDS_DIR):
     if p not in sys.path:
         sys.path.insert(0, p)
 
+import dash_config
 import router
 import state_paths
 import tracker_db
@@ -54,11 +55,14 @@ import tracker_db
 # ── Port selection ──────────────────────────────────────────────────────────
 
 def deterministic_port(project):
-    """Per-user × per-project port in [25000, 27499]. Stays clear of the
-    run-dashboard bands (9000-9999 shared, 20000-24999 per-project)."""
+    """Per-user × per-project port in [port_base, port_base + port_span)
+    (flow(smartgrid,port_base) / flow(smartgrid,port_span) in
+    flow_registry.tcl — chosen clear of the run-dashboard bands)."""
+    base = int(dash_config.smartgrid('port_base'))
+    span = int(dash_config.smartgrid('port_span'))
     key = f'{os.getuid()}:{project}'.encode()
     h = int(hashlib.md5(key).hexdigest()[:6], 16)
-    return 25000 + (h % 2500)
+    return base + (h % span)
 
 
 # ── PID liveness + identity ─────────────────────────────────────────────────
@@ -144,7 +148,7 @@ def existing_daemon_status(project):
                 'stale_pid': pid}
     port_str = _read_text(portfile)
     port = int(port_str) if port_str.isdigit() else 0
-    bind_addr = _read_text(bind_file) or '127.0.0.1'
+    bind_addr = _read_text(bind_file) or resolve_bind_addr(None)
     return {'state': 'running', 'pid': pid, 'port': port,
             'bind_addr': bind_addr}
 
@@ -184,7 +188,7 @@ class _ThreadingHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
 
 
 class _Server:
-    def __init__(self, project, port, bind_addr='127.0.0.1'):
+    def __init__(self, project, port, bind_addr):
         self.project = project
         self.port = port
         self.bind_addr = bind_addr
@@ -329,7 +333,7 @@ class _Server:
 
 # ── Foreground entry ────────────────────────────────────────────────────────
 
-def claim_state(project, port, bind_addr='127.0.0.1'):
+def claim_state(project, port, bind_addr):
     """Atomically take ownership of on-disk state; raise if already owned."""
     status = existing_daemon_status(project)
     if status['state'] == 'running':
@@ -382,14 +386,14 @@ def release_state(project):
 
 
 def resolve_bind_addr(arg_value=None):
-    if arg_value in (None, '', '127.0.0.1', 'localhost'):
-        return '127.0.0.1'
-    if arg_value == '0.0.0.0':
-        return '0.0.0.0'
-    return arg_value
+    """--bind-addr value, or flow(smartgrid,bind_addr) when not given;
+    'localhost' is recorded as the loopback address."""
+    if arg_value in (None, ''):
+        arg_value = dash_config.smartgrid('bind_addr')
+    return '127.0.0.1' if arg_value == 'localhost' else arg_value
 
 
-def serve_foreground(project, port, bind_addr='127.0.0.1'):
+def serve_foreground(project, port, bind_addr):
     state_paths.set_project(project)
     try:
         claim_state(project, port, bind_addr)
@@ -414,7 +418,7 @@ def main(argv=None):
     serve_p.add_argument('--project', required=True)
     serve_p.add_argument('--port', type=int, default=0)
     serve_p.add_argument('--bind-addr', default=None,
-                         help='127.0.0.1 (default) or 0.0.0.0 for LAN')
+                         help='default: flow(smartgrid,bind_addr); 0.0.0.0 for LAN')
     args = p.parse_args(argv)
     if args.cmd == 'serve':
         state_paths.set_project(args.project)
