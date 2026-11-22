@@ -5524,7 +5524,7 @@ def _render_detail(project, info, d):
 
     # Tab counts drive the badges on the tab labels
     counts = {
-        'timing':    (len(timing_metrics) + len({m['scenario'] for m in scenario_metrics})
+        'timing':    (len({m['scenario'] for m in scenario_metrics})
                       + len({(m['stage'], m['scenario']) for m in stage_corner_metrics})),
         'routing_metrics': len(routing_metrics),
         'floorplan': 1 if d.get('has_floorplan') else 0,
@@ -5621,18 +5621,14 @@ def _render_detail(project, info, d):
                      f'<span class="hint">{len({m["scenario"] for m in scenario_metrics})} scenarios</span></div>')
         parts.append(_scenario_table(scenario_metrics))
     if stage_metrics:
-        _cats = []
-        for m in stage_metrics:
-            if m.get('category') not in _cats:
-                _cats.append(m.get('category'))
-        for _c in _cats:
-            rows = [m for m in stage_metrics if m.get('category') == _c]
-            parts.append(f'<div class="sec-h">{html.escape((_c or "other").capitalize())} by stage '
+        # flow(dashboard,stage_tables): categories merged per table, the rest hidden
+        for _title, _cats in dash_config.stage_tables():
+            rows = [m for m in stage_metrics if m.get('category') in _cats]
+            if not rows:
+                continue
+            parts.append(f'<div class="sec-h">{html.escape(_title)} by stage '
                          f'<span class="hint">{len({m["stage"] for m in rows})} stages</span></div>')
             parts.append(_stage_table(rows))
-    parts.append('<div class="sec-h">Timing metrics '
-                 f'<span class="hint">{len(timing_metrics)} rows</span></div>')
-    parts.append(_metrics_table(timing_metrics))
     if other_metrics:
         parts.append(f'<div class="sec-h">Other metrics '
                      f'<span class="hint">{len(other_metrics)} rows</span></div>')

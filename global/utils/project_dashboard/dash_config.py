@@ -195,6 +195,12 @@ def metric_polarities():
     return out
 
 
+def stage_tables():
+    """[(title, [categories])] from flow(dashboard,stage_tables)."""
+    items = registry.tcl_list(registry.require_flow_value('dashboard,stage_tables'))
+    return [(items[i], registry.tcl_list(items[i + 1])) for i in range(0, len(items) - 1, 2)]
+
+
 def category_tabs():
     """{metric category: tab} from flow(dashboard,category_tab,*)."""
     return registry.flow_values('dashboard,category_tab,')

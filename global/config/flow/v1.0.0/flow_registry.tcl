@@ -164,6 +164,11 @@ set flow(dashboard,top_metrics,PD)  {{Setup WNS} {Setup TNS} {Hold WNS} Utilizat
 set flow(dashboard,top_metrics,DFT) {fault_coverage_pct test_coverage_pct atpg_eff_pct pattern_count mbist_controller_count drc_violation_count}
 set flow(dashboard,top_metrics,DV)  {coverage_pct bins_hit bins_total uvm_errors}
 #
+# Published-run "by stage" tables: {title {metric categories} ...} — the
+# categories listed under one title share one Stage x metrics table; a
+# category not listed is not shown as a stage table.
+set flow(dashboard,stage_tables) {{Design & timing} {design timing clock} Routing {routing} Power {power}}
+#
 # Metric polarity — which value is the worse QoR point when one publish has
 # several rows of the same metric (scenarios / corners). higher_better: the
 # smaller value is worse; lower_better: the larger value is worse. Metrics
