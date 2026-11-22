@@ -829,8 +829,10 @@ def _current_status_for_run(run_dir):
       5. All READY (never started) → 'Not started' / READY
       6. No DB / no jobs row / DB unreadable → returns NONE
 
-    runtime_sec: for completed jobs the stored value; for RUNNING jobs None
-    (the client computes live elapsed from start_time on each render).
+    start_time / runtime_sec describe the WHOLE run (the Runtime column):
+    start_time = earliest job start; runtime_sec = latest job end - earliest
+    job start (wall clock) when nothing is RUNNING, else None (the client
+    ticks live elapsed from start_time).
     """
     none = {'node': '', 'status': 'NONE', 'start_time': '', 'runtime_sec': None}
     db_path = _find_run_db(run_dir)
@@ -851,6 +853,9 @@ def _current_status_for_run(run_dir):
             "WHERE id IN (SELECT MAX(id) FROM jobs GROUP BY job_name) "
             "AND job_type = 'subnode'"
         ).fetchall()
+        span = cur.execute(
+            "SELECT MIN(NULLIF(start_time,'')), MAX(NULLIF(end_time,'')) FROM jobs "
+            "WHERE id IN (SELECT MAX(id) FROM jobs GROUP BY job_name)").fetchone()
     except sqlite3.Error:
         return none
     finally:
@@ -858,6 +863,19 @@ def _current_status_for_run(run_dir):
 
     if not rows:
         return none
+
+    run_start, run_end = (span or (None, None))
+
+    def _total(status):
+        """Whole-run wall clock; None while running (client ticks live)."""
+        if status == 'RUNNING' or not (run_start and run_end):
+            return None
+        try:
+            from datetime import datetime as _dt
+            return max(0.0, (_dt.fromisoformat(run_end) - _dt.fromisoformat(run_start))
+                       .total_seconds())
+        except ValueError:
+            return None
 
     by_status = {}
     for stage, subnode, status, start, ts, rtsec in rows:
@@ -869,13 +887,13 @@ def _current_status_for_run(run_dir):
                 by_status[st], key=lambda r: r[3] or '')
             node = f'{stage}/{subnode}' if subnode else stage
             return {'node': node, 'status': st,
-                    'start_time': start or '', 'runtime_sec': rtsec}
+                    'start_time': run_start or start or '', 'runtime_sec': _total(st)}
 
     # Status outside known set — surface it as-is so we see it on the UI.
     stage, subnode, status, start, _ts, rtsec = rows[0]
     node = f'{stage}/{subnode}' if subnode else stage
     return {'node': node, 'status': status,
-            'start_time': start or '', 'runtime_sec': rtsec}
+            'start_time': run_start or start or '', 'runtime_sec': _total(status)}
 
 
 def _render_index(runs, discipline='PD', project=''):
@@ -1348,7 +1366,7 @@ def _render_index(runs, discipline='PD', project=''):
     </div>
     <table class="runs">
       <thead>
-        <tr><th>Run</th><th>Block</th><th>Flow</th><th>Current Status</th><th>Runtime</th><th>Run directory</th>
+        <tr><th>Run</th><th>Block</th><th>Flow</th><th>Current Status</th><th>Total runtime</th><th>Run directory</th>
             <th></th></tr>
       </thead>
       <tbody id="runs-tbody">
@@ -1486,8 +1504,8 @@ def _render_index(runs, discipline='PD', project=''):
   }}
 
   function runtimeCellHtml(r) {{
-    // Live elapsed for RUNNING jobs (now - start_time); stored runtime_sec
-    // for completed; em-dash otherwise.
+    // Total run time: live (now - run start) while RUNNING, else the stored
+    // whole-run wall clock; em-dash otherwise.
     if (r.current_status === 'RUNNING' && r.current_start) {{
       const t0 = Date.parse(r.current_start);
       if (!Number.isNaN(t0)) {{
