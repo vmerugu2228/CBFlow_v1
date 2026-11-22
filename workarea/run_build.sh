@@ -72,14 +72,23 @@ block() {
 }
 
 wait_for() { while [ ! -f "$WA/.$1.done" ]; do [ -f "$WA/.$1.failed" ] && return 1; sleep 30; done; }
-run_block() { block "$@" || { touch "$WA/.$1.failed"; say "$1: chain stopped"; return 1; }; }
+run_block() {
+    [ -f "$WA/.$1.done" ] && { say "$1: already built (resume)"; return 0; }
+    block "$@" || { touch "$WA/.$1.failed"; say "$1: chain stopped"; return 1; }
+}
 lef_size() { awk '/^ *SIZE/ {print $2, $4; exit}' "$REL/$1/PNR/$(cat "$WA/.$1.done")/lef/$1.lef"; }
 
-: > "$LOG"; rm -f "$WA"/.*.done "$WA"/.*.failed; rmdir "$WA/.publish.lock" 2>/dev/null
+# RESUME=1 keeps finished blocks (.<block>.done) and retries the failed ones
+if [ "$RESUME" = 1 ]; then
+    rm -f "$WA"/.*.failed
+else
+    : > "$LOG"; rm -f "$WA"/.*.done "$WA"/.*.failed
+fi
+rmdir "$WA/.publish.lock" 2>/dev/null
 for b in gcd mac_array ctrl_subsys ai_subsys opensky_chip; do
     sed -i '' "s/^set flow(run_name) .*/set flow(run_name)             \"$RUN\"/" "$WA/$b/uc_SYNTH_yosys.tcl"
 done
-say "start: parallel bottom-up build ($RUN)"
+say "start: parallel bottom-up build ($RUN)${RESUME:+ — resume}"
 
 run_block gcd &
 run_block mac_array &
