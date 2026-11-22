@@ -634,6 +634,48 @@ proc oss_report {file args} {
 
 # Worst setup/hold slack across the node's corners, written to a metrics file
 # the validate step and dashboards can read.
+# Path-group timing: <flow>(oss,path_groups) {NAME {from to} ...} (from / to =
+# all_registers | all_inputs | all_outputs). For every view (corner; {} =
+# the single loaded corner) x group x setup/hold: report
+# <prefix>_<setup|hold>_<group>[_<view>].rpt (<flow>(oss,path_groups,
+# report_paths) paths) and return "# scenario:"-ready lines
+# "<Setup|Hold> <group> <WNS|TNS> : value" per view as {view lines ...}.
+proc oss_group_timing {views prefix} {
+    set _arr [oss_flow_arr]
+    set _groups [oss_get $_arr oss,path_groups]
+    set _np [oss_get $_arr oss,path_groups,report_paths]
+    foreach {_g _ft} $_groups {
+        lassign $_ft _from _to
+        catch {group_path -name $_g -from [$_from] -to [$_to]}
+    }
+    set _copt [oss_corner_opt find_timing_paths]
+    set _out {}
+    foreach _v [expr {[llength $views] ? $views : [list {}]}] {
+        set _cor [expr {$_v eq "" ? {} : [list $_copt $_v]}]
+        set _L {}
+        foreach {_chk _mm} {Setup max Hold min} {
+            foreach {_g _ft} $_groups {
+                set _ends [find_timing_paths -path_group $_g -path_delay $_mm {*}$_cor \
+                               -group_path_count 1000000 -endpoint_path_count 1 -sort_by_slack]
+                set _w ""; set _t 0.0
+                foreach _pe $_ends {
+                    set _sl [get_property $_pe slack]
+                    if {$_w eq "" || $_sl < $_w} { set _w $_sl }
+                    if {$_sl < 0} { set _t [expr {$_t + $_sl}] }
+                }
+                # (not an expr ternary: expr would turn "15.310" back into 15.31)
+                if {$_w eq ""} { set _ws N/A; set _ts N/A } else { set _ws [cbflow_fmt_slack $_w]; set _ts [cbflow_fmt_slack $_t] }
+                lappend _L "$_chk $_g WNS : $_ws" "$_chk $_g TNS : $_ts"
+                set _rpt "${prefix}_[string tolower $_chk]_${_g}[expr {$_v eq "" ? "" : "_$_v"}].rpt"
+                oss_report $_rpt report_checks -path_group $_g -path_delay $_mm {*}$_cor \
+                    -group_path_count $_np -format full_clock_expanded
+            }
+        }
+        lappend _out $_v $_L
+    }
+    return $_out
+}
+
 proc oss_write_qor {tag} {
     set _f "$::REPORTS_DIR/${tag}_qor.tcl"
     set _fh [open $_f w]
@@ -859,6 +901,16 @@ proc oss_checklist_metrics {tag} {
                           "Vertical overflow : $_v" "Total overflow : $_tot" \
                           "Overflow pct : [format %.3f [expr {$_res ? 100.0 * $_tot / $_res : 0.0}]]"
             }
+        }
+    }
+
+    # Per corner (the node's views) x path group: setup / hold WNS + TNS —
+    # '# scenario:' sections at the end (first-match checklist patterns keep
+    # reading the design-level lines above)
+    if {$tag ni {fp init_design}} {
+        lappend L "# category: scenario"
+        foreach {_v _gl} [oss_group_timing [oss_node_views $::NODE_NAME] "$::REPORTS_DIR/$tag"] {
+            lappend L "# scenario: $_v" {*}$_gl
         }
     }
 

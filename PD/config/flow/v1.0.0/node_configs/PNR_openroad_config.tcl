@@ -182,3 +182,14 @@ set pnr(mandatory_outputs,pro1)          {pro.odb}
 set pnr(mandatory_outputs,signoff1)      {final.odb final.def final.v final.lvs.v final.lef final.sdc}
 set pnr(mandatory_outputs,export_data1)  {final.gds}
 set pnr(mandatory_outputs,release_data1) {release.manifest}
+
+# ┌─ Path groups (timing by group: report + WNS / TNS per corner) ─────────────┐
+# NAME {from to} — from / to: all_registers | all_inputs | all_outputs.
+# report_paths: paths per <stage>_<setup|hold>_<group>_<corner>.rpt.
+set pnr(oss,path_groups) {
+    R2R {all_registers all_registers}
+    I2R {all_inputs    all_registers}
+    R2O {all_registers all_outputs}
+    I2O {all_inputs    all_outputs}
+}
+set pnr(oss,path_groups,report_paths) 10

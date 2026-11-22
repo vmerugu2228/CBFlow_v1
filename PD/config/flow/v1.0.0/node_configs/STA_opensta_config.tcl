@@ -111,3 +111,14 @@ array set sta {
     checklist,metric,sta_dont_use          {^Dont use cells\s*:\s*(\d+)}
     checklist,metric,sta_dont_touch        {^Dont touch missing\s*:\s*(\d+)}
 }
+
+# ┌─ Path groups (timing by group: report + WNS / TNS per corner) ─────────────┐
+# NAME {from to} — from / to: all_registers | all_inputs | all_outputs.
+# report_paths: paths per <stage>_<setup|hold>_<group>_<corner>.rpt.
+set sta(oss,path_groups) {
+    R2R {all_registers all_registers}
+    I2R {all_inputs    all_registers}
+    R2O {all_registers all_outputs}
+    I2O {all_inputs    all_outputs}
+}
+set sta(oss,path_groups,report_paths) 10

@@ -154,14 +154,20 @@ def build_payload(project, block, phase, milestone, release_dir, workspace,
 
 
 def _read_metrics_report(path):
-    """[{category, name, value, scenario}] from a metrics report; [] when
-    absent. "# category: <c>" starts a group; "# scenario: <s>" tags the
-    following lines with a scenario until the next category / scenario."""
-    out, cat, scen = [], 'other', ''
+    """[{category, name, value, scenario, stage}] from a metrics report; []
+    when absent. "# category: <c>" starts a group; "# scenario: <s>" tags the
+    following lines with a scenario until the next category / scenario;
+    "# stage: <s>" tags everything after it with a stage ("-" ends)."""
+    out, cat, scen, stage = [], 'other', '', ''
     try:
         with open(path, encoding='utf-8', errors='replace') as f:
             for line in f:
                 line = line.strip()
+                m = re.match(r'#\s*stage:\s*(\S+)', line)
+                if m:
+                    # "# stage: <s>" tags everything until the next stage; "-" ends
+                    stage, cat, scen = ('' if m.group(1) == '-' else m.group(1)), 'other', ''
+                    continue
                 m = re.match(r'#\s*category:\s*(\S+)', line)
                 if m:
                     cat, scen = m.group(1), ''
@@ -174,7 +180,7 @@ def _read_metrics_report(path):
                     continue
                 k, v = line.split(' : ', 1)
                 out.append({'category': cat, 'name': k.strip(), 'value': v.strip(),
-                            'scenario': scen})
+                            'scenario': scen, 'stage': stage})
     except OSError:
         pass
     return out

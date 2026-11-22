@@ -28,7 +28,7 @@ set ::flow::exec_mode "auto"
 source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
 
 # 3-decimal number (non-numeric, e.g. N/A, unchanged)
-proc sta_fmt3 {v} { expr {[string is double -strict $v] ? [format %.3f $v] : $v} }
+proc sta_fmt3 {v} { if {[string is double -strict $v]} { return [format %.3f $v] }; return $v }
 
 flow_proc publish {
     global design_name
@@ -56,6 +56,7 @@ flow_proc publish {
             "Fanout violations : $qor(max_fanout_violations)" \
             "Tran slack ns : [sta_fmt3 $qor(tran_slack)]" "Cap slack pF : [sta_fmt3 $qor(cap_slack)]" \
             "Fanout slack : [sta_fmt3 $qor(fanout_slack)]" \
+            {*}[expr {[info exists qor(path_groups)] ? $qor(path_groups) : {}}] \
             "Noise : N/A"
         if {$_power} {
             lappend _L "Lkg power mW : [format %.4g [expr {$qor(power_leakage) * 1e3}]]" \

@@ -7,7 +7,7 @@
 cd "$(dirname "$0")"
 WA=$PWD
 C=$WA/../bin/cbflow
-B=$1; EXIT=${2:-PRO_EXIT}; RUN=${RUN:-oss_b1}
+B=$1; EXIT=${2:-PRO_EXIT}; RUN=${RUN:-oss_b1}; PHASE=${PHASE:-P0}
 LOG=$WA/signoff.log
 [ -d "$WA/$B" ] || { echo "no block $B"; exit 1; }
 
@@ -24,22 +24,24 @@ flock_publish() {
 
 # mk <FLOW> <template uc in gcd/> — per-block uc: design, run name, tags
 mk() {
-    local f=$1 src=$2 dst="$WA/$B/uc_${1}_signoff.tcl"
+    local f=$1 src=$2 dst="$WA/$B/uc_${1}_signoff_${PHASE}.tcl"
     sed -e "s/^set flow(design_name) .*/set flow(design_name)          \"$B\"/" \
         -e "s/^set flow(run_name) .*/set flow(run_name)             \"$RUN\"/" \
         -e "s/^set sta(input,release_tag) *\"[^\"]*\"/set sta(input,release_tag)     \"$EXIT\"/" \
         -e "s/^set pv(input,release_tag) *\"[^\"]*\"/set pv(input,release_tag)      \"$EXIT\"/" \
-        -e "s/^set lec(input,netlist_golden_release_tag) .*/set lec(input,netlist_golden_release_tag)  \"P0_SYNTH_v1\"/" \
+        -e "s/^set lec(input,netlist_golden_release_tag) .*/set lec(input,netlist_golden_release_tag)  \"${PHASE}_SYNTH_v1\"/" \
         -e "s/^set lec(input,netlist_revised_release_tag) .*/set lec(input,netlist_revised_release_tag) \"$EXIT\"/" \
         -e '/^set project(release,tag)/d' \
         "$WA/gcd/$src" > "$dst"
+    echo "set project(phase)             \"$PHASE\"" >> "$dst"
+    echo "set project(release,phase)     \"$PHASE\"" >> "$dst"
     echo "$dst"
 }
 
 run() {
-    local f=$1 uc=$2 rd="P0_run_${1}_${B}_${RUN}"
+    local f=$1 uc=$2 rd="${PHASE}_run_${1}_${B}_${RUN}"
     local fl; fl=$(echo "$f" | tr 'A-Z' 'a-z')
-    say "$B $f: start (input $EXIT)"
+    say "$B $f: start ($PHASE, input $EXIT)"
     (cd "$WA/$B" && rm -rf "$rd" && $C workspace create --config "$uc") > "$WA/$B/${fl}_signoff_create.log" 2>&1
     (cd "$WA/$B/$rd" && $C run all) > "$WA/$B/${fl}_signoff.log" 2>&1
     if ! grep -q "result=PASS" "$WA/$B/${fl}_signoff.log"; then
@@ -48,7 +50,7 @@ run() {
     # Verdict = the release's metrics.rpt Status (thresholds in the tool overlay)
     local rel; rel=$(awk '/^release_dir/{print $2}' "$WA/$B/$rd"/work/$f/release_data1/outputs/release.manifest)
     local st; st=$(awk -F' : ' '/^Status :/{print $2}' "$rel/metrics.rpt" 2>/dev/null)
-    say "$B $f: run done, verdict ${st:-UNKNOWN} -> release ${rel#*/P0/}"
+    say "$B $f: run done, verdict ${st:-UNKNOWN} -> release ${rel#*/$PHASE/}"
     # attach to the exit entry in SmartGrid (refreshes it with every flow's release)
     if [ -n "$PUBLISH" ]; then
         (cd "$WA/$B" && flock_publish "$rd")

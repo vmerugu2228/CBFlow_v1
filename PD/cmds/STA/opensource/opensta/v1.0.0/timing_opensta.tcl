@@ -82,6 +82,8 @@ flow_proc report {
     }
     puts $_fh "Patterns missing: [llength $_dt_missing]   Instances kept: $_dt_n"
     close $_fh
+    # Path-group timing (R2R / I2R / R2O / I2O ...): timing_<setup|hold>_<group>.rpt
+    set _grp [lindex [oss_group_timing {} "$::SCEN_REPORTS/timing"] 1]
     set _fh [open "$::SCEN_REPORTS/[oss_get sta oss,scenario_qor_file]" w]
     puts $_fh "set qor(scenario) \"$::SCENARIO\""
     puts $_fh "set qor(wns_setup) [sta::worst_slack -max]"
@@ -94,6 +96,7 @@ flow_proc report {
     puts $_fh "set qor(dont_use_cells) [llength $_du_hits]"
     puts $_fh "set qor(dont_touch_missing) [llength $_dt_missing]"
     puts $_fh "set qor(dont_touch_instances) $_dt_n"
+    puts $_fh [list set qor(path_groups) $_grp]
     # Worst margin per check (limit - value; negative = violation)
     foreach {_k _c} {tran_slack max_slew_check_slack cap_slack max_capacitance_check_slack
                      fanout_slack max_fanout_check_slack} {

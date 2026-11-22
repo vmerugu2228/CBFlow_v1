@@ -89,7 +89,26 @@ flow_proc publish {
     # routed-layout image.
     set _ms [::CBFlow::Release::default_exit_tag $::FLOW_TYPE [oss_get project release,phase]]
     set _xn [oss_get pnr checklist,exit_node,$_ms]
-    ::CBFlow::Release::copy_file "$::run_dir/[string map [list {${exit_node}} $_xn] [oss_get pnr checklist,report]]" . metrics.rpt
+    # metrics.rpt: the exit node's design-level metrics (its per-corner
+    # '# scenario:' sections left out), then one '# stage: <node>' block per
+    # reported stage with everything that stage measured (categories +
+    # per-corner path-group timing) — SmartGrid's stage x corner tables.
+    set _crpt [file tail [oss_get pnr checklist,report]]
+    set _M {}
+    set _fh [open "$::run_dir/[string map [list {${exit_node}} $_xn] [oss_get pnr checklist,report]]"]
+    set _skip 0
+    foreach _ln [split [read $_fh] \n] {
+        if {[regexp {^#\s*category:\s*(\S+)} $_ln -> _c]} { set _skip [expr {$_c eq "scenario"}] }
+        if {!$_skip} { lappend _M $_ln }
+    }
+    close $_fh
+    foreach _t [oss_get pnr oss,release,report_stages] {
+        set _f "[cbflow_node_dir [oss_chain_node $_t]]/reports/$_crpt"
+        if {![file exists $_f]} continue
+        set _fh [open $_f]; lappend _M "# stage: $_t" {*}[split [string trimright [read $_fh]] \n]; close $_fh
+    }
+    lappend _M "# stage: -"
+    set _fh [open "$_dir/metrics.rpt" w]; puts $_fh [join $_M \n]; close $_fh
     release_config_load
     set _ts [cbflow_require release file,timing_snapshot]
     if {[file exists "[cbflow_node_dir $_xn]/reports/$_ts"]} {

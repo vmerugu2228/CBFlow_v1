@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS run_metrics (
     unit             TEXT,
     scenario         TEXT,
     corner           TEXT,
+    stage            TEXT,               -- flow stage the metric was measured at
     FOREIGN KEY (published_run_id) REFERENCES published_runs(id) ON DELETE CASCADE
 );
 
@@ -248,6 +249,8 @@ def init_db(db_path):
         migrations = [
             ('run_floorplan', 'density_json', 'TEXT',    "'{}'"),
             ('run_floorplan', 'total_cells',  'INTEGER', '0'),
+            # stage per metric (PNR per-stage tables)
+            ('run_metrics', 'stage', 'TEXT', "''"),
             # v3 (2026-11-02): discipline tag on published runs. Tier 3
             # filters by this; legacy rows are tagged from their flow.
             ('published_runs', 'discipline', 'TEXT',    None),
@@ -529,10 +532,10 @@ def publish(db_path, payload, project):
         for m in payload.get('metrics') or []:
             conn.execute("""
                 INSERT INTO run_metrics(published_run_id, category, name,
-                    value, unit, scenario, corner)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                    value, unit, scenario, corner, stage)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (pid, m.get('category'), m.get('name'), _to_str(m.get('value')),
-                  m.get('unit'), m.get('scenario'), m.get('corner')))
+                  m.get('unit'), m.get('scenario'), m.get('corner'), m.get('stage') or ''))
 
         for c in payload.get('checklist') or []:
             conn.execute("""
