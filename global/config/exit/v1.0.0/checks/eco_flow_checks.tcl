@@ -40,7 +40,7 @@ array set eco_flow_checks {
 
     "eco_timing_impact" {
         "id"          "ECO_FLOW_0003"
-        "description"             "ECO timing impact must be within acceptable range"
+        "description"             "Setup timing change caused by the ECO"
         "script"                  "check_timing.tcl"
         "category"                "eco_timing"
         "severity"                "critical"
@@ -54,7 +54,7 @@ array set eco_flow_checks {
 
     "eco_hold_impact" {
         "id"          "ECO_FLOW_0004"
-        "description"             "ECO hold timing impact must be within acceptable range"
+        "description"             "Hold timing change caused by the ECO"
         "script"                  "check_timing.tcl"
         "category"                "eco_timing"
         "severity"                "major"
@@ -68,7 +68,7 @@ array set eco_flow_checks {
 
     "eco_drc_clean" {
         "id"          "ECO_FLOW_0005"
-        "description"             "Post-ECO DRC must be clean"
+        "description"             "DRC violations after the ECO"
         "script"                  "check_drc.tcl"
         "category"                "eco_physical"
         "severity"                "major"
@@ -82,7 +82,7 @@ array set eco_flow_checks {
 
     "eco_connectivity" {
         "id"          "ECO_FLOW_0006"
-        "description"             "Post-ECO connectivity must be verified"
+        "description"             "Connectivity check after the ECO"
         "script"                  "check_legality.tcl"
         "category"                "eco_physical"
         "severity"                "critical"
@@ -96,7 +96,7 @@ array set eco_flow_checks {
 
     "eco_legality" {
         "id"          "ECO_FLOW_0007"
-        "description"             "Post-ECO cell placement must be legal"
+        "description"             "Placement legality after the ECO"
         "script"                  "check_legality.tcl"
         "category"                "eco_physical"
         "severity"                "critical"
@@ -132,13 +132,14 @@ array set eco_flow_checks {
         "applicable_milestones"   "ECO_SIGNOFF"
         "report_pattern"          "eco_changes.rpt"
         "metric_pattern"          {Spare\s+Cell\s+Usage\s*:\s*([0-9]+\.[0-9]+)\s*%}
+        "unit"        "%"
         "operator"                "<="
         "default_threshold"       "80.0"
     }
 
     "eco_routing_complete" {
         "id"          "ECO_FLOW_0010"
-        "description"             "ECO routing must be completed"
+        "description"             "Routing completion after the ECO"
         "script"                  "check_routing.tcl"
         "category"                "eco_physical"
         "severity"                "critical"
@@ -146,6 +147,7 @@ array set eco_flow_checks {
         "applicable_milestones"   "ECO_SIGNOFF"
         "report_pattern"          "eco_summary.rpt"
         "metric_pattern"          {ECO\s+Routing\s+Status\s*:\s*(COMPLETED|INCOMPLETE)}
+        "unit"        "%"
         "operator"                "=="
         "default_threshold"       "COMPLETED"
     }

@@ -1060,6 +1060,8 @@ def _write_checklist_to_db(run_dir: str, milestone: str, phase: str,
                 threshold = cfg.get('criteria', '')
                 if cfg.get('operator') and cfg.get('default_threshold', '') != '':
                     threshold = f"{cfg['operator']} {cfg['default_threshold']}"
+                    if cfg.get('unit'):
+                        threshold += f" {cfg['unit']}"
                 rows.append((
                     milestone,
                     name,

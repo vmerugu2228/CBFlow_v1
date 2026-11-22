@@ -10,7 +10,7 @@ array set physical_checks {
 
     "unconnected_cells" {
         "id"          "PHYSICAL_0001"
-        "description"             "Cells with unconnected pins — no dangling connections"
+        "description"             "Cells with unconnected pins"
         "script"                  "check_legality.tcl"
         "category"                "physical"
         "severity"                "critical"
@@ -24,7 +24,7 @@ array set physical_checks {
 
     "floating_pins" {
         "id"          "PHYSICAL_0002"
-        "description"             "Floating input pins — no undriven inputs"
+        "description"             "Floating (undriven) input pins"
         "script"                  "check_legality.tcl"
         "category"                "physical"
         "severity"                "critical"
@@ -38,7 +38,7 @@ array set physical_checks {
 
     "open_nets" {
         "id"          "PHYSICAL_0003"
-        "description"             "Physically open signal nets — no broken connections"
+        "description"             "Physically open signal nets"
         "script"                  "check_routing.tcl"
         "category"                "physical"
         "severity"                "critical"
@@ -52,7 +52,7 @@ array set physical_checks {
 
     "missing_vias_power" {
         "id"          "PHYSICAL_0004"
-        "description"             "Missing vias in power mesh — all junctions connected"
+        "description"             "Missing vias at power-mesh junctions"
         "script"                  "check_routing.tcl"
         "category"                "physical"
         "severity"                "critical"
@@ -66,7 +66,7 @@ array set physical_checks {
 
     "power_strap_coverage" {
         "id"          "PHYSICAL_0005"
-        "description"             "VDD/VSS strap coverage per layer meets requirement"
+        "description"             "VDD/VSS strap coverage per layer"
         "script"                  "check_utilization.tcl"
         "category"                "physical"
         "severity"                "major"
@@ -74,6 +74,7 @@ array set physical_checks {
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_power.rpt"
         "metric_pattern"          "^Power strap coverage\\s*:\\s*(\\d+\\.?\\d*)%"
+        "unit"        "%"
         "operator"                ">="
         "default_threshold"       "95.0"
     }
@@ -116,13 +117,14 @@ array set physical_checks {
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_power.rpt"
         "metric_pattern"          "^EM violations\\s*:\\s*(\\d+)"
+        "unit"        "%"
         "operator"                "=="
         "default_threshold"       "0"
     }
 
     "well_tap_coverage" {
         "id"          "PHYSICAL_0009"
-        "description"             "N-well/P-well tap coverage ratio meets latch-up rules"
+        "description"             "N-well/P-well tap coverage (latch-up)"
         "script"                  "check_utilization.tcl"
         "category"                "physical"
         "severity"                "major"
@@ -130,6 +132,7 @@ array set physical_checks {
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "check_legality.rpt"
         "metric_pattern"          "^Well tap coverage\\s*:\\s*(\\d+\\.?\\d*)%"
+        "unit"        "%"
         "operator"                ">="
         "default_threshold"       "100.0"
     }
@@ -150,7 +153,7 @@ array set physical_checks {
 
     "filler_completeness" {
         "id"          "PHYSICAL_0011"
-        "description"             "Filler cell coverage — no gaps in cell rows"
+        "description"             "Gaps in cell rows without filler"
         "script"                  "check_legality.tcl"
         "category"                "physical"
         "severity"                "major"
@@ -192,7 +195,7 @@ array set physical_checks {
 
     "pin_density_check" {
         "id"          "PHYSICAL_0014"
-        "description"             "Pin density within routability threshold"
+        "description"             "Pin density (routability)"
         "script"                  "check_file_exists.tcl"
         "category"                "physical"
         "severity"                "minor"
@@ -200,13 +203,14 @@ array set physical_checks {
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_design.rpt"
         "metric_pattern"          "^Pin density hotspots\\s*:\\s*(\\d+)"
+        "unit"        "%"
         "operator"                "<="
         "default_threshold"       "0"
     }
 
     "io_ring_continuity" {
         "id"          "PHYSICAL_0015"
-        "description"             "IO power ring continuity — no breaks in ring"
+        "description"             "Breaks in the IO power ring"
         "script"                  "check_routing.tcl"
         "category"                "physical"
         "severity"                "critical"
@@ -220,7 +224,7 @@ array set physical_checks {
 
     "pg_connection_check" {
         "id"          "PHYSICAL_0016"
-        "description"             "All standard cells PG connected — no floating power/ground"
+        "description"             "Standard cells without PG connection"
         "script"                  "check_routing.tcl"
         "category"                "physical"
         "severity"                "critical"
@@ -248,7 +252,7 @@ array set physical_checks {
 
     "tie_cell_connection" {
         "id"          "PHYSICAL_0018"
-        "description"             "Tie-high/tie-low cell completeness — no direct VDD/VSS ties"
+        "description"             "Inputs tied directly to VDD/VSS (no tie cell)"
         "script"                  "check_legality.tcl"
         "category"                "physical"
         "severity"                "major"
@@ -270,13 +274,14 @@ array set physical_checks {
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_design.rpt"
         "metric_pattern"          "^Blockage coverage errors\\s*:\\s*(\\d+)"
+        "unit"        "%"
         "operator"                "=="
         "default_threshold"       "0"
     }
 
     "cell_padding_check" {
         "id"          "PHYSICAL_0020"
-        "description"             "Cell-to-cell spacing padding meets requirements"
+        "description"             "Cell-to-cell spacing / padding violations"
         "script"                  "check_file_exists.tcl"
         "category"                "physical"
         "severity"                "minor"

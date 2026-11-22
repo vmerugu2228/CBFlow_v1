@@ -26,7 +26,7 @@ array set mandatory_checks {
     "fp_qor" {
         "id"          "FP_0001"
         "script"      "check_timing.tcl"
-        "description" "QoR summary — WNS/TNS/area/power snapshot"
+        "description" "QoR summary after floorplan (WNS/TNS/area)"
         "criteria"    "report exists and parseable"
         "min_phase_index"   "0"
         "report_file" "work/SYNTH_PNR/init_design1/reports/report_qor.rpt"
@@ -36,6 +36,7 @@ array set mandatory_checks {
         "script"      "check_utilization.tcl"
         "description" "Floorplan utilization within target range"
         "criteria"    "utilization >= utilization_min && utilization <= utilization_max"
+        "unit"        "%"
         "operator"    "between"
         "default_threshold" "1,85"
         "min_phase_index"   "0"
@@ -52,7 +53,7 @@ array set mandatory_checks {
     "fp_clock_definitions" {
         "id"          "FP_0004"
         "script"      "check_file_exists.tcl"
-        "description" "Clock definitions report — all clocks defined"
+        "description" "Clock definitions report"
         "criteria"    "file exists"
         "min_phase_index"   "1"
         "report_file" "work/SYNTH_PNR/init_design1/reports/report_clocks.rpt"

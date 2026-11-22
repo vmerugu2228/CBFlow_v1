@@ -50,6 +50,7 @@ array set optional_checks {
         "criteria"          "scan_coverage_pct >= 95"
         "min_phase_index"   "0"
         "metric_name"       "scan_coverage_pct"
+        "unit"        "%"
         "operator"          ">="
         "default_threshold" "95"
     }

@@ -29,7 +29,7 @@ array set mandatory_checks {
     "bto_setup_timing" {
         "id"          "PNR_0035"
         "script"      "check_timing.tcl"
-        "description" "Signoff setup timing — WNS >= 0 at P2+"
+        "description" "Signoff setup slack (WNS)"
         "criteria"    "setup_wns >= threshold"
         "min_phase_index"   "0"
         "report_file" "work/SYNTH_PNR/signoff1/reports/report_timing.max.rpt"
@@ -45,7 +45,7 @@ array set mandatory_checks {
     "bto_routing" {
         "id"          "PNR_0037"
         "script"      "check_routing.tcl"
-        "description" "Final route check — zero opens/shorts"
+        "description" "Opens and shorts after final route"
         "criteria"    "opens == 0 && shorts == 0"
         "min_phase_index"   "0"
         "report_file" "work/SYNTH_PNR/signoff1/reports/check_routes.final"
@@ -53,7 +53,7 @@ array set mandatory_checks {
     "bto_hold_timing" {
         "id"          "PNR_0038"
         "script"      "check_timing.tcl"
-        "description" "Signoff hold timing — WNS >= 0 at P2+"
+        "description" "Signoff hold slack (WNS)"
         "criteria"    "hold_wns >= threshold"
         "min_phase_index"   "1"
         "report_file" "work/SYNTH_PNR/signoff1/reports/report_timing.min.rpt"
@@ -61,7 +61,7 @@ array set mandatory_checks {
     "bto_signoff_drc" {
         "id"          "PNR_0039"
         "script"      "check_drc.tcl"
-        "description" "Signoff DRC — zero violations"
+        "description" "Signoff DRC violations"
         "criteria"    "drc_violations == 0"
         "min_phase_index"   "1"
         "report_file" "work/SYNTH_PNR/signoff1/reports/signoff_check_drc.rpt"
@@ -77,7 +77,7 @@ array set mandatory_checks {
     "bto_si" {
         "id"          "PNR_0041"
         "script"      "check_signal_integrity.tcl"
-        "description" "Signal integrity — crosstalk clean"
+        "description" "Crosstalk (SI) violations"
         "criteria"    "si_violations == 0"
         "min_phase_index"   "2"
         "report_file" "work/SYNTH_PNR/signoff1/reports/report_si.rpt"
@@ -113,7 +113,7 @@ array set optional_checks {
     "bto_vt_group" {
         "id"          "PNR_0045"
         "script"      "check_file_exists.tcl"
-        "description" "Threshold voltage group distribution"
+        "description" "Threshold-voltage (VT) group mix"
         "criteria"    "file exists"
         "min_phase_index"   "2"
         "report_file" "work/SYNTH_PNR/signoff1/reports/report_threshold_voltage_group.rpt"

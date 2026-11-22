@@ -103,7 +103,7 @@ array set mandatory_checks {
     "mto_dc_netlist" {
         "id"          "PNR_0056"
         "script"      "check_file_exists.tcl"
-        "description" "DC netlist"
+        "description" "DC-compatible netlist"
         "criteria"    "file exists"
         "min_phase_index"   "3"
         "report_file" "outputs/${design_name}.dc.v"

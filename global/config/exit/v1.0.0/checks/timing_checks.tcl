@@ -11,7 +11,7 @@ array set timing_checks {
 
     "setup_wns" {
         "id"          "TIMING_0001"
-        "description"             "Worst negative slack (setup) must meet threshold"
+        "description"             "Worst setup slack (WNS)"
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "critical"
@@ -19,13 +19,14 @@ array set timing_checks {
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_timing.max.rpt"
         "metric_pattern"          {slack\s+\((?:MET|VIOLATED)\)\s+(-?[0-9]+\.[0-9]+)}
+        "unit"        "ns"
         "operator"                ">="
         "default_threshold"       "0.0"
     }
 
     "setup_tns" {
         "id"          "TIMING_0002"
-        "description"             "Total negative slack (setup) must meet threshold"
+        "description"             "Total negative setup slack (TNS)"
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "critical"
@@ -33,13 +34,14 @@ array set timing_checks {
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Total\s+Negative\s+Slack\s*:\s*(-?[0-9]+\.[0-9]+)}
+        "unit"        "ns"
         "operator"                ">="
         "default_threshold"       "0.0"
     }
 
     "hold_wns" {
         "id"          "TIMING_0003"
-        "description"             "Worst negative slack (hold) must meet threshold"
+        "description"             "Worst hold slack (WNS)"
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "critical"
@@ -47,13 +49,14 @@ array set timing_checks {
         "applicable_milestones"   "CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_timing.min.rpt"
         "metric_pattern"          {slack\s+\((?:MET|VIOLATED)\)\s+(-?[0-9]+\.[0-9]+)}
+        "unit"        "ns"
         "operator"                ">="
         "default_threshold"       "0.0"
     }
 
     "hold_tns" {
         "id"          "TIMING_0004"
-        "description"             "Total negative slack (hold) must meet threshold"
+        "description"             "Total negative hold slack (TNS)"
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "critical"
@@ -61,13 +64,14 @@ array set timing_checks {
         "applicable_milestones"   "CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Total\s+Negative\s+Slack\s*\(Hold\)\s*:\s*(-?[0-9]+\.[0-9]+)}
+        "unit"        "ns"
         "operator"                ">="
         "default_threshold"       "0.0"
     }
 
     "setup_nvp" {
         "id"          "TIMING_0005"
-        "description"             "Number of violating paths (setup) within limit"
+        "description"             "Paths violating setup"
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "major"
@@ -81,7 +85,7 @@ array set timing_checks {
 
     "hold_nvp" {
         "id"          "TIMING_0006"
-        "description"             "Number of violating paths (hold) within limit"
+        "description"             "Paths violating hold"
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "major"
@@ -95,7 +99,7 @@ array set timing_checks {
 
     "max_cap_violations" {
         "id"          "TIMING_0007"
-        "description"             "Max capacitance violations count within limit"
+        "description"             "Max-capacitance violations"
         "script"                  "check_constraints.tcl"
         "category"                "timing"
         "severity"                "major"
@@ -109,7 +113,7 @@ array set timing_checks {
 
     "max_tran_violations" {
         "id"          "TIMING_0008"
-        "description"             "Max transition violations count within limit"
+        "description"             "Max-transition violations"
         "script"                  "check_constraints.tcl"
         "category"                "timing"
         "severity"                "major"
@@ -123,7 +127,7 @@ array set timing_checks {
 
     "max_fanout_violations" {
         "id"          "TIMING_0009"
-        "description"             "Max fanout violations count within limit"
+        "description"             "Max-fanout violations"
         "script"                  "check_constraints.tcl"
         "category"                "timing"
         "severity"                "major"
@@ -137,7 +141,7 @@ array set timing_checks {
 
     "net_length_violations" {
         "id"          "TIMING_0010"
-        "description"             "Nets exceeding max length threshold"
+        "description"             "Nets longer than the maximum length"
         "script"                  "check_constraints.tcl"
         "category"                "timing"
         "severity"                "minor"
@@ -151,7 +155,7 @@ array set timing_checks {
 
     "setup_wns_per_group" {
         "id"          "TIMING_0011"
-        "description"             "Worst WNS per timing path group must meet threshold"
+        "description"             "Worst setup slack per path group"
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "major"
@@ -159,13 +163,14 @@ array set timing_checks {
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Timing\s+Path\s+Group\s+\S+\s+WNS\s+(-?[0-9]+\.[0-9]+)}
+        "unit"        "ns"
         "operator"                ">="
         "default_threshold"       "0.0"
     }
 
     "hold_wns_per_group" {
         "id"          "TIMING_0012"
-        "description"             "Worst hold WNS per timing path group must meet threshold"
+        "description"             "Worst hold slack per path group"
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "major"
@@ -173,13 +178,14 @@ array set timing_checks {
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Timing\s+Path\s+Group\s+\S+\s+Hold\s+WNS\s+(-?[0-9]+\.[0-9]+)}
+        "unit"        "ns"
         "operator"                ">="
         "default_threshold"       "0.0"
     }
 
     "recovery_violations" {
         "id"          "TIMING_0013"
-        "description"             "Recovery timing violations count within limit"
+        "description"             "Recovery violations"
         "script"                  "check_constraints.tcl"
         "category"                "timing"
         "severity"                "major"
@@ -193,7 +199,7 @@ array set timing_checks {
 
     "removal_violations" {
         "id"          "TIMING_0014"
-        "description"             "Removal timing violations count within limit"
+        "description"             "Removal violations"
         "script"                  "check_constraints.tcl"
         "category"                "timing"
         "severity"                "major"
@@ -207,7 +213,7 @@ array set timing_checks {
 
     "pulse_width_violations" {
         "id"          "TIMING_0015"
-        "description"             "Min pulse width violations count within limit"
+        "description"             "Minimum pulse-width violations"
         "script"                  "check_constraints.tcl"
         "category"                "timing"
         "severity"                "major"
@@ -221,7 +227,7 @@ array set timing_checks {
 
     "clock_gating_check" {
         "id"          "TIMING_0016"
-        "description"             "Clock gating timing violations count within limit"
+        "description"             "Clock-gating timing violations"
         "script"                  "check_constraints.tcl"
         "category"                "timing"
         "severity"                "major"
@@ -243,6 +249,7 @@ array set timing_checks {
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "check_timing.rpt"
         "metric_pattern"          {Multicycle\s+Paths\s*:\s*([0-9]+)}
+        "unit"        "%"
         "operator"                ">="
         "default_threshold"       "1"
     }
@@ -257,6 +264,7 @@ array set timing_checks {
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "check_timing.rpt"
         "metric_pattern"          {False\s+Paths\s*:\s*([0-9]+)}
+        "unit"        "%"
         "operator"                ">="
         "default_threshold"       "0"
     }
@@ -271,13 +279,14 @@ array set timing_checks {
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "check_timing.rpt"
         "metric_pattern"          {Case\s+Analysis\s+Constants\s*:\s*([0-9]+)}
+        "unit"        "%"
         "operator"                ">="
         "default_threshold"       "0"
     }
 
     "timing_exception_coverage" {
         "id"          "TIMING_0020"
-        "description"             "Timing exception coverage ratio must meet threshold"
+        "description"             "Timing-exception coverage"
         "script"                  "check_file_exists.tcl"
         "category"                "timing"
         "severity"                "minor"
@@ -285,13 +294,14 @@ array set timing_checks {
         "applicable_milestones"   "BTO"
         "report_pattern"          "check_timing.rpt"
         "metric_pattern"          {Exception\s+Coverage\s*:\s*([0-9]+\.[0-9]+)\s*%}
+        "unit"        "%"
         "operator"                ">="
         "default_threshold"       "95.0"
     }
 
     "setup_slack_histogram" {
         "id"          "TIMING_0021"
-        "description"             "Setup slack distribution — paths with slack below threshold"
+        "description"             "Setup paths with slack below the margin"
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "minor"
@@ -299,13 +309,14 @@ array set timing_checks {
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Paths\s+with\s+Slack\s+<\s*-0\.100\s*:\s*([0-9]+)}
+        "unit"        "ns"
         "operator"                "<="
         "default_threshold"       "0"
     }
 
     "hold_slack_histogram" {
         "id"          "TIMING_0022"
-        "description"             "Hold slack distribution — paths with slack below threshold"
+        "description"             "Hold paths with slack below the margin"
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "minor"
@@ -313,13 +324,14 @@ array set timing_checks {
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Hold\s+Paths\s+with\s+Slack\s+<\s*-0\.050\s*:\s*([0-9]+)}
+        "unit"        "ns"
         "operator"                "<="
         "default_threshold"       "0"
     }
 
     "cross_corner_wns" {
         "id"          "TIMING_0023"
-        "description"             "Worst WNS across all MMMC corners must meet threshold"
+        "description"             "Worst setup slack over all MMMC corners"
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "critical"
@@ -327,13 +339,14 @@ array set timing_checks {
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Cross-Corner\s+WNS\s*:\s*(-?[0-9]+\.[0-9]+)}
+        "unit"        "ns"
         "operator"                ">="
         "default_threshold"       "0.0"
     }
 
     "cross_corner_tns" {
         "id"          "TIMING_0024"
-        "description"             "Worst TNS across all MMMC corners must meet threshold"
+        "description"             "Worst TNS over all MMMC corners"
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "critical"
@@ -341,13 +354,14 @@ array set timing_checks {
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Cross-Corner\s+TNS\s*:\s*(-?[0-9]+\.[0-9]+)}
+        "unit"        "ns"
         "operator"                ">="
         "default_threshold"       "0.0"
     }
 
     "interface_timing" {
         "id"          "TIMING_0025"
-        "description"             "I/O timing constraint compliance — interface WNS"
+        "description"             "Worst slack on I/O (interface) paths"
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "major"
@@ -355,6 +369,7 @@ array set timing_checks {
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_timing.max.rpt"
         "metric_pattern"          {Group\s+'(in2reg|reg2out|in2out)'\s+WNS\s+(-?[0-9]+\.[0-9]+)}
+        "unit"        "ns"
         "operator"                ">="
         "default_threshold"       "0.0"
     }
@@ -369,6 +384,7 @@ array set timing_checks {
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Group\s+'reg2reg'\s+WNS\s+(-?[0-9]+\.[0-9]+)}
+        "unit"        "ns"
         "operator"                ">="
         "default_threshold"       "0.0"
     }
@@ -383,6 +399,7 @@ array set timing_checks {
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Group\s+'in2reg'\s+WNS\s+(-?[0-9]+\.[0-9]+)}
+        "unit"        "ns"
         "operator"                ">="
         "default_threshold"       "0.0"
     }
@@ -397,13 +414,14 @@ array set timing_checks {
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_qor.rpt"
         "metric_pattern"          {Group\s+'reg2out'\s+WNS\s+(-?[0-9]+\.[0-9]+)}
+        "unit"        "ns"
         "operator"                ">="
         "default_threshold"       "0.0"
     }
 
     "memory_timing" {
         "id"          "TIMING_0029"
-        "description"             "Memory interface timing slack must meet threshold"
+        "description"             "Worst slack on memory-interface paths"
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "major"
@@ -411,13 +429,14 @@ array set timing_checks {
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_timing.max.rpt"
         "metric_pattern"          {Group\s+'mem2reg|reg2mem'\s+WNS\s+(-?[0-9]+\.[0-9]+)}
+        "unit"        "ns"
         "operator"                ">="
         "default_threshold"       "0.0"
     }
 
     "signoff_vs_implementation" {
         "id"          "TIMING_0030"
-        "description"             "Signoff/implementation WNS correlation delta within limit"
+        "description"             "WNS difference, signoff vs implementation"
         "script"                  "check_timing.tcl"
         "category"                "timing"
         "severity"                "major"

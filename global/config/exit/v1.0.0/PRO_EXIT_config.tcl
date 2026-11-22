@@ -28,7 +28,7 @@ array set mandatory_checks {
     "pro_routing" {
         "id"          "PNR_0022"
         "script"      "check_routing.tcl"
-        "description" "Routing 100% complete — zero opens/shorts"
+        "description" "Opens and shorts after route"
         "criteria"    "routing_completion == 100% && opens == 0 && shorts == 0"
         "operator"    "=="
         "default_threshold" "0"
@@ -38,8 +38,9 @@ array set mandatory_checks {
     "pro_setup_timing" {
         "id"          "PNR_0023"
         "script"      "check_timing.tcl"
-        "description" "Post-route setup timing meets threshold"
+        "description" "Post-route setup slack (WNS)"
         "criteria"    "setup_wns >= threshold"
+        "unit"        "ns"
         "operator"    ">="
         "default_threshold" "0"
         "min_phase_index"   "0"
@@ -56,8 +57,9 @@ array set mandatory_checks {
     "pro_hold_timing" {
         "id"          "PNR_0025"
         "script"      "check_timing.tcl"
-        "description" "Post-route hold timing meets threshold"
+        "description" "Post-route hold slack (WNS)"
         "criteria"    "hold_wns >= threshold"
+        "unit"        "ns"
         "operator"    ">="
         "default_threshold" "0"
         "min_phase_index"   "1"
@@ -86,7 +88,7 @@ array set optional_checks {
     "pro_signal_integrity" {
         "id"          "PNR_0028"
         "script"      "check_signal_integrity.tcl"
-        "description" "Signal integrity — crosstalk violations"
+        "description" "Crosstalk (SI) violations"
         "criteria"    "si_violations == 0"
         "min_phase_index"   "2"
         "report_file" "work/SYNTH_PNR/pro1/reports/report_si.rpt"
@@ -102,7 +104,7 @@ array set optional_checks {
     "pro_vt_group" {
         "id"          "PNR_0030"
         "script"      "check_file_exists.tcl"
-        "description" "Threshold voltage group distribution"
+        "description" "Threshold-voltage (VT) group mix"
         "criteria"    "file exists"
         "min_phase_index"   "2"
         "report_file" "work/SYNTH_PNR/pro1/reports/report_threshold_voltage_group.rpt"
@@ -134,7 +136,7 @@ array set optional_checks {
     "pro_routes_final" {
         "id"          "PNR_0034"
         "script"      "check_routing.tcl"
-        "description" "Final route check — zero violations"
+        "description" "Violations after final route"
         "criteria"    "route_violations == 0"
         "min_phase_index"   "3"
         "report_file" "work/SYNTH_PNR/pro1/reports/check_routes.final"

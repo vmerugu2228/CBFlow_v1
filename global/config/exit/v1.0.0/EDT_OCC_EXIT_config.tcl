@@ -74,6 +74,7 @@ array set optional_checks {
         "criteria"          "edt_compression_ratio >= 80"
         "min_phase_index"   "0"
         "metric_name"       "edt_compression_ratio"
+        "unit"        "%"
         "operator"          ">="
         "default_threshold" "80"
     }

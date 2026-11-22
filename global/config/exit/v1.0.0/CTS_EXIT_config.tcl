@@ -26,7 +26,7 @@ array set mandatory_checks {
     "cts_clock_qor" {
         "id"          "PNR_0012"
         "script"      "check_clock_quality.tcl"
-        "description" "Clock tree quality — skew, insertion delay"
+        "description" "Clock-tree quality report (skew, insertion delay)"
         "criteria"    "clock_skew <= threshold"
         "min_phase_index"   "0"
         "report_file" "work/SYNTH_PNR/cts1/reports/report_clock_qor.rpt"
@@ -50,7 +50,7 @@ array set mandatory_checks {
     "cts_clock_timing" {
         "id"          "PNR_0015"
         "script"      "check_clock_quality.tcl"
-        "description" "Clock timing — setup slack on clock paths"
+        "description" "Setup slack on clock paths"
         "criteria"    "clock setup timing clean"
         "min_phase_index"   "1"
         "report_file" "work/SYNTH_PNR/cts1/reports/report_clock_timing.setup.rpt"
@@ -86,7 +86,7 @@ array set optional_checks {
     "cts_vt_group" {
         "id"          "PNR_0019"
         "script"      "check_file_exists.tcl"
-        "description" "Threshold voltage group distribution"
+        "description" "Threshold-voltage (VT) group mix"
         "criteria"    "file exists"
         "min_phase_index"   "2"
         "report_file" "work/SYNTH_PNR/cts_opt1/reports/report_threshold_voltage_group.rpt"

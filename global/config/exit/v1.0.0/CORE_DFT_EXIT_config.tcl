@@ -73,7 +73,7 @@ array set optional_checks {
     "core_dft_bscan_present" {
         "id"          "DFT_INSERT_PASS1_0007"
         "script"            "check_file_exists.tcl"
-        "description"       "BSCAN interface present (optional — top blocks only)"
+        "description"       "Boundary-scan interface present (top blocks)"
         "criteria"          "file exists"
         "min_phase_index"   "0"
         "report_file"       "outputs/${design_name}_rtl1_tessent_bscan_interface_m1.v"

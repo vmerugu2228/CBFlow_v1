@@ -26,7 +26,7 @@ array set mandatory_checks {
     "place_legality" {
         "id"          "PNR_0001"
         "script"      "check_legality.tcl"
-        "description" "All cells legally placed — zero illegal cells"
+        "description" "Illegally placed cells"
         "criteria"    "illegal_cells == 0"
         "min_phase_index"   "0"
         "report_file" "work/SYNTH_PNR/place1/reports/check_legality.rpt"
@@ -34,7 +34,7 @@ array set mandatory_checks {
     "place_setup_timing" {
         "id"          "PNR_0002"
         "script"      "check_timing.tcl"
-        "description" "Setup WNS meets phase threshold"
+        "description" "Setup slack after placement (WNS)"
         "criteria"    "setup_wns >= threshold"
         "min_phase_index"   "0"
         "report_file" "work/SYNTH_PNR/place1/reports/report_timing.max.rpt"
@@ -42,7 +42,7 @@ array set mandatory_checks {
     "place_qor" {
         "id"          "PNR_0003"
         "script"      "check_timing.tcl"
-        "description" "QoR summary — WNS/TNS/area/power"
+        "description" "QoR summary after placement (WNS/TNS/area)"
         "criteria"    "report exists and parseable"
         "min_phase_index"   "0"
         "report_file" "work/SYNTH_PNR/place1/reports/report_qor.rpt"
@@ -58,7 +58,7 @@ array set mandatory_checks {
     "place_hold_timing" {
         "id"          "PNR_0005"
         "script"      "check_timing.tcl"
-        "description" "Hold WNS meets phase threshold"
+        "description" "Hold slack after CTS (WNS)"
         "criteria"    "hold_wns >= threshold"
         "min_phase_index"   "1"
         "report_file" "work/SYNTH_PNR/place1/reports/report_timing.min.rpt"
@@ -94,7 +94,7 @@ array set optional_checks {
     "place_vt_group" {
         "id"          "PNR_0009"
         "script"      "check_file_exists.tcl"
-        "description" "Threshold voltage group distribution"
+        "description" "Threshold-voltage (VT) group mix"
         "criteria"    "file exists"
         "min_phase_index"   "2"
         "report_file" "work/SYNTH_PNR/place1/reports/report_threshold_voltage_group.rpt"

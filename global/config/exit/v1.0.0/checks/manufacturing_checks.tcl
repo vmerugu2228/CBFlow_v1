@@ -14,6 +14,7 @@ array set manufacturing_checks {
         "applicable_milestones"   "BTO MTO"
         "report_pattern"          "report_density.rpt"
         "metric_pattern"          "M1 density\\s*:\\s*([0-9.]+)%"
+        "unit"        "%"
         "operator"                ">="
         "default_threshold"       "20.0"
     }
@@ -27,6 +28,7 @@ array set manufacturing_checks {
         "applicable_milestones"   "BTO MTO"
         "report_pattern"          "report_density.rpt"
         "metric_pattern"          "M2 density\\s*:\\s*([0-9.]+)%"
+        "unit"        "%"
         "operator"                ">="
         "default_threshold"       "20.0"
     }
@@ -40,12 +42,13 @@ array set manufacturing_checks {
         "applicable_milestones"   "BTO MTO"
         "report_pattern"          "report_density.rpt"
         "metric_pattern"          "Upper metal density violations\\s*:\\s*(\\d+)"
+        "unit"        "%"
         "operator"                "=="
         "default_threshold"       "0"
     }
     "metal_density_uniformity" {
         "id"          "MANUFACTURING_0004"
-        "description"             "Density window uniformity within limits"
+        "description"             "Density-window uniformity across the die"
         "script"                  "check_utilization.tcl"
         "category"                "manufacturing"
         "severity"                "major"
@@ -53,12 +56,13 @@ array set manufacturing_checks {
         "applicable_milestones"   "BTO MTO"
         "report_pattern"          "report_density.rpt"
         "metric_pattern"          "Density uniformity violations\\s*:\\s*(\\d+)"
+        "unit"        "%"
         "operator"                "=="
         "default_threshold"       "0"
     }
     "via_density_check" {
         "id"          "MANUFACTURING_0005"
-        "description"             "Via density per layer within limits"
+        "description"             "Via density per layer"
         "script"                  "check_file_exists.tcl"
         "category"                "manufacturing"
         "severity"                "major"
@@ -66,6 +70,7 @@ array set manufacturing_checks {
         "applicable_milestones"   "BTO MTO"
         "report_pattern"          "report_density.rpt"
         "metric_pattern"          "Via density violations\\s*:\\s*(\\d+)"
+        "unit"        "%"
         "operator"                "=="
         "default_threshold"       "0"
     }
@@ -92,6 +97,7 @@ array set manufacturing_checks {
         "applicable_milestones"   "PRO_EXIT BTO MTO"
         "report_pattern"          "report_antenna.rpt"
         "metric_pattern"          "Antenna violations\\s*:\\s*(\\d+)"
+        "unit"        "%"
         "operator"                "=="
         "default_threshold"       "0"
     }
@@ -118,6 +124,7 @@ array set manufacturing_checks {
         "applicable_milestones"   "BTO MTO"
         "report_pattern"          "report_density.rpt"
         "metric_pattern"          "Min density violations\\s*:\\s*(\\d+)"
+        "unit"        "%"
         "operator"                "=="
         "default_threshold"       "0"
     }
@@ -131,6 +138,7 @@ array set manufacturing_checks {
         "applicable_milestones"   "BTO MTO"
         "report_pattern"          "report_density.rpt"
         "metric_pattern"          "Filler metal coverage\\s*:\\s*([0-9.]+)%"
+        "unit"        "%"
         "operator"                ">="
         "default_threshold"       "80.0"
     }
@@ -183,6 +191,7 @@ array set manufacturing_checks {
         "applicable_milestones"   "BTO MTO"
         "report_pattern"          "report_manufacturing.rpt"
         "metric_pattern"          "CMP uniformity violations\\s*:\\s*(\\d+)"
+        "unit"        "%"
         "operator"                "=="
         "default_threshold"       "0"
     }

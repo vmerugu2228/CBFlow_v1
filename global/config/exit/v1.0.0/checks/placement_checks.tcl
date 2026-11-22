@@ -33,13 +33,14 @@ array set placement_checks {
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_utilization.rpt"
         "metric_pattern"          {Cell\s+Density\s*:\s*([0-9]+\.[0-9]+)\s*%}
+        "unit"        "%"
         "operator"                "<="
         "default_threshold"       "80.0"
     }
 
     "brickwall_density" {
         "id"          "PLACEMENT_0003"
-        "description"             "Local density hotspots must not exceed 90%"
+        "description"             "Peak local placement density"
         "script"                  "check_utilization.tcl"
         "category"                "placement"
         "severity"                "critical"
@@ -47,6 +48,7 @@ array set placement_checks {
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_utilization.rpt"
         "metric_pattern"          {Max\s+Local\s+Density\s*:\s*([0-9]+\.[0-9]+)\s*%}
+        "unit"        "%"
         "operator"                "<="
         "default_threshold"       "90.0"
     }
@@ -67,7 +69,7 @@ array set placement_checks {
 
     "pin_accessibility" {
         "id"          "PLACEMENT_0005"
-        "description"             "Pin access violations for routing must be zero"
+        "description"             "Pin-access violations for routing"
         "script"                  "check_file_exists.tcl"
         "category"                "placement"
         "severity"                "major"
@@ -95,7 +97,7 @@ array set placement_checks {
 
     "macro_orientation" {
         "id"          "PLACEMENT_0007"
-        "description"             "Macro orientation legality — all macros correctly oriented"
+        "description"             "Macros with an illegal orientation"
         "script"                  "check_file_exists.tcl"
         "category"                "placement"
         "severity"                "major"
@@ -109,7 +111,7 @@ array set placement_checks {
 
     "macro_channel_width" {
         "id"          "PLACEMENT_0008"
-        "description"             "Routing channel width between macros meets minimum"
+        "description"             "Routing channel width between macros"
         "script"                  "check_file_exists.tcl"
         "category"                "placement"
         "severity"                "major"
@@ -165,7 +167,7 @@ array set placement_checks {
 
     "well_tap_spacing" {
         "id"          "PLACEMENT_0012"
-        "description"             "Well tap proximity compliance — max spacing within limit"
+        "description"             "Well-tap spacing violations"
         "script"                  "check_legality.tcl"
         "category"                "placement"
         "severity"                "major"
@@ -201,6 +203,7 @@ array set placement_checks {
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_utilization.rpt"
         "metric_pattern"          {Filler\s+Coverage\s*:\s*([0-9]+\.[0-9]+)\s*%}
+        "unit"        "%"
         "operator"                ">="
         "default_threshold"       "100.0"
     }
@@ -243,6 +246,7 @@ array set placement_checks {
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_utilization.rpt"
         "metric_pattern"          {Utilization\s+Std\s+Dev\s*:\s*([0-9]+\.[0-9]+)\s*%}
+        "unit"        "%"
         "operator"                "<="
         "default_threshold"       "10.0"
     }
@@ -257,6 +261,7 @@ array set placement_checks {
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_congestion.rpt"
         "metric_pattern"          {Max\s+Overflow\s*:\s*([0-9]+\.[0-9]+)\s*%}
+        "unit"        "%"
         "operator"                "<="
         "default_threshold"       "5.0"
     }
@@ -277,7 +282,7 @@ array set placement_checks {
 
     "scan_chain_reorder" {
         "id"          "PLACEMENT_0020"
-        "description"             "Scan chain physical order quality — reorder distance"
+        "description"             "Scan-chain reorder distance"
         "script"                  "check_file_exists.tcl"
         "category"                "placement"
         "severity"                "minor"

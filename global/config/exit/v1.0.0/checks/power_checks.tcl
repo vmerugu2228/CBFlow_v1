@@ -157,6 +157,7 @@ array set power_checks {
         "applicable_milestones"   "PLACE_EXIT CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_upf.rpt"
         "metric_pattern"          {Power\s+State\s+Coverage\s*:\s*([\d.]+)\s*%}
+        "unit"        "%"
         "operator"                ">="
         "default_threshold"       "100.0"
     }

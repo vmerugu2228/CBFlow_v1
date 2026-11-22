@@ -66,6 +66,7 @@ array set optional_checks {
         "criteria"          "fault_coverage_pct >= 99"
         "min_phase_index"   "0"
         "metric_name"       "fault_coverage_pct"
+        "unit"        "%"
         "operator"          ">="
         "default_threshold" "99"
     }

@@ -17,6 +17,7 @@ import html
 import json
 import logging
 import os
+import re
 import sys
 from datetime import date, datetime
 
@@ -46,6 +47,21 @@ from core import release_exits
 # Checklist status -> pill style (tt-status st-*)
 _CHECK_STATUS_CLS = {'PASS': 'past', 'FAIL': 'late', 'ERROR': 'late',
                      'WAIVED': 'next', 'CONDITIONAL': 'next'}
+
+
+def _requirement(thr):
+    """Pass requirement for display: "<= 100 ps" -> "≤ 100 ps", "between 1,85 %"
+    -> "1 – 85 %"; non-numeric criteria (e.g. "file exists") shown as is."""
+    t = (thr or '').strip()
+    if not t:
+        return '—'
+    m = re.match(r'^between\s+([-\d.]+)\s*,\s*([-\d.]+)\s*(.*)$', t)
+    if m:
+        return f'{m.group(1)} – {m.group(2)} {m.group(3)}'.strip()
+    for op, sym in (('>=', '≥'), ('<=', '≤'), ('==', '='), ('!=', '≠')):
+        if t.startswith(op + ' '):
+            return sym + t[len(op):]
+    return t
 
 
 def _milestones():
@@ -5540,7 +5556,7 @@ def _render_detail(project, info, d):
     else:
         parts.append('<div style="overflow-x:auto"><table class="d"><thead><tr>'
                      '<th>Check ID</th><th>Check description</th><th>Category</th>'
-                     '<th>Value</th><th>Status</th></tr></thead><tbody>')
+                     '<th>Requirement</th><th>Value</th><th>Status</th></tr></thead><tbody>')
         for c in checklist:
             st = (c.get('status') or '—').upper()
             # Category: library checks carry one; milestone checks show their type
@@ -5552,6 +5568,7 @@ def _render_detail(project, info, d):
                 f'<td style="text-align:left;white-space:normal">'
                 f'{html.escape(c.get("description") or c.get("check_name") or "")}</td>'
                 f'<td>{html.escape(cat)}</td>'
+                f'<td class="mono">{html.escape(_requirement(c.get("threshold")))}</td>'
                 f'<td class="mono">{html.escape(str(c.get("metric_value") or "—"))}</td>'
                 f'<td><span class="tt-status st-{_CHECK_STATUS_CLS.get(st, "future")}">'
                 f'{html.escape(st)}</span></td></tr>')

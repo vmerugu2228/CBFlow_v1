@@ -14,6 +14,7 @@ array set si_checks {
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_si.rpt"
         "metric_pattern"          "Total crosstalk delay violations\\s*:\\s*(\\d+)"
+        "unit"        "ns"
         "operator"                "=="
         "default_threshold"       "0"
     }
@@ -53,6 +54,7 @@ array set si_checks {
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_crosstalk.rpt"
         "metric_pattern"          "Max coupling ratio\\s*:\\s*([0-9.]+)"
+        "unit"        "%"
         "operator"                "<="
         "default_threshold"       "0.35"
     }
@@ -79,6 +81,7 @@ array set si_checks {
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_si.rpt"
         "metric_pattern"          "Max slack degradation\\s*:\\s*([0-9.]+)"
+        "unit"        "ns"
         "operator"                "<="
         "default_threshold"       "0.050"
     }
@@ -131,6 +134,7 @@ array set si_checks {
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_si.rpt"
         "metric_pattern"          "Shielding effectiveness\\s*:\\s*([0-9.]+)%"
+        "unit"        "%"
         "operator"                ">="
         "default_threshold"       "90.0"
     }

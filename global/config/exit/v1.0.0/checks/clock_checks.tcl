@@ -14,6 +14,7 @@ array set clock_checks {
         "applicable_milestones"   "CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_clock_timing.skew.rpt"
         "metric_pattern"          {Max\s+Skew\s*:\s*([\d.]+)}
+        "unit"        "ps"
         "operator"                "<="
         "default_threshold"       "100"
     }
@@ -27,6 +28,7 @@ array set clock_checks {
         "applicable_milestones"   "CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_clock_timing.setup.rpt"
         "metric_pattern"          {Max\s+Insertion\s+Delay\s*:\s*([\d.]+)}
+        "unit"        "ps"
         "operator"                "<="
         "default_threshold"       "500"
     }
@@ -40,6 +42,7 @@ array set clock_checks {
         "applicable_milestones"   "CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_clock_qor.rpt"
         "metric_pattern"          {Clock\s+Coverage\s*:\s*([\d.]+)\s*%}
+        "unit"        "%"
         "operator"                ">="
         "default_threshold"       "100.0"
     }
@@ -53,6 +56,7 @@ array set clock_checks {
         "applicable_milestones"   "CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_clock_qor.rpt"
         "metric_pattern"          {Latency\s+Imbalance\s*:\s*([\d.]+)}
+        "unit"        "ps"
         "operator"                "<="
         "default_threshold"       "50"
     }
@@ -105,6 +109,7 @@ array set clock_checks {
         "applicable_milestones"   "CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_clock_timing.setup.rpt"
         "metric_pattern"          {Useful\s+Skew\s+Benefit\s*:\s*([\d.]+)}
+        "unit"        "ps"
         "operator"                ">="
         "default_threshold"       "0"
     }
@@ -170,6 +175,7 @@ array set clock_checks {
         "applicable_milestones"   "CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_clock_qor.rpt"
         "metric_pattern"          {ICG\s+Utilization\s*:\s*([\d.]+)\s*%}
+        "unit"        "%"
         "operator"                ">="
         "default_threshold"       "50.0"
     }
@@ -183,6 +189,7 @@ array set clock_checks {
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_clock_qor.rpt"
         "metric_pattern"          {Buffer/Inverter\s+Ratio\s*:\s*([\d.]+)}
+        "unit"        "%"
         "operator"                "<="
         "default_threshold"       "3.0"
     }
@@ -235,6 +242,7 @@ array set clock_checks {
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_clock_timing.setup.rpt"
         "metric_pattern"          {Jitter\s+Margin\s*:\s*([\d.]+)}
+        "unit"        "ps"
         "operator"                ">="
         "default_threshold"       "10"
     }
@@ -248,6 +256,7 @@ array set clock_checks {
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_clock_timing.skew.rpt"
         "metric_pattern"          {Inter-Domain\s+Skew\s*:\s*([\d.]+)}
+        "unit"        "ps"
         "operator"                "<="
         "default_threshold"       "200"
     }
@@ -261,6 +270,7 @@ array set clock_checks {
         "applicable_milestones"   "PRO_EXIT BTO"
         "report_pattern"          "report_power.rpt"
         "metric_pattern"          {Clock\s+Gating\s+Efficiency\s*:\s*([\d.]+)\s*%}
+        "unit"        "%"
         "operator"                ">="
         "default_threshold"       "70.0"
     }
@@ -287,6 +297,7 @@ array set clock_checks {
         "applicable_milestones"   "BTO"
         "report_pattern"          "report_clock_qor.rpt"
         "metric_pattern"          {DFT\s+Clock\s+Coverage\s*:\s*([\d.]+)\s*%}
+        "unit"        "%"
         "operator"                ">="
         "default_threshold"       "95.0"
     }
@@ -300,6 +311,7 @@ array set clock_checks {
         "applicable_milestones"   "CTS_EXIT PRO_EXIT BTO"
         "report_pattern"          "report_clock_timing.setup.rpt"
         "metric_pattern"          {Max\s+Latency\s*:\s*([\d.]+)}
+        "unit"        "ps"
         "operator"                "<="
         "default_threshold"       "1000"
     }
