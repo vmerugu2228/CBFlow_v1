@@ -27,8 +27,9 @@ set project(release,tag)       "P0_FP_v1"
 # Floorplan: mac_array (3602.26 um square, pins on its top edge) flush in the
 # bottom-left core corner; a 500 um logic band across the full width above it;
 # IO pins on the top edge — no narrow channels around the macro.
-#   die x1 = 10.12 + 3602.26 + 10 halo + 10 margin; y1 = 10.88 + 3602.26 + 500 + 10
-set fp(oss,fp,die_area)         {0 0 3633 4124}
+#   die x1 = 10.12 margin + 3602.26 macro + 10.12 margin: the macro fills the
+#   core width — no strip of rows beside it; y1 = 10.88 + 3602.26 + 500 + 10.88
+set fp(oss,fp,die_area)         {0 0 3622.5 4124}
 set fp(oss,macro,placement)     {u_mac_array 10.12 10.88 R0}
 set fp(oss,pins,region)         top:*
 
