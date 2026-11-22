@@ -29,6 +29,7 @@ import tracker_db
 import floorplan
 import releases
 import schedule_config
+import checklist_stats
 
 logger = logging.getLogger('cbflow.project_dashboard.router')
 
@@ -40,6 +41,11 @@ _UTILS_DIR = os.path.dirname(SCRIPT_DIR)
 if _UTILS_DIR not in sys.path:
     sys.path.insert(0, _UTILS_DIR)
 from core import release_exits
+
+
+# Checklist status -> pill style (tt-status st-*)
+_CHECK_STATUS_CLS = {'PASS': 'past', 'FAIL': 'late', 'ERROR': 'late',
+                     'WAIVED': 'next', 'CONDITIONAL': 'next'}
 
 
 def _milestones():
@@ -179,6 +185,9 @@ def make_handler(project):
                 # /project/<self>/releases — per-phase release status
                 if len(segs) == 2 and segs[1] == 'releases':
                     return self._page_releases(tgt_project)
+                # /project/<self>/checklist — per-phase exit-checklist status
+                if len(segs) == 2 and segs[1] == 'checklist':
+                    return self._page_checklist(tgt_project)
                 disc = segs[1].lower()
                 # Disc segment also constrained — defense-in-depth.
                 if not _re.match(r'^[a-z0-9_]+$', disc):
@@ -389,6 +398,12 @@ def make_handler(project):
             pubs = tracker_db.list_published(db, tgt_project)
             html_out = _render_schedule_detail(tgt_project, info, pubs)
             self._send(200, 'text/html; charset=utf-8', html_out)
+
+        def _page_checklist(self, tgt_project):
+            """Exit-checklist status per phase (tracker.db run_checklist)."""
+            pubs = tracker_db.list_published(state_paths.tracker_db(tgt_project), tgt_project)
+            self._send(200, 'text/html; charset=utf-8',
+                       _render_checklist_detail(tgt_project, pubs))
 
         def _page_releases(self, tgt_project):
             """Release status per phase from the release area on disk."""
@@ -1014,6 +1029,10 @@ _STYLE = """
   .sg-tile-rel { --tile-accent: #0d9488; }
   .sg-tile-rel .sg-tile-badge { background:#0d9488; font-size:16px; }
   .sg-tile-rel .pbar { width:120px; margin:8px auto 0; }
+  .sg-tile-chk { --tile-accent: #059669; }
+  .sg-tile-chk .sg-tile-badge { background:#059669; font-size:16px; }
+  .sg-tile-chk .pbar { width:120px; margin:8px auto 0; }
+  .sg-tile-chk .pbar > span { background:#059669; }
   .pbar-w { width:140px; }
   .rel-empty { padding:16px 0 4px; color: var(--muted); }
   .rel-split { display:grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
@@ -1318,6 +1337,73 @@ _STYLE = """
                        background:var(--header); border-top:1px solid var(--border);
                        font-family:ui-monospace,monospace; }
   .img-card img { display:block; width:100%; height:auto; }
+
+  /* ═══ Schedule-style layer for the discipline (/project/<p>/<disc>), block
+     (/…/block/<b>) and published-run (/published/<id>) pages: padded
+     sections, boxed tables with tinted headers, centered cells, card KPIs. */
+  .tier3-top, .tier3-metrics, .tier3-blocks { background: transparent; border:0; }
+  .tier3-top { padding:20px 24px 4px; }
+  .tier3-metrics { padding:0 0 8px; }
+  .section-h, .sec-h { display:flex; align-items:baseline; gap:8px;
+                       margin:24px 24px 8px; padding:0; background:none; border:0;
+                       font-size:12px; font-weight:800; letter-spacing:.04em;
+                       text-transform:uppercase; color: var(--text); }
+  .section-h-sub, .sec-h .hint { margin-left:0; }
+  .metrics-grid { padding:0 24px; gap:14px; }
+  .metric-tile { background: var(--panel); border:1px solid var(--border);
+                 border-radius:8px; box-shadow: 0 1px 3px rgba(0,0,0,.05);
+                 border-top:3px solid var(--accent); text-align:center; padding:14px; }
+  .metric-tile.metric-empty { border-top-color: var(--border); }
+  .verdict-bar-wrap { border-radius:8px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+  .phase-chips { padding:0 24px 10px; }
+  .phase-chip { border-radius:10px; font-weight:700; }
+
+  .kpi { display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+         gap:14px; margin:20px 24px 4px; background:none; border:0; }
+  .kpi > div { border:1px solid var(--border) !important; border-radius:8px;
+               background: var(--panel); box-shadow: 0 1px 3px rgba(0,0,0,.05);
+               border-top:3px solid var(--accent) !important; text-align:center;
+               padding:14px; }
+  .kpi .val { font-size:22px; font-weight:800; }
+
+  .filters, .back, .kv-grid, .empty, nav.tabs {
+    margin:0 24px; border:1px solid var(--border); border-radius:8px; }
+  .back { margin-top:16px; border:0; background:none; padding:0 0 4px; }
+  .filters { margin-top:16px; }
+  .kv-grid { padding:12px 16px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+  nav.tabs { margin-top:20px; border-radius:8px 8px 0 0; }
+  .tab-body { padding-bottom:12px; }
+
+  table.d, .tier3-tbl, #td-list table {
+    width:calc(100% - 48px); max-width:none; margin:0 24px 8px;
+    border-collapse:separate; border-spacing:0; font-size:13px;
+    background: var(--panel); border:1px solid var(--border); border-radius:8px;
+    overflow:hidden; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+  #td-list table { width:100%; margin:0; }
+  table.d th, table.d td, #td-list th, #td-list td {
+    padding:9px 14px; border-bottom:1px solid #eef0f4; text-align:center; }
+  table.d th:first-child, table.d td:first-child { text-align:left; }
+  table.d th, #td-list th { background:#eef2ff; color:#4338ca; font-size:11px;
+                            font-weight:800; text-transform:uppercase;
+                            letter-spacing:.05em; border-bottom:2px solid #c7d2fe; }
+  table.d th:hover { background:#e0e7ff; }
+  table.d tbody tr:nth-child(even) td { background:#fafbfd; }
+  table.d tbody tr:hover td, table.d tr:hover td { background:#f5f7ff; }
+  table.d tbody tr:last-child td { border-bottom:none; }
+  table.d td.num { text-align:center; }
+  .verdict-badge { border-radius:10px; font-weight:800; letter-spacing:.04em; }
+  .rpt { margin:0 24px; border-radius:8px; }
+  .about-box { margin:0 24px; padding:12px 16px; background: var(--panel);
+               border:1px solid var(--border); border-radius:8px; font-size:13px;
+               box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+  a.disc-open { display:inline-block; padding:8px 16px; border-radius:6px;
+                color:#fff !important; font-weight:700; font-size:12px;
+                text-decoration:none; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+  a.disc-open:hover { opacity:.9; text-decoration:none; }
+  .tab-body[data-tab="floorplan"] > section {
+    margin:0 24px; border:1px solid var(--border) !important; border-radius:8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+  .tab-body > div[style*="overflow-x"] { margin:0; }
 </style>
 """
 
@@ -3758,6 +3844,198 @@ def _render_releases_detail(project, stats):
     ])
 
 
+def _checklist_stats_safe(project, published_rows):
+    """(stats, errors) — phases/exits from project(phase_exits), blocks from
+    the hierarchy; config problems come back as errors, not defaults."""
+    rel = releases.release_stats(project, []) or {}
+    phases = [p['phase'] for p in rel.get('phases') or []]
+    try:
+        pe = release_exits.phase_exits(project)
+    except release_exits.PhaseExitsError as e:
+        return None, [str(e)]
+    missing = [ph for ph in phases if ph not in pe]
+    errs = [f'project(phase_exits) has no entry for phase {ph}' for ph in missing]
+    st = checklist_stats.checklist_stats(state_paths.tracker_db(project), published_rows,
+                                         [ph for ph in phases if ph in pe], pe,
+                                         rel.get('hierarchy') or {})
+    st['current_phase'] = rel.get('current_phase') or ''
+    st['hierarchy'] = rel.get('hierarchy') or {}
+    st['tree_order'] = rel.get('tree_order') or []
+    return st, errs
+
+
+def _render_checklist_card(project, published_rows):
+    """Checklist tile for Tier 2 — current phase: exit checklists published
+    (blocks x phase exits) and the pass rate of evaluated checks."""
+    href = f'/project/{html.escape(project, quote=True)}/checklist'
+    st, errs = _checklist_stats_safe(project, published_rows)
+    ph = None
+    if st and st['phases']:
+        ph = next((p for p in st['phases'] if p['phase'] == st['current_phase']),
+                  st['phases'][0])
+    if ph is None:
+        metric, lbl, sub, pct = '—', 'not configured', html.escape(errs[0] if errs else ''), 0
+    else:
+        metric = f"{ph['published']}/{ph['expected']}"
+        lbl = f"exit checklists · {ph['phase']}"
+        pct = ph['coverage']
+        c = ph['counts']
+        sub = (f"Pass <b>{ph['rate']}%</b> · {c['FAIL']} fail" if ph['rate'] is not None
+               else f"{' · '.join(ph['exits'])}")
+    return (
+        f'<a class="sg-tile sg-tile-chk" href="{href}">'
+        f'  <div class="sg-tile-head">'
+        f'    <span class="sg-tile-badge chk-badge">✓</span>'
+        f'    <span class="sg-tile-title">Checklist</span>'
+        f'  </div>'
+        f'  <div class="sg-tile-body">'
+        f'    <div class="sg-tile-metric">{html.escape(metric)}</div>'
+        f'    <div class="sg-tile-metric-lbl">{html.escape(lbl)}</div>'
+        f'    <div class="pbar"><span style="width:{pct}%"></span></div>'
+        f'    <div class="sg-tile-sub">{sub}</div>'
+        f'  </div>'
+        f'  <div class="sg-tile-foot">Open checklist status →</div>'
+        f'</a>')
+
+
+def _status_pills(c):
+    return ''.join(
+        f'<span class="tt-status st-{_CHECK_STATUS_CLS.get(k, "future")}" '
+        f'style="margin:0 2px">{k} {c[k]}</span>'
+        for k in checklist_stats.STATUSES if c[k])
+
+
+def _render_checklist_detail(project, published_rows):
+    """Per-phase exit-checklist status: overview, then per phase the exit
+    rollup, the block x exit matrix and open mandatory checks."""
+    st, errs = _checklist_stats_safe(project, published_rows)
+
+    def pbar(pct, color):
+        return (f'<div class="pbar pbar-w"><span style="width:{pct or 0}%;'
+                f'background:{color}"></span></div>')
+
+    def rate(v):
+        return '—' if v is None else f'{v}%'
+    body = [''.join(f'<div class="sched-err"><div>{html.escape(e)}</div></div>' for e in errs)]
+    if st:
+        S = checklist_stats.STATUSES
+        ov = []
+        for i, ph in enumerate(st['phases']):
+            color, tint = _PHASE_COLORS[i % len(_PHASE_COLORS)]
+            is_cur = ph['phase'] == st['current_phase']
+            stt, lbl = (('next', 'Current') if is_cur else
+                        (('past', 'Published') if ph['published'] else ('future', 'Not started')))
+            ov.append(
+                f'<tr style="--ph:{color};--ph-bg:{tint}">'
+                f'<td><span class="ph-chip">{html.escape(ph["phase"])}</span></td>'
+                f'<td>{html.escape(" · ".join(ph["exits"]))}</td>'
+                f'<td><span class="tt-status st-{stt}">{lbl}</span></td>'
+                f'<td class="num">{ph["published"]}/{ph["expected"]}</td>'
+                f'<td>{pbar(ph["coverage"], color)}</td>'
+                + ''.join(f'<td class="num">{ph["counts"][k]}</td>' for k in S)
+                + f'<td class="num"><b>{rate(ph["rate"])}</b></td></tr>')
+        body.append(
+            '<div class="tt-cap tt-cap-lg">Phase overview</div>'
+            '<div class="tt-box"><table class="tt"><thead><tr>'
+            '<th>Phase</th><th>Exits</th><th>Status</th><th>Checklists published</th>'
+            '<th>Coverage</th>' + ''.join(f'<th>{k}</th>' for k in S) +
+            '<th>Pass rate</th></tr></thead><tbody>' + ''.join(ov) + '</tbody></table></div>')
+        hier, depth = st['hierarchy'], {b: d for b, d in st['tree_order']}
+        for i, ph in enumerate(st['phases']):
+            color, tint = _PHASE_COLORS[i % len(_PHASE_COLORS)]
+            is_cur = ph['phase'] == st['current_phase']
+            head = (f'<div class="ph-head"><span class="ph-chip">{html.escape(ph["phase"])}</span>'
+                    f'<span class="ph-dates">{ph["published"]}/{ph["expected"]} checklists · '
+                    f'pass rate {rate(ph["rate"])}</span>'
+                    f'<span class="muted">{html.escape(" · ".join(ph["exits"]))}</span>'
+                    + ('<span class="ph-now">current</span>' if is_cur else '') + '</div>')
+            ex_rows = ''.join(
+                f'<tr><td class="tt-ms">{html.escape(e["exit"])}</td>'
+                f'<td class="num">{e["published"]}/{len(st["blocks"])}</td>'
+                + ''.join(f'<td class="num">{e["counts"][k]}</td>' for k in S)
+                + f'<td class="num"><b>{rate(e["rate"])}</b></td>'
+                f'<td>{pbar(e["rate"], color)}</td>'
+                f'<td>{" ".join(f"{v} {n}" for v, n in sorted(e["verdicts"].items())) or "—"}</td></tr>'
+                for e in ph['by_exit'])
+            exits_tbl = (
+                '<div class="tt-cap">By exit</div><div class="tt-box"><table class="tt">'
+                '<thead><tr><th>Exit</th><th>Blocks</th>' + ''.join(f'<th>{k}</th>' for k in S) +
+                '<th>Pass rate</th><th>Progress</th><th>Verdicts</th></tr></thead><tbody>'
+                + ex_rows + '</tbody></table></div>')
+            ths = ''.join(f'<th>{html.escape(e)}</th>' for e in ph['exits'])
+            trs = []
+            for blk, _ in st['tree_order']:
+                d = depth.get(blk, 0)
+                cells = []
+                for e in ph['exits']:
+                    c = ph['cells'].get((blk, e))
+                    if not c:
+                        cells.append('<td><span class="rc none">—</span></td>')
+                        continue
+                    vcls = {'PASS': 'past', 'CONDITIONAL': 'next', 'BLOCKED': 'late'}.get(c['verdict'], 'future')
+                    cells.append(
+                        f'<td><a href="/published/{c["id"]}" style="text-decoration:none">'
+                        f'<span class="tt-status st-{vcls}">{html.escape(c["verdict"])}</span>'
+                        f'<div class="muted" style="font-size:11px;margin-top:3px">'
+                        f'{c["counts"]["PASS"]}✓ {c["counts"]["FAIL"]}✗ · {rate(c["rate"])}</div></a></td>')
+                trs.append(
+                    f'<tr class="{"tt-anchor" if d == 0 else ""}">'
+                    f'<td class="tt-ms" style="padding-left:{14 + 14 * d}px">{"└ " if d else ""}'
+                    f'{html.escape(blk)}</td><td><span class="lvl-pill">'
+                    f'{html.escape(hier[blk]["level"])}</span></td>' + ''.join(cells) + '</tr>')
+            matrix = (
+                '<div class="tt-cap">Block × exit <span class="muted">— publish verdict, '
+                'passed ✓ / failed ✗ checks, pass rate; click to open the published run</span></div>'
+                '<div class="tt-box"><table class="tt"><thead><tr><th class="blk-h">Block</th>'
+                f'<th>Level</th>{ths}</tr></thead><tbody>' + ''.join(trs) + '</tbody></table></div>')
+            mand = ''
+            if ph['mandatory_open']:
+                mand = ('<div class="tt-cap">Open mandatory checks <span class="muted">— FAIL or '
+                        'no data (NA)</span></div><div class="tt-box"><table class="tt"><thead><tr>'
+                        '<th class="blk-h">Block</th><th>Exit</th><th>Check</th><th>Status</th></tr>'
+                        '</thead><tbody>' + ''.join(
+                            f'<tr><td class="tt-ms">{html.escape(b)}</td><td>{html.escape(e)}</td>'
+                            f'<td>{html.escape(n or "")}</td><td><span class="tt-status '
+                            f'st-{_CHECK_STATUS_CLS.get(s_, "future")}">{s_}</span></td></tr>'
+                            for b, e, n, s_ in ph['mandatory_open']) + '</tbody></table></div>')
+            if not ph['published']:
+                inner = '<div class="rel-empty">No exit checklists published in this phase yet.</div>'
+            else:
+                inner = exits_tbl + matrix + mand
+            body.append(f'<div class="ph-card{" ph-cur" if is_cur else ""}" '
+                        f'style="--ph:{color};--ph-bg:{tint}">{head}'
+                        f'<div class="ph-body">{inner}</div></div>')
+        if st['other']:
+            body.append(
+                '<div class="tt-cap" style="margin-top:28px">Published outside the phase\'s exits '
+                '<span class="muted">— not counted (project(phase_exits))</span></div>'
+                '<div class="tt-box"><table class="tt"><thead><tr><th class="blk-h">Block</th>'
+                '<th>Phase</th><th>Exit</th><th>Verdict</th></tr></thead><tbody>' + ''.join(
+                    f'<tr><td class="tt-ms">{html.escape(o["block"])}</td><td>{html.escape(o["phase"])}</td>'
+                    f'<td><a href="/published/{o["id"]}">{html.escape(o["exit"])}</a></td>'
+                    f'<td>{html.escape(o["verdict"])}</td></tr>' for o in st['other'])
+                + '</tbody></table></div>')
+    return ''.join([
+        '<!DOCTYPE html><html><head>',
+        '<meta charset="utf-8">',
+        f'<title>Checklist · {html.escape(project)} — CBflow-SmartGrid</title>',
+        _STYLE,
+        _SCRIPT_RELOAD_ON_FOCUS,
+        '</head><body>',
+        _render_detail_chrome(project, 'Checklist'),
+        '<section class="detail-top">',
+        f'  <h1 class="detail-h1">Checklist · {html.escape(project)}</h1>',
+        '  <div class="detail-sub">Exit checklists captured with each SmartGrid publish, '
+        'per phase against <code>project(phase_exits)</code>. Pass rate = PASS ÷ (PASS + FAIL + '
+        'WAIVED); NA = no data; SKIPPED = check not active in that phase.</div>',
+        '</section>',
+        '<div class="sched-wrap rel-page">',
+        *body,
+        '</div>',
+        '</body></html>',
+    ])
+
+
 # Keep _render_resource_card as a thin back-compat alias so any
 # external caller that references it doesn't break. Internally all
 # references in this module now use _render_team_card.
@@ -4310,6 +4588,7 @@ def _render_tier2(project, info, blocks, published_rows):
     sched_card = _render_schedule_card(project, info or {})
     team_card = _render_team_card(project)
     rel_card = _render_releases_card(project, _release_stats_safe(project))
+    chk_card = _render_checklist_card(project, published_rows or [])
     developed_by = 'SmartSoC CAD · Varun Reddy Merugu'
     # Light project header strip so the operator sees the project context
     # (name + tech + tapeout) without needing the KPI tiles from Tier 3.
@@ -4345,6 +4624,7 @@ def _render_tier2(project, info, blocks, published_rows):
         '<section class="sg-tile-grid">',
         disc_cards,
         rel_card,
+        chk_card,
         sched_card,
         team_card,
         '</section>',
@@ -5136,7 +5416,8 @@ def _render_detail(project, info, d):
                 f'<tr><td>{html.escape(c.get("check_name") or "")}</td>'
                 f'<td>{html.escape(c.get("check_type") or "")}</td>'
                 f'<td>{html.escape(c.get("category") or "")}</td>'
-                f'<td class="mono">{html.escape(st)}</td>'
+                f'<td><span class="tt-status st-{_CHECK_STATUS_CLS.get(st, "future")}">'
+                f'{html.escape(st)}</span></td>'
                 f'<td class="mono">{html.escape(str(c.get("metric_value") or ""))}</td>'
                 f'<td class="mono">{html.escape(str(c.get("threshold") or ""))}</td>'
                 f'<td>{html.escape((c.get("detail") or "")[:200])}</td></tr>')
@@ -5304,9 +5585,7 @@ def _render_block(project, info, block_name, block_meta, block_pubs):
 
     if desc:
         parts.append('<div class="sec-h">About</div>')
-        parts.append(f'<div style="padding:8px 14px;background:var(--panel);'
-                     f'border-bottom:1px solid var(--border);font-size:13px">'
-                     f'{html.escape(desc)}</div>')
+        parts.append(f'<div class="about-box">{html.escape(desc)}</div>')
 
     # ── KPI strip (scoped to this block) ─────────────────────────────
     parts.append('<section class="kpi">')
