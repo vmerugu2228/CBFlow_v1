@@ -984,7 +984,7 @@ def _render_index(runs, discipline=None, project=''):
             _r['run_dir_exists']  = False
 
     rows_html = _render_run_rows(runs) or (
-        '<tr><td colspan="8" class="empty">'
+        '<tr><td colspan="7" class="empty">'
         'No runs registered. Add one above to get started.'
         '</td></tr>'
     )
@@ -1134,9 +1134,9 @@ def _render_index(runs, discipline=None, project=''):
   table.runs {{ width: 100%; border-collapse: collapse; }}
   table.runs thead th {{ text-align: left; font-weight: 600; font-size: 12px;
                           color: var(--muted); text-transform: uppercase; letter-spacing: .04em;
-                          padding: 10px 16px; border-bottom: 1px solid var(--border);
-                          background: #fafbff; }}
-  table.runs tbody td {{ padding: 12px 16px; border-bottom: 1px solid #f1f2f6;
+                          padding: 10px 10px; border-bottom: 1px solid var(--border);
+                          background: #fafbff; white-space: nowrap; }}
+  table.runs tbody td {{ padding: 10px 10px; border-bottom: 1px solid #f1f2f6;
                           vertical-align: middle; }}
   table.runs tbody tr:hover {{ background: #f9fafb; }}
   table.runs tbody tr.archived td {{ color: var(--muted); }}
@@ -1228,7 +1228,7 @@ def _render_index(runs, discipline=None, project=''):
                    border-radius: 999px; font-size: 10px; font-weight: 600;
                    letter-spacing: .04em; margin-left: 8px; }}
   tr.deleted td:first-child {{ opacity: .55; }}
-  tr.deleted .dir {{ text-decoration: line-through; }}
+  tr.deleted .runlink {{ text-decoration: line-through; }}
 
   .dir {{ font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 12px;
           color: var(--muted); word-break: break-all; }}
@@ -1341,7 +1341,6 @@ def _render_index(runs, discipline=None, project=''):
         <tr><th class="sortable" data-sort="run">Run</th><th class="sortable" data-sort="block">Block</th>
             <th class="sortable" data-sort="flow">Flow</th><th class="sortable" data-sort="status">Current Status</th>
             <th class="sortable" data-sort="runtime">Total runtime</th><th class="sortable" data-sort="age">Age</th>
-            <th class="sortable" data-sort="dir">Run directory</th>
             <th></th></tr>
       </thead>
       <tbody id="runs-tbody">
@@ -1555,14 +1554,13 @@ def _render_index(runs, discipline=None, project=''):
     const linkHref = missing ? '#' : `/run/${{r.run_id}}/`;
     return `<tr class="${{classes.join(' ')}}" data-rid="${{r.run_id}}" data-flow="${{r.flow_type || '?'}}" data-project="${{r.project || ''}}" data-design="${{r.design || ''}}" data-status="${{r.current_status || ''}}" data-start="${{r.current_start || ''}}" data-runtime="${{r.current_runtime != null ? r.current_runtime : ''}}" data-search="${{[name,r.flow_type,r.run_dir,r.current_node,r.current_status,r.project,r.design].filter(Boolean).join(' ').toLowerCase()}}">
       <td>
-        <a class="runlink" href="${{linkHref}}">${{name}}</a>${{deletedPill}}
+        <a class="runlink" href="${{linkHref}}" title="${{r.run_dir || ''}}">${{name}}</a>${{deletedPill}}
       </td>
       <td class="block-cell">${{r.design || '—'}}</td>
       <td>${{flowBadge(r.flow_type || '?')}}</td>
       <td class="status-cell">${{statusChip(r.current_node, r.current_status)}}</td>
       <td class="rt-cell">${{runtimeCellHtml(r)}}</td>
       <td class="age-cell">${{ageCellHtml(r)}}</td>
-      <td class="dir">${{r.run_dir || ''}}</td>
       <td><button class="danger" onclick="deregisterRun('${{r.run_id}}')">Deregister</button></td>
     </tr>`;
   }}
@@ -1613,7 +1611,6 @@ def _render_index(runs, discipline=None, project=''):
                     ? (Date.now() - Date.parse(r.current_start)) / 1000
                     : (r.current_runtime != null && r.current_runtime !== '' ? Number(r.current_runtime) : null),
     age:     r => ageDays(r),
-    dir:     r => r.run_dir || '',
   }};
   function sortRuns(runs) {{
     if (!sortCol) {{
@@ -1651,7 +1648,7 @@ def _render_index(runs, discipline=None, project=''):
       sortRuns(runs);
       const tbody = document.getElementById('runs-tbody');
       if (!runs.length) {{
-        tbody.innerHTML = '<tr><td colspan="8" class="empty">No runs registered. Add one above to get started.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="empty">No runs registered. Add one above to get started.</td></tr>';
       }} else {{
         tbody.innerHTML = runs.map(renderRow).join('');
       }}
@@ -2115,13 +2112,12 @@ def _render_run_rows(runs):
             f'data-start="{current_start_html}" '
             f'data-runtime="{runtime_attr_html}" '
             f'data-search="{search_html}">'
-            f'<td><a class="runlink" href="/run/{rid_html}/">{name_html}</a></td>'
+            f'<td><a class="runlink" href="/run/{rid_html}/" title="{run_dir_html}">{name_html}</a></td>'
             f'<td class="block-cell">{design or "—"}</td>'
             f'<td><span class="flow-badge" style="background:{color}">{flow_html}</span></td>'
             f'<td class="status-cell">{chip_html} {node_html}</td>'
             f'<td class="rt-cell">{runtime_html}</td>'
             f'<td class="age-cell">{age_html}</td>'
-            f'<td class="dir">{run_dir_html}</td>'
             f'<td><button class="danger" '
             f'onclick="deregisterRun({_html_js_string(rid)})">Deregister</button></td>'
             f'</tr>'
