@@ -1020,6 +1020,12 @@ _STYLE = """
                gap:24px; }
   table.tt.tt-narrow { min-width:0; }
   table.tt th.c, table.tt td.c { text-align:center; }
+  /* Release page: every column centered; the block-tree column stays left
+     so its indentation reads as hierarchy */
+  .rel-page table.tt th, .rel-page table.tt td { text-align:center; }
+  .rel-page table.tt td.tt-ms[style*="padding-left"],
+  .rel-page table.tt th:first-child.blk-h { text-align:left; }
+  .rel-page .pbar-w { margin:0 auto; }
   .rc { display:inline-block; min-width:44px; padding:3px 8px; border-radius:10px;
         font-size:11px; font-weight:800; text-align:center; }
   .rc.ok   { background:#ecfdf5; color:#047857; }
@@ -3721,7 +3727,7 @@ def _render_releases_detail(project, stats):
                 '<div class="tt-cap">Block × flow <span class="muted">— latest release per '
                 'flow; ⚠ = release without RELEASE_COMPLETE</span></div>'
                 '<div class="tt-box"><table class="tt"><thead><tr>'
-                f'<th>Block</th><th>Level</th>{ths}<th>Other</th><th>Block</th>'
+                f'<th class="blk-h">Block</th><th>Level</th>{ths}<th>Other</th><th>Block</th>'
                 '<th>Subtree progress</th><th>Subtree</th></tr></thead><tbody>'
                 + ''.join(trs) + '</tbody></table></div>')
             body.append(
@@ -3745,7 +3751,7 @@ def _render_releases_detail(project, stats):
         '  <div class="detail-sub" style="margin-top:4px">Completeness = released '
         '(block, flow) pairs ÷ expected; Subtree = the block and all its children.</div>',
         '</section>',
-        '<div class="sched-wrap">',
+        '<div class="sched-wrap rel-page">',
         *body,
         '</div>',
         '</body></html>',
