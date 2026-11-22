@@ -783,20 +783,18 @@ _STYLE = """
   .status-pill.pill-archived { background:#f3f4f6; color:#4b5563; }
   .status-pill.pill-paused   { background:#fff3e0; color:#92400e; }
 
-  /* ───── Tier 2 — unified square-tile grid ─────
-     One grid, all tiles share the same square-ish shape so the page
-     reads as a flat set of equal-weight navigation entry points.
-     Tiles grow to ~260px wide × 220px tall; collapse to 1-column at
-     narrow viewports. Click opens the tile's drill target. */
-  .sg-tile-grid { display:grid; gap:16px; padding:24px 20px;
+  /* ───── Tier 2 — compact tile grid ─────
+     Same card size as the Tier 1 project cards (.proj-card): height
+     follows content, equal-width columns, 1-column at narrow viewports.
+     Click opens the tile's drill target. */
+  .sg-tile-grid { display:grid; gap:14px; padding:16px 20px;
                   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-                  background: #f6f7f9; min-height: calc(100vh - 50px); }
+                  align-content:start;
+                  background: var(--bg); min-height: calc(100vh - 50px); }
   .sg-tile { display:flex; flex-direction:column; justify-content:space-between;
-             aspect-ratio: 1 / 0.86;
-             min-height: 210px;
              background: var(--panel); color: var(--text);
-             border:1px solid var(--border); border-radius:8px;
-             padding:16px 18px; text-decoration:none;
+             border:1px solid var(--border); border-radius:6px;
+             padding:14px 16px; text-decoration:none;
              box-shadow: 0 1px 3px rgba(0,0,0,.04);
              transition: transform .15s, box-shadow .15s, border-color .15s;
              position:relative; overflow:hidden; }
@@ -811,10 +809,10 @@ _STYLE = """
     text-decoration:none;
   }
   .sg-tile-head { display:flex; align-items:center; gap:8px;
-                  margin-bottom:8px; }
+                  margin-bottom:6px; }
   .sg-tile-badge { display:inline-flex; align-items:center;
-                   justify-content:center; width:40px; height:40px;
-                   border-radius:8px; font-weight:800; font-size:14px;
+                   justify-content:center; width:30px; height:30px;
+                   border-radius:6px; font-weight:800; font-size:12px;
                    letter-spacing:.03em; color:#fff;
                    background: var(--tile-accent, var(--accent-ink)); }
   .sg-tile-title { font-weight:800; font-size:15px; letter-spacing:-.01em;
@@ -831,17 +829,17 @@ _STYLE = """
   .sg-tile-body { flex:1; display:flex; flex-direction:column;
                   justify-content:center; align-items:center; text-align:center;
                   padding:4px 0; }
-  .sg-tile-metric { font-size:46px; font-weight:800; line-height:1;
+  .sg-tile-metric { font-size:28px; font-weight:800; line-height:1;
                     color: var(--text); font-variant-numeric: tabular-nums;
                     letter-spacing:-.03em; }
   .sg-tile-metric-lbl { font-size:11px; color: var(--muted);
                         text-transform:uppercase; letter-spacing:.04em;
-                        margin-top:6px; font-weight:600; }
-  .sg-tile-sub { margin-top:10px; font-size:11px; color: var(--muted); }
+                        margin-top:4px; font-weight:600; }
+  .sg-tile-sub { margin-top:6px; font-size:11px; color: var(--muted); }
   .sg-tile-sub b { color: var(--text); font-weight:700; }
   .sg-tile-foot { font-size:11px; font-weight:700; color: var(--tile-accent, var(--accent-ink));
-                  letter-spacing:.02em; margin-top:8px;
-                  padding-top:8px; border-top:1px solid var(--border);
+                  letter-spacing:.02em; margin-top:6px;
+                  padding-top:6px; border-top:1px solid var(--border);
                   text-align:right; }
 
   /* Discipline tile accents (match per-user daemon brand colors) */
@@ -849,9 +847,9 @@ _STYLE = """
   .sg-tile-disc.disc-dft { --tile-accent: #0d9488; }
   .sg-tile-disc.disc-dv  { --tile-accent: #be185d; }
   .sg-tile-sched { --tile-accent: #d97706; }
-  .sg-tile-sched .sg-tile-badge { background: #d97706; font-size:20px; }
+  .sg-tile-sched .sg-tile-badge { background: #d97706; font-size:16px; }
   .sg-tile-team  { --tile-accent: #7c3aed; }
-  .sg-tile-team  .sg-tile-badge { background: #7c3aed; font-size:20px; }
+  .sg-tile-team  .sg-tile-badge { background: #7c3aed; font-size:16px; }
 
   /* ───── Detail pages (Team / Schedule drill-ins) ───── */
   .detail-top { padding:24px 24px 10px; background: var(--panel);
