@@ -1718,6 +1718,9 @@ def _materialize_tag_dir(tag_dir: str,
                           lib_nom_analog: list = None, lib_nom_ip: list = None,
                           timing_memory: dict = None, timing_io: dict = None,
                           timing_analog: dict = None, timing_ip: dict = None,
+                          # {cat: {'gds'|'cdl'|'verilog': [abs paths]}} for
+                          # the shared categories → <cat>/<kind>/<file>.
+                          shared_views: dict = None,
                           scan_log_lines: list = None,
                           preserve_other_categories: bool = False) -> dict:
     """Build tag directory contents. Returns dict mapping tech() key tuple
@@ -1751,6 +1754,7 @@ def _materialize_tag_dir(tag_dir: str,
        (track, vt, corner, 'lib')  → "$_lib_tag_dir/lib/<track>/<vt>_<corner>_<basename>"
        ('memory'|'io'|'analog', 'lib'|'db'|'lef'|'ndm') → "$_lib_tag_dir/<cat>/<kind>/<basename>"
        ('memory'|'io', corner, 'lib')  → "$_lib_tag_dir/<cat>/lib/<corner>_<basename>"
+       (<cat>, 'gds'|'cdl'|'verilog')  → "$_lib_tag_dir/<cat>/<kind>/<basename>"
 
     `scan_log_lines` is an optional list of pre-scan log entries to flush
     into logs/generate.log.
@@ -1927,6 +1931,15 @@ def _materialize_tag_dir(tag_dir: str,
             _link_and_record('ip/lib',
                              _tidy_name(os.path.basename(p), corner),
                              p, ('ip', corner, 'lib_timing'))
+
+    # ── GDS / CDL / Verilog for the shared categories ────────────────────
+    # <cat>/gds, <cat>/cdl, <cat>/verilog — key (cat, kind) feeds the
+    # tech(gds|cdl|verilog,<cat>) emission.
+    for cat, kinds in (shared_views or {}).items():
+        for kind, paths in kinds.items():
+            for p in paths:
+                _link_and_record('{}/{}'.format(cat, kind),
+                                 os.path.basename(p), p, (cat, kind))
 
     # ── MANIFEST.tcl — audit trail: local → vendor ───────────────────────
     # When `preserve_other_categories` is set (incremental / add path),
@@ -2474,6 +2487,47 @@ def _is_db_file(filename):
     return filename.lower().endswith('.db')
 
 
+# Physical / netlist views bundled for the shared categories (memory, io,
+# analog, ip). Emitted as tech(gds|cdl|verilog,<cat>) in lib_config.tcl.
+#   gds     — layout for DRC / merge at signoff
+#   cdl     — LVS netlist (CDL or SPICE)
+#   verilog — behavioural / functional model (informational)
+SHARED_CATEGORIES = ('memory', 'io', 'analog', 'ip')
+SHARED_EXTRA_VIEWS = ('gds', 'cdl', 'verilog')
+_SHARED_VIEW_EXTS = {
+    'gds':     ('.gds', '.gds.gz', '.gdsii'),
+    'cdl':     ('.cdl', '.spice', '.sp'),
+    'verilog': ('.v', '.sv'),
+}
+
+
+def _shared_view_kind(filename):
+    """Return 'gds' | 'cdl' | 'verilog' for a shared-category view file,
+    or None if the file is none of those."""
+    fn = filename.lower()
+    for kind in SHARED_EXTRA_VIEWS:
+        if fn.endswith(_SHARED_VIEW_EXTS[kind]):
+            return kind
+    return None
+
+
+def _category_from_dir_name(dirpath):
+    """Auto-classify a directory by its path components (the lib_root
+    auto-scan rule). Returns 'memory' | 'io' | 'analog' | 'ip' | None."""
+    parts = dirpath.lower().replace('\\', '/').split('/')
+    if any(p in ('memory', 'mem') or p.startswith('mem_') for p in parts):
+        return 'memory'
+    if any(p in ('io', 'iolib') or p.startswith('io_') for p in parts):
+        return 'io'
+    if any(p in ('analog', 'ams') or p.startswith('analog_')
+           or p.startswith('ana_') for p in parts):
+        return 'analog'
+    if any(p in ('ip', 'ips', 'hardip', 'softip') or p.startswith('ip_')
+           for p in parts):
+        return 'ip'
+    return None
+
+
 def _strip_lib_extension(filename):
     """Strip library extension for parsing. Returns (base_name, lib_type)."""
     fn = filename
@@ -2947,16 +3001,27 @@ def cmd_generate(args: argparse.Namespace) -> int:
     io_dirs = []
     analog_dirs = []       # analog macros (PLL, ADC, DAC, LDO, ...)
     ip_dirs = []           # digital/mixed-signal IP (hardened cores, PHYs, ...)
+    view_dirs = []         # dirs holding gds / cdl / verilog files
+    # Explicit --<category>-path roots, keyed by category. Authoritative for
+    # the gds/cdl/verilog views: every such file under a memory root is a
+    # memory view, whatever subdir (gds/, spice/, verilog/) it sits in.
+    explicit_roots = {c: [] for c in ('stdcell',) + SHARED_CATEGORIES}
 
     def _scan_tree(root_path, target_category=None):
         """Recursively walk root_path, classify each directory by content.
         If target_category is set, all lib/db dirs go to that category."""
         if not os.path.isdir(root_path):
             return
+        if target_category in explicit_roots:
+            _r = os.path.abspath(root_path)
+            if _r not in explicit_roots[target_category]:
+                explicit_roots[target_category].append(_r)
         for root, dirs, files in os.walk(root_path):
             has_ndm = any(_is_ndm_file(f) for f in files)
             has_lef = any(_is_lef_file(f) for f in files)
             has_lib = any(_is_lib_file(f) or _is_db_file(f) for f in files)
+            if any(_shared_view_kind(f) for f in files) and root not in view_dirs:
+                view_dirs.append(root)
             if has_ndm and root not in ndm_dirs:
                 ndm_dirs.append(root)
             if has_lef and root not in lef_dirs:
@@ -2986,20 +3051,10 @@ def cmd_generate(args: argparse.Namespace) -> int:
                         and root not in memory_dirs and root not in io_dirs
                         and root not in analog_dirs and root not in ip_dirs):
                     # Auto-classify by directory name components
-                    _dir_parts = root.lower().replace('\\', '/').split('/')
-                    _basename = _dir_parts[-1] if _dir_parts else ''
-                    if any(p in ('memory', 'mem') or p.startswith('mem_') for p in _dir_parts):
-                        memory_dirs.append(root)
-                    elif any(p in ('io', 'iolib') or p.startswith('io_') for p in _dir_parts):
-                        io_dirs.append(root)
-                    elif any(p in ('analog', 'ams') or p.startswith('analog_')
-                             or p.startswith('ana_') for p in _dir_parts):
-                        analog_dirs.append(root)
-                    elif any(p in ('ip', 'ips', 'hardip', 'softip')
-                             or p.startswith('ip_') for p in _dir_parts):
-                        ip_dirs.append(root)
-                    else:
-                        stdcell_dirs.append(root)
+                    {'memory': memory_dirs, 'io': io_dirs,
+                     'analog': analog_dirs, 'ip': ip_dirs}.get(
+                        _category_from_dir_name(root),
+                        stdcell_dirs).append(root)
 
     # 1. Scan lib_root (auto-classify)
     logger.info("Scanning lib_root: {}".format(lib_root))
@@ -3247,6 +3302,46 @@ def cmd_generate(args: argparse.Namespace) -> int:
                     discovered_corners.add(corner)
                 else:
                     nom_list.append(fpath)
+
+    # ── Scan gds / cdl / verilog views for the shared categories ──
+    # Same classification rules as lef/lib: an explicit --<cat>-path root
+    # is authoritative, then dir membership, then the dir-name rule used
+    # by the lib_root auto-scan. Files that resolve to no shared category
+    # (stdcell views) are left alone — stdcell handling is unchanged.
+    def _under(fpath, roots):
+        return any(fpath == r or fpath.startswith(r.rstrip('/') + '/')
+                   for r in roots)
+
+    def _view_category(fpath):
+        _deepest, _cat = -1, None
+        for c, roots in explicit_roots.items():
+            for r in roots:
+                if _under(fpath, [r]) and len(r) > _deepest:
+                    _deepest, _cat = len(r), c
+        if _cat is not None:
+            return None if _cat == 'stdcell' else _cat
+        return (_category_for_path(fpath)
+                or _category_from_dir_name(os.path.dirname(fpath)))
+
+    shared_views = {c: {k: [] for k in SHARED_EXTRA_VIEWS}
+                    for c in SHARED_CATEGORIES}
+    for view_dir in view_dirs:
+        if not os.path.isdir(view_dir):
+            continue
+        for f in sorted(os.listdir(view_dir)):
+            kind = _shared_view_kind(f)
+            if not kind:
+                continue
+            fpath = os.path.join(view_dir, f)
+            if not os.path.isfile(fpath):
+                continue
+            _cat = _view_category(fpath)
+            if _cat not in shared_views:
+                continue
+            if _is_excluded(fpath):
+                excluded_count += 1; continue
+            if fpath not in shared_views[_cat][kind]:
+                shared_views[_cat][kind].append(fpath)
 
     # ── Sort discovered sets ──
     def _track_sort_key(t):
@@ -3513,6 +3608,14 @@ def cmd_generate(args: argparse.Namespace) -> int:
         " ".join('"{}"'.format(p) for p in lef_io) if lef_io else ""))
     w("")
 
+    # ── GDS / CDL / Verilog shared ──
+    w("# ── GDS / CDL / Verilog shared ──")
+    for kind in SHARED_EXTRA_VIEWS:
+        for cat in SHARED_CATEGORIES:
+            w('set tech({},{}) [list {}]'.format(kind, cat, " ".join(
+                '"{}"'.format(p) for p in shared_views[cat][kind])))
+    w("")
+
     # ── LEF combined per track ──
     w("# ── LEF combined per track ──")
     for trk in all_tracks:
@@ -3663,7 +3766,10 @@ def cmd_generate(args: argparse.Namespace) -> int:
             len(lef_libs), len(lef_memory), len(lef_io),
             len(lef_analog), len(lef_ip)),
         "timing_libs groups: {}  (track×vt×corner)".format(len(timing_libs)),
-    ]
+    ] + ["{:<4s} memory={} io={} analog={} ip={}".format(
+            kind.upper() + ':' if kind != 'verilog' else 'V:',
+            *(len(shared_views[c][kind]) for c in SHARED_CATEGORIES))
+         for kind in SHARED_EXTRA_VIEWS]
     local_map = _materialize_tag_dir(
         tag_dir=tag_dir,
         tech_name=tech_name,
@@ -3687,6 +3793,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
         lib_nom_analog=lib_nom_analog, lib_nom_ip=lib_nom_ip,
         timing_memory=timing_memory, timing_io=timing_io,
         timing_analog=timing_analog, timing_ip=timing_ip,
+        shared_views=shared_views,
         scan_log_lines=scan_log,
         preserve_other_categories=(getattr(args, 'incremental', False)
                                    or getattr(args, '_add_mode', False)),
@@ -3830,6 +3937,15 @@ def cmd_generate(args: argparse.Namespace) -> int:
     nw("# ── LEF shared ──")
     for cat in ('memory', 'io', 'analog', 'ip'):
         nw('set tech(lef,{}) [list {}]'.format(cat, _fmt_list((cat, 'lef'))))
+    nw("")
+    # GDS (DRC / merge), CDL (LVS netlist) and Verilog (model) views of the
+    # shared categories. Always emitted — `[list ]` when empty — so flows
+    # read them without existence checks.
+    nw("# ── GDS / CDL / Verilog shared (memory / io / analog / ip) ──")
+    for kind in SHARED_EXTRA_VIEWS:
+        for cat in SHARED_CATEGORIES:
+            nw('set tech({},{}) [list {}]'.format(
+                kind, cat, _fmt_list((cat, kind))))
     nw("")
     nw("# ── LEF combined per track ──")
     for trk in all_tracks:
@@ -4020,6 +4136,11 @@ def cmd_generate(args: argparse.Namespace) -> int:
                     'lef': len(lef_ip), 'lib_nom': ip_nom_eff,
                     'timing': sum(len(v) for v in timing_ip.values())},
     }
+    # gds / cdl / verilog views — shared categories only (stdcell views
+    # aren't bundled by this scan).
+    for _c in SHARED_CATEGORIES:
+        for _k in SHARED_EXTRA_VIEWS:
+            _CAT_VIEW_COUNTS[_c][_k] = len(shared_views[_c][_k])
     # Track whether each category's lib_nom came from explicit files
     # or TT fallback (for the footer legend).
     _CAT_NOM_SOURCE = {
@@ -4075,18 +4196,21 @@ def cmd_generate(args: argparse.Namespace) -> int:
     # tech_config.tcl as `tech(<stack>,<track>,lef_tech)` and surfaced
     # by `cbflow flow library-manager status`. Do not conflate the two.
     _nom_hdr = 'lib_nom*' if _nom_fallback_used else 'lib_nom'
-    print("  {:<9s} {:>5s} {:>5s} {:>5s} {:>8s} {:>8s}".format(
-        'Category', 'NDM', 'DB', 'LEF', _nom_hdr, 'timing'))
-    print("  " + "-" * 55)
+    print("  {:<9s} {:>5s} {:>5s} {:>5s} {:>8s} {:>8s} {:>5s} {:>5s} {:>5s}".format(
+        'Category', 'NDM', 'DB', 'LEF', _nom_hdr, 'timing',
+        'GDS', 'CDL', 'V'))
+    print("  " + "-" * 73)
     for cat in ('stdcell', 'memory', 'io', 'analog', 'ip'):
         counts = _CAT_VIEW_COUNTS[cat]
         nom_cell = '{:>8d}'.format(counts['lib_nom'])
         if (counts['lib_nom'] > 0
                 and _CAT_NOM_SOURCE[cat] == 'TT-fallback'):
             nom_cell = '{:>7d}*'.format(counts['lib_nom'])
-        print("  {:<9s} {:>5d} {:>5d} {:>5d} {} {:>8d}".format(
+        extra = " ".join('{:>5}'.format(counts.get(k, '-'))
+                         for k in SHARED_EXTRA_VIEWS)
+        print("  {:<9s} {:>5d} {:>5d} {:>5d} {} {:>8d} {}".format(
             cat, counts['ndm'], counts['db'], counts['lef'],
-            nom_cell, counts['timing']))
+            nom_cell, counts['timing'], extra))
     print("")
     print("  Note: LEF column counts cell/macro LEFs per category only. "
           "Tech LEFs (metal-stack")
@@ -4122,7 +4246,12 @@ def cmd_generate(args: argparse.Namespace) -> int:
         #     only Innovus / Calibre antenna do. Don't scare users off
         #     an ICC2 flow with 'will fail on signoff'.
         empty_kinds = []
-        for v in ('ndm', 'db', 'lef', 'lib_nom', 'timing'):
+        # gds + cdl are signoff-required (DRC / LVS) for the shared
+        # categories; verilog is informational (reported separately).
+        _kinds = ('ndm', 'db', 'lef', 'lib_nom', 'timing')
+        if cat in SHARED_CATEGORIES:
+            _kinds += ('gds', 'cdl')
+        for v in _kinds:
             if counts[v] > 0:
                 continue
             if v == 'lib_nom' and counts['lib_nom'] > 0:
@@ -4144,6 +4273,10 @@ def cmd_generate(args: argparse.Namespace) -> int:
                     "Required for Innovus P&R + Calibre antenna. "
                     "ICC2 / FusionCompiler flows are OK — the NDM "
                     "bundles the LEF abstract.".format(cat))
+        if cat in SHARED_CATEGORIES and counts.get('verilog', 0) == 0:
+            print("  (info) {} category: no Verilog models found "
+                  "(informational — gate-level sim / LEC black-box "
+                  "only).".format(cat))
 
     # Per-category timing-corner coverage.
     for cat, missing in _missing_corners_per_cat.items():
@@ -4652,15 +4785,40 @@ _BLOCK_VIEWS = (            # (key, release subdir, filename pattern, required)
     ('gds',     'gds',     '{b}.gds',     True),
     ('netlist', 'netlist', '{b}.v',       True),
     ('lvs_netlist', 'netlist', '{b}.lvs.v', False),
-    ('cdl',     'netlist', '{b}.cdl',     False),
+    ('cdl',     'netlist', '{b}.cdl',     True),
     ('def',     'def',     '{b}.def',     False),
     ('sdc',     'sdc',     '{b}.sdc',     False),
 )
+# Signoff views a parent must take from the block's PV release (the layout
+# and LVS netlist that actually passed DRC/LVS), never from the PNR copy.
+# The PV release is the sibling of the PNR one:
+#   <release,path>/<phase>/<block>/PNR/<exit>  →  .../<block>/PV/<exit>
+_BLOCK_PV_VIEWS = ('gds', 'cdl')
+
+
+def _block_pv_release_dir(pnr_path: str) -> str:
+    """Sibling PV release dir for a <phase>/<block>/PNR/<exit> path."""
+    pnr_path = os.path.abspath(pnr_path).rstrip('/')
+    return os.path.join(os.path.dirname(os.path.dirname(pnr_path)), 'PV',
+                        os.path.basename(pnr_path))
+
+
+def _stamp_errors(path: str, what: str) -> list:
+    stamp = os.path.join(path, 'RELEASE_COMPLETE')
+    if not os.path.isfile(stamp):
+        return ['{} release not stamped complete (no {})'.format(what, stamp)]
+    with open(stamp) as fh:
+        if 'STATUS=PASS' not in fh.read():
+            return ['{} release stamp is not STATUS=PASS: {}'.format(what, stamp)]
+    return []
 
 
 def _block_from_release(path: str):
-    """(name, {view: abs path}, {lib_set: abs path}, errors) for one release
-    dir laid out as <release,path>/<phase>/<block>/<tag>/."""
+    """(name, {view: abs path}, {lib_set: abs path}, errors, pv_dir) for one
+    PNR release dir laid out as <release,path>/<phase>/<block>/PNR/<exit>/.
+    gds + cdl come from the sibling PV release (<block>/PV/<exit>/), which
+    must exist and be stamped complete — there is no fallback to the PNR
+    copies."""
     path = os.path.abspath(path)
     errors = []
     name = os.path.basename(os.path.dirname(path.rstrip('/')))
@@ -4668,11 +4826,19 @@ def _block_from_release(path: str):
         lefs = sorted(glob.glob(os.path.join(path, 'lef', '*.lef')))
         if len(lefs) == 1:
             name = os.path.splitext(os.path.basename(lefs[0]))[0]
+    pv_dir = _block_pv_release_dir(path)
+    exit_tag = os.path.basename(path.rstrip('/'))
+    pv_hint = ('PV must be run and released for {} exit {} first '
+               '(expected release dir {}).'.format(name, exit_tag, pv_dir))
     views = {}
+    pv_missing = []
     for key, sub, pat, required in _BLOCK_VIEWS:
-        f = os.path.join(path, sub, pat.format(b=name))
+        src_dir = pv_dir if key in _BLOCK_PV_VIEWS else path
+        f = os.path.join(src_dir, sub, pat.format(b=name))
         if os.path.isfile(f):
             views[key] = f
+        elif key in _BLOCK_PV_VIEWS:
+            pv_missing.append('missing PV {} view: {}'.format(key, f))
         elif required:
             errors.append('missing {} view: {}'.format(key, f))
     libs = {}
@@ -4680,12 +4846,15 @@ def _block_from_release(path: str):
         libs[os.path.basename(f)[len(name) + 2:-len('.lib')]] = f
     if not libs:
         errors.append('no timing models lib/{}__<lib_set>.lib in {}'.format(name, path))
-    stamp = os.path.join(path, 'RELEASE_COMPLETE')
-    if not os.path.isfile(stamp):
-        errors.append('release not stamped complete (no {})'.format(stamp))
-    elif 'STATUS=PASS' not in open(stamp).read():
-        errors.append('release stamp is not STATUS=PASS: {}'.format(stamp))
-    return name, views, libs, errors
+    errors.extend(_stamp_errors(path, 'PNR'))
+    if not os.path.isdir(pv_dir):
+        errors.append('PV release dir not found: {} — {}'.format(pv_dir, pv_hint))
+    else:
+        pv_errs = _stamp_errors(pv_dir, 'PV') + pv_missing
+        errors.extend(pv_errs)
+        if pv_errs:
+            errors.append(pv_hint)
+    return name, views, libs, errors, pv_dir
 
 
 def _write_blocks_config(tag_dir: str) -> list:
@@ -4706,6 +4875,9 @@ def _write_blocks_config(tag_dir: str) -> list:
         src = os.path.join(bdir, 'SOURCE')
         if os.path.isfile(src):
             out.append('set tech(block,{},release) "{}"'.format(b, open(src).read().strip()))
+        pv_src = os.path.join(bdir, 'PV_SOURCE')
+        if os.path.isfile(pv_src):
+            out.append('set tech(block,{},pv_release) "{}"'.format(b, open(pv_src).read().strip()))
         for key, sub, pat, _req in _BLOCK_VIEWS:
             if os.path.lexists(os.path.join(bdir, sub, pat.format(b=b))):
                 out.append('set tech(block,{},{}) "$_lib_tag_dir/block/{}/{}/{}"'.format(
@@ -4739,7 +4911,7 @@ def _cmd_add_blocks(args: argparse.Namespace, lib_config_path: str) -> int:
             logger.error("Release dir not found: {}".format(path))
             failed = True
             continue
-        name, views, libs, errors = _block_from_release(path)
+        name, views, libs, errors, pv_dir = _block_from_release(path)
         if errors:
             logger.error("Block release {} rejected:".format(path))
             for e in errors:
@@ -4755,8 +4927,11 @@ def _cmd_add_blocks(args: argparse.Namespace, lib_config_path: str) -> int:
             os.symlink(f, os.path.join(bdir, sub, os.path.basename(f)))
         with open(os.path.join(bdir, 'SOURCE'), 'w') as fh:
             fh.write(os.path.abspath(path) + "\n")
+        with open(os.path.join(bdir, 'PV_SOURCE'), 'w') as fh:
+            fh.write(pv_dir + "\n")
         logger.info("  block {:<14} lib sets: {}  ← {}".format(
             name, " ".join(sorted(libs)), os.path.abspath(path)))
+        logger.info("  block {:<14} gds/cdl       ← {}".format(name, pv_dir))
     names = _write_blocks_config(tag_dir)
     _ensure_blocks_hook(lib_config_path)
     logger.info("Tag {} blocks: {}".format(os.path.basename(tag_dir), " ".join(names) or "(none)"))

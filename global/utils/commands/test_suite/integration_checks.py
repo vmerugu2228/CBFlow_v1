@@ -290,6 +290,164 @@ def check_lib_mmmc_full_workflow(pd_dir: str) -> tuple:
     return ('PASS', 'library-manager → lib_config.tcl → stdcell/ layout OK')
 
 
+def _tcl_list_keys(content: str) -> dict:
+    """{key: [paths]} for every `set tech(<key>) [list ...]` line."""
+    import re
+    out = {}
+    for m in re.finditer(r'^set tech\(([^)]+)\) \[list ?(.*)\]\s*$',
+                         content, re.MULTILINE):
+        out[m.group(1)] = re.findall(r'"([^"]+)"', m.group(2))
+    return out
+
+
+def check_lib_manager_shared_views(pd_dir: str) -> tuple:
+    """library-manager bundles gds / cdl / verilog for the shared
+    categories: generate links them + emits tech(gds|cdl|verilog,<cat>)
+    (empty lists for categories with nothing), --exclude applies, and
+    `add --category memory` re-run replaces (never duplicates) memory's
+    entries while keeping the stdcell keys."""
+    bin_path = _cbflow_bin(pd_dir)
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_p = Path(tmp)
+        lib_root = tmp_p / 'lib_root'
+        tag_root = tmp_p / 'tag_root'
+        tag_root.mkdir()
+        _write_dummy_lib_root(lib_root)
+        # Auto-classified memory views (dir-name rule) under lib_root.
+        (lib_root / 'mem' / 'mem_block.gds').write_text('')
+        (lib_root / 'mem' / 'mem_block.cdl').write_text('')
+        (lib_root / 'mem' / 'mem_block.v').write_text('')
+        # Stdcell views must NOT be bundled into a shared category.
+        (lib_root / '9T' / 'svt' / 'sc9_9T_svt.gds').write_text('')
+        env = os.environ.copy()
+        env['CBFLOW_LIB_TAG_ROOT'] = str(tag_root)
+        rc, out, err = _run_cli(
+            bin_path,
+            ['flow', 'library-manager', 'generate',
+             '--tech', 'gf_22nm', '--tag', 'VIEWS',
+             '--lib-root', str(lib_root),
+             '--tracks', '9T', '--vts', 'svt'],
+            env=env, timeout=90)
+        if rc != 0:
+            return ('FAIL', f'generate failed (rc={rc}): ...{(out + err)[-400:]}')
+        tag_dir = tag_root / 'gf_22nm' / 'VIEWS'
+        cfg = tag_dir / 'lib_config.tcl'
+        keys = _tcl_list_keys(cfg.read_text())
+        for kind in ('gds', 'cdl', 'verilog'):
+            for cat in ('memory', 'io', 'analog', 'ip'):
+                if f'{kind},{cat}' not in keys:
+                    return ('FAIL', f'tech({kind},{cat}) not emitted')
+            got = keys[f'{kind},memory']
+            if len(got) != 1 or f'/memory/{kind}/' not in got[0]:
+                return ('FAIL', f'tech({kind},memory) = {got}')
+            if not os.path.lexists(got[0].replace('$_lib_tag_dir', str(tag_dir))):
+                return ('FAIL', f'tech({kind},memory) symlink missing: {got[0]}')
+            for cat in ('io', 'analog', 'ip'):
+                if keys[f'{kind},{cat}']:
+                    return ('FAIL', f'tech({kind},{cat}) should be empty: '
+                                    f'{keys[kind + "," + cat]}')
+        if 'memory/gds/mem_block.gds' not in (tag_dir / 'MANIFEST.tcl').read_text():
+            return ('FAIL', 'MANIFEST.tcl lacks memory/gds entry')
+        stdcell_before = {k: v for k, v in keys.items() if k.startswith('9T')}
+
+        # add --category memory from an explicit staging dir (gds/ spice/
+        # verilog/ subdirs, no lib) with --exclude on the verilog model.
+        stage = tmp_p / 'stage'
+        for sub, fn in (('lef', 'sram.lef'), ('gds', 'sram.gds'),
+                        ('spice', 'sram.spice'), ('verilog', 'sram.v'),
+                        ('lib', 'sram_tt_0p80v_25c.lib')):
+            (stage / sub).mkdir(parents=True, exist_ok=True)
+            (stage / sub / fn).write_text('')
+        add = ['flow', 'library-manager', 'add', '--tech', 'gf_22nm',
+               '--tag', 'VIEWS', '--category', 'memory',
+               '--path', str(stage), '--exclude', '*.v']
+        for attempt in (1, 2):
+            rc, out, err = _run_cli(bin_path, add, env=env, timeout=90)
+            if rc != 0:
+                return ('FAIL', f'add #{attempt} failed (rc={rc}): '
+                                f'...{(out + err)[-400:]}')
+            text = cfg.read_text()
+            keys = _tcl_list_keys(text)
+            import re
+            dup = [k for k in set(re.findall(r'^set tech\(([^)]+)\)', text, re.M))
+                   if len(re.findall(r'^set tech\(' + re.escape(k) + r'\)', text, re.M)) > 1]
+            if dup:
+                return ('FAIL', f'add #{attempt}: duplicate keys {dup[:5]}')
+            if [os.path.basename(p) for p in keys['gds,memory']] != ['sram.gds']:
+                return ('FAIL', f'add #{attempt}: tech(gds,memory) = {keys["gds,memory"]}')
+            if [os.path.basename(p) for p in keys['cdl,memory']] != ['sram.spice']:
+                return ('FAIL', f'add #{attempt}: tech(cdl,memory) = {keys["cdl,memory"]}')
+            if keys['verilog,memory'] != [] and not any(
+                    p.endswith('mem_block.v') for p in keys['verilog,memory']):
+                return ('FAIL', f'add #{attempt}: --exclude *.v ignored: '
+                                f'{keys["verilog,memory"]}')
+            if any(p.endswith('sram.v') for p in keys['verilog,memory']):
+                return ('FAIL', f'add #{attempt}: excluded sram.v linked')
+            after = {k: v for k, v in keys.items() if k.startswith('9T')}
+            if after != stdcell_before:
+                return ('FAIL', f'add #{attempt}: stdcell keys changed')
+    return ('PASS', 'gds/cdl/verilog bundled per shared category; '
+                    'exclude + add idempotent')
+
+
+def check_lib_manager_block_views_from_pv(pd_dir: str) -> tuple:
+    """`add --category block` takes gds + cdl from the sibling PV release
+    (<block>/PV/<exit>/), records it as tech(block,<b>,pv_release), and
+    refuses the block when the PV release is missing."""
+    bin_path = _cbflow_bin(pd_dir)
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_p = Path(tmp)
+        lib_root = tmp_p / 'lib_root'
+        tag_root = tmp_p / 'tag_root'
+        tag_root.mkdir()
+        _write_dummy_lib_root(lib_root)
+        env = os.environ.copy()
+        env['CBFLOW_LIB_TAG_ROOT'] = str(tag_root)
+        rc, out, err = _run_cli(
+            bin_path,
+            ['flow', 'library-manager', 'generate',
+             '--tech', 'gf_22nm', '--tag', 'BLK',
+             '--lib-root', str(lib_root),
+             '--tracks', '9T', '--vts', 'svt'],
+            env=env, timeout=90)
+        if rc != 0:
+            return ('FAIL', f'generate failed (rc={rc}): ...{(out + err)[-400:]}')
+        rel = tmp_p / 'rel' / 'P1' / 'blk'
+        pnr = rel / 'PNR' / 'PRO_EXIT'
+        pv = rel / 'PV' / 'PRO_EXIT'
+        for f in ('lef/blk.lef', 'gds/blk.gds', 'netlist/blk.v',
+                  'netlist/blk.cdl', 'lib/blk__ss.lib'):
+            (pnr / f).parent.mkdir(parents=True, exist_ok=True)
+            (pnr / f).write_text('pnr')
+        (pnr / 'RELEASE_COMPLETE').write_text('STATUS=PASS\n')
+        add = ['flow', 'library-manager', 'add', '--tech', 'gf_22nm',
+               '--tag', 'BLK', '--category', 'block', '--path', str(pnr)]
+        # 1) No PV release → rejected with the expected path named.
+        rc, out, err = _run_cli(bin_path, add, env=env, timeout=60)
+        if rc == 0:
+            return ('FAIL', 'block accepted without a PV release')
+        if str(pv) not in out + err or 'PV must be run' not in out + err:
+            return ('FAIL', f'PV-missing error unclear: ...{(out + err)[-400:]}')
+        # 2) PV release present → gds/cdl come from PV.
+        for f in ('gds/blk.gds', 'netlist/blk.cdl'):
+            (pv / f).parent.mkdir(parents=True, exist_ok=True)
+            (pv / f).write_text('pv')
+        (pv / 'RELEASE_COMPLETE').write_text('STATUS=PASS\n')
+        rc, out, err = _run_cli(bin_path, add, env=env, timeout=60)
+        if rc != 0:
+            return ('FAIL', f'block add failed (rc={rc}): ...{(out + err)[-400:]}')
+        bdir = tag_root / 'gf_22nm' / 'BLK' / 'block' / 'blk'
+        for f, want in (('gds/blk.gds', pv), ('netlist/blk.cdl', pv),
+                        ('lef/blk.lef', pnr), ('netlist/blk.v', pnr)):
+            tgt = os.path.realpath(bdir / f)
+            if not tgt.startswith(os.path.realpath(want) + os.sep):
+                return ('FAIL', f'{f} → {tgt}, expected under {want}')
+        bc = (tag_root / 'gf_22nm' / 'BLK' / 'blocks_config.tcl').read_text()
+        if f'set tech(block,blk,pv_release) "{pv}"' not in bc:
+            return ('FAIL', 'blocks_config.tcl lacks tech(block,blk,pv_release)')
+    return ('PASS', 'block gds/cdl from PV release; missing PV rejected')
+
+
 def check_handler_setup_propagates_generator_failure(pd_dir: str) -> tuple:
     """handler_common.tcl::handler_setup previously wrapped generate_setup.tcl
     in a bare `catch {...}` that silently swallowed non-zero exits. If the
@@ -404,6 +562,8 @@ CHECKS = [
     ('lib.tagroot_error_actionable',         check_lib_manager_tagroot_error_is_actionable),
     ('lib.tagroot_rejects_in_tree',          check_lib_manager_rejects_in_tree_tagroot),
     ('workflow.lib_mmmc_end_to_end',         check_lib_mmmc_full_workflow),
+    ('lib.shared_views_bundled',             check_lib_manager_shared_views),
+    ('lib.block_views_from_pv',              check_lib_manager_block_views_from_pv),
     ('handler.setup_propagates_errors',      check_handler_setup_propagates_generator_failure),
     ('decision.outcome_resolution',          check_decision_outcome_resolution),
 ]
