@@ -493,7 +493,7 @@ proc oss_fp_floorplan {} {
             -aspect_ratio $_ar -core_space $_m
     } else {
         # macro_channel: std-cell / routing band kept around and between macros
-        set _nmac [llength [lsearch -all -inline [lmap _i [[ord::get_db_block] getInsts] {[[$_i getMaster] isBlock]}] 1]]
+        set _nmac [llength [lsearch -all -inline [lmap _i [[ord::get_db_block] getInsts] {expr {[[$_i getMaster] isBlock]}}] 1]]
         set _area [expr {$_mac + $_std / ($_util / 100.0)}]
         set _cw [expr {max($_area / sqrt($_area * $_ar), $_sumw + ($_nmac + 1) * $_chan)}]
         set _ch [expr {max($_area / $_cw, $_mh + 2 * $_chan)}]
