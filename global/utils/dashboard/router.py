@@ -1613,6 +1613,8 @@ def _render_index(runs, discipline='PD', project=''):
   async function loadRuns() {{
     try {{
       const runs = await fetch('/api/runs').then(r => r.json());
+      // Running runs first; otherwise registry order (stable sort)
+      runs.sort((a, b) => (b.current_status === 'RUNNING') - (a.current_status === 'RUNNING'));
       const tbody = document.getElementById('runs-tbody');
       if (!runs.length) {{
         tbody.innerHTML = '<tr><td colspan="7" class="empty">No runs registered. Add one above to get started.</td></tr>';
@@ -2006,7 +2008,8 @@ def _render_run_rows(runs):
         return ''
 
     out = []
-    for r in runs:
+    # Running runs first; otherwise registry order (stable sort)
+    for r in sorted(runs, key=lambda r: r.get('current_status') != 'RUNNING'):
         flow = r.get('flow_type') or '?'
         color = _FLOW_COLORS.get(flow, '#475569')
         cls = 'archived' if r.get('archived') else ''
