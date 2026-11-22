@@ -83,6 +83,8 @@ flow_proc read_design {
         yosys read_verilog -lib $_stub
     }
     yosys hierarchy -check -top $design_name
+    # Memory macro instances are kept even with unused outputs (hard macros)
+    foreach _m [oss_memory_cells] { yosys setattr -set keep 1 t:$_m }
     yosys tee -o "$::REPORTS_DIR/synthesis_hierarchy.rpt" ls
 }
 

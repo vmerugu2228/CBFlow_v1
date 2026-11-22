@@ -83,6 +83,15 @@ proc oss_memory_files {kind} {
     }
     return $::tech($kind,memory)
 }
+# Memory macro cell names (MACRO statements of the tag's memory LEFs)
+proc oss_memory_cells {} {
+    set _out {}
+    foreach _l [oss_memory_files lef] {
+        set _fh [open $_l]; set _t [read $_fh]; close $_fh
+        foreach {_ _m} [regexp -all -inline -line {^\s*MACRO\s+(\S+)} $_t] { lappend _out $_m }
+    }
+    return [lsort -unique $_out]
+}
 # Memory timing libs for a standard-cell lib set (tech(memory,lib_set_map))
 proc oss_memory_libs {lib_set} {
     if {![oss_has_memories]} { return {} }
