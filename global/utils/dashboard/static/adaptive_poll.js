@@ -36,7 +36,10 @@
     try {
       const headers = {};
       if (_lastEtag) headers['If-None-Match'] = _lastEtag;
-      const r = await fetch('/api/status', { headers });
+      // Static file: not rewritten by the daemon like the templates are, so
+      // prefix the run's /run/<id> scope from the page URL ourselves.
+      const scope = (location.pathname.match(/^\/run\/[^\/]+/) || [''])[0];
+      const r = await fetch(scope + '/api/status', { headers });
       if (r.status === 304) return;
       if (!r.ok) return;
       const etag = r.headers.get('ETag');
