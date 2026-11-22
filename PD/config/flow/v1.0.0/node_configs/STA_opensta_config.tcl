@@ -48,12 +48,15 @@ array set sta {
 # oss,report,group_path_count: paths per group in setup.rpt / hold.rpt.
 # oss,allow_no_spef: true = a scenario whose RC corner has no SPEF is timed
 # with wire-load estimates (warning); false = the scenario fails.
+# oss,report_power: report_power per scenario (reports/power.rpt), merged into
+# outputs/sta_power.rpt (mW) and the release metrics.rpt '# category: power'.
 array set sta {
     oss,extraction,spef         {results/${design_name}_${rc_corner}.spef}
     oss,scenario_qor_file       "qor.tcl"
     oss,qor_file_suffix         "_qor.tcl"
     oss,report,group_path_count 10
     oss,allow_no_spef           false
+    oss,report_power            true
 }
 
 # ┌─ Mandatory outputs (relative to work/STA/<node>/outputs/) ──────────────────┐

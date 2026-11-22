@@ -29,11 +29,14 @@ set ::flow::exec_mode "auto"
 flow_proc merge {
     global design_name
     set _tnode [oss_chain_node timing]
-    set _rows {}
+    set _rows {}; set _prows {}
     foreach _q [lsort [glob -nocomplain "[cbflow_node_dir $_tnode]/*/reports/[oss_get sta oss,scenario_qor_file]"]] {
         array unset qor
         source $_q
         lappend _rows [list $qor(scenario) $qor(wns_setup) $qor(tns_setup) $qor(wns_hold) $qor(tns_hold)]
+        if {[info exists qor(power_total)]} {
+            lappend _prows [list $qor(scenario) $qor(power_total) $qor(power_internal) $qor(power_switching) $qor(power_leakage)]
+        }
     }
     if {[llength $_rows] == 0 && ![is_true $::flow(test_mode)]} { error "no per-scenario QoR under [cbflow_node_dir $_tnode]" }
     set _ws 1e9; set _wh 1e9
@@ -50,6 +53,17 @@ flow_proc merge {
     set _fh [open [oss_stage_out sta_summary.tcl] w]
     puts $_fh "set sta_summary(wns_setup) $_ws\nset sta_summary(wns_hold) $_wh\nset sta_summary(scenarios) [llength $_rows]"
     close $_fh
+    # Power per scenario (mW) -> outputs/sta_power.rpt
+    if {[is_true [oss_get sta oss,report_power]]} {
+        if {[llength $_prows] != [llength $_rows]} { error "power missing for [expr {[llength $_rows] - [llength $_prows]}] scenario(s)" }
+        set _fh [open [oss_stage_out sta_power.rpt] w]
+        puts $_fh [format "%-40s %12s %12s %12s %12s" scenario total_mW internal_mW switching_mW leakage_mW]
+        foreach _r $_prows {
+            lassign $_r _s _t _i _w _l
+            puts $_fh [format "%-40s %12.4g %12.4g %12.4g %12.4g" $_s [expr {$_t*1e3}] [expr {$_i*1e3}] [expr {$_w*1e3}] [expr {$_l*1e3}]]
+        }
+        close $_fh
+    }
     handle_info "STA: worst setup WNS $_ws, worst hold WNS $_wh over [llength $_rows] scenarios"
 }
 

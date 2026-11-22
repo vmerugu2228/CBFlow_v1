@@ -46,6 +46,21 @@ flow_proc publish {
             lappend _L "$_sc setup WNS : $_sw" "$_sc setup TNS : $_st" "$_sc hold WNS : $_hw" "$_sc hold TNS : $_ht"
         }
     }
+    if {[is_true [oss_get sta oss,report_power]]} {
+        ::CBFlow::Release::copy_file "$_m/sta_power.rpt" reports/sta sta_power.rpt
+        lappend _L "# category: power"
+        set _fh [open "$_m/sta_power.rpt"]; set _pt [read $_fh]; close $_fh
+        set _worst ""; set _wsc ""
+        foreach _ln [lrange [split $_pt \n] 1 end] {
+            if {[llength $_ln] != 5} continue
+            lassign $_ln _sc _t _i _w _l
+            lappend _L "Total power mW $_sc : $_t" "Internal power mW $_sc : $_i" \
+                       "Switching power mW $_sc : $_w" "Leakage power mW $_sc : $_l"
+            if {$_worst eq "" || $_t > $_worst} { set _worst $_t; set _wsc $_sc }
+        }
+        lappend _L "Total power mW : $_worst" "Worst power view : $_wsc"
+        lappend _L "# category: timing"
+    }
     source "$_m/sta_summary.tcl"
     set _ok [expr {$sta_summary(wns_setup) >= [oss_get sta signoff,min_setup_wns]
                    && $sta_summary(wns_hold) >= [oss_get sta signoff,min_hold_wns]}]

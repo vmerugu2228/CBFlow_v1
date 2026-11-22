@@ -58,6 +58,16 @@ flow_proc report {
     puts $_fh "set qor(wns_hold) [sta::worst_slack -min]"
     puts $_fh "set qor(tns_setup) [sta::total_negative_slack -max]"
     puts $_fh "set qor(tns_hold) [sta::total_negative_slack -min]"
+    # Power (sta(oss,report_power)): report_power on this scenario's corner;
+    # the Total row (internal switching leakage total, W) goes into the QoR.
+    if {[is_true [oss_get sta oss,report_power]]} {
+        report_power > "$::SCEN_REPORTS/power.rpt"
+        set _pfh [open "$::SCEN_REPORTS/power.rpt"]; set _pt [read $_pfh]; close $_pfh
+        if {![regexp -line {^Total\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)} $_pt -> _int _sw _lk _tot]} {
+            error "no Total row in $::SCEN_REPORTS/power.rpt"
+        }
+        puts $_fh "set qor(power_internal) $_int\nset qor(power_switching) $_sw\nset qor(power_leakage) $_lk\nset qor(power_total) $_tot"
+    }
     close $_fh
     puts "QOR $::SCENARIO: wns_setup=[sta::worst_slack -max] wns_hold=[sta::worst_slack -min]"
 }
