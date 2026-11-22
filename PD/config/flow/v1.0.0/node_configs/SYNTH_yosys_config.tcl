@@ -31,9 +31,17 @@ array set synth {
 # oss,synth,flatten: flatten the design's own hierarchy (child hard macros from
 # the library tag stay blackboxes). oss,synth,abc_delay_ps: ABC delay target
 # (0 = area-oriented mapping).
+# oss,clock_gating,enable: replace flop enables with ICG cells (yosys
+# clockgate; tech(<track>,icg_cell), or icg_scan_cell when DFT is on) for
+# groups of at least oss,clock_gating,min_ffs flops sharing clock + enable.
+# Vt: every Vt library of the lib set is read; Vts outside project(vt_flavors)
+# are dont_use (tech(vt_pattern,<vt>)). Memories (register arrays) are
+# reported (synthesis_memory.rpt) and mapped to flops, clock-gated with the rest.
 array set synth {
     oss,synth,flatten       true
     oss,synth,abc_delay_ps  0
+    oss,clock_gating,enable  true
+    oss,clock_gating,min_ffs 4
     oss,dft,openroad_cmd    {openroad -exit -no_init}
     runtime,timeout,synthesis1 120
 }

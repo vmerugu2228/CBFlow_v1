@@ -120,6 +120,10 @@ set tech(hd,endcap)          "sky130_fd_sc_hd__decap_3"
 set tech(hd,fillers)         "sky130_fd_sc_hd__fill_1 sky130_fd_sc_hd__fill_2 sky130_fd_sc_hd__fill_4 sky130_fd_sc_hd__fill_8"
 set tech(hd,hold_buffers)    "sky130_fd_sc_hd__dlygate4sd3_1 sky130_fd_sc_hd__buf_1 sky130_fd_sc_hd__buf_2"
 set tech(hd,icg_cells)       "sky130_fd_sc_hd__dlclkp_1 sky130_fd_sc_hd__dlclkp_2 sky130_fd_sc_hd__dlclkp_4"
+# Clock-gating cell synthesis inserts: <cell>/<enable>/<clock>/<gated clock>
+# [/<test enable>] — the scan ICG when DFT is on (test enable -> scan enable)
+set tech(hd,icg_cell)        "sky130_fd_sc_hd__dlclkp_1/GATE/CLK/GCLK"
+set tech(hd,icg_scan_cell)   "sky130_fd_sc_hd__sdlclkp_1/GATE/CLK/GCLK/SCE"
 set tech(hd,isolation)       ""
 set tech(hd,level_shifter)   ""
 set tech(hd,power_switch)    ""

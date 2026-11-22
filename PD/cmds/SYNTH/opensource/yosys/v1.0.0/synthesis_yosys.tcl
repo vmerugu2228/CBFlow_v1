@@ -84,17 +84,39 @@ flow_proc read_design {
     yosys tee -o "$::REPORTS_DIR/synthesis_hierarchy.rpt" ls
 }
 
+# Vt flavours: project(vt_flavors) must be a subset of the tech's
+# tech(vt_variants_available); cells of the other Vts become dont_use.
+proc synth_vt_dont_use {} {
+    set _avail [oss_get tech vt_variants_available]
+    set _use   [oss_get project vt_flavors]
+    foreach _v $_use {
+        if {$_v ni $_avail} { error "project(vt_flavors): '$_v' not in tech(vt_variants_available) {$_avail}" }
+    }
+    set _out {}
+    foreach _v $_avail {
+        if {$_v ni $_use} { lappend _out [oss_get tech vt_pattern,$_v] }
+    }
+    return $_out
+}
+
 # Synthesis + technology mapping (netlist written by write_design)
 flow_proc synthesize {
     global design_name synth
     set _libs $::oss_libs
+    handle_info "Vt flavours [oss_get project vt_flavors] of {[oss_get tech vt_variants_available]}; [llength $_libs] librar[expr {[llength $_libs] == 1 ? "y" : "ies"}]"
     set _flat [expr {[is_true [oss_get synth oss,synth,flatten]] ? "-flatten" : ""}]
-    yosys synth -top $design_name {*}$_flat
+    # begin + coarse (memories inferred), report them, then the rest
+    yosys synth -top $design_name {*}$_flat -run :fine
+    synth_memory_report
+    yosys synth -top $design_name {*}$_flat -run fine:
     yosys opt_clean -purge
+    synth_clock_gating
     set _dont_use {}
-    foreach _c [oss_trk dont_use] { lappend _dont_use -dont_use $_c }
-    foreach _l $_libs { yosys dfflibmap -liberty $_l }
-    set _abc [list abc -liberty [lindex $_libs 0] {*}$_dont_use]
+    foreach _c [concat [oss_trk dont_use] [synth_vt_dont_use]] { lappend _dont_use -dont_use $_c }
+    set _lib_args {}
+    foreach _l $_libs { lappend _lib_args -liberty $_l }
+    yosys dfflibmap {*}$_lib_args {*}$_dont_use
+    set _abc [list abc {*}$_lib_args {*}$_dont_use]
     set _d [oss_get synth oss,synth,abc_delay_ps]
     if {$_d > 0} { lappend _abc -D $_d }
     yosys {*}$_abc
@@ -111,9 +133,51 @@ flow_proc synthesize {
     yosys check -assert
 }
 
+# Memories (register arrays) inferred in the coarse pass: synthesis_memory.rpt.
+# Synthesis maps them to flops (memory_map), clock-gated with the other flops.
+proc synth_memory_report {} {
+    set _rpt "$::REPORTS_DIR/synthesis_memory.rpt"
+    yosys tee -q -o $_rpt select -list t:\$mem_v2
+    set _fh [open $_rpt]; set _m [string trim [read $_fh]]; close $_fh
+    set _n [expr {$_m eq "" ? 0 : [llength [split $_m \n]]}]
+    set _fh [open $_rpt w]
+    puts $_fh "# Memories inferred (mapped to register arrays): $_n"
+    if {$_n > 0} { puts $_fh $_m }
+    close $_fh
+    handle_info "Memories inferred: $_n (register arrays)"
+}
+
+# Clock gating (synth(oss,clock_gating,enable)): flops sharing clock + enable
+# -> ICG + enable-less flops. With DFT the scan ICG, its test enable tied low
+# here and connected to scan enable by dft_insert.
+proc synth_clock_gating {} {
+    if {![is_true [oss_get synth oss,clock_gating,enable]]} {
+        handle_info "Clock gating off (synth(oss,clock_gating,enable))"
+        return
+    }
+    set _dft [is_true [oss_get project dft,enable]]
+    set _spec [oss_trk [expr {$_dft ? "icg_scan_cell" : "icg_cell"}]]
+    lassign [split $_spec /] _cell _en _clk _gclk _te
+    if {$_gclk eq "" || ($_dft && $_te eq "")} {
+        error "tech key [oss_track],[expr {$_dft ? "icg_scan_cell" : "icg_cell"}] must be <cell>/<enable>/<clock>/<gated clock>[expr {$_dft ? "/<test enable>" : ""}], got '$_spec'"
+    }
+    set _args [list -pos $_cell $_en:$_clk:$_gclk -min_net_size [oss_get synth oss,clock_gating,min_ffs]]
+    if {$_dft} { lappend _args -tie_lo $_te }
+    yosys clockgate {*}$_args
+    set _rpt "$::REPORTS_DIR/synthesis_clock_gating.rpt"
+    yosys tee -q -o $_rpt select -count t:$_cell
+    set _fh [open $_rpt]; set _t [read $_fh]; close $_fh
+    regexp {(\d+) objects} $_t -> _n
+    if {![info exists _n]} { set _n 0 }
+    set _fh [open $_rpt w]; puts $_fh "ICG cell : $_cell\nICG count : $_n"; close $_fh
+    handle_info "Clock gating: $_n $_cell"
+}
+
 # Reports of the mapped design
 flow_proc report {
-    yosys tee -o "$::REPORTS_DIR/synthesis_stat.rpt" stat -liberty [lindex $::oss_libs 0]
+    set _lib_args {}
+    foreach _l $::oss_libs { lappend _lib_args -liberty $_l }
+    yosys tee -o "$::REPORTS_DIR/synthesis_stat.rpt" stat {*}$_lib_args
 }
 
 # Save the mapped netlist — synthesis.v, or synthesis_pre_dft.v when DFT
@@ -157,6 +221,23 @@ flow_proc dft_insert {
     puts $_fh "set_dft_config -max_length [oss_get project dft,max_chain_length] -clock_mixing [oss_get project dft,clock_mixing]"
     puts $_fh "scan_replace"
     puts $_fh "execute_dft_plan"
+    # Scan ICGs from clock gating: test enable (tied low in synthesis) ->
+    # the scan enable port, so gated flops shift in scan mode
+    set _icg [split [oss_trk icg_scan_cell] /]
+    puts $_fh [string map [list @CELL@ [lindex $_icg 0] @TE@ [lindex $_icg 4] @SE@ [oss_get project dft,scan_enable_pattern]] {
+set _blk [ord::get_db_block]
+set _se ""
+foreach _bt [$_blk getBTerms] { if {[string match {@SE@} [$_bt getName]]} { set _se [$_bt getNet]; break } }
+set _n 0
+foreach _i [$_blk getInsts] {
+    if {[[$_i getMaster] getName] ne "@CELL@"} continue
+    if {$_se eq ""} { error "scan ICG [$_i getName]: no scan enable port (@SE@) after DFT" }
+    set _it [$_i findITerm @TE@]
+    $_it disconnect
+    $_it connect $_se
+    incr _n
+}
+puts "ICG_TEST_ENABLE $_n"}]
     puts $_fh "report_dft_plan"           ;# to the log; cut into dft_plan.rpt below
     puts $_fh "write_verilog [oss_stage_out synthesis.v]"
     puts $_fh "exit"
