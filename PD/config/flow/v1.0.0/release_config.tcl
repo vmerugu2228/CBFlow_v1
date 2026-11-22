@@ -57,7 +57,6 @@ set release(marker,manifest)       "MANIFEST.json"
 set release(marker,complete)       "RELEASE_COMPLETE"
 set release(file,changelog)        "CHANGELOG.md"
 set release(file,metrics)          "metrics.rpt"
-set release(file,timing_snapshot)  {timing_snapshot.json timing/snapshot.json}
 set release(dir,images)            "images"
 set release(dir,lef)               "lef"
 
