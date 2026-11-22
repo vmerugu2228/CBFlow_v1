@@ -23,6 +23,9 @@ set tech(pdk)                    "sky130A"
 set tech(tracks_available)       "hd"
 set tech(metal_stacks_available) "5M"
 set tech(process_corners)        "ss tt ff"
+# Manufacturing grid (µm) — the tech LEF's MANUFACTURINGGRID; GDS stream-out
+# snaps its min-area patches to it.
+set tech(manufacturing_grid)     0.005
 
 # ── VT: sky130_fd_sc_hd is a single-VT library ────────────────────────────
 set tech(vt_variants_available) {svt}
@@ -126,7 +129,8 @@ set tech(hd,tie_lo)          "sky130_fd_sc_hd__conb_1/LO"
 set tech(hd,well_tap)        "sky130_fd_sc_hd__tapvpwrvgnd_1"
 set tech(hd,well_tap_distance) 14
 set tech(hd,driving_cell)    "sky130_fd_sc_hd__inv_2"
-set tech(hd,buffer_cell)     "sky130_fd_sc_hd__buf_2"
+# Buffer for netlist buffering (yosys insbuf): <cell>/<in pin>/<out pin>
+set tech(hd,buffer_cell)     "sky130_fd_sc_hd__buf_2/A/X"
 set tech(hd,diode_cell)      "sky130_fd_sc_hd__diode_2"
 set tech(hd,power_pins)      "VPWR VPB"
 set tech(hd,ground_pins)     "VGND VNB"

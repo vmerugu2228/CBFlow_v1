@@ -15,7 +15,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "LEC"
 set STAGE_NAME "compare"
-set NODE_NAME [expr {[info exists ::env(CBFLOW_NODE_NAME)] && $::env(CBFLOW_NODE_NAME) ne "" ? $::env(CBFLOW_NODE_NAME) : "compare1"}]
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -28,11 +28,18 @@ set blocks      [hier_children $design_name]
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
 
+# Staged netlist of input type netlist_<kind>: the upstream "inputs" node
+# netlist_<kind><n> (RACE engine: input type = node name without its number)
+# stages it under <node>/netlist_<kind>/<design>.v.
 proc lec_netlist {kind} {
-    set _d "$::DIRS(run)/work/LEC/netlist_${kind}1/netlist_${kind}"
-    set _f [lindex [glob -nocomplain "$_d/${::design_name}.v" "$_d/*.v"] 0]
-    if {$_f eq ""} { error "no $kind netlist staged in $_d (lec(input,netlist_$kind) / release tag)" }
-    return $_f
+    set _it "netlist_${kind}"
+    foreach _n [cbflow_node_deps $::NODE_NAME] {
+        if {[cbflow_node_type $_n] ne "inputs" || [string trimright $_n 0123456789] ne $_it} continue
+        set _f "[cbflow_node_dir $_n]/$_it/${::design_name}.v"
+        if {![file exists $_f]} { error "$kind netlist not staged: $_f (lec(input,$_it) / release tag)" }
+        return $_f
+    }
+    error "no $_it input node among the dependencies of $::NODE_NAME (lec(dependencies,$::NODE_NAME))"
 }
 
 flow_proc compare {

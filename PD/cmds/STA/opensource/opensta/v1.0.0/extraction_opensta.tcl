@@ -13,7 +13,7 @@ set FLOW_TYPE "STA"
 set STAGE_NAME "extraction"
 # Dynamic subnodes (per RC corner / per scenario) pass their node in the
 # context script (::OSS_NODE); otherwise the launch wrapper's node.
-set NODE_NAME [expr {[info exists ::OSS_NODE] ? $::OSS_NODE : ([info exists ::env(CBFLOW_NODE_NAME)] && $::env(CBFLOW_NODE_NAME) ne "" ? $::env(CBFLOW_NODE_NAME) : "extraction1")}]
+set NODE_NAME [expr {[info exists ::OSS_NODE] ? $::OSS_NODE : [cbflow_node_name]}]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -30,8 +30,8 @@ flow_proc extract {
     global design_name blocks
     set_thread_count [oss_get sta oss,threads]
     oss_read_lefs $blocks
-    set _def [lindex [glob -nocomplain "$::DEF_DIR/${design_name}.def" "$::DEF_DIR/*.def"] 0]
-    if {$_def eq ""} { error "no DEF staged in $::DEF_DIR (sta(input,def_file) / release_tag)" }
+    set _def "$::DEF_DIR/${design_name}.def"
+    if {![file exists $_def]} { error "DEF not staged: $_def (sta(input,def_file) / release_tag)" }
     read_def $_def
     define_process_corner -ext_model_index 0 X
     extract_parasitics -ext_model_file [oss_get tech rcx,$::RC_CORNER,openrcx]

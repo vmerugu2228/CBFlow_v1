@@ -10,7 +10,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PV"
 set STAGE_NAME "merge_data"
-set NODE_NAME [expr {[info exists ::env(CBFLOW_NODE_NAME)] && $::env(CBFLOW_NODE_NAME) ne "" ? $::env(CBFLOW_NODE_NAME) : "merge_data1"}]
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -26,8 +26,9 @@ flow_proc summarize {
     global design_name
     set _fh [open [oss_stage_out verification_summary.rpt] w]
     puts $_fh "PV verification summary — $design_name (Magic DRC + Netgen LVS)"
-    foreach _n {drc1 lvs1} _f {drc.rpt lvs.rpt} {
-        set _p "$::DIRS(run)/work/PV/$_n/outputs/$_f"
+    foreach _t {drc lvs} _f {drc.rpt lvs.rpt} {
+        set _n [cbflow_dep_node $_t]
+        set _p "[cbflow_node_dir $_n]/outputs/$_f"
         if {[file exists $_p]} {
             set _ih [open $_p]; puts $_fh "\n== $_n\n[read $_ih]"; close $_ih
         } else {

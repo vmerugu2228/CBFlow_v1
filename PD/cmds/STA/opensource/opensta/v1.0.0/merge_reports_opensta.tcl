@@ -13,7 +13,7 @@ set FLOW_TYPE "STA"
 set STAGE_NAME "merge_reports"
 # Dynamic subnodes (per RC corner / per scenario) pass their node in the
 # context script (::OSS_NODE); otherwise the launch wrapper's node.
-set NODE_NAME [expr {[info exists ::OSS_NODE] ? $::OSS_NODE : ([info exists ::env(CBFLOW_NODE_NAME)] && $::env(CBFLOW_NODE_NAME) ne "" ? $::env(CBFLOW_NODE_NAME) : "merge_reports1")}]
+set NODE_NAME [expr {[info exists ::OSS_NODE] ? $::OSS_NODE : [cbflow_node_name]}]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -30,12 +30,12 @@ flow_proc merge {
     global design_name
     set _tnode [oss_chain_node timing]
     set _rows {}
-    foreach _q [lsort [glob -nocomplain "$::DIRS(run)/work/STA/$_tnode/*/reports/qor.tcl"]] {
+    foreach _q [lsort [glob -nocomplain "[cbflow_node_dir $_tnode]/*/reports/[oss_get sta oss,scenario_qor_file]"]] {
         array unset qor
         source $_q
         lappend _rows [list $qor(scenario) $qor(wns_setup) $qor(tns_setup) $qor(wns_hold) $qor(tns_hold)]
     }
-    if {[llength $_rows] == 0 && ![is_true $::flow(test_mode)]} { error "no per-scenario QoR under work/STA/$_tnode" }
+    if {[llength $_rows] == 0 && ![is_true $::flow(test_mode)]} { error "no per-scenario QoR under [cbflow_node_dir $_tnode]" }
     set _ws 1e9; set _wh 1e9
     set _fh [open [oss_stage_out sta_summary.rpt] w]
     puts $_fh [format "%-40s %12s %12s %12s %12s" scenario setup_wns setup_tns hold_wns hold_tns]

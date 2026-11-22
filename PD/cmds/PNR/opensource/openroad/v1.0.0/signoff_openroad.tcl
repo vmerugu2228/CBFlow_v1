@@ -12,7 +12,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PNR"
 set STAGE_NAME "signoff"
-set NODE_NAME [expr {[info exists ::env(CBFLOW_NODE_NAME)] && $::env(CBFLOW_NODE_NAME) ne "" ? $::env(CBFLOW_NODE_NAME) : "signoff1"}]
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -35,7 +35,9 @@ flow_proc load {
 
 flow_proc timing {
     global oss_upf design_name
-    oss_upf_parse [lindex [glob -nocomplain "$::UPF_DIR/${design_name}.upf" "$::UPF_DIR/*.upf"] 0]
+    set _upf "$::UPF_DIR/${design_name}.upf"
+    if {![file exists $_upf]} { error "UPF not staged: $_upf (pnr(input,upf_file))" }
+    oss_upf_parse $_upf
     oss_check_power
     oss_write_qor signoff
     oss_report "$::REPORTS_DIR/signoff_drv.rpt" report_check_types -max_slew -max_capacitance -max_fanout -violators

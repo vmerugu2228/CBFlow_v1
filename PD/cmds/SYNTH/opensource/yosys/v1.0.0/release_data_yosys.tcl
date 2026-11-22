@@ -11,7 +11,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "SYNTH"
 set STAGE_NAME "release_data"
-set NODE_NAME [expr {[info exists ::env(CBFLOW_NODE_NAME)] && $::env(CBFLOW_NODE_NAME) ne "" ? $::env(CBFLOW_NODE_NAME) : "release_data1"}]
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -26,14 +26,34 @@ set ::flow::exec_mode "auto"
 
 source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
 
+# PD release_config.tcl (handshake map, release(file,*)) — not part of the
+# node config; loaded once on demand.
+proc release_config_load {} {
+    if {![array exists ::flow_input_handshake]} {
+        uplevel #0 [list source "$::env(FLOW_DIR)/PD/config/flow/[cbflow_version FLOW_CONFIG_VERSION]/release_config.tcl"]
+    }
+}
+
+# Release names that downstream flows consume: {category file} from
+# flow_input_handshake(<flow>,<input>).
+proc release_handshake {flow input} {
+    release_config_load
+    if {![info exists ::flow_input_handshake($flow,$input)]} {
+        error "flow_input_handshake($flow,$input) is not set (PD release_config.tcl)"
+    }
+    lassign $::flow_input_handshake($flow,$input) _src _cat _file
+    return [list $_cat [string map [list {${design_name}} $::design_name] $_file]]
+}
+
 flow_proc publish {
     global design_name
     set _dir [::CBFlow::Release::init $::FLOW_TYPE $design_name $::DIRS(run) [oss_get project release,phase]]
-    set _ex "$::run_dir/work/$::FLOW_TYPE/[oss_chain_node export_data]/outputs"
-    ::CBFlow::Release::copy_file "$_ex/final.v"   netlist ${design_name}.v
-    ::CBFlow::Release::copy_file "$_ex/final.sdc" sdc     ${design_name}.sdc
-    ::CBFlow::Release::copy_file "$_ex/final.upf" upf     ${design_name}.upf
-    ::CBFlow::Release::copy_glob "$::run_dir/work/$::FLOW_TYPE/[oss_chain_node synthesis]/reports/*.rpt" reports
+    set _ex "[cbflow_node_dir [oss_chain_node export_data]]/outputs"
+    # Names PNR reads from this release (handshake PNR,<input>)
+    foreach {_src _in} {final.v netlist final.sdc sdc final.upf upf_file} {
+        ::CBFlow::Release::copy_file "$_ex/$_src" {*}[release_handshake PNR $_in]
+    }
+    ::CBFlow::Release::copy_glob "[cbflow_node_dir [oss_chain_node synthesis]]/reports/*.rpt" reports
     ::CBFlow::Release::generate_manifest
     ::CBFlow::Release::stamp_complete
     set _fh [open [oss_stage_out release.manifest] w]

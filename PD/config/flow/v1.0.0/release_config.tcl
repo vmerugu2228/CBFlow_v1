@@ -24,6 +24,11 @@ if {[info exists ::env(FLOW_DIR)]} {
 
 set release(base_dir) [file join $project_root_resolved "test_releases"]
 
+# Release-level files with a fixed name (written by the tool flow, published
+# at the release root). timing_snapshot: worst setup/hold paths per clock
+# (oss_timing_snapshot) — SmartGrid's timing debugger reads it.
+set release(file,timing_snapshot) "timing_snapshot.json"
+
 # Source canonical release-folder schema. Declares `canonical_folders`,
 # `canonical_file_type(<ext>) <folder>`, and `discipline_folders(<DISC>)`
 # — used by the static-check cat7 enforcement + available to any node_config

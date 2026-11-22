@@ -12,7 +12,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PNR"
 set STAGE_NAME "release_data"
-set NODE_NAME [expr {[info exists ::env(CBFLOW_NODE_NAME)] && $::env(CBFLOW_NODE_NAME) ne "" ? $::env(CBFLOW_NODE_NAME) : "release_data1"}]
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -27,16 +27,35 @@ set ::flow::exec_mode "auto"
 
 source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/release_utils.tcl"
 
+# PD release_config.tcl (handshake map, release(file,*)) — not part of the
+# node config; loaded once on demand.
+proc release_config_load {} {
+    if {![array exists ::flow_input_handshake]} {
+        uplevel #0 [list source "$::env(FLOW_DIR)/PD/config/flow/[cbflow_version FLOW_CONFIG_VERSION]/release_config.tcl"]
+    }
+}
+
+# Release names that downstream flows consume: {category file} from
+# flow_input_handshake(<flow>,<input>).
+proc release_handshake {flow input} {
+    release_config_load
+    if {![info exists ::flow_input_handshake($flow,$input)]} {
+        error "flow_input_handshake($flow,$input) is not set (PD release_config.tcl)"
+    }
+    lassign $::flow_input_handshake($flow,$input) _src _cat _file
+    return [list $_cat [string map [list {${design_name}} $::design_name] $_file]]
+}
+
 flow_proc publish {
     global design_name project
     set _dir [::CBFlow::Release::init $::FLOW_TYPE $design_name $::DIRS(run) [oss_get project release,phase]]
-    set _so "$::run_dir/work/$::FLOW_TYPE/[oss_chain_node signoff]/outputs"
-    set _pr "$::run_dir/work/$::FLOW_TYPE/[oss_chain_node pro]/outputs"
+    set _so "[cbflow_node_dir [oss_chain_node signoff]]/outputs"
+    set _pr "[cbflow_node_dir [oss_chain_node pro]]/outputs"
     ::CBFlow::Release::copy_file [oss_node_output [oss_chain_node export_data] final.gds] gds     ${design_name}.gds
     ::CBFlow::Release::copy_file "$_so/final.lef"                       lef     ${design_name}.lef
     ::CBFlow::Release::copy_file "$_so/final.v"                         netlist ${design_name}.v
-    # STA handshake names: <d>.pt.v and the per-mode SDC (operating_modes)
-    ::CBFlow::Release::copy_file "$_so/final.v"                         netlist ${design_name}.pt.v
+    # STA handshake names: netlist (STA,netlist) and the per-mode SDC (operating_modes)
+    ::CBFlow::Release::copy_file "$_so/final.v"                         {*}[release_handshake STA netlist]
     if {[array exists ::operating_modes]} {
         foreach _mode [array names ::operating_modes] {
             set _cf [string map [list {${design_name}} $design_name] \
@@ -46,9 +65,10 @@ flow_proc publish {
             }
         }
     }
-    ::CBFlow::Release::copy_file "$_so/final.lvs.v"                     netlist ${design_name}.lvs.v
+    # PV handshake name: power-aware LVS netlist (PV,netlist)
+    ::CBFlow::Release::copy_file "$_so/final.lvs.v"                     {*}[release_handshake PV netlist]
     ::CBFlow::Release::copy_file "$_so/final.cdl"                       netlist ${design_name}.cdl
-    ::CBFlow::Release::copy_file "$_so/final.def"                       def     ${design_name}.def
+    ::CBFlow::Release::copy_file "$_so/final.def"                       {*}[release_handshake STA def_file]
     ::CBFlow::Release::copy_file "$_so/final.sdc"                       sdc     ${design_name}.sdc
     ::CBFlow::Release::copy_file "$_so/final.odb"                       db      ${design_name}.odb
     foreach _lib [glob -nocomplain "$_so/final__*.lib"] {
@@ -59,23 +79,27 @@ flow_proc publish {
         regsub {^final_} [file tail $_spef] "${design_name}_" _name
         ::CBFlow::Release::copy_file $_spef spef $_name
     }
-    foreach _n [lmap _t {init_design place cts cts_opt route pro signoff} {oss_chain_node $_t}] {
+    foreach _n [lmap _t [oss_get pnr oss,release,report_stages] {oss_chain_node $_t}] {
         # per node: several nodes write the same report names
-        ::CBFlow::Release::copy_glob "$::run_dir/work/$::FLOW_TYPE/$_n/reports/*.rpt" reports/$_n
-        ::CBFlow::Release::copy_glob "$::run_dir/work/$::FLOW_TYPE/$_n/reports/*_qor.tcl" reports/$_n
+        ::CBFlow::Release::copy_glob "[cbflow_node_dir $_n]/reports/*.rpt" reports/$_n
+        ::CBFlow::Release::copy_glob "[cbflow_node_dir $_n]/reports/*[oss_get pnr oss,qor_file_suffix]" reports/$_n
     }
     # SmartGrid data of the exit this release fills: the exit node's metrics
     # and timing snapshot (node from pnr(checklist,exit_node,<exit>)) and the
     # routed-layout image.
     set _ms [::CBFlow::Release::default_exit_tag $::FLOW_TYPE [oss_get project release,phase]]
     set _xn [oss_get pnr checklist,exit_node,$_ms]
-    set _xr "$::run_dir/work/$::FLOW_TYPE/$_xn/reports"
-    ::CBFlow::Release::copy_file "$_xr/checklist_metrics.rpt" . metrics.rpt
-    if {[file exists "$_xr/timing_snapshot.json"]} {
-        ::CBFlow::Release::copy_file "$_xr/timing_snapshot.json" . timing_snapshot.json
+    ::CBFlow::Release::copy_file "$::run_dir/[string map [list {${exit_node}} $_xn] [oss_get pnr checklist,report]]" . metrics.rpt
+    release_config_load
+    set _ts [cbflow_require release file,timing_snapshot]
+    if {[file exists "[cbflow_node_dir $_xn]/reports/$_ts"]} {
+        ::CBFlow::Release::copy_file "[cbflow_node_dir $_xn]/reports/$_ts" . $_ts
     }
-    set _img [oss_node_output [oss_chain_node export_data] layout.png]
-    if {[file exists $_img]} { ::CBFlow::Release::copy_file $_img images routing_layout.png }
+    # Routed-layout image (written by export_data; reporting only)
+    set _img "[cbflow_node_dir [oss_chain_node export_data]]/outputs/[oss_get pnr oss,export,layout_image,file]"
+    if {[file exists $_img]} {
+        ::CBFlow::Release::copy_file $_img [oss_get pnr oss,release,layout_image,dir] [oss_get pnr oss,release,layout_image,file]
+    }
     ::CBFlow::Release::generate_manifest
     ::CBFlow::Release::stamp_complete
     set _fh [open [oss_stage_out release.manifest] w]

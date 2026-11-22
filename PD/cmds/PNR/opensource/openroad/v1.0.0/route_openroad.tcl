@@ -11,7 +11,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PNR"
 set STAGE_NAME "route"
-set NODE_NAME [expr {[info exists ::env(CBFLOW_NODE_NAME)] && $::env(CBFLOW_NODE_NAME) ne "" ? $::env(CBFLOW_NODE_NAME) : "route1"}]
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -34,8 +34,8 @@ flow_proc global_detailed_route {
     lassign [oss_signal_layers $design_name $blocks] _min _max
     # Clock layers from the stack, clamped to this block's signal range.
     set _layers [oss_ms metal_layers]
-    set _cmin [oss_get tech clock_routing_layer_min]
-    set _cmax [oss_get tech clock_routing_layer_max]
+    set _cmin [oss_ms clock_routing_layer_min]
+    set _cmax [oss_ms clock_routing_layer_max]
     if {[lsearch -exact $_layers $_cmax] > [lsearch -exact $_layers $_max]} { set _cmax $_max }
     if {[lsearch -exact $_layers $_cmin] > [lsearch -exact $_layers $_cmax]} { set _cmin $_cmax }
     set_routing_layers -signal ${_min}-${_max} -clock ${_cmin}-${_cmax}

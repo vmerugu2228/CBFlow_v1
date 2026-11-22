@@ -12,7 +12,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "SYNTH"
 set STAGE_NAME "synthesis"
-set NODE_NAME [expr {[info exists ::env(CBFLOW_NODE_NAME)] && $::env(CBFLOW_NODE_NAME) ne "" ? $::env(CBFLOW_NODE_NAME) : "synthesis1"}]
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -59,8 +59,9 @@ flow_proc read_design {
     handle_info "Mapping library set: $_lib_set"
     # Cell library as blackboxes: RTL may instantiate library cells directly.
     foreach _l $::oss_libs { yosys read_liberty -lib $_l }
-    set _fl "$::RTL_DIR/${design_name}.f"
-    if {![file exists $_fl]} { error "RTL filelist not staged: $_fl (synth(input,rtl_filelist) must be <design>.f)" }
+    # Staged by the rtl input node under the name of synth(input,rtl_filelist).
+    set _fl "$::RTL_DIR/[file tail [cbflow_require synth input,rtl_filelist]]"
+    if {![file exists $_fl]} { error "RTL filelist not staged: $_fl (synth(input,rtl_filelist))" }
     set _sv [expr {[oss_get synth input,rtl_format] eq "sverilog" ? "-sv" : ""}]
     set _fh [open $_fl]
     foreach _src [split [read $_fh] "\n"] {
@@ -101,7 +102,10 @@ flow_proc synthesize {
     yosys hilomap -singleton -hicell $_hi_cell $_hi_pin -locell $_lo_cell $_lo_pin
     yosys setundef -zero
     yosys splitnets
-    yosys insbuf -buf [oss_trk buffer_cell] A X
+    # tech(<track>,buffer_cell) = <cell>/<in pin>/<out pin>
+    lassign [split [oss_trk buffer_cell] /] _buf_cell _buf_in _buf_out
+    if {$_buf_out eq ""} { error "tech key [oss_track],buffer_cell must be <cell>/<in pin>/<out pin>, got '[oss_trk buffer_cell]'" }
+    yosys insbuf -buf $_buf_cell $_buf_in $_buf_out
     yosys opt_clean -purge
     yosys check -assert
     yosys tee -o "$::REPORTS_DIR/synthesis_stat.rpt" stat -liberty [lindex $_libs 0]

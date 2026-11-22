@@ -10,7 +10,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "LEC"
 set STAGE_NAME "release_data"
-set NODE_NAME [expr {[info exists ::env(CBFLOW_NODE_NAME)] && $::env(CBFLOW_NODE_NAME) ne "" ? $::env(CBFLOW_NODE_NAME) : "release_data1"}]
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -26,10 +26,11 @@ flow_proc publish {
     global design_name
     set _dir [::CBFlow::Release::init $::FLOW_TYPE $design_name $::DIRS(run) [oss_get project release,phase]]
     set _c [oss_chain_node compare]
-    ::CBFlow::Release::copy_file "$::DIRS(run)/work/LEC/$_c/outputs/lec.rpt" reports/lec lec.rpt
-    ::CBFlow::Release::copy_glob "$::DIRS(run)/work/LEC/$_c/reports/*.rpt" reports/lec
+    set _rpt lec.rpt
+    ::CBFlow::Release::copy_file "[cbflow_node_dir $_c]/outputs/$_rpt" reports/lec $_rpt
+    ::CBFlow::Release::copy_glob "[cbflow_node_dir $_c]/reports/*.rpt" reports/lec
     # Signoff metrics + verdict for SmartGrid (attached to the exit it checked)
-    set _fh [open "$::DIRS(run)/work/LEC/$_c/outputs/lec.rpt"]; set _t [read $_fh]; close $_fh
+    set _fh [open "[cbflow_node_dir $_c]/outputs/$_rpt"]; set _t [read $_fh]; close $_fh
     set _res ""
     regexp -line {^result\s+(\S+)} $_t -> _res
     set _ok [regexp -- [oss_get lec signoff,result_pass] $_res]

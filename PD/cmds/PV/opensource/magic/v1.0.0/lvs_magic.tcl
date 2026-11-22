@@ -12,7 +12,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PV"
 set STAGE_NAME "lvs"
-set NODE_NAME [expr {[info exists ::env(CBFLOW_NODE_NAME)] && $::env(CBFLOW_NODE_NAME) ne "" ? $::env(CBFLOW_NODE_NAME) : "lvs1"}]
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -26,8 +26,8 @@ set ::flow::exec_mode "auto"
 
 flow_proc extract {
     global design_name
-    set _gds [lindex [glob -nocomplain "$::GDS_DIR/${design_name}.gds" "$::GDS_DIR/*.gds"] 0]
-    if {$_gds eq ""} { error "no GDS staged in $::GDS_DIR (pv(input,gds))" }
+    set _gds "$::GDS_DIR/${design_name}.gds"
+    if {![file exists $_gds]} { error "GDS not staged: $_gds (pv(input,gds))" }
     set _script "$::WORK_DIR/lvs_extract.tcl"
     set _fh [open $_script w]
     puts $_fh "gds read $_gds"
@@ -44,8 +44,8 @@ flow_proc extract {
 
 flow_proc compare {
     global design_name
-    set _top [lindex [glob -nocomplain "$::NETLIST_DIR/${design_name}.lvs.v" "$::NETLIST_DIR/*.v"] 0]
-    if {$_top eq ""} { error "no netlist staged in $::NETLIST_DIR (pv(input,netlist))" }
+    set _top [lindex [glob -nocomplain "$::NETLIST_DIR/${design_name}.lvs.v" "$::NETLIST_DIR/${design_name}.v"] 0]
+    if {$_top eq ""} { error "netlist not staged in $::NETLIST_DIR (expected ${design_name}.lvs.v or ${design_name}.v; pv(input,netlist))" }
     set _nets [list $_top]
     foreach _b [hier_descendants $design_name] { lappend _nets [oss_get tech block,$_b,lvs_netlist] }
     set _rpt "$::REPORTS_DIR/lvs_netgen.rpt"
@@ -59,7 +59,11 @@ flow_proc compare {
     oss_exec_tool netgen $_script "$::REPORTS_DIR/lvs_netgen.log"
     if {![is_true $::flow(test_mode)]} {
         set _fh [open $_rpt]; set _txt [read $_fh]; close $_fh
-        set _ok [regexp {Final result: (Circuits match uniquely|Netlists match)} $_txt -> _res]
+        # Pass = the Netgen final result matches pv(signoff,lvs_pass) (the
+        # same regex the release verdict applies to lvs.rpt).
+        set _res ""
+        regexp -line {Final result: ([^\n]*[^.\s])} $_txt -> _res
+        set _ok [expr {$_res ne "" && [regexp -- [oss_get pv signoff,lvs_pass] $_res]}]
         set _fh [open [oss_stage_out lvs.rpt] w]
         puts $_fh "design $design_name\nnetlists $_nets\nresult [expr {$_ok ? $_res : "MISMATCH"}]"
         close $_fh

@@ -13,9 +13,9 @@ handler_load_configs $run_dir "PV"
 
 set ::flow_type "PV"
 set stage_name "drc"
-if {$node_name eq ""} { set node_name "${stage_name}1" }
+if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [expr {[info exists ::env(MAGIC_VERSION)] ? $::env(MAGIC_VERSION) : "v1.0.0"}]
+set _tool_ver [expr {[info exists ::env(MAGIC_VERSION)] && $::env(MAGIC_VERSION) ne "" ? $::env(MAGIC_VERSION) : [cbflow_require pv tool,version]}]
 set cmd_file "$::env(FLOW_DIR)/PD/cmds/PV/opensource/magic/$_tool_ver/drc_magic.tcl"
 
 set test_mode [handler_is_test_mode]

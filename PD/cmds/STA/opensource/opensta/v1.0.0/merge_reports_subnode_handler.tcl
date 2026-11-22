@@ -13,9 +13,9 @@ handler_load_configs $run_dir "STA"
 
 set ::flow_type "STA"
 set stage_name "merge_reports"
-if {$node_name eq ""} { set node_name "${stage_name}1" }
+if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [expr {[info exists ::env(OPENSTA_VERSION)] ? $::env(OPENSTA_VERSION) : "v1.0.0"}]
+set _tool_ver [expr {[info exists ::env(OPENSTA_VERSION)] && $::env(OPENSTA_VERSION) ne "" ? $::env(OPENSTA_VERSION) : [cbflow_require sta tool,version]}]
 set cmd_file "$::env(FLOW_DIR)/PD/cmds/STA/opensource/opensta/$_tool_ver/merge_reports_opensta.tcl"
 
 set test_mode [handler_is_test_mode]

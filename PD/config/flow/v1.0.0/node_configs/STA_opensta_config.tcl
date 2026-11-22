@@ -39,6 +39,23 @@ array set sta {
     oss,threads            4
 }
 
+# ┌─ Extraction / timing files and reports ────────────────────────────────────┐
+# oss,extraction,spef: SPEF of one RC corner, relative to
+# work/STA/<extraction node>/<rc_corner>/ — written by extraction, read by
+# timing (${design_name} / ${rc_corner} substituted at run time).
+# oss,scenario_qor_file: per-scenario QoR metrics (reports/ of the scenario),
+# copied to outputs/<scenario><oss,qor_file_suffix>.
+# oss,report,group_path_count: paths per group in setup.rpt / hold.rpt.
+# oss,allow_no_spef: true = a scenario whose RC corner has no SPEF is timed
+# with wire-load estimates (warning); false = the scenario fails.
+array set sta {
+    oss,extraction,spef         {results/${design_name}_${rc_corner}.spef}
+    oss,scenario_qor_file       "qor.tcl"
+    oss,qor_file_suffix         "_qor.tcl"
+    oss,report,group_path_count 10
+    oss,allow_no_spef           false
+}
+
 # ┌─ Mandatory outputs (relative to work/STA/<node>/outputs/) ──────────────────┐
 # extraction / timing: one SPEF per RC corner and one QoR per scenario land in
 # outputs/ (the dynamic handlers fail any corner / scenario that produces none).

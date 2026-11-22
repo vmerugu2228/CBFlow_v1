@@ -11,7 +11,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PNR"
 set STAGE_NAME "export_data"
-set NODE_NAME [expr {[info exists ::env(CBFLOW_NODE_NAME)] && $::env(CBFLOW_NODE_NAME) ne "" ? $::env(CBFLOW_NODE_NAME) : "export_data1"}]
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -65,8 +65,13 @@ flow_proc stream_out {
     puts $_fh "fixes = \[\]"
     # Empty list = repair off (violations stay in the layout, PV reports them).
     if {![info exists ::pnr(oss,export,min_area_layers)]} { error "pnr(oss,export,min_area_layers) is not set" }
+    # Layout units: out.dbu (um per DBU, from the DEF); patches snap to
+    # tech(manufacturing_grid) (um).
+    if {[llength $::pnr(oss,export,min_area_layers)]} {
+        puts $_fh "dbu = out.dbu; grid = int(round([oss_get tech manufacturing_grid] / dbu))"
+    }
     foreach {_gl _gd _amin} $::pnr(oss,export,min_area_layers) {
-        puts $_fh "li = out.layer($_gl, $_gd); amin = int($_amin * 1e6); grid = 5"
+        puts $_fh "li = out.layer($_gl, $_gd); amin = int(round($_amin / (dbu * dbu)))"
         puts $_fh "allm = pya.Region(out.top_cell().begin_shapes_rec(li)).merged()"
         puts $_fh "for p in allm.each():"
         puts $_fh "    if p.area() >= amin: continue"
@@ -78,35 +83,38 @@ flow_proc stream_out {
         puts $_fh "        need = int(math.ceil((amin / w - h) / 2.0 / grid)) * grid + grid"
         puts $_fh "        nb = pya.Box(b.left, b.bottom - need, b.right, b.top + need)"
         puts $_fh "    out.top_cell().shapes(li).insert(nb)"
-        puts $_fh "    fixes.append('$_gl/$_gd %.4f um2 at (%.3f,%.3f) -> %.4f um2' % (p.area()/1e6, b.left/1000.0, b.bottom/1000.0, nb.area()/1e6))"
+        puts $_fh "    fixes.append('$_gl/$_gd %.4f um2 at (%.3f,%.3f) -> %.4f um2' % (p.area()*dbu*dbu, b.left*dbu, b.bottom*dbu, nb.area()*dbu*dbu))"
     }
     puts $_fh "open('$::REPORTS_DIR/export_min_area_fixes.rpt', 'w').write('min-area patches (GDS only, not in DEF): %d\\n' % len(fixes) + '\\n'.join(fixes) + '\\n')"
     puts $_fh "print('min-area patches: %d' % len(fixes))"
     puts $_fh "out.write('$_out')"
     puts $_fh "print('GDS written: $_out cells=%d' % out.cells())"
     close $_fh
+    # KLayout batch command inside the tool container (this stage runs there).
+    set _klayout [oss_get pnr oss,export,klayout_batch]
     if {[is_true $flow(test_mode)]} {
-        puts "  TEST_CMD: klayout -zz -r $_py"
+        puts "  TEST_CMD: $_klayout $_py"
     } else {
         set _log "$::REPORTS_DIR/export_data_klayout.log"
-        if {[catch {exec klayout -zz -r $_py >& $_log} _err]} {
+        if {[catch {exec {*}$_klayout $_py >& $_log} _err]} {
             error "KLayout DEF->GDS failed (see $_log): $_err"
         }
         handle_info [exec tail -1 $_log]
         # Routed-layout image for SmartGrid (release images/) — reporting only
-        set _png [oss_stage_out layout.png]
+        set _png [oss_stage_out [oss_get pnr oss,export,layout_image,file]]
         set _ipy "$::WORK_DIR/run/layout_image.py"
         set _fh [open $_ipy w]
         puts $_fh "import pya"
         puts $_fh "lv = pya.LayoutView()"
-        puts $_fh "lv.set_config('background-color', '#ffffff')"
+        puts $_fh "lv.set_config('background-color', '[oss_get pnr oss,export,layout_image,background]')"
         puts $_fh "lv.load_layout('$_out', True)"
         puts $_fh "lv.max_hier()"
         puts $_fh "lv.zoom_fit()"
-        puts $_fh "lv.save_image('$_png', 1600, 1600)"
+        set _px [oss_get pnr oss,export,layout_image,size]
+        puts $_fh "lv.save_image('$_png', $_px, $_px)"
         puts $_fh "print('layout image: $_png')"
         close $_fh
-        if {[catch {exec klayout -zz -r $_ipy >& "$::REPORTS_DIR/layout_image.log"} _err]} {
+        if {[catch {exec {*}$_klayout $_ipy >& "$::REPORTS_DIR/layout_image.log"} _err]} {
             handle_warning "layout image not written (see $::REPORTS_DIR/layout_image.log)"
         }
     }

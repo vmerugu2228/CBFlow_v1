@@ -13,7 +13,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PNR"
 set STAGE_NAME "init_design"
-set NODE_NAME [expr {[info exists ::env(CBFLOW_NODE_NAME)] && $::env(CBFLOW_NODE_NAME) ne "" ? $::env(CBFLOW_NODE_NAME) : "init_design1"}]
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -31,8 +31,8 @@ flow_proc load_floorplan {
     set_thread_count [oss_get pnr oss,threads]
     oss_read_lefs $blocks
     oss_read_corners $::NODE_NAME $blocks
-    set _def [lindex [glob -nocomplain "$::DEF_DIR/${design_name}.def" "$::DEF_DIR/*.def"] 0]
-    if {$_def eq ""} { error "no floorplan DEF staged in $::DEF_DIR (pnr(input,def_file_release_tag) <phase>_FP_v<n>)" }
+    set _def "$::DEF_DIR/${design_name}.def"
+    if {![file exists $_def]} { error "floorplan DEF not staged: $_def (pnr(input,def_file_release_tag) <phase>_FP_v<n>)" }
     handle_info "Floorplan: $_def"
     read_def $_def
     read_sdc [oss_sdc_file]

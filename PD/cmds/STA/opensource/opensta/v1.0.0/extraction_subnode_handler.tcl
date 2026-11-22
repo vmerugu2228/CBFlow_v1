@@ -13,8 +13,8 @@ handler_load_configs $run_dir "STA"
 
 set ::flow_type "STA"
 set stage_name "extraction"
-if {$node_name eq ""} { set node_name "${stage_name}1" }
-set _tool_ver [expr {[info exists ::env(OPENSTA_VERSION)] ? $::env(OPENSTA_VERSION) : "v1.0.0"}]
+if {$node_name eq ""} { set node_name [cbflow_node_name] }
+set _tool_ver [expr {[info exists ::env(OPENSTA_VERSION)] && $::env(OPENSTA_VERSION) ne "" ? $::env(OPENSTA_VERSION) : [cbflow_require sta tool,version]}]
 set test_mode [handler_is_test_mode]
 
 switch $subnode_name {
@@ -26,12 +26,19 @@ switch $subnode_name {
     "validate" { handler_validate $run_dir $::flow_type $node_name $stage_name $test_mode }
     "finish"   { handler_finish   $run_dir $::flow_type $node_name $stage_name }
     default {
-        if {![string match "rc_*" $subnode_name]} { puts "ERROR: Unknown subnode: $subnode_name"; exit 1 }
+        # Dynamic subnodes are the RC corners of rc_corner_list (mmmc_config.tcl).
+        set _m "$::env(CBFLOW_GLOBAL_DIR)/config/project/$::env(CBFLOW_PROJECT_NAME)/[cbflow_version PROJECT_CONFIG_VERSION]/mmmc_config.tcl"
+        if {![file exists $_m]} { puts "ERROR: MMMC config not found: $_m"; exit 1 }
+        uplevel #0 [list source $_m]
+        if {![info exists ::rc_corner_list] || $subnode_name ni $::rc_corner_list} {
+            puts "ERROR: Unknown subnode: $subnode_name (not in rc_corner_list, mmmc_config.tcl)"; exit 1
+        }
         set _rc  $subnode_name
         set _dsg $::flow(design_name)
         set _dir "$run_dir/work/$::flow_type/$node_name/$_rc"
-        file mkdir "$_dir/run" "$_dir/results"
-        set _spef "$_dir/results/${_dsg}_${_rc}.spef"
+        # SPEF contract shared with the timing handler: sta(oss,extraction,spef)
+        set _spef "$_dir/[string map [list {${design_name}} $_dsg {${rc_corner}} $_rc] [cbflow_require sta oss,extraction,spef]]"
+        file mkdir "$_dir/run" [file dirname $_spef]
         set _ctx  "$_dir/run/${_rc}.tcl"
         set _fh [open $_ctx w]
         puts $_fh "# CBflow STA extraction context — $_rc"

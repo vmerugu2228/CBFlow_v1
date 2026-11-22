@@ -11,7 +11,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "SYNTH"
 set STAGE_NAME "export_data"
-set NODE_NAME [expr {[info exists ::env(CBFLOW_NODE_NAME)] && $::env(CBFLOW_NODE_NAME) ne "" ? $::env(CBFLOW_NODE_NAME) : "export_data1"}]
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -34,10 +34,10 @@ flow_proc export {
         if {$_m ni $_modes} { lappend _modes $_m }
     }
     if {[llength $_modes] != 1} { error "opensource flow times one mode per design; synthesis views use: $_modes" }
-    set _sdc [lindex [glob -nocomplain "$::SDC_DIR/${design_name}.[lindex $_modes 0].sdc" "$::SDC_DIR/${design_name}.sdc" "$::SDC_DIR/*.sdc"] 0]
-    if {$_sdc eq ""} { error "SDC not staged in $::SDC_DIR" }
-    set _upf [lindex [glob -nocomplain "$::UPF_DIR/${design_name}.upf" "$::UPF_DIR/*.upf"] 0]
-    if {$_upf eq ""} { error "UPF not staged in $::UPF_DIR" }
+    set _sdc [lindex [glob -nocomplain "$::SDC_DIR/${design_name}.[lindex $_modes 0].sdc" "$::SDC_DIR/${design_name}.sdc"] 0]
+    if {$_sdc eq ""} { error "SDC not staged in $::SDC_DIR (expected ${design_name}.[lindex $_modes 0].sdc or ${design_name}.sdc)" }
+    set _upf "$::UPF_DIR/${design_name}.upf"
+    if {![file exists $_upf]} { error "UPF not staged: $_upf" }
     foreach {_src _dst} [list $_sdc final.sdc $_upf final.upf] {
         # staged inputs are symlinks — copy the content
         while {[file type $_src] eq "link"} { set _src [file normalize [file join [file dirname $_src] [file readlink $_src]]] }

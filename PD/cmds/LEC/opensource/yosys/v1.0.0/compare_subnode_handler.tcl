@@ -13,9 +13,9 @@ handler_load_configs $run_dir "LEC"
 
 set ::flow_type "LEC"
 set stage_name "compare"
-if {$node_name eq ""} { set node_name "${stage_name}1" }
+if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [expr {[info exists ::env(LEC_YOSYS_VERSION)] ? $::env(LEC_YOSYS_VERSION) : "v1.0.0"}]
+set _tool_ver [expr {[info exists ::env(LEC_YOSYS_VERSION)] && $::env(LEC_YOSYS_VERSION) ne "" ? $::env(LEC_YOSYS_VERSION) : [cbflow_require lec tool,version]}]
 set cmd_file "$::env(FLOW_DIR)/PD/cmds/LEC/opensource/yosys/$_tool_ver/compare_yosys.tcl"
 
 set test_mode [handler_is_test_mode]

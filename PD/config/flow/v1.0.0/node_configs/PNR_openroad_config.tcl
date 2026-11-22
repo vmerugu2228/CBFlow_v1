@@ -80,6 +80,26 @@ array set pnr {
 array set pnr {
     oss,export,min_area_layers {}
 }
+# oss,export,klayout_batch: KLayout batch command (run inside the tool
+# container — export_data is an oss_tclsh stage) + the script to run.
+# oss,export,layout_image,*: routed-layout PNG written next to final.gds
+# (reporting only); oss,release,layout_image,*: its release dir / name
+# (SmartGrid reads images/routing_layout.png).
+set pnr(oss,export,klayout_batch)          {klayout -zz -r}
+set pnr(oss,export,layout_image,file)       "layout.png"
+set pnr(oss,export,layout_image,size)       1600
+set pnr(oss,export,layout_image,background) "#ffffff"
+set pnr(oss,release,layout_image,dir)       "images"
+set pnr(oss,release,layout_image,file)      "routing_layout.png"
+
+# ┌─ Reports / release ────────────────────────────────────────────────────────┐
+# oss,qor_file_suffix: per-stage QoR metrics file reports/<stage><suffix>
+# (oss_write_qor). oss,release,report_stages: stage types whose reports/
+# land in the release under reports/<node>/.
+array set pnr {
+    oss,qor_file_suffix       "_qor.tcl"
+    oss,release,report_stages {init_design place cts cts_opt route pro signoff}
+}
 
 # ┌─ SmartGrid ────────────────────────────────────────────────────────────────┐
 # Exit milestone a PNR release fills in SmartGrid (MILESTONE_STAGE_MAPPING:

@@ -13,9 +13,9 @@ handler_load_configs $run_dir "SYNTH"
 
 set ::flow_type "SYNTH"
 set stage_name "export_data"
-if {$node_name eq ""} { set node_name "${stage_name}1" }
+if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [expr {[info exists ::env(YOSYS_VERSION)] ? $::env(YOSYS_VERSION) : "v1.0.0"}]
+set _tool_ver [expr {[info exists ::env(YOSYS_VERSION)] && $::env(YOSYS_VERSION) ne "" ? $::env(YOSYS_VERSION) : [cbflow_require synth tool,version]}]
 set cmd_file "$::env(FLOW_DIR)/PD/cmds/SYNTH/opensource/yosys/$_tool_ver/export_data_yosys.tcl"
 
 set test_mode [handler_is_test_mode]

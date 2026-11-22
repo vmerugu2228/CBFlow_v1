@@ -11,7 +11,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "PV"
 set STAGE_NAME "drc"
-set NODE_NAME [expr {[info exists ::env(CBFLOW_NODE_NAME)] && $::env(CBFLOW_NODE_NAME) ne "" ? $::env(CBFLOW_NODE_NAME) : "drc1"}]
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -25,8 +25,8 @@ set ::flow::exec_mode "auto"
 
 flow_proc magic_drc {
     global design_name pv
-    set _gds [lindex [glob -nocomplain "$::GDS_DIR/${design_name}.gds" "$::GDS_DIR/*.gds"] 0]
-    if {$_gds eq ""} { error "no GDS staged in $::GDS_DIR (pv(input,gds))" }
+    set _gds "$::GDS_DIR/${design_name}.gds"
+    if {![file exists $_gds]} { error "GDS not staged: $_gds (pv(input,gds))" }
     set _script "$::WORK_DIR/drc_magic.tcl"
     set _fh [open $_script w]
     puts $_fh "gds read $_gds"

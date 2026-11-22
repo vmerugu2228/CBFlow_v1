@@ -13,9 +13,9 @@ handler_load_configs $run_dir "PNR"
 
 set ::flow_type "PNR"
 set stage_name "place"
-if {$node_name eq ""} { set node_name "${stage_name}1" }
+if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [expr {[info exists ::env(OPENROAD_VERSION)] ? $::env(OPENROAD_VERSION) : "v1.0.0"}]
+set _tool_ver [expr {[info exists ::env(OPENROAD_VERSION)] && $::env(OPENROAD_VERSION) ne "" ? $::env(OPENROAD_VERSION) : [cbflow_require pnr tool,version]}]
 set cmd_file "$::env(FLOW_DIR)/PD/cmds/PNR/opensource/openroad/$_tool_ver/place_openroad.tcl"
 
 set test_mode [handler_is_test_mode]

@@ -12,7 +12,7 @@ set FLOW_TYPE "STA"
 set STAGE_NAME "release_data"
 # Dynamic subnodes (per RC corner / per scenario) pass their node in the
 # context script (::OSS_NODE); otherwise the launch wrapper's node.
-set NODE_NAME [expr {[info exists ::OSS_NODE] ? $::OSS_NODE : ([info exists ::env(CBFLOW_NODE_NAME)] && $::env(CBFLOW_NODE_NAME) ne "" ? $::env(CBFLOW_NODE_NAME) : "release_data1")}]
+set NODE_NAME [expr {[info exists ::OSS_NODE] ? $::OSS_NODE : [cbflow_node_name]}]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -30,10 +30,10 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/releas
 flow_proc publish {
     global design_name
     set _dir [::CBFlow::Release::init $::FLOW_TYPE $design_name $::DIRS(run) [oss_get project release,phase]]
-    set _m "$::DIRS(run)/work/STA/[oss_chain_node merge_reports]/outputs"
+    set _m "[cbflow_node_dir [oss_chain_node merge_reports]]/outputs"
     ::CBFlow::Release::copy_file "$_m/sta_summary.rpt" reports/sta sta_summary.rpt
     set _tnode [oss_chain_node timing]
-    foreach _sd [glob -nocomplain -type d "$::DIRS(run)/work/STA/$_tnode/*/reports"] {
+    foreach _sd [glob -nocomplain -type d "[cbflow_node_dir $_tnode]/*/reports"] {
         set _scen [file tail [file dirname $_sd]]
         ::CBFlow::Release::copy_glob "$_sd/*.rpt" reports/sta/$_scen
     }

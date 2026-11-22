@@ -72,6 +72,13 @@ array set fp {
 # oss,fail_on_violations: false = power-grid connectivity failures are
 # reported and the flow continues; true = the stage fails.
 
+# ┌─ Release ──────────────────────────────────────────────────────────────────┐
+# oss,release,report_stages: stage types whose reports/ land in the floorplan
+# release under reports/<node>/.
+array set fp {
+    oss,release,report_stages {init_design floorplan powerplan export_data}
+}
+
 # ┌─ SmartGrid ────────────────────────────────────────────────────────────────┐
 # Exit milestone an FP release fills in SmartGrid (MILESTONE_ORDER: first).
 array set fp {

@@ -11,7 +11,7 @@ source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.
 
 set FLOW_TYPE "FP"
 set STAGE_NAME "export_data"
-set NODE_NAME [expr {[info exists ::env(CBFLOW_NODE_NAME)] && $::env(CBFLOW_NODE_NAME) ne "" ? $::env(CBFLOW_NODE_NAME) : "export_data1"}]
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
@@ -40,8 +40,13 @@ flow_proc export {
     write_db      [oss_stage_out final.odb]
     write_verilog [oss_stage_out final.v]
     file copy -force [oss_sdc_file] [oss_stage_out final.sdc]
-    set _upf [lindex [glob -nocomplain "$::UPF_DIR/${design_name}.upf" "$::UPF_DIR/*.upf"] 0]
-    if {$_upf ne ""} { file copy -force $_upf [oss_stage_out final.upf] }
+    # UPF: required when fp(mandatory_outputs,<this node>) lists final.upf.
+    set _upf "$::UPF_DIR/${design_name}.upf"
+    if {[file exists $_upf]} {
+        file copy -force $_upf [oss_stage_out final.upf]
+    } elseif {"final.upf" in [oss_get fp mandatory_outputs,$::NODE_NAME]} {
+        error "UPF not staged: $_upf (fp(mandatory_outputs,$::NODE_NAME) requires final.upf)"
+    }
     oss_report "$::REPORTS_DIR/design_area.rpt" report_design_area
     oss_checklist_safe fp
 }
