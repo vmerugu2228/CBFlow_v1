@@ -1209,15 +1209,16 @@ proc hier_descendants {design} {
 
 # Run a tool inside the container from a Tcl driver stage (oss_tclsh) and
 # fail with the log tail when it exits non-zero. Test mode prints the call.
-proc oss_exec_tool {tool script log} {
+proc oss_exec_tool {tool script log {extra {}}} {
     global flow
     if {[info exists flow(test_mode)] && [is_true $flow(test_mode)]} {
-        puts "  TEST_CMD: $tool $script (log $log)"
+        puts "  TEST_CMD: $tool $script $extra (log $log)"
         return 0
     }
     switch -- $tool {
-        magic  { set _cmd [list magic -dnull -noconsole -rcfile [oss_get tech magic,rcfile] $script] }
-        netgen { set _cmd [list netgen -batch source $script] }
+        magic   { set _cmd [list magic -dnull -noconsole -rcfile [oss_get tech magic,rcfile] $script] }
+        netgen  { set _cmd [list netgen -batch source $script] }
+        klayout { set _cmd [list klayout -b -r $script {*}$extra] }   ;# batch ruby/DRC script
         default { error "oss_exec_tool: unknown tool $tool" }
     }
     if {[catch {exec {*}$_cmd >& $log} _err]} {

@@ -40,11 +40,18 @@ array set pv {
     oss,tool,merge_data   "oss_tclsh"
     oss,tool,release_data "oss_tclsh"
 
+    oss,drc,engine        klayout
     oss,drc,style         "drc(full)"
+    oss,drc,klayout_threads 4
+    oss,drc,klayout_options {feol true beol true offgrid true floating_met false seal false sram_exclude true}
     oss,drc,max_errors    0
 
     oss,fail_on_violations false
 }
+# oss,drc,engine: klayout = the sky130 KLayout manufacturing deck
+# (tech(klayout,drc); deep / hierarchical — scales to large flat layouts),
+# magic = Magic drc style oss,drc,style. klayout_options: deck switches
+# (-rd key=value); klayout_threads: deck threads.
 # oss,fail_on_violations: false = DRC errors / LVS mismatches are reported
 # (stage reports + verification summary) and the flow continues; true = a
 # stage fails when DRC exceeds oss,drc,max_errors or LVS does not match.
