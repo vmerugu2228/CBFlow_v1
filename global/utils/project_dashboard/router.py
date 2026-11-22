@@ -672,27 +672,26 @@ def make_handler(project):
 
 _STYLE = """
 <style>
-  /* SmartSoC brand palette — green primary, blue secondary, white bg,
-     Montserrat. Matches sales deck + brand guidelines. */
+  /* Same palette + font as the run Dashboard (dashboard/router.py) */
   :root {
-    --bg:         #ffffff;
+    --bg:         #f6f7fb;
     --panel:      #ffffff;
     --border:     #e5e7eb;
-    --text:       #0f141b;
+    --text:       #1f2937;
     --muted:      #6b7280;
-    --accent:     #00D700;   /* SmartSoC green — primary */
-    --accent2:    #0000FF;   /* SmartSoC blue  — secondary */
-    --accent-ink: #007a00;   /* darker green for text-on-light */
-    --accent-bg:  #f3fff3;   /* green tint */
-    --accent2-bg: #ebebff;   /* blue tint */
-    --header:     #f7faf7;
-    --hover:      #f3fff3;
+    --accent:     #4f46e5;   /* indigo — primary */
+    --accent2:    #0ea5e9;   /* sky — secondary */
+    --accent-ink: #4338ca;   /* darker indigo for text-on-light */
+    --accent-bg:  #eef2ff;   /* indigo tint */
+    --accent2-bg: #e0f2fe;   /* sky tint */
+    --header:     #f9fafb;
+    --hover:      #f9fafb;
   }
   * { box-sizing: border-box; }
   html, body { margin:0; background:var(--bg); color:var(--text);
-               font-family: "Montserrat", -apple-system, "Segoe UI", Roboto,
-                            Helvetica, Arial, sans-serif;
-               font-size: 13px; line-height: 1.35; }
+               font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI',
+                            Roboto, Oxygen, Ubuntu, sans-serif;
+               font-size: 14px; line-height: 1.5; }
   /* Green underline brand marker under the header */
   header.bar { border-top: 4px solid var(--accent); }
   a { color: var(--accent); text-decoration:none; }
@@ -719,7 +718,7 @@ _STYLE = """
   header.bar .byline { color: var(--muted); font-size:11px; margin-left:auto; }
 
   /* ───── Tier 1 — all-projects grid ───── */
-  body.tier1 { background: #fafbfc; }
+  body.tier1 { background: var(--bg); }
   .tier1-ctrl { padding:18px 20px 10px; display:flex; align-items:center;
                 justify-content:space-between; gap:16px; flex-wrap:wrap;
                 background: var(--panel); border-bottom:1px solid var(--border); }
