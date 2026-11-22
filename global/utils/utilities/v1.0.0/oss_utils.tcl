@@ -408,7 +408,7 @@ proc oss_sdc_file {} {
 
 # Reload a stage's starting point: previous database + timing views + SDC.
 # Design-rule limits from overrides: <flow>(oss,drv,max_fanout), when set
-# (e.g. setup/override_config.PNR.tcl), becomes a design max-fanout
+# (the run's setup/override_config.tcl), becomes a design max-fanout
 # constraint — repair_design buffers to it and the stage metrics count
 # against it. Unset = no fanout constraint (the SDC / library limits only).
 proc oss_drv_limits {} {

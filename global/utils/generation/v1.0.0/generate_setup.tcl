@@ -355,7 +355,6 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
         # 6. Override Files (Highest Priority)
         set override_patterns [list \
             [list "override_global" "$run_dir/setup/override_setup.tcl"] \
-            [list "override_flow" "$run_dir/setup/override_setup.$flow_type.tcl"] \
             [list "override_stage_${node_type_base}" "$run_dir/setup/override_setup.${node_type_base}.tcl"] \
             [list "override_node_${node_name}" "$run_dir/setup/override_setup.${node_name}.tcl"] \
         ]
@@ -728,7 +727,6 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
 
         set override_patterns [list \
             [list "override_config_global" "$run_dir/setup/override_config.tcl"] \
-            [list "override_config_flow" "$run_dir/setup/override_config.$flow_type.tcl"] \
             [list "override_config_stage_${node_type_base}" "$run_dir/setup/override_config.${node_type_base}.tcl"] \
         ]
         if {$_branch_name ne ""} {
