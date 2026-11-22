@@ -42,7 +42,10 @@ proc lec_netlist {kind} {
     error "no $_it input node among the dependencies of $::NODE_NAME (lec(dependencies,$::NODE_NAME))"
 }
 
-flow_proc compare {
+# Load: golden + revised netlists, each over the lib set's cell functions,
+# physical-only stubs and child-block blackboxes; flattened and stashed as
+# designs gold / gate
+flow_proc load_design {
     global design_name blocks
     # cell functions are corner-independent: one lib set (lec(oss,lec,lib_set))
     set _ls   [oss_get lec oss,lec,lib_set]
@@ -65,6 +68,11 @@ flow_proc compare {
         yosys rename $design_name $_tag
         yosys design -stash $_tag
     }
+}
+
+# Equivalence: compare points matched by name, proven with equiv_simple +
+# equiv_induct
+flow_proc compare {
     yosys design -copy-from gold -as gold gold
     yosys design -copy-from gate -as gate gate
     yosys equiv_make gold gate equiv
@@ -72,25 +80,38 @@ flow_proc compare {
     yosys async2sync
     yosys equiv_simple -seq [oss_get lec oss,lec,seq_depth]
     yosys equiv_induct -seq [oss_get lec oss,lec,seq_depth]
-    yosys tee -o "$::REPORTS_DIR/equiv_status.rpt" equiv_status
 }
 
-flow_proc verdict {
-    global design_name
+# Report: equiv_status -> reports/equiv_status.rpt, parsed into the verdict
+flow_proc report {
+    yosys tee -o "$::REPORTS_DIR/equiv_status.rpt" equiv_status
     set _fh [open "$::REPORTS_DIR/equiv_status.rpt"]; set _t [read $_fh]; close $_fh
     set _tot 0; set _pro 0; set _unp 0
     regexp {Found (\d+) \$equiv cells} $_t -> _tot
     regexp {(\d+) are proven and (\d+) are unproven} $_t -> _pro _unp
-    set _ok [expr {[string match "*Equivalence successfully proven*" $_t] && $_unp == 0}]
+    set ::lec_ok [expr {[string match "*Equivalence successfully proven*" $_t] && $_unp == 0}]
+    set ::lec_counts [list $_tot $_pro $_unp]
+}
+
+# Save the LEC result -> outputs/lec.rpt
+flow_proc save_design {
+    global design_name
+    lassign $::lec_counts _tot _pro _unp
     set _fh [open [oss_stage_out lec.rpt] w]
     puts $_fh "design $design_name"
     puts $_fh "golden [lec_netlist golden]"
     puts $_fh "revised [lec_netlist revised]"
     puts $_fh "compare_points $_tot\nproven $_pro\nunproven $_unp"
-    puts $_fh "result [expr {$_ok ? "EQUIVALENT" : "NOT EQUIVALENT"}]"
+    puts $_fh "result [expr {$::lec_ok ? "EQUIVALENT" : "NOT EQUIVALENT"}]"
     close $_fh
-    handle_info "LEC $design_name: [expr {$_ok ? "EQUIVALENT" : "NOT EQUIVALENT"}] ($_pro/$_tot proven, $_unp unproven)"
-    if {!$_ok} {
+}
+
+# Verdict gate — last, so lec.rpt exists when it fails
+flow_proc verdict {
+    global design_name
+    lassign $::lec_counts _tot _pro _unp
+    handle_info "LEC $design_name: [expr {$::lec_ok ? "EQUIVALENT" : "NOT EQUIVALENT"}] ($_pro/$_tot proven, $_unp unproven)"
+    if {!$::lec_ok} {
         if {[is_true [oss_get lec oss,fail_on_violations]]} { error "LEC: $_unp unproven compare point(s) — see $::REPORTS_DIR/equiv_status.rpt" }
         handle_warning "LEC: $_unp unproven compare point(s) — reported, flow continues"
     }

@@ -24,9 +24,10 @@ set blocks      [hier_children $design_name]
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
 
-flow_proc export {
+# Load: locate the synthesis node's netlist, the functional SDC and the UPF
+flow_proc load_design {
     global design_name
-    file copy -force [oss_node_output [oss_chain_node synthesis] synthesis.v] [oss_stage_out final.v]
+    set ::export_netlist [oss_node_output [oss_chain_node synthesis] synthesis.v]
     # One mode per design for the open-source flow (see PNR/STA).
     set _modes {}
     foreach _v [oss_node_views [oss_chain_node synthesis]] {
@@ -41,11 +42,22 @@ flow_proc export {
     # DFT: the synthesis node wrote the functional SDC (scan enable held 0)
     # and the scan-shift SDC next to the scan netlist
     set _sn "[cbflow_node_dir [oss_chain_node synthesis]]/outputs"
+    if {[is_true [oss_get project dft,enable]]} { set _sdc "$_sn/synthesis.func.sdc" }
+    set ::export_sdc $_sdc
+    set ::export_upf $_upf
+    set ::export_scan_sdc "$_sn/synthesis.scan.sdc"
+}
+
+# No operation / report step: export_data only copies the deliverables.
+
+# Save the deliverables under canonical names: final.v, final.scan.sdc
+# (DFT), final.sdc, final.upf
+flow_proc save_design {
+    file copy -force $::export_netlist [oss_stage_out final.v]
     if {[is_true [oss_get project dft,enable]]} {
-        set _sdc "$_sn/synthesis.func.sdc"
-        file copy -force "$_sn/synthesis.scan.sdc" [oss_stage_out final.scan.sdc]
+        file copy -force $::export_scan_sdc [oss_stage_out final.scan.sdc]
     }
-    foreach {_src _dst} [list $_sdc final.sdc $_upf final.upf] {
+    foreach {_src _dst} [list $::export_sdc final.sdc $::export_upf final.upf] {
         # staged inputs are symlinks — copy the content
         while {[file type $_src] eq "link"} { set _src [file normalize [file join [file dirname $_src] [file readlink $_src]]] }
         file copy -force $_src [oss_stage_out $_dst]

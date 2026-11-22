@@ -26,15 +26,26 @@ set blocks      [hier_children $design_name]
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
 
-flow_proc extract {
+# Load: LEFs + the staged routed DEF
+flow_proc load_design {
     global design_name blocks
     set_thread_count [oss_get sta oss,threads]
     oss_read_lefs $blocks
     set _def "$::DEF_DIR/${design_name}.def"
     if {![file exists $_def]} { error "DEF not staged: $_def (sta(input,def_file) / release_tag)" }
     read_def $_def
+}
+
+# OpenRCX extraction for this RC corner
+flow_proc extract {
     define_process_corner -ext_model_index 0 X
     extract_parasitics -ext_model_file [oss_get tech rcx,$::RC_CORNER,openrcx]
+}
+
+# No report step: extraction writes only the SPEF.
+
+# Save the corner's SPEF -> ::SPEF_OUT
+flow_proc save_design {
     file mkdir [file dirname $::SPEF_OUT]
     write_spef $::SPEF_OUT
     handle_info "SPEF $::RC_CORNER -> $::SPEF_OUT"

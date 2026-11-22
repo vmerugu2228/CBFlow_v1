@@ -24,21 +24,25 @@ set blocks      [hier_children $design_name]
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
 
-# Previous stage's database, liberty from the init_design node's MMMC views.
-proc fp_load {} {
+# Load: previous stage's database, liberty from the init_design node's MMMC views
+flow_proc load_design {
     global blocks
     set_thread_count [oss_get fp oss,threads]
     oss_read_corners [oss_chain_node init_design] $blocks
     read_db [oss_prev_odb [oss_upstream_node]]
 }
 
+# Power intent (UPF) + hierarchical power grid + connectivity check
 flow_proc power_grid {
     global design_name blocks
-    fp_load
     oss_fp_power $design_name $blocks
 }
 
-flow_proc save {
+# No report step: oss_apply_upf writes upf_subset.rpt as it applies the
+# intent (kept there so it exists when the grid check fails); PDN results go to the log.
+
+# Save the database + DEF with the power grid
+flow_proc save_design {
     write_db  [oss_stage_out powerplan.odb]
     write_def [oss_stage_out powerplan.def]
 }

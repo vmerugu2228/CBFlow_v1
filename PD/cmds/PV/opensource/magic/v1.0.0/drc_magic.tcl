@@ -27,41 +27,21 @@ set ::flow::exec_mode "auto"
 # tech(klayout,drc), deep/hierarchical: scales to large flat layouts) or
 # magic (drc style pv(oss,drc,style)). Both write outputs/drc.rpt
 # ("drc_errors N") and reports/drc_<engine>_why.rpt (count per rule).
-flow_proc drc {
-    global design_name
-    set _gds "$::GDS_DIR/${design_name}.gds"
-    if {![file exists $_gds]} { error "GDS not staged: $_gds (pv(input,gds))" }
-    set _eng [oss_get pv oss,drc,engine]
-    set _why "$::REPORTS_DIR/drc_${_eng}_why.rpt"
-    switch -- $_eng {
-        klayout { set _n [pv_drc_klayout $_gds $_why]; set _deck [oss_get tech klayout,drc] }
-        magic   { set _n [pv_drc_magic $_gds $_why];   set _deck [oss_get pv oss,drc,style] }
-        default { error "pv(oss,drc,engine) '$_eng' — expected klayout or magic" }
-    }
-    if {[is_true $::flow(test_mode)]} return
-    file mkdir [file dirname [oss_stage_out drc.rpt]]
-    set _fh [open [oss_stage_out drc.rpt] w]
-    puts $_fh "design $design_name\ngds $_gds\nengine $_eng\ndeck $_deck\ndrc_errors $_n"
-    close $_fh
-    handle_info "DRC ($_eng): $_n error(s)"
-    if {$_n > [oss_get pv oss,drc,max_errors]} {
-        set _msg "DRC: $_n error(s) (max [oss_get pv oss,drc,max_errors]) — see $_why"
-        if {[is_true [oss_get pv oss,fail_on_violations]]} { error $_msg }
-        handle_warning "$_msg — reported, flow continues (pv(oss,fail_on_violations) false)"
-    }
-}
 
-# KLayout: report database (lyrdb) -> error count + per-rule counts
-proc pv_drc_klayout {gds why} {
+# KLayout: run the deck -> reports/drc_klayout.lyrdb
+proc pv_drc_klayout {gds} {
     global design_name
     set _rdb "$::REPORTS_DIR/drc_klayout.lyrdb"
     set _rd [list -rd input=$gds -rd top_cell=$design_name -rd report=$_rdb \
                   -rd thr=[oss_get pv oss,drc,klayout_threads]]
     foreach {_k _v} [oss_get pv oss,drc,klayout_options] { lappend _rd -rd $_k=$_v }
-    set _log "$::REPORTS_DIR/drc_klayout.log"
-    oss_exec_tool klayout [oss_get tech klayout,drc] $_log $_rd
-    if {[is_true $::flow(test_mode)]} { return 0 }
-    if {![file exists $_rdb]} { error "KLayout DRC wrote no report database (see $_log)" }
+    oss_exec_tool klayout [oss_get tech klayout,drc] "$::REPORTS_DIR/drc_klayout.log" $_rd
+}
+
+# KLayout: report database (lyrdb) -> error count + per-rule counts (why)
+proc pv_drc_klayout_count {why} {
+    set _rdb "$::REPORTS_DIR/drc_klayout.lyrdb"
+    if {![file exists $_rdb]} { error "KLayout DRC wrote no report database (see $::REPORTS_DIR/drc_klayout.log)" }
     set _fh [open $_rdb]; set _x [read $_fh]; close $_fh
     set _n 0
     array set _cnt {}
@@ -76,7 +56,7 @@ proc pv_drc_klayout {gds why} {
     return $_n
 }
 
-# Magic: drc style check -> total + per-rule counts
+# Magic: drc style check; per-rule counts written by Magic itself (why)
 proc pv_drc_magic {gds why} {
     global design_name
     set _script "$::WORK_DIR/drc_magic.tcl"
@@ -94,12 +74,67 @@ proc pv_drc_magic {gds why} {
     puts $_fh "close \$_fh"
     puts $_fh "quit -noprompt"
     close $_fh
+    oss_exec_tool magic $_script "$::REPORTS_DIR/drc_magic.log"
+}
+
+# Magic: total error count from the log
+proc pv_drc_magic_count {} {
     set _log "$::REPORTS_DIR/drc_magic.log"
-    oss_exec_tool magic $_script $_log
-    if {[is_true $::flow(test_mode)]} { return 0 }
     set _fh [open $_log]; set _txt [read $_fh]; close $_fh
     if {![regexp {Total DRC errors found: (\d+)} $_txt -> _n]} { error "Magic DRC produced no result (see $_log)" }
     return $_n
+}
+
+# Load: the staged GDS, the DRC engine and its deck
+flow_proc load_design {
+    global design_name
+    set ::drc_gds "$::GDS_DIR/${design_name}.gds"
+    if {![file exists $::drc_gds]} { error "GDS not staged: $::drc_gds (pv(input,gds))" }
+    set ::drc_eng [oss_get pv oss,drc,engine]
+    set ::drc_why "$::REPORTS_DIR/drc_${::drc_eng}_why.rpt"
+}
+
+# Run the DRC engine on the GDS
+flow_proc drc {
+    switch -- $::drc_eng {
+        klayout { pv_drc_klayout $::drc_gds;           set ::drc_deck [oss_get tech klayout,drc] }
+        magic   { pv_drc_magic $::drc_gds $::drc_why;  set ::drc_deck [oss_get pv oss,drc,style] }
+        default { error "pv(oss,drc,engine) '$::drc_eng' — expected klayout or magic" }
+    }
+}
+
+# Reports: error count + per-rule counts (reports/drc_<engine>_why.rpt)
+flow_proc report {
+    if {![is_true $::flow(test_mode)]} {
+        switch -- $::drc_eng {
+            klayout { set ::drc_errors [pv_drc_klayout_count $::drc_why] }
+            magic   { set ::drc_errors [pv_drc_magic_count] }
+        }
+    }
+}
+
+# Save the DRC result -> outputs/drc.rpt
+flow_proc save_design {
+    global design_name
+    if {![is_true $::flow(test_mode)]} {
+        file mkdir [file dirname [oss_stage_out drc.rpt]]
+        set _fh [open [oss_stage_out drc.rpt] w]
+        puts $_fh "design $design_name\ngds $::drc_gds\nengine $::drc_eng\ndeck $::drc_deck\ndrc_errors $::drc_errors"
+        close $_fh
+    }
+}
+
+# DRC gate (pv(oss,drc,max_errors)) — last, so drc.rpt exists when it fails
+flow_proc check_drc {
+    if {![is_true $::flow(test_mode)]} {
+        set _n $::drc_errors
+        handle_info "DRC ($::drc_eng): $_n error(s)"
+        if {$_n > [oss_get pv oss,drc,max_errors]} {
+            set _msg "DRC: $_n error(s) (max [oss_get pv oss,drc,max_errors]) — see $::drc_why"
+            if {[is_true [oss_get pv oss,fail_on_violations]]} { error $_msg }
+            handle_warning "$_msg — reported, flow continues (pv(oss,fail_on_violations) false)"
+        }
+    }
 }
 
 flow_exec_all

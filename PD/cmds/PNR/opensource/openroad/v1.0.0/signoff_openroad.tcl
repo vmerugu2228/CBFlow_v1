@@ -25,7 +25,9 @@ set blocks      [hier_children $design_name]
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
 
-flow_proc load {
+# Load: previous stage's database + timing views + SDC, propagated clocks,
+# the pro node's SPEF per view
+flow_proc load_design {
     oss_load_stage [oss_upstream_node]
     set_propagated_clock [all_clocks]
     foreach _v [oss_node_views $::NODE_NAME] {
@@ -33,12 +35,18 @@ flow_proc load {
     }
 }
 
-flow_proc timing {
+# Power intent check: every UPF supply one connected network
+flow_proc check_power_intent {
     global oss_upf design_name
     set _upf "$::UPF_DIR/${design_name}.upf"
     if {![file exists $_upf]} { error "UPF not staged: $_upf (pnr(input,upf_file))" }
     oss_upf_parse $_upf
     oss_check_power
+}
+
+# Reports: QoR, timing, area, checklist metrics, timing snapshot, DRV,
+# power per view (+ power metrics appended to the checklist report)
+flow_proc report {
     oss_write_qor signoff
     oss_report "$::REPORTS_DIR/signoff_drv.rpt" report_check_types -max_slew -max_capacitance -max_fanout -violators
     # One power report per MMMC view (multi-corner STA needs the corner).
@@ -75,7 +83,10 @@ proc oss_power_metrics {views} {
     set _fh [open $_rpt a]; puts $_fh [join $L \n]; close $_fh
 }
 
-flow_proc deliverables {
+# Save the deliverables: DEF, netlists (logical + power-aware for LVS),
+# abstract LEF, CDL, SDC, database, then a timing model per lib set — the
+# parent reads <design>__<lib_set>.lib per corner.
+flow_proc save_design {
     global design_name blocks
     write_def                 [oss_stage_out final.def]
     write_verilog             [oss_stage_out final.v]
@@ -90,11 +101,6 @@ flow_proc deliverables {
     write_cdl -masters $_cdl [oss_stage_out final.cdl]
     file copy -force [oss_sdc_file] [oss_stage_out final.sdc]
     write_db [oss_stage_out final.odb]
-}
-
-# Timing model per lib set — the parent reads <design>__<lib_set>.lib per corner.
-flow_proc timing_models {
-    global design_name
     foreach _v [oss_node_views $::NODE_NAME] {
         set _ls [oss_view_attr $_v lib_set_ref]
         write_timing_model [oss_corner_opt write_timing_model] $_v -library_name ${design_name}__${_ls} \

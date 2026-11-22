@@ -24,18 +24,22 @@ set blocks      [hier_children $design_name]
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
 
-flow_proc load {
+# Load: previous stage's database + timing views + SDC, propagated clocks
+flow_proc load_design {
     oss_load_stage [oss_upstream_node]
     set_propagated_clock [all_clocks]
 }
 
+# Filler insertion, supply connections of the new cells
 flow_proc fill {
     filler_placement [oss_trk fillers]
     global_connect                    ;# UPF-derived rules are stored in the database
     check_placement
 }
 
-# One SPEF per RC corner; each view reads the SPEF of its rc_corner.
+# One SPEF per RC corner; each view reads the SPEF of its rc_corner. The
+# SPEFs (outputs/final_<rc>.spef) are written here, not in save_design:
+# read_spef loads them back for the post-route timing reports.
 flow_proc extract {
     set _done {}
     define_process_corner -ext_model_index 0 X
@@ -50,9 +54,14 @@ flow_proc extract {
     }
 }
 
+# Reports: post-route QoR, timing, area, checklist metrics, timing snapshot
 flow_proc report {
-    write_db [oss_stage_out pro.odb]
     oss_write_qor pro
+}
+
+# Save the post-route database
+flow_proc save_design {
+    write_db [oss_stage_out pro.odb]
 }
 
 flow_exec_all

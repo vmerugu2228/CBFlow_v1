@@ -24,11 +24,15 @@ set blocks      [hier_children $design_name]
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
 
-flow_proc load {
+# Load: previous stage's database + timing views + SDC, propagated clocks
+flow_proc load_design {
     oss_load_stage [oss_upstream_node]
     set_propagated_clock [all_clocks]
 }
 
+# Global + detailed routing. The router's own logs land in reports/:
+# route_grt.rpt (global route + congestion table), route_congestion.rpt,
+# route_drc.rpt (detailed-route DRC).
 flow_proc global_detailed_route {
     global design_name blocks pnr
     lassign [oss_signal_layers $design_name $blocks] _min _max
@@ -45,9 +49,19 @@ flow_proc global_detailed_route {
     # Wire RC from the global route for this stage's timing / clock metrics
     estimate_parasitics -global_routing
     detailed_route -output_drc "$::REPORTS_DIR/route_drc.rpt" -verbose 1
+}
+
+# Reports: route checklist metrics (reads route_drc.rpt / route_grt.rpt)
+flow_proc report {
+    oss_checklist_safe route
+}
+
+# Save the routed database
+flow_proc save_design {
     write_db [oss_stage_out route.odb]
 }
 
+# DRC gate — last, so the routed database and reports exist when it fails
 flow_proc check_drc {
     global pnr
     set _n 0
@@ -63,7 +77,6 @@ flow_proc check_drc {
         if {[is_true [oss_get pnr oss,fail_on_violations]]} { error $_msg }
         handle_warning "$_msg — reported, flow continues"
     }
-    oss_checklist_safe route
 }
 
 flow_exec_all

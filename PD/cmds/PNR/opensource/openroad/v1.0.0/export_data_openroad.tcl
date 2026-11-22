@@ -24,17 +24,28 @@ set blocks      [hier_children $design_name]
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
 
-flow_proc stream_out {
-    global design_name blocks flow
-    set _def [oss_node_output [oss_chain_node signoff] final.def]
-    set _lefs [list [oss_ms "[oss_track],lef_tech"]]
-    foreach _l [oss_trk lef] { lappend _lefs $_l }
-    set _gds [list [oss_trk gds_stdcell]]
+# Load: the signoff node's DEF + the views KLayout merges (tech + track
+# LEFs, standard-cell GDS, every child block's LEF / GDS)
+flow_proc load_design {
+    global blocks
+    set ::export_def [oss_node_output [oss_chain_node signoff] final.def]
+    set ::export_lefs [list [oss_ms "[oss_track],lef_tech"]]
+    foreach _l [oss_trk lef] { lappend ::export_lefs $_l }
+    set ::export_gds [list [oss_trk gds_stdcell]]
     foreach _b $blocks {
         set _v [hier_block_views $_b]
-        lappend _lefs [dict get $_v lef]
-        lappend _gds  [dict get $_v gds]
+        lappend ::export_lefs [dict get $_v lef]
+        lappend ::export_gds  [dict get $_v gds]
     }
+}
+
+# DEF -> GDS recipe (<node>/def2gds.py): DEF over the LEFs, every macro
+# filled from its GDS, min-area repair. KLayout runs it in save_design.
+flow_proc stream_out {
+    global design_name
+    set _def  $::export_def
+    set _lefs $::export_lefs
+    set _gds  $::export_gds
     set _out [oss_stage_out final.gds]
     set _py "$::WORK_DIR/def2gds.py"
     set _fh [open $_py w]
@@ -90,8 +101,14 @@ flow_proc stream_out {
     puts $_fh "out.write('$_out')"
     puts $_fh "print('GDS written: $_out cells=%d' % out.cells())"
     close $_fh
+}
+
+# Save: KLayout streams the layout -> outputs/final.gds
+flow_proc save_design {
+    global flow
     # KLayout batch command inside the tool container (this stage runs there).
     set _klayout [oss_get pnr oss,export,klayout_batch]
+    set _py "$::WORK_DIR/def2gds.py"
     if {[is_true $flow(test_mode)]} {
         puts "  TEST_CMD: $_klayout $_py"
     } else {
@@ -100,7 +117,16 @@ flow_proc stream_out {
             error "KLayout DEF->GDS failed (see $_log): $_err"
         }
         handle_info [exec tail -1 $_log]
-        # Routed-layout image for SmartGrid (release images/) — reporting only
+    }
+}
+
+# Report: routed-layout image for SmartGrid (release images/) — reporting
+# only. Rendered from the GDS save_design wrote, so it runs after it.
+flow_proc report {
+    global flow
+    if {![is_true $flow(test_mode)]} {
+        set _klayout [oss_get pnr oss,export,klayout_batch]
+        set _out [oss_stage_out final.gds]
         set _png [oss_stage_out [oss_get pnr oss,export,layout_image,file]]
         set _ipy "$::WORK_DIR/run/layout_image.py"
         set _fh [open $_ipy w]

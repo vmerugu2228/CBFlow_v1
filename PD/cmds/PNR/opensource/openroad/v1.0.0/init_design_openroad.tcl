@@ -26,7 +26,8 @@ set blocks      [hier_children $design_name]
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
 
-flow_proc load_floorplan {
+# Load: LEF / liberty views, FP-released floorplan DEF, SDC, DRV limits
+flow_proc load_design {
     global design_name blocks
     set_thread_count [oss_get pnr oss,threads]
     oss_read_lefs $blocks
@@ -40,14 +41,22 @@ flow_proc load_floorplan {
     set_dont_use [oss_trk dont_use_pnr]
 }
 
+# Power intent (UPF supplies / global connections) + connectivity check
 flow_proc power_intent {
     global design_name
     oss_apply_upf $design_name
     oss_check_power
 }
 
-flow_proc save {
+# Save the database — before report: the checklist's first timing update
+# adds resizer properties (limit_sizing_*) to the block, which would land
+# in init_design.odb if saved after it
+flow_proc save_design {
     write_db [oss_stage_out init_design.odb]
+}
+
+# Reports: init_design checklist metrics
+flow_proc report {
     oss_checklist_safe init_design
 }
 

@@ -507,8 +507,8 @@ proc oss_fp_floorplan {} {
 }
 
 # Child hard blocks: explicit oss,macro,placement {inst x y orient ...} or
-# rtl_macro_placer; DL2 children snapped to the rail pitch. Writes
-# place_macros.rpt.
+# rtl_macro_placer; DL2 children snapped to the rail pitch. Report:
+# oss_fp_macro_report.
 proc oss_fp_place_macros {blocks} {
     if {[llength $blocks] == 0} return
     set _halo [oss_get [oss_flow_arr] oss,macro,halo]
@@ -549,6 +549,13 @@ proc oss_fp_place_macros {blocks} {
             }
         }
     }
+}
+
+# place_macros.rpt: every child hard-block instance with its origin,
+# orientation and bounding box (nothing to report without child blocks).
+proc oss_fp_macro_report {blocks} {
+    if {[llength $blocks] == 0} return
+    set _dbu [[ord::get_db_tech] getDbUnitsPerMicron]
     set _fh [open "$::REPORTS_DIR/place_macros.rpt" w]
     foreach _b $blocks {
         foreach _inst [oss_block_insts $_b] {
@@ -563,7 +570,7 @@ proc oss_fp_place_macros {blocks} {
     close $_fh
 }
 
-# IO pins + well taps / endcaps. Writes io_placement.rpt.
+# IO pins + well taps / endcaps. Report: oss_fp_io_report.
 proc oss_fp_pins_taps {} {
     set _arr [oss_flow_arr]
     # <flow>(oss,pins,region): edge region for every signal pin (e.g. top:*
@@ -584,6 +591,10 @@ proc oss_fp_pins_taps {} {
     tapcell -distance [oss_trk well_tap_distance] \
             -tapcell_master [oss_trk well_tap] -endcap_master [oss_trk endcap] \
             -halo_width_x $_halo -halo_width_y $_halo
+}
+
+# io_placement.rpt: every placed IO pin with its direction, layer, location.
+proc oss_fp_io_report {} {
     set _dbu [[ord::get_db_tech] getDbUnitsPerMicron]
     set _fh [open "$::REPORTS_DIR/io_placement.rpt" w]
     foreach _bt [[ord::get_db_block] getBTerms] {

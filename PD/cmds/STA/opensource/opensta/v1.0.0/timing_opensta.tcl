@@ -27,7 +27,8 @@ set blocks      [hier_children $design_name]
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
 
-flow_proc load {
+# Load: scenario libs (+ child timing models), netlist, SDC, SPEF
+flow_proc load_design {
     global design_name blocks
     foreach _l [oss_lib_set_files $::LIB_SET] { read_liberty $_l }
     foreach _b $blocks { read_liberty [hier_block_lib [hier_block_views $_b] $_b $::LIB_SET] }
@@ -46,6 +47,10 @@ flow_proc load {
     }
 }
 
+# No operation step: OpenSTA times on demand — the reports below are the analysis.
+
+# Reports: setup / hold, DRV, don't-use / don't-touch, path groups, power,
+# scenario QoR (read by merge_reports)
 flow_proc report {
     file mkdir $::SCEN_REPORTS
     set _n [oss_get sta oss,report,group_path_count]
@@ -118,6 +123,9 @@ flow_proc report {
     close $_fh
     puts "QOR $::SCENARIO: wns_setup=[sta::worst_slack -max] wns_hold=[sta::worst_slack -min]"
 }
+
+# No save step: a timing scenario writes no design data (merge_reports
+# publishes the summary to outputs/).
 
 flow_exec_all
 exit

@@ -23,8 +23,10 @@ set blocks      [hier_children $design_name]
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
 
-flow_proc load { oss_load_stage [oss_upstream_node] }
+# Load: previous stage's database + timing views + SDC
+flow_proc load_design { oss_load_stage [oss_upstream_node] }
 
+# Clock tree synthesis, clock net repair, legalization
 flow_proc clock_tree {
     clock_tree_synthesis -root_buf [oss_trk clock_root_buffer] -buf_list [oss_trk clock_buffers] \
         -apply_ndr [oss_get pnr oss,cts,apply_ndr]
@@ -32,9 +34,17 @@ flow_proc clock_tree {
     repair_clock_nets
     detailed_placement
     estimate_parasitics -placement
+}
+
+# Reports: clock tree, QoR, timing, area, checklist metrics, timing snapshot
+flow_proc report {
     oss_report "$::REPORTS_DIR/cts.rpt" report_cts
-    write_db [oss_stage_out cts.odb]
     oss_write_qor cts
+}
+
+# Save the clock-tree database
+flow_proc save_design {
+    write_db [oss_stage_out cts.odb]
 }
 
 flow_exec_all

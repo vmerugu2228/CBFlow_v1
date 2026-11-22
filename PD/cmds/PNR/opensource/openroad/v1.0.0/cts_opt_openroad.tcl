@@ -23,12 +23,14 @@ set blocks      [hier_children $design_name]
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
 
-flow_proc load {
+# Load: previous stage's database + timing views + SDC, propagated clocks
+flow_proc load_design {
     oss_load_stage [oss_upstream_node]
     set_propagated_clock [all_clocks]
     estimate_parasitics -placement
 }
 
+# Setup + hold repair, legalization
 flow_proc repair {
     global pnr
     repair_timing -setup -setup_margin [oss_get pnr oss,repair,setup_margin]
@@ -36,8 +38,16 @@ flow_proc repair {
     detailed_placement
     check_placement
     estimate_parasitics -placement
-    write_db [oss_stage_out cts_opt.odb]
+}
+
+# Reports: QoR, timing, area, checklist metrics, timing snapshot
+flow_proc report {
     oss_write_qor cts_opt
+}
+
+# Save the repaired database
+flow_proc save_design {
+    write_db [oss_stage_out cts_opt.odb]
 }
 
 flow_exec_all

@@ -24,12 +24,16 @@ set blocks      [hier_children $design_name]
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
 
-flow_proc load_netlist {
+# Load: synthesized netlist linked against the LEF / liberty views + SDC
+flow_proc load_design {
     global design_name blocks
     oss_fp_load_netlist $design_name $blocks
 }
 
-flow_proc save {
+# No operation / report step: init_design only loads and links the netlist.
+
+# Save the linked design
+flow_proc save_design {
     write_db [oss_stage_out init_design.odb]
 }
 

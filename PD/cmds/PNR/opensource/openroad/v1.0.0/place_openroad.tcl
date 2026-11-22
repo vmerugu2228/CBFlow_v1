@@ -23,8 +23,10 @@ set blocks      [hier_children $design_name]
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
 
-flow_proc load { oss_load_stage [oss_upstream_node] }
+# Load: previous stage's database + timing views + SDC
+flow_proc load_design { oss_load_stage [oss_upstream_node] }
 
+# Global + detailed placement, design repair
 flow_proc global_detailed_place {
     global pnr
     oss_set_wire_rc
@@ -33,8 +35,16 @@ flow_proc global_detailed_place {
     repair_design
     detailed_placement
     check_placement -verbose
-    write_db [oss_stage_out place.odb]
+}
+
+# Reports: QoR, timing, area, checklist metrics, timing snapshot
+flow_proc report {
     oss_write_qor place
+}
+
+# Save the placed database
+flow_proc save_design {
+    write_db [oss_stage_out place.odb]
 }
 
 flow_exec_all

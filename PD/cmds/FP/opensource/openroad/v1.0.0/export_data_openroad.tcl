@@ -24,18 +24,27 @@ set blocks      [hier_children $design_name]
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
 
-# Previous stage's database, liberty from the init_design node's MMMC views.
-proc fp_load {} {
+# Load: previous stage's database, liberty from the init_design node's MMMC
+# views, SDC (timing estimate for the FP_EXIT checklist)
+flow_proc load_design {
     global blocks
     set_thread_count [oss_get fp oss,threads]
     oss_read_corners [oss_chain_node init_design] $blocks
     read_db [oss_prev_odb [oss_upstream_node]]
-    read_sdc [oss_sdc_file]          ;# timing estimate for the FP_EXIT checklist
+    read_sdc [oss_sdc_file]
 }
 
-flow_proc export {
+# No operation step: export_data only writes the floorplan deliverables.
+
+# Reports: design area + FP_EXIT checklist metrics
+flow_proc report {
+    oss_report "$::REPORTS_DIR/design_area.rpt" report_design_area
+    oss_checklist_safe fp
+}
+
+# Save the deliverables: DEF, database, netlists, GDS, SDC, UPF
+flow_proc save_design {
     global design_name
-    fp_load
     write_def     [oss_stage_out final.def]
     write_db      [oss_stage_out final.odb]
     write_verilog [oss_stage_out final.v]
@@ -55,8 +64,6 @@ flow_proc export {
     } elseif {"final.upf" in [oss_get fp mandatory_outputs,$::NODE_NAME]} {
         error "UPF not staged: $_upf (fp(mandatory_outputs,$::NODE_NAME) requires final.upf)"
     }
-    oss_report "$::REPORTS_DIR/design_area.rpt" report_design_area
-    oss_checklist_safe fp
 }
 
 flow_exec_all
