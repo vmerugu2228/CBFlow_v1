@@ -25,7 +25,8 @@ import lifecycle
 # ─── Payload construction ───────────────────────────────────────────────────
 
 def build_payload(project, block, phase, milestone, release_dir, workspace,
-                  runs, milestone_stage_map, published_by, override=False):
+                  runs, milestone_stage_map, published_by, override=False,
+                  flow='', attach_to=''):
     """Assemble the publish payload from workspace runs + on-disk release.
 
     Args:
@@ -39,19 +40,27 @@ def build_payload(project, block, phase, milestone, release_dir, workspace,
       milestone_stage_map  dict {milestone: required_stage}
       published_by      user running publish
       override          bool — allow replacing existing cell
+      flow              flow whose release this is (cell identity)
+      attach_to         signoff run (STA / PV / LEC …): the exit it verified;
+                        verdict from its metrics.rpt Status, no exit checklist
     """
     payload = {
         'op': 'publish',
         'block': block, 'phase': phase, 'milestone': milestone,
+        'flow': flow, 'attach_to': attach_to,
         'published_by': published_by,
         'override': override,
-        'release_tag': f'{phase}_{milestone}',
+        'release_tag': os.path.basename(os.path.normpath(release_dir)),
         'release_dir': release_dir,
     }
 
     primary_run_dir, race_db_path = _select_primary_run(
         workspace, runs, milestone, milestone_stage_map)
     payload['run_dir'] = primary_run_dir
+    if not flow:
+        # Packaged release: the cell's flow is the primary run's flow
+        payload['flow'] = next((f for f, rd in runs.items()
+                                if os.path.join(workspace, rd) == primary_run_dir), '')
     payload['race_db_path'] = race_db_path
     if primary_run_dir:
         payload['run_id'] = _run_id_for(primary_run_dir)
@@ -72,6 +81,8 @@ def build_payload(project, block, phase, milestone, release_dir, workspace,
     payload['checklist'] = checklist
     payload['verdict'] = verdict
     payload['closability_pct'] = closability
+    if attach_to:
+        payload['checklist'], payload['closability_pct'] = [], None
 
     # Discipline tag (v3 schema addition, 2026-11-02). Resolved from the
     # primary run's flow_type via tcl_config_parser.get_flow_discipline so
@@ -100,14 +111,14 @@ def build_payload(project, block, phase, milestone, release_dir, workspace,
                 files.append({'kind': f'IMAGE_{tag}', 'rel_path': f'images/{name}',
                               'sha256': _sha256(p)})
     payload['files'] = files
-    # Every other flow's release of this exit (<block>/<FLOW>/<tag>, e.g.
-    # STA/PV/LEC beside PNR): one signoff record each, status from its
-    # metrics.rpt "Status" line.
-    payload['signoff'] = _collect_flow_releases(release_dir)
     # Release metrics report (metrics.rpt): "Key : value" lines grouped by
     # "# category: <c>" headers — written by the flow for the exit it fills.
-    payload['metrics'] = payload['metrics'] + _read_metrics_report(
-        os.path.join(release_dir, 'metrics.rpt'))
+    report = _read_metrics_report(os.path.join(release_dir, 'metrics.rpt'))
+    payload['metrics'] = payload['metrics'] + report
+    if attach_to:
+        # Signoff verdict: the flow's own "Status" line (PASS / FAIL)
+        status = next((m['value'] for m in report if m['name'] == 'Status'), '').upper()
+        payload['verdict'] = {'PASS': 'PASS', 'FAIL': 'BLOCKED'}.get(status, 'UNKNOWN')
 
     # Floorplan snapshot — DEF + LEF macro dimensions. Parsers are
     # defensive and return empty on missing / stub files, so we always
@@ -131,29 +142,6 @@ def build_payload(project, block, phase, milestone, release_dir, workspace,
     if timing:
         payload['timing'] = timing
     return payload
-
-
-def _collect_flow_releases(release_dir):
-    """[{flow, release_tag, release_dir, status, complete, metrics}] for the
-    sibling flow releases of the same tag: <block>/<FLOW>/<tag>."""
-    tag = os.path.basename(os.path.normpath(release_dir))
-    flow_dir = os.path.dirname(os.path.normpath(release_dir))
-    block_dir = os.path.dirname(flow_dir)
-    primary = os.path.basename(flow_dir)
-    out = []
-    if not os.path.isdir(block_dir):
-        return out
-    for flow in sorted(os.listdir(block_dir)):
-        d = os.path.join(block_dir, flow, tag)
-        if flow == primary or not os.path.isdir(d):
-            continue
-        metrics = _read_metrics_report(os.path.join(d, 'metrics.rpt'))
-        status = next((m['value'] for m in metrics if m['name'] == 'Status'), '')
-        out.append({'flow': flow, 'release_tag': tag, 'release_dir': d,
-                    'status': status.upper() or 'UNKNOWN',
-                    'complete': os.path.isfile(os.path.join(d, 'RELEASE_COMPLETE')),
-                    'metrics': [m for m in metrics if m['name'] != 'Status']})
-    return out
 
 
 def _read_metrics_report(path):

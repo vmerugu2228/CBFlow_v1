@@ -8,9 +8,11 @@ checklist / release info at the moment of publish. Nothing else updates
 the tables — no polling, no auto-refresh — so what management sees is
 exactly what was published.
 
-Cell identity is `(project, block, phase, milestone)`. UNIQUE constraint
-enforces one published run per cell; re-publish without `override=True`
-raises ConflictError.
+Cell identity is `(project, block, phase, milestone, flow)`: the exit flow's
+run (PNR for PRO_EXIT, FP for FP_EXIT, ...) and every signoff flow's run that
+verified that exit (STA / PV / LEC, `attach_to` = the exit) are separate
+published runs. UNIQUE constraint enforces one published run per cell;
+re-publish without `override=True` raises ConflictError.
 """
 
 import json
@@ -69,7 +71,9 @@ CREATE TABLE IF NOT EXISTS published_runs (
     closability_pct  REAL CHECK (closability_pct IS NULL OR
                                  (closability_pct >= 0 AND closability_pct <= 100)),
     discipline       TEXT DEFAULT 'PD',
-    UNIQUE (project, block, phase, milestone)
+    flow             TEXT NOT NULL DEFAULT '',
+    attach_to        TEXT,               -- signoff run: the exit it verified
+    UNIQUE (project, block, phase, milestone, flow)
 );
 
 -- Hot-path query: WHERE project=? ORDER BY published_at DESC (Tier 3 block
@@ -114,19 +118,6 @@ CREATE TABLE IF NOT EXISTS run_checklist (
     detail           TEXT,
     check_id         TEXT,
     description      TEXT,
-    FOREIGN KEY (published_run_id) REFERENCES published_runs(id) ON DELETE CASCADE
-);
-
--- Other flows' releases of the same exit (STA / PV / LEC … beside PNR)
-CREATE TABLE IF NOT EXISTS run_signoff (
-    published_run_id INTEGER NOT NULL,
-    flow             TEXT NOT NULL,
-    release_tag      TEXT,
-    release_dir      TEXT,
-    status           TEXT,
-    complete         INTEGER,
-    metrics_json     TEXT,
-    UNIQUE (published_run_id, flow),
     FOREIGN KEY (published_run_id) REFERENCES published_runs(id) ON DELETE CASCADE
 );
 
@@ -223,6 +214,7 @@ def init_db(db_path):
         for _col in ('check_id', 'description'):
             if _have and _col not in _have:
                 conn.execute(f"ALTER TABLE run_checklist ADD COLUMN {_col} TEXT")
+        _migrate_flow_identity(conn)
         conn.executescript(_SCHEMA)
         # Forward-compat: add columns introduced after v1.0.0.
         # DEFAULT clause populates legacy rows at ALTER time; readers no
@@ -259,6 +251,43 @@ def init_db(db_path):
         os.chmod(db_path, 0o600)
     finally:
         conn.close()
+
+
+def _migrate_flow_identity(conn):
+    """Rebuild an older published_runs (identity without flow) in place: add
+    flow + attach_to, widen the UNIQUE key. Children keep their ids (the
+    standard SQLite rebuild with FK enforcement off). Existing rows get their
+    flow from the release layout <block>/<FLOW>/<tag>."""
+    row = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' "
+                       "AND name='published_runs'").fetchone()
+    if not row or 'milestone, flow)' in row[0]:
+        return
+    cols = [r[1] for r in conn.execute('PRAGMA table_info(published_runs)')]
+    conn.execute('PRAGMA foreign_keys = OFF')
+    try:
+        conn.execute('BEGIN IMMEDIATE')
+        # New table first, then drop + rename: renaming the old table would
+        # repoint the children's foreign keys at the renamed copy.
+        start = _SCHEMA.index('CREATE TABLE IF NOT EXISTS published_runs')
+        conn.execute(_SCHEMA[start:_SCHEMA.index(');', start) + 1].replace(
+            'IF NOT EXISTS published_runs', 'published_runs_new', 1))
+        keep = ', '.join(c for c in cols if c not in ('flow', 'attach_to'))
+        conn.execute(f'INSERT INTO published_runs_new ({keep}) '
+                     f'SELECT {keep} FROM published_runs')
+        conn.execute('DROP TABLE published_runs')
+        conn.execute('ALTER TABLE published_runs_new RENAME TO published_runs')
+        for pid, block, rel in conn.execute(
+                'SELECT id, block, release_dir FROM published_runs').fetchall():
+            parent = os.path.dirname(os.path.normpath(rel or ''))
+            if os.path.basename(os.path.dirname(parent)) == block:
+                conn.execute('UPDATE published_runs SET flow=? WHERE id=?',
+                             (os.path.basename(parent), pid))
+        conn.execute('COMMIT')
+    except Exception:
+        conn.execute('ROLLBACK')
+        raise
+    finally:
+        conn.execute('PRAGMA foreign_keys = ON')
 
 
 # ─── Writers ────────────────────────────────────────────────────────────────
@@ -342,7 +371,8 @@ def publish(db_path, payload, project):
     """Write a snapshot for one cell.
 
     `payload` fields:
-      block, phase, milestone           REQUIRED — cell identity
+      block, phase, milestone, flow     REQUIRED — cell identity
+      attach_to                          signoff run: the exit it verified
       published_by                       REQUIRED — user running publish
       override                           bool — allow replacing existing cell
       run_id, run_dir, race_db_path      run context
@@ -357,12 +387,13 @@ def publish(db_path, payload, project):
                                                   threshold, severity, detail}
       files                              list of {kind, rel_path, sha256}
     """
-    for k in ('block', 'phase', 'milestone', 'published_by'):
+    for k in ('block', 'phase', 'milestone', 'flow', 'published_by'):
         if not payload.get(k):
             raise ValueError(f'publish payload missing required field: {k}')
     block = payload['block']
     phase = payload['phase']
     milestone = payload['milestone']
+    flow = payload['flow']
     override = bool(payload.get('override'))
 
     # Pre-fix: housekeeping upserts (project_info, block) ran in
@@ -379,12 +410,12 @@ def publish(db_path, payload, project):
     try:
         cur = conn.execute(
             'SELECT id, published_by, published_at FROM published_runs '
-            'WHERE project=? AND block=? AND phase=? AND milestone=?',
-            (project, block, phase, milestone))
+            'WHERE project=? AND block=? AND phase=? AND milestone=? AND flow=?',
+            (project, block, phase, milestone, flow))
         existing = cur.fetchone()
         if existing and not override:
             raise ConflictError(
-                f'({project}, {block}, {phase}, {milestone}) is already '
+                f'({project}, {block}, {phase}, {milestone}, {flow}) is already '
                 f'published by {existing[1]} at {existing[2]}. '
                 f'Use --override to replace.')
     except ConflictError:
@@ -416,8 +447,8 @@ def publish(db_path, payload, project):
         # Re-fetch existing for the DELETE path below (same connection).
         cur = conn.execute(
             'SELECT id, published_by, published_at FROM published_runs '
-            'WHERE project=? AND block=? AND phase=? AND milestone=?',
-            (project, block, phase, milestone))
+            'WHERE project=? AND block=? AND phase=? AND milestone=? AND flow=?',
+            (project, block, phase, milestone, flow))
         existing = cur.fetchone()
 
         if existing:
@@ -431,8 +462,8 @@ def publish(db_path, payload, project):
                 release_tag, release_dir,
                 released_by, released_at,
                 published_by, published_at,
-                verdict, closability_pct, discipline)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                verdict, closability_pct, discipline, flow, attach_to)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             project, block, phase, milestone,
             payload.get('run_id'), payload.get('run_dir'),
@@ -447,6 +478,7 @@ def publish(db_path, payload, project):
             # Legacy publishers that don't set it store NULL; readers
             # treat NULL as 'PD'.
             (payload.get('discipline') or '').upper() or None,
+            flow, payload.get('attach_to') or None,
         ))
         pid = cur.lastrowid
 
@@ -469,15 +501,6 @@ def publish(db_path, payload, project):
                   _to_str(c.get('metric_value')), _to_str(c.get('threshold')),
                   c.get('severity'), c.get('detail'),
                   c.get('check_id'), c.get('description')))
-
-        for so in payload.get('signoff') or []:
-            conn.execute("""
-                INSERT INTO run_signoff(published_run_id, flow, release_tag,
-                    release_dir, status, complete, metrics_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (pid, so.get('flow'), so.get('release_tag'), so.get('release_dir'),
-                  so.get('status'), 1 if so.get('complete') else 0,
-                  json.dumps(so.get('metrics') or [])))
 
         for f in payload.get('files') or []:
             conn.execute("""
@@ -540,15 +563,19 @@ def publish(db_path, payload, project):
         conn.close()
 
 
-def unpublish(db_path, project, block, phase, milestone):
-    """Remove a single cell (cascades child tables). Returns count removed."""
+def unpublish(db_path, project, block, phase, milestone, flow=None):
+    """Remove a cell (cascades child tables) — one flow's run when `flow` is
+    given, else the exit and every signoff run of it. Returns count removed."""
     conn = _connect(db_path)
     conn.execute('PRAGMA foreign_keys = ON')
     try:
-        cur = conn.execute(
-            'DELETE FROM published_runs '
-            'WHERE project=? AND block=? AND phase=? AND milestone=?',
-            (project, block, phase, milestone))
+        sql = ('DELETE FROM published_runs '
+               'WHERE project=? AND block=? AND phase=? AND milestone=?')
+        args = [project, block, phase, milestone]
+        if flow:
+            sql += ' AND flow=?'
+            args.append(flow)
+        cur = conn.execute(sql, args)
         conn.commit()
         return cur.rowcount
     finally:
@@ -580,27 +607,19 @@ def list_blocks(db_path, project):
         conn.close()
 
 
-def list_published(db_path, project):
-    """Every published cell — no children, use `get_published(id)` for detail."""
+def list_published(db_path, project, signoff=False):
+    """Published exit runs — one per (block, phase, milestone) — no children,
+    use `get_published(id)` for detail. signoff=True adds the signoff runs
+    (STA / PV / LEC …, `attach_to` set) for views listing every run."""
     conn = _connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         rows = conn.execute("""
             SELECT * FROM published_runs
-            WHERE project=?
-            ORDER BY block, phase, milestone
-        """, (project,)).fetchall()
-        out = [dict(r) for r in rows]
-        # signoff summary per entry: [{flow, status}] (STA / PV / LEC …)
-        so = {}
-        try:
-            for r in conn.execute('SELECT published_run_id, flow, status FROM run_signoff ORDER BY flow'):
-                so.setdefault(r['published_run_id'], []).append({'flow': r['flow'], 'status': r['status']})
-        except sqlite3.Error:
-            pass
-        for r in out:
-            r['signoff'] = so.get(r['id'], [])
-        return out
+            WHERE project=? AND (? OR attach_to IS NULL OR attach_to='')
+            ORDER BY block, phase, milestone, flow
+        """, (project, 1 if signoff else 0)).fetchall()
+        return [dict(r) for r in rows]
     finally:
         conn.close()
 
@@ -624,13 +643,6 @@ def get_published(db_path, published_run_id):
         pr['files'] = [dict(r) for r in conn.execute(
             'SELECT * FROM run_files WHERE published_run_id=?',
             (published_run_id,)).fetchall()]
-        try:
-            pr['signoff'] = [dict(r, metrics=json.loads(r['metrics_json'] or '[]'))
-                             for r in conn.execute(
-                                 'SELECT * FROM run_signoff WHERE published_run_id=? ORDER BY flow',
-                                 (published_run_id,)).fetchall()]
-        except sqlite3.Error:
-            pr['signoff'] = []
         fp_row = conn.execute(
             'SELECT * FROM run_floorplan WHERE published_run_id=?',
             (published_run_id,)).fetchone()

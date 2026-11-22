@@ -413,7 +413,8 @@ def _flow_release_manifest(run_dir: str):
 
 
 def _publish_signoff_release(run_dir: str, info: dict, strict: bool) -> int:
-    """Refresh the SmartGrid entry of the exit a signoff release verified."""
+    """Publish a signoff run (STA / PV / LEC …) as its own SmartGrid run,
+    attached to the exit it verified — that exit must already be published."""
     env_vars = {}
     with open(os.path.join(run_dir, '.run.cbflow.env')) as fh:
         for line in fh:
@@ -439,12 +440,14 @@ def _publish_signoff_release(run_dir: str, info: dict, strict: bool) -> int:
         logger.error(f"  Not published: {block} / {phase} has no {exit_tag} entry to attach "
                      f"{info.get('flow_type')} to — publish the {exit_tag} release first.")
         return 1
-    logger.info(f"  {info.get('flow_type')} release attaches to {block} / {phase} / {exit_tag} "
-                f"(refreshing it from {os.path.basename(rows[0]['run_dir'])})")
-    return _publish_flow_release(rows[0]['run_dir'], exit_tag, strict=strict, override=True)
+    logger.info(f"  {info.get('flow_type')} run verifies {block} / {phase} / {exit_tag} "
+                f"({os.path.basename(rows[0]['run_dir'])})")
+    return _publish_flow_release(run_dir, exit_tag, strict=strict, override=True,
+                                 attach_to=exit_tag)
 
 
-def _publish_flow_release(run_dir: str, milestone: str, strict: bool, override: bool) -> int:
+def _publish_flow_release(run_dir: str, milestone: str, strict: bool, override: bool,
+                          attach_to: str = '') -> int:
     """Publish the release a flow's own release_data stage wrote (no
     repackaging) into the SmartGrid cell (project, block, phase, milestone).
     Used by `cbflow run release --from-run <run> --publish` and the run GUI's
@@ -477,7 +480,8 @@ def _publish_flow_release(run_dir: str, milestone: str, strict: bool, override: 
         milestone=milestone, release_dir=release_dir,
         workspace=os.path.dirname(os.path.abspath(run_dir)),
         runs={info['flow_type']: os.path.basename(os.path.abspath(run_dir))},
-        milestone_stage_map=milestone_stage_map, override=override, strict=strict)
+        milestone_stage_map=milestone_stage_map, override=override, strict=strict,
+        flow=info['flow_type'], attach_to=attach_to)
 
 
 def cmd_all(args: argparse.Namespace) -> int:
@@ -2407,7 +2411,7 @@ def _missing_earlier_milestones(project, block, phase, milestone, pd_pkg) -> lis
 
 def _publish_to_project_dashboard(project, block, phase, milestone, release_dir,
                                    workspace, runs, milestone_stage_map, override,
-                                   strict=True):
+                                   strict=True, flow='', attach_to=''):
     """Snapshot the just-completed release into the project dashboard.
 
     strict=True  (explicit --publish): start the SmartGrid daemon if it is
@@ -2471,7 +2475,9 @@ def _publish_to_project_dashboard(project, block, phase, milestone, release_dir,
     # Every published release carries the milestone's complete checklist:
     # evaluate it on each published run now (status from the run's data,
     # NA where a check has no data) so SmartGrid snapshots checklist_results.
-    _run_milestone_checklist(workspace, runs, milestone)
+    # A signoff run (attach_to) carries its own verdict instead.
+    if not attach_to:
+        _run_milestone_checklist(workspace, runs, milestone)
 
     published_by = os.environ.get('USER', 'unknown')
     logger.info("  ─────────────────────────────────────────────────────────")
@@ -2482,7 +2488,8 @@ def _publish_to_project_dashboard(project, block, phase, milestone, release_dir,
             project=project, block=block, phase=phase, milestone=milestone,
             release_dir=release_dir, workspace=workspace,
             runs=runs, milestone_stage_map=milestone_stage_map,
-            published_by=published_by, override=override)
+            published_by=published_by, override=override,
+            flow=flow, attach_to=attach_to)
         reply = _pd_client.publish(project, payload, start_daemon=strict)
     except Exception as e:
         _problem(f"  Publish failed: {e}")

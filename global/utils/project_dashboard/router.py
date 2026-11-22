@@ -49,18 +49,6 @@ _CHECK_STATUS_CLS = {'PASS': 'past', 'FAIL': 'late', 'ERROR': 'late',
                      'WAIVED': 'next', 'CONDITIONAL': 'next'}
 
 
-def _signoff_pills(r):
-    """STA / PV / LEC … verdict pills of a published entry, linking to its
-    Signoff tab."""
-    so = r.get('signoff') or []
-    if not so:
-        return '<span class="muted">—</span>'
-    return ' '.join(
-        f'<a href="/published/{r["id"]}#signoff" style="text-decoration:none">'
-        f'<span class="tt-status st-{ {"PASS": "past", "FAIL": "late"}.get((s.get("status") or "").upper(), "future") }">'
-        f'{html.escape(s.get("flow") or "")}</span></a>' for s in so)
-
-
 def _requirement(thr):
     """Pass requirement for display: "<= 100 ps" -> "≤ 100 ps", "between 1,85 %"
     -> "1 – 85 %"; non-numeric criteria (e.g. "file exists") shown as is."""
@@ -358,7 +346,7 @@ def make_handler(project):
             db = state_paths.tracker_db(project)
             info = tracker_db.get_project_info(db, project)
             all_blocks = tracker_db.list_blocks(db, project)
-            all_pubs = tracker_db.list_published(db, project)
+            all_pubs = tracker_db.list_published(db, project, signoff=True)
             block_meta = next(
                 (b for b in all_blocks if b['block_name'] == block_name), None)
             block_pubs = [r for r in all_pubs if r['block'] == block_name]
@@ -472,7 +460,7 @@ def make_handler(project):
             db = state_paths.tracker_db(tgt_project)
             info = tracker_db.get_project_info(db, tgt_project)
             all_blocks = tracker_db.list_blocks(db, tgt_project)
-            all_pubs = tracker_db.list_published(db, tgt_project)
+            all_pubs = tracker_db.list_published(db, tgt_project, signoff=True)
             disc_up = disc.upper()
             def _row_disc(row):
                 return (row.get('discipline') or 'PD').upper()
@@ -4867,7 +4855,7 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
                 f'<td><span class="lvl-pill">{html.escape(lvl)}</span></td>'
                 f'<td>{html.escape(par or "—")}</td>'
                 '<td class="muted">—</td><td class="muted">—</td><td class="muted">not published</td>'
-                '<td class="muted">—</td><td class="muted">—</td><td class="muted">—</td></tr>')
+                '<td class="muted">—</td><td class="muted">—</td></tr>')
             continue
         ms = r.get('milestone') or ''
         ph = r.get('phase') or ''
@@ -4899,12 +4887,11 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
             f'  <td><span class="verdict-badge v-{v_class}">'
             f'{html.escape(v)}</span></td>'
             f'  <td class="num">{clos_str}</td>'
-            f'  <td>{_signoff_pills(r)}</td>'
             f'  <td class="num mono">{html.escape(pub_at)}</td>'
             f'</tr>')
     if not block_rows_html:
         block_rows_html.append(
-            '<tr><td colspan="9" class="empty-row">'
+            '<tr><td colspan="8" class="empty-row">'
             'No matching publishes. Try clearing the filters.'
             '</td></tr>')
 
@@ -5130,7 +5117,6 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
         '      <th>Phase</th>'
         '      <th>Verdict</th>'
         '      <th class="num">Closability</th>'
-        '      <th>Signoff</th>'
         '      <th class="num">Published</th>'
         '    </tr></thead>',
         '    <tbody>', *block_rows_html, '</tbody>',
@@ -5469,7 +5455,7 @@ def _render_detail(project, info, d):
         '<!DOCTYPE html><html><head>',
         '<meta charset="utf-8">',
         f'<title>{html.escape(d["block"])} · {html.escape(d["phase"])} · '
-        f'{html.escape(d["milestone"])}</title>',
+        f'{html.escape(d["milestone"])} · {html.escape(d.get("flow") or "")}</title>',
         _STYLE,
         _SCRIPT_RELOAD_ON_FOCUS,
         '</head><body>',
@@ -5486,6 +5472,9 @@ def _render_detail(project, info, d):
         f'{html.escape(d["block"])}</a></b></div>',
         f'  <div class="kv">Phase <b>{html.escape(d["phase"])}</b></div>',
         f'  <div class="kv">Milestone <b>{html.escape(d["milestone"])}</b></div>',
+        f'  <div class="kv">Flow <b>{html.escape(d.get("flow") or "—")}</b>'
+        + (f' <span class="muted">verifies {html.escape(d["attach_to"])}</span>' if d.get('attach_to') else '')
+        + '</div>',
         f'  <div class="byline">{html.escape(developed_by)} &middot; <a href="mailto:varun@smartsocs.com" style="color:inherit;text-decoration:underline">varun@smartsocs.com</a></div>',
         '</header>',
         f'<div class="back"><a href="/project/{html.escape(project, quote=True)}">← back to project</a></div>',
@@ -5496,7 +5485,6 @@ def _render_detail(project, info, d):
         f'  <a data-tab="floorplan" href="#floorplan">Floorplan &amp; placement<span class="badge">{counts["floorplan"]}</span></a>',
         f'  <a data-tab="checklist" href="#checklist">Checklist<span class="badge">{counts["checklist"]}</span></a>',
         f'  <a data-tab="routing"   href="#routing">Routing / Congestion<span class="badge">{counts["routing"]}</span></a>',
-        f'  <a data-tab="signoff"   href="#signoff">Signoff<span class="badge">{len(d.get("signoff") or [])}</span></a>',
         f'  <a data-tab="files"     href="#files">Files<span class="badge">{counts["files"]}</span></a>',
         '</nav>',
     ]
@@ -5591,41 +5579,6 @@ def _render_detail(project, info, d):
         parts.append(f'<div class="sec-h">Sign-off metrics '
                      f'<span class="hint">{len(signoff_metrics)} rows</span></div>')
         parts.append(_metrics_table(signoff_metrics))
-    parts.append('</div>')
-
-    # ── Signoff tab — the other flows' releases of this exit ─────────
-    signoff = d.get('signoff') or []
-    parts.append('<div class="tab-body" data-tab="signoff">')
-    parts.append('<div class="sec-h">Signoff flows <span class="hint">'
-                 f'{len(signoff)} flow releases of {html.escape(d.get("milestone") or "")}</span></div>')
-    if not signoff:
-        parts.append('<div class="empty">No other flow has released this exit yet '
-                     '(STA / PV / LEC … release under &lt;block&gt;/&lt;FLOW&gt;/&lt;exit&gt;).</div>')
-    else:
-        parts.append('<div style="overflow-x:auto"><table class="d"><thead><tr>'
-                     '<th>Flow</th><th>Status</th><th>Key results</th><th>Release</th>'
-                     '</tr></thead><tbody>')
-        for so in signoff:
-            st = (so.get('status') or 'UNKNOWN').upper()
-            cls = {'PASS': 'past', 'FAIL': 'late'}.get(st, 'future')
-            ms = so.get('metrics') or []
-            # summary lines: everything except per-scenario rows
-            keys = [m for m in ms if ' setup ' not in m['name'] and ' hold ' not in m['name']]
-            res = '<br>'.join(f'{html.escape(m["name"])}: <b>{html.escape(str(m["value"]))}</b>'
-                              for m in keys) or '—'
-            parts.append(
-                f'<tr><td class="tt-ms">{html.escape(so.get("flow") or "")}</td>'
-                f'<td><span class="tt-status st-{cls}">{html.escape(st)}</span>'
-                f'{"" if so.get("complete") else " <span class=muted>(incomplete)</span>"}</td>'
-                f'<td style="text-align:left">{res}</td>'
-                f'<td class="mono" style="text-align:left;white-space:normal">'
-                f'{html.escape(so.get("release_dir") or "")}</td></tr>')
-        parts.append('</tbody></table></div>')
-        for so in signoff:
-            rows = [m for m in (so.get('metrics') or []) if ' setup ' in m['name'] or ' hold ' in m['name']]
-            if rows:
-                parts.append(f'<div class="sec-h">{html.escape(so["flow"])} per scenario</div>')
-                parts.append(_metrics_table(rows))
     parts.append('</div>')
 
     # ── Routing / Congestion tab ─────────────────────────────────────
@@ -5739,6 +5692,8 @@ def _render_block(project, info, block_name, block_meta, block_pubs):
     only learn one grammar.
     """
     phases = _parse_phases(info)
+    runs = block_pubs                       # exit runs + signoff runs
+    block_pubs = [r for r in runs if not r.get('attach_to')]
     cells = {(r['phase'], r['milestone']): r for r in block_pubs}
 
     latest = max((r.get('published_at') or '' for r in block_pubs), default='—')
@@ -5794,7 +5749,7 @@ def _render_block(project, info, block_name, block_meta, block_pubs):
     parts.append('<section class="kpi">')
     parts.append(
         f'  <div><div class="lbl">Published runs</div>'
-        f'      <div class="val">{len(block_pubs)}</div>'
+        f'      <div class="val">{len(runs)}</div>'
         f'      <div class="sub">latest {html.escape(latest[:19])}</div></div>')
     parts.append(
         f'  <div><div class="lbl">Phases used</div>'
@@ -5832,17 +5787,18 @@ def _render_block(project, info, block_name, block_meta, block_pubs):
     parts.append('<div style="overflow-x:auto"><table class="d" id="pub-tbl">'
                  '<thead><tr>')
     headers = [('run',          'Run directory'),
+               ('flow',         'Flow'),
                ('phase',        'Phase'),
                ('milestone',    'Exit'),
+               ('verdict',      'Verdict'),
                ('release_tag',  'Release tag'),
                ('released_by',  'Released by'),
                ('published_at', 'Published'),
-               ('signoff',      'Signoff'),
                ('id',           'Detail')]
     for key, lbl in headers:
         parts.append(f'  <th data-sort="{key}">{html.escape(lbl)}</th>')
     parts.append('</tr></thead><tbody>')
-    sorted_rows = sorted(block_pubs,
+    sorted_rows = sorted(runs,
                          key=lambda r: (r.get('published_at') or ''),
                          reverse=True)
     for r in sorted_rows:
@@ -5853,12 +5809,14 @@ def _render_block(project, info, block_name, block_meta, block_pubs):
             f'data-ms="{html.escape(r["milestone"])}">'
             f'<td><a href="/published/{r["id"]}" title="{html.escape(run_dir_full)}">'
             f'<b>{html.escape(run_name)}</b></a></td>'
+            f'<td class="mono">{html.escape(r.get("flow") or "—")}</td>'
             f'<td>{html.escape(r["phase"])}</td>'
             f'<td class="mono">{html.escape(r["milestone"])}</td>'
+            f'<td><span class="verdict-badge v-{html.escape((r.get("verdict") or "UNKNOWN").lower())}">'
+            f'{html.escape(r.get("verdict") or "UNKNOWN")}</span></td>'
             f'<td class="mono">{html.escape(r.get("release_tag") or "—")}</td>'
             f'<td>{html.escape(r.get("released_by") or "—")}</td>'
             f'<td class="mono">{html.escape((r.get("published_at") or "")[:19])}</td>'
-            f'<td>{_signoff_pills(r)}</td>'
             f'<td><a href="/published/{r["id"]}">open →</a></td>'
             f'</tr>')
     parts.append('</tbody></table></div>')
