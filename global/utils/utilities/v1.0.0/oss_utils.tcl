@@ -663,6 +663,58 @@ proc oss_write_qor {tag} {
     oss_report "$::REPORTS_DIR/${tag}_area.rpt" report_design_area
     puts "QOR $tag: wns_setup=[sta::worst_slack -max] wns_hold=[sta::worst_slack -min] instances=[llength [[ord::get_db_block] getInsts]]"
     oss_checklist_safe $tag
+    if {[catch {oss_timing_snapshot} _e]} { handle_warning "timing snapshot not written: $_e" }
+}
+
+# reports/timing_snapshot.json — worst setup (max) and hold (min) paths per
+# endpoint clock with the instances along each path (DBU locations), the
+# shape SmartGrid's timing debugger reads (tracker_db.set_timing).
+proc oss_timing_snapshot {{n 10}} {
+    set _blk [ord::get_db_block]
+    set _dbu [[ord::get_db_tech] getDbUnitsPerMicron]
+    set groups [dict create]
+    set idx 0
+    foreach _type {max min} {
+        foreach _pe [find_timing_paths -path_delay $_type -group_path_count $n -sort_by_slack] {
+            set _slack [get_property $_pe slack]
+            if {![string is double -strict $_slack] || abs($_slack) > 1e20} continue
+            set _clk [get_property $_pe endpoint_clock]
+            set _cname [expr {$_clk eq "" ? "unclocked" : [get_full_name $_clk]}]
+            set _insts {}; set _seen {}; set _arr 0.0
+            foreach _pt [get_property $_pe points] {
+                set _pin [get_full_name [get_property $_pt pin]]
+                set _a [get_property $_pt arrival]
+                if {[string is double -strict $_a]} { set _arr $_a }
+                set _iname [expr {[string first / $_pin] >= 0 ? [string range $_pin 0 [expr {[string last / $_pin] - 1}]] : $_pin}]
+                if {$_iname in $_seen} continue
+                lappend _seen $_iname
+                set _i [$_blk findInst $_iname]
+                if {$_i ne "NULL" && $_i ne ""} {
+                    lassign [$_i getLocation] _x _y
+                } else {
+                    set _bt [$_blk findBTerm $_iname]
+                    set _x 0; set _y 0
+                    if {$_bt ne "NULL" && $_bt ne ""} {
+                        foreach _bp [$_bt getBPins] { set _bb [$_bp getBBox]; set _x [$_bb xMin]; set _y [$_bb yMin] }
+                    }
+                }
+                lappend _insts [format {{"name":"%s","x":%d,"y":%d}} [string map {\" \\\"} $_iname] $_x $_y]
+            }
+            set _req [expr {$_type eq "max" ? $_arr + $_slack : $_arr - $_slack}]
+            incr idx
+            set _start [string map {\" \\\"} [get_full_name [get_property $_pe startpoint]]]
+            set _end   [string map {\" \\\"} [get_full_name [get_property $_pe endpoint]]]
+            dict lappend groups $_cname [format {{"index":%d,"type":"%s","slack":%s,"arrival":%s,"required":%s,"start":"%s","end":"%s","instances":[%s]}} \
+                $idx $_type $_slack $_arr $_req $_start $_end [join $_insts ,]]
+        }
+    }
+    set _g {}
+    dict for {_c _paths} $groups {
+        lappend _g [format {{"name":"%s","paths":[%s]}} $_c [join $_paths ,]]
+    }
+    set _fh [open "$::REPORTS_DIR/timing_snapshot.json" w]
+    puts $_fh [format {{"units":%d,"clock_groups":[%s]}} $_dbu [join $_g ,]]
+    close $_fh
 }
 
 # Checklist data is reporting, never a reason to fail a stage.
@@ -680,7 +732,9 @@ proc oss_checklist_safe {tag} {
 proc oss_checklist_metrics {tag} {
     set _blk [ord::get_db_block]
     set _dbu [[ord::get_db_tech] getDbUnitsPerMicron]
-    set L [list "Design : [$_blk getName]" "Stage : $tag" \
+    # "# category: <c>" lines group the metrics for SmartGrid (publish reads
+    # this file as metrics.rpt); checklist patterns match the "Key : value" lines.
+    set L [list "# category: design" "Design : [$_blk getName]" "Stage : $tag" \
                "Instances : [llength [$_blk getInsts]]"]
 
     # Area / utilization (report_design_area)
@@ -693,6 +747,7 @@ proc oss_checklist_metrics {tag} {
     }
 
     # Timing (library time units)
+    lappend L "# category: timing"
     foreach {_k _c} {"Setup WNS" {sta::worst_slack -max} "Setup TNS" {sta::total_negative_slack -max}
                      "Hold WNS" {sta::worst_slack -min} "Hold TNS" {sta::total_negative_slack -min}} {
         # |slack| ~1e30+ = no constrained path: not measurable, leave it out
@@ -718,7 +773,7 @@ proc oss_checklist_metrics {tag} {
             if {$ax0 < $bx1 && $bx0 < $ax1 && $ay0 < $by1 && $by0 < $ay1} { incr _ovl }
         }
     }
-    lappend L "Hard macros : [expr {[llength $_boxes] + $_unpl}]" \
+    lappend L "# category: placement" "Hard macros : [expr {[llength $_boxes] + $_unpl}]" \
               "Macro spacing violations : [expr {$_ovl + $_unpl}]" \
               "Macro orientation violations : $_orient"
 
@@ -750,13 +805,21 @@ proc oss_checklist_metrics {tag} {
         set _tmp "$::REPORTS_DIR/clock_skew.rpt"
         if {![catch {oss_report $_tmp report_clock_skew -setup}]} {
             set _fh [open $_tmp]; set _t [read $_fh]; close $_fh
-            set _lat ""; set _skew ""
+            # Clock tree skew = source latency + target latency (the report's
+            # "setup skew" also adds clock uncertainty); insertion delay =
+            # source latency. Worst over the clocks reported.
+            set _skew ""; set _lat ""
             foreach _ln [split $_t \n] {
-                set _nums [regexp -all -inline -- {-?\d+\.\d+} $_ln]
-                if {[llength $_nums] == 3} { lassign $_nums _lat _ _skew }
+                if {[regexp -- {^\s*(-?[\d.]+)\s+source latency} $_ln -> _src]} { set _s $_src }
+                if {[regexp -- {^\s*(-?[\d.]+)\s+target latency} $_ln -> _tgt] && [info exists _s]} {
+                    set _k [expr {abs($_s + $_tgt)}]
+                    if {$_skew eq "" || $_k > $_skew} { set _skew $_k }
+                    if {$_lat eq "" || $_s > $_lat} { set _lat $_s }
+                }
             }
             if {$_skew ne ""} {
-                lappend L "Clock skew ps : [format %.1f [expr {$_skew * 1000}]]" \
+                lappend L "# category: clock" \
+                          "Clock skew ps : [format %.1f [expr {$_skew * 1000}]]" \
                           "Clock insertion delay ps : [format %.1f [expr {$_lat * 1000}]]"
             }
         }
@@ -773,7 +836,7 @@ proc oss_checklist_metrics {tag} {
             if {[$_n getWire] eq "NULL"} { incr _open }
         }
         set _pct [expr {$_sig ? 100.0 * ($_sig - $_open) / $_sig : 100.0}]
-        lappend L "Routable nets : $_sig" "Open nets : $_open" \
+        lappend L "# category: routing" "Routable nets : $_sig" "Open nets : $_open" \
                   "Routing completion : [format %.2f $_pct]"
         set _rdir [expr {$tag eq "route" ? $::REPORTS_DIR
                          : "$::run_dir/work/$::FLOW_TYPE/[oss_chain_node route]/reports"}]

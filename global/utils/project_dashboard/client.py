@@ -89,7 +89,21 @@ def build_payload(project, block, phase, milestone, release_dir, workspace,
         if os.path.isfile(p):
             files.append({'kind': kind, 'rel_path': name,
                           'sha256': _sha256(p)})
+    # Images under <release_dir>/images/ — kind IMAGE_<TAG>, tag = filename
+    # up to the first '_' or '.' (routing_layout.png -> IMAGE_ROUTING)
+    img_dir = os.path.join(release_dir, 'images')
+    if os.path.isdir(img_dir):
+        for name in sorted(os.listdir(img_dir)):
+            if os.path.splitext(name)[1].lower() in ('.png', '.jpg', '.jpeg', '.svg', '.gif', '.webp'):
+                tag = re.split(r'[_.]', name, 1)[0].upper() or 'IMAGE'
+                p = os.path.join(img_dir, name)
+                files.append({'kind': f'IMAGE_{tag}', 'rel_path': f'images/{name}',
+                              'sha256': _sha256(p)})
     payload['files'] = files
+    # Release metrics report (metrics.rpt): "Key : value" lines grouped by
+    # "# category: <c>" headers — written by the flow for the exit it fills.
+    payload['metrics'] = payload['metrics'] + _read_metrics_report(
+        os.path.join(release_dir, 'metrics.rpt'))
 
     # Floorplan snapshot — DEF + LEF macro dimensions. Parsers are
     # defensive and return empty on missing / stub files, so we always
@@ -113,6 +127,26 @@ def build_payload(project, block, phase, milestone, release_dir, workspace,
     if timing:
         payload['timing'] = timing
     return payload
+
+
+def _read_metrics_report(path):
+    """[{category, name, value}] from a metrics report; [] when absent."""
+    out, cat = [], 'other'
+    try:
+        with open(path, encoding='utf-8', errors='replace') as f:
+            for line in f:
+                line = line.strip()
+                m = re.match(r'#\s*category:\s*(\S+)', line)
+                if m:
+                    cat = m.group(1)
+                    continue
+                if not line or line.startswith('#') or ' : ' not in line:
+                    continue
+                k, v = line.split(' : ', 1)
+                out.append({'category': cat, 'name': k.strip(), 'value': v.strip()})
+    except OSError:
+        pass
+    return out
 
 
 def _load_timing_snapshot(release_dir):

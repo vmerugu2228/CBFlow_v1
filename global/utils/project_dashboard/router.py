@@ -5361,11 +5361,13 @@ def _render_detail(project, info, d):
     # Bucket metrics into "timing" vs "other" using category + name heuristics.
     all_metrics = d.get('metrics') or []
     timing_names = ('WNS', 'TNS', 'HOLD', 'SETUP', 'SLACK', 'FMAX', 'FREQ')
-    timing_metrics, signoff_metrics, other_metrics = [], [], []
+    timing_metrics, signoff_metrics, other_metrics, routing_metrics = [], [], [], []
     for m in all_metrics:
         cat = (m.get('category') or '').lower()
         nm  = (m.get('name') or '').upper()
-        if 'timing' in cat or any(t in nm for t in timing_names):
+        if cat in ('routing', 'congestion'):
+            routing_metrics.append(m)
+        elif 'timing' in cat or any(t in nm for t in timing_names):
             timing_metrics.append(m)
         elif cat in ('power', 'em', 'ir', 'signoff', 'drc', 'lvs'):
             signoff_metrics.append(m)
@@ -5385,9 +5387,10 @@ def _render_detail(project, info, d):
     # Tab counts drive the badges on the tab labels
     counts = {
         'timing':    len(timing_metrics),
+        'routing_metrics': len(routing_metrics),
         'floorplan': 1 if d.get('has_floorplan') else 0,
         'checklist': len(checklist),
-        'routing':   len(image_files),
+        'routing':   len(image_files) + len(routing_metrics),
         'files':     len(data_files),
     }
 
@@ -5519,6 +5522,9 @@ def _render_detail(project, info, d):
 
     # ── Routing / Congestion tab ─────────────────────────────────────
     parts.append('<div class="tab-body" data-tab="routing">')
+    parts.append('<div class="sec-h">Routing metrics '
+                 f'<span class="hint">{len(routing_metrics)} rows</span></div>')
+    parts.append(_metrics_table(routing_metrics))
     parts.append('<div class="sec-h">Routing &amp; congestion images '
                  f'<span class="hint">{len(image_files)} images</span></div>')
     if not image_files:

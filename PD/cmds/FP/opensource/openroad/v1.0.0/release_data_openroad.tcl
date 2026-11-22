@@ -41,6 +41,10 @@ flow_proc publish {
     foreach _n [lmap _t {init_design floorplan powerplan export_data} {oss_chain_node $_t}] {
         ::CBFlow::Release::copy_glob "$::run_dir/work/$::FLOW_TYPE/$_n/reports/*.rpt" reports
     }
+    # SmartGrid metrics of the exit (node from fp(checklist,exit_node,<exit>))
+    set _ms [::CBFlow::Release::default_exit_tag $::FLOW_TYPE [oss_get project release,phase]]
+    set _xr "$::run_dir/work/$::FLOW_TYPE/[oss_get fp checklist,exit_node,$_ms]/reports"
+    ::CBFlow::Release::copy_file "$_xr/checklist_metrics.rpt" . metrics.rpt
     ::CBFlow::Release::generate_manifest
     ::CBFlow::Release::stamp_complete
     set _fh [open [oss_stage_out release.manifest] w]

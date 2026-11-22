@@ -90,6 +90,22 @@ flow_proc stream_out {
             error "KLayout DEF->GDS failed (see $_log): $_err"
         }
         handle_info [exec tail -1 $_log]
+        # Routed-layout image for SmartGrid (release images/) — reporting only
+        set _png [oss_stage_out layout.png]
+        set _ipy "$::WORK_DIR/run/layout_image.py"
+        set _fh [open $_ipy w]
+        puts $_fh "import pya"
+        puts $_fh "lv = pya.LayoutView()"
+        puts $_fh "lv.set_config('background-color', '#ffffff')"
+        puts $_fh "lv.load_layout('$_out', True)"
+        puts $_fh "lv.max_hier()"
+        puts $_fh "lv.zoom_fit()"
+        puts $_fh "lv.save_image('$_png', 1600, 1600)"
+        puts $_fh "print('layout image: $_png')"
+        close $_fh
+        if {[catch {exec klayout -zz -r $_ipy >& "$::REPORTS_DIR/layout_image.log"} _err]} {
+            handle_warning "layout image not written (see $::REPORTS_DIR/layout_image.log)"
+        }
     }
 }
 

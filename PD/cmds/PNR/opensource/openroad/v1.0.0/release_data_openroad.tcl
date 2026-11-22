@@ -63,6 +63,18 @@ flow_proc publish {
         ::CBFlow::Release::copy_glob "$::run_dir/work/$::FLOW_TYPE/$_n/reports/*.rpt" reports
         ::CBFlow::Release::copy_glob "$::run_dir/work/$::FLOW_TYPE/$_n/reports/*_qor.tcl" reports
     }
+    # SmartGrid data of the exit this release fills: the exit node's metrics
+    # and timing snapshot (node from pnr(checklist,exit_node,<exit>)) and the
+    # routed-layout image.
+    set _ms [::CBFlow::Release::default_exit_tag $::FLOW_TYPE [oss_get project release,phase]]
+    set _xn [oss_get pnr checklist,exit_node,$_ms]
+    set _xr "$::run_dir/work/$::FLOW_TYPE/$_xn/reports"
+    ::CBFlow::Release::copy_file "$_xr/checklist_metrics.rpt" . metrics.rpt
+    if {[file exists "$_xr/timing_snapshot.json"]} {
+        ::CBFlow::Release::copy_file "$_xr/timing_snapshot.json" . timing_snapshot.json
+    }
+    set _img [oss_node_output [oss_chain_node export_data] layout.png]
+    if {[file exists $_img]} { ::CBFlow::Release::copy_file $_img images routing_layout.png }
     ::CBFlow::Release::generate_manifest
     ::CBFlow::Release::stamp_complete
     set _fh [open [oss_stage_out release.manifest] w]
