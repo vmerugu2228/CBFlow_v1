@@ -100,6 +100,10 @@ def build_payload(project, block, phase, milestone, release_dir, workspace,
                 files.append({'kind': f'IMAGE_{tag}', 'rel_path': f'images/{name}',
                               'sha256': _sha256(p)})
     payload['files'] = files
+    # Every other flow's release of this exit (<block>/<FLOW>/<tag>, e.g.
+    # STA/PV/LEC beside PNR): one signoff record each, status from its
+    # metrics.rpt "Status" line.
+    payload['signoff'] = _collect_flow_releases(release_dir)
     # Release metrics report (metrics.rpt): "Key : value" lines grouped by
     # "# category: <c>" headers — written by the flow for the exit it fills.
     payload['metrics'] = payload['metrics'] + _read_metrics_report(
@@ -127,6 +131,29 @@ def build_payload(project, block, phase, milestone, release_dir, workspace,
     if timing:
         payload['timing'] = timing
     return payload
+
+
+def _collect_flow_releases(release_dir):
+    """[{flow, release_tag, release_dir, status, complete, metrics}] for the
+    sibling flow releases of the same tag: <block>/<FLOW>/<tag>."""
+    tag = os.path.basename(os.path.normpath(release_dir))
+    flow_dir = os.path.dirname(os.path.normpath(release_dir))
+    block_dir = os.path.dirname(flow_dir)
+    primary = os.path.basename(flow_dir)
+    out = []
+    if not os.path.isdir(block_dir):
+        return out
+    for flow in sorted(os.listdir(block_dir)):
+        d = os.path.join(block_dir, flow, tag)
+        if flow == primary or not os.path.isdir(d):
+            continue
+        metrics = _read_metrics_report(os.path.join(d, 'metrics.rpt'))
+        status = next((m['value'] for m in metrics if m['name'] == 'Status'), '')
+        out.append({'flow': flow, 'release_tag': tag, 'release_dir': d,
+                    'status': status.upper() or 'UNKNOWN',
+                    'complete': os.path.isfile(os.path.join(d, 'RELEASE_COMPLETE')),
+                    'metrics': [m for m in metrics if m['name'] != 'Status']})
+    return out
 
 
 def _read_metrics_report(path):
@@ -406,6 +433,10 @@ def _read_run_snapshot(race_db_path, milestone):
         # `cbflow flow checklist status`; each check keeps its own status.
         blocked = sum(1 for c in mandatory
                       if c.get('status') in ('FAIL', 'NA', 'PENDING', None))
+        # …and so does a failing critical library check (same rule as status)
+        blocked += sum(1 for c in checklist
+                       if c.get('check_type') == 'library' and c.get('status') == 'FAIL'
+                       and c.get('severity') == 'critical')
         closability = round(100.0 * passed / len(mandatory), 1)
         if blocked > 0:
             verdict = 'BLOCKED'

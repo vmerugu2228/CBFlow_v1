@@ -42,6 +42,8 @@ flow_proc global_detailed_route {
     # -verbose prints the final congestion table (overflow per layer + total)
     oss_report "$::REPORTS_DIR/route_grt.rpt" global_route -allow_congestion -verbose \
         -congestion_report_file "$::REPORTS_DIR/route_congestion.rpt"
+    # Wire RC from the global route for this stage's timing / clock metrics
+    estimate_parasitics -global_routing
     detailed_route -output_drc "$::REPORTS_DIR/route_drc.rpt" -verbose 1
     write_db [oss_stage_out route.odb]
 }

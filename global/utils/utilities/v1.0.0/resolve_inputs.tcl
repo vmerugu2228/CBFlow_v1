@@ -54,9 +54,23 @@ namespace eval ::CBFlow::InputResolve {
     #   <release,path>/<release,phase>/<block>/<tag>/<category>/
     # (block = design_name); older tags use the flat <base>/<tag>/<category>/.
     # The block layout is tried first, for the design being resolved.
-    proc _release_tag_dir {release_base tag design_name} {
-        if {$design_name ne "" && [info exists ::project(release,phase)] && $::project(release,phase) ne ""} {
-            set _d [file join $release_base $::project(release,phase) $design_name $tag]
+    # Release dir of <tag> for an input. Layout: <base>/<phase>/<design>/<FLOW>/<tag>
+    # (every flow releases each exit under its own FLOW dir). src_flow is the
+    # handshake's source flow; ANY = the flow dir whose release holds rel_file.
+    # Older layouts (<base>/<phase>/<design>/<tag>, <base>/<tag>) still resolve.
+    proc _release_tag_dir {release_base tag design_name {src_flow ""} {rel_file ""}} {
+        set _ph [expr {[info exists ::project(release,phase)] ? $::project(release,phase) : ""}]
+        if {$design_name ne "" && $_ph ne ""} {
+            set _blk [file join $release_base $_ph $design_name]
+            if {$src_flow ne "" && $src_flow ne "ANY"} {
+                set _d [file join $_blk $src_flow $tag]
+                if {[file isdirectory $_d]} { return $_d }
+            } else {
+                foreach _d [lsort [glob -nocomplain -types d [file join $_blk * $tag]]] {
+                    if {$rel_file eq "" || [file exists [file join $_d $rel_file]]} { return $_d }
+                }
+            }
+            set _d [file join $_blk $tag]
             if {[file isdirectory $_d]} { return $_d }
         }
         return [file join $release_base $tag]
@@ -272,7 +286,8 @@ namespace eval ::CBFlow::InputResolve {
         set src_category [lindex $hval 1]
         set src_pattern [lindex $hval 2]
         set filename [string map [list \${design_name} $design_name] $src_pattern]
-        set fpath [file join [_release_tag_dir $release_base $tag $design_name] $src_category $filename]
+        set fpath [file join [_release_tag_dir $release_base $tag $design_name [lindex $hval 0] \
+                                  [file join $src_category $filename]] $src_category $filename]
 
         if {[file exists $fpath]} {
             set ::${arr}(input,${input_type}) $fpath
@@ -365,7 +380,8 @@ namespace eval ::CBFlow::InputResolve {
                 set src_category [lindex $_hval 1]
                 set src_pattern [lindex $_hval 2]
                 set filename [string map [list \${design_name} $design_name] $src_pattern]
-                set fpath [file join [_release_tag_dir $release_base $tag $design_name] $src_category $filename]
+                set fpath [file join [_release_tag_dir $release_base $tag $design_name [lindex $_hval 0] \
+                                          [file join $src_category $filename]] $src_category $filename]
 
                 if {[file exists $fpath]} {
                     if {![info exists ::${arr}(input,${hinput})] || [set ::${arr}(input,${hinput})] eq ""} {

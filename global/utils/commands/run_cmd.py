@@ -6,6 +6,7 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import argparse
+import glob
 import os
 import re as _re_mod
 import sys
@@ -409,6 +410,38 @@ def _flow_release_manifest(run_dir: str):
                     info[parts[0]] = parts[1]
         info['flow_type'] = flow_type
     return info
+
+
+def _publish_signoff_release(run_dir: str, info: dict, strict: bool) -> int:
+    """Refresh the SmartGrid entry of the exit a signoff release verified."""
+    env_vars = {}
+    with open(os.path.join(run_dir, '.run.cbflow.env')) as fh:
+        for line in fh:
+            line = line.strip()
+            if line.startswith('export ') and '=' in line:
+                k, v = line[7:].split('=', 1)
+                env_vars[k] = v.strip('"')
+    project = env_vars.get('CBFLOW_PROJECT_NAME', '')
+    block = env_vars.get('CBFLOW_DESIGN_NAME', '')
+    phase = env_vars.get('CBFLOW_PROJECT_PHASE', '')
+    exit_tag = info['attach_to']
+    pd_pkg = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          'project_dashboard')
+    if pd_pkg not in sys.path:
+        sys.path.insert(0, pd_pkg)
+    import importlib.util as _ilu
+    import tracker_db as _tdb
+    spec = _ilu.spec_from_file_location('_pd_state_paths', os.path.join(pd_pkg, 'state_paths.py'))
+    sp = _ilu.module_from_spec(spec); spec.loader.exec_module(sp)
+    rows = [r for r in _tdb.list_published(sp.tracker_db(project), project)
+            if r['block'] == block and r['phase'] == phase and r['milestone'] == exit_tag]
+    if not rows or not rows[0].get('run_dir') or not os.path.isdir(rows[0]['run_dir']):
+        logger.error(f"  Not published: {block} / {phase} has no {exit_tag} entry to attach "
+                     f"{info.get('flow_type')} to — publish the {exit_tag} release first.")
+        return 1
+    logger.info(f"  {info.get('flow_type')} release attaches to {block} / {phase} / {exit_tag} "
+                f"(refreshing it from {os.path.basename(rows[0]['run_dir'])})")
+    return _publish_flow_release(rows[0]['run_dir'], exit_tag, strict=strict, override=True)
 
 
 def _publish_flow_release(run_dir: str, milestone: str, strict: bool, override: bool) -> int:
@@ -1989,6 +2022,14 @@ def cmd_release(args: argparse.Namespace) -> int:
             return 1
         milestone = tag_override or info.get('milestone', '')
         logger.info(f"  Release (from run): {info['release_dir']}")
+        # A signoff flow's release (STA/PV/LEC …) belongs to the exit it
+        # verified (attach_to): re-publish that exit's entry, which gathers
+        # every flow's release of the exit, from the run it was published from.
+        if not info.get('milestone') and info.get('attach_to'):
+            if not getattr(args, 'publish', None):
+                logger.info("  Not published to SmartGrid (publish not requested — use --publish).")
+                return 0
+            return _publish_signoff_release(run_dir, info, strict=True)
         if not getattr(args, 'publish', None):
             logger.info("  Not published to SmartGrid (publish not requested — use --publish).")
             return 0
@@ -2147,17 +2188,20 @@ def cmd_release(args: argparse.Namespace) -> int:
         return 0
 
     # Create release directory
-    # Same layout as the flows' release_data: <release,path>/<phase>/<block>/<tag>
-    release_dir = os.path.join(release_path, phase, design_name, release_tag_name)
-    os.makedirs(release_dir, exist_ok=True)
-    logger.info(f"  Release directory: {release_dir}")
+    # Same layout as the flows' release_data: <release,path>/<phase>/<block>/<FLOW>/<tag>
+    block_dir = os.path.join(release_path, phase, design_name)
+    flow_dirs = {f: os.path.join(block_dir, f, release_tag_name) for f in found_runs}
+    release_dir = next(iter(flow_dirs.values()))          # primary flow's release
+    for _d in flow_dirs.values():
+        os.makedirs(_d, exist_ok=True)
+    logger.info(f"  Release directories: {block_dir}/<FLOW>/{release_tag_name}")
     logger.info("")
 
     # Copy deliverables from each flow
     total_files = 0
     for flow, run_dir_name in found_runs.items():
         run_path = os.path.join(workspace, run_dir_name)
-        flow_release_dir = os.path.join(release_dir, flow)
+        flow_release_dir = flow_dirs[flow]
         flow_files = 0
 
         # Scan for output manifest first
@@ -2250,21 +2294,21 @@ def cmd_release(args: argparse.Namespace) -> int:
         'flows': {flow: run for flow, run in found_runs.items()},
         'expiry_date': expiry_date,
     }
-    with open(os.path.join(release_dir, 'MANIFEST.json'), 'w', encoding='utf-8') as f:
-        json.dump(manifest, f, indent=2)
-
-    # Generate RELEASE_COMPLETE
-    with open(os.path.join(release_dir, 'RELEASE_COMPLETE'), 'w', encoding='utf-8') as f:
-        f.write(f"TAG={release_tag_name}\n")
-        f.write(f"MILESTONE={tag}\n")
-        f.write(f"PHASE={phase}\n")
-        f.write(f"PROJECT={project_name}\n")
-        f.write(f"DESIGN={design_name}\n")
-        f.write(f"FILES={total_files}\n")
-        f.write(f"FLOWS={' '.join(found_runs.keys())}\n")
-        f.write(f"STATUS=PASS\n")
-        f.write(f"TIMESTAMP={datetime.now().isoformat()}\n")
-        f.write(f"USER={os.environ.get('USER', 'unknown')}\n")
+    for _flow, _d in flow_dirs.items():
+        with open(os.path.join(_d, 'MANIFEST.json'), 'w', encoding='utf-8') as f:
+            json.dump(dict(manifest, flow=_flow), f, indent=2)
+    for _flow, _d in flow_dirs.items():
+        with open(os.path.join(_d, 'RELEASE_COMPLETE'), 'w', encoding='utf-8') as f:
+            f.write(f"TAG={release_tag_name}\n")
+            f.write(f"MILESTONE={tag}\n")
+            f.write(f"PHASE={phase}\n")
+            f.write(f"PROJECT={project_name}\n")
+            f.write(f"DESIGN={design_name}\n")
+            f.write(f"FILES={total_files}\n")
+            f.write(f"FLOWS={' '.join(found_runs.keys())}\n")
+            f.write(f"STATUS=PASS\n")
+            f.write(f"TIMESTAMP={datetime.now().isoformat()}\n")
+            f.write(f"USER={os.environ.get('USER', 'unknown')}\n")
 
     logger.info("")
     logger.info(f"  ═══════════════════════════════════════════════════════════")
@@ -2650,8 +2694,8 @@ def cmd_release_check(args: argparse.Namespace) -> int:
         stub_detected = False
 
         for flow in required_flows:
-            release_dir = os.path.join(release_path, phase, block, release_tag_name, flow)
-            rc_file = os.path.join(release_path, phase, block, release_tag_name, 'RELEASE_COMPLETE')
+            release_dir = os.path.join(release_path, phase, block, flow, release_tag_name)
+            rc_file = os.path.join(release_dir, 'RELEASE_COMPLETE')
 
             if os.path.isdir(release_dir) and len(os.listdir(release_dir)) > 0:
                 # test_mode stub marker — refuse to count as PASS. The
@@ -2683,7 +2727,11 @@ def cmd_release_check(args: argparse.Namespace) -> int:
                 block_ok = False
 
         # Check overall RELEASE_COMPLETE
-        rc_path_full = os.path.join(release_path, phase, block, release_tag_name, 'RELEASE_COMPLETE')
+        # Per-flow layout: every flow dir carries its own RELEASE_COMPLETE
+        _rcs = sorted(glob.glob(os.path.join(release_path, phase, block, '*',
+                                             release_tag_name, 'RELEASE_COMPLETE')))
+        rc_path_full = _rcs[0] if _rcs else os.path.join(
+            release_path, phase, block, release_tag_name, 'RELEASE_COMPLETE')
         if block_ok and os.path.exists(rc_path_full):
             # Also check the summary RELEASE_COMPLETE text for a stub tag.
             try:

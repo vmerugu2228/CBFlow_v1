@@ -54,12 +54,15 @@ array set fp {
 # it for blocks that integrate hard macros.
 # core_utilization = standard-cell utilization % (macro blocks add macro area on
 # top). Default here; set per block in user_config: fp(oss,fp,core_utilization).
-# oss,macro,placement {inst x y orient ...} overrides rtl_macro_placer.
+# oss,macro,placement {inst x y orient ...} overrides rtl_macro_placer; "row" =
+# macros in one row from the core corner, oss,fp,macro_channel (um) apart —
+# the std-cell / routing band kept around macros by utilization sizing.
 array set fp {
     oss,fp,die_area          ""
     oss,fp,core_utilization  45
     oss,fp,aspect_ratio      1.0
     oss,fp,core_margin       10
+    oss,fp,macro_channel     60
     oss,pins,hor_layer       "met3"
     oss,pins,ver_layer       "met2"
     oss,macro,halo           10

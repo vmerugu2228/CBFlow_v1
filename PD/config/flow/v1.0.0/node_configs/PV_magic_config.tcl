@@ -59,3 +59,17 @@ set pv(mandatory_outputs,drc1)          {drc.rpt}
 set pv(mandatory_outputs,lvs1)          {lvs.rpt}
 set pv(mandatory_outputs,merge_data1)   {verification_summary.rpt}
 set pv(mandatory_outputs,release_data1) {release.manifest}
+
+# ┌─ Signoff verdict (release metrics.rpt Status; SmartGrid Signoff tab) ──────┐
+# PASS when DRC errors <= max_drc and the LVS result matches lvs_pass (regex).
+array set pv {
+    signoff,max_drc     0
+    signoff,lvs_pass    {^Circuits match uniquely}
+}
+
+# ┌─ Release tag ───────────────────────────────────────────────────────────────┐
+# Default tag = the exit this run verifies (the tag of pv(input,release_tag)); the
+# release lands at <phase>/<block>/PV/<exit> beside the PNR release.
+array set pv {
+    release,exit_from   "input,release_tag"
+}

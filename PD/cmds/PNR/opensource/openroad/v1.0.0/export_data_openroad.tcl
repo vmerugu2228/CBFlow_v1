@@ -43,7 +43,10 @@ flow_proc stream_out {
     puts $_fh "cfg = opts.lefdef_config"
     puts $_fh "cfg.map_file = '[oss_get tech klayout,def_layer_map]'"
     puts $_fh "cfg.lef_files = \[[join [lmap _l $_lefs {format "'%s'" $_l}] {, }]\]"
-    puts $_fh "cfg.macro_resolution_mode = 1          # macros = FOREIGN cells, filled from GDS"
+    # 2 = never draw LEF geometry: every macro (std cell or child block) is an
+    # empty cell filled from its GDS. (1 draws LEF geometry — child-block OBS
+    # blankets shorted the child for LVS.)
+    puts $_fh "cfg.macro_resolution_mode = 2"
     puts $_fh "cfg.read_lef_with_def = False"
     puts $_fh "ly = pya.Layout()"
     puts $_fh "ly.read('$_def', opts)"

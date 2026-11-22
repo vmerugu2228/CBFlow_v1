@@ -34,3 +34,16 @@ array set lec {
 # ┌─ Mandatory outputs (relative to work/LEC/<node>/outputs/) ──────────────────┐
 set lec(mandatory_outputs,compare1)      {lec.rpt}
 set lec(mandatory_outputs,release_data1) {release.manifest}
+
+# ┌─ Signoff verdict (release metrics.rpt Status; SmartGrid Signoff tab) ──────┐
+# PASS when the comparison result matches result_pass (regex).
+array set lec {
+    signoff,result_pass {^EQUIVALENT$}
+}
+
+# ┌─ Release tag ───────────────────────────────────────────────────────────────┐
+# Default tag = the exit this run verifies (the tag of lec(input,netlist_revised_release_tag)); the
+# release lands at <phase>/<block>/LEC/<exit> beside the PNR release.
+array set lec {
+    release,exit_from   "input,netlist_revised_release_tag"
+}

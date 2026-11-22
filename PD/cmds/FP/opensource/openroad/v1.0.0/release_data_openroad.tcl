@@ -39,7 +39,7 @@ flow_proc publish {
         ::CBFlow::Release::copy_file "$_ex/final.upf" upf ${design_name}.upf
     }
     foreach _n [lmap _t {init_design floorplan powerplan export_data} {oss_chain_node $_t}] {
-        ::CBFlow::Release::copy_glob "$::run_dir/work/$::FLOW_TYPE/$_n/reports/*.rpt" reports
+        ::CBFlow::Release::copy_glob "$::run_dir/work/$::FLOW_TYPE/$_n/reports/*.rpt" reports/$_n
     }
     # SmartGrid metrics of the exit (node from fp(checklist,exit_node,<exit>))
     set _ms [::CBFlow::Release::default_exit_tag $::FLOW_TYPE [oss_get project release,phase]]

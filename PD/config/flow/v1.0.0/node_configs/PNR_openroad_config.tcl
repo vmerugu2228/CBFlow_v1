@@ -125,9 +125,12 @@ array set pnr {
     checklist,metric,routing_completion          {^Routing completion\s*:\s*([0-9.]+)}
     checklist,metric,opens                       {^Open nets\s*:\s*(\d+)}
     checklist,metric,shorts                      {^Shorts\s*:\s*(\d+)}
-    checklist,metric,drc_violations              {^DRC violations\s*:\s*(\d+)}
-    checklist,metric,congestion_h                {^Horizontal overflow\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)}
-    checklist,metric,congestion_v                {^Vertical overflow\s*:\s*(-?[0-9.]+(?:[eE][-+]?[0-9]+)?)}
+    checklist,metric,congestion_h                {^Overflow pct\s*:\s*([0-9.]+)}
+    checklist,metric,congestion_v                {^Overflow pct\s*:\s*([0-9.]+)}
+    checklist,metric,max_fanout_violations       {^Max fanout violations\s*:\s*(\d+)}
+    checklist,metric,max_cap_violations          {^Max cap violations\s*:\s*(\d+)}
+    checklist,metric,max_tran_violations         {^Max slew violations\s*:\s*(\d+)}
+    checklist,metric,drc_total                   {^DRC violations\s*:\s*(\d+)}
 }
 
 # ┌─ Runtime (minutes) — large blocks route longer than the FC defaults ───────┐

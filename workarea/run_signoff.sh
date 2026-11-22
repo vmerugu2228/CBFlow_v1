@@ -1,16 +1,26 @@
 #!/bin/bash
 # Signoff for a block whose PNR is released: STA (OpenSTA), PV (Magic/Netgen)
 # and LEC (Yosys) in parallel, each consuming the PNR exit release and
-# releasing <FLOW>_<exit> (e.g. STA_PRO_EXIT). CLP has no open-source tool.
+# releasing under the exit name: <phase>/<block>/<FLOW>/<exit> (tag from
+# <flow>(release,exit_from)). CLP has no open-source tool.
 #   usage: run_signoff.sh <block> [pnr_exit_tag]   (default PRO_EXIT)
 cd "$(dirname "$0")"
 WA=$PWD
 C=$WA/../bin/cbflow
-B=$1; EXIT=${2:-PRO_EXIT}; RUN=oss_u10
+B=$1; EXIT=${2:-PRO_EXIT}; RUN=${RUN:-oss_b1}
 LOG=$WA/signoff.log
 [ -d "$WA/$B" ] || { echo "no block $B"; exit 1; }
 
 say() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG"; }
+PUBLISH=${PUBLISH:-1}
+
+# One publish at a time (each refreshes the whole exit entry)
+flock_publish() {
+    local lock="$WA/.publish.lock"
+    while ! mkdir "$lock" 2>/dev/null; do sleep 2; done
+    $C run release --from-run "$1" --publish 2>&1 | grep -E "Published:|Not published|ERROR" | sed "s|^|$B $1: |" | tee -a "$LOG"
+    rmdir "$lock"
+}
 
 # mk <FLOW> <template uc in gcd/> — per-block uc: design, run name, tags
 mk() {
@@ -21,7 +31,7 @@ mk() {
         -e "s/^set pv(input,release_tag) *\"[^\"]*\"/set pv(input,release_tag)      \"$EXIT\"/" \
         -e "s/^set lec(input,netlist_golden_release_tag) .*/set lec(input,netlist_golden_release_tag)  \"P0_SYNTH_v1\"/" \
         -e "s/^set lec(input,netlist_revised_release_tag) .*/set lec(input,netlist_revised_release_tag) \"$EXIT\"/" \
-        -e "s/^set project(release,tag) .*/set project(release,tag)       \"${f}_${EXIT}\"/" \
+        -e '/^set project(release,tag)/d' \
         "$WA/gcd/$src" > "$dst"
     echo "$dst"
 }
@@ -32,10 +42,16 @@ run() {
     say "$B $f: start (input $EXIT)"
     (cd "$WA/$B" && rm -rf "$rd" && $C workspace create --config "$uc") > "$WA/$B/${fl}_signoff_create.log" 2>&1
     (cd "$WA/$B/$rd" && $C run all) > "$WA/$B/${fl}_signoff.log" 2>&1
-    if grep -q "result=PASS" "$WA/$B/${fl}_signoff.log"; then
-        say "$B $f: PASS -> release ${f}_${EXIT}"
-    else
-        say "$B $f: FAILED — see $B/${fl}_signoff.log"
+    if ! grep -q "result=PASS" "$WA/$B/${fl}_signoff.log"; then
+        say "$B $f: RUN FAILED — see $B/${fl}_signoff.log"; return
+    fi
+    # Verdict = the release's metrics.rpt Status (thresholds in the tool overlay)
+    local rel; rel=$(awk '/^release_dir/{print $2}' "$WA/$B/$rd"/work/$f/release_data1/outputs/release.manifest)
+    local st; st=$(awk -F' : ' '/^Status :/{print $2}' "$rel/metrics.rpt" 2>/dev/null)
+    say "$B $f: run done, verdict ${st:-UNKNOWN} -> release ${rel#*/P0/}"
+    # attach to the exit entry in SmartGrid (refreshes it with every flow's release)
+    if [ -n "$PUBLISH" ]; then
+        (cd "$WA/$B" && flock_publish "$rd")
     fi
 }
 

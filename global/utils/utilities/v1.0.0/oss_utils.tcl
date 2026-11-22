@@ -162,6 +162,7 @@ proc oss_pdn {design blocks} {
 
     set _hnets [list $_vdd $_vss]
     set _hpitch $_ph
+    set _created {}
     if {$_pos in {middle top}} {
         set _hnets [oss_get project power,rail_nets]
         set _hpitch [oss_rail_pitch]
@@ -170,6 +171,7 @@ proc oss_pdn {design blocks} {
                 set _net [odb::dbNet_create [ord::get_db_block] $_n]
                 $_net setSpecial
                 $_net setSigType [expr {$_n eq $_vss ? "GROUND" : "POWER"}]
+                lappend _created $_n
                 handle_info "PDN: feedthrough rail $_n created"
             }
         }
@@ -209,6 +211,17 @@ proc oss_pdn {design blocks} {
         }
     }
     pdngen
+    # A feedthrough rail nothing in this block connects to gets no shapes from
+    # pdngen; drop it (and its shapeless terminal) instead of exporting an
+    # unplaced pin. The parent's rail bridge routes around this block.
+    foreach _n $_created {
+        set _net [[ord::get_db_block] findNet $_n]
+        if {$_net eq "NULL" || [llength [$_net getSWires]] > 0} continue
+        foreach _bt [$_net getBTerms] { odb::dbBTerm_destroy $_bt }
+        odb::dbNet_destroy $_net
+        set _hnets [lsearch -all -inline -not -exact $_hnets $_n]
+        handle_info "PDN: feedthrough rail $_n has no shapes in this block — removed"
+    }
     if {[llength $_bridge] > 0} { oss_bridge_rails [list $_vdd $_vss] $_bridge }
     return [list position $_pos pins $_pins rails $_hnets]
 }
@@ -446,6 +459,7 @@ proc oss_fp_floorplan {} {
     set _util [oss_get $_arr oss,fp,core_utilization]
     set _ar   [oss_get $_arr oss,fp,aspect_ratio]
     set _halo [oss_get $_arr oss,macro,halo]
+    set _chan [oss_get $_arr oss,fp,macro_channel]
     set _dbu  [[ord::get_db_tech] getDbUnitsPerMicron]
     set _std 0.0; set _mac 0.0; set _mw 0.0; set _mh 0.0; set _sumw 0.0
     foreach _i [[ord::get_db_block] getInsts] {
@@ -465,9 +479,11 @@ proc oss_fp_floorplan {} {
         initialize_floorplan -site $_site -utilization $_util \
             -aspect_ratio $_ar -core_space $_m
     } else {
+        # macro_channel: std-cell / routing band kept around and between macros
+        set _nmac [llength [lsearch -all -inline [lmap _i [[ord::get_db_block] getInsts] {[[$_i getMaster] isBlock]}] 1]]
         set _area [expr {$_mac + $_std / ($_util / 100.0)}]
-        set _cw [expr {max($_area / sqrt($_area * $_ar), $_sumw)}]
-        set _ch [expr {max($_area / $_cw, $_mh)}]
+        set _cw [expr {max($_area / sqrt($_area * $_ar), $_sumw + ($_nmac + 1) * $_chan)}]
+        set _ch [expr {max($_area / $_cw, $_mh + 2 * $_chan)}]
         handle_info [format "Floorplan: std-cell %.0f um^2 @ %s%% + macros %.0f um^2 -> core %.1f x %.1f um" \
                          $_std $_util $_mac $_cw $_ch]
         initialize_floorplan -site $_site \
@@ -484,7 +500,19 @@ proc oss_fp_place_macros {blocks} {
     if {[llength $blocks] == 0} return
     set _halo [oss_get [oss_flow_arr] oss,macro,halo]
     set _pl   [oss_fp_opt oss,macro,placement]
-    if {$_pl ne ""} {
+    if {$_pl eq "row"} {
+        # One row from the core corner, macro_channel apart (see oss_fp_floorplan)
+        set _chan [oss_get [oss_flow_arr] oss,fp,macro_channel]
+        set _dbu  [[ord::get_db_tech] getDbUnitsPerMicron]
+        set _core [[ord::get_db_block] getCoreArea]
+        set _x [expr {[$_core xMin] / double($_dbu) + $_chan}]
+        set _y [expr {[$_core yMin] / double($_dbu) + $_chan}]
+        foreach _i [[ord::get_db_block] getInsts] {
+            if {![[$_i getMaster] isBlock]} continue
+            place_macro -macro_name [$_i getName] -location [list $_x $_y] -orientation R0
+            set _x [expr {$_x + [[$_i getMaster] getWidth] / double($_dbu) + $_chan}]
+        }
+    } elseif {$_pl ne ""} {
         foreach {_inst _x _y _o} $_pl {
             place_macro -macro_name $_inst -location [list $_x $_y] -orientation $_o
         }
@@ -742,8 +770,20 @@ proc oss_checklist_metrics {tag} {
     if {![catch {oss_report $_tmp report_design_area}]} {
         set _fh [open $_tmp]; set _t [read $_fh]; close $_fh; file delete $_tmp
         if {[regexp {Design area\s+([\d.]+)\s+\S*\^2\s+([\d.]+)% utilization} $_t -> _a _u]} {
-            lappend L "Design area um2 : $_a" "Utilization : $_u"
+            lappend L "Design area um2 : $_a" "Design utilization incl macros : $_u"
         }
+    }
+    # Standard-cell utilization over the core area not taken by hard macros
+    set _std 0.0; set _macro 0.0
+    foreach _i [$_blk getInsts] {
+        set _m [$_i getMaster]
+        set _ar [expr {[$_m getWidth] * double([$_m getHeight]) / ($_dbu * $_dbu)}]
+        if {[$_m isBlock]} { set _macro [expr {$_macro + $_ar}] } elseif {![$_m isFiller]} { set _std [expr {$_std + $_ar}] }
+    }
+    set _c [$_blk getCoreArea]
+    set _core [expr {([$_c xMax] - [$_c xMin]) * double([$_c yMax] - [$_c yMin]) / ($_dbu * $_dbu)}]
+    if {$_core > $_macro} {
+        lappend L "Utilization : [format %.1f [expr {100.0 * $_std / ($_core - $_macro)}]]"
     }
 
     # Timing (library time units)
@@ -752,6 +792,14 @@ proc oss_checklist_metrics {tag} {
                      "Hold WNS" {sta::worst_slack -min} "Hold TNS" {sta::total_negative_slack -min}} {
         # |slack| ~1e30+ = no constrained path: not measurable, leave it out
         if {![catch {eval $_c} _v] && [string is double -strict $_v] && abs($_v) < 1e20} {
+            lappend L "$_k : $_v"
+        }
+    }
+    # Design-rule (electrical) violations
+    foreach {_k _c} {"Max slew violations" sta::max_slew_violation_count
+                     "Max cap violations" sta::max_capacitance_violation_count
+                     "Max fanout violations" sta::max_fanout_violation_count} {
+        if {$tag ni {fp init_design} && ![catch {$_c} _v] && [string is integer -strict $_v]} {
             lappend L "$_k : $_v"
         }
     }
@@ -848,8 +896,11 @@ proc oss_checklist_metrics {tag} {
         }
         if {[file exists "$_rdir/route_grt.rpt"]} {
             set _fh [open "$_rdir/route_grt.rpt"]; set _t [read $_fh]; close $_fh
-            if {[regexp -line {^Total\s.*?(\d+)\s*/\s*(\d+)\s*/\s*(\d+)\s*$} $_t -> _h _v _tot]} {
-                lappend L "Horizontal overflow : $_h" "Vertical overflow : $_v" "Total overflow : $_tot"
+            # "Total  <resource> <demand> <usage>%  <maxH> / <maxV> / <total overflow>"
+            if {[regexp -line {^Total\s+(\d+)\s+(\d+)\s+([\d.]+)%\s+(\d+)\s*/\s*(\d+)\s*/\s*(\d+)\s*$} $_t -> _res _dem _use _h _v _tot]} {
+                lappend L "Routing resource usage pct : $_use" "Horizontal overflow : $_h" \
+                          "Vertical overflow : $_v" "Total overflow : $_tot" \
+                          "Overflow pct : [format %.3f [expr {$_res ? 100.0 * $_tot / $_res : 0.0}]]"
             }
         }
     }

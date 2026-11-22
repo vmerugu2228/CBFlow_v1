@@ -117,6 +117,19 @@ CREATE TABLE IF NOT EXISTS run_checklist (
     FOREIGN KEY (published_run_id) REFERENCES published_runs(id) ON DELETE CASCADE
 );
 
+-- Other flows' releases of the same exit (STA / PV / LEC … beside PNR)
+CREATE TABLE IF NOT EXISTS run_signoff (
+    published_run_id INTEGER NOT NULL,
+    flow             TEXT NOT NULL,
+    release_tag      TEXT,
+    release_dir      TEXT,
+    status           TEXT,
+    complete         INTEGER,
+    metrics_json     TEXT,
+    UNIQUE (published_run_id, flow),
+    FOREIGN KEY (published_run_id) REFERENCES published_runs(id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_run_checklist_pid ON run_checklist(published_run_id);
 
 CREATE TABLE IF NOT EXISTS run_files (
@@ -457,6 +470,15 @@ def publish(db_path, payload, project):
                   c.get('severity'), c.get('detail'),
                   c.get('check_id'), c.get('description')))
 
+        for so in payload.get('signoff') or []:
+            conn.execute("""
+                INSERT INTO run_signoff(published_run_id, flow, release_tag,
+                    release_dir, status, complete, metrics_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (pid, so.get('flow'), so.get('release_tag'), so.get('release_dir'),
+                  so.get('status'), 1 if so.get('complete') else 0,
+                  json.dumps(so.get('metrics') or [])))
+
         for f in payload.get('files') or []:
             conn.execute("""
                 INSERT INTO run_files(published_run_id, kind, rel_path, sha256)
@@ -592,6 +614,13 @@ def get_published(db_path, published_run_id):
         pr['files'] = [dict(r) for r in conn.execute(
             'SELECT * FROM run_files WHERE published_run_id=?',
             (published_run_id,)).fetchall()]
+        try:
+            pr['signoff'] = [dict(r, metrics=json.loads(r['metrics_json'] or '[]'))
+                             for r in conn.execute(
+                                 'SELECT * FROM run_signoff WHERE published_run_id=? ORDER BY flow',
+                                 (published_run_id,)).fetchall()]
+        except sqlite3.Error:
+            pr['signoff'] = []
         fp_row = conn.execute(
             'SELECT * FROM run_floorplan WHERE published_run_id=?',
             (published_run_id,)).fetchone()

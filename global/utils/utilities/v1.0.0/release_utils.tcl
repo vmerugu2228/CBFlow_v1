@@ -22,7 +22,7 @@ variable release_errors {}
 variable release_exit ""          ;# exit name when the tag defaulted to it
 
 # ── Initialize Release ──────────────────────────────────────────────────────
-# Release path structure: $release_path/$phase/$block_name/$release_tag
+# Release path structure: $release_path/$phase/$block_name/$flow_type/$release_tag
 # Example: /proj/phoenix/releases/P2/cpu_core/v1.0.2
 #
 # All variables are MANDATORY — no fallbacks. Must be set in project_config.tcl
@@ -43,6 +43,15 @@ proc default_exit_tag {flow_type phase} {
     global project MILESTONE_ORDER
     set _arr [string tolower $flow_type]
     upvar #0 $_arr _fa
+    # Signoff flows (STA, PV, LEC…) release the exit they verify: the tag of
+    # the input named by <flow>(release,exit_from), e.g. sta(input,release_tag).
+    if {[info exists _fa(release,exit_from)] && $_fa(release,exit_from) ne ""} {
+        set _k $_fa(release,exit_from)
+        if {![info exists _fa($_k)] || $_fa($_k) eq ""} {
+            error "ERROR: ${_arr}(release,exit_from) names ${_arr}($_k), which is not set"
+        }
+        return $_fa($_k)
+    }
     if {![info exists _fa(smartgrid,milestone)] || $_fa(smartgrid,milestone) eq ""} {
         error "ERROR: project(release,tag) is not set and ${_arr}(smartgrid,milestone) (the flow's exit) is not configured — set one of them"
     }
@@ -136,8 +145,16 @@ proc init {args_flow_type args_design_name args_run_dir args_phase} {
         error "ERROR: project(release,path) must be set in project_config.tcl for release"
     }
 
-    # ── Assemble: $release_path/$phase/$block_name/$release_tag ──────────────
-    set release_dir "$release_base/$release_phase/$block_name/$release_tag"
+    # ── Assemble: $release_path/$phase/$block_name/$flow_type/$release_tag ───
+    # Every flow releases each exit under its own FLOW dir, so PNR/PRO_EXIT,
+    # STA/PRO_EXIT, PV/PRO_EXIT … sit side by side and never overwrite.
+    set release_dir "$release_base/$release_phase/$block_name/$flow_type/$release_tag"
+    # A re-release replaces the previous one: stale files must not survive
+    # (they would sit in the dir without being in the new MANIFEST).
+    if {[file isdirectory $release_dir]} {
+        ::handle_info "Replacing existing release $release_dir"
+        file delete -force $release_dir
+    }
 
     # Create directory structure from project config or defaults
     set subdirs {reports data netlist def gds spef sdc upf db docs}
@@ -295,7 +312,7 @@ proc validate_mandatory_files {} {
 # ── Collect upstream `_release_tag` keys for sign-off traceability ──────────
 proc _collect_upstream_tags {} {
     # Walk the known flow arrays for keys of the form
-    # `<flow>(input,<name>_release_tag)` — those are the tags THIS run was
+    # `<flow>(input,release_tag)` / `<flow>(input,<name>_release_tag)` — the tags THIS run was
     # built against. Scoped to real flow arrays (synth, pnr, …, rtl_lint,
     # upf_check, …) rather than every global so a stray debug array like
     # `test_fixtures(input,foo_release_tag)` can't pollute the provenance.
@@ -310,7 +327,7 @@ proc _collect_upstream_tags {} {
     foreach _arr $_known_flows {
         if {![array exists ::$_arr]} continue
         foreach _k [array names ::$_arr] {
-            if {[regexp {^input,[a-zA-Z0-9_]+_release_tag$} $_k]} {
+            if {[regexp {^input,([a-zA-Z0-9_]+_)?release_tag$} $_k]} {
                 set _v [set ::${_arr}($_k)]
                 if {$_v ne "" && [lsearch -exact $tags $_v] < 0} {
                     lappend tags $_v

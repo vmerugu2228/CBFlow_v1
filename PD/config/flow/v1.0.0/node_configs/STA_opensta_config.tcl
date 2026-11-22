@@ -46,3 +46,17 @@ set sta(mandatory_outputs,extraction1)    {}
 set sta(mandatory_outputs,timing1)        {}
 set sta(mandatory_outputs,merge_reports1) {sta_summary.rpt sta_summary.tcl}
 set sta(mandatory_outputs,release_data1)  {release.manifest}
+
+# ┌─ Signoff verdict (release metrics.rpt Status; SmartGrid Signoff tab) ──────┐
+# PASS when the worst slack over all scenarios meets these (library time units).
+array set sta {
+    signoff,min_setup_wns   0
+    signoff,min_hold_wns    0
+}
+
+# ┌─ Release tag ───────────────────────────────────────────────────────────────┐
+# Default tag = the exit this run verifies (the tag of sta(input,release_tag)); the
+# release lands at <phase>/<block>/STA/<exit> beside the PNR release.
+array set sta {
+    release,exit_from   "input,release_tag"
+}

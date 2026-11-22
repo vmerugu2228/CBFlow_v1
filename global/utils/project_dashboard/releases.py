@@ -116,6 +116,22 @@ def _read_manifest(tag_dir, tag):
     return flow.upper(), ts
 
 
+def _tag_dirs(bdir):
+    """(tag_dir, tag, flow_hint) under a block: <block>/<FLOW>/<tag> (current
+    layout — the FLOW dir names the flow) and legacy <block>/<tag> dirs."""
+    for name in sorted(os.listdir(bdir)):
+        d = os.path.join(bdir, name)
+        if not os.path.isdir(d) or os.path.islink(d):
+            continue                                # links: old paths of moved releases
+        if os.path.isfile(os.path.join(d, 'MANIFEST.json')) or _TAG_RE.match(name):
+            yield d, name, ''                       # legacy <block>/<tag>
+            continue
+        for tag in sorted(os.listdir(d)):
+            td = os.path.join(d, tag)
+            if os.path.isdir(td):
+                yield td, tag, name
+
+
 def _scan_block(phase_dir, block):
     """{flow: {tag, timestamp, complete, versions}} — latest complete
     release per flow (falls back to latest incomplete)."""
@@ -123,13 +139,11 @@ def _scan_block(phase_dir, block):
     flows = {}
     if not os.path.isdir(bdir):
         return flows
-    for tag in sorted(os.listdir(bdir)):
-        tdir = os.path.join(bdir, tag)
-        if not os.path.isdir(tdir):
-            continue
+    for tdir, tag, flow_hint in _tag_dirs(bdir):
         # A tag dir without MANIFEST.json is an unfinished release: shown,
         # never counted complete (RELEASE_COMPLETE is written after it).
         flow, ts = _read_manifest(tdir, tag)
+        flow = flow_hint or flow
         if not flow:
             continue
         complete = os.path.isfile(os.path.join(tdir, 'RELEASE_COMPLETE'))

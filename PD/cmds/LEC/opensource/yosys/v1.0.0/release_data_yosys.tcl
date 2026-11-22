@@ -28,9 +28,22 @@ flow_proc publish {
     set _c [oss_chain_node compare]
     ::CBFlow::Release::copy_file "$::DIRS(run)/work/LEC/$_c/outputs/lec.rpt" reports/lec lec.rpt
     ::CBFlow::Release::copy_glob "$::DIRS(run)/work/LEC/$_c/reports/*.rpt" reports/lec
+    # Signoff metrics + verdict for SmartGrid (attached to the exit it checked)
+    set _fh [open "$::DIRS(run)/work/LEC/$_c/outputs/lec.rpt"]; set _t [read $_fh]; close $_fh
+    set _res ""
+    regexp -line {^result\s+(\S+)} $_t -> _res
+    set _ok [regexp -- [oss_get lec signoff,result_pass] $_res]
+    set _L [list "# category: lec" "LEC result : $_res" \
+                 "Golden : [oss_get lec input,netlist_golden_release_tag]" \
+                 "Revised : [oss_get lec input,netlist_revised_release_tag]" \
+                 "# category: signoff" "Status : [expr {$_ok ? "PASS" : "FAIL"}]"]
+    set _fh [open "$_dir/metrics.rpt" w]; puts $_fh [join $_L \n]; close $_fh
     ::CBFlow::Release::generate_manifest
     ::CBFlow::Release::stamp_complete
-    set _fh [open [oss_stage_out release.manifest] w]; puts $_fh "release_dir $_dir"; close $_fh
+    set _fh [open [oss_stage_out release.manifest] w]
+    puts $_fh "release_dir $_dir"
+    puts $_fh "attach_to [oss_get lec input,netlist_revised_release_tag]"
+    close $_fh
     handle_info "LEC report released -> $_dir/reports/lec"
 }
 

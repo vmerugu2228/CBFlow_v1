@@ -4320,10 +4320,10 @@ def _render_phase_schedule(project, published_rows):
     depths = _hier_depths(hier)
     n_blocks = len(hier)
     lead = sched['lead']
-    pub = {}
+    pub = {}   # (phase, exit) -> {block: verdict}
     for r in published_rows:
         pub.setdefault(((r.get('phase') or ''), (r.get('milestone') or '').upper()),
-                       set()).add(r.get('block'))
+                       {})[r.get('block')] = (r.get('verdict') or 'UNKNOWN').upper()
     upcoming = sorted((d, ph['phase'], m) for ph in sched['phases']
                       for m, d in ph['exits'].items() if d and d >= today)
     nxt = upcoming[0][1:] if upcoming else None
@@ -4397,8 +4397,11 @@ def _render_phase_schedule(project, published_rows):
                 cells = []
                 for m in exits:
                     d = schedule_config.block_date(ph['exits'][m], depths[b], lead)
-                    if b in pub.get((ph['phase'], m), ()):
+                    _v = pub.get((ph['phase'], m), {}).get(b)
+                    if _v == 'PASS':
                         badge = ' <span class="tt-status st-past">Done</span>'
+                    elif _v:
+                        badge = f' <span class="tt-status st-late">{html.escape(_v.title())}</span>'
                     elif d and d < today:
                         badge = ' <span class="tt-status st-late">Late</span>'
                     else:
@@ -4733,6 +4736,13 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
     # ── Rollup — ALWAYS counts across the whole discipline, not the
     # view filter. Chart is informational, not operational.
     verdict_source = all_pubs_for_disc if all_pubs_for_disc is not None else filtered_pubs
+    # one verdict per block: its latest publish
+    _latest = {}
+    for r in verdict_source:
+        b = r.get('block')
+        if b and (b not in _latest or (r.get('published_at') or '') > (_latest[b].get('published_at') or '')):
+            _latest[b] = r
+    verdict_source = list(_latest.values())
     verdicts = {'PASS': 0, 'CONDITIONAL': 0, 'BLOCKED': 0, 'UNKNOWN': 0}
     for r in verdict_source:
         v = (r.get('verdict') or 'UNKNOWN').upper()
@@ -4875,8 +4885,9 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
     # vocabulary (fault_coverage_pct, pattern_count, mbist_controller_count,
     # drc_violation_count, test_points_inserted, atpg_eff_pct).
     curated = {
-        'PD':  ['WNS', 'TNS', 'total_power', 'utilization',
-                'drc_count', 'lvs_errors'],
+        # names as published in metrics.rpt (oss_checklist_metrics / signoff)
+        'PD':  ['Setup WNS', 'Setup TNS', 'Hold WNS', 'Utilization',
+                'DRC violations', 'Clock skew ps'],
         'DFT': ['fault_coverage_pct', 'test_coverage_pct', 'atpg_eff_pct',
                 'pattern_count', 'mbist_controller_count',
                 'drc_violation_count'],
@@ -5455,6 +5466,7 @@ def _render_detail(project, info, d):
         f'  <a data-tab="floorplan" href="#floorplan">Floorplan &amp; placement<span class="badge">{counts["floorplan"]}</span></a>',
         f'  <a data-tab="checklist" href="#checklist">Checklist<span class="badge">{counts["checklist"]}</span></a>',
         f'  <a data-tab="routing"   href="#routing">Routing / Congestion<span class="badge">{counts["routing"]}</span></a>',
+        f'  <a data-tab="signoff"   href="#signoff">Signoff<span class="badge">{len(d.get("signoff") or [])}</span></a>',
         f'  <a data-tab="files"     href="#files">Files<span class="badge">{counts["files"]}</span></a>',
         '</nav>',
     ]
@@ -5548,6 +5560,41 @@ def _render_detail(project, info, d):
         parts.append(f'<div class="sec-h">Sign-off metrics '
                      f'<span class="hint">{len(signoff_metrics)} rows</span></div>')
         parts.append(_metrics_table(signoff_metrics))
+    parts.append('</div>')
+
+    # ── Signoff tab — the other flows' releases of this exit ─────────
+    signoff = d.get('signoff') or []
+    parts.append('<div class="tab-body" data-tab="signoff">')
+    parts.append('<div class="sec-h">Signoff flows <span class="hint">'
+                 f'{len(signoff)} flow releases of {html.escape(d.get("milestone") or "")}</span></div>')
+    if not signoff:
+        parts.append('<div class="empty">No other flow has released this exit yet '
+                     '(STA / PV / LEC … release under &lt;block&gt;/&lt;FLOW&gt;/&lt;exit&gt;).</div>')
+    else:
+        parts.append('<div style="overflow-x:auto"><table class="d"><thead><tr>'
+                     '<th>Flow</th><th>Status</th><th>Key results</th><th>Release</th>'
+                     '</tr></thead><tbody>')
+        for so in signoff:
+            st = (so.get('status') or 'UNKNOWN').upper()
+            cls = {'PASS': 'past', 'FAIL': 'late'}.get(st, 'future')
+            ms = so.get('metrics') or []
+            # summary lines: everything except per-scenario rows
+            keys = [m for m in ms if ' setup ' not in m['name'] and ' hold ' not in m['name']]
+            res = '<br>'.join(f'{html.escape(m["name"])}: <b>{html.escape(str(m["value"]))}</b>'
+                              for m in keys) or '—'
+            parts.append(
+                f'<tr><td class="tt-ms">{html.escape(so.get("flow") or "")}</td>'
+                f'<td><span class="tt-status st-{cls}">{html.escape(st)}</span>'
+                f'{"" if so.get("complete") else " <span class=muted>(incomplete)</span>"}</td>'
+                f'<td style="text-align:left">{res}</td>'
+                f'<td class="mono" style="text-align:left;white-space:normal">'
+                f'{html.escape(so.get("release_dir") or "")}</td></tr>')
+        parts.append('</tbody></table></div>')
+        for so in signoff:
+            rows = [m for m in (so.get('metrics') or []) if ' setup ' in m['name'] or ' hold ' in m['name']]
+            if rows:
+                parts.append(f'<div class="sec-h">{html.escape(so["flow"])} per scenario</div>')
+                parts.append(_metrics_table(rows))
     parts.append('</div>')
 
     # ── Routing / Congestion tab ─────────────────────────────────────

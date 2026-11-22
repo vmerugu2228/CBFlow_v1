@@ -1404,7 +1404,7 @@ proc check_release_readiness {run_dir flow milestone phase} {
 if {[array exists operating_modes]} {
     foreach _mode [array names operating_modes] {
         set _sdc_file [dict get $operating_modes($_mode) constraint_file]
-        set flow_input_handshake(STA,sdc,$_mode) [list SYNTH_PNR sdc $_sdc_file]
+        set flow_input_handshake(STA,sdc,$_mode) [list ANY sdc $_sdc_file]
     }
 }
 

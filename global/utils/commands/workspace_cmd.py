@@ -998,7 +998,11 @@ def _validate_mandatory_inputs(user_config: dict, flow_type: str) -> list:
             release_base = read_project_cfg_key(project_name, 'release,path', 'v1.0.0') or \
                 os.path.normpath(os.path.join(core_dir, '..', 'test_releases'))
             rel_phase = phase or read_project_cfg_key(project_name, 'release,phase', 'v1.0.0')
-            _cands = [os.path.join(release_base, rel_phase, design_name, tag),
+            # Current layout <phase>/<design>/<FLOW>/<tag> (any flow that
+            # released this tag), then the older layouts.
+            import glob as _glob
+            _cands = sorted(_glob.glob(os.path.join(release_base, rel_phase, design_name, '*', tag)))
+            _cands += [os.path.join(release_base, rel_phase, design_name, tag),
                       os.path.join(release_base, tag),
                       os.path.join(release_base, project_name, design_name, f"{phase}_{tag}")]
             release_dir = next((c for c in _cands if os.path.isdir(c)), _cands[0])

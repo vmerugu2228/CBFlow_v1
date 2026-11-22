@@ -60,8 +60,9 @@ flow_proc publish {
         ::CBFlow::Release::copy_file $_spef spef $_name
     }
     foreach _n [lmap _t {init_design place cts cts_opt route pro signoff} {oss_chain_node $_t}] {
-        ::CBFlow::Release::copy_glob "$::run_dir/work/$::FLOW_TYPE/$_n/reports/*.rpt" reports
-        ::CBFlow::Release::copy_glob "$::run_dir/work/$::FLOW_TYPE/$_n/reports/*_qor.tcl" reports
+        # per node: several nodes write the same report names
+        ::CBFlow::Release::copy_glob "$::run_dir/work/$::FLOW_TYPE/$_n/reports/*.rpt" reports/$_n
+        ::CBFlow::Release::copy_glob "$::run_dir/work/$::FLOW_TYPE/$_n/reports/*_qor.tcl" reports/$_n
     }
     # SmartGrid data of the exit this release fills: the exit node's metrics
     # and timing snapshot (node from pnr(checklist,exit_node,<exit>)) and the

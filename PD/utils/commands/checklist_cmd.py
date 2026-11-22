@@ -1307,6 +1307,13 @@ def cmd_status(args: argparse.Namespace) -> int:
         else:
             blocking.append(f'Mandatory check {"FAILED" if r["status"]=="FAIL" else "not run"}: {r["name"]}')
 
+    # A failing critical library check blocks the exit too (severity from the
+    # check definition) — real data saying a critical metric is out of range.
+    lib_cfg = config.get('library_checks', {})
+    for r in lib_res:
+        if r['status'] == 'FAIL' and (lib_cfg.get(r['name']) or {}).get('severity') == 'critical':
+            blocking.append(f'Critical check FAILED: {r["name"]}')
+
     # Evaluate mandatory files
     file_status = [{'path': fp, 'exists': os.path.exists(os.path.join(run_dir, fp))}
                    for fp in config.get('mandatory_files', [])]

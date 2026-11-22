@@ -37,9 +37,28 @@ flow_proc publish {
         set _scen [file tail [file dirname $_sd]]
         ::CBFlow::Release::copy_glob "$_sd/*.rpt" reports/sta/$_scen
     }
+    # Signoff metrics + verdict for SmartGrid (attached to the exit it checked)
+    set _L [list "# category: timing"]
+    set _fh [open "$_m/sta_summary.rpt"]; set _t [read $_fh]; close $_fh
+    foreach _ln [split $_t \n] {
+        if {[llength $_ln] == 5 && [string is double -strict [lindex $_ln 1]]} {
+            lassign $_ln _sc _sw _st _hw _ht
+            lappend _L "$_sc setup WNS : $_sw" "$_sc setup TNS : $_st" "$_sc hold WNS : $_hw" "$_sc hold TNS : $_ht"
+        }
+    }
+    source "$_m/sta_summary.tcl"
+    set _ok [expr {$sta_summary(wns_setup) >= [oss_get sta signoff,min_setup_wns]
+                   && $sta_summary(wns_hold) >= [oss_get sta signoff,min_hold_wns]}]
+    lappend _L "Scenarios : $sta_summary(scenarios)" "Worst setup WNS : $sta_summary(wns_setup)" \
+               "Worst hold WNS : $sta_summary(wns_hold)" \
+               "# category: signoff" "Status : [expr {$_ok ? "PASS" : "FAIL"}]"
+    set _fh [open "$_dir/metrics.rpt" w]; puts $_fh [join $_L \n]; close $_fh
     ::CBFlow::Release::generate_manifest
     ::CBFlow::Release::stamp_complete
-    set _fh [open [oss_stage_out release.manifest] w]; puts $_fh "release_dir $_dir"; close $_fh
+    set _fh [open [oss_stage_out release.manifest] w]
+    puts $_fh "release_dir $_dir"
+    puts $_fh "attach_to [oss_get sta input,release_tag]"
+    close $_fh
     handle_info "STA reports released -> $_dir/reports/sta"
 }
 
