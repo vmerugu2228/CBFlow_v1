@@ -46,7 +46,7 @@ VERSION_VARS = [
     'FLOW_CONFIG_VERSION', 'GENERATION_VERSION',
     'MAKEFILE_COMMANDS_VERSION', 'NODE_MANAGEMENT_VERSION',
     'PROJECT_CONFIG_VERSION', 'PROJECT_VERSION',
-    'TECHNOLOGY_VERSION', 'UTILITIES_VERSION',
+    'TECH_CONFIG_VERSION', 'TECHNOLOGY_VERSION', 'UTILITIES_VERSION',
     'VALIDATION_VERSION',
 ]
 
@@ -152,10 +152,13 @@ def _validate_user_config(user_config: Dict[str, str], env: Dict[str, str]
             f"(no slashes, no '..', no whitespace).")
         return False, '', '', '', ''
 
-    # Design name from user_config (primary source)
-    design_name = user_config.get('flow(design_name)', '')
+    # Design name from user_config (primary source), else the workspace's
+    # block. No project-name / literal default — a run needs a real block.
+    design_name = user_config.get('flow(design_name)', '') or env.get('CBFLOW_BLOCK_NAME', '')
     if not design_name:
-        design_name = env.get('CBFLOW_BLOCK_NAME', env.get('PROJECT_NAME', 'design'))
+        logger.error("  Error: flow(design_name) not set in user config "
+                     "(and no CBFLOW_BLOCK_NAME in the workspace env)")
+        return False, '', '', '', ''
 
     # Phase resolution — three-tier fallback:
     #   1. user config: project(phase) or flow(phase) (explicit override)
@@ -167,46 +170,16 @@ def _validate_user_config(user_config: Dict[str, str], env: Dict[str, str]
     phase = user_config.get('project(phase)', user_config.get('flow(phase)', ''))
     if not phase:
         project_name = user_config.get('project(name)', '')
-        config_root = env.get('CONFIG_ROOT', '')
-        global_root = env.get('CBFLOW_GLOBAL_DIR', '')
-        proj_ver = env.get('PROJECT_VERSION', 'v1.0.0')
         if project_name:
-            # Walk global/ identity → PD/ overlay → pre-split monolith.
-            # LAST file-match wins across the cascade (so overlays override
-            # the global default), but WITHIN each file the FIRST matching
-            # line wins (so a stray duplicate `set project(current_phase)
-            # "..."` below the real one doesn't silently override it).
-            _candidates = []
-            if global_root:
-                for _n in ('project_config.tcl', f'{project_name}_config.tcl'):
-                    _candidates.append(os.path.join(global_root, 'config', 'project',
-                                                    project_name, proj_ver, _n))
-            if config_root:
-                for _n in ('project_pd_config.tcl', f'{project_name}_pd_config.tcl'):
-                    _candidates.append(os.path.join(config_root, 'project', project_name,
-                                                    proj_ver, _n))
-                _candidates.append(os.path.join(config_root, 'project', project_name,
-                                                proj_ver, f'{project_name}_config.tcl'))
-            import re as _re
-            for proj_cfg in _candidates:
-                if not os.path.exists(proj_cfg):
-                    continue
-                try:
-                    with open(proj_cfg, encoding='utf-8') as _f:
-                        for _line in _f:
-                            # Skip comment lines so a `# set project(current_phase) "..."`
-                            # example doesn't win over the real value.
-                            _stripped = _line.strip()
-                            if not _stripped or _stripped.startswith('#'):
-                                continue
-                            _m = _re.match(
-                                r'set\s+project\(current_phase\)\s+"?([^"\s]+)"?',
-                                _stripped)
-                            if _m:
-                                phase = _m.group(1)
-                                break   # first match per file wins
-                except (OSError, UnicodeDecodeError):
-                    continue
+            # Walk the project config files (global identity, then every
+            # discipline overlay — later wins) via the shared registry
+            # helper; PROJECT_CONFIG_VERSION is required.
+            from core import registry
+            try:
+                phase = registry.project_value(project_name, 'current_phase') or ''
+            except registry.RegistryError as e:
+                logger.error(f"  Error: {e}")
+                return False, '', '', '', ''
     if not phase:
         # No user_config phase, no project(current_phase), no readable
         # project config: phases are project-defined, so there is no
@@ -275,10 +248,12 @@ def _create_directory_structure(run_dir: str, flow_type: str,
             os.makedirs(os.path.join(run_dir, 'work', sf), exist_ok=True)
         return True
 
-    # Single flow
+    # Single flow — layout must be declared in the discipline's dir_config.tcl
     dirs = dir_config.get(flow_type)
     if not dirs:
-        dirs = ['logs', 'setup', 'work', f'work/{flow_type}']
+        logger.error(f"  Error: directory({flow_type}) is not set in dir_config.tcl "
+                     f"({flow_type}'s discipline <DISC>/config/flow/<ver>/dir_config.tcl)")
+        return False
 
     for d in dirs:
         full_path = os.path.join(run_dir, d)
@@ -288,6 +263,15 @@ def _create_directory_structure(run_dir: str, flow_type: str,
 
 
 # ── Environment File Generation ──────────────────────────────────────────────
+
+def _cbflow_root_env_vars() -> List[str]:
+    """Framework root env vars persisted per run: CBFLOW_ROOT,
+    CBFLOW_GLOBAL_DIR and one root var per discipline in flow(disciplines)
+    (CBFLOW_CORE_DIR for PD, CBFLOW_<DISC>_DIR otherwise)."""
+    from core import registry
+    return ['CBFLOW_ROOT', 'CBFLOW_GLOBAL_DIR'] + \
+        [registry.discipline_env_var(d) for d in registry.flow_disciplines()]
+
 
 def _generate_run_tcl_env(run_dir: str, env: Dict[str, str],
                           flow_type: str, design_name: str,
@@ -325,8 +309,7 @@ def _generate_run_tcl_env(run_dir: str, env: Dict[str, str],
     # cbflow_global cascade — resolvers use these to find the global
     # config layer + sibling disciplines. Persisted per-run so the run's
     # shell + subprocesses see the same view the launcher had.
-    for k in ('CBFLOW_ROOT', 'CBFLOW_CORE_DIR', 'CBFLOW_GLOBAL_DIR',
-              'CBFLOW_DFT_DIR', 'CBFLOW_DV_DIR'):
+    for k in _cbflow_root_env_vars():
         v = env.get(k, '')
         if v:
             lines.append(f'set ::env({k}) "{v}"')
@@ -407,8 +390,7 @@ def _generate_run_shell_env(run_dir: str, env: Dict[str, str],
     # workspace_cmd, handlers) read CBFLOW_<DISC>_DIR to find per-discipline
     # cmds + configs. Persist them per-run so the handler shell sees the
     # same view the launcher had.
-    for _k in ('CBFLOW_ROOT', 'CBFLOW_CORE_DIR', 'CBFLOW_GLOBAL_DIR',
-               'CBFLOW_DFT_DIR', 'CBFLOW_DV_DIR'):
+    for _k in _cbflow_root_env_vars():
         _v = env.get(_k, '')
         if _v:
             lines.append(f'export {_k}="{_v}"')
@@ -483,51 +465,14 @@ def _preflight_launch_bins(user_config: Dict[str, str],
     import shutil
     import re as _re
 
-    # Framework defaults come from global/config/flow/v1.0.0/flow_registry.tcl.
-    # Reading them here (instead of hardcoding 'false') is critical: the shipped
-    # default for use_xterm is TRUE, so templates that omit the key still land
-    # in xterm mode. If we defaulted to 'false' the whole preflight gate would
-    # be a no-op in the common case.
-    def _registry_defaults():
-        # HARD defaults match the shipped flow_registry.tcl values so an
-        # unreadable registry can't accidentally neutralize the preflight
-        # gate. Specifically use_xterm defaults TRUE (xterm-mode is the
-        # shipped default); a 'false' here would silently skip the
-        # xterm/DISPLAY check — the exact bug the gate was built to catch.
-        defaults = {'flow(use_lsf)': 'false',
-                    'flow(use_xterm)': 'true',
-                    'flow(test_mode)': 'false'}
-        g = env.get('CBFLOW_GLOBAL_DIR', '')
-        if not g:
-            return defaults
-        reg = os.path.join(g, 'config', 'flow', 'v1.0.0', 'flow_registry.tcl')
-        try:
-            with open(reg, encoding='utf-8') as fh:
-                content = fh.read()
-        except (OSError, UnicodeDecodeError):
-            return defaults
-        _TRUTHY_REG = {'true', '1', 'yes', 'on'}
-        _FALSY_REG  = {'false', '0', 'no', 'off'}
-        for key in list(defaults.keys()):
-            # grab bare value from `set flow(use_lsf) false` or `"false"`
-            # or `{false}`. Anchor to start-of-line (MULTILINE) and
-            # explicitly reject `#` so a commented example doesn't win.
-            # Accept `[a-zA-Z0-9]+` so numeric 0/1 and letter forms both
-            # match (matches is_true/is_false in utils.tcl).
-            inner = key[len('flow('):-1]
-            m = _re.search(
-                r'^[ \t]*set\s+flow\(' + _re.escape(inner) +
-                r'\)\s+[{"]?([a-zA-Z0-9]+)[}"]?',
-                content, _re.MULTILINE)
-            if m:
-                v = m.group(1).lower()
-                if v in _TRUTHY_REG:
-                    defaults[key] = 'true'
-                elif v in _FALSY_REG:
-                    defaults[key] = 'false'
-        return defaults
-
-    _defaults = _registry_defaults()
+    # Framework defaults come from the resolved flow_registry.tcl (the
+    # project baseline cascade). Reading them here (instead of hardcoding
+    # 'false') is critical: the shipped default for use_xterm is TRUE, so
+    # templates that omit the key still land in xterm mode. A missing
+    # registry key is an error, never a guessed default.
+    import cbflow_config as _cfgmod
+    from tcl_config_parser import _resolved, _baseline_flow
+    _base_cfg = _resolved(_baseline_flow(), run_dir=None)
 
     # Truthy / falsy value sets — must match utils.tcl is_true/is_false
     # so the preflight sees the same boolean the runtime will. Pre-fix
@@ -538,22 +483,37 @@ def _preflight_launch_bins(user_config: Dict[str, str],
     _TRUTHY = {'true', '1', 'yes', 'on'}
     _FALSY  = {'false', '0', 'no', 'off'}
 
-    def _resolve(key):
+    def _norm(raw):
         # Strip quotes AND Tcl braces so `{true}` / `"true"` / `true`
         # all normalize. lower() for case-insensitive compare.
-        v = user_config.get(key, '').strip().strip('"').strip('{}').lower()
+        v = raw.strip().strip('"').strip('{}').lower()
         if v in _TRUTHY:
             return 'true'
         if v in _FALSY:
             return 'false'
-        return _defaults.get(key, 'false')
+        return None
 
-    # test_mode short-circuit — in test runs we don't need bsub/xterm/DISPLAY.
-    if _resolve('flow(test_mode)') == 'true':
-        return True, ''
+    def _resolve(key):
+        raw = user_config.get(key, '')
+        src = 'user_config.tcl'
+        if not raw.strip():
+            raw = _cfgmod.require(_base_cfg, key)
+            src = 'flow_registry.tcl'
+        v = _norm(raw)
+        if v is None:
+            raise ValueError(f"{key} = {raw!r} in {src} is not a boolean "
+                             f"(expected one of {sorted(_TRUTHY | _FALSY)})")
+        return v
 
-    use_lsf = _resolve('flow(use_lsf)')
-    use_xterm = _resolve('flow(use_xterm)')
+    try:
+        # test_mode short-circuit — in test runs we don't need bsub/xterm/DISPLAY.
+        if _resolve('flow(test_mode)') == 'true':
+            return True, ''
+
+        use_lsf = _resolve('flow(use_lsf)')
+        use_xterm = _resolve('flow(use_xterm)')
+    except (ValueError, KeyError) as e:
+        return False, f"Workspace create blocked — {e}"
 
     problems = []  # list of (headline, [fix lines])
 
@@ -714,7 +674,11 @@ def _initialize_race_db(run_dir: str, flow_type: str, env: Dict[str, str]) -> Tu
         # dir deleted, DB still in the race area) would be adopted with all its
         # job states — the engine then skips stages that never ran here.
         # Archive it instead (renamed, not deleted).
-        stale = os.path.join(db_base, project_name, 'PD', flow_type,
+        # Same domain as RaceEngine.initialize (flow(discipline,<FLOW>)) so
+        # both agree on the DB location; an unmapped flow raises.
+        from core import registry
+        domain = registry.flow_discipline(flow_type)
+        stale = os.path.join(db_base, project_name, domain, flow_type,
                              StatusDB.db_filename(run_dir, user))
         if os.path.exists(stale):
             archived = f"{stale}.stale-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
@@ -728,7 +692,7 @@ def _initialize_race_db(run_dir: str, flow_type: str, env: Dict[str, str]) -> Tu
         db = StatusDB(
             run_dir,
             project_name=project_name,
-            domain='PD',
+            domain=domain,
             flow_type=flow_type,
             run_name=run_name,
             user=user,
@@ -791,15 +755,18 @@ def create_run(config_file: str, env_vars: Dict[str, str],
     workarea_path = user_config.get('project(workarea_path)', '')
     if not workarea_path:
         project_name = user_config.get('project(name)', '')
-        proj_ver = env_vars.get('PROJECT_VERSION', 'v1.0.0')
         if project_name:
-            # Walk the full project-config cascade (global/PD/legacy) via
-            # the shared helper. Pre-fix only the legacy monolith was
-            # checked, so workarea_path validation silently skipped on
-            # migrated installs — runs could be created in any directory.
-            from core.paths import read_project_cfg_key
-            workarea_path = read_project_cfg_key(
-                project_name, 'workarea_path', proj_ver)
+            # Walk the full project-config cascade (global identity + every
+            # discipline overlay) via the shared registry helper
+            # (PROJECT_CONFIG_VERSION required). Pre-fix only the legacy
+            # monolith was checked, so workarea_path validation silently
+            # skipped on migrated installs — runs could be created anywhere.
+            from core import registry
+            try:
+                workarea_path = registry.project_value(project_name, 'workarea_path') or ''
+            except registry.RegistryError as e:
+                logger.error(f"  Error: {e}")
+                return False, ''
     if workarea_path:
         workarea_design = os.path.join(os.path.abspath(workarea_path), design_name)
         cwd = os.path.abspath(os.getcwd())
@@ -845,15 +812,25 @@ def create_run(config_file: str, env_vars: Dict[str, str],
         logger.info(f"  Removing existing: {run_dir_name}")
         shutil.rmtree(run_dir_name)
 
-    # Step 6: Parse directory config
-    config_root = env_vars.get('CONFIG_ROOT', '')
-    flow_config_version = env_vars.get('FLOW_CONFIG_VERSION', _get_flow_config_version())
-    dir_config_path = os.path.join(config_root, 'flow', flow_config_version, 'dir_config.tcl')
-    dir_config = _parse_dir_config(dir_config_path)
+    # Step 6: Parse directory config — the dir_config.tcl of the flow's
+    # discipline (merged flows use a fixed per-sub-flow layout and need none).
+    flow_config_version = env_vars.get('FLOW_CONFIG_VERSION') or _get_flow_config_version()
+    dir_config = {}
+    if not parse_merged_flow(flow_type):
+        from core import registry
+        dir_config_path = os.path.join(
+            registry.discipline_dir(registry.flow_discipline(flow_type)),
+            'config', 'flow', flow_config_version, 'dir_config.tcl')
+        if not os.path.exists(dir_config_path):
+            logger.error(f"  Error: dir_config.tcl not found: {dir_config_path}")
+            return False, ''
+        dir_config = _parse_dir_config(dir_config_path)
 
     # Step 7: Create directory structure
     os.makedirs(run_dir_name, exist_ok=True)
-    _create_directory_structure(run_dir_name, flow_type, dir_config)
+    if not _create_directory_structure(run_dir_name, flow_type, dir_config):
+        shutil.rmtree(run_dir_name, ignore_errors=True)
+        return False, ''
 
     # Step 8: Copy user config
     setup_dir = os.path.join(run_dir_name, 'setup')

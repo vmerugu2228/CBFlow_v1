@@ -24,8 +24,10 @@ logger = configure_logging('cbflow.config')
 
 def run_tcl_config_manager(action: str) -> int:
     """Run the TCL interactive config manager."""
+    from core import registry
     core_dir = get_cbflow_core_dir()
-    tcl_script = os.path.join(core_dir, 'utils', 'utilities', os.environ.get('UTILITIES_VERSION', 'v1.0.0'), 'interactive_config_manager.tcl')
+    utils_ver = registry.config_version('UTILITIES_VERSION')
+    tcl_script = os.path.join(core_dir, 'utils', 'utilities', utils_ver, 'interactive_config_manager.tcl')
 
     if not os.path.exists(tcl_script):
         logger.error(f"Config manager not found: {tcl_script}")
@@ -42,7 +44,7 @@ def run_tcl_config_manager(action: str) -> int:
     env['CONFIG_ROOT'] = os.path.join(core_dir, 'config')
     env['SCRIPTS_ROOT'] = os.path.join(_gdir, 'utils') if _gdir else os.path.join(core_dir, 'utils')
     env['FLOW_DIR'] = _root if _root else core_dir
-    env['UTILITIES_VERSION'] = os.environ.get('UTILITIES_VERSION', 'v1.0.0')
+    env['UTILITIES_VERSION'] = utils_ver
 
     try:
         result = subprocess.run(['tclsh', tcl_script, action], env=env)

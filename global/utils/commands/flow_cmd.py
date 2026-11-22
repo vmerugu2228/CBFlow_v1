@@ -31,18 +31,15 @@ def _build_flow_types_dict():
     result = {}
     for flow_type, info in get_all_flow_info().items():
         tool = info.get('tool', {})
-        # Discipline defaults to empty string, not 'PD'. The old default
-        # silently mislabeled DFT/DV flows as PD in any environment where
-        # the resolver's flow(discipline,*) map wasn't populated — which
-        # was easy to hit from a bare import of flow_cmd. Callers that
-        # need a hard answer should route through get_flow_discipline().
+        # get_flow_info always carries flow(discipline,<FLOW>) — it raises
+        # for an unmapped flow, so there is no default discipline here.
         result[flow_type] = {
             'description': info.get('description', flow_type),
             'vendor': tool.get('vendor', ''),
             'tool': tool.get('name', ''),
             'shell': tool.get('name', ''),
             'nodes': info.get('stages', []),
-            'discipline': info.get('discipline', ''),
+            'discipline': info['discipline'],
         }
     return result
 
@@ -100,17 +97,17 @@ def cmd_types(args: argparse.Namespace) -> int:
                     f"from absent discipline(s): {', '.join(absent)}")
     if domain_filter:
         ft = {k: v for k, v in ft.items()
-              if v.get('discipline', 'PD').upper() == domain_filter}
+              if v['discipline'].upper() == domain_filter}
         if not ft:
             logger.error(f"No flows found for domain: {domain_filter}")
-            logger.info("Known domains: PD, DFT, DV")
+            logger.info(f"Known domains: {', '.join(get_disciplines())}")
             return 1
 
     # Group by discipline for a cleaner display
     from collections import OrderedDict
     grouped: 'OrderedDict[str, list]' = OrderedDict()
     for flow_type, info in ft.items():
-        disc = info.get('discipline', 'PD')
+        disc = info['discipline']
         grouped.setdefault(disc, []).append((flow_type, info))
 
     logger.info("")
@@ -152,7 +149,7 @@ def cmd_info(args: argparse.Namespace) -> int:
         return 1
 
     info = _flow_types()[flow]
-    discipline = info.get('discipline', 'PD')
+    discipline = info['discipline']
 
     logger.info("")
     logger.info("═" * 60)
@@ -180,7 +177,7 @@ def cmd_stages(args: argparse.Namespace) -> int:
         return 1
 
     info = _ft[flow]
-    discipline = info.get('discipline', 'PD')
+    discipline = info['discipline']
     logger.info(f"Stages for {flow}  [{discipline}]  ({info['description']}):")
     logger.info("")
     for i, node in enumerate(info['nodes'], 1):
@@ -195,26 +192,21 @@ def cmd_nodes(args: argparse.Namespace) -> int:
 
 
 
-def _tool_vendor_from_overlay(node_cfg_dir, flow_name, tool):
-    """Vendor directory for <flow>/<tool>: read `tool,vendor "<v>"` from the
-    tool's own overlay (<FLOW>_<tool>_config.tcl) — the authoritative source,
-    so a new vendor (e.g. opensource) needs no map entry here. Falls back to
-    a name map only when the overlay doesn't declare it."""
+def _tool_binding_from_overlay(node_cfg_dir, flow_name, tool):
+    """(vendor, version) for <flow>/<tool>, read from the tool's own overlay
+    (<FLOW>_<tool>_config.tcl: `tool,vendor` / `tool,version`) — the
+    authoritative source. Returns (None, None) for whichever the overlay
+    doesn't declare; there is no tool-name → vendor map or default."""
     import re as _re
     overlay = os.path.join(str(node_cfg_dir), f'{flow_name}_{tool}_config.tcl')
     try:
         with open(overlay) as f:
-            m = _re.search(r'tool,vendor\s+"(\w+)"', f.read())
-        if m:
-            return m.group(1)
+            text = f.read()
     except OSError:
-        pass
-    fallback = {
-        'genus': 'cadence', 'innovus': 'cadence', 'tempus': 'cadence',
-        'conformal': 'cadence', 'conformal_lp': 'cadence', 'voltus': 'cadence',
-        'calibre': 'mentor',
-    }
-    return fallback.get(tool, 'synopsys')
+        return None, None
+    mv = _re.search(r'tool,vendor\)?\s+"(\w+)"', text)
+    mr = _re.search(r'tool,version\)?\s+"([^"]+)"', text)
+    return (mv.group(1) if mv else None), (mr.group(1) if mr else None)
 
 
 def cmd_check(args: argparse.Namespace) -> int:
@@ -277,21 +269,28 @@ def cmd_check(args: argparse.Namespace) -> int:
     logger.info("  2. Config Files")
     logger.info("  " + "─" * 57)
 
+    from core import registry
+    flow_ver = registry.config_version('FLOW_CONFIG_VERSION')
+    _cbroot = os.path.dirname(core_dir)
+    # PD carries the shared flow-level configs; every discipline on disk
+    # (flow(disciplines)) carries its flow_config.tcl + node configs.
     config_files = [
-        'config/flow/v1.0.0/flow_config.tcl',
-        'config/flow/v1.0.0/release_config.tcl',
-        'config/flow/v1.0.0/lsf_config.tcl',
+        os.path.join(core_dir, 'config', 'flow', flow_ver, 'release_config.tcl'),
+        os.path.join(core_dir, 'config', 'flow', flow_ver, 'lsf_config.tcl'),
     ]
-    # Add all node configs
-    nc_dir = os.path.join(core_dir, 'config', 'flow', 'v1.0.0', 'node_configs')
-    if os.path.isdir(nc_dir):
-        for f in sorted(os.listdir(nc_dir)):
-            if f.endswith('_config.tcl'):
-                config_files.append(f'config/flow/v1.0.0/node_configs/{f}')
+    _disc_roots = [registry.discipline_dir(d) for d in registry.flow_disciplines()
+                   if os.path.isdir(registry.discipline_dir(d))]
+    for _droot in _disc_roots:
+        config_files.append(os.path.join(_droot, 'config', 'flow', flow_ver, 'flow_config.tcl'))
+        nc_dir = os.path.join(_droot, 'config', 'flow', flow_ver, 'node_configs')
+        if os.path.isdir(nc_dir):
+            for f in sorted(os.listdir(nc_dir)):
+                if f.endswith('_config.tcl'):
+                    config_files.append(os.path.join(nc_dir, f))
 
     cfg_pass = 0
-    for f in config_files:
-        path = os.path.join(core_dir, f)
+    for path in config_files:
+        f = os.path.relpath(path, _cbroot)
         total += 1
         if os.path.exists(path):
             passed += 1
@@ -372,10 +371,13 @@ def cmd_check(args: argparse.Namespace) -> int:
     logger.info("  4. Stage ↔ Handler Coverage")
     logger.info("  " + "─" * 57)
 
-    node_cfg_dir = os.path.join(core_dir, 'config', 'flow', 'v1.0.0', 'node_configs')
     coverage_issues = []
 
-    if os.path.isdir(node_cfg_dir):
+    for _droot in _disc_roots:
+        node_cfg_dir = os.path.join(_droot, 'config', 'flow', flow_ver, 'node_configs')
+        cmds_dir = os.path.join(_droot, 'cmds')
+        if not os.path.isdir(node_cfg_dir):
+            continue
         for cfg_file in sorted(os.listdir(node_cfg_dir)):
             if not cfg_file.endswith('_config.tcl'):
                 continue
@@ -409,6 +411,10 @@ def cmd_check(args: argparse.Namespace) -> int:
             for tc in tool_configs:
                 tc_name = os.path.basename(tc)
                 tool = tc_name.replace(f'{flow_name}_', '').replace('_config.tcl', '')
+                # <FLOW>_<x>_config.tcl that is another flow's node config
+                # (SYNTH_PNR_config.tcl under SYNTH_*) is not a tool overlay.
+                if f'{flow_name}_{tool}' in registry.flow_types():
+                    continue
                 tools.append(tool)
 
             if not tools:
@@ -420,8 +426,13 @@ def cmd_check(args: argparse.Namespace) -> int:
             # For each tool, check handler exists for each execution stage
             for tool in tools:
                 # Determine vendor from tool
-                vendor = _tool_vendor_from_overlay(node_cfg_dir, flow_name, tool)
-                handler_dir = os.path.join(cmds_dir, flow_name, vendor, tool, 'v1.0.0')
+                vendor, tool_ver = _tool_binding_from_overlay(node_cfg_dir, flow_name, tool)
+                if not vendor or not tool_ver:
+                    coverage_issues.append(f"{flow_name}/{tool}: {flow_name}_{tool}_config.tcl "
+                                           f"is missing or does not declare tool,vendor / tool,version")
+                    warnings += 1
+                    continue
+                handler_dir = os.path.join(cmds_dir, flow_name, vendor, tool, tool_ver)
 
                 if not os.path.isdir(handler_dir):
                     continue
@@ -491,13 +502,14 @@ def cmd_check(args: argparse.Namespace) -> int:
             proj_names.update(
                 d for d in os.listdir(_d) if os.path.isdir(os.path.join(_d, d))
             )
+    proj_ver = registry.config_version('PROJECT_CONFIG_VERSION')
     for proj in sorted(proj_names):
         # Post 2026-11-01 naming: <proj>_config.tcl / <proj>_pd_config.tcl.
         g_name = project_config_basename(proj)
         p_name = project_discipline_config_basename(proj, 'pd')
-        g_cfg = os.path.join(global_proj_dir, proj, 'v1.0.0', g_name) \
+        g_cfg = os.path.join(global_proj_dir, proj, proj_ver, g_name) \
                 if global_proj_dir else ''
-        p_cfg = os.path.join(pd_proj_dir, proj, 'v1.0.0', p_name)
+        p_cfg = os.path.join(pd_proj_dir, proj, proj_ver, p_name)
         total += 1
         missing = []
         if not (g_cfg and os.path.exists(g_cfg)):
@@ -527,8 +539,9 @@ def cmd_check(args: argparse.Namespace) -> int:
             d for d in os.listdir(global_tech_dir)
             if os.path.isdir(os.path.join(global_tech_dir, d))
         )
+    tech_ver = registry.config_version('TECH_CONFIG_VERSION')
     for tech in sorted(tech_names):
-        g_cfg = os.path.join(global_tech_dir, tech, 'v1.0.0', 'tech_config.tcl')
+        g_cfg = os.path.join(global_tech_dir, tech, tech_ver, 'tech_config.tcl')
         total += 1
         if not os.path.exists(g_cfg):
             failed += 1
@@ -537,7 +550,7 @@ def cmd_check(args: argparse.Namespace) -> int:
             continue
         passed += 1
         # Discover lib tags under <tech>/v1.0.0/<TAG>/lib_config.tcl.
-        tech_ver_dir = os.path.join(global_tech_dir, tech, 'v1.0.0')
+        tech_ver_dir = os.path.join(global_tech_dir, tech, tech_ver)
         lib_tags = []
         for entry in sorted(os.listdir(tech_ver_dir)):
             if os.path.isfile(os.path.join(tech_ver_dir, entry, 'lib_config.tcl')):
@@ -561,10 +574,10 @@ def cmd_check(args: argparse.Namespace) -> int:
     def _collect_project_keys(proj: str) -> tuple:
         seen_lines = {}
         for _p in (
-            os.path.join(global_proj_dir, proj, 'v1.0.0',
+            os.path.join(global_proj_dir, proj, proj_ver,
                          project_config_basename(proj))
             if global_proj_dir else None,
-            os.path.join(pd_proj_dir, proj, 'v1.0.0',
+            os.path.join(pd_proj_dir, proj, proj_ver,
                          project_discipline_config_basename(proj, 'pd')),
         ):
             if not (_p and os.path.isfile(_p)):
@@ -585,7 +598,7 @@ def cmd_check(args: argparse.Namespace) -> int:
         # tag ('G' = global, 'P' = pd) so drift within one half vs across halves
         # is at-a-glance visible.
         project_lines[proj] = {
-            k: f"{'G' if v[0].endswith('project_config.tcl') else 'P'}:{v[1]}"
+            k: f"{'G' if v[0] == project_config_basename(proj) else 'P'}:{v[1]}"
             for k, v in lines_by_key.items()
         }
 
@@ -666,9 +679,10 @@ def cmd_check(args: argparse.Namespace) -> int:
         exempt = set()
         for proj in proj_names:
             for _p in (
-                os.path.join(global_proj_dir, proj, 'v1.0.0', 'project_config.tcl')
+                os.path.join(global_proj_dir, proj, proj_ver, project_config_basename(proj))
                 if global_proj_dir else None,
-                os.path.join(pd_proj_dir, proj, 'v1.0.0', 'project_pd_config.tcl'),
+                os.path.join(pd_proj_dir, proj, proj_ver,
+                             project_discipline_config_basename(proj, 'pd')),
             ):
                 if _p and os.path.isfile(_p):
                     exempt |= _exempt_keys(_p)

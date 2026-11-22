@@ -210,3 +210,9 @@ if {[file exists $_tool_config]} {
     puts "       Supported tools: $pv(supported_tools)"
     exit 1
 }
+
+# ── Merge metadata (multi-flow chaining) ─────────────────────────────────────
+# Read by tcl_config_parser.get_handoff_stage / get_parallel_stages when this
+# flow is chained in a merged flow spec. Required — no stage-name guessing.
+set pv(merge_handoff_stage)   release_data1
+set pv(merge_parallel_stages) {release_data1}

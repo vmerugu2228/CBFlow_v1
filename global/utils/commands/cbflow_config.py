@@ -28,8 +28,14 @@ Caching:
 
 import os
 import subprocess
+import sys
 import threading
 from typing import Dict, List, Optional, Tuple
+
+# core/ (registry) lives in global/utils — make sure it is importable.
+_UTILS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _UTILS_DIR not in sys.path:
+    sys.path.append(_UTILS_DIR)
 
 SCHEMA_VERSION = '4'
 
@@ -245,34 +251,36 @@ def _framework_config_paths(flow_type: Optional[str]) -> list:
     Resolved relative to the resolver's directory (PD/utils/commands/) since
     that's the only fixed anchor.
     """
-    here = os.path.dirname(os.path.abspath(__file__))
-    pd_root = os.path.abspath(os.path.join(here, '..', '..'))
-    repo_root = os.path.dirname(pd_root)
-    flow_ver = os.environ.get('FLOW_CONFIG_VERSION', 'v1.0.0')
+    from core import registry
+    flow_ver = registry.config_version('FLOW_CONFIG_VERSION')
+    gcfg = os.path.join(registry.root(), 'global', 'config')
+    paths = [os.path.join(gcfg, 'master_projects.json'),
+             registry.flow_registry_path()]
 
-    # PD-side flow config (existing behavior)
-    base = os.path.join(pd_root, 'config', 'flow', flow_ver)
-    paths = [os.path.join(base, 'flow_config.tcl')]
+    # The flow's discipline flow_config + node config (the discipline comes
+    # from flow(discipline,<FLOW>); an unmapped flow is left to the
+    # resolver, which errors with the full context).
     if flow_type:
-        paths.append(os.path.join(base, 'node_configs', f'{flow_type}_config.tcl'))
+        try:
+            base = os.path.join(registry.discipline_dir(registry.flow_discipline(flow_type)),
+                                'config', 'flow', flow_ver)
+            paths += [os.path.join(base, 'flow_config.tcl'),
+                      os.path.join(base, 'node_configs', f'{flow_type}_config.tcl')]
+        except registry.RegistryError:
+            pass
 
-    # Global-side additions — only tracked if the global tree exists.
-    global_root = os.environ.get('CBFLOW_GLOBAL_DIR', '') or os.path.join(repo_root, 'global')
-    if os.path.isdir(global_root):
-        gcfg = os.path.join(global_root, 'config')
-        # master_projects.json — edits should invalidate cached project lists
-        paths.append(os.path.join(gcfg, 'master_projects.json'))
-        # flow registry (may not exist yet in phases 1-2; harmless if absent)
-        paths.append(os.path.join(gcfg, 'flow', flow_ver, 'flow_registry.tcl'))
-        # tech + project files — narrow to just the ones in play if we can
-        tech = os.environ.get('CBFLOW_TECH_NODE') or os.environ.get('TECH_NAME')
-        if tech:
-            tech_ver = os.environ.get('TECH_CONFIG_VERSION', flow_ver)
-            paths.append(os.path.join(gcfg, 'tech', tech, tech_ver, 'tech_config.tcl'))
-        proj = os.environ.get('CBFLOW_PROJECT_NAME')
-        if proj:
-            proj_ver = os.environ.get('PROJECT_CONFIG_VERSION', flow_ver)
-            paths.append(os.path.join(gcfg, 'project', proj, proj_ver, 'project_config.tcl'))
+    # tech + project files — narrow to just the ones in play
+    tech = os.environ.get('CBFLOW_TECH_NODE') or os.environ.get('TECH_NAME')
+    if tech:
+        paths.append(os.path.join(gcfg, 'tech', tech,
+                                  registry.config_version('TECH_CONFIG_VERSION'),
+                                  'tech_config.tcl'))
+    proj = os.environ.get('CBFLOW_PROJECT_NAME')
+    if proj:
+        try:
+            paths += registry.project_config_paths(proj)
+        except registry.RegistryError:
+            pass   # resolver reports the missing project config
 
     return paths
 

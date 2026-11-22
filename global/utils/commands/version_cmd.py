@@ -42,8 +42,10 @@ def run_version_manager(args: list) -> int:
     manager_script = os.path.join(_vroot, 'version', 'current', 'flow_version_manager.py')
 
     if not os.path.exists(manager_script):
-        # Fallback to v1.0.0 if current symlink doesn't exist
-        manager_script = os.path.join(_vroot, 'version', os.environ.get('UTILITIES_VERSION', 'v1.0.0'), 'flow_version_manager.py')
+        # No `current` symlink — use the launcher's UTILITIES_VERSION (required)
+        from core import registry
+        manager_script = os.path.join(_vroot, 'version', registry.config_version('UTILITIES_VERSION'),
+                                      'flow_version_manager.py')
 
     if not os.path.exists(manager_script):
         logger.error("Version manager not found")

@@ -103,46 +103,16 @@ def get_available_projects() -> list:
     return [p for p in list_available_projects() if p != 'workspace']
 
 
-def get_project_config(project: str, version: str = 'v1.0.0') -> dict:
-    """Load project configuration — walks global/ then PD/ overlay."""
-    from core.paths import get_cbflow_global_dir
-    core_dir = get_cbflow_core_dir()
-    # Try global/config/project/<proj>/<ver>/project_config.tcl first,
-    # then PD/config/project/<proj>/<ver>/{project_pd_config,<proj>_config}.tcl.
-    candidates = []
-    gdir = get_cbflow_global_dir()
-    if gdir:
-        candidates.append(Path(gdir) / "config" / "project" / project / version /
-                          "project_config.tcl")
-    candidates.append(Path(core_dir) / "config" / "project" / project / version /
-                      "project_pd_config.tcl")
-    candidates.append(Path(core_dir) / "config" / "project" / project / version /
-                      f"{project}_config.tcl")
-    project_config_file = next((p for p in candidates if p.exists()),
-                               candidates[-1])
-
-    config = {
-        'name': project,
-        'version': version,
-        'config_file': str(project_config_file) if project_config_file.exists() else None
-    }
-
-    # Try to parse basic info from project config
-    if project_config_file.exists():
-        try:
-            with open(project_config_file, 'r') as f:
-                content = f.read()
-                # Extract technology if present
-                for line in content.split('\n'):
-                    if 'technology' in line.lower() and 'set' in line:
-                        parts = line.split('"')
-                        if len(parts) >= 2:
-                            config['technology'] = parts[1]
-                            break
-        except Exception:
-            pass
-
-    return config
+def _flow_discipline(flow_type: str) -> str:
+    """Discipline owning `flow_type` from flow(discipline,<FLOW>). A merged
+    flow spec (e.g. SYNTH_FP) belongs to the one discipline all of its
+    sub-flows share. Raises (no PD default) when unmapped or mixed."""
+    from tcl_config_parser import get_flow_discipline, parse_merged_flow
+    ft = flow_type.upper()
+    discs = {get_flow_discipline(f).upper() for f in (parse_merged_flow(ft) or [ft])}
+    if len(discs) != 1:
+        raise ValueError(f"merged flow {ft} spans disciplines {sorted(discs)}")
+    return discs.pop()
 
 
 def is_workspace_initialized() -> bool:
@@ -210,169 +180,45 @@ def load_cbflow_env() -> dict:
     return env_vars
 
 
-def _get_flow_mode(core_dir: str) -> str:
-    """Read flow(mode) from flow_config.tcl. Returns 'default' or 'merged'."""
-    import re
-    version = get_flow_config_version()
-    config_path = os.path.join(core_dir, 'config', 'flow', version, 'flow_config.tcl')
-    if os.path.exists(config_path):
-        try:
-            with open(config_path, 'r') as f:
-                for line in f:
-                    m = re.match(r'set\s+flow\(mode\)\s+"(\w+)"', line.strip())
-                    if m:
-                        return m.group(1)
-        except Exception:
-            pass
-    return 'default'
+def _get_flow_specific_config(flow_type: str) -> str:
+    """Return the flow-specific user_config.tcl input section, derived from
+    the flow's resolved node config (default tool):
 
+      * `<flow>(mandatory_user_inputs)`  → `set <var> ""` lines (required)
+      * other `<flow>(input,*)` members of `<flow>(mandatory_input_groups)`
+        → commented alternatives (any one per group satisfies the group)
+      * when `flow_input_handshake(<FLOW>,*)` entries exist, the generic
+        release-tag / from_run handshake knobs, commented.
 
-def _get_flow_specific_config(flow_type: str, design_name: str) -> str:
-    """Return flow-specific user_config.tcl section with required variables."""
+    No per-flow template text lives in code.
+    """
+    import cbflow_config as _c
     ft = flow_type.upper()
-    sections = []
+    arr = ft.lower()
+    cfg = _c.load_resolved_config(ft)
+    required = (_c.optional(cfg, 'mandatory_user_inputs') or '').split()
+    groups_raw = _c.optional(cfg, 'mandatory_input_groups') or ''
+    alternatives = []
+    for v in re.findall(r'\w+\([^()\s]*\)', groups_raw):
+        if v.startswith(f'{arr}(input,') and v not in required and v not in alternatives:
+            alternatives.append(v)
+    has_handshake = any(k.startswith(f'flow_input_handshake({ft},') for k in cfg)
 
-    if ft in ('SYNTH_PNR', 'SYNTH_FP_PNR'):
-        arr = 'synth_pnr'
-        sections.append(f"""# ─────────────────────────────────────────────────────────────────────────────────
-# {ft} Design Inputs (REQUIRED)
-# ─────────────────────────────────────────────────────────────────────────────────
-# RTL Input
-set {arr}(input,rtl_filelist)   ""              ;# RTL filelist (.f)
-set {arr}(input,rtl_format)     "sverilog"      ;# sverilog | verilog | vhdl
-
-# Timing Constraints
-set {arr}(input,sdc_func_file)  ""              ;# Functional mode SDC
-
-# UPF Power Intent
-set {arr}(input,upf_file)      ""              ;# Power intent UPF (required)
-
-# Floorplan (optional)
-# set {arr}(input,def_file)       ""            ;# Floorplan DEF
-""")
-
-    elif ft == 'SYNTH':
-        sections.append(f"""# ─────────────────────────────────────────────────────────────────────────────────
-# SYNTH Design Inputs (REQUIRED)
-# ─────────────────────────────────────────────────────────────────────────────────
-# RTL Input
-set synth(input,rtl_filelist)  ""           ;# RTL filelist (.f)
-
-# Timing Constraints
-set synth(input,sdc_func_file) ""           ;# Functional mode SDC
-""")
-
-    elif ft == 'PNR':
-        sections.append(f"""# ─────────────────────────────────────────────────────────────────────────────────
-# PNR Design Inputs (REQUIRED)
-# ─────────────────────────────────────────────────────────────────────────────────
-# Netlist (from synthesis output)
-set pnr(input,netlist)         ""           ;# Gate-level netlist (.v)
-
-# Timing Constraints
-set pnr(input,sdc_func_file)   ""           ;# Functional mode SDC
-
-# Floorplan
-set pnr(input,def_file)        ""           ;# Floorplan DEF
-
-# UPF (optional)
-# set pnr(input,upf_file)       ""          ;# Power intent UPF
-""")
-
-    elif ft == 'FP':
-        sections.append(f"""# ─────────────────────────────────────────────────────────────────────────────────
-# FP Design Inputs (REQUIRED)
-# ─────────────────────────────────────────────────────────────────────────────────
-# Netlist
-set fp(input,netlist)          ""           ;# Gate-level netlist (.v)
-
-# Timing Constraints
-set fp(input,sdc_func_file)    ""           ;# Functional mode SDC
-
-# UPF (optional)
-# set fp(input,upf_file)        ""          ;# Power intent UPF
-""")
-
-    elif ft == 'STA':
-        sections.append(f"""# ─────────────────────────────────────────────────────────────────────────────────
-# STA Design Inputs — Choose ONE input mode:
-# ─────────────────────────────────────────────────────────────────────────────────
-# Mode 1: Auto-resolve from upstream SYNTH_PNR run (recommended)
-# set sta(input,from_run)        ""          ;# Path to SYNTH_PNR run dir (auto-resolves all inputs)
-
-# Mode 2: Auto-resolve from release tag
-# set sta(input,release_tag)     ""          ;# Release tag (e.g., v1.0.2)
-
-# Mode 3: Explicit paths (manual)
-set sta(input,netlist)         ""           ;# Gate-level netlist (.pt.v)
-set sta(input,sdc_func_file)   ""           ;# Functional mode SDC
-# set sta(input,spef)            ""          ;# SPEF parasitic file
-# set sta(input,def_file)         ""          ;# DEF floorplan
-""")
-
-    elif ft == 'ECO':
-        sections.append(f"""# ─────────────────────────────────────────────────────────────────────────────────
-# ECO Design Inputs (REQUIRED)
-# ─────────────────────────────────────────────────────────────────────────────────
-set eco(eco,type)              "timing"     ;# timing | functional
-set eco(input,from_block)      "chip_finish" ;# Block to ECO from
-
-# For functional ECO
-# set eco(input,eco_verilog)   ""           ;# Modified netlist
-
-# For manual ECO changes
-# set eco(input,change_file)   ""           ;# Manual ECO change script
-""")
-
-    elif ft == 'LEC':
-        sections.append(f"""# ─────────────────────────────────────────────────────────────────────────────────
-# LEC Design Inputs (REQUIRED)
-# ─────────────────────────────────────────────────────────────────────────────────
-# Reference Design (golden — choose ONE)
-set lec(input,rtl_files)       ""           ;# RTL source files (RTL-to-gate)
-# set lec(input,netlist_golden) ""          ;# Gate-level golden netlist (gate-to-gate)
-
-# Implementation Design (revised)
-set lec(input,netlist_revised)  ""          ;# Implementation netlist
-
-# Power Intent (optional)
-# set lec(input,svf_file)       ""          ;# SVF guidance from synthesis
-""")
-
-    elif ft == 'CLP':
-        sections.append(f"""# ─────────────────────────────────────────────────────────────────────────────────
-# CLP Design Inputs (REQUIRED)
-# ─────────────────────────────────────────────────────────────────────────────────
-# PG Netlist (from write_data output)
-set clp(input,reference_netlist) ""         ;# PG netlist (.vc_lp.v)
-
-# Power Intent
-set clp(input,upf_file)         ""          ;# UPF power intent
-""")
-
-    elif ft == 'FCFP':
-        sections.append(f"""# ─────────────────────────────────────────────────────────────────────────────────
-# FCFP Design Inputs (REQUIRED)
-# ─────────────────────────────────────────────────────────────────────────────────
-# Netlist
-set fcfp(input,netlist)        ""           ;# Gate-level netlist or RTL filelist
-
-# Timing Constraints
-set fcfp(input,sdc_func_file)  ""           ;# Functional mode SDC
-""")
-
-    else:
-        # Generic template for other flows
-        arr = ft.lower()
-        sections.append(f"""# ─────────────────────────────────────────────────────────────────────────────────
-# {ft} Design Inputs (REQUIRED)
-# ─────────────────────────────────────────────────────────────────────────────────
-set {arr}(input,netlist)       ""           ;# Input netlist
-set {arr}(input,sdc_func_file) ""           ;# Functional mode SDC
-""")
-
-    return '\n'.join(sections)
-
+    rule = '# ' + '\u2500' * 81
+    out = [rule, f'# {ft} Design Inputs (from {ft} node config)', rule]
+    if not required and not alternatives:
+        out.append(f'# {arr}(mandatory_user_inputs) / {arr}(mandatory_input_groups) '
+                   f'declare no user inputs for {ft}.')
+    for v in required:
+        out.append(f'set {v:<32} ""           ;# required')
+    if alternatives:
+        out += ['', '# Alternatives — any ONE input of a mandatory input group satisfies it:']
+        out += [f'# set {v:<30} ""' for v in alternatives]
+    if has_handshake:
+        out += ['', '# Upstream handshake (resolves inputs from a release tag or a sibling run):',
+                f'# set {arr + "(input,release_tag)":<30} ""',
+                f'# set {arr + "(input,from_run)":<30} ""']
+    return '\n'.join(out) + '\n'
 
 # ─────────────────────────────────────────────────────────────────────────────────
 # Workspace Commands
@@ -436,7 +282,11 @@ def cmd_template(args: argparse.Namespace) -> int:
 
     design_name = "my_design"
 
-    flow_inputs = _get_flow_specific_config(flow_type, design_name)
+    flow_inputs = _get_flow_specific_config(flow_type)
+    # Launch-mode default comes from the registry (flow_registry.tcl), not
+    # a second copy here.
+    import cbflow_config as _c
+    test_mode = _c.require(_c.load_resolved_config(flow_type), 'flow(test_mode)')
 
     template = f"""#!/usr/bin/env tclsh
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -454,7 +304,7 @@ set project(name)        "{project_name}"
 set flow(type)           "{flow_type}"
 set flow(design_name)    "{design_name}"      ;# Your design/block name
 set flow(run_name)       "run1"               ;# Unique run identifier
-set flow(test_mode)      "false"              ;# Set "true" to skip EDA tool execution
+set flow(test_mode)      "{test_mode}"              ;# Set "true" to skip EDA tool execution
 
 {flow_inputs}"""
 
@@ -489,7 +339,7 @@ def _build_env_from_user_config(config_file: str) -> dict:
     # Extract from user_config
     project_name = user_config.get('project(name)', '')
     flow_type = user_config.get('flow(type)', '').upper()
-    design_name = user_config.get('flow(design_name)', project_name)
+    design_name = user_config.get('flow(design_name)', '')
     technology = user_config.get('project(technology)', '')
 
     if not project_name:
@@ -498,19 +348,17 @@ def _build_env_from_user_config(config_file: str) -> dict:
     if not flow_type:
         logger.error("  Error: flow(type) not set in user_config.tcl")
         return {}
+    if not design_name:
+        logger.error("  Error: flow(design_name) not set in user_config.tcl")
+        return {}
 
     # Resolve the discipline that owns this flow — in a sparse DFT/DV
     # clone PD/ isn't on disk, so core_dir has to come from the owning
     # discipline's root, not the hardcoded PD one.
     from core.paths import get_cbflow_discipline_root
     try:
-        from tcl_config_parser import get_flow_discipline
-        _flow_disc = (get_flow_discipline(flow_type) or 'PD').upper()
-    except Exception:
-        _flow_disc = 'PD'
-    try:
-        core_dir = get_cbflow_discipline_root(_flow_disc)
-    except ValueError as e:
+        core_dir = get_cbflow_discipline_root(_flow_discipline(flow_type))
+    except (ValueError, KeyError) as e:
         logger.error(f"  Error: {e}")
         return {}
 
@@ -526,62 +374,17 @@ def _build_env_from_user_config(config_file: str) -> dict:
     scripts_root = os.path.join(_global_dir_sr, 'utils') if _global_dir_sr else os.path.join(core_dir, 'utils')
     project_root = os.path.join(config_root, 'project', project_name)
 
-    # Resolve CBflow release version from project config → releases/current fallback
-    release_version = ''
-
-    # Read from project config: project(cbflow_release)
-    # Post cbflow_global split: project(cbflow_release) is identity data,
-    # so it lives in global/config/project/<p>/<ver>/project_config.tcl.
-    # Fall back through the PD overlay + pre-split monolith so partial
-    # migrations keep working.
-    proj_versions_dir = os.path.join(project_root, 'current')
-    if not os.path.exists(proj_versions_dir):
-        proj_versions_dir = os.path.join(project_root, 'v1.0.0')
-        if not os.path.exists(proj_versions_dir) and os.path.isdir(project_root):
-            versions_list = sorted(
-                [d for d in os.listdir(project_root)
-                 if os.path.isdir(os.path.join(project_root, d))], reverse=True)
-            if versions_list:
-                proj_versions_dir = os.path.join(project_root, versions_list[0])
-    # Resolve `current` symlink → concrete version (e.g. 'v1.0.0') so the
-    # global-side lookup below doesn't compose a nonexistent
-    # global/.../<name>/current/ path.
-    ver_name = os.path.basename(os.path.realpath(proj_versions_dir))
-    from core.paths import get_cbflow_global_dir
-    gdir = get_cbflow_global_dir()
-    # Post 2026-11-01 rename: files are <project>_config.tcl +
-    # <project>_<disc>_config.tcl. Centralized via project_config_basename
-    # + project_discipline_config_basename in core.paths.
-    from core.paths import (
-        project_config_basename, project_discipline_config_basename,
-    )
-    _global_basename = project_config_basename(project_name)
-    _pd_basename = project_discipline_config_basename(project_name, 'pd')
-    global_proj_cfg = (os.path.join(gdir, 'config', 'project', project_name,
-                                    ver_name, _global_basename)
-                       if gdir else '')
-    proj_candidates = [
-        global_proj_cfg,                                                      # global identity
-        os.path.join(proj_versions_dir, _pd_basename),                        # PD overlay
-        os.path.join(proj_versions_dir, f'{project_name}_config.tcl'),        # pre-split monolith (same name as new global)
-    ]
-    proj_config_file = ''
-    pat_rel = re.compile(r'set\s+project\(cbflow_release\)\s+"([^"]*)"')
-    for cand in proj_candidates:
-        if not cand or not os.path.exists(cand):
-            continue
-        with open(cand, 'r') as f:
-            for line in f:
-                m = pat_rel.match(line.strip())
-                if m:
-                    release_version = m.group(1)
-                    proj_config_file = cand
-                    break
-        if release_version:
-            break
-    if not proj_config_file and proj_candidates:
-        # For the error message below, name whichever file we *would* prefer.
-        proj_config_file = next((c for c in proj_candidates if c), '')
+    # project(cbflow_release) from the project config files (global
+    # identity + every discipline overlay, PROJECT_CONFIG_VERSION) via the
+    # shared registry helper — no version-directory guessing.
+    from core import registry
+    try:
+        _proj_cfg_files = registry.project_config_paths(project_name)
+        release_version = registry.project_value(project_name, 'cbflow_release') or ''
+    except registry.RegistryError as e:
+        logger.error(f"  Error: {e}")
+        return None
+    proj_config_file = ' '.join(_proj_cfg_files)
 
     # Releases moved from PD/releases → global/releases on 2026-11-01
     # (cross-discipline toolchain pin). get_cbflow_releases_dir() prefers
@@ -639,26 +442,8 @@ def _build_env_from_user_config(config_file: str) -> dict:
                     versions[m.group(1)] = m.group(2)
 
     # Resolve technology from project config if not in user_config.
-    # project(technology) is identity data → global project_config.tcl.
-    # Fall back through PD overlay + pre-split monolith.
     if not technology:
-        tech_candidates = [
-            global_proj_cfg,
-            os.path.join(proj_versions_dir, 'project_pd_config.tcl'),
-            os.path.join(proj_versions_dir, f'{project_name}_config.tcl'),
-        ]
-        pat_tech = re.compile(r'set\s+project\(technology\)\s+"([^"]*)"')
-        for pc in tech_candidates:
-            if not pc or not os.path.exists(pc):
-                continue
-            with open(pc, 'r') as f:
-                for line in f:
-                    m = pat_tech.match(line.strip())
-                    if m:
-                        technology = m.group(1)
-                        break
-            if technology:
-                break
+        technology = registry.project_value(project_name, 'technology') or ''
 
     tech_parts = technology.split('_', 1) if technology else ['', '']
     tech_vendor = tech_parts[0] if tech_parts[0] else ''
@@ -688,12 +473,6 @@ def _build_env_from_user_config(config_file: str) -> dict:
         'CBFLOW_CORE_DIR': (core_dir if core_dir and os.path.isdir(core_dir)
                             else ''),
         'CBFLOW_GLOBAL_DIR': _gdir_env,
-        'CBFLOW_DFT_DIR': (os.path.join(_root_env, 'DFT')
-                            if _root_env and os.path.isdir(os.path.join(_root_env, 'DFT'))
-                            else ''),
-        'CBFLOW_DV_DIR':  (os.path.join(_root_env, 'DV')
-                            if _root_env and os.path.isdir(os.path.join(_root_env, 'DV'))
-                            else ''),
         'PROJECT_NAME': project_name,
         'PROJECT_VERSION': versions.get('CBFLOW_RELEASE_VERSION', release_version),
         'CBFLOW_FLOW_TYPE': flow_type,
@@ -714,6 +493,15 @@ def _build_env_from_user_config(config_file: str) -> dict:
         'UTILITIES_VERSION': versions.get('UTILS_UTILITIES_VERSION', release_version),
         'VALIDATION_VERSION': versions.get('UTILS_VALIDATION_VERSION', release_version),
     }
+    # Sibling discipline roots (every discipline of flow(disciplines) other
+    # than PD, whose CBFLOW_CORE_DIR is set above) — exported only when the
+    # directory is on disk (sparse clones).
+    for _d in registry.flow_disciplines():
+        _ev = registry.discipline_env_var(_d)
+        if _ev in env:
+            continue
+        _dd = registry.discipline_dir(_d)
+        env[_ev] = _dd if os.path.isdir(_dd) else ''
 
     # Extract tool vendor/name overrides from user_config
     # e.g., pnr(tool,vendor) "cadence", pnr(tool,name) "innovus"
@@ -725,11 +513,9 @@ def _build_env_from_user_config(config_file: str) -> dict:
     # Auto-resolve vendor from tool-specific config: <FLOW>_<tool>_config.tcl
     if not tool_vendor and tool_name:
         import re as _re
-        core = os.environ.get('CBFLOW_CORE_DIR', '')
-        if not core:
-            core = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        cfg_ver = get_flow_config_version()
-        tool_cfg = os.path.join(core, 'config', 'flow', cfg_ver,
+        # The flow's discipline root (resolved above), not PD.
+        cfg_ver = registry.config_version('FLOW_CONFIG_VERSION')
+        tool_cfg = os.path.join(core_dir, 'config', 'flow', cfg_ver,
                                 'node_configs', '{}_{}_config.tcl'.format(flow_type, tool_name))
         if os.path.isfile(tool_cfg):
             with open(tool_cfg, 'r') as _tcf:
@@ -781,6 +567,21 @@ def _get_mandatory_inputs_from_config(core_dir: str, flow_type: str,
             raw = m.group(1).strip()
             return [v.strip() for v in raw.split() if v.strip()]
     return []
+
+
+def _handshake_entries(flow_type: str) -> list:
+    """[(input, source_flow, category)] from the release_config handshake
+    map flow_input_handshake(<FLOW>,<input>) of the resolved config."""
+    import cbflow_config as _c
+    cfg = _c.load_resolved_config(flow_type)
+    prefix = f'flow_input_handshake({flow_type},'
+    out = []
+    for k, v in cfg.items():
+        if k.startswith(prefix) and k.endswith(')'):
+            parts = v.split()
+            if len(parts) >= 2:
+                out.append((k[len(prefix):-1], parts[0], parts[1]))
+    return out
 
 
 def _confirm_restricted_vars(config_file: str, args: argparse.Namespace) -> bool:
@@ -862,10 +663,11 @@ def _validate_mandatory_inputs(user_config: dict, flow_type: str) -> list:
     # raises on missing PD/ instead of silently falling back to global/.
     from core.paths import get_cbflow_discipline_root
     try:
-        from tcl_config_parser import get_flow_discipline
-        _flow_disc = (get_flow_discipline(ft) or 'PD').upper()
-    except Exception:
-        _flow_disc = 'PD'
+        _flow_disc = _flow_discipline(ft)
+    except (ValueError, KeyError) as e:
+        # Unmapped / invalid flow — no PD default.
+        errors.append(f"flow(type) '{ft}' has no discipline: {e}")
+        return errors
     try:
         core_dir = get_cbflow_discipline_root(_flow_disc)
     except ValueError:
@@ -918,7 +720,9 @@ def _validate_mandatory_inputs(user_config: dict, flow_type: str) -> list:
         # validation silently skipped on migrated installs and typos
         # like `design_name "typo-name"` passed through to run-time.
         from core.paths import read_project_cfg_key
-        _bl = read_project_cfg_key(project_name, 'block_list', 'v1.0.0')
+        from core import registry
+        _bl = read_project_cfg_key(project_name, 'block_list',
+                                   registry.config_version('PROJECT_CONFIG_VERSION'))
         if _bl:
             valid_designs = _bl.split()
             if design_name not in valid_designs:
@@ -971,9 +775,10 @@ def _validate_mandatory_inputs(user_config: dict, flow_type: str) -> list:
                     except Exception:
                         pass
 
-                    # Check required files from manifest
+                    # Check the files of every category this flow consumes
+                    # per the handshake map (flow_input_handshake(<FLOW>,*)).
                     missing_files = []
-                    for key in ('netlist', 'def', 'sdc'):
+                    for key in sorted({cat for _i, _src, cat in _handshake_entries(ft)}):
                         if key in manifest_data:
                             fpath = manifest_data[key]
                             if fpath and not os.path.exists(fpath):
@@ -991,21 +796,24 @@ def _validate_mandatory_inputs(user_config: dict, flow_type: str) -> list:
             phase = user_config.get('project(phase)', '')
             tag = list(release_tags.values())[0]
 
-            # Resolve the release dir. Release::init writes
-            # <release,path>/<phase>/<design>/<tag>; older tags use the flat
-            # <base>/<tag> or <base>/<project>/<design>/<phase>_<tag>.
-            from core.paths import read_project_cfg_key
-            release_base = read_project_cfg_key(project_name, 'release,path', 'v1.0.0') or \
-                os.path.normpath(os.path.join(core_dir, '..', 'test_releases'))
-            rel_phase = phase or read_project_cfg_key(project_name, 'release,phase', 'v1.0.0')
-            # Current layout <phase>/<design>/<FLOW>/<tag> (any flow that
-            # released this tag), then the older layouts.
-            import glob as _glob
-            _cands = sorted(_glob.glob(os.path.join(release_base, rel_phase, design_name, '*', tag)))
-            _cands += [os.path.join(release_base, rel_phase, design_name, tag),
-                      os.path.join(release_base, tag),
-                      os.path.join(release_base, project_name, design_name, f"{phase}_{tag}")]
-            release_dir = next((c for c in _cands if os.path.isdir(c)), _cands[0])
+            # Resolve the release dir: <release,path>/<phase>/<design>/<FLOW>/<tag>
+            # (registry.release_dir) for each upstream flow the handshake map
+            # names for this flow (source ANY → any flow in flow(types)).
+            from core import registry
+            try:
+                release_base = registry.require_project_value(project_name, 'release,path')
+                rel_phase = phase or registry.require_project_value(project_name, 'release,phase')
+            except registry.RegistryError as e:
+                errors.append(str(e))
+                return errors
+            _hs = _handshake_entries(ft)
+            _srcs = sorted({src for _i, src, _c in _hs})
+            _up_flows = registry.flow_types() if (not _srcs or 'ANY' in _srcs) else \
+                [f for f in _srcs if f in registry.flow_types()]
+            _cands = [registry.release_dir(release_base, rel_phase, design_name, f, tag)
+                      for f in _up_flows]
+            release_dir = next((c for c in _cands if os.path.isdir(c)),
+                               _cands[0] if _cands else os.path.join(release_base, rel_phase))
 
             logger.info(f"  Handshake: release_tag → {tag}")
             if not os.path.isdir(release_dir):
@@ -1018,19 +826,17 @@ def _validate_mandatory_inputs(user_config: dict, flow_type: str) -> list:
                 if not os.path.exists(manifest_json):
                     errors.append(f"MANIFEST.json not found in release: {release_dir}")
                 else:
-                    # Check for common required subdirectories/files
-                    found = []
-                    for subdir in ('', 'SYNTH_PNR', 'PNR', 'SYNTH'):
-                        flow_dir = os.path.join(release_dir, subdir) if subdir else release_dir
-                        if os.path.isdir(flow_dir):
-                            for cat in ('netlist', 'sdc', 'def'):
-                                cat_dir = os.path.join(flow_dir, cat)
-                                if os.path.isdir(cat_dir) and os.listdir(cat_dir):
-                                    found.append(f"{subdir}/{cat}" if subdir else cat)
+                    # Check the categories this flow consumes per the
+                    # handshake map (flow_input_handshake(<FLOW>,*)).
+                    _cats = sorted({cat for _i, _s, cat in _hs})
+                    found = [cat for cat in _cats
+                             if os.path.isdir(os.path.join(release_dir, cat))
+                             and os.listdir(os.path.join(release_dir, cat))]
                     if found:
                         logger.info(f"    Available: {', '.join(found)}")
                     else:
-                        logger.warning(f"  No netlist/sdc/def found in release — runtime resolution may fail")
+                        logger.warning(f"  None of {'/'.join(_cats) or '<no handshake categories>'} "
+                                       f"found in release — runtime resolution may fail")
         else:
             # No handshake — enforce mandatory inputs
             for var_key in mandatory_from_config:
@@ -1599,7 +1405,7 @@ def _generate_run_summary(run_dir: str, info: dict) -> str:
     prev_time = None
 
     for stage in stages:
-        stage_key = stage if stage in stamp_times else f"{stage}1"
+        stage_key = stage   # config stage names are the node keys
         done = stage_key in stamp_times
 
         # Calculate duration from sequential stamps
@@ -1713,7 +1519,7 @@ def _generate_run_summary(run_dir: str, info: dict) -> str:
     # ── Report Files Found ──
     all_report_files = []
     for stage in stages:
-        stage_key = stage if stage in stamp_times else f"{stage}1"
+        stage_key = stage   # config stage names are the node keys
         sr = _scan_stage_reports(run_dir, flow_type, stage_key)
         for rf in sr['report_files']:
             all_report_files.append((stage, rf))
@@ -1827,9 +1633,9 @@ def cmd_run_status(args: argparse.Namespace) -> int:
 
     if stages:
         for stage in stages:
-            # Check both suffixed and unsuffixed
-            stage_done = stage in completed_stamps or f"{stage}1" in completed_stamps
-            stage_key = stage if stage in completed_stamps else f"{stage}1"
+            # Config stage names are the node keys (e.g. synthesis1)
+            stage_done = stage in completed_stamps
+            stage_key = stage
             icon = "[DONE]" if stage_done else "[    ]"
             time_str = ""
             if stage_key in stamp_times:

@@ -20,6 +20,7 @@ logger = configure_logging('cbflow.project')
 
 # Available flow types and project phases - loaded from existing Tcl config files
 from tcl_config_parser import get_flow_descriptions as _get_flow_desc, get_phase_descriptions as _get_phase_desc
+from tcl_config_parser import get_common_flows
 
 import sys; sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -256,14 +257,15 @@ def select_flows(current_flows: list = None) -> list:
     logger.info("  " + "─" * 60)
     logger.info("")
     logger.info("  Enter flow numbers separated by commas (e.g., 1,2,3)")
-    logger.info("  Or 'all' for all flows, 'common' for SYNTH,FP,PNR,STA,LEC,PV")
+    common_flows = get_common_flows()
+    logger.info(f"  Or 'all' for all flows, 'common' for {','.join(common_flows)}")
 
     selection = input("  Select flows: ").strip().lower()
 
     if selection == 'all':
         return flow_list
     elif selection == 'common':
-        return ["SYNTH", "FP", "PNR", "STA", "LEC", "PV"]
+        return list(common_flows)
     else:
         selected = []
         try:
@@ -275,9 +277,9 @@ def select_flows(current_flows: list = None) -> list:
                         selected.append(flow)
         except ValueError:
             logger.info("  [WARN] Invalid input. Using common flows.")
-            return ["SYNTH", "FP", "PNR", "STA", "LEC", "PV"]
+            return list(common_flows)
 
-        return selected if selected else ["SYNTH", "FP", "PNR", "STA", "LEC", "PV"]
+        return selected if selected else list(common_flows)
 
 
 def select_phases(current_phases: list = None) -> list:
@@ -330,7 +332,7 @@ def select_release(current_release: str = None) -> str:
     if not releases:
         logger.info("  [WARN] No existing releases found.")
         logger.info("         Enter release version manually.")
-        return get_input("  Release Version (e.g., v1.0.0)", default="v1.0.0", required=True)
+        return get_input("  Release Version (e.g., v1.0.0)", required=True)
 
     logger.info("  " + "─" * 50)
     for i, rel in enumerate(releases, 1):
@@ -340,7 +342,7 @@ def select_release(current_release: str = None) -> str:
     logger.info("")
 
     while True:
-        choice = get_input("  Select release (number or version)", default=releases[0] if releases else "v1.0.0", required=True)
+        choice = get_input("  Select release (number or version)", default=releases[0], required=True)
 
         # Try as number first
         try:
@@ -580,7 +582,7 @@ def cmd_create_interactive(projects: dict, project_list: dict) -> int:
     if not enabled_flows:
         logger.info("")
         logger.info("  [WARN] No flows selected! Using common flows.")
-        enabled_flows = ["SYNTH", "FP", "PNR", "STA", "LEC", "PV"]
+        enabled_flows = get_common_flows()
 
     # Release Version - select from existing releases
     release_version = select_release()
@@ -691,7 +693,9 @@ def cmd_manage(args: argparse.Namespace) -> int:
     core_dir = get_cbflow_core_dir()
 
     # Call the existing Python manage_projects script
-    manage_script = os.path.join(core_dir, 'utils', 'project', os.environ.get('UTILITIES_VERSION', 'v1.0.0'), 'manage_projects.py')
+    from core import registry
+    manage_script = os.path.join(core_dir, 'utils', 'project',
+                                 registry.config_version('UTILITIES_VERSION'), 'manage_projects.py')
 
     if os.path.exists(manage_script):
         try:

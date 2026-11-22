@@ -202,3 +202,9 @@ if {[file exists $_tool_cfg]} {
     source $_tool_cfg
 }
 unset -nocomplain _tool_cfg _active_tool _upf_exec_stages _s _sub
+
+# ── Merge metadata (multi-flow chaining) ─────────────────────────────────────
+# Read by tcl_config_parser.get_handoff_stage / get_parallel_stages when this
+# flow is chained in a merged flow spec. Required — no stage-name guessing.
+set upf_check(merge_handoff_stage)   release_data1
+set upf_check(merge_parallel_stages) {release_data1}

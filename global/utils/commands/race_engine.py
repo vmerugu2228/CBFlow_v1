@@ -220,12 +220,12 @@ class DagBuilder:
         if (self._tool_info['name'] and default_tool
                 and self._tool_info['name'] != default_tool):
             import re as _re
-            # Post cbflow_global utils-refactor: FLOW_DIR = umbrella root;
-            # per-discipline configs live under $CBFLOW_<DISC>_DIR/config/.
-            # Use CBFLOW_CORE_DIR as the PD-fallback for cfg resolution.
-            flow_dir = self.env_vars.get('CBFLOW_CORE_DIR', '') or \
-                       self.env_vars.get('FLOW_DIR', '')
-            cfg_ver = self.env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0')
+            # Per-discipline configs live under the discipline root
+            # (flow(discipline_dir,<flow(discipline,<FLOW>)>)).
+            from core import registry
+            flow_dir = registry.discipline_dir(registry.flow_discipline(self.flow_type))
+            cfg_ver = self.env_vars.get('FLOW_CONFIG_VERSION') or \
+                registry.config_version('FLOW_CONFIG_VERSION')
             tool_cfg = os.path.join(flow_dir, 'config', 'flow', cfg_ver,
                                     'node_configs', '{}_{}_config.tcl'.format(
                                         self.flow_type, self._tool_info['name']))
@@ -325,16 +325,12 @@ class DagBuilder:
                             subnodes[name] = self._resolve_dynamic_subnodes(name)
                         else:
                             subnodes[name] = subs
-                    else:
-                        # Read subnodes from config, fallback to standard pattern
-                        configured_subs = cfg.get(f'subnodes,{name}', '').strip()
-                        if configured_subs and configured_subs != 'dynamic':
-                            subnodes[name] = configured_subs.split()
-                        else:
-                            # Stage type from config determines subnodes
-                            st = cfg.get(f'stage_types,{name}', '')
-                            if st in ('execution', 'export_data', 'release_data'):
-                                subnodes[name] = ['setup', 'run', 'validate', 'finish']
+                    elif not base_subs and cfg.get(f'stage_types,{name}', ''):
+                        # No base node and no <flow>(subnodes,<name>): a
+                        # node declared with a stage type needs its subnode
+                        # list in config — no guessed standard pattern.
+                        raise _cfg.ConfigError(f'subnodes,{name}', cfg)
+                    # else: leaf custom node — no subnodes
 
                 logger.info(f"Custom node: {name} (type={node_type}, dep={dep}, subs={subnodes.get(name, [])})")
 
@@ -442,54 +438,51 @@ class DagBuilder:
         """Resolve dynamic subnodes for per-scenario/per-corner stages.
 
         Uses resolved config from _resolve_config() — no regex on file text.
-        Extraction stages → per-RC-corner (from rc_corner_list)
-        Timing stages     → per-MMMC-scenario (from user_config or scenario sets)
+        The fan-out kind is declared per stage by
+        `<flow>(subnodes,<stage>,dynamic_kind)`:
+          rc_corner → per-RC-corner (from rc_corner_list)
+          scenario  → per-MMMC-scenario (override / user_config / scenario set)
         """
         cfg = self._resolved_cfg
-        stage_base = re.sub(r'\d+(_\w+)?$', '', stage)
+        kind = self._dynamic_kind(stage)
 
-        # ── Extraction stages: dynamic per RC corner ──
-        if stage_base == 'extraction':
+        # ── dynamic per RC corner ──
+        if kind == 'rc_corner':
             # From resolved config (rc_corner_list set by mmmc_config via [lsort [array names rc_corners]])
             rc_list = cfg.get('rc_corner_list', '')
             if rc_list:
                 corners = rc_list.split()
                 return ['setup'] + corners + ['validate', 'finish']
-            logger.error(f"No rc_corner_list found for dynamic extraction stage {stage}")
+            logger.error(f"No rc_corner_list found for dynamic rc_corner stage {stage}")
             return []
 
-        # ── Timing/other stages: dynamic per MMMC scenario ──
+        # ── dynamic per MMMC scenario ──
         flow_array = self.flow_type.lower()
         scenarios = []
 
-        # Priority 1: Per-node override — setup/override_config.<stage>.tcl
+        def _add(value):
+            for s in (value or '').split():
+                if s not in scenarios:
+                    scenarios.append(s)
+
+        # Priority 1: Per-node override — setup/override_config.<stage>.tcl.
+        # Evaluated by Tcl (preview_user_config), not regex-scanned. The
+        # analysis roles match the resolver's mmmc_node emission (setup, hold).
         override_file = os.path.join(self.run_dir, 'setup', f'override_config.{stage}.tcl')
         if os.path.exists(override_file):
-            with open(override_file) as f:
-                for line in f:
-                    m = re.match(rf'set\s+{flow_array}\(mmmc,\w+_scenarios\)\s+"([^"]+)"', line.strip())
-                    if m:
-                        for s in m.group(1).split():
-                            s = s.strip()
-                            if s and s not in scenarios:
-                                scenarios.append(s)
+            ovr = _cfg.preview_user_config(override_file)
+            for role in ('setup', 'hold'):
+                _add(ovr.get(f'{flow_array}(mmmc,{role}_scenarios)'))
 
-        # Priority 2: Generic scenarios in user_config — sta(mmmc,setup_scenarios)
+        # Priority 2: Generic scenarios from the cascade (user_config) —
+        # sta(mmmc,setup_scenarios) / sta(mmmc,hold_scenarios)
         if not scenarios:
-            user_config = os.path.join(self.run_dir, 'setup', 'user_config.tcl')
-            if os.path.exists(user_config):
-                with open(user_config) as f:
-                    for line in f:
-                        m = re.match(rf'set\s+{flow_array}\(mmmc,\w+_scenarios\)\s+"([^"]+)"', line.strip())
-                        if m:
-                            for s in m.group(1).split():
-                                s = s.strip()
-                                if s and s not in scenarios:
-                                    scenarios.append(s)
+            for role in ('setup', 'hold'):
+                _add(cfg.get(f'mmmc,{role}_scenarios'))
 
-        # Priority 3: scenario set from node config
+        # Priority 3: scenario set from node config (required)
         if not scenarios:
-            scenario_set = cfg.get('mmmc,scenario_set', 'signoff')
+            scenario_set = _cfg.require(cfg, 'mmmc,scenario_set')
             set_scenarios = cfg.get(f'mmmc_scenario_set,{scenario_set}', '')
             if set_scenarios:
                 scenarios = set_scenarios.split()
@@ -499,6 +492,30 @@ class DagBuilder:
 
         logger.error(f"No MMMC scenarios resolved for dynamic stage {stage}")
         return []
+
+    _DYNAMIC_KINDS = ('rc_corner', 'scenario')
+
+    def _dynamic_kind(self, stage: str) -> str:
+        """`<flow>(subnodes,<stage>,dynamic_kind)` for a {dynamic} stage. A
+        custom node (add-node) inherits the kind of the configured stage of
+        its node type. Raises ConfigError when undeclared."""
+        cfg = self._resolved_cfg
+        key = f'subnodes,{stage},dynamic_kind'
+        kind = cfg.get(key, '')
+        if not kind:
+            type_base = getattr(self, '_custom_node_types', {}).get(stage)
+            if type_base:
+                for k, v in cfg.items():
+                    if (k.startswith('subnodes,') and k.endswith(',dynamic_kind')
+                            and re.sub(r'\d+$', '', k.split(',')[1]) == type_base):
+                        kind = v
+                        break
+        if not kind:
+            raise _cfg.ConfigError(key, cfg)
+        if kind not in self._DYNAMIC_KINDS:
+            raise ValueError(f"{self.flow_type.lower()}({key}) = {kind!r} — "
+                             f"expected one of {', '.join(self._DYNAMIC_KINDS)}")
+        return kind
 
     def _load_runtime_custom_nodes(self) -> tuple:
         """Load custom nodes added by `cbflow run add-node` / `create-branch`.
@@ -577,10 +594,16 @@ class DagBuilder:
 
     def _default_tier(self, cfg: dict) -> str:
         """Site-wide default LSF tier used when a stage has no explicit
-        flow_mapping. Resolves lsf(default_queue_type) from the cascade;
-        falls back to 'M' only if the site config itself has no default.
+        flow_mapping. Resolves lsf(default_queue_type) from the cascade
+        (lsf_config.tcl) — required whenever the flow's config tree ships
+        an LSF config; no built-in tier. A discipline with no lsf(*) config
+        at all (DFT/DV/RTL today) gets None: the tier is unknown and is
+        recorded as NULL — the LSF submit path (launch_utils) errors if a
+        queue is actually needed.
         Centralized so subnode / leaf / custom-node seeding all agree."""
-        return _cfg.optional(cfg, 'lsf(default_queue_type)') or 'M'
+        if not any(k.startswith('lsf(') for k in cfg):
+            return None
+        return _cfg.require(cfg, 'lsf(default_queue_type)')
 
     def _build_command(self, stage: str, subnode: str) -> str:
         """Build the tclsh handler invocation command.
@@ -623,32 +646,13 @@ class DagBuilder:
         _env_pool = dict(os.environ)
         _env_pool.update(self.env_vars or {})
 
-        preferred_root = ''
-        try:
-            from tcl_config_parser import get_flow_discipline
-            _disc_raw = get_flow_discipline(self.flow_type)
-            if _disc_raw:
-                discipline = _disc_raw.upper()
-            else:
-                # Fallback to PD — but log so the operator sees the
-                # miss. Every flow in flow_registry.tcl has a declared
-                # discipline post 2026-11-03, so this path only fires
-                # for flows that weren't properly registered.
-                logger.warning(
-                    f'race_engine: flow {self.flow_type!r} has no discipline '
-                    f'in flow_registry.tcl — handler lookup falling back to PD. '
-                    f'Add `set flow(discipline,{self.flow_type}) "<DISC>"` to '
-                    f'global/config/flow/v1.0.0/flow_registry.tcl.')
-                discipline = 'PD'
-        except Exception as _e:
-            logger.warning(
-                f'race_engine: get_flow_discipline({self.flow_type!r}) '
-                f'raised {_e!r} — handler lookup falling back to PD.')
-            discipline = 'PD'
-        if discipline == 'PD':
-            preferred_root = flow_dir
-        else:
-            preferred_root = _env_pool.get(f'CBFLOW_{discipline}_DIR', '')
+        # The flow's discipline must be declared in flow_registry.tcl
+        # (flow(discipline,<FLOW>)) — get_flow_discipline raises otherwise;
+        # there is no PD default.
+        from tcl_config_parser import get_flow_discipline
+        from core import registry
+        discipline = get_flow_discipline(self.flow_type).upper()
+        preferred_root = _env_pool.get(registry.discipline_env_var(discipline), '')
 
         roots = []
         if preferred_root:
@@ -1428,15 +1432,11 @@ class RaceEngine:
         # Resolve discipline from flow_type via flow_registry so DFT/DV
         # runs land under the right domain subdirectory instead of PD/.
         # Pre-fix every discipline wrote to .../PD/<flow>/... which
-        # collided on flow_type-reuse across disciplines.
-        discipline = 'PD'
-        try:
-            from tcl_config_parser import get_flow_discipline
-            _d = (get_flow_discipline(self.flow_type) or '').upper()
-            if _d:
-                discipline = _d
-        except Exception as _disc_err:
-            logger.debug(f'discipline resolve failed for {self.flow_type}: {_disc_err}; defaulting to PD')
+        # collided on flow_type-reuse across disciplines. Same lookup as
+        # start_run._initialize_race_db so both agree on the DB location;
+        # an unmapped flow raises (no PD default).
+        from core import registry
+        discipline = registry.flow_discipline(self.flow_type)
 
         self.db = StatusDB(
             self.run_dir,
@@ -1999,7 +1999,11 @@ class RaceEngine:
                     _preview += f', … (+{len(_names) - 10} more)'
                 logger.info(f"  Launching {len(ready)} jobs in parallel: {_preview}")
                 results = {}
-                with concurrent.futures.ThreadPoolExecutor(max_workers=len(ready)) as pool:
+                # flow(max_parallel_jobs) caps concurrent local jobs; 0 means
+                # unlimited (one worker per ready job).
+                _max_par = int(_cfg.require(self._resolved_config, 'flow(max_parallel_jobs)'))
+                _workers = len(ready) if _max_par <= 0 else min(len(ready), _max_par)
+                with concurrent.futures.ThreadPoolExecutor(max_workers=_workers) as pool:
                     futures = {pool.submit(self._execute_job, job): job for job in ready}
                     for future in concurrent.futures.as_completed(futures):
                         job = futures[future]
@@ -2252,21 +2256,10 @@ class RaceEngine:
 
     def _check_db_session_limit(self):
         """Warn if RACE DB session count approaches or exceeds the configured limit."""
+        # flow(race,db_max_sessions) from the resolved cascade
+        # (flow_registry.tcl) — required.
+        max_sessions = int(_cfg.require(self._resolved_config, 'flow(race,db_max_sessions)'))
         try:
-            max_sessions = 10
-            # Post cbflow_global utils-refactor: PD-overlay flow_config lives
-            # under CBFLOW_CORE_DIR/config/, not FLOW_DIR/config/ (FLOW_DIR
-            # now = umbrella root).
-            flow_dir = self.env_vars.get('CBFLOW_CORE_DIR', '') or \
-                       self.env_vars.get('FLOW_DIR', '')
-            fc_path = os.path.join(flow_dir, 'config', 'flow',
-                                   self.env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0'),
-                                   'flow_config.tcl')
-            if os.path.exists(fc_path):
-                with open(fc_path) as f:
-                    for line in f:
-                        m = re.search(r'flow\(race,db_max_sessions\)\s+(\d+)', line)
-                        if m: max_sessions = int(m.group(1))
             warn_threshold = int(max_sessions * 0.8)
 
             # Count DBs: prefer race area, fallback to workarea local scan
@@ -2310,60 +2303,16 @@ class RaceEngine:
         Example:    /proj/phoenix/cbflow_db/phoenix/PD/SYNTH_PNR/vmerugu_run0.db
         """
         project_name = self.env_vars.get('CBFLOW_PROJECT_NAME', '')
-        # project(race,db_path) can live in ANY discipline's project overlay —
-        # PD's project_pd_config.tcl, DV's project_dv_config.tcl, DFT's
-        # project_dft_config.tcl, or the shared global/config/project/.../
-        # project_config.tcl. In a sparse-checkout clone only the owner's
-        # overlay is on disk, so walk every discipline root the env knows
-        # about and stop at the first hit.
-        config_roots = []
-        for env_var in ('CBFLOW_CORE_DIR', 'CBFLOW_DFT_DIR', 'CBFLOW_DV_DIR'):
-            root = self.env_vars.get(env_var, '')
-            if root and os.path.isdir(root):
-                config_roots.append(os.path.join(root, 'config'))
-        # Also check global/config/project — identity file sometimes carries
-        # the DB path when the project predates per-discipline overlays.
-        global_dir = self.env_vars.get('CBFLOW_GLOBAL_DIR', '')
-        if global_dir and os.path.isdir(global_dir):
-            config_roots.append(os.path.join(global_dir, 'config'))
-
-        # Legacy fallbacks for installs that haven't been migrated.
-        cfg_root = self.env_vars.get('CONFIG_ROOT', '')
-        flow_dir = self.env_vars.get('FLOW_DIR', '')
-        if not config_roots:
-            if cfg_root:
-                config_roots.append(cfg_root if os.path.basename(cfg_root.rstrip('/')) == 'config'
-                                    else os.path.join(cfg_root, 'config'))
-            elif flow_dir:
-                _pd_cand = os.path.join(flow_dir, 'PD', 'config')
-                config_roots.append(_pd_cand if os.path.isdir(_pd_cand)
-                                    else os.path.join(flow_dir, 'config'))
-
-        db_path = ''
-        cfg_hit = ''
-        for base_config in config_roots:
-            if not project_name or not base_config:
-                continue
-            for ver_dir in Path(os.path.join(base_config, 'project',
-                                             project_name)).glob('v*/'):
-                for cfg_file in ver_dir.glob('*_config.tcl'):
-                    try:
-                        with open(cfg_file) as f:
-                            for line in f:
-                                m = re.match(r'set\s+project\(race,db_path\)\s+"([^"]+)"',
-                                             line.strip())
-                                if m:
-                                    db_path = m.group(1)
-                                    cfg_hit = str(cfg_file)
-                                    break
-                    except (OSError, UnicodeDecodeError):
-                        pass
-                    if db_path:
-                        break
-                if db_path:
-                    break
-            if db_path:
-                break
+        # project(race,db_path) can live in the global project identity file
+        # or ANY discipline's project overlay — the cascade resolver sources
+        # them all (the flow's own discipline overlay last) and emits the
+        # winning value; no regex scan of the config files here.
+        cfg = getattr(self, '_resolved_config', None) or \
+            _cfg.load_resolved_config(self.flow_type, self.run_dir, env=self.env_vars)
+        db_path = _cfg.optional(cfg, 'project(race,db_path)') or ''
+        # Project config files that fed the cascade (for error messages).
+        cfg_hit = ' '.join(s.split(':', 1)[1] for s in cfg.get('_sources', '').split()
+                           if s.startswith(('global_project:', 'disc_project:')))
 
         # ── Mandatory ─────────────────────────────────────────────────────
         if not db_path:
@@ -2372,7 +2321,8 @@ class RaceEngine:
                 f"project config. This is required — every run's DB must live "
                 f"in a shared race area for cross-run tracking. Add:\n"
                 f"    set project(race,db_path) \"/proj/{project_name}/race_db\"\n"
-                f"to PD/config/project/{project_name}/v1.0.0/{project_name}_config.tcl")
+                f"to the {project_name} project config "
+                f"(<DISC>/config/project/{project_name}/<ver>/{project_name}_<disc>_config.tcl).")
 
         # ── Validate ──────────────────────────────────────────────────────
         # Accept: (a) already a directory, or (b) parent exists and target
@@ -2401,24 +2351,13 @@ class RaceEngine:
         if not hasattr(self, '_required_inputs_cache'):
             self._required_inputs_cache = {}
             # Read required_inputs from node config. Discipline-overlay config
-            # (PD/DFT/DV) lives under $CBFLOW_<DISC>_DIR/config after the
-            # cbflow_global utils-refactor. Resolve by flow discipline, falling
-            # back to CBFLOW_CORE_DIR (PD) then FLOW_DIR/PD/.
-            try:
-                from tcl_config_parser import get_flow_discipline as _gfd
-                _disc = (_gfd(self.flow_type) or 'PD').upper()
-            except Exception as _disc_err:
-                logger.debug(f'discipline lookup failed for {self.flow_type}: {_disc_err}; defaulting to PD')
-                _disc = 'PD'
-            if _disc == 'PD':
-                flow_dir = self.env_vars.get('CBFLOW_CORE_DIR', '')
-            else:
-                flow_dir = self.env_vars.get(f'CBFLOW_{_disc}_DIR', '')
-            if not flow_dir:
-                _umb = self.env_vars.get('FLOW_DIR', '')
-                flow_dir = os.path.join(_umb, _disc) if _umb else ''
-            nc_path = os.path.join(flow_dir, 'config', 'flow',
-                                   self.env_vars.get('FLOW_CONFIG_VERSION', 'v1.0.0'),
+            # lives under the discipline root (flow(discipline_dir,<DISC>)) of
+            # the flow's flow(discipline,<FLOW>) — both required.
+            from core import registry
+            flow_dir = registry.discipline_dir(registry.flow_discipline(self.flow_type))
+            cfg_ver = self.env_vars.get('FLOW_CONFIG_VERSION') or \
+                registry.config_version('FLOW_CONFIG_VERSION')
+            nc_path = os.path.join(flow_dir, 'config', 'flow', cfg_ver,
                                    'node_configs', f'{self.flow_type}_config.tcl')
             config = ''
             if os.path.exists(nc_path):

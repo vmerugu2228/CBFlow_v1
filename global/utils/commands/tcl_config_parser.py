@@ -30,6 +30,14 @@ from typing import Any, Dict, List, Optional
 
 import cbflow_config as _cfg
 
+try:
+    from core import registry as _registry
+except ImportError:
+    # global/utils (home of core/) may not be on sys.path for direct imports.
+    import sys as _sys
+    _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from core import registry as _registry
+
 
 # ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -45,8 +53,9 @@ def _get_config_root() -> Optional[str]:
 
 
 def _get_flow_config_version() -> str:
-    """Flow config version from env (or `v1.0.0`)."""
-    return os.environ.get('FLOW_CONFIG_VERSION', '') or 'v1.0.0'
+    """Flow config version from env (required — exported by the launcher)."""
+    from core import registry
+    return registry.config_version('FLOW_CONFIG_VERSION')
 
 
 def _parse_tcl_list(value: str) -> List[str]:
@@ -86,28 +95,28 @@ def _baseline_flow() -> str:
     as the resolver vehicle when reading cross-domain keys (flow_registry,
     project, tech — all of which live in global/).
 
-    SYNTH is preferred because every PD install ships it. In a DFT or DV
-    sparse-checkout clone where PD/ isn't on disk, SYNTH's flow_config.tcl
-    can't be sourced; fall back to the first flow of whichever discipline
-    IS available. Only the flow(*) + project(*) + tech(*) keys are read —
-    the choice of baseline doesn't affect the result as long as its
-    config files are resolvable.
+    Walks flow(disciplines) in roster order and returns the first flow in
+    flow(types) owned by the first discipline whose directory is on disk
+    (PD → SYNTH on a full install). In a DFT or DV sparse-checkout clone
+    where PD/ isn't on disk, PD flows can't be sourced, so the next
+    available discipline's first flow is used. Only the flow(*) +
+    project(*) + tech(*) keys are read — the choice of baseline doesn't
+    affect the result as long as its config files are resolvable.
+    Raises RegistryError when no discipline is on disk.
     """
-    import os
-    preferences = [
-        ('CBFLOW_CORE_DIR', 'SYNTH'),       # PD
-        ('CBFLOW_DFT_DIR',  'DFT_INSERT'),  # DFT
-        ('CBFLOW_DV_DIR',   'SPEC_RAMP'),   # DV
-    ]
-    for env_var, flow in preferences:
-        root = os.environ.get(env_var, '').strip()
-        # CBFLOW_CORE_DIR is set unconditionally by _cbflow_paths.sh (even
-        # if PD/ isn't on disk), so verify the directory actually exists.
-        # Otherwise a DV-only clone picks SYNTH and the resolver blows up
-        # on the missing PD/config/flow/flow_config.tcl.
-        if root and os.path.isdir(root):
-            return flow
-    return 'SYNTH'
+    from core import registry
+    flows = registry.flow_types()
+    for disc in registry.flow_disciplines():
+        # The PD env var is set unconditionally by _cbflow_paths.sh (even
+        # if PD/ isn't on disk) — is_discipline_available checks the dir.
+        if not is_discipline_available(disc):
+            continue
+        for flow in flows:
+            if registry.flow_discipline(flow) == disc:
+                return flow
+    raise registry.RegistryError(
+        'no discipline of flow(disciplines) is on disk with a flow in '
+        'flow(types) — cannot pick a resolver baseline flow')
 
 
 def get_flow_types() -> List[str]:
@@ -116,6 +125,13 @@ def get_flow_types() -> List[str]:
     # matter here, not the specific flow's node_config.
     cfg = _resolved(_baseline_flow(), run_dir=None)
     return _parse_tcl_list(_cfg.optional(cfg, 'flow(types)') or '')
+
+
+def get_common_flows() -> List[str]:
+    """The "common" flow selection offered by project setup
+    (`flow(common_flows)` in flow_registry.tcl — required)."""
+    cfg = _resolved(_baseline_flow(), run_dir=None)
+    return _cfg.require_list(cfg, 'flow(common_flows)')
 
 
 def get_flow_descriptions() -> Dict[str, str]:
@@ -143,21 +159,18 @@ def get_disciplines() -> List[str]:
 def get_flow_discipline(flow_type: str) -> str:
     """Return the discipline owning `flow_type` (e.g. 'PD', 'DFT', 'DV').
 
-    Returns '' if the map has no entry for this flow (pre-refactor install
-    where flow(discipline,*) isn't declared). Callers should default to 'PD'
-    in that case for back-compat.
+    Raises cbflow_config.ConfigError when flow_registry.tcl has no
+    flow(discipline,<flow_type>) entry — there is no default discipline.
     """
     cfg = _resolved(_baseline_flow(), run_dir=None)
-    val = _cfg.optional(cfg, f'flow(discipline,{flow_type})')
-    return _parse_tcl_string(val) if val else ''
+    return _parse_tcl_string(_cfg.require(cfg, f'flow(discipline,{flow_type})'))
 
 
 def get_flows_by_discipline() -> Dict[str, List[str]]:
-    """Return {discipline: [flows]}. Undeclared flows fall under '_uncategorized'."""
+    """Return {discipline: [flows]}. Every flow in flow(types) must be mapped."""
     out: Dict[str, List[str]] = {}
     for flow in get_flow_types():
-        disc = get_flow_discipline(flow) or '_uncategorized'
-        out.setdefault(disc, []).append(flow)
+        out.setdefault(get_flow_discipline(flow), []).append(flow)
     return out
 
 
@@ -170,10 +183,8 @@ def is_discipline_available(discipline: str) -> bool:
     Even PD can be absent in a DV-only or DFT-only sparse clone — don't
     assume it.
     """
-    import os
-    disc = discipline.upper()
-    env_var = 'CBFLOW_CORE_DIR' if disc == 'PD' else f'CBFLOW_{disc}_DIR'
-    root = os.environ.get(env_var, '').strip()
+    from core import registry
+    root = os.environ.get(registry.discipline_env_var(discipline.upper()), '').strip()
     if not root:
         return False
     return os.path.isdir(root)
@@ -184,7 +195,7 @@ def get_available_flow_types() -> List[str]:
     install this equals get_flow_types(); in a sparse PD-only clone it
     drops DFT/DV flows whose discipline directory isn't on disk."""
     return [ft for ft in get_flow_types()
-            if is_discipline_available(get_flow_discipline(ft) or 'PD')]
+            if is_discipline_available(get_flow_discipline(ft))]
 
 
 # ─── Per-project discipline helpers (reads master_projects.json) ──────────
@@ -194,7 +205,11 @@ def get_available_flow_types() -> List[str]:
 # helpers surface that declaration to Python callers (cbflow-git-bootstrap,
 # project dashboard discipline cards, workspace create gate).
 
-_CANONICAL_DISCIPLINES = ('PD', 'DFT', 'DV')
+def _canonical_disciplines() -> List[str]:
+    """Discipline roster in canonical order — flow(disciplines) from
+    flow_registry.tcl (raises RegistryError when unset)."""
+    from core import registry
+    return registry.flow_disciplines()
 
 
 def _load_master_projects() -> Dict[str, Any]:
@@ -230,7 +245,7 @@ def _project_entry(project: str) -> Dict[str, Any]:
 
 
 def get_project_disciplines(project: str) -> List[str]:
-    """Return disciplines this project uses, in canonical PD/DFT/DV order.
+    """Return disciplines this project uses, in flow(disciplines) order.
 
     A discipline is "in use" when its flow list under
     `enabled_flows_by_discipline` is non-empty. Projects that pre-date the
@@ -241,7 +256,7 @@ def get_project_disciplines(project: str) -> List[str]:
     if not by_disc:
         return ['PD'] if entry.get('enabled_flows') else []
     out = []
-    for d in _CANONICAL_DISCIPLINES:
+    for d in _canonical_disciplines():
         if by_disc.get(d):
             out.append(d)
     return out
@@ -250,10 +265,11 @@ def get_project_disciplines(project: str) -> List[str]:
 def get_project_enabled_flows(project: str, discipline: str) -> List[str]:
     """Return the flow list this project enables for the given discipline."""
     disc = discipline.upper()
-    if disc not in _CANONICAL_DISCIPLINES:
+    known = _canonical_disciplines()
+    if disc not in known:
         raise ValueError(
             f"unknown discipline '{discipline}' "
-            f"(expected one of {', '.join(_CANONICAL_DISCIPLINES)})")
+            f"(expected one of {', '.join(known)})")
     entry = _project_entry(project)
     by_disc = entry.get('enabled_flows_by_discipline') or {}
     flows = by_disc.get(disc) or []
@@ -391,7 +407,7 @@ def get_flow_info(flow_type: str) -> Dict[str, Any]:
         'tool': get_tool_info(flow_type),
         'supported_tools': get_supported_tools(flow_type),
         'default_tool': get_default_tool(flow_type),
-        'discipline': get_flow_discipline(flow_type) or 'PD',
+        'discipline': get_flow_discipline(flow_type),
     }
 
 
@@ -444,34 +460,22 @@ def get_entry_stage(flow_type: str,
 
 def get_handoff_stage(flow_type: str,
                       run_dir: Optional[str] = None) -> str:
+    """`<flow>(merge_handoff_stage)` — required for a flow used in a merged
+    chain (no guess from stage names)."""
     cfg = _resolved(flow_type, run_dir=run_dir)
-    val = _cfg.optional(cfg, 'merge_handoff_stage')
-    if val:
-        return _parse_tcl_string(val)
-    # Documented semantic: if not set, the export_data stage is the handoff;
-    # if neither exists, the last stage of the flow takes over.
-    stages = get_flow_stages(flow_type, run_dir=run_dir)
-    for s in stages:
-        if re.sub(r'\d+$', '', s) == 'export_data':
-            return s
-    return stages[-1] if stages else ''
+    return _parse_tcl_string(_cfg.require(cfg, 'merge_handoff_stage'))
 
 
 def get_parallel_stages(flow_type: str,
                         run_dir: Optional[str] = None) -> List[str]:
     """Stages that branch off the linear flow (e.g., `release_data1` runs in
     parallel with the next flow's entry). `merge_parallel_stages` is the
-    authoritative key — if not set, fall back to scanning for release_data
-    stages by name."""
+    authoritative key and must be declared (an empty `{}` is valid — no
+    parallel stages); no guess from stage names."""
     cfg = _resolved(flow_type, run_dir=run_dir)
-    val = _cfg.optional(cfg, 'merge_parallel_stages')
-    if val:
-        return _parse_tcl_list(val)
-    out = []
-    for s in get_flow_stages(flow_type, run_dir=run_dir):
-        if re.sub(r'\d+$', '', s) == 'release_data':
-            out.append(s)
-    return out
+    if 'merge_parallel_stages' not in cfg:
+        raise _cfg.ConfigError('merge_parallel_stages', cfg)
+    return _parse_tcl_list(cfg['merge_parallel_stages'])
 
 
 # ─── Merged-flow support (pure Python, no config reads) ───────────────────

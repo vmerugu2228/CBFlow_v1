@@ -30,6 +30,13 @@
 # array set sta { … } expanded to per-key `set` statements so `#` comments work natively (Tcl treats `#` as data inside `array set` literals).
     set sta(subnodes,extraction1) {dynamic}
     set sta(subnodes,timing1) {dynamic}
+    # What a dynamic stage fans out over (read by race_engine
+    # _resolve_dynamic_subnodes — required for every {dynamic} stage):
+    #   rc_corner → one subnode per RC corner (rc_corner_list from mmmc_config)
+    #   scenario  → one subnode per MMMC scenario (user/override scenarios,
+    #               else mmmc_scenario_set,<sta(mmmc,scenario_set)>)
+    set sta(subnodes,extraction1,dynamic_kind) rc_corner
+    set sta(subnodes,timing1,dynamic_kind)     scenario
 
     set sta(subnode_dependencies,extraction1,dynamic) {}
     set sta(subnode_dependencies,timing1,dynamic) {}
@@ -199,3 +206,8 @@ if {[file exists $_tool_config]} {
     puts "       Supported tools: $sta(supported_tools)"
     exit 1
 }
+
+# ── Merge metadata (multi-flow chaining) ─────────────────────────────────────
+# Read by tcl_config_parser.get_handoff_stage / get_parallel_stages when this
+# flow is chained in a merged flow spec. Required — no stage-name guessing.
+set sta(merge_handoff_stage)   release_data1

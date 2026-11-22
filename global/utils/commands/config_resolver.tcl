@@ -64,7 +64,15 @@ if {[info exists ::env(CONFIG_ROOT)]} {
     puts stderr "ERROR: config root not resolvable — set CONFIG_ROOT, FLOW_DIR, or CBFLOW_CORE_DIR"
     exit 1
 }
-set flow_ver    [expr {[info exists ::env(FLOW_CONFIG_VERSION)] ? $::env(FLOW_CONFIG_VERSION) : "v1.0.0"}]
+# Config-schema versions are exported by the launcher — no built-in default.
+proc _require_env_version {var} {
+    if {![info exists ::env($var)] || $::env($var) eq ""} {
+        puts stderr "ERROR: $var is not set (exported by the cbflow launcher)"
+        exit 1
+    }
+    return $::env($var)
+}
+set flow_ver [_require_env_version FLOW_CONFIG_VERSION]
 
 # ── 1b. Global config root (cbflow_global refactor) ──
 # Global sources are sourced BEFORE flow_config so flow_registry.tcl pre-
@@ -94,24 +102,28 @@ lappend _global_sources "global_registry:$_fr"
 # the flow_config.tcl source to that discipline's tree so DFT / DV flows load
 # their own mandatory_vars + node_config, not PD's.
 #
-# The CBFLOW_<DISC>_DIR env var (exported by bin/cbflow when the discipline
-# directory exists) locates the discipline root. Falls back to a sibling of
-# CBFLOW_CORE_DIR to survive test contexts that don't fully invoke the
-# launcher.
-set _disc "PD"
-if {[info exists ::flow(discipline,$flow_type)]} {
-    set _disc $::flow(discipline,$flow_type)
+# The discipline env var (CBFLOW_CORE_DIR for PD, CBFLOW_<DISC>_DIR for the
+# others — exported by bin/cbflow when the discipline directory exists)
+# locates the discipline root; otherwise $CBFLOW_ROOT/<flow(discipline_dir,*)>.
+# An unmapped flow is an error — there is no default discipline.
+if {![info exists ::flow(discipline,$flow_type)] || $::flow(discipline,$flow_type) eq ""} {
+    puts stderr "ERROR: flow(discipline,$flow_type) is not set in $_fr"
+    exit 1
 }
-set _disc_upper [string toupper $_disc]
+# Env var naming a discipline root (same convention as
+# core/registry.py::discipline_env_var).
+proc _disc_env_var {disc} {
+    if {$disc eq "PD"} { return "CBFLOW_CORE_DIR" }
+    return "CBFLOW_[string toupper $disc]_DIR"
+}
+set _disc $::flow(discipline,$flow_type)
 set _disc_dir ""
-set _disc_env_var "CBFLOW_${_disc_upper}_DIR"
+set _disc_env_var [_disc_env_var $_disc]
 if {[info exists ::env($_disc_env_var)] && [file isdirectory $::env($_disc_env_var)]} {
     set _disc_dir $::env($_disc_env_var)
-} elseif {[info exists ::env(CBFLOW_ROOT)] && [file isdirectory "$::env(CBFLOW_ROOT)/$_disc"]} {
-    set _disc_dir "$::env(CBFLOW_ROOT)/$_disc"
-} elseif {$_disc eq "PD"} {
-    # Backwards compat: pre-Phase-5 workareas only export CBFLOW_CORE_DIR.
-    set _disc_dir [file dirname $config_root]
+} elseif {[info exists ::env(CBFLOW_ROOT)] && [info exists ::flow(discipline_dir,$_disc)]
+          && [file isdirectory "$::env(CBFLOW_ROOT)/$::flow(discipline_dir,$_disc)"]} {
+    set _disc_dir "$::env(CBFLOW_ROOT)/$::flow(discipline_dir,$_disc)"
 }
 if {$_disc_dir eq ""} {
     puts stderr "ERROR: cannot resolve discipline root for '$_disc' (flow $flow_type)"
@@ -165,29 +177,39 @@ if {[file exists $_release_cfg]} {
 set _proj_srcs [list]
 if {!$_no_run} {
     set _proj_name [expr {[info exists ::env(CBFLOW_PROJECT_NAME)] ? $::env(CBFLOW_PROJECT_NAME) : ""}]
-    set _proj_ver  [expr {[info exists ::env(FLOW_CONFIG_VERSION)] ? $::env(FLOW_CONFIG_VERSION) : "v1.0.0"}]
+    set _proj_ver  [_require_env_version PROJECT_CONFIG_VERSION]
     if {$_proj_name ne ""} {
-        if {$global_root ne ""} {
-            # Post 2026-11-01 rename: identity file is <project>_config.tcl.
-            set _gp "$global_root/project/$_proj_name/$_proj_ver/${_proj_name}_config.tcl"
-            if {[file exists $_gp]} {
-                source $_gp
-                lappend _proj_srcs "global_project:$_gp"
-            }
+        # Post 2026-11-01 rename: identity file is <project>_config.tcl.
+        # The project is named, so its identity file must exist.
+        set _gp "$global_root/project/$_proj_name/$_proj_ver/${_proj_name}_config.tcl"
+        if {![file exists $_gp]} {
+            puts stderr "ERROR: project config not found for project '$_proj_name': $_gp"
+            exit 1
         }
-        # Walk every discipline root for its project overlay. _cbflow_paths.sh
-        # exports CBFLOW_<DISC>_DIR only when the directory exists, so each
-        # overlay only attaches when its tree is on disk. Basename is
-        # <project>_<disc>_config.tcl.
-        foreach {_env_var _disc_short} {
-                CBFLOW_DFT_DIR  dft
-                CBFLOW_DV_DIR   dv
-                CBFLOW_CORE_DIR pd
-        } {
+        source $_gp
+        lappend _proj_srcs "global_project:$_gp"
+        # Walk every discipline in flow(disciplines) for its project overlay.
+        # Order: every non-owner discipline in roster order, then the active
+        # flow's own discipline last so its overlay wins on conflicts (for PD
+        # flows this keeps the historic "PD last" order). _cbflow_paths.sh
+        # exports the discipline env var only when the directory exists, so
+        # each overlay only attaches when its tree is on disk (sparse
+        # clones), and a discipline need not carry an overlay for every
+        # project. Basename is <project>_<disc>_config.tcl.
+        if {![info exists ::flow(disciplines)]} {
+            puts stderr "ERROR: flow(disciplines) is not set in $_fr"
+            exit 1
+        }
+        # (re-read the flow's discipline — flow_config.tcl may reuse _disc)
+        set _own_disc $::flow(discipline,$flow_type)
+        set _ovl_order [lsearch -all -inline -exact -not $::flow(disciplines) $_own_disc]
+        lappend _ovl_order $_own_disc
+        foreach _ovl_disc $_ovl_order {
+            set _env_var [_disc_env_var $_ovl_disc]
             if {![info exists ::env($_env_var)]} { continue }
             set _root $::env($_env_var)
             if {![file isdirectory $_root]} { continue }
-            set _overlay_name "${_proj_name}_${_disc_short}_config.tcl"
+            set _overlay_name "${_proj_name}_[string tolower $_ovl_disc]_config.tcl"
             set _ovl "$_root/config/project/$_proj_name/$_proj_ver/$_overlay_name"
             if {[file exists $_ovl]} {
                 source $_ovl
@@ -204,17 +226,18 @@ set _tech_srcs [list]
 if {!$_no_run} {
     set _tech_node [expr {[info exists ::env(CBFLOW_TECH_NODE)] ? $::env(CBFLOW_TECH_NODE) :
                            [expr {[info exists ::env(TECH_NAME)] ? $::env(TECH_NAME) : ""}]}]
-    set _tech_ver  [expr {[info exists ::env(TECH_CONFIG_VERSION)] ? $::env(TECH_CONFIG_VERSION) : "v1.0.0"}]
     if {$_tech_node ne ""} {
+        set _tech_ver  [_require_env_version TECH_CONFIG_VERSION]
         # Post 2026-10-11: tech is a SINGLE file in global. The former
         # PD-side tech_pd_config.tcl was merged into tech_config.tcl.
-        if {$global_root ne ""} {
-            set _gt "$global_root/tech/$_tech_node/$_tech_ver/tech_config.tcl"
-            if {[file exists $_gt]} {
-                source $_gt
-                lappend _tech_srcs "global_tech:$_gt"
-            }
+        # The tech node is named, so its config must exist.
+        set _gt "$global_root/tech/$_tech_node/$_tech_ver/tech_config.tcl"
+        if {![file exists $_gt]} {
+            puts stderr "ERROR: tech config not found for tech '$_tech_node': $_gt"
+            exit 1
         }
+        source $_gt
+        lappend _tech_srcs "global_tech:$_gt"
     }
 }
 
@@ -224,15 +247,25 @@ if {!$_no_run} {
 # Both moved to global/ in Phase 3 — they are project-scoped identity data,
 # not PD-specific.
 if {!$_no_run} {
-    if {$_proj_name ne "" && $global_root ne ""} {
-        set _mmmc_cfg_path "$global_root/project/$_proj_name/$_proj_ver/mmmc_config.tcl"
-        if {[file exists $_mmmc_cfg_path]} {
-            source $_mmmc_cfg_path
+    if {$_proj_name ne ""} {
+        # A flow whose node config enables MMMC (<flow>(mmmc,enabled) true)
+        # cannot run without the project's MMMC files — error instead of
+        # silently resolving an empty scenario set. Flows without MMMC
+        # (LEC/PV/DFT/DV/…) attach the files only when the project has them.
+        upvar #0 [string tolower $flow_type] _fa_mmmc
+        set _mmmc_required [expr {[info exists _fa_mmmc(mmmc,enabled)]
+                                  && [string is true -strict $_fa_mmmc(mmmc,enabled)]}]
+        foreach _mmmc_f {mmmc_config.tcl mmmc_node_scenarios.tcl} {
+            set _mmmc_p "$global_root/project/$_proj_name/$_proj_ver/$_mmmc_f"
+            if {$_mmmc_f eq "mmmc_config.tcl"} { set _mmmc_cfg_path $_mmmc_p }
+            if {[file exists $_mmmc_p]} {
+                source $_mmmc_p
+            } elseif {$_mmmc_required} {
+                puts stderr "ERROR: [string tolower $flow_type](mmmc,enabled) is true but $_mmmc_f is missing for project '$_proj_name': $_mmmc_p"
+                exit 1
+            }
         }
-        set _mmmc_ns_path "$global_root/project/$_proj_name/$_proj_ver/mmmc_node_scenarios.tcl"
-        if {[file exists $_mmmc_ns_path]} {
-            source $_mmmc_ns_path
-        }
+        unset -nocomplain _mmmc_f _mmmc_p _mmmc_required
     }
 
     # ── 4. user_config.tcl — last writer wins for overridable keys ──
@@ -243,7 +276,7 @@ if {!$_no_run} {
     # A tool chosen in user_config (<flow>(tool,name)) gets its own overlay
     # (<FLOW>_<tool>_config.tcl) — the node config loaded the default one.
     source [file join [file dirname [file dirname [file normalize [info script]]]] \
-        utilities [expr {[info exists ::env(UTILITIES_VERSION)] ? $::env(UTILITIES_VERSION) : "v1.0.0"}] \
+        utilities [_require_env_version UTILITIES_VERSION] \
         tool_overlay.tcl]
     if {[catch {cbflow_reload_tool_overlay $flow_type \
             [file join [file dirname $flow_config] node_configs] $user_config} _tov_err]} {
@@ -401,7 +434,8 @@ foreach _opt_arr {validation ml tool_launch} {
 foreach key {types disciplines use_lsf use_xterm test_mode dispatcher cbflow_version
              mode merged,flows merged,fp_independent merged,pnr_depends_fp
              dashboard,default_port mmmc,enabled
-             race,db_max_sessions phases exit_milestones run_types
+             race,db_max_sessions max_parallel_jobs common_flows
+             phases exit_milestones run_types
              run_name design_name type run_type} {
     if {[info exists ::flow($key)]} {
         puts "CBFLOW_CFG:flow($key)=[_flatten $::flow($key)]"

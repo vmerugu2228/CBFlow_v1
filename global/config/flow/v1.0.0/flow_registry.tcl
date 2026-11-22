@@ -133,6 +133,14 @@ if {![info exists flow(use_lsf)]}               { set flow(use_lsf)       false 
 if {![info exists flow(use_xterm)]}             { set flow(use_xterm)     true }
 if {![info exists flow(cbflow_version)]}        { set flow(cbflow_version) "2.0.0" }
 if {![info exists flow(dashboard,default_port)]} { set flow(dashboard,default_port) 0 }
+# Max jobs the RACE engine runs concurrently when several are ready at once
+# (local thread pool). 0 = unlimited (one worker per ready job).
+if {![info exists flow(max_parallel_jobs)]}     { set flow(max_parallel_jobs) 0 }
+
+# ── Project setup ───────────────────────────────────────────────────────────
+# Flows offered as the "common" selection (and the fallback when nothing is
+# selected) by `cbflow flow project` interactive flow selection.
+if {![info exists flow(common_flows)]}          { set flow(common_flows) {SYNTH FP PNR STA LEC PV} }
 
 # ── SmartGrid (project dashboard) ───────────────────────────────────────────
 # Read by global/utils/project_dashboard/ via core.registry (plain `set`, one

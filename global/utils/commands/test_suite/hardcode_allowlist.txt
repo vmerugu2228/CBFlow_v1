@@ -12,3 +12,5 @@
 version-default global/bin/_cbflow_paths.sh:*   # the single central launcher default for *_VERSION env vars
 release-layout global/utils/core/registry.py:@release_dir          # THE central release-layout helper (Python)
 release-layout global/utils/utilities/v1.0.0/utils.tcl:@cbflow_release_dir   # THE central release-layout helper (Tcl)
+version-default global/utils/commands/release_cmd.py:@cmd_generate_config   # numbering origin of the FIRST CBflow toolchain release (no release exists yet) — not a config-version default
+version-default global/utils/commands/release_cmd.py:@cmd_create            # numbering origin of the FIRST CBflow toolchain release (no release exists yet) — not a config-version default
