@@ -38,12 +38,23 @@ flow_proc publish {
         ::CBFlow::Release::copy_glob "$_sd/*.rpt" reports/sta/$_scen
     }
     # Signoff metrics + verdict for SmartGrid (attached to the exit it checked)
-    set _L [list "# category: timing"]
-    set _fh [open "$_m/sta_summary.rpt"]; set _t [read $_fh]; close $_fh
-    foreach _ln [split $_t \n] {
-        if {[llength $_ln] == 5 && [string is double -strict [lindex $_ln 1]]} {
-            lassign $_ln _sc _sw _st _hw _ht
-            lappend _L "$_sc setup WNS : $_sw" "$_sc setup TNS : $_st" "$_sc hold WNS : $_hw" "$_sc hold TNS : $_ht"
+    # Per-scenario table (SmartGrid pivots '# scenario:' sections into one
+    # row per scenario): timing, DRV and power from each scenario's QoR.
+    set _L [list "# category: scenario"]
+    set _power [is_true [oss_get sta oss,report_power]]
+    foreach _q [lsort [glob -nocomplain "[cbflow_node_dir $_tnode]/*/reports/[oss_get sta oss,scenario_qor_file]"]] {
+        array unset qor
+        source $_q
+        lappend _L "# scenario: $qor(scenario)" \
+            "Setup WNS : $qor(wns_setup)" "Setup TNS : $qor(tns_setup)" \
+            "Hold WNS : $qor(wns_hold)" "Hold TNS : $qor(tns_hold)" \
+            "Tran violations : $qor(max_tran_violations)" \
+            "Cap violations : $qor(max_cap_violations)" \
+            "Fanout violations : $qor(max_fanout_violations)" \
+            "Noise : N/A"
+        if {$_power} {
+            lappend _L "Lkg power mW : [format %.4g [expr {$qor(power_leakage) * 1e3}]]" \
+                       "Total power mW : [format %.4g [expr {$qor(power_total) * 1e3}]]"
         }
     }
     if {[is_true [oss_get sta oss,report_power]]} {
@@ -54,13 +65,11 @@ flow_proc publish {
         foreach _ln [lrange [split $_pt \n] 1 end] {
             if {[llength $_ln] != 5} continue
             lassign $_ln _sc _t _i _w _l
-            lappend _L "Total power mW $_sc : $_t" "Internal power mW $_sc : $_i" \
-                       "Switching power mW $_sc : $_w" "Leakage power mW $_sc : $_l"
             if {$_worst eq "" || $_t > $_worst} { set _worst $_t; set _wsc $_sc }
         }
         lappend _L "Total power mW : $_worst" "Worst power view : $_wsc"
-        lappend _L "# category: timing"
     }
+    lappend _L "# category: timing"
     source "$_m/sta_summary.tcl"
     set _ok [expr {$sta_summary(wns_setup) >= [oss_get sta signoff,min_setup_wns]
                    && $sta_summary(wns_hold) >= [oss_get sta signoff,min_hold_wns]}]

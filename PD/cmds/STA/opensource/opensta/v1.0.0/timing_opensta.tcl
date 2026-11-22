@@ -58,6 +58,9 @@ flow_proc report {
     puts $_fh "set qor(wns_hold) [sta::worst_slack -min]"
     puts $_fh "set qor(tns_setup) [sta::total_negative_slack -max]"
     puts $_fh "set qor(tns_hold) [sta::total_negative_slack -min]"
+    puts $_fh "set qor(max_tran_violations) [sta::max_slew_violation_count]"
+    puts $_fh "set qor(max_cap_violations) [sta::max_capacitance_violation_count]"
+    puts $_fh "set qor(max_fanout_violations) [sta::max_fanout_violation_count]"
     # Power (sta(oss,report_power)): report_power on this scenario's corner;
     # the Total row (internal switching leakage total, W) goes into the QoR.
     if {[is_true [oss_get sta oss,report_power]]} {

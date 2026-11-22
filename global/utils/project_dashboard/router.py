@@ -5365,7 +5365,12 @@ def _render_detail(project, info, d):
     timing_cats = [c for c, t in cat_tab.items() if t == 'timing']
     timing_names = dash_config.timing_name_tokens()
     timing_metrics, signoff_metrics, other_metrics, routing_metrics = [], [], [], []
+    # Metrics tagged with a scenario ('# scenario:' sections of metrics.rpt)
+    # form the per-scenario table on the Timing tab.
+    scenario_metrics = [m for m in all_metrics if m.get('scenario')]
     for m in all_metrics:
+        if m.get('scenario'):
+            continue
         cat = (m.get('category') or '').lower()
         nm  = (m.get('name') or '').upper()
         tab = cat_tab.get(cat)
@@ -5391,7 +5396,7 @@ def _render_detail(project, info, d):
 
     # Tab counts drive the badges on the tab labels
     counts = {
-        'timing':    len(timing_metrics),
+        'timing':    len(timing_metrics) + len({m['scenario'] for m in scenario_metrics}),
         'routing_metrics': len(routing_metrics),
         'floorplan': 1 if d.get('has_floorplan') else 0,
         'checklist': len(checklist),
@@ -5478,6 +5483,10 @@ def _render_detail(project, info, d):
 
     # ── Timing tab ───────────────────────────────────────────────────
     parts.append('<div class="tab-body" data-tab="timing">')
+    if scenario_metrics:
+        parts.append('<div class="sec-h">Per-scenario summary '
+                     f'<span class="hint">{len({m["scenario"] for m in scenario_metrics})} scenarios</span></div>')
+        parts.append(_scenario_table(scenario_metrics))
     parts.append('<div class="sec-h">Timing metrics '
                  f'<span class="hint">{len(timing_metrics)} rows</span></div>')
     parts.append(_metrics_table(timing_metrics))
@@ -5583,6 +5592,41 @@ def _render_detail(project, info, d):
     parts.append(_SCRIPT_TABS)
     parts.append('</body></html>')
     return ''.join(parts)
+
+
+def _scenario_table(rows):
+    """One row per scenario, one column per metric name (in the order the
+    flow wrote them). Negative slack and non-zero violation counts are
+    highlighted."""
+    scens, cols, val = [], [], {}
+    for m in rows:
+        s, n = m['scenario'], m.get('name') or ''
+        if s not in scens:
+            scens.append(s)
+        if n not in cols:
+            cols.append(n)
+        val[(s, n)] = str(m.get('value') if m.get('value') is not None else '')
+    def cell(s, n):
+        v = val.get((s, n), '')
+        bad = False
+        try:
+            f = float(v)
+            bad = (f < 0 if ('WNS' in n or 'TNS' in n) else
+                   f > 0 if 'violation' in n.lower() else False)
+            if 'WNS' in n or 'TNS' in n:
+                v = f'{f:.4f}'
+        except ValueError:
+            pass
+        style = ' style="color:#b91c1c;font-weight:700"' if bad else ''
+        return f'<td class="num mono"{style}>{html.escape(v) if v else "—"}</td>'
+    out = ['<div style="overflow-x:auto"><table class="d"><thead><tr><th style="text-align:left">Scenario</th>']
+    out += [f'<th>{html.escape(c)}</th>' for c in cols]
+    out.append('</tr></thead><tbody>')
+    for s in scens:
+        out.append(f'<tr><td class="mono" style="text-align:left">{html.escape(s)}</td>'
+                   + ''.join(cell(s, c) for c in cols) + '</tr>')
+    out.append('</tbody></table></div>')
+    return ''.join(out)
 
 
 def _metrics_table(rows):

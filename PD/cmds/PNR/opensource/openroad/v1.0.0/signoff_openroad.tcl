@@ -55,19 +55,23 @@ flow_proc timing {
 proc oss_power_metrics {views} {
     set _rpt "$::REPORTS_DIR/[file tail [oss_get pnr checklist,report]]"
     if {![file exists $_rpt]} { error "checklist metrics not written: $_rpt" }
-    set L [list "# category: power"]
+    # Worst view first (checklist patterns match the first "Total power mW"),
+    # then one '# scenario:' section per view (SmartGrid per-scenario table).
+    set S [list "# category: scenario"]
     set _worst ""; set _worst_v ""
     foreach _v $views {
         set _fh [open "$::REPORTS_DIR/signoff_power_${_v}.rpt"]; set _t [read $_fh]; close $_fh
         if {![regexp -line {^Total\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)} $_t -> _int _sw _lk _tot]} {
             error "no Total row in signoff_power_${_v}.rpt"
         }
-        foreach {_k _w} [list Total $_tot Internal $_int Switching $_sw Leakage $_lk] {
-            lappend L "$_k power mW $_v : [format %.4g [expr {$_w * 1e3}]]"
+        lappend S "# scenario: $_v"
+        foreach {_k _w} [list Internal $_int Switching $_sw Lkg $_lk Total $_tot] {
+            lappend S "$_k power mW : [format %.4g [expr {$_w * 1e3}]]"
         }
         if {$_worst eq "" || $_tot > $_worst} { set _worst $_tot; set _worst_v $_v }
     }
-    lappend L "Total power mW : [format %.4g [expr {$_worst * 1e3}]]" "Worst power view : $_worst_v"
+    set L [list "# category: power" "Total power mW : [format %.4g [expr {$_worst * 1e3}]]" \
+                "Worst power view : $_worst_v" {*}$S]
     set _fh [open $_rpt a]; puts $_fh [join $L \n]; close $_fh
 }
 

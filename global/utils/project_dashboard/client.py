@@ -151,20 +151,27 @@ def build_payload(project, block, phase, milestone, release_dir, workspace,
 
 
 def _read_metrics_report(path):
-    """[{category, name, value}] from a metrics report; [] when absent."""
-    out, cat = [], 'other'
+    """[{category, name, value, scenario}] from a metrics report; [] when
+    absent. "# category: <c>" starts a group; "# scenario: <s>" tags the
+    following lines with a scenario until the next category / scenario."""
+    out, cat, scen = [], 'other', ''
     try:
         with open(path, encoding='utf-8', errors='replace') as f:
             for line in f:
                 line = line.strip()
                 m = re.match(r'#\s*category:\s*(\S+)', line)
                 if m:
-                    cat = m.group(1)
+                    cat, scen = m.group(1), ''
+                    continue
+                m = re.match(r'#\s*scenario:\s*(\S+)', line)
+                if m:
+                    scen = m.group(1)
                     continue
                 if not line or line.startswith('#') or ' : ' not in line:
                     continue
                 k, v = line.split(' : ', 1)
-                out.append({'category': cat, 'name': k.strip(), 'value': v.strip()})
+                out.append({'category': cat, 'name': k.strip(), 'value': v.strip(),
+                            'scenario': scen})
     except OSError:
         pass
     return out
