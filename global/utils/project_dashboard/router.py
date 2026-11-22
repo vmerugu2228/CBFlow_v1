@@ -49,6 +49,18 @@ _CHECK_STATUS_CLS = {'PASS': 'past', 'FAIL': 'late', 'ERROR': 'late',
                      'WAIVED': 'next', 'CONDITIONAL': 'next'}
 
 
+def _signoff_pills(r):
+    """STA / PV / LEC … verdict pills of a published entry, linking to its
+    Signoff tab."""
+    so = r.get('signoff') or []
+    if not so:
+        return '<span class="muted">—</span>'
+    return ' '.join(
+        f'<a href="/published/{r["id"]}#signoff" style="text-decoration:none">'
+        f'<span class="tt-status st-{ {"PASS": "past", "FAIL": "late"}.get((s.get("status") or "").upper(), "future") }">'
+        f'{html.escape(s.get("flow") or "")}</span></a>' for s in so)
+
+
 def _requirement(thr):
     """Pass requirement for display: "<= 100 ps" -> "≤ 100 ps", "between 1,85 %"
     -> "1 – 85 %"; non-numeric criteria (e.g. "file exists") shown as is."""
@@ -4855,7 +4867,7 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
                 f'<td><span class="lvl-pill">{html.escape(lvl)}</span></td>'
                 f'<td>{html.escape(par or "—")}</td>'
                 '<td class="muted">—</td><td class="muted">—</td><td class="muted">not published</td>'
-                '<td class="muted">—</td><td class="muted">—</td></tr>')
+                '<td class="muted">—</td><td class="muted">—</td><td class="muted">—</td></tr>')
             continue
         ms = r.get('milestone') or ''
         ph = r.get('phase') or ''
@@ -4887,11 +4899,12 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
             f'  <td><span class="verdict-badge v-{v_class}">'
             f'{html.escape(v)}</span></td>'
             f'  <td class="num">{clos_str}</td>'
+            f'  <td>{_signoff_pills(r)}</td>'
             f'  <td class="num mono">{html.escape(pub_at)}</td>'
             f'</tr>')
     if not block_rows_html:
         block_rows_html.append(
-            '<tr><td colspan="8" class="empty-row">'
+            '<tr><td colspan="9" class="empty-row">'
             'No matching publishes. Try clearing the filters.'
             '</td></tr>')
 
@@ -5117,6 +5130,7 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
         '      <th>Phase</th>'
         '      <th>Verdict</th>'
         '      <th class="num">Closability</th>'
+        '      <th>Signoff</th>'
         '      <th class="num">Published</th>'
         '    </tr></thead>',
         '    <tbody>', *block_rows_html, '</tbody>',
@@ -5823,6 +5837,7 @@ def _render_block(project, info, block_name, block_meta, block_pubs):
                ('release_tag',  'Release tag'),
                ('released_by',  'Released by'),
                ('published_at', 'Published'),
+               ('signoff',      'Signoff'),
                ('id',           'Detail')]
     for key, lbl in headers:
         parts.append(f'  <th data-sort="{key}">{html.escape(lbl)}</th>')
@@ -5843,6 +5858,7 @@ def _render_block(project, info, block_name, block_meta, block_pubs):
             f'<td class="mono">{html.escape(r.get("release_tag") or "—")}</td>'
             f'<td>{html.escape(r.get("released_by") or "—")}</td>'
             f'<td class="mono">{html.escape((r.get("published_at") or "")[:19])}</td>'
+            f'<td>{_signoff_pills(r)}</td>'
             f'<td><a href="/published/{r["id"]}">open →</a></td>'
             f'</tr>')
     parts.append('</tbody></table></div>')

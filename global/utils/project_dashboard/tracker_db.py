@@ -590,7 +590,17 @@ def list_published(db_path, project):
             WHERE project=?
             ORDER BY block, phase, milestone
         """, (project,)).fetchall()
-        return [dict(r) for r in rows]
+        out = [dict(r) for r in rows]
+        # signoff summary per entry: [{flow, status}] (STA / PV / LEC …)
+        so = {}
+        try:
+            for r in conn.execute('SELECT published_run_id, flow, status FROM run_signoff ORDER BY flow'):
+                so.setdefault(r['published_run_id'], []).append({'flow': r['flow'], 'status': r['status']})
+        except sqlite3.Error:
+            pass
+        for r in out:
+            r['signoff'] = so.get(r['id'], [])
+        return out
     finally:
         conn.close()
 
