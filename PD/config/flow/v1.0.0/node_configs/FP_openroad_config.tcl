@@ -52,11 +52,12 @@ array set fp {
 # ┌─ Floorplan (OpenROAD) ─────────────────────────────────────────────────────┐
 # oss,fp,die_area {x0 y0 x1 y1} (µm) overrides utilization-based sizing — use
 # it for blocks that integrate hard macros.
-# core_utilization 30 (std-cell blocks): low density for clean, fast routing; tighten for area later.
+# core_utilization 10 = standard-cell utilization (macro blocks add macro area on top):
+# low density for clean, fast routing; tighten for area later.
 # oss,macro,placement {inst x y orient ...} overrides rtl_macro_placer.
 array set fp {
     oss,fp,die_area          ""
-    oss,fp,core_utilization  30
+    oss,fp,core_utilization  10
     oss,fp,aspect_ratio      1.0
     oss,fp,core_margin       10
     oss,pins,hor_layer       "met3"

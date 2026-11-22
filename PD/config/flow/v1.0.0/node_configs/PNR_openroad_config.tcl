@@ -49,9 +49,9 @@ array set pnr {
 }
 
 # ┌─ Placement (OpenROAD) — floorplan knobs live in FP_openroad_config.tcl ───┐
-# density 0.35 spreads cells to match the 30% core utilization (routability first).
+# density 0.20 spreads cells for the 10% std-cell utilization (routability first).
 array set pnr {
-    oss,place,density        0.35
+    oss,place,density        0.20
 }
 
 # ┌─ Optimization / routing ───────────────────────────────────────────────────┐

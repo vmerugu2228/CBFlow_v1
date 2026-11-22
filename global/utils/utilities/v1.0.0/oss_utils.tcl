@@ -425,20 +425,54 @@ proc oss_fp_load_netlist {design blocks} {
 }
 
 # Die / core (oss,fp,die_area wins over utilization sizing), rows, tracks.
+# Utilization sizing: oss,fp,core_utilization is the STANDARD-CELL
+# utilization. Without hard macros OpenROAD sizes the core directly; with
+# hard macros the core is macro area (incl. halo) + std-cell area / util,
+# wide enough for the macros side by side (sum of widths + halos) and as tall
+# as the tallest — so a parent block is not inflated by its children's area
+# and its children fit in one row from the core corner.
 proc oss_fp_floorplan {} {
     set _arr  [oss_flow_arr]
     set _site [oss_trk site]
+    set _m    [oss_get $_arr oss,fp,core_margin]
     set _die  [oss_fp_opt oss,fp,die_area]
     if {$_die ne ""} {
-        set _m [oss_get $_arr oss,fp,core_margin]
         lassign $_die _x0 _y0 _x1 _y1
         initialize_floorplan -site $_site -die_area $_die \
             -core_area [list [expr {$_x0 + $_m}] [expr {$_y0 + $_m}] [expr {$_x1 - $_m}] [expr {$_y1 - $_m}]]
+        oss_make_tracks
+        return
+    }
+    set _util [oss_get $_arr oss,fp,core_utilization]
+    set _ar   [oss_get $_arr oss,fp,aspect_ratio]
+    set _halo [oss_get $_arr oss,macro,halo]
+    set _dbu  [[ord::get_db_tech] getDbUnitsPerMicron]
+    set _std 0.0; set _mac 0.0; set _mw 0.0; set _mh 0.0; set _sumw 0.0
+    foreach _i [[ord::get_db_block] getInsts] {
+        set _ms [$_i getMaster]
+        set _w [expr {[$_ms getWidth] / double($_dbu)}]
+        set _h [expr {[$_ms getHeight] / double($_dbu)}]
+        if {[$_ms isBlock]} {
+            set _mac [expr {$_mac + ($_w + 2*$_halo) * ($_h + 2*$_halo)}]
+            set _mw [expr {max($_mw, $_w + 2*$_halo)}]
+            set _sumw [expr {$_sumw + $_w + 2*$_halo}]
+            set _mh [expr {max($_mh, $_h + 2*$_halo)}]
+        } else {
+            set _std [expr {$_std + $_w * $_h}]
+        }
+    }
+    if {$_mac == 0.0} {
+        initialize_floorplan -site $_site -utilization $_util \
+            -aspect_ratio $_ar -core_space $_m
     } else {
+        set _area [expr {$_mac + $_std / ($_util / 100.0)}]
+        set _cw [expr {max($_area / sqrt($_area * $_ar), $_sumw)}]
+        set _ch [expr {max($_area / $_cw, $_mh)}]
+        handle_info [format "Floorplan: std-cell %.0f um^2 @ %s%% + macros %.0f um^2 -> core %.1f x %.1f um" \
+                         $_std $_util $_mac $_cw $_ch]
         initialize_floorplan -site $_site \
-            -utilization  [oss_get $_arr oss,fp,core_utilization] \
-            -aspect_ratio [oss_get $_arr oss,fp,aspect_ratio] \
-            -core_space   [oss_get $_arr oss,fp,core_margin]
+            -die_area  [list 0 0 [expr {$_cw + 2*$_m}] [expr {$_ch + 2*$_m}]] \
+            -core_area [list $_m $_m [expr {$_cw + $_m}] [expr {$_ch + $_m}]]
     }
     oss_make_tracks
 }
