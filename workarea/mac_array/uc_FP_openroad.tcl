@@ -29,7 +29,7 @@ set project(release,tag)       "P0_FP_v1"
 # ── Floorplan sizing (per block; overrides FP_openroad_config.tcl) ──────────
 # core_utilization = standard-cell utilization %; with child macros the core is
 # macro area + std-cell area / util. Set fp(oss,fp,die_area) to fix the size.
-set fp(oss,fp,core_utilization) 45
+set fp(oss,fp,core_utilization) 10
 
 # Used as a macro in ai_subsys (placed at the parent's bottom-left, logic above
 # it): all signal pins on the top edge, facing the parent's logic.
