@@ -147,11 +147,8 @@ set flow(smartgrid,port_span)  2500
 set flow(smartgrid,bind_addr)  "127.0.0.1"
 set flow(smartgrid,state_dir)  "~/.cbflow/project-dashboard"
 #
-# Discipline accent colours (chips, tiles, discipline-summary heading).
-set flow(discipline_color,PD)   "#1565c0"
-set flow(discipline_color,DFT)  "#0d9488"
-set flow(discipline_color,DV)   "#be185d"
-set flow(discipline_color,RTL)  "#1565c0"
+# Discipline accent colours: flow(discipline_color,<DISC>) in the run
+# dashboard block below (shared by SmartGrid).
 #
 # Discipline summary "Top metrics" tiles — metric names as published
 # (metrics.rpt / RACE metrics_snapshot), in display order.
