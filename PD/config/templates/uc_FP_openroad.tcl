@@ -3,7 +3,7 @@
 # CBflow user_config — FP (floorplan) with the open-source stack (OpenROAD)
 # Consumes the SYNTH release by tag; builds die / rows / tracks, places child
 # hard macros, IO pins, well taps, power intent + power grid; publishes
-# <phase>_FP_v<n> (DEF, db, netlist, SDC, UPF) for PNR (milestone FP_EXIT).
+# FP_EXIT (DEF, db, netlist, SDC, UPF) for PNR — release tag = exit name.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 set project(name)              "<project_name>"
@@ -20,7 +20,8 @@ set fp(tool,name)              "openroad"             ;# selects FP_openroad_con
 # Netlist + SDC + UPF from the SYNTH release (Pattern A — one knob)
 set fp(input,release_tag)      "<phase>_SYNTH_v1"
 
-set project(release,tag)       "<phase>_FP_v1"
+# Release tag defaults to the exit name (FP_EXIT); set it only to override:
+# set project(release,tag)     "<custom_tag>"
 
 # Blocks that integrate hard macros: floorplan (um) and optional fixed spots
 #   set fp(oss,fp,die_area)        {0 0 2400 2400}

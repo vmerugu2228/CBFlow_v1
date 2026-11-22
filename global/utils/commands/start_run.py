@@ -207,17 +207,14 @@ def _validate_user_config(user_config: Dict[str, str], env: Dict[str, str]
                 except (OSError, UnicodeDecodeError):
                     continue
     if not phase:
-        # Fallthrough case: no user_config phase, no project(current_phase),
-        # no readable project config. Degraded setup — the run WILL be
-        # created but tagged 'P0' which may collide with real P0 runs on
-        # non-P0 projects (bumblebee=LC1-LC5). Emit a loud warning so
-        # operators see the misconfiguration instead of silent mis-tagging.
-        logger.warning(
+        # No user_config phase, no project(current_phase), no readable
+        # project config: phases are project-defined, so there is no
+        # built-in default to fall back to.
+        logger.error(
             "project(current_phase) could not be resolved from user_config, "
-            "project config, or env — defaulting phase to 'P0'. If this run "
-            "belongs to a non-P0 project, set project(current_phase) in "
-            "project_config.tcl or project(phase) in user_config.tcl.")
-        phase = 'P0'
+            "project config, or env. Set project(current_phase) in the "
+            "project config or project(phase) in user_config.tcl.")
+        return False, '', '', '', ''
 
     # Same path-traversal defense for phase — composed into the run
     # directory name below.

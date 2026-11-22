@@ -16,7 +16,7 @@ set flow(use_lsf)              "false"
 set flow(use_xterm)            "true"
 
 set sta(tool,name)             "opensta"              ;# selects STA_opensta_config.tcl
-set sta(input,release_tag)     "<phase>_PNR_v1"       ;# DEF + netlist + SDC from the PNR release
+set sta(input,release_tag)     "<pnr_exit_tag>"       ;# DEF + netlist + SDC from the PNR release
 
 set project(release,tag)       "<phase>_STA_v1"
 

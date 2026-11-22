@@ -47,9 +47,9 @@ flow_proc publish {
     puts $_fh "release_dir $_dir"
     puts $_fh "design $design_name"
     puts $_fh "level [hier_level $design_name]"
-    if {[info exists ::fp(smartgrid,milestone)] && $::fp(smartgrid,milestone) ne ""} {
-        puts $_fh "milestone $::fp(smartgrid,milestone)"
-    }
+    # The phase's exit for this flow (project(phase_exits)), e.g. PNR in P0
+    # -> PRO_EXIT; also the default release tag.
+    puts $_fh "milestone [::CBFlow::Release::default_exit_tag $::FLOW_TYPE [oss_get project release,phase]]"
     close $_fh
     handle_info "Released floorplan $design_name -> $_dir"
 }

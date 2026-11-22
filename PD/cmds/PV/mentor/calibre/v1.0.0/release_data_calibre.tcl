@@ -50,7 +50,7 @@ flow_proc init_release {
     set design_name [expr {[info exists phyv(design_name)] ? $phyv(design_name) : [expr {[info exists flow(design_name)] ? $flow(design_name) : "pv"}]}]
 
     # ── Determine release phase ──────────────────────────────────────────────
-    set release_phase "P0"
+    set release_phase ""   ;# from project(release,phase) below — no built-in phase
     if {[info exists project(release_phase)]} { set release_phase $project(release_phase) }
     if {[info exists phyv(release_phase)]} { set release_phase $phyv(release_phase) }
     if {[info exists project(release,phase)] && $project(release,phase) ne ""} { set release_phase $project(release,phase) }

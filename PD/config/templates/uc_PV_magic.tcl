@@ -15,6 +15,6 @@ set flow(use_lsf)              "false"
 set flow(use_xterm)            "true"
 
 set pv(tool,name)              "magic"                ;# selects PV_magic_config.tcl
-set pv(input,release_tag)      "<phase>_PNR_v1"       ;# gds + netlist from the PNR release
+set pv(input,release_tag)      "<pnr_exit_tag>"       ;# gds + netlist from the PNR release
 
 set project(release,tag)       "<phase>_PV_v1"

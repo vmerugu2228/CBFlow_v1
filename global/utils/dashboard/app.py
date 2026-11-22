@@ -16,7 +16,9 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 # Keep in sync with workspace_cmd._RUN_DIR_RE and dashboard/router._RUN_DIR_RE.
-_PHASE_PREFIX_RE = r'(?:P\d+|LC\d+|LC_\d+|MTO|BTO|R\d+|FP|CTS|PRE|POST)'
+# Phase token: any project-defined phase name (project(phases)) — not a
+# fixed list of phase schemes.
+_PHASE_PREFIX_RE = r'(?:[A-Za-z0-9]+(?:_[0-9]+)?)'
 _FLOW_TOKEN_RE   = r'[A-Z][A-Z0-9_]*'
 _RUN_DIR_RE = _re_mod.compile(
     r'^' + _PHASE_PREFIX_RE + r'_run_' + _FLOW_TOKEN_RE + r'(?:_|$)')

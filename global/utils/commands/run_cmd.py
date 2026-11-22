@@ -18,7 +18,9 @@ from pathlib import Path
 # workspace_cmd._RUN_DIR_RE, dashboard/router._RUN_DIR_RE, and
 # dashboard/app._RUN_DIR_RE. Previously bare `'_run_' in name` matched
 # stray dirs (old_run_notes, backup_run_sim) with destructive consequences.
-_PHASE_PREFIX_RE = r'(?:P\d+|LC\d+|LC_\d+|MTO|BTO|R\d+|FP|CTS|PRE|POST)'
+# Phase token: any project-defined phase name (project(phases)) — not a
+# fixed list of phase schemes.
+_PHASE_PREFIX_RE = r'(?:[A-Za-z0-9]+(?:_[0-9]+)?)'
 _FLOW_TOKEN_RE   = r'[A-Z][A-Z0-9_]*'
 _RUN_DIR_RE = _re_mod.compile(
     r'^' + _PHASE_PREFIX_RE + r'_run_' + _FLOW_TOKEN_RE + r'(?:_|$)')
@@ -32,6 +34,7 @@ from logging_config import configure_logging, get_logger
 
 import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.paths import get_cbflow_core_dir, get_flow_config_version, CBFLOW_VERSION as VERSION
+from core import release_exits
 
 # PD-only commands (metrics, graph_renderer, node_manager, log_viewer, lsf,
 # email, autoppt, checklist, library/mmmc/qor managers) stayed under
@@ -2080,6 +2083,16 @@ def cmd_release(args: argparse.Namespace) -> int:
 
     tag_info = release_tags[tag]
 
+    try:
+        phase_exits = _milestone_order(project_name, phase)
+    except release_exits.PhaseExitsError as e:
+        logger.error(str(e))
+        return 1
+    if tag not in phase_exits:
+        logger.error(f"Phase {phase} has no {tag} exit (exits in {phase}: "
+                     f"{', '.join(phase_exits)}) — project(phase_exits) in the project config")
+        return 1
+
     # Validate expiry
     if expiry_date:
         try:
@@ -2090,7 +2103,8 @@ def cmd_release(args: argparse.Namespace) -> int:
         except ValueError:
             pass
 
-    release_tag_name = f"{phase}_{tag}"
+    # Release tag name = the exit name (default); --name overrides it.
+    release_tag_name = getattr(args, 'name', None) or tag
 
     logger.info("")
     logger.info(f"  ═══════════════════════════════════════════════════════════")
@@ -2133,7 +2147,8 @@ def cmd_release(args: argparse.Namespace) -> int:
         return 0
 
     # Create release directory
-    release_dir = os.path.join(release_path, project_name, design_name, release_tag_name)
+    # Same layout as the flows' release_data: <release,path>/<phase>/<block>/<tag>
+    release_dir = os.path.join(release_path, phase, design_name, release_tag_name)
     os.makedirs(release_dir, exist_ok=True)
     logger.info(f"  Release directory: {release_dir}")
     logger.info("")
@@ -2314,22 +2329,20 @@ def _run_milestone_checklist(workspace: str, runs: dict, milestone: str) -> None
             logger.warning(f"    checklist could not run: {e}")
 
 
-def _milestone_order() -> list:
-    """MILESTONE_ORDER from PD release_config.tcl ([] when not declared)."""
-    rc_path = os.path.join(get_cbflow_core_dir(), 'config', 'flow',
-                           get_flow_config_version(), 'release_config.tcl')
-    try:
-        with open(rc_path) as f:
-            m = _re_mod.search(r'^\s*set\s+MILESTONE_ORDER\s+\{([^}]*)\}', f.read(), _re_mod.M)
-    except OSError:
-        return []
-    return m.group(1).split() if m else []
+def _milestone_order(project=None, phase=None) -> list:
+    """MILESTONE_ORDER from PD release_config.tcl; with project + phase, only
+    the exits that phase has (project(phase_exits)). Raises
+    release_exits.PhaseExitsError when the config does not declare them."""
+    if project and phase:
+        return release_exits.exits_for_phase(project, phase)
+    return release_exits.milestone_order()
 
 
 def _missing_earlier_milestones(project, block, phase, milestone, pd_pkg) -> list:
     """Milestones ordered before `milestone` that are not yet published for
-    (project, block, phase). Milestones outside MILESTONE_ORDER are ungated."""
-    order = _milestone_order()
+    (project, block, phase) — only exits the phase has count. Milestones
+    outside MILESTONE_ORDER are ungated."""
+    order = _milestone_order(project, phase)
     if milestone not in order:
         return []
     import importlib.util as _ilu
@@ -2391,13 +2404,23 @@ def _publish_to_project_dashboard(project, block, phase, milestone, release_dir,
                         f"then re-run this release — or re-run it with --publish.")
             return 1
 
-    # Exits publish in MILESTONE_ORDER (release_config.tcl): every earlier
-    # milestone must already be on SmartGrid for this block/phase.
+    # The phase must have this exit (release_tags(<exit>) phases), and exits
+    # publish in MILESTONE_ORDER: every earlier exit of the phase must
+    # already be on SmartGrid for this block/phase.
+    try:
+        phase_exits = _milestone_order(project, phase)
+    except release_exits.PhaseExitsError as e:
+        logger.error(f"  Not published: {e}")
+        return 1
+    if milestone in _milestone_order() and milestone not in phase_exits:
+        logger.error(f"  Not published: phase {phase} has no {milestone} exit "
+                     f"(exits in {phase}: {', '.join(phase_exits)}).")
+        return 1
     missing = _missing_earlier_milestones(project, block, phase, milestone, pd_pkg)
     if missing:
         logger.error(f"  Not published: {milestone} cannot release before "
                      f"{', '.join(missing)} for {block} / {phase}.")
-        logger.error(f"  Release in order: {' -> '.join(_milestone_order())} "
+        logger.error(f"  Release in order: {' -> '.join(phase_exits)} "
                      f"(next: {missing[0]}).")
         return 1
 
@@ -2567,24 +2590,14 @@ def cmd_release_check(args: argparse.Namespace) -> int:
     ver = get_flow_config_version()
 
     # Load release_tags from release_config
-    release_tags = {}
-    rc_path = os.path.join(flow_dir, 'config', 'flow', ver, 'release_config.tcl')
-    if os.path.exists(rc_path):
-        with open(rc_path) as f:
-            content = f.read()
-        for m in _re.finditer(r'(\w+)\s+\{description\s+"([^"]+)"\s+phase_min\s+(\w+)\s+required_flows\s+\{([^}]+)\}\}', content):
-            release_tags[m.group(1)] = {
-                'description': m.group(2),
-                'phase_min': m.group(3),
-                'required_flows': m.group(4).split(),
-            }
+    release_tags = release_exits.release_tags()
 
     if tag not in release_tags:
         logger.error(f"Unknown tag '{tag}'. Available: {', '.join(sorted(release_tags.keys()))}")
         return 1
 
     tag_info = release_tags[tag]
-    release_tag_name = f"{phase}_{tag}"
+    release_tag_name = getattr(args, 'name', None) or tag
 
     # Load release path + block_list via the shared cascade helper.
     from core.paths import read_project_cfg_key
@@ -2599,7 +2612,7 @@ def cmd_release_check(args: argparse.Namespace) -> int:
 
     if not block_list:
         # Fallback: scan release dir for existing blocks
-        tag_dir = os.path.join(release_path, project_name)
+        tag_dir = os.path.join(release_path, phase)
         if os.path.isdir(tag_dir):
             block_list = [d for d in os.listdir(tag_dir) if os.path.isdir(os.path.join(tag_dir, d))]
         if not block_list:
@@ -2637,8 +2650,8 @@ def cmd_release_check(args: argparse.Namespace) -> int:
         stub_detected = False
 
         for flow in required_flows:
-            release_dir = os.path.join(release_path, project_name, block, release_tag_name, flow)
-            rc_file = os.path.join(release_path, project_name, block, release_tag_name, 'RELEASE_COMPLETE')
+            release_dir = os.path.join(release_path, phase, block, release_tag_name, flow)
+            rc_file = os.path.join(release_path, phase, block, release_tag_name, 'RELEASE_COMPLETE')
 
             if os.path.isdir(release_dir) and len(os.listdir(release_dir)) > 0:
                 # test_mode stub marker — refuse to count as PASS. The
@@ -2670,7 +2683,7 @@ def cmd_release_check(args: argparse.Namespace) -> int:
                 block_ok = False
 
         # Check overall RELEASE_COMPLETE
-        rc_path_full = os.path.join(release_path, project_name, block, release_tag_name, 'RELEASE_COMPLETE')
+        rc_path_full = os.path.join(release_path, phase, block, release_tag_name, 'RELEASE_COMPLETE')
         if block_ok and os.path.exists(rc_path_full):
             # Also check the summary RELEASE_COMPLETE text for a stub tag.
             try:
@@ -3628,7 +3641,9 @@ Examples:
   cbflow run release --tag BTO          Override with explicit tag
   cbflow run release --no-publish       Release locally, skip SmartGrid publish
   cbflow run release --dry-run          Validate only, don't copy files""")
-    release_parser.add_argument('--tag', '-t', help='Release tag override (default: project active_tag)')
+    release_parser.add_argument('--tag', '-t', help='Exit milestone to release (default: project active_tag)')
+    release_parser.add_argument('--name', default=None,
+                                help='Release tag name (default: the exit name)')
     release_parser.add_argument('--dry-run', action='store_true', help='Validate only, no file copy')
     # Publish is DEFAULT-ON — the release is the moment project-level
     # stakeholders need visibility. default=None (not True) so cmd_release
@@ -3816,7 +3831,11 @@ Examples:
   cbflow run checklist --milestone FP_EXIT --sign-off --approver chip_lead
   cbflow run checklist --list
 """)
-    ck.add_argument('--milestone', '-m', help='Exit milestone (FP_EXIT, PLACE_EXIT, CTS_EXIT, PRO_EXIT, BTO, MTO)')
+    try:
+        _ms_help = ', '.join(release_exits.milestone_order())
+    except release_exits.PhaseExitsError:
+        _ms_help = 'MILESTONE_ORDER in release_config.tcl'
+    ck.add_argument('--milestone', '-m', help=f'Exit milestone ({_ms_help})')
     ck.add_argument('--phase', '-p', help='Design phase (P0, P1, P2, P3)')
     ck.add_argument('--format', '-f', choices=['text', 'json', 'html'], default='text', help='Output format')
     ck.add_argument('--project', default='', help='Project name for threshold overrides')

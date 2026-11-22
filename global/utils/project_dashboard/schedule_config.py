@@ -1,21 +1,16 @@
 """Project schedule config — global/config/project/<proj>/<ver>/schedule_config.tcl
 
-Data-only TCL (no procs), the single source of the SmartGrid schedule page.
-Only the project and phase schedule is configured; block dates are
-auto-populated from the design hierarchy:
+Data-only TCL (no procs), the source of the SmartGrid schedule page. It
+holds dates only; which phases exist and which exits each phase has come
+from the project config (project(phases), project(phase_exits)):
 
     set schedule(start_date)         "2026-11-21"
     set schedule(tapeout_date)       "2027-03-31"
-    set schedule(phases)             {P0 P1 P2 P3}
-    set schedule(exits)              {FP_EXIT PLACE_EXIT CTS_EXIT PRO_EXIT BTO MTO}
     set schedule(block_lead_days)    7                 ;# each level releases this much before its parent
-    set schedule(P0,FP_EXIT)         "2026-11-26"      ;# <phase>,<exit>
+    set schedule(P0,FP_EXIT)         "2026-12-05"      ;# <phase>,<exit>
 
 Block date = phase exit − block_lead_days × (levels below the top block).
-
-`derive()` seeds a complete schedule (phases split start → tapeout, exits
-evenly inside each phase); `validate()` enforces the ordering rules before
-`save()` writes the file.
+Nothing here has a built-in default: missing values are reported, not filled.
 """
 
 import os
@@ -27,7 +22,6 @@ _ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                      os.pardir, os.pardir, os.pardir))
 _SET_RE = re.compile(r'^\s*set\s+schedule\(([^)]+)\)\s+(?:"([^"]*)"|\{([^}]*)\}|(\S+))',
                      re.MULTILINE)
-DEFAULT_LEAD_DAYS = 7
 
 
 def path(project):
@@ -37,8 +31,7 @@ def path(project):
 
 
 def load(project):
-    """{key: value} from schedule_config.tcl; {} when the file is absent.
-    List values (phases, exits) come back as Python lists."""
+    """{key: value} from schedule_config.tcl; {} when the file is absent."""
     p = path(project)
     if not os.path.isfile(p):
         return {}
@@ -46,11 +39,8 @@ def load(project):
         text = f.read()
     out = {}
     for m in _SET_RE.finditer(text):
-        key = m.group(1).strip()
-        if m.group(3) is not None:
-            out[key] = m.group(3).split()
-        else:
-            out[key] = m.group(2) if m.group(2) is not None else m.group(4)
+        val = next(g for g in m.groups()[1:] if g is not None)
+        out[m.group(1).strip()] = val
     return out
 
 
@@ -62,10 +52,12 @@ def parse_date(v):
 
 
 def lead_days(data):
+    """schedule(block_lead_days) as int, or None when unset/invalid."""
     try:
-        return max(0, int(data.get('block_lead_days', DEFAULT_LEAD_DAYS)))
-    except (TypeError, ValueError):
-        return DEFAULT_LEAD_DAYS
+        v = int(str(data.get('block_lead_days', '')).strip())
+        return v if v >= 0 else None
+    except ValueError:
+        return None
 
 
 def depths(hier):
@@ -77,47 +69,27 @@ def depths(hier):
 
 
 def block_date(phase_exit, depth, lead):
-    """Auto-populated block date: each hierarchy level releases `lead`
-    days before its parent."""
-    return phase_exit - timedelta(days=lead * depth) if phase_exit else None
+    """Each hierarchy level releases `lead` days before its parent."""
+    if phase_exit is None or lead is None:
+        return None
+    return phase_exit - timedelta(days=lead * depth)
 
 
-def derive(start, tapeout, phases, exits):
-    """Complete project/phase schedule from start/tapeout.
-    Phase i spans [start + span*i/n, start + span*(i+1)/n]; exit j sits at
-    phase_start + phase_len*(j+1)/len(exits) (the last exit closes the phase)."""
-    data = {'start_date': start.isoformat(), 'tapeout_date': tapeout.isoformat(),
-            'phases': list(phases), 'exits': list(exits),
-            'block_lead_days': str(DEFAULT_LEAD_DAYS)}
-    span = (tapeout - start).days
-    n = len(phases)
-    for i, ph in enumerate(phases):
-        p0 = start + timedelta(days=round(span * i / n))
-        p1 = start + timedelta(days=round(span * (i + 1) / n))
-        for j, ex in enumerate(exits):
-            data[f'{ph},{ex}'] = (p0 + timedelta(
-                days=round((p1 - p0).days * (j + 1) / len(exits)))).isoformat()
-    return data
-
-
-def validate(data, hier):
-    """Ordering rules; returns a list of error strings (empty = OK):
-    start < tapeout; exits increase within a phase; a phase starts after
-    the previous one ends; the last exit is not after tapeout."""
+def validate(data, phase_exits):
+    """Errors (empty = OK). phase_exits = {phase: [exits]} in phase order.
+    Every date present and valid; start < tapeout; exits increase within a
+    phase; a phase starts after the previous one ends; nothing after
+    tapeout; block_lead_days a whole number >= 0."""
     errs = []
     s, t = parse_date(data.get('start_date')), parse_date(data.get('tapeout_date'))
     if not s or not t:
         errs.append('start_date and tapeout_date must be YYYY-MM-DD')
     elif s >= t:
         errs.append('start_date must be before tapeout_date')
-    try:
-        if int(data.get('block_lead_days', DEFAULT_LEAD_DAYS)) < 0:
-            errs.append('block_lead_days must be >= 0')
-    except (TypeError, ValueError):
-        errs.append('block_lead_days must be a whole number of days')
-    phases, exits = data.get('phases') or [], data.get('exits') or []
+    if lead_days(data) is None:
+        errs.append('block_lead_days must be a whole number of days >= 0')
     prev_last = None
-    for ph in phases:
+    for ph, exits in phase_exits.items():
         prev = None
         for ex in exits:
             d = parse_date(data.get(f'{ph},{ex}'))
@@ -129,43 +101,40 @@ def validate(data, hier):
             if prev is None and prev_last and d < prev_last:
                 errs.append(f'{ph} {ex} ({d}) is before the end of the previous phase '
                             f'({prev_last})')
+            if t and d > t:
+                errs.append(f'{ph} {ex} ({d}) is after tapeout ({t})')
             prev = (ex, d)
         if prev:
             prev_last = prev[1]
-    if t and phases and exits:
-        last = parse_date(data.get(f'{phases[-1]},{exits[-1]}'))
-        if last and last > t:
-            errs.append(f'{phases[-1]} {exits[-1]} ({last}) is after tapeout ({t})')
     return errs
 
 
-def warnings(data, hier):
-    """Non-blocking schedule warnings: auto-populated leaf dates that fall
-    before the project start."""
+def warnings(data, hier, phase_exits):
+    """Non-blocking: auto-populated leaf dates before the project start."""
     out = []
-    s = parse_date(data.get('start_date'))
-    phases, exits = data.get('phases') or [], data.get('exits') or []
-    if not (s and phases and exits and hier):
+    s, lead = parse_date(data.get('start_date')), lead_days(data)
+    if not (s and hier and phase_exits) or lead is None:
         return out
     deepest = max(depths(hier).values())
-    lead = lead_days(data)
-    for ex in exits:
-        d = block_date(parse_date(data.get(f'{phases[0]},{ex}')), deepest, lead)
+    first_phase = next(iter(phase_exits))
+    for ex in phase_exits[first_phase]:
+        d = block_date(parse_date(data.get(f'{first_phase},{ex}')), deepest, lead)
         if d and d < s:
-            out.append(f'{phases[0]} {ex}: leaf blocks would be due {d}, before the '
+            out.append(f'{first_phase} {ex}: leaf blocks would be due {d}, before the '
                        f'project start {s} ({deepest} levels × {lead} days lead)')
     return out
 
 
-def allowed_key(key, phases, exits):
+def allowed_key(key, phase_exits):
     if key in ('start_date', 'tapeout_date', 'block_lead_days'):
         return True
     parts = key.split(',')
-    return len(parts) == 2 and parts[0] in phases and parts[1] in exits
+    return len(parts) == 2 and parts[1] in phase_exits.get(parts[0], ())
 
 
-def save(project, data, user=''):
-    """Write schedule_config.tcl (previous copy → backup/<name>.<ts>.bak)."""
+def save(project, data, phase_exits, user=''):
+    """Write schedule_config.tcl (previous copy → backup/<name>.<ts>.bak).
+    Only keys valid for the current phase_exits are written."""
     p = path(project)
     os.makedirs(os.path.dirname(p), exist_ok=True)
     if os.path.isfile(p):
@@ -173,21 +142,16 @@ def save(project, data, user=''):
         os.makedirs(bdir, exist_ok=True)
         shutil.copy2(p, os.path.join(
             bdir, f'schedule_config.tcl.{datetime.now():%Y%m%d-%H%M%S}.bak'))
-    phases, exits = data.get('phases') or [], data.get('exits') or []
 
     def line(key, val, quote=True):
-        k = f'set schedule({key})'
-        if isinstance(val, list):
-            v = '{' + ' '.join(val) + '}'
-        else:
-            v = f'"{val}"' if quote else str(val)
-        return f'{k:<36} {v}'
+        return f'{"set schedule(" + key + ")":<36} ' + (f'"{val}"' if quote else str(val))
     out = [
         '#!/usr/bin/env tclsh',
         '# ' + '═' * 77,
         f'# CBflow schedule — {project}',
         '# Source of the SmartGrid schedule page. Data only (no procs).',
-        '# Only the project + phase schedule lives here; block dates are',
+        '# Dates only: phases and the exits each phase has come from the project',
+        '# config (project(phases), project(phase_exits)). Block dates are',
         '# auto-populated: each hierarchy level releases block_lead_days before its',
         '# parent (block date = phase exit − block_lead_days × levels below the top).',
         '# Edit here or in SmartGrid (Schedule → Edit); the previous version is kept',
@@ -197,13 +161,11 @@ def save(project, data, user=''):
         '',
         line('start_date', data.get('start_date', '')),
         line('tapeout_date', data.get('tapeout_date', '')),
-        line('phases', phases),
-        line('exits', exits),
         line('block_lead_days', lead_days(data), quote=False),
         '',
         '# ── Phase exits: schedule(<phase>,<exit>) ──────────────────────────────',
     ]
-    for ph in phases:
+    for ph, exits in phase_exits.items():
         out += [line(f'{ph},{ex}', data.get(f'{ph},{ex}', '')) for ex in exits]
         out.append('')
     tmp = p + '.tmp'

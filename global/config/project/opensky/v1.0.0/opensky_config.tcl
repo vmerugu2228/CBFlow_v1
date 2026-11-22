@@ -11,6 +11,15 @@
 set project(name)            "opensky"
 set project(phases)          {P0 P1 P2 P3}
 set project(current_phase)   "P0"
+# Exits each phase delivers (order from MILESTONE_ORDER in PD release_config.tcl).
+# Drives the schedule, the SmartGrid publish order and the default release tag
+# (release tag = exit name unless project(release,tag) is set).
+set project(phase_exits) {
+    P0 {FP_EXIT PRO_EXIT}
+    P1 {FP_EXIT PRO_EXIT}
+    P2 {FP_EXIT PLACE_EXIT CTS_EXIT PRO_EXIT BTO MTO}
+    P3 {FP_EXIT PLACE_EXIT CTS_EXIT PRO_EXIT BTO MTO}
+}
 set project(version)         "1.0"
 set project(cbflow_release)  "v1.0.0"
 set project(description)     "Open-source RTL-to-GDS proof on SkyWater SKY130"

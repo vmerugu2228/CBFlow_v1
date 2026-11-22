@@ -1060,8 +1060,7 @@ def flow_type_from_run_dir_name(name: str) -> str:
     rather than greedily absorbing uppercase run_name tokens into FLOW.
     """
     import re as _re
-    _phase_rx = (r'(?:P\d+|LC\d+|LC_\d+|MTO|BTO|R\d+'
-                 r'|FP|CTS|PRE|POST)')
+    _phase_rx = r'(?:[A-Za-z0-9]+(?:_[0-9]+)?)'   # any project-defined phase name
     m = _re.match(r'^' + _phase_rx + r'_run_(.+)$', name)
     if not m:
         return ''

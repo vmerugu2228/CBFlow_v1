@@ -20,7 +20,9 @@ set pnr(tool,name)             "openroad"             ;# selects PNR_openroad_co
 # Netlist + SDC + UPF from the SYNTH release (Pattern A — one knob);
 # floorplan DEF from the FP release (Pattern B — per-input tag)
 set pnr(input,release_tag)     "<phase>_SYNTH_v1"
-set pnr(input,def_file_release_tag) "<phase>_FP_v1"
+set pnr(input,def_file_release_tag) "FP_EXIT"
 
-set project(release,tag)       "<phase>_PNR_v1"
+# Release tag defaults to the phase's PNR exit (pnr(smartgrid,milestone), or the
+# latest earlier exit the phase has in project(phase_exits)); override only if needed:
+# set project(release,tag)     "<custom_tag>"
 

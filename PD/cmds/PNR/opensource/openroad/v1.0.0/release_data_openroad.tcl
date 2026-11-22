@@ -71,9 +71,9 @@ flow_proc publish {
     puts $_fh "level [hier_level $design_name]"
     # Exit milestone this release fills in SmartGrid (published by
     # `cbflow run all` on the host after the run passes).
-    if {[info exists ::pnr(smartgrid,milestone)] && $::pnr(smartgrid,milestone) ne ""} {
-        puts $_fh "milestone $::pnr(smartgrid,milestone)"
-    }
+    # The phase's exit for this flow (project(phase_exits)), e.g. PNR in P0
+    # -> PRO_EXIT; also the default release tag.
+    puts $_fh "milestone [::CBFlow::Release::default_exit_tag $::FLOW_TYPE [oss_get project release,phase]]"
     close $_fh
     handle_info "Released $design_name -> $_dir"
 }

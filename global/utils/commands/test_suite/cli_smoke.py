@@ -533,7 +533,7 @@ def _prepare_sandbox(pd_dir: str, results, flow: str, project: str):
     # discovery doesn't drift from the shipped predicate.
     import re as _re
     _run_re = _re.compile(
-        r'^(?:P\d+|LC\d+|LC_\d+|MTO|BTO|R\d+|FP|CTS|PRE|POST)_run_'
+        r'^(?:[A-Za-z0-9]+(?:_[0-9]+)?)_run_'
         r'[A-Z][A-Z0-9_]*(?:_|$)')
     candidates = sorted(
         p for p in Path(workarea_cwd).iterdir()

@@ -176,7 +176,9 @@ def is_workspace_initialized() -> bool:
 # site prefixes R\d+). Flow token after _run_ is required (uppercase)
 # so bare P0_run_ or P0_run_foo (lowercase flow) is also rejected.
 import re as _re_mod
-_PHASE_PREFIX_RE = r'(?:P\d+|LC\d+|LC_\d+|MTO|BTO|R\d+|FP|CTS|PRE|POST)'
+# Phase token: any project-defined phase name (project(phases)) — not a
+# fixed list of phase schemes.
+_PHASE_PREFIX_RE = r'(?:[A-Za-z0-9]+(?:_[0-9]+)?)'
 _FLOW_TOKEN_RE   = r'[A-Z][A-Z0-9_]*'
 _RUN_DIR_RE = _re_mod.compile(
     r'^' + _PHASE_PREFIX_RE + r'_run_' + _FLOW_TOKEN_RE + r'(?:_|$)')

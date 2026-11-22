@@ -16,6 +16,6 @@ set flow(use_xterm)            "true"
 
 set lec(tool,name)                     "yosys"
 set lec(input,netlist_golden_release_tag)  "<phase>_SYNTH_v1"
-set lec(input,netlist_revised_release_tag) "<phase>_PNR_v1"
+set lec(input,netlist_revised_release_tag) "<pnr_exit_tag>"
 
 set project(release,tag)       "<phase>_LEC_v1"

@@ -63,7 +63,7 @@ flow_proc prepare_release {
     set design_name [expr {[info exists cfg(common,design_name)] ? $cfg(common,design_name) : $flow(design_name)}]
 
     # ── Determine release phase ──────────────────────────────────────────────
-    set release_phase "P0"
+    set release_phase ""   ;# from project(release,phase) below — no built-in phase
     if {[info exists project(release_phase)]} { set release_phase $project(release_phase) }
     if {[info exists cfg(common,release_phase)]} { set release_phase $cfg(common,release_phase) }
     if {[info exists project(release,phase)] && $project(release,phase) ne ""} { set release_phase $project(release,phase) }

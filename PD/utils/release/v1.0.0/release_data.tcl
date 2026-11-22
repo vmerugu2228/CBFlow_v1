@@ -197,7 +197,7 @@ proc show_usage {} {
     puts "Options:"
     puts "  -notes <message>     - Add custom release notes"
     puts "  -force               - Overwrite existing release"
-    puts "  -m/-milestone <name> - Exit milestone (FP_EXIT, PLACE_EXIT, CTS_EXIT, PRO_EXIT, BTO, MTO)"
+    puts "  -m/-milestone <name> - Exit milestone ([expr {[info exists ::MILESTONE_ORDER] ? [join $::MILESTONE_ORDER {, }] : {MILESTONE_ORDER in release_config.tcl}}])"
     puts "  -node_name <name>    - Specify node name for multi-node stages (e.g., floorplan1)"
     puts "  -directory <path>    - Specify node directory path (relative or absolute)"
     puts "  -run_dir <path>      - Specify run directory (default: current)"

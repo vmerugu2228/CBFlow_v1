@@ -1283,12 +1283,13 @@ def cmd_signoff(args: argparse.Namespace) -> int:
     # check) and downgrades the milestone to 'conditional'.
     # Also enforces the waiver_policy allow_bto_waivers / allow_mto_waivers
     # fields.
-    # Tape-out milestone list — defaults to {BTO, MTO} for PD but can be
+    # Tape-out milestone list — TAPEOUT_MILESTONES in release_config.tcl; can be
     # extended per discipline when DFT or DV add their own tape-out
     # equivalents (e.g. ATPG_POSTPD_EXIT could be gated the same way).
     # Reading from `project(tape_out_milestones)` lets each project opt
     # extra milestones into the "no silent waiver" policy.
-    _tape_out_milestones = {'BTO', 'MTO'}
+    from core import release_exits as _rex
+    _tape_out_milestones = set(_rex.tapeout_milestones())   # release_config.tcl
     try:
         from tcl_config_parser import _resolved as _cfg_resolved
         from cbflow_config import optional as _cfg_opt

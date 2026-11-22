@@ -19,6 +19,7 @@ variable design_name ""
 variable run_dir ""
 variable release_files_copied {}
 variable release_errors {}
+variable release_exit ""          ;# exit name when the tag defaulted to it
 
 # ── Initialize Release ──────────────────────────────────────────────────────
 # Release path structure: $release_path/$phase/$block_name/$release_tag
@@ -32,7 +33,46 @@ variable release_errors {}
 #   project(release,phase)      — P0/P1/P2/P3 (or CBFLOW_RELEASE_PHASE env)
 #   project(release,block_name) — block name (or derived from design_name)
 #   CBFLOW_RELEASE_TAG          — release tag (or CBFLOW_RELEASE_VERSION env)
-proc init {args_flow_type args_design_name args_run_dir {args_phase "P0"}} {
+# ── Default release tag = the flow's exit for the phase ────────────────────
+# The flow's exit is <flow>(smartgrid,milestone) (tool overlay, e.g. FP ->
+# FP_EXIT, PNR -> BTO). When the phase does not have that exit
+# (project(phase_exits)), the latest earlier exit it has is used — PNR in a
+# phase with only {FP_EXIT PRO_EXIT} releases as PRO_EXIT. Order comes from
+# MILESTONE_ORDER (release_config.tcl). Errors when any of these is missing.
+proc default_exit_tag {flow_type phase} {
+    global project MILESTONE_ORDER
+    set _arr [string tolower $flow_type]
+    upvar #0 $_arr _fa
+    if {![info exists _fa(smartgrid,milestone)] || $_fa(smartgrid,milestone) eq ""} {
+        error "ERROR: project(release,tag) is not set and ${_arr}(smartgrid,milestone) (the flow's exit) is not configured — set one of them"
+    }
+    set _target $_fa(smartgrid,milestone)
+    if {![info exists project(phase_exits)]} {
+        error "ERROR: project(phase_exits) is not set in the project config — needed for the default release tag"
+    }
+    if {![dict exists $project(phase_exits) $phase]} {
+        error "ERROR: project(phase_exits) has no entry for phase $phase"
+    }
+    set _have [dict get $project(phase_exits) $phase]
+    if {[lsearch -exact $_have $_target] >= 0} { return $_target }
+    if {![info exists MILESTONE_ORDER]} {
+        set _rc "$::env(FLOW_DIR)/PD/config/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
+        if {[file exists $_rc]} { uplevel #0 [list source $_rc] }
+    }
+    if {![info exists MILESTONE_ORDER]} {
+        error "ERROR: MILESTONE_ORDER is not set (PD release_config.tcl)"
+    }
+    set _idx [lsearch -exact $MILESTONE_ORDER $_target]
+    for {set i [expr {$_idx - 1}]} {$i >= 0} {incr i -1} {
+        set _e [lindex $MILESTONE_ORDER $i]
+        if {[lsearch -exact $_have $_e] >= 0} { return $_e }
+    }
+    error "ERROR: phase $phase has no exit at or before $_target (project(phase_exits): $_have)"
+}
+
+proc exit_name {} { variable release_exit; return $release_exit }
+
+proc init {args_flow_type args_design_name args_run_dir args_phase} {
     variable release_dir; variable release_tag; variable release_phase; variable flow_type; variable design_name; variable run_dir
 
     set flow_type $args_flow_type
@@ -47,14 +87,19 @@ proc init {args_flow_type args_design_name args_run_dir {args_phase "P0"}} {
     # path without requiring per-project release config.
     set _test_mode [expr {[info exists flow(test_mode)] && [is_true $flow(test_mode)]}]
 
-    # ── Release tag (MANDATORY in real runs; placeholder in test_mode) ───────
+    # ── Release tag: project(release,tag) when set, else the exit name ───────
+    # (default_exit_tag); test_mode uses a placeholder.
+    variable release_exit; set release_exit ""
     if {[info exists project(release,tag)] && $project(release,tag) ne ""} {
         set release_tag $project(release,tag)
     } elseif {$_test_mode} {
         set release_tag "test_release_tag"
         ::handle_info "test_mode: using placeholder release_tag=$release_tag"
     } else {
-        error "ERROR: project(release,tag) must be set in project_config.tcl for release"
+        set _ph [expr {[info exists project(release,phase)] ? $project(release,phase) : $args_phase}]
+        set release_exit [default_exit_tag $flow_type $_ph]
+        set release_tag $release_exit
+        ::handle_info "release tag = exit name: $release_tag (project(release,tag) not set)"
     }
 
     # ── Release phase (MANDATORY in real runs; defaults to args_phase in test) ─
@@ -64,6 +109,9 @@ proc init {args_flow_type args_design_name args_run_dir {args_phase "P0"}} {
         # already set from args_phase above
     } else {
         error "ERROR: project(release,phase) must be set in project_config.tcl for release"
+    }
+    if {$release_phase eq ""} {
+        error "ERROR: release phase is empty — set project(release,phase) in the project config"
     }
 
     # ── Block name (MANDATORY — from project_config or design_name) ──────────
@@ -184,8 +232,17 @@ proc validate_mandatory_files {} {
     # Get required files for this flow/phase
     set required_files {}
     if {[info commands get_release_exit_files] ne ""} {
-        # Try milestone-specific first, then phase-only
-        foreach milestone {BTO MTO PRO_EXIT CTS_EXIT PLACE_EXIT FP_EXIT} {
+        # Try milestone-specific first (this release's exit, else the latest
+        # exit in MILESTONE_ORDER that has files), then phase-only
+        variable release_exit
+        if {$release_exit ne ""} {
+            set _order [list $release_exit]
+        } elseif {[info exists ::MILESTONE_ORDER]} {
+            set _order [lreverse $::MILESTONE_ORDER]
+        } else {
+            error "ERROR: MILESTONE_ORDER is not set (PD release_config.tcl)"
+        }
+        foreach milestone $_order {
             set files [get_release_exit_files $flow_type $milestone $release_phase]
             if {[llength $files] > 0} {
                 set required_files $files

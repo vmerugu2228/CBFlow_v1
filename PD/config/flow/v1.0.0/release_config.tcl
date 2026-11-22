@@ -115,6 +115,11 @@ proc get_available_release_tags {category} {
 # published only after every earlier one is on SmartGrid for that block/phase.
 set MILESTONE_ORDER {FP_EXIT PLACE_EXIT CTS_EXIT PRO_EXIT BTO MTO}
 
+# ┌─ Tape-out milestones ───────────────────────────────────────────────────────┐
+# No silent waivers / SKIPPED mandatory checks downgrade these to conditional
+# (checklist sign-off). project(tape_out_milestones) extends the list.
+set TAPEOUT_MILESTONES {BTO MTO}
+
 # ── SYNTH_PNR Flow ────────────────────────────────────────────────────────────
 # ── PNR Flow ─────────────────────────────────────────────────────────────────
 # ── FP Flow ──────────────────────────────────────────────────────────────────
@@ -1417,15 +1422,17 @@ proc get_input_handshake {flow input_type} {
 # ║                    SECTION 6: PREDEFINED RELEASE TAGS                      ║
 # ║  Tags are defined here — leads set active_tag + expiry in project config   ║
 # ║  Release is milestone-gated: ALL required flows must PASS before release   ║
+# ║  Which exits each phase has is project-defined: project(phase_exits) in    ║
+# ║  global/config/project/<proj>/v1.0.0/<proj>_config.tcl.                    ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 # array set release_tags { … } expanded to per-key `set` statements so `#` comments work natively (Tcl treats `#` as data inside `array set` literals).
-    set release_tags(FP_EXIT) {description "Floorplan Exit"    phase_min P0 required_flows {SYNTH_PNR PNR FP FCFP}}
-    set release_tags(PLACE_EXIT) {description "Placement Exit"    phase_min P0 required_flows {SYNTH_PNR PNR SYNTH}}
-    set release_tags(CTS_EXIT) {description "CTS Exit"          phase_min P1 required_flows {SYNTH_PNR PNR SYNTH}}
-    set release_tags(PRO_EXIT) {description "Post-Route Exit"   phase_min P1 required_flows {SYNTH_PNR PNR SYNTH STA LEC}}
-    set release_tags(BTO) {description "Backend Tapeout"   phase_min P2 required_flows {SYNTH_PNR PNR SYNTH FP STA LEC CLP PV EMIR ECO}}
-    set release_tags(MTO) {description "Metal Tapeout"      phase_min P3 required_flows {SYNTH_PNR PNR SYNTH FP STA LEC CLP PV EMIR ECO POPT}}
+    set release_tags(FP_EXIT) {description "Floorplan Exit"    required_flows {SYNTH_PNR PNR FP FCFP}}
+    set release_tags(PLACE_EXIT) {description "Placement Exit"    required_flows {SYNTH_PNR PNR SYNTH}}
+    set release_tags(CTS_EXIT) {description "CTS Exit"          required_flows {SYNTH_PNR PNR SYNTH}}
+    set release_tags(PRO_EXIT) {description "Post-Route Exit"   required_flows {SYNTH_PNR PNR SYNTH STA LEC}}
+    set release_tags(BTO) {description "Backend Tapeout"   required_flows {SYNTH_PNR PNR SYNTH FP STA LEC CLP PV EMIR ECO}}
+    set release_tags(MTO) {description "Metal Tapeout"      required_flows {SYNTH_PNR PNR SYNTH FP STA LEC CLP PV EMIR ECO POPT}}
 
 # ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║                 SECTION 7: PER-FLOW RELEASE DELIVERABLES                   ║
