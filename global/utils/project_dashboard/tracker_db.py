@@ -130,6 +130,25 @@ CREATE TABLE IF NOT EXISTS run_checklist (
 
 CREATE INDEX IF NOT EXISTS idx_run_checklist_pid ON run_checklist(published_run_id);
 
+-- Checklist waivers, per cell + check (survive a re-publish of the cell).
+CREATE TABLE IF NOT EXISTS waivers (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    project       TEXT NOT NULL,
+    block         TEXT NOT NULL,
+    phase         TEXT NOT NULL,
+    milestone     TEXT NOT NULL,
+    flow          TEXT NOT NULL,
+    check_name    TEXT NOT NULL,
+    check_id      TEXT,
+    waived_by     TEXT NOT NULL,
+    justification TEXT NOT NULL,
+    expiry_date   TEXT NOT NULL,
+    waived_at     TEXT NOT NULL,
+    revoked_by    TEXT,
+    revoked_at    TEXT,
+    UNIQUE (project, block, phase, milestone, flow, check_name)
+);
+
 CREATE TABLE IF NOT EXISTS run_files (
     published_run_id INTEGER NOT NULL,
     kind             TEXT,               -- MANIFEST / RELEASE_COMPLETE / CHANGELOG / manifest_entry
@@ -527,6 +546,8 @@ def publish(db_path, payload, project):
                   c.get('severity'), c.get('detail'),
                   c.get('check_id'), c.get('description')))
 
+        _apply_waivers(conn, pid)
+
         for f in payload.get('files') or []:
             conn.execute("""
                 INSERT INTO run_files(published_run_id, kind, rel_path, sha256)
@@ -583,6 +604,99 @@ def publish(db_path, payload, project):
             conn.rollback()
         except sqlite3.Error:
             pass
+        raise
+    finally:
+        conn.close()
+
+
+# ─── Waivers ────────────────────────────────────────────────────────────────
+
+_BLOCKING = "status='FAIL' AND (check_type='mandatory' OR severity='critical')"
+
+
+def _recompute_verdict(conn, pid):
+    """A blocked entry whose blocking failures are all waived becomes
+    CONDITIONAL; a waiver revoked back to a blocking FAIL re-blocks it."""
+    row = conn.execute('SELECT verdict FROM published_runs WHERE id=?', (pid,)).fetchone()
+    if not row:
+        return
+    blocking = conn.execute(f'SELECT COUNT(*) FROM run_checklist WHERE published_run_id=? AND {_BLOCKING}',
+                            (pid,)).fetchone()[0]
+    waived = conn.execute("SELECT COUNT(*) FROM run_checklist WHERE published_run_id=? AND status='WAIVED'",
+                          (pid,)).fetchone()[0]
+    verdict = row[0]
+    if blocking == 0 and waived and verdict == 'BLOCKED':
+        verdict = 'CONDITIONAL'
+    elif blocking and verdict in ('PASS', 'CONDITIONAL'):
+        verdict = 'BLOCKED'
+    conn.execute('UPDATE published_runs SET verdict=? WHERE id=?', (verdict, pid))
+
+
+def _apply_waivers(conn, pid):
+    """Mark FAIL checks WAIVED where the entry's cell has an active waiver."""
+    cell = conn.execute('SELECT project, block, phase, milestone, flow FROM published_runs WHERE id=?',
+                        (pid,)).fetchone()
+    today = datetime.now(timezone.utc).date().isoformat()
+    names = [r[0] for r in conn.execute(
+        'SELECT check_name FROM waivers WHERE project=? AND block=? AND phase=? AND milestone=? '
+        'AND flow=? AND revoked_at IS NULL AND expiry_date>=?', tuple(cell) + (today,))]
+    for n in names:
+        conn.execute("UPDATE run_checklist SET status='WAIVED' WHERE published_run_id=? "
+                     "AND check_name=? AND status='FAIL'", (pid, n))
+    if names:
+        _recompute_verdict(conn, pid)
+
+
+def add_waiver(db_path, pid, check_name, user, justification, expiry_date):
+    """Waive a FAIL check of a published entry (and its cell's re-publishes)."""
+    conn = _connect(db_path)
+    try:
+        conn.execute('BEGIN IMMEDIATE')
+        cell = conn.execute('SELECT project, block, phase, milestone, flow FROM published_runs WHERE id=?',
+                            (pid,)).fetchone()
+        if not cell:
+            raise ValueError(f'published run {pid} not found')
+        chk = conn.execute('SELECT status, check_id FROM run_checklist WHERE published_run_id=? AND check_name=?',
+                           (pid, check_name)).fetchone()
+        if not chk:
+            raise ValueError(f'check {check_name} not in published run {pid}')
+        if chk[0] != 'FAIL':
+            raise ValueError(f'check {check_name} is {chk[0]} — only FAIL checks are waived')
+        conn.execute("""
+            INSERT INTO waivers(project, block, phase, milestone, flow, check_name, check_id,
+                                waived_by, justification, expiry_date, waived_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(project, block, phase, milestone, flow, check_name) DO UPDATE SET
+              check_id=excluded.check_id, waived_by=excluded.waived_by,
+              justification=excluded.justification, expiry_date=excluded.expiry_date,
+              waived_at=excluded.waived_at, revoked_by=NULL, revoked_at=NULL
+        """, tuple(cell) + (check_name, chk[1], user, justification, expiry_date, _now()))
+        _apply_waivers(conn, pid)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def revoke_waiver(db_path, pid, check_name, user):
+    conn = _connect(db_path)
+    try:
+        conn.execute('BEGIN IMMEDIATE')
+        cell = conn.execute('SELECT project, block, phase, milestone, flow FROM published_runs WHERE id=?',
+                            (pid,)).fetchone()
+        if not cell:
+            raise ValueError(f'published run {pid} not found')
+        conn.execute('UPDATE waivers SET revoked_by=?, revoked_at=? WHERE project=? AND block=? AND phase=? '
+                     'AND milestone=? AND flow=? AND check_name=? AND revoked_at IS NULL',
+                     (user, _now()) + tuple(cell) + (check_name,))
+        conn.execute("UPDATE run_checklist SET status='FAIL' WHERE published_run_id=? AND check_name=? "
+                     "AND status='WAIVED'", (pid, check_name))
+        _recompute_verdict(conn, pid)
+        conn.commit()
+    except Exception:
+        conn.rollback()
         raise
     finally:
         conn.close()
@@ -668,6 +782,10 @@ def get_published(db_path, published_run_id):
         pr['files'] = [dict(r) for r in conn.execute(
             'SELECT * FROM run_files WHERE published_run_id=?',
             (published_run_id,)).fetchall()]
+        pr['waivers'] = {r['check_name']: dict(r) for r in conn.execute(
+            'SELECT * FROM waivers WHERE project=? AND block=? AND phase=? AND milestone=? AND flow=? '
+            'AND revoked_at IS NULL', (pr['project'], pr['block'], pr['phase'], pr['milestone'],
+                                       pr.get('flow') or ''))}
         fp_row = conn.execute(
             'SELECT * FROM run_floorplan WHERE published_run_id=?',
             (published_run_id,)).fetchone()

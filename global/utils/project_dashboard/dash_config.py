@@ -135,6 +135,25 @@ def fmt_slack(name, value):
     return f'{f:.{int(registry.require_flow_value("report,slack_digits"))}f}'
 
 
+def waiver_policy():
+    """array set waiver_policy { key value ... } from the exit config's
+    waiver_config.tcl — {key: value} (strings)."""
+    path = os.path.join(registry.root(), 'global', 'config', 'exit',
+                        registry.config_version('FLOW_CONFIG_VERSION'), 'waiver_config.tcl')
+    with open(path, encoding='utf-8') as f:
+        text = f.read()
+    m = re.search(r'array\s+set\s+waiver_policy\s*\{(.*?)^\}', text, re.S | re.M)
+    if not m:
+        raise registry.RegistryError(f'waiver_policy is not set in {path}')
+    out = {}
+    for line in m.group(1).splitlines():
+        line = line.split('#', 1)[0].strip()
+        if line:
+            k, _, v = line.partition(' ')
+            out[k] = v.strip().strip('"')
+    return out
+
+
 def smartgrid(key):
     """flow(smartgrid,<key>) — required."""
     return registry.require_flow_value(f'smartgrid,{key}')

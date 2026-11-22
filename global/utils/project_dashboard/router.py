@@ -87,6 +87,122 @@ def _style():
     return _STYLE + dash_config.discipline_css()
 
 
+def _waiver_action(project, pid, action, body):
+    """Waive / unwaive one checklist row of a published entry. The user is
+    the account running SmartGrid (never taken from the browser); expiry and
+    allowed milestones follow waiver_config.tcl's waiver_policy."""
+    import getpass
+    from datetime import date, timedelta
+    user = getpass.getuser()
+    db = state_paths.tracker_db(project)
+    check = str(body.get('check_name') or '').strip()
+    if not check:
+        return False, ['check_name required']
+    try:
+        if action == 'unwaive':
+            tracker_db.revoke_waiver(db, pid, check, user)
+            return True, []
+        d = tracker_db.get_published(db, pid)
+        if not d:
+            return False, [f'published run {pid} not found']
+        pol = dash_config.waiver_policy()
+        if pol.get(f'allow_{d["milestone"].lower()}_waivers', 'true').lower() == 'false':
+            return False, [f'waivers are not allowed at {d["milestone"]} (waiver_config.tcl)']
+        just = str(body.get('justification') or '').strip()
+        if len(just) < 10:
+            return False, ['justification required (at least 10 characters)']
+        exp = str(body.get('expiry_date') or '').strip()
+        if pol.get('require_expiry_date', 'false').lower() == 'true' and not exp:
+            return False, ['expiry date required (waiver_config.tcl require_expiry_date)']
+        if exp:
+            try:
+                e = date.fromisoformat(exp)
+            except ValueError:
+                return False, ['expiry date must be YYYY-MM-DD']
+            mx = int(pol.get('max_waiver_duration_days') or 0)
+            if e < date.today() or (mx and e > date.today() + timedelta(days=mx)):
+                return False, [f'expiry must be between today and +{mx} days']
+        tracker_db.add_waiver(db, pid, check, user, just, exp)
+        return True, []
+    except ValueError as e:
+        return False, [str(e)]
+
+
+def _waive_cell(c, status, waiver):
+    """Waive column: a Waive button on FAIL rows; who / when / why + Revoke on
+    WAIVED rows; — otherwise."""
+    name = c.get('check_name') or ''
+    js = lambda v: html.escape(json.dumps(v), quote=True)
+    if status == 'FAIL':
+        return (f'<button class="wv-btn" onclick="wvOpen({js(name)},{js(c.get("check_id") or "")},'
+                f'{js(c.get("description") or name)})" style="padding:2px 10px;font-size:11px;font-weight:700;'
+                f'border:1px solid #d97706;color:#b45309;background:#fffbeb;border-radius:6px;cursor:pointer">Waive</button>')
+    if status == 'WAIVED' and waiver:
+        tip = html.escape(f'{waiver.get("justification","")} — expires {waiver.get("expiry_date","")}', quote=True)
+        return (f'<span title="{tip}" style="font-size:11px">{html.escape(waiver.get("waived_by",""))} · '
+                f'{html.escape((waiver.get("waived_at") or "")[:10])}</span> '
+                f'<a href="javascript:void(0)" onclick="wvRevoke({js(name)})" style="font-size:11px;color:#b91c1c">revoke</a>')
+    return '<span class="muted">—</span>'
+
+
+def _waiver_form_html(pid, user, policy, milestone):
+    """Waiver modal + script for a published entry's checklist tab."""
+    from datetime import date, timedelta
+    mx = int(policy.get('max_waiver_duration_days') or 0)
+    today = date.today()
+    max_d = (today + timedelta(days=mx)).isoformat() if mx else ''
+    allowed = policy.get(f'allow_{milestone.lower()}_waivers', 'true').lower() != 'false'
+    return f"""
+<div id="wv-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:1000;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:12px;padding:20px 22px;width:460px;max-width:92vw;box-shadow:0 20px 50px rgba(0,0,0,.25);font-size:13px">
+    <div style="font-weight:800;font-size:15px;margin-bottom:10px">Waive check</div>
+    <div id="wv-check" class="mono" style="margin-bottom:4px;font-weight:700"></div>
+    <div id="wv-desc" style="color:#555;margin-bottom:12px"></div>
+    <label style="display:block;margin-bottom:8px">Waived by<br>
+      <input value="{html.escape(user, quote=True)}" readonly style="width:100%;padding:6px;border:1px solid #ddd;border-radius:6px;background:#f6f7fb"></label>
+    <label style="display:block;margin-bottom:8px">Justification<br>
+      <textarea id="wv-just" rows="4" placeholder="Why this failure is acceptable (at least 10 characters)" style="width:100%;padding:6px;border:1px solid #ddd;border-radius:6px"></textarea></label>
+    <label style="display:block;margin-bottom:12px">Expires<br>
+      <input id="wv-exp" type="date" min="{today.isoformat()}" max="{max_d}" value="{max_d}" style="padding:6px;border:1px solid #ddd;border-radius:6px">
+      <span style="color:#888;font-size:11px">max {mx} days (waiver_config.tcl)</span></label>
+    <div id="wv-err" style="color:#b91c1c;margin-bottom:8px"></div>
+    <div style="text-align:right"><button onclick="wvClose()" style="padding:6px 14px">Cancel</button>
+      <button onclick="wvSubmit()" style="padding:6px 14px;font-weight:700;background:#f59e0b;border:1px solid #d97706;color:#fff;border-radius:6px">Waive</button></div>
+  </div>
+</div>
+<script>
+  var wvPid = {pid}, wvName = '', wvAllowed = {'true' if allowed else 'false'};
+  function wvOpen(name, id, desc) {{
+    if (!wvAllowed) {{ alert('Waivers are not allowed at this milestone (waiver_config.tcl).'); return; }}
+    wvName = name;
+    document.getElementById('wv-check').textContent = id + '  ' + name;
+    document.getElementById('wv-desc').textContent = desc;
+    document.getElementById('wv-just').value = '';
+    document.getElementById('wv-err').textContent = '';
+    document.getElementById('wv-modal').style.display = 'flex';
+  }}
+  function wvClose() {{ document.getElementById('wv-modal').style.display = 'none'; }}
+  function wvPost(action, body) {{
+    return fetch('/api/published/' + wvPid + '/' + action, {{method: 'POST',
+      headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(body)}}).then(function(r) {{ return r.json(); }});
+  }}
+  function wvSubmit() {{
+    wvPost('waive', {{check_name: wvName, justification: document.getElementById('wv-just').value,
+                     expiry_date: document.getElementById('wv-exp').value}}).then(function(d) {{
+      if (!d.ok) {{ document.getElementById('wv-err').textContent = (d.errors || []).join('; '); return; }}
+      location.hash = 'checklist'; location.reload();
+    }});
+  }}
+  function wvRevoke(name) {{
+    if (!confirm('Revoke the waiver on ' + name + '?')) return;
+    wvPost('unwaive', {{check_name: name}}).then(function(d) {{
+      if (!d.ok) {{ alert((d.errors || []).join('; ')); return; }}
+      location.hash = 'checklist'; location.reload();
+    }});
+  }}
+</script>"""
+
+
 def _requirement(thr):
     """Pass requirement for display: "<= 100 ps" -> "≤ 100 ps", "between 1,85 %"
     -> "1 – 85 %"; non-numeric criteria (e.g. "file exists") shown as is."""
@@ -142,10 +258,12 @@ def make_handler(project):
                            json.dumps({'ok': False, 'errors': [f'internal error: {e}']}))
 
         def _route_post(self):
-            """Only POST: /api/project/<self>/schedule — save schedule edits.
-            Accepted from loopback clients, same-origin, JSON body only."""
+            """POST: /api/project/<self>/schedule (schedule edits) and
+            /api/published/<id>/waive|unwaive (checklist waivers). Accepted
+            from loopback clients, same-origin, JSON body only."""
             path = self.path.split('?', 1)[0]
-            if path != f'/api/project/{project}/schedule':
+            mw = re.match(r'^/api/published/(\d+)/(waive|unwaive)$', path)
+            if path != f'/api/project/{project}/schedule' and not mw:
                 return self._send(404, 'text/plain', 'not found')
             if self.client_address[0] not in ('127.0.0.1', '::1'):
                 return self._send(403, 'text/plain', 'schedule edits are local-only')
@@ -158,9 +276,14 @@ def make_handler(project):
             if n <= 0 or n > 256 * 1024:
                 return self._send(400, 'text/plain', 'bad body size')
             try:
-                values = (json.loads(self.rfile.read(n)) or {}).get('values') or {}
+                body = json.loads(self.rfile.read(n)) or {}
             except ValueError:
                 return self._send(400, 'text/plain', 'bad json')
+            if mw:
+                ok, errors = _waiver_action(project, int(mw.group(1)), mw.group(2), body)
+                return self._send(200 if ok else 400, 'application/json',
+                                  json.dumps({'ok': ok, 'errors': errors}))
+            values = body.get('values') or {}
             ok, errors = _save_schedule(project, values)
             self._send(200 if ok else 400, 'application/json',
                        json.dumps({'ok': ok, 'errors': errors}))
@@ -5516,7 +5639,8 @@ def _render_detail(project, info, d):
     else:
         parts.append('<div style="overflow-x:auto"><table class="d"><thead><tr>'
                      '<th>Check ID</th><th>Check description</th><th>Category</th>'
-                     '<th>Requirement</th><th>Value</th><th>Status</th></tr></thead><tbody>')
+                     '<th>Requirement</th><th>Value</th><th>Status</th><th>Waive</th></tr></thead><tbody>')
+        waivers = d.get('waivers') or {}
         for c in checklist:
             st = (c.get('status') or '—').upper()
             # Category: library checks carry one; milestone checks show their type
@@ -5531,8 +5655,15 @@ def _render_detail(project, info, d):
                 f'<td class="mono">{html.escape(_requirement(c.get("threshold")))}</td>'
                 f'<td class="mono">{html.escape(str(dash_config.fmt_slack((c.get("check_name") or "") + " " + (c.get("description") or ""), c.get("metric_value")) or "—"))}</td>'
                 f'<td><span class="tt-status st-{_CHECK_STATUS_CLS.get(st, "future")}">'
-                f'{html.escape(st)}</span></td></tr>')
+                f'{html.escape(st)}</span></td>'
+                f'<td>{_waive_cell(c, st, waivers.get(c.get("check_name") or ""))}</td></tr>')
         parts.append('</tbody></table></div>')
+        import getpass
+        try:
+            parts.append(_waiver_form_html(d['id'], getpass.getuser(),
+                                           dash_config.waiver_policy(), d.get('milestone') or ''))
+        except Exception as e:
+            parts.append(f'<div class="empty">Waivers unavailable: {html.escape(str(e))}</div>')
     if signoff_metrics:
         parts.append(f'<div class="sec-h">Sign-off metrics '
                      f'<span class="hint">{len(signoff_metrics)} rows</span></div>')
