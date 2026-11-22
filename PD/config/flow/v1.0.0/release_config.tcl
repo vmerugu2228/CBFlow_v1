@@ -1386,6 +1386,9 @@ proc check_release_readiness {run_dir flow milestone phase} {
 
     set flow_input_handshake(PV,gds)             {ANY gds     "${design_name}.gds"}
     set flow_input_handshake(PV,netlist)         {ANY netlist "${design_name}.lvs.v"}
+    # CDL of the layout PV checks — re-released with the GDS by PV (the views
+    # a parent's lib tag takes); absent in a floorplan release (warning only)
+    set flow_input_handshake(PV,netlist_cdl)     {ANY netlist "${design_name}.cdl"}
     set flow_input_handshake(PV,def_file)        {ANY def     "${design_name}.def"}
 
     set flow_input_handshake(LEC,netlist_golden)  {SYNTH netlist "${design_name}.v"}
