@@ -32,6 +32,8 @@ flow_proc publish {
         ::CBFlow::Release::copy_file "$::run_dir/work/PV/$_f" reports/pv [file tail $_f]
     }
     foreach _n {drc1 lvs1} { ::CBFlow::Release::copy_glob "$::run_dir/work/PV/$_n/reports/*.rpt" reports/pv }
+    ::CBFlow::Release::generate_manifest
+    ::CBFlow::Release::stamp_complete
     set _fh [open [oss_stage_out release.manifest] w]; puts $_fh "release_dir $_dir"; close $_fh
     handle_info "PV reports released -> $_dir/reports/pv"
 }

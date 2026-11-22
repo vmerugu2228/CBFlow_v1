@@ -27,6 +27,7 @@ if SCRIPT_DIR not in sys.path:
 import state_paths
 import tracker_db
 import floorplan
+import releases
 
 logger = logging.getLogger('cbflow.project_dashboard.router')
 
@@ -137,6 +138,9 @@ def make_handler(project):
                 # /project/<self>/schedule — schedule detail (stub for now)
                 if len(segs) == 2 and segs[1] == 'schedule':
                     return self._page_schedule(tgt_project)
+                # /project/<self>/releases — per-phase release status
+                if len(segs) == 2 and segs[1] == 'releases':
+                    return self._page_releases(tgt_project)
                 disc = segs[1].lower()
                 # Disc segment also constrained — defense-in-depth.
                 if not _re.match(r'^[a-z0-9_]+$', disc):
@@ -344,7 +348,14 @@ def make_handler(project):
             """
             db = state_paths.tracker_db(tgt_project)
             info = tracker_db.get_project_info(db, tgt_project)
-            html_out = _render_schedule_detail(tgt_project, info)
+            pubs = tracker_db.list_published(db, tgt_project)
+            html_out = _render_schedule_detail(tgt_project, info, pubs)
+            self._send(200, 'text/html; charset=utf-8', html_out)
+
+        def _page_releases(self, tgt_project):
+            """Release status per phase from the release area on disk."""
+            html_out = _render_releases_detail(tgt_project,
+                                               _release_stats_safe(tgt_project))
             self._send(200, 'text/html; charset=utf-8', html_out)
 
         def _page_tier3(self, tgt_project, disc):
@@ -783,15 +794,16 @@ _STYLE = """
   .status-pill.pill-archived { background:#f3f4f6; color:#4b5563; }
   .status-pill.pill-paused   { background:#fff3e0; color:#92400e; }
 
-  /* ───── Tier 2 — compact tile grid ─────
-     Same card size as the Tier 1 project cards (.proj-card): height
-     follows content, equal-width columns, 1-column at narrow viewports.
+  /* ───── Tier 2 — compact square tiles ─────
+     Fixed 200px squares, left-aligned; the row does not stretch to fill
+     the viewport.
      Click opens the tile's drill target. */
   .sg-tile-grid { display:grid; gap:14px; padding:16px 20px;
-                  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+                  grid-template-columns: repeat(auto-fill, 200px);
                   align-content:start;
                   background: var(--bg); min-height: calc(100vh - 50px); }
   .sg-tile { display:flex; flex-direction:column; justify-content:space-between;
+             width:200px; aspect-ratio: 1 / 1;
              background: var(--panel); color: var(--text);
              border:1px solid var(--border); border-radius:6px;
              padding:14px 16px; text-decoration:none;
@@ -879,18 +891,73 @@ _STYLE = """
   .team-cell-contact { color: var(--muted); font-size:11px;
                        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
 
-  /* Keep sched-timeline styles for the /schedule detail page */
-  .sched-timeline { display:grid; grid-template-columns: repeat(6, 1fr);
-                    gap:8px; margin:4px 0 10px; }
-  .sched-pip { padding:14px 10px; border-radius:4px; text-align:center;
-               border:1px solid var(--border); background: var(--panel); }
-  .sched-pip-name { font-size:11px; font-weight:800; letter-spacing:.05em;
-                    color: var(--text); }
-  .sched-pip-date { font-size:12px; color: var(--muted); margin-top:4px;
-                    font-variant-numeric: tabular-nums; }
-  .sched-pip.sched-past   { background: var(--accent-bg); border-color: var(--accent-ink); }
-  .sched-pip.sched-past   .sched-pip-name { color: var(--accent-ink); }
-  .sched-pip.sched-future { background:#f8fafc; }
+  /* Schedule timetable (/schedule detail page) */
+  .tt-wrap { padding:0 20px 10px; overflow-x:auto; }
+  table.tt { border-collapse:collapse; font-size:13px; min-width:760px;
+             background: var(--panel); border:1px solid var(--border); }
+  table.tt th, table.tt td { padding:8px 12px; border-bottom:1px solid var(--border);
+                             text-align:left; white-space:nowrap; }
+  table.tt th { background: var(--header); font-size:11px; font-weight:700;
+                color: var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+  table.tt td.num { text-align:right; font-variant-numeric: tabular-nums; }
+  table.tt tr.tt-anchor td { background: var(--header); font-weight:600; }
+  table.tt tr.tt-next td { background: var(--accent-bg); }
+  .tt-ms { font-weight:700; letter-spacing:.02em; }
+  .tt-status { font-size:10px; font-weight:800; letter-spacing:.05em;
+               padding:2px 7px; border-radius:3px; text-transform:uppercase; }
+  .tt-status.st-past   { background:#f3f4f6; color:#4b5563; }
+  .tt-status.st-next   { background: var(--accent); color:#fff; }
+  .tt-status.st-future { background:#f8fafc; color: var(--muted);
+                         border:1px solid var(--border); }
+  .tt-status.st-late   { background:#fef2f2; color:#b91c1c; }
+  .tt-track { position:relative; width:220px; height:8px; border-radius:4px;
+              background:#eef0f4; }
+  .tt-track .seg { position:absolute; top:0; bottom:0; border-radius:4px;
+                   background: var(--accent); opacity:.75; }
+  .tt-track .now { position:absolute; top:-3px; bottom:-3px; width:2px;
+                   background:#dc2626; }
+
+  /* Release status (/releases detail page + Tier 2 tile) */
+  .pbar { position:relative; height:6px; border-radius:3px; background:#eef0f4;
+          overflow:hidden; min-width:80px; }
+  .pbar > span { position:absolute; left:0; top:0; bottom:0;
+                 background: var(--accent); border-radius:3px; }
+  .sg-tile-rel { --tile-accent: #0d9488; }
+  .sg-tile-rel .sg-tile-badge { background:#0d9488; font-size:16px; }
+  .sg-tile-rel .pbar { width:120px; margin:8px auto 0; }
+  .rel-phase { margin:0 20px 18px; border:1px solid var(--border);
+               border-radius:6px; background: var(--panel); }
+  .rel-phase-h { display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+                 padding:10px 14px; border-bottom:1px solid var(--border);
+                 background: var(--header); border-radius:6px 6px 0 0; }
+  .rel-phase-h .ph { font-weight:800; font-size:15px; }
+  .rel-phase-h .cur { font-size:10px; font-weight:800; letter-spacing:.05em;
+                      padding:2px 7px; border-radius:3px; background: var(--accent);
+                      color:#fff; text-transform:uppercase; }
+  .rel-kpi { font-size:12px; color: var(--muted); }
+  .rel-kpi b { color: var(--text); font-size:14px; margin-left:4px;
+               font-variant-numeric: tabular-nums; }
+  .rel-phase-empty { padding:10px 14px; color: var(--muted); font-size:12px; }
+  .rel-levels { display:flex; gap:12px; flex-wrap:wrap; padding:12px 14px 4px; }
+  .rel-level { border:1px solid var(--border); border-radius:6px;
+               padding:8px 12px; min-width:150px; }
+  .rel-level .lv { font-size:10px; font-weight:800; letter-spacing:.05em;
+                   color: var(--muted); }
+  .rel-level .lvv { font-size:13px; margin:2px 0 6px; }
+  table.rel { border-collapse:collapse; font-size:12px; margin:8px 14px 14px; }
+  table.rel th, table.rel td { padding:6px 10px; border-bottom:1px solid var(--border);
+                               text-align:center; white-space:nowrap; }
+  table.rel th { background: var(--header); font-size:11px; font-weight:700;
+                 color: var(--muted); letter-spacing:.03em; }
+  table.rel td.blk, table.rel th.blk { text-align:left; }
+  table.rel td.num { font-variant-numeric: tabular-nums; }
+  .lvl-tag { font-size:9px; font-weight:800; letter-spacing:.05em;
+             color: var(--muted); margin-left:6px; }
+  .rc { display:inline-block; min-width:40px; padding:2px 6px; border-radius:3px;
+        font-size:11px; font-weight:700; }
+  .rc.ok   { background:#ecfdf5; color:#047857; }
+  .rc.warn { background:#fff7ed; color:#b45309; }
+  .rc.none { color:#cbd5e1; font-weight:400; }
   .sched-note { padding:10px 12px; font-size:11px; color: var(--muted);
                 background:#fffbeb; border-left:3px solid #d97706;
                 border-radius:3px; }
@@ -3457,6 +3524,147 @@ def _render_team_card(project):
         f'</a>')
 
 
+def _expected_pd_flows(project):
+    """Enabled PD flows for the project (master_projects.json) — the
+    flows every hierarchy block is expected to release each phase."""
+    try:
+        import sys as _sys, os as _os
+        _utils = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+        _cmds = _os.path.join(_utils, 'commands')
+        for _p in (_utils, _cmds):
+            if _p not in _sys.path:
+                _sys.path.insert(0, _p)
+        from tcl_config_parser import get_project_enabled_flows
+        return get_project_enabled_flows(project, 'PD')
+    except Exception:
+        return []
+
+
+def _release_stats_safe(project):
+    try:
+        return releases.release_stats(project, _expected_pd_flows(project))
+    except Exception:
+        logger.exception('release stats failed for %s', project)
+        return {}
+
+
+def _render_releases_card(project, stats):
+    """Release tile for Tier 2 — current phase: blocks with released data
+    and completeness of (block x enabled flow) across the hierarchy."""
+    href = f'/project/{html.escape(project, quote=True)}/releases'
+    phases = (stats or {}).get('phases') or []
+    cur = stats.get('current_phase') if stats else ''
+    ph = next((p for p in phases if p['phase'] == cur), phases[0] if phases else None)
+    if ph is None:
+        metric, lbl, sub, pct = '—', 'no release area', '', 0
+    else:
+        metric = f"{ph['released_blocks']}/{ph['total_blocks']}"
+        lbl = f"blocks released · {ph['phase']}"
+        pct = ph['pct']
+        sub = f"Complete <b>{pct}%</b> · {ph['tags']} tags"
+    return (
+        f'<a class="sg-tile sg-tile-rel" href="{href}">'
+        f'  <div class="sg-tile-head">'
+        f'    <span class="sg-tile-badge rel-badge">⇪</span>'
+        f'    <span class="sg-tile-title">Releases</span>'
+        f'  </div>'
+        f'  <div class="sg-tile-body">'
+        f'    <div class="sg-tile-metric">{html.escape(metric)}</div>'
+        f'    <div class="sg-tile-metric-lbl">{html.escape(lbl)}</div>'
+        f'    <div class="pbar"><span style="width:{pct}%"></span></div>'
+        f'    <div class="sg-tile-sub">{sub}</div>'
+        f'  </div>'
+        f'  <div class="sg-tile-foot">Open release status →</div>'
+        f'</a>')
+
+
+def _render_releases_detail(project, stats):
+    """Per-phase release status: blocks released, completeness, per-level
+    rollup, and the block x flow matrix in hierarchy order."""
+    body = []
+    if not stats:
+        body.append('<div class="rel-phase-empty" style="padding:20px">'
+                    'No release area: set <code>project(release,path)</code> and '
+                    '<code>project(design_hierarchy)</code> in the project config.'
+                    '</div>')
+    else:
+        flows = stats['expected_flows']
+        hier = stats['hierarchy']
+        for ph in stats['phases']:
+            is_cur = ph['phase'] == stats['current_phase']
+            head = (f'<div class="rel-phase-h"><span class="ph">{html.escape(ph["phase"])}</span>'
+                    + ('<span class="cur">current</span>' if is_cur else '')
+                    + f'<span class="rel-kpi">Blocks released<b>{ph["released_blocks"]}/{ph["total_blocks"]}</b></span>'
+                    f'<span class="rel-kpi">Completeness<b>{ph["pct"]}%</b></span>'
+                    f'<span class="rel-kpi">Tags<b>{ph["tags"]}</b></span>'
+                    f'<div class="pbar" style="width:160px"><span style="width:{ph["pct"]}%"></span></div>'
+                    '</div>')
+            if not ph['tags']:
+                body.append(f'<div class="rel-phase">{head}'
+                            '<div class="rel-phase-empty">No releases in this phase yet.</div></div>')
+                continue
+            levels = ''.join(
+                f'<div class="rel-level"><div class="lv">{html.escape(lv["level"])}</div>'
+                f'<div class="lvv">{lv["released"]}/{lv["blocks"]} blocks · <b>{lv["pct"]}%</b></div>'
+                f'<div class="pbar"><span style="width:{lv["pct"]}%"></span></div></div>'
+                for lv in ph['by_level'])
+            ths = ''.join(f'<th>{html.escape(f)}</th>' for f in flows)
+            trs = []
+            for blk, depth in stats['tree_order']:
+                b = ph['blocks'][blk]
+                cells = []
+                for f in flows:
+                    r = b['flows'].get(f)
+                    if not r:
+                        cells.append('<td><span class="rc none">—</span></td>')
+                        continue
+                    ver = r['tag'].rsplit('_', 1)[-1]
+                    tip = html.escape(f"{r['tag']} · {r['timestamp']} · {r['versions']} version(s)"
+                                      + ('' if r['complete'] else ' · no RELEASE_COMPLETE'),
+                                      quote=True)
+                    cls = 'ok' if r['complete'] else 'warn'
+                    mark = '' if r['complete'] else ' ⚠'
+                    cells.append(f'<td><span class="rc {cls}" title="{tip}">'
+                                 f'{html.escape(ver)}{mark}</span></td>')
+                extra = ', '.join(f"{x} {b['flows'][x]['tag'].rsplit('_', 1)[-1]}"
+                                  for x in b['extra']) or '—'
+                pad = 14 * depth
+                trs.append(
+                    f'<tr><td class="blk" style="padding-left:{10 + pad}px">'
+                    f'{"└ " if depth else ""}<b>{html.escape(blk)}</b>'
+                    f'<span class="lvl-tag">{html.escape(hier[blk]["level"])}</span></td>'
+                    + ''.join(cells)
+                    + f'<td class="muted">{html.escape(extra)}</td>'
+                    f'<td class="num">{b["pct"]}%</td>'
+                    f'<td class="num">{b["subtree_pct"]}%</td></tr>')
+            body.append(
+                f'<div class="rel-phase">{head}<div class="rel-levels">{levels}</div>'
+                '<table class="rel"><thead><tr><th class="blk">Block</th>'
+                f'{ths}<th>Other</th><th>Block</th><th>Subtree</th></tr></thead>'
+                f'<tbody>{"".join(trs)}</tbody></table></div>')
+    rel_path = (stats or {}).get('release_path') or ''
+    flows_s = ', '.join((stats or {}).get('expected_flows') or []) or '—'
+    return ''.join([
+        '<!DOCTYPE html><html><head>',
+        '<meta charset="utf-8">',
+        f'<title>Releases · {html.escape(project)} — CBflow-SmartGrid</title>',
+        _STYLE,
+        _SCRIPT_RELOAD_ON_FOCUS,
+        '</head><body>',
+        _render_detail_chrome(project, 'Releases'),
+        '<section class="detail-top">',
+        f'  <h1 class="detail-h1">Releases · {html.escape(project)}</h1>',
+        f'  <div class="detail-sub">Expected per block each phase: {html.escape(flows_s)} · '
+        f'release area <code>{html.escape(rel_path)}</code> · completeness = released '
+        '(block, flow) pairs ÷ expected; Subtree includes the block and all its children.</div>',
+        '</section>',
+        '<section class="detail-section" style="padding-top:16px">',
+        *body,
+        '</section>',
+        '</body></html>',
+    ])
+
+
 # Keep _render_resource_card as a thin back-compat alias so any
 # external caller that references it doesn't break. Internally all
 # references in this module now use _render_team_card.
@@ -3610,7 +3818,183 @@ def _render_team_detail(project, info):
     ])
 
 
-def _render_schedule_detail(project, info):
+def _render_schedule_timetable(project, start_iso, tapeout_iso, targets,
+                               published_rows):
+    """Timetable rows: project start, each PD exit milestone, tapeout.
+    Columns: target date, window from the previous row, days left, status,
+    blocks published to SmartGrid for that milestone, and a position bar
+    on the start → tapeout span."""
+    from datetime import date as _d
+    today = _d.today()
+
+    def _parse(iso):
+        try:
+            return _d.fromisoformat((iso or '')[:10])
+        except ValueError:
+            return None
+    start, tapeout = _parse(start_iso), _parse(tapeout_iso)
+    span = (tapeout - start).days if start and tapeout and tapeout > start else 0
+
+    published = {}
+    for r in published_rows:
+        published.setdefault((r.get('milestone') or '').upper(), set()).add(r.get('block'))
+    stats = releases.release_stats(project, [])
+    n_blocks = len((stats or {}).get('hierarchy') or {})
+
+    rows = [('Project start', start, True, None)]
+    rows += [(m, _parse(targets.get(m)), False, m) for m in _MILESTONES]
+    rows.append(('Tapeout', tapeout, True, None))
+    next_idx = next((i for i, r in enumerate(rows) if r[1] and r[1] >= today), None)
+
+    def _bar(prev, cur):
+        if not span or not cur:
+            return '<span class="muted">—</span>'
+        lo = max(0, (prev - start).days) if prev else 0
+        hi = (cur - start).days
+        left, width = 100.0 * lo / span, max(1.0, 100.0 * (hi - lo) / span)
+        now = min(100.0, max(0.0, 100.0 * (today - start).days / span))
+        return (f'<div class="tt-track"><span class="seg" style="left:{left:.1f}%;'
+                f'width:{width:.1f}%"></span><span class="now" style="left:{now:.1f}%"'
+                f' title="today"></span></div>')
+
+    trs, prev = [], None
+    for i, (name, dt, anchor, ms) in enumerate(rows):
+        if dt is None:
+            status, left_s, window = 'future', '—', '—'
+        else:
+            delta = (dt - today).days
+            status = 'past' if delta < 0 else ('next' if i == next_idx else 'future')
+            left_s = f'{delta}' if delta >= 0 else f'{-delta} ago'
+            window = f'{(dt - prev).days}' if prev else '—'
+        label = {'past': 'Done', 'next': 'Next', 'future': 'Upcoming'}[status]
+        if ms:
+            n_pub = len(published.get(ms, ()))
+            pub = f'{n_pub}/{n_blocks}' if n_blocks else str(n_pub)
+        else:
+            pub = ''
+        cls = ' '.join(c for c in ('tt-anchor' if anchor else '',
+                                    'tt-next' if status == 'next' else '') if c)
+        trs.append(
+            f'<tr class="{cls}">'
+            f'<td class="num">{i}</td>'
+            f'<td class="tt-ms">{html.escape(name)}</td>'
+            f'<td class="num">{html.escape(dt.isoformat() if dt else "—")}</td>'
+            f'<td>{html.escape(dt.strftime("%a") if dt else "")}</td>'
+            f'<td class="num">{html.escape(window)}</td>'
+            f'<td class="num">{html.escape(left_s)}</td>'
+            f'<td><span class="tt-status st-{status}">{label}</span></td>'
+            f'<td class="num">{html.escape(pub)}</td>'
+            f'<td>{_bar(prev, dt)}</td>'
+            '</tr>')
+        if dt:
+            prev = dt
+    return ('<div class="tt-wrap"><table class="tt"><thead><tr>'
+            '<th>#</th><th>Milestone</th><th>Target date</th><th>Day</th>'
+            '<th>Window (days)</th><th>Days left</th><th>Status</th>'
+            '<th>Blocks published</th><th>Timeline</th>'
+            '</tr></thead><tbody>' + ''.join(trs) + '</tbody></table></div>')
+
+
+def _block_schedule(start_iso, targets, hier, overrides):
+    """Per-block milestone dates, bottom-up.
+
+    The top block (depth 0) takes the project milestone targets. A block k
+    levels below the top is due at  start + (target - start) * (1 - k/(L+1))
+    for every milestone (L = number of levels), so each child delivers every
+    milestone before its parent and the leaves finish first.
+    `overrides` = master_projects.json `milestone_targets_by_block`
+    ({block: {milestone: date}}) — explicit dates win.
+    Returns {block: {milestone: (date_iso, estimated)}}.
+    """
+    from datetime import date as _d, timedelta
+    try:
+        start = _d.fromisoformat(start_iso[:10])
+    except (TypeError, ValueError):
+        start = None
+
+    def depth(b, seen=()):
+        p = hier.get(b, {}).get('parent') or ''
+        return 0 if (not p or p not in hier or p in seen) else 1 + depth(p, seen + (b,))
+    depths = {b: depth(b) for b in hier}
+    levels = (max(depths.values()) + 1) if depths else 1
+    out = {}
+    for b, k in depths.items():
+        frac = 1.0 - k / (levels + 1.0)
+        row = {}
+        for m in _MILESTONES:
+            ov = ((overrides or {}).get(b) or {}).get(m)
+            if ov:
+                row[m] = (ov[:10], False)
+                continue
+            tgt = targets.get(m) or ''
+            try:
+                t = _d.fromisoformat(tgt[:10])
+            except ValueError:
+                row[m] = ('', True)
+                continue
+            if start is None or k == 0:
+                row[m] = (t.isoformat(), False)
+            else:
+                row[m] = ((start + timedelta(days=round((t - start).days * frac))).isoformat(),
+                          True)
+        out[b] = row
+    return out, depths
+
+
+def _render_block_schedule(project, entry, start_iso, targets, published_rows):
+    """Block x milestone timetable, deepest level first (delivery order).
+    A cell is Done when that (block, milestone) is published to SmartGrid,
+    Late when its date has passed without a publish."""
+    from datetime import date as _d
+    stats = releases.release_stats(project, [])
+    hier = (stats or {}).get('hierarchy') or {}
+    if not hier:
+        return ('<div class="tt-wrap muted">No <code>project(design_hierarchy)</code> '
+                'declared — block schedule unavailable.</div>')
+    sched, depths = _block_schedule(start_iso, targets, hier,
+                                    entry.get('milestone_targets_by_block') or {})
+    published = {(r.get('block'), (r.get('milestone') or '').upper())
+                 for r in published_rows}
+    today = _d.today().isoformat()
+    tree_pos = {b: i for i, (b, _) in enumerate(stats['tree_order'])}
+    order = sorted(tree_pos, key=lambda b: (-depths[b], tree_pos[b]))
+    ths = ''.join(f'<th>{html.escape(m)}</th>' for m in _MILESTONES)
+    trs, any_est = [], False
+    for b in order:
+        spec = hier[b]
+        cells = []
+        for m in _MILESTONES:
+            dt, est = sched[b][m]
+            any_est = any_est or est
+            if (b, m) in published:
+                st, lbl = 'past', 'Done'
+            elif dt and dt < today:
+                st, lbl = 'late', 'Late'
+            else:
+                st, lbl = 'future', ''
+            badge = (f' <span class="tt-status st-{st}">{lbl}</span>' if lbl else '')
+            cells.append(f'<td class="num">{html.escape(dt or "—")}'
+                         f'{"<sup class=muted>*</sup>" if est else ""}{badge}</td>')
+        role = ('= project schedule' if depths[b] == 0
+                else f'delivers to {spec.get("parent") or "—"}')
+        trs.append(
+            f'<tr class="{"tt-anchor" if depths[b] == 0 else ""}">'
+            f'<td class="tt-ms" style="padding-left:{12 + 14 * depths[b]}px">{html.escape(b)}</td>'
+            f'<td>{html.escape(spec.get("level") or "")}</td>'
+            f'<td class="muted">{html.escape(role)}</td>'
+            + ''.join(cells) + '</tr>')
+    note = ('<div class="sched-note" style="margin-top:8px">* derived: a block '
+            '<i>k</i> levels below the top is due at start + (project target − start) × '
+            '(1 − <i>k</i>/(levels+1)). Set committed dates per block in '
+            '<code>master_projects.json</code> → <code>milestone_targets_by_block</code>.'
+            '</div>') if any_est else ''
+    return ('<div class="tt-wrap"><table class="tt"><thead><tr>'
+            f'<th>Block</th><th>Level</th><th>Delivery</th>{ths}'
+            '</tr></thead><tbody>' + ''.join(trs) + '</tbody></table>'
+            + note + '</div>')
+
+
+def _render_schedule_detail(project, info, published_rows=None):
     """Full schedule page — opens from the Schedule tile on Tier 2.
     Shows the milestone timeline with target dates, estimated-pill when
     derived, tapeout countdown, and project start/end markers.
@@ -3633,19 +4017,10 @@ def _render_schedule_detail(project, info):
         except Exception:
             targets = {}
 
-    from datetime import date as _d
-    today = _d.today().isoformat()
-    pips = []
-    for m in _MILESTONES:
-        tgt = targets.get(m) or ''
-        state = 'future'
-        if tgt and tgt < today:
-            state = 'past'
-        pips.append(
-            f'<div class="sched-pip sched-{state}">'
-            f'  <div class="sched-pip-name">{html.escape(m)}</div>'
-            f'  <div class="sched-pip-date">{html.escape(tgt[:10] or "—")}</div>'
-            '</div>')
+    timetable = _render_schedule_timetable(project, start_iso, tapeout_iso,
+                                           targets, published_rows or [])
+    block_tt = _render_block_schedule(project, entry, start_iso, targets,
+                                      published_rows or [])
 
     est_note = ''
     if estimated:
@@ -3671,10 +4046,12 @@ def _render_schedule_detail(project, info):
         f'started {html.escape(start_iso or "—")}</div>',
         '</section>',
         '<section class="detail-section">',
-        '  <div class="section-h">Milestone timeline</div>',
-        '  <div class="sched-timeline" style="padding:0 20px 10px">',
-        *pips,
-        '  </div>',
+        '  <div class="section-h">Milestone timetable</div>',
+        timetable,
+        '  <div class="section-h">Block schedule <span class="section-h-sub">'
+        'bottom-up: leaf blocks deliver first, each parent integrates after its '
+        'children; the top block aligns with the project schedule</span></div>',
+        block_tt,
         f'  <div style="padding:0 20px 20px">{est_note}</div>',
         '</section>',
         '</body></html>',
@@ -3737,6 +4114,7 @@ def _render_tier2(project, info, blocks, published_rows):
     disc_cards = _render_discipline_cards(project)
     sched_card = _render_schedule_card(project, info or {})
     team_card = _render_team_card(project)
+    rel_card = _render_releases_card(project, _release_stats_safe(project))
     developed_by = 'SmartSoC CAD · Varun Reddy Merugu'
     # Light project header strip so the operator sees the project context
     # (name + tech + tapeout) without needing the KPI tiles from Tier 3.
@@ -3771,6 +4149,7 @@ def _render_tier2(project, info, blocks, published_rows):
         '</header>',
         '<section class="sg-tile-grid">',
         disc_cards,
+        rel_card,
         sched_card,
         team_card,
         '</section>',
