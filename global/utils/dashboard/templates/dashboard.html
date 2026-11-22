@@ -2519,6 +2519,7 @@ function openMMMCModal(stage) {
     Object.keys(sets).forEach(function(sn) {
       html += '<button onclick="mmmcApplySet(\'' + sn + '\')" style="padding:2px 8px;font-size:10px;border:1px solid var(--border);border-radius:3px;background:var(--surface);cursor:pointer">' + sn + '</button>';
     });
+    html += '<button onclick="mmmcSelectAll()" style="padding:2px 8px;font-size:10px;border:1px solid var(--accent,#2563eb);border-radius:3px;background:var(--surface);color:var(--accent,#2563eb);cursor:pointer;font-weight:600">All (' + allScenarios.length + ')</button>';
     html += '<button onclick="mmmcClearAll()" style="padding:2px 8px;font-size:10px;border:1px solid var(--red);border-radius:3px;background:#fff;color:var(--red);cursor:pointer">Clear All</button>';
     html += '</div>';
 
@@ -2576,7 +2577,8 @@ function openMMMCModal(stage) {
     html += '</tbody></table></div>';
 
     // Action buttons
-    html += '<div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">';
+    // Sticky: stays visible at the bottom of the scrolling dialog
+    html += '<div style="position:sticky;bottom:0;z-index:2;background:var(--surface,#fff);padding:10px 16px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;box-shadow:0 -2px 6px rgba(0,0,0,.06)">';
     if (isDynamic) {
       html += '<span style="font-size:10px;color:var(--text-dim)">Selected scenarios will run as parallel subnodes</span>';
       html += '<button onclick="saveAndRetraceDynamic(\'' + stage + '\')" class="fm-btn fm-btn-primary" style="padding:5px 16px;font-size:12px">Save Scenarios</button>';
@@ -2630,6 +2632,17 @@ function mmmcApplySet(setName) {
   showToast('Applied set: ' + setName + ' (' + setData.scenarios.length + ' scenarios)', 'success');
 }
 
+function mmmcSelectAll() {
+  // Every visible scenario (honours the corner / mode / type filters)
+  var n = 0;
+  document.querySelectorAll('.mmmc-row').forEach(function(row) {
+    if (row.style.display === 'none') return;
+    row.querySelectorAll('.mmmc-setup-cb, .mmmc-hold-cb, .mmmc-dynamic-cb').forEach(function(cb) { cb.checked = true; });
+    n++;
+  });
+  showToast('Selected ' + n + ' scenarios', 'success');
+}
+
 function mmmcClearAll() {
   document.querySelectorAll('.mmmc-setup-cb, .mmmc-hold-cb, .mmmc-dynamic-cb').forEach(function(cb) { cb.checked = false; });
   showToast('All scenarios cleared', 'success');
@@ -2642,18 +2655,15 @@ function saveAndRetraceDynamic(stage) {
 
   // Split into setup / hold by mmmc_scenario_sets(setup|hold) membership
   // (scenario.type from /api/mmmc-scenarios) — never by corner name.
-  var setup = []; var hold = []; var untyped = [];
+  // A scenario in neither set is timed for both checks (each scenario
+  // subnode reports setup and hold; the engine de-duplicates the lists).
+  var setup = []; var hold = [];
   var types = window._mmmcScenarioType || {};
   selected.forEach(function(s) {
     var t = types[s] || '';
-    if (t === 'setup' || t === 'setup_hold') setup.push(s);
-    if (t === 'hold' || t === 'setup_hold') hold.push(s);
-    if (!t) untyped.push(s);
+    if (t === 'setup' || t === 'setup_hold' || !t) setup.push(s);
+    if (t === 'hold' || t === 'setup_hold' || !t) hold.push(s);
   });
-  if (untyped.length) {
-    showToast('Not in mmmc_scenario_sets(setup) or (hold): ' + untyped.join(', '), 'error');
-    return;
-  }
 
   fetch('/api/action/save-mmmc', {
     method: 'POST',
