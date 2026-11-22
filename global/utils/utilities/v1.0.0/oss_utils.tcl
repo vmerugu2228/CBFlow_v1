@@ -599,7 +599,8 @@ proc oss_fp_floorplan {} {
 # rtl_macro_placer; DL2 children snapped to the rail pitch. Report:
 # oss_fp_macro_report.
 proc oss_fp_place_macros {blocks} {
-    if {[llength $blocks] == 0} return
+    # every hard macro: child blocks and memory macros
+    if {[llength $blocks] == 0 && [llength [oss_memory_insts $blocks]] == 0} return
     set _halo [oss_get [oss_flow_arr] oss,macro,halo]
     set _pl   [oss_fp_opt oss,macro,placement]
     if {$_pl eq "row"} {
@@ -689,18 +690,21 @@ proc oss_fp_macro_blockages {} {
 # place_macros.rpt: every child hard-block instance with its origin,
 # orientation and bounding box (nothing to report without child blocks).
 proc oss_fp_macro_report {blocks} {
-    if {[llength $blocks] == 0} return
+    set _rows {}
+    foreach _b $blocks { foreach _inst [oss_block_insts $_b] { lappend _rows $_inst $_b } }
+    foreach _inst [oss_memory_insts $blocks] {
+        lappend _rows $_inst [[[[ord::get_db_block] findInst $_inst] getMaster] getName]
+    }
+    if {[llength $_rows] == 0} return
     set _dbu [[ord::get_db_tech] getDbUnitsPerMicron]
     set _fh [open "$::REPORTS_DIR/place_macros.rpt" w]
-    foreach _b $blocks {
-        foreach _inst [oss_block_insts $_b] {
-            set _i [[ord::get_db_block] findInst $_inst]
-            set _bb [$_i getBBox]
-            puts $_fh [format "%-20s %-14s origin (%.3f, %.3f) %s  bbox (%.3f %.3f %.3f %.3f)" $_inst $_b \
-                [expr {[lindex [$_i getLocation] 0] / double($_dbu)}] [expr {[lindex [$_i getLocation] 1] / double($_dbu)}] \
-                [$_i getOrient] [expr {[$_bb xMin] / double($_dbu)}] [expr {[$_bb yMin] / double($_dbu)}] \
-                [expr {[$_bb xMax] / double($_dbu)}] [expr {[$_bb yMax] / double($_dbu)}]]
-        }
+    foreach {_inst _b} $_rows {
+        set _i [[ord::get_db_block] findInst $_inst]
+        set _bb [$_i getBBox]
+        puts $_fh [format "%-20s %-14s origin (%.3f, %.3f) %s  bbox (%.3f %.3f %.3f %.3f)" $_inst $_b \
+            [expr {[lindex [$_i getLocation] 0] / double($_dbu)}] [expr {[lindex [$_i getLocation] 1] / double($_dbu)}] \
+            [$_i getOrient] [expr {[$_bb xMin] / double($_dbu)}] [expr {[$_bb yMin] / double($_dbu)}] \
+            [expr {[$_bb xMax] / double($_dbu)}] [expr {[$_bb yMax] / double($_dbu)}]]
     }
     close $_fh
 }
