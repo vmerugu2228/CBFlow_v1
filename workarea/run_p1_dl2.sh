@@ -54,20 +54,26 @@ publish() {   # one publish at a time (lock shared with the P0 build)
 
 block() {
     local b=$1
-    mk_uc "$b" uc_SYNTH_yosys.tcl "uc_SYNTH_yosys_${PHASE}.tcl" \
-        "s/^set project(release,tag) .*/set project(release,tag)       \"$SYN_TAG\"/"
-    run_flow "$b" SYNTH "uc_SYNTH_yosys_${PHASE}.tcl" || return 1
-    mk_uc "$b" uc_FP_openroad.tcl "uc_FP_openroad_${PHASE}.tcl" '/^set project(release,tag)/d' \
-        "s/^set fp(input,release_tag) .*/set fp(input,release_tag)      \"$SYN_TAG\"/"
-    run_flow "$b" FP "uc_FP_openroad_${PHASE}.tcl" || return 1
-    publish "$b" "${PHASE}_run_FP_${b}_${RUN}"
-    [ "$UNTIL" = FP ] && return 0                 # UNTIL=FP: stop after the floorplan
-    "$WA/run_signoff.sh" "$b" FP_EXIT &          # PV on the floorplan release
+    # FROM=FP / FROM=PNR: reuse the existing releases of the earlier flows
+    if [ -z "$FROM" ]; then
+        mk_uc "$b" uc_SYNTH_yosys.tcl "uc_SYNTH_yosys_${PHASE}.tcl" \
+            "s/^set project(release,tag) .*/set project(release,tag)       \"$SYN_TAG\"/"
+        run_flow "$b" SYNTH "uc_SYNTH_yosys_${PHASE}.tcl" || return 1
+    fi
+    if [ "$FROM" != PNR ]; then
+        mk_uc "$b" uc_FP_openroad.tcl "uc_FP_openroad_${PHASE}.tcl" '/^set project(release,tag)/d' \
+            "s/^set fp(input,release_tag) .*/set fp(input,release_tag)      \"$SYN_TAG\"/"
+        run_flow "$b" FP "uc_FP_openroad_${PHASE}.tcl" || return 1
+        publish "$b" "${PHASE}_run_FP_${b}_${RUN}"
+        [ "$UNTIL" = FP ] && return 0             # UNTIL=FP: stop after the floorplan
+        "$WA/run_signoff.sh" "$b" FP_EXIT &      # PV on the floorplan release
+    fi
     mk_uc "$b" uc_PNR_openroad.tcl "uc_PNR_openroad_${PHASE}.tcl" '/^set project(release,tag)/d' \
         "s/^set pnr(input,release_tag) .*/set pnr(input,release_tag)     \"$SYN_TAG\"/" \
         's|^set pnr(input,def_file_release_tag) .*|set pnr(input,def_file_release_tag) "FP_EXIT"|'
     run_flow "$b" PNR "uc_PNR_openroad_${PHASE}.tcl" || return 1
     publish "$b" "${PHASE}_run_PNR_${b}_${RUN}"
+    [ "$UNTIL" = PNR ] && return 0                # UNTIL=PNR: no signoff
     "$WA/run_signoff.sh" "$b" PRO_EXIT
 }
 
