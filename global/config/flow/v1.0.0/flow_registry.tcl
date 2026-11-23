@@ -203,6 +203,11 @@ set flow(dashboard,timing_name_tokens)      {WNS TNS HOLD SETUP SLACK FMAX FREQ}
 # Floorplan snapshot: LEF paths are swept from the resolved config.tcl of the
 # run's node of this node type (node_configs node_types,<node>).
 set flow(dashboard,lef_node_type)           "init_design"
+# SmartGrid floorplan payload: byte budget for the interactive cell layer
+# (JSON). Std cells are sampled down to fit; hard macros are always kept and
+# the density overview counts every cell. Bounds the publish message and the
+# page download for designs with long hierarchical instance names.
+set flow(dashboard,floorplan_cells_max_bytes) 12000000
 
 # ── Flow Mode ───────────────────────────────────────────────────────────────
 if {![info exists flow(mode)]}                  { set flow(mode)                  "default" }

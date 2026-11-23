@@ -410,6 +410,27 @@ def _find_resolved_config(run_dir):
     return ''
 
 
+def _fit_cells_budget(d, macro_h_um, max_bytes):
+    """Sample the std-cell layer of a parse_def() result down until its JSON
+    fits max_bytes. Hard macros (LEF height >= 1.5 rows) are always kept; the
+    density grid is untouched (it already counts every cell)."""
+    import json
+    cells = d.get('cells') or []
+    size = len(json.dumps(cells))
+    if size <= max_bytes:
+        return
+    rowYs = sorted(r['y'] for r in d.get('rows', []))
+    step_y = min((b - a for a, b in zip(rowYs, rowYs[1:]) if b > a), default=2000)
+    cutoff = step_y * 1.5 / (d.get('units') or 1000)
+    macros = [c for c in cells if (macro_h_um.get(c['macro']) or 0) >= cutoff]
+    std = [c for c in cells if (macro_h_um.get(c['macro']) or 0) < cutoff]
+    keep = max(1, int(len(std) * max_bytes / size))
+    stride = max(1, -(-len(std) // keep))
+    d['cells'] = std[::stride] + macros
+    d['downsampled'] = True
+    d['preserved_macros'] = len(macros)
+
+
 def extract_from_release(release_dir, run_dir, block):
     """Build the floorplan payload for the publish snapshot.
 
@@ -449,6 +470,7 @@ def extract_from_release(release_dir, run_dir, block):
     payload['def_path'] = def_path
     if def_path:
         payload['def'] = parse_def(def_path, macro_heights_um=macro_h_um)
+        _fit_cells_budget(payload['def'], macro_h_um, dash_config.floorplan_cells_max_bytes())
 
     # 3. Trim the macros dict to only those referenced by DEF cells so the
     #    JSON stays small.

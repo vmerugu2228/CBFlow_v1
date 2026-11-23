@@ -214,6 +214,10 @@ def lef_node_type():
     return registry.require_flow_value('dashboard,lef_node_type')
 
 
+def floorplan_cells_max_bytes():
+    return int(registry.require_flow_value('dashboard,floorplan_cells_max_bytes'))
+
+
 # ─── Release config ─────────────────────────────────────────────────────────
 
 def release_name(key):
