@@ -1230,6 +1230,25 @@ _STYLE = """
   .rc.ok   { background:#ecfdf5; color:#047857; }
   .rc.warn { background:#fff7ed; color:#b45309; }
   .rc.none { color:#cbd5e1; font-weight:400; }
+  /* Release page — exit cells: implementation chip + signoff chips */
+  .rx { display:flex; flex-wrap:wrap; gap:3px; justify-content:center; align-items:center; }
+  .rx-chip { display:inline-block; padding:2px 6px; border-radius:9px; font-size:10px;
+             font-weight:800; line-height:1.3; white-space:nowrap; }
+  .rx-impl { background:#ecfdf5; color:#047857; border:1px solid #a7f3d0; }
+  .rx-inc  { background:#fff7ed; color:#b45309; border:1px solid #fed7aa; }
+  .rx-pass { background:#dbeafe; color:#1d4ed8; }
+  .rx-fail { background:#fee2e2; color:#b91c1c; }
+  .rx-done { background:#f1f5f9; color:#334155; }
+  .rx-miss { background:#fff; color:#94a3b8; border:1px dashed #cbd5e1; font-weight:600; }
+  .rx-var  { background:#f5f3ff; color:#6d28d9; }
+  .rx-viol { background:#b91c1c; color:#fff; }
+  .rx-none { color:#cbd5e1; }
+  td.rx-cell { min-width:110px; }
+  td.rx-cell.st-full    { background:#f0fdf4; }
+  td.rx-cell.st-impl    { background:#fffbeb; }
+  td.rx-cell.st-signoff { background:#fef2f2; }
+  .rx-legend { display:flex; flex-wrap:wrap; gap:10px; align-items:center;
+               font-size:11px; color: var(--muted); margin:2px 0 10px; }
   .sched-note { padding:10px 12px; font-size:11px; color: var(--muted);
                 background:#fffbeb; border-left:3px solid #d97706;
                 border-radius:3px; }
@@ -3936,8 +3955,8 @@ def _release_stats_safe(project):
 
 
 def _render_releases_card(project, stats):
-    """Release tile for Tier 2 — current phase: blocks with released data
-    and completeness of (block x enabled flow) across the hierarchy."""
+    """Release tile for Tier 2 — current phase: blocks with an exit released
+    and exit completeness across the hierarchy."""
     href = f'/project/{html.escape(project, quote=True)}/releases'
     phases = (stats or {}).get('phases') or []
     cur = stats.get('current_phase') if stats else ''
@@ -3946,9 +3965,9 @@ def _render_releases_card(project, stats):
         metric, lbl, sub, pct = '—', 'no release area', '', 0
     else:
         metric = f"{ph['released_blocks']}/{ph['total_blocks']}"
-        lbl = f"blocks released · {ph['phase']}"
+        lbl = f"blocks with an exit · {ph['phase']}"
         pct = ph['pct']
-        sub = f"Complete <b>{pct}%</b> · {ph['tags']} tags"
+        sub = f"Exits released <b>{pct}%</b> · {ph['tags']} releases"
     return (
         f'<a class="sg-tile sg-tile-rel" href="{href}">'
         f'  <div class="sg-tile-head">'
@@ -3965,55 +3984,173 @@ def _render_releases_card(project, stats):
         f'</a>')
 
 
-def _render_releases_detail(project, stats):
-    """Per-phase release status, styled like the schedule page: phase
-    overview, then per phase a level rollup and the block x flow matrix in
-    hierarchy order."""
-    def pbar(pct, color):
-        return (f'<div class="pbar pbar-w"><span style="width:{pct}%;'
-                f'background:{color}"></span></div>')
+def _rel_pbar(pct, color):
+    return (f'<div class="pbar pbar-w"><span style="width:{pct}%;'
+            f'background:{color}"></span></div>')
 
+
+def _rel_tip(r):
+    """Tooltip of one release: flow / tag · time · verdict · path."""
+    bits = [f"{r['flow']} / {r['tag']}", r['timestamp'] or 'no timestamp']
+    if r['verdict']:
+        bits.append(f"verdict {r['verdict']}")
+    if not r['complete']:
+        bits.append('no RELEASE_COMPLETE')
+    bits.append(r['path'])
+    return html.escape(' · '.join(bits), quote=True)
+
+
+def _rel_signoff_chip(r):
+    v = r['verdict']
+    cls = 'rx-pass' if v == 'PASS' else ('rx-fail' if v in ('FAIL', 'BLOCKED') else 'rx-done')
+    if not r['complete']:
+        cls = 'rx-inc'
+    label = r['flow'] + (f' {v}' if v and v != 'PASS' else (' ✓' if v == 'PASS' else ''))
+    return f'<span class="rx-chip {cls}" title="{_rel_tip(r)}">{html.escape(label)}</span>'
+
+
+def _rel_exit_cell(cell):
+    """One block × exit cell: implementation chip, signoff chips (verdict
+    colour), missing expected signoff (dashed), variants (e.g. _HIER), an
+    out-of-order badge."""
+    parts = []
+    impl = cell['impl']
+    if impl:
+        cls = 'rx-impl' if impl['complete'] else 'rx-inc'
+        parts.append(f'<span class="rx-chip {cls}" title="{_rel_tip(impl)}">'
+                     f'{html.escape(impl["flow"])}{"" if impl["complete"] else " ⚠"}</span>')
+    for f in sorted(cell['signoff']):
+        parts.append(_rel_signoff_chip(cell['signoff'][f]))
+    for f in cell['missing']:
+        parts.append(f'<span class="rx-chip rx-miss" title="expected signoff not released">{html.escape(f)}</span>')
+    for r in cell['variants']:
+        parts.append(f'<span class="rx-chip rx-var" title="{_rel_tip(r)}">'
+                     f'{html.escape(r["flow"] + " " + r["variant"])}</span>')
+    if not cell['order_ok']:
+        parts.append('<span class="rx-chip rx-viol" title="released before an earlier exit of the phase">order</span>')
+    if not parts:
+        return '<td class="rx-cell"><span class="rx-none">—</span></td>'
+    return f'<td class="rx-cell st-{cell["state"]}"><div class="rx">{"".join(parts)}</div></td>'
+
+
+def _rel_legend():
+    return ('<div class="rx-legend">'
+            '<span class="rx-chip rx-impl">PNR</span> implementation release'
+            '<span class="rx-chip rx-pass">STA ✓</span> signoff PASS'
+            '<span class="rx-chip rx-fail">PV FAIL</span> signoff FAIL'
+            '<span class="rx-chip rx-miss">LEC</span> expected signoff missing'
+            '<span class="rx-chip rx-var">PV HIER</span> variant release'
+            '<span class="rx-chip rx-inc">⚠</span> no RELEASE_COMPLETE'
+            '<span class="rx-chip rx-viol">order</span> released out of exit order'
+            '</div>')
+
+
+def _rel_exit_rollup(ph, color):
+    """Per exit: blocks released / with every expected signoff / out of order."""
+    n = ph['total_blocks']
+    rows = ''.join(
+        f'<tr><td class="tt-ms" title="{html.escape(be["description"], quote=True)}">{html.escape(be["exit"])}</td>'
+        f'<td class="muted">{html.escape(", ".join(be["signoff_expected"]) or "—")}</td>'
+        f'<td class="num">{be["released"]}/{n}</td>'
+        f'<td>{_rel_pbar(_pct_of(be["released"], n), color)}</td>'
+        f'<td class="num">{be["full"]}/{n}</td>'
+        f'<td class="num">{be["out_of_order"] or "—"}</td></tr>'
+        for be in ph['by_exit'])
+    return ('<div><div class="tt-cap">By exit</div>'
+            '<div class="tt-box"><table class="tt tt-narrow"><thead><tr>'
+            '<th>Exit</th><th>Signoff expected</th><th>Released</th><th>Progress</th>'
+            '<th>With signoff</th><th>Out of order</th></tr></thead><tbody>'
+            + rows + '</tbody></table></div></div>')
+
+
+def _rel_level_rollup(ph, color):
+    rows = ''.join(
+        f'<tr><td><span class="lvl-pill">{html.escape(lv["level"])}</span></td>'
+        f'<td class="num">{lv["blocks"]}</td><td class="num">{lv["released"]}</td>'
+        f'<td class="num"><b>{lv["pct"]}%</b></td><td>{_rel_pbar(lv["pct"], color)}</td></tr>'
+        for lv in ph['by_level'])
+    return ('<div><div class="tt-cap">By hierarchy level</div>'
+            '<div class="tt-box"><table class="tt tt-narrow"><thead><tr>'
+            '<th>Level</th><th>Blocks</th><th>With an exit</th><th>Exits released</th>'
+            '<th>Progress</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>')
+
+
+def _rel_matrix(ph, stats):
+    """Block × exit matrix in hierarchy order: highest exit, next exit due,
+    other (non-exit) releases."""
+    hier = stats['hierarchy']
+    ths = ''.join(f'<th class="c">{html.escape(e)}</th>' for e in ph['exits'])
+    trs = []
+    for blk, d in stats['tree_order']:
+        b = ph['blocks'][blk]
+        cells = ''.join(_rel_exit_cell(b['exits'][e]) for e in ph['exits'])
+        others = ', '.join(f"{r['flow']}/{r['tag']}" for r in b['others']) or '—'
+        trs.append(
+            f'<tr class="{"tt-anchor" if d == 0 else ""}">'
+            f'<td class="tt-ms" style="padding-left:{14 + 14 * d}px">'
+            f'{"└ " if d else ""}{html.escape(blk)}</td>'
+            f'<td><span class="lvl-pill">{html.escape(hier[blk]["level"])}</span></td>'
+            f'<td class="tt-ms">{html.escape(b["highest"] or "—")}</td>'
+            f'<td class="muted">{html.escape(b["next"] or "done")}</td>'
+            + cells
+            + f'<td class="muted" style="font-size:11px">{html.escape(others)}</td></tr>')
+    return ('<div class="tt-cap">Block × exit <span class="muted">— implementation release '
+            'and the signoff releases of each exit</span></div>' + _rel_legend()
+            + '<div class="tt-box"><table class="tt"><thead><tr>'
+            f'<th class="blk-h">Block</th><th>Level</th><th>Highest</th><th>Next</th>{ths}'
+            '<th>Other releases</th></tr></thead><tbody>' + ''.join(trs) + '</tbody></table></div>')
+
+
+def _pct_of(done, total):
+    return int(round(100.0 * done / total)) if total else 0
+
+
+def _rel_overview(stats):
+    """Phase × exit overview: blocks released per exit, phase completeness."""
+    all_exits = []
+    for ph in stats['phases']:
+        all_exits += [e for e in ph['exits'] if e not in all_exits]
+    rows = []
+    for i, ph in enumerate(stats['phases']):
+        color, tint = _PHASE_COLORS[i % len(_PHASE_COLORS)]
+        is_cur = ph['phase'] == stats['current_phase']
+        st, lbl = (('next', 'Current') if is_cur else
+                   (('past', 'Released') if ph['tags'] else ('future', 'Not started')))
+        be = {x['exit']: x for x in ph['by_exit']}
+        cells = ''.join(
+            (f'<td class="num">{be[e]["released"]}/{ph["total_blocks"]}</td>' if e in be
+             else '<td class="muted">·</td>') for e in all_exits)
+        rows.append(
+            f'<tr style="--ph:{color};--ph-bg:{tint}">'
+            f'<td><span class="ph-chip">{html.escape(ph["phase"])}</span></td>'
+            f'<td><span class="tt-status st-{st}">{lbl}</span></td>'
+            f'{cells}<td class="num"><b>{ph["pct"]}%</b></td>'
+            f'<td>{_rel_pbar(ph["pct"], color)}</td><td class="num">{ph["tags"]}</td></tr>')
+    ths = ''.join(f'<th>{html.escape(e)}</th>' for e in all_exits)
+    return ('<div class="tt-cap tt-cap-lg">Phase overview <span class="muted">— blocks '
+            'that released each exit</span></div>'
+            '<div class="tt-box"><table class="tt"><thead><tr>'
+            f'<th>Phase</th><th>Status</th>{ths}<th>Exits released</th><th>Progress</th>'
+            '<th>Releases</th></tr></thead><tbody>' + ''.join(rows) + '</tbody></table></div>')
+
+
+def _render_releases_detail(project, stats):
+    """Exit-centric release status: phase overview, then per phase the
+    by-exit and by-level rollups and the block × exit matrix."""
     body = []
     if not stats:
         body.append('<div class="sched-note">No release area: set '
                     '<code>project(release,path)</code> and '
                     '<code>project(design_hierarchy)</code> in the project config.</div>')
     else:
-        flows = stats['expected_flows']
-        hier = stats['hierarchy']
-        depth = {b: d for b, d in stats['tree_order']}
-        levels = [lv['level'] for lv in (stats['phases'][0]['by_level']
-                                         if stats['phases'] else [])]
-        # ── Phase overview
-        ov = []
-        for i, ph in enumerate(stats['phases']):
-            color, tint = _PHASE_COLORS[i % len(_PHASE_COLORS)]
-            is_cur = ph['phase'] == stats['current_phase']
-            st, lbl = (('next', 'Current') if is_cur else
-                       (('past', 'Released') if ph['tags'] else ('future', 'Not started')))
-            lv_cells = ''.join(f'<td class="num">{lv["pct"]}%</td>' for lv in ph['by_level'])
-            ov.append(
-                f'<tr style="--ph:{color};--ph-bg:{tint}">'
-                f'<td><span class="ph-chip">{html.escape(ph["phase"])}</span></td>'
-                f'<td><span class="tt-status st-{st}">{lbl}</span></td>'
-                f'<td class="num">{ph["released_blocks"]}/{ph["total_blocks"]}</td>'
-                f'<td class="num"><b>{ph["pct"]}%</b></td>'
-                f'<td>{pbar(ph["pct"], color)}</td>'
-                f'{lv_cells}<td class="num">{ph["tags"]}</td></tr>')
-        lv_ths = ''.join(f'<th>{html.escape(lv)}</th>' for lv in levels)
-        body.append(
-            '<div class="tt-cap tt-cap-lg">Phase overview</div>'
-            '<div class="tt-box"><table class="tt"><thead><tr>'
-            '<th>Phase</th><th>Status</th><th>Blocks released</th>'
-            f'<th>Completeness</th><th>Progress</th>{lv_ths}<th>Tags</th>'
-            '</tr></thead><tbody>' + ''.join(ov) + '</tbody></table></div>')
-        # ── Per phase cards
+        body.append(_rel_overview(stats))
         for i, ph in enumerate(stats['phases']):
             color, tint = _PHASE_COLORS[i % len(_PHASE_COLORS)]
             is_cur = ph['phase'] == stats['current_phase']
             head = (f'<div class="ph-head"><span class="ph-chip">{html.escape(ph["phase"])}</span>'
-                    f'<span class="ph-dates">{ph["released_blocks"]}/{ph["total_blocks"]} blocks · '
-                    f'{ph["pct"]}% complete · {ph["tags"]} tags</span>'
+                    f'<span class="ph-dates">exits {html.escape(" → ".join(ph["exits"]))} · '
+                    f'{ph["released_blocks"]}/{ph["total_blocks"]} blocks · '
+                    f'{ph["pct"]}% exits released · {ph["tags"]} releases</span>'
                     + ('<span class="ph-now">current</span>' if is_cur else '') + '</div>')
             if not ph['tags']:
                 body.append(
@@ -4021,69 +4158,14 @@ def _render_releases_detail(project, stats):
                     '<div class="ph-body"><div class="rel-empty">No releases in this '
                     'phase yet.</div></div></div>')
                 continue
-            lv_rows = ''.join(
-                f'<tr><td><span class="lvl-pill">{html.escape(lv["level"])}</span></td>'
-                f'<td class="num">{lv["blocks"]}</td><td class="num">{lv["released"]}</td>'
-                f'<td class="num"><b>{lv["pct"]}%</b></td><td>{pbar(lv["pct"], color)}</td></tr>'
-                for lv in ph['by_level'])
-            fc_rows = ''.join(
-                f'<tr><td class="tt-ms">{html.escape(fc["flow"])}</td>'
-                f'<td class="num">{fc["released"]}/{ph["total_blocks"]}</td>'
-                f'<td>{pbar(round(100.0 * fc["released"] / ph["total_blocks"]) if ph["total_blocks"] else 0, color)}</td></tr>'
-                for fc in ph['flow_coverage'])
-            rollup = (
-                '<div class="rel-split">'
-                '<div><div class="tt-cap">By hierarchy level</div>'
-                '<div class="tt-box"><table class="tt tt-narrow"><thead><tr>'
-                '<th>Level</th><th>Blocks</th><th>Released</th><th>Complete</th>'
-                '<th>Progress</th></tr></thead><tbody>' + lv_rows + '</tbody></table></div></div>'
-                '<div><div class="tt-cap">By flow</div>'
-                '<div class="tt-box"><table class="tt tt-narrow"><thead><tr>'
-                '<th>Flow</th><th>Blocks</th><th>Progress</th></tr></thead><tbody>'
-                + fc_rows + '</tbody></table></div></div></div>')
-            ths = ''.join(f'<th class="c">{html.escape(f)}</th>' for f in flows)
-            trs = []
-            for blk, _ in stats['tree_order']:
-                b = ph['blocks'][blk]
-                cells = []
-                for f in flows:
-                    r = b['flows'].get(f)
-                    if not r:
-                        cells.append('<td class="c"><span class="rc none">—</span></td>')
-                        continue
-                    ver = r['tag'].rsplit('_', 1)[-1]
-                    tip = html.escape(f"{r['tag']} · {r['timestamp']} · {r['versions']} version(s)"
-                                      + ('' if r['complete'] else ' · no RELEASE_COMPLETE'),
-                                      quote=True)
-                    cls, mark = ('ok', '') if r['complete'] else ('warn', ' ⚠')
-                    cells.append(f'<td class="c"><span class="rc {cls}" title="{tip}">'
-                                 f'{html.escape(ver)}{mark}</span></td>')
-                extra = ', '.join(f"{x} {b['flows'][x]['tag'].rsplit('_', 1)[-1]}"
-                                  for x in b['extra']) or '—'
-                d = depth.get(blk, 0)
-                trs.append(
-                    f'<tr class="{"tt-anchor" if d == 0 else ""}">'
-                    f'<td class="tt-ms" style="padding-left:{14 + 14 * d}px">'
-                    f'{"└ " if d else ""}{html.escape(blk)}</td>'
-                    f'<td><span class="lvl-pill">{html.escape(hier[blk]["level"])}</span></td>'
-                    + ''.join(cells)
-                    + f'<td class="muted">{html.escape(extra)}</td>'
-                    f'<td class="num"><b>{b["pct"]}%</b></td>'
-                    f'<td>{pbar(b["subtree_pct"], color)}</td>'
-                    f'<td class="num">{b["subtree_pct"]}%</td></tr>')
-            matrix = (
-                '<div class="tt-cap">Block × flow <span class="muted">— latest release per '
-                'flow; ⚠ = release without RELEASE_COMPLETE</span></div>'
-                '<div class="tt-box"><table class="tt"><thead><tr>'
-                f'<th class="blk-h">Block</th><th>Level</th>{ths}<th>Other</th><th>Block</th>'
-                '<th>Subtree progress</th><th>Subtree</th></tr></thead><tbody>'
-                + ''.join(trs) + '</tbody></table></div>')
+            rollup = ('<div class="rel-split">' + _rel_exit_rollup(ph, color)
+                      + _rel_level_rollup(ph, color) + '</div>')
             body.append(
                 f'<div class="ph-card{" ph-cur" if is_cur else ""}" '
                 f'style="--ph:{color};--ph-bg:{tint}">{head}'
-                f'<div class="ph-body">{rollup}{matrix}</div></div>')
+                f'<div class="ph-body">{rollup}{_rel_matrix(ph, stats)}</div></div>')
     rel_path = (stats or {}).get('release_path') or ''
-    flows_s = ', '.join((stats or {}).get('expected_flows') or []) or '—'
+    sign = ', '.join((stats or {}).get('signoff_flows') or []) or '—'
     return ''.join([
         '<!DOCTYPE html><html><head>',
         '<meta charset="utf-8">',
@@ -4094,10 +4176,11 @@ def _render_releases_detail(project, stats):
         _render_detail_chrome(project, 'Releases'),
         '<section class="detail-top">',
         f'  <h1 class="detail-h1">Releases · {html.escape(project)}</h1>',
-        f'  <div class="detail-sub">Expected per block each phase: <b>{html.escape(flows_s)}</b> · '
-        f'release area <code>{html.escape(rel_path)}</code></div>',
-        '  <div class="detail-sub" style="margin-top:4px">Completeness = released '
-        '(block, flow) pairs ÷ expected; Subtree = the block and all its children.</div>',
+        '  <div class="detail-sub">Per phase: each block\'s release of every exit '
+        '(<code>project(phase_exits)</code>) — the implementation release and the signoff '
+        f'releases of it (signoff flows: <b>{html.escape(sign)}</b>; expected per exit from '
+        '<code>release_tags(&lt;exit&gt;)</code>). Exits release in phase order.</div>',
+        f'  <div class="detail-sub" style="margin-top:4px">Release area <code>{html.escape(rel_path)}</code></div>',
         '</section>',
         '<div class="sched-wrap rel-page">',
         *body,

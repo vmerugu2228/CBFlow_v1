@@ -1,22 +1,30 @@
-"""Release-area statistics for the SmartGrid project page.
+"""Release status for the SmartGrid project page — exit-centric.
 
-Reads the project's release area on disk — the same layout
-`release_utils.tcl` writes:
+Reads the project's release area on disk — the layout `release_utils.tcl`
+writes:
 
     <project(release,path)>/<phase>/<block>/<FLOW>/<tag>/<release(marker,manifest)>
                                                      /<release(marker,complete)>
 
-and rolls it up per phase against the project's design hierarchy and its
-enabled flows (every discipline):
+and rolls it up per phase against the project's design hierarchy and the
+phase's exits (project(phase_exits)):
 
-  * blocks released   — hierarchy blocks with >=1 complete release
-  * completeness      — released (block, flow) pairs / expected pairs,
-                        expected = every hierarchy block x every enabled flow
-  * per level         — the same, split by DL1 / DL2 / DL3
-  * per subtree       — a block plus all its descendants (bottom-up readiness)
+  * scan       — every release dir of a block: flow, tag, exit (the tag when it
+                 is one of the phase's exits; <EXIT>_<VARIANT> e.g. PRO_EXIT_HIER
+                 for a variant of it; anything else is an "other" release —
+                 SYNTH tags, scratch), complete marker, timestamp, verdict
+                 (metrics.rpt "Status :").
+  * classify   — per block and exit: the implementation release (any of the
+                 exit's implementation flows — release_tags(<exit>)
+                 required_flows minus the signoff flows), the signoff releases
+                 (STA / PV / LEC … — flow(release,signoff_flows)), which
+                 expected signoff flows are missing, and whether the exit was
+                 released in phase order.
+  * roll up    — per phase: per exit how many blocks released it / have all
+                 its signoff; per level; the highest exit each block reached.
 
-Only blocks declared in `project(design_hierarchy)` count; stray
-directories in the release area (test blocks, other projects) are ignored.
+Only blocks declared in `project(design_hierarchy)` count; stray directories
+in the release area are ignored.
 """
 
 import json
@@ -24,113 +32,139 @@ import os
 import re
 
 import dash_config
+from core import release_exits
 
-_TAG_RE = re.compile(r'^(?P<phase>[A-Za-z0-9]+)_(?P<flow>[A-Z][A-Z0-9_]*?)_v(?P<ver>\d+)$')
-
-
-def _parse_hierarchy(project):
-    """project(design_hierarchy) → {block: {level, parent, children,
-    description}} in declaration order."""
-    return dash_config.hierarchy(project)
+_STATUS_RE = re.compile(r'^Status\s*:\s*(\S+)', re.M)
 
 
-def _read_manifest(tag_dir, tag):
-    """flow + timestamp from MANIFEST.json; tolerate a malformed file by
-    regex-scanning it, then by parsing the tag name."""
-    flow = ts = ''
+# ── Scan ─────────────────────────────────────────────────────────────────────
+
+def _manifest_ts(tag_dir):
+    """Timestamp from MANIFEST.json, else the directory mtime."""
     path = os.path.join(tag_dir, dash_config.release_name('marker,manifest'))
-    text = ''
     try:
         with open(path, encoding='utf-8', errors='replace') as f:
-            text = f.read()
-        m = json.loads(text)
-        flow, ts = m.get('flow') or '', m.get('timestamp') or ''
+            ts = json.load(f).get('timestamp') or ''
+        if ts:
+            return ts
     except (OSError, ValueError):
-        mf = re.search(r'"flow"\s*:\s*"([^"]*)"', text)
-        mt = re.search(r'"timestamp"\s*:\s*"([^"]*)"', text)
-        flow = mf.group(1) if mf else ''
-        ts = mt.group(1) if mt else ''
-    if not flow:
-        mt = _TAG_RE.match(tag)
-        flow = mt.group('flow') if mt else ''
-    if not ts:
-        try:
-            from datetime import datetime
-            ts = datetime.fromtimestamp(os.path.getmtime(tag_dir)).isoformat(
-                timespec='seconds')
-        except OSError:
-            ts = ''
-    return flow.upper(), ts
+        pass
+    try:
+        from datetime import datetime
+        return datetime.fromtimestamp(os.path.getmtime(tag_dir)).isoformat(timespec='seconds')
+    except OSError:
+        return ''
 
 
-def _tag_dirs(bdir):
-    """(tag_dir, tag, flow_hint) under a block: <block>/<FLOW>/<tag> (current
-    layout — the FLOW dir names the flow) and legacy <block>/<tag> dirs."""
-    manifest = dash_config.release_name('marker,manifest')
-    for name in sorted(os.listdir(bdir)):
-        d = os.path.join(bdir, name)
-        if not os.path.isdir(d) or os.path.islink(d):
-            continue                                # links: old paths of moved releases
-        if os.path.isfile(os.path.join(d, manifest)) or _TAG_RE.match(name):
-            yield d, name, ''                       # legacy <block>/<tag>
-            continue
-        for tag in sorted(os.listdir(d)):
-            td = os.path.join(d, tag)
-            if os.path.isdir(td):
-                yield td, tag, name
+def _verdict(tag_dir):
+    """Signoff verdict a release recorded (metrics.rpt 'Status : X'), or ''."""
+    try:
+        with open(os.path.join(tag_dir, 'metrics.rpt'), errors='replace') as f:
+            m = _STATUS_RE.search(f.read())
+        return m.group(1).upper() if m else ''
+    except OSError:
+        return ''
 
 
-def _scan_block(phase_dir, block):
-    """{flow: {tag, timestamp, complete, versions}} — latest complete
-    release per flow (falls back to latest incomplete)."""
+def classify_tag(tag, phase_exits):
+    """(exit, variant) of a release tag: (tag, '') for a phase exit,
+    (EXIT, VARIANT) for <EXIT>_<VARIANT>, ('', '') for any other tag."""
+    if tag in phase_exits:
+        return tag, ''
+    for e in sorted(phase_exits, key=len, reverse=True):
+        if tag.startswith(e + '_') and len(tag) > len(e) + 1:
+            return e, tag[len(e) + 1:]
+    return '', ''
+
+
+def scan_block(phase_dir, block, phase_exits):
+    """Every release of a block in a phase: [{flow, tag, exit, variant,
+    complete, timestamp, verdict, path}] (layout <block>/<FLOW>/<tag>)."""
     bdir = os.path.join(phase_dir, block)
-    flows = {}
+    out = []
     if not os.path.isdir(bdir):
-        return flows
+        return out
     complete_marker = dash_config.release_name('marker,complete')
-    for tdir, tag, flow_hint in _tag_dirs(bdir):
-        # A tag dir without the manifest is an unfinished release: shown,
-        # never counted complete (the complete marker is written after it).
-        flow, ts = _read_manifest(tdir, tag)
-        flow = flow_hint or flow
-        if not flow:
-            continue
-        complete = os.path.isfile(os.path.join(tdir, complete_marker))
-        cur = flows.get(flow)
-        versions = (cur['versions'] if cur else 0) + 1
-        better = (cur is None or (complete, ts) > (cur['complete'], cur['timestamp']))
-        if better:
-            flows[flow] = {'tag': tag, 'timestamp': ts, 'complete': complete}
-        flows[flow]['versions'] = versions
-    return flows
+    for flow in sorted(os.listdir(bdir)):
+        fdir = os.path.join(bdir, flow)
+        if not os.path.isdir(fdir) or os.path.islink(fdir):
+            continue                        # links: old paths of moved releases
+        for tag in sorted(os.listdir(fdir)):
+            td = os.path.join(fdir, tag)
+            if not os.path.isdir(td) or os.path.islink(td):
+                continue
+            ex, var = classify_tag(tag, phase_exits)
+            out.append({'flow': flow.upper(), 'tag': tag, 'exit': ex, 'variant': var,
+                        'complete': os.path.isfile(os.path.join(td, complete_marker)),
+                        'timestamp': _manifest_ts(td), 'verdict': _verdict(td),
+                        'path': td})
+    return out
 
+
+# ── Classify ─────────────────────────────────────────────────────────────────
+
+def exit_requirements(exits, signoff_flows, enabled_flows):
+    """{exit: {'impl': [flows], 'signoff': [flows], 'description'}} — the
+    exit's implementation flows (any one releases it) and the signoff flows
+    expected on it, from release_tags(<exit>) required_flows; signoff limited
+    to the project's enabled flows."""
+    tags = release_exits.release_tags()
+    enabled = set(enabled_flows)
+    out = {}
+    for e in exits:
+        req = tags.get(e, {}).get('required_flows', [])
+        out[e] = {'impl': [f for f in req if f not in signoff_flows],
+                  'signoff': [f for f in req if f in signoff_flows and f in enabled],
+                  'description': tags.get(e, {}).get('description', '')}
+    return out
+
+
+def block_exits(records, exits, reqs, signoff_flows):
+    """Per exit of a block: {impl, signoff, missing, extra, variants, state,
+    order_ok}; plus the block's highest released exit and its other releases.
+
+    state: full    — implementation released and every expected signoff
+           impl    — implementation released, expected signoff missing
+           signoff — signoff releases without an implementation release
+           none    — nothing released for this exit
+    order_ok: False when the implementation release exists while an earlier
+    exit of the phase has none (released out of order)."""
+    cells = {}
+    for e in exits:
+        rs = [r for r in records if r['exit'] == e and not r['variant']]
+        impl = [r for r in rs if r['flow'] not in signoff_flows]
+        impl_rel = max(impl, key=lambda r: (r['complete'], r['timestamp'])) if impl else None
+        sign = {r['flow']: r for r in rs if r['flow'] in signoff_flows}
+        missing = [f for f in reqs[e]['signoff'] if f not in sign]
+        extra = [f for f in sign if f not in reqs[e]['signoff']]
+        variants = [r for r in records if r['exit'] == e and r['variant']]
+        if impl_rel and impl_rel['complete']:
+            state = 'impl' if missing else 'full'
+        elif sign:
+            state = 'signoff'
+        else:
+            state = 'none'
+        cells[e] = {'impl': impl_rel, 'signoff': sign, 'missing': missing,
+                    'extra': extra, 'variants': variants, 'state': state, 'order_ok': True}
+    released = [e for e in exits if cells[e]['impl'] and cells[e]['impl']['complete']]
+    for i, e in enumerate(exits):
+        if e in released and any(x not in released for x in exits[:i]):
+            cells[e]['order_ok'] = False
+    highest = released[-1] if released else ''
+    nxt = next((e for e in exits if e not in released), '')
+    others = [r for r in records if not r['exit']]
+    return {'exits': cells, 'highest': highest, 'next': nxt,
+            'released': released, 'others': others}
+
+
+# ── Roll up ──────────────────────────────────────────────────────────────────
 
 def _pct(done, total):
     return int(round(100.0 * done / total)) if total else 0
 
 
-def release_stats(project, expected_flows):
-    """Per-phase release rollup. Returns {} when the project declares no
-    release path or hierarchy (the pages say which keys to set). The current
-    phase is project(current_phase) — required."""
-    rel_path = dash_config.project_value(project, 'release,path') or ''
-    hier = _parse_hierarchy(project)
-    if not rel_path or not hier:
-        return {}
-    phases = dash_config.registry.tcl_list(dash_config.project_value(project, 'phases') or '')
-    current = dash_config.require_project_value(project, 'current_phase')
-    expected = [f.upper() for f in expected_flows]
-    levels = sorted({s['level'] for s in hier.values() if s['level']})
-
-    def descendants(b):
-        out = []
-        for c in hier.get(b, {}).get('children', []):
-            if c in hier:
-                out.append(c)
-                out.extend(descendants(c))
-        return out
-
-    # Tree order: roots first, children depth-first
+def _tree_order(hier):
+    """[(block, depth)] — roots first, children depth-first."""
     order, seen = [], set()
 
     def walk(b, depth):
@@ -146,44 +180,64 @@ def release_stats(project, expected_flows):
             walk(b, 0)
     for b in hier:
         walk(b, 0)
+    return order
+
+
+def release_stats(project, expected_flows):
+    """Per-phase exit-centric release rollup. Returns {} when the project
+    declares no release path or hierarchy (the page says which keys to set).
+    The current phase is project(current_phase) — required."""
+    rel_path = dash_config.project_value(project, 'release,path') or ''
+    hier = dash_config.hierarchy(project)
+    if not rel_path or not hier:
+        return {}
+    phases = dash_config.registry.tcl_list(dash_config.project_value(project, 'phases') or '')
+    current = dash_config.require_project_value(project, 'current_phase')
+    signoff_flows = dash_config.release_signoff_flows()
+    enabled = [f.upper() for f in (expected_flows or dash_config.expected_flows(project))]
+    levels = sorted({s['level'] for s in hier.values() if s['level']})
+    order = _tree_order(hier)
 
     out_phases = []
     for ph in phases:
+        try:
+            exits = release_exits.exits_for_phase(project, ph)
+        except release_exits.PhaseExitsError:
+            exits = []
+        reqs = exit_requirements(exits, signoff_flows, enabled)
         phase_dir = os.path.join(rel_path, ph)
         blocks = {}
+        n_tags = 0
         for b in hier:
-            rel = _scan_block(phase_dir, b)
-            done = [f for f in expected if f in rel and rel[f]['complete']]
-            blocks[b] = {'flows': rel, 'done': done,
-                         'extra': sorted(f for f in rel if f not in expected),
-                         'pct': _pct(len(done), len(expected))}
-        for b in hier:
-            sub = [b] + descendants(b)
-            d = sum(len(blocks[x]['done']) for x in sub)
-            blocks[b]['subtree_pct'] = _pct(d, len(sub) * len(expected))
+            recs = scan_block(phase_dir, b, exits)
+            n_tags += len(recs)
+            blocks[b] = block_exits(recs, exits, reqs, signoff_flows)
+            blocks[b]['pct'] = _pct(len(blocks[b]['released']), len(exits))
+        by_exit = [{'exit': e, 'description': reqs[e]['description'],
+                    'signoff_expected': reqs[e]['signoff'],
+                    'released': sum(1 for b in hier if e in blocks[b]['released']),
+                    'full': sum(1 for b in hier if blocks[b]['exits'][e]['state'] == 'full'),
+                    'out_of_order': sum(1 for b in hier if not blocks[b]['exits'][e]['order_ok'])}
+                   for e in exits]
         by_level = []
         for lv in levels:
             lb = [b for b in hier if hier[b]['level'] == lv]
-            d = sum(len(blocks[b]['done']) for b in lb)
+            d = sum(len(blocks[b]['released']) for b in lb)
             by_level.append({'level': lv, 'blocks': len(lb),
-                             'released': sum(1 for b in lb if blocks[b]['done']),
-                             'pct': _pct(d, len(lb) * len(expected))})
-        flow_cov = [{'flow': f,
-                     'released': sum(1 for b in hier if f in blocks[b]['done'])}
-                    for f in expected]
-        done_pairs = sum(len(v['done']) for v in blocks.values())
-        n_tags = sum(v.get('versions', 0) for bl in blocks.values()
-                     for v in bl['flows'].values())
+                             'released': sum(1 for b in lb if blocks[b]['released']),
+                             'pct': _pct(d, len(lb) * len(exits))})
+        done = sum(len(v['released']) for v in blocks.values())
         out_phases.append({
             'phase': ph,
+            'exits': exits,
             'blocks': blocks,
-            'released_blocks': sum(1 for v in blocks.values() if v['done']),
-            'total_blocks': len(hier),
-            'pct': _pct(done_pairs, len(hier) * len(expected)),
+            'by_exit': by_exit,
             'by_level': by_level,
-            'flow_coverage': flow_cov,
+            'released_blocks': sum(1 for v in blocks.values() if v['released']),
+            'total_blocks': len(hier),
+            'pct': _pct(done, len(hier) * len(exits)),
             'tags': n_tags,
         })
     return {'release_path': rel_path, 'current_phase': current,
-            'expected_flows': expected, 'hierarchy': hier,
-            'tree_order': order, 'phases': out_phases}
+            'signoff_flows': signoff_flows, 'enabled_flows': enabled,
+            'hierarchy': hier, 'tree_order': order, 'phases': out_phases}

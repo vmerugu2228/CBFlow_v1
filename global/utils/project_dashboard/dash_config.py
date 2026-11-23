@@ -214,6 +214,10 @@ def lef_node_type():
     return registry.require_flow_value('dashboard,lef_node_type')
 
 
+def release_signoff_flows():
+    return [f.upper() for f in registry.tcl_list(registry.require_flow_value('release,signoff_flows'))]
+
+
 def floorplan_cells_max_bytes():
     return int(registry.require_flow_value('dashboard,floorplan_cells_max_bytes'))
 

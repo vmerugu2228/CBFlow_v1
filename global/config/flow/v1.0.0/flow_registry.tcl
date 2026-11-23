@@ -208,6 +208,11 @@ set flow(dashboard,lef_node_type)           "init_design"
 # the density overview counts every cell. Bounds the publish message and the
 # page download for designs with long hierarchical instance names.
 set flow(dashboard,floorplan_cells_max_bytes) 12000000
+# Signoff flows: they release the exit they verify (beside the
+# implementation flow's release of it). The release page counts them per exit
+# against release_tags(<exit>) required_flows; the rest of an exit's
+# required_flows are its implementation alternatives (any one releases it).
+set flow(release,signoff_flows) {STA PV LEC CLP EMIR ECO POPT}
 
 # ── Flow Mode ───────────────────────────────────────────────────────────────
 if {![info exists flow(mode)]}                  { set flow(mode)                  "default" }
