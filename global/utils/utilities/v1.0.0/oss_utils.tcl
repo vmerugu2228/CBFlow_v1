@@ -808,6 +808,7 @@ proc oss_node_deps {node} { return [cbflow_node_deps $node] }
 proc oss_node_type {node} { return [cbflow_node_type $node] }
 proc oss_upstream_node {} { return [cbflow_upstream_node] }
 proc oss_chain_node {type} { return [cbflow_chain_node $type] }
+proc oss_source_node {types} { return [cbflow_source_node $types] }
 
 # Stage artefacts use design-independent names so node configs can declare
 # mandatory_outputs as data: every stage writes outputs/<stage>.<ext>, the
@@ -817,6 +818,24 @@ proc oss_node_output {node file} {
     set _f "$::DIRS(run)/work/$::FLOW_TYPE/$node/outputs/$file"
     if {![file exists $_f]} { error "upstream artefact not found: $_f (did $node complete?)" }
     return $_f
+}
+
+# Physical deliverables of a loaded design, as OpenROAD command lines (so
+# signoff evals them in its own session and export_data runs them in an
+# OpenROAD it starts on another stage's database): DEF, logical netlist,
+# power-aware LVS netlist (no physical-only cells — fillers / well taps hold
+# no devices), abstract LEF, CDL (standard-cell + memory + child-block
+# masters), database. outdir/final.<ext>.
+proc oss_deliverable_cmds {outdir blocks} {
+    set _cdl [list [oss_trk cdl_stdcell] {*}[oss_memory_files cdl]]
+    foreach _b $blocks { lappend _cdl [oss_get tech block,$_b,cdl] }
+    return [list \
+        [list write_def $outdir/final.def] \
+        [list write_verilog $outdir/final.v] \
+        [list write_verilog -include_pwr_gnd -remove_cells [concat [oss_trk fillers] [oss_trk well_tap]] $outdir/final.lvs.v] \
+        [list write_abstract_lef -bloat_occupied_layers $outdir/final.lef] \
+        [list write_cdl -masters $_cdl $outdir/final.cdl] \
+        [list write_db $outdir/final.odb]]
 }
 
 # Database written by an upstream node: <node>/outputs/<stage type>.odb.
@@ -1451,6 +1470,7 @@ proc oss_exec_tool {tool script log {extra {}}} {
         magic   { set _cmd [list magic -dnull -noconsole -rcfile [oss_get tech magic,rcfile] $script] }
         netgen  { set _cmd [list netgen -batch source $script] }
         klayout { set _cmd [list klayout -b -r $script {*}$extra] }   ;# batch ruby/DRC script
+        openroad { set _cmd [list openroad -exit -no_init $script] }
         default { error "oss_exec_tool: unknown tool $tool" }
     }
     if {[catch {exec {*}$_cmd >& $log} _err]} {

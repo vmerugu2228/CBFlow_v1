@@ -62,8 +62,12 @@ proc default_exit_tag {flow_type phase} {
     if {![dict exists $project(phase_exits) $phase]} {
         error "ERROR: project(phase_exits) has no entry for phase $phase"
     }
-    set _have [dict get $project(phase_exits) $phase]
-    if {[lsearch -exact $_have $_target] >= 0} { return $_target }
+    return [phase_exit_at_or_before $_target $phase]
+}
+
+# PD release_config.tcl (MILESTONE_ORDER / MILESTONE_STAGE_MAPPING) on demand
+proc load_release_config {} {
+    global MILESTONE_ORDER
     if {![info exists MILESTONE_ORDER]} {
         set _rc "$::env(FLOW_DIR)/PD/config/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
         if {[file exists $_rc]} { uplevel #0 [list source $_rc] }
@@ -71,17 +75,54 @@ proc default_exit_tag {flow_type phase} {
     if {![info exists MILESTONE_ORDER]} {
         error "ERROR: MILESTONE_ORDER is not set (PD release_config.tcl)"
     }
-    set _idx [lsearch -exact $MILESTONE_ORDER $_target]
+}
+
+# <target> when the phase has it (project(phase_exits)), else the latest
+# earlier exit of MILESTONE_ORDER the phase has.
+proc phase_exit_at_or_before {target phase} {
+    global project MILESTONE_ORDER
+    if {![info exists project(phase_exits)]} {
+        error "ERROR: project(phase_exits) is not set in the project config"
+    }
+    if {![dict exists $project(phase_exits) $phase]} {
+        error "ERROR: project(phase_exits) has no entry for phase $phase"
+    }
+    set _have [dict get $project(phase_exits) $phase]
+    if {[lsearch -exact $_have $target] >= 0} { return $target }
+    load_release_config
+    set _idx [lsearch -exact $MILESTONE_ORDER $target]
+    if {$_idx < 0} { error "ERROR: $target is not in MILESTONE_ORDER ($MILESTONE_ORDER)" }
     for {set i [expr {$_idx - 1}]} {$i >= 0} {incr i -1} {
         set _e [lindex $MILESTONE_ORDER $i]
         if {[lsearch -exact $_have $_e] >= 0} { return $_e }
     }
-    error "ERROR: phase $phase has no exit at or before $_target (project(phase_exits): $_have)"
+    error "ERROR: phase $phase has no exit at or before $target (project(phase_exits): $_have)"
+}
+
+# Exit released from a source stage: the milestone MILESTONE_STAGE_MAPPING
+# maps to <stage> (place -> PLACE_EXIT, cts_opt -> CTS_EXIT, pro -> PRO_EXIT,
+# signoff -> BTO / MTO: the flow's <flow>(smartgrid,milestone) when it is one
+# of them), then the phase's exit at or before it. A stage no exit maps to
+# (cts, route) cannot be released.
+proc release_exit_for_stage {flow_type stage phase} {
+    global MILESTONE_ORDER MILESTONE_STAGE_MAPPING
+    load_release_config
+    set _cands {}
+    foreach _m $MILESTONE_ORDER {
+        if {[info exists MILESTONE_STAGE_MAPPING($_m)] && $MILESTONE_STAGE_MAPPING($_m) eq $stage} { lappend _cands $_m }
+    }
+    if {![llength $_cands]} {
+        error "ERROR: no exit maps to stage '$stage' (MILESTONE_STAGE_MAPPING) — release from a stage that has one (place, cts_opt, pro, signoff)"
+    }
+    upvar #0 [string tolower $flow_type] _fa
+    set _target [lindex $_cands 0]
+    if {[info exists _fa(smartgrid,milestone)] && $_fa(smartgrid,milestone) in $_cands} { set _target $_fa(smartgrid,milestone) }
+    return [phase_exit_at_or_before $_target $phase]
 }
 
 proc exit_name {} { variable release_exit; return $release_exit }
 
-proc init {args_flow_type args_design_name args_run_dir args_phase} {
+proc init {args_flow_type args_design_name args_run_dir args_phase {args_exit ""}} {
     variable release_dir; variable release_tag; variable release_phase; variable flow_type; variable design_name; variable run_dir
 
     set flow_type $args_flow_type
@@ -97,15 +138,16 @@ proc init {args_flow_type args_design_name args_run_dir args_phase} {
     set _test_mode [expr {[info exists flow(test_mode)] && [is_true $flow(test_mode)]}]
 
     # ── Release tag: project(release,tag) when set, else the exit name ───────
-    # (default_exit_tag); test_mode uses a placeholder.
-    variable release_exit; set release_exit ""
+    # (args_exit: the exit the caller releases — e.g. its source stage's —
+    # else default_exit_tag); test_mode uses a placeholder.
+    variable release_exit; set release_exit $args_exit
     if {[info exists project(release,tag)] && $project(release,tag) ne ""} {
         set release_tag $project(release,tag)
     } elseif {$_test_mode} {
         set release_tag "test_release_tag"
         ::handle_info "test_mode: using placeholder release_tag=$release_tag"
     } else {
-        set release_exit [default_exit_tag $flow_type [::cbflow_run_phase]]
+        if {$release_exit eq ""} { set release_exit [default_exit_tag $flow_type [::cbflow_run_phase]] }
         set release_tag $release_exit
         ::handle_info "release tag = exit name: $release_tag (project(release,tag) not set)"
     }

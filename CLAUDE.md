@@ -229,7 +229,23 @@ cbflow run create-branch --branch timing_fix --from cts1
 cbflow run release --tag PLACE_EXIT
 cbflow run release-check --tag BTO --project bumblebee
 cbflow run gui                    # Web dashboard
+cbflow run set-dep --node export_data1 --deps place1   # rewire a node (--reset restores)
 ```
+
+### Releasing an intermediate stage (e.g. place → PLACE_EXIT)
+The export/release pair releases its **source stage**: the nearest non-bypassed
+implementation node upstream of the export node (`oss_source_node`). The
+milestone follows it (place → PLACE_EXIT, cts_opt → CTS_EXIT, pro → PRO_EXIT,
+signoff → BTO; else the phase's latest earlier exit). Any of:
+1. Bypass the later stages: `cbflow run bypass --stages cts1,cts_opt1,route1,pro1,signoff1`
+   then `cbflow run stage --name release_data1`.
+2. Rewire export onto the stage: `cbflow run set-dep --node export_data1 --deps place1`
+   (or right-click → Set Dependencies… in the run GUI), then run release_data1.
+3. Add a pair under it: `add-node --node export_data2 --type export_data --dep place1`,
+   `add-node --node release_data2 --type release_data --dep export_data2`,
+   then run release_data2 (publish with `cbflow run release --from-run <run> --node release_data2 --publish`).
+
+Releases before pro carry no SPEF; before signoff no timing models.
 
 ### Checklist
 ```bash

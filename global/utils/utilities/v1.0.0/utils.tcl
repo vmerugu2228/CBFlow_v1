@@ -1261,6 +1261,28 @@ proc cbflow_chain_node {type} {
     error "no '$type' node upstream of $::NODE_NAME"
 }
 
+# True when <node> was bypassed (the engine's work/<FLOW>/<node>/BYPASSED
+# marker; removed again on retrace / force).
+proc cbflow_node_bypassed {node} {
+    return [file exists "[cbflow_node_dir $node]/BYPASSED"]
+}
+
+# Source stage of an export / release node: the nearest node on the current
+# node's first-dependency chain (self excluded) whose stage type is in
+# <types> and that was not bypassed. Bypassed nodes are walked past, so
+# bypassing cts..signoff, rewiring export onto place, or adding an export
+# node under place all make place the source.
+proc cbflow_source_node {types} {
+    set _n [lindex [cbflow_node_deps $::NODE_NAME] 0]
+    set _seen {}
+    while {$_n ne "" && $_n ni $_seen} {
+        lappend _seen $_n
+        if {![cbflow_node_bypassed $_n] && [cbflow_node_type $_n] in $types} { return $_n }
+        set _n [lindex [cbflow_node_deps $_n] 0]
+    }
+    error "no source node of type {$types} (not bypassed) upstream of $::NODE_NAME — walked: $_seen"
+}
+
 # Upstream node (any depth, any branch of the DAG) of stage type <type>.
 proc cbflow_dep_node {type} {
     set _todo [cbflow_node_deps $::NODE_NAME]

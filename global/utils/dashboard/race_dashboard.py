@@ -1586,6 +1586,8 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                 result = self._action_force_stop(body)
             elif path == '/api/action/add-node':
                 result = self._action_add_node(body)
+            elif path == '/api/action/set-dep':
+                result = self._action_set_dep(body)
             elif path == '/api/action/delete-node':
                 result = self._action_delete_node(body)
             elif path == '/api/action/save-node-config':
@@ -2073,6 +2075,27 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
 
         self._seed_new_nodes_only()
         return {'ok': True, 'message': f'Added node: {name} (dep={dep})'}
+
+    def _action_set_dep(self, body):
+        """Rewire a node's dependencies (cbflow run set-dep): {node, deps: [..]}
+        or {node, reset: true}."""
+        self._check_run_ownership()
+        node = body.get('node', '')
+        deps = body.get('deps', [])
+        if isinstance(deps, str):
+            deps = deps.replace(',', ' ').split()
+        if not node:
+            return {'error': 'node required'}
+        try:
+            from node_manager import NodeManager
+            mgr = NodeManager(self.dashboard.run_dir, self.dashboard.flow_type)
+            if not mgr.set_deps(node, deps, reset=bool(body.get('reset'))):
+                return {'error': f'Set dependencies failed for {node} (unknown node, cycle, or no override to reset)'}
+        except Exception as e:
+            return {'error': f'Set dependencies failed: {e}'}
+        self._seed_new_nodes_only()
+        return {'ok': True, 'message': (f'{node}: dependencies reset' if body.get('reset')
+                                        else f'{node}: dependencies -> {" ".join(deps)}')}
 
     def _action_delete_node(self, body):
         """Delete custom node."""

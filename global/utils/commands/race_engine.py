@@ -1402,6 +1402,8 @@ class RaceEngine:
 
         # Store resolved config for runtime lookups (e.g., _get_timeout)
         self._resolved_config = getattr(builder, '_resolved_cfg', {})
+        # custom node -> base type (add-node): per-node keys inherit from the base
+        self._custom_node_types = getattr(builder, '_custom_node_types', {})
 
         # Decision-stage metadata (empty dicts for flows without any decision
         # stages). The runtime hook `_resolve_decision` reads these to pick
@@ -1746,6 +1748,28 @@ class RaceEngine:
             except OSError as e:
                 logger.warning(f"Could not remove block-state {p}: {e}")
 
+    # ── Bypass markers ──────────────────────────────────────────────────────
+    # work/<FLOW>/<stage>/BYPASSED: lets stage scripts see a bypassed node
+    # (cbflow_node_bypassed / cbflow_source_node walk past it — its outputs/
+    # may be stale from an earlier pass). Written when every job of the stage
+    # is bypassed; removed when the stage is invalidated (retrace / force).
+
+    def _bypass_marker(self, stage: str) -> str:
+        return os.path.join(self.run_dir, 'work', self.flow_type, stage, 'BYPASSED')
+
+    def _set_bypass_marker(self, stage: str):
+        p = self._bypass_marker(stage)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, 'w') as fh:
+            fh.write(f"{stage} bypassed {datetime.now().isoformat()}\n")
+
+    def _drop_bypass_markers(self, stages):
+        for stage in stages:
+            try:
+                os.remove(self._bypass_marker(stage))
+            except FileNotFoundError:
+                pass
+
     # ── Invalidation helper ─────────────────────────────────────────────────
 
     def _invalidate_jobs(self, job_names: list):
@@ -1763,6 +1787,7 @@ class RaceEngine:
             self.db.invalidate(job_names)
         if invalidated_stages:
             self._drop_block_state(invalidated_stages)
+            self._drop_bypass_markers(invalidated_stages)
 
     def bypass(self, stages: list) -> int:
         """Mark stages as skipped (bypass). Works on any current status.
@@ -1774,7 +1799,9 @@ class RaceEngine:
             for name, job in self.jobs.items():
                 if job.stage == stage and job.status != Job.BYPASSED:
                     self.db.record_direct(job, Job.BYPASSED)
+                    job.status = Job.BYPASSED
                     count += 1
+            self._set_bypass_marker(stage)
             logger.info(f"Bypassed: {stage}")
         if stages:
             self._drop_block_state(stages)
@@ -1824,8 +1851,13 @@ class RaceEngine:
             job = self.jobs.get(jname)
             if job and job.status != Job.BYPASSED:
                 self.db.record_direct(job, Job.BYPASSED)
+                job.status = Job.BYPASSED
                 count += 1
                 logger.info(f"Bypassed: {jname}")
+        # stage marker once every job of the stage is bypassed
+        for stage in {self.jobs[j].stage for j in job_names if j in self.jobs}:
+            if all(j.status == Job.BYPASSED for j in self.jobs.values() if j.stage == stage):
+                self._set_bypass_marker(stage)
         logger.info(f"Total bypassed: {count} jobs")
         return 0
 
@@ -2175,6 +2207,9 @@ class RaceEngine:
                 for root, dirs, files in os.walk(work_dir):
                     dirs[:] = [d for d in dirs if d != 'reports']
                     for f in files:
+                        # the bypass marker is engine bookkeeping, not a change
+                        if f == 'BYPASSED' and root == work_dir:
+                            continue
                         fp = os.path.join(root, f)
                         try:
                             actual = os.path.realpath(fp)
@@ -2891,6 +2926,15 @@ class RaceEngine:
         silently apply a 4-hour blanket.
         """
         timeout_key = f'runtime,timeout,{job.stage}'
+        if _cfg.optional(self._resolved_config, timeout_key) is None:
+            # a node added with add-node inherits its base stage's timeout
+            # (export_data2 -> runtime,timeout,export_data1), like its subnodes
+            type_base = getattr(self, '_custom_node_types', {}).get(job.stage)
+            if type_base:
+                for k in sorted(self._resolved_config):
+                    if re.fullmatch(rf'runtime,timeout,{re.escape(type_base)}\d+', k):
+                        timeout_key = k
+                        break
         timeout_min = _cfg.require(self._resolved_config, timeout_key)
         try:
             return int(timeout_min) * 60

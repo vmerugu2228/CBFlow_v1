@@ -95,10 +95,14 @@ set pnr(oss,release,layout_image,file)      "routing_layout.png"
 # ┌─ Reports / release ────────────────────────────────────────────────────────┐
 # oss,qor_file_suffix: per-stage QoR metrics file reports/<stage><suffix>
 # (oss_write_qor). oss,release,report_stages: stage types whose reports/
-# land in the release under reports/<node>/.
+# land in the release under reports/<node>/ (only stages at or above the
+# release's source stage). oss,release,source_stages: stage types an
+# export / release pair releases — the nearest non-bypassed one upstream is
+# the source; its exit (MILESTONE_STAGE_MAPPING) is the release milestone.
 array set pnr {
     oss,qor_file_suffix       "_qor.tcl"
     oss,release,report_stages {init_design place cts cts_opt route pro signoff}
+    oss,release,source_stages {place cts cts_opt route pro signoff}
 }
 
 # ┌─ SmartGrid ────────────────────────────────────────────────────────────────┐
@@ -169,7 +173,8 @@ set pnr(required_inputs,cts_opt1)      "work/PNR/cts1/outputs/cts.odb"
 set pnr(required_inputs,route1)        "work/PNR/cts_opt1/outputs/cts_opt.odb"
 set pnr(required_inputs,pro1)          "work/PNR/route1/outputs/route.odb"
 set pnr(required_inputs,signoff1)      "work/PNR/pro1/outputs/pro.odb"
-set pnr(required_inputs,export_data1)  "work/PNR/signoff1/outputs/final.def"
+# export_data1: no fixed input — its source stage is resolved at run time
+# (oss_source_node; signoff unless bypassed / rewired)
 set pnr(required_inputs,release_data1) "work/PNR/export_data1/outputs/final.gds"
 
 # ┌─ Mandatory outputs (relative to work/PNR/<node>/outputs/) ────────────┐

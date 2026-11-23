@@ -24,11 +24,40 @@ set blocks      [hier_children $design_name]
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
 
-# Load: the signoff node's DEF + the views KLayout merges (tech + track
-# LEFs, standard-cell GDS, every child block's LEF / GDS)
+# Load: the source stage's deliverables into outputs/ + the views KLayout
+# merges (tech + track LEFs, standard-cell GDS, every child block's LEF /
+# GDS). Source = the nearest non-bypassed implementation node upstream
+# (oss_source_node): signoff on the normal trunk; place when cts..signoff are
+# bypassed, when this node is rewired onto place (cbflow run set-dep), or for
+# an export node added under place (add-node). Signoff's deliverables are
+# copied; an earlier stage's are written from its database (OpenROAD).
 flow_proc load_design {
     global blocks
-    set ::export_def [oss_node_output [oss_chain_node signoff] final.def]
+    set ::export_src [oss_source_node [oss_get pnr oss,release,source_stages]]
+    set _st [oss_node_type $::export_src]
+    set _out "$::WORK_DIR/outputs"
+    file mkdir $_out
+    if {$_st eq "signoff"} {
+        set _so "[cbflow_node_dir $::export_src]/outputs"
+        foreach _f {final.def final.v final.lvs.v final.lef final.cdl final.sdc final.odb} {
+            file copy -force [oss_node_output $::export_src $_f] "$_out/$_f"
+        }
+        foreach _lib [glob -nocomplain "$_so/final__*.lib"] { file copy -force $_lib $_out }
+    } else {
+        set _scr "$::WORK_DIR/run/deliverables_${::export_src}.tcl"
+        set _fh [open $_scr w]
+        puts $_fh "read_db [oss_prev_odb $::export_src]"
+        foreach _c [oss_deliverable_cmds $_out $blocks] { puts $_fh $_c }
+        puts $_fh "exit"
+        close $_fh
+        oss_exec_tool openroad $_scr "$::REPORTS_DIR/export_deliverables.log"
+        file copy -force [oss_sdc_file] "$_out/final.sdc"
+    }
+    set _fh [open "$_out/export.source" w]
+    puts $_fh "source_node $::export_src\nsource_type $_st"
+    close $_fh
+    handle_info "export source: $::export_src ($_st)"
+    set ::export_def "$_out/final.def"
     set ::export_lefs [list [oss_ms "[oss_track],lef_tech"]]
     foreach _l [oss_trk lef] { lappend ::export_lefs $_l }
     set ::export_gds [list [oss_trk gds_stdcell]]

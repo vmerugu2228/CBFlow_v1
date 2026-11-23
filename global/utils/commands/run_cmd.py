@@ -490,9 +490,11 @@ def _dashboard_autoregister(run_dir: str, flow_type: str) -> None:
         pass
 
 
-def _flow_release_manifest(run_dir: str):
+def _flow_release_manifest(run_dir: str, node: str = ''):
     """{release_dir, milestone, ...} from a run whose own release_data stage
-    released it (work/<FLOW>/release_data1/outputs/release.manifest), else {}."""
+    released it (work/<FLOW>/<node>/outputs/release.manifest — node: a given
+    release node, e.g. release_data2 added under an export of place; default
+    the flow's release_data node), else {}."""
     env_file = os.path.join(run_dir, '.run.cbflow.env')
     flow_type = ''
     if os.path.exists(env_file):
@@ -504,7 +506,7 @@ def _flow_release_manifest(run_dir: str):
     if not flow_type:
         return info
     try:
-        release_node = _flow_node_of_type(flow_type, 'release_data', run_dir)
+        release_node = node or _flow_node_of_type(flow_type, 'release_data', run_dir)
     except registry.RegistryError:
         return info            # flow has no release_data stage → no flow release
     manifest = os.path.join(_node_dir(flow_type, release_node, run_dir),
@@ -554,12 +556,12 @@ def _publish_signoff_release(run_dir: str, info: dict, strict: bool) -> int:
 
 
 def _publish_flow_release(run_dir: str, milestone: str, strict: bool, override: bool,
-                          attach_to: str = '') -> int:
+                          attach_to: str = '', node: str = '') -> int:
     """Publish the release a flow's own release_data stage wrote (no
     repackaging) into the SmartGrid cell (project, block, phase, milestone).
     Used by `cbflow run release --from-run <run> --publish` and the run GUI's
     Release form (publish checkbox)."""
-    info = _flow_release_manifest(run_dir)
+    info = _flow_release_manifest(run_dir, node)
     release_dir = info.get('release_dir', '')
     if not release_dir or not os.path.isdir(release_dir):
         logger.error(f"  {run_dir}: no flow release found (release_data stage not complete?)")
@@ -1808,6 +1810,18 @@ def cmd_add_node(args: argparse.Namespace) -> int:
     return 0 if success else 1
 
 
+def cmd_set_dep(args: argparse.Namespace) -> int:
+    """Rewire a node's dependencies (e.g. export_data1 onto place1 so its
+    release carries place data); --reset restores the node config's."""
+    if not is_run_directory():
+        logger.error("Error: Not in a valid run directory")
+        return 1
+    mgr = _get_node_manager()
+    deps = (getattr(args, 'deps', '') or '').replace(',', ' ').split()
+    ok = mgr.set_deps(args.node, deps, reset=getattr(args, 'reset', False))
+    return 0 if ok else 1
+
+
 def cmd_delete_node(args: argparse.Namespace) -> int:
     """Delete a custom node from the flow."""
     if not is_run_directory():
@@ -2102,7 +2116,8 @@ def cmd_release(args: argparse.Namespace) -> int:
     from_run = getattr(args, 'from_run', None)
     if from_run:
         run_dir = os.path.abspath(from_run)
-        info = _flow_release_manifest(run_dir)
+        rel_node = getattr(args, 'node', None) or ''
+        info = _flow_release_manifest(run_dir, rel_node)
         if not info.get('release_dir'):
             logger.error(f"--from-run {from_run}: run has no release from its release_data stage")
             return 1
@@ -2123,7 +2138,8 @@ def cmd_release(args: argparse.Namespace) -> int:
             logger.error("  --publish needs a milestone: pass --tag <MILESTONE> (e.g. BTO)")
             return 1
         return _publish_flow_release(run_dir, milestone, strict=True,
-                                     override=getattr(args, 'override', False))
+                                     override=getattr(args, 'override', False),
+                                     node=rel_node)
 
     # Must run from a workspace (not a run dir — we need to see all runs)
     workspace = os.getcwd()
@@ -3479,6 +3495,34 @@ Examples:
                                       'unvalidated string would silently fall '
                                       'through the cascade to base or default.'))
 
+    # set-dep command
+    set_dep_parser = subparsers.add_parser('set-dep', help='Rewire a node\'s dependencies',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="""Rewire a node's dependencies (base or custom node).
+
+Usage:
+  cbflow run set-dep --node <node> --deps <node>[,<node>...]
+  cbflow run set-dep --node <node> --reset
+
+Releasing an intermediate stage — three ways, any of them:
+  1. bypass the stages after it, then run export + release:
+       cbflow run bypass --stages cts1,cts_opt1,route1,pro1,signoff1
+       cbflow run stage --name release_data1
+  2. rewire export onto it:
+       cbflow run set-dep --node export_data1 --deps place1
+       cbflow run stage --name release_data1
+  3. add an export + release pair under it:
+       cbflow run add-node --node export_data2 --type export_data --dep place1
+       cbflow run add-node --node release_data2 --type release_data --dep export_data2
+       cbflow run stage --name release_data2
+  The release takes the source stage's exit (place -> PLACE_EXIT, cts_opt ->
+  CTS_EXIT, pro -> PRO_EXIT, signoff -> BTO).""")
+    set_dep_parser.add_argument('--node', '-n', required=True, help='Node to rewire')
+    set_dep_parser.add_argument('--deps', '-d', default='',
+                                help='New dependency node(s), comma- or space-separated')
+    set_dep_parser.add_argument('--reset', action='store_true',
+                                help='Drop the override: back to the node config\'s dependencies')
+
     # delete-node command
     del_node_parser = subparsers.add_parser('delete-node', help='Delete custom node',
         formatter_class=_fmt, description="""Remove a custom node from the flow.
@@ -3574,6 +3618,10 @@ Examples:
                                 help='Run directory that released itself (open-source '
                                      'flows: release_data stage) — no repackaging; with '
                                      '--publish, publish that release to the --tag milestone.')
+    release_parser.add_argument('--node', dest='node', default=None,
+                                help='With --from-run: the release node whose release to '
+                                     'publish (e.g. release_data2 added under an export of '
+                                     'place); default the flow\'s release_data node.')
     release_parser.add_argument('--no-publish', dest='publish', action='store_const',
                                 const=False,
                                 help='Skip the SmartGrid publish.')
@@ -4283,6 +4331,7 @@ def main() -> int:
         'list-nodes': cmd_list_nodes,
         'show-graph': cmd_show_graph,
         'add-node': cmd_add_node,
+        'set-dep': cmd_set_dep,
         'delete-node': cmd_delete_node,
         'create-branch': cmd_create_branch,
         'list-branches': cmd_list_branches,

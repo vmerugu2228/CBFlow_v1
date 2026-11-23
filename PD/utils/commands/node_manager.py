@@ -86,6 +86,7 @@ class NodeManager:
         # Load custom nodes from runtime config
         self.custom_nodes = {}   # {name: {type, dependencies, branch_key}}
         self.branches = {}       # {key: {name, created_date, created_by}}
+        self.dep_overrides = {}  # {base node: 'dep1 dep2'} — set_deps on a base node
         self._load_runtime_config()
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -133,6 +134,20 @@ class NodeManager:
                 'resource_tier': _parse_tcl_string(_cfg.optional(cfg, f'stages,{name},resource_tier') or ''),
             }
 
+        # Dependency overrides of base nodes (set_deps): the node list in
+        # dep_overrides, each node's deps in dependencies,<node>. Read from
+        # runtime_flow_config.tcl itself (written only by _save_runtime_config)
+        # — the resolver does not emit the dep_overrides key.
+        rt = os.path.join(self.run_dir, 'setup', 'runtime_flow_config.tcl')
+        if os.path.isfile(rt):
+            with open(rt) as fh:
+                txt = fh.read()
+            m = re.search(r'^\s*dep_overrides\s+\{([^}]*)\}', txt, re.M)
+            for name in (m.group(1).split() if m else []):
+                d = re.search(rf'^\s*dependencies,{re.escape(name)}\s+\{{([^}}]*)\}}', txt, re.M)
+                if d:
+                    self.dep_overrides[name] = ' '.join(d.group(1).split())
+
         # Extract branches: keys like "branch_keys,abc123,name"
         branch_keys = set()
         for key in cfg:
@@ -158,7 +173,7 @@ class NodeManager:
         lines.append(f'# Custom nodes and branches for {self.flow_type} flow')
         lines.append('')
 
-        if not self.custom_nodes and not self.branches:
+        if not self.custom_nodes and not self.branches and not self.dep_overrides:
             lines.append('# No custom nodes defined')
             # Atomic write — see trailing block for rationale.
             from core.paths import atomic_write
@@ -166,6 +181,16 @@ class NodeManager:
             return
 
         lines.append(f'array set {self.flow_lower} {{')
+
+        # Dependency overrides of base nodes (cbflow run set-dep): sourced
+        # after the node config, so dependencies,<node> replaces its deps
+        if self.dep_overrides:
+            for name in sorted(self.dep_overrides):
+                if not re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', name):
+                    raise ValueError(f"unsafe node name {name!r}")
+            lines.append(f'    dep_overrides {{{" ".join(sorted(self.dep_overrides))}}}')
+            for name, deps in sorted(self.dep_overrides.items()):
+                lines.append(f'    dependencies,{name} {{{deps}}}')
 
         # Write custom nodes
         for name, info in sorted(self.custom_nodes.items()):
@@ -723,6 +748,67 @@ class NodeManager:
                 deps = _parse_tcl_list(raw)
                 return ' '.join(deps) if deps else ''
         return ''
+
+    def _deps_of(self, node: str) -> list:
+        """Current dependencies of any node: set_deps override, custom node,
+        then the node config."""
+        if node in self.dep_overrides:
+            return self.dep_overrides[node].split()
+        if node in self.custom_nodes:
+            return str(self.custom_nodes[node].get('dependencies', '')).split()
+        return self._get_stage_dependencies(node).split()
+
+    def set_deps(self, node: str, deps: list, reset: bool = False) -> bool:
+        """Rewire <node> to depend on <deps> (one or more existing nodes) —
+        e.g. export_data1 onto place1 to release place data. reset: drop a
+        base node's override (back to the node config's dependencies)."""
+        all_nodes = set(self.base_stages) | set(self.custom_nodes)
+        if node not in all_nodes:
+            logger.error(f"  Unknown node '{node}' (nodes: {' '.join(sorted(all_nodes))})")
+            return False
+        if reset:
+            if node not in self.dep_overrides:
+                logger.error(f"  {node} has no dependency override to reset")
+                return False
+            del self.dep_overrides[node]
+            self._save_runtime_config()
+            self._regenerate_makefile()
+            self.node_config = _load_node_config(self.flow_type, run_dir=self.run_dir)
+            logger.info(f"  {node}: dependencies reset to the node config "
+                        f"({self._get_stage_dependencies(node) or 'none'})")
+            return True
+        deps = [d for d in deps if d]
+        if not deps:
+            logger.error("  --deps needs at least one node")
+            return False
+        bad = [d for d in deps if d not in all_nodes]
+        if bad:
+            logger.error(f"  Unknown dependency node(s): {' '.join(bad)}")
+            return False
+        if node in deps:
+            logger.error(f"  {node} cannot depend on itself")
+            return False
+        # cycle: does any new dep already reach <node> upstream?
+        seen = set()
+        todo = list(deps)
+        while todo:
+            n = todo.pop()
+            if n == node:
+                logger.error(f"  Circular dependency: {node} is upstream of {' '.join(deps)}")
+                return False
+            if n in seen:
+                continue
+            seen.add(n)
+            todo.extend(self._deps_of(n))
+        old = ' '.join(self._deps_of(node))
+        if node in self.custom_nodes:
+            self.custom_nodes[node]['dependencies'] = ' '.join(deps)
+        else:
+            self.dep_overrides[node] = ' '.join(deps)
+        self._save_runtime_config()
+        self._regenerate_makefile()
+        logger.info(f"  {node}: dependencies {old or 'none'} -> {' '.join(deps)}")
+        return True
 
     def _has_circular_dependency(self, new_node: str, dependency: str) -> bool:
         """

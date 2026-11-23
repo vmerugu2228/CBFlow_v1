@@ -88,19 +88,10 @@ proc oss_power_metrics {views} {
 # parent reads <design>__<lib_set>.lib per corner.
 flow_proc save_design {
     global design_name blocks
-    write_def                 [oss_stage_out final.def]
-    write_verilog             [oss_stage_out final.v]
-    # LVS netlist: power-aware, without physical-only cells (fillers, well
-    # taps) — they hold no devices, so extraction has nothing to match.
-    write_verilog -include_pwr_gnd -remove_cells [concat [oss_trk fillers] [oss_trk well_tap]] \
-        [oss_stage_out final.lvs.v]
-    write_abstract_lef -bloat_occupied_layers [oss_stage_out final.lef]
-    # CDL masters: standard cells + every child block's released CDL.
-    set _cdl [list [oss_trk cdl_stdcell] {*}[oss_memory_files cdl]]
-    foreach _b $blocks { lappend _cdl [oss_get tech block,$_b,cdl] }
-    write_cdl -masters $_cdl [oss_stage_out final.cdl]
     file copy -force [oss_sdc_file] [oss_stage_out final.sdc]
-    write_db [oss_stage_out final.odb]
+    # DEF, netlists, abstract LEF, CDL, database (oss_deliverable_cmds — the
+    # same set export_data writes when it releases an earlier stage)
+    foreach _c [oss_deliverable_cmds "$::WORK_DIR/outputs" $blocks] { eval $_c }
     foreach _v [oss_node_views $::NODE_NAME] {
         set _ls [oss_view_attr $_v lib_set_ref]
         write_timing_model [oss_corner_opt write_timing_model] $_v -library_name ${design_name}__${_ls} \

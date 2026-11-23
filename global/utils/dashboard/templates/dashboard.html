@@ -345,6 +345,7 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
   <hr>
   <a onclick="ctxAction('edit')">&#9998; Edit Config (LSF/Version)</a>
   <a onclick="ctxAction('duplicate')">&#10064; Duplicate Node</a>
+  <a onclick="ctxAction('set-dep')">&#8644; Set Dependencies...</a>
   <a onclick="ctxAction('subnodes')">&#9776; View Subnodes</a>
   <a onclick="ctxAction('interactive')">&#9000; Open Interactive Session</a>
 </div>
@@ -374,6 +375,21 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
         <div class="fm-group"><label>Node Type</label><select id="an-type"></select></div>
         <div class="fm-group"><label>Depends On</label><select id="an-dep"></select></div>
         <div class="fm-actions"><button type="button" class="fm-btn" onclick="closeModal('addnode-modal')">Cancel</button><button type="submit" class="fm-btn fm-btn-primary">Add</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Set Dependencies Modal (cbflow run set-dep) -->
+<div class="modal-bg" id="setdep-modal">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-hd"><h3>Set Dependencies — <span id="sd-node"></span></h3><button onclick="closeModal('setdep-modal')">&times;</button></div>
+    <div class="modal-bd">
+      <form onsubmit="submitSetDep(event)">
+        <div class="fm-group"><label>Depends On <span style="color:#999;font-weight:400">(Ctrl/Cmd-click for several)</span></label>
+          <select id="sd-deps" multiple size="10" style="width:100%"></select></div>
+        <div style="font-size:11px;color:#666;margin:-4px 0 10px">e.g. rewire export_data1 onto place1 — its release then carries place data (PLACE_EXIT).</div>
+        <div class="fm-actions"><button type="button" class="fm-btn" onclick="resetSetDep()">Reset to config</button><button type="button" class="fm-btn" onclick="closeModal('setdep-modal')">Cancel</button><button type="submit" class="fm-btn fm-btn-primary">Save</button></div>
       </form>
     </div>
   </div>
@@ -2410,7 +2426,7 @@ function apiAction(action, body) {
     }
     showToast(data.message || data.error, data.error ? 'error' : 'success');
     // Only rebuild on structural changes (add/delete node, branch)
-    var isStructural = ['add-node','delete-node','create-branch','delete-branch','rename-node'].indexOf(action) !== -1;
+    var isStructural = ['add-node','delete-node','create-branch','delete-branch','rename-node','set-dep'].indexOf(action) !== -1;
     if (isStructural) {
       nodePositions = {};
       treeBuilt = false;
@@ -2492,12 +2508,46 @@ function submitAction(e) {
   closeModal('action-modal');
   if (action === 'run-stage') apiAction('run-stage', {stage: stage});
   else if (action === 'retrace') apiAction('retrace', {from_stage: stage});
+  else if (action === 'set-dep') promptSetDep(stage);
   else if (action === 'bypass') apiAction('bypass', {stages: [stage]});
   else if (action === 'force') apiAction('force', {stages: [stage]});
   else if (action === 'forcevalidate') apiAction('forcevalidate', {stages: [stage]});
   else if (action === 'delete-node') apiAction('delete-node', {name: stage});
   else if (action === 'edit-config') openEditForm(stage);
   else if (action === 'interactive-select') apiAction('interactive', {node: stage});
+}
+
+// Set Dependencies: every other node, current deps (graph edges) selected
+function promptSetDep(node) {
+  loadConfig().then(function() {
+    var cur = {};
+    var edges = (dagData && dagData.edges) || [];
+    edges.forEach(function(e) { if (e.to === node) cur[e.from] = true; });
+    var sel = document.getElementById('sd-deps');
+    sel.innerHTML = '';
+    ((cachedConfig && cachedConfig.available_stages) || []).forEach(function(s) {
+      if (s === node) return;
+      var o = document.createElement('option');
+      o.value = s; o.textContent = s; o.selected = !!cur[s];
+      sel.appendChild(o);
+    });
+    document.getElementById('sd-node').textContent = node;
+    openModal('setdep-modal');
+  });
+}
+function submitSetDep(e) {
+  e.preventDefault();
+  var node = document.getElementById('sd-node').textContent;
+  var deps = Array.prototype.filter.call(document.getElementById('sd-deps').options,
+                                         function(o) { return o.selected; }).map(function(o) { return o.value; });
+  if (!deps.length) { alert('Select at least one dependency'); return; }
+  closeModal('setdep-modal');
+  apiAction('set-dep', {node: node, deps: deps});
+}
+function resetSetDep() {
+  var node = document.getElementById('sd-node').textContent;
+  closeModal('setdep-modal');
+  apiAction('set-dep', {node: node, reset: true});
 }
 
 function promptAddNode() {

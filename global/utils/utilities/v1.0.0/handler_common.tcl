@@ -330,7 +330,12 @@ proc handler_finish {run_dir flow_type node_name stage_name} {
 # project(release,publish_override) true replaces an existing entry.
 proc handler_publish_release {run_dir flow_type node_name} {
     upvar #0 [string tolower $flow_type] _fa
-    if {![info exists _fa(node_types,$node_name)] || $_fa(node_types,$node_name) ne "release_data"} return
+    # node type: node config, or the runtime config for an added node
+    set _rt "$run_dir/setup/runtime_flow_config.tcl"
+    if {[file exists $_rt]} { uplevel #0 [list source $_rt] }
+    set _type [expr {[info exists _fa(stages,$node_name,type)] ? $_fa(stages,$node_name,type)
+                     : ([info exists _fa(node_types,$node_name)] ? $_fa(node_types,$node_name) : "")}]
+    if {$_type ne "release_data"} return
     # The node's override (written by the release form) is merged into its
     # config.tcl at setup; finish reads it directly.
     set _ovr "$run_dir/setup/override_config.$node_name.tcl"
@@ -340,7 +345,13 @@ proc handler_publish_release {run_dir flow_type node_name} {
         puts "INFO: \[TEST MODE\] project(release,publish) set — not publishing stub outputs"
         return
     }
-    set _cmd [list "$::env(CBFLOW_ROOT)/bin/cbflow" run release --from-run $run_dir --publish]
+    # this node's release, to the milestone it released (its manifest)
+    set _cmd [list "$::env(CBFLOW_ROOT)/bin/cbflow" run release --from-run $run_dir --node $node_name --publish]
+    set _man "$run_dir/work/$flow_type/$node_name/outputs/release.manifest"
+    if {[file exists $_man]} {
+        set _fh [open $_man]; set _mt [read $_fh]; close $_fh
+        if {[regexp -line {^milestone\s+(\S+)} $_mt -> _ms]} { lappend _cmd --tag $_ms }
+    }
     if {[info exists ::project(release,publish_override)] && [is_true $::project(release,publish_override)]} {
         lappend _cmd --override
     }
