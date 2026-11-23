@@ -44,6 +44,7 @@ flow_proc report {
 
 # Save the placed database
 flow_proc save_design {
+    global_connect                    ;# supply pins of cells added in this stage (UPF rules in the db)
     write_db [oss_stage_out place.odb]
 }
 
