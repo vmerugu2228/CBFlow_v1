@@ -91,6 +91,14 @@ namespace eval ::CBFlow::InputResolve {
 
         set resolved_vars [list]
 
+        # ── Signoff flows (<flow>(release,exit_from)) read only the exit's
+        # release: the exit tag must be set; from_run, explicit input paths
+        # and per-input tags other than the exit tag are refused (inputs in
+        # <flow>(release,exit_exempt_inputs) — e.g. LEC's golden netlist from
+        # the SYNTH release — keep their own tag). Every signoff run of an exit
+        # then checks the same released database.
+        _check_exit_bound_inputs $flow_type $arr
+
         # ── Priority 1: from_run (read upstream manifest) ──
         if {[info exists ::${arr}(input,from_run)]} {
             set upstream_run [set ::${arr}(input,from_run)]
@@ -164,6 +172,45 @@ namespace eval ::CBFlow::InputResolve {
 
         # ── Priority 3: explicit paths already in user_config — no action ──
         return 0
+    }
+
+    proc _check_exit_bound_inputs {flow_type arr} {
+        if {![info exists ::${arr}(release,exit_from)] || [set ::${arr}(release,exit_from)] eq ""} return
+        set _xk [set ::${arr}(release,exit_from)]
+        if {![info exists ::${arr}($_xk)] || [set ::${arr}($_xk)] eq ""} {
+            error "ERROR: ${arr}($_xk) is not set — a [string toupper $flow_type] signoff run reads its inputs only from the release of the exit it verifies (set the exit tag, e.g. PRO_EXIT)"
+        }
+        set _xtag [set ::${arr}($_xk)]
+        set _exempt [expr {[info exists ::${arr}(release,exit_exempt_inputs)] ? [set ::${arr}(release,exit_exempt_inputs)] : {}}]
+        if {[info exists ::${arr}(input,from_run)] && [set ::${arr}(input,from_run)] ne ""} {
+            error "ERROR: ${arr}(input,from_run) is not allowed for a signoff run — inputs come only from the $_xtag release (${arr}($_xk))"
+        }
+        set _flow [string toupper $flow_type]
+        set _bad {}
+        if {![array exists ::flow_input_handshake] && [info exists ::env(CONFIG_ROOT)] && [info exists ::env(FLOW_CONFIG_VERSION)]} {
+            set _rc "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
+            if {[file exists $_rc]} { uplevel #0 [list source $_rc] }
+        }
+        if {![array exists ::flow_input_handshake]} {
+            error "ERROR: flow_input_handshake not loaded (release_config.tcl) — cannot check the signoff inputs"
+        }
+        if {1} {
+            foreach _hk [array names ::flow_input_handshake "$_flow,*"] {
+                set _in [lindex [split $_hk ,] 1]
+                if {$_in in $_exempt} continue
+                if {[info exists ::${arr}(input,$_in)] && [set ::${arr}(input,$_in)] ne ""} {
+                    lappend _bad "${arr}(input,$_in) (explicit path)"
+                }
+                set _tk "input,${_in}_release_tag"
+                if {$_tk ne $_xk && [info exists ::${arr}($_tk)] && [set ::${arr}($_tk)] ne "" && [set ::${arr}($_tk)] ne $_xtag} {
+                    lappend _bad "${arr}($_tk) = [set ::${arr}($_tk)] (another tag)"
+                }
+            }
+        }
+        if {[llength $_bad]} {
+            error "ERROR: signoff inputs must come only from the $_xtag release (${arr}($_xk)) — remove: [join $_bad {, }]"
+        }
+        puts "INFO: signoff inputs bound to release $_xtag (${arr}($_xk))"
     }
 
     proc _persist_resolved {filepath vars_list} {

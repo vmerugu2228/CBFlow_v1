@@ -122,6 +122,29 @@ proc release_exit_for_stage {flow_type stage phase} {
 
 proc exit_name {} { variable release_exit; return $release_exit }
 
+# Exit-order gate: every exit before <exit> in the phase's
+# project(phase_exits) must already be released for <block> (a
+# <base>/<phase>/<block>/<FLOW>/<earlier exit>/RELEASE_COMPLETE of any flow).
+proc check_exit_order {base phase block exit} {
+    global project
+    if {![info exists project(phase_exits)] || ![dict exists $project(phase_exits) $phase]} {
+        error "ERROR: project(phase_exits) has no entry for phase $phase — cannot check the exit order"
+    }
+    set _exits [dict get $project(phase_exits) $phase]
+    set _i [lsearch -exact $_exits $exit]
+    if {$_i < 0} return
+    set _missing {}
+    foreach _e [lrange $_exits 0 [expr {$_i - 1}]] {
+        if {![llength [glob -nocomplain -directory "$base/$phase/$block" -- "*/$_e/RELEASE_COMPLETE"]]} {
+            lappend _missing $_e
+        }
+    }
+    if {[llength $_missing]} {
+        error "ERROR: exit order — $block $phase cannot release $exit before [join $_missing {, }] (release in order: [join $_exits { -> }]; nothing under $base/$phase/$block/<FLOW>/[lindex $_missing 0])"
+    }
+    ::handle_info "exit order OK: [join [lrange $_exits 0 $_i] { -> }] for $block $phase"
+}
+
 proc init {args_flow_type args_design_name args_run_dir args_phase {args_exit ""}} {
     variable release_dir; variable release_tag; variable release_phase; variable flow_type; variable design_name; variable run_dir
 
@@ -181,6 +204,14 @@ proc init {args_flow_type args_design_name args_run_dir args_phase {args_exit ""
     # Every flow releases each exit under its own FLOW dir, so PNR/PRO_EXIT,
     # STA/PRO_EXIT, PV/PRO_EXIT … sit side by side and never overwrite.
     set release_dir "$release_base/$release_phase/$block_name/$flow_type/$release_tag"
+    # Exits release in phase order (project(phase_exits)): an implementation
+    # flow releasing exit X needs every earlier exit of the phase released for
+    # this block (any flow's <exit>/RELEASE_COMPLETE). Signoff flows release
+    # the exit they verify (<flow>(release,exit_from)) — not gated here.
+    upvar #0 [string tolower $flow_type] _fa
+    if {!$_test_mode && $release_exit ne "" && ![info exists _fa(release,exit_from)]} {
+        check_exit_order $release_base $release_phase $block_name $release_exit
+    }
     # A re-release replaces the previous one: stale files must not survive
     # (they would sit in the dir without being in the new MANIFEST).
     if {[file isdirectory $release_dir]} {

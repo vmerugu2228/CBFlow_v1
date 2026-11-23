@@ -46,4 +46,5 @@ array set lec {
 # release lands at <phase>/<block>/LEC/<exit> beside the PNR release.
 array set lec {
     release,exit_from   "input,netlist_revised_release_tag"
+    release,exit_exempt_inputs {netlist_golden}
 }
