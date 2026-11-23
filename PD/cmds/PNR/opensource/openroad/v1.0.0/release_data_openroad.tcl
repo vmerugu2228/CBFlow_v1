@@ -73,6 +73,19 @@ flow_proc publish {
     # Exit this release fills: the source stage's (place -> PLACE_EXIT, ...,
     # signoff -> BTO), else the phase's latest earlier exit
     set _ms [::CBFlow::Release::release_exit_for_stage $::FLOW_TYPE $_st [cbflow_run_phase]]
+    # A release tag naming another exit of the same source stage (BTO -> MTO:
+    # both signoff) releases that exit from this run's data; an exit of a
+    # different stage is refused.
+    if {[info exists project(release,tag)] && $project(release,tag) ne ""} {
+        set _t $project(release,tag)
+        set _px [dict get $project(phase_exits) [cbflow_run_phase]]
+        if {$_t in $_px} {
+            if {![info exists ::MILESTONE_STAGE_MAPPING($_t)] || $::MILESTONE_STAGE_MAPPING($_t) ne $_st} {
+                error "release tag $_t is the [expr {[info exists ::MILESTONE_STAGE_MAPPING($_t)] ? $::MILESTONE_STAGE_MAPPING($_t) : {?}}] stage's exit — this release's source is $_src ($_st): release $_ms, or change the source (bypass / set-dep / add-node)"
+            }
+            set _ms $_t
+        }
+    }
     set _dir [::CBFlow::Release::init $::FLOW_TYPE $design_name $::DIRS(run) [cbflow_run_phase] $_ms]
     handle_info "release source: $_src ($_st) -> exit $_ms"
     set _eo "[cbflow_node_dir $_ex]/outputs"

@@ -555,6 +555,97 @@ def _publish_signoff_release(run_dir: str, info: dict, strict: bool) -> int:
                                  attach_to=exit_tag)
 
 
+def _clone_release(run_dir: str, src_tag: str, new_tag: str, node: str = '',
+                   publish=None, override: bool = False) -> int:
+    """Copy a flow release to another exit tag — e.g. BTO to MTO when the
+    data does not change. Same block / phase / flow (the run's), the source
+    must be complete, the two exits must map to the same stage
+    (MILESTONE_STAGE_MAPPING), and every earlier exit of the phase must be
+    released (exit order). The copy records CLONED_FROM; --publish publishes
+    it to the new milestone."""
+    import json
+    import shutil
+    if not new_tag:
+        logger.error("  --clone-from needs --tag <new exit>, e.g. --clone-from BTO --tag MTO")
+        return 1
+    info = _flow_release_manifest(run_dir, node)
+    rel_dir = info.get('release_dir', '')
+    if not rel_dir:
+        logger.error(f"  {run_dir}: no flow release (release_data stage not complete?)")
+        return 1
+    flow_dir = os.path.dirname(rel_dir)                 # <base>/<phase>/<block>/<FLOW>
+    block_dir = os.path.dirname(flow_dir)
+    phase_dir = os.path.dirname(block_dir)
+    phase, block = os.path.basename(phase_dir), os.path.basename(block_dir)
+    src, dst = os.path.join(flow_dir, src_tag), os.path.join(flow_dir, new_tag)
+    stamp = os.path.join(src, 'RELEASE_COMPLETE')
+    if not os.path.isfile(stamp) or 'STATUS=PASS' not in open(stamp).read():
+        logger.error(f"  source release not complete: {src}")
+        return 1
+    env_vars = {}
+    with open(os.path.join(run_dir, '.run.cbflow.env')) as fh:
+        for line in fh:
+            line = line.strip()
+            if line.startswith('export ') and '=' in line:
+                k, v = line[7:].split('=', 1)
+                env_vars[k] = v.strip('"')
+    project = env_vars.get('CBFLOW_PROJECT_NAME', '')
+    try:
+        exits = release_exits.exits_for_phase(project, phase)
+        stage_of = release_exits.milestone_stage_mapping()
+    except release_exits.PhaseExitsError as e:
+        logger.error(f"  {e}")
+        return 1
+    if new_tag in exits:
+        if src_tag in stage_of and stage_of.get(new_tag) != stage_of.get(src_tag):
+            logger.error(f"  {new_tag} is the {stage_of.get(new_tag)} exit, {src_tag} the "
+                         f"{stage_of.get(src_tag)} exit — a clone keeps the data, so the "
+                         f"exits must map to the same stage")
+            return 1
+        missing = [e for e in exits[:exits.index(new_tag)]
+                   if not glob.glob(os.path.join(block_dir, '*', e, 'RELEASE_COMPLETE'))]
+        if missing:
+            logger.error(f"  exit order — {block} {phase} cannot release {new_tag} before "
+                         f"{', '.join(missing)} (release in order: {' -> '.join(exits)})")
+            return 1
+    if os.path.isdir(dst):
+        logger.info(f"  Replacing existing release {dst}")
+        shutil.rmtree(dst)
+    shutil.copytree(src, dst, symlinks=True)
+    mpath = os.path.join(dst, 'MANIFEST.json')
+    if os.path.isfile(mpath):
+        with open(mpath) as fh:
+            m = json.load(fh)
+        m['release_tag'] = new_tag
+        m['cloned_from'] = src_tag
+        m['timestamp'] = datetime.now().isoformat(timespec='seconds')
+        with open(mpath, 'w') as fh:
+            json.dump(m, fh, indent=2)
+    with open(os.path.join(dst, 'RELEASE_COMPLETE')) as fh:
+        st = fh.read()
+    st = _re_mod.sub(r'^TAG=.*$', f'TAG={new_tag}', st, flags=_re_mod.M)
+    with open(os.path.join(dst, 'RELEASE_COMPLETE'), 'w') as fh:
+        fh.write(st)
+    with open(os.path.join(dst, 'CLONED_FROM'), 'w') as fh:
+        fh.write(f"{src}\n")
+    logger.info(f"  Cloned {src_tag} -> {new_tag}: {dst}")
+    if not publish:
+        logger.info("  Not published to SmartGrid (publish not requested — use --publish).")
+        return 0
+    try:
+        milestone_stage_map = release_exits.milestone_stage_mapping()
+    except release_exits.PhaseExitsError as e:
+        logger.error(f"  {e}")
+        return 1
+    return _publish_to_project_dashboard(
+        project=project, block=env_vars.get('CBFLOW_DESIGN_NAME', block), phase=phase,
+        milestone=new_tag, release_dir=dst,
+        workspace=os.path.dirname(os.path.abspath(run_dir)),
+        runs={info['flow_type']: os.path.basename(os.path.abspath(run_dir))},
+        milestone_stage_map=milestone_stage_map, override=override, strict=True,
+        flow=info['flow_type'])
+
+
 def _publish_flow_release(run_dir: str, milestone: str, strict: bool, override: bool,
                           attach_to: str = '', node: str = '') -> int:
     """Publish the release a flow's own release_data stage wrote (no
@@ -2114,6 +2205,11 @@ def cmd_release(args: argparse.Namespace) -> int:
     # A run that released itself (open-source flows: release_data stage)
     # is not repackaged — the release is on disk; only publish on request.
     from_run = getattr(args, 'from_run', None)
+    if from_run and getattr(args, 'clone_from', None):
+        return _clone_release(os.path.abspath(from_run), args.clone_from, tag_override,
+                              node=getattr(args, 'node', None) or '',
+                              publish=getattr(args, 'publish', None),
+                              override=getattr(args, 'override', False))
     if from_run:
         run_dir = os.path.abspath(from_run)
         rel_node = getattr(args, 'node', None) or ''
@@ -3618,6 +3714,11 @@ Examples:
                                 help='Run directory that released itself (open-source '
                                      'flows: release_data stage) — no repackaging; with '
                                      '--publish, publish that release to the --tag milestone.')
+    release_parser.add_argument('--clone-from', dest='clone_from', default=None,
+                                help='With --from-run and --tag: copy the run flow\'s release '
+                                     'of this exit to the --tag exit (e.g. --clone-from BTO '
+                                     '--tag MTO when nothing changed); same stage, exit order '
+                                     'enforced; --publish publishes the copy.')
     release_parser.add_argument('--node', dest='node', default=None,
                                 help='With --from-run: the release node whose release to '
                                      'publish (e.g. release_data2 added under an export of '

@@ -247,6 +247,15 @@ signoff → BTO; else the phase's latest earlier exit). Any of:
 
 Releases before pro carry no SPEF; before signoff no timing models.
 
+### Releasing the same data as another exit (e.g. MTO = BTO)
+1. Same run, new tag: set the release node's tag to MTO (run GUI release form → Save, i.e.
+   `setup/override_config.release_data1.tcl: set project(release,tag) "MTO"`), then
+   `cbflow run retrace --from release_data1 && cbflow run stage --name release_data1`.
+   An exit-named tag sets the milestone when it maps to the same source stage (BTO / MTO →
+   signoff); another stage's exit is refused.
+2. Clone a release: `cbflow run release --from-run <run> --clone-from BTO --tag MTO [--publish]`
+   — copies `<FLOW>/BTO` to `<FLOW>/MTO` (records CLONED_FROM), same-stage + exit-order checked.
+
 ### Checklist
 ```bash
 cbflow flow checklist list                                    # Show all milestones
