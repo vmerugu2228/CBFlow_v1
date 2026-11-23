@@ -28,10 +28,16 @@ proc oss_checks_run {stage} {
     array unset ::oss_checks::lines
     array set ::oss_checks::lines {}
     set _dir "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)"
+    # one group per oss_checkgrp_<group>.tcl: its proc oss_checkgrp_<group>
+    # (helpers in the file may have any other name)
+    set _groups {}
     foreach _f [lsort [glob -nocomplain -directory $_dir oss_checkgrp_*.tcl]] {
         uplevel #0 [list source $_f]
+        set _p "::[file rootname [file tail $_f]]"
+        if {[llength [info procs $_p]]} { lappend _groups $_p } else {
+            handle_warning "checklist reports: [file tail $_f] defines no proc [string trimleft $_p :]"
+        }
     }
-    set _groups [lsort [info procs ::oss_checkgrp_*]]
     foreach _p $_groups {
         if {[catch {$_p $stage} _e]} {
             handle_warning "checklist reports: [string trimleft $_p :] failed at $stage: $_e"

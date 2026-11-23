@@ -30,30 +30,13 @@ set ::flow::exec_mode "auto"
 # views, SDC; propagated clocks from CTS on; SPEF from pro on.
 flow_proc load_design {
     global blocks
-    set_thread_count [oss_get [oss_flow_arr] oss,threads]
-    oss_read_corners $::NODE_NAME $blocks
-    set _out "[cbflow_node_dir $::NODE_NAME]/outputs"
-    set _odb [lindex [glob -nocomplain "$_out/$::STAGE_NAME.odb" "$_out/final.odb" "$_out/*.odb"] 0]
-    if {$_odb eq ""} { error "no database in $_out — did $::NODE_NAME complete?" }
-    read_db $_odb
-    read_sdc [oss_sdc_file]
-    if {$::STAGE_NAME in {cts cts_opt route pro signoff}} { set_propagated_clock [all_clocks] }
-    set _pro ""
-    if {$::STAGE_NAME eq "pro"} { set _pro $::NODE_NAME } elseif {$::STAGE_NAME eq "signoff"} { set _pro [oss_upstream_node] }
-    if {$_pro ne ""} {
-        foreach _v [oss_node_views $::NODE_NAME] {
-            set _s "[cbflow_node_dir $_pro]/outputs/final_[oss_view_attr $_v rc_corner].spef"
-            if {[file exists $_s]} { read_spef -corner $_v $_s }
-        }
-    } else {
-        oss_set_wire_rc
-        catch { estimate_parasitics -placement }
-    }
+    oss_load_node $::NODE_NAME $blocks
 }
 
 # Report: the checklist library reports of this stage
+# (FP: the tag its export step reports under, "fp")
 flow_proc report {
-    oss_checks_run $::STAGE_NAME
+    oss_checks_run [expr {$::FLOW_TYPE eq "FP" ? "fp" : $::STAGE_NAME}]
 }
 
 flow_exec_all

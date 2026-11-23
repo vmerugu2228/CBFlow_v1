@@ -838,6 +838,38 @@ proc oss_deliverable_cmds {outdir blocks} {
         [list write_db $outdir/final.odb]]
 }
 
+# Load a finished node's design for reporting / interactive work: its
+# database (outputs/<stage>.odb, else final.odb, else any .odb), timing views,
+# SDC; propagated clocks from CTS on; the pro SPEF from pro on, else
+# placement-estimated parasitics. Used by checks_openroad.tcl
+# (cbflow-oss-checks) and the OpenROAD interactive session.
+proc oss_load_node {node blocks} {
+    set _st [cbflow_node_type $node]
+    set_thread_count [oss_get [oss_flow_arr] oss,threads]
+    # timing views: the node's own MMMC views; FP nodes time on the
+    # init_design node's (the FP stages read them the same way)
+    set _vn [expr {$::FLOW_TYPE eq "FP" ? [cbflow_chain_node init_design] : $node}]
+    oss_read_corners $_vn $blocks
+    set _out "[cbflow_node_dir $node]/outputs"
+    set _odb [lindex [glob -nocomplain "$_out/$_st.odb" "$_out/final.odb" "$_out/*.odb"] 0]
+    if {$_odb eq ""} { error "no database in $_out — did $node complete?" }
+    read_db $_odb
+    read_sdc [oss_sdc_file]
+    if {$_st in {cts cts_opt route pro signoff}} { set_propagated_clock [all_clocks] }
+    set _pro ""
+    if {$_st eq "pro"} { set _pro $node } elseif {$_st eq "signoff"} { set _pro [lindex [cbflow_node_deps $node] 0] }
+    if {$_pro ne ""} {
+        foreach _v [oss_node_views $_vn] {
+            set _s "[cbflow_node_dir $_pro]/outputs/final_[oss_view_attr $_v rc_corner].spef"
+            if {[file exists $_s]} { read_spef -corner $_v $_s }
+        }
+    } else {
+        oss_set_wire_rc
+        catch { estimate_parasitics -placement }
+    }
+    return $_odb
+}
+
 # Database written by an upstream node: <node>/outputs/<stage type>.odb.
 proc oss_prev_odb {prev_node} {
     return [oss_node_output $prev_node "[oss_node_type $prev_node].odb"]

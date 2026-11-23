@@ -8,6 +8,9 @@
 #   cbflow-oss check                          list tools + versions in the image
 #   cbflow-oss gui openroad <stage.odb>       OpenROAD GUI on a saved stage database
 #   cbflow-oss gui klayout <file.gds|.def>    KLayout GUI on a GDS / DEF
+#   cbflow-oss interactive <tool> [script]    interactive shell (openroad, sta,
+#                                             yosys, oss_tclsh) sourcing script
+#                                             first; CBFLOW_OSS_GUI=1: OpenROAD GUI
 #
 # <tool>: yosys | openroad | sta | magic | netgen | klayout | tclsh
 #
@@ -73,6 +76,8 @@ for _e in "${_extra[@]:-}"; do _add_mount "$_e"; done
 build_docker_args() {
     DOCKER_ARGS=(run --rm -i -u "$(id -u):$(id -g)" -w "$(pwd -P)" -e HOME=/tmp
                  --entrypoint /bin/bash)
+    # interactive sessions: a terminal when we have one
+    [ -n "${OSS_TTY:-}" ] && [ -t 0 ] && DOCKER_ARGS+=(-t)
     local m name
     for m in "${MOUNTS[@]}"; do DOCKER_ARGS+=(-v "$m:$m"); done
     while IFS='=' read -r name _; do
@@ -126,6 +131,28 @@ case "$1" in
                 run_in_container "klayout -nn $(q "$lyt") $(q "$target")" ;;
             *) die "gui viewer must be openroad or klayout" ;;
         esac
+        ;;
+    interactive)
+        # cbflow-oss interactive <tool> [tcl_script] — an interactive tool shell
+        # (cbflow run interactive / the run GUI's Interactive Session) that
+        # sources the script first; CBFLOW_OSS_GUI=1 opens the OpenROAD GUI.
+        shift
+        [ $# -ge 1 ] || die "usage: cbflow-oss interactive <openroad|sta|yosys|oss_tclsh> [tcl_script]"
+        tool="$1"; script="${2:-}"; s=""
+        if [ -n "$script" ]; then
+            [ -f "$script" ] || die "script not found: $script"
+            _add_mount "$(dirname "$script")"; s="$(q "$script")"
+        fi
+        OSS_TTY=1
+        case "$tool" in
+            openroad|oss_tclsh)
+                if [ "${CBFLOW_OSS_GUI:-0}" = 1 ]; then gui_display; line="openroad -gui -no_init $s"
+                else line="openroad -no_init $s"; fi ;;
+            sta)   line="sta -no_init $s" ;;
+            yosys) line="yosys -C" ;;
+            *)     die "no interactive shell for '$tool' (openroad|sta|yosys|oss_tclsh); layouts: cbflow-oss gui klayout <gds>" ;;
+        esac
+        run_in_container "$line"
         ;;
     check)
         run_in_container 'for t in yosys openroad sta magic netgen klayout tclsh; do printf "%-9s %s\n" "$t" "$(command -v $t || echo MISSING)"; done; yosys -V | head -1; openroad -version | tail -1; klayout -b -v'

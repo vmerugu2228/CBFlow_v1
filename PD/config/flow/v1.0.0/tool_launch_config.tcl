@@ -43,6 +43,12 @@ foreach _oss_tool {yosys openroad sta magic netgen klayout} {
     set lsf(tool_shell,$_oss_tool) "$_cbflow_oss $_oss_tool"
     set lsf(tool_flags,$_oss_tool) [list "" ""]
 }
+# Interactive sessions (cbflow run interactive): the container's interactive
+# shell, the load script as its argument (no -f)
+foreach _oss_tool {yosys openroad sta oss_tclsh} {
+    set lsf(interactive,shell,$_oss_tool) "$_cbflow_oss interactive $_oss_tool"
+    set lsf(interactive,load_flags,$_oss_tool) ""
+}
 # oss_tclsh: Tcl driver stages (GDS stream-out, release) run by the
 # container's tclsh, so they can exec klayout/magic/netgen directly.
 set lsf(tool_shell,oss_tclsh) "$_cbflow_oss tclsh"
@@ -91,6 +97,28 @@ set lsf(tool_gui_shell,calibre) "calibredrv"
 # cbflow_run_dir cbflow_load_node cbflow_parent_stage cbflow_scenario ("" for
 # a stage) cbflow_node_base cbflow_work_dir (work/<FLOW>/<parent_stage>)
 # cbflow_session_name cbflow_design_name cbflow_notiming (0|1).
+# OpenROAD (open-source PNR / FP, and their oss_tclsh export / release nodes):
+# load the node's database + timing views (oss_load_node)
+set lsf(interactive,restore,openroad) {
+set FLOW_TYPE $cbflow_flow_type
+set NODE_NAME $cbflow_parent_stage
+set run_dir $cbflow_run_dir
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/oss_utils.tcl"
+set design_name [oss_get flow design_name]
+set blocks [hier_children $design_name]
+if {[catch {oss_load_node $NODE_NAME $blocks} _odb]} {
+    puts "WARNING: $NODE_NAME not loaded: $_odb"
+} else {
+    puts ""
+    puts "═══════════════════════════════════════════════════"
+    puts "  CBflow Interactive — $NODE_NAME loaded ($_odb)"
+    puts "  Timing views: [oss_node_views $NODE_NAME]"
+    puts "  Session: INTERACTIVE/$cbflow_session_name"
+    puts "═══════════════════════════════════════════════════"
+}
+}
+set lsf(interactive,restore,oss_tclsh) $lsf(interactive,restore,openroad)
 set lsf(interactive,restore,fc) {
 set nlib_path [file join $cbflow_work_dir ${cbflow_load_node}.nlib]
 set nlib_alt  [file join $cbflow_run_dir work $cbflow_flow_type $cbflow_load_node ${cbflow_load_node}.nlib]

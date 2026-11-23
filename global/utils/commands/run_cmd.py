@@ -3032,6 +3032,9 @@ def cmd_interactive(args: argparse.Namespace) -> int:
     resolved = _cbflow_cfg.load_resolved_config(flow_type, run_dir, env=env_vars)
     try:
         tool_shell = _cbflow_cfg.require(resolved, f'lsf(tool_shell,{tool_name})')
+        # a tool whose batch shell is not interactive (the open-source
+        # container wrapper) declares its interactive shell
+        tool_shell = _cbflow_cfg.optional(resolved, f'lsf(interactive,shell,{tool_name})') or tool_shell
         use_lsf = (_cbflow_cfg.require(resolved, 'flow(use_lsf)') == 'true')
         lsf_queue = _cbflow_cfg.require(resolved, 'lsf(interactive,queue)')
         lsf_runtime = _cbflow_cfg.require(resolved, 'lsf(interactive,runtime_limit)')
@@ -3114,6 +3117,9 @@ def cmd_interactive(args: argparse.Namespace) -> int:
             run_tcl = os.path.join(run_dir, '.run.cbflow.tcl')
             if os.path.exists(run_tcl):
                 tf.write(f'source "{run_tcl}"\n')
+            # utilities before the node setup (it registers flow_proc hooks) —
+            # the same order the stage command files use
+            tf.write(f'source "$::env(CBFLOW_GLOBAL_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"\n')
 
             # Source node config + setup (tech/project/flow arrays + flow_proc hooks)
             config_tcl = os.path.join(work_dir, 'run', 'config.tcl')
@@ -3122,7 +3128,7 @@ def cmd_interactive(args: argparse.Namespace) -> int:
                 tf.write(f'source "{config_tcl}"\n')
             if os.path.exists(setup_tcl):
                 tf.write(f'source "{setup_tcl}"\n')
-            tf.write(f'source "$::env(CBFLOW_GLOBAL_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"\n\n')
+            tf.write("\n")
 
             # Session context consumed by the restore script
             tf.write("# Session context (used by lsf(interactive,restore,<tool>))\n")
@@ -3150,7 +3156,18 @@ def cmd_interactive(args: argparse.Namespace) -> int:
         wf.write(f"cd {interactive_dir}\n")
         if module_cmd:
             wf.write(f"{module_cmd}\n")
-        wf.write(f"source {run_dir}/.run.cbflow.env\n\n")
+        wf.write(f"source {run_dir}/.run.cbflow.env\n")
+        # the node's tool settings from its launch wrapper (container mounts,
+        # image, PDK … for the open-source tools)
+        if load_node:
+            _lw = sorted(glob.glob(os.path.join(work_dir, 'run', 'launch_*.csh')))
+            if _lw:
+                with open(_lw[0]) as _lf:
+                    for _ln in _lf:
+                        _m = _re_mod.match(r'^setenv\s+([A-Za-z_][A-Za-z0-9_]*)\s+(.*)$', _ln.strip())
+                        if _m and _m.group(1) not in ('CBFLOW_NODE_NAME', 'CBFLOW_STAGE_NAME'):
+                            wf.write(f"export {_m.group(1)}={_m.group(2)}\n")
+        wf.write("\n")
 
         # Build tool invocation: lsf(interactive,load_flags|empty_flags,<tool>)
         if load_tcl_path:
