@@ -6000,7 +6000,11 @@ def _scenario_table(rows, with_stage=False):
     h2 = ''.join(f'<th style="text-align:center">{html.escape(g)}</th>' for c in checks for g in groups[c])
     h3 = ''.join('<th style="text-align:center;font-weight:500">WNS / TNS / NVP</th>'
                  for c in checks for g in groups[c])
-    out = ['<div style="overflow-x:auto"><table class="d"><thead>', f'<tr>{h1}</tr>']
+    tid = f'sct{abs(hash(tuple(keys))) % 10**8}'
+    out = []
+    if with_stage:
+        out.append(_scenario_filter_bar(tid, keys))
+    out += [f'<div style="overflow-x:auto"><table class="d" id="{tid}"><thead>', f'<tr>{h1}</tr>']
     if checks:
         out += [f'<tr>{h2}</tr>', f'<tr>{h3}</tr>']
     out.append('</thead><tbody>')
@@ -6013,9 +6017,37 @@ def _scenario_table(rows, with_stage=False):
         cells += ''.join(_triple_cell([f'{c} {g} {w}' for w in _TRIPLE], get)
                          for c in checks for g in groups[c])
         cells += _render_cols(cols, get)
-        out.append(f'<tr>{cells}</tr>')
+        out.append(f'<tr data-stage="{html.escape(k[0], quote=True)}" '
+                   f'data-corner="{html.escape(k[1], quote=True)}">{cells}</tr>')
     out.append('</tbody></table></div>')
     return ''.join(out)
+
+
+def _scenario_filter_bar(tid, keys):
+    """Stage / corner filter for a (stage, corner) table (client-side: rows
+    carry data-stage / data-corner)."""
+    def opts(vals):
+        return '<option value="">All</option>' + ''.join(
+            f'<option value="{html.escape(v, quote=True)}">{html.escape(v)}</option>' for v in vals)
+    stages = list(dict.fromkeys(k[0] for k in keys))
+    corners = sorted(dict.fromkeys(k[1] for k in keys))
+    sel = 'style="padding:3px 6px;border:1px solid var(--border);border-radius:3px;font-size:12px"'
+    return (
+        f'<div class="sc-filter" data-for="{tid}" style="display:flex;gap:10px;align-items:center;'
+        f'flex-wrap:wrap;margin:4px 0 8px;font-size:12px">'
+        f'<label>Stage <select class="sc-f-stage" {sel} onchange="sgFilterScen(\'{tid}\')">{opts(stages)}</select></label>'
+        f'<label>Corner <select class="sc-f-corner" {sel} onchange="sgFilterScen(\'{tid}\')">{opts(corners)}</select></label>'
+        f'<button type="button" {sel} onclick="sgFilterScen(\'{tid}\',1)">Reset</button>'
+        f'<span class="sc-f-count muted"></span></div>'
+        '<script>if(!window.sgFilterScen){window.sgFilterScen=function(id,reset){'
+        'var bar=document.querySelector(\'.sc-filter[data-for="\'+id+\'"]\');'
+        'var s=bar.querySelector(".sc-f-stage"),c=bar.querySelector(".sc-f-corner");'
+        'if(reset){s.value="";c.value="";}'
+        'var n=0,t=0;document.querySelectorAll("#"+id+" tbody tr").forEach(function(r){t++;'
+        'var ok=(!s.value||r.dataset.stage===s.value)&&(!c.value||r.dataset.corner===c.value);'
+        'r.style.display=ok?"":"none";if(ok)n++;});'
+        'bar.querySelector(".sc-f-count").textContent=(s.value||c.value)?(n+" of "+t+" rows"):"";};}'
+        '</script>')
 
 
 def _stage_table(rows):
