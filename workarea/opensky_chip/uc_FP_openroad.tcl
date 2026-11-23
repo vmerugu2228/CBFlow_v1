@@ -23,10 +23,16 @@ set fp(input,release_tag)      "P0_SYNTH_v1"
 set project(release,tag)       "P0_FP_v1"
 
 # Floorplan (um) and fixed hard-macro spots
-set fp(oss,fp,die_area)         {0 0 2500 2050}
-set fp(oss,macro,placement)     {u_ai_subsys 40 54.4 R0 u_ctrl_subsys 2120 544 R0}
+# P1: ai_subsys 3779.58 x 4260.90 at the bottom-left, ctrl_subsys (350.28)
+# right of it 60 um apart; DL2 children on the 54.4 um rail pitch (y)
+set fp(oss,fp,die_area)         {0 0 4300 4400}
+set fp(oss,macro,placement)     {u_ai_subsys 40 54.4 R0 u_ctrl_subsys 3880 544 R0}
 
 # ── Floorplan sizing (per block; overrides FP_openroad_config.tcl) ──────────
 # core_utilization = standard-cell utilization %; with child macros the core is
 # macro area + std-cell area / util. Set fp(oss,fp,die_area) to fix the size.
 set fp(oss,fp,core_utilization) 10
+
+# Bring-up: no power grid — ai_subsys (P1) is built without one, so its
+# power pins have no shapes to hook (see project(pdn,enable))
+set project(pdn,enable)         false

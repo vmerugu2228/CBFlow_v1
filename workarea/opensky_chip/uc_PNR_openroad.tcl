@@ -24,3 +24,6 @@ set project(release,tag)       "P0_PNR_v1"
 
 # ── Placement density (per block; overrides PNR_openroad_config.tcl) ────────
 set pnr(oss,place,density)      0.20
+
+# Bring-up: no power grid (ai_subsys P1 has none) — see project(pdn,enable)
+set project(pdn,enable)         false

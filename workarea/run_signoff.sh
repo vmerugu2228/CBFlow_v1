@@ -65,12 +65,14 @@ run() {
     fi
 }
 
+# FLOWS="STA PV LEC" (default) or any subset, e.g. FLOWS=STA
+FLOWS=${FLOWS:-STA PV LEC}
 if [ "$EXIT" = FP_EXIT ]; then
     run PV "$(mk PV uc_PV_magic.tcl)" &
 else
-    run STA "$(mk STA uc_STA_opensta.tcl)" &
-    run PV  "$(mk PV  uc_PV_magic.tcl)" &
-    run LEC "$(mk LEC uc_LEC_yosys.tcl)" &
+    case " $FLOWS " in *" STA "*) run STA "$(mk STA uc_STA_opensta.tcl)" & ;; esac
+    case " $FLOWS " in *" PV "*)  run PV  "$(mk PV  uc_PV_magic.tcl)" & ;; esac
+    case " $FLOWS " in *" LEC "*) run LEC "$(mk LEC uc_LEC_yosys.tcl)" & ;; esac
 fi
 wait
 say "$B signoff done"
