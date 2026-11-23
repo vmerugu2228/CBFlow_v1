@@ -56,7 +56,12 @@ array set sta {
 # exist (isolation clamps, spare / tie cells, macros); set per block in the uc.
 # oss,report_power: report_power per scenario (reports/power.rpt), merged into
 # outputs/sta_power.rpt (mW) and the release metrics.rpt '# category: power'.
+# oss,sta,mode: flat = a design with child blocks is timed flat — every
+# descendant's gate netlist (tech(block,<b>,netlist)) with its SPEF for the
+# scenario's RC corner (tech(block,<b>,spef,<rc>)) stitched onto each of its
+# instances; hier = children as their timing models (tech(block,<b>,lib,*)).
 array set sta {
+    oss,sta,mode                flat
     oss,extraction,spef         {results/${design_name}_${rc_corner}.spef}
     oss,scenario_qor_file       "qor.tcl"
     oss,qor_file_suffix         "_qor.tcl"

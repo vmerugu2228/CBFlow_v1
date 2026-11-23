@@ -43,6 +43,8 @@ mk() {
     echo "set project(release,phase)     \"$PHASE\"" >> "$dst"
     # children (block library) from LIB_TAG when given; else project(lib_config_tag)
     [ -n "$LIB_TAG" ] && echo "set project(lib_config_tag)    \"$LIB_TAG\"" >> "$dst"
+    # MAX_PARALLEL=<n>: cap concurrent jobs (scenarios) in the run — memory
+    [ -n "$MAX_PARALLEL" ] && echo "set flow(max_parallel_jobs)    $MAX_PARALLEL" >> "$dst"
     echo "$dst"
 }
 

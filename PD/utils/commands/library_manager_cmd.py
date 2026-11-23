@@ -4898,6 +4898,11 @@ def _write_blocks_config(tag_dir: str) -> list:
         src = os.path.join(bdir, 'SOURCE')
         if os.path.isfile(src):
             out.append('set tech(block,{},release) "{}"'.format(b, open(src).read().strip()))
+        _sp = sorted(glob.glob(os.path.join(bdir, 'spef', b + '_*.spef')))
+        _rcs = [os.path.basename(f)[len(b) + 1:-len('.spef')] for f in _sp]
+        out.append('set tech(block,{},spef_corners) [list {}]'.format(b, " ".join(_rcs)))
+        for rc in _rcs:
+            out.append('set tech(block,{},spef,{}) "$_lib_tag_dir/block/{}/spef/{}_{}.spef"'.format(b, rc, b, b, rc))
         pv_src = os.path.join(bdir, 'PV_SOURCE')
         if os.path.isfile(pv_src):
             out.append('set tech(block,{},pv_release) "{}"'.format(b, open(pv_src).read().strip()))
@@ -4949,12 +4954,21 @@ def _cmd_add_blocks(args: argparse.Namespace, lib_config_path: str) -> int:
             sub = next((s for k, s, _p, _r in _BLOCK_VIEWS if k == key), 'lib')
             os.makedirs(os.path.join(bdir, sub), exist_ok=True)
             os.symlink(f, os.path.join(bdir, sub, os.path.basename(f)))
+        # Parasitics per RC corner (<b>_<rc>.spef) when the PNR release has
+        # them — a parent's flat STA stitches them onto the block's instance
+        _spefs = sorted(glob.glob(os.path.join(path, 'spef', name + '_*.spef')))
+        if _spefs:
+            os.makedirs(os.path.join(bdir, 'spef'), exist_ok=True)
+            for f in _spefs:
+                os.symlink(os.path.abspath(f), os.path.join(bdir, 'spef', os.path.basename(f)))
         with open(os.path.join(bdir, 'SOURCE'), 'w') as fh:
             fh.write(os.path.abspath(path) + "\n")
         with open(os.path.join(bdir, 'PV_SOURCE'), 'w') as fh:
             fh.write(pv_dir + "\n")
         logger.info("  block {:<14} lib sets: {}  ← {}".format(
             name, " ".join(sorted(libs)), os.path.abspath(path)))
+        logger.info("  block {:<14} spef corners: {}".format(
+            name, " ".join(os.path.basename(f)[len(name) + 1:-len('.spef')] for f in _spefs) or "(none)"))
         if pv_dir == 'PENDING':
             logger.warning("  block {:<14} gds/cdl       ← PNR release (--pv-pending: PV not "
                            "released yet; re-run add without the flag once it is)".format(name))

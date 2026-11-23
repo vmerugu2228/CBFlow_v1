@@ -27,15 +27,26 @@ set blocks      [hier_children $design_name]
 if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "auto"; variable start_time [clock seconds]; variable flow_errors {} } }
 set ::flow::exec_mode "auto"
 
-# Load: scenario libs (+ child timing models), netlist, SDC, SPEF
+# Load: scenario libs, netlist(s), SDC, SPEF(s). sta(oss,sta,mode) flat: every
+# descendant block's gate netlist + its SPEF stitched per instance; hier: the
+# children as timing models.
 flow_proc load_design {
     global design_name blocks
+    set _mode [oss_get sta oss,sta,mode]
+    if {$_mode ni {flat hier}} { error "sta(oss,sta,mode) must be flat or hier, got '$_mode'" }
+    set _flat [expr {$_mode eq "flat" && [llength $blocks] > 0}]
+    set _desc [expr {$_flat ? [hier_descendants $design_name] : {}}]
     foreach _l [oss_lib_set_files $::LIB_SET] { read_liberty $_l }
     foreach _l [oss_memory_libs $::LIB_SET] { read_liberty $_l }
     if {[oss_has_memories]} {
         handle_warning "memory macros timed at [dict get [oss_get tech memory,lib_set_map] $::LIB_SET] (scenario lib set $::LIB_SET; tech(memory,lib_set_map)) — PVT mismatch"
     }
-    foreach _b $blocks { read_liberty [hier_block_lib [hier_block_views $_b] $_b $::LIB_SET] }
+    if {$_flat} {
+        foreach _b $_desc { read_verilog [oss_get tech block,$_b,netlist] }
+        handle_info "flat STA: netlists of [join $_desc {, }]"
+    } else {
+        foreach _b $blocks { read_liberty [hier_block_lib [hier_block_views $_b] $_b $::LIB_SET] }
+    }
     set _nl [lindex [glob -nocomplain "$::NETLIST_DIR/${design_name}.pt.v" "$::NETLIST_DIR/${design_name}.v"] 0]
     if {$_nl eq ""} { error "netlist not staged in $::NETLIST_DIR (expected ${design_name}.pt.v or ${design_name}.v)" }
     read_verilog $_nl
@@ -48,6 +59,17 @@ flow_proc load_design {
         handle_warning "no SPEF for $::RC_CORNER — timing with wire-load estimates only (sta(oss,allow_no_spef) true)"
     } else {
         error "no SPEF for $::RC_CORNER ($::SPEF_FILE) — set sta(oss,allow_no_spef) true to time without parasitics"
+    }
+    # flat: each descendant's SPEF (scenario RC corner) onto every instance of it
+    foreach _b $_desc {
+        set _k "block,$_b,spef,$::RC_CORNER"
+        if {![info exists ::tech($_k)]} {
+            error "flat STA: no SPEF tech($_k) in the library tag (block $_b has: [oss_get tech block,$_b,spef_corners]) — re-release $_b with $::RC_CORNER extraction, then library-manager add"
+        }
+        foreach _c [get_cells -hierarchical -filter "ref_name == $_b"] {
+            read_spef -path [get_full_name $_c] $::tech($_k)
+            handle_info "flat STA: [get_full_name $_c] <- [file tail $::tech($_k)]"
+        }
     }
 }
 
