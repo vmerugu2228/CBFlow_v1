@@ -61,6 +61,7 @@ block() {
         "s/^set fp(input,release_tag) .*/set fp(input,release_tag)      \"$SYN_TAG\"/"
     run_flow "$b" FP "uc_FP_openroad_${PHASE}.tcl" || return 1
     publish "$b" "${PHASE}_run_FP_${b}_${RUN}"
+    [ "$UNTIL" = FP ] && return 0                 # UNTIL=FP: stop after the floorplan
     "$WA/run_signoff.sh" "$b" FP_EXIT &          # PV on the floorplan release
     mk_uc "$b" uc_PNR_openroad.tcl "uc_PNR_openroad_${PHASE}.tcl" '/^set project(release,tag)/d' \
         "s/^set pnr(input,release_tag) .*/set pnr(input,release_tag)     \"$SYN_TAG\"/" \
