@@ -33,8 +33,11 @@ run_flow() {    # run_flow <block> <FLOW> <uc>  — non-zero on failure
     (cd "$WA/$b" && rm -rf "$rd" && $C workspace create --config "$uc") > "$WA/$b/${fl}_${PHASE}_create.log" 2>&1
     # PNR run overrides (fanout limit, per-stage corners): overrides/pnr_<PHASE>.tcl
     # appended to the run's setup/override_config.tcl
-    if [ "$f" = PNR ] && [ -f "$WA/overrides/pnr_${PHASE}.tcl" ] && [ -d "$WA/$b/$rd/setup" ]; then
-        cat "$WA/overrides/pnr_${PHASE}.tcl" >> "$WA/$b/$rd/setup/override_config.tcl"
+    # (overrides/pnr_<PHASE>_dl2.tcl when present: DL2 scenario sets)
+    local ov="$WA/overrides/pnr_${PHASE}_dl2.tcl"
+    [ -f "$ov" ] || ov="$WA/overrides/pnr_${PHASE}.tcl"
+    if [ "$f" = PNR ] && [ -f "$ov" ] && [ -d "$WA/$b/$rd/setup" ]; then
+        cat "$ov" >> "$WA/$b/$rd/setup/override_config.tcl"
     fi
     (cd "$WA/$b/$rd" && $C run all) > "$WA/$b/${fl}_${PHASE}.log" 2>&1
     if grep -q "result=PASS" "$WA/$b/${fl}_${PHASE}.log"; then
