@@ -41,6 +41,7 @@ array set pv {
     oss,tool,release_data "oss_tclsh"
 
     oss,drc,engine        klayout
+    oss,pv,mode           flat
     oss,drc,style         "drc(full)"
     oss,drc,klayout_threads 4
     oss,drc,klayout_options {feol true beol true offgrid true floating_met false seal false sram_exclude true}
@@ -48,6 +49,11 @@ array set pv {
 
     oss,fail_on_violations false
 }
+# oss,pv,mode: flat = DRC on the full GDS (every child block's layout merged)
+# and LVS of the whole hierarchy (every descendant's LVS netlist); hier = child
+# blocks as abstracts — DRC on the GDS with their cells emptied (the top-level
+# layout only; each block has its own PV) and LVS with them as black boxes
+# (Magic reads their LEF, Netgen sees empty cells on both sides).
 # oss,drc,engine: klayout = the sky130 KLayout manufacturing deck
 # (tech(klayout,drc); deep / hierarchical — scales to large flat layouts),
 # magic = Magic drc style oss,drc,style. klayout_options: deck switches

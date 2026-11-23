@@ -43,6 +43,12 @@ mk() {
     echo "set project(release,phase)     \"$PHASE\"" >> "$dst"
     # children (block library) from LIB_TAG when given; else project(lib_config_tag)
     [ -n "$LIB_TAG" ] && echo "set project(lib_config_tag)    \"$LIB_TAG\"" >> "$dst"
+    # PV_MODE=flat|hier: pv(oss,pv,mode); a hier run releases to <exit>_HIER so
+    # the flat release (<exit>, read by library-manager) is not overwritten
+    if [ "$f" = PV ] && [ -n "$PV_MODE" ]; then
+        echo "set pv(oss,pv,mode)            $PV_MODE" >> "$dst"
+        [ "$PV_MODE" = hier ] && echo "set project(release,tag)       \"${EXIT}_HIER\"" >> "$dst"
+    fi
     # MAX_PARALLEL=<n>: cap concurrent jobs (scenarios) in the run — memory
     [ -n "$MAX_PARALLEL" ] && echo "set flow(max_parallel_jobs)    $MAX_PARALLEL" >> "$dst"
     echo "$dst"

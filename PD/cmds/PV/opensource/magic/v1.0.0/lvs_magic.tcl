@@ -40,7 +40,12 @@ flow_proc extract {
     # Memory macros extract as abstract cells (pins only, from their LEF;
     # noduplicates keeps the GDS from replacing them) — black boxes in Netgen
     foreach _l [oss_memory_files lef] { puts $_fh "lef read $_l" }
-    if {[oss_has_memories]} { puts $_fh "gds noduplicates true" }
+    # pv(oss,pv,mode) hier: child blocks extract as abstract cells too
+    set _abs [oss_has_memories]
+    if {[pv_mode] eq "hier"} {
+        foreach _b [hier_children $design_name] { puts $_fh "lef read [oss_get tech block,$_b,lef]"; set _abs 1 }
+    }
+    if {$_abs} { puts $_fh "gds noduplicates true" }
     puts $_fh "gds read $::lvs_gds"
     puts $_fh "load $design_name"
     puts $_fh "select top cell"
@@ -60,7 +65,10 @@ flow_proc compare {
     set _top [lindex [glob -nocomplain "$::NETLIST_DIR/${design_name}.lvs.v" "$::NETLIST_DIR/${design_name}.v"] 0]
     if {$_top eq ""} { error "netlist not staged in $::NETLIST_DIR (expected ${design_name}.lvs.v or ${design_name}.v; pv(input,netlist))" }
     set ::lvs_nets [list $_top]
-    foreach _b [hier_descendants $design_name] { lappend ::lvs_nets [oss_get tech block,$_b,lvs_netlist] }
+    # flat: every descendant's LVS netlist; hier: children stay black boxes
+    if {[pv_mode] eq "flat"} {
+        foreach _b [hier_descendants $design_name] { lappend ::lvs_nets [oss_get tech block,$_b,lvs_netlist] }
+    }
     set ::lvs_rpt "$::REPORTS_DIR/lvs_netgen.rpt"
     set _script "$::WORK_DIR/lvs_netgen.tcl"
     set _fh [open $_script w]

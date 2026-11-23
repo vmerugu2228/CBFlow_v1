@@ -90,6 +90,25 @@ flow_proc load_design {
     global design_name
     set ::drc_gds "$::GDS_DIR/${design_name}.gds"
     if {![file exists $::drc_gds]} { error "GDS not staged: $::drc_gds (pv(input,gds))" }
+    # pv(oss,pv,mode) hier: DRC the top-level layout — child block cells emptied
+    set _kids [hier_children $design_name]
+    if {[pv_mode] eq "hier" && [llength $_kids] > 0} {
+        set _out "$::WORK_DIR/${design_name}_hier.gds"
+        set _py "$::WORK_DIR/hier_gds.py"
+        set _fh [open $_py w]
+        puts $_fh "import pya"
+        puts $_fh "ly = pya.Layout(); ly.read('$::drc_gds')"
+        foreach _b $_kids {
+            puts $_fh "c = ly.cell('$_b')"
+            puts $_fh "if c is None: raise SystemExit('child block cell $_b not in $::drc_gds')"
+            puts $_fh "c.prune_subcells(); c.clear_shapes()"
+        }
+        puts $_fh "ly.write('$_out')"
+        close $_fh
+        oss_exec_tool klayout $_py "$::REPORTS_DIR/hier_gds.log"
+        set ::drc_gds $_out
+        handle_info "hier DRC: child blocks emptied ([join $_kids {, }]) -> $_out"
+    }
     set ::drc_eng [oss_get pv oss,drc,engine]
     set ::drc_why "$::REPORTS_DIR/drc_${::drc_eng}_why.rpt"
 }

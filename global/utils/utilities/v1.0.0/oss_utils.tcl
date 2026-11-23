@@ -446,6 +446,14 @@ proc oss_vt_dont_use {} {
     return $_out
 }
 
+# pv(oss,pv,mode): flat = full layout / whole-hierarchy LVS; hier = child
+# blocks as abstracts (emptied for DRC, black boxes for LVS)
+proc pv_mode {} {
+    set _m [oss_get pv oss,pv,mode]
+    if {$_m ni {flat hier}} { error "pv(oss,pv,mode) must be flat or hier, got '$_m'" }
+    return $_m
+}
+
 # PNR dont_use: tech(<track>,dont_use_pnr) + cells of Vts outside
 # project(vt_flavors).
 proc oss_pnr_dont_use {} {
