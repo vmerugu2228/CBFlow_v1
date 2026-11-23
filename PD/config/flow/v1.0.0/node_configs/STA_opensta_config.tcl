@@ -115,6 +115,8 @@ array set sta {
     checklist,metric,sta_total_power       {^Total power mW\s*:\s*([0-9.eE+-]+)}
     checklist,metric,sta_dont_use          {^Dont use cells\s*:\s*(\d+)}
     checklist,metric,sta_dont_touch        {^Dont touch missing\s*:\s*(\d+)}
+    checklist,metric,sta_unannotated       {^Unannotated nets\s*:\s*(\d+)}
+    checklist,metric,sta_partial_annotation {^Partially annotated nets\s*:\s*(\d+)}
 }
 
 # ┌─ Path groups (timing by group: report + WNS / TNS per corner) ─────────────┐

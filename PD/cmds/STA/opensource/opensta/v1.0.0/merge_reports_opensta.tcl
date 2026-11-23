@@ -45,7 +45,7 @@ flow_proc merge {
     global sta_merge
     set _rows {}; set _prows {}
     set _ts 0.0; set _th 0.0; set _tran 0; set _cap 0; set _fan 0; set _fail 0; set _pw ""
-    set _du 0; set _dtm 0; set _dtn 0; set _nvs 0; set _nvh 0
+    set _du 0; set _dtm 0; set _dtn 0; set _nvs 0; set _nvh 0; set _pau 0; set _pap 0
     foreach _qd $::sta_qor {
         array unset qor
         array set qor $_qd
@@ -67,6 +67,10 @@ flow_proc merge {
         if {$qor(dont_use_cells) > $_du} { set _du $qor(dont_use_cells) }
         if {$qor(dont_touch_missing) > $_dtm} { set _dtm $qor(dont_touch_missing) }
         set _dtn $qor(dont_touch_instances)
+        # parasitic annotation: worst scenario (each reads its RC corner's SPEFs)
+        if {![info exists qor(parasitic_unannotated)]} { error "scenario $qor(scenario): no parasitic annotation in its QoR" }
+        if {$qor(parasitic_unannotated) > $_pau} { set _pau $qor(parasitic_unannotated) }
+        if {$qor(parasitic_partial) > $_pap} { set _pap $qor(parasitic_partial) }
     }
     set _ws 1e9; set _wh 1e9
     foreach _r $_rows {
@@ -75,7 +79,7 @@ flow_proc merge {
         if {$_whn < $_wh} { set _wh $_whn }
     }
     array unset sta_merge
-    foreach _k {rows prows ws wh ts th tran cap fan fail pw du dtm dtn nvs nvh} { set sta_merge($_k) [set _$_k] }
+    foreach _k {rows prows ws wh ts th tran cap fan fail pw du dtm dtn nvs nvh pau pap} { set sta_merge($_k) [set _$_k] }
 }
 
 # Reports (outputs/): sta_summary.rpt (per scenario + worst), sta_power.rpt
@@ -110,7 +114,8 @@ flow_proc report {
                  "Worst hold NVP : $_nvh" \
                  "Tran violations : $_tran" "Cap violations : $_cap" "Fanout violations : $_fan" \
                  "Noise : N/A" "Dont use cells : $_du" "Dont touch missing : $_dtm" \
-                 "Dont touch instances : $_dtn"]
+                 "Dont touch instances : $_dtn" \
+                 "Unannotated nets : $_pau" "Partially annotated nets : $_pap"]
     if {$_pw ne ""} { lappend _C "Total power mW : [format %.4g [expr {$_pw * 1e3}]]" }
     set _fh [open [oss_stage_out sta_checklist.rpt] w]; puts $_fh [join $_C \n]; close $_fh
     handle_info "STA: worst setup WNS $_ws, worst hold WNS $_wh over [llength $_rows] scenarios"

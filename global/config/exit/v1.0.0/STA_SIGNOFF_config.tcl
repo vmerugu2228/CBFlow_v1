@@ -101,6 +101,22 @@ array set mandatory_checks {
         "default_threshold" "0"
         "min_phase_index"   "0"
     }
+    "sta_unannotated" {
+        "id"                "STA_0014"
+        "description"       "Driven nets without SPEF parasitics (worst scenario; load-less nets excluded)"
+        "criteria"          "every driven net annotated"
+        "operator"          "=="
+        "default_threshold" "0"
+        "min_phase_index"   "0"
+    }
+    "sta_partial_annotation" {
+        "id"                "STA_0015"
+        "description"       "Nets with partial SPEF parasitics (worst scenario)"
+        "criteria"          "no partially annotated net"
+        "operator"          "=="
+        "default_threshold" "0"
+        "min_phase_index"   "0"
+    }
 }
 
 array set optional_checks {

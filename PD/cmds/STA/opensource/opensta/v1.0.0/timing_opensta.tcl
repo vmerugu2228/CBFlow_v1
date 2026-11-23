@@ -113,6 +113,34 @@ flow_proc report {
     }
     puts $_fh "Patterns missing: [llength $_dt_missing]   Instances kept: $_dt_n"
     close $_fh
+    # Parasitic annotation: every driven net must carry SPEF parasitics (flat
+    # STA: the stitched block SPEFs too) -> parasitic_annotation.rpt. Drivers
+    # of load-less nets (CTS dummy loads) are listed, not counted.
+    sta::redirect_string_begin
+    report_parasitic_annotation -report_unannotated
+    set _pa [sta::redirect_string_end]
+    set _pa_un {}; set _pa_part {}; set _pa_float {}; set _sec ""
+    foreach _ln [split $_pa \n] {
+        if {[regexp {Found \d+ unannotated drivers} $_ln]} { set _sec un; continue }
+        if {[regexp {Found \d+ partially unannotated drivers} $_ln]} { set _sec part; continue }
+        set _p [string trim $_ln]
+        if {$_p eq "" || $_sec eq ""} continue
+        set _net [get_nets -quiet -of_objects [get_pins -quiet $_p]]
+        set _loads [expr {$_net eq "" ? {} : [get_pins -quiet -of_objects $_net -filter "direction == input"]}]
+        if {$_net ne "" && [llength $_loads] == 0 && [llength [get_ports -quiet -of_objects $_net]] == 0} {
+            lappend _pa_float $_p
+        } elseif {$_sec eq "un"} { lappend _pa_un $_p } else { lappend _pa_part $_p }
+    }
+    set _fh [open "$::SCEN_REPORTS/parasitic_annotation.rpt" w]
+    puts $_fh "Parasitic annotation ($::SCENARIO, RC corner $::RC_CORNER)"
+    puts $_fh "Unannotated nets : [llength $_pa_un]"
+    puts $_fh "Partially annotated nets : [llength $_pa_part]"
+    puts $_fh "Load-less nets (not counted) : [llength $_pa_float]"
+    foreach {_t _l} [list UNANNOTATED $_pa_un PARTIAL $_pa_part LOADLESS $_pa_float] {
+        foreach _p $_l { puts $_fh [format "  %-11s %s" $_t $_p] }
+    }
+    puts $_fh "\n# report_parasitic_annotation -report_unannotated\n$_pa"
+    close $_fh
     # Path-group timing (R2R / I2R / R2O / I2O ...): timing_<setup|hold>_<group>.rpt
     set _grp [lindex [oss_group_timing {} "$::SCEN_REPORTS/timing"] 1]
     set _fh [open "$::SCEN_REPORTS/[oss_get sta oss,scenario_qor_file]" w]
@@ -129,6 +157,8 @@ flow_proc report {
     puts $_fh "set qor(dont_use_cells) [llength $_du_hits]"
     puts $_fh "set qor(dont_touch_missing) [llength $_dt_missing]"
     puts $_fh "set qor(dont_touch_instances) $_dt_n"
+    puts $_fh "set qor(parasitic_unannotated) [llength $_pa_un]"
+    puts $_fh "set qor(parasitic_partial) [llength $_pa_part]"
     puts $_fh [list set qor(path_groups) $_grp]
     # Worst margin per check (limit - value; negative = violation)
     foreach {_k _c} {tran_slack max_slew_check_slack cap_slack max_capacitance_check_slack

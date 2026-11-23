@@ -56,6 +56,8 @@ flow_proc publish {
             "Tran violations : $qor(max_tran_violations)" \
             "Cap violations : $qor(max_cap_violations)" \
             "Fanout violations : $qor(max_fanout_violations)" \
+            "Unannotated nets : [expr {[info exists qor(parasitic_unannotated)] ? $qor(parasitic_unannotated) : {N/A}}]" \
+            "Partially annotated nets : [expr {[info exists qor(parasitic_partial)] ? $qor(parasitic_partial) : {N/A}}]" \
             "Tran slack ns : [sta_fmt3 $qor(tran_slack)]" "Cap slack pF : [sta_fmt3 $qor(cap_slack)]" \
             "Fanout slack : [sta_fmt3 $qor(fanout_slack)]" \
             {*}[expr {[info exists qor(path_groups)] ? $qor(path_groups) : {}}] \
