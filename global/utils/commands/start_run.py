@@ -683,6 +683,11 @@ def _initialize_race_db(run_dir: str, flow_type: str, env: Dict[str, str]) -> Tu
         if os.path.exists(stale):
             archived = f"{stale}.stale-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
             os.rename(stale, archived)
+            # WAL side files go with it: a new DB at this path that opens the
+            # old -shm / -wal fails with "disk I/O error".
+            for _side in ('-wal', '-shm'):
+                if os.path.exists(stale + _side):
+                    os.rename(stale + _side, archived + _side)
             logger.warning(f"  RACE DB from an earlier run at this path archived: {archived}")
 
         # StatusDB.__init__ creates the sqlite file + pointer file + schema.
