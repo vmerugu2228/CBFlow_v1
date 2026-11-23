@@ -639,14 +639,15 @@ proc oss_fp_place_macros {blocks} {
             }
         }
     }
-    oss_fp_macro_blockages
 }
 
 # <flow>(oss,macro,blockage_sides) {left right bottom}: hard placement
 # blockages from each child macro out to the core edge on those sides (side
 # strips run from the core bottom to the macro top + halo), so standard cells
 # sit only where the floorplan leaves room — e.g. above a macro in the bottom
-# corner. Written to the DEF (BLOCKAGES), so PNR placement honours them.
+# corner. Runs after tapcell: each region is clipped to the rows that remain,
+# leaving the endcap sites at every row end outside it (detailed placement
+# rejects fixed cells under a blockage). Written to the DEF (BLOCKAGES).
 proc oss_fp_macro_blockages {} {
     set _arr [oss_flow_arr]
     if {![info exists ::${_arr}(oss,macro,blockage_sides)]} { error "${_arr}(oss,macro,blockage_sides) is not set" }
@@ -660,6 +661,9 @@ proc oss_fp_macro_blockages {} {
     set _halo [expr {round([oss_get $_arr oss,macro,halo] * $_dbu)}]
     set _c    [$_blk getCoreArea]
     lassign [list [$_c xMin] [$_c yMin] [$_c xMax] [$_c yMax]] _cx0 _cy0 _cx1 _cy1
+    set _ecm  [[ord::get_db] findMaster [oss_trk endcap]]
+    if {$_ecm eq "NULL"} { error "endcap master [oss_trk endcap] not in the LEFs" }
+    set _ecw  [$_ecm getWidth]
     foreach _i [$_blk getInsts] {
         if {![[$_i getMaster] isBlock]} continue
         set _b [$_i getBBox]
@@ -676,13 +680,34 @@ proc oss_fp_macro_blockages {} {
         foreach {_s _a _bb _cc _d} $_rects {
             set _a [expr {max($_a, $_cx0)}]; set _bb [expr {max($_bb, $_cy0)}]
             set _cc [expr {min($_cc, $_cx1)}]; set _d [expr {min($_d, $_cy1)}]
-            if {$_cc <= $_a || $_d <= $_bb} {
-                handle_info "  [$_i getName] $_s: no room between macro and core edge — no blockage"
+            # rows inside the region, minus their endcap sites; rows with the
+            # same x span merge into one blockage
+            set _spans [dict create]
+            foreach _r [$_blk getRows] {
+                set _rb [$_r getBBox]
+                if {[$_rb yMax] <= $_bb || [$_rb yMin] >= $_d} continue
+                set _sx0 [expr {max($_a, [$_rb xMin] + $_ecw)}]
+                set _sx1 [expr {min($_cc, [$_rb xMax] - $_ecw)}]
+                if {$_sx1 <= $_sx0} continue
+                set _k "$_sx0 $_sx1"
+                if {[dict exists $_spans $_k]} {
+                    lassign [dict get $_spans $_k] _ya _yb
+                    dict set _spans $_k [list [expr {min($_ya, [$_rb yMin])}] [expr {max($_yb, [$_rb yMax])}]]
+                } else {
+                    dict set _spans $_k [list [$_rb yMin] [$_rb yMax]]
+                }
+            }
+            if {[dict size $_spans] == 0} {
+                handle_info "  [$_i getName] $_s: no rows between macro and core edge — no blockage"
                 continue
             }
-            odb::dbBlockage_create $_blk $_a $_bb $_cc $_d
-            handle_info [format "  placement blockage [$_i getName] %-6s (%.2f %.2f %.2f %.2f)" $_s \
-                [expr {$_a / double($_dbu)}] [expr {$_bb / double($_dbu)}] [expr {$_cc / double($_dbu)}] [expr {$_d / double($_dbu)}]]
+            dict for {_k _y} $_spans {
+                lassign $_k _sx0 _sx1
+                lassign $_y _sy0 _sy1
+                odb::dbBlockage_create $_blk $_sx0 $_sy0 $_sx1 $_sy1
+                handle_info [format "  placement blockage [$_i getName] %-6s (%.2f %.2f %.2f %.2f)" $_s \
+                    [expr {$_sx0 / double($_dbu)}] [expr {$_sy0 / double($_dbu)}] [expr {$_sx1 / double($_dbu)}] [expr {$_sy1 / double($_dbu)}]]
+            }
         }
     }
 }
@@ -730,6 +755,7 @@ proc oss_fp_pins_taps {} {
     tapcell -distance [oss_trk well_tap_distance] \
             -tapcell_master [oss_trk well_tap] -endcap_master [oss_trk endcap] \
             -halo_width_x $_halo -halo_width_y $_halo
+    oss_fp_macro_blockages           ;# after tapcell: clipped to the remaining rows
 }
 
 # io_placement.rpt: every placed IO pin with its direction, layer, location.
