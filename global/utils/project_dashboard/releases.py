@@ -17,9 +17,9 @@ phase's exits (project(phase_exits)):
   * classify   — per block and exit: the implementation release (any of the
                  exit's implementation flows — release_tags(<exit>)
                  required_flows minus the signoff flows), the signoff releases
-                 (STA / PV / LEC … — flow(release,signoff_flows)), which of the
-                 signoff every exit needs (project(release,exit_signoff_flows))
-                 are missing, and whether the exit was released in phase order.
+                 (STA / PV / LEC … — flow(release,signoff_flows)), which
+                 expected signoff flows are missing, and whether the exit was
+                 released in phase order.
   * roll up    — per phase: per exit how many blocks released it / have all
                  its signoff; per level; the highest exit each block reached.
 
@@ -103,21 +103,18 @@ def scan_block(phase_dir, block, phase_exits):
 
 # ── Classify ─────────────────────────────────────────────────────────────────
 
-def exit_requirements(exits, signoff_flows, exit_signoff):
+def exit_requirements(exits, signoff_flows, enabled_flows):
     """{exit: {'impl': [flows], 'signoff': [flows], 'description'}} — the
-    exit's implementation flows (any one releases it: release_tags(<exit>)
-    required_flows minus the signoff flows) and the signoff every exit needs
-    (project(release,exit_signoff_flows))."""
+    exit's implementation flows (any one releases it) and the signoff flows
+    expected on it, from release_tags(<exit>) required_flows; signoff limited
+    to the project's enabled flows."""
     tags = release_exits.release_tags()
-    bad = [f for f in exit_signoff if f not in signoff_flows]
-    if bad:
-        raise ValueError(f"project(release,exit_signoff_flows): {' '.join(bad)} not in "
-                         f"flow(release,signoff_flows) {' '.join(signoff_flows)}")
+    enabled = set(enabled_flows)
     out = {}
     for e in exits:
         req = tags.get(e, {}).get('required_flows', [])
         out[e] = {'impl': [f for f in req if f not in signoff_flows],
-                  'signoff': list(exit_signoff),
+                  'signoff': [f for f in req if f in signoff_flows and f in enabled],
                   'description': tags.get(e, {}).get('description', '')}
     return out
 
@@ -197,8 +194,6 @@ def release_stats(project, expected_flows):
     phases = dash_config.registry.tcl_list(dash_config.project_value(project, 'phases') or '')
     current = dash_config.require_project_value(project, 'current_phase')
     signoff_flows = dash_config.release_signoff_flows()
-    exit_signoff = [f.upper() for f in dash_config.registry.tcl_list(
-        dash_config.require_project_value(project, 'release,exit_signoff_flows'))]
     enabled = [f.upper() for f in (expected_flows or dash_config.expected_flows(project))]
     levels = sorted({s['level'] for s in hier.values() if s['level']})
     order = _tree_order(hier)
@@ -209,7 +204,7 @@ def release_stats(project, expected_flows):
             exits = release_exits.exits_for_phase(project, ph)
         except release_exits.PhaseExitsError:
             exits = []
-        reqs = exit_requirements(exits, signoff_flows, exit_signoff)
+        reqs = exit_requirements(exits, signoff_flows, enabled)
         phase_dir = os.path.join(rel_path, ph)
         blocks = {}
         n_tags = 0
@@ -244,6 +239,5 @@ def release_stats(project, expected_flows):
             'tags': n_tags,
         })
     return {'release_path': rel_path, 'current_phase': current,
-            'signoff_flows': signoff_flows, 'exit_signoff': exit_signoff,
-            'enabled_flows': enabled,
+            'signoff_flows': signoff_flows, 'enabled_flows': enabled,
             'hierarchy': hier, 'tree_order': order, 'phases': out_phases}
