@@ -1057,6 +1057,10 @@ proc oss_checklist_safe {tag} {
     if {[catch {oss_checklist_metrics $tag} _e]} {
         handle_warning "checklist metrics ($tag) not written: $_e"
     }
+    # checklist library reports (oss_checks.tcl / oss_checkgrp_*.tcl)
+    if {[catch {oss_checks_run $tag} _e]} {
+        handle_warning "checklist library reports ($tag) not written: $_e"
+    }
 }
 
 # Exit-checklist data for this node: reports/checklist_metrics.rpt, one
@@ -1480,3 +1484,6 @@ proc oss_exec_tool {tool script log {extra {}}} {
     }
     return 0
 }
+
+# Checklist library reports (oss_checks_run, oss_check_line)
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/oss_checks.tcl"

@@ -1188,6 +1188,13 @@ def _apply_tool_checklist_map(config: dict, milestone: str, tmap: dict) -> dict:
                 c['grep_pass_if'] = tmap.get(f'grep_pass_if,{name}', 'found')
                 c.pop('metric_pattern', None)
             else:
+                # not covered by the tool map: its own report_pattern, read
+                # from the exit node's reports first (several stages write
+                # the same report names), the run-wide search as fallback
+                pat = c.get('report_pattern', '')
+                if pat and node and default_report:
+                    c['report_file'] = os.path.join(os.path.dirname(default_report),
+                                                    os.path.basename(pat))
                 continue
             rpt = sub(tmap.get(f'report,{name}', default_report))
             if rpt:

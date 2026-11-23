@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Checklist library reports for a finished open-source node, report-only:
+#   cbflow-oss-checks <run_dir> <node> [<node> ...]
+# Loads each node's database and writes its oss_checkgrp_* reports into
+# work/<FLOW>/<node>/reports/ (PD/cmds/PNR/opensource/openroad/v1.0.0/
+# checks_openroad.tcl). Container settings come from the node's launch wrapper.
+set -e
+[ $# -ge 2 ] || { echo "usage: $0 <run_dir> <node> [<node> ...]"; exit 1; }
+RUN=$(cd "$1" && pwd); shift
+set -a; source "$RUN/.run.cbflow.env"; set +a
+SCRIPT="$FLOW_DIR/PD/cmds/PNR/opensource/openroad/v1.0.0/checks_openroad.tcl"
+rc=0
+for NODE in "$@"; do
+    RD="$RUN/work/$CBFLOW_FLOW_TYPE/$NODE/run"
+    L=$(ls "$RD"/launch_*.csh 2>/dev/null | head -1)
+    [ -n "$L" ] || { echo "$NODE: no launch wrapper in $RD (node not run?)"; rc=1; continue; }
+    ( eval "$(sed -n 's/^setenv \([A-Za-z_0-9]*\) \(.*\)$/export \1=\2/p' "$L")"
+      export CBFLOW_RUN_DIR="$RUN" CBFLOW_NODE_NAME="$NODE"
+      "$FLOW_DIR/global/bin/cbflow-oss" openroad "$SCRIPT" "$RD/${NODE}_checks.log" ) \
+      && echo "$NODE: checklist reports written ($RD/${NODE}_checks.log)" \
+      || { echo "$NODE: FAILED (see $RD/${NODE}_checks.log)"; rc=1; }
+done
+exit $rc
