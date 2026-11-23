@@ -30,8 +30,11 @@ set project(release,tag)       "P0_FP_v1"
 # (fp(oss,macro,blockage_sides)) so standard cells sit only in the logic band
 # above it; IO pins on the top edge. Die (set by chain_ai_p1.sh from the
 # released mac_array abstract):
-#   x1 = 10.12 margin + W (rounded up to whole 0.46 um sites) + 10.12 margin;  y1 = 10.88 + H + 500 logic band + 10.88
-set fp(oss,fp,die_area)         {0 0 3759.58 4260.90}   ;# mac_array 3739.135 x 3739.135
+#   x1 = 10.12 margin + W (rounded up to whole 0.46 um sites) + 20 + 10.12 margin:
+#   the 20 um strip right of the macro keeps rows outside its 10 um halo, so
+#   global placement's core (from the rows) spans the macro height; the right
+#   placement blockage covers the strip — no standard cells there;  y1 = 10.88 + H + 500 logic band + 10.88
+set fp(oss,fp,die_area)         {0 0 3779.58 4260.90}   ;# mac_array 3739.135 x 3739.135
 set fp(oss,macro,placement)     {u_mac_array 10.12 10.88 R0}
 set fp(oss,macro,blockage_sides) {left right bottom}
 set fp(oss,pins,region)         top:*
