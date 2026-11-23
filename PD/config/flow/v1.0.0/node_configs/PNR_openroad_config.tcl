@@ -157,6 +157,98 @@ array set pnr {
     checklist,metric,drc_total                   {^DRC violations\s*:\s*(\d+)}
 }
 
+# Milestone checks (PNR_00xx of PLACE_EXIT / CTS_EXIT / PRO_EXIT / BTO / MTO).
+# Their exit definitions carry no operator / threshold, so each is a grep whose
+# pattern is the pass condition (found = PASS): WNS >= 0, violation counts == 0,
+# report / deliverable present. Data: checklist_metrics.rpt, or
+# milestone_checks.rpt (oss_checkgrp_milestone: VT mix, power, constraint
+# issues, reg->reg setup, RUDY congestion, UPF), or the node's deliverables.
+array set pnr {
+    checklist,grep,place_legality          {^Illegal cells\s*:\s*0\s*$}
+    checklist,grep,place_setup_timing      {^Setup WNS\s*:\s*\d}
+    checklist,grep,place_qor               {^Setup WNS\s*:}
+    checklist,grep,place_hold_timing       {^Hold WNS\s*:\s*\d}
+    checklist,grep,place_qor_summary       {^Design area um2\s*:}
+    checklist,grep,place_congestion        {^Congestion RUDY overflow gcells\s*:\s*0\s*$}
+    checklist,report,place_congestion      "work/PNR/${exit_node}/reports/milestone_checks.rpt"
+    checklist,grep,place_power             {^Total power mW\s*:\s*[0-9.]}
+    checklist,report,place_power           "work/PNR/${exit_node}/reports/milestone_checks.rpt"
+    checklist,grep,place_utilization       {^Utilization\s*:\s*[0-9.]}
+    checklist,grep,place_vt_group          {^VT cells total\s*:\s*\d}
+    checklist,report,place_vt_group        "work/PNR/${exit_node}/reports/milestone_checks.rpt"
+    checklist,grep,place_constraint_check  {^DRV violations total\s*:\s*0\s*$}
+    checklist,report,place_constraint_check "work/PNR/${exit_node}/reports/milestone_checks.rpt"
+
+    checklist,grep,cts_clock_qor           {^Clock insertion delay ps\s*:\s*[0-9.]}
+    checklist,grep,cts_opt_qor             {^Setup WNS\s*:}
+    checklist,grep,cts_setup_timing        {^Setup WNS\s*:\s*\d}
+    checklist,grep,cts_hold_timing         {^Hold WNS\s*:\s*\d}
+    checklist,grep,cts_legality            {^Illegal cells\s*:\s*0\s*$}
+    checklist,grep,cts_clock_timing        {^Clock path setup WNS\s*:\s*\d}
+    checklist,report,cts_clock_timing      "work/PNR/${exit_node}/reports/milestone_checks.rpt"
+    checklist,grep,cts_power               {^Clock power mW\s*:\s*[0-9.]}
+    checklist,report,cts_power             "work/PNR/${exit_node}/reports/milestone_checks.rpt"
+    checklist,grep,cts_congestion          {^Congestion RUDY overflow gcells\s*:\s*0\s*$}
+    checklist,report,cts_congestion        "work/PNR/${exit_node}/reports/milestone_checks.rpt"
+    checklist,grep,cts_vt_group            {^VT cells total\s*:\s*\d}
+    checklist,report,cts_vt_group          "work/PNR/${exit_node}/reports/milestone_checks.rpt"
+    checklist,grep,cts_constraint_check    {^Timing constraint issues\s*:\s*0\s*$}
+    checklist,report,cts_constraint_check  "work/PNR/${exit_node}/reports/milestone_checks.rpt"
+
+    checklist,grep,pro_congestion          {^Total overflow\s*:\s*0\s*$}
+    checklist,grep,pro_qor_summary         {^Design area um2\s*:}
+    checklist,grep,pro_legality            {^Illegal cells\s*:\s*0\s*$}
+    checklist,grep,pro_signoff_drc         {^DRC violations\s*:\s*0\s*$}
+    checklist,grep,pro_routes_final        {^DRC violations\s*:\s*0\s*$}
+    checklist,grep,pro_power               {^Total power mW\s*:\s*[0-9.]}
+    checklist,report,pro_power             "work/PNR/${exit_node}/reports/milestone_checks.rpt"
+    checklist,grep,pro_vt_group            {^VT cells total\s*:\s*\d}
+    checklist,report,pro_vt_group          "work/PNR/${exit_node}/reports/milestone_checks.rpt"
+    checklist,grep,pro_constraint_check    {^DRV violations total\s*:\s*0\s*$}
+    checklist,report,pro_constraint_check  "work/PNR/${exit_node}/reports/milestone_checks.rpt"
+
+    checklist,grep,bto_setup_timing        {^Setup WNS\s*:\s*\d}
+    checklist,grep,bto_qor                 {^Setup WNS\s*:}
+    checklist,grep,bto_routing             {^Routing opens\+shorts\s*:\s*0\s*$}
+    checklist,grep,bto_hold_timing         {^Hold WNS\s*:\s*\d}
+    checklist,grep,bto_signoff_drc         {^DRC violations\s*:\s*0\s*$}
+    checklist,grep,bto_power               {^Total power mW\s*:\s*[0-9.]}
+    checklist,grep,bto_legality            {^Illegal cells\s*:\s*0\s*$}
+    checklist,grep,bto_qor_summary         {^Design area um2\s*:}
+    checklist,grep,bto_utilization         {^Utilization\s*:\s*[0-9.]}
+    checklist,grep,bto_vt_group            {^VT cells total\s*:\s*\d}
+    checklist,report,bto_vt_group          "work/PNR/${exit_node}/reports/milestone_checks.rpt"
+    checklist,grep,bto_constraint_check    {^All constraint violations\s*:\s*0\s*$}
+    checklist,report,bto_constraint_check  "work/PNR/${exit_node}/reports/milestone_checks.rpt"
+
+    checklist,grep,mto_gds_complete        {(?s).}
+    checklist,report,mto_gds_complete      "work/PNR/export_data1/outputs/final.gds"
+    checklist,grep,mto_netlist_complete    {^\s*endmodule}
+    checklist,report,mto_netlist_complete  "work/PNR/${exit_node}/outputs/final.v"
+    checklist,grep,mto_def_complete        {^END DESIGN}
+    checklist,report,mto_def_complete      "work/PNR/${exit_node}/outputs/final.def"
+    checklist,grep,mto_lef_complete        {^END LIBRARY}
+    checklist,report,mto_lef_complete      "work/PNR/${exit_node}/outputs/final.lef"
+    checklist,grep,mto_upf_complete        {^UPF supply nets\s*:\s*[1-9]}
+    checklist,report,mto_upf_complete      "work/PNR/${exit_node}/reports/milestone_checks.rpt"
+    checklist,grep,mto_pt_netlist          {^\s*endmodule}
+    checklist,report,mto_pt_netlist        "work/PNR/${exit_node}/outputs/final.v"
+    checklist,grep,mto_fm_netlist          {^\s*endmodule}
+    checklist,report,mto_fm_netlist        "work/PNR/${exit_node}/outputs/final.v"
+    checklist,grep,mto_dc_netlist          {^\s*endmodule}
+    checklist,report,mto_dc_netlist        "work/PNR/${exit_node}/outputs/final.v"
+    checklist,grep,mto_lvs_netlist         {^\s*endmodule}
+    checklist,report,mto_lvs_netlist       "work/PNR/${exit_node}/outputs/final.lvs.v"
+    checklist,grep,mto_vclp_netlist        {^\s*endmodule}
+    checklist,report,mto_vclp_netlist      "work/PNR/${exit_node}/outputs/final.lvs.v"
+    checklist,grep,mto_floorplan           {^DIEAREA}
+    checklist,report,mto_floorplan         "work/PNR/${exit_node}/outputs/final.def"
+    checklist,grep,mto_wscript             {^\s*create_clock}
+    checklist,report,mto_wscript           "work/PNR/${exit_node}/outputs/final.sdc"
+    checklist,grep,mto_wscript_pt          {^\s*create_clock}
+    checklist,report,mto_wscript_pt        "work/PNR/${exit_node}/outputs/final.sdc"
+}
+
 # ┌─ Runtime (minutes) — large blocks route longer than the FC defaults ───────┐
 array set pnr {
     runtime,timeout,place1     240

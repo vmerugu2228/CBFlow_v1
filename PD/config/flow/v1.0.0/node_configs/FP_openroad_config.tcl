@@ -108,7 +108,17 @@ array set fp {
     checklist,metric,macro_spacing               {^Macro spacing violations\s*:\s*(\d+)}
     checklist,metric,macro_orientation           {^Macro orientation violations\s*:\s*(\d+)}
     checklist,metric,io_placement_legality       {^IO placement violations\s*:\s*(\d+)}
+    checklist,report,fp_clock_definitions        "work/FP/${exit_node}/reports/report_clocks.rpt"
+    checklist,grep,fp_clock_definitions          {^Clocks defined\s*:\s*[1-9]}
+    checklist,report,fp_constraint_check         "work/FP/${exit_node}/reports/check_timing.rpt"
+    checklist,grep,fp_constraint_check           {^Constraint check issues\s*:\s*0\s*$}
+    checklist,report,fp_floorplan_rules          "work/FP/${exit_node}/reports/check_floorplan_rules.rpt"
+    checklist,grep,fp_floorplan_rules            {^Floorplan rule violations\s*:\s*0\s*$}
 }
+# report_clocks / check_timing / check_floorplan_rules.rpt, and the library
+# checks' own reports (macro_channel_width: report_design.rpt, power_intent_lint:
+# report_upf.rpt — read from the exit node with their library patterns) are
+# written by oss_checkgrp_fp (global/utils/utilities/v1.0.0/oss_checkgrp_fp.tcl).
 
 # ┌─ Inputs consumed per stage ─────────────────────────────────────────────────┐
 set fp(required_inputs,init_design1)  "work/FP/netlist1/netlist work/FP/sdc1/sdc work/FP/upf1/upf"
