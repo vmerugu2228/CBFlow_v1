@@ -4828,12 +4828,13 @@ def _stamp_errors(path: str, what: str) -> list:
     return []
 
 
-def _block_from_release(path: str):
+def _block_from_release(path: str, pv_pending: bool = False):
     """(name, {view: abs path}, {lib_set: abs path}, errors, pv_dir) for one
     PNR release dir laid out as <release,path>/<phase>/<block>/PNR/<exit>/.
     gds + cdl come from the sibling PV release (<block>/PV/<exit>/), which
     must exist and be stamped complete — there is no fallback to the PNR
-    copies."""
+    copies — unless pv_pending (--pv-pending, explicit): then gds + cdl come
+    from the PNR release and pv_dir is returned as 'PENDING'."""
     path = os.path.abspath(path)
     errors = []
     name = os.path.basename(os.path.dirname(path.rstrip('/')))
@@ -4848,11 +4849,11 @@ def _block_from_release(path: str):
     views = {}
     pv_missing = []
     for key, sub, pat, required in _BLOCK_VIEWS:
-        src_dir = pv_dir if key in _BLOCK_PV_VIEWS else path
+        src_dir = pv_dir if (key in _BLOCK_PV_VIEWS and not pv_pending) else path
         f = os.path.join(src_dir, sub, pat.format(b=name))
         if os.path.isfile(f):
             views[key] = f
-        elif key in _BLOCK_PV_VIEWS:
+        elif key in _BLOCK_PV_VIEWS and not pv_pending:
             pv_missing.append('missing PV {} view: {}'.format(key, f))
         elif required:
             errors.append('missing {} view: {}'.format(key, f))
@@ -4862,6 +4863,13 @@ def _block_from_release(path: str):
     if not libs:
         errors.append('no timing models lib/{}__<lib_set>.lib in {}'.format(name, path))
     errors.extend(_stamp_errors(path, 'PNR'))
+    if pv_pending:
+        for key in _BLOCK_PV_VIEWS:
+            if key not in views:
+                errors.append('missing {} view in the PNR release (--pv-pending): {}'.format(
+                    key, os.path.join(path, dict((k, s) for k, s, _p, _r in _BLOCK_VIEWS)[key],
+                                      dict((k, p) for k, _s, p, _r in _BLOCK_VIEWS)[key].format(b=name))))
+        return name, views, libs, errors, 'PENDING'
     if not os.path.isdir(pv_dir):
         errors.append('PV release dir not found: {} — {}'.format(pv_dir, pv_hint))
     else:
@@ -4926,7 +4934,8 @@ def _cmd_add_blocks(args: argparse.Namespace, lib_config_path: str) -> int:
             logger.error("Release dir not found: {}".format(path))
             failed = True
             continue
-        name, views, libs, errors, pv_dir = _block_from_release(path)
+        name, views, libs, errors, pv_dir = _block_from_release(
+            path, pv_pending=getattr(args, 'pv_pending', False))
         if errors:
             logger.error("Block release {} rejected:".format(path))
             for e in errors:
@@ -4946,7 +4955,11 @@ def _cmd_add_blocks(args: argparse.Namespace, lib_config_path: str) -> int:
             fh.write(pv_dir + "\n")
         logger.info("  block {:<14} lib sets: {}  ← {}".format(
             name, " ".join(sorted(libs)), os.path.abspath(path)))
-        logger.info("  block {:<14} gds/cdl       ← {}".format(name, pv_dir))
+        if pv_dir == 'PENDING':
+            logger.warning("  block {:<14} gds/cdl       ← PNR release (--pv-pending: PV not "
+                           "released yet; re-run add without the flag once it is)".format(name))
+        else:
+            logger.info("  block {:<14} gds/cdl       ← {}".format(name, pv_dir))
     names = _write_blocks_config(tag_dir)
     _ensure_blocks_hook(lib_config_path)
     logger.info("Tag {} blocks: {}".format(os.path.basename(tag_dir), " ".join(names) or "(none)"))
@@ -5329,6 +5342,12 @@ Examples:
                             help='Glob patterns to exclude (optional)')
     add_parser.add_argument('--allow-missing', action='store_true', default=False,
                             help='Proceed if source paths missing (bootstrapping)')
+    add_parser.add_argument('--pv-pending', action='store_true', default=False,
+                            dest='pv_pending',
+                            help='--category block only: take gds / cdl from the PNR '
+                                 'release because PV is not released yet; recorded '
+                                 'as tech(block,<b>,pv_release) "PENDING". Re-run add '
+                                 'without it once PV releases.')
     add_parser.add_argument('--lib-tag-root', default=None, dest='lib_tag_root',
                             help='Override lib_tag_root. Same precedence rules as '
                                  '`generate` — flag > env > project > tech.')
