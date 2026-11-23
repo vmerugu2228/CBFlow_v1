@@ -1207,7 +1207,7 @@ set TAPEOUT_MILESTONES {BTO MTO}
 
 # Maps each milestone to required flows that must complete for sign-off
 # array set milestone_flow_map { … } expanded to per-key `set` statements so `#` comments work natively (Tcl treats `#` as data inside `array set` literals).
-    set milestone_flow_map(FP_EXIT) {SYNTH_PNR PNR FP FCFP}
+    set milestone_flow_map(FP_EXIT) {SYNTH_PNR PNR FP FCFP PV}
     set milestone_flow_map(PLACE_EXIT) {SYNTH_PNR PNR SYNTH}
     set milestone_flow_map(CTS_EXIT) {SYNTH_PNR PNR SYNTH}
     set milestone_flow_map(PRO_EXIT) {SYNTH_PNR PNR SYNTH STA LEC}
@@ -1451,7 +1451,7 @@ proc get_input_handshake {flow input_type} {
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 # array set release_tags { … } expanded to per-key `set` statements so `#` comments work natively (Tcl treats `#` as data inside `array set` literals).
-    set release_tags(FP_EXIT) {description "Floorplan Exit"    required_flows {SYNTH_PNR PNR FP FCFP}}
+    set release_tags(FP_EXIT) {description "Floorplan Exit"    required_flows {SYNTH_PNR PNR FP FCFP PV}}
     set release_tags(PLACE_EXIT) {description "Placement Exit"    required_flows {SYNTH_PNR PNR SYNTH}}
     set release_tags(CTS_EXIT) {description "CTS Exit"          required_flows {SYNTH_PNR PNR SYNTH}}
     set release_tags(PRO_EXIT) {description "Post-Route Exit"   required_flows {SYNTH_PNR PNR SYNTH STA LEC}}
