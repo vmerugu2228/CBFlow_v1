@@ -32,7 +32,7 @@ v2.1.1 replaces this with a **per-user daemon**: one HTTP server per user, deter
 | Before (v2.1.0) | After (v2.1.1) |
 |---|---|
 | One server per run | One server per user |
-| Random port from hash | `9000 + (uid % 1000)` deterministic |
+| Random port from hash | `flow(dashboard,port_base,<DISC>) + (uid % flow(dashboard,port_width))` deterministic (PD: 9000 + uid % 300) |
 | Browser launches per run | One stable URL; browser reuses tabs |
 | Dies when terminal closes | Persists across shells |
 | Up to 200 concurrent ports | Always 1 port |
@@ -92,8 +92,8 @@ cd P0_run_SYNTH_PNR_test1
 # Launch GUI — daemon auto-starts on first call
 cbflow run gui
 
-# Browser opens to http://127.0.0.1:9501/run/<run_id>/
-# (port = 9000 + your uid % 1000)
+# Browser opens to http://127.0.0.1:9201/run/<run_id>/
+# (PD port = 9000 + your uid % 300; see flow(dashboard,port_base,*) below)
 
 # Register more runs from other terminals — daemon stays up
 cd /other/area/P0_run_PNR_test1 && cbflow run gui --no-browser
@@ -126,8 +126,8 @@ cbflow dashboard start --port 9999    # override the deterministic port
 cbflow dashboard status
 # state:  running
 # pid:    25083
-# port:   9501
-# url:    http://127.0.0.1:9501/
+# port:   9201
+# url:    http://127.0.0.1:9201/
 # runs:   5 active, 0 archived
 ```
 
@@ -327,10 +327,10 @@ Then open: http://127.0.0.1:9501/
 
 ### "Port already in use" on `cbflow dashboard start`
 
-The deterministic port `9000 + (uid % 1000)` is occupied by something else (not our daemon). Options:
+The deterministic port `flow(dashboard,port_base,<DISC>) + (uid % flow(dashboard,port_width))` (PD: `9000 + uid % 300`) is occupied by something else (not our daemon). Options:
 
 - `cbflow dashboard start --port 9999` — override
-- Find what's using it: `lsof -iTCP:9501 -sTCP:LISTEN`
+- Find what's using it: `lsof -iTCP:9201 -sTCP:LISTEN`
 
 ### "Another dashboard daemon is already running"
 
@@ -358,4 +358,4 @@ This was a v2.1.0 bug fixed in v2.1.1. The page's JS calls absolute `/api/...` U
 
 ### Old per-run servers from v2.1.0 still showing up
 
-`cbflow dashboard list` only shows runs registered with the daemon. If you still have foreground `start_dashboard` processes from v2.1.0, kill them with `pkill -f race_dashboard.py`. The new daemon's port (9000-range) doesn't conflict with their hash-derived ports (10000-60000 range).
+`cbflow dashboard list` only shows runs registered with the daemon. If you still have foreground `start_dashboard` processes from v2.1.0, kill them with `pkill -f race_dashboard.py`. The daemon bands (9000-10199) don't conflict with the per-run foreground ports (`flow(dashboard,run_port_min|max)` = 30000-59999).

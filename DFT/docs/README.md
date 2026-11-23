@@ -17,7 +17,9 @@ CBflow_clone/
 
 | Flow              | Purpose                                              | Tools                       |
 |-------------------|------------------------------------------------------|-----------------------------|
-| `DFT_INSERT`      | RTL → DFT-inserted RTL (MBIST + OCC + EDT/SSN)       | Tessent, DFT Compiler       |
+| `DFT_INSERT_PASS1`| Core DFT: MBIST + BSCAN                              | Tessent, DFT Compiler       |
+| `DFT_INSERT_PASS2`| Top DFT: TDR / DFT signals / SRI                     | Tessent, DFT Compiler       |
+| `DFT_INSERT_PASS3`| EDT + OCC                                            | Tessent, DFT Compiler       |
 | `SCAN_INSERT`     | Logical netlist → scan-stitched netlist + scandef    | Tessent, DFT Compiler       |
 | `ATPG`            | Pattern generation + fault simulation + coverage     | Tessent, TestMAX            |
 | `GLS_FUNC`        | Gate-level functional simulation (ZD or SDF)         | VCS, Questa                 |
@@ -33,14 +35,31 @@ The framework resolves cmd handlers by trying `$FLOW_DIR/cmds/<FLOW>/...` first
 (PD), then `$CBFLOW_DFT_DIR/cmds/<FLOW>/...` (DFT). The DFT root is exported by
 `PD/bin/cbflow` when the sibling `DFT/` directory exists.
 
-Node configs (stages, dependencies, tool settings) live in `PD/config/` for all
-flows including DFT. This keeps single-source resolution paths from
-`config_loader.tcl`, the dashboard, and the test suite.
+Node configs (stages, dependencies, tool settings) for the DFT flows live in
+`DFT/config/flow/v1.0.0/node_configs/` (`<FLOW>_config.tcl` + per-tool
+`<FLOW>_<tool>_config.tcl`), dispatched by `DFT/config/flow/v1.0.0/flow_config.tcl`.
+
+## Scan insertion in the open-source SYNTH flow
+
+The open-source PD flow (vendor `opensource`, project `opensky`) inserts scan
+chains inside **SYNTH** (Yosys + OpenROAD DFT). It does not use a separate DFT flow. The project keys are:
+
+```tcl
+set project(dft,enable)              true
+set project(dft,max_chain_length)    100
+set project(dft,clock_mixing)        no_mix          ;# no_mix | clock_mix
+set project(dft,scan_enable_pattern) scan_enable_*
+```
+
+SYNTH writes `reports/dft_plan.rpt` and releases a scan-mode SDC
+`<design>.scan.sdc`. With DFT on, clock gating uses the scan ICG
+(`tech(<trk>,icg_scan_cell)`). See
+`PD/docs/02-user-guide/opensource-flow-guide.md` §5.
 
 ## See also
 
-- `DFT_Flow_Reference.md` — full mapping of the 11-activity DFT diagram to the 5 flows
-- `DFT_Insert_Guide.md` — `DFT_INSERT` user guide
+- `DFT_Flow_Reference.md` — full mapping of the 11-activity DFT diagram to the DFT flows
+- `DFT_Insert_Guide.md` — `DFT_INSERT_PASS1/2/3` user guide
 - `Scan_Insert_Guide.md` — `SCAN_INSERT` user guide
 - `ATPG_Guide.md` — `ATPG` user guide
 - `GLS_Verification_Guide.md` — `GLS_FUNC` / `GLS_SCAN_MBIST` user guide

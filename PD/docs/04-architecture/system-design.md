@@ -52,7 +52,7 @@ RACE supports active engine synchronization: when you issue `retrace`, `bypass`,
 | `cbflow run forcevalidate --from X --to Y` | Force validate a range of nodes |
 | `cbflow run forcevalidate --from X` | Force validate from node X to end |
 | `cbflow run forcevalidate --to Y` | Force validate from start to node Y |
-| `cbflow run gui` | Launch web dashboard (auto-port 8080-8180) |
+| `cbflow run gui` | Register the run with the per-user dashboard daemon and open it (PD port 9000 + uid%300) |
 | `cbflow run clean --confirm` | Delete work, logs, and RACE DB |
 | `cbflow run verify-dag` | Verify DAG from node_config without executing |
 | `cbflow run show-graph` | Visualize the RACE DAG |
@@ -124,12 +124,14 @@ project_config.tcl                              #  1. Project-specific settings
           -> mmmc_config.tcl                    #  6. MMMC scenarios, corners, modes
             -> <tool>_config.tcl                #  7. Tool-specific (fc_config, pt_config)
               -> user_config.tcl                #  8. Per-run user overrides
-                -> override_config.tcl          #  9. Global override hook
-                  -> override_config.<flow>.tcl          # 10. Flow-level override
-                      -> override_config.<stage>.tcl     # 12. Stage-type override
-                        -> override_config.<branch>.tcl  # 13. Branch-scoped override
-                          -> override_config.<node>.tcl  # 14. Per-node override
+                -> override_config.tcl          #  9. Global override hook (flow-wide settings go here)
+                  -> override_config.<stage>.tcl         # 10. Stage-type override
+                    -> override_config.<branch>.tcl      # 11. Branch-scoped override
+                      -> override_config.<node_type>.tcl # 12. Node-type override
+                        -> override_config.<node>.tcl    # 13. Per-node override
 ```
+
+There is no flow-name level (`override_config.<FLOW>.tcl` was removed).
 
 **Setup hooks** (flow_proc definitions) load separately after flow_proc definitions:
 ```
@@ -276,7 +278,7 @@ The DB stores node status, timestamps, file checksums for change detection, and 
 
 ### Dashboard Auto-Port
 
-The RACE web dashboard (`cbflow run gui` or `cbflow flow dashboard start`) automatically selects an available port in the 8080-8180 range. If port 8080 is in use, it tries 8081, 8082, etc. This eliminates "Address already in use" errors when multiple dashboards run on the same host.
+`cbflow run gui` registers the run with the per-user dashboard daemon, whose port is deterministic: `flow(dashboard,port_base,<DISC>) + uid % flow(dashboard,port_width)` (PD: 9000 + uid%300). The project/run browser (`cbflow flow dashboard start`) picks a free port in `flow(dashboard,app_port_min..app_port_max)` (8080-8999). A foreground per-run dashboard uses 30000-59999. SmartGrid uses 25000 + md5(uid:project) % 2500. See `global/config/flow/v1.0.0/flow_registry.tcl`.
 
 ---
 
@@ -287,7 +289,7 @@ The RACE web dashboard (`cbflow run gui` or `cbflow flow dashboard start`) autom
 Releases are organized under the project release path:
 
 ```
-$project(release,path)/$phase/$block/$tag/
+$project(release,path)/$phase/$block/<FLOW>/$tag/      # tag defaults to the exit name
     netlist/
     sdc/
     gds/

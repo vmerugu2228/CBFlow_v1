@@ -48,11 +48,13 @@ Any new commit should keep these green. Cat 9 specifically catches the bug class
 ## 2. Module layout
 
 ```
-PD/utils/commands/test_cmd.py           # CLI entry point
-PD/utils/commands/test_suite/
+global/utils/commands/test_cmd.py       # CLI entry point
+global/utils/commands/test_suite/
   __init__.py
   results.py            # shared Results collector
-  static_checks.py      # cats 1-9
+  static_checks.py      # cats 1-18 (18 = hardcode, opt-in)
+  hardcode_scan.py      # no-hardcode scanner (cat 18 + script mode)
+  hardcode_allowlist.txt
   fixtures.py           # picks workarea_test/uc_*.tcl, rewrites run_name
   sandbox.py            # tempdir + run-dir lifecycle
   e2e_runner.py         # cbflow workspace create + cbflow run all subprocess driver
@@ -84,6 +86,7 @@ Runs static cats 1-9 sequentially, then e2e against all 12 flows (one at a time,
 | `--flow SYNTH_PNR` | Single flow |
 | `--flows SYNTH,PNR,STA` | Comma-separated subset |
 | `--category 9` | Single static category |
+| `--hardcode` / `--category hardcode` | No-hardcode audit only (category 18, opt-in) |
 | `--vendor synopsys` | Prefer fixture variant matching this vendor |
 | `--list` | List all categories + e2e checks and exit |
 
@@ -198,6 +201,34 @@ Synthetic stages: `inputs`, `validate`, `release_data`, `export_data` — presen
 Stage-name aliases: `timing_scenario` → `timing`, `timing_setup` → `timing`, `timing_hold` → `timing` — MMMC sub-view templates intentionally inherit the parent stage name.
 
 Add a new alias by editing `static_checks.py:_STAGE_NAME_ALIASES`.
+
+### Cats 10-17
+
+These categories run in the default `--static` set: 10 Resolved-Config Single Source of Truth, 11 Tcl Array-Set Hygiene, 12 Resolver-Output Suspicious Keys, 13 Handler-Required Keys vs Resolver Emit, 14 Command-File Reads vs Config Writes, 15 LSF Per-Node Assignment, 16 LSF Tier Definition Completeness, 17 Release Folder Canonicality.
+
+### Cat 18 — No-Hardcode Audit (opt-in)
+
+`global/utils/commands/test_suite/hardcode_scan.py` scans **code**, never `*/config/**`. It covers `*.py`, `*.tcl`, `*.sh`, `*.html`, `*.js` and the extension-less launchers in `*/bin`. It looks for definitions that belong in config. There are nine rules, and each reports one PASS/FAIL:
+
+| Rule | Catches |
+|---|---|
+| `node-name`, `node-path` | Literal stage / node names and `work/<FLOW>/<node>` paths |
+| `version-default` | Literal `v1.0.0`-style fallbacks |
+| `discipline-list` | Hardcoded PD/DFT/DV/RTL lists |
+| `exit-literal`, `phase-literal` | Literal exits (`BTO`, …) and phases |
+| `release-layout` | Hand-built release paths (use `release_dir` / `cbflow_release_dir`) |
+| `design-default` | Default design names |
+| `pd-net-layer` | Hardcoded power nets / layers |
+
+Before matching, the scanner strips comments, docstrings and the string arguments of message, help and raise calls.
+
+```bash
+cbflow test --hardcode                         # category 18 only
+python3 global/utils/commands/test_suite/hardcode_scan.py --summary
+python3 global/utils/commands/test_suite/hardcode_scan.py --rule exit-literal --all
+```
+
+Script mode exits 1 when there are non-allowlisted findings. Allowlist entries go in `hardcode_allowlist.txt` as `<rule> <path>:<line|*|@func>  # reason`. Category 18 stays out of the default `--static` run (`static_checks.OPT_IN_CATEGORIES`) until the no-hardcode fixes land.
 
 ---
 

@@ -87,6 +87,85 @@ cbflow flow library-manager generate \
 ============================================================
 ```
 
+### add — Add a category to a library tag
+
+`add` scans one category and merges it into an existing **tag directory**,
+`<lib_tag_root>/<tech>/<tag>/`. Other categories are preserved.
+
+```bash
+cbflow flow library-manager add --tech <tech> --tag <TAG> --category <cat> --path <dir> [<dir>...]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--tag` | Existing tag to extend (required) |
+| `--category` | `analog`, `ip`, `memory`, `io`, `stdcell` or `block` (required) |
+| `--path` | Source directories (for `block`: the block's PNR release dir) |
+| `--tech` / `--tech-config` | Technology name, or an explicit `tech_config.tcl` |
+| `--tracks`, `--vts` | `stdcell` only. Auto-detected if omitted. |
+| `--exclude` | Glob patterns to skip |
+| `--allow-missing` | Proceed if source paths are missing (bootstrapping) |
+| `--pv-pending` | `block` only. See below. |
+| `--lib-tag-root` | Override the tag root. Precedence: flag > `CBFLOW_LIB_TAG_ROOT` > `project(lib_tag_root)` > `tech(lib_tag_root)`. |
+| `--project` | Project whose `project(lib_tag_root)` locates the tag (default `$CBFLOW_PROJECT_NAME`) |
+| `--version` | Config version (default `v1.0.0`) |
+
+**Shared categories** (`memory`, `io`, `analog`, `ip`): every view is bundled.
+Files are symlinked into `<tag>/<cat>/{lef,gds,cdl,verilog,...}`, and `lib_config.tcl` gets these keys:
+
+```tcl
+set tech(lef,memory)     [list .../sky130_sram_1kbyte_1rw1r_32x256_8.lef]
+set tech(gds,memory)     [list .../sky130_sram_1kbyte_1rw1r_32x256_8.gds]
+set tech(cdl,memory)     [list .../sky130_sram_1kbyte_1rw1r_32x256_8.spice]   ;# .cdl / .spice / .sp
+set tech(verilog,memory) [list .../sky130_sram_1kbyte_1rw1r_32x256_8.v]
+set tech(lib,<corner>,timing,memory) [list ...]
+```
+
+Empty categories are written as `[list ]`. When you add a non-stdcell category,
+the existing `tech(corners)` list is kept and is not replaced by the added
+library's corners.
+
+**Blocks** (`--category block`): this adds a released hierarchical block (DL3 or DL2) as a hard macro for its parent.
+
+```bash
+cbflow flow library-manager add --tech skywater_130nm --tag OSS1 --category block \
+    --project opensky --path <release,path>/P1/mac_array/PNR/PRO_EXIT
+```
+
+| View | From |
+|---|---|
+| `lef/<b>.lef`, `netlist/<b>.v`, `netlist/<b>.lvs.v` (opt), `def/<b>.def` (opt), `sdc/<b>.sdc` (opt), `lib/<b>__<lib_set>.lib` | PNR release (`--path`) |
+| `gds/<b>.gds`, `netlist/<b>.cdl` | Sibling **PV** release `<phase>/<block>/PV/<exit>`, which must be `RELEASE_COMPLETE` with `STATUS=PASS` |
+| `spef/<b>_<rc>.spef` | PNR release `spef/` (symlinked) |
+
+`--pv-pending` takes the GDS / CDL from the PNR release while PV has not
+released yet. The block is then recorded as pending. Re-run `add` without the flag once PV
+releases. Without the flag there is no fallback, and a missing or failed PV release is an error.
+
+`add` regenerates `<tag>/blocks_config.tcl` (sourced from `lib_config.tcl`) on every run:
+
+```tcl
+set tech(blocks)                    [list ai_subsys ctrl_subsys gcd mac_array]
+set tech(block,mac_array,release)   ".../P1/mac_array/PNR/PRO_EXIT"
+set tech(block,mac_array,pv_release) ".../P1/mac_array/PV/PRO_EXIT"   ;# or "PENDING"
+set tech(block,mac_array,lef)       "$_lib_tag_dir/block/mac_array/lef/mac_array.lef"
+set tech(block,mac_array,lib_sets)  {...}
+set tech(block,mac_array,lib,<lib_set>) "..."
+set tech(block,mac_array,spef_corners) [list rc_max rc_min rc_typ]
+set tech(block,mac_array,spef,rc_max) "$_lib_tag_dir/block/mac_array/spef/mac_array_rc_max.spef"
+```
+
+Flat STA (`sta(oss,sta,mode) flat`) reads `tech(block,<b>,netlist)` and `tech(block,<b>,spef,<rc>)` for every descendant.
+
+### Selecting a tag per run
+
+```tcl
+# setup/user_config.tcl
+set project(lib_config_tag) "OSS2"
+```
+
+The run's user_config value wins over the project's value. The workarea scripts set it from `LIB_TAG`.
+
 ### coverage — Show library coverage matrix
 
 ```bash

@@ -2,6 +2,12 @@
 
 **Version:** 2.0.0 | **April 2026**
 
+> **2026-11:** SYNTH, FP, PNR, STA, PV and LEC also run with the open-source
+> vendor on sky130. Select it with `<flow>(tool,name)` set to `yosys`, `openroad`, `opensta` or `magic`.
+> The open-source stage lists differ from the ones below; see the
+> [Open-Source Flow Guide](opensource-flow-guide.md). For design releases to exit
+> milestones, see the [Exit Release Guide](exit-release-guide.md).
+
 ---
 
 ## 1. Getting Started

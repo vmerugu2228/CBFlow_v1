@@ -22,6 +22,7 @@
 12. [Subnode View](#12-subnode-view)
 13. [Execution Control](#13-execution-control)
 14. [Auto-Refresh and Live Updates](#14-auto-refresh-and-live-updates)
+15. [Run Dashboard Daemon Features (2026-11)](#15-run-dashboard-daemon-features-2026-11)
 
 ---
 
@@ -45,7 +46,9 @@ Open this URL in your browser.
 
 ### Auto-Port Selection
 
-The GUI automatically scans ports in the **8080-8180** range and binds to the first available port. If port 8080 is already in use (e.g., by another user's dashboard), it tries 8081, 8082, and so on. This eliminates "Address already in use" errors entirely.
+> **Current behavior (since v2.1.1):** `cbflow run gui` registers the run with the per-user dashboard daemon, which runs on a deterministic port (PD: `9000 + uid % 300`; see [§15](#15-run-dashboard-daemon-features-2026-11) and the [Dashboard Daemon Guide](dashboard-daemon-guide.md)). The auto-port scan described below applies to the project/run browser (`cbflow flow dashboard start`, `flow(dashboard,app_port_min..app_port_max)` = 8080-8999).
+
+The browser scans ports from **8080** upward and binds to the first available port. If port 8080 is already in use (for example, by another user's dashboard), it tries 8081, 8082, and so on.
 
 ```
 # If 8080 is occupied:
@@ -709,6 +712,75 @@ The GUI uses a smart differential SVG update mechanism. Instead of re-rendering 
 ### Manual Refresh
 
 If you need to force an immediate refresh (e.g., after making changes via CLI), press **F5** or click the refresh button in the toolbar.
+
+---
+
+## 15. Run Dashboard Daemon Features (2026-11)
+
+`cbflow run gui` registers the run with the per-user dashboard daemon and opens it there.
+
+- The daemon port is `flow(dashboard,port_base,<DISC>) + (uid % flow(dashboard,port_width))`. For PD that is `9000 + uid % 300`, for example 9201 for uid 501.
+- A project-scoped daemon (`--project`) uses `flow(dashboard,project_port_base,<DISC>)` (PD 20000) + hash % 1000.
+- All keys are in `global/config/flow/v1.0.0/flow_registry.tcl`. The `cbflow --help` text still prints the older formulas (`9000+uid%500`, `20000+hash%2500`).
+
+### Runs table (daemon index)
+
+| Column | Content |
+|---|---|
+| Run | Run name. The run directory path is the tooltip. |
+| Block | Taken from the run name. Runs are named `<phase>_run_<FLOW>_<block>_<run>`. |
+| Flow, Current Status | |
+| Total runtime | First job start → last job end. Shown live while the run is running. |
+| Age | Days since the run was created (`run_info.created_at`). Hover for the timestamp. |
+
+- Every header sorts on click, and a second click reverses the order. Blanks sort last.
+- The sort survives the 5 s refresh (`flow(dashboard,poll_ms)`).
+- With no sort column picked, running runs are listed first.
+
+### Action bar
+
+An always-visible icon bar after the byline has these buttons: **Run, Stage, Retrace, From, Bypass, Force, Validate, Release, Stop**. They are the same actions as the Flow menu.
+
+### Multi-select
+
+- **Shift+click** toggles a node in the selection.
+- **Shift+drag** on empty canvas draws a box. It selects the nodes whose centre is inside the box.
+- A plain drag pans; **Ctrl+drag** moves nodes.
+
+Selected nodes get bulk actions (Run / Bypass / Force / Force Validate selected) in the selection strip and in the right-click menu. **Esc** clears the selection.
+
+### Set Dependencies…
+
+Right-click a node and choose **Set Dependencies…** to open a dialog that rewires its upstream nodes. The dialog has a reset option. It is the same as:
+
+```bash
+cbflow run set-dep --node export_data1 --deps place1
+cbflow run set-dep --node export_data1 --reset
+```
+
+### MMMC dialog
+
+- The Save bar sticks to the bottom of the dialog.
+- **All (N)** selects every scenario currently visible, so the filters apply.
+- Any scenario can be selected. In dynamic STA, a scenario that is in neither the setup set nor the hold set is timed for both.
+
+### Release-node form
+
+Selecting a `release_data` node shows:
+
+- the released tag
+- an editable tag (empty means the exit name; characters `[A-Za-z0-9_-]`)
+- **Publish to SmartGrid**
+- **Replace existing entry**
+
+**Save** writes `project(release,tag)`, `project(release,publish)` and
+`project(release,publish_override)` to `setup/override_config.<node>.tcl`.
+Save does not run the node. Re-run the node; when it finishes, it publishes if Publish is set.
+See [Exit Release Guide](exit-release-guide.md).
+
+### Open Log
+
+**Open Log** in the right-click menu opens the node's tool run log.
 
 ---
 

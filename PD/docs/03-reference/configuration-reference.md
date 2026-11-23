@@ -35,12 +35,14 @@ $FLOW_DIR/cmds/<FLOW>/<vendor>/<tool>/<ver>/
  6. mmmc_config.tcl                 (MMMC scenarios, corners, modes)
  7. <tool>_config.tcl               (tool-specific: fc_config.tcl, pt_config.tcl)
  8. user_config.tcl                 (per-run user overrides)
- 9. override_config.tcl             (global override)
-10. override_config.<flow>.tcl      (flow-level override)
-11. override_config.<stage>.tcl     (stage-type override, e.g., override_config.cts.tcl)
-12. override_config.<branch>.tcl    (branch-scoped override, e.g., override_config.timing_fix.tcl)
+ 9. override_config.tcl             (global override — also the place for flow-wide settings)
+10. override_config.<stage>.tcl     (stage-type override, e.g., override_config.cts.tcl)
+11. override_config.<branch>.tcl    (branch-scoped override, e.g., override_config.timing_fix.tcl)
+12. override_config.<node_type>.tcl (node-type override)
 13. override_config.<node>.tcl      (per-node override, e.g., override_config.cts2.tcl)
 ```
+
+There is no flow-name level: `override_config.<FLOW>.tcl` is not read. The run-dashboard release form writes `override_config.<node>.tcl`.
 
 Command files source this single `config.tcl` instead of sourcing configs individually. The RACE engine sets `CBFLOW_NODE_NAME` and `CBFLOW_SUBNODE` env vars per job so command files use dynamic paths to locate the correct generated files.
 
@@ -55,14 +57,26 @@ config/flow/v1.0.0/release_config.tcl
 
 ### Predefined Release Tags (`release_tags` array)
 
-| Tag | Min Phase | Required Flows |
-|-----|-----------|----------------|
-| `FP_EXIT` | P0 | FP, FCFP, SYNTH_PNR |
-| `PLACE_EXIT` | P0 | SYNTH_PNR, PNR |
-| `CTS_EXIT` | P1 | SYNTH_PNR, PNR |
-| `PRO_EXIT` | P1 | SYNTH_PNR, PNR |
-| `BTO` | P2 | SYNTH_PNR, PNR, PV, STA, LEC, CLP, EMIR |
-| `MTO` | P3 | SYNTH_PNR, PNR, PV, STA, LEC, CLP, EMIR |
+| Tag | Required Flows (`release_tags(<exit>) {... required_flows {...}}`) |
+|-----|----------------|
+| `FP_EXIT` | SYNTH_PNR, PNR, FP, FCFP, PV |
+| `PLACE_EXIT` | SYNTH_PNR, PNR, SYNTH |
+| `CTS_EXIT` | SYNTH_PNR, PNR, SYNTH |
+| `PRO_EXIT` | SYNTH_PNR, PNR, SYNTH, STA, LEC |
+| `BTO` | SYNTH_PNR, PNR, SYNTH, FP, STA, LEC, CLP, PV, EMIR, ECO |
+| `MTO` | SYNTH_PNR, PNR, SYNTH, FP, STA, LEC, CLP, PV, EMIR, ECO, POPT |
+
+The flows in `flow(release,signoff_flows)` are signoff. The remaining required flows are implementation alternatives: any one of them releases the exit. Which exits a phase has is project-defined in `project(phase_exits)`.
+
+### Exit ordering and stage mapping
+
+| Key | Value | Use |
+|-----|-------|-----|
+| `MILESTONE_STAGE_MAPPING(<exit>)` | FP_EXIT=init_design, PLACE_EXIT=place, CTS_EXIT=cts_opt, PRO_EXIT=pro, BTO/MTO=signoff | The release exit follows the export's source stage. An exit-named tag must map to the same stage. |
+| `MILESTONE_ORDER` | `{FP_EXIT PLACE_EXIT CTS_EXIT PRO_EXIT BTO MTO}` | Global exit order (release-time and publish-time gates) |
+| `TAPEOUT_MILESTONES` | `{BTO MTO}` | No silent waivers / SKIPPED mandatory checks |
+
+See [Exit Release Guide](../02-user-guide/exit-release-guide.md).
 
 ### Per-Flow Deliverables (`release_deliverables` array)
 
@@ -76,13 +90,41 @@ Set by leads in `config/project/<name>/<ver>/<name>_config.tcl`:
 |----------|-------------|
 | `project(release,active_tag)` | Currently active milestone tag (e.g., `BTO`) |
 | `project(release,expiry_date)` | Tag expiry (e.g., `2026-06-30`) |
-| `project(release,path)` | Shared release base directory |
+| `project(release,path)` | Shared release base directory (layout `<path>/<phase>/<block>/<FLOW>/<tag>`) |
+| `project(release,tag)` | Release tag override (default: the exit name) |
+| `project(release,block_name)` | Block directory (default: design name) |
+| `project(release,publish)` / `project(release,publish_override)` | Release node publishes to SmartGrid on finish / replaces an existing entry |
+| `project(phase_exits)` | `{<phase> {<exit> ...} ...}`: exits each phase delivers, in order |
 
 ### Also Contains
 - `release_exit_files` — mandatory files per flow/milestone/phase
 - `phase_criteria` — QoR thresholds per milestone/phase
 - `milestone_flow_map` — which flows each milestone requires
 - `flow_input_handshake` — downstream flow input-to-upstream mapping
+
+---
+
+## flow_registry.tcl (global runtime keys)
+
+### Location
+
+```
+global/config/flow/v1.0.0/flow_registry.tcl
+```
+
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `flow(test_mode)` / `flow(use_lsf)` / `flow(use_xterm)` | `false` / `false` / `true` | Launch mode |
+| `flow(max_parallel_jobs)` | `0` (unlimited) | Cap on parallel local jobs (`run_signoff.sh MAX_PARALLEL=<n>`) |
+| `flow(dashboard,port_base,<DISC>)` / `flow(dashboard,port_width)` | PD 9000, DFT 9300, DV 9600, RTL 9900 / 300 | Per-user run-dashboard daemon port = base + uid % width |
+| `flow(dashboard,project_port_base,<DISC>)` / `project_port_width` | PD 20000 … RTL 23000 / 1000 | Project-scoped daemon |
+| `flow(dashboard,run_port_min)` / `run_port_max` | 30000 / 59999 | Foreground per-run dashboard |
+| `flow(dashboard,poll_ms)`, `poll_active_ms`, `poll_idle_ms`, `poll_error_ms` | 5000, 3000, 10000, 15000 | Browser polling |
+| `flow(dashboard,floorplan_cells_max_bytes)` | `12000000` | SmartGrid floorplan std-cell payload budget (std cells are sampled down to fit) |
+| `flow(smartgrid,port_base)` / `port_span` | 25000 / 2500 | SmartGrid port = base + md5(uid:project) % span |
+| `flow(smartgrid,bind_addr)` / `state_dir` | `127.0.0.1` / `~/.cbflow/project-dashboard` | |
+| `flow(release,signoff_flows)` | `{STA PV LEC CLP EMIR ECO POPT}` | Signoff flows on the SmartGrid releases page |
+| `flow(report,slack_digits)` | `3` | WNS/TNS decimals in reports and SmartGrid |
 
 ---
 
@@ -392,14 +434,12 @@ Keyed by `{FLOW},{MILESTONE},{PHASE}` or `{FLOW},{PHASE}` for flows without stag
 Maps each milestone to required flows that must complete for sign-off:
 
 ```tcl
-array set milestone_flow_map {
-    FP_EXIT    {FP FCFP SYNTH_PNR}
-    PLACE_EXIT {SYNTH_PNR PNR}
-    CTS_EXIT   {SYNTH_PNR PNR}
-    PRO_EXIT   {SYNTH_PNR PNR}
-    BTO        {SYNTH_PNR PNR PV STA LEC CLP EMIR}
-    MTO        {SYNTH_PNR PNR PV STA LEC CLP EMIR}
-}
+set milestone_flow_map(FP_EXIT)    {SYNTH_PNR PNR FP FCFP PV}
+set milestone_flow_map(PLACE_EXIT) {SYNTH_PNR PNR SYNTH}
+set milestone_flow_map(CTS_EXIT)   {SYNTH_PNR PNR SYNTH}
+set milestone_flow_map(PRO_EXIT)   {SYNTH_PNR PNR SYNTH STA LEC}
+set milestone_flow_map(BTO)        {SYNTH_PNR PNR SYNTH FP STA LEC CLP PV EMIR ECO}
+set milestone_flow_map(MTO)        {SYNTH_PNR PNR SYNTH FP STA LEC CLP PV EMIR ECO POPT}
 ```
 
 ### Section 3: phase_criteria
@@ -598,7 +638,7 @@ RACE reads these dependency declarations to construct the DAG at runtime.
 
 ---
 
-## Tech Configs (3 files)
+## Tech Configs
 
 ### Location
 
@@ -613,6 +653,12 @@ config/tech/<tech_node>/v1.0.0/tech_config.tcl
 | GF 22nm (22FDX) | `config/tech/gf_22nm/v1.0.0/tech_config.tcl` |
 | TSMC 7nm | `config/tech/tsmc_7nm/v1.0.0/tech_config.tcl` |
 | TSMC 5nm | `config/tech/tsmc_5nm/v1.0.0/tech_config.tcl` |
+| GF 28nm | `global/config/tech/gf_28nm/v1.0.0/tech_config.tcl` |
+| SkyWater 130nm (open-source flow) | `global/config/tech/skywater_130nm/v1.0.0/tech_config.tcl` |
+
+Base tech configs live in `global/config/tech/`; the PD overlay (`tech_pd_config.tcl`) lives in `PD/config/tech/`.
+
+Keys used by the open-source flow (skywater_130nm): `tech(<trk>,icg_cell)` and `tech(<trk>,icg_scan_cell)` (clock gating), `tech(vt_variants_available)` and `tech(vt_pattern,<vt>)` (multi-Vt), `tech(memory,power_pins|ground_pins)` and `tech(memory,lib_set_map)` (SRAM macros), and `tech(klayout,drc)` (DRC deck). The library tag adds `tech(lef|gds|cdl|verilog,<cat>)` and `tech(block,<b>,*)`; see the [Library Manager guide](../02-user-guide/library-manager-user-guide.md).
 
 ### Purpose
 
@@ -632,7 +678,7 @@ Tech configs define library sets per PVT corner (e.g., `ss_0760v_150c`, `tt_0800
 
 ---
 
-## Project Configs (2 files)
+## Project Configs
 
 ### Location
 
@@ -646,6 +692,10 @@ config/project/<project_name>/v1.0.0/<project_name>_config.tcl
 |---------|------|
 | **phoenix** | `config/project/phoenix/v1.0.0/phoenix_config.tcl` |
 | **bumblebee** | `config/project/bumblebee/v1.0.0/bumblebee_config.tcl` |
+| **denali** | `global/config/project/denali/v1.0.0/denali_config.tcl` |
+| **opensky** | `global/config/project/opensky/v1.0.0/opensky_config.tcl` (open-source sky130; see [Open-Source Flow Guide](../02-user-guide/opensource-flow-guide.md)) |
+
+Project-level keys added for the open-source flow: `project(phase_exits)`, `project(pdn,enable)`, `project(dft,enable|max_chain_length|clock_mixing|scan_enable_pattern)`, `project(vt_flavors)`, `project(default_tools)`, `project(lib_config_tag)` and `project(lib_tag_root)`.
 
 ### Purpose
 
@@ -687,7 +737,7 @@ Project-level overrides customizing CBflow behavior for a specific project. Incl
 
 RACE DB path structure: `$project(race,db_path)/$project/$domain/$flow/$user_$run_$uid.db`
 
-Release path structure: `$release_path/$phase/$block_name/$release_tag`
+Release path structure: `$release_path/$phase/$block_name/<FLOW>/$release_tag`
 
 Example: `/proj/bumblebee/releases/P2/top_chip/v1.0.2`
 

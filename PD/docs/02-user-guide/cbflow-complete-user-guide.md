@@ -48,7 +48,7 @@ CBflow is a comprehensive Physical Design (PD) flow management system for semico
 - **Version-controlled releases** with component-level tracking
 - **Version locking** -- released versions are permanently read-only (`chmod 444` + `.locked` marker), irreversible
 - **Dev workflow** -- `cbflow flow dev` commands with `-dev` suffix convention for in-progress versions
-- **Web dashboard** for project visibility (auto-port 8080-8180 range)
+- **Web dashboard** for project visibility (per-user run-dashboard daemon; SmartGrid per project)
 - **Plugin system** for custom flow extensions
 
 ### Design Philosophy
@@ -372,7 +372,7 @@ cbflow flow metrics collect                # Collect metrics to database
 cbflow flow metrics report                 # Show metrics summary
 cbflow flow metrics report --flow PNR      # Filter by flow
 cbflow flow metrics export --format csv    # Export metrics
-cbflow flow dashboard start                # Start web dashboard (auto-port 8080-8180)
+cbflow flow dashboard start                # Start project/run browser (auto-port 8080-8999)
 ```
 
 ---
@@ -1476,7 +1476,7 @@ cbflow flow metrics report --flow PNR
 # Export to CSV
 cbflow flow metrics export --format csv
 
-# Launch web dashboard (auto-selects available port in 8080-8180 range)
+# Register the run with the per-user dashboard daemon and open it (PD port 9000 + uid%300)
 cbflow run gui
 # Open http://localhost:<port> in browser (port printed on startup)
 ```

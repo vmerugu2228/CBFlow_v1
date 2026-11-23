@@ -13,13 +13,15 @@ CBflow supports two release modes:
 All releases follow a structured path:
 
 ```
-$project(release,path)/$phase/$block_name/$release_tag
+$project(release,path)/$phase/$block_name/<FLOW>/$release_tag
 ```
 
 For example:
 ```
-/releases/bumblebee/P0/cpu_core/v1.0.2
+/releases/opensky/P1/gcd/PNR/PRO_EXIT
 ```
+
+The per-flow `<FLOW>` level was added in 2026-11. Design release tags default to the exit name. Exit releases, the exit-order gates and publishing are covered in the [Exit Release Guide](exit-release-guide.md); this page covers framework version releases.
 
 ## Auto Mode (Quick Releases)
 

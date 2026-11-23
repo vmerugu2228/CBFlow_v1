@@ -16,6 +16,7 @@ This document provides a comprehensive reference for all stage variables across 
 8. [SYNTH Flow](#synth-flow)
 9. [FP Flow](#fp-flow)
 10. [ECO Flow](#eco-flow)
+11. [Open-Source Flows (sky130)](#open-source-flows-sky130)
 
 ---
 
@@ -618,6 +619,58 @@ The ECO flow implements engineering change orders on a post-route database. All 
 
 ---
 
+## Open-Source Flows (sky130)
+
+These are the open-source (`opensource` vendor) overlays: `SYNTH_yosys`, `FP_openroad`, `PNR_openroad`, `STA_opensta`, `PV_magic` and `LEC_yosys` in `PD/config/flow/v1.0.0/node_configs/`. Their tool keys use the `oss,` prefix. The [Open-Source Flow Guide](02-user-guide/opensource-flow-guide.md) has the full tables. The most-used keys are:
+
+### Stages
+
+| Flow | Stages |
+|------|--------|
+| SYNTH | rtl1, sdc1, upf1, synthesis1, export_data1, release_data1 |
+| FP | netlist1, sdc1, upf1, init_design1, floorplan1, powerplan1, export_data1, release_data1 |
+| PNR | netlist1, sdc1, def1, upf1, init_design1, place1, cts1, cts_opt1, route1, pro1, signoff1, export_data1, release_data1 |
+| STA | netlist1, sdc1, def1, extraction1, timing1, merge_reports1, release_data1 |
+| PV | netlist1, gds1, drc1, lvs1, merge_data1, release_data1 |
+| LEC | netlist_golden1, netlist_revised1, compare1, release_data1 |
+
+### Key variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `<flow>(tool,name)` | node-config `default_tool` | `yosys` / `openroad` / `opensta` / `magic` selects the overlay |
+| `<flow>(oss,tool,<stage>)` | per overlay | Container binary per stage (`yosys`, `openroad`, `sta`, `oss_tclsh`) |
+| `synth(oss,synth,flatten)` | `true` | Flatten own hierarchy (child macros stay blackboxes) |
+| `synth(oss,synth,abc_delay_ps)` | `0` | ABC delay target (0 = area) |
+| `synth(oss,clock_gating,enable)` | `true` | Yosys clock gating with `tech(<trk>,icg_cell)` / `icg_scan_cell` |
+| `synth(oss,clock_gating,min_ffs)` | `4` | Min flops per gated group |
+| `project(dft,enable)` / `dft,max_chain_length` / `dft,clock_mixing` / `dft,scan_enable_pattern` | opensky: `true` / `100` / `no_mix` / `scan_enable_*` | Scan insertion in SYNTH |
+| `project(vt_flavors)` | opensky: `svt` | Allowed Vts; others become dont_use |
+| `project(pdn,enable)` | opensky: `true` | `false` = no power grid, power checks skipped |
+| `project(lib_config_tag)` | opensky: `OSS0` | Library tag (settable per run in user_config) |
+| `fp(oss,fp,die_area)` | `""` | `{x0 y0 x1 y1}` die; overrides utilization sizing |
+| `fp(oss,fp,core_utilization)` | `45` | Std-cell utilization % |
+| `fp(oss,macro,placement)` | `""` | `""` auto / `row` / `{inst x y orient ...}` |
+| `fp(oss,macro,blockage_sides)` | `{}` | `left right bottom top` macro-to-core-edge blockages |
+| `fp(oss,pins,region)` | `""` | IO pin region (e.g. `top:*`) |
+| `pnr(input,def_file_release_tag)` | — | FP release tag for the floorplan (e.g. `FP_EXIT`) |
+| `pnr(oss,place,density)` | `0.55` | Placement density |
+| `pnr(oss,threads)` | `6` | OpenROAD threads |
+| `pnr(oss,route,max_drc)` / `pnr(oss,fail_on_violations)` | `0` / `false` | Route DRC gate |
+| `pnr(oss,path_groups)` | R2R I2R R2O I2O | Path-group WNS/TNS/NVP per stage × corner |
+| `pnr(oss,release,source_stages)` | `{place cts cts_opt route pro signoff}` | Stages an export/release pair may release |
+| `sta(oss,sta,mode)` | `flat` | `flat` (descendant netlists + per-instance SPEF) / `hier` (child .lib models) |
+| `sta(oss,report_power)` | `true` | Per-scenario power report |
+| `sta(oss,drv,max_fanout)` | `10` | DRV fanout limit |
+| `sta(oss,dont_touch,instances)` | `{}` | Instances that must exist |
+| `pv(oss,drc,engine)` | `klayout` | `klayout` / `magic` |
+| `pv(oss,pv,mode)` | `flat` | `flat` / `hier` (children emptied for DRC, black boxes for LVS) |
+| `pv(signoff,lvs_required)` | `true` | `false` = DRC-only verdict |
+| `<flow>(release,exit_from)` | STA/PV: `input,release_tag`; LEC: `input,netlist_revised_release_tag` | Signoff flows read only that exit's release |
+| `<flow>(release,exit_exempt_inputs)` | `{}` (LEC: `{netlist_golden}`) | Inputs exempt from the exit-tag rule |
+
+---
+
 ## Variable Naming Conventions
 
 All CBflow variables follow a consistent naming pattern:
@@ -671,7 +724,7 @@ Variables are resolved in the following order (later overrides earlier):
 7. `node_tool` - Tool-specific node config
 8. `mmmc` - MMMC auto-generated scenarios
 9. `user` - User-level overrides (`user_config.tcl`)
-10. `overrides` - Per-node override config (`override_config.<node>.tcl`)
+10. `overrides` - `setup/override_config.tcl`, then `.<stage>.tcl`, `.<branch>.tcl`, `.<node_type>.tcl`, `.<node>.tcl` (no flow-name level)
 
 ---
 

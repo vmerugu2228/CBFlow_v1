@@ -5,6 +5,109 @@
 **Test suite:** 1338 static PASS + 419 E2E PASS · 0 FAIL · 114 SKIP · 100% pass rate on runnable tests
 **Coverage:** 12 PD flows × 2 projects (bumblebee + denali), 5 DFT flows + 7 DV flows scaffolded
 
+## 2026-11-23 update — Open-source sky130 flow, exit releases, SmartGrid
+
+About 116 commits since 2026-11-19. The docs are in `PD/docs/02-user-guide/`:
+`opensource-flow-guide.md`, `exit-release-guide.md`, `project-dashboard-guide.md` (SmartGrid),
+`library-manager-user-guide.md` and `cbflow-gui-user-guide.md` §15.
+
+### Open-source RTL-to-GDS (sky130, project `opensky`)
+- **Vendor `opensource`.** Select the tool with `<flow>(tool,name)`:
+  - SYNTH `yosys`
+  - FP and PNR `openroad`
+  - STA `opensta` (OpenRCX + OpenSTA)
+  - PV `magic` (KLayout DRC by default, Magic extract + Netgen LVS)
+  - LEC `yosys`
+
+  Tools run in a container through `global/bin/cbflow-oss`. Its subcommands are `<tool> <cmd> <log>`, `exec`, `check` and `gui`, and its environment variables are `CBFLOW_OSS_IMAGE`, `CBFLOW_OSS_PDK_ROOT`, `CBFLOW_OSS_MOUNTS`, `CBFLOW_OSS_MAGICRC` and `CBFLOW_OSS_ENGINE`.
+- **Hierarchy.** DL3 `gcd`, `mac_array` → DL2 `ctrl_subsys`, `ai_subsys` → DL1 `opensky_chip`. Blocks are built bottom-up through library tags (OSS0 / OSS1 / OSS2). A run picks its tag with `project(lib_config_tag)`, which can be set in user_config.
+- **Command files.** Restructured into flow procs: `load_design / <operation> / report / save_design`. SYNTH uses `read_design / synthesize / report / write_design / dft_insert`.
+- **SYNTH features:**
+  - DFT scan insertion: `project(dft,enable|max_chain_length|clock_mixing|scan_enable_pattern)`, with a scan SDC `<design>.scan.sdc`.
+  - Clock gating: `synth(oss,clock_gating,enable|min_ffs)`, using `tech(<trk>,icg_cell|icg_scan_cell)`.
+  - Multi-Vt: `project(vt_flavors)` with `oss_vt_dont_use` / `oss_pnr_dont_use`, shared with PNR.
+  - Memory report: `synthesis_memory.rpt`.
+- **SRAM macros.** Supported through the memory category: `tech(gds|cdl|verilog,memory)`, `tech(memory,lib_set_map|power_pins|ground_pins)`, the `leaf_mem` PDN (met5 pins), macros kept in synthesis, and LVS black boxes. The gcd P2 RTL uses two `sky130_sram_1kbyte_1rw1r_32x256_8`.
+- **FP:**
+  - `fp(oss,pins,region)`
+  - `fp(oss,macro,blockage_sides)`: created after tapcell, clipped to rows, endcaps excluded
+  - `fp(oss,macro,placement)` (`""` / `row` / explicit)
+  - `fp(oss,fp,die_area)`
+  - `project(pdn,enable)` power-grid switch
+  - PNR reads the floorplan from the FP release.
+- **STA:**
+  - `sta(oss,sta,mode) flat|hier`: flat reads the descendant netlists and stitches SPEF per instance.
+  - `parasitic_annotation.rpt`.
+  - STA_SIGNOFF checks STA_0012 to STA_0015 (dont_use, dont_touch, unannotated and partially annotated nets).
+  - DRV and power reports.
+  - NVP and R2R/I2R/R2O/I2O path groups, also in PNR.
+- **PV:**
+  - `pv(oss,pv,mode) flat|hier`: hier empties the children for DRC and black-boxes them for LVS.
+  - `pv(oss,drc,engine) klayout|magic`.
+  - The PV release carries the checked GDS + CDL (`flow_input_handshake(PV,netlist_cdl)`).
+  - PV runs on FP_EXIT, which now requires PV.
+
+### Library manager
+- `add --category block` takes the GDS/CDL from the sibling **PV** release. With `--pv-pending`, the PNR copy is used and `tech(block,<b>,pv_release) "PENDING"` is recorded.
+- Block SPEFs are linked: `tech(block,<b>,spef,<rc>)`, `tech(block,<b>,spef_corners)`.
+- Shared categories (memory/io/analog/ip) bundle the lef/gds/cdl/verilog views.
+- `add` keeps `tech(corners)` for non-stdcell categories and honours `--lib-tag-root`.
+
+### Exit releases
+- **Layout.** `<release,path>/<phase>/<block>/<FLOW>/<tag>`. The tag defaults to the exit name, and the phase is always the run's phase.
+- **The release exit follows the source stage** (`MILESTONE_STAGE_MAPPING`): place → PLACE_EXIT, cts_opt → CTS_EXIT, pro → PRO_EXIT, signoff → BTO. There are three ways to release an intermediate stage:
+  - bypass
+  - `cbflow run set-dep --node X --deps a,b [--reset]`
+  - add-node `export_data2` + `release_data2`
+- **Exit-named tags.** A tag can name another exit with the same source stage, e.g. MTO = BTO. `cbflow run release --from-run <run> --clone-from BTO --tag MTO` copies a finished release, and `--node <release node>` selects which release node to use.
+- **Exit-order gates.** `check_exit_order` runs at release time and the SmartGrid gate runs at publish time. Both follow the per-phase order in `project(phase_exits)` and have no bypass. Publishing is opt-in (`--publish`).
+- **Signoff flows read only their exit's release.** This is controlled by `<flow>(release,exit_from)` and `<flow>(release,exit_exempt_inputs)`.
+- **Per-node overrides.** `override_config.tcl` → `.<stage>` → `.<branch>` → `.<node_type>` → `.<node>`. The flow-name level was removed.
+
+### Run engine / CLI
+- Bypass marker `work/<FLOW>/<node>/BYPASSED`.
+- Added nodes inherit `runtime,timeout`.
+- `flow(max_parallel_jobs)` (0 = unlimited).
+- `workspace create` archives a stale RACE DB together with its `-wal` / `-shm`.
+- Run names carry the block: `<phase>_run_<FLOW>_<block>_<run>`.
+- Branches clone the selected node.
+
+### Run dashboard (per-user daemon, PD port 9000 + uid % 300)
+- Always-visible action bar.
+- Multi-select with Shift+click and Shift+drag, plus bulk actions.
+- MMMC dialog with a sticky Save bar and an All button.
+- Release-node form: Save writes `setup/override_config.<node>.tcl`, and the node publishes on re-run.
+- Set Dependencies… dialog.
+- Runs table: Block, Total runtime and Age columns, sortable headers, running runs first.
+
+### SmartGrid (`cbflow smartgrid start --project <p>`; port 25000 + md5(uid:project) % 2500)
+- Published runs per flow, with signoff runs on their own pages.
+- **Exit-centric releases page:**
+  - block × exit matrix
+  - implementation and signoff chips
+  - `PV HIER` variants
+  - out-of-order badge
+  - signoff flows from `flow(release,signoff_flows)`
+- Checklist waivers (`waiver_config.tcl`).
+- DEF viewer IO-pins switch.
+- Stage / corner filter on the timing table.
+- Floorplan payload budget `flow(dashboard,floorplan_cells_max_bytes)`.
+- WNS / TNS digits `flow(report,slack_digits)` (3).
+- Schedule from `schedule_config.tcl`.
+- 5-minute auto-refresh.
+
+### Workarea / tooling
+- **Scripts:**
+  - `workarea/run_p1_dl3.sh` (PHASE / RUN / LIB_TAG / FROM / PUBLISH_OVERRIDE; per-phase RTL `inputs/opensky/<b>/<PHASE>/<b>.f`; `overrides/pnr_<PHASE>.tcl`)
+  - `run_p1_dl2.sh` (FROM / UNTIL; `overrides/pnr_<PHASE>_dl2.tcl`)
+  - `run_signoff.sh` (FLOWS / MAX_PARALLEL / PV_MODE / PUBLISH=1 / LIB_TAG)
+  - `test_place_release.sh` (SRC=place1|cts_opt1)
+  - `test_exit_order.sh`
+- `cbflow-bundle` excludes run data (workarea run dirs / logs, `test_releases`, `.race_area`).
+- **Test suite:** opt-in static category 18 "hardcode" (`cbflow test --hardcode`, `hardcode_scan.py`).
+
+---
+
 ## 2026-09-29 update — Launch-mode defense stack
 
 Fixes the "run silently completes clean without actually running EDA" failure

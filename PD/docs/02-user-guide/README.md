@@ -4,7 +4,7 @@ Complete guide to using CBflow v2.0.0 for ASIC physical design automation.
 
 ## Overview
 
-This guide covers daily workflows for running design flows, managing configurations, tracking QoR, and using directory-based versioning across the CBflow framework. CBflow v2.0.0 supports 12 design flows spanning the full PD lifecycle from synthesis through tapeout, all orchestrated by the RACE (Run Automation & Control Engine) dispatcher.
+This guide covers daily workflows for running design flows, managing configurations, tracking QoR, and using directory-based versioning across the CBflow framework. CBflow v2.0.0 supports 12 PD design flows (32 flows across PD/DFT/DV/RTL) spanning the full PD lifecycle from synthesis through tapeout, all orchestrated by the RACE (Run Automation & Control Engine) dispatcher.
 
 ## RACE Engine
 
@@ -52,7 +52,7 @@ Directory-based version management:
 ### [Release Management](release-management.md)
 System-wide release management:
 - Creating releases (auto and config modes)
-- Release path: `$project(release,path)/$phase/$block_name/$release_tag`
+- Design release path: `$project(release,path)/$phase/$block_name/<FLOW>/$release_tag` (see [Exit Release Guide](exit-release-guide.md))
 - Generating and validating release configurations
 - Viewing release information and comparing releases
 
@@ -65,18 +65,35 @@ Automated change tracking:
 ### [Dashboard Daemon Guide](dashboard-daemon-guide.md) *(new in v2.1.1; enhanced 2026-07-10)*
 Per-user web dashboard daemon:
 - One process serves all runs (replaces per-run foreground server)
-- Deterministic per-user port (9000 + uid%1000)
+- Deterministic per-user port (`flow(dashboard,port_base,<DISC>) + uid % flow(dashboard,port_width)`, PD: 9000 + uid%300)
 - In-browser Register / Browse / Deregister UI
 - SSH-tunnel auto-detection and CLI lifecycle (`cbflow dashboard ...`)
 - **New (2026-07-10):** Adaptive polling with ETag support, topological DAG layout, framework-config auto-refresh
 - Troubleshooting common issues
 
-### [Project Dashboard Guide](project-dashboard-guide.md) *(new 2026-07-10)*
-Per-project milestone-rollup dashboard:
-- Aggregates release milestones across every design + phase in a project
-- Deterministic port per project (`25000 + hash(project) % 2500`)
-- Powered by a `tracker.db` written by `cbflow run release --tag`
-- CLI lifecycle: `cbflow project-dashboard start/stop/status/open/list/unpublish`
+### [SmartGrid / Project Dashboard Guide](project-dashboard-guide.md) *(updated 2026-11)*
+Per-project dashboard of published releases:
+- `cbflow smartgrid start --project <p>` (port `25000 + md5(uid:project) % 2500`)
+- Published runs per flow; signoff runs (STA/PV/LEC) on their own pages
+- Exit-centric releases page (block × exit matrix, signoff chips, order badge)
+- Checklist waivers, DEF viewer with IO pins, timing stage/corner filter, schedule
+
+### [Exit Release Guide](exit-release-guide.md) *(new 2026-11)*
+Design releases to exit milestones:
+- Layout `<release,path>/<phase>/<block>/<FLOW>/<exit>`; the release exit follows the source stage
+- Releasing an intermediate stage (bypass / `cbflow run set-dep` / add-node)
+- Exit-named tags and `cbflow run release --clone-from`
+- Exit-order gates, strict signoff inputs, release-node form, per-node overrides
+
+### [Open-Source Flow Guide](opensource-flow-guide.md) *(new 2026-11)*
+RTL-to-GDS on sky130 with the `opensource` vendor:
+- Yosys / OpenROAD / OpenSTA / KLayout + Magic + Netgen through `cbflow-oss`
+- opensky hierarchy and the OSS0/OSS1/OSS2 library tags
+- DFT, clock gating, multi-Vt, SRAM macros, floorplan / STA / PV options
+- Workarea scripts (`run_p1_dl3.sh`, `run_p1_dl2.sh`, `run_signoff.sh`, release tests)
+
+### [Library Manager Guide](library-manager-user-guide.md)
+Library discovery and library tags, including `add --category block|memory`.
 
 ### [Troubleshooting](troubleshooting.md)
 Common issues and solutions:
@@ -144,6 +161,14 @@ cbflow flow version list --dir config
 cbflow flow version diff --dir config --v1 v1.0.0 --v2 v1.0.1
 ```
 
+### Releases (exit milestones)
+```bash
+cbflow run set-dep --node export_data1 --deps place1      # release place -> PLACE_EXIT
+cbflow run stage --name release_data1
+cbflow run release --from-run . --node release_data1 --publish
+cbflow run release --from-run . --clone-from BTO --tag MTO --publish
+```
+
 ### Input Handshaking
 ```bash
 # Option 1: Reference a release tag (preferred)
@@ -166,7 +191,8 @@ set pnr(input,netlist) "/path/to/synthesized_netlist.v"
 
 ### Test Suite
 ```bash
-bin/cbflow-test-suite    # 994 tests covering all flows and commands
+cbflow test --static      # static categories (see ../05-developer/test-suite.md)
+cbflow test --hardcode    # opt-in no-hardcode audit
 ```
 
 ---

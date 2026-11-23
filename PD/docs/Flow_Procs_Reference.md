@@ -583,6 +583,43 @@ The POPT flow provides standalone post-route optimization for timing closure ite
 
 ---
 
+## Open-Source Flows (sky130)
+
+The command files are in `PD/cmds/<FLOW>/opensource/<tool>/v1.0.0/`. Each stage file defines its steps inline with `flow_proc <name> { ... }` in a fixed shape: **load_design → operation(s) → report → save_design**. `flow_exec_all` then runs them. Gate procs (`check_drc`, `check_lvs`, `verdict`) run last. Stages with nothing to do in a step omit it.
+
+The shared helpers (`oss_load_stage`, `oss_write_qor`, `oss_stage_out`, `oss_read_lefs`, `oss_pdn`, …) are in `global/utils/utilities/v1.0.0/oss_utils.tcl`. See the [Open-Source Flow Guide](02-user-guide/opensource-flow-guide.md).
+
+| Flow | Command file | flow_procs (in order) |
+|------|--------------|-----------------------|
+| SYNTH | `synthesis_yosys.tcl` | read_design, synthesize, report, write_design, dft_insert |
+| SYNTH | `export_data_yosys.tcl` | load_design, save_design |
+| FP | `init_design_openroad.tcl` | load_design, save_design |
+| FP | `floorplan_openroad.tcl` | load_design, floorplan, report, save_design |
+| FP | `powerplan_openroad.tcl` | load_design, power_grid, save_design |
+| FP | `export_data_openroad.tcl` | load_design, report, save_design |
+| PNR | `init_design_openroad.tcl` | load_design, power_intent, save_design, report |
+| PNR | `place_openroad.tcl` | load_design, global_detailed_place, report, save_design |
+| PNR | `cts_openroad.tcl` | load_design, clock_tree, report, save_design |
+| PNR | `cts_opt_openroad.tcl` | load_design, repair, report, save_design |
+| PNR | `route_openroad.tcl` | load_design, global_detailed_route, report, save_design, check_drc |
+| PNR | `pro_openroad.tcl` | load_design, fill, extract, report, save_design |
+| PNR | `signoff_openroad.tcl` | load_design, check_power_intent, report, save_design |
+| PNR | `export_data_openroad.tcl` | load_design, stream_out, save_design, report |
+| STA | `extraction_opensta.tcl` | load_design, extract, save_design |
+| STA | `timing_opensta.tcl` | load_design, report |
+| STA | `merge_reports_opensta.tcl` | load_design, merge, report, save_design |
+| PV | `drc_magic.tcl` | load_design, drc, report, save_design, check_drc |
+| PV | `lvs_magic.tcl` | load_design, extract, compare, report, save_design, check_lvs |
+| PV | `merge_data_magic.tcl` | load_design, save_design |
+| LEC | `compare_yosys.tcl` | load_design, compare, report, save_design, verdict |
+| all | `release_data_<tool>.tcl` | publish |
+
+In SYNTH, `report` runs before `dft_insert`, so `synthesis_stat.rpt` describes the pre-DFT netlist. `synth_memory_report` and `synth_clock_gating` are plain procs, not flow_procs, so they cannot be hooked.
+
+**Hooks.** `flow_proc_prepend <name> {...}` and `flow_proc_append <name> {...}` in `setup/override_setup[.<stage>|.<node>].tcl` work as described above. `flow_proc_replace` called from a setup file is overwritten, because the command file registers its own bodies after `setup.tcl` is sourced. Use prepend/append, or copy the command file.
+
+---
+
 ## Common Patterns Across All Flows
 
 ### Standard flow_proc Structure

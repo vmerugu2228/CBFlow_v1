@@ -18,9 +18,15 @@ https://github.com/vmerugu2228/CBFlow_v1
 
 ## Highlights of this release (`cbflow_global`)
 
-- **Multi-discipline:** framework now hosts **PD** (12 flows), **DFT**
-  (5 flows scaffolded + full handler set), and **DV** (7 flows scaffolded)
-  as first-class disciplines.
+- **Multi-discipline:** framework hosts **PD** (12 flows), **DFT**
+  (7 flows), **DV** (9 flows) and **RTL** (4 flows) — 32 flows — as
+  first-class disciplines.
+- **Open-source sky130 flow (2026-11):** RTL-to-GDS with Yosys / OpenROAD /
+  OpenSTA / KLayout / Magic / Netgen through `bin/cbflow-oss` (project
+  `opensky`). See `PD/docs/02-user-guide/opensource-flow-guide.md`.
+- **Exit releases + SmartGrid (2026-11):** source-stage exits, exit-order
+  gates, `cbflow run set-dep`, `cbflow run release --clone-from`, SmartGrid
+  releases page. See `PD/docs/02-user-guide/exit-release-guide.md`.
 - **Global config layer:** cross-domain identity (tech, project, MMMC,
   flow catalog) lives under `global/`. Each discipline overlays its own
   physical/tool-specific bits.
@@ -69,6 +75,7 @@ CBFLOW_CORE_DIR     Auto: $CBFLOW_ROOT/PD
 CBFLOW_GLOBAL_DIR   Auto: $CBFLOW_ROOT/global
 CBFLOW_DFT_DIR      Auto: $CBFLOW_ROOT/DFT       (if directory exists)
 CBFLOW_DV_DIR       Auto: $CBFLOW_ROOT/DV        (if directory exists)
+CBFLOW_RTL_DIR      Auto: $CBFLOW_ROOT/RTL       (if directory exists)
 ```
 
 `bin/cbflow --version` prints the full derivation chain.
@@ -92,6 +99,10 @@ bin/cbflow run status --details
 1. Extracting `CBflow_2026-09-23.tar.gz` into a fresh scratch dir
 2. Running `bin/cbflow test` against the extracted copy
 3. Writing the JSON report
+
+`cbflow-bundle` excludes run data from the archive: workarea run
+directories, logs and `.out` files, `test_releases/`, `.race_area/` and
+RACE DBs.
 
 The bundle is proven-deliverable: extracting into a clean environment
 produces a working CBflow install with the full test suite green.

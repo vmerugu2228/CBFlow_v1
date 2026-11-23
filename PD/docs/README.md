@@ -4,17 +4,19 @@ Complete documentation for **CBflow v2.1.1** (released 2026-06-12) — a compreh
 
 > **New in v2.1.1**: per-user **Dashboard Daemon** (one server per user, stable URL), built-in **`cbflow test`** suite (10 static categories + 18 e2e checks per flow), **dead-code audit** (cat 9), **FP user-config templates**, and a hardening pass over ~250 cmd files. See [v2.1.1 Feature Document](CBflow_v2.1.1_Feature_Document.md).
 
+> **New (2026-11-19 → 2026-11-23)**: open-source RTL-to-GDS on sky130 (`opensource` vendor: Yosys / OpenROAD / OpenSTA / KLayout / Magic / Netgen via `cbflow-oss`) — see the [Open-Source Flow Guide](02-user-guide/opensource-flow-guide.md); exit-release model (source-stage exits, `cbflow run set-dep`, `--clone-from`, exit-order gates, strict signoff inputs) — see the [Exit Release Guide](02-user-guide/exit-release-guide.md); SmartGrid releases / waivers / DEF pins — see [SmartGrid](02-user-guide/project-dashboard-guide.md); library-manager `add --category block|memory`; run-dashboard multi-select, release form and Set Dependencies. Full list in the top-level `RELEASE_NOTES.md`.
+
 ## What is CBflow?
 
 CBflow is a Python/Bash/TCL automation framework that orchestrates ASIC physical design flows across Synopsys, Cadence, and Mentor tool suites. It provides:
 
-- **RACE Engine**: Run Automation & Control Engine -- Python-native DAG executor that replaced GNU Make entirely. Builds DAG from node_config.tcl at runtime, tracks status in SQLite DB (sole status tracking -- no `.stamps/` directory), supports file change detection with automatic downstream retrace, parallel subnode execution, dynamic subnode generation, active engine sync (retrace/bypass/forcevalidate during execution), dashboard auto-port (8080-8180 range), node rename, and branch tags.
+- **RACE Engine**: Run Automation & Control Engine -- Python-native DAG executor that replaced GNU Make entirely. Builds DAG from node_config.tcl at runtime, tracks status in SQLite DB (sole status tracking -- no `.stamps/` directory), supports file change detection with automatic downstream retrace, parallel subnode execution, dynamic subnode generation, active engine sync (retrace/bypass/forcevalidate during execution), per-user dashboard daemon (deterministic port, PD 9000 + uid%300), node rename, and branch tags.
 - **12 Design Flows**: SYNTH, FP, PNR, STA, LEC, EMIR, PV, ECO, CLP, POPT, FCFP, SYNTH_PNR
 - **Multi-Vendor Support**: Synopsys (FC, PT, Formality, ICV, RedHawk, VC_LP), Cadence (Genus, Innovus, Tempus, Conformal LP, Voltus), Mentor (Calibre)
 - **153 Command Files**: FC-RM Y-2026.03 aligned, with per-stage reports, proper REPORTS_DIR/OUTPUTS_DIR. Tool config refactored to per-tool config files (`fc_config.tcl`, `pt_config.tcl`, etc.) with `fc(common,*)` + `fc(<node>,*)` scoping convention.
 - **flow_proc Engine**: Auto-ordered registration, flow_exec_all, prepend/append/replace hooks
 - **Override Hierarchy**: flow_config -> project_config -> tech_config -> user_config -> override_config -> override_setup
-- **Release Mechanism**: `$release_path/$phase/$block_name/$release_tag` with mandatory file validation
+- **Release Mechanism**: `$release_path/$phase/$block_name/<FLOW>/$release_tag` with mandatory file validation, exit-order gates and SmartGrid publish ([Exit Release Guide](02-user-guide/exit-release-guide.md))
 - **Input Handshaking**: Release tag mode (`<flow>(input,<type>_release_tag)`) or direct path mode
 - **Phase Milestones**: P0 (trial), P1 (impl), P2 (pre-signoff), P3 (tapeout) with 6 stage exits
 - **LSF + XTerm Launch**: 6 queue tiers (S/M/L/XL/ultra), module loads, bsub+xterm wrapper
@@ -39,7 +41,7 @@ RACE (Run Automation & Control Engine) is the Python-native DAG executor at the 
 - **Parallel subnode execution**: PV runs drc/lvs/erc/perc/xor in parallel after fill completes.
 - **Dynamic MMMC scenario subnodes**: STA generates per-scenario subnodes from user_config at runtime, enabling parallel per-scenario execution.
 - **Active engine sync**: Issue `retrace`, `bypass`, or `forcevalidate` commands while the engine is running -- the engine picks up changes from the DB in real time.
-- **Dashboard auto-port**: The web dashboard automatically selects an available port in the 8080-8180 range, eliminating "Address already in use" errors.
+- **Dashboard daemon**: `cbflow run gui` registers the run with one per-user daemon on a deterministic port (`flow(dashboard,port_base,<DISC>) + uid % flow(dashboard,port_width)`).
 - **Custom nodes at run level**: Use `add-node` and `create-branch` to extend the DAG without editing node_config.
 - **Tested flows**: SYNTH_PNR, STA, LEC, CLP, SYNTH, PNR (6 flows fully tested)
 - **Dispatcher config**: `set flow(dispatcher) "race"` in flow_config.tcl
@@ -62,7 +64,11 @@ RACE (Run Automation & Control Engine) is the Python-native DAG executor at the 
 - [Complete User Guide](02-user-guide/cbflow-complete-user-guide.md) -- Full walkthrough
 - [GUI User Guide](02-user-guide/cbflow-gui-user-guide.md) -- Web dashboard: DAG visualization, config editor, branch management, MMMC scenarios
 - [Flow User Guide](02-user-guide/cbflow-flow-user-guide.md) -- All 12 flows with stages
-- [Release Management](02-user-guide/release-management.md) -- Phase/tag release workflow
+- [Release Management](02-user-guide/release-management.md) -- Framework (CBflow) versioned releases
+- [Exit Release Guide](02-user-guide/exit-release-guide.md) -- Design releases to exit milestones, set-dep, clone, exit-order gates
+- [Open-Source Flow Guide](02-user-guide/opensource-flow-guide.md) -- sky130 RTL-to-GDS with Yosys / OpenROAD / OpenSTA / KLayout / Magic
+- [SmartGrid / Project Dashboard](02-user-guide/project-dashboard-guide.md) -- Published releases, releases page, waivers
+- [Library Manager](02-user-guide/library-manager-user-guide.md) -- Library tags, `add --category block|memory`
 - [Versioning Workflow](02-user-guide/versioning-workflow.md) -- Copy/edit/symlink
 - [Troubleshooting](02-user-guide/troubleshooting.md) -- Common issues
 
@@ -116,7 +122,10 @@ RACE (Run Automation & Control Engine) is the Python-native DAG executor at the 
 | `cbflow run add-node --node <n> --type <t>` | Add custom node to DAG |
 | `cbflow run create-branch --name <n>` | Create a flow branch |
 | `cbflow run rename-node --node <old> --new-name <new>` | Rename a node in the DAG |
-| `cbflow run gui` | Launch web dashboard (auto-port 8080-8180) |
+| `cbflow run gui` | Register the run with the per-user dashboard daemon and open it (PD port 9000 + uid%300) |
+| `cbflow run set-dep --node <n> --deps a,b [--reset]` | Rewire a node's dependencies |
+| `cbflow run release --from-run <run> [--node <n>] [--clone-from <exit> --tag <exit>] --publish` | Release / publish an exit |
+| `cbflow smartgrid start --project <p>` | Start SmartGrid (project dashboard) |
 | `cbflow run list-nodes` | List all nodes in DAG |
 | `cbflow run show-graph` | Show flow dependency graph |
 | `cbflow flow version copy --from v1.0.0 --to v1.0.1` | Copy version |

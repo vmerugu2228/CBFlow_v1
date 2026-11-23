@@ -2,6 +2,23 @@
 
 Examples of creating releases for different scenarios.
 
+## Design exit releases (2026-11)
+
+These examples release design data to exit milestones. The rest of this page covers framework releases. Details are in the [Exit Release Guide](../02-user-guide/exit-release-guide.md).
+
+```bash
+# Release place1 as PLACE_EXIT (rewire export onto place1), then publish to SmartGrid
+cbflow run set-dep --node export_data1 --deps place1
+cbflow run stage --name release_data1
+cbflow run release --from-run . --node release_data1 --publish
+
+# MTO carries the same data as BTO
+cbflow run release --from-run . --clone-from BTO --tag MTO --publish
+
+# Signoff (STA / PV / LEC) on gcd's P2 PRO_EXIT release, published
+cd workarea && FLOWS="STA PV LEC" PHASE=P2 RUN=p2_b1 LIB_TAG=OSS2 ./run_signoff.sh gcd PRO_EXIT
+```
+
 ## Quick Internal Release
 
 Fast release for testing or internal use.
