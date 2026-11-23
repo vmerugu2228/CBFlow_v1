@@ -68,7 +68,7 @@ mkdir -p "$STAGE_DIR"
 
 # Copy entire CBflow project excluding git, AI, and dev artifacts
 CBFLOW_PROJECT_DIR="$(dirname "$CBFLOW_CORE_DIR")"
-echo "  [1/4] Copying files (excluding .git, ai/, __pycache__)..."
+echo "  [1/4] Copying files (excluding .git, ai/, __pycache__, run data: workarea runs / logs, test_releases, .race_area)..."
 rsync -a --quiet \
     --exclude='.git' \
     --exclude='.DS_Store' \
@@ -84,6 +84,11 @@ rsync -a --quiet \
     --exclude='*.tar.gz' \
     --exclude='.race_*.db' \
     --exclude='.race_db_pointer' \
+    --exclude='/.race_area' \
+    --exclude='/test_releases' \
+    --exclude='/workarea/*/*_run_*' \
+    --exclude='/workarea/**.log' \
+    --exclude='/workarea/**.out' \
     "$CBFLOW_PROJECT_DIR/" "$STAGE_DIR/"
 
 # Count files
