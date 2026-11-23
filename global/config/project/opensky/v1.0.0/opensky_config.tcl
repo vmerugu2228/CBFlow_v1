@@ -33,6 +33,9 @@ set project(phase_exits) {
     P2 {FP_EXIT PLACE_EXIT CTS_EXIT PRO_EXIT BTO MTO}
     P3 {FP_EXIT PLACE_EXIT CTS_EXIT PRO_EXIT BTO MTO}
 }
+# Signoff every exit release needs (the exit bundle: the implementation
+# release + these signoff runs, all on that release's data).
+set project(release,exit_signoff_flows) {STA PV LEC EMIR}
 set project(version)         "1.0"
 set project(cbflow_release)  "v1.0.0"
 set project(description)     "Open-source RTL-to-GDS proof on SkyWater SKY130"

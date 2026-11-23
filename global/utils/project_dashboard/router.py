@@ -4058,8 +4058,8 @@ def _rel_exit_rollup(ph, color):
         for be in ph['by_exit'])
     return ('<div><div class="tt-cap">By exit</div>'
             '<div class="tt-box"><table class="tt tt-narrow"><thead><tr>'
-            '<th>Exit</th><th>Signoff expected</th><th>Released</th><th>Progress</th>'
-            '<th>With signoff</th><th>Out of order</th></tr></thead><tbody>'
+            '<th>Exit</th><th>Signoff needed</th><th>Released</th><th>Progress</th>'
+            '<th>Complete (all signoff)</th><th>Out of order</th></tr></thead><tbody>'
             + rows + '</tbody></table></div></div>')
 
 
@@ -4118,7 +4118,9 @@ def _rel_overview(stats):
                    (('past', 'Released') if ph['tags'] else ('future', 'Not started')))
         be = {x['exit']: x for x in ph['by_exit']}
         cells = ''.join(
-            (f'<td class="num">{be[e]["released"]}/{ph["total_blocks"]}</td>' if e in be
+            (f'<td class="num" title="released / blocks — complete = with all its signoff">'
+             f'{be[e]["released"]}/{ph["total_blocks"]}'
+             f'<div class="muted" style="font-size:10px">{be[e]["full"]} complete</div></td>' if e in be
              else '<td class="muted">·</td>') for e in all_exits)
         rows.append(
             f'<tr style="--ph:{color};--ph-bg:{tint}">'
@@ -4128,7 +4130,7 @@ def _rel_overview(stats):
             f'<td>{_rel_pbar(ph["pct"], color)}</td><td class="num">{ph["tags"]}</td></tr>')
     ths = ''.join(f'<th>{html.escape(e)}</th>' for e in all_exits)
     return ('<div class="tt-cap tt-cap-lg">Phase overview <span class="muted">— blocks '
-            'that released each exit</span></div>'
+            'that released each exit / have it complete (all signoff)</span></div>'
             '<div class="tt-box"><table class="tt"><thead><tr>'
             f'<th>Phase</th><th>Status</th>{ths}<th>Exits released</th><th>Progress</th>'
             '<th>Releases</th></tr></thead><tbody>' + ''.join(rows) + '</tbody></table></div>')
@@ -4165,7 +4167,7 @@ def _render_releases_detail(project, stats):
                 f'style="--ph:{color};--ph-bg:{tint}">{head}'
                 f'<div class="ph-body">{rollup}{_rel_matrix(ph, stats)}</div></div>')
     rel_path = (stats or {}).get('release_path') or ''
-    sign = ', '.join((stats or {}).get('signoff_flows') or []) or '—'
+    sign = ', '.join((stats or {}).get('exit_signoff') or []) or '—'
     return ''.join([
         '<!DOCTYPE html><html><head>',
         '<meta charset="utf-8">',
@@ -4178,8 +4180,9 @@ def _render_releases_detail(project, stats):
         f'  <h1 class="detail-h1">Releases · {html.escape(project)}</h1>',
         '  <div class="detail-sub">Per phase: each block\'s release of every exit '
         '(<code>project(phase_exits)</code>) — the implementation release and the signoff '
-        f'releases of it (signoff flows: <b>{html.escape(sign)}</b>; expected per exit from '
-        '<code>release_tags(&lt;exit&gt;)</code>). Exits release in phase order.</div>',
+        f'runs on it. Every exit needs: <b>{html.escape(sign)}</b> '
+        '(<code>project(release,exit_signoff_flows)</code>). Exits release in phase order; '
+        'an exit is complete only with all its signoff.</div>',
         f'  <div class="detail-sub" style="margin-top:4px">Release area <code>{html.escape(rel_path)}</code></div>',
         '</section>',
         '<div class="sched-wrap rel-page">',
