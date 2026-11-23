@@ -467,6 +467,79 @@ _CONN_RE = re.compile(r'\(\s*(\S+)\s+(\S+)\s*\)')
 _net_index_cache = {}
 
 
+# ─── DEF PINS (IO pins, on demand for the viewer's IO-pin switch) ──────────
+
+# DEF pin orientation: (x, y) of a port shape relative to its placement point
+_PIN_ORIENT = {
+    'N':  lambda x, y: (x, y),   'S':  lambda x, y: (-x, -y),
+    'E':  lambda x, y: (-y, x),  'W':  lambda x, y: (y, -x),
+    'FN': lambda x, y: (-x, y),  'FS': lambda x, y: (x, -y),
+    'FE': lambda x, y: (y, x),   'FW': lambda x, y: (-y, -x),
+}
+_PIN_LAYER_RE = re.compile(
+    r'\+\s*LAYER\s+(\S+)(?:\s+MASK\s+\d+)?(?:\s+SPACING\s+\d+|\s+DESIGNRULEWIDTH\s+\d+)?'
+    r'\s*\(\s*(-?\d+)\s+(-?\d+)\s*\)\s*\(\s*(-?\d+)\s+(-?\d+)\s*\)')
+_PIN_PLACE_RE = re.compile(r'\+\s*(?:PLACED|FIXED|COVER)\s*\(\s*(-?\d+)\s+(-?\d+)\s*\)\s*(\w+)')
+_PIN_MAX_RECTS = 64
+_PIN_CACHE = {}
+
+
+def parse_def_pins(def_path):
+    """IO pins of a DEF: [{'name','net','dir','use','rects':[[x1,y1,x2,y2,layer],...]}]
+    in DEF units, absolute (port shapes transformed by their placement
+    orientation). Supply pins keep at most _PIN_MAX_RECTS shapes. Cached per
+    (path, mtime)."""
+    try:
+        mt = os.path.getmtime(def_path)
+    except OSError:
+        return []
+    hit = _PIN_CACHE.get(def_path)
+    if hit and hit[0] == mt:
+        return hit[1]
+    pins, buf, inside = [], [], False
+    with open(def_path, errors='replace') as fh:
+        for line in fh:
+            s = line.strip()
+            if not inside:
+                if s.startswith('PINS ') or s == 'PINS':
+                    inside = True
+                continue
+            if s.startswith('END PINS'):
+                break
+            buf.append(s)
+            if not s.endswith(';'):
+                continue
+            entry = ' '.join(buf); buf = []
+            m = re.match(r'-\s+(\S+)', entry)
+            if not m:
+                continue
+            p = {'name': m.group(1), 'net': '', 'dir': '', 'use': 'SIGNAL', 'rects': []}
+            for key, rx in (('net', r'\+\s*NET\s+(\S+)'), ('dir', r'\+\s*DIRECTION\s+(\w+)'),
+                            ('use', r'\+\s*USE\s+(\w+)')):
+                mm = re.search(rx, entry)
+                if mm:
+                    p[key] = mm.group(1)
+            # Each PORT (or the whole entry when there is no PORT keyword)
+            # lists its shapes, then its placement.
+            parts = re.split(r'\+\s*PORT\b', entry)
+            for part in (parts[1:] if len(parts) > 1 else parts):
+                pm = _PIN_PLACE_RE.search(part)
+                if not pm:
+                    continue
+                ox, oy, orient = int(pm.group(1)), int(pm.group(2)), pm.group(3)
+                tf = _PIN_ORIENT.get(orient, _PIN_ORIENT['N'])
+                for lm in _PIN_LAYER_RE.finditer(part):
+                    if len(p['rects']) >= _PIN_MAX_RECTS:
+                        break
+                    ax, ay = tf(int(lm.group(2)), int(lm.group(3)))
+                    bx, by = tf(int(lm.group(4)), int(lm.group(5)))
+                    p['rects'].append([ox + min(ax, bx), oy + min(ay, by),
+                                       ox + max(ax, bx), oy + max(ay, by), lm.group(1)])
+            pins.append(p)
+    _PIN_CACHE[def_path] = (mt, pins)
+    return pins
+
+
 def build_net_index(def_path):
     """{'inst_pins': {inst: [(pin, net)]}, 'net_conns': {net: [(inst, pin)]}}
     from the DEF NETS section (SPECIALNETS — power — skipped). Top-level

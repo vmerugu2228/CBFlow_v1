@@ -408,6 +408,11 @@ def make_handler(project):
                     return None
                 return _p
 
+            if path.startswith('/api/floorplan/') and path.rstrip('/').endswith('/pins'):
+                pid = _parse_pid(path[len('/api/floorplan/'):].rstrip('/')[:-len('/pins')])
+                if pid is None:
+                    return self._send(404, 'text/plain', 'not found')
+                return self._api_io_pins(pid)
             if path.startswith('/api/floorplan/') and '/cell/' in path:
                 _rest = path[len('/api/floorplan/'):]
                 _pid_s, _inst = _rest.split('/cell/', 1)
@@ -797,6 +802,19 @@ def make_handler(project):
             except Exception as e:
                 return self._send(500, 'text/plain', f'connectivity failed: {e}')
             self._json({'inst': inst, 'pins': pins})
+
+        def _api_io_pins(self, pid):
+            """IO pins (DEF PINS) of the released DEF behind this published row."""
+            db = state_paths.tracker_db(project)
+            fp = tracker_db.get_floorplan(db, pid)
+            def_path = (fp or {}).get('def_path', '')
+            if not def_path or not os.path.isfile(def_path):
+                return self._send(404, 'text/plain', 'released DEF not available')
+            try:
+                pins = floorplan.parse_def_pins(def_path)
+            except Exception as e:
+                return self._send(500, 'text/plain', f'pin parse failed: {e}')
+            self._json({'pins': pins})
 
         def _api_timing(self, pid):
             db = state_paths.tracker_db(project)
@@ -1658,6 +1676,12 @@ _FLOORPLAN_PANE = """
                     padding:3px 8px;border:1px solid var(--border);border-radius:3px;
                     background:#fff;cursor:pointer;user-select:none">
         <input type="checkbox" id="fp-conn" style="margin:0"> connectivity
+      </label>
+      <label title="Highlight the block's IO pins (DEF PINS): inputs green, outputs red, inouts amber, power / ground blue"
+             style="display:flex;align-items:center;gap:4px;color:var(--text);
+                    padding:3px 8px;border:1px solid var(--border);border-radius:3px;
+                    background:#fff;cursor:pointer;user-select:none">
+        <input type="checkbox" id="fp-pins" style="margin:0"> IO pins
       </label>
       <span id="fp-count" style="color:var(--muted);font-family:monospace"></span>
       <span style="color:var(--muted);flex-basis:100%">
@@ -2551,6 +2575,19 @@ _FLOORPLAN_PANE = """
         }
         if (found) { state.selected = found; fetchConn(found); scheduleRender(); }
       });
+      // ── IO pins (DEF PINS, fetched once on first enable) ──────────────
+      const pinsBox = document.getElementById('fp-pins');
+      state.showPins = false; state.pins = null;
+      pinsBox.addEventListener('change', () => {
+        state.showPins = pinsBox.checked;
+        if (state.showPins && !state.pins) {
+          fetch('/api/floorplan/{PID}/pins')
+            .then(r => r.ok ? r.json() : Promise.reject(r.status))
+            .then(j => { state.pins = j.pins || []; scheduleRender(); })
+            .catch(err => { state.pins = []; status.textContent = 'IO pins unavailable (' + err + ')'; });
+        }
+        scheduleRender();
+      });
       connBox.addEventListener('change', () => {
         state.showConn = connBox.checked;
         if (state.showConn && state.selected) fetchConn(state.selected);
@@ -2900,6 +2937,51 @@ _FLOORPLAN_PANE = """
           ctx.fillStyle   = bn.txt;
           ctx.fillText(bn.text, 12, y + 14);
         });
+
+        // ── IO pins: every port shape, highlighted with a minimum on-screen
+        // size so pins stay visible zoomed out; names once zoomed in ──────
+        if (state.showPins && state.pins && state.pins.length) {
+          const PIN_COL = {INPUT: '#16a34a', OUTPUT: '#dc2626', INOUT: '#d97706'};
+          const SUP_COL = '#2563eb';
+          const [wxL, wyT] = fromPx(0, 0);
+          const [wxR, wyB] = fromPx(cw, ch);
+          const wx1 = Math.min(wxL, wxR), wx2 = Math.max(wxL, wxR);
+          const wy1 = Math.min(wyT, wyB), wy2 = Math.max(wyT, wyB);
+          const labels = [];
+          let nSig = 0, nSup = 0;
+          for (const p of state.pins) {
+            const sup = p.use === 'POWER' || p.use === 'GROUND';
+            const col = sup ? SUP_COL : (PIN_COL[p.dir] || '#d97706');
+            if (sup) nSup++; else nSig++;
+            ctx.fillStyle = _rgba(col, sup ? 0.45 : 0.85);
+            ctx.strokeStyle = col;
+            ctx.lineWidth = 1.5;
+            for (const rc of p.rects) {
+              const [x1, y1, x2, y2] = rc;
+              if (x1 > wx2 || x2 < wx1 || y1 > wy2 || y2 < wy1) continue;
+              const [px, py] = toPx(x1, y2);
+              const pw = state.scale * (x2 - x1), ph = state.scale * (y2 - y1);
+              const minS = sup ? 2 : 7;
+              const dw = Math.max(pw, minS), dh = Math.max(ph, minS);
+              const dx = px - (dw - pw) / 2, dy = py - (dh - ph) / 2;
+              ctx.fillRect(dx, dy, dw, dh);
+              if (!sup) ctx.strokeRect(dx, dy, dw, dh);
+              if (!sup && labels.length < 400) labels.push([dx + dw + 2, dy + dh / 2 + 3, p.name, col]);
+            }
+          }
+          // names when the visible pins are few enough to read
+          if (labels.length && labels.length < 120) {
+            ctx.font = '10px monospace';
+            for (const [lx, ly, t, col] of labels) {
+              const tw = ctx.measureText(t).width;
+              ctx.fillStyle = 'rgba(255,255,255,0.85)';
+              ctx.fillRect(lx - 1, ly - 9, tw + 2, 12);
+              ctx.fillStyle = col;
+              ctx.fillText(t, lx, ly);
+            }
+          }
+          state._pinCounts = [nSig, nSup];
+        }
 
         // ── Selected cell: highlight, pins, connectivity fly-lines ──────
         if (state.selected) {
