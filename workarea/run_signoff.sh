@@ -68,7 +68,7 @@ run() {
     local st; st=$(awk -F' : ' '/^Status :/{print $2}' "$rel/metrics.rpt" 2>/dev/null)
     say "$B $f: run done, verdict ${st:-UNKNOWN} -> release ${rel#*/$PHASE/}"
     # attach to the exit entry in SmartGrid (refreshes it with every flow's release)
-    if [ -n "$PUBLISH" ]; then
+    if [ "$PUBLISH" = 1 ]; then
         (cd "$WA/$B" && flock_publish "$rd")
     fi
 }
