@@ -120,6 +120,19 @@ array set eco {
     oss,limit,resizes          50
     oss,limit,vt_swaps         20
     oss,limit,removals         20
+    oss,limit,reroute_nets     200
+    oss,limit,moves            20
+}
+# oss,mode drc: DRC repair (the drc-fix skill). oss,drc,allowed: change-file
+# commands — eco_reroute_nets <net ...> | eco_move_inst <inst> <dx_um> <dy_um>
+# | set_placement_padding … | set_global_routing_layer_adjustment <layer> <0..1>
+# | repair_antennas_after_grt. oss,route,scope: full (every signal / clock net
+# re-routed — needed for a database saved after OpenRCX) | nets (only the
+# nets the change file names / moves touch) | none (no re-route: export-only
+# fixes such as oss,export,min_area_layers).
+array set eco {
+    oss,drc,allowed            {eco_reroute_nets eco_move_inst set_placement_padding set_global_routing_layer_adjustment repair_antennas_after_grt}
+    oss,route,scope            full
 }
 # oss,repair,*: repair_timing knobs (repair mode). sequence: move list
 # (e.g. "unbuffer,sizeup,swap,buffer"; empty = OpenROAD default); skip:

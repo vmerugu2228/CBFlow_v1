@@ -48,6 +48,19 @@ proc eco_floating_inputs {} {
     return $_n
 }
 
+# Remove only the tech's filler cells (tech(<track>,fillers), what signoff
+# re-inserts). OpenROAD remove_fillers deletes every spacer-class cell —
+# decaps included — and signoff refills with fill_* only: decaps were lost
+# and the changed geometry made new DRC (met1 spacing).
+proc eco_remove_fillers {} {
+    set _fill [oss_trk fillers]
+    set _n 0
+    foreach _i [[ord::get_db_block] getInsts] {
+        if {[[$_i getMaster] getName] in $_fill} { odb::dbInst_destroy $_i; incr _n }
+    }
+    handle_info "removed $_n filler cells ([join $_fill { }]); decaps / taps / endcaps kept"
+}
+
 proc eco_inst_names {} {
     set _n {}
     foreach _i [[ord::get_db_block] getInsts] { dict set _n [$_i getName] 1 }
@@ -104,14 +117,47 @@ proc eco_insert_buffer {buffer_cell net args} {
     return eco_buf_$_k
 }
 
+# DRC-repair commands (eco(oss,mode) drc). Nets to re-route collect in
+# ::eco_reroute (route scope "nets" strips only their wiring).
+set ::eco_reroute {}
+set ::eco_antenna 0
+proc eco_reroute_nets {args} {
+    set _blk [ord::get_db_block]
+    foreach _n $args {
+        set _net [$_blk findNet $_n]
+        if {$_net eq "NULL"} { error "eco_reroute_nets: no net $_n" }
+        if {[$_net isSpecial] || [$_net getSigType] in {POWER GROUND}} { error "eco_reroute_nets: $_n is a power / ground net" }
+        if {$_n ni $::eco_reroute} { lappend ::eco_reroute $_n }
+    }
+}
+# Move an instance by dx dy um (then legalized); its signal nets are re-routed
+proc eco_move_inst {inst dx dy} {
+    set _blk [ord::get_db_block]
+    set _i [$_blk findInst $inst]
+    if {$_i eq "NULL"} { error "eco_move_inst: no instance $inst" }
+    if {[$_i isBlock] || [$_i getPlacementStatus] in {FIRM LOCKED COVER}} { error "eco_move_inst: $inst is fixed / a macro" }
+    set _dbu [$_blk getDbUnitsPerMicron]
+    lassign [$_i getLocation] _x _y
+    $_i setLocation [expr {$_x + int(round($dx * $_dbu))}] [expr {$_y + int(round($dy * $_dbu))}]
+    $_i setPlacementStatus PLACED
+    foreach _it [$_i getITerms] {
+        set _n [$_it getNet]
+        if {$_n ne "NULL" && ![$_n isSpecial] && [$_n getSigType] ni {POWER GROUND} && [$_n getName] ni $::eco_reroute} {
+            lappend ::eco_reroute [$_n getName]
+        }
+    }
+}
+# Antenna repair needs the global route: flagged here, run in legalize_route
+proc repair_antennas_after_grt {} { set ::eco_antenna 1 }
+
 # Change-file commands: one per line, '#' comments; only
 # eco(oss,changes,allowed) commands; caps eco(oss,limit,*); replace_cell
 # targets must exist, be a different master and not be dont_use.
-proc eco_parse_changes {file} {
-    set _allowed [oss_get eco oss,changes,allowed]
+proc eco_parse_changes {file {allowed_key oss,changes,allowed}} {
+    set _allowed [oss_get eco $allowed_key]
     set _dont [oss_pnr_dont_use]
     set _cmds {}
-    set _cnt [dict create buffers 0 resizes 0 vt_swaps 0 removals 0]
+    set _cnt [dict create buffers 0 resizes 0 vt_swaps 0 removals 0 reroute_nets 0 moves 0]
     set _fh [open $file]; set _lines [split [read $_fh] \n]; close $_fh
     set _ln 0
     foreach _l $_lines {
@@ -120,7 +166,7 @@ proc eco_parse_changes {file} {
         if {$_l eq "" || [string index $_l 0] eq "#"} continue
         if {![info complete $_l]} { error "change file line $_ln: incomplete command: $_l" }
         set _c [lindex $_l 0]
-        if {$_c ni $_allowed} { error "change file line $_ln: '$_c' is not an allowed ECO command (eco(oss,changes,allowed): $_allowed)" }
+        if {$_c ni $_allowed} { error "change file line $_ln: '$_c' is not an allowed ECO command (eco($allowed_key): $_allowed)" }
         switch $_c {
             replace_cell {
                 if {[llength $_l] != 3} { error "change file line $_ln: replace_cell <instance> <lib_cell>" }
@@ -138,10 +184,15 @@ proc eco_parse_changes {file} {
                 dict incr _cnt buffers
             }
             remove_buffers { dict incr _cnt removals [expr {[llength $_l] - 1}] }
+            eco_reroute_nets { dict incr _cnt reroute_nets [expr {[llength $_l] - 1}] }
+            eco_move_inst {
+                if {[llength $_l] != 4} { error "change file line $_ln: eco_move_inst <instance> <dx_um> <dy_um>" }
+                dict incr _cnt moves
+            }
         }
         lappend _cmds [list $_ln $_l]
     }
-    foreach {_k _lim} {buffers buffers resizes resizes vt_swaps vt_swaps removals removals} {
+    foreach {_k _lim} {buffers buffers resizes resizes vt_swaps vt_swaps removals removals reroute_nets reroute_nets moves moves} {
         set _max [oss_get eco oss,limit,$_lim]
         if {[dict get $_cnt $_k] > $_max} {
             error "change file: [dict get $_cnt $_k] $_k exceeds eco(oss,limit,$_lim) $_max"
@@ -173,11 +224,11 @@ flow_proc load_design {
     set_routing_layers -signal ${_min}-${_max} -clock ${_cmin}-${_cmax}
 }
 
-# Apply: fillers out (room for new / larger cells), the change file or
+# Apply: filler cells out (room for new / larger cells), the change file or
 # guided repair, every change listed in eco_changes.rpt
 flow_proc apply_changes {
     global design_name
-    remove_fillers
+    eco_remove_fillers
     set _float0 [eco_floating_inputs]
     set _before [eco_inst_names]
     set _masters {}
@@ -199,6 +250,23 @@ flow_proc apply_changes {
                 lappend _rpt "applied : $_cmd"
             }
         }
+        drc {
+            set _cf [expr {[info exists ::eco(input,change_file)] ? $::eco(input,change_file) : ""}]
+            if {$_cf ne ""} {
+                if {![file exists $_cf]} { error "eco(input,change_file) missing: $_cf" }
+                file copy -force $_cf "$::REPORTS_DIR/eco_change_file.tcl"
+                lassign [eco_parse_changes $_cf oss,drc,allowed] _cmds _cnt
+                handle_info "DRC change file: [llength $_cmds] command(s) — $_cnt"
+                lappend _rpt "# change file: $_cf"
+                foreach _e $_cmds {
+                    lassign $_e _ln _cmd
+                    if {[catch {uplevel #0 $_cmd} _err]} { error "change file line $_ln failed: $_cmd — $_err" }
+                    lappend _rpt "applied : $_cmd"
+                }
+            } else {
+                lappend _rpt "# no change file (export / route settings only)"
+            }
+        }
         repair {
             set _args {}
             if {[is_true [oss_get eco oss,repair,setup]]} { lappend _args -setup -setup_margin [oss_get eco oss,repair,setup_margin] }
@@ -214,7 +282,7 @@ flow_proc apply_changes {
             estimate_parasitics -placement
             repair_timing {*}$_args
         }
-        default { error "eco(oss,mode) must be changes or repair, got '$_mode'" }
+        default { error "eco(oss,mode) must be changes, repair or drc, got '$_mode'" }
     }
     # Change list: resized / swapped instances, added and removed instances
     set _after [eco_inst_names]
@@ -244,34 +312,53 @@ flow_proc apply_changes {
     lappend _rpt "Summary : resized [dict get $_n resized], added [dict get $_n added], removed [dict get $_n removed]"
     set _float1 [eco_floating_inputs]
     lappend _rpt "Floating signal inputs : $_float0 -> $_float1"
+    if {[llength $::eco_reroute]} { lappend _rpt "Re-route nets : [llength $::eco_reroute] ([join [lrange $::eco_reroute 0 19] { }][expr {[llength $::eco_reroute] > 20 ? { ...} : {}}])" }
+    lappend _rpt "Route scope : [oss_get eco oss,route,scope]"
     set _fh [open "$::REPORTS_DIR/eco_changes.rpt" w]; puts $_fh [join $_rpt \n]; close $_fh
     if {$_float1 > $_float0} {
         error "the ECO left [expr {$_float1 - $_float0}] signal input pin(s) unconnected — see $::REPORTS_DIR/eco_changes.rpt"
     }
     handle_info "ECO: resized [dict get $_n resized], added [dict get $_n added], removed [dict get $_n removed]"
-    if {[dict get $_n resized] + [dict get $_n added] + [dict get $_n removed] == 0} {
+    if {[dict get $_n resized] + [dict get $_n added] + [dict get $_n removed] == 0 && $_mode ne "drc"} {
         handle_warning "the ECO changed nothing"
     }
 }
 
-# Legalize the changed cells (bounded displacement), then re-route: the
-# signal / clock wiring of the source database is removed first — a database
-# saved after OpenRCX extraction carries re-encoded wires the detailed router
-# rejects (DRT-1010 non-orthogonal wire) — then global + detailed route.
-# Power / ground (special) wiring is kept.
+# Legalize, then re-route per eco(oss,route,scope):
+#   full  remove the signal / clock wiring of every net and re-route the block
+#         (required for a database saved after OpenRCX extraction — its
+#         re-encoded wires are rejected by the detailed router, DRT-1010)
+#   nets  remove only the nets named by eco_reroute_nets / touched by
+#         eco_move_inst, then global + detailed route
+#   none  no re-route (export-only fixes, e.g. stream-out min-area patches)
+# Power / ground (special) wiring is always kept. Antenna repair
+# (repair_antennas_after_grt) runs after the global route.
 flow_proc legalize_route {
+    set _scope [oss_get eco oss,route,scope]
+    if {$_scope ni {full nets none}} { error "eco(oss,route,scope) must be full, nets or none, got '$_scope'" }
     detailed_placement -max_displacement [oss_get eco oss,place,max_displacement]
     oss_report "$::REPORTS_DIR/eco_check_placement.rpt" check_placement -verbose
+    if {$_scope eq "none"} {
+        if {[llength $::eco_reroute] || $::eco_antenna} { error "route scope none, but the change file asks for re-routing / antenna repair" }
+        handle_info "re-route: none (route scope none)"
+        return
+    }
     set _n 0
     foreach _net [[ord::get_db_block] getNets] {
         if {[$_net isSpecial] || [$_net getSigType] in {POWER GROUND}} continue
+        if {$_scope eq "nets" && [$_net getName] ni $::eco_reroute} continue
         set _w [$_net getWire]
         if {$_w ne "NULL"} { odb::dbWire_destroy $_w; incr _n }
     }
-    handle_info "re-route: removed the wiring of $_n signal / clock nets"
+    handle_info "re-route ($_scope): removed the wiring of $_n signal / clock nets"
     oss_report "$::REPORTS_DIR/eco_grt.rpt" global_route -allow_congestion
+    if {$::eco_antenna} {
+        oss_report "$::REPORTS_DIR/eco_repair_antennas.rpt" repair_antennas
+        detailed_placement -max_displacement [oss_get eco oss,place,max_displacement]
+    }
     estimate_parasitics -global_routing
     detailed_route -output_drc "$::REPORTS_DIR/eco_route_drc.rpt" -verbose 1
+    oss_report "$::REPORTS_DIR/eco_check_antennas.rpt" check_antennas
 }
 
 # Reports: post-ECO QoR / timing on global-route parasitics (signoff1 times
