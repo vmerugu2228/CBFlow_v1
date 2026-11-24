@@ -33,7 +33,7 @@ from pathlib import Path
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CBFLOW_CORE = os.path.dirname(SCRIPT_DIR)
 CBFLOW_BIN = os.path.join(CBFLOW_CORE, 'bin', 'cbflow')
-DEFAULT_WORKSPACE = os.path.join(os.path.dirname(CBFLOW_CORE), 'workarea_test')
+DEFAULT_WORKSPACE = os.path.join(os.path.dirname(CBFLOW_CORE), 'workarea')
 
 MODEL = "claude-sonnet-4-6"  # Fast + capable. Use claude-opus-4-6 for complex reasoning.
 MAX_TOKENS = 8192
@@ -222,10 +222,15 @@ def execute_tool(name: str, args: dict) -> str:
 
     elif name == "query_db":
         try:
-            db_files = list(Path(args["run_dir"]).glob('.race_*.db'))
-            if not db_files:
+            # .race_db_pointer into the race area (core.db), else legacy .race_*.db
+            _gu = os.path.join(os.path.dirname(CBFLOW_CORE), 'global', 'utils')
+            if _gu not in sys.path:
+                sys.path.insert(0, _gu)
+            from core.db import find_race_db_from_run_dir
+            db_path = find_race_db_from_run_dir(args["run_dir"])
+            if not db_path:
                 return "ERROR: No RACE DB found"
-            conn = sqlite3.connect(str(db_files[0]))
+            conn = sqlite3.connect(db_path)
             conn.row_factory = sqlite3.Row
             rows = [dict(r) for r in conn.execute(args["sql"]).fetchall()]
             conn.close()

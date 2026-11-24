@@ -47,7 +47,7 @@ from pathlib import Path
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CBFLOW_CORE = os.path.dirname(SCRIPT_DIR)
 CBFLOW_BIN = os.path.join(CBFLOW_CORE, 'bin', 'cbflow')
-DEFAULT_WORKSPACE = os.path.join(os.path.dirname(CBFLOW_CORE), 'workarea_test')
+DEFAULT_WORKSPACE = os.path.join(os.path.dirname(CBFLOW_CORE), 'workarea')
 
 OLLAMA_URL = os.environ.get('OLLAMA_URL', 'http://localhost:11434')
 SMARTGENIE_SERVER = os.environ.get('SMARTGENIE_SERVER', '')
@@ -545,8 +545,10 @@ def run_agent(prompt: str, interactive: bool = False):
         # Blocks / designs in project
         if any(w in q for w in ['block', 'design']) and any(w in q for w in ['available', 'list', 'what', 'which', 'show']):
             # Read block_list from project config
-            for proj in ['bumblebee', 'phoenix']:
-                cfg = os.path.join(CBFLOW_CORE, 'config', 'project', proj, 'v1.0.0', f'{proj}_config.tcl')
+            # project identity configs live in global/config/project/<p>/
+            _gp = os.path.join(os.path.dirname(CBFLOW_CORE), 'global', 'config', 'project')
+            for proj in sorted(os.listdir(_gp)) if os.path.isdir(_gp) else []:
+                cfg = os.path.join(_gp, proj, 'v1.0.0', f'{proj}_config.tcl')
                 if os.path.exists(cfg):
                     with open(cfg) as f:
                         for line in f:
@@ -614,7 +616,7 @@ def run_agent(prompt: str, interactive: bool = False):
 
         # Project info
         if 'project' in q and any(w in q for w in ['available', 'list', 'what', 'which', 'show']):
-            proj_dir = os.path.join(CBFLOW_CORE, 'config', 'project')
+            proj_dir = os.path.join(os.path.dirname(CBFLOW_CORE), 'global', 'config', 'project')
             if os.path.isdir(proj_dir):
                 projects = [d for d in os.listdir(proj_dir) if os.path.isdir(os.path.join(proj_dir, d)) and not d.startswith('.')]
                 return f"Available projects:\n" + '\n'.join(f"  - {p}" for p in projects)

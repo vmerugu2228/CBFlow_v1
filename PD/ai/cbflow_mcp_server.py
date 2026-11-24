@@ -28,9 +28,11 @@ from pathlib import Path
 
 # Determine paths
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-CBFLOW_CORE = os.path.dirname(SCRIPT_DIR)
-CBFLOW_BIN = os.path.join(CBFLOW_CORE, 'bin', 'cbflow')
-DEFAULT_WORKSPACE = os.path.join(os.path.dirname(CBFLOW_CORE), 'workarea_test')
+CBFLOW_CORE = os.path.dirname(SCRIPT_DIR)                 # PD/
+CBFLOW_ROOT = os.path.dirname(CBFLOW_CORE)                # umbrella install root
+CBFLOW_GLOBAL_UTILS = os.path.join(CBFLOW_ROOT, 'global', 'utils')
+CBFLOW_BIN = os.path.join(CBFLOW_ROOT, 'bin', 'cbflow')
+DEFAULT_WORKSPACE = os.path.join(CBFLOW_ROOT, 'workarea')
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -47,7 +49,8 @@ DEFAULT_WORKSPACE = os.path.join(os.path.dirname(CBFLOW_CORE), 'workarea_test')
 # tree; DEFAULT_WORKSPACE is the user's workarea root. Operators can
 # extend via CBFLOW_MCP_EXTRA_ROOTS=":" separated absolute paths.
 def _containment_roots() -> list:
-    roots = [os.path.realpath(CBFLOW_CORE), os.path.realpath(DEFAULT_WORKSPACE)]
+    # the whole install (PD/, global/, DFT/, DV/, RTL/, workarea/, race area)
+    roots = [os.path.realpath(CBFLOW_ROOT), os.path.realpath(DEFAULT_WORKSPACE)]
     extra = os.environ.get('CBFLOW_MCP_EXTRA_ROOTS', '')
     for p in extra.split(os.pathsep):
         if p and os.path.isdir(p):
@@ -106,6 +109,15 @@ def _is_allowed_command(command: str) -> tuple:
 # ═══════════════════════════════════════════════════════════════════════════════
 # TOOL IMPLEMENTATIONS
 # ═══════════════════════════════════════════════════════════════════════════════
+
+def _race_db(run_dir: str):
+    """RACE DB of a run: core.db.find_race_db_from_run_dir (the
+    .race_db_pointer into the race area, else a legacy per-run .race_*.db)."""
+    if CBFLOW_GLOBAL_UTILS not in sys.path:
+        sys.path.insert(0, CBFLOW_GLOBAL_UTILS)
+    from core.db import find_race_db_from_run_dir
+    return find_race_db_from_run_dir(run_dir)
+
 
 def tool_run_command(command: str, cwd: str = None, timeout: int = 300) -> dict:
     """Execute a cbflow CLI command.
@@ -200,11 +212,11 @@ def tool_write_file(path: str, content: str = None, edits: list = None) -> dict:
         # Lazy-import to avoid hard dependency when the MCP server
         # runs standalone (e.g. for testing without the full tree).
         try:
-            sys.path.insert(0, os.path.join(CBFLOW_CORE, 'utils', 'core'))
+            sys.path.insert(0, os.path.join(CBFLOW_GLOBAL_UTILS, 'core'))
             from paths import atomic_write
         finally:
             try:
-                sys.path.remove(os.path.join(CBFLOW_CORE, 'utils', 'core'))
+                sys.path.remove(os.path.join(CBFLOW_GLOBAL_UTILS, 'core'))
             except ValueError:
                 pass
         if content is not None:
@@ -244,10 +256,9 @@ def tool_query_race_db(run_dir: str, query: str) -> dict:
     if ';' in query.rstrip(';'):
         return {"error": "compound statements (;) not allowed"}
     try:
-        db_files = list(Path(real_dir).glob('.race_*.db'))
-        if not db_files:
-            return {"error": f"No RACE DB found in {real_dir}"}
-        db_path = str(db_files[0])
+        db_path = _race_db(real_dir)
+        if not db_path:
+            return {"error": f"No RACE DB found for {real_dir}"}
         # Open read-only via URI so DML/DDL cannot mutate the DB even
         # if the regex is bypassed by a cornercase.
         uri = f'file:{db_path}?mode=ro'
@@ -272,9 +283,20 @@ def tool_list_workspace(workspace: str = None) -> dict:
     ws = workspace or DEFAULT_WORKSPACE
     try:
         runs = []
+        # runs directly in the workspace, or one level down (workarea/<block>/<run>)
+        cands = []
         for d in sorted(os.listdir(ws)):
-            if '_run_' in d and os.path.isdir(os.path.join(ws, d)):
-                env_file = os.path.join(ws, d, '.run.cbflow.env')
+            p = os.path.join(ws, d)
+            if not os.path.isdir(p):
+                continue
+            if '_run_' in d:
+                cands.append((d, p))
+            else:
+                cands += [(f"{d}/{r}", os.path.join(p, r)) for r in sorted(os.listdir(p))
+                          if '_run_' in r and os.path.isdir(os.path.join(p, r))]
+        for d, path in cands:
+            if True:
+                env_file = os.path.join(path, '.run.cbflow.env')
                 info = {"name": d, "flow_type": "", "design": "", "phase": ""}
                 if os.path.exists(env_file):
                     with open(env_file) as f:
@@ -285,6 +307,9 @@ def tool_list_workspace(workspace: str = None) -> dict:
                             elif 'CBFLOW_DESIGN_NAME' in line:
                                 m = re.search(r'"([^"]*)"', line)
                                 if m: info["design"] = m.group(1)
+                            elif 'CBFLOW_PROJECT_PHASE' in line:
+                                m = re.search(r'"([^"]*)"', line)
+                                if m: info["phase"] = m.group(1)
                 runs.append(info)
         return {"workspace": ws, "runs": runs, "count": len(runs)}
     except Exception as e:
@@ -294,10 +319,10 @@ def tool_list_workspace(workspace: str = None) -> dict:
 def tool_get_run_status(run_dir: str) -> dict:
     """Get structured status of a run from RACE DB."""
     try:
-        db_files = list(Path(run_dir).glob('.race_*.db'))
-        if not db_files:
-            return {"error": "No RACE DB found"}
-        conn = sqlite3.connect(str(db_files[0]))
+        db_path = _race_db(run_dir)
+        if not db_path:
+            return {"error": f"No RACE DB found for {run_dir}"}
+        conn = sqlite3.connect(db_path)
         # Get job status summary
         cur = conn.execute("""
             SELECT j.stage, j.job_type, j.status, j.runtime_sec, j.exit_code
@@ -406,7 +431,7 @@ TOOLS = [
             "type": "object",
             "properties": {
                 "command": {"type": "string", "description": "Full shell command to execute"},
-                "cwd": {"type": "string", "description": "Working directory (default: workarea_test)"},
+                "cwd": {"type": "string", "description": "Working directory (default: workarea)"},
                 "timeout": {"type": "integer", "description": "Timeout in seconds (default: 300)"},
             },
             "required": ["command"],
@@ -466,7 +491,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "workspace": {"type": "string", "description": "Workspace path (default: workarea_test)"},
+                "workspace": {"type": "string", "description": "Workspace path (default: workarea)"},
             },
         },
     },
