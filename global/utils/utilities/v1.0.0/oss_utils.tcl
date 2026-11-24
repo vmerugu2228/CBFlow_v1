@@ -919,12 +919,16 @@ proc oss_def2gds_script {_py design_name _def _lefs _gds _out arr} {
 # SDC; propagated clocks from CTS on; the pro SPEF from pro on, else
 # placement-estimated parasitics. Used by checks_openroad.tcl
 # (cbflow-oss-checks) and the OpenROAD interactive session.
+# Node whose MMMC views a node times on: its own; FP nodes use the FP run's
+# init_design node's (the FP stages read them the same way)
+proc oss_view_node {node} {
+    return [expr {$::FLOW_TYPE eq "FP" ? [cbflow_chain_node init_design] : $node}]
+}
+
 proc oss_load_node {node blocks} {
     set _st [cbflow_node_type $node]
     set_thread_count [oss_get [oss_flow_arr] oss,threads]
-    # timing views: the node's own MMMC views; FP nodes time on the
-    # init_design node's (the FP stages read them the same way)
-    set _vn [expr {$::FLOW_TYPE eq "FP" ? [cbflow_chain_node init_design] : $node}]
+    set _vn [oss_view_node $node]
     oss_read_corners $_vn $blocks
     set _out "[cbflow_node_dir $node]/outputs"
     set _odb [lindex [glob -nocomplain "$_out/$_st.odb" "$_out/final.odb" "$_out/*.odb"] 0]

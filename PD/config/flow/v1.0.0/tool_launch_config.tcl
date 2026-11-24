@@ -113,7 +113,7 @@ if {[catch {oss_load_node $NODE_NAME $blocks} _odb]} {
     puts ""
     puts "═══════════════════════════════════════════════════"
     puts "  CBflow Interactive — $NODE_NAME loaded ($_odb)"
-    puts "  Timing views: [oss_node_views $NODE_NAME]"
+    puts "  Timing views: [oss_node_views [oss_view_node $NODE_NAME]]"
     puts "  Session: INTERACTIVE/$cbflow_session_name"
     puts "═══════════════════════════════════════════════════"
 }
