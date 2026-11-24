@@ -491,7 +491,7 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background
 
   <!-- Center: DAG Canvas -->
   <div class="center-panel" id="dag-container">
-    <svg class="dag-canvas" id="dag-svg"></svg>
+    <svg class="dag-canvas" id="dag-svg" onclick="if (event.target === this && Math.abs(event.clientX - panDownX) + Math.abs(event.clientY - panDownY) < 4) clearSelectedNode()"></svg>
   </div>
 
   <!-- Right: Details -->
@@ -554,7 +554,7 @@ var cachedConfig = null;
 // DAG transform
 var dagScale = 1;
 var dagTx = 0, dagTy = 0;
-var isPanning = false, panStartX = 0, panStartY = 0;
+var isPanning = false, panStartX = 0, panStartY = 0, panDownX = 0, panDownY = 0;
 
 // Drag state
 var isDragging = false, dragNode = null, dragStartX = 0, dragStartY = 0;
@@ -893,6 +893,12 @@ function multiAction(action) {
     if (jobs.length) body.jobs = jobs;
     apiAction(action, body);
   }
+}
+
+function clearSelectedNode() {
+  selectedNode = null;
+  document.querySelectorAll('.tree-stage-row.selected, .tree-subnode.selected, .dag-node.selected')
+    .forEach(function(el){ el.classList.remove('selected'); });
 }
 
 function selectNode(name) {
@@ -1823,6 +1829,7 @@ function setupPanZoom() {
     // Only pan when clicking on empty canvas area (svg background)
     if (e.target === svg || e.target.tagName === 'svg') {
       isPanning = true;
+      panDownX = e.clientX; panDownY = e.clientY;
       panStartX = e.clientX - dagTx;
       panStartY = e.clientY - dagTy;
       svg.style.cursor = 'grabbing';
@@ -2490,7 +2497,23 @@ function fillStageSelect(id) {
   }
 }
 
+// Action-bar buttons act on the selection: several nodes (Shift+click /
+// drag) -> each of them; one clicked node -> that node; nothing selected
+// (or Esc / a click on empty canvas cleared it) -> the stage picker.
+var SEL_ACTIONS = {'run-stage': 'run-stage', 'retrace': 'retrace-from', 'bypass': 'bypass',
+                   'force': 'force', 'forcevalidate': 'forcevalidate'};
 function promptAction(action, title, label, btnText) {
+  if (SEL_ACTIONS[action]) {
+    if (multiSel.size > 1 && action !== 'retrace') { multiAction(action); return; }
+    var known = selectedNode && (allJobs.some(function(j){ return j.name === selectedNode; }) ||
+                                 stagesData.some(function(x){ return x.name === selectedNode; }));
+    if (known) {
+      ctxStage = selectedNode;
+      ctxAction(SEL_ACTIONS[action]);
+      showToast(title + ': ' + selectedNode, 'success');
+      return;
+    }
+  }
   loadConfig().then(function() {
     fillStageSelect('action-stage');
     document.getElementById('action-type').value = action;
@@ -3064,7 +3087,7 @@ document.addEventListener('keydown', function(e) {
   else if (key === 'y' && selectedNode) { ctxStage = selectedNode; ctxAction('bypass'); }
   else if (key === 'e' && selectedNode) { ctxStage = selectedNode; ctxAction('edit'); }
   else if (key === 'm' && selectedNode) { ctxStage = selectedNode; ctxAction('mmmc'); }
-  else if (key === 'escape') { clearMultiSel(); closeModal('edit-modal'); closeModal('action-modal'); closeModal('addnode-modal'); closeModal('branch-modal'); }
+  else if (key === 'escape') { clearMultiSel(); clearSelectedNode(); closeModal('edit-modal'); closeModal('action-modal'); closeModal('addnode-modal'); closeModal('branch-modal'); }
   else if (key === 's') { apiAction('stop', {}); }
   else if (key === 'l') { resetGraph(); }
   else if (key === '?') {
