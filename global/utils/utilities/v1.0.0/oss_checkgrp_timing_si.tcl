@@ -24,6 +24,7 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 proc oss_checkgrp_timing_si {stage} {
+    if {$stage ni {place cts cts_opt route pro signoff}} return
     set _views [oss_node_views $::NODE_NAME]
     oss_tsichk_nvp_hist
     oss_tsichk_groups
