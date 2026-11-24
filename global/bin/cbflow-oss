@@ -157,6 +157,16 @@ case "$1" in
             yosys)              bin=yosys;    prompt="yosys> " ;;
             *) die "no interactive shell for '$tool' (openroad|sta|yosys|oss_tclsh); layouts: cbflow-oss gui klayout <gds>" ;;
         esac
+        # an X display for gui::show when XQuartz is reachable (macOS); the
+        # session works without one (gui::show then reports no display)
+        if [ "$(uname)" = Darwin ] && [ "${CBFLOW_OSS_GUI:-0}" != 1 ]; then
+            _xh="$(command -v xhost || echo /opt/X11/bin/xhost)"
+            if [ -x "$_xh" ] && "$_xh" +localhost >/dev/null 2>&1; then
+                export DISPLAY="host.docker.internal:0"
+            else
+                unset DISPLAY
+            fi
+        fi
         if [ "$bin" = openroad ] && [ "${CBFLOW_OSS_GUI:-0}" = 1 ]; then
             gui_display
             OSS_INIT=1 run_in_container "exec openroad -gui -no_init ${script:+$(q "$script")}"
