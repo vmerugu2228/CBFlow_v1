@@ -36,20 +36,35 @@ proc eco_vt_of {master} {
     return ""
 }
 
+# Signal input pins with no net (std cells and macros) — must not rise
+proc eco_floating_inputs {} {
+    set _n 0
+    foreach _i [[ord::get_db_block] getInsts] {
+        foreach _it [$_i getITerms] {
+            set _mt [$_it getMTerm]
+            if {[$_mt getIoType] eq "INPUT" && [$_mt getSigType] in {SIGNAL CLOCK} && [$_it getNet] eq "NULL"} { incr _n }
+        }
+    }
+    return $_n
+}
+
 proc eco_inst_names {} {
     set _n {}
     foreach _i [[ord::get_db_block] getInsts] { dict set _n [$_i getName] 1 }
     return $_n
 }
 
-# Buffer insertion through the STA network editor (OpenROAD insert_buffer
-# crashes / leaves an inconsistent parasitics state on a routed database in
-# this build): a new <buffer_cell> instance drives a new net carrying the
-# given load pins of <net> (all its loads when none are given). Placed at
-# the first load; detailed placement legalizes it.
+# Buffer insertion on the database (OpenDB): a new <buffer_cell> instance
+# drives a new net carrying the given load pins of <net> (inst/pin; all its
+# loads when none are given). OpenROAD insert_buffer crashes / leaves an
+# inconsistent parasitics state on a routed database in this build, and the
+# STA network editor (make_net / connect_pin) lost the new connections in the
+# written netlist. Placed at the first load; detailed placement legalizes it.
+# Every connection is checked before returning.
 proc eco_insert_buffer {buffer_cell net args} {
     set _blk [ord::get_db_block]
-    if {[$_blk findNet $net] eq "NULL"} { error "eco_insert_buffer: no net $net" }
+    set _n [$_blk findNet $net]
+    if {$_n eq "NULL"} { error "eco_insert_buffer: no net $net" }
     set _m [[ord::get_db] findMaster $buffer_cell]
     if {$_m eq "NULL"} { error "eco_insert_buffer: no lib cell $buffer_cell" }
     set _in ""; set _out ""
@@ -58,28 +73,34 @@ proc eco_insert_buffer {buffer_cell net args} {
         if {[$_mt getIoType] eq "INPUT"} { set _in [$_mt getName] } elseif {[$_mt getIoType] eq "OUTPUT"} { set _out [$_mt getName] }
     }
     if {$_in eq "" || $_out eq ""} { error "eco_insert_buffer: $buffer_cell is not a buffer (one input, one output)" }
-    set _loads $args
-    if {![llength $_loads]} {
-        foreach _p [get_pins -quiet -of_objects [get_nets $net]] {
-            if {[get_property $_p direction] eq "input"} { lappend _loads [get_full_name $_p] }
+    set _loads {}
+    if {[llength $args]} {
+        foreach _l $args {
+            set _it [$_blk findITerm $_l]
+            if {$_it eq "NULL"} { error "eco_insert_buffer: no pin $_l" }
+            if {[$_it getNet] eq "NULL" || [[$_it getNet] getName] ne $net} { error "eco_insert_buffer: $_l is not on net $net" }
+            lappend _loads $_it
         }
+    } else {
+        foreach _it [$_n getITerms] { if {[[$_it getMTerm] getIoType] eq "INPUT"} { lappend _loads $_it } }
     }
     if {![llength $_loads]} { error "eco_insert_buffer: net $net has no load pins" }
     set _k 1
     while {[$_blk findInst eco_buf_$_k] ne "NULL" || [$_blk findNet eco_net_$_k] ne "NULL"} { incr _k }
-    make_net eco_net_$_k
-    make_instance eco_buf_$_k $buffer_cell
-    foreach _l $_loads {
-        disconnect_pin $net $_l
-        connect_pin eco_net_$_k $_l
+    set _nn [odb::dbNet_create $_blk eco_net_$_k]
+    set _b  [odb::dbInst_create $_blk $_m eco_buf_$_k]
+    foreach _it $_loads { $_it disconnect; $_it connect $_nn }
+    [$_b findITerm $_in]  connect $_n
+    [$_b findITerm $_out] connect $_nn
+    # verify: buffer input on <net>, output on the new net, every load moved
+    if {[[$_b findITerm $_in] getNet] ne $_n || [[$_b findITerm $_out] getNet] ne $_nn} {
+        error "eco_insert_buffer: eco_buf_$_k not connected $net -> eco_net_$_k"
     }
-    connect_pin $net eco_buf_$_k/$_in
-    connect_pin eco_net_$_k eco_buf_$_k/$_out
-    set _li [$_blk findInst [file dirname [lindex $_loads 0]]]
-    if {$_li ne "NULL"} {
-        set _b [$_blk findInst eco_buf_$_k]
-        $_b setLocation {*}[$_li getLocation]; $_b setPlacementStatus PLACED
+    foreach _it $_loads {
+        if {[$_it getNet] ne $_nn} { error "eco_insert_buffer: [[$_it getInst] getName]/[[$_it getMTerm] getName] not moved to eco_net_$_k" }
     }
+    $_b setLocation {*}[[[lindex $_loads 0] getInst] getLocation]
+    $_b setPlacementStatus PLACED
     return eco_buf_$_k
 }
 
@@ -157,6 +178,7 @@ flow_proc load_design {
 flow_proc apply_changes {
     global design_name
     remove_fillers
+    set _float0 [eco_floating_inputs]
     set _before [eco_inst_names]
     set _masters {}
     foreach _i [[ord::get_db_block] getInsts] { dict set _masters [$_i getName] [[$_i getMaster] getName] }
@@ -220,7 +242,12 @@ flow_proc apply_changes {
     }
     dict for {_nm -} $_before { if {![dict exists $_after $_nm]} { lappend _rpt "removed : $_nm [dict get $_masters $_nm]"; dict incr _n removed } }
     lappend _rpt "Summary : resized [dict get $_n resized], added [dict get $_n added], removed [dict get $_n removed]"
+    set _float1 [eco_floating_inputs]
+    lappend _rpt "Floating signal inputs : $_float0 -> $_float1"
     set _fh [open "$::REPORTS_DIR/eco_changes.rpt" w]; puts $_fh [join $_rpt \n]; close $_fh
+    if {$_float1 > $_float0} {
+        error "the ECO left [expr {$_float1 - $_float0}] signal input pin(s) unconnected — see $::REPORTS_DIR/eco_changes.rpt"
+    }
     handle_info "ECO: resized [dict get $_n resized], added [dict get $_n added], removed [dict get $_n removed]"
     if {[dict get $_n resized] + [dict get $_n added] + [dict get $_n removed] == 0} {
         handle_warning "the ECO changed nothing"
