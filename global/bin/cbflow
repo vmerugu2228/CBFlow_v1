@@ -481,8 +481,19 @@ print(t.format_stats_report())
                     exec python3 "$cloud_agent" "$@"
                     ;;
                 code)
-                    # Launch Claude Code as agent in this project
-                    echo "  Launching Claude Code agent..."
+                    # Claude Code at the CBflow root: the SmartGenie MCP server
+                    # (claude mcp add smartgenie …) and CLAUDE.md apply there.
+                    # With a prompt: one-shot answer (claude -p); else interactive.
+                    command -v claude >/dev/null || { echo "  ERROR: Claude Code (claude) not installed"; exit 1; }
+                    cd "$CBFLOW_ROOT" || exit 1
+                    if [ $# -gt 0 ]; then
+                        # one-shot cannot ask for approval: only the read-only
+                        # SmartGenie tools are pre-allowed (run / write stay interactive)
+                        _sg=mcp__smartgenie
+                        exec claude -p "$*" --allowedTools \
+                            "${_sg}__cbflow_read_file,${_sg}__cbflow_list_workspace,${_sg}__cbflow_get_run_status,${_sg}__cbflow_query_race_db,${_sg}__cbflow_parse_tcl,${_sg}__cbflow_analyze_log,${_sg}__cbflow_search_knowledge"
+                    fi
+                    echo "  Launching Claude Code with SmartGenie tools (CBflow root: $CBFLOW_ROOT)..."
                     exec claude
                     ;;
                 -h|--help|help)
@@ -497,7 +508,8 @@ print(t.format_stats_report())
     cbflow smartgenie --hybrid                Use Claude API + local learning
     cbflow smartgenie cloud "your prompt"     Claude agent with CBflow tools (cloud)
     cbflow smartgenie --server URL "prompt"   Connect to central server
-    cbflow smartgenie code                    Launch Claude Code agent
+    cbflow smartgenie code                    Claude Code + SmartGenie tools (interactive)
+    cbflow smartgenie code "your question"    Claude Code + SmartGenie tools (one-shot)
 
   Knowledge Base:
     cbflow smartgenie ingest --all            Ingest docs + code + EDA guides
