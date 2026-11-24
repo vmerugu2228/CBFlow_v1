@@ -3176,6 +3176,12 @@ def cmd_interactive(args: argparse.Namespace) -> int:
             wf.write(f"{gui_shell}\n")
         else:
             wf.write(' '.join(p for p in (tool_shell, empty_flags) if p) + "\n")
+        # a failed session (tool missing, license, load error) keeps its
+        # window until Enter so the message can be read
+        wf.write('_rc=$?\n'
+                 'if [ $_rc -ne 0 ]; then\n'
+                 '    echo; echo "Session ended with exit code $_rc — press Enter to close."; read -r _\n'
+                 'fi\n')
     os.chmod(wrapper_path, 0o755)
 
     # ── Print summary ────────────────────────────────────────────────────
@@ -3246,11 +3252,11 @@ def cmd_interactive(args: argparse.Namespace) -> int:
             logger.error(f"  Or run the wrapper directly (no GUI): bash {wrapper_path}")
             return 1
         logger.info(f"  Opening: {xterm_cmd} -geometry {xterm_geom} -title \"{title}\"")
-        # -hold keeps the xterm window open when the tool exits so error
-        # messages stay visible instead of vanishing in half a second.
+        # No -hold: a held window outlives its session and cannot be closed;
+        # the wrapper pauses on a failed exit so the error stays readable.
         try:
             proc = subprocess.Popen([
-                xterm_cmd, '-hold', '-geometry', xterm_geom,
+                xterm_cmd, '-geometry', xterm_geom,
                 '-title', title, '-e', wrapper_path
             ])
         except FileNotFoundError:
