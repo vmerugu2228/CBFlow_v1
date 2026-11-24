@@ -130,7 +130,7 @@ array set eco {
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 array set eco {
-    supported_tools {fc innovus}
+    supported_tools {fc innovus openroad}
     default_tool    "fc"
 }
 

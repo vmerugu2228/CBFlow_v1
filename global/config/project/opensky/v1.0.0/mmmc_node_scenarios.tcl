@@ -107,4 +107,15 @@ array set mmmc {
         }
     }
 
+
+    eco {
+        setup {
+            func_ss_1p60v_rc_max_100c
+            func_ss_1p60v_rc_max_m40c
+        }
+        hold  {
+            func_ff_1p95v_rc_min_m40c
+            func_ff_1p95v_rc_min_100c
+        }
+    }
 }

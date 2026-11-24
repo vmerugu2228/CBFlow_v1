@@ -39,9 +39,11 @@ proc oss_checks_run {stage} {
         }
     }
     foreach _p $_groups {
+        set _t0 [clock milliseconds]
         if {[catch {$_p $stage} _e]} {
             handle_warning "checklist reports: [string trimleft $_p :] failed at $stage: $_e"
         }
+        handle_info "checklist reports: [string trimleft $_p :] [format %.1f [expr {([clock milliseconds] - $_t0) / 1000.0}]] s"
     }
     set _n 0
     foreach _r [lsort [array names ::oss_checks::lines]] {

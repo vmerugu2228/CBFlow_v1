@@ -37,6 +37,14 @@ flow_proc fill {
     check_placement
 }
 
+# Save the post-route database — before extraction: OpenRCX re-encodes the
+# wires in the database (the detailed router then rejects them, DRT-1010, and
+# check_drc reports false markers), so pro.odb / signoff's final.odb / the
+# release keep the routed wiring as detailed route wrote it.
+flow_proc save_design {
+    write_db [oss_stage_out pro.odb]
+}
+
 # One SPEF per RC corner; each view reads the SPEF of its rc_corner. The
 # SPEFs (outputs/final_<rc>.spef) are written here, not in save_design:
 # read_spef loads them back for the post-route timing reports.
@@ -57,11 +65,6 @@ flow_proc extract {
 # Reports: post-route QoR, timing, area, checklist metrics, timing snapshot
 flow_proc report {
     oss_write_qor pro
-}
-
-# Save the post-route database
-flow_proc save_design {
-    write_db [oss_stage_out pro.odb]
 }
 
 flow_exec_all

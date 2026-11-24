@@ -1404,6 +1404,10 @@ proc check_release_readiness {run_dir flow milestone phase} {
 
     set flow_input_handshake(ECO,netlist)        {ANY netlist "${design_name}.v"}
     set flow_input_handshake(ECO,def_file)       {ANY def     "${design_name}.def"}
+    # Open-source ECO (eco(tool,name) openroad): the routed database + SDC of
+    # a PNR release, or of an earlier ECO release (<EXIT>_ECO<n>)
+    set flow_input_handshake(ECO,odb)            {ANY db      "${design_name}.odb"}
+    set flow_input_handshake(ECO,sdc)            {ANY sdc     "${design_name}.sdc"}
 
     set flow_input_handshake(POPT,netlist)       {ANY netlist "${design_name}.pt.v"}
     set flow_input_handshake(POPT,spef)          {ANY spef    "${design_name}.spef"}

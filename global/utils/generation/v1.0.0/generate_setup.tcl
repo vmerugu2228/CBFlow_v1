@@ -146,6 +146,27 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
 
     proc get_base_flow_sequence {flow_type} {
         set stages [::CBFlow::Config::get_flow_stages $flow_type]
+        # The run's tool (user_config <arr>(tool,name)) selects the tool
+        # overlay, which may replace the stage list (ECO openroad: odb1 sdc1
+        # eco1 signoff1 …). The node config was loaded before user_config, so
+        # evaluate it again with the run's tool, in a scratch interpreter.
+        if {[info exists ::env(CBFLOW_RUN_DIR)]} {
+            set _arr [string tolower $flow_type]
+            set _tool [get_tool_name $::env(CBFLOW_RUN_DIR)]
+            set _cur [expr {[info exists ::${_arr}(tool,name)] ? [set ::${_arr}(tool,name)] : ""}]
+            set _cfg "[set ::CBFlow::Config::config_root]/flow/[set ::CBFlow::Config::config_version]/node_configs/${flow_type}_config.tcl"
+            if {$_tool ne "" && $_tool ne $_cur && [file exists $_cfg]} {
+                set _i [interp create]
+                if {![catch {
+                    $_i eval [list array set $_arr [list tool,name $_tool]]
+                    $_i eval [list source $_cfg]
+                    $_i eval [list set ${_arr}(stages)]
+                } _st] && $_st ne ""} {
+                    set stages $_st
+                }
+                interp delete $_i
+            }
+        }
         if {$stages ne ""} {
             return $stages
         }
