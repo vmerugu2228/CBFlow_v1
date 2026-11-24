@@ -361,7 +361,9 @@ set lsf(bsub,queue)         "normal_rhel8"
 set lsf(bsub,affinity)      "affinity\[core(1):cpubind=socket:membind=localonly\]"
 
 # XTerm settings (xterm enable/disable controlled by flow(use_xterm) in flow_config)
-set lsf(xterm,command)       "xterm"
+# XQuartz's xterm: Homebrew's xterm (first in PATH on this host) cannot open
+# an input method under XQuartz, so interactive sessions took no keyboard input
+set lsf(xterm,command)       "/opt/X11/bin/xterm"
 set lsf(xterm,geometry)      "200x50"
 
 # ── LSF integration keys read by lsf_utils.tcl::get_lsf_config ─────────────
