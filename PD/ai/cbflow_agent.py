@@ -35,8 +35,11 @@ CBFLOW_CORE = os.path.dirname(SCRIPT_DIR)
 CBFLOW_BIN = os.path.join(CBFLOW_CORE, 'bin', 'cbflow')
 DEFAULT_WORKSPACE = os.path.join(os.path.dirname(CBFLOW_CORE), 'workarea')
 
-MODEL = "claude-sonnet-4-6"  # Fast + capable. Use claude-opus-4-6 for complex reasoning.
-MAX_TOKENS = 8192
+# Claude model (CLAUDE_MODEL overrides); effort SMARTGENIE_EFFORT (own name:
+# a generic CLAUDE_EFFORT may be set by other Claude tools). High: multi-step tool use.
+MODEL = os.environ.get("CLAUDE_MODEL", "") or "claude-opus-5-5"
+EFFORT = os.environ.get("SMARTGENIE_EFFORT", "") or "high"   # low | medium | high | xhigh | max
+MAX_TOKENS = 16000
 MAX_TURNS = 50  # Safety limit on agent loop iterations
 
 SYSTEM_PROMPT = f"""You are the CBflow AI Agent — an autonomous Physical Design flow orchestrator.
@@ -274,76 +277,98 @@ def execute_tool(name: str, args: dict) -> str:
 # AGENT LOOP
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def run_agent(prompt: str, interactive: bool = False):
-    """Run the autonomous agent loop."""
+def _create(client, messages):
+    """One Messages request. Server-side fallback re-runs a refused turn on
+    the fallback model in the same call (fallbacks "default")."""
+    return client.beta.messages.create(
+        model=MODEL,
+        max_tokens=MAX_TOKENS,
+        system=SYSTEM_PROMPT,
+        tools=TOOLS,
+        messages=messages,
+        output_config={"effort": EFFORT},
+        betas=["server-side-fallback-2026-07-01"],
+        fallbacks="default",
+    )
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        print("ERROR: Set ANTHROPIC_API_KEY environment variable")
-        print("  export ANTHROPIC_API_KEY=sk-ant-...")
-        sys.exit(1)
 
-    client = anthropic.Anthropic(api_key=api_key)
-
-    print(f"\n{'=' * 60}")
-    print(f"  CBflow AI Agent")
-    print(f"  Model: {MODEL}")
-    print(f"  Workspace: {DEFAULT_WORKSPACE}")
-    print(f"{'=' * 60}\n")
-
-    messages = [{"role": "user", "content": prompt}]
-
+def _agent_turns(client, messages, verbose=True):
+    """Run tool-use turns until Claude ends its turn (or MAX_TURNS). The
+    assistant turn is appended exactly as returned (thinking / fallback
+    blocks included — they must be passed back unchanged)."""
     for turn in range(MAX_TURNS):
-        print(f"  [Turn {turn + 1}] Thinking...", end="", flush=True)
+        if verbose:
+            print(f"  [Turn {turn + 1}] Working...", end="", flush=True)
+        try:
+            response = _create(client, messages)
+        except anthropic.AuthenticationError:
+            print("\n  ERROR: Claude credentials rejected — set ANTHROPIC_API_KEY or run `ant auth login`")
+            return False
+        except anthropic.RateLimitError:
+            print("\n  ERROR: rate limited by the Claude API — retry shortly")
+            return False
+        except anthropic.APIStatusError as e:
+            print(f"\n  ERROR: Claude API {e.status_code}: {e.message}")
+            return False
+        except anthropic.APIConnectionError:
+            print("\n  ERROR: cannot reach the Claude API (network)")
+            return False
+        if verbose:
+            print(f" ({response.stop_reason})")
 
-        response = client.messages.create(
-            model=MODEL,
-            max_tokens=MAX_TOKENS,
-            system=SYSTEM_PROMPT,
-            tools=TOOLS,
-            messages=messages,
-        )
-
-        print(f" ({response.stop_reason})")
-
-        # Process response content
-        assistant_content = []
+        messages.append({"role": "assistant", "content": response.content})
         tool_results = []
-
         for block in response.content:
-            if block.type == "text":
+            if block.type == "text" and block.text.strip():
                 print(f"\n  Agent: {block.text}\n")
-                assistant_content.append(block)
-
-            elif block.type == "tool_use":
-                tool_name = block.name
-                tool_input = block.input
-                print(f"  Tool: {tool_name}({json.dumps(tool_input)[:100]}...)")
-
-                result = execute_tool(tool_name, tool_input)
-                # Print abbreviated result
+            elif block.type == "fallback":
+                print(f"  (served by {block.to.model} after {block.from_.model} declined)")
+            elif block.type == "tool_use" and response.stop_reason == "tool_use":
+                print(f"  Tool: {block.name}({json.dumps(block.input)[:100]}...)")
+                result = execute_tool(block.name, block.input)
                 lines = result.strip().split('\n')
                 if len(lines) > 5:
                     print(f"  Result: {lines[0]}... ({len(lines)} lines)")
                 else:
                     for line in lines[:5]:
                         print(f"  Result: {line}")
-
-                assistant_content.append(block)
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,
                     "content": result[-8000:],  # Limit context size
+                    "is_error": result.startswith("ERROR"),
                 })
 
-        # Add assistant message
-        messages.append({"role": "assistant", "content": assistant_content})
-
-        # If there were tool calls, send results back
+        if response.stop_reason == "refusal":
+            cat = response.stop_details.category if response.stop_details else None
+            print(f"  Agent declined this request (category: {cat}).")
+            return False
         if tool_results:
             messages.append({"role": "user", "content": tool_results})
-        elif response.stop_reason == "end_turn":
-            break
+            continue
+        if response.stop_reason == "max_tokens":
+            # a tool call cut off by max_tokens is not run (its input may be truncated)
+            print("  (response hit max_tokens — ask it to continue)")
+        if response.stop_reason != "pause_turn":
+            return True
+    print(f"  Stopped after {MAX_TURNS} turns (MAX_TURNS).")
+    return True
+
+
+def run_agent(prompt: str, interactive: bool = False):
+    """Run the autonomous agent loop (one-shot, then optionally interactive).
+    Credentials: ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN or an `ant auth login`
+    profile — resolved by the SDK."""
+    client = anthropic.Anthropic()
+
+    print(f"\n{'=' * 60}")
+    print(f"  CBflow AI Agent")
+    print(f"  Model: {MODEL} (effort {EFFORT})")
+    print(f"  Workspace: {DEFAULT_WORKSPACE}")
+    print(f"{'=' * 60}\n")
+
+    messages = [{"role": "user", "content": prompt}]
+    _agent_turns(client, messages)
 
     if interactive:
         while True:
@@ -354,34 +379,7 @@ def run_agent(prompt: str, interactive: bool = False):
                 if not user_input:
                     continue
                 messages.append({"role": "user", "content": user_input})
-                # Continue the loop
-                for turn in range(MAX_TURNS):
-                    response = client.messages.create(
-                        model=MODEL, max_tokens=MAX_TOKENS,
-                        system=SYSTEM_PROMPT, tools=TOOLS, messages=messages,
-                    )
-                    assistant_content = []
-                    tool_results = []
-                    for block in response.content:
-                        if block.type == "text":
-                            print(f"\n  Agent: {block.text}\n")
-                            assistant_content.append(block)
-                        elif block.type == "tool_use":
-                            print(f"  Tool: {block.name}")
-                            result = execute_tool(block.name, block.input)
-                            lines = result.strip().split('\n')
-                            print(f"  Result: {lines[0]}{'...' if len(lines) > 1 else ''}")
-                            assistant_content.append(block)
-                            tool_results.append({
-                                "type": "tool_result",
-                                "tool_use_id": block.id,
-                                "content": result[-8000:],
-                            })
-                    messages.append({"role": "assistant", "content": assistant_content})
-                    if tool_results:
-                        messages.append({"role": "user", "content": tool_results})
-                    elif response.stop_reason == "end_turn":
-                        break
+                _agent_turns(client, messages, verbose=False)
             except (KeyboardInterrupt, EOFError):
                 break
 

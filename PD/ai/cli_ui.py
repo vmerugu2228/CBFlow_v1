@@ -240,7 +240,8 @@ def goodbye():
     """Print session end message."""
     print()
     separator()
-    print(f"  {dim('Session ended. All data stayed local.')}")
+    _hybrid = os.environ.get('SMARTGENIE_HYBRID', '').lower() in ('1', 'true', 'yes')
+    print(f"  {dim('Session ended. Prompts were sent to the Claude API (hybrid mode).' if _hybrid else 'Session ended. All data stayed local.')}")
     print(f"  {dim('Tip: type')} {cyan('cbflow smartgenie')} {dim('to start again')}")
     print()
 

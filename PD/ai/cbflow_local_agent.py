@@ -53,7 +53,7 @@ OLLAMA_URL = os.environ.get('OLLAMA_URL', 'http://localhost:11434')
 SMARTGENIE_SERVER = os.environ.get('SMARTGENIE_SERVER', '')
 MODEL = os.environ.get('CBFLOW_MODEL', 'qwen2.5:14b')
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
-CLAUDE_MODEL = os.environ.get('CLAUDE_MODEL', 'claude-sonnet-4-6')
+CLAUDE_MODEL = os.environ.get('CLAUDE_MODEL', 'claude-opus-5-5')
 HYBRID_MODE = os.environ.get('SMARTGENIE_HYBRID', '').lower() in ('1', 'true', 'yes')
 USERNAME = os.environ.get('USER', 'anonymous')
 MAX_TURNS = 5
@@ -272,13 +272,12 @@ def execute_tool(name: str, args: dict) -> str:
 
 def claude_chat(messages: list) -> str:
     """Send chat to Claude API and LEARN the response to ChromaDB."""
-    api_key = os.environ.get('ANTHROPIC_API_KEY', '') or ANTHROPIC_API_KEY
-    if not api_key:
-        return None  # No API key — fall back to local
-
+    # Credentials: ANTHROPIC_API_KEY (env or this file), ANTHROPIC_AUTH_TOKEN
+    # or an `ant auth login` profile — resolved by the SDK; none = local model
     try:
         import anthropic
-        client = anthropic.Anthropic(api_key=api_key)
+        api_key = os.environ.get('ANTHROPIC_API_KEY', '') or ANTHROPIC_API_KEY
+        client = anthropic.Anthropic(api_key=api_key) if api_key else anthropic.Anthropic()
 
         # Convert messages format (remove system from messages, pass separately)
         system_msg = ""
@@ -290,17 +289,22 @@ def claude_chat(messages: list) -> str:
                 api_messages.append(m)
 
         claude_model = os.environ.get('CLAUDE_MODEL', '') or CLAUDE_MODEL
-        response = client.messages.create(
+        # Server-side fallback re-runs a refused turn on the fallback model
+        response = client.beta.messages.create(
             model=claude_model,
-            max_tokens=4096,
+            max_tokens=16000,
             system=system_msg if system_msg else "You are a VLSI/EDA expert and CBflow automation assistant.",
             messages=api_messages,
+            betas=["server-side-fallback-2026-07-01"],
+            fallbacks="default",
         )
+        if response.stop_reason == "refusal":
+            return None  # declined — the local model answers
 
-        # Extract text response
+        # Extract text response (thinking / fallback blocks carry no answer text)
         answer = ""
         for block in response.content:
-            if hasattr(block, 'text'):
+            if block.type == "text":
                 answer += block.text
 
         # LEARN: save Claude's response to ChromaDB for future offline use

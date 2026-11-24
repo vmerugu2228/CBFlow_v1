@@ -495,6 +495,7 @@ print(t.format_stats_report())
     cbflow smartgenie                         Interactive mode (local LLM)
     cbflow smartgenie "your prompt"           One-shot command
     cbflow smartgenie --hybrid                Use Claude API + local learning
+    cbflow smartgenie cloud "your prompt"     Claude agent with CBflow tools (cloud)
     cbflow smartgenie --server URL "prompt"   Connect to central server
     cbflow smartgenie code                    Launch Claude Code agent
 
@@ -522,8 +523,11 @@ print(t.format_stats_report())
   Environment Variables:
     SMARTGENIE_SERVER    Central server URL (http://ip:8091)
     SMARTGENIE_HYBRID    Set to 1 for Claude API hybrid mode
-    ANTHROPIC_API_KEY    Required for hybrid/cloud mode
-    CBFLOW_MODEL         Override LLM model (default: qwen2.5:14b)
+    ANTHROPIC_API_KEY    Claude credentials for hybrid / cloud mode
+                         (or run `ant auth login` once — no env var needed)
+    CLAUDE_MODEL         Claude model for hybrid / cloud (default: claude-opus-5-5)
+    SMARTGENIE_EFFORT    Cloud agent effort: low|medium|high|xhigh|max (default: high)
+    CBFLOW_MODEL         Override local LLM model (default: qwen2.5:14b)
 
 SGEOF
                     ;;
