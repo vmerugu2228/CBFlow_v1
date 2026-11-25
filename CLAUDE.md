@@ -319,6 +319,8 @@ cbflow run db-manage export --format csv                      # Export DB data
   `oss_vt_dont_use` / `oss_pnr_dont_use`, `synthesis_memory.rpt`; SRAM macros kept (`tech(memory,lib_set_map|
   power_pins|ground_pins)`, `leaf_mem` PDN with met5 pins, LVS black boxes).
 - FP: `fp(oss,fp,die_area|core_utilization)`, `fp(oss,macro,placement)` (""/row/explicit),
+  `fp(oss,pins,constraints)` (per-group port regions), `fp(oss,probe,enable)` (probe1: quick GPL+GRT
+  congestion estimate, nothing saved; floorplan skill `.claude/skills/floorplan/`),
   `fp(oss,macro,blockage_sides)` (after tapcell, clipped to rows minus endcaps), `fp(oss,pins,region)`;
   `project(pdn,enable)` false = no grid. PNR reads the floorplan via `pnr(input,def_file_release_tag) "FP_EXIT"`.
 - STA: `sta(oss,sta,mode) flat|hier` (flat = descendant netlists + per-instance SPEF); per-scenario

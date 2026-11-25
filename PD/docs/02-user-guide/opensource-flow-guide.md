@@ -263,10 +263,19 @@ Defaults are in `FP_openroad_config.tcl`; set them per block in the FP user conf
 | `fp(oss,macro,placement)` | `""` | `""` = `rtl_macro_placer`; `"row"` = one row from the core corner; `{inst x y orient ...}` = explicit `place_macro` |
 | `fp(oss,macro,blockage_sides)` | `{}` | Any of `left right bottom top`: hard placement blockages from each child macro to the core edge |
 | `fp(oss,pins,region)` | `""` | `""` = all edges; e.g. `top:*` → `set_io_pin_constraint -region` for all signal pins |
+| `fp(oss,pins,constraints)` | `{}` | Per-group ports: `{{top:100-400 a_vec*} {left:* host_*}}` — each group kept together (`-group`) in its region; pins no group takes use `pins,region`; a glob matching no pin is an error |
+| `fp(oss,probe,enable)` | `false` | `probe1` (off the release chain): quick `global_placement` + `global_route` on the floorplan, nothing saved → `work/FP/probe1/reports/probe.rpt` (per-layer usage / overflow, total overflow, wirelength) |
+| `fp(oss,probe,density)` | `0.6` | Probe global-placement target density |
 | `fp(oss,pins,hor_layer)` / `ver_layer` | `met3` / `met2` | |
 | `fp(oss,fail_on_violations)` | `false` | |
 
 **Die sizing with macros.** The core area is the macro area (including halo) plus std-cell area divided by utilization. The core width is at least the sum of the macro widths plus (n+1) channels. The core height is at least the tallest macro plus 2 channels. Use `die_area` to size a parent die from a released child macro. `workarea/chain_ai_p1.sh` computes ai_subsys's `die_area` from mac_array's released size.
+
+**Floorplan skill.** `.claude/skills/floorplan/` (Claude Code) proposes die size, explicit
+macro placement, blockage sides and port groups from the SYNTH release + library tag,
+probes the shortlist (`fp(oss,probe,enable) true`), checks the floorplan rules
+(`scripts/fp_check.py`) and recommends the smallest floorplan with 0 probe overflow.
+Unset `fp(oss,macro,placement)` uses `rtl_macro_placer -min_channel_size <halo>`.
 
 **Macro blockages** (`fp(oss,macro,blockage_sides)`) are created after `tapcell`:
 

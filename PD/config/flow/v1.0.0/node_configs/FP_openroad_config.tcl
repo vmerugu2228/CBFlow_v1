@@ -18,8 +18,9 @@ array set fp {
 
 # ┌─ Stage list: libraries come from the library tag; no DEF input ────────────┐
 array set fp {
-    stages {netlist1 sdc1 upf1 init_design1 floorplan1 powerplan1 export_data1 release_data1}
+    stages {netlist1 sdc1 upf1 init_design1 floorplan1 powerplan1 export_data1 release_data1 probe1}
     dependencies,init_design1 {netlist1 sdc1 upf1}
+    dependencies,probe1       {powerplan1}
 
     mandatory_user_inputs {
         fp(input,netlist)
@@ -39,6 +40,23 @@ foreach _s {def1 library1} {
 unset _s
 set fp(critical_files,floorplan1) {fp(input,netlist)}
 
+# probe1: early congestion / track estimate of the floorplan (quick global
+# placement + global route, nothing saved) — off the export chain; a no-op
+# unless fp(oss,probe,enable) (the floorplan skill turns it on per run)
+array set fp {
+    node_types,probe1        "probe"
+    stage_types,probe1       "execution"
+    node_descriptions,probe1 "Early congestion probe: quick placement + global route (fp(oss,probe,enable))"
+    runtime,timeout,probe1   120
+    subnodes,probe1          {setup run validate finish}
+    subnode_dependencies,probe1,setup    {}
+    subnode_dependencies,probe1,run      {setup}
+    subnode_dependencies,probe1,validate {run}
+    subnode_dependencies,probe1,finish   {validate}
+}
+foreach _sub {setup run validate finish} { set fp(subnode_work_dirs,probe1,$_sub) "work/probe1/$_sub" }
+unset _sub
+
 # ┌─ Tool binary per stage (lsf(tool_shell,<tool>) → cbflow-oss) ──────────────┐
 array set fp {
     oss,tool,init_design  "openroad"
@@ -46,6 +64,7 @@ array set fp {
     oss,tool,powerplan    "openroad"
     oss,tool,export_data  "openroad"
     oss,tool,release_data "oss_tclsh"
+    oss,tool,probe        "openroad"
     oss,threads           6
 }
 
@@ -74,8 +93,16 @@ array set fp {
     oss,macro,halo           10
     oss,macro,blockage_sides {}
     oss,macro,placement      ""
+    oss,pins,constraints     {}
+    oss,probe,enable         false
+    oss,probe,density        0.6
     oss,fail_on_violations   false
 }
+# oss,pins,constraints {{region pin_glob ...} ...}: per-group port placement
+# (each group kept together in its region, e.g. {top:100-400 a_vec*}
+# {left:* host_*}); pins no group takes use oss,pins,region.
+# oss,probe,enable / density: the probe1 early-congestion step and its
+# global-placement target density (reports/probe.rpt).
 # oss,fail_on_violations: false = power-grid connectivity failures are
 # reported and the flow continues; true = the stage fails.
 
@@ -132,6 +159,7 @@ set fp(mandatory_outputs,init_design1)  {init_design.odb}
 set fp(mandatory_outputs,floorplan1)    {floorplan.odb floorplan.def}
 set fp(mandatory_outputs,powerplan1)    {powerplan.odb powerplan.def}
 set fp(mandatory_outputs,export_data1)  {final.def final.odb final.v final.sdc}
+set fp(mandatory_outputs,probe1)        {probe.rpt}
 set fp(mandatory_outputs,release_data1) {release.manifest}
 
 # ┌─ Export for PV at floorplan ────────────────────────────────────────────────┐

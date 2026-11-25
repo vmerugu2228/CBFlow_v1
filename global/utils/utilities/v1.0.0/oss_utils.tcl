@@ -628,7 +628,9 @@ proc oss_fp_place_macros {blocks} {
             place_macro -macro_name $_inst -location [list $_x $_y] -orientation $_o
         }
     } else {
-        rtl_macro_placer -halo_width $_halo -halo_height $_halo
+        # min channel between macros = the halo (the -halo_width/-halo_height
+        # flags are deprecated: MPL-0074)
+        rtl_macro_placer -min_channel_size $_halo
     }
     # Children that export horizontal-strap pins (DL2) must sit on the rail
     # cycle pitch so their straps abut ours with the same net order.
@@ -745,17 +747,36 @@ proc oss_fp_macro_report {blocks} {
 # IO pins + well taps / endcaps. Report: oss_fp_io_report.
 proc oss_fp_pins_taps {} {
     set _arr [oss_flow_arr]
-    # <flow>(oss,pins,region): edge region for every signal pin (e.g. top:*
-    # — a macro's pins facing its parent's logic); "" = all edges
+    # <flow>(oss,pins,constraints): per-group port placement — a list of
+    # {region pin_glob ...} (region as set_io_pin_constraint: top:*,
+    # left:100-400 …); each group's pins stay together (-group) in its region.
+    # A glob matching no signal pin is an error.
+    # <flow>(oss,pins,region): region for every signal pin no group took
+    # (e.g. top:* — a macro's pins facing its parent's logic); "" = all edges
     if {![info exists ::${_arr}(oss,pins,region)]} { error "${_arr}(oss,pins,region) is not set" }
     set _rg [set ::${_arr}(oss,pins,region)]
-    if {$_rg ne ""} {
+    set _sig {}
+    foreach _bt [[ord::get_db_block] getBTerms] {
+        if {[$_bt getSigType] ni {POWER GROUND}} { lappend _sig [$_bt getName] }
+    }
+    set _taken {}
+    foreach _grp [oss_fp_opt oss,pins,constraints] {
+        set _reg [lindex $_grp 0]
         set _names {}
-        foreach _bt [[ord::get_db_block] getBTerms] {
-            if {[$_bt getSigType] ni {POWER GROUND}} { lappend _names [$_bt getName] }
+        foreach _g [lrange $_grp 1 end] {
+            set _m [lsearch -all -inline -glob $_sig $_g]
+            if {![llength $_m]} { error "${_arr}(oss,pins,constraints): '$_g' matches no signal pin" }
+            foreach _n $_m { if {$_n ni $_taken && $_n ni $_names} { lappend _names $_n } }
         }
-        set_io_pin_constraint -pin_names $_names -region $_rg
-        handle_info "IO pins: [llength $_names] signal pins on $_rg"
+        if {![llength $_names]} continue
+        set_io_pin_constraint -pin_names $_names -region $_reg -group
+        lappend _taken {*}$_names
+        handle_info "IO pins: [llength $_names] pins grouped on $_reg ([join [lrange $_grp 1 end] { }])"
+    }
+    set _rest [lmap _n $_sig { expr {$_n in $_taken ? [continue] : $_n} }]
+    if {$_rg ne "" && [llength $_rest]} {
+        set_io_pin_constraint -pin_names $_rest -region $_rg
+        handle_info "IO pins: [llength $_rest] signal pins on $_rg"
     }
     place_pins -hor_layers [oss_get $_arr oss,pins,hor_layer] \
                -ver_layers [oss_get $_arr oss,pins,ver_layer]
