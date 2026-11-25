@@ -1,0 +1,83 @@
+# Spec-to-GDS on the Open-Source Stack (project `opensky`, pilot gcd P3)
+
+One block goes from a YAML spec to signed-off GDS through every discipline's
+flows, each a normal cbflow run that releases an exit. The chain is data in the
+project config and one driver runs it.
+
+## 1. The chain
+
+`project(signoff_chain,<phase>)` (global project config) — stages in order; a
+stage is a list of `<step> <release tag>` pairs that run in parallel:
+
+```tcl
+set project(signoff_chain,P3) {
+    {RTL_SPEC SPEC_EXIT}
+    {RTL_LINT LINT_SIGNOFF  RTL_CDC CDC_SIGNOFF  UPF_CHECK UPF_SIGNOFF}
+    {SYNTH P3_SYNTH_v1  TB_SETUP TB_SETUP_EXIT}
+    {SCAN_INSERT SCAN_INSERT_EXIT  FP FP_EXIT  M1_EXEC M1_EXIT}
+    {ATPG_pre ATPG_PREPD_EXIT  PNR BTO  M2_EXEC M2_EXIT}
+    {STA BTO  PV BTO  LEC BTO  ATPG_post ATPG_POSTPD_EXIT  GLS_FUNC BTO  GLS_SCAN_MBIST BTO  M3_EXEC M3_EXIT}
+    {M4_EXEC M4_EXIT}
+    {DV_SIGNOFF DV_SIGNOFF_EXIT}
+}
+set project(signoff_chain,bypass) { ATPG_post {timing_sim1} }
+```
+
+A `<step>` names the block's user config: `workarea/<block>/uc_<step>_<phase>.tcl`,
+or `uc_<step>_<tool>_<phase>.tcl` (e.g. `uc_SYNTH_yosys_P3.tcl`); variants of a
+flow are separate steps (`ATPG_pre`, `ATPG_post`). The tag is the release the
+step must produce: an exit (`SPEC_EXIT`, `BTO`, `M2_EXIT` …) or a named tag
+(`P3_SYNTH_v1`). Signoff flows (STA / PV / LEC / GLS) release under the exit
+they verify. `project(signoff_chain,bypass)` lists stages the open-source flow
+does not support (ATPG timing simulation), bypassed in that step's run.
+
+Every exit still goes through its own gates: the exit-order gate per
+discipline (`project(phase_exits)` for PD, `project(phase_exits,DV)` for DV),
+the checklists, the signoff flows' exit inputs.
+
+## 2. The driver
+
+```bash
+workarea/run_spec2gds.sh <block> <phase>            # the whole chain
+FROM=SCAN_INSERT UNTIL=STA workarea/run_spec2gds.sh gcd P3
+DRY=1 workarea/run_spec2gds.sh gcd P3               # plan: steps, user configs, run dirs
+```
+
+Per step: `cbflow workspace create` from the user config (or, for an existing
+run, `cbflow run retrace` from its first stage), the step's bypasses,
+`cbflow run all`. A step passes when the run passes **and** its release
+`<release,path>/<phase>/<block>/<FLOW>/<tag>/RELEASE_COMPLETE` is newer than
+the step's start — a run that did nothing does not count. The chain stops after
+a stage with a failure; log `workarea/<block>/spec2gds_<phase>.log` + a summary
+table. Runs launch as the user configs say (`flow(use_xterm)`).
+
+## 3. SmartGrid
+
+The project page's **Spec-to-GDS chain** tile and `/project/<p>/chain`: per
+phase, the stages left to right and one row per block that started the chain —
+✓ released (time), ⟳ released before an earlier stage was re-released (stale:
+re-run it), — not released.
+
+## 4. Pilot — gcd P3
+
+Spec (`inputs/opensky/gcd/P3/spec/`), RTL (`rtl/gcd.sv`, GCD accelerator with
+two SRAMs), UVM testbench (`tb/uvm/`), gate-level testbench
+(`tb/gcd_gls_tb.v`), user configs `workarea/gcd/uc_*_P3.tcl`. Guides per
+discipline: `RTL/docs/opensource-rtl-guide.md`, `DV/docs/opensource-dv-guide.md`,
+`DFT/docs/opensource-dft-guide.md`, `PD/docs/02-user-guide/opensource-flow-guide.md`.
+
+### Results (gcd P3)
+
+| Stage | Steps | Result |
+|---|---|---|
+| 1–3 | RTL_SPEC, RTL_LINT / RTL_CDC / UPF_CHECK, SYNTH (slang) + TB_SETUP | PASS |
+| 4 | SCAN_INSERT, FP, M1 | PASS |
+| 5 | ATPG pre-PD, PNR (PLACE / CTS / PRO / BTO released in order), M2 | PASS |
+| 6 | STA (setup WNS +5.915 ns, hold +0.069 ns), PV, LEC, ATPG post-PD, GLS_FUNC (queue + stream + registers on the BTO netlist), GLS_SCAN_MBIST, M3 (100/100) | PASS |
+| 7 | M4 | FAIL — F9 memory-test readiness needs the MBIST collar (DFT phase 5) |
+| 8 | DV_SIGNOFF | blocked by M4 |
+
+Open on the BTO netlist: max transition (32) / capacitance (31) / fanout (39)
+violations reported by STA (not gating). The driver found its own bug on the
+first run (an existing run not retraced): the refreshed-release rule refused the
+stale releases instead of passing them.

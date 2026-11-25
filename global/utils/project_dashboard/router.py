@@ -29,6 +29,7 @@ import state_paths
 import tracker_db
 import floorplan
 import releases
+import chain as chain_status
 import schedule_config
 import checklist_stats
 
@@ -421,6 +422,9 @@ def make_handler(project):
                 # /project/<self>/releases — per-phase release status
                 if len(segs) == 2 and segs[1] == 'releases':
                     return self._page_releases(tgt_project)
+                # /project/<self>/chain — spec-to-GDS sign-off chain status
+                if len(segs) == 2 and segs[1] == 'chain':
+                    return self._page_chain(tgt_project)
                 # /project/<self>/checklist — per-phase exit-checklist status
                 if len(segs) == 2 and segs[1] == 'checklist':
                     return self._page_checklist(tgt_project)
@@ -636,6 +640,11 @@ def make_handler(project):
             pubs = tracker_db.list_published(state_paths.tracker_db(tgt_project), tgt_project)
             self._send(200, 'text/html; charset=utf-8',
                        _render_checklist_detail(tgt_project, pubs))
+
+        def _page_chain(self, tgt_project):
+            """Sign-off chain per phase: block x step from the release area."""
+            self._send(200, 'text/html; charset=utf-8',
+                       _render_chain_detail(tgt_project, _chain_stats_safe(tgt_project)))
 
         def _page_releases(self, tgt_project):
             """Release status per phase from the release area on disk."""
@@ -1156,6 +1165,15 @@ _STYLE = """
   .sg-tile-links a { color: var(--tile-accent, var(--accent-ink)); text-decoration:none; }
   .sg-tile-links a:hover { text-decoration:underline; }
   div.sg-tile:hover { transform:none; }
+  .sg-tile-chain { --tile-accent: #0f766e; }
+  .sg-tile-chain .sg-tile-badge { background: #0f766e; font-size:16px; }
+  .chain-wrap { overflow-x:auto; }
+  .chain-tbl { border-collapse:collapse; font-size:11px; }
+  .chain-tbl th, .chain-tbl td { border:1px solid var(--border); padding:4px 6px; text-align:center; white-space:nowrap; }
+  .chain-stage { background: var(--ph-bg); color: var(--text); font-weight:800; }
+  .chain-step { font-weight:700; }
+  .chain-blk { text-align:left !important; font-weight:800; }
+  .chain-ok { color:#15803d; } .chain-stale { color:#b45309; } .chain-no { color: var(--muted); }
   /* discipline colour: --tile-accent from flow(discipline_color,<DISC>) (dash_config.discipline_css) */
   .sg-tile-disc .sg-tile-badge { background: var(--tile-accent); }
   .sg-tile-disc { border-top: 3px solid var(--tile-accent); }
@@ -4261,6 +4279,97 @@ def _render_releases_detail(project, stats):
     ])
 
 
+def _chain_stats_safe(project):
+    try:
+        return chain_status.chain_stats(project)
+    except Exception:
+        return None
+
+
+def _render_chain_card(project, stats):
+    """Chain tile for Tier 2 — the current (else latest) phase with a chain:
+    steps released across the blocks that started it."""
+    href = f'/project/{html.escape(project, quote=True)}/chain'
+    phases = (stats or {}).get('phases') or []
+    cur = dash_config.project_value(project, 'current_phase') or ''
+    ph = next((p for p in phases if p['phase'] == cur), phases[-1] if phases else None)
+    if ph is None:
+        metric, lbl, sub, pct = '—', 'no project(signoff_chain,<phase>)', '', 0
+    else:
+        pct = round(100.0 * ph['done'] / ph['total']) if ph['total'] else 0
+        metric = f"{ph['done']}/{ph['total']}"
+        lbl = f"chain steps released · {ph['phase']}"
+        sub = f"{len(ph['stages'])} stages · {len(ph['blocks'])} block(s) started"
+    return (
+        f'<a class="sg-tile sg-tile-chain" href="{href}">'
+        f'  <div class="sg-tile-head">'
+        f'    <span class="sg-tile-badge chain-badge">⛓</span>'
+        f'    <span class="sg-tile-title">Spec-to-GDS chain</span>'
+        f'  </div>'
+        f'  <div class="sg-tile-body">'
+        f'    <div class="sg-tile-metric">{html.escape(metric)}</div>'
+        f'    <div class="sg-tile-metric-lbl">{html.escape(lbl)}</div>'
+        f'    <div class="pbar"><span style="width:{pct}%"></span></div>'
+        f'    <div class="sg-tile-sub">{sub}</div>'
+        f'  </div>'
+        f'  <div class="sg-tile-foot">Open chain status →</div>'
+        f'</a>')
+
+
+def _render_chain_detail(project, stats):
+    """Per phase: the chain's stages in order, one row per block that started
+    it, one cell per step (released time / not released / stale)."""
+    body = []
+    if not stats:
+        body.append('<div class="sched-note">No sign-off chain: set '
+                    '<code>project(signoff_chain,&lt;phase&gt;)</code> in the project config '
+                    '(run it with <code>workarea/run_spec2gds.sh &lt;block&gt; &lt;phase&gt;</code>).</div>')
+    for i, ph in enumerate((stats or {}).get('phases') or []):
+        color, tint = _PHASE_COLORS[i % len(_PHASE_COLORS)]
+        steps = ph['steps']
+        hdr1 = ''.join(f'<th colspan="{len(st)}" class="chain-stage">stage {n}</th>'
+                       for n, st in enumerate(ph['stages'], 1))
+        hdr2 = ''.join(f'<th class="chain-step" title="{html.escape(steps[s]["flow"] + " → " + steps[s]["tag"], quote=True)}">'
+                       f'{html.escape(s)}<br><span class="muted">{html.escape(steps[s]["tag"])}</span></th>'
+                       for st in ph['stages'] for s in st)
+        rows = []
+        for b, row in ph['blocks'].items():
+            cells = []
+            for st in ph['stages']:
+                for s in st:
+                    c = row[s]
+                    tip = html.escape(f'{steps[s]["flow"]} / {steps[s]["tag"]} · {c["path"]}', quote=True)
+                    if not c['done']:
+                        cells.append(f'<td class="chain-cell chain-no" title="{tip}">—</td>')
+                    elif c['stale']:
+                        cells.append(f'<td class="chain-cell chain-stale" title="{tip} · released before an '
+                                     f'earlier stage was re-released">⟳ {html.escape(c["time"][5:])}</td>')
+                    else:
+                        cells.append(f'<td class="chain-cell chain-ok" title="{tip}">✓ {html.escape(c["time"][5:])}</td>')
+            rows.append(f'<tr><th class="chain-blk">{html.escape(b)}</th>{"".join(cells)}</tr>')
+        table = (f'<div class="chain-wrap"><table class="chain-tbl"><tr><th></th>{hdr1}</tr>'
+                 f'<tr><th class="chain-blk">block</th>{hdr2}</tr>{"".join(rows)}</table></div>'
+                 if rows else '<div class="rel-empty">No block has started this chain.</div>')
+        head = (f'<div class="ph-head"><span class="ph-chip">{html.escape(ph["phase"])}</span>'
+                f'<span class="ph-dates">{len(ph["stages"])} stages · {len(steps)} steps · '
+                f'{ph["done"]}/{ph["total"]} released</span></div>')
+        body.append(f'<div class="ph-card" style="--ph:{color};--ph-bg:{tint}">{head}'
+                    f'<div class="ph-body">{table}</div></div>')
+    rel_path = (stats or {}).get('release_path') or ''
+    return ''.join([
+        '<!DOCTYPE html><html><head>', '<meta charset="utf-8">',
+        f'<title>Chain · {html.escape(project)} — CBflow-SmartGrid</title>',
+        _style(), _SCRIPT_RELOAD_ON_FOCUS, '</head><body>',
+        _render_detail_chrome(project, 'Spec-to-GDS chain'),
+        '<section class="detail-top">',
+        f'  <h1 class="detail-h1">Spec-to-GDS chain · {html.escape(project)}</h1>',
+        '  <div class="detail-sub">Per phase: the sign-off chain (<code>project(signoff_chain,&lt;phase&gt;)</code>, '
+        'run by <code>workarea/run_spec2gds.sh</code>) — stages left to right, steps of a stage run in parallel. '
+        '✓ released · ⟳ released before an earlier stage was re-released (stale) · — not released.</div>',
+        f'  <div class="detail-sub" style="margin-top:4px">Release area <code>{html.escape(rel_path)}</code></div>',
+        '</section>', '<div class="sched-wrap rel-page">', *body, '</div>', '</body></html>'])
+
+
 def _checklist_stats_safe(project, published_rows):
     """(stats, errors) — phases/exits from project(phase_exits), blocks from
     the hierarchy; config problems come back as errors, not defaults."""
@@ -5008,6 +5117,7 @@ def _render_tier2(project, info, blocks, published_rows):
     team_card = _render_team_card(project)
     rel_card = _render_releases_card(project, _release_stats_safe(project))
     chk_card = _render_checklist_card(project, published_rows or [])
+    chain_card = _render_chain_card(project, _chain_stats_safe(project))
     # Light project header strip so the operator sees the project context
     # (name + tech + tapeout) — live from the project config.
     hdr = _project_header(project)
@@ -5042,6 +5152,7 @@ def _render_tier2(project, info, blocks, published_rows):
         '<section class="sg-tile-grid">',
         rel_card,
         chk_card,
+        chain_card,
         sched_card,
         team_card,
         '</section>',

@@ -1,0 +1,13 @@
+# gcd P3 — scan chains of the SYNTH release traced / checked / flush-simulated
+set project(name)              "opensky"
+set flow(design_name)          "gcd"
+set flow(test_mode)            "false"
+set flow(use_lsf)              "false"
+set flow(use_xterm)            "true"
+set project(phase)             "P3"
+set project(release,phase)     "P3"
+set project(lib_config_tag)    "OSS2"
+set flow(type)                 "SCAN_INSERT"
+set flow(run_name)             "p3_scan"
+set scan_insert(tool,name)          "fault"
+set scan_insert(input,release_tag)  "P3_SYNTH_v1"

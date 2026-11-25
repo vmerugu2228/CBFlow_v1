@@ -44,6 +44,28 @@ set project(phase_exits,DV) {
     P2 {M3_EXIT M4_EXIT DV_SIGNOFF_EXIT}
     P3 {TB_SETUP_EXIT M1_EXIT M2_EXIT M3_EXIT M4_EXIT DV_SIGNOFF_EXIT}
 }
+
+# Spec-to-GDS sign-off chain (workarea/run_spec2gds.sh <block> <phase>):
+# project(signoff_chain,<phase>) — stages in order; a stage is a list of
+# "<step> <release tag>" pairs that run in parallel. <step> names the block's
+# user config workarea/<block>/uc_<step>_<phase>.tcl (or uc_<step>_<tool>_<phase>.tcl);
+# the step passes when its run passes and releases <tag> (RELEASE_COMPLETE,
+# newer than the step's start). The chain stops after a stage with a failure.
+# project(signoff_chain,bypass) — "<step> {<nodes>}": stages the open-source
+# flow does not support, bypassed after (re)creating the run.
+set project(signoff_chain,P3) {
+    {RTL_SPEC SPEC_EXIT}
+    {RTL_LINT LINT_SIGNOFF  RTL_CDC CDC_SIGNOFF  UPF_CHECK UPF_SIGNOFF}
+    {SYNTH P3_SYNTH_v1  TB_SETUP TB_SETUP_EXIT}
+    {SCAN_INSERT SCAN_INSERT_EXIT  FP FP_EXIT  M1_EXEC M1_EXIT}
+    {ATPG_pre ATPG_PREPD_EXIT  PNR BTO  M2_EXEC M2_EXIT}
+    {STA BTO  PV BTO  LEC BTO  ATPG_post ATPG_POSTPD_EXIT  GLS_FUNC BTO  GLS_SCAN_MBIST BTO  M3_EXEC M3_EXIT}
+    {M4_EXEC M4_EXIT}
+    {DV_SIGNOFF DV_SIGNOFF_EXIT}
+}
+set project(signoff_chain,bypass) {
+    ATPG_post {timing_sim1}
+}
 set project(version)         "1.0"
 set project(cbflow_release)  "v1.0.0"
 set project(description)     "Open-source RTL-to-GDS proof on SkyWater SKY130"

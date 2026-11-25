@@ -352,6 +352,10 @@ cbflow run db-manage export --format csv                      # Export DB data
   db — Verilator get_coverage() is 0 — + vPlan closure) / triage / signoff vs `project(dv,targets,M<n>)` (DV overlay).
   DV exit plan `project(phase_exits,DV)` (opensky P1 TB_SETUP M1 M2, P2 M3 M4 DV_SIGNOFF, P3 all), ordered by the
   exit gate per discipline. gcd P3 TB `inputs/opensky/gcd/P3/tb/uvm/`.
+- Spec-to-GDS chain (`PD/docs/02-user-guide/spec-to-gds-guide.md`): `project(signoff_chain,<phase>)` = stages of parallel
+  `<step> <tag>` pairs (step = `workarea/<b>/uc_<step>[_<tool>]_<phase>.tcl`), `project(signoff_chain,bypass)`;
+  `workarea/run_spec2gds.sh <block> <phase>` (FROM / UNTIL / DRY) creates or retraces each run, `run all`, passes a
+  step only when its release is refreshed; SmartGrid tile + `/project/<p>/chain` (✓ / ⟳ stale / —).
 - DFT scandef: SYNTH writes `def/<d>.scandef` (mandatory with `project(dft,enable)`; `oss_scandef.tcl` fixes OpenROAD's
   reversed chain order); PNR `init_design` requires + `read_def -incremental`s it (handshake `PNR,def_scan`); PNR / ECO
   releases carry the post-route scandef; SCAN_INSERT checks it against its netlist trace.
