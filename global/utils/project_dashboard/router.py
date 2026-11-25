@@ -1149,6 +1149,16 @@ _STYLE = """
                   padding-top:6px; border-top:1px solid var(--border);
                   text-align:right; }
 
+  .sg-section-h { padding:16px 20px 0; font-size:12px; font-weight:800; letter-spacing:.06em;
+                  text-transform:uppercase; color: var(--muted); }
+  .sg-tile-flows { font-size:10px; color: var(--muted); margin-top:6px; line-height:1.35; }
+  .sg-tile-links { display:flex; justify-content:space-between; gap:8px; }
+  .sg-tile-links a { color: var(--tile-accent, var(--accent-ink)); text-decoration:none; }
+  .sg-tile-links a:hover { text-decoration:underline; }
+  div.sg-tile:hover { transform:none; }
+  /* discipline colour: --tile-accent from flow(discipline_color,<DISC>) (dash_config.discipline_css) */
+  .sg-tile-disc .sg-tile-badge { background: var(--tile-accent); }
+  .sg-tile-disc { border-top: 3px solid var(--tile-accent); }
   /* Discipline tile accents (match per-user daemon brand colors) */
   .sg-tile-sched { --tile-accent: #d97706; }
   .sg-tile-sched .sg-tile-badge { background: #d97706; font-size:16px; }
@@ -3592,46 +3602,34 @@ def _render_discipline_cards(project):
     out = []
     for disc in disciplines:
         try:
-            flow_count = len(get_project_enabled_flows(project, disc))
+            flows = get_project_enabled_flows(project, disc)
         except Exception:
-            flow_count = 0
+            flows = []
         url = daemon_url_for(project, disc)
         css = disc.lower()
         tier3_href = f'/project/{html.escape(project, quote=True)}/{css}'
         daemon_badge = (
-            '<span class="tile-badge-live" title="per-user daemon live">● live</span>'
+            '<span class="tile-badge-live" title="run dashboard daemon live">● live</span>'
             if url else
-            '<span class="tile-badge-off" title="per-user daemon offline">○ offline</span>')
-        _plural = 'flow' if flow_count == 1 else 'flows'
+            '<span class="tile-badge-off" title="run dashboard daemon offline — opening it starts it">○ offline</span>')
+        _plural = 'flow' if len(flows) == 1 else 'flows'
         out.append(
-            f'<a class="sg-tile sg-tile-disc disc-{css}" href="{tier3_href}">'
+            f'<div class="sg-tile sg-tile-disc disc-{css}">'
             f'  <div class="sg-tile-head">'
             f'    <span class="sg-tile-badge disc-badge">{html.escape(disc)}</span>'
             f'    {daemon_badge}'
             f'  </div>'
             f'  <div class="sg-tile-body">'
-            f'    <div class="sg-tile-metric">{flow_count}</div>'
+            f'    <div class="sg-tile-metric">{len(flows)}</div>'
             f'    <div class="sg-tile-metric-lbl">{_plural} enabled</div>'
+            f'    <div class="sg-tile-flows">{html.escape(" · ".join(flows))}</div>'
             f'  </div>'
-            f'  <div class="sg-tile-foot">'
-            f'    Open {html.escape(disc)} summary →'
+            f'  <div class="sg-tile-foot sg-tile-links">'
+            f'    <a href="{tier3_href}">Summary →</a>'
+            f'    <a href="/dashboard/{html.escape(disc, quote=True)}" target="_blank" rel="noopener" '
+            f'title="{"open" if url else "start and open"} the {html.escape(disc)} run dashboard">Run dashboard ↗</a>'
             f'  </div>'
-            f'</a>')
-        out.append(
-            f'<a class="sg-tile sg-tile-disc disc-{css}" href="/dashboard/{html.escape(disc, quote=True)}" '
-            f'target="_blank" rel="noopener">'
-            f'  <div class="sg-tile-head">'
-            f'    <span class="sg-tile-badge disc-badge">{html.escape(disc)}</span>'
-            f'    {daemon_badge}'
-            f'  </div>'
-            f'  <div class="sg-tile-body">'
-            f'    <div class="sg-tile-metric">↗</div>'
-            f'    <div class="sg-tile-metric-lbl">run dashboard</div>'
-            f'  </div>'
-            f'  <div class="sg-tile-foot">'
-            f'    Open {html.escape(disc)} run dashboard{"" if url else " (starts it)"} →'
-            f'  </div>'
-            f'</a>')
+            f'</div>')
     return '\n'.join(out)
 
 
@@ -5036,8 +5034,12 @@ def _render_tier2(project, info, blocks, published_rows):
         f'  <div class="kv">Tech <b>{html.escape(tech)}</b></div>',
         _byline_html(project),
         '</header>',
+        '<div class="sg-section-h">Disciplines</div>',
         '<section class="sg-tile-grid">',
         disc_cards,
+        '</section>',
+        '<div class="sg-section-h">Project</div>',
+        '<section class="sg-tile-grid">',
         rel_card,
         chk_card,
         sched_card,
