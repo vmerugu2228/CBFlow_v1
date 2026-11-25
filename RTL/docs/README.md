@@ -16,6 +16,9 @@ issues at the cheapest point in the design cycle.
 | `RTL_CDC`    | Clock-domain-crossing analysis        | Spyglass CDC   | Jaspergold CDC    |
 | `RTL_RDC`    | Reset-domain-crossing analysis        | Spyglass RDC   | Jaspergold RDC    |
 | `UPF_CHECK`  | Static UPF intent check (pre-synth)   | VC-LP          | Conformal LP      |
+| `RTL_SPEC`   | Block spec (YAML / SystemRDL / XLS) → IP-XACT, register RTL, SDC, UPF, vPlan | rtlcheck (open-source) | — |
+
+Open-source flows (project opensky): `opensource-rtl-guide.md`.
 
 Each flow is independently releasable; sign-off deliverables land under
 `results/release/<flow_lower>/` and are packaged into the project release

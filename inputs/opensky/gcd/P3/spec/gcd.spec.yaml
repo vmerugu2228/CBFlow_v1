@@ -1,0 +1,130 @@
+# =============================================================================
+# gcd — block specification (CBflow spec schema v1), opensky phase P3
+# Source of truth for the RTL_SPEC flow: IP-XACT component, register block
+# (registers: SystemRDL), SDC / UPF skeletons, RTL filelist, verification plan.
+# =============================================================================
+spec_version: 1
+block: gcd
+version: "1.0"
+vendor: smartsocs.com
+library: opensky
+description: >
+  16-bit greatest-common-divisor engine (Euclid, subtract-and-swap) with a
+  valid/ready request / response interface, an APB4 register block and two
+  SRAM logs (operands, results).
+
+clocks:
+  - name: core_clock
+    port: clk
+    period_ns: 20.0
+    uncertainty_ns: 0.25
+
+resets:
+  - name: reset
+    port: reset
+    active: high
+    synchronous: true
+
+ports:
+  - {name: clk,           dir: in,  width: 1,  desc: "core clock"}
+  - {name: reset,         dir: in,  width: 1,  desc: "synchronous active-high reset"}
+  - {name: req_val,       dir: in,  width: 1,  interface: req}
+  - {name: req_rdy,       dir: out, width: 1,  interface: req}
+  - {name: req_msg,       dir: in,  width: 32, interface: req, desc: "{a[15:0], b[15:0]}"}
+  - {name: resp_val,      dir: out, width: 1,  interface: resp}
+  - {name: resp_rdy,      dir: in,  width: 1,  interface: resp}
+  - {name: resp_msg,      dir: out, width: 16, interface: resp, desc: "gcd(a, b)"}
+  - {name: s_apb_psel,    dir: in,  width: 1,  interface: csr}
+  - {name: s_apb_penable, dir: in,  width: 1,  interface: csr}
+  - {name: s_apb_pwrite,  dir: in,  width: 1,  interface: csr}
+  - {name: s_apb_pprot,   dir: in,  width: 3,  interface: csr}
+  - {name: s_apb_paddr,   dir: in,  width: 4,  interface: csr}
+  - {name: s_apb_pwdata,  dir: in,  width: 32, interface: csr}
+  - {name: s_apb_pstrb,   dir: in,  width: 4,  interface: csr}
+  - {name: s_apb_pready,  dir: out, width: 1,  interface: csr}
+  - {name: s_apb_prdata,  dir: out, width: 32, interface: csr}
+  - {name: s_apb_pslverr, dir: out, width: 1,  interface: csr}
+  - {name: irq,           dir: out, width: 1,  desc: "result interrupt (STATUS.irq & CTRL.irq_en)"}
+
+interfaces:
+  - name: req
+    protocol: valid_ready
+    mode: slave
+    signals: {valid: req_val, ready: req_rdy, data: req_msg}
+  - name: resp
+    protocol: valid_ready
+    mode: master
+    signals: {valid: resp_val, ready: resp_rdy, data: resp_msg}
+  - name: csr
+    protocol: apb4
+    mode: slave
+    prefix: s_apb_
+    registers: gcd_regs.rdl        # SystemRDL (or .xlsx register sheet)
+    base_address: 0x0
+
+io_timing:                         # SDC: % of the clock period
+  input_delay_pct: 10
+  output_delay_pct: 10
+  output_load_pf: 0.033
+
+power:
+  upf_version: "2.1"
+  domains:
+    - name: PD_GCD
+      elements: [.]                # the whole block
+      supply: {power: VPWR, ground: VGND}
+      switchable: true             # VPWR is the parent's switched rail
+      states: {ON: 1.80, OFF: off}
+
+memories:
+  - {inst: u_sram_req,  macro: sky130_sram_1kbyte_1rw1r_32x256_8, desc: "operand log"}
+  - {inst: u_sram_resp, macro: sky130_sram_1kbyte_1rw1r_32x256_8, desc: "result log"}
+
+rtl:
+  top: gcd
+  language: systemverilog
+  sources: [../rtl/gcd.sv]         # relative to this file; + the generated register block
+
+features:
+  - id: F1
+    name: gcd compute
+    desc: "gcd(a, b) for every accepted request, including a = 0, b = 0, a = b"
+    priority: P1
+    milestone: M1
+    tests: [gcd_sanity_test, gcd_random_test]
+    coverage: [operands_zero, operands_equal, a_lt_b]
+  - id: F2
+    name: valid/ready handshakes
+    desc: "requests accepted only in IDLE; response held until resp_rdy; back-pressure"
+    priority: P1
+    milestone: M2
+    tests: [gcd_backpressure_test]
+    coverage: [resp_stall, back_to_back_req]
+  - id: F3
+    name: register access
+    desc: "APB read / write of CTRL, STATUS, RESULT, OPCOUNT; reset values; RO / W1C behaviour"
+    priority: P1
+    milestone: M2
+    tests: [gcd_reg_reset_test, gcd_reg_access_test]
+    coverage: [reg_read_all, reg_write_ctrl]
+  - id: F4
+    name: interrupt
+    desc: "STATUS.irq set on every result; irq output follows CTRL.irq_en; W1C clears"
+    priority: P2
+    milestone: M3
+    tests: [gcd_irq_test]
+    coverage: [irq_set, irq_clear, irq_masked]
+  - id: F5
+    name: operation counter
+    desc: "OPCOUNT counts completed requests; CTRL.cnt_clr clears it"
+    priority: P2
+    milestone: M3
+    tests: [gcd_opcount_test]
+    coverage: [count_clear, count_wrap]
+  - id: F6
+    name: SRAM logs
+    desc: "every accepted request / response is written to the operand / result SRAM"
+    priority: P2
+    milestone: M4
+    tests: [gcd_sram_log_test]
+    coverage: [log_wrap]

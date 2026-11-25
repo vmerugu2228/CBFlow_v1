@@ -11,6 +11,16 @@
 # cleanup, Atalanta pattern mapping, testbenches, fault simulation).
 # ═══════════════════════════════════════════════════════════════════════════════
 
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/oss_flow_utils.tcl"
+# generic helpers live in oss_flow_utils.tcl (shared with RTL / DV); the dft_
+# names the DFT command files use
+foreach {_dft _oss} {dft_run oss_run dft_input oss_input dft_report_value oss_report_value
+                     dft_report_list oss_report_list dft_release_name oss_release_name
+                     dft_test_mode oss_test_mode dft_exec_all oss_exec_all dft_write oss_write_file} {
+    interp alias {} $_dft {} $_oss
+}
+unset _dft _oss
+
 proc dft_py_script {} {
     if {![info exists ::env(CBFLOW_DFT_DIR)] || $::env(CBFLOW_DFT_DIR) eq ""} {
         error "CBFLOW_DFT_DIR is not set — the DFT tree is needed by the open-source DFT flows"
@@ -18,37 +28,7 @@ proc dft_py_script {} {
     return "$::env(CBFLOW_DFT_DIR)/utils/oss/oss_dft.py"
 }
 
-# dft_run <log> <argv…> — run a tool, its output to <log>; on failure the
-# error carries the log tail. Test mode prints the command and returns.
-proc dft_run {log args} {
-    if {[is_true [expr {[info exists ::flow(test_mode)] ? $::flow(test_mode) : false}]]} {
-        puts "  TEST_CMD: $args (log $log)"
-        return 0
-    }
-    file mkdir [file dirname $log]
-    if {[catch {exec {*}$args >& $log} _err]} {
-        set _tail ""
-        catch { set _tail [exec tail -25 $log] }
-        error "[lindex $args 0] failed (see $log): $_err\n$_tail"
-    }
-    return 0
-}
 proc dft_py {log args} { dft_run $log python3 [dft_py_script] {*}$args }
-
-# The single input file a flow's input node staged: work/<FLOW>/<type>1/<type>/.
-proc dft_input {type {pattern *}} {
-    set _d "$::run_dir/work/$::FLOW_TYPE/${type}1/$type"
-    # (the staging step leaves <type>_detail.log / <type>_info.tcl beside it)
-    set _f [lsort [lsearch -all -inline -not -regexp [glob -nocomplain -types {f l} -directory $_d $pattern] \
-                       "/${type}_(detail\\.log|info\\.tcl)\$"]]
-    if {[llength $_f] != 1} {
-        error "input '$type': expected one file matching '$pattern' in $_d, found [llength $_f] ([join [lmap x $_f {file tail $x}] {, }])"
-    }
-    set _p [lindex $_f 0]
-    # staged inputs are links — the resolved file
-    while {[file type $_p] eq "link"} { set _p [file normalize [file join [file dirname $_p] [file readlink $_p]]] }
-    return $_p
-}
 
 # Liberty of the node's first lib set (its MMMC view, mmmc_node_scenarios.tcl).
 proc dft_libs {stage} { return [oss_lib_set_files [lindex [oss_node_lib_sets $stage] 0]] }
@@ -103,57 +83,6 @@ proc dft_simulate {files top vvp log {defs {}} {plusargs {}}} {
     return $log
 }
 
-# Value of `<label> : <number>` in a report (error when missing).
-proc dft_report_value {file label} {
-    set _fh [open $file]; set _t [read $_fh]; close $_fh
-    if {![regexp -line "^\\s*[string map {( \\( ) \\) . \\. % \\%} $label]\\s*:\\s*(-?\[0-9.\]+)" $_t -> _v]} {
-        error "'$label' not found in $file"
-    }
-    return $_v
-}
-
-# {category file} a downstream flow reads from this release:
-# flow_input_handshake(<flow>,<input>) of the release config (PD tree — one
-# handshake map for every discipline).
-proc dft_release_name {flow input} {
-    if {![array exists ::flow_input_handshake]} {
-        uplevel #0 [list source "$::env(CBFLOW_CORE_DIR)/config/flow/[cbflow_version FLOW_CONFIG_VERSION]/release_config.tcl"]
-    }
-    if {![info exists ::flow_input_handshake($flow,$input)]} {
-        error "flow_input_handshake($flow,$input) is not set (release_config.tcl)"
-    }
-    lassign $::flow_input_handshake($flow,$input) _src _cat _file
-    return [list $_cat [string map [list {${design_name}} $::design_name] $_file]]
-}
-
-proc dft_test_mode {} {
-    return [expr {[info exists ::flow(test_mode)] && [is_true $::flow(test_mode)]}]
-}
-
-# Run the command file's flow_proc steps. Test mode (command file run by the
-# host tclsh, no container, no inputs) lists the steps instead — the handler
-# writes the test-mode stub outputs.
-proc dft_exec_all {} {
-    if {[dft_test_mode]} {
-        handle_info "TEST MODE — $::FLOW_TYPE/$::NODE_NAME steps (not executed): $::flow::steps"
-        return
-    }
-    flow_exec_all
-}
-
-proc dft_write {file text} {
-    file mkdir [file dirname $file]
-    set _fh [open $file w]; puts -nonewline $_fh $text; close $_fh
-}
-
-# Words after `<label> : <n>` on a report line (e.g. the cell names of
-# "Sequential types  : 2  a b").
-proc dft_report_list {file label} {
-    set _fh [open $file]; set _t [read $_fh]; close $_fh
-    if {![regexp -line "^\\s*$label\\s*:\\s*\\d+\\s*(.*)\$" $_t -> _w]} { error "'$label' not found in $file" }
-    return [string trim $_w]
-}
-
 # Chains of a CBflow scandef: {{flop …} …} in load order, one list per chain.
 proc dft_scandef_chains {file} {
     set _fh [open $file]; set _t [read $_fh]; close $_fh
@@ -175,8 +104,3 @@ proc dft_scan_clock {rpt} {
     return [lindex $_ports 0]
 }
 
-# Optional list key: <arr>(<key>) or {} when unset / empty.
-proc oss_get_opt {arr key} {
-    upvar #0 $arr _a
-    return [expr {[info exists _a($key)] ? $_a($key) : {}}]
-}

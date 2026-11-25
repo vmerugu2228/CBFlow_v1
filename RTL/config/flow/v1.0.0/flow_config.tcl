@@ -23,6 +23,7 @@ set config_dir [file dirname $script_path]
 # file only appends RTL-side mandatory_vars keys for the pre-flight validator.
 # Every RTL flow requires a tool selection (Synopsys Spyglass / VC-LP vs
 # Cadence Jaspergold / Conformal LP).
+set flow(mandatory_vars,RTL_SPEC)   {default_tool}
 set flow(mandatory_vars,RTL_LINT)   {default_tool}
 set flow(mandatory_vars,RTL_CDC)    {default_tool}
 set flow(mandatory_vars,RTL_RDC)    {default_tool}

@@ -1,0 +1,28 @@
+addrmap gcd_regs {
+    name = "gcd control / status registers";
+    desc = "APB register block of the spec-driven gcd (opensky P3).";
+    default regwidth = 32;
+
+    reg {
+        name = "Control";
+        field { sw = rw; hw = r; desc = "Raise irq when a result completes"; } irq_en[0:0] = 0;
+        field { sw = w;  hw = r; singlepulse; desc = "Write 1: clear the operation counter"; } cnt_clr[1:1] = 0;
+    } CTRL @ 0x0;
+
+    reg {
+        name = "Status";
+        field { sw = r;  hw = w; desc = "Computation in progress"; } busy[0:0];
+        field { sw = r;  hw = w; desc = "Result valid, response not yet taken"; } done[1:1];
+        field { sw = rw; hw = r; woclr; hwset; desc = "Result interrupt pending (write 1 to clear)"; } irq[2:2] = 0;
+    } STATUS @ 0x4;
+
+    reg {
+        name = "Last result";
+        field { sw = r; hw = w; desc = "gcd of the last completed request"; } value[15:0];
+    } RESULT @ 0x8;
+
+    reg {
+        name = "Operation count";
+        field { sw = r; hw = w; desc = "Completed requests since reset / clear"; } count[15:0];
+    } OPCOUNT @ 0xC;
+};

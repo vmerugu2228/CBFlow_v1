@@ -37,6 +37,12 @@ array set flow_descriptions {
     M4_EXEC    "Test plan execution — Milestone 4 (RTL freeze & GLS SDF)"
     ECO_EXEC   "ECO verification & re-regression"
     DV_SIGNOFF "Verification signoff & closure"
+
+    RTL_SPEC   "Block spec (YAML / SystemRDL / XLS) -> IP-XACT, register RTL, SDC, UPF, vPlan"
+    RTL_LINT   "RTL lint signoff"
+    RTL_CDC    "Clock-domain-crossing signoff"
+    RTL_RDC    "Reset-domain-crossing signoff"
+    UPF_CHECK  "Power-intent (UPF) check against the RTL"
 }
 
 # ── Run Type Descriptions ──

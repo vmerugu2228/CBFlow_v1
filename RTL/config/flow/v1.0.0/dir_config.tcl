@@ -8,6 +8,13 @@
 # RTL flow in flow(types) must have an entry — there is no built-in layout.
 # Keep one `set directory(<FLOW>) { "<dir>" ... }` block per flow (data only).
 
+set directory(RTL_SPEC) {
+    "logs"
+    "setup"
+    "work"
+    "work/RTL_SPEC"
+}
+
 set directory(RTL_LINT) {
     "logs"
     "setup"

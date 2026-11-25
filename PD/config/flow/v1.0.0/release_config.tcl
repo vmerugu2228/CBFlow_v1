@@ -1442,6 +1442,11 @@ proc check_release_readiness {run_dir flow milestone phase} {
     set flow_input_handshake(GLS_SCAN_MBIST,netlist)    {ANY         netlist  "${design_name}.v"}
     set flow_input_handshake(GLS_SCAN_MBIST,patterns)   {ATPG        patterns "${design_name}_scan_tb.v"}
 
+    # ── Spec-to-GDS front end (open-source RTL) ─────────────────────────────
+    #   RTL_SPEC → the RTL filelist (generated register block + designer RTL,
+    #   at the released paths) the RTL checks / SYNTH / DV read
+    set flow_input_handshake(RTL_LINT,rtl)              {RTL_SPEC    rtl      "${design_name}.f"}
+
     # ── PD → DV handoff ─────────────────────────────────────────────────────
     set flow_input_handshake(DV_SIGNOFF,netlist)        {ANY netlist "${design_name}.v"}
 

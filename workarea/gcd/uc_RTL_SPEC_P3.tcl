@@ -1,0 +1,12 @@
+set project(name)              "opensky"
+set flow(type)                 "RTL_SPEC"
+set flow(design_name)          "gcd"
+set flow(run_name)             "p3_spec"
+set flow(test_mode)            "false"
+set flow(use_lsf)              "false"
+set flow(use_xterm)            "false"
+set project(phase)             "P3"
+set project(release,phase)     "P3"
+set project(lib_config_tag)    "OSS2"
+set rtl_spec(tool,name)        "rtlcheck"            ;# RTL_SPEC_rtlcheck_config.tcl (open-source)
+set rtl_spec(input,spec)       "/Users/vmerugu/projects/CBflow_clone/inputs/opensky/gcd/P3/spec/gcd.spec.yaml"

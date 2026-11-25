@@ -24,7 +24,7 @@ set flow(types) {
     SCAN_INSERT ATPG GLS_FUNC GLS_SCAN_MBIST
     SPEC_RAMP PLANNING TB_SETUP M1_EXEC M2_EXEC M3_EXEC M4_EXEC
     ECO_EXEC DV_SIGNOFF
-    RTL_LINT RTL_CDC RTL_RDC UPF_CHECK
+    RTL_SPEC RTL_LINT RTL_CDC RTL_RDC UPF_CHECK
 }
 
 # ── Discipline Roster ─────────────────────────────────────────────────────────
@@ -84,6 +84,7 @@ set flow(discipline,DV_SIGNOFF)     "DV"
 # clock-domain crossings, reset-domain crossings, UPF intent. Complements
 # DV (dynamic verification) and PD (implementation) with pre-impl gates
 # that can block tapeout if left unresolved.
+set flow(discipline,RTL_SPEC)       "RTL"
 set flow(discipline,RTL_LINT)       "RTL"
 set flow(discipline,RTL_CDC)        "RTL"
 set flow(discipline,RTL_RDC)        "RTL"
@@ -344,6 +345,7 @@ set flow(color,M3_EXEC)          "#475569"
 set flow(color,M4_EXEC)          "#475569"
 set flow(color,ECO_EXEC)         "#475569"
 set flow(color,DV_SIGNOFF)       "#475569"
+set flow(color,RTL_SPEC)         "#475569"
 set flow(color,RTL_LINT)         "#475569"
 set flow(color,RTL_CDC)          "#475569"
 set flow(color,RTL_RDC)          "#475569"

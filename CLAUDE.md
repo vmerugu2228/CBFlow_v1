@@ -332,6 +332,12 @@ cbflow run db-manage export --format csv                      # Export DB data
   `overrides/pnr_<PHASE>_dl2.tcl`), `run_signoff.sh <b> [exit]` (FLOWS, MAX_PARALLEL, PV_MODE=hier →
   `<exit>_HIER`, PUBLISH=1, LIB_TAG; PHASE default P0), `test_place_release.sh`, `test_exit_order.sh`.
 - Doc: `PD/docs/02-user-guide/opensource-flow-guide.md`.
+- Spec-to-GDS front end (`RTL/docs/opensource-rtl-guide.md`): RTL_SPEC (`rtl_spec(tool,name) "rtlcheck"`) — YAML block
+  spec + SystemRDL / XLS registers → PeakRDL register RTL / UVM RAL / C header, IP-XACT 1685-2014 (schema-validated),
+  SDC, UPF, RTL filelist, XLS vPlan; RTL ports vs spec; SPEC_EXIT (handshake `RTL_LINT,rtl`). Helper
+  `RTL/utils/oss/spec_tool.py`; installs `global/utils/oss/install_{pytools,ipxact_schema,uvm}.sh` (CBFLOW_OSS_PYTHON,
+  UVM_HOME, CCACHE_DIR via cbflow-oss). Pilot gcd P3 (`inputs/opensky/gcd/P3/`: spec + APB regs + `rtl/gcd.sv`).
+  SmartGrid `/dashboard/<DISC>` opens / starts each discipline's run dashboard.
 - DFT scandef: SYNTH writes `def/<d>.scandef` (mandatory with `project(dft,enable)`; `oss_scandef.tcl` fixes OpenROAD's
   reversed chain order); PNR `init_design` requires + `read_def -incremental`s it (handshake `PNR,def_scan`); PNR / ECO
   releases carry the post-route scandef; SCAN_INSERT checks it against its netlist trace.
