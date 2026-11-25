@@ -2158,6 +2158,104 @@ def cat18_hardcode_audit(results, pd_dir, flows):
                         f'stale entry (matches nothing): {rule} {fpath}:{ln}')
 
 
+def cat19_opensource_dft_wiring(results, pd_dir, flows):
+    """Open-source DFT flows (vendor opensource): for every
+    DFT/config/flow/<ver>/node_configs/<FLOW>_<tool>_config.tcl overlay that
+    declares tool,vendor opensource — the overlay parses on top of its common
+    config; every execution node type has a subnode handler and every stage a
+    command file (DFT/cmds/<FLOW>/opensource/<tool>/<ver>/); every stage has its
+    <arr>(oss,tool,<stage>) binary and that binary has an lsf(tool_shell,*) in
+    the DFT tool_launch_config; every input node except a user-supplied one
+    (<arr>(release,exit_exempt_inputs)) has a flow_input_handshake entry."""
+    import glob
+    import subprocess
+    suite, category = 'static', 'cat19_opensource_dft_wiring'
+    repo = os.path.dirname(os.path.abspath(pd_dir))
+    dft = os.path.join(repo, 'DFT')
+    ver = 'v1.0.0'
+    nc_dir = os.path.join(dft, 'config', 'flow', ver, 'node_configs')
+    if not os.path.isdir(nc_dir):
+        results.skipped(suite, category, 'DFT tree', 'DFT/ not on disk')
+        return
+    tcl = r'''
+set flow [lindex $argv 0]; set tool [lindex $argv 1]; set ncdir [lindex $argv 2]
+set arr [string tolower $flow]
+set ${arr}(tool,name) $tool
+source [file join $ncdir ${flow}_config.tcl]
+upvar #0 $arr a
+puts "vendor\t$a(tool,vendor)"
+foreach s $a(stages) {
+    set t [expr {[info exists a(node_types,$s)] ? $a(node_types,$s) : ""}]
+    set st [string trimright $s 0123456789]
+    set b [expr {[info exists a(oss,tool,$st)] ? $a(oss,tool,$st) : ""}]
+    puts "stage\t$s\t$t\t$b"
+}
+puts "exempt\t[expr {[info exists a(release,exit_exempt_inputs)] ? $a(release,exit_exempt_inputs) : {}}]"
+'''
+    shells = {}
+    try:
+        out = subprocess.run(['tclsh', '/dev/stdin'], input='source ' + os.path.join(dft, 'config', 'flow', ver, 'tool_launch_config.tcl')
+                             + '\nforeach k [array names lsf tool_shell,*] { puts [string range $k 11 end] }',
+                             capture_output=True, text=True, timeout=30)
+        shells = set(out.stdout.split())
+    except (OSError, subprocess.TimeoutExpired) as e:
+        results.failed(suite, category, 'DFT tool_launch_config.tcl', str(e))
+        return
+    rc_path = os.path.join(pd_dir, 'config', 'flow', ver, 'release_config.tcl')
+    rc_text = open(rc_path, encoding='utf-8', errors='replace').read() if os.path.isfile(rc_path) else ''
+    found = 0
+    for ov in sorted(glob.glob(os.path.join(nc_dir, '*_config.tcl'))):
+        base = os.path.basename(ov)[:-len('_config.tcl')]
+        flow = next((f for f in ('SCAN_INSERT', 'ATPG', 'GLS_FUNC', 'GLS_SCAN_MBIST', 'DFT_INSERT_PASS1',
+                                 'DFT_INSERT_PASS2', 'DFT_INSERT_PASS3') if base.startswith(f + '_')), None)
+        if not flow:
+            continue
+        tool = base[len(flow) + 1:]
+        if 'opensource' not in open(ov, encoding='utf-8', errors='replace').read():
+            continue
+        found += 1
+        name = f'{flow}/{tool}'
+        p = subprocess.run(['tclsh', '/dev/stdin', flow, tool, nc_dir], input=tcl,
+                           capture_output=True, text=True, timeout=60)
+        if p.returncode != 0:
+            results.failed(suite, category, f'{name}: overlay parses', p.stderr.strip()[:300])
+            continue
+        rows = [ln.split('\t') for ln in p.stdout.splitlines()]
+        if not any(r[0] == 'vendor' and r[1] == 'opensource' for r in rows):
+            results.failed(suite, category, f'{name}: tool,vendor', 'not opensource after the overlay')
+            continue
+        exempt = next((r[1].split() for r in rows if r[0] == 'exempt'), [])
+        cdir = os.path.join(dft, 'cmds', flow, 'opensource', tool, ver)
+        miss = []
+        for r in rows:
+            if r[0] != 'stage':
+                continue
+            _, stage, ntype, binary = r + [''] * (4 - len(r))
+            if ntype == 'inputs':
+                inp = stage.rstrip('0123456789')
+                if inp not in exempt and f'flow_input_handshake({flow},{inp})' not in rc_text:
+                    miss.append(f'handshake {flow},{inp}')
+                continue
+            st = stage.rstrip('0123456789')
+            if not os.path.isfile(os.path.join(cdir, f'{ntype}_subnode_handler.tcl')):
+                miss.append(f'handler {ntype}_subnode_handler.tcl')
+            if not os.path.isfile(os.path.join(cdir, f'{st}_{tool}.tcl')):
+                miss.append(f'command file {st}_{tool}.tcl')
+            if not binary:
+                miss.append(f'{flow.lower()}(oss,tool,{st})')
+            elif binary not in shells:
+                miss.append(f'lsf(tool_shell,{binary})')
+        if not os.path.isfile(os.path.join(cdir, 'inputs_subnode_handler.tcl')):
+            miss.append('inputs_subnode_handler.tcl')
+        if miss:
+            results.failed(suite, category, f'{name}: wiring', ', '.join(miss))
+        else:
+            results.passed(suite, category, f'{name}: wiring',
+                           'handlers, command files, stage binaries, tool shells, handshakes')
+    if not found:
+        results.skipped(suite, category, 'open-source DFT overlays', 'none declared')
+
+
 # ── Registry ────────────────────────────────────────────────────────────────
 
 CATEGORIES = {
@@ -2179,6 +2277,7 @@ CATEGORIES = {
    16: ('LSF Tier Definition Completeness', cat16_lsf_tier_completeness),
    17: ('Release Folder Canonicality', cat17_release_folder_canonicality),
    18: ('No-Hardcode Audit (code)', cat18_hardcode_audit),
+   19: ('Open-Source DFT Wiring', cat19_opensource_dft_wiring),
 }
 
 # Named aliases accepted by `cbflow test --category <name>`.

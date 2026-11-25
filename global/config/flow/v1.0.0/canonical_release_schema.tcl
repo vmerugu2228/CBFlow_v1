@@ -48,6 +48,6 @@ set canonical_file_type(ndm)  lib
 # folders in addition to the canonical set. The static check accepts them
 # as valid destinations.
 set discipline_folders(PD)  {}
-set discipline_folders(DFT) {dft_inserted_design icl pdl mbist bscan tsdb spec}
+set discipline_folders(DFT) {dft_inserted_design icl pdl mbist bscan tsdb spec scan}
 set discipline_folders(DV)  {}
 set discipline_folders(RTL) {clean_rtl validated}

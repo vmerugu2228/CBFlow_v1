@@ -56,6 +56,11 @@ proc default_exit_tag {flow_type phase} {
         error "ERROR: project(release,tag) is not set and ${_arr}(smartgrid,milestone) (the flow's exit) is not configured — set one of them"
     }
     set _target $_fa(smartgrid,milestone)
+    # An exit outside the PD milestone order (DFT: SCAN_INSERT_EXIT,
+    # ATPG_PREPD_EXIT, ATPG_POSTPD_EXIT) is not part of a phase's PD exit
+    # sequence: it releases under its own name.
+    load_release_config
+    if {[lsearch -exact $MILESTONE_ORDER $_target] < 0} { return $_target }
     if {![info exists project(phase_exits)]} {
         error "ERROR: project(phase_exits) is not set in the project config — needed for the default release tag"
     }
@@ -300,7 +305,7 @@ proc validate_mandatory_files {} {
 
     # Source release_config.tcl if not already loaded
     if {![info exists ::release_exit_files]} {
-        set release_config "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
+        set release_config "$::env(FLOW_DIR)/PD/config/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
         if {[file exists $release_config]} {
             source $release_config
         } else {

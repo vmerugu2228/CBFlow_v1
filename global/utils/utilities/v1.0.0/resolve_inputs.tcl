@@ -58,6 +58,9 @@ namespace eval ::CBFlow::InputResolve {
     # (every flow releases each exit under its own FLOW dir). src_flow is the
     # handshake's source flow; ANY = the flow dir whose release holds rel_file.
     # Older layouts (<base>/<phase>/<design>/<tag>, <base>/<tag>) still resolve.
+    # release_config.tcl (the flow_input_handshake map) is one file in the PD
+    # tree ($CBFLOW_CORE_DIR) for every discipline — never $CONFIG_ROOT, which
+    # is the owning discipline's config tree (DFT/config for a DFT run).
     proc _release_tag_dir {release_base tag design_name {src_flow ""} {rel_file ""}} {
         set _ph [cbflow_run_phase]
         if {$design_name ne "" && $_ph ne ""} {
@@ -187,8 +190,8 @@ namespace eval ::CBFlow::InputResolve {
         }
         set _flow [string toupper $flow_type]
         set _bad {}
-        if {![array exists ::flow_input_handshake] && [info exists ::env(CONFIG_ROOT)] && [info exists ::env(FLOW_CONFIG_VERSION)]} {
-            set _rc "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
+        if {![array exists ::flow_input_handshake] && [info exists ::env(CBFLOW_CORE_DIR)] && [info exists ::env(FLOW_CONFIG_VERSION)]} {
+            set _rc "$::env(CBFLOW_CORE_DIR)/config/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
             if {[file exists $_rc]} { uplevel #0 [list source $_rc] }
         }
         if {![array exists ::flow_input_handshake]} {
@@ -301,8 +304,8 @@ namespace eval ::CBFlow::InputResolve {
         # otherwise fall back to release(base_dir) which the sourced file
         # populates from FLOW_DIR/test_releases.
         set release_base ""
-        if {[info exists ::env(CONFIG_ROOT)] && [info exists ::env(FLOW_CONFIG_VERSION)]} {
-            set rc_path "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
+        if {[info exists ::env(CBFLOW_CORE_DIR)] && [info exists ::env(FLOW_CONFIG_VERSION)]} {
+            set rc_path "$::env(CBFLOW_CORE_DIR)/config/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
             if {[file exists $rc_path]} {
                 if {[catch { uplevel #0 [list source $rc_path] } _src_err]} {
                     puts stderr "WARNING: release_config.tcl parse error at $rc_path: $_src_err"
@@ -394,8 +397,8 @@ namespace eval ::CBFlow::InputResolve {
         # release-tag resolution to the wrong path. Mirrors the sibling
         # proc resolve_single_from_tag which already uses uplevel #0.
         set release_base ""
-        if {[info exists ::env(CONFIG_ROOT)] && [info exists ::env(FLOW_CONFIG_VERSION)]} {
-            set rc_path "$::env(CONFIG_ROOT)/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
+        if {[info exists ::env(CBFLOW_CORE_DIR)] && [info exists ::env(FLOW_CONFIG_VERSION)]} {
+            set rc_path "$::env(CBFLOW_CORE_DIR)/config/flow/$::env(FLOW_CONFIG_VERSION)/release_config.tcl"
             if {[file exists $rc_path]} {
                 if {[catch { uplevel #0 [list source $rc_path] } _rc_err]} {
                     puts stderr "WARNING: release_config.tcl parse error during input resolution: $_rc_err"

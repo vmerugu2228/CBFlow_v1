@@ -1425,6 +1425,19 @@ proc check_release_readiness {run_dir flow milestone phase} {
     set flow_input_handshake(SYNTH,dft_netlist)         {DFT_INSERT_PASS3 netlist "${design_name}.edt_occ.v"}
     set flow_input_handshake(PNR,dft_netlist)           {DFT_INSERT_PASS3 netlist "${design_name}.edt_occ.v"}
 
+    # ── DFT (open-source: SCAN_INSERT / ATPG -> fault, GLS_* -> iverilog) ───
+    #   SYNTH       → scan-inserted netlist + scan-shift SDC for SCAN_INSERT
+    #   SCAN_INSERT → checked scan netlist + scandef / chain map for ATPG
+    #   ANY         → the netlist ATPG / GLS run on (SCAN_INSERT pre-PD, PNR post-PD)
+    #   ATPG        → the serial-scan pattern testbench for GLS_SCAN_MBIST
+    set flow_input_handshake(SCAN_INSERT,netlist)       {SYNTH       netlist  "${design_name}.v"}
+    set flow_input_handshake(SCAN_INSERT,sdc)           {SYNTH       sdc      "${design_name}.scan.sdc"}
+    set flow_input_handshake(ATPG,netlist)              {ANY         netlist  "${design_name}.v"}
+    set flow_input_handshake(ATPG,scandef)              {SCAN_INSERT scan     "${design_name}.scandef"}
+    set flow_input_handshake(GLS_FUNC,netlist)          {ANY         netlist  "${design_name}.v"}
+    set flow_input_handshake(GLS_SCAN_MBIST,netlist)    {ANY         netlist  "${design_name}.v"}
+    set flow_input_handshake(GLS_SCAN_MBIST,patterns)   {ATPG        patterns "${design_name}_scan_tb.v"}
+
     # ── PD → DV handoff ─────────────────────────────────────────────────────
     set flow_input_handshake(DV_SIGNOFF,netlist)        {ANY netlist "${design_name}.v"}
 

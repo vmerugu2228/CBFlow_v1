@@ -332,6 +332,13 @@ cbflow run db-manage export --format csv                      # Export DB data
   `overrides/pnr_<PHASE>_dl2.tcl`), `run_signoff.sh <b> [exit]` (FLOWS, MAX_PARALLEL, PV_MODE=hier →
   `<exit>_HIER`, PUBLISH=1, LIB_TAG; PHASE default P0), `test_place_release.sh`, `test_exit_order.sh`.
 - Doc: `PD/docs/02-user-guide/opensource-flow-guide.md`.
+- Open-source DFT (`DFT/docs/opensource-dft-guide.md`): SCAN_INSERT / ATPG `<arr>(tool,name) "fault"`, GLS_FUNC /
+  GLS_SCAN_MBIST `"iverilog"`. SYNTH inserts scan; SCAN_INSERT traces / checks / flush-simulates it (SCAN_INSERT_EXIT);
+  ATPG = macro stubs + `fault cut` + nl2bench + Atalanta (`global/utils/oss/install_atalanta.sh`, `lsf(oss,tools_dir)`;
+  research licence) + `oss_dft.py fsim` + serial-scan testbench zd sim (ATPG_PREPD_EXIT / ATPG_POSTPD_EXIT,
+  `atpg(pd_phase)`; timing_sim unsupported → bypass); GLS signoff-style on a netlist tag. Helpers
+  `DFT/utils/oss/oss_dft.py`, `DFT/utils/utilities/v1.0.0/oss_dft_utils.tcl`; keys `project(dft,scan_in_pattern|
+  scan_out_pattern|atpg,*_min)` (DFT overlay); MMMC nodes init_scan / init_atpg / init_sim.
 
 ## Dashboards
 - Run dashboard: per-user daemon, port `flow(dashboard,port_base,<DISC>) + uid % flow(dashboard,port_width)`

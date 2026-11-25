@@ -82,7 +82,7 @@ array set scan_insert {
     output,results_dir  "results/scan_insert"
     output,work_dir     "work/SCAN_INSERT"
 
-    supported_tools {tessent dft_compiler}
+    supported_tools {tessent dft_compiler fault}
     default_tool    "tessent"
 }
 

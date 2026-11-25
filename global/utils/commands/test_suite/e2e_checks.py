@@ -12,7 +12,9 @@ import sys
 from pathlib import Path
 
 
-_TERMINAL_OK = {'DONE', 'BYPASSED', 'FORCE_VALIDATED'}
+# Terminal-OK = the engine's completed states (core.db.COMPLETED_STATES —
+# includes BYPASSED_BY_DECISION: a decision node's branch not taken).
+from core.db import COMPLETED_STATES as _TERMINAL_OK
 _TERMINAL_FAIL = {'FAIL', 'FAILED', 'ERROR', 'KILLED'}
 
 
@@ -210,6 +212,7 @@ _INPUT_PSEUDO_STAGES = frozenset({
     'test_protocol1',  # DFT_INSERT / SCAN_INSERT test protocol input
     'patterns1',       # GLS_* input pattern file
     'tb1',             # GLS_* / SIM testbench input
+    'testbench1',      # GLS_FUNC testbench input (node name in GLS_FUNC_config.tcl)
     'atpg_config1',    # ATPG config input
     # DV inputs
     'waivers1',        # LINT / CDC / RDC waiver rules

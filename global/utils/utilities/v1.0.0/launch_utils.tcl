@@ -94,6 +94,9 @@ proc generate_launch_wrapper {work_dir stage_name cmd_file tool_name {log_file "
         if {[info exists lsf(oss,image)] && $lsf(oss,image) ne ""} {
             append oss_env "setenv CBFLOW_OSS_IMAGE \"$lsf(oss,image)\"\n"
         }
+        if {[info exists lsf(oss,tools_dir)] && $lsf(oss,tools_dir) ne ""} {
+            append oss_env "setenv CBFLOW_OSS_TOOLS \"$lsf(oss,tools_dir)\"\n"
+        }
     }
 
     # Write wrapper atomically. Pre-fix, open-w + series of puts was
@@ -628,6 +631,8 @@ proc handler_run {run_dir flow_type node_name stage_name cmd_file test_mode {too
             "init_dft" - "init_scan" - "init_atpg" - "init_sim" {
                 set _f [open "$_reports_dir/${stage_name}.rpt" w]
                 puts $_f "${stage_name} init - $_ts\nStatus: OK"; close $_f
+                set _f [open "$_outputs_dir/${stage_name}_setup.tcl" w]
+                puts $_f "# ${stage_name} environment - $_ts"; close $_f
             }
             "insert_mbist" {
                 set _f [open "$_outputs_dir/${_design}.mbist.v" w]
@@ -666,6 +671,8 @@ proc handler_run {run_dir flow_type node_name stage_name cmd_file test_mode {too
             "scan_check" {
                 set _f [open "$_reports_dir/scan_drc.rpt" w]
                 puts $_f "Scan DRC - $_ts\nStatus: PASS\nViolations: 0"; close $_f
+                set _f [open "$_outputs_dir/scan_check.status" w]
+                puts $_f "PASS"; close $_f
             }
             "scan_export" {
                 set _f [open "$_outputs_dir/${_design}.scan_export.v" w]
@@ -682,6 +689,8 @@ proc handler_run {run_dir flow_type node_name stage_name cmd_file test_mode {too
                 set _f [open "$_reports_dir/fault_coverage.rpt" w]
                 puts $_f "Fault Simulation - $_ts\nFault coverage: 99.2%\nTest coverage: 99.5%"
                 close $_f
+                set _f [open "$_outputs_dir/fault_sim.summary" w]
+                puts $_f "fault_coverage 99.2\ntest_coverage 99.5"; close $_f
             }
             "coverage_report" - "coverage" {
                 set _f [open "$_reports_dir/${stage_name}.rpt" w]
@@ -697,6 +706,8 @@ proc handler_run {run_dir flow_type node_name stage_name cmd_file test_mode {too
             "compile" {
                 set _f [open "$_reports_dir/compile.log" w]
                 puts $_f "Compile - $_ts\nStatus: PASS"; close $_f
+                set _f [open "$_outputs_dir/sim.compiled" w]
+                puts $_f "# compiled simulation image stub - $_ts"; close $_f
             }
             "run_sim" {
                 set _f [open "$_outputs_dir/sim.log" w]

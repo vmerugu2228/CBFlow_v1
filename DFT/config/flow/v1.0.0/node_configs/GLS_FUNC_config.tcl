@@ -84,7 +84,7 @@ array set gls_func {
     output,results_dir  "results/gls_func"
     output,work_dir     "work/GLS_FUNC"
 
-    supported_tools {vcs questa}
+    supported_tools {vcs questa iverilog}
     default_tool    "vcs"
 }
 

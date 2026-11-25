@@ -12,7 +12,9 @@
 #                                             yosys, oss_tclsh) sourcing script
 #                                             first; CBFLOW_OSS_GUI=1: OpenROAD GUI
 #
-# <tool>: yosys | openroad | sta | magic | netgen | klayout | tclsh
+# <tool>: yosys | openroad | sta | magic | netgen | klayout | tclsh |
+#         fault | iverilog (DFT: a Tcl driver run by tclsh that execs fault /
+#         nl2bench / atalanta / iverilog / vvp / python3) | python3
 #
 # The container sees the same paths as the host: CBFLOW_ROOT, the current
 # directory, CBFLOW_RUN_DIR, the PDK root and every CBFLOW_OSS_MOUNTS entry are
@@ -27,6 +29,8 @@
 #   CBFLOW_OSS_IMAGE     container image   (default: pinned digest below)
 #   CBFLOW_OSS_PDK_ROOT  host PDK root     (default: $HOME/eda/pdks)
 #   CBFLOW_OSS_MOUNTS    extra host paths to mount, ':'-separated
+#   CBFLOW_OSS_TOOLS     host dir of tools built for the image (bin/ on PATH,
+#                        e.g. atalanta: global/utils/oss/install_atalanta.sh)
 #   CBFLOW_OSS_MAGICRC   magic rc file     (default: <pdk>/sky130A/libs.tech/magic/sky130A.magicrc)
 #   CBFLOW_OSS_ENGINE    container CLI     (default: docker)
 # =============================================================================
@@ -71,6 +75,7 @@ _add_mount "${CBFLOW_RUN_DIR:-}"
 _add_mount "$PWD"
 IFS=':' read -r -a _extra <<< "${CBFLOW_OSS_MOUNTS:-}"
 for _e in "${_extra[@]:-}"; do _add_mount "$_e"; done
+_add_mount "${CBFLOW_OSS_TOOLS:-}"
 
 # Built at run time so mounts added for the cmd/log directories are included.
 build_docker_args() {
@@ -90,6 +95,9 @@ build_docker_args() {
 }
 
 TOOL_PATH='export PATH=/foss/tools/bin:/foss/tools/klayout:/foss/tools/sak:$PATH; export LD_LIBRARY_PATH=/foss/tools/klayout:/foss/tools/iverilog/lib:${LD_LIBRARY_PATH:-};'
+if [ -n "${CBFLOW_OSS_TOOLS:-}" ]; then
+    TOOL_PATH="$TOOL_PATH export PATH=$(printf '%q' "$CBFLOW_OSS_TOOLS")/bin:\$PATH;"
+fi
 
 run_in_container() {   # $1 = bash command string
     build_docker_args
@@ -207,7 +215,7 @@ TCL
         OSS_INIT=1 run_in_container "$line"
         ;;
     check)
-        run_in_container 'for t in yosys openroad sta magic netgen klayout tclsh; do printf "%-9s %s\n" "$t" "$(command -v $t || echo MISSING)"; done; yosys -V | head -1; openroad -version | tail -1; klayout -b -v'
+        run_in_container 'for t in yosys openroad sta magic netgen klayout tclsh fault nl2bench atalanta iverilog vvp verilator python3; do printf "%-9s %s\n" "$t" "$(command -v $t || echo MISSING)"; done; yosys -V | head -1; openroad -version | tail -1; klayout -b -v; printf "fault %s\n" "$(fault --version)"; iverilog -V 2>&1 | head -1'
         ;;
     exec)
         shift
@@ -235,8 +243,9 @@ TCL
             magic)    line="magic -dnull -noconsole -rcfile $(q "$magicrc") $extra $cf" ;;
             netgen)   line="netgen -batch source $cf $extra" ;;
             klayout)  line="klayout -b -r $cf $extra" ;;
-            tclsh)    line="tclsh $cf $extra" ;;
-            *)        die "unknown tool '$tool' (yosys|openroad|sta|magic|netgen|klayout|tclsh)" ;;
+            tclsh|fault|iverilog) line="tclsh $cf $extra" ;;
+            python3)  line="python3 $cf $extra" ;;
+            *)        die "unknown tool '$tool' (yosys|openroad|sta|magic|netgen|klayout|tclsh|fault|iverilog|python3)" ;;
         esac
         run_in_container "$line 2>&1 | tee $lf"
         ;;

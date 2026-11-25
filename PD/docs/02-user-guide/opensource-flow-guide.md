@@ -158,6 +158,10 @@ flow_proc_append report {
 
 ### DFT scan insertion
 
+The DFT flows that sign this scan structure off, generate ATPG patterns and simulate the
+gate-level netlist (SCAN_INSERT / ATPG / GLS_FUNC / GLS_SCAN_MBIST, open-source) are in
+`DFT/docs/opensource-dft-guide.md`.
+
 These are project keys in `opensky_config.tcl`. A block can override them in its user_config or `override_config.tcl`.
 
 ```tcl

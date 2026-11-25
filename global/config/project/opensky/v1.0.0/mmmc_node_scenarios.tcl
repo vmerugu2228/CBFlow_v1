@@ -118,4 +118,19 @@ array set mmmc {
             func_ff_1p95v_rc_min_100c
         }
     }
+
+    init_scan {
+        setup {func_tt_1p80v_rc_typ_25c}
+        hold  {func_tt_1p80v_rc_typ_25c}
+    }
+
+    init_atpg {
+        setup {func_tt_1p80v_rc_typ_25c}
+        hold  {func_tt_1p80v_rc_typ_25c}
+    }
+
+    init_sim {
+        setup {func_tt_1p80v_rc_typ_25c}
+        hold  {func_tt_1p80v_rc_typ_25c}
+    }
 }

@@ -146,7 +146,7 @@ array set atpg {
     output,results_dir  "results/atpg"
     output,work_dir     "work/ATPG"
 
-    supported_tools {tessent testmax}
+    supported_tools {tessent testmax fault}
     default_tool    "tessent"
 }
 

@@ -189,7 +189,7 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
             calibre mentor tessent mentor questa mentor
             yosys opensource openroad opensource opensta opensource sta opensource
             magic opensource netgen opensource klayout opensource
-            oss_tclsh opensource
+            oss_tclsh opensource fault opensource iverilog opensource
         }
         if {[dict exists $_map $tool_name]} { return [dict get $_map $tool_name] }
         return "synopsys"

@@ -143,10 +143,16 @@ proc handler_load_configs {run_dir flow_type} {
                 if {[file exists $_gp]} { uplevel #0 [list source $_gp]; break }
             }
         }
-        # PD overlay — project(release,*|workarea_path|metal_stack|lib_root|...)
-        if {[info exists ::env(CONFIG_ROOT)]} {
-            foreach _pp [list "$::env(CONFIG_ROOT)/project/$_proj/$_pver/${_proj}_pd_config.tcl" \
-                              "$::env(CONFIG_ROOT)/project/$_proj/$_pver/project_pd_config.tcl"] {
+        # Discipline overlays — the same walk as generate_setup.tcl (1b):
+        # every <proj>_<disc>_config.tcl on disk (DFT, DV, PD). The PD overlay
+        # carries project(release,*|workarea_path|metal_stack|lib_root|...),
+        # which a DFT / DV handler needs as much as a PD one ($CONFIG_ROOT is
+        # the owning discipline's config tree, so it cannot be the only place
+        # looked at).
+        foreach {_disc_env _disc_short} {CBFLOW_DFT_DIR dft CBFLOW_DV_DIR dv CBFLOW_CORE_DIR pd} {
+            if {![info exists ::env($_disc_env)] || ![file isdirectory $::env($_disc_env)]} { continue }
+            foreach _pp [list "$::env($_disc_env)/config/project/$_proj/$_pver/${_proj}_${_disc_short}_config.tcl" \
+                              "$::env($_disc_env)/config/project/$_proj/$_pver/project_${_disc_short}_config.tcl"] {
                 if {[file exists $_pp]} { uplevel #0 [list source $_pp]; break }
             }
         }

@@ -167,6 +167,8 @@ set tech(hd,ground_pins)     "VGND VNB"
 set tech(hd,gds_stdcell)     "$project(lib_root)/libs.ref/sky130_fd_sc_hd/gds/sky130_fd_sc_hd.gds"
 set tech(hd,cdl_stdcell)     "$project(lib_root)/libs.ref/sky130_fd_sc_hd/cdl/sky130_fd_sc_hd.cdl"
 set tech(hd,verilog_stdcell) "$project(lib_root)/libs.ref/sky130_fd_sc_hd/verilog/sky130_fd_sc_hd.v"
+# UDPs the cell models instantiate (gate-level simulation: GLS / scan patterns)
+set tech(hd,verilog_primitives) "$project(lib_root)/libs.ref/sky130_fd_sc_hd/verilog/primitives.v"
 # Yosys tech-mapping helpers shipped with the PDK
 set tech(hd,yosys_latch_map) "$project(lib_root)/libs.tech/librelane/sky130_fd_sc_hd/latch_map.v"
 set tech(hd,yosys_tribuf_map) "$project(lib_root)/libs.tech/librelane/sky130_fd_sc_hd/tribuff_map.v"

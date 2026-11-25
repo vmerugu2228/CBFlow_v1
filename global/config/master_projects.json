@@ -317,14 +317,23 @@
           "LEC",
           "PV"
         ],
-        "DFT": [],
+        "DFT": [
+          "SCAN_INSERT",
+          "ATPG",
+          "GLS_FUNC",
+          "GLS_SCAN_MBIST"
+        ],
         "DV": []
       },
       "enabled_flows": [
         "SYNTH",
         "PNR",
         "STA",
-        "PV"
+        "PV",
+        "SCAN_INSERT",
+        "ATPG",
+        "GLS_FUNC",
+        "GLS_SCAN_MBIST"
       ],
       "design_hierarchy": {}
     }

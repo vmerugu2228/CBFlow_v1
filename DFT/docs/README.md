@@ -22,8 +22,8 @@ CBflow_clone/
 | `DFT_INSERT_PASS3`| EDT + OCC                                            | Tessent, DFT Compiler       |
 | `SCAN_INSERT`     | Logical netlist → scan-stitched netlist + scandef    | Tessent, DFT Compiler       |
 | `ATPG`            | Pattern generation + fault simulation + coverage     | Tessent, TestMAX            |
-| `GLS_FUNC`        | Gate-level functional simulation (ZD or SDF)         | VCS, Questa                 |
-| `GLS_SCAN_MBIST`  | Gate-level scan/MBIST/BSCAN pattern simulation       | VCS, Questa                 |
+| `GLS_FUNC`        | Gate-level functional simulation (ZD or SDF)         | VCS, Questa, iverilog (oss) |
+| `GLS_SCAN_MBIST`  | Gate-level scan/MBIST/BSCAN pattern simulation       | VCS, Questa, iverilog (oss) |
 
 Mode knobs (not separate flows):
 - `<flow>(mode)` — `zd` (zero-delay) or `sdf` (timing-aware)
@@ -31,9 +31,11 @@ Mode knobs (not separate flows):
 
 ## Discipline Routing
 
-The framework resolves cmd handlers by trying `$FLOW_DIR/cmds/<FLOW>/...` first
-(PD), then `$CBFLOW_DFT_DIR/cmds/<FLOW>/...` (DFT). The DFT root is exported by
-`PD/bin/cbflow` when the sibling `DFT/` directory exists.
+The RACE engine resolves cmd handlers under the flow's own discipline first
+(`$CBFLOW_DFT_DIR/cmds/<FLOW>/<vendor>/<tool>/<ver>/`), then the other discipline
+trees. `CONFIG_ROOT` of a DFT run is `DFT/config` (tool_launch_config.tcl,
+lsf_config.tcl → the PD file); the release config / handshake map and the PD project
+overlay come from the PD tree (`$CBFLOW_CORE_DIR`).
 
 Node configs (stages, dependencies, tool settings) for the DFT flows live in
 `DFT/config/flow/v1.0.0/node_configs/` (`<FLOW>_config.tcl` + per-tool
@@ -56,7 +58,16 @@ SYNTH writes `reports/dft_plan.rpt` and releases a scan-mode SDC
 (`tech(<trk>,icg_scan_cell)`). See
 `PD/docs/02-user-guide/opensource-flow-guide.md` §5.
 
+## Open-source DFT flows
+
+SCAN_INSERT / ATPG (`fault`) and GLS_FUNC / GLS_SCAN_MBIST (`iverilog`) run on the
+open-source stack (Fault cut, nl2bench, Atalanta, Icarus) — scan sign-off of the SYNTH
+scan netlist, stuck-at ATPG with independent fault simulation and pattern simulation,
+gate-level functional / scan-pattern simulation. See `opensource-dft-guide.md`.
+
 ## See also
+
+- `opensource-dft-guide.md` — open-source SCAN_INSERT / ATPG / GLS (opensky)
 
 - `DFT_Flow_Reference.md` — full mapping of the 11-activity DFT diagram to the DFT flows
 - `DFT_Insert_Guide.md` — `DFT_INSERT_PASS1/2/3` user guide

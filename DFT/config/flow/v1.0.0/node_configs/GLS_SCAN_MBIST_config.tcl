@@ -86,7 +86,7 @@ array set gls_scan_mbist {
     output,results_dir  "results/gls_scan_mbist"
     output,work_dir     "work/GLS_SCAN_MBIST"
 
-    supported_tools {vcs questa}
+    supported_tools {vcs questa iverilog}
     default_tool    "vcs"
 }
 

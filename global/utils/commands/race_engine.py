@@ -1129,10 +1129,10 @@ class StatusDB:
             hostname = socket.gethostname()
             conn.execute(
                 'INSERT INTO jobs (job_name, stage, subnode, job_type, status, command, '
-                'start_time, end_time, runtime_sec, exit_code, hostname) '
-                'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                'start_time, end_time, runtime_sec, exit_code, hostname, resource_tier) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 (job.name, job.stage, job.subnode, job.job_type, status,
-                 job.command, now, now, 0, 0, hostname))
+                 job.command, now, now, 0, 0, hostname, job.resource_tier))
             conn.commit()
         finally:
             self._close_safely(conn)

@@ -453,6 +453,13 @@ def _build_env_from_user_config(config_file: str) -> dict:
     from core.paths import get_cbflow_global_dir as _get_gdir_env
     _gdir_env = _get_gdir_env()
     _root_env = os.path.dirname(core_dir) if core_dir else ''
+    # CBFLOW_CORE_DIR is the PD tree for every flow (core_dir above is the
+    # owning discipline's root — DFT/ for a DFT flow): the PD project overlay
+    # and the release config live there.
+    try:
+        _pd_root = get_cbflow_discipline_root('PD')
+    except (ValueError, KeyError):
+        _pd_root = ''
     env = {
         # FLOW_DIR = umbrella root (sibling of PD/, DFT/, DV/, global/).
         # Handlers resolve shared utilities via $FLOW_DIR/global/utils/...
@@ -470,7 +477,7 @@ def _build_env_from_user_config(config_file: str) -> dict:
         # into .run.cbflow.env causes get_cbflow_core_dir() to raise, and
         # the previous silent fallback to <repo>/global corrupted
         # downstream node_config lookups in generate_setup.tcl.
-        'CBFLOW_CORE_DIR': (core_dir if core_dir and os.path.isdir(core_dir)
+        'CBFLOW_CORE_DIR': (_pd_root if _pd_root and os.path.isdir(_pd_root)
                             else ''),
         'CBFLOW_GLOBAL_DIR': _gdir_env,
         'PROJECT_NAME': project_name,

@@ -35,6 +35,9 @@ def _project_workarea_path(pd_dir, project_name):
     helper survives partial migrations.
     """
     candidates = [
+        # <project>_pd_config.tcl since the 2026-11-01 rename
+        os.path.join(pd_dir, 'config', 'project', project_name, 'v1.0.0',
+                     f'{project_name}_pd_config.tcl'),
         os.path.join(pd_dir, 'config', 'project', project_name, 'v1.0.0',
                      'project_pd_config.tcl'),
         os.path.join(os.path.dirname(pd_dir), 'global', 'config', 'project',

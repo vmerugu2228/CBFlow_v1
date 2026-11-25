@@ -966,6 +966,12 @@ def _evaluate_checks(run_dir: str, checks: dict, waivered: set, phase: str = '')
                     value = 'found' if found else 'not found'
                 except OSError as e:
                     status, detail, value = 'FAIL', f'Grep I/O error: {e}', ''
+            elif config.get('script') == 'check_file_exists.tcl':
+                # criteria "file exists": the file is the deliverable (a
+                # netlist, scandef, pattern file …), not a report with a verdict
+                value = ''
+                status = 'PASS' if os.path.getsize(report) > 0 else 'FAIL'
+                detail = f'{status} ({os.path.basename(report)} {"exists" if status == "PASS" else "is empty"})'
             else:
                 value = ''
                 # Standard PASS/FAIL keyword evaluation
@@ -1187,6 +1193,12 @@ def _apply_tool_checklist_map(config: dict, milestone: str, tmap: dict) -> dict:
                 c['grep_pattern'] = tmap[f'grep,{name}']
                 c['grep_pass_if'] = tmap.get(f'grep_pass_if,{name}', 'found')
                 c.pop('metric_pattern', None)
+            elif f'report,{name}' in tmap:
+                # file-existence check: the tool names the file it writes
+                c['report_file'] = sub(tmap[f'report,{name}'])
+                c.pop('report_pattern', None)
+                c.pop('grep_file', None)
+                continue
             else:
                 # not covered by the tool map: its own report_pattern, read
                 # from the exit node's reports first (several stages write

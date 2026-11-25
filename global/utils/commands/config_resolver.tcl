@@ -152,7 +152,10 @@ set _lsf_cfg "$config_root/flow/$flow_ver/lsf_config.tcl"
 if {[file exists $_lsf_cfg]} { source $_lsf_cfg }
 
 # ── release_config.tcl (defines MILESTONE_STAGE_MAPPING for exit checklists) ──
-set _release_cfg "$config_root/flow/$flow_ver/release_config.tcl"
+# One file in the PD tree serves every discipline (handshake map, exits).
+set _release_cfg [expr {[info exists ::env(CBFLOW_CORE_DIR)] && $::env(CBFLOW_CORE_DIR) ne ""
+                        ? "$::env(CBFLOW_CORE_DIR)/config/flow/$flow_ver/release_config.tcl"
+                        : "$config_root/flow/$flow_ver/release_config.tcl"}]
 if {[file exists $_release_cfg]} {
     # release_config.tcl uses ::operating_modes — the dynamic STA-mode block
     # at the bottom gates on `[array exists operating_modes]` so --no-run
@@ -360,6 +363,15 @@ _emit_array_glob $flow_array "stages,*,resource_tier"
 
 # ── branch metadata (cbflow run create-branch) ──
 _emit_array_glob $flow_array "branch_keys,*"
+
+# ── decision nodes (stage_types,<s> "decision", e.g. ATPG init_atpg1) ──
+# race_engine reads decision_outcomes / decision_next / decision_source /
+# decision_default for every decision stage when it builds the DAG.
+_emit_array_glob $flow_array "decision_outcomes,*"
+_emit_array_glob $flow_array "decision_next,*"
+_emit_array_glob $flow_array "decision_source,*"
+_emit_array_glob $flow_array "decision_default,*"
+_emit_array_glob $flow_array "decision_exit_map,*"
 
 # ── tool info ──
 foreach key {tool,vendor tool,name tool,version tool,args supported_tools default_tool} {
