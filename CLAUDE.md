@@ -314,6 +314,11 @@ cbflow run db-manage export --format csv                      # Export DB data
   under `project(lib_tag_root)`). `library-manager add --category block --path <rel>/<phase>/<b>/PNR/<exit>`
   takes GDS/CDL from the sibling PV release (`--pv-pending` → PNR copy, `tech(block,<b>,pv_release) "PENDING"`),
   links SPEFs (`tech(block,<b>,spef,<rc>)`, `spef_corners`); `--category memory` bundles lef/gds/cdl/verilog.
+  `library-manager check --tech <t> --lib_tag <TAG>`: files on disk + a required-view table per category
+  (`tech(required_views,<cat>)`; lib per project MMMC library set, spef per RC corner; `†` PDK view, `*` substituted
+  corner); `--project --design <b> --netlist_tag <T> / --rtl_tag <T> [--phase]` checks every cell / module the
+  released netlist / RTL instantiates against the tag by name (lib cell, LEF MACRO, CDL SUBCKT, Verilog module, GDS
+  structure; physical-only cells need no lib). `status --lib_tag <TAG>` likewise.
 - SYNTH: `project(dft,enable|max_chain_length|clock_mixing|scan_enable_pattern)` (scan SDC `<design>.scan.sdc`),
   `synth(oss,clock_gating,enable|min_ffs)` with `tech(<trk>,icg_cell|icg_scan_cell)`, `project(vt_flavors)` →
   `oss_vt_dont_use` / `oss_pnr_dont_use`, `synthesis_memory.rpt`; SRAM macros kept (`tech(memory,lib_set_map|

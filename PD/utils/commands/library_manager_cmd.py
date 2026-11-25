@@ -1561,6 +1561,208 @@ def _view_matrix(lib_cfg: str, tc: str, project: str, version: str):
     return rows, cols, corners, rcs, req, notes, problems
 
 
+# ── Library vs the cells a design instantiates (check --netlist_tag / --rtl_tag) ──
+_SV_KEYWORDS = set("""always always_comb always_ff always_latch and assert assign assume automatic begin bind
+break buf case casex casez class clocking const constraint continue cover default defparam disable do else end
+endcase endclass endfunction endgenerate endinterface endmodule endpackage endtask enum event export extern final
+for force foreach forever fork function generate genvar if iff import initial inout input int integer interface
+localparam logic module nand negedge nor not or output package parameter posedge priority program property real
+reg release repeat return signed static string struct supply0 supply1 task time tri typedef union unique unsigned
+var virtual void wait while wire wor xor""".split())
+_INST_RE = re.compile(r'(?:^|;|\bend\b|\bbegin\b|\belse\b|\))\s*'
+                      r'(?P<type>[A-Za-z_][\w$]*|\\\S+)(?:\s*#\s*\((?:[^()]|\([^()]*\))*\)\s*|\s+)'
+                      r'(?P<inst>[A-Za-z_][\w$]*|\\\S+)\s*(?:\[[^\]]*\]\s*)?\(', re.M)
+
+
+def _strip_comments(text: str) -> str:
+    text = re.sub(r'/\*.*?\*/', ' ', text, flags=re.S)
+    return re.sub(r'//[^\n]*', '', text)
+
+
+def _instantiated_cells(files: List[str]) -> Dict[str, int]:
+    """{cell / module type: instance count} instantiated in Verilog / SV
+    sources and not defined by them (library cells, macros, hard blocks)."""
+    defined, used = set(), {}
+    for f in files:
+        t = _strip_comments(open(f, errors='replace').read())
+        defined |= set(re.findall(r'\b(?:module|interface|program|package)\s+(?:automatic\s+|static\s+)?([A-Za-z_][\w$]*)', t))
+        for m in _INST_RE.finditer(t):
+            typ = m.group('type')
+            if typ in _SV_KEYWORDS or m.group('inst') in _SV_KEYWORDS:
+                continue
+            used[typ] = used.get(typ, 0) + 1
+    return {k: v for k, v in sorted(used.items()) if k not in defined}
+
+
+def _gds_struct_names(path: str) -> set:
+    """Structure (cell) names of a GDSII file (STRNAME records)."""
+    names = set()
+    with open(path, 'rb') as fh:
+        data = fh.read()
+    i, n = 0, len(data)
+    while i + 4 <= n:
+        ln = int.from_bytes(data[i:i + 2], 'big')
+        if ln < 4:
+            break
+        if data[i + 2] == 0x06 and data[i + 3] == 0x06:
+            names.add(data[i + 4:i + ln].rstrip(b'\0').decode('ascii', 'replace'))
+        i += ln
+    return names
+
+
+_NAME_PARSERS = {
+    'lib': lambda t: re.findall(r'^\s*cell\s*\(\s*"?([^"\s)]+)"?\s*\)', t, re.M),
+    'lef': lambda t: re.findall(r'^\s*MACRO\s+(\S+)', t, re.M),
+    'cdl': lambda t: re.findall(r'^\s*\.SUBCKT\s+(\S+)', t, re.M | re.I),
+    'verilog': lambda t: re.findall(r'^\s*module\s+([A-Za-z_][\w$]*)', t, re.M),
+}
+
+
+def _cell_names(path: str, view: str) -> set:
+    if not os.path.isfile(path):
+        return set()
+    if view == 'gds':
+        return _gds_struct_names(path)
+    opener = __import__('gzip').open if path.endswith('.gz') else open
+    with opener(path, 'rt', errors='replace') as fh:
+        return set(_NAME_PARSERS[view](fh.read()))
+
+
+def _locate_release(rel_root: str, design: str, tag: str, phase: str, kind: str) -> str:
+    """The design's netlist (<release>/netlist/<d>.v) or RTL filelist
+    (<release>/rtl/<d>.f) of release <tag>, searched over the phases (all
+    when phase is empty) and flows (implementation flows first)."""
+    sub = os.path.join('netlist', design + '.v') if kind == 'netlist' else os.path.join('rtl', design + '.f')
+    phases = [phase] if phase else sorted(d for d in os.listdir(rel_root)
+                                          if os.path.isdir(os.path.join(rel_root, d, design)))
+    prefer = ['PNR', 'ECO', 'SYNTH_PNR', 'SYNTH', 'RTL_LINT', 'RTL_SPEC']
+    hits = []
+    for ph in phases:
+        bdir = os.path.join(rel_root, ph, design)
+        if not os.path.isdir(bdir):
+            continue
+        flows = sorted(os.listdir(bdir), key=lambda f: (prefer.index(f) if f in prefer else len(prefer), f))
+        for fl in flows:
+            cand = os.path.join(bdir, fl, tag, sub)
+            if os.path.isfile(cand):
+                hits.append((ph, cand))
+                break
+    if not hits:
+        raise ValueError('{} {} of {}: no {} under {}/<phase>/{}/<FLOW>/{}'.format(
+            kind, tag, design, sub, rel_root, design, tag))
+    if len({h[0] for h in hits}) > 1:
+        raise ValueError('{} {} of {} exists in phases {} — pass --phase'.format(
+            kind, tag, design, ', '.join(h[0] for h in hits)))
+    return hits[0][1]
+
+
+def _design_cell_check(lib_cfg, tc, project, version, used, rows):
+    """Rows (cell, category, instances, view status…) for every cell type the
+    design instantiates, against the tag's views by name."""
+    tv = _tag_tech_values(lib_cfg)
+    req = {c: _tcl_words(_tc_braced(tc, 'required_views,' + c)) for c in _VIEW_CATEGORIES}
+    corners = _project_lib_sets(project, version) if project else _tcl_words(tv.get('corners', ''))
+    lmap = dict(zip(*[iter(_tcl_words(_tc_braced(tc, 'memory,lib_set_map')))] * 2))
+    files = lambda key: _tcl_words(tv.get(key, ''))
+    subs = _project_substitutions(project, version, [tc]) if project else {}
+    tcf = lambda key: [functools.reduce(lambda a, kv: a.replace(*kv), subs.items(), f)
+                       for f in _tcl_words(_tc_braced(tc, key))]
+    names = {}                    # (category, view) -> set of cell names
+    lib_by_corner = {}            # (category, corner) -> set
+    def add(cat, view, paths):
+        acc = names.setdefault((cat, view), set())
+        for f in paths:
+            acc |= _cell_names(f, view)
+    trks = _tcl_words(_tc_braced(tc, 'tracks_available'))
+    vts = _tcl_words(_tc_braced(tc, 'vt_variants_available'))
+    # physical-only cells (no timing arcs): the tech's fillers / taps /
+    # endcaps / decaps need no timing view
+    phys = {c for trk in trks for k in ('fillers', 'well_tap', 'endcap', 'decap')
+            for c in _tcl_words(_tc_braced(tc, '{},{}'.format(trk, k)))}
+    for trk in trks:
+        for vt in vts:
+            for v in req['stdcell']:
+                if v == 'lib':
+                    for c in corners:
+                        acc = lib_by_corner.setdefault(('stdcell', c), set())
+                        for f in files('{},{},lib,{},timing'.format(trk, vt, c)):
+                            acc |= _cell_names(f, 'lib')
+                else:
+                    add('stdcell', v, files('{},{},{}'.format(trk, vt, v)) or files('{},{}'.format(trk, v))
+                        or tcf('{},{}_stdcell'.format(trk, v)))
+    for cat in ('memory', 'io', 'ip', 'analog'):
+        for v in req[cat]:
+            if v == 'lib':
+                for c in corners:
+                    acc = lib_by_corner.setdefault((cat, c), set())
+                    src = files('lib,{},timing,{}'.format(c, cat))
+                    if not src and cat == 'memory' and c in lmap:
+                        src = files('lib,{},timing,{}'.format(lmap[c], cat))
+                    for f in src:
+                        acc |= _cell_names(f, 'lib')
+            else:
+                add(cat, v, files('{},{}'.format(v, cat)))
+    blocks = set(_tcl_words(tv.get('blocks', '')))
+    block_rows = {r['library']: r for r in rows if r['category'] == 'block'}
+    out, problems = [], []
+    for cell, cnt in used.items():
+        if cell in blocks:
+            cat = 'block'
+        else:
+            cat = next((c for c in ('stdcell', 'memory', 'io', 'ip', 'analog')
+                        if any(cell in names.get((c, v), set()) for v in req[c] if v != 'lib')
+                        or any(cell in lib_by_corner.get((c, k), set()) for k in corners)), '')
+        r = {'cell': cell, 'category': cat or 'NOT IN LIBRARY', 'instances': cnt}
+        if not cat:
+            problems.append('{} ({} instance(s)): no view of the tag provides it'.format(cell, cnt))
+            out.append(r)
+            continue
+        for v in req[cat]:
+            if cat == 'block':
+                r[v] = block_rows.get(cell, {}).get(v, 'MISSING')
+            elif v == 'lib':
+                n = sum(cell in lib_by_corner.get((cat, k), set()) for k in corners)
+                if not n and cat == 'stdcell' and cell in phys:
+                    r[v] = 'n/a'                 # physical-only cell
+                    continue
+                r[v] = '{}/{}'.format(n, len(corners)) if n else 'MISSING'
+            else:
+                r[v] = 'OK' if cell in names.get((cat, v), set()) else 'MISSING'
+            if r[v] == 'MISSING' or (v == 'lib' and r[v] != '{}/{}'.format(len(corners), len(corners))):
+                problems.append('{} ({}): {} {}'.format(cell, cat, v, r[v]))
+        out.append(r)
+    return out, req, problems
+
+
+def _print_cell_table(crows, req):
+    """Centre-aligned table of the instantiated cells; stdcell types with
+    every view present fold into one summary row."""
+    cols = []
+    for c in _VIEW_CATEGORIES:
+        cols += [v for v in req[c] if v not in cols]
+    full = lambda r: all(r.get(v) in ('OK', 'n/a') or (v == 'lib' and str(r.get(v, '')).split('/')[0] ==
+                                              str(r.get(v, '')).split('/')[-1]) for v in req['stdcell'])
+    std_ok = [r for r in crows if r['category'] == 'stdcell' and full(r)]
+    shown = [r for r in crows if r not in std_ok]
+    table = []
+    if std_ok:
+        table.append(dict({'cell': '{} cell types'.format(len(std_ok)), 'category': 'stdcell',
+                           'instances': sum(r['instances'] for r in std_ok)},
+                          **{v: 'OK' for v in req['stdcell']}))
+    order = {c: i for i, c in enumerate(_VIEW_CATEGORIES + ['NOT IN LIBRARY'])}
+    table += sorted(shown, key=lambda r: (order.get(r['category'], 99), r['cell']))
+    hdr = ['cell', 'category', 'instances'] + cols
+    cells = [[r['cell'], r['category'], r['instances']] +
+             [r.get(v, '') if v in req.get(r['category'], []) else '' for v in cols] for r in table]
+    w = [max(len(str(x)) for x in [h] + [c[i] for c in cells]) + 2 for i, h in enumerate(hdr)]
+    line = '+' + '+'.join('-' * x for x in w) + '+'
+    fmt = lambda vals: '|' + '|'.join(str(v).center(w[i]) for i, v in enumerate(vals)) + '|'
+    logger.info(line); logger.info(fmt(hdr)); logger.info(line.replace('-', '='))
+    for c in cells:
+        logger.info(fmt(c))
+    logger.info(line)
+
+
 def _print_view_matrix(rows, cols, req):
     """Centre-aligned table: category | library | one column per view."""
     hdr = ['category', 'library'] + cols
@@ -2502,6 +2704,37 @@ def cmd_check(args: argparse.Namespace) -> int:
         for pr in problems:
             logger.info(f"  MISSING  {pr}")
         logger.info(f"  Missing views: {len(problems)}")
+    design_problems = []
+    for kind in ('netlist', 'rtl'):
+        dtag = getattr(args, kind + '_tag', None)
+        if not dtag:
+            continue
+        if not (vm and getattr(args, 'design', None)):
+            logger.error(f"--{kind}_tag needs --lib_tag and --design")
+            return 1
+        try:
+            rel_root = _read_project_cfg_value(project, version, 'release,path') if project else ''
+            if not rel_root:
+                raise ValueError('project(release,path) of project {} not set — pass --project'.format(project))
+            src = _locate_release(rel_root, args.design, dtag, getattr(args, 'phase', None) or '', kind)
+            srcs = [src] if kind == 'netlist' else [
+                l.strip() for l in open(src) if l.strip() and not l.strip().startswith(('#', '//', '+', '-'))]
+            used = _instantiated_cells(srcs)
+            crows, creq, cprob = _design_cell_check(lib_cfg, tc, project, version, used, vm[0])
+        except (ValueError, OSError) as e:
+            logger.error(str(e))
+            return 1
+        logger.info(f"{'─'*65}")
+        logger.info(f"  {args.design} {kind} {dtag} vs library tag {tag}: {src}")
+        logger.info(f"    {len(used)} cell / module type(s) instantiated, "
+                    f"{sum(used.values())} instance(s) (types the design itself defines excluded); "
+                    f"matched by name in each view (lib cell, LEF MACRO, CDL SUBCKT, Verilog module, GDS "
+                    f"structure); n/a = physical-only cell (tech fillers / well_tap / endcap / decap)")
+        _print_cell_table(crows, creq)
+        for pr in cprob:
+            logger.info(f"  MISSING  {pr}")
+        logger.info(f"  Cells with missing views: {len(cprob)}")
+        design_problems += cprob
     if missing > 0 and missing == len(checked):
         # Not one referenced file exists: the tag's vendor data is absent
         # (dev tree / unmounted library area), not a partially broken tag.
@@ -2517,8 +2750,10 @@ def cmd_check(args: argparse.Namespace) -> int:
     else:
         overall = "PASSED"
         exit_code = 0
-    if vm and vm[6] and exit_code == 0:
-        overall = "FAILED — {} missing view(s)".format(len(vm[6]))
+    if vm and (vm[6] or design_problems) and exit_code == 0:
+        overall = "FAILED — {} missing view(s){}".format(
+            len(vm[6]), ", {} instantiated cell(s) with missing views".format(len(design_problems))
+            if design_problems else '')
         exit_code = 1
     logger.info(f"{'─'*65}")
     logger.info(f"  Overall: {overall}")
@@ -5555,6 +5790,16 @@ Examples:
                                    '(only needed when several projects hold the tag)')
     check_parser.add_argument('--version', default='v1.0.0',
                               help='Config version (default: v1.0.0)')
+    check_parser.add_argument('--design', default=None,
+                              help='Block whose release --netlist_tag / --rtl_tag name (e.g. gcd)')
+    check_parser.add_argument('--netlist_tag', '--netlist-tag', dest='netlist_tag', default=None,
+                              help='Release tag of the design netlist (e.g. BTO): every cell it '
+                                   'instantiates is checked against the --lib_tag views')
+    check_parser.add_argument('--rtl_tag', '--rtl-tag', dest='rtl_tag', default=None,
+                              help='Release tag of the design RTL filelist (e.g. LINT_SIGNOFF): every '
+                                   'module it instantiates and does not define (macros, blocks) is checked')
+    check_parser.add_argument('--phase', default=None,
+                              help='Release phase of those tags (default: the one phase that has them)')
     check_parser.add_argument('--verbose', action='store_true', default=False,
                               help='Show result for every referenced library')
 
