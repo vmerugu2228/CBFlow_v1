@@ -190,7 +190,7 @@ array set upf_check {
 # ║                        TOOL BINDING                                         ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
-set upf_check(supported_tools) {vc_lp conformal_lp}
+set upf_check(supported_tools) {vc_lp conformal_lp rtlcheck}
 set upf_check(default_tool)    "vc_lp"
 
 set _active_tool [expr {[info exists upf_check(tool,name)] && $upf_check(tool,name) ne ""

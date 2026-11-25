@@ -194,7 +194,7 @@ array set rtl_cdc {
 # ║                        TOOL BINDING                                         ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
-set rtl_cdc(supported_tools) {spyglass jaspergold}
+set rtl_cdc(supported_tools) {spyglass jaspergold opencdc}
 set rtl_cdc(default_tool)    "spyglass"
 
 set _active_tool [expr {[info exists rtl_cdc(tool,name)] && $rtl_cdc(tool,name) ne ""

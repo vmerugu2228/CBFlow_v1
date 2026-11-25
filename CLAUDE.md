@@ -336,8 +336,14 @@ cbflow run db-manage export --format csv                      # Export DB data
   spec + SystemRDL / XLS registers → PeakRDL register RTL / UVM RAL / C header, IP-XACT 1685-2014 (schema-validated),
   SDC, UPF, RTL filelist, XLS vPlan; RTL ports vs spec; SPEC_EXIT (handshake `RTL_LINT,rtl`). Helper
   `RTL/utils/oss/spec_tool.py`; installs `global/utils/oss/install_{pytools,ipxact_schema,uvm}.sh` (CBFLOW_OSS_PYTHON,
-  UVM_HOME, CCACHE_DIR via cbflow-oss). Pilot gcd P3 (`inputs/opensky/gcd/P3/`: spec + APB regs + `rtl/gcd.sv`).
-  SmartGrid `/dashboard/<DISC>` opens / starts each discipline's run dashboard.
+  UVM_HOME, CCACHE_DIR via cbflow-oss). Spec memories carry depth / width / ports / `mbist` (algorithm, group), checked
+  vs the RTL instances. RTL checks on the SPEC_EXIT tag: RTL_LINT `verilator` (slang + Verilator SARIF + Verible),
+  RTL_CDC `opencdc` (SDC clocks, sv2v), UPF_CHECK `rtlcheck`; `<arr>(oss,waivers)` YAML (reason / owner / expires);
+  exits LINT_SIGNOFF / CDC_SIGNOFF / UPF_SIGNOFF; helpers `RTL/utils/oss/rtl_check.py`,
+  `RTL/utils/utilities/v1.0.0/oss_rtl_utils.tcl`. SYNTH `synth(input,rtl_format) "sverilog"` → yosys-slang `read_slang`
+  (reads the LINT_SIGNOFF `rtl/<d>.f`). Pilot gcd P3 = GCD accelerator (stream + SRAM job queue, 9 APB regs, 2 SRAMs;
+  `inputs/opensky/gcd/P3/`, smoke TB `tb/gcd_smoke_tb.sv`). SmartGrid `/dashboard/<DISC>` opens / starts each
+  discipline's run dashboard; the project page has one card per discipline.
 - DFT scandef: SYNTH writes `def/<d>.scandef` (mandatory with `project(dft,enable)`; `oss_scandef.tcl` fixes OpenROAD's
   reversed chain order); PNR `init_design` requires + `read_def -incremental`s it (handshake `PNR,def_scan`); PNR / ECO
   releases carry the post-route scandef; SCAN_INSERT checks it against its netlist trace.

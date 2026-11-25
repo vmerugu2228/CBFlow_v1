@@ -64,23 +64,36 @@ flow_proc read_design {
     # Staged by the rtl input node under the name of synth(input,rtl_filelist).
     set _fl "$::RTL_DIR/[file tail [cbflow_require synth input,rtl_filelist]]"
     if {![file exists $_fl]} { error "RTL filelist not staged: $_fl (synth(input,rtl_filelist))" }
-    set _sv [expr {[oss_get synth input,rtl_format] eq "sverilog" ? "-sv" : ""}]
-    set _fh [open $_fl]
-    foreach _src [split [read $_fh] "\n"] {
-        set _src [string trim $_src]
-        if {$_src eq "" || [string match "#*" $_src] || [string match "//*" $_src]} continue
-        handle_info "  RTL: $_src"
-        yosys read_verilog {*}$_sv -defer $_src
-    }
-    close $_fh
     # Hard-macro children: interface only, from the library tag. A child's
     # gate netlist can be ~100 MB; read a ports-only stub cut from its header.
+    # Read before the RTL so every front end sees them as blackboxes.
     foreach _b $blocks {
         set _v [hier_block_views $_b]
         handle_info "  child block $_b ([hier_level $_b]) from [dict get $_v release]"
         set _stub "[cbflow_node_dir $::NODE_NAME]/run/${_b}.bb.v"
         write_port_stub [dict get $_v netlist] $_b $_stub
         yosys read_verilog -lib $_stub
+    }
+    set _srcs {}
+    set _fh [open $_fl]
+    foreach _src [split [read $_fh] "\n"] {
+        set _src [string trim $_src]
+        if {$_src eq "" || [string match "#*" $_src] || [string match "//*" $_src]} continue
+        handle_info "  RTL: $_src"
+        lappend _srcs $_src
+    }
+    close $_fh
+    # synth(input,rtl_format): verilog -> yosys's Verilog front end;
+    # sverilog -> the slang front end (yosys-slang plugin: full IEEE 1800 —
+    # packages, structs, interfaces, the PeakRDL register block), the whole
+    # filelist elaborated at once from the top
+    switch -- [oss_get synth input,rtl_format] {
+        verilog  { foreach _src $_srcs { yosys read_verilog -defer $_src } }
+        sverilog {
+            yosys plugin -i slang
+            yosys read_slang --top $design_name {*}$_srcs
+        }
+        default  { error "synth(input,rtl_format) must be verilog or sverilog, got '[oss_get synth input,rtl_format]'" }
     }
     yosys hierarchy -check -top $design_name
     # Memory macro instances are kept even with unused outputs (hard macros)

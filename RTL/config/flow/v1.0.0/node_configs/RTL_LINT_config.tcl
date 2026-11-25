@@ -175,7 +175,7 @@ array set rtl_lint {
 # ║                        TOOL BINDING                                         ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
-set rtl_lint(supported_tools) {spyglass jaspergold}
+set rtl_lint(supported_tools) {spyglass jaspergold verilator}
 set rtl_lint(default_tool)    "spyglass"
 
 # Source the active tool's overlay (knobs + command invocation specifics).

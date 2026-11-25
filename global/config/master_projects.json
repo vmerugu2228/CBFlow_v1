@@ -332,7 +332,10 @@
           "DV_SIGNOFF"
         ],
         "RTL": [
-          "RTL_SPEC"
+          "RTL_SPEC",
+          "RTL_LINT",
+          "RTL_CDC",
+          "UPF_CHECK"
         ]
       },
       "enabled_flows": [

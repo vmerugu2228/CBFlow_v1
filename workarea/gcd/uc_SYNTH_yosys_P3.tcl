@@ -1,0 +1,20 @@
+# gcd P3 — spec-driven accelerator: SystemVerilog from the RTL_LINT release
+# (LINT_SIGNOFF, read through the yosys-slang front end), SDC / UPF from the
+# RTL_SPEC release (SPEC_EXIT). Scan inserted (project(dft,enable)).
+set project(name)              "opensky"
+set flow(type)                 "SYNTH"
+set flow(design_name)          "gcd"
+set flow(run_name)             "p3_synth"
+set flow(run_type)             "hier"
+set flow(test_mode)            "false"
+set flow(use_lsf)              "false"
+set flow(use_xterm)            "false"
+set synth(tool,name)           "yosys"
+set synth(input,rtl_filelist)  "/Users/vmerugu/projects/CBflow_clone/test_releases/P3/gcd/RTL_LINT/LINT_SIGNOFF/rtl/gcd.f"
+set synth(input,rtl_format)    "sverilog"
+set synth(input,sdc_func_file) "/Users/vmerugu/projects/CBflow_clone/test_releases/P3/gcd/RTL_SPEC/SPEC_EXIT/sdc/gcd.sdc"
+set synth(input,upf_file)      "/Users/vmerugu/projects/CBflow_clone/test_releases/P3/gcd/RTL_SPEC/SPEC_EXIT/upf/gcd.upf"
+set project(release,tag)       "P3_SYNTH_v1"
+set project(phase)             "P3"
+set project(release,phase)     "P3"
+set project(lib_config_tag)    "OSS2"

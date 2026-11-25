@@ -1,0 +1,17 @@
+# gcd P3 — RTL check waivers (RTL_LINT / RTL_CDC / UPF_CHECK, open-source flow)
+# rule / file: globs; line, message (regex): optional narrowing.
+# reason, owner, expires (YYYY-MM-DD) are mandatory; an expired waiver does
+# not apply.
+waivers:
+  - rule: PINCONNECTEMPTY
+    file: gcd.sv
+    message: "'dout0'"
+    reason: "SRAM port 0 is write-only by design (job push / result write); its read data is unused"
+    owner: vmerugu
+    expires: 2027-03-31
+  - rule: UNUSEDSIGNAL
+    file: gcd.sv
+    message: "res_rd_data'\\[31:16\\]"
+    reason: "result SRAM words hold a 16-bit result in [15:0]; [31:16] is written 0 and never read"
+    owner: vmerugu
+    expires: 2027-03-31

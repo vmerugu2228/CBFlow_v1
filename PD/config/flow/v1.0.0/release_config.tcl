@@ -1444,8 +1444,13 @@ proc check_release_readiness {run_dir flow milestone phase} {
 
     # ── Spec-to-GDS front end (open-source RTL) ─────────────────────────────
     #   RTL_SPEC → the RTL filelist (generated register block + designer RTL,
-    #   at the released paths) the RTL checks / SYNTH / DV read
+    #   at the released paths), SDC, UPF and spec the RTL checks read
     set flow_input_handshake(RTL_LINT,rtl)              {RTL_SPEC    rtl      "${design_name}.f"}
+    set flow_input_handshake(RTL_CDC,rtl)               {RTL_SPEC    rtl      "${design_name}.f"}
+    set flow_input_handshake(RTL_CDC,sdc)               {RTL_SPEC    sdc      "${design_name}.sdc"}
+    set flow_input_handshake(UPF_CHECK,rtl)             {RTL_SPEC    rtl      "${design_name}.f"}
+    set flow_input_handshake(UPF_CHECK,upf)             {RTL_SPEC    upf      "${design_name}.upf"}
+    set flow_input_handshake(UPF_CHECK,spec)            {RTL_SPEC    spec     "${design_name}.spec.yaml"}
 
     # ── PD → DV handoff ─────────────────────────────────────────────────────
     set flow_input_handshake(DV_SIGNOFF,netlist)        {ANY netlist "${design_name}.v"}
