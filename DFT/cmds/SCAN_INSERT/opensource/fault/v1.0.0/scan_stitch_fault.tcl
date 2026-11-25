@@ -44,6 +44,20 @@ flow_proc trace_chains {
         --report "$::REPORTS_DIR/scan_chains.rpt"
 }
 
+# The SYNTH scandef (the inserter's view) must describe the traced chains:
+# same chains, same flops, same scan-in -> scan-out order
+flow_proc check_scandef {
+    set _ref [dft_scandef_chains [dft_input scandef]]
+    set _cur [dft_scandef_chains [oss_stage_out scan.scandef]]
+    if {[lsort [concat {*}$_ref]] ne [lsort [concat {*}$_cur]]} {
+        error "SYNTH scandef ([dft_input scandef]) and the netlist's chains have different scan flops"
+    }
+    if {$_ref ne $_cur} {
+        error "SYNTH scandef ([dft_input scandef]) orders the chains differently from the netlist (scan-in -> scan-out)"
+    }
+    handle_info "SYNTH scandef matches the traced chains ([llength $_cur] chain(s))"
+}
+
 flow_proc report {
     set _r "$::REPORTS_DIR/scan_chains.rpt"
     handle_info "chains [dft_report_value $_r chains], scanned [dft_report_value $_r {scanned flops}] of\

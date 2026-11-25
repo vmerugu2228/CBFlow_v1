@@ -182,6 +182,17 @@ SDCs:
 
 - `synthesis1` writes `synthesis.func.sdc` (scan enable `set_case_analysis 0`) and `synthesis.scan.sdc` (value 1).
 - `export_data1` copies them to `final.sdc` / `final.scan.sdc`.
+- **Scandef (mandatory with DFT):** after `execute_dft_plan` the dft_insert script writes `synthesis.scandef` with
+  `oss_write_scandef` (`global/utils/utilities/v1.0.0/oss_scandef.tcl`): the SCANCHAINS of `write_def` as a standard
+  DEF 5.8 scandef, each chain oriented scan-in → scan-out by the netlist connectivity (OpenROAD's `execute_dft_plan`
+  stores chains tail-first, so `write_def` lists them reversed; the writer detects and fixes it). No scandef with
+  DFT on fails the stage. export → `final.scandef`, release → `def/<d>.scandef` (handshake `PNR,def_scan`).
+- **PNR with DFT:** `init_design` requires `def/<d>.scandef` from the SYNTH release of `pnr(input,release_tag)` when
+  `project(dft,enable)` is true (staged with the def inputs) and reads it with `read_def -incremental`; the chains
+  stay in every stage's database, the exported DEF carries SCANCHAINS and the PNR / ECO releases carry the post-route
+  `def/<d>.scandef`. A SYNTH release without one (built before this, or without scan) → re-run SYNTH with DFT, or set
+  `project(dft,enable) false` for that PNR run. OpenROAD `scan_opt` (placement-driven reorder) is not implemented in
+  this OpenROAD build, so the chain order is SYNTH's.
 - The release stages `<design>.scan.sdc` under `sdc/`.
 
 ### Clock gating

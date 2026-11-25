@@ -332,6 +332,9 @@ cbflow run db-manage export --format csv                      # Export DB data
   `overrides/pnr_<PHASE>_dl2.tcl`), `run_signoff.sh <b> [exit]` (FLOWS, MAX_PARALLEL, PV_MODE=hier →
   `<exit>_HIER`, PUBLISH=1, LIB_TAG; PHASE default P0), `test_place_release.sh`, `test_exit_order.sh`.
 - Doc: `PD/docs/02-user-guide/opensource-flow-guide.md`.
+- DFT scandef: SYNTH writes `def/<d>.scandef` (mandatory with `project(dft,enable)`; `oss_scandef.tcl` fixes OpenROAD's
+  reversed chain order); PNR `init_design` requires + `read_def -incremental`s it (handshake `PNR,def_scan`); PNR / ECO
+  releases carry the post-route scandef; SCAN_INSERT checks it against its netlist trace.
 - Open-source DFT (`DFT/docs/opensource-dft-guide.md`): SCAN_INSERT / ATPG `<arr>(tool,name) "fault"`, GLS_FUNC /
   GLS_SCAN_MBIST `"iverilog"`. SYNTH inserts scan; SCAN_INSERT traces / checks / flush-simulates it (SCAN_INSERT_EXIT);
   ATPG = macro stubs + `fault cut` + nl2bench + Atalanta (`global/utils/oss/install_atalanta.sh`, `lsf(oss,tools_dir)`;

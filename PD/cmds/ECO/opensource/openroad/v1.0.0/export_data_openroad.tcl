@@ -32,7 +32,7 @@ flow_proc load_design {
     foreach _f {final.def final.v final.lvs.v final.lef final.cdl final.sdc final.odb} {
         file copy -force [oss_node_output $_so $_f] "$_out/$_f"
     }
-    foreach _f [glob -nocomplain "[cbflow_node_dir $_so]/outputs/final__*.lib" "[cbflow_node_dir $_so]/outputs/final_*.spef"] {
+    foreach _f [glob -nocomplain "[cbflow_node_dir $_so]/outputs/final__*.lib" "[cbflow_node_dir $_so]/outputs/final_*.spef" "[cbflow_node_dir $_so]/outputs/final.scandef"] {
         file copy -force $_f $_out
     }
     set ::export_def "$_out/final.def"

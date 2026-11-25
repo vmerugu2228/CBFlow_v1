@@ -50,12 +50,16 @@ flow_proc load_design {
 
 # No operation / report step: export_data only copies the deliverables.
 
-# Save the deliverables under canonical names: final.v, final.scan.sdc
-# (DFT), final.sdc, final.upf
+# Save the deliverables under canonical names: final.v, final.scan.sdc +
+# final.scandef (DFT), final.sdc, final.upf
 flow_proc save_design {
     file copy -force $::export_netlist [oss_stage_out final.v]
     if {[is_true [oss_get project dft,enable]]} {
         file copy -force $::export_scan_sdc [oss_stage_out final.scan.sdc]
+        # scandef: mandatory with DFT (PNR reads it)
+        set _sd "[file dirname $::export_scan_sdc]/synthesis.scandef"
+        if {![file exists $_sd]} { error "DFT on but the synthesis node wrote no scandef ($_sd)" }
+        file copy -force $_sd [oss_stage_out final.scandef]
     }
     foreach {_src _dst} [list $::export_sdc final.sdc $::export_upf final.upf] {
         # staged inputs are symlinks — copy the content

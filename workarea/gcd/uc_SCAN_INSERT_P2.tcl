@@ -9,4 +9,4 @@ set project(phase)             "P2"
 set project(release,phase)     "P2"
 set project(lib_config_tag)    "OSS2"
 set scan_insert(tool,name)          "fault"           ;# SCAN_INSERT_fault_config.tcl (open-source)
-set scan_insert(input,release_tag)  "P2_SYNTH_v1"     ;# scan netlist + scan SDC of the SYNTH release
+set scan_insert(input,release_tag)  "P2_SYNTH_v2"     ;# scan netlist + scan SDC + scandef of the SYNTH release

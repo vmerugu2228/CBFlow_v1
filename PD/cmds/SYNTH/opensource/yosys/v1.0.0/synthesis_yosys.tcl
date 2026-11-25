@@ -178,7 +178,8 @@ flow_proc write_design {
 
 # Scan insertion (project(dft,enable)): OpenROAD DFT on the mapped netlist —
 # scan_replace (flops -> scan flops) + execute_dft_plan (chains stitched,
-# scan_enable_* / scan_in_* / scan_out_* ports added) -> synthesis.v. SDCs:
+# scan_enable_* / scan_in_* / scan_out_* ports added) -> synthesis.v plus the
+# scandef synthesis.scandef (mandatory with DFT; PNR reads it). SDCs:
 # synthesis.func.sdc (scan_enable held 0) and synthesis.scan.sdc (scan_enable
 # 1, shift mode). Child macros keep their own chains (not stitched here).
 flow_proc dft_insert {
@@ -231,6 +232,10 @@ foreach _i [$_blk getInsts] {
 puts "ICG_TEST_ENABLE $_n"}]
     puts $_fh "report_dft_plan"           ;# to the log; cut into dft_plan.rpt below
     puts $_fh "write_verilog [oss_stage_out synthesis.v]"
+    # scandef (mandatory DFT output; PNR reads it): DEF SCANCHAINS in
+    # scan-in -> scan-out order, checked against the netlist (oss_scandef.tcl)
+    puts $_fh "source $::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/oss_scandef.tcl"
+    puts $_fh [list oss_write_scandef [oss_stage_out synthesis.scandef] [oss_get project dft,max_chain_length]]
     puts $_fh "exit"
     close $_fh
     set _log "$::REPORTS_DIR/dft_insert.log"
@@ -238,6 +243,8 @@ puts "ICG_TEST_ENABLE $_n"}]
         file copy -force [oss_stage_out synthesis_pre_dft.v] [oss_stage_out synthesis.v]
     } elseif {[catch {exec {*}[oss_get synth oss,dft,openroad_cmd] $_or >& $_log} _e]} {
         error "DFT insertion failed (see $_log): $_e"
+    } elseif {![file exists [oss_stage_out synthesis.scandef]] || [file size [oss_stage_out synthesis.scandef]] == 0} {
+        error "DFT on but no scandef written ([oss_stage_out synthesis.scandef], see $_log) — it is a mandatory SYNTH output with project(dft,enable)"
     }
     # SDCs: functional (scan_enable 0) and scan shift (scan_enable 1)
     set _fh [open $_sdc]; set _base [read $_fh]; close $_fh

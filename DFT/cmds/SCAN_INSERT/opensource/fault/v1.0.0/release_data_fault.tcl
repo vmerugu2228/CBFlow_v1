@@ -3,7 +3,7 @@
 # CBflow SCAN_INSERT — release_data (opensource / tclsh)
 # Publish <release,path>/<phase>/<design>/SCAN_INSERT/<tag> (tag: the exit,
 # SCAN_INSERT_EXIT, unless project(release,tag)): netlist/<d>.v,
-# sdc/<d>.scan.sdc, scan/<d>.scandef + <d>.scan.json — the names ATPG reads
+# sdc/<d>.scan.sdc, def/<d>.scandef, scan/<d>.scan.json — the names ATPG reads
 # (flow_input_handshake(ATPG,*)) — and the scan reports.
 # ═══════════════════════════════════════════════════════════════════════════════
 

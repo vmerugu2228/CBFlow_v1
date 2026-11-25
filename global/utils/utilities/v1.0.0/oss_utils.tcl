@@ -847,6 +847,8 @@ proc oss_node_output {node file} {
 # power-aware LVS netlist (no physical-only cells — fillers / well taps hold
 # no devices), abstract LEF, CDL (standard-cell + memory + child-block
 # masters), database. outdir/final.<ext>.
+# (+ final.scandef when the database holds scan chains — read from the
+# SYNTH scandef by PNR init_design with project(dft,enable))
 proc oss_deliverable_cmds {outdir blocks} {
     set _cdl [list [oss_trk cdl_stdcell] {*}[oss_memory_files cdl]]
     foreach _b $blocks { lappend _cdl [oss_get tech block,$_b,cdl] }
@@ -856,7 +858,9 @@ proc oss_deliverable_cmds {outdir blocks} {
         [list write_verilog -include_pwr_gnd -remove_cells [concat [oss_trk fillers] [oss_trk well_tap]] $outdir/final.lvs.v] \
         [list write_abstract_lef -bloat_occupied_layers $outdir/final.lef] \
         [list write_cdl -masters $_cdl $outdir/final.cdl] \
-        [list write_db $outdir/final.odb]]
+        [list write_db $outdir/final.odb] \
+        [list source [file join $::env(FLOW_DIR) global utils utilities $::env(UTILITIES_VERSION) oss_scandef.tcl]] \
+        "if {\[llength \[\[\[ord::get_db_block\] getDft\] getScanChains\]\]} { oss_write_scandef $outdir/final.scandef [oss_get project dft,max_chain_length] }"]
 }
 
 # Views KLayout merges into a block's GDS: tech + track LEFs, standard-cell

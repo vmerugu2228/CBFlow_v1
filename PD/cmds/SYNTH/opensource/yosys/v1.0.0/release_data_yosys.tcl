@@ -57,6 +57,11 @@ flow_proc publish {
     if {[file exists "$_ex/final.scan.sdc"]} {
         ::CBFlow::Release::copy_file "$_ex/final.scan.sdc" sdc ${design_name}.scan.sdc
     }
+    # DFT scandef — PNR reads it (handshake PNR,def_scan); mandatory with DFT
+    if {[is_true [oss_get project dft,enable]]} {
+        if {![file exists "$_ex/final.scandef"]} { error "DFT on but export_data has no final.scandef" }
+        ::CBFlow::Release::copy_file "$_ex/final.scandef" {*}[release_handshake PNR def_scan]
+    }
     ::CBFlow::Release::copy_glob "[cbflow_node_dir [oss_chain_node synthesis]]/reports/*.rpt" reports
     ::CBFlow::Release::generate_manifest
     ::CBFlow::Release::stamp_complete

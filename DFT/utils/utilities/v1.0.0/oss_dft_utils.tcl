@@ -159,7 +159,7 @@ proc dft_scandef_chains {file} {
     set _fh [open $file]; set _t [read $_fh]; close $_fh
     set _out {}; set _cur {}; set _in 0
     foreach _l [split $_t \n] {
-        if {[regexp {^- chain} $_l]} { if {$_in} { lappend _out $_cur }; set _cur {}; set _in 1; continue }
+        if {[regexp {^-\s} $_l]} { if {$_in} { lappend _out $_cur }; set _cur {}; set _in 1; continue }
         if {[regexp {^\s+(\S+) \( IN } $_l -> _f]} { lappend _cur $_f }
     }
     if {$_in} { lappend _out $_cur }

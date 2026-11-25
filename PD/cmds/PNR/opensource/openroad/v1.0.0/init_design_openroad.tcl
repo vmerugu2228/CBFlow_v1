@@ -36,6 +36,20 @@ flow_proc load_design {
     if {![file exists $_def]} { error "floorplan DEF not staged: $_def (pnr(input,def_file_release_tag) <phase>_FP_v<n>)" }
     handle_info "Floorplan: $_def"
     read_def $_def
+    # DFT (project(dft,enable)): the scan chains SYNTH stitched — the SYNTH
+    # release's scandef (handshake PNR,def_scan, staged with the def inputs)
+    # is mandatory; read into the database, every later stage keeps them and
+    # the exported DEF carries SCANCHAINS
+    if {[is_true [oss_get project dft,enable]]} {
+        set _sd "$::DEF_DIR/${design_name}.scandef"
+        if {![file exists $_sd]} {
+            error "DFT on (project(dft,enable)) but no scandef staged: $_sd — the SYNTH release of pnr(input,release_tag) must carry def/${design_name}.scandef (re-run SYNTH with DFT), or set project(dft,enable) false for a non-scan netlist"
+        }
+        read_def -incremental $_sd
+        set _nc [llength [[[ord::get_db_block] getDft] getScanChains]]
+        if {$_nc == 0} { error "scandef $_sd read but no scan chain in the database" }
+        handle_info "Scan chains: $_nc from $_sd"
+    }
     read_sdc [oss_sdc_file]
     oss_drv_limits                   ;# pnr(oss,drv,max_fanout) from overrides
     set_dont_use [oss_pnr_dont_use]

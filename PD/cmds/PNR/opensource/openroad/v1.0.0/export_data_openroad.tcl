@@ -43,6 +43,8 @@ flow_proc load_design {
             file copy -force [oss_node_output $::export_src $_f] "$_out/$_f"
         }
         foreach _lib [glob -nocomplain "$_so/final__*.lib"] { file copy -force $_lib $_out }
+        # scan chains (DFT): final.scandef when signoff wrote one
+        if {[file exists "$_so/final.scandef"]} { file copy -force "$_so/final.scandef" $_out }
     } else {
         set _scr "$::WORK_DIR/run/deliverables_${::export_src}.tcl"
         set _fh [open $_scr w]

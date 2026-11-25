@@ -50,6 +50,9 @@ flow_proc publish {
     ::CBFlow::Release::copy_file "$_eo/final.def"    def     ${design_name}.def
     ::CBFlow::Release::copy_file "$_eo/final.sdc"    sdc     ${design_name}.sdc
     ::CBFlow::Release::copy_file "$_eo/final.odb"    db      ${design_name}.odb
+    if {[file exists "$_eo/final.scandef"]} {
+        ::CBFlow::Release::copy_file "$_eo/final.scandef" def   ${design_name}.scandef
+    }
     if {[array exists ::operating_modes]} {
         foreach _mode [array names ::operating_modes] {
             set _cf [string map [list {${design_name}} $design_name] [dict get $::operating_modes($_mode) constraint_file]]

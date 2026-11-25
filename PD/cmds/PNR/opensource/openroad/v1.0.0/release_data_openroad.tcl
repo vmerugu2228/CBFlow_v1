@@ -109,6 +109,10 @@ flow_proc publish {
     ::CBFlow::Release::copy_file "$_eo/final.def"                       {*}[release_handshake STA def_file]
     ::CBFlow::Release::copy_file "$_eo/final.sdc"                       sdc     ${design_name}.sdc
     ::CBFlow::Release::copy_file "$_eo/final.odb"                       db      ${design_name}.odb
+    # post-route scandef (DFT): the scan chains PNR carried from the SYNTH scandef
+    if {[file exists "$_eo/final.scandef"]} {
+        ::CBFlow::Release::copy_file "$_eo/final.scandef"               def     ${design_name}.scandef
+    }
     # Timing models: signoff only (written there per lib set)
     foreach _lib [glob -nocomplain "$_eo/final__*.lib"] {
         regsub {^final__} [file tail $_lib] "${design_name}__" _name

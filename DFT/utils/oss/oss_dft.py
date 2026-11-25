@@ -377,19 +377,25 @@ def cmd_trace(a):
            'outputs': [_port_disp(nl, pn, i) for pn, p in nl.ports.items() if p['direction'] != 'input' for i in range(len(p['bits']))]}
     json.dump(doc, open(a.output, 'w'), indent=1)
     if a.scandef:
+        # Standard DEF 5.8 scandef (read_def by OpenROAD / Innovus / ICC2):
+        # one PARTITION per clock port + edge (reordering stays inside a
+        # domain), FLOATING so placement-driven reordering (OpenROAD scan_opt)
+        # may reorder; ORDERED when the chain has inversions between flops (a
+        # reorder would break them). Clocks / enables / inversions: scan.json.
         with open(a.scandef, 'w') as f:
-            f.write(f"# CBflow scandef (open-source DFT) — {a.top}\n# chain: scan_in -> flops (load order) -> scan_out\n")
-            f.write(f"SCANCHAINS {len(chains)} ;\n")
+            f.write(f"# CBflow scandef (open-source DFT) — {a.top}; chain detail in scan.json\n"
+                    f"VERSION 5.8 ;\nNAMESCASESENSITIVE ON ;\nDIVIDERCHAR \"/\" ;\nBUSBITCHARS \"[]\" ;\n"
+                    f"DESIGN {a.top} ;\n\nSCANCHAINS {len(chains)} ;\n")
             for k, ch in enumerate(chains):
-                ck = ', '.join(f"{c['port']} {c['edge']}" for c in ch['clocks'])
-                se = ', '.join(s['port'] + (' (inv)' if s['inverted'] else '') for s in ch['scan_enable'])
-                f.write(f"- chain{k}\n  + START PIN {ch['scan_in']}\n  + STOP PIN {ch['scan_out']}\n"
-                        f"  + LENGTH {ch['length']}\n  + CLOCK {ck}\n  + ENABLE {se}\n  + ORDERED\n")
+                ck = ch['clocks'][0] if ch['clocks'] else {'port': 'none', 'edge': 'pos'}
+                part = re.sub(r'[^A-Za-z0-9_]', '_', f"{ck['port']}_{ck['edge']}")
+                inv = any(fl['inv_out'] for fl in ch['flops'][:-1])
+                f.write(f"- chain{k}\n  + PARTITION {part} MAXBITS {a.max_length or ch['length']}\n"
+                        f"  + START PIN {ch['scan_in']}\n  + {'ORDERED' if inv else 'FLOATING'}\n")
                 for fl in ch['flops']:
-                    f.write(f"      {fl['inst']} ( IN {cells[fl['cell']]['test']['test_scan_in']} ) "
-                            f"( OUT {fl['q']} ) {fl['cell']}{' INV' if fl['inv_out'] else ''}\n")
-                f.write("  ;\n")
-            f.write("END SCANCHAINS\n")
+                    f.write(f"      {fl['inst']} ( IN {cells[fl['cell']]['test']['test_scan_in']} ) ( OUT {fl['q']} )\n")
+                f.write(f"  + STOP PIN {ch['scan_out']} ;\n")
+            f.write("END SCANCHAINS\n\nEND DESIGN\n")
     lines = [f"Scan chain report — {a.top}",
              f"  scan ports       : in {a.scan_in}  out {a.scan_out}  enable {a.scan_enable}",
              f"  chains           : {len(chains)}",

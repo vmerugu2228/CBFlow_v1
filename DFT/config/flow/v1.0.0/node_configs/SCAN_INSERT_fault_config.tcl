@@ -6,10 +6,11 @@
 #
 # In the open-source flow the scan chains are inserted by SYNTH
 # (project(dft,enable): OpenROAD scan_replace + execute_dft_plan). SCAN_INSERT
-# reads that scan netlist from the SYNTH release and signs the scan structure
-# off: the chains are traced through the netlist (scan-in port -> scan flops ->
-# scan-out), checked against the DFT rules, flush-simulated (iverilog), and
-# released as the scan netlist + scandef that ATPG consumes.
+# reads that scan netlist and its scandef from the SYNTH release and signs the
+# scan structure off: the chains are traced through the netlist (scan-in port
+# -> scan flops -> scan-out) and must match the SYNTH scandef exactly, checked
+# against the DFT rules, flush-simulated (iverilog), and released as the scan
+# netlist + scandef that ATPG consumes.
 #
 # The liberty comes from the library tag (the lib set of the node's MMMC view —
 # mmmc_node_scenarios.tcl node init_scan), so there is no lib input node.
@@ -21,12 +22,18 @@ array set scan_insert {
     tool,version  "v1.0.0"
     tool,args     ""
 
-    stages {netlist1 sdc1 init_scan1 scan_stitch1 scan_check1 scan_export1 release_data1}
-    dependencies,init_scan1     {netlist1 sdc1}
+    stages {netlist1 sdc1 scandef1 init_scan1 scan_stitch1 scan_check1 scan_export1 release_data1}
+    dependencies,scandef1       {}
+    dependencies,init_scan1     {netlist1 sdc1 scandef1}
+    stage_types,scandef1        "inputs"
+    node_types,scandef1         "inputs"
+    node_descriptions,scandef1  "Scandef SYNTH wrote with the scan netlist"
+    runtime,timeout,scandef1    10
 
     mandatory_input_groups {
         netlist_inputs {scan_insert(input,netlist)}
         sdc_inputs     {scan_insert(input,sdc)}
+        scandef_inputs {scan_insert(input,scandef)}
     }
 }
 array unset scan_insert *,lib1

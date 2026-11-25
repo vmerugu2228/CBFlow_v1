@@ -47,8 +47,8 @@ The netlist / pattern work is done by `DFT/utils/oss/oss_dft.py` (standard libra
 ## 2. Handoffs
 
 ```
-SYNTH release (netlist with scan, sdc/<d>.scan.sdc)
-   └─ SCAN_INSERT  ── SCAN_INSERT_EXIT: netlist/<d>.v, scan/<d>.scandef, scan/<d>.scan.json
+SYNTH release (netlist with scan, sdc/<d>.scan.sdc, def/<d>.scandef — mandatory with DFT; PNR reads it too)
+   └─ SCAN_INSERT  ── SCAN_INSERT_EXIT: netlist/<d>.v, def/<d>.scandef, scan/<d>.scan.json
          └─ ATPG pre-PD (release_tag SCAN_INSERT_EXIT)  ── ATPG_PREPD_EXIT: patterns/…
 PNR release (BTO …)
    ├─ ATPG post-PD (netlist_release_tag BTO + scandef_release_tag SCAN_INSERT_EXIT) ── ATPG_POSTPD_EXIT
@@ -82,7 +82,7 @@ set project(dft,atpg,fault_coverage_min)  90.0
 | Stage | Does |
 |---|---|
 | init_scan1 | scan cells from the liberty (`test_cell` signal types), netlist → Yosys JSON, cell census; no scan flops → error naming `project(dft,enable)` |
-| scan_stitch1 | chains traced forward from each scan-in port (buffers / inverters, Q / QN) to the scan-out — a `scan_out_*` port or the functional output the inserter reused; clock port + edge (through ICGs), scan-enable port, inversions; `scan.scandef`, `scan.json`, `scan_chains.rpt` |
+| scan_stitch1 | the SYNTH scandef (input `scandef1`) must match the traced chains exactly (same flops, same scan-in → scan-out order); chains traced forward from each scan-in port (buffers / inverters, Q / QN) to the scan-out — a `scan_out_*` port or the functional output the inserter reused; clock port + edge (through ICGs), scan-enable port, inversions; `scan.scandef` (standard DEF 5.8 scandef, PARTITION per clock / edge), `scan.json`, `scan_chains.rpt` |
 | scan_check1 | rule violations (broken / looped chains, enable not from a scan-enable port, clock mixing under `no_mix`, length > `max_chain_length`), unscanned flops (`scan_insert(oss,allow_unscanned)`), chain-flush simulation (0011… through every chain, macros stubbed) — any failure fails the stage |
 | scan_export1 / release_data1 | `scan.v`, `scan.sdc`, `scan.scandef`, `scan.json` → `SCAN_INSERT_EXIT` |
 

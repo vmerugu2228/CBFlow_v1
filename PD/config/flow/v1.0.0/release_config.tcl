@@ -1369,6 +1369,9 @@ proc check_release_readiness {run_dir flow milestone phase} {
     set flow_input_handshake(PNR,netlist)        {SYNTH   netlist "${design_name}.v"}
     set flow_input_handshake(PNR,sdc)            {SYNTH   sdc     "${design_name}.sdc"}
     set flow_input_handshake(PNR,upf_file)       {SYNTH   upf     "${design_name}.upf"}
+    # DFT (project(dft,enable)): the scandef SYNTH wrote with the scan netlist —
+    # mandatory for PNR when DFT is on; staged with the def inputs (def1)
+    set flow_input_handshake(PNR,def_scan)       {SYNTH def     "${design_name}.scandef"}
     set flow_input_handshake(PNR,def_file)       {ANY     def     "${design_name}.def"}
     set flow_input_handshake(PNR,fp_tcl)         {FP      data    "floorplan.tcl"}
 
@@ -1432,8 +1435,9 @@ proc check_release_readiness {run_dir flow milestone phase} {
     #   ATPG        → the serial-scan pattern testbench for GLS_SCAN_MBIST
     set flow_input_handshake(SCAN_INSERT,netlist)       {SYNTH       netlist  "${design_name}.v"}
     set flow_input_handshake(SCAN_INSERT,sdc)           {SYNTH       sdc      "${design_name}.scan.sdc"}
+    set flow_input_handshake(SCAN_INSERT,scandef)       {SYNTH       def      "${design_name}.scandef"}
     set flow_input_handshake(ATPG,netlist)              {ANY         netlist  "${design_name}.v"}
-    set flow_input_handshake(ATPG,scandef)              {SCAN_INSERT scan     "${design_name}.scandef"}
+    set flow_input_handshake(ATPG,scandef)              {SCAN_INSERT def      "${design_name}.scandef"}
     set flow_input_handshake(GLS_FUNC,netlist)          {ANY         netlist  "${design_name}.v"}
     set flow_input_handshake(GLS_SCAN_MBIST,netlist)    {ANY         netlist  "${design_name}.v"}
     set flow_input_handshake(GLS_SCAN_MBIST,patterns)   {ATPG        patterns "${design_name}_scan_tb.v"}
