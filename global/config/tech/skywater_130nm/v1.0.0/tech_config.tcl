@@ -60,6 +60,18 @@ set tech(5M,hd,tech_file)        "$project(lib_root)/libs.ref/sky130_fd_sc_hd/te
 
 # ── RC extraction (OpenRCX rule decks per RC corner) ──────────────────────
 set tech(rc_corners_available)   {rc_max rc_min rc_typ}
+
+# Views every library of a library-tag category must have —
+# `library-manager check --lib_tag <TAG>` reports the matrix. lib = timing
+# per corner the project's MMMC uses (mmmc_view_definition.tcl library sets),
+# spef = per MMMC RC corner. stdcell rows are track x VT; memory / io / ip /
+# analog rows are each macro; block rows are each hard block of the tag.
+set tech(required_views,stdcell) {lef lib}
+set tech(required_views,memory)  {lef gds cdl verilog lib}
+set tech(required_views,io)      {lef gds cdl verilog lib}
+set tech(required_views,ip)      {lef gds cdl verilog lib}
+set tech(required_views,analog)  {lef gds cdl verilog lib}
+set tech(required_views,block)   {lef gds netlist lvs_netlist cdl def sdc lib spef}
 set tech(rcx_formats)            {openrcx tlef}
 set tech(rcx,5M,rc_typ,openrcx)  "$project(lib_root)/libs.tech/librelane/rules.openrcx.sky130A.nom.spef_extractor"
 set tech(rcx,5M,rc_min,openrcx)  "$project(lib_root)/libs.tech/librelane/rules.openrcx.sky130A.min.spef_extractor"

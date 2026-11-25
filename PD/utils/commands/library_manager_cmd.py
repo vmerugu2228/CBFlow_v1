@@ -1395,6 +1395,171 @@ def _project_substitutions(project_name: str, version: str, paths) -> dict:
     return out
 
 
+# ── Required-view matrix of a library tag (check --lib_tag) ─────────────────
+_VIEW_CATEGORIES = ['stdcell', 'memory', 'io', 'ip', 'analog', 'block']
+
+
+def _tag_tech_values(lib_cfg: str) -> Dict[str, str]:
+    """tech(<key>) values of a library tag: lib_config.tcl (+ the
+    blocks_config.tcl it sources) sourced by tclsh."""
+    import subprocess
+    script = ('source {%s}\nforeach k [lsort [array names tech]] '
+              '{ puts "$k\\t[string map {\\n { }} $tech($k)]" }\n' % lib_cfg)
+    r = subprocess.run(['tclsh'], input=script, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise ValueError('cannot source {}: {}'.format(lib_cfg, r.stderr.strip()))
+    out = {}
+    for line in r.stdout.splitlines():
+        k, _, v = line.partition('\t')
+        out[k] = v
+    return out
+
+
+def _tcl_words(v: str) -> List[str]:
+    from core import registry
+    return registry.tcl_list(v or '')
+
+
+def _tc_braced(tc: str, key: str) -> str:
+    m = re.search(r'^\s*set\s+tech\(' + re.escape(key) + r'\)\s+(\{.*?\}|"[^"]*"|\S+)\s*$',
+                  tc, re.M | re.S)
+    return m.group(1).strip('{}"') if m else ''
+
+
+def _project_lib_sets(project: str, version: str) -> List[str]:
+    """Library sets of the project's MMMC views (create_library_set -name <c>_ls)."""
+    from core.paths import get_cbflow_global_dir
+    p = os.path.join(get_cbflow_global_dir(), 'config', 'project', project, version,
+                     'mmmc_view_definition.tcl')
+    if not os.path.isfile(p):
+        return []
+    names = re.findall(r'create_library_set\s+-name\s+(\S+)', open(p).read())
+    return sorted({n[:-3] if n.endswith('_ls') else n for n in names})
+
+
+def _view_matrix(lib_cfg: str, tc: str, project: str, version: str):
+    """(rows, columns, notes, problems): one row per library of each category
+    (stdcell track/VT, macro, hard block), one column per required view."""
+    tv = _tag_tech_values(lib_cfg)
+    req = {c: _tcl_words(_tc_braced(tc, 'required_views,' + c)) for c in _VIEW_CATEGORIES}
+    if not any(req.values()):
+        raise ValueError('no tech(required_views,<category>) in the tech config — declare the views '
+                         'each category must have ({})'.format(', '.join(_VIEW_CATEGORIES)))
+    corners = (_project_lib_sets(project, version) if project else []) or _tcl_words(tv.get('corners', ''))
+    rcs = (_project_mmmc_rc_corners(project, version) if project else []) or \
+        _tcl_words(_tc_braced(tc, 'rc_corners_available'))
+    lmap = dict(zip(*[iter(_tcl_words(_tc_braced(tc, 'memory,lib_set_map')))] * 2))
+    files = lambda key: _tcl_words(tv.get(key, ''))
+    ok = lambda fs: bool(fs) and all(os.path.isfile(f) and os.path.getsize(f) > 0 for f in fs)
+    cols = []
+    for c in _VIEW_CATEGORIES:
+        cols += [v for v in req[c] if v not in cols]
+    rows, notes, problems = [], [], []
+
+    def cell_files(label, view, fs):
+        if ok(fs):
+            return 'OK'
+        problems.append('{}: {} {}'.format(label, view, 'not declared' if not fs else
+                                           'missing on disk: ' + ', '.join(f for f in fs if not os.path.isfile(f))))
+        return 'MISSING'
+
+    def cell_corners(label, view, have, total, subst=''):
+        if have == total and total:
+            return '{}/{}{}'.format(have, total, '*' if subst else '')
+        problems.append('{}: {} for {}/{} corner(s)'.format(label, view, have, total))
+        return '{}/{}'.format(have, total) if have else 'MISSING'
+
+    # stdcell: track x VT
+    if req['stdcell']:
+        vts = _tcl_words(_tc_braced(tc, 'vt_variants_available'))
+        for trk in _tcl_words(_tc_braced(tc, 'tracks_available')):
+            for vt in vts:
+                label = 'stdcell {}/{}'.format(trk, vt)
+                r = {'category': 'stdcell', 'library': '{}/{}'.format(trk, vt)}
+                for v in req['stdcell']:
+                    if v == 'lib':
+                        n = sum(ok(files('{},{},lib,{},timing'.format(trk, vt, c))) for c in corners)
+                        r[v] = cell_corners(label, 'lib', n, len(corners))
+                    else:
+                        r[v] = cell_files(label, v, files('{},{},{}'.format(trk, vt, v)))
+                rows.append(r)
+    # macros (memory / io / ip / analog): one row per macro
+    for cat in ('memory', 'io', 'ip', 'analog'):
+        if not req[cat]:
+            continue
+        names = sorted({os.path.splitext(os.path.basename(f))[0] for v in req[cat] if v != 'lib'
+                        for f in files('{},{}'.format(v, cat))})
+        if not names:
+            rows.append(dict({'category': cat, 'library': '(none in tag)'}, **{v: '—' for v in req[cat]}))
+            continue
+        for mac in names:
+            label = '{} {}'.format(cat, mac)
+            r = {'category': cat, 'library': mac}
+            for v in req[cat]:
+                if v != 'lib':
+                    r[v] = cell_files(label, v, [f for f in files('{},{}'.format(v, cat))
+                                                 if os.path.basename(f).startswith(mac)])
+                    continue
+                n, sub = 0, set()
+                for c in corners:
+                    mine = [f for f in files('lib,{},timing,{}'.format(c, cat)) if os.path.basename(f).startswith(mac)]
+                    if ok(mine):
+                        n += 1
+                        continue
+                    m = lmap.get(c) if cat == 'memory' else None
+                    mapped = [f for f in files('lib,{},timing,{}'.format(m, cat))
+                              if os.path.basename(f).startswith(mac)] if m else []
+                    if ok(mapped):
+                        n += 1
+                        sub.add(m)
+                if sub:
+                    notes.append('{} lib: {} of the {} corner(s) use {} via tech(memory,lib_set_map) '
+                                 '(no own characterization)'.format(label, sum(1 for c in corners if lmap.get(c) in sub
+                                                                               and c not in sub), len(corners),
+                                                                    ', '.join(sorted(sub))))
+                r[v] = cell_corners(label, 'lib', n, len(corners), subst=','.join(sub))
+            rows.append(r)
+    # hard blocks
+    if req['block']:
+        blocks = _tcl_words(tv.get('blocks', ''))
+        if not blocks:
+            rows.append(dict({'category': 'block', 'library': '(none in tag)'}, **{v: '—' for v in req['block']}))
+        for b in blocks:
+            label = 'block {}'.format(b)
+            r = {'category': 'block', 'library': b}
+            for v in req['block']:
+                if v == 'lib':
+                    n = sum(ok(files('block,{},lib,{}'.format(b, c))) for c in corners)
+                    r[v] = cell_corners(label, 'lib', n, len(corners))
+                elif v == 'spef':
+                    n = sum(ok(files('block,{},spef,{}'.format(b, rc))) for rc in rcs)
+                    r[v] = cell_corners(label, 'spef', n, len(rcs))
+                else:
+                    r[v] = cell_files(label, v, files('block,{},{}'.format(b, v)))
+            rows.append(r)
+    return rows, cols, corners, rcs, req, notes, problems
+
+
+def _print_view_matrix(rows, cols, req):
+    """Centre-aligned table: category | library | one column per view."""
+    hdr = ['category', 'library'] + cols
+    cells = [[r['category'], r['library']] +
+             [r.get(v, '') if v in req[r['category']] else '' for v in cols] for r in rows]
+    w = [max(len(str(x)) for x in [h] + [c[i] for c in cells]) + 2 for i, h in enumerate(hdr)]
+    line = '+' + '+'.join('-' * x for x in w) + '+'
+    fmt = lambda vals: '|' + '|'.join(str(v).center(w[i]) for i, v in enumerate(vals)) + '|'
+    logger.info(line)
+    logger.info(fmt(hdr))
+    logger.info(line.replace('-', '='))
+    prev = None
+    for c in cells:
+        if prev is not None and c[0] != prev:
+            logger.info(line)
+        logger.info(fmt(c))
+        prev = c[0]
+    logger.info(line)
+
+
 def _framework_roots() -> list:
     """Absolute paths that `lib_tag_root` is forbidden from pointing inside.
 
@@ -2213,6 +2378,7 @@ def cmd_check(args: argparse.Namespace) -> int:
     logger.info(f"Checking library config: {tech_config_path}")
 
     validator = LibraryValidator()
+    vm = None
     tag = getattr(args, 'tag', None)
     if tag:
         from core.paths import tech_name_from_config_path
@@ -2226,6 +2392,14 @@ def cmd_check(args: argparse.Namespace) -> int:
         validator.lib_config_override = lib_cfg
         logger.info(f"Library tag {tag}: {lib_cfg}" + (f" (project {project})" if project else ''))
     config = validator.load_tech_config(tech_config_path)
+    if tag:
+        try:
+            from core.paths import get_tech_config_paths
+            tc = "\n".join(open(p).read() for p in get_tech_config_paths(tech_name, version))
+            vm = _view_matrix(lib_cfg, tc, project, version)
+        except ValueError as e:
+            logger.error(str(e))
+            return 1
     if tag and project:
         validator.substitutions = _project_substitutions(
             project, version, [p for d in config.values() for v in d.values()
@@ -2292,6 +2466,20 @@ def cmd_check(args: argparse.Namespace) -> int:
     #       + "No library_sets found". Keep the distinction so CI can
     #       fail hard when the tech isn't ready to be checked at all,
     #       instead of a green PASS masking an unresolved config.
+    if vm:
+        rows, cols, corners, rcs, req, notes, problems = vm
+        logger.info(f"{'─'*65}")
+        logger.info(f"  Required views — library tag {tag}  (tech(required_views,<category>))")
+        logger.info(f"    lib corners  : {' '.join(corners)}" + (f"  (project {project} MMMC library sets)" if project else ''))
+        if 'spef' in cols:
+            logger.info(f"    spef corners : {' '.join(rcs)}")
+        logger.info("    OK = present · n/m = corners covered · * = substituted corner · MISSING · — = no library")
+        _print_view_matrix(rows, cols, req)
+        for n in notes:
+            logger.info(f"  NOTE  {n}")
+        for pr in problems:
+            logger.info(f"  MISSING  {pr}")
+        logger.info(f"  Missing views: {len(problems)}")
     if missing > 0 and missing == len(checked):
         # Not one referenced file exists: the tag's vendor data is absent
         # (dev tree / unmounted library area), not a partially broken tag.
@@ -2307,6 +2495,9 @@ def cmd_check(args: argparse.Namespace) -> int:
     else:
         overall = "PASSED"
         exit_code = 0
+    if vm and vm[6] and exit_code == 0:
+        overall = "FAILED — {} missing view(s)".format(len(vm[6]))
+        exit_code = 1
     logger.info(f"{'─'*65}")
     logger.info(f"  Overall: {overall}")
     logger.info(f"{'='*65}")
