@@ -9,9 +9,10 @@ version: "1.0"
 vendor: smartsocs.com
 library: opensky
 description: >
-  16-bit greatest-common-divisor engine (Euclid, subtract-and-swap) with a
-  valid/ready request / response interface, an APB4 register block and two
-  SRAM logs (operands, results).
+  16-bit greatest-common-divisor accelerator (Euclid, subtract-and-swap).
+  Stream mode: valid/ready request / response. Queue mode: software loads jobs
+  over APB into a job SRAM, starts the engine, the engine writes each result
+  into a result SRAM and raises an interrupt; results are read back over APB.
 
 clocks:
   - name: core_clock
@@ -38,7 +39,7 @@ ports:
   - {name: s_apb_penable, dir: in,  width: 1,  interface: csr}
   - {name: s_apb_pwrite,  dir: in,  width: 1,  interface: csr}
   - {name: s_apb_pprot,   dir: in,  width: 3,  interface: csr}
-  - {name: s_apb_paddr,   dir: in,  width: 4,  interface: csr}
+  - {name: s_apb_paddr,   dir: in,  width: 6,  interface: csr}
   - {name: s_apb_pwdata,  dir: in,  width: 32, interface: csr}
   - {name: s_apb_pstrb,   dir: in,  width: 4,  interface: csr}
   - {name: s_apb_pready,  dir: out, width: 1,  interface: csr}
@@ -77,8 +78,27 @@ power:
       states: {ON: 1.80, OFF: off}
 
 memories:
-  - {inst: u_sram_req,  macro: sky130_sram_1kbyte_1rw1r_32x256_8, desc: "operand log"}
-  - {inst: u_sram_resp, macro: sky130_sram_1kbyte_1rw1r_32x256_8, desc: "result log"}
+  # Hard macros of the library tag. depth x width, ports (rw / r / w) and the
+  # MBIST intent: the DFT MBIST step wraps each memory with a test collar and
+  # runs the algorithm; memories sharing a group share one controller.
+  - inst: u_sram_job
+    macro: sky130_sram_1kbyte_1rw1r_32x256_8
+    desc: "job queue: APB pushes on port 0, engine fetch on port 1"
+    depth: 256
+    width: 32
+    ports:
+      - {name: p0, type: rw, clock: clk, use: "job push (write)"}
+      - {name: p1, type: r,  clock: clk, use: "engine job fetch (read)"}
+    mbist: {enable: true, algorithm: march_c_minus, group: mbist_g0}
+  - inst: u_sram_res
+    macro: sky130_sram_1kbyte_1rw1r_32x256_8
+    desc: "result buffer: engine writes on port 0, APB RES_DATA reads on port 1"
+    depth: 256
+    width: 32
+    ports:
+      - {name: p0, type: rw, clock: clk, use: "engine result write"}
+      - {name: p1, type: r,  clock: clk, use: "APB result read-back"}
+    mbist: {enable: true, algorithm: march_c_minus, group: mbist_g0}
 
 rtl:
   top: gcd
@@ -88,43 +108,64 @@ rtl:
 features:
   - id: F1
     name: gcd compute
-    desc: "gcd(a, b) for every accepted request, including a = 0, b = 0, a = b"
+    desc: "gcd(a, b) for every request / job, including a = 0, b = 0, a = b, a < b"
     priority: P1
     milestone: M1
     tests: [gcd_sanity_test, gcd_random_test]
     coverage: [operands_zero, operands_equal, a_lt_b]
   - id: F2
-    name: valid/ready handshakes
-    desc: "requests accepted only in IDLE; response held until resp_rdy; back-pressure"
+    name: stream handshakes
+    desc: "requests accepted only when idle; response held until resp_rdy; back-pressure"
     priority: P1
     milestone: M2
     tests: [gcd_backpressure_test]
     coverage: [resp_stall, back_to_back_req]
   - id: F3
     name: register access
-    desc: "APB read / write of CTRL, STATUS, RESULT, OPCOUNT; reset values; RO / W1C behaviour"
+    desc: "APB read / write of every register; reset values; RO / W1C / single-pulse behaviour"
     priority: P1
     milestone: M2
     tests: [gcd_reg_reset_test, gcd_reg_access_test]
     coverage: [reg_read_all, reg_write_ctrl]
   - id: F4
+    name: job queue
+    desc: "JOB_DATA pushes into the job SRAM, CTRL.start runs JOB_COUNT jobs, results land in the result SRAM in order, RES_COUNT; q_clr; full queue (256)"
+    priority: P1
+    milestone: M2
+    tests: [gcd_queue_test, gcd_queue_full_test]
+    coverage: [queue_len_1, queue_len_max, queue_rerun]
+  - id: F5
+    name: result read-back
+    desc: "RES_ADDR / RES_DATA return the result SRAM word (one-cycle read latency hidden by APB)"
+    priority: P1
+    milestone: M2
+    tests: [gcd_queue_test]
+    coverage: [res_addr_all]
+  - id: F6
     name: interrupt
-    desc: "STATUS.irq set on every result; irq output follows CTRL.irq_en; W1C clears"
+    desc: "STATUS.irq on every stream result and on queue completion; irq output follows CTRL.irq_en; W1C clears"
     priority: P2
     milestone: M3
     tests: [gcd_irq_test]
     coverage: [irq_set, irq_clear, irq_masked]
-  - id: F5
-    name: operation counter
-    desc: "OPCOUNT counts completed requests; CTRL.cnt_clr clears it"
+  - id: F7
+    name: counters
+    desc: "OPCOUNT counts completed requests + jobs; CTRL.cnt_clr clears it"
     priority: P2
     milestone: M3
     tests: [gcd_opcount_test]
     coverage: [count_clear, count_wrap]
-  - id: F6
-    name: SRAM logs
-    desc: "every accepted request / response is written to the operand / result SRAM"
+  - id: F8
+    name: stream / queue arbitration
+    desc: "a queue start takes priority over a stream request; no stream request accepted while the queue runs"
+    priority: P2
+    milestone: M3
+    tests: [gcd_mixed_test]
+    coverage: [start_with_req_pending]
+  - id: F9
+    name: memory test readiness
+    desc: "both SRAMs reachable by the MBIST collar (functional paths muxed in test); March C- passes on the gate netlist"
     priority: P2
     milestone: M4
-    tests: [gcd_sram_log_test]
-    coverage: [log_wrap]
+    tests: [gcd_mbist_test]
+    coverage: [mbist_pass_both]

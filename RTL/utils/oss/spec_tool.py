@@ -25,8 +25,10 @@ Sources (industry formats):
   sdc       --spec spec.json -o <sdc>        clocks / IO delays / load
   upf       --spec spec.json -o <upf>        power domains (IEEE 1801)
   filelist  --spec spec.json --regs <dir> -o <f>   generated register block + RTL
-  ports     --spec spec.json --json <yosys json> --report <rpt>
-            RTL top ports (direction / width) against the spec's ports
+  ports     --spec spec.json --json <yosys json> --report <rpt> [--memory-macros …]
+            RTL top ports (direction / width) against the spec's ports; spec
+            memories instantiated with their macro, every memory macro of the
+            RTL declared, macros in the library tag
   vplan-init --spec spec.json -o <xlsx>      verification plan from the features
 """
 import argparse
@@ -39,6 +41,7 @@ if os.environ.get('CBFLOW_OSS_PYTHON'):
     sys.path.insert(0, os.environ['CBFLOW_OSS_PYTHON'])
 
 SCHEMA_VERSION = 1
+MBIST_ALGORITHMS = {'march_c_minus', 'march_c', 'march_b', 'mats_plus'}
 PROTOCOLS = {'valid_ready', 'apb4'}
 APB4_SIGNALS = ['psel', 'penable', 'pwrite', 'pprot', 'paddr', 'pwdata', 'pstrb', 'pready', 'prdata', 'pslverr']
 # IP-XACT logical names of the AMBA APB4 abstraction (ARM AMBA 4 APB4 rtl)
@@ -178,6 +181,37 @@ def cmd_check(a):
                     errs.append(f'{ctx}.supply: missing {k}')
     else:
         warns.append('no power section — no UPF generated')
+    mem_insts = set()
+    for i, m in enumerate(s.get('memories', []) or []):
+        ctx = f'memories[{i}]'
+        inst = need(m, 'inst', ctx, str)
+        need(m, 'macro', ctx, str)
+        dep = need(m, 'depth', ctx, int)
+        wid = need(m, 'width', ctx, int)
+        if inst in mem_insts:
+            errs.append(f'{ctx}: memory instance {inst} declared twice')
+        mem_insts.add(inst)
+        for k, val in (('depth', dep), ('width', wid)):
+            if val is not None and val < 1:
+                errs.append(f'{ctx}.{k}: >= 1')
+        mps = need(m, 'ports', ctx, list) or []
+        if not mps:
+            errs.append(f'{ctx}.ports: at least one port')
+        for j, mp in enumerate(mps):
+            t = need(mp, 'type', f'{ctx}.ports[{j}]', str)
+            need(mp, 'name', f'{ctx}.ports[{j}]', str)
+            if t and t not in ('rw', 'r', 'w'):
+                errs.append(f'{ctx}.ports[{j}].type: rw | r | w')
+        mb = m.get('mbist')
+        if mb is None:
+            warns.append(f'{ctx} ({inst}): no mbist section — the memory is not planned for memory test')
+        elif isinstance(mb, dict):
+            if mb.get('enable', True) and mb.get('algorithm') not in MBIST_ALGORITHMS:
+                errs.append(f'{ctx}.mbist.algorithm: one of {sorted(MBIST_ALGORITHMS)}')
+            if mb.get('enable', True) and not mb.get('group'):
+                errs.append(f'{ctx}.mbist.group: the MBIST controller group')
+        else:
+            errs.append(f'{ctx}.mbist: a mapping')
     rtl = need(s, 'rtl', 'spec', dict) or {}
     top = need(rtl, 'top', 'rtl', str)
     srcs = []
@@ -211,6 +245,7 @@ def cmd_check(a):
              f'  Clocks      : {len(clocks)}',
              f'  Interfaces  : {len(s.get("interfaces", []) or [])}',
              f'  Registers   : {regs_file or "-"}',
+             f'  Memories    : {len(s.get("memories", []) or [])}',
              f'  Features    : {len(s.get("features", []) or [])}',
              f'  Errors      : {len(errs)}',
              f'  Warnings    : {len(warns)}'] + [f'  ERROR: {e}' for e in errs] + [f'  WARN : {w}' for w in warns]
@@ -618,7 +653,33 @@ def cmd_ports(a):
     for n in rtl:
         if n not in spec:
             errs.append(f'RTL port {n} not in the spec')
+    # memories: every spec memory instantiated with its macro, every memory
+    # macro instance of the RTL declared in the spec, macros in the library tag
+    macros = set(a.memory_macros or [])
+    cells = {}
+
+    def walk(mod, prefix):
+        for cn, c in d['modules'][mod].get('cells', {}).items():
+            cells[prefix + cn] = c['type']
+            sub = d['modules'].get(c['type'])
+            if sub and not sub.get('attributes', {}).get('blackbox'):
+                walk(c['type'], prefix + cn + '/')
+    walk(top, '')
+    mem_errs = []
+    spec_mems = {m['inst'].replace('.', '/'): m for m in s.get('memories', []) or []}
+    for inst, m in spec_mems.items():
+        if inst not in cells:
+            mem_errs.append(f'memory {inst}: not instantiated in {top}')
+        elif cells[inst] != m['macro']:
+            mem_errs.append(f'memory {inst}: RTL instantiates {cells[inst]}, spec says {m["macro"]}')
+        if macros and m['macro'] not in macros:
+            mem_errs.append(f'memory {inst}: macro {m["macro"]} not in the library tag ({", ".join(sorted(macros))})')
+    for inst, ct in cells.items():
+        if ct in macros and inst not in spec_mems:
+            mem_errs.append(f'memory macro instance {inst} ({ct}) not declared in the spec')
+    errs += mem_errs
     lines = [f'RTL vs spec ports — {top}', f'  Spec ports : {len(spec)}', f'  RTL ports  : {len(rtl)}',
+             f'  Spec memories : {len(spec_mems)}',
              f'  Mismatches : {len(errs)}'] + [f'  ERROR: {e}' for e in errs]
     open(a.report, 'w').write('\n'.join(lines) + '\n')
     print('\n'.join(lines), file=sys.stderr)
@@ -671,6 +732,7 @@ def main():
     p = sp.add_parser('filelist'); p.add_argument('--spec', required=True); p.add_argument('--regs')
     p.add_argument('-o', '--output', required=True)
     p = sp.add_parser('ports'); p.add_argument('--spec', required=True); p.add_argument('--json', required=True)
+    p.add_argument('--memory-macros', nargs='*')
     p.add_argument('--report', required=True)
     p = sp.add_parser('vplan-init'); p.add_argument('--spec', required=True); p.add_argument('-o', '--output', required=True)
     a = ap.parse_args()

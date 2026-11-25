@@ -1,28 +1,66 @@
+// =============================================================================
+// gcd_regs — register map of the gcd accelerator (opensky P3)
+// APB4 slave, 32-bit registers. Two ways to use the engine:
+//   stream : valid/ready request -> response ports (one gcd per handshake)
+//   queue  : software loads jobs {a,b} into the job SRAM (JOB_DATA pushes),
+//            pulses CTRL.start; the engine fetches each job from the job SRAM,
+//            computes, writes the result into the result SRAM; STATUS.irq on
+//            completion; results read back through RES_ADDR / RES_DATA.
+// =============================================================================
 addrmap gcd_regs {
-    name = "gcd control / status registers";
-    desc = "APB register block of the spec-driven gcd (opensky P3).";
+    name = "gcd accelerator registers";
+    desc = "APB register block of the gcd accelerator (opensky P3).";
     default regwidth = 32;
 
     reg {
         name = "Control";
-        field { sw = rw; hw = r; desc = "Raise irq when a result completes"; } irq_en[0:0] = 0;
-        field { sw = w;  hw = r; singlepulse; desc = "Write 1: clear the operation counter"; } cnt_clr[1:1] = 0;
-    } CTRL @ 0x0;
+        field { sw = rw; hw = r; desc = "Drive the irq output when STATUS.irq is set"; } irq_en[0:0] = 0;
+        field { sw = w;  hw = r; singlepulse; desc = "Write 1: clear OPCOUNT"; } cnt_clr[1:1] = 0;
+        field { sw = w;  hw = r; singlepulse; desc = "Write 1: run the job queue (JOB_COUNT jobs from index 0)"; } start[2:2] = 0;
+        field { sw = w;  hw = r; singlepulse; desc = "Write 1: empty the job queue and the result count"; } q_clr[3:3] = 0;
+    } CTRL @ 0x00;
 
     reg {
         name = "Status";
-        field { sw = r;  hw = w; desc = "Computation in progress"; } busy[0:0];
-        field { sw = r;  hw = w; desc = "Result valid, response not yet taken"; } done[1:1];
-        field { sw = rw; hw = r; woclr; hwset; desc = "Result interrupt pending (write 1 to clear)"; } irq[2:2] = 0;
-    } STATUS @ 0x4;
+        field { sw = r;  hw = w; desc = "Engine computing (stream or queue)"; } busy[0:0];
+        field { sw = r;  hw = w; desc = "Stream result valid, response not yet taken"; } done[1:1];
+        field { sw = rw; hw = r; woclr; hwset; desc = "Interrupt pending: stream result or queue complete (write 1 to clear)"; } irq[2:2] = 0;
+        field { sw = r;  hw = w; desc = "Job queue running"; } q_busy[3:3];
+    } STATUS @ 0x04;
 
     reg {
         name = "Last result";
-        field { sw = r; hw = w; desc = "gcd of the last completed request"; } value[15:0];
-    } RESULT @ 0x8;
+        field { sw = r; hw = w; desc = "gcd of the last completed job / request"; } value[15:0];
+    } RESULT @ 0x08;
 
     reg {
         name = "Operation count";
-        field { sw = r; hw = w; desc = "Completed requests since reset / clear"; } count[15:0];
-    } OPCOUNT @ 0xC;
+        field { sw = r; hw = w; desc = "Completed jobs + requests since reset / CTRL.cnt_clr"; } count[15:0];
+    } OPCOUNT @ 0x0C;
+
+    reg {
+        name = "Job data";
+        desc = "Each write pushes one job {a[31:16], b[15:0]} into the job SRAM.";
+        field { sw = w; hw = r; swmod; desc = "Operands {a, b}"; } data[31:0] = 0;
+    } JOB_DATA @ 0x10;
+
+    reg {
+        name = "Job count";
+        field { sw = r; hw = w; desc = "Jobs loaded (0..256)"; } count[8:0];
+    } JOB_COUNT @ 0x14;
+
+    reg {
+        name = "Result address";
+        field { sw = rw; hw = r; desc = "Result SRAM index read by RES_DATA"; } addr[7:0] = 0;
+    } RES_ADDR @ 0x18;
+
+    reg {
+        name = "Result data";
+        field { sw = r; hw = w; desc = "Result SRAM word at RES_ADDR"; } data[15:0];
+    } RES_DATA @ 0x1C;
+
+    reg {
+        name = "Result count";
+        field { sw = r; hw = w; desc = "Results written by the current / last queue run"; } count[8:0];
+    } RES_COUNT @ 0x20;
 };

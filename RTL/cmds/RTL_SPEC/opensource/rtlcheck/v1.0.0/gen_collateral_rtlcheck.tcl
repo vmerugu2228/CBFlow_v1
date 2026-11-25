@@ -4,8 +4,9 @@
 # Design collateral from the spec: SDC (clocks, IO delays, load), UPF (power
 # domains), the RTL filelist (register block + designer RTL), the initial
 # verification plan (XLS, rtl_spec(oss,vplan,generate)), and the RTL top
-# checked against the spec's ports (sv2v + yosys; memories / child blocks
-# from the library tag as blackboxes).
+# checked against the spec's ports and memories (sv2v + yosys; memories /
+# child blocks from the library tag as blackboxes; spec memories instantiated
+# with their macro, memory macros declared in the spec and in the tag).
 # ═══════════════════════════════════════════════════════════════════════════════
 
 set run_dir $::env(CBFLOW_RUN_DIR)
@@ -58,7 +59,8 @@ flow_proc check_ports {
     foreach _b [hier_children $design_name] { lappend _cmds "read_verilog -lib [dict get [hier_block_views $_b] netlist]" }
     lappend _cmds "read_verilog $_v" "hierarchy -top $_top" "proc" "write_json $::WORK_DIR/run/design.json"
     oss_run "$::REPORTS_DIR/ports_yosys.log" yosys -q -p [join $_cmds "; "]
-    oss_py "$::REPORTS_DIR/ports.log" $::spec_tool ports --spec $_sc --json "$::WORK_DIR/run/design.json" --report "$::REPORTS_DIR/ports.rpt"
+    oss_py "$::REPORTS_DIR/ports.log" $::spec_tool ports --spec $_sc --json "$::WORK_DIR/run/design.json" \
+        --memory-macros {*}[oss_memory_cells] --report "$::REPORTS_DIR/ports.rpt"
 }
 
 oss_exec_all
