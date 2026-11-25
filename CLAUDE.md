@@ -344,6 +344,14 @@ cbflow run db-manage export --format csv                      # Export DB data
   (reads the LINT_SIGNOFF `rtl/<d>.f`). Pilot gcd P3 = GCD accelerator (stream + SRAM job queue, 9 APB regs, 2 SRAMs;
   `inputs/opensky/gcd/P3/`, smoke TB `tb/gcd_smoke_tb.sv`). SmartGrid `/dashboard/<DISC>` opens / starts each
   discipline's run dashboard; the project page has one card per discipline.
+- Open-source DV (`DV/docs/opensource-dv-guide.md`): TB_SETUP / M1-M4_EXEC / DV_SIGNOFF `<arr>(tool,name) "verilator"`
+  (`review` = generic gates). UVM 2020.3.1 on Verilator `--timing --coverage`, z3 (install_pytools) for randomize.
+  `DV/utils/oss/uvmgen.py` builds the UVM env from spec + RAL (`ral/<d>_ral.sv` of SPEC_EXIT) + vPlan; user-owned
+  `<d>_ref_model.sv` / `<d>_coverage.sv` / `<d>_tests.sv` in `tb_setup(oss,tb_dir)` replace stubs; TB samples at the
+  rising edge. `dv_tool.py` regress (vPlan tests up to M x seeds) / covmerge (code + covergroup bins from the merged
+  db — Verilator get_coverage() is 0 — + vPlan closure) / triage / signoff vs `project(dv,targets,M<n>)` (DV overlay).
+  DV exit plan `project(phase_exits,DV)` (opensky P1 TB_SETUP M1 M2, P2 M3 M4 DV_SIGNOFF, P3 all), ordered by the
+  exit gate per discipline. gcd P3 TB `inputs/opensky/gcd/P3/tb/uvm/`.
 - DFT scandef: SYNTH writes `def/<d>.scandef` (mandatory with `project(dft,enable)`; `oss_scandef.tcl` fixes OpenROAD's
   reversed chain order); PNR `init_design` requires + `read_def -incremental`s it (handshake `PNR,def_scan`); PNR / ECO
   releases carry the post-route scandef; SCAN_INSERT checks it against its netlist trace.

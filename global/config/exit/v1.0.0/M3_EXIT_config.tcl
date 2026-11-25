@@ -23,6 +23,16 @@ array set check_packs {}
 
 # ── Mandatory checks ─────────────────────────────────────────────────────────
 array set mandatory_checks {
+    "dv_signoff_status" {
+        "id"                "M3_EXEC_0010"
+        "script"            "check_grep.tcl"
+        "description"       "M3 regression sign-off: every project(dv,targets,M3) target met (open-source UVM flow)"
+        "criteria"          "Status PASS"
+        "min_phase_index"   "0"
+        "report_file"       "reports/dv_signoff.rpt"
+        "grep_pattern"      "Status\\s*:\\s*PASS"
+        "grep_pass_if"      "found"
+    }
     "m3_review_signoff" {
         "id"          "M3_EXEC_0001"
         "script"            "check_file_exists.tcl"
@@ -36,7 +46,52 @@ array set mandatory_checks {
 # ── Optional checks ──────────────────────────────────────────────────────────
 # Owner-team populates coverage / warning / mismatch thresholds here as
 # the DV flow matures.
-array set optional_checks {}
+array set optional_checks {
+    "dv_pass_rate" {
+        "id"                "M3_EXEC_0011"
+        "script"            "check_metric.tcl"
+        "description"       "Regression pass rate (target: project(dv,targets,M3))"
+        "criteria"          "dv_pass_rate >= 0"
+        "min_phase_index"   "0"
+        "metric_name"       "dv_pass_rate"
+        "unit"              "%"
+        "operator"          ">="
+        "default_threshold" "0"
+    }
+    "dv_code_coverage" {
+        "id"                "M3_EXEC_0012"
+        "script"            "check_metric.tcl"
+        "description"       "DUT code coverage (line + branch) (target: project(dv,targets,M3))"
+        "criteria"          "dv_code_coverage >= 0"
+        "min_phase_index"   "0"
+        "metric_name"       "dv_code_coverage"
+        "unit"              "%"
+        "operator"          ">="
+        "default_threshold" "0"
+    }
+    "dv_functional_coverage" {
+        "id"                "M3_EXEC_0013"
+        "script"            "check_metric.tcl"
+        "description"       "Functional coverage (covergroup bins) (target: project(dv,targets,M3))"
+        "criteria"          "dv_functional_coverage >= 0"
+        "min_phase_index"   "0"
+        "metric_name"       "dv_functional_coverage"
+        "unit"              "%"
+        "operator"          ">="
+        "default_threshold" "0"
+    }
+    "dv_plan_coverage" {
+        "id"                "M3_EXEC_0014"
+        "script"            "check_metric.tcl"
+        "description"       "vPlan features closed / waived (target: project(dv,targets,M3))"
+        "criteria"          "dv_plan_coverage >= 0"
+        "min_phase_index"   "0"
+        "metric_name"       "dv_plan_coverage"
+        "unit"              "%"
+        "operator"          ">="
+        "default_threshold" "0"
+    }
+}
 
 # ── Mandatory files ──────────────────────────────────────────────────────────
 set mandatory_files [list \

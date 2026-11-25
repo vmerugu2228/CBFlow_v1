@@ -1,0 +1,34 @@
+#!/usr/bin/env tclsh
+# ═══════════════════════════════════════════════════════════════════════════════
+# CBflow user_config — FP (floorplan) with the open-source stack (OpenROAD)
+# Consumes the SYNTH release by tag; builds die / rows / tracks, places child
+# hard macros, IO pins, well taps, power intent + power grid; publishes
+# P0_FP_v<n> (DEF, db, netlist, SDC, UPF) for PNR (milestone FP_EXIT).
+# ═══════════════════════════════════════════════════════════════════════════════
+
+set project(name)              "opensky"
+set flow(type)                 "FP"
+set flow(design_name)          "gcd"
+set flow(run_name)             "p3_b1"
+set flow(run_type)             "hier"
+set flow(test_mode)            "false"
+set flow(use_lsf)              "false"
+set flow(use_xterm)            "true"
+
+set fp(tool,name)              "openroad"             ;# selects FP_openroad_config.tcl
+
+# Netlist + SDC + UPF from the SYNTH release (Pattern A — one knob)
+set fp(input,release_tag)      "P3_SYNTH_v1"
+
+
+# Blocks that integrate hard macros: floorplan (um) and optional fixed spots
+#   set fp(oss,fp,die_area)        {0 0 2400 2400}
+#   set fp(oss,macro,placement)    {u_child 100 100 R0}
+
+# ── Floorplan sizing (per block; overrides FP_openroad_config.tcl) ──────────
+# core_utilization = standard-cell utilization %; with child macros the core is
+# macro area + std-cell area / util. Set fp(oss,fp,die_area) to fix the size.
+set fp(oss,fp,core_utilization) 10
+set project(phase)             "P3"
+set project(release,phase)     "P3"
+set project(lib_config_tag)    "OSS2"

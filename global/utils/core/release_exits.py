@@ -130,6 +130,42 @@ def phase_exits(project):
     return out
 
 
+def _exit_discipline(exit_name):
+    """milestone_info(discipline) of global/config/exit/<ver>/<exit>_config.tcl."""
+    exit_dir = os.path.join(registry.root(), 'global', 'config', 'exit',
+                            registry.config_version('FLOW_CONFIG_VERSION'))
+    cfg = os.path.join(exit_dir, f'{exit_name}_config.tcl')
+    if not os.path.isfile(cfg):
+        raise PhaseExitsError(f'exit {exit_name}: no exit config {cfg}')
+    m = re.search(r'^\s*set\s+milestone_info\(discipline\)\s+"?(\w+)', _read_cached(cfg), re.M)
+    if not m:
+        raise PhaseExitsError(f'exit {exit_name}: milestone_info(discipline) not set in {cfg}')
+    return m.group(1)
+
+
+def discipline_phase_exits(project, disc):
+    """{phase: [exits]} from project(phase_exits,<DISC>) — a discipline's exit
+    plan, in release order; every exit must be an exit config of that
+    discipline. {} when the project declares no plan for the discipline."""
+    body = None
+    for p in _project_config_paths(project):
+        m = re.search(r'^\s*set\s+project\(phase_exits,' + re.escape(disc) + r'\)\s+\{(.*?)^\}',
+                      _read_cached(p), re.M | re.S)
+        if m:
+            body = m.group(1)
+    if body is None:
+        return {}
+    out = {}
+    for m in re.finditer(r'(\S+)\s*\{([^}]*)\}', body):
+        exits = m.group(2).split()
+        for e in exits:
+            d = _exit_discipline(e)
+            if d != disc:
+                raise PhaseExitsError(f'project(phase_exits,{disc}) {m.group(1)}: {e} is a {d} exit')
+        out[m.group(1)] = exits
+    return out
+
+
 def exits_for_phase(project, phase):
     pe = phase_exits(project)
     if phase not in pe:

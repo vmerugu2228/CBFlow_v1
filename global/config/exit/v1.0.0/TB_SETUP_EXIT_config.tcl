@@ -23,6 +23,16 @@ array set check_packs {}
 
 # ── Mandatory checks ─────────────────────────────────────────────────────────
 array set mandatory_checks {
+    "dv_signoff_status" {
+        "id"                "TB_SETUP_0010"
+        "script"            "check_grep.tcl"
+        "description"       "UVM testbench built and the sanity test passing on every seed (open-source UVM flow)"
+        "criteria"          "Status PASS"
+        "min_phase_index"   "0"
+        "report_file"       "reports/dv_signoff.rpt"
+        "grep_pattern"      "Status\\s*:\\s*PASS"
+        "grep_pass_if"      "found"
+    }
     "tb_sanity_signoff" {
         "id"          "TB_SETUP_0001"
         "script"            "check_file_exists.tcl"

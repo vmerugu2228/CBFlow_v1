@@ -5,7 +5,8 @@
 # unless project(release,tag)): rtl/ — every RTL source (generated register
 # block + designer RTL) and <d>.f listing them at their released paths (the
 # filelist RTL_LINT / SYNTH / DV read); spec/ — the YAML spec, the IP-XACT
-# component, the SystemRDL, the vPlan; sdc/, upf/; data/regs/ — UVM register
+# component, the SystemRDL, the vPlan; sdc/, upf/; ral/<d>_ral.sv (UVM register
+# model, handshake TB_SETUP,ral); data/regs/ — UVM register
 # model, C header, HTML register docs; the reports.
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -56,6 +57,10 @@ flow_proc publish {
     if {[file exists "$_co/design.upf"]} { ::CBFlow::Release::copy_file "$_co/design.upf" upf ${design_name}.upf }
     if {[file isdirectory $_rg]} {
         foreach _f [glob -nocomplain "$_rg/uvm/*" "$_rg/c/*"] { ::CBFlow::Release::copy_file $_f data/regs [file tail $_f] }
+        # the UVM register model under its canonical name (handshake TB_SETUP,ral)
+        set _ral [glob -nocomplain "$_rg/uvm/*_ral_pkg.sv"]
+        if {[llength $_ral] != 1} { error "one UVM register model expected in $_rg/uvm, found: $_ral" }
+        ::CBFlow::Release::copy_file [lindex $_ral 0] {*}[oss_release_name TB_SETUP ral]
         file mkdir "$_dir/data/regs"
         file copy -force "$_rg/html" "$_dir/data/regs/html"
     }

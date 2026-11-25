@@ -1251,12 +1251,18 @@ proc cbflow_upstream_node {} {
 # Nearest node of stage type <type> on the current node's upstream chain
 # (self included) — e.g. the release stage finding its signoff node.
 proc cbflow_chain_node {type} {
-    set _n $::NODE_NAME
+    # breadth-first over every dependency: the nearest node of <type> (first
+    # listed dependency first) — a linear chain resolves as before, a fan-in
+    # (signoff1 {cov_merge1 triage1}) reaches each branch
+    set _q [list $::NODE_NAME]
     set _seen {}
-    while {$_n ne "" && $_n ni $_seen} {
+    while {[llength $_q]} {
+        set _n [lindex $_q 0]
+        set _q [lrange $_q 1 end]
+        if {$_n eq "" || $_n in $_seen} continue
         if {[cbflow_node_type $_n] eq $type} { return $_n }
         lappend _seen $_n
-        set _n [lindex [cbflow_node_deps $_n] 0]
+        lappend _q {*}[cbflow_node_deps $_n]
     }
     error "no '$type' node upstream of $::NODE_NAME"
 }

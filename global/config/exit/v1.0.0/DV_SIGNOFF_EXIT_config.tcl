@@ -23,6 +23,16 @@ array set check_packs {}
 
 # ── Mandatory checks ─────────────────────────────────────────────────────────
 array set mandatory_checks {
+    "dv_signoff_status" {
+        "id"                "DV_SIGNOFF_0010"
+        "script"            "check_grep.tcl"
+        "description"       "DV sign-off: every DV exit of the phase PASS, M4 targets met, vPlan closed (open-source UVM flow)"
+        "criteria"          "Status PASS"
+        "min_phase_index"   "0"
+        "report_file"       "reports/dv_signoff.rpt"
+        "grep_pattern"      "Status\\s*:\\s*PASS"
+        "grep_pass_if"      "found"
+    }
     "dv_closure_signoff" {
         "id"          "DV_SIGNOFF_0001"
         "script"            "check_file_exists.tcl"

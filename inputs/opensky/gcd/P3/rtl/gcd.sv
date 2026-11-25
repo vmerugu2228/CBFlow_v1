@@ -87,7 +87,11 @@ module gcd
 
     wire a_lt_b    = (a < b);
     wire b_zero    = (b == 16'd0);
-    wire start_q   = hwif_out.CTRL.start.value && (job_cnt != 9'd0);
+    // CTRL.start is a one-cycle pulse: a start written while the engine is
+    // busy (stream operation, response held) is kept pending until the engine
+    // is idle — then the queue takes priority over stream requests
+    logic start_pend;
+    wire start_q   = (hwif_out.CTRL.start.value || start_pend) && (job_cnt != 9'd0);
     wire req_fire  = req_val  && req_rdy;
     wire resp_fire = resp_val && resp_rdy;
     wire q_last    = ({1'b0, job_idx} == job_cnt - 9'd1);
@@ -145,6 +149,14 @@ module gcd
             endcase
             if (hwif_out.CTRL.q_clr.value && state == S_IDLE) res_cnt <= 9'd0;
         end
+    end
+
+    // pending start: set by a start pulse outside S_IDLE, consumed in S_IDLE
+    // (the queue starts, or an empty queue drops it)
+    always_ff @(posedge clk) begin
+        if (reset)                           start_pend <= 1'b0;
+        else if (state == S_IDLE)            start_pend <= 1'b0;
+        else if (hwif_out.CTRL.start.value)  start_pend <= 1'b1;
     end
 
     assign req_rdy  = (state == S_IDLE) && !start_q;

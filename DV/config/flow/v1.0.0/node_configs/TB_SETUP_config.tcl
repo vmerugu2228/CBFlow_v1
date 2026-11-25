@@ -149,9 +149,27 @@ array set tb_setup {
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 array set tb_setup {
-    supported_tools {review}
+    supported_tools {review verilator}
     default_tool    "review"
-    tool,vendor     "generic"
-    tool,name       "review"
-    tool,version    "v1.0.0"
 }
+
+# tb_setup(tool,name) (user_config) selects the tool: review = the generic review
+# gates above; any other tool sources its overlay TB_SETUP_<tool>_config.tcl
+# (verilator: the open-source UVM flow). CBFLOW_TOOL_NAME env override wins.
+set _active_tool [expr {[info exists tb_setup(tool,name)] && $tb_setup(tool,name) ne ""
+                         ? $tb_setup(tool,name) : $tb_setup(default_tool)}]
+if {[info exists ::env(CBFLOW_TOOL_NAME)] && $::env(CBFLOW_TOOL_NAME) ne ""} {
+    set _active_tool $::env(CBFLOW_TOOL_NAME)
+}
+if {$_active_tool eq "review"} {
+    array set tb_setup { tool,vendor "generic" tool,name "review" tool,version "v1.0.0" }
+} else {
+    set _tool_cfg [file join [file dirname [info script]] "TB_SETUP_${_active_tool}_config.tcl"]
+    if {[file exists $_tool_cfg]} { source $_tool_cfg } else {
+        puts "ERROR: Tool config not found: $_tool_cfg"
+        puts "       Supported tools: $tb_setup(supported_tools)"
+        exit 1
+    }
+    unset _tool_cfg
+}
+unset _active_tool

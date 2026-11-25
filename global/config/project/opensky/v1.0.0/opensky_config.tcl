@@ -33,6 +33,17 @@ set project(phase_exits) {
     P2 {FP_EXIT PLACE_EXIT CTS_EXIT PRO_EXIT BTO MTO}
     P3 {FP_EXIT PLACE_EXIT CTS_EXIT PRO_EXIT BTO MTO}
 }
+# Per-discipline exit plans: project(phase_exits,<DISC>) — exits of that
+# discipline (milestone_info(discipline)) each phase delivers, in release order
+# (the exit-order gate checks them within the discipline; the PD plan above is
+# not affected). DV: TB setup + M1 / M2 close in P1, M3 / M4 + DV sign-off in
+# P2; P3 (the spec-to-GDS pilot) runs the whole DV ladder.
+set project(phase_exits,DV) {
+    P0 {}
+    P1 {TB_SETUP_EXIT M1_EXIT M2_EXIT}
+    P2 {M3_EXIT M4_EXIT DV_SIGNOFF_EXIT}
+    P3 {TB_SETUP_EXIT M1_EXIT M2_EXIT M3_EXIT M4_EXIT DV_SIGNOFF_EXIT}
+}
 set project(version)         "1.0"
 set project(cbflow_release)  "v1.0.0"
 set project(description)     "Open-source RTL-to-GDS proof on SkyWater SKY130"

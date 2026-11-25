@@ -1,0 +1,13 @@
+# gcd P3 — DV sign-off (every DV exit of P3 + M4 metrics)
+set project(name)              "opensky"
+set flow(design_name)          "gcd"
+set flow(test_mode)            "false"
+set flow(use_lsf)              "false"
+set flow(use_xterm)            "true"
+set project(phase)             "P3"
+set project(release,phase)     "P3"
+set project(lib_config_tag)    "OSS2"
+set flow(type)                 "DV_SIGNOFF"
+set flow(run_name)             "p3_dv"
+set dv_signoff(tool,name)      "verilator"
+set dv_signoff(input,release_tag) "M4_EXIT"

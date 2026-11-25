@@ -10,6 +10,7 @@
 addrmap gcd_regs {
     name = "gcd accelerator registers";
     desc = "APB register block of the gcd accelerator (opensky P3).";
+    littleendian = true;                 // APB byte order (the UVM register map needs it)
     default regwidth = 32;
 
     reg {

@@ -127,15 +127,26 @@ proc release_exit_for_stage {flow_type stage phase} {
 
 proc exit_name {} { variable release_exit; return $release_exit }
 
-# Exit-order gate: every exit before <exit> in the phase's
-# project(phase_exits) must already be released for <block> (a
+# Exit-order gate: every exit before <exit> in the phase's exit plan must
+# already be released for <block> (a
 # <base>/<phase>/<block>/<FLOW>/<earlier exit>/RELEASE_COMPLETE of any flow).
+# The plan is project(phase_exits) (PD) or, for an exit of another discipline,
+# the project(phase_exits,<DISC>) list that holds it — disciplines are ordered
+# independently.
 proc check_exit_order {base phase block exit} {
     global project
     if {![info exists project(phase_exits)] || ![dict exists $project(phase_exits) $phase]} {
         error "ERROR: project(phase_exits) has no entry for phase $phase — cannot check the exit order"
     }
     set _exits [dict get $project(phase_exits) $phase]
+    if {[lsearch -exact $_exits $exit] < 0} {
+        set _exits {}
+        foreach _k [array names project phase_exits,*] {
+            if {[dict exists $project($_k) $phase] && [lsearch -exact [dict get $project($_k) $phase] $exit] >= 0} {
+                set _exits [dict get $project($_k) $phase]
+            }
+        }
+    }
     set _i [lsearch -exact $_exits $exit]
     if {$_i < 0} return
     set _missing {}

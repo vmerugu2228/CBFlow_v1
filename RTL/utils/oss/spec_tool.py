@@ -307,8 +307,10 @@ def cmd_rdl2xls(a):
                        '' if fld.get_property('reset') is None else f'0x{fld.get_property("reset"):X}',
                        ow.name if ow else '', ','.join(flags), fld.get_property('desc') or ''])
     ws2 = wb.create_sheet('addrmap')
-    ws2.append(['name', 'desc', 'regwidth'])
-    ws2.append([top.get_property('name') or '', top.get_property('desc') or '', 32])
+    ws2.append(['name', 'desc', 'regwidth', 'endian'])
+    ws2.append([top.get_property('name') or '', top.get_property('desc') or '', 32,
+                'little' if top.get_property('littleendian') else
+                'big' if top.get_property('bigendian') else ''])
     wb.save(a.output)
     print(f'rdl2xls: {a.rdl} -> {a.output}', file=sys.stderr)
 
@@ -323,11 +325,13 @@ def cmd_xls2rdl(a):
     if miss:
         _die(f'{a.xls}: register sheet columns missing: {miss} (expected {SHEET_COLS})')
     ix = {c: hdr.index(c) for c in SHEET_COLS}
-    meta = {'name': '', 'desc': ''}
+    meta = {'name': '', 'desc': '', 'endian': ''}
     if 'addrmap' in wb.sheetnames:
         m = list(wb['addrmap'].iter_rows(values_only=True))
         if len(m) > 1:
-            meta = {'name': m[1][0] or '', 'desc': m[1][1] or ''}
+            mh = [str(h or '').strip().lower() for h in m[0]]
+            meta = {'name': m[1][0] or '', 'desc': m[1][1] or '',
+                    'endian': str(m[1][mh.index('endian')] or '').strip().lower() if 'endian' in mh else ''}
     regs, order = {}, []
     for r in rows[1:]:
         if not r or r[ix['Register']] in (None, ''):
@@ -345,6 +349,10 @@ def cmd_xls2rdl(a):
         out.append(f'    name = {q(meta["name"])};')
     if meta['desc']:
         out.append(f'    desc = {q(meta["desc"])};')
+    if meta['endian'] in ('little', 'big'):
+        out.append(f'    {meta["endian"]}endian = true;')
+    elif meta['endian']:
+        _die(f'{a.xls}: addrmap endian must be little or big, got {meta["endian"]!r}')
     out.append('    default regwidth = 32;')
     for rn in order:
         rg = regs[rn]
@@ -386,6 +394,11 @@ def cmd_regs(a):
     root = _rdl_compile(a.rdl)
     top = root.top
     name = top.inst_name
+    # The bus byte order must be declared: the UVM register model cannot
+    # access a multi-byte register through a map of no endianness.
+    if not (top.get_property('littleendian') or top.get_property('bigendian')):
+        _die(f'{a.rdl}: addrmap {name} declares no endianness — add littleendian = true; '
+             '(or bigendian; register sheet: addrmap endian column)')
     os.makedirs(a.out, exist_ok=True)
     cpuif = {'apb4-flat': APB4_Cpuif_flattened}.get(a.cpuif)
     if cpuif is None:

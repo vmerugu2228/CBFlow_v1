@@ -135,9 +135,27 @@ array set dv_signoff {
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 array set dv_signoff {
-    supported_tools {review}
+    supported_tools {review verilator}
     default_tool    "review"
-    tool,vendor     "generic"
-    tool,name       "review"
-    tool,version    "v1.0.0"
 }
+
+# dv_signoff(tool,name) (user_config) selects the tool: review = the generic review
+# gates above; any other tool sources its overlay DV_SIGNOFF_<tool>_config.tcl
+# (verilator: the open-source UVM flow). CBFLOW_TOOL_NAME env override wins.
+set _active_tool [expr {[info exists dv_signoff(tool,name)] && $dv_signoff(tool,name) ne ""
+                         ? $dv_signoff(tool,name) : $dv_signoff(default_tool)}]
+if {[info exists ::env(CBFLOW_TOOL_NAME)] && $::env(CBFLOW_TOOL_NAME) ne ""} {
+    set _active_tool $::env(CBFLOW_TOOL_NAME)
+}
+if {$_active_tool eq "review"} {
+    array set dv_signoff { tool,vendor "generic" tool,name "review" tool,version "v1.0.0" }
+} else {
+    set _tool_cfg [file join [file dirname [info script]] "DV_SIGNOFF_${_active_tool}_config.tcl"]
+    if {[file exists $_tool_cfg]} { source $_tool_cfg } else {
+        puts "ERROR: Tool config not found: $_tool_cfg"
+        puts "       Supported tools: $dv_signoff(supported_tools)"
+        exit 1
+    }
+    unset _tool_cfg
+}
+unset _active_tool

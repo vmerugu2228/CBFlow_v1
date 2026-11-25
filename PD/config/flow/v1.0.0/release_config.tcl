@@ -1452,6 +1452,21 @@ proc check_release_readiness {run_dir flow milestone phase} {
     set flow_input_handshake(UPF_CHECK,upf)             {RTL_SPEC    upf      "${design_name}.upf"}
     set flow_input_handshake(UPF_CHECK,spec)            {RTL_SPEC    spec     "${design_name}.spec.yaml"}
 
+    # ── Spec / RTL → DV (open-source UVM flows) ─────────────────────────────
+    #   TB_SETUP builds the UVM testbench from the spec + register model and the
+    #   RTL (the lint-clean RTL_LINT release, or the RTL_SPEC one); the
+    #   milestone regressions (M1–M4_EXEC) read the TB_SETUP release.
+    set flow_input_handshake(TB_SETUP,spec)             {RTL_SPEC    spec     "${design_name}.spec.yaml"}
+    set flow_input_handshake(TB_SETUP,ral)              {RTL_SPEC    ral      "${design_name}_ral.sv"}
+    set flow_input_handshake(TB_SETUP,vplan)            {RTL_SPEC    spec     "${design_name}_vplan.xlsx"}
+    set flow_input_handshake(TB_SETUP,rtl)              {ANY         rtl      "${design_name}.f"}
+    foreach _m {M1_EXEC M2_EXEC M3_EXEC M4_EXEC} {
+        set flow_input_handshake($_m,tb)                [list TB_SETUP tb  "tb.f"]
+        set flow_input_handshake($_m,vplan)             [list TB_SETUP spec {${design_name}_vplan.xlsx}]
+    }
+    unset _m
+    set flow_input_handshake(DV_SIGNOFF,metrics)        {M4_EXEC     reports  "metrics.json"}
+
     # ── PD → DV handoff ─────────────────────────────────────────────────────
     set flow_input_handshake(DV_SIGNOFF,netlist)        {ANY netlist "${design_name}.v"}
 
