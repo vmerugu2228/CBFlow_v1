@@ -7,6 +7,7 @@
 # ===============================================================================
 
 import argparse
+import functools
 import glob
 import os
 import shutil
@@ -1455,6 +1456,14 @@ def _view_matrix(lib_cfg: str, tc: str, project: str, version: str):
     for c in _VIEW_CATEGORIES:
         cols += [v for v in req[c] if v not in cols]
     rows, notes, problems = [], [], []
+    # tech-config values (the PDK views of the stdcell tracks) with the
+    # project's $project(...) expanded
+    def tc_files(key):
+        raw = _tcl_words(_tc_braced(tc, key))
+        if project:
+            subs = _project_substitutions(project, version, raw)
+            raw = [functools.reduce(lambda acc, kv: acc.replace(*kv), subs.items(), f) for f in raw]
+        return raw
 
     def cell_files(label, view, fs):
         if ok(fs):
@@ -1480,8 +1489,20 @@ def _view_matrix(lib_cfg: str, tc: str, project: str, version: str):
                     if v == 'lib':
                         n = sum(ok(files('{},{},lib,{},timing'.format(trk, vt, c))) for c in corners)
                         r[v] = cell_corners(label, 'lib', n, len(corners))
-                    else:
-                        r[v] = cell_files(label, v, files('{},{},{}'.format(trk, vt, v)))
+                        continue
+                    # the tag (per VT, per track), else the tech config's
+                    # PDK view tech(<track>,<view>_stdcell)
+                    fs = files('{},{},{}'.format(trk, vt, v)) or files('{},{}'.format(trk, v))
+                    if not fs:
+                        pdk = tc_files('{},{}_stdcell'.format(trk, v))
+                        if pdk:
+                            r[v] = cell_files(label, v, pdk)
+                            if r[v] == 'OK':
+                                r[v] = 'OK†'
+                                notes.append('{}: {} from the tech config tech({},{}_stdcell) — {}'.format(
+                                    label, v, trk, v, ', '.join(pdk)))
+                            continue
+                    r[v] = cell_files(label, v, fs)
                 rows.append(r)
     # macros (memory / io / ip / analog): one row per macro
     for cat in ('memory', 'io', 'ip', 'analog'):
@@ -2473,7 +2494,8 @@ def cmd_check(args: argparse.Namespace) -> int:
         logger.info(f"    lib corners  : {' '.join(corners)}" + (f"  (project {project} MMMC library sets)" if project else ''))
         if 'spef' in cols:
             logger.info(f"    spef corners : {' '.join(rcs)}")
-        logger.info("    OK = present · n/m = corners covered · * = substituted corner · MISSING · — = no library")
+        logger.info("    OK = present · † = from the tech config (PDK) · n/m = corners covered · "
+                    "* = substituted corner · MISSING · — = no library")
         _print_view_matrix(rows, cols, req)
         for n in notes:
             logger.info(f"  NOTE  {n}")

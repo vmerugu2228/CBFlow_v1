@@ -64,9 +64,10 @@ set tech(rc_corners_available)   {rc_max rc_min rc_typ}
 # Views every library of a library-tag category must have —
 # `library-manager check --lib_tag <TAG>` reports the matrix. lib = timing
 # per corner the project's MMMC uses (mmmc_view_definition.tcl library sets),
-# spef = per MMMC RC corner. stdcell rows are track x VT; memory / io / ip /
+# spef = per MMMC RC corner. stdcell rows are track x VT (gds / cdl / verilog:
+# the tag, else tech(<track>,<view>_stdcell) — the PDK); memory / io / ip /
 # analog rows are each macro; block rows are each hard block of the tag.
-set tech(required_views,stdcell) {lef lib}
+set tech(required_views,stdcell) {lef lib gds cdl verilog}
 set tech(required_views,memory)  {lef gds cdl verilog lib}
 set tech(required_views,io)      {lef gds cdl verilog lib}
 set tech(required_views,ip)      {lef gds cdl verilog lib}
