@@ -685,6 +685,11 @@ def _rcx_formats(content: str) -> tuple:
 class LibraryValidator:
     """Validates library configuration from tech_config.tcl files."""
 
+    # Set by `check --lib_tag`: the tag's lib_config.tcl (instead of the
+    # sibling / env lookup) and the project values its paths reference.
+    lib_config_override = ''
+    substitutions = {}
+
     def load_tech_config(self, path: str) -> Dict:
         """Parse a tech config and return library sets.
 
@@ -721,7 +726,7 @@ class LibraryValidator:
         # lib_config.tcl, tag from $CBFLOW_LIB_CONFIG_TAG or the project's
         # project(lib_config_tag), else the first tag found. Legacy fallback:
         # a lib_config.tcl next to tech_config.tcl.
-        lib_cfg = self._find_lib_config(path)
+        lib_cfg = self.lib_config_override or self._find_lib_config(path)
         if lib_cfg:
             logger.info(f"No library_sets array in tech_config; using {lib_cfg}")
             with open(lib_cfg, 'r') as f:
@@ -1115,6 +1120,8 @@ class LibraryValidator:
                 if not isinstance(paths, list):
                     continue
                 for p in paths:
+                    for _k, _v in self.substitutions.items():
+                        p = p.replace(_k, _v)
                     # `$project(lib_root)/foo.ndm`, `$env(VENDOR)/x.lib`
                     # etc. can't be checked without sourcing the Tcl —
                     # mark as UNRESOLVED (exists=False, lib_type prefixed
@@ -1320,6 +1327,72 @@ def _read_project_cfg_value(project_name: str, version: str, key: str) -> str:
         raise _CfgReadError(
             "cannot read {} for '{}' ({}: {})".format(
                 _basename, project_name, type(e).__name__, e))
+
+
+def _locate_lib_tag(tech_name: str, tag: str, version: str = None,
+                    project_name: str = None):
+    """(lib_config.tcl path, project) of library tag <tag> of <tech>.
+
+    With a project: its lib_tag_root. Without: $CBFLOW_LIB_TAG_ROOT /
+    tech(lib_tag_root), then every project whose project(lib_tag_root) holds
+    <root>/<tech>/<tag>/lib_config.tcl (the project also supplies
+    project(lib_root) etc. for the tag's paths). Raises ValueError with the
+    choices when the tag is not found or several projects disagree."""
+    version = version or 'v1.0.0'
+    if project_name:
+        p = _resolve_lib_config_path(tech_name, tag, version, project_name=project_name)
+        if p and os.path.isfile(p):
+            return p, project_name
+        raise ValueError("library tag {} of {} not found under project {}'s lib_tag_root".format(
+            tag, tech_name, project_name))
+    hits, roots = {}, set()
+    try:
+        core = get_cbflow_core_dir()
+        proj_dir = os.path.join(core, 'config', 'project')
+        names = sorted(os.listdir(proj_dir)) if os.path.isdir(proj_dir) else []
+    except ValueError:
+        names = []
+    for name in names:
+        try:
+            root = _read_project_cfg_value(name, version, 'lib_tag_root')
+        except _CfgReadError:
+            continue
+        if not root:
+            continue
+        roots.add(root)
+        cand = os.path.join(root, tech_name, tag, 'lib_config.tcl')
+        if os.path.isfile(cand):
+            hits.setdefault(os.path.realpath(cand), []).append(name)
+    if not hits:
+        p = _resolve_lib_config_path(tech_name, tag, version)
+        if p and os.path.isfile(p):
+            return p, ''
+        avail = sorted({t for r in roots
+                        for t in (os.listdir(os.path.join(r, tech_name))
+                                  if os.path.isdir(os.path.join(r, tech_name)) else [])
+                        if os.path.isfile(os.path.join(r, tech_name, t, 'lib_config.tcl'))})
+        raise ValueError("library tag {} of {} not found (lib_tag_root of the projects: {}; "
+                         "tags: {})".format(tag, tech_name, ', '.join(sorted(roots)) or 'none set',
+                                            ', '.join(avail) or 'none'))
+    if len(hits) > 1:
+        raise ValueError("library tag {} of {} found in several places ({}) — pass --project".format(
+            tag, tech_name, '; '.join('{} ({})'.format(k, ','.join(v)) for k, v in hits.items())))
+    path, projs = next(iter(hits.items()))
+    return path, projs[0]
+
+
+def _project_substitutions(project_name: str, version: str, paths) -> dict:
+    """{'$project(<key>)': value} for every $project(...) the paths use."""
+    out = {}
+    for key in sorted({k for p in paths for k in re.findall(r'\$\{?project\((\w+)\)\}?', p)}):
+        try:
+            v = _read_project_cfg_value(project_name, version, key)
+        except _CfgReadError:
+            v = ''
+        if v:
+            out['$project({})'.format(key)] = v
+            out['${{project({})}}'.format(key)] = v
+    return out
 
 
 def _framework_roots() -> list:
@@ -2140,7 +2213,23 @@ def cmd_check(args: argparse.Namespace) -> int:
     logger.info(f"Checking library config: {tech_config_path}")
 
     validator = LibraryValidator()
+    tag = getattr(args, 'tag', None)
+    if tag:
+        from core.paths import tech_name_from_config_path
+        tech_name = getattr(args, 'tech', None) or tech_name_from_config_path(tech_config_path)
+        version = getattr(args, 'version', None) or 'v1.0.0'
+        try:
+            lib_cfg, project = _locate_lib_tag(tech_name, tag, version, getattr(args, 'project', None))
+        except ValueError as e:
+            logger.error(str(e))
+            return 1
+        validator.lib_config_override = lib_cfg
+        logger.info(f"Library tag {tag}: {lib_cfg}" + (f" (project {project})" if project else ''))
     config = validator.load_tech_config(tech_config_path)
+    if tag and project:
+        validator.substitutions = _project_substitutions(
+            project, version, [p for d in config.values() for v in d.values()
+                               if isinstance(v, list) for p in v if isinstance(p, str)])
 
     if not config:
         logger.error("No library_sets found in tech config")
@@ -4441,11 +4530,26 @@ def cmd_status(args: argparse.Namespace) -> int:
     # <tech_dir>/<tag>/lib_config.tcl; fall back to legacy flat form.
     _preferred_tag = (getattr(args, 'tag', None)
                       or os.environ.get('CBFLOW_LIB_CONFIG_TAG', ''))
-    _avail_tags = _list_available_tags(tech_name, version)
-    _status_tag = _preferred_tag if _preferred_tag in _avail_tags else (
-        _avail_tags[0] if _avail_tags else '')
-    lib_config = (_resolve_lib_config_path(tech_name, _status_tag, version)
-                  if _status_tag else '')
+    if getattr(args, 'tag', None):
+        # explicit --lib_tag: located through the project(s) lib_tag_root
+        try:
+            lib_config, _tag_project = _locate_lib_tag(
+                tech_name, args.tag, version, getattr(args, 'project', None))
+        except ValueError as e:
+            logger.error(str(e))
+            return 1
+        _status_tag = args.tag
+        if _tag_project and not getattr(args, 'project', None):
+            args.project = _tag_project
+        logger.info(f"Library tag {args.tag}: {lib_config}")
+    else:
+        _avail_tags = _list_available_tags(tech_name, version,
+                                           project_name=getattr(args, 'project', None))
+        _status_tag = _preferred_tag if _preferred_tag in _avail_tags else (
+            _avail_tags[0] if _avail_tags else '')
+        lib_config = (_resolve_lib_config_path(tech_name, _status_tag, version,
+                                               project_name=getattr(args, 'project', None))
+                      if _status_tag else '')
 
     # Read the concatenation of global tech_config + PD tech_pd_config so
     # legacy regex-parsers see the same key set the resolver would.
@@ -5229,6 +5333,15 @@ Examples:
                               help='Technology name (e.g., gf_22nm).')
     check_parser.add_argument('--tech-config', default=None,
                               help='Path to tech_config.tcl (auto-detected if omitted)')
+    check_parser.add_argument('--lib_tag', '--lib-tag', '--tag', dest='tag', default=None,
+                              help='Library tag to validate (e.g. OSS2): its lib_config.tcl, '
+                                   'found under the projects\' lib_tag_root; the owning '
+                                   "project's values expand $project(...) paths")
+    check_parser.add_argument('--project', default=None,
+                              help='Project whose lib_tag_root / values to use '
+                                   '(only needed when several projects hold the tag)')
+    check_parser.add_argument('--version', default='v1.0.0',
+                              help='Config version (default: v1.0.0)')
     check_parser.add_argument('--verbose', action='store_true', default=False,
                               help='Show result for every referenced library')
 
@@ -5397,8 +5510,8 @@ Examples:
                                     'tech-wide view)')
     status_parser.add_argument('--version', default='v1.0.0',
                                help='Config version (default: v1.0.0)')
-    status_parser.add_argument('--tag', default=None,
-                               help='lib_config tag to introspect (default: '
+    status_parser.add_argument('--lib_tag', '--lib-tag', '--tag', dest='tag', default=None,
+                               help='Library tag to introspect (e.g. OSS2; default: '
                                     'first available; env: CBFLOW_LIB_CONFIG_TAG)')
 
     return parser
