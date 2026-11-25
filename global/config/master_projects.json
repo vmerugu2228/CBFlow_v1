@@ -323,7 +323,17 @@
           "GLS_FUNC",
           "GLS_SCAN_MBIST"
         ],
-        "DV": []
+        "DV": [
+          "TB_SETUP",
+          "M1_EXEC",
+          "M2_EXEC",
+          "M3_EXEC",
+          "M4_EXEC",
+          "DV_SIGNOFF"
+        ],
+        "RTL": [
+          "RTL_SPEC"
+        ]
       },
       "enabled_flows": [
         "SYNTH",

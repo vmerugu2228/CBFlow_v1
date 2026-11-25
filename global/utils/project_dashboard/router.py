@@ -223,6 +223,41 @@ def _milestones():
     return release_exits.milestone_order()
 
 
+def _run_dash_state_paths():
+    """global/utils/dashboard/state_paths.py, loaded under a private name (the
+    SmartGrid daemon already imported its own state_paths module)."""
+    import importlib.util as _ilu
+    _p = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                      'dashboard', 'state_paths.py')
+    _spec = _ilu.spec_from_file_location('_cbflow_dashboard_state_paths_sg', _p)
+    _mod = _ilu.module_from_spec(_spec)
+    _spec.loader.exec_module(_mod)
+    return _mod
+
+
+def _run_dash_url(project, disc):
+    """URL of the running run dashboard of a discipline ('' when offline)."""
+    try:
+        return _run_dash_state_paths().daemon_url_for(project, disc) or ''
+    except Exception as e:
+        logger.warning(f'run-dashboard url ({disc}): {type(e).__name__}: {e}')
+        return ''
+
+
+def _run_dash_start(disc):
+    """Start the per-user run dashboard daemon of a discipline (the same
+    lifecycle `cbflow run gui` / `cbflow dashboard start` uses) and return
+    its URL, or raise RuntimeError with the launcher's message."""
+    import subprocess as _sp
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    cbflow = os.path.join(root, 'bin', 'cbflow')
+    r = _sp.run([cbflow, 'dashboard', 'start', '--discipline', disc],
+                capture_output=True, text=True, timeout=60)
+    if r.returncode != 0:
+        raise RuntimeError((r.stderr or r.stdout).strip()[-600:])
+    return _run_dash_url('', disc)
+
+
 def make_handler(project):
     """Build a request-handler class bound to a specific project."""
     class Handler(http.server.BaseHTTPRequestHandler):
@@ -288,6 +323,26 @@ def make_handler(project):
             self._send(200 if ok else 400, 'application/json',
                        json.dumps({'ok': ok, 'errors': errors}))
 
+        def _open_run_dashboard(self, disc):
+            from core import registry as _reg
+            known = tuple(_reg.flow_disciplines())     # flow(disciplines)
+            if disc not in known:
+                return self._send(404, 'text/plain', f'unknown discipline {disc!r} (flow(disciplines): {" ".join(known)})')
+            url = _run_dash_url(project, disc)
+            if not url:
+                try:
+                    url = _run_dash_start(disc)
+                except Exception as e:
+                    return self._send(500, 'text/html',
+                                      f'<p>Could not start the {html.escape(disc)} run dashboard:</p>'
+                                      f'<pre>{html.escape(str(e))}</pre>'
+                                      f'<p>Start it from a shell: <code>cbflow dashboard start --discipline {html.escape(disc)}</code></p>')
+            if not url:
+                return self._send(500, 'text/plain', f'{disc} run dashboard did not come up')
+            self.send_response(302)
+            self.send_header('Location', url)
+            self.end_headers()
+
         def _route(self):
             from urllib.parse import unquote, parse_qs, quote
             path = self.path.split('?', 1)[0]
@@ -298,6 +353,10 @@ def make_handler(project):
                 return self._api_published()
             if path == '/api/project':
                 return self._api_project()
+            # /dashboard/<DISC> — the discipline's run dashboard (per-user
+            # daemon); started on demand when it is not running
+            if path.startswith('/dashboard/'):
+                return self._open_run_dashboard(unquote(path[len('/dashboard/'):].strip('/')).upper())
             # ── Tier 2+ routes ──
             # /project/<name>                       Tier 2
             # /project/<name>/<disc>                Tier 3
@@ -3558,6 +3617,21 @@ def _render_discipline_cards(project):
             f'    Open {html.escape(disc)} summary →'
             f'  </div>'
             f'</a>')
+        out.append(
+            f'<a class="sg-tile sg-tile-disc disc-{css}" href="/dashboard/{html.escape(disc, quote=True)}" '
+            f'target="_blank" rel="noopener">'
+            f'  <div class="sg-tile-head">'
+            f'    <span class="sg-tile-badge disc-badge">{html.escape(disc)}</span>'
+            f'    {daemon_badge}'
+            f'  </div>'
+            f'  <div class="sg-tile-body">'
+            f'    <div class="sg-tile-metric">↗</div>'
+            f'    <div class="sg-tile-metric-lbl">run dashboard</div>'
+            f'  </div>'
+            f'  <div class="sg-tile-foot">'
+            f'    Open {html.escape(disc)} run dashboard{"" if url else " (starts it)"} →'
+            f'  </div>'
+            f'</a>')
     return '\n'.join(out)
 
 
@@ -5318,12 +5392,13 @@ def _render_tier3(project, info, discipline, filtered_pubs, v_filter=None,
         daemon_url = _mod.daemon_url_for(project, disc_up) or ''
     except Exception:
         daemon_url = ''
-    cta_html = ''
-    if daemon_url:
-        cta_html = (
-            f'<a class="disc-open" href="{html.escape(daemon_url, quote=True)}" '
-            f'target="_blank" rel="noopener" '
-            f'style="background:{accent}">Open {disc_up} per-user Dashboard →</a>')
+    # always offered: /dashboard/<DISC> opens the run dashboard, starting
+    # its daemon when it is not running
+    cta_html = (
+        f'<a class="disc-open" href="/dashboard/{html.escape(disc_up, quote=True)}" '
+        f'target="_blank" rel="noopener" '
+        f'style="background:{accent}">Open {disc_up} run dashboard →'
+        f'{"" if daemon_url else " (starts it)"}</a>')
 
     return ''.join([
         '<!DOCTYPE html><html><head>',

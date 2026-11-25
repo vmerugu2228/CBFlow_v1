@@ -400,8 +400,10 @@ def cmd_deregister(args):
 # ── argparse ────────────────────────────────────────────────────────────────
 
 def _add_disc(p):
-    p.add_argument('--discipline', choices=('PD', 'DFT'), default=None,
-                   help='Discipline (PD or DFT). Defaults: register auto-detects '
+    from core import registry as _reg
+    _discs = tuple(_reg.flow_disciplines())        # flow(disciplines): PD DFT DV RTL
+    p.add_argument('--discipline', choices=_discs, default=None,
+                   help=f'Discipline ({" / ".join(_discs)}). Defaults: register auto-detects '
                         'from the run\'s flow_type; other verbs default to PD.')
     p.add_argument('--project', default=None,
                    help='Project scope (e.g. denali, bumblebee). When set, the '
