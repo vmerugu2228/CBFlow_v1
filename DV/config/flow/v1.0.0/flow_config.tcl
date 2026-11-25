@@ -18,13 +18,10 @@ if {[file type $script_path] eq "link"} {
 set config_dir [file dirname $script_path]
 
 # ── DV-specific mandatory_vars ────────────────────────────────────────────────
-set flow(mandatory_vars,LINT)      {default_tool}
-set flow(mandatory_vars,CDC)       {default_tool}
-set flow(mandatory_vars,RDC)       {default_tool}
-set flow(mandatory_vars,SIM)       {default_tool}
-set flow(mandatory_vars,COV_MERGE) {default_tool}
-set flow(mandatory_vars,FORMAL)    {default_tool}
-set flow(mandatory_vars,UPF_CHECK) {default_tool}
+foreach _f {SPEC_RAMP PLANNING TB_SETUP M1_EXEC M2_EXEC M3_EXEC M4_EXEC ECO_EXEC DV_SIGNOFF} {
+    set flow(mandatory_vars,$_f) {default_tool}
+}
+unset _f
 
 # ── Flow type dispatch ────────────────────────────────────────────────────────
 if {[info exists ::env(CBFLOW_FLOW_TYPE)]} {

@@ -114,7 +114,7 @@ array set tb_setup {
     mandatory_outputs,formal_setup1                       {outputs/review_signoff.txt}
     mandatory_outputs,repo_checkin1                       {outputs/review_signoff.txt}
     mandatory_outputs,export_db1                          {outputs/review_signoff.txt}
-    mandatory_outputs,release_data1 {outputs/release_data/MANIFEST.json}
+    mandatory_outputs,release_data1 {MANIFEST.json}
 
     input_types {review_artifact}
 
@@ -133,14 +133,14 @@ array set tb_setup {
 array set tb_setup {
     release_types,review_audit,description "Review signoffs + manifest for TB_SETUP"
     release_types,review_audit,files {
-        "outputs/release_data/MANIFEST.json" "MANIFEST.json"
-        "work/vip_review11/outputs/review_signoff.txt" "review_signoffs/vip_review1.txt"
-        "work/tb_alignment11/outputs/review_signoff.txt" "review_signoffs/tb_alignment1.txt"
-        "work/sanity_tests11/outputs/review_signoff.txt" "review_signoffs/sanity_tests1.txt"
-        "work/tb_quality_check11/outputs/review_signoff.txt" "review_signoffs/tb_quality_check1.txt"
-        "work/formal_setup11/outputs/review_signoff.txt" "review_signoffs/formal_setup1.txt"
-        "work/repo_checkin11/outputs/review_signoff.txt" "review_signoffs/repo_checkin1.txt"
-        "work/export_db11/outputs/review_signoff.txt" "review_signoffs/export_db1.txt"
+        "work/TB_SETUP/release_data1/outputs/MANIFEST.json" "MANIFEST.json"
+        "work/TB_SETUP/vip_review1/outputs/review_signoff.txt" "review_signoffs/vip_review1.txt"
+        "work/TB_SETUP/tb_alignment1/outputs/review_signoff.txt" "review_signoffs/tb_alignment1.txt"
+        "work/TB_SETUP/sanity_tests1/outputs/review_signoff.txt" "review_signoffs/sanity_tests1.txt"
+        "work/TB_SETUP/tb_quality_check1/outputs/review_signoff.txt" "review_signoffs/tb_quality_check1.txt"
+        "work/TB_SETUP/formal_setup1/outputs/review_signoff.txt" "review_signoffs/formal_setup1.txt"
+        "work/TB_SETUP/repo_checkin1/outputs/review_signoff.txt" "review_signoffs/repo_checkin1.txt"
+        "work/TB_SETUP/export_db1/outputs/review_signoff.txt" "review_signoffs/export_db1.txt"
     }
 }
 

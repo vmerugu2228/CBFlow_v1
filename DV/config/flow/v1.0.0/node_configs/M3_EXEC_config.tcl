@@ -114,7 +114,7 @@ array set m3_exec {
     mandatory_outputs,coverage_waivers1                   {outputs/review_signoff.txt}
     mandatory_outputs,bug_tracking1                       {outputs/review_signoff.txt}
     mandatory_outputs,export_db1                          {outputs/review_signoff.txt}
-    mandatory_outputs,release_data1 {outputs/release_data/MANIFEST.json}
+    mandatory_outputs,release_data1 {MANIFEST.json}
 
     input_types {review_artifact}
 
@@ -133,14 +133,14 @@ array set m3_exec {
 array set m3_exec {
     release_types,review_audit,description "Review signoffs + manifest for M3_EXEC"
     release_types,review_audit,files {
-        "outputs/release_data/MANIFEST.json" "MANIFEST.json"
-        "work/m3_test_review11/outputs/review_signoff.txt" "review_signoffs/m3_test_review1.txt"
-        "work/log_scoreboard_check11/outputs/review_signoff.txt" "review_signoffs/log_scoreboard_check1.txt"
-        "work/waveform_check11/outputs/review_signoff.txt" "review_signoffs/waveform_check1.txt"
-        "work/gls_zero_delay_sanity11/outputs/review_signoff.txt" "review_signoffs/gls_zero_delay_sanity1.txt"
-        "work/coverage_waivers11/outputs/review_signoff.txt" "review_signoffs/coverage_waivers1.txt"
-        "work/bug_tracking11/outputs/review_signoff.txt" "review_signoffs/bug_tracking1.txt"
-        "work/export_db11/outputs/review_signoff.txt" "review_signoffs/export_db1.txt"
+        "work/M3_EXEC/release_data1/outputs/MANIFEST.json" "MANIFEST.json"
+        "work/M3_EXEC/m3_test_review1/outputs/review_signoff.txt" "review_signoffs/m3_test_review1.txt"
+        "work/M3_EXEC/log_scoreboard_check1/outputs/review_signoff.txt" "review_signoffs/log_scoreboard_check1.txt"
+        "work/M3_EXEC/waveform_check1/outputs/review_signoff.txt" "review_signoffs/waveform_check1.txt"
+        "work/M3_EXEC/gls_zero_delay_sanity1/outputs/review_signoff.txt" "review_signoffs/gls_zero_delay_sanity1.txt"
+        "work/M3_EXEC/coverage_waivers1/outputs/review_signoff.txt" "review_signoffs/coverage_waivers1.txt"
+        "work/M3_EXEC/bug_tracking1/outputs/review_signoff.txt" "review_signoffs/bug_tracking1.txt"
+        "work/M3_EXEC/export_db1/outputs/review_signoff.txt" "review_signoffs/export_db1.txt"
     }
 }
 

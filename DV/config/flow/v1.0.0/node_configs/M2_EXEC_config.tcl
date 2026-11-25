@@ -120,7 +120,7 @@ array set m2_exec {
     mandatory_outputs,lp_plan_signoff1                    {outputs/review_signoff.txt}
     mandatory_outputs,bug_tracking1                       {outputs/review_signoff.txt}
     mandatory_outputs,export_db1                          {outputs/review_signoff.txt}
-    mandatory_outputs,release_data1 {outputs/release_data/MANIFEST.json}
+    mandatory_outputs,release_data1 {MANIFEST.json}
 
     input_types {review_artifact}
 
@@ -139,15 +139,15 @@ array set m2_exec {
 array set m2_exec {
     release_types,review_audit,description "Review signoffs + manifest for M2_EXEC"
     release_types,review_audit,files {
-        "outputs/release_data/MANIFEST.json" "MANIFEST.json"
-        "work/m2_test_review11/outputs/review_signoff.txt" "review_signoffs/m2_test_review1.txt"
-        "work/log_scoreboard_check11/outputs/review_signoff.txt" "review_signoffs/log_scoreboard_check1.txt"
-        "work/waveform_check11/outputs/review_signoff.txt" "review_signoffs/waveform_check1.txt"
-        "work/coverage_waivers11/outputs/review_signoff.txt" "review_signoffs/coverage_waivers1.txt"
-        "work/gls_plan_signoff11/outputs/review_signoff.txt" "review_signoffs/gls_plan_signoff1.txt"
-        "work/lp_plan_signoff11/outputs/review_signoff.txt" "review_signoffs/lp_plan_signoff1.txt"
-        "work/bug_tracking11/outputs/review_signoff.txt" "review_signoffs/bug_tracking1.txt"
-        "work/export_db11/outputs/review_signoff.txt" "review_signoffs/export_db1.txt"
+        "work/M2_EXEC/release_data1/outputs/MANIFEST.json" "MANIFEST.json"
+        "work/M2_EXEC/m2_test_review1/outputs/review_signoff.txt" "review_signoffs/m2_test_review1.txt"
+        "work/M2_EXEC/log_scoreboard_check1/outputs/review_signoff.txt" "review_signoffs/log_scoreboard_check1.txt"
+        "work/M2_EXEC/waveform_check1/outputs/review_signoff.txt" "review_signoffs/waveform_check1.txt"
+        "work/M2_EXEC/coverage_waivers1/outputs/review_signoff.txt" "review_signoffs/coverage_waivers1.txt"
+        "work/M2_EXEC/gls_plan_signoff1/outputs/review_signoff.txt" "review_signoffs/gls_plan_signoff1.txt"
+        "work/M2_EXEC/lp_plan_signoff1/outputs/review_signoff.txt" "review_signoffs/lp_plan_signoff1.txt"
+        "work/M2_EXEC/bug_tracking1/outputs/review_signoff.txt" "review_signoffs/bug_tracking1.txt"
+        "work/M2_EXEC/export_db1/outputs/review_signoff.txt" "review_signoffs/export_db1.txt"
     }
 }
 

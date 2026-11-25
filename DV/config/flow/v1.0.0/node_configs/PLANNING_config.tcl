@@ -102,7 +102,7 @@ array set planning {
     mandatory_outputs,plan_review_l1_l21                  {outputs/review_signoff.txt}
     mandatory_outputs,signoff1                            {outputs/review_signoff.txt}
     mandatory_outputs,export_db1                          {outputs/review_signoff.txt}
-    mandatory_outputs,release_data1 {outputs/release_data/MANIFEST.json}
+    mandatory_outputs,release_data1 {MANIFEST.json}
 
     input_types {review_artifact}
 
@@ -121,12 +121,12 @@ array set planning {
 array set planning {
     release_types,review_audit,description "Review signoffs + manifest for PLANNING"
     release_types,review_audit,files {
-        "outputs/release_data/MANIFEST.json" "MANIFEST.json"
-        "work/approach_definition11/outputs/review_signoff.txt" "review_signoffs/approach_definition1.txt"
-        "work/vip_identification11/outputs/review_signoff.txt" "review_signoffs/vip_identification1.txt"
-        "work/plan_review_l1_l211/outputs/review_signoff.txt" "review_signoffs/plan_review_l1_l21.txt"
-        "work/signoff11/outputs/review_signoff.txt" "review_signoffs/signoff1.txt"
-        "work/export_db11/outputs/review_signoff.txt" "review_signoffs/export_db1.txt"
+        "work/PLANNING/release_data1/outputs/MANIFEST.json" "MANIFEST.json"
+        "work/PLANNING/approach_definition1/outputs/review_signoff.txt" "review_signoffs/approach_definition1.txt"
+        "work/PLANNING/vip_identification1/outputs/review_signoff.txt" "review_signoffs/vip_identification1.txt"
+        "work/PLANNING/plan_review_l1_l21/outputs/review_signoff.txt" "review_signoffs/plan_review_l1_l21.txt"
+        "work/PLANNING/signoff1/outputs/review_signoff.txt" "review_signoffs/signoff1.txt"
+        "work/PLANNING/export_db1/outputs/review_signoff.txt" "review_signoffs/export_db1.txt"
     }
 }
 

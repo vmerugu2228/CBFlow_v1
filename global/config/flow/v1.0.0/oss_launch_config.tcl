@@ -13,7 +13,9 @@ set _cbflow_oss [expr {[info exists ::env(FLOW_DIR)] && [file exists "$::env(FLO
 # PD: yosys openroad sta magic netgen klayout. DFT: fault (Fault suite +
 # Atalanta + nl2bench) and iverilog (iverilog / vvp) — both run a Tcl driver
 # under the container's tclsh, which execs the tools.
-foreach _oss_tool {yosys openroad sta magic netgen klayout fault iverilog} {
+# RTL / DV: verilator (lint, UVM simulation), rtlcheck (slang / verible /
+# opencdc / sby / spec tools), vplan (verification plan) — Tcl drivers too.
+foreach _oss_tool {yosys openroad sta magic netgen klayout fault iverilog verilator rtlcheck vplan} {
     set lsf(tool_shell,$_oss_tool) "$_cbflow_oss $_oss_tool"
     set lsf(tool_flags,$_oss_tool) [list "" ""]
 }

@@ -102,7 +102,7 @@ array set spec_ramp {
     mandatory_outputs,presentation_review1                {outputs/review_signoff.txt}
     mandatory_outputs,timeline_alignment1                 {outputs/review_signoff.txt}
     mandatory_outputs,queries_addressed1                  {outputs/review_signoff.txt}
-    mandatory_outputs,release_data1 {outputs/release_data/MANIFEST.json}
+    mandatory_outputs,release_data1 {MANIFEST.json}
 
     input_types {review_artifact}
 
@@ -121,12 +121,12 @@ array set spec_ramp {
 array set spec_ramp {
     release_types,review_audit,description "Review signoffs + manifest for SPEC_RAMP"
     release_types,review_audit,files {
-        "outputs/release_data/MANIFEST.json" "MANIFEST.json"
-        "work/drs_review11/outputs/review_signoff.txt" "review_signoffs/drs_review1.txt"
-        "work/architecture_detailing11/outputs/review_signoff.txt" "review_signoffs/architecture_detailing1.txt"
-        "work/presentation_review11/outputs/review_signoff.txt" "review_signoffs/presentation_review1.txt"
-        "work/timeline_alignment11/outputs/review_signoff.txt" "review_signoffs/timeline_alignment1.txt"
-        "work/queries_addressed11/outputs/review_signoff.txt" "review_signoffs/queries_addressed1.txt"
+        "work/SPEC_RAMP/release_data1/outputs/MANIFEST.json" "MANIFEST.json"
+        "work/SPEC_RAMP/drs_review1/outputs/review_signoff.txt" "review_signoffs/drs_review1.txt"
+        "work/SPEC_RAMP/architecture_detailing1/outputs/review_signoff.txt" "review_signoffs/architecture_detailing1.txt"
+        "work/SPEC_RAMP/presentation_review1/outputs/review_signoff.txt" "review_signoffs/presentation_review1.txt"
+        "work/SPEC_RAMP/timeline_alignment1/outputs/review_signoff.txt" "review_signoffs/timeline_alignment1.txt"
+        "work/SPEC_RAMP/queries_addressed1/outputs/review_signoff.txt" "review_signoffs/queries_addressed1.txt"
     }
 }
 

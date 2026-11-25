@@ -213,6 +213,11 @@ _INPUT_PSEUDO_STAGES = frozenset({
     'patterns1',       # GLS_* input pattern file
     'tb1',             # GLS_* / SIM testbench input
     'testbench1',      # GLS_FUNC testbench input (node name in GLS_FUNC_config.tcl)
+    # RTL inputs
+    'ruledeck1',       # RTL_LINT rule deck input
+    'waivers1',        # RTL_* waiver file input
+    'scheme1',         # RTL_CDC scheme input
+    'reset_scheme1',   # RTL_RDC reset scheme input
     'atpg_config1',    # ATPG config input
     # DV inputs
     'waivers1',        # LINT / CDC / RDC waiver rules

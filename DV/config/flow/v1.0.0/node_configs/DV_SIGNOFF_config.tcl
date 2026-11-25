@@ -102,7 +102,7 @@ array set dv_signoff {
     mandatory_outputs,waiver_force_bug_review1            {outputs/review_signoff.txt}
     mandatory_outputs,closure_doc_lessons_learned1        {outputs/review_signoff.txt}
     mandatory_outputs,final_signoff1                      {outputs/review_signoff.txt}
-    mandatory_outputs,release_data1 {outputs/release_data/MANIFEST.json}
+    mandatory_outputs,release_data1 {MANIFEST.json}
 
     input_types {review_artifact}
 
@@ -121,12 +121,12 @@ array set dv_signoff {
 array set dv_signoff {
     release_types,review_audit,description "Review signoffs + manifest for DV_SIGNOFF"
     release_types,review_audit,files {
-        "outputs/release_data/MANIFEST.json" "MANIFEST.json"
-        "work/test_pass_coverage_10011/outputs/review_signoff.txt" "review_signoffs/test_pass_coverage_1001.txt"
-        "work/selected_test_deepdive11/outputs/review_signoff.txt" "review_signoffs/selected_test_deepdive1.txt"
-        "work/waiver_force_bug_review11/outputs/review_signoff.txt" "review_signoffs/waiver_force_bug_review1.txt"
-        "work/closure_doc_lessons_learned11/outputs/review_signoff.txt" "review_signoffs/closure_doc_lessons_learned1.txt"
-        "work/final_signoff11/outputs/review_signoff.txt" "review_signoffs/final_signoff1.txt"
+        "work/DV_SIGNOFF/release_data1/outputs/MANIFEST.json" "MANIFEST.json"
+        "work/DV_SIGNOFF/test_pass_coverage_1001/outputs/review_signoff.txt" "review_signoffs/test_pass_coverage_1001.txt"
+        "work/DV_SIGNOFF/selected_test_deepdive1/outputs/review_signoff.txt" "review_signoffs/selected_test_deepdive1.txt"
+        "work/DV_SIGNOFF/waiver_force_bug_review1/outputs/review_signoff.txt" "review_signoffs/waiver_force_bug_review1.txt"
+        "work/DV_SIGNOFF/closure_doc_lessons_learned1/outputs/review_signoff.txt" "review_signoffs/closure_doc_lessons_learned1.txt"
+        "work/DV_SIGNOFF/final_signoff1/outputs/review_signoff.txt" "review_signoffs/final_signoff1.txt"
     }
 }
 

@@ -114,6 +114,10 @@ proc handler_load_configs {run_dir flow_type} {
             lappend _node_cfg_candidates \
                 "$::env(CBFLOW_DV_DIR)/config/flow/$_fcv/node_configs/${flow_type}_config.tcl"
         }
+        if {[info exists ::env(CBFLOW_RTL_DIR)] && $::env(CBFLOW_RTL_DIR) ne ""} {
+            lappend _node_cfg_candidates \
+                "$::env(CBFLOW_RTL_DIR)/config/flow/$_fcv/node_configs/${flow_type}_config.tcl"
+        }
         lappend _node_cfg_candidates \
             "$::env(CONFIG_ROOT)/flow/$_fcv/node_configs/${flow_type}_config.tcl"
         foreach _nc $_node_cfg_candidates {
@@ -144,12 +148,12 @@ proc handler_load_configs {run_dir flow_type} {
             }
         }
         # Discipline overlays — the same walk as generate_setup.tcl (1b):
-        # every <proj>_<disc>_config.tcl on disk (DFT, DV, PD). The PD overlay
+        # every <proj>_<disc>_config.tcl on disk (DFT, DV, RTL, PD). The PD overlay
         # carries project(release,*|workarea_path|metal_stack|lib_root|...),
         # which a DFT / DV handler needs as much as a PD one ($CONFIG_ROOT is
         # the owning discipline's config tree, so it cannot be the only place
         # looked at).
-        foreach {_disc_env _disc_short} {CBFLOW_DFT_DIR dft CBFLOW_DV_DIR dv CBFLOW_CORE_DIR pd} {
+        foreach {_disc_env _disc_short} {CBFLOW_DFT_DIR dft CBFLOW_DV_DIR dv CBFLOW_RTL_DIR rtl CBFLOW_CORE_DIR pd} {
             if {![info exists ::env($_disc_env)] || ![file isdirectory $::env($_disc_env)]} { continue }
             foreach _pp [list "$::env($_disc_env)/config/project/$_proj/$_pver/${_proj}_${_disc_short}_config.tcl" \
                               "$::env($_disc_env)/config/project/$_proj/$_pver/project_${_disc_short}_config.tcl"] {

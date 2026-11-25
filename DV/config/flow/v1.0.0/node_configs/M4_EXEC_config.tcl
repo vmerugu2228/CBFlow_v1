@@ -114,7 +114,7 @@ array set m4_exec {
     mandatory_outputs,coverage_target_check1              {outputs/review_signoff.txt}
     mandatory_outputs,forces_waiver_review1               {outputs/review_signoff.txt}
     mandatory_outputs,export_db1                          {outputs/review_signoff.txt}
-    mandatory_outputs,release_data1 {outputs/release_data/MANIFEST.json}
+    mandatory_outputs,release_data1 {MANIFEST.json}
 
     input_types {review_artifact}
 
@@ -133,14 +133,14 @@ array set m4_exec {
 array set m4_exec {
     release_types,review_audit,description "Review signoffs + manifest for M4_EXEC"
     release_types,review_audit,files {
-        "outputs/release_data/MANIFEST.json" "MANIFEST.json"
-        "work/m4_test_review11/outputs/review_signoff.txt" "review_signoffs/m4_test_review1.txt"
-        "work/log_scoreboard_check11/outputs/review_signoff.txt" "review_signoffs/log_scoreboard_check1.txt"
-        "work/waveform_check11/outputs/review_signoff.txt" "review_signoffs/waveform_check1.txt"
-        "work/gls_sdf_execution11/outputs/review_signoff.txt" "review_signoffs/gls_sdf_execution1.txt"
-        "work/coverage_target_check11/outputs/review_signoff.txt" "review_signoffs/coverage_target_check1.txt"
-        "work/forces_waiver_review11/outputs/review_signoff.txt" "review_signoffs/forces_waiver_review1.txt"
-        "work/export_db11/outputs/review_signoff.txt" "review_signoffs/export_db1.txt"
+        "work/M4_EXEC/release_data1/outputs/MANIFEST.json" "MANIFEST.json"
+        "work/M4_EXEC/m4_test_review1/outputs/review_signoff.txt" "review_signoffs/m4_test_review1.txt"
+        "work/M4_EXEC/log_scoreboard_check1/outputs/review_signoff.txt" "review_signoffs/log_scoreboard_check1.txt"
+        "work/M4_EXEC/waveform_check1/outputs/review_signoff.txt" "review_signoffs/waveform_check1.txt"
+        "work/M4_EXEC/gls_sdf_execution1/outputs/review_signoff.txt" "review_signoffs/gls_sdf_execution1.txt"
+        "work/M4_EXEC/coverage_target_check1/outputs/review_signoff.txt" "review_signoffs/coverage_target_check1.txt"
+        "work/M4_EXEC/forces_waiver_review1/outputs/review_signoff.txt" "review_signoffs/forces_waiver_review1.txt"
+        "work/M4_EXEC/export_db1/outputs/review_signoff.txt" "review_signoffs/export_db1.txt"
     }
 }
 

@@ -197,13 +197,16 @@ array set rtl_cdc {
 set rtl_cdc(supported_tools) {spyglass jaspergold}
 set rtl_cdc(default_tool)    "spyglass"
 
-set _active_tool $rtl_cdc(default_tool)
+set _active_tool [expr {[info exists rtl_cdc(tool,name)] && $rtl_cdc(tool,name) ne ""
+                         ? $rtl_cdc(tool,name) : $rtl_cdc(default_tool)}]
 if {[info exists ::env(CBFLOW_TOOL_NAME)] && $::env(CBFLOW_TOOL_NAME) ne ""} {
     set _active_tool $::env(CBFLOW_TOOL_NAME)
 }
 set _tool_cfg [file join [file dirname [info script]] "RTL_CDC_${_active_tool}_config.tcl"]
-if {[file exists $_tool_cfg]} {
-    source $_tool_cfg
+if {[file exists $_tool_cfg]} { source $_tool_cfg } else {
+    puts "ERROR: Tool config not found: $_tool_cfg"
+    puts "       Supported tools: $rtl_cdc(supported_tools)"
+    exit 1
 }
 unset -nocomplain _tool_cfg _active_tool _cdc_exec_stages _s _sub
 

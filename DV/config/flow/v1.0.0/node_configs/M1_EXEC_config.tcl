@@ -114,7 +114,7 @@ array set m1_exec {
     mandatory_outputs,bug_tracking1                       {outputs/review_signoff.txt}
     mandatory_outputs,regression_gatekeeper1              {outputs/review_signoff.txt}
     mandatory_outputs,export_db1                          {outputs/review_signoff.txt}
-    mandatory_outputs,release_data1 {outputs/release_data/MANIFEST.json}
+    mandatory_outputs,release_data1 {MANIFEST.json}
 
     input_types {review_artifact}
 
@@ -133,14 +133,14 @@ array set m1_exec {
 array set m1_exec {
     release_types,review_audit,description "Review signoffs + manifest for M1_EXEC"
     release_types,review_audit,files {
-        "outputs/release_data/MANIFEST.json" "MANIFEST.json"
-        "work/m1_test_review11/outputs/review_signoff.txt" "review_signoffs/m1_test_review1.txt"
-        "work/log_scoreboard_check11/outputs/review_signoff.txt" "review_signoffs/log_scoreboard_check1.txt"
-        "work/waveform_check11/outputs/review_signoff.txt" "review_signoffs/waveform_check1.txt"
-        "work/coverage_assertions_review11/outputs/review_signoff.txt" "review_signoffs/coverage_assertions_review1.txt"
-        "work/bug_tracking11/outputs/review_signoff.txt" "review_signoffs/bug_tracking1.txt"
-        "work/regression_gatekeeper11/outputs/review_signoff.txt" "review_signoffs/regression_gatekeeper1.txt"
-        "work/export_db11/outputs/review_signoff.txt" "review_signoffs/export_db1.txt"
+        "work/M1_EXEC/release_data1/outputs/MANIFEST.json" "MANIFEST.json"
+        "work/M1_EXEC/m1_test_review1/outputs/review_signoff.txt" "review_signoffs/m1_test_review1.txt"
+        "work/M1_EXEC/log_scoreboard_check1/outputs/review_signoff.txt" "review_signoffs/log_scoreboard_check1.txt"
+        "work/M1_EXEC/waveform_check1/outputs/review_signoff.txt" "review_signoffs/waveform_check1.txt"
+        "work/M1_EXEC/coverage_assertions_review1/outputs/review_signoff.txt" "review_signoffs/coverage_assertions_review1.txt"
+        "work/M1_EXEC/bug_tracking1/outputs/review_signoff.txt" "review_signoffs/bug_tracking1.txt"
+        "work/M1_EXEC/regression_gatekeeper1/outputs/review_signoff.txt" "review_signoffs/regression_gatekeeper1.txt"
+        "work/M1_EXEC/export_db1/outputs/review_signoff.txt" "review_signoffs/export_db1.txt"
     }
 }
 

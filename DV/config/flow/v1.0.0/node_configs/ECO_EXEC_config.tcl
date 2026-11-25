@@ -108,7 +108,7 @@ array set eco_exec {
     mandatory_outputs,full_pass_zero_bugs1                {outputs/review_signoff.txt}
     mandatory_outputs,gls_sdf_full_pass1                  {outputs/review_signoff.txt}
     mandatory_outputs,export_db1                          {outputs/review_signoff.txt}
-    mandatory_outputs,release_data1 {outputs/release_data/MANIFEST.json}
+    mandatory_outputs,release_data1 {MANIFEST.json}
 
     input_types {review_artifact}
 
@@ -127,13 +127,13 @@ array set eco_exec {
 array set eco_exec {
     release_types,review_audit,description "Review signoffs + manifest for ECO_EXEC"
     release_types,review_audit,files {
-        "outputs/release_data/MANIFEST.json" "MANIFEST.json"
-        "work/eco_test_coding11/outputs/review_signoff.txt" "review_signoffs/eco_test_coding1.txt"
-        "work/random_log_check11/outputs/review_signoff.txt" "review_signoffs/random_log_check1.txt"
-        "work/waveform_check11/outputs/review_signoff.txt" "review_signoffs/waveform_check1.txt"
-        "work/full_pass_zero_bugs11/outputs/review_signoff.txt" "review_signoffs/full_pass_zero_bugs1.txt"
-        "work/gls_sdf_full_pass11/outputs/review_signoff.txt" "review_signoffs/gls_sdf_full_pass1.txt"
-        "work/export_db11/outputs/review_signoff.txt" "review_signoffs/export_db1.txt"
+        "work/ECO_EXEC/release_data1/outputs/MANIFEST.json" "MANIFEST.json"
+        "work/ECO_EXEC/eco_test_coding1/outputs/review_signoff.txt" "review_signoffs/eco_test_coding1.txt"
+        "work/ECO_EXEC/random_log_check1/outputs/review_signoff.txt" "review_signoffs/random_log_check1.txt"
+        "work/ECO_EXEC/waveform_check1/outputs/review_signoff.txt" "review_signoffs/waveform_check1.txt"
+        "work/ECO_EXEC/full_pass_zero_bugs1/outputs/review_signoff.txt" "review_signoffs/full_pass_zero_bugs1.txt"
+        "work/ECO_EXEC/gls_sdf_full_pass1/outputs/review_signoff.txt" "review_signoffs/gls_sdf_full_pass1.txt"
+        "work/ECO_EXEC/export_db1/outputs/review_signoff.txt" "review_signoffs/export_db1.txt"
     }
 }
 

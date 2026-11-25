@@ -190,6 +190,7 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
             yosys opensource openroad opensource opensta opensource sta opensource
             magic opensource netgen opensource klayout opensource
             oss_tclsh opensource fault opensource iverilog opensource
+            verilator opensource rtlcheck opensource vplan opensource
         }
         if {[dict exists $_map $tool_name]} { return [dict get $_map $tool_name] }
         return "synopsys"
@@ -449,6 +450,7 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
             foreach {_disc_env _disc_short} {
                     CBFLOW_DFT_DIR  dft
                     CBFLOW_DV_DIR   dv
+                    CBFLOW_RTL_DIR  rtl
                     CBFLOW_CORE_DIR pd
             } {
                 if {![info exists ::env($_disc_env)]} { continue }
@@ -501,6 +503,7 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
                     CBFLOW_CORE_DIR pd
                     CBFLOW_DFT_DIR  dft
                     CBFLOW_DV_DIR   dv
+                    CBFLOW_RTL_DIR  rtl
             } {
                 if {![info exists ::env($_disc_env)]} { continue }
                 set _root $::env($_disc_env)
@@ -541,7 +544,7 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
             set _lib_tag_root ""
             set _fw_roots [list]
             foreach _env_var {CBFLOW_ROOT CBFLOW_CORE_DIR CBFLOW_GLOBAL_DIR \
-                              CBFLOW_DFT_DIR CBFLOW_DV_DIR} {
+                              CBFLOW_DFT_DIR CBFLOW_DV_DIR CBFLOW_RTL_DIR} {
                 if {[info exists ::env($_env_var)] && $::env($_env_var) ne ""} {
                     lappend _fw_roots [file normalize $::env($_env_var)]
                 }

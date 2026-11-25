@@ -13,8 +13,10 @@
 #                                             first; CBFLOW_OSS_GUI=1: OpenROAD GUI
 #
 # <tool>: yosys | openroad | sta | magic | netgen | klayout | tclsh |
-#         fault | iverilog (DFT: a Tcl driver run by tclsh that execs fault /
-#         nl2bench / atalanta / iverilog / vvp / python3) | python3
+#         fault | iverilog (DFT) | verilator | rtlcheck | vplan (RTL / DV): a Tcl
+#         driver run by tclsh that execs the tools (fault, nl2bench, atalanta,
+#         iverilog / vvp, verilator, slang, verible, opencdc, sby, python3) |
+#         python3
 #
 # The container sees the same paths as the host: CBFLOW_ROOT, the current
 # directory, CBFLOW_RUN_DIR, the PDK root and every CBFLOW_OSS_MOUNTS entry are
@@ -29,8 +31,9 @@
 #   CBFLOW_OSS_IMAGE     container image   (default: pinned digest below)
 #   CBFLOW_OSS_PDK_ROOT  host PDK root     (default: $HOME/eda/pdks)
 #   CBFLOW_OSS_MOUNTS    extra host paths to mount, ':'-separated
-#   CBFLOW_OSS_TOOLS     host dir of tools built for the image (bin/ on PATH,
-#                        e.g. atalanta: global/utils/oss/install_atalanta.sh)
+#   CBFLOW_OSS_TOOLS     host dir of tools built / installed for the image:
+#                        bin/ (atalanta), python/ (PeakRDL, openpyxl), uvm/current
+#                        (UVM_HOME), ccache/ (CCACHE_DIR) — global/utils/oss/install_*.sh
 #   CBFLOW_OSS_MAGICRC   magic rc file     (default: <pdk>/sky130A/libs.tech/magic/sky130A.magicrc)
 #   CBFLOW_OSS_ENGINE    container CLI     (default: docker)
 # =============================================================================
@@ -96,7 +99,13 @@ build_docker_args() {
 
 TOOL_PATH='export PATH=/foss/tools/bin:/foss/tools/klayout:/foss/tools/sak:$PATH; export LD_LIBRARY_PATH=/foss/tools/klayout:/foss/tools/iverilog/lib:${LD_LIBRARY_PATH:-};'
 if [ -n "${CBFLOW_OSS_TOOLS:-}" ]; then
-    TOOL_PATH="$TOOL_PATH export PATH=$(printf '%q' "$CBFLOW_OSS_TOOLS")/bin:\$PATH;"
+    _ot="$(printf '%q' "$CBFLOW_OSS_TOOLS")"
+    # built tools (bin/), the UVM library (uvm/current) and a persistent
+    # ccache for Verilator builds (ccache/). The python packages (python/)
+    # are NOT put on PYTHONPATH — their antlr4 runtime differs from the one
+    # the image's nl2bench needs; the RTL / DV helpers add CBFLOW_OSS_PYTHON
+    # to their own sys.path.
+    TOOL_PATH="$TOOL_PATH export PATH=$_ot/bin:\$PATH; export CBFLOW_OSS_PYTHON=$_ot/python; export UVM_HOME=$_ot/uvm/current; export CCACHE_DIR=$_ot/ccache;"
 fi
 
 run_in_container() {   # $1 = bash command string
@@ -215,7 +224,7 @@ TCL
         OSS_INIT=1 run_in_container "$line"
         ;;
     check)
-        run_in_container 'for t in yosys openroad sta magic netgen klayout tclsh fault nl2bench atalanta iverilog vvp verilator python3; do printf "%-9s %s\n" "$t" "$(command -v $t || echo MISSING)"; done; yosys -V | head -1; openroad -version | tail -1; klayout -b -v; printf "fault %s\n" "$(fault --version)"; iverilog -V 2>&1 | head -1'
+        run_in_container 'for t in yosys openroad sta magic netgen klayout tclsh fault nl2bench atalanta iverilog vvp verilator slang verible-verilog-lint opencdc sby python3; do printf "%-9s %s\n" "$t" "$(command -v $t || echo MISSING)"; done; yosys -V | head -1; openroad -version | tail -1; klayout -b -v; printf "fault %s\n" "$(fault --version)"; iverilog -V 2>&1 | head -1'
         ;;
     exec)
         shift
@@ -243,9 +252,9 @@ TCL
             magic)    line="magic -dnull -noconsole -rcfile $(q "$magicrc") $extra $cf" ;;
             netgen)   line="netgen -batch source $cf $extra" ;;
             klayout)  line="klayout -b -r $cf $extra" ;;
-            tclsh|fault|iverilog) line="tclsh $cf $extra" ;;
+            tclsh|fault|iverilog|verilator|rtlcheck|vplan) line="tclsh $cf $extra" ;;
             python3)  line="python3 $cf $extra" ;;
-            *)        die "unknown tool '$tool' (yosys|openroad|sta|magic|netgen|klayout|tclsh|fault|iverilog|python3)" ;;
+            *)        die "unknown tool '$tool' (yosys|openroad|sta|magic|netgen|klayout|tclsh|fault|iverilog|verilator|rtlcheck|vplan|python3)" ;;
         esac
         run_in_container "$line 2>&1 | tee $lf"
         ;;
