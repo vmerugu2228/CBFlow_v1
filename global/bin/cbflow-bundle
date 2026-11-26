@@ -37,7 +37,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --version, -v  Version tag (default: v${CBFLOW_VERSION}_YYYYMMDD)"
             echo ""
             echo "Creates a tar.gz bundle with 777 permissions for customer delivery."
-            echo "After unpacking, run 'cbflow release lock' to set production permissions."
+            echo "After unpacking, run 'cbflow run release-lock' to set production permissions."
             exit 0
             ;;
         *) echo "Unknown option: $1"; exit 1 ;;
@@ -123,6 +123,6 @@ echo ""
 echo "  Customer instructions:"
 echo "    tar xzf ${BUNDLE_NAME}.tar.gz"
 echo "    cd ${BUNDLE_NAME}"
-echo "    bin/cbflow release lock     # Set production permissions"
+echo "    bin/cbflow run release-lock # Set production permissions"
 echo "  ═══════════════════════════════════════════════════════════"
 echo ""

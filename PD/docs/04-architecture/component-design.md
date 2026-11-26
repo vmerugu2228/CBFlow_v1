@@ -1,456 +1,124 @@
 # Component Design
 
-Detailed design of individual software components in CBFlow.
-
-## Component Overview
+Module map of CBflow v2.0.0 — what each component owns and who calls it.
+Paths are relative to `$CBFLOW_ROOT`.
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                    RACE Engine (CLI)                         │
-│  - Parameter validation                                   │
-│  - User interface                                         │
-└───────────┬────────────────────────┬─────────────────────┘
-            │                        │
-            ▼                        ▼
-┌───────────────────────┐  ┌───────────────────────┐
-│ GitWorktreeManager    │  │  GitReleaseManager    │
-│ - Workspace mgmt      │  │  - Release creation   │
-│ - Version creation    │  │  - Config validation  │
-└──────┬────────────────┘  └──────┬────────────────┘
-       │                          │
-       │    ┌─────────────────────┴─────────┐
-       │    │                               │
-       ▼    ▼                               ▼
-┌──────────────────────┐         ┌──────────────────────┐
-│  ChangelogManager    │         │  Version Registry    │
-│  - CHANGELOG gen     │         │  - JSON storage      │
-│  - Diff parsing      │         │  - Metadata          │
-└──────────────────────┘         └──────────────────────┘
+                 bin/cbflow → global/bin/cbflow  (+ PD/DFT/DV/RTL bin/cbflow-<disc>)
+                                   │
+       ┌───────────────┬───────────┼──────────────┬────────────────┬──────────────┐
+       ▼               ▼           ▼              ▼                ▼              ▼
+ workspace_cmd    run_cmd ──► race_engine    flow_cmd /       dashboard /     test_cmd
+ start_run        (Python)    (DAG + DB)     cbflow-flow      SmartGrid       test_suite/
+       │                          │          (+ PD commands)  (Python HTTP)
+       │                          ▼
+       │            tclsh <DISC>/cmds/<FLOW>/<vendor>/<tool>/<ver>/<type>_subnode_handler.tcl
+       │                          │  handler_common.tcl / launch_utils.tcl
+       │                          ▼
+       │            generate_setup.tcl → config.tcl + setup.tcl      (config cascade)
+       │                          ▼
+       │            tool shell (fc_shell, innovus, tessent, … | cbflow-oss <tool>)
+       │                          ▼
+       │            command file: utils.tcl bootstrap → flow_proc … → flow_exec_all
+       │                          ▼
+       └────────────────► release_utils.tcl → <release,path>/<phase>/<block>/<FLOW>/<tag>
 ```
 
 ---
 
-## GitWorktreeManager
-
-### Responsibility
-
-Manages Git worktrees for isolated development and component version creation.
-
-### Class Structure
-
-```python
-class GitWorktreeManager:
-    def __init__(self, base_dir: str = "."):
-        self.base_dir = Path(base_dir)
-        self.workarea_dir = self.base_dir / "workarea"
-        self.worktrees_dir = self.workarea_dir / "worktrees"
-        self.version_registry = self.base_dir / "utils/version/flow_version_registry.json"
-
-    # Public API
-    def create_workspace(component_path: str, force: bool = False) -> bool
-    def commit_version(component_path: str, version: str = None, 
-                      version_type: str = None, description: str = "") -> bool
-    def promote_version(component_path: str, version: str) -> bool
-    def cleanup_workspace(component_path: str) -> bool
-    def cleanup_all_workspaces() -> int
-    def list_workspaces() -> List[Dict]
-    def get_current_version(component_path: str) -> str
-    def list_versions(component_path: str) -> List[str]
-
-    # Private helpers
-    def _normalize_component_path(component_path: str) -> str
-    def _get_next_version(component_path: str, version_type: str) -> str
-    def _workspace_exists(component_path: str) -> bool
-    def _version_exists(component_path: str, version: str) -> bool
-```
-
-### Key Methods
-
-#### create_workspace
-
-**Purpose:** Create isolated Git worktree for development.
-
-**Algorithm:**
-```python
-def create_workspace(component_path, force=False):
-    # 1. Validate component exists
-    if not (base_dir / component_path).exists():
-        raise ComponentNotFoundError()
-    
-    # 2. Check workspace doesn't exist (unless force)
-    if _workspace_exists(component_path) and not force:
-        raise WorkspaceExistsError()
-    
-    # 3. Get current version
-    current_version = get_current_version(component_path)
-    if not current_version:
-        raise NoCurrentVersionError()
-    
-    # 4. Normalize path for Git branch
-    normalized = _normalize_component_path(component_path)  # "config/flow" → "config-flow"
-    
-    # 5. Create worktree directory
-    workspace_path = worktrees_dir / normalized / "workspace"
-    workspace_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    # 6. Create Git worktree
-    branch_name = f"{normalized}/workspace"
-    git worktree add workspace_path -b branch_name
-    
-    # 7. Copy current files to workspace
-    git checkout -b branch_name current_version
-    
-    return True
-```
-
-#### commit_version
-
-**Purpose:** Create new version from workspace changes.
-
-**Algorithm:**
-```python
-def commit_version(component_path, version=None, version_type=None, description=""):
-    # 1. Validate workspace exists
-    if not _workspace_exists(component_path):
-        raise NoWorkspaceError()
-    
-    # 2. Check for changes
-    changes = git diff --name-only (in workspace)
-    if not changes:
-        raise NoChangesError()
-    
-    # 3. Determine version number
-    if version:
-        next_version = version
-    elif version_type:
-        next_version = _get_next_version(component_path, version_type)
-    else:
-        raise ValueError("Must specify version or version_type")
-    
-    # 4. Check version doesn't exist
-    if _version_exists(component_path, next_version):
-        raise VersionExistsError()
-    
-    # 5. Commit workspace changes
-    cd workspace
-    git add -A
-    git commit -m f"Version {next_version}: {description}"
-    
-    # 6. Create version branch
-    branch_name = f"{normalized}/{next_version}"
-    git checkout -b branch_name
-    
-    # 7. Create version tag
-    tag_name = f"{normalized}-{next_version}"
-    git tag -a tag_name -m description
-    
-    # 8. Update CHANGELOG
-    changelog_mgr.update_component_changelog(
-        component_path, next_version, description
-    )
-    
-    # 9. Update registry
-    _update_registry(component_path, next_version, description)
-    
-    # 10. Cleanup workspace
-    cleanup_workspace(component_path)
-    
-    return True
-```
-
----
-
-## GitReleaseManager
-
-### Responsibility
-
-Manages system-wide releases with component version bundling.
-
-### Class Structure
-
-```python
-class GitReleaseManager:
-    def __init__(self, base_dir: str = "."):
-        self.base_dir = Path(base_dir)
-        self.version_registry = self.base_dir / "utils/version/flow_version_registry.json"
-
-    # Public API
-    def create_release(version: str = None, version_type: str = None,
-                      description: str = "", config_file: str = None) -> bool
-    def generate_release_config(output_file: str, description: str = "") -> bool
-    def load_release_config(config_file: str) -> Dict[str, str]
-    def list_releases() -> List[Dict]
-    def get_release_info(release_version: str) -> Dict
-    def validate_release_config(config_file: str) -> bool
-
-    # Private helpers
-    def _discover_components() -> List[str]
-    def _get_component_versions(components: List[str]) -> Dict[str, str]
-    def _get_next_release_version(version_type: str) -> str
-    def _validate_component_version(component: str, version: str) -> bool
-```
-
-### Key Methods
-
-#### create_release (Auto Mode)
-
-**Algorithm:**
-```python
-def create_release(version=None, version_type=None, description="", config_file=None):
-    # Auto mode (no config)
-    if not config_file:
-        # 1. Discover all components
-        components = _discover_components()  # Scan for */current branches
-        
-        # 2. Get current version of each
-        component_versions = {}
-        for component in components:
-            current = get_current_version(component)
-            component_versions[component] = current
-        
-        mode = "auto"
-    
-    # 3. Determine release version
-    if version:
-        release_version = version
-    else:
-        release_version = _get_next_release_version(version_type)
-    
-    # 4. Create release tag
-    git tag -a f"release/{release_version}" -m description
-    
-    # 5. Update CHANGELOG
-    changelog_mgr.update_release_changelog(
-        release_version, description, component_versions, mode
-    )
-    
-    # 6. Update registry
-    _update_registry_release(release_version, component_versions, mode, description)
-    
-    return True
-```
-
-#### create_release (Config Mode)
-
-**Algorithm:**
-```python
-def create_release(..., config_file="release.json"):
-    # Config mode
-    # 1. Load configuration
-    config = load_release_config(config_file)
-    component_versions = config["components"]
-    
-    # 2. Validate all versions exist
-    for component, version in component_versions.items():
-        if not _validate_component_version(component, version):
-            raise InvalidVersionError(f"{component}: {version}")
-    
-    # 3. Create release (same as auto mode but mode="config")
-    mode = "config"
-    # ... rest same as auto mode
-```
-
----
-
-## ChangelogManager
-
-### Responsibility
-
-Generate and maintain automated CHANGELOG files.
-
-### Class Structure
-
-```python
-class ChangelogManager:
-    def __init__(self, base_dir: str = "."):
-        self.base_dir = Path(base_dir)
-
-    # Public API
-    def update_component_changelog(component_path: str, version: str,
-                                  description: str, prev_version: str = None) -> bool
-    def update_release_changelog(release_version: str, description: str,
-                                components: Dict[str, str], mode: str = "auto") -> bool
-
-    # Private helpers
-    def _get_version_diff(component_path: str, v1: str, v2: str) -> Dict
-    def _generate_component_entry(component_path: str, version: str,
-                                 description: str, diff_info: Dict) -> str
-    def _generate_release_entry(release_version: str, description: str,
-                               components: Dict, mode: str) -> str
-    def _prepend_to_changelog(changelog_path: Path, entry: str) -> None
-```
-
-### Key Methods
-
-#### update_component_changelog
-
-**Algorithm:**
-```python
-def update_component_changelog(component_path, version, description, prev_version=None):
-    # 1. Get previous version if not provided
-    if not prev_version:
-        versions = list_versions(component_path)
-        prev_version = versions[-2] if len(versions) > 1 else None
-    
-    # 2. Get diff
-    if prev_version:
-        diff_info = _get_version_diff(component_path, prev_version, version)
-    else:
-        diff_info = {"added": ["all files"], "modified": [], "deleted": []}
-    
-    # 3. Generate markdown entry
-    entry = f"""
-## [{version}] - {datetime.now().strftime('%Y-%m-%d')}
-
-### Description
-{description}
-
-### Changes from {prev_version or 'initial'}
-
-**Added:**
-{chr(10).join(f'- {f}' for f in diff_info['added'])}
-
-**Modified:**
-{chr(10).join(f'- {f}' for f in diff_info['modified'])}
-
-**Deleted:**
-{chr(10).join(f'- {f}' for f in diff_info['deleted'])}
-
-**Diff Statistics:**
-```
-{diff_info['diff_stats']}
-```
-
-**Version Info:**
-- Component: `{component_path}`
-- Version: `{version}`
-- Created: {datetime.now().isoformat()}
-- Previous: `{prev_version}`
-
----
-"""
-    
-    # 4. Prepend to CHANGELOG
-    changelog_path = base_dir / component_path / "CHANGELOG.md"
-    _prepend_to_changelog(changelog_path, entry)
-    
-    return True
-```
-
----
-
-## Version Registry
-
-### Responsibility
-
-Persistent storage of version and release metadata.
-
-### Structure
-
-```python
-# Conceptual structure (stored as JSON)
-class VersionRegistry:
-    components: Dict[str, ComponentInfo]
-    releases: Dict[str, ReleaseInfo]
-
-class ComponentInfo:
-    available_versions: Dict[str, VersionInfo]
-    current_version: Optional[str]
-    creation_date: str
-
-class VersionInfo:
-    description: str
-    creation_date: str
-    git_tag: str
-    git_branch: str
-
-class ReleaseInfo:
-    description: str
-    creation_date: str
-    components: Dict[str, str]  # component -> version
-    mode: str  # "auto" or "config"
-```
-
-### Operations
-
-```python
-# Load registry
-def load_registry() -> Dict:
-    with open(registry_path) as f:
-        return json.load(f)
-
-# Save registry (atomic)
-def save_registry(registry: Dict):
-    temp_path = registry_path.with_suffix('.tmp')
-    with open(temp_path, 'w') as f:
-        json.dump(registry, f, indent=2)
-    temp_path.replace(registry_path)  # Atomic rename
-
-# Add version
-def add_version(component: str, version: str, info: VersionInfo):
-    registry = load_registry()
-    if component not in registry:
-        registry[component] = {
-            "available_versions": {},
-            "current_version": None,
-            "creation_date": datetime.now().isoformat()
-        }
-    registry[component]["available_versions"][version] = info.__dict__
-    save_registry(registry)
-
-# Add release
-def add_release(version: str, info: ReleaseInfo):
-    registry = load_registry()
-    if "releases" not in registry:
-        registry["releases"] = {}
-    registry["releases"][version] = info.__dict__
-    save_registry(registry)
-```
-
----
-
-## Integration Patterns
-
-### RACE Engine → Handler Integration
-
-```makefile
-git_commit_version:
-	@python3 utils/version/v2.0.0/git_worktree_manager.py \
-		commit_version \
-		--component $(DIR) \
-		--type $(TYPE) \
-		--description "$(DESC)"
-```
-
-### Python → Git Integration
-
-```python
-def _run_git_command(cmd: List[str]) -> str:
-    result = subprocess.run(
-        ["git"] + cmd,
-        capture_output=True,
-        text=True,
-        check=True
-    )
-    return result.stdout
-```
-
-### Component → CHANGELOG Integration
-
-```python
-# In GitWorktreeManager.commit_version():
-changelog_mgr = ChangelogManager(self.base_dir)
-changelog_mgr.update_component_changelog(
-    component_path,
-    next_version,
-    description,
-    prev_version=current_version
-)
-```
+## 1. Launchers (`global/bin/`, `<DISC>/bin/`)
+
+| File | Role |
+|---|---|
+| `global/bin/cbflow` | universal entry: workspace, run, flow, bundle, migrate, test, dashboard, smartgrid, smartgenie, `--version`, `--completions` |
+| `global/bin/cbflow-flow` | `cbflow flow …` router; unknown subcommands dispatch to the owning discipline launcher via `global/config/cli/discipline_commands.tcl` |
+| `global/bin/cbflow-run`, `cbflow-workspace`, `cbflow-project`, `cbflow-release`, `cbflow-config`, `cbflow-version`, `cbflow-bundle`, `cbflow-verify`, `cbflow-healthcheck` | direct entry points (also reachable through `cbflow`) |
+| `global/bin/_cbflow_paths.sh` | resolves `CBFLOW_ROOT` and derives every other `CBFLOW_*` / `*_VERSION` variable |
+| `global/bin/cbflow-oss`, `cbflow-oss-checks` | open-source tool container launcher; report-only checklist runner |
+| `global/bin/cbflow-test-suite` | back-compat shim → `cbflow test --static` |
+| `PD/bin/cbflow-pd` | `flow library-manager | mmmc-manager | checklist` |
+| `DFT/bin/cbflow-dft`, `DV/bin/cbflow-dv`, `RTL/bin/cbflow-rtl` | extension points (no owned subcommands yet) |
+
+## 2. Python commands (`global/utils/commands/`)
+
+| Module | Role |
+|---|---|
+| `workspace_cmd.py`, `start_run.py` | `cbflow workspace …`: run dir, `.run.cbflow.env/.tcl`, launch preflight, DB init, run-dir naming |
+| `run_cmd.py` | `cbflow run …`: all / stage / status / retrace / bypass / force / forcevalidate / add-node / set-dep / create-branch / release / gui / db-manage / … |
+| `race_engine.py` | `DagBuilder`, `StatusDB`, `RaceEngine` (execution, sync, ownership, timeouts) |
+| `config_resolver.tcl`, `tcl_config_parser.py`, `cbflow_config.py`, `config_validator.py` | resolve the cascade through tclsh and expose resolved values to Python |
+| `flow_cmd.py`, `project_cmd.py`, `release_cmd.py`, `version_cmd.py`, `config_cmd.py`, `dashboard_cmd.py` | `cbflow flow …` families |
+| `test_cmd.py`, `test_suite/` | `cbflow test` (static, e2e, dispatch / CLI smoke, integration, hardcode) |
+
+`global/utils/core/`: `paths.py` (root resolution), `env.py`, `registry.py`
+(flow registry + discipline lookups), `db.py` (`find_race_db_from_run_dir`,
+checklist schema), `release_exits.py`, `config_reader.py`, `interactive.py`,
+`errors.py`.
+
+PD-owned Python (`PD/utils/commands/`): `library_manager_cmd.py`,
+`mmmc_manager_cmd.py`, `checklist_cmd.py`, `autoppt_cmd.py`, `email_cmd.py`,
+`metrics_cmd.py`, `qor_report_cmd.py`, `lsf_cmd.py`, `dev_cmd.py`,
+`plugin_cmd.py`, `migrate_cmd.py`, `trending_cmd.py`, …
+
+## 3. Tcl runtime (`global/utils/utilities/v1.0.0/`)
+
+| File | Role |
+|---|---|
+| `utils.tcl` | flow_proc engine (`flow_proc`, `flow_exec_all`, `flow_proc_prepend/append/replace`), `setup_dirs`, node helpers (`cbflow_node_name`, `cbflow_node_deps`, `cbflow_node_type`, `cbflow_upstream_node`, `cbflow_chain_node`, `cbflow_source_node`, `cbflow_dep_node`), `cbflow_release_dir`, `cbflow_require`, test-mode interception |
+| `handler_common.tcl` | `handler_parse_args`, `handler_load_configs`, `handler_dispatch` (setup / run / validate / finish), `handler_validate`, `handler_publish_release`, `handler_dispatch_inputs`, `handler_resolve_inputs` |
+| `launch_utils.tcl` | `determine_launch_mode`, `generate_launch_wrapper`, `submit_job` (LSF / xterm / local), `handler_run` |
+| `resolve_inputs.tcl` | `::CBFlow::InputResolve` — handshake resolution (tag / per-input tag / from_run / explicit path), `generate_output_manifest` |
+| `release_utils.tcl` | `::CBFlow::Release` — exit tag, `check_exit_order`, copy, manifest, notes, `RELEASE_COMPLETE` |
+| `tool_overlay.tcl` | `cbflow_reload_tool_overlay` — user_config-selected tool overlay |
+| `oss_utils.tcl` | open-source PD helpers (`oss_get`, `oss_load_stage`, `oss_upstream_node`, `oss_stage_out`, DEF→GDS, Vt handling, …) |
+| `oss_flow_utils.tcl` | open-source RTL / DFT / DV driver helpers (`oss_run`, `oss_exec_all`, `oss_get_opt`, …) |
+| `oss_checks.tcl`, `oss_checkgrp_<group>.tcl` | open-source checklist library groups (fp, timing_si, clock, power, routing_mfg, physical, milestone) |
+| `oss_scandef.tcl` | OpenROAD scandef chain-order fix |
+| `config_loader.tcl`, `flow_init.tcl`, `init_utils.tcl`, `directory_utils.tcl`, `display_utils.tcl`, `error_utils.tcl` | shared plumbing |
+
+Discipline Tcl helpers: `DFT/utils/utilities/v1.0.0/oss_dft_utils.tcl`
+(+ `dft_tessent_common.tcl`), `RTL/utils/utilities/v1.0.0/oss_rtl_utils.tcl`,
+`DV/utils/utilities/v1.0.0/oss_dv_utils.tcl`.
+
+## 4. Generation (`global/utils/generation/v1.0.0/`)
+
+`generate_setup.tcl` writes each node's `config.tcl` (cascade) and `setup.tcl`
+(flow_proc hooks); `vendor_for_tool` maps a tool name to its vendor directory.
+`generate_config.tcl`, `generate_inputs.tcl` are supporting generators.
+
+## 5. Handlers and command files (`<DISC>/cmds/<FLOW>/<vendor>/<tool>/v1.0.0/`)
+
+- `<type>_subnode_handler.tcl` per node type — thin, calls `handler_dispatch`
+  (`inputs_subnode_handler.tcl` calls `handler_dispatch_inputs`).
+- `<stage>_<tool>.tcl` command file per stage — the 10-line bootstrap, flow_procs,
+  `flow_exec_all` / `oss_exec_all`, `exit`.
+- Vendors: `synopsys`, `cadence`, `mentor`, `generic` (DV `review`),
+  `opensource` (yosys, openroad, opensta, magic, fault, iverilog, verilator,
+  rtlcheck, …).
+
+## 6. Dashboards
+
+| Package | Role |
+|---|---|
+| `global/utils/dashboard/` | per-user run dashboard daemon (`daemon.py`, `router.py`, `race_dashboard.py`, `registry.py`, `run_dash_config.py`) |
+| `global/utils/project_dashboard/` | SmartGrid: `router.py` (pages + API), `releases.py`, `chain.py` (sign-off chain), `floorplan.py` (DEF viewer), `checklist_stats.py`, `schedule_config.py`, `tracker_db.py`, `dash_config.py` |
+
+## 7. Open-source helpers
+
+| Path | Role |
+|---|---|
+| `RTL/utils/oss/spec_tool.py`, `rtl_check.py` | RTL_SPEC collateral; RTL_LINT / RTL_CDC / UPF_CHECK checks |
+| `DV/utils/oss/uvmgen.py`, `dv_tool.py` | UVM env generation; regress / covmerge / triage / signoff |
+| `DFT/utils/oss/oss_dft.py` | scan trace, fault sim, ATPG glue |
+| `global/utils/oss/install_*.sh` | tools installed into `lsf(oss,tools_dir)` (pytools, UVM, Atalanta, IP-XACT schema) |
+
+## 8. AI (`PD/ai/`)
+
+SmartGenie agents (local / cloud / server), knowledge base and MCP server —
+see [PD/ai/README.md](../../ai/README.md).
 
 ---
 
 **See also:**
-- [System Design](system-design.md) - Overall architecture
-- [Git Strategy](git-strategy.md) - Git implementation
-- [Data Flow](data-flow.md) - Data flow diagrams
+- [System Design](system-design.md)
+- [Data Flow](data-flow.md)

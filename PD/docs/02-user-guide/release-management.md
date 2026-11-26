@@ -29,7 +29,7 @@ The per-flow `<FLOW>` level was added in 2026-11. Design release tags default to
 
 ```bash
 # Create release with auto-increment
-make git_create_release TYPE=patch|minor|major DESC="Release description"
+cbflow flow release create --type patch|minor|major --desc "Release description"
 ```
 
 ### How It Works
@@ -44,7 +44,7 @@ make git_create_release TYPE=patch|minor|major DESC="Release description"
 
 ```bash
 # Create patch release
-make git_create_release TYPE=patch DESC="Bug fixes and PNR timing improvements"
+cbflow flow release create --type patch --desc "Bug fixes and PNR timing improvements"
 ```
 
 **Output:**
@@ -84,7 +84,7 @@ Generate Config --> Edit Versions --> Validate Config --> Create Release
 ### Step 1: Generate Config Template
 
 ```bash
-make git_generate_config OUTPUT=release.json DESC="Production release"
+cbflow flow release generate-config --output release.json
 ```
 
 **Creates `release.json`:**
@@ -134,10 +134,10 @@ Edit `release.json` to specify exact versions:
 
 ```bash
 # Auto-increment with config
-make git_create_release TYPE=major CONFIG=release.json DESC="Tested production release"
+cbflow flow release create --config release.json --type major --desc "Tested production release"
 
 # Or specify exact version
-make git_create_release VERSION=v2.0.0 CONFIG=release.json DESC="Tested production release"
+cbflow flow release create --config release.json --version v2.0.0 --desc "Tested production release"
 ```
 
 **Validation Process:**
@@ -159,7 +159,7 @@ make git_create_release VERSION=v2.0.0 CONFIG=release.json DESC="Tested producti
 ### List All Releases
 
 ```bash
-make git_list_releases
+cbflow flow release list
 ```
 
 **Output:**
@@ -175,13 +175,13 @@ v1.0.0          2026-05-01   29           Initial release
 ### View Release Details
 
 ```bash
-make git_release_info RELEASE=v2.0.0
+cbflow flow release info --version v2.0.0
 ```
 
 ### Compare Releases
 
 ```bash
-make git_diff_releases R1=v1.0.0 R2=v2.0.0
+cbflow flow release diff --v1 v1.0.0 --v2 v2.0.0
 ```
 
 Shows component version differences between releases.
@@ -216,7 +216,7 @@ CBflow organizes releases around project phases and stage exit milestones:
 
 ```bash
 # Config validation happens automatically during release creation
-make git_create_release TYPE=major CONFIG=release.json DESC="..."
+cbflow flow release create --config release.json --type major --desc "..."
 ```
 
 **Validation checks:**
@@ -273,21 +273,17 @@ Tested production release
 ...
 ```
 
-## Checkout Release
-
-### Extract Release Contents
+## Switch the Current Release
 
 ```bash
-make git_checkout_release RELEASE=v2.0.0
+cbflow flow release set-current --version v2.0.0     # make v2.0.0 the current release
+cbflow flow release validate --version v2.0.0        # check its components
+cbflow bundle --output /delivery                     # package the install for distribution
 ```
 
-**Creates:** `workarea/releases/v2.0.0/`
-
 **Use cases:**
-- Package release for distribution
-- Verify release contents
-- Build from specific release
-- Archive release snapshot
+- Roll the framework back / forward to a released component set
+- Verify release contents before distributing
 
 ## Version Locking
 
@@ -317,8 +313,8 @@ The dev workflow provides a structured way to develop, test, and promote changes
 
 ```bash
 # Start a dev version from an existing released version
-cbflow flow dev start --dir cmds/SYNTH --from v1.0.0
-# Creates: cmds/SYNTH/synopsys/fc/v1.0.0-dev/ (writable copy)
+cbflow flow dev start --component config/flow --from v1.0.0
+# Creates: config/flow/v1.0.0-dev/ (writable copy)
 ```
 
 ### Working with Dev Versions
@@ -328,20 +324,20 @@ cbflow flow dev start --dir cmds/SYNTH --from v1.0.0
 cbflow flow dev status
 
 # View changes made in a dev version vs its base
-cbflow flow dev diff --dir cmds/SYNTH
+cbflow flow dev diff --component config/flow
 
 # Create an isolated sandbox for experimentation
-cbflow flow dev sandbox-create --name experiment1
+cbflow flow dev sandbox-create
 
 # Push sandbox changes back to the dev version
-cbflow flow dev sandbox-push --name experiment1
+cbflow flow dev sandbox-push
 ```
 
 ### Promoting to Release
 
 ```bash
 # Promote dev version to a new released version
-cbflow flow dev promote --dir cmds/SYNTH --version v1.0.1
+cbflow flow dev promote --component config/flow
 # v1.0.1 is created with version locking (chmod 444 + .locked)
 # v1.0.0-dev is removed
 ```
@@ -399,40 +395,40 @@ cat config/flow/CHANGELOG.md
 cat cmds/PNR/synopsys/fc/CHANGELOG.md
 
 # Create release
-make git_create_release TYPE=patch DESC="Bug fixes"
+cbflow flow release create --type patch --desc "Bug fixes"
 
 # Verify
-make git_release_info RELEASE=v1.0.1
+cbflow flow release info --version v1.0.1
 ```
 
 ### Production Release
 ```bash
 # Generate config from current state
-make git_generate_config OUTPUT=prod-release.json DESC="Q2 Release"
+cbflow flow release generate-config --output prod-release.json
 
 # Customize versions based on testing
 vim prod-release.json
 
 # Create release
-make git_create_release TYPE=minor CONFIG=prod-release.json DESC="Q2 Production Release"
+cbflow flow release create --config prod-release.json --type minor --desc "Q2 Production Release"
 
 # Archive config for records
 cp prod-release.json releases/configs/v1.1.0-config.json
 
 # Checkout for packaging
-make git_checkout_release RELEASE=v1.1.0
+cbflow flow release set-current --version v1.1.0
 ```
 
 ### Hotfix Release
 ```bash
 # Generate config based on last production release
-make git_release_info RELEASE=v2.0.0 > current-prod.txt
+cbflow flow release info --version v2.0.0 > current-prod.txt
 
 # Create config with just the hotfixed component updated
 # Edit release.json to change only the fixed component
 
 # Create hotfix release
-make git_create_release TYPE=patch CONFIG=release.json DESC="Hotfix for timing issue"
+cbflow flow release create --config release.json --type patch --desc "Hotfix for timing issue"
 ```
 
 ## Troubleshooting
@@ -440,10 +436,10 @@ make git_create_release TYPE=patch CONFIG=release.json DESC="Hotfix for timing i
 ### Config Validation Failed
 ```bash
 # View detailed error
-make git_create_release TYPE=patch CONFIG=release.json DESC="..." 2>&1 | less
+cbflow flow release create --config release.json --type patch --desc "..." 2>&1 | less
 
 # Check component versions
-make list_versions DIR=cmds/PNR/synopsys/fc
+cbflow flow version list --dir cmds/PNR/synopsys/fc
 
 # Verify JSON syntax
 cat release.json | python3 -m json.tool
@@ -452,16 +448,16 @@ cat release.json | python3 -m json.tool
 ### Release Already Exists
 ```bash
 # View existing releases
-make git_list_releases
+cbflow flow release list
 
 # Use different version
-make git_create_release VERSION=v2.0.1 CONFIG=release.json DESC="..."
+cbflow flow release create --config release.json --version v2.0.1 --desc "..."
 ```
 
 ### Missing Components in Config
 ```bash
 # Regenerate config to get all current components
-make git_generate_config OUTPUT=new-release.json DESC="..."
+cbflow flow release generate-config --output new-release.json
 
 # Merge with your customizations
 ```
@@ -472,28 +468,28 @@ See [Troubleshooting Guide](troubleshooting.md) for more issues.
 
 ```bash
 # Auto Mode
-make git_create_release TYPE=patch|minor|major DESC="..."
+cbflow flow release create --type patch|minor|major --desc "..."
 
 # Config Mode
-make git_generate_config OUTPUT=<file> DESC="..."
+cbflow flow release generate-config --output <file>
 # ... edit file ...
-make git_create_release TYPE=<type> CONFIG=<file> DESC="..."
+cbflow flow release create --config <file> --type <type> --desc "..."
 
 # Information
-make git_list_releases
-make git_release_info RELEASE=<version>
-make git_diff_releases R1=<v1> R2=<v2>
+cbflow flow release list
+cbflow flow release info --version <version>
+cbflow flow release diff --v1 <v1> --v2 <v2>
 
-# Checkout
-make git_checkout_release RELEASE=<version>
+# Switch current release
+cbflow flow release set-current --version <version>
 
 # Dev Workflow
-cbflow flow dev start --dir <dir> --from <version>   # Start dev version
+cbflow flow dev start --component <component> --from <version>   # Start dev version
 cbflow flow dev status                                # List active dev versions
-cbflow flow dev diff --dir <dir>                      # Show changes
-cbflow flow dev promote --dir <dir> --version <new>   # Promote to release
-cbflow flow dev sandbox-create --name <name>          # Create sandbox
-cbflow flow dev sandbox-push --name <name>            # Push sandbox changes
+cbflow flow dev diff --component <component>                      # Show changes
+cbflow flow dev promote --component <component>   # Promote to release
+cbflow flow dev sandbox-create          # Create sandbox
+cbflow flow dev sandbox-push            # Push sandbox changes
 ```
 
 ---

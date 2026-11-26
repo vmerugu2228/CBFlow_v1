@@ -152,7 +152,12 @@ Usage: cbflow <command> [subcommand] [options]
 Commands:
   workspace     Workspace management (run from any workarea)
   run           Flow execution (run from within a run directory)
-  flow          Flow info & management (run from CORE_DIR only)
+  flow          Flow info & management (works from any directory)
+  smartgrid     Project-level dashboard (published releases, checklists, timing)
+  test          Test suite (static config checks + end-to-end flow runs)
+  migrate       Carry user config values forward into a new config file
+  bundle        Create a customer delivery package
+  smartgenie    CBflow AI agent
 
 Workspace Commands (run from workarea):
   cbflow workspace template --flow SYNTH_PNR  Generate user_config.tcl template
@@ -169,23 +174,31 @@ Run Commands (run from within a run directory):
   cbflow run all --validate                   Run with pre/post validation
   cbflow run all --lsf --queue XL             Submit to LSF with queue override
   cbflow run all --collect-metrics            Collect metrics after completion
-  cbflow run stage --name place               Run a single stage
+  cbflow run stage --name place1              Run a single stage
   cbflow run status                           Show stage completion
   cbflow run status --details                 Show all subnodes per stage
   cbflow run validate                         Validate config + inputs + outputs
   cbflow run validate --type config           Validate configuration only
-  cbflow run validate --stage cts             Check stage outputs + exit criteria
+  cbflow run validate --stage cts1            Check stage outputs + exit criteria
   cbflow run logs --list                      List all log files
   cbflow run logs --tail 50 --level ERROR     Show last 50 error lines
-  cbflow run retrace --from cts               Rerun from CTS onwards
+  cbflow run retrace --from cts1              Reset cts1 onwards (add --run to rerun)
+  cbflow run bypass --stages cts1,route1      Mark stages done without running
+  cbflow run force --stages place1            Re-run only place1
   cbflow run show-graph --detail              Show dependency graph with subnodes
-  cbflow run add-node --node eco1 --type eco --dep signoff
+  cbflow run add-node --node place2 --type place --dep place1
+  cbflow run set-dep --node export_data1 --deps place1
+                                              Rewire a node (--reset restores)
+  cbflow run interactive --node place1        Interactive tool session on a node
   cbflow run lsf-status                       Show LSF job queue status
   cbflow run clean --confirm                  Delete work + logs
-  cbflow run release                          Milestone-gated release (from workspace)
-  cbflow run release --tag PLACE_EXIT         Release with specific tag
+  cbflow run release --tag PLACE_EXIT         Milestone-gated release (from workspace)
   cbflow run release --dry-run                Validate only, no copy
-  cbflow run release-check --tag BTO --project bumblebee --phase P2
+  cbflow run release --from-run . --node release_data1 --publish
+                                              Publish a run's own release (open-source)
+  cbflow run release --from-run <run> --clone-from BTO --tag MTO
+                                              Copy the BTO release to MTO
+  cbflow run release-check --tag BTO --project opensky --phase P2
                                               Check all blocks released for milestone
   cbflow run release-lock                     Lock permissions (production: 444/555/755)
   cbflow run release-lock --unlock            Unlock permissions (development: 777)
@@ -215,16 +228,17 @@ Test Suite (static config validation + end-to-end flow execution):
   cbflow test --e2e                           End-to-end flow execution only
   cbflow test --flow SYNTH_PNR                Test a single flow
   cbflow test --flows SYNTH,PNR,STA           Test a subset
-  cbflow test --category 3                    Run one static category (1-8)
+  cbflow test --category 3                    Run one static category (see --list)
   cbflow test --report results.json           JSON report
   cbflow test --junit junit.xml               JUnit XML report
   cbflow test --ci                            CI mode (junit + plain console)
   cbflow test --list                          List categories and exit
   cbflow test --keep                          Keep sandboxes (debug)
 
-Per-Run Dashboard Daemon (one daemon per user; every registered run shares it):
-  cbflow run dashboard start                  Start daemon (background; port 9000+uid%500)
-  cbflow run dashboard start --project <p>    Project-scoped daemon (port 20000+hash%2500)
+Run Dashboard Daemon (one daemon per user per discipline; registered runs share it):
+  cbflow run dashboard start                  Start PD daemon (background; port 9000+uid%300)
+  cbflow run dashboard start --discipline DFT Discipline daemon (DFT 9300, DV 9600, RTL 9900 +uid%300)
+  cbflow run dashboard start --project <p>    Project-scoped daemon (PD port 20000+hash%1000)
   cbflow run dashboard start --foreground     Run in foreground (debug)
   cbflow run dashboard stop|restart|status    Lifecycle
   cbflow run dashboard open [<run_dir>]       Open index or deep-link a run
@@ -242,9 +256,10 @@ SmartGrid — Project-Level Metrics / DEF Timing / Closability Grid:
   cbflow smartgrid open --project <p>              Open browser to the project view
   cbflow smartgrid list --project <p>              List published runs
   cbflow smartgrid unpublish --project <p> --block <b> --phase <ph> --milestone <m>
-  cbflow run release --tag <TAG>                   Release; publishes to SmartGrid if its daemon is running
-  cbflow run release --tag <TAG> --override        Replace an existing published entry
-  cbflow run release --tag <TAG> --no-publish      Release locally, skip SmartGrid
+  cbflow run release --tag <TAG>                   Release only (publishing is opt-in)
+  cbflow run release --tag <TAG> --publish         Release + publish (starts SmartGrid if needed)
+  cbflow run release --tag <TAG> --publish --override
+                                                   Replace an existing published entry
   (Legacy 'cbflow project-dashboard ...' still works with a deprecation notice.)
 
 SmartGenie AI Agent (100% private, runs locally):
@@ -257,6 +272,8 @@ SmartGenie AI Agent (100% private, runs locally):
   cbflow smartgenie learn --category fix --content "..."
                                               Record experience for future use
   cbflow smartgenie cloud "prompt"            Use Claude API (needs ANTHROPIC_API_KEY)
+  cbflow smartgenie code ["question"]         Claude Code + SmartGenie tools at the CBflow root
+  cbflow smartgenie --help                    All SmartGenie commands
 
 SmartGenie Hybrid Mode (Claude teaches local LLM):
   cbflow smartgenie --hybrid                  Use Claude API online, learn to local KB
@@ -271,14 +288,17 @@ SmartGenie Server (multi-user enterprise):
                                               Connect to central server
   export SMARTGENIE_SERVER=http://ip:8091     Set server permanently
 
-Flow Commands (run from CORE_DIR: $CBFLOW_CORE_DIR):
+Flow Commands (work from any directory):
   cbflow flow types                           List all flow types, grouped by discipline
-  cbflow flow types --domain DFT              Show flows for a single discipline (PD | DFT | DV)
+  cbflow flow types --domain DFT              Show flows for one discipline (PD | DFT | DV | RTL)
   cbflow flow info --flow PNR                 Show PNR tool, stages, vendor
   cbflow flow stages --flow SYNTH             Show SYNTH stage list
   cbflow flow check                           Verify CBFlow installation
   cbflow flow project list                    List all projects
-  cbflow flow project info --name phoenix     Show project details
+  cbflow flow project info --name opensky     Show project details
+  cbflow flow checklist list --discipline PD  Exit milestones (cbflow flow checklist -h)
+  cbflow flow library-manager -h              Library tags (PD launcher)
+  cbflow flow mmmc-manager -h                 MMMC config (PD launcher)
   cbflow flow release list                    List all releases
   cbflow flow release diff --v1 v1.0.0 --v2 v1.0.1
                                               Compare two releases
@@ -290,12 +310,20 @@ Flow Commands (run from CORE_DIR: $CBFLOW_CORE_DIR):
   cbflow flow metrics collect                 Collect run metrics to database
   cbflow flow metrics report                  Show metrics summary
   cbflow flow metrics report --flow PNR       Filter metrics by flow
-  cbflow flow dashboard start                 Launch web dashboard on port 8080
+  cbflow flow dashboard start                 Same as 'cbflow run dashboard start'
+
+Open-Source Tool Container (sky130 / opensky; docker):
+  cbflow-oss check                            List tools + versions in the image
+  cbflow-oss exec -- <argv...>                Run a command line in the container
+  cbflow-oss gui openroad <stage.odb>         OpenROAD GUI on a saved stage database
+  cbflow-oss gui klayout <file.gds|.def>      KLayout GUI
+  cbflow-oss --help                           All cbflow-oss usage + environment
 
 Discipline-specific Launchers (own their subcommands, fall through to cbflow otherwise):
   \$CBFLOW_ROOT/PD/bin/cbflow-pd    library-manager, mmmc-manager, checklist
-  \$CBFLOW_ROOT/DFT/bin/cbflow-dft  (extension point — no PD-specific commands yet)
+  \$CBFLOW_ROOT/DFT/bin/cbflow-dft  (extension point — no DFT-specific commands yet)
   \$CBFLOW_ROOT/DV/bin/cbflow-dv    (extension point — no DV-specific commands yet)
+  \$CBFLOW_ROOT/RTL/bin/cbflow-rtl  (extension point — no RTL-specific commands yet)
 
   Typing \`cbflow flow library-manager …\` from anywhere auto-dispatches
   to PD/bin/cbflow-pd. Users can also invoke the discipline launcher
@@ -320,13 +348,14 @@ Environment:
   CBFLOW_ROOT        The umbrella install root — DO EXPORT to kick off flows.
                      Every other CBFLOW_* var below is auto-derived from this.
                      If exported, must contain: global/, PD/, and optionally
-                     DFT/ and DV/ as siblings.
+                     DFT/, DV/ and RTL/ as siblings.
   CBFLOW_CORE_DIR    Auto: \$CBFLOW_ROOT/PD (physical design discipline)
   CBFLOW_GLOBAL_DIR  Auto: \$CBFLOW_ROOT/global (cross-domain config layer —
                      tech_config, project identity, mmmc, flow_registry).
-                     Sourced FIRST in the cascade; PD/DFT/DV overlay on top.
+                     Sourced FIRST in the cascade; PD/DFT/DV/RTL overlay on top.
   CBFLOW_DFT_DIR     Auto: \$CBFLOW_ROOT/DFT (design-for-test discipline)
   CBFLOW_DV_DIR      Auto: \$CBFLOW_ROOT/DV  (RTL design verification)
+  CBFLOW_RTL_DIR     Auto: \$CBFLOW_ROOT/RTL (RTL design-side quality)
 
   Note: CBFLOW_ROOT is the anchor, not CBFLOW_GLOBAL_DIR.
   global/ is a subordinate of the root, alongside every discipline directory.
@@ -338,6 +367,7 @@ Installation Layout:
   PD/config/                 PD-specific tech/project overlays, flow node_configs
   DFT/config/                DFT-specific configs + node_configs
   DV/config/                 DV-specific configs + node_configs
+  RTL/config/                RTL-specific configs + node_configs
 
 EOF
 }
@@ -350,6 +380,7 @@ show_version() {
     echo "  PD  (CBFLOW_CORE_DIR):            $CBFLOW_CORE_DIR"
     [[ -n "${CBFLOW_DFT_DIR:-}" ]] && echo "  DFT (CBFLOW_DFT_DIR):             $CBFLOW_DFT_DIR"
     [[ -n "${CBFLOW_DV_DIR:-}"  ]] && echo "  DV  (CBFLOW_DV_DIR):              $CBFLOW_DV_DIR"
+    [[ -n "${CBFLOW_RTL_DIR:-}" ]] && echo "  RTL (CBFLOW_RTL_DIR):             $CBFLOW_RTL_DIR"
     echo ""
 }
 
@@ -536,7 +567,7 @@ print(t.format_stats_report())
     SMARTGENIE_SERVER    Central server URL (http://ip:8091)
     SMARTGENIE_HYBRID    Set to 1 for Claude API hybrid mode
     ANTHROPIC_API_KEY    Claude credentials for hybrid / cloud mode
-                         (or run `ant auth login` once — no env var needed)
+                         (or run \`ant auth login\` once — no env var needed)
     CLAUDE_MODEL         Claude model for hybrid / cloud (default: claude-opus-5-5)
     SMARTGENIE_EFFORT    Cloud agent effort: low|medium|high|xhigh|max (default: high)
     CBFLOW_MODEL         Override local LLM model (default: qwen2.5:14b)

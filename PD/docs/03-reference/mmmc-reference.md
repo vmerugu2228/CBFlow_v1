@@ -69,7 +69,7 @@ CBflow's MMMC system provides automated multi-corner timing analysis across the 
 | **func** | Normal functional operation | 0.80V nom | 1000MHz | bumblebee_func.sdc |
 | **test** | DFT scan test mode | 0.80V nom | 100MHz | bumblebee_test.sdc |
 
-Modes are user-configurable via `cbflow flow mmmc-manager add-mode` or `mmmc_config.tcl`.
+Modes are user-configurable via `cbflow flow mmmc-manager add-mode --name <m> --sdc <file>` or `mmmc_config.tcl`.
 
 ---
 
@@ -165,21 +165,17 @@ Status tracked in RACE DB -- no stamp files.
 
 ### Individual Scenario Control
 
-Because each MMMC scenario is an independent subnode, you can control them individually:
+The CLI flow controls act on stages (`timing1`), not on scenario subnodes:
 
 ```bash
-# Check status of all scenario subnodes
-cbflow run status --details
-
-# Force re-run a single scenario
-cbflow run force --node timing1_func_ss_0p76v_rcmax_150c
-
-# Bypass a specific scenario
-cbflow run bypass --node timing1_func_ff_0p84v_rcmin_m40c
-
-# Force validate a scenario without re-running
-cbflow run forcevalidate --node timing1_func_tt_0p80v_rctyp_25c
+cbflow run status --details              # status of every scenario subnode
+cbflow run force --stages timing1        # re-run the timing stage
+cbflow run bypass --stages reporting1    # skip a stage
+cbflow run interactive --node timing1_func_ss_0p76v_rcmax_150c   # one scenario, interactive
 ```
+
+The scenario list of a node is chosen per node: `setup/override_config.<node>.tcl`
+(or right-click the timing node in the run GUI → MMMC Scenarios → Save).
 
 These commands can be issued while the engine is running (active engine sync).
 
@@ -209,28 +205,16 @@ set pnr(mmmc,override,signoff,hold) {func_ff_0p84v_rcmin_m40c func_ff_0p80v_rcmi
 
 ## MMMC Manager CLI
 
-### Create New Config (Interactive)
+### Generate a Config
 ```bash
-cbflow flow mmmc-manager create --interactive --output mmmc_config.tcl
+cbflow flow mmmc-manager generate --project opensky        # interactive, validated against lib_config
+cbflow flow mmmc-manager generate --project opensky --lib-tag OSS1 \
+  --corners "ss tt ff" --voltages "1p60v 1p80v 1p95v" --temperatures "m40c 25c 100c" --modes func
 ```
-Walks through:
-1. Process corners (ss,tt,ff)
-2. Nominal voltage + tolerance % -> derives low/nom/high
-3. Temperatures (-40,25,150)
-4. Operating modes (name, description, clock, SDC file)
-5. RC corners
-6. Reviews generated scenarios
-7. Auto-generates scenario sets and node mappings
-
-### Create Non-Interactive
-```bash
-cbflow flow mmmc-manager create \
-  --corners ss,tt,ff \
-  --voltages 0.80,5 \
-  --temps -40,25,150 \
-  --modes "func:Functional:1000MHz:func.sdc,test:DFT Test:100MHz:test.sdc" \
-  --output mmmc_config.tcl
-```
+Writes `global/config/project/<project>/v1.0.0/mmmc_config.tcl`. `list-views`
+lists the generated analysis views; `list-scenarios --set <set>` the scenarios
+of a set; `set-node --node <n> --setup <set> --hold <set>` the node assignments.
+Run `cbflow flow mmmc-manager <cmd> -h` for each command's flags.
 
 ### Show Current Config
 ```bash
@@ -264,7 +248,7 @@ set_analysis_view -setup [list ...] -hold [list ...]
 
 ### Add/Remove Operating Modes
 ```bash
-cbflow flow mmmc-manager add-mode --name scan --desc "Scan mode" --freq 200MHz --sdc scan.sdc
+cbflow flow mmmc-manager add-mode --name scan --sdc scan.sdc
 cbflow flow mmmc-manager remove-mode --name scan
 ```
 

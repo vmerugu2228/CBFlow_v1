@@ -103,16 +103,22 @@ config/
 
 CBflow applies directory-based versioning to these components:
 
+Paths are relative to a discipline root (`PD/`, `DFT/`, `DV/`, `RTL/`) or to `global/`:
+
 | Component | Path | Description |
 |-----------|------|-------------|
-| Flow config | `config/flow/` | Master flow definitions and node configs |
-| Project config | `config/project/{project}/` | Project-specific settings |
-| Tech config | `config/tech/{node}/` | Technology node parameters |
-| Setup hooks | `config/setup/common/` | Flow/tool setup hooks |
-| Exit criteria | `config/exit/` | Exit milestone definitions |
-| Commands | `cmds/{FLOW}/{vendor}/{tool}/` | EDA tool command files per flow |
-| Utilities | `utils/utilities/` | TCL utility modules |
-| Generation | `utils/generation/` | Setup generation scripts |
+| Flow registry | `global/config/flow/` | `flow_registry.tcl` (flow catalog, runtime + dashboard defaults) |
+| Discipline flow config | `<disc>/config/flow/` | flow_config, release / LSF / dir configs (PD), node configs |
+| Project config | `global/config/project/{project}/` + `<disc>/config/project/{project}/` | Identity / MMMC / schedule + discipline overlays |
+| Tech config | `global/config/tech/{node}/` | Technology node parameters, metal stacks |
+| Setup hooks | `PD/config/setup/common/` | Flow/tool setup hooks |
+| Exit criteria | `global/config/exit/` | Exit milestone definitions, waiver config |
+| Commands | `<disc>/cmds/{FLOW}/{vendor}/{tool}/` | EDA tool command files per flow |
+| Utilities | `global/utils/utilities/` | Shared TCL utility modules |
+| Generation | `global/utils/generation/` | Setup generation scripts |
+
+The version of each is selected by `FLOW_CONFIG_VERSION`, `UTILITIES_VERSION`, `TECH_CONFIG_VERSION` and
+`PROJECT_CONFIG_VERSION` (all `v1.0.0` by default, set by the launcher).
 | Validation | `utils/validation/` | Validation scripts |
 
 ## What This Is NOT

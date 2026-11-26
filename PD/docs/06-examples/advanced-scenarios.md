@@ -1,202 +1,152 @@
 # Advanced Scenarios
 
-Complex use cases and advanced workflows.
+Complex use cases built from the commands in [Basic Workflows](basic-workflows.md). Examples use project
+**opensky** (skywater_130nm, open-source tools) unless noted.
 
-## Version Rollback
+---
 
-Rollback to previous stable version.
+## 1. Hierarchical build: DL3 -> DL2 -> DL1 with library tags
+
+`project(design_hierarchy)` declares DL3 `gcd`, `mac_array` -> DL2 `ctrl_subsys`, `ai_subsys` -> DL1 `opensky_chip`.
+A parent sees its children through a **library tag** (`project(lib_config_tag)`, tags under
+`<project(lib_tag_root)>/skywater_130nm/<TAG>/`).
 
 ```bash
-# Current state
-cbflow flow version list --dir gui
-# v1.0.6 (current) - has issues
-# v1.0.5 - stable
-# v1.0.4
+cd workarea
 
-# Rollback to v1.0.5
-cbflow flow version set-current --dir gui --version v1.0.5
+# 1. DL3 blocks for phase P1: SYNTH -> FP -> PNR -> publish -> signoff
+PHASE=P1 RUN=p1_b1 ./run_p1_dl3.sh
 
-# Verify
-cbflow flow version get-current --dir gui
-# Output: v1.0.5
+# 2. Put the released children into a tag (GDS / CDL from the PV release, SPEFs linked per RC corner)
+for b in gcd mac_array; do
+  cbflow flow library-manager add --tech skywater_130nm --project opensky --tag OSS1 \
+      --category block --path <release,path>/P1/$b/PNR/PRO_EXIT
+done
+# PV not released yet? take GDS / CDL from the PNR release and record tech(block,<b>,pv_release) "PENDING":
+#   ... --category block --path <release,path>/P1/gcd/PNR/PRO_EXIT --pv-pending
 
-ls -la gui/
-# current -> v1.0.5
+# 3. Check the tag, then the cells a parent instantiates against it
+cbflow flow library-manager check --tech skywater_130nm --lib_tag OSS1
+cbflow flow library-manager check --tech skywater_130nm --lib_tag OSS1 \
+    --project opensky --design ctrl_subsys --netlist_tag P1_SYNTH_v1 --phase P1
+
+# 4. DL2 parents on that tag (FROM=FP|PNR reuses earlier releases, UNTIL=FP|PNR stops early)
+./run_p1_dl2.sh ctrl_subsys ai_subsys
 ```
 
 ---
 
-## Migrating Flat Component to Versioning
+## 2. Release several exits from one PNR run
 
-Convert existing flat directory to versioned component.
+Add one export / release pair per intermediate exit, run once, publish in exit order:
 
 ```bash
-# Before: setup/ is flat directory
-ls setup/
-# install.sh  config.yaml  README.md
+cd workarea/gcd/P2_run_PNR_gcd_b1
+cbflow run add-node --node export_data2  --type export_data  --dep place1
+cbflow run add-node --node release_data2 --type release_data --dep export_data2   # PLACE_EXIT
+cbflow run add-node --node export_data3  --type export_data  --dep cts_opt1
+cbflow run add-node --node release_data3 --type release_data --dep export_data3   # CTS_EXIT
+cbflow run all
+cbflow run release --from-run . --node release_data2 --publish
+cbflow run release --from-run . --node release_data3 --publish
+```
 
-# 1. Copy to create initial version
-cbflow flow version copy --dir setup --from . --to v1.0.0
+Releases before `pro` carry no SPEF; before `signoff` no timing models. `cts` and `route` have no exit.
 
-# 2. Set as current
-cbflow flow version set-current --dir setup --version v1.0.0
+---
 
-# After: setup/ is versioned
-ls -la setup/
-# CHANGELOG.md
-# current -> v1.0.0
-# v1.0.0/
-#   install.sh
-#   config.yaml
-#   README.md
+## 3. Per-node overrides
+
+Files in `<run>/setup/` apply in this order (last writer wins; there is no flow-name level):
+
+```
+override_config.tcl -> override_config.<stage>.tcl -> override_config.<branch>.tcl
+  -> override_config.<node_type>.tcl -> override_config.<node>.tcl
+```
+
+```tcl
+# setup/override_config.tcl — every node of the run
+set pnr(oss,drv,max_fanout) 10
+
+# setup/override_config.place2.tcl — only the added place2 node
+set pnr(oss,place,density) 0.30
+```
+
+Then `cbflow run retrace --from place2 --run`.
+
+---
+
+## 4. flow_proc hooks
+
+Command files define their steps with `flow_proc`. Extend a step from `setup/override_setup.tcl`
+(or `override_setup.<stage>.tcl` / `override_setup.<node>.tcl`):
+
+```tcl
+flow_proc_prepend report { puts "INFO: extra reports before the standard ones" }
+flow_proc_append  report { report_check_types -max_slew -max_capacitance -violators }
+```
+
+Prefer prepend / append for the open-source command files: they define their `flow_proc`s inline, so a
+`flow_proc_replace` issued from setup is overwritten when the command file loads.
+
+---
+
+## 5. Restrict MMMC scenarios per node
+
+```tcl
+# setup/override_config.timing1.tcl (STA), or the run GUI: right-click timing1 -> MMMC Scenarios -> Save
+set mmmc(timing1,setup_scenarios) "func_ss_1p60v_rc_max_100c"
+set mmmc(timing1,hold_scenarios)  "func_ff_1p95v_rc_min_m40c"
+```
+
+Project-wide per-node assignments live in `global/config/project/<proj>/v1.0.0/mmmc_node_scenarios.tcl`
+(`cbflow flow mmmc-manager set-node --node cts --setup "..." --hold "..."`).
+
+---
+
+## 6. Parallelism and memory
+
+```tcl
+set flow(max_parallel_jobs) 4     ;# cap concurrent local jobs (0 = unlimited)
+```
+
+`run_signoff.sh` passes it as `MAX_PARALLEL=<n>`. With LSF, `cbflow run add-node … --resource-tier XL` or
+`cbflow run all --lsf --queue L` pick the resource tier.
+
+---
+
+## 7. Spec-to-GDS chain
+
+`project(signoff_chain,<phase>)` lists the stages of a block's sign-off chain (RTL_SPEC -> RTL checks -> DV ->
+SYNTH -> DFT -> PD -> signoff). Drive it with:
+
+```bash
+cd workarea
+DRY=1 ./run_spec2gds.sh gcd P3          # print the plan
+./run_spec2gds.sh gcd P3                # run it (FROM=<step> / UNTIL=<step> to cut)
+```
+
+SmartGrid shows progress on the project page's chain tile and on `/project/opensky/chain`. See the
+[Spec-to-GDS guide](../02-user-guide/spec-to-gds-guide.md).
+
+---
+
+## 8. Debug a run's configuration
+
+```bash
+cbflow run debug --dump-resolved-cfg --key 'flow(use_lsf)'   # which file set it
+cbflow run report --node place1 --dump-setup                  # setup.tcl / config.tcl of a node
+cbflow run interactive --node place1                          # restore the node in the tool
 ```
 
 ---
 
-## Parallel Development
-
-Work on multiple components simultaneously.
+## 9. Framework version rollback
 
 ```bash
-# Terminal 1: Work on GUI
-cbflow flow version copy --dir gui --from v1.0.4 --to v1.0.5
-# Edit files in gui/v1.0.5/
-vim gui/v1.0.5/simple_gui.py
-# ... continue working ...
-
-# Terminal 2: Work on config (parallel)
-cbflow flow version copy --dir config/flow --from v1.0.0 --to v1.0.1
-# Edit files in config/flow/v1.0.1/
-vim config/flow/v1.0.1/flow_config.tcl
-# ... continue working ...
-
-# Terminal 1: Set GUI current
-cbflow flow version set-current --dir gui --version v1.0.5
-
-# Terminal 2: Set config current
-cbflow flow version set-current --dir config/flow --version v1.0.1
-
-# Create release with both
-cbflow flow release create --type minor --desc "GUI and config updates"
+cbflow flow version list --dir config/flow
+cbflow flow version set-current --dir config/flow --version v1.0.0
+cbflow flow version get-current --dir config/flow
 ```
 
----
-
-## Release Comparison
-
-Compare two releases to see what changed.
-
-```bash
-# List releases
-cbflow flow release list
-
-# View release details
-cbflow flow release info --version v1.0.0
-cbflow flow release info --version v2.0.0
-
-# Compare component versions
-cbflow flow release diff --v1 v1.0.0 --v2 v2.0.0
-
-# View CHANGELOGs for changed components
-cat gui/CHANGELOG.md | grep "v1.0.4" -A 30
-cat gui/CHANGELOG.md | grep "v1.0.5" -A 30
-
-# See release CHANGELOG comparison
-cat RELEASE_CHANGELOG.md | grep -E "(v1.0.0|v2.0.0)" -A 50
-```
-
----
-
-## Archiving Old Versions
-
-Clean up old versions to save space.
-
-```bash
-# Check disk usage
-du -sh gui/
-du -sh .git/
-
-# List all versions
-cbflow flow version list --dir gui
-# v1.0.0, v1.0.1, v1.0.2, v1.0.3, v1.0.4, v1.0.5 (current)
-
-# Archive old versions (keep last 3)
-cbflow flow version archive --dir gui --keep 3
-
-# Or manually delete
-git branch -D gui/v1.0.0 gui/v1.0.1 gui/v1.0.2
-git tag -d gui-v1.0.0 gui-v1.0.1 gui-v1.0.2
-rm -rf gui/v1.0.0/ gui/v1.0.1/ gui/v1.0.2/
-
-# Reclaim space
-git gc --aggressive
-git prune
-
-# Verify
-cbflow flow version list --dir gui
-# v1.0.3, v1.0.4, v1.0.5 (current)
-```
-
----
-
-## Multi-Repository Releases
-
-Coordinate releases across multiple repositories.
-
-```bash
-# Repo 1: Core
-cd CBFlow/PD/core
-cbflow flow release create --type major --config core-v2.0.0.json --desc "Core v2.0.0"
-
-# Repo 2: Extensions (depends on core v2.0.0)
-cd CBFlow/PD/extensions
-# Update dependency reference to core v2.0.0
-vim config/dependencies.json
-cbflow flow release create --type major --config ext-v2.0.0.json --desc "Extensions v2.0.0 (requires Core v2.0.0)"
-
-# Document compatibility
-echo "Extensions v2.0.0 requires Core v2.0.0" >> COMPATIBILITY.md
-```
-
----
-
-## Emergency Workspace Recovery
-
-Recover from corrupted or stuck workspace.
-
-```bash
-# Problem: Workspace stuck or corrupted
-cbflow flow version list-workspaces
-# Shows: gui workspace (corrupted)
-
-# Attempt cleanup
-cbflow flow version cleanup-workspace --dir gui
-
-# If that fails, manual cleanup
-cd workarea/worktrees/gui/workspace/
-git status  # Check state
-cd ../../..
-
-# Force remove worktree
-git worktree remove workarea/worktrees/gui/workspace --force
-
-# Delete workspace branch
-git branch -D gui/workspace
-
-# Prune stale worktrees
-git worktree prune
-
-# Verify cleanup
-cbflow flow version list-workspaces
-# Should show nothing
-
-# Start fresh
-cbflow flow version copy --dir gui --from v1.0.4 --to v1.0.5
-```
-
----
-
-**See also:**
-- [Basic Workflows](basic-workflows.md) - Simple workflows
-- [Release Workflows](release-workflows.md) - Release examples
-- [Troubleshooting](../02-user-guide/troubleshooting.md) - Common issues
+See [Versioning Workflow](../02-user-guide/versioning-workflow.md).

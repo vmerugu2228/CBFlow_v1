@@ -32,6 +32,7 @@ GLS_SCAN_MBIST:
 |-----------|---------|-------------------|
 | Synopsys  | VCS     | `vcs`             |
 | Mentor    | Questa  | `questa`          |
+| open source | Icarus Verilog | `iverilog` — zero-delay only, see `opensource-dft-guide.md` §6 |
 
 ## Minimal user config
 

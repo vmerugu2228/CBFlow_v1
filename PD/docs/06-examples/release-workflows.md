@@ -1,184 +1,135 @@
 # Release Workflows
 
-Examples of creating releases for different scenarios.
+Two kinds of release exist in CBflow:
 
-## Design exit releases (2026-11)
+- **Design exit releases** — a run releases design data to an exit milestone (FP_EXIT … MTO, DV / DFT / RTL
+  exits) under `<project(release,path)>/<phase>/<block>/<FLOW>/<tag>`. See the
+  [Exit Release Guide](../02-user-guide/exit-release-guide.md).
+- **Framework releases** — versioned snapshots of the CBflow configs / command files themselves
+  (`cbflow flow release …`). See [Release Management](../02-user-guide/release-management.md).
 
-These examples release design data to exit milestones. The rest of this page covers framework releases. Details are in the [Exit Release Guide](../02-user-guide/exit-release-guide.md).
+---
+
+## 1. Design exit releases
+
+### Publish a self-released open-source run
 
 ```bash
-# Release place1 as PLACE_EXIT (rewire export onto place1), then publish to SmartGrid
+cd workarea/gcd/P1_run_PNR_gcd_b1
+cbflow run release --from-run . --publish            # release_data1 already wrote the release; publish it
+cbflow run release --from-run . --publish --override # replace an existing SmartGrid entry
+```
+
+### Release an intermediate stage (place -> PLACE_EXIT)
+
+```bash
+# a) bypass the later stages
+cbflow run bypass --stages cts1,cts_opt1,route1,pro1,signoff1
+cbflow run stage --name release_data1
+
+# b) or rewire export onto place1
 cbflow run set-dep --node export_data1 --deps place1
 cbflow run stage --name release_data1
-cbflow run release --from-run . --node release_data1 --publish
 
-# MTO carries the same data as BTO
+# c) or add a pair under place1 and publish it
+cbflow run add-node --node export_data2  --type export_data  --dep place1
+cbflow run add-node --node release_data2 --type release_data --dep export_data2
+cbflow run stage --name release_data2
+cbflow run release --from-run . --node release_data2 --publish
+```
+
+`workarea/test_place_release.sh` (`SRC=place1|cts_opt1`) exercises all three.
+
+### MTO carries the same data as BTO
+
+```bash
 cbflow run release --from-run . --clone-from BTO --tag MTO --publish
-
-# Signoff (STA / PV / LEC) on gcd's P2 PRO_EXIT release, published
-cd workarea && FLOWS="STA PV LEC" PHASE=P2 RUN=p2_b1 LIB_TAG=OSS2 ./run_signoff.sh gcd PRO_EXIT
 ```
 
-## Quick Internal Release
+Or, in the same run: set `project(release,tag) "MTO"` in `setup/override_config.release_data1.tcl` (run GUI
+release form -> Save), then `cbflow run retrace --from release_data1 && cbflow run stage --name release_data1`.
 
-Fast release for testing or internal use.
+### Signoff of an exit (STA / PV / LEC)
 
 ```bash
-# Review latest changes
-cat gui/CHANGELOG.md | head -50
-cat config/flow/CHANGELOG.md | head -50
-
-# Create release (auto mode)
-make git_create_release TYPE=patch DESC="Internal testing release"
-
-# View release
-make git_list_releases
-cat RELEASE_CHANGELOG.md | head -100
+cd workarea
+FLOWS="STA PV LEC" PHASE=P2 RUN=p2_b1 LIB_TAG=OSS2 ./run_signoff.sh gcd PRO_EXIT
+PV_MODE=hier PHASE=P2 ./run_signoff.sh ctrl_subsys PRO_EXIT     # hierarchical PV -> PV/PRO_EXIT_HIER
+PUBLISH=0 PHASE=P2 ./run_signoff.sh gcd BTO                      # release without publishing
 ```
 
-**Time:** 2-3 minutes
+Signoff flows read only the release of the exit they verify (`sta(input,release_tag) "PRO_EXIT"`), and release to
+`<block>/<FLOW>/<exit>`.
+
+### Commercial flows: package from the workspace
+
+```bash
+cbflow run release --tag PLACE_EXIT --dry-run       # gate check only (required flows of the exit)
+cbflow run release --tag PLACE_EXIT --publish
+cbflow run release-check --tag BTO --project bumblebee --phase LC3            # every block released?
+cbflow run release-check --tag BTO --project bumblebee --phase LC3 --block cpu_core
+```
+
+### Exit order
+
+Exits release in the order of the phase's plan — `project(phase_exits)` for PD, `project(phase_exits,DV)` (and so
+on) for other disciplines, each ordered on its own. `workarea/test_exit_order.sh` demonstrates the refusal:
+
+```
+ERROR: exit order — gcd P2 cannot release PRO_EXIT before PLACE_EXIT, CTS_EXIT (release in order: FP_EXIT -> PLACE_EXIT -> CTS_EXIT -> PRO_EXIT; ...)
+```
+
+### Consume a block release in a library tag (hierarchy)
+
+```bash
+# DL3 gcd's BTO release becomes a block in library tag OSS2 for its DL2 parent (ctrl_subsys)
+cbflow flow library-manager add --tech skywater_130nm --project opensky --tag OSS2 \
+    --category block --path <release,path>/P2/gcd/PNR/BTO
+cbflow flow library-manager check --tech skywater_130nm --lib_tag OSS2
+```
 
 ---
 
-## QA Testing Release
+## 2. Framework releases
 
-Release for QA team with specific component versions.
+Framework releases snapshot the versioned component directories (`v1.0.0/`, `v1.0.1/`, …).
 
-```bash
-# 1. Generate config
-make git_generate_config OUTPUT=qa-release.json DESC="QA Sprint 23"
-
-# 2. Review and adjust versions
-cat qa-release.json
-vim qa-release.json
-# Keep stable versions, update components being tested
-
-# Example qa-release.json:
-{
-  "version": "auto",
-  "description": "QA Sprint 23",
-  "components": {
-    "gui": "v1.0.5",        # Testing new GUI features
-    "config/flow": "v1.0.0", # Stable version
-    "utils/version": "v2.0.0" # Testing new version features
-  }
-}
-
-# 3. Create release
-make git_create_release TYPE=minor CONFIG=qa-release.json DESC="QA Sprint 23"
-
-# 4. Checkout for testing
-make git_checkout_release RELEASE=v1.1.0
-
-# 5. Share with QA
-# Location: workarea/releases/v1.1.0/
-```
-
-**Time:** 10-15 minutes
-
----
-
-## Production Release
-
-Fully tested release for production deployment.
+### Quick release
 
 ```bash
-# 1. Review all component versions
-for component in gui config/flow config/project utils/version; do
-  echo "=== $component ==="
-  make list_versions DIR=$component
-  cat $component/CHANGELOG.md | head -30
-done
-
-# 2. Generate production config
-make git_generate_config OUTPUT=prod-v2.0.0.json DESC="Q4 2025 Production Release"
-
-# 3. Carefully select versions
-vim prod-v2.0.0.json
-# Use only QA-approved, tested versions
-# Document why each version was chosen
-
-# Example prod-v2.0.0.json:
-{
-  "version": "v2.0.0",
-  "description": "Q4 2025 Production Release",
-  "components": {
-    "gui": "v1.0.4",          # Stable, no known issues
-    "config/flow": "v1.0.0",  # Production tested
-    "config/project": "v1.0.0", # Rollback from v1.0.1 (had bugs)
-    "utils/version": "v2.0.0" # QA approved
-  }
-}
-
-# 4. Validate config
-cat prod-v2.0.0.json | python3 -m json.tool
-
-# 5. Create release
-make git_create_release TYPE=major CONFIG=prod-v2.0.0.json DESC="Q4 2025 Production Release"
-
-# 6. Archive config for records
-mkdir -p releases/configs/
-cp prod-v2.0.0.json releases/configs/
-
-# 7. Checkout for packaging
-make git_checkout_release RELEASE=v2.0.0
-
-# 8. Create distribution package
-cd workarea/releases/v2.0.0/
-tar -czf ../CBFlow-v2.0.0.tar.gz *
-cd ../../..
-
-# 9. Document release
-cat RELEASE_CHANGELOG.md | head -150 > releases/v2.0.0-RELEASE-NOTES.md
+cbflow flow version status                                 # component health
+cbflow flow release create --type patch --desc "Internal testing release"
+cbflow flow release list
+cbflow flow release info --version v2.0.1
 ```
 
-**Time:** 30-60 minutes
-
----
-
-## Hotfix Release
-
-Emergency fix for production issue.
+### Release from a config file (pin component versions)
 
 ```bash
-# 1. Check current production release
-make git_release_info RELEASE=v2.0.0
-
-# 2. Fix the urgent bug
-make git_create_workspace DIR=gui
-# ... fix bug ...
-make git_commit_version DIR=gui TYPE=patch DESC="Hotfix: Critical security vulnerability (#789)"
-make git_promote_version DIR=gui VERSION=v1.0.5
-
-# 3. Generate config based on production
-make git_generate_config OUTPUT=hotfix-v2.0.1.json DESC="Hotfix release"
-
-# 4. Update only the fixed component
-vim hotfix-v2.0.1.json
-{
-  "version": "v2.0.1",
-  "description": "Hotfix: Security vulnerability",
-  "components": {
-    "gui": "v1.0.5",          # UPDATED - hotfix
-    "config/flow": "v1.0.0",  # Same as v2.0.0
-    "config/project": "v1.0.0", # Same as v2.0.0
-    "utils/version": "v2.0.0" # Same as v2.0.0
-  }
-}
-
-# 5. Create hotfix release
-make git_create_release TYPE=patch CONFIG=hotfix-v2.0.1.json DESC="Hotfix: Security vulnerability"
-
-# 6. Fast-track to production
-make git_checkout_release RELEASE=v2.0.1
-cd workarea/releases/v2.0.1/
-# ... deploy immediately ...
+cbflow flow release generate-config --output qa-release.json
+vi qa-release.json                       # pick the version of each component
+cbflow flow release create --config qa-release.json --desc "QA Sprint 23"
+cbflow flow release validate --version v2.1.0       # check the created release
 ```
 
-**Time:** 15-30 minutes (urgent)
+### Compare and switch
+
+```bash
+cbflow flow release diff --v1 v2.0.0 --v2 v2.0.1 --format markdown
+cbflow flow release set-current --version v2.0.1
+cbflow flow release components
+```
+
+### Ship to a customer
+
+```bash
+cbflow bundle --output /tmp            # CBflow_v2.0.0_<date>.tar.gz (run data, releases and the RACE area excluded)
+# customer side, after unpacking:
+bin/cbflow run release-lock            # production permissions
+```
 
 ---
 
 **See also:**
-- [Basic Workflows](basic-workflows.md) - Component versioning
-- [Advanced Scenarios](advanced-scenarios.md) - Complex cases
+- [Basic Workflows](basic-workflows.md)
+- [Advanced Scenarios](advanced-scenarios.md)

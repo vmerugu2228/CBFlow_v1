@@ -71,17 +71,17 @@ show_help() {
   This launcher owns PD-specific flow subcommands:
 
     cbflow-pd flow library-manager …
-        Manage tech_config → lib_config binding for PD (tracks × VTs ×
-        corners). Reads global/config/tech/<tech>/tech_config.tcl and
-        writes PD/config/tech/<tech>/lib_config_<tag>.tcl.
+        Library tags for PD (tracks × VTs × corners, memory / io / ip /
+        block views). Reads global/config/tech/<tech>/v1.0.0/tech_config.tcl
+        and writes <project(lib_tag_root)>/<tech>/<TAG>/lib_config.tcl.
 
     cbflow-pd flow mmmc-manager …
         Generate MMMC scenarios from PVT building blocks for PD STA and
-        PNR flows. Writes global/config/project/<p>/mmmc_*.tcl.
+        PNR flows. Writes global/config/project/<p>/v1.0.0/mmmc_*.tcl.
 
     cbflow-pd flow checklist …
-        PD exit-milestone checklists: FP_EXIT, PLACE_EXIT, CTS_EXIT,
-        PRO_EXIT, BTO, MTO. 292 checks across 14 categories.
+        Exit-milestone checklists (global/config/exit/v1.0.0/) for PD
+        (FP_EXIT … BTO, MTO), DFT, DV and RTL; --discipline filters.
 
   Every other subcommand transparently falls through to the cross-domain
   launcher (\$CBFLOW_GLOBAL_DIR/bin/cbflow), so:

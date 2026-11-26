@@ -4,8 +4,8 @@
 #
 # Hosts subcommands that are RTL-design-side-specific (lint waiver management,
 # CDC path exploration, UPF intent viewer, etc.). Currently the RTL-owned
-# subcommand list is EMPTY — every RTL flow (RTL_LINT / RTL_CDC / RTL_RDC /
-# UPF_CHECK) runs through the cross-domain `cbflow run …` path, so no
+# subcommand list is EMPTY — every RTL flow (RTL_SPEC / RTL_LINT / RTL_CDC /
+# RTL_RDC / UPF_CHECK) runs through the cross-domain `cbflow run …` path, so no
 # discipline-specific tooling has been carved out yet.
 #
 # This launcher exists as an extension point: to add an RTL-specific
@@ -57,8 +57,8 @@ show_help() {
   ═══════════════════════════════════════════════════════════════════
 
   This launcher owns RTL-specific subcommands. Currently: (none).
-  RTL flows themselves (RTL_LINT, RTL_CDC, RTL_RDC, UPF_CHECK) run
-  through the cross-domain \`cbflow run …\` path.
+  RTL flows themselves (RTL_SPEC, RTL_LINT, RTL_CDC, RTL_RDC, UPF_CHECK)
+  run through the cross-domain \`cbflow run …\` path.
 
   Any command not owned here falls through to \$CBFLOW_GLOBAL_DIR/bin/cbflow.
     cbflow-rtl workspace list-runs    ← works

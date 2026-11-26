@@ -24,13 +24,14 @@ The disk cost tradeoff is acceptable because config/script directories are small
 
 ```
 1. Copy
-   config/v1.0.0/  -->  config/v1.0.1/   (full directory copy)
+   cbflow flow version copy --dir config/flow --from v1.0.0 --to v1.0.1
 
 2. Edit
-   Modify files in config/v1.0.1/ directly
+   Modify files in config/flow/v1.0.1/ directly
 
 3. Promote
-   config/current  -->  v1.0.1   (update symlink)
+   cbflow flow version set-current --dir config/flow --version v1.0.1
+   (and export FLOW_CONFIG_VERSION=v1.0.1 for runs)
 ```
 
 ### Atomicity
@@ -43,22 +44,24 @@ Symlink updates are atomic on POSIX systems. The `set-current` operation:
 
 ## Directory Layout
 
+Versioned trees sit next to each other with a `current` symlink, e.g.:
+
 ```
-config/
-    v1.0.0/                 # First version
-        flow_config.tcl
-        node_SYNTH.tcl
-        node_PNR.tcl
-        mmmc_config.tcl
-    v1.0.1/                 # Second version (copy of v1.0.0, edited)
-        flow_config.tcl     # Modified
-        node_SYNTH.tcl
-        node_PNR.tcl
-        mmmc_config.tcl
-    v1.0.2/                 # Third version
-        ...
-    current -> v1.0.1       # Symlink to active version
+PD/config/flow/
+    v1.0.0/                 # flow_config.tcl, release_config.tcl, lsf_config.tcl, node_configs/ …
+    v1.0.1/                 # copy of v1.0.0, edited
+    current -> v1.0.0       # symlink maintained by `cbflow flow version set-current`
+PD/cmds/PNR/cadence/innovus/
+    v1.0.0/
+    current -> v1.0.0
+global/utils/utilities/v1.0.0/   global/config/flow/v1.0.0/   global/config/project/<proj>/v1.0.0/
 ```
+
+A **run** does not follow `current`: it picks versions from the launcher
+environment — `FLOW_CONFIG_VERSION`, `UTILITIES_VERSION`, `TECH_CONFIG_VERSION`,
+`PROJECT_CONFIG_VERSION` (all default `v1.0.0`, set in
+`global/bin/_cbflow_paths.sh`) and `<flow>(tool,version)` / `<TOOL>_VERSION`
+for command files. Export one of these to run against another version.
 
 ## Version Lifecycle
 
@@ -77,8 +80,8 @@ disk             version              exists but            archive/)
 Rolling back is a single symlink operation:
 
 ```bash
-cbflow flow version set-current --dir config --version v1.0.0
-# config/current now points to v1.0.0
+cbflow flow version set-current --dir config/flow --version v1.0.0
+cbflow flow version get-current --dir config/flow
 ```
 
 No branch manipulation, no merge conflicts, no checkout required.

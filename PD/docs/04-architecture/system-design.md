@@ -1,567 +1,390 @@
 # System Design
 
-Architecture of the CBflow v2.0.0 PD automation framework.
+Architecture of CBflow v2.0.0: a multi-discipline design automation framework
+(PD, DFT, DV, RTL) on one shared engine, one config cascade, one CLI and one
+release model. Paths below are relative to `$CBFLOW_ROOT` (the umbrella root)
+unless stated otherwise.
 
 ---
 
-## RACE Engine (Run Automation & Control Engine)
+## 1. Repository Layout
 
-RACE is the Python-native DAG executor at the core of CBflow v2.0.0. It completely replaces GNU Make -- Make is NOT used and NOT required anywhere in the system.
+```
+$CBFLOW_ROOT/
+├── bin/                     launcher symlinks → global/bin/ (cbflow, cbflow-oss, cbflow-run, …)
+├── global/                  cross-discipline layer, sourced by every run
+│   ├── bin/                 cbflow, cbflow-flow, cbflow-run, cbflow-workspace, cbflow-oss,
+│   │                        cbflow-oss-checks, _cbflow_paths.sh, …
+│   ├── config/
+│   │   ├── cli/discipline_commands.tcl        subcommand → owning discipline
+│   │   ├── flow/v1.0.0/flow_registry.tcl      flow(types), flow(discipline,*), runtime + dashboard defaults
+│   │   ├── flow/v1.0.0/oss_launch_config.tcl  open-source tool shells (cbflow-oss), image, tools dir
+│   │   ├── flow/v1.0.0/descriptions_config.tcl, canonical_release_schema.tcl
+│   │   ├── exit/v1.0.0/                       every exit milestone (all disciplines) + checks/, waivers
+│   │   ├── tech/<node>/v1.0.0/tech_config.tcl single tech file per node
+│   │   ├── project/<proj>/v1.0.0/             <proj>_config.tcl, team / mmmc / schedule configs
+│   │   └── master_projects.json               project registry
+│   └── utils/
+│       ├── commands/        Python CLI + engine: race_engine.py, run_cmd.py, workspace_cmd.py,
+│       │                    start_run.py, config_resolver.tcl, test_cmd.py, test_suite/
+│       ├── core/            paths.py, env.py, registry.py, db.py, release_exits.py, …
+│       ├── utilities/v1.0.0/ Tcl runtime: utils.tcl, handler_common.tcl, launch_utils.tcl,
+│       │                    resolve_inputs.tcl, release_utils.tcl, tool_overlay.tcl,
+│       │                    oss_utils.tcl, oss_flow_utils.tcl, oss_checks.tcl, oss_checkgrp_*.tcl
+│       ├── generation/v1.0.0/ generate_setup.tcl (per-node config.tcl + setup.tcl)
+│       ├── dashboard/       per-user run dashboard daemon
+│       ├── project_dashboard/ SmartGrid (router.py, releases.py, chain.py, floorplan.py, …)
+│       ├── validation/v1.0.0/ validators + checks/ (exit check scripts)
+│       └── oss/             install_pytools.sh, install_uvm.sh, install_atalanta.sh, install_ipxact_schema.sh
+├── PD/                      $CBFLOW_CORE_DIR
+│   ├── bin/cbflow-pd        PD-owned subcommands (library-manager, mmmc-manager, checklist)
+│   ├── config/flow/v1.0.0/  flow_config.tcl, release_config.tcl, lsf_config.tcl, dir_config.tcl,
+│   │                        tool_launch_config.tcl, validation_config.tcl, node_configs/
+│   ├── config/project/<proj>/v1.0.0/<proj>_pd_config.tcl   PD overlay (workarea, release, lsf, lib tags)
+│   ├── config/setup/        flow_proc hook files (common / project)
+│   ├── cmds/<FLOW>/<vendor>/<tool>/v1.0.0/   handlers + command files
+│   ├── utils/commands/      PD Python commands (library_manager_cmd, checklist_cmd, mmmc_manager_cmd, …)
+│   └── ai/                  SmartGenie agent
+├── DFT/  DV/  RTL/          $CBFLOW_DFT_DIR / $CBFLOW_DV_DIR / $CBFLOW_RTL_DIR
+│   ├── bin/cbflow-<disc>    discipline launcher (extension point)
+│   ├── config/flow/v1.0.0/  flow_config.tcl, lsf_config.tcl, dir_config.tcl, tool_launch_config.tcl, node_configs/
+│   ├── cmds/<FLOW>/<vendor>/<tool>/v1.0.0/
+│   ├── utils/oss/           open-source helpers (oss_dft.py / uvmgen.py, dv_tool.py / spec_tool.py, rtl_check.py)
+│   ├── utils/utilities/v1.0.0/ discipline Tcl helpers (oss_dft_utils.tcl, oss_rtl_utils.tcl, …)
+│   └── docs/
+└── workarea/                design workareas + driver scripts (run_p1_dl3.sh, run_signoff.sh, run_spec2gds.sh, …)
+```
 
-### How RACE Works
+Only `CBFLOW_ROOT` is user-facing. `global/bin/_cbflow_paths.sh` derives
+`CBFLOW_GLOBAL_DIR`, `CBFLOW_CORE_DIR` (PD), and `CBFLOW_DFT_DIR` /
+`CBFLOW_DV_DIR` / `CBFLOW_RTL_DIR` (only when the directory exists), and
+defaults `FLOW_CONFIG_VERSION`, `UTILITIES_VERSION`, `TECH_CONFIG_VERSION`,
+`PROJECT_CONFIG_VERSION` to `v1.0.0`.
 
-1. **DAG Construction**: RACE reads `node_config.tcl` at runtime and builds the execution DAG from the `stages` and `dependencies,<stage>` declarations. There is no intermediate Makefile or build-system artifact.
+### Flow catalogue
 
-2. **SQLite DB for Status Tracking**: Each run has a dedicated SQLite database (`.race_<uid>.db`) that stores the status of every node and subnode. The DB path follows the convention:
-   ```
-   $project(race,db_path)/$project/$domain/$flow/$user_$run_$uid.db
-   ```
+`global/config/flow/v1.0.0/flow_registry.tcl` is the single list:
+`flow(types)` (33 flows), `flow(disciplines) {PD DFT DV RTL}`,
+`flow(discipline_dir,<DISC>)` and `flow(discipline,<FLOW>)`.
 
-3. **File Change Detection**: RACE tracks input file timestamps and checksums. When an input file is edited, RACE automatically identifies and retraces all downstream nodes that depend on it. This eliminates the need for manual retrace in most cases.
+| Discipline | Flows |
+|---|---|
+| PD (12)  | SYNTH FP PNR STA LEC EMIR PV ECO CLP POPT FCFP SYNTH_PNR |
+| DFT (7)  | DFT_INSERT_PASS1 DFT_INSERT_PASS2 DFT_INSERT_PASS3 SCAN_INSERT ATPG GLS_FUNC GLS_SCAN_MBIST |
+| DV (9)   | SPEC_RAMP PLANNING TB_SETUP M1_EXEC M2_EXEC M3_EXEC M4_EXEC ECO_EXEC DV_SIGNOFF |
+| RTL (5)  | RTL_SPEC RTL_LINT RTL_CDC RTL_RDC UPF_CHECK |
 
-4. **Parallel Subnode Execution**: When the DAG contains independent subnodes at the same level, RACE executes them in parallel. For example, the PV flow runs drc, lvs, erc, perc, and xor in parallel after fill completes.
+`bin/cbflow flow types` prints the live table (vendor / tool / shell per flow).
 
-5. **Dynamic Subnodes**: RACE generates subnodes dynamically based on user_config at runtime. The STA flow creates per-corner subnodes from the user-specified timing scenarios, so each corner runs as an independent subnode.
+---
 
-6. **Custom Nodes at Run Level**: Users can extend the DAG at run time without editing node_config files:
-   - `cbflow run add-node` -- add a custom node with specified dependencies
-   - `cbflow run create-branch` -- create a branch in the DAG
+## 2. Launcher Composition
 
-### RACE Configuration
+```
+bin/cbflow ──► global/bin/cbflow           workspace | run | flow | bundle | migrate | test |
+                                           dashboard | smartgrid | smartgenie | --version
+                 └─ flow ──► global/bin/cbflow-flow
+                               types | info | stages | nodes | check | project | release |
+                               version | dev | config | plugin | metrics | …
+                               *) unknown subcommand → look up
+                                  global/config/cli/discipline_commands.tcl
+                                  set cli(discipline,<subcmd>) "<DISC>"
+                                  → exec $CBFLOW_ROOT/<DISC>/bin/cbflow-<disc> flow <subcmd> …
+PD/bin/cbflow-pd   PD_FLOW_SUBCOMMANDS=(library-manager mmmc-manager checklist)
+                   → python3 PD/utils/commands/<cmd>_cmd.py; anything else → global/bin/cbflow
+DFT/bin/cbflow-dft, DV/bin/cbflow-dv, RTL/bin/cbflow-rtl
+                   empty <DISC>_FLOW_SUBCOMMANDS today; everything falls through to global/bin/cbflow
+```
+
+`PD/bin/cbflow` is a compatibility symlink to `global/bin/cbflow`. Run
+execution (`cbflow run …`) and workspace creation are discipline-agnostic: the
+flow's discipline comes from `flow(discipline,<FLOW>)`. See
+[Extending CBflow](../05-developer/extending.md#3-adding-a-discipline-owned-subcommand)
+for adding a discipline-owned subcommand.
+
+---
+
+## 3. Config Cascade
+
+Configs are plain Tcl data (no procs; procs live in `utils.tcl`). Every node's
+generated `work/<FLOW>/<node>/run/config.tcl` sources, in order (later wins):
+
+| # | File | Notes |
+|---|---|---|
+| 1 | `global/config/project/<proj>/v1.0.0/<proj>_config.tcl` (+ `team_config.tcl`) | identity, hierarchy, `project(phases)`, `project(phase_exits[,<DISC>])` |
+| 2 | `<DISC>/config/project/<proj>/v1.0.0/<proj>_<disc>_config.tcl` | every discipline overlay present on disk (DFT, DV, RTL, then PD) — PD: workarea, `release,*`, `lsf,*`, `lib_root`, `lib_tag_root`, `lib_config_tag`, `race,db_path` |
+| 3 | `global/config/tech/<tech>/v1.0.0/tech_config.tcl` | foundry data, metal stack, physical cells; sources the library tag's `lib_config.tcl` / `blocks_config.tcl` (library-manager output under `project(lib_tag_root)/<TAG>/`) |
+| 4 | `<DISC>/config/flow/v1.0.0/flow_config.tcl` | routed by `flow(discipline,<FLOW>)`; the discipline flow_config sources `global/config/flow/v1.0.0/flow_registry.tcl` (and `descriptions_config.tcl`) first |
+| 5 | `<DISC>/config/flow/v1.0.0/node_configs/<FLOW>_config.tcl` | stages, deps, subnodes, node_types, runtime; sources its tool overlay `<FLOW>_<tool>_config.tcl` (from `<flow>(tool,name)` / `default_tool`) |
+| 6 | `global/config/project/<proj>/v1.0.0/mmmc_config.tcl` (+ `mmmc_node_scenarios.tcl`) | MMMC PVT building blocks, per-node scenarios |
+| 7 | `<run>/setup/user_config.tcl` | user overrides; then `cbflow_reload_tool_overlay` (`tool_overlay.tcl`) loads a user-selected tool's overlay and re-sources user_config |
+| 8 | `<run>/setup/override_config.tcl` → `.<stage>.tcl` → `.<branch>.tcl` → `.<node>.tcl` | per-node overrides (stage = node type without the instance number; there is no flow-name level) |
+
+The same walk runs in three places that must stay in step:
+`generate_setup.tcl::get_hierarchical_config_paths` (per-node `config.tcl`),
+`global/utils/commands/config_resolver.tcl` (the engine's resolved config) and
+`handler_common.tcl::handler_load_configs` (handlers).
+
+### flow_proc hook cascade (setup.tcl)
+
+`generate_setup.tcl` also writes `work/<FLOW>/<node>/run/setup.tcl`, which
+sources hook files only (lowest → highest priority; `$CONFIG_ROOT` =
+`<DISC>/config` of the flow, e.g. `PD/config`; `SETUP_VERSION` defaults to v1.0.0):
+
+```
+$CONFIG_ROOT/setup/common/v1.0.0/setup.tcl, flow_setup.tcl
+$CONFIG_ROOT/setup/common/v1.0.0/<FLOW>/<vendor>/<tool>/global_setup.tcl, <stage>_setup.tcl
+$CONFIG_ROOT/setup/<proj>/v1.0.0/setup.tcl, <FLOW>/flow_setup.tcl
+<run>/setup/setup.tcl, flow_setup.tcl, <stage>_setup.tcl
+<run>/setup/override_setup.tcl → override_setup.<stage>.tcl → override_setup.<node>.tcl
+```
+
+---
+
+## 4. RACE Engine
+
+`global/utils/commands/race_engine.py` (Run Automation & Control Engine) is the
+Python DAG executor. There is no Make anywhere in the execution path
+(`cbflow run gen-makefile` only verifies the engine DAG; the name is historical).
+
+- **DAG** (`DagBuilder`) — built at run time from the resolved node config:
+  `<flow>(stages)`, `<flow>(dependencies,<node>)`, `<flow>(subnodes,<node>)`
+  (normally `setup run validate finish`; inputs nodes use one subnode per
+  input type) and `subnode_dependencies`. Run-level changes from
+  `add-node` / `create-branch` / `set-dep` live in
+  `<run>/setup/runtime_flow_config.tcl` and are merged on top.
+- **Dynamic subnodes** — a node with `<flow>(subnodes,<node>,dynamic_kind)`
+  `scenario` fans out one subnode per MMMC scenario
+  (`override_config.<node>.tcl` → user_config `<flow>(mmmc,setup|hold_scenarios)`
+  → node-config `mmmc,scenario_set`); `rc_corner` fans out per RC corner.
+- **Handler lookup** — `cmds/<FLOW>/<vendor>/<tool>/<version>/<node_type>_subnode_handler.tcl`
+  under the flow's discipline root first (`CBFLOW_<DISC>_DIR`), then PD, then
+  any other discipline root. Each job runs
+  `tclsh <handler> <subnode> <run_dir> <node>`.
+- **Per-job environment** — everything in `<run>/.run.cbflow.env`
+  (`FLOW_DIR` = umbrella root, `CONFIG_ROOT` = `<DISC>/config`,
+  `SCRIPTS_ROOT` = `global/utils`, `CBFLOW_*`, `*_VERSION`), plus
+  `CBFLOW_ENGINE=1`, `CBFLOW_RUN_DIR`, `CBFLOW_NODE_NAME`, `CBFLOW_SUBNODE`.
+- **Status DB** (`StatusDB`, SQLite, WAL) — the only status store (no stamp
+  files). Path: `project(race,db_path)/<project>/<discipline>/<FLOW>/<run_dir_name>_<user>_<md5(run_dir)[:6]>.db`,
+  located again through `<run>/.race_db_pointer`. `project(race,db_path)` is
+  mandatory. Tables: jobs, run_info, run_config, job_order, dag_structure,
+  stage_metrics, design_info, release_info, decision_outcomes, lsf_details,
+  run_logs, metrics_snapshot, config_history, checklist_results.
+  `workspace create` archives a stale DB (with `-wal` / `-shm`) as `<db>.stale-<ts>`.
+- **Execution** — ready jobs run in parallel, capped by
+  `flow(max_parallel_jobs)` (0 = unlimited); per-node `runtime,timeout`;
+  logs to `work/<FLOW>/<node>/run/<job>.log`.
+- **Active sync** — `retrace`, `bypass`, `force`, `forcevalidate` write the DB
+  and the running engine re-reads it. A fully bypassed node gets
+  `work/<FLOW>/<node>/BYPASSED` (removed on retrace / force).
+- **File-change detection** — edited source inputs retrace downstream nodes.
+- **Ownership** — `owner` / `owner_uid` in `run_info`; mutating commands call
+  `_check_ownership()`; the dashboard returns HTTP 403 to non-owners.
+
+---
+
+## 5. Handlers and Launch
+
+Every execution node has a thin subnode handler:
 
 ```tcl
-# flow_config.tcl
-set flow(dispatcher) "race"
+source "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/handler_common.tcl"
+source "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/launch_utils.tcl"
+lassign [handler_parse_args $argv $argc] subnode_name run_dir node_name
+handler_load_configs $run_dir "PNR"
+...
+handler_dispatch $subnode_name $run_dir $::flow_type $node_name $stage_name $cmd_file $test_mode $_tool
 ```
 
-### Active Engine Sync
+`handler_common.tcl::handler_dispatch` maps the four subnodes:
 
-RACE supports active engine synchronization: when you issue `retrace`, `bypass`, or `forcevalidate` commands while the engine is running, the changes are applied to the running engine immediately. There is no need to stop and restart the flow. The engine picks up the updated node status from the SQLite DB and adjusts its execution plan on the fly.
+| Subnode | Proc | Does |
+|---|---|---|
+| setup | `handler_setup` | runs `generate_setup.tcl` → `config.tcl` + `setup.tcl` |
+| run | `handler_run` (launch_utils.tcl) | `generate_launch_wrapper` + `submit_job` (tool shell from `lsf(tool_shell,<tool>)`) |
+| validate | `handler_validate` | production mode: `<flow>(mandatory_outputs,<node>)` exist + non-empty and `outputs/` has ≥ 1 file; test mode short-circuits |
+| finish | `handler_finish` | finish timestamp; `handler_publish_release` publishes a release node to SmartGrid when `project(release,publish)` is true |
 
-### RACE Commands
+Inputs nodes call `handler_resolve_inputs` + `handler_dispatch_inputs`
+(release-tag / from_run / direct-path resolution, staging, naming).
 
-| Command | Purpose |
-|---------|---------|
-| `cbflow run all` | Execute the full DAG |
-| `cbflow run stage --name <stage>` | Execute a single node |
-| `cbflow run status` | Query node status from RACE DB |
-| `cbflow run retrace --from <stage>` | Mark node and downstream for re-execution |
-| `cbflow run bypass --node <node>` | Skip a node (mark bypassed in DB) |
-| `cbflow run force --node <node>` | Force re-run regardless of status |
-| `cbflow run forcevalidate --node X` | Force validate a specific node |
-| `cbflow run forcevalidate --from X --to Y` | Force validate a range of nodes |
-| `cbflow run forcevalidate --from X` | Force validate from node X to end |
-| `cbflow run forcevalidate --to Y` | Force validate from start to node Y |
-| `cbflow run gui` | Register the run with the per-user dashboard daemon and open it (PD port 9000 + uid%300) |
-| `cbflow run clean --confirm` | Delete work, logs, and RACE DB |
-| `cbflow run verify-dag` | Verify DAG from node_config without executing |
-| `cbflow run show-graph` | Visualize the RACE DAG |
-| `cbflow run list-nodes` | List all nodes in the DAG |
-| `cbflow run add-node` | Add a custom node |
-| `cbflow run create-branch` | Create a DAG branch |
+**Launch modes** (`launch_utils.tcl::determine_launch_mode`): `flow(use_lsf)` /
+`CBFLOW_USE_LSF` / `CBFLOW_BSUB_CMD`, and `flow(use_xterm)` /
+`CBFLOW_USE_XTERM` → LSF + xterm, LSF batch, local xterm, or local.
+Registry defaults (`flow_registry.tcl`): `test_mode=false`, `use_lsf=false`,
+`use_xterm=true`. Three gates stop a run from completing "clean" without the
+tool running: `start_run.py::_preflight_launch_bins` (bsub / xterm present),
+`submit_job` xterm branch (`$DISPLAY`, synchronous, exit code checked), and
+`handler_validate` (mandatory outputs).
 
-> **Note:** `retrace`, `bypass`, and `forcevalidate` can be issued while the engine is actively running. The running engine detects the DB changes and updates its execution plan in real time.
+### Open-source tool container
+
+Vendor `opensource` tools run in a container via `global/bin/cbflow-oss`:
+
+```
+cbflow-oss <tool> <cmd_file> <log>   yosys | openroad | sta | magic | netgen | klayout |
+                                     tclsh | fault | iverilog | verilator | rtlcheck | vplan | python3
+cbflow-oss exec -- <argv…> | check | gui openroad|klayout <file> | interactive <tool> [script]
+```
+
+`global/config/flow/v1.0.0/oss_launch_config.tcl` (sourced by every
+discipline's `tool_launch_config.tcl`) sets `lsf(tool_shell,<tool>)` to
+`cbflow-oss <tool>`, the interactive shells, `lsf(oss,image)` (pinned digest)
+and `lsf(oss,tools_dir)`. The container bind-mounts `CBFLOW_ROOT`, the run dir,
+the PDK root and `CBFLOW_OSS_MOUNTS` at identical paths and passes the CBflow
+environment through, so command files resolve paths as on the host.
+Overrides: `CBFLOW_OSS_IMAGE`, `CBFLOW_OSS_PDK_ROOT`, `CBFLOW_OSS_MOUNTS`,
+`CBFLOW_OSS_TOOLS`, `CBFLOW_OSS_MAGICRC`, `CBFLOW_OSS_ENGINE`.
 
 ---
 
-## flow_proc Engine
+## 6. Command Files and flow_proc
 
-Every design step in CBflow is registered as a `flow_proc`. The construct takes a name and a body of EDA tool commands:
+Every command file starts with the same bootstrap:
 
 ```tcl
-flow_proc resolve_inputs {
-    handle_info "Resolving input files..."
-    # ... tool commands ...
-}
+set run_dir $::env(CBFLOW_RUN_DIR)
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
-flow_proc create_design_lib {
-    handle_info "Creating design library..."
-    # ... tool commands ...
-}
+set FLOW_TYPE "PNR"
+set STAGE_NAME "place"
+set NODE_NAME [cbflow_node_name]          ;# $CBFLOW_NODE_NAME (place1, place2, branch nodes …)
 
-flow_proc read_rtl_inputs {
-    handle_info "Reading RTL design inputs..."
-    # ... tool commands ...
-}
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME   ;# WORK_DIR / REPORTS_DIR / OUTPUTS_DIR …
 ```
 
-`flow_proc` bodies are plain TCL executed inside the EDA tool shell (fc_shell, pt_shell, innovus, etc.). There is no dependency graph or topological sort -- `flow_exec_all` runs every registered flow_proc in **definition order**, top to bottom as they appear in the command file.
+then defines its steps with `flow_proc <name> { … }` and ends with
+`flow_exec_all` (`oss_exec_all` in the RTL / DFT / DV open-source drivers) and
+`exit`. `flow_exec_all` runs the procs in **definition order**.
+
+Hooks (`utils.tcl`): `flow_proc_prepend <name> {…}` and
+`flow_proc_append <name> {…}` are stored separately and run around the body;
+`flow_proc_replace <name> {…}` replaces the body. Because `setup.tcl` (and so
+every `override_setup*.tcl`) is sourced **before** the command file defines its
+flow_procs, prepend / append from setup files always apply, while a
+`flow_proc_replace` there is overwritten when the command file later defines
+that proc.
+
+Node helpers in `utils.tcl`: `cbflow_node_deps`, `cbflow_node_type`,
+`cbflow_upstream_node`, `cbflow_chain_node <type>` (breadth-first over every
+dependency, nearest node of that type, first-listed dependency first — reaches
+each branch of a fan-in), `cbflow_source_node <types>` (first-dependency chain,
+skips bypassed nodes — the source stage of an export / release),
+`cbflow_dep_node`, `cbflow_release_dir`, `cbflow_require`, `cbflow_version`.
+
+---
+
+## 7. Release System
+
+Layout (single definition: `cbflow_release_dir`):
+
+```
+<project(release,path)>/<phase>/<block>/<FLOW>/<tag>/
+    <category>/…          netlist/ sdc/ def/ gds/ spef/ upf/ rtl/ spec/ reports/ data/ …
+    MANIFEST.json  RELEASE_NOTES.md  RELEASE_COMPLETE
+```
+
+`phase` is the run's phase (`CBFLOW_PROJECT_PHASE`); `tag` is
+`project(release,tag)` or else the exit name. `::CBFlow::Release` in
+`global/utils/utilities/v1.0.0/release_utils.tcl`:
+
+- `default_exit_tag` — signoff flows release the exit they verify
+  (`<flow>(release,exit_from)` names the input whose tag that is); other flows
+  release `<flow>(smartgrid,milestone)`, mapped to the phase's exit at or before
+  it through `MILESTONE_ORDER` (PD `release_config.tcl`). Exits outside
+  `MILESTONE_ORDER` (DFT / DV / RTL exits) release under their own name.
+- `release_exit_for_stage` — the export / release pair releases its source
+  stage (`cbflow_source_node`): place → PLACE_EXIT, cts_opt → CTS_EXIT,
+  pro → PRO_EXIT, signoff → BTO / MTO (`MILESTONE_STAGE_MAPPING`).
+- `check_exit_order` — earlier exits of the phase need `RELEASE_COMPLETE`.
+  The exit list is `project(phase_exits)` for the phase, or, when the exit is
+  not in it, the per-discipline plan `project(phase_exits,<DISC>)` that
+  contains it (e.g. opensky's DV plan). Skipped in test mode and for signoff
+  flows; publish to SmartGrid has its own order gate.
+- `init` / `copy_file` / `copy_glob` / `validate_mandatory_files` /
+  `generate_manifest` / `generate_release_notes` / `stamp_complete`.
+
+`cbflow run release` flags: `--tag --name --dry-run --from-run --node
+--clone-from --publish --no-publish --override`. Full user view:
+[Exit Release Guide](../02-user-guide/exit-release-guide.md).
+
+### Flow-to-flow handshake
+
+`PD/config/flow/v1.0.0/release_config.tcl` section 6 holds the map for every
+discipline:
 
 ```tcl
-# At the bottom of every command file:
-flow_exec_all    ;# executes each flow_proc in the order it was defined
-exit
+set flow_input_handshake(<DOWNSTREAM>,<input>) {<source_flow|ANY> <category> "<file pattern>"}
+set flow_input_handshake(RTL_LINT,rtl)  {RTL_SPEC rtl "${design_name}.f"}
 ```
 
-### Hooks: prepend / append / replace
-
-Users can modify any flow_proc without editing the base command file. Hook files are sourced after all flow_procs are defined but before `flow_exec_all`:
-
-| Hook Type | Effect |
-|-----------|--------|
-| `prepend` | Insert code before the flow_proc body |
-| `append`  | Insert code after the flow_proc body |
-| `replace` | Completely replace the flow_proc body |
-
-Hook files are sourced in this order at the end of each command file:
-
-1. `$run_dir/work/<FLOW>/<node>/run/setup.tcl` -- generated per-node setup
-2. `$run_dir/setup/override_setup.tcl` -- user global override
-3. `$run_dir/setup/override_setup.<stage>.tcl` -- user stage-specific override
+`resolve_inputs.tcl::resolve_flow_inputs` fills `<flow>(input,<input>)` with
+priority explicit path > `<flow>(input,<input>_release_tag)` >
+`<flow>(input,release_tag)`; `<flow>(input,from_run)` reads a sibling run's
+`output_manifest.tcl`. Signoff flows accept only the release of their exit
+(`<flow>(release,exit_exempt_inputs)` lists exceptions, e.g. LEC
+`netlist_golden`).
 
 ---
 
-## Configuration Override Hierarchy
+## 8. Exit Milestones and Checklists
 
-Configuration loads in a strict cascade via `generate_setup.tcl`. Each layer can override values set by the previous layer. The generated `config.tcl` consolidates all config sources; command files source it once.
+All milestones live in `global/config/exit/v1.0.0/<NAME>_config.tcl`, each with
+`milestone_info(name|discipline|flow_type|stage|description|stage_node)`,
+`mandatory_checks` / `optional_checks`, `mandatory_files`:
 
-```
-project_config.tcl                              #  1. Project-specific settings
-  -> team_config.tcl                            #  2. Team settings
-    -> tech_config.tcl                          #  3. Technology/foundry (libraries, PVT)
-      -> flow_config.tcl                        #  4. Flow-wide defaults
-        -> node_config.tcl                      #  5. Per-flow stage definitions
-          -> mmmc_config.tcl                    #  6. MMMC scenarios, corners, modes
-            -> <tool>_config.tcl                #  7. Tool-specific (fc_config, pt_config)
-              -> user_config.tcl                #  8. Per-run user overrides
-                -> override_config.tcl          #  9. Global override hook (flow-wide settings go here)
-                  -> override_config.<stage>.tcl         # 10. Stage-type override
-                    -> override_config.<branch>.tcl      # 11. Branch-scoped override
-                      -> override_config.<node_type>.tcl # 12. Node-type override
-                        -> override_config.<node>.tcl    # 13. Per-node override
-```
+| Discipline | Milestones |
+|---|---|
+| PD  | FP_EXIT PLACE_EXIT CTS_EXIT PRO_EXIT BTO MTO, STA_SIGNOFF |
+| DFT | CORE_DFT_EXIT TOP_DFT_EXIT EDT_OCC_EXIT SCAN_INSERT_EXIT ATPG_PREPD_EXIT ATPG_POSTPD_EXIT |
+| DV  | SPEC_RAMP_EXIT PLANNING_EXIT TB_SETUP_EXIT M1_EXIT M2_EXIT M3_EXIT M4_EXIT ECO_EXEC_EXIT DV_SIGNOFF_EXIT |
+| RTL | SPEC_EXIT LINT_SIGNOFF CDC_SIGNOFF UPF_SIGNOFF |
 
-There is no flow-name level (`override_config.<FLOW>.tcl` was removed).
-
-**Setup hooks** (flow_proc definitions) load separately after flow_proc definitions:
-```
-setup.tcl (generated)                   # Consolidated flow_proc hooks
-  -> override_setup.tcl                 # Global user flow_proc hook
-    -> override_setup.<stage>.tcl       # Stage-specific flow_proc hook
-```
-
-Later sources win. A variable set in `override_config.<node>.tcl` overrides the same variable from `flow_config.tcl`.
-
-### Generated Configuration (config.tcl)
-
-At run initialization, the `setup` subnode calls `generate_setup.tcl` which produces two files per node:
-- **`config.tcl`** -- Sources all cascaded configuration files in priority order. Command files source this single file instead of sourcing configs individually.
-- **`setup.tcl`** -- Contains only `flow_proc` hooks (prepend/append/replace). Sourced after flow_proc definitions in command files.
-
-Paths in command files use `$::env(CBFLOW_NODE_NAME)` (set by the RACE engine per job) to locate the correct generated files, enabling custom nodes and branch nodes to use their own config/setup rather than the base stage's files.
-
-### Environment Variables (per-job)
-
-The RACE engine exports these env vars for each job execution:
-- `CBFLOW_RUN_DIR` -- Run directory path
-- `CBFLOW_NODE_NAME` -- Current node name (e.g., `place1`, `place2_eco`, `cts2`)
-- `CBFLOW_SUBNODE` -- Current subnode (e.g., `setup`, `run`, `validate`, `finish`)
-- `CBFLOW_FLOW_TYPE` -- Flow type (from `.run.cbflow.env`)
-
-### Config Loading Path
-
-All flow and node configurations are loaded from a versioned directory:
-
-```
-$CONFIG_ROOT/flow/$FLOW_CONFIG_VERSION/
-    flow_config.tcl
-    mmmc_config.tcl
-    release_config.tcl
-    tool_launch_config.tcl
-    node_configs/
-        SYNTH_config.tcl
-        SYNTH_PNR_config.tcl
-        PNR_config.tcl
-        STA_config.tcl
-        PV_config.tcl
-        ...
-```
-
-Tech configs load from `$CONFIG_ROOT/tech/$TECH_NAME/$TECH_VERSION/tech_config.tcl`. Project configs load from `$CONFIG_ROOT/project/<project_name>/<version>/<project_name>_config.tcl`.
+Check scripts: `global/utils/validation/v1.0.0/checks/`. Waivers:
+`global/config/exit/v1.0.0/waiver_config.tcl`. CLI: `cbflow flow checklist …`
+(`PD/utils/commands/checklist_cmd.py`).
 
 ---
 
-## Milestone-Gated Release System
+## 9. Dashboards
 
-Release is a workspace-level operation (not per-run). The `cbflow run release` command validates that ALL required flows for a predefined milestone tag have completed, then packages deliverables from each flow into a shared release directory.
+- **Run dashboard** — `cbflow run gui` registers the run with one per-user
+  daemon (`global/utils/dashboard/`). Port =
+  `flow(dashboard,port_base,<DISC>) + uid % flow(dashboard,port_width)`
+  (PD 9000, DFT 9300, DV 9600, RTL 9900; width 300). A foreground per-run
+  dashboard uses `flow(dashboard,run_port_min..run_port_max)` (30000-59999);
+  the project / run browser uses `app_port_min..app_port_max` (8080-8999).
+- **SmartGrid** — `cbflow smartgrid start --project <p>`
+  (`global/utils/project_dashboard/`), port `flow(smartgrid,port_base)` (25000)
+  + md5(uid:project) % `flow(smartgrid,port_span)` (2500). `router.py` serves
+  `/` (published runs), `/project/<p>` (one card per discipline),
+  `/project/<p>/releases | checklist | schedule | team | chain`,
+  `/dashboard/<DISC>` (opens or starts that discipline's run dashboard),
+  `/block/…`, `/published/…`, `/api/floorplan/…`, `/api/timing/…`.
+  The chain page (`chain.py`) shows the spec-to-GDS sign-off chain from
+  `project(signoff_chain,<phase>)`: a step is done when its
+  `<FLOW>/<tag>/RELEASE_COMPLETE` exists, and flagged stale when released
+  before a step of an earlier stage.
 
-**Key design decisions:**
-- Tags are **predefined** in `release_config.tcl` (`release_tags` array) — not free-form
-- Leads set **active tag** + **expiry date** in project config — users cannot change these
-- Release is **milestone-gated**: ALL `required_flows` must have PASS runs before release proceeds
-- Each flow's deliverables come from its `output_manifest.tcl` (generated by export_data validate)
-- Release directory: `<path>/<project>/<design>/<phase>_<tag>/<FLOW>/<category>/`
-- Artifacts: MANIFEST.json (metadata), RELEASE_COMPLETE (status stamp)
-
-**Predefined tags:** FP_EXIT, PLACE_EXIT, CTS_EXIT, PRO_EXIT, BTO, MTO — each with `phase_min` and `required_flows`.
-
----
-
-## Tested Flows
-
-The following 6 flows have been fully tested with the RACE engine: **SYNTH_PNR**, **STA**, **LEC**, **CLP**, **SYNTH**, **PNR**.
-
----
-
-## Tool Mapping
-
-CBflow supports 11 design flows across Synopsys, Cadence, and Mentor tool suites.
-
-### Synopsys Tools
-
-| Tool | Binary | Flows |
-|------|--------|-------|
-| Fusion Compiler | `fc_shell` | SYNTH, FP, PNR, FCFP, SYNTH_PNR, ECO |
-| PrimeTime | `pt_shell` | STA, POPT |
-| Formality | `fm_shell` | LEC |
-| IC Validator | `icv` | PV |
-| VC_LP | `vc_lp` | CLP |
-| RedHawk | `redhawk` | EMIR |
-
-### Cadence Tools
-
-| Tool | Binary | Flows |
-|------|--------|-------|
-| Genus | `genus` | SYNTH |
-| Innovus | `innovus` | FP, PNR, FCFP |
-| Tempus | `tempus` | STA |
-| Conformal | `lec` | CLP |
-| Voltus | `voltus` | EMIR |
-
-### Mentor Tools
-
-| Tool | Binary | Flows |
-|------|--------|-------|
-| Calibre | `calibre` | PV |
-
-Tool selection is controlled per-flow via the node_config arrays `<flow>(tool,vendor)` and `<flow>(tool,name)`. See [Extending CBflow](../05-developer/extending.md) for how to override tool selection.
+All ports and colours come from `global/config/flow/v1.0.0/flow_registry.tcl`.
 
 ---
 
-## Directory Layout
-
-### Reports
-
-Each stage writes reports to its own work directory:
-
-```
-work/<FLOW>/<node>/reports/
-    e.g. work/SYNTH_PNR/synthesis1/reports/synthesis_timing.rpt
-         work/SYNTH_PNR/place1/reports/place_qor.rpt
-         work/SYNTH_PNR/signoff1/reports/signoff_check_drc.rpt
-```
-
-### Outputs
-
-Final deliverables (netlists, GDS, DEF, SDC, SPEF, UPF) are written to:
-
-```
-outputs/
-    ${design_name}.v
-    ${design_name}.gds
-    ${design_name}.def
-    ${design_name}.sdc
-    ...
-```
-
-### RACE Database
-
-The RACE SQLite database is stored per-run:
-
-```
-.race_<uid>.db
-```
-
-Full path: `$project(race,db_path)/$project/$domain/$flow/$user_$run_$uid.db`
-
-The DB stores node status, timestamps, file checksums for change detection, and execution history.
-
-### Dashboard Auto-Port
-
-`cbflow run gui` registers the run with the per-user dashboard daemon, whose port is deterministic: `flow(dashboard,port_base,<DISC>) + uid % flow(dashboard,port_width)` (PD: 9000 + uid%300). The project/run browser (`cbflow flow dashboard start`) picks a free port in `flow(dashboard,app_port_min..app_port_max)` (8080-8999). A foreground per-run dashboard uses 30000-59999. SmartGrid uses 25000 + md5(uid:project) % 2500. See `global/config/flow/v1.0.0/flow_registry.tcl`.
-
----
-
-## Release System
-
-### Release Path Structure
-
-Releases are organized under the project release path:
-
-```
-$project(release,path)/$phase/$block/<FLOW>/$tag/      # tag defaults to the exit name
-    netlist/
-    sdc/
-    gds/
-    def/
-    upf/
-    spef/
-    data/
-    reports/
-    MANIFEST.json
-    RELEASE_NOTES.md
-    RELEASE_COMPLETE
-```
-
-- `$project(release,path)` -- base release directory (e.g., `/proj/my_chip/releases`)
-- `$phase` -- design phase: P0, P1, P2, P3
-- `$block` -- block/design name
-- `$tag` -- release tag (e.g., `v1.0.2`)
-
-The `release_data` stage in each flow calls `::CBFlow::Release::init`, copies deliverables, then generates:
-
-1. **MANIFEST.json** -- metadata, file checksums, component versions
-2. **RELEASE_NOTES.md** -- human-readable release description
-3. **RELEASE_COMPLETE** -- marker file indicating a complete, valid release
-
-### Version Locking
-
-Released versions are permanently read-only. When a version is created via `cbflow flow version create` or promoted via `cbflow flow dev promote`, CBflow:
-
-1. Sets all files in the version directory to `chmod 444` (read-only)
-2. Creates a `.locked` marker file in the version directory
-3. This operation is **irreversible** -- there is no unlock command
-
-```
-cmds/SYNTH/synopsys/fc/v1.0.0/
-    .locked                          # Marker file -- version is permanently locked
-    synthesis_fc.tcl                  # chmod 444
-    inputs_subnode_handler.tcl        # chmod 444
-    ...
-```
-
-Any attempt to modify files in a locked version will result in a permission denied error. To make changes, use the dev workflow to create a new version.
-
-### Dev Workflow Architecture
-
-The dev workflow provides a structured development cycle for version changes, using the `-dev` suffix convention:
-
-```
-cbflow flow dev start --from v1.0.0
-    |
-    v
-v1.0.0-dev/  (writable copy of v1.0.0, -dev suffix)
-    |
-    v  (edit, test, iterate)
-    |
-cbflow flow dev promote --version v1.0.1
-    |
-    v
-v1.0.1/  (locked: chmod 444 + .locked)
-v1.0.0-dev/  (removed after promote)
-```
-
-Dev commands:
-
-| Command | Purpose |
-|---------|---------|
-| `cbflow flow dev start --dir <dir> --from <version>` | Create writable `-dev` copy |
-| `cbflow flow dev status` | List all active dev versions |
-| `cbflow flow dev diff --dir <dir>` | Show changes vs base version |
-| `cbflow flow dev promote --dir <dir> --version <new>` | Promote to locked release |
-| `cbflow flow dev sandbox-create --name <name>` | Create isolated sandbox |
-| `cbflow flow dev sandbox-push --name <name>` | Push sandbox changes to dev |
-
-### Input Handshaking
-
-Downstream flows consume upstream releases through the input handshake mechanism. The `resolve_inputs` flow_proc checks for release tag variables and assembles paths automatically:
-
-```tcl
-# In user_config.tcl, user sets the release tag:
-set pnr(input,netlist_release_tag) "v1.0.2"
-
-# resolve_inputs checks the tag, looks up the handshake map,
-# and assembles the full path:
-#   $project(release,path)/$phase/$block/v1.0.2/netlist/${design_name}.v
-```
-
-The handshake map (defined in `release_config.tcl`) maps each `<flow>(input,<type>_release_tag)` to a triple: source flow, deliverable category, and file pattern. `::CBFlow::InputResolve::resolve` constructs the path from `project()` variables and validates that the release directory contains `RELEASE_COMPLETE`.
-
-If no release tag is set, direct paths are used instead (e.g., `pnr(input,netlist) "/path/to/file.v"`). Release tags always take priority when both are provided.
-
----
-
-## Launch Modes
-
-CBflow supports four launch modes for EDA tool execution, controlled by `flow(use_lsf)` and `flow(use_xterm)`:
-
-| Mode | LSF | xterm | Description |
-|------|-----|-------|-------------|
-| LSF + xterm | Yes | Yes | Submit to LSF, open interactive xterm session on compute node |
-| LSF batch | Yes | No | Submit to LSF as batch job, no interactive window |
-| xterm local | No | Yes | Launch tool in local xterm window |
-| Local | No | No | Run tool in current shell |
-
-LSF parameters (queue, CPUs, memory, wall time) are configured per-flow in `tool_launch_config.tcl` and the LSF tier system (XS, S, M, L, XL, Ultra).
-
----
-
-## SYNTH_PNR Stages
-
-The SYNTH_PNR flow is the primary unified synthesis-through-signoff flow. Its stages execute in this fixed order:
-
-```
-inputs -> init_design -> synthesis -> place -> cts -> cts_opt -> route -> pro -> signoff -> export_data -> release_data
-```
-
-Internally, node names carry a numeric suffix (e.g., `inputs1`, `synthesis1`, `place1`) to support multiple instances. Each stage has its own command file, subnode handler, and work directory.
-
-Stage dependencies are declared in the node_config (and consumed by RACE to build the DAG):
-
-```tcl
-array set synth_pnr {
-    stages {inputs1 init_design1 synthesis1 place1 cts1 cts_opt1 route1 pro1 signoff1 export_data1 release_data1}
-
-    dependencies,inputs1          {}
-    dependencies,init_design1     {inputs1}
-    dependencies,synthesis1       {init_design1}
-    dependencies,place1           {synthesis1}
-    dependencies,cts1             {place1}
-    dependencies,cts_opt1         {cts1}
-    dependencies,route1           {cts_opt1}
-    dependencies,pro1             {route1}
-    dependencies,signoff1         {pro1}
-    dependencies,export_data1     {signoff1}
-    dependencies,release_data1    {export_data1}
-}
-```
-
----
-
-## Per-Corner STA (Dynamic MMMC Scenario Subnodes)
-
-The STA flow runs timing analysis on a per-corner basis. RACE generates dynamic subnodes from the user-specified MMMC scenarios in user_config. Each corner/scenario appears as an individual subnode in the timing1 stage, enabling parallel per-scenario execution:
-
-```
-STA stages:
-  inputs1 -> extraction1 -> timing1 (per-scenario subnodes) -> reporting1 -> release_data1
-```
-
-Each MMMC scenario (e.g., `func_ss_0p76v_rcmax_150c`, `func_ff_0p84v_rcmin_m40c`) runs as an independent subnode within the timing1 stage. The `timing_scenario_handler` manages per-scenario dispatching. RACE creates one subnode per scenario at runtime and executes them in parallel when resources allow. Status for each scenario subnode is tracked individually in the RACE SQLite DB, so `cbflow run status --details` shows per-scenario completion.
-
----
-
-## ICV PV Parallel Pipeline
-
-The PV flow with ICV follows a fill-first, then parallel verification pattern. RACE executes the independent verification subnodes in parallel:
-
-```
-inputs -> fill -> [drc | lvs | erc | perc | xor] -> merge_data -> release_data
-```
-
-After `fill` completes, RACE launches the DRC, LVS, ERC, PERC, and XOR stages in parallel. Results are merged in `merge_data` before the final `release_data` stage packages everything for release.
-
----
-
-## Tool Configuration Architecture
-
-Each EDA tool has a dedicated tool config file that centralizes tool-specific parameters. This replaces the previous approach of scattering tool settings across node_config and user_config files.
-
-### File Naming Convention
-
-Tool config files follow the pattern `<tool>_config.tcl`:
-
-| Tool | Config File | Flows |
-|------|-------------|-------|
-| Fusion Compiler | `fc_config.tcl` | SYNTH, FP, PNR, FCFP, SYNTH_PNR, ECO |
-| PrimeTime | `pt_config.tcl` | STA, POPT |
-| Formality | `fm_config.tcl` | LEC |
-| IC Validator | `icv_config.tcl` | PV |
-| VC_LP | `vc_lp_config.tcl` | CLP |
-| RedHawk | `redhawk_config.tcl` | EMIR |
-
-### Two-Level Scoping Convention
-
-Tool config variables use a two-level scoping scheme:
-
-- **`<tool>(common,<param>)`** -- Shared across all nodes in the flow. Applied first.
-- **`<tool>(<node>,<param>)`** -- Specific to a single node. Overrides the common value for that node only.
-
-```tcl
-# fc_config.tcl
-
-# Common settings -- apply to all FC-based nodes
-set fc(common,enable_clock_gating)        true
-set fc(common,target_library)             "sc7p5t_cln28hpm_base_rvt_c14_tt_nominal_max_0p90v_25c.db"
-set fc(common,enable_spg)                 true
-set fc(common,max_routing_layer)          M8
-set fc(common,min_routing_layer)          M2
-
-# Node-specific overrides
-set fc(place1,congestion_effort)          high
-set fc(place1,enable_coarse_placement)    false
-set fc(cts1,max_skew)                     50
-set fc(cts1,clock_tree_strategy)          "balanced"
-set fc(route1,detail_route_effort)        high
-set fc(route1,antenna_fix)                true
-set fc(signoff1,eco_opt_cycles)           3
-```
-
-### Resolution Order
-
-When a command file reads a tool parameter, the resolution order is:
-
-```
-1. fc(<node>,<param>)     -- node-specific setting (highest priority)
-2. fc(common,<param>)     -- common setting (fallback)
-3. (not set)              -- tool default
-```
-
-This applies within the existing config override hierarchy. A value in `override_config.tcl` for `fc(place1,congestion_effort)` overrides the same variable from `fc_config.tcl`.
-
-### Config Loading Path
-
-Tool config files are loaded from the versioned config directory:
-
-```
-$CONFIG_ROOT/flow/$FLOW_CONFIG_VERSION/
-    fc_config.tcl
-    pt_config.tcl
-    fm_config.tcl
-    icv_config.tcl
-    ...
-```
-
-### GUI Integration
-
-The GUI Config Editor exposes tool config settings under the **Tool Config** tab, showing both common and node-specific values. Users can edit values and choose whether the change applies to the common scope, the selected node, or all nodes of the same type. See the [GUI User Guide](../02-user-guide/cbflow-gui-user-guide.md#8-config-editor) for details.
-
----
-
-## Standard Command File Pattern
-
-Every command file in `cmds/<FLOW>/<vendor>/<tool>/<version>/` follows the same structure:
-
-```
-1. Header & environment bootstrap
-   - Source .run.cbflow.tcl
-   - Load utilities
-
-2. Source tech_config
-   - $CONFIG_ROOT/tech/$TECH_NAME/$TECH_VERSION/tech_config.tcl
-
-3. Source user_config
-   - $run_dir/setup/user_config.tcl
-
-4. Set WORK_DIR, REPORTS_DIR, OUTPUTS_DIR
-
-5. Source release utilities (for resolve_inputs stages)
-
-6. Define flow_procs (in execution order)
-
-7. Source setup hooks
-   - $run_dir/work/<FLOW>/<node>/run/setup.tcl
-   - $run_dir/setup/override_setup.tcl
-   - $run_dir/setup/override_setup.<stage>.tcl
-
-8. flow_exec_all
-
-9. exit
-```
+## 10. Versioning
+
+Config / command / utility trees are versioned directories (`v1.0.0`, …)
+selected at run time by `FLOW_CONFIG_VERSION`, `UTILITIES_VERSION`,
+`TECH_CONFIG_VERSION`, `PROJECT_CONFIG_VERSION` and `<TOOL>_VERSION` /
+`<flow>(tool,version)`. `cbflow flow version …` and `cbflow flow dev …` manage
+copies and `current` symlinks — see [Versioning Strategy](git-strategy.md).
 
 ---
 
 **See also:**
-- [Architecture Index](README.md)
-- [Extending CBflow](../05-developer/extending.md) -- Adding flows, procs, and checks
-- [Examples](../06-examples/basic-workflows.md) -- Workflow examples
+- [Data Flow](data-flow.md) — a run end to end
+- [Component Design](component-design.md) — module map
+- [Extending CBflow](../05-developer/extending.md) — adding flows, tools, exits, handshakes

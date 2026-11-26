@@ -19,11 +19,20 @@ The reference project is **`opensky`**:
 | Flow | `<flow>(tool,name)` | Overlay (`PD/config/flow/v1.0.0/node_configs/`) | Engine | Stages |
 |---|---|---|---|---|
 | SYNTH | `yosys` | `SYNTH_yosys_config.tcl` | Yosys (DFT: OpenROAD) | `rtl1 sdc1 upf1 synthesis1 export_data1 release_data1` |
-| FP | `openroad` | `FP_openroad_config.tcl` | OpenROAD | `netlist1 sdc1 upf1 init_design1 floorplan1 powerplan1 export_data1 release_data1` |
+| FP | `openroad` | `FP_openroad_config.tcl` | OpenROAD | `netlist1 sdc1 upf1 init_design1 floorplan1 powerplan1 export_data1 release_data1` (+ `probe1` with `fp(oss,probe,enable)`) |
 | PNR | `openroad` | `PNR_openroad_config.tcl` | OpenROAD | `netlist1 sdc1 def1 upf1 init_design1 place1 cts1 cts_opt1 route1 pro1 signoff1 export_data1 release_data1` |
 | STA | `opensta` | `STA_opensta_config.tcl` | OpenRCX (extraction) + OpenSTA | `netlist1 sdc1 def1 extraction1 timing1 merge_reports1 release_data1` |
 | PV | `magic` | `PV_magic_config.tcl` | KLayout DRC (default) or Magic DRC; Magic extract + Netgen LVS | `netlist1 gds1 drc1 lvs1 merge_data1 release_data1` |
 | LEC | `yosys` | `LEC_yosys_config.tcl` | Yosys equivalence | `netlist_golden1 netlist_revised1 compare1 release_data1` |
+| ECO | `openroad` | `ECO_openroad_config.tcl` | OpenROAD + OpenRCX / OpenSTA | `odb1 sdc1 eco1 signoff1 export_data1 release_data1` |
+
+The flows of the other disciplines on the same stack (RTL_SPEC / RTL checks,
+DV UVM on Verilator, DFT SCAN_INSERT / ATPG / GLS) and the spec-to-GDS chain
+that strings them together with these PD flows:
+[RTL](../../../RTL/docs/opensource-rtl-guide.md),
+[DV](../../../DV/docs/opensource-dv-guide.md),
+[DFT](../../../DFT/docs/opensource-dft-guide.md),
+[spec-to-GDS](spec-to-gds-guide.md).
 
 ### How the tool is selected
 
@@ -37,9 +46,10 @@ Priority at run time, highest first:
 
 opensky sets `project(default_tools) {SYNTH yosys FP openroad PNR openroad STA opensta PV magic}` in `opensky_pd_config.tcl`.
 
-> **LEC** is not in `project(default_tools)`. A LEC run must set
+> **LEC** and **ECO** are not in `project(default_tools)`. A LEC run must set
 > `set lec(tool,name) "yosys"` in its user config, as `workarea/gcd/uc_LEC_yosys.tcl`
-> does. Otherwise it falls back to Formality.
+> and `uc_LEC_P3.tcl` do (otherwise it falls back to Formality); an ECO run sets
+> `set eco(tool,name) "openroad"`.
 
 ---
 
@@ -110,7 +120,7 @@ Tags are generated data under `project(lib_tag_root)` (`~/eda/lib_tags`), in
 |---|---|
 | OSS0 | sky130_fd_sc_hd (16 corners) + P0 `PNR/PRO_EXIT` blocks gcd, mac_array, ctrl_subsys |
 | OSS1 | Same stdcells + P1 `PRO_EXIT` blocks gcd, mac_array, ai_subsys, ctrl_subsys. Some blocks have `pv_release "PENDING"`. Used by the DL2 script. |
-| OSS2 | Adds the memory category `sky130_sram_1kbyte_1rw1r_32x256_8` (lef/gds/cdl/verilog/lib, corner `tt_1p8v_25c`). Used for P2. |
+| OSS2 | Adds the memory category `sky130_sram_1kbyte_1rw1r_32x256_8` (lef/gds/cdl/verilog/lib, corner `tt_1p8v_25c`). Used for P2 and P3. |
 
 See [Library Manager — `add`](library-manager-user-guide.md#add--add-a-category-to-a-library-tag) for how tags are built.
 
@@ -138,6 +148,13 @@ Every stage command file follows the same shape:
 The shared helpers are in `global/utils/utilities/v1.0.0/oss_utils.tcl`, for example `oss_load_stage`, `oss_write_qor`, `oss_stage_out`, `oss_read_lefs` and `oss_pdn`. The per-stage proc names are listed in the [Flow Procs Reference](../Flow_Procs_Reference.md#open-source-flows-sky130).
 
 SYNTH (`synthesis_yosys.tcl`) runs `read_design → synthesize → report → write_design → dft_insert`. `report` runs before `dft_insert`, so `synthesis_stat.rpt` describes the pre-DFT netlist.
+
+`read_design` picks the RTL front end from `synth(input,rtl_format)` (SYNTH node-config
+default `sverilog`): `sverilog` loads the yosys-slang plugin and elaborates the whole
+filelist with `read_slang --top <design>` (packages, structs, the PeakRDL register
+block — gcd P3 reads the LINT_SIGNOFF `rtl/gcd.f`); `verilog` uses `read_verilog`
+per file. The P0–P2 opensky SYNTH user configs set `"verilog"`. Child blocks and
+memory macros are read as blackboxes first.
 
 Customize with hooks in `setup/override_setup.tcl`, `override_setup.<stage>.tcl` or `override_setup.<node>.tcl`:
 
@@ -259,7 +276,9 @@ How each flow handles memories:
 
 gcd P2 RTL (`inputs/opensky/gcd/P2/gcd.v`, `gcd.f`) instantiates two
 `sky130_sram_1kbyte_1rw1r_32x256_8` macros (`u_sram_req`, `u_sram_resp`) and
-runs with `LIB_TAG=OSS2`.
+runs with `LIB_TAG=OSS2`. gcd P3 (the GCD accelerator of the spec-to-GDS pilot,
+also `OSS2`) declares its two SRAMs (`u_sram_job`, `u_sram_res`) in the block
+spec with their MBIST intent; RTL_SPEC checks them against the RTL and the tag.
 
 ---
 
@@ -383,6 +402,32 @@ PV can also run on an FP release (`FP_EXIT`, which needs PV). It checks the floo
 
 ---
 
+## 10a. ECO — OpenROAD
+
+`ECO_openroad_config.tcl` (`eco(tool,name) openroad`). Input: the routed database
+and SDC of a PNR (or earlier ECO) release, `eco(input,release_tag)`.
+
+| Stage | Does |
+|---|---|
+| odb1 / sdc1 | inputs from the release |
+| eco1 | `eco(oss,mode)`: `changes` = source `eco(input,change_file)` (only `eco(oss,changes,allowed)`: `replace_cell`, `eco_insert_buffer`, `remove_buffers`, capped by `eco(oss,limit,*)`); `repair` = guided `repair_timing` (`eco(oss,repair,*)`); `drc` = DRC repair commands `eco(oss,drc,allowed)` with `eco(oss,route,scope)` `full`/`nets`/`none`; then legalize and re-route |
+| signoff1 | fillers, supply connections, deliverables, OpenRCX per RC corner, post-ECO timing / QoR |
+| export_data1 / release_data1 | GDS + release as `<EXIT>_ECO<n>` (`project(release,tag)`, e.g. `BTO_ECO1`) |
+
+```tcl
+# workarea/gcd/uc_ECO_smoke_P2.tcl
+set eco(tool,name)         "openroad"
+set eco(input,release_tag) "BTO"
+set eco(oss,mode)          "changes"
+set eco(input,change_file) "<CBFLOW_ROOT>/workarea/gcd/eco/smoke_changes.tcl"
+set project(release,tag)   "BTO_ECO1"
+```
+
+The `timing-eco` and `drc-fix` Claude Code skills (`.claude/skills/`) write the
+change files and run this flow.
+
+---
+
 ## 11. Workarea scripts (`workarea/`)
 
 These scripts drive the opensky chain end-to-end. Run them from `workarea/`.
@@ -446,6 +491,16 @@ With `FP_EXIT`, the script runs PV only (run `<RUN>_fp`, DRC-only verdict).
 ```bash
 FLOWS="STA" PHASE=P2 RUN=p2_b1 LIB_TAG=OSS2 ./run_signoff.sh gcd PRO_EXIT
 PV_MODE=hier MAX_PARALLEL=4 PHASE=P1 ./run_signoff.sh ai_subsys PRO_EXIT
+```
+
+### `run_spec2gds.sh <block> <phase>` — the spec-to-GDS chain
+
+Runs `project(signoff_chain,<phase>)` — RTL, DV, DFT and PD steps — stage by
+stage (`FROM`, `UNTIL`, `DRY=1`, `PROJECT`). See the
+[Spec-to-GDS guide](spec-to-gds-guide.md).
+
+```bash
+DRY=1 ./run_spec2gds.sh gcd P3
 ```
 
 ### Release tests

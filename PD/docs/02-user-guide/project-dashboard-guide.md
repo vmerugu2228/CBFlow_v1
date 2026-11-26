@@ -20,6 +20,7 @@ cbflow smartgrid start --project opensky
 ```
 
 - It runs in the background.
+- `--project` is required; one daemon runs per project.
 - The port is derived from the user and project: `flow(smartgrid,port_base)` (25000) + `md5("<uid>:<project>") % flow(smartgrid,port_span)` (2500). For example, uid 501 + `opensky` gives 25890.
 - It binds to `flow(smartgrid,bind_addr)` (`127.0.0.1`).
 - State directory: `flow(smartgrid,state_dir)` = `~/.cbflow/project-dashboard/<project>/`.
@@ -48,7 +49,7 @@ cbflow run release --from-run <run_dir> --publish [--node release_data2] [--over
 - Publishing is opt-in (`--publish`).
 - A release node publishes automatically on finish when its form set `project(release,publish) true`. See the [Exit Release Guide](exit-release-guide.md#8-release-node-form-and-auto-publish).
 - Every publish runs the milestone checklist on the run. Checks with no data are `NA`.
-- Exits publish **in phase order**. A milestone is refused until every earlier exit of the phase is published for that block and phase.
+- PD exits publish **in phase order** (`MILESTONE_ORDER`, filtered by `project(phase_exits)`). A milestone is refused until every earlier exit of the phase is published for that block and phase. The release-time gate orders the other disciplines' exits by their own plan, `project(phase_exits,<DISC>)`.
 - `--override` replaces an existing entry.
 
 **Signoff runs** (STA / PV / LEC) publish as their own runs. They attach to the exit they verify, which must already be published. The block page lists them with Flow and Verdict columns; the verdict is the release's `metrics.rpt` Status.
@@ -57,14 +58,42 @@ cbflow run release --from-run <run_dir> --publish [--node release_data2] [--over
 
 | Page | Route | Content |
 |---|---|---|
-| Project | `/project/<p>` | Discipline / block tiles, Releases, Checklist and Schedule tiles |
-| Block | `/block/...` | Published runs per flow, signoff verdict pills |
+| All projects | `/` | One card per project of `master_projects.json` (sibling daemons probed) |
+| Project | `/project/<p>` | **Disciplines** section (one card per discipline) and **Project** section (Releases, Spec-to-GDS chain, Checklist, Schedule, Team tiles) |
+| Discipline summary | `/project/<p>/<disc>` | Blocks and published runs of one discipline (`pd`, `dft`, `dv`, `rtl`); `/project/<p>/<disc>/block/<b>` per block |
+| Run dashboard | `/dashboard/<DISC>` | Opens that discipline's run dashboard daemon, starting it when offline |
+| Block | `/block/<b>` | Published runs per flow, signoff verdict pills |
 | Published run | `/published/<id>` | Metrics, merged stage tables, per-scenario summary (STA timing, DRV, power), timing paths, routed-layout image, DEF viewer, checklist |
 | Releases | `/project/<p>/releases` | Exit-centric release view (below) |
+| Chain | `/project/<p>/chain` | Spec-to-GDS sign-off chain per phase × block (below) |
 | Checklist | `/project/<p>/checklist` | Per-phase checklist with waivers |
 | Schedule | `/project/<p>/schedule` | Phase overview, per-phase exit timetable, bottom-up block schedule |
+| Team | `/project/<p>/team` | `team_config.tcl` (leads, owners) |
 
 Every page refreshes itself every 5 minutes. A countdown at the left of the header shows the time left; click it to refresh now. The countdown pauses while the schedule is being edited.
+
+### Project page — discipline cards
+
+The Disciplines section has one card per discipline the project enables (`enabled_flows_by_discipline` in
+`master_projects.json`), coloured with `flow(discipline_color,<DISC>)`:
+
+- the number and names of the enabled flows,
+- **● live** / **○ offline** — whether that discipline's run dashboard daemon is up for the project,
+- **Summary →** (`/project/<p>/<disc>`) and **Run dashboard ↗** (`/dashboard/<DISC>`; starts the daemon if needed —
+  per (discipline, project) on `flow(dashboard,project_port_base,<DISC>)`: PD 20000, DFT 21000, DV 22000, RTL 23000).
+
+The Project section holds the cross-discipline tiles: Releases, Spec-to-GDS chain, Checklist, Schedule and Team.
+
+### Spec-to-GDS chain
+
+`project(signoff_chain,<phase>)` (global project config) lists a block's sign-off chain as ordered stages of
+`<step> <release tag>` pairs (driven by `workarea/run_spec2gds.sh <block> <phase>`). The tile shows the current
+(else latest) phase with a chain: steps released / total across the blocks that started it. The chain page shows
+per phase a block × step matrix; a step is **done** when
+`<release,path>/<phase>/<block>/<FLOW>/<tag>/RELEASE_COMPLETE` exists, and a done step released *before* a step of an
+earlier stage is flagged **stale** (its inputs were re-released after it). A project without
+`project(signoff_chain,<phase>)` shows "no project(signoff_chain,<phase>)". See the
+[Spec-to-GDS guide](spec-to-gds-guide.md).
 
 ### Releases page
 

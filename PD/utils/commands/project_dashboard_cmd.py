@@ -228,13 +228,29 @@ def cmd_unpublish(args):
 # ── argparse ────────────────────────────────────────────────────────────────
 
 def _build_parser():
-    p = argparse.ArgumentParser(prog='cbflow smartgrid',
-                                description='CBflow-ProjectDashboard CLI')
+    p = argparse.ArgumentParser(
+        prog='cbflow smartgrid',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description='SmartGrid — project-level dashboard: published releases per\n'
+                    '(block x phase x exit), checklists + waivers, timing, DEF viewer.\n'
+                    'One daemon per user per project: port flow(smartgrid,port_base) +\n'
+                    'md5(uid:project) % flow(smartgrid,port_span) (25000 + hash % 2500).\n'
+                    'Every verb takes --project.',
+        epilog='Examples:\n'
+               '  cbflow smartgrid start --project opensky\n'
+               '  cbflow smartgrid status --project opensky\n'
+               '  cbflow smartgrid open --project opensky\n'
+               '  cbflow smartgrid list --project opensky\n'
+               '  cbflow smartgrid unpublish --project opensky --block gcd --phase P1 --milestone PRO_EXIT\n'
+               '\n'
+               'Publishing is done by a release (opt-in):\n'
+               '  cbflow run release --tag BTO --publish [--override]\n'
+               '  cbflow run release --from-run <run> --publish')
     sub = p.add_subparsers(dest='cmd', required=True)
 
     def _common(ap):
         ap.add_argument('--project', required=True,
-                        help='Project name (must match config/project/<name>)')
+                        help='Project name (must match global/config/project/<name>)')
 
     ap = sub.add_parser('start', help='Start the daemon (background)')
     _common(ap)
@@ -244,17 +260,18 @@ def _build_parser():
                     help="Don't detach; useful for debugging")
     ap.add_argument('--public', action='store_true',
                     help='Bind to 0.0.0.0 (LAN-reachable)')
-    ap.add_argument('--bind-addr', default=None)
+    ap.add_argument('--bind-addr', default=None,
+                    help='Explicit bind interface (overrides --public)')
 
     ap = sub.add_parser('stop', help='Stop the daemon')
     _common(ap)
 
     ap = sub.add_parser('restart', help='Restart the daemon')
     _common(ap)
-    ap.add_argument('--port', type=int, default=0)
-    ap.add_argument('--foreground', action='store_true')
-    ap.add_argument('--public', action='store_true')
-    ap.add_argument('--bind-addr', default=None)
+    ap.add_argument('--port', type=int, default=0, help='Override deterministic port')
+    ap.add_argument('--foreground', action='store_true', help="Don't detach")
+    ap.add_argument('--public', action='store_true', help='Bind to 0.0.0.0 (LAN-reachable)')
+    ap.add_argument('--bind-addr', default=None, help='Explicit bind interface (overrides --public)')
 
     ap = sub.add_parser('status', help='Show pid/port/published count')
     _common(ap)
@@ -264,16 +281,16 @@ def _build_parser():
 
     ap = sub.add_parser('logs', help='Show daemon log')
     _common(ap)
-    ap.add_argument('--follow', '-f', action='store_true')
+    ap.add_argument('--follow', '-f', action='store_true', help='Follow the log')
 
     ap = sub.add_parser('list', help='List published rows')
     _common(ap)
 
     ap = sub.add_parser('unpublish', help='Remove a published (block,phase,milestone)')
     _common(ap)
-    ap.add_argument('--block', required=True)
-    ap.add_argument('--phase', required=True)
-    ap.add_argument('--milestone', required=True)
+    ap.add_argument('--block', required=True, help='Block (design) name')
+    ap.add_argument('--phase', required=True, help='Phase (e.g. P1)')
+    ap.add_argument('--milestone', required=True, help='Exit milestone (e.g. PRO_EXIT)')
 
     return p
 

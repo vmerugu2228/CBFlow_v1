@@ -79,7 +79,7 @@ TCL Command Files (EDA tool integration via flow_proc)
 | Python | 3.6+ | CLI commands, config parsing, RACE engine |
 | TCL/Tclsh | 8.6+ | Flow execution, EDA tool scripting |
 | Git | 2.0+ | Version control and release management |
-| Bash/Zsh | 4.0+ | Shell environment and completions |
+| Bash/Zsh | 4.0+ | Shell environment and completions (`cbflow --completions bash|zsh`) |
 
 ### Optional
 
@@ -96,34 +96,27 @@ TCL Command Files (EDA tool integration via flow_proc)
 ### 3.1 Clone and Configure
 
 ```bash
-# Clone CBflow
-git clone <repository-url> CBflow
-cd CBflow/PD
-
-# Set core directory
-export CBFLOW_CORE_DIR=$(pwd)
-export PATH=$CBFLOW_CORE_DIR/bin:$PATH
+git clone <repository-url> CBflow_clone
+export CBFLOW_ROOT=$PWD/CBflow_clone          # the only user-facing variable
+export PATH=$CBFLOW_ROOT/bin:$PATH
 ```
+
+`CBFLOW_GLOBAL_DIR` (`$CBFLOW_ROOT/global`), `CBFLOW_CORE_DIR` (`$CBFLOW_ROOT/PD`), `CBFLOW_DFT_DIR`,
+`CBFLOW_DV_DIR` and `CBFLOW_RTL_DIR` are derived by the launcher.
 
 ### 3.2 Verify Installation
 
 ```bash
-cbflow --version
-# CBflow Version 2.0.0
-
-cbflow flow check
-# Verifies installation, configs, and tool availability
+cbflow --version        # v2.0.0 + the resolved root / global / discipline directories
+cbflow flow check       # Verifies installation, configs, and tool availability
 ```
 
-### 3.3 Shell Completions (Bash)
-
-Bash tab completion requires sourcing the completion script. Add to your `~/.bashrc`:
+### 3.3 Shell Completions
 
 ```bash
-source $CBFLOW_HOME/completions/cbflow.bash
+eval "$(cbflow --completions bash)"     # add to ~/.bashrc
+eval "$(cbflow --completions zsh)"      # zsh
 ```
-
-To verify, open a new shell and type `cbflow <TAB>` to see available commands.
 
 ---
 
@@ -132,55 +125,29 @@ To verify, open a new shell and type `cbflow <TAB>` to see available commands.
 ### 4.1 Directory Structure
 
 ```
-PD/                              (CBFLOW_CORE_DIR)
-├── bin/                         CLI entry points
-│   ├── cbflow                   Main dispatcher (v2.0.0)
-│   ├── cbflow-workspace         Workspace command router
-│   ├── cbflow-run               Run command router
-│   └── cbflow-flow              Flow command router
-├── cmds/                        EDA tool command files (per flow/vendor/tool/version)
-│   ├── SYNTH/synopsys/fc/v1.0.0/
-│   ├── FP/synopsys/fc/v1.0.0/
-│   ├── PNR/synopsys/fc/v1.0.0/
-│   ├── STA/synopsys/pt/v1.0.0/
-│   ├── LEC/synopsys/formality/v1.0.0/
-│   ├── EMIR/synopsys/redhawk/v1.0.0/
-│   ├── PV/synopsys/icv/v1.0.0/
-│   ├── ECO/synopsys/fc/v1.0.0/
-│   ├── CLP/synopsys/vc_lp/v1.0.0/
-│   ├── POPT/synopsys/pt/v1.0.0/
-│   ├── FCFP/synopsys/fc/v1.0.0/
-│   └── SYNTH_PNR/synopsys/fc/v1.0.0/
-├── config/                      Configuration hierarchy
-│   ├── flow/                    Flow definitions (v1.0.0, v1.0.1, workspace)
-│   │   └── v1.0.0/
-│   │       ├── flow_config.tcl       Master flow configuration
-│   │       ├── dir_config.tcl        Directory structure definitions
-│   │       ├── lsf_config.tcl        LSF queue mappings
-│   │       ├── mmmc_config.tcl       Multi-corner configuration
-│   │       ├── validation_config.tcl Validation rules
-│   │       └── node_configs/         Per-flow stage definitions
-│   │           ├── SYNTH_config.tcl
-│   │           ├── PNR_config.tcl
-│   │           └── ...              (12 flow configs)
-│   ├── project/                 Project-specific settings
-│   ├── tech/                    Technology node parameters
-│   ├── setup/                   Flow/tool setup hooks
-│   ├── exit/                    Exit milestone criteria
-│   └── master_projects.json     Project registry
-├── utils/                       Utility modules
-│   ├── commands/                Python CLI handlers
-│   ├── utilities/               TCL utilities (utils.tcl, error_utils.tcl)
-│   ├── generation/              Setup generation
-│   ├── validation/              Validation scripts
-│   └── dashboard/               Web dashboard
-├── releases/                    Versioned release artifacts
-│   ├── v1.0.0/
-│   │   ├── MANIFEST.json
-│   │   ├── release_versions.tcl
-│   │   └── components/          Symlinks to versioned components
-│   └── current -> v1.0.0
-└── docs/                        Documentation
+CBflow_clone/                    $CBFLOW_ROOT
+├── bin/                         cbflow (-> global/bin/cbflow) and cbflow-* launchers
+├── global/                      Cross-discipline layer, sourced by every run
+│   ├── bin/                     cbflow, cbflow-flow, cbflow-oss (open-source tool container), ...
+│   ├── config/
+│   │   ├── flow/v1.0.0/flow_registry.tcl     flow catalog, discipline map, runtime + dashboard defaults
+│   │   ├── exit/v1.0.0/                      exit milestone + STA_SIGNOFF configs, waiver_config.tcl
+│   │   ├── tech/<tech>/v1.0.0/tech_config.tcl
+│   │   ├── project/<proj>/v1.0.0/            <proj>_config.tcl, mmmc_*.tcl, schedule_config.tcl, team_config.tcl
+│   │   └── cli/discipline_commands.tcl
+│   └── utils/                   commands/ (race_engine, run_cmd, ...), utilities/, generation/,
+│                                dashboard/ (run dashboard), project_dashboard/ (SmartGrid), validation/
+├── PD/                          $CBFLOW_CORE_DIR
+│   ├── bin/cbflow-pd            library-manager, mmmc-manager, checklist
+│   ├── config/
+│   │   ├── project/<proj>/v1.0.0/<proj>_pd_config.tcl   workarea, release, lsf, lib_root, lib_tag_root
+│   │   ├── flow/v1.0.0/         flow_config.tcl, release_config.tcl, lsf_config.tcl, dir_config.tcl,
+│   │   │                        tool_launch_config.tcl, node_configs/<FLOW>_config.tcl + <FLOW>_<tool>_config.tcl
+│   │   └── setup/               flow_proc hook files
+│   ├── cmds/<FLOW>/<vendor>/<tool>/v1.0.0/   command files (synopsys, cadence, opensource)
+│   └── utils/commands/          library_manager, mmmc_manager, checklist, ...
+├── DFT/  DV/  RTL/              same shape (bin/cbflow-<disc>, config/, cmds/, utils/)
+└── workarea/                    project(workarea_path) of the example projects
 ```
 
 ### 4.2 Run Directory Structure
@@ -188,7 +155,7 @@ PD/                              (CBFLOW_CORE_DIR)
 When a run is created, CBflow generates this structure:
 
 ```
-P0_run_PNR_run1/
+LC2_run_PNR_cpu_core_run1/
 ├── .race_db_pointer             Points to RACE DB in race area
 ├── .race_<run>_<user>_<hash>.db  RACE SQLite status database (in race area)
 ├── logs/                        Execution logs
@@ -198,8 +165,7 @@ P0_run_PNR_run1/
 │   └── PNR/                     Flow-specific work area
 
 ├── .run.cbflow.env              Shell environment (export VAR=val)
-├── .run.cbflow.tcl              TCL environment (set ::env(VAR) val)
-└── .run.cnflow.tcl              TCL native environment
+└── .run.cbflow.tcl              TCL environment (set ::env(VAR) val)
 ```
 
 ### 4.3 Execution Flow
@@ -254,7 +220,7 @@ cbflow --completions zsh      # Output zsh completion script
 
 ### 5.2 Workspace Commands
 
-Run from any workspace directory (where `.cbflow.env` exists).
+Run from the block's workarea `<project(workarea_path)>/<block>/` (enforced by `workspace create`).
 
 ```bash
 # Generate a user_config.tcl template for a specific flow
@@ -281,7 +247,7 @@ cbflow workspace clean --confirm
 
 ### 5.3 Run Commands
 
-Run from within a run directory (e.g., `P0_run_PNR_run1/`).
+Run from within a run directory (e.g., `LC2_run_PNR_cpu_core_run1/`; pattern `<phase>_run_<FLOW>_<block>_<run>`).
 
 ```bash
 # Execute flow
@@ -295,9 +261,9 @@ cbflow run all --collect-metrics           # Collect metrics after run
 cbflow run stage --name place              # Run specific stage
 cbflow run stage --name cts --lsf          # Run stage via LSF
 
-# Interactive EDA tool session
-cbflow run interactive                     # Open empty interactive session in xterm
-cbflow run interactive --load place1       # Load saved design from place1 stage
+# Interactive EDA tool session (restores a node's saved design)
+cbflow run interactive --node place1
+cbflow run interactive --node timing1_func_ss_0p80v_rcmax_125c   # STA: one scenario
 
 # Status and monitoring
 cbflow run status                          # Stage completion overview
@@ -315,14 +281,27 @@ cbflow run validate --type config          # Config only
 cbflow run validate --stage cts            # Stage outputs + exit criteria
 
 # Retracing (re-run from a stage)
-cbflow run retrace --from cts              # Rerun from CTS onwards
+cbflow run retrace --from cts              # Clear CTS onwards (add --run to rerun)
+cbflow run force --stages place1           # Re-run only place1
+cbflow run bypass --stages export_data1    # Mark done without running
+cbflow run forcevalidate --from netlist1 --to init_design1
 
 # Node management
 cbflow run show-graph                      # Show dependency graph
 cbflow run show-graph --detail             # Show with subnodes
-cbflow run add-node --node eco1 --type eco --dep signoff
-cbflow run delete-node --node eco1
+cbflow run add-node --node place2 --type place --dep place1
+cbflow run set-dep --node export_data1 --deps place1      # rewire (--reset to restore)
+cbflow run delete-node --node place2
+cbflow run create-branch --branch timing_fix --from cts1
 cbflow run list-nodes                      # List all nodes
+
+# Releases (see exit-release-guide.md)
+cbflow run release --tag PRO_EXIT --dry-run
+cbflow run release --from-run . --publish
+cbflow run release-check --tag BTO --project bumblebee --phase LC3
+
+# Dashboard
+cbflow run gui                             # register with the per-user run dashboard and open it
 
 # Clean
 cbflow run clean --confirm                 # Delete work + logs + RACE DB
@@ -330,11 +309,12 @@ cbflow run clean --confirm                 # Delete work + logs + RACE DB
 
 ### 5.4 Flow Commands
 
-Run from `CBFLOW_CORE_DIR` only.
+`cbflow flow …` works from anywhere; PD-owned subcommands (`library-manager`, `mmmc-manager`, `checklist`)
+auto-dispatch to `PD/bin/cbflow-pd`.
 
 ```bash
 # Flow information
-cbflow flow types                          # List all 12 flow types
+cbflow flow types                          # Flow types by discipline (--domain PD|DFT|DV)
 cbflow flow info --flow PNR                # Show PNR details (tool, stages)
 cbflow flow stages --flow SYNTH            # List SYNTH stages
 cbflow flow nodes --flow PV              # Show PV node structure
@@ -351,12 +331,12 @@ cbflow flow release info --version v1.0.0  # Show release details
 cbflow flow release diff --v1 v1.0.0 --v2 v1.0.1
 
 # Dev workflow
-cbflow flow dev start --dir cmds/SYNTH --from v1.0.0  # Start dev version
+cbflow flow dev start --component config/flow --from v1.0.0  # Start dev version
 cbflow flow dev status                     # Show active dev versions
-cbflow flow dev diff --dir cmds/SYNTH      # Show dev changes
-cbflow flow dev promote --dir cmds/SYNTH --version v1.0.1  # Promote to release
-cbflow flow dev sandbox-create --name exp1 # Create sandbox
-cbflow flow dev sandbox-push --name exp1   # Push sandbox changes
+cbflow flow dev diff --component config/flow                # Show dev changes
+cbflow flow dev promote --component config/flow             # Promote to release-ready
+cbflow flow dev sandbox-create             # Create local sandbox (--base / --dir)
+cbflow flow dev sandbox-push               # Push sandbox to central
 
 # Configuration management
 cbflow flow config manage-flow             # Interactive flow config editor
@@ -373,239 +353,42 @@ cbflow flow metrics report                 # Show metrics summary
 cbflow flow metrics report --flow PNR      # Filter by flow
 cbflow flow metrics export --format csv    # Export metrics
 cbflow flow dashboard start                # Start project/run browser (auto-port 8080-8999)
+
+# PD-owned
+cbflow flow library-manager check --tech skywater_130nm --lib_tag OSS2
+cbflow flow mmmc-manager show --project opensky --tech skywater_130nm
+cbflow flow checklist list --discipline PD
+
+# Dashboards
+cbflow run dashboard status --discipline PD          # per-user run dashboard daemon
+cbflow smartgrid start --project opensky             # SmartGrid project dashboard
 ```
 
 ---
 
 ## 6. Supported Flows
 
-CBflow supports 12 design flows covering the complete PD lifecycle:
+PD has 12 flow types; DFT (7), DV (9) and RTL (5) flows are listed by `cbflow flow types`. Stage lists below are the
+default (Synopsys) node configs — `cbflow flow stages --flow <FLOW>` prints the current list, and a tool overlay
+(`<flow>(tool,name)`, e.g. `openroad`, `innovus`) can change it. Inputs per flow: [Flow User Guide §3](cbflow-flow-user-guide.md#3-flow-inputs).
 
-### 6.1 Flow Summary
+| Flow | Default tool | Also | Stages (default node config) |
+|:---:|---|---|---|
+| SYNTH | Fusion Compiler | Genus, yosys | rtl1, sdc1, upf1 -> synthesis1 -> export_data1 -> release_data1 |
+| FP | Fusion Compiler | Innovus, OpenROAD | netlist1, sdc1, def1, upf1, library1 -> init_design1 -> floorplan1 -> powerplan1 -> export_data1 -> release_data1 |
+| PNR | Fusion Compiler | Innovus, OpenROAD | netlist1, sdc1, def1, upf1 -> init_design1 -> place1 -> cts1 -> cts_opt1 -> route1 -> pro1 -> signoff1 -> export_data1 -> release_data1 |
+| SYNTH_PNR | Fusion Compiler | | rtl1, sdc1, upf1 -> init_design1 -> synthesis1 -> place1 -> cts1 -> cts_opt1 -> route1 -> pro1 -> signoff1 -> export_data1 -> release_data1 |
+| STA | PrimeTime | Tempus, OpenSTA | netlist1, sdc1, def1, library1 -> extraction1 -> timing1 (one subnode per MMMC scenario) -> merge_reports1 -> release_data1 |
+| LEC | Formality | Conformal, yosys | netlist_golden1 -> netlist_revised1 -> constraints1 -> compare1 -> release_data1 |
+| EMIR | RedHawk | Voltus | netlist1, def1, spef1, library1 -> power_analysis1 -> ir_drop1 -> thermal_analysis1 |
+| PV | IC Validator | Calibre, KLayout / Magic + Netgen | netlist1, def1, gds1 -> nettran1 -> merge_gds1 -> fill_merge_gds1 -> decomp1 -> decomp_merge_gds1 -> (drc1, lvs1, perc1, perc_ldl1, xor1 in parallel) -> merge_data1 -> release_data1 |
+| ECO | Fusion Compiler | OpenROAD | netlist1, def1, sdc1, library1 -> eco1 -> export_db1 |
+| CLP | VC LP | Conformal LP | netlist1, upf1 -> power_spec1 -> clp1 -> release_data1 |
+| POPT | PrimeTime | | netlist1, sdc1, upf1 -> merge_timing1 -> power_opt1 -> post_merge1 -> release_data1 |
+| FCFP | Fusion Compiler | | netlist1, sdc1, def1, upf1, library1 -> init_design1 -> commit_blocks1 -> init_compile1 -> create_floorplan1 -> shaping1 -> placement1 -> create_power1 -> place_pins1 -> top_compile1 -> timing_budget1 -> export_data1 -> release_data1 |
 
-| Flow | Description | Tool | Vendor | Stages |
-|------|-------------|------|--------|:---:|
-| **SYNTH** | Logic synthesis and optimization | Fusion Compiler | Synopsys | 4 |
-| **FP** | Floorplanning and power planning | Fusion Compiler | Synopsys | 6 |
-| **PNR** | Place and route implementation | Fusion Compiler | Synopsys | 9 |
-| **STA** | Static timing analysis and sign-off (PT-RM W-2024.09) | PrimeTime | Synopsys | 5 |
-| **LEC** | Logic equivalence checking | Formality | Synopsys | 5 |
-| **EMIR** | Power and thermal analysis | RedHawk | Synopsys | 4 |
-| **PV** | Physical verification (ICV-RM V-2023.12) | IC Validator | Synopsys | 9 |
-| **ECO** | Engineering change orders | Fusion Compiler | Synopsys | 3 |
-| **CLP** | Conformal low power verification | VC LP | Synopsys | 4 |
-| **POPT** | Power optimization and clock gating | PrimeTime | Synopsys | 5 |
-| **FCFP** | Fullchip floorplanning | Fusion Compiler | Synopsys | 6 |
-| **SYNTH_PNR** | Unified synthesis + PNR | Fusion Compiler | Synopsys | 11 |
-
-### 6.2 Flow Details
-
-#### SYNTH (Synthesis)
-
-Transforms RTL to gate-level netlist using Synopsys Fusion Compiler.
-
-```
-inputs1 --> synthesis1 --> export_data1 --> release_data1
-```
-
-| Stage | Subnodes | Description |
-|-------|----------|-------------|
-| inputs1 | rtl, sdc, library, upf, validate, finish | Load RTL, constraints, libraries |
-| synthesis1 | setup, run, validate, finish | Elaborate, synthesize, optimize |
-| export_data1 | setup, run, validate, finish | Export netlist, SDC, database |
-| release_data1 | setup, run, validate, finish | Package for release |
-
----
-
-#### FP (Floorplanning)
-
-Physical floorplan creation using Synopsys Fusion Compiler.
-
-```
-inputs --> import_design --> floorplan --> powerplan --> export_data --> release_data
-```
-
-| Stage | Subnodes | Description |
-|-------|----------|-------------|
-| inputs | netlist, sdc, def, upf, library, validate, finish | Load design data |
-| import_design | setup, run, validate, finish | Import into Fusion Compiler |
-| floorplan | setup, run, validate, finish | Create chip floorplan |
-| powerplan | setup, run, validate, finish | Power grid creation |
-| export_data | setup, run, validate, finish | Export DEF, database |
-| release_data | setup, run, validate, finish | Package deliverables |
-
----
-
-#### PNR (Place and Route)
-
-Full place-and-route implementation using Synopsys Fusion Compiler.
-
-```
-inputs1 --> place1 --> cts1 --> cts_opt1 --> route1 --> pro1 --> signoff1 --> export_data1 --> release_data1
-```
-
-| Stage | Subnodes | Description |
-|-------|----------|-------------|
-| inputs1 | netlist, sdc, def, upf, library, validate, finish | Load design data |
-| place1 | setup, run, validate, finish | Cell placement |
-| cts1 | setup, run, validate, finish | Clock tree synthesis |
-| cts_opt1 | setup, run, validate, finish | CTS optimization |
-| route1 | setup, run, validate, finish | Global and detail routing |
-| pro1 | setup, run, validate, finish | Post-route optimization |
-| signoff1 | setup, run, validate, finish | Timing sign-off |
-| export_data1 | setup, run, validate, finish | Export final data |
-| release_data1 | setup, run, validate, finish | Package for release |
-
----
-
-#### STA (Static Timing / STA)
-
-Static timing analysis using Synopsys PrimeTime (PT-RM W-2024.09 aligned, DMSA-style per-corner analysis). Each corner runs independently -- there is no MMMC concept in PT/Tempus. The timing1 stage is dynamic: each corner appears as a subnode in status.
-
-```
-inputs1 --> extraction1 --> timing1 (per-corner) --> reporting1 --> release_data1
-```
-
-| Stage | Subnodes | Description |
-|-------|----------|-------------|
-| inputs1 | setup, netlist, sdc, spef, library, validate, finish | Load design + parasitics |
-| extraction1 | setup, run, validate, finish | Parasitic extraction (SPEF) |
-| timing1 | setup, run (per-corner), validate, finish | Setup/hold timing per corner (dynamic subnodes) |
-| reporting1 | setup, run, validate, finish | Generate timing reports |
-| release_data1 | setup, run, validate, finish | Package for release |
-
----
-
-#### LEC (Logic Equivalence Checking)
-
-Formal verification using Synopsys Formality.
-
-```
-netlist_golden1 --> netlist_revised1 --> constraints1 --> compare1 --> release_data1
-```
-
-| Stage | Subnodes | Description |
-|-------|----------|-------------|
-| netlist_golden1 | setup, run, validate, finish | Load golden (reference) netlist |
-| netlist_revised1 | setup, run, validate, finish | Load revised (implementation) netlist |
-| constraints1 | setup, run, validate, finish | Load Formality constraints/guidance |
-| compare1 | setup, run, validate, finish | Run formal comparison |
-| release_data1 | setup, run, validate, finish | Package results for release |
-
----
-
-#### EMIR (EM/IR Analysis)
-
-Power and thermal analysis using Synopsys RedHawk.
-
-```
-inputs --> power_analysis --> ir_drop --> thermal_analysis
-```
-
-| Stage | Subnodes | Description |
-|-------|----------|-------------|
-| inputs | setup, netlist, def, spef, library, validate, finish | Load design data |
-| power_analysis | setup, run, validate, finish | Static/dynamic power |
-| ir_drop | setup, run, validate, finish | IR drop analysis, voltage maps |
-| thermal_analysis | setup, run, validate, finish | Thermal simulation, hotspots |
-
----
-
-#### PV (Physical Verification)
-
-DRC/LVS/ERC/PERC/XOR checks using Synopsys IC Validator (ICV-RM V-2023.12 aligned). Fill runs first to generate filled GDS, then DRC/LVS/PERC/ERC/XOR run in parallel, followed by merge and release.
-
-```
-inputs1 --> fill1 --> drc1  \
-                  --> lvs1   \
-                  --> perc1   --> merge_data1 --> release_data1
-                  --> erc1   /
-                  --> xor1  /
-```
-
-Note: fill1 runs first (generates filled GDS). DRC, LVS, PERC, ERC, and XOR run in parallel after fill, then merge.
-
-| Stage | Subnodes | Description |
-|-------|----------|-------------|
-| inputs1 | setup, netlist, def, gds, validate, finish | Load GDS, netlist |
-| fill1 | setup, run, validate, finish | Metal fill / OD fill insertion (generates filled GDS) |
-| drc1 | setup, run, validate, finish | Design rule checks (spacing, width, density, via) |
-| lvs1 | setup, run, validate, finish | Layout vs schematic comparison |
-| perc1 | setup, run, validate, finish | Parasitic extraction rule checks (reliability, ESD, latchup) |
-| erc1 | setup, run, validate, finish | Electrical rule checks (power, ground, floating) |
-| xor1 | setup, run, validate, finish | XOR comparison between design versions |
-| merge_data1 | setup, run, validate, finish | Merge all verification results |
-| release_data1 | setup, run, validate, finish | Package for release |
-
----
-
-#### ECO (Engineering Change Orders)
-
-Design modifications using Synopsys Fusion Compiler.
-
-```
-inputs --> eco --> export_db
-```
-
-| Stage | Subnodes | Description |
-|-------|----------|-------------|
-| inputs | setup, netlist, def, sdc, library, validate, finish | Load design data |
-| eco | setup, run, validate, finish | Analyze, implement, verify ECO changes |
-| export_db | setup, run, validate, finish | Export modified design |
-
----
-
-#### CLP (Conformal Low Power)
-
-Low-power verification using Synopsys VC LP.
-
-```
-inputs --> clp --> export_data --> release_data
-```
-
-| Stage | Subnodes | Description |
-|-------|----------|-------------|
-| inputs | setup, netlist, upf, power_spec, validate, finish | Load netlist + UPF/CPF |
-| clp | setup, run, validate, finish | LP verification (connectivity, isolation, level shifter, retention, power switch) |
-| export_data | setup, run, validate, finish | Export database + reports |
-| release_data | setup, run, validate, finish | Package for release |
-
----
-
-#### POPT (Power Optimization)
-
-Power optimization using Synopsys PrimeTime.
-
-```
-inputs --> merge_timing --> power_opt --> post_merge --> release_data
-```
-
-| Stage | Subnodes | Description |
-|-------|----------|-------------|
-| inputs | setup, netlist, sdc, upf, validate, finish | Load design data |
-| merge_timing | setup, run, validate, finish | Merge timing data |
-| power_opt | setup, run, validate, finish | Power optimization, clock gating |
-| post_merge | setup, run, validate, finish | Post-merge validation |
-| release_data | setup, run, validate, finish | Package for release |
-
----
-
-#### FCFP (Fullchip Floorplanning)
-
-Chip-level floorplanning using Synopsys Fusion Compiler.
-
-```
-inputs --> fc_floorplan --> fc_powerplan --> fc_post_floorplan --> export_data --> release_data
-```
-
-| Stage | Subnodes | Description |
-|-------|----------|-------------|
-| inputs | setup, netlist, sdc, def, upf, library, validate, finish | Load design data |
-| fc_floorplan | setup, run, validate, finish | Chip-level floorplan, macro placement |
-| fc_powerplan | setup, run, validate, finish | Power grid, stripes, rail connections |
-| fc_post_floorplan | setup, run, validate, finish | Congestion/timing optimization |
-| export_data | setup, run, validate, finish | Export DEF, database |
-| release_data | setup, run, validate, finish | Package deliverables |
+Every stage has the subnodes `setup`, `run`, `validate`, `finish`. STA's `timing1` expands into one subnode per
+MMMC scenario (`timing1_<mode>_<corner>_<voltage>_<rc>_<temp>`).
 
 ---
 
@@ -622,7 +405,7 @@ cbflow workspace template --flow SYNTH_PNR > user_config.tcl
 # Edit user_config.tcl (see below), then create the workspace and first run
 cbflow workspace create --config user_config.tcl
 
-# Creates: P0_run_SYNTH_PNR_run1/
+# Creates: LC1_run_SYNTH_PNR_cpu_core_run1/
 #   with .run.cbflow.env, .run.cbflow.tcl, etc.
 ```
 
@@ -634,26 +417,25 @@ Edit `user_config.tcl` before creating a run. The template generated by `cbflow 
 #!/usr/bin/env tclsh
 # Project settings
 set project(name)        "bumblebee"
-set project(phase)       "P0"
-set project(technology)  "gf_22nm"
-
-# Design settings
-set design(name)         "cpu_core"
-set design(top_module)   "cpu_core"
+set project(phase)       "LC1"       ;# optional: default project(current_phase)
 
 # Flow settings
 set flow(type)           "SYNTH_PNR"
+set flow(design_name)    "cpu_core"
 set flow(run_name)       "run1"
-set flow(test_mode)      false       ;# Set to true to bypass EDA tools
-set flow(use_lsf)        true        ;# Enable LSF job submission
-set flow(use_xterm)      true        ;# Launch stages in xterm windows
+set flow(test_mode)      "false"     ;# "true" = bypass EDA tools (dummy outputs)
+set flow(use_lsf)        "true"      ;# submit via bsub (bsub must be on PATH)
+set flow(use_xterm)      "false"     ;# "true" = launch jobs in xterm windows
 
 # Input paths (customize for your design)
-set pnr(input,netlist)       "/path/to/synthesized_netlist.v"
-set pnr(input,sdc_func_file) "/path/to/constraints.sdc"
-set pnr(input,def_file)      "/path/to/floorplan.def"
-set pnr(input,upf_file)      "/path/to/power_intent.upf"
+set synth_pnr(input,rtl_filelist)  "/path/to/cpu_core.f"
+set synth_pnr(input,rtl_format)    "sverilog"
+set synth_pnr(input,sdc_func_file) "/path/to/cpu_core_func.sdc"
+set synth_pnr(input,upf_file)      "/path/to/cpu_core.upf"
 ```
+
+Defaults (`global/config/flow/v1.0.0/flow_registry.tcl`): `test_mode=false`, `use_lsf=false`, `use_xterm=true`.
+`workspace create` refuses `use_lsf=true` without `bsub` and `use_xterm=true` without `xterm`.
 
 ### 7.3 Managing Runs
 
@@ -671,7 +453,7 @@ cbflow workspace list-runs
 cbflow workspace status
 ```
 
-The run directory naming pattern is `{phase}_run_{flow}_{run_name}/`, for example: `P0_run_SYNTH_PNR_run1/`.
+The run directory naming pattern is `{phase}_run_{flow}_{block}_{run_name}/`, for example: `LC1_run_SYNTH_PNR_cpu_core_run1/`.
 
 ### 7.4 Test Mode
 
@@ -688,7 +470,7 @@ Set `flow(test_mode) true` in user_config.tcl to run without EDA tools. In test 
 ### 8.1 Running a Complete Flow
 
 ```bash
-cd P0_run_PNR_run1/
+cd LC2_run_PNR_cpu_core_run1/
 
 # Run all stages
 cbflow run all
@@ -698,7 +480,7 @@ cbflow run all
 
 ```bash
 # Run specific stages
-cbflow run stage --name inputs1
+cbflow run stage --name netlist1
 cbflow run stage --name place1
 cbflow run stage --name cts1
 ```
@@ -789,7 +571,7 @@ cbflow run logs --tail 50 --level ERROR
 
 ```bash
 cbflow flow types
-# Lists all 12 flows with descriptions
+# Lists the flow types by discipline (PD 12, DFT 7, DV 9, RTL 5)
 
 cbflow flow info --flow PNR
 # Shows: tool, vendor, version, stages, subnodes
@@ -814,7 +596,7 @@ cbflow flow project info --name bumblebee
 cbflow run show-graph
 # ASCII dependency graph:
 #
-# [inputs1] --> [place1] --> [cts1] --> [cts_opt1] --> [route1] --> [pro1] --> [signoff1]
+# [init_design1] --> [place1] --> [cts1] --> [cts_opt1] --> [route1] --> [pro1] --> [signoff1]
 ```
 
 ---
@@ -826,25 +608,28 @@ cbflow run show-graph
 CBflow loads configuration in this order (later overrides earlier):
 
 ```
-1. flow_config.tcl          (Global flow definitions)
-2. {FLOW}_config.tcl         (Flow-specific stages/subnodes)
-3. project_config.tcl        (Project: design hierarchy, constraints)
-4. tech_config.tcl           (Technology: libraries, design rules)
-5. setup hooks               (flow_proc_prepend/append hooks)
-6. .run.cbflow.tcl           (Run-specific environment)
-7. user_config.tcl           (User overrides)
+1. global/config/project/<proj>/v1.0.0/<proj>_config.tcl         identity, hierarchy, phases, exit plans
+2. <disc>/config/project/<proj>/v1.0.0/<proj>_<disc>_config.tcl  discipline overlays (PD: workarea, release, lsf, lib roots / tag)
+3. global/config/tech/<tech>/v1.0.0/tech_config.tcl              + the library tag's lib_config.tcl / blocks_config.tcl
+4. global/config/flow/v1.0.0/flow_registry.tcl                   flow catalog, runtime defaults
+5. <disc>/config/flow/v1.0.0/flow_config.tcl
+6. <disc>/config/flow/v1.0.0/node_configs/<FLOW>_config.tcl + <FLOW>_<tool>_config.tcl
+7. global/config/project/<proj>/v1.0.0/mmmc_config.tcl
+8. <run>/setup/user_config.tcl
+9. <run>/setup/override_config.tcl -> .<stage> -> .<branch> -> .<node_type> -> .<node>
 ```
+
+The result is one generated `work/<FLOW>/<node>/run/config.tcl` per node; flow_proc hooks go in
+`setup/override_setup*.tcl` and `PD/config/setup/`.
 
 ### 10.2 Flow Configuration (`flow_config.tcl`)
 
 Defines global settings for all flows:
 
-```tcl
-set flow(types) {SYNTH FP PNR STA LEC EMIR PV ECO CLP POPT FCFP SYNTH_PNR}
-set flow(run_type) "node"        ;# "node" (default) or "flat"
-set flow(test_mode) "false"
-set flow(phases) {P0 P1 P2 P3}
-```
+The flow catalog (`flow(types)`, `flow(discipline,<FLOW>)`) and the cross-discipline runtime defaults
+(`flow(test_mode)`, `flow(use_lsf)`, `flow(use_xterm)`, dashboard ports) live in
+`global/config/flow/v1.0.0/flow_registry.tcl`; `PD/config/flow/v1.0.0/flow_config.tcl` holds the PD mandatory
+variables and node-config dispatch. Phases are project-defined (`project(phases)`), not a flow setting.
 
 ### 10.3 Node Configuration (`{FLOW}_config.tcl`)
 
@@ -853,11 +638,10 @@ Each flow has a dedicated config file defining:
 ```tcl
 # Stage definitions
 array set pnr {
-    stages {inputs1 place1 cts1 cts_opt1 route1 pro1 signoff1 export_data1 release_data1}
+    stages {netlist1 sdc1 def1 upf1 init_design1 place1 cts1 cts_opt1 route1 pro1 signoff1 export_data1 release_data1}
     subnodes,place1 {setup run validate finish}
-    dependencies,place1 {inputs1}
-    tool,vendor "cadence"
-    tool,name "innovus"
+    dependencies,place1 {init_design1}
+    node_types,place1 "place"
     runtime,timeout,place1 120
 }
 ```
@@ -874,29 +658,26 @@ set pnr(tool,name)   "innovus"
 
 This overrides the default tool selection for that flow in the current run only.
 
-### 10.4 Tool Configuration (`fc_config.tcl`, `pt_config.tcl`, etc.)
+### 10.4 Tool Configuration (`<FLOW>_<tool>_config.tcl`)
 
-Each EDA tool has a dedicated tool config file that defines tool-specific parameters using a two-level scoping convention:
-
-- **`<tool>(common,*)`** -- Settings shared across all nodes in the flow
-- **`<tool>(<node>,*)`** -- Settings specific to a particular node (overrides common)
+Each flow uses **one array** (`pnr()`, `sta()`, …) — there are no tool arrays (`fc()`, `pt()`). The tool overlay
+`<FLOW>_<tool>_config.tcl` next to the node config is selected by `<flow>(tool,name)` and adds the tool's settings
+to the same array:
 
 ```tcl
-# fc_config.tcl -- Fusion Compiler tool settings
-
-# Common settings (apply to all FC-based nodes)
-set fc(common,enable_clock_gating)        true
-set fc(common,target_library)             "sc7p5t_cln28hpm_base_rvt_c14_tt_nominal_max_0p90v_25c.db"
-set fc(common,enable_spg)                 true
-
-# Node-specific settings (override common for this node only)
-set fc(place1,congestion_effort)          high
-set fc(place1,enable_coarse_placement)    false
-set fc(cts1,max_skew)                     50
-set fc(route1,detail_route_effort)        high
+# PD/config/flow/v1.0.0/node_configs/PNR_fc_config.tcl
+array set pnr {
+    tool,vendor   "synopsys"
+    tool,name     "fc"
+    tool,version  "v1.0.0"
+    place,effort               "high"
+    place,congestion_aware     true
+    place,max_density          0.85
+}
 ```
 
-Tool config files follow the naming pattern `<tool>_config.tcl` (e.g., `fc_config.tcl` for Fusion Compiler, `pt_config.tcl` for PrimeTime).
+Override any key per run in `user_config.tcl` (`set pnr(place,max_density) 0.80`) or per node in
+`setup/override_config.<node>.tcl`. The open-source overlays use `<flow>(oss,…)` keys (e.g. `pnr(oss,place,density)`).
 
 The GUI Config Editor exposes these settings under the **Tool Config** tab with search, filter, and scope toggles. See the [GUI User Guide](cbflow-gui-user-guide.md#8-config-editor) for details.
 
@@ -907,16 +688,16 @@ The GUI Config Editor organizes settings into 5 categories:
 | Category | Source | Description |
 |----------|--------|-------------|
 | **Node Config** | `SYNTH_PNR_config.tcl` | Stages, dependencies, subnodes, timeouts |
-| **Tool Config** | `fc_config.tcl` / `pt_config.tcl` | Tool-specific parameters (`fc(common,*)` + `fc(<node>,*)`) |
+| **Tool Config** | `SYNTH_PNR_fc_config.tcl` (`<FLOW>_<tool>_config.tcl`) | Tool-specific keys of the flow array |
 | **LSF & Resources** | `tool_launch_config.tcl` | Queue tier, memory, CPU, runtime limit |
 | **Flow Settings** | `flow_config.tcl` / `user_config.tcl` | `use_lsf`, `tool_module`, `test_mode` |
-| **Exit Criteria** | `exit/` configs | Milestone exit files and thresholds |
+| **Exit Criteria** | `global/config/exit/v1.0.0/` configs | Milestone exit files and thresholds |
 
 Changes made in the Config Editor are saved to `override_config.tcl` in the run's setup directory.
 
 ### 10.4 Project Configuration
 
-Located in `config/project/{project_name}/v1.0.0/{project}_config.tcl`:
+Located in `global/config/project/{project_name}/v1.0.0/{project}_config.tcl` (identity, hierarchy, phases, exit plans) plus the PD overlay `PD/config/project/{project_name}/v1.0.0/{project}_pd_config.tcl` (workarea, release, LSF, library roots / tag):
 
 ```tcl
 # Design hierarchy
@@ -935,7 +716,7 @@ set project(power,domains) {PD_CPU PD_MEM PD_IO PD_TOP}
 
 ### 10.5 Technology Configuration
 
-Located in `config/tech/{tech_node}/v1.0.0/tech_config.tcl`:
+Located in `global/config/tech/{tech_node}/v1.0.0/tech_config.tcl` (one file per technology; the former PD tech overlay is merged in):
 
 ```tcl
 set tech(node) "gf_22nm"
@@ -946,7 +727,7 @@ set tech(lef,technology) "libs/lef/tech.lef"
 
 ### 10.6 Setup Hooks
 
-Located in `config/setup/common/v1.0.0/{FLOW}/{vendor}/{tool}/`:
+Located in `PD/config/setup/common/…` (all projects) and `PD/config/setup/<project>/…`; per run in `setup/override_setup*.tcl`:
 
 ```tcl
 # global_setup.tcl - runs for all stages
@@ -985,7 +766,7 @@ set directory(PNR) {
 The metal stack defines the full interconnect layer configuration for your technology node. Set it in your project config:
 
 ```tcl
-# In config/project/<name>/v1.0.0/<name>_config.tcl
+# In global/config/project/<name>/v1.0.0/<name>_config.tcl
 set project(metal_stack) "gf22naphlogl24uhf116a_11M_2Mx_6Cx_1Jx_2Qx_LB"
 ```
 
@@ -1029,7 +810,7 @@ tech(metal_stack,M1,type)         ;# Mx, Cx, Jx, or Qx
 
 To add a new metal stack option for a technology node:
 
-1. Define the stack in `config/tech/<node>/v1.0.0/tech_config.tcl`
+1. Define the stack in `global/config/tech/<node>/v1.0.0/tech_config.tcl` (+ `metal_stack/<stack>.tcl`)
 2. Provide per-layer properties (direction, pitch, width, spacing, type)
 3. Map the stack to TLU+ files for each RC corner
 4. Define PG strap configurations for the new layer count
@@ -1251,23 +1032,18 @@ cbflow run db-manage --cleanup
 
 ### 17.1 Overview
 
-CBflow provides a comprehensive exit checklist system with 11 milestones, 292 checks across 14 categories. The system enforces quality gates at each design phase.
+CBflow provides an exit checklist system with milestones for every discipline (`cbflow flow checklist list`): PD FP_EXIT, PLACE_EXIT, CTS_EXIT, PRO_EXIT, BTO, MTO (+ the STA_SIGNOFF checklist); DFT, DV and RTL exits alongside. Exit configs live in `global/config/exit/v1.0.0/`; checks activate progressively with the project's phases.
 
 ### 17.2 Milestones
 
-| Milestone | Description | Flow Context |
-|-----------|-------------|--------------|
-| FP_EXIT | Floorplan complete | FP, SYNTH_PNR |
-| PLACE_EXIT | Placement complete | PNR, SYNTH_PNR |
-| CTS_EXIT | Clock tree synthesis complete | PNR, SYNTH_PNR |
-| PRO_EXIT | Post-route optimization complete | PNR, SYNTH_PNR |
-| BTO | Backend tapeout ready | PNR, SYNTH_PNR |
-| MTO | Manufacturing tapeout ready | PNR, SYNTH_PNR |
-| STA_SIGNOFF | Static timing sign-off | STA |
-| LEC_SIGNOFF | Logic equivalence sign-off | LEC |
-| CLP_SIGNOFF | Low power verification sign-off | CLP |
-| PV_SIGNOFF | Physical verification sign-off | PV |
-| EMIR_SIGNOFF | EM/IR analysis sign-off | EMIR |
+| Discipline | Milestones (`cbflow flow checklist list`) |
+|-----------|-------------|
+| PD | FP_EXIT, PLACE_EXIT, CTS_EXIT, PRO_EXIT, BTO, MTO; STA_SIGNOFF checklist (STA_0001…STA_0015, published with every STA run) |
+| DFT | CORE_DFT_EXIT, TOP_DFT_EXIT, EDT_OCC_EXIT, SCAN_INSERT_EXIT, ATPG_PREPD_EXIT, ATPG_POSTPD_EXIT |
+| DV | SPEC_RAMP_EXIT, PLANNING_EXIT, TB_SETUP_EXIT, M1_EXIT, M2_EXIT, M3_EXIT, M4_EXIT, ECO_EXEC_EXIT, DV_SIGNOFF_EXIT |
+| RTL | SPEC_EXIT, LINT_SIGNOFF, CDC_SIGNOFF, UPF_SIGNOFF |
+
+Signoff flows (STA / PV / LEC) attach to the exit they verify rather than having exits of their own.
 
 ### 17.3 Check Categories and IDs
 
@@ -1275,66 +1051,63 @@ Each check has a unique ID with a category prefix:
 
 | Prefix | Category | Example Checks |
 |--------|----------|----------------|
-| TMG | Timing | Setup/hold slack, clock skew, transition |
+| TMG | Timing | Setup/hold slack, transition |
 | PLC | Placement | Utilization, congestion, cell overlap |
 | CLK | Clock | Skew targets, insertion delay, clock DRC |
-| RTE | Routing | DRC violations, antenna, shorts |
+| RTG | Routing | DRC violations, antenna, shorts |
 | PWR | Power | IR drop, EM violations, power budget |
 | PHY | Physical | Cell density, pin access, blockage |
-| LIB | Library | Cell usage, dont_use compliance |
-| CON | Constraints | SDC coverage, false/multi-cycle paths |
-| FLR | Floorplan | Macro placement, channel width, halo |
-| VER | Verification | LVS/DRC clean, formal equivalence |
-| SGN | Signoff | Timing closure, SI, noise |
+| SI | Signal integrity | Crosstalk, noise |
 | MFG | Manufacturing | Metal density, via redundancy, antenna |
-| REL | Reliability | EM limits, ESD, latchup |
-| DOC | Documentation | Reports generated, waivers documented |
+
+PD milestones draw from a library of 182 checks in 9 categories (the above plus eco_flow); DFT / DV milestones use
+mandatory files + per-flow metric checks; RTL flows use `violations_final.csv`.
 
 ### 17.4 CLI Commands
 
 ```bash
-# List all checks for a milestone (auto-detects from run dir)
-cbflow flow checklist list-checks
+# Milestones (filter by owning discipline)
+cbflow flow checklist list
+cbflow flow checklist list --discipline DFT
+
+# Checks of a milestone (milestone auto-detected from a run dir when omitted)
 cbflow flow checklist list-checks --milestone BTO --phase P2
+cbflow flow checklist list-checks --milestone BTO --phase P3 --run-dir . --summary
 
-# Summary mode (category counts only)
-cbflow flow checklist list-checks -s
-
-# Evaluate checks against current run
-cbflow flow checklist status
-cbflow flow checklist status --milestone PLACE_EXIT
-
-# Generate checklist report
-cbflow flow checklist generate --milestone BTO
+# Evaluate against a run / generate the checklist
+cbflow flow checklist status   --milestone PLACE_EXIT --run-dir .
+cbflow flow checklist generate --milestone BTO --phase P3 --format html
+cbflow run checklist --milestone PRO_EXIT --phase P2            # same, from inside the run
 
 # Record sign-off
-cbflow flow checklist sign-off
-cbflow flow checklist sign-off --milestone BTO --signee "john.doe"
+cbflow flow checklist sign-off --milestone BTO --run-dir . --approver chip_lead
 
 # Manage individual checks
-cbflow flow checklist add-check --milestone BTO --id "TMG-099" --desc "Custom timing check"
-cbflow flow checklist remove-check --milestone BTO --id "TMG-099"
+cbflow flow checklist add-check --milestone BTO --name timing_clean --type mandatory \
+    --description "Setup WNS must be >= 0" --script check_timing.tcl --criteria "setup_wns >= 0"
+cbflow flow checklist remove-check --milestone BTO --name timing_clean
 
-# Waiver management
-cbflow flow checklist waiver --id "RTE-003" --reason "Known DRC waiver per foundry" --approver "lead"
+# Waivers (max 90 days; no BTO / MTO waivers — waiver_config.tcl)
+cbflow flow checklist waiver --action list --milestone BTO
+cbflow flow checklist waiver --action add --milestone PRO_EXIT --check congestion_analysis \
+    --reason "Known hotspot, ECO planned" --approver chip_lead --expiry 2026-12-31
+cbflow flow checklist waiver --action revoke --waiver-id W001
 ```
+
+`--discipline PD|DFT|DV|RTL` filters by the milestone's owner (`milestone_info(discipline)`).
 
 ### 17.5 Phase Filtering
 
 Checks are phase-aware. The same milestone applies different criteria depending on the project phase:
 
-| Phase | Behavior |
-|-------|----------|
-| P0 | Relaxed -- many checks are advisory, waivers auto-approved |
-| P1 | Moderate -- key checks enforced, others advisory |
-| P2 | Strict -- most checks enforced, waivers require lead approval |
-| P3 | Zero-tolerance -- all checks must pass or have documented waivers |
+Phases are project-defined (`project(phases)`: opensky P0-P3, bumblebee LC1-LC5). Each check declares the
+phase from which it is active; `--phase` filters to the checks active at that phase, so later phases enforce more.
 
 ### 17.6 Auto-Detection
 
 When running checklist commands from within a run directory, CBflow auto-detects:
 - The milestone (from flow type and completed stages)
-- The phase (from `project(release,phase)`)
+- The phase (the run's phase, `CBFLOW_PROJECT_PHASE` — from `project(phase)` in the user config, else `project(current_phase)`)
 - The run context (from `.run.cbflow.tcl`)
 
 No flags needed for the common case -- just `cbflow flow checklist status` from your run directory.
@@ -1371,9 +1144,10 @@ cbflow flow release diff --v1 v1.0.0 --v2 v1.0.1
 ### 18.3 Version Management
 
 ```bash
-cbflow flow version list --dir cmds/SYNTH
-cbflow flow version create --dir cmds/SYNTH --type minor --desc "Added new optimization"
-cbflow flow version promote --dir cmds/SYNTH --version v1.1.0
+cbflow flow version list --dir config/flow
+cbflow flow version copy --dir config/flow --from v1.0.0 --to v1.0.1
+cbflow flow version create --dir config --version v2.0.0 --desc "New features"
+cbflow flow version set-current --dir config/flow --version v1.0.1
 ```
 
 ### 18.4 Version Locking
@@ -1397,24 +1171,24 @@ The dev workflow provides a structured way to develop and test changes before pr
 
 ```bash
 # Start a dev version from an existing released version
-cbflow flow dev start --dir cmds/SYNTH --from v1.0.0
-# Creates: cmds/SYNTH/synopsys/fc/v1.0.0-dev/ (writable copy)
+cbflow flow dev start --component config/flow --from v1.0.0
+# Creates: config/flow/v1.0.0-dev/ (writable copy)
 
 # Check status of all active dev versions
 cbflow flow dev status
 
 # View changes made in a dev version
-cbflow flow dev diff --dir cmds/SYNTH
+cbflow flow dev diff --component config/flow
 
 # Create an isolated sandbox for experimentation
-cbflow flow dev sandbox-create --name experiment1
+cbflow flow dev sandbox-create
 
 # Push sandbox changes back to the dev version
-cbflow flow dev sandbox-push --name experiment1
+cbflow flow dev sandbox-push
 
 # Promote dev version to a new released version (applies version locking)
-cbflow flow dev promote --dir cmds/SYNTH --version v1.0.1
-# v1.0.1 is created, locked (chmod 444 + .locked), and v1.0.0-dev is removed
+cbflow flow dev promote --component config/flow
+# the next version is created and locked (chmod 444 + .locked); the -dev copy is removed
 ```
 
 ---
@@ -1439,13 +1213,13 @@ cbflow workspace create --config user_config.tcl
 Add custom stages to an existing flow:
 
 ```bash
-cd P0_run_PNR_run1/
+cd LC2_run_PNR_cpu_core_run1/
 
 # Add a custom ECO node after signoff
-cbflow run add-node --node eco1 --type eco --dep signoff1
+cbflow run add-node --node place2 --type place --dep place1
 
 # Create a branch for experimental runs
-cbflow run create-branch --name experiment_timing
+cbflow run create-branch --branch experiment_timing --from cts1
 ```
 
 ### 19.3 Plugin System
@@ -1506,7 +1280,7 @@ In flat mode, multiple stages are combined into a single merged execution to min
 
 **Problem:** `ERROR: .run.cbflow.tcl not found`
 - **Cause:** Running cbflow from wrong directory
-- **Fix:** Ensure you are inside the run directory (e.g., `cd P0_run_PNR_run1/`)
+- **Fix:** Ensure you are inside the run directory (e.g., `cd LC2_run_PNR_cpu_core_run1/`)
 
 **Problem:** `list must have an even number of elements`
 - **Cause:** TCL comments (`#`) inside `array set {}` blocks in config files
@@ -1524,7 +1298,7 @@ In flat mode, multiple stages are combined into a single merged execution to min
 
 ```bash
 # Show what would run without executing
-cbflow run verify-dag
+cbflow run gen-makefile        # verifies the RACE DAG (no Makefile is written)
 
 # Check environment
 cat .run.cbflow.env
@@ -1536,7 +1310,7 @@ tclsh -e 'source .run.cbflow.tcl; parray ::env'
 cbflow run status --details
 
 # Force re-run a specific node
-cbflow run force --node place1
+cbflow run force --stages place1
 cbflow run all
 ```
 
@@ -1567,7 +1341,7 @@ Test mode shows the command file that would be executed at each stage, useful fo
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| CBFLOW_RUN_DIR | Run directory path | /work/P0_run_PNR_run1 |
+| CBFLOW_RUN_DIR | Run directory path | /proj/workarea/cpu_core/LC2_run_PNR_cpu_core_run1 |
 | CBFLOW_FLOW_TYPE | Flow type | PNR |
 | CBFLOW_DESIGN_NAME | Design/block name | cpu_core |
 | CBFLOW_RUN_NAME | Run identifier | run1 |
@@ -1589,12 +1363,16 @@ Test mode shows the command file that would be executed at each stage, useful fo
 
 ## Appendix B: Project Phases
 
-| Phase | Description | Typical Activities |
-|:---:|---|---|
-| P0 | Initial implementation | RTL integration, first synthesis, initial floorplan |
-| P1 | Design refinement | Timing closure, power optimization, DRC/LVS clean |
-| P2 | Final implementation | Sign-off timing, final verification, ECO implementation |
-| P3 | Production release | Tapeout preparation, manufacturing data generation |
+Phases are project-defined in `global/config/project/<proj>/v1.0.0/<proj>_config.tcl`:
+
+```tcl
+set project(phases)         {P0 P1 P2 P3}      ;# opensky (bumblebee: {LC1 LC2 LC3 LC4 LC5})
+set project(current_phase)  "P0"
+set project(phase_exits)    { P0 {FP_EXIT PRO_EXIT} P1 {FP_EXIT PRO_EXIT} P2 {FP_EXIT PLACE_EXIT CTS_EXIT PRO_EXIT BTO MTO} P3 {FP_EXIT PLACE_EXIT CTS_EXIT PRO_EXIT BTO MTO} }
+set project(phase_exits,DV) { P1 {TB_SETUP_EXIT M1_EXIT M2_EXIT} P2 {M3_EXIT M4_EXIT DV_SIGNOFF_EXIT} ... }
+```
+
+A run's phase is `project(phase)` from its user config, else `project(current_phase)`.
 
 ---
 
@@ -1606,7 +1384,7 @@ cbflow workspace template --flow PNR > user_config.tcl
 cbflow workspace create --config user_config.tcl
 
 # Execute
-cd P0_run_PNR_run1/
+cd LC2_run_PNR_cpu_core_run1/
 cbflow run all                          # Run complete flow
 cbflow run stage --name place1          # Run single stage
 cbflow run status                       # Check progress
@@ -1618,13 +1396,13 @@ cbflow run logs --tail 50 --level ERROR
 
 # Re-run / Control
 cbflow run retrace --from cts1          # Re-run from CTS onwards
-cbflow run bypass --node export_data1   # Skip a node
-cbflow run force --node place1          # Force re-run
+cbflow run bypass --stages export_data1   # Skip a node
+cbflow run force --stages place1          # Force re-run
 cbflow run forcevalidate --node signoff1  # Force validate
 
 # Debug
 cbflow run validate
-cbflow run verify-dag
+cbflow run gen-makefile        # verifies the RACE DAG (no Makefile is written)
 
 # Info
 cbflow flow types

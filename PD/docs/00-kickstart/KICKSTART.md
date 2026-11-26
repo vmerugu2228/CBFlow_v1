@@ -1,300 +1,274 @@
 # CBflow Kickstart Guide
 
-**Copy to Unix, set PATH, run your first flow in 5 minutes.**
+**Copy the install, set one variable, run your first flow in 5 minutes.**
 
 ---
 
 ## 1. Copy to Unix
 
+Copy the **whole umbrella install** (`bin/`, `global/`, `PD/`, `DFT/`, `DV/`, `RTL/`) —
+`PD/` alone no longer runs, because every run sources the cross-discipline `global/` layer first.
+
 ```bash
-# Copy CBflow to your Unix/Linux machine
-scp -r CBflow_clone/PD user@server:/opt/cbflow
-# OR
-rsync -avz CBflow_clone/PD user@server:/opt/cbflow
+rsync -avz CBflow_clone/ user@server:/opt/cbflow/
+# or ship a bundle (excludes run data, releases, RACE area):
+bin/cbflow bundle --output /tmp            # CBflow_v2.0.0_<date>.tar.gz
 ```
 
 ## 2. Set Environment
 
-**Bash** (`~/.bashrc` or `~/.bash_profile`):
+`CBFLOW_ROOT` is the only user-facing variable. `CBFLOW_GLOBAL_DIR`, `CBFLOW_CORE_DIR` (= `$CBFLOW_ROOT/PD`),
+`CBFLOW_DFT_DIR`, `CBFLOW_DV_DIR` and `CBFLOW_RTL_DIR` are derived by the launcher.
+
+**Bash:**
 ```bash
-export CBFLOW_HOME=/opt/cbflow
-export PATH=$CBFLOW_HOME/bin:$PATH
-
-# Tab completion (bash)
-source $CBFLOW_HOME/completions/cbflow.bash
+export CBFLOW_ROOT=/opt/cbflow
+export PATH=$CBFLOW_ROOT/bin:$PATH
+eval "$(cbflow --completions bash)"     # optional tab completion (zsh: --completions zsh)
 ```
 
-**C-Shell** (`~/.cshrc` or `~/.tcshrc`):
+**C-Shell:**
 ```csh
-setenv CBFLOW_HOME /opt/cbflow
-set path = ($CBFLOW_HOME/bin $path)
+setenv CBFLOW_ROOT /opt/cbflow
+set path = ($CBFLOW_ROOT/bin $path)
 ```
 
-**Verify:**
+**Verify** (prints the resolved root / global / discipline directories):
 ```bash
 cbflow --version
 ```
 
-## 3. Configure Project
+## 3. Configure the Project
 
-Edit your project config (`config/project/<name>/v1.0.0/<name>_config.tcl`):
+A project is split across a global identity file and per-discipline overlays
+(see [multi-discipline-kickoff.md](multi-discipline-kickoff.md) for the full cascade):
 
-```tcl
-set project(name)               "my_chip"
-set project(cbflow_release)     "v1.0.0"
-set project(release,path)       "/proj/my_chip/releases"
-set project(release,phase)      "P0"
-set project(release,block_name) "top"
-set project(release,tag)        "v1.0.0"
-```
+| File | Holds |
+|------|-------|
+| `global/config/project/<proj>/v1.0.0/<proj>_config.tcl` | identity, tech, hierarchy, `project(phases)`, `project(phase_exits)`, DFT params |
+| `PD/config/project/<proj>/v1.0.0/<proj>_pd_config.tcl` | PD overlay: `workarea_path`, `release,*`, `lsf,*`, `lib_root`, `lib_tag_root`, `lib_config_tag` |
+| `global/config/project/<proj>/v1.0.0/mmmc_config.tcl` | MMMC PVT building blocks |
+| `global/config/tech/<tech>/v1.0.0/tech_config.tcl` | foundry data, metal stacks, physical cells |
 
-## 3b. Metal Stack Configuration
-
-Set the metal stack in your project config to auto-resolve routing layers, TLU+ files, and PG strap definitions:
+Example (open-source project `opensky`, PD overlay):
 
 ```tcl
-# In project_config.tcl:
-set project(metal_stack) "gf22naphlogl24uhf116a_11M_2Mx_6Cx_1Jx_2Qx_LB"
+# PD/config/project/opensky/v1.0.0/opensky_pd_config.tcl
+set project(workarea_path)   "/proj/opensky/workarea"
+set project(lib_tag_root)    "/proj/eda/lib_tags"      ;# tags live in <lib_tag_root>/<tech>/<TAG>/
+set project(lib_config_tag)  "OSS0"                    ;# default library tag (override per run)
+set project(release,path)    "/proj/opensky/releases"  ;# <path>/<phase>/<block>/<FLOW>/<tag>
 ```
 
-Available stacks: 8M, 9M, 10M, 11M. Everything auto-resolves (routing layers, TLU+, PG straps) based on the selected stack.
+Exit plan per phase (global project config):
+
+```tcl
+set project(phases) {P0 P1 P2 P3}
+set project(phase_exits) {
+    P0 {FP_EXIT PRO_EXIT}
+    P1 {FP_EXIT PRO_EXIT}
+    P2 {FP_EXIT PLACE_EXIT CTS_EXIT PRO_EXIT BTO MTO}
+    P3 {FP_EXIT PLACE_EXIT CTS_EXIT PRO_EXIT BTO MTO}
+}
+set project(phase_exits,DV) { P1 {TB_SETUP_EXIT M1_EXIT M2_EXIT} P2 {M3_EXIT M4_EXIT DV_SIGNOFF_EXIT} ... }
+```
+
+## 3b. Metal Stack
+
+The active stack is `project(metal_stack)` (one of `tech(metal_stacks_available)`); per-stack files live in
+`global/config/tech/<tech>/v1.0.0/metal_stack/<stack>.tcl` and resolve routing layers, RC files and PG strap layers.
+
+```tcl
+set project(metal_stack) "5M"        ;# skywater_130nm (opensky)
+```
 
 ## 3c. Library Manager
 
-Generate `lib_config.tcl` once from your vendor library root, then check readiness before signoff. Multi-VT is native: `tech(vt_variants_available)` declares availability, `project(vt_flavors)` picks the enabled subset, `generate` emits both per-VT and combined-per-track arrays.
+Libraries are delivered as **tags**: `<lib_tag_root>/<tech>/<TAG>/lib_config.tcl` (+ `blocks_config.tcl`
+for hierarchical blocks). A run picks one with `project(lib_config_tag)`.
 
 ```bash
-cbflow flow library-manager generate --tech gf_22nm --lib-root /proj/libs/gf_22nm
-cbflow flow library-manager status   --tech gf_22nm --project bumblebee   # exits 0/1
+cbflow flow library-manager check  --tech skywater_130nm --lib_tag OSS2      # required views per category
+cbflow flow library-manager status --tech skywater_130nm --project opensky --lib_tag OSS2
+cbflow flow library-manager generate --tech gf_22nm --lib-root /proj/libs/gf_22nm --tag P0   # commercial
 ```
 
-See [02-user-guide/library-manager-user-guide.md](../02-user-guide/library-manager-user-guide.md) for every subcommand, VT filtering (`--exclude "*ulvt*"`), phase tags (`--tag P0`), and coverage matrix.
+See [library-manager-user-guide.md](../02-user-guide/library-manager-user-guide.md) (design-vs-tag checks,
+`add --category block|memory`, VT filtering, coverage).
 
 ## 3d. MMMC Manager
 
-Describes modes × PVTs × RC corners; expands into analysis views + scenario sets (`setup`/`hold`/`signoff`) that STA and MMMC-aware stages consume.
-
 ```bash
-cbflow flow mmmc-manager show     --config PD/config/project/<name>/v1.0.0/mmmc_config.tcl
-cbflow flow mmmc-manager validate --config <path>                          # 6 checks
-cbflow flow mmmc-manager generate-view-def --config <path> --output view_definition.tcl
+cbflow flow mmmc-manager show     --project opensky --tech skywater_130nm
+cbflow flow mmmc-manager validate --project opensky --tech skywater_130nm
+cbflow flow mmmc-manager list-scenarios --project opensky --tech skywater_130nm --set signoff
+cbflow flow mmmc-manager generate-view-def --project bumblebee --tech gf_22nm --style flow --output mmmc_view_definition.tcl
 ```
 
-Every mutation (`add-mode`, `remove-mode`, `add-pvt`, `add-rc`, `set-node`) re-runs the six validation checks and refuses to write on inconsistency. See [02-user-guide/mmmc-manager-user-guide.md](../02-user-guide/mmmc-manager-user-guide.md) for the full mutation surface.
+Outside a run shell pass `--tech` (inside one, `CBFLOW_TECH_NODE` is set). Every mutation (`add-mode`, `remove-mode`, `add-pvt`, `remove-pvt`, `add-rc`, `set-node`) re-validates and
+refuses to write an inconsistent config. See [mmmc-manager-user-guide.md](../02-user-guide/mmmc-manager-user-guide.md).
 
-## 4. Create User Config
+## 4. Create a User Config
+
+Generate a template, then fill in the inputs:
+
+```bash
+cd $CBFLOW_ROOT/workarea/gcd
+cbflow workspace template --flow PNR > uc_PNR.tcl
+```
 
 ```tcl
-# user_config.tcl — minimum for SYNTH_PNR flow
-set flow(design_name)               "my_design"
-set flow(dispatcher)                "race"
-set synth_pnr(design_name)          "my_design"
-set synth_pnr(input,rtl_filelist)   "/proj/rtl/my_design.f"
-set synth_pnr(input,sdc_file)       "/proj/constraints/my_design.sdc"
-set synth_pnr(input,upf)            "/proj/power/my_design.upf"
+# uc_PNR.tcl — open-source PNR of gcd, inputs by release tag
+set project(name)              "opensky"
+set flow(type)                 "PNR"
+set flow(design_name)          "gcd"
+set flow(run_name)             "b1"
+set project(phase)             "P1"
+
+set flow(test_mode)            "false"   ;# "true" = dummy outputs, no tools
+set flow(use_lsf)              "false"   ;# "true" = submit through bsub
+set flow(use_xterm)            "false"   ;# "true" = each job in an xterm (needs $DISPLAY)
+
+set pnr(tool,name)             "openroad"
+set pnr(input,release_tag)     "P1_SYNTH_v1"   ;# netlist + SDC from the SYNTH release
+set pnr(input,def_file_release_tag) "FP_EXIT"  ;# floorplan from the FP release
+set project(lib_config_tag)    "OSS2"
 ```
 
-## 5. Create Run and Execute
+Defaults (`global/config/flow/v1.0.0/flow_registry.tcl`): `test_mode=false`, `use_lsf=false`, `use_xterm=true`.
+`workspace create` refuses to start when `use_lsf=true` and `bsub` is missing, or `use_xterm=true` and `xterm` is missing.
+
+## 5. Create the Run and Execute
 
 ```bash
-# Create run directory
-cbflow workspace create --config user_config.tcl
-cd P0_run_SYNTH_PNR_run1/
+cbflow workspace create --config uc_PNR.tcl
+cd P1_run_PNR_gcd_b1/          # <phase>_run_<FLOW>_<block>_<run>
 
-# Run the full flow (RACE builds DAG from node_config.tcl, executes all nodes)
-cbflow run all
-
-# Check status (reads from RACE SQLite DB)
-cbflow run status
-
-# View logs
-cbflow run logs --tail 20
-
-# Generate summary
-cbflow run autoppt
+cbflow run all                 # RACE builds the DAG from the node config and runs it
+cbflow run status --details
+cbflow run logs --tail 20 --level ERROR
+cbflow run gui                 # run dashboard (per-user daemon)
 ```
 
 ## 6. RACE Engine Basics
 
-CBflow v2.0.0 uses the **RACE (Run Automation & Control Engine)** as its dispatcher. RACE is a Python-native DAG executor that:
+RACE (Run Automation & Control Engine) is the Python-native DAG executor:
 
-- Builds the execution DAG from `node_config.tcl` at runtime
-- Tracks all node status in a SQLite database (`.race_<run_dir>_<user>_<hash>.db`)
-- Detects file changes on inputs and auto-retraces downstream nodes
-- Runs independent subnodes in parallel (e.g., PV: drc/lvs/erc/perc/xor)
-- Generates dynamic subnodes (e.g., STA per-corner from user_config)
+- Builds the DAG from `<FLOW>_config.tcl` (+ the tool overlay) at runtime
+- Tracks node status in SQLite (`.race_<run_dir>_<user>_<hash>.db` in `project(race,db_path)`, pointer `.race_db_pointer`)
+- Runs independent nodes / subnodes in parallel (capped by `flow(max_parallel_jobs)`, 0 = unlimited)
+- Generates dynamic subnodes (e.g. STA per MMMC scenario)
+- Run ownership: only the creator can run / retrace / bypass / force / add or rewire nodes; status, GUI and logs are open to all
 
-There is no Makefile, no `.make/` directory, and no `make` command. All execution is handled by RACE.
-
-Additional RACE features:
-- **Run ownership**: Only the run creator can modify a run (retrace, add-node, delete, bypass, force). Everyone can view status, GUI, and logs.
-- **13 database tables** for comprehensive data collection (jobs, run_info, run_config, job_order, dag_structure, stage_metrics, design_info, checklist_results, release_info, lsf_details, run_logs, metrics_snapshot, config_history)
-- **Deterministic GUI port**: Each run gets a consistent port for the web dashboard
-- **DB stored in race area**: Configured via `project(race,db_path)`, with a `.race_db_pointer` in the run directory
+There is no Makefile and no `make` command.
 
 ## 7. Key Commands
 
 | Command | Purpose |
 |---------|---------|
-| `cbflow run all` | Run complete flow |
-| `cbflow run stage --name place1` | Run single stage |
-| `cbflow run status` | Check progress (from RACE DB) |
-| `cbflow run retrace --from cts1` | Mark CTS and downstream for re-execution |
-| `cbflow run bypass --node <node>` | Skip a node |
-| `cbflow run force --node <node>` | Force re-run a node |
-| `cbflow run forcevalidate --node <node>` | Force validate a specific node |
-| `cbflow run forcevalidate --from X --to Y` | Force validate a range of nodes |
-| `cbflow run checklist --milestone PRO_EXIT --phase P2` | Exit checklist |
+| `cbflow run all` | Run the complete flow |
+| `cbflow run stage --name place1` | Run one stage |
+| `cbflow run status --details` | Progress incl. subnodes |
+| `cbflow run retrace --from cts1` | Clear cts1 and downstream (add `--run` to rerun) |
+| `cbflow run bypass --stages cts1,cts_opt1` | Mark stages done without running (creates `BYPASSED`) |
+| `cbflow run force --stages place1` | Re-run only these stages |
+| `cbflow run forcevalidate --node place1` / `--from X --to Y` | Mark done (ran outside CBflow) |
+| `cbflow run add-node --node export_data2 --type export_data --dep place1` | Add a node |
+| `cbflow run set-dep --node export_data1 --deps place1` | Rewire a node (`--reset` restores) |
+| `cbflow run create-branch --branch timing_fix --from cts1` | Branch the flow |
+| `cbflow run show-graph --detail` | Show the DAG |
+| `cbflow run interactive --node place1` | Restore a node in the tool GUI |
+| `cbflow run checklist --milestone PRO_EXIT --phase P2` | Exit checklist for this run |
+| `cbflow run release --from-run . --publish` | Publish a self-released (open-source) run |
 | `cbflow run email --to user@co.com --template run-summary` | Email report |
-| `cbflow run autoppt --format html` | Generate PPT summary |
-| `cbflow run interactive --load signoff1` | Interactive session |
-| `cbflow run logs --level ERROR` | View errors |
-| `cbflow run add-node --node <n> --type <t>` | Add custom node to DAG |
-| `cbflow run create-branch --name <n>` | Create a flow branch |
-| `cbflow run show-graph` | Visualize DAG |
-| `cbflow flow checklist list-checks` | List all checks with IDs (auto-detects milestone/phase from run dir) |
-| `cbflow flow checklist list-checks -s` | Summary mode |
-| `cbflow flow checklist status` | Evaluate checks against run (auto-detects context) |
-| `cbflow flow checklist sign-off` | Record sign-off |
-| `cbflow flow library-manager status --tech <T> --project <P>` | Signoff-readiness (LEF/RCX/VT coverage) — see §3c |
-| `cbflow flow library-manager generate --tech <T> --lib-root <path>` | Emit `lib_config.tcl` from a vendor library root |
-| `cbflow flow library-manager list --tech-config <path>` | List declared library sets |
-| `cbflow flow mmmc-manager show --config <path>` | Print modes / PVTs / RC corners / views / scenario sets |
-| `cbflow flow mmmc-manager validate --config <path>` | 6-check MMMC config validation |
-| `cbflow flow mmmc-manager generate-view-def --config <path> --output view_definition.tcl` | Emit Cadence view_definition.tcl |
-| `cbflow run db-manage --list` | List RACE databases (ACTIVE/ORPHANED status) |
-| `cbflow run db-manage --cleanup` | Interactive cleanup (owner-only) |
+| `cbflow run autoppt --format html` | Run summary |
+| `cbflow run db-manage --list` / `--cleanup` | RACE databases |
+| `cbflow flow checklist list --discipline PD` | Exit milestones |
+| `cbflow flow library-manager check --tech <t> --lib_tag <TAG>` | Library tag readiness |
 
-## 8. Supported Flows (12)
+## 8. Flows
 
-| Flow | What It Does |
-|------|-------------|
-| `SYNTH` | RTL synthesis |
-| `FP` | Floorplanning |
-| `PNR` | Place and route |
-| `SYNTH_PNR` | Unified synthesis + PNR (FC) |
-| `STA` | Static timing analysis (per-corner, dynamic subnodes) |
-| `PV` | Physical verification (DRC/LVS/ERC, parallel subnodes) |
-| `LEC` | Logic equivalence check |
-| `ECO` | Engineering change order |
-| `CLP` | Clock low power verification |
-| `EMIR` | EM/IR drop analysis |
-| `POPT` | Power optimization |
-| `FCFP` | Full chip floorplan (hierarchical) |
+32 flow types in four disciplines (`cbflow flow types`):
+
+| Discipline | Flows |
+|------------|-------|
+| PD (12) | SYNTH, FP, PNR, SYNTH_PNR, FCFP, STA, LEC, CLP, PV, EMIR, POPT, ECO |
+| DFT (7) | DFT_INSERT_PASS1/2/3, SCAN_INSERT, ATPG, GLS_FUNC, GLS_SCAN_MBIST |
+| DV (9) | SPEC_RAMP, PLANNING, TB_SETUP, M1_EXEC … M4_EXEC, ECO_EXEC, DV_SIGNOFF |
+| RTL | RTL_SPEC, RTL_LINT, RTL_CDC, RTL_RDC, UPF_CHECK |
 
 ## 9. Exit Milestones
 
-CBflow defines 11 exit milestones across the PD lifecycle with 292 library checks across 14 categories:
+Declared in `global/config/exit/v1.0.0/<EXIT>_config.tcl` (`cbflow flow checklist list`):
 
-| Milestone | Flow |
-|-----------|------|
-| FP_EXIT | Floorplanning complete |
-| PLACE_EXIT | Placement complete |
-| CTS_EXIT | Clock tree synthesis complete |
-| PRO_EXIT | Post-route optimization complete |
-| BTO | Backend tapeout ready |
-| MTO | Manufacturing tapeout ready |
-| STA_SIGNOFF | Static timing sign-off |
-| LEC_SIGNOFF | Logic equivalence sign-off |
-| CLP_SIGNOFF | Low power verification sign-off |
-| PV_SIGNOFF | Physical verification sign-off |
-| EMIR_SIGNOFF | EM/IR analysis sign-off |
+| Discipline | Exits |
+|------------|-------|
+| PD | FP_EXIT, PLACE_EXIT, CTS_EXIT, PRO_EXIT, BTO, MTO (+ STA_SIGNOFF checklist) |
+| DFT | CORE_DFT_EXIT, TOP_DFT_EXIT, EDT_OCC_EXIT, SCAN_INSERT_EXIT, ATPG_PREPD_EXIT, ATPG_POSTPD_EXIT |
+| DV | SPEC_RAMP_EXIT, PLANNING_EXIT, TB_SETUP_EXIT, M1_EXIT … M4_EXIT, ECO_EXEC_EXIT, DV_SIGNOFF_EXIT |
+| RTL | SPEC_EXIT, LINT_SIGNOFF, CDC_SIGNOFF, UPF_SIGNOFF |
 
-Milestones are **phase-aware**: the P0 → P3 progression reflects RTL maturity, with more checks activated as the design stabilizes.
+Checks are phase-aware: the project's `project(phases)` drive which checks are active.
 
 ## 10. Input Handshaking
 
 ```tcl
-# In user_config.tcl — two modes:
-
-# Mode 1: Release tag (auto-resolves from release directory)
-set pnr(input,netlist_release_tag) "v1.0.2"
-
-# Mode 2: Direct path
-set pnr(input,netlist) "/proj/runs/synth_run1/outputs/my_design.v"
+set sta(input,release_tag)     "PRO_EXIT"          ;# A: one tag resolves every input
+set sta(input,sdc_release_tag) "P1_STA_v2"         ;# B: per-input tag wins over the generic one
+set sta(input,netlist)         "/my/custom/gcd.v"  ;# C: explicit path wins over any tag
+set sta(input,from_run)        "/path/to/P1_run_PNR_gcd_b1"   ;# or a sibling run's outputs
 ```
 
 ## 11. Override Hierarchy
 
-All configs are consolidated into a single generated `config.tcl` per node. Command files source it once.
+All configs are consolidated into one generated `config.tcl` per node:
 
 ```
-project_config.tcl            (project-specific)
-  -> tech_config.tcl           (technology + libraries)
-    -> flow_config.tcl          (flow defaults)
-      -> node_config.tcl        (stage definitions)
-        -> mmmc_config.tcl      (MMMC scenarios/corners)
-          -> <tool>_config.tcl  (tool-specific: fc_config, pt_config)
-            -> user_config.tcl  (per-run overrides)
-              -> override_config.tcl              (global hook)
-                -> override_config.<stage>.tcl    (stage-type hook)
-                  -> override_config.<branch>.tcl (branch-scoped hook)
-                    -> override_config.<node>.tcl (per-node hook)
+global project  -> discipline overlays (<proj>_pd_config.tcl …) -> tech_config.tcl
+  -> flow_registry.tcl -> <DISC> flow_config.tcl -> <FLOW>_config.tcl + <FLOW>_<tool>_config.tcl
+    -> mmmc_config.tcl -> setup/user_config.tcl
+      -> setup/override_config.tcl -> .<stage> -> .<branch> -> .<node_type> -> .<node>
 ```
 
-Flow type must be explicitly set (via `CBFLOW_FLOW_TYPE` env var or user_config). If missing or invalid, CBflow exits with error and lists available flows.
+## 12. Exit Releases
 
-## 12. Milestone Release
-
-Releases are milestone-gated. Tags are predefined; leads set the active tag in project config.
+Releases land in `<project(release,path)>/<phase>/<block>/<FLOW>/<tag>` (tag = exit name unless
+`project(release,tag)` is set). Exits of a phase must release in plan order (`check_exit_order`).
 
 ```bash
-# From workspace (where all runs live):
-cbflow run release                      # Release using project's active tag
-cbflow run release --tag PLACE_EXIT     # Specific milestone
-cbflow run release --dry-run            # Validate without copying
-
-# Predefined tags: FP_EXIT, PLACE_EXIT, CTS_EXIT, PRO_EXIT, BTO, MTO
-# Release path: <base>/<project>/<design>/<phase>_<tag>/<FLOW>/
+cbflow run release --tag PRO_EXIT --dry-run         # commercial flows: package + gate check
+cbflow run release --from-run . --publish           # open-source: the run released itself; publish to SmartGrid
+cbflow run release --from-run . --clone-from BTO --tag MTO --publish
 ```
 
-## 13. SmartGenie AI Agent
+Publishing is opt-in (`--publish`). Details: [exit-release-guide.md](../02-user-guide/exit-release-guide.md).
+
+## 13. SmartGenie
 
 ```bash
-# Setup (one time)
-brew install ollama && ollama serve && ollama pull qwen2.5:7b
-cbflow smartgenie ingest --all       # Build knowledge base (4000+ chunks)
-cbflow smartgenie setup              # Verify
-
-# Use
-cbflow smartgenie                    # Interactive AI agent
-cbflow smartgenie "run SYNTH_PNR"    # One-shot command
-cbflow smartgenie search "hold fix"  # Search knowledge
-
-# Enterprise (multi-user, shared learning)
-cbflow smartgenie serve              # Start central server
-export SMARTGENIE_SERVER=http://server:8091
-cbflow smartgenie "prompt"           # All users connect, knowledge auto-shared
+cbflow smartgenie setup               # check Ollama + model + knowledge base
+cbflow smartgenie ingest --all        # build the knowledge base
+cbflow smartgenie                     # interactive agent
+cbflow smartgenie search "hold fix"
 ```
 
-100% private — runs on-premise via Ollama. No data leaves your network. See [SmartGenie User Guide](../02-user-guide/smartgenie-user-guide.md).
+See [SmartGenie User Guide](../02-user-guide/smartgenie-user-guide.md).
 
-## 14. Customer Bundle & Permissions
+## 14. Bundle & Permissions
 
 ```bash
-# Create customer bundle (all files 777 for safe unzip)
-cbflow bundle                           # Creates CBflow_v2.0.0_<date>.tar.gz
-cbflow bundle --output /path/to/dir     # Custom output directory
-
-# After customer unpacks:
-tar xzf CBflow_v2.0.0_20260519.tar.gz
-cd CBflow_v2.0.0_20260519
-bin/cbflow run release-lock             # Lock: configs=444, scripts=555, dirs=755
-bin/cbflow run release-lock --unlock    # Unlock: restore 777 (development mode)
-```
-
-Lead config (in project_config.tcl):
-```tcl
-set project(release,active_tag)  "BTO"
-set project(release,expiry_date) "2026-06-30"
-set project(release,path)        "/proj/releases"
+cbflow bundle --output /path/to/dir     # CBflow_v2.0.0_<date>.tar.gz
+bin/cbflow run release-lock             # configs 444, scripts 555, dirs 755
+bin/cbflow run release-lock --unlock    # back to 777 (development)
 ```
 
 ## 15. Test Suite
 
 ```bash
-bin/cbflow-test-suite              # 994 tests, all categories
-bin/cbflow-test-suite --verbose    # Show all results
+cbflow test --static               # static config checks
+cbflow test --e2e --flow PNR       # end-to-end test_mode runs for one flow
+cbflow test --cli-smoke            # every cbflow leaf command with safe args
+cbflow test --list
 ```
 
 ---

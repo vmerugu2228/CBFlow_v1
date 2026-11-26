@@ -109,7 +109,7 @@ Tools must be in `$PATH` with valid licenses. CBflow does not manage tool instal
 
 **LSF is not required.** CBflow runs locally without it. Three integration levels available:
 - Config-driven queue mapping (automatic)
-- `cbflow run lsf-submit` (CLI control)
+- `cbflow run all --lsf [--queue XL]` / `cbflow run stage --name <n> --lsf` (CLI control), or `set flow(use_lsf) "true"` in user_config
 - `CBFLOW_BSUB_CMD` env var (direct bsub bypass)
 
 ---
@@ -242,7 +242,7 @@ python3 -c "import sqlite3, json, argparse, logging, subprocess, csv, dataclasse
 
 # CBflow
 cbflow --version
-cbflow flow types                          # 12 flows
+cbflow flow types                          # flows by discipline (PD 12, DFT 7, DV 9, RTL 5)
 cbflow flow check                          # Tool availability
 
 # EDA tools (check what you need)
@@ -251,8 +251,11 @@ which fc_shell pt_shell innovus genus tempus 2>/dev/null
 # LSF (optional)
 which bsub 2>/dev/null && bqueues
 
+# Open-source flow (sky130) — docker + PDK
+docker --version && global/bin/cbflow-oss check
+
 # Test suite
-bin/cbflow-test-suite
+cbflow test --static
 ```
 
 ---

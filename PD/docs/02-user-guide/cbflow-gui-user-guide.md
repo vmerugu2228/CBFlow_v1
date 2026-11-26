@@ -28,61 +28,46 @@
 
 ## 1. Launching the GUI
 
-The CBflow GUI is a web-based dashboard that provides real-time visualization and control of RACE DAG execution. Launch it from within any run directory.
-
-### Basic Launch
-
-```bash
-cd P0_run_SYNTH_PNR_run1/
-cbflow run gui
-```
-
-The dashboard starts a local web server and prints the URL to the console:
-
-```
-CBflow Dashboard started on http://localhost:8080
-Open this URL in your browser.
-```
-
-### Auto-Port Selection
-
-> **Current behavior (since v2.1.1):** `cbflow run gui` registers the run with the per-user dashboard daemon, which runs on a deterministic port (PD: `9000 + uid % 300`; see [§15](#15-run-dashboard-daemon-features-2026-11) and the [Dashboard Daemon Guide](dashboard-daemon-guide.md)). The auto-port scan described below applies to the project/run browser (`cbflow flow dashboard start`, `flow(dashboard,app_port_min..app_port_max)` = 8080-8999).
-
-The browser scans ports from **8080** upward and binds to the first available port. If port 8080 is already in use (for example, by another user's dashboard), it tries 8081, 8082, and so on.
-
-```
-# If 8080 is occupied:
-CBflow Dashboard started on http://localhost:8083
-```
-
-### Custom Port
-
-Override the auto-port behavior with the `--port` flag:
+The CBflow GUI is a web-based dashboard that provides real-time visualization and control of RACE DAG execution.
+Launch it from within any run directory:
 
 ```bash
-cbflow run gui --port 9000
+cd P2_run_PNR_gcd_b1/
+cbflow run gui
 ```
 
-### Multiple Simultaneous Dashboards
+`cbflow run gui` registers the run with your **per-user, per-discipline dashboard daemon** (starting it if
+needed) and opens the browser at the run's deep link, e.g. `http://127.0.0.1:9201/run/<run_id>/`.
 
-Because of auto-port selection, multiple dashboards can run on the same host without conflict. Each instance gets its own port:
+### Ports
+
+The daemon port is deterministic: `flow(dashboard,port_base,<DISC>) + uid % flow(dashboard,port_width)`.
+
+| Discipline (from the run's flow type) | Port |
+|---|---|
+| PD (SYNTH, FP, PNR, STA, …) | 9000 + uid % 300 |
+| DFT (SCAN_INSERT, ATPG, GLS_*, DFT_INSERT_*) | 9300 + uid % 300 |
+| DV (TB_SETUP, M1-M4_EXEC, DV_SIGNOFF, …) | 9600 + uid % 300 |
+| RTL (RTL_SPEC, RTL_LINT, RTL_CDC, RTL_RDC, UPF_CHECK) | 9900 + uid % 300 |
+
+All your runs of a discipline share one daemon and one URL. Override the port on the daemon, not on `run gui`:
+`cbflow run dashboard start --discipline PD --port 9999`.
+
+### Options
 
 ```bash
-# Terminal 1 (run1)
-cd P0_run_SYNTH_PNR_run1/
-cbflow run gui
-# -> http://localhost:8080
-
-# Terminal 2 (run2)
-cd P0_run_SYNTH_PNR_run2/
-cbflow run gui
-# -> http://localhost:8081
-
-# Terminal 3 (STA run)
-cd P0_run_STA_run1/
-cbflow run gui
-# -> http://localhost:8082
+cbflow run gui --no-browser              # register, print the URL only
+cbflow run gui --public                  # bind the daemon to 0.0.0.0 (LAN browsers)
+cbflow run gui --bind-addr 10.0.0.5      # explicit interface
+cbflow run gui --foreground --port 9090  # legacy per-run foreground server
 ```
+
+Over SSH, open a tunnel to the printed port (`ssh -L 9201:localhost:9201 user@host`); `cbflow run dashboard open`
+prints the exact command. The daemon CLI (`cbflow run dashboard start|stop|status|list|open|logs`) is described in
+the [Dashboard Daemon Guide](dashboard-daemon-guide.md). SmartGrid (`/dashboard/<DISC>`) opens the same daemons.
+
+The separate project/run browser (`cbflow flow dashboard start`) auto-selects a port in
+`flow(dashboard,app_port_min..app_port_max)` (8080-8999).
 
 ---
 
@@ -288,7 +273,7 @@ The new branch appears as a parallel path in the DAG, connected to the source no
 You can also create branches from the CLI:
 
 ```bash
-cbflow run create-branch --name timing_experiment --from place1 --tag aggressive_cts
+cbflow run create-branch --branch timing_experiment --from place1    # the tag is GUI-only
 ```
 
 ### Branch Labels
@@ -323,12 +308,12 @@ All nodes in the deleted branch are removed from the DAG. Nodes in other branche
 1. Use the **Edit** menu > **Add Node**, or use the CLI:
 
 ```bash
-cbflow run add-node --node eco1 --type eco --dep signoff1
+cbflow run add-node --node place2 --type place --dep place1
 ```
 
 2. In the GUI dialog, specify:
-   - **Node Name**: Unique name for the new node
-   - **Node Type**: Flow type (e.g., `eco`, `sta`, `pnr`)
+   - **Node Name**: Unique name for the new node (auto-named `<type><n>` if empty)
+   - **Node Type**: a stage type of this flow (e.g., `place`, `export_data`, `release_data`)
    - **Dependencies**: One or more existing nodes this node depends on
 
 The new node appears in the DAG connected to its specified dependencies.
@@ -338,15 +323,14 @@ The new node appears in the DAG connected to its specified dependencies.
 1. Right-click the node > context menu (if available), or use the CLI:
 
 ```bash
-cbflow run delete-node --node eco1
+cbflow run delete-node --node place2
 ```
 
 **Dependency protection**: You cannot delete a node if other nodes depend on it. The GUI shows an error message listing the dependent nodes. Remove or reassign the dependents first.
 
 ```
-Error: Cannot delete "eco1" -- the following nodes depend on it:
-  - eco_verify1
-  - release_eco1
+Error: Cannot delete "export_data2" -- the following nodes depend on it:
+  - release_data2
 Remove these dependencies first.
 ```
 
@@ -356,7 +340,7 @@ Rename a node from either:
 
 - **Node Info panel**: Click the name field, type the new name, click **Rename**
 - **Right-click menu**: Select **Rename**, enter the new name in the dialog
-- **CLI**: `cbflow run rename-node --node old_name --new-name new_name`
+(Renaming is GUI-only; there is no `cbflow run` subcommand for it.)
 
 Renaming automatically updates all dependency references throughout the DAG.
 
@@ -481,7 +465,7 @@ When editing a value, a scope selector appears:
 Click **Save** to write changes to `override_config.tcl`. The file is located at:
 
 ```
-P0_run_SYNTH_PNR_run1/setup/override_config.tcl
+P2_run_PNR_gcd_b1/setup/override_config.tcl
 ```
 
 All GUI config changes are saved as TCL `set` statements in this file. The override_config.tcl file sits at level 5 in the configuration hierarchy, overriding flow_config, project_config, tech_config, and user_config, but overridden by override_setup hooks.
@@ -721,7 +705,8 @@ If you need to force an immediate refresh (e.g., after making changes via CLI), 
 
 - The daemon port is `flow(dashboard,port_base,<DISC>) + (uid % flow(dashboard,port_width))`. For PD that is `9000 + uid % 300`, for example 9201 for uid 501.
 - A project-scoped daemon (`--project`) uses `flow(dashboard,project_port_base,<DISC>)` (PD 20000) + hash % 1000.
-- All keys are in `global/config/flow/v1.0.0/flow_registry.tcl`. The `cbflow --help` text still prints the older formulas (`9000+uid%500`, `20000+hash%2500`).
+- DFT / DV / RTL use port bases 9300 / 9600 / 9900 (project-scoped 21000 / 22000 / 23000).
+- All keys are in `global/config/flow/v1.0.0/flow_registry.tcl`.
 
 ### Runs table (daemon index)
 
@@ -739,7 +724,7 @@ If you need to force an immediate refresh (e.g., after making changes via CLI), 
 
 ### Action bar
 
-An always-visible icon bar after the byline has these buttons: **Run, Stage, Retrace, From, Bypass, Force, Validate, Release, Stop**. They are the same actions as the Flow menu.
+An always-visible icon bar after the byline has these buttons: **Run, Stage, Retrace, From, Bypass, Force, Validate, Release, Stop**. They are the same actions as the Flow menu. Stage / From / Bypass / Force / Validate act on the selected node (with a Shift-selection: on every selected node); the stage picker opens only when nothing is selected.
 
 ### Multi-select
 
@@ -791,11 +776,11 @@ A typical session using the CBflow GUI:
 ```
 1. Create workspace and run
    $ cbflow workspace create --config user_config.tcl
-   $ cd P0_run_SYNTH_PNR_run1/
+   $ cd P2_run_PNR_gcd_b1/
 
 2. Launch the GUI
    $ cbflow run gui
-   -> Opens http://localhost:8080
+   -> Opens http://127.0.0.1:<9000 + uid % 300>/run/<run_id>/
 
 3. Start execution
    Click "Run All" in the toolbar (or run "cbflow run all" in a terminal)
@@ -829,9 +814,9 @@ A typical session using the CBflow GUI:
 
 ## Appendix B: Troubleshooting
 
-**Problem:** Dashboard fails to start -- "No available port in range 8080-8180"
-- **Cause:** All 101 ports in the auto-port range are occupied
-- **Fix:** Use `--port` to specify a port outside the default range, or close unused dashboards
+**Problem:** Dashboard daemon fails to start -- port already in use
+- **Cause:** Something else holds the deterministic port (`9000 + uid % 300` for PD)
+- **Fix:** `cbflow run dashboard start --port <N>`, or check `cbflow run dashboard status` for a stale daemon
 
 **Problem:** Node colors not updating
 - **Cause:** RACE database not being written to (engine may have crashed)
@@ -853,6 +838,6 @@ A typical session using the CBflow GUI:
 
 **See also:**
 - [Complete User Guide](cbflow-complete-user-guide.md) -- Full CBflow walkthrough
-- [Flow User Guide](cbflow-flow-user-guide.md) -- All 12 flows with stages
+- [Flow User Guide](cbflow-flow-user-guide.md) -- PD flows with stages
 - [System Design](../04-architecture/system-design.md) -- RACE engine architecture
 - [RACE Command Reference](../03-reference/makefile-reference.md) -- All RACE commands

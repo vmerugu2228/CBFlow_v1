@@ -20,14 +20,18 @@ CBflow_clone/
 | `DFT_INSERT_PASS1`| Core DFT: MBIST + BSCAN                              | Tessent, DFT Compiler       |
 | `DFT_INSERT_PASS2`| Top DFT: TDR / DFT signals / SRI                     | Tessent, DFT Compiler       |
 | `DFT_INSERT_PASS3`| EDT + OCC                                            | Tessent, DFT Compiler       |
-| `SCAN_INSERT`     | Logical netlist → scan-stitched netlist + scandef    | Tessent, DFT Compiler       |
-| `ATPG`            | Pattern generation + fault simulation + coverage     | Tessent, TestMAX            |
+| `SCAN_INSERT`     | Logical netlist → scan-stitched netlist + scandef (oss: scan sign-off of the SYNTH scan netlist) | Tessent, DFT Compiler, fault (oss) |
+| `ATPG`            | Pattern generation + fault simulation + coverage     | Tessent, TestMAX, fault (oss) |
 | `GLS_FUNC`        | Gate-level functional simulation (ZD or SDF)         | VCS, Questa, iverilog (oss) |
 | `GLS_SCAN_MBIST`  | Gate-level scan/MBIST/BSCAN pattern simulation       | VCS, Questa, iverilog (oss) |
 
-Mode knobs (not separate flows):
-- `<flow>(mode)` — `zd` (zero-delay) or `sdf` (timing-aware)
+Mode knobs (not separate flows; Synopsys / Mentor handlers):
+- `atpg(mode)`, `gls_func(mode)`, `gls_scan_mbist(mode)` — `zd` (zero-delay) or `sdf` (timing-aware)
 - `gls_scan_mbist(verify_type)` — `scan`, `mbist`, or `bscan`
+- `atpg(pd_phase)` — `pre` | `post` (post-PD adds timing_sim1 and the ATPG_POSTPD_EXIT sign-off)
+
+The open-source tools are selected with `<arr>(tool,name)` (`fault`, `iverilog`);
+`gls_scan_mbist(oss,verify)` must be `scan` there.
 
 ## Discipline Routing
 
@@ -54,22 +58,26 @@ set project(dft,scan_enable_pattern) scan_enable_*
 ```
 
 SYNTH writes `reports/dft_plan.rpt` and releases a scan-mode SDC
-`<design>.scan.sdc`. With DFT on, clock gating uses the scan ICG
-(`tech(<trk>,icg_scan_cell)`). See
-`PD/docs/02-user-guide/opensource-flow-guide.md` §5.
+`sdc/<design>.scan.sdc` and — mandatory with `project(dft,enable)` — the scan
+chains as `def/<design>.scandef` (PNR requires and reads it, handshake
+`PNR,def_scan`; SCAN_INSERT checks it against its netlist trace). With DFT on,
+clock gating uses the scan ICG (`tech(<trk>,icg_scan_cell)`). See
+[`PD/docs/02-user-guide/opensource-flow-guide.md` §5](../../PD/docs/02-user-guide/opensource-flow-guide.md#dft-scan-insertion).
 
 ## Open-source DFT flows
 
 SCAN_INSERT / ATPG (`fault`) and GLS_FUNC / GLS_SCAN_MBIST (`iverilog`) run on the
 open-source stack (Fault cut, nl2bench, Atalanta, Icarus) — scan sign-off of the SYNTH
 scan netlist, stuck-at ATPG with independent fault simulation and pattern simulation,
-gate-level functional / scan-pattern simulation. See `opensource-dft-guide.md`.
+gate-level functional / scan-pattern simulation. See [`opensource-dft-guide.md`](opensource-dft-guide.md);
+for gcd P3 they run inside the spec-to-GDS chain
+([`spec-to-gds-guide.md`](../../PD/docs/02-user-guide/spec-to-gds-guide.md)).
 
 ## See also
 
 - `opensource-dft-guide.md` — open-source SCAN_INSERT / ATPG / GLS (opensky)
 
-- `DFT_Flow_Reference.md` — full mapping of the 11-activity DFT diagram to the DFT flows
+- `DFT_Flow_Reference.md` — mapping of the 11-activity DFT diagram to the 7 DFT flows
 - `DFT_Insert_Guide.md` — `DFT_INSERT_PASS1/2/3` user guide
 - `Scan_Insert_Guide.md` — `SCAN_INSERT` user guide
 - `ATPG_Guide.md` — `ATPG` user guide

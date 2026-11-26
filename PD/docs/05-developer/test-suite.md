@@ -1,7 +1,7 @@
 # `cbflow test` — Developer Guide
 
 **Version:** 2.1.1
-**Date:** 2026-06-12
+**Date:** 2026-06-12 (updated 2026-11-26 for categories 10-19, e2e19 and the smoke / integration modes)
 
 The CBflow test suite catches both **structural problems** (static config validation, dead-code detection) and **runtime regressions** (end-to-end flow execution in test_mode). It's the single source of truth for "is the codebase healthy".
 
@@ -12,8 +12,8 @@ The CBflow test suite catches both **structural problems** (static config valida
 1. [TL;DR](#1-tldr)
 2. [Module layout](#2-module-layout)
 3. [Running the suite](#3-running-the-suite)
-4. [Static categories 1-9](#4-static-categories-1-9)
-5. [E2E checks 1-18](#5-e2e-checks-1-18)
+4. [Static categories 1-19](#4-static-categories-1-19)
+5. [E2E checks 1-19](#5-e2e-checks-1-19)
 6. [Test fixtures](#6-test-fixtures)
 7. [Sandbox model](#7-sandbox-model)
 8. [Reporters: console / JSON / JUnit](#8-reporters-console-json-junit)
@@ -27,13 +27,13 @@ The CBflow test suite catches both **structural problems** (static config valida
 ## 1. TL;DR
 
 ```bash
-cbflow test                           # static cats 1-9 + e2e all 12 flows
+cbflow test                           # static (cats 1-19 minus opt-in 18) + e2e, 12 PD flows
 cbflow test --static --category 9     # one category, fast
 cbflow test --e2e --flow SYNTH_PNR    # one flow, ~20s
 cbflow test --ci                      # junit + non-zero exit on fail
 ```
 
-Today's baseline (v2.1.1, all 12 flows, test_mode):
+Historical baseline (v2.1.1, 2026-06-12, all 12 flows, test_mode; categories 10-19 and e2e19 were added later):
 
 ```
 STATIC:  PASS=1269   FAIL=0   SKIP=80
@@ -52,18 +52,22 @@ global/utils/commands/test_cmd.py       # CLI entry point
 global/utils/commands/test_suite/
   __init__.py
   results.py            # shared Results collector
-  static_checks.py      # cats 1-18 (18 = hardcode, opt-in)
+  static_checks.py      # cats 1-19 (18 = hardcode, opt-in: OPT_IN_CATEGORIES)
   hardcode_scan.py      # no-hardcode scanner (cat 18 + script mode)
   hardcode_allowlist.txt
   fixtures.py           # picks workarea_test/uc_*.tcl, rewrites run_name
   sandbox.py            # tempdir + run-dir lifecycle
   e2e_runner.py         # cbflow workspace create + cbflow run all subprocess driver
-  e2e_checks.py         # 18 per-run verifications
+  e2e_checks.py         # 19 per-run verifications
+  dispatch_smoke.py/.tcl # --dispatch-smoke (submit_job with stubbed bsub + xterm)
+  cli_smoke.py          # --cli-smoke (every cbflow leaf command)
+  integration_checks.py # --integration (library-manager / mmmc-manager workflows)
+  stubs/                # fake tool binaries (bsub, xterm, fc_shell, innovus, …)
   reporters.py          # Console, JSON, JUnit XML
-PD/bin/cbflow-test-suite                # 20-line shim → `cbflow test --static`
+global/bin/cbflow-test-suite            # shim → `cbflow test --static` (bin/ and PD/bin/ point here)
 ```
 
-Dispatcher wiring: `PD/bin/cbflow:222-260` routes `cbflow test` → `test_cmd.py`.
+Dispatcher wiring: `global/bin/cbflow` (`test|test-suite)` case) routes `cbflow test` → `global/utils/commands/test_cmd.py`.
 
 ---
 
@@ -75,7 +79,7 @@ Dispatcher wiring: `PD/bin/cbflow:222-260` routes `cbflow test` → `test_cmd.py
 cbflow test
 ```
 
-Runs static cats 1-9 sequentially, then e2e against all 12 flows (one at a time, in sandboxed temp workareas). Print pass/fail summary at the end. Exit 0 if all pass, 1 if any fail.
+Runs the default static categories (1-17, 19) sequentially, then e2e against the 12 PD flows (one at a time, in sandboxed temp workareas). Print pass/fail summary at the end. Exit 0 if all pass, 1 if any fail.
 
 ### Scope flags
 
@@ -89,6 +93,11 @@ Runs static cats 1-9 sequentially, then e2e against all 12 flows (one at a time,
 | `--hardcode` / `--category hardcode` | No-hardcode audit only (category 18, opt-in) |
 | `--vendor synopsys` | Prefer fixture variant matching this vendor |
 | `--list` | List all categories + e2e checks and exit |
+| `--projects bumblebee,denali` | Projects iterated by e2e (default bumblebee,denali; `ALL` = every project) |
+| `--dispatch-smoke` | LSF / xterm dispatch smoke with stubbed bsub + xterm |
+| `--cli-smoke` [`--destructive`] | Run every `cbflow …` leaf command with safe args (`--help` for destructive ones unless `--destructive`) |
+| `--integration` | Real library-manager + mmmc-manager workflows against sandbox tech |
+| `--cleanup` | List leftover `P0_run_*_test1` dirs and exit |
 
 ### Sandbox control
 
@@ -111,7 +120,7 @@ Runs static cats 1-9 sequentially, then e2e against all 12 flows (one at a time,
 
 ---
 
-## 4. Static categories 1-9
+## 4. Static categories 1-19
 
 ### Cat 1 — Workspace & Run Creation
 
@@ -202,9 +211,9 @@ Stage-name aliases: `timing_scenario` → `timing`, `timing_setup` → `timing`,
 
 Add a new alias by editing `static_checks.py:_STAGE_NAME_ALIASES`.
 
-### Cats 10-17
+### Cats 10-17 and 19
 
-These categories run in the default `--static` set: 10 Resolved-Config Single Source of Truth, 11 Tcl Array-Set Hygiene, 12 Resolver-Output Suspicious Keys, 13 Handler-Required Keys vs Resolver Emit, 14 Command-File Reads vs Config Writes, 15 LSF Per-Node Assignment, 16 LSF Tier Definition Completeness, 17 Release Folder Canonicality.
+These categories run in the default `--static` set: 10 Resolved-Config Single Source of Truth, 11 Tcl Array-Set Hygiene, 12 Resolver-Output Suspicious Keys, 13 Handler-Required Keys vs Resolver Emit, 14 Command-File Reads vs Config Writes, 15 LSF Per-Node Assignment, 16 LSF Tier Definition Completeness, 17 Release Folder Canonicality, 19 Open-Source Flow Wiring (DFT / RTL / DV): for every `<DISC>/config/flow/<ver>/node_configs/<FLOW>_<tool>_config.tcl` overlay with `tool,vendor opensource` — the overlay parses on its common config, every execution node type has a subnode handler and every stage a command file under `<DISC>/cmds/<FLOW>/opensource/<tool>/<ver>/`, every `<arr>(oss,tool,<stage>)` binary has an `lsf(tool_shell,*)`, and every input node (except `<arr>(release,exit_exempt_inputs)`) has a `flow_input_handshake` entry.
 
 ### Cat 18 — No-Hardcode Audit (opt-in)
 
@@ -232,7 +241,7 @@ Script mode exits 1 when there are non-allowlisted findings. Allowlist entries g
 
 ---
 
-## 5. E2E checks 1-18
+## 5. E2E checks 1-19
 
 Each check runs once per flow against a real `workspace create` + `run all` in a sandboxed temp area. Failures point at the run dir if `--keep-on-fail` is set.
 
@@ -256,6 +265,7 @@ Each check runs once per flow against a real `workspace create` + `run all` in a
 | **e2e16** | No "no such element in array" errors |
 | **e2e17** | `run_logs` SQLite table populated (SKIP if test_mode doesn't aggregate) |
 | **e2e18** | No "Command file not found" / "Cannot find generated config" / "Unknown subnode" / "Flow procedure not found" |
+| **e2e19** | Every subnode job has a non-empty `resource_tier` that is a known LSF tier name |
 
 ### What the checks together prove
 
@@ -338,7 +348,7 @@ Maps to `<testsuite name="suite.category" tests=N failures=K skipped=M>`. Each e
 
 ## 9. Adding a new static check
 
-1. Open `PD/utils/commands/test_suite/static_checks.py`
+1. Open `global/utils/commands/test_suite/static_checks.py`
 2. Add a function `def catN_my_check(results, pd_dir, flows): ...`
 3. Use `results.passed(...)`, `results.failed(...)`, `results.skipped(...)` (signature in `results.py`)
 4. Register in the `CATEGORIES` dict at the bottom of the file
@@ -346,9 +356,9 @@ Maps to `<testsuite name="suite.category" tests=N failures=K skipped=M>`. Each e
 Example:
 
 ```python
-def cat10_my_new_check(results, pd_dir, flows):
+def cat20_my_new_check(results, pd_dir, flows):
     suite = 'static'
-    category = 'cat10_my_new_check'
+    category = 'cat20_my_new_check'
     for flow in flows:
         for vendor, tool, tdir in _tool_dirs_for(pd_dir, flow):
             scope = f'{flow}/{vendor}/{tool}'
@@ -361,24 +371,24 @@ def cat10_my_new_check(results, pd_dir, flows):
 
 CATEGORIES = {
     ...
-    10: ('My New Check', cat10_my_new_check),
+    20: ('My New Check', cat20_my_new_check),
 }
 ```
 
-Run with `cbflow test --static --category 10`.
+Run with `cbflow test --static --category 20`.
 
 ---
 
 ## 10. Adding a new e2e check
 
-1. Open `PD/utils/commands/test_suite/e2e_checks.py`
+1. Open `global/utils/commands/test_suite/e2e_checks.py`
 2. Add a function `def e2eN_my_check(run_dir): ...` returning `(status, detail)` where status is `'PASS' | 'FAIL' | 'SKIP'`
 3. Register in the `CHECKS` list
 
 Example:
 
 ```python
-def e2e19_my_new_check(run_dir):
+def e2e20_my_new_check(run_dir):
     """Validate the new invariant."""
     work = os.path.join(run_dir, 'work')
     if not os.path.isdir(work):
@@ -390,7 +400,7 @@ def e2e19_my_new_check(run_dir):
 
 CHECKS = [
     ...
-    ('e2e19_my_new_check', e2e19_my_new_check, False),
+    ('e2e20_my_new_check', e2e20_my_new_check, False),
 ]
 ```
 

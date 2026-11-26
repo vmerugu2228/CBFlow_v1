@@ -2703,9 +2703,11 @@ Examples:
     p.add_argument('--track', default=None,
                    help='Track to validate against (e.g., 9T)')
     p.add_argument('--lib-tag', default=None,
-                   help='lib_config tag (e.g., P0 reads lib_config_P0.tcl)')
+                   help='Library tag (e.g., OSS2 reads <lib_tag_root>/<TAG>/lib_config.tcl)')
     p.add_argument('--project', default=None,
-                   help='Project name (e.g., denali). Output goes to config/project/<name>/v1.0.0/')
+                   help='Project name (e.g., opensky). Also mirrors the output to '
+                        'global/config/project/<name>/v1.0.0/mmmc_config.tcl '
+                        '(primary output: next to the tag\'s lib_config.tcl)')
     p.add_argument('--allow-missing', action='store_true', default=False,
                    help='Proceed even if requested PVT combos have no matching lib_set_ref '
                         'in lib_config. Default is fail-fast — use only when bootstrapping.')

@@ -582,14 +582,14 @@ def create_parser():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  cbflow flow trending report --project myproj --metric wns
-  cbflow flow trending report --project myproj --metric drc --last 10
-  cbflow flow trending baseline set --project myproj --flow PNR \\
-      --milestone signoff --metric wns --value -0.050
-  cbflow flow trending baseline show --project myproj
-  cbflow flow trending check --project myproj --run-dir ./run_PNR_001
-  cbflow flow trending record --run-dir ./run_PNR_001 --project myproj
-  cbflow flow trending stats --project myproj --flow PNR --last 20
+  cbflow flow trending report --project opensky --metric wns
+  cbflow flow trending report --project opensky --metric drc --last 10
+  cbflow flow trending baseline set --project opensky --flow PNR \\
+      --milestone PRO_EXIT --metric wns --value -0.050
+  cbflow flow trending baseline show --project opensky
+  cbflow flow trending check --project opensky --run-dir ./P1_run_PNR_gcd_b1
+  cbflow flow trending record --run-dir ./P1_run_PNR_gcd_b1 --project opensky
+  cbflow flow trending stats --project opensky --flow PNR --last 20
         """)
     sub = parser.add_subparsers(dest='command', help='Trending commands')
 

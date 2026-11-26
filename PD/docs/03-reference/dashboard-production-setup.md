@@ -43,7 +43,7 @@ Find the right port to forward — it's per-user-deterministic:
 ```bash
 # On the prod box:
 ssh you@prod-host
-cbflow dashboard status
+cbflow run dashboard status
 # Look for the "port: NNNN" line.
 ```
 
@@ -56,7 +56,7 @@ the port can use the dashboard.
 
 ```bash
 # Start (or restart) the daemon with --public
-cbflow dashboard restart --public
+cbflow run dashboard restart --public
 
 # Output now shows the LAN URL:
 #   dashboard daemon started on http://prod-host:9001/
@@ -71,13 +71,13 @@ to remember the flag:
 export CBFLOW_DASHBOARD_BIND_ADDR=0.0.0.0
 ```
 
-Then `cbflow run gui` (default) and `cbflow dashboard start` (default)
+Then `cbflow run gui` (default) and `cbflow run dashboard start` (default)
 will bind LAN-accessible automatically.
 
 Pros: zero friction for users, works from any browser on the LAN. Cons:
 **no authentication** — anyone who can route to `prod-host:<port>` can
 view runs. Mitigations:
-- Corporate firewall blocks the dashboard port range (9000–9999) at
+- Corporate firewall blocks the dashboard port ranges (run dashboards 9000–10199, per-project 20000–23999, SmartGrid 25000–27499) at
   the perimeter.
 - The dashboard is read-mostly: pulls run state from SQLite, no write
   surface beyond `register`/`deregister` (which require AF_UNIX
@@ -91,9 +91,9 @@ view runs. Mitigations:
 # Either CLI accepts these:
 cbflow run gui      --public         # Bind 0.0.0.0 (LAN-accessible)
 cbflow run gui      --bind-addr 10.0.5.42    # Bind a specific NIC IP
-cbflow dashboard start --public
-cbflow dashboard start --bind-addr 0.0.0.0
-cbflow dashboard restart --public    # Switch a running daemon to public
+cbflow run dashboard start --public
+cbflow run dashboard start --bind-addr 0.0.0.0
+cbflow run dashboard restart --public    # Switch a running daemon to public
 
 # Env override (no flag needed):
 export CBFLOW_DASHBOARD_BIND_ADDR=0.0.0.0
@@ -108,7 +108,7 @@ default `127.0.0.1`.
 
 ```bash
 # On the prod box
-cbflow dashboard status
+cbflow run dashboard status
 # Expected output:
 #   url:   http://prod-host:9001/
 #   bind:  0.0.0.0  (LAN-accessible via http://<hostname>:9001/)
@@ -126,23 +126,35 @@ curl -sS -o /dev/null -w "%{http_code}\n" http://prod-host:9001/
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `http://prod-host:9001/` connection refused | Daemon bound to 127.0.0.1, you're hitting it from another host | `cbflow dashboard restart --public` |
+| `http://prod-host:9001/` connection refused | Daemon bound to 127.0.0.1, you're hitting it from another host | `cbflow run dashboard restart --public` |
 | `http://prod-host:9001/` times out | Firewall is blocking the port | Either tunnel via SSH (Option A) or ask infra to allow port 9001 from your subnet |
-| `cbflow dashboard status` shows the old URL after `--public` | Daemon wasn't restarted; old bind still in effect | Use `restart --public`, not `start --public` (start refuses if already running) |
+| `cbflow run dashboard status` shows the old URL after `--public` | Daemon wasn't restarted; old bind still in effect | Use `restart --public`, not `start --public` (start refuses if already running) |
 | Hostname in URL doesn't resolve from your laptop | Short hostname relies on local DNS | Use the IP, or update DNS, or use `--bind-addr <fqdn-ip>` and then the URL will use whatever your `gethostname()` returns. |
-| Browser opens then nothing loads | Browser launched but daemon bind is wrong | Check `cbflow dashboard status` — `bind: 127.0.0.1` means localhost-only |
+| Browser opens then nothing loads | Browser launched but daemon bind is wrong | Check `cbflow run dashboard status` — `bind: 127.0.0.1` means localhost-only |
 
 ---
 
-## Two-discipline note
+## Per-discipline daemons
 
-CBflow runs two daemons (PD on port `9000 + uid%500`, DFT on port
-`9500 + uid%500`). The bind setting is per-discipline:
+Each discipline runs its own daemon on its own port band:
+`flow(dashboard,port_base,<DISC>) + uid % flow(dashboard,port_width)`
+(PD 9000, DFT 9300, DV 9600, RTL 9900; width 300 — all in
+`global/config/flow/v1.0.0/flow_registry.tcl`). A per-project daemon
+(`--project <p>`) uses `flow(dashboard,project_port_base,<DISC>)`
+(PD 20000, DFT 21000, DV 22000, RTL 23000) + hash % 1000. The bind
+setting is per daemon:
 
 ```bash
-cbflow dashboard start --discipline PD  --public
-cbflow dashboard start --discipline DFT --public
+cbflow run dashboard start --discipline PD  --public
+cbflow run dashboard start --discipline DFT --public
+cbflow run dashboard start --discipline RTL --public
+cbflow run dashboard status --all
 ```
 
-Or set `CBFLOW_DASHBOARD_BIND_ADDR=0.0.0.0` once — both daemons pick it
-up from the env.
+Or set `CBFLOW_DASHBOARD_BIND_ADDR=0.0.0.0` once — every daemon picks it
+up from the env. (`cbflow dashboard …` is the legacy spelling and still
+works with a deprecation note.)
+
+SmartGrid (`cbflow smartgrid start --project <p> [--public|--bind-addr X]`)
+is a separate per-project daemon on `flow(smartgrid,port_base)` (25000) +
+md5(uid:project) % `flow(smartgrid,port_span)` (2500).

@@ -57,7 +57,7 @@ show_help() {
   ═══════════════════════════════════════════════════════════════════
 
   This launcher owns DFT-specific subcommands. Currently: (none).
-  DFT flows themselves (DFT_INSERT, SCAN_INSERT, ATPG, GLS_FUNC,
+  DFT flows themselves (DFT_INSERT_PASS1/2/3, SCAN_INSERT, ATPG, GLS_FUNC,
   GLS_SCAN_MBIST) run through the cross-domain \`cbflow run …\` path.
 
   Any command not owned here falls through to \$CBFLOW_GLOBAL_DIR/bin/cbflow.

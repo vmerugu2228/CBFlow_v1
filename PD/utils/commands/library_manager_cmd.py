@@ -1947,7 +1947,7 @@ def _lib_tag_root_fix_guide(tech_name: str, version: str) -> List[str]:
         "       set tech(lib_tag_root) \"/proj/pdk/libs/{}\"".format(tech_name),
         "",
         "In all cases the path MUST be outside CBFLOW_ROOT. Final tag",
-        "path = <lib_tag_root>/<TAG>/.",
+        "path = <lib_tag_root>/<tech>/<TAG>/.",
     ]
 
 
@@ -5753,6 +5753,12 @@ Examples:
   cbflow flow library-manager generate --tech gf_22nm --exclude "*ulvt*" --tag svt_only
   cbflow flow library-manager coverage --tech gf_22nm
   cbflow flow library-manager check --verbose
+  cbflow flow library-manager check --tech skywater_130nm --lib_tag OSS2
+  cbflow flow library-manager check --tech skywater_130nm --lib_tag OSS2 \\
+      --project opensky --design gcd --netlist_tag BTO --phase P3
+  cbflow flow library-manager status --tech skywater_130nm --project opensky --lib_tag OSS2
+  cbflow flow library-manager add --tech skywater_130nm --project opensky --tag OSS2 \\
+      --category block --path <release,path>/P1/gcd/PNR/BTO
   cbflow flow library-manager list --corner ss --voltage 0.80
   cbflow flow library-manager scan --path /libs/gf22 --recursive
         """
@@ -5879,12 +5885,12 @@ Examples:
                             help='Glob patterns to exclude (e.g., "*channel*" "*dummy*" "*eco*")')
     gen_parser.add_argument('--tag', default=None,
                             help='Named tag for lib_config (e.g., P0, timing_closure). '
-                                 'Output: <lib_tag_root>/<TAG>/lib_config.tcl.')
+                                 'Output: <lib_tag_root>/<tech>/<TAG>/lib_config.tcl.')
     gen_parser.add_argument('--incremental', action='store_true', default=False,
                             help='Merge new libs into existing lib_config (keep entries not in current scan)')
     gen_parser.add_argument('--lib-tag-root', default=None, dest='lib_tag_root',
                             help='Override lib_tag_root for this run. Lib content '
-                                 'is written at <path>/<TAG>/. Precedence: this '
+                                 'is written at <path>/<tech>/<TAG>/. Precedence: this '
                                  'flag > CBFLOW_LIB_TAG_ROOT > project(lib_tag_root) '
                                  '> tech(lib_tag_root).')
     gen_parser.add_argument('--output', default=None,
@@ -5899,7 +5905,7 @@ Examples:
     # an existing tag directory. Preserves everything else.
     add_parser = subparsers.add_parser(
         'add',
-        help='Add libraries for one category (analog/ip/memory/io/stdcell) '
+        help='Add libraries for one category (analog/ip/memory/io/stdcell/block) '
              'to an existing tag. Preserves other categories.')
     add_parser.add_argument('--tech', default=None,
                             help='Technology name (e.g., gf_22nm). Optional when --tech-config is set.')
@@ -5911,7 +5917,9 @@ Examples:
                             choices=['analog', 'ip', 'memory', 'io', 'stdcell', 'block'],
                             help='Which category the --path contents belong to. '
                                  'block = a released hierarchical block (DL3/DL2): '
-                                 '--path <release,path>/<phase>/<block>/<tag>')
+                                 '--path <release,path>/<phase>/<block>/PNR/<exit> '
+                                 '(gds / cdl from the sibling PV release, SPEFs '
+                                 'linked per RC corner)')
     add_parser.add_argument('--path', nargs='+', required=True,
                             help='Directory (or multiple) containing the libraries '
                                  '(for --category block: release dirs)')

@@ -40,6 +40,25 @@ in `PD/config/flow/v1.0.0/release_config.tcl`. The flows each exit expects are
 listed in `release_tags(<exit>) {... required_flows {...}}`, for example
 `FP_EXIT` requires `{SYNTH_PNR PNR FP FCFP PV}`.
 
+### Exit plans per discipline
+
+`project(phase_exits)` is the **PD** plan. Other disciplines declare their own plan as
+`project(phase_exits,<DISC>)` in the same global project config; every exit in it must be an exit of that
+discipline (`milestone_info(discipline)` in `global/config/exit/v1.0.0/<EXIT>_config.tcl`). opensky's DV plan:
+
+```tcl
+set project(phase_exits,DV) {
+    P0 {}
+    P1 {TB_SETUP_EXIT M1_EXIT M2_EXIT}
+    P2 {M3_EXIT M4_EXIT DV_SIGNOFF_EXIT}
+    P3 {TB_SETUP_EXIT M1_EXIT M2_EXIT M3_EXIT M4_EXIT DV_SIGNOFF_EXIT}
+}
+```
+
+Each plan is ordered **independently**: a DV exit only waits for the DV exits before it in its own plan, never for
+PD exits (and vice versa). An exit that appears in no plan of the phase is not order-checked. The exits of every
+discipline are listed by `cbflow flow checklist list` (column 2 = discipline).
+
 ---
 
 ## 2. The release follows its source stage
@@ -63,7 +82,10 @@ The exit comes from `MILESTONE_STAGE_MAPPING(<exit>)` in `release_config.tcl`:
 - A release before `pro` carries no SPEF.
 - A release before `signoff` carries no timing models.
 
-Today the source-stage exit is applied by the open-source PNR release (`release_data_openroad.tcl`).
+Today the source-stage exit is applied by the open-source PNR release (`release_data_openroad.tcl`). For
+`signoff` the flow's `<flow>(smartgrid,milestone)` picks between BTO and MTO (`pnr(smartgrid,milestone) "BTO"`
+in `PNR_openroad_config.tcl`), so the default `release_data1` of a full PNR run releases **BTO** in a phase that
+has it (P2 / P3) and the phase's latest earlier exit otherwise (PRO_EXIT in P0 / P1).
 
 ---
 
@@ -151,7 +173,7 @@ cbflow run release --from-run <run_dir> --clone-from BTO --tag MTO [--publish]
 
 | Option | Meaning |
 |---|---|
-| `--tag`, `-t <exit>` | Exit to release (default `project(release,active_tag)`) |
+| `--tag`, `-t <exit>` | Exit to release (default `project(release,active_tag)` of the PD overlay); with `--from-run --publish`, the milestone to publish to |
 | `--name <tag>` | Release tag name (default: the exit name) |
 | `--dry-run` | Validate only |
 | `--from-run <run_dir>` | Use the release a run already made (open-source flows release themselves in `release_data`); no repackaging |
@@ -170,10 +192,16 @@ Publishing is **opt-in**: without `--publish`, nothing is published.
 There are two gates.
 
 1. **Release time.** `::CBFlow::Release::check_exit_order` refuses an exit while
-   any earlier exit of the phase (`project(phase_exits)`) has no
-   `RELEASE_COMPLETE` for the block, in any flow. The gate is skipped in test mode and for
-   signoff flows.
-2. **Publish time.** SmartGrid refuses a milestone that the phase does not have, or one whose earlier exits are not published yet for (project, block, phase):
+   any earlier exit of the same plan has no `RELEASE_COMPLETE` for the block, in any flow
+   (`<release,path>/<phase>/<block>/*/<earlier exit>/RELEASE_COMPLETE`). The plan is `project(phase_exits)` for
+   a PD exit, else the `project(phase_exits,<DISC>)` list of the phase that holds the exit. The gate is skipped
+   in test mode and for signoff flows. `--clone-from` applies the same check to the target exit.
+
+   ```
+   ERROR: exit order — gcd P2 cannot release PRO_EXIT before PLACE_EXIT, CTS_EXIT
+   (release in order: FP_EXIT -> PLACE_EXIT -> CTS_EXIT -> PRO_EXIT; nothing under <base>/P2/gcd/<FLOW>/PLACE_EXIT)
+   ```
+2. **Publish time.** For the PD exits (`MILESTONE_ORDER`), SmartGrid refuses a milestone that the phase does not have, or one whose earlier exits are not published yet for (project, block, phase):
 
    ```
    Not published: PRO_EXIT cannot release before FP_EXIT for gcd / P2.
@@ -246,6 +274,40 @@ set pnr(oss,drv,max_fanout) 10
 ```
 
 The `override_setup.tcl` / `override_setup.<stage>.tcl` / `override_setup.<node>.tcl` files hold flow-proc hooks.
+
+---
+
+## 10. Worked example — gcd, phase P2
+
+```bash
+cd workarea/gcd
+
+# FP -> FP_EXIT (first exit of P2), published
+cbflow workspace create --config uc_FP_openroad_P2.tcl
+(cd P2_run_FP_gcd_b1 && cbflow run all && cbflow run release --from-run . --publish)
+
+# PNR: one export/release pair per intermediate exit; release_data1 (under signoff1) gives BTO in P2
+cbflow workspace create --config uc_PNR_openroad_P2.tcl
+cd P2_run_PNR_gcd_b1
+cbflow run add-node --node export_data2  --type export_data  --dep place1
+cbflow run add-node --node release_data2 --type release_data --dep export_data2      # PLACE_EXIT
+cbflow run add-node --node export_data3  --type export_data  --dep cts_opt1
+cbflow run add-node --node release_data3 --type release_data --dep export_data3      # CTS_EXIT
+cbflow run add-node --node export_data4  --type export_data  --dep pro1
+cbflow run add-node --node release_data4 --type release_data --dep export_data4      # PRO_EXIT
+cbflow run all
+# publish in exit order
+for n in release_data2 release_data3 release_data4 release_data1; do
+    cbflow run release --from-run . --node $n --publish
+done
+cbflow run release --from-run . --clone-from BTO --tag MTO --publish                # MTO = BTO data
+
+# Signoff of PRO_EXIT (STA / PV / LEC in parallel; releases <FLOW>/PRO_EXIT, published)
+cd ../.. && PHASE=P2 RUN=p2_b1 LIB_TAG=OSS2 ./run_signoff.sh gcd PRO_EXIT
+
+# Readiness of every block for an exit
+cbflow run release-check --tag PRO_EXIT --project opensky --phase P2
+```
 
 ---
 

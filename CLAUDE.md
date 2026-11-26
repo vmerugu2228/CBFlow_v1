@@ -1,13 +1,13 @@
 # CBflow Multi-Discipline Design Automation Framework
 
 ## What is CBflow
-CBflow v2.0.0 is a multi-discipline design automation framework. It coordinates 32 flows across four disciplines — Physical Design (PD, 12 flows), Design-For-Test (DFT, 7 flows after the 2026-11-03 pass split), RTL Design Verification (DV, 9 flows), and RTL design-side quality (RTL, 4 flows) — through a Python-native RACE DAG execution engine, SQLite status tracking, web GUI dashboard, and per-scenario MMMC parallelism.
+CBflow v2.0.0 is a multi-discipline design automation framework. It coordinates 33 flows across four disciplines — Physical Design (PD, 12 flows), Design-For-Test (DFT, 7 flows after the 2026-11-03 pass split), RTL Design Verification (DV, 9 flows), and RTL design-side quality (RTL, 5 flows) — through a Python-native RACE DAG execution engine, SQLite status tracking, web GUI dashboard, and per-scenario MMMC parallelism.
 
 ## Supported Flows
 - **PD**  — SYNTH, PNR, SYNTH_PNR, FP, FCFP, STA, LEC, CLP, PV, EMIR, POPT, ECO
 - **DFT** — DFT_INSERT_PASS1 (Core: MBIST+BSCAN), DFT_INSERT_PASS2 (Top: TDR/DFT-Signals/SRI), DFT_INSERT_PASS3 (EDT+OCC), SCAN_INSERT, ATPG, GLS_FUNC, GLS_SCAN_MBIST
 - **DV**  — SPEC_RAMP, PLANNING, TB_SETUP, M1_EXEC, M2_EXEC, M3_EXEC, M4_EXEC, ECO_EXEC, DV_SIGNOFF
-- **RTL** — RTL_LINT (Spyglass / Jaspergold HAL), RTL_CDC (Spyglass CDC / Jaspergold CDC), RTL_RDC (Spyglass RDC / Jaspergold RDC), UPF_CHECK (VC-LP / Conformal LP)
+- **RTL** — RTL_SPEC (open-source rtlcheck), RTL_LINT (Spyglass / Jaspergold HAL / verilator), RTL_CDC (Spyglass CDC / Jaspergold CDC / opencdc), RTL_RDC (Spyglass RDC / Jaspergold RDC), UPF_CHECK (VC-LP / Conformal LP / rtlcheck)
 
 PD flows support dual tools (Synopsys: FC/PT/Formality/ICV/RedHawk + Cadence: Innovus/Genus/Tempus/Conformal/Voltus/Calibre) plus an **open-source** vendor on sky130 (`opensource`: yosys SYNTH/LEC, OpenROAD FP/PNR, OpenSTA STA, KLayout/Magic+Netgen PV — see "Open-Source Flow" below). DFT + DV scaffolds ship with node_configs; discipline-specific tool handlers extend from there. RTL ships with real Spyglass command emission for RTL_LINT; CDC/RDC/UPF_CHECK Synopsys handlers are scaffolded.
 
@@ -139,7 +139,7 @@ Every run resolves configs in this fixed order — project first because tech re
 6. Node config `<discipline>/config/flow/v1.0.0/node_configs/<FLOW>_config.tcl` (+ `<FLOW>_<tool>_config.tcl` overlay from `<flow>(tool,name)`)
 7. `global/config/project/<proj>/v1.0.0/mmmc_config.tcl`        — MMMC PVT building blocks
 8. `<run>/setup/user_config.tcl`                                — user overrides
-9. `<run>/setup/override_config.tcl` → `.<stage>` → `.<branch>` → `.<node_type>` → `.<node>` — per-node overrides (last writer wins; **no flow-name level**)
+9. `<run>/setup/override_config.tcl` → `.<stage>` → `.<branch>` → `.<node>` — per-node overrides (last writer wins; **no flow-name level**)
 
 ## Launcher Composition (per-discipline)
 
@@ -147,7 +147,7 @@ Every run resolves configs in this fixed order — project first because tech re
 - **`PD/bin/cbflow-pd`** — PD-owned subcommands (`flow library-manager`, `flow mmmc-manager`, `flow checklist`). Auto-dispatched from `cbflow flow library-manager …` via `global/config/cli/discipline_commands.tcl`.
 - **`DFT/bin/cbflow-dft`, `DV/bin/cbflow-dv`** — skeleton launchers, extension points for future discipline-specific tooling. Non-owned commands fall through to `global/bin/cbflow`.
 
-Adding a new discipline-owned subcommand: (1) add to `discipline_commands.tcl`; (2) add to the discipline launcher's `<DISC>_FLOW_SUBCOMMANDS` array; (3) drop the Python handler at `<disc>/utils/commands/`.
+Adding a new discipline-owned subcommand: (1) add to `discipline_commands.tcl`; (2) add to the discipline launcher's `<DISC>_FLOW_SUBCOMMANDS` array; (3) add the dispatch case in that launcher; (4) drop the Python handler at `<disc>/utils/commands/`.
 
 ## Launch Mode + Silent-Test-Mode Defense
 
@@ -173,7 +173,7 @@ Three independent gates guard against a run silently completing "clean" when the
 Each flow uses ONE array: `synth_pnr()`, `synth()`, `pnr()`, `fp()`, `sta()`, `lec()`, `clp()`, `pv()`, `emir()`, `eco()`, `popt()`, `fcfp()`. No tool-specific arrays (`fc()`, `pt()`, `genus()`, etc.) — all merged into the flow array.
 
 ### Config Cascade (generated config.tcl per node)
-project_init → project → team → tech → flow → node_common → node_tool → mmmc → user → overrides (`override_config.tcl` → `.<stage>` → `.<branch>` → `.<node_type>` → `.<node>`)
+project_init → project → team → tech → flow → node_common → node_tool → mmmc → user → overrides (`override_config.tcl` → `.<stage>` → `.<branch>` → `.<node>`)
 
 ### Tech Config Structure
 - Track-categorized libraries: `tech(<track>,ndm,stdcell)` + shared `tech(ndm,memory/io/analog)`
@@ -199,11 +199,11 @@ project_init → project → team → tech → flow → node_common → node_too
 - `<FLOW>_<tool>_config.tcl` — tool-specific: app settings, compile/place/cts/route options, required_inputs
 
 ### Exit Checklist System
-- **21 milestones across 3 disciplines** (post 2026-11-03 refactor; RTL discipline added 2026-11-03 but ships without exit milestones yet — owner team adds them when sign-off cadence is defined):
+- **25 milestones across 4 disciplines** (+ the STA_SIGNOFF checklist):
   - **PD (6)**: FP_EXIT, PLACE_EXIT, CTS_EXIT, PRO_EXIT, BTO, MTO
   - **DFT (6)**: CORE_DFT_EXIT (Pass1 MBIST+BSCAN), TOP_DFT_EXIT (Pass2 TDR/SRI), EDT_OCC_EXIT (Pass3), SCAN_INSERT_EXIT, ATPG_PREPD_EXIT, ATPG_POSTPD_EXIT
   - **DV (9)**: SPEC_RAMP_EXIT, PLANNING_EXIT, TB_SETUP_EXIT, M1_EXIT, M2_EXIT, M3_EXIT, M4_EXIT, ECO_EXEC_EXIT, DV_SIGNOFF_EXIT
-  - **RTL (0)**: planned — LINT_SIGNOFF, CDC_SIGNOFF, RDC_SIGNOFF, UPF_SIGNOFF per flow; configs land when owner team formalizes sign-off criteria
+  - **RTL (4)**: SPEC_EXIT, LINT_SIGNOFF, CDC_SIGNOFF, UPF_SIGNOFF (RDC_SIGNOFF not claimed — no open-source RDC tool)
 - Each milestone config declares `set milestone_info(discipline) "PD"|"DFT"|"DV"|"RTL"`; the CLI's `--discipline <X>` flag filters by owner.
 - 182 PD library checks across 9 categories (timing, placement, clock, power, routing, physical, SI, manufacturing, eco_flow). DFT/DV milestones use mandatory_files + per-flow metric checks. RTL flows use violations_final.csv as the structured check carrier.
 - **Phase-aware**: phases are **project-defined** via `set project(phases) {...}` in `global/config/project/<proj>/v1.0.0/<proj>_config.tcl`. Bumblebee uses LC1-LC5; other projects use P0-P3 or any custom scheme. Checks activate progressively as the project's declared phases advance.
@@ -286,17 +286,17 @@ cbflow flow checklist list-checks --milestone BTO             # List checks for 
 cbflow flow checklist generate --milestone PLACE_EXIT         # Generate checklist
 cbflow flow checklist status --milestone BTO --run-dir .      # Check status
 cbflow flow checklist sign-off --milestone BTO --run-dir .    # Sign off
-cbflow flow checklist add-check --milestone BTO --check-id TMG-042  # Add custom check
-cbflow flow checklist remove-check --milestone BTO --check-id TMG-042  # Remove check
-cbflow flow checklist waiver --milestone BTO --check-id TMG-010 --reason "..."  # Waive check
+cbflow flow checklist add-check --milestone BTO --name my_check --type metric ...  # Add custom check
+cbflow flow checklist remove-check --milestone BTO --name my_check              # Remove check
+cbflow flow checklist waiver --action add --milestone BTO --check TMG-010 --reason "..."  # Waive check
 ```
 
 ### Database Management
 ```bash
-cbflow run db-manage status                                   # Show DB location and size
-cbflow run db-manage backup                                   # Backup current DB
-cbflow run db-manage query --table jobs --status FAIL         # Query DB tables
-cbflow run db-manage export --format csv                      # Export DB data
+cbflow run db-manage --list                                   # List RACE databases
+cbflow run db-manage --delete <run>                           # Delete a run's DB
+cbflow run db-manage --cleanup                                # Interactive cleanup of old DBs
+cbflow run db-manage --check                                  # Session count vs limit
 ```
 
 ## Open-Source Flow (sky130, project `opensky`)
@@ -388,11 +388,11 @@ Every command file uses the same 14-line bootstrap:
 ```tcl
 set run_dir $::env(CBFLOW_RUN_DIR)
 source "$run_dir/.run.cbflow.tcl"
-source "$::env(FLOW_DIR)/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
 
 set FLOW_TYPE "<FLOW>"
 set STAGE_NAME "<stage>"
-set NODE_NAME "<stage>1"
+set NODE_NAME [cbflow_node_name]
 
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
 source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"

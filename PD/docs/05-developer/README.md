@@ -1,80 +1,53 @@
 # Developer Guide
 
-Guide for extending and contributing to CBflow v2.0.0.
+Extending and contributing to CBflow v2.0.0 (PD, DFT, DV, RTL on one engine).
 
 ## Contents
 
 ### [Extending CBflow](extending.md)
-- Adding a new flow_proc to an existing stage
-- Adding a new exit check (script/grep/file modes)
-- Adding a new design flow (node_config, commands, handlers)
-- Overriding tool selection in user_config
-- Standard command file pattern (153 files follow this)
-- Adding email templates and autoppt slides
-- RACE engine integration (DAG, SQLite DB, dynamic subnodes)
+- Hooking a flow_proc; overriding tool selection
+- Adding a discipline-owned subcommand (`discipline_commands.tcl` + `cbflow-<disc>` array + dispatch case + Python handler)
+- Adding a new flow (registry, discipline flow_config, dir_config, node config + tool overlay, tool shell, handlers, handshakes, project enablement)
+- Adding an open-source tool overlay (`<FLOW>_<tool>_config.tcl`, `cmds/<FLOW>/opensource/<tool>/v1.0.0/` handlers + command files, container binaries)
+- Adding a handshake (`flow_input_handshake`, PD `release_config.tcl` §6)
+- Adding an exit milestone (`global/config/exit/v1.0.0/`, `milestone_info(discipline)`, tool checklist map, `project(phase_exits[,<DISC>])`)
 
 ### [Contributing](contributing.md)
-- Directory-based versioning workflow
-- Code conventions (TCL, Python)
-- Testing with `cbflow test`
-- Documentation standards
+Setup, branches, where code goes, versioned directories, conventions, testing, docs.
 
-### [Test Suite Developer Guide](test-suite.md) *(new in v2.1.1)*
-The full reference for `cbflow test`:
-- Module layout, results collector, reporters (console / JSON / JUnit)
-- Static categories 1-9 (Cat 9 is the new dead-code & cross-reference audit)
-- E2E checks 1-18 with their bug-class targets
-- How to add a new static or e2e check
-- CI integration (Jenkins / GitHub Actions / GitLab CI)
-- The pseudo-stage / dynamic-subnode allowlist
+### [Test Suite Developer Guide](test-suite.md)
+`cbflow test`: static categories 1-19, e2e checks 1-19, dispatch / CLI smoke, integration, hardcode audit, adding checks, CI.
+
+### [Release 2026-07-10 Features](release-2026-07-10-features.md)
+Historical feature notes for the 2026-07-10 bundle (pre `cbflow_global` layout; paths may be outdated).
 
 ## Quick Reference
 
-### Command File Pattern
-Every command file follows this structure:
+### Command file bootstrap
 ```tcl
-#!/usr/bin/env tclsh
-# Header: env sourcing, utils, tech_config, user_config
-set WORK_DIR / REPORTS_DIR / OUTPUTS_DIR
-# Source release_utils + release_config (for inputs stages)
-flow_proc resolve_inputs { ... }  # First: resolve release tags
-flow_proc stage_work { ... }      # Main: EDA tool commands
-flow_proc generate_reports { ... } # Last: report redirects
-# Source setup hooks (prepend/append/replace)
-flow_exec_all
+set run_dir $::env(CBFLOW_RUN_DIR)
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+
+set FLOW_TYPE "<FLOW>"
+set STAGE_NAME "<stage>"
+set NODE_NAME [cbflow_node_name]
+
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
+
+flow_proc <step> { … }       ;# executed in definition order
+flow_exec_all                ;# oss_exec_all in the RTL / DFT / DV open-source drivers
 exit
 ```
 
-### RACE Engine
-CBflow v2.0.0 uses the RACE (Run Automation & Control Engine) as its dispatcher. RACE builds the DAG from node_config.tcl at runtime and tracks status in a SQLite database. Key concepts:
-
-- **No Makefile**: RACE reads node_config.tcl directly -- no Makefile generation
-- **SQLite DB**: Status tracked in `.race_<uid>.db` (not stamp files)
-- **File change detection**: Edit input -> auto-retrace downstream
-- **Parallel execution**: Independent subnodes run in parallel
-- **Dynamic subnodes**: STA per-corner generated from user_config
-- **Custom nodes**: `add-node` and `create-branch` at run level
-- **verify-dag**: Validates DAG from node_config without executing
-
-### Adding a Check
+### Test suite
 ```bash
-cbflow flow checklist add-check --milestone BTO \
-  --name my_check --check-type mandatory \
-  --grep-file "report.rpt" --grep-pattern "PASS" --grep-pass-if found
-```
-
-### Test Suite (v2.1.1)
-```bash
-cbflow test                            # static cats 1-9 + e2e all 12 flows
-cbflow test --static                   # cats 1-9 only (~0.2s)
-cbflow test --e2e --flow SYNTH_PNR     # one flow (~20s)
-cbflow test --static --category 9      # the new dead-code audit
+cbflow test --static                   # static categories (18 is opt-in)
+cbflow test --e2e --flow SYNTH_PNR     # one flow end to end (test mode)
+cbflow test --static --category 19     # open-source DFT / RTL / DV wiring
 cbflow test --ci                       # junit + non-zero exit on fail
-bin/cbflow-test-suite                  # back-compat shim → cbflow test --static
 ```
 
-See [Test Suite Developer Guide](test-suite.md) for the full reference (10 static check categories, 18 e2e checks per flow).
-
----
-
-**Documentation Version**: 2.1.1
+Architecture: [System Design](../04-architecture/system-design.md).

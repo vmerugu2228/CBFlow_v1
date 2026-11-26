@@ -712,16 +712,16 @@ def cmd_manage(args: argparse.Namespace) -> int:
 def create_parser() -> argparse.ArgumentParser:
     """Create the argument parser."""
     parser = argparse.ArgumentParser(
-        prog='cbflow project',
+        prog='cbflow flow project',
         description='CBFlow - Project Management',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   cbflow flow project list
-  cbflow flow project info --name phoenix
+  cbflow flow project info --name opensky
   cbflow flow project create                        # Interactive mode
-  cbflow flow project create --name phoenix --tech tsmc_7nm  # Quick mode
-  cbflow flow project delete --name phoenix --confirm
+  cbflow flow project create --name my_chip --tech tsmc_7nm  # Quick mode
+  cbflow flow project delete --name my_chip --confirm
   cbflow flow project manage                        # Full interactive manager
         """
     )

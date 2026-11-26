@@ -1,258 +1,144 @@
 # CBflow Documentation
 
-Complete documentation for **CBflow v2.1.1** (released 2026-06-12) — a comprehensive PD automation framework for ASIC physical design flows.
+Documentation index for **CBflow v2.0.0** — a multi-discipline design
+automation framework: 33 flows across Physical Design (PD, 12), Design-for-Test
+(DFT, 7), RTL Design Verification (DV, 9) and RTL design quality (RTL, 5), on
+one Python RACE DAG engine with SQLite status tracking, per-discipline run
+dashboards, SmartGrid project dashboard and an exit-release model.
 
-> **New in v2.1.1**: per-user **Dashboard Daemon** (one server per user, stable URL), built-in **`cbflow test`** suite (10 static categories + 18 e2e checks per flow), **dead-code audit** (cat 9), **FP user-config templates**, and a hardening pass over ~250 cmd files. See [v2.1.1 Feature Document](CBflow_v2.1.1_Feature_Document.md).
+Repository layout (paths relative to `$CBFLOW_ROOT`): `global/` (shared CLI,
+engine, Tcl runtime, registry, project / tech / exit configs), `PD/`, `DFT/`,
+`DV/`, `RTL/` (per-discipline configs, commands, docs), `workarea/`. The
+one-page framework summary is [`CLAUDE.md`](../../CLAUDE.md); changes are in
+[`RELEASE_NOTES.md`](../../RELEASE_NOTES.md).
 
-> **New (2026-11-19 → 2026-11-23)**: open-source RTL-to-GDS on sky130 (`opensource` vendor: Yosys / OpenROAD / OpenSTA / KLayout / Magic / Netgen via `cbflow-oss`) — see the [Open-Source Flow Guide](02-user-guide/opensource-flow-guide.md); exit-release model (source-stage exits, `cbflow run set-dep`, `--clone-from`, exit-order gates, strict signoff inputs) — see the [Exit Release Guide](02-user-guide/exit-release-guide.md); SmartGrid releases / waivers / DEF pins — see [SmartGrid](02-user-guide/project-dashboard-guide.md); library-manager `add --category block|memory`; run-dashboard multi-select, release form and Set Dependencies. Full list in the top-level `RELEASE_NOTES.md`.
+> **Recent (2026-11)**: spec-to-GDS on the open-source stack — RTL_SPEC →
+> RTL_LINT / RTL_CDC / UPF_CHECK → UVM on Verilator → SYNTH / FP / PNR / signoff
+> → scan / ATPG / GLS, driven by `project(signoff_chain,<phase>)` and
+> `workarea/run_spec2gds.sh`, with a SmartGrid chain page; library-manager
+> `check --lib_tag / --design`; DFT scandef handoff; floorplan / drc-fix /
+> timing-eco Claude Code skills (`.claude/skills/`).
 
-## What is CBflow?
+## Start here
 
-CBflow is a Python/Bash/TCL automation framework that orchestrates ASIC physical design flows across Synopsys, Cadence, and Mentor tool suites. It provides:
+1. [Kickstart](00-kickstart/KICKSTART.md) — set `CBFLOW_ROOT`, PATH, first run
+2. [Multi-Discipline Kickoff](00-kickstart/multi-discipline-kickoff.md) — PD / DFT / DV / RTL on one install
+3. [Quick Start](01-quick-start/README.md) — [installation](01-quick-start/installation.md), [system requirements](01-quick-start/system-requirements.md), [first version](01-quick-start/first-version.md)
+4. [User Guide index](02-user-guide/README.md)
 
-- **RACE Engine**: Run Automation & Control Engine -- Python-native DAG executor that replaced GNU Make entirely. Builds DAG from node_config.tcl at runtime, tracks status in SQLite DB (sole status tracking -- no `.stamps/` directory), supports file change detection with automatic downstream retrace, parallel subnode execution, dynamic subnode generation, active engine sync (retrace/bypass/forcevalidate during execution), per-user dashboard daemon (deterministic port, PD 9000 + uid%300), node rename, and branch tags.
-- **12 Design Flows**: SYNTH, FP, PNR, STA, LEC, EMIR, PV, ECO, CLP, POPT, FCFP, SYNTH_PNR
-- **Multi-Vendor Support**: Synopsys (FC, PT, Formality, ICV, RedHawk, VC_LP), Cadence (Genus, Innovus, Tempus, Conformal LP, Voltus), Mentor (Calibre)
-- **153 Command Files**: FC-RM Y-2026.03 aligned, with per-stage reports, proper REPORTS_DIR/OUTPUTS_DIR. Tool config refactored to per-tool config files (`fc_config.tcl`, `pt_config.tcl`, etc.) with `fc(common,*)` + `fc(<node>,*)` scoping convention.
-- **flow_proc Engine**: Auto-ordered registration, flow_exec_all, prepend/append/replace hooks
-- **Override Hierarchy**: flow_config -> project_config -> tech_config -> user_config -> override_config -> override_setup
-- **Release Mechanism**: `$release_path/$phase/$block_name/<FLOW>/$release_tag` with mandatory file validation, exit-order gates and SmartGrid publish ([Exit Release Guide](02-user-guide/exit-release-guide.md))
-- **Input Handshaking**: Release tag mode (`<flow>(input,<type>_release_tag)`) or direct path mode
-- **Phase Milestones**: P0 (trial), P1 (impl), P2 (pre-signoff), P3 (tapeout) with 6 stage exits
-- **LSF + XTerm Launch**: 6 queue tiers (S/M/L/XL/ultra), module loads, bsub+xterm wrapper
-- **Email Notifications**: 6 templates (run-creation, run-status, run-summary, checklist, reminder, release-update)
-- **AutoPPT Generation**: PD Run Summary matching template (19-col QoR table, per-stage slides)
-- **Checklist CLI**: add-check (script/grep/file modes), list-checks, remove-check, status, sign-off, waivers
-- **Per-Corner STA**: Each corner runs independently via dynamic timing_scenario handler
-- **Test Suite**: 994 tests across 8 categories (`bin/cbflow-test-suite`)
-- **Directory-Based Versioning**: Copy, edit, set-current via symlink (no Git worktrees)
-- **Version Locking**: Released versions are permanently read-only (`chmod 444`) with a `.locked` marker file. Locking is irreversible -- once a version is released, it cannot be modified or reverted.
-- **Dev Workflow**: `cbflow flow dev` commands (`start`, `status`, `diff`, `promote`, `sandbox-create`, `sandbox-push`) with `-dev` suffix convention for in-progress versions
-- **Template Generation**: `cbflow workspace template --flow SYNTH_PNR > user_config.tcl` generates a ready-to-edit config template
-- **3 Tech Configs**: GF 22FDX, TSMC 7nm, TSMC 5nm
+## 02. User Guides (PD/docs/02-user-guide)
 
-## RACE Engine Overview
+| Guide | Topic |
+|---|---|
+| [Complete User Guide](02-user-guide/cbflow-complete-user-guide.md) | Full walkthrough |
+| [Flow User Guide](02-user-guide/cbflow-flow-user-guide.md) | Flows and stages |
+| [GUI User Guide](02-user-guide/cbflow-gui-user-guide.md) | Run dashboard: DAG, config editor, branches, MMMC dialog, release form |
+| [Dashboard Daemon](02-user-guide/dashboard-daemon-guide.md) | Per-user run dashboard daemon, ports per discipline |
+| [SmartGrid / Project Dashboard](02-user-guide/project-dashboard-guide.md) | Published runs, releases page, waivers, chain page |
+| [Exit Release Guide](02-user-guide/exit-release-guide.md) | Exit releases, source-stage exits, set-dep, clone, exit-order gates |
+| [Open-Source Flow Guide](02-user-guide/opensource-flow-guide.md) | sky130 RTL-to-GDS: Yosys / OpenROAD / OpenSTA / KLayout / Magic / Netgen via `cbflow-oss` |
+| [Spec-to-GDS Guide](02-user-guide/spec-to-gds-guide.md) | One block from YAML spec to signed-off GDS across all disciplines |
+| [Library Manager](02-user-guide/library-manager-user-guide.md) | Library tags, `add --category block|memory`, `check` |
+| [MMMC Manager](02-user-guide/mmmc-manager-user-guide.md) | MMMC scenarios and views |
+| [SmartGenie](02-user-guide/smartgenie-user-guide.md) | AI assistant (local / cloud / Claude Code) |
+| [Release Management](02-user-guide/release-management.md) | Framework (CBflow) releases |
+| [Versioning Workflow](02-user-guide/versioning-workflow.md) | Copy / edit / set-current |
+| [Changelog System](02-user-guide/changelog-system.md) | Framework change tracking |
+| [Troubleshooting](02-user-guide/troubleshooting.md) | Common issues |
 
-RACE (Run Automation & Control Engine) is the Python-native DAG executor at the core of CBflow v2.0.0. It completely replaces GNU Make -- Make is NOT used and NOT required.
+## Discipline guides
 
-- **DAG from node_config.tcl**: RACE builds the execution graph at runtime directly from node_config.tcl. There is no Makefile generation step.
-- **SQLite DB for status tracking**: Each run stores status in a SQLite database (`.race_<uid>.db`). The `.stamps/` directory has been completely removed -- the RACE DB is the sole status tracking mechanism. DB path: `$project(race,db_path)/$project/$domain/$flow/$user_$run_$uid.db`
-- **File change detection**: Edit an input file and RACE auto-retraces all downstream nodes.
-- **Parallel subnode execution**: PV runs drc/lvs/erc/perc/xor in parallel after fill completes.
-- **Dynamic MMMC scenario subnodes**: STA generates per-scenario subnodes from user_config at runtime, enabling parallel per-scenario execution.
-- **Active engine sync**: Issue `retrace`, `bypass`, or `forcevalidate` commands while the engine is running -- the engine picks up changes from the DB in real time.
-- **Dashboard daemon**: `cbflow run gui` registers the run with one per-user daemon on a deterministic port (`flow(dashboard,port_base,<DISC>) + uid % flow(dashboard,port_width)`).
-- **Custom nodes at run level**: Use `add-node` and `create-branch` to extend the DAG without editing node_config.
-- **Tested flows**: SYNTH_PNR, STA, LEC, CLP, SYNTH, PNR (6 flows fully tested)
-- **Dispatcher config**: `set flow(dispatcher) "race"` in flow_config.tcl
+| Discipline | Guides |
+|---|---|
+| RTL | [RTL README](../../RTL/docs/README.md) · [Open-Source RTL Guide](../../RTL/docs/opensource-rtl-guide.md) (RTL_SPEC, RTL_LINT, RTL_CDC, UPF_CHECK) |
+| DV  | [Open-Source DV Guide](../../DV/docs/opensource-dv-guide.md) (UVM on Verilator: TB_SETUP, M1–M4_EXEC, DV_SIGNOFF) |
+| DFT | [DFT README](../../DFT/docs/README.md) · [Open-Source DFT Guide](../../DFT/docs/opensource-dft-guide.md) · [DFT Flow Reference](../../DFT/docs/DFT_Flow_Reference.md) · [DFT Insert](../../DFT/docs/DFT_Insert_Guide.md) · [Scan Insert](../../DFT/docs/Scan_Insert_Guide.md) · [ATPG](../../DFT/docs/ATPG_Guide.md) · [GLS Verification](../../DFT/docs/GLS_Verification_Guide.md) |
+| Exits | [Exit milestone configs](../../global/config/exit/v1.0.0/README.md) |
 
-## Quick Start
+## 03. Reference (PD/docs/03-reference)
 
-1. **[Kickstart Guide](00-kickstart/KICKSTART.md)** -- Copy to Unix, set PATH, run first flow (5 min)
-2. **[Quick Start Guide](01-quick-start/README.md)** -- Installation, prerequisites, first run
-3. **[User Guide](02-user-guide/README.md)** -- Daily workflows and operations
-4. **[Examples](06-examples/basic-workflows.md)** -- SYNTH_PNR, STA, PV, checklist, release examples
+[Index](03-reference/README.md) ·
+[Configuration](03-reference/configuration-reference.md) ·
+[Python Scripts](03-reference/python-scripts-reference.md) ·
+[RACE Engine Commands](03-reference/makefile-reference.md) ·
+[LSF](03-reference/lsf-reference.md) ·
+[LSF Coverage Checks](03-reference/lsf-checks.md) ·
+[MMMC](03-reference/mmmc-reference.md) ·
+[MSCTS / Multipoint CTS](03-reference/mscts-mpcts-reference.md) ·
+[Git Reference](03-reference/git-reference.md) ·
+[Production Git Setup](03-reference/production-git-setup.md) ·
+[Production Dashboard Setup](03-reference/dashboard-production-setup.md)
 
-## Documentation Sections
+Topic references in `PD/docs/`: [Flow Procs](Flow_Procs_Reference.md) ·
+[Stage Variables](Stage_Variables_Reference.md) ·
+[MMMC Setup](MMMC_Setup_Guide.md) ·
+[Timing Corners](timing_corners_list.md) ·
+[Checklist Guide — SYNTH_PNR](Checklist_Guide_SYNTH_PNR.md) ·
+[Checklist Guide — Other Flows](Checklist_Guide_Other_Flows.md)
 
-### [01. Quick Start](01-quick-start/)
-- [Installation & Setup](01-quick-start/installation.md) -- Prerequisites and setup
-- [System Requirements](01-quick-start/system-requirements.md) -- Tools, Python, LSF, disk
-- [Your First Version](01-quick-start/first-version.md) -- Directory-based versioning intro
+## 04. Architecture (PD/docs/04-architecture)
 
-### [02. User Guide](02-user-guide/)
-- [Complete User Guide](02-user-guide/cbflow-complete-user-guide.md) -- Full walkthrough
-- [GUI User Guide](02-user-guide/cbflow-gui-user-guide.md) -- Web dashboard: DAG visualization, config editor, branch management, MMMC scenarios
-- [Flow User Guide](02-user-guide/cbflow-flow-user-guide.md) -- All 12 flows with stages
-- [Release Management](02-user-guide/release-management.md) -- Framework (CBflow) versioned releases
-- [Exit Release Guide](02-user-guide/exit-release-guide.md) -- Design releases to exit milestones, set-dep, clone, exit-order gates
-- [Open-Source Flow Guide](02-user-guide/opensource-flow-guide.md) -- sky130 RTL-to-GDS with Yosys / OpenROAD / OpenSTA / KLayout / Magic
-- [SmartGrid / Project Dashboard](02-user-guide/project-dashboard-guide.md) -- Published releases, releases page, waivers
-- [Library Manager](02-user-guide/library-manager-user-guide.md) -- Library tags, `add --category block|memory`
-- [Versioning Workflow](02-user-guide/versioning-workflow.md) -- Copy/edit/symlink
-- [Troubleshooting](02-user-guide/troubleshooting.md) -- Common issues
+- [Index](04-architecture/README.md)
+- [System Design](04-architecture/system-design.md) — layout, launchers, config cascade, RACE, handlers, `cbflow-oss`, command files, releases, handshakes, exits, dashboards
+- [Data Flow](04-architecture/data-flow.md) — workspace → run → handshake → release → SmartGrid
+- [Component Design](04-architecture/component-design.md) — module map
+- [Versioning Strategy](04-architecture/git-strategy.md)
 
-### [03. Reference](03-reference/)
-- [Configuration Reference](03-reference/configuration-reference.md) -- All config files
-- [Python Scripts Reference](03-reference/python-scripts-reference.md) -- All 28 CLI modules
-- [LSF Reference](03-reference/lsf-reference.md) -- LSF queue/resource config
-- [MMMC Reference](03-reference/mmmc-reference.md) -- Multi-mode multi-corner
-- [Production Git Setup](03-reference/production-git-setup.md) -- gpg-encrypted SSH deploy keys for read/write access without plaintext passwords
-- [Production Dashboard Setup](03-reference/dashboard-production-setup.md) -- make the daemon reachable from remote browsers (SSH tunnel vs --public bind)
-- [MSCTS / Multipoint CTS](03-reference/mscts-mpcts-reference.md) -- standalone FC-RM-aligned MSCTS recipe (mscts_fc.tcl), inputs, sample usage
+## 05. Developer Guide (PD/docs/05-developer)
 
-### [04. Architecture](04-architecture/)
-- [System Design](04-architecture/system-design.md) -- RACE engine, flow_proc, override, release, handshake
-- [Data Flow](04-architecture/data-flow.md) -- Data flow diagrams
-- [Component Design](04-architecture/component-design.md) -- Module details
+- [Index](05-developer/README.md)
+- [Extending CBflow](05-developer/extending.md) — flows, subcommands, open-source tool overlays, handshakes, exit milestones
+- [Contributing](05-developer/contributing.md)
+- [Test Suite](05-developer/test-suite.md) — `cbflow test --static | --e2e | --cli-smoke | --integration | --hardcode`
+- [Release 2026-07-10 Features](05-developer/release-2026-07-10-features.md) (historical)
 
-### [05. Developer Guide](05-developer/)
-- [Contributing](05-developer/contributing.md) -- Contribution process
-- [Extending CBflow](05-developer/extending.md) -- Adding flows, flow_procs, checks
+## 06. Examples (PD/docs/06-examples)
 
-### [06. Examples](06-examples/)
-- [Basic Workflows](06-examples/basic-workflows.md) -- SYNTH_PNR, STA, PV, checklist
-- [Release Workflows](06-examples/release-workflows.md) -- Release/handshake scenarios
-- [Advanced Scenarios](06-examples/advanced-scenarios.md) -- Complex use cases
+[Index](06-examples/README.md) · [Basic Workflows](06-examples/basic-workflows.md) ·
+[Release Workflows](06-examples/release-workflows.md) ·
+[Advanced Scenarios](06-examples/advanced-scenarios.md)
 
-## Command Reference
+## AI
 
-### cbflow CLI
+[SmartGenie agent](../ai/README.md) · [Fine-tuning](../ai/fine_tune/README.md) ·
+[AI Agent Plan](CBflow_AI_Agent_Plan.md) · Claude Code skills:
+`.claude/skills/floorplan/`, `.claude/skills/drc-fix/`, `.claude/skills/timing-eco/`
 
-| Command | Purpose |
-|---------|---------|
-| `cbflow workspace create` | Create workspace and run directory |
-| `cbflow workspace status` | Show workspace status |
-| `cbflow run all` | Run complete flow |
-| `cbflow run stage --name <stage>` | Run specific stage |
-| `cbflow run status` | Show run progress (from RACE DB) |
-| `cbflow run retrace --from <stage>` | Mark node and downstream for re-execution |
-| `cbflow run bypass --node <node>` | Skip a node (mark as bypassed in RACE DB) |
-| `cbflow run force --node <node>` | Force re-run a node regardless of status |
-| `cbflow run forcevalidate --node <node>` | Force validate a specific node |
-| `cbflow run forcevalidate --from X --to Y` | Force validate a range of nodes |
-| `cbflow run forcevalidate --from X` | Force validate from node X to end |
-| `cbflow run forcevalidate --to Y` | Force validate from start to node Y |
-| `cbflow run checklist --milestone BTO --phase P3` | Run exit milestone checklist |
-| `cbflow run email --to user@co.com --template run-status` | Send email notification |
-| `cbflow run autoppt --format html` | Generate PD run summary |
-| `cbflow run interactive --load place1` | Open interactive EDA session |
-| `cbflow run logs --tail 50 --level ERROR` | View logs |
-| `cbflow run report --node pro1` | Detailed node report |
-| `cbflow run add-node --node <n> --type <t>` | Add custom node to DAG |
-| `cbflow run create-branch --name <n>` | Create a flow branch |
-| `cbflow run rename-node --node <old> --new-name <new>` | Rename a node in the DAG |
-| `cbflow run gui` | Register the run with the per-user dashboard daemon and open it (PD port 9000 + uid%300) |
-| `cbflow run set-dep --node <n> --deps a,b [--reset]` | Rewire a node's dependencies |
-| `cbflow run release --from-run <run> [--node <n>] [--clone-from <exit> --tag <exit>] --publish` | Release / publish an exit |
-| `cbflow smartgrid start --project <p>` | Start SmartGrid (project dashboard) |
-| `cbflow run list-nodes` | List all nodes in DAG |
-| `cbflow run show-graph` | Show flow dependency graph |
-| `cbflow flow version copy --from v1.0.0 --to v1.0.1` | Copy version |
-| `cbflow flow version set-current --version v1.0.1` | Set current version |
-| `cbflow flow dev start --dir cmds/SYNTH --from v1.0.0` | Start dev version (creates v1.0.0-dev) |
-| `cbflow flow dev status` | Show all active dev versions |
-| `cbflow flow dev diff --dir cmds/SYNTH` | Show changes in dev version |
-| `cbflow flow dev promote --dir cmds/SYNTH --version v1.0.1` | Promote dev to released version |
-| `cbflow flow dev sandbox-create --name experiment1` | Create isolated dev sandbox |
-| `cbflow flow dev sandbox-push --name experiment1` | Push sandbox changes to dev |
-| `cbflow workspace template --flow SYNTH_PNR` | Generate user_config.tcl template |
-| `cbflow flow checklist add-check --milestone BTO ...` | Add exit check |
-| `cbflow flow checklist list-checks --milestone BTO` | List checks |
+## Feature documents and history
 
-### Flow Execution
+[v2.1.1 Feature Document](CBflow_v2.1.1_Feature_Document.md) ·
+[v2.0.0 Feature Document](CBflow_v2.0.0_Feature_Document.md) ·
+[Training Presentation](CBflow_Training_Presentation.md) ·
+[Future Development Scope](FUTURE_DEVELOPMENT_SCOPE.md) ·
+[Session Report 2026-05-18](SESSION_REPORT_2026-05-18.md).
+Superseded material is in `archive/`.
+
+## Command quick reference
 
 | Command | Purpose |
-|---------|---------|
-| `cbflow run all` | Run complete flow end-to-end |
-| `cbflow run stage --name place1` | Run single stage |
-| `cbflow run retrace --from cts1` | Re-run from CTS onwards |
-| `cbflow run bypass --node export_data1` | Skip a node |
-| `cbflow run force --node place1` | Force re-run a node |
-| `cbflow run forcevalidate --node signoff1` | Force validate a node |
-| `cbflow run report --node pro1` | Detailed node report |
-| `cbflow run show-graph` | Show flow dependency graph |
+|---|---|
+| `cbflow workspace create --config uc_<FLOW>.tcl` | Create a run dir (from `workarea/<block>/`) |
+| `cbflow run all` / `cbflow run stage --name <node>` | Run the flow / one node |
+| `cbflow run status --details` | Progress from the RACE DB |
+| `cbflow run retrace --from <node>` | Re-run a node and downstream |
+| `cbflow run bypass --stages a,b` / `force --stages a` / `forcevalidate --node a` | Skip / re-run only / mark done |
+| `cbflow run add-node --node <n> --type <t> --dep <d>` | Add a node |
+| `cbflow run set-dep --node <n> --deps a,b [--reset]` | Rewire dependencies |
+| `cbflow run create-branch --branch <b> --from <node>` | Branch the DAG |
+| `cbflow run gen-makefile` | Verify the engine DAG (historical name) |
+| `cbflow run release [--from-run <run>] [--node <n>] [--clone-from <exit> --tag <exit>] [--publish]` | Exit release / clone / publish |
+| `cbflow run gui` | Run dashboard (per-user daemon; PD 9000 + uid%300) |
+| `cbflow run db-manage status|backup|query|export` | RACE DB management |
+| `cbflow smartgrid start --project <p>` | SmartGrid |
+| `cbflow flow types` / `info --flow <F>` / `nodes --flow <F>` | Flow catalogue |
+| `cbflow flow checklist list|list-checks|generate|status|sign-off|add-check|waiver` | Exit checklists |
+| `cbflow flow library-manager …` / `mmmc-manager …` | PD tools (via `cbflow-pd`) |
+| `cbflow test --static` / `--e2e --flow <F>` | Test suite |
+| `cbflow-oss check` | Open-source tool container |
 
-### Supported Flows — PD discipline (12)
-
-| Flow | Description | Synopsys Tool | Cadence Tool |
-|------|-------------|---------------|--------------|
-| SYNTH | Synthesis | FC | Genus |
-| FP | Floorplanning | FC | Innovus |
-| PNR | Place & Route | FC | Innovus |
-| STA | Static Timing Analysis | PT | Tempus |
-| LEC | Logical Equivalence | Formality | -- |
-| EMIR | EM/IR Analysis | RedHawk | Voltus |
-| PV | Physical Verification | ICV | Calibre |
-| ECO | Engineering Change Order | FC | -- |
-| CLP | Clock Low Power | VC_LP | Conformal LP |
-| POPT | Power Optimization | PT | -- |
-| FCFP | Full Chip Floorplan | FC | Innovus |
-| SYNTH_PNR | Unified Synth + PNR | FC | -- |
-
-### Supported Flows — DFT discipline (5)
-
-DFT discipline lives at the sibling `DFT/` tree and shares the same engine,
-dashboard, and CLI as PD. See [`../../DFT/docs/`](../../DFT/docs/README.md).
-
-| Flow | Description | Synopsys Tool | Mentor Tool |
-|------|-------------|---------------|-------------|
-| DFT_INSERT | MBIST + OCC + EDT/SSN insertion into RTL | DFT Compiler | Tessent |
-| SCAN_INSERT | Scan chain stitching + scandef | DFT Compiler | Tessent |
-| ATPG | Pattern generation + fault sim + coverage | TestMAX | Tessent |
-| GLS_FUNC | Gate-level functional simulation (ZD/SDF) | VCS | Questa |
-| GLS_SCAN_MBIST | Gate-level scan/MBIST/BSCAN sim (ZD/SDF) | VCS | Questa |
-
-### Input Handshaking
-
-```tcl
-# Mode 1: Release tag (auto-resolves from release path)
-set pnr(input,netlist_release_tag) "v1.0.2"
-# Resolves: $project(release,path)/$phase/$block/v1.0.2/netlist/${design_name}.v
-
-# Mode 2: Direct path
-set pnr(input,netlist) "/proj/runs/synth_run1/outputs/top.v"
-```
-
-### Phase Milestones
-
-| Phase | Stage Exits | Criteria |
-|-------|-------------|----------|
-| P0 | FP_EXIT | Relaxed (WNS -500ps, util 50%) |
-| P1 | PLACE_EXIT, CTS_EXIT | Converging (WNS -80ps) |
-| P2 | PRO_EXIT, BTO | Tight (WNS 0, DRC 0, LVS clean) |
-| P3 | MTO | Tapeout (all zero, GDS clean) |
-
-### Checklist Management
-
-```bash
-# Add a grep-based check
-cbflow flow checklist add-check --milestone BTO \
-  --name drc_zero --check-type mandatory \
-  --description "DRC violations must be zero" \
-  --grep-file "work/SYNTH_PNR/signoff1/reports/signoff_check_drc.rpt" \
-  --grep-pattern "Total.*0.*violation" --grep-pass-if found
-
-# Run checklist against current run
-cbflow run checklist --milestone PRO_EXIT --phase P2
-
-# Sign off
-cbflow run checklist --milestone BTO --sign-off --approver chip_lead
-```
-
-## Technology Configs
-
-| Config | Technology |
-|--------|-----------|
-| `gf_22nm` | GlobalFoundries 22FDX |
-| `tsmc_7nm` | TSMC N7 |
-| `tsmc_5nm` | TSMC N5 |
-
-## Test Suite
-
-```bash
-bin/cbflow-test-suite                    # 994 tests, 8 categories
-bin/cbflow-test-suite --verbose          # Show all PASS/FAIL/SKIP
-bin/cbflow-test-suite --category 2       # Run specific category
-bin/cbflow-test-suite --flow SYNTH_PNR   # Test single flow
-```
-
-Categories: Workspace, RACE DAG/Handlers, Override Mechanism, LSF, MMMC, Mandatory I/O, Log Parsing, Cross-Cutting.
-
-## Shell Tab Completion
-
-```bash
-# Bash
-source $CBFLOW_HOME/completions/cbflow.bash
-
-# Zsh
-fpath=($CBFLOW_HOME/completions $fpath)
-autoload -Uz compinit && compinit
-```
+Shell completion: `source $CBFLOW_ROOT/PD/completions/cbflow.bash` (bash) or
+add `$CBFLOW_ROOT/PD/completions` to `fpath` (zsh, `_cbflow`).
 
 ---
 
-**Documentation Version**: 2.0.0
-**Last Updated**: 2026-05-12
-
-**Ready to start?** Begin with [Kickstart Guide](00-kickstart/KICKSTART.md)
+**Last Updated**: 2026-11-26

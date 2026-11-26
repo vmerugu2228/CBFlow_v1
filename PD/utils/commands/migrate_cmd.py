@@ -261,8 +261,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         epilog="""\
 Example:
   cbflow migrate \\
-    --old /opt/cbflow_v1/PD/config/tech/gf_22nm/v1.0.0/tech_config.tcl \\
-    --new /opt/cbflow_v2/PD/config/tech/gf_22nm/v1.0.0/tech_config.tcl
+    --old /opt/cbflow_v1/global/config/tech/gf_22nm/v1.0.0/tech_config.tcl \\
+    --new /opt/cbflow_v2/global/config/tech/gf_22nm/v1.0.0/tech_config.tcl
 
 The NEW file is updated in place with a <new>.bak backup. Use --dry-run
 to preview the report without touching disk.

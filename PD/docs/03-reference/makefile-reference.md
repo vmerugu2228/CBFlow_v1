@@ -3,7 +3,8 @@
 CBflow v2.0.0 uses the RACE (Run Automation & Control Engine) as its sole executor. GNU Make is **not** used anywhere in the system. All status tracking is done via the RACE SQLite database (`.race_*.db`) -- there is no `.stamps/` directory.
 
 For the complete command reference, see:
-- [Python Scripts Reference](python-scripts-reference.md) -- All CLI commands
+- [Command Reference](command-reference.md) -- Every CLI command and flag
+- [Python Scripts Reference](python-scripts-reference.md) -- Command modules
 - [Configuration Reference](configuration-reference.md) -- All config files
 
 ---
@@ -24,11 +25,12 @@ cbflow run all --collect-metrics            # Collect metrics after run
 
 ### cbflow run stage
 
-Execute a single stage and its dependencies (if not already complete).
+Execute a single stage (node name, e.g. `place1`; see `cbflow run list-nodes`) and its dependencies (if not already complete).
 
 ```bash
 cbflow run stage --name place1              # Run specific stage
 cbflow run stage --name cts1 --lsf          # Run stage via LSF
+cbflow run stage --name init_design1 --subnode run   # One subnode only
 ```
 
 ---
@@ -61,12 +63,12 @@ List all nodes in the current DAG.
 cbflow run list-nodes
 ```
 
-### cbflow run verify-dag
+### cbflow run gen-makefile
 
-Verify the DAG structure from node_config without executing anything.
+Verify the RACE DAG structure without executing anything (legacy command name — no Makefile is generated).
 
 ```bash
-cbflow run verify-dag
+cbflow run gen-makefile
 ```
 
 ---
@@ -77,31 +79,32 @@ All of these commands update the RACE SQLite database. When issued while the eng
 
 ### cbflow run retrace
 
-Mark a node and all its downstream dependencies for re-execution in the RACE DB.
+Invalidate a stage and every later stage (in flow order) in the RACE DB.
 
 ```bash
 cbflow run retrace --from cts1              # Retrace from CTS onwards
-cbflow run retrace --from inputs1           # Retrace entire flow
+cbflow run retrace                          # Retrace entire flow
+cbflow run retrace --from cts1 --run        # Retrace and rerun
 ```
 
-After retracing, run `cbflow run all` to re-execute the affected nodes.
+After retracing, run `cbflow run all` (or pass `--run`) to re-execute the affected nodes.
 
 ### cbflow run bypass
 
-Skip a node without executing it. The node is marked as "bypassed" in the RACE DB.
+Skip stages without executing them. They are marked as bypassed in the RACE DB; a fully bypassed stage gets `work/<FLOW>/<node>/BYPASSED`.
 
 ```bash
-cbflow run bypass --node export_data1       # Skip export_data1
-cbflow run bypass --stages export_data1     # Alternate syntax
+cbflow run bypass --stages export_data1                       # Skip export_data1
+cbflow run bypass --stages cts1,cts_opt1,route1,pro1,signoff1 # Release place1 as PLACE_EXIT
 ```
 
 ### cbflow run force
 
-Force re-run a node regardless of its current status in the DB.
+Re-run only the named stages (downstream is not invalidated; dependencies must be DONE).
 
 ```bash
-cbflow run force --node place1              # Force re-run place1
-cbflow run force --stages place1            # Alternate syntax
+cbflow run force --stages place1            # Force re-run place1
+cbflow run force --stages cts1,cts_opt1     # Several stages
 ```
 
 ### cbflow run forcevalidate
@@ -121,10 +124,21 @@ cbflow run forcevalidate --to route1                    # From start to node
 
 ### cbflow run add-node
 
-Add a custom node to the RACE DAG at runtime.
+Add a custom node to the RACE DAG at runtime. The node type must be a stage type of the run's flow; added nodes inherit `runtime,timeout`. `--resource-tier XS|S|M|L|XL|ultra` overrides the LSF tier.
 
 ```bash
-cbflow run add-node --node eco1 --type eco --dep signoff1
+cbflow run add-node --node place2 --type place --dep place1
+cbflow run add-node --node export_data2 --type export_data --dep place1
+cbflow run add-node --node release_data2 --type release_data --dep export_data2
+```
+
+### cbflow run set-dep
+
+Rewire a node's dependencies (base or custom node); `--reset` restores the node config's dependencies. Also in the run GUI (right-click → Set Dependencies…).
+
+```bash
+cbflow run set-dep --node export_data1 --deps place1
+cbflow run set-dep --node export_data1 --reset
 ```
 
 ### cbflow run create-branch
@@ -132,7 +146,9 @@ cbflow run add-node --node eco1 --type eco --dep signoff1
 Create a branch in the DAG for experimental runs.
 
 ```bash
-cbflow run create-branch --name timing_experiment --from cts1
+cbflow run create-branch --branch timing_experiment --from cts1
+cbflow run list-branches
+cbflow run delete-branch --branch timing_experiment
 ```
 
 ### cbflow run delete-node
@@ -140,18 +156,10 @@ cbflow run create-branch --name timing_experiment --from cts1
 Remove a custom node from the DAG. Fails if other nodes depend on the target node (dependency protection).
 
 ```bash
-cbflow run delete-node --node eco1
+cbflow run delete-node --node place2
 ```
 
-### cbflow run rename-node
-
-Rename a node in the RACE DAG. All dependency references are updated automatically. Only custom nodes (added via `add-node` or `create-branch`) can be renamed; built-in nodes from node_config.tcl cannot be renamed.
-
-```bash
-cbflow run rename-node --node eco1 --new-name eco_timing_fix1
-```
-
-The rename is also available from the GUI: select a custom node, edit the name in the Node Info panel, and click **Rename**. See the [GUI User Guide](../02-user-guide/cbflow-gui-user-guide.md#4-node-selection-and-info-panel).
+There is no `rename-node` CLI command; renaming a custom node is done from the run GUI (Node Info panel → **Rename**). See the [GUI User Guide](../02-user-guide/cbflow-gui-user-guide.md#4-node-selection-and-info-panel).
 
 ---
 
@@ -162,7 +170,7 @@ The rename is also available from the GUI: select a custom node, edit the name i
 Create a writable dev version from an existing released version. The dev version uses the `-dev` suffix convention (e.g., `v1.0.0-dev`).
 
 ```bash
-cbflow flow dev start --dir cmds/SYNTH --from v1.0.0
+cbflow flow dev start --component cmds/SYNTH --from v1.0.0
 # Creates: cmds/SYNTH/synopsys/fc/v1.0.0-dev/ (writable copy)
 ```
 
@@ -179,31 +187,31 @@ cbflow flow dev status
 Show changes made in a dev version compared to its base version.
 
 ```bash
-cbflow flow dev diff --dir cmds/SYNTH
+cbflow flow dev diff --component cmds/SYNTH
 ```
 
 ### cbflow flow dev promote
 
-Promote a dev version to a new released version. The new version is locked (`chmod 444` + `.locked` marker) and the dev version is removed.
+Promote a dev version (removes the `-dev` suffix). The new version is locked (`chmod 444` + `.locked` marker).
 
 ```bash
-cbflow flow dev promote --dir cmds/SYNTH --version v1.0.1
+cbflow flow dev promote --component cmds/SYNTH
 ```
 
 ### cbflow flow dev sandbox-create
 
-Create an isolated sandbox for experimentation without affecting the dev version.
+Create a local development sandbox (`--base <release>`, `--dir <path>`).
 
 ```bash
-cbflow flow dev sandbox-create --name experiment1
+cbflow flow dev sandbox-create --dir ~/cbflow_sandbox
 ```
 
 ### cbflow flow dev sandbox-push
 
-Push sandbox changes back to the dev version.
+Push sandbox changes to the central install.
 
 ```bash
-cbflow flow dev sandbox-push --name experiment1
+cbflow flow dev sandbox-push --dir ~/cbflow_sandbox
 ```
 
 ---
@@ -218,7 +226,7 @@ Released versions are permanently read-only. CBflow applies `chmod 444` to all f
 # All files are chmod 444
 
 # To make changes, start a dev version:
-cbflow flow dev start --dir cmds/SYNTH --from v1.0.0
+cbflow flow dev start --component cmds/SYNTH --from v1.0.0
 ```
 
 ---
@@ -227,15 +235,18 @@ cbflow flow dev start --dir cmds/SYNTH --from v1.0.0
 
 ### cbflow run gui
 
-Launch the RACE web dashboard. The dashboard automatically selects an available port in the 8080-8180 range, eliminating "Address already in use" errors when multiple dashboards run on the same host.
+Register the run with the per-user run dashboard daemon (starting it if needed) and open the browser on the run. The daemon port is deterministic per user and discipline: `flow(dashboard,port_base,<DISC>) + uid % flow(dashboard,port_width)` (PD 9000, DFT 9300, DV 9600, RTL 9900; width 300).
 
 ```bash
-cbflow run gui                              # Launch dashboard
-cbflow run gui --port 9000                  # Launch on specific port
-cbflow flow dashboard start                 # Alternative command
+cbflow run gui                              # Register + open in the daemon
+cbflow run gui --no-browser                 # Register only
+cbflow run gui --public                     # Daemon bound to 0.0.0.0 (LAN)
+cbflow run gui --foreground --port 9090     # Legacy per-run server on a port
+cbflow run dashboard start --port 9100      # Daemon on an explicit port
+cbflow run dashboard status|stop|list|prune # Daemon lifecycle
 ```
 
-The assigned port is printed to the console on startup. Multiple dashboards can run simultaneously on the same host, each on a different auto-selected port.
+See [Production Dashboard Setup](dashboard-production-setup.md) for remote access.
 
 For the complete GUI reference (layout, DAG visualization, config editor, branch management, keyboard shortcuts, MMMC scenario editor), see the [GUI User Guide](../02-user-guide/cbflow-gui-user-guide.md).
 
@@ -245,10 +256,12 @@ For the complete GUI reference (layout, DAG visualization, config editor, branch
 
 ### cbflow run clean
 
-Delete work directories, logs, and the RACE SQLite database.
+Delete `work/` and `logs/` and deregister the run from the dashboard daemon. RACE databases are managed with `cbflow run db-manage`.
 
 ```bash
-cbflow run clean --confirm                  # Delete work + logs + RACE DB
+cbflow run clean --confirm                  # Delete work + logs
+cbflow run db-manage --list                 # List RACE DBs
+cbflow run db-manage --delete <run_name>    # Delete one run's DB (owner only)
 ```
 
 ---
@@ -257,11 +270,12 @@ cbflow run clean --confirm                  # Delete work + logs + RACE DB
 
 ### cbflow run interactive
 
-Open an interactive EDA tool session.
+Open an interactive EDA tool session (xterm) on a node's saved design, under `INTERACTIVE/<node>_<timestamp>`. Open-source runs go through `cbflow-oss interactive`.
 
 ```bash
-cbflow run interactive                      # Empty interactive session
-cbflow run interactive --load place1        # Load saved design from place1
+cbflow run interactive --node place1                            # Load place1
+cbflow run interactive --node timing1_func_ss_0p80v_rcmax_125c  # STA: exact scenario
+cbflow run interactive --node place1 --notiming                 # No timing libs
 ```
 
 ---
@@ -276,6 +290,8 @@ View execution logs.
 cbflow run logs --list                      # List all log files
 cbflow run logs --tail 50                   # Last 50 lines
 cbflow run logs --tail 100 --level ERROR    # Filter by level
+cbflow run logs --search 'slack'            # Regex search
+cbflow run logs --file place1.log           # One file
 ```
 
 ---
@@ -290,10 +306,10 @@ Example workflow:
 cbflow run all
 
 # Terminal 2: Skip a slow node while engine is running
-cbflow run bypass --node export_data1
+cbflow run bypass --stages export_data1
 
 # Terminal 2: Force re-run a node
-cbflow run force --node place1
+cbflow run force --stages place1
 
 # Terminal 2: Retrace from a stage
 cbflow run retrace --from cts1
@@ -303,64 +319,38 @@ cbflow run retrace --from cts1
 
 ## RACE SQLite Database
 
-Each run has a dedicated SQLite database (`.race_<uid>.db`) that stores:
+Each run has a dedicated SQLite database (`.race_<run_dir_name>_<user>_<hash>.db` in the `project(race,db_path)` area; the run dir holds a `.race_db_pointer`) that stores:
 - Node and subnode status (pending, running, complete, failed, bypassed)
 - Execution timestamps
 - Input file checksums for change detection
 - Execution history
 
-The DB path follows the convention:
-```
-$project(race,db_path)/$project/$domain/$flow/$user_$run_$uid.db
-```
-
-Query the DB directly for debugging:
+Query the DB directly for debugging (path from `.race_db_pointer`):
 ```bash
-sqlite3 .race_*.db "SELECT * FROM run_info"
-sqlite3 .race_*.db "SELECT node, status FROM node_status"
+sqlite3 "$(cat .race_db_pointer)" "SELECT * FROM run_info"
+sqlite3 "$(cat .race_db_pointer)" "SELECT job_name, status FROM jobs"
 ```
 
 ---
 
 ## Tool Configuration Reference
 
-Tool config files define EDA tool-specific parameters using a two-level scoping convention. Each tool has its own config file.
+There are no tool-specific arrays (`fc()`, `pt()`, `genus()`, …). Each flow
+uses ONE array (`synth()`, `pnr()`, `sta()`, `fp()`, `lec()`, `pv()`, `eco()`,
+…). Tool settings live in the tool overlay
+`<disc>/config/flow/v1.0.0/node_configs/<FLOW>_<tool>_config.tcl`, selected by
+`<flow>(tool,name)` (e.g. `PNR_fc_config.tcl`, `PNR_openroad_config.tcl`);
+open-source tool keys use `<flow>(oss,…)`.
 
-### Tool Config Files
-
-| Tool | Config File | Flows |
-|------|-------------|-------|
-| Fusion Compiler | `fc_config.tcl` | SYNTH, FP, PNR, FCFP, SYNTH_PNR, ECO |
-| PrimeTime | `pt_config.tcl` | STA, POPT |
-| Formality | `fm_config.tcl` | LEC |
-| IC Validator | `icv_config.tcl` | PV |
-| VC_LP | `vc_lp_config.tcl` | CLP |
-| RedHawk | `redhawk_config.tcl` | EMIR |
-
-### Scoping Convention
+Overrides follow the cascade: `user_config.tcl`, then
+`setup/override_config.tcl` → `.<stage>` → `.<branch>` → `.<node_type>` →
+`.<node>` (last writer wins):
 
 ```tcl
-# Common -- shared across all nodes in the flow
-set fc(common,enable_spg)            true
-set fc(common,max_routing_layer)     M8
-
-# Node-specific -- overrides common for this node only
-set fc(route1,detail_route_effort)   high
-set fc(cts1,max_skew)                50
-```
-
-Resolution order: `fc(<node>,<param>)` > `fc(common,<param>)` > tool default.
-
-### Overriding Tool Config
-
-Tool config values can be overridden at any level of the config hierarchy. In practice, overrides are typically placed in `user_config.tcl` or `override_config.tcl`:
-
-```tcl
-# In user_config.tcl -- override route effort for this run
-set fc(route1,detail_route_effort)   medium
-
-# In override_config.tcl -- GUI Config Editor writes here
-set fc(place1,congestion_effort)     high
+# user_config.tcl — this run
+set pnr(tool,name) "openroad"
+# setup/override_config.place1.tcl — one node (the GUI Config Editor writes here)
+set pnr(oss,place,density) 0.6
 ```
 
 See the [System Design](../04-architecture/system-design.md#tool-configuration-architecture) for full architecture details.

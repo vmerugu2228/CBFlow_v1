@@ -140,16 +140,16 @@ def cmd_status(args: argparse.Namespace) -> int:
 def create_parser() -> argparse.ArgumentParser:
     """Create the argument parser."""
     parser = argparse.ArgumentParser(
-        prog='cbflow config',
+        prog='cbflow flow config',
         description='CBFlow - Configuration Management',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  cbflow config manage-flow
-  cbflow config manage-node
-  cbflow config manage-tech
-  cbflow config validate
-  cbflow config status
+  cbflow flow config manage-flow
+  cbflow flow config manage-node
+  cbflow flow config manage-tech
+  cbflow flow config validate
+  cbflow flow config status
         """
     )
 

@@ -140,7 +140,7 @@ def _resolve_projects(args):
 
     `--projects X,Y` filters to a comma-separated set (case-sensitive,
     matched against `project(name)` in each fixture). `--projects ALL`
-    iterates every project found under PD/config/project/. Default is
+    iterates every project found under the global/ and PD/ project roots. Default is
     DEFAULT_PROJECTS so every release covers both tool stacks."""
     raw = getattr(args, 'projects', None)
     if not raw:
@@ -304,9 +304,10 @@ def main(argv=None):
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Examples:
-  cbflow test                          # static + e2e, all 12 flows
+  cbflow test                          # static + e2e, the 12 default PD flows
   cbflow test --static                 # static config-validation only
-  cbflow test --e2e                    # e2e only, all flows
+  cbflow test --e2e                    # e2e only, default flows
+  cbflow test --cli-smoke              # every cbflow leaf command with --help
   cbflow test --flow SYNTH_PNR         # one flow
   cbflow test --flows SYNTH,PNR,STA    # subset
   cbflow test --category 3             # one static category
@@ -363,7 +364,8 @@ Examples:
         help='Comma-separated projects for e2e iteration. '
              'Default: bumblebee,denali (covers both Synopsys + Cadence tool '
              'stacks). Use --projects ALL to iterate every project under '
-             'PD/config/project/. Use --projects bumblebee to test only one.')
+             'global/config/project/ and PD/config/project/. Use --projects '
+             'bumblebee to test only one.')
 
     parser.add_argument('--timeout', type=int, default=DEFAULT_TIMEOUT,
                         help=f'Per-flow timeout in seconds (default {DEFAULT_TIMEOUT})')

@@ -7,7 +7,7 @@ Complete setup guide for CBflow v2.0.0.
 | Requirement | Version | Notes |
 |-------------|---------|-------|
 | Python | 3.6+ | Stdlib only -- no pip install needed |
-| Bash or Zsh | 4.0+ | CLI dispatcher and completions |
+| Bash or Zsh | 4.0+ | CLI dispatcher |
 | Tcl/Tclsh | 8.5+ | Config files and flow_proc engine |
 
 Note: GNU Make is NOT required. CBflow v2.0.0 uses the RACE (Run Automation & Control Engine) for all flow execution and status tracking.
@@ -15,33 +15,29 @@ Note: GNU Make is NOT required. CBflow v2.0.0 uses the RACE (Run Automation & Co
 ## Installation
 
 ```bash
-# 1. Copy CBflow to target location
-tar xzf cbflow-v2.0.0.tar.gz -C /opt/cbflow
+# 1. Copy the whole umbrella install (bin/ global/ PD/ DFT/ DV/ RTL/) — PD/ alone does not run
+tar xzf CBflow_v2.0.0_<date>.tar.gz -C /opt      # bundle made with `cbflow bundle`
 # OR
-rsync -avz CBflow_clone/PD/ server:/opt/cbflow/
+rsync -avz CBflow_clone/ server:/opt/cbflow/
 
-# 2. Set environment
-export CBFLOW_HOME=/opt/cbflow
-export PATH=$CBFLOW_HOME/bin:$PATH
+# 2. Set environment — CBFLOW_ROOT is the only user-facing variable
+export CBFLOW_ROOT=/opt/cbflow
+export PATH=$CBFLOW_ROOT/bin:$PATH
 
-# 3. Enable tab completion
-# Bash:
-source $CBFLOW_HOME/completions/cbflow.bash
-# Zsh:
-fpath=($CBFLOW_HOME/completions $fpath)
-autoload -Uz compinit && compinit
-
-# 4. Add to ~/.bashrc or ~/.zshrc for persistence
-echo 'export CBFLOW_HOME=/opt/cbflow' >> ~/.bashrc
-echo 'export PATH=$CBFLOW_HOME/bin:$PATH' >> ~/.bashrc
-echo 'source $CBFLOW_HOME/completions/cbflow.bash' >> ~/.bashrc
+# 3. Add to ~/.bashrc or ~/.zshrc for persistence
+echo 'export CBFLOW_ROOT=/opt/cbflow' >> ~/.bashrc
+echo 'export PATH=$CBFLOW_ROOT/bin:$PATH' >> ~/.bashrc
 ```
+
+`CBFLOW_GLOBAL_DIR`, `CBFLOW_CORE_DIR` (`$CBFLOW_ROOT/PD`), `CBFLOW_DFT_DIR`, `CBFLOW_DV_DIR` and
+`CBFLOW_RTL_DIR` are derived by the launcher — do not export them.
 
 ## Verify Installation
 
 ```bash
-cbflow --version                    # Should show v2.0.0
-bin/cbflow-test-suite               # 994 tests, ALL PASS
+cbflow --version                    # v2.0.0 + the resolved root / global / discipline dirs
+cbflow flow types                   # flow types grouped by discipline (PD / DFT / DV / RTL)
+cbflow test --static                # static config checks
 bin/cbflow-healthcheck              # System health check
 bin/cbflow-verify                   # Production verification
 ```
@@ -50,13 +46,12 @@ bin/cbflow-verify                   # Production verification
 
 CBflow v2.0.0 uses RACE (Run Automation & Control Engine) as the sole dispatcher. Key points:
 
-- **No Makefile**: RACE builds the execution DAG directly from `node_config.tcl` at runtime.
-- **SQLite DB status**: Each run tracks node status in `.race_<uid>.db` instead of stamp files.
-- **DB path**: `$project(race,db_path)/$project/$domain/$flow/$user_$run_$uid.db`
-- **File change detection**: Edit an input file and RACE auto-retraces downstream nodes.
-- **Parallel execution**: Independent subnodes (e.g., PV drc/lvs/erc/perc/xor) run in parallel.
-- **Dynamic subnodes**: STA per-corner subnodes generated from user_config at runtime.
-- **Configuration**: `set flow(dispatcher) "race"` in flow_config.tcl
+- **No Makefile**: RACE builds the execution DAG from `<FLOW>_config.tcl` (+ the `<FLOW>_<tool>_config.tcl` overlay) at runtime.
+- **SQLite DB status**: each run tracks node status in `.race_<run_dir_name>_<user>_<hash>.db`, created at `workspace create`.
+- **DB location**: the race area `project(race,db_path)`; the run directory holds a `.race_db_pointer`.
+- **Parallel execution**: independent nodes / subnodes run in parallel, capped by `flow(max_parallel_jobs)` (0 = unlimited).
+- **Dynamic subnodes**: STA per MMMC scenario, generated at runtime.
+- **Verify the DAG** of a run without executing: `cbflow run gen-makefile`.
 
 ## EDA Tool Setup
 
@@ -69,45 +64,62 @@ module load cadenceInnovus/23.1
 # etc.
 ```
 
-Tool-to-module mappings are in `config/flow/v1.0.0/tool_launch_config.tcl`.
+Tool-to-module mappings are in `PD/config/flow/v1.0.0/tool_launch_config.tcl`. Open-source tools (sky130) run in a
+docker container through `global/bin/cbflow-oss` instead — see the [open-source flow guide](../02-user-guide/opensource-flow-guide.md).
 
 ## Project Setup
 
-Create or edit your project config:
+A project has a global identity file plus per-discipline overlays (scaffold one with
+`cbflow flow project create --name my_chip`):
 
 ```tcl
-# config/project/<name>/v1.0.0/<name>_config.tcl
-set project(name)               "my_project"
-set project(cbflow_release)     "v1.0.0"        ;# MANDATORY
-set project(release,path)       "/proj/releases" ;# Where releases go
-set project(release,phase)      "P0"             ;# P0/P1/P2/P3
-set project(release,block_name) "top_chip"       ;# Block name
-set project(release,tag)        "v1.0.0"         ;# Release tag
+# global/config/project/my_chip/v1.0.0/my_chip_config.tcl — identity, hierarchy, phases, exit plan
+set project(name)           "my_chip"
+set project(technology)     "gf_22nm"
+set project(phases)         {P0 P1 P2 P3}
+set project(current_phase)  "P0"
+set project(phase_exits)    { P0 {FP_EXIT PRO_EXIT} P1 {FP_EXIT PRO_EXIT} P2 {FP_EXIT PLACE_EXIT CTS_EXIT PRO_EXIT BTO MTO} P3 {FP_EXIT PLACE_EXIT CTS_EXIT PRO_EXIT BTO MTO} }
+```
+
+```tcl
+# PD/config/project/my_chip/v1.0.0/my_chip_pd_config.tcl — PD overlay
+set project(workarea_path)  "/proj/my_chip/workarea"   ;# runs are created under <workarea>/<block>/
+set project(release,path)   "/proj/my_chip/releases"   ;# <path>/<phase>/<block>/<FLOW>/<tag>
+set project(lib_tag_root)   "/proj/eda/lib_tags"       ;# library tags: <root>/<tech>/<TAG>/lib_config.tcl
+set project(lib_config_tag) "P0"
+set project(race,db_path)   "/proj/my_chip/.race_area"
 ```
 
 ## Technology Setup
 
-CBflow ships with 3 tech configs (no hardcoded paths):
+Tech configs live in `global/config/tech/<tech>/v1.0.0/tech_config.tcl` (one file per technology; the former
+PD tech overlay is merged in):
 
-| Config | Technology | Tracks |
-|--------|-----------|--------|
-| `gf_22nm` | GlobalFoundries 22FDX | 9T, 7.5T, 8T |
-| `tsmc_7nm` | TSMC N7 | 7T, 7.5T, 6T |
-| `tsmc_5nm` | TSMC N5 | 5T, 6T, 7T |
+| Config | Technology |
+|--------|-----------|
+| `gf_22nm` | GlobalFoundries 22FDX (project bumblebee) |
+| `gf_28nm` | GlobalFoundries 28nm |
+| `tsmc_7nm` | TSMC N7 |
+| `tsmc_5nm` | TSMC N5 |
+| `skywater_130nm` | SkyWater sky130 open PDK (project opensky, open-source tools) |
 
-Edit paths in `config/tech/<tech>/v1.0.0/tech_config.tcl` to point to your foundry libraries.
+Library views are not edited in the tech file: generate a library tag with
+`cbflow flow library-manager generate --tech <tech> --lib-root <dir> --tag <TAG>` and select it with
+`project(lib_config_tag)`. See the [library manager guide](../02-user-guide/library-manager-user-guide.md).
 
 ## LSF Setup (Optional)
 
-If using LSF for batch job submission:
+Enable LSF per run in `user_config.tcl` (`workspace create` fails if `bsub` is not on `PATH`):
 
 ```tcl
-# config/flow/v1.0.0/tool_launch_config.tcl
-set lsf(bsub,queue)     "normal_rhel8"
-set lsf(bsub,project)   "ASIC_TEAM"
+set flow(use_lsf)   "true"
+set flow(use_xterm) "false"
 ```
 
-Queue tiers: S (8GB), M (16GB), L (32GB), XL (64GB), ultra (128GB).
+Queue tiers (XS / S / M / L / XL / ultra) are defined in `PD/config/flow/v1.0.0/lsf_config.tcl`; project policy
+(`project(lsf,default_queue)`, `project(lsf,max_concurrent_jobs)`, …) lives in the PD overlay
+`<proj>_pd_config.tcl`. Override the bsub binary with `CBFLOW_BSUB_CMD`, the queue per run with
+`cbflow run all --lsf --queue XL`, or per node with `cbflow run add-node … --resource-tier L`.
 
 ---
 

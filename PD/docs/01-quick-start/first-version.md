@@ -29,7 +29,7 @@ vi config/flow/v1.0.1/flow_config.tcl
 vi config/flow/v1.0.1/node_configs/SYNTH_PNR_config.tcl
 ```
 
-Note: In v2.0.0, the RACE engine reads `node_config.tcl` directly at runtime to build the DAG. There is no Makefile to regenerate after editing configs. Simply edit the node_config and RACE will pick up the changes on the next run.
+Note: In v2.0.0, the RACE engine reads the node configs (`<FLOW>_config.tcl` + `<FLOW>_<tool>_config.tcl`) directly at runtime to build the DAG. There is no Makefile to regenerate after editing configs. Simply edit the node_config and RACE will pick up the changes on the next run.
 
 ## Step 3: Set as Current
 
@@ -56,21 +56,26 @@ cbflow flow version diff --dir config/flow --v1 v1.0.0 --v2 v1.0.1
 After editing node configs, you can verify the RACE DAG is valid:
 
 ```bash
-cbflow run verify-dag
+cbflow run gen-makefile      # from inside a run directory
 ```
 
-This parses node_config.tcl and validates the dependency graph without executing anything.
+This builds the run's dependency graph from the node configs and validates it without executing anything
+(the subcommand name is historical — no Makefile is written).
 
 ## What Can Be Versioned
 
+Paths are relative to a discipline root (`PD/`, `DFT/`, `DV/`, `RTL/`) or to `global/`:
+
 | Directory | Contains |
 |-----------|----------|
-| `config/flow/` | Flow configs, node configs, MMMC, release config |
-| `config/tech/<tech>/` | Technology configs, CTS NDR, cell lists |
-| `config/project/<proj>/` | Project configs, team configs |
-| `config/exit/` | Exit milestone configs |
-| `cmds/<flow>/<vendor>/<tool>/` | Command files per flow/tool |
-| `utils/utilities/` | TCL utilities |
+| `<disc>/config/flow/` | Discipline flow config, node configs, release / LSF / dir configs (PD) |
+| `<disc>/config/project/<proj>/` | Discipline project overlay (`<proj>_pd_config.tcl`, …) |
+| `global/config/flow/` | `flow_registry.tcl` (flow catalog, runtime + dashboard defaults) |
+| `global/config/tech/<tech>/` | `tech_config.tcl`, metal stacks |
+| `global/config/project/<proj>/` | Project identity, MMMC, schedule, team configs |
+| `global/config/exit/` | Exit milestone + STA_SIGNOFF checklist configs, waiver config |
+| `<disc>/cmds/<FLOW>/<vendor>/<tool>/` | Command files per flow/tool |
+| `global/utils/utilities/` | Shared TCL utilities |
 
 ## Versioning Commands
 

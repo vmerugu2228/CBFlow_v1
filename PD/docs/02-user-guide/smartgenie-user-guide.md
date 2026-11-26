@@ -23,7 +23,7 @@ brew install ollama       # macOS
 
 # Start Ollama and pull model
 ollama serve &
-ollama pull qwen2.5:7b
+ollama pull qwen2.5:14b
 
 # Build knowledge base (one time)
 cbflow smartgenie ingest --all
@@ -41,7 +41,7 @@ cbflow smartgenie "run SYNTH_PNR test"      # One-shot
 ```bash
 # On the server (one machine with GPU or Apple Silicon):
 ollama serve &
-ollama pull qwen2.5:7b
+ollama pull qwen2.5:14b
 cbflow smartgenie serve --port 8091
 
 # On every user's machine:
@@ -60,7 +60,11 @@ cbflow smartgenie "your prompt"
 | `cbflow smartgenie` | Interactive AI agent (local LLM) |
 | `cbflow smartgenie "prompt"` | One-shot command |
 | `cbflow smartgenie setup` | Check Ollama + model + knowledge base |
-| `cbflow smartgenie cloud "prompt"` | Use Claude API (needs ANTHROPIC_API_KEY) |
+| `cbflow smartgenie --hybrid` | Claude API for reasoning + local learning (`SMARTGENIE_HYBRID=1`) |
+| `cbflow smartgenie cloud "prompt"` | Claude agent with the CBflow tools (credentials: `ANTHROPIC_API_KEY` or a one-time SDK login) |
+| `cbflow smartgenie code` | Claude Code started at the CBflow root with the SmartGenie MCP server + `CLAUDE.md` (interactive) |
+| `cbflow smartgenie code "question"` | One-shot answer (`claude -p`) with the read-only SmartGenie tools pre-allowed |
+| `cbflow smartgenie usage` | User stats + maturity levels |
 
 ### Knowledge Commands
 
@@ -71,6 +75,7 @@ cbflow smartgenie "your prompt"
 | `cbflow smartgenie search "query"` | Search knowledge base |
 | `cbflow smartgenie stats` | Show knowledge base sizes |
 | `cbflow smartgenie learn --category fix --content "..."` | Record experience |
+| `cbflow smartgenie reingest` | Re-ingest everything and rebuild the central server DB |
 
 ### Server Commands (Enterprise)
 
@@ -103,7 +108,7 @@ You → cbflow smartgenie → Ollama (local) → Tool calls → cbflow CLI
 │                ON-PREMISE SERVER                      │
 │                                                      │
 │  Ollama (LLM)  ←→  SmartGenie Server  ←→  Central   │
-│  qwen2.5:7b         port 8091             ChromaDB   │
+│  qwen2.5:14b        port 8091             ChromaDB   │
 │                                                      │
 │  Shared Collections:                                 │
 │    shared_docs         CBflow documentation          │
@@ -274,11 +279,11 @@ Edit `PD/ai/cbflow_knowledge.py` → `DEFAULT_URLS` list to add more documentati
 
 | Model | Size | Best For | Command |
 |-------|------|----------|---------|
-| **qwen2.5:7b** | 4.4GB | Tool calling + code (recommended) | `ollama pull qwen2.5:7b` |
+| qwen2.5:7b | 4.4GB | Tool calling + code (smaller machines) | `ollama pull qwen2.5:7b` |
 | llama3.1:8b | 4.7GB | General reasoning | `ollama pull llama3.1:8b` |
 | deepseek-coder:6.7b | 3.8GB | Code-specialized | `ollama pull deepseek-coder:6.7b` |
 | mistral:7b | 4.1GB | Fast, simple tasks | `ollama pull mistral:7b` |
-| qwen2.5:14b | 8.9GB | Best quality (needs 32GB RAM) | `ollama pull qwen2.5:14b` |
+| **qwen2.5:14b** | 8.9GB | Default (`CBFLOW_MODEL` unset); best quality, needs 32GB RAM | `ollama pull qwen2.5:14b` |
 
 Switch model:
 ```bash
@@ -298,12 +303,23 @@ cbflow smartgenie "your prompt"
 
 ### Cloud Fallback (Optional)
 
-For complex reasoning tasks, use Claude API with zero-data-retention:
+For complex reasoning tasks, use the Claude API:
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
+export ANTHROPIC_API_KEY=sk-ant-...            # or log in once through the SDK
 cbflow smartgenie cloud "complex analysis prompt"
+cbflow smartgenie --hybrid                     # Claude reasoning, local knowledge base + learning
+cbflow smartgenie code "why did place1 fail in P2_run_PNR_gcd_b1?"
 ```
-This sends data to Anthropic's API. Use only when local model is insufficient.
+
+| Variable | Meaning | Default |
+|---|---|---|
+| `CLAUDE_MODEL` | Claude model for hybrid / cloud | `claude-opus-5-5` |
+| `SMARTGENIE_EFFORT` | Cloud agent effort: low / medium / high / xhigh / max | `high` |
+| `SMARTGENIE_HYBRID` | `1` = hybrid mode | unset |
+| `CBFLOW_MODEL` | Local Ollama model | `qwen2.5:14b` |
+
+These modes send prompts and tool results to Anthropic's API — the local-only privacy statements above do not
+apply to them. Use them only when the local model is insufficient.
 
 ---
 
@@ -368,7 +384,7 @@ ollama serve &          # Start in background
 
 ### Model not downloaded
 ```
-ollama pull qwen2.5:7b  # Downloads 4.4GB, one time
+ollama pull qwen2.5:14b  # Downloads 8.9GB, one time
 ```
 
 ### Knowledge base empty

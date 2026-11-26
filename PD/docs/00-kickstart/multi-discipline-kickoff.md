@@ -1,8 +1,8 @@
 # Kickoff — Multi-Discipline CBflow
 
-CBflow v2.0.0 (`cbflow_global` branch) supports three disciplines side by
-side: **PD** (Physical Design), **DFT** (Design-For-Test), and **DV** (RTL
-Design Verification). This document is the fastest path from a fresh
+CBflow v2.0.0 (`cbflow_global` branch) supports four disciplines side by
+side: **PD** (Physical Design), **DFT** (Design-For-Test), **DV** (RTL
+Design Verification) and **RTL** (design-side quality: spec, lint, CDC, RDC, UPF). This document is the fastest path from a fresh
 checkout to running your first flow.
 
 ---
@@ -15,7 +15,8 @@ CBflow_clone/                             $CBFLOW_ROOT
 ├── global/                               Cross-discipline configs + launcher
 ├── PD/                                   Physical Design
 ├── DFT/                                  Design-For-Test
-└── DV/                                   RTL Design Verification
+├── DV/                                   RTL Design Verification
+└── RTL/                                  RTL design quality (RTL_SPEC, RTL_LINT, RTL_CDC, RTL_RDC, UPF_CHECK)
 ```
 
 Every discipline has the same shape: `bin/`, `config/`, `cmds/`, `utils/`.
@@ -41,6 +42,7 @@ Auto-derived from `CBFLOW_ROOT`:
 | `CBFLOW_GLOBAL_DIR` | `$CBFLOW_ROOT/global` | Cross-domain config layer |
 | `CBFLOW_DFT_DIR` | `$CBFLOW_ROOT/DFT` | Only exported if directory exists |
 | `CBFLOW_DV_DIR` | `$CBFLOW_ROOT/DV` | Only exported if directory exists |
+| `CBFLOW_RTL_DIR` | `$CBFLOW_ROOT/RTL` | Only exported if directory exists |
 
 **Note:** `CBFLOW_ROOT` is the umbrella anchor, NOT `CBFLOW_GLOBAL_DIR`.
 `global/` sits *inside* the root, alongside every discipline directory.
@@ -72,6 +74,7 @@ There are four launcher entry points, each for a specific scope:
 | `PD/bin/cbflow-pd` | `flow library-manager`, `flow mmmc-manager`, `flow checklist` | `bin/cbflow` |
 | `DFT/bin/cbflow-dft` | (empty — extension point) | `bin/cbflow` |
 | `DV/bin/cbflow-dv` | (empty — extension point) | `bin/cbflow` |
+| `RTL/bin/cbflow-rtl` | (empty — extension point) | `bin/cbflow` |
 
 **Auto-dispatch:** typing `cbflow flow library-manager …` from anywhere
 transparently forwards to `PD/bin/cbflow-pd`. The subcommand → discipline
@@ -81,10 +84,10 @@ Both forms produce the same result:
 
 ```bash
 # Auto-dispatched (recommended — one command surface)
-bin/cbflow flow library-manager status --tech gf_22nm
+bin/cbflow flow library-manager status --tech skywater_130nm --lib_tag OSS2
 
 # Directly invoked
-PD/bin/cbflow-pd flow library-manager status --tech gf_22nm
+PD/bin/cbflow-pd flow library-manager status --tech skywater_130nm --lib_tag OSS2
 ```
 
 ## 4. Kicking off a run — the standard flow
@@ -92,11 +95,11 @@ PD/bin/cbflow-pd flow library-manager status --tech gf_22nm
 Same shape as before the refactor, only the launcher changed:
 
 ```bash
-# 1. Go to the workarea for your design
-cd /path/to/workarea/<design_name>/
+# 1. Go to the workarea for your design (project(workarea_path)/<block>)
+cd $CBFLOW_ROOT/workarea/gcd/
 
 # 2. Generate a template user_config for the flow you want
-bin/cbflow workspace template --flow SYNTH_PNR > user_config.tcl
+bin/cbflow workspace template --flow SYNTH > user_config.tcl
 
 # 3. Edit the template (RTL / SDC / UPF paths, tool selection, phase)
 vi user_config.tcl
@@ -105,8 +108,8 @@ vi user_config.tcl
 #    RACE DB, drops .race_db_pointer, generates .run.cbflow.tcl
 bin/cbflow workspace create --config user_config.tcl
 
-# 5. cd into the run directory and execute
-cd LC1_run_SYNTH_PNR_run1
+# 5. cd into the run directory (<phase>_run_<FLOW>_<block>_<run>) and execute
+cd P1_run_SYNTH_gcd_run1
 bin/cbflow run all
 
 # 6. Check status
@@ -119,17 +122,20 @@ bin/cbflow run gui                # opens web dashboard
 Every run resolves configs in this fixed order. If you're reading a
 `config.tcl` at `work/<FLOW>/<node>/run/`, this is what it sourced:
 
-1. `global/config/project/<proj>/v1.0.0/project_config.tcl` — identity + hierarchy
-2. `PD/config/project/<proj>/v1.0.0/project_pd_config.tcl` — PD overlay (workarea, release, LSF, lib_root)
-3. `global/config/tech/<tech>/v1.0.0/tech_config.tcl` — foundry data (identity + VT + rules + SPICE + RCX)
-4. `PD/config/tech/<tech>/v1.0.0/tech_pd_config.tcl` — PD overlay (metal stacks, physical cells, body bias)
-5. `global/config/flow/v1.0.0/flow_registry.tcl` — flow catalog + discipline map + cross-domain runtime defaults
-6. `<discipline>/config/flow/v1.0.0/flow_config.tcl` — routed by `flow(discipline,$flow_type)`
-7. `<discipline>/config/flow/v1.0.0/node_configs/<FLOW>_config.tcl`
-8. `global/config/project/<proj>/v1.0.0/mmmc_config.tcl` — MMMC PVT building blocks
-9. `<run>/setup/user_config.tcl` — user overrides (last writer wins)
+1. `global/config/project/<proj>/v1.0.0/<proj>_config.tcl` — identity + hierarchy + `project(phases)` / `project(phase_exits)`
+2. `<disc>/config/project/<proj>/v1.0.0/<proj>_<disc>_config.tcl` — discipline overlays, own discipline last
+   (PD: `<proj>_pd_config.tcl` — workarea, release, LSF, `lib_root`, `lib_tag_root`, `lib_config_tag`)
+3. `global/config/tech/<tech>/v1.0.0/tech_config.tcl` — one tech file (foundry data, metal stacks, physical cells);
+   it sources the library tag's `lib_config.tcl` / `blocks_config.tcl` from `<lib_tag_root>/<tech>/<TAG>/`
+4. `global/config/flow/v1.0.0/flow_registry.tcl` — flow catalog + discipline map + cross-domain runtime defaults
+5. `<discipline>/config/flow/v1.0.0/flow_config.tcl` — routed by `flow(discipline,$flow_type)`
+6. `<discipline>/config/flow/v1.0.0/node_configs/<FLOW>_config.tcl` (+ `<FLOW>_<tool>_config.tcl` from `<flow>(tool,name)`)
+7. `global/config/project/<proj>/v1.0.0/mmmc_config.tcl` — MMMC PVT building blocks
+8. `<run>/setup/user_config.tcl` — user overrides
+9. `<run>/setup/override_config.tcl` → `.<stage>` → `.<branch>` → `.<node_type>` → `.<node>` (last writer wins)
 
-Project is sourced first because tech references `$project(lib_root)`.
+Project is sourced first because tech references `$project(lib_root)`. (The former
+`PD/config/tech/<tech>/…/tech_pd_config.tcl` overlay is merged into the single tech file.)
 
 ## 6. RACE DB — created at workspace-create time
 
@@ -168,7 +174,7 @@ subcommands like `cbflow workspace` and `cbflow run` remain unaffected.
 ## 8. Launch mode — controlling how EDA tools run
 
 Every stage's `run` subnode picks one of three launch paths, controlled by
-two booleans in `user_config.tcl`:
+three booleans in `user_config.tcl`:
 
 ```tcl
 set flow(test_mode) "false"    # real EDA tools invoked
@@ -260,8 +266,8 @@ USE_LSF=$(grep 'flow(use_lsf)' $RUN_DIR/setup/user_config.tcl | grep -oE 'true|f
 ## 9. Test suite — verify your install
 
 ```bash
-bin/cbflow test --static           # ~1s, 1338 checks across 16 categories
-bin/cbflow test --e2e              # ~10 min, 419 checks across every flow×project fixture
+bin/cbflow test --static           # static config checks
+bin/cbflow test --e2e              # every flow × project fixture in test_mode
 bin/cbflow test --e2e --flow STA   # single flow
 ```
 
@@ -276,7 +282,5 @@ placeholder outputs.
 - **PD/docs/02-user-guide/** — deeper user documentation
 - **PD/docs/03-reference/** — reference material
 - **PD/docs/04-architecture/** — engine / DAG / dashboard design docs
-
-For the config-cascade reasoning + config-split rationale, see the
-project memory at
-`~/.claude/projects/-Users-vmerugu-projects-CBflow-clone/memory/`.
+- **PD/docs/02-user-guide/exit-release-guide.md** — per-discipline exit plans and releases
+- **PD/docs/02-user-guide/opensource-flow-guide.md** — the open-source sky130 flow (project `opensky`)

@@ -11,6 +11,7 @@
 #   cbflow-oss interactive <tool> [script]    interactive shell (openroad, sta,
 #                                             yosys, oss_tclsh) sourcing script
 #                                             first; CBFLOW_OSS_GUI=1: OpenROAD GUI
+#   cbflow-oss --help                         this text
 #
 # <tool>: yosys | openroad | sta | magic | netgen | klayout | tclsh |
 #         fault | iverilog (DFT) | verilator | rtlcheck | vplan (RTL / DV): a Tcl
@@ -46,7 +47,12 @@ PDK_ROOT_HOST="${CBFLOW_OSS_PDK_ROOT:-$HOME/eda/pdks}"
 
 die() { echo "cbflow-oss: ERROR: $*" >&2; exit 2; }
 
-[ $# -ge 1 ] || die "usage: cbflow-oss <tool> <cmd_file> <log_file> | exec -- <argv...> | check"
+case "${1:-}" in
+    -h|--help|help)
+        sed -n '/^# Usage:/,/^# =====/p' "$0" | sed -e '$d' -e 's/^# \{0,1\}//'
+        exit 0 ;;
+esac
+[ $# -ge 1 ] || die "usage: cbflow-oss <tool> <cmd_file> <log_file> | exec -- <argv...> | check | gui <openroad|klayout> <file> | interactive <tool> [script]  (--help)"
 command -v "$ENGINE" >/dev/null 2>&1 || die "'$ENGINE' not found — install Docker Desktop (or set CBFLOW_OSS_ENGINE)"
 
 # Resolve CBFLOW_ROOT from this script's location (global/bin/ → root).

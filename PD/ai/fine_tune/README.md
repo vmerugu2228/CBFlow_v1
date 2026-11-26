@@ -3,7 +3,7 @@
 ## Overview
 
 Fine-tune a local LLM on CBflow-specific data so it natively understands:
-- All 12 CBflow flows and their stages
+- All 33 CBflow flows (PD, DFT, DV, RTL) and their stages
 - Exact cbflow CLI command syntax
 - EDA tool commands (FC, PT, Innovus, Calibre, Tessent...)
 - VLSI/PD methodology and best practices
@@ -12,15 +12,19 @@ Fine-tune a local LLM on CBflow-specific data so it natively understands:
 ## Architecture
 
 ```
-Training Data (JSONL)  →  Base Model (qwen2.5:7b)  →  Fine-Tuned Model
-   ├── cbflow_commands.jsonl      LoRA/QLoRA adapter       cbflow-genie:7b
-   ├── eda_knowledge.jsonl        (trains only 1-5%         ↓
-   ├── tool_commands.jsonl         of parameters)       ollama create
-   └── conversations.jsonl                                   ↓
-                                                        cbflow smartgenie
+data/cbflow_training.jsonl  →  Base Model (qwen2.5)  →  LoRA / QLoRA adapter  →  ollama create cbflow-genie
+(generate_training_data.py)                              (1-5% of parameters)     →  CBFLOW_MODEL=cbflow-genie cbflow smartgenie
 ```
 
-## Step 1: Prepare Training Data (done — see data/ folder)
+## Step 1: Prepare Training Data
+
+```bash
+python3 generate_training_data.py      # writes data/cbflow_training.jsonl
+```
+
+`data/cbflow_training.jsonl` is the single generated file (instruction / output
+pairs with a category: commands, knowledge, tool_use, …). Re-run the generator
+after CLI or flow changes.
 
 Training data format: JSONL with instruction/input/output or conversation format.
 
@@ -30,6 +34,10 @@ Training data format: JSONL with instruction/input/output or conversation format
 ```
 
 ## Step 2: Fine-Tune (needs GPU)
+
+No training script ships in this directory: the `fine_tune.py` /
+`fine_tune_mlx.py` commands below are placeholders for your own Unsloth / MLX
+training script.
 
 ### Option A: Cloud GPU (~$5-10, 2-4 hours)
 ```bash
@@ -70,6 +78,6 @@ cbflow smartgenie
 ```
 
 ## Training Data Stats
-- See data/ folder for prepared JSONL files
+- `data/cbflow_training.jsonl` (≈2.4k examples at last generation)
 - Target: 2000-5000 training examples
 - Categories: commands, knowledge, conversations, tool use

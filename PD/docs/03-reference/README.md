@@ -1,37 +1,41 @@
 # Reference Documentation
 
-Complete technical reference for CBflow v2.0.0 PD automation framework.
+Complete technical reference for CBflow v2.0.0 (PD-focused; the CLI reference covers every discipline).
 
 ## Contents
 
 ### [Configuration Reference](configuration-reference.md)
 
-All configuration files in the CBflow system:
+All configuration files in the CBflow system, resolved in cascade order
+(global project → discipline overlay → global tech → flow_registry →
+discipline flow_config → node config + tool overlay → mmmc → user_config →
+override_config.*):
 
-- **flow_config.tcl** -- 12 flow types, flow(dispatcher)="race", flow(use_lsf), flow(use_xterm), email config (smtp_server/port/tls/auth/from/cc/recipients, on_run_create/complete/fail triggers), autoppt config, MMMC settings, logging
-- **tool_launch_config.tcl** -- module loads for 9 EDA tools (fc, pt, fm, vc_lp, icv, redhawk, genus, innovus, tempus), tool shell commands, bsub defaults, 5 queue types (S:8GB/4cpu, M:16GB/8cpu, L:32GB/16cpu, XL:64GB/32cpu, ultra:128GB/64cpu), flow-to-queue mappings
-- **release_config.tcl** -- release_exit_files per flow/phase/milestone, phase_criteria thresholds, milestone_flow_map, flow_input_handshake
-- **mmmc_config.tcl** -- 19 analysis views, 3 process corners, 2 operating modes, 3 RC corners, 8 scenario sets, per-node assignments, library_sets
-- **12 node configs** -- stages, dependencies, stage_types, node_types, work_dirs, timeouts, release_types, mandatory_input_groups (consumed by RACE to build DAG)
-- **3 tech configs** -- gf_22nm, tsmc_7nm, tsmc_5nm
-- **2 project configs** -- phoenix, bumblebee (with project(release,path/phase/block_name/tag))
-- **6 exit configs** -- FP_EXIT, PLACE_EXIT, CTS_EXIT, PRO_EXIT, BTO, MTO (plus waivers, thresholds, remediation)
+- **global/config/** -- `flow/v1.0.0/flow_registry.tcl` (33 flow types, discipline map, launch defaults, dashboard ports), `tech/<node>/v1.0.0/tech_config.tcl` (gf_22nm, gf_28nm, skywater_130nm, tsmc_5nm, tsmc_7nm), `project/<p>/v1.0.0/` (bumblebee, denali, opensky, phoenix: identity, hierarchy, phases / phase_exits, MMMC), `exit/v1.0.0/` (PD / DFT / DV / RTL exit milestones, STA_SIGNOFF, waivers)
+- **PD/config/** -- project overlay `<p>_pd_config.tcl` (workarea, release, lsf, lib_root / lib tag), `flow/v1.0.0/` (flow_config, release_config with MILESTONE_ORDER and flow_input_handshake, lsf_config, tool_launch_config, node_configs incl. open-source `<FLOW>_<tool>_config.tcl` overlays)
+- **DFT/ DV/ RTL config/** -- each discipline's flow_config + node_configs
+
+### [Command Reference](command-reference.md)
+
+Every `cbflow` command and flag, checked against `--help`: workspace, run
+(incl. set-dep, bypass, release `--from-run/--node/--clone-from/--publish/--no-publish/--override`),
+run dashboard (`--discipline`), smartgrid, flow (checklist, library-manager,
+mmmc-manager, …), test, migrate, bundle, cbflow-oss.
 
 ### [Python Scripts Reference](python-scripts-reference.md)
 
-All 28 Python CLI modules:
+Which module implements each command (`global/utils/commands/` vs
+`PD/utils/commands/`) and the helper libraries (race_engine, start_run,
+node_manager, …).
 
-- **run_cmd.py** -- 23 subcommands: all, stage, status, report, retrace, bypass, force, forcevalidate, clean, validate, logs, show-graph, list-nodes, list-branches, release-info, verify-dag, lsf-status, interactive, email, autoppt, checklist, help, add-node, delete-node, create-branch, delete-branch, update
-- **workspace_cmd.py** -- create, status
-- **checklist_cmd.py** -- generate, status, sign-off, list, list-checks, add-check, remove-check, waiver
-- **email_cmd.py** -- 6 templates (run-creation, run-status, run-summary, checklist, reminder, release-update), preview mode, attachments
-- **autoppt_cmd.py** -- html/pptx format, 5 slides (summary QoR table, place, CTS, ctsOpt, routeOpt)
-- **release_cmd.py, version_cmd.py, flow_cmd.py, config_cmd.py, project_cmd.py**
-- **lsf_cmd.py, lsf_manager_cmd.py**
-- **library_manager_cmd.py, mmmc_manager_cmd.py**
-- **log_viewer.py, race_engine.py, validation_cmd.py**
-- **qor_report_cmd.py, dashboard_cmd.py, trending_cmd.py, metrics_cmd.py**
-- **tcl_config_parser.py, logging_config.py, node_manager.py, graph_renderer.py, start_run.py, plugin_cmd.py**
+### [RACE Engine Command Reference](makefile-reference.md)
+
+Execution, status, flow-control and DAG-editing commands in RACE terms, active
+engine sync, RACE DB, tool-config conventions.
+
+### [Production Dashboard Setup](dashboard-production-setup.md)
+
+Remote access to the run dashboard / SmartGrid daemons, ports, bind flags.
 
 ### [LSF Reference](lsf-reference.md)
 
@@ -64,7 +68,9 @@ Git branching, tagging, and versioning conventions:
 
 ---
 
-## Supported Flows (12)
+## Supported PD Flows (12)
+
+All 33 flow types (PD 12, DFT 7, DV 9, RTL 5): `cbflow flow types`. PD flows also run on the open-source sky130 tools (yosys / OpenROAD / OpenSTA / KLayout / Magic + Netgen) for project `opensky`.
 
 | Flow | Description | Tool |
 |------|-------------|------|
@@ -87,39 +93,70 @@ FCT and PHYV have been removed in v2.0.0 (merged into STA and PV respectively).
 
 ## Quick Command Lookup
 
-### Run Management
+Stages are node names (`place1`, `cts1`, …; `cbflow run list-nodes`). Full flag
+lists: [Command Reference](command-reference.md).
+
+### Run Management (inside a run directory)
 
 ```bash
-cbflow run all                                 # Run complete flow (RACE DAG)
-cbflow run stage --name <stage>                # Run single stage
-cbflow run status [--details]                  # Show status (from RACE DB)
-cbflow run report [--node <node>]              # Detailed report
-cbflow run retrace [--from <stage>] [--run]    # Retrace and rerun
-cbflow run bypass --node <node>                # Skip a node
-cbflow run force --node <node>                 # Force re-run a node
-cbflow run forcevalidate --node <node>         # Force validate specific node
-cbflow run forcevalidate --from X --to Y       # Force validate range
-cbflow run forcevalidate --from X              # Force validate from X to end
-cbflow run forcevalidate --to Y                # Force validate start to Y
-cbflow run clean                               # Clean run directory
-cbflow run validate                            # Validate run
-cbflow run logs [--tail N] [--level ERROR]     # View logs
-cbflow run show-graph [--detail]               # Visualize RACE DAG
-cbflow run list-nodes                          # List nodes
-cbflow run list-branches                       # List branches
-cbflow run release-info                        # Release info
-cbflow run verify-dag                          # Verify DAG from node_config
-cbflow run lsf-status                          # LSF job status
-cbflow run interactive                         # Interactive tool session
-cbflow run email --template <template>         # Send email
-cbflow run autoppt [--format pptx|html]        # Generate PPT/HTML
-cbflow run checklist --milestone <M> --phase <P>  # Exit checklist
-cbflow run add-node --node <n> --type <t>      # Add custom node
-cbflow run delete-node --node <n>              # Delete node
-cbflow run create-branch --name <n>            # Create branch
-cbflow run delete-branch --name <n>            # Delete branch
-cbflow run update [--version <v>]              # Update run
-cbflow run help                                # Full documentation
+cbflow run all [--validate] [--lsf --queue XL]   # Run complete flow (RACE DAG)
+cbflow run stage --name place1                   # Run single stage
+cbflow run status [--details]                    # Status (from RACE DB)
+cbflow run report [--node place1]                # Detailed report
+cbflow run retrace [--from cts1] [--run]         # Invalidate (and rerun)
+cbflow run bypass --stages cts1,route1           # Mark stages done without running
+cbflow run force --stages place1                 # Re-run only these stages
+cbflow run forcevalidate --node place1           # Mark a stage done
+cbflow run forcevalidate --from X --to Y         # ... a range (--from X / --to Y alone too)
+cbflow run add-node --node place2 --type place --dep place1
+cbflow run set-dep --node export_data1 --deps place1   # Rewire (--reset restores)
+cbflow run delete-node --node place2
+cbflow run create-branch --branch fix --from cts1
+cbflow run delete-branch --branch fix
+cbflow run list-nodes | list-branches | show-graph [--detail] | targets
+cbflow run gen-makefile                          # Verify the RACE DAG (legacy name)
+cbflow run logs [--tail N] [--level ERROR]       # View logs
+cbflow run validate [--type config] [--stage cts1]
+cbflow run interactive --node place1             # Interactive tool session
+cbflow run checklist --milestone BTO --phase P3  # Exit checklist on this run
+cbflow run email --to a@b.com --template run-status
+cbflow run autoppt [--format pptx|html]
+cbflow run gui                                   # Open the run in the dashboard daemon
+cbflow run db-manage --list                      # RACE DB sessions
+cbflow run clean --confirm
+cbflow run update [--release v2.0.0]
+cbflow run help                                  # Full documentation
+```
+
+### Releases
+
+```bash
+cbflow run release --tag PLACE_EXIT [--dry-run]            # from the workarea
+cbflow run release --tag BTO --publish [--override]        # + SmartGrid (opt-in)
+cbflow run release --from-run <run> --node release_data1 --publish
+cbflow run release --from-run <run> --clone-from BTO --tag MTO
+cbflow run release-check --tag BTO --project opensky --phase P2
+```
+Layout: `<project(release,path)>/<phase>/<block>/<FLOW>/<tag>`.
+
+### Dashboards
+
+```bash
+cbflow run dashboard start [--discipline PD|DFT|DV|RTL] [--project opensky] [--public]
+cbflow run dashboard status|stop|list|prune
+cbflow smartgrid start --project opensky
+cbflow smartgrid open --project opensky
+```
+
+### Flow info, checklists, libraries
+
+```bash
+cbflow flow types [--domain RTL]
+cbflow flow info --flow PNR
+cbflow flow checklist list --discipline DFT
+cbflow flow checklist list-checks --milestone PRO_EXIT --phase P2
+cbflow flow library-manager status --lib_tag OSS1
+cbflow flow mmmc-manager show --project opensky
 ```
 
 ### Component Versioning
@@ -129,6 +166,14 @@ cbflow flow version copy --dir <dir> --from <v1> --to <v2>
 cbflow flow version set-current --dir <dir> --version <v>
 cbflow flow version list --dir <dir>
 cbflow flow version diff --dir <dir> --v1 <v1> --v2 <v2>
+```
+
+### Tests
+
+```bash
+cbflow test --static
+cbflow test --e2e --flows SYNTH,PNR,STA
+cbflow test --list
 ```
 
 ---

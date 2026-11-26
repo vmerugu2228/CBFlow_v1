@@ -280,7 +280,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 def create_parser() -> argparse.ArgumentParser:
     """Create the argument parser."""
     parser = argparse.ArgumentParser(
-        prog='cbflow version',
+        prog='cbflow flow version',
         description='CBFlow - Version Control Operations',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""

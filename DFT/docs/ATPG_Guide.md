@@ -6,10 +6,14 @@ Automatic test pattern generation, fault simulation, and coverage reporting.
 
 ```
 netlist1 ┐
-scandef1 ├→ init_atpg1 → pattern_gen1 → fault_sim1 → coverage_report1 → export_patterns1 → release_data1
-sdf1     ┤   (sdf mode only)
-lib1     ┘
+scandef1 ├→ init_atpg1 → pattern_gen1 → fault_sim1 → coverage_report1 → export_patterns1
+sdf1     ┤   (sdf mode only)               → zd_sim1 ─┬→ signoff1 → release_data1
+lib1     ┘                                   timing_sim1 ┘  (post-PD only)
 ```
+
+`init_atpg1` is a decision node on `atpg(pd_phase)`: `pre` runs zd_sim1 →
+signoff1 (release ATPG_PREPD_EXIT); `post` adds timing_sim1 (release
+ATPG_POSTPD_EXIT).
 
 ## Supported tools
 
@@ -17,6 +21,7 @@ lib1     ┘
 |-----------|-----------|-------------------|
 | Mentor    | Tessent   | `tessent`         |
 | Synopsys  | TestMAX   | `testmax`         |
+| open source | Fault + Atalanta + Icarus | `fault` — see `opensource-dft-guide.md` |
 
 ## Minimal user config
 
@@ -31,6 +36,7 @@ set flow(run_type) "hier"
 
 set atpg(tool,name) "tessent"
 set atpg(mode) "zd"   ;# "zd" (zero-delay) or "sdf" (timing-aware)
+set atpg(pd_phase) "pre"   ;# pre | post
 
 set atpg(input,netlist) "/path/to/cpu_core.scan.v"
 set atpg(input,scandef) "/path/to/scan.scandef"

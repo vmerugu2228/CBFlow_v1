@@ -1,255 +1,99 @@
 # Contributing Guide
 
-How to contribute to CBFlow versioning system.
+How to change CBflow code, configs and docs. Paths are relative to `$CBFLOW_ROOT`.
 
-## Getting Started
-
-### Fork and Clone
+## Setup
 
 ```bash
-# Fork on GitHub first, then:
-git clone https://github.com/YOUR-USERNAME/CBFlow.git
-cd CBFlow/PD/core
-
-# Add upstream
-git remote add upstream https://github.com/original-org/CBFlow.git
+git clone <cbflow-repo> CBflow && cd CBflow
+export CBFLOW_ROOT=$PWD            # the only variable you export
+export PATH=$CBFLOW_ROOT/bin:$PATH
+cbflow --version                   # shows the resolved path chain
+cbflow flow types                  # flows per discipline
 ```
 
-### Development Setup
+Prerequisites: Python 3, tclsh 8.6, git; docker for the open-source tools
+(`cbflow-oss check`); commercial tools via `lsf(tool_shell,*)` / modules.
+
+## Branches and commits
+
+- Branch from the integration branch (`git checkout -b feature/<topic>`); never commit on `main`.
+- One topic per commit; subject line says what changed and where
+  (e.g. `library-manager check: --design + --netlist_tag`).
+- Do not commit run data (workarea run dirs, logs, `test_releases/`, `.race_area/`).
+
+## Where code goes
+
+| Change | Location |
+|---|---|
+| Cross-discipline engine / CLI | `global/utils/commands/`, `global/utils/core/`, `global/bin/` |
+| Tcl runtime used by handlers / command files | `global/utils/utilities/v1.0.0/` |
+| Discipline-only Python | `<DISC>/utils/commands/` (+ launcher, see [Extending §3](extending.md#3-adding-a-discipline-owned-subcommand)) |
+| Discipline Tcl helpers | `<DISC>/utils/utilities/v1.0.0/` |
+| Flow / node / tool config | `<DISC>/config/flow/v1.0.0/` (data only) |
+| Project, tech, exits, registry | `global/config/…` |
+| Handlers + command files | `<DISC>/cmds/<FLOW>/<vendor>/<tool>/v1.0.0/` |
+
+Config files are shared by every run of a project: get the owner's agreement
+before editing project / tech / exit configs.
+
+## Versioned directories
+
+Released config / command / utility versions are not edited in place for
+production changes: copy, edit, promote.
 
 ```bash
-# Verify prerequisites
-git --version      # 2.0+
-python3 --version  # 3.6+
-make --version     # 3.81+
-
-# Make scripts executable
-chmod +x utils/version/v2.0.0/*.py
-
-# Test system works
-make git_list_workspaces
+cbflow flow version copy --dir config/flow --from v1.0.0 --to v1.0.1
+cbflow flow dev start --component config/flow --from v1.0.0   # writable v1.0.0-dev
+cbflow flow dev diff --component config/flow
+cbflow flow dev promote --component config/flow
 ```
 
-## Contribution Process
+Runs choose versions through `FLOW_CONFIG_VERSION`, `UTILITIES_VERSION`,
+`TECH_CONFIG_VERSION`, `PROJECT_CONFIG_VERSION` and `<flow>(tool,version)`.
+See [Versioning Strategy](../04-architecture/git-strategy.md).
 
-### 1. Create Issue
+## Code conventions
 
-Before coding, create GitHub issue:
-- Bug report: Describe problem, steps to reproduce
-- Feature request: Describe use case, proposed solution
+**Tcl**
+- Command files use the standard bootstrap (`utils.tcl`, `config.tcl`,
+  `setup.tcl`, `setup_dirs`) and `NODE_NAME [cbflow_node_name]` — never a
+  hardcoded `place1`.
+- Read config with `cbflow_require <arr> <key>` / `oss_get`; error on missing
+  values, no silent defaults.
+- No procs in config files; no `array set` blocks containing `#` comments
+  (use per-key `set`).
 
-### 2. Create Branch
+**Python**
+- Resolve paths through `core.paths` / `core.registry`; read resolved config
+  through the resolver, not regex over config files.
+- Raise clear errors naming the missing key and the file that should set it.
 
-```bash
-# Update main
-git checkout main
-git pull upstream main
-
-# Create feature branch
-git checkout -b feature/description
-# or
-git checkout -b fix/bug-description
-```
-
-### 3. Make Changes
-
-Follow [Code Style](#code-style) guidelines.
-
-### 4. Test
-
-```bash
-# Manual testing
-make git_create_workspace DIR=test
-make git_commit_version DIR=test TYPE=patch DESC="Test"
-make git_promote_version DIR=test VERSION=v1.0.0
-
-# Verify no regressions
-make list_versions DIR=gui
-make git_list_releases
-```
-
-### 5. Commit
-
-```bash
-git add -A
-git commit -m "type: Brief description
-
-Detailed explanation of changes.
-
-Fixes #123
-
-🤖 Generated with Claude Code"
-```
-
-**Commit types:**
-- `feat`: New feature
-- `fix`: Bug fix
-- `docs`: Documentation only
-- `refactor`: Code restructuring
-- `test`: Testing
-- `chore`: Maintenance
-
-### 6. Push and PR
-
-```bash
-git push origin feature/description
-gh pr create --title "feat: Description" --body "Details"
-```
-
-## Code Style
-
-### Python (PEP 8)
-
-```python
-# Type hints required
-def method_name(param: str, flag: bool = False) -> bool:
-    """Brief description.
-    
-    Args:
-        param: Description
-        flag: Description (default: False)
-        
-    Returns:
-        True if successful
-        
-    Raises:
-        ValueError: When invalid
-    """
-    pass
-
-# Constants
-MAX_VERSIONS = 100
-
-# Classes
-class MyManager:
-    def __init__(self):
-        pass
-```
-
-### RACE Engine
-
-```makefile
-# Clear error messages
-command:
-	@if [ -z "$(PARAM)" ]; then \
-		echo "❌ Error: PARAM required"; \
-		echo "Usage: make command PARAM=value"; \
-		exit 1; \
-	fi
-	python3 script.py --param $(PARAM)
-```
-
-### Documentation
-
-- Use Markdown
-- Include code examples
-- Keep language clear and concise
-- Update all relevant docs
-
-## Pull Request Guidelines
-
-### PR Title
-
-```
-type: Brief description
-
-Examples:
-feat: Add config mode for releases
-fix: Resolve workspace cleanup issue
-docs: Update architecture documentation
-```
-
-### PR Description
-
-```markdown
-## Changes
-- What was changed
-- Why it was changed
+**Shell launchers**
+- `set -euo pipefail`; source `_cbflow_paths.sh`; unknown commands fall
+  through to `global/bin/cbflow`.
 
 ## Testing
-- How to test
-- Test results
-
-## Related Issues
-Fixes #123
-Relates to #456
-```
-
-### PR Checklist
-
-- [ ] Code follows style guidelines
-- [ ] Tests added/updated
-- [ ] Documentation updated
-- [ ] Commit messages follow convention
-- [ ] No merge conflicts
-- [ ] All checks passing
-
-## Review Process
-
-1. **Automated checks** - Must pass CI/CD
-2. **Code review** - At least one approval required
-3. **Testing** - Reviewers test changes
-4. **Merge** - Squash and merge to main
-
-## After Merge
 
 ```bash
-# Update your fork
-git checkout main
-git pull upstream main
-git push origin main
-
-# Delete feature branch
-git branch -d feature/description
-git push origin --delete feature/description
+cbflow test --static                     # always before committing
+cbflow test --static --category 19       # open-source DFT / RTL / DV wiring
+cbflow test --e2e --flow <FLOW>          # the PD flow you touched (test mode)
+cbflow test --cli-smoke                  # CLI --help surface
+cbflow test --hardcode                   # opt-in no-hardcode audit
 ```
 
-## Issue Guidelines
+A change to an open-source flow is also run for real on the opensky project
+(see the [Open-Source Flow Guide](../02-user-guide/opensource-flow-guide.md)).
 
-### Bug Reports
+## Documentation
 
-```markdown
-**Description**
-Clear description of bug
-
-**Steps to Reproduce**
-1. Run command...
-2. Expected...
-3. Actual...
-
-**Environment**
-- OS: macOS 14
-- Git: 2.40.0
-- Python: 3.11.0
-
-**Logs**
-```
-Error output here
-```
-```
-
-### Feature Requests
-
-```markdown
-**Use Case**
-Why is this needed?
-
-**Proposed Solution**
-How should it work?
-
-**Alternatives**
-Other approaches considered?
-```
-
-## Communication
-
-- Be respectful and constructive
-- Provide context in discussions
-- Respond to feedback promptly
-- Ask questions when unclear
+- User guides: `PD/docs/02-user-guide/`, discipline guides in
+  `RTL/docs/`, `DV/docs/`, `DFT/docs/`; architecture `PD/docs/04-architecture/`;
+  developer `PD/docs/05-developer/`. Index: `PD/docs/README.md`.
+- Update `CLAUDE.md` (framework summary) and `RELEASE_NOTES.md` when behaviour changes.
+- Keep commands runnable as written and paths relative to `$CBFLOW_ROOT`.
 
 ---
 
-**See also:**
-- [Extending CBFlow](extending.md) - Add new features
-- [Developer Guide](README.md) - Development overview
+**See also:** [Extending CBflow](extending.md) · [Test Suite](test-suite.md)

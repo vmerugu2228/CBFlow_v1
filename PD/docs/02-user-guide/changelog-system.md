@@ -36,8 +36,8 @@ THIS FILE IS AUTO-GENERATED - DO NOT EDIT MANUALLY
 This CHANGELOG is automatically maintained by the CBflow versioning system.
 Changes are recorded when versions are created using the versioning commands.
 
-To create a new version: make git_commit_version DIR=<component> TYPE=patch|minor|major DESC="..."
-To view version history: make list_versions DIR=<component>
+To create a new version: cbflow flow version create --dir <component> --version <vX.Y.Z> --desc "..."
+To view version history: cbflow flow version list --dir <component>
 
 Last Updated: 2026-05-09 14:30:15
 -->
@@ -92,7 +92,7 @@ Each version entry includes:
 
 Component CHANGELOG is updated when:
 ```bash
-make git_commit_version DIR=cmds/STA/synopsys/pt TYPE=patch DESC="..."
+cbflow flow version create --dir cmds/STA/synopsys/pt --version <next> --desc "..."
 ```
 
 **Automatic actions:**
@@ -151,8 +151,8 @@ THIS FILE IS AUTO-GENERATED - DO NOT EDIT MANUALLY
 This CHANGELOG tracks all system-wide releases created in CBflow.
 Each release is a snapshot of component versions at a specific point in time.
 
-To create a release: make git_create_release TYPE=patch|minor|major DESC="..."
-To view releases: make git_list_releases
+To create a release: cbflow flow release create --type patch|minor|major --desc "..."
+To view releases: cbflow flow release list
 
 Last Updated: 2026-05-09 15:00:00
 -->
@@ -216,7 +216,7 @@ Production release with tested component versions
 
 Release CHANGELOG is updated when:
 ```bash
-make git_create_release TYPE=patch CONFIG=release.json DESC="..."
+cbflow flow release create --config release.json --type patch --desc "..."
 ```
 
 **Automatic actions:**
@@ -235,9 +235,9 @@ Create Workspace --> Make Changes --> Commit Version --> Auto-Generate CHANGELOG
 ```
 
 ```bash
-make git_create_workspace DIR=cmds/PNR/synopsys/fc
+cbflow flow dev start --component cmds/PNR/synopsys/fc --from <current>
 # ... edit command files ...
-make git_commit_version DIR=cmds/PNR/synopsys/fc TYPE=patch DESC="Improved route optimization"
+cbflow flow version create --dir cmds/PNR/synopsys/fc --version <next> --desc "Improved route optimization"
 # CHANGELOG.md updated automatically with new entry
 ```
 
@@ -248,7 +248,7 @@ Create Release --> Collect Versions --> Compare with Previous --> Generate Relea
 ```
 
 ```bash
-make git_create_release TYPE=patch DESC="May release"
+cbflow flow release create --type patch --desc "May release"
 # RELEASE_CHANGELOG.md updated automatically with new entry
 ```
 
@@ -387,7 +387,7 @@ DESC="New version"
 
 ```bash
 # Verify version was created successfully
-make list_versions DIR=cmds/PNR/synopsys/fc
+cbflow flow version list --dir cmds/PNR/synopsys/fc
 
 # Check CHANGELOG exists
 ls -la cmds/PNR/synopsys/fc/CHANGELOG.md

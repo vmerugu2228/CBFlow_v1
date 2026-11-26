@@ -455,7 +455,7 @@ def cmd_sandbox_push(args: argparse.Namespace) -> int:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def create_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description='CBFlow Development Workflow')
+    parser = argparse.ArgumentParser(prog='cbflow flow dev', description='CBFlow Development Workflow')
     subparsers = parser.add_subparsers(dest='command', help='Dev commands')
 
     # start

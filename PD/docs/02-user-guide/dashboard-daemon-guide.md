@@ -87,7 +87,7 @@ up on the next API call.
 
 ```bash
 # In any run directory
-cd P0_run_SYNTH_PNR_test1
+cd P0_run_SYNTH_gcd_test1
 
 # Launch GUI — daemon auto-starts on first call
 cbflow run gui
@@ -96,15 +96,44 @@ cbflow run gui
 # (PD port = 9000 + your uid % 300; see flow(dashboard,port_base,*) below)
 
 # Register more runs from other terminals — daemon stays up
-cd /other/area/P0_run_PNR_test1 && cbflow run gui --no-browser
-cd /yet/another/P0_run_STA_test1 && cbflow run gui --no-browser
+cd /other/area/P0_run_PNR_gcd_test1 && cbflow run gui --no-browser
+cd /yet/another/P0_run_STA_gcd_test1 && cbflow run gui --no-browser
 
 # See all your registered runs
-cbflow dashboard list
+cbflow run dashboard list
 
 # When you're done
-cbflow dashboard stop          # optional — daemon is cheap to leave running
+cbflow run dashboard stop          # optional — daemon is cheap to leave running
 ```
+
+---
+
+## 2b. One daemon per discipline
+
+Each discipline has its own daemon, port and state directory. `cbflow run gui` and `register` pick the discipline
+from the run's flow type (`flow(discipline,<FLOW>)`); every other verb takes `--discipline PD|DFT|DV|RTL`
+(default `flow(dashboard,default_discipline)` = PD).
+
+| Discipline | Port (`flow(dashboard,port_base,<DISC>) + uid % flow(dashboard,port_width)`) | State |
+|---|---|---|
+| PD  | 9000 + uid % 300 | `~/.cbflow/dashboard/PD/` |
+| DFT | 9300 + uid % 300 | `~/.cbflow/dashboard/DFT/` |
+| DV  | 9600 + uid % 300 | `~/.cbflow/dashboard/DV/` |
+| RTL | 9900 + uid % 300 | `~/.cbflow/dashboard/RTL/` |
+
+With `--project <p>` a daemon runs per (discipline, project), on `flow(dashboard,project_port_base,<DISC>)`
+(PD 20000, DFT 21000, DV 22000, RTL 23000; width 1000) with state in `~/.cbflow/dashboard/<DISC>/projects/<p>/`.
+SmartGrid's project page starts these on demand (`/dashboard/<DISC>`). All keys are in
+`global/config/flow/v1.0.0/flow_registry.tcl`.
+
+```bash
+cbflow run dashboard status --all                        # every discipline's daemon
+cbflow run dashboard start --discipline DV
+cbflow run dashboard list --discipline RTL
+cbflow run dashboard open --discipline PD /path/to/P2_run_PNR_gcd_b1
+```
+
+`cbflow dashboard …` still works but prints a note that it moved to `cbflow run dashboard …`.
 
 ---
 
@@ -115,15 +144,15 @@ cbflow dashboard stop          # optional — daemon is cheap to leave running
 The daemon **auto-starts** on first `cbflow run gui` invocation. You can also start it explicitly:
 
 ```bash
-cbflow dashboard start                # detached
-cbflow dashboard start --foreground   # foreground (debug)
-cbflow dashboard start --port 9999    # override the deterministic port
+cbflow run dashboard start                # detached
+cbflow run dashboard start --foreground   # foreground (debug)
+cbflow run dashboard start --port 9999    # override the deterministic port
 ```
 
 ### Status
 
 ```bash
-cbflow dashboard status
+cbflow run dashboard status
 # state:  running
 # pid:    25083
 # port:   9201
@@ -136,15 +165,15 @@ Exit codes: `0` running, `3` stopped, `4` stale state detected.
 ### Stopping
 
 ```bash
-cbflow dashboard stop                 # SIGTERM, waits 5s, then SIGKILL
-cbflow dashboard restart              # stop + start
+cbflow run dashboard stop                 # SIGTERM, waits 5s, then SIGKILL
+cbflow run dashboard restart              # stop + start
 ```
 
 Stopping the daemon does **not** delete the run registry. When the daemon restarts, all previously-registered runs come back.
 
 ### Stale-state recovery
 
-If the daemon crashes (kill -9, system reboot, etc.), the on-disk state files are stale. The next `cbflow dashboard start` automatically:
+If the daemon crashes (kill -9, system reboot, etc.), the on-disk state files are stale. The next `cbflow run dashboard start` automatically:
 
 1. Checks if the recorded PID is still alive
 2. If alive, checks if the process start-time matches (catches PID recycling)
@@ -184,14 +213,14 @@ Click **Register**.
 **C. Browse picker**:
 
 1. Click **Browse** in the Register panel
-2. The picker expands showing every run discovered under each project's `workarea_path` (parsed from `PD/config/project/<name>/v1.0.0/<name>_config.tcl`)
+2. The picker expands showing every run discovered under each project's `workarea_path` (from `project(workarea_path)` in the PD overlay `PD/config/project/<name>/v1.0.0/<name>_pd_config.tcl`)
 3. Grouped by `project / design`, sticky headers
 4. Type into the input to filter live (matches project, design, name, path, flow type)
 5. Click an unregistered row's **Register** button — adds to registry + auto-refreshes; already-registered rows show a green `REGISTERED` pill
 
 ### Runs table
 
-- **Run** column: bold display name (basename of run_dir, e.g. `P0_run_SYNTH_PNR_test1`) with the run_id (`b29f00bea7fd`) as a small grey caption
+- **Run** column: bold display name (basename of run_dir, e.g. `P0_run_SYNTH_gcd_test1`) with the run_id (`b29f00bea7fd`) as a small grey caption
 - **Flow** column: color-coded chip per flow type (SYNTH purple, PNR blue, SYNTH_PNR indigo, STA green, LEC amber, CLP orange, PV red, EMIR dark red, FP cyan, FCFP teal, POPT violet, ECO slate)
 - **Run dir**: monospace, muted color
 - **Registered / Last seen**: human-readable relative time (`5m ago`, `2h ago`); hover for absolute ISO timestamp
@@ -212,28 +241,31 @@ POST actions (run, retrace, bypass, force) preserve owner-uid checking — the d
 
 ### Lifecycle
 
+Every verb accepts `--discipline PD|DFT|DV|RTL` and `--project <p>`.
+
 ```bash
-cbflow dashboard start [--port N] [--foreground]
-cbflow dashboard stop
-cbflow dashboard restart [--port N]
-cbflow dashboard status
-cbflow dashboard logs [--follow]
+cbflow run dashboard start [--port N] [--foreground] [--public | --bind-addr ADDR]
+cbflow run dashboard stop
+cbflow run dashboard restart [--port N]
+cbflow run dashboard status [--all]
+cbflow run dashboard logs [--follow]
+cbflow run dashboard prune [-y] [--include-archived]     # drop entries whose run_dir is gone
 ```
 
 ### Registry
 
 ```bash
-cbflow dashboard list
-cbflow dashboard register <run_dir>
-cbflow dashboard deregister <run-or-id>
+cbflow run dashboard list [--all]
+cbflow run dashboard register <run_dir>
+cbflow run dashboard deregister <run-or-id>
 ```
 
 ### Browser
 
 ```bash
-cbflow dashboard open                 # open browser to index
-cbflow dashboard open <run_dir>       # deep-link a specific run
-cbflow dashboard open <run_id>        # same, by id
+cbflow run dashboard open                 # open browser to index
+cbflow run dashboard open <run_dir>       # deep-link a specific run
+cbflow run dashboard open <run_id>        # same, by id
 ```
 
 In SSH sessions: browser launch is skipped; instead prints the `ssh -L PORT:localhost:PORT user@host` tunnel command.
@@ -247,7 +279,7 @@ cbflow run gui --foreground           # legacy per-run server (back-compat)
 cbflow run gui --foreground --port 9090  # legacy server on specific port
 ```
 
-Passing `--port` without `--foreground` errors with a hint to use `cbflow dashboard start --port N`.
+Passing `--port` without `--foreground` errors with a hint to use `cbflow run dashboard start --port N`.
 
 ### `cbflow run clean`
 
@@ -277,7 +309,7 @@ Each `runs/<id>.json` is small:
 ```json
 {
   "run_id": "b29f00bea7fd",
-  "run_dir": "/Users/vmerugu/projects/CBflow_clone/workarea/cpu_core/P0_run_SYNTH_PNR_test1",
+  "run_dir": "/Users/vmerugu/projects/CBflow_clone/workarea/cpu_core/P0_run_SYNTH_gcd_test1",
   "registered_at": "2026-06-11T14:19:28",
   "last_seen_at": "2026-06-11T15:31:38",
   "owner_uid": 501,
@@ -292,8 +324,8 @@ Each `runs/<id>.json` is small:
 
 ### Safe to delete?
 
-- `~/.cbflow/dashboard/runs/<id>.json` — yes, deletes the registration (same as `cbflow dashboard deregister`)
-- `~/.cbflow/dashboard/dashboard.{pid,port,start_ts,log}` — yes if daemon is stopped; daemon recreates on next start
+- `~/.cbflow/dashboard/<DISC>/runs/<id>.json` — yes, deletes the registration (same as `cbflow run dashboard deregister`)
+- `~/.cbflow/dashboard/<DISC>/dashboard.{pid,port,start_ts,log}` — yes if daemon is stopped; daemon recreates on next start
 - `~/.cbflow/dashboard/control.sock` — yes, daemon recreates
 
 You can safely `rm -rf ~/.cbflow/dashboard/` when the daemon is stopped — your run dirs in `workarea/` are untouched.
@@ -312,10 +344,10 @@ ssh -L 9501:localhost:9501 user@build-server
 http://127.0.0.1:9501/
 ```
 
-The `cbflow dashboard open` command auto-detects SSH sessions (via `$SSH_CLIENT` / `$SSH_TTY` / `$SSH_CONNECTION` env vars) and prints the exact tunnel command instead of trying to launch a browser:
+The `cbflow run dashboard open` command auto-detects SSH sessions (via `$SSH_CLIENT` / `$SSH_TTY` / `$SSH_CONNECTION` env vars) and prints the exact tunnel command instead of trying to launch a browser:
 
 ```
-$ cbflow dashboard open
+$ cbflow run dashboard open
 SSH session detected — not opening browser.
 Tunnel:    ssh -L 9501:localhost:9501 $USER@build-server.acme.com
 Then open: http://127.0.0.1:9501/
@@ -325,18 +357,18 @@ Then open: http://127.0.0.1:9501/
 
 ## 8. Troubleshooting
 
-### "Port already in use" on `cbflow dashboard start`
+### "Port already in use" on `cbflow run dashboard start`
 
 The deterministic port `flow(dashboard,port_base,<DISC>) + (uid % flow(dashboard,port_width))` (PD: `9000 + uid % 300`) is occupied by something else (not our daemon). Options:
 
-- `cbflow dashboard start --port 9999` — override
+- `cbflow run dashboard start --port 9999` — override
 - Find what's using it: `lsof -iTCP:9201 -sTCP:LISTEN`
 
 ### "Another dashboard daemon is already running"
 
 Either:
-- A real daemon is up — use `cbflow dashboard status` to see it
-- Stale state from a crashed daemon — the next start auto-cleans, but you can force: `cbflow dashboard stop && cbflow dashboard start`
+- A real daemon is up — use `cbflow run dashboard status` to see it
+- Stale state from a crashed daemon — the next start auto-cleans, but you can force: `cbflow run dashboard stop && cbflow run dashboard start`
 
 ### Firefox shows the same URL twice
 
@@ -344,7 +376,7 @@ The daemon's URL is **stable across runs**. Firefox/Chrome reuses the tab if it'
 
 ### Run shows up but the per-run page is empty
 
-Check `cbflow dashboard logs`. Likely causes:
+Check `cbflow run dashboard logs`. Likely causes:
 - The run's SQLite DB doesn't exist yet (`cbflow run all` hasn't been called)
 - The DB pointer file is stale (rebuild with `cd <run_dir> && cbflow run status`)
 
@@ -354,8 +386,8 @@ Common cause: `$HOME` resolves to a path that overflows AF_UNIX's 104-char limit
 
 ### Per-run dashboard shows "empty canvas"
 
-This was a v2.1.0 bug fixed in v2.1.1. The page's JS calls absolute `/api/...` URLs which the daemon rewrites to `/run/<id>/api/...`. If you still see it after upgrading, run `cbflow dashboard restart` to ensure the new daemon picks up the rewritten templates.
+This was a v2.1.0 bug fixed in v2.1.1. The page's JS calls absolute `/api/...` URLs which the daemon rewrites to `/run/<id>/api/...`. If you still see it after upgrading, run `cbflow run dashboard restart` to ensure the new daemon picks up the rewritten templates.
 
 ### Old per-run servers from v2.1.0 still showing up
 
-`cbflow dashboard list` only shows runs registered with the daemon. If you still have foreground `start_dashboard` processes from v2.1.0, kill them with `pkill -f race_dashboard.py`. The daemon bands (9000-10199) don't conflict with the per-run foreground ports (`flow(dashboard,run_port_min|max)` = 30000-59999).
+`cbflow run dashboard list` only shows runs registered with the daemon. If you still have foreground `start_dashboard` processes from v2.1.0, kill them with `pkill -f race_dashboard.py`. The daemon bands (9000-10199) don't conflict with the per-run foreground ports (`flow(dashboard,run_port_min|max)` = 30000-59999).

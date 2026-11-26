@@ -3,7 +3,7 @@
 # CBFlow - Flow Commands Router
 # Description: Routes all flow subcommands to appropriate handlers
 # Usage: cbflow flow <subcommand> [options]
-# Note: Must be executed from CBFLOW_CORE_DIR (PD directory)
+# Note: works from any directory (paths resolved from the binary location)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 set -euo pipefail
@@ -43,7 +43,7 @@ Usage: cbflow flow <subcommand> [options]
 
 Flow Information:
   cbflow flow types                              List all flow types, grouped by discipline
-  cbflow flow types --domain DFT                 Filter to one discipline (PD | DFT | DV)
+  cbflow flow types --domain DFT                 Filter to one discipline (PD | DFT | DV | RTL)
   cbflow flow info --flow PNR                    Show PNR stages, tool, vendor, discipline
   cbflow flow stages --flow SYNTH                Show SYNTH stage sequence
   cbflow flow nodes --flow PNR                   Show PNR nodes and subnodes
@@ -51,7 +51,7 @@ Flow Information:
 
 Project Management:
   cbflow flow project list                       List all projects
-  cbflow flow project info --name phoenix        Show project details
+  cbflow flow project info --name opensky        Show project details
   cbflow flow project create --name my_chip      Create new project
 
 Release Management:
@@ -80,6 +80,7 @@ Development Workflow:
 Configuration:
   cbflow flow config manage-flow                 Interactive flow config
   cbflow flow config manage-node                 Interactive node config
+  cbflow flow config validate                    Validate CBFlow configuration
   cbflow flow config status                      Show config directory
 
 Plugin System:
@@ -92,13 +93,16 @@ Plugin System:
 
 Exit Milestones & Checklists:
   cbflow flow checklist list                     List all exit milestones
+  cbflow flow checklist list --discipline DFT    Milestones of one discipline (PD | DFT | DV)
+  cbflow flow checklist list-checks --milestone BTO --phase P3
+                                                 Checks active for a milestone + phase
   cbflow flow checklist generate --milestone FP_EXIT
                                                  Generate exit checklist
   cbflow flow checklist status --milestone FP_EXIT --run-dir <path>
                                                  Check milestone status
   cbflow flow checklist sign-off --milestone FP_EXIT --run-dir <path> --approver <name>
                                                  Record milestone sign-off
-  cbflow flow checklist waiver --action list      List active waivers
+  cbflow flow checklist waiver --action list     List active waivers
 
 QoR Reports:
   cbflow flow qor-report generate --run-dir <path>
@@ -109,36 +113,47 @@ QoR Reports:
                                                  Aggregate QoR summary
 
 Trending & Baselines:
-  cbflow flow trending report --project bumblebee --metric wns
+  cbflow flow trending report --project opensky --metric wns
                                                  Show metric trend over runs
-  cbflow flow trending baseline set --project bumblebee --flow PNR --milestone PRO_EXIT --metric setup_wns --value 0
+  cbflow flow trending baseline set --project opensky --flow PNR --milestone PRO_EXIT --metric setup_wns --value 0
                                                  Set a QoR baseline
-  cbflow flow trending check --project bumblebee --run-dir <path>
+  cbflow flow trending check --project opensky --run-dir <path>
                                                  Check run against baselines
 
 MMMC Manager:
-  cbflow flow mmmc-manager create --interactive   Interactive MMMC config creation
-  cbflow flow mmmc-manager show                   Show current MMMC configuration
-  cbflow flow mmmc-manager validate               Validate MMMC config consistency
-  cbflow flow mmmc-manager generate-view-def      Generate Cadence view_definition.tcl
-  cbflow flow mmmc-manager add-mode --name test   Add operating mode
-  cbflow flow mmmc-manager remove-mode --name lp  Remove operating mode
+  cbflow flow mmmc-manager generate --project opensky
+                                                 Generate mmmc_config.tcl (interactive)
+  cbflow flow mmmc-manager show                  Show current MMMC configuration
+  cbflow flow mmmc-manager validate              Validate MMMC config consistency
+  cbflow flow mmmc-manager list-views            List generated analysis views
+  cbflow flow mmmc-manager generate-view-def     Generate Cadence view_definition.tcl
+  cbflow flow mmmc-manager add-mode --name test --sdc <file>
+                                                 Add operating mode
+  cbflow flow mmmc-manager remove-mode --name lp Remove operating mode
 
 Library Manager:
-  cbflow flow library-manager scan --path /libs   Scan directory for .lib files
-  cbflow flow library-manager create --path /libs Generate tech_config library sets
-  cbflow flow library-manager check               Validate configured libraries exist
-  cbflow flow library-manager list                List all configured library sets
-  cbflow flow library-manager generate-mmmc --path /libs
-                                                 Generate MMMC analysis views from libs
+  cbflow flow library-manager scan --path /libs  Scan directory for .lib files
+  cbflow flow library-manager generate           Generate a library tag's lib_config.tcl
+  cbflow flow library-manager add --tag OSS1 --category block --path <release>
+                                                 Add one category to an existing tag
+  cbflow flow library-manager check --lib_tag OSS1
+                                                 Validate a library tag against disk
+  cbflow flow library-manager status --lib_tag OSS1
+                                                 Signoff-readiness report
+  cbflow flow library-manager list               List all configured library sets
+  cbflow flow library-manager -h                 All library-manager commands
 
 Metrics & Dashboard:
   cbflow flow metrics collect                    Collect metrics from runs
   cbflow flow metrics report                     Show metrics summary
   cbflow flow metrics report --flow PNR          Filter by flow type
   cbflow flow metrics export --format csv        Export to CSV
-  cbflow flow dashboard start                    Launch web dashboard
+  cbflow flow dashboard start                    Run dashboard daemon (= cbflow run dashboard)
   cbflow flow dashboard start --port 9090        Custom port
+
+Run-directory aliases: cbflow flow email … / autoppt … = cbflow run email / autoppt
+Discipline-owned subcommands (library-manager, mmmc-manager, checklist) are
+routed to <DISC>/bin/cbflow-<disc> via global/config/cli/discipline_commands.tcl.
 
 EOF
 }

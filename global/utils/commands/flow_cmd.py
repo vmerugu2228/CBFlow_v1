@@ -79,7 +79,7 @@ def __getattr__(name):
 def cmd_types(args: argparse.Namespace) -> int:
     """List all flow types, grouped by discipline.
 
-    --domain <PD|DFT|DV>  filter to one discipline
+    --domain <PD|DFT|DV|RTL>  filter to one discipline
     """
     domain_filter = (getattr(args, 'domain', None) or '').upper() or None
 
@@ -753,7 +753,6 @@ Examples:
   cbflow flow stages --flow PNR
   cbflow flow nodes --flow SYNTH
   cbflow flow check
-  cbflow flow version
         """
     )
 
@@ -762,7 +761,7 @@ Examples:
     # types command
     types_parser = subparsers.add_parser('types', help='List all flow types (grouped by discipline)')
     types_parser.add_argument('--domain', '-d', default=None,
-                              help='Filter to one discipline (PD | DFT | DV)')
+                              help='Filter to one discipline (PD | DFT | DV | RTL)')
 
     # info command
     info_parser = subparsers.add_parser('info', help='Show flow type info')

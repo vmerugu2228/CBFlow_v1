@@ -2,7 +2,19 @@
 
 ## Overview
 
-The MMMC (Multi-Mode Multi-Corner) Manager generates and manages analysis view configurations for timing signoff. It creates `mmmc_config.tcl` from a user-defined PVT matrix, validates each scenario against lib_config, and skips scenarios with missing libraries.
+The MMMC (Multi-Mode Multi-Corner) Manager generates and manages analysis view configurations for timing signoff. It creates `mmmc_config.tcl` from a user-defined PVT matrix, validates each scenario against a library tag's `lib_config.tcl`, and skips scenarios with missing libraries.
+
+Project MMMC files live in `global/config/project/<proj>/v1.0.0/`:
+
+| File | Holds |
+|------|-------|
+| `mmmc_config.tcl` | PVT building blocks, modes, RC corners, scenario sets (cascade step 7) |
+| `mmmc_node_scenarios.tcl` | per-node setup / hold scenario assignments (`array set mmmc {cts {setup {...} hold {...}} ...}`) |
+| `mmmc_view_definition.tcl` | generated MMMC library sets + views for the Cadence flows (`generate-view-def --style flow`) |
+
+Every subcommand accepts `--project <p>` (resolves those files) and `--tech <t>` (tech config); `--config <path>`
+points at an explicit `mmmc_config.tcl`. Outside a run shell pass `--tech` (inside one, `CBFLOW_TECH_NODE` is set).
+The commands are PD-owned and auto-dispatched from `cbflow flow mmmc-manager …`.
 
 ## Quick Start
 
@@ -16,8 +28,9 @@ cbflow flow mmmc-manager generate --tech gf_22nm \
     --voltages "0p76v 0p80v 0p84v" \
     --temperatures "150c 25c m40c"
 
-# View what was generated
-cbflow flow mmmc-manager show
+# View / check a project's config
+cbflow flow mmmc-manager show     --project opensky --tech skywater_130nm
+cbflow flow mmmc-manager validate --project opensky --tech skywater_130nm
 ```
 
 ## Architecture
@@ -32,7 +45,7 @@ temps:    150c 25c m40c             ff_0p76v_150c  SKIP (no libs)
 = 27 combos                        ...                              mmmc_config.tcl
                                     12 valid, 15 skipped             (views, scenario sets)
 
-                                                                     project_config.tcl
+                                                                     mmmc_node_scenarios.tcl
                                                                      (node assignments)
 ```
 
@@ -70,7 +83,8 @@ cbflow flow mmmc-manager generate --tech gf_22nm \
     --modes "func test" \
     --vts "svt lvt hvt" \
     --track 9T \
-    --lib-tag P0
+    --lib-tag P0 \
+    --project bumblebee
 ```
 
 **Options:**
@@ -84,18 +98,22 @@ cbflow flow mmmc-manager generate --tech gf_22nm \
 | `--modes` | Operating modes | From existing config or `func test` |
 | `--vts` | VT filter for lib validation | All VTs |
 | `--track` | Track to validate against | Auto-detected |
-| `--lib-tag` | lib_config tag (e.g., P0) | Auto-detected |
+| `--lib-tag` | Library tag (reads `<lib_tag_root>/<tech>/<TAG>/lib_config.tcl`) | Auto-detected |
+| `--lib-config` | Explicit `lib_config.tcl` (bypasses tag resolution) | — |
+| `--tech-config` | Explicit `tech_config.tcl` | — |
+| `--project` | Also mirror the output to `global/config/project/<p>/v1.0.0/mmmc_config.tcl` | — |
 | `--sdc-pattern` | SDC naming convention | `${design_name}_{mode}.sdc` |
+| `--allow-missing` | Keep PVT combos with no matching `lib_set_ref` (bootstrapping) | fail-fast |
 
 **What it does:**
 
 1. Builds Cartesian product: corners x voltages x temperatures
-2. Resolves lib_config (auto-detects tagged versions)
+2. Resolves the library tag's `lib_config.tcl` (see "Library tag resolution")
 3. Validates each `lib_set_ref` (e.g., `ss_0p76v_150c`) against lib_config
 4. **Skips** scenarios with no matching libraries
 5. Generates analysis views only for valid PVT combos
 6. Creates backup with timestamp before overwriting
-7. Writes `mmmc_node_scenarios.tcl` template for project_config
+7. Writes a `mmmc_node_scenarios.tcl` template
 8. Reports everything clearly
 
 **Output example:**
@@ -129,21 +147,51 @@ cbflow flow mmmc-manager generate --tech gf_22nm \
     Modes: func test
     Analysis views: 24
 
-  Output: config/flow/v1.0.0/mmmc_config.tcl
+  Output: <lib_tag_root>/gf_22nm/P0/mmmc_config.tcl
+          (+ global/config/project/bumblebee/v1.0.0/mmmc_config.tcl with --project)
 ```
+
+The primary output is written **next to the tag's `lib_config.tcl`**, so one tag directory ships both configs;
+`--project` mirrors it into the project config directory the run cascade reads.
 
 ### show — Display current MMMC config
 
 ```bash
-cbflow flow mmmc-manager show
+cbflow flow mmmc-manager show --project opensky --tech skywater_130nm
 ```
 
-Shows process corners, operating modes, PVT points, RC pairing, analysis view count, scenario sets, and node assignments.
+Real output (excerpt):
+
+```
+  Process Corners: ff ss tt
+  Operating Modes:
+    func — ${design_name}_func.sdc
+  PVT Points:
+    ff: {1p95v 100c} {1p95v m40c}
+    ss: {1p60v 100c} {1p60v m40c}
+    tt: {1p80v 100c} {1p80v 25c}
+  RC Corners:
+    rc_max:            temp=125   cap=1.10  res=1.15
+    rc_min:            temp=-40   cap=0.90  res=0.85
+    rc_typ:            temp=25    cap=1.00  res=1.00
+  Analysis Views: 18 (1 modes x 6 PVT combos x 3 RC corners)
+  Scenario Sets:
+    setup:       2 views
+    hold:        2 views
+    signoff:     4 views
+    ...
+  Node Scenario Assignments:  (mmmc_node_scenarios.tcl)
+    cts:            2 setup, 2 hold
+    synthesis:      1 setup, 1 hold
+    timing:         2 setup, 2 hold
+    init_scan:      1 setup, 1 hold
+    ...
+```
 
 ### validate — Check config consistency
 
 ```bash
-cbflow flow mmmc-manager validate
+cbflow flow mmmc-manager validate --project opensky --tech skywater_130nm
 ```
 
 Runs 6 validation checks:
@@ -163,8 +211,11 @@ cbflow flow mmmc-manager list-views
 ### list-scenarios — List scenarios in a set
 
 ```bash
-cbflow flow mmmc-manager list-scenarios --set setup
-cbflow flow mmmc-manager list-scenarios --set signoff
+cbflow flow mmmc-manager list-scenarios --project opensky --tech skywater_130nm --set signoff
+#   1. func_ss_1p60v_rc_max_100c
+#   2. func_ss_1p60v_rc_max_m40c
+#   3. func_ff_1p95v_rc_min_m40c
+#   4. func_ff_1p95v_rc_min_100c
 ```
 
 Available sets: `setup`, `hold`, `power`, `signoff`, `all`, `sta_setup`, `sta_hold`, `sta_signoff`
@@ -172,10 +223,14 @@ Available sets: `setup`, `hold`, `power`, `signoff`, `all`, `sta_setup`, `sta_ho
 ### generate-view-def — Cadence view_definition.tcl
 
 ```bash
-cbflow flow mmmc-manager generate-view-def --output view_definition.tcl
+cbflow flow mmmc-manager generate-view-def --project bumblebee --tech gf_22nm --output view_definition.tcl
+cbflow flow mmmc-manager generate-view-def --project bumblebee --tech gf_22nm --style flow \
+    --output global/config/project/bumblebee/v1.0.0/mmmc_view_definition.tcl
 ```
 
-Generates Cadence MMMC TCL with `create_library_set`, `create_rc_corner`, `create_constraint_mode`, `create_delay_corner`, `create_analysis_view`, and `set_analysis_view` commands.
+`--style standalone` (default) writes a self-contained file with every view and library paths via `::lib_dir`;
+`--style flow` writes the `mmmc_view_definition.tcl` the Cadence flows read (views from the setup + hold + signoff
+scenario sets, libraries / QRC via `$::tech(...)`). Either way it emits Cadence MMMC TCL with `create_library_set`, `create_rc_corner`, `create_constraint_mode`, `create_delay_corner`, `create_analysis_view`, and `set_analysis_view` commands.
 
 ### Manual edit commands
 
@@ -198,9 +253,12 @@ cbflow flow mmmc-manager remove-pvt --corner ss --voltage 0p80v --temperature 25
 cbflow flow mmmc-manager add-rc --name rc_max_cworst --temperature 125 \
     --cap_mult 1.15 --res_mult 1.25 --metal_mult 1.15 --via_mult 1.25
 
-# Override node scenarios
-cbflow flow mmmc-manager set-node --node cts --setup "scen1 scen2" --hold "scen3"
+# Override node scenarios (writes mmmc_node_scenarios.tcl)
+cbflow flow mmmc-manager set-node --project opensky --tech skywater_130nm --node cts \
+    --setup "func_ss_1p60v_rc_max_100c func_ss_1p60v_rc_max_m40c" --hold "func_ff_1p95v_rc_min_m40c"
 ```
+
+Every mutation re-runs the validation checks and refuses to write an inconsistent config.
 
 ## Generated mmmc_config.tcl Structure
 
@@ -231,14 +289,14 @@ set mmmc(pvt,tt) {{0p80v 25c} {0p80v 150c} {0p80v m40c}}
 set mmmc(pvt,ff) {{0p84v m40c} {0p84v 25c} {0p84v 150c} {0p80v m40c}}
 
 # ── RC Pairing ──
-set mmmc(rc_pair,ss) "rcmax"    ;# ss → worst parasitics
-set mmmc(rc_pair,tt) "rctyp"    ;# tt → typical
-set mmmc(rc_pair,ff) "rcmin"    ;# ff → best parasitics
+set mmmc(rc_pair,ss) "rc_max"   ;# ss → worst parasitics
+set mmmc(rc_pair,tt) "rc_typ"   ;# tt → typical
+set mmmc(rc_pair,ff) "rc_min"   ;# ff → best parasitics
 
 # ── Auto-generate analysis views ──
 # Views = modes x corners x PVT (Cartesian product)
 # Format: <mode>_<corner>_<voltage>_<rc>_<temperature>
-# Example: func_ss_0p76v_rcmax_150c
+# Example: func_ss_0p76v_rc_max_150c
 
 # ── Scenario Sets ──
 # setup:   all ss views
@@ -252,52 +310,48 @@ set mmmc(rc_pair,ff) "rcmin"    ;# ff → best parasitics
 # rc_min: cap=0.90 res=0.85 (best case)
 ```
 
-## Node Scenario Assignments (project_config.tcl)
+## Node Scenario Assignments (mmmc_node_scenarios.tcl)
 
-Node assignments are **NOT** in mmmc_config — they're in project_config because they're project-level decisions:
+Node assignments are **not** in mmmc_config — they are project-level decisions in
+`global/config/project/<proj>/v1.0.0/mmmc_node_scenarios.tcl`, keyed by node type:
 
 ```tcl
-# In project_config.tcl:
 array set mmmc {
     init_design {
-        setup {func_tt_0p80v_rctyp_25c}      ;# 1 scenario (speed)
-        hold  {func_tt_0p80v_rctyp_25c}
+        setup {func_tt_0p80v_rc_typ_25c}       ;# 1 scenario (speed)
+        hold  {func_tt_0p80v_rc_typ_25c}
     }
-    placement {
-        setup {                                 ;# 2 scenarios (balance)
-            func_ss_0p76v_rcmax_150c
-            func_ss_0p76v_rcmax_25c
+    cts {
+        setup {
+            func_ss_0p80v_rc_max_125c
+            func_ss_0p80v_rc_max_m40c
         }
         hold {
-            func_ff_0p84v_rcmin_m40c
-            func_ff_0p84v_rcmin_25c
+            func_ff_1p10v_rc_min_125c
+            func_ff_1p10v_rc_min_m40c
         }
     }
-    signoff {
-        setup {                                 ;# all ss scenarios (accuracy)
-            func_ss_0p76v_rcmax_150c
-            func_ss_0p76v_rcmax_25c
-            func_ss_0p76v_rcmax_m40c
-            func_ss_0p80v_rcmax_150c
-            test_ss_0p76v_rcmax_150c
-        }
-        hold { ... }
-    }
+    signoff { setup { ... } hold { ... } }
 }
 ```
 
+Per run, one node's scenarios can be narrowed in `setup/override_config.<node>.tcl`
+(`set mmmc(timing1,setup_scenarios) "..."` / `hold_scenarios`), which the run GUI writes from
+right-click -> MMMC Scenarios.
+
 **Strategy:** Early stages use fewer scenarios (faster iteration), late stages use more (comprehensive signoff).
 
-The `generate` command writes a `mmmc_node_scenarios.tcl` template that you can copy into project_config.
+The `generate` command writes a `mmmc_node_scenarios.tcl` template; `set-node` edits the project file.
 
-## lib_config Tag Resolution
+## Library Tag Resolution
 
-The MMMC manager auto-resolves which lib_config to validate against:
+The MMMC manager resolves which `lib_config.tcl` to validate against:
 
-1. **`--lib-tag P0`** → reads `lib_config_P0.tcl`
-2. **No tag, default exists** → reads `lib_config.tcl`
-3. **No tag, only one tagged config** → auto-selects it
-4. **No tag, multiple tagged configs** → lists them, asks user to specify
+1. **`--lib-config <path>`** → that file
+2. **`--lib-tag P0`** → `<lib_tag_root>/<tech>/P0/lib_config.tcl` (`lib_tag_root`: `CBFLOW_LIB_TAG_ROOT` >
+   `project(lib_tag_root)` > `tech(lib_tag_root)`)
+3. **No tag, one tag available** → auto-selects it
+4. **No tag, several tags** → lists them and asks (or errors: "Please specify --lib-tag")
 
 ## Backup and Overwrite Protection
 
@@ -317,21 +371,24 @@ Backups are timestamped — easy to revert.
 # 1. Generate library config
 cbflow flow library-manager generate --lib-root /libs/gf_22nm --tech gf_22nm --tag P0
 
-# 2. Generate MMMC config (validates against lib_config)
+# 2. Generate MMMC config (validates against the tag, mirrors into the project)
 cbflow flow mmmc-manager generate --tech gf_22nm \
     --corners "ss tt ff" \
     --voltages "0p76v 0p80v 0p84v" \
     --temperatures "150c 25c m40c" \
-    --lib-tag P0
+    --lib-tag P0 --project bumblebee
 
-# 3. Edit node assignments in project_config.tcl
+# 3. Adjust node assignments (mmmc_node_scenarios.tcl)
+cbflow flow mmmc-manager set-node --project bumblebee --tech gf_22nm --node cts \
+    --setup "func_ss_0p76v_rc_max_150c" --hold "func_ff_0p84v_rc_min_m40c"
 
 # 4. Verify
-cbflow flow mmmc-manager show
-cbflow flow mmmc-manager validate
+cbflow flow mmmc-manager show     --project bumblebee --tech gf_22nm
+cbflow flow mmmc-manager validate --project bumblebee --tech gf_22nm
 
-# 5. Generate Cadence view_definition.tcl (for Innovus/Tempus)
-cbflow flow mmmc-manager generate-view-def --output view_definition.tcl
+# 5. Generate the Cadence view definition the flows read (Innovus/Tempus)
+cbflow flow mmmc-manager generate-view-def --project bumblebee --tech gf_22nm --style flow \
+    --output global/config/project/bumblebee/v1.0.0/mmmc_view_definition.tcl
 
 # 6. Run flows
 cbflow workspace create --config uc_SYNTH_PNR.tcl
@@ -349,9 +406,9 @@ cbflow run all
 | mode | func, test, scan | `func` |
 | corner | ss, tt, ff | `ss` |
 | voltage | 0p76v, 0p80v, 0p84v | `0p76v` |
-| rc_corner | rcmax, rctyp, rcmin | `rcmax` |
+| rc_corner | rc_max, rc_typ, rc_min | `rc_max` |
 | temperature | 150c, 25c, m40c | `150c` |
 
-**Full example:** `func_ss_0p76v_rcmax_150c`
+**Full example:** `func_ss_0p76v_rc_max_150c` (opensky: `func_ss_1p60v_rc_max_100c`)
 
 **lib_set_ref** (derived): `ss_0p76v_150c` — maps to `tech(<track>,lib,ss_0p76v_150c,timing)` in lib_config

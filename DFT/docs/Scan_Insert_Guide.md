@@ -16,6 +16,7 @@ lib1     ┘
 |-----------|---------------|-------------------|
 | Mentor    | Tessent       | `tessent`         |
 | Synopsys  | DFT Compiler  | `dft_compiler`    |
+| open source | Fault / Icarus (scan **sign-off** of the SYNTH scan netlist — scan is inserted in SYNTH) | `fault` — stages `netlist1 sdc1 scandef1 …`, see `opensource-dft-guide.md` §4 |
 
 ## Minimal user config
 

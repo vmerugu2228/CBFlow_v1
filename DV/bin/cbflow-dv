@@ -4,8 +4,8 @@
 #
 # Hosts subcommands that are DV-specific (lint waiver management, coverage
 # database merging, formal proof debugging, UPF audit tooling, etc.).
-# Currently the DV-owned subcommand list is EMPTY — every DV flow (LINT /
-# CDC / RDC / SIM / COV_MERGE / FORMAL / UPF_CHECK) runs through the
+# Currently the DV-owned subcommand list is EMPTY — every DV flow (SPEC_RAMP /
+# PLANNING / TB_SETUP / M1-M4_EXEC / ECO_EXEC / DV_SIGNOFF) runs through the
 # cross-domain `cbflow run …` path, so no discipline-specific tooling has
 # been carved out yet.
 #
@@ -52,8 +52,8 @@ show_help() {
   ═══════════════════════════════════════════════════════════════════
 
   This launcher owns DV-specific subcommands. Currently: (none).
-  DV flows themselves (LINT, CDC, RDC, SIM, COV_MERGE, FORMAL,
-  UPF_CHECK) run through the cross-domain \`cbflow run …\` path.
+  DV flows themselves (SPEC_RAMP, PLANNING, TB_SETUP, M1-M4_EXEC,
+  ECO_EXEC, DV_SIGNOFF) run through the cross-domain \`cbflow run …\` path.
 
   Any command not owned here falls through to \$CBFLOW_GLOBAL_DIR/bin/cbflow.
     cbflow-dv workspace list-runs         ← works

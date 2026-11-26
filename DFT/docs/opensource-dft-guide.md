@@ -15,6 +15,10 @@ tools, run through the normal CBflow commands (`cbflow workspace create`,
 Not covered yet: MBIST, boundary scan / TAP (DFT_INSERT_PASS1/2), EDT / OCC
 (PASS3), transition-fault ATPG, and SDF-annotated (timing) pattern simulation.
 
+Related guides: [open-source PD (SYNTH scan insertion, scandef)](../../PD/docs/02-user-guide/opensource-flow-guide.md#dft-scan-insertion),
+[spec-to-GDS chain](../../PD/docs/02-user-guide/spec-to-gds-guide.md) (where these flows run for gcd P3),
+[open-source RTL (spec memories with MBIST intent)](../../RTL/docs/opensource-rtl-guide.md).
+
 ## 1. Tools and install
 
 Everything runs in the CBflow tool container (`global/bin/cbflow-oss`), which
@@ -79,6 +83,11 @@ set project(dft,atpg,fault_coverage_min)  90.0
 
 ## 4. SCAN_INSERT (`SCAN_INSERT_fault_config.tcl`)
 
+Inputs `netlist1`, `sdc1`, `scandef1` (SYNTH release: `netlist/<d>.v`,
+`sdc/<d>.scan.sdc`, `def/<d>.scandef` — handshakes `SCAN_INSERT,netlist|sdc|scandef`).
+Keys: `scan_insert(oss,flush,enable)` (default `true`),
+`scan_insert(oss,allow_unscanned)` (default `false`).
+
 | Stage | Does |
 |---|---|
 | init_scan1 | scan cells from the liberty (`test_cell` signal types), netlist → Yosys JSON, cell census; no scan flops → error naming `project(dft,enable)` |
@@ -88,15 +97,21 @@ set project(dft,atpg,fault_coverage_min)  90.0
 
 ## 5. ATPG (`ATPG_fault_config.tcl`)
 
+Inputs `netlist1` (`ATPG,netlist` — any release with `netlist/<d>.v`) and
+`scandef1` (`ATPG,scandef` — the SCAN_INSERT scandef). Pre-PD reads both from
+`atpg(input,release_tag) "SCAN_INSERT_EXIT"`; post-PD takes the netlist from the
+PNR exit (`atpg(input,netlist_release_tag) "BTO"`) and the scandef from
+`atpg(input,scandef_release_tag) "SCAN_INSERT_EXIT"`.
+
 | Stage | Does |
 |---|---|
-| init_atpg1 | decision node: `atpg(pd_phase)` pre / post; chains re-traced on this netlist and compared with the SCAN_INSERT scandef (different flops → error, reorder → warning, patterns follow this netlist); macro stubs |
+| init_atpg1 | decision node: `atpg(pd_phase)` pre (→ zd_sim1, signoff1; timing_sim1 skipped) / post (→ zd_sim1, timing_sim1, signoff1); chains re-traced on this netlist and compared with the SCAN_INSERT scandef (different flops → error, reorder → warning, patterns follow this netlist); macro stubs |
 | pattern_gen1 | macros replaced by stubs (outputs held 0) and flattened → `fault cut` → `nl2bench` → `bench-clean` (constants, held ports `atpg(oss,hold_ports)`, logic the cut leaves unobservable — counted, not tested) → Atalanta (`atpg(oss,atalanta,backtrack|phase2_backtrack|random_packets|compaction|seed|fill)`) |
 | fault_sim1 | independent stuck-at fault simulation of the pattern set: cell-pin faults (every netlist net and cell input branch), all patterns bit-parallel; `atpg(oss,fault_sim,sample)` N > 0 samples N faults (± 95 % CI) |
 | coverage_report1 | fault coverage, test coverage (= detected / (faults − proven redundant)), aborted, excluded logic, undetected faults, pin-fault coverage |
 | export_patterns1 | patterns mapped onto the chain order (inversions undone): `patterns.json`, STIL-style `patterns.stil`, self-checking serial-scan testbench `scan_tb.v` (top ports only) |
 | zd_sim1 | the testbench on the gate netlist (zero-delay); any mismatch fails |
-| timing_sim1 | post-PD only; **not supported** — fails with that message; bypass it explicitly (`cbflow run bypass --stages timing_sim1`) and the ATPG_POSTPD_EXIT timing check stays open |
+| timing_sim1 | post-PD only; **not supported** — fails with that message; bypass it explicitly (`cbflow run bypass --stages timing_sim1`; the spec-to-GDS chain does it through `project(signoff_chain,bypass) { ATPG_post {timing_sim1} }`) and the ATPG_POSTPD_EXIT timing check stays open |
 | signoff1 | coverage vs `project(dft,atpg,*_min)`, zd 0 mismatches; `signoff.rpt`, `delivery/MANIFEST.json` |
 | release_data1 | `ATPG_PREPD_EXIT` / `ATPG_POSTPD_EXIT`: `patterns/<d>.atpg.stil`, `<d>.patterns.json`, `<d>_scan_tb.v`, `<d>_macro_stubs.v`, `scan/<d>.scandef` |
 
@@ -106,15 +121,65 @@ excluded.
 
 ## 6. GLS_FUNC / GLS_SCAN_MBIST (`*_iverilog_config.tcl`)
 
-Stages `init_sim1 compile1 run_sim1 coverage1 release_data1`. Keys:
-`<arr>(oss,tb_top)`, `oss,defines`, `oss,plusargs`, `oss,macros models|stubs`,
-`oss,pass_regex`, `oss,fail_regex`, `oss,toggle,enable`, `oss,dump_scope`
-(toggle coverage over the nets of that scope, depth 1). GLS_FUNC uses the memory
+Stages: GLS_FUNC `netlist1 testbench1 init_sim1 compile1 run_sim1 coverage1
+release_data1`; GLS_SCAN_MBIST `netlist1 patterns1 init_sim1 …` (patterns =
+the ATPG release's `patterns/<d>_scan_tb.v`, handshake `GLS_SCAN_MBIST,patterns`).
+Both are signoff-style: `<arr>(release,exit_from) "input,netlist_release_tag"`
+(the release is filed under that exit, e.g. `GLS_FUNC/BTO`), the testbench /
+patterns input exempt.
+
+| Key | GLS_FUNC | GLS_SCAN_MBIST |
+|---|---|---|
+| `<arr>(oss,tb_top)` | `""` — set it (e.g. `gcd_gls_tb`) | `cbflow_scan_tb` |
+| `<arr>(oss,defines)` / `oss,plusargs` | `{}` / `{}` | `{}` / `{}` |
+| `<arr>(oss,macros)` | `models` | `stubs` |
+| `<arr>(oss,pass_regex)` | `TEST PASSED` | `SCAN PATTERN TEST PASSED` |
+| `<arr>(oss,fail_regex)` | `ERROR\|TEST FAILED\|MISMATCH` | `MISMATCH\|TEST FAILED` |
+| `<arr>(oss,toggle,enable)` | `true` | `false` |
+| `<arr>(oss,dump_scope)` | `""` — toggle coverage over the nets of that scope, depth 1 (e.g. `gcd_gls_tb.dut`) | `""` |
+
+A run passes when the pass regex is in the log, no fail-regex line is, and
+`$finish` is reached. GLS_FUNC uses the memory
 models of the library tag (`oss_dft.py model-fix` moves the memory declaration ahead
 of its use — iverilog rejects the OpenRAM model otherwise); GLS_SCAN_MBIST uses the macro
 stubs, matching the ATPG model. `gls_scan_mbist(oss,verify)` must be `scan`.
 
-## 7. Example (gcd, P2) — workarea/gcd/
+## 7. Spec-to-GDS pilot (gcd, P3) — workarea/gcd/
+
+The P3 runs are steps of the [spec-to-GDS chain](../../PD/docs/02-user-guide/spec-to-gds-guide.md)
+(`project(signoff_chain,P3)`): SCAN_INSERT in stage 4, ATPG_pre in 5, ATPG_post /
+GLS_FUNC / GLS_SCAN_MBIST in 6.
+
+```tcl
+# uc_SCAN_INSERT_P3.tcl
+set scan_insert(tool,name)          "fault"
+set scan_insert(input,release_tag)  "P3_SYNTH_v1"
+# uc_ATPG_pre_P3.tcl
+set atpg(tool,name)            "fault"
+set atpg(pd_phase)             "pre"
+set atpg(input,release_tag)    "SCAN_INSERT_EXIT"
+# uc_ATPG_post_P3.tcl
+set atpg(pd_phase)                  "post"
+set atpg(input,netlist_release_tag) "BTO"
+set atpg(input,scandef_release_tag) "SCAN_INSERT_EXIT"
+# uc_GLS_FUNC_P3.tcl
+set gls_func(tool,name)                 "iverilog"
+set gls_func(input,netlist_release_tag) "BTO"
+set gls_func(input,testbench)           "<CBFLOW_ROOT>/inputs/opensky/gcd/P3/tb/gcd_gls_tb.v"
+set gls_func(oss,tb_top)                "gcd_gls_tb"
+set gls_func(oss,dump_scope)            "gcd_gls_tb.dut"
+# uc_GLS_SCAN_MBIST_P3.tcl
+set gls_scan_mbist(tool,name)                  "iverilog"
+set gls_scan_mbist(input,netlist_release_tag)  "BTO"
+set gls_scan_mbist(input,patterns_release_tag) "ATPG_PREPD_EXIT"
+```
+
+`inputs/opensky/gcd/P3/tb/gcd_gls_tb.v` drives the queue over APB with both
+SRAMs, the stream interface and the counters (scan ports held 0). In the P3
+chain run stage 6 passed: ATPG post-PD, GLS_FUNC (queue + stream + registers on
+the BTO netlist) and GLS_SCAN_MBIST.
+
+## 8. Example (gcd, P2) — workarea/gcd/
 
 ```bash
 cbflow workspace create --config uc_SCAN_INSERT_P2.tcl    && (cd P2_run_SCAN_INSERT_gcd_p2_scan && cbflow run all)
