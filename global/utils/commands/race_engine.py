@@ -1834,6 +1834,7 @@ class RaceEngine:
 
     def forcevalidate_jobs(self, job_names: list) -> int:
         """Force-validate specific jobs by name (subnode-level)."""
+        self._check_ownership()
         count = 0
         for jname in job_names:
             job = self.jobs.get(jname)
@@ -1846,6 +1847,7 @@ class RaceEngine:
 
     def bypass_jobs(self, job_names: list) -> int:
         """Bypass specific jobs by name (subnode-level). Works on any status."""
+        self._check_ownership()
         count = 0
         for jname in job_names:
             job = self.jobs.get(jname)
@@ -1886,6 +1888,32 @@ class RaceEngine:
             logger.info(f"Downstream invalidated: {', '.join(down_stages)}")
 
         return self.execute_jobs(target_jobs)
+
+    def force_jobs(self, job_names: list) -> int:
+        """Force re-execute specific jobs (e.g. one MMMC scenario subnode of a
+        dynamic stage). Jobs that depend on them — the stage's validate /
+        finish and every later stage — are invalidated; sibling scenarios
+        are not touched."""
+        self._check_ownership()
+        targets = {j for j in job_names if j in self.jobs}
+        dependents = {}
+        for name, job in self.jobs.items():
+            for dep in job.deps:
+                dependents.setdefault(dep, []).append(name)
+        downstream, queue = set(), [d for j in targets for d in dependents.get(j, [])]
+        while queue:
+            n = queue.pop(0)
+            if n in downstream or n in targets:
+                continue
+            downstream.add(n)
+            queue.extend(dependents.get(n, []))
+        downstream = {n for n in downstream if self.jobs[n].is_completed}
+        self._invalidate_jobs(list(targets | downstream))
+        logger.info(f"Force re-execute: {', '.join(sorted(targets))}")
+        if downstream:
+            logger.info("Downstream invalidated: " + ', '.join(
+                sorted({self.jobs[n].stage for n in downstream})))
+        return self.execute_jobs(targets)
 
     def _collect_downstream(self, source_stages: set, result: set):
         """Collect all jobs that are TRUE downstream of source_stages via dependency graph."""

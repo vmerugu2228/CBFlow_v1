@@ -467,6 +467,8 @@ appear where the artifact is semantically unique to one upstream.
 - Sets globals: ::CORNER, ::MODE, ::VOLTAGE, ::TEMPERATURE, ::RC_CORNER, ::LIB_SET, ::SDC_FILE, ::SPEF_FILE
 - Per-node independent scenarios via override_config
 - GUI: right-click timing node → MMMC Scenarios → select → Save
+- CLI per scenario: `cbflow run bypass|force --stages timing1:<scenario>`, `forcevalidate --node timing1:<scenario>`
+  (or the job name `timing1_<scenario>`); force re-runs that scenario only and invalidates its dependents
 
 ## Key Design Principles
 - **No hardcoded defaults** — mandatory vars error if not set

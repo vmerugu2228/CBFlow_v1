@@ -165,14 +165,23 @@ Status tracked in RACE DB -- no stamp files.
 
 ### Individual Scenario Control
 
-The CLI flow controls act on stages (`timing1`), not on scenario subnodes:
+`bypass`, `force` and `forcevalidate` take a whole stage or one scenario subnode,
+written `<stage>:<scenario>` or as its job name `<stage>_<scenario>` (an unknown
+scenario lists the stage's scenarios):
 
 ```bash
-cbflow run status --details              # status of every scenario subnode
-cbflow run force --stages timing1        # re-run the timing stage
-cbflow run bypass --stages reporting1    # skip a stage
-cbflow run interactive --node timing1_func_ss_0p76v_rcmax_150c   # one scenario, interactive
+cbflow run status --details                                    # status of every scenario subnode
+cbflow run force  --stages timing1:func_ss_1p60v_rc_max_100c    # re-run one scenario
+cbflow run bypass --stages timing1:func_ff_1p95v_rc_min_m40c    # skip one scenario
+cbflow run forcevalidate --node timing1:func_ff_1p95v_rc_min_100c   # mark one scenario done
+cbflow run force  --stages timing1                              # re-run the whole timing stage
+cbflow run interactive --node timing1_func_ss_1p60v_rc_max_100c  # one scenario, interactive
 ```
+
+Forcing a scenario re-runs only that scenario; completed jobs that depend on it
+(the stage's validate / finish and later stages such as reporting and release)
+are invalidated and re-run by `cbflow run all`, while sibling scenarios keep
+their results. The same form addresses extraction corners (`extraction1:rc_max`).
 
 The scenario list of a node is chosen per node: `setup/override_config.<node>.tcl`
 (or right-click the timing node in the run GUI → MMMC Scenarios → Save).

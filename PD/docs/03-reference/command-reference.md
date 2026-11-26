@@ -101,9 +101,9 @@ runs from the workarea, and `release-check` / `release-lock`).
 | Subcommand | Flags | Purpose |
 |---|---|---|
 | `retrace` | `--from STAGE`, `--run` | Invalidate a stage and every later stage (all when no `--from`) |
-| `bypass` | `--stages/-s A,B` (req) | Mark stages done without running (`work/<FLOW>/<node>/BYPASSED`) |
-| `force` | `--stages/-s A,B` (req) | Re-run only these stages |
-| `forcevalidate` | `--node/-n X` \| `--from X [--to Y]` \| `--to Y` \| `--stages A,B` | Mark stages done (ran outside CBflow) |
+| `bypass` | `--stages/-s A,B` (req) | Mark stages or `<stage>:<scenario>` subnodes done without running (`work/<FLOW>/<node>/BYPASSED` once a whole stage is bypassed) |
+| `force` | `--stages/-s A,B` (req) | Re-run these stages or `<stage>:<scenario>` subnodes now; completed dependents are invalidated (sibling scenarios untouched) |
+| `forcevalidate` | `--node/-n X` \| `--from X [--to Y]` \| `--to Y` \| `--stages A,B` | Mark stages (or `<stage>:<scenario>` subnodes) done (ran outside CBflow) |
 | `clean` | `--confirm` | Delete `work/`, `logs/`; deregister from the dashboard |
 
 ### DAG editing

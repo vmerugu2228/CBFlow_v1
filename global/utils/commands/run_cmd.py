@@ -807,27 +807,63 @@ def cmd_stage(args: argparse.Namespace) -> int:
     return result
 
 
+def _split_targets(names, valid_stages, engine):
+    """(stages, jobs) from bypass / force / forcevalidate targets: a stage
+    (timing1), a scenario subnode as <stage>:<scenario>
+    (timing1:func_ss_1p60v_rc_max_100c) or its job name
+    (timing1_func_ss_1p60v_rc_max_100c). Raises ValueError listing the
+    stage's scenarios when a target matches nothing."""
+    stages, jobs = [], []
+    for n in names:
+        if n in valid_stages:
+            stages.append(n)
+            continue
+        job = n.replace(':', '_', 1) if ':' in n else n
+        j = engine.jobs.get(job)
+        if j is not None and getattr(j, 'job_type', 'subnode') != 'stage':
+            jobs.append(job)
+            continue
+        stage = n.split(':', 1)[0] if ':' in n else next(
+            (st for st in valid_stages if n.startswith(st + '_')), '')
+        if stage in valid_stages:
+            subs = sorted(x.split(stage + '_', 1)[1] for x, jj in engine.jobs.items()
+                          if jj.stage == stage and x.startswith(stage + '_')
+                          and x.split(stage + '_', 1)[1] not in ('setup', 'run', 'validate', 'finish'))
+            raise ValueError(f"{n}: no such subnode of {stage}"
+                             + (f" — scenarios: {', '.join(subs)}" if subs else ' (it has no scenario subnodes)'))
+        raise ValueError(f"Invalid stage: {n}. Valid: {', '.join(valid_stages)} "
+                         "(a scenario subnode as <stage>:<scenario>)")
+    return stages, jobs
+
+
 def cmd_bypass(args: argparse.Namespace) -> int:
     """Bypass (skip) stages — mark as DONE without executing."""
     if not is_run_directory():
         logger.error("Error: Not in a valid run directory")
         return 1
 
-    stages = [s.strip() for s in args.stages.split(',')]
+    names = [s.strip() for s in args.stages.split(',') if s.strip()]
     flow_type = get_flow_type()
     valid = get_all_stages(flow_type)
-    for s in stages:
-        if s not in valid:
-            logger.error(f"Invalid stage: {s}. Valid: {', '.join(valid)}")
-            return 1
 
     from race_engine import RaceEngine
     run_env = load_run_env()
     engine = RaceEngine(os.getcwd(), flow_type, run_env)
-    if engine.initialize():
+    if not engine.initialize():
+        return 1
+    try:
+        stages, jobs = _split_targets(names, valid, engine)
+    except ValueError as e:
+        logger.error(str(e))
+        return 1
+    rc = 0
+    if stages:
         logger.info(f"Bypassing stages: {', '.join(stages)}")
-        return engine.bypass(stages)
-    return 1
+        rc = engine.bypass(stages)
+    if jobs and rc == 0:
+        logger.info(f"Bypassing subnodes: {', '.join(jobs)}")
+        rc = engine.bypass_jobs(jobs)
+    return rc
 
 
 def cmd_forcevalidate(args: argparse.Namespace) -> int:
@@ -876,18 +912,24 @@ def cmd_forcevalidate(args: argparse.Namespace) -> int:
         logger.error("Specify --node, --from/--to, or --stages")
         return 1
 
-    for s in stages:
-        if s not in all_stages:
-            logger.error(f"Invalid stage: {s}. Valid: {', '.join(all_stages)}")
-            return 1
-
     from race_engine import RaceEngine
     run_env = load_run_env()
     engine = RaceEngine(os.getcwd(), flow_type, run_env)
-    if engine.initialize():
+    if not engine.initialize():
+        return 1
+    try:
+        stages, jobs = _split_targets(stages, all_stages, engine)
+    except ValueError as e:
+        logger.error(str(e))
+        return 1
+    rc = 0
+    if stages:
         logger.info(f"Force-validating: {', '.join(stages)}")
-        return engine.forcevalidate(stages)
-    return 1
+        rc = engine.forcevalidate(stages)
+    if jobs and rc == 0:
+        logger.info(f"Force-validating subnodes: {', '.join(jobs)}")
+        rc = engine.forcevalidate_jobs(jobs)
+    return rc
 
 
 def cmd_force(args: argparse.Namespace) -> int:
@@ -896,21 +938,28 @@ def cmd_force(args: argparse.Namespace) -> int:
         logger.error("Error: Not in a valid run directory")
         return 1
 
-    stages = [s.strip() for s in args.stages.split(',')]
+    names = [s.strip() for s in args.stages.split(',') if s.strip()]
     flow_type = get_flow_type()
     valid = get_all_stages(flow_type)
-    for s in stages:
-        if s not in valid:
-            logger.error(f"Invalid stage: {s}. Valid: {', '.join(valid)}")
-            return 1
 
     from race_engine import RaceEngine
     run_env = load_run_env()
     engine = RaceEngine(os.getcwd(), flow_type, run_env)
-    if engine.initialize():
+    if not engine.initialize():
+        return 1
+    try:
+        stages, jobs = _split_targets(names, valid, engine)
+    except ValueError as e:
+        logger.error(str(e))
+        return 1
+    rc = 0
+    if stages:
         logger.info(f"Force re-running stages: {', '.join(stages)}")
-        return engine.force(stages)
-    return 1
+        rc = engine.force(stages)
+    if jobs and rc == 0:
+        logger.info(f"Force re-running subnodes: {', '.join(jobs)}")
+        rc = engine.force_jobs(jobs)
+    return rc
 
 
 def cmd_debug(args: argparse.Namespace) -> int:
@@ -3535,20 +3584,36 @@ Examples:
   cbflow run bypass --stages init_design1        Skip just init_design
   cbflow run bypass --stages cts1,cts_opt1,route1,pro1,signoff1
                                                  Release place1 as PLACE_EXIT:
-                                                 then cbflow run stage --name release_data1""")
+                                                 then cbflow run stage --name release_data1
+  cbflow run bypass --stages timing1:func_ff_1p95v_rc_min_m40c
+                                                 Skip one STA scenario
+
+A target is a stage (timing1) or one scenario subnode of a dynamic MMMC
+stage — <stage>:<scenario> (timing1:func_ss_1p60v_rc_max_100c) or its job
+name (timing1_func_ss_1p60v_rc_max_100c); an unknown scenario lists the
+stage's scenarios.""")
     bypass_parser.add_argument('--stages', '-s', required=True,
-                               help='Comma-separated stages to bypass')
+                               help='Comma-separated stages and/or <stage>:<scenario> subnodes to bypass')
 
     # force command
     force_parser = subparsers.add_parser('force', help='Force re-run specific stages only',
-        formatter_class=_fmt, description="""Force re-execute specific stages without invalidating downstream.
-Only the named stages are invalidated and re-run. Dependencies must already be DONE.
+        formatter_class=_fmt, description="""Force re-execute specific stages (or scenario subnodes) now.
+The named targets re-run; completed jobs that depend on them are invalidated
+(re-run them with cbflow run all). For a scenario subnode only that scenario
+re-runs — its sibling scenarios keep their results. Dependencies must already be DONE.
 
 Examples:
-  cbflow run force --stages place1               Re-run place only
-  cbflow run force --stages cts1,cts_opt1        Re-run CTS stages""")
+  cbflow run force --stages place1               Re-run place
+  cbflow run force --stages cts1,cts_opt1        Re-run CTS stages
+  cbflow run force --stages timing1:func_ss_1p60v_rc_max_100c
+                                                 Re-run one STA scenario
+
+A target is a stage (timing1) or one scenario subnode of a dynamic MMMC
+stage — <stage>:<scenario> (timing1:func_ss_1p60v_rc_max_100c) or its job
+name (timing1_func_ss_1p60v_rc_max_100c); an unknown scenario lists the
+stage's scenarios.""")
     force_parser.add_argument('--stages', '-s', required=True,
-                              help='Comma-separated stages to force re-run')
+                              help='Comma-separated stages and/or <stage>:<scenario> subnodes to force re-run')
 
     # forcevalidate command
     fv_parser = subparsers.add_parser('forcevalidate', help='Mark stages as already completed',
@@ -3565,8 +3630,13 @@ Examples:
   cbflow run forcevalidate --node place1
   cbflow run forcevalidate --from inputs1 --to synthesis1
   cbflow run forcevalidate --to place1     Mark everything up to place as done
-  cbflow run forcevalidate --from route1   Mark route onwards as done""")
-    fv_parser.add_argument('--node', '-n', help='Single stage to mark as completed')
+  cbflow run forcevalidate --from route1   Mark route onwards as done
+  cbflow run forcevalidate --node timing1:func_ff_1p95v_rc_min_100c
+                                           Mark one STA scenario as done
+
+--node / --stages also take a scenario subnode: <stage>:<scenario> or its
+job name (a stage's scenarios are listed when the name is unknown).""")
+    fv_parser.add_argument('--node', '-n', help='Single stage (or <stage>:<scenario>) to mark as completed')
     fv_parser.add_argument('--from', dest='from_stage', help='Start of range (inclusive)')
     fv_parser.add_argument('--to', dest='to_stage', help='End of range (inclusive)')
     fv_parser.add_argument('--stages', '-s', help='Comma-separated list (backward compat)')
