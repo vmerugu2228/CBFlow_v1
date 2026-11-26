@@ -25,4 +25,4 @@ fi
 [[ -f "$CBFLOW_CORE_DIR/config/cbflow.env" ]] && source "$CBFLOW_CORE_DIR/config/cbflow.env"
 
 # Execute Python command handler
-exec python3 "$CBFLOW_CORE_DIR/utils/commands/run_cmd.py" "$@"
+exec python3 "$CBFLOW_GLOBAL_DIR/utils/commands/run_cmd.py" "$@"

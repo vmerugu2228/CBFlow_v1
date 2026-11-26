@@ -2507,15 +2507,23 @@ Examples:
   cbflow flow checklist status --milestone FP_EXIT --run-dir /path/to/run
   cbflow flow checklist sign-off --milestone FP_EXIT --run-dir /path/to/run --approver chip_lead
   cbflow flow checklist list
+  cbflow flow checklist list --discipline DFT
+  cbflow flow checklist list-checks --milestone BTO --phase P3
   cbflow flow checklist waiver --action list --milestone FP_EXIT
   cbflow flow checklist waiver --action add --milestone FP_EXIT --check congestion_analysis --reason "..." --approver chip_lead
+
+Milestones are declared in global/config/exit/v1.0.0/<MILESTONE>_config.tcl
+(PD: FP_EXIT PLACE_EXIT CTS_EXIT PRO_EXIT BTO MTO; DFT: CORE_DFT_EXIT ...
+ATPG_POSTPD_EXIT; DV: SPEC_RAMP_EXIT ... DV_SIGNOFF_EXIT; RTL: SPEC_EXIT
+LINT_SIGNOFF CDC_SIGNOFF UPF_SIGNOFF). Waivers: max 90 days, none on BTO/MTO.
         """)
     sub = parser.add_subparsers(dest='command', help='Checklist commands')
 
     # Exit milestones are discipline-owned but centrally declared in
     # global/config/exit/v1.0.0/. The --discipline flag filters by owner
     # ('PD' / 'DFT' / 'DV'); omit it to see every discipline.
-    _DISC_CHOICES = ['PD', 'DFT', 'DV']
+    from core import registry as _flow_registry       # flow(disciplines): PD DFT DV RTL
+    _DISC_CHOICES = _flow_registry.flow_disciplines()
 
     # generate
     g = sub.add_parser('generate', help='Generate a formatted checklist for a milestone')

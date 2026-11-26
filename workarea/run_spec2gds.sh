@@ -27,7 +27,9 @@ PROJECT=${PROJECT:-opensky}
 LOG=$WA/$B/spec2gds_${PHASE}.log
 RES=$(mktemp -d "${TMPDIR:-/tmp}/spec2gds.XXXXXX")
 
-say() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG"; }
+say() {    # a dry run prints the plan without writing the log
+    if [ -n "${DRY:-}" ]; then echo "[$(date +%H:%M:%S)] $*"; else echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG"; fi
+}
 die() { echo "run_spec2gds: ERROR: $*" >&2; exit 1; }
 
 # ── project config: chain, bypass list, release area ────────────────────────

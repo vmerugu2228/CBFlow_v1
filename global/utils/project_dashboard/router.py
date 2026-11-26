@@ -337,7 +337,7 @@ def make_handler(project):
                     return self._send(500, 'text/html',
                                       f'<p>Could not start the {html.escape(disc)} run dashboard:</p>'
                                       f'<pre>{html.escape(str(e))}</pre>'
-                                      f'<p>Start it from a shell: <code>cbflow dashboard start --discipline {html.escape(disc)}</code></p>')
+                                      f'<p>Start it from a shell: <code>cbflow run dashboard start --discipline {html.escape(disc)}</code></p>')
             if not url:
                 return self._send(500, 'text/plain', f'{disc} run dashboard did not come up')
             self.send_response(302)
@@ -2165,7 +2165,7 @@ _FLOORPLAN_PANE = """
       // forgiving: "cell:foo", "cell: foo", "Cell: foo" all parse.
       const SCOPES = ['cell', 'start', 'end', 'clock', 'data'];
       // Regex literal so backslash escapes survive Python string interpolation.
-      const PREFIX_RE = /^(cell|start|end|clock|data)\s*:\s*(.*)$/i;
+      const PREFIX_RE = /^(cell|start|end|clock|data)\\s*:\\s*(.*)$/i;
 
       function parseQuery(rawQ, dropdownScope) {
         const q = {general: [], cell: [], start: [], end: [], clock: [], data: []};
@@ -2174,7 +2174,7 @@ _FLOORPLAN_PANE = """
         // bare "cell:" is followed by a plain token.
         const raw = (rawQ || '').trim();
         if (!raw && dropdownScope === 'any') return q;
-        const parts = raw.split(/\s+/).filter(Boolean);
+        const parts = raw.split(/\\s+/).filter(Boolean);
         for (let i = 0; i < parts.length; i++) {
           const t = parts[i];
           const m = t.match(PREFIX_RE);

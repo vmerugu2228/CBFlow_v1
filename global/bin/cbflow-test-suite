@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Back-compat shim. The real implementation lives in
-PD/utils/commands/test_cmd.py.
+global/utils/commands/test_cmd.py.
 
 Preserves the original CI-facing behavior: static config-validation only
 (no e2e). New callers should use `cbflow test` directly.
@@ -11,13 +11,11 @@ Passes through --flow, --category, --verbose verbatim.
 import os
 import sys
 
-# Launcher lives under global/bin/; PD is a sibling of global/.
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-if os.path.basename(os.path.dirname(SCRIPT_DIR)) == 'global':
-    PD_DIR = os.path.join(os.path.dirname(os.path.dirname(SCRIPT_DIR)), 'PD')
-else:
-    PD_DIR = os.path.dirname(SCRIPT_DIR)
-sys.path.insert(0, os.path.join(PD_DIR, 'utils', 'commands'))
+# Launcher lives in global/bin/ (bin/ holds a symlink to it): the command
+# modules are in <root>/global/utils/commands, shared packages in global/utils.
+_GLOBAL = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(_GLOBAL, 'utils'))
+sys.path.insert(0, os.path.join(_GLOBAL, 'utils', 'commands'))
 
 from test_cmd import main as _main
 

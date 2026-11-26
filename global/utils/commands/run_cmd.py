@@ -2701,15 +2701,21 @@ def cmd_release_lock(args: argparse.Namespace) -> int:
     import stat
 
     unlock = getattr(args, 'unlock', False)
-    core_dir = os.environ.get('CBFLOW_CORE_DIR', '')
-    if not core_dir:
-        # Try to find from script location
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        core_dir = os.path.dirname(os.path.dirname(script_dir))
-
-    if not os.path.isdir(core_dir):
-        logger.error(f"Cannot find CBflow core directory: {core_dir}")
+    # Framework trees: bin/, global/ and every discipline directory
+    # (flow(discipline_dir,*)); workarea / inputs / releases stay writable.
+    from core import registry as _flow_registry
+    try:
+        _root = _flow_registry.root()
+        trees = [os.path.join(_root, 'bin'), os.path.join(_root, 'global')] + [
+            _flow_registry.discipline_dir(d) for d in _flow_registry.flow_disciplines()]
+    except _flow_registry.RegistryError as e:
+        logger.error(f"Cannot resolve the CBflow trees: {e}")
         return 1
+    trees = [t for t in trees if os.path.isdir(t)]
+    if not trees:
+        logger.error(f"No CBflow framework directory found under {_root}")
+        return 1
+    core_dir = ', '.join(trees)
 
     mode_label = "UNLOCK (777)" if unlock else "LOCK (production)"
     logger.info("")
@@ -2726,7 +2732,7 @@ def cmd_release_lock(args: argparse.Namespace) -> int:
     exec_exts = {'.sh', '.csh', '.bash', '.zsh'}
     exec_names = set()
 
-    for root, dirs, files in os.walk(core_dir):
+    for root, dirs, files in (w for t in trees for w in os.walk(t)):
         # Skip hidden dirs
         dirs[:] = [d for d in dirs if not d.startswith('.')]
 
@@ -2771,7 +2777,7 @@ def cmd_release_lock(args: argparse.Namespace) -> int:
         logger.info(f"    Scripts/Python:  555 (r-xr-xr-x)")
         logger.info(f"    Config/TCL/Docs: 444 (r--r--r--)")
         logger.info("")
-        logger.info(f"  To unlock for development: cbflow release lock --unlock")
+        logger.info(f"  To unlock for development: cbflow run release-lock --unlock")
     logger.info("")
     return 0
 
@@ -3303,9 +3309,9 @@ def cmd_help(args: argparse.Namespace) -> int:
     logger.info("  cbflow run all --lsf                   Submit stages via LSF")
     logger.info("  cbflow run all --lsf --queue XL        Submit with specific LSF queue")
     logger.info("  cbflow run all --collect-metrics        Collect timing metrics after run")
-    logger.info("  cbflow run stage --name place           Run a single stage")
-    logger.info("  cbflow run stage --name cts --validate  Run stage with validation")
-    logger.info("  cbflow run stage --name route --lsf     Submit single stage to LSF")
+    logger.info("  cbflow run stage --name place1          Run a single stage")
+    logger.info("  cbflow run stage --name cts1 --validate Run stage with validation")
+    logger.info("  cbflow run stage --name route1 --lsf    Submit single stage to LSF")
     logger.info("")
 
     logger.info(f"STATUS & MONITORING:")
@@ -3315,7 +3321,7 @@ def cmd_help(args: argparse.Namespace) -> int:
     logger.info("  cbflow run report                 Detailed per-node report (setup, config, errors)")
     logger.info("  cbflow run report --node place1   Report for a specific node only")
     logger.info("  cbflow run report --no-dump       Report without dumping setup file contents")
-    logger.info("  cbflow run targets                List all available make targets")
+    logger.info("  cbflow run targets                List runnable stages")
     logger.info("  cbflow run lsf-status             Show LSF job queue status")
     logger.info("")
 
@@ -3323,8 +3329,8 @@ def cmd_help(args: argparse.Namespace) -> int:
     logger.info("  cbflow run validate                    Validate config + inputs + outputs")
     logger.info("  cbflow run validate --type config      Validate configuration only")
     logger.info("  cbflow run validate --type inputs      Validate netlist, SDC, DEF")
-    logger.info("  cbflow run validate --stage place      Validate outputs for 'place' stage")
-    logger.info("  cbflow run validate --type exit --stage cts  Check CTS exit criteria")
+    logger.info("  cbflow run validate --stage place1     Validate outputs for 'place1'")
+    logger.info("  cbflow run validate --type exit --stage cts1  Check CTS exit criteria")
     logger.info("")
 
     logger.info(f"LOG VIEWER:")
@@ -3338,7 +3344,7 @@ def cmd_help(args: argparse.Namespace) -> int:
 
     logger.info(f"RETRACE & FLOW CONTROL:")
     logger.info("  cbflow run retrace                Invalidate all jobs (rerun everything)")
-    logger.info("  cbflow run retrace --from cts     Invalidate from CTS stage onwards")
+    logger.info("  cbflow run retrace --from cts1    Invalidate from cts1 onwards")
     logger.info("  cbflow run bypass --stages X,Y    Skip stages (mark done without running)")
     logger.info("  cbflow run force --stages X       Re-run only X (no downstream invalidation)")
     logger.info("  cbflow run forcevalidate --node X       Mark single stage as already done")
@@ -3350,15 +3356,17 @@ def cmd_help(args: argparse.Namespace) -> int:
     logger.info("  cbflow run list-nodes             List all flow nodes")
     logger.info("  cbflow run show-graph             Show dependency graph with status")
     logger.info("  cbflow run show-graph --detail    Show graph with subnode details")
-    logger.info("  cbflow run add-node --node eco1 --type eco --dep signoff")
-    logger.info("                                    Add custom node after signoff")
-    logger.info("  cbflow run delete-node --node eco1")
+    logger.info("  cbflow run add-node --node place2 --type place --dep place1")
+    logger.info("                                    Add custom node after place1")
+    logger.info("  cbflow run set-dep --node export_data1 --deps place1")
+    logger.info("                                    Rewire a node (--reset restores)")
+    logger.info("  cbflow run delete-node --node place2")
     logger.info("                                    Remove custom node")
     logger.info("")
 
     logger.info(f"BRANCH MANAGEMENT:")
-    logger.info("  cbflow run create-branch --branch fix_timing --from place")
-    logger.info("                                    Branch from place stage")
+    logger.info("  cbflow run create-branch --branch fix_timing --from place1")
+    logger.info("                                    Branch from place1")
     logger.info("  cbflow run list-branches          List all branches")
     logger.info("  cbflow run delete-branch --branch fix_timing")
     logger.info("")
@@ -3368,6 +3376,11 @@ def cmd_help(args: argparse.Namespace) -> int:
     logger.info("  cbflow run update                 Update to latest workspace release")
     logger.info("  cbflow run update --release v1.0.1  Update to specific version")
     logger.info("  cbflow run gen-makefile           Verify engine DAG structure")
+    logger.info("  cbflow run release --tag PLACE_EXIT          Release (from workarea)")
+    logger.info("  cbflow run release --tag BTO --publish       Release + publish to SmartGrid")
+    logger.info("  cbflow run release --from-run . --publish    Publish a run's own release")
+    logger.info("  cbflow run release --from-run . --clone-from BTO --tag MTO")
+    logger.info("                                    Copy the BTO release to MTO")
     logger.info("")
 
     logger.info(f"EMAIL & REPORTING:")
@@ -3386,13 +3399,12 @@ def cmd_help(args: argparse.Namespace) -> int:
     logger.info("")
 
     logger.info(f"INTERACTIVE SESSION:")
-    logger.info("  cbflow run interactive                        Open tool in xterm (GUI)")
-    logger.info("  cbflow run interactive --load place1          Load place1 design")
-    logger.info("  cbflow run interactive --load signoff1        Load signoff checkpoint")
+    logger.info("  cbflow run interactive --node place1          Load place1 design")
+    logger.info("  cbflow run interactive --node signoff1        Load signoff checkpoint")
     logger.info("")
 
     logger.info(f"CLEANUP:")
-    logger.info("  cbflow run clean --confirm        Delete work/, logs/, stamps/")
+    logger.info("  cbflow run clean --confirm        Delete work/, logs/")
     logger.info("")
 
     if stages:
@@ -3428,17 +3440,21 @@ Quick Reference:
   cbflow run all                                 Run complete flow
   cbflow run all --validate                      Run with validation checks
   cbflow run all --lsf --queue XL                Submit to LSF cluster
-  cbflow run stage --name place                  Run single stage
+  cbflow run stage --name place1                 Run single stage
   cbflow run status --details                    Show detailed progress
-  cbflow run validate --stage cts                Validate stage outputs
+  cbflow run validate --stage cts1               Validate stage outputs
   cbflow run logs --tail 50 --level ERROR        View recent errors
   cbflow run show-graph --detail                 Visualize flow graph
-  cbflow run add-node --node eco1 --type export_data --dep signoff
-  cbflow run retrace --from cts                  Rerun from CTS onwards
+  cbflow run add-node --node place2 --type place --dep place1
+  cbflow run set-dep --node export_data1 --deps place1   Rewire a node
+  cbflow run bypass --stages cts1,route1         Mark stages done without running
+  cbflow run retrace --from cts1                 Reset cts1 onwards (--run reruns)
   cbflow run report                              Detailed node report with setup dumps
   cbflow run report --node place1                Report for specific node
   cbflow run lsf-status                          Check LSF job queue
   cbflow run checklist --milestone BTO --phase P3  Run exit milestone checklist
+  cbflow run release --tag PLACE_EXIT --publish  Release (from workspace) + publish
+  cbflow run release --from-run . --publish      Publish a run's own release (open-source)
   cbflow run email --to user@co.com --template run-status   Send email report
   cbflow run autoppt                             Generate run summary PPT/HTML
 
@@ -3470,12 +3486,12 @@ Examples:
         formatter_class=_fmt, description="""Run a single stage or subnode of the flow.
 
 Examples:
-  cbflow run stage --name place              Run full placement stage (all subnodes)
-  cbflow run stage -n cts                    Short form
+  cbflow run stage --name place1             Run full placement stage (all subnodes)
+  cbflow run stage -n cts1                   Short form
   cbflow run stage --name init_design1 --subnode run    Run only the 'run' subnode
   cbflow run stage -n cts1 -s setup          Run only CTS setup subnode
-  cbflow run stage --name route --validate   Run with validation
-  cbflow run stage --name signoff --lsf      Submit to LSF""")
+  cbflow run stage --name route1 --validate  Run with validation
+  cbflow run stage --name signoff1 --lsf     Submit to LSF""")
     stage_parser.add_argument('--name', '-n', dest='stage', required=True, help='Stage name')
     stage_parser.add_argument('--subnode', '-s', default=None,
                              help='Run a specific subnode only (e.g., setup, run, validate, finish)')
@@ -3495,27 +3511,31 @@ Examples:
     status_parser.add_argument('--output', '-o', help='Dump status to a text file')
 
     # retrace command
-    retrace_parser = subparsers.add_parser('retrace', help='Clear stamps to force rerun',
-        formatter_class=_fmt, description="""Remove completion stamps so stages will rerun.
+    retrace_parser = subparsers.add_parser('retrace', help='Invalidate stages so they rerun',
+        formatter_class=_fmt, description="""Invalidate stages in the RACE DB so they rerun.
 
-Does NOT automatically rerun - only clears stamps. Use --run to also execute.
+Does NOT automatically rerun - only invalidates. Use --run to also execute.
 
 Examples:
-  cbflow run retrace                 Clear all stamps
-  cbflow run retrace --from cts      Clear from CTS stage onwards
-  cbflow run retrace --run           Clear all stamps and rerun
-  cbflow run retrace --from cts --run  Clear from CTS and rerun""")
+  cbflow run retrace                    Invalidate all stages
+  cbflow run retrace --from cts1        Invalidate cts1 and every later stage
+  cbflow run retrace --run              Invalidate all stages and rerun
+  cbflow run retrace --from cts1 --run  Invalidate from cts1 and rerun""")
     retrace_parser.add_argument('--from', dest='from_stage', help='Retrace from this stage onwards')
-    retrace_parser.add_argument('--run', action='store_true', help='Rerun flow after clearing stamps')
+    retrace_parser.add_argument('--run', action='store_true', help='Rerun the flow after invalidating')
 
     # bypass command
     bypass_parser = subparsers.add_parser('bypass', help='Skip stages (mark as done without running)',
         formatter_class=_fmt, description="""Mark stages as DONE without executing.
 Useful for skipping stages not needed in this run (e.g., skip export_data).
+A fully bypassed stage gets work/<FLOW>/<node>/BYPASSED.
 
 Examples:
   cbflow run bypass --stages export_data1,release_data1
-  cbflow run bypass --stages init_design1        Skip just init_design""")
+  cbflow run bypass --stages init_design1        Skip just init_design
+  cbflow run bypass --stages cts1,cts_opt1,route1,pro1,signoff1
+                                                 Release place1 as PLACE_EXIT:
+                                                 then cbflow run stage --name release_data1""")
     bypass_parser.add_argument('--stages', '-s', required=True,
                                help='Comma-separated stages to bypass')
 
@@ -3553,7 +3573,7 @@ Examples:
 
     # clean command
     clean_parser = subparsers.add_parser('clean', help='Clean run directory',
-        formatter_class=_fmt, description="""Delete all work files, logs, and stamps.
+        formatter_class=_fmt, description="""Delete all work files and logs (and deregister the run from the dashboard).
 
 Examples:
   cbflow run clean --confirm         Delete work/, logs/""")
@@ -3589,9 +3609,11 @@ Arguments:
   --node, -n    Node name (optional - auto-generated as type+next_number if omitted)
 
 Examples:
-  cbflow run add-node --type drc --dep inputs1          # auto-names as drc2
-  cbflow run add-node --type place --dep cts1           # auto-names as place2
-  cbflow run add-node --node eco_fix1 --type eco --dep signoff1  # explicit name
+  cbflow run add-node --type place --dep place1         # auto-names as place2
+  cbflow run add-node --node export_data2 --type export_data --dep place1
+  cbflow run add-node --node release_data2 --type release_data --dep export_data2
+
+  Added nodes inherit runtime,timeout from their base stage.
 
   Use 'cbflow run list-nodes' to see existing nodes
   Use 'cbflow run show-graph' to see the dependency graph""")
@@ -3605,14 +3627,7 @@ Examples:
                                 choices=[''] + _lsf_tiers(),
                                 help=('Override LSF resource tier for this node '
                                       '(XS/S/M/L/XL/ultra). Omit to inherit from '
-                                      'the base stage or lsf(default_queue_type). '
-                                      'argparse validates against the known set '
-                                      'so a typo like --resource-tier XLL is '
-                                      'rejected at parse time — the tier value '
-                                      'is written verbatim into runtime_flow_config '
-                                      'and race_engine reads it directly, so an '
-                                      'unvalidated string would silently fall '
-                                      'through the cascade to base or default.'))
+                                      'the base stage or lsf(default_queue_type).'))
 
     # set-dep command
     set_dep_parser = subparsers.add_parser('set-dep', help='Rewire a node\'s dependencies',
@@ -3656,8 +3671,8 @@ Examples:
         formatter_class=_fmt, description="""Create a branch in the flow from an existing stage.
 
 Examples:
-  cbflow run create-branch --branch fix_timing --from place
-  cbflow run create-branch -b experiment -from cts""")
+  cbflow run create-branch --branch fix_timing --from place1
+  cbflow run create-branch -b experiment --from cts1""")
     branch_parser.add_argument('--branch', '-b', required=True, help='Branch name')
     branch_parser.add_argument('--from', dest='from_stage', required=True, help='Source stage to branch from')
 
@@ -3691,7 +3706,7 @@ Examples:
     update_parser.add_argument('--no-backup', action='store_true', help='Skip backup of environment files')
 
     # gen-makefile command
-    subparsers.add_parser('gen-makefile', help='Verify engine DAG',
+    subparsers.add_parser('gen-makefile', help='Verify the RACE DAG (legacy name)',
         formatter_class=_fmt, description="""Verify the RACE DAG for the current run.
 
 Examples:
@@ -3708,22 +3723,28 @@ Examples:
     release_parser = subparsers.add_parser('release', help='Milestone-gated release to shared path',
         formatter_class=_fmt, description="""Package deliverables from ALL required flows into a release directory.
 
-Release is milestone-gated: all required flows for the active tag must have completed runs.
-Tags are predefined in release_config.tcl. The active tag is set by leads in project config.
+Run from the workarea (default) or point --from-run at a run that released itself.
+Release is milestone-gated: all required flows for the tag must have completed runs,
+and earlier exits of the phase (project(phase_exits)) must already be released.
+Layout: <project(release,path)>/<phase>/<block>/<FLOW>/<tag>
+Tags are predefined in release_config.tcl; default tag = project(release,active_tag).
+Publishing to SmartGrid is opt-in (--publish).
 
 Examples:
-  cbflow run release                    Release using active tag (publishes if SmartGrid is running)
+  cbflow run release                    Release using the active tag
   cbflow run release --tag BTO          Override with explicit tag
-  cbflow run release --no-publish       Release locally, skip SmartGrid publish
-  cbflow run release --dry-run          Validate only, don't copy files""")
+  cbflow run release --tag BTO --publish  Release + publish to SmartGrid
+  cbflow run release --dry-run          Validate only, don't copy files
+  cbflow run release --from-run . --node release_data1 --publish
+                                        Publish an open-source run's own release
+  cbflow run release --from-run <run> --clone-from BTO --tag MTO --publish
+                                        Copy the BTO release to MTO and publish it""")
     release_parser.add_argument('--tag', '-t', help='Exit milestone to release (default: project active_tag)')
     release_parser.add_argument('--name', default=None,
                                 help='Release tag name (default: the exit name)')
     release_parser.add_argument('--dry-run', action='store_true', help='Validate only, no file copy')
-    # Publish is DEFAULT-ON — the release is the moment project-level
-    # stakeholders need visibility. default=None (not True) so cmd_release
-    # can tell "flag not given" (best-effort publish, never fails the
-    # release) from an explicit --publish (publish failure is an error).
+    # Publish is opt-in. default=None (not False) so cmd_release can tell
+    # "flag not given" from an explicit --no-publish.
     # Tri-state publish (None = flag not given). Two store_const options on
     # one dest, not the boolean-optional argparse action: that needs Python 3.9+
     # and this parser is built for every `cbflow run` invocation.
@@ -3748,7 +3769,7 @@ Examples:
                                      'place); default the flow\'s release_data node.')
     release_parser.add_argument('--no-publish', dest='publish', action='store_const',
                                 const=False,
-                                help='Skip the SmartGrid publish.')
+                                help='Skip the SmartGrid publish (the default; kept for scripts).')
     release_parser.add_argument('--override', action='store_true',
                                 help='On publish: replace an existing published entry '
                                      'for this (project, block, phase, milestone) cell')
@@ -3769,21 +3790,21 @@ Examples:
 Scans all blocks in project(block_list) and verifies each has complete releases for all required flows.
 
 Examples:
-  cbflow run release-check --tag BTO --project bumblebee --phase P2
-  cbflow run release-check --tag PLACE_EXIT --project bumblebee
-  cbflow run release-check --tag BTO --project bumblebee --block cpu_core""")
+  cbflow run release-check --tag BTO --project opensky --phase P2
+  cbflow run release-check --tag PLACE_EXIT --project bumblebee --phase LC2
+  cbflow run release-check --tag BTO --project bumblebee --phase LC3 --block cpu_core""")
     rc_parser.add_argument('--tag', '-t', required=True, help='Release tag to check')
     rc_parser.add_argument('--project', '-p', required=True, help='Project name')
     # No default: --phase must be explicit. Pre-fix the P0 default silently
     # mis-tagged release-check runs on non-P0 projects (bumblebee uses LC1-LC5).
     rc_parser.add_argument('--phase',
-                           help='Design phase (required; use project(current_phase) '
-                                'from project_config.tcl if unsure)')
+                           help='Design phase from project(phases) (e.g. opensky P0-P3, '
+                                'bumblebee LC1-LC5); default $CBFLOW_PROJECT_PHASE')
     rc_parser.add_argument('--block', '-b', help='Check specific block only (default: all blocks)')
 
     # targets command
-    subparsers.add_parser('targets', help='List make targets',
-        formatter_class=_fmt, description="""List all available make targets in the Makefile.
+    subparsers.add_parser('targets', help='List runnable stages',
+        formatter_class=_fmt, description="""List the stages of this run as 'cbflow run stage' commands.
 
 Examples:
   cbflow run targets""")
@@ -3816,8 +3837,8 @@ Examples:
   cbflow run validate                    Full validation (config + inputs + outputs)
   cbflow run validate --type config      Validate configuration files only
   cbflow run validate --type inputs      Validate netlist, SDC, DEF files
-  cbflow run validate --stage place      Validate stage outputs + exit criteria
-  cbflow run validate --type exit --stage cts   Check CTS exit criteria""")
+  cbflow run validate --stage place1     Validate stage outputs + exit criteria
+  cbflow run validate --type exit --stage cts1  Check CTS exit criteria""")
     validate_parser.add_argument('--type', choices=['all', 'config', 'inputs', 'exit'],
                                 default='all', help='Validation type')
     validate_parser.add_argument('--stage', help='Stage to validate')
@@ -3839,7 +3860,12 @@ Examples:
                                help='Skip dumping setup file contents')
 
     # lsf-status command
-    lsf_parser = subparsers.add_parser('lsf-status', help='Show LSF job status')
+    lsf_parser = subparsers.add_parser('lsf-status', help='Show LSF job status',
+        formatter_class=_fmt, description="""Show the LSF jobs of this run.
+
+Examples:
+  cbflow run lsf-status
+  cbflow run lsf-status --flow PNR""")
     lsf_parser.add_argument('--flow', help='Filter by flow type')
 
     # debug command — print the resolved cascade dict for this run.
@@ -3869,6 +3895,7 @@ Examples:
 
 Restores a node's saved design and opens the tool in GUI mode.
 Creates a working directory under INTERACTIVE/<node>_<timestamp>.
+Open-source runs (openroad / sta / yosys) open via cbflow-oss interactive.
 
 For STA (PT/Tempus), --node may name either the stage (e.g. timing1) or a
 per-scenario subnode (e.g. timing1_func_ss_0p80v_rcmax_125c). The subnode form
@@ -3883,7 +3910,7 @@ Examples:
     interactive_parser.add_argument('--node', '-n', required=True,
                                    help='Node or subnode to restore (stage names or STA per-scenario subnodes)')
     interactive_parser.add_argument('--notiming', action='store_true', default=False,
-                                   help='Launch Innovus without timing libraries (faster startup)')
+                                   help='Launch without timing libraries (faster startup; Innovus)')
 
     # email command
     try:
@@ -3920,7 +3947,7 @@ Examples:
     except release_exits.PhaseExitsError:
         _ms_help = 'MILESTONE_ORDER in release_config.tcl'
     ck.add_argument('--milestone', '-m', help=f'Exit milestone ({_ms_help})')
-    ck.add_argument('--phase', '-p', help='Design phase (P0, P1, P2, P3)')
+    ck.add_argument('--phase', '-p', help='Design phase from project(phases) (e.g. P0-P3, LC1-LC5)')
     ck.add_argument('--format', '-f', choices=['text', 'json', 'html'], default='text', help='Output format')
     ck.add_argument('--project', default='', help='Project name for threshold overrides')
     ck.add_argument('--sign-off', action='store_true', dest='sign_off', help='Record sign-off')
@@ -3933,9 +3960,10 @@ Examples:
 
 Default: registers this run with the per-user dashboard daemon
 (starts the daemon if not running) and opens the browser to the
-run's deep-link. The daemon's port is deterministic per-user
-(9000 + uid %% 1000) — pass --port to 'cbflow dashboard start',
-not here.
+run's deep-link. The daemon's port is deterministic per user and
+discipline: flow(dashboard,port_base,<DISC>) + uid % flow(dashboard,port_width)
+(PD 9000, DFT 9300, DV 9600, RTL 9900; width 300) — pass --port to
+'cbflow run dashboard start', not here.
 
 Examples:
   cbflow run gui                  Register + open in daemon (default)
@@ -3947,7 +3975,7 @@ Examples:
                                   Legacy server on a specific port""")
     dash_parser.add_argument('--port', '-p', type=int, default=0,
                              help='Port for --foreground mode only (default: auto). '
-                                  'In daemon mode use: cbflow dashboard start --port N')
+                                  'In daemon mode use: cbflow run dashboard start --port N')
     dash_parser.add_argument('--no-browser', action='store_true', dest='no_browser', help='Don\'t open browser')
     dash_parser.add_argument('--foreground', action='store_true',
                              help='Run a per-run foreground server (legacy). Skips the daemon.')
@@ -3969,8 +3997,14 @@ Examples:
 Lists all existing RACE databases for the current user, shows disk usage,
 and provides options to delete old/unwanted sessions.
 
-The maximum number of DB sessions is controlled by flow(race,db_max_sessions)
-in flow_config.tcl (default: 10). A warning is issued when the threshold is reached.""")
+The maximum number of DB sessions is controlled by flow(race,db_max_sessions).
+A warning is issued when the threshold is reached.
+
+Examples:
+  cbflow run db-manage                  Check session count vs limit
+  cbflow run db-manage --list           List all DBs (owner, flow, result, size)
+  cbflow run db-manage --cleanup        Interactive delete (owner only)
+  cbflow run db-manage --delete <run>   Delete one run's DB (owner only)""")
     db_parser.add_argument('--list', '-l', action='store_true', dest='db_list', help='List all databases')
     db_parser.add_argument('--delete', '-d', metavar='RUN', help='Delete DB for a specific run')
     db_parser.add_argument('--cleanup', action='store_true', help='Interactive cleanup of old databases')

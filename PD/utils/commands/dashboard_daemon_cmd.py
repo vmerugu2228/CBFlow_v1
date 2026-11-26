@@ -62,16 +62,14 @@ import registry
 import state_paths
 
 
-# DFT discipline is identified by the run's flow_type. Keep in sync with
-# global/config/flow/v1.0.0/flow_registry.tcl's flow(discipline,*) DFT entries.
-_DFT_FLOWS = {'DFT_INSERT_PASS1', 'DFT_INSERT_PASS2', 'DFT_INSERT_PASS3',
-              'SCAN_INSERT', 'ATPG', 'GLS_FUNC', 'GLS_SCAN_MBIST'}
+# A run's discipline is flow(discipline,<flow_type>) (global flow registry).
+from core import registry as _flow_registry
 
 
 def _discipline_for_run_dir(run_dir):
-    """Read flow_type from .run.cbflow.env and map to PD/DFT. Returns 'PD'
-    if anything fails — registration without a discoverable env file falls
-    through to the default daemon."""
+    """Read flow_type from .run.cbflow.env and map it to its discipline
+    (flow(discipline,<flow>)). Returns 'PD' if anything fails — registration
+    without a discoverable env file falls through to the default daemon."""
     env_file = os.path.join(run_dir, '.run.cbflow.env')
     if not os.path.exists(env_file):
         return 'PD'
@@ -81,7 +79,10 @@ def _discipline_for_run_dir(run_dir):
                 line = line.strip()
                 if line.startswith('export CBFLOW_FLOW_TYPE='):
                     val = line.split('=', 1)[1].strip().strip('"').strip("'")
-                    return 'DFT' if val in _DFT_FLOWS else 'PD'
+                    try:
+                        return _flow_registry.flow_discipline(val)
+                    except _flow_registry.RegistryError:
+                        return 'PD'
     except OSError:
         pass
     return 'PD'
@@ -155,7 +156,7 @@ def cmd_status(args):
     _apply_discipline(args)
     if args.all:
         rc_any = 0
-        for d in ('PD', 'DFT'):
+        for d in _flow_registry.flow_disciplines():
             state_paths.set_discipline(d)
             print(f'── {d} ──')
             rc = _show_one_status()
@@ -271,7 +272,7 @@ def cmd_list(args):
     _apply_discipline(args)
     if args.all:
         rc = 0
-        for d in ('PD', 'DFT'):
+        for d in _flow_registry.flow_disciplines():
             state_paths.set_discipline(d)
             print(f'── {d} ──')
             rc = rc or _list_one()
@@ -406,7 +407,7 @@ def _add_disc(p):
                    help=f'Discipline ({" / ".join(_discs)}). Defaults: register auto-detects '
                         'from the run\'s flow_type; other verbs default to PD.')
     p.add_argument('--project', default=None,
-                   help='Project scope (e.g. denali, bumblebee). When set, the '
+                   help='Project scope (e.g. opensky, bumblebee). When set, the '
                         'daemon runs in per-project mode with its own state dir '
                         'and port — multiple projects coexist independently. '
                         'Unset (default): legacy single-daemon-per-discipline.')
@@ -414,11 +415,22 @@ def _add_disc(p):
 
 def create_parser():
     parser = argparse.ArgumentParser(
-        prog='cbflow dashboard',
-        description='Per-discipline, per-user dashboard daemon. PD and DFT '
-                    'each get their own daemon and port — PD on 9000 + uid%%500, '
-                    'DFT on 9500 + uid%%500. Pass --discipline {PD,DFT} to any '
-                    'verb (register auto-detects from the run\'s flow_type).')
+        prog='cbflow run dashboard',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description='Per-discipline, per-user run dashboard daemon. Each discipline\n'
+                    'gets its own daemon and port: flow(dashboard,port_base,<DISC>) +\n'
+                    'uid % flow(dashboard,port_width) (PD 9000, DFT 9300, DV 9600,\n'
+                    'RTL 9900; width 300). --project <p> runs a per-project daemon on\n'
+                    'flow(dashboard,project_port_base,<DISC>) + hash % 1000.\n'
+                    'Pass --discipline to any verb (register auto-detects).',
+        epilog='Examples:\n'
+               '  cbflow run dashboard start                     PD daemon (background)\n'
+               '  cbflow run dashboard start --discipline RTL    RTL daemon\n'
+               '  cbflow run dashboard start --project opensky   Per-project PD daemon\n'
+               '  cbflow run dashboard status --all\n'
+               '  cbflow run dashboard open <run_dir>            Deep-link a run\n'
+               '  cbflow run dashboard prune -y                  Purge stale entries\n'
+               '  cbflow run gui                                 Register this run + open')
     sub = parser.add_subparsers(dest='cmd', required=False)
 
     def _add_bind(p):

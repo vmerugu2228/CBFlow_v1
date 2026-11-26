@@ -27,7 +27,11 @@ if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "au
 set ::flow::exec_mode "auto"
 flow_proc signoff {
     set _fh [open "[cbflow_node_dir [oss_chain_node collect]]/reports/collect.rpt"]; set _c [read $_fh]; close $_fh
-    set _bad [regexp -all -line {^\s+\S+\s*:\s*(?!PASS\s)} $_c]
+    # exit rows "  <EXIT> : <status> <dir>" whose status is not PASS
+    set _bad 0
+    foreach _l [split $_c \n] {
+        if {[regexp {^\s+(\S+)\s*:\s*(\S+)} $_l -> _e _st] && $_st ne "PASS"} { incr _bad }
+    }
     set _fh [open [oss_input metrics]]; set _m [read $_fh]; close $_fh
     regexp {"plan_coverage":\s*([\d.]+)} $_m -> _pc
     regexp {"pass_rate":\s*([\d.]+)} $_m -> _pr
