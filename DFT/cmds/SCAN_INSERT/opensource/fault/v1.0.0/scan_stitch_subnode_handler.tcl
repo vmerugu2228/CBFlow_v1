@@ -15,7 +15,7 @@ set ::flow_type "SCAN_INSERT"
 set stage_name "scan_stitch"
 if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [cbflow_require scan_insert tool,version]
+set _tool_ver [handler_tool_version]
 set cmd_file "$::env(CBFLOW_DFT_DIR)/cmds/SCAN_INSERT/opensource/fault/$_tool_ver/scan_stitch_fault.tcl"
 
 set test_mode [handler_is_test_mode]

@@ -15,7 +15,7 @@ set ::flow_type "TB_SETUP"
 set stage_name "tb_gen"
 if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [cbflow_require tb_setup tool,version]
+set _tool_ver [handler_tool_version]
 set cmd_file "$::env(CBFLOW_DV_DIR)/cmds/TB_SETUP/opensource/verilator/$_tool_ver/tb_gen_verilator.tcl"
 
 set test_mode [handler_is_test_mode]

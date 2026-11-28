@@ -15,7 +15,7 @@ set ::flow_type "SYNTH"
 set stage_name "release_data"
 if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [expr {[info exists ::env(YOSYS_VERSION)] && $::env(YOSYS_VERSION) ne "" ? $::env(YOSYS_VERSION) : [cbflow_require synth tool,version]}]
+set _tool_ver [handler_tool_version YOSYS_VERSION]
 set cmd_file "$::env(FLOW_DIR)/PD/cmds/SYNTH/opensource/yosys/$_tool_ver/release_data_yosys.tcl"
 
 set test_mode [handler_is_test_mode]

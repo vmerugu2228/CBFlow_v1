@@ -15,7 +15,7 @@ set ::flow_type "RTL_CDC"
 set stage_name "compile"
 if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [cbflow_require rtl_cdc tool,version]
+set _tool_ver [handler_tool_version]
 set cmd_file "$::env(CBFLOW_RTL_DIR)/cmds/RTL_CDC/opensource/opencdc/$_tool_ver/compile_opencdc.tcl"
 
 set test_mode [handler_is_test_mode]

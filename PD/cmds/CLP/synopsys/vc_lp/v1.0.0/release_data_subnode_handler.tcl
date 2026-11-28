@@ -14,7 +14,7 @@ set ::flow_type "CLP"
 set stage_name "release_data"
 if {$node_name eq ""} { set node_name "${stage_name}1" }
 
-set _tool_ver [expr {[info exists ::env(VC_LP_VERSION)] ? $::env(VC_LP_VERSION) : "v1.0.0"}]
+set _tool_ver [handler_tool_version VC_LP_VERSION]
 set cmd_file "$::env(FLOW_DIR)/PD/cmds/CLP/synopsys/vc_lp/$_tool_ver/release_data_vc_lp.tcl"
 
 set test_mode [handler_is_test_mode]

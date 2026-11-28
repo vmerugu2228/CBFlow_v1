@@ -15,7 +15,7 @@ set ::flow_type "M3_EXEC"
 set stage_name "signoff"
 if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [cbflow_require m3_exec tool,version]
+set _tool_ver [handler_tool_version]
 set cmd_file "$::env(CBFLOW_DV_DIR)/cmds/M3_EXEC/opensource/verilator/$_tool_ver/signoff_verilator.tcl"
 
 set test_mode [handler_is_test_mode]

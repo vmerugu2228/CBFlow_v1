@@ -1,0 +1,130 @@
+# Release v2.0.0
+
+## Overview
+- **Version:** v2.0.0
+- **Date:** 2026-11-28
+- **Milestone:** N/A
+
+## Description
+openSKY_v2 baseline: open-source spec-to-GDS flow, versioned command trees (handler_tool_version), multi-discipline
+
+## Components
+- **DFT.config.flow:** v1.0.0
+- **DFT.config.project.bumblebee:** v1.0.0
+- **DFT.config.project.opensky:** v1.0.0
+- **DFT.utils.utilities:** v1.0.0
+- **DV.config.flow:** v1.0.0
+- **DV.config.project.bumblebee:** v1.0.0
+- **DV.config.project.opensky:** v1.0.0
+- **DV.utils.utilities:** v1.0.0
+- **PD.utils.utilities:** v1.0.0
+- **RTL.config.flow:** v1.0.0
+- **RTL.utils.utilities:** v1.0.0
+- **cmds.ATPG.mentor.tessent:** v2.0.0
+- **cmds.ATPG.opensource.fault:** v2.0.0
+- **cmds.ATPG.synopsys.testmax:** v2.0.0
+- **cmds.CLP.cadence.conformal_lp:** v2.0.0
+- **cmds.CLP.synopsys.vc_lp:** v2.0.0
+- **cmds.DFT_INSERT_PASS1.mentor.tessent:** v2.0.0
+- **cmds.DFT_INSERT_PASS1.synopsys.dft_compiler:** v2.0.0
+- **cmds.DFT_INSERT_PASS2.mentor.tessent:** v2.0.0
+- **cmds.DFT_INSERT_PASS2.synopsys.dft_compiler:** v2.0.0
+- **cmds.DFT_INSERT_PASS3.mentor.tessent:** v2.0.0
+- **cmds.DFT_INSERT_PASS3.synopsys.dft_compiler:** v2.0.0
+- **cmds.DV_SIGNOFF.generic.review:** v2.0.0
+- **cmds.DV_SIGNOFF.opensource.verilator:** v2.0.0
+- **cmds.ECO.cadence.innovus:** v2.0.0
+- **cmds.ECO.opensource.openroad:** v2.0.0
+- **cmds.ECO.synopsys.fc:** v2.0.0
+- **cmds.ECO_EXEC.generic.review:** v2.0.0
+- **cmds.EMIR.cadence.voltus:** v2.0.0
+- **cmds.EMIR.synopsys.redhawk:** v2.0.0
+- **cmds.FCFP.cadence.innovus:** v2.0.0
+- **cmds.FCFP.synopsys.fc:** v2.0.0
+- **cmds.FP.cadence.innovus:** v2.0.0
+- **cmds.FP.opensource.openroad:** v2.0.0
+- **cmds.FP.synopsys.fc:** v2.0.0
+- **cmds.GLS_FUNC.mentor.questa:** v2.0.0
+- **cmds.GLS_FUNC.opensource.iverilog:** v2.0.0
+- **cmds.GLS_FUNC.synopsys.vcs:** v2.0.0
+- **cmds.GLS_SCAN_MBIST.mentor.questa:** v2.0.0
+- **cmds.GLS_SCAN_MBIST.opensource.iverilog:** v2.0.0
+- **cmds.GLS_SCAN_MBIST.synopsys.vcs:** v2.0.0
+- **cmds.LEC.cadence.conformal:** v2.0.0
+- **cmds.LEC.opensource.yosys:** v2.0.0
+- **cmds.LEC.synopsys.formality:** v2.0.0
+- **cmds.M1_EXEC.generic.review:** v2.0.0
+- **cmds.M1_EXEC.opensource.verilator:** v2.0.0
+- **cmds.M2_EXEC.generic.review:** v2.0.0
+- **cmds.M2_EXEC.opensource.verilator:** v2.0.0
+- **cmds.M3_EXEC.generic.review:** v2.0.0
+- **cmds.M3_EXEC.opensource.verilator:** v2.0.0
+- **cmds.M4_EXEC.generic.review:** v2.0.0
+- **cmds.M4_EXEC.opensource.verilator:** v2.0.0
+- **cmds.PLANNING.generic.review:** v2.0.0
+- **cmds.PNR.cadence.innovus:** v2.0.0
+- **cmds.PNR.opensource.openroad:** v2.0.0
+- **cmds.PNR.synopsys.fc:** v2.0.0
+- **cmds.POPT.synopsys.power_compiler:** v2.0.0
+- **cmds.POPT.synopsys.pt:** v2.0.0
+- **cmds.PV.mentor.calibre:** v2.0.0
+- **cmds.PV.opensource.magic:** v2.0.0
+- **cmds.PV.synopsys.icv:** v2.0.0
+- **cmds.RTL_CDC.cadence.jaspergold:** v2.0.0
+- **cmds.RTL_CDC.opensource.opencdc:** v2.0.0
+- **cmds.RTL_CDC.synopsys.spyglass:** v2.0.0
+- **cmds.RTL_LINT.cadence.jaspergold:** v2.0.0
+- **cmds.RTL_LINT.opensource.verilator:** v2.0.0
+- **cmds.RTL_LINT.synopsys.spyglass:** v2.0.0
+- **cmds.RTL_RDC.cadence.jaspergold:** v2.0.0
+- **cmds.RTL_RDC.synopsys.spyglass:** v2.0.0
+- **cmds.RTL_SPEC.opensource.rtlcheck:** v2.0.0
+- **cmds.SCAN_INSERT.mentor.tessent:** v2.0.0
+- **cmds.SCAN_INSERT.opensource.fault:** v2.0.0
+- **cmds.SCAN_INSERT.synopsys.dft_compiler:** v2.0.0
+- **cmds.SPEC_RAMP.generic.review:** v2.0.0
+- **cmds.STA.cadence.tempus:** v2.0.0
+- **cmds.STA.opensource.opensta:** v2.0.0
+- **cmds.STA.synopsys.pt:** v2.0.0
+- **cmds.SYNTH.cadence.genus:** v2.0.0
+- **cmds.SYNTH.opensource.yosys:** v2.0.0
+- **cmds.SYNTH.synopsys.fc:** v2.0.0
+- **cmds.SYNTH_PNR.synopsys.fc:** v2.0.0
+- **cmds.TB_SETUP.generic.review:** v2.0.0
+- **cmds.TB_SETUP.opensource.verilator:** v2.0.0
+- **cmds.UPF_CHECK.cadence.conformal_lp:** v2.0.0
+- **cmds.UPF_CHECK.opensource.rtlcheck:** v2.0.0
+- **cmds.UPF_CHECK.synopsys.vc_lp:** v2.0.0
+- **cmds._shared.generic.review:** v2.0.0
+- **config.exit:** v1.0.0
+- **config.flow:** v1.0.0
+- **config.project.bumblebee:** v1.0.0
+- **config.project.denali:** v1.0.0
+- **config.project.opensky:** v1.0.0
+- **config.project.phoenix:** v1.0.0
+- **config.setup.bumblebee:** v1.0.0
+- **config.setup.common:** v1.0.0
+- **config.setup.phoenix:** v1.0.0
+- **config.tech.gf_22nm:** v1.0.0
+- **config.tech.gf_28nm:** v1.0.0
+- **config.tech.skywater_130nm:** v1.0.0
+- **config.tech.tsmc_5nm:** v1.0.0
+- **config.tech.tsmc_7nm:** v1.0.0
+- **global.config.flow:** v1.0.0
+- **global.config.project.bumblebee:** v1.0.0
+- **global.config.project.denali:** v1.0.0
+- **global.config.project.opensky:** v1.0.0
+- **global.config.project.phoenix:** v1.0.0
+- **utils.generation:** v1.0.0
+- **utils.makefile_commands:** v1.0.0
+- **utils.node_management:** v1.0.0
+- **utils.project:** v1.0.0
+- **utils.utilities:** v1.0.0
+- **utils.validation:** v1.0.0
+- **utils.version:** v1.0.0
+
+## Changes
+- Initial release
+
+## Notes
+Generated by CBFlow Release Manager

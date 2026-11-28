@@ -14,7 +14,7 @@ set ::flow_type "PV"
 set stage_name "nettran"
 if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [expr {[info exists ::env(CALIBRE_VERSION)] && $::env(CALIBRE_VERSION) ne "" ? $::env(CALIBRE_VERSION) : [cbflow_require pv tool,version]}]
+set _tool_ver [handler_tool_version CALIBRE_VERSION]
 set cmd_file "$::env(FLOW_DIR)/PD/cmds/PV/mentor/calibre/$_tool_ver/nettran_calibre.tcl"
 
 set test_mode [handler_is_test_mode]

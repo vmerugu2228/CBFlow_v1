@@ -14,7 +14,7 @@ set ::flow_type "SYNTH"
 set stage_name "export_data"
 if {$node_name eq ""} { set node_name "${stage_name}1" }
 
-set _tool_ver [expr {[info exists ::env(FC_VERSION)] ? $::env(FC_VERSION) : "v1.0.0"}]
+set _tool_ver [handler_tool_version FC_VERSION]
 set cmd_file "$::env(FLOW_DIR)/PD/cmds/SYNTH/synopsys/fc/$_tool_ver/export_data_fc.tcl"
 
 set test_mode [handler_is_test_mode]

@@ -1,0 +1,190 @@
+#!/usr/bin/env tclsh
+# ═══════════════════════════════════════════════════════════════════════════════
+# CBflow PV PERC — Siemens Calibre
+# Invokes Calibre PERC with foundry SVRF runset
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── Bootstrap ────────────────────────────────────────────────────────────────
+set run_dir $::env(CBFLOW_RUN_DIR)
+source "$run_dir/.run.cbflow.tcl"
+source "$::env(FLOW_DIR)/global/utils/utilities/$::env(UTILITIES_VERSION)/utils.tcl"
+
+set FLOW_TYPE "PV"
+set STAGE_NAME "perc"
+set NODE_NAME [cbflow_node_name]
+
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/config.tcl"
+source "$run_dir/work/$FLOW_TYPE/$NODE_NAME/run/setup.tcl"
+setup_dirs $run_dir $FLOW_TYPE $NODE_NAME
+
+
+# ── Design name (resolve from pv(...) or flow(...)) ──────────────────────
+if {[info exists pv(common,design_name)] && $pv(common,design_name) ne ""} {
+    set DESIGN_NAME $pv(common,design_name)
+} elseif {[info exists flow(design_name)] && $flow(design_name) ne ""} {
+    set DESIGN_NAME $flow(design_name)
+} else {
+    handle_error "Design name not set — set pv(common,design_name) or flow(design_name) in user_config"
+}
+set ::DESIGN_NAME $DESIGN_NAME
+# ═══════════════════════════════════════════════════════════════════════════════
+# Setup Calibre PERC environment variables for SVRF runset
+# ═══════════════════════════════════════════════════════════════════════════════
+flow_proc setup_perc_environment {
+    global pv project tech
+
+    handle_info "Setting up Calibre PERC environment..."
+
+    # LAYOUT_FILE — GDS/OASIS input layout
+    if {[info exists pv(input,gds)] && $pv(input,gds) ne ""} {
+        set ::env(LAYOUT_FILE) $pv(input,gds)
+        handle_info "  LAYOUT_FILE: $pv(input,gds)"
+    } elseif {[info exists pv(input,gds_file)] && $pv(input,gds_file) ne ""} {
+        set ::env(LAYOUT_FILE) $pv(input,gds_file)
+        handle_info "  LAYOUT_FILE: $pv(input,gds_file)"
+    } else {
+        handle_error "pv(input,gds) not set — cannot run PERC"
+    }
+
+    # LAYOUT_PRIMARY — top cell name
+    if {[info exists pv(common,top_cell)] && $pv(common,top_cell) ne ""} {
+        set ::env(LAYOUT_PRIMARY) $pv(common,top_cell)
+    } elseif {[info exists project(top_module)] && $project(top_module) ne ""} {
+        set ::env(LAYOUT_PRIMARY) $project(top_module)
+    }
+    if {[info exists ::env(LAYOUT_PRIMARY)]} {
+        handle_info "  LAYOUT_PRIMARY: $::env(LAYOUT_PRIMARY)"
+    }
+
+    # SOURCE_PATH — source netlist for PERC (schematic-driven checks)
+    if {[info exists pv(perc,spice_netlist)] && $pv(perc,spice_netlist) ne ""} {
+        set ::env(SOURCE_PATH) $pv(perc,spice_netlist)
+        handle_info "  SOURCE_PATH: $pv(perc,spice_netlist)"
+    } elseif {[info exists pv(input,netlist)] && $pv(input,netlist) ne ""} {
+        set ::env(SOURCE_PATH) $pv(input,netlist)
+        handle_info "  SOURCE_PATH: $pv(input,netlist)"
+    }
+
+    # RESULTS_DB
+    set ::env(RESULTS_DB) "$::WORK_DIR/results/perc"
+    file mkdir $::env(RESULTS_DB)
+    handle_info "  RESULTS_DB: $::env(RESULTS_DB)"
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Run Calibre PERC
+# ═══════════════════════════════════════════════════════════════════════════════
+flow_proc run_perc_checks {
+    global pv
+
+    handle_info "Running Calibre PERC..."
+
+    # Resolve runset
+    set runset ""
+    if {[info exists pv(perc,runset)] && $pv(perc,runset) ne ""} {
+        set runset $pv(perc,runset)
+    } elseif {[info exists pv(input,rule_deck_perc)] && $pv(input,rule_deck_perc) ne ""} {
+        set runset $pv(input,rule_deck_perc)
+    }
+    if {$runset eq "" || ![file exists $runset]} {
+        handle_error "PERC runset not found: '$runset' — set pv(perc,runset) in user_config"
+    }
+
+    # Build command
+    set num_cpus [cbflow_require pv perc,num_cpus]
+
+    set calibre_cmd "calibre -perc -64 -turbo $num_cpus"
+    append calibre_cmd " $runset"
+
+    file mkdir "$::WORK_DIR/results/perc"
+    file mkdir "$::REPORTS_DIR"
+
+    handle_info "  CMD: $calibre_cmd"
+    handle_info "  Log: $::WORK_DIR/results/perc/perc.log"
+
+    # test_mode guard: Tcl's `exec` is a builtin, so test_mode's unknown-based
+    # EDA interceptor doesn't catch it. Without this, test_mode tries to exec
+    # a real calibre binary (not on PATH) → non-zero exit → stage fails.
+    set _tm [expr {[info exists ::flow(test_mode)] && [is_true $::flow(test_mode)]}]
+    if {$_tm} {
+    handle_info "  TEST_CMD: (calibre exec skipped in test_mode)"
+    return
+    }
+
+    if {[catch {exec {*}$calibre_cmd >& "$::WORK_DIR/results/perc/perc.log"} result]} {
+        # Silent-pass defense — distinguish real violations from a tool
+        # crash (license-fail, segfault, OOM, bad runset). Without this
+        # a license drop looks identical to '0 violations' on BTO sign-off.
+        # See lvs_calibre.tcl for the reference pattern.
+        if {[classify_tool_exit_log "$::WORK_DIR/results/perc/perc.log"] eq "FATAL"} {
+            handle_error "Calibre PERC crashed (license / perms / tool error) — see $::WORK_DIR/results/perc/perc.log"
+        } else {
+            handle_warning "Calibre PERC returned non-zero (may have violations): $result"
+        }
+    }
+    handle_info "  PERC run completed"
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Generate PERC summary report
+# ═══════════════════════════════════════════════════════════════════════════════
+flow_proc generate_perc_report {
+    global pv project tech
+
+    handle_info "Generating PERC report..."
+
+    set rpt_file "$::REPORTS_DIR/perc_results.rpt"
+    set rpt [open $rpt_file "w"]
+    puts $rpt "═══════════════════════════════════════════════════════════════════════════════"
+    puts $rpt "CBflow PV — PERC Results (Siemens Calibre)"
+    puts $rpt "═══════════════════════════════════════════════════════════════════════════════"
+    puts $rpt "Generated: [expr {[catch {clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}} _ts] ? "epoch [clock seconds]" : $_ts}]"
+    if {[info exists project(top_module)]} { puts $rpt "Design: $project(top_module)" }
+    if {[info exists tech(node)]} { puts $rpt "Technology: $tech(node)" }
+    puts $rpt "Tool: Siemens Calibre PERC"
+    if {[info exists pv(perc,runset)]} { puts $rpt "Runset: $pv(perc,runset)" }
+    puts $rpt ""
+
+    # Parse PERC results from log
+    set perc_log "$::WORK_DIR/results/perc/perc.log"
+    if {[file exists $perc_log]} {
+        set f [open $perc_log "r"]
+        set content [read $f]
+        close $f
+        set total_violations 0
+        foreach line [split $content "\n"] {
+            if {[regexp -nocase {TOTAL.*Results.*?(\d+)} $line -> count]} {
+                set total_violations $count
+            }
+        }
+        puts $rpt "Total PERC violations: $total_violations"
+    } else {
+        puts $rpt "PERC log not found — check execution"
+    }
+
+    puts $rpt ""
+    puts $rpt "Results DB: $::WORK_DIR/results/perc/"
+    puts $rpt "═══════════════════════════════════════════════════════════════════════════════"
+    close $rpt
+
+    # Mirror to BOTH filenames the downstream pipeline expects:
+    #   results/perc/perc_results.rpt — merge_data_calibre.tcl + release_data_calibre.tcl
+    #   results/perc/perc.rpt         — pv(mandatory_outputs,perc1) in PV_config.tcl
+    set _legacy_rpt "$::WORK_DIR/results/perc/perc_results.rpt"
+    set _mandatory_rpt "$::WORK_DIR/results/perc/perc.rpt"
+    file mkdir [file dirname $_legacy_rpt]
+    if {[catch {file copy -force $rpt_file $_legacy_rpt} _copy_err]} {
+        handle_warning "PERC legacy-path mirror failed: $_copy_err — downstream consumers of $_legacy_rpt will see stale content"
+    }
+    if {[catch {file copy -force $rpt_file $_mandatory_rpt} _copy_err]} {
+        handle_warning "PERC mandatory-path mirror failed: $_copy_err — handler_validate will reject the perc1 stage"
+    }
+    handle_info "  PERC report: $rpt_file"
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Execute
+# ═══════════════════════════════════════════════════════════════════════════════
+flow_exec_all
+handle_info "Calibre PERC completed: $DESIGN_NAME"
+exit

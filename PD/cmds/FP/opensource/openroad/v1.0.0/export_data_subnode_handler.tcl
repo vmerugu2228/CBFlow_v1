@@ -15,7 +15,7 @@ set ::flow_type "FP"
 set stage_name "export_data"
 if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [expr {[info exists ::env(OPENROAD_VERSION)] && $::env(OPENROAD_VERSION) ne "" ? $::env(OPENROAD_VERSION) : [cbflow_require fp tool,version]}]
+set _tool_ver [handler_tool_version OPENROAD_VERSION]
 set cmd_file "$::env(FLOW_DIR)/PD/cmds/FP/opensource/openroad/$_tool_ver/export_data_openroad.tcl"
 
 set test_mode [handler_is_test_mode]

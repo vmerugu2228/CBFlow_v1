@@ -8,6 +8,10 @@ watching new releases and flow issues.
     flowm.py stale  [--release vX]                     on disk vs the release: new / changed versions
     flowm.py patch  --component cmds.PNR.opensource.openroad [--from v1.0.0] --to v1.0.1 [--apply]
     flowm.py pin    --project P --release vX --reason TEXT [--apply]
+    flowm.py edit   --component C | --file <path>  [--apply]      copy-on-write: a released version
+                                                                  is never edited; the next one is made
+    flowm.py cut    --version vX --desc TEXT [--components cmds|all|<name,...>] [--apply]
+                                                                  freeze components as vX + cut release vX
     flowm.py watch  --project P                        newer releases + framework commits since its release
     flowm.py issues [--project P] [--days 7] [--audit]  failing jobs by flow / stage / error (+ cmd audit)
 
@@ -73,6 +77,154 @@ def project_pins():
                 v, src = m.group(1), f
         out[p] = v
     return out
+
+
+def released_versions():
+    """{(component, version)} present in any release manifest."""
+    out = set()
+    for v in releases():
+        for name, c in manifest(v)['components'].items():
+            out.add((name, c['version']))
+    return out
+
+
+def vkey(v):
+    return [int(x) if x.isdigit() else x for x in re.split(r'[.\-]', v.lstrip('v'))]
+
+
+def bump(v):
+    p = v.lstrip('v').split('.')
+    p[-1] = str(int(p[-1]) + 1) if p[-1].isdigit() else p[-1] + '.1'
+    return 'v' + '.'.join(p)
+
+
+def newest(base):
+    vs = [d for d in os.listdir(base) if re.match(r'^v\d', d) and os.path.isdir(os.path.join(base, d))]
+    return max(vs, key=vkey) if vs else ''
+
+
+def copy_version(base, frm, to):
+    import shutil
+    src, dst = os.path.join(base, frm), os.path.join(base, to)
+    shutil.copytree(src, dst, ignore=shutil.ignore_patterns('.locked', '__pycache__', '*.swp', '.retired'))
+    for dp, dn, fn in os.walk(dst):
+        os.chmod(dp, 0o755)
+        for f in fn:
+            fp = os.path.join(dp, f)
+            os.chmod(fp, 0o644 | (os.stat(fp).st_mode & 0o111))
+    return dst
+
+
+def cmd_edit(a):
+    disk = rc().scan_versioned_components()
+    comp, rel_in = a.component, ''
+    if a.file:
+        fp = os.path.realpath(a.file)
+        for name, info in disk.items():
+            base = str(rc().resolve_component_path(info['path']))
+            if fp.startswith(base + os.sep):
+                comp, rest = name, fp[len(base) + 1:]
+                ver, rel_in = rest.split(os.sep, 1) if os.sep in rest else (rest, '')
+                break
+        if not comp:
+            die(f'{a.file} is not inside a versioned component')
+    if comp not in disk:
+        die(f'{comp}: no such versioned component')
+    base = str(rc().resolve_component_path(disk[comp]['path']))
+    top = newest(base)
+    rel = released_versions()
+    locked = os.path.exists(os.path.join(base, top, '.locked'))
+    if (comp, top) not in rel and not locked:
+        target = os.path.join(base, top, rel_in)
+        print(f'{comp} {top} is not in any release — edit in place: {os.path.relpath(target, ROOT)}')
+        return 0
+    nxt = bump(top)
+    while os.path.exists(os.path.join(base, nxt)):
+        nxt = bump(nxt)
+    inrel = ', '.join(v for v in releases() if manifest(v)['components'].get(comp, {}).get('version') == top)
+    print(f'{comp} {top} is {"frozen (read-only)" if locked else "released"}{" in " + inrel if inrel else ""}'
+          f' — editing needs a new version: {top} -> {nxt}, then a new release')
+    if not a.apply:
+        print('dry run — --apply to create it (the user\'s go-ahead)')
+        return 0
+    copy_version(base, top, nxt)
+    print(f'created {os.path.relpath(os.path.join(base, nxt), ROOT)}; edit {os.path.relpath(os.path.join(base, nxt, rel_in), ROOT)}')
+    print(f'projects on releases pinning {top} keep {top}; to use {nxt}: cut a release (flowm.py cut / cbflow flow '
+          f'release create) and pin the project (flowm.py pin).')
+    return 0
+
+
+def cmd_cut(a):
+    if a.version in releases():
+        die(f'release {a.version} exists')
+    disk = rc().scan_versioned_components()
+    if a.components == 'all':
+        sel = sorted(disk)
+    elif a.components == 'cmds':
+        sel = sorted(k for k in disk if k.startswith('cmds.'))
+    else:
+        sel = [x.strip() for x in a.components.split(',')]
+        bad = [x for x in sel if x not in disk]
+        if bad:
+            die(f'unknown component(s): {", ".join(bad)}')
+    plan = []
+    for name in sel:
+        base = str(rc().resolve_component_path(disk[name]['path']))
+        top = newest(base)
+        if top != a.version and not os.path.exists(os.path.join(base, a.version)):
+            plan.append((name, base, top))
+    print(f'release {a.version}: freeze {len(plan)} component(s) as {a.version} '
+          f'({a.components}); the rest are captured at their newest version')
+    for name, base, top in plan[:8]:
+        print(f'  {name:46s} {top} -> {a.version}')
+    if len(plan) > 8:
+        print(f'  … {len(plan) - 8} more')
+    if not a.apply:
+        print('dry run — --apply to copy and cut the release (the user\'s go-ahead)')
+        return 0
+    for name, base, top in plan:
+        copy_version(base, top, a.version)
+    # explicit component versions (release create would otherwise prefer a
+    # component's `current` symlink): selected -> a.version, the rest -> newest
+    comps = {}
+    for name, info in disk.items():
+        base = str(rc().resolve_component_path(info['path']))
+        ver = a.version if (name in sel and os.path.isdir(os.path.join(base, a.version))) else newest(base)
+        comps[name] = {'version': ver, 'path': info['path']}
+    cfg_file = os.path.join(REL, f'.cut_{a.version}.json')
+    with open(cfg_file, 'w') as fh:
+        json.dump({'release': {'version': a.version, 'description': a.desc, 'milestone': ''},
+                   'components': comps}, fh, indent=1)
+    r = subprocess.run([CB, 'flow', 'release', 'create', '--config', cfg_file], capture_output=True, text=True)
+    os.remove(cfg_file)
+    out = r.stdout + r.stderr
+    for l in out.splitlines():
+        if re.search(r'Components linked|created|ERROR|Failed|already exists', l):
+            print(l)
+    if r.returncode or not os.path.exists(os.path.join(REL, a.version, 'MANIFEST.json')):
+        die(f'release create failed — the {len(plan)} copied version dirs are kept for inspection')
+    # freeze: the released versions of the selected components become read-only
+    # (release_cmd._lock_version: .locked + 444 / 555); the manifest records which
+    # components are frozen (the others are captured at their current, still
+    # editable, version — not selected by version at run time yet)
+    mf = os.path.join(REL, a.version, 'MANIFEST.json')
+    m = manifest(a.version)
+    frozen = []
+    for name, c in m['components'].items():
+        c['frozen'] = name in sel and c['version'] == a.version
+        if c['frozen']:
+            frozen.append(name)
+    m['frozen_scope'] = a.components
+    with open(mf, 'w') as fh:
+        json.dump(m, fh, indent=2)
+    for name in frozen:
+        vd = rc().resolve_component_path(m['components'][name]['path']) / a.version
+        rc()._lock_version(str(vd), a.version)
+    rc()._lock_version(os.path.join(REL, a.version), a.version)
+    print(f'release {a.version}: {len(m["components"])} components; {len(frozen)} frozen read-only at {a.version}; '
+          f'{len(m["components"]) - len(frozen)} captured unfrozen. Pin a project: flowm.py pin --project <p> '
+          f'--release {a.version} (or kickoff spec cbflow_release).')
+    return 0
 
 
 def cmd_status(a):
@@ -280,13 +432,23 @@ def main():
     p.add_argument('--reason')
     p.add_argument('--apply', action='store_true')
     sub.add_parser('watch').add_argument('--project', required=True)
+    p = sub.add_parser('edit')
+    g = p.add_mutually_exclusive_group(required=True)
+    g.add_argument('--component')
+    g.add_argument('--file')
+    p.add_argument('--apply', action='store_true')
+    p = sub.add_parser('cut')
+    p.add_argument('--version', required=True)
+    p.add_argument('--desc', required=True)
+    p.add_argument('--components', default='cmds', help='cmds (default) | all | comma list')
+    p.add_argument('--apply', action='store_true')
     p = sub.add_parser('issues')
     p.add_argument('--project')
     p.add_argument('--days', type=int, default=7)
     p.add_argument('--audit', action='store_true')
     a = ap.parse_args()
     return {'status': cmd_status, 'drift': cmd_drift, 'stale': cmd_stale, 'patch': cmd_patch, 'pin': cmd_pin,
-            'watch': cmd_watch, 'issues': cmd_issues}[a.cmd](a)
+            'watch': cmd_watch, 'issues': cmd_issues, 'edit': cmd_edit, 'cut': cmd_cut}[a.cmd](a)
 
 
 if __name__ == '__main__':

@@ -13,7 +13,8 @@ set ::flow_type "SPEC_RAMP"
 set stage_name "release_data"
 if {$node_name eq ""} { set node_name "${stage_name}1" }
 
-set cmd_file "$::env(FLOW_DIR)/DV/cmds/SPEC_RAMP/generic/review/v1.0.0/release_data_review.tcl"
+set _tool_ver [handler_tool_version]
+set cmd_file "$::env(FLOW_DIR)/DV/cmds/SPEC_RAMP/generic/review/$_tool_ver/release_data_review.tcl"
 
 set test_mode [handler_is_test_mode]
 handler_dispatch $subnode_name $run_dir $::flow_type $node_name $stage_name \

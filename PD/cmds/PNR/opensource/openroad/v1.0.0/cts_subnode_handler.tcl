@@ -15,7 +15,7 @@ set ::flow_type "PNR"
 set stage_name "cts"
 if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [expr {[info exists ::env(OPENROAD_VERSION)] && $::env(OPENROAD_VERSION) ne "" ? $::env(OPENROAD_VERSION) : [cbflow_require pnr tool,version]}]
+set _tool_ver [handler_tool_version OPENROAD_VERSION]
 set cmd_file "$::env(FLOW_DIR)/PD/cmds/PNR/opensource/openroad/$_tool_ver/cts_openroad.tcl"
 
 set test_mode [handler_is_test_mode]

@@ -14,7 +14,7 @@ set ::flow_type "EMIR"
 set stage_name "ir_drop"
 if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [expr {[info exists ::env(VOLTUS_VERSION)] && $::env(VOLTUS_VERSION) ne "" ? $::env(VOLTUS_VERSION) : [cbflow_require emir tool,version]}]
+set _tool_ver [handler_tool_version]
 set cmd_file "$::env(FLOW_DIR)/PD/cmds/EMIR/cadence/voltus/$_tool_ver/ir_drop_voltus.tcl"
 
 set test_mode [handler_is_test_mode]

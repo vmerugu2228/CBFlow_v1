@@ -76,7 +76,7 @@ flow_proc insert_low_power_cells {
     lowpower_stage_globals place
     set _recipe "$::env(FLOW_DIR)/PD/cmds/PNR/synopsys/fc/$::env(TOOL_VERSION)/lowpower_fc.tcl"
     if {![file exists $_recipe]} {
-        set _recipe "$::env(FLOW_DIR)/PD/cmds/PNR/synopsys/fc/v1.0.0/lowpower_fc.tcl"
+        set _recipe "[file dirname [file normalize [info script]]]/lowpower_fc.tcl"
     }
     handle_info "Sourcing low-power recipe: $_recipe"
     source $_recipe

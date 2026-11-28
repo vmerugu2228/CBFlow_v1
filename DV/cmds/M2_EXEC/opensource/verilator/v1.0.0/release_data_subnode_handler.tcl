@@ -15,7 +15,7 @@ set ::flow_type "M2_EXEC"
 set stage_name "release_data"
 if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [cbflow_require m2_exec tool,version]
+set _tool_ver [handler_tool_version]
 set cmd_file "$::env(CBFLOW_DV_DIR)/cmds/M2_EXEC/opensource/verilator/$_tool_ver/release_data_verilator.tcl"
 
 set test_mode [handler_is_test_mode]

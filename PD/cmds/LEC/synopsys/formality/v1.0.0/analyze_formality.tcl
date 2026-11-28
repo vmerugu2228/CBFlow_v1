@@ -196,7 +196,7 @@ flow_proc validate_analysis_results {
     }
 
     # Try enhanced validation
-    set enhanced_validation_script "$validation_flow_dir/utils/validation/v1.0.0/enhanced_validate_run.tcl"
+    set enhanced_validation_script "$validation_flow_dir/utils/validation/$::env(VALIDATION_VERSION)/enhanced_validate_run.tcl"
     if {[file exists $enhanced_validation_script]} {
         if {[catch {exec tclsh $enhanced_validation_script LEC analyze $current_dir $validation_flow_dir} validation_result]} {
             handle_warning "Validation completed with warnings: $validation_result"

@@ -15,7 +15,7 @@ set ::flow_type "GLS_FUNC"
 set stage_name "release_data"
 if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [cbflow_require gls_func tool,version]
+set _tool_ver [handler_tool_version]
 set cmd_file "$::env(CBFLOW_DFT_DIR)/cmds/GLS_FUNC/opensource/iverilog/$_tool_ver/release_data_iverilog.tcl"
 
 set test_mode [handler_is_test_mode]

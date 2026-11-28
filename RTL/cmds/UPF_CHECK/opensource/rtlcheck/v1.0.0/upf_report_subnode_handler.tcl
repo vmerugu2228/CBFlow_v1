@@ -15,7 +15,7 @@ set ::flow_type "UPF_CHECK"
 set stage_name "upf_report"
 if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [cbflow_require upf_check tool,version]
+set _tool_ver [handler_tool_version]
 set cmd_file "$::env(CBFLOW_RTL_DIR)/cmds/UPF_CHECK/opensource/rtlcheck/$_tool_ver/upf_report_rtlcheck.tcl"
 
 set test_mode [handler_is_test_mode]

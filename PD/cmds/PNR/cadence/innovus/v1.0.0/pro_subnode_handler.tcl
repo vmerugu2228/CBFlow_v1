@@ -14,7 +14,7 @@ set ::flow_type "PNR"
 set stage_name "pro"
 if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [expr {[info exists ::env(INNOVUS_VERSION)] && $::env(INNOVUS_VERSION) ne "" ? $::env(INNOVUS_VERSION) : [cbflow_require pnr tool,version]}]
+set _tool_ver [handler_tool_version]
 set cmd_file "$::env(FLOW_DIR)/PD/cmds/PNR/cadence/innovus/$_tool_ver/pro_innovus.tcl"
 
 set test_mode [handler_is_test_mode]

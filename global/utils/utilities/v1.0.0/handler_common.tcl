@@ -69,6 +69,23 @@ proc handler_parse_args {argv argc} {
 
 # ── Load standard configs for a handler ──────────────────────────────────────
 # Sources: .run.cbflow.tcl, error_utils, flow_config, node_config, user_config, tool_launch_config
+# Command version of this stage (cmds/<FLOW>/<vendor>/<tool>/<version>/): the
+# tool's env override (<TOOL>_VERSION, e.g. OPENROAD_VERSION) > CBFLOW_TOOL_VERSION >
+# <arr>(tool,version) of the run's config (the node overlay's, or the flow release's
+# pin that workspace create appends to the run's user_config) > the version
+# directory this handler runs from (the engine chose it from the same config).
+proc handler_tool_version {{tool_env ""}} {
+    if {$tool_env ne "" && [info exists ::env($tool_env)] && $::env($tool_env) ne ""} { return $::env($tool_env) }
+    if {[info exists ::env(CBFLOW_TOOL_VERSION)] && $::env(CBFLOW_TOOL_VERSION) ne ""} { return $::env(CBFLOW_TOOL_VERSION) }
+    if {[info exists ::flow_type]} {
+        set _arr [string tolower $::flow_type]
+        if {[info exists ::${_arr}(tool,version)] && [set ::${_arr}(tool,version)] ne ""} {
+            return [set ::${_arr}(tool,version)]
+        }
+    }
+    return [file tail [file dirname [file normalize [info script]]]]
+}
+
 proc handler_load_configs {run_dir flow_type} {
     # Source everything at global scope (uplevel #0) so variables are accessible
     # Why: TCL 'source' inside a proc creates local variables. Config files

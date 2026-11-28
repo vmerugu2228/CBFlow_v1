@@ -15,7 +15,7 @@ set ::flow_type "ATPG"
 set stage_name "signoff"
 if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [cbflow_require atpg tool,version]
+set _tool_ver [handler_tool_version]
 set cmd_file "$::env(CBFLOW_DFT_DIR)/cmds/ATPG/opensource/fault/$_tool_ver/signoff_fault.tcl"
 
 set test_mode [handler_is_test_mode]

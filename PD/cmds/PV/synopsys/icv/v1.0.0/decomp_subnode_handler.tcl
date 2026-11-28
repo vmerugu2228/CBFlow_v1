@@ -14,7 +14,7 @@ set ::flow_type "PV"
 set stage_name "decomp"
 if {$node_name eq ""} { set node_name "${stage_name}1" }
 
-set _tool_ver [expr {[info exists ::env(ICV_VERSION)] ? $::env(ICV_VERSION) : "v1.0.0"}]
+set _tool_ver [handler_tool_version ICV_VERSION]
 set cmd_file "$::env(FLOW_DIR)/PD/cmds/PV/synopsys/icv/$_tool_ver/decomp_icv.tcl"
 
 set test_mode [handler_is_test_mode]

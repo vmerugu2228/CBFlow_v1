@@ -15,7 +15,7 @@ set ::flow_type "M1_EXEC"
 set stage_name "cov_merge"
 if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [cbflow_require m1_exec tool,version]
+set _tool_ver [handler_tool_version]
 set cmd_file "$::env(CBFLOW_DV_DIR)/cmds/M1_EXEC/opensource/verilator/$_tool_ver/cov_merge_verilator.tcl"
 
 set test_mode [handler_is_test_mode]

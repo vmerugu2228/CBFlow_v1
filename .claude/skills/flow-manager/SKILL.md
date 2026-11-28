@@ -9,6 +9,23 @@ description: Maintain CBflow framework (flow) releases — see which flow releas
 repo root). Read [reference.md](reference.md) for the release model, how a run
 picks its versions, and the patch / retag recipe.
 
+## Versioning policy (always)
+- **Released = frozen.** The component versions a release freezes are read-only
+  (`.locked`, files 444 / dirs 555). Nobody edits them, owners included.
+- **To change frozen code:** first `$F edit --file <path>` or
+  `$F edit --component <c>` (dry run). `--apply` copies the frozen version into
+  the next version (v2.0.0 → v2.0.1), and you edit there. Then cut a new release
+  (`$F cut`) and pin the projects that should get it (`$F pin`).
+- **Unreleased versions** are development: `$F edit` says "edit in place".
+- **Other skills:** cmd-manager / config-manager call `$F edit` before editing a
+  versioned file. A "permission denied" on a cmds file means it's frozen; never
+  chmod it, make the next version.
+- **Freeze scope today:** command trees (`cmds.*`), which runs select by version
+  (handlers use `handler_tool_version`; workspace create appends the release pin).
+  Configs and utilities are captured in a release but not frozen (`frozen: false`),
+  because the Python code still reads their `v1.0.0` paths directly (56 places in
+  16 files). Making them selectable is the next step.
+
 ## 1. Where things stand
 ```bash
 $F status                 # releases, current, each project's project(cbflow_release)
@@ -33,14 +50,19 @@ audit (cmd-manager). For each group:
 
 ## 3. Cut a release
 ```bash
-cbflow flow release create --type patch|minor|major --desc "<what changed>"   # or --version vX.Y.Z
+$F cut --version vX.Y.Z --desc "<what changed>" [--components cmds|all|<names>]   # dry run; --apply on yes
 ```
-- It captures every versioned component of PD / DFT / DV / RTL / global, each
-  with a content hash.
-- It doesn't lock or commit unless asked. Add `--lock` only when the user wants
-  released versions permanently read-only. **Locking is irreversible, and the
-  framework develops in place in its v1.0.0 directories.** Add `--git` to commit
-  the release directory.
+`cut` does three things:
+1. copies each selected component's newest version to `vX.Y.Z`;
+2. runs `cbflow flow release create --version vX.Y.Z`;
+3. marks the copied versions `frozen` in the manifest and makes them, and the
+   release directory, read-only.
+
+The lower-level `cbflow flow release create` is still available (it captures
+current versions without freezing; `--lock` freezes everything it captures).
+- A release captures every versioned component of PD / DFT / DV / RTL / global,
+  each with a content hash. `--git` on release create commits the release
+  directory.
 - Before cutting: `$F stale` to show what goes in, `$F drift` on the previous
   release, and `bin/cbflow test --static` plus the e2e for the flows that changed.
 - Get the user's yes, then `cbflow flow release set-current --version vX` if it

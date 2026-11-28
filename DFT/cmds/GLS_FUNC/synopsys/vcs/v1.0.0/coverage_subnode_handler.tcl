@@ -12,7 +12,7 @@ set ::flow_type "GLS_FUNC"
 set stage_name  "coverage"
 if {$node_name eq ""} { set node_name "${stage_name}1" }
 
-set _tool_ver [expr {[info exists ::env(TOOL_VERSION)] ? $::env(TOOL_VERSION) : "v1.0.0"}]
+set _tool_ver [handler_tool_version TOOL_VERSION]
 set _dft_root [expr {[info exists ::env(CBFLOW_DFT_DIR)] ? $::env(CBFLOW_DFT_DIR) : "$::env(FLOW_DIR)/DFT"}]
 set cmd_file  "$_dft_root/cmds/GLS_FUNC/synopsys/vcs/$_tool_ver/${stage_name}_vcs.tcl"
 

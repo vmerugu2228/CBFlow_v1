@@ -12,7 +12,7 @@ set ::flow_type "DFT_INSERT_PASS1"
 set stage_name "bscan_cfg"
 if {$node_name eq ""} { set node_name "bscan_cfg1" }
 
-set _tool_ver "v1.0.0"
+set _tool_ver [handler_tool_version]
 set _dft_root [expr {[info exists ::env(CBFLOW_DFT_DIR)] ? $::env(CBFLOW_DFT_DIR) : "$::env(FLOW_DIR)/DFT"}]
 set cmd_file "$_dft_root/cmds/DFT_INSERT_PASS1/synopsys/dft_compiler/$_tool_ver/${stage_name}_dft_compiler.tcl"
 

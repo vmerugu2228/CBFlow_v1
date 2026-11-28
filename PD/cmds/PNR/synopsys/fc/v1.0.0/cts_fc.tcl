@@ -249,7 +249,7 @@ flow_proc construct_mscts {
 
     set _recipe "$::env(FLOW_DIR)/PD/cmds/PNR/synopsys/fc/$::env(TOOL_VERSION)/mscts_fc.tcl"
     if {![file exists $_recipe]} {
-        set _recipe "$::env(FLOW_DIR)/PD/cmds/PNR/synopsys/fc/v1.0.0/mscts_fc.tcl"
+        set _recipe "[file dirname [file normalize [info script]]]/mscts_fc.tcl"
     }
     handle_info "Sourcing MSCTS recipe: $_recipe"
     source $_recipe

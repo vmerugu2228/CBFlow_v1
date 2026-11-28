@@ -12,7 +12,7 @@ set ::flow_type "RTL_LINT"
 set stage_name  "release_data"
 if {$node_name eq ""} { set node_name "release_data1" }
 
-set _tool_ver [expr {[info exists ::env(SPYGLASS_VERSION)] ? $::env(SPYGLASS_VERSION) : "v1.0.0"}]
+set _tool_ver [handler_tool_version SPYGLASS_VERSION]
 set _rtl_root [expr {[info exists ::env(CBFLOW_RTL_DIR)] ? $::env(CBFLOW_RTL_DIR) : "$::env(FLOW_DIR)/RTL"}]
 set cmd_file  "$_rtl_root/cmds/RTL_LINT/synopsys/spyglass/$_tool_ver/${stage_name}_spyglass.tcl"
 

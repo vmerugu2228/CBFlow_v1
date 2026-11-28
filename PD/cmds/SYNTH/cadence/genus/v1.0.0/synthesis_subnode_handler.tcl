@@ -14,7 +14,7 @@ set ::flow_type "SYNTH"
 set stage_name "synthesis"
 if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [expr {[info exists ::env(GENUS_VERSION)] && $::env(GENUS_VERSION) ne "" ? $::env(GENUS_VERSION) : [cbflow_require synth tool,version]}]
+set _tool_ver [handler_tool_version]
 set cmd_file "$::env(FLOW_DIR)/PD/cmds/SYNTH/cadence/genus/$_tool_ver/synthesis_genus.tcl"
 
 set test_mode [handler_is_test_mode]

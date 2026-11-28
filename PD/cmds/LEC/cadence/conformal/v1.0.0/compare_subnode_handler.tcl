@@ -14,7 +14,7 @@ set ::flow_type "LEC"
 set stage_name "compare"
 if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [expr {[info exists ::env(CONFORMAL_VERSION)] && $::env(CONFORMAL_VERSION) ne "" ? $::env(CONFORMAL_VERSION) : [cbflow_require lec tool,version]}]
+set _tool_ver [handler_tool_version CONFORMAL_VERSION]
 set cmd_file "$::env(FLOW_DIR)/PD/cmds/LEC/cadence/conformal/$_tool_ver/compare_conformal.tcl"
 
 set test_mode [handler_is_test_mode]

@@ -15,7 +15,7 @@ set ::flow_type "RTL_LINT"
 set stage_name "release_data"
 if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [cbflow_require rtl_lint tool,version]
+set _tool_ver [handler_tool_version]
 set cmd_file "$::env(CBFLOW_RTL_DIR)/cmds/RTL_LINT/opensource/verilator/$_tool_ver/release_data_verilator.tcl"
 
 set test_mode [handler_is_test_mode]

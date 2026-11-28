@@ -14,7 +14,7 @@ set ::flow_type "FP"
 set stage_name "floorplan"
 if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [expr {[info exists ::env(INNOVUS_VERSION)] && $::env(INNOVUS_VERSION) ne "" ? $::env(INNOVUS_VERSION) : [cbflow_require fp tool,version]}]
+set _tool_ver [handler_tool_version]
 set cmd_file "$::env(FLOW_DIR)/PD/cmds/FP/cadence/innovus/$_tool_ver/floorplan_innovus.tcl"
 
 set test_mode [handler_is_test_mode]

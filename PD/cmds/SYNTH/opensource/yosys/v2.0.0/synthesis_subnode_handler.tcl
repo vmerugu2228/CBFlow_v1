@@ -1,0 +1,29 @@
+#!/usr/bin/env tclsh
+# ═══════════════════════════════════════════════════════════════════════════════
+# CBflow SYNTH (opensource) — synthesis Subnode Handler
+# Subnodes: setup, run, validate, finish (delegated to handler_dispatch)
+# Tool binary: synth(oss,tool,synthesis)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+source "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/handler_common.tcl"
+source "$::env(SCRIPTS_ROOT)/utilities/$::env(UTILITIES_VERSION)/launch_utils.tcl"
+
+lassign [handler_parse_args $argv $argc] subnode_name run_dir node_name
+handler_load_configs $run_dir "SYNTH"
+
+set ::flow_type "SYNTH"
+set stage_name "synthesis"
+if {$node_name eq ""} { set node_name [cbflow_node_name] }
+
+set _tool_ver [handler_tool_version YOSYS_VERSION]
+set cmd_file "$::env(FLOW_DIR)/PD/cmds/SYNTH/opensource/yosys/$_tool_ver/synthesis_yosys.tcl"
+
+set test_mode [handler_is_test_mode]
+if {![info exists ::synth(oss,tool,$stage_name)]} {
+    puts "ERROR: synth(oss,tool,$stage_name) not set — SYNTH_yosys_config.tcl not loaded?"
+    exit 1
+}
+set _tool $::synth(oss,tool,$stage_name)
+
+handler_dispatch $subnode_name $run_dir $::flow_type $node_name $stage_name \
+                 $cmd_file $test_mode $_tool

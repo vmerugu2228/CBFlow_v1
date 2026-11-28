@@ -15,7 +15,7 @@ set ::flow_type "GLS_SCAN_MBIST"
 set stage_name "compile"
 if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [cbflow_require gls_scan_mbist tool,version]
+set _tool_ver [handler_tool_version]
 set cmd_file "$::env(CBFLOW_DFT_DIR)/cmds/GLS_SCAN_MBIST/opensource/iverilog/$_tool_ver/compile_iverilog.tcl"
 
 set test_mode [handler_is_test_mode]

@@ -14,7 +14,7 @@ set ::flow_type "STA"
 set stage_name "export_data"
 if {$node_name eq ""} { set node_name "${stage_name}1" }
 
-set _tool_ver [expr {[info exists ::env(PT_VERSION)] ? $::env(PT_VERSION) : "v1.0.0"}]
+set _tool_ver [handler_tool_version PT_VERSION]
 set cmd_file "$::env(FLOW_DIR)/PD/cmds/STA/synopsys/pt/$_tool_ver/export_data_pt.tcl"
 
 set test_mode [handler_is_test_mode]

@@ -50,6 +50,14 @@ Rank them: open-source and default tools first, then tools that projects use
    small block (the rtl2gds skill with `--release-path` for a sandbox).
 
 ## 4. Change an existing command file
+**Versioning comes first:** run
+`.claude/skills/flow-manager/scripts/flowm.py edit --file <cmd file>`.
+- A frozen (released) version gets copied into the next version
+  (`--apply`, on the user's yes). Edit that copy, then cut a release and pin the
+  projects (flow-manager).
+- An unreleased version is edited in place.
+- Never chmod a frozen file.
+
 - **Per project or block:** prefer a hook over editing the shared file, e.g.
   `flow_proc_prepend` / `flow_proc_append` in setup hooks (`PD/config/setup/`).
   A `flow_proc_replace` from setup.tcl is overwritten by the command file (see

@@ -285,7 +285,7 @@ flow_proc redhawk_rail_analysis {
     redhawk_stage_globals pro
     set _recipe "$::env(FLOW_DIR)/PD/cmds/PNR/synopsys/fc/$::env(TOOL_VERSION)/redhawk_fc.tcl"
     if {![file exists $_recipe]} {
-        set _recipe "$::env(FLOW_DIR)/PD/cmds/PNR/synopsys/fc/v1.0.0/redhawk_fc.tcl"
+        set _recipe "[file dirname [file normalize [info script]]]/redhawk_fc.tcl"
     }
     handle_info "Sourcing RedHawk recipe: $_recipe"
     source $_recipe

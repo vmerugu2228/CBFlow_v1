@@ -14,7 +14,7 @@ set ::flow_type "STA"
 set stage_name "export_data"
 if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [expr {[info exists ::env(TEMPUS_VERSION)] && $::env(TEMPUS_VERSION) ne "" ? $::env(TEMPUS_VERSION) : [cbflow_require sta tool,version]}]
+set _tool_ver [handler_tool_version TEMPUS_VERSION]
 set cmd_file "$::env(FLOW_DIR)/PD/cmds/STA/cadence/tempus/$_tool_ver/export_data_tempus.tcl"
 
 set test_mode [handler_is_test_mode]

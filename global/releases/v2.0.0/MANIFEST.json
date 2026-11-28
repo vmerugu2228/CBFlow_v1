@@ -1,0 +1,801 @@
+{
+  "version": "v2.0.0",
+  "description": "openSKY_v2 baseline: open-source spec-to-GDS flow, versioned command trees (handler_tool_version), multi-discipline",
+  "milestone": "",
+  "created": "2026-11-28T14:48:22.159188",
+  "author": "vmerugu",
+  "components": {
+    "config.flow": {
+      "version": "v1.0.0",
+      "path": "PD/config/flow",
+      "link": "components/config_flow",
+      "hash": "087b36688adf1ea6",
+      "frozen": false
+    },
+    "config.project.bumblebee": {
+      "version": "v1.0.0",
+      "path": "PD/config/project/bumblebee",
+      "link": "components/config_project_bumblebee",
+      "hash": "60d49969edda6654",
+      "frozen": false
+    },
+    "config.project.denali": {
+      "version": "v1.0.0",
+      "path": "PD/config/project/denali",
+      "link": "components/config_project_denali",
+      "hash": "b150d194583552c4",
+      "frozen": false
+    },
+    "config.project.phoenix": {
+      "version": "v1.0.0",
+      "path": "PD/config/project/phoenix",
+      "link": "components/config_project_phoenix",
+      "hash": "48e0babc9dbf8e0e",
+      "frozen": false
+    },
+    "config.project.opensky": {
+      "version": "v1.0.0",
+      "path": "PD/config/project/opensky",
+      "link": "components/config_project_opensky",
+      "hash": "157fe8c7367e0aad",
+      "frozen": false
+    },
+    "config.setup.bumblebee": {
+      "version": "v1.0.0",
+      "path": "PD/config/setup/bumblebee",
+      "link": "components/config_setup_bumblebee",
+      "hash": "f295c28b5545a958",
+      "frozen": false
+    },
+    "config.setup.phoenix": {
+      "version": "v1.0.0",
+      "path": "PD/config/setup/phoenix",
+      "link": "components/config_setup_phoenix",
+      "hash": "feb7b7274f016f22",
+      "frozen": false
+    },
+    "config.setup.common": {
+      "version": "v1.0.0",
+      "path": "PD/config/setup/common",
+      "link": "components/config_setup_common",
+      "hash": "f203b41512b32a8f",
+      "frozen": false
+    },
+    "utils.makefile_commands": {
+      "version": "v1.0.0",
+      "path": "PD/utils/makefile_commands",
+      "link": "components/utils_makefile_commands",
+      "hash": "ff7490406dff303c",
+      "frozen": false
+    },
+    "utils.project": {
+      "version": "v1.0.0",
+      "path": "PD/utils/project",
+      "link": "components/utils_project",
+      "hash": "0b16b984c9c7a86e",
+      "frozen": false
+    },
+    "cmds.PV.synopsys.icv": {
+      "version": "v2.0.0",
+      "path": "PD/cmds/PV/synopsys/icv",
+      "link": "components/cmds_PV_synopsys_icv",
+      "hash": "c9b93174bd26238f",
+      "frozen": true
+    },
+    "cmds.PV.mentor.calibre": {
+      "version": "v2.0.0",
+      "path": "PD/cmds/PV/mentor/calibre",
+      "link": "components/cmds_PV_mentor_calibre",
+      "hash": "4cde66741bc802ab",
+      "frozen": true
+    },
+    "cmds.PV.opensource.magic": {
+      "version": "v2.0.0",
+      "path": "PD/cmds/PV/opensource/magic",
+      "link": "components/cmds_PV_opensource_magic",
+      "hash": "6f664944d958ad8f",
+      "frozen": true
+    },
+    "cmds.POPT.synopsys.pt": {
+      "version": "v2.0.0",
+      "path": "PD/cmds/POPT/synopsys/pt",
+      "link": "components/cmds_POPT_synopsys_pt",
+      "hash": "b4660f1ba3ffe14c",
+      "frozen": true
+    },
+    "cmds.POPT.synopsys.power_compiler": {
+      "version": "v2.0.0",
+      "path": "PD/cmds/POPT/synopsys/power_compiler",
+      "link": "components/cmds_POPT_synopsys_power_compiler",
+      "hash": "773a49e3298fd458",
+      "frozen": true
+    },
+    "cmds.LEC.synopsys.formality": {
+      "version": "v2.0.0",
+      "path": "PD/cmds/LEC/synopsys/formality",
+      "link": "components/cmds_LEC_synopsys_formality",
+      "hash": "1bb9d0fdd8e6a241",
+      "frozen": true
+    },
+    "cmds.LEC.opensource.yosys": {
+      "version": "v2.0.0",
+      "path": "PD/cmds/LEC/opensource/yosys",
+      "link": "components/cmds_LEC_opensource_yosys",
+      "hash": "33e5a584f84d9d03",
+      "frozen": true
+    },
+    "cmds.LEC.cadence.conformal": {
+      "version": "v2.0.0",
+      "path": "PD/cmds/LEC/cadence/conformal",
+      "link": "components/cmds_LEC_cadence_conformal",
+      "hash": "16ff30137af96551",
+      "frozen": true
+    },
+    "cmds.FCFP.synopsys.fc": {
+      "version": "v2.0.0",
+      "path": "PD/cmds/FCFP/synopsys/fc",
+      "link": "components/cmds_FCFP_synopsys_fc",
+      "hash": "343e930a5cef2429",
+      "frozen": true
+    },
+    "cmds.FCFP.cadence.innovus": {
+      "version": "v2.0.0",
+      "path": "PD/cmds/FCFP/cadence/innovus",
+      "link": "components/cmds_FCFP_cadence_innovus",
+      "hash": "055b39eec7bc4d21",
+      "frozen": true
+    },
+    "cmds.FP.synopsys.fc": {
+      "version": "v2.0.0",
+      "path": "PD/cmds/FP/synopsys/fc",
+      "link": "components/cmds_FP_synopsys_fc",
+      "hash": "5f9c3cb540ca9680",
+      "frozen": true
+    },
+    "cmds.FP.opensource.openroad": {
+      "version": "v2.0.0",
+      "path": "PD/cmds/FP/opensource/openroad",
+      "link": "components/cmds_FP_opensource_openroad",
+      "hash": "ec40a9acd72d1fb7",
+      "frozen": true
+    },
+    "cmds.FP.cadence.innovus": {
+      "version": "v2.0.0",
+      "path": "PD/cmds/FP/cadence/innovus",
+      "link": "components/cmds_FP_cadence_innovus",
+      "hash": "60b3cfd5ec0c130b",
+      "frozen": true
+    },
+    "cmds.PNR.synopsys.fc": {
+      "version": "v2.0.0",
+      "path": "PD/cmds/PNR/synopsys/fc",
+      "link": "components/cmds_PNR_synopsys_fc",
+      "hash": "2fb1f10926dcb32b",
+      "frozen": true
+    },
+    "cmds.PNR.opensource.openroad": {
+      "version": "v2.0.0",
+      "path": "PD/cmds/PNR/opensource/openroad",
+      "link": "components/cmds_PNR_opensource_openroad",
+      "hash": "b79dd12a3a3d0602",
+      "frozen": true
+    },
+    "cmds.PNR.cadence.innovus": {
+      "version": "v2.0.0",
+      "path": "PD/cmds/PNR/cadence/innovus",
+      "link": "components/cmds_PNR_cadence_innovus",
+      "hash": "0034cf66d1620b55",
+      "frozen": true
+    },
+    "cmds.ECO.synopsys.fc": {
+      "version": "v2.0.0",
+      "path": "PD/cmds/ECO/synopsys/fc",
+      "link": "components/cmds_ECO_synopsys_fc",
+      "hash": "8dfb0d07025d3318",
+      "frozen": true
+    },
+    "cmds.ECO.opensource.openroad": {
+      "version": "v2.0.0",
+      "path": "PD/cmds/ECO/opensource/openroad",
+      "link": "components/cmds_ECO_opensource_openroad",
+      "hash": "54a1c7ab8624d190",
+      "frozen": true
+    },
+    "cmds.ECO.cadence.innovus": {
+      "version": "v2.0.0",
+      "path": "PD/cmds/ECO/cadence/innovus",
+      "link": "components/cmds_ECO_cadence_innovus",
+      "hash": "dfd79625a4cf7ad7",
+      "frozen": true
+    },
+    "cmds.SYNTH.synopsys.fc": {
+      "version": "v2.0.0",
+      "path": "PD/cmds/SYNTH/synopsys/fc",
+      "link": "components/cmds_SYNTH_synopsys_fc",
+      "hash": "51f993605e1524bf",
+      "frozen": true
+    },
+    "cmds.SYNTH.opensource.yosys": {
+      "version": "v2.0.0",
+      "path": "PD/cmds/SYNTH/opensource/yosys",
+      "link": "components/cmds_SYNTH_opensource_yosys",
+      "hash": "cf09607f5b876468",
+      "frozen": true
+    },
+    "cmds.SYNTH.cadence.genus": {
+      "version": "v2.0.0",
+      "path": "PD/cmds/SYNTH/cadence/genus",
+      "link": "components/cmds_SYNTH_cadence_genus",
+      "hash": "85dadff6cf56cfb7",
+      "frozen": true
+    },
+    "cmds.SYNTH_PNR.synopsys.fc": {
+      "version": "v2.0.0",
+      "path": "PD/cmds/SYNTH_PNR/synopsys/fc",
+      "link": "components/cmds_SYNTH_PNR_synopsys_fc",
+      "hash": "70eb9c4c2df81d4b",
+      "frozen": true
+    },
+    "cmds.EMIR.synopsys.redhawk": {
+      "version": "v2.0.0",
+      "path": "PD/cmds/EMIR/synopsys/redhawk",
+      "link": "components/cmds_EMIR_synopsys_redhawk",
+      "hash": "781f4cf8ae4ec5d8",
+      "frozen": true
+    },
+    "cmds.EMIR.cadence.voltus": {
+      "version": "v2.0.0",
+      "path": "PD/cmds/EMIR/cadence/voltus",
+      "link": "components/cmds_EMIR_cadence_voltus",
+      "hash": "244075d46e94da45",
+      "frozen": true
+    },
+    "cmds.CLP.synopsys.vc_lp": {
+      "version": "v2.0.0",
+      "path": "PD/cmds/CLP/synopsys/vc_lp",
+      "link": "components/cmds_CLP_synopsys_vc_lp",
+      "hash": "78a616d555c7b3fa",
+      "frozen": true
+    },
+    "cmds.CLP.cadence.conformal_lp": {
+      "version": "v2.0.0",
+      "path": "PD/cmds/CLP/cadence/conformal_lp",
+      "link": "components/cmds_CLP_cadence_conformal_lp",
+      "hash": "d04c038c34ee7a42",
+      "frozen": true
+    },
+    "cmds.STA.synopsys.pt": {
+      "version": "v2.0.0",
+      "path": "PD/cmds/STA/synopsys/pt",
+      "link": "components/cmds_STA_synopsys_pt",
+      "hash": "cc9bdc2f3c104b67",
+      "frozen": true
+    },
+    "cmds.STA.opensource.opensta": {
+      "version": "v2.0.0",
+      "path": "PD/cmds/STA/opensource/opensta",
+      "link": "components/cmds_STA_opensource_opensta",
+      "hash": "ca5d7496849102bb",
+      "frozen": true
+    },
+    "cmds.STA.cadence.tempus": {
+      "version": "v2.0.0",
+      "path": "PD/cmds/STA/cadence/tempus",
+      "link": "components/cmds_STA_cadence_tempus",
+      "hash": "0455b7b3469a42c3",
+      "frozen": true
+    },
+    "DFT.config.flow": {
+      "version": "v1.0.0",
+      "path": "DFT/config/flow",
+      "link": "components/DFT_config_flow",
+      "hash": "cd4403086b8d8af6",
+      "frozen": false
+    },
+    "DFT.config.project.bumblebee": {
+      "version": "v1.0.0",
+      "path": "DFT/config/project/bumblebee",
+      "link": "components/DFT_config_project_bumblebee",
+      "hash": "2ac69306679c9dc3",
+      "frozen": false
+    },
+    "DFT.config.project.opensky": {
+      "version": "v1.0.0",
+      "path": "DFT/config/project/opensky",
+      "link": "components/DFT_config_project_opensky",
+      "hash": "83bef1c07d424646",
+      "frozen": false
+    },
+    "DFT.utils.utilities": {
+      "version": "v1.0.0",
+      "path": "DFT/utils/utilities",
+      "link": "components/DFT_utils_utilities",
+      "hash": "7466433e1ba9a90a",
+      "frozen": false
+    },
+    "cmds.DFT_INSERT_PASS1.synopsys.dft_compiler": {
+      "version": "v2.0.0",
+      "path": "DFT/cmds/DFT_INSERT_PASS1/synopsys/dft_compiler",
+      "link": "components/cmds_DFT_INSERT_PASS1_synopsys_dft_compiler",
+      "hash": "cbcca5338b16a08c",
+      "frozen": true
+    },
+    "cmds.DFT_INSERT_PASS1.mentor.tessent": {
+      "version": "v2.0.0",
+      "path": "DFT/cmds/DFT_INSERT_PASS1/mentor/tessent",
+      "link": "components/cmds_DFT_INSERT_PASS1_mentor_tessent",
+      "hash": "6df3c5e4c7d6062c",
+      "frozen": true
+    },
+    "cmds.GLS_SCAN_MBIST.synopsys.vcs": {
+      "version": "v2.0.0",
+      "path": "DFT/cmds/GLS_SCAN_MBIST/synopsys/vcs",
+      "link": "components/cmds_GLS_SCAN_MBIST_synopsys_vcs",
+      "hash": "e26dbb20af7a5b46",
+      "frozen": true
+    },
+    "cmds.GLS_SCAN_MBIST.mentor.questa": {
+      "version": "v2.0.0",
+      "path": "DFT/cmds/GLS_SCAN_MBIST/mentor/questa",
+      "link": "components/cmds_GLS_SCAN_MBIST_mentor_questa",
+      "hash": "6ffc62377e131d72",
+      "frozen": true
+    },
+    "cmds.GLS_SCAN_MBIST.opensource.iverilog": {
+      "version": "v2.0.0",
+      "path": "DFT/cmds/GLS_SCAN_MBIST/opensource/iverilog",
+      "link": "components/cmds_GLS_SCAN_MBIST_opensource_iverilog",
+      "hash": "fda611e5ef3ea0de",
+      "frozen": true
+    },
+    "cmds.SCAN_INSERT.synopsys.dft_compiler": {
+      "version": "v2.0.0",
+      "path": "DFT/cmds/SCAN_INSERT/synopsys/dft_compiler",
+      "link": "components/cmds_SCAN_INSERT_synopsys_dft_compiler",
+      "hash": "ef8a2f34f0a3d843",
+      "frozen": true
+    },
+    "cmds.SCAN_INSERT.mentor.tessent": {
+      "version": "v2.0.0",
+      "path": "DFT/cmds/SCAN_INSERT/mentor/tessent",
+      "link": "components/cmds_SCAN_INSERT_mentor_tessent",
+      "hash": "0b8fc8323e804223",
+      "frozen": true
+    },
+    "cmds.SCAN_INSERT.opensource.fault": {
+      "version": "v2.0.0",
+      "path": "DFT/cmds/SCAN_INSERT/opensource/fault",
+      "link": "components/cmds_SCAN_INSERT_opensource_fault",
+      "hash": "545afbac49146ece",
+      "frozen": true
+    },
+    "cmds.ATPG.synopsys.testmax": {
+      "version": "v2.0.0",
+      "path": "DFT/cmds/ATPG/synopsys/testmax",
+      "link": "components/cmds_ATPG_synopsys_testmax",
+      "hash": "03b5c066bed4b042",
+      "frozen": true
+    },
+    "cmds.ATPG.mentor.tessent": {
+      "version": "v2.0.0",
+      "path": "DFT/cmds/ATPG/mentor/tessent",
+      "link": "components/cmds_ATPG_mentor_tessent",
+      "hash": "a64d12f498935b44",
+      "frozen": true
+    },
+    "cmds.ATPG.opensource.fault": {
+      "version": "v2.0.0",
+      "path": "DFT/cmds/ATPG/opensource/fault",
+      "link": "components/cmds_ATPG_opensource_fault",
+      "hash": "020c6c9e7bdb6608",
+      "frozen": true
+    },
+    "cmds.DFT_INSERT_PASS3.synopsys.dft_compiler": {
+      "version": "v2.0.0",
+      "path": "DFT/cmds/DFT_INSERT_PASS3/synopsys/dft_compiler",
+      "link": "components/cmds_DFT_INSERT_PASS3_synopsys_dft_compiler",
+      "hash": "1641b62715913e78",
+      "frozen": true
+    },
+    "cmds.DFT_INSERT_PASS3.mentor.tessent": {
+      "version": "v2.0.0",
+      "path": "DFT/cmds/DFT_INSERT_PASS3/mentor/tessent",
+      "link": "components/cmds_DFT_INSERT_PASS3_mentor_tessent",
+      "hash": "b37760cca856ef58",
+      "frozen": true
+    },
+    "cmds.GLS_FUNC.synopsys.vcs": {
+      "version": "v2.0.0",
+      "path": "DFT/cmds/GLS_FUNC/synopsys/vcs",
+      "link": "components/cmds_GLS_FUNC_synopsys_vcs",
+      "hash": "2e4f35f8a6147734",
+      "frozen": true
+    },
+    "cmds.GLS_FUNC.mentor.questa": {
+      "version": "v2.0.0",
+      "path": "DFT/cmds/GLS_FUNC/mentor/questa",
+      "link": "components/cmds_GLS_FUNC_mentor_questa",
+      "hash": "2e6d1beb125cd9d7",
+      "frozen": true
+    },
+    "cmds.GLS_FUNC.opensource.iverilog": {
+      "version": "v2.0.0",
+      "path": "DFT/cmds/GLS_FUNC/opensource/iverilog",
+      "link": "components/cmds_GLS_FUNC_opensource_iverilog",
+      "hash": "249dd69d4dc24f7f",
+      "frozen": true
+    },
+    "cmds.DFT_INSERT_PASS2.synopsys.dft_compiler": {
+      "version": "v2.0.0",
+      "path": "DFT/cmds/DFT_INSERT_PASS2/synopsys/dft_compiler",
+      "link": "components/cmds_DFT_INSERT_PASS2_synopsys_dft_compiler",
+      "hash": "52401b66336f9450",
+      "frozen": true
+    },
+    "cmds.DFT_INSERT_PASS2.mentor.tessent": {
+      "version": "v2.0.0",
+      "path": "DFT/cmds/DFT_INSERT_PASS2/mentor/tessent",
+      "link": "components/cmds_DFT_INSERT_PASS2_mentor_tessent",
+      "hash": "e437746e7f46538a",
+      "frozen": true
+    },
+    "DV.config.flow": {
+      "version": "v1.0.0",
+      "path": "DV/config/flow",
+      "link": "components/DV_config_flow",
+      "hash": "bd289b82872c193c",
+      "frozen": false
+    },
+    "DV.config.project.bumblebee": {
+      "version": "v1.0.0",
+      "path": "DV/config/project/bumblebee",
+      "link": "components/DV_config_project_bumblebee",
+      "hash": "d61788380c3e7411",
+      "frozen": false
+    },
+    "DV.config.project.opensky": {
+      "version": "v1.0.0",
+      "path": "DV/config/project/opensky",
+      "link": "components/DV_config_project_opensky",
+      "hash": "afb9b422d353ea81",
+      "frozen": false
+    },
+    "DV.utils.utilities": {
+      "version": "v1.0.0",
+      "path": "DV/utils/utilities",
+      "link": "components/DV_utils_utilities",
+      "hash": "df702738e83b1c18",
+      "frozen": false
+    },
+    "cmds.SPEC_RAMP.generic.review": {
+      "version": "v2.0.0",
+      "path": "DV/cmds/SPEC_RAMP/generic/review",
+      "link": "components/cmds_SPEC_RAMP_generic_review",
+      "hash": "5ae2ef6144f8ef4a",
+      "frozen": true
+    },
+    "cmds.PLANNING.generic.review": {
+      "version": "v2.0.0",
+      "path": "DV/cmds/PLANNING/generic/review",
+      "link": "components/cmds_PLANNING_generic_review",
+      "hash": "f4fa0149e00e871c",
+      "frozen": true
+    },
+    "cmds.M1_EXEC.opensource.verilator": {
+      "version": "v2.0.0",
+      "path": "DV/cmds/M1_EXEC/opensource/verilator",
+      "link": "components/cmds_M1_EXEC_opensource_verilator",
+      "hash": "b4e1454a55c9f2b6",
+      "frozen": true
+    },
+    "cmds.M1_EXEC.generic.review": {
+      "version": "v2.0.0",
+      "path": "DV/cmds/M1_EXEC/generic/review",
+      "link": "components/cmds_M1_EXEC_generic_review",
+      "hash": "2be7fb200727b960",
+      "frozen": true
+    },
+    "cmds.DV_SIGNOFF.opensource.verilator": {
+      "version": "v2.0.0",
+      "path": "DV/cmds/DV_SIGNOFF/opensource/verilator",
+      "link": "components/cmds_DV_SIGNOFF_opensource_verilator",
+      "hash": "b846c4a942c6fbc3",
+      "frozen": true
+    },
+    "cmds.DV_SIGNOFF.generic.review": {
+      "version": "v2.0.0",
+      "path": "DV/cmds/DV_SIGNOFF/generic/review",
+      "link": "components/cmds_DV_SIGNOFF_generic_review",
+      "hash": "b5f61e8ab5cb0358",
+      "frozen": true
+    },
+    "cmds.ECO_EXEC.generic.review": {
+      "version": "v2.0.0",
+      "path": "DV/cmds/ECO_EXEC/generic/review",
+      "link": "components/cmds_ECO_EXEC_generic_review",
+      "hash": "fad7f91550d3dd94",
+      "frozen": true
+    },
+    "cmds.TB_SETUP.opensource.verilator": {
+      "version": "v2.0.0",
+      "path": "DV/cmds/TB_SETUP/opensource/verilator",
+      "link": "components/cmds_TB_SETUP_opensource_verilator",
+      "hash": "27421cbbb87d4cdf",
+      "frozen": true
+    },
+    "cmds.TB_SETUP.generic.review": {
+      "version": "v2.0.0",
+      "path": "DV/cmds/TB_SETUP/generic/review",
+      "link": "components/cmds_TB_SETUP_generic_review",
+      "hash": "dcfa360b808e0137",
+      "frozen": true
+    },
+    "cmds.M2_EXEC.opensource.verilator": {
+      "version": "v2.0.0",
+      "path": "DV/cmds/M2_EXEC/opensource/verilator",
+      "link": "components/cmds_M2_EXEC_opensource_verilator",
+      "hash": "5c843f5c38a71453",
+      "frozen": true
+    },
+    "cmds.M2_EXEC.generic.review": {
+      "version": "v2.0.0",
+      "path": "DV/cmds/M2_EXEC/generic/review",
+      "link": "components/cmds_M2_EXEC_generic_review",
+      "hash": "7bc765c80c10d3d5",
+      "frozen": true
+    },
+    "cmds.M3_EXEC.opensource.verilator": {
+      "version": "v2.0.0",
+      "path": "DV/cmds/M3_EXEC/opensource/verilator",
+      "link": "components/cmds_M3_EXEC_opensource_verilator",
+      "hash": "b9f8a8599ecbb7fb",
+      "frozen": true
+    },
+    "cmds.M3_EXEC.generic.review": {
+      "version": "v2.0.0",
+      "path": "DV/cmds/M3_EXEC/generic/review",
+      "link": "components/cmds_M3_EXEC_generic_review",
+      "hash": "2059e305f53b2afd",
+      "frozen": true
+    },
+    "cmds._shared.generic.review": {
+      "version": "v2.0.0",
+      "path": "DV/cmds/_shared/generic/review",
+      "link": "components/cmds__shared_generic_review",
+      "hash": "f8ba34c66b47fc19",
+      "frozen": true
+    },
+    "cmds.M4_EXEC.opensource.verilator": {
+      "version": "v2.0.0",
+      "path": "DV/cmds/M4_EXEC/opensource/verilator",
+      "link": "components/cmds_M4_EXEC_opensource_verilator",
+      "hash": "2899b65b7a2725a6",
+      "frozen": true
+    },
+    "cmds.M4_EXEC.generic.review": {
+      "version": "v2.0.0",
+      "path": "DV/cmds/M4_EXEC/generic/review",
+      "link": "components/cmds_M4_EXEC_generic_review",
+      "hash": "7fda083e38d95b02",
+      "frozen": true
+    },
+    "RTL.config.flow": {
+      "version": "v1.0.0",
+      "path": "RTL/config/flow",
+      "link": "components/RTL_config_flow",
+      "hash": "f130b8b3b0da7ae0",
+      "frozen": false
+    },
+    "RTL.utils.utilities": {
+      "version": "v1.0.0",
+      "path": "RTL/utils/utilities",
+      "link": "components/RTL_utils_utilities",
+      "hash": "f541a7413162c7c7",
+      "frozen": false
+    },
+    "cmds.RTL_CDC.synopsys.spyglass": {
+      "version": "v2.0.0",
+      "path": "RTL/cmds/RTL_CDC/synopsys/spyglass",
+      "link": "components/cmds_RTL_CDC_synopsys_spyglass",
+      "hash": "292024bc68a8969e",
+      "frozen": true
+    },
+    "cmds.RTL_CDC.opensource.opencdc": {
+      "version": "v2.0.0",
+      "path": "RTL/cmds/RTL_CDC/opensource/opencdc",
+      "link": "components/cmds_RTL_CDC_opensource_opencdc",
+      "hash": "1377afe21675cfee",
+      "frozen": true
+    },
+    "cmds.RTL_CDC.cadence.jaspergold": {
+      "version": "v2.0.0",
+      "path": "RTL/cmds/RTL_CDC/cadence/jaspergold",
+      "link": "components/cmds_RTL_CDC_cadence_jaspergold",
+      "hash": "5ef45d7a68f10cec",
+      "frozen": true
+    },
+    "cmds.RTL_RDC.synopsys.spyglass": {
+      "version": "v2.0.0",
+      "path": "RTL/cmds/RTL_RDC/synopsys/spyglass",
+      "link": "components/cmds_RTL_RDC_synopsys_spyglass",
+      "hash": "a90d964fa4e1bcb9",
+      "frozen": true
+    },
+    "cmds.RTL_RDC.cadence.jaspergold": {
+      "version": "v2.0.0",
+      "path": "RTL/cmds/RTL_RDC/cadence/jaspergold",
+      "link": "components/cmds_RTL_RDC_cadence_jaspergold",
+      "hash": "885af471d42bc032",
+      "frozen": true
+    },
+    "cmds.RTL_LINT.synopsys.spyglass": {
+      "version": "v2.0.0",
+      "path": "RTL/cmds/RTL_LINT/synopsys/spyglass",
+      "link": "components/cmds_RTL_LINT_synopsys_spyglass",
+      "hash": "cfc88756348f41b8",
+      "frozen": true
+    },
+    "cmds.RTL_LINT.opensource.verilator": {
+      "version": "v2.0.0",
+      "path": "RTL/cmds/RTL_LINT/opensource/verilator",
+      "link": "components/cmds_RTL_LINT_opensource_verilator",
+      "hash": "13474c41d6769bc4",
+      "frozen": true
+    },
+    "cmds.RTL_LINT.cadence.jaspergold": {
+      "version": "v2.0.0",
+      "path": "RTL/cmds/RTL_LINT/cadence/jaspergold",
+      "link": "components/cmds_RTL_LINT_cadence_jaspergold",
+      "hash": "cabd811d026f310d",
+      "frozen": true
+    },
+    "cmds.UPF_CHECK.synopsys.vc_lp": {
+      "version": "v2.0.0",
+      "path": "RTL/cmds/UPF_CHECK/synopsys/vc_lp",
+      "link": "components/cmds_UPF_CHECK_synopsys_vc_lp",
+      "hash": "8e4936bd651c0d8d",
+      "frozen": true
+    },
+    "cmds.UPF_CHECK.opensource.rtlcheck": {
+      "version": "v2.0.0",
+      "path": "RTL/cmds/UPF_CHECK/opensource/rtlcheck",
+      "link": "components/cmds_UPF_CHECK_opensource_rtlcheck",
+      "hash": "99069ed8ebe3754c",
+      "frozen": true
+    },
+    "cmds.UPF_CHECK.cadence.conformal_lp": {
+      "version": "v2.0.0",
+      "path": "RTL/cmds/UPF_CHECK/cadence/conformal_lp",
+      "link": "components/cmds_UPF_CHECK_cadence_conformal_lp",
+      "hash": "bc1fec7fe9434fba",
+      "frozen": true
+    },
+    "cmds.RTL_SPEC.opensource.rtlcheck": {
+      "version": "v2.0.0",
+      "path": "RTL/cmds/RTL_SPEC/opensource/rtlcheck",
+      "link": "components/cmds_RTL_SPEC_opensource_rtlcheck",
+      "hash": "fcfa269f42fb6086",
+      "frozen": true
+    },
+    "global.config.flow": {
+      "version": "v1.0.0",
+      "path": "global/config/flow",
+      "link": "components/global_config_flow",
+      "hash": "7c267070da80ee42",
+      "frozen": false
+    },
+    "config.tech.skywater_130nm": {
+      "version": "v1.0.0",
+      "path": "global/config/tech/skywater_130nm",
+      "link": "components/config_tech_skywater_130nm",
+      "hash": "99825de0d16fb4e3",
+      "frozen": false
+    },
+    "config.tech.tsmc_5nm": {
+      "version": "v1.0.0",
+      "path": "global/config/tech/tsmc_5nm",
+      "link": "components/config_tech_tsmc_5nm",
+      "hash": "e8b5690f4ef3dbe9",
+      "frozen": false
+    },
+    "config.tech.gf_28nm": {
+      "version": "v1.0.0",
+      "path": "global/config/tech/gf_28nm",
+      "link": "components/config_tech_gf_28nm",
+      "hash": "538453869f8d7148",
+      "frozen": false
+    },
+    "config.tech.gf_22nm": {
+      "version": "v1.0.0",
+      "path": "global/config/tech/gf_22nm",
+      "link": "components/config_tech_gf_22nm",
+      "hash": "6053a592d1834171",
+      "frozen": false
+    },
+    "config.tech.tsmc_7nm": {
+      "version": "v1.0.0",
+      "path": "global/config/tech/tsmc_7nm",
+      "link": "components/config_tech_tsmc_7nm",
+      "hash": "fd031f3319f4369e",
+      "frozen": false
+    },
+    "global.config.project.bumblebee": {
+      "version": "v1.0.0",
+      "path": "global/config/project/bumblebee",
+      "link": "components/global_config_project_bumblebee",
+      "hash": "15e2567ee666d805",
+      "frozen": false
+    },
+    "global.config.project.denali": {
+      "version": "v1.0.0",
+      "path": "global/config/project/denali",
+      "link": "components/global_config_project_denali",
+      "hash": "e8d7fcedd3e8045a",
+      "frozen": false
+    },
+    "global.config.project.phoenix": {
+      "version": "v1.0.0",
+      "path": "global/config/project/phoenix",
+      "link": "components/global_config_project_phoenix",
+      "hash": "80762ab5a3082485",
+      "frozen": false
+    },
+    "global.config.project.opensky": {
+      "version": "v1.0.0",
+      "path": "global/config/project/opensky",
+      "link": "components/global_config_project_opensky",
+      "hash": "b4bbcb5dcc84709e",
+      "frozen": false
+    },
+    "config.exit": {
+      "version": "v1.0.0",
+      "path": "global/config/exit",
+      "link": "components/config_exit",
+      "hash": "c0f0d17aaa1813f1",
+      "frozen": false
+    },
+    "PD.utils.utilities": {
+      "version": "v1.0.0",
+      "path": "PD/utils/utilities",
+      "link": "components/PD_utils_utilities",
+      "hash": "c4bb566470ca9a2e",
+      "frozen": false
+    },
+    "utils.utilities": {
+      "version": "v1.0.0",
+      "path": "global/utils/utilities",
+      "link": "components/utils_utilities",
+      "hash": "891f909175da5b84",
+      "frozen": false
+    },
+    "utils.version": {
+      "version": "v1.0.0",
+      "path": "global/utils/version",
+      "link": "components/utils_version",
+      "hash": "15c3f37b737c6e0d",
+      "frozen": false
+    },
+    "utils.generation": {
+      "version": "v1.0.0",
+      "path": "global/utils/generation",
+      "link": "components/utils_generation",
+      "hash": "60d0af27487033bb",
+      "frozen": false
+    },
+    "utils.validation": {
+      "version": "v1.0.0",
+      "path": "global/utils/validation",
+      "link": "components/utils_validation",
+      "hash": "a8036ae757d6fbcd",
+      "frozen": false
+    },
+    "utils.node_management": {
+      "version": "v1.0.0",
+      "path": "global/utils/node_management",
+      "link": "components/utils_node_management",
+      "hash": "3a971d0fb0dd2849",
+      "frozen": false
+    }
+  },
+  "frozen_scope": "cmds"
+}

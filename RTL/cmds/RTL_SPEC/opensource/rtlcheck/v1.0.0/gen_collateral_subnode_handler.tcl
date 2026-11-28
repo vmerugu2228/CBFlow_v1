@@ -15,7 +15,7 @@ set ::flow_type "RTL_SPEC"
 set stage_name "gen_collateral"
 if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [cbflow_require rtl_spec tool,version]
+set _tool_ver [handler_tool_version]
 set cmd_file "$::env(CBFLOW_RTL_DIR)/cmds/RTL_SPEC/opensource/rtlcheck/$_tool_ver/gen_collateral_rtlcheck.tcl"
 
 set test_mode [handler_is_test_mode]

@@ -58,6 +58,11 @@ flow-name level).
    - `cbflow flow checklist list-checks` for exit configs;
    - `cbflow test --static` for framework configs.
 
+## 3b. Versioned components
+Command trees are frozen once released: edits go to a new version through the
+flow-manager skill (`flowm.py edit`). Configs aren't frozen by releases yet, so
+this skill edits them in place, with the owner gate, backup and log.
+
 ## 4. Refused?
 - **Not an owner:** say who owns the scope (`$C owners`) and offer a ready-to-send
   change request: file, key, old → new, reason. **Never edit the file another way**

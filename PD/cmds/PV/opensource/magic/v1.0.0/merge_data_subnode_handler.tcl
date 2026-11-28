@@ -15,7 +15,7 @@ set ::flow_type "PV"
 set stage_name "merge_data"
 if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [expr {[info exists ::env(MAGIC_VERSION)] && $::env(MAGIC_VERSION) ne "" ? $::env(MAGIC_VERSION) : [cbflow_require pv tool,version]}]
+set _tool_ver [handler_tool_version MAGIC_VERSION]
 set cmd_file "$::env(FLOW_DIR)/PD/cmds/PV/opensource/magic/$_tool_ver/merge_data_magic.tcl"
 
 set test_mode [handler_is_test_mode]

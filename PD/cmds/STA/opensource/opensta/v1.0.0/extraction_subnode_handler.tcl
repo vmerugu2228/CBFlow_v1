@@ -14,7 +14,7 @@ handler_load_configs $run_dir "STA"
 set ::flow_type "STA"
 set stage_name "extraction"
 if {$node_name eq ""} { set node_name [cbflow_node_name] }
-set _tool_ver [expr {[info exists ::env(OPENSTA_VERSION)] && $::env(OPENSTA_VERSION) ne "" ? $::env(OPENSTA_VERSION) : [cbflow_require sta tool,version]}]
+set _tool_ver [handler_tool_version OPENSTA_VERSION]
 set test_mode [handler_is_test_mode]
 
 switch $subnode_name {

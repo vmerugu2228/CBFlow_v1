@@ -125,6 +125,13 @@ foreach k [array names operating_modes] {{ puts "mode\\t$k\\t[dict get $operatin
     return ref_vals
 
 
+def _newest_release():
+    rd = os.path.join(ROOT, 'global', 'releases')
+    vs = [d for d in os.listdir(rd) if d.startswith('v') and os.path.isfile(os.path.join(rd, d, 'MANIFEST.json'))] \
+        if os.path.isdir(rd) else []
+    return max(vs, key=lambda v: [int(x) if x.isdigit() else x for x in re.split(r'[.\-]', v[1:])]) if vs else ASK
+
+
 def cmd_template(a):
     r = read_reference(a.like)
     rp = r['p']
@@ -137,6 +144,7 @@ def cmd_template(a):
     spec = {
         'like': a.like, 'name': a.name or ASK, 'description': ASK, 'owner': ASK, 'contact': ASK,
         'chip_lead': ASK, 'technology': rp.get('technology', ASK),
+        'cbflow_release': _newest_release(),
         'phases': tw(rp.get('phases', '')), 'current_phase': rp.get('current_phase', ''),
         'phase_exits': pex,
         'top_module': ASK,
@@ -163,7 +171,7 @@ def cmd_template(a):
         'lsf': {'enabled': rp.get('lsf,enabled', 'false'), 'default_queue': rp.get('lsf,default_queue', '')},
         'dates': {'start': datetime.date.today().isoformat(), 'tapeout': ASK},
         'block_inputs': {},
-        '_assumed': ['technology', 'phases', 'current_phase', 'phase_exits', 'enabled_flows', 'default_tools',
+        '_assumed': ['cbflow_release', 'technology', 'phases', 'current_phase', 'phase_exits', 'enabled_flows', 'default_tools',
                      'process', 'sdc_modes', 'power', 'pdn_enable', 'paths.lib_root', 'paths.lib_tag_root',
                      'mmmc', 'dft', 'dv_targets', 'lsf'],
         '_help': {
@@ -210,6 +218,9 @@ def check_spec(spec):
             errs.append(f'name {name!r}: lowercase letters / digits / _, starting with a letter')
         if name in registry().get('projects', {}) or os.path.exists(proj_files(name)['global']):
             errs.append(f'project {name} already exists')
+    rel = spec.get('cbflow_release')
+    if rel and rel != ASK and not os.path.isfile(os.path.join(ROOT, 'global', 'releases', rel, 'MANIFEST.json')):
+        errs.append(f'cbflow_release {rel}: no global/releases/{rel} (flow-manager skill: flowm.py status)')
     tech = spec.get('technology')
     if tech != ASK and not os.path.exists(os.path.join(ROOT, 'global', 'config', 'tech', tech or '_', 'v1.0.0',
                                                        'tech_config.tcl')):
@@ -406,7 +417,8 @@ def gen_project(spec, ref):
               'project(tapeout_date)': spec['dates']['tapeout'],
               'project(power,vdd_net)': spec['power']['vdd_net'], 'project(power,vss_net)': spec['power']['vss_net'],
               'project(power,vdd_pin)': spec['power']['vdd_pin'], 'project(power,vss_pin)': spec['power']['vss_pin'],
-              'project(pdn,enable)': spec['pdn_enable']}
+              'project(pdn,enable)': spec['pdn_enable'],
+              'project(cbflow_release)': spec['cbflow_release']}
     for k, v in simple.items():
         t = replace_stmt(t, k, f'"{v}"' if not re.match(r'^(true|false|\d+)$', str(v)) else str(v))
     t = replace_stmt(t, 'project(power,rail_nets)', tcl_list(spec['power']['rail_nets']))

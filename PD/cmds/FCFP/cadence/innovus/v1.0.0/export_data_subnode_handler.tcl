@@ -14,7 +14,7 @@ set ::flow_type "FCFP"
 set stage_name "export_data"
 if {$node_name eq ""} { set node_name [cbflow_node_name] }
 
-set _tool_ver [expr {[info exists ::env(INNOVUS_VERSION)] && $::env(INNOVUS_VERSION) ne "" ? $::env(INNOVUS_VERSION) : [cbflow_require fcfp tool,version]}]
+set _tool_ver [handler_tool_version]
 set cmd_file "$::env(FLOW_DIR)/PD/cmds/FCFP/cadence/innovus/$_tool_ver/export_data_innovus.tcl"
 
 set test_mode [handler_is_test_mode]

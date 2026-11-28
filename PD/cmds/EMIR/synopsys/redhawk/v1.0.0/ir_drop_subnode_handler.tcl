@@ -14,7 +14,7 @@ set ::flow_type "EMIR"
 set stage_name "ir_drop"
 if {$node_name eq ""} { set node_name "${stage_name}1" }
 
-set _tool_ver [expr {[info exists ::env(REDHAWK_VERSION)] ? $::env(REDHAWK_VERSION) : "v1.0.0"}]
+set _tool_ver [handler_tool_version REDHAWK_VERSION]
 set cmd_file "$::env(FLOW_DIR)/PD/cmds/EMIR/synopsys/redhawk/$_tool_ver/ir_drop_redhawk.tcl"
 
 set test_mode [handler_is_test_mode]
