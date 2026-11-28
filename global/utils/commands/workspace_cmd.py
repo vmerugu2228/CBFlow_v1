@@ -811,7 +811,9 @@ def _validate_mandatory_inputs(user_config: dict, flow_type: str) -> list:
             # names for this flow (source ANY → any flow in flow(types)).
             from core import registry
             try:
-                release_base = registry.require_project_value(project_name, 'release,path')
+                # the run's release tree: user_config overrides the project (cascade)
+                release_base = user_config.get('project(release,path)', '').strip('"') or \
+                    registry.require_project_value(project_name, 'release,path')
                 # the run's phase (project(phase) / project(current_phase))
                 rel_phase = phase
                 if not rel_phase:

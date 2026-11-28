@@ -23,7 +23,9 @@ gate      runs in the CBflow open-source container (global/bin/cbflow-oss):
           sim      a SystemVerilog testbench (verilator --binary --timing) or a
                    cocotb directory (make); pass = exit 0, a PASS line, no FAIL / ERROR
           formal   sby -f <sby> (DONE (PASS))
-          writes <work>/gate.json and prints one line per stage; exit 1 on any FAIL.
+          writes <work>/gate.json (with --only: gate_<stages>.json) and prints one line per
+          stage; exit 1 on any FAIL. Testbench convention: a line starting with PASS
+          (or TEST PASSED) when all pass; FAIL ... (or ERROR:) per failure.
 Environment: CBFLOW_OSS_TOOLS (PeakRDL Python, z3) as for the CBflow RTL flows.
 """
 import argparse
@@ -132,7 +134,9 @@ def macro_ports(lib_config, macro):
     for v in r.stdout.split():
         if not os.path.exists(v):
             continue
-        txt = open(v).read()
+        txt = re.sub(r'//[^\n]*', '', open(v).read())
+        # power pins (`ifdef USE_POWER_PINS) are not connected in RTL
+        txt = re.sub(r'`ifdef\s+USE_POWER_PINS.*?`endif', '', txt, flags=re.S)
         m = re.search(r'module\s+' + re.escape(macro) + r'\b(.*?)endmodule', txt, re.S)
         if not m:
             continue
@@ -242,7 +246,7 @@ def cmd_scaffold(a):
         clk = (s.get('clocks') or [{}])[0]
         L = [f'// {top} — generated scaffold (spec2rtl): ports, register block and memories from',
              f'// {os.path.basename(a.spec)}. Fill the logic; keep the port list as the spec defines it.',
-             f'module {top}' + (f'\n    import {reg_mod}_pkg::*;' if reg_mod else ''), '(']
+             '`default_nettype none', f'module {top}' + (f'\n    import {reg_mod}_pkg::*;' if reg_mod else ''), '(']
         ports = s['ports']
         for i, p in enumerate(ports):
             d = {'in': 'input ', 'out': 'output', 'inout': 'inout '}[p['dir']]
@@ -268,7 +272,8 @@ def cmd_scaffold(a):
             else:
                 L.append(f'    // {m["macro"]} {m["inst"]} (...);  — pins: pass --lib-config to list them')
             L.append('')
-        L += ['    // ── logic ──', '    // TODO(spec2rtl): implement the features of the spec', '', 'endmodule', '']
+        L += ['    // ── logic ──', '    // TODO(spec2rtl): implement the features of the spec', '', 'endmodule',
+              '`default_nettype wire', '']
         with open(f_top, 'w') as fh:
             fh.write('\n'.join(L))
         written.append(f_top)
@@ -285,7 +290,7 @@ def cmd_scaffold(a):
         L = [f'// {top} protocol checks (spec2rtl): immediate assertions with $past.',
              f'// Simulation: bound to {top} (verilator --assert). Formal: {top}_ftop + {top}.sby.',
              f'module {top}_sva (', '    ' + ',\n    '.join(f'input wire {width(p)}{p["name"]}' for p in s['ports']),
-             ');', '    reg past_ok = 1\'b0;', f'    always @(posedge {clk}) past_ok <= 1\'b1;',
+             ');', '    reg past_ok;', '    initial past_ok = 1\'b0;', f'    always @(posedge {clk}) past_ok <= 1\'b1;',
              f'    always @(posedge {clk}) begin', f'        if (past_ok && !{in_rst} && !$past({in_rst})) begin']
         for i in s.get('interfaces', []) or []:
             sg = i.get('signals', {})
@@ -475,8 +480,8 @@ def cmd_gate(a):
     if 'sim' in only and a.tb:
         if os.path.isdir(a.tb):
             rc, o = oss('make', os.path.join(a.work, 'sim.log'), cwd=a.tb)
-            fails = first_lines(o, r'FAIL|Error|ERROR', 12)
-            passed = re.search(r'TESTS=(\d+) PASS=(\d+) FAIL=0', o) or ('PASS' in o and not fails)
+            fails = first_lines(o, r'^\s*(FAIL\b|ERROR:)|FAIL=[1-9]|Traceback', 12)
+            passed = rc == 0 and re.search(r'TESTS=(\d+) PASS=(\d+) FAIL=0', o) and not fails
         else:
             obj = os.path.join(a.work, 'obj_sim')
             m = re.search(r'^\s*module\s+(\w+)', open(a.tb).read(), re.M)
@@ -485,8 +490,8 @@ def cmd_gate(a):
             rc, o = oss(f'verilator --binary --timing --assert -Wno-fatal -Wno-lint -Wno-style --top-module {tbtop} '
                         f'-Mdir {obj} {mq} {q} {" ".join(shlex.quote(f) for f in sva)} {shlex.quote(a.tb)} '
                         f'&& {obj}/V{tbtop}', os.path.join(a.work, 'sim.log'), timeout=3600)
-            fails = first_lines(o, r'FAIL|%Error|ERROR|Assertion failed', 12)
-            passed = rc == 0 and re.search(r'PASS', o) and not fails
+            fails = first_lines(o, r'^\s*(\[\S+\]\s*)?(FAIL\b|TEST FAILED|%Error|ERROR:)|Assertion failed|Assertion error', 12)
+            passed = rc == 0 and re.search(r'^\s*(\[\S+\]\s*)?(PASS\b|TEST PASSED)', o, re.M) and not fails
         stage('sim', bool(passed), f'testbench {os.path.basename(a.tb)}', fails)
     if 'formal' in only and a.sby:
         ft = os.path.join(a.work, f'{top}_ftop.sv')
@@ -506,9 +511,11 @@ def cmd_gate(a):
         rc, o = oss(f'rm -rf {top}_run && "$(readlink -f "$(command -v sby)")" -f {shlex.quote(run_sby)}',
                     os.path.join(a.work, 'formal.log'),
                     cwd=a.work, timeout=3600)
-        stage('formal', 'DONE (PASS' in o, os.path.basename(a.sby),
-              first_lines(o, r'Assert failed|FAIL|ERROR|counterexample|trace', 12))
-    with open(os.path.join(a.work, 'gate.json'), 'w') as fh:
+        ok = 'DONE (PASS' in o
+        stage('formal', ok, os.path.basename(a.sby) + ('' if ok else f' — counterexample: {a.work}/{top}_run/engine_0/trace.vcd'),
+              [] if ok else first_lines(o, r'Assert failed|ERROR|counterexample trace|DONE \(', 12))
+    rep_name = 'gate.json' if not a.only else f'gate_{a.only.replace(",", "_")}.json'
+    with open(os.path.join(a.work, rep_name), 'w') as fh:
         json.dump({'top': top, 'files': files, 'stages': res}, fh, indent=1)
     bad = [k for k, v in res.items() if v['status'] != 'PASS']
     print(f'\n{len(res) - len(bad)}/{len(res)} stage(s) passed' + (f' — failing: {", ".join(bad)}' if bad else ''))
