@@ -207,9 +207,8 @@ flow_proc dft_insert {
     set _or "$::WORK_DIR/run/dft_insert.tcl"
     set _fh [open $_or w]
     puts $_fh "read_lef [oss_ms "[oss_track],lef_tech"]"
-    foreach _l [oss_trk lef] { puts $_fh "read_lef $_l" }
+    foreach _l [oss_cell_lefs] { puts $_fh "read_lef $_l" }
     foreach _l $::oss_libs { puts $_fh "read_liberty $_l" }
-    foreach _l [oss_memory_files lef] { puts $_fh "read_lef $_l" }
     foreach _l [oss_memory_libs $_lib_set] { puts $_fh "read_liberty $_l" }
     foreach _b $blocks {
         set _v [hier_block_views $_b]

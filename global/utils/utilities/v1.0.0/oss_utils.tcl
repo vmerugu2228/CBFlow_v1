@@ -128,10 +128,18 @@ proc oss_node_lib_sets {node} {
 }
 
 # ── Physical views (OpenROAD) ───────────────────────────────────────────────
+# Cell LEFs: the track's, then the memory macros' — each file once (a library
+# tag's combined tech(<track>,lef) may already list the macros).
+proc oss_cell_lefs {} {
+    set _out {}
+    foreach _l [concat [oss_trk lef] [oss_memory_files lef]] {
+        if {[lsearch -exact $_out $_l] < 0} { lappend _out $_l }
+    }
+    return $_out
+}
 proc oss_read_lefs {{blocks {}}} {
     read_lef [oss_ms "[oss_track],lef_tech"]
-    foreach _l [oss_trk lef] { read_lef $_l }
-    foreach _l [oss_memory_files lef] { read_lef $_l }
+    foreach _l [oss_cell_lefs] { read_lef $_l }
     foreach _b $blocks { read_lef [dict get [hier_block_views $_b] lef] }
 }
 
@@ -866,10 +874,8 @@ proc oss_deliverable_cmds {outdir blocks} {
 # Views KLayout merges into a block's GDS: tech + track LEFs, standard-cell
 # GDS, memory macros, every child block's LEF / GDS -> {lefs gds}.
 proc oss_export_views {blocks} {
-    set _lefs [list [oss_ms "[oss_track],lef_tech"]]
-    foreach _l [oss_trk lef] { lappend _lefs $_l }
+    set _lefs [list [oss_ms "[oss_track],lef_tech"] {*}[oss_cell_lefs]]
     set _gds [list [oss_trk gds_stdcell]]
-    lappend _lefs {*}[oss_memory_files lef]
     lappend _gds  {*}[oss_memory_files gds]
     foreach _b $blocks {
         set _v [hier_block_views $_b]
@@ -1060,10 +1066,8 @@ proc oss_group_timing {views prefix} {
 proc oss_def2gds {def out min_area klayout_cmd} {
     global blocks
     set _design [oss_get flow design_name]
-    set _lefs [list [oss_ms "[oss_track],lef_tech"]]
-    foreach _l [oss_trk lef] { lappend _lefs $_l }
+    set _lefs [list [oss_ms "[oss_track],lef_tech"] {*}[oss_cell_lefs]]
     set _gds [list [oss_trk gds_stdcell]]
-    lappend _lefs {*}[oss_memory_files lef]
     lappend _gds  {*}[oss_memory_files gds]
     foreach _b $blocks {
         set _v [hier_block_views $_b]

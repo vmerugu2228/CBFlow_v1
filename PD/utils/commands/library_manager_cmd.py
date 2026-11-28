@@ -1438,6 +1438,19 @@ def _project_lib_sets(project: str, version: str) -> List[str]:
     return sorted({n[:-3] if n.endswith('_ls') else n for n in names})
 
 
+def _project_view_rc_corners(project: str, version: str) -> List[str]:
+    """RC corners the project's MMMC views use (-rc_corner of create_analysis_view,
+    temperature suffix dropped: rc_max_100c -> rc_max) — the parasitics a
+    parent's STA reads for a hard block."""
+    from core.paths import get_cbflow_global_dir
+    p = os.path.join(get_cbflow_global_dir(), 'config', 'project', project, version,
+                     'mmmc_view_definition.tcl')
+    if not os.path.isfile(p):
+        return []
+    used = re.findall(r'-rc_corner\s+(\S+)', open(p).read())
+    return sorted({re.sub(r'_m?\d+c$', '', n) for n in used})
+
+
 def _view_matrix(lib_cfg: str, tc: str, project: str, version: str):
     """(rows, columns, notes, problems): one row per library of each category
     (stdcell track/VT, macro, hard block), one column per required view."""
@@ -1447,7 +1460,8 @@ def _view_matrix(lib_cfg: str, tc: str, project: str, version: str):
         raise ValueError('no tech(required_views,<category>) in the tech config — declare the views '
                          'each category must have ({})'.format(', '.join(_VIEW_CATEGORIES)))
     corners = (_project_lib_sets(project, version) if project else []) or _tcl_words(tv.get('corners', ''))
-    rcs = (_project_mmmc_rc_corners(project, version) if project else []) or \
+    rcs = (_project_view_rc_corners(project, version) or _project_mmmc_rc_corners(project, version)
+           if project else []) or \
         _tcl_words(_tc_braced(tc, 'rc_corners_available'))
     lmap = dict(zip(*[iter(_tcl_words(_tc_braced(tc, 'memory,lib_set_map')))] * 2))
     files = lambda key: _tcl_words(tv.get(key, ''))
@@ -2695,7 +2709,7 @@ def cmd_check(args: argparse.Namespace) -> int:
         logger.info(f"  Required views — library tag {tag}  (tech(required_views,<category>))")
         logger.info(f"    lib corners  : {' '.join(corners)}" + (f"  (project {project} MMMC library sets)" if project else ''))
         if 'spef' in cols:
-            logger.info(f"    spef corners : {' '.join(rcs)}")
+            logger.info(f"    spef corners : {' '.join(rcs)}" + (f"  (RC corners of the {project} MMMC views)" if project else ''))
         logger.info("    OK = present · † = from the tech config (PDK) · n/m = corners covered · "
                     "* = substituted corner · MISSING · — = no library")
         _print_view_matrix(rows, cols, req)
