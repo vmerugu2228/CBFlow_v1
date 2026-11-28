@@ -1984,7 +1984,9 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             if os.path.exists(override_path):
                 with open(override_path, encoding='utf-8') as f:
                     for line in f:
-                        if f'mmmc({node},' in line:
+                        # replace this node's assignment (dict form, and the
+                        # old ,setup_scenarios / ,hold_scenarios lines)
+                        if f'mmmc({node},' in line or f'mmmc({node})' in line:
                             continue
                         existing_lines.append(line)
 
@@ -1998,8 +2000,9 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
                     body_out += '\n'
             else:
                 body_out += f'# CBflow override config for {node}\n\n'
-            body_out += f'set mmmc({node},setup_scenarios) "{setup_str}"\n'
-            body_out += f'set mmmc({node},hold_scenarios) "{hold_str}"\n'
+            # the per-node assignment PNR / SYNTH read (get_node_scenarios):
+            # mmmc(<node>) = dict setup {…} hold {…}, as in mmmc_node_scenarios.tcl
+            body_out += f'set mmmc({node}) [dict create setup {{{setup_str}}} hold {{{hold_str}}}]\n'
             from core.paths import atomic_write
             atomic_write(override_path, body_out)
 

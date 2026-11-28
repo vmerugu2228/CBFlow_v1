@@ -127,6 +127,8 @@ array set pnr {
     checklist,exit_node,MTO          signoff1
     checklist,report               "work/PNR/${exit_node}/reports/checklist_metrics.rpt"
     checklist,mandatory_files,PRO_EXIT "work/PNR/${exit_node}/outputs/pro.odb work/PNR/${exit_node}/reports/checklist_metrics.rpt"
+    checklist,mandatory_files,BTO      "work/PNR/${exit_node}/outputs/final.odb work/PNR/${exit_node}/outputs/final.v work/PNR/${exit_node}/outputs/final.def work/PNR/${exit_node}/outputs/final.lef work/PNR/${exit_node}/outputs/final.sdc work/PNR/${exit_node}/outputs/final.cdl work/PNR/${exit_node}/reports/checklist_metrics.rpt"
+    checklist,mandatory_files,MTO      "work/PNR/${exit_node}/outputs/final.odb work/PNR/${exit_node}/outputs/final.v work/PNR/${exit_node}/outputs/final.def work/PNR/${exit_node}/outputs/final.lef work/PNR/${exit_node}/outputs/final.sdc work/PNR/${exit_node}/outputs/final.cdl work/PNR/${exit_node}/reports/checklist_metrics.rpt"
     checklist,grep,fp_qor                        {^Setup WNS\s*:}
     checklist,metric,fp_utilization              {^Utilization\s*:\s*([0-9.]+)}
     checklist,grep,fp_design_summary             {^Design\s*:}

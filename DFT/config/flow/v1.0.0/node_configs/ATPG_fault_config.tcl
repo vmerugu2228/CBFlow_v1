@@ -120,3 +120,4 @@ set atpg(checklist,report,atpg_post_patterns)          {work/ATPG/export_pattern
 set atpg(checklist,metric,atpg_post_fault_coverage_pct) {Fault coverage\s*:\s*([\d.]+)}
 set atpg(checklist,report,atpg_post_fault_coverage_pct) {work/ATPG/coverage_report1/reports/coverage.rpt}
 set atpg(checklist,grep,atpg_timing_sim_pass)          {Mismatches\s*:\s*0}
+set atpg(checklist,report,atpg_timing_sim_pass)        {work/ATPG/timing_sim1/reports/timing_sim.log}

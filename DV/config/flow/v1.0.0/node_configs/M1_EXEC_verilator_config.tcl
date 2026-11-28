@@ -122,9 +122,9 @@ set m1_exec(checklist,exit_node,M1_EXIT) signoff1
 set m1_exec(checklist,report)                       {work/M1_EXEC/signoff1/reports/dv_signoff.rpt}
 set m1_exec(checklist,report,m1_review_signoff) {work/M1_EXEC/signoff1/reports/dv_signoff.rpt}
 set m1_exec(checklist,report,dv_signoff_status)     {work/M1_EXEC/signoff1/reports/dv_signoff.rpt}
-set m1_exec(checklist,metric,dv_pass_rate)          {pass_rate\s*:\s*([\d.]+)}
-set m1_exec(checklist,metric,dv_code_coverage)      {code_coverage\s*:\s*([\d.]+)}
-set m1_exec(checklist,metric,dv_functional_coverage) {functional_coverage\s*:\s*([\d.]+)}
-set m1_exec(checklist,metric,dv_plan_coverage)      {plan_coverage\s*:\s*([\d.]+)}
+set m1_exec(checklist,report,dv_pass_rate) {work/M1_EXEC/signoff1/reports/dv_signoff.rpt}
+set m1_exec(checklist,report,dv_code_coverage) {work/M1_EXEC/signoff1/reports/dv_signoff.rpt}
+set m1_exec(checklist,report,dv_functional_coverage) {work/M1_EXEC/signoff1/reports/dv_signoff.rpt}
+set m1_exec(checklist,report,dv_plan_coverage) {work/M1_EXEC/signoff1/reports/dv_signoff.rpt}
 set m1_exec(checklist,mandatory_files,M1_EXIT) {work/M1_EXEC/signoff1/reports/dv_signoff.rpt
     work/M1_EXEC/cov_merge1/reports/coverage.rpt}

@@ -122,9 +122,9 @@ set m4_exec(checklist,exit_node,M4_EXIT) signoff1
 set m4_exec(checklist,report)                       {work/M4_EXEC/signoff1/reports/dv_signoff.rpt}
 set m4_exec(checklist,report,m4_review_signoff) {work/M4_EXEC/signoff1/reports/dv_signoff.rpt}
 set m4_exec(checklist,report,dv_signoff_status)     {work/M4_EXEC/signoff1/reports/dv_signoff.rpt}
-set m4_exec(checklist,metric,dv_pass_rate)          {pass_rate\s*:\s*([\d.]+)}
-set m4_exec(checklist,metric,dv_code_coverage)      {code_coverage\s*:\s*([\d.]+)}
-set m4_exec(checklist,metric,dv_functional_coverage) {functional_coverage\s*:\s*([\d.]+)}
-set m4_exec(checklist,metric,dv_plan_coverage)      {plan_coverage\s*:\s*([\d.]+)}
+set m4_exec(checklist,report,dv_pass_rate) {work/M4_EXEC/signoff1/reports/dv_signoff.rpt}
+set m4_exec(checklist,report,dv_code_coverage) {work/M4_EXEC/signoff1/reports/dv_signoff.rpt}
+set m4_exec(checklist,report,dv_functional_coverage) {work/M4_EXEC/signoff1/reports/dv_signoff.rpt}
+set m4_exec(checklist,report,dv_plan_coverage) {work/M4_EXEC/signoff1/reports/dv_signoff.rpt}
 set m4_exec(checklist,mandatory_files,M4_EXIT) {work/M4_EXEC/signoff1/reports/dv_signoff.rpt
     work/M4_EXEC/cov_merge1/reports/coverage.rpt}

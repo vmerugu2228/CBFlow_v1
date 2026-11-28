@@ -125,9 +125,6 @@ array set optional_checks {
         "criteria"    "utilization within range"
         "min_phase_index"   "2"
         "report_file" "work/SYNTH_PNR/signoff1/reports/report_utilization.rpt"
-    } {
-        "description" "Audit test — safe to remove"
-        "script" "check_timing.tcl"
     }
 }
 

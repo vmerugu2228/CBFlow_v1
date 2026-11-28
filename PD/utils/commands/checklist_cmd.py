@@ -291,12 +291,30 @@ def _parse_tcl_kv(body: str) -> dict:
 
 
 def parse_mandatory_files(content: str) -> list:
-    """Parse 'set mandatory_files { ... }' list from TCL config."""
-    m = re.search(r'set\s+mandatory_files\s+\{([^}]+)\}', content)
+    """Parse `set mandatory_files {…}` or `set mandatory_files [list …]` from a
+    TCL config. Braces / brackets are balanced, so `${design_name}` inside an
+    entry does not end the list (it used to: BTO's 9 files read as 3)."""
+    m = re.search(r'set\s+mandatory_files\s+([\{\[])', content)
     if not m:
         return []
-    quoted = re.findall(r'"([^"]+)"', m.group(1))
-    return quoted if quoted else m.group(1).strip().split()
+    open_c = m.group(1)
+    close_c = '}' if open_c == '{' else ']'
+    i, depth = m.end(), 1
+    while i < len(content) and depth:
+        c = content[i]
+        if c == '\\':
+            i += 2
+            continue
+        if c == open_c:
+            depth += 1
+        elif c == close_c:
+            depth -= 1
+        i += 1
+    body = content[m.end():i - 1]
+    if open_c == '[':
+        body = re.sub(r'^\s*list\b', '', body)
+    quoted = re.findall(r'"([^"]+)"', body)
+    return quoted if quoted else [w for w in body.replace('\\\n', ' ').split() if w != '\\']
 
 
 def parse_simple_tcl_array(content: str, array_name: str) -> dict:
@@ -429,6 +447,15 @@ def parse_threshold_overrides() -> dict:
     if m:
         result['policy'] = dict(re.findall(r'(\w+)\s+(\S+)', m.group(1)))
 
+    # default_thresholds: milestone,metric value; phase_defaults: phase,milestone,metric value
+    result['default'], result['phase_default'] = {}, {}
+    for bm in re.finditer(r'array\s+set\s+default_thresholds\s+\{([^}]+)\}', content):
+        for ms, met, val in re.findall(r'(\w+),(\w+)\s+([\d.e+-]+)', bm.group(1)):
+            result['default'][(ms, met)] = val
+    for bm in re.finditer(r'array\s+set\s+phase_defaults\s+\{([^}]+)\}', content):
+        for ph, ms, met, val in re.findall(r'(\w+),(\w+),(\w+)\s+([\d.e+-]+)', bm.group(1)):
+            result['phase_default'][(ph, ms, met)] = val
+
     # threshold_override: project,milestone,metric value (may have multiple blocks)
     for bm in re.finditer(r'array\s+set\s+threshold_override\s+\{([^}]+)\}', content):
         for p, ms, met, val in re.findall(r'(\w+),(\w+),(\w+)\s+([\d.e+-]+)', bm.group(1)):
@@ -456,6 +483,80 @@ def get_active_waivers_for_milestone(milestone: str, project: str = '*') -> list
             continue
         active.append({'id': wid, **f})
     return active
+
+
+# Units of threshold_overrides.tcl values by metric (its header: timing in ps,
+# utilization / congestion / density as ratio, power in mW, IR drop in mV,
+# skew in ps); a check declares its own unit — overrides convert to it.
+_OVR_UNIT_BY_METRIC = [
+    (r'(wns|tns|skew|insertion_delay|latency|slack)', 'ps'),
+    (r'(utilization|congestion|density)', 'ratio'),
+    (r'ir_drop', 'mV'),
+    (r'power', 'mW'),
+    (r'(coverage)', '%'),
+    (r'(violations|count|drc|shorts|opens)', 'count'),
+]
+_OVR_CONVERT = {('ps', 'ns'): 1e-3, ('ps', 'ps'): 1.0, ('ratio', '%'): 100.0, ('ratio', 'ratio'): 1.0,
+                ('ratio', ''): 1.0, ('mV', 'mV'): 1.0, ('mW', 'mW'): 1.0, ('%', '%'): 1.0,
+                ('count', ''): 1.0, ('count', 'count'): 1.0}
+
+
+def resolve_threshold_overrides(milestone: str, project: str, phase: str) -> dict:
+    """{metric: (value, source)} from threshold_overrides.tcl, layered
+    default_thresholds -> phase_defaults -> project -> project+phase (last wins)."""
+    ov = parse_threshold_overrides()
+    out = {}
+    for (ms, met), v in ov.get('default', {}).items():
+        if ms == milestone:
+            out[met] = (v, 'default_thresholds')
+    for (ph, ms, met), v in ov.get('phase_default', {}).items():
+        if ms == milestone and ph == phase:
+            out[met] = (v, f'phase_defaults {ph}')
+    for (p, ms, met), v in ov.get('project', {}).items():
+        if ms == milestone and p == project:
+            out[met] = (v, f'threshold_override {p}')
+    for (p, ph, ms, met), v in ov.get('phase', {}).items():
+        if ms == milestone and p == project and ph == phase:
+            out[met] = (v, f'phase_override {p} {ph}')
+    return out
+
+
+def apply_threshold_overrides(checks: dict, milestone: str, project: str, phase: str) -> list:
+    """Apply threshold_overrides.tcl to metric checks (in place): a check named
+    like the override metric, or declaring it as metric_name, gets the override
+    converted to the check's unit. Respects override_policy
+    allow_relaxation / allow_tightening. Returns notes (applied / skipped)."""
+    ovr = resolve_threshold_overrides(milestone, project, phase)
+    if not ovr:
+        return []
+    pol = parse_threshold_overrides().get('policy', {})
+    allow_relax = str(pol.get('allow_relaxation', 'true')).lower() == 'true'
+    allow_tight = str(pol.get('allow_tightening', 'true')).lower() == 'true'
+    notes = []
+    for name, cfg in checks.items():
+        met = cfg.get('metric_name') or name
+        if met not in ovr or cfg.get('default_threshold', '') == '' or not cfg.get('operator'):
+            continue
+        val, src = ovr[met]
+        ounit = next((u for pat, u in _OVR_UNIT_BY_METRIC if re.search(pat, met)), None)
+        factor = _OVR_CONVERT.get((ounit, cfg.get('unit', '')))
+        if factor is None:
+            notes.append(f'{name}: override {met}={val} ({src}) not applied — unit {ounit} vs check unit {cfg.get("unit", "")!r}')
+            continue
+        try:
+            new, old = float(val) * factor, float(cfg['default_threshold'])
+        except ValueError:
+            continue
+        op = cfg['operator']
+        relaxes = (new < old) if op in ('>=', '>') else (new > old) if op in ('<=', '<') else False
+        tightens = (new > old) if op in ('>=', '>') else (new < old) if op in ('<=', '<') else False
+        if (relaxes and not allow_relax) or (tightens and not allow_tight):
+            notes.append(f'{name}: override {met}={val} ({src}) refused by override_policy')
+            continue
+        cfg['default_threshold'] = f'{new:g}'
+        cfg['threshold_source'] = src
+        notes.append(f'{name}: threshold {old:g} -> {new:g} {cfg.get("unit", "")} ({src}: {met}={val})')
+    return notes
 
 
 def get_project_overrides(project: str, milestone: str, phase: str = '') -> dict:
@@ -619,7 +720,11 @@ def format_status_text(milestone: str, sd: dict) -> str:
     if active_lib:
         L += ['', f'  LIBRARY CHECKS ({len(active_lib)} active)', f'  {thin}']
         for c in active_lib:
-            L.append(f'    {opt_map.get(c["status"],"[??]")}  {c["name"]}')
+            icon = (icon_map if c.get('severity') == 'critical' else opt_map).get(c["status"], "[??]")
+            L.append(f'    {icon}  {c["name"]}' + ('  (critical)' if c.get('severity') == 'critical' else ''))
+    if sd.get('threshold_overrides'):
+        L += ['', '  THRESHOLD OVERRIDES (threshold_overrides.tcl)', f'  {thin}']
+        L += [f'    {n}' for n in sd['threshold_overrides']]
     L += ['', '  REQUIRED FILES', f'  {thin}']
     for f in sd.get('file_status', []):
         L.append(f'    {"[PASS]" if f["exists"] else "[FAIL]"}  {f["path"]}')
@@ -642,11 +747,20 @@ def _expand_placeholders(path: str, run_dir: str = None) -> str:
     """
     if not path or '${' not in path:
         return path
+    env = {k: os.environ.get(k, '') for k in ('CBFLOW_DESIGN_NAME', 'CBFLOW_FLOW_TYPE')}
+    # outside a run shell: the run's own .run.cbflow.env
+    if run_dir and not all(env.values()):
+        ef = os.path.join(run_dir, '.run.cbflow.env')
+        if os.path.isfile(ef):
+            for line in open(ef, errors='replace'):
+                mm = re.match(r'\s*export\s+(CBFLOW_DESIGN_NAME|CBFLOW_FLOW_TYPE)=["\']?([^"\'\s]*)', line)
+                if mm and not env[mm.group(1)]:
+                    env[mm.group(1)] = mm.group(2)
     subs = {
-        'design_name': os.environ.get('CBFLOW_DESIGN_NAME', ''),
-        'DESIGN_NAME': os.environ.get('CBFLOW_DESIGN_NAME', ''),
-        'flow_type':   os.environ.get('CBFLOW_FLOW_TYPE',   ''),
-        'FLOW_TYPE':   os.environ.get('CBFLOW_FLOW_TYPE',   ''),
+        'design_name': env['CBFLOW_DESIGN_NAME'],
+        'DESIGN_NAME': env['CBFLOW_DESIGN_NAME'],
+        'flow_type':   env['CBFLOW_FLOW_TYPE'],
+        'FLOW_TYPE':   env['CBFLOW_FLOW_TYPE'],
         'run_dir':     run_dir or '',
     }
     for k, v in subs.items():
@@ -1147,6 +1261,7 @@ if {[array exists a]} {
     foreach k [lsort [array names a checklist,*]] {
         puts "[string range $k 10 end]\t[string map {\n { } \t { }} $a($k)]"
     }
+    if {[info exists a(smartgrid,milestone)]} { puts "@milestone\t$a(smartgrid,milestone)" }
 }
 """
 
@@ -1238,7 +1353,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
             project = _detect_project(run_dir)
         if not milestone:
             flow_type = _detect_flow_type(run_dir)
-            milestone = _detect_milestone_for_flow(flow_type)
+            milestone = _detect_milestone_for_flow(flow_type, run_dir)
             if milestone:
                 logger.info(f"Auto-detected: flow={flow_type}, milestone={milestone}, "
                            f"phase={phase}, project={project}")
@@ -1296,6 +1411,13 @@ def cmd_generate(args: argparse.Namespace) -> int:
 def cmd_status(args: argparse.Namespace) -> int:
     """Check actual status of a milestone against a run directory."""
     milestone, run_dir = args.milestone, args.run_dir
+    if not milestone:
+        milestone = _detect_milestone_for_flow(_detect_flow_type(run_dir), run_dir)
+        if not milestone:
+            logger.error("--milestone required: the run's flow declares no exit "
+                         "(<flow>(smartgrid,milestone)) and has no <FLOW>_SIGNOFF config")
+            return 1
+        logger.info(f"Auto-detected milestone: {milestone}")
     project = getattr(args, 'project', '') or os.environ.get('CBFLOW_PROJECT', '')
     phase = getattr(args, 'phase', '') or ''
 
@@ -1311,6 +1433,15 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     waivers = get_active_waivers_for_milestone(milestone, project=project or '*')
     waivered_checks = {w.get('check') for w in waivers}
+
+    # threshold_overrides.tcl (default / phase / project layers) onto metric checks
+    if not project:
+        project = _detect_project(run_dir)
+    ovr_notes = []
+    for _k in ('mandatory_checks', 'optional_checks', 'library_checks'):
+        ovr_notes += apply_threshold_overrides(config.get(_k, {}), milestone, project, phase)
+    for n in ovr_notes:
+        logger.info(f"  threshold: {n}")
 
     # Evaluate checks (phase-aware)
     mand_res = _evaluate_checks(run_dir, config.get('mandatory_checks', {}), waivered_checks, phase=phase)
@@ -1332,12 +1463,15 @@ def cmd_status(args: argparse.Namespace) -> int:
     # check definition) — real data saying a critical metric is out of range.
     lib_cfg = config.get('library_checks', {})
     for r in lib_res:
-        if r['status'] == 'FAIL' and (lib_cfg.get(r['name']) or {}).get('severity') == 'critical':
+        r['severity'] = (lib_cfg.get(r['name']) or {}).get('severity', '')
+        if r['status'] == 'FAIL' and r['severity'] == 'critical':
             blocking.append(f'Critical check FAILED: {r["name"]}')
 
-    # Evaluate mandatory files
-    file_status = [{'path': fp, 'exists': os.path.exists(os.path.join(run_dir, fp))}
-                   for fp in config.get('mandatory_files', [])]
+    # Evaluate mandatory files (${design_name} etc. expanded, as sign-off does)
+    file_status = []
+    for fp in config.get('mandatory_files', []):
+        rp = _expand_placeholders(fp, run_dir)
+        file_status.append({'path': rp, 'exists': os.path.exists(os.path.join(run_dir, rp))})
     for fs in file_status:
         m_total += 1
         if fs['exists']:
@@ -1355,7 +1489,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         'mandatory_checks': mand_res, 'optional_checks': opt_res,
         'library_checks': lib_res,
         'file_status': file_status, 'blocking_items': blocking,
-        'active_waivers': waivers,
+        'active_waivers': waivers, 'threshold_overrides': ovr_notes,
     }
 
     # Write results to SQLite database
@@ -1660,6 +1794,28 @@ def _waiver_add(args: argparse.Namespace) -> int:
                      f"{', '.join(sorted(all_checks))}")
         return 1
 
+    # waiver_policy: no waivers at milestones the policy forbids (BTO / MTO),
+    # expiry within max_waiver_duration_days
+    policy = parse_waiver_config().get('policy', {})
+    if str(policy.get(f'allow_{milestone.lower()}_waivers', 'true')).lower() == 'false':
+        logger.error(f"Waivers are not allowed at {milestone} (waiver_policy allow_{milestone.lower()}_waivers false) "
+                     f"— fix the check instead")
+        return 1
+    max_days = int(policy.get('max_waiver_duration_days', 0) or 0)
+    if expiry and max_days:
+        try:
+            exp_d = date.fromisoformat(expiry)
+        except ValueError:
+            logger.error(f"--expiry {expiry!r}: use YYYY-MM-DD")
+            return 1
+        if exp_d > date.today() + timedelta(days=max_days):
+            logger.error(f"--expiry {expiry} exceeds waiver_policy max_waiver_duration_days {max_days} "
+                         f"(latest {(date.today() + timedelta(days=max_days)).isoformat()})")
+            return 1
+        if exp_d < date.today():
+            logger.error(f"--expiry {expiry} is in the past")
+            return 1
+
     # Generate next waiver ID
     existing = list(parse_waiver_config()['waivers'].keys())
     nums = [int(w[1:]) for w in existing if w[0] == 'W' and w[1:].isdigit()]
@@ -1669,8 +1825,8 @@ def _waiver_add(args: argparse.Namespace) -> int:
     expiry_str = expiry or ''
 
     if not expiry_str:
-        expiry_str = (date.today() + timedelta(days=90)).isoformat()
-        logger.info(f"No expiry provided, defaulting to 90 days: {expiry_str}")
+        expiry_str = (date.today() + timedelta(days=max_days or 90)).isoformat()
+        logger.info(f"No expiry provided — waiver_policy maximum: {expiry_str}")
 
     # Build TCL snippet
     fields = [('milestone', milestone), ('check', check), ('project', project),
@@ -2080,20 +2236,24 @@ def _detect_flow_type(run_dir: str) -> str:
     return flow_type_from_run_dir_name(dirname)
 
 
-def _detect_milestone_for_flow(flow_type: str) -> str:
-    """Detect primary milestone for a flow by scanning exit config directory."""
-    # Check for flow-specific signoff config (STA → STA_SIGNOFF, LEC → LEC_SIGNOFF, etc.)
+def _run_flow_milestone(run_dir: str, flow_type: str) -> str:
+    """The run's own exit: <arr>(smartgrid,milestone) of its resolved node
+    config (evaluated like the checklist tool map), or ''."""
+    return _tool_checklist_map(run_dir, flow_type).get('@milestone', '')
+
+
+def _detect_milestone_for_flow(flow_type: str, run_dir: str = '') -> str:
+    """Primary milestone of a flow: the run's own exit (<arr>(smartgrid,milestone)),
+    else <FLOW>_SIGNOFF when such a config exists; '' when neither (the caller
+    asks for --milestone — no guessing)."""
+    if run_dir:
+        m = _run_flow_milestone(run_dir, flow_type)
+        if m and os.path.exists(get_milestone_config_path(m)):
+            return m
     signoff_name = f'{flow_type}_SIGNOFF'
     if os.path.exists(get_milestone_config_path(signoff_name)):
         return signoff_name
-
-    # For PNR-family flows, BTO is the primary milestone
-    available = get_available_milestones()
-    if 'BTO' in available:
-        return 'BTO'
-
-    # Return first available milestone as fallback
-    return available[0] if available else ''
+    return ''
 
 
 def _detect_project(run_dir: str) -> str:
@@ -2212,7 +2372,7 @@ def cmd_list_checks(args: argparse.Namespace) -> int:
             phase = _detect_phase(run_dir)
         if not milestone:
             flow_type = _detect_flow_type(run_dir)
-            milestone = _detect_milestone_for_flow(flow_type)
+            milestone = _detect_milestone_for_flow(flow_type, run_dir)
             if milestone:
                 logger.info(f"Auto-detected: flow={flow_type}, milestone={milestone}, phase={phase}")
 
@@ -2245,7 +2405,9 @@ def cmd_list_checks(args: argparse.Namespace) -> int:
         logger.error(f"Available: {', '.join(get_available_milestones())}")
         return 1
 
-    cfg = parse_milestone_config(config_path)
+    # with a run: the flow's tool map (report / metric / mandatory files) as status uses it
+    cfg = (_load_and_validate_config(milestone, run_dir)[0] if run_dir else None) \
+        or parse_milestone_config(config_path)
     info = cfg.get('milestone_info', {})
 
     # Build unified check list with IDs
@@ -2535,7 +2697,7 @@ LINT_SIGNOFF CDC_SIGNOFF UPF_SIGNOFF). Waivers: max 90 days, none on BTO/MTO.
 
     # status
     s = sub.add_parser('status', help='Check milestone status against a run directory')
-    s.add_argument('--milestone', required=True, help='Exit milestone name')
+    s.add_argument('--milestone', default='', help="Exit milestone name (default: the run flow's exit)")
     s.add_argument('--run-dir', required=True, dest='run_dir', help='Run directory path')
     s.add_argument('--discipline', choices=_DISC_CHOICES, default='', help='Discipline of the target milestone (for cross-checks)')
     s.add_argument('--project', default='', help='Project name')

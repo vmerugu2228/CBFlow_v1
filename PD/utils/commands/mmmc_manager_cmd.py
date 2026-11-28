@@ -774,6 +774,86 @@ def cmd_show(args: argparse.Namespace) -> int:
 # Command: validate
 # ===============================================================================
 
+def _view_lib_set(view, modes, rc_names):
+    """<corner>_<voltage>_<temp> of a view <mode>_<corner>_<voltage>_<rc>_<temp>, or ''."""
+    for mode in sorted(modes, key=len, reverse=True):
+        if not view.startswith(mode + '_'):
+            continue
+        rest = view[len(mode) + 1:]
+        for rc in sorted(rc_names, key=len, reverse=True):
+            i = rest.find('_' + rc + '_')
+            if i > 0:
+                return f"{rest[:i]}_{rest[i + len(rc) + 2:]}"
+    return ''
+
+
+def _tag_checks(args, parser, tcl_data, node_mappings, errors, warnings):
+    """[8] Library-tag coverage of the views in use (needs a project and its
+    tag: --lib-tag or project(lib_config_tag))."""
+    from library_manager_cmd import (_locate_lib_tag, _tag_tech_values, _tcl_words,
+                                     _tc_braced, _read_project_cfg_value)
+    from core.paths import get_tech_config_paths
+    project = getattr(args, 'project', None) or os.environ.get('CBFLOW_PROJECT_NAME', '')
+    version = getattr(args, 'version', None) or 'v1.0.0'
+    print("  [8] Library tag times every view in use")
+    if not project:
+        print("      SKIP  no --project (the tag comes from the project)")
+        return
+    try:
+        tag = getattr(args, 'lib_tag', None) or _read_project_cfg_value(project, version, 'lib_config_tag')
+        gcfg = os.path.join(os.path.dirname(get_mmmc_config_path(project)), f'{project}_config.tcl')
+        m = re.search(r'set\s+project\(technology\)\s+"?([\w.-]+)', open(gcfg).read())
+        tech = m.group(1) if m else ''
+        if not (tag and tech):
+            print(f"      SKIP  no library tag / technology for {project}")
+            return
+        lib_cfg, _p = _locate_lib_tag(tech, tag, version, project)
+        tv = _tag_tech_values(lib_cfg)
+        tc = "\n".join(open(f).read() for f in get_tech_config_paths(tech, version))
+    except (ValueError, OSError) as e:
+        msg = f"library tag not readable: {e}"
+        errors.append(msg)
+        print(f"      FAIL  {msg}")
+        return
+    used = set()
+    for members in tcl_data['scenario_sets'].values():
+        used |= set(members)
+    for mapping in node_mappings.values():
+        used |= set(mapping.get('setup', [])) | set(mapping.get('hold', []))
+    used &= set(tcl_data['analysis_views'])
+    lib_sets = {}
+    for v in sorted(used):
+        ls = _view_lib_set(v, parser.operating_modes.keys(), parser.rc_corners.keys())
+        if ls:
+            lib_sets.setdefault(ls, []).append(v)
+    tracks = _tcl_words(_tc_braced(tc, 'tracks_available'))
+    lmap = dict(zip(*[iter(_tcl_words(_tc_braced(tc, 'memory,lib_set_map')))] * 2))
+    has_mem = bool(_tcl_words(tv.get('lef,memory', '')))
+    blocks = _tcl_words(tv.get('blocks', ''))
+    print(f"      tag {tag}: {lib_cfg}")
+    for ls, views in sorted(lib_sets.items()):
+        miss = [t for t in tracks if not _tcl_words(tv.get(f'{t},lib,{ls},timing', ''))]
+        if miss:
+            msg = f"lib set {ls} ({len(views)} view(s) in use) has no stdcell timing libs in {tag} (tracks {' '.join(miss)})"
+            errors.append(msg)
+            print(f"      FAIL  {msg}")
+            continue
+        notes = []
+        if has_mem and ls not in lmap and not _tcl_words(tv.get(f'lib,{ls},timing,memory', '')):
+            msg = f"lib set {ls}: no memory timing (no tech(memory,lib_set_map) entry, no tech(lib,{ls},timing,memory))"
+            errors.append(msg)
+            print(f"      FAIL  {msg}")
+            continue
+        nob = [b for b in blocks if not _tcl_words(tv.get(f'block,{b},lib,{ls}', ''))]
+        if nob:
+            msg = f"lib set {ls}: no timing model for block(s) {' '.join(nob)} — a parent instantiating them cannot time its {len(views)} view(s)"
+            warnings.append(msg)
+            print(f"      WARN  {msg}")
+        else:
+            print(f"      PASS  {ls}: stdcell" + (" + memory" if has_mem else "") +
+                  (f" + {len(blocks)} block model(s)" if blocks else "") + f" ({len(views)} view(s))")
+
+
 def cmd_validate(args: argparse.Namespace) -> int:
     """Check consistency of mmmc_config.tcl."""
     config_path = args.config or get_mmmc_config_path(getattr(args, "project", None))
@@ -889,6 +969,11 @@ def cmd_validate(args: argparse.Namespace) -> int:
                 print(f"      WARN  {msg}")
             else:
                 print(f"      PASS  {sname}: {len(members)} views")
+
+        # Check 8: the library tag times every view in use (scenario sets +
+        # node assignments): stdcell timing libs at the view's lib set, the
+        # memory corner map, a timing model per hard block.
+        _tag_checks(args, parser, tcl_data, node_mappings, errors, warnings)
 
     # Summary
     print()
@@ -2591,9 +2676,11 @@ Examples:
                    help='Path to mmmc_config.tcl (auto-detected if omitted)')
 
     # -- validate --
-    p = sub.add_parser('validate', help='Check config consistency')
+    p = sub.add_parser('validate', help='Check config consistency (+ library-tag coverage of the views in use)')
     p.add_argument('--config', default=None,
                    help='Path to mmmc_config.tcl (auto-detected if omitted)')
+    p.add_argument('--lib-tag', default=None,
+                   help='Library tag to check the views against (default: project(lib_config_tag))')
 
     # -- add-mode --
     p = sub.add_parser('add-mode', help='Add an operating mode')
