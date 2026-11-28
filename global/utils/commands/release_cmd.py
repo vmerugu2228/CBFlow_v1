@@ -1436,6 +1436,11 @@ def main() -> int:
         'help': cmd_help,
     }
 
+    if args.command in ('create', 'set-current'):
+        # roles / access: flow releases are framework-wide (cad_admin)
+        from core import access
+        access.require_cli('flow.release.cut', target=f'release {args.command}')
+
     if args.command in commands:
         return commands[args.command](args)
     else:

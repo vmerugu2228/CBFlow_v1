@@ -1535,8 +1535,22 @@ class RaceEngine:
                 return
             if os.getuid() != owner_uid_int:
                 owner_name = self.db.get_run_info('owner') or 'unknown'
+                # roles / access: a lead of the run's project (chip lead, discipline
+                # lead, cad_admin) may act on another user's run; audited
+                try:
+                    from core import access
+                    project = (self.env_vars or {}).get('CBFLOW_PROJECT_NAME', '')
+                    me = access.whoami()
+                    have = access.roles_of(me, project or None)
+                    if have & {'cad_admin', 'chip_lead'} or any(r.startswith('discipline_lead.') for r in have):
+                        access.audit(me, 'run.mutate.other', project, 'allow',
+                                     f'{me}: {", ".join(sorted(have))} on a run of {owner_name}',
+                                     os.path.basename(self.run_dir) if getattr(self, 'run_dir', '') else '')
+                        return
+                except Exception:  # noqa: BLE001 — access not available: owner-only
+                    pass
                 raise PermissionError(
-                    f"Run owned by '{owner_name}' — only the owner can modify this run"
+                    f"Run owned by '{owner_name}' — only the owner (or a lead of the project) can modify this run"
                 )
 
     # ── Design info + config tracking ─────────────────────────────────────

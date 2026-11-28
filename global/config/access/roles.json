@@ -1,0 +1,117 @@
+{
+  "enforce": {
+    "default": false,
+    "framework": false,
+    "projects": {}
+  },
+  "cad_admin": [
+    "vmerugu"
+  ],
+  "flow_owner": {
+    "PD": [],
+    "DFT": [],
+    "DV": [],
+    "RTL": []
+  },
+  "projects": {
+    "bumblebee": {
+      "chip_lead": [
+        "vmerugu"
+      ],
+      "discipline_lead": {
+        "PD": [
+          "vmerugu"
+        ],
+        "DFT": [
+          "vmerugu"
+        ],
+        "DV": [
+          "vmerugu"
+        ],
+        "RTL": [
+          "vmerugu"
+        ]
+      },
+      "block_owner": {},
+      "engineer": [],
+      "viewer": [],
+      "grant_read": []
+    },
+    "denali": {
+      "chip_lead": [
+        "vmerugu"
+      ],
+      "discipline_lead": {
+        "PD": [
+          "vmerugu"
+        ],
+        "DFT": [
+          "vmerugu"
+        ],
+        "DV": [],
+        "RTL": [
+          "vmerugu"
+        ]
+      },
+      "block_owner": {},
+      "engineer": [],
+      "viewer": [],
+      "grant_read": []
+    },
+    "india": {
+      "chip_lead": [],
+      "discipline_lead": {
+        "PD": [],
+        "DFT": [],
+        "DV": [],
+        "RTL": []
+      },
+      "block_owner": {},
+      "engineer": [],
+      "viewer": [],
+      "grant_read": []
+    },
+    "opensky": {
+      "chip_lead": [
+        "vmerugu"
+      ],
+      "discipline_lead": {
+        "PD": [
+          "vmerugu"
+        ],
+        "DFT": [
+          "vmerugu"
+        ],
+        "DV": [],
+        "RTL": [
+          "vmerugu"
+        ]
+      },
+      "block_owner": {},
+      "engineer": [],
+      "viewer": [],
+      "grant_read": []
+    },
+    "phoenix": {
+      "chip_lead": [
+        "vmerugu"
+      ],
+      "discipline_lead": {
+        "PD": [
+          "vmerugu"
+        ],
+        "DFT": [
+          "vmerugu"
+        ],
+        "DV": [],
+        "RTL": [
+          "vmerugu"
+        ]
+      },
+      "block_owner": {},
+      "engineer": [],
+      "viewer": [],
+      "grant_read": []
+    }
+  }
+}

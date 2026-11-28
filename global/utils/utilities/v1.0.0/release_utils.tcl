@@ -235,6 +235,8 @@ proc init {args_flow_type args_design_name args_run_dir args_phase {args_exit ""
     # sits on a release disk (project(release,disks)) chosen by size.
     # Release lock (cbflow flow release lock): no release of a locked exit
     _check_release_lock $release_base $release_phase $block_name $flow_type $release_tag
+    # Roles / access: releasing this exit needs a role on the project (core.access)
+    if {!$_test_mode} { cbflow_can_or_error "release.exit:$release_tag" $block_name $flow_type }
     variable release_logical; variable release_version
     set release_logical $release_dir
     set _vroot [file join [file dirname $release_logical] .versions $release_tag]

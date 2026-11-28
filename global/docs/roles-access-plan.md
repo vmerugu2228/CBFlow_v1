@@ -1,6 +1,29 @@
 # CBflow roles and access — plan (future scope)
 
-Status: plan only, not implemented.
+Status: phase 1 implemented (2026-11-28). The core library is
+`global/utils/core/access.py`, with roles in `global/config/access/roles.json`
+(seeded, enforcement off / audit only). It is managed with `cbflow flow access`
+and the user-manager skill.
+
+Gates are on:
+- run / workspace create;
+- release / lock / candidate / cleanup;
+- flow release cut;
+- project create / manage / delete;
+- library tags;
+- mmmc writes;
+- checklist sign-off / waivers / check definitions;
+- the release node (Tcl);
+- the engine's run ownership (owner or project lead).
+
+Owner decisions:
+- CSD = cad_admin.
+- BTO / MTO release and lock need a discipline lead or above; block owners
+  handle earlier exits of their own blocks.
+- Waivers: the discipline lead requests, the chip lead approves.
+- Projects are private unless the chip lead grants read access.
+
+Phases 2 and 3 (below) are pending.
 
 Goal: who may run which skills and commands, and change which configs and
 releases, scoped by project and by role. Today the only gates are scattered:

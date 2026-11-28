@@ -5999,6 +5999,30 @@ def cmd_project_tag(args: argparse.Namespace) -> int:
     return 0
 
 
+def _lm_access_gate(args) -> None:
+    from core import access
+    cmd = args.command
+    proj = getattr(args, 'project', None) or None
+    if cmd == 'generate':
+        access.require_cli('libtag.base', target=f'generate {getattr(args, "tag", "")}')
+    elif cmd == 'add':
+        kind, tproj = 'base', None
+        try:
+            cfg = _resolve_lib_config_path(args.tech, args.tag, getattr(args, 'version', None) or 'v1.0.0',
+                                           project_name=proj or os.environ.get('CBFLOW_PROJECT_NAME', ''))
+            if cfg:
+                ly = _tag_layers(cfg)
+                kind, tproj = ly['kind'], ly.get('project') or None
+        except Exception:  # noqa: BLE001 — unresolvable: the add itself reports it
+            pass
+        if kind == 'project':
+            access.require_cli('libtag.project', tproj, 'PD', target=f'add {args.tag}')
+        else:
+            access.require_cli('libtag.base', target=f'add {args.tag}')
+    elif cmd == 'project-tag' and getattr(args, 'action', '') in ('create', 'freeze'):
+        access.require_cli('libtag.project', proj, 'PD', target=f'project-tag {args.action} {getattr(args, "tag", "")}')
+
+
 def create_parser() -> argparse.ArgumentParser:
     """Create the argument parser."""
     parser = argparse.ArgumentParser(
@@ -6384,6 +6408,10 @@ def main() -> int:
     if hasattr(args, 'tech_config') and args.tech_config is not None:
         if not _validate_file_arg(args, 'tech_config'):
             return 1
+
+    # roles / access (core.access): base tags = cells shared by every project
+    # (PD flow owner); project tags = one project's blocks (its PD lead / chip lead)
+    _lm_access_gate(args)
 
     # Run command with error handling
     try:

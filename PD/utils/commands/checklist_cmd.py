@@ -2657,6 +2657,42 @@ def _format_summary(milestone: str, info: dict, checks: list, phase: str, cfg: d
     return L
 
 
+def _checklist_access_gate(args):
+    """roles / access (core.access): sign-off and waiver requests need a discipline
+    lead; revoking (approving) waivers the chip lead; check definitions are
+    framework config of the milestone's discipline (its flow owner). The
+    approver recorded is the authenticated user (access.whoami)."""
+    from core import access
+    cmd = args.command
+    disc = getattr(args, 'discipline', '') or ''
+    if not disc and getattr(args, 'milestone', None):
+        try:
+            cfg = get_milestone_config_path(args.milestone)
+        except Exception:  # noqa: BLE001
+            cfg = ''
+        if cfg and os.path.isfile(cfg):
+            m = re.search(r'milestone_info\(discipline\)\s+"(\w+)"', open(cfg).read())
+            disc = m.group(1) if m else ''
+    project = getattr(args, 'project', '') or ''
+    run_dir = getattr(args, 'run_dir', None)
+    if not project and run_dir:
+        try:
+            from core.env import load_run_env
+            project = load_run_env(run_dir).get('CBFLOW_PROJECT_NAME', '')
+        except Exception:  # noqa: BLE001
+            project = ''
+    if cmd == 'sign-off':
+        access.require_cli('checklist.signoff', project or None, disc or None, target=args.milestone)
+        args.approver = access.whoami()
+    elif cmd == 'waiver' and getattr(args, 'action', '') == 'add':
+        access.require_cli('waiver.request', project or None, disc or None, target=f'{args.milestone} {args.check}')
+        args.approver = access.whoami()
+    elif cmd == 'waiver' and getattr(args, 'action', '') == 'revoke':
+        access.require_cli('waiver.approve', project or None, target=f'{args.milestone} {args.check}')
+    elif cmd in ('add-check', 'remove-check'):
+        access.require_cli(f'config.framework:{disc or "PD"}', None, disc or 'PD', target=f'{cmd} {args.milestone}')
+
+
 def create_parser() -> argparse.ArgumentParser:
     """Create the argument parser for checklist commands."""
     parser = argparse.ArgumentParser(
@@ -2813,6 +2849,8 @@ def main() -> int:
         'remove-check': cmd_remove_check,
         'waiver': cmd_waiver,
     }
+
+    _checklist_access_gate(args)
 
     if args.command in commands:
         return commands[args.command](args)

@@ -770,6 +770,15 @@ def main() -> int:
         'manage': cmd_manage,
     }
 
+    # roles / access (core.access): creating projects and the interactive
+    # manager (it can change chip_lead) are cad_admin; delete needs the chip lead
+    from core import access
+    if args.command in ('create', 'manage'):
+        access.require_cli('project.create' if args.command == 'create' else 'project.lead_change',
+                           target=f'project {args.command}')
+    elif args.command == 'delete':
+        access.require_cli('project.manage', getattr(args, 'name', None), target='project delete')
+
     if args.command in commands:
         return commands[args.command](args)
     else:

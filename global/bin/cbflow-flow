@@ -54,6 +54,13 @@ Project Management:
   cbflow flow project info --name opensky        Show project details
   cbflow flow project create --name my_chip      Create new project
 
+Roles and Access:
+  cbflow flow access whoami [--project P]        My roles
+  cbflow flow access show [--project P]          Roles per project
+  cbflow flow access grant|revoke --role R --user U --project P [--disc D|--block B] --reason T
+  cbflow flow access check --action A --project P   Would this be allowed?
+  cbflow flow access audit [--tail N]            Access decisions (allow / deny / would-deny)
+
 Release Management:
   cbflow flow release list                       List all releases
   cbflow flow release info --version v1.0.0      Show release details
@@ -193,6 +200,11 @@ main() {
         # Version commands (version management)
         version)
             exec python3 "$COMMANDS_DIR/version_cmd.py" "$@"
+            ;;
+
+        # Roles and access (global/config/access/roles.json)
+        access)
+            exec python3 "$COMMANDS_DIR/access_cmd.py" "$@"
             ;;
 
         # Release commands

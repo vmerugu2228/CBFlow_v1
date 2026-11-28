@@ -41,6 +41,13 @@ ROOT = os.environ.get('CBFLOW_ROOT') or os.path.abspath(os.path.join(os.path.dir
 REGISTRY = os.path.join(ROOT, 'global', 'config', 'flow', 'v1.0.0', 'flow_registry.tcl')
 
 
+def _me():
+    """Authenticated login (uid; core.access.whoami) — never $USER."""
+    sys.path.insert(0, os.path.join(ROOT, 'global', 'utils'))
+    from core import access
+    return access.whoami()
+
+
 def die(msg):
     print(f'ERROR: {msg}', file=sys.stderr)
     sys.exit(1)
@@ -162,7 +169,7 @@ def set_current(logical, vdir):
 
 def hist(vroot, *fields):
     with open(os.path.join(vroot, 'HISTORY.log'), 'a') as fh:
-        fh.write('\t'.join([time.strftime('%Y-%m-%dT%H:%M:%S'), getpass.getuser()] + [str(f) for f in fields]) + '\n')
+        fh.write('\t'.join([time.strftime('%Y-%m-%dT%H:%M:%S'), _me()] + [str(f) for f in fields]) + '\n')
 
 
 def ts(t):
@@ -257,7 +264,7 @@ def cmd_lock(cfg, a):
     rel = glob.glob(os.path.join(cfg['release'], a.phase, a.block, '*', a.exit, 'RELEASE_COMPLETE'))
     if not rel:
         print(f'WARN  {a.phase}/{a.block} has no {a.exit} release yet — locking prevents the first one too')
-    entry = {'exit': a.exit, 'flows': flows, 'user': getpass.getuser(),
+    entry = {'exit': a.exit, 'flows': flows, 'user': _me(),
              'at': time.strftime('%Y-%m-%dT%H:%M:%S'), 'reason': a.reason}
     locks[a.exit] = entry
     write_locks(cfg, a.phase, a.block, locks)
@@ -279,7 +286,7 @@ def cmd_unlock(cfg, a):
     if a.exit not in locks:
         die(f'{a.phase}/{a.block} {a.exit} is not locked')
     lk = locks[a.exit]
-    me = getpass.getuser()
+    me = _me()
     lead = registry().get('projects', {}).get(cfg['project'], {}).get('chip_lead', '')
     if me not in (lk['user'], lead):
         die(f'{a.exit} was locked by {lk["user"]}; only they or the chip lead ({lead or "unset"}) can unlock it')
@@ -570,7 +577,7 @@ def cmd_cleanup(cfg, a):
             os.unlink(path)
         elif os.path.isdir(path):
             shutil.rmtree(path)
-        log.write(json.dumps({'at': time.strftime('%Y-%m-%dT%H:%M:%S'), 'user': getpass.getuser(),
+        log.write(json.dumps({'at': time.strftime('%Y-%m-%dT%H:%M:%S'), 'user': _me(),
                               'path': path, 'storage': real, 'reason': why}) + '\n')
         vroot = os.path.dirname(path)
         if os.path.basename(os.path.dirname(vroot)) == '.versions':
@@ -578,6 +585,29 @@ def cmd_cleanup(cfg, a):
     log.close()
     print(f'Removed {len(remove)} item(s); log {os.path.join(cfg["release"], "CLEANUP.log")}')
     return 0
+
+
+def _access_gate(a):
+    """roles / access (core.access) for the release-management verbs."""
+    sys.path.insert(0, os.path.join(ROOT, 'global', 'utils'))
+    from core import access
+    disc = ''
+    if getattr(a, 'flow', None):
+        try:
+            from core import registry
+            disc = registry.flow_discipline(a.flow)
+        except Exception:  # noqa: BLE001
+            disc = ''
+    blk = getattr(a, 'block', None)
+    tgt = '/'.join(x for x in (getattr(a, 'phase', None), blk, getattr(a, 'flow', None), getattr(a, 'tag', None)) if x)
+    if a.cmd in ('set', 'clear'):
+        access.require_cli(f'release.candidate:{a.tag}', a.project, disc, blk, tgt)
+    elif a.cmd in ('lock', 'unlock'):
+        access.require_cli(f'release.lock:{a.exit}', a.project, disc, blk, f'{tgt} {a.exit}')
+    elif a.cmd == 'cleanup' and getattr(a, 'apply', False):
+        access.require_cli('release.cleanup', a.project, target=tgt or 'cleanup')
+    else:
+        access.require_cli('read', a.project, disc, blk, tgt or a.cmd)
 
 
 def main():
@@ -633,6 +663,7 @@ def main():
         a = ap.parse_args(argv)
         a.cmd = 'cleanup'
     cfg = project_values(a.project)
+    _access_gate(a)
     if getattr(a, 'release_path', None):
         # a sandbox / alternate release tree (as a user config's project(release,path))
         cfg['release'] = os.path.abspath(a.release_path)

@@ -1194,6 +1194,20 @@ proc cbflow_fmt_slack {value} {
     return [format "%.[cbflow_require flow report,slack_digits]f" $value]
 }
 
+# Roles / access (global/utils/core/access.py via `cbflow flow access check`):
+# error unless the current user may perform action on the run's project
+# (enforcement off for the project: allowed, the decision is audited).
+proc cbflow_can_or_error {action {block ""} {flow ""}} {
+    if {![info exists ::env(CBFLOW_ROOT)] || ![info exists ::env(CBFLOW_PROJECT_NAME)]} return
+    set _cmd [list python3 $::env(CBFLOW_ROOT)/global/utils/commands/access_cmd.py check --action $action \
+              --project $::env(CBFLOW_PROJECT_NAME)]
+    if {$block ne ""} { lappend _cmd --block $block }
+    if {$flow ne "" && [info exists ::flow(discipline,$flow)]} { lappend _cmd --disc $::flow(discipline,$flow) }
+    if {[catch {exec {*}$_cmd 2>@1} _out]} {
+        error "ERROR: access — $action on $::env(CBFLOW_PROJECT_NAME): $_out"
+    }
+}
+
 # The run's phase (P0 / P1 / ...): CBFLOW_PROJECT_PHASE from the run env
 # (workspace create: project(phase) in user_config, else
 # project(current_phase)). Releases and release-tag inputs use it.

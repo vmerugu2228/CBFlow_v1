@@ -4633,10 +4633,61 @@ def main() -> int:
     }
 
     if args.command in commands:
+        _access_gate(args)
         return commands[args.command](args)
     else:
         logger.error(f"Unknown command: {args.command}")
         return 1
+
+
+# ── roles / access (core.access): one gate per `cbflow run` verb ────────────
+_READ_VERBS = {'status', 'report', 'list-nodes', 'show-graph', 'list-branches', 'release-info',
+               'release-check', 'targets', 'logs', 'validate', 'lsf-status', 'gui', 'help', 'debug'}
+
+
+def _access_gate(args):
+    """Map the verb (+ flags) to an access action and require it for the run's
+    project / block / discipline (from the run env of the run dir)."""
+    from core import access
+    verb = args.command
+    if verb in ('help', 'debug'):
+        return
+    if verb == 'release-lock':
+        access.require_cli('framework.lock', target='release-lock')
+        return
+    run_dir = getattr(args, 'from_run', None) or os.getcwd()
+    try:
+        from core.env import load_run_env
+        env = load_run_env(run_dir)
+    except Exception:  # noqa: BLE001 — not inside a run: workspace-level verbs
+        env = {}
+    project = env.get('CBFLOW_PROJECT_NAME', '')
+    block = env.get('CBFLOW_DESIGN_NAME', '') or env.get('CBFLOW_BLOCK_NAME', '')
+    flow = env.get('CBFLOW_FLOW_TYPE', '')
+    disc = ''
+    if flow:
+        try:
+            from core import registry
+            disc = registry.flow_discipline(flow)
+        except Exception:  # noqa: BLE001
+            disc = ''
+    if not project:
+        return       # no project context (e.g. list from a workarea): nothing to scope
+    tgt = os.path.basename(os.path.abspath(run_dir))
+    if verb == 'db-manage':
+        act = 'run.mutate' if (getattr(args, 'delete', None) or getattr(args, 'cleanup', False)) else 'read'
+        access.require_cli(act, project, disc, block, tgt)
+    elif verb in _READ_VERBS:
+        access.require_cli('read', project, disc, block, tgt)
+    elif verb == 'release':
+        tag = getattr(args, 'tag', None) or ''
+        access.require_cli(f'release.exit:{tag}', project, disc, block, tgt)
+        if getattr(args, 'publish', None):
+            access.require_cli('release.publish', project, disc, block, tgt)
+        if getattr(args, 'override', False):
+            access.require_cli('release.override', project, disc, block, tgt)
+    else:
+        access.require_cli('run.mutate', project, disc, block, tgt)
 
 
 if __name__ == '__main__':

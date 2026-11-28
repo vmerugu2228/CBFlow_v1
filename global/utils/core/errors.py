@@ -45,3 +45,11 @@ class RunDirectoryError(CBflowError):
             "Not in a valid CBflow run directory: {}. "
             "Navigate to a run directory first.".format(path)
         )
+
+
+class AccessDenied(CBflowError, PermissionError):
+    """The current user's roles do not allow the action (core.access)."""
+    def __init__(self, action, why):
+        self.action = action
+        self.why = why
+        super().__init__("Access denied — {}: {}".format(action, why))

@@ -2866,6 +2866,12 @@ def main() -> int:
     # for tech and calls require_tech_config directly.
     preflight_tech_config_or_exit(args, tool_name="mmmc-manager")
 
+    # roles / access (core.access): MMMC config of a project is project-global
+    if args.command in ('add-mode', 'remove-mode', 'add-pvt', 'remove-pvt', 'add-rc', 'set-node',
+                        'generate', 'generate-view-def') and getattr(args, 'project', None):
+        from core import access
+        access.require_cli('config.project.global', args.project, target=f'mmmc-manager {args.command}')
+
     try:
         rc = handler(args)
         return rc if isinstance(rc, int) else 0

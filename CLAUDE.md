@@ -253,6 +253,22 @@ publishing is opt-in (`--publish`). Signoff flows (STA/PV/LEC) read only their e
 `<flow>(release,exit_from)` names the exit input, `<flow>(release,exit_exempt_inputs)` (LEC `{netlist_golden}`)
 lists exceptions; from_run / explicit paths / other tags are refused. Doc: `PD/docs/02-user-guide/exit-release-guide.md`.
 
+### Roles and access
+Roles live in `global/config/access/roles.json`:
+- `cad_admin` (CAD / CSD) and `flow_owner.<DISC>`;
+- per project: `chip_lead`, `discipline_lead.<DISC>`, `block_owner.<block>`,
+  `engineer`, `viewer`, `grant_read`.
+
+Rules: `global/utils/core/access.py`. `require(action, project, discipline,
+block)` is called at every CLI write dispatcher and in the release node
+(`cbflow_can_or_error`). Identity = the uid login, never `$USER`. Enforcement per
+project / framework (`cbflow flow access enforce on|off`); off = audit only
+(`.access_audit/`).
+
+Manage with `cbflow flow access {whoami,show,check,grant,revoke,enforce,audit,seed}`
+or the user-manager skill. BTO / MTO release / lock needs discipline_lead+; waivers:
+the lead requests, the chip lead approves; flow releases = cad_admin.
+
 ### Release versions, candidate, disks, cleanup
 Every release (first, re-release, `--override`, clone) is a new version `<FLOW>/.versions/<tag>/v<n>`;
 `<FLOW>/<tag>` is the current-version symlink (= candidate), moved on STATUS=PASS (failed release keeps

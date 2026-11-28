@@ -2019,6 +2019,23 @@ def main() -> int:
         'validate': cmd_validate,
     }
 
+    if args.command == 'create' and getattr(args, 'config', None) and os.path.isfile(args.config):
+        # roles / access: creating a run needs a role on the project
+        from start_run import _parse_user_config
+        from core import access
+        _uc = _parse_user_config(args.config)
+        _proj = _uc.get('project(name)', '').strip('"')
+        _flow = _uc.get('flow(type)', '').strip('"').upper()
+        _disc = ''
+        try:
+            from core import registry
+            _disc = registry.flow_discipline(_flow) if _flow else ''
+        except Exception:  # noqa: BLE001
+            pass
+        if _proj:
+            access.require_cli('run.create', _proj, _disc, _uc.get('flow(design_name)', '').strip('"'),
+                               os.path.basename(args.config))
+
     if args.command in commands:
         return commands[args.command](args)
     else:
