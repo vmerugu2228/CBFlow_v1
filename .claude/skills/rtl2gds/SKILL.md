@@ -10,7 +10,7 @@ launches and tracks the runs. You run the preflight, watch the run, diagnose
 failures (with the right skill) and report. Read [reference.md](reference.md)
 for the step graph, the user-config derivation and the failure playbook.
 
-`$R` = `python3 .claude/skills/rtl2gds/scripts/r2g.py`.
+`R=.claude/skills/rtl2gds/scripts/r2g.py` (executable; call `$R …` from the repo root — works in zsh and bash).
 
 ## 1. Ask (one batch, AskUserQuestion)
 - **Release tag** to reach: an exit of the phase, from `project(phase_exits)`

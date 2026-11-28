@@ -9,7 +9,7 @@ Goal: a new project whose configs are **ready to launch runs**. You gather the
 facts, the script writes the files. Read [reference.md](reference.md) first
 (spec fields, what is generated, rules).
 
-`$SK` = `.claude/skills/project-kickoff`, `$K` = `python3 $SK/scripts/kickoff.py`,
+`K=.claude/skills/project-kickoff/scripts/kickoff.py` (executable; call `$K …` from the repo root — works in zsh and bash),
 work files in the session scratch dir (not the repo).
 
 ## 1. Pick the reference and start the spec

@@ -358,8 +358,9 @@ class Runner:
 
     def first_node(self, rd, log):
         r = subprocess.run([CB, 'run', 'status'], cwd=rd, capture_output=True, text=True)
-        m = re.search(r'^\[INFO\]\s+\[[A-Z ]+\]\s+(\S+)', r.stdout + r.stderr, re.M)
-        return m.group(1) if m else None
+        states = r'DONE|PEND\w*|RUN\w*|FAIL\w*|SKIP\w*|BYPASS\w*|INVALID\w*|WAIT\w*|QUEUED|READY|STALE|FORCE\w*'
+        m = re.search(rf'^\[INFO\]\s+\[({states})\s*\]\s+(\S+)', r.stdout + r.stderr, re.M)
+        return m.group(2) if m else None
 
     def release_dir(self, st):
         return os.path.join(self.plan['release'], self.plan['phase'], st['block'], st['flow'], st['release'])
@@ -371,7 +372,11 @@ class Runner:
             fn = self.first_node(rd, log)
             self.event(f'{sid}: retrace {os.path.basename(rd)} from {fn}')
             if not fn or self.sh([CB, 'run', 'retrace', '--from', fn], rd, log):
-                return False, 'retrace failed'
+                # the CLI lists the run's stages when the name is wrong: take the first
+                m = re.findall(r'Valid stages:\s*(\S+?),', open(log).read())
+                if not m or self.sh([CB, 'run', 'retrace', '--from', m[-1]], rd, log):
+                    return False, f'retrace failed — {log}'
+                self.event(f'{sid}: retrace from {m[-1]}')
         else:
             self.event(f'{sid}: workspace create ({os.path.basename(st["uc"])})')
             if self.sh([CB, 'workspace', 'create', '--config', st['uc']], os.path.dirname(rd), log) \
@@ -418,7 +423,9 @@ class Runner:
             return True, f'checklist {v}', v
         if k == 'lock':
             rc = self.sh([CB, 'flow', 'release', 'lock', '--project', self.plan['project'], '--phase', ph,
-                          '--block', b, '--exit', self.plan['pnr_exit'], '--reason', st['reason']], ROOT, log)
+                          '--block', b, '--exit', self.plan['pnr_exit'], '--reason', st['reason']]
+                         + (['--release-path', self.plan['release']] if self.plan.get('release_override') else []),
+                         ROOT, log)
             if rc and 'already locked' not in open(log).read():
                 return False, f'lock failed — {log}', ''
             return True, f'locked {self.plan["pnr_exit"]}', ''

@@ -593,6 +593,7 @@ def main():
         for name in ('list', 'show', 'set', 'clear', 'history'):
             p = sub.add_parser(name)
             p.add_argument('--project', required=True)
+            p.add_argument('--release-path', help='release tree (default project(release,path))')
             p.add_argument('--phase', required=name != 'list')
             p.add_argument('--block', required=name != 'list')
             if name == 'list':
@@ -607,6 +608,7 @@ def main():
         a = ap.parse_args(argv)
     elif group in ('lock', 'unlock', 'locks'):
         ap.add_argument('--project', required=True)
+        ap.add_argument('--release-path', help='release tree (default project(release,path))')
         ap.add_argument('--phase', required=group != 'locks')
         ap.add_argument('--block', required=group != 'locks')
         if group != 'locks':
@@ -618,17 +620,22 @@ def main():
         a.cmd = group
     elif group == 'disks':
         ap.add_argument('--project', required=True)
+        ap.add_argument('--release-path', help='release tree (default project(release,path))')
         ap.add_argument('--sizes', action='store_true', help='du each disk (slow on large disks)')
         a = ap.parse_args(argv)
         a.cmd = 'disks'
     else:
         ap.add_argument('--project', required=True)
+        ap.add_argument('--release-path', help='release tree (default project(release,path))')
         ap.add_argument('--phase')
         ap.add_argument('--block')
         ap.add_argument('--apply', action='store_true', help='delete (permanent); default is a dry run')
         a = ap.parse_args(argv)
         a.cmd = 'cleanup'
     cfg = project_values(a.project)
+    if getattr(a, 'release_path', None):
+        # a sandbox / alternate release tree (as a user config's project(release,path))
+        cfg['release'] = os.path.abspath(a.release_path)
     return {'list': cmd_list, 'show': cmd_show, 'set': cmd_set, 'clear': cmd_clear, 'history': cmd_history,
             'disks': cmd_disks, 'cleanup': cmd_cleanup, 'lock': cmd_lock, 'unlock': cmd_unlock,
             'locks': cmd_locks}[a.cmd](cfg, a)

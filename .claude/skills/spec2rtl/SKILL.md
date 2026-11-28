@@ -13,7 +13,7 @@ and micro-architecture before code, an independent test oracle, and tool
 feedback in a bounded loop.
 
 Variables:
-- `$K` = `python3 .claude/skills/spec2rtl/scripts/s2r.py`;
+- `K=.claude/skills/spec2rtl/scripts/s2r.py` (executable; call `$K …` from the repo root — works in zsh and bash);
 - `<work>` = a scratch dir per block;
 - `<rtl>` = the RTL dir being written;
 - `<lc>` = the library tag's `lib_config.tcl` (memory macro models);
