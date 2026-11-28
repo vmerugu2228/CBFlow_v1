@@ -39,7 +39,7 @@ flow_proc load_design {
 # OpenRCX extraction for this RC corner
 flow_proc extract {
     define_process_corner -ext_model_index 0 X
-    extract_parasitics -ext_model_file [oss_get tech rcx,$::RC_CORNER,openrcx]
+    oss_rcx_extract $::RC_CORNER
 }
 
 # No report step: extraction writes only the SPEF.
@@ -48,6 +48,7 @@ flow_proc extract {
 flow_proc save_design {
     file mkdir [file dirname $::SPEF_OUT]
     write_spef $::SPEF_OUT
+    oss_spef_check $::SPEF_OUT $::RC_CORNER
     handle_info "SPEF $::RC_CORNER -> $::SPEF_OUT"
 }
 

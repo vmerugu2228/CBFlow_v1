@@ -26,6 +26,19 @@ The reference project is **`opensky`**:
 | LEC | `yosys` | `LEC_yosys_config.tcl` | Yosys equivalence | `netlist_golden1 netlist_revised1 compare1 release_data1` |
 | ECO | `openroad` | `ECO_openroad_config.tcl` | OpenROAD + OpenRCX / OpenSTA | `odb1 sdc1 eco1 signoff1 export_data1 release_data1` |
 
+**Extraction deck (OpenRCX).** PNR `pro`, ECO `signoff` and STA `extraction` extract with
+`tech(rcx,<rc>,openrcx)` = OpenROAD-flow-scripts' calibrated sky130 rules
+(`flow/platforms/sky130hs/rcx_patterns.rules`), installed at `<pdks>/orfs_sky130hd/rcx_patterns.rules`
+beside the PDK:
+```bash
+mkdir -p $HOME/eda/pdks/orfs_sky130hd && curl -fsSL -o $HOME/eda/pdks/orfs_sky130hd/rcx_patterns.rules \
+  https://raw.githubusercontent.com/The-OpenROAD-Project/OpenROAD-flow-scripts/master/flow/platforms/sky130hs/rcx_patterns.rules
+```
+rc_max / rc_min apply `adjust_rc` factors `tech(rcx,<rc>,openrcx_adjust) {res cc gndc}` (`oss_rcx_extract`).
+The PDK's librelane decks (`rules.openrcx.sky130A.<c>.spef_extractor`) produce no capacitance with the
+image's OpenROAD (identical ground caps, zero coupling in every corner), so every written SPEF is checked
+(`oss_spef_check`): no non-zero coupling capacitance fails the stage.
+
 The flows of the other disciplines on the same stack (RTL_SPEC / RTL checks,
 DV UVM on Verilator, DFT SCAN_INSERT / ATPG / GLS) and the spec-to-GDS chain
 that strings them together with these PD flows:

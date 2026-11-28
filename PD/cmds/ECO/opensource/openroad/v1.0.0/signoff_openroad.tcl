@@ -57,8 +57,9 @@ flow_proc extract {
     foreach _v [oss_node_views $::NODE_NAME] {
         set _rc [oss_view_attr $_v rc_corner]
         if {[lsearch -exact $_done $_rc] < 0} {
-            extract_parasitics -ext_model_file [oss_get tech rcx,$_rc,openrcx]
+            oss_rcx_extract $_rc
             write_spef [oss_stage_out final_${_rc}.spef]
+            oss_spef_check [oss_stage_out final_${_rc}.spef] $_rc
             lappend _done $_rc
         }
         read_spef -corner $_v [oss_stage_out final_${_rc}.spef]

@@ -92,6 +92,36 @@ proc oss_memory_cells {} {
     }
     return [lsort -unique $_out]
 }
+# OpenRCX extraction of one RC corner (after define_process_corner): the
+# corner's deck tech(rcx,<rc>,openrcx), then its scaling
+# tech(rcx,<rc>,openrcx_adjust) {res <f> cc <f> gndc <f>} when declared.
+proc oss_rcx_extract {rc} {
+    extract_parasitics -ext_model_file [oss_get tech rcx,$rc,openrcx]
+    if {[info exists ::tech(rcx,$rc,openrcx_adjust)] && $::tech(rcx,$rc,openrcx_adjust) ne ""} {
+        set _a $::tech(rcx,$rc,openrcx_adjust)
+        adjust_rc -res_factor [dict get $_a res] -cc_factor [dict get $_a cc] -gndc_factor [dict get $_a gndc]
+        handle_info "RC corner $rc: adjust_rc res [dict get $_a res] cc [dict get $_a cc] gndc [dict get $_a gndc]"
+    }
+}
+# Sanity of a written SPEF: a routed design has coupling capacitance — none,
+# or every coupling cap 0, means the deck gave no capacitance (deck / OpenRCX
+# mismatch): an error, not a silently optimistic timing signoff.
+proc oss_spef_check {spef rc} {
+    set _fh [open $spef]
+    set _in 0; set _cc 0; set _nz 0
+    while {[gets $_fh _l] >= 0} {
+        if {[string match {\*CAP*} $_l]} { set _in 1; continue }
+        if {[string match {\*RES*} $_l] || [string match {\*END*} $_l]} { set _in 0; continue }
+        if {$_in && [llength $_l] == 4} {
+            incr _cc
+            if {[lindex $_l 3] != 0} { incr _nz; break }
+        }
+    }
+    close $_fh
+    if {$_cc == 0 || $_nz == 0} {
+        error "SPEF $rc ($spef): no coupling capacitance ($_cc coupling entries, all 0) — the extraction deck tech(rcx,$rc,openrcx) gave no capacitance"
+    }
+}
 # Memory timing libs for a standard-cell lib set (tech(memory,lib_set_map))
 proc oss_memory_libs {lib_set} {
     if {![oss_has_memories]} { return {} }

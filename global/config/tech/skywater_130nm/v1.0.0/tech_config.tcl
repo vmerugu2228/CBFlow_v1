@@ -74,9 +74,20 @@ set tech(required_views,ip)      {lef gds cdl verilog lib}
 set tech(required_views,analog)  {lef gds cdl verilog lib}
 set tech(required_views,block)   {lef gds netlist lvs_netlist cdl def sdc lib spef}
 set tech(rcx_formats)            {openrcx tlef}
-set tech(rcx,5M,rc_typ,openrcx)  "$project(lib_root)/libs.tech/librelane/rules.openrcx.sky130A.nom.spef_extractor"
-set tech(rcx,5M,rc_min,openrcx)  "$project(lib_root)/libs.tech/librelane/rules.openrcx.sky130A.min.spef_extractor"
-set tech(rcx,5M,rc_max,openrcx)  "$project(lib_root)/libs.tech/librelane/rules.openrcx.sky130A.max.spef_extractor"
+# OpenRCX deck: OpenROAD-flow-scripts' calibrated sky130 rules
+# (flow/platforms/sky130hs/rcx_patterns.rules, installed beside the PDK in
+# <pdks>/orfs_sky130hd/). The PDK's librelane decks
+# (libs.tech/librelane/rules.openrcx.sky130A.<c>.spef_extractor) give NO
+# capacitance with the image's OpenROAD (26Q4): every corner extracted the same
+# ground caps and zero coupling (12.7 pF vs 27.4 pF on gcd P3) — only R applied.
+# One calibrated corner; rc_max / rc_min scale it with adjust_rc factors taken
+# from the librelane decks' own corner ratios (cap tables max/nom 1.19, min/nom
+# 0.81; extracted R max/nom 1.094, min/nom 0.906).
+set tech(rcx,5M,rc_typ,openrcx)  "[file dirname $project(lib_root)]/orfs_sky130hd/rcx_patterns.rules"
+set tech(rcx,5M,rc_min,openrcx)  "[file dirname $project(lib_root)]/orfs_sky130hd/rcx_patterns.rules"
+set tech(rcx,5M,rc_max,openrcx)  "[file dirname $project(lib_root)]/orfs_sky130hd/rcx_patterns.rules"
+set tech(rcx,5M,rc_min,openrcx_adjust) {res 0.906 cc 0.81 gndc 0.81}
+set tech(rcx,5M,rc_max,openrcx_adjust) {res 1.094 cc 1.19 gndc 1.19}
 # Corner tech LEFs carry the matching per-layer RC for placement-time estimates.
 set tech(rcx,5M,rc_typ,tlef)     "$project(lib_root)/libs.ref/sky130_fd_sc_hd/techlef/sky130_fd_sc_hd__nom.tlef"
 set tech(rcx,5M,rc_min,tlef)     "$project(lib_root)/libs.ref/sky130_fd_sc_hd/techlef/sky130_fd_sc_hd__min.tlef"
