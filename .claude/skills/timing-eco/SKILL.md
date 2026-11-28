@@ -23,7 +23,7 @@ The STA run's `setup/user_config.tcl` + `setup/resolved_inputs.tcl` say which
 release it timed — the ECO must start from exactly that release.
 
 ```bash
-python3 $SK/scripts/timing_summary.py <sta_run_dir> --paths 10 -o <work>/before.json
+python3 $SK/scripts/timing_summary.py <sta_run_dir> --paths 0 -o <work>/before.json
 ```
 Report to the user: per-scenario setup / hold WNS · TNS · NVP and DRV counts,
 the worst paths (start → end, the slow stages), and `source.release_tag` /
@@ -81,11 +81,13 @@ cd <phase>_run_STA_<block>_<run> && $CB/bin/cbflow run all
 
 ### 5. Verify — the gate
 ```bash
-python3 $SK/scripts/timing_summary.py <new sta run> -o <work>/after_eco<n>.json
+python3 $SK/scripts/timing_summary.py <new sta run> --paths 0 -o <work>/after_eco<n>.json
 python3 $SK/scripts/compare_qor.py <work>/before.json <work>/after_eco<n>.json -o <work>/compare_eco<n>.json
 ```
 Exit 0 = ACCEPT, 2 = REJECT (any WNS / TNS worse, NVP or DRV up, a new
-violating endpoint). Also required for ACCEPT:
+violating endpoint), 3 = ACCEPT_UNVERIFIED (no regression seen, but the path
+lists are cut below a scenario's NVP: rebuild with `--paths 0`; if the STA
+reports themselves are cut, the user decides — never treat 3 as ACCEPT silently). Also required for ACCEPT:
 - eco1 `Post-ECO detailed-route DRC violations: 0`, `eco_check_placement.rpt` clean;
 - eco1 `eco_changes.rpt`: `Floating signal inputs : a -> a` (eco1 fails if it rises);
 - LEC of the ECO netlist (reference.md) — read the verdict in

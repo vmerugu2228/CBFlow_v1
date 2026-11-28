@@ -256,6 +256,7 @@ def cmd_plan(a):
             'run_name': run_name, 'synth_tag': f'{a.phase}_SYNTH_{run_name}', 'signoff': signoff,
             'blocks': {b: lvl[b] for b in blocks}, 'lib_tag_start': lib_tag, 'base_tag': base,
             'lock': not a.no_lock, 'publish': a.publish, 'rtl_from_lint': True, 'dir': out,
+            'strict': not a.allow_signoff_fail,
             'workarea': c['workarea'], 'release': os.path.abspath(a.release_path) if a.release_path else c['release'],
             'release_override': bool(a.release_path), 'steps': {}}
     c['release'] = plan['release']
@@ -292,7 +293,9 @@ def cmd_plan(a):
         parent = c['blocks'][b]['parent']
         if parent in blocks:
             nxt = tag_of_level[lvl[parent]]
-            pre = [s for s in [f'{b}:PNR'] + so if s in steps]
+            # a child is locked / rolled into the parent's library only after its
+            # checklist (and, strict, every signoff verdict) passed
+            pre = [s for s in [f'{b}:PNR'] + so if s in steps] + [f'{b}:CKL']
             if plan['lock']:
                 add(f'{b}:LOCK', 'lock', b, pre, reason=f'rtl2gds {pid}: {a.exit} in {parent} {a.phase}')
                 pre = pre + [f'{b}:LOCK']
@@ -395,9 +398,40 @@ class Runner:
         if st['flow'] in SIGNOFF and os.path.exists(m):
             mm = re.findall(r'^Status\s*:\s*(\S+)', open(m).read(), re.M)
             verdict = mm[-1] if mm else ''
+        if st['flow'] in SIGNOFF and self.plan.get('strict', True) and verdict != 'PASS':
+            # strict: a signoff that released but failed (or gave no verdict) stops
+            # everything that would build on it (checklist, lock, parent library) —
+            # unless an approved gate waiver accepts it (cbflow flow release waive)
+            wv = self.waived(st['block'], st['release'], st['flow'])
+            if wv:
+                return True, f'released {st["flow"]}/{st["release"]}, verdict {verdict or "missing"} WAIVED ({wv})', 'WAIVED'
+            return False, (f'released {st["flow"]}/{st["release"]} but signoff verdict '
+                           f'{verdict or "missing"} — fix (timing-eco / drc-fix / LEC) and resume'), verdict
         if self.plan['publish']:
             self.sh([CB, 'run', 'release', '--from-run', rd, '--publish'], os.path.dirname(rd), log)
         return True, (f'released {st["flow"]}/{st["release"]}' + (f', verdict {verdict}' if verdict else '')), verdict
+
+    def gate_waivers(self, block, **flt):
+        """Active gate waivers (cbflow flow release waivers) for block / filter."""
+        cmd = [CB, 'flow', 'release', 'waivers', '--project', self.plan['project'], '--phase', self.plan['phase'],
+               '--active', '--json'] + (['--block', block] if block else [])
+        for k, v in flt.items():
+            cmd += [f'--{k.replace("_", "-")}', v]
+        if self.plan.get('release_override'):
+            cmd += ['--release-path', self.plan['release']]
+        r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
+        try:
+            return json.loads(r.stdout.strip().splitlines()[-1]) if r.returncode == 0 else []
+        except (ValueError, IndexError):
+            return []
+
+    def waived(self, block, exit_, check):
+        w = self.gate_waivers(block, exit=exit_, check=check)
+        if not w:
+            return None
+        w = w[0]
+        return (f'{w["id"]} by {w.get("approved_by") or w["requested_by"]} until {w["expires"]}'
+                + (f', deferred to {w["defer_to"]}' if w.get('defer_to') else '') + f': {w["reason"]}')
 
     def do_step(self, sid):
         st = self.plan['steps'][sid]
@@ -419,7 +453,19 @@ class Runner:
             self.sh([CB, 'flow', 'checklist', 'status', '--run-dir', pnr], pnr, log)
             t = open(log).read()
             m = re.findall(r'(?:Verdict|Overall|Status)\s*[:=]\s*([A-Z_]+)', t)
-            v = m[-1] if m else 'see log'
+            v = m[-1] if m else 'UNKNOWN'
+            if self.plan.get('strict', True):
+                # issues children deferred to this block must be closed here first
+                inh = self.gate_waivers(None, deferred_to=b)
+                if inh:
+                    return False, ('checklist: open issues deferred from children — '
+                                   + '; '.join(f'{w["block"]} {w["exit"]} {w["check"]} ({w["id"]}: {w["reason"]})' for w in inh)
+                                   + ' — verify at this level, then cbflow flow release unwaive --id <ID>'), 'INHERITED'
+                if v in ('BLOCKED', 'FAIL', 'FAILED', 'UNKNOWN'):
+                    wv = self.waived(b, self.plan['pnr_exit'], 'CHECKLIST')
+                    if wv:
+                        return True, f'checklist {v} WAIVED ({wv})', 'WAIVED'
+                    return False, f'checklist {v} — checklist skill to triage, or a gate waiver; lock / library roll-up wait', v
             return True, f'checklist {v}', v
         if k == 'lock':
             rc = self.sh([CB, 'flow', 'release', 'lock', '--project', self.plan['project'], '--phase', ph,
@@ -563,6 +609,8 @@ def main():
     p.add_argument('--base-tag', help='cells-only base tag for the new project tags')
     p.add_argument('--no-lock', action='store_true')
     p.add_argument('--publish', action='store_true')
+    p.add_argument('--allow-signoff-fail', action='store_true',
+                   help='record signoff FAIL / checklist BLOCKED instead of stopping (exploration only)')
     p.add_argument('--release-path', help='sandbox: release into this dir instead of project(release,path)')
     p.add_argument('--out')
     p = sub.add_parser('run')

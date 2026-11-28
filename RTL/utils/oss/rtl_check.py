@@ -129,12 +129,19 @@ def cmd_cdc_collect(a):
                                 + (f' [{f["source_domain"]} -> {f["dest_domain"]}]' if f.get('source_domain') else ''),
                      'tool': 'opencdc', 'status': 'open'})
     skipped = 0
+    # blocks opencdc could not analyse: harmless in a single-clock design
+    # (warning), a hidden crossing risk with more than one clock (error — waive
+    # each with reason / owner / expiry in the CDC waiver YAML)
+    nclk = 0
+    if getattr(a, 'sdc', None) and os.path.isfile(a.sdc):
+        nclk = len(set(re.findall(r'create(?:_generated)?_clock\b[^\n]*?-name\s+\{?(\S+?)\}?\s', open(a.sdc).read())))
+    skip_sev = 'error' if nclk > 1 else 'warning'
     if a.log and os.path.isfile(a.log):
         for ln in open(a.log, errors='replace'):
             m = re.match(r'^Warning: Skipped procedural block with unrecoverable clock at (.+?):(\d+)', ln)
             if m:
                 skipped += 1
-                rows.append({'rule': 'CDC-SKIPPED-BLOCK', 'severity': 'info', 'file': m.group(1), 'line': m.group(2),
+                rows.append({'rule': 'CDC-SKIPPED-BLOCK', 'severity': skip_sev, 'file': m.group(1), 'line': m.group(2),
                              'message': 'procedural block not analysed (no clock recovered — combinational always @(*))',
                              'tool': 'opencdc', 'status': 'open'})
             elif ln.startswith('Error:'):
@@ -396,6 +403,7 @@ def main():
     p.add_argument('--slang-log'); p.add_argument('--verible-log'); p.add_argument('--verible-severity', default='warning')
     p.add_argument('--exclude', nargs='*'); p.add_argument('--generated', nargs='*'); p.add_argument('-o', '--output', required=True)
     p = sp.add_parser('cdc-collect'); p.add_argument('--json', required=True); p.add_argument('--log')
+    p.add_argument('--sdc', help='the analysed SDC: >1 clock makes unanalysed blocks errors')
     p.add_argument('-o', '--output', required=True)
     p = sp.add_parser('upf-check'); p.add_argument('--upf', required=True); p.add_argument('--design', required=True)
     p.add_argument('--top', required=True); p.add_argument('--spec'); p.add_argument('-o', '--output', required=True)

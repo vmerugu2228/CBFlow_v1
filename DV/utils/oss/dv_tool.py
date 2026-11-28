@@ -321,7 +321,9 @@ def cmd_signoff(a):
             ok &= good
             L.append(f'  {k:16s}: {v:6.2f}%  target {targets[k]:g}%  {"MET" if good else "NOT MET"}')
         else:
-            L.append(f'  {k:16s}: {v:6.2f}%  (no target)')
+            # no target = not signed off: every metric needs one (project(dv,targets,<M>))
+            ok = False
+            L.append(f'  {k:16s}: {v:6.2f}%  NO TARGET — set project(dv,targets,{a.milestone}) {k} (DV overlay)')
     L += [f'  Plan features   : {m["plan_closed"]}/{m["plan_features"]} closed',
           f'  Status          : {"PASS" if ok else "FAIL"}', '']
     open(a.output, 'w').write('\n'.join(L))

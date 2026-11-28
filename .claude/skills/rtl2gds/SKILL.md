@@ -73,6 +73,29 @@ reference.md:
 After the fix: `$R run --plan <dir> --resume`. Done steps are kept; failed and
 blocked steps run again.
 
+**Gating is strict by default.** A signoff release whose verdict isn't PASS (or
+has none), a checklist that is BLOCKED / FAIL, or issues deferred to this block
+by its children all fail the step. Then the block's lock and its roll-up into the
+parent's library wait. `--allow-signoff-fail` only records verdicts, for
+exploration runs; never use it for a release others build on.
+
+**Known issues the user accepts:** fix nothing, and use a gate waiver (ask the user
+first; it needs their reason, an expiry and an approver):
+```bash
+bin/cbflow flow release waive --project P --phase PH --block B --exit X --check STA|PV|LEC|CHECKLIST \
+    --reason "…" --expires YYYY-MM-DD [--defer-to <parent>]       # a lead requests
+bin/cbflow flow release waive --project P --phase PH --block B --approve W<n>   # the chip lead approves
+bin/cbflow flow release waivers --project P [--phase PH]                     # list; --deferred-to <parent>
+```
+- **BTO / MTO waivers must be deferred to a parent** (waiver policy). That
+  parent's checklist step then fails while the issue is open.
+- **Once the parent's own signoff covers it** (for example the parent's STA
+  passes over the child's ports), its lead closes the item with
+  `bin/cbflow flow release unwaive --id W<n> --reason "…"`.
+- **Top-level blocks can't defer**, so nothing reaches tape-out silently.
+
+After approval, `--resume`: the step passes as WAIVED and the board shows it.
+
 ## 5. Finish
 1. **Report** (from the board + state.json):
    - per block: releases produced, signoff verdicts, checklist verdict;

@@ -213,7 +213,7 @@ main() {
             # the rest of `flow release` is the framework release manager.
             case "${1:-}" in
                 candidate) shift; exec python3 "$COMMANDS_DIR/candidate_cmd.py" "$@" ;;
-                disks|cleanup|lock|unlock|locks) exec python3 "$COMMANDS_DIR/candidate_cmd.py" "$@" ;;
+                disks|cleanup|lock|unlock|locks|waive|unwaive|waivers) exec python3 "$COMMANDS_DIR/candidate_cmd.py" "$@" ;;
             esac
             exec python3 "$COMMANDS_DIR/release_cmd.py" "$@"
             ;;

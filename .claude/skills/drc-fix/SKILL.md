@@ -75,7 +75,9 @@ python3 $SK/scripts/drc_summary.py <new pv run> -o <work>/drc_after<n>.json
 python3 $SK/scripts/compare_drc.py <work>/drc_before.json <work>/drc_after<n>.json
 ```
 ACCEPT needs: compare_drc exit 0 (the block's own geometry: total down, no
-rule up, no new rule; child-cell violations are listed, not gated) **and**
+rule up, no new rule; child-cell violations are listed, not gated). Exit 3 =
+the total fell but violations appeared at new locations (moved, not fixed):
+show them to the user, who accepts or has the next iteration fix them **and**
 the new PV run's LVS `Circuits match uniquely` **and**, when anything was
 re-routed or moved, timing not regressed (STA on the release + timing-eco's
 `compare_qor.py` against the STA of the source release). Router DRC of eco1

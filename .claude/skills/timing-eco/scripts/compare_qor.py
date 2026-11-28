@@ -9,7 +9,11 @@ before -> after. Verdict:
           --tolerance), NVP rose, a DRV count rose, a scenario disappeared,
           or a path endpoint violates after that did not before
   ACCEPT  otherwise (improved or unchanged)
-Exit status 0 = ACCEPT, 2 = REJECT, so the skill can gate on it.
+  ACCEPT_UNVERIFIED  no regression found, but the after JSON lists fewer
+          violating paths than a scenario's NVP, so an endpoint that newly fails
+          while another is fixed (same NVP) could hide — rebuild both JSONs with
+          timing_summary.py --paths 0, or have a person review
+Exit status 0 = ACCEPT, 2 = REJECT, 3 = ACCEPT_UNVERIFIED, so the skill can gate on it.
 """
 import argparse
 import json
@@ -62,8 +66,20 @@ def main():
     new = sorted(violators(n) - violators(b))
     for sc, ck, ep in new:
         reasons.append(f'{sc}: new {ck} violation at {ep}')
-    verdict = 'REJECT' if reasons else 'ACCEPT'
-    doc = {'verdict': verdict, 'reasons': reasons, 'scenarios': rows,
+    # the endpoint check only sees the listed paths: say so when the lists are cut
+    incomplete = []
+    for doc_, tag in ((b, 'before'), (n, 'after')):
+        listed = {}
+        for p in doc_['paths']:
+            if p['slack'] < 0:
+                listed[(p['scenario'], p['check'])] = listed.get((p['scenario'], p['check']), 0) + 1
+        for sc in doc_['scenarios']:
+            for ck in ('setup', 'hold'):
+                nvp = sc.get(f'nvp_{ck}') or 0
+                if nvp > listed.get((sc['name'], ck), 0):
+                    incomplete.append(f'{tag} {sc["name"]} {ck}: {listed.get((sc["name"], ck), 0)} of {nvp} violating paths listed')
+    verdict = 'REJECT' if reasons else ('ACCEPT_UNVERIFIED' if incomplete else 'ACCEPT')
+    doc = {'verdict': verdict, 'reasons': reasons, 'incomplete': incomplete, 'scenarios': rows,
            'worst': {'before': b.get('worst'), 'after': n.get('worst')},
            'before': b['source'], 'after': n['source']}
     out = json.dumps(doc, indent=1)
@@ -78,9 +94,11 @@ def main():
               file=sys.stderr)
     for x in reasons:
         print(f'  reject: {x}', file=sys.stderr)
+    for x in incomplete[:10]:
+        print(f'  unverified: {x}', file=sys.stderr)
     if not a.output:
         print(out)
-    sys.exit(0 if verdict == 'ACCEPT' else 2)
+    sys.exit({'ACCEPT': 0, 'REJECT': 2}.get(verdict, 3))
 
 
 if __name__ == '__main__':

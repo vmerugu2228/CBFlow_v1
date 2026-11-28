@@ -163,7 +163,7 @@ def source_info(target, kind):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('target', help='STA run directory or STA release directory')
-    ap.add_argument('--paths', type=int, default=10, help='worst violating paths kept per scenario and check')
+    ap.add_argument('--paths', type=int, default=10, help='worst violating paths kept per scenario and check (0 = all; use 0 for the ECO gate)')
     ap.add_argument('--all-paths', action='store_true', help='keep met paths too (default: violating only)')
     ap.add_argument('-o', '--output', help='write the JSON here (default stdout)')
     a = ap.parse_args()
@@ -197,7 +197,7 @@ def main():
                 worst[check] = {'wns': w, 'scenario': scen}
             keep = [p for p in ps if a.all_paths or p['slack'] < 0]
             keep.sort(key=lambda p: p['slack'])
-            doc['paths'].extend(keep[:a.paths])
+            doc['paths'].extend(keep[:a.paths] if a.paths > 0 else keep)
         doc['scenarios'].append(row)
     doc['worst'] = worst
     for p in doc['paths']:

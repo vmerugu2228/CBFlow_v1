@@ -23,6 +23,18 @@ disks             --project P                                   release disks: s
 lock              --project P --phase PH --block B --exit X [--flows F1,F2] --reason TEXT
 unlock            --project P --phase PH --block B --exit X --reason TEXT   (locker or chip lead)
 locks             --project P [--phase PH] [--block B]          current locks
+waive             --project P --phase PH --block B --exit X --check STA|PV|LEC|CHECKLIST|<FLOW>
+                  --reason TEXT --expires YYYY-MM-DD [--defer-to PARENT]   request a gate waiver
+waive             --project P --phase PH --block B --approve ID            approve it (chip lead)
+unwaive           --project P --phase PH --block B --id ID --reason TEXT   revoke / close
+waivers           --project P [--phase PH] [--block B] [--exit X --check C --active] [--deferred-to B] [--json]
+
+Gate waivers let a known, accepted issue (a signoff verdict FAIL, a BLOCKED
+checklist) through the hierarchy gates (rtl2gds lock / library roll-up) without
+being fixed at this block. Policy from global/config/exit/v1.0.0/waiver_config.tcl
+(approval, expiry, max duration; BTO / MTO waivers only when allowed — otherwise
+they must be deferred to a parent, whose own exit then carries them as open items
+until its lead closes them with unwaive).
 cleanup           --project P [--phase PH] [--block B] [--apply] dry run unless --apply
 """
 import argparse
@@ -74,16 +86,17 @@ puts "disks\\t[expr {{[info exists project(release,disks)] ? $project(release,di
 puts "phases\\t$project(phases)"
 puts "tech\\t[expr {{[info exists project(technology)] ? $project(technology) : ""}}]"
 puts "libroot\\t[expr {{[info exists project(lib_tag_root)] ? $project(lib_tag_root) : ""}}]"
-dict for {{b d}} $project(design_hierarchy) {{ puts "block\\t$b" }}
+dict for {{b d}} $project(design_hierarchy) {{ puts "block\\t$b\\t[expr {{[dict exists $d parent] ? [dict get $d parent] : ""}}]" }}
 '''
     r = subprocess.run(['tclsh'], input=script, capture_output=True, text=True)
     if r.returncode:
         die(f'cannot read the {project} config: {r.stderr.strip()}')
-    cfg = {'blocks': [], 'key': {}, 'project': project}
+    cfg = {'blocks': [], 'parent': {}, 'key': {}, 'project': project}
     for line in r.stdout.splitlines():
         f = line.split('\t')
         if f[0] == 'block':
             cfg['blocks'].append(f[1])
+            cfg['parent'][f[1]] = f[2] if len(f) > 2 else ''
         elif f[0] == 'key':
             cfg['key'][f[1]] = f[2]
         elif f[0] in ('phases', 'disks'):
@@ -312,6 +325,170 @@ def cmd_locks(cfg, a):
     print(f'{"PHASE":6s} {"BLOCK":14s} {"EXIT":16s} {"FLOWS":10s} {"BY":10s} {"AT":20s} REASON')
     for r in rows:
         print(f'{r[0]:6s} {r[1]:14s} {r[2]:16s} {r[3]:10s} {r[4]:10s} {r[5]:20s} {r[6]}')
+    return 0
+
+
+# ── gate waivers ─────────────────────────────────────────────────────────────
+WAIVER_POLICY = os.path.join(ROOT, 'global', 'config', 'exit', 'v1.0.0', 'waiver_config.tcl')
+
+
+def waiver_policy():
+    script = f'''source {{{WAIVER_POLICY}}}
+foreach k {{require_approval require_expiry_date max_waiver_duration_days allow_bto_waivers allow_mto_waivers}} {{
+    if {{![info exists waiver_policy($k)]}} {{ puts stderr "waiver_policy($k) is not set ({WAIVER_POLICY})"; exit 1 }}
+    puts "$k=$waiver_policy($k)"
+}}'''
+    r = subprocess.run(['tclsh'], input=script, capture_output=True, text=True)
+    if r.returncode:
+        die(f'waiver policy: {r.stderr.strip()}')
+    return dict(l.split('=', 1) for l in r.stdout.splitlines() if '=' in l)
+
+
+def _true(v):
+    return str(v).strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def waivers_path(cfg, phase, block):
+    return os.path.join(cfg['release'], phase, block, 'GATE_WAIVERS.json')
+
+
+def read_waivers(cfg, phase, block):
+    p = waivers_path(cfg, phase, block)
+    return json.load(open(p)) if os.path.exists(p) else []
+
+
+def write_waivers(cfg, phase, block, ws, rec):
+    d = os.path.join(cfg['release'], phase, block)
+    os.makedirs(d, exist_ok=True)
+    p = waivers_path(cfg, phase, block)
+    tmp = f'{p}.tmp{os.getpid()}'
+    json.dump(ws, open(tmp, 'w'), indent=1)
+    os.replace(tmp, p)
+    with open(os.path.join(d, 'GATE_WAIVERS.log'), 'a') as fh:
+        fh.write(json.dumps(rec) + '\n')
+
+
+def waiver_state(w, today=None):
+    """pending | active | expired | revoked | closed"""
+    if w.get('state') in ('revoked', 'closed'):
+        return w['state']
+    if w.get('expires') and (today or time.strftime('%Y-%m-%d')) > w['expires']:
+        return 'expired'
+    return w.get('state', 'pending')
+
+
+def ancestors(cfg, block):
+    out, b = [], cfg['parent'].get(block, '')
+    while b and b not in out:
+        out.append(b)
+        b = cfg['parent'].get(b, '')
+    return out
+
+
+def cmd_waive(cfg, a):
+    check_scope(cfg, a)
+    ws = read_waivers(cfg, a.phase, a.block)
+    me, now = _me(), time.strftime('%Y-%m-%dT%H:%M:%S')
+    pol = waiver_policy()
+    if a.approve:
+        w = next((x for x in ws if x['id'] == a.approve), None)
+        if not w:
+            die(f'{a.phase}/{a.block}: no waiver {a.approve}')
+        if waiver_state(w) != 'pending':
+            die(f'{a.approve} is {waiver_state(w)}, not pending')
+        sys.path.insert(0, os.path.join(ROOT, 'global', 'utils'))
+        from core import access
+        if me == w['requested_by'] and 'chip_lead' not in access.roles_of(me, cfg['project']):
+            die(f'{a.approve} was requested by {me}: another person (the chip lead) approves it')
+        w.update(state='active', approved_by=me, approved_at=now)
+        write_waivers(cfg, a.phase, a.block, ws, {'action': 'approve', 'id': w['id'], 'user': me, 'at': now})
+        print(f'APPROVED {w["id"]} {a.phase}/{a.block} {w["exit"]} {w["check"]} (until {w["expires"]})'
+              + (f' — deferred to {w["defer_to"]}' if w.get('defer_to') else ''))
+        return 0
+    for k in ('exit', 'check', 'reason'):
+        if not getattr(a, k):
+            die(f'--{k} is required')
+    ex, check = family(a.exit), a.check.upper()
+    if _true(pol['require_expiry_date']) and not a.expires:
+        die('--expires YYYY-MM-DD is required (waiver policy)')
+    if a.expires:
+        try:
+            days = (time.mktime(time.strptime(a.expires, '%Y-%m-%d')) - time.time()) / 86400
+        except ValueError:
+            die(f'--expires {a.expires}: YYYY-MM-DD')
+        if days < -1:
+            die(f'--expires {a.expires} is in the past')
+        if days > float(pol['max_waiver_duration_days']):
+            die(f'--expires {a.expires}: more than {pol["max_waiver_duration_days"]} days (waiver policy)')
+    up = ancestors(cfg, a.block)
+    if a.defer_to:
+        if a.defer_to not in up:
+            die(f'--defer-to {a.defer_to}: not a parent of {a.block} (ancestors: {", ".join(up) or "none — top level"})')
+    elif (ex == 'BTO' and not _true(pol['allow_bto_waivers'])) or (ex == 'MTO' and not _true(pol['allow_mto_waivers'])):
+        die(f'{ex} waivers are not allowed (waiver policy) — defer the issue to a parent '
+            f'(--defer-to {up[0] if up else "<none: top level>"}), whose own {ex} then carries it until closed')
+    for x in ws:
+        if x['exit'] == ex and x['check'] == check and waiver_state(x) in ('pending', 'active'):
+            die(f'{x["id"]} already covers {a.phase}/{a.block} {ex} {check} ({waiver_state(x)})')
+    wid = f'W{len(ws) + 1}'
+    w = {'id': wid, 'exit': ex, 'check': check, 'reason': a.reason, 'defer_to': a.defer_to or '',
+         'expires': a.expires or '', 'requested_by': me, 'requested_at': now,
+         'state': 'pending' if _true(pol['require_approval']) else 'active'}
+    ws.append(w)
+    write_waivers(cfg, a.phase, a.block, ws, dict(w, action='request', user=me, at=now))
+    print(f'{"REQUESTED" if w["state"] == "pending" else "ACTIVE"} {wid} {a.phase}/{a.block} {ex} {check}'
+          + (f' — deferred to {w["defer_to"]}' if w['defer_to'] else '') + f' (until {w["expires"] or "-"})')
+    if w['state'] == 'pending':
+        print(f'  approve (chip lead): cbflow flow release waive --project {cfg["project"]} --phase {a.phase} '
+              f'--block {a.block} --approve {wid}')
+    return 0
+
+
+def cmd_unwaive(cfg, a):
+    check_scope(cfg, a)
+    if not a.reason:
+        die('--reason is required')
+    ws = read_waivers(cfg, a.phase, a.block)
+    w = next((x for x in ws if x['id'] == a.id), None)
+    if not w:
+        die(f'{a.phase}/{a.block}: no waiver {a.id}')
+    me, now = _me(), time.strftime('%Y-%m-%dT%H:%M:%S')
+    # an active deferral is closed (the parent verified / fixed it); anything else revoked
+    st = 'closed' if w.get('defer_to') and waiver_state(w) == 'active' else 'revoked'
+    w.update(state=st, closed_by=me, closed_at=now, close_reason=a.reason)
+    write_waivers(cfg, a.phase, a.block, ws, {'action': st, 'id': a.id, 'user': me, 'at': now, 'reason': a.reason})
+    print(f'{st.upper()} {a.id} {a.phase}/{a.block} {w["exit"]} {w["check"]}')
+    return 0
+
+
+def cmd_waivers(cfg, a):
+    check_scope(cfg, a)
+    rows = []
+    for ph in [a.phase] if a.phase else cfg['phases']:
+        for b in [a.block] if a.block else cfg['blocks']:
+            for w in read_waivers(cfg, ph, b):
+                st = waiver_state(w)
+                if a.exit and w['exit'] != family(a.exit):
+                    continue
+                if a.check and w['check'] != a.check.upper():
+                    continue
+                if a.active and st != 'active':
+                    continue
+                if a.deferred_to and (w.get('defer_to') != a.deferred_to or st != 'active'):
+                    continue
+                rows.append(dict(w, phase=ph, block=b, status=st))
+    if a.json:
+        print(json.dumps(rows))
+        return 0
+    if not rows:
+        print('No gate waivers.')
+        return 0
+    print(f'{"ID":4s} {"PHASE":6s} {"BLOCK":14s} {"EXIT":12s} {"CHECK":10s} {"STATUS":8s} {"DEFER_TO":14s} '
+          f'{"EXPIRES":10s} {"BY":10s} REASON')
+    for r in rows:
+        print(f'{r["id"]:4s} {r["phase"]:6s} {r["block"]:14s} {r["exit"]:12s} {r["check"]:10s} {r["status"]:8s} '
+              f'{r.get("defer_to") or "-":14s} {r.get("expires") or "-":10s} '
+              f'{r.get("approved_by") or r["requested_by"]:10s} {r["reason"]}')
     return 0
 
 
@@ -604,6 +781,13 @@ def _access_gate(a):
         access.require_cli(f'release.candidate:{a.tag}', a.project, disc, blk, tgt)
     elif a.cmd in ('lock', 'unlock'):
         access.require_cli(f'release.lock:{a.exit}', a.project, disc, blk, f'{tgt} {a.exit}')
+    elif a.cmd == 'waive':
+        if a.approve:
+            access.require_cli('waiver.approve', a.project, disc, blk, f'{tgt} gate {a.approve}')
+        else:
+            access.require_cli('waiver.request', a.project, disc, blk, f'{tgt} gate {a.exit} {a.check}')
+    elif a.cmd == 'unwaive':
+        access.require_cli('waiver.approve', a.project, disc, blk, f'{tgt} gate {a.id}')
     elif a.cmd == 'cleanup' and getattr(a, 'apply', False):
         access.require_cli('release.cleanup', a.project, target=tgt or 'cleanup')
     else:
@@ -611,7 +795,8 @@ def _access_gate(a):
 
 
 def main():
-    if len(sys.argv) > 1 and sys.argv[1] in ('disks', 'cleanup', 'lock', 'unlock', 'locks'):
+    if len(sys.argv) > 1 and sys.argv[1] in ('disks', 'cleanup', 'lock', 'unlock', 'locks',
+                                             'waive', 'unwaive', 'waivers'):
         group, argv = sys.argv[1], sys.argv[2:]
     else:
         group, argv = 'candidate', sys.argv[1:]
@@ -648,6 +833,29 @@ def main():
             ap.add_argument('--flows', help='comma list of flows (default: all)')
         a = ap.parse_args(argv)
         a.cmd = group
+    elif group in ('waive', 'unwaive', 'waivers'):
+        ap.add_argument('--project', required=True)
+        ap.add_argument('--release-path', help='release tree (default project(release,path))')
+        ap.add_argument('--phase', required=group != 'waivers')
+        ap.add_argument('--block', required=group != 'waivers')
+        if group == 'waive':
+            ap.add_argument('--exit')
+            ap.add_argument('--check', help='STA | PV | LEC | CHECKLIST | <FLOW>')
+            ap.add_argument('--reason')
+            ap.add_argument('--expires', help='YYYY-MM-DD')
+            ap.add_argument('--defer-to', help='parent block that takes the issue over')
+            ap.add_argument('--approve', metavar='ID', help='approve a pending waiver (chip lead)')
+        elif group == 'unwaive':
+            ap.add_argument('--id', required=True)
+            ap.add_argument('--reason')
+        else:
+            ap.add_argument('--exit')
+            ap.add_argument('--check')
+            ap.add_argument('--active', action='store_true')
+            ap.add_argument('--deferred-to')
+            ap.add_argument('--json', action='store_true')
+        a = ap.parse_args(argv)
+        a.cmd = group
     elif group == 'disks':
         ap.add_argument('--project', required=True)
         ap.add_argument('--release-path', help='release tree (default project(release,path))')
@@ -669,7 +877,8 @@ def main():
         cfg['release'] = os.path.abspath(a.release_path)
     return {'list': cmd_list, 'show': cmd_show, 'set': cmd_set, 'clear': cmd_clear, 'history': cmd_history,
             'disks': cmd_disks, 'cleanup': cmd_cleanup, 'lock': cmd_lock, 'unlock': cmd_unlock,
-            'locks': cmd_locks}[a.cmd](cfg, a)
+            'locks': cmd_locks, 'waive': cmd_waive, 'unwaive': cmd_unwaive,
+            'waivers': cmd_waivers}[a.cmd](cfg, a)
 
 
 if __name__ == '__main__':

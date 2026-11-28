@@ -27,8 +27,9 @@ set ::flow::exec_mode "auto"
 
 flow_proc report {
     set _an "[cbflow_node_dir [oss_chain_node cdc_analyze]]"
+    set _su "[cbflow_node_dir [oss_chain_node cdc_setup]]/outputs"
     rtl_py "$::REPORTS_DIR/collect.log" cdc-collect --json "$_an/outputs/cdc.json" --log "$_an/reports/cdc.log" \
-        -o [oss_stage_out violations.csv]
+        --sdc "$_su/cdc.sdc" -o [oss_stage_out violations.csv]
     file copy -force "$_an/outputs/cdc.json" "$::REPORTS_DIR/cdc_findings.json"
 }
 
