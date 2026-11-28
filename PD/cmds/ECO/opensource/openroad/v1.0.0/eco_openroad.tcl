@@ -213,6 +213,7 @@ flow_proc load_design {
     handle_info "ECO source database: $_odb"
     read_db $_odb
     read_sdc [oss_sdc_file]
+    oss_apply_derate
     set_propagated_clock [all_clocks]
     oss_set_wire_rc
     lassign [oss_signal_layers $design_name $blocks] _min _max

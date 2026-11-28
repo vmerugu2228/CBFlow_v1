@@ -51,6 +51,7 @@ flow_proc load_design {
         handle_info "Scan chains: $_nc from $_sd"
     }
     read_sdc [oss_sdc_file]
+    oss_apply_derate
     oss_drv_limits                   ;# pnr(oss,drv,max_fanout) from overrides
     set_dont_use [oss_pnr_dont_use]
 }

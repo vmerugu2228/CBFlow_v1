@@ -554,6 +554,20 @@ proc oss_drv_limits {} {
     }
 }
 
+# OCV derate from the project's MMMC config (mmmc_config(timing_derate_early|late),
+# e.g. 0.95 / 1.05 = 5 %) on cell and net delays. Not stored in the database:
+# every session that times the design calls it after read_sdc. No default.
+proc oss_apply_derate {} {
+    foreach _k {early late} {
+        if {![info exists ::mmmc_config(timing_derate_$_k)]} {
+            error "mmmc_config(timing_derate_$_k) is not set — project mmmc_config.tcl"
+        }
+    }
+    set_timing_derate -early $::mmmc_config(timing_derate_early)
+    set_timing_derate -late  $::mmmc_config(timing_derate_late)
+    handle_info "OCV derate early $::mmmc_config(timing_derate_early) late $::mmmc_config(timing_derate_late)"
+}
+
 proc oss_load_stage {prev_node} {
     global design_name blocks
     set_thread_count [oss_get [oss_flow_arr] oss,threads]
@@ -562,6 +576,7 @@ proc oss_load_stage {prev_node} {
     oss_read_corners $::NODE_NAME $blocks
     read_db [oss_prev_odb $prev_node]
     read_sdc [oss_sdc_file]
+    oss_apply_derate
     oss_drv_limits
     set_dont_use [oss_pnr_dont_use]
     oss_set_wire_rc
@@ -582,6 +597,7 @@ proc oss_fp_load_netlist {design blocks} {
     read_verilog [lindex [glob -nocomplain "$::NETLIST_DIR/${design}.v" "$::NETLIST_DIR/*.v"] 0]
     link_design $design
     read_sdc [oss_sdc_file]
+    oss_apply_derate
     set_dont_use [oss_pnr_dont_use]
 }
 
@@ -996,6 +1012,7 @@ proc oss_load_node {node blocks} {
     if {$_odb eq ""} { error "no database in $_out — did $node complete?" }
     read_db $_odb
     read_sdc [oss_sdc_file]
+    oss_apply_derate
     if {$_st in {cts cts_opt route pro signoff}} { set_propagated_clock [all_clocks] }
     set _pro ""
     if {$_st eq "pro"} { set _pro $node } elseif {$_st eq "signoff"} { set _pro [lindex [cbflow_node_deps $node] 0] }

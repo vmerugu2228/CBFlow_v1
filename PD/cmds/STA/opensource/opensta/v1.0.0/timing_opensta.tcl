@@ -52,6 +52,7 @@ flow_proc load_design {
     read_verilog $_nl
     link_design $design_name
     read_sdc $::SDC_FILE
+    oss_apply_derate
     set_propagated_clock [all_clocks]
     if {$::SPEF_FILE ne "" && [file exists $::SPEF_FILE]} {
         read_spef $::SPEF_FILE

@@ -33,6 +33,7 @@ flow_proc load_design {
     oss_read_corners $::NODE_NAME $blocks
     read_db [oss_node_output [oss_upstream_node] eco.odb]
     read_sdc [oss_sdc_file]
+    oss_apply_derate
     set_propagated_clock [all_clocks]
 }
 

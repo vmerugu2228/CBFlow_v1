@@ -32,6 +32,7 @@ flow_proc load_design {
     oss_read_corners [oss_chain_node init_design] $blocks
     read_db [oss_prev_odb [oss_upstream_node]]
     read_sdc [oss_sdc_file]
+    oss_apply_derate
 }
 
 # No operation step: export_data only writes the floorplan deliverables.

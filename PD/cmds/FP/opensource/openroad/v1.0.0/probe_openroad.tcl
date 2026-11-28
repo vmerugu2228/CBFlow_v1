@@ -36,6 +36,7 @@ flow_proc load_design {
     oss_read_corners [oss_chain_node init_design] $blocks
     read_db [oss_prev_odb [oss_chain_node powerplan]]
     read_sdc [oss_sdc_file]
+    oss_apply_derate
     oss_set_wire_rc
 }
 
