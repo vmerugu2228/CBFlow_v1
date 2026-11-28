@@ -261,8 +261,10 @@ the previous). `cbflow flow release candidate {list,show,set,clear,history} --pr
 `project(release,disks)` (versions symlinked to `<disk>/<phase>/<block>/<FLOW>/<tag>/v<n>`), size check +
 disk choice `flow(release,size_margin|disk_min_free_gb|disk_policy)`; `cbflow flow release disks`;
 `cbflow flow release cleanup [--phase --block] [--apply]` (dry run default; keeps current / published /
-library-tag sources / consumed; `flow(release,cleanup,*)`). Cross-block tag / dependency audit + rebuild plan:
-`.claude/skills/checklist/scripts/tag_audit.py --project <p> [--phase P]`.
+library-tag sources / consumed; `flow(release,cleanup,*)`). Release locks: `cbflow flow release lock|unlock|locks --project <p> --phase <P>
+--block <b> --exit <X> [--flows F1,F2] --reason <why>` (`<release>/<phase>/<block>/RELEASE_LOCKS`): refuses releases
+of X / X_ECO<n>, clones into X and candidate moves; unlock by the locker or the chip lead. Cross-block tag /
+dependency audit + rebuild plan: `.claude/skills/checklist/scripts/tag_audit.py --project <p> [--phase P]`.
 
 ### Releasing an intermediate stage (e.g. place → PLACE_EXIT)
 The export/release pair releases its **source stage**: the nearest non-bypassed

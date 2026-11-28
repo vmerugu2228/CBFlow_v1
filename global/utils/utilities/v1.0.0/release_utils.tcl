@@ -233,6 +233,8 @@ proc init {args_flow_type args_design_name args_run_dir args_phase {args_exit ""
     # symlink to one version, moved to the new one when it stamps PASS
     # (stamp_complete) — readers keep reading <FLOW>/<tag>. The version's data
     # sits on a release disk (project(release,disks)) chosen by size.
+    # Release lock (cbflow flow release lock): no release of a locked exit
+    _check_release_lock $release_base $release_phase $block_name $flow_type $release_tag
     variable release_logical; variable release_version
     set release_logical $release_dir
     set _vroot [file join [file dirname $release_logical] .versions $release_tag]
@@ -642,6 +644,25 @@ proc stamp_complete {} {
         handle_info "RELEASE COMPLETE: $flow_type ($release_phase) — [llength $release_files_copied] files, 0 errors"
     } else {
         handle_warning "RELEASE INCOMPLETE: $flow_type ($release_phase) — [llength $release_files_copied] files, [llength $release_errors] errors"
+    }
+}
+
+# ── Release locks ───────────────────────────────────────────────────────────
+# <release>/<phase>/<block>/RELEASE_LOCKS (cbflow flow release lock): one line
+# per locked exit — EXIT <tab> FLOWS (* | F1,F2) <tab> USER <tab> TIME <tab> REASON.
+# A lock on exit X refuses releasing X, X_ECO<n>, X_v<n> from the flows it names
+# — e.g. a block's BTO taken into its parent must not change under it.
+proc _check_release_lock {base phase block flow tag} {
+    set _f [file join $base $phase $block RELEASE_LOCKS]
+    if {![file exists $_f]} return
+    if {![regexp {^(.*)_(?:ECO|v)\d+$} $tag -> _fam]} { set _fam $tag }
+    set _fh [open $_f]; set _lines [split [read $_fh] \n]; close $_fh
+    foreach _l $_lines {
+        if {$_l eq "" || [string index $_l 0] eq "#"} continue
+        lassign [split $_l \t] _x _flows _user _time _reason
+        if {$_x ne $_fam} continue
+        if {$_flows ne "*" && [lsearch -exact [split $_flows ,] $flow] < 0} continue
+        error "ERROR: release of $phase/$block $flow $tag refused — exit $_x is LOCKED by $_user ($_time): $_reason\n       unlock: cbflow flow release unlock --project <p> --phase $phase --block $block --exit $_x --reason <why>"
     }
 }
 

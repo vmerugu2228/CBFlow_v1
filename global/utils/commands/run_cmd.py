@@ -638,6 +638,14 @@ def _clone_release(run_dir: str, src_tag: str, new_tag: str, node: str = '',
             logger.error(f"  exit order — {block} {phase} cannot release {new_tag} before "
                          f"{', '.join(missing)} (release in order: {' -> '.join(exits)})")
             return 1
+    # a locked exit (cbflow flow release lock) takes no clone
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import candidate_cmd as _cand
+    _lk = _cand.locked({'release': os.path.dirname(phase_dir)}, phase, block, info['flow_type'], new_tag)
+    if _lk:
+        logger.error(f"  clone into {new_tag} refused — exit {_lk['exit']} is LOCKED by {_lk['user']} "
+                     f"({_lk['at']}): {_lk['reason']}")
+        return 1
     # a new version of the destination tag; current moves to it below
     vdst = _new_release_version(dst)
     shutil.copytree(os.path.realpath(src), vdst, symlinks=True)

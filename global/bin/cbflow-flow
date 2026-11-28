@@ -72,6 +72,9 @@ Design releases (every release is a new version; <FLOW>/<tag> -> current version
                                                  Make v2 current (default: latest release)
   cbflow flow release candidate clear ... --flow PNR --tag BTO
                                                  Back to the latest passing version
+  cbflow flow release lock --project opensky --phase P3 --block gcd --exit BTO --reason "in ctrl_subsys"
+                                                 No more releases of that exit (unlock: locker / chip lead)
+  cbflow flow release locks --project opensky    Current release locks
   cbflow flow release disks --project opensky    Release disks: size / free / versions
   cbflow flow release cleanup --project opensky [--phase P3] [--apply]
                                                  Remove superseded / incomplete versions (dry run)
@@ -198,7 +201,7 @@ main() {
             # the rest of `flow release` is the framework release manager.
             case "${1:-}" in
                 candidate) shift; exec python3 "$COMMANDS_DIR/candidate_cmd.py" "$@" ;;
-                disks|cleanup) exec python3 "$COMMANDS_DIR/candidate_cmd.py" "$@" ;;
+                disks|cleanup|lock|unlock|locks) exec python3 "$COMMANDS_DIR/candidate_cmd.py" "$@" ;;
             esac
             exec python3 "$COMMANDS_DIR/release_cmd.py" "$@"
             ;;

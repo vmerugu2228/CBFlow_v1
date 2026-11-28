@@ -20,6 +20,9 @@ candidate set     --project P --phase PH --block B --flow F --tag T --version vN
 candidate clear   --project P --phase PH --block B --flow F --tag T [--reason TEXT]
 candidate history --project P --phase PH --block B --flow F --tag T
 disks             --project P                                   release disks: size / free / versions held
+lock              --project P --phase PH --block B --exit X [--flows F1,F2] --reason TEXT
+unlock            --project P --phase PH --block B --exit X --reason TEXT   (locker or chip lead)
+locks             --project P [--phase PH] [--block B]          current locks
 cleanup           --project P [--phase PH] [--block B] [--apply] dry run unless --apply
 """
 import argparse
@@ -188,6 +191,127 @@ def need_versioned(cfg, a):
     return cur, logical, vroot
 
 
+# ── release locks ───────────────────────────────────────────────────────────
+LOCK_FIELDS = ['exit', 'flows', 'user', 'at', 'reason']
+
+
+def family(tag):
+    m = re.match(r'^(.*)_(?:ECO|v)\d+$', tag)
+    return m.group(1) if m else tag
+
+
+def read_locks(cfg, phase, block):
+    p = os.path.join(cfg['release'], phase, block, 'RELEASE_LOCKS')
+    out = {}
+    if os.path.exists(p):
+        for line in open(p):
+            if line.strip() and not line.startswith('#'):
+                f = line.rstrip('\n').split('\t')
+                out[f[0]] = dict(zip(LOCK_FIELDS, f + [''] * (len(LOCK_FIELDS) - len(f))))
+    return out
+
+
+def write_locks(cfg, phase, block, locks):
+    d = os.path.join(cfg['release'], phase, block)
+    os.makedirs(d, exist_ok=True)
+    p = os.path.join(d, 'RELEASE_LOCKS')
+    tmp = f'{p}.tmp{os.getpid()}'
+    with open(tmp, 'w') as fh:
+        fh.write('# ' + '\t'.join(f.upper() for f in LOCK_FIELDS) + '   (cbflow flow release lock)\n')
+        for x in sorted(locks):
+            fh.write('\t'.join(str(locks[x].get(k, '')).replace('\t', ' ').replace('\n', ' ')
+                               for k in LOCK_FIELDS) + '\n')
+    os.replace(tmp, p)
+
+
+def lock_log(cfg, phase, block, rec):
+    with open(os.path.join(cfg['release'], phase, block, 'RELEASE_LOCKS.log'), 'a') as fh:
+        fh.write(json.dumps(rec) + '\n')
+
+
+def locked(cfg, phase, block, flow, tag):
+    """The lock that covers releasing / moving <flow>/<tag>, or None."""
+    lk = read_locks(cfg, phase, block).get(family(tag))
+    if lk and (lk['flows'] == '*' or flow in lk['flows'].split(',')):
+        return lk
+    return None
+
+
+def refuse_if_locked(cfg, phase, block, flow, tag, what):
+    lk = locked(cfg, phase, block, flow, tag)
+    if lk:
+        die(f'{what} {phase}/{block} {flow}/{tag} refused — exit {lk["exit"]} is LOCKED by {lk["user"]} '
+            f'({lk["at"]}): {lk["reason"]}\n       unlock: cbflow flow release unlock --project {cfg["project"]} '
+            f'--phase {phase} --block {block} --exit {lk["exit"]} --reason <why>')
+
+
+def cmd_lock(cfg, a):
+    check_scope(cfg, a)
+    if not a.reason:
+        die('--reason is required (who depends on this exit)')
+    locks = read_locks(cfg, a.phase, a.block)
+    if a.exit in locks:
+        lk = locks[a.exit]
+        die(f'{a.phase}/{a.block} {a.exit} already locked by {lk["user"]} ({lk["at"]}): {lk["reason"]}')
+    flows = '*' if a.flows in (None, '', 'all') else ','.join(x.strip() for x in a.flows.split(','))
+    rel = glob.glob(os.path.join(cfg['release'], a.phase, a.block, '*', a.exit, 'RELEASE_COMPLETE'))
+    if not rel:
+        print(f'WARN  {a.phase}/{a.block} has no {a.exit} release yet — locking prevents the first one too')
+    entry = {'exit': a.exit, 'flows': flows, 'user': getpass.getuser(),
+             'at': time.strftime('%Y-%m-%dT%H:%M:%S'), 'reason': a.reason}
+    locks[a.exit] = entry
+    write_locks(cfg, a.phase, a.block, locks)
+    cur = {os.path.basename(os.path.dirname(os.path.dirname(r))):
+           current(cfg, a.phase, a.block, os.path.basename(os.path.dirname(os.path.dirname(r))), a.exit)[0]
+           for r in rel}
+    lock_log(cfg, a.phase, a.block, dict(entry, action='lock', current=cur))
+    print(f'LOCKED {a.phase}/{a.block} {a.exit} ({"all flows" if flows == "*" else flows})'
+          + (f' — current: {", ".join(f"{f} {v or chr(45)}" for f, v in sorted(cur.items()))}' if cur else ''))
+    print(f'  releases of {a.exit} / {a.exit}_ECO<n>, clones into it and candidate moves are refused until unlock')
+    return 0
+
+
+def cmd_unlock(cfg, a):
+    check_scope(cfg, a)
+    if not a.reason:
+        die('--reason is required')
+    locks = read_locks(cfg, a.phase, a.block)
+    if a.exit not in locks:
+        die(f'{a.phase}/{a.block} {a.exit} is not locked')
+    lk = locks[a.exit]
+    me = getpass.getuser()
+    lead = registry().get('projects', {}).get(cfg['project'], {}).get('chip_lead', '')
+    if me not in (lk['user'], lead):
+        die(f'{a.exit} was locked by {lk["user"]}; only they or the chip lead ({lead or "unset"}) can unlock it')
+    del locks[a.exit]
+    write_locks(cfg, a.phase, a.block, locks)
+    lock_log(cfg, a.phase, a.block, {'exit': a.exit, 'action': 'unlock', 'user': me,
+                                    'at': time.strftime('%Y-%m-%dT%H:%M:%S'), 'reason': a.reason,
+                                    'was': f'{lk["user"]} {lk["at"]}: {lk["reason"]}'})
+    print(f'UNLOCKED {a.phase}/{a.block} {a.exit} (was locked by {lk["user"]} {lk["at"]})')
+    return 0
+
+
+def cmd_locks(cfg, a):
+    check_scope(cfg, a)
+    rows = []
+    for ph in [a.phase] if a.phase else cfg['phases']:
+        for b in [a.block] if a.block else cfg['blocks']:
+            for x, lk in sorted(read_locks(cfg, ph, b).items()):
+                rows.append((ph, b, x, lk['flows'], lk['user'], lk['at'], lk['reason']))
+    if not rows:
+        print('No release locks.')
+        return 0
+    print(f'{"PHASE":6s} {"BLOCK":14s} {"EXIT":16s} {"FLOWS":10s} {"BY":10s} {"AT":20s} REASON')
+    for r in rows:
+        print(f'{r[0]:6s} {r[1]:14s} {r[2]:16s} {r[3]:10s} {r[4]:10s} {r[5]:20s} {r[6]}')
+    return 0
+
+
+def registry():
+    return json.load(open(os.path.join(ROOT, 'global', 'config', 'master_projects.json')))
+
+
 # ── candidate ───────────────────────────────────────────────────────────────
 def cmd_list(cfg, a):
     check_scope(cfg, a)
@@ -236,6 +360,7 @@ def cmd_show(cfg, a):
 
 def cmd_set(cfg, a):
     check_scope(cfg, a)
+    refuse_if_locked(cfg, a.phase, a.block, a.flow, a.tag, 'candidate set')
     cur, logical, vroot = need_versioned(cfg, a)
     vs = {v['v']: v for v in versions(cfg, a.phase, a.block, a.flow, a.tag)}
     if a.version not in vs:
@@ -255,6 +380,7 @@ def cmd_set(cfg, a):
 
 def cmd_clear(cfg, a):
     check_scope(cfg, a)
+    refuse_if_locked(cfg, a.phase, a.block, a.flow, a.tag, 'candidate clear')
     cur, logical, vroot = need_versioned(cfg, a)
     lp = latest_pass(versions(cfg, a.phase, a.block, a.flow, a.tag))
     if not lp:
@@ -455,7 +581,7 @@ def cmd_cleanup(cfg, a):
 
 
 def main():
-    if len(sys.argv) > 1 and sys.argv[1] in ('disks', 'cleanup'):
+    if len(sys.argv) > 1 and sys.argv[1] in ('disks', 'cleanup', 'lock', 'unlock', 'locks'):
         group, argv = sys.argv[1], sys.argv[2:]
     else:
         group, argv = 'candidate', sys.argv[1:]
@@ -479,6 +605,17 @@ def main():
             if name in ('set', 'clear'):
                 p.add_argument('--reason')
         a = ap.parse_args(argv)
+    elif group in ('lock', 'unlock', 'locks'):
+        ap.add_argument('--project', required=True)
+        ap.add_argument('--phase', required=group != 'locks')
+        ap.add_argument('--block', required=group != 'locks')
+        if group != 'locks':
+            ap.add_argument('--exit', required=True)
+            ap.add_argument('--reason')
+        if group == 'lock':
+            ap.add_argument('--flows', help='comma list of flows (default: all)')
+        a = ap.parse_args(argv)
+        a.cmd = group
     elif group == 'disks':
         ap.add_argument('--project', required=True)
         ap.add_argument('--sizes', action='store_true', help='du each disk (slow on large disks)')
@@ -493,7 +630,8 @@ def main():
         a.cmd = 'cleanup'
     cfg = project_values(a.project)
     return {'list': cmd_list, 'show': cmd_show, 'set': cmd_set, 'clear': cmd_clear, 'history': cmd_history,
-            'disks': cmd_disks, 'cleanup': cmd_cleanup}[a.cmd](cfg, a)
+            'disks': cmd_disks, 'cleanup': cmd_cleanup, 'lock': cmd_lock, 'unlock': cmd_unlock,
+            'locks': cmd_locks}[a.cmd](cfg, a)
 
 
 if __name__ == '__main__':

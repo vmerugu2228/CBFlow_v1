@@ -86,7 +86,10 @@ Report:
 - check result, port-compatibility result;
 - differences from the previous tag.
 
-When runs start using the tag, offer `project-tag freeze`; the user decides.
+When runs start using the tag, offer two locks; the user decides:
+- `project-tag freeze`;
+- `cbflow flow release lock --exit <exit> --reason "in <TAG>"` for every block
+  release the tag carries, so nobody re-releases it under the tag.
 Switching runs to it is the user's call: `set project(lib_config_tag) "<TAG>"`
 in their user configs (or the PD overlay for the project default) — show the
 lines, do not edit configs.

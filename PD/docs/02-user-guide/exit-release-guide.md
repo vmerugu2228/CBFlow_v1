@@ -95,6 +95,34 @@ cbflow flow release candidate history --project opensky --phase P3 --block gcd -
 
 Only a PASS version can be made current.
 
+### Release locks
+
+When a block's exit release is in use (its BTO database is in the parent's
+run, or a library tag carries it), lock the exit so nobody re-releases it under
+the consumer:
+
+```bash
+cbflow flow release lock   --project opensky --phase P3 --block gcd --exit BTO \
+                           --reason "BTO in ctrl_subsys P3 PNR" [--flows PNR,ECO]
+cbflow flow release locks  --project opensky [--phase P3] [--block gcd]
+cbflow flow release unlock --project opensky --phase P3 --block gcd --exit BTO --reason "ctrl_subsys signed off"
+```
+
+**While the lock holds:**
+- releases of `BTO`, `BTO_ECO<n>` and `BTO_v<n>` are refused at the release
+  node's init (all flows, or the `--flows` given);
+- `run release --clone-from … --tag BTO` is refused;
+- `candidate set` / `clear` on that tag is refused, since moving the current
+  version would change the data just as a release would.
+
+The error names the locker, the time, the reason and the unlock command.
+
+**Bookkeeping:**
+- Locks live in `<release>/<phase>/<block>/RELEASE_LOCKS`; every lock and
+  unlock goes to `RELEASE_LOCKS.log`, with the current versions at lock time.
+- A lock needs a reason. Only the locker or the project's chip lead
+  (`master_projects.json`) can unlock.
+
 ### Release disks
 
 `project(release,path)` is the logical release tree. Set
