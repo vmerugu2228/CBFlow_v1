@@ -121,6 +121,46 @@ set tech(lib,<corner>,timing,memory) [list ...]
 Empty categories are written as `[list ]`. A memory characterized at fewer corners than the MMMC library sets
 use is mapped with `tech(memory,lib_set_map)` (reported as a substituted corner by `check`).
 
+### Base tags and project tags
+
+Libraries come in two layers:
+
+| Layer | Path | Holds | Shared by |
+|---|---|---|---|
+| **Base tag** | `<lib_tag_root>/<tech>/<TAG>/` | stdcell, memory, io, ip, analog | every project on the tech |
+| **Project tag** | `<lib_tag_root>/<tech>/projects/<project>/<TAG>/` | the project's hard blocks | one project |
+
+- `generate` builds base tags.
+- Blocks go into a project tag: `add --category block` refuses a base tag.
+- A project tag's `lib_config.tcl` sources its base tag's `lib_config.tcl`, then
+  its own `blocks_config.tcl`. It may only add `tech(block*)` / `tech(blocks)`;
+  `check` fails a project tag that redefines a base key.
+- `project(lib_config_tag)` names either kind. Tag names are unique across both.
+- Tags made before the split (OSS0–OSS3) are **combined**: cells and blocks in
+  one tag. They keep working unchanged.
+
+```bash
+cbflow flow library-manager project-tag create --tech skywater_130nm --project opensky \
+    --tag OPENSKY_T1 --base OSS4                                   # empty project tag on base OSS4
+cbflow flow library-manager add --tech skywater_130nm --project opensky --tag OPENSKY_T1 \
+    --category block --path <release>/P3/gcd/PNR/BTO …            # blocks, as below
+cbflow flow library-manager project-tag freeze --tech skywater_130nm --project opensky \
+    --tag OPENSKY_T1 --reason "used by P3 runs"                    # add refuses it from now on
+cbflow flow library-manager project-tag create --tech skywater_130nm --project opensky \
+    --tag OPENSKY_T2 --base OSS4 --from OPENSKY_T1                 # refresh: carry T1's blocks, re-add changed ones
+cbflow flow library-manager project-tag list --tech skywater_130nm --project opensky
+cbflow flow library-manager project-tag show --tech skywater_130nm --project opensky --tag OPENSKY_T1
+```
+
+- **Refresh:** freeze a project tag once runs use it, then refresh with a new tag
+  (`--from`), so a run's library set never changes under it.
+- **Rebase:** a new base tag is a new project tag with `--base`. Block timing
+  models built on the old cells are stale until those blocks are re-released.
+- **Reports:** `check` and `status` print both layers (base, project, blocks,
+  FROZEN). Their view tables cover the merged set.
+- **Not supported yet:** project-only memories / IP in a project tag. Add them
+  to the base tag.
+
 ### Blocks (`--category block`)
 
 Adds a released hierarchical block (DL3 or DL2) as a hard macro for its parent. `--path` is the block's PNR exit

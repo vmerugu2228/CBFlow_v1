@@ -26,7 +26,17 @@ PV release sits beside it (gds / cdl come from PV; none → `--pv-pending`); the
 SPEF corners; the ready `add` commands. Show the table; if the user wants other
 releases for some blocks, use those paths.
 
-## 2. Create the tag (new name, e.g. next OSS<n>)
+## 2. Base tag + project tag
+Libraries come in two layers (reference.md → Layers):
+- **base tag** `<root>/<tech>/<TAG>/`: cells (stdcell, memory, io, ip, analog),
+  shared by every project on the tech; built with `generate`.
+- **project tag** `<root>/<tech>/projects/<project>/<PTAG>/`: the project's blocks
+  over a base; made with `project-tag create --base <B> [--from <previous PTAG>]`.
+
+To refresh blocks, make a new project tag `--from` the previous one. Make a new
+base tag only when cells change.
+
+### 2a. Create a base tag (new name, e.g. next OSS<n>; cells only)
 Standard cells + memories exactly like the reference tag (see the recipe in
 reference.md — `--lib-root` is the **stdcell** library, memories via
 `--memory-path`, `--exclude` the macros the tag must not carry):
@@ -39,9 +49,17 @@ Compare with the reference tag (`diff` of the sorted `lib_config.tcl` with the
 tag names masked, and of `find stdcell memory io ip analog -type l`). Explain
 every difference before going on (reference.md lists the known ones).
 
-## 3. Add hard blocks (and other macros)
-Run the `add` commands from step 1 with `--tag <TAG>` (one call with PV, one
-`--pv-pending`). Memories / IP: `add --category memory|ip|io|analog --path …`.
+### 2b. Create the project tag
+```bash
+bin/cbflow flow library-manager project-tag create --tech <tech> --project <proj> --tag <PTAG> \
+    --base <BASE> [--from <previous PTAG>]
+```
+
+## 3. Add hard blocks (project tag) and other macros (base tag)
+Run the `add` commands from step 1 with `--tag <PTAG>`: one call with PV, one
+with `--pv-pending`. `add` refuses blocks in a base tag, and refuses any FROZEN
+tag. Memories / IP go into the base tag:
+`add --category memory|ip|io|analog --path …`.
 
 ## 4. Check
 ```bash
@@ -62,8 +80,13 @@ python3 $SK/scripts/port_compat.py --project <proj> --lib-config <root>/<tech>/<
   (every instantiated cell / macro / block found in the tag's views).
 
 ## 5. Hand over
-Report: tag path, contents (stdcell, memories, blocks + their source releases),
-check result, port-compatibility result, and differences from the previous tag.
+Report:
+- tag path and layers (base + project);
+- contents (stdcell, memories, blocks and their source releases);
+- check result, port-compatibility result;
+- differences from the previous tag.
+
+When runs start using the tag, offer `project-tag freeze`; the user decides.
 Switching runs to it is the user's call: `set project(lib_config_tag) "<TAG>"`
 in their user configs (or the PD overlay for the project default) — show the
 lines, do not edit configs.

@@ -242,14 +242,25 @@ proc init {args_flow_type args_design_name args_run_dir args_phase {args_exit ""
         file rename $release_logical [file join $_vroot v1]
         ::handle_info "Moved unversioned release $release_logical -> .versions/$release_tag/v1"
     }
-    set _n 0
-    foreach _v [glob -nocomplain -directory $_vroot -tails v*] {
-        if {[regexp {^v(\d+)$} $_v -> _k] && $_k > $_n} { set _n $_k }
+    if {$_test_mode} {
+        # test mode: stub data — one version, replaced each run and current at
+        # once (test-mode handlers may not reach stamp_complete)
+        set release_version "v1"
+        set release_dir [file join $_vroot $release_version]
+        file delete -force $release_dir
+        file mkdir $_vroot
+        _place_version $release_base $release_phase $block_name $flow_type $release_tag $release_dir $_test_mode
+        _set_current
+    } else {
+        set _n 0
+        foreach _v [glob -nocomplain -directory $_vroot -tails v*] {
+            if {[regexp {^v(\d+)$} $_v -> _k] && $_k > $_n} { set _n $_k }
+        }
+        set release_version "v[incr _n]"
+        set release_dir [file join $_vroot $release_version]
+        file mkdir $_vroot
+        _place_version $release_base $release_phase $block_name $flow_type $release_tag $release_dir $_test_mode
     }
-    set release_version "v[incr _n]"
-    set release_dir [file join $_vroot $release_version]
-    file mkdir $_vroot
-    _place_version $release_base $release_phase $block_name $flow_type $release_tag $release_dir $_test_mode
 
     # Create directory structure from project config or defaults
     set subdirs {reports data netlist def gds spef sdc upf db docs}

@@ -11,6 +11,23 @@
   block/<b>/{lef,lib,gds,netlist,def,sdc,spef}/  SOURCE (release dir)  PV_SOURCE (PV release | PENDING)
 ```
 
+## Layers
+| Kind | Path | Holds |
+|---|---|---|
+| base | `<root>/<tech>/<TAG>/` | stdcell / memory / io / ip / analog (shared by projects) |
+| project | `<root>/<tech>/projects/<proj>/<TAG>/` | blocks; `lib_config.tcl` = `tech(lib_base_tag)`, `tech(lib_project_tag)`, source `../../../<BASE>/lib_config.tcl`, `_lib_tag_dir` = itself, source `blocks_config.tcl`; `BASE` file |
+| combined (legacy) | `<root>/<tech>/<TAG>/` with `blocks_config.tcl` | OSS0-OSS3: cells + blocks |
+
+Markers:
+- `FROZEN` (`project-tag freeze`): `add` refuses the tag.
+
+Checks:
+- `check` fails a project tag that redefines a base key.
+- `project-tag create` refuses a combined base, and a name that is already a base tag.
+
+Runtime (`generate_setup.tcl`) and the Python resolvers look in
+`projects/<project(name)>/<TAG>` after the base layouts.
+
 ## Keys the flows read
 | Key | Meaning |
 |---|---|
@@ -58,7 +75,9 @@ added later with `add --category stdcell`):
 ## Commands
 | Command | Use |
 |---|---|
-| `library-manager generate --tag <TAG> …` | new tag |
+| `library-manager generate --tag <TAG> …` | new base tag (cells) |
+| `library-manager project-tag create --project <p> --tag <PT> --base <B> [--from <PT0>]` | new project tag |
+| `library-manager project-tag freeze|list|show --project <p> [--tag <PT>]` | freeze / list / show project tags |
 | `library-manager add --tag <TAG> --category block [--pv-pending] --path <rel>…` | hard blocks |
 | `library-manager add --tag <TAG> --category memory|io|ip|analog|stdcell --path …` | other categories |
 | `library-manager check --tech <t> --lib_tag <TAG>` | files + required-view table |

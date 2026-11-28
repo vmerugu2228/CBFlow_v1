@@ -11,6 +11,8 @@ import functools
 import glob
 import os
 import shutil
+import subprocess
+import time
 import sys
 import re
 import json
@@ -1361,9 +1363,10 @@ def _locate_lib_tag(tech_name: str, tag: str, version: str = None,
         if not root:
             continue
         roots.add(root)
-        cand = os.path.join(root, tech_name, tag, 'lib_config.tcl')
-        if os.path.isfile(cand):
-            hits.setdefault(os.path.realpath(cand), []).append(name)
+        for cand in (os.path.join(root, tech_name, tag, 'lib_config.tcl'),
+                     os.path.join(_project_tag_dir(root, tech_name, name, tag), 'lib_config.tcl')):
+            if os.path.isfile(cand):
+                hits.setdefault(os.path.realpath(cand), []).append(name)
     if not hits:
         p = _resolve_lib_config_path(tech_name, tag, version)
         if p and os.path.isfile(p):
@@ -2062,6 +2065,13 @@ def _resolve_lib_config_path(tech_name: str, tag: str,
             return new
         if _legacy_exists:
             return legacy
+        # Project tag: <root>/<tech>/projects/<project>/<tag>/lib_config.tcl
+        # (blocks / project libraries over a base tag)
+        _proj = project_name or os.environ.get('CBFLOW_PROJECT_NAME', '')
+        if _proj:
+            ptag = os.path.join(_project_tag_dir(root, tech_name, _proj, tag), 'lib_config.tcl')
+            if os.path.isfile(ptag):
+                return ptag
         return ''
     # root is '': could be "nothing configured" OR "configured but rejected".
     # Only fall back to legacy for the "nothing configured" case.
@@ -2628,6 +2638,9 @@ def cmd_check(args: argparse.Namespace) -> int:
             return 1
         validator.lib_config_override = lib_cfg
         logger.info(f"Library tag {tag}: {lib_cfg}" + (f" (project {project})" if project else ''))
+        layers = _tag_layers(lib_cfg)
+        layer_problems = []
+        _log_layers(layers, layer_problems)
     config = validator.load_tech_config(tech_config_path)
     if tag:
         try:
@@ -2764,6 +2777,9 @@ def cmd_check(args: argparse.Namespace) -> int:
     else:
         overall = "PASSED"
         exit_code = 0
+    if tag and layer_problems and exit_code == 0:
+        overall = "FAILED — library tag layers: {}".format('; '.join(layer_problems))
+        exit_code = 1
     if vm and (vm[6] or design_problems) and exit_code == 0:
         overall = "FAILED — {} missing view(s){}".format(
             len(vm[6]), ", {} instantiated cell(s) with missing views".format(len(design_problems))
@@ -5004,6 +5020,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         if _tag_project and not getattr(args, 'project', None):
             args.project = _tag_project
         logger.info(f"Library tag {args.tag}: {lib_config}")
+        _log_layers(_tag_layers(lib_config))
     else:
         _avail_tags = _list_available_tags(tech_name, version,
                                            project_name=getattr(args, 'project', None))
@@ -5612,8 +5629,22 @@ def cmd_add(args: argparse.Namespace) -> int:
             tech_name, tag))
         return 1
 
+    layers = _tag_layers(existing)
+    if layers['frozen']:
+        logger.error(f"tag {tag} is FROZEN ({os.path.join(layers['dir'], 'FROZEN')}) — runs use it; "
+                     f"make a new tag (project-tag create --tag <new> --base <base> --from {tag})")
+        return 1
     if category == 'block':
+        if layers['kind'] == 'base':
+            logger.error(f"{tag} is a base tag (cells only, shared by every project on {tech_name}) — "
+                         f"blocks go into a project tag: library-manager project-tag create --tech {tech_name} "
+                         f"--project <p> --tag <PTAG> --base {tag}")
+            return 1
         return _cmd_add_blocks(args, existing)
+    if layers['kind'] == 'project':
+        logger.error(f"{tag} is a project tag — {category} libraries go into its base tag "
+                     f"{layers['base']} (project-only macros in a project tag are not supported yet)")
+        return 1
 
     # Reuse the generate pipeline. We force one category's path arg from
     # --path/--category, leave the others unset so no spurious scans run.
@@ -5753,6 +5784,220 @@ def cmd_coverage(args: argparse.Namespace) -> int:
 # -------------------------------------------------------------------------------
 # Argument Parser
 # -------------------------------------------------------------------------------
+
+# -------------------------------------------------------------------------------
+# Two-layer library tags
+#   base tag     <lib_tag_root>/<tech>/<TAG>/                 stdcell / memory / io / ip /
+#                                                             analog — shared by every
+#                                                             project on the tech
+#   project tag  <lib_tag_root>/<tech>/projects/<proj>/<TAG>/ hard blocks (+ chip level)
+#                of one project; its lib_config.tcl sources the base tag, then its
+#                blocks_config.tcl. project(lib_config_tag) names either kind.
+#   FROZEN       marker in a tag dir: runs use it — `add` refuses; refresh = new tag
+#                (project-tag create --from <tag>).
+# -------------------------------------------------------------------------------
+def _project_tag_dir(root: str, tech_name: str, project: str, tag: str) -> str:
+    return os.path.join(root, tech_name, 'projects', project, tag)
+
+
+def _tag_layers(lib_cfg: str) -> dict:
+    """{kind: base|project|combined, base, base_cfg, project, tag, frozen,
+    blocks} of the tag owning lib_cfg (combined = legacy base tag with blocks)."""
+    d = os.path.dirname(lib_cfg)
+    txt = open(lib_cfg).read() if os.path.isfile(lib_cfg) else ''
+    bc = os.path.join(d, 'blocks_config.tcl')
+    bc_txt = open(bc).read() if os.path.isfile(bc) else ''
+    out = {'tag': os.path.basename(d), 'dir': d, 'frozen': os.path.isfile(os.path.join(d, 'FROZEN')),
+           'blocks': sorted(set(re.findall(r'set tech\(block,(\w+),lef\)', bc_txt)))}
+    m = re.search(r'set tech\(lib_base_tag\)\s+"([^"]+)"', txt)
+    if m and os.path.basename(os.path.dirname(os.path.dirname(d))) == 'projects':
+        out.update(kind='project', base=m.group(1), project=os.path.basename(os.path.dirname(d)),
+                   base_cfg=os.path.normpath(os.path.join(d, '..', '..', '..', m.group(1), 'lib_config.tcl')))
+    else:
+        out.update(kind='combined' if out['blocks'] else 'base', base='', project='', base_cfg='')
+    return out
+
+
+def _tcl_tech_keys(lib_cfg: str) -> Dict[str, str]:
+    """tech() keys a lib_config.tcl defines (sourced in tclsh; project() stubbed)."""
+    script = ('array set project {}\n'
+              'if {[catch {source {%s}} e]} { puts stderr $e; exit 1 }\n'
+              'foreach k [lsort [array names tech]] { puts "$k\\t$tech($k)" }\n' % lib_cfg)
+    r = subprocess.run(['tclsh'], input=script, capture_output=True, text=True)
+    if r.returncode:
+        raise ValueError('cannot source {}: {}'.format(lib_cfg, r.stderr.strip()))
+    return dict(l.split('\t', 1) for l in r.stdout.splitlines() if '\t' in l)
+
+
+def _layer_conflicts(layers: dict) -> List[str]:
+    """Base keys a project tag redefines (only tech(block*) / tech(blocks) and
+    its own identity keys may differ) — the base stays the source of cells."""
+    if layers['kind'] != 'project':
+        return []
+    base = _tcl_tech_keys(layers['base_cfg'])
+    proj = _tcl_tech_keys(os.path.join(layers['dir'], 'lib_config.tcl'))
+    own = ('block,', 'blocks', 'lib_base_tag', 'lib_project_tag')
+    return sorted(k for k in base if not k.startswith(own) and proj.get(k) != base[k])
+
+
+def _log_layers(layers: dict, problems: list = None) -> None:
+    if layers['kind'] == 'project':
+        logger.info(f"  Layers       : base {layers['base']} (stdcell / memory / io / ip / analog: "
+                    f"{layers['base_cfg']})")
+        logger.info(f"                 + project {layers['project']} tag {layers['tag']} "
+                    f"(blocks: {' '.join(layers['blocks']) or 'none'})"
+                    + ('  [FROZEN]' if layers['frozen'] else ''))
+        try:
+            bad = _layer_conflicts(layers)
+        except ValueError as e:
+            bad = []
+            if problems is not None:
+                problems.append(str(e))
+        for k in bad:
+            msg = f"project tag redefines base key tech({k}) — cells come from base {layers['base']}"
+            logger.info(f"  ERROR  {msg}")
+            if problems is not None:
+                problems.append(msg)
+    elif layers['kind'] == 'combined':
+        logger.info(f"  Layers       : combined (legacy) tag — cells + blocks "
+                    f"({' '.join(layers['blocks'])}) in one tag; new blocks go to a project tag "
+                    f"(library-manager project-tag create)" + ('  [FROZEN]' if layers['frozen'] else ''))
+    else:
+        logger.info(f"  Layers       : base tag (cells only)" + ('  [FROZEN]' if layers['frozen'] else ''))
+
+
+_PROJECT_TAG_LIB_CONFIG = """#!/usr/bin/env tclsh
+# =============================================================================
+# Project library tag (cbflow flow library-manager project-tag create)
+# Tech: {tech}  |  Project: {project}  |  Tag: {tag}  |  Base: {base}
+# Created: {when} by {user}{from_note}
+#
+# Base tag (stdcell / memory / io / ip / analog, shared by every project on
+# the tech) first, then this project's blocks (blocks_config.tcl). This file
+# may only add keys: tech(block*) / tech(blocks).
+# =============================================================================
+set _project_tag_dir [file dirname [file normalize [info script]]]
+set tech(lib_base_tag)    "{base}"
+set tech(lib_project_tag) "{tag}"
+source [file join $_project_tag_dir .. .. .. {base} lib_config.tcl]
+set _lib_tag_dir $_project_tag_dir
+if {{[file exists "$_lib_tag_dir/blocks_config.tcl"]}} {{ source "$_lib_tag_dir/blocks_config.tcl" }}
+"""
+
+
+def cmd_project_tag(args: argparse.Namespace) -> int:
+    """project-tag create | freeze | list | show — project library tags over a base tag."""
+    import getpass
+    tech_name, version = args.tech, args.version or 'v1.0.0'
+    project = args.project
+    root = _resolve_lib_tag_root(tech_name, version, project_name=project,
+                                 cli_override=getattr(args, 'lib_tag_root', None))
+    if not root:
+        logger.error(f"lib_tag_root not resolvable for project {project} (project(lib_tag_root))")
+        return 1
+    pdir = os.path.join(root, tech_name, 'projects', project)
+    if args.action == 'list':
+        bases = sorted(t for t in os.listdir(os.path.join(root, tech_name))
+                       if t != 'projects' and os.path.isfile(os.path.join(root, tech_name, t, 'lib_config.tcl')))
+        logger.info(f"Base tags ({root}/{tech_name}):")
+        for t in bases:
+            ly = _tag_layers(os.path.join(root, tech_name, t, 'lib_config.tcl'))
+            logger.info(f"  {t:16s} {ly['kind']:9s}" + (f" blocks: {' '.join(ly['blocks'])}" if ly['blocks'] else '')
+                        + ('  FROZEN' if ly['frozen'] else ''))
+        logger.info(f"Project tags of {project} ({pdir}):")
+        for t in (sorted(os.listdir(pdir)) if os.path.isdir(pdir) else []):
+            cfg = os.path.join(pdir, t, 'lib_config.tcl')
+            if os.path.isfile(cfg):
+                ly = _tag_layers(cfg)
+                logger.info(f"  {t:16s} base {ly['base']:8s} blocks: {' '.join(ly['blocks']) or '-'}"
+                            + ('  FROZEN' if ly['frozen'] else ''))
+        return 0
+    if not args.tag:
+        logger.error('--tag is required')
+        return 1
+    tdir = _project_tag_dir(root, tech_name, project, args.tag)
+    if args.action == 'show':
+        if not os.path.isfile(os.path.join(tdir, 'lib_config.tcl')):
+            logger.error(f"no project tag {args.tag} of {project}: {tdir}")
+            return 1
+        ly = _tag_layers(os.path.join(tdir, 'lib_config.tcl'))
+        logger.info(f"Project tag {args.tag} ({tdir})")
+        _log_layers(ly)
+        mf = os.path.join(tdir, 'MANIFEST.tcl')
+        if os.path.isfile(mf):
+            for b, src in re.findall(r'set block_source\((\w+)\)\s+"([^"]*)"', open(mf).read()):
+                logger.info(f"    {b:14s} <- {src}")
+        for b in ly['blocks']:
+            sp = os.path.join(tdir, 'block', b, 'SOURCE')
+            if os.path.isfile(sp):
+                logger.info(f"    {b:14s} <- {open(sp).read().strip()}")
+        if ly['frozen']:
+            logger.info('  ' + open(os.path.join(tdir, 'FROZEN')).read().strip())
+        return 0
+    if args.action == 'freeze':
+        if not os.path.isfile(os.path.join(tdir, 'lib_config.tcl')):
+            logger.error(f"no project tag {args.tag} of {project}: {tdir}")
+            return 1
+        with open(os.path.join(tdir, 'FROZEN'), 'w') as fh:
+            fh.write(f"FROZEN {time.strftime('%Y-%m-%dT%H:%M:%S')} by {getpass.getuser()}"
+                     + (f": {args.reason}" if args.reason else '') + '\n')
+        logger.info(f"Project tag {args.tag} frozen — `add` refuses it; refresh with "
+                    f"project-tag create --tag <new> --base <base> --from {args.tag}")
+        return 0
+    # create
+    if not args.base:
+        logger.error('--base <base tag> is required')
+        return 1
+    base_cfg = os.path.join(root, tech_name, args.base, 'lib_config.tcl')
+    if not os.path.isfile(base_cfg):
+        logger.error(f"base tag {args.base} not found: {base_cfg}")
+        return 1
+    bl = _tag_layers(base_cfg)
+    if bl['kind'] != 'base':
+        logger.error(f"{args.base} is a combined tag (carries blocks: {' '.join(bl['blocks'])}) — a base tag "
+                     f"holds cells only; generate one (library-manager generate) without blocks")
+        return 1
+    if os.path.exists(os.path.join(root, tech_name, args.tag)):
+        logger.error(f"{args.tag} is already a base tag name — project tag names must differ")
+        return 1
+    if os.path.exists(tdir):
+        logger.error(f"project tag {args.tag} already exists: {tdir}")
+        return 1
+    src = None
+    if args.from_tag:
+        src = _project_tag_dir(root, tech_name, project, args.from_tag)
+        if not os.path.isfile(os.path.join(src, 'lib_config.tcl')):
+            logger.error(f"--from {args.from_tag}: no project tag {src}")
+            return 1
+    os.makedirs(tdir)
+    if src:
+        if os.path.isdir(os.path.join(src, 'block')):
+            shutil.copytree(os.path.join(src, 'block'), os.path.join(tdir, 'block'), symlinks=True)
+        if os.path.isfile(os.path.join(src, 'blocks_config.tcl')):
+            shutil.copy2(os.path.join(src, 'blocks_config.tcl'), os.path.join(tdir, 'blocks_config.tcl'))
+    with open(os.path.join(tdir, 'lib_config.tcl'), 'w') as fh:
+        fh.write(_PROJECT_TAG_LIB_CONFIG.format(
+            tech=tech_name, project=project, tag=args.tag, base=args.base,
+            when=time.strftime('%Y-%m-%d %H:%M'), user=getpass.getuser(),
+            from_note=f"  |  From: {args.from_tag}" if args.from_tag else ''))
+    with open(os.path.join(tdir, 'BASE'), 'w') as fh:
+        fh.write(args.base + '\n')
+    ly = _tag_layers(os.path.join(tdir, 'lib_config.tcl'))
+    try:
+        bad = _layer_conflicts(ly)
+    except ValueError as e:
+        logger.error(str(e))
+        return 1
+    if bad:
+        logger.error(f"blocks carried from {args.from_tag} redefine base keys: {', '.join(bad)}")
+        return 1
+    logger.info(f"Project tag {args.tag} of {project}: {tdir}")
+    _log_layers(ly)
+    logger.info(f"Add blocks: cbflow flow library-manager add --tech {tech_name} --project {project} "
+                f"--tag {args.tag} --category block --path <release dir>")
+    logger.info(f"Use it:     set project(lib_config_tag) \"{args.tag}\"")
+    return 0
+
 
 def create_parser() -> argparse.ArgumentParser:
     """Create the argument parser."""
@@ -5976,6 +6221,22 @@ Examples:
                                  'available; env: CBFLOW_LIB_CONFIG_TAG)')
 
     # status command — signoff-readiness report (multi-VT aware)
+    pt_parser = subparsers.add_parser(
+        'project-tag',
+        help='Project library tags: blocks of one project over a shared base tag '
+             '(create / freeze / list / show)')
+    pt_parser.add_argument('action', choices=['create', 'freeze', 'list', 'show'])
+    pt_parser.add_argument('--tech', default=None, help='Technology name (e.g. skywater_130nm)')
+    pt_parser.add_argument('--tech-config', default=None, help='Path to tech_config.tcl')
+    pt_parser.add_argument('--project', required=True, help='Project owning the tag')
+    pt_parser.add_argument('--tag', default=None, help='Project tag name (e.g. OPENSKY_T1)')
+    pt_parser.add_argument('--base', default=None, help='create: base tag (cells only, e.g. OSS4)')
+    pt_parser.add_argument('--from', dest='from_tag', default=None,
+                           help='create: start from this project tag\'s blocks')
+    pt_parser.add_argument('--reason', default=None, help='freeze: why')
+    pt_parser.add_argument('--lib-tag-root', default=None, help='Override project(lib_tag_root)')
+    pt_parser.add_argument('--version', default='v1.0.0', help='Config version (default: v1.0.0)')
+
     status_parser = subparsers.add_parser(
         'status',
         help='Signoff-readiness report — available VTs, enabled VTs, '
@@ -6056,6 +6317,7 @@ def main() -> int:
         'add': cmd_add,
         'coverage': cmd_coverage,
         'status': cmd_status,
+        'project-tag': cmd_project_tag,
     }
 
     # No subcommand → interactive REPL (mirrors mmmc-manager behavior)

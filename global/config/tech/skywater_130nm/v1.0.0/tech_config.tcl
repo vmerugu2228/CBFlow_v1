@@ -83,9 +83,9 @@ set tech(rcx_formats)            {openrcx tlef}
 # One calibrated corner; rc_max / rc_min scale it with adjust_rc factors taken
 # from the librelane decks' own corner ratios (cap tables max/nom 1.19, min/nom
 # 0.81; extracted R max/nom 1.094, min/nom 0.906).
-set tech(rcx,5M,rc_typ,openrcx)  "[file dirname $project(lib_root)]/orfs_sky130hd/rcx_patterns.rules"
-set tech(rcx,5M,rc_min,openrcx)  "[file dirname $project(lib_root)]/orfs_sky130hd/rcx_patterns.rules"
-set tech(rcx,5M,rc_max,openrcx)  "[file dirname $project(lib_root)]/orfs_sky130hd/rcx_patterns.rules"
+set tech(rcx,5M,rc_typ,openrcx)  "$project(lib_root)/../orfs_sky130hd/rcx_patterns.rules"
+set tech(rcx,5M,rc_min,openrcx)  "$project(lib_root)/../orfs_sky130hd/rcx_patterns.rules"
+set tech(rcx,5M,rc_max,openrcx)  "$project(lib_root)/../orfs_sky130hd/rcx_patterns.rules"
 set tech(rcx,5M,rc_min,openrcx_adjust) {res 0.906 cc 0.81 gndc 0.81}
 set tech(rcx,5M,rc_max,openrcx_adjust) {res 1.094 cc 1.19 gndc 1.19}
 # Corner tech LEFs carry the matching per-layer RC for placement-time estimates.

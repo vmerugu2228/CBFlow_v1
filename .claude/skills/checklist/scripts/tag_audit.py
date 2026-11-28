@@ -28,8 +28,9 @@ Checks (ERROR blocks the exit, WARN needs a decision, INFO is context):
   FROM_RUN         input read from a run dir (not reproducible)        WARN
   PHASE_MIX        input from another phase                            INFO
   LIBTAG_MISSING   project(lib_config_tag) has no tag dir              ERROR
-  LIBTAG_MIX       PD / DFT releases of one block's chain use
-                   different library tags                              WARN
+  LIBBASE_MIX      PD / DFT releases of one block's chain built on
+                   different base tags (different cells)               ERROR
+  LIBTAG_MIX       ... on different tags of the same base              WARN
   LIBTAG_OLD       a newer library tag exists                          INFO
   SIGNOFF_SPLIT    signoff flows of one exit read different
                    implementation releases                             ERROR
@@ -308,9 +309,24 @@ def latest_impl(everything, cfg, block):
     return max(c, key=key) if c else None
 
 
+def lib_tag_dir(cfg, tag):
+    """Dir of a library tag: base / combined <root>/<tech>/<tag>, else the
+    project tag <root>/<tech>/projects/<project>/<tag>."""
+    d = os.path.join(cfg['libroot'], cfg['tech'], tag)
+    if os.path.isfile(os.path.join(d, 'lib_config.tcl')):
+        return d
+    return os.path.join(cfg['libroot'], cfg['tech'], 'projects', cfg.get('project', ''), tag)
+
+
+def lib_tag_base(cfg, tag):
+    """Base tag a library tag builds on (a project tag's BASE; else itself)."""
+    b = os.path.join(lib_tag_dir(cfg, tag), 'BASE')
+    return open(b).read().strip() if os.path.isfile(b) else tag
+
+
 def lib_tag_blocks(cfg, tag):
     """{child: (release path, pv_release, tag copy mtime)} from <tag>/blocks_config.tcl."""
-    d = os.path.join(cfg['libroot'], cfg['tech'], tag)
+    d = lib_tag_dir(cfg, tag)
     bc = os.path.join(d, 'blocks_config.tcl')
     out = {}
     if not os.path.exists(bc):
@@ -323,11 +339,18 @@ def lib_tag_blocks(cfg, tag):
     return out
 
 
-def lib_tags_available(cfg):
+def _nat(s):
+    return [int(x) if x.isdigit() else x for x in re.split(r'(\d+)', s)]
+
+
+def lib_tags_available(cfg, kind='all'):
+    """Library tag names: base / combined tags of the tech ('base'), the
+    project's project tags ('project'), or both ('all'), natural order."""
     d = os.path.join(cfg['libroot'], cfg['tech'])
-    tags = [os.path.basename(os.path.dirname(f)) for f in glob.glob(os.path.join(d, '*', 'lib_config.tcl'))]
-    nat = lambda s: [int(x) if x.isdigit() else x for x in re.split(r'(\d+)', s)]  # noqa: E731
-    return sorted(tags, key=nat)
+    base = [os.path.basename(os.path.dirname(f)) for f in glob.glob(os.path.join(d, '*', 'lib_config.tcl'))]
+    proj = [os.path.basename(os.path.dirname(f)) for f in
+            glob.glob(os.path.join(d, 'projects', cfg.get('project', ''), '*', 'lib_config.tcl'))]
+    return sorted({'base': base, 'project': proj}.get(kind, base + proj), key=_nat)
 
 
 def audit(cfg, everything, audited, block_findings):
@@ -338,7 +361,9 @@ def audit(cfg, everything, audited, block_findings):
         if r.id not in audited and r.run_dir:
             r.lib_tag = r.lib_tag or ''
     tags = lib_tags_available(cfg)
-    newest_tag = tags[-1] if tags else ''
+    proj_tags = lib_tags_available(cfg, 'project')
+    # newest tag of the kind in use: project tags once the project has any
+    newest_tag = (proj_tags or lib_tags_available(cfg, 'base') or [''])[-1]
     lib_disc = ('PD', 'DFT')
 
     for r in audited.values():
@@ -371,8 +396,9 @@ def audit(cfg, everything, audited, block_findings):
         disc = cfg['disc'].get(r.flow, '')
         if r.lib_tag and disc in lib_disc:
             if r.lib_tag not in tags:
-                r.findings.append(('ERROR', 'LIBTAG_MISSING', f'project(lib_config_tag) {r.lib_tag}: '
-                                   f'no {cfg["libroot"]}/{cfg["tech"]}/{r.lib_tag}/lib_config.tcl'))
+                r.findings.append(('ERROR', 'LIBTAG_MISSING', f'project(lib_config_tag) {r.lib_tag}: no base tag '
+                                   f'{cfg["libroot"]}/{cfg["tech"]}/{r.lib_tag} nor project tag '
+                                   f'.../projects/{cfg.get("project", "")}/{r.lib_tag}'))
             elif newest_tag and r.lib_tag != newest_tag:
                 r.findings.append(('INFO', 'LIBTAG_OLD', f'library tag {r.lib_tag}; newest {newest_tag}'))
 
@@ -409,7 +435,15 @@ def audit(cfg, everything, audited, block_findings):
         used = defaultdict(list)
         for r in rs:
             used[r.lib_tag].append(f'{r.flow}/{r.tag}')
-        if len(used) > 1:
+        bases = defaultdict(list)
+        for t, v in used.items():
+            bases[lib_tag_base(cfg, t)] += v
+        if len(bases) > 1:
+            # different cells along one block's chain
+            txt = '; '.join(f'{t}: {", ".join(sorted(v))}' for t, v in sorted(bases.items()))
+            block_findings[(ph, b)].add(('ERROR', 'LIBBASE_MIX', f'releases built on different base '
+                                         f'library tags (cells) — {txt}'))
+        elif len(used) > 1:
             txt = '; '.join(f'{t}: {", ".join(sorted(v))}' for t, v in sorted(used.items()))
             block_findings[(ph, b)].add(('WARN', 'LIBTAG_MIX', f'releases use different library tags — {txt}'))
 
@@ -559,6 +593,7 @@ def main():
     ap.add_argument('--quiet', action='store_true', help='findings and plan only')
     a = ap.parse_args()
     cfg = project_values(a.project)
+    cfg['project'] = a.project
     if a.phase and a.phase not in cfg['phases']:
         sys.exit(f'tag_audit: phase {a.phase} not in project(phases) {cfg["phases"]}')
     if a.blocks:

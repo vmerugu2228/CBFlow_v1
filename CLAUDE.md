@@ -321,8 +321,11 @@ cbflow run db-manage --check                                  # Session count vs
   write_design / dft_insert`. Helpers in `global/utils/utilities/v1.0.0/oss_utils.tcl`. Hook with
   `flow_proc_prepend/append` (a `flow_proc_replace` from setup.tcl is overwritten by the command file).
 - Hierarchy DL3 gcd, mac_array → DL2 ctrl_subsys, ai_subsys → DL1 opensky_chip (`project(design_hierarchy)`).
-  Children come from a library tag (`project(lib_config_tag)`, per run in user_config; tags OSS0/OSS1/OSS2
-  under `project(lib_tag_root)`). `library-manager add --category block --path <rel>/<phase>/<b>/PNR/<exit>`
+  Children come from a library tag (`project(lib_config_tag)`, per run in user_config). Two layers: base tags
+  `<lib_tag_root>/<tech>/<TAG>/` (cells — stdcell / memory / io / ip / analog, shared across projects; OSS4) and
+  project tags `<lib_tag_root>/<tech>/projects/<project>/<TAG>/` (blocks; lib_config.tcl sources the base, then
+  blocks_config.tcl; OPENSKY_T1 on OSS4): `library-manager project-tag {create --base <B> [--from <PT>],freeze,list,show}`;
+  `add --category block` refuses base tags, `add` refuses FROZEN tags; OSS0-OSS3 are legacy combined tags. `library-manager add --category block --path <rel>/<phase>/<b>/PNR/<exit>`
   takes GDS/CDL from the sibling PV release (`--pv-pending` → PNR copy, `tech(block,<b>,pv_release) "PENDING"`),
   links SPEFs (`tech(block,<b>,spef,<rc>)`, `spef_corners`); `--category memory` bundles lef/gds/cdl/verilog.
   `library-manager check --tech <t> --lib_tag <TAG>`: files on disk + a required-view table per category

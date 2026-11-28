@@ -610,10 +610,15 @@ namespace eval ::CBFlow::Generation::SetupGenerator {
                 # resolver (_resolve_lib_config_path): the library-manager
                 # layout <root>/<tech>/<TAG>/ first, then the pre-tech-
                 # grouping layout <root>/<TAG>/.
+                # A project tag (<root>/<tech>/projects/<project>/<TAG>/:
+                # the project's blocks over a base tag) is looked up after the
+                # base-tag layouts; tag names are unique across both.
+                set _ptag_project [expr {[info exists project(name)] ? $project(name) : ""}]
                 if {$_lib_tag_root ne ""} {
                     foreach _candidate [list \
                             "$_lib_tag_root/$tech_name/$_lib_tag/lib_config.tcl" \
-                            "$_lib_tag_root/$_lib_tag/lib_config.tcl"] {
+                            "$_lib_tag_root/$_lib_tag/lib_config.tcl" \
+                            "$_lib_tag_root/$tech_name/projects/$_ptag_project/$_lib_tag/lib_config.tcl"] {
                         if {[file exists $_candidate]} { set _lc $_candidate; break }
                     }
                 }
