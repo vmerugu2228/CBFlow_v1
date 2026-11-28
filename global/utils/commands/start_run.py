@@ -720,6 +720,46 @@ def _initialize_race_db(run_dir: str, flow_type: str, env: Dict[str, str]) -> Tu
         return False, f"race DB init failed: {type(e).__name__}: {e}"
 
 
+def _append_release_cmd_pin(uc_path: str, user_config: Dict[str, str], env: Dict[str, str],
+                            flow_type: str) -> None:
+    """The project's CBflow release (project(cbflow_release)) pins command versions
+    (release_versions.tcl CMDS_<FLOW>_<VENDOR>_<TOOL>_VERSION). Append the pin for
+    this run's flow / tool to the run's own user_config.tcl as <arr>(tool,version),
+    so the engine's handler lookup and the handlers use the released command tree.
+    A tool,version the user set explicitly wins (no pin appended)."""
+    release = env.get('CBFLOW_RELEASE_VERSION', '')
+    arr = flow_type.lower()
+    if not release or user_config.get(f'{arr}(tool,version)'):
+        return
+    try:
+        from core.paths import get_cbflow_releases_dir
+        rf = os.path.join(get_cbflow_releases_dir() or '', release, 'release_versions.tcl')
+    except Exception:  # noqa: BLE001 — no releases dir: nothing to pin
+        return
+    if not os.path.exists(rf):
+        return
+    tool = user_config.get(f'{arr}(tool,name)', '').strip('"')
+    if not tool:
+        try:
+            from core import registry
+            dt = registry.project_value(user_config.get('project(name)', '').strip('"'), 'default_tools') or ''
+            toks = dt.split()
+            tool = dict(zip(toks[::2], toks[1::2])).get(flow_type, '').strip('"')
+        except Exception:  # noqa: BLE001
+            tool = ''
+    if not tool:
+        return
+    rx = re.compile(rf'^set\s+CMDS_{re.escape(flow_type)}_[A-Z0-9]+_{re.escape(tool.upper())}_VERSION\s+"([^"]+)"', re.M)
+    m = rx.search(open(rf).read())
+    if not m:
+        return
+    with open(uc_path, 'a') as fh:
+        fh.write(f'\n# CBflow release {release} (project(cbflow_release)): command version of '
+                 f'{flow_type} {tool} — appended by workspace create\n'
+                 f'set {arr}(tool,version) "{m.group(1)}"\n')
+    logger.info(f"  Release {release}: {flow_type} {tool} commands pinned to {m.group(1)}")
+
+
 def compose_run_dir_name(phase: str, flow_type: str, block: str, run_name: str) -> str:
     """<phase>_run_<FLOW>_<block>_<run_name> — the block (flow(design_name))
     keeps same-named runs of different blocks apart in the dashboard. The
@@ -841,6 +881,7 @@ def create_run(config_file: str, env_vars: Dict[str, str],
     setup_dir = os.path.join(run_dir_name, 'setup')
     os.makedirs(setup_dir, exist_ok=True)
     shutil.copy2(config_file, os.path.join(setup_dir, 'user_config.tcl'))
+    _append_release_cmd_pin(os.path.join(setup_dir, 'user_config.tcl'), user_config, env_vars, flow_type)
 
     # Step 9: Generate environment files
     _generate_run_tcl_env(run_dir_name, env_vars, flow_type, design_name, run_name, phase)

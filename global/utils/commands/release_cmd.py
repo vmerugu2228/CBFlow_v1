@@ -191,9 +191,56 @@ def _lock_version(version_dir: str, release_version: str):
     logger.info(f"  Locked: {os.path.basename(version_dir)} (read-only)")
 
 
+def _framework_root() -> Path:
+    """The umbrella root (CBFLOW_ROOT) — parent of PD/, DFT/, DV/, RTL/, global/."""
+    return Path(get_cbflow_core_dir()).parent
+
+
+def resolve_component_path(path: str) -> Path:
+    """Component path of a manifest: relative to the umbrella root (current
+    releases) or to the PD tree (releases made before the multi-tree scan)."""
+    root = _framework_root()
+    p = root / path
+    return p if p.exists() else Path(get_cbflow_core_dir()) / path
+
+
+def component_hash(version_dir) -> str:
+    """sha256 over the files of a component version (relative path + content)."""
+    import hashlib
+    h = hashlib.sha256()
+    vd = Path(version_dir)
+    for f in sorted(vd.rglob('*')):
+        if f.is_file() and not f.name.startswith('.') and '__pycache__' not in f.parts:
+            h.update(str(f.relative_to(vd)).encode())
+            h.update(f.read_bytes())
+    return h.hexdigest()[:16]
+
+
 def scan_versioned_components() -> dict:
-    """Scan all versioned components in the codebase."""
-    core_dir = Path(get_cbflow_core_dir())
+    """Scan the versioned components of every tree: PD (names unprefixed, as
+    before), DFT / DV / RTL (cmds.<FLOW>…; configs prefixed with the tree) and
+    global/ (shared utils / config: unprefixed unless the name is taken).
+    'path' is relative to the umbrella root."""
+    components = {}
+    root = _framework_root()
+    trees = [(Path(get_cbflow_core_dir()), '')] + \
+        [(root / d, f'{d}.') for d in ('DFT', 'DV', 'RTL') if (root / d).is_dir()] + \
+        [(root / 'global', 'global.')]
+    for tree, prefix in trees:
+        for name, info in _scan_tree(tree, root).items():
+            key = name
+            # shared utilities live in global/ (SCRIPTS_ROOT): global owns utils.*
+            if name.startswith('utils.') and prefix == 'global.' and key in components:
+                components['PD.' + key] = components.pop(key)
+            elif not name.startswith('cmds.') and key in components:
+                key = prefix + name
+            if key not in components:
+                components[key] = info
+    return components
+
+
+def _scan_tree(core_dir: Path, root: Path) -> dict:
+    """Versioned components of one tree (paths relative to root)."""
     components = {}
 
     # Define component categories to scan
@@ -238,7 +285,7 @@ def scan_versioned_components() -> dict:
                             comp_name = f"cmds.{flow_type.name}.{vendor.name}.{tool.name}"
                             current = _get_current_version(tool)
                             components[comp_name] = {
-                                'path': str(tool.relative_to(core_dir)),
+                                'path': str(tool.relative_to(root)),
                                 'versions': versions,
                                 'current': current or versions[0] if versions else None
                             }
@@ -252,7 +299,7 @@ def scan_versioned_components() -> dict:
                     comp_name = f"{component_prefix}.{sub.name}"
                     current = _get_current_version(sub)
                     components[comp_name] = {
-                        'path': str(sub.relative_to(core_dir)),
+                        'path': str(sub.relative_to(root)),
                         'versions': versions,
                         'current': current or versions[0] if versions else None
                     }
@@ -262,7 +309,7 @@ def scan_versioned_components() -> dict:
                     if versions and component_prefix not in components:
                         current = _get_current_version(base_path)
                         components[component_prefix] = {
-                            'path': str(base_path.relative_to(core_dir)),
+                            'path': str(base_path.relative_to(root)),
                             'versions': versions,
                             'current': current or versions[0] if versions else None
                         }
@@ -272,7 +319,7 @@ def scan_versioned_components() -> dict:
             if versions:
                 current = _get_current_version(base_path)
                 components[component_prefix] = {
-                    'path': str(base_path.relative_to(core_dir)),
+                    'path': str(base_path.relative_to(root)),
                     'versions': versions,
                     'current': current or versions[0] if versions else None
                 }
@@ -768,7 +815,7 @@ def cmd_create(args: argparse.Namespace) -> int:
                 continue
 
             # Create symlink
-            source_path = core_dir / path / version
+            source_path = resolve_component_path(path) / version
             if source_path.exists():
                 # Create hierarchical symlink structure
                 link_name = comp_name.replace('.', '_')
@@ -781,7 +828,9 @@ def cmd_create(args: argparse.Namespace) -> int:
                 linked_components[comp_name] = {
                     'version': version,
                     'path': path,
-                    'link': str(link_path.relative_to(new_release_dir))
+                    'link': str(link_path.relative_to(new_release_dir)),
+                    # content hash: later edits of the released version show as drift
+                    'hash': component_hash(source_path),
                 }
                 logger.info(f"  Linked: {comp_name} -> {version}")
             else:
@@ -869,21 +918,27 @@ puts "INFO: Loaded CBFlow Release {_tclq(new_version)}"
         from core.paths import atomic_write
         atomic_write(str(tcl_file), tcl_content)
 
-        # ── Lock all component version directories (permanent, irreversible) ──
-        logger.info("")
-        logger.info("  Locking component versions (permanent read-only)...")
+        # ── Lock component version directories (permanent, irreversible) — only
+        # with --lock: the framework develops in place in its version dirs, so a
+        # default lock would freeze the live tree. Without it, the manifest's
+        # content hashes detect later edits (drift).
         locked_count = 0
-        for comp_name, comp_info in linked_components.items():
+        _do_lock = bool(getattr(args, 'lock', False))
+        if _do_lock:
+            logger.info("")
+            logger.info("  Locking component versions (permanent read-only)...")
+        for comp_name, comp_info in (linked_components.items() if _do_lock else []):
             version = comp_info.get('version', '')
             path = comp_info.get('path', '')
             if version and path:
-                version_dir = core_dir / path / version
+                version_dir = resolve_component_path(path) / version
                 if version_dir.exists() and not _is_locked(str(version_dir)):
                     _lock_version(str(version_dir), new_version)
                     locked_count += 1
 
-        # Lock the release directory itself
-        _lock_version(str(new_release_dir), new_version)
+        # Lock the release directory itself (--lock)
+        if _do_lock:
+            _lock_version(str(new_release_dir), new_version)
 
         logger.info("")
         logger.info(f"Release {new_version} created and locked successfully!")
@@ -892,31 +947,37 @@ puts "INFO: Loaded CBFlow Release {_tclq(new_version)}"
         logger.info(f"  Components locked: {locked_count}")
         logger.info("")
         logger.info("Files created:")
-        logger.info(f"  - {manifest_file.relative_to(core_dir)}")
-        logger.info(f"  - {changelog_file.relative_to(core_dir)}")
-        logger.info(f"  - {tcl_file.relative_to(core_dir)}")
+        logger.info(f"  - {os.path.relpath(manifest_file, _framework_root())}")
+        logger.info(f"  - {os.path.relpath(changelog_file, _framework_root())}")
+        logger.info(f"  - {os.path.relpath(tcl_file, _framework_root())}")
         logger.info("")
         logger.info("Next steps:")
         logger.info(f"  1. Set as current: cbflow flow release set-current --version {new_version}")
         logger.info(f"  2. Initialize workspace: cbflow workspace init --release {new_version}")
         logger.info("")
-        logger.info("Note: All released component versions are now permanently read-only.")
-        logger.info("      To make changes, create a new dev version:")
-        logger.info(f"      cbflow flow dev start --component <name> --from {new_version}")
+        if _do_lock:
+            logger.info("Note: All released component versions are now permanently read-only.")
+            logger.info("      To make changes, create a new dev version:")
+            logger.info(f"      cbflow flow dev start --component <name> --from {new_version}")
+        else:
+            logger.info("Note: component versions stay writable; MANIFEST hashes record their content")
+            logger.info("      (flow-manager drift check). Patch a component in a new version dir.")
 
-        # ── Auto git commit + push ──────────────────────────────────────────
+        # ── git commit (--git): only the release directory, never `add -A` ──
+        if not getattr(args, 'git', False):
+            return 0
         logger.info("")
         logger.info("  Committing release to git...")
         import subprocess as _sp
         try:
-            _sp.run(['git', 'add', '-A'], cwd=str(core_dir),
+            _sp.run(['git', 'add', str(new_release_dir)], cwd=str(_framework_root()),
                     capture_output=True, text=True, check=True)
             _sp.run(['git', 'commit', '-m',
                      f'Release {new_version}: {description}'],
-                    cwd=str(core_dir), capture_output=True, text=True, check=True)
+                    cwd=str(_framework_root()), capture_output=True, text=True, check=True)
             logger.info(f"  Committed: Release {new_version}")
 
-            result = _sp.run(['git', 'push'], cwd=str(core_dir),
+            result = _sp.run(['git', 'push'], cwd=str(_framework_root()),
                              capture_output=True, text=True)
             if result.returncode == 0:
                 logger.info(f"  Pushed to remote")
@@ -1317,6 +1378,10 @@ Examples:
     create_parser.add_argument('--milestone', '-m', help='Milestone name')
     create_parser.add_argument('--force', '-f', action='store_true',
                               help='Force release creation even without version changes')
+    create_parser.add_argument('--lock', action='store_true',
+                              help='Make the released component versions read-only (permanent)')
+    create_parser.add_argument('--git', action='store_true',
+                              help='git add + commit + push the release directory')
 
     # list command
     subparsers.add_parser('list', help='List all releases')
