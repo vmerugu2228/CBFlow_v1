@@ -50,10 +50,14 @@ flow_proc load_design {
         if {$_nc == 0} { error "scandef $_sd read but no scan chain in the database" }
         handle_info "Scan chains: $_nc from $_sd"
     }
+    set_dont_use [oss_pnr_dont_use]
+}
+
+# Constraints: SDC + OCV derate (project mmmc_config timing_derate_early / late)
+flow_proc read_constraints {
     read_sdc [oss_sdc_file]
     oss_apply_derate
     oss_drv_limits                   ;# pnr(oss,drv,max_fanout) from overrides
-    set_dont_use [oss_pnr_dont_use]
 }
 
 # Power intent (UPF supplies / global connections) + connectivity check

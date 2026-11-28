@@ -51,9 +51,6 @@ flow_proc load_design {
     if {$_nl eq ""} { error "netlist not staged in $::NETLIST_DIR (expected ${design_name}.pt.v or ${design_name}.v)" }
     read_verilog $_nl
     link_design $design_name
-    read_sdc $::SDC_FILE
-    oss_apply_derate
-    set_propagated_clock [all_clocks]
     if {$::SPEF_FILE ne "" && [file exists $::SPEF_FILE]} {
         read_spef $::SPEF_FILE
     } elseif {[is_true [oss_get sta oss,allow_no_spef]]} {
@@ -72,6 +69,13 @@ flow_proc load_design {
             handle_info "flat STA: [get_full_name $_c] <- [file tail $::tech($_k)]"
         }
     }
+}
+
+# Constraints: SDC + OCV derate (project mmmc_config timing_derate_early / late)
+flow_proc read_constraints {
+    read_sdc $::SDC_FILE
+    oss_apply_derate
+    set_propagated_clock [all_clocks]
 }
 
 # No operation step: OpenSTA times on demand — the reports below are the analysis.

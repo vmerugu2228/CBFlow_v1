@@ -360,8 +360,10 @@ cbflow run db-manage --check                                  # Session count vs
   congestion estimate, nothing saved; floorplan skill `.claude/skills/floorplan/`),
   `fp(oss,macro,blockage_sides)` (after tapcell, clipped to rows minus endcaps), `fp(oss,pins,region)`;
   `project(pdn,enable)` false = no grid. PNR reads the floorplan via `pnr(input,def_file_release_tag) "FP_EXIT"`.
-- OCV derate: `mmmc_config(timing_derate_early|late)` (project mmmc_config, 0.95 / 1.05) applied by `oss_apply_derate`
-  after every read_sdc in FP / PNR / ECO / STA (no default — missing keys error).
+- Constraints: every open-source FP / PNR / ECO / STA command file that times the design has a `flow_proc read_constraints`
+  after `load_design`: `read_sdc` + `oss_apply_derate` (`mmmc_config(timing_derate_early|late)`, 0.95 / 1.05; no default)
+  + stage extras (DRV limits, propagated clocks). The .odb holds no SDC, so every stage re-reads it. Load helpers
+  (`oss_load_stage` / `oss_load_node` / `oss_fp_load_netlist`) take `sdc 0` for this; their default keeps the old path.
 - STA: `sta(oss,sta,mode) flat|hier` (flat = descendant netlists + per-instance SPEF); per-scenario
   setup/hold/drv/dont_use/dont_touch/parasitic_annotation/power reports; NVP; path groups R2R/I2R/R2O/I2O.
 - PV: `pv(oss,pv,mode) flat|hier` (hier = children emptied for DRC, black boxes for LVS); release carries

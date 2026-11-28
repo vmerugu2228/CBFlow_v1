@@ -212,9 +212,6 @@ flow_proc load_design {
     if {![file exists $_odb]} { error "released database not staged: $_odb (eco(input,release_tag))" }
     handle_info "ECO source database: $_odb"
     read_db $_odb
-    read_sdc [oss_sdc_file]
-    oss_apply_derate
-    set_propagated_clock [all_clocks]
     oss_set_wire_rc
     lassign [oss_signal_layers $design_name $blocks] _min _max
     set _layers [oss_ms metal_layers]
@@ -223,6 +220,13 @@ flow_proc load_design {
     if {[lsearch -exact $_layers $_cmax] > [lsearch -exact $_layers $_max]} { set _cmax $_max }
     if {[lsearch -exact $_layers $_cmin] > [lsearch -exact $_layers $_cmax]} { set _cmin $_cmax }
     set_routing_layers -signal ${_min}-${_max} -clock ${_cmin}-${_cmax}
+}
+
+# Constraints: SDC + OCV derate (project mmmc_config timing_derate_early / late)
+flow_proc read_constraints {
+    read_sdc [oss_sdc_file]
+    oss_apply_derate
+    set_propagated_clock [all_clocks]
 }
 
 # Apply: filler cells out (room for new / larger cells), the change file or

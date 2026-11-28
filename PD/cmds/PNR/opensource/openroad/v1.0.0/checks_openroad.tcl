@@ -30,7 +30,14 @@ set ::flow::exec_mode "auto"
 # views, SDC; propagated clocks from CTS on; SPEF from pro on.
 flow_proc load_design {
     global blocks
-    oss_load_node $::NODE_NAME $blocks
+    oss_load_node $::NODE_NAME $blocks 0
+}
+
+# Constraints: SDC + OCV derate (project mmmc_config timing_derate_early / late)
+flow_proc read_constraints {
+    read_sdc [oss_sdc_file]
+    oss_apply_derate
+    oss_stage_clocks $::NODE_NAME
 }
 
 # Report: the checklist library reports of this stage

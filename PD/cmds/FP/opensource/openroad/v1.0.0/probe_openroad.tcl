@@ -35,9 +35,14 @@ flow_proc load_design {
     set_thread_count [oss_get fp oss,threads]
     oss_read_corners [oss_chain_node init_design] $blocks
     read_db [oss_prev_odb [oss_chain_node powerplan]]
+    oss_set_wire_rc
+}
+
+# Constraints: SDC + OCV derate (project mmmc_config timing_derate_early / late)
+flow_proc read_constraints {
+    if {!$::probe_on} return
     read_sdc [oss_sdc_file]
     oss_apply_derate
-    oss_set_wire_rc
 }
 
 # Quick placement + global route (routing layers as PNR uses them)

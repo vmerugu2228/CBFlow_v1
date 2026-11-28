@@ -26,8 +26,15 @@ set ::flow::exec_mode "auto"
 
 # Load: previous stage's database + timing views + SDC, propagated clocks
 flow_proc load_design {
-    oss_load_stage [oss_upstream_node]
+    oss_load_stage [oss_upstream_node] 0
     set_propagated_clock [all_clocks]
+}
+
+# Constraints: SDC + OCV derate (project mmmc_config timing_derate_early / late)
+flow_proc read_constraints {
+    read_sdc [oss_sdc_file]
+    oss_apply_derate
+    oss_drv_limits                   ;# pnr(oss,drv,*) after the SDC
 }
 
 # Filler insertion, supply connections of the new cells

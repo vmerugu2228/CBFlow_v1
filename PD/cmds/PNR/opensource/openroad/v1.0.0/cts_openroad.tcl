@@ -24,7 +24,14 @@ if {![namespace exists ::flow]} { namespace eval ::flow { variable exec_mode "au
 set ::flow::exec_mode "auto"
 
 # Load: previous stage's database + timing views + SDC
-flow_proc load_design { oss_load_stage [oss_upstream_node] }
+flow_proc load_design { oss_load_stage [oss_upstream_node] 0 }
+
+# Constraints: SDC + OCV derate (project mmmc_config timing_derate_early / late)
+flow_proc read_constraints {
+    read_sdc [oss_sdc_file]
+    oss_apply_derate
+    oss_drv_limits                   ;# pnr(oss,drv,*) after the SDC
+}
 
 # Clock tree synthesis, clock net repair, legalization
 flow_proc clock_tree {

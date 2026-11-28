@@ -27,7 +27,13 @@ set ::flow::exec_mode "auto"
 # Load: synthesized netlist linked against the LEF / liberty views + SDC
 flow_proc load_design {
     global design_name blocks
-    oss_fp_load_netlist $design_name $blocks
+    oss_fp_load_netlist $design_name $blocks 0
+}
+
+# Constraints: SDC + OCV derate (project mmmc_config timing_derate_early / late)
+flow_proc read_constraints {
+    read_sdc [oss_sdc_file]
+    oss_apply_derate
 }
 
 # No operation / report step: init_design only loads and links the netlist.

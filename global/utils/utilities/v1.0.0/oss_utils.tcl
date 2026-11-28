@@ -568,16 +568,19 @@ proc oss_apply_derate {} {
     handle_info "OCV derate early $::mmmc_config(timing_derate_early) late $::mmmc_config(timing_derate_late)"
 }
 
-proc oss_load_stage {prev_node} {
+# sdc 1 (default, released command files): read the SDC + DRV limits here.
+# sdc 0: the command file's read_constraints flow_proc does it (SDC + derate).
+proc oss_load_stage {prev_node {sdc 1}} {
     global design_name blocks
     set_thread_count [oss_get [oss_flow_arr] oss,threads]
     # Liberty BEFORE the database: OpenSTA binds liberty cells to the LEF
     # masters when the block is loaded (CTS/repair need the physical masters).
     oss_read_corners $::NODE_NAME $blocks
     read_db [oss_prev_odb $prev_node]
-    read_sdc [oss_sdc_file]
-    oss_apply_derate
-    oss_drv_limits
+    if {$sdc} {
+        read_sdc [oss_sdc_file]
+        oss_drv_limits
+    }
     set_dont_use [oss_pnr_dont_use]
     oss_set_wire_rc
 }
@@ -590,14 +593,13 @@ proc oss_fp_opt {key} {
 }
 
 # Netlist + SDC: the synthesized netlist linked against LEF / liberty views.
-proc oss_fp_load_netlist {design blocks} {
+proc oss_fp_load_netlist {design blocks {sdc 1}} {
     set_thread_count [oss_get [oss_flow_arr] oss,threads]
     oss_read_lefs $blocks
     oss_read_corners $::NODE_NAME $blocks
     read_verilog [lindex [glob -nocomplain "$::NETLIST_DIR/${design}.v" "$::NETLIST_DIR/*.v"] 0]
     link_design $design
-    read_sdc [oss_sdc_file]
-    oss_apply_derate
+    if {$sdc} { read_sdc [oss_sdc_file] }
     set_dont_use [oss_pnr_dont_use]
 }
 
@@ -1002,7 +1004,7 @@ proc oss_view_node {node} {
     return [expr {$::FLOW_TYPE eq "FP" ? [cbflow_chain_node init_design] : $node}]
 }
 
-proc oss_load_node {node blocks} {
+proc oss_load_node {node blocks {sdc 1}} {
     set _st [cbflow_node_type $node]
     set_thread_count [oss_get [oss_flow_arr] oss,threads]
     set _vn [oss_view_node $node]
@@ -1011,9 +1013,10 @@ proc oss_load_node {node blocks} {
     set _odb [lindex [glob -nocomplain "$_out/$_st.odb" "$_out/final.odb" "$_out/*.odb"] 0]
     if {$_odb eq ""} { error "no database in $_out — did $node complete?" }
     read_db $_odb
-    read_sdc [oss_sdc_file]
-    oss_apply_derate
-    if {$_st in {cts cts_opt route pro signoff}} { set_propagated_clock [all_clocks] }
+    if {$sdc} {
+        read_sdc [oss_sdc_file]
+        oss_stage_clocks $node
+    }
     set _pro ""
     if {$_st eq "pro"} { set _pro $node } elseif {$_st eq "signoff"} { set _pro [lindex [cbflow_node_deps $node] 0] }
     if {$_pro ne ""} {
@@ -1026,6 +1029,11 @@ proc oss_load_node {node blocks} {
         catch { estimate_parasitics -placement }
     }
     return $_odb
+}
+
+# Propagated clocks once the clock tree exists (cts and later stages).
+proc oss_stage_clocks {node} {
+    if {[cbflow_node_type $node] in {cts cts_opt route pro signoff}} { set_propagated_clock [all_clocks] }
 }
 
 # Database written by an upstream node: <node>/outputs/<stage type>.odb.

@@ -32,6 +32,10 @@ flow_proc load_design {
     set_thread_count [oss_get eco oss,threads]
     oss_read_corners $::NODE_NAME $blocks
     read_db [oss_node_output [oss_upstream_node] eco.odb]
+}
+
+# Constraints: SDC + OCV derate (project mmmc_config timing_derate_early / late)
+flow_proc read_constraints {
     read_sdc [oss_sdc_file]
     oss_apply_derate
     set_propagated_clock [all_clocks]
