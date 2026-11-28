@@ -91,7 +91,11 @@ def scan_block(phase_dir, block, phase_exits):
             continue                        # links: old paths of moved releases
         for tag in sorted(os.listdir(fdir)):
             td = os.path.join(fdir, tag)
-            if not os.path.isdir(td) or os.path.islink(td):
+            if tag.startswith('.') or not os.path.isdir(td):
+                continue                    # .versions/<tag>/v<n>: the version store
+            # <tag> is the current-version link (.versions/<tag>/v<n>); any
+            # other link is an old path of a moved release
+            if os.path.islink(td) and not os.readlink(td).startswith('.versions' + os.sep):
                 continue
             ex, var = classify_tag(tag, phase_exits)
             out.append({'flow': flow.upper(), 'tag': tag, 'exit': ex, 'variant': var,

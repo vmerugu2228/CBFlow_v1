@@ -61,40 +61,82 @@ discipline are listed by `cbflow flow checklist list` (column 2 = discipline).
 
 ---
 
-### Release candidates
+### Versions and the release candidate
 
-An exit can be released several times in a phase: `BTO`, then `BTO_ECO1` and
-`BTO_ECO2` from ECO, or `P3_SYNTH_v1` / `P3_SYNTH_v2`. The **candidate** is the
-version the phase goes forward with:
+Every release of `<phase>/<block>/<FLOW>/<tag>` is a new **version**: the first
+release, a re-release, a `--override`, a `--clone-from`. Nothing is overwritten.
 
-- By default it is the **latest release** of the exit: the newest version a flow
-  produced. Releases that only verified the exit (STA / PV / LEC / GLS releasing
-  as `BTO`; their own tag is among their MANIFEST `upstream_tags`) are not versions.
-- `cbflow flow release candidate set` pins another version; `clear` returns to the latest.
+```
+<FLOW>/.versions/<tag>/v1/  v2/  v3/ …        the data (or a link to it on a release disk)
+<FLOW>/<tag> -> .versions/<tag>/v3            the CURRENT version (the candidate)
+<FLOW>/.versions/<tag>/HISTORY.log            releases, candidate moves, cleanup
+```
+
+- Readers (input resolution, SmartGrid, library-manager, tag audit) keep reading
+  `<FLOW>/<tag>`, the current version.
+- A version becomes current when it stamps `STATUS=PASS`. A failed or
+  interrupted release leaves the previous current version in place.
+- The latest passing release is the candidate. To make another version
+  current, use `candidate set`; `clear` goes back to the latest. The next
+  release becomes current again.
+- MANIFEST.json records `version` and `storage`. A SmartGrid publish records
+  the version's real path, so the published data stays as published.
+- A release made before versioning is a plain directory. Its next release
+  moves it to `v1` and adds `v2`.
 
 ```bash
-cbflow flow release candidate list    --project opensky --phase P3
-cbflow flow release candidate show    --project opensky --phase P3 --block gcd --exit BTO
-cbflow flow release candidate set     --project opensky --phase P3 --block gcd --exit BTO \
-                                      --flow ECO --tag BTO_ECO1 --reason "setup closed"
-cbflow flow release candidate clear   --project opensky --phase P3 --block gcd --exit BTO
-cbflow flow release candidate history --project opensky --phase P3 --block gcd
+cbflow flow release candidate list    --project opensky [--phase P3] [--block gcd] [--all]
+cbflow flow release candidate show    --project opensky --phase P3 --block gcd --flow PNR --tag BTO
+cbflow flow release candidate set     --project opensky --phase P3 --block gcd --flow PNR --tag BTO \
+                                      --version v2 --reason "v3 regressed hold"
+cbflow flow release candidate clear   --project opensky --phase P3 --block gcd --flow PNR --tag BTO
+cbflow flow release candidate history --project opensky --phase P3 --block gcd --flow PNR --tag BTO
 ```
 
-Pins live in `<release>/<phase>/<block>/CANDIDATES` (history in `CANDIDATES.log`).
-`set` refuses a tag that is not a version of the exit, an unreleased version, a
-signoff release, and a PD exit outside the phase's `project(phase_exits)`.
+Only a PASS version can be made current.
 
-Downstream runs read the candidate with `"<EXIT>@candidate"`:
+### Release disks
 
-```tcl
-set sta(input,release_tag) "BTO@candidate"
+`project(release,path)` is the logical release tree. Set
+`project(release,disks) {/rel/d1 /rel/d2 …}` in the project's PD overlay to
+store version data on separate disks. Each version is then a symlink to
+`<disk>/<phase>/<block>/<FLOW>/<tag>/v<n>`. At release time:
+
+1. **Size estimate** = max(newest previous release of the flow for the block,
+   the run's `work/<FLOW>/*/outputs`) × `flow(release,size_margin)`.
+2. **Disk choice**: the disk must keep `flow(release,disk_min_free_gb)` free
+   after the release. With `flow(release,disk_policy)` `sticky`, the disk that
+   holds most of the block's versions wins; with `most_free`, the emptiest disk.
+   When no disk fits, the release stops before copying and lists each disk's
+   free space.
+3. **Per-file guard**: each copied file is charged to the disk budget, and `df`
+   is read again when the budget runs out. A release cannot fill a disk past the
+   reserve.
+
+Without `project(release,disks)` the data stays in the release tree, and the
+same size check applies to that disk.
+
+```bash
+cbflow flow release disks   --project opensky [--sizes]
+cbflow flow release cleanup --project opensky [--phase P3] [--block gcd]            # dry run
+cbflow flow release cleanup --project opensky --phase P3 --apply                    # delete (permanent)
 ```
 
-`cbflow_candidate_tag` (utils.tcl) replaces it with the real tag before inputs
-resolve, so the signoff release, its MANIFEST `upstream_tags` and the staged
-inputs all carry the real version (`BTO_ECO1`). The checklist skill's
-`tag_audit.py` flags runs built on a version that is not the candidate.
+**What cleanup removes**:
+- superseded versions (neither current nor among the newest
+  `flow(release,cleanup,keep_versions)`) older than `cleanup,min_age_days`;
+- incomplete versions (no RELEASE_COMPLETE) older than `cleanup,incomplete_age_hours`;
+- dangling version links;
+- orphan disk data that no version links to.
+
+**What cleanup never removes**:
+- current versions;
+- published versions;
+- library-tag sources;
+- versions that a kept version was built from.
+
+Deletions are logged to `<release>/CLEANUP.log` and to the tag's `HISTORY.log`.
+The keys are framework defaults in `global/config/flow/v1.0.0/flow_registry.tcl`.
 
 ## 2. The release follows its source stage
 

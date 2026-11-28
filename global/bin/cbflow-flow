@@ -63,16 +63,18 @@ Release Management:
   cbflow flow release diff --v1 v1.0.0 --v2 v1.0.1 --format markdown
                                                  Compare in markdown format
 
-Release Candidates (design releases: one version per phase / block / exit):
-  cbflow flow release candidate list --project opensky --phase P3
-                                                 Candidate of every exit (latest unless pinned)
-  cbflow flow release candidate show --project opensky --phase P3 --block gcd --exit BTO
-                                                 Candidate + every version of the exit
-  cbflow flow release candidate set --project opensky --phase P3 --block gcd --exit BTO \\
-      --flow ECO --tag BTO_ECO1 --reason "..."   Pin a version (default: latest release)
-  cbflow flow release candidate clear --project opensky --phase P3 --block gcd --exit BTO
-                                                 Unpin (back to the latest release)
-  Downstream: set sta(input,release_tag) "BTO@candidate"
+Design releases (every release is a new version; <FLOW>/<tag> -> current version):
+  cbflow flow release candidate list --project opensky [--phase P3] [--all]
+                                                 Tags with several versions / pinned
+  cbflow flow release candidate show --project opensky --phase P3 --block gcd --flow PNR --tag BTO
+                                                 Versions of a release, current marked
+  cbflow flow release candidate set ... --flow PNR --tag BTO --version v2 [--reason ...]
+                                                 Make v2 current (default: latest release)
+  cbflow flow release candidate clear ... --flow PNR --tag BTO
+                                                 Back to the latest passing version
+  cbflow flow release disks --project opensky    Release disks: size / free / versions
+  cbflow flow release cleanup --project opensky [--phase P3] [--apply]
+                                                 Remove superseded / incomplete versions (dry run)
 
 Version Control:
   cbflow flow version list --dir config          List config versions
@@ -192,12 +194,12 @@ main() {
 
         # Release commands
         release)
-            # Design-release candidates (per phase / block / exit); the rest
-            # of `flow release` is the framework release manager.
-            if [[ "${1:-}" == "candidate" ]]; then
-                shift
-                exec python3 "$COMMANDS_DIR/candidate_cmd.py" "$@"
-            fi
+            # Design releases: version candidates, release disks, cleanup;
+            # the rest of `flow release` is the framework release manager.
+            case "${1:-}" in
+                candidate) shift; exec python3 "$COMMANDS_DIR/candidate_cmd.py" "$@" ;;
+                disks|cleanup) exec python3 "$COMMANDS_DIR/candidate_cmd.py" "$@" ;;
+            esac
             exec python3 "$COMMANDS_DIR/release_cmd.py" "$@"
             ;;
 

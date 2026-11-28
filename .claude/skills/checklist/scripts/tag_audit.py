@@ -19,9 +19,10 @@ Checks (ERROR blocks the exit, WARN needs a decision, INFO is context):
   MISSING_INPUT    consumed tag / path not released                   ERROR
   STALE_INPUT      upstream re-released after this release was built   ERROR
   STALE_UPSTREAM   an upstream is itself stale (transitive)            ERROR
-  NOT_CANDIDATE    built on a version that is not the exit's release
-                   candidate for the phase (latest release unless
-                   pinned: cbflow flow release candidate)              WARN
+  NEWER_VERSION    a newer release of the same exit exists in the phase
+                   (PNR/PRO_EXIT -> ECO/PRO_EXIT_ECO1, _v1 -> _v2)       WARN
+  VERSION_PINNED   the release's current version is not its latest
+                   (cbflow flow release candidate set)                 INFO
   LATER_PHASE      the same exit is released in a later phase          INFO
   RTL_NOT_SIGNED   RTL / filelist read outside a signed-off release    WARN
   FROM_RUN         input read from a run dir (not reproducible)        WARN
@@ -35,13 +36,12 @@ Checks (ERROR blocks the exit, WARN needs a decision, INFO is context):
   CHILD_MISSING    a child block is not in the parent's library tag    ERROR
   CHILD_STALE      the tag's copy of a child is older than the child's
                    release (re-released after the tag copied it)       ERROR
-  CHILD_NOT_CANDIDATE the tag carries a child version that is not the
-                   child's candidate for that phase / exit             WARN
+  CHILD_OLD        the tag carries a child release with a newer release
+                   of the same exit in that phase                      WARN
   CHILD_LATER      the child is released in the parent's phase, the
                    tag carries an earlier phase                        INFO
   CHILD_PV_PENDING the tag's child gds / cdl come from PNR (no PV)     WARN
 Hierarchy (CHILD_*) and library-tag mix findings are reported once per block.
-`<EXIT>@candidate` inputs resolve like the flows do (candidate_cmd.candidate).
 Then a resolution plan: affected releases in dependency order with the run to
 retrace, and the config lines to change (shown, never written).
 """
@@ -61,7 +61,7 @@ IMPL_FLOWS = ['ECO', 'PNR', 'SYNTH_PNR']          # block implementation release
 ANY_ORDER = IMPL_FLOWS + ['SYNTH', 'FP', 'FCFP']  # ANY handshake: preferred sources
 SEV = {'ERROR': 0, 'WARN': 1, 'INFO': 2}
 sys.path.insert(0, os.path.join(ROOT, 'global', 'utils', 'commands'))
-import candidate_cmd  # noqa: E402  (release candidates: pinned, else latest)
+import candidate_cmd  # noqa: E402  (release versions: current / latest)
 
 
 def tcl(script):
@@ -243,12 +243,6 @@ def resolve(cfg, everything, hs, r):
             flows = []
             for s in srcs:
                 flows += ANY_ORDER if s == 'ANY' else ([] if s == 'INPUTS' else [s])
-            m = re.match(r'^(.+)@candidate$', val)
-            if m:
-                c = candidate_cmd.candidate(cfg, phase, r.block, m.group(1))
-                pick = everything.get(f'{phase}/{r.block}/{c[0]}/{c[1]}') if c else None
-                r.inputs.append((f'{arr}(input,{key})', val, pick, '' if pick else 'not released'))
-                continue
             flows += flows_with(val)
             pick = find_tag(everything, phase, r.block, val, flows, r.flow)
             r.inputs.append((f'{arr}(input,{key})', val, pick, '' if pick else 'not released'))
@@ -287,6 +281,21 @@ def newer_in_family(everything, cfg, up):
                     (cfg['phases'].index(best.phase), family(best.tag)[1]):
                 best = x
     return best
+
+
+def verifies(r):
+    """A release that verified the exit it is tagged with (its own tag among
+    its MANIFEST upstream_tags: STA / PV / LEC / GLS BTO) — not a version."""
+    return r.tag in r.manifest.get('signoff_status', {}).get('upstream_tags', [])
+
+
+def newer_version(everything, up):
+    """Newest release of the same exit family, phase and block produced after
+    `up` (PNR/PRO_EXIT -> ECO/PRO_EXIT_ECO1, P3_SYNTH_v1 -> v2); verifiers excluded."""
+    fam = family(up.tag)[0]
+    c = [x for x in everything.values() if x.block == up.block and x.phase == up.phase
+         and x.tag != up.tag and family(x.tag)[0] == fam and x.time > up.time + 1 and not verifies(x)]
+    return max(c, key=lambda x: x.time) if c else None
 
 
 def latest_impl(everything, cfg, block):
@@ -342,19 +351,23 @@ def audit(cfg, everything, audited, block_findings):
                 r.findings.append(('ERROR', 'STALE_INPUT',
                                    f'{key} -> {up.id} re-released after this release '
                                    f'({_ts(up.time)} > {_ts(r.time)})'))
-            if not candidate_cmd.verifies(up.path):
+            if not verifies(up):
                 fam = family(up.tag)[0]
-                c = candidate_cmd.candidate(cfg, up.phase, up.block, fam)
                 # an ECO of the exit (PRO_EXIT -> PRO_EXIT_ECO1) builds on the base version
                 producer = family(r.tag)[0] == fam and r.tag != up.tag
-                if c and (c[0], c[1]) != (up.flow, up.tag) and not producer:
-                    r.findings.append(('WARN', 'NOT_CANDIDATE', f'{key} -> {up.id}; {fam} candidate '
-                                       f'({c[2]}): {up.phase}/{up.block}/{c[0]}/{c[1]}'))
+                nv = newer_version(everything, up)
+                if nv and not producer:
+                    r.findings.append(('WARN', 'NEWER_VERSION', f'{key} -> {up.id}; newer {fam}: {nv.id}'))
                 nw = newer_in_family(everything, cfg, up)
                 if nw and nw.phase != up.phase:
                     r.findings.append(('INFO', 'LATER_PHASE', f'{key} -> {up.id}; also released in {nw.id}'))
             if up.phase != r.phase:
                 r.findings.append(('INFO', 'PHASE_MIX', f'{key} -> {up.id} (phase {up.phase})'))
+        cur, kind = candidate_cmd.current(cfg, r.phase, r.block, r.flow, r.tag)
+        if kind == 'versioned':
+            lp = candidate_cmd.latest_pass(candidate_cmd.versions(cfg, r.phase, r.block, r.flow, r.tag))
+            if lp and lp['v'] != cur:
+                r.findings.append(('INFO', 'VERSION_PINNED', f'current {cur}, latest {lp["v"]}'))
         disc = cfg['disc'].get(r.flow, '')
         if r.lib_tag and disc in lib_disc:
             if r.lib_tag not in tags:
@@ -440,10 +453,11 @@ def audit(cfg, everything, audited, block_findings):
             parts = _short(cfg, path).split('/')
             if len(parts) >= 4:
                 cph, cfl, ctag = parts[0], parts[2], parts[3]
-                c = candidate_cmd.candidate(cfg, cph, k, family(ctag)[0])
-                if c and (c[0], c[1]) != (cfl, ctag):
-                    bf.add(('WARN', 'CHILD_NOT_CANDIDATE', f'{r.lib_tag} carries {k} {cph}/{cfl}/{ctag}; '
-                            f'{family(ctag)[0]} candidate ({c[2]}): {cph}/{k}/{c[0]}/{c[1]}'))
+                src_rel = everything.get(f'{cph}/{k}/{cfl}/{ctag}')
+                nv = newer_version(everything, src_rel) if src_rel else None
+                if nv:
+                    bf.add(('WARN', 'CHILD_OLD', f'{r.lib_tag} carries {k} {cph}/{cfl}/{ctag}; newer '
+                            f'{family(ctag)[0]}: {nv.id}'))
                 if cph != r.phase and cph in cfg['phases'] and \
                         cfg['phases'].index(cph) < cfg['phases'].index(r.phase) and \
                         any(x.block == k and x.phase == r.phase and x.flow in IMPL_FLOWS for x in everything.values()):
@@ -519,11 +533,11 @@ def plan(cfg, audited, newest_tag, block_findings):
     edits = []
     for r in audited.values():
         for sev, code, msg in r.findings:
-            if code == 'NOT_CANDIDATE':
-                m = re.match(r'(\S+) -> (\S+); (\S+) candidate', msg)
+            if code == 'NEWER_VERSION':
+                m = re.match(r'(\S+) -> (\S+); newer \S+: (\S+)', msg)
                 if m and m.group(1).endswith('release_tag)'):
-                    edits.append((uc_file(r), f'set {m.group(1)} "{m.group(3)}@candidate"   '
-                                  f';# or pin {m.group(2).split("/")[-1]}: cbflow flow release candidate set'))
+                    edits.append((uc_file(r), f'set {m.group(1)} "{m.group(3).split("/")[-1]}"   '
+                                  f';# was {m.group(2).split("/")[-1]} (newer release of the exit)'))
             if code == 'LIBTAG_OLD' and newest_tag:
                 edits.append((uc_file(r), f'set project(lib_config_tag) "{newest_tag}"   ;# was {r.lib_tag}; '
                               f'first: library-manager check --lib_tag {newest_tag} --design {r.block}'))

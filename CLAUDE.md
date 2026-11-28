@@ -253,13 +253,16 @@ publishing is opt-in (`--publish`). Signoff flows (STA/PV/LEC) read only their e
 `<flow>(release,exit_from)` names the exit input, `<flow>(release,exit_exempt_inputs)` (LEC `{netlist_golden}`)
 lists exceptions; from_run / explicit paths / other tags are refused. Doc: `PD/docs/02-user-guide/exit-release-guide.md`.
 
-### Release candidates
-Several versions of an exit per phase (BTO, BTO_ECO1, P3_SYNTH_v2 …): the candidate is the latest release
-(produced, not a signoff release that verified it) unless pinned —
-`cbflow flow release candidate {list,show,set,clear,history} --project <p> --phase <P> --block <b> --exit <X>
-[--flow F --tag T --reason]` (`<release>/<phase>/<block>/CANDIDATES`). Consumers: `<arr>(input,release_tag)
-"<EXIT>@candidate"` (resolved to the real tag by `cbflow_candidate_tag`, utils.tcl). Cross-block tag / dependency
-audit + rebuild plan: `.claude/skills/checklist/scripts/tag_audit.py --project <p> [--phase P]`.
+### Release versions, candidate, disks, cleanup
+Every release (first, re-release, `--override`, clone) is a new version `<FLOW>/.versions/<tag>/v<n>`;
+`<FLOW>/<tag>` is the current-version symlink (= candidate), moved on STATUS=PASS (failed release keeps
+the previous). `cbflow flow release candidate {list,show,set,clear,history} --project <p> --phase <P>
+--block <b> --flow <F> --tag <T> [--version vN]` (latest passing release unless set). Release disks:
+`project(release,disks)` (versions symlinked to `<disk>/<phase>/<block>/<FLOW>/<tag>/v<n>`), size check +
+disk choice `flow(release,size_margin|disk_min_free_gb|disk_policy)`; `cbflow flow release disks`;
+`cbflow flow release cleanup [--phase --block] [--apply]` (dry run default; keeps current / published /
+library-tag sources / consumed; `flow(release,cleanup,*)`). Cross-block tag / dependency audit + rebuild plan:
+`.claude/skills/checklist/scripts/tag_audit.py --project <p> [--phase P]`.
 
 ### Releasing an intermediate stage (e.g. place → PLACE_EXIT)
 The export/release pair releases its **source stage**: the nearest non-bypassed

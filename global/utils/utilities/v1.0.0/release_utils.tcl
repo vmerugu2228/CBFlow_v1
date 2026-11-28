@@ -43,7 +43,6 @@ proc default_exit_tag {flow_type phase} {
     global project MILESTONE_ORDER
     set _arr [string tolower $flow_type]
     upvar #0 $_arr _fa
-    cbflow_expand_candidates
     # Signoff flows (STA, PV, LEC…) release the exit they verify: the tag of
     # the input named by <flow>(release,exit_from), e.g. sta(input,release_tag).
     if {[info exists _fa(release,exit_from)] && $_fa(release,exit_from) ne ""} {
@@ -229,12 +228,28 @@ proc init {args_flow_type args_design_name args_run_dir args_phase {args_exit ""
     if {!$_test_mode && $release_exit ne "" && ![info exists _fa(release,exit_from)]} {
         check_exit_order $release_base $release_phase $block_name $release_exit
     }
-    # A re-release replaces the previous one: stale files must not survive
-    # (they would sit in the dir without being in the new MANIFEST).
-    if {[file isdirectory $release_dir]} {
-        ::handle_info "Replacing existing release $release_dir"
-        file delete -force $release_dir
+    # Versioned release: every release (first or re-release / override) is a
+    # new version <FLOW>/.versions/<tag>/v<n>; <FLOW>/<tag> is the "current"
+    # symlink to one version, moved to the new one when it stamps PASS
+    # (stamp_complete) — readers keep reading <FLOW>/<tag>. The version's data
+    # sits on a release disk (project(release,disks)) chosen by size.
+    variable release_logical; variable release_version
+    set release_logical $release_dir
+    set _vroot [file join [file dirname $release_logical] .versions $release_tag]
+    if {[file isdirectory $release_logical] && [file type $release_logical] ne "link"} {
+        # legacy unversioned release -> v1
+        file mkdir $_vroot
+        file rename $release_logical [file join $_vroot v1]
+        ::handle_info "Moved unversioned release $release_logical -> .versions/$release_tag/v1"
     }
+    set _n 0
+    foreach _v [glob -nocomplain -directory $_vroot -tails v*] {
+        if {[regexp {^v(\d+)$} $_v -> _k] && $_k > $_n} { set _n $_k }
+    }
+    set release_version "v[incr _n]"
+    set release_dir [file join $_vroot $release_version]
+    file mkdir $_vroot
+    _place_version $release_base $release_phase $block_name $flow_type $release_tag $release_dir $_test_mode
 
     # Create directory structure from project config or defaults
     set subdirs {reports data netlist def gds spef sdc upf db docs}
@@ -266,6 +281,7 @@ proc copy_file {src_path dest_subdir dest_name} {
         while {[file type $src] eq "link"} {
             set src [file normalize [file join [file dirname $src] [file readlink $src]]]
         }
+        _reserve_space $src
         file mkdir [file dirname $dest]
         file delete -force $dest
         file copy -force $src $dest
@@ -288,6 +304,7 @@ proc copy_glob {src_pattern dest_subdir} {
         while {[file type $src] eq "link"} {
             set src [file normalize [file join [file dirname $src] [file readlink $src]]]
         }
+        _reserve_space $src
         file mkdir [file dirname $dest]
         file delete -force $dest
         file copy -force $src $dest
@@ -403,7 +420,6 @@ proc _collect_upstream_tags {} {
         spec_ramp planning tb_setup m1_exec m2_exec m3_exec m4_exec \
         eco_exec dv_signoff \
         rtl_lint rtl_cdc rtl_rdc upf_check]
-    cbflow_expand_candidates
     set tags [list]
     foreach _arr $_known_flows {
         if {![array exists ::$_arr]} continue
@@ -488,6 +504,12 @@ proc generate_manifest {} {
     puts $fd "  \"timestamp\": \"[clock format [clock seconds] -format {%Y-%m-%dT%H:%M:%S}]\","
     puts $fd "  \"user\": \"[_json_escape $::env(USER)]\","
     puts $fd "  \"run_dir\": \"[_json_escape $run_dir]\","
+    variable release_version
+    if {[info exists release_version]} {
+        puts $fd "  \"version\": \"[_json_escape $release_version]\","
+        set _st [expr {[file type $release_dir] eq "link" ? [file readlink $release_dir] : [file normalize $release_dir]}]
+        puts $fd "  \"storage\": \"[_json_escape $_st]\","
+    }
     puts $fd "  \"signoff_status\": \{"
     # upstream_tags JSON array
     set _tags_json ""
@@ -600,12 +622,156 @@ proc stamp_complete {} {
     append stamp_content "STATUS=[expr {[llength $release_errors] == 0 ? {PASS} : {FAIL}}]\n"
     append stamp_content "TIMESTAMP=[clock format [clock seconds]]\n"
     atomic_write $stamp_file $stamp_content
+    _version_log [expr {[llength $release_errors] == 0 ? {PASS} : {FAIL}}]
+    # The new version becomes current only when it passed; a failed release
+    # leaves the previous current version in place.
+    if {[llength $release_errors] == 0} { _set_current }
 
     if {[llength $release_errors] == 0} {
         handle_info "RELEASE COMPLETE: $flow_type ($release_phase) — [llength $release_files_copied] files, 0 errors"
     } else {
         handle_warning "RELEASE INCOMPLETE: $flow_type ($release_phase) — [llength $release_files_copied] files, [llength $release_errors] errors"
     }
+}
+
+# ── Versions / release disks ────────────────────────────────────────────────
+# flow(release,<key>) from the run's config, else from the global
+# flow_registry.tcl (read in a child interpreter — the run's flow() array is
+# not touched). Errors when neither has it.
+proc _release_key {key} {
+    if {[info exists ::flow(release,$key)]} { return $::flow(release,$key) }
+    set _reg [file join $::env(FLOW_DIR) global config flow $::env(FLOW_CONFIG_VERSION) flow_registry.tcl]
+    set _i [interp create]
+    set _v ""
+    if {[catch {
+        $_i eval [list source $_reg]
+        set _v [$_i eval [list set flow(release,$key)]]
+    } _e]} {
+        interp delete $_i
+        error "ERROR: flow(release,$key) is not set (global flow_registry.tcl: $_reg) — $_e"
+    }
+    interp delete $_i
+    return $_v
+}
+
+# Available KB on the filesystem of path (nearest existing ancestor).
+proc _df_avail_kb {path} {
+    while {![file exists $path] && [file dirname $path] ne $path} { set path [file dirname $path] }
+    set _out [exec df -Pk $path]
+    return [lindex [lindex [split [string trim $_out] \n] end] 3]
+}
+
+proc _du_kb {path} {
+    if {![file exists $path]} { return 0 }
+    if {[catch {exec du -skL $path} _o]} { return 0 }
+    return [lindex $_o 0]
+}
+
+# Size estimate (KB): max(newest previous release of this flow for the block,
+# the run's work/<FLOW>/*/outputs) x flow(release,size_margin).
+proc _estimate_kb {base phase block flow} {
+    variable run_dir
+    set _prev 0; set _pt 0
+    foreach _rc [glob -nocomplain [file join $base $phase $block $flow * RELEASE_COMPLETE]] {
+        if {[file mtime $_rc] > $_pt} { set _pt [file mtime $_rc]; set _prev [_du_kb [file dirname $_rc]] }
+    }
+    set _outs 0
+    foreach _o [glob -nocomplain -types d [file join $run_dir work $flow * outputs]] {
+        incr _outs [_du_kb $_o]
+    }
+    set _m [_release_key size_margin]
+    return [expr {int(($_prev > $_outs ? $_prev : $_outs) * $_m)}]
+}
+
+# Create the version dir: on the base (no project(release,disks)), else on the
+# release disk that fits estimate + flow(release,disk_min_free_gb) — policy
+# flow(release,disk_policy): sticky (the disk holding most of the block's
+# versions) | most_free. The version dir is then a symlink to
+# <disk>/<phase>/<block>/<FLOW>/<tag>/v<n>. Errors when no disk fits.
+proc _place_version {base phase block flow tag vdir test_mode} {
+    global project
+    variable disk_budget_kb; variable release_disk
+    set _disks [expr {[info exists project(release,disks)] ? $project(release,disks) : {}}]
+    if {$test_mode && ![llength $_disks]} {
+        file mkdir $vdir
+        set disk_budget_kb -1; set release_disk $base
+        return
+    }
+    set _reserve [expr {int([_release_key disk_min_free_gb] * 1048576)}]
+    set _need [_estimate_kb $base $phase $block $flow]
+    if {![llength $_disks]} {
+        set _free [_df_avail_kb $base]
+        if {$_free - $_need < $_reserve} {
+            error "ERROR: release disk $base: [format %.1f [expr {$_free/1048576.0}]] GB free, release needs ~[format %.2f [expr {$_need/1048576.0}]] GB + [_release_key disk_min_free_gb] GB reserve (flow(release,disk_min_free_gb)) — free space or add project(release,disks)"
+        }
+        file mkdir $vdir
+        set disk_budget_kb [expr {$_free - $_reserve}]; set release_disk $base
+        ::handle_info "Release disk $base: [format %.1f [expr {$_free/1048576.0}]] GB free, estimate [format %.2f [expr {$_need/1048576.0}]] GB"
+        return
+    }
+    set _policy [_release_key disk_policy]
+    set _best ""; set _bkey ""; set _report {}
+    foreach _d $_disks {
+        if {![file isdirectory $_d] || ![file writable $_d]} {
+            lappend _report "$_d: not a writable directory"
+            continue
+        }
+        set _free [_df_avail_kb $_d]
+        lappend _report "$_d: [format %.1f [expr {$_free/1048576.0}]] GB free"
+        if {$_free - $_need < $_reserve} continue
+        set _held [llength [glob -nocomplain -types d [file join $_d $phase $block * * v*]]]
+        set _key [expr {$_policy eq "sticky" ? [list $_held $_free] : [list $_free 0]}]
+        if {$_best eq "" || [lindex $_key 0] > [lindex $_bkey 0] ||
+            ([lindex $_key 0] == [lindex $_bkey 0] && [lindex $_key 1] > [lindex $_bkey 1])} {
+            set _best $_d; set _bkey $_key; set _bfree $_free
+        }
+    }
+    if {$_best eq ""} {
+        error "ERROR: no release disk fits ~[format %.2f [expr {$_need/1048576.0}]] GB + [_release_key disk_min_free_gb] GB reserve: [join $_report {; }]"
+    }
+    set _phys [file join $_best $phase $block $flow $tag [file tail $vdir]]
+    file mkdir $_phys
+    exec ln -sfn $_phys $vdir
+    set disk_budget_kb [expr {$_bfree - $_reserve}]; set release_disk $_best
+    ::handle_info "Release disk ($_policy): $_best — [join $_report {; }]; estimate [format %.2f [expr {$_need/1048576.0}]] GB"
+}
+
+# Per-file guard: the release must not fill its disk past the reserve. The
+# budget from _place_version is spent per file; df is re-read only when it
+# runs out (others may have freed / used space).
+proc _reserve_space {src} {
+    variable disk_budget_kb; variable release_dir
+    if {![info exists disk_budget_kb] || $disk_budget_kb < 0} return
+    set _kb [expr {([file size $src] + 1023) / 1024}]
+    if {$_kb > $disk_budget_kb} {
+        set disk_budget_kb [expr {[_df_avail_kb $release_dir] - int([_release_key disk_min_free_gb] * 1048576)}]
+        if {$_kb > $disk_budget_kb} {
+            error "ERROR: release disk full — [file tail $src] needs [expr {$_kb/1024}] MB, [expr {max(0,$disk_budget_kb)/1024}] MB left above the reserve ($release_dir)"
+        }
+    }
+    set disk_budget_kb [expr {$disk_budget_kb - $_kb}]
+}
+
+# <FLOW>/<tag> -> .versions/<tag>/v<n> (relative link; ln -sfn replaces it)
+proc _set_current {} {
+    variable release_logical; variable release_version; variable release_tag
+    if {![info exists release_logical]} return
+    if {[file exists $release_logical] && [file type $release_logical] ne "link"} {
+        error "ERROR: $release_logical is a directory, not the current-version link"
+    }
+    exec ln -sfn [file join .versions $release_tag $release_version] $release_logical
+    ::handle_info "Current: $release_logical -> $release_version"
+}
+
+# .versions/<tag>/HISTORY.log: <time> <user> release v<n> PASS|FAIL <disk>
+proc _version_log {status} {
+    variable release_logical; variable release_version; variable release_tag; variable release_disk
+    if {![info exists release_logical]} return
+    set _f [file join [file dirname $release_logical] .versions $release_tag HISTORY.log]
+    set _fh [open $_f a]
+    puts $_fh [join [list [clock format [clock seconds] -format {%Y-%m-%dT%H:%M:%S}] $::env(USER) release \
+                         $release_version $status [expr {[info exists release_disk] ? $release_disk : ""}]] \t]
+    close $_fh
 }
 
 # ── Summary Report ──────────────────────────────────────────────────────────

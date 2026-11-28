@@ -214,6 +214,28 @@ set flow(dashboard,floorplan_cells_max_bytes) 12000000
 # against release_tags(<exit>) required_flows; the rest of an exit's
 # required_flows are its implementation alternatives (any one releases it).
 set flow(release,signoff_flows) {STA PV LEC CLP EMIR ECO POPT}
+# Release disks. project(release,path) is the logical release tree every
+# reader uses; project(release,disks) (optional, project PD overlay) lists the
+# physical disks: each release dir then is a symlink to
+# <disk>/<phase>/<block>/<FLOW>/<tag> on the disk chosen at release time.
+# Without it the data stays under project(release,path) (one disk).
+#   size_margin       estimate = max(previous release of the flow, the run's
+#                     work/<FLOW>/*/outputs) x margin
+#   disk_min_free_gb  free space that must remain on the disk after the release
+#   disk_policy       sticky (the disk holding most of the block's releases,
+#                     when it fits) | most_free
+set flow(release,size_margin)      1.2
+set flow(release,disk_min_free_gb) 5
+set flow(release,disk_policy)      "sticky"
+# cbflow flow release cleanup (dry run unless --apply). Never removed:
+# candidates (pinned / latest), published releases, library-tag sources,
+# releases a kept release consumed.
+#   keep_versions          superseded versions kept per exit besides the candidate
+#   min_age_days           a superseded version must be at least this old
+#   incomplete_age_hours   a release without RELEASE_COMPLETE (failed / killed)
+set flow(release,cleanup,keep_versions)        1
+set flow(release,cleanup,min_age_days)         7
+set flow(release,cleanup,incomplete_age_hours) 24
 
 # ── Flow Mode ───────────────────────────────────────────────────────────────
 if {![info exists flow(mode)]}                  { set flow(mode)                  "default" }

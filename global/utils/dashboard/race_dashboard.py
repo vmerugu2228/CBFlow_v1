@@ -1258,9 +1258,16 @@ class RaceDashboard:
                     if len(parts) == 2:
                         info[parts[0]] = parts[1].strip()
         rx = self.get_release_exits()
+        # release nodes record the version dir <FLOW>/.versions/<tag>/v<n>;
+        # the release is <FLOW>/<tag> (current-version link)
+        rd, ver = info.get('release_dir', ''), ''
+        m = re.match(r'^(.*)/\.versions/([^/]+)/(v\d+)/?$', rd)
+        if m:
+            rd, ver = os.path.join(m.group(1), m.group(2)), m.group(3)
         return {'is_release': True, 'node': node,
-                'released_tag': os.path.basename(info.get('release_dir', '')),
-                'release_dir': info.get('release_dir', ''),
+                'released_tag': os.path.basename(rd),
+                'released_version': ver,
+                'release_dir': rd,
                 'override_tag': self._override_tag(os.path.join(
                     self.run_dir, 'setup', f'override_config.{node}.tcl')),
                 **self._override_flags(os.path.join(

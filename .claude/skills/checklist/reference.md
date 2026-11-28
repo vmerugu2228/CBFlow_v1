@@ -101,8 +101,9 @@ prints entries whose `check` matches; `missing_checks.py` flags suggestions reco
 | SIGNOFF_SPLIT | ERROR | STA / PV / LEC of one exit read different implementation releases |
 | LIBTAG_MISSING | ERROR | `project(lib_config_tag)` has no tag dir |
 | CHILD_MISSING / CHILD_STALE | ERROR | child not in the parent's tag / tag copy older than the child's re-release → library-manager: new tag |
-| NOT_CANDIDATE | WARN | built on a version that is not the exit's candidate → `"<EXIT>@candidate"` or pin that version |
-| CHILD_NOT_CANDIDATE | WARN | tag carries a child version that is not the child's candidate |
+| NEWER_VERSION | WARN | a newer release of the same exit exists in the phase → read it (or record why not) |
+| CHILD_OLD | WARN | tag carries a child release with a newer release of its exit |
+| VERSION_PINNED | INFO | the release's current version is not its latest (`candidate set`) |
 | RTL_NOT_SIGNED | WARN | RTL / filelist outside a release (use LINT_SIGNOFF `rtl/<d>.f`) |
 | LIBTAG_MIX | WARN | PD / DFT releases of one block use different library tags |
 | FROM_RUN / CHILD_PV_PENDING | WARN | input from a run dir / child gds-cdl from PNR |
@@ -114,8 +115,8 @@ whose own tag is among its upstream tags verified that exit (STA / PV / LEC /
 GLS BTO) — not a version of it. An ECO of an exit building on the base version
 is not flagged. Times are `RELEASE_COMPLETE` mtimes.
 
-Release candidates: `cbflow flow release candidate list|show|set|clear|history`
-(`<release>/<phase>/<block>/CANDIDATES`); default = latest release of the exit.
+Release versions: every release is `<FLOW>/.versions/<tag>/v<n>`, `<FLOW>/<tag>` -> current
+version (latest passing unless `cbflow flow release candidate set`).
 
 ## Commands
 | Command | Use |

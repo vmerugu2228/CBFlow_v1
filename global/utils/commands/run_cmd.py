@@ -490,6 +490,34 @@ def _dashboard_autoregister(run_dir: str, flow_type: str) -> None:
         pass
 
 
+def _logical_release_dir(path: str) -> str:
+    """<FLOW>/.versions/<tag>/v<n> (where a release node writes) -> <FLOW>/<tag>
+    (the current-version link every reader uses)."""
+    import re as _re
+    m = _re.match(r'^(.*)/\.versions/([^/]+)/v\d+/?$', path or '')
+    return os.path.join(m.group(1), m.group(2)) if m else path
+
+
+def _new_release_version(logical: str) -> str:
+    """Next version dir <FLOW>/.versions/<tag>/v<n> of a release (a legacy
+    unversioned <FLOW>/<tag> dir becomes v1 first)."""
+    import re as _re
+    vroot = os.path.join(os.path.dirname(logical), '.versions', os.path.basename(logical))
+    if os.path.isdir(logical) and not os.path.islink(logical):
+        os.makedirs(vroot, exist_ok=True)
+        os.rename(logical, os.path.join(vroot, 'v1'))
+    n = max([int(m.group(1)) for d in (os.listdir(vroot) if os.path.isdir(vroot) else [])
+             for m in [_re.match(r'^v(\d+)$', d)] if m] or [0]) + 1
+    return os.path.join(vroot, f'v{n}')
+
+
+def _set_current_version(logical: str, vdir: str):
+    """<FLOW>/<tag> -> .versions/<tag>/v<n>, replaced atomically."""
+    tmp = f'{logical}.tmp{os.getpid()}'
+    os.symlink(os.path.relpath(vdir, os.path.dirname(logical)), tmp)
+    os.replace(tmp, logical)
+
+
 def _flow_release_manifest(run_dir: str, node: str = ''):
     """{release_dir, milestone, ...} from a run whose own release_data stage
     released it (work/<FLOW>/<node>/outputs/release.manifest — node: a given
@@ -517,6 +545,8 @@ def _flow_release_manifest(run_dir: str, node: str = ''):
                 parts = line.strip().split(None, 1)
                 if len(parts) == 2:
                     info[parts[0]] = parts[1]
+        if info.get('release_dir'):
+            info['release_dir'] = _logical_release_dir(info['release_dir'])
         info['flow_type'] = flow_type
     return info
 
@@ -608,26 +638,29 @@ def _clone_release(run_dir: str, src_tag: str, new_tag: str, node: str = '',
             logger.error(f"  exit order — {block} {phase} cannot release {new_tag} before "
                          f"{', '.join(missing)} (release in order: {' -> '.join(exits)})")
             return 1
-    if os.path.isdir(dst):
-        logger.info(f"  Replacing existing release {dst}")
-        shutil.rmtree(dst)
-    shutil.copytree(src, dst, symlinks=True)
-    mpath = os.path.join(dst, 'MANIFEST.json')
+    # a new version of the destination tag; current moves to it below
+    vdst = _new_release_version(dst)
+    shutil.copytree(os.path.realpath(src), vdst, symlinks=True)
+    mpath = os.path.join(vdst, 'MANIFEST.json')
     if os.path.isfile(mpath):
         with open(mpath) as fh:
             m = json.load(fh)
         m['release_tag'] = new_tag
         m['cloned_from'] = src_tag
+        m['cloned_from_version'] = os.path.basename(os.path.realpath(src))
+        m['version'] = os.path.basename(vdst)
+        m['storage'] = os.path.realpath(vdst)
         m['timestamp'] = datetime.now().isoformat(timespec='seconds')
         with open(mpath, 'w') as fh:
             json.dump(m, fh, indent=2)
-    with open(os.path.join(dst, 'RELEASE_COMPLETE')) as fh:
+    with open(os.path.join(vdst, 'RELEASE_COMPLETE')) as fh:
         st = fh.read()
     st = _re_mod.sub(r'^TAG=.*$', f'TAG={new_tag}', st, flags=_re_mod.M)
-    with open(os.path.join(dst, 'RELEASE_COMPLETE'), 'w') as fh:
+    with open(os.path.join(vdst, 'RELEASE_COMPLETE'), 'w') as fh:
         fh.write(st)
-    with open(os.path.join(dst, 'CLONED_FROM'), 'w') as fh:
-        fh.write(f"{src}\n")
+    with open(os.path.join(vdst, 'CLONED_FROM'), 'w') as fh:
+        fh.write(f"{os.path.realpath(src)}\n")
+    _set_current_version(dst, vdst)
     logger.info(f"  Cloned {src_tag} -> {new_tag}: {dst}")
     if not publish:
         logger.info("  Not published to SmartGrid (publish not requested — use --publish).")
@@ -2641,6 +2674,10 @@ def _publish_to_project_dashboard(project, block, phase, milestone, release_dir,
     the command).
     """
     _problem = logger.error if strict else logger.warning
+    # the published data is the current VERSION (<FLOW>/.versions/<tag>/v<n>,
+    # or its disk copy): SmartGrid keeps it even if current moves later, and
+    # cleanup never removes a published version
+    release_dir = os.path.realpath(release_dir) if release_dir else release_dir
     import sys as _sys
     pd_pkg = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                           'project_dashboard')
